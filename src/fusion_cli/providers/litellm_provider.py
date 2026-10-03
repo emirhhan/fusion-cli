@@ -145,6 +145,10 @@ class LiteLlmProvider:
             # Üst katman değeri yalnızca reasoning destekleyen modelde ayarlar; yine de
             # `litellm.drop_params` desteklemeyen uçta bu parametreyi güvenle düşürür.
             kwargs["reasoning_effort"] = request.reasoning_effort
+        if request.disable_thinking and self._model.startswith(_TEMPLATE_THINKING_PREFIXES):
+            # Yalnız ölçülen sağlayıcıda: NIM şablon anahtarı. Başka uçlara ham gövde
+            # gönderilmez (OpenAI 400 verir).
+            kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
         if stream:
             kwargs["stream"] = True
             kwargs["stream_options"] = {"include_usage": True}
@@ -340,6 +344,12 @@ def _unwrap_emulation_leak(name: str, arguments: str) -> tuple[str, str]:
         return name, arguments
     real = parsed.calls[0]
     return real.name, real.arguments
+
+
+#: Şablon düzeyinde düşünme anahtarını (`chat_template_kwargs.enable_thinking`) tanıyan
+#: sağlayıcı önekleri. Ölçüldü (3 Ekim 2026, NIM Nemotron 3 Ultra): anahtar kapalıyken
+#: düşünme metni 0, araç çağrısı geçerli, süre 161 sn → 29 sn.
+_TEMPLATE_THINKING_PREFIXES = ("nvidia_nim/",)
 
 
 def _to_wire(message: Message) -> dict[str, Any]:

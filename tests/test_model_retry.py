@@ -141,3 +141,34 @@ async def test_dusunme_butcesi_dolunca_kisa_adim_notu_ve_dusuk_yogunluk(
     assert sonuc.ok and len(gorulen) == 2
     assert agent_loop.SHORTER_AFTER_TIMEOUT_NOTE in gorulen[1][0]
     assert gorulen[1][1].reasoning_relief is True
+
+
+async def test_dusunme_rahatlatmasi_istege_dusunmeyi_kapatma_bayragi_koyar(
+    monkeypatch, tmp_path, sink
+):
+    istekler = []
+
+    class _Saglayici:
+        label = "s"
+
+        async def stream(self, request):
+            from fusion_cli.core.types import StreamDone
+
+            istekler.append(request)
+            yield StreamDone(model_result("Tamamlandı: istenen iş yapıldı ve doğrulandı."))
+
+    _kur(monkeypatch, _Saglayici())
+    deps = _deps(tmp_path, sink)
+    durum = {"n": 0}
+    asil = agent_loop._call_model
+
+    async def _sarmal(messages, deps_, registry, allowed_tools, *, state, **kwargs):
+        durum["n"] += 1
+        state.reasoning_relief = durum["n"] >= 1
+        return await asil(messages, deps_, registry, allowed_tools, state=state, **kwargs)
+
+    monkeypatch.setattr(agent_loop, "_call_model", _sarmal)
+
+    await run_agent("görev", deps)
+
+    assert istekler and istekler[-1].disable_thinking is True

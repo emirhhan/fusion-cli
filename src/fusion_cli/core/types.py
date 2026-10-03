@@ -247,6 +247,10 @@ class CompletionRequest:
     #: parametre hiç gönderilmez. Değer üst katmanda (agent turu) modelin reasoning
     #: desteğine göre belirlenir; desteklemeyen modelde `None` bırakılır.
     reasoning_effort: str | None = None
+    #: Düşünmeyi şablon düzeyinde KAPAT. `reasoning_effort`'u tanımayan ama şablonunda
+    #: düşünme anahtarı olan modeller için (NIM Nemotron). Ölçüldü (3 Ekim 2026): aynı
+    #: `header.php` yazımı düşünmeyle 161 sn/4130 token, düşünme kapalı 29 sn/2973 token.
+    disable_thinking: bool = False
 
 
 @dataclass(frozen=True, slots=True)

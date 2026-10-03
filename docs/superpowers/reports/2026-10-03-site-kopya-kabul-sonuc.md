@@ -50,6 +50,12 @@ sayfayı** render ediyor (temada `page.php` yok, WooCommerce sayfaları öne dü
 denetimi fiyat metnine kandığı için 16/17 saydı, gerçek puan 14/17. Düzeltme: önizleme, izlediği
 iç bağlantı ana sayfayla aynı içeriği gösteriyorsa "sayfa şablonu eksik olabilir" der.
 
+**15. koşu**: model ilk tema dosyasında çıktı bütçesinin tamamını düşünmeye harcadı (8k, 16k,
+32k token; her biri 80-120 sn), hiç dosya yazamadı → ölçüm: NIM Nemotron `reasoning_effort`'u
+tanımıyor ama şablon anahtarı `chat_template_kwargs.enable_thinking=false` tanıyor (aynı header.php
+161 sn/4130 token → 29 sn/2973 token, araç çağrısı geçerli). Düzeltme: düşünme bütçesi dolunca
+yeniden deneme bu anahtarla yapılır (`CompletionRequest.disable_thinking`).
+
 ## Fusion'da kalıcı olarak değişenler
 
 1. **Öğretmen** — araçsız istek araç çerçevesiz gider; plan isteği `PLAN_FRAME` + çırağın araç

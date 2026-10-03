@@ -310,3 +310,26 @@ def test_call_kwargs_effort_yoksa_parametre_konmaz():
     )
     kwargs = _saglayici()._call_kwargs(istek, stream=False)
     assert "reasoning_effort" not in kwargs
+
+
+def test_dusunme_kapatma_yalniz_sablon_anahtarini_taniyan_saglayiciya_gider():
+    """Ölçüldü (3 Ekim 2026): Nemotron 3 Ultra bütçeyi düşünmeye harcıyordu; `enable_thinking`
+    kapalıyken aynı iş 161 sn → 29 sn, düşünme metni 0, araç çağrısı geçerli."""
+    from fusion_cli.core.types import CompletionRequest, Message
+
+    istek = CompletionRequest(
+        messages=(Message("user", "yaz"),),
+        temperature=0.2,
+        max_tokens=8192,
+        timeout_s=30.0,
+        disable_thinking=True,
+    )
+    nim = LiteLlmProvider("nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b", role="agent")
+    assert nim._call_kwargs(istek, stream=False)["extra_body"] == {
+        "chat_template_kwargs": {"enable_thinking": False}
+    }
+    assert "extra_body" not in _saglayici()._call_kwargs(istek, stream=False)
+    acik = CompletionRequest(
+        messages=(Message("user", "yaz"),), temperature=0.2, max_tokens=8192, timeout_s=30.0
+    )
+    assert "extra_body" not in nim._call_kwargs(acik, stream=False)

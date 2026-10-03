@@ -1781,6 +1781,7 @@ async def _call_model(
         reasoning_effort=effort_for_spec(
             spec, ReasoningEffort.LOW if state.reasoning_relief else runtime.reasoning_effort
         ),
+        disable_thinking=state.reasoning_relief,
     )
     provider = build_provider(
         spec,
