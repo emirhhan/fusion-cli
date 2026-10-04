@@ -201,3 +201,14 @@ def test_layout_animation_fails_layout_check(tmp_path):
     if inspection.invalid_reason:
         pytest.skip(inspection.invalid_reason)
     assert not _by_name(inspection)["layout özellikleri animasyon/transition'da kullanılmıyor"]
+
+
+def test_easing_css_degiskeni_cozulerek_sayilir():
+    from evals.kabul.areas._motion_lint import analyse_css
+
+    css = (
+        ":root{--ease-out:cubic-bezier(.16,1,.3,1);--ease-io:cubic-bezier(.65,0,.35,1)}"
+        ".a{transition:opacity .3s var(--ease-out)}.b{animation:x 2s var(--ease-io) infinite}"
+    )
+
+    assert len(analyse_css(css).easings) == 2

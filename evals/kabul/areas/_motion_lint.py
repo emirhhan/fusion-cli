@@ -147,9 +147,25 @@ def _css_easings(css: str) -> set[str]:
     return found
 
 
+_CUSTOM_PROPERTY = re.compile(r"(--[\w-]+)\s*:\s*([^;}]+)")
+_VAR_USE = re.compile(r"var\(\s*(--[\w-]+)\s*(?:,[^)]*)?\)")
+
+
+def resolve_custom_properties(css: str) -> str:
+    """`var(--ad)` kullanımlarını tanımlı değerle değiştir (tek düzey, ilk tanım).
+
+    Ölçüldü (4 Ekim): easing `var(--ease)` ile verildiğinde sayım 0 çıkıyordu; değişken
+    çözülmeden sayılan easing gerçeği yansıtmaz.
+    """
+    tanimlar: dict[str, str] = {}
+    for ad, deger in _CUSTOM_PROPERTY.findall(css):
+        tanimlar.setdefault(ad, deger.strip())
+    return _VAR_USE.sub(lambda m: tanimlar.get(m.group(1), m.group(0)), css)
+
+
 def analyse_css(css: str) -> CssMotion:
     """CSS metnindeki hareket kalıplarını, layout ihlallerini ve easing'leri çıkar."""
-    clean = _COMMENT.sub("", css)
+    clean = resolve_custom_properties(_COMMENT.sub("", css))
     names = tuple(dict.fromkeys(name for name, _ in _iter_keyframes(clean)))
     items = _transition_items(clean)
     hits = _layout_in_transitions(items) + _layout_in_keyframes(clean)

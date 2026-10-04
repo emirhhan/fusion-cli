@@ -51,3 +51,23 @@ function placeholderImage(etiket, en = 400, boy = 400) {
     ` fill="#6b7280" text-anchor="middle" dominant-baseline="middle">${etiket}</text></svg>`;
   return 'data:image/svg+xml,' + encodeURIComponent(svg);
 }
+
+/* Kaydırmayla ortaya çıkma (tokens.css `.reveal`): öğeye `class="reveal"` ver, yeter.
+ * JS yoksa öğeler görünür kalır; hareketi azalt tercihinde CSS animasyonu kapatır. */
+document.documentElement.classList.add('js');
+document.addEventListener('DOMContentLoaded', function () {
+  var ogeler = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window)) {
+    ogeler.forEach(function (oge) { oge.classList.add('is-visible'); });
+    return;
+  }
+  var gozcu = new IntersectionObserver(function (girdiler) {
+    girdiler.forEach(function (girdi) {
+      if (girdi.isIntersecting) { girdi.target.classList.add('is-visible'); gozcu.unobserve(girdi.target); }
+    });
+  }, { threshold: 0.15 });
+  ogeler.forEach(function (oge, sira) {
+    oge.style.transitionDelay = (sira % 6) * 90 + 'ms';
+    gozcu.observe(oge);
+  });
+});
