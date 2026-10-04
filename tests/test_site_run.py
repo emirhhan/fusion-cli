@@ -228,6 +228,40 @@ async def test_fatal_error_veren_site_kapidan_gecmez(tmp_path):
     assert not sonuc.ok and any("Fatal error" in bulgu for bulgu in sonuc.findings)
 
 
+_STILLI_ANA = """<html><head><title>Mağaza</title><style>
+body { font-family: Inter, Arial, sans-serif; } a { color: #111; }
+</style></head><body><main><h1>Mağaza</h1>
+<p>Bu ana sayfa sitenin kendi stiliyle açılıyor, bağlantıları koyu renkli.</p>
+<a href="/liste.php">Tüm ürünleri gör</a> <a href="/liste.php?s=2">Yeni gelenler</a>
+<a href="/hakkinda.php">Hakkımızda bilgi</a></main></body></html>"""
+
+_STILSIZ_LISTE = """<html><head><title>Ürünler</title></head><body><main><h1>Ürünler</h1>
+<p>Bu iç sayfaya sitenin stil dosyası hiç bağlanmamış.</p>
+<a href="/u/1">Birinci ürün</a> <a href="/u/2">İkinci ürün</a> <a href="/u/3">Üçüncü ürün</a>
+<a href="/u/4">Dördüncü ürün</a></main></body></html>"""
+
+
+@pytest.mark.skipif(PHP is None, reason="php kurulu değil")
+async def test_ic_sayfa_stilsiz_kaldiysa_kapi_tarayicida_yakalar(tmp_path):
+    pytest.importorskip("playwright.async_api")
+    ana = tmp_path / "index.php"
+    ana.write_text(_STILLI_ANA, encoding="utf-8")
+    (tmp_path / "liste.php").write_text(_STILSIZ_LISTE, encoding="utf-8")
+    (tmp_path / "hakkinda.php").write_text(
+        _STILLI_ANA.replace("Bu ana sayfa", "Hakkımızda sayfası da"), encoding="utf-8"
+    )
+
+    sonuc = await SiteVerifier(ToolContext(root=tmp_path, touched={ana}), PHP).verify()
+
+    if not any(e.criterion_id == "tarayici_sayfalari" for e in sonuc.evidence):
+        pytest.skip("tarayıcı açılamadı")
+    assert not sonuc.ok
+    stilsiz = [bulgu for bulgu in sonuc.findings if "/liste.php" in bulgu]
+    assert stilsiz and any("varsayılan" in bulgu for bulgu in stilsiz)
+    assert not any("/hakkinda.php" in bulgu for bulgu in sonuc.findings)
+    assert preview_server.running(tmp_path) is None
+
+
 # --- Rapor dili --------------------------------------------------------------------- #
 
 

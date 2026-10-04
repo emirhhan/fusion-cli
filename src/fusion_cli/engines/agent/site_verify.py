@@ -31,6 +31,8 @@ from ...tools import preview_server
 from ...tools.preview_probe import PageProbe, probe
 from ...tools.preview_server import PreviewKind
 from ...tools.wordpress_setup import has_core
+from .browser_verify import BrowserVerifier, browser_verification_result
+from .page_audit import pick_audit_pages
 
 #: Bu uzantılardan biri değiştiyse site yeniden ölçülür.
 SITE_SUFFIXES = frozenset({".php", ".css", ".js", ".html", ".twig", ".json"})
@@ -62,7 +64,10 @@ class SiteVerifier:
             # (3 Ekim 2026, 10. kabul koşusu): 18 ürün görseli 404 veriyordu, kapı yalnız
             # HTTP'ye baktığı için "✓ Doğrulandı" dedi ve model işi bitti ilan etti.
             url = str(running.last_probe.get("url") or running.url)
-            return _with_open_findings(_result(await probe(url)), running.last_probe)
+            sonuc = await probe(url)
+            return _with_open_findings(
+                _merge(_result(sonuc), await self._browser_audit(sonuc)), running.last_probe
+            )
         if kind is PreviewKind.WORDPRESS and not _runnable_wordpress(root):
             return VerificationResult(ok=True, warnings=(NOT_RUNNABLE_NOTE,))
         if self._php is None:
@@ -80,10 +85,27 @@ class SiteVerifier:
                 ok=False, summary="site açılmadı", findings=(f"Site başlatılamadı: {error}",)
             )
         try:
-            return _result(await probe(preview.url, browser=False))
+            sonuc = await probe(preview.url, browser=False)
+            return _merge(_result(sonuc), await self._browser_audit(sonuc))
         finally:
             with contextlib.suppress(Exception):
                 preview_server.stop(preview)
+
+    async def _browser_audit(self, sonuc: PageProbe) -> VerificationResult | None:
+        """Ana sayfa ve şablon başına bir iç sayfayı tarayıcıda yerleşim için ölç.
+
+        Tarayıcı yoksa ya da ölçüm çökerse None: doğrulama bir iyileştirmedir, turu
+        düşürmez. HTTP ölçümü zaten yapıldı ve sonucu korunur.
+        """
+        if sonuc.status == 0 or sonuc.status >= 400:
+            return None
+        acilan = [link.url for link in sonuc.links if 0 < link.status < 400 and not link.error]
+        adresler = [sonuc.url, *pick_audit_pages(sonuc.url, acilan)]
+        try:
+            gozlemler = await BrowserVerifier(self._context).observe_urls(adresler)
+        except Exception:  # sınır: Playwright yok, tarayıcı açılamadı, sayfa çöktü
+            return None
+        return browser_verification_result(gozlemler, source="çalışan sitede")
 
 
 #: Son önizlemede açık kalan bulguların kapı raporundaki öneki.
@@ -109,6 +131,21 @@ def _with_open_findings(
         ok=False,
         summary=f"{result.summary + '; ' if result.summary else ''}{len(bulgular)} açık bulgu",
         findings=(*result.findings, *bulgular),
+    )
+
+
+def _merge(base: VerificationResult, extra: VerificationResult | None) -> VerificationResult:
+    """HTTP ölçümüne tarayıcı denetimini ekle: herhangi biri engellerse sonuç engeller."""
+    if extra is None:
+        return base
+    ozet = "; ".join(part for part in (base.summary, extra.summary) if part)
+    return VerificationResult(
+        ok=base.ok and extra.ok,
+        summary=ozet,
+        findings=(*base.findings, *extra.findings),
+        warnings=(*base.warnings, *extra.warnings),
+        advisories=(*base.advisories, *extra.advisories),
+        evidence=(*base.evidence, *extra.evidence),
     )
 
 

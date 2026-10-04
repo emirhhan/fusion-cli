@@ -25,13 +25,20 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ...core.evidence import CriterionEvidence, EvidenceStatus
 from ...core.execution_plan import VerificationCheckKind
 from ...core.tools import ToolContext
 from ...core.verification import VerificationResult
+from .page_audit import (
+    AUDIT_PROBE,
+    StyleSignature,
+    consistency_findings,
+    shrunk_findings,
+    signature_from,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -131,6 +138,10 @@ class PageObservation:
     empty_sections: tuple[str, ...] = ()
     #: (seçici, yükseklik, ekran yüksekliği) — ekranı aşan yardımcı bloklar.
     oversized_blocks: tuple[tuple[str, int, int], ...] = ()
+    #: (kap seçicisi, görsel genişliği, kap genişliği) — kabına göre büzülmüş görseller.
+    shrunk_media: tuple[tuple[str, int, int], ...] = ()
+    #: Sayfanın stil imzası (sayfalar arası tutarlılık için; bkz. `page_audit`).
+    style: StyleSignature = field(default_factory=StyleSignature)
 
 
 def page_findings_by_severity(
@@ -152,7 +163,14 @@ def page_findings_by_severity(
         # WCAG ölçümü nesnel ve değerlidir; fakat küçük bir touch target bütün
         # uygulamayı "kırık" sayıp correction turu açtırmamalıdır.
         warnings.extend(_targets(page))
+        engel, uyari = shrunk_findings(page.name, page.shrunk_media)
+        blocking.extend(engel)
+        warnings.extend(uyari)
 
+    # İlk gözlem ana sayfadır; iç sayfalar ona göre stilsiz mi?
+    engel, uyari = consistency_findings([(page.name, page.style) for page in observations])
+    blocking.extend(engel)
+    warnings.extend(uyari)
     return tuple(blocking), tuple(warnings), ()
 
 
@@ -162,7 +180,7 @@ def page_findings(observations: Sequence[PageObservation]) -> tuple[str, ...]:
     return (*blocking, *warnings, *advisories)
 
 
-def _browser_verification_result(
+def browser_verification_result(
     observations: Sequence[PageObservation],
     *,
     source: str,
@@ -360,7 +378,7 @@ class BrowserVerifier:
             _logger.debug("tarayıcı doğrulaması atlandı: %s", exc)
             return VerificationResult(ok=True)
 
-        return _browser_verification_result(observations, source="tarayıcıda")
+        return browser_verification_result(observations, source="tarayıcıda")
 
     async def _verify_dev_server(self) -> VerificationResult:
         """Dev sunucusunu ayağa kaldırıp kök sayfayı ölç; koşullar tutmazsa sessizce geç.
@@ -398,7 +416,7 @@ class BrowserVerifier:
         if observations is None:
             return VerificationResult(ok=True)
 
-        return _browser_verification_result(
+        return browser_verification_result(
             observations,
             source="çalışan sayfada",
         )
@@ -434,6 +452,24 @@ class BrowserVerifier:
                 surec.terminate()
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(surec.wait(), timeout=10)
+
+    async def observe_urls(self, urls: Sequence[str]) -> list[PageObservation]:
+        """Çalışan sitedeki adresleri aç ve ölç; ilk adres ana sayfa (referans) olmalı.
+
+        Ölçüldü (4 Ekim 2026): WordPress/PHP sitelerinde kapı tarayıcıyı hiç açmıyordu;
+        iç sayfalar stilsiz, ana sayfa yatayda taşarken rapor "doğrulandı" dedi.
+        """
+        from playwright.async_api import async_playwright
+
+        observations: list[PageObservation] = []
+        async with async_playwright() as driver:
+            browser = await driver.chromium.launch()
+            try:
+                for url in urls:
+                    observations.append(await self._observe_page(browser, url, _page_name(url)))
+            finally:
+                await browser.close()
+        return observations
 
     async def _observe(self, pages: list[Path]) -> list[PageObservation]:
         from playwright.async_api import async_playwright
@@ -471,6 +507,8 @@ class BrowserVerifier:
         }
         bos_bolumler: list[str] = []
         buyuk_bloklar: list[tuple[str, int, int]] = []
+        buzulen: list[tuple[str, int, int]] = []
+        imza = StyleSignature()
         try:
             for width in VIEWPORTS:
                 await page.set_viewport_size({"width": width, "height": 900})
@@ -487,6 +525,11 @@ class BrowserVerifier:
                 if isinstance(ham_bos, list):
                     bos_bolumler.extend(str(item) for item in ham_bos)
                 buyuk_bloklar.extend(_as_triples(olculen.get("oversizedBlocks")))
+                denetim = await page.evaluate(AUDIT_PROBE)
+                if isinstance(denetim, dict):
+                    buzulen.extend(_as_triples(denetim.get("shrunkMedia")))
+                    # İmza en geniş ekranda okunur (döngünün son genişliği).
+                    imza = signature_from(denetim.get("style"))
         finally:
             await page.close()
 
@@ -500,7 +543,16 @@ class BrowserVerifier:
             small_targets=_tekil_ucluler(layout["smallTargets"]),
             empty_sections=tuple(dict.fromkeys(bos_bolumler)),
             oversized_blocks=_tekil_ucluler(buyuk_bloklar),
+            shrunk_media=_tekil_ucluler(buzulen),
+            style=imza,
         )
+
+
+def _page_name(url: str) -> str:
+    """Bulgu metninde sayfanın adı: yol (kök için '/')."""
+    from urllib.parse import urlparse
+
+    return urlparse(url).path or "/"
 
 
 def _tekil_ucluler(rows: list[tuple[str, int, int]]) -> tuple[tuple[str, int, int], ...]:
