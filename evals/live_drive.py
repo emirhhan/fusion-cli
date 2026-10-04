@@ -100,6 +100,21 @@ def _gorevler(*_):
     for gorev in gorevler:
         print('=== GOREV', gorev.get_name(), file=sys.stderr)
         gorev.print_stack(limit=12, file=sys.stderr)
+        # print_stack askıdaki görevin yalnız en dış çerçevesini verir; asıl bekleyen
+        # yer zincirin SONUNDADIR. cr_await / gi_yieldfrom / ag_await izlenir.
+        halka = gorev.get_coro()
+        for _ in range(60):
+            cerceve = (getattr(halka, 'cr_frame', None) or getattr(halka, 'gi_frame', None)
+                       or getattr(halka, 'ag_frame', None))
+            if cerceve is None:
+                print('    bekliyor:', repr(halka)[:300], file=sys.stderr)
+                break
+            kod = cerceve.f_code
+            print(f'    {kod.co_filename}:{cerceve.f_lineno} {kod.co_name}', file=sys.stderr)
+            halka = (getattr(halka, 'cr_await', None) or getattr(halka, 'gi_yieldfrom', None)
+                     or getattr(halka, 'ag_await', None))
+            if halka is None:
+                break
     sys.stderr.flush()
 
 _orijinal = asyncio.new_event_loop
@@ -209,6 +224,11 @@ async def drive(
                 kayit.setdefault("surucu_hatalari", []).append(repr(hata)[:500])
                 continue
             if not line:
+                # Çekirdek kapandı: cevap bekleyen istekler süre dolana kadar asılı
+                # kalmasın (ölçüldü: ölen çekirdeğin sürücüsü 3600 sn bekliyordu).
+                for bekleyen_istek in bekleyen.values():
+                    if not bekleyen_istek.done():
+                        bekleyen_istek.set_exception(ConnectionError("çekirdek kapandı"))
                 break
             try:
                 isle(line)
@@ -226,7 +246,10 @@ async def drive(
         if tip == "olay":
             _say(sayac, veri)
             if olay_gunlugu is not None:
+                # Her satır hemen diske iner: tamponda bekleyen olaylar, takılan bir
+                # koşuda "en son ne oldu" sorusunu yanlış cevaplatıyordu (ölçüldü, 4 Ekim).
                 olay_gunlugu.write(line)
+                olay_gunlugu.flush()
         if tip == "olay" and veri.get("olay") == "ToolExecuted":
             kayit["araclar"].append(veri.get("name"))
         elif tip == "soru":
@@ -262,6 +285,8 @@ async def drive(
                 ozet = {"ok": sonuc.get("ok"), "metin": str(sonuc.get("metin", ""))[:2000]}
             except TimeoutError:
                 ozet = {"ok": False, "metin": f"zaman aşımı ({args.sure} sn)"}
+            except ConnectionError as hata:
+                ozet = {"ok": False, "metin": str(hata)}
             kayit["turlar"].append(
                 {"gorev": gorev[:120], **ozet, "sure_sn": round(time.monotonic() - basla, 1)}
             )

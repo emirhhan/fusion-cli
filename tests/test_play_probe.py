@@ -49,3 +49,28 @@ def test_gercek_oyunda_tuslar_durumu_degistirir_r_sifirlar(tmp_path):
     assert rapor.console_errors == () and rapor.raf_per_second >= 20
     assert rapor.state_before != rapor.state_after and rapor.canvas_changed
     assert rapor.restart_state is not None and '"skor":0' in rapor.restart_state
+
+
+def test_birbirini_goturen_tuslar_durumu_degistirmedi_sayilmaz():
+    """Ölçüldü (4 Ekim): sağ+sol ve sıfırlayan `r` aynı listede gelince önce=sonra çıktı."""
+    rapor = ProbeReport((), 60, '{"x":1}', '{"x":1}', True, None, ("ArrowRight", "ArrowLeft"))
+
+    ozet = rapor.summary()
+
+    assert "TUŞLAR DURUMU DEĞİŞTİRMEDİ" not in ozet
+    assert "Durumu değiştiren tuşlar: 'ArrowRight', 'ArrowLeft'" in ozet
+
+
+def test_gercek_oyunda_sifirlayan_tus_listede_olsa_da_etkili_tus_raporlanir(tmp_path):
+    pytest.importorskip("playwright")
+    sayfa = tmp_path / "index.html"
+    sayfa.write_text(_OYUN, encoding="utf-8")
+
+    try:
+        rapor = asyncio.run(probe_game(sayfa.as_uri(), ("ArrowRight", "r")))
+    except Exception as hata:  # Chromium kurulu değilse ölçüm yapılamaz
+        pytest.skip(f"tarayıcı yok: {hata}")
+
+    assert rapor.state_before == rapor.state_after
+    assert "ArrowRight" in rapor.effective_keys
+    assert "TUŞLAR DURUMU DEĞİŞTİRMEDİ" not in rapor.summary()

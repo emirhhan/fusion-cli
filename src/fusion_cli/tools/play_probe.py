@@ -45,6 +45,9 @@ class ProbeReport:
     state_after: str | None
     canvas_changed: bool | None
     restart_state: str | None
+    #: Basıldığında durumu değiştiren tuşlar. Önce/sonra karşılaştırması tek başına
+    #: yanıltır: sağ+sol ya da yukarı+aşağı birbirini götürür (ölçüldü, 4 Ekim).
+    effective_keys: tuple[str, ...] = ()
 
     def summary(self) -> str:
         satirlar = [
@@ -59,12 +62,15 @@ class ProbeReport:
                 "window.__GAME_STATE__ = () => ({durum, skor, can, oyuncu: {x, y}})."
             )
         else:
-            degisti = self.state_before != self.state_after
+            degisti = self.state_before != self.state_after or bool(self.effective_keys)
             satirlar.append(f"Durum tuşlardan önce: {self.state_before}")
             satirlar.append(
                 f"Durum tuşlardan sonra: {self.state_after}"
                 + ("" if degisti else "  ← TUŞLAR DURUMU DEĞİŞTİRMEDİ")
             )
+            if self.effective_keys:
+                tuslar = ", ".join(repr(tus) for tus in self.effective_keys)
+                satirlar.append(f"Durumu değiştiren tuşlar: {tuslar}")
         if self.canvas_changed is not None:
             satirlar.append(
                 f"Canvas tuşlarla değişti: {'evet' if self.canvas_changed else 'HAYIR'}"
@@ -77,12 +83,20 @@ class ProbeReport:
         return "\n".join(satirlar)
 
 
-async def _press(page: Page, keys: tuple[str, ...]) -> None:
+async def _press(page: Page, keys: tuple[str, ...]) -> tuple[str, ...]:
+    """Tuşlara sırayla bas; her tuştan sonra durumu oku ve değiştirenleri döndür."""
     await page.locator("body").click(position={"x": 5, "y": 5}, force=True)
+    etkili: list[str] = []
+    onceki = await page.evaluate(_STATE)
     for tus in keys:
         await page.keyboard.down(tus)
         await page.wait_for_timeout(KEY_HOLD_MS)
         await page.keyboard.up(tus)
+        simdiki = await page.evaluate(_STATE)
+        if simdiki != onceki and tus not in etkili:
+            etkili.append(tus)
+        onceki = simdiki
+    return tuple(etkili)
 
 
 async def probe_game(url: str, keys: tuple[str, ...] = DEFAULT_KEYS) -> ProbeReport:
@@ -104,14 +118,14 @@ async def probe_game(url: str, keys: tuple[str, ...] = DEFAULT_KEYS) -> ProbeRep
             raf = int(await sayfa.evaluate(_RAF_COUNTER))
             await _press(sayfa, ("Enter", "Space"))
             once, tuval_once = await sayfa.evaluate(_STATE), await sayfa.evaluate(_CANVAS_HASH)
-            await _press(sayfa, keys)
+            etkili = await _press(sayfa, keys)
             sonra, tuval_sonra = await sayfa.evaluate(_STATE), await sayfa.evaluate(_CANVAS_HASH)
             await _press(sayfa, ("r",))
             yeniden = await sayfa.evaluate(_STATE)
         finally:
             await tarayici.close()
     tuval = None if tuval_once is None else tuval_once != tuval_sonra
-    return ProbeReport(tuple(hatalar), raf, once, sonra, tuval, yeniden)
+    return ProbeReport(tuple(hatalar), raf, once, sonra, tuval, yeniden, etkili)
 
 
 def parse_keys(raw: object) -> tuple[str, ...]:
