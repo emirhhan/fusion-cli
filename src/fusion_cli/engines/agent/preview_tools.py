@@ -34,6 +34,7 @@ from ...tools.wordpress_setup import (
     WordPressSetup,
     WordPressSetupError,
     find_wp_cli,
+    project_theme,
     setup_wordpress,
 )
 from .php_verify import WC_STYLES_OFF_NOTE, find_php_executable, woocommerce_styles_disabled
@@ -135,8 +136,12 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
             else (SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT)
         ),
     )
-    onceki = preview.last_probe.get("open_count") if preview.last_probe.get("url") == url else None
+    ayni = preview.last_probe.get("url") == url
+    onceki = preview.last_probe.get("open_count") if ayni else None
+    en_iyi_onceki = preview.last_probe.get("best_count") if ayni else None
     preview.last_probe = {"ok": not sonuc.problems, "summary": sonuc.summary(), "url": url}
+    if en_iyi_onceki is not None:
+        preview.last_probe["best_count"] = en_iyi_onceki
     deps.publisher.publish(
         PreviewReady(url=url, kind=kind.value, root=str(root), title=sonuc.title)
     )
@@ -157,8 +162,31 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
     preview.last_probe["open_findings"] = acik_bulgular
     acik = len(sonuc.problems) + len(acik_bulgular)
     preview.last_probe["open_count"] = acik
+    en_iyi = preview.last_probe.get("best_count") if onceki is not None else None
+    if 0 < sonuc.status < 400 and (not isinstance(en_iyi, int) or acik <= en_iyi):
+        await asyncio.to_thread(_snapshot_theme, root)
+        preview.last_probe["best_count"] = acik
+    elif isinstance(en_iyi, int):
+        preview.last_probe["best_count"] = en_iyi
     sonuc_metni = _result(url, kind.value, sonuc, setup, shot, farklar, ek_sorunlar)
     return _with_regression_note(sonuc_metni, onceki, acik)
+
+
+#: Açık bulgusu en az olan önizlemedeki tema metin dosyalarının yedeği.
+BEST_THEME_DIR = ".fusion/tema-en-iyi"
+
+
+def _snapshot_theme(root: Path) -> None:
+    """Etkin projenin tema PHP/CSS dosyalarını en iyi hal olarak yedekle (WordPress değilse yok)."""
+    tema = project_theme(root)
+    if tema is None:
+        return
+    kaynak = root / "wp-content" / "themes" / tema
+    hedef = root / BEST_THEME_DIR
+    hedef.mkdir(parents=True, exist_ok=True)
+    for dosya in kaynak.iterdir():
+        if dosya.is_file() and dosya.suffix in (".php", ".css"):
+            (hedef / dosya.name).write_bytes(dosya.read_bytes())
 
 
 def _with_regression_note(result: ToolResult, previous: object, current: int) -> ToolResult:
@@ -173,8 +201,8 @@ def _with_regression_note(result: ToolResult, previous: object, current: int) ->
     ilk, _, kalan = result.output.partition("\n")
     not_ = (
         f"GERİLEME: açık sorun+fark sayısı {previous} → {current} arttı. Son düzenlemen "
-        "sayfayı kötüleştirdi; onu geri al ve farklı bir yol dene (tema ilk hali "
-        "kopyalandıysa .fusion/tema-ilk/ altında)."
+        "sayfayı kötüleştirdi; onu geri al ve farklı bir yol dene. Ölçülen en iyi tema "
+        f"hali {BEST_THEME_DIR}/ altında (PHP/CSS dosyalarını oradan geri kopyalayabilirsin)."
     )
     return replace(result, output=f"{ilk}\n{not_}\n{kalan}")
 

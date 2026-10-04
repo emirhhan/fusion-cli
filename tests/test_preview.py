@@ -585,3 +585,18 @@ def test_acik_bulgu_sayisi_artinca_gerileme_uyarisi_ikinci_satirda():
     assert kotu.output.splitlines()[1].startswith("GERİLEME: açık sorun+fark sayısı 2 → 13")
     assert _with_regression_note(sonuc, 13, 2) is sonuc
     assert _with_regression_note(sonuc, None, 5) is sonuc
+
+
+def test_en_iyi_tema_hali_yalniz_metin_dosyalariyla_yedeklenir(tmp_path):
+    from fusion_cli.engines.agent.preview_tools import BEST_THEME_DIR, _snapshot_theme
+
+    tema = tmp_path / "wp-content" / "themes" / "kopya"
+    tema.mkdir(parents=True)
+    (tema / "style.css").write_text("/* Theme Name: k */", encoding="utf-8")
+    (tema / "index.php").write_text("<?php ?>", encoding="utf-8")
+    (tema / "logo.png").write_bytes(b"png")
+
+    _snapshot_theme(tmp_path)
+
+    yedek = tmp_path / BEST_THEME_DIR
+    assert sorted(p.name for p in yedek.iterdir()) == ["index.php", "style.css"]
