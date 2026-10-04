@@ -913,6 +913,10 @@ class _State:
     evidence_reprompts: int = 0
     #: "Hiç araç çağırmadan bitirme" kapısının kaç kez konuştuğu. Bir kezle sınırlı.
     never_acted_prompts: int = 0
+    #: Otomatik-devam notundan ÖNCEKİ araçsız cevap (asıl teslim). Not "bittiyse tek
+    #: cümleyle teyit et" dediği için araçsız cevap teyittir; teslimi ezmemelidir.
+    #: Araç çağrısı yapılınca sıfırlanır (iş sürdü, eski cevap eskidi).
+    answer_before_nudge: str = ""
     #: Sıkıştırmaya rağmen bağlamın eşikte kaldığı ardışık çağrı sayısı.
     compaction_thrash: int = 0
     #: Turda "ilerleme yok" uyarısı verildi mi? Böyle turdan ders çıkarılmaz.
@@ -1133,6 +1137,15 @@ async def _drive(
                     state,
                     ok=False,
                 )
+            if state.answer_before_nudge and not result.truncated:
+                # Ölçüldü (4 Ekim, tarayıcı kabul koşusu): bekleyen todo yüzünden not
+                # altı kez gitti, model her seferinde "tamamlandı" dedi ve son kısa
+                # teyit fiyatı içeren asıl cevabın yerine geçti.
+                return _outcome(
+                    reflexion.keep_delivery(state.answer_before_nudge, final_text),
+                    messages,
+                    state,
+                )
             continue_note = _auto_continue_note(
                 final_text,
                 deps,
@@ -1142,6 +1155,8 @@ async def _drive(
                 truncated=result.truncated,
             )
             if continue_note is not None:
+                if continue_note.content == reflexion.AUTO_CONTINUE_NOTE:
+                    state.answer_before_nudge = final_text
                 messages.append(continue_note)
                 continue
             return _outcome(final_text, messages, state)
@@ -1149,6 +1164,7 @@ async def _drive(
         if execution.max_tool_rounds is not None and state.tool_rounds >= execution.max_tool_rounds:
             return _halt_local(final_text, messages, state, budget, BudgetStop.TOOL_ROUNDS, deps)
 
+        state.answer_before_nudge = ""
         before = _progress_marker(deps, state)
         errored = await _run_tools(
             result.tool_calls,

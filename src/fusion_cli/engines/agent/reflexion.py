@@ -113,6 +113,17 @@ def auto_continue_note() -> Message:
     return Message("user", AUTO_CONTINUE_NOTE, harness_note=True)
 
 
+def keep_delivery(delivery: str, confirmation: str) -> str:
+    """Otomatik-devam notuna verilen araçsız cevaptan sonra kullanıcıya gidecek metin.
+
+    Teyit asıl tesliminden kısaysa teslim korunur; model notla yeni ve daha dolu bir
+    teslim yazdıysa (ör. özet genişledi) o kullanılır.
+    """
+    if not delivery.strip():
+        return confirmation
+    return confirmation if len(confirmation.strip()) > len(delivery.strip()) else delivery
+
+
 #: İlerlemesiz turlar birikince, turu kesmeden ÖNCE gönderilen not.
 #
 # Ölçüldü (28 Eylül, büyük proje görevi): model 13 dakika boyunca yalnız arama ve
