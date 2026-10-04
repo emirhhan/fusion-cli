@@ -18,11 +18,14 @@ Modele kalan iş dinamik bağlamadır (menü bağlantıları, sepet sayacı, ma�
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote_plus, urlparse
 
 from .site_capture import SiteCapture, drop_remote_srcset, localize, same_site_paths
+from .woo_store_css import store_css
 
 #: PHP şablonlarında tema klasörü adresi.
 THEME_URI = "<?php echo esc_url( get_template_directory_uri() ); ?>/"
@@ -216,11 +219,7 @@ def _inner_page_css(header_offset: int) -> str:
     """Sabit başlık iç sayfalarda içeriğin üstüne binmesin."""
     if header_offset <= 0:
         return ""
-    return (
-        f"\n.kopya-woocommerce, .kopya-sayfa {{ padding-top: {header_offset}px; }}\n"
-        ".kopya-woocommerce { max-width: 1440px; margin: 0 auto; padding-left: 16px; "
-        "padding-right: 16px; }\n"
-    )
+    return f"\n.kopya-woocommerce, .kopya-sayfa {{ padding-top: {header_offset}px; }}\n"
 
 
 def write_theme(
@@ -228,6 +227,7 @@ def write_theme(
     themes_dir: Path,
     source_url: str,
     category_slugs: tuple[str, ...] = (),
+    design_page: Mapping[str, Any] | None = None,
 ) -> ThemeFiles:
     """Tema dosyalarını yaz; varlıklar zaten `<tema>/assets/` altında olmalı."""
     if not capture.pages:
@@ -239,6 +239,7 @@ def write_theme(
     dosyalar = {
         "style.css": _style_header(slug, source_url)
         + "/* Elle düzeltmeler buraya; görünümün kendisi kopya.css'tedir. */\n"
+        + store_css(design_page, ana.header_offset)
         + _inner_page_css(ana.header_offset)
         + _CART_COUNTER_CSS,
         "kopya.css": localize(capture.css, capture.assets, ""),

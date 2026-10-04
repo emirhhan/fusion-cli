@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from fusion_cli.engines.agent.clone_tools import _pick_pages, price_format, site_locale
 from fusion_cli.engines.agent.turn_hints import CLONE_NOTE, DESIGN_NOTE, design_hint
 from fusion_cli.tools.site_capture import (
@@ -210,3 +212,64 @@ def test_tema_ilk_hali_yalniz_metin_dosyalariyla_yedeklenir(tmp_path):
     _backup_theme(tema, tmp_path / "yedek")
 
     assert sorted(p.name for p in (tmp_path / "yedek").iterdir()) == ["header.php", "kopya.css"]
+
+
+_KAYDIRICI = """<!doctype html><html><head><style>
+.swiper{overflow:hidden;width:600px}.swiper-wrapper{display:flex}
+.kart{max-width:25%;flex-basis:25%}.kart img{width:100%;display:block}
+</style></head><body><header>ust</header><div class="swiper"><div class="swiper-wrapper">
+<div class="swiper-slide"><div class="kart"><img height="10"></div></div>
+<div class="swiper-slide"><div class="kart"><img height="10"></div></div>
+</div></div>
+<script>document.querySelectorAll('.swiper-slide').forEach(s=>{s.style.width='250px';
+s.querySelector('.kart').style.cssText='max-width:100%;flex-basis:100%';});
+</script><footer>alt</footer></body></html>"""
+
+
+def test_kaydirici_slaytlari_ve_gorsel_zinciri_olculen_genislikle_dondurulur(tmp_path):
+    """Betik kopyada çalışmaz: slayt ve içindeki kart kaynaktaki genişliği korumalı."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    from fusion_cli.tools.site_capture import CAPTURE_SCRIPT
+
+    sayfa = tmp_path / "index.html"
+    sayfa.write_text(_KAYDIRICI, encoding="utf-8")
+    try:
+        with playwright.sync_playwright() as p:
+            tarayici = p.chromium.launch()
+            page = tarayici.new_page(viewport={"width": 1000, "height": 600})
+            page.goto(sayfa.as_uri())
+            veri = page.evaluate(CAPTURE_SCRIPT.read_text(encoding="utf-8"))
+            tarayici.close()
+    except playwright.Error as hata:
+        pytest.skip(f"tarayıcı yok: {hata}")
+
+    ana = veri["main"]
+    assert 'class="swiper-slide" style="width: 250px; max-width: none; flex: 0 0 250px;"' in ana
+    assert "width: 250px; max-width: none; flex-basis: auto;" in ana
+    assert '<div class="swiper" style="overflow: hidden;">' in ana
+    assert "<script" not in ana
+
+
+def test_kategori_adi_kaynak_menuden_gelir_turkce_harfler_korunur():
+    from fusion_cli.engines.agent.clone_tools import category_labels, display_label
+
+    menu = [
+        {"text": "ERKEK", "href": "https://www.ornek.com/erkek"},
+        {"text": "KADIN", "href": "https://www.ornek.com/kadin/"},
+        {"text": "İNDİRİM", "href": "https://www.ornek.com/indirim"},
+        {"text": "Blog", "href": "https://www.ornek.com/blog"},
+        "bozuk",
+    ]
+
+    etiketler = category_labels(menu, ("erkek", "kadin", "indirim"), "tr")
+
+    assert etiketler == {"erkek": "Erkek", "kadin": "Kadın", "indirim": "İndirim"}
+    assert display_label("NEW  ARRIVALS", "en") == "New Arrivals"
+    assert category_labels(None, ("erkek",), "tr") == {}
+
+
+def test_sayfa_cevirisi_dile_ozel_metin_tasimaz():
+    from fusion_cli.engines.agent.clone_tools import TRANSLATE_PAGES_PHP
+
+    assert "'Page title', 'woocommerce'" in TRANSLATE_PAGES_PHP
+    assert "Sepet" not in TRANSLATE_PAGES_PHP and "wc_get_page_id" in TRANSLATE_PAGES_PHP

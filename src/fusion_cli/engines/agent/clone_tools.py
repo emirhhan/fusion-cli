@@ -78,6 +78,48 @@ def price_format(sample: str) -> PriceFormat | None:
     )
 
 
+#: WooCommerce sayfalarını (mağaza, sepet, ödeme, hesap) site dilindeki ad ve adrese çevirir.
+#: Çeviriler WooCommerce'in kendi dil paketinden gelir; burada dile özel metin yoktur.
+TRANSLATE_PAGES_PHP = (
+    "foreach ( array( 'shop' => array( 'Shop', 'shop' ), 'cart' => array( 'Cart', 'cart' ), "
+    "'checkout' => array( 'Checkout', 'checkout' ), "
+    "'myaccount' => array( 'My account', 'my-account' ) ) as $anahtar => $cift ) { "
+    "$kimlik = wc_get_page_id( $anahtar ); if ( $kimlik < 1 ) { continue; } "
+    "wp_update_post( array( 'ID' => $kimlik, "
+    "'post_title' => _x( $cift[0], 'Page title', 'woocommerce' ), "
+    "'post_name' => sanitize_title( _x( $cift[1], 'Page slug', 'woocommerce' ) ) ) ); } "
+    "flush_rewrite_rules();"
+)
+
+
+def display_label(text: str, lang: str) -> str:
+    """Menü metnini ('KADIN') okunur ada ('Kadın') çevir; Türkçede I/İ ayrımı korunur."""
+    temiz = " ".join(text.split())
+    if lang.lower().startswith("tr"):
+        kucuk = temiz.replace("I", "ı").replace("İ", "i").lower()
+        return " ".join(
+            ("İ" if kelime[0] == "i" else kelime[0].upper()) + kelime[1:]
+            for kelime in kucuk.split(" ")
+            if kelime
+        )
+    return temiz.title()
+
+
+def category_labels(menu: object, slugs: tuple[str, ...], lang: str) -> dict[str, str]:
+    """Kategori kısa adı → kaynaktaki menü metni (adresin son parçası eşleşiyorsa)."""
+    if not isinstance(menu, list):
+        return {}
+    etiketler: dict[str, str] = {}
+    for oge in menu:
+        if not isinstance(oge, dict):
+            continue
+        son = str(oge.get("href", "")).rstrip("/").rsplit("/", 1)[-1].lower()
+        metin = str(oge.get("text", "")).strip()
+        if son in slugs and metin and son not in etiketler:
+            etiketler[son] = display_label(metin, lang)
+    return etiketler
+
+
 def site_locale(lang: str) -> str:
     """Sayfa dili ('tr', 'tr-TR') → WordPress yerel ayarı ('tr_TR'); bilinmiyorsa boş."""
     parcalar = re.split(r"[-_]", lang.strip())
@@ -93,9 +135,18 @@ async def _localize_store(
     """WooCommerce'i kaynağın diline ve fiyat yazımına getir (best effort)."""
     yerel = site_locale(lang)
     if yerel and yerel != "en_US":
+        # Site dili de değişmeli: yalnız eklenti paketi kurulunca arayüz İngilizce kalıyor,
+        # sayfalar "Cart" / "Checkout" adıyla ve ABD varsayılanıyla açılıyordu (ölçüldü).
+        await run_wp(wp_cli, root, "language", "core", "install", yerel, "--activate")
         kod, _ = await run_wp(wp_cli, root, "language", "plugin", "install", "woocommerce", yerel)
         if kod == 0:
-            steps.append(f"WooCommerce dil paketi: {yerel}")
+            steps.append(f"Site ve WooCommerce dili: {yerel}")
+        await run_wp(
+            wp_cli, root, "option", "update", "woocommerce_default_country", yerel.split("_")[1]
+        )
+        kod, _ = await run_wp(wp_cli, root, "eval", TRANSLATE_PAGES_PHP)
+        if kod == 0:
+            steps.append("Mağaza sayfalarının adı ve adresi site diline çevrildi.")
     bicim = price_format(catalog_sample)
     if bicim is None:
         return
@@ -169,7 +220,12 @@ def _catalog_sample(catalog: Path) -> str:
 
 
 async def _install(
-    root: Path, catalog: Path, lang: str, steps: list[str], problems: list[str]
+    root: Path,
+    catalog: Path,
+    lang: str,
+    steps: list[str],
+    problems: list[str],
+    labels: dict[str, str] | None = None,
 ) -> None:
     """WordPress + WooCommerce kur, temayı etkinleştir, kataloğu aktar."""
     wp_cli = find_wp_cli()
@@ -206,6 +262,12 @@ async def _install(
         f"Ürün aktarıldı: {aktarim.added} eklendi, {aktarim.skipped} atlandı, "
         f"{aktarim.without_image} görselsiz."
     )
+    for slug, etiket in (labels or {}).items():
+        await run_wp(
+            wp_cli, root, "term", "update", "product_cat", slug, "--by=slug", f"--name={etiket}"
+        )
+    if labels:
+        steps.append(f"Kategori adları kaynaktaki menüden alındı: {', '.join(labels.values())}.")
 
 
 async def run_clone_site(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -231,14 +293,20 @@ async def run_clone_site(args: ToolArgs, context: ToolContext) -> ToolResult:
     except CaptureError as error:
         return ToolResult.failure(f"Sayfa yakalanamadı: {error}")
     kategoriler = await asyncio.to_thread(_catalog_categories, kaynak / "urunler.json")
-    tema = await asyncio.to_thread(write_theme, yakalama, tema_klasoru.parent, url, kategoriler)
+    # Mağaza sayfalarının stili kaynak ana sayfanın ölçülerinden üretilir.
+    olcum = rapor.pages[0] if rapor.pages else None
+    tema = await asyncio.to_thread(
+        write_theme, yakalama, tema_klasoru.parent, url, kategoriler, olcum
+    )
     await asyncio.to_thread(_backup_theme, tema.folder, root / THEME_BACKUP_DIR)
     adimlar: list[str] = [
         f"Temanın ilk hali yedeklendi: {THEME_BACKUP_DIR}/ (gerilemede geri dön)."
     ]
     sorunlar = list(yakalama.problems)
     dil = yakalama.pages[0].lang if yakalama.pages else ""
-    await _install(root, kaynak / "urunler.json", dil, adimlar, sorunlar)
+    menu = (olcum or {}).get("navigation", {}).get("menu") if isinstance(olcum, dict) else None
+    etiketler = category_labels(menu, kategoriler, dil)
+    await _install(root, kaynak / "urunler.json", dil, adimlar, sorunlar, etiketler)
     return ToolResult(_summary(yakalama, tema, adimlar, sorunlar, root))
 
 

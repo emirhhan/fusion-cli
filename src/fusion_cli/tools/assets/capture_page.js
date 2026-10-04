@@ -23,6 +23,36 @@
       node.setAttribute('data-kopya-izin-bandi', '1');
     }
   }
+  // Kaydırıcılar (swiper, slick…) slayt genişliğini BETİKLE verir; kopyada betik yok.
+  // Ölçüldü (4 Ekim, mağaza ana sayfası): slayt 250 px'te kaldı ama içindeki kart
+  // yüzde kuralıyla 62 px'e düştü, şerit de sayfayı yatayda taşırdı. Slayt, görsele
+  // inen zincir ve şeridin kırpan kabı kaynakta ölçülen değerle dondurulur.
+  const SLIDES = '.swiper-slide, .slick-slide, .splide__slide, .embla__slide, '
+    + '.glide__slide, .keen-slider__slide, .carousel-item';
+  const px = (node) => Math.round(node.getBoundingClientRect().width);
+  for (const slide of document.querySelectorAll(SLIDES)) {
+    const width = px(slide);
+    if (width < 1) continue;
+    slide.style.width = `${width}px`;
+    slide.style.maxWidth = 'none';
+    slide.style.flex = `0 0 ${width}px`;
+    for (const media of slide.querySelectorAll('img, video, picture')) {
+      for (let node = media; node && node !== slide; node = node.parentElement) {
+        const inner = px(node);
+        if (inner < 1) continue;
+        node.style.width = `${inner}px`;
+        node.style.maxWidth = 'none';
+        node.style.flexBasis = 'auto';
+      }
+    }
+    for (let box = slide.parentElement, depth = 0; box && depth < 3; box = box.parentElement, depth++) {
+      const overflow = getComputedStyle(box).overflowX;
+      if (overflow === 'hidden' || overflow === 'clip') {
+        box.style.overflow = 'hidden';
+        break;
+      }
+    }
+  }
   const clone = document.documentElement.cloneNode(true);
   clone.querySelectorAll('[data-kopya-izin-bandi]').forEach((node) => node.remove());
   clone.querySelectorAll(
