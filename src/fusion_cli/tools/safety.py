@@ -105,6 +105,15 @@ DANGER_RULES: tuple[DangerRule, ...] = (
     # Çöp kutusu son kurtarma noktasıdır; boşaltmak silmeyi kalıcı yapar.
     _rule(r"\brm\b[^|;&\n]*\.Trash\b", "çöp kutusunu kalıcı boşaltma"),
     _rule(r"(?i)\bempty\s+(the\s+)?trash\b", "çöp kutusunu kalıcı boşaltma"),
+    # Yerel portu internete açan tüneller. Ölçüldü (4 Ekim kabul koşusu): tarayıcı
+    # aracı yerel adresi reddedince model kendi başına ngrok kurdu ve cloudflared ile
+    # yerel sunucuyu herkese açık bir adrese bağladı.
+    _rule(
+        r"\bngrok\b[^|;&\n]*\b(http|tcp|tls|start)\b|\bcloudflared\b[^|;&\n]*\btunnel\b|"
+        r"\b(lt|localtunnel)\s+--port\b|\bssh\b[^|;&\n]*\s-[a-zA-Z]*R\b|"
+        r"\bssh\b[^|;&\n]*\b(serveo\.net|localhost\.run)\b",
+        "yerel portu internete açan tünel",
+    ),
     # --- Sır okuma (17 Eylül denetimi, F1/F2) ---
     # Okunan sır modele, oradan sağlayıcıya gider; sızıntı geri alınamaz. Bu yüzden
     # salt-okur olsa da her kipte sorulur ve oturum iznine dönüşmez.

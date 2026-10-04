@@ -505,3 +505,27 @@ def test_tek_proje_dosyasini_zorla_silmek_tehlikeli_sayilmaz():
     assert danger_reason("run_shell", {"command": "rm -f orders.db"}) is None
     assert danger_reason("run_shell", {"command": "rm -f *"}) is not None
     assert danger_reason("run_shell", {"command": "rm -rf build"}) is not None
+
+
+TUNEL = "yerel portu internete açan tünel"
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "ngrok http 51687",
+        "cloudflared tunnel --url http://127.0.0.1:51687",
+        "lt --port 3000",
+        "ssh -R 80:localhost:3000 serveo.net",
+        "ssh -nNTR 80:localhost:8080 localhost.run",
+    ],
+)
+def test_tunnel_commands_are_dangerous(komut):
+    assert danger_reason("run_shell", {"command": komut}) == TUNEL
+
+
+@pytest.mark.parametrize(
+    "komut", ["which ngrok", "cloudflared --version", "ssh user@host ls", "git log --oneline"]
+)
+def test_non_tunnel_commands_are_not_flagged_as_tunnel(komut):
+    assert danger_reason("run_shell", {"command": komut}) != TUNEL
