@@ -493,9 +493,12 @@ async fn kits_baslat(
     };
     let data_dir = data_root.join("fusion-cli").join("kits");
     let manager = Arc::clone(manager.inner());
-    tauri::async_runtime::spawn_blocking(move || manager.ensure_started(&home, &data_dir))
-        .await
-        .map_err(|error| format!("Kits başlatma görevi tamamlanamadı: {error}"))?
+    let resource_dir = app.path().resource_dir().ok();
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.ensure_started(&home, &data_dir, resource_dir.as_deref())
+    })
+    .await
+    .map_err(|error| format!("Kits başlatma görevi tamamlanamadı: {error}"))?
 }
 
 /// Konuşma tanımayı başlat.

@@ -46,7 +46,12 @@ impl KitsManager {
     }
 
     /// Çalışan sunucunun adresini döndürür; yoksa başlatır.
-    pub fn ensure_started(&self, home: &Path, data_dir: &Path) -> Result<KitsStatus, String> {
+    pub fn ensure_started(
+        &self,
+        home: &Path,
+        data_dir: &Path,
+        resource_dir: Option<&Path>,
+    ) -> Result<KitsStatus, String> {
         let mut slot = self
             .running
             .lock()
@@ -59,15 +64,20 @@ impl KitsManager {
             }
             *slot = None;
         }
-        let kits_dir = find_kits_dir(&kits_dir_candidates(data_dir))?;
-        let node = find_node(&node_candidates(home))?;
+        let kits_dir = find_kits_dir(&kits_dir_candidates(data_dir, resource_dir))?;
+        let node = find_node(&node_candidates(home, resource_dir))?;
         let port = free_port()?;
         std::fs::create_dir_all(data_dir)
             .map_err(|error| format!("Kits veri klasörü oluşturulamadı: {error}"))?;
+        // Model ayarı (.env) Kits'in veri klasöründe durur; paket klasörü her
+        // kurulumda yenilendiği için ayar orada tutulmaz. Geliştirme kopyasında
+        // klasörün kendi .env dosyası da okunur.
+        let env_file = format!("--env-file-if-exists={}", data_dir.join(".env").display());
         let mut command = Command::new(node);
         command
-            .args(["--env-file-if-exists=.env", SERVER_ENTRY])
+            .args([env_file.as_str(), "--env-file-if-exists=.env", SERVER_ENTRY])
             .current_dir(&kits_dir)
+            .env("COPILOTKIT_TELEMETRY_DISABLED", "true")
             .env("HOST", "127.0.0.1")
             .env("PORT", port.to_string())
             .env("DATABASE_PATH", data_dir.join("fusion-kits.sqlite"))
@@ -147,12 +157,17 @@ fn free_port() -> Result<u16, String> {
         .map_err(|error| format!("Kits için boş port bulunamadı: {error}"))
 }
 
-/// Aranan sıra: açık ayar → uygulama verisine kurulmuş kopya (`<veri>/app`) →
-/// geliştirici düzeni (Fusion deposunun yanındaki `fusion-kits`).
-fn kits_dir_candidates(data_dir: &Path) -> Vec<PathBuf> {
+/// Aranan sıra: açık ayar → uygulamayla gelen paket → uygulama verisine kurulmuş
+/// kopya (`<veri>/app`) → geliştirici düzeni (depo yanındaki `fusion-kits`).
+fn kits_dir_candidates(data_dir: &Path, resource_dir: Option<&Path>) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(explicit) = std::env::var_os("FUSION_KITS_DIR") {
         candidates.push(PathBuf::from(explicit));
+    }
+    // Uygulamayla birlikte gelen paket, elle kurulan kopyadan önce gelir: sürümü
+    // uygulamanın sürümüyle birlikte yenilenir.
+    if let Some(resources) = resource_dir {
+        candidates.push(resources.join("kits").join("app"));
     }
     candidates.push(data_dir.join("app"));
     // Geliştirme derlemesinde Fusion deposunun yanındaki çalışma kopyası.
@@ -173,10 +188,14 @@ fn find_kits_dir(candidates: &[PathBuf]) -> Result<PathBuf, String> {
         })
 }
 
-fn node_candidates(home: &Path) -> Vec<PathBuf> {
+fn node_candidates(home: &Path, resource_dir: Option<&Path>) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(explicit) = std::env::var_os("FUSION_KITS_NODE") {
         candidates.push(PathBuf::from(explicit));
+    }
+    // Uygulamayla birlikte gelen Node: kullanıcının makinesinde Node kurulu olmayabilir.
+    if let Some(resources) = resource_dir {
+        candidates.push(resources.join("kits").join(node_name()));
     }
     if let Some(path) = std::env::var_os("PATH") {
         candidates.extend(std::env::split_paths(&path).map(|dir| dir.join(node_name())));

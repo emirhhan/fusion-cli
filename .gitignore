@@ -46,3 +46,5 @@ app/src-tauri/resources/runtime/unpacked/
 desktop_build/runtime/work/
 *.tar.gz
 app/src-tauri/resources/fusion-listen
+# Kits paketi ve Node çalışma zamanı derleme sırasında üretilir.
+app/src-tauri/resources/kits/
