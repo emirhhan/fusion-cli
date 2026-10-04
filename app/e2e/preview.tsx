@@ -13,6 +13,8 @@ import { olayEkle } from "../src/protocol/olayAkisi";
 import { EmptyState } from "../src/screens/EmptyState";
 import { Inspector } from "../src/screens/Inspector";
 import { Shell } from "../src/screens/Shell";
+import { MainRail, type MainSection } from "../src/screens/MainRail";
+import { SectionPlaceholder } from "../src/sections/SectionPlaceholder";
 import { Sidebar } from "../src/screens/Sidebar";
 import { applyTheme, type ThemePreference } from "../src/theme/theme";
 import { FileExplorer } from "../src/workspace/FileExplorer";
@@ -358,6 +360,7 @@ function Preview() {
   const inspector = state.startsWith("workspace-")
     ? <WorkspaceInspector collapsed={inspectorCollapsed} initialTab={inspectorTab} terminalState={params.get("terminalState") ?? (state === "workspace-error" ? "closed" : "active")} width={inspectorWidth} />
     : <Inspector collapsed={inspectorCollapsed} height={inspectorHeight} placement={inspectorPlacement} width={inspectorWidth} />;
+  const railSection = params.get("rail") as MainSection | null;
   const capabilities = state === "capabilities";
   const control = state === "control";
   const connectors = state === "connectors";
@@ -415,6 +418,9 @@ function Preview() {
   return (
     <>
       <Shell
+        rail={railSection ? <MainRail active={railSection} onSelect={() => undefined} /> : undefined}
+        surface={<SectionPlaceholder title="Kitaplık" detail="Yüklediğin ve Fusion'ın oluşturduğu dosyalar burada toplanacak." />}
+        surfaceActive={railSection === "library"}
         emptyChat={state === "empty"}
         composer={capabilities || connectors || control || settings || account || state === "image" ? undefined : (
           <Composer

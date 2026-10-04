@@ -1,0 +1,32 @@
+.main-surface {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.main-surface[hidden] {
+  display: none;
+}
+
+.media-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin: 12px 16px 0;
+}
+
+.media-tabs button {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  padding: 6px 14px;
+}
+
+.media-tabs button[aria-selected="true"] {
+  background: var(--surface-sidebar);
+  color: var(--text-primary);
+}

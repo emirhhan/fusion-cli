@@ -66,6 +66,12 @@ interface ShellProps {
   onSidebarClose?: () => void;
   sidebar: ReactNode;
   sidebarCollapsed?: boolean;
+  /** En soldaki ana menü. Verilmezse kabuk eskisi gibi tek başına çizilir. */
+  rail?: ReactNode;
+  /** Ana menünün Home dışındaki bölümleri: kabuğun yerine tüm yüzeyi kaplar.
+   * Kabuk DOM'da kalır (yalnız gizlenir); sohbet ve taslak kaybolmaz. */
+  surface?: ReactNode;
+  surfaceActive?: boolean;
   /** Çalışma paneli sağda mı, görev kutusunun altında mı. */
   inspectorPlacement?: "right" | "bottom";
 }
@@ -86,6 +92,9 @@ export function Shell({
   sidebar,
   sidebarCollapsed = false,
   inspectorPlacement = "right",
+  rail,
+  surface,
+  surfaceActive = false,
 }: ShellProps) {
   const inspectorRef = useRef<HTMLElement>(null);
   const overlayOwnsFocus = useRef(false);
@@ -180,9 +189,10 @@ export function Shell({
 
   useEffect(() => () => restorePreviousFocus(), [restorePreviousFocus]);
 
-  return (
+  const shell = (
     <div
       className="app-shell"
+      hidden={surfaceActive || undefined}
       data-inspector-open={inspectorOpen}
       data-inspector-overlay={inspectorOverlay}
       data-inspector-placement={inspectorPlacement}
@@ -242,6 +252,14 @@ export function Shell({
           type="button"
         />
       )}
+    </div>
+  );
+  if (!rail) return shell;
+  return (
+    <div className="app-frame">
+      {rail}
+      {shell}
+      <div className="app-frame__surface" hidden={!surfaceActive}>{surface}</div>
     </div>
   );
 }

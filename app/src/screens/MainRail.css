@@ -1,0 +1,94 @@
+/* En soldaki ana menü: Home, Zamanlananlar, Kitaplık, Görsel ve video, Kits.
+   Tema açık da olsa koyu kalır; bölüm değiştirici, içerik yüzeyi değildir. */
+.main-rail {
+  align-items: stretch;
+  background: var(--brand-obsidian, #111111);
+  color: #d6d6d6;
+  display: flex;
+  flex: 0 0 var(--main-rail-width);
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden auto;
+  padding: 0 6px 12px;
+  width: var(--main-rail-width);
+}
+
+/* macOS trafik ışıkları pencerenin sol üstünde durur; ilk madde altına girmez. */
+.main-rail__titlebar-spacer {
+  flex: 0 0 calc(var(--titlebar-inset, 0px) + 12px);
+}
+
+.main-rail__item {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 2px 10px;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.main-rail__item:hover {
+  background: rgb(255 255 255 / 8%);
+  color: #ffffff;
+}
+
+.main-rail__item:focus-visible {
+  outline: 2px solid var(--brand-signal, #b6ff3c);
+  outline-offset: -2px;
+}
+
+.main-rail__item[aria-current="page"] {
+  background: rgb(255 255 255 / 14%);
+  color: var(--brand-signal, #b6ff3c);
+}
+
+.main-rail__label {
+  font-size: 10px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+@media (max-width: 620px) {
+  .main-rail {
+    flex-basis: var(--main-rail-width-narrow);
+    width: var(--main-rail-width-narrow);
+    padding-inline: 4px;
+  }
+
+  .main-rail__label {
+    display: none;
+  }
+}
+
+/* Ray + bölüm yüzeyi. Ray trafik ışıklarının altını kapladığı için sağdaki
+   kabukta üst çubuğun ışıklardan kaçmasına gerek kalmaz. */
+.app-frame {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  width: 100%;
+}
+
+.app-frame > .app-shell,
+.app-frame__surface {
+  --titlebar-safe-left: 0px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.app-frame__surface {
+  background: var(--surface-canvas);
+  height: 100%;
+  overflow: hidden;
+}
+
+.app-frame > [hidden] {
+  display: none;
+}

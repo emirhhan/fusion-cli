@@ -335,12 +335,10 @@ describe("Sidebar yeni düzen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sohbet 0 sohbet seçenekleri" }));
     expect(screen.getByRole("menuitemcheckbox", { name: "Sabitlemeyi kaldır" }).getAttribute("aria-checked")).toBe("true");
   });
-  it("oluşturma sayfalarına yönlendirir", () => {
-    const navigate = vi.fn();
-    render(<Sidebar etkin={null} oturumlar={[]} onYeni={vi.fn()} onSec={vi.fn()} onNavigate={navigate} />);
-    fireEvent.click(screen.getByRole("button", { name: "Görsel oluştur" }));
-    fireEvent.click(screen.getByRole("button", { name: "Video oluştur" }));
-    expect(navigate.mock.calls).toEqual([["image-create"], ["video-create"]]);
+  it("görsel ve video girişleri ana menüye taşındığı için kenar çubuğunda yoktur", () => {
+    render(<Sidebar etkin={null} oturumlar={[]} onYeni={vi.fn()} onSec={vi.fn()} onNavigate={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Görsel oluştur" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Video oluştur" })).toBeNull();
   });
 });
 

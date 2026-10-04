@@ -694,14 +694,14 @@ it("boş shell oluşturma sayfalarını açar ve saklı sohbetleri siler", async
   fireEvent.click(screen.getByRole("button", { name: "Yeni görev sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
   await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
-  fireEvent.click(screen.getByRole("button", { name: "Görsel oluştur" }));
+  fireEvent.click(screen.getByRole("button", { name: "Görsel ve video üretimi" }));
   // Basit mod varsayılandır; iş akışı seçildiğinde düğümlü tuval açılır.
   expect(await screen.findByRole("heading", { name: "Görsel oluştur" })).toBeTruthy();
   expect(screen.getByLabelText("Nasıl bir görsel istiyorsun?")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "İş akışı" }));
   expect(screen.getByLabelText("Metin istemi")).toBeTruthy();
   expect(screen.getByRole("region", { name: "Görsel iş akışı tuvali" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Video oluştur" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Video" }));
   expect(await screen.findByRole("heading", { name: "Yakında" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Saklı sohbet sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));

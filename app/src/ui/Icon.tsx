@@ -33,7 +33,10 @@ export type IconName =
   | "skills"
   | "stop"
   | "terminal"
-  | "tests";
+  | "tests"
+  | "home"
+  | "clock"
+  | "library";
 
 const paths: Record<IconName, ReactNode> = {
   download: <><path d="M12 4v11" /><path d="m7 10 5 5 5-5" /><path d="M5 20h14" /></>,
@@ -70,6 +73,9 @@ const paths: Record<IconName, ReactNode> = {
   skills: <><path d="m12 3 1.4 4.2L18 8.5l-3.5 2.7.1 4.5-3.6-2.5-3.6 2.5.1-4.5L4 8.5l4.6-1.3z" /><path d="M17 17v4" /><path d="M15 19h4" /></>,
   stop: <rect width="10" height="10" x="7" y="7" rx="1.5" />,
   terminal: <><path d="m5 7 4 4-4 4" /><path d="M11 17h8" /></>,
+  home: <><path d="m3 11 9-8 9 8" /><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5" /></>,
+  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+  library: <><path d="M5 4v16" /><path d="M9 4v16" /><path d="M13 4v16" /><path d="m16.5 5 3.5 14.5" /></>,
   tests: <><path d="M9 3h6" /><path d="M10 3v5l-5 9a2.5 2.5 0 0 0 2.2 4h9.6a2.5 2.5 0 0 0 2.2-4l-5-9V3" /><path d="M8 15h8" /></>,
 };
 

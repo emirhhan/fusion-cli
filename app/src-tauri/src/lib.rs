@@ -1,4 +1,5 @@
 mod core_process;
+mod kits_process;
 mod permissions;
 mod runtime_installer;
 mod runtime_manager;
@@ -12,6 +13,7 @@ mod terminal;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use kits_process::{KitsManager, KitsStatus};
 use permissions::{izin_ayarlari_ac, izin_durumu, izin_iste};
 use runtime_installer::RuntimeResources;
 use runtime_manager::{CommandHealthProbe, RuntimeManager, RuntimeStatus};
@@ -467,6 +469,33 @@ fn cleanup_route_from_app(route: ShutdownRoute, app: &tauri::AppHandle) {
     let owners =
         AppCleanupOwners::from_managers(speech.inner(), sessions.inner(), terminals.inner(), None);
     cleanup_route(route, &owners);
+    if matches!(route, ShutdownRoute::ExitRequested | ShutdownRoute::Exit) {
+        app.state::<Arc<KitsManager>>().stop();
+    }
+}
+
+/// Kits yan sürecini (gerekirse) başlat ve iframe adresini döndür.
+///
+/// Sunucunun hazır olmasını beklediği için engelleyen iş parçacığında çalışır;
+/// arayüz bu sırada "hazırlanıyor" durumunu gösterir.
+#[tauri::command]
+async fn kits_baslat(
+    app: tauri::AppHandle,
+    manager: tauri::State<'_, Arc<KitsManager>>,
+) -> Result<KitsStatus, String> {
+    let home = app.path().home_dir().map_err(|error| error.to_string())?;
+    let data_root = if cfg!(windows) {
+        app.path()
+            .local_data_dir()
+            .map_err(|error| error.to_string())?
+    } else {
+        home.join(".local/share")
+    };
+    let data_dir = data_root.join("fusion-cli").join("kits");
+    let manager = Arc::clone(manager.inner());
+    tauri::async_runtime::spawn_blocking(move || manager.ensure_started(&home, &data_dir))
+        .await
+        .map_err(|error| format!("Kits başlatma görevi tamamlanamadı: {error}"))?
 }
 
 /// Konuşma tanımayı başlat.
@@ -664,6 +693,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(SessionManager::new())
         .manage(SpeechManager::new())
+        .manage(Arc::new(KitsManager::new()))
         .setup(|app| {
             let output_app = app.handle().clone();
             let closed_app = app.handle().clone();
@@ -714,7 +744,8 @@ pub fn run() {
             runtime_onar,
             izin_durumu,
             izin_iste,
-            izin_ayarlari_ac
+            izin_ayarlari_ac,
+            kits_baslat
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

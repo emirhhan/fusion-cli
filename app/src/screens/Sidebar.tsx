@@ -358,8 +358,6 @@ export function Sidebar({
           <button aria-label="Konuşma ve proje aramasını aç" aria-expanded={searchOpen} className="sidebar__search-trigger" onClick={() => setSearchOpen((open) => !open)} type="button"><Icon name="search" size={19} /></button>
         </div>
         <NavItem icon="new" label="Yeni sohbet" onClick={onYeni} />
-        <NavItem icon="image" label="Görsel oluştur" onClick={() => onNavigate("image-create")} />
-        <NavItem icon="video" label="Video oluştur" onClick={() => onNavigate("video-create")} />
         {searchOpen && <label className="sidebar__search">
           <Icon name="search" size={17} />
           <span className="sidebar__sr-only">Konuşma ve proje ara</span>

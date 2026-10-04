@@ -78,6 +78,9 @@
   --ters-metin: var(--text-inverse);
 
   --kenar-cubugu-genislik: 260px;
+  /* En soldaki ana menü rayı; 72px'lik macOS trafik ışığı kümesini kaplar. */
+  --main-rail-width: 76px;
+  --main-rail-width-narrow: 52px;
   --inspector-width: 420px;
   --sidebar-rail-width: 68px;
   /* ChatGPT okuma kolonu: 48rem. */
