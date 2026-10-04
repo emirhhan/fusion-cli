@@ -100,6 +100,15 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
     expect(fake.runtime.emitMessage.mock.calls.map(([message]) => message.metin)).toEqual(texts);
   });
 
+  it("yerel sıfır güvenli konuşmayı aynı sohbete bir kez yollar", async () => {
+    const fake = fakeRuntime();
+    render(<VoiceWindow runtime={fake.runtime} />);
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+    fake.recognition({ tur: "son", metin: "Projeyi şimdi aç", guven: 0, speech_ms: 720 });
+    await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledOnce());
+    expect(fake.runtime.emitMessage).toHaveBeenCalledWith({ kaynak: "kullanici", metin: "Projeyi şimdi aç" });
+  });
+
   it("sessizlik kaynaklı düşük güvenli Evet tekrarını ne gösterir ne yollar", async () => {
     const fake = fakeRuntime();
     render(<VoiceWindow runtime={fake.runtime} />);

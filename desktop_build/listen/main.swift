@@ -721,6 +721,14 @@ var yankiGidermeAcik = false
 func yankiGidermeyiAc(_ girdi: AVAudioInputNode) {
     do {
         try girdi.setVoiceProcessingEnabled(true)
+        // TTS ayrı say/afplay sürecinden gelir; varsayılan diğer-ses kısılması
+        // Fusion'ın kendi yanıtını da bastırabilir. Yankı giderme açık kalır.
+        if #available(macOS 14.0, *) {
+            girdi.voiceProcessingOtherAudioDuckingConfiguration =
+                AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
+                    enableAdvancedDucking: false, duckingLevel: .min
+                )
+        }
         yankiGidermeAcik = true
         taniYaz("yanki-giderme acik", uzunluk: 0, guven: 0, segment: 0)
     } catch {

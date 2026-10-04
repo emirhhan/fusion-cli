@@ -792,3 +792,21 @@ def test_yapilandirmasi_olan_model_kabul_edilir(tmp_path, monkeypatch):
 
     assert sonuc["ok"] is True
     assert voice.active_model_path() == model
+
+
+def test_sistem_ses_listesi_bosluklu_kaliteli_adi_korur(monkeypatch):
+    """Enhanced adı bölününce Türkçe ses yanlışlıkla katalogdan düşmemeli."""
+    from fusion_cli.appserver import voice
+
+    monkeypatch.setattr(voice.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(voice.shutil, "which", lambda _name: "/usr/bin/say")
+    monkeypatch.setattr(
+        voice.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            stdout="Cem                 tr_TR    # Merhaba.\nCem (Enhanced)      tr_TR    # Merhaba.\n"
+        ),
+    )
+    records = voice.installed_voice_records()
+    assert ("Cem (Enhanced)", "tr-TR", "Cem (Enhanced)") in records
+    assert voice.best_voice(records) == "Cem (Enhanced)"

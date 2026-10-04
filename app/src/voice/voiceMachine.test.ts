@@ -24,6 +24,14 @@ describe("evaluateRecognitionTurn", () => {
     expect(evaluateRecognitionTurn({ activeSession: 8, candidateRevision: 4, event: recognition("kismi", "yeni ve tamamlanmış metin", 0.84, 720), requestedRevision: 3, session: 8, timedOut: true })).toBe("wait");
   });
 
+  it("bildirilmeyen sıfır güveni yeterli konuşma kanıtıyla kabul eder", () => {
+    for (const tur of ["son", "kismi"] as const) {
+      expect(evaluateRecognitionTurn({ activeSession: 8, candidateRevision: 1,
+        event: recognition(tur, "Fusion projeyi şimdi aç", 0, 720),
+        requestedRevision: 1, session: 8, timedOut: tur === "kismi" })).toBe("accept");
+    }
+  });
+
   it("eski oturumu reddeder", () => {
     expect(evaluateRecognitionTurn({ activeSession: 9, candidateRevision: 1, event: recognition("son", "eski mesaj", 0.91, 500), requestedRevision: 1, session: 8, timedOut: false })).toBe("reject");
   });
@@ -42,6 +50,16 @@ describe("voiceMachine", () => {
     expect(result.finalRevision).toBe(0);
     expect(result.phase).toBe("listening");
     expect(result.transcript).toBe("");
+  });
+
+  it("sıfır güvenli sesli kısmi metni gösterir ve finali gönderir", () => {
+    const listening = voiceMachine(initialVoiceMachine, { type: "START_LISTENING", session: 8 });
+    const partial = voiceMachine(listening, { type: "RECOGNITION", session: 8,
+      event: recognition("kismi", "Projeyi şimdi aç", 0, 720) });
+    expect(partial.partial).toBe("Projeyi şimdi aç");
+    const final = voiceMachine(partial, { type: "RECOGNITION", session: 8,
+      event: recognition("son", "Projeyi şimdi aç", 0, 720) });
+    expect(final.finalRevision).toBe(1);
   });
 
   it("kalibrasyon ve konuşma başlangıcını ayrı aşamalarda gösterir", () => {

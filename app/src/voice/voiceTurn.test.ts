@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { cannedVoiceAnswer, findVoiceAnswer, speakVoiceAnswer, speakVoiceAnswerStreamed } from "./voiceTurn";
+import { buildVoiceRequest, findVoiceAnswer, speakVoiceAnswer, speakVoiceAnswerStreamed } from "./voiceTurn";
 
-describe("hazır Talk yanıtları", () => {
-  it("selamlaşmaları doğrudan karşılar", () => {
-    expect(cannedVoiceAnswer("Merhaba!" )).toBe("merhabalar abi buyur");
-    expect(cannedVoiceAnswer("Nasılsın Fusion?" )).toBe("iyidir çok şükür sen nasılsın yok bir yaramazlık inşallah");
-    expect(cannedVoiceAnswer("Nasılsın diye bir şiir yaz")).toBeNull();
+describe("sesli model isteği", () => {
+  it("selamlaşmayı ve doğal yanıt bağlamını modele iletir", () => {
+    expect(buildVoiceRequest("Merhaba!")).toContain("Merhaba!");
+    expect(buildVoiceRequest("Merhaba!")).toContain("Türkçe, doğal ve doğrudan");
+  });
+  it("kesilen cevabın bağlamını sonraki isteğe taşır", () => {
+    const request = buildVoiceRequest("Onu değil diğerini", "İlk seçenek");
+    expect(request).toContain("Onu değil diğerini");
+    expect(request).toContain('Sen "İlk seçenek" derken sözün kesildi');
   });
 });
 

@@ -69,7 +69,7 @@ import {
   type VoicePrefsPayload,
 } from "./voice/bridge";
 import { openVoiceWindow } from "./voice/windowBridge";
-import { cannedVoiceAnswer, findVoiceAnswer, speakVoiceAnswer, speakVoiceAnswerStreamed, type VoiceTurnHandle } from "./voice/voiceTurn";
+import { buildVoiceRequest, findVoiceAnswer, speakVoiceAnswerStreamed, type VoiceTurnHandle } from "./voice/voiceTurn";
 import { AccountGate } from "./account/AccountGate";
 import { AccountScreen } from "./account/AccountScreen";
 import { useAccount } from "./account/useAccount";
@@ -863,25 +863,7 @@ export function SessionUygulama({
     if (!active) return;
     const cikar = onVoiceMessage((mesaj) => {
       if (mesaj.kaynak !== "kullanici") return;
-      const canned = mesaj.kesilen ? null : cannedVoiceAnswer(mesaj.metin);
-      if (canned) {
-        void speakVoiceAnswer(active.client, canned, publishVoiceRuntimeState)
-          .then((turn) => {
-            activeVoiceTurn.current = turn;
-            void turn.finished.finally(() => {
-              if (activeVoiceTurn.current === turn) activeVoiceTurn.current = null;
-            }).catch(() => undefined);
-          }).catch(() => undefined);
-        return;
-      }
-      // Sözü kesildiyse modele NE söylerken kesildiği de gider. Bu bağlam
-      // olmadan model yarım bıraktığı cevabı bilmez ve kullanıcının
-      // düzeltmesini yeni bir soru sanar.
-      const gorev = mesaj.kesilen
-        ? `${mesaj.metin}\n\n[Sesli konuşma: sen "${mesaj.kesilen}" derken sözün kesildi.`
-          + ` Yarım kalan cevabınla kullanıcının bu son sözünü birlikte değerlendir;`
-          + ` baştan tekrar etme.]`
-        : mesaj.metin;
+      const gorev = buildVoiceRequest(mesaj.metin, mesaj.kesilen);
       const accepted = controller.send(active.id, gorev, []);
       if (!accepted) {
         void publishVoiceRuntimeState({

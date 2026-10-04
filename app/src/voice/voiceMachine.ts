@@ -48,6 +48,12 @@ export type RecognitionDecision = "wait" | "accept" | "reject";
 const MINIMUM_CONFIDENCE = 0.2;
 const MINIMUM_SPEECH_MS = 250;
 
+/** Yerel tanıyıcıda sıfır, güvenin bildirilmediğini belirtir; pozitif düşük puan reddedilir. */
+function hasUsableConfidence(confidence: number | null): boolean {
+  return confidence !== null && Number.isFinite(confidence)
+    && (confidence === 0 || (confidence >= MINIMUM_CONFIDENCE && confidence <= 1));
+}
+
 /** Native kapıdan bağımsız, tur sonlandırmayı belirleyen saf React kapısı. */
 export function evaluateRecognitionTurn(turn: RecognitionTurn): RecognitionDecision {
   if (turn.session !== turn.activeSession) return "reject";
@@ -56,7 +62,7 @@ export function evaluateRecognitionTurn(turn: RecognitionTurn): RecognitionDecis
   const text = event.metin.trim();
   if (event.tur !== "son" && !(turn.timedOut && event.tur === "kismi")) return "wait";
   if (event.speech_ms <= 0) return "wait";
-  if (!text || event.speech_ms < MINIMUM_SPEECH_MS || event.guven === null || event.guven < MINIMUM_CONFIDENCE) {
+  if (!text || event.speech_ms < MINIMUM_SPEECH_MS || !hasUsableConfidence(event.guven)) {
     return event.tur === "son" ? "reject" : "wait";
   }
   if (turn.timedOut && text.split(/\s+/u).length < 2) return "wait";
@@ -153,7 +159,7 @@ export function voiceMachine(state: VoiceMachineState, event: VoiceMachineEvent)
         };
       }
       if (recognition.tur !== "kismi" || recognition.speech_ms < MINIMUM_SPEECH_MS
-        || recognition.guven === null || recognition.guven < MINIMUM_CONFIDENCE) {
+        || !hasUsableConfidence(recognition.guven)) {
         return state.phase === "calibrating" ? { ...state, phase: "listening" } : state;
       }
       const text = recognition.metin.trim();

@@ -487,16 +487,14 @@ def installed_voice_records() -> tuple[tuple[str, str, str], ...]:
         return ()
     records: list[tuple[str, str, str]] = []
     for line in result.stdout.splitlines():
-        parts = line.split()
-        if len(parts) < 2:
+        description = line.split("#", 1)[0].strip()
+        parts = description.rsplit(None, 1)
+        if len(parts) != 2:
             continue
-        locale = parts[1].replace("_", "-")
-        # `say -v ?` KALİTE bilgisi vermez. Kimliği uydurmak yanlış olurdu:
-        # yüksek kaliteli bir ses kurulduğunda onu "compact" diye etiketler ve
-        # sıralama sessizce yanlış sesi seçerdi. Bu yüzden kimlik alanına
-        # yalnız `say`in gerçekten söylediği ad yazılır; kalite ipucu varsa
-        # (macOS bazı sesleri "Cem (Enhanced)" gibi listeler) addan okunur.
-        records.append((parts[0], locale, line.split("#")[0].strip()))
+        name, language = parts
+        locale = language.replace("_", "-")
+        # Ses adları boşluk içerebilir; kalite eki adla birlikte korunur.
+        records.append((name, locale, name))
     return tuple(records)
 
 
