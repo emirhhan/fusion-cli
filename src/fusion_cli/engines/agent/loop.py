@@ -115,6 +115,7 @@ from .execution_policy import (
     refresh_mutation_policy,
 )
 from .execution_route import ExecutionRoute, choose_execution_route
+from .expertise import expertise_hint
 from .history import needs_compression, total_chars
 from .narration import intro_paragraph, todo_transitions
 from .plan_runner import run_execution_plan
@@ -507,6 +508,7 @@ async def run_agent(
                 available=registry.get("site_design") is not None,
                 clone_available=registry.get("clone_site") is not None,
             ),
+            expertise_hint(task),
         )
         if depth == 0 and not chat_mode and not internal
         else ()
