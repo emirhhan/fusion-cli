@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import re
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlparse
@@ -134,6 +135,7 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
             else (SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT)
         ),
     )
+    onceki = preview.last_probe.get("open_count") if preview.last_probe.get("url") == url else None
     preview.last_probe = {"ok": not sonuc.problems, "summary": sonuc.summary(), "url": url}
     deps.publisher.publish(
         PreviewReady(url=url, kind=kind.value, root=str(root), title=sonuc.title)
@@ -151,8 +153,30 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
         ek_sorunlar = (*ek_sorunlar, *await _cart_flow(sonuc))
     # Kapanış kapısı (site_verify) bunları okur: açık fark ya da çalışmayan sepet
     # varken tur "doğrulandı" diye bitmesin.
-    preview.last_probe["open_findings"] = (*(farklar[1:] if farklar else ()), *ek_sorunlar)
-    return _result(url, kind.value, sonuc, setup, shot, farklar, ek_sorunlar)
+    acik_bulgular = (*(farklar[1:] if farklar else ()), *ek_sorunlar)
+    preview.last_probe["open_findings"] = acik_bulgular
+    acik = len(sonuc.problems) + len(acik_bulgular)
+    preview.last_probe["open_count"] = acik
+    sonuc_metni = _result(url, kind.value, sonuc, setup, shot, farklar, ek_sorunlar)
+    return _with_regression_note(sonuc_metni, onceki, acik)
+
+
+def _with_regression_note(result: ToolResult, previous: object, current: int) -> ToolResult:
+    """Açık bulgu sayısı bir önceki ölçüme göre ARTTIYSA bunu ikinci satırda söyle.
+
+    Ölçüldü (4 Ekim, clone_site sonrası koşu): kopya 2 farkla başladı; modelin CSS
+    düzenlemeleri farkı 13'e çıkardı (hero 720 → 4310 px) ve model fark etmeden 200+
+    adım daha düzenledi. Yalnız iyileştiren değişiklik tutulmalı.
+    """
+    if not isinstance(previous, int) or current <= previous:
+        return result
+    ilk, _, kalan = result.output.partition("\n")
+    not_ = (
+        f"GERİLEME: açık sorun+fark sayısı {previous} → {current} arttı. Son düzenlemen "
+        "sayfayı kötüleştirdi; onu geri al ve farklı bir yol dene (tema ilk hali "
+        "kopyalandıysa .fusion/tema-ilk/ altında)."
+    )
+    return replace(result, output=f"{ilk}\n{not_}\n{kalan}")
 
 
 async def _cart_flow(sonuc: PageProbe) -> tuple[str, ...]:

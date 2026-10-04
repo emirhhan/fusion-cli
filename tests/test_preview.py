@@ -565,3 +565,23 @@ def test_onizleme_ilk_satiri_durumu_once_soyler():
     assert hata.startswith("BAŞARISIZ: HTTP 500") and "a.php:3" in hata
     assert sorunlu.startswith("SORUNLU:") and "1 kaynak farkı" in sorunlu
     assert temiz.startswith("Önizleme çalışıyor")
+
+
+def test_php_hatasi_karisan_bozuk_baglanti_olcumu_dusurmez():
+    """Ölçüldü (4 Ekim): kontrol karakterli adres InvalidURL ile aracı çökertiyordu."""
+    from fusion_cli.tools.preview_probe import _fetch
+
+    assert _fetch("http://127.0.0.1:9/<br />\n<b>Fatal error</b>") == (0, "")
+
+
+def test_acik_bulgu_sayisi_artinca_gerileme_uyarisi_ikinci_satirda():
+    from fusion_cli.core.tools import ToolResult
+    from fusion_cli.engines.agent.preview_tools import _with_regression_note
+
+    sonuc = ToolResult("SORUNLU: sayfa açılıyor\nÖlçüm: x")
+
+    kotu = _with_regression_note(sonuc, 2, 13)
+
+    assert kotu.output.splitlines()[1].startswith("GERİLEME: açık sorun+fark sayısı 2 → 13")
+    assert _with_regression_note(sonuc, 13, 2) is sonuc
+    assert _with_regression_note(sonuc, None, 5) is sonuc

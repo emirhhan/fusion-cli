@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import html
+import http.client
 import re
 import urllib.error
 import urllib.request
@@ -222,6 +223,11 @@ def _fetch(url: str) -> tuple[int, str]:
     except urllib.error.HTTPError as error:
         return error.code, error.read().decode("utf-8", errors="replace")
     except (urllib.error.URLError, OSError, TimeoutError):
+        return 0, ""
+    except (ValueError, http.client.InvalidURL):
+        # Ölçüldü (4 Ekim): şablondaki PHP hatası bağlantı adresine karıştı
+        # ("/<br /><b>Fatal error…") ve InvalidURL bütün önizleme aracını düşürdü.
+        # Bozuk adres açılmayan bağlantı olarak raporlanır; ölçüm sürer.
         return 0, ""
 
 

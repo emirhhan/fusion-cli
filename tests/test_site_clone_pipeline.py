@@ -196,3 +196,17 @@ def test_betikli_simge_dugmeleri_baglantiya_doner():
     assert sonuc.startswith("<a href=\"<?php echo esc_url( wc_get_page_permalink( 'myaccount' ) )")
     assert 'class="i"' in sonuc and 'type="button"' not in sonuc
     assert '<button aria-label="Kapat">x</button>' in sonuc
+
+
+def test_tema_ilk_hali_yalniz_metin_dosyalariyla_yedeklenir(tmp_path):
+    from fusion_cli.engines.agent.clone_tools import _backup_theme
+
+    tema = tmp_path / "tema"
+    (tema / "assets").mkdir(parents=True)
+    (tema / "header.php").write_text("<?php ?>", encoding="utf-8")
+    (tema / "kopya.css").write_text("a{}", encoding="utf-8")
+    (tema / "assets" / "x.png").write_bytes(b"png")
+
+    _backup_theme(tema, tmp_path / "yedek")
+
+    assert sorted(p.name for p in (tmp_path / "yedek").iterdir()) == ["header.php", "kopya.css"]

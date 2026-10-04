@@ -108,6 +108,18 @@ async def _localize_store(
     steps.append(f"Fiyat biçimi kaynaktan: binlik '{bicim.thousand}', ondalık '{bicim.decimal}'.")
 
 
+#: Temanın ilk halinin yedeği (önizleme gerilemesinde geri dönülecek yer).
+THEME_BACKUP_DIR = ".fusion/tema-ilk"
+
+
+def _backup_theme(folder: Path, target: Path) -> None:
+    """Tema metin dosyalarını (PHP/CSS) yedekle; varlıklar değişmediği için kopyalanmaz."""
+    target.mkdir(parents=True, exist_ok=True)
+    for dosya in folder.iterdir():
+        if dosya.is_file() and dosya.suffix in (".php", ".css"):
+            (target / dosya.name).write_bytes(dosya.read_bytes())
+
+
 def _pick_pages(report: design.DesignReport, url: str) -> list[str]:
     """Ölçülen sayfalardan yakalanacakları seç: ana sayfa önce, sonra farklı türler."""
     adresler = [str(page.get("url", "")) for page in report.pages if page.get("url")]
@@ -220,7 +232,10 @@ async def run_clone_site(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(f"Sayfa yakalanamadı: {error}")
     kategoriler = await asyncio.to_thread(_catalog_categories, kaynak / "urunler.json")
     tema = await asyncio.to_thread(write_theme, yakalama, tema_klasoru.parent, url, kategoriler)
-    adimlar: list[str] = []
+    await asyncio.to_thread(_backup_theme, tema.folder, root / THEME_BACKUP_DIR)
+    adimlar: list[str] = [
+        f"Temanın ilk hali yedeklendi: {THEME_BACKUP_DIR}/ (gerilemede geri dön)."
+    ]
     sorunlar = list(yakalama.problems)
     dil = yakalama.pages[0].lang if yakalama.pages else ""
     await _install(root, kaynak / "urunler.json", dil, adimlar, sorunlar)
