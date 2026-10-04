@@ -7,7 +7,11 @@ afterEach(cleanup);
 
 describe("kitsFrameUrl", () => {
   it("yerel servis adresine yalnız yüzey işaretini ekler", () => {
-    expect(kitsFrameUrl("http://127.0.0.1:51234")).toBe("http://127.0.0.1:51234/?surface=kits");
+    expect(kitsFrameUrl("http://127.0.0.1:51234")).toBe("http://127.0.0.1:51234/?surface=kits&theme=light");
+  });
+
+  it("temayı adrese ekler", () => {
+    expect(kitsFrameUrl("http://127.0.0.1:51234", "dark")).toBe("http://127.0.0.1:51234/?surface=kits&theme=dark");
   });
 
   it("uzak adresi, kimlik bilgisini ve sorguyu reddeder", () => {
@@ -23,7 +27,7 @@ describe("KitsScreen", () => {
     render(<KitsScreen start={() => Promise.resolve({ url: "http://127.0.0.1:50001" })} />);
     expect(screen.getByText("Kits hazırlanıyor…")).toBeTruthy();
     const frame = await screen.findByTitle("Fusion Kits");
-    expect(frame.getAttribute("src")).toBe("http://127.0.0.1:50001/?surface=kits");
+    expect(frame.getAttribute("src")).toBe("http://127.0.0.1:50001/?surface=kits&theme=light");
     expect(frame.getAttribute("referrerpolicy")).toBe("no-referrer");
   });
 
@@ -37,6 +41,20 @@ describe("KitsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
     expect(await screen.findByTitle("Fusion Kits")).toBeTruthy();
     expect(start).toHaveBeenCalledTimes(2);
+  });
+
+  it("Fusion koyu temadaysa Kits koyu açılır ve tema değişimi sayfayı yenilemeden iletilir", async () => {
+    document.documentElement.dataset.theme = "dark";
+    render(<KitsScreen start={() => Promise.resolve({ url: "http://127.0.0.1:50003" })} />);
+    const frame = (await screen.findByTitle("Fusion Kits")) as HTMLIFrameElement;
+    expect(frame.getAttribute("src")).toBe("http://127.0.0.1:50003/?surface=kits&theme=dark");
+    const post = vi.fn();
+    Object.defineProperty(frame, "contentWindow", { configurable: true, value: { postMessage: post } });
+    delete document.documentElement.dataset.theme;
+    await vi.waitFor(() => expect(post).toHaveBeenCalledWith(
+      { type: "fusion-kits-theme", theme: "light" }, "http://127.0.0.1:50003",
+    ));
+    expect(frame.getAttribute("src")).toContain("theme=dark");
   });
 
   it("güvensiz adres dönerse iframe kurmaz", async () => {

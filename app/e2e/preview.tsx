@@ -15,6 +15,7 @@ import { Inspector } from "../src/screens/Inspector";
 import { Shell } from "../src/screens/Shell";
 import { MainRail, type MainSection } from "../src/screens/MainRail";
 import { LibraryScreen } from "../src/library/LibraryScreen";
+import { MediaScreen } from "../src/sections/MediaScreen";
 import { ScheduleScreen } from "../src/schedule/ScheduleScreen";
 import { Sidebar } from "../src/screens/Sidebar";
 import { applyTheme, type ThemePreference } from "../src/theme/theme";
@@ -438,7 +439,7 @@ function Preview() {
           : <LibraryScreen client={sectionPreviewClient} toUrl={() => null} />}
         surfaceActive={railSection === "library" || railSection === "scheduled"}
         emptyChat={state === "empty"}
-        composer={capabilities || connectors || control || settings || account || state === "image" ? undefined : (
+        composer={capabilities || connectors || control || settings || account || state === "image" || state === "video" ? undefined : (
           <Composer
             workspaceMode={previewMode}
             onWorkspaceModeChange={setPreviewMode}
@@ -460,7 +461,7 @@ function Preview() {
           />
         )}
         content={<>
-          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} /> : settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" ? <ImageCreate chooseSavePath={async () => null} client={imageClient} toUrl={gorselAdresi} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation mesajlar={state === "running" ? runningMessages : state === "team" ? teamMessages : messages} running={state === "running" || state === "team"} />}
+          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} /> : settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" || state === "video" ? <MediaScreen active={state === "video" ? "video-create" : "image-create"} image={<ImageCreate chooseSavePath={async () => null} client={imageClient} toUrl={gorselAdresi} />} onSelect={() => undefined} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation mesajlar={state === "running" ? runningMessages : state === "team" ? teamMessages : messages} running={state === "running" || state === "team"} />}
           {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
         </>}
         header={<AppHeader inspectorAvailable={!capabilities && !control && !settings && !account} inspectorOpen={!capabilities && !control && !settings && !account && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" title={account ? "Hesabım" : settings ? "Ayarlar" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}

@@ -33,17 +33,3 @@ export function MainSurface({ kits, library, scheduled, section }: MainSurfacePr
     </>
   );
 }
-
-interface MediaTabsProps {
-  active: "image-create" | "video-create";
-  onSelect: (page: "image-create" | "video-create") => void;
-}
-
-export function MediaTabs({ active, onSelect }: MediaTabsProps) {
-  return (
-    <div aria-label="Üretim türü" className="media-tabs" role="tablist">
-      <button aria-selected={active === "image-create"} onClick={() => onSelect("image-create")} role="tab" type="button">Görsel</button>
-      <button aria-selected={active === "video-create"} onClick={() => onSelect("video-create")} role="tab" type="button">Video</button>
-    </div>
-  );
-}

@@ -85,7 +85,8 @@ import { listenForFileDrops } from "./platform/drop";
 import { FeedbackDialog } from "./feedback/FeedbackDialog";
 import { ImageCreate } from "./imagecreate/ImageCreate";
 import { MainRail, type MainSection } from "./screens/MainRail";
-import { MainSurface, MediaTabs, type SurfaceSection } from "./sections/MainSurface";
+import { MainSurface, type SurfaceSection } from "./sections/MainSurface";
+import { MediaScreen } from "./sections/MediaScreen";
 import { KitsScreen } from "./kits/KitsScreen";
 import { LibraryScreen } from "./library/LibraryScreen";
 import { ScheduleScreen } from "./schedule/ScheduleScreen";
@@ -1146,7 +1147,7 @@ export function SessionUygulama({
       surface={mainSurface}
       surfaceActive={surfaceSection !== null}
       header={<AppHeader canNavigateBack={pageHistory.canGoBack} canNavigateForward={pageHistory.canGoForward} onNavigateBack={pageHistory.back} onNavigateForward={pageHistory.forward} title="Yeni sohbet" status="Hazır" inspectorOpen={false} onToggleInspector={() => undefined} onToggleSidebar={layout.toggleSidebar} sidebarCollapsed={layout.sidebarCollapsed} />}
-      content={<>{mediaPage && <MediaTabs active={page} onSelect={setPage} />}{page === "image-create" ? <ImageCreate client={null} /> : page === "video-create" ? <section className="empty-state"><div className="empty-state__content"><h2>Yakında</h2><p>Video oluşturma sonraki sürümde gelecek.</p><button type="button" onClick={() => setPage("chat")}>Sohbete dön</button></div></section> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}<button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button></>}
+      content={<>{mediaPage ? <MediaScreen active={page} image={<ImageCreate client={null} />} onSelect={setPage} /> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}{!mediaPage && <button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button>}</>}
       sidebarCollapsed={layout.sidebarCollapsed}
       onSidebarClose={layout.toggleSidebar}
       sidebar={<Sidebar collapsed={layout.sidebarCollapsed} etkin={null} onNavigate={(destination) => void navigateSidebar(destination)} onSil={(id) => controller.remove(id)} onMove={(id, root) => controller.move(id, root)} onYeni={() => void startDesktopChat()} onSec={(id) => { void controller.openStored(id).catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene.")); }} oturumlar={controller.storedConversations.map((conversation) => ({ session_id: conversation.id, source: "fusion", title: conversation.title, project: projectName(conversation.root), projectRoot: conversation.root, updated_at: conversation.updatedAt * 1000 }))} />}
@@ -1253,10 +1254,8 @@ export function SessionUygulama({
   ) : (
     <EmptyState durum={active.running ? "thinking" : "idle"} projectName={projectName(active.root)} workspaceMode={workspaceMode} onSelectPrompt={setDraft} />
   );
-  const content = page === "image-create"
-    ? <><MediaTabs active={page} onSelect={setPage} /><ImageCreate client={active.client} /></>
-    : page === "video-create"
-    ? <><MediaTabs active={page} onSelect={setPage} /><section className="empty-state"><div className="empty-state__content"><h2>Yakında</h2><p>Video oluşturma sonraki sürümde gelecek.</p><button type="button" onClick={() => setPage("chat")}>Sohbete dön</button></div></section></>
+  const content = mediaPage
+    ? <MediaScreen active={page} image={<ImageCreate client={active.client} />} onSelect={setPage} />
     : page === "skills"
     ? <SkillsCatalog client={active.client} onClose={() => setPage("chat")} />
     : page === "control"
