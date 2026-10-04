@@ -73,14 +73,18 @@ class HudReading:
 
     dom: tuple[str, ...] = ()
     canvas: tuple[str, ...] = ()
+    #: `window.__GAME_STATE__()` varsa oradan okunan skor/can satırları. Ölçüldü (4 Ekim):
+    #: HUD yalnız sayı gösteriyordu ("Skor" yazısı yoktu) ve oyun durum kancasını
+    #: sunduğu hâlde madde "ölçülemedi" diye düştü.
+    state: tuple[str, ...] = ()
 
     @property
     def lines(self) -> tuple[str, ...]:
-        return tuple(sorted({*self.dom, *self.canvas}))
+        return tuple(sorted({*self.dom, *self.canvas, *self.state}))
 
     @property
     def found(self) -> bool:
-        return bool(self.dom or self.canvas)
+        return bool(self.dom or self.canvas or self.state)
 
 
 def _hud_lines(texts: list[str]) -> tuple[str, ...]:
@@ -88,11 +92,21 @@ def _hud_lines(texts: list[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(line for line in lines if line and HUD_PATTERN.search(line)))
 
 
+_STATE_JS = """() => { try { const s = typeof window.__GAME_STATE__ === 'function'
+  ? window.__GAME_STATE__() : null; if (!s || typeof s !== 'object') return [];
+  const out = []; for (const [k, v] of Object.entries(s)) {
+    if (/^(skor|score|puan|can|lives|life|health|hp)$/i.test(k) && typeof v === 'number')
+      out.push(k + ': ' + v); } return out; } catch (e) { return []; } }"""
+
+
 def read_hud(page: Page) -> HudReading:
-    """DOM metninde ve canvas'ın son karesinde HUD benzeri satırları ara."""
+    """DOM metninde, canvas'ın son karesinde ve oyun durum kancasında HUD satırlarını ara."""
     dom_text = cast("str", page.evaluate(_DOM_TEXT_JS))
     canvas_texts = cast("list[str]", page.evaluate(_LAST_FRAME_TEXTS_JS))
-    return HudReading(dom=_hud_lines([dom_text]), canvas=_hud_lines(canvas_texts))
+    durum = cast("list[str]", page.evaluate(_STATE_JS))
+    return HudReading(
+        dom=_hud_lines([dom_text]), canvas=_hud_lines(canvas_texts), state=tuple(durum)
+    )
 
 
 def raf_count(page: Page) -> int:
