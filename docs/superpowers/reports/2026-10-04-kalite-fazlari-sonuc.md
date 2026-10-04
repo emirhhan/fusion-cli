@@ -11,11 +11,11 @@ Model: `nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b`, öğretmen Gemini web "3.
 | Alan | Önce (baz) | Sonra | Not |
 |---|---|---|---|
 | Site kopyası (sneaksup → WP/Woo) | 6/14 (17. koşu, 90 dk sınırında) | **14/14**, 25,6 dk | Görsel benzerlik 0,89. Aynı kodla bir koşu 13/14 (benzerlik eşiği). |
-| HTML oyun | 6/7 | **7/7** (iki tam koşu) | Önceki "5/7" denetçinin ölçüm hatasıydı. `play_probe` sonrası iki koşu model cevap vermediği için bitmedi; diskteki oyun 7/7 ama koşu tamamlanmadığından sayılmadı. |
+| HTML oyun | 6/7 | 7/7, 7/7, 6/7 (üç tam koşu) | Üç koşudan biri "yeniden başlat" maddesinde kaldı; kararlı geçiyor denemez. İki koşu model cevap vermediği için uzadı. |
 | Remotion | 8/8 (11,0 dk) | 8/8 (7,7 dk) | Puan aynı, süre kısaldı. İki denetçi hatası düzeltildi (kare farkı eşiği, alt klasördeki kaynak); eski koşular yeniden puanlandı. |
 | Kendini geliştirme | 6/6 | 6/6 | Değişmedi. |
 | Animasyon | 6/8 | 6/8 – 7/8 (üç koşu), kapanış kapısından sonra **8/8** (tek koşu, 27,5 dk) | Layout özelliği canlandırma kapısı eklendikten sonraki ilk tam koşu geçti; tek koşu istatistik değildir. |
-| Tarayıcı (Fusion Browser) | 7/7 görünüyordu (curl ile) | 6/9, sonra 8/9 (gerçek Chrome) | İlk kez tarayıcıyla gezildi, tünel yok. Form henüz tarayıcıyla gönderilemedi; alan geçmiş sayılmaz. Aşağıya bak. |
+| Tarayıcı (Fusion Browser) | 7/7 görünüyordu (curl ile) | 6/9 → 8/9 (gerçek Chrome, son koşu 5,5 dk) | Tarayıcıyla gezme ve form gönderme çalışıyor, tünel yok. Form alanları yanlış dolduruldu; alan geçmiş sayılmaz. |
 
 Tek koşuluk sonuçlar istatistik değildir; her alan en az üç kez koşulmadan "geçti" denmez.
 
@@ -46,8 +46,11 @@ fırlatınca araç "başarılı: null" dönüyordu (seçim kutusuna yazma, eskim
 İlk düzeltme (0.3.8) hatayı görünür yaptı ama sayfayı değiştiren başarılı tıklamaları da
 "başarısız" saydı; ölçüm bunu yakaladı (dalga12: 8/9, form `python-requests` ile gönderildi,
 denetçi `tarayiciyla_yapildi` maddesini düşürdü). 0.3.9 hatayı sayfadan veri olarak döndürüyor.
-**0.3.9 canlıda ölçülemedi:** sonraki iki deneme eklenti eşleşmediği için hiç başlamadı
-(geçersiz). Eklentinin Chrome'da yeniden yüklenmesi ve ölçümün tekrarı açık iştir.
+0.3.9 ölçümü (dalga16, Fusion uygulaması kapalıyken): **8/9, 5,5 dk**. Form ilk kez gerçek
+tarayıcıyla gönderildi, hatalar araca ulaştı. Düşen madde `form_alanlari_dogru`: model "ad" alanına
+"Destek" yazdı, konu seçim kutusunu "Satış"ta bıraktı ve yine de başarı bildirdi (sahte başarı 1).
+Kalan sorun eklentide değil, modelin alan eşlemesinde ve seçim kutusu aracını kullanmamasında.
+Not: Fusion uygulaması açıkken ölçüm eşleşmiyor (tek köprü dosyası); ölçümden önce kapatılmalı.
 
 ## Bu turda ayrıca düzeltilenler
 
