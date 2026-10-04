@@ -111,11 +111,13 @@ from .hosted_connectors import (
 from .image_create import create_image, image_providers
 from .image_flows import export_image, list_flows, list_gallery, load_flow, save_flow
 from .instructions import get_instructions, instruction_block, save_instructions
+from .library import LibrarySink, add_upload, list_library, remove_entry
 from .model_catalog import list_selectable_models
 from .personal_memory import PersonalMemory
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_event, encode_result
+from .schedule import SCHEDULE_ROUTES
 from .tiers import list_tiers, select_tier
 from .usage import UsageMeter, usage_status
 from .voice import download_piper_model as voice_download_model
@@ -501,6 +503,14 @@ class AppSession:
             return save_flow(request.data)
         if request.name == "gorsel.akis.yukle":
             return load_flow(request.data)
+        if request.name in SCHEDULE_ROUTES:
+            return SCHEDULE_ROUTES[request.name](request.data)
+        if request.name == "kitaplik.liste":
+            return list_library(request.data)
+        if request.name == "kitaplik.ekle":
+            return add_upload(request.data)
+        if request.name == "kitaplik.kaldir":
+            return remove_entry(request.data)
         if request.name == "chrome.baslat":
             return {"ok": True, **await self._chrome.start()}
         if request.name == "chrome.durum":
@@ -1397,7 +1407,7 @@ class AppSession:
         # Kullanım sayacı olayları ARADAN dinler: sayaç için ayrı bir yol
         # açmak, bazı çağrı yollarının muhasebeden düşmesine yol açardı.
         writer = self._chrome.tee(_discard_line) if browser_only else self._writer
-        sink = _MeteredSink(ProtocolSink(writer), self._usage)
+        sink = LibrarySink(_MeteredSink(ProtocolSink(writer), self._usage), self._state.root)
         prompter = ProtocolPrompter(
             writer, self.pending, root=self._state.root, element_name=self._chrome.element_name
         )

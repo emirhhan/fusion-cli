@@ -86,8 +86,10 @@ import { FeedbackDialog } from "./feedback/FeedbackDialog";
 import { ImageCreate } from "./imagecreate/ImageCreate";
 import { MainRail, type MainSection } from "./screens/MainRail";
 import { MainSurface, MediaTabs, type SurfaceSection } from "./sections/MainSurface";
-import { SectionPlaceholder } from "./sections/SectionPlaceholder";
 import { KitsScreen } from "./kits/KitsScreen";
+import { LibraryScreen } from "./library/LibraryScreen";
+import { ScheduleScreen } from "./schedule/ScheduleScreen";
+import { useScheduleRunner } from "./schedule/useScheduleRunner";
 import type { ReportInput } from "./feedback/report";
 import { useCrashReporter } from "./feedback/useCrashReporter";
 
@@ -704,6 +706,25 @@ export function SessionUygulama({
       setNewTaskError("Sayfa veya proje açılamadı. Yeniden dene.");
     }
   };
+  // Zamanlanan görev arka planda yeni bir sohbet açar; kullanıcının o an
+  // baktığı sohbet değişmez.
+  const activeIdRef = useRef<string | null>(null);
+  activeIdRef.current = active?.id ?? null;
+  const createScheduledSession = useCallback(
+    async (input: { mode: "kod"; root: string; title: string }) => {
+      const previous = activeIdRef.current;
+      const id = await controller.create(input);
+      if (previous) controller.select(previous);
+      return id;
+    },
+    [controller],
+  );
+  const scheduleRunner = useScheduleRunner({
+    client: active?.client ?? null,
+    create: createScheduledSession,
+    send: controller.send,
+    sessions: controller.state.sessions,
+  });
   const selectMainSection = (section: MainSection) => {
     if (section === "scheduled" || section === "library" || section === "kits") {
       setSurfaceSection(section);
@@ -720,8 +741,8 @@ export function SessionUygulama({
   const mainSurface = (
     <MainSurface
       section={surfaceSection}
-      scheduled={<SectionPlaceholder title="Zamanlananlar" detail="Daha sonra çalışacak işler burada listelenecek." />}
-      library={<SectionPlaceholder title="Kitaplık" detail="Yüklediğin ve Fusion'ın oluşturduğu dosyalar burada toplanacak." />}
+      scheduled={<ScheduleScreen client={active?.client ?? null} defaultRoot={active?.root ?? ""} onRunNow={scheduleRunner.runNow} visible={surfaceSection === "scheduled"} />}
+      library={<LibraryScreen client={active?.client ?? null} visible={surfaceSection === "library"} />}
       kits={<KitsScreen />}
     />
   );

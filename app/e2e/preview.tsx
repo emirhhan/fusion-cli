@@ -14,7 +14,8 @@ import { EmptyState } from "../src/screens/EmptyState";
 import { Inspector } from "../src/screens/Inspector";
 import { Shell } from "../src/screens/Shell";
 import { MainRail, type MainSection } from "../src/screens/MainRail";
-import { SectionPlaceholder } from "../src/sections/SectionPlaceholder";
+import { LibraryScreen } from "../src/library/LibraryScreen";
+import { ScheduleScreen } from "../src/schedule/ScheduleScreen";
 import { Sidebar } from "../src/screens/Sidebar";
 import { applyTheme, type ThemePreference } from "../src/theme/theme";
 import { FileExplorer } from "../src/workspace/FileExplorer";
@@ -361,6 +362,19 @@ function Preview() {
     ? <WorkspaceInspector collapsed={inspectorCollapsed} initialTab={inspectorTab} terminalState={params.get("terminalState") ?? (state === "workspace-error" ? "closed" : "active")} width={inspectorWidth} />
     : <Inspector collapsed={inspectorCollapsed} height={inspectorHeight} placement={inspectorPlacement} width={inspectorWidth} />;
   const railSection = params.get("rail") as MainSection | null;
+  const sectionPreviewClient = {
+    request: async (name: string) => name === "zamanlama.liste"
+      ? { ok: true, gorevler: [
+          { id: "1", baslik: "Sabah stok raporu", gorev: "Stok raporunu çıkar", kok: "/Users/ornek/proje", tur: "gunluk", saat: "09:00", etkin: true, sonraki: 1791180000, son_calisma: 1791093600 },
+          { id: "2", baslik: "Haftalık reklam özeti", gorev: "Reklam özetini hazırla", kok: "/Users/ornek/proje", tur: "haftalik", saat: "18:30", gunler: [0, 4], etkin: false, sonraki: 1791300000, son_calisma: null },
+        ] }
+      : { ok: true, toplam: 4, dosyalar: [
+          { yol: "/Users/ornek/proje/rapor.md", ad: "rapor.md", tur: "belge", kaynak: "uretilen", kok: "/Users/ornek/proje", boyut: 4200, degisim: 4 },
+          { yol: "/Users/ornek/galeri/kask.png", ad: "kask.png", tur: "gorsel", kaynak: "gorsel", kok: "", boyut: 812000, degisim: 3 },
+          { yol: "/Users/ornek/proje/src/app.tsx", ad: "app.tsx", tur: "kod", kaynak: "uretilen", kok: "/Users/ornek/proje", boyut: 9100, degisim: 2 },
+          { yol: "/Users/ornek/kitaplik/fatura.pdf", ad: "fatura.pdf", tur: "belge", kaynak: "yuklenen", kok: "", boyut: 120000, degisim: 1 },
+        ] },
+  };
   const capabilities = state === "capabilities";
   const control = state === "control";
   const connectors = state === "connectors";
@@ -419,8 +433,10 @@ function Preview() {
     <>
       <Shell
         rail={railSection ? <MainRail active={railSection} onSelect={() => undefined} /> : undefined}
-        surface={<SectionPlaceholder title="Kitaplık" detail="Yüklediğin ve Fusion'ın oluşturduğu dosyalar burada toplanacak." />}
-        surfaceActive={railSection === "library"}
+        surface={railSection === "scheduled"
+          ? <ScheduleScreen client={sectionPreviewClient} defaultRoot="/Users/ornek/proje" onRunNow={async () => undefined} />
+          : <LibraryScreen client={sectionPreviewClient} toUrl={() => null} />}
+        surfaceActive={railSection === "library" || railSection === "scheduled"}
         emptyChat={state === "empty"}
         composer={capabilities || connectors || control || settings || account || state === "image" ? undefined : (
           <Composer
