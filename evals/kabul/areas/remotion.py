@@ -45,9 +45,11 @@ SAMPLE_TIMES_S = (0.5, 5.0, 9.5)
 #: Karenin "boş değil" sayılması için parlaklık varyansı alt sınırı (tek renk = 0;
 #: koyu zemin üstüne tek başlık bile yüzlerce verir).
 MIN_FRAME_VARIANCE = 25.0
-#: İki örnek kare arasında değişen piksel oranı alt sınırı (%2: sahne değişimi ya da
-#: büyük öğe hareketi; dondurulmuş videoda sıfır).
-MIN_FRAME_DIFFERENCE = 0.02
+#: İki örnek kare arasında değişen piksel oranı alt sınırı. Amaç DONMUŞ videoyu
+#: yakalamak (orada ~0). Ölçüldü (4 Ekim taban): koyu zeminde başlık sahnesi ile
+#: kapanış sahnesi gerçekten farklı kareler olduğu hâlde oran 0,019 çıktı; %2 sade
+#: tasarımı "donuk" sayıyordu. Tasarım kalitesi bu maddenin işi değildir.
+MIN_FRAME_DIFFERENCE = 0.005
 #: ffprobe/ffmpeg alt süreç zaman aşımı (sn).
 TOOL_TIMEOUT_S = 120
 
