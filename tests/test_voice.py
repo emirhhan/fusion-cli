@@ -804,7 +804,9 @@ def test_sistem_ses_listesi_bosluklu_kaliteli_adi_korur(monkeypatch):
         voice.subprocess,
         "run",
         lambda *_args, **_kwargs: SimpleNamespace(
-            stdout="Cem                 tr_TR    # Merhaba.\nCem (Enhanced)      tr_TR    # Merhaba.\n"
+            stdout=(
+                "Cem                 tr_TR    # Merhaba.\nCem (Enhanced)      tr_TR    # Merhaba.\n"
+            )
         ),
     )
     records = voice.installed_voice_records()

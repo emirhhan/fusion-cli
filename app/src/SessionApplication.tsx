@@ -864,7 +864,7 @@ export function SessionUygulama({
     const cikar = onVoiceMessage((mesaj) => {
       if (mesaj.kaynak !== "kullanici") return;
       const gorev = buildVoiceRequest(mesaj.metin, mesaj.kesilen);
-      const accepted = controller.send(active.id, gorev, []);
+      const accepted = controller.send(active.id, gorev.text, [], true, gorev.voice);
       if (!accepted) {
         void publishVoiceRuntimeState({
           durum: "error",

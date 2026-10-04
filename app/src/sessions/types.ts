@@ -2,6 +2,10 @@ import type { ProtocolClient } from "../protocol/client";
 import type { BaglamOlcusu, Soru } from "../protocol/types";
 import type { Mesaj } from "../screens/Conversation";
 
+export interface VoiceTurnMetadata {
+  kesilen?: string;
+}
+
 export type SessionSource = "fusion" | "claude" | "codex" | "hermes";
 export type SessionStatus = "ready" | "crashed" | "closed";
 

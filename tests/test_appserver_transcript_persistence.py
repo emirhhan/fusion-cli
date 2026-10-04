@@ -251,3 +251,42 @@ async def test_gorevler_bittiyse_surdurulmez(tmp_path, monkeypatch):
     await _tur(oturum, satirlar, "büyük işi yap")
 
     assert cagri == 1
+
+
+async def test_sesli_baglam_yalniz_ilgili_model_turuna_gider(tmp_path, monkeypatch):
+    """Ses talimatı ve kesilme metni kayıtlı kullanıcı sözünü kirletmez."""
+    from types import SimpleNamespace
+
+    gorulen = []
+
+    async def calistir(task, _config, **kwargs):
+        gorulen.append((task, kwargs["extra_system"]))
+        return SimpleNamespace(ok=True, final_text="Cevap", messages=())
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", calistir)
+    satirlar = []
+    oturum = _session(tmp_path, satirlar)
+    await _sekme(oturum)
+    await oturum.handle(
+        Request(
+            "ses",
+            "tur.calistir",
+            {
+                "gorev": "Diğer seçeneği anlat",
+                "sesli": {"kesilen": "İlk seçenek şöyle"},
+            },
+        )
+    )
+    await _tur(oturum, satirlar, "Yazılı devam")
+
+    assert gorulen[0][0] == "Diğer seçeneği anlat"
+    assert "Türkçe, doğal ve doğrudan" in gorulen[0][1]
+    assert "İlk seçenek şöyle" in gorulen[0][1]
+    assert "Türkçe, doğal ve doğrudan" not in gorulen[1][1]
+    assert "İlk seçenek şöyle" not in gorulen[1][1]
+    assert _kayitli(oturum, tmp_path) == [
+        ("user", "Diğer seçeneği anlat"),
+        ("assistant", "Cevap"),
+        ("user", "Yazılı devam"),
+        ("assistant", "Cevap"),
+    ]

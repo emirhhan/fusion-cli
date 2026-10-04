@@ -167,6 +167,26 @@ describe("useSessions", () => {
     ]));
   });
 
+  it("sesli bağlamı ilk ve kuyruklu turda sözden ayrı tutar", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+    act(() => {
+      result.current.send("varsayilan", "Merhaba", [], true, {});
+      result.current.send("varsayilan", "Diğerini anlat", [], true, { kesilen: "İlk seçenek" });
+    });
+    expect(result.current.state.sessions.varsayilan.messages.map((message) => message.metin))
+      .toEqual(["Merhaba", "Diğerini anlat"]);
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    expect(fake.baslikIstekleri).toEqual(["Merhaba"]);
+    expect(JSON.parse(fake.sent[0].line).veri).toEqual({ gorev: "Merhaba", ekler: [], sesli: {} });
+    act(() => fake.emitResult("varsayilan", JSON.parse(fake.sent[0].line).id, { ok: true }));
+    await waitFor(() => expect(fake.sent).toHaveLength(2));
+    expect(JSON.parse(fake.sent[1].line).veri).toEqual({
+      gorev: "Diğerini anlat", ekler: [], sesli: { kesilen: "İlk seçenek" },
+    });
+  });
+
   it("çalışırken yazılan mesajı KUYRUĞA alır, tur bitince gönderir", async () => {
     // Claude'daki davranış: iş sürerken yazılan mesaj kaybolmaz, sıraya girer.
     // Ölçüldü (17 Eylül denetimi): ikinci mesaj "zaten çalışan bir tur var" ile

@@ -9,6 +9,7 @@ import { loadSessionView, saveSessionView } from "./persistence";
 import { isProjectRoot, projectName } from "./projectRoots";
 import { DEFAULT_TITLE } from "./title";
 import type {
+  VoiceTurnMetadata,
   BackendSessionSnapshot,
   NewSession,
   ResumeSession,
@@ -128,7 +129,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const runningRequests = useRef(new Set<string>());
   //: Tur sürerken yazılan mesajlar. Claude'da mesaj kaybolmaz, sıraya girer;
   //: ölçüldü (17 Eylül) — Fusion ikinci mesajı reddedip yazılanı çöpe atıyordu.
-  const kuyruk = useRef(new Map<string, { task: string; attachments: SessionAttachment[] }[]>());
+  const kuyruk = useRef(new Map<string, { task: string; attachments: SessionAttachment[]; voice?: VoiceTurnMetadata }[]>());
   //: `stop()` sonrası zorla-sıfırlama zamanlayıcıları (bkz. TUR_IPTAL_GUVENLI_SURE_MS).
   const iptalZamanlayicilari = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   //: Kuyruk sürülürken taze oturum haritası gerekir; `send` kapanışı eskimiş olur.
@@ -417,7 +418,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   }, [state]);
 
   const send = useCallback(
-    (id: string, task: string, attachments: SessionAttachment[] = [], recordMessage = true) => {
+    (id: string, task: string, attachments: SessionAttachment[] = [], recordMessage = true, voice?: VoiceTurnMetadata) => {
       const session = state.sessions[id];
       if (!session || !task.trim() || session.status !== "ready") return false;
       if (session.running || runningRequests.current.has(id)) {
@@ -425,7 +426,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         // Sıraya al ve kullanıcıya YAZDIĞINI GÖSTER: bekleyen mesajın görünmemesi
         // "gitti mi, gitmedi mi?" sorusunu doğuruyordu.
         const bekleyen = kuyruk.current.get(id) ?? [];
-        kuyruk.current.set(id, [...bekleyen, { task, attachments }]);
+        kuyruk.current.set(id, [...bekleyen, { task, attachments, voice }]);
         if (recordMessage) {
           dispatch({
             type: "messageAdded",
@@ -468,7 +469,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           })
           .catch(() => undefined);
       }
-      baslatRef.current?.(id, task, attachments);
+      baslatRef.current?.(id, task, attachments, voice);
       return true;
     },
     [state.sessions],
@@ -497,21 +498,21 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     // Kuyruktaki mesaj kullanıcı mesajı olarak ZATEN eklendi; yeniden ekleme.
     // Doğrudan başlatılır: React durumu henüz "çalışmıyor"a dönmemiş olabilir
     // ve normal `send` yolu mesajı tekrar kuyruğa atardı.
-    if (sonraki) baslatRef.current?.(id, sonraki.task, sonraki.attachments);
+    if (sonraki) baslatRef.current?.(id, sonraki.task, sonraki.attachments, sonraki.voice);
   };
 
   //: Turu çekirdeğe gönderen TEK yol: hem `send` hem kuyruk buradan geçer.
   //: Kuyruğu sürerken taze oturum haritası gerekir; `send` kapanışı eskimiş olur.
   const baslatRef = useRef<
-    ((id: string, task: string, attachments: SessionAttachment[]) => void) | null
+    ((id: string, task: string, attachments: SessionAttachment[], voice?: VoiceTurnMetadata) => void) | null
   >(null);
-  baslatRef.current = (id, task, attachments) => {
+  baslatRef.current = (id, task, attachments, voice) => {
     const session = oturumlarRef.current[id];
     if (!session || session.status !== "ready") return;
     runningRequests.current.add(id);
     dispatch({ type: "runningChanged", id, running: true });
     void session.client
-      .request("tur.calistir", { gorev: task, ekler: attachments })
+      .request("tur.calistir", { gorev: task, ekler: attachments, ...(voice !== undefined ? { sesli: voice } : {}) })
       .then((result) => {
         const text = typeof result.metin === "string" ? result.metin : "";
         const hata = result.ok === false ? { hata: true } : {};

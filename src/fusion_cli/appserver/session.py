@@ -122,6 +122,7 @@ from .voice import speak as voice_speak
 from .voice import status as voice_status
 from .voice import stop as voice_stop
 from .voice import wait_for_speech as voice_wait
+from .voice_context import VoiceTurnContext, parse_voice_context
 from .workspace import (
     WorkspaceJournal,
     list_changes,
@@ -813,6 +814,10 @@ class AppSession:
                 self._personal_memory.set_enabled, request.data.get("etkin")
             )
         if request.name == "tur.calistir":
+            try:
+                voice_context = parse_voice_context(request.data.get("sesli"))
+            except ValueError as error:
+                return {"ok": False, "metin": str(error)}
             attachment_context, attachment_error = _attachment_context(request.data.get("ekler"))
             if attachment_error:
                 return {"ok": False, "metin": attachment_error}
@@ -820,6 +825,7 @@ class AppSession:
                 str(request.data.get("gorev", "")),
                 attachment_context,
                 _attachment_images(request.data.get("ekler")),
+                voice_context=voice_context,
             )
         if request.name == "tur.kes":
             return self._cancel_turn()
@@ -1360,6 +1366,7 @@ class AppSession:
         attachment_context: str = "",
         images: tuple[str, ...] = (),
         *,
+        voice_context: VoiceTurnContext | None = None,
         browser_only: bool = False,
         auto_continues: int = 0,
     ) -> dict[str, Any]:
@@ -1420,6 +1427,7 @@ class AppSession:
                     inherited_context,
                     capability_context,
                     attachment_context,
+                    voice_context.prompt() if voice_context else "",
                     instruction_block(),
                     memory_block,
                 )

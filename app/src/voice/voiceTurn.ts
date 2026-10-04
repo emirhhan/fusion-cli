@@ -1,3 +1,4 @@
+import type { VoiceTurnMetadata } from "../sessions/types";
 import type { Mesaj } from "../screens/Conversation";
 import type { VoiceRuntimeState } from "./bridge";
 import { splitIntoSentences } from "./sentenceStream";
@@ -25,11 +26,10 @@ export function findVoiceAnswer(messages: Mesaj[], afterIndex: number): string |
 }
 
 /** Sesli söz de aynı model turuna gider; kesilen yanıtın bağlamı korunur. */
-export function buildVoiceRequest(text: string, interrupted?: string): string {
-  const context = interrupted
-    ? `\nSen "${interrupted}" derken sözün kesildi. Son sözü bununla birlikte değerlendir; baştan tekrar etme.`
-    : "";
-  return `${text}\n\n[Sesli konuşma: Türkçe, doğal ve doğrudan cevap ver. Kullanıcı ayrıntı istemedikçe kısa tut; önce sorusunu yanıtla.${context}]`;
+export function buildVoiceRequest(text: string, interrupted?: string): {
+  text: string; voice: VoiceTurnMetadata;
+} {
+  return { text, voice: interrupted ? { kesilen: interrupted } : {} };
 }
 
 export async function speakVoiceAnswer(
