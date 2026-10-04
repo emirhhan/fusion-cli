@@ -42,6 +42,8 @@ class RequestRecord:
     path: str
     query: str
     body: str
+    #: İsteği yapan istemci. Eski kayıtlarda yoktur (boş kalır).
+    user_agent: str = ""
 
 
 def read_records(workdir: Path) -> tuple[RequestRecord, ...] | None:
@@ -101,7 +103,8 @@ def _make_handler(recorder: _Recorder) -> type[BaseHTTPRequestHandler]:
 
         def _record(self, body: str) -> tuple[str, str]:
             parts = urlsplit(self.path)
-            recorder.add(RequestRecord(self.command, parts.path, parts.query, body))
+            agent = self.headers.get("User-Agent") or ""
+            recorder.add(RequestRecord(self.command, parts.path, parts.query, body, agent))
             return parts.path, parts.query
 
         def do_GET(self) -> None:
