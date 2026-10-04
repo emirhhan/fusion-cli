@@ -64,3 +64,17 @@ async def test_background_verilmezse_none_gecer(monkeypatch):
     )
 
     assert yakalanan["background"] is None
+
+
+async def test_arka_plan_kapaninca_yeni_is_reddedilir():
+    import asyncio
+
+    import pytest
+
+    owner = BackgroundTasks()
+    await owner.close()
+    work = asyncio.sleep(0)
+    with pytest.raises(RuntimeError, match="kapatıldı"):
+        owner.spawn(work)
+    assert work.cr_frame is None
+    assert owner.pending == 0

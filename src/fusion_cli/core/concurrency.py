@@ -104,8 +104,12 @@ class BackgroundTasks:
     def __init__(self) -> None:
         self._tasks: set[asyncio.Task[None]] = set()
         self.failures: list[str] = []
+        self._closed = False
 
     def spawn(self, coroutine: Coroutine[object, object, None]) -> None:
+        if self._closed:
+            coroutine.close()
+            raise RuntimeError("Arka plan iş yöneticisi kapatıldı.")
         task = asyncio.ensure_future(coroutine)
         self._tasks.add(task)
         task.add_done_callback(self._finish)
@@ -114,6 +118,15 @@ class BackgroundTasks:
         """Bekleyen tüm işleri tamamla."""
         while self._tasks:
             pending = tuple(self._tasks)
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    async def close(self) -> None:
+        """Oturum kapanırken kalan işleri iptal et ve temizliği bekle."""
+        self._closed = True
+        pending = tuple(self._tasks)
+        for task in pending:
+            task.cancel()
+        if pending:
             await asyncio.gather(*pending, return_exceptions=True)
 
     @property

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import shlex
@@ -43,6 +44,7 @@ from ..config.loader import load_config
 from ..config.model_select import select_agent_spec
 from ..config.models import Config, McpServerConfig
 from ..config.paths import credentials_file
+from ..core.concurrency import BackgroundTasks
 from ..core.events import Event, StatusChanged
 from ..core.tools import TodoStatus
 from ..core.types import Message
@@ -415,6 +417,7 @@ class AppSession:
         #: Sağlayıcı connector panelini açan arka plan görevleri (sağlayıcı → görev).
         #: Pencere kullanıcı kapatana kadar yaşar; RPC onu beklemez.
         self._panel_tasks: dict[str, asyncio.Task[None]] = {}
+        self._voice_background = BackgroundTasks()
         self._turn: asyncio.Task[Any] | None = None
         #: Bir makronun (`/goal` …) bir SONRAKİ tura taşıyacağı davranış kipi.
         self._next_turn_mode = macros.Mode.NONE
@@ -1377,6 +1380,7 @@ class AppSession:
         güncelledikten HEMEN SONRAKİ turda etkili olmalı, bir tur gecikmeli
         değil.
         """
+        self._report_voice_background_failures()
         if not task.strip():
             return {"ok": False, "metin": messages.RUN_EMPTY_TASK}
         await self._iptal_edilen_turu_bekle()
@@ -1467,6 +1471,7 @@ class AppSession:
                 # Sekmenin sağlık kaydı: devre durumu turlar arasında yaşar.
                 health=self._state.health,
                 journal=journal,
+                background=self._voice_background if voice_context else None,
             )
 
         # Tarayıcı paneli turu sekmenin konuşması değildir; günlüğe yazılmaz.
@@ -1619,6 +1624,16 @@ class AppSession:
             self._chrome.publish({"tur": "soru_kapandi", "id": reply.id})
         return resolved
 
+    def _report_voice_background_failures(self) -> None:
+        """Arka plan hatasını sır veya istem metni yazmadan görünür tut."""
+        if not self._voice_background.failures:
+            return
+        logging.getLogger(__name__).error(
+            "Sesli turun arka plan işleri tamamlanamadı.",
+            extra={"failure_count": len(self._voice_background.failures)},
+        )
+        self._voice_background.failures.clear()
+
     async def close(self) -> None:
         """Çalışan turu ve oturuma ait bütün yardımcı süreçleri kapat."""
         from ..mcp_bridge.pool import close_mcp_pool
@@ -1627,6 +1642,8 @@ class AppSession:
 
         if self._turn is not None and not self._turn.done():
             self._turn.cancel()
+        await self._voice_background.close()
+        self._report_voice_background_failures()
         voice_stop()
         for task in self._panel_tasks.values():
             if not task.done():

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fusion_cli.core.events import Channel, StatusChanged, TokenReceived, TurnFinished
 from fusion_cli.observability.bus import EventBus
 
@@ -67,3 +69,28 @@ async def test_birden_cok_dinleyici_ekleme_sirasiyla_calisir():
         await bus.drain()
 
     assert len(ilk.events) == len(ikinci.events) == 1
+
+
+async def test_turdan_sonra_gelen_arka_plan_olaylari_muhasebeden_kaybolmaz():
+    sink = RecordingSink()
+    async with EventBus() as bus:
+        bus.subscribe(sink)
+        bus.publish(StatusChanged("cevap"))
+    bus.publish(StatusChanged("arka plan kullanım"))
+    await bus.drain()
+    assert [event.message for event in sink.events] == ["cevap", "arka plan kullanım"]
+
+
+async def test_kapanis_beklerken_planlanan_olay_kaybolmaz():
+    class SchedulingSink(RecordingSink):
+        def handle(self, event):
+            super().handle(event)
+            if event.message == "ilk":
+                asyncio.get_running_loop().call_soon(bus.publish, StatusChanged("son"))
+
+    sink = SchedulingSink()
+    async with EventBus() as bus:
+        bus.subscribe(sink)
+        bus.publish(StatusChanged("ilk"))
+    assert [event.message for event in sink.events] == ["ilk", "son"]
+    await asyncio.wait_for(bus.drain(), timeout=1)

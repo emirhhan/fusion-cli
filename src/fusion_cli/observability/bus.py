@@ -33,6 +33,7 @@ class EventBus:
         self._queue: asyncio.Queue[Event] = asyncio.Queue()
         self._consumer: asyncio.Task[None] | None = None
         self.failures: list[str] = []
+        self._closed = False
 
     def subscribe(self, sink: EventSink) -> None:
         """Dinleyici ekle. Olaylar eklenme sırasına göre iletilir."""
@@ -40,9 +41,15 @@ class EventBus:
 
     def publish(self, event: Event) -> None:
         """Olayı kuyruğa koy. Bloklamaz; veriyolu kapalıysa bile kayıp olmaz."""
-        self._queue.put_nowait(event)
+        if self._closed:
+            # Oturumun sahip olduğu öğrenme işi turdan sonra da olay üretebilir.
+            # Aynı dinleyiciler muhasebe/denetimi sürdürür; sahipsiz kuyruk açılmaz.
+            self._dispatch(event)
+        else:
+            self._queue.put_nowait(event)
 
     async def __aenter__(self) -> EventBus:
+        self._closed = False
         self._consumer = asyncio.create_task(self._consume())
         return self
 
@@ -52,7 +59,13 @@ class EventBus:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        await self.drain()
+        while True:
+            await self.drain()
+            # join() uyandırıldıktan sonra planlanmış bir yayın kuyruğa girebilir.
+            # Boşluk kontrolü ve kapatma arasında await yoktur; sıra korunur.
+            if self._queue.empty():
+                self._closed = True
+                break
         if self._consumer is not None:
             self._consumer.cancel()
             await asyncio.gather(self._consumer, return_exceptions=True)

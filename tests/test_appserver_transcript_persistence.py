@@ -290,3 +290,39 @@ async def test_sesli_baglam_yalniz_ilgili_model_turuna_gider(tmp_path, monkeypat
         ("user", "Yazılı devam"),
         ("assistant", "Cevap"),
     ]
+
+
+async def test_sesli_cevap_ogrenmeyi_beklemez_ve_kapanis_isi_iptal_eder(tmp_path, monkeypatch):
+    """Cevap döner; açık öğrenme işi sahipsiz kalmadan kapatılır."""
+    import asyncio
+    from types import SimpleNamespace
+
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+    owners = []
+
+    async def learning():
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    async def calistir(_task, _config, **kwargs):
+        owner = kwargs.get("background")
+        assert owner is not None
+        owners.append(owner)
+        owner.spawn(learning())
+        return SimpleNamespace(ok=True, final_text="Hazır cevap", messages=())
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", calistir)
+    satirlar = []
+    oturum = _session(tmp_path, satirlar)
+    await _sekme(oturum)
+    await oturum.handle(Request("ses", "tur.calistir", {"gorev": "Merhaba", "sesli": {}}))
+    assert _sonuc(satirlar, "ses")["ok"] is True
+    await started.wait()
+    assert owners[0].pending == 1
+    await oturum.close()
+    assert cancelled.is_set()
+    assert owners[0].pending == 0
