@@ -10,9 +10,14 @@ kilit çakışmasına yol açar.
 
 from __future__ import annotations
 
+import fcntl
+import logging
 import threading
+import time
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +32,15 @@ COSINE_SPACE = {"hnsw:space": "cosine"}
 #: 5 sn, normal açılışın (yerelde ~0,2 sn) çok üstünde; yalnız gerçek kilit
 #: çakışmasında devreye girer.
 CLIENT_OPEN_TIMEOUT_S = 5.0
+
+#: Süreçler arası kilit için en fazla bekleme. Ölçüldü (4 Ekim): paralel dört Fusion
+#: süreci (masaüstünde her sekme ayrı süreçtir) aynı chroma.sqlite3'e eşzamanlı
+#: yazınca biri ChromaDB'nin Rust çekirdeğinde kilit bekleyip turu SONSUZA KADAR
+#: dondurdu. Kilit alınamazsa bellek o çağrıda atlanır; tur sürer.
+PROCESS_LOCK_TIMEOUT_S = 10.0
+_LOCK_POLL_S = 0.05
+_LOCK_FILE = ".fusion-chroma.lock"
+_logger = logging.getLogger(__name__)
 
 _clients: dict[Path, Any] = {}
 _lock = threading.Lock()
@@ -83,13 +97,81 @@ def _create_client(directory: Path) -> Any:
         raise MemoryUnavailableError(f"Bellek deposu açılamadı ({directory}): {exc}") from exc
 
 
+@contextmanager
+def process_lock(directory: Path, timeout_s: float = PROCESS_LOCK_TIMEOUT_S) -> Iterator[bool]:
+    """Depo dizini için süreçler arası özel kilit; alınamazsa `False` verir (bekletmez)."""
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / _LOCK_FILE).open("a") as handle:
+        bitis = time.monotonic() + timeout_s
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= bitis:
+                    yield False
+                    return
+                time.sleep(_LOCK_POLL_S)
+        try:
+            yield True
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+#: Kilit alınamadığında yöntemin döndüreceği güvenli boş sonuç (bellek o çağrıda yok).
+_EMPTY_RESULTS: dict[str, Callable[[], object]] = {
+    "query": lambda: {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]},
+    "get": lambda: {"ids": [], "documents": [], "metadatas": []},
+    "peek": lambda: {"ids": [], "documents": [], "metadatas": []},
+    "count": lambda: 0,
+}
+
+
+class GuardedCollection:
+    """ChromaDB koleksiyonu; her çağrı süreçler arası kilit altında çalışır.
+
+    Kilit süresinde alınamazsa çağrı YAPILMAZ: okuma boş sonuç, yazma hiçbir şey
+    döner ve uyarı loglanır. Bellek bir iyileştirmedir; turu dondurmamalıdır.
+    """
+
+    def __init__(self, collection: Any, directory: Path) -> None:
+        self._collection = collection
+        self._directory = directory
+
+    def __getattr__(self, name: str) -> Any:
+        hedef = getattr(self._collection, name)
+        if not callable(hedef):
+            return hedef
+
+        def _kilitli(*args: Any, **kwargs: Any) -> Any:
+            with process_lock(self._directory, PROCESS_LOCK_TIMEOUT_S) as alindi:
+                if alindi:
+                    return hedef(*args, **kwargs)
+            _logger.warning(
+                "bellek kilidi alınamadı, çağrı atlandı",
+                extra={"islem": name, "dizin": str(self._directory)},
+            )
+            bos = _EMPTY_RESULTS.get(name)
+            return bos() if bos is not None else None
+
+        return _kilitli
+
+
 def get_collection(directory: Path, name: str, *, embedding_function: Any = None) -> Any:
-    """Koleksiyonu al ya da oluştur."""
+    """Koleksiyonu al ya da oluştur (süreçler arası kilitli sarmalayıcıyla)."""
     kwargs: dict[str, Any] = {"name": name, "metadata": COSINE_SPACE}
     if embedding_function is not None:
         kwargs["embedding_function"] = embedding_function
+    resolved = directory.expanduser().resolve()
     try:
-        return get_client(directory).get_or_create_collection(**kwargs)
+        with process_lock(resolved, PROCESS_LOCK_TIMEOUT_S) as alindi:
+            if not alindi:
+                raise MemoryUnavailableError(
+                    f"Bellek deposu kilidi {PROCESS_LOCK_TIMEOUT_S:.0f} sn içinde alınamadı "
+                    f"({resolved}); bu tur belleksiz sürüyor."
+                )
+            koleksiyon = get_client(resolved).get_or_create_collection(**kwargs)
+        return GuardedCollection(koleksiyon, resolved)
     except MemoryUnavailableError:
         raise
     except Exception as exc:
