@@ -2753,7 +2753,8 @@ async def _run_tools(
 #: ile düşürdü; devre açıldı ve tur orada kaldı.
 IMAGES_NOT_SENT_NOTE = (
     "[Ekran görüntüsü bu modele gönderilmedi: model görsel okuyamıyor. Görsel dosyaya "
-    "kaydedildiyse içeriğini view_image(path, question) ile sorabilirsin.]"
+    "kaydedildiyse tasarım/kalite yargısı için ask_teacher(question, gorseller=[yol]) ile "
+    "öğretmene göster; basit içerik sorusu için view_image(path, question).]"
 )
 
 

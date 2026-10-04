@@ -20,6 +20,7 @@ hatası olarak bildirilir.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import hashlib
 import json
@@ -899,8 +900,8 @@ def _browser_message_content(message: Message) -> str:
     if not message.images:
         return content
     notice = (
-        f"[Bu mesajdaki {len(message.images)} görsel içeriği bu web taşımasında "
-        "desteklenmiyor; görsel incelenmedi.]"
+        f"[Bu mesajda {len(message.images)} görsel var. Ekte gönderildiyse incele; "
+        "ekte yoksa görmediğin görsel hakkında yorum yapma.]"
     )
     return "\n\n".join(part for part in (content, notice) if part)
 
@@ -1672,7 +1673,12 @@ async def _deliver_turn(
             messages[state.sent_count :], continuation=True, full_history=messages, trim=False
         )
         answer = await _send_turn(
-            state.page, definition, prompt, previous=state.last_answer, limit_s=limit_s
+            state.page,
+            definition,
+            prompt,
+            previous=state.last_answer,
+            limit_s=limit_s,
+            images=pending_images(messages[state.sent_count :]),
         )
     else:
         await _pace_new_conversation(manager, session)
@@ -1689,7 +1695,9 @@ async def _deliver_turn(
             )
             choice = await _apply_model_choice(manager, session, definition, page)
             prompt = format_browser_prompt(messages, trim=False)
-            answer = await _send_turn(page, definition, prompt, limit_s=limit_s)
+            answer = await _send_turn(
+                page, definition, prompt, limit_s=limit_s, images=pending_images(messages)
+            )
         except BaseException:
             # Sohbet henüz havuza kaydedilmedi: sayfa burada bırakılmazsa açık kalır.
             # Ölçüldü (2 Ekim 2026): süresi dolan iki tur, paylaşılan Chrome'da hâlâ
@@ -1938,6 +1946,7 @@ async def _send_turn(
     *,
     previous: str = "",
     limit_s: float = DEFAULT_RESPONSE_WAIT_S,
+    images: tuple[str, ...] = (),
 ) -> str:
     """Açık bir sohbete tek mesaj gönder ve yanıtı bekle.
 
@@ -1967,6 +1976,9 @@ async def _send_turn(
 
     before = await _response_snapshot(page, definition.response_selectors)
     composer_metni = await _prepare_prompt_for_composer(page, definition, prompt)
+    eklenen = await _attach_images(page, definition, images)
+    if eklenen:
+        composer_metni += f"\n\n[{eklenen} görsel ekte; cevabını görsellere bakarak ver.]"
     await _fill_editor(input_locator, composer_metni)
     send = await _first_visible(page, definition.send_selectors, timeout_ms=2_000)
     if send is not None:
@@ -2053,6 +2065,61 @@ async def gemini_attach_file(page: Any, path: str) -> bool:
         return True
     except Exception:
         return False
+
+
+#: Tek mesajla yüklenecek en fazla görsel: Gemini sohbet ekinde pratik sınır ve her
+#: yükleme ~3 sn (`_UPLOAD_SETTLE_MS`) sürer.
+MAX_WEB_IMAGES = 4
+_IMAGE_SUFFIXES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+
+
+def pending_images(messages: Sequence[Message]) -> tuple[str, ...]:
+    """Bu turda gönderilecek mesajlardaki görseller (data URI), en yenileri."""
+    gorseller = [image for message in messages for image in message.images]
+    return tuple(gorseller[-MAX_WEB_IMAGES:])
+
+
+def _data_uri_bytes(uri: str) -> tuple[bytes, str] | None:
+    """`data:image/png;base64,...` → (bayt, uzantı); çözülemezse None."""
+    baslik, ayrac, govde = uri.partition(",")
+    if not ayrac or ";base64" not in baslik:
+        return None
+    tur = baslik.removeprefix("data:").split(";", 1)[0]
+    uzanti = _IMAGE_SUFFIXES.get(tur)
+    if uzanti is None:
+        return None
+    try:
+        return base64.b64decode(govde, validate=True), uzanti
+    except ValueError:
+        return None
+
+
+async def _attach_images(
+    page: Any, definition: BrowserProviderDefinition, images: tuple[str, ...]
+) -> int:
+    """Görselleri sohbete ekle (yalnız Gemini'de ölçüldü); eklenen sayıyı döner.
+
+    Eskiden görseller sessizce düşüyordu; görsel okuyamayan ana model için öğretmen
+    "göz" olamıyordu. Yükleme isteğe bağlıdır: arıza turu düşürmez, sayı 0 döner.
+    """
+    if not images or definition.id != "gemini_web":
+        return 0
+    eklenen = 0
+    for uri in images:
+        cozulen = _data_uri_bytes(uri)
+        if cozulen is None:
+            continue
+        veri, uzanti = cozulen
+        with tempfile.NamedTemporaryFile(suffix=uzanti, delete=False) as tmp:
+            tmp.write(veri)
+            yol = tmp.name
+        try:
+            if await gemini_attach_file(page, yol):
+                eklenen += 1
+        finally:
+            with contextlib.suppress(OSError):
+                Path(yol).unlink()  # noqa: ASYNC240 - küçük geçici dosya, engellemez
+    return eklenen
 
 
 async def _try_gemini_file_upload(page: Any, content: str) -> bool:

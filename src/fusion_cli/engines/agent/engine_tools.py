@@ -344,8 +344,11 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
         deps.publisher.publish(TeacherConsulted(question=question, brief_truncated=brief.truncated))
 
         runtime = deps.config.runtime
+        gorseller = _teacher_images(args.get("gorseller"), context)
+        if isinstance(gorseller, ToolResult):
+            return gorseller
         request = CompletionRequest(
-            messages=(Message("user", brief.text),),
+            messages=(Message("user", brief.text, images=gorseller),),
             temperature=runtime.temperature,
             max_tokens=runtime.max_tokens,
             timeout_s=runtime.request_timeout_s,
@@ -392,11 +395,60 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
                     **_STRING,
                     "description": "hangi yaklaşımları denedin ve neden işe yaramadı",
                 },
+                "gorseller": {
+                    "type": "array",
+                    "items": _STRING,
+                    "description": "öğretmene gösterilecek ekran görüntüsü/kare yolları "
+                    "(en çok 4; görseli kendin göremiyorsan kullan)",
+                },
             },
             "required": ["question"],
         },
         run=_run,
     )
+
+
+#: Öğretmene tek soruda gösterilecek en fazla görsel (web taşımasının sınırıyla aynı).
+MAX_TEACHER_IMAGES = 4
+#: Görsel başına üst sınır: tam sayfa ekran görüntüleri birkaç MB olabilir.
+MAX_TEACHER_IMAGE_BYTES = 6 * 1024 * 1024
+_IMAGE_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+}
+
+
+def _teacher_images(raw: object, context: ToolContext) -> tuple[str, ...] | ToolResult:
+    """`gorseller` yollarını data URI'ye çevir; geçersizse modele açıklayıcı hata.
+
+    Ana model (Nemotron) görsel okuyamıyor; ekran görüntüsünü ve render karelerini
+    görebilen öğretmene göstermenin yolu budur (görsel kalite için "göz").
+    """
+    import base64
+
+    from ...tools.files import resolve_path
+
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or len(raw) > MAX_TEACHER_IMAGES:
+        return ToolResult.failure(
+            f"'gorseller' en çok {MAX_TEACHER_IMAGES} yollu bir liste olmalı."
+        )
+    gorseller = []
+    for oge in raw:
+        if not isinstance(oge, str):
+            return ToolResult.failure("'gorseller' yalnız dosya yolu içermeli.")
+        yol = resolve_path(context, oge)
+        tur = _IMAGE_TYPES.get(yol.suffix.lower())
+        if tur is None or not yol.is_file():
+            return ToolResult.failure(f"Görsel bulunamadı ya da türü desteklenmiyor: {oge}")
+        veri = yol.read_bytes()
+        if len(veri) > MAX_TEACHER_IMAGE_BYTES:
+            return ToolResult.failure(f"Görsel çok büyük (>{MAX_TEACHER_IMAGE_BYTES} bayt): {oge}")
+        gorseller.append(f"data:{tur};base64,{base64.b64encode(veri).decode()}")
+    return tuple(gorseller)
 
 
 #: `ask_teacher` sonucunda "öğretmen reddetti" işareti. Ulaşılamayan öğretmenden farklıdır:
