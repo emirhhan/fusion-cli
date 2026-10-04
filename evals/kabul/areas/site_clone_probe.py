@@ -226,12 +226,18 @@ def _checkout(sayfa: Page, checkout_url: str) -> tuple[Check, str]:
 def _source_similarity(tarayici: Browser, source_url: str, clone_png: bytes) -> float:
     from playwright.sync_api import Error as PlaywrightError
 
-    baglam = tarayici.new_context(viewport={"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT})
-    try:
-        sayfa = baglam.new_page()
-        sayfa.goto(source_url, timeout=NAVIGATION_TIMEOUT_MS, wait_until="load")
-        return similarity(sayfa.screenshot(full_page=True), clone_png)
-    except PlaywrightError:
-        return 0.0
-    finally:
-        baglam.close()
+    # Kaynak açılamazsa bu bir ÖLÇÜM hatasıdır, kopyanın kusuru değil: bir kez daha
+    # denenir, yine olmazsa ProbeUnavailableError koşuyu geçersiz kılar (ölçüldü,
+    # 4 Ekim: kaynak alınamadığı için benzerlik 0,00 yazılıp kopya "kaldı" sayıldı).
+    son_hata: Exception | None = None
+    for _ in range(2):
+        baglam = tarayici.new_context(viewport={"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT})
+        try:
+            sayfa = baglam.new_page()
+            sayfa.goto(source_url, timeout=NAVIGATION_TIMEOUT_MS, wait_until="load")
+            return similarity(sayfa.screenshot(full_page=True), clone_png)
+        except PlaywrightError as hata:
+            son_hata = hata
+        finally:
+            baglam.close()
+    raise ProbeUnavailableError(f"kaynak site ölçülemedi: {str(son_hata)[:160]}")

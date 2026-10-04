@@ -94,6 +94,11 @@ class TurnBudget:
     #: Başarılı kabuk adımı sayısı; yalnız `after_shell` imzalarını ilerletir (kabuğun
     #: kendi tekrarı yine tekrardır).
     shell_epoch: int = 0
+    #: Tarayıcı/masaüstü gibi durumu ÇALIŞMA ALANI DIŞINDA tutan araçların çağı: her
+    #: başarılı uzak eylemden sonra ilerler. Ölçüldü (4 Ekim, Fusion Browser koşusu):
+    #: sayfa değiştiği hâlde aynı "Sonraki sayfa" tıklaması dosya değişmedi diye
+    #: TOOL_CALL_DUPLICATE ile engelleniyordu.
+    remote_epoch: int = 0
     seen_calls: dict[CallSignature, int] = field(default_factory=dict)
     #: Değiştirici olarak üretilmiş imzalar.
     #
@@ -232,7 +237,13 @@ class TurnBudget:
     # --- tekrar ve ilerleme ------------------------------------------------ #
 
     def signature(
-        self, name: str, encoded_arguments: str, *, mutating: bool, after_shell: bool = False
+        self,
+        name: str,
+        encoded_arguments: str,
+        *,
+        mutating: bool,
+        after_shell: bool = False,
+        remote: bool = False,
     ) -> CallSignature:
         """Bir araç çağrısının tekrar imzasını üret.
 
@@ -244,6 +255,10 @@ class TurnBudget:
         değişiklik sayar. Ölçüldü (3 Ekim 2026, 10. kabul koşusu): ürünler `php` betiğiyle
         eklendi (kabuk), sonra `start_preview` "değişiklik olmadı" diye engellendi.
         """
+        if remote:
+            # Uzak durum (sayfa) dosya çağından bağımsızdır; negatif çağ ikisini ayırır.
+            imza = (name, encoded_arguments, -1 - self.remote_epoch)
+            return imza
         epoch = 0 if mutating else self.mutation_epoch + (self.shell_epoch if after_shell else 0)
         imza = (name, encoded_arguments, epoch)
         if mutating:

@@ -19,6 +19,7 @@ import re
 from collections.abc import Mapping
 
 from .web_interactions import empty_form_actions, inert_buttons
+from .web_motion import layout_animations
 
 #: Kapanmış ya da güvenilmez placeholder görsel servisleri. Model bunların öldüğünü
 #: bilemez; eğitim verisinde çalışıyorlardı. Ağa çıkmadan, liste ile yakalanır.
@@ -69,6 +70,7 @@ def inspect_web_output_by_severity(
     blocking.extend(_baglanmamis_dosyalar(files, html, js))
     blocking.extend(_kapanmayan_ham_metin_etiketleri(html))
     blocking.extend(_erisilemez_hp_dali(f"{html}\n{js}"))
+    blocking.extend(layout_animations(f"{css}\n{html}"))
 
     # Semantic kalite: değerlidir ama proje bunun yüzünden "kırık" değildir.
     warnings.extend(_eksik_main(html))

@@ -180,3 +180,34 @@ def test_dom_hud_without_canvas_text_is_detected(tmp_path):
     )
     page = page.replace("<canvas", "<div id='hud'>Skor: 0 Can: 3</div><canvas", 1)
     assert _by_name(_run(tmp_path, page))["skor/can HUD'ı var"]
+
+
+GAME_OVER_ONLY_HANDLERS = """
+let over = false, hurt = 0;
+addEventListener('keydown', (event) => {
+  keys[event.code] = true;
+  if (event.code === 'KeyR' && over) { reset(); over = false; hurt = 0; }
+  if (event.code.startsWith('Arrow') || event.code === 'Space') event.preventDefault();
+});
+addEventListener('keyup', (event) => { keys[event.code] = false; });
+setInterval(() => { if (!over && lives > 0) { lives -= 1; over = lives === 0; } }, 1000);
+window.__GAME_STATE__ = () => ({ durum: over ? 'bitti' : 'oynuyor', skor: score, can: lives });
+"""
+
+
+def test_restart_only_on_game_over_with_state_hook_passes(tmp_path):
+    """HUD yalnız sayı, R yalnız oyun bitince çalışır: geçerli tasarım, geçmeli."""
+    page = (
+        GAME_TEMPLATE.replace("__KEY_HANDLERS__", GAME_OVER_ONLY_HANDLERS)
+        .replace("ctx.fillText('Skor: ' + score, 10, 20);", "ctx.fillText(String(score), 10, 20);")
+        .replace("ctx.fillText('Can: ' + lives, 400, 20);", "")
+    )
+    results = _by_name(_run(tmp_path, page))
+    assert results["skor/can HUD'ı var"]
+    assert results["yeniden başlat durumu sıfırlıyor"]
+
+
+def test_hud_reading_counts_state_hook_lines():
+    reading = probe.HudReading(state=("skor: 0",))
+    assert reading.found
+    assert reading.lines == ("skor: 0",)

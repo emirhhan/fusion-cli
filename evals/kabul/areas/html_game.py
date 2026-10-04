@@ -68,6 +68,15 @@ PLAY_ROUNDS = 6
 PLAY_HOLD_MS = 400
 #: Yeniden başlat sonrası durumun oturma süresi (ms).
 RESTART_SETTLE_MS = 700
+#: Oyun ortasında R sıfırlamazsa oyunun kendiliğinden bitmesi için beklenen üst sınır.
+#: Ölçüldü (4 Ekim): örnek oyunda R yalnız "oyun bitti" ekranında çalışıyordu (geçerli
+#: tasarım); denetçi R'ye oyun ortasında bastığı için çalışan oyunu "kaldı" saydı.
+GAME_OVER_WAIT_MS = 90_000
+GAME_OVER_POLL_MS = 500
+_END_STATE_JS = """() => { try { const s = typeof window.__GAME_STATE__ === 'function'
+  ? window.__GAME_STATE__() : null; const d = s && (s.durum ?? s.state ?? s.mode);
+  return typeof d === 'string' && /over|bitti|bit|son|dead|lost|kaybet/i.test(d);
+  } catch (e) { return false; } }"""
 _MOVE_KEYS = KEY_SEQUENCE[:4]
 _RESTART_TEXT = re.compile(r"yeniden|restart|tekrar|again|replay|baştan|retry", re.IGNORECASE)
 
@@ -131,6 +140,16 @@ def _trigger_restart(page: Page) -> str:
     return "R tuşu"
 
 
+def _wait_for_game_over(page: Page) -> bool:
+    """Oyun bitene dek bekle: durum kancası bitiş der ya da yeniden başlat düğmesi görünür."""
+    button = page.get_by_role("button", name=_RESTART_TEXT)
+    for _ in range(GAME_OVER_WAIT_MS // GAME_OVER_POLL_MS):
+        if page.evaluate(_END_STATE_JS) or (button.count() > 0 and button.first.is_visible()):
+            return True
+        page.wait_for_timeout(GAME_OVER_POLL_MS)
+    return False
+
+
 def _restart_probe(opened: OpenedPage) -> RestartProbe:
     _fresh_load(opened)
     page = opened.page
@@ -139,7 +158,12 @@ def _restart_probe(opened: OpenedPage) -> RestartProbe:
     played = read_hud(page).lines
     trigger = _trigger_restart(page)
     page.wait_for_timeout(RESTART_SETTLE_MS)
-    return RestartProbe(initial, played, read_hud(page).lines, trigger)
+    restarted = read_hud(page).lines
+    if restarted != initial and _wait_for_game_over(page):
+        trigger = "oyun bittikten sonra " + _trigger_restart(page)
+        page.wait_for_timeout(RESTART_SETTLE_MS)
+        restarted = read_hud(page).lines
+    return RestartProbe(initial, played, restarted, trigger)
 
 
 def measure(root: Path) -> GameReport:
@@ -207,7 +231,8 @@ def _hud_check(report: GameReport) -> Check:
         return Check(
             CHECK_NAMES[5],
             True,
-            f"DOM: {list(hud.dom)[:3]}; canvas'a çizilen: {list(hud.canvas)[:3]}",
+            f"DOM: {list(hud.dom)[:3]}; canvas'a çizilen: {list(hud.canvas)[:3]}; "
+            f"__GAME_STATE__: {list(hud.state)[:3]}",
         )
     return Check(
         CHECK_NAMES[5],

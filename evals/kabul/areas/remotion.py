@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import cast
 
 from evals.kabul.areas._pixels import changed_pixel_ratio, luminance_variance
-from evals.kabul.areas._sources import iter_files
+from evals.kabul.areas._sources import SKIPPED_DIRECTORY, iter_files
 from evals.kabul.model import Area, Check, Inspection
 
 #: Ajana verilen görev. Süslü parantez yok: sürücü yer tutucu doldurur.
@@ -247,10 +247,19 @@ def _video_checks(path: Path) -> tuple[Check, ...]:
 
 
 def _source_checks(root: Path) -> tuple[Check, Check]:
-    files = list(iter_files(root / "src", _SOURCE_SUFFIXES)) if (root / "src").is_dir() else []
+    # Proje kökte ya da bir alt klasörde (`npx create-video … video`) olabilir: görev
+    # yalnız out/video.mp4'ü şart koşar. Ölçüldü (4 Ekim): kaynak video/src'deydi ve
+    # yalnız kökteki src'ye bakan denetim maddeleri yanlışlıkla düşürdü.
+    src_klasorleri = [root / "src", *sorted(p / "src" for p in root.iterdir() if p.is_dir())]
+    files = [
+        dosya
+        for klasor in src_klasorleri
+        if klasor.is_dir() and SKIPPED_DIRECTORY not in klasor.parts
+        for dosya in iter_files(klasor, _SOURCE_SUFFIXES)
+    ]
     texts = [path.read_text(encoding="utf-8", errors="replace") for path in files]
     if not files:
-        reason = "src/ altında .ts/.tsx dosyası yok"
+        reason = "src/ (kökte ya da bir alt klasörde) .ts/.tsx dosyası yok"
         return (
             Check("src'de CSS transition/animation kullanımı yok", False, reason),
             Check("useCurrentFrame kullanılıyor", False, reason),

@@ -55,8 +55,45 @@ async def run_site_design(args: ToolArgs, context: ToolContext) -> ToolResult:
     return ToolResult(design.summarize(report, label), content=content)
 
 
+async def run_play_probe(args: ToolArgs, context: ToolContext) -> ToolResult:
+    """Tarayıcı oyununu başsız Chromium'da oynatıp tepkisini ölç."""
+    from ...tools.files import resolve_path
+    from ...tools.play_probe import parse_keys, probe_game
+
+    hedef = args.get("target")
+    if not isinstance(hedef, str) or not hedef.strip():
+        return ToolResult.failure("'target' gerekli: index.html yolu ya da http adresi.")
+    hedef = hedef.strip()
+    if not hedef.startswith(("http://", "https://")):
+        yol = resolve_path(context, hedef)
+        if not await asyncio.to_thread(yol.is_file):
+            return ToolResult.failure(f"Dosya yok: {hedef}")
+        hedef = yol.as_uri()
+    try:
+        rapor = await probe_game(hedef, parse_keys(args.get("keys")))
+    except ImportError:
+        return ToolResult.failure("Playwright kurulu değil; oyun sondası çalışamadı.")
+    return ToolResult(f"Oyun sondası ({hedef}):\n{rapor.summary()}")
+
+
 def web_work_tools() -> tuple[Tool, ...]:
     return (
+        Tool(
+            name="play_probe",
+            description="Tarayıcı oyununu ayrı başsız tarayıcıda OYNAT: tuşlara basar, "
+            "window.__GAME_STATE__ ve canvas değişimini, rAF'ı, konsol hatalarını ve R ile "
+            "yeniden başlatmayı ölçer. Oyunun oynanabilirliğini doğrulamanın yolu budur; "
+            "masaüstüne osascript ile tuş gönderme.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target": {**_STRING, "description": "index.html yolu ya da http adresi"},
+                    "keys": {"type": "array", "items": _STRING},
+                },
+                "required": ["target"],
+            },
+            run=run_play_probe,
+        ),
         Tool(
             name="site_design",
             description="Bir sitenin TASARIM SİSTEMİNİ ölç ve varlıklarını projeye indir: yazı "

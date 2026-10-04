@@ -2367,6 +2367,11 @@ def _line_count(path: Path) -> int:
 _FULL_WRITE_TOOLS = frozenset({"write_file"})
 
 
+def _acts_on_remote_state(name: str) -> bool:
+    """Durumu çalışma alanı dışında (sayfa, masaüstü) tutan araç mı."""
+    return tool_family(name) in (ToolFamily.BROWSER, ToolFamily.DESKTOP)
+
+
 def _is_rerunnable(name: str, tool: Tool | None = None) -> bool:
     """Onay açısından değiştirici sayılan ama TEKRAR EDİLMESİ meşru olan araç mı.
 
@@ -2465,6 +2470,7 @@ async def _run_tools(
             _encode_arguments(args),
             mutating=tool is not None and tool.mutating and not _is_rerunnable(call.name, tool),
             after_shell=tool is not None and tool.reruns_on_change,
+            remote=_acts_on_remote_state(call.name),
         )
         seen = budget.count_call(signature)
 
@@ -2651,6 +2657,8 @@ async def _run_tools(
                 state.successful_file_reads += 1
             mutating = bool(tool is not None and tool.mutating)
             budget.successful_tool_evidence.append((call.name, args, mutating))
+            if mutating and _acts_on_remote_state(call.name):
+                budget.remote_epoch += 1
             if mutating:
                 state.mutating_tool_calls_made += 1
                 state.failed_mutations_in_row = 0

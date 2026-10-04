@@ -39,6 +39,12 @@ CLIENT_OPEN_TIMEOUT_S = 5.0
 #: dondurdu. Kilit alınamazsa bellek o çağrıda atlanır; tur sürer.
 PROCESS_LOCK_TIMEOUT_S = 10.0
 _LOCK_POLL_S = 0.05
+#: Kilit alındıktan sonra tek bir ChromaDB çağrısının üst sınırı. Ölçüldü (4 Ekim):
+#: kilit altında bile çağrı ChromaDB'nin Rust/sqlx iş parçacıklarında süresiz bekledi.
+#: Normal sorgu/ekleme yerelde <1 sn; gömme modeli ilk yüklenirken birkaç sn.
+CALL_TIMEOUT_S = 30.0
+#: Bu süreçte takıldığı görülen depolar: bir daha denenmez (iş parçacığı birikmesin).
+_disabled: set[Path] = set()
 _LOCK_FILE = ".fusion-chroma.lock"
 _logger = logging.getLogger(__name__)
 
@@ -144,14 +150,31 @@ class GuardedCollection:
             return hedef
 
         def _kilitli(*args: Any, **kwargs: Any) -> Any:
-            with process_lock(self._directory, PROCESS_LOCK_TIMEOUT_S) as alindi:
-                if alindi:
-                    return hedef(*args, **kwargs)
-            _logger.warning(
-                "bellek kilidi alınamadı, çağrı atlandı",
-                extra={"islem": name, "dizin": str(self._directory)},
-            )
             bos = _EMPTY_RESULTS.get(name)
+            if self._directory in _disabled:
+                return bos() if bos is not None else None
+
+            def _calistir() -> tuple[bool, Any]:
+                with process_lock(self._directory, PROCESS_LOCK_TIMEOUT_S) as alindi:
+                    return (True, hedef(*args, **kwargs)) if alindi else (False, None)
+
+            havuz = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fusion-memory-call")
+            gelecek = havuz.submit(_calistir)
+            try:
+                tamam, sonuc = gelecek.result(timeout=CALL_TIMEOUT_S)
+            except FutureTimeoutError:
+                # Çağrı ChromaDB'nin içinde takıldı: beklemeyi bırak, bu süreçte bu depoyu
+                # kapat ki takılan iş parçacıkları birikmesin.
+                _disabled.add(self._directory)
+                tamam, sonuc = False, None
+                _logger.warning(
+                    "bellek çağrısı süre aştı; bu süreçte bellek kapatıldı",
+                    extra={"islem": name, "dizin": str(self._directory)},
+                )
+            finally:
+                havuz.shutdown(wait=False)
+            if tamam:
+                return sonuc
             return bos() if bos is not None else None
 
         return _kilitli
@@ -180,6 +203,7 @@ def get_collection(directory: Path, name: str, *, embedding_function: Any = None
 
 def reset_clients() -> None:
     """Önbelleklenmiş istemcileri kapatıp bırak (testler arası izolasyon için)."""
+    _disabled.clear()
     with _lock:
         clients = tuple(_clients.values())
         _clients.clear()

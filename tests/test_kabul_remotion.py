@@ -244,3 +244,15 @@ def test_source_without_use_current_frame_fails_check(animated_video, tmp_path):
     workdir = _workdir_with(animated_video, tmp_path)
     _write_source(workdir, "export const Intro = () => <div>Merhaba</div>;\n")
     assert not _by_name(remotion.inspect(workdir, {}))["useCurrentFrame kullanılıyor"]
+
+
+def test_alt_klasordeki_remotion_projesi_de_denetlenir(tmp_path):
+    from evals.kabul.areas.remotion import _source_checks
+
+    src = tmp_path / "video" / "src"
+    src.mkdir(parents=True)
+    (src / "Root.tsx").write_text("const f = useCurrentFrame();", encoding="utf-8")
+
+    temiz, kullanim = _source_checks(tmp_path)
+
+    assert temiz.passed and kullanim.passed

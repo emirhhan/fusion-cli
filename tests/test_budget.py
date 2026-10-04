@@ -54,3 +54,17 @@ def test_basarili_degistirici_cagri_tekrar_sayilir():
 
     assert butce.count_call(imza) == 0
     assert butce.count_call(imza) == 1
+
+
+def test_uzak_durumlu_aracin_imzasi_sayfa_degisince_tazelenir():
+    """Ölçüldü (4 Ekim): sayfa değiştiği hâlde aynı tıklama dosya değişmedi diye engellendi."""
+    budget = _butce()
+    once = budget.signature("chrome_click", '{"ref": "e0"}', mutating=True, remote=True)
+    budget.count_call(once)
+
+    budget.remote_epoch += 1
+    sonra = budget.signature("chrome_click", '{"ref": "e0"}', mutating=True, remote=True)
+
+    assert once != sonra and budget.count_call(sonra) == 0
+    budget.mutation_epoch += 5
+    assert budget.signature("chrome_click", '{"ref": "e0"}', mutating=True, remote=True) == sonra

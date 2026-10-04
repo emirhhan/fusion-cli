@@ -600,3 +600,21 @@ def test_en_iyi_tema_hali_yalniz_metin_dosyalariyla_yedeklenir(tmp_path):
 
     yedek = tmp_path / BEST_THEME_DIR
     assert sorted(p.name for p in yedek.iterdir()) == ["index.php", "style.css"]
+
+
+def test_kopya_temada_kaynak_farklari_bilgi_olarak_gosterilir_duzelt_denmez():
+    """Ölçüldü (4 Ekim): kopya 2 farkla başladı, model farkları kovalarken 14'e çıkardı."""
+    from fusion_cli.engines.agent.preview_tools import _result
+
+    sayfa = PageProbe(
+        url="http://127.0.0.1:8770/", status=200, title="t", visible_chars=500, page_errors=()
+    )
+    farklar = ("https://kaynak.com", "BÖLÜM 2: yükseklik kaynakta 900px, sayfanda 1200px")
+
+    kopya = _result(
+        "http://127.0.0.1:8770/", "wordpress", sayfa, None, "", farklar, informational_diffs=True
+    ).output
+    normal = _result("http://127.0.0.1:8770/", "wordpress", sayfa, None, "", farklar).output
+
+    assert kopya.startswith("Önizleme çalışıyor") and "BİLGİ" in kopya and "YAPMA" in kopya
+    assert normal.startswith("SORUNLU") and "düzelt ve" in normal
