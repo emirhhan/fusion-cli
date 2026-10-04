@@ -831,11 +831,39 @@ export async function checkedTab() {
   return tab;
 }
 
+/** Sayfada çalışan işlemin sonucunu yorumla: hata yutulmaz.
+ *
+ * Ölçüldü (4 Ekim kabul koşusu): sayfadaki işlem hata fırlatınca `executeScript`
+ * reddetmiyor, sonucu boş dönüyor; araç bunu "başarılı: null" diye iletiyordu.
+ * Model seçim kutusuna yazmayı ve eskimiş öğeye tıklamayı başarılı sandı, form
+ * hiç gönderilmediği hâlde "gönderildi" dedi. */
+export function injectionOutcome(injection, urlBefore, urlAfter) {
+  const error = injection?.error;
+  if (error) throw new Error(typeof error === "string" ? error : error.message || "Sayfa işlemi hata verdi.");
+  if (injection?.result !== undefined && injection?.result !== null) return injection.result;
+  // Tıklama sayfayı değiştirdiyse sonuç dönemeden bağlam kapanır; bu başarıdır.
+  if (urlBefore && urlAfter && urlBefore !== urlAfter) return { navigated: true, url: urlAfter };
+  throw new Error(
+    "Sayfa işlemi sonuç döndürmedi: öğe bulunamadı, eskidi ya da işlem bu öğede geçersiz. " +
+    "chrome_page ile sayfayı yeniden oku ve güncel ref ile dene; seçim kutusu için chrome_action select kullan.",
+  );
+}
+
 async function runInTab(tab, operation, args) {
-  const [{ result }] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id }, func: pageAction, args: [operation, args],
-  });
-  return result;
+  const urlBefore = tab.url;
+  let injection;
+  try {
+    [injection] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id }, func: pageAction, args: [operation, args],
+    });
+  } catch (error) {
+    // Çerçeve işlem sırasında kapandıysa (gönderim sonrası yönlendirme) adres değişmiştir.
+    const current = await chrome.tabs.get(tab.id).catch(() => null);
+    if (current && current.url !== urlBefore) return { navigated: true, url: current.url };
+    throw error;
+  }
+  const current = await chrome.tabs.get(tab.id).catch(() => null);
+  return injectionOutcome(injection, urlBefore, current?.url);
 }
 
 export async function execute(command) {
