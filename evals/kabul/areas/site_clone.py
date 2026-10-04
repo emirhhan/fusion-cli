@@ -34,15 +34,16 @@ MIN_VISUAL_SIMILARITY = 0.75
 WP_CLI_TIMEOUT_S = 90
 SERVER_READY_S = 30
 
-TASK = (
+TASK_TEMPLATE = (
     "wordpress tabanlı bir website yapmanı istiyorum bu website birebir olarak "
-    f"{SOURCE_URL} sitesine benzeyecek görsellerine kadar istediğin her yerden "
+    "{source} sitesine benzeyecek görsellerine kadar istediğin her yerden "
     "alabilirsin istersen html görseller üretebilirsin siteyi görüntüleyemiyorsan "
     "fusion browser eklentisini kullanabilirsin bu siteyi her sayfalarıyla birlikte "
     "gerçek çalışan bir e ticaret sitesi yapmanı istiyorum ürün sayfası, sepet ve "
     "kapıda ödeme ile sipariş verilebilen ödeme sayfası çalışmalı. ben ilerleyen "
     "zamanda bu siteyi bir hostinge ve domaine bağlayacağım."
 )
+TASK = TASK_TEMPLATE.format(source=SOURCE_URL)
 
 
 def _wp(root: Path, *args: str) -> str:
@@ -100,7 +101,7 @@ def _site_root(workdir: Path) -> Path | None:
     return adaylar[0].parent if adaylar else None
 
 
-def _database_checks(root: Path) -> tuple[Check, ...]:
+def _database_checks(root: Path, min_products: int) -> tuple[Check, ...]:
     urun = _wp(
         root, "post", "list", "--post_type=product", "--post_status=publish", "--format=count"
     )
@@ -115,8 +116,8 @@ def _database_checks(root: Path) -> tuple[Check, ...]:
         Check("woocommerce_etkin", woo, f"WC yüklü: {woo}"),
         Check(
             "urun_sayisi",
-            urun_sayisi >= MIN_PRODUCTS,
-            f"yayında {urun_sayisi} ürün (en az {MIN_PRODUCTS})",
+            urun_sayisi >= min_products,
+            f"yayında {urun_sayisi} ürün (en az {min_products})",
         ),
         Check("odeme_yontemi_var", bool(odeme), f"etkin ödeme yöntemleri: {odeme or 'yok'}"),
     )
@@ -133,7 +134,7 @@ def _order_count(root: Path) -> int:
     return int(sayi) if sayi.isdigit() else 0
 
 
-def _inspect_site(root: Path) -> Inspection:
+def _inspect_site(root: Path, source_url: str, min_products: int) -> Inspection:
     site_url = _wp(root, "option", "get", "siteurl")
     if not site_url:
         return Inspection(checks=(Check("wordpress_calisiyor", False, "WP-CLI siteurl okuyamadı"),))
@@ -153,7 +154,7 @@ def _inspect_site(root: Path) -> Inspection:
     )
     once = _order_count(root)
     with _serve(root, site_url) as adres:
-        tarayici = probe.probe_store(adres, sayfa_adresleri, SOURCE_URL)
+        tarayici = probe.probe_store(adres, sayfa_adresleri, source_url)
     sonra = _order_count(root)
     siparis = Check(
         "test_siparisi_olustu",
@@ -170,28 +171,41 @@ def _inspect_site(root: Path) -> Inspection:
         tarayici.grid_columns >= MIN_GRID_COLUMNS,
         f"ilk satırda {tarayici.grid_columns} sütun (en az {MIN_GRID_COLUMNS})",
     )
-    return Inspection(checks=(*_database_checks(root), *tarayici.checks, sutun, siparis, benzerlik))
+    return Inspection(
+        checks=(*_database_checks(root, min_products), *tarayici.checks, sutun, siparis, benzerlik)
+    )
 
 
-def inspect(workdir: Path, values: Mapping[str, str]) -> Inspection:
-    """Ajanın kurduğu mağazayı ölç."""
-    if shutil.which("wp") is None or shutil.which("php") is None:
-        return Inspection(invalid_reason="wp-cli ya da php bulunamadı")
-    root = _site_root(workdir)
-    if root is None:
-        return Inspection(checks=(Check("wordpress_kuruldu", False, "wp-config.php yok"),))
-    try:
-        return _inspect_site(root)
-    except probe.ProbeUnavailableError as hata:
-        return Inspection(invalid_reason=str(hata))
-    except (RuntimeError, subprocess.TimeoutExpired) as hata:
-        return Inspection(checks=(Check("site_acildi", False, str(hata)[:300]),))
+def make_area(name: str, source_url: str, min_products: int) -> Area:
+    """Bir kaynak mağaza için kopya alanı: görev, denetçi ve eşikler o siteye bağlanır.
+
+    Ölçüldü (4 Ekim 2026): tek siteyle ölçmek, kopyalama aracını o siteye göre
+    ayarlamaya yol açtı; ikinci bir siteyle aynı ölçüm genellemeyi sınar.
+    """
+
+    def inspect(workdir: Path, values: Mapping[str, str]) -> Inspection:
+        """Ajanın kurduğu mağazayı ölç."""
+        del values
+        if shutil.which("wp") is None or shutil.which("php") is None:
+            return Inspection(invalid_reason="wp-cli ya da php bulunamadı")
+        root = _site_root(workdir)
+        if root is None:
+            return Inspection(checks=(Check("wordpress_kuruldu", False, "wp-config.php yok"),))
+        try:
+            return _inspect_site(root, source_url, min_products)
+        except probe.ProbeUnavailableError as hata:
+            return Inspection(invalid_reason=str(hata))
+        except (RuntimeError, subprocess.TimeoutExpired) as hata:
+            return Inspection(checks=(Check("site_acildi", False, str(hata)[:300]),))
+
+    return Area(
+        name=name,
+        task=TASK_TEMPLATE.format(source=source_url),
+        timeout_s=5400,
+        inspect=inspect,
+        required_executables=("php", "wp"),
+    )
 
 
-AREA = Area(
-    name="site_kopyasi",
-    task=TASK,
-    timeout_s=5400,
-    inspect=inspect,
-    required_executables=("php", "wp"),
-)
+AREA = make_area("site_kopyasi", SOURCE_URL, MIN_PRODUCTS)
+inspect = AREA.inspect

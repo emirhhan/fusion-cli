@@ -12,6 +12,7 @@ from evals.kabul.model import Area
 
 AREA_MODULES: dict[str, str] = {
     "site_kopyasi": "evals.kabul.areas.site_clone",
+    "site_kopyasi_2": "evals.kabul.areas.site_clone_second",
     "animasyon": "evals.kabul.areas.animation",
     "remotion": "evals.kabul.areas.remotion",
     "html_oyun": "evals.kabul.areas.html_game",
