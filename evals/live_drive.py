@@ -84,10 +84,41 @@ main()
 """
 
 
+#: Takılma teşhisi: çekirdeğe `kill -USR1 <pid>` iş parçacığı yığınlarını,
+#: `kill -USR2 <pid>` asyncio görevlerinin bekleme zincirini stderr'e (cekirdek.err)
+#: döker. Ölçüldü (4 Ekim): kabul koşuları CPU %0'da dakikalarca bekledi ve
+#: Python yığını dışarıdan görülemediği için neyi beklediği bulunamadı.
+_TESHIS_LAUNCHER = """
+import asyncio, faulthandler, signal, sys
+faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
+
+def _gorevler(*_):
+    try:
+        gorevler = asyncio.all_tasks(asyncio.get_running_loop())
+    except RuntimeError:
+        return
+    for gorev in gorevler:
+        print('=== GOREV', gorev.get_name(), file=sys.stderr)
+        gorev.print_stack(limit=12, file=sys.stderr)
+    sys.stderr.flush()
+
+_orijinal = asyncio.new_event_loop
+def _yeni():
+    loop = _orijinal()
+    loop.add_signal_handler(signal.SIGUSR2, _gorevler)
+    return loop
+asyncio.new_event_loop = _yeni
+asyncio.events.new_event_loop = _yeni
+sys.argv = ['fusion', 'app']
+from fusion_cli.cli.app import main
+main()
+"""
+
+
 def _komut(args: argparse.Namespace) -> list[str]:
     if args.log:
         return [sys.executable, "-c", _LOG_LAUNCHER]
-    return [str(Path(sys.executable).with_name("fusion")), "app"]
+    return [sys.executable, "-c", _TESHIS_LAUNCHER]
 
 
 def _cevap(veri: dict[str, Any], args: argparse.Namespace, kayit: dict[str, Any]) -> dict[str, Any]:
