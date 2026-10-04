@@ -37,6 +37,7 @@ from ...tools.wordpress_setup import (
     project_theme,
     setup_wordpress,
 )
+from .clone_tools import THEME_BACKUP_DIR
 from .php_verify import WC_STYLES_OFF_NOTE, find_php_executable, woocommerce_styles_disabled
 
 if TYPE_CHECKING:
@@ -158,7 +159,12 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
         ek_sorunlar = (*ek_sorunlar, *await _cart_flow(sonuc))
     # Kapanış kapısı (site_verify) bunları okur: açık fark ya da çalışmayan sepet
     # varken tur "doğrulandı" diye bitmesin.
-    acik_bulgular = (*(farklar[1:] if farklar else ()), *ek_sorunlar)
+    # clone_site ile üretilmiş temada görünüm kaynaktan birebir yakalandı; ölçüm farkları
+    # (JS kapalı kopyadan doğan) düzeltilecek iş sayılmaz. Ölçüldü (4 Ekim): kopya 2
+    # farkla başladı, model bu farkları kovalarken 14'e çıkardı ve ana sayfayı bozdu.
+    kopya = await asyncio.to_thread((root / THEME_BACKUP_DIR).is_dir)
+    tasarim_farklari = () if kopya else (farklar[1:] if farklar else ())
+    acik_bulgular = (*tasarim_farklari, *ek_sorunlar)
     preview.last_probe["open_findings"] = acik_bulgular
     acik = len(sonuc.problems) + len(acik_bulgular)
     preview.last_probe["open_count"] = acik
@@ -168,7 +174,9 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
         preview.last_probe["best_count"] = acik
     elif isinstance(en_iyi, int):
         preview.last_probe["best_count"] = en_iyi
-    sonuc_metni = _result(url, kind.value, sonuc, setup, shot, farklar, ek_sorunlar)
+    sonuc_metni = _result(
+        url, kind.value, sonuc, setup, shot, farklar, ek_sorunlar, informational_diffs=kopya
+    )
     return _with_regression_note(sonuc_metni, onceki, acik)
 
 
@@ -401,10 +409,14 @@ def _result(
     shot: str = "",
     differences: tuple[str, ...] | None = None,
     extra_problems: tuple[str, ...] = (),
+    *,
+    informational_diffs: bool = False,
 ) -> ToolResult:
     problems = [*(setup.problems if setup is not None else ()), *sonuc.problems, *extra_problems]
     farklar = tuple(differences[1:]) if differences else ()
-    lines = [_status_line(url, kind, sonuc.status, problems, farklar)]
+    lines = [
+        _status_line(url, kind, sonuc.status, problems, () if informational_diffs else farklar)
+    ]
     if setup is not None and setup.steps:
         lines.append("Kurulum: " + "; ".join(setup.steps) + ".")
     if setup is not None and setup.credentials is not None:
@@ -430,7 +442,14 @@ def _result(
         lines.append(f"Ekran görüntüsü dosyası: {shot}")
     if differences is not None:
         kaynak_url = differences[0]
-        if farklar:
+        if farklar and informational_diffs:
+            lines.append(
+                f"KAYNAKLA ÖLÇÜM FARKLARI ({kaynak_url}) — BİLGİ: tema clone_site ile kaynaktan "
+                "birebir yakalandı, bu farklar çoğunlukla ölçümden doğar. Bunları kovalamak için "
+                "toplu CSS/yerleşim değişikliği YAPMA; yalnız gözle bozuk olduğu kesin tek bir "
+                "bölümü düzelt ve gerilerse geri al:"
+            )
+        elif farklar:
             lines.append(
                 f"KAYNAKLA FARKLAR ({kaynak_url} ile aynı ölçümle karşılaştırıldı) — düzelt ve "
                 "start_preview'ı tekrar çağır:"
