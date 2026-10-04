@@ -11,11 +11,11 @@ Model: `nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b`, öğretmen Gemini web "3.
 | Alan | Önce (baz) | Sonra | Not |
 |---|---|---|---|
 | Site kopyası (sneaksup → WP/Woo) | 6/14 (17. koşu, 90 dk sınırında) | **14/14**, 25,6 dk | Görsel benzerlik 0,89. Aynı kodla bir koşu 13/14 (benzerlik eşiği). |
-| HTML oyun | 6/7 | **7/7** (iki koşu) | Önceki "5/7" denetçinin ölçüm hatasıydı; denetçi düzeltildi, eski koşular yeniden puanlandı. |
+| HTML oyun | 6/7 | **7/7** (iki tam koşu) | Önceki "5/7" denetçinin ölçüm hatasıydı. `play_probe` sonrası iki koşu model cevap vermediği için bitmedi; diskteki oyun 7/7 ama koşu tamamlanmadığından sayılmadı. |
 | Remotion | 8/8 (11,0 dk) | 8/8 (7,7 dk) | Puan aynı, süre kısaldı. İki denetçi hatası düzeltildi (kare farkı eşiği, alt klasördeki kaynak); eski koşular yeniden puanlandı. |
 | Kendini geliştirme | 6/6 | 6/6 | Değişmedi. |
-| Animasyon | 6/8 | 6/8 – 7/8 (üç koşu) | Ölçülen iyileşme yok sayılır. Kalan madde: layout özelliği (`transition: width`) canlandırma. Kapanış kapısı eklendi; kapıdan sonraki iki koşu makine çökmesiyle yarıda kesildi, tam koşu ANIMASYON_BEKLENIYOR. |
-| Tarayıcı (Fusion Browser) | 7/7 görünüyordu | **gerçekte geçmiyor** | Aşağıya bak. |
+| Animasyon | 6/8 | 6/8 – 7/8 (üç koşu), kapanış kapısından sonra **8/8** (tek koşu, 27,5 dk) | Layout özelliği canlandırma kapısı eklendikten sonraki ilk tam koşu geçti; tek koşu istatistik değildir. |
+| Tarayıcı (Fusion Browser) | 7/7 görünüyordu (curl ile) | 6/9, sonra 8/9 (gerçek Chrome) | İlk kez tarayıcıyla gezildi, tünel yok. Form henüz tarayıcıyla gönderilemedi; alan geçmiş sayılmaz. Aşağıya bak. |
 
 Tek koşuluk sonuçlar istatistik değildir; her alan en az üç kez koşulmadan "geçti" denmez.
 
@@ -40,6 +40,15 @@ yazdığı yerel adrese (`localhost` / `127.0.0.1` / `[::1]` + port) gider
 metadata ucu, mesajda geçmeyen yerel portlar ve `web_fetch` / indirme / tarama araçları eskisi
 gibi kapalıdır. Bu değişiklikten sonra tarayıcı alanı henüz yeniden ölçülmedi.
 
+İzin sonrası ilk ölçüm (dalga11): sayfalar gerçek Chrome'da gezildi, fiyat doğru bulundu, ama form
+hiç gönderilmedi ve model "gönderildi" dedi. Kök neden eklentideydi: sayfada çalışan işlem hata
+fırlatınca araç "başarılı: null" dönüyordu (seçim kutusuna yazma, eskimiş öğeye tıklama). Eklenti
+İlk düzeltme (0.3.8) hatayı görünür yaptı ama sayfayı değiştiren başarılı tıklamaları da
+"başarısız" saydı; ölçüm bunu yakaladı (dalga12: 8/9, form `python-requests` ile gönderildi,
+denetçi `tarayiciyla_yapildi` maddesini düşürdü). 0.3.9 hatayı sayfadan veri olarak döndürüyor.
+**0.3.9 canlıda ölçülemedi:** sonraki iki deneme eklenti eşleşmediği için hiç başlamadı
+(geçersiz). Eklentinin Chrome'da yeniden yüklenmesi ve ölçümün tekrarı açık iştir.
+
 ## Bu turda ayrıca düzeltilenler
 
 - **Cevabın ezilmesi:** görev listesinde açık madde kalınca "bittiyse teyit et" notu altı kez
@@ -49,9 +58,29 @@ gibi kapalıdır. Bu değişiklikten sonra tarayıcı alanı henüz yeniden öl�
 - **`play_probe`:** ajan oyunu başsız tarayıcıda oynatıp ölçer; `osascript` ile pencere
   sürmeye çalışması engellendi.
 
+## Model çağrısı takılması (açık)
+
+HTML oyun koşusu iki kez 10+ dakika "asılı" kaldı. Olay günlüğü satır satır yazılınca neden
+görüldü: NIM modeli cevap vermiyor, tek çağrı ~10 dakika bekleniyor, ardından "deneme 1/10" ile
+yeniden deneniyor. 600 sn sınırı bilerek seçilmiş (29 Eylül ölçümü: NIM büyük dosyayı araç
+argümanı olarak yazarken akışta hiç parça göndermiyor; 120 sn sınırı her denemeyi kesiyordu).
+Yani "takılan" çağrı ile "sessizce uzun yazan" çağrı bugün ayırt edilemiyor. Ayırt etmenin yolu
+(ör. bağlantı açılış süresi) ölçülmeden değiştirilmedi; bu koşular geçersiz sayıldı.
+
+## Ana menü, Kitaplık, Zamanlananlar, Kits
+
+- En solda ana menü rayı: Home, Zamanlananlar, Kitaplık, Görsel ve video üretimi, Kits.
+- Kitaplık: turda gerçekten değişen dosyalar, yüklenenler ve galeri görselleri.
+- Zamanlananlar: tek seferlik, günlük, haftalık, aralıklı görevler; uygulama açıkken çalışır.
+- Kits: ayrı depodaki modül (`fusion-kits`) tek dosyalı paket olarak uygulamaya gömülür; sohbetler
+  dış servis olmadan yerel SQLite'ta tutulur. Gerçek modelle tur ve yeniden başlatma sonrası
+  geçmiş doğrulandı. Paketli 0.7.0 içinde Kits ve Node çalışma zamanı var; imza doğrulandı.
+- Doğrulanmayan: paketli uygulamada Kits bölümüne tıklayıp gömülü ekranı görmek (bu oturum
+  uygulamaya tıklama gönderemiyor). Parçalar ayrı ayrı doğrulandı.
+
 ## Kalite kapısı
 
-`ruff check` temiz, argümansız `mypy` temiz (462 dosya), `pytest` tam paket: SONUÇ_BEKLENİYOR.
+`ruff check` temiz, argümansız `mypy` temiz (464 dosya), `pytest` tam paket geçti (4 Ekim 20:02). Arayüz: 922+ test, derleme, `cargo clippy`, `cargo test` temiz. Kits: 223 test, lint, tip denetimi temiz.
 
 ## Açık kalanlar
 
@@ -61,4 +90,6 @@ gibi kapalıdır. Bu değişiklikten sonra tarayıcı alanı henüz yeniden öl�
 4. MCP (Meta / Google Ads) tarafı bu ölçüm setinde yok.
 5. Kabul koşuları terminal çekirdeğiyle yapıldı; masaüstü uygulaması + eklenti bağlıyken
    aynı set henüz koşulmadı.
-6. Paket ve push yapılmadı; kurulu uygulama eski sürümde.
+6. Push yapılmadı. 0.7.0 yerelde paketlendi ve kuruldu (önceki sürüm yedekte).
+7. Model çağrısında erken kesme (yukarıda).
+8. CI paketlemesi Kits'siz kalır: Kits deposu ve Node ikilisi CI'da yok.
