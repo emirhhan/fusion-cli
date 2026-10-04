@@ -135,7 +135,9 @@ def build_agent_registry(
     if conversation and memory_dir is not None:
         extended.register(recent_actions_tool(memory_dir, conversation))
     _register_forged_tools(extended, deps)
-    return extended
+    runtime = getattr(deps.config, "runtime", None)
+    kapali = frozenset(getattr(runtime, "disabled_tools", ()))
+    return _without(extended, kapali) if kapali else extended
 
 
 def _register_forged_tools(registry: ToolRegistry, deps: AgentDeps) -> None:
@@ -178,6 +180,16 @@ def teacher_candidates(config: Config, teacher: ModelSpec) -> list[ModelSpec]:
         ):
             adaylar.append(ModelSpec(name=f"ogretmen-yedek-{len(adaylar)}", model=session.model))
     return adaylar[: TEACHER_FALLBACKS + 1]
+
+
+def _without(registry: ToolRegistry, names: frozenset[str]) -> ToolRegistry:
+    """Kapatılan araçlar ve onlara bağlı takma adlar olmadan yeni defter."""
+    kapali_calistiricilar = {tool.run for tool in registry if tool.name in names}
+    kalan = ToolRegistry()
+    for tool in registry:
+        if tool.name not in names and tool.run not in kapali_calistiricilar:
+            kalan.register(tool)
+    return kalan
 
 
 def _clone(registry: ToolRegistry, *, chrome: bool = True) -> ToolRegistry:

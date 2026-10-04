@@ -109,6 +109,10 @@ class RuntimeConfig:
     #: bayrakla olur, `.fusion/ogretmen.md` günlüğü bundan ETKİLENMEZ, o her
     #: zaman yazılır.
     teacher_lesson_sync: bool = True
+    #: Modele HİÇ SUNULMAYACAK araçların adları (takma adları da kapanır). Kullanıcı bir
+    #: aracı istemiyorsa ya da bir yeteneği araçsız ölçmek istiyorsa (ör. `clone_site`
+    #: kapalıyken model siteyi kendisi kurabiliyor mu?) buradan kapatır.
+    disabled_tools: tuple[str, ...] = ()
     #: Agent: kod değiştiren tur sonrası çalıştırılacak doğrulama komutları (ruff/mypy/
     #: pytest ya da alt kümesi). Boş = doğrulama kapalı; sonuç ders güvenini besler.
     verification_commands: tuple[str, ...] = ()
