@@ -46,6 +46,23 @@ def _fill_block(sayfa: Page) -> None:
             kutu.first.fill(deger)
 
 
+#: Ülkeye göre zorunlu olan il/eyalet seçimi. Varsayılan ülke ABD iken dolu geliyordu;
+#: mağaza kaynağın ülkesine çevrilince boş kaldı ve sipariş doğrulamada takıldı (ölçüldü).
+STATE_SELECTS = "select#billing_state, select#billing-state, select#shipping-state"
+
+
+def _pick_state(sayfa: Page) -> None:
+    """Boş il/eyalet seçim kutusunda ilk gerçek seçeneği seç."""
+    kutu = sayfa.locator(STATE_SELECTS)
+    if not kutu.count() or kutu.first.input_value():
+        return
+    secenekler = kutu.first.locator("option").evaluate_all(
+        "options => options.map(o => o.value).filter(Boolean)"
+    )
+    if secenekler:
+        kutu.first.select_option(str(secenekler[0]))
+
+
 def place_order(sayfa: Page, checkout_url: str, timeout_ms: int) -> tuple[Check, str]:
     """Formu doldur, kapıda ödemeyi seç, siparişi ver. (madde, deneme notu) döner."""
     from playwright.sync_api import Error as PlaywrightError
@@ -64,6 +81,7 @@ def place_order(sayfa: Page, checkout_url: str, timeout_ms: int) -> tuple[Check,
         if not (klasik or blok):
             return madde, "form olmadığı için sipariş denenmedi"
         _fill_classic(sayfa) if klasik else _fill_block(sayfa)
+        _pick_state(sayfa)
         kapida = sayfa.locator(COD_INPUTS)
         if kapida.count():
             kapida.first.check(force=True)

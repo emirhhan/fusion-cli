@@ -165,3 +165,25 @@ def test_kayit_defterindeki_her_alan_yuklenir() -> None:
         assert load_area(ad).name == ad
     with pytest.raises(KeyError):
         load_area("yok")
+
+
+def test_magaza_varsayilan_gorunumde_kaldiysa_yakalanir():
+    from evals.kabul.areas.site_clone_probe import default_style_markers, shrunken_slides
+
+    varsayilan = {
+        "baslik": "rgb(0, 0, 238)",
+        "fiyat": "rgb(149, 142, 9)",
+        "dugme": "rgb(127, 84, 179)",
+    }
+    uyarlanmis = {
+        "baslik": "rgba(0, 0, 0, 0.87)",
+        "fiyat": "rgb(23, 22, 32)",
+        "dugme": "rgb(0, 0, 0)",
+    }
+
+    assert len(default_style_markers(varsayilan)) == 3
+    assert default_style_markers(uyarlanmis) == []
+    assert default_style_markers({}) == []
+    assert shrunken_slides([0.25, 0.25, 1.0]) == 2
+    assert shrunken_slides([1.0, 0.8]) == 0
+    assert shrunken_slides([]) == 0

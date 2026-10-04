@@ -127,14 +127,89 @@ def _run(
         Check("varsayilan_kenar_cubugu_yok", kenar == 0, f"{kenar} varsayılan widget"),
         _image_check("ana_sayfa_gorselleri", kirik_ana),
     ]
+    checks.append(_overflow_check(sayfa))
+    checks.append(_slider_check(sayfa))
     sutun = _grid(sayfa, pages.shop)
     checks.append(_image_check("magaza_gorselleri", _broken_images(sayfa)))
+    checks.append(_store_style_check(sayfa, pages.shop))
     checks.append(_product_form(sayfa, pages.product))
     checks.append(_add_to_cart(sayfa, pages))
     odeme, not_ = _checkout(sayfa, pages.checkout)
     checks.append(odeme)
     checks.append(Check("kaynaga_hotlink_yok", not hotlink, f"{len(hotlink)} istek {host} alanına"))
     return StoreProbe(tuple(checks), sutun, _source_similarity(tarayici, source_url, ana_png), not_)
+
+
+#: Betikle ölçülenen kaydırıcıların slayt sınıfları (swiper, slick, splide, embla…).
+SLIDE_SELECTOR = (
+    ".swiper-slide, .slick-slide, .splide__slide, .embla__slide, .glide__slide, "
+    ".keen-slider__slide, .carousel-item"
+)
+#: Slayttaki görsel slaytın bu oranından darsa "büzülmüş" sayılır. Ölçüldü (4 Ekim):
+#: 250 px'lik slaytta görsel 62 px'e düşmüştü (0,25); sağlam kopyada oran 1,0.
+MIN_SLIDE_IMAGE_RATIO = 0.5
+#: WooCommerce ve tarayıcı varsayılan renkleri: mağaza sayfası bunları taşıyorsa
+#: kaynağın görünümü oraya hiç uygulanmamıştır.
+DEFAULT_LINK_COLOR = "rgb(0, 0, 238)"
+DEFAULT_WOO_COLORS = frozenset(
+    {"rgb(127, 84, 179)", "rgb(149, 142, 9)", "rgb(119, 164, 100)", "rgb(235, 233, 235)"}
+)
+_SLIDER_JS = """(selector) => [...document.querySelectorAll(selector)].flatMap((slide) => {
+  const width = slide.getBoundingClientRect().width;
+  const image = slide.querySelector('img');
+  if (!image || width < 40) return [];
+  return [image.getBoundingClientRect().width / width];
+})"""
+_STORE_STYLE_JS = """() => {
+  const style = (selector, property) => {
+    const node = document.querySelector(selector);
+    return node ? getComputedStyle(node)[property] : '';
+  };
+  return {
+    baslik: style('ul.products li.product a', 'color'),
+    fiyat: style('ul.products li.product .price', 'color'),
+    dugme: style('ul.products li.product .button', 'backgroundColor'),
+  };
+}"""
+
+
+def default_style_markers(colors: dict[str, str]) -> list[str]:
+    """Mağaza sayfasında varsayılan (kaynağa uyarlanmamış) kalan öğelerin adları."""
+    kalan = []
+    if colors.get("baslik") == DEFAULT_LINK_COLOR:
+        kalan.append("ürün adı varsayılan bağlantı mavisi")
+    if colors.get("fiyat") in DEFAULT_WOO_COLORS:
+        kalan.append("fiyat WooCommerce varsayılan rengi")
+    if colors.get("dugme") in DEFAULT_WOO_COLORS:
+        kalan.append("düğme WooCommerce varsayılan rengi")
+    return kalan
+
+
+def shrunken_slides(ratios: list[float]) -> int:
+    """Görseli slaytına göre büzülmüş slayt sayısı."""
+    return sum(1 for oran in ratios if oran < MIN_SLIDE_IMAGE_RATIO)
+
+
+def _overflow_check(sayfa: Page) -> Check:
+    fazla = int(sayfa.evaluate("() => document.documentElement.scrollWidth - window.innerWidth"))
+    return Check("ana_sayfa_yatay_tasmiyor", fazla <= 2, f"taşma: {max(fazla, 0)} px")
+
+
+def _slider_check(sayfa: Page) -> Check:
+    oranlar = [float(oran) for oran in sayfa.evaluate(_SLIDER_JS, SLIDE_SELECTOR)]
+    buzulen = shrunken_slides(oranlar)
+    return Check(
+        "kaydirici_gorselleri_dolu",
+        buzulen == 0,
+        f"{buzulen}/{len(oranlar)} slaytta görsel büzülmüş" if oranlar else "kaydırıcı yok",
+    )
+
+
+def _store_style_check(sayfa: Page, shop_url: str) -> Check:
+    if not shop_url:
+        return Check("magaza_kaynak_gorunumunde", False, "mağaza sayfası yok")
+    kalan = default_style_markers(dict(sayfa.evaluate(_STORE_STYLE_JS)))
+    return Check("magaza_kaynak_gorunumunde", not kalan, "; ".join(kalan))
 
 
 #: Kırık (yüklenmemiş) ya da WooCommerce yer tutucusu görsel oranı bu değeri
