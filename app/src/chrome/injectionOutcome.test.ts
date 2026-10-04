@@ -1,37 +1,38 @@
 import { describe, expect, it } from "vitest";
 
-type Outcome = (injection: unknown, before?: string, after?: string) => unknown;
+type Outcome = (injection: unknown, after?: string) => unknown;
+type PageAction = (operation: string, args: Record<string, unknown>) => unknown;
 
-async function load(): Promise<Outcome> {
-  const core = (await import("../../../chrome-extension/core.js")) as { injectionOutcome: Outcome };
-  return core.injectionOutcome;
+async function load() {
+  return (await import("../../../chrome-extension/core.js")) as { injectionOutcome: Outcome; pageAction: PageAction };
 }
 
 describe("injectionOutcome", () => {
   it("sayfadaki işlemin sonucunu olduğu gibi verir", async () => {
-    const outcome = await load();
-    expect(outcome({ result: { clicked: "e4" } }, "http://a/", "http://a/")).toEqual({ clicked: "e4" });
-    expect(outcome({ result: false })).toBe(false);
+    const { injectionOutcome } = await load();
+    expect(injectionOutcome({ result: { clicked: "e4" } }, "http://a/")).toEqual({ clicked: "e4" });
+    expect(injectionOutcome({ result: false })).toBe(false);
   });
 
   it("sayfa hatasını yutmaz", async () => {
-    const outcome = await load();
-    expect(() => outcome({ result: null, error: { message: "Seçim kutusu için chrome_select kullanın." } }))
+    const { injectionOutcome } = await load();
+    expect(() => injectionOutcome({ result: { __hata: "Seçim kutusu için chrome_select kullanın." } }))
       .toThrow("Seçim kutusu için chrome_select kullanın.");
-    expect(() => outcome({ error: "öğe bulunamadı" })).toThrow("öğe bulunamadı");
+    expect(() => injectionOutcome({ error: "öğe bulunamadı" })).toThrow("öğe bulunamadı");
   });
 
-  it("boş sonucu başarı saymaz, ne yapılacağını söyler", async () => {
-    const outcome = await load();
-    expect(() => outcome({ result: null }, "http://a/form", "http://a/form")).toThrow(/chrome_page/);
-    expect(() => outcome(undefined)).toThrow(/sonuç döndürmedi/);
+  it("boş sonuç bağlamın kapandığını gösterir: tıklama sayfayı değiştirdi", async () => {
+    const { injectionOutcome } = await load();
+    expect(injectionOutcome({ result: null }, "http://a/gonder")).toEqual({ navigated: true, url: "http://a/gonder" });
   });
+});
 
-  it("işlem sayfayı değiştirdiyse boş sonuç gezinme olarak raporlanır", async () => {
-    const outcome = await load();
-    expect(outcome({ result: null }, "http://a/form", "http://a/gonder")).toEqual({
-      navigated: true,
-      url: "http://a/gonder",
-    });
+describe("pageAction hata döndürme kipi", () => {
+  it("hatayı fırlatmak yerine veri olarak döndürür; kipsiz çağrı eskisi gibi fırlatır", async () => {
+    const { pageAction } = await load();
+    document.body.innerHTML = "<p>boş</p>";
+    const result = pageAction("click", { ref: "yok", __hataDondur: true }) as { __hata?: string };
+    expect(typeof result.__hata).toBe("string");
+    expect(() => pageAction("click", { ref: "yok" })).toThrow();
   });
 });

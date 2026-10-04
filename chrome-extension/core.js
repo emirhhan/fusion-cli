@@ -5,6 +5,7 @@ const TAB_KEY = "fusionTab";
 const LOAD_TIMEOUT_MS = 20000;
 
 export function pageAction(operation, args) {
+  const calistir = () => {
   // Sayfanın İÇİNDE çalışır (chrome.scripting ile enjekte edilir); dış kapsam yoktur.
   const INTERACTIVE = "button, a[href], input, textarea, select, summary, [role='button'], " +
     "[role='link'], [role='tab'], [role='menuitem'], [role='option'], [role='checkbox'], " +
@@ -763,6 +764,15 @@ export function pageAction(operation, args) {
     return { found: (document.body?.innerText || "").includes(String(args.text || "")), url: location.href };
   }
   throw new Error("Desteklenmeyen sayfa eylemi.");
+  };
+  // Arka plan `__hataDondur` ile çağırır: `executeScript` sayfadaki hatayı iletmez,
+  // sonucu boş döndürür. Hata burada yakalanıp veri olarak geri verilir.
+  if (!args || !args.__hataDondur) return calistir();
+  try {
+    return calistir();
+  } catch (error) {
+    return { __hata: String((error && error.message) || error) };
+  }
 }
 
 export async function getSelected() {
@@ -835,35 +845,32 @@ export async function checkedTab() {
  *
  * Ölçüldü (4 Ekim kabul koşusu): sayfadaki işlem hata fırlatınca `executeScript`
  * reddetmiyor, sonucu boş dönüyor; araç bunu "başarılı: null" diye iletiyordu.
- * Model seçim kutusuna yazmayı ve eskimiş öğeye tıklamayı başarılı sandı, form
- * hiç gönderilmediği hâlde "gönderildi" dedi. */
-export function injectionOutcome(injection, urlBefore, urlAfter) {
+ * Model seçim kutusuna yazmayı başarılı sandı, form hiç gönderilmediği hâlde
+ * "gönderildi" dedi. İşlem hatayı artık `__hata` alanıyla veri olarak döndürür.
+ * Boş sonuç yalnız bağlam kapandığında (tıklama sayfayı değiştirdi) görülür. */
+export function injectionOutcome(injection, urlAfter) {
   const error = injection?.error;
   if (error) throw new Error(typeof error === "string" ? error : error.message || "Sayfa işlemi hata verdi.");
-  if (injection?.result !== undefined && injection?.result !== null) return injection.result;
-  // Tıklama sayfayı değiştirdiyse sonuç dönemeden bağlam kapanır; bu başarıdır.
-  if (urlBefore && urlAfter && urlBefore !== urlAfter) return { navigated: true, url: urlAfter };
-  throw new Error(
-    "Sayfa işlemi sonuç döndürmedi: öğe bulunamadı, eskidi ya da işlem bu öğede geçersiz. " +
-    "chrome_page ile sayfayı yeniden oku ve güncel ref ile dene; seçim kutusu için chrome_action select kullan.",
-  );
+  const result = injection?.result;
+  if (result && typeof result === "object" && typeof result.__hata === "string") throw new Error(result.__hata);
+  if (result !== undefined && result !== null) return result;
+  return { navigated: true, url: urlAfter ?? null };
 }
 
 async function runInTab(tab, operation, args) {
-  const urlBefore = tab.url;
   let injection;
   try {
     [injection] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id }, func: pageAction, args: [operation, args],
+      target: { tabId: tab.id }, func: pageAction, args: [operation, { ...args, __hataDondur: true }],
     });
   } catch (error) {
     // Çerçeve işlem sırasında kapandıysa (gönderim sonrası yönlendirme) adres değişmiştir.
     const current = await chrome.tabs.get(tab.id).catch(() => null);
-    if (current && current.url !== urlBefore) return { navigated: true, url: current.url };
+    if (current && current.url !== tab.url) return { navigated: true, url: current.url };
     throw error;
   }
   const current = await chrome.tabs.get(tab.id).catch(() => null);
-  return injectionOutcome(injection, urlBefore, current?.url);
+  return injectionOutcome(injection, current?.url);
 }
 
 export async function execute(command) {
