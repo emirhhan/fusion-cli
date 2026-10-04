@@ -38,6 +38,7 @@ window.__GAME_STATE__ = () => ({ durum: state.mode, skor: state.score, can: stat
 
 ## Kendi işini doğrula (bitti demeden önce)
 
-- `start_preview` ile aç: konsol hatası 0.
-- Tarayıcı aracıyla ok tuşuna bas, `window.__GAME_STATE__()` çıktısında oyuncu konumunun
-  değiştiğini gör; R'ye bas, skorun sıfırlandığını gör. Görmeden "oynanabilir" deme.
+- `play_probe(target='index.html')` çağır: oyunu ayrı başsız tarayıcıda açar, tuşlara
+  basar; konsol hatası 0, rAF ~60/sn, tuşlardan sonra oyuncu konumu belirgin değişmeli,
+  R'den sonra skor/can sıfırlanmalı. Çıktıda "DEĞİŞTİRMEDİ" görürsen girdi kodunu düzelt.
+- Masaüstüne `osascript` ile tuş gönderme, ekran görüntüsü alıp tahmin yürütme.
