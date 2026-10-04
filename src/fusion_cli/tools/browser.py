@@ -31,7 +31,7 @@ from .mirror import (
     mirror_summary,
     rewrite_links,
 )
-from .web import access_wall_notice, url_block_reason
+from .web import access_wall_notice, browser_block_reason
 
 #: Sayfa yüklenmesi ve öğe bekleme için üst sınır (ms). Tarayıcı etkileşimi ağdan
 #: yavaştır; `WEB_TIMEOUT_S` bir HTTP isteği bütçesidir ve buraya uymaz.
@@ -59,7 +59,7 @@ async def browser_open(args: ToolArgs, context: ToolContext) -> ToolResult:
         url = f"https://{url}"
     # SSRF doğrulaması `web_fetch` ile AYNI kapıdan geçer: tarayıcı olması adresi
     # güvenli yapmaz, tersine yerel ağa erişim için daha güçlü bir araçtır.
-    reason = url_block_reason(url)
+    reason = browser_block_reason(url, context.local_origins)
     if reason is not None:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
 
@@ -155,7 +155,7 @@ async def browser_tab_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     url = require_str(args, "url")
     if not url.startswith(("http://", "https://")):
         url = f"https://{url}"
-    reason = url_block_reason(url)
+    reason = browser_block_reason(url, context.local_origins)
     if reason is not None:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
     page, error = await _sayfa(context)
@@ -233,7 +233,7 @@ async def browser_mirror(args: ToolArgs, context: ToolContext) -> ToolResult:
         if url:
             if not url.startswith(("http://", "https://")):
                 url = f"https://{url}"
-            reason = url_block_reason(url)
+            reason = browser_block_reason(url, context.local_origins)
             if reason is not None:
                 return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
             await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)

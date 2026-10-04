@@ -15,7 +15,7 @@ import ipaddress
 import re
 import socket
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from html.parser import HTMLParser
 from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 
@@ -264,6 +264,47 @@ def url_block_reason(url: str) -> str | None:
         if _is_blocked_ip(address):
             return f"özel/yerel ağ adresi ({address})"
     return None
+
+
+#: Kullanıcı mesajındaki yerel adresler: `localhost`, `127.0.0.1` ya da `[::1]` + port.
+_LOOPBACK_URL = re.compile(r"https?://(localhost|127\.0\.0\.1|\[::1\]):(\d{2,5})\b", re.IGNORECASE)
+
+
+def loopback_origins_in(text: str) -> set[str]:
+    """Metinde açıkça yazılmış yerel adreslerin `host:port` kümesi."""
+    return {f"{host.lower()}:{port}" for host, port in _LOOPBACK_URL.findall(text)}
+
+
+def _loopback_origin(url: str) -> str | None:
+    """Adres yerel döngüdeyse `host:port`; değilse None.
+
+    Ad çözümlemesine güvenmez: yalnız YAZILIŞI yerel olan adres sayılır, DNS ile
+    127.0.0.1'e çözülen bir alan adı sayılmaz.
+    """
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if host not in ("localhost", "127.0.0.1", "::1") or port is None:
+        return None
+    return f"{'[::1]' if host == '::1' else host}:{port}"
+
+
+def browser_block_reason(url: str, allowed_local: Collection[str] = ()) -> str | None:
+    """Tarayıcı araçları için adres kapısı.
+
+    `url_block_reason` ile aynıdır; tek fark, kullanıcının kendi mesajında yazdığı
+    yerel adrese (`allowed_local`) izin vermesidir. Ölçüldü (4 Ekim kabul koşusu):
+    yerel adres koşulsuz reddedilince model işi `curl` ile yaptı ve yerel sunucuyu
+    internete açan bir tünel kurdu. Diğer özel ağ adresleri, bulut metadata ucu ve
+    izin verilmemiş yerel portlar kapalı kalır.
+    """
+    origin = _loopback_origin(url)
+    if origin is not None and origin in allowed_local:
+        return None
+    return url_block_reason(url)
 
 
 def _is_blocked_ip(address: str) -> bool:

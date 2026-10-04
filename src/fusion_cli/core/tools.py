@@ -282,6 +282,9 @@ class ToolContext:
     #: Doğrulama kapısı yalnızca buraya bakar: kök dizini taramak, agent'ın hiç
     #: dokunmadığı dosyalar hakkında bulgu üretirdi. Yalnızca başarılı yazma iz bırakır.
     touched: set[Path] = field(default_factory=set)
+    #: Tarayıcı araçlarının gidebileceği YEREL adresler (`host:port`). Yalnız kullanıcının
+    #: kendi mesajında yazdığı adresler girer; sayfa içeriği ya da model buraya ekleyemez.
+    local_origins: set[str] = field(default_factory=set)
     #: İçeriği TAM olarak okunmuş dosyalar (kırpılmadan).
     #
     # `write_file` dosyanın tamamını değiştirir. Model dosyayı hiç okumadıysa ya da

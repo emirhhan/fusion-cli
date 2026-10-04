@@ -15,7 +15,7 @@ from ..core.constants import MAX_UPLOAD_BYTES
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
 from .args import require_str
-from .web import url_block_reason
+from .web import browser_block_reason
 
 
 async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolResult:
@@ -246,7 +246,7 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
         if not isinstance(value, str) or not value.strip():
             return ToolResult.failure("open için 'value' alanına adresi yaz.")
         url = value if value.startswith(("https://", "http://")) else f"https://{value}"
-        reason = url_block_reason(url)
+        reason = browser_block_reason(url, context.local_origins)
         if reason is not None:
             return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
         return await _call(context, "tab_open", {"url": url})
@@ -313,7 +313,7 @@ async def chrome_navigate(args: ToolArgs, context: ToolContext) -> ToolResult:
     url = require_str(args, "url")
     if not url.startswith(("https://", "http://")):
         url = f"https://{url}"
-    reason = url_block_reason(url)
+    reason = browser_block_reason(url, context.local_origins)
     if reason is not None:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
     return await _call(context, "navigate", {"url": url})

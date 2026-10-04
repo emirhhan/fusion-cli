@@ -98,6 +98,7 @@ from ...tools.capabilities import CapabilityRegistry
 from ...tools.emulation import coerce_arguments, render_tool_example, validate_arguments
 from ...tools.files import resolve_path
 from ...tools.preview import file_diff
+from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking
 from ..effects.model import EffectKind
 from ..effects.runner import maybe_run_effect_workflow
@@ -436,6 +437,10 @@ async def run_agent(
         deps.budget = _new_budget(deps.config)
     if depth == 0 and not internal:
         deps.active_model_override = None
+        # Kullanıcının mesajında AÇIKÇA yazdığı yerel adresler tarayıcı araçlarına
+        # açılır (kendi geliştirme sunucusu, Fusion'ın önizlemesi). Düzeltici iç
+        # turlar ve alt ajanlar bu kümeye ekleme yapamaz.
+        deps.tool_context.local_origins.update(loopback_origins_in(task))
 
     if not plan_mode and not chat_mode and depth == 0:
         played = await maybe_run_playbook(task, deps)

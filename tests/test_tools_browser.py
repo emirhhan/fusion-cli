@@ -174,7 +174,7 @@ async def test_yeni_sekme_giris_baglamini_paylasir_ve_adres_kapisi_korunur(tmp_p
             return page
 
     context.browser.context = _Context()
-    monkeypatch.setattr(browser, "url_block_reason", lambda url: None)
+    monkeypatch.setattr(browser, "browser_block_reason", lambda url, allowed=(): None)
 
     result = await browser.browser_tab_open({"url": "https://iki.test"}, context)
 
@@ -183,7 +183,7 @@ async def test_yeni_sekme_giris_baglamini_paylasir_ve_adres_kapisi_korunur(tmp_p
     assert context.browser.page is context.browser.context.pages[1]
     assert context.browser.page.url == "https://iki.test"
 
-    monkeypatch.setattr(browser, "url_block_reason", lambda url: "yerel adres")
+    monkeypatch.setattr(browser, "browser_block_reason", lambda url, allowed=(): "yerel adres")
     blocked = await browser.browser_tab_open({"url": "http://127.0.0.1"}, context)
     assert not blocked.ok
     assert len(context.browser.context.pages) == 2
@@ -196,7 +196,7 @@ async def test_yeni_sekme_giris_baglamini_paylasir_ve_adres_kapisi_korunur(tmp_p
 
 async def test_acma_sayfayi_yukler_ve_ozet_doner(tmp_path, monkeypatch):
     # SSRF kapısı DNS çözer; testler ağa çıkmaz. Kapının KENDİSİ ayrıca sınanıyor.
-    monkeypatch.setattr(browser, "url_block_reason", lambda url: None)
+    monkeypatch.setattr(browser, "browser_block_reason", lambda url, allowed=(): None)
     page = _SahteSayfa(govde="Spor Ayakkabı 1.499 TL")
     context = _acik_context(tmp_path, page)
 
@@ -209,7 +209,7 @@ async def test_acma_sayfayi_yukler_ve_ozet_doner(tmp_path, monkeypatch):
 
 
 async def test_semasiz_adres_https_yapilir(tmp_path, monkeypatch):
-    monkeypatch.setattr(browser, "url_block_reason", lambda url: None)
+    monkeypatch.setattr(browser, "browser_block_reason", lambda url, allowed=(): None)
     page = _SahteSayfa()
     context = _acik_context(tmp_path, page)
 
@@ -230,7 +230,7 @@ async def test_ssrf_kapisi_tarayicida_da_uygulanir(tmp_path):
 
 
 async def test_erisim_duvari_tarayicida_da_bildirilir(tmp_path, monkeypatch):
-    monkeypatch.setattr(browser, "url_block_reason", lambda url: None)
+    monkeypatch.setattr(browser, "browser_block_reason", lambda url, allowed=(): None)
     page = _SahteSayfa(govde="This store is password protected. Enter store password")
     context = _acik_context(tmp_path, page)
 
@@ -352,7 +352,7 @@ async def test_playwright_yoksa_kurulum_talimati_doner(tmp_path, monkeypatch):
         return gercek_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", _engelle)
-    monkeypatch.setattr(browser, "url_block_reason", lambda url: None)
+    monkeypatch.setattr(browser, "browser_block_reason", lambda url, allowed=(): None)
 
     sonuc = await browser.browser_open({"url": "https://ornek.test"}, ToolContext(root=tmp_path))
 
