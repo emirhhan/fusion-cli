@@ -99,14 +99,14 @@ def _yakalama(header_offset: int = 64) -> SiteCapture:
 
 
 def test_tema_woocommerce_sablonuyla_ve_yerel_varliklarla_yazilir(tmp_path):
-    tema = write_theme(_yakalama(), tmp_path, "https://www.ornek.com")
+    tema = write_theme(_yakalama(), tmp_path, "https://www.ornek.com", ("kadin",))
 
     klasor = tmp_path / "ornek-kopya"
     assert tema.folder == klasor
     assert {"style.css", "functions.php", "woocommerce.php", "index.php"} <= set(tema.files)
     header = (klasor / "header.php").read_text(encoding="utf-8")
     assert f'src="{THEME_URI}assets/logo-1.svg"' in header
-    assert 'href="/kadin"' in header and "wp_head()" in header
+    assert "/?product_cat=kadin" in header and "wp_head()" in header
     on_sayfa = (klasor / "front-page.php").read_text(encoding="utf-8")
     assert "&lt;?php echo 1;" in on_sayfa and "<?php echo 1;" not in on_sayfa
     assert "url(assets/bg-1.png)" in (klasor / "kopya.css").read_text(encoding="utf-8")
@@ -165,3 +165,34 @@ def test_wordpress_kopyasi_istenince_clone_site_digerinde_olcum_yolu():
     assert design_hint(gorev_wp, available=True, clone_available=False) == DESIGN_NOTE
     assert design_hint(gorev_statik, available=True, clone_available=True) == DESIGN_NOTE
     assert design_hint("bir blog yap", available=True, clone_available=True) is None
+
+
+def test_kaynak_baglantilari_woocommerce_adreslerine_baglanir():
+    from fusion_cli.tools.woo_theme import wire_store_links
+
+    html = (
+        '<a href="/">A</a><a href="/erkek/">E</a><a href="/sepet">S</a>'
+        '<a href="/air-jordan-1?x=1&amp;y=2">J</a>'
+    )
+
+    sonuc = wire_store_links(html, ("erkek",))
+
+    assert '<a href="/">A</a>' in sonuc
+    assert "/?product_cat=erkek" in sonuc
+    assert "wc_get_cart_url()" in sonuc and "kopya-sepet-sayaci" in sonuc
+    assert "/?s=air+jordan+1&post_type=product" in sonuc
+
+
+def test_betikli_simge_dugmeleri_baglantiya_doner():
+    from fusion_cli.tools.woo_theme import buttons_to_links
+
+    html = (
+        '<button class="i" type="button" aria-label="Hesabım"><svg></svg></button>'
+        '<button aria-label="Kapat">x</button>'
+    )
+
+    sonuc = buttons_to_links(html)
+
+    assert sonuc.startswith("<a href=\"<?php echo esc_url( wc_get_page_permalink( 'myaccount' ) )")
+    assert 'class="i"' in sonuc and 'type="button"' not in sonuc
+    assert '<button aria-label="Kapat">x</button>' in sonuc

@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote_plus, urlparse
 
 from .site_capture import SiteCapture, drop_remote_srcset, localize, same_site_paths
 
@@ -114,6 +114,97 @@ _PAGE = """<?php get_header(); ?>
 """
 
 
+#: Mağaza sayfalarının kaynak sitelerde sık görülen yolları → WooCommerce sayfası.
+_STORE_PATHS = {
+    "wc_get_cart_url()": ("sepet", "sepetim", "cart", "basket", "bag"),
+    "wc_get_page_permalink( 'myaccount' )": (
+        "hesabim", "hesap", "uyelik", "giris", "account", "my-account", "login", "uye-girisi",
+    ),
+    "wc_get_page_permalink( 'shop' )": ("magaza", "urunler", "shop", "products", "tum-urunler"),
+}  # fmt: skip
+
+
+#: Betikle çalışan simge düğmeleri (aria-label) → bağlantı hedefi. Kopya statik olduğu
+#: için düğmeler ölü kalıyordu (ölçüldü: sneaksup'ta sepet/hesap/arama düğmeydi).
+_BUTTON_TARGETS = (
+    (re.compile(r"sepet|cart|basket|bag", re.IGNORECASE), "wc_get_cart_url()"),
+    (
+        re.compile(r"hesa[bp]|account|giriş|giris|login|profil|üye|uye", re.IGNORECASE),
+        "wc_get_page_permalink( 'myaccount' )",
+    ),
+    (re.compile(r"\bara\b|search|arama", re.IGNORECASE), "home_url( '/?s=&post_type=product' )"),
+)
+_LABELED_BUTTON = re.compile(r'<button(?P<attrs>[^>]*aria-label="(?P<label>[^"]*)"[^>]*)>')
+
+
+def buttons_to_links(html: str) -> str:
+    """Sepet/hesap/arama simge düğmelerini WooCommerce bağlantısına çevir."""
+    parcalar: list[str] = []
+    konum = 0
+    for eslesme in _LABELED_BUTTON.finditer(html):
+        ifade = next(
+            (hedef for desen, hedef in _BUTTON_TARGETS if desen.search(eslesme.group("label"))),
+            None,
+        )
+        kapanis = html.find("</button>", eslesme.end())
+        if ifade is None or kapanis < 0 or eslesme.start() < konum:
+            continue
+        nitelikler = re.sub(r'\s(type|tabindex)="[^"]*"', "", eslesme.group("attrs"))
+        parcalar.append(html[konum : eslesme.start()])
+        parcalar.append(f'<a href="<?php echo esc_url( {ifade} ); ?>"{nitelikler}>')
+        parcalar.append(html[eslesme.end() : kapanis] + "</a>")
+        konum = kapanis + len("</button>")
+    parcalar.append(html[konum:])
+    return "".join(parcalar)
+
+
+def wire_store_links(html: str, category_slugs: tuple[str, ...]) -> str:
+    """Kaynak sitenin kategori/sepet/hesap bağlantılarını WooCommerce adreslerine bağla.
+
+    Ölçüldü (4 Ekim, clone_site sonrası koşu): model menüyü bağlamak için tek satırlık
+    başlık dosyasında 170+ kabuk komutuyla metin değiştirmeye çalıştı. Eşleşme
+    deterministik yapılır: yolun ilk parçası bir ürün kategorisiyse kategori sayfası,
+    bilinen sepet/hesap/mağaza yollarıysa ilgili WooCommerce sayfası.
+    """
+    hedefler: dict[str, str] = {}
+    for slug in category_slugs:
+        hedefler[slug] = f"home_url( '/?product_cat={slug}' )"
+    for ifade, yollar in _STORE_PATHS.items():
+        for yol in yollar:
+            hedefler.setdefault(yol, ifade)
+
+    def _bagla(match: re.Match[str]) -> str:
+        yol = match.group(1)
+        ilk = yol.split("/", 1)[0].lower()
+        ifade = hedefler.get(ilk) if "/" not in yol.rstrip("/") else None
+        if ifade is None:
+            # Karşılığı olmayan sayfa (marka, kampanya) 404 vermesin: mağaza araması.
+            kelimeler = quote_plus(yol.rstrip("/").rsplit("/", 1)[-1].replace("-", " "))
+            ifade = f"home_url( '/?s={kelimeler}&post_type=product' )"
+        return f'href="<?php echo esc_url( {ifade} ); ?>"'
+
+    bagli = re.sub(r'href="/([A-Za-z0-9_\-/]+)(?:\?[^"]*)?"', _bagla, buttons_to_links(html))
+    # Sepet bağlantısına canlı sayaç: kopya statik HTML'dir, sepet içeriğini bilmez.
+    return re.sub(
+        r'(<a[^>]*href="<\?php echo esc_url\( wc_get_cart_url\(\) \); \?>"[^>]*>)',
+        lambda m: m.group(1) + CART_COUNTER,
+        bagli,
+    )
+
+
+#: Sepet bağlantısına eklenen sayaç (WooCommerce oturumu yoksa 0).
+CART_COUNTER = (
+    '<span class="kopya-sepet-sayaci"><?php echo WC()->cart ? '
+    "(int) WC()->cart->get_cart_contents_count() : 0; ?></span>"
+)
+_CART_COUNTER_CSS = (
+    "\n.kopya-sepet-sayaci { position: absolute; top: -6px; right: -8px; min-width: 16px; "
+    "height: 16px; border-radius: 8px; background: #111; color: #fff; font-size: 10px; "
+    "line-height: 16px; text-align: center; }\n"
+    "a:has(> .kopya-sepet-sayaci) { position: relative; }\n"
+)
+
+
 def _prepare(html: str, capture: SiteCapture, source_url: str) -> str:
     # Sıra önemli: önce kaynaktaki `<?` kaçırılır, SONRA tema adresi (PHP) yerleştirilir.
     # Tersi kendi PHP etiketimizi de kaçırıyordu (ölçüldü: 727 görsel adresi bozuldu).
@@ -132,7 +223,12 @@ def _inner_page_css(header_offset: int) -> str:
     )
 
 
-def write_theme(capture: SiteCapture, themes_dir: Path, source_url: str) -> ThemeFiles:
+def write_theme(
+    capture: SiteCapture,
+    themes_dir: Path,
+    source_url: str,
+    category_slugs: tuple[str, ...] = (),
+) -> ThemeFiles:
     """Tema dosyalarını yaz; varlıklar zaten `<tema>/assets/` altında olmalı."""
     if not capture.pages:
         raise ValueError("yakalanmış sayfa yok")
@@ -143,16 +239,19 @@ def write_theme(capture: SiteCapture, themes_dir: Path, source_url: str) -> Them
     dosyalar = {
         "style.css": _style_header(slug, source_url)
         + "/* Elle düzeltmeler buraya; görünümün kendisi kopya.css'tedir. */\n"
-        + _inner_page_css(ana.header_offset),
+        + _inner_page_css(ana.header_offset)
+        + _CART_COUNTER_CSS,
         "kopya.css": localize(capture.css, capture.assets, ""),
         "functions.php": _FUNCTIONS,
         "header.php": _HEADER_TEMPLATE.format(
             body_class=_safe(ana.body_class).replace("'", ""),
-            header=_prepare(ana.header, capture, source_url),
+            header=wire_store_links(_prepare(ana.header, capture, source_url), category_slugs),
         ),
-        "footer.php": _FOOTER_TEMPLATE.format(footer=_prepare(ana.footer, capture, source_url)),
+        "footer.php": _FOOTER_TEMPLATE.format(
+            footer=wire_store_links(_prepare(ana.footer, capture, source_url), category_slugs)
+        ),
         "front-page.php": "<?php get_header(); ?>\n"
-        + _prepare(ana.main, capture, source_url)
+        + wire_store_links(_prepare(ana.main, capture, source_url), category_slugs)
         + "\n<?php get_footer(); ?>\n",
         "woocommerce.php": _WOOCOMMERCE,
         "page.php": _PAGE,

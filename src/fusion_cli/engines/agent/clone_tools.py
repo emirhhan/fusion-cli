@@ -41,8 +41,9 @@ COD_SETTINGS = '{"enabled":"yes","title":"Kapıda ödeme","description":"Teslima
 
 NEXT_STEPS = """SIRADAKİ ADIMLAR (görünümü SIFIRDAN YAZMA; kopya hazır):
 1. start_preview(kind='wordpress', plugins=['woocommerce']) ile siteyi aç ve farklara bak.
-2. Başlıktaki menü bağlantılarını WooCommerce sayfalarına bağla (mağaza, kategori, sepet);
-   sepet simgesine WC()->cart->get_cart_contents_count() ile sayaç ekle — {tema}/header.php.
+2. Kategori, sepet ve hesap bağlantıları WooCommerce'e bağlandı, sepette sayaç var.
+   Bağlanmamış menü bağlantısı kaldıysa header.php'yi tek tek düzenleme; gerekirse
+   küçük bir python betiğiyle toplu değiştir.
 3. Mağaza ve ürün sayfası woocommerce.php içinden GERÇEK WooCommerce şablonuyla açılır.
    Görünümünü referansa yaklaştırmak için yalnız {tema}/style.css'e `.woocommerce …`
    seçicileriyle stil ekle. WooCommerce formlarını/kancalarını SÖKME, stillerini kapatma.
@@ -132,6 +133,21 @@ def _summary(
     return "\n".join(satirlar)
 
 
+def _catalog_categories(catalog: Path) -> tuple[str, ...]:
+    """Katalogdaki kategori kısa adları (menü bağlantılarını bağlamak için)."""
+    try:
+        urunler = json.loads(catalog.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ()
+    return tuple(
+        dict.fromkeys(
+            str(u.get("kategori", "")).strip().lower()
+            for u in urunler
+            if isinstance(u, dict) and str(u.get("kategori", "")).strip()
+        )
+    )
+
+
 def _catalog_sample(catalog: Path) -> str:
     try:
         urunler = json.loads(catalog.read_text(encoding="utf-8"))
@@ -202,7 +218,8 @@ async def run_clone_site(args: ToolArgs, context: ToolContext) -> ToolResult:
         yakalama = await capture_site(_pick_pages(rapor, url), tema_klasoru)
     except CaptureError as error:
         return ToolResult.failure(f"Sayfa yakalanamadı: {error}")
-    tema = await asyncio.to_thread(write_theme, yakalama, tema_klasoru.parent, url)
+    kategoriler = await asyncio.to_thread(_catalog_categories, kaynak / "urunler.json")
+    tema = await asyncio.to_thread(write_theme, yakalama, tema_klasoru.parent, url, kategoriler)
     adimlar: list[str] = []
     sorunlar = list(yakalama.problems)
     dil = yakalama.pages[0].lang if yakalama.pages else ""
