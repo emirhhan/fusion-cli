@@ -36,9 +36,18 @@ _PREPARE = """(pattern) => {
       select.dispatchEvent(new Event("change", { bubbles: true }));
     }
   }
-  const button = [...document.querySelectorAll("button, input[type=submit], a, [role=button]")]
-    .filter(shown).find((el) => re.test((el.innerText || el.value || "").trim()));
-  if (!button) return null;
+  const visible = (el) => {
+    const s = getComputedStyle(el);
+    return s.visibility !== "hidden" && s.display !== "none" && parseFloat(s.opacity) > 0.05;
+  };
+  const label = (el) => (el.innerText || el.textContent || el.value || "").trim();
+  const matches = [...document.querySelectorAll("button, input[type=submit], a, [role=button]")]
+    .filter((el) => re.test(label(el)));
+  const button = matches.filter(shown).find(visible);
+  if (!button) {
+    const hidden = matches.find((el) => el.closest("form"));
+    return hidden ? { hidden: true, text: label(hidden).slice(0, 40) } : null;
+  }
   button.setAttribute("data-fusion-buy", "1");
   return {
     text: (button.innerText || button.value || "").trim().slice(0, 40),
@@ -72,6 +81,14 @@ async def cart_flow_problem(product_url: str, cart_url: str) -> str | None:
                     f"SEPETE EKLEME: ürün sayfasında ({product_url}) 'sepete ekle' düğmesi yok. "
                     "Ürün şablonunda WooCommerce'in `woocommerce_template_single_add_to_cart()` "
                     "çıktısını (form + düğme) kullan."
+                )
+            if button.get("hidden"):
+                return (
+                    f"SEPETE EKLEME ÇALIŞMIYOR: ürün sayfasında ({product_url}) "
+                    f"'{button.get('text', '')}' düğmesi var ama görünmüyor (visibility/opacity/"
+                    "display ile gizli); müşteri basamaz. Bir CSS kuralı onu gizliyor — çoğu "
+                    "zaman ürün ızgarası için yazılmış geniş bir seçici (ör. `.product .button`). "
+                    "Seçiciyi ızgaraya daralt ve düğmeyi görünür yap."
                 )
             await page.click("[data-fusion-buy]", timeout=STEP_TIMEOUT_MS)
             with contextlib.suppress(Exception):

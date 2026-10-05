@@ -226,7 +226,14 @@ async def _cart_flow(sonuc: PageProbe, *, store: bool = False) -> tuple[str, ...
     Mağaza (WooCommerce kurulu) ise eksik bağlantı da bulgudur. Ölçüldü (dalga19):
     akış hiç kurulmayınca deneme yapılmıyor, kapı susuyor, model 90 dk temaya gömülüyordu.
     """
-    links = [item.url for item in sonuc.links if item.status < 400]
+    # Ölçülen bağlantılar önce (açıldığı biliniyor), sonra ölçülmeyenler. Ölçüldü (dalga20):
+    # yalnız ilk 6 bağlantı ölçülüyordu; ürün/sepet dışarıda kalınca deneme hiç yapılmadı.
+    links = list(
+        dict.fromkeys(
+            [item.url for item in sonuc.links if item.status < 400]
+            + [link.split("#")[0] for link in sonuc.all_links]
+        )
+    )
     product = next((link for link in links if _PRODUCT_PATH.search(link)), None)
     cart = next((link for link in links if _CART_PATH.search(link)), None)
     if product is None or cart is None:

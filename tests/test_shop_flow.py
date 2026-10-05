@@ -102,3 +102,15 @@ async def test_urun_sayfasinda_sepete_ekle_dugmesi_yoksa_soylenir(magaza):
     sorun = await _dene(magaza)
 
     assert sorun is not None and "düğmesi yok" in sorun
+
+
+async def test_css_ile_gizlenen_dugme_soylenir(magaza):
+    """Ölçüldü (dalga20): ızgara için yazılan `.woocommerce .product .button {visibility:
+    hidden}` ürün sayfasındaki asıl Sepete Ekle düğmesini de gizledi; kimse basamadı."""
+    _Magaza.urun_govdesi = _FORMLU_DUGME.replace(
+        "<button ", "<button style='visibility:hidden;opacity:0' "
+    )
+
+    sorun = await _dene(magaza)
+
+    assert sorun is not None and "görünmüyor" in sorun

@@ -83,6 +83,8 @@ class PageProbe:
     page_errors: tuple[str, ...]
     console_errors: tuple[str, ...] = ()
     links: tuple[LinkCheck, ...] = ()
+    #: Sayfadaki TÜM site içi bağlantılar (yalnız ilk `MAX_LINKS` tanesi `links`'te ölçülür).
+    all_links: tuple[str, ...] = ()
     screenshot: bytes | None = None
     #: İstenmişse sayfada çalıştırılan ölçüm betiğinin sonucu (bkz. `design_compare`).
     measured: dict[str, Any] | None = None
@@ -161,6 +163,7 @@ async def probe(
         page_errors=base.page_errors,
         console_errors=seen.console,
         links=links,
+        all_links=base.links,
         screenshot=seen.screenshot,
         measured=seen.measured,
         failed_resources=seen.failed,
