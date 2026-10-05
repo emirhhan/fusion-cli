@@ -105,3 +105,24 @@ def design_hint(task: str, *, available: bool, clone_available: bool = False) ->
     if clone_available and _WORDPRESS.search(task) is not None:
         return CLONE_NOTE
     return DESIGN_NOTE if available else None
+
+
+_STORE = re.compile(r"woocommerce|e-?ticaret|mağaza|magaza|online shop|\bshop\b", re.IGNORECASE)
+STORE_NOTE = (
+    "Bu bir MAĞAZA işi. Önce alışveriş akışını uçtan uca çalışır kur, tasarımı SONRA "
+    "yap: (1) WooCommerce + ürünler (ad, fiyat, görsel); (2) mağaza sayfasında ürün "
+    "ızgarası; (3) ürün sayfasında form içinde çalışan 'sepete ekle'; (4) sepet ve ödeme "
+    "sayfası, en az bir etkin ödeme yöntemi (ör. kapıda ödeme); (5) bir test siparişi. "
+    "Her adımı start_preview ile aç ve gör. Akış çalışmadan ana sayfa/tema inceliğine "
+    "zaman harcama: süre biterse çalışmayan güzel bir tema, çalışan sade bir mağazadan "
+    "daha kötüdür."
+)
+
+
+def store_hint(task: str) -> str | None:
+    """Mağaza isteğinde önce alışveriş akışı, sonra tasarım.
+
+    Ölçüldü (5 Ekim 2026, dalga19): 90 dakikanın tamamı tema ve ana sayfaya gitti;
+    ızgara, sepete ekleme, ödeme formu ve test siparişi kontrollerinin hepsi düştü.
+    """
+    return STORE_NOTE if _STORE.search(task) is not None else None

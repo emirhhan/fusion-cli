@@ -618,3 +618,26 @@ def test_kopya_temada_kaynak_farklari_bilgi_olarak_gosterilir_duzelt_denmez():
 
     assert kopya.startswith("Önizleme çalışıyor") and "BİLGİ" in kopya and "YAPMA" in kopya
     assert normal.startswith("SORUNLU") and "düzelt ve" in normal
+
+
+async def test_magazada_urun_ya_da_sepet_baglantisi_yoksa_akis_eksik_bulgusu_verilir():
+    """Ölçüldü (dalga19, 5 Ekim): 90 dk temaya gitti, mağaza akışı hiç kurulmadı; kapı
+    sepet/ürün bağlantısı yoksa susuyordu, model eksikliği hiç görmedi."""
+    from fusion_cli.engines.agent import preview_tools
+    from fusion_cli.tools.preview_probe import LinkCheck
+
+    yalniz_urun = PageProbe(
+        url="http://127.0.0.1:8770/", status=200, title="Ö", visible_chars=500, page_errors=(),
+        links=(LinkCheck("http://127.0.0.1:8770/product/a/", 200),),
+    )  # fmt: skip
+    bulgular = await preview_tools._cart_flow(yalniz_urun, store=True)
+    assert len(bulgular) == 1
+    assert bulgular[0].startswith("MAĞAZA AKIŞI EKSİK")
+    assert "sepet" in bulgular[0] and "ürün sayfası" not in bulgular[0]
+
+    bos = PageProbe(
+        url="http://127.0.0.1:8770/", status=200, title="Ö", visible_chars=500, page_errors=(),
+        links=(),
+    )  # fmt: skip
+    bulgular = await preview_tools._cart_flow(bos, store=True)
+    assert "ürün sayfası" in bulgular[0] and "sepet" in bulgular[0]

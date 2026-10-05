@@ -156,7 +156,8 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
         dosya = await asyncio.to_thread(woocommerce_styles_disabled, root)
         if dosya:
             ek_sorunlar = (WC_STYLES_OFF_NOTE.format(dosya=dosya),)
-        ek_sorunlar = (*ek_sorunlar, *await _cart_flow(sonuc))
+        magaza = await asyncio.to_thread(_has_woocommerce, root)
+        ek_sorunlar = (*ek_sorunlar, *await _cart_flow(sonuc, store=magaza))
     # Kapanış kapısı (site_verify) bunları okur: açık fark ya da çalışmayan sepet
     # varken tur "doğrulandı" diye bitmesin.
     # clone_site ile üretilmiş temada görünüm kaynaktan birebir yakalandı; ölçüm farkları
@@ -215,13 +216,27 @@ def _with_regression_note(result: ToolResult, previous: object, current: int) ->
     return replace(result, output=f"{ilk}\n{not_}\n{kalan}")
 
 
-async def _cart_flow(sonuc: PageProbe) -> tuple[str, ...]:
-    """Mağazada ürün ve sepet bağlantısı varsa ürünü sepete eklemeyi gerçekten dene."""
+def _has_woocommerce(root: Path) -> bool:
+    return (root / "wp-content" / "plugins" / "woocommerce").is_dir()
+
+
+async def _cart_flow(sonuc: PageProbe, *, store: bool = False) -> tuple[str, ...]:
+    """Mağazada ürün ve sepet bağlantısı varsa ürünü sepete eklemeyi gerçekten dene.
+
+    Mağaza (WooCommerce kurulu) ise eksik bağlantı da bulgudur. Ölçüldü (dalga19):
+    akış hiç kurulmayınca deneme yapılmıyor, kapı susuyor, model 90 dk temaya gömülüyordu.
+    """
     links = [item.url for item in sonuc.links if item.status < 400]
     product = next((link for link in links if _PRODUCT_PATH.search(link)), None)
     cart = next((link for link in links if _CART_PATH.search(link)), None)
     if product is None or cart is None:
-        return ()
+        if not store:
+            return ()
+        eksik = [ad for ad, url in (("ürün sayfası", product), ("sepet", cart)) if url is None]
+        return (
+            "MAĞAZA AKIŞI EKSİK: ana sayfadan " + " ve ".join(eksik) + " bağlantısı yok; "
+            "sepete ekle → sepet → ödeme akışı denenemedi. Tasarımdan önce bunu kur.",
+        )
     try:
         sorun = await shop_flow.cart_flow_problem(product, cart)
     except RuntimeError:

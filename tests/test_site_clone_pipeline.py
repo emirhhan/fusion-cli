@@ -273,3 +273,11 @@ def test_sayfa_cevirisi_dile_ozel_metin_tasimaz():
 
     assert "'Page title', 'woocommerce'" in TRANSLATE_PAGES_PHP
     assert "Sepet" not in TRANSLATE_PAGES_PHP and "wc_get_page_id" in TRANSLATE_PAGES_PHP
+
+
+def test_magaza_isteginde_once_alisveris_akisi_kurulur():
+    from fusion_cli.engines.agent.turn_hints import STORE_NOTE, store_hint
+
+    assert store_hint("woocommerce ile e-ticaret sitesi yap") == STORE_NOTE
+    assert store_hint("https://x.com sitesinin birebir mağaza kopyası") == STORE_NOTE
+    assert store_hint("kişisel blog sitesi yap") is None

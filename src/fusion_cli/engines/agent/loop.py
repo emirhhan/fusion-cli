@@ -132,7 +132,7 @@ from .teacher_flow import (
     teacher_is_ready,
 )
 from .teacher_plan import TeacherPlan, UnworkablePart
-from .turn_hints import design_hint, preview_hint, scope_hint
+from .turn_hints import design_hint, preview_hint, scope_hint, store_hint
 from .turn_report import build_turn_report, claims_command_success
 from .workspace_hint import find_workspace_for
 
@@ -509,6 +509,7 @@ async def run_agent(
         (
             preview_hint(task, available=registry.get("start_preview") is not None),
             scope_hint(task),
+            store_hint(task),
             design_hint(
                 task,
                 available=registry.get("site_design") is not None,
