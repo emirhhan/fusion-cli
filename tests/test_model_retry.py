@@ -118,6 +118,30 @@ async def test_sure_sinirinda_bitmeyen_cagridan_sonra_modele_kisa_adim_notu_gide
     assert gorulen[1].count(agent_loop.SHORTER_AFTER_TIMEOUT_NOTE) == 1
 
 
+async def test_sure_asiminda_mesaj_gelen_akis_parcasi_sayisini_soyler(
+    monkeypatch, tmp_path, sink, beklemeler
+):
+    """Sessiz çalışan model ile ölü bağlantıyı ayırmak için ölçüm (5 Ekim 2026)."""
+    cagri = {"n": 0}
+
+    async def _model(messages, deps, registry, allowed_tools, *, state, **_kwargs):
+        cagri["n"] += 1
+        if cagri["n"] == 1:
+            state.call_chunks = 7
+            raise TimeoutError
+        if cagri["n"] == 2:
+            raise TimeoutError
+        return model_result("Tamamlandı: istenen iş yapıldı ve doğrulandı.")
+
+    monkeypatch.setattr(agent_loop, "_call_model", _model)
+
+    await run_agent("görev", _deps(tmp_path, sink, runtime={"model_retry_attempts": 3}))
+
+    durumlar = [e.message for e in sink.events if isinstance(e, StatusChanged)]
+    assert any("yanıt vermedi (7 akış parçası geldi)" in d for d in durumlar)
+    assert any("yanıt vermedi (0 akış parçası geldi)" in d for d in durumlar)
+
+
 async def test_dusunme_butcesi_dolunca_kisa_adim_notu_ve_dusuk_yogunluk(
     monkeypatch, tmp_path, sink, beklemeler
 ):

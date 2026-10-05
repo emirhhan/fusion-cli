@@ -25,6 +25,7 @@ import hashlib
 import json
 import re
 import sys
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -102,7 +103,7 @@ from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking
 from ..effects.model import EffectKind
 from ..effects.runner import maybe_run_effect_workflow
-from . import compaction, denial, learning_steps, reflexion, review
+from . import compaction, denial, learning_steps, liveness, reflexion, review
 from .apprentice_handoff import apprentice_spec, teacher_for_turn
 from .approval import ApprovalPolicy, Decision, resolve_request
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
@@ -956,6 +957,12 @@ class _State:
     answer_streamed: bool = False
     #: Son model çağrısında metin aktı mı? Aktıysa çağrı yeniden denenmez.
     call_streamed: bool = False
+    #: Son model çağrısında gelen akış parçası (düşünme ve araç argümanı dahil). Süre
+    #: sınırında biten çağrıda "model sessizce çalışıyordu" ile "bağlantı ölüydü"yü
+    #: ayırmak için durum mesajına yazılır (ölçüm; 600 sn bekleyişlerin nedeni bilinmiyor).
+    call_chunks: int = 0
+    #: Canlılık yoklaması sunucuyu sağlıksız bulduysa nedeni (bkz. `liveness`).
+    unresponsive_reason: str = ""
     #: Arka arkaya başarısız olan DEĞİŞTİRİCİ çağrı sayısı. Düzenleme döngüsü kapısı.
     failed_mutations_in_row: int = 0
     #: Döngü kapısı bu turda kaç kez konuştu.
@@ -1687,6 +1694,8 @@ async def _call_with_retries(
         attempts = 1 + len(_active_spec(deps, execution).fallback)
         chain_timeout = remaining if remaining else call_timeout * attempts
         state.call_streamed = False
+        state.call_chunks = 0
+        state.unresponsive_reason = ""
         result: ModelResult | None = None
         try:
             async with asyncio.timeout(max(0.01, chain_timeout)):
@@ -1739,7 +1748,12 @@ async def _call_with_retries(
         attempt += 1
         if result is None and not any(m.content == SHORTER_AFTER_TIMEOUT_NOTE for m in messages):
             messages.append(Message("user", SHORTER_AFTER_TIMEOUT_NOTE, harness_note=True))
-        neden = "yanıt vermedi" if result is None else _short_reason(result.error)
+        if result is not None:
+            neden = _short_reason(result.error)
+        elif state.unresponsive_reason:
+            neden = f"yanıt vermiyor, sunucu sağlıksız ({state.unresponsive_reason})"
+        else:
+            neden = f"yanıt vermedi ({state.call_chunks} akış parçası geldi)"
         deps.publisher.publish(
             StatusChanged(
                 f"Model geçici olarak {neden}; {delay:g} sn sonra yeniden deneniyor "
@@ -1833,15 +1847,23 @@ async def _call_model(
     # sınırı. Boş geçici parçalar (modelin düşünmesi) ilk sınırı uzatamaz.
     inactivity_s = request.timeout_s
     loop = asyncio.get_running_loop()
-    async with asyncio.timeout(inactivity_s) as silence:
-        async for item in provider.stream(request):
-            if isinstance(item, StreamDone) or (
-                isinstance(item, TextChunk) and item.text and not item.provisional
-            ):
-                silence.reschedule(loop.time() + inactivity_s)
-            _observe_stream_item(item, state)
-            if isinstance(item, StreamDone):
-                result = item.result
+
+    async def _consume() -> None:
+        nonlocal result
+        async with asyncio.timeout(inactivity_s) as silence:
+            async for item in provider.stream(request):
+                if isinstance(item, StreamDone) or (
+                    isinstance(item, TextChunk) and item.text and not item.provisional
+                ):
+                    silence.reschedule(loop.time() + inactivity_s)
+                _observe_stream_item(item, state)
+                if isinstance(item, StreamDone):
+                    result = item.result
+
+    if liveness.is_api_model(spec):
+        await _consume_with_liveness(_consume, spec, state)
+    else:
+        await _consume()
     return result or ModelResult(
         name=spec.name,
         model=spec.model,
@@ -1852,11 +1874,39 @@ async def _call_model(
     )
 
 
+async def _consume_with_liveness(
+    consume: Callable[[], Awaitable[None]], spec: ModelSpec, state: _State
+) -> None:
+    """Akışı tüket; hiç parça gelmeden sessizlik uzarsa sunucuyu yokla (bkz. `liveness`).
+
+    Sunucu sağlıksızsa beklemeye son verilir ve `TimeoutError` yükselir: yeniden deneme
+    döngüsü bunu geçici hata sayar ve nedeni durum mesajına yazar.
+    """
+    tuketici = asyncio.ensure_future(consume())
+    bekci = asyncio.ensure_future(
+        liveness.watch(lambda: state.call_chunks, liveness.ping_for(spec))
+    )
+    try:
+        await asyncio.wait({tuketici, bekci}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        kalan = [gorev for gorev in (tuketici, bekci) if not gorev.done()]
+        if bekci.done() and not tuketici.done():
+            state.unresponsive_reason = bekci.result()
+        for gorev in kalan:
+            gorev.cancel()
+        await asyncio.gather(*kalan, return_exceptions=True)
+    if state.unresponsive_reason:
+        raise TimeoutError(state.unresponsive_reason)
+    tuketici.result()
+
+
 def _observe_stream_item(item: object, state: _State) -> None:
     # Beyan değil GÖZLEM: metin gerçekten aktıysa turun cevabı ekrana ulaşmış
     # demektir ve `TurnAnswered` ikinci kez basmamalıdır. Sarmalayıcı zinciri ne
     # olursa olsun (yedek, tekrar deneme) bu ölçüm doğrudur — sağlayıcının
     # "akıtır mıyım" beyanına güvenmek yanıltıcı olurdu.
+    if isinstance(item, TextChunk):
+        state.call_chunks += 1
     if isinstance(item, TextChunk) and not item.provisional:
         state.answer_streamed = True
         state.call_streamed = True
