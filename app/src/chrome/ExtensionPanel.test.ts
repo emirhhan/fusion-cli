@@ -255,6 +255,18 @@ describe("Çekirdek: sekme yönetimi", () => {
     await expect(core.execute({ islem: "tab_open", veri: { url: "https://evil.test/" } })).rejects.toThrow("izni yok");
   });
 
+  it("bağlı sekme yokken adrese gitmek yeni sekme açar; diğer işlemler yine hata verir", async () => {
+    // Etkin sekmenin sitesine izin yok: kendiliğinden bağlanamaz.
+    kit = chromeKit({ granted: (o) => !o.includes("example.com") });
+    vi.resetModules();
+    const core = await import("../../../chrome-extension/core.js");
+    const gidilen = await core.execute({ islem: "navigate", veri: { url: "http://127.0.0.1:5000/" } });
+    expect(gidilen).toMatchObject({ opened: 9, url: "http://127.0.0.1:5000/" });
+    expect((await core.getSelected()).id).toBe(9);
+    await core.clearSelected();
+    await expect(core.execute({ islem: "snapshot", veri: {} })).rejects.toThrow("Bağlı sekme yok");
+  });
+
   it("seçili sekme yoksa izinli etkin sekmeye kendisi bağlanır", async () => {
     vi.resetModules();
     const core = await import("../../../chrome-extension/core.js");
@@ -281,6 +293,27 @@ describe("Sayfa içi eylemler (pageAction)", () => {
       <input id="ara" placeholder="Ara" />
       <input type="password" name="password" />
       <select id="donem"><option value="7">Son 7 gün</option><option value="30">Son 30 gün</option></select>`;
+  });
+
+  it("snapshot'ın verdiği ref'e hemen tıklanabilir; ikinci snapshot da çalışır", () => {
+    // Ölçüldü (4 Ekim 2026): snapshot yeni dizi atıyordu, ref'ler eski diziye yazılıyordu;
+    // sonraki tıklama "Öğe artık bulunamadı" dedi ve model koordinatla tıklamaya kaçtı.
+    const tiklandi = vi.fn();
+    document.querySelector("button")!.addEventListener("click", tiklandi);
+    const ilk = action("snapshot") as { elements: { ref: string; name: string }[] };
+    const ref = ilk.elements.find((e) => e.name === "Kampanyalar")!.ref;
+    expect(action("click", { ref })).toMatchObject({ clicked: ref, name: "Kampanyalar" });
+    const ikinci = action("snapshot") as { elements: { ref: string; name: string }[] };
+    const yeniRef = ikinci.elements.find((e) => e.name === "Kampanyalar")!.ref;
+    expect(action("click", { ref: yeniRef })).toMatchObject({ name: "Kampanyalar" });
+    expect(tiklandi).toHaveBeenCalledTimes(2);
+  });
+
+  it("seçim kutusuna yazmak seçeneği seçer", () => {
+    const anlik = action("snapshot") as { elements: { ref: string; tag: string }[] };
+    const ref = anlik.elements.find((e) => e.tag === "select")!.ref;
+    expect(action("type", { ref, text: "Son 30 gün" })).toMatchObject({ selected: "Son 30 gün" });
+    expect((document.querySelector("#donem") as HTMLSelectElement).value).toBe("30");
   });
 
   it("metinle öğe bulur; parola alanını hiç göstermez", () => {

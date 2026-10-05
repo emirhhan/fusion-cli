@@ -79,7 +79,7 @@ export function pageAction(operation, args) {
     const match = /^e(\d+)$/.exec(args.ref || "");
     const element = match ? refs[Number(match[1])] : null;
     if (!element || !element.isConnected || !safe(element)) {
-      throw new Error("Öğe artık bulunamadı veya hassas alan. Sayfayı yeniden okuyun (chrome_page/chrome_find).");
+      throw new Error("Öğe artık bulunamadı veya hassas alan. Sayfayı chrome_page ile yeniden oku ve güncel ref kullan.");
     }
     return element;
   };
@@ -115,7 +115,10 @@ export function pageAction(operation, args) {
     return parts.join("").replace(/\n\s*\n+/g, "\n").trim().slice(0, limit);
   };
   if (operation === "snapshot") {
-    globalThis.__fusionRefs = [];
+    // Liste YERİNDE boşaltılır. Ölçüldü (4 Ekim 2026): yeni dizi atanıyordu; `refs`
+    // eski diziyi tuttuğu için öğeler oraya yazıldı, sonraki tıklama boş diziye baktı
+    // ve snapshot'tan hemen sonraki her ref tıklaması "bulunamadı" dedi.
+    refs.length = 0;
     const all = deepAll(INTERACTIVE).filter((el) => visibleBox(el) && safe(el));
     // Görünür alandakiler önce: uzun sayfada model önce ekranda olanı görmeli.
     all.sort((a, b) => Number(b.getBoundingClientRect().top >= 0 && b.getBoundingClientRect().top < innerHeight) -
@@ -235,7 +238,9 @@ export function pageAction(operation, args) {
     if (!element.matches("input, textarea, select, [contenteditable='true'], [role='textbox']")) {
       throw new Error("Bu öğeye metin yazılamaz.");
     }
-    if (element.matches("select")) throw new Error("Seçim kutusu için chrome_select kullanın.");
+    // Seçim kutusuna "yazmak" seçenek seçmektir (Playwright aracıyla aynı davranış).
+    // Eskiden var olmayan bir araca yönlendiriyordu ve model boşa tur harcıyordu.
+    if (element.matches("select")) return pageAction("select", { ref: args.ref, value: args.text });
     element.scrollIntoView({ block: "center" });
     element.focus();
     if (element.isContentEditable || element.getAttribute("role") === "textbox") {
@@ -908,7 +913,15 @@ export async function execute(command) {
     if ((await getSelected())?.id === closing.id) await clearSelected();
     return { closed: closing.id };
   }
-  const tab = await checkedTab();
+  let tab;
+  try {
+    tab = await checkedTab();
+  } catch (error) {
+    // Adres açmak için bağlı sekme şart değildir: yeni sekmede açılır. Ölçüldü (4 Ekim
+    // 2026): her kabul koşusunun ilk chrome_navigate çağrısı "Bağlı sekme yok" ile düştü.
+    if (command.islem !== "navigate" || !veri.url) throw error;
+    return execute({ ...command, islem: "tab_open" });
+  }
   if (command.islem === "history") {
     if (veri.dir === "back") await chrome.tabs.goBack(tab.id);
     else if (veri.dir === "forward") await chrome.tabs.goForward(tab.id);
