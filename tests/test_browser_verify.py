@@ -215,3 +215,40 @@ def test_devasa_footer_bildirilir():
 
 def test_makul_footer_bildirilmez():
     assert page_findings((_gozlem(oversized_blocks=()),)) == ()
+    # Gerçek bir mağazanın düzgün footer'ı ekranın %104'ü çıktı; bozukluk değil.
+    assert page_findings((_gozlem(oversized_blocks=(("footer", 937, 900),)),)) == ()
+
+
+def test_sayfa_adi_sorguyu_tasir():
+    from fusion_cli.engines.agent.browser_verify import _page_name
+
+    assert _page_name("http://127.0.0.1:8080/") == "/"
+    assert _page_name("http://127.0.0.1:8080/?product_cat=erkek") == "/?product_cat=erkek"
+    assert _page_name("http://127.0.0.1:8080/sepet/") == "/sepet/"
+
+
+def test_buyuk_urun_fotografi_ikon_sayilmaz_boyutsuz_svg_sayilir(tmp_path):
+    """Ölçüldü (4 Ekim 2026): ürün galerisi fotoğrafları "devasa ikon" bulgusu oluyordu."""
+    import pytest
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from fusion_cli.engines.agent.browser_verify import _LAYOUT_PROBE
+
+    sayfa = tmp_path / "index.html"
+    sayfa.write_text(
+        '<a href="/buyuk"><img style="width:400px;height:300px" alt="ürün"></a>'
+        '<button><svg viewBox="0 0 24 24" style="width:200px;height:200px">'
+        '<path d="M0 0h24v24H0z"/></svg></button>',
+        encoding="utf-8",
+    )
+    try:
+        with playwright.sync_playwright() as p:
+            tarayici = p.chromium.launch()
+            page = tarayici.new_page()
+            page.goto(sayfa.as_uri())
+            olcum = page.evaluate(_LAYOUT_PROBE)
+            tarayici.close()
+    except playwright.Error as hata:
+        pytest.skip(f"tarayıcı yok: {hata}")
+
+    assert [row[0] for row in olcum["oversizedIcons"]] == ["button"]

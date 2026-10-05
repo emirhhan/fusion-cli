@@ -49,6 +49,11 @@ PAGE_TIMEOUT_MS = 15_000
 #: Bir sayfa için bildirilecek en fazla farklı kaynak/hata (talimat okunabilir kalsın).
 MAX_ITEMS_PER_KIND = 5
 
+#: Yardımcı blok (footer/header) ekran yüksekliğinin bu katını aşarsa yapısı bozuktur.
+#: Ölçüldü: bozuk vakada footer ekranın %137'siydi (tek sütuna yığılmış gruplar); gerçek
+#: bir mağazanın düzgün footer'ı %104 çıktı (4 Ekim 2026). Eşik ikisinin arasında.
+OVERSIZED_BLOCK_RATIO = 1.25
+
 #: Sayfanın DÜZENİNİ değiştirebilen dosya uzantıları.
 #
 # Ölçüldü: model `app/globals.css` değiştirip "lütfen sen kontrol et" diyerek turu
@@ -317,11 +322,11 @@ def _oversized(page: PageObservation) -> list[str]:
     sütun 1109px'e uzadı, footer 1237px oldu (ekranın %137'si) ve telif satırı
     ortada asılı kaldı. Devasa bir footer, yanlış DOM yapısının belirtisidir.
     """
-    if not page.oversized_blocks:
+    asan = [row for row in page.oversized_blocks if row[1] >= row[2] * OVERSIZED_BLOCK_RATIO]
+    if not asan:
         return []
     detay = ", ".join(
-        f"{secici} {boy}px (ekran {ekran}px)"
-        for secici, boy, ekran in page.oversized_blocks[:MAX_ITEMS_PER_KIND]
+        f"{secici} {boy}px (ekran {ekran}px)" for secici, boy, ekran in asan[:MAX_ITEMS_PER_KIND]
     )
     return [
         f"{page.name} içinde yardımcı blok ekran yüksekliğini aşıyor: {detay}. "
@@ -549,10 +554,14 @@ class BrowserVerifier:
 
 
 def _page_name(url: str) -> str:
-    """Bulgu metninde sayfanın adı: yol (kök için '/')."""
+    """Bulgu metninde sayfanın adı: yol ve sorgu (kök için '/').
+
+    Sorgu atılırsa `/?product_cat=erkek` ile ana sayfa aynı adı alıyordu (ölçüldü).
+    """
     from urllib.parse import urlparse
 
-    return urlparse(url).path or "/"
+    parca = urlparse(url)
+    return (parca.path or "/") + (f"?{parca.query}" if parca.query else "")
 
 
 def _tekil_ucluler(rows: list[tuple[str, int, int]]) -> tuple[tuple[str, int, int], ...]:
@@ -582,8 +591,11 @@ _LAYOUT_PROBE = """() => {
     //    için "ikon kapsayıcıdan büyük" kuralı hiç ateşlemez; ölçüt mutlak boyuttur.
     //    Pratikte ikonlar 16-48px'tir; 64px üstü neredeyse her zaman eksik width/height.
     const oversizedIcons = [];
+    //    Yalnız VEKTÖR ikonlar sayılır (svg ya da .svg kaynaklı img): ürün kartı ve
+    //    galeri bağlantısındaki fotoğraf ikon değildir. Ölçüldü (4 Ekim 2026): ürün
+    //    sayfasındaki galeri görselleri "devasa ikon" diye engelleyici bulgu oldu.
     for (const kap of document.querySelectorAll('button, a')) {
-        const ikon = kap.querySelector('svg, img');
+        const ikon = kap.querySelector('svg, img[src$=".svg"], img[src*=".svg?"]');
         if (!ikon) continue;
         const ik = ikon.getBoundingClientRect();
         if (ik.height > 64 && kap.innerText.trim().length < 3) {
