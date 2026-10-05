@@ -433,8 +433,8 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="browser_type",
-        description="Açık sayfadaki CSS alanına yaz; submit true ise Enter gönderir. "
-        "Form değişikliği için onay gerekir.",
+        description="Açık sayfadaki alana yaz; <select>'te seçeneği seçer. submit: Enter. "
+        "Onay gerekir.",
         parameters=_schema(
             {
                 "selector": {

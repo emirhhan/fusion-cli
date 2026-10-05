@@ -29,6 +29,13 @@ class _SahteSayfa:
         self.goruntu_yollari: list[str] = []
         self.hedef_bulunur = True
         self.closed = False
+        #: Seçicinin uyduğu görünür öğe sayısı (belirsizlik sınaması).
+        self.adet = 1
+        #: Hedef öğenin etiketi ve seçim kutusu seçenekleri.
+        self.etiket = "input"
+        self.secenekler: list[dict[str, str]] = []
+        self.secilen: list[str] = []
+        self.onceki_deger = ""
 
     def is_closed(self) -> bool:
         return self.closed
@@ -81,6 +88,26 @@ class _SahteLocator:
 
     async def inner_text(self, **_: object) -> str:
         return self._page._govde
+
+    async def count(self) -> int:
+        return self._page.adet
+
+    def nth(self, index: int) -> _SahteLocator:
+        return _SahteLocator(self._page, f"{self._selector}#{index}" if index else self._selector)
+
+    async def is_visible(self) -> bool:
+        return True
+
+    async def evaluate(self, script: str) -> object:
+        if "options" in script:
+            return self._page.secenekler
+        return {"selector": self._selector, "tag": self._page.etiket}
+
+    async def input_value(self) -> str:
+        return self._page.onceki_deger
+
+    async def select_option(self, *, value: str) -> None:
+        self._page.secilen.append(value)
 
 
 def _acik_context(tmp_path: Path, page: _SahteSayfa) -> ToolContext:
@@ -296,6 +323,56 @@ async def test_bulunamayan_secici_modele_dogrulama_yolunu_soyler(tmp_path):
     assert not sonuc.ok
     assert "browser_read" in sonuc.output
     assert "uydurma" in sonuc.output
+
+
+async def test_jquery_contains_playwright_yazimina_cevrilir(tmp_path):
+    page = _SahteSayfa(url="https://magaza.test")
+
+    sonuc = await browser.browser_click(
+        {"selector": 'a:contains("Ürün tablosu")'}, _acik_context(tmp_path, page)
+    )
+
+    assert sonuc.ok and page.tiklanan == ['a:has-text("Ürün tablosu")']
+
+
+async def test_belirsiz_secici_hicbir_seye_yazmaz_ve_adaylari_listeler(tmp_path):
+    """Ölçüldü: 'input' iki kutuya uyuyordu, araç sessizce doldurulmuş Ad alanını ezdi."""
+    page = _SahteSayfa(url="https://magaza.test/form")
+    page.adet = 2
+
+    sonuc = await browser.browser_type(
+        {"selector": "input", "text": "Destek"}, _acik_context(tmp_path, page)
+    )
+
+    assert not sonuc.ok and page.yazilan == []
+    assert "2 görünür öğeye uyuyor" in sonuc.output and "input#1" in sonuc.output
+
+
+async def test_secim_kutusuna_yazmak_secenegi_secer(tmp_path):
+    page = _SahteSayfa(url="https://magaza.test/form")
+    page.etiket = "select"
+    page.secenekler = [
+        {"value": "satis", "label": "Satış"},
+        {"value": "destek", "label": "Destek"},
+    ]
+    context = _acik_context(tmp_path, page)
+
+    sonuc = await browser.browser_type({"selector": "select[name=konu]", "text": "destek"}, context)
+    yok = await browser.browser_type({"selector": "select[name=konu]", "text": "Fatura"}, context)
+
+    assert sonuc.ok and page.secilen == ["destek"] and "'Destek' seçildi" in sonuc.output
+    assert not yok.ok and "Satış, Destek" in yok.output and page.yazilan == []
+
+
+async def test_dolu_alanin_uzerine_yazmak_onceki_degeri_bildirir(tmp_path):
+    page = _SahteSayfa(url="https://magaza.test/form")
+    page.onceki_deger = "Deneme Kullanıcı"
+
+    sonuc = await browser.browser_type(
+        {"selector": "input[name=ad]", "text": "Destek"}, _acik_context(tmp_path, page)
+    )
+
+    assert sonuc.ok and "önceki değer 'Deneme Kullanıcı' silindi" in sonuc.output
 
 
 # --------------------------------------------------------------------------- #

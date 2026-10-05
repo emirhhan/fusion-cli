@@ -21,6 +21,7 @@ from typing import Any
 from ..core.constants import MAX_OUTPUT_CHARS, truncate_notice
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import optional_str, require_str
+from .browser_target import TargetError, fill_or_select, resolve
 from .files import resolve_path
 from .mirror import (
     MAX_ASSET_BYTES,
@@ -85,15 +86,16 @@ async def browser_type(args: ToolArgs, context: ToolContext) -> ToolResult:
     if not page.url or page.url == "about:blank":
         return ToolResult.failure("Önce browser_open ile bir sayfa aç.")
     try:
-        alan = page.locator(selector).first
-        await alan.wait_for(state="visible", timeout=SELECTOR_TIMEOUT_MS)
-        await alan.fill(text)
+        hedef = await resolve(page, selector, SELECTOR_TIMEOUT_MS)
+        ne_oldu = await fill_or_select(hedef, text)
         if submit:
-            await alan.press("Enter")
+            await hedef.locator.press("Enter")
             await page.wait_for_load_state("domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+    except TargetError as exc:
+        return ToolResult.failure(str(exc))
     except Exception as exc:
         return ToolResult.failure(_secici_hatasi(selector, exc))
-    return await _sayfa_ozeti(page, "yazıldı ve gönderildi" if submit else "yazıldı")
+    return await _sayfa_ozeti(page, f"{ne_oldu}{' ve gönderildi' if submit else ''}")
 
 
 async def browser_click(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -106,13 +108,14 @@ async def browser_click(args: ToolArgs, context: ToolContext) -> ToolResult:
     if not page.url or page.url == "about:blank":
         return ToolResult.failure("Önce browser_open ile bir sayfa aç.")
     try:
-        hedef = page.locator(selector).first
-        await hedef.wait_for(state="visible", timeout=SELECTOR_TIMEOUT_MS)
-        await hedef.click(timeout=SELECTOR_TIMEOUT_MS)
+        hedef = await resolve(page, selector, SELECTOR_TIMEOUT_MS)
+        await hedef.locator.click(timeout=SELECTOR_TIMEOUT_MS)
         await page.wait_for_load_state("domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+    except TargetError as exc:
+        return ToolResult.failure(str(exc))
     except Exception as exc:
         return ToolResult.failure(_secici_hatasi(selector, exc))
-    return await _sayfa_ozeti(page, "tıklandı")
+    return await _sayfa_ozeti(page, f"tıklandı ({hedef.description})")
 
 
 async def browser_read(args: ToolArgs, context: ToolContext) -> ToolResult:
