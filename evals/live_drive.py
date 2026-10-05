@@ -248,7 +248,10 @@ async def drive(
             if olay_gunlugu is not None:
                 # Her satır hemen diske iner: tamponda bekleyen olaylar, takılan bir
                 # koşuda "en son ne oldu" sorusunu yanlış cevaplatıyordu (ölçüldü, 4 Ekim).
-                olay_gunlugu.write(line)
+                # Zaman damgası: süre sınırına takılan çağrıların ne kadar beklediği ve
+                # adımların süresi sonradan ölçülebilsin (olaylarda zaman yoktu).
+                damgali = {**mesaj, "ts": round(time.time(), 2)}
+                olay_gunlugu.write((json.dumps(damgali, ensure_ascii=False) + "\n").encode())
                 olay_gunlugu.flush()
         if tip == "olay" and veri.get("olay") == "ToolExecuted":
             kayit["araclar"].append(veri.get("name"))

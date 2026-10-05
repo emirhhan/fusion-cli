@@ -38,3 +38,6 @@ async def test_olen_cekirdek_turu_hemen_bitirir_ve_son_olay_diskte_kalir(tmp_pat
     assert record["turlar"][0]["ok"] is False
     assert "çekirdek kapandı" in record["turlar"][0]["metin"]
     assert "play_probe" in flushed
+    import json
+
+    assert isinstance(json.loads(flushed.splitlines()[0])["ts"], float)
