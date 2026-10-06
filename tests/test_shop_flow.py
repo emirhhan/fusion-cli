@@ -92,7 +92,8 @@ async def test_form_disindaki_dugme_sepete_eklemez_ve_soylenir(magaza):
 async def test_secenek_secilip_sepete_eklenen_urun_sepette_gorulur(magaza):
     _Magaza.urun_govdesi = _FORMLU_DUGME
 
-    assert await _dene(magaza) is None
+    sorun = await _dene(magaza)
+    assert sorun is None or "SEPETE EKLEME" not in sorun  # sepet çalıştı; ödeme ayrı ölçülür
     assert _Magaza.sepette and "beden=42" in _Magaza.sepette[0]
 
 
@@ -114,3 +115,90 @@ async def test_css_ile_gizlenen_dugme_soylenir(magaza):
     sorun = await _dene(magaza)
 
     assert sorun is not None and "görünmüyor" in sorun
+
+
+_ODEME_YONTEMLI = (
+    "<form method='post' action='/odeme/' class='checkout'>"
+    "<input name='billing_first_name' required><input type='email' name='billing_email' required>"
+    "<ul><li class='wc_payment_method'><input type='radio' name='payment_method' value='cod' "
+    "checked>Kapıda ödeme</li></ul>"
+    "<button type='submit' id='place_order'>Siparişi onayla</button></form>"
+)
+_ODEMESIZ = (
+    "<form method='post' action='/odeme/' class='checkout'><input name='billing_first_name'>"
+    "<p>Ödeme yöntemi bulunmuyor.</p>"
+    "<button type='submit' id='place_order'>Siparişi onayla</button></form>"
+)
+
+
+class _OdemeliMagaza(_Magaza):
+    odeme_govdesi = _ODEME_YONTEMLI
+    siparisler: ClassVar[list[str]] = []
+
+    def do_GET(self) -> None:
+        if self.path.startswith("/odeme/order-received/"):
+            self._yaz("<h1>Siparişiniz alındı</h1>")
+        elif self.path.startswith("/odeme/"):
+            self._yaz(self.odeme_govdesi)
+        elif self.path.startswith("/sepet/") and self.sepette:
+            self._yaz(
+                "<table><tr class='cart_item'><td>Ayakkabı</td></tr></table>"
+                "<a class='checkout-button' href='/odeme/'>Ödemeye geç</a>"
+            )
+        else:
+            super().do_GET()
+
+    def do_POST(self) -> None:
+        if not self.path.startswith("/odeme/"):
+            super().do_POST()
+            return
+        govde = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
+        if "payment_method=" in govde and "billing_email=" in govde:
+            self.siparisler.append(govde)
+            self.send_response(302)
+            self.send_header("Location", "/odeme/order-received/1/")
+            self.end_headers()
+        else:
+            self._yaz("<ul class='woocommerce-error'><li>Lütfen bir ödeme yöntemi seçin.</li></ul>")
+
+
+@pytest.fixture
+def odemeli_magaza() -> Iterator[str]:
+    _OdemeliMagaza.sepette = []
+    _OdemeliMagaza.siparisler = []
+    _OdemeliMagaza.urun_govdesi = _FORMLU_DUGME
+    sunucu = ThreadingHTTPServer(("127.0.0.1", 0), _OdemeliMagaza)
+    threading.Thread(target=sunucu.serve_forever, daemon=True).start()
+    try:
+        yield f"http://127.0.0.1:{sunucu.server_address[1]}"
+    finally:
+        sunucu.shutdown()
+
+
+async def test_sepetten_odemeye_gecilip_test_siparisi_verilir(odemeli_magaza):
+    """Ölçüldü (dalga20-21): sepet çalışıyordu ama ödeme yöntemi yoktu / sipariş
+    oluşmuyordu; Fusion'ın denemesi sepette durduğu için bunu hiç görmedi."""
+    _OdemeliMagaza.odeme_govdesi = _ODEME_YONTEMLI
+
+    assert await _dene(odemeli_magaza) is None
+    assert len(_OdemeliMagaza.siparisler) == 1
+
+
+async def test_odeme_yontemi_yoksa_soylenir(odemeli_magaza):
+    _OdemeliMagaza.odeme_govdesi = _ODEMESIZ
+
+    sorun = await _dene(odemeli_magaza)
+
+    assert sorun is not None and "ÖDEME YÖNTEMİ YOK" in sorun
+    assert not _OdemeliMagaza.siparisler
+
+
+async def test_siparis_olusmazsa_sayfadaki_hata_soylenir(odemeli_magaza):
+    _OdemeliMagaza.odeme_govdesi = _ODEME_YONTEMLI.replace(
+        "<input type='email' name='billing_email' required>", ""
+    )
+
+    sorun = await _dene(odemeli_magaza)
+
+    assert sorun is not None and "SİPARİŞ OLUŞMADI" in sorun
+    assert "ödeme yöntemi seçin" in sorun
