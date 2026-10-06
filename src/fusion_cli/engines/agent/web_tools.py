@@ -73,6 +73,7 @@ async def run_play_probe(args: ToolArgs, context: ToolContext) -> ToolResult:
         rapor = await probe_game(hedef, parse_keys(args.get("keys")))
     except ImportError:
         return ToolResult.failure("Playwright kurulu değil; oyun sondası çalışamadı.")
+    context.probed_games.add(hedef)
     return ToolResult(f"Oyun sondası ({hedef}):\n{rapor.summary()}")
 
 

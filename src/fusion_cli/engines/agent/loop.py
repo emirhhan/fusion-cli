@@ -120,6 +120,7 @@ from .execution_route import ExecutionRoute, choose_execution_route
 from .expertise import expertise_hint
 from .history import needs_compression, total_chars
 from .narration import intro_paragraph, todo_transitions
+from .output_verify import requested_outputs_in
 from .plan_runner import run_execution_plan
 from .platform_check import ensure_limitations_disclosed, run_platform_check
 from .playbook_stage import maybe_run_playbook
@@ -442,6 +443,9 @@ async def run_agent(
         # açılır (kendi geliştirme sunucusu, Fusion'ın önizlemesi). Düzeltici iç
         # turlar ve alt ajanlar bu kümeye ekleme yapamaz.
         deps.tool_context.local_origins.update(loopback_origins_in(task))
+        # İstenen çıktılar YALNIZ bu isteğe aittir; önceki isteğin yolları taşınmaz.
+        deps.tool_context.requested_outputs.clear()
+        deps.tool_context.requested_outputs.update(requested_outputs_in(task))
 
     if not plan_mode and not chat_mode and depth == 0:
         played = await maybe_run_playbook(task, deps)

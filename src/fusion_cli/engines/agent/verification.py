@@ -40,13 +40,16 @@ from .browser_verify import BrowserVerifier
 from .domain_adapters.contract import ToolFailureMarkers
 from .domain_adapters.defaults import default_domain_registry
 from .domain_adapters.registry import DomainRegistry
+from .game_verify import GameProbeVerifier
 from .javascript_verify import (
     JavaScriptSyntaxVerifier,
     NodeJavaScriptSyntaxChecker,
     find_node_executable,
 )
 from .next_route_verify import NextRouteVerifier
+from .output_verify import OutputPathVerifier
 from .php_verify import PhpVerifier, find_php_executable
+from .remotion_verify import RemotionCssVerifier
 from .script_verify import ScriptPathVerifier
 from .site_verify import SiteVerifier
 from .verify_discovery import discover_auto_commands
@@ -160,6 +163,15 @@ def build_verifier(
                 site=SiteVerifier(tool_context, php_path),
             )
         )
+    # Çıktı/Remotion/oyun kapıları üretilen işi ölçer: web doğrulamasıyla birlikte açılır
+    # ve onunla kapatılır ("tüm kapılar kapatılabilir" sözleşmesi).
+    if config.runtime.web_verification and tool_context is not None:
+        # İstenen çıktı dosyası istenen yolda mı (ölçüldü: Remotion videosu alt klasörde kaldı).
+        verifiers.append(OutputPathVerifier(tool_context))
+        # Remotion'da CSS animasyonu videoda oynamaz (ölçüldü: beceri yasaklasa da yazıldı).
+        verifiers.append(RemotionCssVerifier(tool_context))
+        # play_probe ile denenen oyun kapanışta yeniden oynatılır (ölçüldü: hata 15 kez görüldü).
+        verifiers.append(GameProbeVerifier(tool_context))
     if config.runtime.browser_verification and tool_context is not None:
         # Playwright kurulu değilse bu kapı sessizce geçer; kendi içinde karar verir.
         verifiers.append(BrowserVerifier(tool_context))

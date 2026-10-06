@@ -13,7 +13,8 @@ import json
 import re
 import shutil
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -23,17 +24,46 @@ from evals.kabul.areas._sources import SKIPPED_DIRECTORY, iter_files
 from evals.kabul.model import Area, Check, Inspection
 
 #: Ajana verilen görev. Süslü parantez yok: sürücü yer tutucu doldurur.
+#: Kullanıcı isteği (6 Ekim 2026): genel "ürün tanıtımı" yerine Fusion'ın kendini
+#: logosu ve gerçek belgeleriyle tanıttığı, Kits'i de anlatan bir video.
 TASK = (
-    "Remotion ile 10 saniyelik, 1920x1080 çözünürlüklü, 30 fps bir ürün tanıtım videosu "
-    "üret: bir başlık sahnesi, üç özellik sahnesi ve bir kapanış sahnesi olsun. Hareketi "
-    "Remotion'un kare tabanlı API'leriyle kur. Videoyu `out/video.mp4` olarak render et."
+    "Remotion ile Fusion'ın kendini tanıttığı 30 saniyelik, 1920x1080 çözünürlüklü, "
+    "30 fps bir tanıtım videosu üret. Çalışma klasöründeki `fusion-tanitim/` klasöründe "
+    "Fusion'ın logosu (`logo.png`, `logo.svg`) ve belgeleri var: `YETENEKLER.md` (Fusion "
+    "ne yapar), `README.md` (Fusion) ve `KITS.md` (Fusion Kits). Bunları OKU ve içeriği "
+    "onlardan al, uydurma. Video: logolu bir açılış, Fusion'ın ne olduğu, en önemli "
+    "yetenekleri (birkaç sahne), Fusion Kits'in ne olduğu ve logolu bir kapanış. Logoyu "
+    "videoda gerçekten kullan. Hareketi Remotion'un kare tabanlı API'leriyle kur; hiçbir "
+    "sahne siyah ya da boş kalmasın. Videoyu `out/video.mp4` olarak render et."
 )
+#: Ajana verilen tanıtım varlıkları: çalışma klasöründeki ad → depodaki kaynak.
+ASSETS_DIRNAME = "fusion-tanitim"
+_REPO = Path(__file__).resolve().parents[3]
+ASSETS: tuple[tuple[str, Path], ...] = (
+    ("logo.png", _REPO / "app" / "src-tauri" / "icons" / "icon.png"),
+    ("logo.svg", _REPO / "app" / "public" / "fusion.svg"),
+    ("YETENEKLER.md", _REPO / "docs" / "YETENEKLER.md"),
+    ("README.md", _REPO / "README.md"),
+    ("KITS.md", _REPO.parent / "fusion-kits" / "README.md"),
+)
+
+
+@contextmanager
+def prepare(workdir: Path) -> Iterator[Mapping[str, str]]:
+    """Logo ve belgeleri `fusion-tanitim/` altına kopyala (eksik kaynak atlanır)."""
+    hedef = workdir / ASSETS_DIRNAME
+    hedef.mkdir(parents=True, exist_ok=True)
+    for ad, kaynak in ASSETS:
+        if kaynak.is_file():
+            shutil.copyfile(kaynak, hedef / ad)
+    yield {}
+
 
 TIMEOUT_S = 5400.0
 REQUIRED_EXECUTABLES = ("node", "npx", "ffprobe", "ffmpeg")
 VIDEO_PATH = Path("out") / "video.mp4"
 #: Beklenen süre ve payı (sn). ±0,5: kare yuvarlaması ve kodlayıcı payı.
-EXPECTED_DURATION_S = 10.0
+EXPECTED_DURATION_S = 30.0
 DURATION_TOLERANCE_S = 0.5
 EXPECTED_WIDTH = 1920
 EXPECTED_HEIGHT = 1080
@@ -41,7 +71,7 @@ EXPECTED_FPS = 30.0
 #: Kesirli fps (ör. 30000/1001) ile 30'u ayıran pay.
 FPS_TOLERANCE = 0.01
 #: Örnek kare anları (sn): açılış, orta, kapanış.
-SAMPLE_TIMES_S = (0.5, 5.0, 9.5)
+SAMPLE_TIMES_S = (0.5, 10.0, 20.0, 29.5)
 #: Karenin "boş değil" sayılması için parlaklık varyansı alt sınırı (tek renk = 0;
 #: koyu zemin üstüne tek başlık bile yüzlerce verir).
 MIN_FRAME_VARIANCE = 25.0
@@ -277,11 +307,61 @@ def _source_checks(root: Path) -> tuple[Check, Check]:
     )
 
 
+#: Bundan uzun siyah bölüm kusurdur (sn); kısa geçiş kararması sayılmaz.
+MAX_BLACK_S = 1.0
+_BLACK = re.compile(r"black_start:(?P<s>[\d.]+)\s+black_end:(?P<e>[\d.]+)")
+_LOGO_USE = re.compile(r"logo\.(?:png|svg)", re.IGNORECASE)
+
+
+def _black_check(path: Path) -> Check:
+    """Uzun siyah bölüm yok. Ölçüldü (6 Ekim, dalga23): 10 sn'nin 6,2 sn'si siyahtı."""
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-i",
+        str(path),
+        "-vf",
+        "blackdetect=d=0.1:pix_th=0.1",
+        "-an",
+        "-f",
+        "null",
+        "-",
+    ]
+    try:
+        done = subprocess.run(
+            command, capture_output=True, text=True, timeout=TOOL_TIMEOUT_S, check=False
+        )
+    except subprocess.TimeoutExpired:
+        return Check("uzun siyah bölüm yok", False, "ffmpeg zaman aşımı")
+    uzun = [
+        (float(m["s"]), float(m["e"]))
+        for m in _BLACK.finditer(done.stderr)
+        if float(m["e"]) - float(m["s"]) > MAX_BLACK_S
+    ]
+    detay = ", ".join(f"{a:.1f}-{b:.1f} sn" for a, b in uzun) or "yok"
+    return Check("uzun siyah bölüm yok", not uzun, f"{MAX_BLACK_S:g} sn'den uzun siyah: {detay}")
+
+
+def _logo_check(root: Path) -> Check:
+    """Kaynak verilen logoyu kullanıyor (staticFile/import ile logo.png|svg)."""
+    kullanan = [
+        dosya.relative_to(root).as_posix()
+        for dosya in iter_files(root, _SOURCE_SUFFIXES)
+        if SKIPPED_DIRECTORY not in dosya.parts
+        and ASSETS_DIRNAME not in dosya.parts
+        and _LOGO_USE.search(dosya.read_text(encoding="utf-8", errors="replace"))
+    ]
+    return Check(
+        "logo kullanılıyor", bool(kullanan), ", ".join(kullanan[:3]) or "kaynakta logo yok"
+    )
+
+
 def _missing_video_checks() -> tuple[Check, ...]:
     reason = f"{VIDEO_PATH.as_posix()} yok (ajan çıktı üretmedi)"
     return (
         Check(f"{VIDEO_PATH.as_posix()} var", False, reason),
         *(Check(name, False, reason) for name in VIDEO_CHECK_NAMES),
+        Check("uzun siyah bölüm yok", False, reason),
     )
 
 
@@ -290,12 +370,14 @@ def inspect(workdir: Path, values: Mapping[str, str]) -> Inspection:
     video = workdir / VIDEO_PATH
     source = _source_checks(workdir)
     if not video.is_file():
-        return Inspection(checks=(*_missing_video_checks(), *source))
+        return Inspection(checks=(*_missing_video_checks(), *source, _logo_check(workdir)))
     missing = [tool for tool in ("ffprobe", "ffmpeg") if shutil.which(tool) is None]
     if missing:
         return Inspection(invalid_reason=f"denetçi araçları yok: {', '.join(missing)}")
     present = Check(f"{VIDEO_PATH.as_posix()} var", True, f"{video.stat().st_size} bayt")
-    return Inspection(checks=(present, *_video_checks(video), *source))
+    return Inspection(
+        checks=(present, *_video_checks(video), _black_check(video), *source, _logo_check(workdir))
+    )
 
 
 AREA = Area(
@@ -303,5 +385,6 @@ AREA = Area(
     task=TASK,
     timeout_s=TIMEOUT_S,
     inspect=inspect,
+    prepare=prepare,
     required_executables=REQUIRED_EXECUTABLES,
 )

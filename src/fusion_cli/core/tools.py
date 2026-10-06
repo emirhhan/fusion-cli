@@ -285,6 +285,10 @@ class ToolContext:
     #: Tarayıcı araçlarının gidebileceği YEREL adresler (`host:port`). Yalnız kullanıcının
     #: kendi mesajında yazdığı adresler girer; sayfa içeriği ya da model buraya ekleyemez.
     local_origins: set[str] = field(default_factory=set)
+    #: Kullanıcının mesajında ÇIKTI olarak andığı göreli dosya yolları (`output_verify`).
+    requested_outputs: set[str] = field(default_factory=set)
+    #: play_probe ile denenen oyun adresleri; kapanışta yeniden oynatılır (`game_verify`).
+    probed_games: set[str] = field(default_factory=set)
     #: İçeriği TAM olarak okunmuş dosyalar (kırpılmadan).
     #
     # `write_file` dosyanın tamamını değiştirir. Model dosyayı hiç okumadıysa ya da

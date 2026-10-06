@@ -211,8 +211,14 @@ async def test_kapilar_ayri_ayri_kapatilabilir(tmp_path):
         make_config(runtime={"browser_verification": False}), root=tmp_path, tool_context=context
     )
 
+    def _turler(verifier):
+        icerik = getattr(verifier, "_verifiers", (verifier,))
+        return {type(v) for v in icerik}
+
+    # Web kapısı kapalıyken yalnız tarayıcı kalır; tarayıcı kapalıyken tarayıcı hiç yoktur.
     assert isinstance(yalniz_tarayici, BrowserVerifier)
-    assert isinstance(yalniz_metin, WebVerifier)
+    assert WebVerifier in _turler(yalniz_metin)
+    assert BrowserVerifier not in _turler(yalniz_metin)
 
 
 async def test_web_dogrulayici_yalnizca_dokunulan_dosyalara_bakar(tmp_path):

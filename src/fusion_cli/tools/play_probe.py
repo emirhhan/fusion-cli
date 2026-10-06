@@ -22,6 +22,8 @@ DEFAULT_KEYS = ("ArrowRight", "ArrowUp", "ArrowLeft", "ArrowDown", "Space")
 #: Tuş başına basılı tutma süresi (ms); hareketin görünmesine yeter.
 KEY_HOLD_MS = 500
 SETTLE_MS = 1_000
+#: Bunun altındaki rAF hızı oyun döngüsünün çalışmadığını gösterir.
+MIN_RAF_PER_SECOND = 20
 NAVIGATION_TIMEOUT_MS = 30_000
 _RAF_COUNTER = """() => new Promise(done => { let n = 0; const t0 = performance.now();
   function tick(t) { n++; if (t - t0 < 1000) requestAnimationFrame(tick); else done(n); }
@@ -49,12 +51,28 @@ class ProbeReport:
     #: yanıltır: sağ+sol ya da yukarı+aşağı birbirini götürür (ölçüldü, 4 Ekim).
     effective_keys: tuple[str, ...] = ()
 
+    def problems(self) -> tuple[str, ...]:
+        """Oyunu oynanamaz kılan ölçümler (kapı bunlarla turu kapatmaz)."""
+        sorunlar = [f"konsol hatası: {hata}" for hata in self.console_errors[:3]]
+        if self.raf_per_second < MIN_RAF_PER_SECOND:
+            sorunlar.append(
+                f"oyun döngüsü çalışmıyor (requestAnimationFrame {self.raf_per_second}/sn)"
+            )
+        tuslar_etkisiz = (
+            self.state_before is not None
+            and self.state_before == self.state_after
+            and not self.effective_keys
+        ) or (self.state_before is None and self.canvas_changed is False)
+        if tuslar_etkisiz:
+            sorunlar.append("tuşlar oyunu değiştirmedi (oyuncu hareket etmiyor)")
+        return tuple(sorunlar)
+
     def summary(self) -> str:
         satirlar = [
             f"Konsol hatası: {len(self.console_errors)}"
             + (f" — {'; '.join(self.console_errors[:3])}" if self.console_errors else ""),
             f"requestAnimationFrame: {self.raf_per_second}/sn"
-            + (" (döngü çalışmıyor!)" if self.raf_per_second < 20 else ""),
+            + (" (döngü çalışmıyor!)" if self.raf_per_second < MIN_RAF_PER_SECOND else ""),
         ]
         if self.state_before is None:
             satirlar.append(

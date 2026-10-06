@@ -20,16 +20,17 @@ from PIL import Image
 HAS_FFMPEG = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 needs_ffmpeg = pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg/ffprobe yok")
 
-GOOD_SOURCE = """import {AbsoluteFill, interpolate, useCurrentFrame} from 'remotion';
+GOOD_SOURCE = """import {AbsoluteFill, Img, interpolate, staticFile} from 'remotion';
+import {useCurrentFrame} from 'remotion';
 export const Intro = () => {
   const frame = useCurrentFrame();
   const opacity = interpolate(frame, [0, 30], [0, 1]);
-  return <AbsoluteFill style={{opacity}}>Merhaba</AbsoluteFill>;
+  return <AbsoluteFill style={{opacity}}><Img src={staticFile('logo.png')} /></AbsoluteFill>;
 };
 """
 
-LAVFI_ANIMATED = "testsrc=duration=10:size=1920x1080:rate=30,hue=h=t*36"
-LAVFI_BLACK = "color=c=black:s=1920x1080:r=30:d=10"
+LAVFI_ANIMATED = "testsrc=duration=30:size=1920x1080:rate=30,hue=h=t*12"
+LAVFI_BLACK = "color=c=black:s=1920x1080:r=30:d=30"
 LAVFI_WRONG_SPEC = "testsrc=duration=2:size=320x240:rate=24"
 
 
@@ -204,9 +205,10 @@ def test_good_video_and_source_pass_all_checks(animated_video, tmp_path):
 def test_black_video_fails_blank_and_distinct_frame_checks(black_video, tmp_path):
     workdir = _workdir_with(black_video, tmp_path)
     results = _by_name(remotion.inspect(workdir, {}))
-    assert results["süre 10±0.5 sn"]
+    assert results["süre 30±0.5 sn"]
     assert not results["örnek kareler boş değil"]
     assert not results["örnek kareler birbirinden farklı"]
+    assert not results["uzun siyah bölüm yok"]
 
 
 @needs_ffmpeg
@@ -214,7 +216,7 @@ def test_wrong_spec_video_fails_duration_size_and_fps(tmp_path):
     _render(tmp_path / "out" / "video.mp4", LAVFI_WRONG_SPEC)
     _write_source(tmp_path)
     results = _by_name(remotion.inspect(tmp_path, {}))
-    assert not results["süre 10±0.5 sn"]
+    assert not results["süre 30±0.5 sn"]
     assert not results["1920x1080"]
     assert not results["fps 30"]
 
@@ -256,3 +258,9 @@ def test_alt_klasordeki_remotion_projesi_de_denetlenir(tmp_path):
     temiz, kullanim = _source_checks(tmp_path)
 
     assert temiz.passed and kullanim.passed
+
+
+def test_hazirlik_logoyu_ve_belgeleri_kopyalar(tmp_path):
+    with remotion.prepare(tmp_path):
+        kopyalanan = {p.name for p in (tmp_path / remotion.ASSETS_DIRNAME).iterdir()}
+    assert {"logo.png", "logo.svg", "YETENEKLER.md", "README.md"} <= kopyalanan

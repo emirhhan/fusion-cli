@@ -38,17 +38,22 @@ from evals.kabul.areas._pixels import luminance_variance
 from evals.kabul.model import Area, Check, Inspection
 
 if TYPE_CHECKING:
-    from playwright.sync_api import Page
+    from playwright.sync_api import Locator, Page
 
 #: Ajana verilen görev.
 TASK = (
-    "Tarayıcıda oynanan 2D bir oyun yap. Tek bir klasörde `index.html` ile açılsın "
-    "(yanında css/js dosyaları olabilir). Oyuncu ok tuşlarıyla hareket etsin, boşluk tuşu "
-    "bir eylem yapsın; toplanacak nesneler, düşmanlar, skor ve can göstergesi olsun. "
-    "Can bitince oyun bitti ekranı gelsin ve oyun yeniden başlatılabilsin. Görseller "
-    "için ücretsiz/lisanslı varlıklar ya da kendi ürettiğin görseller kullanılabilir."
+    "Tarayıcıda oynanan, BASİT OLMAYAN 2D bir aksiyon oyunu yap: yukarıdan bakışlı bir "
+    "hayatta kalma/nişancı oyunu. Tek bir klasörde `index.html` ile açılsın (yanında "
+    "css/js dosyaları olabilir). Oyuncu ok tuşlarıyla hareket etsin, boşluk tuşu ateş "
+    "etsin. En az 3 bölüm (dalga) olsun ve zorluk artsın; en az 3 farklı düşman türü "
+    "(ör. oyuncuyu kovalayan, uzaktan ateş eden, bölünen) ve son bölümde bir boss "
+    "bulunsun. Toplanacak güçlendirmeler (can, hızlı ateş vb.), skor, can ve bölüm "
+    "göstergesi, P tuşuyla duraklatma, en yüksek skorun localStorage'da saklanması ve "
+    "çarpışma/patlama efektleri olsun. Can bitince oyun bitti ekranı gelsin ve oyun R "
+    "tuşuyla ya da düğmeyle yeniden başlatılabilsin. Oyun uzun oynandığında donmasın ve "
+    "konsolda hata vermesin. Görseller için kendi ürettiğin görselleri (canvas çizimi) "
+    "ya da lisanslı varlıkları kullanabilirsin."
 )
-
 TIMEOUT_S = 3600.0
 #: Sayfa yüklendikten sonra ilk ölçüme dek bekleme (ms): açılış ekranı oturur.
 LOAD_SETTLE_MS = 800
@@ -88,7 +93,13 @@ CHECK_NAMES = (
     "ok tuşları + boşluk oyunu değiştiriyor",
     "skor/can HUD'ı var",
     "yeniden başlat durumu sıfırlıyor",
+    "uzun oyunda donmuyor",
 )
+#: Donma ölçümü için rastgele tuşlarla oynanan süre (ms). Kullanıcı (6 Ekim 2026):
+#: "oyun bir anda duruyor" — kısa ölçümlerde görünmeyen, oynadıkça çöken döngü.
+LONG_PLAY_MS = 30_000
+#: Uzun oyundan sonra 1 sn'de en az bu kadar rAF çağrısı: döngü hâlâ dönüyor.
+MIN_LONG_PLAY_RAF = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +124,9 @@ class GameReport:
     key_energy: float
     hud: HudReading
     restart: RestartProbe
+    #: Uzun rastgele oyundan sonra 1 sn'deki rAF çağrısı ve o sırada çıkan konsol hataları.
+    long_play_raf: int = MIN_LONG_PLAY_RAF
+    long_play_errors: tuple[str, ...] = ()
 
 
 def _fresh_load(opened: OpenedPage) -> None:
@@ -129,22 +143,39 @@ def _play(page: Page) -> None:
             hold_key(page, key, PLAY_HOLD_MS)
 
 
+#: Öğe ve atalarından biri saydam (opacity≈0) ya da tıklamaya kapalıysa oyuncu onu görmez.
+#: Ölçüldü (dalga23): gizli "oyun bitti" katmanı `opacity:0; pointer-events:none` idi;
+#: Playwright `is_visible()` onu görünür saydı, tıklama 15 sn bekleyip oyunun TÜM
+#: ölçümlerini düşürdü — oyunda kusur yoktu.
+_REALLY_SHOWN_JS = """(el) => { for (let e = el; e; e = e.parentElement) {
+  const s = getComputedStyle(e);
+  if (parseFloat(s.opacity) < 0.05 || s.pointerEvents === 'none' ||
+      s.visibility === 'hidden' || s.display === 'none') return false; }
+  return true; }"""
+
+
+def _shown_button(page: Page) -> Locator | None:
+    button = page.get_by_role("button", name=_RESTART_TEXT)
+    if button.count() == 0 or not button.first.is_visible():
+        return None
+    return button.first if button.first.evaluate(_REALLY_SHOWN_JS) else None
+
+
 def _trigger_restart(page: Page) -> str:
-    """R tuşuna bas; 'yeniden başlat' benzeri görünür bir düğme varsa ona da tıkla."""
+    """R tuşuna bas; 'yeniden başlat' benzeri gerçekten görünen bir düğme varsa ona da tıkla."""
     page.keyboard.press("r")
     page.keyboard.press("R")
-    button = page.get_by_role("button", name=_RESTART_TEXT)
-    if button.count() > 0 and button.first.is_visible():
-        button.first.click()
+    button = _shown_button(page)
+    if button is not None:
+        button.click()
         return "R tuşu + düğme"
     return "R tuşu"
 
 
 def _wait_for_game_over(page: Page) -> bool:
     """Oyun bitene dek bekle: durum kancası bitiş der ya da yeniden başlat düğmesi görünür."""
-    button = page.get_by_role("button", name=_RESTART_TEXT)
     for _ in range(GAME_OVER_WAIT_MS // GAME_OVER_POLL_MS):
-        if page.evaluate(_END_STATE_JS) or (button.count() > 0 and button.first.is_visible()):
+        if page.evaluate(_END_STATE_JS) or _shown_button(page) is not None:
             return True
         page.wait_for_timeout(GAME_OVER_POLL_MS)
     return False
@@ -182,6 +213,7 @@ def measure(root: Path) -> GameReport:
         _fresh_load(opened)
         keyed = motion_energy(page, shoot, press_keys=True)
         restart = _restart_probe(opened)
+        long_raf, long_errors = _long_play(opened)
         return GameReport(
             console_errors=opened.console.errors,
             has_area=area is not None,
@@ -191,7 +223,34 @@ def measure(root: Path) -> GameReport:
             key_energy=keyed,
             hud=hud,
             restart=restart,
+            long_play_raf=long_raf,
+            long_play_errors=long_errors,
         )
+
+
+def _long_play(opened: OpenedPage) -> tuple[int, tuple[str, ...]]:
+    """Oyunu baştan aç, LONG_PLAY_MS boyunca tuşlarla oyna; döngü hâlâ dönüyor mu?"""
+    _fresh_load(opened)
+    page = opened.page
+    onceki = len(opened.console.errors)
+    tuslar = (*_MOVE_KEYS, "Space")
+    for adim in range(LONG_PLAY_MS // PLAY_HOLD_MS):
+        hold_key(page, tuslar[adim % len(tuslar)], PLAY_HOLD_MS)
+    before = raf_count(page)
+    page.wait_for_timeout(RAF_WINDOW_MS)
+    return raf_count(page) - before, tuple(opened.console.errors[onceki:])
+
+
+def _long_play_check(report: GameReport) -> Check:
+    hatalar = report.long_play_errors
+    ok = report.long_play_raf >= MIN_LONG_PLAY_RAF and not hatalar
+    return Check(
+        CHECK_NAMES[7],
+        ok,
+        f"{LONG_PLAY_MS // 1000} sn oyundan sonra {report.long_play_raf} rAF/sn "
+        f"(eşik {MIN_LONG_PLAY_RAF}); oyun sırasında {len(hatalar)} konsol hatası"
+        + (f": {hatalar[0][:120]}" if hatalar else ""),
+    )
 
 
 def _area_check(report: GameReport) -> Check:
@@ -276,6 +335,7 @@ def _report_checks(report: GameReport) -> tuple[Check, ...]:
         _key_check(report),
         _hud_check(report),
         _restart_check(report),
+        _long_play_check(report),
     )
 
 

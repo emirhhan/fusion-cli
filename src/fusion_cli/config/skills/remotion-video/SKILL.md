@@ -12,6 +12,9 @@ run_shell(command="npx create-video@latest --yes --blank --no-tailwind video && 
 job_status(id=..., wait_s=600)
 ```
 `npm i` ve Chromium indirmesi 120 sn'yi aşar; ön planda çalıştırırsan kesilir.
+Proje `video/` alt klasöründe kurulur; render komutları `cd video &&` ile oradan çalışır.
+Kullanıcı bir çıktı yolu verdiyse (ör. `out/video.mp4`) o yol ÇALIŞMA KLASÖRÜNE göredir:
+`video/` içinden `../out/video.mp4` diye render et. `video/out/` istenen yer DEĞİLDİR.
 
 ## Kare tabanlı animasyon kuralları (render'da yalnız bunlar çalışır)
 
@@ -33,7 +36,7 @@ return <AbsoluteFill style={{ opacity: opaklik, transform: `translateY(${(1 - gi
 ## Render ve doğrulama (bitti demeden önce)
 
 ```
-run_shell(command="npx remotion render <CompositionId> out/video.mp4", background=true)
+run_shell(command="cd video && npx remotion render <CompositionId> ../out/video.mp4", background=true)
 job_status(id=..., wait_s=600)
 run_shell(command="ffprobe -v error -show_entries stream=width,height,r_frame_rate:format=duration -of json out/video.mp4")
 ```

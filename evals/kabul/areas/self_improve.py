@@ -8,6 +8,7 @@ durur, yalnız denetim sırasında ve kopyanın `src`'si öncelikli olacak biçi
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
@@ -98,8 +99,23 @@ def prepare(workdir: Path) -> Iterator[Mapping[str, str]]:
     try:
         yield {REPO_KEY: str(target)}
     finally:
+        _save_diff(target, workdir / DIFF_NAME)
         _run(["git", "-C", str(source), "worktree", "remove", "--force", str(target)], source)
         _run(["git", "-C", str(source), "worktree", "prune"], source)
+
+
+#: Worktree silinmeden önce Fusion'ın değişikliğinin kaydedildiği dosya. Kullanıcı
+#: (6 Ekim 2026): "geçti" denen işi kendi gözüyle görmek istedi; worktree koşu
+#: sonunda siliniyordu ve geriye yalnız olay kaydı kalıyordu.
+DIFF_NAME = "fusion-degisikligi.diff"
+
+
+def _save_diff(repo: Path, out: Path) -> None:
+    """Yeni dosyalar dahil tüm değişikliği tek bir diff dosyasına yaz (hata turu düşürmez)."""
+    _run(["git", "-C", str(repo), "add", "--intent-to-add", "--all"], repo)
+    fark = _run(["git", "-C", str(repo), "diff", "HEAD"], repo)
+    with contextlib.suppress(OSError):
+        out.write_text(fark.output, encoding="utf-8")
 
 
 def _inspection_env(repo: Path, scratch: Path) -> dict[str, str]:
