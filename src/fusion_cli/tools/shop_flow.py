@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import re
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urljoin
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
@@ -62,7 +63,7 @@ _PREPARE = """(pattern) => {
 }"""
 
 
-async def cart_flow_problem(product_url: str, cart_url: str) -> str | None:
+async def cart_flow_problem(product_url: str, cart_url: str | None) -> str | None:
     """Ürünü sepete eklemeyi dene; çalışmıyorsa nedeniyle birlikte sorun metni döndür.
 
     Tarayıcı açılamazsa `RuntimeError` yükselir (çağıran sessizce geçebilir).
@@ -97,6 +98,8 @@ async def cart_flow_problem(product_url: str, cart_url: str) -> str | None:
             await page.click("[data-fusion-buy]", timeout=STEP_TIMEOUT_MS)
             with contextlib.suppress(Exception):
                 await page.wait_for_load_state("networkidle", timeout=SETTLE_TIMEOUT_MS)
+            if cart_url is None:
+                cart_url = await page.evaluate(_FIND_CART) or urljoin(product_url, "/cart/")
             await page.goto(cart_url, timeout=STEP_TIMEOUT_MS, wait_until="load")
             with contextlib.suppress(Exception):
                 await page.wait_for_load_state("networkidle", timeout=SETTLE_TIMEOUT_MS)
@@ -125,6 +128,14 @@ def _failure(product_url: str, cart_url: str, button: dict[str, Any], *, sent: b
         "`<form class='cart' method='post'>` içine al."
     )
 
+
+#: Sepete ekledikten sonra sepet adresi: WooCommerce'in "sepeti görüntüle" bağlantısı.
+_FIND_CART = """() => {
+  const a = document.querySelector("a.wc-forward, a.added_to_cart") ||
+    [...document.querySelectorAll("a[href]")].find((x) =>
+      /\\/(cart|sepet)(-\\d+)?\\/?$/.test(new URL(x.href, location.href).pathname));
+  return a ? a.href : null;
+}"""
 
 #: Sepetten ödemeye geçiş: WooCommerce düğmesi ya da ödeme sayfasına giden bağlantı.
 _CHECKOUT_LINK = """() => {

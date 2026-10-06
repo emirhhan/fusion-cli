@@ -236,26 +236,31 @@ async def _cart_flow(sonuc: PageProbe, *, store: bool = False) -> tuple[str, ...
     )
     product = next((link for link in links if _PRODUCT_PATH.search(link)), None)
     cart = next((link for link in links if _CART_PATH.search(link)), None)
+    eksik_baglanti: tuple[str, ...] = ()
     if product is None or cart is None:
         if not store:
             return ()
         eksik = [ad for ad, url in (("ürün sayfası", product), ("sepet", cart)) if url is None]
-        return (
-            "MAĞAZA AKIŞI EKSİK: ana sayfadan " + " ve ".join(eksik) + " bağlantısı yok; "
-            "sepete ekle → sepet → ödeme akışı denenemedi. Tasarımdan önce bunu kur.",
+        eksik_baglanti = (
+            "MAĞAZA AKIŞI EKSİK: ana sayfadan " + " ve ".join(eksik) + " bağlantısı yok "
+            "(müşteri başlıktaki sepet simgesinden sepete gidebilmeli; href='#' olmaz).",
         )
+        if product is None:
+            return eksik_baglanti
+    # Sepet bağlantısı yoksa da akış denenir; sepet adresi ürün eklendikten sonra
+    # WooCommerce'in "sepeti görüntüle" bağlantısından bulunur. Ölçüldü (dalga22).
     try:
         sorun = await shop_flow.cart_flow_problem(product, cart)
     except RuntimeError:
-        return ()  # tarayıcı yoksa deneme yapılamaz; diğer ölçümler yine raporlanır
-    return (sorun,) if sorun else ()
+        return eksik_baglanti  # tarayıcı yoksa deneme yapılamaz
+    return (*eksik_baglanti, *((sorun,) if sorun else ()))
 
 
 #: Ana sayfadan sonra ölçülen sayfa türleri: ad, iç bağlantı deseni. Ölçüldü (3 Ekim 2026,
 #: 11. ve 16. kabul koşuları): yalnız ana sayfa ölçülünce ürün şablonunun bozulması ve
 #: mağaza/sepet/ödeme sayfalarının çıplak HTML kalması hiç raporlanmadı.
 _PRODUCT_PATH = re.compile(r"/(?:product|urun)/[^/?#]+/?$")
-_CART_PATH = re.compile(r"/(?:cart|sepet)/?$")
+_CART_PATH = re.compile(r"/(?:cart|sepet)(?:-\d+)?/?$")
 _PAGE_KINDS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("ÜRÜN SAYFASI", _PRODUCT_PATH),
     (

@@ -620,12 +620,16 @@ def test_kopya_temada_kaynak_farklari_bilgi_olarak_gosterilir_duzelt_denmez():
     assert normal.startswith("SORUNLU") and "düzelt ve" in normal
 
 
-async def test_magazada_urun_ya_da_sepet_baglantisi_yoksa_akis_eksik_bulgusu_verilir():
+async def test_magazada_urun_ya_da_sepet_baglantisi_yoksa_akis_eksik_bulgusu_verilir(monkeypatch):
     """Ölçüldü (dalga19, 5 Ekim): 90 dk temaya gitti, mağaza akışı hiç kurulmadı; kapı
     sepet/ürün bağlantısı yoksa susuyordu, model eksikliği hiç görmedi."""
     from fusion_cli.engines.agent import preview_tools
     from fusion_cli.tools.preview_probe import LinkCheck
 
+    async def _calisir(urun, sepet):
+        return None
+
+    monkeypatch.setattr(preview_tools.shop_flow, "cart_flow_problem", _calisir)
     yalniz_urun = PageProbe(
         url="http://127.0.0.1:8770/", status=200, title="Ö", visible_chars=500, page_errors=(),
         links=(LinkCheck("http://127.0.0.1:8770/product/a/", 200),),
@@ -661,3 +665,27 @@ async def test_sepet_denemesi_kontrol_edilmeyen_bagantilari_da_kullanir(monkeypa
 
     assert await preview_tools._cart_flow(ana, store=True) == ()
     assert denenen == [("http://127.0.0.1:8770/product/a/", "http://127.0.0.1:8770/cart/")]
+
+
+async def test_sepet_baglantisi_yoksa_bile_akis_denenir_ve_eksik_bildirilir(monkeypatch):
+    """Ölçüldü (dalga22): başlıktaki sepet simgesi href='#' idi; deneme hiç yapılmadı,
+    ödeme yöntemi yokluğu ve sipariş hatası model tarafından hiç görülmedi."""
+    from fusion_cli.engines.agent import preview_tools
+
+    denenen: list[tuple[str, str | None]] = []
+
+    async def _dene(urun, sepet):
+        denenen.append((urun, sepet))
+        return "ÖDEME YÖNTEMİ YOK: …"
+
+    monkeypatch.setattr(preview_tools.shop_flow, "cart_flow_problem", _dene)
+    ana = PageProbe(
+        url="http://127.0.0.1:8770/", status=200, title="Ö", visible_chars=500, page_errors=(),
+        all_links=("http://127.0.0.1:8770/product/a/",),
+    )  # fmt: skip
+
+    bulgular = await preview_tools._cart_flow(ana, store=True)
+
+    assert denenen == [("http://127.0.0.1:8770/product/a/", None)]
+    assert any("sepet bağlantısı yok" in b for b in bulgular)
+    assert "ÖDEME YÖNTEMİ YOK: …" in bulgular

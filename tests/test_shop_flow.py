@@ -202,3 +202,18 @@ async def test_siparis_olusmazsa_sayfadaki_hata_soylenir(odemeli_magaza):
 
     assert sorun is not None and "SİPARİŞ OLUŞMADI" in sorun
     assert "ödeme yöntemi seçin" in sorun
+
+
+async def test_sepet_adresi_verilmezse_urun_eklendikten_sonra_bulunur(odemeli_magaza):
+    _OdemeliMagaza.odeme_govdesi = _ODEME_YONTEMLI
+    _OdemeliMagaza.urun_govdesi = (
+        _FORMLU_DUGME + "<a class='wc-forward' href='/sepet/'>Sepeti görüntüle</a>"
+    )
+
+    try:
+        sorun = await cart_flow_problem(f"{odemeli_magaza}/urun/a/", None)
+    except RuntimeError as exc:  # pragma: no cover
+        pytest.skip(str(exc))
+
+    assert sorun is None
+    assert len(_OdemeliMagaza.siparisler) == 1
