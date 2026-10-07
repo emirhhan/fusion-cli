@@ -8,3 +8,5 @@ export { CameraPush, Parallax } from "./CameraPush";
 export { LogoReveal } from "./LogoReveal";
 export { FeatureCard } from "./FeatureCard";
 export { SceneFade } from "./Transition";
+
+export { LayoutAudit } from "./LayoutAudit";

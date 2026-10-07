@@ -11,11 +11,14 @@ denemeyi unutsa da doğru karar verir.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from ...core.tools import ToolContext
 from ...core.verification import VerificationResult
 from ...tools.play_probe import probe_game
+
+_LOG = logging.getLogger(__name__)
 
 #: index.html dosyadan açıldığında çıkan bulguların öneki.
 DOSYADAN = (
@@ -54,7 +57,12 @@ class GameProbeVerifier:
         for adres in sorted(adresler):
             try:
                 rapor = await probe_game(adres)
-            except Exception:  # sınır: Playwright yok, tarayıcı açılamadı
+            except Exception as error:  # sınır: Playwright yok, tarayıcı açılamadı
+                _LOG.warning("Oyun sondası çalıştırılamadı", exc_info=True)
+                bulgular.append(
+                    f"{adres}: oyun doğrulanamadı ({type(error).__name__}); "
+                    "Playwright/tarayıcı kurulumunu kontrol edip oyunu yeniden dene"
+                )
                 continue
             onek = f"{adres}: " if adres != dosya else f"{DOSYADAN}: "
             bulgular.extend(onek + sorun for sorun in rapor.problems())

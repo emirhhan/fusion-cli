@@ -3,7 +3,7 @@ import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig } from "remo
 
 // Sahneyi yavaşça içeri iten "kamera": durağan slayt hissini kırar. Her sahneyi sar.
 export const CameraPush: React.FC<{ children: React.ReactNode; from?: number; to?: number; drift?: number }> = ({
-  children, from = 1, to = 1.08, drift = 30,
+  children, from = 1, to = 1.05, drift = 20,
 }) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
@@ -16,12 +16,15 @@ export const CameraPush: React.FC<{ children: React.ReactNode; from?: number; to
   );
 };
 
-// Derinlik katmanı: depth 0 = sabit, 1 = en çok hareket eden ön plan.
+// Derinlik katmanı: depth 0 = sabit, 1 = en çok hareket eden ön plan. Hareket SINIRLI bir
+// salınımdır (en çok ±28 px): sürekli kayma içeriği ekran kenarından taşırıp kesiyordu.
 export const Parallax: React.FC<{ children: React.ReactNode; depth?: number }> = ({ children, depth = 0.5 }) => {
   const frame = useCurrentFrame();
+  const x = Math.sin(frame / 70) * 28 * depth;
+  const y = Math.cos(frame / 55) * 10 * depth;
   return (
-    <AbsoluteFill style={{ transform: `translate(${-frame * depth * 0.8}px, ${Math.sin(frame / 50) * 8 * depth}px)` }}>
+    <div style={{ position: "relative", flexShrink: 0, transform: `translate(${x}px, ${y}px)` }}>
       {children}
-    </AbsoluteFill>
+    </div>
   );
 };

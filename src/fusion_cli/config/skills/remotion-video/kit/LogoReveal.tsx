@@ -25,12 +25,12 @@ export const LogoReveal: React.FC<{ src: string; size?: number; delay?: number; 
         })}
         <div style={{ filter: `drop-shadow(0 0 ${40 + 40 * glow}px ${theme.accent}aa)`,
           transform: `scale(${s}) rotate(${(1 - s) * -25}deg)` }}>
-          <Img src={staticFile(src)} style={{ width: size, height: size, borderRadius: size * 0.22 }} />
+          <Img data-fusion-content="Logo" src={staticFile(src)} style={{ width: size, height: size, borderRadius: size * 0.22 }} />
         </div>
       </div>
-      {title && <div style={{ marginTop: 48, fontFamily: theme.font, fontSize: 120, fontWeight: 800, color: theme.text,
+      {title && <div data-fusion-content={title} style={{ marginTop: 48, fontFamily: theme.font, fontSize: 120, fontWeight: 800, color: theme.text,
         letterSpacing: -2, opacity: ts, transform: `translateY(${(1 - ts) * 40}px)` }}>{title}</div>}
-      {subtitle && <div style={{ marginTop: 16, fontFamily: theme.font, fontSize: 44, color: theme.muted,
+      {subtitle && <div data-fusion-content={subtitle} style={{ marginTop: 16, fontFamily: theme.font, fontSize: 44, color: theme.muted,
         opacity: interpolate(frame, [30, 50], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) }}>{subtitle}</div>}
     </AbsoluteFill>
   );

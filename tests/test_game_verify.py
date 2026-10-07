@@ -111,3 +111,17 @@ async def test_oyun_istegi_degilse_denenmemis_canvas_sayfasi_oynatilmaz(tmp_path
     context = ToolContext(root=tmp_path)
     context.touched.add(tmp_path / "chart.js")
     assert (await GameProbeVerifier(context).verify()).ok
+
+
+async def test_oyun_denenemiyorsa_sessiz_basari_sayilmaz(tmp_path, monkeypatch):
+    (tmp_path / "index.html").write_text("<canvas></canvas>")
+    context = ToolContext(root=tmp_path, task_kinds={"oyun"})
+    context.touched.add(tmp_path / "index.html")
+
+    async def unavailable(url, keys=()):
+        raise ImportError("Playwright kurulu değil")
+
+    monkeypatch.setattr(game_verify, "probe_game", unavailable)
+    result = await GameProbeVerifier(context).verify()
+    assert not result.ok
+    assert any("doğrulanamadı" in finding for finding in result.findings)

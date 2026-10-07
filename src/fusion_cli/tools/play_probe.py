@@ -14,6 +14,8 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from .game_start import start_game
+
 if TYPE_CHECKING:
     from playwright.async_api import Page
 
@@ -25,16 +27,6 @@ SETTLE_MS = 1_000
 #: Bunun altındaki rAF hızı oyun döngüsünün çalışmadığını gösterir.
 MIN_RAF_PER_SECOND = 20
 NAVIGATION_TIMEOUT_MS = 30_000
-#: Açılış menüsündeki görünür "Başla/Start/Play" düğmesi (oyuncu gibi önce ona basılır).
-_START_BUTTON = """() => { const re = /ba[sş]la|start|play|oyna/i;
-  const shown = (el) => { const r = el.getBoundingClientRect();
-    if (!r.width || !r.height) return false;
-    for (let e = el; e; e = e.parentElement) { const s = getComputedStyle(e);
-      if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05 ||
-          s.pointerEvents === 'none') return false; } return true; };
-  const b = [...document.querySelectorAll('button, [role=button], a, input[type=button]')]
-    .find((el) => re.test(el.innerText || el.value || '') && shown(el));
-  if (b) { b.click(); return (b.innerText || b.value || '').trim().slice(0, 30); } return null; }"""
 #: Skor/can/bölüm yazıları: yaprak öğe, görünür; renk ve kutu döner (kontrast ölçümü).
 _HUD_TEXTS = """() => [...document.querySelectorAll('body *')].filter((el) =>
   el.children.length === 0 && /skor|score|puan|can\\b|lives|hp\\b|bölüm|dalga|wave|level/i
@@ -75,6 +67,8 @@ class ProbeReport:
     effective_keys: tuple[str, ...] = ()
     #: Ekran görüntülerinden ölçülen görsel kusurlar (`game_visual`).
     visual_problems: tuple[str, ...] = ()
+    #: Başla düğmesi, Enter/Space yedeği denenmeden bağımsız doğrulanır.
+    startup_problems: tuple[str, ...] = ()
 
     def problems(self) -> tuple[str, ...]:
         """Oyunu oynanamaz kılan ölçümler (kapı bunlarla turu kapatmaz)."""
@@ -90,6 +84,7 @@ class ProbeReport:
         ) or (self.state_before is None and self.canvas_changed is False)
         if tuslar_etkisiz:
             sorunlar.append("tuşlar oyunu değiştirmedi (oyuncu hareket etmiyor)")
+        sorunlar.extend(self.startup_problems)
         sorunlar.extend(f"görsel: {sorun}" for sorun in self.visual_problems)
         return tuple(sorunlar)
 
@@ -124,6 +119,7 @@ class ProbeReport:
                 f"R tuşundan sonra durum (oyun ortasında basıldı; R yalnız oyun sonunda "
                 f"çalışıyorsa bu normaldir): {self.restart_state}"
             )
+        satirlar.extend(f"BAŞLATMA SORUNU: {sorun}" for sorun in self.startup_problems)
         satirlar.extend(f"GÖRSEL SORUN: {sorun}" for sorun in self.visual_problems)
         if not self.visual_problems:
             satirlar.append(
@@ -165,8 +161,11 @@ async def probe_game(url: str, keys: tuple[str, ...] = DEFAULT_KEYS) -> ProbeRep
             await sayfa.goto(url, timeout=NAVIGATION_TIMEOUT_MS, wait_until="load")
             await sayfa.wait_for_timeout(SETTLE_MS)
             raf = int(await sayfa.evaluate(_RAF_COUNTER))
-            await sayfa.evaluate(_START_BUTTON)
-            await _press(sayfa, ("Enter", "Space"))
+            baslatma = await start_game(
+                sayfa, settle_ms=SETTLE_MS, timeout_ms=NAVIGATION_TIMEOUT_MS, state_script=_STATE
+            )
+            if not baslatma.has_button:
+                await _press(sayfa, ("Enter", "Space"))
             once, tuval_once = await sayfa.evaluate(_STATE), await sayfa.evaluate(_CANVAS_HASH)
             gorsel = await _visual_problems(sayfa)
             etkili = await _press(sayfa, keys)
@@ -176,7 +175,9 @@ async def probe_game(url: str, keys: tuple[str, ...] = DEFAULT_KEYS) -> ProbeRep
         finally:
             await tarayici.close()
     tuval = None if tuval_once is None else tuval_once != tuval_sonra
-    return ProbeReport(tuple(hatalar), raf, once, sonra, tuval, yeniden, etkili, gorsel)
+    return ProbeReport(
+        tuple(hatalar), raf, once, sonra, tuval, yeniden, etkili, gorsel, baslatma.problems
+    )
 
 
 async def _visual_problems(page: Page) -> tuple[str, ...]:

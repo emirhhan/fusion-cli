@@ -19,7 +19,9 @@ da oyun bittiğinde yeniden başlamıyorsa oyun bitmemiştir.
    index.html'de (file://) engellenir ve oyun hiç açılmaz.
 3. Girdi: `keydown`/`keyup` ile bir `keys` kümesi tut (ok tuşları + WASD + Boşluk);
    `preventDefault` ile sayfa kaymasını engelle. Dokunmatik için basit düğmeler.
-4. Durum makinesi: `menu → oynuyor → bitti`. Boşluk/Enter başlatır, **R tuşu ve görünür
+4. Durum makinesi: `menu → oynuyor → bitti`. Görünür **Başla düğmesi**, Boşluk/Enter
+   aynı `start()` işlevini çağırır; düğme klavye kullanmadan tek başına oyunu başlatır.
+   **R tuşu ve görünür
    "Yeniden başla" düğmesi** her durumda sıfırlar (skor, can, düşmanlar, konum).
 5. HUD: skor ve can her karede çizilir (`fillText`) ya da DOM'da gösterilir.
 6. Zorluk artar (düşman hızı/sayısı zamanla), çarpışma kutuları net.
@@ -45,6 +47,12 @@ window.__GAME_STATE__ = () => ({ durum: state.mode, skor: state.score, can: stat
 ```
 
 ## Kendi işini doğrula (bitti demeden önce)
+
+- HTML'nin çağırdığı bütün CSS/JS dosyaları mevcut ve yüklenir olmalı. Yalnız menü
+  ve görselleri yazıp tamamlandı deme; oyunun kodu eksikse teslim tamamlanmamıştır.
+- Başla düğmesini Enter/Space kullanmadan gerçek tıklamayla ayrıca dene: menüden
+  oynuyor durumuna geçiş ve oyuncu kontrolü görülmeli. Klavye başlangıcı bozuk
+  düğmeyi örtemez; `play_probe` bunu ayrı bir BAŞLATMA SORUNU olarak bildirir.
 
 - `play_probe(target='index.html')` çağır: oyunu ayrı başsız tarayıcıda açar, tuşlara
   basar; konsol hatası 0, rAF ~60/sn, tuşlardan sonra oyuncu konumu belirgin değişmeli,

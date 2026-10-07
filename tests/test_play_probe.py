@@ -74,3 +74,70 @@ def test_gercek_oyunda_sifirlayan_tus_listede_olsa_da_etkili_tus_raporlanir(tmp_
     assert rapor.state_before == rapor.state_after
     assert "ArrowRight" in rapor.effective_keys
     assert "TUŞLAR DURUMU DEĞİŞTİRMEDİ" not in rapor.summary()
+
+
+_BUTTON_GAME = """<!doctype html><body style='margin:0'>
+<canvas id='c' width='1280' height='800'></canvas>
+<button id='start'>Başla</button><script>
+const s={durum:'menu',skor:0,oyuncu:{x:10,y:50}};
+const button=document.getElementById('start');
+function start(){s.durum='oynuyor';button.style.display='none';}
+START_HANDLER
+addEventListener('keydown',e=>{if(e.key==='Enter')start();
+ if(s.durum==='oynuyor'&&e.key==='ArrowRight'){s.oyuncu.x+=20;s.skor++;}});
+const c=document.getElementById('c').getContext('2d');
+(function f(){c.fillStyle='#080808';c.fillRect(0,0,1280,800);
+ c.fillStyle='#fff';c.fillRect(s.oyuncu.x,50,20,20);requestAnimationFrame(f);})();
+window.__GAME_STATE__=()=>s;</script>"""
+
+
+async def test_bozuk_basla_dugmesini_klavye_yolu_gizleyemez(tmp_path):
+    pytest.importorskip("playwright")
+    page = tmp_path / "index.html"
+    page.write_text(_BUTTON_GAME.replace("START_HANDLER", ""), encoding="utf-8")
+    report = await probe_game(page.as_uri(), ("ArrowRight",))
+    assert any("Başla" in problem for problem in report.problems())
+
+
+async def test_basla_dugmesi_tek_basina_oyunu_baslatiyorsa_gecer(tmp_path):
+    pytest.importorskip("playwright")
+    page = tmp_path / "index.html"
+    page.write_text(
+        _BUTTON_GAME.replace("START_HANDLER", "button.addEventListener('click',start);"),
+        encoding="utf-8",
+    )
+    report = await probe_game(page.as_uri(), ("ArrowRight",))
+    assert not any("Başla" in problem for problem in report.problems())
+    assert report.state_before and '"durum":"oynuyor"' in report.state_before
+
+
+async def test_menu_animasyonu_basla_dugmesi_calisti_sayilmaz(tmp_path):
+    pytest.importorskip("playwright")
+    page = tmp_path / "index.html"
+    source = _BUTTON_GAME.replace("START_HANDLER", "setInterval(()=>s.oyuncu.x++,30);")
+    page.write_text(source, encoding="utf-8")
+    report = await probe_game(page.as_uri(), ("ArrowRight",))
+    assert any("Başla" in problem for problem in report.problems())
+
+
+async def test_dugme_gorunur_kalsa_da_baslatma_durum_gecisi_dogrulanir(tmp_path):
+    pytest.importorskip("playwright")
+    page = tmp_path / "index.html"
+    source = _BUTTON_GAME.replace("button.style.display='none';", "").replace(
+        "START_HANDLER", "button.addEventListener('click',start);"
+    )
+    page.write_text(source, encoding="utf-8")
+    report = await probe_game(page.as_uri(), ("ArrowRight",))
+    assert not any("Başla" in problem for problem in report.problems())
+    assert report.state_before and '"durum":"oynuyor"' in report.state_before
+
+
+async def test_basla_dugmesi_gizlenip_oyun_baslamiyorsa_kalir(tmp_path):
+    pytest.importorskip("playwright")
+    page = tmp_path / "index.html"
+    source = _BUTTON_GAME.replace("s.durum='oynuyor';", "").replace(
+        "START_HANDLER", "button.addEventListener('click',start);"
+    )
+    page.write_text(source, encoding="utf-8")
+    report = await probe_game(page.as_uri(), ("ArrowRight",))
+    assert any("Başla" in problem for problem in report.problems())

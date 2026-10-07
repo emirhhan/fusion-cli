@@ -12,8 +12,8 @@ export const FeatureCard: React.FC<{ title: string; body?: string; icon?: string
   const shine = interpolate((frame - index * 6) % 120, [0, 120], [-100, 200]);
   return (
     <div style={{ perspective: 1400 }}>
-      <div style={{
-        width, padding: "40px 44px", borderRadius: 28, position: "relative", overflow: "hidden",
+      <div data-fusion-content={title} style={{
+        boxSizing: "border-box", width, padding: "40px 44px", borderRadius: 28, position: "relative", overflow: "hidden",
         background: "linear-gradient(145deg, rgba(255,255,255,0.10), rgba(255,255,255,0.03))",
         border: "1.5px solid rgba(255,255,255,0.16)", boxShadow: `0 30px 80px rgba(0,0,0,0.45), 0 0 60px ${theme.accent2}22`,
         transform: `rotateY(${(1 - s) * 55}deg) translateY(${(1 - s) * 80}px) scale(${0.9 + 0.1 * s})`, opacity: s,

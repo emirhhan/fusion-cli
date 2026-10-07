@@ -1,4 +1,5 @@
 import React from "react";
+import { LayoutAudit } from "./LayoutAudit";
 import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 
 // Sahne giriş/çıkışı: yakınlaşarak bulanıklıktan gelir, uzaklaşıp kararır. Her <Sequence>
@@ -10,8 +11,8 @@ export const SceneFade: React.FC<{ children: React.ReactNode; length?: number }>
   const exit = interpolate(frame, [durationInFrames - length, durationInFrames], [1, 0], { extrapolateLeft: "clamp" });
   const v = Math.min(enter, exit);
   return (
-    <AbsoluteFill style={{ opacity: v, filter: `blur(${(1 - v) * 16}px)`, transform: `scale(${1.06 - 0.06 * enter + (1 - exit) * 0.08})` }}>
+    <LayoutAudit><AbsoluteFill style={{ opacity: v, filter: `blur(${(1 - v) * 16}px)`, transform: `scale(${1.06 - 0.06 * enter + (1 - exit) * 0.08})` }}>
       {children}
-    </AbsoluteFill>
+    </AbsoluteFill></LayoutAudit>
   );
 };

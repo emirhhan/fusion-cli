@@ -12,7 +12,7 @@ export const KineticText: React.FC<{
   const { fps } = useVideoConfig();
   const parts = by === "word" ? text.split(" ") : Array.from(text);
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", justifyContent: align === "center" ? "center" : "flex-start",
+    <div data-fusion-content={text} data-fusion-text="true" style={{ display: "flex", flexWrap: "wrap", justifyContent: align === "center" ? "center" : "flex-start",
       fontFamily: theme.font, fontSize: size, fontWeight: weight, letterSpacing: -size * 0.02, lineHeight: 1.05 }}>
       {parts.map((p, i) => {
         const s = spring({ frame: frame - delay - i * stagger, fps, config: { damping: 14, mass: 0.6 } });
