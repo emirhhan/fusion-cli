@@ -34,13 +34,16 @@ FeatureCard, SceneFade } from "./kit";` — renkleri `kit/theme.ts`'ten markaya 
   kamera dönüşümlerini onun İÇİNE koy. Denetim güvenli alanı bu sabit tuvalde ölçer.
 - `SceneFade` her sahnede gerçek DOM yerleşimini denetler: ilk 1 sn giriş ve son
   0,5 sn çıkış dışında taşma, çakışma ya da okunabilir içerik yoksa render HATA verir.
+  Hata sınırlarını oku: üst/sol taşmada konumu düzelt; font küçültmek konumu düzeltmez.
+  Başlık, kart ve gap toplamını güvenli yüksekliğe sığdır; üst payı artırınca altı ölç.
   Hatadaki kare ve bileşen adını okuyup yerleşimi DÜZELT; denetimi kaldırma. Özel
   sahne `SceneFade` kullanmıyorsa Sequence İÇİNDE `<LayoutAudit>` ile sar. Kit dışı
   içerik gruplarına `data-fusion-content="anlamlı ad"` ekle; dekorlara ekleme.
 - Her sahneyi tam süreyle doldur; son 7 saniyeye soluk yazı/boş buffer koyma. Çok
   özellik varsa 4 kartı tek sahneye sıkıştırmak yerine ayrı sahneler kullan.
 - Tam render öncesinde her sahneden giriş sonrasında ve çıkış öncesinde still al.
-  Sonra MP4 render et; denetim hatası kalan videoyu tamamlandı diye sunma.
+  Still'ler geçmeden tam render başlatma; hatayı düzelttikten sonra önce hata karesini
+  yeniden ölç. Sonra MP4 render et; denetim hatası kalan videoyu tamamlandı diye sunma.
 
 ## Kare tabanlı animasyon kuralları (render'da yalnız bunlar çalışır)
 
