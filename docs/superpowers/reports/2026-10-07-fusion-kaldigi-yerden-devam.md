@@ -118,3 +118,10 @@ Dalga36 oyun runner exit0,1665,3 sn, agent_ok=false, kabul7/10. Bağımsız ger�
 Doğrulanmış ana sayfa viewportları inert template ve kaynak matchMedia koşuluyla tek etkin DOM/CSS olarak temaya aktarılır. Header/footer ayrı bölgelerdir; Woo checkout/product formu resize sırasında yeniden kurulmaz. Yerel mobil görsel, benzersiz kimlikler, gerçek kapsayıcıda slider clipping ve body overflow görünürken taşmasız fixture doğrulandı. Checkout DOM/değer/odak/scroll korunur; odak karşılığı yoksa açık Türkçe uyarı vardır. Summary yalnız gerçekten aktarılan ana yolun bekleme notunu kaldırır; diğer yakalanmış yollar ve kaynak JS menü davranışı sınırları korunur.
 
 37 ilgili test ve2 summary regresyonu geçti; root son7 tema testi, ruff/format,3 kaynak mypy ve diff temiz; bağımsız son inceleme bulgusuz. Bu yerel fixture doğrulamasıdır, yeni Fusion site üretiminde aktarım henüz kanıtlanmadı. Dalga37 Remotion yeni boş dizinden canlı exec82177; başka ağır koşu yok. Sonraki kod fazı gerçek Başla denetçisi ve düşman yaşam döngüsü öğretimidir.
+
+
+## Gerçek tıklama denetçisi ve düşman yaşam döngüsü dersi
+
+Başla adayı pointer-events:none atasından dolayı artık elenmez; auto çocuk için gerçek Playwright tıklaması hit-test/örtü/disabled koşullarını sınar. Faz okuyucu state anahtarını tanır. Gizlenen düğme tek başına başarı değildir; bilinen durum geçişi gereklidir. Dört gerçek tarayıcı regresyonu önce kırmızı sonra yeşil; son9 başlangıç+7 uzmanlık testi geçti. Opsiyonel Playwright extras importorskip ile korunur. Ruff/format/mypy1/diff ve bağımsız son inceleme temiz.
+
+Ortak oyun becerisine idempotent ölüm/kaçış, sınırlı geri giriş, tek canlı/çözümlenmiş kayıt, split ve restart sayaç tutarlılığı öğretildi. Bu öğretimdir; ürün yaşam döngüsünün düzeldiğini iddia eden yapay motor testi yazılmadı. Dalga36 artefaktı değiştirilmedi; gerçek yeni üretimde bölüm geçişi/oyun sonu aktarımı hâlâ gerekli. Dalga37 Remotion exec82177 canlı; yeni ağır koşu eşzamanlı yok.

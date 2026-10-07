@@ -16,8 +16,8 @@ _FIND_START = """() => {
   const shown = el => { const r = el.getBoundingClientRect();
     if (!r.width || !r.height) return false;
     for (let e=el;e;e=e.parentElement) {const s=getComputedStyle(e);
-      if(s.display==='none'||s.visibility==='hidden'||Number(s.opacity)<0.05||
-         s.pointerEvents==='none') return false;} return true;};
+      if(s.display==='none'||s.visibility==='hidden'||Number(s.opacity)<0.05) return false;}
+    return true;};
   const buttons=[...document.querySelectorAll('button, [role=button], a, input[type=button]')];
   const index=buttons.findIndex(el => {const text=el.innerText||el.value||'';
     return matches.test(text)&&!restart.test(text)&&shown(el);});
@@ -44,7 +44,7 @@ def _phase(snapshot: str | None) -> str | None:
     if isinstance(state, str):
         return state
     if isinstance(state, dict):
-        for name in ("durum", "mode", "phase", "status"):
+        for name in ("durum", "state", "mode", "phase", "status"):
             value = state.get(name)
             if isinstance(value, str):
                 return value
