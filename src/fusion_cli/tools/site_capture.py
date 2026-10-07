@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from playwright.async_api import Browser, Page
 
 from .mirror import MAX_ASSET_BYTES, asset_local_path, is_mirrorable
+from .site_responsive import CapturedVariant, verify_variants
 
 CAPTURE_SCRIPT = Path(__file__).with_name("assets") / "capture_page.js"
 #: Referans ekran görüntülerinin genişlikleri: masaüstü ve telefon.
@@ -73,6 +74,8 @@ class CapturedPage:
     #: Sabit/mutlak başlığın kapladığı yükseklik (piksel); akışta ise 0.
     header_offset: int = 0
     screenshots: dict[int, bytes] = field(default_factory=dict)
+    variants: tuple[CapturedVariant, ...] = ()
+    responsive_problems: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,31 +156,53 @@ async def _capture_one(
     browser: Browser, url: str, script: str
 ) -> tuple[CapturedPage, str, list[str]]:
     shots: dict[int, bytes] = {}
-    veri: dict[str, Any] = {}
-    for genislik, yukseklik in VIEWPORTS:
-        context = await browser.new_context(viewport={"width": genislik, "height": yukseklik})
+    metadata: dict[str, Any] = {}
+
+    async def capture(width: int, height: int) -> CapturedVariant:
+        context = await browser.new_context(viewport={"width": width, "height": height})
         try:
             page = await context.new_page()
             await page.goto(url, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS)
             await page.wait_for_timeout(SETTLE_MS)
             await _scroll(page)
-            shots[genislik] = await page.screenshot(full_page=True, type="jpeg", quality=60)
-            if not veri:
-                veri = await page.evaluate(script)
+            if width not in shots:
+                shots[width] = await page.screenshot(full_page=True, type="jpeg", quality=60)
+            values = await page.evaluate(script)
+            if not metadata:
+                metadata.update(values)
+            return CapturedVariant(
+                width=width,
+                height=height,
+                header=str(values.get("header", "")),
+                main=str(values.get("main", "")),
+                footer=str(values.get("footer", "")),
+                header_offset=int(values.get("headerOffset") or 0),
+                css=str(values.get("css", "")),
+                signature=str(values.get("signature", "")),
+                media_conditions=tuple(str(query) for query in values.get("mediaConditions", [])),
+                blocked=tuple(str(href) for href in values.get("blocked", [])),
+            )
         finally:
             await context.close()
-    sayfa = CapturedPage(
+
+    variants = tuple([await capture(width, height) for width, height in VIEWPORTS])
+    responsive = await verify_variants(variants, capture)
+    primary = variants[0]
+    page_result = CapturedPage(
         url=url,
-        title=str(veri.get("title", "")),
-        lang=str(veri.get("lang", "")),
-        body_class=str(veri.get("bodyClass", "")),
-        header=str(veri.get("header", "")),
-        main=str(veri.get("main", "")),
-        footer=str(veri.get("footer", "")),
-        header_offset=int(veri.get("headerOffset") or 0),
+        title=str(metadata.get("title", "")),
+        lang=str(metadata.get("lang", "")),
+        body_class=str(metadata.get("bodyClass", "")),
+        header=primary.header,
+        main=primary.main,
+        footer=primary.footer,
+        header_offset=primary.header_offset,
         screenshots=shots,
+        variants=responsive.variants,
+        responsive_problems=responsive.problems,
     )
-    return sayfa, str(veri.get("css", "")), [str(href) for href in veri.get("blocked", [])]
+    blocked = [href for variant in responsive.variants for href in variant.blocked]
+    return page_result, primary.css, blocked
 
 
 async def _blocked_css(browser: Browser, hrefs: list[str], problems: list[str]) -> list[str]:
@@ -283,6 +308,25 @@ async def _capture_with_retry(
     return None
 
 
+def capture_asset_urls(pages: tuple[CapturedPage, ...], css: str, base: str) -> list[str]:
+    """Mobil dahil bütün DOM varlıklarına CSS'ten önce indirme önceliği ver."""
+    html_sources = [page.header + page.main + page.footer for page in pages]
+    html_sources.extend(
+        variant.header + variant.main + variant.footer
+        for page in pages
+        for variant in page.variants
+    )
+    addresses = [address for source in html_sources for address in html_urls(source)]
+    addresses.extend(
+        address
+        for page in pages
+        for variant in page.variants
+        for address in css_urls(variant.css, page.url)
+    )
+    addresses.extend(css_urls(css, base))
+    return list(dict.fromkeys(addresses))
+
+
 async def capture_site(urls: list[str], folder: Path) -> SiteCapture:
     """Sayfaları yakala, varlıkları `folder` altına indir. Playwright gerekir."""
     try:
@@ -302,11 +346,22 @@ async def capture_site(urls: list[str], folder: Path) -> SiteCapture:
                         raise CaptureError(f"ana sayfa açılamadı: {url} ({problems[-1]})")
                     continue
                 sayfa, css, blocked = yakalanan
+                problems.extend(sayfa.responsive_problems)
                 sayfa = replace(
                     sayfa,
                     header=collapse_srcset(sayfa.header),
                     main=collapse_srcset(sayfa.main),
                     footer=collapse_srcset(sayfa.footer),
+                    variants=tuple(
+                        replace(
+                            variant,
+                            header=collapse_srcset(variant.header),
+                            main=collapse_srcset(variant.main),
+                            footer=collapse_srcset(variant.footer),
+                            css=absolutize_css(variant.css, url),
+                        )
+                        for variant in sayfa.variants
+                    ),
                 )
                 sayfalar.append(sayfa)
                 css_parcalari.append(absolutize_css(css, url))
@@ -316,12 +371,7 @@ async def capture_site(urls: list[str], folder: Path) -> SiteCapture:
             # Sıra önceliktir (MAX_ASSETS sınırı): önce sayfada GÖRÜNEN görseller, sonra
             # CSS başvuruları. Ölçüldü: sneaksup CSS'i 900+ yazı tipi/ikon varyantı
             # anıyordu ve ilk 400 hakkı bunlara gidip ürün görselleri inmiyordu.
-            adresler = [
-                url
-                for sayfa in sayfalar
-                for url in html_urls(sayfa.header + sayfa.main + sayfa.footer)
-            ]
-            adresler.extend(css_urls(css, urls[0]))
+            adresler = capture_asset_urls(tuple(sayfalar), css, urls[0])
             varliklar = await _download(browser, adresler, folder, problems)
         finally:
             await browser.close()

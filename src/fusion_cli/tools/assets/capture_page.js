@@ -3,9 +3,27 @@
   // betiksiz DOM ve başlık/gövde/altlık bölmesi. Python tarafı varlıkları indirir.
   const css = [];
   const blocked = [];
+  const mediaConditions = [];
+  const collectMedia = (rules, parents = []) => {
+    for (const rule of rules) {
+      const chain = rule.media && rule.media.mediaText
+        ? [...parents, rule.media.mediaText] : parents;
+      if (rule.media && rule.media.mediaText
+          && Array.from(rule.cssRules).some((child) => child.type === CSSRule.STYLE_RULE)) {
+        mediaConditions.push(chain.join(' and '));
+      }
+      if (rule.cssRules) collectMedia(rule.cssRules, chain);
+    }
+  };
   for (const sheet of document.styleSheets) {
     try {
       for (const rule of sheet.cssRules) css.push(rule.cssText);
+      const parentMedia = sheet.media.mediaText ? [sheet.media.mediaText] : [];
+      collectMedia(sheet.cssRules, parentMedia);
+      if (sheet.media.mediaText
+          && Array.from(sheet.cssRules).some((rule) => rule.type === CSSRule.STYLE_RULE)) {
+        mediaConditions.push(sheet.media.mediaText);
+      }
     } catch (error) {
       if (sheet.href) blocked.push(sheet.href);
     }
@@ -23,6 +41,12 @@
       node.setAttribute('data-kopya-izin-bandi', '1');
     }
   }
+  // Görünür yapısal fark, piksel boyutu/animasyon gürültüsünden ayrı ölçülür.
+  const signature = JSON.stringify(Array.from(document.body.querySelectorAll('*')).filter((node) => !['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(node.tagName)).map((node) => ({
+    tag: node.tagName, id: node.id, classes: node.getAttribute('class') || '', visible: node.getClientRects().length > 0,
+    source: node.tagName === 'IMG' ? node.currentSrc : '',
+    text: node.children.length === 0 && node.tagName !== 'IMG' ? node.textContent.trim() : '',
+  })));
   // Kaydırıcılar (swiper, slick…) slayt genişliğini BETİKLE verir; kopyada betik yok.
   // Ölçüldü (4 Ekim, mağaza ana sayfası): slayt 250 px'te kaldı ama içindeki kart
   // yüzde kuralıyla 62 px'e düştü, şerit de sayfayı yatayda taşırdı. Slayt, görsele
@@ -45,7 +69,7 @@
         node.style.flexBasis = 'auto';
       }
     }
-    for (let box = slide.parentElement, depth = 0; box && depth < 3; box = box.parentElement, depth++) {
+    for (let box = slide.parentElement; box && box !== document.body; box = box.parentElement) {
       const overflow = getComputedStyle(box).overflowX;
       if (overflow === 'hidden' || overflow === 'clip') {
         box.style.overflow = 'hidden';
@@ -54,6 +78,20 @@
     }
   }
   const clone = document.documentElement.cloneNode(true);
+  // Varyant, tarayıcının o viewportta seçtiği gerçek görseli korur. Aksi halde
+  // largest-srcset veya picture source, mobil hero'yu masaüstü adayıyla ezer.
+  const liveImages = document.querySelectorAll('img');
+  const clonedImages = clone.querySelectorAll('img');
+  liveImages.forEach((image, index) => {
+    if (!image.currentSrc) return;
+    const copied = clonedImages[index];
+    copied.setAttribute('src', image.currentSrc);
+    copied.removeAttribute('srcset');
+    copied.removeAttribute('sizes');
+    copied.removeAttribute('data-src');
+    const picture = copied.closest('picture');
+    if (picture) picture.querySelectorAll('source').forEach((source) => source.remove());
+  });
   clone.querySelectorAll('[data-kopya-izin-bandi]').forEach((node) => node.remove());
   clone.querySelectorAll(
     'script, noscript, iframe, link[rel=stylesheet], link[rel=preload], link[rel=modulepreload], style'
@@ -90,6 +128,8 @@
   if (header) header.remove();
   if (footer) footer.remove();
   return {
+    signature,
+    mediaConditions: [...new Set(mediaConditions)],
     css: css.join('\n'),
     blocked,
     title: document.title,
