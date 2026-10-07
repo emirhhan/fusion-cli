@@ -23,28 +23,19 @@ da oyun bittiğinde yeniden başlamıyorsa oyun bitmemiştir.
    aynı `start()` işlevini çağırır; düğme klavye kullanmadan tek başına oyunu başlatır.
    **R tuşu ve görünür
    "Yeniden başla" düğmesi** her durumda sıfırlar (skor, can, düşmanlar, konum).
-5. HUD: skor ve can her karede çizilir (`fillText`) ya da DOM'da gösterilir.
+5. HUD: skor/can yüksek kontrastla ayrı bir şeritte gösterilir. Oyun sınırını HUD'ın
+   gerçek alt kenarından başlat; oyuncu merkezini değil sprite'ın dış boyutunu ve
+   efektini bu sınıra göre kısıtla. DPR ve yeniden boyutlandırmada sınırı güncelle;
+   en üst köşelerde oyuncu, HUD yazısını örtmemeli.
 6. Zorluk artar (düşman hızı/sayısı zamanla), çarpışma kutuları net.
 7. Varlıklar: sprite'ları `assets/` altına SVG olarak KENDİN üret (oyuncu, her düşman,
    boss, güçlendirme, mermi, patlama, zemin dokusu); tek renk paleti, degrade, dış hat ve
    parlama ile tutarlı stil. `new Image()` ile hepsini yükle, `Promise.all` bitmeden
-   oyunu başlatma; yüklenemezse şekle düş (konsol hatası bırakma).
+   oyunu başlatma. Varlık anahtarını TEK kayıttan çöz; aktör `chaser`, kayıt
+   `enemy_chaser` ise açık eşleme kullan. Yanlış anahtarı şekle sessiz düşürerek gizleme.
+   Dosya yüklenememesi ile kayıt/eşleme hatasını ayır ve düzelt.
    HUD yazısı zeminle yüksek kontrastlı olsun (açık zeminde koyu, koyu zeminde açık).
 8. Doğrulama kancası: `window.__GAME_STATE__ = () => ({ durum, skor, can, oyuncu: {x, y} })`.
-
-## Çekirdek
-
-```js
-const keys = new Set();
-addEventListener('keydown', (e) => { if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
-  keys.add(e.key.toLowerCase()); if (e.key.toLowerCase() === 'r') reset(); if (state.mode !== 'oynuyor' && (e.key === ' ' || e.key === 'Enter')) start(); });
-addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
-let last = performance.now();
-function frame(t) { const dt = Math.min(0.033, (t - last) / 1000); last = t;
-  if (state.mode === 'oynuyor') update(dt); draw(); requestAnimationFrame(frame); }
-requestAnimationFrame(frame);
-window.__GAME_STATE__ = () => ({ durum: state.mode, skor: state.score, can: state.lives, oyuncu: { x: state.p.x, y: state.p.y } });
-```
 
 ## Kendi işini doğrula (bitti demeden önce)
 
@@ -53,6 +44,11 @@ window.__GAME_STATE__ = () => ({ durum: state.mode, skor: state.score, can: stat
 - Başla düğmesini Enter/Space kullanmadan gerçek tıklamayla ayrıca dene: menüden
   oynuyor durumuna geçiş ve oyuncu kontrolü görülmeli. Klavye başlangıcı bozuk
   düğmeyi örtemez; `play_probe` bunu ayrı bir BAŞLATMA SORUNU olarak bildirir.
+- Sondadaki VARLIK KANITI, yükleme ve gerçek `drawImage` kaynaklarını ayırır.
+  Çizimi gözlemlenmeyen düşman/boss/güçlendirme sahnesini tetikle; aktör türü-kayıt
+  eşleşmesini kontrol et. İndirilmiş dosya kullanılma kanıtı, çizim çağrısı da
+  görünürlük kanıtı değildir. Her türün gerçekten sprite ile çizildiğini karede gör.
+  Başlangıçta henüz doğmayan boss tek başına hata değildir.
 
 - `play_probe(target='index.html')` çağır: oyunu ayrı başsız tarayıcıda açar, tuşlara
   basar; konsol hatası 0, rAF ~60/sn, tuşlardan sonra oyuncu konumu belirgin değişmeli,

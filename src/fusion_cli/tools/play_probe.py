@@ -11,9 +11,10 @@ hataları karşılaştırılır. Sonuç metindir: görsel okuyamayan model de ku
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from .game_assets import ASSET_INIT, AssetUsage, read_asset_usage
 from .game_start import start_game
 
 if TYPE_CHECKING:
@@ -69,6 +70,8 @@ class ProbeReport:
     visual_problems: tuple[str, ...] = ()
     #: Başla düğmesi, Enter/Space yedeği denenmeden bağımsız doğrulanır.
     startup_problems: tuple[str, ...] = ()
+    #: Çizimi gözlemlenmeyen boss gibi kaynaklar otomatik kusur sayılmaz.
+    asset_usage: AssetUsage = field(default_factory=AssetUsage)
 
     def problems(self) -> tuple[str, ...]:
         """Oyunu oynanamaz kılan ölçümler (kapı bunlarla turu kapatmaz)."""
@@ -121,9 +124,11 @@ class ProbeReport:
             )
         satirlar.extend(f"BAŞLATMA SORUNU: {sorun}" for sorun in self.startup_problems)
         satirlar.extend(f"GÖRSEL SORUN: {sorun}" for sorun in self.visual_problems)
+        satirlar.append(self.asset_usage.summary())
         if not self.visual_problems:
             satirlar.append(
-                "Görsel ölçüm: tam ekran, iz yok, kendiliğinden hareket var, HUD okunur"
+                "Örnek karelerde kaplama/iz/hareket/HUD kontrastı kusuru ölçülmedi; "
+                "sprite-HUD çakışması ve bütün sahneler ayrıca incelenmeli"
             )
         return "\n".join(satirlar)
 
@@ -153,6 +158,7 @@ async def probe_game(url: str, keys: tuple[str, ...] = DEFAULT_KEYS) -> ProbeRep
         tarayici = await oynatici.chromium.launch()
         try:
             sayfa = await tarayici.new_page(viewport={"width": 1280, "height": 800})
+            await sayfa.add_init_script(ASSET_INIT)
             sayfa.on("pageerror", lambda hata: hatalar.append(str(hata)[:200]))
             sayfa.on(
                 "console",
@@ -170,13 +176,23 @@ async def probe_game(url: str, keys: tuple[str, ...] = DEFAULT_KEYS) -> ProbeRep
             gorsel = await _visual_problems(sayfa)
             etkili = await _press(sayfa, keys)
             sonra, tuval_sonra = await sayfa.evaluate(_STATE), await sayfa.evaluate(_CANVAS_HASH)
+            varliklar = await read_asset_usage(sayfa)
             await _press(sayfa, ("r",))
             yeniden = await sayfa.evaluate(_STATE)
         finally:
             await tarayici.close()
     tuval = None if tuval_once is None else tuval_once != tuval_sonra
     return ProbeReport(
-        tuple(hatalar), raf, once, sonra, tuval, yeniden, etkili, gorsel, baslatma.problems
+        tuple(hatalar),
+        raf,
+        once,
+        sonra,
+        tuval,
+        yeniden,
+        etkili,
+        gorsel,
+        baslatma.problems,
+        varliklar,
     )
 
 

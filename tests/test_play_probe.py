@@ -6,7 +6,26 @@ import asyncio
 
 import pytest
 
+from fusion_cli.tools.game_assets import AssetUsage
 from fusion_cli.tools.play_probe import DEFAULT_KEYS, ProbeReport, parse_keys, probe_game
+
+
+def test_henuz_dogmayan_varlik_hata_sayilmaz_ama_kanit_siniri_gosterilir():
+    report = ProbeReport(
+        (),
+        60,
+        '{"x":1}',
+        '{"x":2}',
+        True,
+        None,
+        ("ArrowRight",),
+        asset_usage=AssetUsage(("boss.svg",), ()),
+    )
+    assert report.problems() == ()
+    assert "boss.svg" in report.summary() and "henüz" in report.summary()
+    assert "sprite-HUD çakışması" in report.summary()
+    assert "HUD okunur" not in report.summary()
+
 
 _OYUN = """<!doctype html><html><body><canvas id=c width=200 height=100></canvas><script>
 const s={durum:'oynuyor',skor:0,can:3,oyuncu:{x:10,y:50}}; const k=new Set();

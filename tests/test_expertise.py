@@ -6,6 +6,13 @@ from fusion_cli.config.paths import bundled_skills_dir
 from fusion_cli.engines.agent.expertise import MAX_EXPERTISE_CHARS, expertise_hint
 
 
+def test_oyun_varlik_hud_ve_dogrulama_talimatlari_kirpilmadan_verilir():
+    hint = expertise_hint("HTML canvas oyun yap")
+    assert hint is not None
+    assert "açık eşleme" in hint and "HUD'ın" in hint
+    assert "VARLIK KANITI" in hint and "Masaüstüne" in hint
+
+
 def _not(gorev: str) -> str | None:
     return expertise_hint(gorev, bundled_skills_dir())
 
