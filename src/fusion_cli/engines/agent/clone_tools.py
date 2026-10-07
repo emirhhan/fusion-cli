@@ -178,10 +178,28 @@ def _pick_pages(report: design.DesignReport, url: str) -> list[str]:
     return list(dict.fromkeys(secilen))[:MAX_CAPTURED_PAGES]
 
 
+#: Yakalama sözleşmesinin tema aktarımı bekleyen bildirimi; URL kökeni sayfada tutulur.
+_RESPONSIVE_PENDING_PREFIX = (
+    "Viewport varyantları yakalandı; responsive tema aktarımı henüz uygulanmadı"
+)
+
+
+def _summary_problems(capture: SiteCapture, theme: ThemeFiles, problems: list[str]) -> list[str]:
+    """Yalnız gerçekten aktarılan ana kaynağın bekleme notunu bir kez düşür."""
+    remaining = list(problems)
+    primary = capture.pages[0] if capture.pages else None
+    if primary is not None and primary.url in theme.responsive_paths:
+        for message in primary.responsive_problems:
+            if message.startswith(_RESPONSIVE_PENDING_PREFIX) and message in remaining:
+                remaining.remove(message)
+    return [*remaining, *theme.problems]
+
+
 def _summary(
     capture: SiteCapture, theme: ThemeFiles, steps: list[str], problems: list[str], root: Path
 ) -> str:
     tema = theme.folder.relative_to(root).as_posix()
+    problems = _summary_problems(capture, theme, problems)
     satirlar = [
         f"Kopya tema yazıldı: {tema} ({', '.join(theme.files)}).",
         f"Yakalanan sayfalar: {', '.join(page.url for page in capture.pages)}.",

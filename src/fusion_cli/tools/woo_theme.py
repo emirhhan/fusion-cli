@@ -25,6 +25,7 @@ from typing import Any
 from urllib.parse import quote_plus, urlparse
 
 from .site_capture import SiteCapture, drop_remote_srcset, localize, same_site_paths
+from .theme_responsive import build_responsive_theme
 from .woo_store_css import store_css
 
 #: PHP şablonlarında tema klasörü adresi.
@@ -40,6 +41,8 @@ class ThemeFiles:
 
     folder: Path
     files: tuple[str, ...]
+    responsive_paths: tuple[str, ...] = ()
+    problems: tuple[str, ...] = ()
 
 
 def theme_slug(source_url: str) -> str:
@@ -222,6 +225,44 @@ def _inner_page_css(header_offset: int) -> str:
     return f"\n.kopya-woocommerce, .kopya-sayfa {{ padding-top: {header_offset}px; }}\n"
 
 
+def _apply_responsive(
+    dosyalar: dict[str, str],
+    capture: SiteCapture,
+    source_url: str,
+    category_slugs: tuple[str, ...],
+) -> bool:
+    """Ana sayfanın doğrulanmış parçalarını etkin varyant runtime'ına bağla."""
+    ana = capture.pages[0]
+
+    def prepare(text: str) -> str:
+        return wire_store_links(_prepare(text, capture, source_url), category_slugs)
+
+    responsive = build_responsive_theme(ana, capture, prepare, THEME_URI)
+    if responsive is None:
+        return False
+    if responsive is not None:
+        dosyalar["header.php"] = _HEADER_TEMPLATE.format(
+            body_class=_safe(ana.body_class).replace("'", ""), header=responsive.header
+        )
+        dosyalar["front-page.php"] = (
+            "<?php get_header(); ?>\n" + responsive.main + "\n<?php get_footer(); ?>\n"
+        )
+        dosyalar["footer.php"] = _FOOTER_TEMPLATE.format(footer=responsive.footer)
+        dosyalar["responsive.js"] = responsive.runtime
+        dosyalar["functions.php"] += (
+            "\nadd_action( 'wp_enqueue_scripts', function () {\n"
+            "\twp_enqueue_script( 'kopya-responsive', "
+            "get_template_directory_uri() . '/responsive.js', "
+            "array(), '1.0', true );\n}, 20 );\n"
+        )
+        dosyalar["style.css"] += (
+            "\n.kopya-woocommerce, .kopya-sayfa { padding-top: "
+            "var(--fusion-header-offset, 0px); }\nbody:not(.home)::before { height: "
+            "var(--fusion-header-offset, 0px); }\n"
+        )
+    return True
+
+
 def write_theme(
     capture: SiteCapture,
     themes_dir: Path,
@@ -258,6 +299,8 @@ def write_theme(
         "page.php": _PAGE,
         "index.php": _PAGE,
     }
+
+    has_responsive = _apply_responsive(dosyalar, capture, source_url, category_slugs)
     for ad, icerik in dosyalar.items():
         (folder / ad).write_text(icerik, encoding="utf-8")
     referans = folder / "referans"
@@ -269,4 +312,13 @@ def write_theme(
             _prepare(sayfa.header + sayfa.main + sayfa.footer, capture, source_url),
             encoding="utf-8",
         )
-    return ThemeFiles(folder, tuple(sorted(dosyalar)))
+    paths = (ana.url,) if has_responsive else ()
+    problems = (
+        (
+            "Responsive aktarım yerel JavaScript gerektirir; kaynak menü/etkileşim olayları "
+            "aktarılmadı. Ana sayfa dışında yakalanmış DOM varyantları tema rotasına aktarılmadı.",
+        )
+        if paths
+        else ()
+    )
+    return ThemeFiles(folder, tuple(sorted(dosyalar)), paths, problems)
