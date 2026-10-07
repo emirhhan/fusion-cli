@@ -259,6 +259,30 @@ async def _download(
     return eslesme
 
 
+#: Açılmayan sayfaya tanınan deneme sayısı (ilk + yeniden).
+PAGE_ATTEMPTS = 2
+
+
+async def _capture_with_retry(
+    browser: Browser, url: str, script: str, problems: list[str]
+) -> tuple[CapturedPage, str, list[str]] | None:
+    """Sayfayı yakala; zaman aşımı/ağ hatasında bir kez daha dene, olmazsa None.
+
+    Ölçüldü (7 Ekim 2026, dalga24): sneaksup.com/erkek bir kez 60 sn'de açılmadı
+    (saatler sonra 0,5 sn'de açılıyordu) ve tek bu sayfa yüzünden kopyalamanın tamamı
+    düştü; model siteyi elle yazdı ve kopya 16/17'den 10/17'ye indi.
+    """
+    from playwright.async_api import Error as PlaywrightError  # tembel: opsiyonel ekstra
+
+    for deneme in range(PAGE_ATTEMPTS):
+        try:
+            return await _capture_one(browser, url, script)
+        except PlaywrightError as error:
+            if deneme + 1 == PAGE_ATTEMPTS:
+                problems.append(f"{url} açılamadı, atlandı: {str(error).splitlines()[0][:160]}")
+    return None
+
+
 async def capture_site(urls: list[str], folder: Path) -> SiteCapture:
     """Sayfaları yakala, varlıkları `folder` altına indir. Playwright gerekir."""
     try:
@@ -271,8 +295,13 @@ async def capture_site(urls: list[str], folder: Path) -> SiteCapture:
         browser = await oynatici.chromium.launch()
         try:
             sayfalar, css_parcalari, engelli = [], [], []
-            for url in urls:
-                sayfa, css, blocked = await _capture_one(browser, url, script)
+            for sira, url in enumerate(urls):
+                yakalanan = await _capture_with_retry(browser, url, script, problems)
+                if yakalanan is None:
+                    if sira == 0:  # ana sayfa olmadan kopya kurulamaz
+                        raise CaptureError(f"ana sayfa açılamadı: {url} ({problems[-1]})")
+                    continue
+                sayfa, css, blocked = yakalanan
                 sayfa = replace(
                     sayfa,
                     header=collapse_srcset(sayfa.header),

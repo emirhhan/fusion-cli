@@ -109,6 +109,8 @@ class TurnBudget:
     #: Bu turda DÜŞEN çağrıların imzaları. Başarılı bir değişiklikten sonra
     #: unutulurlar: düşme sebebi ortadan kalkmış olabilir.
     failed_signatures: set[CallSignature] = field(default_factory=set)
+    #: Geçici hata sonrası yeniden deneme hakkı sayacı (`transient`).
+    transient_retries: dict[CallSignature, int] = field(default_factory=dict)
     #: Bu turda BAŞARIYLA çalışmış araçlar: (ad, argümanlar, değiştirici mi).
     #
     # Eylem-kanıtı kapısı buraya bakar ve kanıt TUR GENELİNDE birikmek zorundadır.

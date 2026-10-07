@@ -39,6 +39,9 @@ MAX_BLACK_S = 1.0
 #: ffmpeg ölçümünün azami süresi (sn).
 FFMPEG_TIMEOUT_S = 120.0
 _BLACK = re.compile(r"black_start:(?P<s>[\d.]+)\s+black_end:(?P<e>[\d.]+)")
+#: Bundan uzun donuk (kıpırtısız) bölüm "slayt gösterisi" sayılır (sn). Ölçüldü (dalga24):
+#: sade fade videoda 30 sn'nin ~19'u donuktu; hareket kitiyle yapılan demoda hiç yoktu.
+MAX_FREEZE_S = 1.5
 _DURATION = re.compile(r"Duration:\s*(?P<h>\d+):(?P<m>\d+):(?P<s>[\d.]+)")
 #: Başka yerde aranan aynı adlı dosya sayısı tavanı (büyük depolarda tarama sınırlı kalır).
 _MAX_SCAN = 20_000
@@ -136,6 +139,42 @@ async def measure_black(path: Path) -> tuple[tuple[tuple[float, float], ...], fl
     return black_segments(log), toplam
 
 
+def freeze_segments(ffmpeg_log: str, total_s: float) -> tuple[tuple[float, float], ...]:
+    """ffmpeg `freezedetect` çıktısındaki donuk bölümler (bitişi yoksa video sonuna dek)."""
+    bolumler: list[tuple[float, float]] = []
+    for satir in ffmpeg_log.split("freeze_start:")[1:]:
+        bas = float(satir.split()[0])
+        son = re.search(r"freeze_end:\s*([\d.]+)", satir)
+        bolumler.append((bas, float(son.group(1)) if son else total_s))
+    return tuple(bolumler)
+
+
+async def measure_freeze(path: Path, total_s: float) -> tuple[tuple[float, float], ...]:
+    """Videodaki donuk bölümler; ffmpeg yoksa boş."""
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        return ()
+    try:
+        surec = await asyncio.create_subprocess_exec(
+            ffmpeg,
+            "-hide_banner",
+            "-i",
+            str(path),
+            "-vf",
+            f"freezedetect=n=0.002:d={MAX_FREEZE_S}",
+            "-an",
+            "-f",
+            "null",
+            "-",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, err = await asyncio.wait_for(surec.communicate(), timeout=FFMPEG_TIMEOUT_S)
+    except (OSError, TimeoutError):
+        return ()
+    return freeze_segments(err.decode("utf-8", errors="replace"), total_s)
+
+
 async def _video_findings(path: Path, yol: str) -> list[str]:
     """Uzun siyah bölüm: video render edildi ama sahneler görünmüyor.
 
@@ -146,15 +185,36 @@ async def _video_findings(path: Path, yol: str) -> list[str]:
     if olcum is None:
         return []
     bolumler, toplam = olcum
+    bulgular = await _freeze_findings(path, yol, toplam)
     uzun = [(bas, son) for bas, son in bolumler if son - bas > MAX_BLACK_S]
     if not uzun:
-        return []
+        return bulgular
     araliklar = ", ".join(f"{bas:.1f}-{son:.1f} sn" for bas, son in uzun)
     siyah = sum(son - bas for bas, son in uzun)
     oran = f" (toplam sürenin %{100 * siyah / toplam:.0f})" if toplam else ""
     return [
+        *bulgular,
         f"VİDEO SİYAH: `{yol}` içinde {araliklar} tamamen siyah{oran}. O aralıktaki "
         "sahneler görünmüyor — Sequence içinde useCurrentFrame() sahneye GÖRE başlar; "
         "interpolate aralıklarını ve opaklığı kontrol et, o saniyelerden "
-        "`npx remotion still <Id> --frame=<n>` ile kare alıp bak, düzeltip yeniden render et."
+        "`npx remotion still <Id> --frame=<n>` ile kare alıp bak, düzeltip yeniden render et.",
+    ]
+
+
+async def _freeze_findings(path: Path, yol: str, toplam: float) -> list[str]:
+    """Uzun donuk bölümler: video bir slayt gösterisi gibi duruyor.
+
+    Kullanıcı (6 Ekim 2026): "bildiğin fade in şekilde yazılar gelmiş, basit kalmış".
+    """
+    donuk = await measure_freeze(path, toplam)
+    if not donuk:
+        return []
+    sure = sum(son - bas for bas, son in donuk)
+    araliklar = ", ".join(f"{bas:.1f}-{son:.1f}" for bas, son in donuk[:6])
+    oran = f" (toplam sürenin %{100 * sure / toplam:.0f})" if toplam else ""
+    return [
+        f"VİDEO DONUK: `{yol}` içinde {sure:.1f} sn hiç kıpırdamıyor{oran}: {araliklar} sn. "
+        "Sahneler slayt gibi duruyor — hareket kitini kullan (Aurora + Particles zemin, "
+        "CameraPush ile sar, KineticText/FeatureCard ile giriş); her an en az iki katman "
+        "hareket etsin."
     ]

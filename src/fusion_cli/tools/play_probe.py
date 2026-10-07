@@ -25,6 +25,29 @@ SETTLE_MS = 1_000
 #: Bunun altındaki rAF hızı oyun döngüsünün çalışmadığını gösterir.
 MIN_RAF_PER_SECOND = 20
 NAVIGATION_TIMEOUT_MS = 30_000
+#: Açılış menüsündeki görünür "Başla/Start/Play" düğmesi (oyuncu gibi önce ona basılır).
+_START_BUTTON = """() => { const re = /ba[sş]la|start|play|oyna/i;
+  const shown = (el) => { const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    for (let e = el; e; e = e.parentElement) { const s = getComputedStyle(e);
+      if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05 ||
+          s.pointerEvents === 'none') return false; } return true; };
+  const b = [...document.querySelectorAll('button, [role=button], a, input[type=button]')]
+    .find((el) => re.test(el.innerText || el.value || '') && shown(el));
+  if (b) { b.click(); return (b.innerText || b.value || '').trim().slice(0, 30); } return null; }"""
+#: Skor/can/bölüm yazıları: yaprak öğe, görünür; renk ve kutu döner (kontrast ölçümü).
+_HUD_TEXTS = """() => [...document.querySelectorAll('body *')].filter((el) =>
+  el.children.length === 0 && /skor|score|puan|can\\b|lives|hp\\b|bölüm|dalga|wave|level/i
+    .test(el.textContent || '')).map((el) => { const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el); const m = s.color.match(/[\\d.]+/g) || [];
+    return { text: el.textContent.trim().slice(0, 20), color: m.slice(0, 3).map(Number),
+      box: [r.x, r.y, r.width, r.height],
+      shown: r.width > 0 && r.height > 0 && s.visibility !== 'hidden' &&
+        parseFloat(s.opacity) > 0.05 }; }).filter((h) => h.shown).slice(0, 8)"""
+#: Görsel ölçüm: kareler arası bekleme (ms) ve kare sayıları.
+VISUAL_STEP_MS = 300
+IDLE_FRAMES = 4
+MOVE_FRAMES = 5
 _RAF_COUNTER = """() => new Promise(done => { let n = 0; const t0 = performance.now();
   function tick(t) { n++; if (t - t0 < 1000) requestAnimationFrame(tick); else done(n); }
   requestAnimationFrame(tick); })"""
@@ -50,6 +73,8 @@ class ProbeReport:
     #: Basıldığında durumu değiştiren tuşlar. Önce/sonra karşılaştırması tek başına
     #: yanıltır: sağ+sol ya da yukarı+aşağı birbirini götürür (ölçüldü, 4 Ekim).
     effective_keys: tuple[str, ...] = ()
+    #: Ekran görüntülerinden ölçülen görsel kusurlar (`game_visual`).
+    visual_problems: tuple[str, ...] = ()
 
     def problems(self) -> tuple[str, ...]:
         """Oyunu oynanamaz kılan ölçümler (kapı bunlarla turu kapatmaz)."""
@@ -65,6 +90,7 @@ class ProbeReport:
         ) or (self.state_before is None and self.canvas_changed is False)
         if tuslar_etkisiz:
             sorunlar.append("tuşlar oyunu değiştirmedi (oyuncu hareket etmiyor)")
+        sorunlar.extend(f"görsel: {sorun}" for sorun in self.visual_problems)
         return tuple(sorunlar)
 
     def summary(self) -> str:
@@ -97,6 +123,11 @@ class ProbeReport:
             satirlar.append(
                 f"R tuşundan sonra durum (oyun ortasında basıldı; R yalnız oyun sonunda "
                 f"çalışıyorsa bu normaldir): {self.restart_state}"
+            )
+        satirlar.extend(f"GÖRSEL SORUN: {sorun}" for sorun in self.visual_problems)
+        if not self.visual_problems:
+            satirlar.append(
+                "Görsel ölçüm: tam ekran, iz yok, kendiliğinden hareket var, HUD okunur"
             )
         return "\n".join(satirlar)
 
@@ -134,8 +165,10 @@ async def probe_game(url: str, keys: tuple[str, ...] = DEFAULT_KEYS) -> ProbeRep
             await sayfa.goto(url, timeout=NAVIGATION_TIMEOUT_MS, wait_until="load")
             await sayfa.wait_for_timeout(SETTLE_MS)
             raf = int(await sayfa.evaluate(_RAF_COUNTER))
+            await sayfa.evaluate(_START_BUTTON)
             await _press(sayfa, ("Enter", "Space"))
             once, tuval_once = await sayfa.evaluate(_STATE), await sayfa.evaluate(_CANVAS_HASH)
+            gorsel = await _visual_problems(sayfa)
             etkili = await _press(sayfa, keys)
             sonra, tuval_sonra = await sayfa.evaluate(_STATE), await sayfa.evaluate(_CANVAS_HASH)
             await _press(sayfa, ("r",))
@@ -143,7 +176,51 @@ async def probe_game(url: str, keys: tuple[str, ...] = DEFAULT_KEYS) -> ProbeRep
         finally:
             await tarayici.close()
     tuval = None if tuval_once is None else tuval_once != tuval_sonra
-    return ProbeReport(tuple(hatalar), raf, once, sonra, tuval, yeniden, etkili)
+    return ProbeReport(tuple(hatalar), raf, once, sonra, tuval, yeniden, etkili, gorsel)
+
+
+async def _visual_problems(page: Page) -> tuple[str, ...]:
+    """Oyun başladıktan sonra ekrana bak: kaplama, iz, kendiliğinden hareket, HUD kontrastı."""
+    from .game_visual import (
+        MIN_HUD_CONTRAST,
+        background_under,
+        contrast_ratio,
+        idle_motion_problem,
+        partial_fill_problem,
+        trail_problem,
+    )
+
+    bos: list[bytes] = []
+    for _ in range(IDLE_FRAMES):
+        bos.append(await page.screenshot())
+        await page.wait_for_timeout(VISUAL_STEP_MS)
+    hareket: list[bytes] = []
+    await page.keyboard.down("ArrowRight")
+    try:
+        for _ in range(MOVE_FRAMES):
+            hareket.append(await page.screenshot())
+            await page.wait_for_timeout(VISUAL_STEP_MS)
+    finally:
+        await page.keyboard.up("ArrowRight")
+    sorunlar = [
+        sorun
+        for sorun in (
+            partial_fill_problem(bos[-1]),
+            trail_problem(hareket),
+            idle_motion_problem(bos),
+        )
+        if sorun
+    ]
+    for yazi in await page.evaluate(_HUD_TEXTS):
+        zemin = background_under(bos[-1], tuple(yazi["box"]))
+        oran = contrast_ratio(yazi["color"], zemin)
+        if len(yazi["color"]) == 3 and oran < MIN_HUD_CONTRAST:
+            sorunlar.append(
+                f"'{yazi['text']}' yazısı okunmuyor: zeminle kontrast {oran:.1f} "
+                f"(en az {MIN_HUD_CONTRAST:g})"
+            )
+            break
+    return tuple(sorunlar)
 
 
 def parse_keys(raw: object) -> tuple[str, ...]:

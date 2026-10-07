@@ -34,3 +34,14 @@ def test_not_kisa_tutulur_ve_on_madde_tasimaz():
 
 def test_beceri_dosyasi_yoksa_not_yok(tmp_path):
     assert expertise_hint("animasyonlu sayfa", tmp_path) is None
+
+
+def test_remotion_becerisi_hareket_kitinin_gercek_yolunu_verir():
+    """Kullanıcı (6 Ekim 2026): video "fade + yazı" kadar basitti; kit gerçek yolla verilir."""
+    from fusion_cli.config.paths import bundled_skills_dir
+
+    not_ = expertise_hint("Remotion ile tanıtım videosu yap")
+
+    kit = bundled_skills_dir() / "remotion-video" / "kit"
+    assert not_ is not None and str(kit) in not_ and "{SKILL_DIR}" not in not_
+    assert (kit / "index.ts").is_file() and (kit / "KineticText.tsx").is_file()

@@ -58,3 +58,56 @@ async def test_oyun_denenmediyse_kapi_soz_soylemez(tmp_path):
     context = ToolContext(root=tmp_path)
     context.touched.add(tmp_path / "game.js")
     assert (await GameProbeVerifier(context).verify()).ok
+
+
+async def test_oyun_dosyadan_da_acilarak_denenir(tmp_path, monkeypatch):
+    """Ölçüldü (dalga24): `type="module"` oyun http'de çalışıyordu, çift tıklayınca
+    (file://) CORS yüzünden hiç yüklenmiyordu; Fusion yalnız http'de denemişti."""
+    (tmp_path / "index.html").write_text("<canvas></canvas>")
+    context = ToolContext(root=tmp_path)
+    context.touched.add(tmp_path / "game.js")
+    context.probed_games.add("http://127.0.0.1:8771/index.html")
+    dosya = (tmp_path / "index.html").as_uri()
+    denenen: list[str] = []
+
+    async def _sonda(url, keys=()):
+        denenen.append(url)
+        if url == dosya:
+            return ProbeReport(
+                ("Access to script blocked by CORS policy",), 60, None, None, None, None
+            )
+        return _SAGLAM
+
+    monkeypatch.setattr(game_verify, "probe_game", _sonda)
+
+    sonuc = await GameProbeVerifier(context).verify()
+
+    assert dosya in denenen
+    assert not sonuc.ok
+    assert any("dosyadan" in f and "CORS" in f for f in sonuc.findings)
+
+
+async def test_denenmemis_canvas_oyunu_da_kapanista_oynatilir(tmp_path, monkeypatch):
+    (tmp_path / "index.html").write_text("<canvas id='oyun'></canvas>")
+    context = ToolContext(root=tmp_path, task_kinds={"oyun"})
+    context.touched.add(tmp_path / "game.js")
+
+    async def _sonda(url, keys=()):
+        return _BOZUK
+
+    monkeypatch.setattr(game_verify, "probe_game", _sonda)
+    assert not (await GameProbeVerifier(context).verify()).ok
+
+
+async def test_canvas_olmayan_sayfa_oyun_sayilmaz(tmp_path):
+    (tmp_path / "index.html").write_text("<main>blog</main>")
+    context = ToolContext(root=tmp_path)
+    context.touched.add(tmp_path / "index.html")
+    assert (await GameProbeVerifier(context).verify()).ok
+
+
+async def test_oyun_istegi_degilse_denenmemis_canvas_sayfasi_oynatilmaz(tmp_path):
+    (tmp_path / "index.html").write_text("<canvas id='grafik'></canvas>")
+    context = ToolContext(root=tmp_path)
+    context.touched.add(tmp_path / "chart.js")
+    assert (await GameProbeVerifier(context).verify()).ok

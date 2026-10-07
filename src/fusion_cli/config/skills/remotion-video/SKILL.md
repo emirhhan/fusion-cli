@@ -16,6 +16,17 @@ Proje `video/` alt klasöründe kurulur; render komutları `cd video &&` ile ora
 Kullanıcı bir çıktı yolu verdiyse (ör. `out/video.mp4`) o yol ÇALIŞMA KLASÖRÜNE göredir:
 `video/` içinden `../out/video.mp4` diye render et. `video/out/` istenen yer DEĞİLDİR.
 
+## Hareket kiti (ZORUNLU: sade "fade + yazı" slayt yapma)
+
+Hazır, render'da test edilmiş bileşenler: `{SKILL_DIR}/kit`. Kurulumdan sonra kopyala:
+`run_shell(command="cp -R '{SKILL_DIR}/kit' video/src/kit")`, logoyu `video/public/`a koy.
+`import { Aurora, Particles, LightSweep, KineticText, CameraPush, Parallax, LogoReveal,
+FeatureCard, SceneFade } from "./kit";` — renkleri `kit/theme.ts`'ten markaya göre ayarla.
+- Her sahne: zeminde `<Aurora/>` + `<Particles/>`, içerik `<SceneFade><CameraPush>` ile sarılı.
+- Başlık `<KineticText text=... gradient/>` (≥96 px); özellikler `<FeatureCard index={i}/>`.
+- Açılış/kapanış `<LogoReveal src="logo.png" title=... subtitle=.../>`; vurguda `<LightSweep/>`.
+- Hiçbir sahne 1 sn'den uzun donuk kalmasın: her an en az iki katman hareket etsin.
+
 ## Kare tabanlı animasyon kuralları (render'da yalnız bunlar çalışır)
 
 - Hareketi `useCurrentFrame()` + `interpolate()` / `spring()` ile hesapla.

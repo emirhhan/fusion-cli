@@ -342,6 +342,43 @@ def _black_check(path: Path) -> Check:
     return Check("uzun siyah bölüm yok", not uzun, f"{MAX_BLACK_S:g} sn'den uzun siyah: {detay}")
 
 
+#: Bundan uzun kıpırtısız bölüm slayt gösterisi sayılır (sn); toplam donukluk eşiği.
+MAX_FREEZE_S = 1.5
+MAX_FROZEN_SHARE = 0.15
+
+
+def _freeze_check(path: Path) -> Check:
+    """Video hareketli mi? Kullanıcı (6 Ekim): "fade in ile yazılar gelmiş, basit kalmış";
+    ölçüldü: o videonun %69'u donuktu."""
+    from fusion_cli.engines.agent.output_verify import freeze_segments
+
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-i",
+        str(path),
+        "-vf",
+        f"freezedetect=n=0.002:d={MAX_FREEZE_S}",
+        "-an",
+        "-f",
+        "null",
+        "-",
+    ]
+    try:
+        done = subprocess.run(
+            command, capture_output=True, text=True, timeout=TOOL_TIMEOUT_S, check=False
+        )
+    except subprocess.TimeoutExpired:
+        return Check("video donuk değil", False, "ffmpeg zaman aşımı")
+    donuk = freeze_segments(done.stderr, EXPECTED_DURATION_S)
+    pay = sum(son - bas for bas, son in donuk) / EXPECTED_DURATION_S
+    return Check(
+        "video donuk değil",
+        pay <= MAX_FROZEN_SHARE,
+        f"donuk süre payı %{100 * pay:.0f} (en çok %{100 * MAX_FROZEN_SHARE:.0f})",
+    )
+
+
 def _logo_check(root: Path) -> Check:
     """Kaynak verilen logoyu kullanıyor (staticFile/import ile logo.png|svg)."""
     kullanan = [
@@ -362,6 +399,7 @@ def _missing_video_checks() -> tuple[Check, ...]:
         Check(f"{VIDEO_PATH.as_posix()} var", False, reason),
         *(Check(name, False, reason) for name in VIDEO_CHECK_NAMES),
         Check("uzun siyah bölüm yok", False, reason),
+        Check("video donuk değil", False, reason),
     )
 
 
@@ -376,7 +414,14 @@ def inspect(workdir: Path, values: Mapping[str, str]) -> Inspection:
         return Inspection(invalid_reason=f"denetçi araçları yok: {', '.join(missing)}")
     present = Check(f"{VIDEO_PATH.as_posix()} var", True, f"{video.stat().st_size} bayt")
     return Inspection(
-        checks=(present, *_video_checks(video), _black_check(video), *source, _logo_check(workdir))
+        checks=(
+            present,
+            *_video_checks(video),
+            _black_check(video),
+            _freeze_check(video),
+            *source,
+            _logo_check(workdir),
+        )
     )
 
 

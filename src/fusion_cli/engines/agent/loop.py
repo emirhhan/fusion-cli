@@ -117,7 +117,7 @@ from .execution_policy import (
     refresh_mutation_policy,
 )
 from .execution_route import ExecutionRoute, choose_execution_route
-from .expertise import expertise_hint
+from .expertise import expertise_hint, is_game_task
 from .history import needs_compression, total_chars
 from .narration import intro_paragraph, todo_transitions
 from .output_verify import requested_outputs_in
@@ -133,6 +133,7 @@ from .teacher_flow import (
     teacher_is_ready,
 )
 from .teacher_plan import TeacherPlan, UnworkablePart
+from .transient import MAX_TOOL_TRANSIENT_RETRIES, is_transient_failure
 from .turn_hints import design_hint, preview_hint, scope_hint, store_hint
 from .turn_report import build_turn_report, claims_command_success
 from .workspace_hint import find_workspace_for
@@ -446,6 +447,9 @@ async def run_agent(
         # İstenen çıktılar YALNIZ bu isteğe aittir; önceki isteğin yolları taşınmaz.
         deps.tool_context.requested_outputs.clear()
         deps.tool_context.requested_outputs.update(requested_outputs_in(task))
+        deps.tool_context.task_kinds.discard("oyun")
+        if is_game_task(task):
+            deps.tool_context.task_kinds.add("oyun")
 
     if not plan_mode and not chat_mode and depth == 0:
         played = await maybe_run_playbook(task, deps)
@@ -2768,6 +2772,16 @@ async def _run_tools(
                 # değişmeden yinelemek gerçek tekrardır — ama başarılı bir
                 # değişiklikten sonra unutulur: engeli kalkmış olabilir.
                 budget.note_failed_call(signature)
+            # Geçici ağ/zaman aşımı hatası işin kendisi hakkında bir şey söylemez: aynı
+            # çağrı birkaç saniye sonra başarılı olabilir. Ölçüldü (7 Ekim, dalga24):
+            # clone_site kaynak sayfada 60 sn zaman aşımına düştü, yeniden deneme
+            # TOOL_CALL_DUPLICATE ile engellendi ve model siteyi elle yazmaya döndü
+            # (16/17 → 10/17). Aynı çağrıya en çok `MAX_TOOL_TRANSIENT_RETRIES` hak verilir.
+            if is_transient_failure(result.output):
+                hak = budget.transient_retries.get(signature, 0)
+                if hak < MAX_TOOL_TRANSIENT_RETRIES:
+                    budget.transient_retries[signature] = hak + 1
+                    budget.forget_call(signature)
 
         diff = pending_diff if outcome is ToolOutcome.OK else None
         deps.publisher.publish(

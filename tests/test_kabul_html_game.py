@@ -81,8 +81,22 @@ def _by_name(inspection: Inspection) -> dict[str, bool]:
     return {check.name: check.passed for check in inspection.checks}
 
 
-def _run(tmp_path: Path, page: str) -> Inspection:
+#: İyi oyunun kendi ürettiği sprite'lar (asset maddesi için).
+_SPRITES = tuple(f"sprite{i}.svg" for i in range(html_game.MIN_ASSET_FILES))
+_SPRITE_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8">'
+    '<rect width="8" height="8"/></svg>'
+)
+_LOAD_SPRITES = "".join(f'<img src="assets/{ad}" alt="" hidden>' for ad in _SPRITES)
+
+
+def _run(tmp_path: Path, page: str, *, sprites: bool = True) -> Inspection:
     pytest.importorskip("playwright.sync_api")
+    if sprites:
+        (tmp_path / "assets").mkdir(exist_ok=True)
+        for ad in _SPRITES:
+            (tmp_path / "assets" / ad).write_text(_SPRITE_SVG, encoding="utf-8")
+        page = page.replace("</body>", _LOAD_SPRITES + "</body>")
     (tmp_path / "index.html").write_text(page, encoding="utf-8")
     inspection = _inspect(tmp_path)
     if inspection.invalid_reason:
@@ -211,3 +225,8 @@ def test_hud_reading_counts_state_hook_lines():
     reading = probe.HudReading(state=("skor: 0",))
     assert reading.found
     assert reading.lines == ("skor: 0",)
+
+
+def test_varliksiz_oyun_asset_maddesinden_kalir(tmp_path):
+    results = _by_name(_run(tmp_path, GOOD_GAME, sprites=False))
+    assert not results["kendi ürettiği görsel varlıklar yükleniyor"]

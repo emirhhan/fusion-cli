@@ -57,6 +57,8 @@ def _skill_body(folder: Path, name: str) -> str:
         return ""
     # Ön madde (--- … ---) modele gerekmez; adı ve yolu aşağıda verilir.
     govde = metin.split("---", 2)[-1].strip() if metin.startswith("---") else metin
+    # Beceri yanındaki dosyalara (ör. remotion-video/kit) gerçek yolla başvurabilsin.
+    govde = govde.replace("{SKILL_DIR}", str(folder / name))
     return govde[:MAX_EXPERTISE_CHARS]
 
 
@@ -75,3 +77,11 @@ def expertise_hint(task: str, skills_dir: Path | None = None) -> str | None:
             f"UZMANLIK NOTU ({kural.skill} becerisi; tamamı read_skill('{kural.skill}')):\n{govde}"
         )
     return None
+
+
+def is_game_task(task: str) -> bool:
+    """İstek bir tarayıcı oyunu mu (html-oyun becerisinin kuralıyla aynı karar)?"""
+    kural = next(k for k in _RULES if k.skill == "html-oyun")
+    if kural.pattern.search(task) is None:
+        return False
+    return kural.exclude is None or kural.exclude.search(task) is None

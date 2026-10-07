@@ -85,3 +85,15 @@ async def test_istenen_video_uzun_sure_siyahsa_soylenir(tmp_path, monkeypatch):
 
     assert not sonuc.ok
     assert "3.8" in sonuc.findings[0] and "siyah" in sonuc.findings[0]
+
+
+def test_ffmpeg_donuk_bolum_ciktisi_okunur():
+    from fusion_cli.engines.agent.output_verify import freeze_segments
+
+    log = (
+        "[freezedetect @ 0x1] lavfi.freezedetect.freeze_start: 0.97\n"
+        "[freezedetect @ 0x1] lavfi.freezedetect.freeze_duration: 2.0\n"
+        "[freezedetect @ 0x1] lavfi.freezedetect.freeze_end: 3\n"
+        "[freezedetect @ 0x1] lavfi.freezedetect.freeze_start: 27.7\n"
+    )
+    assert freeze_segments(log, 30.0) == ((0.97, 3.0), (27.7, 30.0))

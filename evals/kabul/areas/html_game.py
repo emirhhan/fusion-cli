@@ -51,8 +51,13 @@ TASK = (
     "göstergesi, P tuşuyla duraklatma, en yüksek skorun localStorage'da saklanması ve "
     "çarpışma/patlama efektleri olsun. Can bitince oyun bitti ekranı gelsin ve oyun R "
     "tuşuyla ya da düğmeyle yeniden başlatılabilsin. Oyun uzun oynandığında donmasın ve "
-    "konsolda hata vermesin. Görseller için kendi ürettiğin görselleri (canvas çizimi) "
-    "ya da lisanslı varlıkları kullanabilirsin."
+    "konsolda hata vermesin. Oyun GÖRSEL VARLIKLARLA (asset) yapılsın ve bu varlıkları "
+    "SEN üret: `assets/` klasöründe oyuncu, her düşman türü, boss, güçlendirmeler, mermi, "
+    "patlama ve zemin için ayrı görsel dosyaları (SVG ya da PNG; en az 8 dosya) oluştur ve "
+    "oyunda bu dosyaları yükleyip çiz. Basit kare/daire çizimi değil, tutarlı bir görsel "
+    "stile sahip, oyunu çekici gösteren sprite'lar olsun. Oyun alanı ekranın tamamını "
+    "kaplasın, her karede ekran temizlensin, skor/can yazısı okunaklı olsun. Oyun "
+    "`index.html` dosyasına çift tıklanarak (file://) açıldığında da çalışsın."
 )
 TIMEOUT_S = 3600.0
 #: Sayfa yüklendikten sonra ilk ölçüme dek bekleme (ms): açılış ekranı oturur.
@@ -94,7 +99,17 @@ CHECK_NAMES = (
     "skor/can HUD'ı var",
     "yeniden başlat durumu sıfırlıyor",
     "uzun oyunda donmuyor",
+    "kendi ürettiği görsel varlıklar yükleniyor",
+    "ekranda bariz görsel kusur yok",
 )
+#: Ajanın kendisinin üretmesi beklenen görsel dosya sayısı (assets/ altında).
+MIN_ASSET_FILES = 8
+_ASSET_SUFFIXES = frozenset({".svg", ".png", ".webp", ".jpg", ".jpeg", ".gif"})
+#: Sayfanın başarıyla yüklediği görsel kaynak adları (performance kayıtları + <img>).
+_LOADED_IMAGES_JS = """() => [...new Set([
+  ...performance.getEntriesByType('resource').map((e) => e.name),
+  ...[...document.images].filter((i) => i.complete && i.naturalWidth > 0).map((i) => i.src),
+].map((u) => decodeURIComponent(u.split('?')[0]).split('/').pop()))]"""
 #: Donma ölçümü için rastgele tuşlarla oynanan süre (ms). Kullanıcı (6 Ekim 2026):
 #: "oyun bir anda duruyor" — kısa ölçümlerde görünmeyen, oynadıkça çöken döngü.
 LONG_PLAY_MS = 30_000
@@ -127,12 +142,30 @@ class GameReport:
     #: Uzun rastgele oyundan sonra 1 sn'deki rAF çağrısı ve o sırada çıkan konsol hataları.
     long_play_raf: int = MIN_LONG_PLAY_RAF
     long_play_errors: tuple[str, ...] = ()
+    #: Oyun açılıp oynanırken başarıyla yüklenen görsel dosya adları.
+    loaded_images: tuple[str, ...] = ()
+
+
+#: Açılış menüsündeki görünür "Başla/Start/Play" düğmesine bas (oyuncu da basar).
+#: Ölçüldü (dalga24): oyun "Başla" düğmesiyle açılıyordu; denetçi yalnız tuşa bastığı
+#: için menüde kaldı ve çalışan oyunu "tuşlar etkisiz" saydı.
+_START_JS = """() => { const re = /ba[sş]la|start|play|oyna/i;
+  const shown = (el) => { const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    for (let e = el; e; e = e.parentElement) { const s = getComputedStyle(e);
+      if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05 ||
+          s.pointerEvents === 'none') return false; } return true; };
+  const b = [...document.querySelectorAll('button, [role=button], a, input[type=button]')]
+    .find((el) => re.test(el.innerText || el.value || '') && shown(el));
+  if (b) { b.click(); return (b.innerText || b.value || '').trim().slice(0, 30); } return null; }"""
 
 
 def _fresh_load(opened: OpenedPage) -> None:
-    """Sayfayı (yeniden) aç ve açılış ekranının oturmasını bekle."""
+    """Sayfayı (yeniden) aç, açılış ekranı oturunca varsa başlat düğmesine bas."""
     navigate(opened)
     opened.page.wait_for_timeout(LOAD_SETTLE_MS)
+    if opened.page.evaluate(_START_JS):
+        opened.page.wait_for_timeout(LOAD_SETTLE_MS)
 
 
 def _play(page: Page) -> None:
@@ -214,6 +247,7 @@ def measure(root: Path) -> GameReport:
         keyed = motion_energy(page, shoot, press_keys=True)
         restart = _restart_probe(opened)
         long_raf, long_errors = _long_play(opened)
+        loaded = tuple(opened.page.evaluate(_LOADED_IMAGES_JS))
         return GameReport(
             console_errors=opened.console.errors,
             has_area=area is not None,
@@ -225,6 +259,7 @@ def measure(root: Path) -> GameReport:
             restart=restart,
             long_play_raf=long_raf,
             long_play_errors=long_errors,
+            loaded_images=loaded,
         )
 
 
@@ -321,6 +356,47 @@ def _restart_check(report: GameReport) -> Check:
     )
 
 
+def _asset_check(workdir: Path, report: GameReport) -> Check:
+    """assets/ altında ajanın ürettiği görseller var ve oyun onları gerçekten yüklüyor.
+
+    Kullanıcı isteği (6 Ekim 2026): "assetli bir oyun olsun, asset'i bile yapsın".
+    """
+    klasor = workdir / "assets"
+    dosyalar = (
+        sorted(p.name for p in klasor.rglob("*") if p.suffix.lower() in _ASSET_SUFFIXES)
+        if klasor.is_dir()
+        else []
+    )
+    yuklenen = [ad for ad in dosyalar if ad in set(report.loaded_images)]
+    return Check(
+        CHECK_NAMES[8],
+        len(yuklenen) >= MIN_ASSET_FILES,
+        f"assets/ altında {len(dosyalar)} görsel, oyunda yüklenen {len(yuklenen)} "
+        f"(eşik {MIN_ASSET_FILES}): {', '.join(yuklenen[:6])}",
+    )
+
+
+def _visual_check(workdir: Path) -> Check:
+    """Oyunu kullanıcı gibi dosyadan aç, ekran görüntüsünden bariz kusurları ölç.
+
+    Ölçüldü (6 Ekim 2026, dalga24): denetçi 7/8 verdi; görüntüde oyun alanı ekranın bir
+    çeyreğiydi ve oyuncu iz bırakıyordu. Kullanıcı "rezalet" dedi. Ölçüm Fusion'ın kendi
+    oyun sondasıyla aynıdır (`fusion_cli.tools.game_visual`).
+    """
+    import asyncio
+
+    from fusion_cli.tools.play_probe import probe_game
+
+    try:
+        rapor = asyncio.run(probe_game((workdir / "index.html").as_uri()))
+    except Exception as error:  # sınır: tarayıcı açılamadı
+        return Check(CHECK_NAMES[9], False, f"görsel ölçüm yapılamadı: {str(error)[:120]}")
+    sorunlar = rapor.visual_problems
+    if rapor.console_errors and not sorunlar:
+        sorunlar = (f"dosyadan açılınca konsol hatası: {rapor.console_errors[0][:120]}",)
+    return Check(CHECK_NAMES[9], not sorunlar, "; ".join(sorunlar) or "kusur ölçülmedi")
+
+
 def _report_checks(report: GameReport) -> tuple[Check, ...]:
     errors = report.console_errors
     console = Check(
@@ -352,7 +428,14 @@ def inspect(workdir: Path, values: Mapping[str, str]) -> Inspection:
     except PageInteractionError as error:
         reason = f"oyun ölçülemedi: {str(error)[:160]}"
         return Inspection(checks=(present, *(Check(n, False, reason) for n in CHECK_NAMES[1:])))
-    return Inspection(checks=(present, *_report_checks(report)))
+    return Inspection(
+        checks=(
+            present,
+            *_report_checks(report),
+            _asset_check(workdir, report),
+            _visual_check(workdir),
+        )
+    )
 
 
 AREA = Area(name="html_oyun", task=TASK, timeout_s=TIMEOUT_S, inspect=inspect)

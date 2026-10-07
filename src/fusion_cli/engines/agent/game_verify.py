@@ -11,9 +11,18 @@ denemeyi unutsa da doğru karar verir.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ...core.tools import ToolContext
 from ...core.verification import VerificationResult
 from ...tools.play_probe import probe_game
+
+#: index.html dosyadan açıldığında çıkan bulguların öneki.
+DOSYADAN = (
+    "index.html dosyadan (çift tıklayarak, file://) açılınca — kullanıcı böyle açar; "
+    '`type="module"`, fetch ve import file:// ile engellenir, gerekirse klasik <script> '
+    "kullan ya da modülleri tek dosyada birleştir"
+)
 
 
 class GameProbeVerifier:
@@ -23,15 +32,32 @@ class GameProbeVerifier:
         self._context = context
 
     async def verify(self) -> VerificationResult:
-        if not self._context.probed_games or not self._context.touched:
+        if not self._context.touched:
             return VerificationResult(ok=True)
         bulgular: list[str] = []
-        for adres in sorted(self._context.probed_games):
+        adresler = set(self._context.probed_games)
+        # Kullanıcı oyunu index.html'e çift tıklayarak açar. Ölçüldü (dalga24): type=module
+        # oyun http'de çalıştı, file:// ile CORS yüzünden hiç yüklenmedi; Fusion yalnız
+        # kendi önizleme sunucusunda denemişti.
+        index = self._context.root / "index.html"
+        dosya = index.as_uri() if index.is_file() else None
+        # Oyun hiç denenmediyse de kapı çalışır — istek bir oyun isteğiyse ve canvas'lı
+        # index.html bu turda yazıldıysa. Oyun olmayan canvas sayfası (grafik, demo) sayılmaz.
+        if not adresler and (
+            "oyun" not in self._context.task_kinds
+            or dosya is None
+            or not _is_canvas_page(index, self._context)
+        ):
+            return VerificationResult(ok=True)
+        if dosya is not None:
+            adresler.add(dosya)
+        for adres in sorted(adresler):
             try:
                 rapor = await probe_game(adres)
             except Exception:  # sınır: Playwright yok, tarayıcı açılamadı
                 continue
-            bulgular.extend(f"{adres}: {sorun}" for sorun in rapor.problems())
+            onek = f"{adres}: " if adres != dosya else f"{DOSYADAN}: "
+            bulgular.extend(onek + sorun for sorun in rapor.problems())
         if not bulgular:
             return VerificationResult(ok=True)
         return VerificationResult(
@@ -39,3 +65,13 @@ class GameProbeVerifier:
             summary=f"oyun son haliyle oynatıldı: {len(bulgular)} sorun",
             findings=tuple(bulgular),
         )
+
+
+def _is_canvas_page(index: Path, context: ToolContext) -> bool:
+    """index.html bu turda yazılan bir canvas sayfası mı (oyun adayı)?"""
+    if not any(p.suffix.lower() in {".html", ".js"} for p in context.touched):
+        return False
+    try:
+        return "<canvas" in index.read_text(encoding="utf-8", errors="replace").lower()
+    except OSError:
+        return False

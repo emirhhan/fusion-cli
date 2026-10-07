@@ -289,6 +289,8 @@ class ToolContext:
     requested_outputs: set[str] = field(default_factory=set)
     #: play_probe ile denenen oyun adresleri; kapanışta yeniden oynatılır (`game_verify`).
     probed_games: set[str] = field(default_factory=set)
+    #: Bu isteğin türleri (ör. "oyun"): denenmemiş canvas sayfası da kapıda oynatılır.
+    task_kinds: set[str] = field(default_factory=set)
     #: İçeriği TAM olarak okunmuş dosyalar (kırpılmadan).
     #
     # `write_file` dosyanın tamamını değiştirir. Model dosyayı hiç okumadıysa ya da
