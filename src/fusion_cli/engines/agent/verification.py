@@ -54,6 +54,7 @@ from .script_verify import ScriptPathVerifier
 from .site_verify import SiteVerifier
 from .verify_discovery import discover_auto_commands
 from .visual_verify import VisualVerifier
+from .web_dependency import missing_local_dependencies
 from .web_verify import inspect_web_output_by_severity
 
 logger = logging.getLogger(__name__)
@@ -261,12 +262,18 @@ class WebVerifier:
 
     async def _verify_markup(self) -> VerificationResult:
         files: dict[str, str] = {}
+        dependency_findings: list[str] = []
 
         for path in self._context.touched:
             if path.suffix.lower() not in WEB_SUFFIXES:
                 continue
             try:
-                files[path.name] = path.read_text(encoding="utf-8")
+                content = path.read_text(encoding="utf-8")
+                files[path.name] = content
+                if path.suffix.lower() in (".html", ".htm"):
+                    dependency_findings.extend(
+                        missing_local_dependencies(content, document=path, root=self._context.root)
+                    )
             except OSError:
                 continue
 
@@ -274,6 +281,7 @@ class WebVerifier:
             return VerificationResult(ok=True)
 
         blocking, warnings, advisories = inspect_web_output_by_severity(files)
+        blocking = (*blocking, *dependency_findings)
         if self._javascript_checker is not None:
             syntax_result = await JavaScriptSyntaxVerifier(
                 self._context,
