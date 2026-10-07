@@ -25,6 +25,24 @@ function load(name) {
   mod._compile(ts.transpileModule(fs.readFileSync(source, 'utf8'), {compilerOptions: {jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS, esModuleInterop: true}}).outputText, source);
   return mod.exports;
 }
+if (process.argv[3] === 'feature') {
+  const esbuild = require(path.join(root, 'app/node_modules/esbuild'));
+  const result = esbuild.buildSync({
+    stdin: {contents: `import React from 'react'; import {createRoot} from 'react-dom/client'; import {FeatureScene} from '${kit}/index';
+      const mode = new URLSearchParams(location.search).get('mode');
+      globalThis.__fusionTestFrame = ['oversize','longword','near-entrance'].includes(mode) ? 0 : 60;
+      if(mode.startsWith('near-')) {globalThis.__fusionTestSpring=mode==='near-entrance'?0:1; const style=document.createElement('style');style.textContent='[data-fusion-feature-body]{height:385px}';document.head.appendChild(style);}
+      if(mode==='font-delayed') Object.defineProperty(document.fonts,'ready',{value:new Promise(resolve=>{globalThis.__releaseFonts=resolve;})});
+      const cards = mode==='too-many' ? Array.from({length:4},(_,i)=>({title:'Kart '+i,body:'Açıklama'})) : [
+        {title:'Hız',body:mode==='oversize'?'Uzun açıklama '.repeat(90):mode==='longword'?'W'.repeat(400):'Kısa açıklama'},
+        {title:'Güven',body:'Net ölçüm'}, {title:'Akış',body:'Somut sonuç'}];
+      createRoot(document.getElementById('root')).render(React.createElement(FeatureScene,{title:'Fusion özellikleri',subtitle:'Birlikte çalışan üç yetenek',cards}));`, resolveDir: path.join(root,'app'), loader:'tsx'},
+    bundle:true, write:false, format:'iife', nodePaths:[path.join(root,'app/node_modules')],
+    alias: {remotion:path.join(__dirname,'remotion_context.cjs')},
+  });
+  process.stdout.write('<html><body style="margin:0"><div data-fusion-canvas style="position:relative;width:1920px;height:1080px"><div id="root" style="position:relative;width:1920px;height:1080px"></div></div><script>'+result.outputFiles[0].text+'</script></body></html>');
+  return;
+}
 if (process.argv[3] === 'audit') {
   const esbuild = require(path.join(root, 'app/node_modules/esbuild'));
   const result = esbuild.buildSync({
@@ -46,6 +64,22 @@ if (process.argv[3] === 'audit') {
 }
 const {Parallax} = load('CameraPush');
 const {FeatureCard} = load('FeatureCard');
+if (process.argv[3] === 'feature-geometry') {
+  const {featureSceneInset, motionDefaults} = load('motion');
+  const {inspectLayout} = load('layout');
+  const width=1920,height=1080,margin=120;
+  const horizontal=featureSceneInset(width,margin),vertical=featureSceneInset(height,margin,true);
+  for(const scale of [motionDefaults.cameraFrom,motionDefaults.cameraTo]) {
+    for(const direction of [-1,1]) {
+      const dx=direction*(motionDefaults.cameraDrift+motionDefaults.parallaxX)*scale;
+      const dy=direction*(motionDefaults.cameraDrift*motionDefaults.verticalDriftRatio+motionDefaults.parallaxY)*scale;
+      const rect={label:'Özellik sahnesi',left:width/2+(horizontal-width/2)*scale+dx,right:width/2+(width-horizontal-width/2)*scale+dx,top:height/2+(vertical-height/2)*scale+dy,bottom:height/2+(height-vertical-height/2)*scale+dy};
+      assert.deepEqual(inspectLayout([rect],{width,height},margin),[]);
+    }
+  }
+  process.stdout.write('özellik geometrisi geçti');
+  return;
+}
 if (process.argv[3] === 'geometry') {
   const {inspectLayout} = load('layout');
   const viewport = {width: 1920, height: 1080};

@@ -10,3 +10,6 @@ export { FeatureCard } from "./FeatureCard";
 export { SceneFade } from "./Transition";
 
 export { LayoutAudit } from "./LayoutAudit";
+
+export { FeatureScene } from "./FeatureScene";
+export type { FeatureSceneProps, FeatureSceneCard } from "./FeatureScene";

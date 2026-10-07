@@ -84,3 +84,12 @@ Ortak HTML bağımlılık kapısı `WebVerifier` içine eklendi: yerel script ve
 İlk üç eksik bağımlılık, ardından incelemenin yakaladığı beş URL kenar durumu önce kırmızı sonra yeşil regresyonla doğrulandı. İlgili 70 test, ruff check/format, kaynak mypy ve diff temiz; son bağımsız inceleme bulgusuz. Üretilmiş animasyon elle tamamlanmadı; yeni boş üretimde aktarım hâlâ gerekli.
 
 Taban kaynak incelemesi özgün motor SHA'sını kesin kurtaramadı: ilk site/oyun koşuları kabul koşucusunun ilk commitinden önce başladı, kirli çalışma ağacı kimliği kaydedilmemiş. Sonraki animasyon/Remotion öncesinde motor değişiklikleri var. Yeni karşılaştırma açıkça sabitlenmiş referans ve güncel revizyonla yapılmalı; bunun eski tabanın birebir tekrarı olduğu söylenmemeli. Eski sonuçlar tarihî kanıt olarak korunur.
+
+
+## Ortak özellik sahnesi ve aktarım sınırı
+
+Dalga33 5400 sn zaman aşımıyla MP4 üretemedi: 189 model çağrısı, 180 araç çağrısı, 66 araç hatası ve kabul 3/11. Üst/alt yerleşim tekrarları çözülmedi; denetimin hatayı yakalaması üretim başarısı sayılmadı. Yalnız tekrar kurulabilir video/node_modules temizlendi; kaynak, lock ve kanıt korundu. Dalga34 animasyon yeni boş dizinde exec99551 ile canlı; sağlayıcı sıfır akış parçası ve yeniden deneme olayları var, nihai rapor henüz yok.
+
+Yeni ortak FeatureScene typed başlık/altyazı ve 1–3 kart alır; eşit sütunlu tek satır, 96 px başlık ve 44 px destek/kart metni kullanır. Kamera/Parallax varsayılanlarıyla aynı kaynaktan hareket payı hesaplanır. Fontlar hazır olduktan sonra doğal offsetHeight ölçülür; kapasite aşılırsa içerik küçültülmeden veya gizlenmeden sahne bölme hatası verilir. SceneFade/LayoutAudit korunur. Eski FeatureCard varsayılanı korunur; yeni sahne açık okunurluk seçeneklerini kullanır.
+
+İnceleme giriş animasyonunda scrollHeight kaynaklı yanlış ret yakaladı; aynı yakın kapasiteli içerik spring0/spring1 regresyonuyla önce kırmızı sonra yeşil oldu. 26 kit/uzmanlık testi, strict TypeScript ve unused denetimleri geçti; beceri gerçek yol enjeksiyonuyla kırpılmayacak şekilde kısaltıldı, uzmanlık 7 testi yeniden geçti. Ruff check/format, mypy src409 ve diff temiz; bağımsız son inceleme bulgusuz. Canlı üretim veya ağır render testi bu fazda açılmadı. Yeni kitin üretime aktarımı ve dört alan %90 göreli gelişim henüz kanıtlanmadı.

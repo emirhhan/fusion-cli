@@ -90,3 +90,54 @@ async def test_render_kapisi_gercek_dom_hatalarini_bildirir(mode):
                 assert expected[mode] in errors[0]
         finally:
             await browser.close()
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ["good", "oversize", "too-many", "longword", "font-delayed", "near-entrance", "near-settled"],
+)
+async def test_feature_scene_tek_satir_ve_dogal_yukseklik_kapisi(mode):
+    browser_api = pytest.importorskip("playwright.async_api")
+    html = await asyncio.to_thread(_run, "feature")
+
+    async with browser_api.async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        try:
+            page = await browser.new_page(viewport={"width": 1920, "height": 1080})
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            await page.route(
+                "http://feature.test/**",
+                lambda route: route.fulfill(body=html, content_type="text/html"),
+            )
+            if mode in ("good", "font-delayed", "near-entrance", "near-settled"):
+                await page.goto(f"http://feature.test/?mode={mode}")
+                if mode == "font-delayed":
+                    assert await page.locator("[data-fusion-feature-ready]").count() == 0
+                    await page.evaluate("globalThis.__releaseFonts()")
+                await page.wait_for_function(
+                    "document.querySelector('[data-fusion-feature-ready]')", timeout=5000
+                )
+                cards = await page.locator("[data-fusion-feature-cards] > div").all()
+                bounds = [await card.bounding_box() for card in cards]
+                assert len(bounds) == 3 and all(bounds)
+                assert len({round(box["y"]) for box in bounds}) == 1
+                assert max(box["width"] for box in bounds) - min(box["width"] for box in bounds) < 1
+                if mode != "near-entrance":
+                    assert min(box["x"] for box in bounds) >= 120
+                assert max(box["x"] + box["width"] for box in bounds) <= 1800
+                assert not errors
+                assert await page.locator("[data-fusion-feature-body]").evaluate_all(
+                    "nodes => nodes.every(node => getComputedStyle(node).fontSize === '44px')"
+                )
+            else:
+                async with page.expect_event("pageerror", timeout=5000):
+                    await page.goto(f"http://feature.test/?mode={mode}")
+                expected = "1–3" if mode == "too-many" else "sahnelere böl"
+                assert any(expected in error for error in errors)
+        finally:
+            await browser.close()
+
+
+def test_feature_scene_en_buyuk_kamera_ve_derinlik_hareketinde_guvenli():
+    assert _run("feature-geometry") == "özellik geometrisi geçti"
