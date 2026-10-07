@@ -23,6 +23,18 @@ azaltmak isteyen kullanıcıya saygı göstermesi. Hareket süs değil, hiyerar�
 
 ## Çekirdek kod
 
+Reveal dış sarmalayıcıya, hover/focus iç karta aittir. İkisini aynı öğeye koyma:
+aynı transform için cascade yarışır ve görünür reveal kuralı hover hareketini ezer.
+
+```html
+<h1 class="hero-title">Kahveni keşfet</h1>
+<div class="reveal">
+  <article class="card"><h2>Yeni tatlar</h2><button>İncele</button></article>
+</div>
+<div class="float" aria-hidden="true">☕</div>
+<div class="marquee__track" aria-hidden="true">Özenle seçilmiş çekirdekler</div>
+```
+
 ```css
 :root { --ease-out: cubic-bezier(.16,1,.3,1); --ease-in-out: cubic-bezier(.65,0,.35,1); }
 .js .reveal { opacity: 0; transform: translateY(24px);
@@ -32,14 +44,15 @@ azaltmak isteyen kullanıcıya saygı göstermesi. Hareket süs değil, hiyerar�
 .hero-title { animation: hero-in .9s var(--ease-out) both; }
 @keyframes hero-in { from { opacity: 0; transform: translateY(40px) scale(.98); } }
 .card { transition: transform .25s var(--ease-out), box-shadow .25s var(--ease-out); }
-.card:hover, .card:focus-visible { transform: translateY(-6px); }
+.card:hover, .card:focus-within { transform: translateY(-6px); }
 .marquee__track { display: flex; animation: marquee 22s linear infinite; }
 @keyframes marquee { to { transform: translateX(-50%); } }
 .float { animation: float 6s var(--ease-in-out) infinite alternate; }
 @keyframes float { to { transform: translateY(-12px); } }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
-  .js .reveal { opacity: 1; transform: none; }
+  .hero-title, .marquee__track, .float { animation: none; transform: none; }
+  .js .reveal, .js .reveal.is-visible { opacity: 1; transform: none; transition: none; }
+  .card, .card:hover, .card:focus-within { transform: none; transition: none; }
 }
 ```
 
@@ -49,14 +62,12 @@ const io = new IntersectionObserver((entries) => {
   for (const e of entries) if (e.isIntersecting) { e.target.classList.add('is-visible'); io.unobserve(e.target); }
 }, { threshold: 0.15 });
 document.querySelectorAll('.reveal').forEach((el, i) => { el.style.setProperty('--i', i % 6); io.observe(el); });
-// Sayaç: görünür olunca hedef sayıya akar (requestAnimationFrame).
-function countUp(el) { const end = +el.dataset.to, t0 = performance.now();
-  (function step(t) { const p = Math.min(1, (t - t0) / 1200); el.textContent = Math.round(end * (1 - (1 - p) ** 3));
-    if (p < 1) requestAnimationFrame(step); })(t0); }
 ```
 
 ## Kendi işini doğrula (bitti demeden önce)
 
 - `start_preview` ile aç; konsol hatası 0 olmalı.
-- Kaydırarak her bölümün göründüğünü ve sayfanın boş kalmadığını kontrol et.
-- CSS'te layout özelliği canlandırılmadığını ve `prefers-reduced-motion` bloğunu kontrol et.
+- Kaydırıp reveal bitince kartı hover et, çıkınca geri dönüşünü ve iç düğmeye Tab
+  odağını gerçek tarayıcıda ölç. Kural sayısı ya da border değişimi kaldırma kanıtı değildir.
+- Reduced-motion açıkken giriş/döngü/hover hareketi durmalı, içerik görünür kalmalı;
+  yalnız CSS sorgusunun varlığı başarı değildir. JS kapalıyken içerik görünür olsun.
