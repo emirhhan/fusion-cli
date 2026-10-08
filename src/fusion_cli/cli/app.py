@@ -30,6 +30,7 @@ from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
 from ..engines.agent.approval import ApprovalMode, parse_mode
 from ..ui import messages, theme
+from .app_host import AppHostDependencies
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
     from .doctor import DoctorReport
@@ -482,7 +483,7 @@ def runtime_health(as_json: bool = typer.Option(False, "--json")) -> None:
 
 
 @app.command(name="app")
-def app_protocol() -> None:
+def app_protocol(ctx: typer.Context) -> None:
     """Masaüstü uygulaması için stdio protokolünü konuş.
 
     Uygulama bu süreci kendisi doğurur ve stdin/stdout üzerinden satır satır
@@ -501,7 +502,11 @@ def app_protocol() -> None:
     if hesap:
         activate_account(hesap)
 
-    asyncio.run(run_stdio(Path.cwd(), Path.home()))
+    host = ctx.obj if isinstance(ctx.obj, AppHostDependencies) else None
+    if host is not None and host.remotion_transport is not None:
+        asyncio.run(run_stdio(Path.cwd(), Path.home(), remotion_transport=host.remotion_transport))
+    else:
+        asyncio.run(run_stdio(Path.cwd(), Path.home()))
 
 
 @app.command(name="mcp-tools")
@@ -709,10 +714,10 @@ def _print_catalog() -> None:
             console.print(f"  [{theme.ACCENT}]{entry.model_id}[/{theme.ACCENT}]{suffix}")
 
 
-def main() -> None:
+def main(*, host_dependencies: AppHostDependencies | None = None) -> None:
     """Konsol giriş noktası. Beklenen hataları kullanıcıya anlaşılır biçimde gösterir."""
     try:
-        app()
+        app(obj=host_dependencies)
     except FusionError as exc:
         console.print(
             f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}] {exc}"

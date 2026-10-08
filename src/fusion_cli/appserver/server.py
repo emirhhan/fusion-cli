@@ -11,6 +11,7 @@ import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+from ..engines.agent.remotion_bridge import FrameTransport
 from ..ui import messages
 from .bridges import Writer
 from .protocol import Reply, Request, decode, encode_error
@@ -47,9 +48,20 @@ def _on_request_task_done(
         writer(encode_error(f"{messages.APP_BACKGROUND_TASK_FAILED}: {error}"))
 
 
-async def serve(lines: AsyncIterator[str], writer: Writer, *, root: Path, home: Path) -> None:
+async def serve(
+    lines: AsyncIterator[str],
+    writer: Writer,
+    *,
+    root: Path,
+    home: Path,
+    remotion_transport: FrameTransport | None = None,
+) -> None:
     """Satır akışını oturuma bağla ve akış bitene kadar sür."""
-    session = AppSession(writer, root=root, home=home)
+    session = (
+        AppSession(writer, root=root, home=home, remotion_transport=remotion_transport)
+        if remotion_transport is not None
+        else AppSession(writer, root=root, home=home)
+    )
     tasks: set[asyncio.Task[None]] = set()
     try:
         async for line in lines:
@@ -125,7 +137,15 @@ def _stdout_writer(line: str) -> None:
         raise SystemExit(0) from None
 
 
-async def run_stdio(root: Path, home: Path) -> None:
+async def run_stdio(
+    root: Path, home: Path, *, remotion_transport: FrameTransport | None = None
+) -> None:
     """Gerçek stdio üzerinde protokolü çalıştır."""
     force_utf8_stdio()
-    await serve(_stdin_lines(), _stdout_writer, root=root, home=home)
+    await serve(
+        _stdin_lines(),
+        _stdout_writer,
+        root=root,
+        home=home,
+        **({"remotion_transport": remotion_transport} if remotion_transport is not None else {}),
+    )
