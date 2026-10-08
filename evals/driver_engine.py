@@ -66,9 +66,12 @@ def command(
     logging: bool,
     probe: bool = False,
     browser: HostBrowserSelection | None = None,
+    require_remotion_kit: bool = False,
 ) -> list[str]:
     evals_root = str(Path(__file__).resolve().parent.parent)
     browser_args = f",{str(browser.executable)!r},{browser.mode!r}" if browser else ""
+    if require_remotion_kit:
+        browser_args += ",require_remotion_kit=True"
     code = (
         "import sys;"
         f"sys.path.insert(0,{evals_root!r});"
@@ -124,6 +127,7 @@ def bootstrap(
     probe: bool = False,
     browser_executable: str | None = None,
     browser_mode: str | None = None,
+    require_remotion_kit: bool = False,
 ) -> None:
     from evals.engine_launcher import launch
 
@@ -149,7 +153,7 @@ def bootstrap(
     selection = browser_options(browser_executable, browser_mode)
 
     def host_factory(receipt: ImportedEngineProof, entry: ModuleType) -> object:
-        return _browser_host(selection, receipt, entry)
+        return _browser_host(selection, receipt, entry, require_remotion_kit=require_remotion_kit)
 
     launch(
         Path(source_root),
@@ -157,7 +161,11 @@ def bootstrap(
         Path(proof),
         receipt=emit,
         before_main=diagnose,
-        **({"host_dependencies_factory": host_factory} if selection is not None else {}),
+        **(
+            {"host_dependencies_factory": host_factory}
+            if selection is not None or require_remotion_kit
+            else {}
+        ),
     )
 
 
@@ -246,11 +254,14 @@ def selected_command(args: argparse.Namespace) -> list[str] | None:
         getattr(args, "remotion_browser_executable", ""), getattr(args, "remotion_browser_mode", "")
     )
     engine = from_options(args)
-    if browser is not None and engine is None:
+    required = getattr(args, "require_remotion_kit", False)
+    if (browser is not None or required) and engine is None:
         raise ValueError("Host tarayıcı seçimi açık seçilmiş motor gerektirir.")
     probe = getattr(args, "model_probe", False)
     if engine is not None:
-        return command(engine, logging=args.log, probe=probe, browser=browser)
+        return command(
+            engine, logging=args.log, probe=probe, browser=browser, require_remotion_kit=required
+        )
     if probe:
         raise ValueError("Model önkontrolü açık motor seçimi gerektirir.")
     return None
@@ -266,12 +277,18 @@ def browser_options(executable: str | None, mode: str | None) -> HostBrowserSele
 
 
 def _browser_host(
-    selection: HostBrowserSelection | None, receipt: ImportedEngineProof, entry: ModuleType
+    selection: HostBrowserSelection | None,
+    receipt: ImportedEngineProof,
+    entry: ModuleType,
+    *,
+    require_remotion_kit: bool = False,
 ) -> object:
     import importlib
 
     try:
-        observer = importlib.import_module("fusion_cli.tools.remotion_observe")
+        observer = (
+            importlib.import_module("fusion_cli.tools.remotion_observe") if selection else None
+        )
         host = importlib.import_module("fusion_cli.cli.app_host")
     except ImportError as error:
         raise ValueError("Seçilmiş motor host tarayıcı API'si desteklenmiyor.") from error
@@ -282,6 +299,7 @@ def _browser_host(
         host=cast(HostAPI, host),
         entry=cast(EntryAPI, entry),
         process_id=os.getpid(),
+        require_remotion_kit=require_remotion_kit,
     )
     if bound is None:
         raise ValueError("Host tarayıcı bağımlılığı kurulamadı.")

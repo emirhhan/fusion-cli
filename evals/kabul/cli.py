@@ -29,6 +29,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--engine-source", type=Path, default=None)
     parser.add_argument("--engine-manifest", type=Path, default=None)
+    parser.add_argument("--require-remotion-kit", action="store_true")
+    parser.add_argument("--remotion-browser-executable", type=Path, default=None)
+    parser.add_argument("--remotion-browser-mode", choices=["headless-shell", "chrome-for-testing"])
     parser.add_argument("--cikti", type=Path, required=True)
     parser.add_argument("--onkontrolu-atla", action="store_true")
     return parser
@@ -37,7 +40,14 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _parser().parse_args()
     secenekler = RunnerOptions(
-        args.paralel, args.aralik, args.config, args.engine_source, args.engine_manifest
+        args.paralel,
+        args.aralik,
+        args.config,
+        args.engine_source,
+        args.engine_manifest,
+        remotion_browser_executable=args.remotion_browser_executable,
+        remotion_browser_mode=args.remotion_browser_mode,
+        require_remotion_kit=args.require_remotion_kit,
     )
     adlar = args.alan or sorted(AREA_MODULES)
     alanlar = [load_area(ad) for ad in adlar]

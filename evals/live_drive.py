@@ -384,6 +384,7 @@ def main() -> None:
     parser.add_argument("--engine-manifest", default="")
     parser.add_argument("--engine-proof", default="")
     parser.add_argument("--model-probe", action="store_true")
+    parser.add_argument("--require-remotion-kit", action="store_true")
     parser.add_argument("--remotion-browser-executable", default="")
     parser.add_argument(
         "--remotion-browser-mode", default="", choices=["", "headless-shell", "chrome-for-testing"]

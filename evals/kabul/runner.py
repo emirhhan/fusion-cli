@@ -26,6 +26,7 @@ from contextlib import ExitStack
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from evals.driver_engine import browser_options
 from evals.driver_limits import DRIVER_GRACE_S
 from evals.kabul.comparison_report import read_comparison_metadata
 from evals.kabul.engine_options import (
@@ -58,9 +59,18 @@ class RunnerOptions:
     config: Path | None
     engine_source: Path | None = None
     engine_manifest: Path | None = None
+    remotion_browser_executable: Path | None = None
+    remotion_browser_mode: str | None = None
+    require_remotion_kit: bool = False
 
     def __post_init__(self) -> None:
         check_pair(self.engine_source, self.engine_manifest)
+        browser = browser_options(
+            str(self.remotion_browser_executable) if self.remotion_browser_executable else None,
+            self.remotion_browser_mode,
+        )
+        if (browser is not None or self.require_remotion_kit) and self.engine_source is None:
+            raise ValueError("Host seçenekleri açık seçilmiş motor gerektirir.")
 
 
 def _driver_command(
@@ -75,6 +85,15 @@ def _driver_command(
     ]  # fmt: skip
     if options is not None:
         komut += engine_flags(options.engine_source, options.engine_manifest, job.workdir)
+        if options.require_remotion_kit:
+            komut += ["--require-remotion-kit"]
+        if options.remotion_browser_executable is not None:
+            komut += [
+                "--remotion-browser-executable",
+                str(options.remotion_browser_executable),
+                "--remotion-browser-mode",
+                str(options.remotion_browser_mode),
+            ]
     if job.area.needs_chrome:
         komut += ["--chrome", str(job.workdir / "chrome.json"),
                   "--eslestirme-suresi", str(CHROME_PAIRING_S)]  # fmt: skip

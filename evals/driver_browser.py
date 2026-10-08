@@ -78,31 +78,33 @@ def bind_browser(
     host: HostAPI | None,
     entry: EntryAPI | None,
     process_id: int,
+    require_remotion_kit: bool = False,
 ) -> object | None:
     """Tembel taşıma closure'ını seçilmiş AppHostDependencies içine koy."""
-    if selection is None:
+    if selection is None and not require_remotion_kit:
         return None
     if proof is None or proof.pid != process_id or proof.bootstrap_compatible is not True:
         raise ValueError("Host tarayıcı adaptörü aynı süreç import kanıtını gerektirir.")
-    if observer is None or host is None or entry is None:
+    if host is None or entry is None:
         raise ValueError("Seçilmiş motor host tarayıcı API'si desteklenmiyor.")
-    for api, name in (
-        (entry, "main"),
-        (host, "AppHostDependencies"),
-        (observer, "observe_frame"),
-        (observer, "ExistingBrowser"),
-        (observer, "browser_transport"),
-    ):
-        if not callable(getattr(api, name, None)):
-            raise ValueError("Seçilmiş motor host tarayıcı API'si desteklenmiyor.")
     root = Path(proof.source_root) / "src/fusion_cli"
     _check_api(entry, root / "cli/app.py", entry.main, host_dependencies=None)
+    requirement = {"require_remotion_kit": True} if require_remotion_kit else {}
+    if selection is None:
+        _check_api(host, root / "cli/app_host.py", host.AppHostDependencies, **requirement)
+        return host.AppHostDependencies(**requirement)
+    if observer is None:
+        raise ValueError("Seçilmiş motor host tarayıcı API'si desteklenmiyor.")
+    for name in ("observe_frame", "ExistingBrowser", "browser_transport"):
+        if not callable(getattr(observer, name, None)):
+            raise ValueError("Seçilmiş motor host tarayıcı API'si desteklenmiyor.")
     _check_api(
         host,
         root / "cli/app_host.py",
         host.AppHostDependencies,
         remotion_transport=None,
         remotion_browser=None,
+        **requirement,
     )
     _check_api(
         observer,
@@ -121,4 +123,6 @@ def bind_browser(
     browser = observer.ExistingBrowser(executable=selection.executable, mode=selection.mode)
 
     transport = observer.browser_transport(browser)
-    return host.AppHostDependencies(remotion_transport=transport, remotion_browser=browser)
+    return host.AppHostDependencies(
+        remotion_transport=transport, remotion_browser=browser, **requirement
+    )
