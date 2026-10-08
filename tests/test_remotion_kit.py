@@ -304,3 +304,25 @@ async def test_runtime_edilmis_onceki_kare_feature_markerini_yeniden_kullanmaz()
             assert record["frame"] == 1 and record["auditSettled"] and record["featureReady"]
         finally:
             await browser.close()
+
+
+def test_logo_timeline_ilk_orta_son_kare_okunur_bagimsiz_giris_korunur():
+    import json
+    import re
+
+    records = json.loads(_run("logo"))
+    for record in records:
+        title = re.search(r'data-fusion-content="Fusion" style="([^"]*)"', record["html"])
+        if record["hasTitle"]:
+            assert title
+            expected = "opacity:1" if record["timeline"] or record["frame"] > 0 else "opacity:0"
+            assert expected in title.group(1)
+        else:
+            assert title is None
+        logo = re.search(
+            r'transform:scale\(([^)]+)\) rotate[^"]*"><img data-fusion-content="Logo"',
+            record["html"],
+        )
+        assert logo
+        expected_scale = "1" if record["timeline"] or record["frame"] > 0 else "0"
+        assert logo.group(1) == expected_scale

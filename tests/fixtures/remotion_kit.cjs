@@ -16,14 +16,32 @@ const remotion = {
   interpolate: (v, [a,b], [c,d]) => c + Math.max(0, Math.min(1, (v-a)/(b-a))) * (d-c),
   AbsoluteFill: ({children, style}) => React.createElement('div', {style: {position: 'absolute', inset: 0, display: 'flex', ...style}}, children),
 };
+const loaded = new Map();
 function load(name) {
+  if (loaded.has(name)) return loaded.get(name);
   const file = path.join(kit, name + '.tsx');
   const source = fs.existsSync(file) ? file : path.join(kit, name + '.ts');
   const mod = new Module(source);
   mod.filename = source;
   mod.require = (id) => id === 'react' ? React : id === 'remotion' ? remotion : id.startsWith('./') ? load(id.slice(2)) : require(id);
   mod._compile(ts.transpileModule(fs.readFileSync(source, 'utf8'), {compilerOptions: {jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS, esModuleInterop: true}}).outputText, source);
+  loaded.set(name, mod.exports);
   return mod.exports;
+}
+if (process.argv[3] === 'logo') {
+  remotion.Img = props => React.createElement('img', props);
+  remotion.staticFile = value => value;
+  remotion.spring = ({frame}) => frame <= 0 ? 0 : 1;
+  const {LogoReveal} = load('LogoReveal');
+  const {TimelineSceneProvider} = load('SceneContext');
+  const results=[];
+  for (const timeline of [false,true]) for (const hasTitle of [false,true]) for (const at of [0,60,119]) {
+    frame=at;
+    const element=React.createElement(LogoReveal,{src:'logo.png',title:hasTitle?'Fusion':undefined,subtitle:hasTitle?'Alt yazı':undefined});
+    const html=renderToStaticMarkup(React.createElement(TimelineSceneProvider,{value:timeline},element));
+    results.push({timeline,hasTitle,frame:at,html});
+  }
+  process.stdout.write(JSON.stringify(results)); process.exit(0);
 }
 if (process.argv[3] === 'timeline') {
   const esbuild = require(path.join(root, 'app/node_modules/esbuild'));
