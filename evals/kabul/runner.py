@@ -23,10 +23,16 @@ import os
 import sys
 from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from evals.driver_limits import DRIVER_GRACE_S
+from evals.kabul.engine_options import (
+    check_pair,
+    comparison_validity,
+    engine_flags,
+    selected_engine,
+)
 from evals.kabul.model import Area, Inspection, RunMetrics, RunRecord, classify
 
 _LOG = logging.getLogger(__name__)
@@ -49,9 +55,16 @@ class RunnerOptions:
     parallel: int
     stagger_s: float
     config: Path | None
+    engine_source: Path | None = None
+    engine_manifest: Path | None = None
+
+    def __post_init__(self) -> None:
+        check_pair(self.engine_source, self.engine_manifest)
 
 
-def _driver_command(job: Job, root: Path, task: str) -> list[str]:
+def _driver_command(
+    job: Job, root: Path, task: str, options: RunnerOptions | None = None
+) -> list[str]:
     komut = [
         sys.executable, "-m", "evals.live_drive",
         "--kok", str(root), "--mod", "auto", "--sure", str(job.area.timeout_s),
@@ -59,6 +72,8 @@ def _driver_command(job: Job, root: Path, task: str) -> list[str]:
         "--olaylar", str(job.workdir / "olaylar.jsonl"),
         "--gorev", task,
     ]  # fmt: skip
+    if options is not None:
+        komut += engine_flags(options.engine_source, options.engine_manifest, job.workdir)
     if job.area.needs_chrome:
         komut += ["--chrome", str(job.workdir / "chrome.json"),
                   "--eslestirme-suresi", str(CHROME_PAIRING_S)]  # fmt: skip
@@ -68,7 +83,7 @@ def _driver_command(job: Job, root: Path, task: str) -> list[str]:
 async def _drive(job: Job, root: Path, task: str, options: RunnerOptions) -> dict[str, object]:
     ortam = {"FUSION_CONFIG": str(options.config)} if options.config else {}
     surec = await asyncio.create_subprocess_exec(
-        *_driver_command(job, root, task),
+        *_driver_command(job, root, task, options),
         cwd=_REPO_ROOT,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -123,6 +138,7 @@ def _agent_summary(driver: Mapping[str, object]) -> tuple[bool | None, str]:
 
 async def run_job(job: Job, options: RunnerOptions, chrome_lock: asyncio.Lock) -> RunRecord:
     """Tek koşu: hazırla → ajanı sür → denetle → sınıflandır."""
+    engine = selected_engine(options.engine_source, options.engine_manifest, job.workdir)
     job.workdir.mkdir(parents=True, exist_ok=True)
     with ExitStack() as yigin:
         degerler: dict[str, str] = {}
@@ -135,6 +151,11 @@ async def run_job(job: Job, options: RunnerOptions, chrome_lock: asyncio.Lock) -
                 surucu = await _drive(job, kok, gorev, options)
         else:
             surucu = await _drive(job, kok, gorev, options)
+        if engine is not None:
+            proof = comparison_validity(surucu, engine)
+            (job.workdir / "comparison-proof.json").write_text(
+                json.dumps(asdict(proof), ensure_ascii=False, indent=2), encoding="utf-8"
+            )
         ok, metin = _agent_summary(surucu)
         surucu_hatasi = str(surucu.get("hata", ""))
         denetim = await asyncio.to_thread(
