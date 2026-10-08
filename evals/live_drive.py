@@ -135,9 +135,9 @@ main()
 
 
 def _komut(args: argparse.Namespace) -> list[str]:
-    engine = driver_engine.from_options(args)
-    if engine is not None:
-        return driver_engine.command(engine, logging=args.log)
+    selected = driver_engine.selected_command(args)
+    if selected is not None:
+        return selected
     if args.log:
         return [sys.executable, "-c", _LOG_LAUNCHER]
     return [sys.executable, "-c", _TESHIS_LAUNCHER]
@@ -383,6 +383,7 @@ def main() -> None:
     parser.add_argument("--engine-source", default="")
     parser.add_argument("--engine-manifest", default="")
     parser.add_argument("--engine-proof", default="")
+    parser.add_argument("--model-probe", action="store_true")
     parser.add_argument("--chrome", default="", help="eşleştirme bilgisinin yazılacağı dosya")
     parser.add_argument("--eslestirme-suresi", type=float, default=900)
     parser.add_argument("--olaylar", default="", help="çekirdek olaylarının yazılacağı JSONL")

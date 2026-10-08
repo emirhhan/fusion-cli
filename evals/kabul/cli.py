@@ -46,7 +46,17 @@ def main() -> None:
     cikti.mkdir(parents=True, exist_ok=True)
     on_kontrol = None
     if not args.onkontrolu_atla:
-        on_kontrol = run_preflight(alanlar, cikti, args.config)
+        on_kontrol = (
+            run_preflight(
+                alanlar,
+                cikti,
+                args.config,
+                engine_source=args.engine_source,
+                engine_manifest=args.engine_manifest,
+            )
+            if args.engine_source is not None
+            else run_preflight(alanlar, cikti, args.config)
+        )
         if not on_kontrol.passed:
             write_report(cikti / "rapor.json", [], on_kontrol)
             sys.stderr.write(f"Ön-kontrol geçmedi, koşu başlamadı: {on_kontrol.failures()}\n")

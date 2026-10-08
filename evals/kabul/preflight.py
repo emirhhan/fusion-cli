@@ -18,7 +18,9 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from evals.kabul.engine_options import comparison_validity, selected_engine
 from evals.kabul.model import Area
+from evals.selected_probe import ProbeEvidence, probe_command, run_owned_probe
 
 #: Uzun koşu WordPress çekirdeği, görseller ve video ürettiği için alan bırakılır
 #: (24 Eylül'de 20 MB boş disk koşuyu ENOSPC ile düşürdü).
@@ -35,6 +37,7 @@ class PreflightItem:
     name: str
     passed: bool
     detail: str
+    evidence: ProbeEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,10 +63,14 @@ def _executables(areas: Iterable[Area]) -> tuple[PreflightItem, ...]:
     return (PreflightItem("araclar", not eksik, "eksik: " + ", ".join(eksik) if eksik else "tam"),)
 
 
-def _model_probe(config: Path | None) -> PreflightItem:
+def _model_probe(
+    config: Path | None, source: Path | None = None, manifest: Path | None = None
+) -> PreflightItem:
     """Ana modele tek kısa tur: yanıt yoksa uzun koşular zaten ölçülemez."""
-    fusion = Path(sys.executable).with_name("fusion")
     ortam = {**os.environ, **({"FUSION_CONFIG": str(config)} if config else {})}
+    if source is not None or manifest is not None:
+        return _selected_model_probe(source, manifest, ortam)
+    fusion = Path(sys.executable).with_name("fusion")
     with tempfile.TemporaryDirectory(prefix="kabul-onkontrol-") as kok:
         try:
             sonuc = subprocess.run(
@@ -89,10 +96,78 @@ def _model_probe(config: Path | None) -> PreflightItem:
     return PreflightItem("model", False, (sonuc.stderr or "çıktı yok")[-200:])
 
 
-def run_preflight(areas: Iterable[Area], workroot: Path, config: Path | None) -> PreflightReport:
+def run_preflight(
+    areas: Iterable[Area],
+    workroot: Path,
+    config: Path | None,
+    *,
+    engine_source: Path | None = None,
+    engine_manifest: Path | None = None,
+) -> PreflightReport:
     """Bütün ön-kontrolleri çalıştır; model sondası en sona (en pahalısı)."""
     alanlar = tuple(areas)
     items = (_disk(workroot), *_executables(alanlar))
     if not all(item.passed for item in items):
         return PreflightReport(items)
-    return PreflightReport((*items, _model_probe(config)))
+    model = (
+        _model_probe(config, engine_source, engine_manifest)
+        if engine_source is not None or engine_manifest is not None
+        else _model_probe(config)
+    )
+    return PreflightReport((*items, model))
+
+
+def _selected_model_probe(
+    source: Path | None, manifest: Path | None, environment: dict[str, str]
+) -> PreflightItem:
+    """Seçilmiş aynı süreç ve actual config yanıtı; kalıcı durum bilinmiyor kalır."""
+    with tempfile.TemporaryDirectory(prefix="kabul-secili-onkontrol-") as temporary:
+        root = Path(temporary)
+        engine = selected_engine(source, manifest, root)
+        if engine is None:
+            return PreflightItem("model", False, "Açık motor seçimi eksik.")
+        try:
+            result = run_owned_probe(
+                probe_command(
+                    engine.selection.source_root,
+                    engine.manifest,
+                    root,
+                    MODEL_PROBE_TASK,
+                    MODEL_PROBE_TIMEOUT_S,
+                ),
+                cwd=root,
+                env=environment,
+                timeout=MODEL_PROBE_TIMEOUT_S,
+            )
+            driver = json.loads(result.stdout)
+            validity = comparison_validity(driver, engine)
+            turns = driver.get("turlar") if isinstance(driver, dict) else None
+            ok = (
+                result.returncode == 0
+                and validity.config_verified
+                and isinstance(turns, list)
+                and len(turns) == 1
+                and isinstance(turns[0], dict)
+                and turns[0].get("ok") is True
+                and driver.get("araclar") == []
+            )
+        except (ValueError, OSError, subprocess.TimeoutExpired):
+            return PreflightItem("model", False, "Seçilmiş model/süreç kanıtı doğrulanmadı.")
+    evidence = (
+        ProbeEvidence(
+            driver["motor_kaniti"]["pid"],
+            validity.source_digest,
+            validity.config_digests,
+            engine.selection.requested_revision,
+        )
+        if ok and validity.source_digest is not None
+        else None
+    )
+    return PreflightItem(
+        "model",
+        ok,
+        "Seçilmiş süreç/config yanıtı doğrulandı; kalıcı öğrenim/cache bilinmiyor."
+        if ok
+        else "Seçilmiş model yanıtı veya kanıtı eksik/geçersiz.",
+        evidence,
+    )

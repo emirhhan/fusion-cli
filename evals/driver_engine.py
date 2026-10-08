@@ -51,14 +51,14 @@ def from_options(args: argparse.Namespace) -> DriverEngine | None:
     return DriverEngine(selection, manifest, proof, verify_source(selection))
 
 
-def command(engine: DriverEngine, *, logging: bool) -> list[str]:
+def command(engine: DriverEngine, *, logging: bool, probe: bool = False) -> list[str]:
     evals_root = str(Path(__file__).resolve().parent.parent)
     code = (
         "import sys;"
         f"sys.path.insert(0,{evals_root!r});"
         "from evals.driver_engine import bootstrap;"
         f"bootstrap({str(engine.selection.source_root)!r},{str(engine.manifest)!r},"
-        f"{str(engine.proof_path)!r},{logging!r})"
+        f"{str(engine.proof_path)!r},{logging!r},{probe!r})"
     )
     return [sys.executable, "-c", code]
 
@@ -100,7 +100,9 @@ def validate_receipt(raw: object, engine: DriverEngine, child_pid: int) -> Impor
     )
 
 
-def bootstrap(source_root: str, manifest: str, proof: str, logging: bool) -> None:
+def bootstrap(
+    source_root: str, manifest: str, proof: str, logging: bool, probe: bool = False
+) -> None:
     from evals.engine_launcher import launch
 
     imported: list[ImportedEngineProof] = []
@@ -120,12 +122,12 @@ def bootstrap(source_root: str, manifest: str, proof: str, logging: bool) -> Non
         if not marker:
             raise ValueError("Sürücü teşhis bootstrap sözleşmesi desteklenmiyor.")
         exec(compile(setup, "<fusion-driver-diagnostics>", "exec"), {})
-        _install_config_observer(imported[0])
+        _install_config_observer(imported[0], probe=probe)
 
     launch(Path(source_root), Path(manifest), Path(proof), receipt=emit, before_main=diagnose)
 
 
-def _install_config_observer(proof: ImportedEngineProof) -> None:
+def _install_config_observer(proof: ImportedEngineProof, *, probe: bool = False) -> None:
     import importlib
 
     try:
@@ -141,7 +143,13 @@ def _install_config_observer(proof: ImportedEngineProof) -> None:
             print(json.dumps({"tip": "efektif_kanit", "veri": payload}), flush=True)
 
         install(ConfigObserver(proof, os.getpid, emit), session, engine)
+        if probe:
+            from evals.selected_probe import install_probe_guard
+
+            install_probe_guard(session)
     except (ImportError, ValueError, AttributeError):
+        if probe:
+            raise ValueError("Seçilmiş model önkontrolü API'si desteklenmiyor.") from None
         print(json.dumps({"tip": "efektif_desteklenmiyor", "veri": {}}), flush=True)
 
 
@@ -197,3 +205,13 @@ def invalidate_pending(pending: MutableMapping[str, asyncio.Future[_Response]], 
         if not future.done():
             future.set_exception(ConnectionError(error))
     pending.clear()
+
+
+def selected_command(args: argparse.Namespace) -> list[str] | None:
+    engine = from_options(args)
+    probe = getattr(args, "model_probe", False)
+    if engine is not None:
+        return command(engine, logging=args.log, probe=probe)
+    if probe:
+        raise ValueError("Model önkontrolü açık motor seçimi gerektirir.")
+    return None
