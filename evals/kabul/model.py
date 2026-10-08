@@ -18,6 +18,10 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from evals.kabul.engine_options import ComparisonValidity
 
 
 class Outcome(StrEnum):
@@ -109,6 +113,8 @@ class RunRecord:
     agent_text: str = ""
     driver_error: str = ""
     tools: tuple[str, ...] = field(default_factory=tuple)
+    #: Import/config gözlemi; ürün sonucu ve eş koşul bilinmezliği ayrı kalır.
+    comparison: ComparisonValidity | None = None
 
     @property
     def false_success(self) -> bool:

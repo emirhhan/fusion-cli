@@ -60,10 +60,28 @@ def write_report(
     veri = {
         "on_kontrol": dataclasses.asdict(preflight) if preflight else None,
         "ozet": [dataclasses.asdict(ozet) for ozet in summarize(records)],
-        "kosular": [dataclasses.asdict(kayit) for kayit in records],
+        "kosular": [_record_payload(kayit) for kayit in records],
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(veri, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+
+
+def _record_payload(record: RunRecord) -> dict[str, object]:
+    payload = dataclasses.asdict(record)
+    if record.comparison is None:
+        del payload["comparison"]
+    return payload
+
+
+def _comparison_text(record: RunRecord) -> str:
+    proof = record.comparison
+    if proof is None:
+        return ""
+    return (
+        f" | karşılaştırma: import {'doğrulandı' if proof.import_verified else 'doğrulanmadı'}, "
+        f"config {'doğrulandı' if proof.config_verified else 'doğrulanmadı'}; "
+        "eş koşullar bilinmiyor (auth/cache/context/kaynak), %90 kanıtı yok"
+    )
 
 
 def render_text(records: Sequence[RunRecord]) -> str:
@@ -82,5 +100,6 @@ def render_text(records: Sequence[RunRecord]) -> str:
                 f"{kayit.metrics.elapsed_s:.0f} sn, {kayit.metrics.model_calls} çağrı"
                 + (f" | düşen: {', '.join(dusen)}" if dusen else "")
                 + (f" | neden: {neden[:160]}" if neden else "")
+                + _comparison_text(kayit)
             )
     return "\n".join(satirlar)

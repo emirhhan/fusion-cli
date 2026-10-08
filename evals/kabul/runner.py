@@ -27,6 +27,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from evals.driver_limits import DRIVER_GRACE_S
+from evals.kabul.comparison_report import read_comparison_metadata
 from evals.kabul.engine_options import (
     check_pair,
     comparison_validity,
@@ -140,6 +141,7 @@ async def run_job(job: Job, options: RunnerOptions, chrome_lock: asyncio.Lock) -
     """Tek koşu: hazırla → ajanı sür → denetle → sınıflandır."""
     engine = selected_engine(options.engine_source, options.engine_manifest, job.workdir)
     job.workdir.mkdir(parents=True, exist_ok=True)
+    comparison = None
     with ExitStack() as yigin:
         degerler: dict[str, str] = {}
         if job.area.prepare is not None:
@@ -156,6 +158,7 @@ async def run_job(job: Job, options: RunnerOptions, chrome_lock: asyncio.Lock) -
             (job.workdir / "comparison-proof.json").write_text(
                 json.dumps(asdict(proof), ensure_ascii=False, indent=2), encoding="utf-8"
             )
+            comparison = read_comparison_metadata(job.workdir, proof)
         ok, metin = _agent_summary(surucu)
         surucu_hatasi = str(surucu.get("hata", ""))
         denetim = await asyncio.to_thread(
@@ -174,6 +177,7 @@ async def run_job(job: Job, options: RunnerOptions, chrome_lock: asyncio.Lock) -
         agent_text=metin[:2000],
         driver_error=surucu_hatasi,
         tools=tuple(str(ad) for ad in araclar) if isinstance(araclar, list) else (),
+        comparison=comparison,
     )
 
 

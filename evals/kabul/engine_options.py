@@ -24,6 +24,7 @@ class ComparisonValidity:
     config_verified: bool = False
     reasons: tuple[str, ...] = ()
     source_digest: str | None = None
+    engine_pid: int | None = None
     config_digests: tuple[str, ...] = ()
     revision_provenance: str = "unverified"
     authentication_status: str = "unknown"
@@ -92,11 +93,13 @@ def comparison_validity(driver: object, engine: DriverEngine) -> ComparisonValid
         return ComparisonValidity(
             import_verified=True,
             source_digest=proof.source_digest,
+            engine_pid=proof.pid,
             reasons=("Efektif ayar kanıtı eksik/geçersiz.",),
         )
     return ComparisonValidity(
         import_verified=True,
         config_verified=True,
         source_digest=proof.source_digest,
+        engine_pid=proof.pid,
         config_digests=tuple(item.effective.digest for item in receipts),
     )
