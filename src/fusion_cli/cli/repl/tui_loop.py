@@ -418,6 +418,7 @@ class _TuiSession:
                 outcome = await run_agent_task(
                     line,
                     self._state.config,
+                    remotion_transport=self._state.remotion_transport,
                     sinks=sinks,
                     prompter_factory=self._prompter_factory,
                     mode=self._state.approval,

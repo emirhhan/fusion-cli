@@ -53,6 +53,7 @@ from ..core.types import Message
 from ..engines.agent.approval import ApprovalMode, parse_mode
 from ..engines.agent.context_budget import context_budget
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
+from ..engines.agent.remotion_bridge import FrameTransport
 from ..history.sanitize import sanitize_message
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
@@ -348,7 +349,14 @@ def _title_payload(message: object) -> dict[str, Any]:
 class AppSession:
     """Uygulamanın sürdüğü tek oturum."""
 
-    def __init__(self, writer: Writer, *, root: Path, home: Path) -> None:
+    def __init__(
+        self,
+        writer: Writer,
+        *,
+        root: Path,
+        home: Path,
+        remotion_transport: FrameTransport | None = None,
+    ) -> None:
         self._writer = writer
         self._root = root
         self._home = home
@@ -363,6 +371,7 @@ class AppSession:
             root=root,
             home=home,
             health=build_health(config),
+            remotion_transport=remotion_transport,
         )
         #: Uygulamanın sekmesine karşılık gelen konuşma kimliği. `oturum.baslat`
         #: ile gelir; gelmeden önce okuma proje genelini gösterir.
@@ -1455,6 +1464,7 @@ class AppSession:
             return await run_agent_task(
                 task,
                 config,
+                remotion_transport=self._state.remotion_transport,
                 deadline=deadline,
                 sinks=(sink,),
                 prompter_factory=lambda _drain: prompter,
