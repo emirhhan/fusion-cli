@@ -7,6 +7,7 @@ from typing import Protocol
 
 from .evidence import CriterionEvidence, ToolUse
 from .execution_plan import ExecutionPlan
+from .repair_ledger import RepairSnapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +41,20 @@ class WorkflowBudgetUsage:
 
 
 @dataclass(frozen=True, slots=True)
+class TurnRepairCheckpoint:
+    """Yalnız onarım kanıtı ve mevcut otoritenin tüketilmiş doğrulama hakkı."""
+
+    snapshot: RepairSnapshot
+    verify_rounds: int
+
+    def __post_init__(self) -> None:
+        if isinstance(self.verify_rounds, bool) or not isinstance(self.verify_rounds, int):
+            raise ValueError("Onarım harcaması tam sayı olmalı.")
+        if self.verify_rounds < 0:
+            raise ValueError("Onarım harcaması negatif olamaz.")
+
+
+@dataclass(frozen=True, slots=True)
 class WorkflowCheckpoint:
     """Ham konuşma taşımayan en küçük devam kaydı."""
 
@@ -58,6 +73,7 @@ class WorkflowCheckpoint:
     condensations: int = 0
     #: Unresolved quality feedback must survive a paused/completed-step resume.
     quality_feedback: str = ""
+    turn_repair: TurnRepairCheckpoint | None = None
 
 
 class CheckpointStore(Protocol):

@@ -299,6 +299,7 @@ class _PlanRun:
                 ),
                 self.condensations,
                 self.quality_feedback,
+                deps.budget.snapshot_repairs() if deps.budget is not None else None,
             )
         )
         deps.publisher.publish(
@@ -1311,6 +1312,10 @@ async def run_execution_plan(
         ExecutionPlanCreated(plan_id=current.plan_id, total_steps=len(current.steps))
     )
     if checkpoint is not None:
+        if checkpoint.turn_repair is not None:
+            if deps.budget is None:
+                raise ValueError("Onarım checkpoint'i mevcut tur bütçesi olmadan yüklenemez.")
+            deps.budget.restore_repairs(checkpoint.turn_repair)
         run.quality_feedback = checkpoint.quality_feedback
         run.ledger.restore(checkpoint.budget_usage)
         run.spent = {

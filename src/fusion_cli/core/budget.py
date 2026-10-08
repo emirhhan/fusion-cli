@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+from .checkpoint import TurnRepairCheckpoint
 from .constants import REPEAT_READ_CACHE_CHARS, REPEAT_READ_CACHE_ENTRIES
 from .protocols import Clock
 from .repair_ledger import RepairLedger
@@ -140,6 +141,20 @@ class TurnBudget:
         now = self.clock.monotonic()
         self._started_at = now
         self._last_progress_at = now
+
+    def snapshot_repairs(self) -> TurnRepairCheckpoint:
+        """Tüm bütçeyi değil, onarım kanıtı ile gerçek tüketimi birlikte taşı."""
+        return TurnRepairCheckpoint(self.repair_ledger.snapshot(), self.verify_rounds)
+
+    def restore_repairs(self, saved: TurnRepairCheckpoint) -> None:
+        """Taze veya birebir aynı duruma yükle; ayrık harcamaları birleştirme."""
+        current = self.snapshot_repairs()
+        if current == saved:
+            return
+        if current.verify_rounds or current.snapshot.failures:
+            raise ValueError("Aktif onarım durumu başka checkpoint ile birleştirilemez.")
+        self.repair_ledger = RepairLedger(saved.snapshot)
+        self.verify_rounds = saved.verify_rounds
 
     # --- süre ------------------------------------------------------------- #
 

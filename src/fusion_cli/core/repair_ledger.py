@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from .failure_identity import failure_identity
+
 
 class FailureOrigin(Enum):
     """Ürün kusuru ile ölçüm/sağlayıcı kesintisini ayırır."""
@@ -43,6 +45,8 @@ class FailureEvidence:
     def __post_init__(self) -> None:
         if not all(value.strip() for value in (self.check_id, self.family, self.attempt_id)):
             raise ValueError("Kontrol, hata ailesi ve deneme kimliği boş olamaz.")
+        for name in ("check_id", "family", "attempt_id"):
+            object.__setattr__(self, name, failure_identity(getattr(self, name)))
         if len({source.path for source in self.sources}) != len(self.sources):
             raise ValueError("İlgili kaynak yolları benzersiz olmalı.")
 

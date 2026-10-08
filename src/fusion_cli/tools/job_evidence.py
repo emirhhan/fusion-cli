@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..core.failure_identity import failure_identity
 from ..core.repair_ledger import FailureEvidence, SourceFingerprint
 from ..core.tools import ToolArgs
 
@@ -90,7 +91,9 @@ def prepare_manifest(args: ToolArgs, root: Path) -> JobEvidenceManifest | None:
         for path in sorted(files)
     )
     scopes = tuple(str(path) for path in paths if isinstance(path, str))
-    return JobEvidenceManifest(f"{root.resolve().as_posix()}:{check}", sources, scopes)
+    return JobEvidenceManifest(
+        failure_identity(f"{root.resolve().as_posix()}:{check}"), sources, scopes
+    )
 
 
 def save_manifest(path: Path, manifest: JobEvidenceManifest) -> None:

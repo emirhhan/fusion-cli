@@ -20,6 +20,7 @@ from ..core.execution_plan import (
     VerificationCheckKind,
 )
 from .checkpoint_evidence import budget_payload, evidence_payload, parse_budget, parse_evidence
+from .checkpoint_repair import parse_repair, repair_payload
 
 _SAFE_ID = re.compile(r"[^a-zA-Z0-9._-]+")
 
@@ -70,6 +71,7 @@ def _to_dict(checkpoint: WorkflowCheckpoint) -> dict[str, object]:
         "budget_usage": budget_payload(checkpoint.budget_usage),
         "condensations": checkpoint.condensations,
         "quality_feedback": checkpoint.quality_feedback,
+        "turn_repair": repair_payload(checkpoint.turn_repair, checkpoint.root),
     }
 
 
@@ -168,6 +170,7 @@ def _from_dict(raw: object) -> WorkflowCheckpoint:
         budget_usage=parse_budget(data.get("budget_usage", [])),
         condensations=_integer(data, "condensations", 0),
         quality_feedback=_text(data, "quality_feedback") if "quality_feedback" in data else "",
+        turn_repair=parse_repair(data.get("turn_repair"), _text(data, "root")),
     )
 
 
