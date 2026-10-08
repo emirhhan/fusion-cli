@@ -164,6 +164,7 @@ async def run_agent_task(
     allowed_tools: set[str] | None = None,
     health: HealthRegistry | None = None,
     journal: TurnJournal | None = None,
+    require_remotion_kit: bool = False,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -205,6 +206,8 @@ async def run_agent_task(
             # kaybolmaz, model gerektiğinde dosyayı açar (context rot).
             artifacts=ArtifactStore(config.memory_dir / "artifacts" / _artifact_id()),
         )
+        if require_remotion_kit:
+            tool_context.remotion_contract.require()
         deps = AgentDeps(
             config=config,
             publisher=bus,
@@ -219,7 +222,12 @@ async def run_agent_task(
             or (CapabilityRegistry(home, tool_context.root) if home is not None else None),
             home=home,
             allowed_commands=load_allowed_commands(tool_context.root),
-            verifier=build_verifier(config, root=tool_context.root, tool_context=tool_context),
+            verifier=build_verifier(
+                config,
+                root=tool_context.root,
+                tool_context=tool_context,
+                remotion_state=tool_context.remotion_contract,
+            ),
             task_type=task_type,
             background=background,
             checkpoint_store=JsonCheckpointStore(config.memory_dir / "workflow-checkpoints"),

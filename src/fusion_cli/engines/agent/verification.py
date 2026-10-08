@@ -28,6 +28,7 @@ from ...core.evidence import (
     EvidenceStatus,
 )
 from ...core.execution_plan import VerificationCheckKind
+from ...core.remotion_contract import KitContractState
 from ...core.tools import ToolContext
 from ...core.verification import (
     TIMEOUT_FINDING_PREFIX,
@@ -49,7 +50,8 @@ from .javascript_verify import (
 from .next_route_verify import NextRouteVerifier
 from .output_verify import OutputPathVerifier
 from .php_verify import PhpVerifier, find_php_executable
-from .remotion_bridge import KitVerificationPlan, RemotionRuntimeVerifier
+from .remotion_bridge import FrameTransport, KitVerificationPlan, RemotionRuntimeVerifier
+from .remotion_deferred import DeferredRemotionVerifier
 from .remotion_verify import RemotionCssVerifier
 from .script_verify import ScriptPathVerifier
 from .site_verify import SiteVerifier
@@ -88,6 +90,8 @@ def build_verifier(
     tool_context: ToolContext | None,
     domains: DomainRegistry | None = None,
     remotion_contract: KitVerificationPlan | None = None,
+    remotion_state: KitContractState | None = None,
+    remotion_transport: FrameTransport | None = None,
 ) -> Verifier | None:
     """Etkin doğrulayıcıları kur; hiçbiri yoksa None.
 
@@ -120,6 +124,16 @@ def build_verifier(
     # Açık runtime planı yoksa genel Remotion projeleri mevcut davranışını korur.
     if remotion_contract is not None:
         verifiers.append(RemotionRuntimeVerifier(root, remotion_contract))
+    elif remotion_state is not None:
+        verifiers.append(
+            DeferredRemotionVerifier(
+                root,
+                remotion_state,
+                **({"transport": remotion_transport} if remotion_transport is not None else {}),
+            )
+        )
+    elif config.runtime.web_verification and tool_context is not None:
+        verifiers.append(DeferredRemotionVerifier(root, tool_context.remotion_contract))
     # Yapılandırılmış komut varsa o kazanır; yoksa PROJEDEN KEŞFEDİLİR.
     #
     # Kapı eskiden tamamen opt-in'di ve pratikte hiç kurulmuyordu. Bedeli ölçüldü:

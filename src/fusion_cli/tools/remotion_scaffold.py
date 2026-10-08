@@ -155,13 +155,18 @@ def _preflight(target: Path, files: tuple[_KitFile, ...], payload: bytes) -> Non
         _safe_file(target, path)
         if path.exists() and file.name != "theme.ts" and path.read_bytes() != file.content:
             raise ValueError(f"Mevcut kit dosyası farklı; üzerine yazılmaz: {file.name}")
-    for suffix in (".ts", ".tsx", ".js", ".jsx"):
-        if (target / "src" / f"kit{suffix}").exists():
-            raise ValueError("src/kit adını gölgeleyen mevcut modül var; korunuyor.")
+    check_kit_shadow(target)
     metadata = target / "fusion-contract.json"
     _safe_file(target, metadata)
     if metadata.exists() and metadata.read_bytes() != payload:
         raise ValueError("Mevcut sözleşme JSON'u farklı; üzerine yazılmaz.")
+
+
+def check_kit_shadow(project: Path) -> None:
+    """İskele ve kapanışın aynı worker I/O sınırında import gölgesini reddet."""
+    for suffix in (".ts", ".tsx", ".js", ".jsx"):
+        if (project / "src" / f"kit{suffix}").exists():
+            raise ValueError("src/kit adını gölgeleyen mevcut modül var; korunuyor.")
 
 
 def _safe_file(target: Path, path: Path) -> None:

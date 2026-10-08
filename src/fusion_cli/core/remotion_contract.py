@@ -45,6 +45,7 @@ class KitContractState:
 
     def __init__(self) -> None:
         self._registered: RegisteredKitContract | None = None
+        self._is_required = False
         self._lock = Lock()
 
     @property
@@ -58,3 +59,13 @@ class KitContractState:
             if self._registered is not None and self._registered != contract:
                 raise ValueError("Bu oturumda farklı kit sözleşmesi zaten kayıtlı.")
             self._registered = contract
+
+    @property
+    def is_required(self) -> bool:
+        with self._lock:
+            return self._is_required
+
+    def require(self) -> None:
+        """Yalnız çağıranın açık kit planı kayıt yapılmadan başarıyı engeller."""
+        with self._lock:
+            self._is_required = True
