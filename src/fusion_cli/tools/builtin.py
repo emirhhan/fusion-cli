@@ -21,6 +21,7 @@ from . import (
     jobs,
     planning,
     remotion_render,
+    remotion_revision,
     remotion_scaffold,
     scaffold_tool,
     search,
@@ -298,6 +299,30 @@ _TOOLS: tuple[Tool, ...] = (
             ["path", "composition_id", "timeout_s", "scenes"],
         ),
         run=remotion_scaffold.scaffold_remotion,
+        mutating=True,
+    ),
+    Tool(
+        name="revise_remotion_scenes",
+        description="Kayıtlı video sahnelerini aynı toplam sürede açıkça yeniden planla; "
+        "host girişini yeniler. Eski kanıt başarı değildir; yeni render/kareler gerekli.",
+        parameters=_schema(
+            {
+                "scenes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": _schema(
+                        {
+                            "id": _STRING,
+                            "kind": {"type": "string", "enum": ["feature", "custom"]},
+                            "duration": {"type": "integer", "minimum": 1},
+                        },
+                        ["id", "kind", "duration"],
+                    ),
+                }
+            },
+            ["scenes"],
+        ),
+        run=remotion_revision.revise_remotion_scenes,
         mutating=True,
     ),
     Tool(

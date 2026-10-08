@@ -77,6 +77,7 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "glob": ToolFamily.FILES,
     "scaffold_web": ToolFamily.FILES,
     "scaffold_remotion": ToolFamily.FILES,
+    "revise_remotion_scenes": ToolFamily.FILES,
     # Arşiv açmak dosya işidir: içerik ağdan DEĞİL, diskteki arşivden gelir.
     "extract_archive": ToolFamily.FILES,
     "grep_search": ToolFamily.SEARCH,

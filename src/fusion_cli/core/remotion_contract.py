@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Lock
 
@@ -40,12 +41,19 @@ class RegisteredKitContract:
     project_dir: str = "."
 
 
+@dataclass(frozen=True, slots=True)
+class KitContractSnapshot:
+    registered: RegisteredKitContract | None
+    revision: int
+
+
 class KitContractState:
     """Doğrulayıcı kurulmasından sonra gelen araç kaydını oturum içinde korur."""
 
     def __init__(self) -> None:
         self._registered: RegisteredKitContract | None = None
         self._is_required = False
+        self._history: list[RegisteredKitContract] = []
         self._lock = Lock()
 
     @property
@@ -59,6 +67,42 @@ class KitContractState:
             if self._registered is not None and self._registered != contract:
                 raise ValueError("Bu oturumda farklı kit sözleşmesi zaten kayıtlı.")
             self._registered = contract
+
+    def snapshot(self) -> KitContractSnapshot:
+        """Aynı kayıt geri gelse bile ABA revizyonunu tek kilitte ayırt et."""
+        with self._lock:
+            return KitContractSnapshot(self._registered, len(self._history))
+
+    @property
+    def history(self) -> tuple[RegisteredKitContract, ...]:
+        with self._lock:
+            return tuple(self._history)
+
+    def revise(
+        self,
+        expected: RegisteredKitContract,
+        replacement: RegisteredKitContract,
+        apply: Callable[[], None],
+    ) -> None:
+        """Host işlemi başarıyla bitmeden CAS kaydını ve geçmişi ilerletme."""
+        with self._lock:
+            if self._registered != expected:
+                raise ValueError("Sahne revizyonunun host kaydı eskidi; yeniden planla.")
+            if (
+                replacement.project_dir != expected.project_dir
+                or replacement.plan.entry != expected.plan.entry
+                or replacement.plan.composition_id != expected.plan.composition_id
+                or sum(scene.duration for scene in replacement.scenes)
+                != sum(scene.duration for scene in expected.scenes)
+            ):
+                raise ValueError(
+                    "Revizyon host kökünü, girişini, kimliğini ve toplam süreyi korumalı."
+                )
+            apply()
+            if replacement == expected:
+                return
+            self._history.append(expected)
+            self._registered = replacement
 
     @property
     def is_required(self) -> bool:
