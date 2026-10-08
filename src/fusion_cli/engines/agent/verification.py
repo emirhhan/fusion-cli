@@ -49,6 +49,7 @@ from .javascript_verify import (
 from .next_route_verify import NextRouteVerifier
 from .output_verify import OutputPathVerifier
 from .php_verify import PhpVerifier, find_php_executable
+from .remotion_bridge import KitVerificationPlan, RemotionRuntimeVerifier
 from .remotion_verify import RemotionCssVerifier
 from .script_verify import ScriptPathVerifier
 from .site_verify import SiteVerifier
@@ -86,6 +87,7 @@ def build_verifier(
     root: Path,
     tool_context: ToolContext | None,
     domains: DomainRegistry | None = None,
+    remotion_contract: KitVerificationPlan | None = None,
 ) -> Verifier | None:
     """Etkin doğrulayıcıları kur; hiçbiri yoksa None.
 
@@ -115,6 +117,9 @@ def build_verifier(
     """
     verifiers: list[Verifier] = []
     registry = domains if domains is not None else default_domain_registry()
+    # Açık runtime planı yoksa genel Remotion projeleri mevcut davranışını korur.
+    if remotion_contract is not None:
+        verifiers.append(RemotionRuntimeVerifier(root, remotion_contract))
     # Yapılandırılmış komut varsa o kazanır; yoksa PROJEDEN KEŞFEDİLİR.
     #
     # Kapı eskiden tamamen opt-in'di ve pratikte hiç kurulmuyordu. Bedeli ölçüldü:
