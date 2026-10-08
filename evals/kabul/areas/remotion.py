@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import cast
 
 from evals.kabul.areas._pixels import changed_pixel_ratio, luminance_variance
-from evals.kabul.areas._sources import SKIPPED_DIRECTORY, iter_files
+from evals.kabul.areas._remotion_sources import remotion_sources
 from evals.kabul.model import Area, Check, Inspection
 
 #: Ajana verilen görev. Süslü parantez yok: sürücü yer tutucu doldurur.
@@ -92,7 +92,6 @@ VIDEO_CHECK_NAMES = (
     "örnek kareler birbirinden farklı",
 )
 
-_SOURCE_SUFFIXES = frozenset({".ts", ".tsx"})
 _LINE_COMMENT = re.compile(r"(?<![:\"'])//[^\n]*")
 _BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
 _CURRENT_FRAME = re.compile(r"\buseCurrentFrame\b")
@@ -277,19 +276,10 @@ def _video_checks(path: Path) -> tuple[Check, ...]:
 
 
 def _source_checks(root: Path) -> tuple[Check, Check]:
-    # Proje kökte ya da bir alt klasörde (`npx create-video … video`) olabilir: görev
-    # yalnız out/video.mp4'ü şart koşar. Ölçüldü (4 Ekim): kaynak video/src'deydi ve
-    # yalnız kökteki src'ye bakan denetim maddeleri yanlışlıkla düşürdü.
-    src_klasorleri = [root / "src", *sorted(p / "src" for p in root.iterdir() if p.is_dir())]
-    files = [
-        dosya
-        for klasor in src_klasorleri
-        if klasor.is_dir() and SKIPPED_DIRECTORY not in klasor.parts
-        for dosya in iter_files(klasor, _SOURCE_SUFFIXES)
-    ]
+    files = list(remotion_sources(root))
     texts = [path.read_text(encoding="utf-8", errors="replace") for path in files]
     if not files:
-        reason = "src/ (kökte ya da bir alt klasörde) .ts/.tsx dosyası yok"
+        reason = "src/ (kök veya iki proje katmanı altında) .ts/.tsx dosyası yok"
         return (
             Check("src'de CSS transition/animation kullanımı yok", False, reason),
             Check("useCurrentFrame kullanılıyor", False, reason),
@@ -383,15 +373,8 @@ def _logo_check(root: Path) -> Check:
     """Kaynak verilen logoyu kullanıyor (staticFile/import ile logo.png|svg)."""
     kullanan = [
         dosya.relative_to(root).as_posix()
-        for dosya in iter_files(root, _SOURCE_SUFFIXES)
-        if SKIPPED_DIRECTORY not in dosya.parts
-        # Prepared girdiler yalnız kökteki ayrılmış ağaçtır. Aynı adlı gerçek
-        # projenin src/ kaynakları veya çalışma kökünün adı dışlama nedeni değil.
-        and (
-            not dosya.is_relative_to(root / ASSETS_DIRNAME)
-            or dosya.is_relative_to(root / ASSETS_DIRNAME / "src")
-        )
-        and _LOGO_USE.search(dosya.read_text(encoding="utf-8", errors="replace"))
+        for dosya in remotion_sources(root)
+        if _LOGO_USE.search(dosya.read_text(encoding="utf-8", errors="replace"))
     ]
     return Check(
         "logo kullanılıyor", bool(kullanan), ", ".join(kullanan[:3]) or "kaynakta logo yok"
