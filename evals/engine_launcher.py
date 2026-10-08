@@ -11,13 +11,14 @@ import json
 import os
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from pathlib import Path
 from types import CodeType, ModuleType
 
 from evals.engine_proof import (
     EngineSelection,
+    ImportedEngineProof,
     selection_from_manifest,
     verify_imported_engine,
     verify_source,
@@ -97,7 +98,14 @@ def _write_proof(path: Path, payload: object) -> None:
             temporary.unlink(missing_ok=True)
 
 
-def launch(source_root: Path, manifest: Path, proof: Path) -> None:
+def launch(
+    source_root: Path,
+    manifest: Path,
+    proof: Path,
+    *,
+    receipt: Callable[[ImportedEngineProof], None] | None = None,
+    before_main: Callable[[], None] | None = None,
+) -> None:
     """Kayıtlı manifest ve aynı import edilen entry ile doğrudan çalıştır."""
     root = source_root.resolve()
     manifest_path, proof_path = _safe_input(manifest), _safe_input(proof)
@@ -114,6 +122,10 @@ def launch(source_root: Path, manifest: Path, proof: Path) -> None:
     entry = importlib.import_module("fusion_cli.cli.app")
     result = verify_imported_engine(selection, package, entry, sys.modules, pid=os.getpid())
     _write_proof(proof_path, asdict(result))
+    if receipt is not None:
+        receipt(result)
+    if before_main is not None:
+        before_main()
     sys.argv = ["fusion", "app"]
     entry.main()
 

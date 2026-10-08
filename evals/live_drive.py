@@ -22,9 +22,11 @@ import contextlib
 import json
 import sys
 import time
+from dataclasses import asdict
 from pathlib import Path
 from typing import IO, Any
 
+from evals.driver_engine import command, from_options, validate_receipt
 from evals.driver_limits import DRIVER_GRACE_S
 
 _LOG_LAUNCHER = """
@@ -133,6 +135,9 @@ main()
 
 
 def _komut(args: argparse.Namespace) -> list[str]:
+    engine = from_options(args)
+    if engine is not None:
+        return command(engine, logging=args.log)
     if args.log:
         return [sys.executable, "-c", _LOG_LAUNCHER]
     return [sys.executable, "-c", _TESHIS_LAUNCHER]
@@ -188,6 +193,7 @@ def _say(sayac: dict[str, int], veri: dict[str, Any]) -> None:
 async def drive(
     args: argparse.Namespace, stderr: IO[bytes] | None, olay_gunlugu: IO[bytes] | None = None
 ) -> dict[str, Any]:
+    engine = from_options(args)
     process = await asyncio.create_subprocess_exec(
         *_komut(args),
         cwd=args.kok,
@@ -212,6 +218,9 @@ async def drive(
     }
     kayit["sayaclar"] = sayac
     bekleyen: dict[str, asyncio.Future[dict[str, Any]]] = {}
+    engine_ready: asyncio.Future[dict[str, object]] | None = (
+        asyncio.get_running_loop().create_future() if engine is not None else None
+    )
 
     def gonder(payload: dict[str, Any]) -> None:
         assert process.stdin
@@ -228,6 +237,10 @@ async def drive(
             if not line:
                 # Çekirdek kapandı: cevap bekleyen istekler süre dolana kadar asılı
                 # kalmasın (ölçüldü: ölen çekirdeğin sürücüsü 3600 sn bekliyordu).
+                if engine_ready is not None and not engine_ready.done():
+                    engine_ready.set_exception(
+                        ConnectionError("motor kanıtı gelmeden çekirdek kapandı")
+                    )
                 for bekleyen_istek in bekleyen.values():
                     if not bekleyen_istek.done():
                         bekleyen_istek.set_exception(ConnectionError("çekirdek kapandı"))
@@ -245,6 +258,20 @@ async def drive(
         except ValueError:
             return
         tip, veri = mesaj.get("tip"), mesaj.get("veri") or {}
+        if tip == "motor_kaniti" and engine is not None and engine_ready is not None:
+            if engine_ready.done():
+                kayit["hata"] = "Yinelenen motor kanıtı reddedildi."
+                for pending in bekleyen.values():
+                    if not pending.done():
+                        pending.set_exception(ConnectionError(kayit["hata"]))
+                bekleyen.clear()
+                return
+            try:
+                receipt = validate_receipt(veri, engine, process.pid)
+                engine_ready.set_result(asdict(receipt))
+            except ValueError as error:
+                engine_ready.set_exception(error)
+            return
         if tip == "olay":
             _say(sayac, veri)
             if olay_gunlugu is not None:
@@ -268,9 +295,20 @@ async def drive(
         gonder({"tip": "istek", "id": kimlik, "ad": ad, "veri": veri})
         return await asyncio.wait_for(bekleyen[kimlik], timeout=sure)
 
+    async def initialize() -> None:
+        if engine_ready is not None:
+            kayit["motor_kaniti"] = await engine_ready
+            if kayit.get("hata"):
+                raise ValueError("Motor kanıtı yinelendi.")
+        await istek("oturum.baslat", {"kok": args.kok, "mod": args.mod, "kip": "kod"}, 60)
+
     okuyucu = asyncio.create_task(oku())
     try:
-        await istek("oturum.baslat", {"kok": args.kok, "mod": args.mod, "kip": "kod"}, 60)
+        try:
+            await asyncio.wait_for(initialize(), timeout=60)
+        except (ValueError, ConnectionError, TimeoutError) as error:
+            kayit["hata"] = f"Oturum/motor başlangıcı doğrulanmadı: {type(error).__name__}"
+            return kayit
         if args.chrome:
             bilgi = await istek("chrome.baslat", {}, 30)
             eslesme = json.dumps({"port": bilgi.get("port"), "anahtar": bilgi.get("anahtar")})
@@ -284,6 +322,8 @@ async def drive(
                 kayit["hata"] = "Chrome eklentisi eşleştirilmedi."
                 return kayit
         for gorev in args.gorev:
+            if engine is not None and kayit.get("hata"):
+                return kayit
             basla = time.monotonic()
             try:
                 sonuc = await istek(
@@ -300,7 +340,6 @@ async def drive(
                 {"gorev": gorev[:120], **ozet, "sure_sn": round(time.monotonic() - basla, 1)}
             )
     finally:
-        okuyucu.cancel()
         # Önce girişi kapat: çekirdek düzgün çıkıp tarayıcı kirasını bırakır. Zorla
         # öldürmek paylaşılan Chrome'u sahipsiz bırakıyordu.
         if process.stdin is not None:
@@ -310,6 +349,10 @@ async def drive(
         except TimeoutError:
             process.kill()
             await process.wait()
+        await okuyucu
+        if engine is not None and kayit.get("hata"):
+            for turn in kayit["turlar"]:
+                turn.update(ok=False, metin=kayit["hata"])
     # Tek görevli eski çağıranlar için kısayol.
     if len(kayit["turlar"]) == 1:
         kayit["sonuc"] = {k: kayit["turlar"][0][k] for k in ("ok", "metin")}
@@ -327,6 +370,9 @@ def main() -> None:
     parser.add_argument("--sure", type=float, default=900)
     parser.add_argument("--stderr", default="")
     parser.add_argument("--log", action="store_true")
+    parser.add_argument("--engine-source", default="")
+    parser.add_argument("--engine-manifest", default="")
+    parser.add_argument("--engine-proof", default="")
     parser.add_argument("--chrome", default="", help="eşleştirme bilgisinin yazılacağı dosya")
     parser.add_argument("--eslestirme-suresi", type=float, default=900)
     parser.add_argument("--olaylar", default="", help="çekirdek olaylarının yazılacağı JSONL")
