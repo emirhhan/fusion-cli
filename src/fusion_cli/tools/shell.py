@@ -26,6 +26,7 @@ from .files import invented_path_reason
 from .job_delivery import prepare_outputs
 from .job_evidence import prepare_manifest
 from .jobs import start_job
+from .remotion_shell_guard import check_shell_result, remotion_integrity_error
 from .safe_delete import DeleteRefusedError, move_to_trash, simple_rm_targets
 from .wordpress_setup import php_env
 
@@ -34,12 +35,15 @@ __all__ = ["READONLY_GIT_SUBCOMMANDS", "git", "run_shell"]
 
 def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     command = require_str(args, "command")
+    integrity_error = remotion_integrity_error(context)
+    if integrity_error is not None:
+        return ToolResult.failure(integrity_error)
     uydurma = _invented_path(command, context.root)
     if uydurma is not None:
         return ToolResult.failure(uydurma)
     deleted = _guarded_delete(command, context)
     if deleted is not None:
-        return deleted
+        return check_shell_result(context, deleted)
     if args.get("background") is True:
         try:
             manifest = prepare_manifest(args, context.root)
@@ -66,7 +70,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     body = _combine(process.stdout, process.stderr)
     text = f"(çıkış kodu {process.returncode})\n{body}".strip()
-    return ToolResult(text, ok=process.returncode == 0)
+    return check_shell_result(context, ToolResult(text, ok=process.returncode == 0))
 
 
 #: Argümanında çoğu kez desen/URL yolu taşıyan komutlar; yol denetimi yapılmaz.

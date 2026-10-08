@@ -29,6 +29,7 @@ from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_positive_int, require_str
 from .job_delivery import observe_delivery, save_delivery
 from .job_evidence import JobEvidenceManifest, completed_evidence, save_manifest
+from .remotion_shell_guard import check_shell_result
 
 #: İş dosyalarının proje köküne göre yeri.
 JOBS_DIR = Path(".fusion") / "is"
@@ -164,12 +165,15 @@ def job_status(args: ToolArgs, context: ToolContext) -> ToolResult:
             evidence = completed_evidence(klasor, kimlik)
         except (OSError, ValueError) as error:
             warning = f"\nYapılandırılmış kontrol kanıtı okunamadı: {error}"
-    return ToolResult(
-        f"İş {kimlik} BİTTİ (çıkış kodu {kod}).\n[son çıktı]\n{cikti}{warning}",
-        ok=kod == 0,
-        failure_evidence=evidence,
-        is_observation=True,
-        job_completion=delivery,
+    return check_shell_result(
+        context,
+        ToolResult(
+            f"İş {kimlik} BİTTİ (çıkış kodu {kod}).\n[son çıktı]\n{cikti}{warning}",
+            ok=kod == 0,
+            failure_evidence=evidence,
+            is_observation=True,
+            job_completion=delivery,
+        ),
     )
 
 
