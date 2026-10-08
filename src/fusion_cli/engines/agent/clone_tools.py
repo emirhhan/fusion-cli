@@ -22,6 +22,7 @@ from pathlib import Path
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...tools import preview_server
 from ...tools import site_design as design
+from ...tools.capture_provenance import save_capture_provenance
 from ...tools.site_capture import CaptureError, SiteCapture, capture_site
 from ...tools.web import url_block_reason
 from ...tools.woo_import import import_products
@@ -316,10 +317,17 @@ async def run_clone_site(args: ToolArgs, context: ToolContext) -> ToolResult:
     tema = await asyncio.to_thread(
         write_theme, yakalama, tema_klasoru.parent, url, kategoriler, olcum
     )
+    try:
+        await save_capture_provenance(root, yakalama, tema)
+    except (OSError, ValueError) as error:
+        return ToolResult.failure(f"Tema yazıldı ama başlangıç kanıtı kaydedilemedi: {error}")
     await asyncio.to_thread(_backup_theme, tema.folder, root / THEME_BACKUP_DIR)
     adimlar: list[str] = [
         f"Temanın ilk hali yedeklendi: {THEME_BACKUP_DIR}/ (gerilemede geri dön)."
     ]
+    adimlar.append(
+        "Yakalama/ilk tema kanıtı: .fusion/capture-provenance.json (görsel başarı değildir)."
+    )
     sorunlar = list(yakalama.problems)
     dil = yakalama.pages[0].lang if yakalama.pages else ""
     menu = (olcum or {}).get("navigation", {}).get("menu") if isinstance(olcum, dict) else None
