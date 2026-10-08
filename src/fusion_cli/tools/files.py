@@ -40,6 +40,7 @@ from .args import (
     require_text,
 )
 from .diffing import bounded_diff
+from .remotion_guard import guard_remotion_write
 
 #: Bir yolun "uydurma" sayılması için en az bileşen sayısı (`/mnt/data/x`). Tek
 #: bileşenli `/api` gibi metinler çoğu kez URL yolu ya da desendir, yol değil.
@@ -104,6 +105,7 @@ def resolve_path(context: ToolContext, raw: str) -> Path:
 def writable_path(context: ToolContext, raw: str) -> Path:
     """Yazılacak yolu çözümle; bağlamın yazma alanı varsa dışına çıkılmaz."""
     path = resolve_path(context, raw)
+    guard_remotion_write(context, path, raw)
     scope = context.write_scope
     if scope is None:
         return path
