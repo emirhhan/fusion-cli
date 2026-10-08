@@ -6,6 +6,7 @@ import hashlib
 from pathlib import Path
 
 from ..core.remotion_contract import RegisteredKitContract
+from .remotion_bootstrap import BOOTSTRAP_ENTRY, check_bootstrap_shadow
 from .remotion_scaffold import check_kit_shadow
 
 
@@ -25,6 +26,8 @@ def project_root(root: Path, value: str) -> Path:
 
 def check_packaged(root: Path, contract: RegisteredKitContract) -> None:
     check_kit_shadow(root)
+    if any(source.path == BOOTSTRAP_ENTRY for source in contract.packaged_sources):
+        check_bootstrap_shadow(root)
     if not contract.packaged_sources:
         raise ValueError("Host paket kit hash kaydı eksik.")
     expected = {source.path for source in contract.packaged_sources} | {"src/kit/theme.ts"}

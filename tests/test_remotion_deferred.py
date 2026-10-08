@@ -112,7 +112,7 @@ async def test_json_beklenti_degistiremez_nested_proje_koku_transporta_gider(tmp
 
     async def transport(request):
         assert request.root == (tmp_path / "video").resolve()
-        assert request.entry == "src/index.ts" and request.composition == "Fusion"
+        assert request.entry == "src/index.tsx" and request.composition == "Fusion"
         return await _transport(request)
 
     result = await DeferredRemotionVerifier(
@@ -175,7 +175,13 @@ async def test_gercek_agent_turunda_onceden_kurulan_kapi_scaffold_aracini_gorur(
         [
             model_result(tool_calls=[tool_call("scaffold_remotion", **_args())]),
             model_result(
-                tool_calls=[tool_call("write_file", path="video/src/index.ts", content="entry")]
+                tool_calls=[
+                    tool_call(
+                        "write_file",
+                        path="video/src/Composition.tsx",
+                        content="export const Video=()=>null;",
+                    )
+                ]
             ),
             model_result(TAM_CEVAP),
         ]

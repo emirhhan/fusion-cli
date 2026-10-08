@@ -22,6 +22,13 @@ from ..core.repair_ledger import SourceFingerprint
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_list, require_str
 from .files import writable_path
+from .remotion_bootstrap import (
+    BOOTSTRAP_ENTRY,
+    EDITABLE_COMPOSITION,
+    bootstrap_source,
+    check_bootstrap_shadow,
+    editable_source,
+)
 
 _IDENTIFIER = re.compile(r"[A-Za-z0-9_-]+")
 
@@ -42,7 +49,7 @@ async def scaffold_remotion(args: ToolArgs, context: ToolContext) -> ToolResult:
     return ToolResult(
         f"Kit hazır: {contract.project_dir}/src/kit; host sözleşmesi kayıtlı. "
         f"{len(contract.scenes)} sahne, {len(contract.plan.samples)} örnek kare. "
-        "src/index.ts ve Composition'u bu planla oluştur; kit içini kopyalama/değiştirme. "
+        "src/Composition.tsx Video exportunu bu planla düzenle; host index.tsx/kit sabit. "
         "Bu kayıt render veya kalite başarısı değildir."
     )
 
@@ -128,7 +135,7 @@ def _contract(
         raise ValueError("Composition kimliği ve sonlu pozitif süre gerekli.")
     scenes = _scene_plans(args)
     plan = KitVerificationPlan(
-        "src/index.ts",
+        BOOTSTRAP_ENTRY,
         composition,
         ("src", "public", "package.json"),
         float(timeout),
@@ -138,6 +145,11 @@ def _contract(
         SourceFingerprint(f"src/kit/{file.name}", hashlib.sha256(file.content).hexdigest())
         for file in files
         if file.name != "theme.ts"
+    )
+    hashes += (
+        SourceFingerprint(
+            BOOTSTRAP_ENTRY, hashlib.sha256(bootstrap_source(composition, scenes)).hexdigest()
+        ),
     )
     return RegisteredKitContract(
         plan, scenes, hashes, str(target.relative_to(context.root.resolve()))
@@ -187,8 +199,24 @@ def _install(args: ToolArgs, context: ToolContext) -> RegisteredKitContract:
         raise ValueError("Bu oturumda farklı kit sözleşmesi zaten kayıtlı.")
     payload = json.dumps(asdict(contract), ensure_ascii=False, indent=2).encode()
     _preflight(target, files, payload)
+    check_bootstrap_shadow(target)
+    bootstrap = bootstrap_source(contract.plan.composition_id, contract.scenes)
+    for name in (BOOTSTRAP_ENTRY, EDITABLE_COMPOSITION):
+        path = target / name
+        _safe_file(target, path)
+        if path.exists() and (
+            (name == BOOTSTRAP_ENTRY and path.read_bytes() != bootstrap)
+            or (name == EDITABLE_COMPOSITION and previous is None)
+        ):
+            raise ValueError("Mevcut host giriş/bileşen kaynağı korunuyor; üzerine yazılmaz.")
     writes = [(target / "src/kit" / file.name, file.content) for file in files]
-    writes.append((target / "fusion-contract.json", payload))
+    writes.extend(
+        [
+            (target / BOOTSTRAP_ENTRY, bootstrap),
+            (target / EDITABLE_COMPOSITION, editable_source()),
+            (target / "fusion-contract.json", payload),
+        ]
+    )
     for path, content in writes:
         if context.cancelled.is_set():
             raise ValueError("İptal edilen oturum kit yazımını durdurdu.")

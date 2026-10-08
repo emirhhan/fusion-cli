@@ -28,7 +28,6 @@ async def _context(tmp_path):
         binary.parent.mkdir(parents=True, exist_ok=True)
         binary.write_text("#!/bin/sh\n")
         binary.chmod(0o755)
-    (tmp_path / "video/src/index.ts").write_text("export {};")
     browser = tmp_path / "Chrome browser"
     browser.write_text("#!/bin/sh\n")
     browser.chmod(0o755)
