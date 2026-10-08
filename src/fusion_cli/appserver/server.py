@@ -57,6 +57,7 @@ async def serve(
     home: Path,
     remotion_transport: FrameTransport | None = None,
     remotion_browser: RemotionBrowser | None = None,
+    require_remotion_kit: bool = False,
 ) -> None:
     """Satır akışını oturuma bağla ve akış bitene kadar sür."""
     session = (
@@ -66,8 +67,9 @@ async def serve(
             home=home,
             remotion_transport=remotion_transport,
             remotion_browser=remotion_browser,
+            require_remotion_kit=require_remotion_kit,
         )
-        if remotion_transport is not None or remotion_browser is not None
+        if remotion_transport is not None or remotion_browser is not None or require_remotion_kit
         else AppSession(writer, root=root, home=home)
     )
     tasks: set[asyncio.Task[None]] = set()
@@ -151,10 +153,11 @@ async def run_stdio(
     *,
     remotion_transport: FrameTransport | None = None,
     remotion_browser: RemotionBrowser | None = None,
+    require_remotion_kit: bool = False,
 ) -> None:
     """Gerçek stdio üzerinde protokolü çalıştır."""
     force_utf8_stdio()
-    if remotion_transport is None and remotion_browser is None:
+    if remotion_transport is None and remotion_browser is None and not require_remotion_kit:
         await serve(_stdin_lines(), _stdout_writer, root=root, home=home)
         return
     await serve(
@@ -164,4 +167,5 @@ async def run_stdio(
         home=home,
         remotion_transport=remotion_transport,
         remotion_browser=remotion_browser,
+        require_remotion_kit=require_remotion_kit,
     )

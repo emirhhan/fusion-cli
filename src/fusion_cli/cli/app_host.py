@@ -14,3 +14,4 @@ class AppHostDependencies:
 
     remotion_transport: FrameTransport | None = None
     remotion_browser: RemotionBrowser | None = None
+    require_remotion_kit: bool = False

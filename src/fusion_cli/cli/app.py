@@ -504,7 +504,9 @@ def app_protocol(ctx: typer.Context) -> None:
 
     host = ctx.obj if isinstance(ctx.obj, AppHostDependencies) else None
     if host is not None and (
-        host.remotion_transport is not None or host.remotion_browser is not None
+        host.remotion_transport is not None
+        or host.remotion_browser is not None
+        or host.require_remotion_kit
     ):
         asyncio.run(
             run_stdio(
@@ -512,6 +514,7 @@ def app_protocol(ctx: typer.Context) -> None:
                 Path.home(),
                 remotion_transport=host.remotion_transport,
                 remotion_browser=host.remotion_browser,
+                require_remotion_kit=host.require_remotion_kit,
             )
         )
     else:

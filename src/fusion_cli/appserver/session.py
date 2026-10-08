@@ -358,8 +358,10 @@ class AppSession:
         home: Path,
         remotion_transport: FrameTransport | None = None,
         remotion_browser: RemotionBrowser | None = None,
+        require_remotion_kit: bool = False,
     ) -> None:
         self._writer = writer
+        self._require_remotion_kit = require_remotion_kit
         self._root = root
         self._home = home
         config = load_config()
@@ -1469,6 +1471,7 @@ class AppSession:
                 config,
                 remotion_transport=self._state.remotion_transport,
                 remotion_browser=self._state.remotion_browser,
+                require_remotion_kit=self._require_remotion_kit,
                 deadline=deadline,
                 sinks=(sink,),
                 prompter_factory=lambda _drain: prompter,
