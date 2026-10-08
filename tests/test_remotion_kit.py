@@ -141,3 +141,66 @@ async def test_feature_scene_tek_satir_ve_dogal_yukseklik_kapisi(mode):
 
 def test_feature_scene_en_buyuk_kamera_ve_derinlik_hareketinde_guvenli():
     assert _run("feature-geometry") == "özellik geometrisi geçti"
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "boundary-before",
+        "boundary-after",
+        "first",
+        "blank",
+        "offscreen",
+        "offscreen-short",
+        "sliver",
+        "partial",
+        "overlap",
+        "capacity",
+        "duration",
+        "duplicate",
+        "zero",
+    ],
+)
+async def test_timeline_kesme_siniri_ve_ortak_kapilar(mode):
+    browser_api = pytest.importorskip("playwright.async_api")
+    html = await asyncio.to_thread(_run, "timeline")
+    async with browser_api.async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        try:
+            page = await browser.new_page(viewport={"width": 1920, "height": 1080})
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            await page.route(
+                "http://kit.test/**",
+                lambda route: route.fulfill(body=html, content_type="text/html"),
+            )
+            await page.goto(f"http://kit.test/?mode={mode}")
+            await page.wait_for_timeout(250)
+            if mode.startswith("boundary") or mode in ("first", "partial"):
+                assert errors == []
+                assert await page.locator("[data-fusion-scene]").count() == 1
+                if mode in ("boundary-before", "first"):
+                    assert await page.locator("[data-fusion-feature-ready]").count() == 1
+                    opacity = await page.get_by_text("Fusion", exact=True).evaluate(
+                        "el => {let opacity=1;for(let e=el;e;e=e.parentElement)"
+                        "opacity*=Number(getComputedStyle(e).opacity);return opacity;}"
+                    )
+                    assert opacity >= 0.5
+                else:
+                    assert await page.get_by_text("Custom", exact=True).is_visible()
+            else:
+                assert errors
+                expected = {
+                    "blank": "okunabilir",
+                    "offscreen": "okunabilir",
+                    "offscreen-short": "okunabilir",
+                    "sliver": "okunabilir",
+                    "overlap": "örtüşme",
+                    "capacity": "doğal metin",
+                    "duration": "toplam süresi",
+                    "duplicate": "benzersiz",
+                    "zero": "pozitif",
+                }
+                assert any(expected[mode] in error for error in errors)
+        finally:
+            await browser.close()

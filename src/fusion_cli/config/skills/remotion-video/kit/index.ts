@@ -13,3 +13,6 @@ export { LayoutAudit } from "./LayoutAudit";
 
 export { FeatureScene } from "./FeatureScene";
 export type { FeatureSceneProps, FeatureSceneCard } from "./FeatureScene";
+
+export {FusionTimeline, planTimeline} from "./Timeline";
+export type {SceneSpec, PlannedScene} from "./Timeline";

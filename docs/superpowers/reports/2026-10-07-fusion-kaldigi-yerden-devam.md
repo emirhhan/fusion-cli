@@ -125,3 +125,12 @@ Doğrulanmış ana sayfa viewportları inert template ve kaynak matchMedia koşu
 Başla adayı pointer-events:none atasından dolayı artık elenmez; auto çocuk için gerçek Playwright tıklaması hit-test/örtü/disabled koşullarını sınar. Faz okuyucu state anahtarını tanır. Gizlenen düğme tek başına başarı değildir; bilinen durum geçişi gereklidir. Dört gerçek tarayıcı regresyonu önce kırmızı sonra yeşil; son9 başlangıç+7 uzmanlık testi geçti. Opsiyonel Playwright extras importorskip ile korunur. Ruff/format/mypy1/diff ve bağımsız son inceleme temiz.
 
 Ortak oyun becerisine idempotent ölüm/kaçış, sınırlı geri giriş, tek canlı/çözümlenmiş kayıt, split ve restart sayaç tutarlılığı öğretildi. Bu öğretimdir; ürün yaşam döngüsünün düzeldiğini iddia eden yapay motor testi yazılmadı. Dalga36 artefaktı değiştirilmedi; gerçek yeni üretimde bölüm geçişi/oyun sonu aktarımı hâlâ gerekli. Dalga37 Remotion exec82177 canlı; yeni ağır koşu eşzamanlı yok.
+
+
+## Remotion zaman çizelgesi ortak fazı
+
+Dalga37 5400sn bütçede agent_ok=false, kabul3/11 ve MP4 olmadan bitti;233model/207tool/52hata. FeatureScene yalnız import edilmiş, JSX yerine kapasite kapısını atlayan DelayedFeatureScene kopyası kullanılmıştı. Boş ve çakışan sahne karelerini mevcut kapı durdurdu; Sequence useVideoConfig yerel süreyi doğru döndürür, global süre iddiası kullanılmaz.
+
+Yeni FusionTimeline typed feature/custom sahne sürelerinden kesintisiz Sequence planını türetir, sıfır/negatif süre, duplicateid ve toplam süre uyumsuzluğunu reddeder. Feature descriptor gerçek FeatureScene çağırır. İlk faz kesme; SceneContext çift fade sahipliğini ve ilk kare opacity boşluğunu önler, standalone davranış korunur. Yerel geometri grace ile her kare global içerik/tek okunabilir sahne denetimi ayrıdır. İnceleme tam ekran dışı içeriğin global boş kareden kaçmasını yakaladı; gerçek tuval kesişimi ve ince şerit regresyonlarıyla giderildi. Kısmi kesişim tam okunurluk kanıtı sayılmaz; yerel tam güvenli alan denetimi korunur.
+
+39 ilgili test, strict TypeScript/noUnused, ruff/format/diff, root mypy411 ve son bağımsız inceleme temiz. Üretilmiş artefakt yamalanmadı, gerçek yeni Timeline üretimine aktarım henüz gerekli. Bitmiş dalga37 tekrar kurulabilir node_modules temizlendi; kaynak/lock/log korundu. Dalga38 site yeni boş klasörden canlı exec90059; başka ağır koşu yok. Dört alan %90 göreli gelişim hâlâ kanıtlanmadı.

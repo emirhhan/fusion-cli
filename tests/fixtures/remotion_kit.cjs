@@ -7,7 +7,7 @@ const root = process.argv[2];
 const ts = require(path.join(root, 'app/node_modules/typescript'));
 const React = require(path.join(root, 'app/node_modules/react'));
 const {renderToStaticMarkup} = require(path.join(root, 'app/node_modules/react-dom/server'));
-const kit = path.join(root, 'src/fusion_cli/config/skills/remotion-video/kit');
+const kit = process.argv[4] || path.join(root, 'src/fusion_cli/config/skills/remotion-video/kit');
 let frame = 90;
 const remotion = {
   useCurrentFrame: () => frame,
@@ -24,6 +24,31 @@ function load(name) {
   mod.require = (id) => id === 'react' ? React : id === 'remotion' ? remotion : id.startsWith('./') ? load(id.slice(2)) : require(id);
   mod._compile(ts.transpileModule(fs.readFileSync(source, 'utf8'), {compilerOptions: {jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS, esModuleInterop: true}}).outputText, source);
   return mod.exports;
+}
+if (process.argv[3] === 'timeline') {
+  const esbuild = require(path.join(root, 'app/node_modules/esbuild'));
+  const result = esbuild.buildSync({
+    stdin: {contents: `import React from 'react'; import {createRoot} from 'react-dom/client'; import {FusionTimeline,LayoutAudit,FeatureScene} from '${kit}/index';
+      const mode = new URLSearchParams(location.search).get('mode');
+      globalThis.__fusionTestFrame = mode==='boundary-before'?59:mode==='boundary-after'?60:0;
+      globalThis.__fusionTestSpring=0;
+      if(mode==='offscreen-short'){globalThis.__fusionTestDuration=30;globalThis.__fusionTestFrame=29;}
+      const title=React.createElement('div',{'data-fusion-content':'Custom',style:{position:'absolute',left:mode==='sliver'?1918:mode==='partial'?1800:mode.startsWith('offscreen')?5000:200,top:200,width:500,height:100}},'Custom');
+      const Custom=()=>mode==='blank'?null:title;
+      const props={title:'Fusion',subtitle:'Üç kısa özellik',cards:[{title:'Hız',body:mode==='capacity'?'Uzun metin '.repeat(200):'Akıcı'},{title:'Güven',body:'Sağlam'}]};
+      let scenes=[{id:'first',kind:'feature',duration:60,props},{id:'second',kind:'custom',duration:60,component:Custom}];
+      if(['blank','sliver','partial'].includes(mode)||mode.startsWith('offscreen'))scenes=[{id:'blank',kind:'custom',duration:mode==='offscreen-short'?30:120,component:Custom}];
+      if(mode==='duration')scenes[0].duration=59;
+      if(mode==='duplicate')scenes[1].id='first';
+      if(mode==='zero')scenes[0].duration=0;
+      let element=React.createElement(FusionTimeline,{scenes});
+      if(mode==='overlap')element=React.createElement(LayoutAudit,{scope:'composition'},['a','b'].map(id=>React.createElement('div',{'data-fusion-scene':id,key:id},title)));
+      createRoot(document.getElementById('root')).render(element);`, resolveDir:path.join(root,'app'),loader:'tsx'},
+    bundle:true,write:false,format:'iife',nodePaths:[path.join(root,'app/node_modules')],
+    alias:{remotion:path.join(__dirname,'remotion_context.cjs')},
+  });
+  process.stdout.write('<html><body style="margin:0"><div data-fusion-canvas style="position:relative;width:1920px;height:1080px"><div id="root" style="position:relative;width:1920px;height:1080px"></div></div><script>'+result.outputFiles[0].text+'</script></body></html>');
+  return;
 }
 if (process.argv[3] === 'feature') {
   const esbuild = require(path.join(root, 'app/node_modules/esbuild'));
