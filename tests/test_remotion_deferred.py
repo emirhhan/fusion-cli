@@ -253,3 +253,115 @@ async def test_canonical_kit_yerine_kopya_statikkayit_runtime_basari_sayilmaz(tm
     ).verify()
     assert not result.ok
     assert all(item.status is EvidenceStatus.UNVERIFIED for item in result.evidence)
+
+
+async def test_six_to_seven_scene_revision_replaces_cached_samples(tmp_path):
+    from dataclasses import replace
+
+    from fusion_cli.tools.remotion_revision import revise_remotion_scenes
+
+    context = ToolContext(root=tmp_path)
+    args = _args()
+    args["scenes"] = [{"id": f"old{i}", "kind": "feature", "duration": 20} for i in range(6)]
+    assert (await scaffold_remotion(args, context)).ok
+    calls = []
+
+    async def transport(request):
+        sample = next(
+            s for s in context.remotion_contract.registered.plan.samples if s.frame == request.frame
+        )
+        frame = await _transport(request)
+        nonce = str(len(calls)) + ":" + str(context.remotion_contract.snapshot().revision)
+        calls.append((request.frame, sample.scene_id))
+        return replace(
+            frame,
+            session_id=nonce,
+            runtime=replace(frame.runtime, session=nonce, active_scenes=(sample.scene_id,)),
+        )
+
+    verifier = DeferredRemotionVerifier(tmp_path, context.remotion_contract, transport=transport)
+    assert (await verifier.verify()).ok
+    calls.clear()
+    scenes = [
+        {"id": f"new{i}", "kind": "feature", "duration": 18 if i < 6 else 12} for i in range(7)
+    ]
+    assert (await revise_remotion_scenes({"scenes": scenes}, context)).ok
+    result = await verifier.verify()
+    assert result.ok and len(result.evidence) == 21
+    assert len(calls) == 21 and all(scene.startswith("new") for _, scene in calls)
+
+
+async def test_concurrent_revision_rejects_old_measurement_without_success(tmp_path):
+    from dataclasses import replace
+
+    from fusion_cli.core.remotion_contract import KitFramePlan
+
+    context = ToolContext(root=tmp_path)
+    await scaffold_remotion(_args(), context)
+    changed = False
+
+    async def transport(request):
+        nonlocal changed
+        frame = await _transport(request)
+        if not changed:
+            old = context.remotion_contract.registered
+            new = replace(
+                old, plan=replace(old.plan, samples=(KitFramePlan(1, "intro", "new.png"),))
+            )
+            context.remotion_contract.revise(old, new, lambda: None)
+            changed = True
+        return frame
+
+    result = await DeferredRemotionVerifier(
+        tmp_path, context.remotion_contract, transport=transport
+    ).verify()
+    assert not result.ok
+    assert "revizyon" in result.summary
+
+
+async def test_aba_revision_during_measurement_cannot_reuse_old_success(tmp_path):
+    from dataclasses import replace
+
+    from fusion_cli.core.remotion_contract import KitFramePlan
+
+    context = ToolContext(root=tmp_path)
+    await scaffold_remotion(_args(), context)
+    changed = False
+
+    async def transport(request):
+        nonlocal changed
+        frame = await _transport(request)
+        if not changed:
+            state = context.remotion_contract
+            original = state.registered
+            temporary = replace(
+                original,
+                plan=replace(original.plan, samples=(KitFramePlan(1, "intro", "new.png"),)),
+            )
+            state.revise(original, temporary, lambda: None)
+            state.revise(temporary, original, lambda: None)
+            changed = True
+        return frame
+
+    result = await DeferredRemotionVerifier(
+        tmp_path, context.remotion_contract, transport=transport
+    ).verify()
+    assert not result.ok
+    assert result.evidence[0].status is EvidenceStatus.UNVERIFIED
+    assert context.remotion_contract.snapshot().revision == 2
+
+
+async def test_revision_does_not_reset_consumed_frame_sessions(tmp_path):
+    from dataclasses import replace
+
+    context = ToolContext(root=tmp_path)
+    await scaffold_remotion(_args(), context)
+    verifier = DeferredRemotionVerifier(tmp_path, context.remotion_contract, transport=_transport)
+    assert (await verifier.verify()).ok
+    state = context.remotion_contract
+    old = state.registered
+    new = replace(old, plan=replace(old.plan, samples=old.plan.samples[:1]))
+    state.revise(old, new, lambda: None)
+    result = await verifier.verify()
+    assert not result.ok
+    assert result.evidence[0].status is EvidenceStatus.UNVERIFIED
