@@ -159,6 +159,13 @@ class TurnBudget:
             return None
         return self.total_timeout_s - self.elapsed_s
 
+    def constrain_remaining_s(self, seconds: float) -> None:
+        """Dış kalan süre mevcut mutlak sınırı yalnız daraltabilir; başlangıç tazelenmez."""
+        limit = self.elapsed_s + seconds
+        self.total_timeout_s = (
+            min(self.total_timeout_s, limit) if self.total_timeout_s is not None else limit
+        )
+
     def idle_remaining_s(self) -> float | None:
         """İlerleme-yok sınırı için kalan süre."""
         if self.idle_timeout_s is None:

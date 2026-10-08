@@ -26,14 +26,13 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 
+from evals.driver_limits import DRIVER_GRACE_S
 from evals.kabul.model import Area, Inspection, RunMetrics, RunRecord, classify
 
 _LOG = logging.getLogger(__name__)
 #: Sürücü `python -m evals.live_drive` ile depo kökünden çalışır.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-#: live_drive'ın kendi zaman aşımının üstüne süreç kapanışı için pay.
-DRIVER_GRACE_S = 120
 #: Eklenti eşleşmesi için beklenecek süre (kullanıcının Chrome'u açık olmalı).
 CHROME_PAIRING_S = 120
 

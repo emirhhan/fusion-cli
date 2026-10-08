@@ -25,6 +25,8 @@ import time
 from pathlib import Path
 from typing import IO, Any
 
+from evals.driver_limits import DRIVER_GRACE_S
+
 _LOG_LAUNCHER = """
 import asyncio, logging, sys, time
 logging.basicConfig(level=logging.INFO, stream=sys.stderr,
@@ -284,7 +286,11 @@ async def drive(
         for gorev in args.gorev:
             basla = time.monotonic()
             try:
-                sonuc = await istek("tur.calistir", {"gorev": gorev}, args.sure)
+                sonuc = await istek(
+                    "tur.calistir",
+                    {"gorev": gorev, "sure_s": args.sure},
+                    args.sure + DRIVER_GRACE_S,
+                )
                 ozet = {"ok": sonuc.get("ok"), "metin": str(sonuc.get("metin", ""))[:2000]}
             except TimeoutError:
                 ozet = {"ok": False, "metin": f"zaman aşımı ({args.sure} sn)"}

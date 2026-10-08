@@ -75,6 +75,7 @@ from ...core.redaction import redact
 from ...core.refusal import looks_like_refusal
 from ...core.steering import SteeringQueue
 from ...core.tools import TodoItem, Tool, ToolContext, ToolFamily, ToolResult, tool_family
+from ...core.turn_deadline import TurnDeadline
 from ...core.types import (
     CompletionRequest,
     Message,
@@ -222,7 +223,7 @@ def _decision_message(decision: Decision, *, plan_mode: bool) -> str:
     return denial.APPROVAL_UNAVAILABLE_MESSAGE
 
 
-def _new_budget(config: Config) -> TurnBudget:
+def _new_budget(config: Config, deadline: TurnDeadline | None = None) -> TurnBudget:
     """Bir kullanıcı turu için bütçe kur.
 
     Eşiklerin bir kısmı yapılandırmadan, bir kısmı yukarıdaki sabitlerden gelir ve bu
@@ -231,7 +232,8 @@ def _new_budget(config: Config) -> TurnBudget:
     ve gerekçeleri sabitin yanında yazılıdır.
     """
     return TurnBudget(
-        clock=SystemClock(),
+        clock=deadline.clock if deadline else SystemClock(),
+        total_timeout_s=deadline.remaining_s() if deadline else None,
         max_model_calls=config.runtime.agent_max_steps,
         max_verify_rounds=MAX_VERIFY_ROUNDS,
         max_empty_retries=MAX_EMPTY_RETRIES,
@@ -390,6 +392,8 @@ class AgentDeps:
     #: turun sonucuna göre güncellenir (`learning_steps.reinforce_recalled`).
     recalled_lessons: list[Lesson] = field(default_factory=list)
 
+    deadline: TurnDeadline | None = None
+
     def require_budget(self) -> TurnBudget:
         """Bütçeyi döndür; kurulmamışsa programlama hatasıdır.
 
@@ -439,7 +443,20 @@ async def run_agent(
     # için, bütçe orada kurulsaydı her düzeltici tur sıfırdan başlardı — düzeltilen
     # hata tam olarak buydu.
     if deps.budget is None:
-        deps.budget = _new_budget(deps.config)
+        deps.budget = _new_budget(deps.config, deps.deadline)
+    if deps.deadline is not None:
+        deps.budget.constrain_remaining_s(deps.deadline.remaining_s())
+        if (
+            external_remaining := deps.budget.remaining_s()
+        ) is not None and external_remaining <= 0:
+            return _halt(
+                "Dış isteğin süre sınırı doldu; yeni işlem başlatılmadı.",
+                [*(history or []), Message("user", task)],
+                _State(internal=internal),
+                deps.budget,
+                BudgetStop.DEADLINE,
+                deps,
+            )
     if depth == 0 and not internal:
         deps.active_model_override = None
         # Kullanıcının mesajında AÇIKÇA yazdığı yerel adresler tarayıcı araçlarına
@@ -613,8 +630,8 @@ async def run_agent(
     # Web AI'nın toplam süre sınırı bütçeye TUR BAŞINDA bir kez yazılır; iç içe
     # çağrılarda yeniden kurulsaydı süre sınırı her düzeltmede tazelenirdi.
     budget = deps.require_budget()
-    if budget.total_timeout_s is None and execution.total_timeout_s is not None:
-        budget.total_timeout_s = execution.total_timeout_s
+    if execution.total_timeout_s is not None:
+        budget.constrain_remaining_s(execution.total_timeout_s - budget.elapsed_s)
     if budget.idle_timeout_s is None and execution.idle_timeout_s is not None:
         budget.idle_timeout_s = execution.idle_timeout_s
 
@@ -1088,6 +1105,8 @@ async def _drive(
             return _outcome(timeout_message, messages, state, ok=False)
 
         state.model_calls_made += 1
+        if (remaining := budget.remaining_s()) is not None and remaining <= 0:
+            return _halt(final_text, messages, state, budget, BudgetStop.DEADLINE, deps)
         budget.record_model_call()
         # Yedek zinciri BAŞKA bir modele düşmüş olabilir; yetenek kapısı turun
         # başında yapılandırılmış modele göre kapanmıştı. Kapı yalnız açılır.
@@ -1211,6 +1230,15 @@ async def _drive(
         budget.record_round(progressed=progressed(_round_signals(deps, state, before)))
         if deps.journal is not None and not internal:
             deps.journal.save(messages)
+        if (remaining := budget.remaining_s()) is not None and remaining <= 0:
+            return _halt_local(
+                final_text,
+                messages,
+                state,
+                budget,
+                BudgetStop.DEADLINE,
+                deps,
+            )
         if state.tool_contract_abort:
             budget.halt(BudgetStop.REPEATED_CALL)
             _publish_budget_stop(deps, budget, state)
@@ -1707,6 +1735,8 @@ async def _call_with_retries(
     attempt = 0
     while True:
         remaining = budget.remaining_s()
+        if remaining is not None and remaining <= 0:
+            raise _CallTimeoutError(budget.total_timeout_s or 0.0)
         call_timeout = (
             min(deps.config.runtime.request_timeout_s, remaining)
             if remaining
@@ -1784,7 +1814,8 @@ async def _call_with_retries(
                 f"· deneme {attempt}/{max_retries}"
             )
         )
-        await _retry_sleep(delay)
+        remaining = budget.remaining_s()
+        await _retry_sleep(min(delay, max(0.0, remaining)) if remaining is not None else delay)
 
 
 async def _retry_sleep(delay_s: float) -> None:
@@ -2528,6 +2559,19 @@ async def _run_tools(
 
     budget = deps.require_budget()
     for call in calls:
+        if (remaining := budget.remaining_s()) is not None and remaining <= 0:
+            budget.halt(BudgetStop.DEADLINE)
+            messages.append(
+                Message(
+                    "tool",
+                    "Dış isteğin süre sınırı doldu; bu araç başlatılmadı.",
+                    tool_call_id=call.id,
+                    name=call.name,
+                    ok=False,
+                )
+            )
+            errored = True
+            continue
         if budget.stop is BudgetStop.USER_DENIED:
             # Bu TUR'daki önceki bir çağrı AZ ÖNCE reddedildi (aşağıda). Aynı model
             # yanıtındaki kalan çağrılar hiç çalıştırılmaz — kullanıcının kararı bir
@@ -2953,6 +2997,12 @@ async def _execute(
     # satırı basar (bkz. `appserver/tool_progress.py`) — `ToolExecuted` yalnız
     # BİTİNCE geldiği için uzun süren bir araç boyunca kullanıcı hiçbir şey
     # görmüyordu.
+    budget = deps.require_budget()
+    if (remaining := budget.remaining_s()) is not None and remaining <= 0:
+        budget.halt(BudgetStop.DEADLINE)
+        return ToolResult.failure(
+            "Dış isteğin süre sınırı doldu; bu araç başlatılmadı."
+        ), ToolOutcome.BLOCKED
     deps.publisher.publish(ToolStarted(name=call.name, args=args))
     result = await registry.execute(call.name, args, deps.tool_context)
     return result, ToolOutcome.OK if result.ok else ToolOutcome.FAILED

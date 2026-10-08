@@ -35,6 +35,7 @@ from ..core.followups import suggest_followups
 from ..core.health import HealthRegistry
 from ..core.protocols import TurnJournal
 from ..core.tools import ChromeControl, ToolContext
+from ..core.turn_deadline import TurnDeadline
 from ..core.types import (
     CompletionRequest,
     FusionResult,
@@ -165,6 +166,7 @@ async def run_agent_task(
     health: HealthRegistry | None = None,
     journal: TurnJournal | None = None,
     require_remotion_kit: bool = False,
+    deadline: TurnDeadline | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -210,6 +212,7 @@ async def run_agent_task(
             tool_context.remotion_contract.require()
         deps = AgentDeps(
             config=config,
+            deadline=deadline,
             publisher=bus,
             # Sohbet boyunca yaşayan çağıran kendi hafızasını verir; yoksa
             # "oturum boyunca" izni bu turla birlikte biter (`fusion run`).
