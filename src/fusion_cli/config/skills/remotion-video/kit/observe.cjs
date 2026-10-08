@@ -40,18 +40,30 @@ function installPageDiagnostics(browser, progress) {
 }
 
 function pageDiagnostics() {
-  const publish=rafObserved=>{
-    let rootRegistered=null,rootError='';
+  let timerObserved=typeof setTimeout==='function' ? false : null;
+  let rafObserved=typeof requestAnimationFrame==='function' ? false : null;
+  const publish=event=>{
+    let rootRegistered=null,managerReady=null,rootError='';
     if(typeof window.remotion_getCompositionNames==='function') {
-      try {window.remotion_getCompositionNames();rootRegistered=true;}
-      catch(error) {rootError=String(error);}
+      try {window.remotion_getCompositionNames();rootRegistered=true;managerReady=true;}
+      catch(error) {
+        rootError=String(error);
+        // Kurulu Studio API önce getRoot, ardından manager ref kontrol eder.
+        if(rootError.includes('Unexpectedly did not have a CompositionManager')) {
+          rootRegistered=true;managerReady=false;
+        } else if(rootError.includes('registerRoot() was never called.')) {
+          rootRegistered=false;
+        }
+      }
     } else {rootError='Kök kayıt tanı API mevcut değil: UNVERIFIED';}
-    console.log('FUSION_DIAGNOSTIC_V1:'+JSON.stringify({rootRegistered,rafObserved,rootError}));
+    const visibilityState=typeof document==='undefined' ? null : document.visibilityState ?? null;
+    console.log('FUSION_DIAGNOSTIC_V1:'+JSON.stringify({event,rootRegistered,managerReady,timerObserved,rafObserved,visibilityState,rootError}));
   };
   window.addEventListener('error',event=>console.log('FUSION_DIAGNOSTIC_V1:'+String(event.error ?? event.message)));
   window.addEventListener('load',()=>{
-    publish(false);
-    requestAnimationFrame(()=>publish(true));
+    publish('load');
+    if(timerObserved!==null)setTimeout(()=>{timerObserved=true;publish('timer');},0);
+    if(rafObserved!==null)requestAnimationFrame(()=>{rafObserved=true;publish('raf');});
   },{once:true});
 }
 
