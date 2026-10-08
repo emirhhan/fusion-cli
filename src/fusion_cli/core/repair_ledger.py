@@ -112,12 +112,21 @@ class RepairLedger:
             return RepairDecision(
                 RepairAction.EXHAUSTED, changed, "Onarım bütçesi tükendi; sonuç doğrulanmadı."
             )
-        if known and not changed:
+        if previous is not None:
+            source_note = (
+                "ilgili kaynak değişti"
+                if changed
+                else "ilgili kaynak aynı"
+                if known
+                else "kaynak değişimi bilinmiyor"
+            )
             return RepairDecision(
                 RepairAction.CHANGE_APPROACH,
+                has_source_change=changed,
                 note=(
-                    f"{evidence.check_id}/{evidence.family}: ilgili kaynak aynı. "
-                    "Aynı ölçümü yineleme; yaklaşımı değiştir."
+                    f"{evidence.check_id}/{evidence.family}: {source_note}; "
+                    "aynı hata ailesi gerçek ölçümde sürüyor. "
+                    "kök nedeni yeniden incele; yaklaşımı değiştir."
                 ),
             )
         return RepairDecision(RepairAction.REPAIR, changed)

@@ -48,15 +48,16 @@ def test_unrelated_edit_cannot_reset_repair_evidence() -> None:
     )
 
 
-def test_relevant_source_change_allows_new_verification_without_claiming_fix() -> None:
+def test_changed_source_same_failed_family_requires_root_cause_revision() -> None:
     ledger = RepairLedger()
     ledger.observe(evidence(), remaining_repairs=2)
     changed = replace(
         evidence("render-2"), sources=(SourceFingerprint("src/Scene.tsx", "sha256:two"),)
     )
     result = ledger.observe(changed, remaining_repairs=1)
-    assert result.action is RepairAction.REPAIR
+    assert result.action is RepairAction.CHANGE_APPROACH
     assert result.has_source_change
+    assert "kök nedeni" in result.note
 
 
 def test_different_family_or_check_is_not_same_failure() -> None:
@@ -90,12 +91,13 @@ def test_existing_budget_is_authority_and_snapshot_survives_context_reset() -> N
     assert restored.snapshot().failures[-1].attempt_id == "2"
 
 
-def test_unknown_sources_do_not_assert_unchanged_source_loop() -> None:
+def test_unknown_sources_preserve_family_recurrence_without_source_claim() -> None:
     ledger = RepairLedger()
     ledger.observe(replace(evidence(), sources=()), remaining_repairs=2)
     result = ledger.observe(replace(evidence("2"), sources=()), remaining_repairs=1)
-    assert result.action is RepairAction.REPAIR
+    assert result.action is RepairAction.CHANGE_APPROACH
     assert not result.has_source_change
+    assert "kaynak aynı" not in result.note
 
 
 def test_source_order_is_irrelevant_and_note_contains_no_source_content() -> None:
@@ -108,3 +110,15 @@ def test_source_order_is_irrelevant_and_note_contains_no_source_content() -> Non
     assert result.action is RepairAction.CHANGE_APPROACH
     assert "layout" in result.note and "overflow" in result.note
     assert "hash-a" not in result.note
+
+
+def test_padding_changes_do_not_erase_repeated_family() -> None:
+    ledger = RepairLedger()
+    assert ledger.observe(evidence(), remaining_repairs=3).action is RepairAction.REPAIR
+    for attempt, digest in (("2", "padding-one"), ("3", "padding-two")):
+        changed = replace(evidence(attempt), sources=(SourceFingerprint("src/Scene.tsx", digest),))
+        decision = ledger.observe(changed, remaining_repairs=1)
+        assert decision.action is RepairAction.CHANGE_APPROACH
+        assert decision.has_source_change
+        assert "aynı hata ailesi" in decision.note
+    assert ledger.observe(evidence("4"), remaining_repairs=0).action is RepairAction.EXHAUSTED

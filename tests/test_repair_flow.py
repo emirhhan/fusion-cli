@@ -150,3 +150,19 @@ async def test_real_loop_duplicate_launch_cannot_spawn_second_process(
         "video üret", _deps(tmp_path, RecordingSink()), self_review=False, verify=False
     )
     assert len(spawned) == 1
+
+
+def test_changed_padding_family_note_keeps_existing_budget() -> None:
+    turn = budget()
+    record_failure_evidence(failure("1"), turn)
+    item = failure("2").failure_evidence[0]
+    changed = replace(item, sources=(SourceFingerprint("src/a.tsx", "padding-change"),))
+    result = replace(failure("2"), failure_evidence=(changed,))
+    feedback = record_failure_evidence(result, turn)
+    assert "kök nedeni" in feedback.note
+    assert "aynı hata ailesi" in feedback.note
+    assert turn.verify_rounds == 2
+    assert not record_failure_evidence(result, turn).is_new_failure
+    assert turn.verify_rounds == 2
+    assert record_failure_evidence(failure("3"), turn).is_exhausted
+    assert turn.stop is BudgetStop.NO_PROGRESS
