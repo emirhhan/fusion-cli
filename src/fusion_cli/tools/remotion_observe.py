@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..config.paths import bundled_skills_dir
+from ..core.constants import MAX_CHECKPOINT_OUTPUT_CHARS
 from ..core.repair_ledger import SourceFingerprint
 from .job_evidence import prepare_manifest
 
@@ -166,17 +167,49 @@ async def observe_frame(
         after = await asyncio.to_thread(_manifest, request)
         return RenderedFrame(session, False, None, before, after, type(error).__name__)
     after = await asyncio.to_thread(_manifest, request)
-    try:
-        result = json.loads(process.stdout)
-        record = _record(result.get("record")) if isinstance(result, dict) else None
-    except (ValueError, TypeError):
-        result, record = {}, None
-    rendered = (
-        process.exit_code == 0 and isinstance(result, dict) and result.get("rendered") is True
-    )
+    response = _response(process.stdout, session, request)
+    record = response.runtime
+    rendered = process.exit_code == 0 and response.rendered
     rendered = rendered and artifact.is_file() and _is_png(artifact)
-    detail = "" if rendered and record else "Gerçek still/runtime kaydı doğrulanamadı."
+    detail = (
+        "" if rendered and record else response.error or "Gerçek still/runtime kaydı doğrulanamadı."
+    )
     return RenderedFrame(session, rendered, record, before, after, detail)
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationResponse:
+    runtime: RuntimeRecord | None
+    rendered: bool
+    error: str = ""
+
+
+def _response(stdout: str, session: str, request: RenderRequest) -> ObservationResponse:
+    prefix = "FUSION_OBSERVE_V1:"
+    frames = [line[len(prefix) :] for line in stdout.splitlines() if line.startswith(prefix)]
+    try:
+        if len(frames) > 1:
+            raise ValueError("Tek gözlem cevabı gerekli")
+        # Eski enjekte runner yalnız bütün çıktısı tek JSON ise uyumludur.
+        value = json.loads(frames[0] if frames else stdout)
+        if not isinstance(value, dict) or (frames and value.get("session") != session):
+            raise ValueError("Oturum eşleşmedi")
+        if frames and (
+            value.get("composition") != request.composition or value.get("frame") != request.frame
+        ):
+            raise ValueError("Composition/kare eşleşmedi")
+        runtime = _record(value.get("record"))
+        error, stage = value.get("error", ""), value.get("stage", "")
+        if not isinstance(error, str) or not isinstance(stage, str):
+            raise ValueError("Hata alanları metin olmalı")
+        detail = f"{stage}: {error}" if error and stage else error
+        return ObservationResponse(
+            runtime, value.get("rendered") is True, detail[:MAX_CHECKPOINT_OUTPUT_CHARS]
+        )
+    except (ValueError, TypeError):
+        return ObservationResponse(
+            None, False, "Gözlem protokol cevabı tek ve geçerli oturum kaydı değil."
+        )
 
 
 def _record(value: object) -> RuntimeRecord | None:
@@ -230,5 +263,6 @@ def _payload(
             "session": session,
             "timeoutMs": int(request.timeout_s * 1000),
             "cleanupFile": str(cleanup),
+            "diagnosticLimit": MAX_CHECKPOINT_OUTPUT_CHARS,
         }
     )

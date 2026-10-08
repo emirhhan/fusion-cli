@@ -206,3 +206,20 @@ async def test_build_verifier_acik_contract_yokken_genel_projeyi_degistirmez(tmp
     )
     assert isinstance(verifier, RemotionRuntimeVerifier)
     assert not (await verifier.verify()).ok
+
+
+async def test_runtime_yoksa_orijinal_renderer_hatasi_kanitta_korunur(tmp_path):
+    async def transport(request):
+        return replace(
+            _frame(),
+            runtime=None,
+            rendered=False,
+            error="select: Waiting for root component to load",
+        )
+
+    result = await RemotionRuntimeVerifier(tmp_path, _plan(), transport=transport).verify()
+    assert not result.ok
+    assert result.evidence[0].status is EvidenceStatus.UNVERIFIED
+    assert not result.evidence[0].behavioral
+    assert "Waiting for root component" in result.evidence[0].output
+    assert "select:" in result.summary

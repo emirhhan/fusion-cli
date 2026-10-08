@@ -94,7 +94,10 @@ async def test_node_runner_gercek_parametreleri_renderer_siniri_uzerinden_tasir(
     (modules / "bundler/index.js").write_text("exports.bundle=async({entryPoint})=>entryPoint;")
     (modules / "renderer/index.js").write_text("""
     exports.openBrowser=async()=>({close:async()=>{}});
-    exports.selectComposition=async({id,inputProps})=>({id,inputProps});
+    exports.selectComposition=async options=>{
+      if(options.timeoutInMilliseconds!==10000 || typeof options.onBrowserLog!=='function')
+        throw Error('selectComposition seçenekleri eksik');
+      return {id:options.id,inputProps:options.inputProps};};
     exports.renderStill=async args=>{
       require('fs').writeFileSync(args.output,Buffer.from([137,80,78,71,13,10,26,10]));
       args.onBrowserLog({text:'FUSION_RUNTIME_V1:'+JSON.stringify({
@@ -276,3 +279,40 @@ def _browser_fixture(tmp_path, mode="installed"):
         "exports.downloadBrowser=()=>{throw Error('DOWNLOAD MUST NEVER RUN')};"
     )
     return executable
+
+
+@pytest.mark.parametrize(
+    "mode", ["banner", "malformed", "multiple", "wrong-session", "wrong-frame"]
+)
+async def test_framed_transport_banner_ve_gecersiz_cevabi_ayirir(tmp_path, mode):
+    (tmp_path / "index.ts").write_text("entry")
+    request = RenderRequest(tmp_path, "index.ts", "Fusion", 0, "still.png", ("index.ts",), 10)
+
+    async def runner(command, root, deadline):
+        payload = json.loads(command[-1])
+        record = {
+            "session": payload["session"],
+            "rendered": False,
+            "record": None,
+            "composition": payload["composition"],
+            "frame": payload["frame"],
+            "stage": "select",
+            "error": "Waiting for root component to load",
+        }
+        if mode == "wrong-session":
+            record["session"] = "stale"
+        if mode == "wrong-frame":
+            record["frame"] = 99
+        line = "FUSION_OBSERVE_V1:" + json.dumps(record)
+        if mode == "malformed":
+            line = "FUSION_OBSERVE_V1:{"
+        if mode == "multiple":
+            line += "\n" + line
+        return ProcessOutput(1, "Remotion help banner\n" + line, "")
+
+    result = await observe_frame(request, runner=runner)
+    assert not result.rendered and result.runtime is None
+    if mode == "banner":
+        assert "select" in result.error and "Waiting for root component" in result.error
+    else:
+        assert "protokol" in result.error

@@ -16,6 +16,11 @@ function installedBrowser(localRequire) {
 }
 async function main() {
   const request = JSON.parse(process.argv[2]);
+  let stage='dependencies';
+  const messages=[];
+  const limit=request.diagnosticLimit;
+  const bounded=value=>String(value).slice(0,limit);
+  const emit=value=>process.stdout.write('FUSION_OBSERVE_V1:'+JSON.stringify({session:request.session,composition:request.composition,frame:request.frame,stage,...value})+'\n');
   // Renderer Chromium'u ayrı process group ile açar; yalnız kendi spawn sınırımızı kaydet.
   const childProcess = require('node:child_process');
   const spawn = childProcess.spawn;
@@ -29,26 +34,33 @@ async function main() {
   const localRequire = createRequire(path.join(process.cwd(), 'package.json'));
   let renderer, bundler;
   try {renderer=localRequire('@remotion/renderer');bundler=localRequire('@remotion/bundler');}
-  catch {process.stdout.write(JSON.stringify({error:'Mevcut renderer/bundler kurulu değil.'}));process.exitCode=1;return;}
+  catch {emit({rendered:false,error:'Mevcut renderer/bundler kurulu değil.'});process.exitCode=1;return;}
   let record = null, browser = null;
   const closeBrowser = async () => {if(browser){const owned=browser;browser=null;await owned.close({silent:true});}};
   process.once('SIGTERM',()=>{closeBrowser().finally(()=>process.exit(1));});
   const onBrowserLog = ({text}) => {
-    if(!text.startsWith(RUNTIME_PREFIX))return;
+    if(!text.startsWith(RUNTIME_PREFIX)) {
+      if(messages.join('\n').length<limit)messages.push(bounded(text));
+      return;
+    }
     try {const candidate=JSON.parse(text.slice(RUNTIME_PREFIX.length));
       if(candidate.session===request.session&&candidate.composition===request.composition&&candidate.frame===request.frame)record=candidate;
     } catch { /* Geçersiz kayıt gözlem kanıtı değildir. */ }
   };
   try {
+    stage='browser';
     const browserExecutable=installedBrowser(localRequire);
     browser=await renderer.openBrowser('chrome',{browserExecutable,chromeMode:'headless-shell',onBrowserDownload:()=>{throw new Error('Gözlem tarayıcı indiremez.');}});
+    stage='bundle';
     const serveUrl=await bundler.bundle({entryPoint:request.entry});
     const inputProps={__fusionRuntimeSession:request.session};
-    const composition=await renderer.selectComposition({serveUrl,id:request.composition,inputProps,puppeteerInstance:browser});
+    stage='select';
+    const composition=await renderer.selectComposition({serveUrl,id:request.composition,inputProps,puppeteerInstance:browser,onBrowserLog,timeoutInMilliseconds:request.timeoutMs});
+    stage='render';
     await renderer.renderStill({serveUrl,composition,inputProps,frame:request.frame,
       output:request.artifact,imageFormat:'png',puppeteerInstance:browser,timeoutInMilliseconds:request.timeoutMs,onBrowserLog});
-    process.stdout.write(JSON.stringify({record,rendered:true}));
-  } catch(error) {process.stdout.write(JSON.stringify({record,rendered:false,error:String(error)}));process.exitCode=1;}
+    stage='done';emit({record,rendered:true});
+  } catch(error) {emit({record,rendered:false,error:bounded(String(error)+'\n'+messages.join('\n'))});process.exitCode=1;}
   finally {await closeBrowser();}
 }
 main().catch(error=>{process.stdout.write(JSON.stringify({error:String(error)}));process.exitCode=1;});

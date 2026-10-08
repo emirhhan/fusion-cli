@@ -7,8 +7,10 @@ import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from pathlib import Path
 
+from ...core.constants import MAX_CHECKPOINT_OUTPUT_CHARS
 from ...core.remotion_contract import KitFramePlan as KitFramePlan
 from ...core.remotion_contract import KitVerificationPlan as KitVerificationPlan
 from ...core.verification import VerificationResult
@@ -116,7 +118,8 @@ class RemotionRuntimeVerifier:
             tuple(SourceFingerprint(item.path, item.digest) for item in frame.source_before),
             sample.requires_feature,
         )
-        return await RemotionContractVerifier(contract, _TransportObservation(frame)).verify()
+        result = await RemotionContractVerifier(contract, _TransportObservation(frame)).verify()
+        return _transport_detail(result, frame)
 
 
 def _validate_plan(root: Path, plan: KitVerificationPlan) -> None:
@@ -161,3 +164,18 @@ def _invalid_plan(
     )
     empty = RenderedFrame("", False, None, (), (), "Plan veya taşıma doğrulanamadı.")
     return RemotionContractVerifier(request, _TransportObservation(empty))
+
+
+def _transport_detail(result: VerificationResult, frame: RenderedFrame) -> VerificationResult:
+    if result.ok or not frame.error:
+        return result
+    detail = frame.error[:MAX_CHECKPOINT_OUTPUT_CHARS]
+    return replace(
+        result,
+        summary=result.summary + " " + detail,
+        findings=(*result.findings, detail),
+        evidence=tuple(
+            replace(item, summary=item.summary + " " + detail, output=item.output + " " + detail)
+            for item in result.evidence
+        ),
+    )
