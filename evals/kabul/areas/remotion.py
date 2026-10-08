@@ -385,7 +385,12 @@ def _logo_check(root: Path) -> Check:
         dosya.relative_to(root).as_posix()
         for dosya in iter_files(root, _SOURCE_SUFFIXES)
         if SKIPPED_DIRECTORY not in dosya.parts
-        and ASSETS_DIRNAME not in dosya.parts
+        # Prepared girdiler yalnız kökteki ayrılmış ağaçtır. Aynı adlı gerçek
+        # projenin src/ kaynakları veya çalışma kökünün adı dışlama nedeni değil.
+        and (
+            not dosya.is_relative_to(root / ASSETS_DIRNAME)
+            or dosya.is_relative_to(root / ASSETS_DIRNAME / "src")
+        )
         and _LOGO_USE.search(dosya.read_text(encoding="utf-8", errors="replace"))
     ]
     return Check(
