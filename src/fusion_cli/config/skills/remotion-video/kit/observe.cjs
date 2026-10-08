@@ -14,6 +14,16 @@ function installedBrowser(localRequire) {
   }
   return revision.executablePath;
 }
+// Açık host seçimi cache doğrulamasını değiştirmez; eksik seçimde fallback yoktur.
+function selectedBrowser(localRequire, selection) {
+  if(selection == null) return {browserExecutable:installedBrowser(localRequire),chromeMode:'headless-shell'};
+  const fs=require('node:fs');
+  if(!selection || typeof selection.executable !== 'string' || !path.isAbsolute(selection.executable) ||
+      !['headless-shell','chrome-for-testing'].includes(selection.mode) || !fs.existsSync(selection.executable) ||
+      !fs.statSync(selection.executable).isFile()) throw new Error('Host tarayıcı seçimi geçersiz; indirme veya fallback yapılmadı.');
+  fs.accessSync(selection.executable,fs.constants.X_OK);
+  return {browserExecutable:selection.executable,chromeMode:selection.mode};
+}
 // Kurulu renderer Page._client/evaluateOnNewDocument sözleşmesi özellik denetimiyle kullanılır.
 // Bu tanı opsiyoneldir; yokluğu veya hata mesajı runtime başarı kanıtı değildir.
 function installPageDiagnostics(browser, progress) {
@@ -115,8 +125,8 @@ async function main() {
   };
   try {
     stage='browser';progress();
-    const browserExecutable=installedBrowser(localRequire);
-    browser=await renderer.openBrowser('chrome',{browserExecutable,chromeMode:'headless-shell',onBrowserDownload:()=>{throw new Error('Gözlem tarayıcı indiremez.');}});
+    const options=selectedBrowser(localRequire,request.browser);
+    browser=await renderer.openBrowser('chrome',options);
     installPageDiagnostics(browser,progress);
     stage='bundle';progress();
     const serveUrl=await bundler.bundle({entryPoint:request.entry});

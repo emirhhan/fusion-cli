@@ -11,11 +11,20 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from ..config.paths import bundled_skills_dir
 from ..core.constants import MAX_CHECKPOINT_OUTPUT_CHARS
 from ..core.repair_ledger import SourceFingerprint
 from .job_evidence import prepare_manifest
+
+
+@dataclass(frozen=True, slots=True)
+class ExistingBrowser:
+    """Yalnız host seçimi: kurulu executable ve renderer çalışma modu."""
+
+    executable: Path
+    mode: Literal["headless-shell", "chrome-for-testing"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +186,7 @@ def _local_path(root: Path, value: str) -> Path:
 async def observe_frame(
     request: RenderRequest,
     *,
+    browser: ExistingBrowser | None = None,
     runner: Runner = _run,
     new_session: Callable[[], str] = lambda: uuid.uuid4().hex,
 ) -> RenderedFrame:
@@ -190,7 +200,9 @@ async def observe_frame(
     before = await asyncio.to_thread(_manifest, request)
     try:
         with tempfile.TemporaryDirectory(prefix="fusion-remotion-") as directory:
-            payload = _payload(request, entry, artifact, session, Path(directory) / "owned-groups")
+            payload = _payload(
+                request, entry, artifact, session, Path(directory) / "owned-groups", browser
+            )
             script = bundled_skills_dir() / "remotion-video/kit/observe.cjs"
             process = await runner(("node", str(script), payload), request.root, request.timeout_s)
     except (OSError, TimeoutError) as error:
@@ -318,7 +330,12 @@ def _is_png(path: Path) -> bool:
 
 
 def _payload(
-    request: RenderRequest, entry: Path, artifact: Path, session: str, cleanup: Path
+    request: RenderRequest,
+    entry: Path,
+    artifact: Path,
+    session: str,
+    cleanup: Path,
+    browser: ExistingBrowser | None = None,
 ) -> str:
     return json.dumps(
         {
@@ -330,5 +347,8 @@ def _payload(
             "timeoutMs": int(request.timeout_s * 1000),
             "cleanupFile": str(cleanup),
             "diagnosticLimit": MAX_CHECKPOINT_OUTPUT_CHARS,
+            "browser": {"executable": str(browser.executable), "mode": browser.mode}
+            if browser
+            else None,
         }
     )
