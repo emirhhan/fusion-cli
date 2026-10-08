@@ -17,6 +17,7 @@ from ...core.changeset import ChangeSet
 from ...core.health import HealthRegistry
 from ...core.types import FusionResult, Message
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
+from ...engines.agent.remotion_bridge import FrameTransport
 from ...memory.factory import Memory
 from ...observability.cost import CostTracker
 from ...tools.capabilities import CapabilityRegistry
@@ -58,6 +59,8 @@ class ReplState:
     # erişemiyor, `run_shell(ls -la ..)` ile dolaşmaya çalışıp tur bütçesini
     # yakıyordu.
     extra_roots: tuple[Path, ...] = ()
+    #: Yalnız host enjekte eder; model/scaffold tarayıcı seçemez.
+    remotion_transport: FrameTransport | None = field(default=None, kw_only=True)
     engine: Engine = Engine.AGENT
     approval: ApprovalMode = ApprovalMode.AUTO
     task_type: str = "general"

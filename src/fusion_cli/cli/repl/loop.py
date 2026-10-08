@@ -25,6 +25,7 @@ from rich.console import Console
 
 if TYPE_CHECKING:
     from ...engines.agent.loop import AgentDeps, AgentOutcome
+    from ...engines.agent.remotion_bridge import FrameTransport
 
 from ...config import model_select, profile
 from ...config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
@@ -83,6 +84,7 @@ async def run_repl(
     root: Path,
     console: Console,
     extra_roots: tuple[Path, ...] = (),
+    remotion_transport: FrameTransport | None = None,
 ) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür."""
     import os
@@ -99,6 +101,7 @@ async def run_repl(
             root=root,
             home=Path.home(),
             extra_roots=extra_roots,
+            remotion_transport=remotion_transport,
             health=build_health(config),
         )
         return await run_tui_repl(state, console)
@@ -109,6 +112,7 @@ async def run_repl(
         root=root,
         home=Path.home(),
         extra_roots=extra_roots,
+        remotion_transport=remotion_transport,
         health=build_health(config),
     )
     # Ev dizini GEÇİLİR: dinamik `/resume<kaynak>` komutları ancak böyle kaydolur.
@@ -466,6 +470,7 @@ async def _agent_turn(
                 root=state.root,
                 tool_context=tool_context,
                 remotion_state=tool_context.remotion_contract,
+                remotion_transport=state.remotion_transport,
             ),
             # `/type` agent turunda da etkili olmalı: görev tipi model seçimini
             # yönlendirir (`select_agent_spec`). Geçirilmediğinde "general"a düşülüyor

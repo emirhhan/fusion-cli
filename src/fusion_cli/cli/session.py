@@ -46,6 +46,7 @@ from ..core.types import (
 from ..engines.agent import AgentOutcome, run_agent
 from ..engines.agent.approval import ApprovalMemory, ApprovalMode, build_policy
 from ..engines.agent.loop import AgentDeps
+from ..engines.agent.remotion_bridge import FrameTransport
 from ..engines.agent.turn_evidence import evidence_from_turn
 from ..engines.agent.verification import build_verifier
 from ..engines.fusion import run_fusion
@@ -166,6 +167,7 @@ async def run_agent_task(
     health: HealthRegistry | None = None,
     journal: TurnJournal | None = None,
     require_remotion_kit: bool = False,
+    remotion_transport: FrameTransport | None = None,
     deadline: TurnDeadline | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
@@ -230,6 +232,7 @@ async def run_agent_task(
                 root=tool_context.root,
                 tool_context=tool_context,
                 remotion_state=tool_context.remotion_contract,
+                remotion_transport=remotion_transport,
             ),
             task_type=task_type,
             background=background,

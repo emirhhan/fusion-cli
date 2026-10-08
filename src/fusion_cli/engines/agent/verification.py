@@ -37,6 +37,7 @@ from ...core.verification import (
     VerificationResult,
     Verifier,
 )
+from ...tools.remotion_observe import observe_frame
 from .browser_verify import BrowserVerifier
 from .domain_adapters.contract import ToolFailureMarkers
 from .domain_adapters.defaults import default_domain_registry
@@ -121,19 +122,32 @@ def build_verifier(
     """
     verifiers: list[Verifier] = []
     registry = domains if domains is not None else default_domain_registry()
+    transport = remotion_transport if remotion_transport is not None else observe_frame
     # Açık runtime planı yoksa genel Remotion projeleri mevcut davranışını korur.
     if remotion_contract is not None:
-        verifiers.append(RemotionRuntimeVerifier(root, remotion_contract))
+        verifiers.append(
+            RemotionRuntimeVerifier(
+                root,
+                remotion_contract,
+                transport=transport,
+            )
+        )
     elif remotion_state is not None:
         verifiers.append(
             DeferredRemotionVerifier(
                 root,
                 remotion_state,
-                **({"transport": remotion_transport} if remotion_transport is not None else {}),
+                transport=transport,
             )
         )
     elif config.runtime.web_verification and tool_context is not None:
-        verifiers.append(DeferredRemotionVerifier(root, tool_context.remotion_contract))
+        verifiers.append(
+            DeferredRemotionVerifier(
+                root,
+                tool_context.remotion_contract,
+                transport=transport,
+            )
+        )
     # Yapılandırılmış komut varsa o kazanır; yoksa PROJEDEN KEŞFEDİLİR.
     #
     # Kapı eskiden tamamen opt-in'di ve pratikte hiç kurulmuyordu. Bedeli ölçüldü:
