@@ -28,6 +28,7 @@ from .remotion_bootstrap import (
     bootstrap_source,
     check_bootstrap_shadow,
     editable_source,
+    tsconfig_source,
 )
 
 _IDENTIFIER = re.compile(r"[A-Za-z0-9_-]+")
@@ -199,6 +200,10 @@ def _install(args: ToolArgs, context: ToolContext) -> RegisteredKitContract:
         raise ValueError("Bu oturumda farklı kit sözleşmesi zaten kayıtlı.")
     payload = json.dumps(asdict(contract), ensure_ascii=False, indent=2).encode()
     _preflight(target, files, payload)
+    config_path = target / "tsconfig.json"
+    _safe_file(target, config_path)
+    if config_path.exists() and config_path.read_bytes() != tsconfig_source():
+        raise ValueError("Mevcut tsconfig farklı; üzerine yazılmaz.")
     check_bootstrap_shadow(target)
     bootstrap = bootstrap_source(contract.plan.composition_id, contract.scenes)
     for name in (BOOTSTRAP_ENTRY, EDITABLE_COMPOSITION):
@@ -215,6 +220,7 @@ def _install(args: ToolArgs, context: ToolContext) -> RegisteredKitContract:
             (target / BOOTSTRAP_ENTRY, bootstrap),
             (target / EDITABLE_COMPOSITION, editable_source()),
             (target / "fusion-contract.json", payload),
+            (target / "tsconfig.json", tsconfig_source()),
         ]
     )
     for path, content in writes:

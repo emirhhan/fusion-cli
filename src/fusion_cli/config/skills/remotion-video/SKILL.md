@@ -5,19 +5,18 @@ description: Remotion ile kare tabanlı React video üretimi, MP4 render ve doğ
 
 # Remotion video
 
-## Kurulum (uzun sürer: arka planda çalıştır)
-
-```
-run_shell(command="npx create-video@latest --yes --blank --no-tailwind video && cd video && npm i", background=true)
-job_status(id=..., wait_s=600)
-```
-Çıktı yolu çalışma klasörüne göredir: `video/` içinden `../out/video.mp4` render et.
-
-## Hareket kiti (ZORUNLU: sade "fade + yazı" slayt yapma)
+## Hareket kiti (sade "fade + yazı" yapma)
 
 Üretimden önce sahne id/kind/duration planını
 `scaffold_remotion(path="video",composition_id="Video",timeout_s=120,scenes=[…])` ile kaydet;
-Kit kaynağı `{SKILL_DIR}/kit`; host kopyalar, süre kare cinsinden. Logoyu `video/public/`a koy.
+Host sabit `src/index.tsx` ve uyumlu tsconfig oluşturur. Yalnız `src/Composition.tsx`
+`Video` exportunda sahneleri yaz; giriş/kit değiştirme, rename etme. Süre karedir.
+Kit `{SKILL_DIR}/kit`; logoyu `video/public/`a koy.
+Boş projede önce iskele; sonra yalnız bağımlılık kur, mevcut dosyaları ezme:
+```
+run_shell(command="cd video && npm init -y && npm install remotion @remotion/cli react react-dom && npm install -D typescript @types/react @types/react-dom", background=true)
+job_status(id=..., wait_s=600)
+```
 `import {FusionTimeline} from "./kit";` — diğer kit bileşenleri de aynı kaynaktan.
 Renkleri `kit/theme.ts`'ten markaya göre ayarla.
 - Zeminde `<Aurora/>` + `<Particles/>`; süreleri `FusionTimeline` yönetir:
@@ -47,12 +46,12 @@ Renkleri `kit/theme.ts`'ten markaya göre ayarla.
   Still'ler geçmeden tam render başlatma. Hata karesini yeniden ölç; denetim hatası
   kalan videoyu tamamlandı diye sunma.
 
-## Kare tabanlı animasyon kuralları (render'da yalnız bunlar çalışır)
+## Kare tabanlı animasyon
 
 - Hareketi `useCurrentFrame()` + `interpolate()` / `spring()` ile hesapla.
 - CSS `transition`, `animation`, `@keyframes` ve Tailwind `animate-*` KULLANMA: render
   kare kare yapılır, bunlar çalışmaz ve video donuk çıkar.
-- fps ve süreyi `useVideoConfig()`'ten al; `<Composition>`'da `durationInFrames = saniye × fps`.
+- fps/süre `useVideoConfig()`; host girişinde plan toplamı ve 1920×1080/30 sabittir.
 - Metin: ana başlık ≥ 96 px, destek metni ≥ 44 px (1080p); kenarlarda 120 px güvenli alan.
 - Görsel/font: `public/` + `staticFile()`; Google fontu `@remotion/google-fonts`.
 
@@ -65,5 +64,5 @@ run_shell(command="ffprobe -v error -show_entries stream=width,height,r_frame_ra
 ```
 Kayıtlı plan/host browser ve yerel strict tsc kullanılır.
 Başlangıç başarı değildir: job_status çıkışı, tüm sahne kareleri ve teslim kanıtı gerekir.
-Süre, çözünürlük ve fps istenenle aynı olmalı. `npx remotion still <Id> --frame=<n> kare.png`
-ile baş/orta/son kareyi al; boş ya da aynı kare çıkıyorsa animasyon çalışmıyor demektir.
+Baş/orta/son kareyi al; boş ya da aynı kare çıkıyorsa animasyon çalışmıyor demektir.
+Host girişini/kit kapısını değiştirerek render hatasını geçiştirme.

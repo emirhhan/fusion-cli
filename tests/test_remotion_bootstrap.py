@@ -75,3 +75,69 @@ async def test_bootstrap_gözlem_sirasinda_degisirse_basari_tasinmaz(tmp_path):
         tmp_path, context.remotion_contract, transport=transport
     ).verify()
     assert not result.ok and "Gözlem sırasında" in result.summary
+
+
+async def test_tsconfig_uyumlu_host_iskele_tekrari_ve_mevcut_dosya_korunur(tmp_path):
+    import json
+
+    context = ToolContext(root=tmp_path)
+    assert (await scaffold_remotion(_args(), context)).ok
+    path = tmp_path / "video/tsconfig.json"
+    config = json.loads(path.read_text())
+    options = config["compilerOptions"]
+    assert options["moduleResolution"] == "Bundler"
+    assert options["strict"] and options["noEmit"]
+    assert "baseUrl" not in options and "paths" not in options
+    assert (await scaffold_remotion(_args(), context)).ok
+    path.write_text('{"compilerOptions":{"strict":false}}')
+    assert not (await scaffold_remotion(_args(), context)).ok
+    assert json.loads(path.read_text())["compilerOptions"]["strict"] is False
+
+
+async def test_farkli_mevcut_tsconfig_hicbir_kit_dosyasi_yazmaz(tmp_path):
+    path = tmp_path / "video/tsconfig.json"
+    path.parent.mkdir()
+    path.write_text("mevcut proje")
+    assert not (await scaffold_remotion(_args(), ToolContext(root=tmp_path))).ok
+    assert path.read_text() == "mevcut proje" and not (path.parent / "src").exists()
+
+
+async def test_scaffold_tsconfig_gercek_yerel_typescript_ile_derlenir(tmp_path):
+    import asyncio
+    import json
+    from pathlib import Path
+
+    from fusion_cli.tools.remotion_bootstrap import tsconfig_source
+
+    test_path = await asyncio.to_thread(Path(__file__).resolve)
+    compiler = test_path.parents[1] / "app/node_modules/typescript/bin/tsc"
+    if not compiler.exists():
+        pytest.skip("Yerel TypeScript yok; kurulum yapılmaz.")
+    (tmp_path / "tsconfig.json").write_bytes(tsconfig_source())
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/minimal.tsx").write_text(
+        "declare const React: {createElement: unknown};\n"
+        "declare global {namespace JSX { interface IntrinsicElements {div: object;} }}\n"
+        "export const Video = () => <div/>;\n"
+    )
+    process = await asyncio.create_subprocess_exec(
+        "node",
+        str(compiler),
+        "-p",
+        str(tmp_path / "tsconfig.json"),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+    assert process.returncode == 0, (stdout + stderr).decode()
+    assert json.loads((tmp_path / "tsconfig.json").read_text())["include"] == ["src"]
+
+
+def test_beceri_bos_projede_once_host_iskele_sonra_bagimlilik_kurar():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    skill = (root / "src/fusion_cli/config/skills/remotion-video/SKILL.md").read_text()
+    assert "create-video" not in skill
+    assert skill.index("scaffold_remotion(") < skill.index("npm install")
+    assert len(skill) <= 4000

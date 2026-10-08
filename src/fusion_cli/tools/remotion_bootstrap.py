@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from ..core.remotion_contract import KitScenePlan
@@ -35,3 +36,26 @@ def check_bootstrap_shadow(root: Path) -> None:
         for suffix in (".ts", ".js", ".jsx"):
             if (root / "src" / f"{name}{suffix}").exists():
                 raise ValueError("Host girişini/bileşenini gölgeleyen mevcut modül var.")
+
+
+def tsconfig_source() -> bytes:
+    """TS 5.9/7 için alias gerektirmeyen yerel JSX derleme sözleşmesi."""
+    return json.dumps(
+        {
+            "compilerOptions": {
+                "target": "ES2020",
+                "lib": ["ES2020", "DOM"],
+                "module": "ESNext",
+                "moduleResolution": "Bundler",
+                "jsx": "react",
+                "strict": True,
+                "noEmit": True,
+                "noUnusedLocals": True,
+                "noUnusedParameters": True,
+                "esModuleInterop": True,
+                "skipLibCheck": True,
+            },
+            "include": ["src"],
+        },
+        indent=2,
+    ).encode()
