@@ -12,6 +12,7 @@ from ..core.remotion_contract import RegisteredKitContract
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_list, require_str
 from .files import writable_path
+from .remotion_bootstrap import tsconfig_source
 from .remotion_contract_check import check_packaged, project_root
 from .shell import run_shell
 
@@ -57,23 +58,17 @@ def _command(
     entry = project_root(root, contract.plan.entry)
     if not entry.is_file():
         raise ValueError("Kayıtlı Remotion giriş kaynağı eksik.")
+    config = project_root(root, "tsconfig.json")
+    if not config.is_file() or config.read_bytes() != tsconfig_source():
+        raise ValueError("Host strict TypeScript proje yapılandırması eksik/değişmiş.")
     strict = [
         str(tsc),
+        "--project",
+        str(config),
         "--noEmit",
         "--strict",
         "--noUnusedLocals",
         "--noUnusedParameters",
-        "--jsx",
-        "react",
-        "--esModuleInterop",
-        "--skipLibCheck",
-        "--lib",
-        "ES2020,DOM",
-        "--target",
-        "ES2020",
-        "--moduleResolution",
-        "node",
-        str(entry),
     ]
     render = [
         str(remotion),
@@ -102,6 +97,9 @@ def _prepare(args: ToolArgs, context: ToolContext) -> dict[str, object]:
     sources = [
         str((root / item).relative_to(context.root.resolve())) for item in contract.plan.sources
     ]
+    config_scope = str((root / "tsconfig.json").relative_to(context.root.resolve()))
+    if config_scope not in sources:
+        sources.append(config_scope)
     return {
         "command": command,
         "background": True,

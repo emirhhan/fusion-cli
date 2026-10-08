@@ -53,7 +53,12 @@ async def test_launch_uses_immutable_contract_local_binaries_and_job_receipts(
     args = captured[0]
     assert args["background"] is True
     assert args["expected_outputs"] == ["out/new film.mp4"]
-    assert args["failure_sources"] == ["video/src", "video/public", "video/package.json"]
+    assert args["failure_sources"] == [
+        "video/src",
+        "video/public",
+        "video/package.json",
+        "video/tsconfig.json",
+    ]
     command = args["command"]
     assert "--strict" in command and " && " in command
     assert "npx" not in command and "--browser-executable" in command
@@ -160,3 +165,51 @@ async def test_cancellation_during_preparation_prevents_job_launch(tmp_path, mon
     monkeypatch.setattr(remotion_render, "_prepare", prepare_then_cancel)
     monkeypatch.setattr(remotion_render, "run_shell", lambda *args: pytest.fail("Başlatılmamalı"))
     assert not (await remotion_render.render_remotion({"output": "out.mp4"}, context)).ok
+
+
+async def test_strict_project_command_avoids_ts7_positional_config_conflict(tmp_path):
+    import shlex
+
+    from fusion_cli.tools.remotion_render import _command
+
+    context = await _context(tmp_path)
+    command = _command(
+        tmp_path / "video", context.remotion_contract.registered, tmp_path / "new.mp4", context
+    )
+    strict = shlex.split(command.split(" && ")[1])
+    assert "--project" in strict
+    assert strict[strict.index("--project") + 1] == str(tmp_path / "video/tsconfig.json")
+    assert str(tmp_path / "video/src/index.tsx") not in strict
+    assert "--strict" in strict and "--noUnusedLocals" in strict
+
+
+async def test_changed_project_config_never_weakens_strict_launch(tmp_path, monkeypatch):
+    from fusion_cli.tools import remotion_render
+
+    context = await _context(tmp_path)
+    (tmp_path / "video/tsconfig.json").write_text('{"compilerOptions":{"strict":false}}')
+    monkeypatch.setattr(remotion_render, "run_shell", lambda *args: pytest.fail("Başlatılmamalı"))
+    assert not (await remotion_render.render_remotion({"output": "new.mp4"}, context)).ok
+
+
+async def test_project_config_mutation_invalidates_completed_delivery(tmp_path):
+    from fusion_cli.core.evidence import ToolUse
+    from fusion_cli.engines.agent.turn_report import build_turn_report
+    from fusion_cli.tools import jobs, shell
+    from fusion_cli.tools.job_current import snapshot_current_jobs
+    from fusion_cli.tools.remotion_render import _prepare
+
+    context = await _context(tmp_path)
+    args = _prepare({"output": "new.mp4"}, context)
+    args["command"] = "echo new > new.mp4"
+    start = shell.run_shell(args, context)
+    done = jobs.job_status({"id": start.job_completion.job_id, "wait_s": 10}, context)
+    assert done.job_completion.exit_code == 0
+    assert "video/tsconfig.json" in done.job_completion.source_scopes
+    uses = (
+        ToolUse("run_shell", job_completion=start.job_completion),
+        ToolUse("job_status", job_completion=done.job_completion),
+    )
+    (tmp_path / "video/tsconfig.json").write_text('{"compilerOptions":{"strict":false}}')
+    report = build_turn_report((), uses, None, current_jobs=snapshot_current_jobs(tmp_path, uses))
+    assert report.blocks_success
