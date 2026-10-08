@@ -88,6 +88,7 @@ import { MainRail, type MainSection } from "./screens/MainRail";
 import { MainSurface, type SurfaceSection } from "./sections/MainSurface";
 import { MediaScreen } from "./sections/MediaScreen";
 import { KitsScreen } from "./kits/KitsScreen";
+import type { ScheduleDeliveryClient } from "./schedule/types";
 import { LibraryScreen } from "./library/LibraryScreen";
 import { ScheduleScreen } from "./schedule/ScheduleScreen";
 import { useScheduleRunner } from "./schedule/useScheduleRunner";
@@ -707,7 +708,7 @@ export function SessionUygulama({
       setNewTaskError("Sayfa veya proje açılamadı. Yeniden dene.");
     }
   };
-  // Zamanlanan görev arka planda yeni bir sohbet açar; kullanıcının o an
+  // Manuel "Şimdi çalıştır" arka planda sohbet açar; kullanıcının o an
   // baktığı sohbet değişmez.
   const activeIdRef = useRef<string | null>(null);
   activeIdRef.current = active?.id ?? null;
@@ -720,8 +721,10 @@ export function SessionUygulama({
     },
     [controller],
   );
+  const [deliveryClient, setDeliveryClient] = useState<ScheduleDeliveryClient | null>(null);
   const scheduleRunner = useScheduleRunner({
     client: active?.client ?? null,
+    deliveryClient,
     create: createScheduledSession,
     send: controller.send,
     sessions: controller.state.sessions,
@@ -744,7 +747,7 @@ export function SessionUygulama({
       section={surfaceSection}
       scheduled={<ScheduleScreen client={active?.client ?? null} defaultRoot={active?.root ?? ""} onRunNow={scheduleRunner.runNow} visible={surfaceSection === "scheduled"} />}
       library={<LibraryScreen client={active?.client ?? null} visible={surfaceSection === "library"} />}
-      kits={<KitsScreen />}
+      kits={<KitsScreen onDeliveryClient={setDeliveryClient} />}
     />
   );
   /** `@` sorgusunu sunucuya ilet ve gelen öneriyi listeye yaz. */

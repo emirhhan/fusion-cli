@@ -1,3 +1,39 @@
+/** Vade yoklaması ve bir makbuz için bekleme aynı mevcut aralığı kullanır. */
+export const SCHEDULE_POLL_MS = 30_000;
+
+export interface ScheduleDelivery {
+  occurrence_id: string;
+  schedule_id: string;
+  due_at: number;
+  title: string;
+  task: string;
+  root: string;
+  task_id: string | null;
+}
+export interface ScheduleReceipt {
+  occurrenceId: string;
+  taskId: string;
+  status: "queued";
+}
+export interface ScheduleDeliveryClient {
+  deliver(delivery: ScheduleDelivery): Promise<ScheduleReceipt | null>;
+}
+export function isScheduleDelivery(value: unknown): value is ScheduleDelivery {
+  if (!value || typeof value !== "object") return false;
+  const data = value as Record<string, unknown>;
+  return typeof data.occurrence_id === "string" && /^[a-f0-9]{64}$/.test(data.occurrence_id)
+    && typeof data.schedule_id === "string" && data.schedule_id.length > 0
+    && typeof data.due_at === "number" && Number.isFinite(data.due_at)
+    && typeof data.title === "string" && typeof data.task === "string" && data.task.trim().length > 0
+    && typeof data.root === "string" && data.root.trim().length > 0
+    && data.task_id === null;
+}
+export function isScheduleReceipt(value: unknown, occurrenceId: string): value is ScheduleReceipt {
+  if (!value || typeof value !== "object") return false;
+  const data = value as Record<string, unknown>;
+  return data.status === "queued" && data.occurrenceId === occurrenceId && data.taskId === `schedule-${occurrenceId}`;
+}
+
 export type ScheduleKind = "bir_kez" | "gunluk" | "haftalik" | "aralik";
 
 export interface ScheduledTask {

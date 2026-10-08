@@ -1,3 +1,4 @@
+import { ScheduledDeliveryClient } from "./scheduledDeliveryClient";
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KITS_THEME_MESSAGE, kitsFrameUrl, type KitsTheme } from "./kitsUrl";
@@ -19,17 +20,26 @@ function currentTheme(): KitsTheme {
 interface KitsScreenProps {
   /** Testler gerçek süreç açmadan başlatmayı taklit eder. */
   start?: StartKits;
+  onDeliveryClient?: (client: ScheduledDeliveryClient | null) => void;
 }
 
 /** Fusion Kits modülü: yan süreç hazır olunca iframe ile gömülür.
  *
  * Bileşen bir kez kurulur ve menü geçişinde DOM'da kalır (bkz. `MainSurface`);
  * Kits sohbeti bölüm değiştirince kaybolmaz. */
-export function KitsScreen({ start = startWithTauri }: KitsScreenProps) {
+export function KitsScreen({ start = startWithTauri, onDeliveryClient }: KitsScreenProps) {
   const [state, setState] = useState<KitsState>({ durum: "hazirlaniyor" });
   const [attempt, setAttempt] = useState(0);
   const retry = useCallback(() => setAttempt((current) => current + 1), []);
   const frame = useRef<HTMLIFrameElement>(null);
+  const delivery = useRef<ScheduledDeliveryClient | null>(null);
+  useEffect(() => {
+    if (state.durum !== "hazir" || !frame.current?.contentWindow) return;
+    const client = new ScheduledDeliveryClient(window, frame.current.contentWindow, state.adres);
+    delivery.current = client;
+    onDeliveryClient?.(client);
+    return () => { client.close(); delivery.current = null; onDeliveryClient?.(null); };
+  }, [state, onDeliveryClient]);
   // Adres ilk açılıştaki temayı taşır; sonraki değişiklik sayfayı yeniden yüklemeden
   // (sohbet kaybolmadan) mesajla iletilir.
   const initialTheme = useRef<KitsTheme>(currentTheme());
@@ -64,6 +74,7 @@ export function KitsScreen({ start = startWithTauri }: KitsScreenProps) {
   if (state.durum === "hazir") {
     return (
       <iframe
+        onLoad={() => delivery.current?.reset()}
         allow="microphone; autoplay; fullscreen"
         className="kits-screen__frame"
         ref={frame}

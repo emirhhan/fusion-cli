@@ -87,33 +87,61 @@ describe("ScheduleScreen", () => {
 });
 
 describe("useScheduleRunner", () => {
-  it("vadesi gelen görev için sohbet açar ve oturum hazır olunca gönderir", async () => {
-    const request = vi.fn(async () => ({ ok: true, gorevler: [gorev] }));
-    const create = vi.fn(async () => "s1");
-    const send = vi.fn(() => true);
-    const started = vi.fn();
-    const { rerender } = renderHook(
-      ({ sessions }: { sessions: Record<string, { status: string }> }) =>
-        useScheduleRunner({ client: { request }, create, send, sessions, onStarted: started }),
-      { initialProps: { sessions: {} } },
-    );
-    await waitFor(() => expect(create).toHaveBeenCalledWith({ mode: "kod", root: "/proje", title: "Sabah raporu" }));
-    expect(send).not.toHaveBeenCalled();
-    rerender({ sessions: { s1: { status: "ready" } } });
-    expect(send).toHaveBeenCalledWith("s1", "Stok raporunu çıkar");
-    expect(started).toHaveBeenCalledWith(gorev);
-    rerender({ sessions: { s1: { status: "ready" } } });
-    expect(send).toHaveBeenCalledTimes(1);
+  const occurrence = { occurrence_id: "a".repeat(64), schedule_id: "a1", due_at: 123, title: "Sabah raporu", task: "Stok raporunu çıkar", root: "/proje", task_id: null };
+  const receipt = { occurrenceId: occurrence.occurrence_id, taskId: `schedule-${occurrence.occurrence_id}`, status: "queued" as const };
+  function requests(ack = true) {
+    return vi.fn(async (name: string) => name === "zamanlama.teslim_bekleyenler" ? { ok: true, teslimler: [occurrence] } : name === "zamanlama.teslim_onayla" ? { ok: ack } : { ok: true, gorevler: [gorev] });
+  }
+  it("otomatik vade native sohbet açmaz; kalıcı makbuzdan sonra ack verir", async () => {
+    const request = requests(); const create = vi.fn(async () => "s1"); const send = vi.fn(() => true); const deliver = vi.fn(async () => receipt);
+    renderHook(() => useScheduleRunner({ client: { request }, create, send, sessions: {}, deliveryClient: { deliver } }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("zamanlama.teslim_onayla", { occurrence_id: occurrence.occurrence_id, task_id: receipt.taskId }));
+    expect(deliver).toHaveBeenCalledWith(occurrence); expect(create).not.toHaveBeenCalled(); expect(send).not.toHaveBeenCalled();
+  });
+  it("Kits veya geçerli makbuz yoksa pending korunur", async () => {
+    const request = requests(); const create = vi.fn(async () => "s1");
+    const { unmount } = renderHook(() => useScheduleRunner({ client: { request }, create, send: () => true, sessions: {} }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("zamanlama.teslim_bekleyenler", {}));
+    expect(create).not.toHaveBeenCalled(); expect(request.mock.calls.some(([name]) => name === "zamanlama.teslim_onayla")).toBe(false); unmount();
+    renderHook(() => useScheduleRunner({ client: { request }, create, send: () => true, sessions: {}, deliveryClient: { deliver: async () => ({ ...receipt, occurrenceId: "b".repeat(64) }) } }));
+    await new Promise((done) => setTimeout(done, 0)); expect(request.mock.calls.some(([name]) => name === "zamanlama.teslim_onayla")).toBe(false);
+  });
+  it("ack hatasından sonra aynı occurrence tekrar teslim edilir", async () => {
+    vi.useFakeTimers(); const request = requests(false); const deliver = vi.fn(async () => receipt);
+    const client = { request }; const deliveryClient = { deliver };
+    renderHook(() => useScheduleRunner({ client, create: async () => "s1", send: () => true, sessions: {}, deliveryClient }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(deliver).toHaveBeenCalledTimes(2); expect(deliver.mock.calls.map(([value]) => value.occurrence_id)).toEqual([occurrence.occurrence_id, occurrence.occurrence_id]);
+  });
+  it("Şimdi çalıştır eski native sohbet yolunu korur", async () => {
+    const create = vi.fn(async () => "s1"); const send = vi.fn(() => true); const started = vi.fn();
+    const { result, rerender } = renderHook(({ sessions }) => useScheduleRunner({ client: null, create, send, sessions, onStarted: started }), { initialProps: { sessions: {} as Record<string, { status: string }> } });
+    await act(async () => { await result.current.runNow(gorev); });
+    expect(create).toHaveBeenCalledWith({ mode: "kod", root: "/proje", title: "Sabah raporu" }); expect(send).not.toHaveBeenCalled(); rerender({ sessions: { s1: { status: "ready" } } });
+    expect(send).toHaveBeenCalledWith("s1", gorev.gorev); expect(started).toHaveBeenCalledWith(gorev);
+  });
+  it("bekleyen makbuz sırasında paralel poll ve aynı occurrence çoğalmaz", async () => {
+    vi.useFakeTimers(); let resolve!: (value: typeof receipt | null) => void;
+    const request = vi.fn(async (name: string) => name === "zamanlama.teslim_bekleyenler" ? { ok: true, teslimler: [occurrence, occurrence] } : { ok: true });
+    const deliver = vi.fn(() => new Promise<typeof receipt | null>((done) => { resolve = done; }));
+    const client = { request }; const deliveryClient = { deliver };
+    renderHook(() => useScheduleRunner({ client, deliveryClient, create: async () => "s1", send: () => true, sessions: {} }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(deliver).toHaveBeenCalledOnce(); expect(request).toHaveBeenCalledTimes(2);
+    await act(async () => { resolve(receipt); });
+    expect(deliver).toHaveBeenCalledOnce(); expect(request).toHaveBeenCalledWith("zamanlama.teslim_onayla", { occurrence_id: occurrence.occurrence_id, task_id: receipt.taskId });
+  });
+  it("hook kapanınca geç kalan makbuz ack üretmez", async () => {
+    let resolve!: (value: typeof receipt | null) => void;
+    const request = requests(); const deliver = vi.fn(() => new Promise<typeof receipt | null>((done) => { resolve = done; })); const client = { request }; const deliveryClient = { deliver };
+    const { unmount } = renderHook(() => useScheduleRunner({ client, deliveryClient, create: async () => "s1", send: () => true, sessions: {} }));
+    await waitFor(() => expect(deliver).toHaveBeenCalledOnce()); unmount(); await act(async () => { resolve(receipt); });
+    expect(request.mock.calls.some(([name]) => name === "zamanlama.teslim_onayla")).toBe(false);
+  });
+  it("makbuz timeout pending kaydı sonraki yoklamada yeniden dener", async () => {
+    vi.useFakeTimers(); const request = requests(); const deliver = vi.fn(async () => null); const client = { request }; const deliveryClient = { deliver };
+    renderHook(() => useScheduleRunner({ client, deliveryClient, create: async () => "s1", send: () => true, sessions: {} }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); }); expect(deliver).toHaveBeenCalledTimes(2); expect(request.mock.calls.some(([name]) => name === "zamanlama.teslim_onayla")).toBe(false);
   });
 
-  it("çekirdek yokken yoklamaz, hata verirse çökmeden yeniden dener", async () => {
-    vi.useFakeTimers();
-    const request = vi.fn().mockRejectedValueOnce(new Error("kapalı")).mockResolvedValue({ ok: true, gorevler: [] });
-    const create = vi.fn(async () => "s1");
-    renderHook(() => useScheduleRunner({ client: null, create, send: () => true, sessions: {} }));
-    renderHook(() => useScheduleRunner({ client: { request }, create, send: () => true, sessions: {} }));
-    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
-    expect(request).toHaveBeenCalledTimes(2);
-    expect(create).not.toHaveBeenCalled();
-  });
 });
