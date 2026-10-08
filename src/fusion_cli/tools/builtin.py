@@ -327,6 +327,15 @@ _TOOLS: tuple[Tool, ...] = (
             {
                 "command": _STRING,
                 "background": {"type": "boolean"},
+                "failure_check": {
+                    **_STRING,
+                    "description": "Kontrol kimliği; failure_sources ile birlikte.",
+                },
+                "failure_sources": {
+                    "type": "array",
+                    "items": _STRING,
+                    "description": "İlgili kaynak dosya/dizinleri; başlangıçta hashlenir.",
+                },
             },
             ["command"],
         ),

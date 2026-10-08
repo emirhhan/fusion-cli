@@ -23,6 +23,7 @@ from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .command_policy import READONLY_GIT_SUBCOMMANDS
 from .files import invented_path_reason
+from .job_evidence import prepare_manifest
 from .jobs import start_job
 from .safe_delete import DeleteRefusedError, move_to_trash, simple_rm_targets
 from .wordpress_setup import php_env
@@ -39,7 +40,11 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     if deleted is not None:
         return deleted
     if args.get("background") is True:
-        return start_job(command, context, _shell_env())
+        try:
+            manifest = prepare_manifest(args, context.root)
+        except (OSError, ValueError) as error:
+            return ToolResult.failure(f"İş kanıtı hazırlanamadı: {error}")
+        return start_job(command, context, _shell_env(), manifest=manifest)
     try:
         # shell=True bilinçli: kullanıcı boru/yönlendirme içeren komut yazabilmeli.
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.

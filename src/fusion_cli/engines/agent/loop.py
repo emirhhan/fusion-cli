@@ -125,6 +125,7 @@ from .plan_runner import run_execution_plan
 from .platform_check import ensure_limitations_disclosed, run_platform_check
 from .playbook_stage import maybe_run_playbook
 from .project_instructions import read_all_instructions
+from .repair_flow import record_failure_evidence
 from .repo_context import repo_map_block
 from .teacher_flow import (
     prepare_teacher_plan,
@@ -910,6 +911,7 @@ class _State:
     üretir ve çağıran tarafından toplanır.
     """
 
+    observation_calls: int = 0
     tool_calls_made: int = 0
     mutating_tool_calls_made: int = 0
     failed_tool_calls: int = 0
@@ -1032,6 +1034,15 @@ async def _drive(
                 denial.DENIAL_STOP_ANSWER.format(tool=state.denied_tool_name or "araç"),
                 messages,
                 state,
+            )
+        if budget.stop is BudgetStop.NO_PROGRESS:
+            return _halt(
+                "Onarım bütçesi tükendi; ürün sonucu doğrulanmadı.",
+                messages,
+                state,
+                budget,
+                BudgetStop.NO_PROGRESS,
+                deps,
             )
         # Kullanıcının araya girdiği yönerge, sıradaki model çağrısından ÖNCE girer:
         # tur bittikten sonra iletmek onu bir sonraki göreve, hiç iletmemek ise
@@ -1350,7 +1361,7 @@ def _progress_marker(deps: AgentDeps, state: _State) -> tuple[int, int, int, int
     yazma (ikisi de artar). İkisi de sabit kaldıysa o turda hiçbir şey olmamıştır.
     """
     return (
-        state.tool_calls_made,
+        state.tool_calls_made - state.observation_calls,
         len(deps.tool_context.touched),
         state.failed_tool_calls,
         state.already_done_calls,
@@ -2694,6 +2705,9 @@ async def _run_tools(
         result, outcome = await _execute(
             call, args, deps, registry, execution=execution, plan_mode=plan_mode
         )
+        repair_feedback = record_failure_evidence(result, budget)
+        if result.is_observation:
+            budget.forget_call(signature)
         if outcome is ToolOutcome.OK and call.name == "todo_write":
             for sentence in todo_transitions(todos_before, tuple(deps.tool_context.todos.items)):
                 deps.publisher.publish(NarrationPublished(text=sentence))
@@ -2729,6 +2743,8 @@ async def _run_tools(
             state.capability_wall = True
         if outcome is ToolOutcome.OK:
             state.tool_calls_made += 1
+            if result.is_observation:
+                state.observation_calls += 1
             # Okuma sonucu turda saklanır: aynı okuma yinelenirse engel yerine
             # bu sonuç döner (bkz. tekrar kapısı).
             if tool is not None and not tool.mutating:
@@ -2739,7 +2755,7 @@ async def _run_tools(
             budget.successful_tool_evidence.append((call.name, args, mutating))
             if mutating and _acts_on_remote_state(call.name):
                 budget.remote_epoch += 1
-            if mutating:
+            if mutating and not result.is_observation:
                 state.mutating_tool_calls_made += 1
                 state.failed_mutations_in_row = 0
                 # Çağı yalnızca DOSYA değişikliği ilerletir. `run_shell` başarılı
@@ -2794,6 +2810,8 @@ async def _run_tools(
             )
         )
         govde = result.output
+        if repair_feedback.note:
+            govde = f"{govde}\n\n[onarım kanıtı] {repair_feedback.note}"
         if outcome is ToolOutcome.OK and tool is not None and not tool.mutating:
             ayni = _same_output_note(state, call.name, result.output)
             if ayni is not None:

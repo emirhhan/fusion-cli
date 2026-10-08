@@ -1,6 +1,6 @@
 import React, {useLayoutEffect, useRef} from "react";
 import {AbsoluteFill, useCurrentFrame, useDelayRender, useVideoConfig} from "remotion";
-import {ContentRect, inspectLayout, layoutPolicy} from "./layout";
+import {ContentRect, inspectLayoutEvidence, LayoutFinding, layoutPolicy} from "./layout";
 
 const opacityOf = (element: Element, root: Element): number => {
   let opacity = 1;
@@ -69,14 +69,18 @@ export const LayoutAudit: React.FC<{children: React.ReactNode; margin?: number; 
       }
       try {
         const rectangles = scope === "composition" ? visibleContentRects(root.current, width, height) : contentRects(root.current, width, height);
-        const findings = scope === "local" ? inspectLayout(rectangles, {width, height}, margin)
-          : rectangles.length ? [] : ["Composition karesinde okunabilir içerik yok."];
+        const findings: LayoutFinding[] = scope === "local" ? inspectLayoutEvidence(rectangles, {width, height}, margin)
+          : rectangles.length ? [] : [{family: "empty", message: "Composition karesinde okunabilir içerik yok."}];
         if (scope === "composition") {
           const readableScenes = Array.from(root.current.querySelectorAll<HTMLElement>("[data-fusion-scene]"))
             .filter(scene => opacityOf(scene, root.current!) >= layoutPolicy.minOpacity && visibleContentRects(scene, width, height).length > 0);
-          if (readableScenes.length !== 1) findings.push("Composition karesinde tam bir okunabilir sahne olmalı; boşluk/örtüşme var.");
+          if (readableScenes.length !== 1) findings.push({family: readableScenes.length ? "overlap" : "empty", message: "Composition karesinde tam bir okunabilir sahne olmalı; boşluk/örtüşme var."});
         }
-        if (findings.length) cancelRender(new Error(`Yerleşim denetimi, kare ${frame}: ${findings.slice(0, 5).join(" ")}`));
+        if (findings.length) {
+          // Sürümlü araç protokolü: aile gerçek ölçümden gelir, hata metninden tahmin edilmez.
+          console.error("FUSION_FAILURE_V1:" + JSON.stringify({version: 1, families: [...new Set(findings.map(finding => finding.family))]}));
+          cancelRender(new Error(`Yerleşim denetimi, kare ${frame}: ${findings.slice(0, 5).map(finding => finding.message).join(" ")}`));
+        }
       } finally {
         continueRender(handle);
       }

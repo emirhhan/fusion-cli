@@ -22,8 +22,10 @@ import uuid
 from pathlib import Path
 
 from ..core.constants import JOB_LOG_TAIL_CHARS, JOB_MAX_WAIT_S
+from ..core.repair_ledger import FailureEvidence
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_positive_int, require_str
+from .job_evidence import JobEvidenceManifest, completed_evidence, save_manifest
 
 #: İş dosyalarının proje köküne göre yeri.
 JOBS_DIR = Path(".fusion") / "is"
@@ -38,13 +40,21 @@ def _jobs_dir(context: ToolContext) -> Path:
     return context.root / JOBS_DIR
 
 
-def start_job(command: str, context: ToolContext, env: dict[str, str]) -> ToolResult:
+def start_job(
+    command: str,
+    context: ToolContext,
+    env: dict[str, str],
+    *,
+    manifest: JobEvidenceManifest | None = None,
+) -> ToolResult:
     """Komutu arka planda başlat; kimliği ve izleme yolunu döner."""
     klasor = _jobs_dir(context)
     klasor.mkdir(parents=True, exist_ok=True)
     kimlik = uuid.uuid4().hex[:8]
     gunluk = klasor / f"{kimlik}.log"
     cikis = klasor / f"{kimlik}.exit"
+    if manifest is not None:
+        save_manifest(klasor / f"{kimlik}.proof.json", manifest)
     # Çıkış kodu kabuğun kendisi tarafından dosyaya yazılır: süreç bizden bağımsız biter.
     # Komut alt kabukta çalışır; içindeki `exit` sarmalayıcıyı da bitirip kodu yutmasın.
     sarmal = f"( {command} ) > {shlex.quote(str(gunluk))} 2>&1; echo $? > {shlex.quote(str(cikis))}"
@@ -66,7 +76,7 @@ def start_job(command: str, context: ToolContext, env: dict[str, str]) -> ToolRe
     return ToolResult(
         f"Arka plan işi başladı: {kimlik}\nKomut: {command}\nÇıktı: {gunluk}\n"
         f"Durumu ve son çıktıyı görmek için job_status(id='{kimlik}', wait_s=...) çağır; "
-        "bitmesini beklemek için wait_s ver. Gerekirse job_status(id, stop=true) ile durdur."
+        "bitmesini beklemek için wait_s ver. Gerekirse job_status(id, stop=true) ile durdur.",
     )
 
 
@@ -118,8 +128,22 @@ def job_status(args: ToolArgs, context: ToolContext) -> ToolResult:
         kod = _read_exit(klasor, kimlik)
     cikti = _tail(klasor, kimlik)
     if kod is None:
-        return ToolResult(f"İş {kimlik} SÜRÜYOR ({bekle} sn beklendi).\n[son çıktı]\n{cikti}")
-    return ToolResult(f"İş {kimlik} BİTTİ (çıkış kodu {kod}).\n[son çıktı]\n{cikti}", ok=kod == 0)
+        return ToolResult(
+            f"İş {kimlik} SÜRÜYOR ({bekle} sn beklendi).\n[son çıktı]\n{cikti}", is_observation=True
+        )
+    evidence: tuple[FailureEvidence, ...] = ()
+    warning = ""
+    if kod != 0:
+        try:
+            evidence = completed_evidence(klasor, kimlik)
+        except (OSError, ValueError) as error:
+            warning = f"\nYapılandırılmış kontrol kanıtı okunamadı: {error}"
+    return ToolResult(
+        f"İş {kimlik} BİTTİ (çıkış kodu {kod}).\n[son çıktı]\n{cikti}{warning}",
+        ok=kod == 0,
+        failure_evidence=evidence,
+        is_observation=True,
+    )
 
 
 def _stop(kimlik: str, klasor: Path) -> ToolResult:

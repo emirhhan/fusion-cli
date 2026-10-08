@@ -64,7 +64,16 @@ async def test_render_kapisi_gercek_dom_hatalarini_bildirir(mode):
         try:
             page = await browser.new_page(viewport={"width": 1920, "height": 1080})
             errors = []
+            protocol_records = []
             page.on("pageerror", lambda error: errors.append(str(error)))
+            page.on(
+                "console",
+                lambda message: (
+                    protocol_records.append(message.text)
+                    if message.text.startswith("FUSION_FAILURE_V1:")
+                    else None
+                ),
+            )
             await page.route(
                 "http://kit.test/**",
                 lambda route: route.fulfill(body=html, content_type="text/html"),
@@ -78,6 +87,11 @@ async def test_render_kapisi_gercek_dom_hatalarini_bildirir(mode):
                 async with page.expect_event("pageerror", timeout=5000):
                     await page.goto(f"http://kit.test/?mode={mode}")
                 assert errors and "Yerleşim denetimi" in errors[0]
+                import json
+
+                assert protocol_records
+                proof = json.loads(protocol_records[0].split(":", 1)[1])
+                assert proof["version"] == 1 and proof["families"]
                 expected = {
                     "overlap": "üst üste",
                     "delayed": "üst üste",

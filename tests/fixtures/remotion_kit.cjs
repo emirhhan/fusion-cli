@@ -106,6 +106,10 @@ if (process.argv[3] === 'feature-geometry') {
   return;
 }
 if (process.argv[3] === 'geometry') {
+  const {inspectLayoutEvidence}=load('layout');
+  assert.equal(inspectLayoutEvidence([], {width:1920,height:1080})[0].family,'empty');
+  assert.equal(inspectLayoutEvidence([{label:'A',left:0,top:0,right:300,bottom:300}], {width:1920,height:1080})[0].family,'overflow');
+  assert.equal(inspectLayoutEvidence([{label:'A',left:200,top:200,right:500,bottom:500},{label:'B',left:250,top:250,right:550,bottom:550}], {width:1920,height:1080})[0].family,'overlap');
   const {inspectLayout} = load('layout');
   const viewport = {width: 1920, height: 1080};
   const rect = (label, left, top, width, height) => ({label, left, top, right: left+width, bottom: top+height});

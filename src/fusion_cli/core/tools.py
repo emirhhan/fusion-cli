@@ -25,6 +25,7 @@ from typing import Any, Protocol
 from .artifacts import ArtifactStore
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
+from .repair_ledger import FailureEvidence
 from .tool_content import ToolContent, ToolContentType
 
 #: Modelin araca verdiği ham argümanlar. JSON'dan geldiği için tipsizdir;
@@ -178,6 +179,8 @@ class ToolResult:
     #: Kırpma bilgiyi yok eder, artifact yalnızca YER DEĞİŞTİRİR: model özeti görür,
     #: gerekirse dosyayı `read_file` ile açar. Kanıt zinciri de bu yolu kullanır.
     artifact_path: str = ""
+    failure_evidence: tuple[FailureEvidence, ...] = ()
+    is_observation: bool = False
 
     @property
     def images(self) -> tuple[str, ...]:

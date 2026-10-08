@@ -30,6 +30,7 @@ from pathlib import Path
 
 from .constants import REPEAT_READ_CACHE_CHARS, REPEAT_READ_CACHE_ENTRIES
 from .protocols import Clock
+from .repair_ledger import RepairLedger
 
 
 class BudgetStop(Enum):
@@ -130,6 +131,7 @@ class TurnBudget:
     read_results: dict[CallSignature, str] = field(default_factory=dict)
     #: Tur durduysa sebebi; durmadıysa None.
     stop: BudgetStop | None = None
+    repair_ledger: RepairLedger = field(default_factory=RepairLedger)
 
     _started_at: float = field(default=0.0, init=False)
     _last_progress_at: float = field(default=0.0, init=False)

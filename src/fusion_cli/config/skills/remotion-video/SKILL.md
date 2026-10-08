@@ -59,7 +59,7 @@ Renkleri `kit/theme.ts`'ten markaya göre ayarla.
 ## Render ve doğrulama (bitti demeden önce)
 
 ```
-run_shell(command="cd video && npx remotion render <CompositionId> ../out/video.mp4", background=true)
+run_shell(command="cd video && npx remotion render <CompositionId> ../out/video.mp4", background=true, failure_check="remotion/layout", failure_sources=["video/src", "video/public", "video/package.json"])
 job_status(id=..., wait_s=600)
 run_shell(command="ffprobe -v error -show_entries stream=width,height,r_frame_rate:format=duration -of json out/video.mp4")
 ```
