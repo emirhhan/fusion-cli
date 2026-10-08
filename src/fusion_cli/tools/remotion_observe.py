@@ -46,6 +46,7 @@ class RuntimeRecord:
     findings: tuple[str, ...]
     runtime_executed: bool
     timeline_seen: bool
+    active_scene_kinds: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +196,9 @@ def _record(value: object) -> RuntimeRecord | None:
         return None
     if not all(isinstance(item, str) for item in (*scenes, *findings)):
         return None
+    kinds = value.get("activeSceneKinds", [])
+    if not isinstance(kinds, list) or not all(isinstance(kind, str) for kind in kinds):
+        return None
     return RuntimeRecord(
         str(texts[0]),
         str(texts[1]),
@@ -205,6 +209,7 @@ def _record(value: object) -> RuntimeRecord | None:
         tuple(findings),
         bool(flags[2]),
         bool(flags[3]),
+        tuple(kinds),
     )
 
 

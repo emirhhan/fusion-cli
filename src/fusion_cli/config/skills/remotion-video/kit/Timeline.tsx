@@ -32,7 +32,7 @@ export const FusionTimeline: React.FC<{scenes: readonly SceneSpec[]}> = ({scenes
   const planned = planTimeline(scenes, durationInFrames);
   return <LayoutAudit scope="composition"><RuntimeEvidence>
     {planned.map(({from, scene}) => <Sequence key={scene.id} from={from} durationInFrames={scene.duration}>
-      <TimelineSceneProvider value={true}><div data-fusion-scene={scene.id} style={{position: "absolute", inset: 0}}>
+      <TimelineSceneProvider value={true}><div data-fusion-scene={scene.id} data-fusion-scene-kind={scene.kind} style={{position: "absolute", inset: 0}}>
         {scene.kind === "feature" ? <FeatureScene {...scene.props}/> : <LayoutAudit><scene.component/></LayoutAudit>}
       </div></TimelineSceneProvider>
     </Sequence>)}

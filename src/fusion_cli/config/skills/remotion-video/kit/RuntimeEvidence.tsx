@@ -18,6 +18,7 @@ export const publishRuntime = (element: HTMLElement, findings: readonly string[]
   console.log(PREFIX + JSON.stringify({
     session, composition: root.dataset.fusionRuntimeComposition, frame: Number(frame),
     activeScenes: Array.from(root.querySelectorAll<HTMLElement>("[data-fusion-scene]")).map(scene => scene.dataset.fusionScene),
+    activeSceneKinds: Array.from(root.querySelectorAll<HTMLElement>("[data-fusion-scene]")).map(scene => scene.dataset.fusionSceneKind ?? ""),
     featureReady: features.length > 0 && features.every(feature => feature.getAttribute("data-fusion-feature-ready") === frame),
     auditSettled: settled && findings.length === 0, findings, runtimeExecuted: true, timelineSeen: true,
   }));

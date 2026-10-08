@@ -32,13 +32,14 @@ if (process.argv[3] === 'timeline') {
       const mode = new URLSearchParams(location.search).get('mode');
       globalThis.__fusionTestFrame = mode==='boundary-before'?59:mode==='boundary-after'?60:0;
       globalThis.__fusionTestSpring=0;
-      if(mode==='runtime'||mode==='runtime-failure')globalThis.__fusionTestSession='new-session';
+      if(mode==='runtime'||mode==='runtime-failure'||mode==='runtime-custom-copy')globalThis.__fusionTestSession='new-session';
       if(mode==='offscreen-short'){globalThis.__fusionTestDuration=30;globalThis.__fusionTestFrame=29;}
       const title=React.createElement('div',{'data-fusion-content':'Custom',style:{position:'absolute',left:mode==='sliver'?1918:mode==='partial'?1800:mode.startsWith('offscreen')?5000:200,top:200,width:500,height:100}},'Custom');
       const Custom=()=>['blank','runtime-failure'].includes(mode)?null:title;
       const props={title:'Fusion',subtitle:'Üç kısa özellik',cards:[{title:'Hız',body:mode==='capacity'?'Uzun metin '.repeat(200):'Akıcı'},{title:'Güven',body:'Sağlam'}]};
       let scenes=[{id:'first',kind:'feature',duration:60,props},{id:'second',kind:'custom',duration:60,component:Custom}];
       if(['blank','sliver','partial','runtime-failure'].includes(mode)||mode.startsWith('offscreen'))scenes=[{id:'blank',kind:'custom',duration:mode==='offscreen-short'?30:120,component:Custom}];
+      if(mode==='runtime-custom-copy')scenes=[{id:'copied',kind:'custom',duration:120,component:()=>React.createElement('div',{'data-fusion-feature-scene':true,'data-fusion-feature-ready':'0'},title)}];
       if(mode==='duration')scenes[0].duration=59;
       if(mode==='duplicate')scenes[1].id='first';
       if(mode==='zero')scenes[0].duration=0;

@@ -220,7 +220,7 @@ async def test_timeline_kesme_siniri_ve_ortak_kapilar(mode):
             await browser.close()
 
 
-@pytest.mark.parametrize("mode", ["runtime", "runtime-failure"])
+@pytest.mark.parametrize("mode", ["runtime", "runtime-failure", "runtime-custom-copy"])
 async def test_runtime_kaydi_gercek_kare_ve_audit_sonucunu_tasir(mode):
     import json
 
@@ -251,7 +251,12 @@ async def test_runtime_kaydi_gercek_kare_ve_audit_sonucunu_tasir(mode):
             assert record["session"] == "new-session" and record["runtimeExecuted"]
             if mode == "runtime":
                 assert record["featureReady"] and record["auditSettled"]
+                assert record["activeSceneKinds"] == ["feature"]
                 assert record["activeScenes"] == ["first"] and record["findings"] == []
+            elif mode == "runtime-custom-copy":
+                assert record["featureReady"] and record["auditSettled"]
+                assert record["activeSceneKinds"] == ["custom"]
+                assert record["activeScenes"] == ["copied"]
             else:
                 assert record["findings"] and not record["auditSettled"]
         finally:

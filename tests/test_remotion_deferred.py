@@ -25,7 +25,16 @@ async def _transport(request):
         {"failure_check": "runtime", "failure_sources": list(request.sources)}, request.root
     )
     runtime = RuntimeRecord(
-        str(request.frame), "Fusion", request.frame, ("intro",), True, True, (), True, True
+        str(request.frame),
+        "Fusion",
+        request.frame,
+        ("intro",),
+        True,
+        True,
+        (),
+        True,
+        True,
+        ("feature",),
     )
     return RenderedFrame(str(request.frame), True, runtime, manifest.sources, manifest.sources)
 

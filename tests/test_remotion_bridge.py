@@ -22,7 +22,9 @@ def _plan():
 
 def _frame():
     sources = (SourceFingerprint("index.ts", "a" * 64),)
-    runtime = RuntimeRecord("host", "Fusion", 30, ("feature",), True, True, (), True, True)
+    runtime = RuntimeRecord(
+        "host", "Fusion", 30, ("feature",), True, True, (), True, True, ("feature",)
+    )
     return RenderedFrame("host", True, runtime, sources, sources)
 
 
@@ -31,6 +33,8 @@ def _frame():
     [
         "good",
         "wrong_frame",
+        "missing_kind",
+        "copied_custom",
         "wrong_scene",
         "wrong_composition",
         "wrong_session",
@@ -42,6 +46,9 @@ def _frame():
 )
 async def test_plan_gercek_kaydi_yalniz_dogru_baglamda_kabul_eder(tmp_path, problem):
     frame = _frame()
+    if problem in ("missing_kind", "copied_custom"):
+        kinds = () if problem == "missing_kind" else ("custom",)
+        frame = replace(frame, runtime=replace(frame.runtime, active_scene_kinds=kinds))
     if problem == "wrong_frame":
         frame = replace(frame, runtime=replace(frame.runtime, frame=31))
     if problem == "wrong_scene":
@@ -153,6 +160,7 @@ async def test_bridge_gercek_host_hash_nonce_ve_png_sinirini_baglar(tmp_path):
             "composition": payload["composition"],
             "frame": payload["frame"],
             "activeScenes": ["feature"],
+            "activeSceneKinds": ["feature"],
             "featureReady": True,
             "auditSettled": True,
             "findings": [],

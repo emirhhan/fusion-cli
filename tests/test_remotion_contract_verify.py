@@ -29,6 +29,7 @@ _GOOD = RuntimeObservation(
     True,
     True,
     True,
+    active_scene_kinds=("feature",),
 )
 
 
@@ -119,7 +120,7 @@ async def test_audit_iptali_hazir_marker_olmasa_da_gercek_basarisizliktir():
 async def test_custom_sahne_feature_marker_zorunlulugu_uydurmaz():
     request = replace(_REQUEST, requires_feature=False)
     result = await RemotionContractVerifier(
-        request, Observer(replace(_GOOD, feature_ready=False))
+        request, Observer(replace(_GOOD, feature_ready=False, active_scene_kinds=("custom",)))
     ).verify()
     assert result.ok and result.evidence[0].status is EvidenceStatus.PASSED
 
@@ -146,3 +147,12 @@ async def test_composite_kaniti_kaybetmez_ama_tam_video_iddia_etmez():
     result = await CompositeVerifier((RemotionContractVerifier(_REQUEST, Observer()),)).verify()
     assert result.ok and len(result.evidence) == 1
     assert "tam video" in result.evidence[0].summary
+
+
+@pytest.mark.parametrize("kinds", [(), ("custom",)])
+async def test_feature_kopioitu_marker_ei_korvaa_timeline_descriptor_lajia(kinds):
+    observation = replace(_GOOD, active_scene_kinds=kinds)
+    result = await RemotionContractVerifier(_REQUEST, Observer(observation)).verify()
+    assert not result.ok
+    assert result.evidence[0].status is EvidenceStatus.UNVERIFIED
+    assert not result.evidence[0].behavioral

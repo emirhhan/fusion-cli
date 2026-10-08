@@ -21,6 +21,7 @@ async def test_taze_kare_transport_hashleri_ve_nonce_tasir(tmp_path):
             "composition": "Fusion",
             "frame": 30,
             "activeScenes": ["feature"],
+            "activeSceneKinds": ["feature"],
             "featureReady": True,
             "auditSettled": True,
             "findings": [],
@@ -198,3 +199,24 @@ async def test_renderer_ayri_gruptaki_direncli_chromium_benzeri_cocugu_temizler(
     result = await observe_frame(request)
     assert not result.rendered
     await _assert_owned_child_dead(int((tmp_path / "child.pid").read_text()))
+
+
+def test_runtime_turu_eksik_ise_eski_tasima_kaydi_tur_uydurmaz():
+    from fusion_cli.tools.remotion_observe import _record
+
+    payload = {
+        "session": "host",
+        "composition": "Fusion",
+        "frame": 0,
+        "activeScenes": ["intro"],
+        "featureReady": True,
+        "auditSettled": True,
+        "findings": [],
+        "runtimeExecuted": True,
+        "timelineSeen": True,
+    }
+    legacy = _record(payload)
+    assert legacy is not None and legacy.active_scene_kinds == ()
+    payload["activeSceneKinds"] = ["custom"]
+    actual = _record(payload)
+    assert actual is not None and actual.active_scene_kinds == ("custom",)

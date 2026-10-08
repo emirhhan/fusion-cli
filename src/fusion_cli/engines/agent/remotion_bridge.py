@@ -48,6 +48,7 @@ class _TransportObservation:
             runtime.feature_ready,
             runtime.audit_settled,
             runtime.findings,
+            runtime.active_scene_kinds,
         )
 
 

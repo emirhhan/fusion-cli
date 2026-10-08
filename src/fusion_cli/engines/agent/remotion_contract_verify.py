@@ -59,6 +59,7 @@ class RuntimeObservation:
     feature_ready: bool
     audit_settled: bool
     audit_findings: tuple[str, ...] = ()
+    active_scene_kinds: tuple[str, ...] = ()
 
 
 class RuntimeObserver(Protocol):
@@ -103,6 +104,16 @@ class RemotionContractVerifier:
         if not observation.audit_settled:
             return _result(
                 request, EvidenceStatus.UNVERIFIED, "Kare audit ölçümü henüz tamamlanmadı."
+            )
+        if observation.active_scene_kinds not in (("feature",), ("custom",)):
+            return _result(
+                request, EvidenceStatus.UNVERIFIED, "Gerçek Timeline sahne türü gözlemlenmedi."
+            )
+        if request.requires_feature and observation.active_scene_kinds != ("feature",):
+            return _result(
+                request,
+                EvidenceStatus.UNVERIFIED,
+                "Custom sahnedeki marker FeatureScene çalışma kanıtı değildir.",
             )
         if request.requires_feature and not observation.feature_ready:
             return _result(
