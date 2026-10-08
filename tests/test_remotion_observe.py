@@ -153,13 +153,11 @@ async def _assert_owned_child_dead(pid):
 async def test_timeout_kendi_direncli_alt_surecini_yetim_birakmaz(tmp_path):
     import sys
 
-    import pytest
-
     from fusion_cli.tools.remotion_observe import _run
 
     parent = _write_owned_process_fixture(tmp_path)
-    with pytest.raises(TimeoutError):
-        await _run((sys.executable, str(parent)), tmp_path, 0.2)
+    output = await _run((sys.executable, str(parent)), tmp_path, 0.2)
+    assert output.timed_out
     await _assert_owned_child_dead(int((tmp_path / "child.pid").read_text()))
 
 
@@ -229,7 +227,7 @@ def test_runtime_turu_eksik_ise_eski_tasima_kaydi_tur_uydurmaz():
     assert actual is not None and actual.active_scene_kinds == ("custom",)
 
 
-@pytest.mark.parametrize("mode", ["missing", "mismatch", "installed"])
+@pytest.mark.parametrize("mode", ["missing", "mismatch", "installed", "hang"])
 async def test_node_tarayici_yok_veya_surumu_yanlissa_indirmez(tmp_path, mode):
     (tmp_path / "index.ts").write_text("placeholder")
     (tmp_path / "package.json").write_text("{}")
@@ -244,10 +242,19 @@ async def test_node_tarayici_yok_veya_surumu_yanlissa_indirmez(tmp_path, mode):
         "require('fs').writeFileSync('opened',JSON.stringify(options ?? null));"
         "if(!options?.browserExecutable)throw Error('DOWNLOAD MUST NEVER RUN');"
         "return {close:async()=>{}}};"
-        "exports.selectComposition=async()=>({id:'Fusion'});"
+        "exports.selectComposition=async options=>{"
+        + (
+            "options.onBrowserLog({text:'JS root-load error'});"
+            "setInterval(()=>{},1000);return new Promise(()=>{});"
+            if mode == "hang"
+            else "return {id:'Fusion'};"
+        )
+        + "};"
         "exports.renderStill=async()=>{};"
     )
-    request = RenderRequest(tmp_path, "index.ts", "Fusion", 0, "still.png", ("index.ts",), 10)
+    request = RenderRequest(
+        tmp_path, "index.ts", "Fusion", 0, "still.png", ("index.ts",), 0.3 if mode == "hang" else 10
+    )
     from fusion_cli.tools.remotion_observe import _run
 
     async def runner(command, root, deadline):
@@ -257,7 +264,9 @@ async def test_node_tarayici_yok_veya_surumu_yanlissa_indirmez(tmp_path, mode):
 
     result = await observe_frame(request, runner=runner)
     assert not result.rendered
-    if mode == "installed":
+    if mode == "hang":
+        assert "select" in result.error and "JS root-load error" in result.error
+    if mode in ("installed", "hang"):
         options = json.loads((tmp_path / "opened").read_text())
         assert options["browserExecutable"] == str(executable)
     else:
@@ -316,3 +325,64 @@ async def test_framed_transport_banner_ve_gecersiz_cevabi_ayirir(tmp_path, mode)
         assert "select" in result.error and "Waiting for root component" in result.error
     else:
         assert "protokol" in result.error
+
+
+async def test_timeout_kismi_asama_kanitini_butce_icinde_korur(tmp_path):
+    import sys
+
+    from fusion_cli.core.constants import MAX_CHECKPOINT_OUTPUT_CHARS
+    from fusion_cli.tools.remotion_observe import _run
+
+    child = tmp_path / "diagnostic.py"
+    child.write_text(
+        "import time,sys\nprint('banner',flush=True)\n"
+        "print('FUSION_PROGRESS_V1: select root-load',file=sys.stderr,flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    output = await _run((sys.executable, str(child)), tmp_path, 0.1)
+    assert output.timed_out and output.exit_code != 0
+    assert "select root-load" in output.stderr and "banner" in output.stdout
+    assert len(output.stderr) <= MAX_CHECKPOINT_OUTPUT_CHARS
+
+
+@pytest.mark.parametrize("stale", [False, True])
+async def test_timeout_nonce_bagli_kismi_taniyi_korur_fakat_basari_saymaz(tmp_path, stale):
+    import sys
+
+    from fusion_cli.core.constants import MAX_CHECKPOINT_OUTPUT_CHARS
+    from fusion_cli.tools.remotion_observe import _run
+
+    (tmp_path / "index.ts").write_text("entry")
+    child = tmp_path / "progress.py"
+    session_expression = repr("stale") if stale else "request['session']"
+    child.write_text(
+        "import json,sys,time\nrequest=json.loads(sys.argv[1])\n"
+        "print('x'*20000,file=sys.stderr,flush=True)\n"
+        f"request['session']={session_expression}\n"
+        "request.update(stage='select',message='Root JS error before hang')\n"
+        "print('FUSION_PROGRESS_V1:'+json.dumps(request),file=sys.stderr,flush=True)\n"
+        "time.sleep(60)\n"
+    )
+
+    async def runner(command, root, deadline):
+        return await _run((sys.executable, str(child), command[-1]), root, deadline)
+
+    request = RenderRequest(tmp_path, "index.ts", "Fusion", 0, "still.png", ("index.ts",), 0.1)
+    result = await observe_frame(request, runner=runner)
+    assert not result.rendered and result.runtime is None
+    assert len(result.error) <= MAX_CHECKPOINT_OUTPUT_CHARS
+    assert ("Root JS error" in result.error) is (not stale)
+
+
+async def test_sinirli_kuyruk_onceki_final_cevabi_silip_coklu_protokolu_gizlemez(tmp_path):
+    import sys
+
+    from fusion_cli.tools.remotion_observe import _run
+
+    child = tmp_path / "duplicate.py"
+    child.write_text(
+        "print('FUSION_OBSERVE_V1:{}')\nprint('x'*20000)\nprint('FUSION_OBSERVE_V1:{}')\n"
+    )
+    output = await _run((sys.executable, str(child)), tmp_path, 10)
+    assert output.framed_count == 2
+    assert output.stdout.count("FUSION_OBSERVE_V1:") == 1

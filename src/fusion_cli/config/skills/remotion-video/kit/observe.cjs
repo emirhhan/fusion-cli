@@ -21,6 +21,18 @@ async function main() {
   const limit=request.diagnosticLimit;
   const bounded=value=>String(value).slice(0,limit);
   const emit=value=>process.stdout.write('FUSION_OBSERVE_V1:'+JSON.stringify({session:request.session,composition:request.composition,frame:request.frame,stage,...value})+'\n');
+  const progress=(message='')=>{
+    const header={session:request.session,composition:request.composition,frame:request.frame,stage};
+    const prefix='FUSION_PROGRESS_V1:';
+    let text=bounded(message);
+    let line=prefix+JSON.stringify({...header,message:text})+'\n';
+    while(Buffer.byteLength(line,'utf8')>limit&&text.length) {
+      text=text.slice(0,Math.floor(text.length/2));
+      line=prefix+JSON.stringify({...header,message:text})+'\n';
+    }
+    if(Buffer.byteLength(line,'utf8')<=limit)process.stderr.write(line);
+  };
+  progress();
   // Renderer Chromium'u ayrı process group ile açar; yalnız kendi spawn sınırımızı kaydet.
   const childProcess = require('node:child_process');
   const spawn = childProcess.spawn;
@@ -41,6 +53,7 @@ async function main() {
   const onBrowserLog = ({text}) => {
     if(!text.startsWith(RUNTIME_PREFIX)) {
       if(messages.join('\n').length<limit)messages.push(bounded(text));
+      progress(text);
       return;
     }
     try {const candidate=JSON.parse(text.slice(RUNTIME_PREFIX.length));
@@ -48,15 +61,15 @@ async function main() {
     } catch { /* Geçersiz kayıt gözlem kanıtı değildir. */ }
   };
   try {
-    stage='browser';
+    stage='browser';progress();
     const browserExecutable=installedBrowser(localRequire);
     browser=await renderer.openBrowser('chrome',{browserExecutable,chromeMode:'headless-shell',onBrowserDownload:()=>{throw new Error('Gözlem tarayıcı indiremez.');}});
-    stage='bundle';
+    stage='bundle';progress();
     const serveUrl=await bundler.bundle({entryPoint:request.entry});
     const inputProps={__fusionRuntimeSession:request.session};
-    stage='select';
+    stage='select';progress();
     const composition=await renderer.selectComposition({serveUrl,id:request.composition,inputProps,puppeteerInstance:browser,onBrowserLog,timeoutInMilliseconds:request.timeoutMs});
-    stage='render';
+    stage='render';progress();
     await renderer.renderStill({serveUrl,composition,inputProps,frame:request.frame,
       output:request.artifact,imageFormat:'png',puppeteerInstance:browser,timeoutInMilliseconds:request.timeoutMs,onBrowserLog});
     stage='done';emit({record,rendered:true});

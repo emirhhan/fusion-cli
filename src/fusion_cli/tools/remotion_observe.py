@@ -34,6 +34,8 @@ class ProcessOutput:
     exit_code: int
     stdout: str
     stderr: str
+    timed_out: bool = False
+    framed_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,13 +73,41 @@ async def _run(command: tuple[str, ...], root: Path, deadline_s: float) -> Proce
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
+    assert process.stdout is not None and process.stderr is not None
+    readers = [
+        asyncio.create_task(_read_bounded(stream)) for stream in (process.stdout, process.stderr)
+    ]
+    timed_out = False
     try:
-        stdout, stderr = await asyncio.wait_for(process.communicate(), deadline_s)
-    except BaseException:
-        await _terminate_owned_group(process, deadline_s, command)
-        raise
-    await _terminate_owned_group(process, deadline_s, command)
-    return ProcessOutput(process.returncode or 0, stdout.decode(), stderr.decode())
+        await asyncio.wait_for(process.wait(), deadline_s)
+    except TimeoutError:
+        timed_out = True
+    finally:
+        try:
+            await _terminate_owned_group(process, deadline_s, command)
+        finally:
+            stdout, stderr = await asyncio.gather(*readers)
+    return ProcessOutput(
+        process.returncode or 0, stdout.text, stderr.text, timed_out, stdout.framed_count
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class StreamOutput:
+    text: str
+    framed_count: int
+
+
+async def _read_bounded(stream: asyncio.StreamReader) -> StreamOutput:
+    tail, overlap = b"", b"\n"
+    prefix = b"\nFUSION_OBSERVE_V1:"
+    framed_count = 0
+    while chunk := await stream.read(MAX_CHECKPOINT_OUTPUT_CHARS):
+        combined = overlap + chunk
+        framed_count += combined.count(prefix)
+        overlap = combined[-(len(prefix) - 1) :]
+        tail = (tail + chunk)[-MAX_CHECKPOINT_OUTPUT_CHARS:]
+    return StreamOutput(tail.decode(errors="replace")[:MAX_CHECKPOINT_OUTPUT_CHARS], framed_count)
 
 
 def _signal_owned_group(pid: int, sig: signal.Signals) -> None:
@@ -167,7 +197,21 @@ async def observe_frame(
         after = await asyncio.to_thread(_manifest, request)
         return RenderedFrame(session, False, None, before, after, type(error).__name__)
     after = await asyncio.to_thread(_manifest, request)
-    response = _response(process.stdout, session, request)
+    if process.timed_out:
+        detail = _progress_detail(process.stderr, session, request)
+        return RenderedFrame(
+            session,
+            False,
+            None,
+            before,
+            after,
+            ("Toplam gözlem süresi doldu. " + detail)[:MAX_CHECKPOINT_OUTPUT_CHARS],
+        )
+    response = (
+        ObservationResponse(None, False, "Gözlem protokolü birden fazla sonuç içeriyor.")
+        if process.framed_count is not None and process.framed_count > 1
+        else _response(process.stdout, session, request)
+    )
     record = response.runtime
     rendered = process.exit_code == 0 and response.rendered
     rendered = rendered and artifact.is_file() and _is_png(artifact)
@@ -175,6 +219,28 @@ async def observe_frame(
         "" if rendered and record else response.error or "Gerçek still/runtime kaydı doğrulanamadı."
     )
     return RenderedFrame(session, rendered, record, before, after, detail)
+
+
+def _progress_detail(stderr: str, session: str, request: RenderRequest) -> str:
+    prefix = "FUSION_PROGRESS_V1:"
+    details = []
+    for line in stderr.splitlines():
+        if not line.startswith(prefix):
+            continue
+        try:
+            value = json.loads(line[len(prefix) :])
+        except ValueError:
+            continue
+        if not isinstance(value, dict) or (
+            value.get("session") != session
+            or value.get("composition") != request.composition
+            or value.get("frame") != request.frame
+        ):
+            continue
+        stage, message = value.get("stage"), value.get("message", "")
+        if isinstance(stage, str) and isinstance(message, str):
+            details.append(f"{stage}: {message}")
+    return "\n".join(details)[-MAX_CHECKPOINT_OUTPUT_CHARS:]
 
 
 @dataclass(frozen=True, slots=True)
