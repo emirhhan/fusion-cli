@@ -314,3 +314,143 @@ def test_ters_nested_media_dis_width_saf_aday_olmaz(tmp_path):
     assert "(max-width: 768px)" not in values["mediaConditions"]
     assert "(max-width: 768px) and (orientation: portrait)" in values["mediaConditions"]
     assert width_conditions(tuple(values["mediaConditions"])) == ()
+
+
+async def test_multiple_source_transitions_are_preserved_without_binary_theme_claim():
+    from fusion_cli.tools.site_responsive import CapturedVariant, verify_variants
+
+    queries = (
+        "(max-width: 600px)",
+        "(min-width: 601px)",
+        "(max-width: 1000px)",
+        "(max-width: 800px)",
+    )
+    calls = []
+
+    def variant(width, height=900):
+        signature = "mobile" if width <= 600 else "tablet" if width <= 1000 else "desktop"
+        return CapturedVariant(width, height, "", signature, "", 0, "", signature, queries)
+
+    async def capture(width, height):
+        calls.append((width, height))
+        return variant(width, height)
+
+    result = await verify_variants((variant(1440), variant(390)), capture)
+    assert [(item.left.width, item.right.width) for item in result.transitions] == [
+        (600, 601),
+        (1000, 1001),
+    ]
+    assert max(calls.count(viewport) for viewport in set(calls)) == 2
+    assert all(
+        left.height == right.height == 900
+        for item in result.transitions
+        for left, right in [(item.left, item.right)]
+    )
+    assert result.variants[-1].media_query is None
+    assert any("Çoklu" in problem for problem in result.problems)
+
+
+async def test_equivalent_complementary_source_queries_keep_single_legacy_transfer():
+    from fusion_cli.tools.site_responsive import CapturedVariant, verify_variants
+
+    queries = ("(max-width: 768px)", "screen and (max-width:768px)", "(min-width:769px)")
+    calls = []
+
+    def variant(width, height=900):
+        signature = "mobile" if width <= 768 else "desktop"
+        return CapturedVariant(width, height, "", "", "", 0, "", signature, queries)
+
+    async def capture(width, height):
+        calls.append((width, height))
+        return variant(width, height)
+
+    result = await verify_variants((variant(1440), variant(390)), capture)
+    assert len(result.transitions) == 1
+    assert result.variants[-1].media_query == "(max-width: 768px)"
+    assert calls == [(768, 900), (769, 900), (768, 900), (769, 900)]
+
+
+async def test_height_reference_and_boundary_share_same_capture_cache():
+    from fusion_cli.tools.site_responsive import CapturedVariant, verify_variants
+
+    calls = []
+
+    def variant(width, height):
+        signature = "mobile" if width <= 390 else "desktop"
+        return CapturedVariant(width, height, "", "", "", 0, "", signature, ("(min-width:391px)",))
+
+    async def capture(width, height):
+        calls.append((width, height))
+        return variant(width, height)
+
+    await verify_variants((variant(1440, 900), variant(390, 844)), capture)
+    assert calls.count((390, 900)) == 2  # İlk gözlem + bağımsız kararlılık tekrarı.
+
+
+def test_transition_assets_and_prepared_css_are_retained_without_theme_transfer():
+    from fusion_cli.tools.site_capture import CapturedPage, _prepare_page, capture_asset_urls
+    from fusion_cli.tools.site_responsive import CapturedTransition, CapturedVariant
+
+    left = CapturedVariant(
+        600,
+        900,
+        "",
+        '<img src="https://example.test/mobile.svg">',
+        "",
+        0,
+        "a{background:url(/tablet-bg.svg)}",
+        "mobile",
+    )
+    right = CapturedVariant(
+        601, 900, "", '<img src="https://example.test/tablet.svg">', "", 0, "", "tablet"
+    )
+    transition = CapturedTransition("(max-width: 600px)", left, right, ("(max-width:600px)",))
+    page = CapturedPage("https://example.test/", "", "", "", "", "", "", transitions=(transition,))
+    prepared = _prepare_page(page, page.url)
+    addresses = capture_asset_urls((prepared,), "", page.url)
+    assert addresses == [
+        "https://example.test/mobile.svg",
+        "https://example.test/tablet.svg",
+        "https://example.test/tablet-bg.svg",
+    ]
+    assert prepared.transitions[0].left.width == 600
+
+
+async def test_fresh_context_noise_cannot_verify_unrelated_source_css_transition():
+    from fusion_cli.tools.site_responsive import CapturedVariant, verify_variants
+
+    serial = 0
+
+    def variant(width, signature):
+        return CapturedVariant(width, 900, "", "", "", 0, "", signature, ("(max-width:600px)",))
+
+    async def capture(width, height):
+        nonlocal serial
+        serial += 1
+        return variant(width, f"random-swiper-{serial}")
+
+    result = await verify_variants(
+        (variant(1440, "random-wide"), variant(390, "random-narrow")), capture
+    )
+    assert result.transitions == ()
+    assert result.variants[-1].media_query is None
+    assert any("kararsız" in problem for problem in result.problems)
+
+
+async def test_unstable_right_viewport_cannot_pair_with_stable_left_signature():
+    from fusion_cli.tools.site_responsive import CapturedVariant, verify_variants
+
+    counts = {}
+
+    def variant(width, signature):
+        return CapturedVariant(width, 900, "", "", "", 0, "", signature, ("(max-width:600px)",))
+
+    async def capture(width, height):
+        counts[width] = counts.get(width, 0) + 1
+        signature = "stable-mobile" if width == 600 else f"rotating-image-{counts[width]}"
+        return variant(width, signature)
+
+    result = await verify_variants((variant(1440, "desktop"), variant(390, "mobile")), capture)
+    assert result.transitions == ()
+    assert counts == {600: 2, 601: 2}
+    assert any("kararsız" in problem for problem in result.problems)

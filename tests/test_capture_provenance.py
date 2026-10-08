@@ -191,3 +191,28 @@ async def test_tampered_manifest_cannot_expand_hash_scope(tmp_path: Path) -> Non
     path.write_text(json.dumps(record))
     with pytest.raises(ValueError, match="şeması"):
         await check_capture_provenance(tmp_path, theme.folder)
+
+
+@pytest.mark.asyncio
+async def test_multitransition_provenance_is_source_verified_but_not_theme_transferred(
+    tmp_path: Path,
+) -> None:
+    from dataclasses import replace
+
+    from fusion_cli.tools.site_responsive import CapturedTransition
+
+    capture, theme = _fixture(tmp_path, responsive=False)
+    base = capture.pages[0].variants[0]
+    left = replace(base, width=600, height=900, signature="mobile")
+    right = replace(base, width=601, height=900, signature="tablet")
+    transition = CapturedTransition("(max-width: 600px)", left, right, ("(max-width: 600px)",))
+    page = replace(capture.pages[0], transitions=(transition,))
+    path = await save_capture_provenance(tmp_path, replace(capture, pages=(page,)), theme)
+    record = json.loads(path.read_text())
+    assert record["verified_queries"] == ["(max-width: 600px)"]
+    assert record["transitions"][0]["left_width"] == 600
+    assert record["transitions"][0]["right_width"] == 601
+    assert "mobile" not in path.read_text()
+    result = await check_capture_provenance(tmp_path, theme.folder)
+    assert result.source_status == "verified_source_transition"
+    assert not result.has_responsive_transfer

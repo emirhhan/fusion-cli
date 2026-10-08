@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from playwright.async_api import Browser, Page
 
 from .mirror import MAX_ASSET_BYTES, asset_local_path, is_mirrorable
-from .site_responsive import CapturedVariant, verify_variants
+from .site_responsive import CapturedTransition, CapturedVariant, captured_variants, verify_variants
 
 CAPTURE_SCRIPT = Path(__file__).with_name("assets") / "capture_page.js"
 #: Referans ekran görüntülerinin genişlikleri: masaüstü ve telefon.
@@ -76,6 +76,7 @@ class CapturedPage:
     screenshots: dict[int, bytes] = field(default_factory=dict)
     variants: tuple[CapturedVariant, ...] = ()
     responsive_problems: tuple[str, ...] = ()
+    transitions: tuple[CapturedTransition, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,8 +201,13 @@ async def _capture_one(
         screenshots=shots,
         variants=responsive.variants,
         responsive_problems=responsive.problems,
+        transitions=responsive.transitions,
     )
-    blocked = [href for variant in responsive.variants for href in variant.blocked]
+    blocked = [
+        href
+        for variant in captured_variants(responsive.variants, responsive.transitions)
+        for href in variant.blocked
+    ]
     return page_result, primary.css, blocked
 
 
@@ -314,17 +320,45 @@ def capture_asset_urls(pages: tuple[CapturedPage, ...], css: str, base: str) -> 
     html_sources.extend(
         variant.header + variant.main + variant.footer
         for page in pages
-        for variant in page.variants
+        for variant in captured_variants(page.variants, page.transitions)
     )
     addresses = [address for source in html_sources for address in html_urls(source)]
     addresses.extend(
         address
         for page in pages
-        for variant in page.variants
+        for variant in captured_variants(page.variants, page.transitions)
         for address in css_urls(variant.css, page.url)
     )
     addresses.extend(css_urls(css, base))
     return list(dict.fromkeys(addresses))
+
+
+def _prepare_variant(variant: CapturedVariant, url: str) -> CapturedVariant:
+    """Her viewportun DOM adreslerini ve CSS kaynağını aynı yoldan hazırla."""
+    return replace(
+        variant,
+        header=collapse_srcset(variant.header),
+        main=collapse_srcset(variant.main),
+        footer=collapse_srcset(variant.footer),
+        css=absolutize_css(variant.css, url),
+    )
+
+
+def _prepare_page(page: CapturedPage, url: str) -> CapturedPage:
+    """Exact geçiş gözlemleri dahil kaynak varlık sözleşmesini koru."""
+    return replace(
+        page,
+        header=collapse_srcset(page.header),
+        main=collapse_srcset(page.main),
+        footer=collapse_srcset(page.footer),
+        variants=tuple(_prepare_variant(item, url) for item in page.variants),
+        transitions=tuple(
+            replace(
+                item, left=_prepare_variant(item.left, url), right=_prepare_variant(item.right, url)
+            )
+            for item in page.transitions
+        ),
+    )
 
 
 async def capture_site(urls: list[str], folder: Path) -> SiteCapture:
@@ -347,22 +381,7 @@ async def capture_site(urls: list[str], folder: Path) -> SiteCapture:
                     continue
                 sayfa, css, blocked = yakalanan
                 problems.extend(sayfa.responsive_problems)
-                sayfa = replace(
-                    sayfa,
-                    header=collapse_srcset(sayfa.header),
-                    main=collapse_srcset(sayfa.main),
-                    footer=collapse_srcset(sayfa.footer),
-                    variants=tuple(
-                        replace(
-                            variant,
-                            header=collapse_srcset(variant.header),
-                            main=collapse_srcset(variant.main),
-                            footer=collapse_srcset(variant.footer),
-                            css=absolutize_css(variant.css, url),
-                        )
-                        for variant in sayfa.variants
-                    ),
-                )
+                sayfa = _prepare_page(sayfa, url)
                 sayfalar.append(sayfa)
                 css_parcalari.append(absolutize_css(css, url))
                 engelli.extend(blocked)

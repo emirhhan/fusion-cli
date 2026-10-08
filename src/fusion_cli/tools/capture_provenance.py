@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from .site_capture import SiteCapture
-from .site_responsive import width_conditions
+from .site_responsive import CapturedTransition, captured_variants, width_conditions
 from .woo_theme import ThemeFiles
 
 PROVENANCE_PATH = Path(".fusion/capture-provenance.json")
@@ -103,13 +103,38 @@ def _canonical_query(query: str | None) -> str | None:
     return f"{prefix}({direction}-width: {condition.boundary}px)"
 
 
+def _transition_records(transitions: tuple[CapturedTransition, ...]) -> list[dict[str, object]]:
+    """Exact kaynak geçişlerini HTML veya ham koşul taşımadan kaydet."""
+    return [
+        {
+            "query": _canonical_query(item.query),
+            "left_width": item.left.width,
+            "right_width": item.right.width,
+            "height": item.left.height,
+            "left_signature_hash": hashlib.sha256(item.left.signature.encode()).hexdigest(),
+            "right_signature_hash": hashlib.sha256(item.right.signature.encode()).hexdigest(),
+        }
+        for item in transitions
+    ]
+
+
 def _record(root: Path, capture: SiteCapture, theme: ThemeFiles) -> dict[str, object]:
     """Yalnız sözleşmenin izin verilen alanlarını üret."""
     folder = theme.folder.relative_to(root)
     _safe_path(root, folder)
     primary = capture.pages[0] if capture.pages else None
-    variants = primary.variants if primary else ()
-    queries = sorted({query for item in variants if (query := _canonical_query(item.media_query))})
+    transitions = primary.transitions if primary else ()
+    variants = captured_variants(primary.variants, transitions) if primary else ()
+    queries = sorted(
+        {
+            query
+            for value in (
+                *[item.media_query for item in variants],
+                *[item.query for item in transitions],
+            )
+            if (query := _canonical_query(value))
+        }
+    )
     status = "verified_source_transition" if queries else "unverified_source_transition"
     files = {
         name: _file_hash(root, folder / name) for name in sorted(set(theme.files) & _TEMPLATE_FILES)
@@ -128,6 +153,7 @@ def _record(root: Path, capture: SiteCapture, theme: ThemeFiles) -> dict[str, ob
             for item in variants
         ],
         "verified_queries": queries,
+        "transitions": _transition_records(transitions),
         "rejection_count": sum(len(item.blocked) for item in variants)
         + (len(primary.responsive_problems) if primary else 0),
         "responsive_paths": sorted({_public_path(url) for url in theme.responsive_paths}),
