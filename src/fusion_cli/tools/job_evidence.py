@@ -41,6 +41,7 @@ class JobEvidenceManifest:
 
     check_id: str
     sources: tuple[SourceFingerprint, ...]
+    scopes: tuple[str, ...] = ()
 
 
 def _reject_secret_path(original: Path, resolved: Path) -> None:
@@ -88,7 +89,8 @@ def prepare_manifest(args: ToolArgs, root: Path) -> JobEvidenceManifest | None:
         )
         for path in sorted(files)
     )
-    return JobEvidenceManifest(f"{root.resolve().as_posix()}:{check}", sources)
+    scopes = tuple(str(path) for path in paths if isinstance(path, str))
+    return JobEvidenceManifest(f"{root.resolve().as_posix()}:{check}", sources, scopes)
 
 
 def save_manifest(path: Path, manifest: JobEvidenceManifest) -> None:

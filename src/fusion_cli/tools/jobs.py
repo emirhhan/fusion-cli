@@ -17,14 +17,17 @@ import re
 import shlex
 import signal
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
 
 from ..core.constants import JOB_LOG_TAIL_CHARS, JOB_MAX_WAIT_S
+from ..core.job_evidence import ArtifactReceipt
 from ..core.repair_ledger import FailureEvidence
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_positive_int, require_str
+from .job_delivery import observe_delivery, save_delivery
 from .job_evidence import JobEvidenceManifest, completed_evidence, save_manifest
 
 #: İş dosyalarının proje köküne göre yeri.
@@ -46,6 +49,7 @@ def start_job(
     env: dict[str, str],
     *,
     manifest: JobEvidenceManifest | None = None,
+    outputs: tuple[ArtifactReceipt, ...] = (),
 ) -> ToolResult:
     """Komutu arka planda başlat; kimliği ve izleme yolunu döner."""
     klasor = _jobs_dir(context)
@@ -55,9 +59,24 @@ def start_job(
     cikis = klasor / f"{kimlik}.exit"
     if manifest is not None:
         save_manifest(klasor / f"{kimlik}.proof.json", manifest)
+    delivery = save_delivery(klasor, kimlik, command, manifest, outputs)
     # Çıkış kodu kabuğun kendisi tarafından dosyaya yazılır: süreç bizden bağımsız biter.
     # Komut alt kabukta çalışır; içindeki `exit` sarmalayıcıyı da bitirip kodu yutmasın.
-    sarmal = f"( {command} ) > {shlex.quote(str(gunluk))} 2>&1; echo $? > {shlex.quote(str(cikis))}"
+    receipt = Path(__file__).parent / "job_receipt.py"
+    observer = " ".join(
+        shlex.quote(value)
+        for value in (
+            sys.executable,
+            str(receipt),
+            str(context.root),
+            kimlik,
+        )
+    )
+    sarmal = (
+        f"( {command} ) > {shlex.quote(str(gunluk))} 2>&1; fusion_job_code=$?; "
+        f'{observer} "$fusion_job_code" >> {shlex.quote(str(gunluk))} 2>&1; '
+        f'echo "$fusion_job_code" > {shlex.quote(str(cikis))}'
+    )
     try:
         surec = subprocess.Popen(
             sarmal,
@@ -77,6 +96,7 @@ def start_job(
         f"Arka plan işi başladı: {kimlik}\nKomut: {command}\nÇıktı: {gunluk}\n"
         f"Durumu ve son çıktıyı görmek için job_status(id='{kimlik}', wait_s=...) çağır; "
         "bitmesini beklemek için wait_s ver. Gerekirse job_status(id, stop=true) ile durdur.",
+        job_completion=delivery,
     )
 
 
@@ -127,9 +147,15 @@ def job_status(args: ToolArgs, context: ToolContext) -> ToolResult:
         time.sleep(_POLL_S)
         kod = _read_exit(klasor, kimlik)
     cikti = _tail(klasor, kimlik)
+    try:
+        delivery = observe_delivery(klasor, context.root, kimlik, kod)
+    except (OSError, ValueError) as error:
+        return ToolResult.failure(f"İş teslim kanıtı okunamadı: {error}")
     if kod is None:
         return ToolResult(
-            f"İş {kimlik} SÜRÜYOR ({bekle} sn beklendi).\n[son çıktı]\n{cikti}", is_observation=True
+            f"İş {kimlik} SÜRÜYOR ({bekle} sn beklendi).\n[son çıktı]\n{cikti}",
+            is_observation=True,
+            job_completion=delivery,
         )
     evidence: tuple[FailureEvidence, ...] = ()
     warning = ""
@@ -143,6 +169,7 @@ def job_status(args: ToolArgs, context: ToolContext) -> ToolResult:
         ok=kod == 0,
         failure_evidence=evidence,
         is_observation=True,
+        job_completion=delivery,
     )
 
 

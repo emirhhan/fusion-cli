@@ -25,6 +25,7 @@ from typing import Any, Protocol
 from .artifacts import ArtifactStore
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
+from .job_evidence import JobCompletion
 from .repair_ledger import FailureEvidence
 from .tool_content import ToolContent, ToolContentType
 
@@ -181,6 +182,7 @@ class ToolResult:
     artifact_path: str = ""
     failure_evidence: tuple[FailureEvidence, ...] = ()
     is_observation: bool = False
+    job_completion: JobCompletion | None = None
 
     @property
     def images(self) -> tuple[str, ...]:

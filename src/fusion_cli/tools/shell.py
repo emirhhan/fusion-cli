@@ -23,6 +23,7 @@ from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .command_policy import READONLY_GIT_SUBCOMMANDS
 from .files import invented_path_reason
+from .job_delivery import prepare_outputs
 from .job_evidence import prepare_manifest
 from .jobs import start_job
 from .safe_delete import DeleteRefusedError, move_to_trash, simple_rm_targets
@@ -42,9 +43,10 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     if args.get("background") is True:
         try:
             manifest = prepare_manifest(args, context.root)
+            outputs = prepare_outputs(args, context.root)
         except (OSError, ValueError) as error:
             return ToolResult.failure(f"İş kanıtı hazırlanamadı: {error}")
-        return start_job(command, context, _shell_env(), manifest=manifest)
+        return start_job(command, context, _shell_env(), manifest=manifest, outputs=outputs)
     try:
         # shell=True bilinçli: kullanıcı boru/yönlendirme içeren komut yazabilmeli.
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.

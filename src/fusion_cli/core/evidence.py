@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from .job_evidence import JobCompletion
+
 if TYPE_CHECKING:
     from .execution_plan import VerificationCheckKind
 
@@ -47,3 +49,4 @@ class ToolUse:
     mutating: bool = False
     arguments: Mapping[str, object] = field(default_factory=dict)
     output: str = ""
+    job_completion: JobCompletion | None = None

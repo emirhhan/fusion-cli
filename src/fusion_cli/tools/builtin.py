@@ -327,6 +327,11 @@ _TOOLS: tuple[Tool, ...] = (
             {
                 "command": _STRING,
                 "background": {"type": "boolean"},
+                "expected_outputs": {
+                    "type": "array",
+                    "items": _STRING,
+                    "description": "Beklenen çıktı dosyaları; launch öncesi/sonrası hash.",
+                },
                 "failure_check": {
                     **_STRING,
                     "description": "Kontrol kimliği; failure_sources ile birlikte.",

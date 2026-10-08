@@ -18,9 +18,11 @@ from dataclasses import dataclass
 
 from ...core.constants import TOOL_CALL_BLOCKED_PREFIX, TOOL_CALL_DUPLICATE_PREFIX
 from ...core.evidence import EvidenceStatus, ToolUse
+from ...core.job_evidence import JobPhase
 from ...core.tools import ToolFamily, tool_family
 from ...core.verification import VerificationResult
 from ...ui.text import strip_thinking
+from .job_delivery import JobDelivery, collect_job_deliveries
 from .verify_discovery import is_behavioral_command
 
 #: Kabuk komutu çalıştıran KANONİK araç adı — yalnız görüntüleme/dokümantasyon
@@ -126,6 +128,7 @@ class TurnReport:
     require_behavioral_evidence: bool = False
     #: Model kanıt yokken doğrulama iddia etti mi? (`build_turn_report` doldurur.)
     false_claim: bool = False
+    job_deliveries: tuple[JobDelivery, ...] = ()
 
     @property
     def _behavioral_evidence(self) -> tuple[CommandRun, ...]:
@@ -143,6 +146,8 @@ class TurnReport:
         Değişiklik varsa: son mutasyondan sonra çalışan davranış kanıtı YOKSA
         veya kanıtlardan biri başarısızsa `False`; hepsi başarılıysa `True`.
         """
+        if any(item.problem for item in self.job_deliveries):
+            return False
         if not self.changed_paths:
             return None
         evidence = self._behavioral_evidence
@@ -182,6 +187,8 @@ class TurnReport:
         Basit değişikliklerde eksik kanıt uyarıdır. Uzun kod görevinde son
         değişiklikten sonra test yoksa başarı iddiası için gereken kanıt eksiktir.
         """
+        if any(item.problem for item in self.job_deliveries):
+            return True
         if self.gate is not None and not self.gate.ok:
             return True
         if self.require_behavioral_evidence and self.is_verified is False:
@@ -192,9 +199,21 @@ class TurnReport:
 
     def render(self) -> str:
         """Türkçe, kısa bir rapor metni üret; değişiklik yoksa boş döner (D4)."""
-        if not self.changed_paths:
+        if not self.changed_paths and not self.job_deliveries:
             return ""
-        blocks = [*self._gate_blocks(), self._evidence_block()]
+        jobs = tuple(
+            (
+                f"İş {item.completion.job_id} önceki denemesi taze aynı kapsamla çözüldü."
+                if item.is_superseded
+                else item.problem
+            )
+            or f"İş {item.completion.job_id} tamamlandı "
+            f"(çıkış {item.completion.exit_code}); görsel kalite ayrıca doğrulanmalı."
+            for item in self.job_deliveries
+        )
+        blocks = [*jobs, *self._gate_blocks()]
+        if self.changed_paths:
+            blocks.append(self._evidence_block())
         return "\n\n".join(block for block in blocks if block) + "\n\n"
 
     def render_with_model_text(self, model_text: str) -> str:
@@ -271,16 +290,29 @@ def build_turn_report(
 ) -> TurnReport:
     """Turda denenen araç çağrılarından ve değişiklik kaydından raporu kur."""
     last_mutation = _last_mutation_index(tool_uses)
+    jobs = collect_job_deliveries(tool_uses)
     command_runs = tuple(
         _command_run(use, after=last_mutation is not None and index > last_mutation)
         for index, use in enumerate(tool_uses)
-        if _is_shell_call(use.name) and not _never_ran(use)
+        if _is_shell_call(use.name) and not _never_ran(use) and use.job_completion is None
+    )
+    command_runs += tuple(
+        CommandRun(
+            item.completion.command,
+            item.completion.exit_code,
+            last_mutation is not None
+            and item.launch_index is not None
+            and item.launch_index > last_mutation,
+        )
+        for item in jobs
+        if item.completion.phase is JobPhase.COMPLETED and not item.is_superseded
     )
     return TurnReport(
         changed_paths=changed_paths,
         command_runs=command_runs,
         gate=gate,
         require_behavioral_evidence=require_behavioral_evidence,
+        job_deliveries=jobs,
     )
 
 
@@ -305,7 +337,7 @@ def _last_mutation_index(tool_uses: tuple[ToolUse, ...]) -> int | None:
     """
     for index in range(len(tool_uses) - 1, -1, -1):
         use = tool_uses[index]
-        if use.mutating and use.ok and not _is_shell_call(use.name):
+        if use.mutating and use.ok and not _is_shell_call(use.name) and use.job_completion is None:
             return index
     return None
 

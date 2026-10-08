@@ -66,6 +66,7 @@ from ...core.events import (
 )
 from ...core.evidence import ToolUse
 from ...core.health import HealthRegistry
+from ...core.job_evidence import JobCompletion
 from ...core.memory import CodeIndex, Lesson, LessonMemory
 from ...core.progress import RoundSignals, progressed
 from ...core.protocols import TurnJournal
@@ -1449,15 +1450,18 @@ def _note_tool_use(
     ok: bool,
     arguments: dict[str, object] | None = None,
     output: str = "",
+    job_completion: JobCompletion | None = None,
+    is_observation: bool = False,
 ) -> None:
     """Denenen araç çağrısını sırayla kaydet (adım ve tur kanıtı)."""
     state.tool_uses.append(
         ToolUse(
             name=name,
             ok=ok,
-            mutating=bool(tool is not None and tool.mutating),
+            mutating=bool(tool is not None and tool.mutating and not is_observation),
             arguments=arguments or {},
             output=output,
+            job_completion=job_completion,
         )
     )
 
@@ -2718,6 +2722,8 @@ async def _run_tools(
             ok=outcome is ToolOutcome.OK,
             arguments=args,
             output=result.output,
+            job_completion=result.job_completion,
+            is_observation=result.is_observation,
         )
         if outcome in (ToolOutcome.DENIED, ToolOutcome.BLOCKED):
             # Onay verilmeyen ya da yetenek kapısına takılan çağrı HİÇ ÇALIŞMADI.
