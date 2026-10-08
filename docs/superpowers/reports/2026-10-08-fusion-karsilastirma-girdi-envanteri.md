@@ -1,42 +1,28 @@
 # Fusion karşılaştırma girdi envanteri
 
-Bu belge [kontrollü karşılaştırma sözleşmesinin](2026-10-08-fusion-kontrollu-karsilastirma-sozlesmesi.md) yürütme hazırlığıdır. Üretim veya %90 gelişim kanıtı değildir. Taslak briefler henüz dondurulmadı; eski çıktılara yeni rubrik uygulanmaz.
+Bu belge [kontrollü karşılaştırma sözleşmesinin](2026-10-08-fusion-kontrollu-karsilastirma-sozlesmesi.md) yürütme hazırlığıdır. Üretim veya %90 gelişim kanıtı değildir. Gelecek koşuların A byte metinleri ve nihai B briefleri public girdi paketine kaydedildi; eski çıktılara yeni rubrik uygulanmaz. Paket eş koşullu üretime hazır değildir.
 
-## Mevcut kaynaklar; henüz koşu girdisi olarak dondurulmadı
+## Byte olarak sabitlenen kaynaklar ve kalan kanıtlar
 
 Özgün kirli tabanın kesin motor revizyonu bilinmiyor. Açık referansın tam SHA’sı `3fd76ae292bbcbe5c21bc41b73f17c43908a184f`; özgün taban olduğu iddia edilmez. Güncel motor ve denetim SHA’ları bütün hazırlık tamamlanınca ayrı ayrı kaydedilecek. Bu belgenin hazırlanması sırasında gözlenen HEAD gelecekteki koşuyu otomatik sabitlemez.
 
 | Alan | A metninin kesin kaynak dosyası/alanı | Mevcut üretim süresi | Eksik hazırlık |
 |---|---|---:|---|
-| Oyun | `evals/kabul/areas/html_game.py`, `TASK` | 3600 sn | Dalga başlangıç/bitiş kuralı, süre ve düşman üst sınırı eki; exact nihai metin/hash |
+| Oyun | `evals/kabul/areas/html_game.py`, `TASK` | 3600 sn | A exact metin/hash hazır; A bölüm kuralları sayısal cap içermiyor, bu durum değiştirilmedi |
 | Remotion | `evals/kabul/areas/remotion.py`, `TASK` | 5400 sn | Beş kaynak girdinin eksiksiz kopyası/hash; bağımsız render ve bütün sahne/final kare takvimi |
 | Site A | `evals/kabul/areas/site_clone.py`, `TASK_TEMPLATE`, `SOURCE_URL=https://www.sneaksup.com` | 5400 sn | Aynı kaynak içerik/görselleri; mobil ve renkli karşılaştırma paketi |
-| Animasyon | `evals/kabul/areas/animation.py`, `TASK` | 3600 sn | Exact metin/hash; mobil, etkileşim ve reduced-motion kanıt takvimi |
+| Animasyon | `evals/kabul/areas/animation.py`, `TASK` | 3600 sn | A/B exact metin/hash hazır; mobil, etkileşim ve reduced-motion denetimi eksik |
 | Site B | `evals/kabul/areas/site_clone_second.py`, `SOURCE_URL=https://www.desa.com.tr`; ortak `TASK_TEMPLATE` | 5400 sn | Ayrı kaynak snapshotı ve aynı alışveriş kontrolleri |
 
-A için yeniden özet yazmak yerine kaynak `TASK` UTF-8 byte metni, varsa önceden sabitlenen ek ve bunların SHA-256’sı tutulur. Site A/B için template doldurulduktan sonraki gerçek metin hashlenir. Oyun mevcut metni süre/nesne sınırlarını sayısal olarak belirtmiyor. Gerekçeli sayılar hazır olmadığı için bu belge yeni cap veya süre uydurmaz; ilk üretimden önce tamamlanması zorunludur.
+A için yeniden özet yazmak yerine kaynak `TASK` UTF-8 byte metni, varsa önceden sabitlenen ek ve bunların SHA-256’sı tutulur. Site A/B için template doldurulduktan sonraki gerçek metin hashlenir. Oyun mevcut metni süre/nesne sınırlarını sayısal olarak belirtmiyor. Gerekçeli sayılar hazır olmadığı için bu belge yeni cap veya süre uydurmaz; sayısal cap eklenerek A sonradan değiştirilmez. Bölüm sırası/oynanabilirlik bağımsız işlev kapısıdır; aynı özgün brief iki motora da verilir.
 
 Remotion hazırlığı `fusion-tanitim/` içine `logo.png`, `logo.svg`, `YETENEKLER.md`, `README.md`, `KITS.md` kopyalar. Kaynakları sırasıyla `app/src-tauri/icons/icon.png`, `app/public/fusion.svg`, `docs/YETENEKLER.md`, repo `README.md` ve kardeş `fusion-kits/README.md` dosyalarıdır. Mevcut `prepare` eksik dosyayı atlar; kontrollü karşılaştırmada beşinin de mevcut ve aynı hashli olduğu doğrulanmadan koşu hazır değildir. İki motora aynı belgeler verilir; güncel motor kit/becerileri referans motorun kaynak paketine enjekte edilmez.
 
-## B brief taslakları
+## Nihai gelecek B briefleri
 
-Aşağıdaki metinler yalnız kullanıcı hedeflerinden türetilmiş aktarım taslaklarıdır. Önceki çıktıların kusurlarına göre puan/rubrik eklemez. Nihai metin ve varlık listesi üretimden önce dondurulmalıdır.
+Tam metinler [brief eklerinde](2026-10-08-fusion-brief-ekleri.md) bulunur. Oyun B platform türündedir; anahtar/kapı tamamlanma kuralı açıktır, yeni nesne sayısı/süre cap'i uydurulmaz. Remotion B aynı beş gerçek belge/logo girdisini kullanarak yeni kullanım-yolculuğu anlatısı kurar; iddialar belgelere dayanır. Animasyon B kurgusal Atölye Günü'nün sabit üç kartını, filtre/detay/klavye/odak kontrollerini içerir. Site B ortak template'in Desa URL'siyle doldurulmuş byte metnidir.
 
-**Oyun B taslağı:**
-
-> Masaüstü tarayıcıda çalışan, yan görünüşlü bir platform oyunu üret. Tek klasörde `index.html` ve yerel CSS/JS/görsellerle, dosyaya çift tıklanarak da açılsın. Başla düğmesi oyunu gerçekten başlatsın. Üç ayrı bölüm sırayla oynansın; ilk bölüm atlanmasın. Oyuncu yön tuşlarıyla hareket edip boşlukla zıplasın; toplanabilir nesneler, tehlikeler, bölüm kapısı ve giderek artan zorluk bulunsun. Kapı, bölümün önceden belirlenmiş tamamlanma şartı sağlanmadan sonraki bölüme geçirmesin. Skor/can ve bölüm göstergesi okunur olsun; menü ve HUD oyun alanını örtmesin. Kaybetme ekranı ve düğme veya R ile tam yeniden başlatma çalışsın; bölüm, oyuncu ve geçici nesne durumu sıfırlansın. Tutarlı yerel sprite’lar üretip gerçekten kullan. Normal oynanışta konsol hatası, donma veya yatay taşma olmasın. Nihai brief ekinde bölüm tamamlanma şartları, nesne/tehlike sınırları ve görsel listesi üretimden önce sabitlenecek.
-
-**Remotion B taslağı:**
-
-> Remotion ile 30 saniyelik, 1920×1080, 30 fps bir ürün lansman videosu üret ve `out/video.mp4` olarak gerçek render al. Başlangıç girdisi paketindeki ürün metinleri, logo ve görselleri oku; doğrulanmayan ürün özelliği uydurma. Anlatı problem, ürünün özellikleri, kullanım örneği ve çağrı/kapanış sahneleri sırasını izlesin. Sahne metinleri ve ürün özellikleri nihai girdi paketinde önceden listelenecek. Tipografi, hiyerarşi ve geçişler tutarlı, metinler okunur olsun; anlamlı içerik taşmasın veya çakışmasın, sahne ve final boş kalmasın. Hareketi Remotion’un kare tabanlı API’leriyle kur. Strict TypeScript denetimi ve gerçek render başarılı olmadan teslimi tamamlandı sayma.
-
-Ürün adı, iddiaları, sahne metinleri ve varlıkları eksik olduğu için bu taslak doğrudan koşuya açılamaz. Bunlar kullanıcı hedefini değiştirmeyen ayrı girdi paketinde tamamlanır.
-
-**Animasyon B taslağı:**
-
-> Bir etkinlik/program arayüzü için animasyonlu tek sayfalık web arayüzü üret. Çalışma klasöründe `index.html` ve gerekiyorsa yerel CSS/JS/görseller bulunsun. Program kartları kategori filtresiyle düzen değiştirsin; kart seçimi detay açsın, kapatma çalışsın. Hover geri bildirimi, kaydırmayla görünür olan bölümler ve amaca uygun easing/hareket bulunsun. Metinler okunur, görsel hiyerarşi ve renkler tutarlı olsun. Masaüstü ve mobilde içerik/kontroller erişilebilir kalsın; yatay taşma veya konsol hatası oluşmasın. `prefers-reduced-motion` seçildiğinde gereksiz hareketi azaltırken filtre, detay ve içerik çalışmaya devam etsin. Etkinlik adı, program metinleri, kategoriler ve varlık listesi nihai brief paketinde üretimden önce sabitlenecek.
-
-Site B’nin tam metni mevcut template ve Desa URL’sinden üretilebilir; kaynak erişimi ve snapshot eşitliği ayrıca doğrulanmalıdır.
+İşlev kontrol noktaları sonuç görülmeden brief ekiyle kaydedildi. **Arena/nişancı inspector'ı platform B'yi doğrulamaz.** B platformun anahtar, kilitli/açık kapı, bölüm sırası, kazanma/kaybetme ve reset bağımsız denetimi gerekir. Animasyonun filtre/detay/odak kontrolü de salt hareket sayımıyla doğrulanamaz. Bunlar hazır olmadan `functional_B_inspectors` kapısı açılmaz. Yeni puan/rubrik geçmiş çıktılardan türetilmez.
 
 ## Yapılandırma ve bellek eşitliği
 
@@ -67,10 +53,20 @@ Header: sözleşme/hash; açık referans tam SHA; güncel motor tam SHA; sabit d
 
 Her kayıt: run kimliği, alan ve A/B; seçilmiş motor kaynak yolu ve gözlenen `fusion_cli.__file__`; tam brief yolu/hash; alanın mevcut süre bütçesi; ayrı boş çalışma/bellek kökü ve cache başlangıç kanıtı; kaynak varlık/hash listesi; viewport/FPS/reduced-motion/etkileşim-kare takvimi; başlangıç/bitiş/uyku/kesinti kayıtları; çıktı ve bağımsız denetim kanıt yolları; geçerlilik ve kritik işlev kapısı sonucu. Sır içeren ham config veya ortam konmaz.
 
-Motor seçimi için güncel `evals` sabit kaynak paketinden koşulur; alt çekirdek süreci `PYTHONPATH=<seçilmiş-motor>/src:<sabit-evals-kökü>` ve boş çalışma köküyle açılabilir. Bu yalnız yürütme taslağıdır: import edilen motor yolu gerçekten doğrulanmalıdır. Editable kurulumun veya güncel `fusion` executable yolunun referansı seçtiği varsayılmaz. Ön-kontrol model çağrısı da seçilmiş motorla yapılır; aksi halde preflight farklı motoru sınamış olur.
+Seçilmiş motor bootstrap/import proof ve çözülmüş config receipt zinciri artık uygulanmıştır; kabul runner ve seçilmiş model önkontrolü bu seçenekleri taşır. Bu altyapı tek başına iki motorun eşitliğini kanıtlamaz. Eski yürütme taslağı: alt çekirdek süreci `PYTHONPATH=<seçilmiş-motor>/src:<sabit-evals-kökü>` ve boş çalışma köküyle açılabilir. Bu yalnız yürütme taslağıdır: import edilen motor yolu gerçekten doğrulanmalıdır. Editable kurulumun veya güncel `fusion` executable yolunun referansı seçtiği varsayılmaz. Ön-kontrol model çağrısı da seçilmiş motorla yapılır; aksi halde preflight farklı motoru sınamış olur.
 
-Mevcut kabul CLI’sinde B brief parametresi ve per-run bellek seçimi yok. İleride küçük manifest adapterı sabit `Area(task=B)` ile aynı `run_job`, preparer ve inspector zincirini kullanabilir; denetim kaynakları ve Remotion girdileri ayrı sabit pakette bulunmalıdır. Bu belgede adapter yazılmadı veya koşu başlatılmadı.
+Saf `run_manifest` eksikleri kapalı tutar; public input package byte girdileri yazıldı. Kabul CLI’sinde tam B/manifest/per-run bellek yürütme adapterı henüz yok. İleride küçük manifest adapterı sabit `Area(task=B)` ile aynı `run_job`, preparer ve inspector zincirini kullanabilir; denetim kaynakları ve Remotion girdileri ayrı sabit pakette bulunmalıdır. Bu belgede adapter yazılmadı veya koşu başlatılmadı.
 
 Ön-kontrolün mevcut **5 GB** boş disk sınırı düşürülmez veya atlanmaz. Ağır koşular seri yürür; WindowServer60% sınırında yeni görsel yük başlatılmaz. Sağlayıcı/denetçi arızası ve uyku, kanıtlı geçerlilik sorunları olarak ayrılır; normal bütçedeki eksik üretim veya gerçek ürün kusuru geçersiz diye gizlenmez.
 
 Bu hazırlık tamamlandıktan sonra bile tek A çifti yalnız o brief/denemeyi, tek B yalnız örnek aktarımı gösterir. Sözleşmedeki %90 göreli hesap, referans0 için tanımsızlık ve referans55+ için endeksin matematiksel tavanı korunur; mutlak90 veya kusur azalması kullanıcı hedefinin yerine konmaz.
+
+## Gerçek public paket kaydı
+
+Yeni paket: `/Users/motogate/Desktop/all/01-Projeler/fusion-kabul/comparison-inputs/frozen-2026-10-08/`.
+Manifest SHA-256: `78185f38428260afc23ab7d9909f4a4125688e0c1be3a47a4d7859bff5b2cbee`.
+`briefs/` sekiz A/B UTF-8 dosyasını, `sourceassets/fusion-tanitim/` beş eksiksiz gerçek girdi dosyasını; `sources/` A kaynak modüllerini, brief ekini ve karşılaştırma sözleşmesini içerir. Her dosyanın exact byte boyutu/SHA-256'sı `manifest.json` içindedir. A TASK metinleri modül import/execute edilmeden AST literalinden çıkarıldı; site metni yalnız mevcut literal template ile dolduruldu. B bütçeleri ilgili A'nın özgün alan bütçesidir. Üretim, reference kit enjeksiyonu veya sağlayıcı çağrısı yapılmadı.
+
+Paket `unverified`, 12 koşunun tamamı `runnable=false`. Hazır brief/assets ile eksik eş koşul kanıtları ayrıdır: current/reference seçilmiş source manifestleri, efektif config eşitliği, authentication etkisi, cache başlangıcı, bellek izolasyonu, dinamik context etkisi, üretim kaynak snapshotı, sabit inspection/rubric/dependency sürümleri ve görev türüne uygun B denetçileri eksiktir. Paket içindeki rubrik belgesinin hash'i, dış denetim snapshotının dondurulduğu anlamına gelmez. Özgün kirli baseline provenance bilinmiyor; explicit reference yine özgün taban diye sunulmaz.
+
+Tekrar üretme yolu: `evals.kabul.input_package.materialize_package(PublicSources(...explicit public allowlist...), yeni_hedef, briefs, assets)`. A kaynağı `extract_task` ile çözülür; annex'teki literal B metinleri byte olarak verilir; helper mevcut hedefe yazmayı reddeder. Gerçek kaynak dosyaları değişirse yeni klasör/manifest gerekir. Model/loader/config/env/cache okunmaz. Bu teslim hazırlığı, ürün kalitesi veya %90 gelişim sonucu değildir.
