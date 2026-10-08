@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..core.remotion_browser import RemotionBrowser
 from ..engines.agent.remotion_bridge import FrameTransport
 
 
@@ -12,3 +13,4 @@ class AppHostDependencies:
     """Yalnız composition root tarafından verilen opsiyonel taşıma."""
 
     remotion_transport: FrameTransport | None = None
+    remotion_browser: RemotionBrowser | None = None

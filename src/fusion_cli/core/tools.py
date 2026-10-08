@@ -26,6 +26,7 @@ from .artifacts import ArtifactStore
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
 from .job_evidence import JobCompletion
+from .remotion_browser import RemotionBrowser
 from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
 from .tool_content import ToolContent, ToolContentType
@@ -356,6 +357,8 @@ class ToolContext:
     available_tools: set[str] = field(default_factory=set)
     #: Açık kit iskele aracı sonradan kaydeder; genel Remotion projeleri opt-in kalır.
     remotion_contract: KitContractState = field(default_factory=KitContractState)
+    #: Tarayıcı seçimi yalnız host bağımlılığıdır; araç JSON'undan alınmaz.
+    remotion_browser: RemotionBrowser | None = field(default=None, kw_only=True)
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya

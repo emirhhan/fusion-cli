@@ -47,6 +47,7 @@ from ..config.paths import credentials_file
 from ..core.clock import SystemClock
 from ..core.concurrency import BackgroundTasks
 from ..core.events import Event, StatusChanged
+from ..core.remotion_browser import RemotionBrowser
 from ..core.tools import TodoStatus
 from ..core.turn_deadline import TurnDeadline
 from ..core.types import Message
@@ -356,6 +357,7 @@ class AppSession:
         root: Path,
         home: Path,
         remotion_transport: FrameTransport | None = None,
+        remotion_browser: RemotionBrowser | None = None,
     ) -> None:
         self._writer = writer
         self._root = root
@@ -372,6 +374,7 @@ class AppSession:
             home=home,
             health=build_health(config),
             remotion_transport=remotion_transport,
+            remotion_browser=remotion_browser,
         )
         #: Uygulamanın sekmesine karşılık gelen konuşma kimliği. `oturum.baslat`
         #: ile gelir; gelmeden önce okuma proje genelini gösterir.
@@ -1465,6 +1468,7 @@ class AppSession:
                 task,
                 config,
                 remotion_transport=self._state.remotion_transport,
+                remotion_browser=self._state.remotion_browser,
                 deadline=deadline,
                 sinks=(sink,),
                 prompter_factory=lambda _drain: prompter,

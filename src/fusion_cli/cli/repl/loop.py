@@ -23,6 +23,9 @@ from typing import TYPE_CHECKING
 
 from rich.console import Console
 
+from ...core.remotion_browser import RemotionBrowser
+from ...tools.remotion_observe import browser_transport
+
 if TYPE_CHECKING:
     from ...engines.agent.loop import AgentDeps, AgentOutcome
     from ...engines.agent.remotion_bridge import FrameTransport
@@ -85,6 +88,7 @@ async def run_repl(
     console: Console,
     extra_roots: tuple[Path, ...] = (),
     remotion_transport: FrameTransport | None = None,
+    remotion_browser: RemotionBrowser | None = None,
 ) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür."""
     import os
@@ -102,6 +106,7 @@ async def run_repl(
             home=Path.home(),
             extra_roots=extra_roots,
             remotion_transport=remotion_transport,
+            remotion_browser=remotion_browser,
             health=build_health(config),
         )
         return await run_tui_repl(state, console)
@@ -113,6 +118,7 @@ async def run_repl(
         home=Path.home(),
         extra_roots=extra_roots,
         remotion_transport=remotion_transport,
+        remotion_browser=remotion_browser,
         health=build_health(config),
     )
     # Ev dizini GEÇİLİR: dinamik `/resume<kaynak>` komutları ancak böyle kaydolur.
@@ -444,6 +450,7 @@ async def _agent_turn(
             root=state.root,
             extra_roots=state.extra_roots,
             restrict_to_root=state.config.runtime.restrict_to_root,
+            remotion_browser=state.remotion_browser,
         )
         prompter = ConsolePrompter(
             console,
@@ -453,6 +460,9 @@ async def _agent_turn(
             # spinner cevap istemini ezip kullanıcıyı yazamaz hâle getirir.
             suspend=renderer.suspended,
         )
+        transport = state.remotion_transport
+        if transport is None and state.remotion_browser is not None:
+            transport = browser_transport(state.remotion_browser)
         deps = AgentDeps(
             config=state.config,
             publisher=bus,
@@ -470,7 +480,7 @@ async def _agent_turn(
                 root=state.root,
                 tool_context=tool_context,
                 remotion_state=tool_context.remotion_contract,
-                remotion_transport=state.remotion_transport,
+                remotion_transport=transport,
             ),
             # `/type` agent turunda da etkili olmalı: görev tipi model seçimini
             # yönlendirir (`select_agent_spec`). Geçirilmediğinde "general"a düşülüyor

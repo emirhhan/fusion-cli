@@ -12,7 +12,7 @@ from __future__ import annotations
 import sys
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -34,6 +34,7 @@ from ..core.events import (
 from ..core.followups import suggest_followups
 from ..core.health import HealthRegistry
 from ..core.protocols import TurnJournal
+from ..core.remotion_browser import RemotionBrowser
 from ..core.tools import ChromeControl, ToolContext
 from ..core.turn_deadline import TurnDeadline
 from ..core.types import (
@@ -60,6 +61,7 @@ from ..observability.trace_store import TraceStore, TraceWriter
 from ..observability.tracing import LangfuseTracer
 from ..providers.health_setup import build_health
 from ..tools.capabilities import CapabilityRegistry
+from ..tools.remotion_observe import browser_transport
 from ..ui import messages
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
@@ -168,6 +170,7 @@ async def run_agent_task(
     journal: TurnJournal | None = None,
     require_remotion_kit: bool = False,
     remotion_transport: FrameTransport | None = None,
+    remotion_browser: RemotionBrowser | None = None,
     deadline: TurnDeadline | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
@@ -210,6 +213,10 @@ async def run_agent_task(
             # kaybolmaz, model gerektiğinde dosyayı açar (context rot).
             artifacts=ArtifactStore(config.memory_dir / "artifacts" / _artifact_id()),
         )
+        if remotion_browser is not None:
+            tool_context = replace(tool_context, remotion_browser=remotion_browser)
+        if remotion_transport is None and tool_context.remotion_browser is not None:
+            remotion_transport = browser_transport(tool_context.remotion_browser)
         if require_remotion_kit:
             tool_context.remotion_contract.require()
         deps = AgentDeps(

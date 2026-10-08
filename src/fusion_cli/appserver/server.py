@@ -11,6 +11,7 @@ import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+from ..core.remotion_browser import RemotionBrowser
 from ..engines.agent.remotion_bridge import FrameTransport
 from ..ui import messages
 from .bridges import Writer
@@ -55,11 +56,18 @@ async def serve(
     root: Path,
     home: Path,
     remotion_transport: FrameTransport | None = None,
+    remotion_browser: RemotionBrowser | None = None,
 ) -> None:
     """Satır akışını oturuma bağla ve akış bitene kadar sür."""
     session = (
-        AppSession(writer, root=root, home=home, remotion_transport=remotion_transport)
-        if remotion_transport is not None
+        AppSession(
+            writer,
+            root=root,
+            home=home,
+            remotion_transport=remotion_transport,
+            remotion_browser=remotion_browser,
+        )
+        if remotion_transport is not None or remotion_browser is not None
         else AppSession(writer, root=root, home=home)
     )
     tasks: set[asyncio.Task[None]] = set()
@@ -138,14 +146,22 @@ def _stdout_writer(line: str) -> None:
 
 
 async def run_stdio(
-    root: Path, home: Path, *, remotion_transport: FrameTransport | None = None
+    root: Path,
+    home: Path,
+    *,
+    remotion_transport: FrameTransport | None = None,
+    remotion_browser: RemotionBrowser | None = None,
 ) -> None:
     """Gerçek stdio üzerinde protokolü çalıştır."""
     force_utf8_stdio()
+    if remotion_transport is None and remotion_browser is None:
+        await serve(_stdin_lines(), _stdout_writer, root=root, home=home)
+        return
     await serve(
         _stdin_lines(),
         _stdout_writer,
         root=root,
         home=home,
-        **({"remotion_transport": remotion_transport} if remotion_transport is not None else {}),
+        remotion_transport=remotion_transport,
+        remotion_browser=remotion_browser,
     )

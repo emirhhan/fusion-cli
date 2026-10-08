@@ -97,13 +97,17 @@ def test_real_selected_factories_carry_transport_into_main_session(tmp_path):
     executable.chmod(0o755)
     (package / "cli/app_host.py").write_text(
         "class AppHostDependencies:\n"
-        " def __init__(self,*,remotion_transport): self.remotion_transport=remotion_transport\n"
+        " def __init__(self,*,remotion_transport,remotion_browser=None):\n"
+        "  self.remotion_transport=remotion_transport\n"
     )
     (package / "tools/remotion_observe.py").write_text(
         "class ExistingBrowser:\n"
         " def __init__(self,executable,mode): self.executable=executable;self.mode=mode\n"
         "async def observe_frame(request,*,browser):\n"
         " return {'request':request,'executable':str(browser.executable),'mode':browser.mode}\n"
+        "def browser_transport(browser):\n"
+        " async def transport(request): return await observe_frame(request,browser=browser)\n"
+        " return transport\n"
     )
     (package / "cli/app.py").write_text(
         "import asyncio,json\nfrom pathlib import Path\n"

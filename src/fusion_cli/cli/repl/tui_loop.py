@@ -419,6 +419,7 @@ class _TuiSession:
                     line,
                     self._state.config,
                     remotion_transport=self._state.remotion_transport,
+                    remotion_browser=self._state.remotion_browser,
                     sinks=sinks,
                     prompter_factory=self._prompter_factory,
                     mode=self._state.approval,

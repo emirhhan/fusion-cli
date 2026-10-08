@@ -503,8 +503,17 @@ def app_protocol(ctx: typer.Context) -> None:
         activate_account(hesap)
 
     host = ctx.obj if isinstance(ctx.obj, AppHostDependencies) else None
-    if host is not None and host.remotion_transport is not None:
-        asyncio.run(run_stdio(Path.cwd(), Path.home(), remotion_transport=host.remotion_transport))
+    if host is not None and (
+        host.remotion_transport is not None or host.remotion_browser is not None
+    ):
+        asyncio.run(
+            run_stdio(
+                Path.cwd(),
+                Path.home(),
+                remotion_transport=host.remotion_transport,
+                remotion_browser=host.remotion_browser,
+            )
+        )
     else:
         asyncio.run(run_stdio(Path.cwd(), Path.home()))
 

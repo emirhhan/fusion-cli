@@ -20,6 +20,7 @@ def _apis(tmp_path):
         ExistingBrowser=lambda executable, mode: (executable, mode),
         observe_frame=observe,
     )
+    observer.browser_transport = lambda browser: lambda request: observe(request, browser=browser)
     host = SimpleNamespace(
         __file__=str(tmp_path / "src/fusion_cli/cli/app_host.py"),
         AppHostDependencies=lambda **kwargs: SimpleNamespace(**kwargs),

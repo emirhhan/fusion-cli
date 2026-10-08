@@ -45,6 +45,7 @@ class ObserverAPI(Protocol):
     __file__: str
     ExistingBrowser: Callable[..., object]
     observe_frame: Callable[..., Awaitable[object]]
+    browser_transport: Callable[[object], Callable[[object], Awaitable[object]]]
 
 
 class HostAPI(Protocol):
@@ -90,12 +91,19 @@ def bind_browser(
         (host, "AppHostDependencies"),
         (observer, "observe_frame"),
         (observer, "ExistingBrowser"),
+        (observer, "browser_transport"),
     ):
         if not callable(getattr(api, name, None)):
             raise ValueError("Seçilmiş motor host tarayıcı API'si desteklenmiyor.")
     root = Path(proof.source_root) / "src/fusion_cli"
     _check_api(entry, root / "cli/app.py", entry.main, host_dependencies=None)
-    _check_api(host, root / "cli/app_host.py", host.AppHostDependencies, remotion_transport=None)
+    _check_api(
+        host,
+        root / "cli/app_host.py",
+        host.AppHostDependencies,
+        remotion_transport=None,
+        remotion_browser=None,
+    )
     _check_api(
         observer,
         root / "tools/remotion_observe.py",
@@ -112,7 +120,5 @@ def bind_browser(
     )
     browser = observer.ExistingBrowser(executable=selection.executable, mode=selection.mode)
 
-    async def transport(request: object) -> object:
-        return await observer.observe_frame(request, browser=browser)
-
-    return host.AppHostDependencies(remotion_transport=transport)
+    transport = observer.browser_transport(browser)
+    return host.AppHostDependencies(remotion_transport=transport, remotion_browser=browser)

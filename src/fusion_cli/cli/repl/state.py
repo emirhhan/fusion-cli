@@ -15,6 +15,7 @@ from ...config.models import Config
 from ...config.permissions import load_allowed_commands
 from ...core.changeset import ChangeSet
 from ...core.health import HealthRegistry
+from ...core.remotion_browser import RemotionBrowser
 from ...core.types import FusionResult, Message
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
 from ...engines.agent.remotion_bridge import FrameTransport
@@ -61,6 +62,7 @@ class ReplState:
     extra_roots: tuple[Path, ...] = ()
     #: Yalnız host enjekte eder; model/scaffold tarayıcı seçemez.
     remotion_transport: FrameTransport | None = field(default=None, kw_only=True)
+    remotion_browser: RemotionBrowser | None = field(default=None, kw_only=True)
     engine: Engine = Engine.AGENT
     approval: ApprovalMode = ApprovalMode.AUTO
     task_type: str = "general"

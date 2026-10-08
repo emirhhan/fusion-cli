@@ -11,20 +11,12 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
 from ..config.paths import bundled_skills_dir
 from ..core.constants import MAX_CHECKPOINT_OUTPUT_CHARS
+from ..core.remotion_browser import RemotionBrowser as ExistingBrowser
 from ..core.repair_ledger import SourceFingerprint
 from .job_evidence import prepare_manifest
-
-
-@dataclass(frozen=True, slots=True)
-class ExistingBrowser:
-    """Yalnız host seçimi: kurulu executable ve renderer çalışma modu."""
-
-    executable: Path
-    mode: Literal["headless-shell", "chrome-for-testing"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -352,3 +344,14 @@ def _payload(
             else None,
         }
     )
+
+
+def browser_transport(
+    browser: ExistingBrowser,
+) -> Callable[[RenderRequest], Awaitable[RenderedFrame]]:
+    """Host seçimini yalnız bu closure ile gerçek taşıma çağrısına bağla."""
+
+    async def transport(request: RenderRequest) -> RenderedFrame:
+        return await observe_frame(request, browser=browser)
+
+    return transport
