@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
+import os
 import sys
+from collections.abc import MutableMapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import TypeVar, cast
 
 from evals.engine_proof import (
     EngineSelection,
@@ -99,7 +103,10 @@ def validate_receipt(raw: object, engine: DriverEngine, child_pid: int) -> Impor
 def bootstrap(source_root: str, manifest: str, proof: str, logging: bool) -> None:
     from evals.engine_launcher import launch
 
+    imported: list[ImportedEngineProof] = []
+
     def emit(receipt: ImportedEngineProof) -> None:
+        imported.append(receipt)
         sys.stdout.write(json.dumps({"tip": "motor_kaniti", "veri": asdict(receipt)}) + "\n")
         sys.stdout.flush()
 
@@ -113,5 +120,80 @@ def bootstrap(source_root: str, manifest: str, proof: str, logging: bool) -> Non
         if not marker:
             raise ValueError("Sürücü teşhis bootstrap sözleşmesi desteklenmiyor.")
         exec(compile(setup, "<fusion-driver-diagnostics>", "exec"), {})
+        _install_config_observer(imported[0])
 
     launch(Path(source_root), Path(manifest), Path(proof), receipt=emit, before_main=diagnose)
+
+
+def _install_config_observer(proof: ImportedEngineProof) -> None:
+    import importlib
+
+    try:
+        from evals.driver_config import ConfigObserver, ConfigReceipt, install
+
+        session = importlib.import_module("fusion_cli.cli.session")
+        engine = importlib.import_module("fusion_cli.engines.agent.loop")
+        sequence: list[int] = [0]
+
+        def emit(receipt: ConfigReceipt) -> None:
+            sequence[0] += 1
+            payload = {"sequence": sequence[0], "receipt": asdict(receipt)}
+            print(json.dumps({"tip": "efektif_kanit", "veri": payload}), flush=True)
+
+        install(ConfigObserver(proof, os.getpid, emit), session, engine)
+    except (ImportError, ValueError, AttributeError):
+        print(json.dumps({"tip": "efektif_desteklenmiyor", "veri": {}}), flush=True)
+
+
+def consume_config(
+    message: object, proof: dict[str, object], records: list[dict[str, object]]
+) -> None:
+    from evals.driver_config import validate_wire
+
+    if not isinstance(message, dict) or set(message) != {"sequence", "receipt"}:
+        raise ValueError("Efektif kanıt zarfı geçersiz.")
+    if type(message["sequence"]) is not int or message["sequence"] != len(records) + 1:
+        raise ValueError("Efektif kanıt sıra numarası yinelenmiş/geçersiz.")
+    imported = ImportedEngineProof(
+        cast(int, proof["pid"]),
+        cast(str, proof["package_file"]),
+        cast(str, proof["entry_file"]),
+        cast(str, proof["source_root"]),
+        cast(str, proof["source_digest"]),
+        cast(str, proof["requested_revision"]),
+    )
+    receipt = validate_wire(message["receipt"], imported)
+    records.append(asdict(receipt))
+
+
+def handle_config(tip: object, data: object, record: dict[str, object]) -> bool:
+    """Efektif tel kanıtını ve ilk model olayının sırasını kayda bağla."""
+    if tip == "efektif_desteklenmiyor":
+        record["efektif_durum"] = "unsupported"
+        return True
+    snapshots = cast(list[dict[str, object]], record.setdefault("efektif_kanitlar", []))
+    if tip == "efektif_kanit":
+        try:
+            consume_config(data, cast(dict[str, object], record.get("motor_kaniti", {})), snapshots)
+        except (ValueError, KeyError):
+            record["hata"] = "Efektif ayar kanıtı doğrulanmadı."
+        return True
+    if (
+        tip == "olay"
+        and isinstance(data, dict)
+        and data.get("olay") == "ModelCallStarted"
+        and len(snapshots) <= cast(int, record.get("efektif_baslangic", 0))
+    ):
+        record["hata"] = "Model çağrısından önce efektif ayar kanıtı eksik."
+    return False
+
+
+_Response = TypeVar("_Response")
+
+
+def invalidate_pending(pending: MutableMapping[str, asyncio.Future[_Response]], error: str) -> None:
+    """Kanıt ihlalinden sonra sıradaki yanıt eski isteği başarılı yapamasın."""
+    for future in pending.values():
+        if not future.done():
+            future.set_exception(ConnectionError(error))
+    pending.clear()

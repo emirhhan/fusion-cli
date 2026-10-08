@@ -26,7 +26,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import IO, Any
 
-from evals.driver_engine import command, from_options, validate_receipt
+from evals import driver_engine
 from evals.driver_limits import DRIVER_GRACE_S
 
 _LOG_LAUNCHER = """
@@ -135,9 +135,9 @@ main()
 
 
 def _komut(args: argparse.Namespace) -> list[str]:
-    engine = from_options(args)
+    engine = driver_engine.from_options(args)
     if engine is not None:
-        return command(engine, logging=args.log)
+        return driver_engine.command(engine, logging=args.log)
     if args.log:
         return [sys.executable, "-c", _LOG_LAUNCHER]
     return [sys.executable, "-c", _TESHIS_LAUNCHER]
@@ -193,7 +193,7 @@ def _say(sayac: dict[str, int], veri: dict[str, Any]) -> None:
 async def drive(
     args: argparse.Namespace, stderr: IO[bytes] | None, olay_gunlugu: IO[bytes] | None = None
 ) -> dict[str, Any]:
-    engine = from_options(args)
+    engine = driver_engine.from_options(args)
     process = await asyncio.create_subprocess_exec(
         *_komut(args),
         cwd=args.kok,
@@ -261,16 +261,17 @@ async def drive(
         if tip == "motor_kaniti" and engine is not None and engine_ready is not None:
             if engine_ready.done():
                 kayit["hata"] = "Yinelenen motor kanıtı reddedildi."
-                for pending in bekleyen.values():
-                    if not pending.done():
-                        pending.set_exception(ConnectionError(kayit["hata"]))
-                bekleyen.clear()
+                driver_engine.invalidate_pending(bekleyen, kayit["hata"])
                 return
             try:
-                receipt = validate_receipt(veri, engine, process.pid)
+                receipt = driver_engine.validate_receipt(veri, engine, process.pid)
                 engine_ready.set_result(asdict(receipt))
             except ValueError as error:
                 engine_ready.set_exception(error)
+            return
+        if engine is not None and driver_engine.handle_config(tip, veri, kayit):
+            if kayit.get("hata"):
+                driver_engine.invalidate_pending(bekleyen, kayit["hata"])
             return
         if tip == "olay":
             _say(sayac, veri)
@@ -325,6 +326,7 @@ async def drive(
             if engine is not None and kayit.get("hata"):
                 return kayit
             basla = time.monotonic()
+            kayit["efektif_baslangic"] = len(kayit.get("efektif_kanitlar", []))
             try:
                 sonuc = await istek(
                     "tur.calistir",
@@ -336,6 +338,10 @@ async def drive(
                 ozet = {"ok": False, "metin": f"zaman aşımı ({args.sure} sn)"}
             except ConnectionError as hata:
                 ozet = {"ok": False, "metin": str(hata)}
+            if engine is not None:
+                ozet["efektif_kanit"] = (
+                    len(kayit.get("efektif_kanitlar", [])) > kayit["efektif_baslangic"]
+                )
             kayit["turlar"].append(
                 {"gorev": gorev[:120], **ozet, "sure_sn": round(time.monotonic() - basla, 1)}
             )
@@ -350,6 +356,10 @@ async def drive(
             process.kill()
             await process.wait()
         await okuyucu
+        if engine is not None:
+            kayit["kontrollu_ayar_kaniti"] = bool(kayit.get("efektif_kanitlar")) and not kayit.get(
+                "hata"
+            )
         if engine is not None and kayit.get("hata"):
             for turn in kayit["turlar"]:
                 turn.update(ok=False, metin=kayit["hata"])

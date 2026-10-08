@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Protocol, cast
 
-from evals.effective_config import EffectiveConfigProof, project_effective
+from evals.effective_config import EffectiveConfigProof, EffectiveField, project_effective
 from evals.engine_proof import ImportedEngineProof
 from fusion_cli.config.models import Config
 from fusion_cli.core.types import ModelSpec
@@ -160,3 +160,186 @@ def install(observer: ConfigObserver, session: SessionAPI, engine: SelectionAPI)
     session.run_agent_task = wrapped_run
     engine.select_agent_spec = wrapped_select
     return binding
+
+
+def validate_wire(raw: object, proof: ImportedEngineProof) -> ConfigReceipt:
+    """Tel kanıtını kimlik, izinli alan türü ve kanonik özetle doğrula."""
+    keys = {
+        "schema_version",
+        "pid",
+        "source_digest",
+        "requested_revision",
+        "revision_provenance",
+        "effective",
+    }
+    if not isinstance(raw, dict) or set(raw) != keys:
+        raise ValueError("Efektif kanıt alanları geçersiz.")
+    if type(raw["schema_version"]) is not int or raw["schema_version"] != 1:
+        raise ValueError("Efektif kanıt sürümü geçersiz.")
+    if type(raw["pid"]) is not int or raw["pid"] != proof.pid:
+        raise ValueError("Efektif kanıt süreç kimliği geçersiz.")
+    for name in ("source_digest", "requested_revision", "revision_provenance"):
+        if raw[name] != getattr(proof, name):
+            raise ValueError("Efektif kanıt kaynak kimliği geçersiz.")
+    return ConfigReceipt(
+        1,
+        proof.pid,
+        proof.source_digest,
+        proof.requested_revision,
+        proof.revision_provenance,
+        _wire_snapshot(raw["effective"]),
+    )
+
+
+def _wire_snapshot(value: object) -> EffectiveConfigProof:
+    import hashlib
+    import json
+    import math
+
+    effective_keys = {
+        "schema_version",
+        "fields",
+        "missing_fields",
+        "digest",
+        "authentication_status",
+        "cache_initial_state",
+        "dynamic_context_status",
+    }
+    if not isinstance(value, dict) or set(value) != effective_keys:
+        raise ValueError("Efektif snapshot sözleşmesi geçersiz.")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        raise ValueError("Efektif snapshot sürümü geçersiz.")
+    if any(
+        value[name] != "unknown"
+        for name in ("authentication_status", "cache_initial_state", "dynamic_context_status")
+    ):
+        raise ValueError("Bilinmeyen dinamik durum doğrulanmış sayılamaz.")
+    if not isinstance(value["fields"], list) or not value["fields"]:
+        raise ValueError("Efektif alan listesi boş/geçersiz.")
+    fields = tuple(_wire_field(item, math.isfinite) for item in value["fields"])
+    if tuple(sorted(fields, key=lambda item: item.path)) != fields or len(
+        {item.path for item in fields}
+    ) != len(fields):
+        raise ValueError("Efektif alan sırası/yinelenmesi geçersiz.")
+    missing = tuple(item.path for item in fields if item.kind == "missing")
+    if value["missing_fields"] != list(missing):
+        raise ValueError("Efektif eksik alan listesi tutarsız.")
+    canonical = [(item.path, item.kind, item.value, item.count) for item in fields]
+    digest = hashlib.sha256(
+        json.dumps(
+            {"schema": 1, "fields": canonical},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode()
+    ).hexdigest()
+    if value["digest"] != digest:
+        raise ValueError("Efektif snapshot özeti eşleşmiyor.")
+    return EffectiveConfigProof(1, fields, missing, digest)
+
+
+def _wire_field(raw: object, finite: Callable[[float], bool]) -> EffectiveField:
+    from evals.effective_config import (
+        EffectiveField,
+    )
+
+    if not isinstance(raw, dict) or set(raw) != {"path", "kind", "value", "count"}:
+        raise ValueError("Efektif alan sözleşmesi geçersiz.")
+    path, kind, value, count = (raw[name] for name in ("path", "kind", "value", "count"))
+    if not isinstance(kind, str):
+        raise ValueError("Efektif alan tür adı metin olmalı.")
+    _check_path(path)
+    if kind not in {"missing", "absent"} and kind != _path_kind(path):
+        raise ValueError("Efektif alan türü yoluyla eşleşmiyor.")
+    if count is not None and (type(count) is not int or count < 0):
+        raise ValueError("Efektif alan sayısı geçersiz.")
+    if kind in {"missing", "absent"}:
+        valid = value is None and count is None
+    elif kind == "flag":
+        valid = type(value) is bool and count is None
+    elif kind in {"count", "number"}:
+        try:
+            valid = (value is None and path == "runtime.agent_max_steps") or (
+                type(value) in {int, float}
+                and finite(value)
+                and value >= 0
+                and (kind != "count" or type(value) is int)
+            )
+        except OverflowError as error:
+            raise ValueError("Efektif sayı sonlu değil.") from error
+        valid = valid and count is None
+    else:
+        valid = (
+            kind
+            in {"enum_digest", "text_digest", "strings_digest", "numbers_digest", "mapping_digest"}
+            and isinstance(value, str)
+            and re.fullmatch(r"[a-f0-9]{64}", value) is not None
+            and type(count) is int
+        )
+    if not valid:
+        raise ValueError("Efektif alan türü/değeri geçersiz.")
+    return EffectiveField(path, kind, value, count)
+
+
+def _check_path(path: object) -> None:
+    from evals.effective_config import _COUNTS, _ENUMS, _FLAGS, _NUMBERS, _TEXT_LISTS
+
+    allowed = {
+        "runtime",
+        "candidates",
+        "candidates.count",
+        "task_type",
+        "task_model_map",
+        "embedding.provider",
+        "embedding.model",
+    }
+    allowed.update(
+        "runtime." + name
+        for name in (
+            *_COUNTS,
+            *_ENUMS,
+            *_FLAGS,
+            *_NUMBERS,
+            *_TEXT_LISTS,
+            "provider",
+            "retry_delays_s",
+            "rate_limit_per_minute",
+        )
+    )
+    if not isinstance(path, str) or not (
+        path in allowed
+        or re.fullmatch(
+            r"(agent|judge|vision|teacher|selected_agent|candidates\.[0-9]+)(\.(name|model|tags|fallback))?",
+            path,
+        )
+    ):
+        raise ValueError("Efektif alan yolu izinli değil.")
+
+
+def _path_kind(path: str) -> str:
+    from evals.effective_config import _COUNTS, _ENUMS, _FLAGS, _NUMBERS, _TEXT_LISTS
+
+    if path == "candidates.count":
+        return "count"
+    if path.startswith("runtime."):
+        name = path.removeprefix("runtime.")
+        for names, kind in (
+            (_COUNTS, "count"),
+            (_NUMBERS, "number"),
+            (_FLAGS, "flag"),
+            (_ENUMS, "enum_digest"),
+            (_TEXT_LISTS, "strings_digest"),
+        ):
+            if name in names:
+                return kind
+        return {
+            "provider": "text_digest",
+            "retry_delays_s": "numbers_digest",
+            "rate_limit_per_minute": "mapping_digest",
+        }[name]
+    if path == "task_model_map":
+        return "mapping_digest"
+    if path.endswith((".tags", ".fallback")):
+        return "strings_digest"
+    return "text_digest"
