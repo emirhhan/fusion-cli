@@ -14,6 +14,47 @@ function installedBrowser(localRequire) {
   }
   return revision.executablePath;
 }
+// Kurulu renderer Page._client/evaluateOnNewDocument sözleşmesi özellik denetimiyle kullanılır.
+// Bu tanı opsiyoneldir; yokluğu veya hata mesajı runtime başarı kanıtı değildir.
+function installPageDiagnostics(browser, progress) {
+  if(typeof browser.newPage !== 'function') {progress('Sayfa tanı API mevcut değil: UNVERIFIED');return;}
+  const newPage=browser.newPage.bind(browser);
+  browser.newPage=async (...args)=>{
+    const page=await newPage(...args);
+    try {
+      const client=typeof page._client==='function' ? page._client() : null;
+      if(typeof client?.on==='function') {
+        client.on('Runtime.exceptionThrown',event=>{
+          const details=event?.exceptionDetails;
+          progress('Runtime.exceptionThrown: '+(details?.exception?.description ?? details?.text ?? 'Ayrıntı yok'));
+        });
+        progress('CDP exception dinleyicisi bağlandı.');
+      } else {progress('CDP exception tanı API mevcut değil: UNVERIFIED');}
+      if(typeof page.evaluateOnNewDocument==='function') {
+        await page.evaluateOnNewDocument(pageDiagnostics);
+        progress('Kök/rAF tanı scripti bağlandı.');
+      } else {progress('Kök/rAF tanı API mevcut değil: UNVERIFIED');}
+    } catch(error) {progress('Sayfa tanısı kurulamadı: UNVERIFIED '+String(error));}
+    return page;
+  };
+}
+
+function pageDiagnostics() {
+  const publish=rafObserved=>{
+    let rootRegistered=null,rootError='';
+    if(typeof window.remotion_getCompositionNames==='function') {
+      try {window.remotion_getCompositionNames();rootRegistered=true;}
+      catch(error) {rootError=String(error);}
+    } else {rootError='Kök kayıt tanı API mevcut değil: UNVERIFIED';}
+    console.log('FUSION_DIAGNOSTIC_V1:'+JSON.stringify({rootRegistered,rafObserved,rootError}));
+  };
+  window.addEventListener('error',event=>console.log('FUSION_DIAGNOSTIC_V1:'+String(event.error ?? event.message)));
+  window.addEventListener('load',()=>{
+    publish(false);
+    requestAnimationFrame(()=>publish(true));
+  },{once:true});
+}
+
 async function main() {
   const request = JSON.parse(process.argv[2]);
   let stage='dependencies';
@@ -64,6 +105,7 @@ async function main() {
     stage='browser';progress();
     const browserExecutable=installedBrowser(localRequire);
     browser=await renderer.openBrowser('chrome',{browserExecutable,chromeMode:'headless-shell',onBrowserDownload:()=>{throw new Error('Gözlem tarayıcı indiremez.');}});
+    installPageDiagnostics(browser,progress);
     stage='bundle';progress();
     const serveUrl=await bundler.bundle({entryPoint:request.entry});
     const inputProps={__fusionRuntimeSession:request.session};
@@ -76,4 +118,5 @@ async function main() {
   } catch(error) {emit({record,rendered:false,error:bounded(String(error)+'\n'+messages.join('\n'))});process.exitCode=1;}
   finally {await closeBrowser();}
 }
-main().catch(error=>{process.stdout.write(JSON.stringify({error:String(error)}));process.exitCode=1;});
+module.exports={installPageDiagnostics,pageDiagnostics};
+if(require.main===module)main().catch(error=>{process.stdout.write(JSON.stringify({error:String(error)}));process.exitCode=1;});
