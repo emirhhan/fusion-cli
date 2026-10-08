@@ -125,3 +125,73 @@ async def test_oyun_denenemiyorsa_sessiz_basari_sayilmaz(tmp_path, monkeypatch):
     result = await GameProbeVerifier(context).verify()
     assert not result.ok
     assert any("doğrulanamadı" in finding for finding in result.findings)
+
+
+async def test_gercek_sonda_sonucu_tipli_davranis_kaniti_tasir(tmp_path, monkeypatch):
+    from fusion_cli.core.evidence import EvidenceStatus
+    from fusion_cli.core.execution_plan import VerificationCheckKind
+
+    result = await _kapi(tmp_path, monkeypatch, _SAGLAM)
+    assert len(result.evidence) == 1
+    evidence = result.evidence[0]
+    assert evidence.status is EvidenceStatus.PASSED and evidence.behavioral
+    assert evidence.kind is VerificationCheckKind.TOOL
+    assert evidence.artifact == (tmp_path / "index.html").as_uri()
+    assert "ArrowRight" in evidence.output and "Konsol hatası: 0" in evidence.output
+    assert "uzun oyun" in evidence.summary
+
+
+async def test_basarisiz_sonda_kaniti_eski_basari_gibi_sunulmaz(tmp_path, monkeypatch):
+    from fusion_cli.core.evidence import EvidenceStatus
+
+    result = await _kapi(tmp_path, monkeypatch, _BOZUK)
+    assert result.evidence[0].status is EvidenceStatus.FAILED
+    assert result.evidence[0].behavioral
+    assert "Assignment to constant variable" in result.evidence[0].output
+
+
+async def test_sonda_calistirilamadiysa_kanit_dogrulanmamis_kalir(tmp_path, monkeypatch):
+    from fusion_cli.core.evidence import EvidenceStatus
+
+    async def unavailable(url, keys=()):
+        raise ImportError("Playwright kurulu değil")
+
+    context = ToolContext(root=tmp_path, task_kinds={"oyun"})
+    (tmp_path / "index.html").write_text("<canvas></canvas>")
+    context.touched.add(tmp_path / "index.html")
+    monkeypatch.setattr(game_verify, "probe_game", unavailable)
+    result = await GameProbeVerifier(context).verify()
+    assert not result.ok
+    assert result.evidence[0].status is EvidenceStatus.UNVERIFIED
+    assert not result.evidence[0].behavioral
+
+
+async def test_oyun_yoksa_gecer_ama_oynatildi_kaniti_uydurmaz(tmp_path):
+    result = await GameProbeVerifier(ToolContext(root=tmp_path)).verify()
+    assert result.ok and result.evidence == ()
+
+
+async def test_oyun_kaniti_composite_ve_teslim_raporuna_kayipsiz_aktarilir(tmp_path, monkeypatch):
+    from fusion_cli.engines.agent.turn_report import build_turn_report
+    from fusion_cli.engines.agent.verification import CompositeVerifier
+
+    result = await _kapi(tmp_path, monkeypatch, _SAGLAM)
+
+    class RecordedVerifier:
+        async def verify(self):
+            return result
+
+    combined = await CompositeVerifier((RecordedVerifier(),)).verify()
+    assert combined.evidence == result.evidence
+    report = build_turn_report(("game.js",), (), combined, require_behavioral_evidence=True)
+    assert report.is_verified and not report.blocks_success
+    assert "Kısa oyun sondası" in report.render()
+    assert "uzun oyun" in report.render()
+
+
+async def test_basarisiz_oyun_kaniti_teslim_raporunu_bloklar(tmp_path, monkeypatch):
+    from fusion_cli.engines.agent.turn_report import build_turn_report
+
+    result = await _kapi(tmp_path, monkeypatch, _BOZUK)
+    report = build_turn_report(("game.js",), (), result, require_behavioral_evidence=True)
+    assert not report.is_verified and report.blocks_success

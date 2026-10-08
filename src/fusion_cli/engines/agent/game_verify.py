@@ -14,6 +14,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from ...core.evidence import CriterionEvidence, EvidenceStatus
+from ...core.execution_plan import VerificationCheckKind
 from ...core.tools import ToolContext
 from ...core.verification import VerificationResult
 from ...tools.play_probe import probe_game
@@ -54,25 +56,62 @@ class GameProbeVerifier:
             return VerificationResult(ok=True)
         if dosya is not None:
             adresler.add(dosya)
+        evidence: list[CriterionEvidence] = []
         for adres in sorted(adresler):
-            try:
-                rapor = await probe_game(adres)
-            except Exception as error:  # sınır: Playwright yok, tarayıcı açılamadı
-                _LOG.warning("Oyun sondası çalıştırılamadı", exc_info=True)
-                bulgular.append(
-                    f"{adres}: oyun doğrulanamadı ({type(error).__name__}); "
-                    "Playwright/tarayıcı kurulumunu kontrol edip oyunu yeniden dene"
-                )
-                continue
             onek = f"{adres}: " if adres != dosya else f"{DOSYADAN}: "
-            bulgular.extend(onek + sorun for sorun in rapor.problems())
-        if not bulgular:
-            return VerificationResult(ok=True)
+            result = await _probe_result(adres, onek)
+            bulgular.extend(result.findings)
+            evidence.extend(result.evidence)
+        return VerificationResult(
+            ok=not bulgular,
+            summary=f"oyun sondasında {len(bulgular)} sorun" if bulgular else "",
+            findings=tuple(bulgular),
+            evidence=tuple(evidence),
+        )
+
+
+async def _probe_result(address: str, prefix: str) -> VerificationResult:
+    """Gerçek kısa sondanın kapsamını taşı; ölçülmeyen uzun oyunu onaylama."""
+    try:
+        report = await probe_game(address)
+    except Exception as error:  # sınır: Playwright yok, tarayıcı açılamadı
+        _LOG.warning("Oyun sondası çalıştırılamadı", exc_info=True)
+        detail = (
+            f"{address}: oyun doğrulanamadı ({type(error).__name__}); "
+            "Playwright/tarayıcı kurulumunu kontrol edip oyunu yeniden dene"
+        )
         return VerificationResult(
             ok=False,
-            summary=f"oyun son haliyle oynatıldı: {len(bulgular)} sorun",
-            findings=tuple(bulgular),
+            findings=(detail,),
+            evidence=(
+                CriterionEvidence(
+                    criterion_id=f"game_probe:{address}",
+                    kind=VerificationCheckKind.TOOL,
+                    status=EvidenceStatus.UNVERIFIED,
+                    summary=detail,
+                    artifact=address,
+                    command="play_probe",
+                    behavioral=False,
+                ),
+            ),
         )
+    problems = report.problems()
+    evidence = CriterionEvidence(
+        criterion_id=f"game_probe:{address}",
+        kind=VerificationCheckKind.TOOL,
+        status=EvidenceStatus.FAILED if problems else EvidenceStatus.PASSED,
+        summary="Kısa oyun sondası çalıştı: konsol, rAF, girdi ve başlangıç bulguları; "
+        "uzun oyun, tüm dalgalar ve doğal oyun sonu bu kanıtın kapsamında değil.",
+        artifact=address,
+        command="play_probe",
+        output=report.summary(),
+        behavioral=True,
+    )
+    return VerificationResult(
+        ok=not problems,
+        findings=tuple(prefix + problem for problem in problems),
+        evidence=(evidence,),
+    )
 
 
 def _is_canvas_page(index: Path, context: ToolContext) -> bool:
