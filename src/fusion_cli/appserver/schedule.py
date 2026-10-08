@@ -15,10 +15,18 @@ import time
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, ParamSpec
 
 from ..config.paths import user_data_dir
+from .schedule_delivery import (
+    acknowledge_delivery,
+    add_delivery,
+    pending_deliveries,
+    store_lock,
+    validate_deliveries,
+)
 
 KIND_ONCE = "bir_kez"
 KIND_DAILY = "gunluk"
@@ -44,10 +52,41 @@ def schedules_path() -> Path:
 
 def _load(path: Path) -> list[dict[str, Any]]:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        content = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return []
-    return [item for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
+    except (OSError, UnicodeError) as error:
+        raise ScheduleError("Zamanlama deposu okunamadı; mevcut teslimler korunuyor.") from error
+    try:
+        raw = json.loads(content)
+    except ValueError as error:
+        raise ScheduleError("Zamanlama deposu bozuk; mevcut teslimler korunuyor.") from error
+    if not isinstance(raw, list) or not all(isinstance(item, dict) for item in raw):
+        raise ScheduleError("Zamanlama deposu liste/kayıt sözleşmesine uymuyor.")
+    for item in raw:
+        try:
+            validate_deliveries(item)
+        except ValueError as error:
+            raise ScheduleError(str(error)) from error
+    return raw
+
+
+_ScheduleParams = ParamSpec("_ScheduleParams")
+
+
+def _storage_errors(
+    function: Callable[_ScheduleParams, dict[str, Any]],
+) -> Callable[_ScheduleParams, dict[str, Any]]:
+    """Depo bozukken mutation yapılmaz; RPC/direct çağrı hata sonucu taşır."""
+
+    @wraps(function)
+    def guarded(*args: _ScheduleParams.args, **kwargs: _ScheduleParams.kwargs) -> dict[str, Any]:
+        try:
+            return function(*args, **kwargs)
+        except (ValueError, OSError) as error:
+            return {"ok": False, "metin": str(error)}
+
+    return guarded
 
 
 def _store(path: Path, items: list[dict[str, Any]]) -> None:
@@ -130,12 +169,14 @@ def _validated(data: dict[str, Any], now: datetime) -> dict[str, Any]:
     }
 
 
+@_storage_errors
 def list_schedules(path: Path | None = None) -> dict[str, Any]:
     items = _load(path or schedules_path())
     items.sort(key=lambda item: (item.get("sonraki") is None, item.get("sonraki") or 0))
     return {"ok": True, "gorevler": items}
 
 
+@_storage_errors
 def save_schedule(
     data: dict[str, Any], path: Path | None = None, now: datetime | None = None
 ) -> dict[str, Any]:
@@ -145,36 +186,46 @@ def save_schedule(
         record = _validated(data, now or datetime.now().astimezone())
     except ScheduleError as error:
         return {"ok": False, "metin": str(error)}
-    items = _load(target)
-    schedule_id = data.get("id")
-    if isinstance(schedule_id, str) and schedule_id:
-        existing = next((item for item in items if item.get("id") == schedule_id), None)
-        if existing is None:
-            return {"ok": False, "metin": "Güncellenecek görev bulunamadı."}
-        saved = {**existing, **record}
-        for key in ("zaman", "saat", "gunler", "dakika"):
-            if key not in record:
-                saved.pop(key, None)
-        items = [saved if item.get("id") == schedule_id else item for item in items]
-    else:
-        if len(items) >= MAX_SCHEDULES:
-            return {"ok": False, "metin": f"En çok {MAX_SCHEDULES} zamanlanmış görev tutulur."}
-        saved = {**record, "id": uuid.uuid4().hex, "olusturma": time.time(), "son_calisma": None}
-        items = [*items, saved]
-    _store(target, items)
-    return {"ok": True, "gorev": saved}
+    with store_lock(target):
+        items = _load(target)
+        schedule_id = data.get("id")
+        if isinstance(schedule_id, str) and schedule_id:
+            existing = next((item for item in items if item.get("id") == schedule_id), None)
+            if existing is None:
+                return {"ok": False, "metin": "Güncellenecek görev bulunamadı."}
+            saved = {**existing, **record}
+            for key in ("zaman", "saat", "gunler", "dakika"):
+                if key not in record:
+                    saved.pop(key, None)
+            items = [saved if item.get("id") == schedule_id else item for item in items]
+        else:
+            if len(items) >= MAX_SCHEDULES:
+                return {"ok": False, "metin": f"En çok {MAX_SCHEDULES} zamanlanmış görev tutulur."}
+            saved = {
+                **record,
+                "id": uuid.uuid4().hex,
+                "olusturma": time.time(),
+                "son_calisma": None,
+            }
+            items = [*items, saved]
+        _store(target, items)
+        return {"ok": True, "gorev": saved}
 
 
+@_storage_errors
 def delete_schedule(data: dict[str, Any], path: Path | None = None) -> dict[str, Any]:
+    # Açık silme takvimi ve ona bağlı onaysız teslimleri birlikte iptal eder.
     target = path or schedules_path()
-    items = _load(target)
-    remaining = [item for item in items if item.get("id") != data.get("id")]
-    if len(remaining) == len(items):
-        return {"ok": False, "metin": "Silinecek görev bulunamadı."}
-    _store(target, remaining)
-    return {"ok": True}
+    with store_lock(target):
+        items = _load(target)
+        remaining = [item for item in items if item.get("id") != data.get("id")]
+        if len(remaining) == len(items):
+            return {"ok": False, "metin": "Silinecek görev bulunamadı."}
+        _store(target, remaining)
+        return {"ok": True}
 
 
+@_storage_errors
 def set_enabled(
     data: dict[str, Any], path: Path | None = None, now: datetime | None = None
 ) -> dict[str, Any]:
@@ -182,23 +233,24 @@ def set_enabled(
     target = path or schedules_path()
     moment = now or datetime.now().astimezone()
     enabled = data.get("etkin") is True
-    items = _load(target)
-    updated = None
-    for index, item in enumerate(items):
-        if item.get("id") != data.get("id"):
-            continue
-        upcoming = item.get("sonraki")
-        if enabled:
-            try:
-                upcoming = next_run(item, moment)
-            except ScheduleError as error:
-                return {"ok": False, "metin": str(error)}
-        updated = {**item, "etkin": enabled and upcoming is not None, "sonraki": upcoming}
-        items[index] = updated
-    if updated is None:
-        return {"ok": False, "metin": "Görev bulunamadı."}
-    _store(target, items)
-    return {"ok": True, "gorev": updated}
+    with store_lock(target):
+        items = _load(target)
+        updated = None
+        for index, item in enumerate(items):
+            if item.get("id") != data.get("id"):
+                continue
+            upcoming = item.get("sonraki")
+            if enabled:
+                try:
+                    upcoming = next_run(item, moment)
+                except ScheduleError as error:
+                    return {"ok": False, "metin": str(error)}
+            updated = {**item, "etkin": enabled and upcoming is not None, "sonraki": upcoming}
+            items[index] = updated
+        if updated is None:
+            return {"ok": False, "metin": "Görev bulunamadı."}
+        _store(target, items)
+        return {"ok": True, "gorev": updated}
 
 
 def _advance(item: dict[str, Any], moment: datetime, *, late: bool) -> dict[str, Any]:
@@ -219,39 +271,69 @@ def _advance(item: dict[str, Any], moment: datetime, *, late: bool) -> dict[str,
 LATE_AFTER_S = 300.0
 
 
+@_storage_errors
 def claim_due(path: Path | None = None, now: datetime | None = None) -> dict[str, Any]:
     """Vadesi gelen etkin görevleri ver ve sıradaki zamanlarını ilerlet."""
     target = path or schedules_path()
     moment = now or datetime.now().astimezone()
     stamp = moment.timestamp()
-    items = _load(target)
-    due: list[dict[str, Any]] = []
-    for index, item in enumerate(items):
-        upcoming = item.get("sonraki")
-        if not item.get("etkin") or not isinstance(upcoming, (int, float)) or upcoming > stamp:
-            continue
-        advanced = _advance(item, moment, late=stamp - upcoming > LATE_AFTER_S)
-        items[index] = advanced
-        due.append(advanced)
-    if due:
-        _store(target, items)
-    return {"ok": True, "gorevler": due}
+    with store_lock(target):
+        items = _load(target)
+        due: list[dict[str, Any]] = []
+        for index, item in enumerate(items):
+            upcoming = item.get("sonraki")
+            if not item.get("etkin") or not isinstance(upcoming, (int, float)) or upcoming > stamp:
+                continue
+            item = add_delivery(item, float(upcoming))
+            advanced = _advance(item, moment, late=stamp - upcoming > LATE_AFTER_S)
+            items[index] = advanced
+            due.append(advanced)
+        if due:
+            _store(target, items)
+        return {"ok": True, "gorevler": due}
 
 
+@_storage_errors
 def run_now(
     data: dict[str, Any], path: Path | None = None, now: datetime | None = None
 ) -> dict[str, Any]:
     """Görevi zamanını beklemeden ver; yinelenen görevin takvimi değişmez."""
     target = path or schedules_path()
     moment = now or datetime.now().astimezone()
-    items = _load(target)
-    for index, item in enumerate(items):
-        if item.get("id") == data.get("id"):
-            started = {**item, "son_calisma": moment.timestamp(), "son_gecikmeli": False}
-            items[index] = started
-            _store(target, items)
-            return {"ok": True, "gorev": started}
-    return {"ok": False, "metin": "Görev bulunamadı."}
+    with store_lock(target):
+        items = _load(target)
+        for index, item in enumerate(items):
+            if item.get("id") == data.get("id"):
+                started = {**item, "son_calisma": moment.timestamp(), "son_gecikmeli": False}
+                items[index] = started
+                _store(target, items)
+                return {"ok": True, "gorev": started}
+        return {"ok": False, "metin": "Görev bulunamadı."}
+
+
+def list_pending_deliveries() -> dict[str, object]:
+    """Kuyruk tüketicisi yeniden açılışta onaysız teslimleri alabilir."""
+    from dataclasses import asdict
+
+    try:
+        deliveries = pending_deliveries(schedules_path())
+    except (ValueError, OSError) as error:
+        return {"ok": False, "metin": str(error)}
+    return {
+        "ok": True,
+        "teslimler": [{**asdict(delivery), "gorev": delivery.task} for delivery in deliveries],
+    }
+
+
+def ack_pending_delivery(data: dict[str, Any]) -> dict[str, object]:
+    occurrence, task = data.get("occurrence_id"), data.get("task_id")
+    if not isinstance(occurrence, str) or not isinstance(task, str):
+        return {"ok": False, "metin": "Vade ve task kimliği gerekli."}
+    try:
+        accepted = acknowledge_delivery(schedules_path(), occurrence, task)
+    except (ValueError, OSError) as error:
+        return {"ok": False, "metin": str(error)}
+    return {"ok": accepted}
 
 
 #: İstek adı → işleyici. `session.py` yalnız bu tabloya bakar.
@@ -262,4 +344,6 @@ SCHEDULE_ROUTES: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "zamanlama.etkin": set_enabled,
     "zamanlama.vadesi_gelenler": lambda _data: claim_due(),
     "zamanlama.simdi": run_now,
+    "zamanlama.teslim_bekleyenler": lambda _data: list_pending_deliveries(),
+    "zamanlama.teslim_onayla": ack_pending_delivery,
 }

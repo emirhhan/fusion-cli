@@ -154,10 +154,14 @@ def test_simdi_calistir_takvimi_degistirmez(tmp_path):
     assert schedule.run_now({"id": "yok"}, path, NOW)["ok"] is False
 
 
-def test_bozuk_depo_bos_sayilir_ve_gorev_siniri_uygulanir(tmp_path, monkeypatch):
+def test_bozuk_depo_hata_verir_ve_gorev_siniri_uygulanir(tmp_path, monkeypatch):
     path = tmp_path / "z.json"
     path.write_text("{bozuk", encoding="utf-8")
-    assert schedule.list_schedules(path)["gorevler"] == []
+    assert schedule.list_schedules(path)["ok"] is False
+    assert path.read_text(encoding="utf-8") == "{bozuk"
+    assert _new(tmp_path, tur="gunluk", saat="10:00")["ok"] is False
+    assert path.read_text(encoding="utf-8") == "{bozuk"
+    path.unlink()
     monkeypatch.setattr(schedule, "MAX_SCHEDULES", 1)
     assert _new(tmp_path, tur="gunluk", saat="11:00")["ok"] is True
     assert "En çok" in _new(tmp_path, tur="gunluk", saat="12:00")["metin"]
