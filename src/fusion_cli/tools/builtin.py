@@ -20,6 +20,7 @@ from . import (
     files,
     jobs,
     planning,
+    remotion_render,
     remotion_scaffold,
     scaffold_tool,
     search,
@@ -297,6 +298,14 @@ _TOOLS: tuple[Tool, ...] = (
             ["path", "composition_id", "timeout_s", "scenes"],
         ),
         run=remotion_scaffold.scaffold_remotion,
+        mutating=True,
+    ),
+    Tool(
+        name="render_remotion",
+        description="Kayıtlı Fusion kit planını yerel strict tsc sonrası MP4'e render et; "
+        "host browser kullanır. İş başlangıcı tamamlanma/kalite kanıtı değildir.",
+        parameters=_schema({"output": _STRING}, ["output"]),
+        run=remotion_render.render_remotion,
         mutating=True,
     ),
     Tool(

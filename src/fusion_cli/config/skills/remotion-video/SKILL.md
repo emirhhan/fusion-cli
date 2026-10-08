@@ -1,6 +1,6 @@
 ---
 name: remotion-video
-description: Remotion ile React tabanlı video üretimi ve MP4 render. Proje kurulumu, kare tabanlı animasyon (useCurrentFrame, interpolate, spring), sahneler, uzun süren render'ı arka planda çalıştırma ve çıktıyı ffprobe ile doğrulama.
+description: Remotion ile kare tabanlı React video üretimi, MP4 render ve doğrulama.
 ---
 
 # Remotion video
@@ -59,9 +59,11 @@ Renkleri `kit/theme.ts`'ten markaya göre ayarla.
 ## Render ve doğrulama (bitti demeden önce)
 
 ```
-run_shell(command="cd video && npx remotion render <CompositionId> ../out/video.mp4", background=true, failure_check="remotion/layout", failure_sources=["video/src", "video/public", "video/package.json"], expected_outputs=["out/video.mp4"])
+render_remotion(output="out/video.mp4")
 job_status(id=..., wait_s=600)
 run_shell(command="ffprobe -v error -show_entries stream=width,height,r_frame_rate:format=duration -of json out/video.mp4")
 ```
+Kayıtlı plan/host browser ve yerel strict tsc kullanılır.
+Başlangıç başarı değildir: job_status çıkışı, tüm sahne kareleri ve teslim kanıtı gerekir.
 Süre, çözünürlük ve fps istenenle aynı olmalı. `npx remotion still <Id> --frame=<n> kare.png`
 ile baş/orta/son kareyi al; boş ya da aynı kare çıkıyorsa animasyon çalışmıyor demektir.

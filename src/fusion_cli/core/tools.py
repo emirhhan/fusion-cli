@@ -83,6 +83,7 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "search_code": ToolFamily.SEARCH,
     "search_codebase": ToolFamily.SEARCH,
     "run_shell": ToolFamily.SHELL,
+    "render_remotion": ToolFamily.SHELL,
     "shell": ToolFamily.SHELL,
     "bash": ToolFamily.SHELL,
     "execute_command": ToolFamily.SHELL,
