@@ -384,6 +384,10 @@ def main() -> None:
     parser.add_argument("--engine-manifest", default="")
     parser.add_argument("--engine-proof", default="")
     parser.add_argument("--model-probe", action="store_true")
+    parser.add_argument("--remotion-browser-executable", default="")
+    parser.add_argument(
+        "--remotion-browser-mode", default="", choices=["", "headless-shell", "chrome-for-testing"]
+    )
     parser.add_argument("--chrome", default="", help="eşleştirme bilgisinin yazılacağı dosya")
     parser.add_argument("--eslestirme-suresi", type=float, default=900)
     parser.add_argument("--olaylar", default="", help="çekirdek olaylarının yazılacağı JSONL")

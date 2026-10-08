@@ -10,8 +10,17 @@ import sys
 from collections.abc import MutableMapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import TypeVar, cast
 
+from evals.driver_browser import (
+    BrowserMode,
+    EntryAPI,
+    HostAPI,
+    HostBrowserSelection,
+    ObserverAPI,
+    bind_browser,
+)
 from evals.engine_proof import (
     EngineSelection,
     ImportedEngineProof,
@@ -51,14 +60,21 @@ def from_options(args: argparse.Namespace) -> DriverEngine | None:
     return DriverEngine(selection, manifest, proof, verify_source(selection))
 
 
-def command(engine: DriverEngine, *, logging: bool, probe: bool = False) -> list[str]:
+def command(
+    engine: DriverEngine,
+    *,
+    logging: bool,
+    probe: bool = False,
+    browser: HostBrowserSelection | None = None,
+) -> list[str]:
     evals_root = str(Path(__file__).resolve().parent.parent)
+    browser_args = f",{str(browser.executable)!r},{browser.mode!r}" if browser else ""
     code = (
         "import sys;"
         f"sys.path.insert(0,{evals_root!r});"
         "from evals.driver_engine import bootstrap;"
         f"bootstrap({str(engine.selection.source_root)!r},{str(engine.manifest)!r},"
-        f"{str(engine.proof_path)!r},{logging!r},{probe!r})"
+        f"{str(engine.proof_path)!r},{logging!r},{probe!r}{browser_args})"
     )
     return [sys.executable, "-c", code]
 
@@ -101,7 +117,13 @@ def validate_receipt(raw: object, engine: DriverEngine, child_pid: int) -> Impor
 
 
 def bootstrap(
-    source_root: str, manifest: str, proof: str, logging: bool, probe: bool = False
+    source_root: str,
+    manifest: str,
+    proof: str,
+    logging: bool,
+    probe: bool = False,
+    browser_executable: str | None = None,
+    browser_mode: str | None = None,
 ) -> None:
     from evals.engine_launcher import launch
 
@@ -124,7 +146,19 @@ def bootstrap(
         exec(compile(setup, "<fusion-driver-diagnostics>", "exec"), {})
         _install_config_observer(imported[0], probe=probe)
 
-    launch(Path(source_root), Path(manifest), Path(proof), receipt=emit, before_main=diagnose)
+    selection = browser_options(browser_executable, browser_mode)
+
+    def host_factory(receipt: ImportedEngineProof, entry: ModuleType) -> object:
+        return _browser_host(selection, receipt, entry)
+
+    launch(
+        Path(source_root),
+        Path(manifest),
+        Path(proof),
+        receipt=emit,
+        before_main=diagnose,
+        **({"host_dependencies_factory": host_factory} if selection is not None else {}),
+    )
 
 
 def _install_config_observer(proof: ImportedEngineProof, *, probe: bool = False) -> None:
@@ -208,10 +242,47 @@ def invalidate_pending(pending: MutableMapping[str, asyncio.Future[_Response]], 
 
 
 def selected_command(args: argparse.Namespace) -> list[str] | None:
+    browser = browser_options(
+        getattr(args, "remotion_browser_executable", ""), getattr(args, "remotion_browser_mode", "")
+    )
     engine = from_options(args)
+    if browser is not None and engine is None:
+        raise ValueError("Host tarayıcı seçimi açık seçilmiş motor gerektirir.")
     probe = getattr(args, "model_probe", False)
     if engine is not None:
-        return command(engine, logging=args.log, probe=probe)
+        return command(engine, logging=args.log, probe=probe, browser=browser)
     if probe:
         raise ValueError("Model önkontrolü açık motor seçimi gerektirir.")
     return None
+
+
+def browser_options(executable: str | None, mode: str | None) -> HostBrowserSelection | None:
+    """Açık seçenekler birlikte verilir; varsayılan seçim veya indirme yok."""
+    if not executable and not mode:
+        return None
+    if not executable or mode not in ("headless-shell", "chrome-for-testing"):
+        raise ValueError("Host tarayıcı executable ve mode birlikte gerekli.")
+    return HostBrowserSelection(Path(executable), cast(BrowserMode, mode))
+
+
+def _browser_host(
+    selection: HostBrowserSelection | None, receipt: ImportedEngineProof, entry: ModuleType
+) -> object:
+    import importlib
+
+    try:
+        observer = importlib.import_module("fusion_cli.tools.remotion_observe")
+        host = importlib.import_module("fusion_cli.cli.app_host")
+    except ImportError as error:
+        raise ValueError("Seçilmiş motor host tarayıcı API'si desteklenmiyor.") from error
+    bound = bind_browser(
+        selection,
+        receipt,
+        observer=cast(ObserverAPI, observer),
+        host=cast(HostAPI, host),
+        entry=cast(EntryAPI, entry),
+        process_id=os.getpid(),
+    )
+    if bound is None:
+        raise ValueError("Host tarayıcı bağımlılığı kurulamadı.")
+    return bound

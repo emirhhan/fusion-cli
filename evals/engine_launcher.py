@@ -105,6 +105,7 @@ def launch(
     *,
     receipt: Callable[[ImportedEngineProof], None] | None = None,
     before_main: Callable[[], None] | None = None,
+    host_dependencies_factory: Callable[[ImportedEngineProof, ModuleType], object] | None = None,
 ) -> None:
     """Kayıtlı manifest ve aynı import edilen entry ile doğrudan çalıştır."""
     root = source_root.resolve()
@@ -127,7 +128,11 @@ def launch(
     if before_main is not None:
         before_main()
     sys.argv = ["fusion", "app"]
-    entry.main()
+    if host_dependencies_factory is None:
+        entry.main()
+    else:
+        host = host_dependencies_factory(result, entry)
+        entry.main(host_dependencies=host)
 
 
 def main() -> None:
