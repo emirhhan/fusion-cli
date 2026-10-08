@@ -61,7 +61,14 @@ def save_delivery(
         "outputs": [[item.path, item.before_hash] for item in outputs],
     }
     (folder / f"{job_id}.delivery.json").write_text(json.dumps(value), encoding="utf-8")
-    return JobCompletion(job_id, command, JobPhase.STARTED, sources_before=before, outputs=outputs)
+    return JobCompletion(
+        job_id,
+        command,
+        JobPhase.STARTED,
+        sources_before=before,
+        outputs=outputs,
+        source_scopes=manifest.scopes if manifest is not None else (),
+    )
 
 
 def _pairs(value: object) -> list[list[str | None]]:
@@ -108,7 +115,14 @@ def snapshot_delivery(folder: Path, root: Path, job_id: str, code: int | None) -
         current = _hash(_safe_path(root, raw)) if code is not None else None
         outputs.append(ArtifactReceipt(raw, digest, current))
     return JobCompletion(
-        job_id, value["command"], phase, code, tuple(before), tuple(after), tuple(outputs)
+        job_id,
+        value["command"],
+        phase,
+        code,
+        tuple(before),
+        tuple(after),
+        tuple(outputs),
+        _scopes(value.get("source_scopes", [])),
     )
 
 
@@ -121,6 +135,7 @@ def save_completion(folder: Path, root: Path, job_id: str, code: int) -> None:
     value = {
         "command": result.command,
         "exit_code": code,
+        "source_scopes": list(result.source_scopes),
         "sources_before": [[item.path, item.digest] for item in result.sources_before],
         "sources_after": [[item.path, item.digest] for item in result.sources_after],
         "outputs": [[item.path, item.before_hash, item.after_hash] for item in result.outputs],
@@ -154,7 +169,16 @@ def observe_delivery(folder: Path, root: Path, job_id: str, code: int | None) ->
     before = _source_records(value.get("sources_before"))
     after = _source_records(value.get("sources_after"))
     outputs = _output_records(value.get("outputs"))
-    return JobCompletion(job_id, value["command"], JobPhase.COMPLETED, code, before, after, outputs)
+    return JobCompletion(
+        job_id,
+        value["command"],
+        JobPhase.COMPLETED,
+        code,
+        before,
+        after,
+        outputs,
+        _scopes(value.get("source_scopes", [])),
+    )
 
 
 def _source_records(value: object) -> tuple[SourceFingerprint, ...]:
@@ -177,3 +201,9 @@ def _output_records(value: object) -> tuple[ArtifactReceipt, ...]:
             raise ValueError("İş çıktı hash receipt'i geçersiz.")
         receipts.append(ArtifactReceipt(record[0], record[1], record[2]))
     return tuple(receipts)
+
+
+def _scopes(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError("İş kaynak kapsamı geçersiz.")
+    return tuple(value)

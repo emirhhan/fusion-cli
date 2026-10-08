@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from ...core.constants import TOOL_CALL_BLOCKED_PREFIX, TOOL_CALL_DUPLICATE_PREFIX
 from ...core.evidence import EvidenceStatus, ToolUse
-from ...core.job_evidence import JobPhase
+from ...core.job_evidence import JobCurrentSnapshot, JobPhase
 from ...core.tools import ToolFamily, tool_family
 from ...core.verification import VerificationResult
 from ...ui.text import strip_thinking
@@ -287,10 +287,11 @@ def build_turn_report(
     gate: VerificationResult | None,
     *,
     require_behavioral_evidence: bool = False,
+    current_jobs: tuple[JobCurrentSnapshot, ...] = (),
 ) -> TurnReport:
     """Turda denenen araç çağrılarından ve değişiklik kaydından raporu kur."""
     last_mutation = _last_mutation_index(tool_uses)
-    jobs = collect_job_deliveries(tool_uses)
+    jobs = collect_job_deliveries(tool_uses, current_jobs)
     command_runs = tuple(
         _command_run(use, after=last_mutation is not None and index > last_mutation)
         for index, use in enumerate(tool_uses)

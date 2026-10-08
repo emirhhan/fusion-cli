@@ -40,3 +40,14 @@ class JobCompletion:
     sources_before: tuple[SourceFingerprint, ...] = ()
     sources_after: tuple[SourceFingerprint, ...] = ()
     outputs: tuple[ArtifactReceipt, ...] = ()
+    source_scopes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class JobCurrentSnapshot:
+    """Kapanış gözlemi geçmiş receipt'i değiştirmez; kaliteyi kanıtlamaz."""
+
+    job_id: str
+    sources: tuple[SourceFingerprint, ...] = ()
+    outputs: tuple[SourceFingerprint, ...] = ()
+    problem: str = ""

@@ -66,7 +66,7 @@ from ...core.events import (
 )
 from ...core.evidence import ToolUse
 from ...core.health import HealthRegistry
-from ...core.job_evidence import JobCompletion
+from ...core.job_evidence import JobCompletion, JobCurrentSnapshot
 from ...core.memory import CodeIndex, Lesson, LessonMemory
 from ...core.progress import RoundSignals, progressed
 from ...core.protocols import TurnJournal
@@ -794,10 +794,16 @@ async def run_agent(
     # buradaki iç turların atlanması onu bozmaz, aksine aynı çiftlenmeyi orada
     # da önler.
     if not chat_mode and not internal and depth == 0:
+        from ...tools.job_current import snapshot_current_jobs
+
+        current_jobs = await asyncio.to_thread(
+            snapshot_current_jobs, deps.tool_context.root, outcome.tool_uses
+        )
         _apply_turn_report(
             outcome,
             deps,
             gate=verification,
+            current_jobs=current_jobs,
             require_behavioral_evidence=(
                 verify and execution.complex_task and len(deps.tool_context.changes.paths) > 1
             ),
@@ -843,6 +849,7 @@ def _apply_turn_report(
     deps: AgentDeps,
     *,
     gate: VerificationResult | None,
+    current_jobs: tuple[JobCurrentSnapshot, ...] = (),
     require_behavioral_evidence: bool = False,
 ) -> None:
     """Turun raporunu MODELİN BEYANINDAN değil gerçek kayıttan kur ve ekle.
@@ -868,6 +875,7 @@ def _apply_turn_report(
         changed_paths,
         outcome.tool_uses,
         gate,
+        current_jobs=current_jobs,
         require_behavioral_evidence=require_behavioral_evidence,
     )
     text = report.render()
