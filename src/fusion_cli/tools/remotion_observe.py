@@ -1,0 +1,229 @@
+"""Sıralı still taşıması: kaynak manifesti ve runtime kaydı; tam video kanıtı değil."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import signal
+import tempfile
+import uuid
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from pathlib import Path
+
+from ..config.paths import bundled_skills_dir
+from ..core.repair_ledger import SourceFingerprint
+from .job_evidence import prepare_manifest
+
+
+@dataclass(frozen=True, slots=True)
+class RenderRequest:
+    root: Path
+    entry: str
+    composition: str
+    frame: int
+    artifact: str
+    sources: tuple[str, ...]
+    timeout_s: float
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessOutput:
+    exit_code: int
+    stdout: str
+    stderr: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeRecord:
+    session: str
+    composition: str
+    frame: int
+    active_scenes: tuple[str, ...]
+    feature_ready: bool
+    audit_settled: bool
+    findings: tuple[str, ...]
+    runtime_executed: bool
+    timeline_seen: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RenderedFrame:
+    session_id: str
+    rendered: bool
+    runtime: RuntimeRecord | None
+    source_before: tuple[SourceFingerprint, ...]
+    source_after: tuple[SourceFingerprint, ...]
+    error: str = ""
+
+
+Runner = Callable[[tuple[str, ...], Path, float], Awaitable[ProcessOutput]]
+
+
+async def _run(command: tuple[str, ...], root: Path, deadline_s: float) -> ProcessOutput:
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        cwd=root,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), deadline_s)
+    except BaseException:
+        await _terminate_owned_group(process, deadline_s, command)
+        raise
+    await _terminate_owned_group(process, deadline_s, command)
+    return ProcessOutput(process.returncode or 0, stdout.decode(), stderr.decode())
+
+
+def _signal_owned_group(pid: int, sig: signal.Signals) -> None:
+    try:
+        os.killpg(pid, sig)
+    except ProcessLookupError:
+        return  # Bizim süreç grubumuz zaten kapanmış; başka PID aranmaz.
+
+
+async def _terminate_owned_group(
+    process: asyncio.subprocess.Process, grace_s: float, command: tuple[str, ...]
+) -> None:
+    """Yalnız start_new_session ile bize ait grubun dirençli çocuklarını kapat."""
+    for pid in {process.pid, *_detached_groups(command)}:
+        _signal_owned_group(pid, signal.SIGTERM)
+    try:
+        await asyncio.wait_for(process.wait(), min(grace_s, 1.0))
+    except TimeoutError:
+        pass  # Süreli nazik kapanış bitti; finally aynı gruba KILL gönderir.
+    finally:
+        # Lider kapanmış olsa da açık pipe/Chromium/esbuild çocukları kalabilir.
+        # Tekrar iptal de bu senkron sinyali atlayamaz.
+        for pid in {process.pid, *_detached_groups(command)}:
+            _signal_owned_group(pid, signal.SIGKILL)
+        await process.wait()
+
+
+def _detached_groups(command: tuple[str, ...]) -> tuple[int, ...]:
+    if len(command) != 3 or Path(command[1]).name != "observe.cjs":
+        return ()
+    try:
+        payload = json.loads(command[2])
+        if not isinstance(payload, dict):
+            return ()
+        path = payload.get("cleanupFile")
+        if not isinstance(path, str):
+            return ()
+        return tuple(
+            int(line)
+            for line in Path(path).read_text().splitlines()
+            if line.isdecimal() and int(line) > 0
+        )
+    except (OSError, ValueError, TypeError):
+        return ()
+
+
+def _manifest(request: RenderRequest) -> tuple[SourceFingerprint, ...]:
+    manifest = prepare_manifest(
+        {"failure_check": "remotion_runtime", "failure_sources": list(request.sources)},
+        request.root,
+    )
+    if manifest is None:
+        raise ValueError("Runtime kaydı için kaynak manifesti gerekli.")
+    return manifest.sources
+
+
+def _local_path(root: Path, value: str) -> Path:
+    original = root / value
+    resolved = original.resolve()
+    if any(part.startswith(".env") for path in (original, resolved) for part in path.parts):
+        raise ValueError("Runtime taşıması sır yolunu kullanamaz.")
+    if not resolved.is_relative_to(root.resolve()):
+        raise ValueError("Runtime taşımasının yolları proje içinde olmalı.")
+    return resolved
+
+
+async def observe_frame(
+    request: RenderRequest,
+    *,
+    runner: Runner = _run,
+    new_session: Callable[[], str] = lambda: uuid.uuid4().hex,
+) -> RenderedFrame:
+    session = new_session()
+    if not session or type(request.frame) is not int or request.frame < 0 or request.timeout_s <= 0:
+        raise ValueError("Runtime oturumu, kare ve süre geçerli olmalı.")
+    entry = _local_path(request.root, request.entry)
+    artifact = _local_path(request.root, request.artifact)
+    if artifact.exists():
+        raise ValueError("Kare artefaktı zaten var; yeni oturum için yeni çıktı yolu seç.")
+    before = await asyncio.to_thread(_manifest, request)
+    try:
+        with tempfile.TemporaryDirectory(prefix="fusion-remotion-") as directory:
+            payload = _payload(request, entry, artifact, session, Path(directory) / "owned-groups")
+            script = bundled_skills_dir() / "remotion-video/kit/observe.cjs"
+            process = await runner(("node", str(script), payload), request.root, request.timeout_s)
+    except (OSError, TimeoutError) as error:
+        after = await asyncio.to_thread(_manifest, request)
+        return RenderedFrame(session, False, None, before, after, type(error).__name__)
+    after = await asyncio.to_thread(_manifest, request)
+    try:
+        result = json.loads(process.stdout)
+        record = _record(result.get("record")) if isinstance(result, dict) else None
+    except (ValueError, TypeError):
+        result, record = {}, None
+    rendered = (
+        process.exit_code == 0 and isinstance(result, dict) and result.get("rendered") is True
+    )
+    rendered = rendered and artifact.is_file() and _is_png(artifact)
+    detail = "" if rendered and record else "Gerçek still/runtime kaydı doğrulanamadı."
+    return RenderedFrame(session, rendered, record, before, after, detail)
+
+
+def _record(value: object) -> RuntimeRecord | None:
+    if not isinstance(value, dict):
+        return None
+    texts = [value.get(name) for name in ("session", "composition")]
+    flags = [
+        value.get(name)
+        for name in ("featureReady", "auditSettled", "runtimeExecuted", "timelineSeen")
+    ]
+    scenes, findings, frame = value.get("activeScenes"), value.get("findings"), value.get("frame")
+    if not all(isinstance(text, str) and text for text in texts) or type(frame) is not int:
+        return None
+    if not all(type(flag) is bool for flag in flags):
+        return None
+    if not isinstance(scenes, list) or not isinstance(findings, list):
+        return None
+    if not all(isinstance(item, str) for item in (*scenes, *findings)):
+        return None
+    return RuntimeRecord(
+        str(texts[0]),
+        str(texts[1]),
+        frame,
+        tuple(scenes),
+        bool(flags[0]),
+        bool(flags[1]),
+        tuple(findings),
+        bool(flags[2]),
+        bool(flags[3]),
+    )
+
+
+def _is_png(path: Path) -> bool:
+    with path.open("rb") as stream:
+        return stream.read(8) == b"\x89PNG\r\n\x1a\n"
+
+
+def _payload(
+    request: RenderRequest, entry: Path, artifact: Path, session: str, cleanup: Path
+) -> str:
+    return json.dumps(
+        {
+            "entry": str(entry),
+            "composition": request.composition,
+            "frame": request.frame,
+            "artifact": str(artifact),
+            "session": session,
+            "timeoutMs": int(request.timeout_s * 1000),
+            "cleanupFile": str(cleanup),
+        }
+    )

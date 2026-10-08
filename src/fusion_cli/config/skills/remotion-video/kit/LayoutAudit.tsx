@@ -1,5 +1,6 @@
 import React, {useLayoutEffect, useRef} from "react";
 import {AbsoluteFill, useCurrentFrame, useDelayRender, useVideoConfig} from "remotion";
+import {publishRuntime} from "./RuntimeEvidence";
 import {ContentRect, inspectLayoutEvidence, LayoutFinding, layoutPolicy} from "./layout";
 
 const opacityOf = (element: Element, root: Element): number => {
@@ -47,6 +48,18 @@ const visibleContentRects = (root: HTMLElement, width: number, height: number): 
     Math.min(width, rect.right) - Math.max(0, rect.left) > layoutPolicy.overlapTolerance &&
     Math.min(height, rect.bottom) - Math.max(0, rect.top) > layoutPolicy.overlapTolerance);
 
+const measuredFindings = (root: HTMLElement, width: number, height: number, margin: number, scope: "local" | "composition"): LayoutFinding[] => {
+  const rectangles = scope === "composition" ? visibleContentRects(root, width, height) : contentRects(root, width, height);
+  const findings: LayoutFinding[] = scope === "local" ? inspectLayoutEvidence(rectangles, {width, height}, margin)
+    : rectangles.length ? [] : [{family: "empty", message: "Composition karesinde okunabilir içerik yok."}];
+  if (scope === "composition") {
+    const readableScenes = Array.from(root.querySelectorAll<HTMLElement>("[data-fusion-scene]"))
+      .filter(scene => opacityOf(scene, root) >= layoutPolicy.minOpacity && visibleContentRects(scene, width, height).length > 0);
+    if (readableScenes.length !== 1) findings.push({family: readableScenes.length ? "overlap" : "empty", message: "Composition karesinde tam bir okunabilir sahne olmalı; boşluk/örtüşme var."});
+  }
+  return findings;
+};
+
 // Her Sequence İÇİNDE kullan: useCurrentFrame yerel sahne karesidir. İlk 1 sn girişe,
 // son yarım saniye çıkışa ayrılır; aradaki HER render karesinde gerçek DOM ölçülür.
 export const LayoutAudit: React.FC<{children: React.ReactNode; margin?: number; scope?: "local" | "composition"}> = ({children, margin = layoutPolicy.safeMargin, scope = "local"}) => {
@@ -55,7 +68,13 @@ export const LayoutAudit: React.FC<{children: React.ReactNode; margin?: number; 
   const {width, height, fps, durationInFrames} = useVideoConfig();
   const {delayRender, continueRender, cancelRender} = useDelayRender();
   useLayoutEffect(() => {
-    if (!root.current || (scope === "local" && (frame < fps || frame >= durationInFrames - fps / 2))) return;
+    if (!root.current) return;
+    const globalFrame = root.current.closest<HTMLElement>("[data-fusion-timeline]")?.dataset.fusionRuntimeFrame ?? String(frame);
+    root.current.dataset.fusionAuditFrame = globalFrame;
+    root.current.dataset.fusionAuditState = "pending";
+    if (scope === "local" && (frame < fps || frame >= durationInFrames - fps / 2)) {
+      root.current.dataset.fusionAuditState = "grace"; return;
+    }
     // Remotion önce ekran dışı portalı kurar, ardından tuvale taşır. Ölçümü bir
     // çizim turu beklet; render da denetim bitmeden ekran görüntüsü alamaz.
     const handle = delayRender("Sahne yerleşimi ölçülüyor");
@@ -68,15 +87,10 @@ export const LayoutAudit: React.FC<{children: React.ReactNode; margin?: number; 
         return;
       }
       try {
-        const rectangles = scope === "composition" ? visibleContentRects(root.current, width, height) : contentRects(root.current, width, height);
-        const findings: LayoutFinding[] = scope === "local" ? inspectLayoutEvidence(rectangles, {width, height}, margin)
-          : rectangles.length ? [] : [{family: "empty", message: "Composition karesinde okunabilir içerik yok."}];
-        if (scope === "composition") {
-          const readableScenes = Array.from(root.current.querySelectorAll<HTMLElement>("[data-fusion-scene]"))
-            .filter(scene => opacityOf(scene, root.current!) >= layoutPolicy.minOpacity && visibleContentRects(scene, width, height).length > 0);
-          if (readableScenes.length !== 1) findings.push({family: readableScenes.length ? "overlap" : "empty", message: "Composition karesinde tam bir okunabilir sahne olmalı; boşluk/örtüşme var."});
-        }
+        const findings = measuredFindings(root.current, width, height, margin, scope);
+        root.current.dataset.fusionAuditState = findings.length ? "failed" : "settled";
         if (findings.length) {
+          publishRuntime(root.current, findings.map(finding => finding.message));
           // Sürümlü araç protokolü: aile gerçek ölçümden gelir, hata metninden tahmin edilmez.
           console.error("FUSION_FAILURE_V1:" + JSON.stringify({version: 1, families: [...new Set(findings.map(finding => finding.family))]}));
           cancelRender(new Error(`Yerleşim denetimi, kare ${frame}: ${findings.slice(0, 5).map(finding => finding.message).join(" ")}`));
@@ -88,5 +102,5 @@ export const LayoutAudit: React.FC<{children: React.ReactNode; margin?: number; 
     request = requestAnimationFrame(measure);
     return () => {cancelAnimationFrame(request); continueRender(handle);};
   }, [frame, width, height, fps, durationInFrames, margin, scope, delayRender, continueRender, cancelRender]);
-  return <AbsoluteFill ref={root}>{children}</AbsoluteFill>;
+  return <AbsoluteFill ref={root} data-fusion-audit-scope={scope}>{children}</AbsoluteFill>;
 };

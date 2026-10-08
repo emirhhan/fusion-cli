@@ -218,3 +218,84 @@ async def test_timeline_kesme_siniri_ve_ortak_kapilar(mode):
                 assert any(expected[mode] in error for error in errors)
         finally:
             await browser.close()
+
+
+@pytest.mark.parametrize("mode", ["runtime", "runtime-failure"])
+async def test_runtime_kaydi_gercek_kare_ve_audit_sonucunu_tasir(mode):
+    import json
+
+    browser_api = pytest.importorskip("playwright.async_api")
+    html = await asyncio.to_thread(_run, "timeline")
+    async with browser_api.async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        try:
+            page = await browser.new_page(viewport={"width": 1920, "height": 1080})
+            records = []
+            page.on(
+                "console",
+                lambda message: (
+                    records.append(message.text)
+                    if message.text.startswith("FUSION_RUNTIME_V1:")
+                    else None
+                ),
+            )
+            await page.route(
+                "http://kit.test/**",
+                lambda route: route.fulfill(body=html, content_type="text/html"),
+            )
+            await page.goto(f"http://kit.test/?mode={mode}")
+            await page.wait_for_timeout(250)
+            assert records
+            record = json.loads(records[-1].split(":", 1)[1])
+            assert record["composition"] == "Fusion" and record["frame"] == 0
+            assert record["session"] == "new-session" and record["runtimeExecuted"]
+            if mode == "runtime":
+                assert record["featureReady"] and record["auditSettled"]
+                assert record["activeScenes"] == ["first"] and record["findings"] == []
+            else:
+                assert record["findings"] and not record["auditSettled"]
+        finally:
+            await browser.close()
+
+
+async def test_runtime_edilmis_onceki_kare_feature_markerini_yeniden_kullanmaz():
+    import json
+
+    browser_api = pytest.importorskip("playwright.async_api")
+    html = await asyncio.to_thread(_run, "timeline")
+    async with browser_api.async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        try:
+            page = await browser.new_page(viewport={"width": 1920, "height": 1080})
+            records = []
+            page.on(
+                "console",
+                lambda message: (
+                    records.append(message.text)
+                    if message.text.startswith("FUSION_RUNTIME_V1:")
+                    else None
+                ),
+            )
+            await page.route(
+                "http://kit.test/**",
+                lambda route: route.fulfill(body=html, content_type="text/html"),
+            )
+            await page.goto("http://kit.test/?mode=runtime")
+            await page.wait_for_timeout(150)
+            assert records
+            records.clear()
+            await page.evaluate("""() => {
+              Object.defineProperty(document.fonts,'ready',{configurable:true,
+                value:new Promise(resolve=>{globalThis.__releaseFonts=resolve;})});
+              __rerenderFrame(1);
+            }""")
+            await page.wait_for_timeout(100)
+            assert records == []
+            assert await page.locator("[data-fusion-feature-ready]").count() == 0
+            await page.evaluate("__releaseFonts()")
+            await page.wait_for_timeout(150)
+            assert records
+            record = json.loads(records[-1].split(":", 1)[1])
+            assert record["frame"] == 1 and record["auditSettled"] and record["featureReady"]
+        finally:
+            await browser.close()

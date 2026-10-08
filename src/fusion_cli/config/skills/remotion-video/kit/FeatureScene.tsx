@@ -5,6 +5,7 @@ import {FeatureCard} from "./FeatureCard";
 import {layoutPolicy} from "./layout";
 import {featureSceneInset} from "./motion";
 import {theme} from "./theme";
+import {publishRuntime} from "./RuntimeEvidence";
 import {SceneFade} from "./Transition";
 
 export type FeatureSceneCard = {title: string; body: string; icon?: string};
@@ -32,6 +33,8 @@ export const FeatureScene: React.FC<FeatureSceneProps> = ({title, subtitle, card
     throw new Error("FeatureScene başlığı ve kart içerikleri boş olamaz.");
   }
   useLayoutEffect(() => {
+    const observedFrame = content.current?.closest<HTMLElement>("[data-fusion-timeline]")?.dataset.fusionRuntimeFrame ?? String(frame);
+    content.current?.removeAttribute("data-fusion-feature-ready");
     const handle = delayRender("Özellik sahnesinin doğal yüksekliği ölçülüyor");
     let active = true;
     let request = 0;
@@ -40,9 +43,10 @@ export const FeatureScene: React.FC<FeatureSceneProps> = ({title, subtitle, card
       if (!content.current.clientWidth) {request = requestAnimationFrame(measure); return;}
       try {
         if (content.current.offsetHeight > availableHeight) {
+          publishRuntime(content.current, ["FeatureScene doğal kapasitesi güvenli alana sığmıyor."]);
           cancelRender(new Error("FeatureScene doğal metin yüksekliği güvenli alana sığmıyor; içeriği sahnelere böl. Font küçültme veya kırpma uygulama."));
         } else {
-          content.current.setAttribute("data-fusion-feature-ready", "");
+          content.current.setAttribute("data-fusion-feature-ready", observedFrame);
         }
       } finally {continueRender(handle);}
     };
@@ -56,7 +60,7 @@ export const FeatureScene: React.FC<FeatureSceneProps> = ({title, subtitle, card
   }, [frame, width, height, title, subtitle, cards, availableWidth, availableHeight, delayRender, continueRender, cancelRender]);
   const cardWidth = (availableWidth - sceneSpacing.columnGap * (cards.length - 1)) / cards.length;
   return <SceneFade><CameraPush><div style={{position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center"}}>
-    <Parallax depth={0.5}><div ref={content} style={{width: availableWidth, display: "flex", flexDirection: "column", gap: sceneSpacing.cardsGap, fontFamily: theme.font, color: theme.text}}>
+    <Parallax depth={0.5}><div ref={content} data-fusion-feature-scene style={{width: availableWidth, display: "flex", flexDirection: "column", gap: sceneSpacing.cardsGap, fontFamily: theme.font, color: theme.text}}>
       <div style={{display: "flex", flexDirection: "column", gap: sceneSpacing.headingGap, textAlign: "center"}}>
         <div data-fusion-content={title} style={{fontSize: sceneTypography.title, fontWeight: 800, lineHeight: sceneTypography.titleLeading, overflowWrap: "anywhere"}}>{title}</div>
         {subtitle && <div data-fusion-content={subtitle} style={{fontSize: sceneTypography.supporting, lineHeight: sceneTypography.supportingLeading, color: theme.muted, overflowWrap: "anywhere"}}>{subtitle}</div>}

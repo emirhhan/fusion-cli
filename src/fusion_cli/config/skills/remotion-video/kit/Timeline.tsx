@@ -2,6 +2,7 @@ import React from "react";
 import {Sequence, useVideoConfig} from "remotion";
 import {FeatureScene, FeatureSceneProps} from "./FeatureScene";
 import {LayoutAudit} from "./LayoutAudit";
+import {RuntimeEvidence} from "./RuntimeEvidence";
 import {TimelineSceneProvider} from "./SceneContext";
 
 export type SceneSpec = {id: string; duration: number} & (
@@ -29,11 +30,11 @@ export const planTimeline = (scenes: readonly SceneSpec[], duration: number): Pl
 export const FusionTimeline: React.FC<{scenes: readonly SceneSpec[]}> = ({scenes}) => {
   const {durationInFrames} = useVideoConfig();
   const planned = planTimeline(scenes, durationInFrames);
-  return <LayoutAudit scope="composition"><div data-fusion-timeline style={{position: "absolute", inset: 0}}>
+  return <LayoutAudit scope="composition"><RuntimeEvidence>
     {planned.map(({from, scene}) => <Sequence key={scene.id} from={from} durationInFrames={scene.duration}>
       <TimelineSceneProvider value={true}><div data-fusion-scene={scene.id} style={{position: "absolute", inset: 0}}>
         {scene.kind === "feature" ? <FeatureScene {...scene.props}/> : <LayoutAudit><scene.component/></LayoutAudit>}
       </div></TimelineSceneProvider>
     </Sequence>)}
-  </div></LayoutAudit>;
+  </RuntimeEvidence></LayoutAudit>;
 };
