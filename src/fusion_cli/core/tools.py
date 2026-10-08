@@ -26,6 +26,7 @@ from .artifacts import ArtifactStore
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
 from .job_evidence import JobCompletion
+from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
 from .tool_content import ToolContent, ToolContentType
 
@@ -74,6 +75,7 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "create_file": ToolFamily.FILES,
     "glob": ToolFamily.FILES,
     "scaffold_web": ToolFamily.FILES,
+    "scaffold_remotion": ToolFamily.FILES,
     # Arşiv açmak dosya işidir: içerik ağdan DEĞİL, diskteki arşivden gelir.
     "extract_archive": ToolFamily.FILES,
     "grep_search": ToolFamily.SEARCH,
@@ -352,6 +354,8 @@ class ToolContext:
     #: modelin o dosyayı elle yazması engellenip araca yönlendirilir. Araç yoksa
     #: elle yazma tek yoldur ve serbest kalır.
     available_tools: set[str] = field(default_factory=set)
+    #: Açık kit iskele aracı sonradan kaydeder; genel Remotion projeleri opt-in kalır.
+    remotion_contract: KitContractState = field(default_factory=KitContractState)
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya

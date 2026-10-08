@@ -3,7 +3,7 @@ name: remotion-video
 description: Remotion ile React tabanlı video üretimi ve MP4 render. Proje kurulumu, kare tabanlı animasyon (useCurrentFrame, interpolate, spring), sahneler, uzun süren render'ı arka planda çalıştırma ve çıktıyı ffprobe ile doğrulama.
 ---
 
-# Remotion video — kurulumdan doğrulanmış MP4'e
+# Remotion video
 
 ## Kurulum (uzun sürer: arka planda çalıştır)
 
@@ -15,8 +15,9 @@ job_status(id=..., wait_s=600)
 
 ## Hareket kiti (ZORUNLU: sade "fade + yazı" slayt yapma)
 
-Kurulumdan sonra kopyala:
-`run_shell(command="cp -R '{SKILL_DIR}/kit' video/src/kit")`, logoyu `video/public/`a koy.
+Üretimden önce sahne id/kind/duration planını
+`scaffold_remotion(path="video",composition_id="Video",timeout_s=120,scenes=[…])` ile kaydet;
+Kit kaynağı `{SKILL_DIR}/kit`; host kopyalar, süre kare cinsinden. Logoyu `video/public/`a koy.
 `import {FusionTimeline} from "./kit";` — diğer kit bileşenleri de aynı kaynaktan.
 Renkleri `kit/theme.ts`'ten markaya göre ayarla.
 - Zeminde `<Aurora/>` + `<Particles/>`; süreleri `FusionTimeline` yönetir:
@@ -52,7 +53,6 @@ Renkleri `kit/theme.ts`'ten markaya göre ayarla.
 - CSS `transition`, `animation`, `@keyframes` ve Tailwind `animate-*` KULLANMA: render
   kare kare yapılır, bunlar çalışmaz ve video donuk çıkar.
 - fps ve süreyi `useVideoConfig()`'ten al; `<Composition>`'da `durationInFrames = saniye × fps`.
-- Sahne sürelerini FusionTimeline verisinde tanımla; elle Sequence örtüşmesi kurma.
 - Metin: ana başlık ≥ 96 px, destek metni ≥ 44 px (1080p); kenarlarda 120 px güvenli alan.
 - Görsel/font: `public/` + `staticFile()`; Google fontu `@remotion/google-fonts`.
 

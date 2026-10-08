@@ -20,6 +20,7 @@ from . import (
     files,
     jobs,
     planning,
+    remotion_scaffold,
     scaffold_tool,
     search,
     shell,
@@ -269,6 +270,33 @@ _TOOLS: tuple[Tool, ...] = (
         "ezmez. Var olan sitede kullanma.",
         parameters=_schema({"path": {**_STRING, "description": "Hedef dizin (varsayılan: .)"}}, []),
         run=scaffold_tool.scaffold_web,
+        mutating=True,
+    ),
+    Tool(
+        name="scaffold_remotion",
+        description="Yeni Fusion kit videosu için üretimden önce sahne sürelerini kaydet; "
+        "paket kiti kopyalar, dosya ezmez. Render başarısı bildirmez.",
+        parameters=_schema(
+            {
+                "path": _STRING,
+                "composition_id": _STRING,
+                "timeout_s": {"type": "number", "exclusiveMinimum": 0},
+                "scenes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": _schema(
+                        {
+                            "id": _STRING,
+                            "kind": {"type": "string", "enum": ["feature", "custom"]},
+                            "duration": {"type": "integer", "minimum": 1},
+                        },
+                        ["id", "kind", "duration"],
+                    ),
+                },
+            },
+            ["path", "composition_id", "timeout_s", "scenes"],
+        ),
+        run=remotion_scaffold.scaffold_remotion,
         mutating=True,
     ),
     Tool(

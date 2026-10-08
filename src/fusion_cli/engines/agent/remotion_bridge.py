@@ -7,9 +7,10 @@ import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from pathlib import Path
 
+from ...core.remotion_contract import KitFramePlan as KitFramePlan
+from ...core.remotion_contract import KitVerificationPlan as KitVerificationPlan
 from ...core.verification import VerificationResult
 from ...tools.remotion_observe import RenderedFrame, RenderRequest, observe_frame
 from .remotion_contract_verify import (
@@ -18,24 +19,6 @@ from .remotion_contract_verify import (
     RuntimeObservation,
     SourceFingerprint,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class KitFramePlan:
-    frame: int
-    scene_id: str
-    artifact: str
-    requires_feature: bool = True
-
-
-@dataclass(frozen=True, slots=True)
-class KitVerificationPlan:
-    entry: str
-    composition_id: str
-    sources: tuple[str, ...]
-    timeout_s: float
-    samples: tuple[KitFramePlan, ...]
-
 
 FrameTransport = Callable[[RenderRequest], Awaitable[RenderedFrame]]
 _LOG = logging.getLogger(__name__)
