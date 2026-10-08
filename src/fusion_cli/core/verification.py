@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 from typing import Protocol
 
 from .evidence import CriterionEvidence
+from .repair_ledger import FailureEvidence
 
 #: Zaman aşımına uğrayan kapı bulgusunun ortak öneki — TEK KAYNAK.
 #
@@ -50,6 +51,7 @@ class VerificationResult:
     advisories: tuple[str, ...] = ()
     #: Gerçekten çalıştırılmış kontrol ve sınırlı çıktısı.
     evidence: tuple[CriterionEvidence, ...] = ()
+    failure_evidence: tuple[FailureEvidence, ...] = ()
 
     @property
     def has_notes(self) -> bool:

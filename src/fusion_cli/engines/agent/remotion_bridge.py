@@ -82,6 +82,7 @@ class RemotionRuntimeVerifier:
             summary="; ".join(result.summary for result in results),
             findings=tuple(finding for result in results for finding in result.findings),
             evidence=tuple(item for result in results for item in result.evidence),
+            failure_evidence=tuple(item for result in results for item in result.failure_evidence),
         )
 
     async def _verify_sample(self, sample: KitFramePlan) -> VerificationResult:

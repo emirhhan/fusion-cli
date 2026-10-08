@@ -29,6 +29,7 @@ from ...core.evidence import (
 )
 from ...core.execution_plan import VerificationCheckKind
 from ...core.remotion_contract import KitContractState
+from ...core.repair_ledger import FailureEvidence
 from ...core.tools import ToolContext
 from ...core.verification import (
     TIMEOUT_FINDING_PREFIX,
@@ -229,6 +230,7 @@ class CompositeVerifier:
         warnings: list[str] = []
         advisories: list[str] = []
         evidence: list[CriterionEvidence] = []
+        failure_evidence: list[FailureEvidence] = []
         failed = False
 
         for verifier in self._verifiers:
@@ -237,6 +239,7 @@ class CompositeVerifier:
             warnings.extend(result.warnings)
             advisories.extend(result.advisories)
             evidence.extend(result.evidence)
+            failure_evidence.extend(result.failure_evidence)
 
             if result.ok:
                 continue
@@ -256,6 +259,7 @@ class CompositeVerifier:
             warnings=tuple(warnings),
             advisories=tuple(advisories),
             evidence=tuple(evidence),
+            failure_evidence=tuple(failure_evidence),
         )
 
 

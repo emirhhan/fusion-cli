@@ -223,3 +223,35 @@ async def test_runtime_yoksa_orijinal_renderer_hatasi_kanitta_korunur(tmp_path):
     assert not result.evidence[0].behavioral
     assert "Waiting for root component" in result.evidence[0].output
     assert "select:" in result.summary
+
+
+async def test_actual_bridge_composite_audit_failure_reaches_reserved_repair(tmp_path):
+    from fusion_cli.engines.agent.verification import CompositeVerifier
+    from fusion_cli.engines.agent.verifier_repair import observe_verifier_failures
+
+    from .test_repair_flow import budget
+
+    async def transport(request):
+        frame = _frame()
+        return replace(frame, rendered=False, runtime=replace(frame.runtime, findings=("taşma",)))
+
+    verifier = CompositeVerifier((RemotionRuntimeVerifier(tmp_path, _plan(), transport=transport),))
+    result = await verifier.verify()
+    assert result.failure_evidence[0].family == "layout_audit"
+    assert result.failure_evidence[0].attempt_id == "host"
+    turn = budget()
+    turn.take_verify_round()
+    observe_verifier_failures(result, turn)
+    turn.take_verify_round()
+    repeated = replace(
+        result,
+        failure_evidence=(
+            replace(
+                result.failure_evidence[0],
+                attempt_id="next",
+                sources=(SourceFingerprint("index.ts", "b" * 64),),
+            ),
+        ),
+    )
+    assert "kök nedeni" in observe_verifier_failures(repeated, turn)
+    assert turn.verify_rounds == 2 and turn.stop is None

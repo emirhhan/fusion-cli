@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import PurePosixPath
 from typing import Protocol
 
 from ...core.evidence import CriterionEvidence, EvidenceStatus
 from ...core.execution_plan import VerificationCheckKind
+from ...core.repair_ledger import FailureEvidence
+from ...core.repair_ledger import SourceFingerprint as RepairSource
 from ...core.verification import VerificationResult
 
 _LOG = logging.getLogger(__name__)
@@ -100,7 +102,21 @@ class RemotionContractVerifier:
         if problem:
             return _result(request, EvidenceStatus.UNVERIFIED, problem)
         if observation.audit_findings:
-            return _result(request, EvidenceStatus.FAILED, " ".join(observation.audit_findings))
+            result = _result(request, EvidenceStatus.FAILED, " ".join(observation.audit_findings))
+            return replace(
+                result,
+                failure_evidence=(
+                    FailureEvidence(
+                        f"remotion_kit:{request.composition_id}",
+                        "layout_audit",
+                        observation.observation_id,
+                        tuple(
+                            RepairSource(source.path, source.sha256)
+                            for source in observation.source_before
+                        ),
+                    ),
+                ),
+            )
         if not observation.audit_settled:
             return _result(
                 request, EvidenceStatus.UNVERIFIED, "Kare audit ölçümü henüz tamamlanmadı."

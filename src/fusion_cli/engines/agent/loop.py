@@ -139,6 +139,7 @@ from .teacher_plan import TeacherPlan, UnworkablePart
 from .transient import MAX_TOOL_TRANSIENT_RETRIES, is_transient_failure
 from .turn_hints import design_hint, preview_hint, scope_hint, store_hint
 from .turn_report import build_turn_report, claims_command_success
+from .verifier_repair import observe_verifier_failures
 from .workspace_hint import find_workspace_for
 
 _PROMPTS = Path(__file__).parent / "prompts"
@@ -709,6 +710,9 @@ async def run_agent(
         # bilgidir. Idle saatini tazele; mutlak tur deadline'ı değişmez. Aksi halde
         # uzun bir web turunun sonunda bulunan hata, düzeltici model daha araç
         # çağırmadan eski hareketsizlik süresine takılıyordu.
+        repair_note = observe_verifier_failures(verification, budget)
+        if repair_note:
+            verification = replace(verification, findings=(*verification.findings, repair_note))
         budget.record_progress()
         outcome = await _fix_findings(verification, outcome, deps)
 

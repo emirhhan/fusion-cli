@@ -156,3 +156,22 @@ async def test_feature_kopioitu_marker_ei_korvaa_timeline_descriptor_lajia(kinds
     assert not result.ok
     assert result.evidence[0].status is EvidenceStatus.UNVERIFIED
     assert not result.evidence[0].behavioral
+
+
+async def test_typed_audit_failure_carries_real_observation_and_source_hashes():
+    result = await RemotionContractVerifier(
+        _REQUEST, Observer(replace(_GOOD, audit_findings=("Taşma",)))
+    ).verify()
+    failure = result.failure_evidence[0]
+    assert failure.family == "layout_audit"
+    assert failure.attempt_id == _GOOD.observation_id
+    assert failure.sources[0].digest == _MANIFEST[0].sha256
+    assert failure.sources[0].path == _MANIFEST[0].path
+
+
+async def test_stale_audit_and_transport_failure_do_not_infer_product_origin():
+    stale = replace(_GOOD, session_id="old", audit_findings=("Taşma",))
+    result = await RemotionContractVerifier(_REQUEST, Observer(stale)).verify()
+    assert result.failure_evidence == ()
+    result = await RemotionContractVerifier(_REQUEST, Observer(error=True)).verify()
+    assert result.failure_evidence == ()
