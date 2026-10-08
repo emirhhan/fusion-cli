@@ -263,6 +263,23 @@ def _apply_responsive(
     return True
 
 
+def _responsive_problems(capture: SiteCapture, paths: tuple[str, ...]) -> tuple[str, ...]:
+    """Kaynak DOM seçimi geometri veya kaynak JavaScript başarısı sayılmaz."""
+    if paths:
+        return (
+            "Responsive aktarım yerel JavaScript gerektirir; kaynak menü/etkileşim olayları "
+            "aktarılmadı. Ana sayfa dışında yakalanmış DOM varyantları tema rotasına aktarılmadı.",
+            "Kaynak signature geçişi piksel geometrisi kanıtı değildir; yakalanmayan viewportlarda "
+            "yerleşim ve etkileşim ayrıca doğrulanmalıdır.",
+        )
+    if len(capture.pages[0].transitions) > 1:
+        return (
+            "Kaynak genişlik geçişleri bağlı viewport zincirini açıklamıyor; "
+            "çoklu tema aktarımı uygulanmadı.",
+        )
+    return ()
+
+
 def write_theme(
     capture: SiteCapture,
     themes_dir: Path,
@@ -313,12 +330,5 @@ def write_theme(
             encoding="utf-8",
         )
     paths = (ana.url,) if has_responsive else ()
-    problems = (
-        (
-            "Responsive aktarım yerel JavaScript gerektirir; kaynak menü/etkileşim olayları "
-            "aktarılmadı. Ana sayfa dışında yakalanmış DOM varyantları tema rotasına aktarılmadı.",
-        )
-        if paths
-        else ()
-    )
+    problems = _responsive_problems(capture, paths)
     return ThemeFiles(folder, tuple(sorted(dosyalar)), paths, problems)

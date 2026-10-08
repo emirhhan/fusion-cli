@@ -1,8 +1,10 @@
 (() => {
   // Kaynak uygulamanın olayları çalıştırılmaz; yalnız doğrulanmış viewport seçilir.
-  const narrowTemplate = document.querySelector('template[data-fusion-part="header"][data-fusion-variant="narrow"]');
-  if (!narrowTemplate) return;
-  const media = matchMedia(narrowTemplate.dataset.fusionQuery);
+  const templates = Array.from(document.querySelectorAll('template[data-fusion-part="header"]'));
+  if (!templates.length) return;
+  const regions = templates.map((template) => ({name: template.dataset.fusionVariant,
+    predicates: JSON.parse(template.dataset.fusionConditions).map((item) => ({
+      media: matchMedia(item.query), matches: item.matches}))}));
   const style = document.createElement('style');
   style.dataset.fusionActiveCss = '';
   document.head.append(style);
@@ -31,7 +33,13 @@
     }
   };
   const update = () => {
-    const next = media.matches ? 'narrow' : 'wide';
+    const matching = regions.filter((region) => region.predicates.every((item) => item.media.matches === item.matches));
+    if (matching.length !== 1) {
+      document.documentElement.dataset.fusionUnsupportedViewport = 'true';
+      console.error('Viewport tek doğrulanmış kaynak bölgesiyle eşleşmedi; tema değişimi uygulanmadı.');
+      return;
+    }
+    const next = matching[0].name;
     if (next === active) return;
     const css = document.querySelector(`template[data-fusion-css="${next}"]`);
     if (!css) {
@@ -55,6 +63,6 @@
     active = next;
     scrollTo(scroll);
   };
-  media.addEventListener('change', update);
+  regions.forEach((region) => region.predicates.forEach((item) => item.media.addEventListener('change', update)));
   update();
 })();

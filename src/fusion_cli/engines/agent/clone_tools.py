@@ -181,7 +181,8 @@ def _pick_pages(report: design.DesignReport, url: str) -> list[str]:
 
 #: Yakalama sözleşmesinin tema aktarımı bekleyen bildirimi; URL kökeni sayfada tutulur.
 _RESPONSIVE_PENDING_PREFIX = (
-    "Viewport varyantları yakalandı; responsive tema aktarımı henüz uygulanmadı"
+    "Viewport varyantları yakalandı; responsive tema aktarımı henüz uygulanmadı",
+    "Çoklu kaynak genişlik geçişleri yakalandı; çoklu bölge tema aktarımı desteklenmiyor",
 )
 
 

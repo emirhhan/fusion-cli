@@ -239,3 +239,150 @@ def test_summary_dogrulanmayan_yolda_pending_ve_bulgu_korunur(tmp_path):
     theme = write_theme(capture, tmp_path, "https://source.test")
     summary = _summary(capture, theme, [], list(capture.problems), tmp_path)
     assert pending in summary and "Kaynak menü olayı doğrulanamadı." in summary
+
+
+def _multi_capture() -> SiteCapture:
+    from dataclasses import replace
+
+    from fusion_cli.tools.site_responsive import CapturedTransition
+
+    capture = _capture()
+    wide, mobile = capture.pages[0].variants
+    mobile = replace(mobile, media_query=None)
+    tablet = replace(
+        mobile,
+        width=601,
+        signature="tablet",
+        header=mobile.header.replace("mobile", "tablet"),
+        main=mobile.main.replace("mobile.svg", "tablet.svg"),
+    )
+    first = CapturedTransition(
+        "(max-width: 600px)", replace(mobile, width=600), tablet, ("(max-width: 600px)",)
+    )
+    second = CapturedTransition(
+        "(max-width: 1000px)",
+        replace(tablet, width=1000),
+        replace(wide, width=1001),
+        ("(max-width: 1000px)",),
+    )
+    primary = replace(
+        capture.pages[0],
+        variants=(wide, mobile),
+        transitions=(first, second),
+        responsive_problems=(
+            "Çoklu kaynak genişlik geçişleri yakalandı; çoklu bölge tema aktarımı desteklenmiyor.",
+        ),
+    )
+    return replace(
+        capture,
+        pages=(primary,),
+        assets={**capture.assets, "https://source.test/tablet.svg": "assets/tablet.svg"},
+    )
+
+
+def test_multisource_verified_chain_is_transferred_with_source_predicates(tmp_path):
+    theme = write_theme(_multi_capture(), tmp_path, "https://source.test")
+    assert "responsive.js" in theme.files
+    assert theme.responsive_paths == ("https://source.test",)
+    header = (theme.folder / "header.php").read_text()
+    assert "data-fusion-conditions" in header
+    assert "(max-width: 600px)" in header and "(max-width: 1000px)" in header
+    assert "tablet.svg" in (theme.folder / "front-page.php").read_text()
+
+
+def test_disconnected_source_transition_chain_is_not_silently_transferred(tmp_path):
+    from dataclasses import replace
+
+    capture = _multi_capture()
+    page = capture.pages[0]
+    first, second = page.transitions
+    second = replace(second, left=replace(second.left, signature="unobserved-js-regime"))
+    capture = replace(capture, pages=(replace(page, transitions=(first, second)),))
+    theme = write_theme(capture, tmp_path, "https://source.test")
+    assert "responsive.js" not in theme.files
+    assert theme.responsive_paths == ()
+    assert any("bağlı viewport" in problem for problem in theme.problems)
+
+
+@pytest.mark.parametrize("has_checkout", [False, True])
+def test_multi_runtime_exact_boundaries_local_assets_unique_ids_and_checkout_state(
+    tmp_path, has_checkout
+):
+    playwright = pytest.importorskip("playwright.sync_api")
+    theme = write_theme(_multi_capture(), tmp_path, "https://source.test")
+    main = (
+        '<main id="checkout"><input id="billing"><div style="height:1600px"></div></main>'
+        if has_checkout
+        else None
+    )
+    path = _fixture(theme, main)
+    (theme.folder / "assets/tablet.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"></svg>'
+    )
+    with playwright.sync_playwright() as session:
+        browser = session.chromium.launch()
+        try:
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(path.as_uri())
+            if has_checkout:
+                page.locator("#billing").fill("Kalıcı")
+                page.locator("#billing").focus()
+                page.evaluate(
+                    'window.savedCheckout=document.querySelector("#checkout");scrollTo(0,300)'
+                )
+            else:
+                page.locator("#nav-link").focus()
+            for width in (390, 599, 600, 601, 999, 1000, 1001, 1440):
+                expected = "mobile" if width <= 600 else "tablet" if width <= 1000 else "desktop"
+                page.set_viewport_size({"width": width, "height": 900})
+                page.wait_for_function(
+                    'label => document.querySelector("#nav-link").textContent === label',
+                    arg=expected,
+                )
+                assert page.locator("#nav-link").count() == page.locator("#end").count() == 1
+                assert page.locator("style[data-fusion-active-css]").count() == 1
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                assert (
+                    page.locator("body").evaluate("node => getComputedStyle(node).overflowX")
+                    == "visible"
+                )
+                if has_checkout:
+                    assert page.locator("#billing").input_value() == "Kalıcı"
+                    assert page.evaluate('savedCheckout===document.querySelector("#checkout")')
+                    assert page.evaluate("document.activeElement.id") == "billing"
+                    assert page.evaluate("scrollY") == 300
+                else:
+                    assert page.evaluate("document.activeElement.id") == "nav-link"
+                    assert page.locator("#hero img").evaluate(
+                        "image => image.complete && image.naturalWidth > 0"
+                    )
+                    assert (
+                        page.locator("#hero img").get_attribute("src").endswith(expected + ".svg")
+                    )
+                    assert page.locator("#hero").count() == 1
+            assert errors == []
+        finally:
+            browser.close()
+
+
+def test_summary_resolves_only_transferred_primary_multiregion_pending(tmp_path):
+    from dataclasses import replace
+
+    from fusion_cli.engines.agent.clone_tools import _summary
+
+    capture = _multi_capture()
+    primary = capture.pages[0]
+    secondary = replace(primary, url="https://source.test/category")
+    pending = primary.responsive_problems[0]
+    capture = replace(
+        capture,
+        pages=(primary, secondary),
+        problems=(pending, pending, "Kaynak JavaScript koşulu desteklenmiyor."),
+    )
+    theme = write_theme(capture, tmp_path, "https://source.test")
+    summary = _summary(capture, theme, [], list(capture.problems), tmp_path)
+    assert summary.count(pending) == 1
+    assert "Kaynak JavaScript koşulu desteklenmiyor." in summary
+    assert "piksel geometrisi kanıtı değildir" in summary

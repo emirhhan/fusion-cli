@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import html
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from .site_capture import CapturedPage, SiteCapture, localize
+from .theme_region import ThemeRegion, theme_regions
 
 RUNTIME_ASSET = Path(__file__).with_name("assets") / "theme_responsive.js"
 
@@ -22,15 +24,24 @@ class ResponsiveTheme:
     runtime: str
 
 
-def _region(name: str, wide: str, narrow: str, query: str) -> str:
-    """İlk görünüm masaüstü; diğer DOM'lar template içinde erişilemez/inerttir."""
-    return (
+def _region(name: str, regions: tuple[ThemeRegion, ...], prepare: Callable[[str], str]) -> str:
+    """Diğer DOM'lar inert kalır; koşullar yalnız kaynak sorgularından gelir."""
+    wide = regions[-1]
+    parts = [
         f'<div data-fusion-region="{name}" data-fusion-active="wide" style="display:contents">'
-        f"{wide}</div>"
-        f'<template data-fusion-part="{name}" data-fusion-variant="wide">{wide}</template>'
-        f'<template data-fusion-part="{name}" data-fusion-variant="narrow" '
-        f'data-fusion-query="{html.escape(query, quote=True)}">{narrow}</template>'
-    )
+        f"{prepare(getattr(wide.variant, name))}</div>"
+    ]
+    for region in regions:
+        predicates = json.dumps(
+            [{"query": item.query, "matches": item.matches} for item in region.predicates]
+        )
+        parts.append(
+            f'<template data-fusion-part="{name}" data-fusion-variant="{region.name}" '
+            f'data-fusion-conditions="{html.escape(predicates, quote=True)}" '
+            f'data-fusion-query="{html.escape(region.predicates[0].query, quote=True)}">'
+            f"{prepare(getattr(region.variant, name))}</template>"
+        )
+    return "".join(parts)
 
 
 def build_responsive_theme(
@@ -40,15 +51,14 @@ def build_responsive_theme(
     asset_prefix: str,
 ) -> ResponsiveTheme | None:
     """Yalnız doğrulanmış ana varyantın header/main/footer parçalarını aktar."""
-    narrow = next((variant for variant in page.variants if variant.media_query), None)
-    if narrow is None or not page.variants:
+    regions = theme_regions(page)
+    if not regions:
         return None
-    wide = page.variants[0]
-    query = narrow.media_query
-    assert query is not None
+    wide = regions[-1].variant
     shared = capture.css.replace(wide.css, "")
     css_templates = []
-    for name, variant in (("wide", wide), ("narrow", narrow)):
+    for region in regions:
+        name, variant = region.name, region.variant
         css = localize(shared + "\n" + variant.css, capture.assets, asset_prefix)
         css = css.replace("</", "<\\/")
         css_templates.append(
@@ -56,9 +66,8 @@ def build_responsive_theme(
             f"<style>{css}</style></template>"
         )
     return ResponsiveTheme(
-        header=_region("header", prepare(wide.header), prepare(narrow.header), query)
-        + "".join(css_templates),
-        main=_region("main", prepare(wide.main), prepare(narrow.main), query),
-        footer=_region("footer", prepare(wide.footer), prepare(narrow.footer), query),
+        header=_region("header", regions, prepare) + "".join(css_templates),
+        main=_region("main", regions, prepare),
+        footer=_region("footer", regions, prepare),
         runtime=RUNTIME_ASSET.read_text(encoding="utf-8"),
     )
