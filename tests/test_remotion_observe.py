@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from fusion_cli.tools.remotion_observe import ProcessOutput, RenderRequest, observe_frame
 
 
@@ -88,6 +90,7 @@ async def test_node_runner_gercek_parametreleri_renderer_siniri_uzerinden_tasir(
     modules = tmp_path / "node_modules/@remotion"
     for name in ("renderer", "bundler"):
         (modules / name).mkdir(parents=True)
+    _browser_fixture(tmp_path)
     (modules / "bundler/index.js").write_text("exports.bundle=async({entryPoint})=>entryPoint;")
     (modules / "renderer/index.js").write_text("""
     exports.openBrowser=async()=>({close:async()=>{}});
@@ -185,6 +188,7 @@ async def test_renderer_ayri_gruptaki_direncli_chromium_benzeri_cocugu_temizler(
     modules = tmp_path / "node_modules/@remotion"
     for name in ("renderer", "bundler"):
         (modules / name).mkdir(parents=True)
+    _browser_fixture(tmp_path)
     (modules / "bundler/index.js").write_text("exports.bundle=async()=>null;")
     (modules / "renderer/index.js").write_text("""
     exports.openBrowser=()=>{
@@ -220,3 +224,55 @@ def test_runtime_turu_eksik_ise_eski_tasima_kaydi_tur_uydurmaz():
     payload["activeSceneKinds"] = ["custom"]
     actual = _record(payload)
     assert actual is not None and actual.active_scene_kinds == ("custom",)
+
+
+@pytest.mark.parametrize("mode", ["missing", "mismatch", "installed"])
+async def test_node_tarayici_yok_veya_surumu_yanlissa_indirmez(tmp_path, mode):
+    (tmp_path / "index.ts").write_text("placeholder")
+    (tmp_path / "package.json").write_text("{}")
+    modules = tmp_path / "node_modules/@remotion"
+    renderer = modules / "renderer"
+    (renderer / "browser").mkdir(parents=True)
+    (modules / "bundler").mkdir(parents=True)
+    executable = _browser_fixture(tmp_path, mode)
+    (modules / "bundler/index.js").write_text("exports.bundle=async()=> 'url';")
+    (renderer / "index.js").write_text(
+        "exports.openBrowser=async(_,options)=>{"
+        "require('fs').writeFileSync('opened',JSON.stringify(options ?? null));"
+        "if(!options?.browserExecutable)throw Error('DOWNLOAD MUST NEVER RUN');"
+        "return {close:async()=>{}}};"
+        "exports.selectComposition=async()=>({id:'Fusion'});"
+        "exports.renderStill=async()=>{};"
+    )
+    request = RenderRequest(tmp_path, "index.ts", "Fusion", 0, "still.png", ("index.ts",), 10)
+    from fusion_cli.tools.remotion_observe import _run
+
+    async def runner(command, root, deadline):
+        process = await _run(command, root, deadline)
+        assert "Mevcut renderer/bundler" not in process.stdout, process.stdout
+        return process
+
+    result = await observe_frame(request, runner=runner)
+    assert not result.rendered
+    if mode == "installed":
+        options = json.loads((tmp_path / "opened").read_text())
+        assert options["browserExecutable"] == str(executable)
+    else:
+        assert not (tmp_path / "opened").exists()
+
+
+def _browser_fixture(tmp_path, mode="installed"):
+    renderer = tmp_path / "node_modules/@remotion/renderer"
+    (renderer / "browser").mkdir(exist_ok=True)
+    executable = tmp_path / "chrome"
+    if mode != "missing":
+        executable.write_text("installed")
+    local = str(mode != "missing").lower()
+    revision = json.dumps(str(executable))
+    (renderer / "browser/BrowserFetcher.js").write_text(
+        "exports.getPlatform=()=> 'linux';exports.getExpectedVersion=()=> '123';"
+        f"exports.getRevisionInfo=()=>({{local:{local},executablePath:{revision}}});"
+        f"exports.readVersionFile=()=> '{'old' if mode == 'mismatch' else '123'}';"
+        "exports.downloadBrowser=()=>{throw Error('DOWNLOAD MUST NEVER RUN')};"
+    )
+    return executable

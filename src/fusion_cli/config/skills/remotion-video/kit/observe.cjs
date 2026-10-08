@@ -2,6 +2,18 @@
 const path = require('node:path');
 const {createRequire} = require('node:module');
 const RUNTIME_PREFIX = 'FUSION_RUNTIME_V1:';
+// Kurulu renderer sürümünün yerel tarayıcısı yoksa indirme/kurulum yapma.
+function installedBrowser(localRequire) {
+  const directory = path.dirname(localRequire.resolve('@remotion/renderer'));
+  const fetcher = localRequire(path.join(directory, 'browser/BrowserFetcher.js'));
+  const chromeMode = 'headless-shell';
+  const revision = fetcher.getRevisionInfo(chromeMode);
+  const expected = fetcher.getExpectedVersion({version:null, chromeMode, platform:fetcher.getPlatform()});
+  if(!revision.local || !require('node:fs').existsSync(revision.executablePath) || fetcher.readVersionFile(chromeMode) !== expected) {
+    throw new Error('Uyumlu yerel Chromium kurulu değil; gözlem doğrulanamadı, indirme yapılmadı.');
+  }
+  return revision.executablePath;
+}
 async function main() {
   const request = JSON.parse(process.argv[2]);
   // Renderer Chromium'u ayrı process group ile açar; yalnız kendi spawn sınırımızı kaydet.
@@ -28,7 +40,8 @@ async function main() {
     } catch { /* Geçersiz kayıt gözlem kanıtı değildir. */ }
   };
   try {
-    browser=await renderer.openBrowser('chrome');
+    const browserExecutable=installedBrowser(localRequire);
+    browser=await renderer.openBrowser('chrome',{browserExecutable,chromeMode:'headless-shell',onBrowserDownload:()=>{throw new Error('Gözlem tarayıcı indiremez.');}});
     const serveUrl=await bundler.bundle({entryPoint:request.entry});
     const inputProps={__fusionRuntimeSession:request.session};
     const composition=await renderer.selectComposition({serveUrl,id:request.composition,inputProps,puppeteerInstance:browser});
