@@ -1,6 +1,7 @@
 import { ScheduledDeliveryClient } from "./scheduledDeliveryClient";
 import { LocalComputerHost, type ConfirmComputer, type HostRequest } from "./localComputerHost";
-import { askComputerAccess } from "../platform/dialog";
+import { FolderPickHost, type PickFolder } from "./folderPickHost";
+import { askComputerAccess, selectProjectFolder } from "../platform/dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KITS_THEME_MESSAGE, kitsFrameUrl, type KitsTheme } from "./kitsUrl";
@@ -27,6 +28,7 @@ interface KitsScreenProps {
   requestHost?: HostRequest;
   /** Testler yerel izin penceresini taklit eder. */
   confirmComputer?: ConfirmComputer;
+  pickFolder?: PickFolder;
 }
 
 /** Fusion Kits modülü: yan süreç hazır olunca iframe ile gömülür.
@@ -38,6 +40,7 @@ export function KitsScreen({
   onDeliveryClient,
   requestHost,
   confirmComputer = askComputerAccess,
+  pickFolder = selectProjectFolder,
 }: KitsScreenProps) {
   const [state, setState] = useState<KitsState>({ durum: "hazirlaniyor" });
   const [attempt, setAttempt] = useState(0);
@@ -69,6 +72,11 @@ export function KitsScreen({
     );
     return () => computer.close();
   }, [state, confirmComputer]);
+  useEffect(() => {
+    if (state.durum !== "hazir" || !frame.current?.contentWindow) return;
+    const folders = new FolderPickHost(window, frame.current.contentWindow, state.adres, pickFolder);
+    return () => folders.close();
+  }, [state, pickFolder]);
   // Adres ilk açılıştaki temayı taşır; sonraki değişiklik sayfayı yeniden yüklemeden
   // (sohbet kaybolmadan) mesajla iletilir.
   const initialTheme = useRef<KitsTheme>(currentTheme());

@@ -11,6 +11,12 @@ export async function selectDirectory(defaultPath?: string): Promise<string | nu
   return typeof selected === "string" ? selected : null;
 }
 
+/** Kits'in proje listesine eklenecek klasörü seçer. */
+export async function selectProjectFolder(): Promise<string | null> {
+  const selected = await open({ directory: true, multiple: false, title: "Kits'e proje klasörü ekle" });
+  return typeof selected === "string" ? selected : null;
+}
+
 /** Ataç düğmesi için bir veya daha fazla yerel dosya seçer. */
 export async function selectFiles(defaultPath?: string): Promise<string[]> {
   const selected = await open({
