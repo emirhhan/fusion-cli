@@ -29,7 +29,13 @@ interface KitsScreenProps {
   /** Testler yerel izin penceresini taklit eder. */
   confirmComputer?: ConfirmComputer;
   pickFolder?: PickFolder;
+  /** Kits sunucusunun hâlâ aynı adreste yaşadığını yoklama aralığı (ms). */
+  watchIntervalMs?: number;
 }
+
+/** Kits süreci ölüp yeniden başlarsa YENİ bir portta açılır; iframe eski
+ * adreste kalırsa her istek "Failed to fetch" verir. Bu aralıkla yoklanır. */
+const KITS_WATCH_INTERVAL_MS = 5_000;
 
 /** Fusion Kits modülü: yan süreç hazır olunca iframe ile gömülür.
  *
@@ -41,6 +47,7 @@ export function KitsScreen({
   requestHost,
   confirmComputer = askComputerAccess,
   pickFolder = selectProjectFolder,
+  watchIntervalMs = KITS_WATCH_INTERVAL_MS,
 }: KitsScreenProps) {
   const [state, setState] = useState<KitsState>({ durum: "hazirlaniyor" });
   const [attempt, setAttempt] = useState(0);
@@ -107,6 +114,30 @@ export function KitsScreen({
       active = false;
     };
   }, [attempt, start]);
+
+  // `kits_baslat` çalışan süreci yeniden kullanır (ucuzdur); süreç ölmüşse yenisini
+  // başlatıp yeni adresi döndürür. Adres değişince iframe yeni adrese taşınır.
+  const address = state.durum === "hazir" ? new URL(state.adres).origin : null;
+  useEffect(() => {
+    if (!address) return;
+    let active = true;
+    let checking = false;
+    const timer = window.setInterval(() => {
+      if (checking) return;
+      checking = true;
+      start()
+        .then((status) => {
+          if (!active || new URL(status.url).origin === address) return;
+          setState({ durum: "hazir", adres: kitsFrameUrl(status.url, currentTheme()) });
+        })
+        .catch(() => {
+          // Geçici yeniden başlatma: sonraki yoklamada tekrar denenir; Kits
+          // sayfası kendi "ulaşılamadı" mesajını gösterir.
+        })
+        .finally(() => { checking = false; });
+    }, watchIntervalMs);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [address, start, watchIntervalMs]);
 
   if (state.durum === "hazir") {
     return (

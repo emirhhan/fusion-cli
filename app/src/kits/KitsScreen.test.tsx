@@ -57,6 +57,32 @@ describe("KitsScreen", () => {
     expect(frame.getAttribute("src")).toContain("theme=dark");
   });
 
+  it("Kits süreci yeni portta yeniden başlarsa iframe yeni adrese taşınır", async () => {
+    const start = vi
+      .fn<() => Promise<{ url: string }>>()
+      .mockResolvedValueOnce({ url: "http://127.0.0.1:50010" })
+      .mockResolvedValueOnce({ url: "http://127.0.0.1:50010" })
+      .mockResolvedValue({ url: "http://127.0.0.1:50011" });
+    render(<KitsScreen start={start} watchIntervalMs={10} />);
+    const frame = await screen.findByTitle("Fusion Kits");
+    expect(frame.getAttribute("src")).toContain(":50010/");
+    await vi.waitFor(() =>
+      expect(screen.getByTitle("Fusion Kits").getAttribute("src")).toContain(":50011/"),
+    );
+  });
+
+  it("yoklama geçici olarak başarısız olursa iframe yerinde kalır", async () => {
+    const start = vi
+      .fn<() => Promise<{ url: string }>>()
+      .mockResolvedValueOnce({ url: "http://127.0.0.1:50020" })
+      .mockRejectedValue("Kits sunucusu başlatılamadı");
+    render(<KitsScreen start={start} watchIntervalMs={10} />);
+    await screen.findByTitle("Fusion Kits");
+    await vi.waitFor(() => expect(start.mock.calls.length).toBeGreaterThan(2));
+    expect(screen.getByTitle("Fusion Kits").getAttribute("src")).toContain(":50020/");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("güvensiz adres dönerse iframe kurmaz", async () => {
     render(<KitsScreen start={() => Promise.resolve({ url: "http://example.com" })} />);
     expect((await screen.findByRole("alert")).textContent).toContain("yerel");

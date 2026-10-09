@@ -30,6 +30,8 @@ pub struct KitsStatus {
     pub url: String,
 }
 
+const KITS_LOG_FILE: &str = "kits.log";
+
 struct Running {
     child: Child,
     url: String,
@@ -69,6 +71,7 @@ impl KitsManager {
         let port = free_port()?;
         std::fs::create_dir_all(data_dir)
             .map_err(|error| format!("Kits veri klasörü oluşturulamadı: {error}"))?;
+        let _ = std::fs::write(data_dir.join(KITS_LOG_FILE), b"");
         // Model ayarı (.env) Kits'in veri klasöründe durur; paket klasörü her
         // kurulumda yenilendiği için ayar orada tutulmaz. Geliştirme kopyasında
         // klasörün kendi .env dosyası da okunur.
@@ -85,8 +88,8 @@ impl KitsManager {
             .env("COMPUTER_NAMESPACE", "fusion-kits")
             .env("KITS_HOST_ORIGINS", HOST_ORIGINS)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stdout(log_sink(data_dir))
+            .stderr(log_sink(data_dir));
         let mut child = crate::core_process::pencere_acmadan(&mut command)
             .spawn()
             .map_err(|error| format!("Kits sunucusu başlatılamadı: {error}"))?;
@@ -113,6 +116,18 @@ impl KitsManager {
             terminate_gracefully(&mut running.child);
         }
     }
+}
+
+/// Kits çıktısı `kits.log`'a yazılır; süreç sessizce ölünce ("Failed to fetch")
+/// sebebi ancak buradan görülür. Her başlatmada dosya baştan yazılır, büyümez.
+/// Açılamazsa çıktı atılır; günlük yüzünden Kits'in açılmaması kabul edilmez.
+fn log_sink(data_dir: &Path) -> Stdio {
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(data_dir.join(KITS_LOG_FILE))
+        .map(Stdio::from)
+        .unwrap_or_else(|_| Stdio::null())
 }
 
 fn terminate_gracefully(child: &mut Child) {
