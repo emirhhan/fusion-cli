@@ -1,6 +1,7 @@
 import { ScheduledDeliveryClient } from "./scheduledDeliveryClient";
 import { LocalComputerHost, type ConfirmComputer, type HostRequest } from "./localComputerHost";
 import { FolderPickHost, type PickFolder } from "./folderPickHost";
+import { KitsVoiceHost } from "./kitsVoiceHost";
 import { askComputerAccess, selectProjectFolder } from "../platform/dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -79,6 +80,15 @@ export function KitsScreen({
     );
     return () => computer.close();
   }, [state, confirmComputer]);
+  useEffect(() => {
+    if (state.durum !== "hazir" || !frame.current?.contentWindow) return;
+    const voice = new KitsVoiceHost(window, frame.current.contentWindow, state.adres, (name, data) => {
+      const istek = hostRequest.current;
+      if (!istek) return Promise.reject(new Error("Fusion oturumu yok; sesli yanıt için bir sohbet sekmesi aç."));
+      return istek(name, data);
+    });
+    return () => voice.close();
+  }, [state]);
   useEffect(() => {
     if (state.durum !== "hazir" || !frame.current?.contentWindow) return;
     const folders = new FolderPickHost(window, frame.current.contentWindow, state.adres, pickFolder);

@@ -13,7 +13,8 @@ export interface DictationRuntime {
   stop: () => Promise<void>;
 }
 
-const runtimeDefault: DictationRuntime = {
+/** Tauri tanıma köprüsü; Kits ses köprüsü de aynısını kullanır. */
+export const runtimeDefault: DictationRuntime = {
   onLine: (handler) => listen<RecognitionLine>("ses://tanima", (event) => handler(event.payload)),
   onEnded: (handler) => listen<RecognitionEnded>("ses://tanima-sonlandi", (event) => handler(event.payload)),
   start: startSpeechRecognition,
