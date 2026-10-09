@@ -425,7 +425,8 @@ def _visual_check(workdir: Path) -> Check:
         rapor = asyncio.run(probe_game((workdir / "index.html").as_uri()))
     except Exception as error:  # sınır: tarayıcı açılamadı
         return Check(CHECK_NAMES[9], False, f"görsel ölçüm yapılamadı: {str(error)[:120]}")
-    sorunlar = rapor.visual_problems
+    # ölçüldü (dalga44): durum 'playing' oldu ama menü katmanı ekranı örtmeye devam etti
+    sorunlar = (*rapor.startup_problems, *rapor.visual_problems)
     if rapor.asset_usage.problem:  # ölçüldü (dalga41): sprite yüklendi, düşman daire çizildi
         sorunlar = (*sorunlar, rapor.asset_usage.problem)
     if rapor.console_errors and not sorunlar:

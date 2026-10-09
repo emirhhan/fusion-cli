@@ -77,6 +77,14 @@
       }
     }
   }
+  // İçeriği taşan kaydırma/kırpma kutusu da betikle (CSS-in-JS) stillenebilir; kopyada
+  // kural düşer. Ölçüldü (dalga45): sneaksup takvim paneli overflow-x'ini kaybetti,
+  // ana sayfa 365 px yana taştı. Taşan kutunun kaynaktaki overflow-x'i dondurulur.
+  for (const box of document.body.querySelectorAll('*')) {
+    if (box.scrollWidth <= box.clientWidth + 1 || box.style.overflow) continue;
+    const overflow = getComputedStyle(box).overflowX;
+    if (overflow !== 'visible') box.style.overflowX = overflow;
+  }
   const clone = document.documentElement.cloneNode(true);
   // Varyant, tarayıcının o viewportta seçtiği gerçek görseli korur. Aksi halde
   // largest-srcset veya picture source, mobil hero'yu masaüstü adayıyla ezer.

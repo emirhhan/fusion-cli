@@ -250,6 +250,32 @@ def test_kaydirici_slaytlari_ve_gorsel_zinciri_olculen_genislikle_dondurulur(tmp
     assert "<script" not in ana
 
 
+_KAYAN_PANEL = """<!doctype html><html><head><style>.izgara{display:flex;width:1600px}
+</style></head><body><div class="panel"><div class="izgara">takvim</div></div>
+<script>const s=document.createElement('style');s.textContent='.panel{overflow-x:auto}';
+document.head.append(s);</script></body></html>"""
+
+
+def test_icerigi_tasan_kaydirma_paneli_tasmasini_korur(tmp_path):
+    """dalga45: CSS-in-JS ile verilen overflow-x kopyada düştü, takvim sayfayı 365 px taşırdı."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    from fusion_cli.tools.site_capture import CAPTURE_SCRIPT
+
+    sayfa = tmp_path / "index.html"
+    sayfa.write_text(_KAYAN_PANEL, encoding="utf-8")
+    try:
+        with playwright.sync_playwright() as p:
+            tarayici = p.chromium.launch()
+            page = tarayici.new_page(viewport={"width": 1000, "height": 600})
+            page.goto(sayfa.as_uri())
+            veri = page.evaluate(CAPTURE_SCRIPT.read_text(encoding="utf-8"))
+            tarayici.close()
+    except playwright.Error as hata:
+        pytest.skip(f"tarayıcı yok: {hata}")
+
+    assert '<div class="panel" style="overflow-x: auto;">' in veri["main"]
+
+
 def test_kategori_adi_kaynak_menuden_gelir_turkce_harfler_korunur():
     from fusion_cli.engines.agent.clone_tools import category_labels, display_label
 

@@ -50,6 +50,37 @@ async def test_gercek_tiklama_ve_state_gecisi(style, handler, expected_problem):
             await browser.close()
 
 
+_MENU_GAME = """<style>body{{margin:0}}canvas{{display:block;width:100vw;height:100vh}}
+#start-screen{{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}}
+{rule}</style><canvas></canvas><div id='start-screen'><button>Başla</button></div>
+<script>const s={{state:'menu'}};document.querySelector('button').onclick=()=>{{
+s.state='playing';document.getElementById('start-screen').classList.add('hidden')}};
+window.__GAME_STATE__=()=>s;</script>"""
+
+
+@pytest.mark.parametrize(
+    ("rule", "expected_problem"),
+    [("", True), ("#start-screen.hidden{display:none}", False)],
+    ids=["menu-kaldi", "menu-gizlendi"],
+)
+async def test_durum_degisse_de_menu_ekrani_ortuyorsa_kalir(rule, expected_problem):
+    """dalga44: state 'playing' oldu ama `.hidden` kuralı yok, menü oyunu örttü."""
+    pytest.importorskip("playwright.async_api")
+    from playwright.async_api import async_playwright
+
+    async with async_playwright() as driver:
+        browser = await driver.chromium.launch(headless=True)
+        try:
+            page = await browser.new_page(viewport={"width": 800, "height": 600})
+            await page.set_content(_MENU_GAME.format(rule=rule))
+            report = await start_game(page, settle_ms=20, timeout_ms=250, state_script=_STATE)
+            assert bool(report.problems) is expected_problem
+            if expected_problem:
+                assert "menü ekranda kaldı" in report.problems[0]
+        finally:
+            await browser.close()
+
+
 @pytest.mark.parametrize("attribute", ["hidden", "disabled"])
 async def test_gizli_ve_devredisi_basla_basari_sayilmaz(attribute):
     pytest.importorskip("playwright.async_api")

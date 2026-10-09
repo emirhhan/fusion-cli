@@ -17,6 +17,7 @@ description: HTML5 canvas oyununu üret ve gerçek oynanabilirliğini doğrula.
    kaymayı engelle, dokunmatik düğmeler ekle.
 4. Durum makinesi: `menu → oynuyor → bitti`. Görünür **Başla düğmesi**, Boşluk/Enter
    aynı `start()` işlevini çağırır; düğme klavye kullanmadan tek başına oyunu başlatır.
+   Her ekranın gizleme kuralı olsun (`#start-screen.hidden{display:none}`).
    **R ve görünür "Yeniden başla"** skor/can/düşman/konumu sıfırlar.
    Geçiş/duraklama/bitiş durumunda savaş güncellemesi ÇALIŞMAZ: geçiş sayacını
    güncelledikten sonra `return`; dalga, doğma, hasar yalnız `oynuyor` durumunda.

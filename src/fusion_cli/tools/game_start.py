@@ -23,6 +23,28 @@ _FIND_START = """() => {
     return matches.test(text)&&!restart.test(text)&&shown(el);});
   return index < 0 ? null : index;
 }"""
+#: Başla düğmesinin konumlu (fixed/absolute) en dış atası = menü katmanı. Tıklamadan
+#: sonra ekranın ortası hâlâ bu katmana düşüyorsa menü oyunu örtüyordur (dalga44:
+#: `.hidden` sınıfı eklendi ama CSS kuralı yoktu, durum 'playing' iken menü kaldı).
+_MARK_MENU = """(index) => {
+  const button=[...document.querySelectorAll(
+    'button, [role=button], a, input[type=button]')][index];
+  let menu=null;
+  for (let e=button;e&&e!==document.body;e=e.parentElement) {
+    const p=getComputedStyle(e).position; if (p==='fixed'||p==='absolute') menu=e; }
+  if (menu) menu.setAttribute('data-fusion-start-menu','');
+  return menu !== null;
+}"""
+_MENU_COVERS = """() => {
+  const menu=document.querySelector('[data-fusion-start-menu]');
+  if (!menu) return false;
+  const hit=document.elementFromPoint(innerWidth/2, innerHeight/2);
+  return hit !== null && menu.contains(hit);
+}"""
+_MENU_STUCK = (
+    "Başla düğmesine basıldı ama menü ekranda kaldı: ekranın ortası hâlâ menü katmanı; "
+    "gizleme sınıfının (ör. #start-screen.hidden {display:none}) CSS kuralı var mı bak"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,12 +83,15 @@ async def start_game(
     if index is None:
         return StartupReport(has_button=False)
     before = await page.evaluate(state_script)
+    has_menu = await page.evaluate(_MARK_MENU, index)
     try:
         await page.locator(BUTTON_SELECTOR).nth(index).click(timeout=timeout_ms)
     except PlaywrightTimeoutError:
         return StartupReport(True, ("Başla düğmesi gerçek kullanıcı tıklamasını alamıyor",))
     await page.wait_for_timeout(settle_ms)
     after = await page.evaluate(state_script)
+    if has_menu and await page.evaluate(_MENU_COVERS):
+        return StartupReport(True, (_MENU_STUCK,))
     before_phase, after_phase = _phase(before), _phase(after)
     if before_phase is not None and after_phase is not None:
         if before_phase == after_phase:
