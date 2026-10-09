@@ -733,3 +733,66 @@ async def test_baglam_sikistirma_acikken_uzun_gecmis_ozetlenir(monkeypatch):
                 json={"model": "auto", "messages": mesajlar, "stream": True},
             )
         assert gorulen[-1] == beklenen
+
+
+def test_to_request_arac_cagrisi_gecmisini_korur():
+    """Ölçüldü (9 Ekim 2026): Kits geçmişinde asistanın araç çağrısı ve araç sonucu vardı;
+    çeviri yalnız rol + metni tutuyordu, NIM sahipsiz `tool` mesajını reddetti ve Kits'in
+    yazılı sohbeti cevapsız kaldı."""
+    request, _, _ = to_request(
+        {
+            "model": "auto",
+            "messages": [
+                {"role": "user", "content": "hava?"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "c1",
+                            "type": "function",
+                            "function": {"name": "get_weather", "arguments": '{"city":"Ankara"}'},
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "c1", "name": "get_weather", "content": "12°C"},
+            ],
+        },
+        make_config().runtime,
+    )
+    asistan, arac = request.messages[1], request.messages[2]
+    assert [(c.id, c.name, c.arguments) for c in asistan.tool_calls] == [
+        ("c1", "get_weather", '{"city":"Ankara"}')
+    ]
+    assert asistan.content == ""
+    assert (arac.tool_call_id, arac.name, arac.content) == ("c1", "get_weather", "12°C")
+
+
+def test_to_request_bozuk_arac_cagrisini_reddeder():
+    with pytest.raises(GatewayError):
+        to_request(
+            {
+                "model": "auto",
+                "messages": [{"role": "assistant", "content": "", "tool_calls": [{"id": "c1"}]}],
+            },
+            make_config().runtime,
+        )
+
+
+async def test_chat_stream_model_hatasini_istemciye_iletir():
+    """Akışta model başarısız olunca geçit yalnız `finish_reason: error` gönderiyordu;
+    hata metni kayboluyor, Kits cevapsız tur görüyordu."""
+    app = GatewayApp(
+        make_config(),
+        provider_factory=lambda spec: FakeProvider("mock", ok=False, error="400: geçersiz sıra"),
+    )
+    async with _client(app) as client:
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={"model": "auto", "messages": [{"role": "user", "content": "x"}], "stream": True},
+        )
+    parcalar = [
+        json.loads(satir[6:]) for satir in resp.text.splitlines() if satir.startswith("data: {")
+    ]
+    hatalar = [parca["error"]["message"] for parca in parcalar if "error" in parca]
+    assert hatalar and "400: geçersiz sıra" in hatalar[0]

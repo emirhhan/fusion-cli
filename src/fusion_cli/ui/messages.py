@@ -427,6 +427,9 @@ APP_TURN_INTERRUPTED_TASK_CHARS = 120
 #:
 #: Ölçülen hata: araçlar tıkandığında protokol `{"ok": false, "metin": ""}`
 #: döndürüyordu; kullanıcı hiçbir açıklama olmadan "görev başarısız" görüyordu.
+CMD_TRASH = "Fusion'ın sildiklerini listele ya da geri al"
+CMD_TRACE = "Son koşunun teşhis özeti: nerede ve neden düştü"
+CMD_ADD_DIR = "Proje kökünün yanında başka bir klasöre de erişim aç"
 APP_TURN_NO_ANSWER = (
     "Tur tamamlanamadı ve model bir cevap üretmedi. "
     "Araç çıktılarını Denetçi panelinden inceleyip görevi daraltarak yeniden dene."

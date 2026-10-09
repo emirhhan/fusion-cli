@@ -441,13 +441,13 @@ def build_observers(
     elif renderer is not None:
         sinks.append(renderer)
     sinks.extend((cost, tracer))
-    trace = _open_trace(trace_dir)
+    trace = open_trace(trace_dir)
     if trace is not None:
         sinks.append(trace)
     return Observers(sinks=tuple(sinks), cost=cost, tracer=tracer, trace=trace)
 
 
-def _open_trace(trace_dir: Path | None) -> TraceWriter | None:
+def open_trace(trace_dir: Path | None) -> TraceWriter | None:
     """Koşu izini aç; kimlik zaman damgasıdır, sıralama da bundan gelir."""
     if trace_dir is None:
         return None

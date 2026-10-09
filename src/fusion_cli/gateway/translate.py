@@ -42,8 +42,42 @@ def parse_messages(payload: Mapping[str, object]) -> tuple[Message, ...]:
         if not isinstance(item, Mapping):
             raise GatewayError("her mesaj bir nesne olmalı.")
         role = str(item.get("role", "user"))
-        messages.append(Message(role=role, content=_content_to_text(item.get("content", ""))))
+        tool_call_id = item.get("tool_call_id")
+        name = item.get("name")
+        messages.append(
+            Message(
+                role=role,
+                content=_content_to_text(item.get("content") or ""),
+                tool_calls=_parse_tool_calls(item.get("tool_calls")),
+                tool_call_id=str(tool_call_id) if tool_call_id else None,
+                name=str(name) if name else None,
+            )
+        )
     return tuple(messages)
+
+
+def _parse_tool_calls(raw: object) -> tuple[ToolCall, ...]:
+    """Asistan mesajındaki OpenAI `tool_calls` dizisi. Düşürülürse sonraki `tool` mesajı
+    sahipsiz kalır ve sağlayıcı isteği reddeder (ölçüldü, 9 Ekim 2026: Kits + NIM)."""
+    if not isinstance(raw, list):
+        return ()
+    calls: list[ToolCall] = []
+    for call in raw:
+        function = call.get("function") if isinstance(call, Mapping) else None
+        if not isinstance(call, Mapping) or not isinstance(function, Mapping):
+            raise GatewayError("her araç çağrısında 'id' ve 'function' olmalı.")
+        call_id, name = call.get("id"), function.get("name")
+        if not call_id or not name:
+            raise GatewayError("her araç çağrısında 'id' ve 'function.name' olmalı.")
+        arguments = function.get("arguments")
+        calls.append(
+            ToolCall(
+                id=str(call_id),
+                name=str(name),
+                arguments=arguments if isinstance(arguments, str) else "{}",
+            )
+        )
+    return tuple(calls)
 
 
 def to_request(
@@ -138,6 +172,12 @@ def tool_calls_chunk(
         "model": model,
         "choices": [{"index": 0, "delta": {"tool_calls": calls}, "finish_reason": None}],
     }
+
+
+def stream_error(result: ModelResult) -> dict[str, Any]:
+    """Akış ortasında model hatası: OpenAI istemcileri `error` olayını hata olarak fırlatır."""
+    message = result.error or "model kullanılabilir bir cevap üretmedi"
+    return {"error": {"message": message, "type": "provider_error"}}
 
 
 def final_chunk(model: str, *, chunk_id: str, finish_reason: str = "stop") -> dict[str, Any]:

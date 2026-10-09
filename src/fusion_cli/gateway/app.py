@@ -1139,6 +1139,10 @@ class GatewayApp:
                     finish = "tool_calls"
                 else:
                     finish = "stop" if sonuc.is_usable else "error"
+                # Hata metni gönderilmezse istemci yalnız cevapsız bir tur görür.
+                if finish == "error":
+                    guvenli = _dc_replace(sonuc, error=redact(sonuc.error or ""))
+                    await _sse_data(send, translate.stream_error(guvenli))
                 self._record(model, sonuc)
         await _sse_data(send, translate.final_chunk(model, chunk_id=chunk_id, finish_reason=finish))
         await _sse_done(send)

@@ -46,7 +46,7 @@ from ..config.models import Config, McpServerConfig
 from ..config.paths import credentials_file
 from ..core.clock import SystemClock
 from ..core.concurrency import BackgroundTasks
-from ..core.events import Event, StatusChanged
+from ..core.events import Event, EventSink, StatusChanged
 from ..core.remotion_browser import RemotionBrowser
 from ..core.tools import TodoStatus
 from ..core.turn_deadline import TurnDeadline
@@ -1439,7 +1439,7 @@ class AppSession:
         await self._iptal_edilen_turu_bekle()
         if self._turn is not None and not self._turn.done():
             return {"ok": False, "metin": messages.APP_TURN_ALREADY_RUNNING}
-        from ..cli.session import run_agent_task
+        from ..cli.session import open_trace, run_agent_task
 
         # Yan panelin konuşması uygulamanın sohbetine KARIŞMAZ: kendi geçmişi vardır,
         # diske yazılmaz, adımları ve soruları yalnız panele akar (Claude in Chrome gibi).
@@ -1497,10 +1497,11 @@ class AppSession:
                 remotion_browser=self._state.remotion_browser,
                 require_remotion_kit=self._require_remotion_kit,
                 deadline=deadline,
-                sinks=(sink,),
+                sinks=(sink, *trace_sinks),
                 prompter_factory=lambda _drain: prompter,
                 mode=self._state.approval,
                 root=self._state.root,
+                extra_roots=self._state.extra_roots,
                 home=self._state.home,
                 history=history,
                 chrome_bridge=self._chrome,
@@ -1533,6 +1534,9 @@ class AppSession:
 
         # Tarayıcı paneli turu sekmenin konuşması değildir; günlüğe yazılmaz.
         journal = None if browser_only else self._turn_journal(task)
+        # Teşhis izi: `/trace` bu turun neden düştüğünü sonradan söyleyebilsin.
+        trace = None if browser_only else open_trace(config.memory_dir / "traces")
+        trace_sinks: tuple[EventSink, ...] = (trace,) if trace is not None else ()
         self._turn = asyncio.ensure_future(execute_turn())
         try:
             outcome = await self._turn
@@ -1551,6 +1555,8 @@ class AppSession:
             return {"ok": False, "metin": messages.APP_TURN_CANCELLED}
         finally:
             self._turn = None
+            if trace is not None:
+                trace.close()
             # Tur her yoldan bitti (cevap, hata, iptal): yarıda kalmış sayılmaz.
             if journal is not None:
                 journal.clear()

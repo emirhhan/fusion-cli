@@ -28,7 +28,7 @@ from ...tools.capabilities import Capability
 from ...tools.capabilities import search as search_capabilities
 from ...ui import messages
 from ...ui.picker import Choice, pick
-from . import macros, model_flows, profiles_flow, provider_flow, verify_flow
+from . import macros, model_flows, profiles_flow, provider_flow, verify_flow, workspace_commands
 from .state import TASK_TYPES, Engine, Reminder, ReplState
 
 #: `/resume<kaynak>` listesinde gösterilecek en fazla oturum. `source.list`'e
@@ -767,6 +767,23 @@ _COMMANDS: tuple[SlashCommand, ...] = (
             ("btw", messages.CMD_BTW),
             ("plan-yurut", messages.CMD_PLAN_RUN),
         )
+    ),
+    SlashCommand(
+        "cop",
+        messages.CMD_TRASH,
+        workspace_commands.trash,
+        group="Agent",
+        usage="[geri-al <kimlik>]",
+    ),
+    SlashCommand(
+        "trace", messages.CMD_TRACE, workspace_commands.trace, group="Bilgi", usage="[kimlik|liste]"
+    ),
+    SlashCommand(
+        "add-dir",
+        messages.CMD_ADD_DIR,
+        workspace_commands.add_dir,
+        group="Agent",
+        usage="[yol|kaldir <yol>]",
     ),
     SlashCommand("schedule", messages.CMD_SCHEDULE, _schedule, group="Makro", usage="<saniye>"),
 )

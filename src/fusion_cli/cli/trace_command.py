@@ -34,17 +34,50 @@ def render_trace(store: TraceStore, run_id: str | None, *, limit: int = 6) -> No
         console.print(f"[{theme.DIM}]- {bulgu}[/{theme.DIM}]")
 
 
+def _rows(ozet: RunSummary) -> tuple[tuple[str, str], ...]:
+    return (
+        ("model çağrısı", str(ozet.model_calls)),
+        ("araç çağrısı", str(ozet.tool_calls)),
+        ("engellenen araç", str(ozet.blocked_tools)),
+        ("başarısız araç", str(ozet.failed_tools)),
+        ("ayrıştırma onarımı", str(ozet.parse_repairs)),
+        ("plan adımı", f"{ozet.verified_steps}/{ozet.steps} doğrulandı"),
+    )
+
+
 def _table(ozet: RunSummary) -> Table:
     table = Table(show_header=False, box=None, pad_edge=False)
     table.add_column(style=theme.DIM)
     table.add_column()
-    table.add_row("model çağrısı", str(ozet.model_calls))
-    table.add_row("araç çağrısı", str(ozet.tool_calls))
-    table.add_row("engellenen araç", str(ozet.blocked_tools))
-    table.add_row("başarısız araç", str(ozet.failed_tools))
-    table.add_row("ayrıştırma onarımı", str(ozet.parse_repairs))
-    table.add_row("plan adımı", f"{ozet.verified_steps}/{ozet.steps} doğrulandı")
+    for etiket, deger in _rows(ozet):
+        table.add_row(etiket, deger)
     return table
+
+
+def trace_text(store: TraceStore, run_id: str | None, *, limit: int = 6) -> str:
+    """`render_trace`ın düz metin hâli (slash komutu ve masaüstü için).
+
+    `run_id` "liste" ise kayıtlı koşuları sıralar.
+    """
+    if run_id == "liste":
+        kayitlar = store.runs()[::-1][:20]
+        if not kayitlar:
+            return "Henüz koşu kaydı yok."
+        return "\n".join(
+            f"{kayit}  {summarize_run(store.read(kayit)).headline()}" for kayit in kayitlar
+        )
+    hedef = run_id or store.latest()
+    if hedef is None:
+        return "Henüz koşu kaydı yok. Bir görev çalıştırdıktan sonra tekrar dene."
+    if hedef not in store.runs():
+        return f"Böyle bir koşu yok: {hedef}  (kayıtlar için /trace liste)"
+    ozet = summarize_run(store.read(hedef))
+    satirlar = [f"{hedef} · {ozet.headline()}", ""]
+    satirlar += [f"  {etiket}: {deger}" for etiket, deger in _rows(ozet)]
+    if ozet.pause_reason:
+        satirlar.append(f"Duraklama: {ozet.pause_reason}")
+    satirlar += [f"- {bulgu}" for bulgu in ozet.findings[:limit]]
+    return "\n".join(satirlar)
 
 
 def list_runs(store: TraceStore, *, limit: int = 20) -> None:
