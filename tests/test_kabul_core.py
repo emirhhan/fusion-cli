@@ -187,3 +187,14 @@ def test_magaza_varsayilan_gorunumde_kaldiysa_yakalanir():
     assert shrunken_slides([0.25, 0.25, 1.0]) == 2
     assert shrunken_slides([1.0, 0.8]) == 0
     assert shrunken_slides([]) == 0
+
+
+def test_kaynak_da_tasiyorsa_kopyanin_ayni_tasmasi_kusur_sayilmaz():
+    """dalga45/46: sneaksup.com 1440 px'te kendisi 365 px taşıyor; birebir kopya kalıyordu."""
+    from evals.kabul.areas.site_clone_probe import overflow_check
+
+    assert overflow_check(365, 365).passed
+    assert overflow_check(0, None).passed
+    assert not overflow_check(365, 0).passed
+    assert not overflow_check(365, None).passed
+    assert "kaynak 365 px" in overflow_check(365, 365).detail

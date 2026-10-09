@@ -127,7 +127,7 @@ def _run(
         Check("varsayilan_kenar_cubugu_yok", kenar == 0, f"{kenar} varsayılan widget"),
         _image_check("ana_sayfa_gorselleri", kirik_ana),
     ]
-    checks.append(_overflow_check(sayfa))
+    kopya_tasma = int(sayfa.evaluate(_OVERFLOW_JS))
     checks.append(_slider_check(sayfa))
     sutun = _grid(sayfa, pages.shop)
     checks.append(_image_check("magaza_gorselleri", _broken_images(sayfa)))
@@ -137,7 +137,9 @@ def _run(
     odeme, not_ = _checkout(sayfa, pages.checkout)
     checks.append(odeme)
     checks.append(Check("kaynaga_hotlink_yok", not hotlink, f"{len(hotlink)} istek {host} alanına"))
-    return StoreProbe(tuple(checks), sutun, _source_similarity(tarayici, source_url, ana_png), not_)
+    benzerlik, kaynak_tasma = _source_similarity(tarayici, source_url, ana_png)
+    checks.insert(3, overflow_check(kopya_tasma, kaynak_tasma))
+    return StoreProbe(tuple(checks), sutun, benzerlik, not_)
 
 
 #: Betikle ölçülenen kaydırıcıların slayt sınıfları (swiper, slick, splide, embla…).
@@ -190,9 +192,21 @@ def shrunken_slides(ratios: list[float]) -> int:
     return sum(1 for oran in ratios if oran < MIN_SLIDE_IMAGE_RATIO)
 
 
-def _overflow_check(sayfa: Page) -> Check:
-    fazla = int(sayfa.evaluate("() => document.documentElement.scrollWidth - window.innerWidth"))
-    return Check("ana_sayfa_yatay_tasmiyor", fazla <= 2, f"taşma: {max(fazla, 0)} px")
+_OVERFLOW_JS = "() => document.documentElement.scrollWidth - window.innerWidth"
+#: Alt-piksel yuvarlama payı (px).
+OVERFLOW_TOLERANCE_PX = 2
+
+
+def overflow_check(clone_px: int, source_px: int | None) -> Check:
+    """Kopya kaynaktan fazla taşıyorsa kusur. Ölçüldü (dalga45/46): sneaksup.com 1440 px'te
+    kendisi 365 px taşıyor; mutlak ölçüm birebir kopyayı kusurlu sayıyordu."""
+    izin = max(source_px or 0, 0) + OVERFLOW_TOLERANCE_PX
+    kaynak = "ölçülmedi" if source_px is None else f"{max(source_px, 0)} px"
+    return Check(
+        "ana_sayfa_yatay_tasmiyor",
+        clone_px <= izin,
+        f"taşma: {max(clone_px, 0)} px (kaynak {kaynak})",
+    )
 
 
 def _slider_check(sayfa: Page) -> Check:
@@ -298,7 +312,8 @@ def _checkout(sayfa: Page, checkout_url: str) -> tuple[Check, str]:
     return place_order(sayfa, checkout_url, NAVIGATION_TIMEOUT_MS)
 
 
-def _source_similarity(tarayici: Browser, source_url: str, clone_png: bytes) -> float:
+def _source_similarity(tarayici: Browser, source_url: str, clone_png: bytes) -> tuple[float, int]:
+    """Kaynak ana sayfaya benzerlik ve kaynağın kendi yatay taşması."""
     from playwright.sync_api import Error as PlaywrightError
 
     # Kaynak açılamazsa bu bir ÖLÇÜM hatasıdır, kopyanın kusuru değil: bir kez daha
@@ -310,7 +325,8 @@ def _source_similarity(tarayici: Browser, source_url: str, clone_png: bytes) -> 
         try:
             sayfa = baglam.new_page()
             sayfa.goto(source_url, timeout=NAVIGATION_TIMEOUT_MS, wait_until="load")
-            return similarity(sayfa.screenshot(full_page=True), clone_png)
+            kaynak_png = sayfa.screenshot(full_page=True)
+            return similarity(kaynak_png, clone_png), int(sayfa.evaluate(_OVERFLOW_JS))
         except PlaywrightError as hata:
             son_hata = hata
         finally:
