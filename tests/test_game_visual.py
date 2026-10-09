@@ -60,3 +60,15 @@ def test_kendiliginden_hicbir_sey_kipirdamiyorsa_soylenir():
 def test_kontrast_orani_wcag_ile_ayni():
     assert round(contrast_ratio((0, 0, 0), (255, 255, 255)), 1) == 21.0
     assert contrast_ratio((200, 200, 205), (240, 240, 245)) < 3
+
+
+def test_yuklenen_gorsellerin_cogu_hic_cizilmezse_sorun_sayilir():
+    """Ölçüldü (8 Ekim, dalga41): 10 sprite yüklendi, 3'ü çizildi; düşmanlar ekranda düz
+    daire olarak çiziliyordu (kod `chaser` arıyor, görsel `enemy_chaser` adıyla kayıtlı)."""
+    from fusion_cli.tools.game_assets import AssetUsage
+
+    yuklenen = tuple(f"assets/s{i}.svg" for i in range(10))
+    assert AssetUsage(yuklenen, yuklenen[:3]).problem is not None
+    # Boss/güçlendirme gibi az sayıda görselin kısa denemede çıkmaması normaldir.
+    assert AssetUsage(yuklenen, yuklenen[:6]).problem is None
+    assert AssetUsage(yuklenen[:2], ()).problem is None

@@ -25,6 +25,7 @@ from evals.kabul.areas._browser import (
 )
 from evals.kabul.areas._game_probe import (
     INIT_SCRIPT,
+    KEY_HOLD_MS,
     KEY_SEQUENCE,
     HudReading,
     find_game_area,
@@ -139,6 +140,8 @@ class GameReport:
     key_energy: float
     hud: HudReading
     restart: RestartProbe
+    #: Durum kancası oyuncu konumu veriyorsa tuşlarla yer değiştirdi mi (None: ölçülemedi).
+    player_moved: bool | None = None
     #: Uzun rastgele oyundan sonra 1 sn'deki rAF çağrısı ve o sırada çıkan konsol hataları.
     long_play_raf: int = MIN_LONG_PLAY_RAF
     long_play_errors: tuple[str, ...] = ()
@@ -245,6 +248,11 @@ def measure(root: Path) -> GameReport:
         hud = read_hud(page)
         _fresh_load(opened)
         keyed = motion_energy(page, shoot, press_keys=True)
+        # Ok tuşları sağ-yukarı-sol-aşağı sırasıyla basılınca oyuncu başladığı yere döner;
+        # konum tek yönlü (sağ) basışın öncesi ve sonrasıyla ölçülür.
+        konum_once = page.evaluate(_PLAYER_POS_JS)
+        hold_key(page, "ArrowRight", KEY_HOLD_MS)
+        konum_sonra = page.evaluate(_PLAYER_POS_JS)
         restart = _restart_probe(opened)
         long_raf, long_errors = _long_play(opened)
         loaded = tuple(opened.page.evaluate(_LOADED_IMAGES_JS))
@@ -255,6 +263,7 @@ def measure(root: Path) -> GameReport:
             raf_calls=raf_calls,
             idle_energy=idle,
             key_energy=keyed,
+            player_moved=_moved(konum_once, konum_sonra),
             hud=hud,
             restart=restart,
             long_play_raf=long_raf,
@@ -309,8 +318,33 @@ def _raf_check(report: GameReport) -> Check:
     )
 
 
+#: Durum kancasındaki oyuncu konumu: {oyuncu|player: {x, y}} ya da üst düzey x/y.
+_PLAYER_POS_JS = """() => { try { const s = typeof window.__GAME_STATE__ === 'function'
+  ? window.__GAME_STATE__() : null; const p = s && (s.oyuncu || s.player);
+  return p && typeof p.x === 'number' && typeof p.y === 'number' ? [p.x, p.y] : null;
+  } catch (e) { return null; } }"""
+#: Bundan az yer değişimi hareket sayılmaz (px).
+MIN_PLAYER_MOVE = 8
+
+
+def _moved(once: object, sonra: object) -> bool | None:
+    if not (isinstance(once, list) and isinstance(sonra, list)):
+        return None
+    return abs(sonra[0] - once[0]) + abs(sonra[1] - once[1]) >= MIN_PLAYER_MOVE
+
+
 def _key_check(report: GameReport) -> Check:
     gain = report.key_energy - report.idle_energy
+    # Kalabalık oyunda düşmanlar ekranı zaten çok değiştirir; tuş etkisi piksel farkında
+    # kaybolur. Ölçüldü (8 Ekim, dalga41): oyuncu 640→1098 px gitti ama fark 0,0073 < 0,01
+    # çıktı. Durum kancası konum veriyorsa asıl kanıt konumdur.
+    if report.player_moved is not None:
+        return Check(
+            CHECK_NAMES[4],
+            report.player_moved,
+            f"durum kancasında oyuncu konumu tuşlarla "
+            f"{'değişti' if report.player_moved else 'DEĞİŞMEDİ'}; piksel farkı {gain:.4f}",
+        )
     return Check(
         CHECK_NAMES[4],
         gain >= KEY_ENERGY_MARGIN,
@@ -392,6 +426,8 @@ def _visual_check(workdir: Path) -> Check:
     except Exception as error:  # sınır: tarayıcı açılamadı
         return Check(CHECK_NAMES[9], False, f"görsel ölçüm yapılamadı: {str(error)[:120]}")
     sorunlar = rapor.visual_problems
+    if rapor.asset_usage.problem:  # ölçüldü (dalga41): sprite yüklendi, düşman daire çizildi
+        sorunlar = (*sorunlar, rapor.asset_usage.problem)
     if rapor.console_errors and not sorunlar:
         sorunlar = (f"dosyadan açılınca konsol hatası: {rapor.console_errors[0][:120]}",)
     return Check(CHECK_NAMES[9], not sorunlar, "; ".join(sorunlar) or "kusur ölçülmedi")

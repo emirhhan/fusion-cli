@@ -89,6 +89,8 @@ class ProbeReport:
             sorunlar.append("tuşlar oyunu değiştirmedi (oyuncu hareket etmiyor)")
         sorunlar.extend(self.startup_problems)
         sorunlar.extend(f"görsel: {sorun}" for sorun in self.visual_problems)
+        if self.asset_usage.problem:
+            sorunlar.append(f"görsel: {self.asset_usage.problem}")
         return tuple(sorunlar)
 
     def summary(self) -> str:

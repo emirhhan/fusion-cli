@@ -87,7 +87,14 @@ _SPRITE_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8">'
     '<rect width="8" height="8"/></svg>'
 )
-_LOAD_SPRITES = "".join(f'<img src="assets/{ad}" alt="" hidden>' for ad in _SPRITES)
+# İyi oyun sprite'ları yükler VE canvas'a çizer (yalnız yüklemek "yedek şekil" kusurudur).
+_LOAD_SPRITES = (
+    "".join(f'<img class="sprite" src="assets/{ad}" alt="" hidden>' for ad in _SPRITES)
+    + "<script>const _sp=[...document.querySelectorAll('img.sprite')];"
+    "(function _ciz(){const c=document.querySelector('canvas').getContext('2d');"
+    "_sp.forEach((im,i)=>{if(im.complete&&im.naturalWidth)c.drawImage(im,4+i*10,4,8,8);});"
+    "requestAnimationFrame(_ciz);})();</script>"
+)
 
 
 def _run(tmp_path: Path, page: str, *, sprites: bool = True) -> Inspection:

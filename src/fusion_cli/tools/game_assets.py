@@ -42,6 +42,10 @@ ASSET_INIT = """(() => {
 })();"""
 
 
+#: Bundan az çizilmeyen görsel sorun sayılmaz (boss/güçlendirme kısa denemede çıkmayabilir).
+MIN_UNDRAWN = 3
+
+
 @dataclass(frozen=True, slots=True)
 class AssetUsage:
     """Çizim çağrısı görünürlük değildir; tetiklenmeyen sahneler ayrıca denenmeli."""
@@ -52,6 +56,24 @@ class AssetUsage:
     @property
     def unobserved(self) -> tuple[str, ...]:
         return tuple(source for source in self.loaded if source not in self.drawn)
+
+    @property
+    def problem(self) -> str | None:
+        """Yüklenen görsellerin çoğu oynanışta hiç çizilmediyse oyun yedek şekil çiziyordur.
+
+        Ölçüldü (8 Ekim 2026, dalga41): 10 sprite yüklendi, yalnız 3'ü çizildi; düşmanlar
+        ekranda düz daireydi (kod `chaser` anahtarını arıyor, görsel `enemy_chaser` adıyla
+        kayıtlı). Az sayıda çizilmeyen görsel (boss, güçlendirme) kısa denemede normaldir.
+        """
+        cizilmeyen = self.unobserved
+        if len(cizilmeyen) < MIN_UNDRAWN or len(cizilmeyen) * 2 <= len(self.loaded):
+            return None
+        adlar = ", ".join(source.rsplit("/", 1)[-1] for source in cizilmeyen[:6])
+        return (
+            f"yüklenen {len(self.loaded)} görselin {len(cizilmeyen)} tanesi oynanışta hiç "
+            f"çizilmedi ({adlar}): oyun büyük ihtimalle yedek şekil (daire/kare) çiziyor — "
+            "görsel sözlüğündeki anahtar adlarıyla çizimde kullanılan adlar eşleşiyor mu bak"
+        )
 
     def summary(self) -> str:
         return (
