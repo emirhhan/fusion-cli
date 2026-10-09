@@ -332,7 +332,14 @@ class _PlanRun:
         tool_uses = tuple(use for item in self.outcomes for use in item.tool_uses)
         return build_turn_report(changed_paths, tool_uses, gate=None, current_jobs=current_jobs)
 
-    def outcome(self, text: str, *, ok: bool, budget_stopped: bool = False) -> AgentOutcome:
+    def outcome(
+        self,
+        text: str,
+        *,
+        ok: bool,
+        budget_stopped: bool = False,
+        report: TurnReport | None = None,
+    ) -> AgentOutcome:
         """Tüm çıkış yollarında gerçek alt tur sayaçlarını topla.
 
         Geçmiş artık `self.messages`'ta paylaşılan konuşmanın kendisidir; ayrı
@@ -361,6 +368,7 @@ class _PlanRun:
             tool_uses=tuple(use for item in self.outcomes for use in item.tool_uses),
             hit_step_limit=any(item.hit_step_limit for item in self.outcomes),
             budget_stopped=budget_stopped,
+            completion_report=report,
         )
 
     def pause(
@@ -370,7 +378,7 @@ class _PlanRun:
         self.save()
         self.deps.publisher.publish(ExecutionPaused(plan_id=self.current.plan_id, reason=text))
         rendered = report.render() if report is not None else self._turn_report_text()
-        return self.outcome(rendered + text, ok=False, budget_stopped=budget)
+        return self.outcome(rendered + text, ok=False, budget_stopped=budget, report=report)
 
     async def execute(
         self,
@@ -1216,7 +1224,7 @@ class _PlanRun:
         text = self.outcomes[-1].final_text if self.outcomes else "Yürütme planı tamamlandı."
         if warnings:
             text += "\n\n" + "\n".join(f"UYARI: {warning}" for warning in warnings)
-        return self.outcome(report.render() + text, ok=True)
+        return self.outcome(report.render() + text, ok=True, report=report)
 
     async def run(self) -> AgentOutcome:
         """Adımları ve final onarımını aynı zarf yaşam döngüsü içinde yürüt."""

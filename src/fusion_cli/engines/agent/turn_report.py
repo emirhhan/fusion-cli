@@ -370,3 +370,27 @@ def _exit_code(use: ToolUse) -> int | None:
         return int(output[len(_EXIT_CODE_PREFIX) : closing])
     except ValueError:
         return None
+
+
+#: Kits'e giden kanıt özetindeki liste tavanları (protokol satırı küçük kalır).
+EVIDENCE_MAX_PATHS = 50
+EVIDENCE_MAX_PROBLEMS = 10
+
+
+def evidence_payload(report: TurnReport | None) -> dict[str, object] | None:
+    """Tur raporunun Kits gibi istemcilere giden yapılandırılmış kanıt özeti.
+
+    Kits `fusion_run` sonucunda yalnız metni görüyordu: "testler geçti" diyen ama
+    kanıtı olmayan bir tur başarılı gibi sunulabiliyordu. `None`: rapor yok (sohbet).
+    """
+    if report is None:
+        return None
+    return {
+        "dogrulandi": report.is_verified,
+        "engelliyor": report.blocks_success,
+        "yanlis_iddia": report.false_claim,
+        "degisen": list(report.changed_paths[:EVIDENCE_MAX_PATHS]),
+        "sorunlar": [item.problem for item in report.job_deliveries if item.problem][
+            :EVIDENCE_MAX_PROBLEMS
+        ],
+    }
