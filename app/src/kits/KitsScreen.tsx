@@ -1,4 +1,6 @@
 import { ScheduledDeliveryClient } from "./scheduledDeliveryClient";
+import { LocalComputerHost, type ConfirmComputer, type HostRequest } from "./localComputerHost";
+import { askComputerAccess } from "../platform/dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KITS_THEME_MESSAGE, kitsFrameUrl, type KitsTheme } from "./kitsUrl";
@@ -21,13 +23,22 @@ interface KitsScreenProps {
   /** Testler gerçek süreç açmadan başlatmayı taklit eder. */
   start?: StartKits;
   onDeliveryClient?: (client: ScheduledDeliveryClient | null) => void;
+  /** Etkin Fusion oturumuna istek; yoksa Kits'in bilgisayar isteği "bağlı değil" döner. */
+  requestHost?: HostRequest;
+  /** Testler yerel izin penceresini taklit eder. */
+  confirmComputer?: ConfirmComputer;
 }
 
 /** Fusion Kits modülü: yan süreç hazır olunca iframe ile gömülür.
  *
  * Bileşen bir kez kurulur ve menü geçişinde DOM'da kalır (bkz. `MainSurface`);
  * Kits sohbeti bölüm değiştirince kaybolmaz. */
-export function KitsScreen({ start = startWithTauri, onDeliveryClient }: KitsScreenProps) {
+export function KitsScreen({
+  start = startWithTauri,
+  onDeliveryClient,
+  requestHost,
+  confirmComputer = askComputerAccess,
+}: KitsScreenProps) {
   const [state, setState] = useState<KitsState>({ durum: "hazirlaniyor" });
   const [attempt, setAttempt] = useState(0);
   const retry = useCallback(() => setAttempt((current) => current + 1), []);
@@ -40,6 +51,24 @@ export function KitsScreen({ start = startWithTauri, onDeliveryClient }: KitsScr
     onDeliveryClient?.(client);
     return () => { client.close(); delivery.current = null; onDeliveryClient?.(null); };
   }, [state, onDeliveryClient]);
+  // Oturum değişince (sekme) en güncel istek fonksiyonu kullanılır; dinleyici yeniden kurulmaz.
+  const hostRequest = useRef<HostRequest | undefined>(requestHost);
+  hostRequest.current = requestHost;
+  useEffect(() => {
+    if (state.durum !== "hazir" || !frame.current?.contentWindow) return;
+    const computer = new LocalComputerHost(
+      window,
+      frame.current.contentWindow,
+      state.adres,
+      (name, data) => {
+        const istek = hostRequest.current;
+        if (!istek) return Promise.reject(new Error("Fusion oturumu yok."));
+        return istek(name, data);
+      },
+      confirmComputer,
+    );
+    return () => computer.close();
+  }, [state, confirmComputer]);
   // Adres ilk açılıştaki temayı taşır; sonraki değişiklik sayfayı yeniden yüklemeden
   // (sohbet kaybolmadan) mesajla iletilir.
   const initialTheme = useRef<KitsTheme>(currentTheme());

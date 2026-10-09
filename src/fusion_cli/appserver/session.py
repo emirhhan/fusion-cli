@@ -55,6 +55,7 @@ from ..engines.agent.approval import ApprovalMode, parse_mode
 from ..engines.agent.context_budget import context_budget
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
 from ..engines.agent.remotion_bridge import FrameTransport
+from ..engines.agent.turn_report import evidence_payload
 from ..history.sanitize import sanitize_message
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
@@ -116,6 +117,8 @@ from .image_create import create_image, image_providers
 from .image_flows import export_image, list_flows, list_gallery, load_flow, save_flow
 from .instructions import get_instructions, instruction_block, save_instructions
 from .library import LibrarySink, add_upload, list_library, remove_entry
+from .local_computer import LocalComputer, native_local_computer
+from .local_computer_routes import LOCAL_COMPUTER_ROUTES, dispatch_local_computer
 from .model_catalog import list_selectable_models
 from .personal_memory import PersonalMemory
 from .processes import ProcessManager
@@ -359,7 +362,9 @@ class AppSession:
         remotion_transport: FrameTransport | None = None,
         remotion_browser: RemotionBrowser | None = None,
         require_remotion_kit: bool = False,
+        local_computer: LocalComputer | None = None,
     ) -> None:
+        self._local_computer = local_computer
         self._writer = writer
         self._require_remotion_kit = require_remotion_kit
         self._root = root
@@ -505,6 +510,25 @@ class AppSession:
         return resolved
 
     async def _dispatch(self, request: Request) -> dict[str, Any]:
+        if request.name in LOCAL_COMPUTER_ROUTES:
+            if self._local_computer is not None:
+                return await dispatch_local_computer(
+                    request.name,
+                    request.data,
+                    self._local_computer,
+                    lambda: self._state.root,
+                    lambda: self._conversation_id,
+                )
+            # Üretim yolu: istek anındaki kök ve konuşmaya bağlı yerel gözlemci kurulur.
+            # Kits'ten gelen istekte Fusion konuşması seçili olmayabilir; oturum adı sabittir.
+            oturum = self._conversation_id or "fusion-app"
+            return await dispatch_local_computer(
+                request.name,
+                request.data,
+                native_local_computer(self._state.root, oturum),
+                lambda: self._state.root,
+                lambda: self._conversation_id or "fusion-app",
+            )
         if request.name == "gorsel.saglayicilar":
             return {"ok": True, "secenekler": image_providers(self._state.config)}
         if request.name == "gorsel.olustur":
@@ -1574,7 +1598,11 @@ class AppSession:
                 auto_continues=auto_continues + 1,
                 deadline=deadline,
             )
-        return {"ok": outcome.ok, "metin": metin}
+        cevap: dict[str, Any] = {"ok": outcome.ok, "metin": metin}
+        kanit = evidence_payload(getattr(outcome, "completion_report", None))
+        if kanit is not None:
+            cevap["kanit"] = kanit
+        return cevap
 
     def _refresh_capabilities(self) -> None:
         self._state.capabilities = CapabilityRegistry(

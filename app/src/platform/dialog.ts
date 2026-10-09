@@ -55,3 +55,14 @@ export async function saveImageAs(defaultName: string): Promise<string | null> {
   });
   return typeof selected === "string" ? selected : null;
 }
+
+/** Kits ekrana bakmak istediğinde her seferinde kullanıcıya yerel pencereyle sorar. */
+export async function askComputerAccess(reason: string): Promise<boolean> {
+  const { ask } = await import("@tauri-apps/plugin-dialog");
+  const neden = reason.trim() ? `\n\nNedeni: ${reason.trim()}` : "";
+  return ask(
+    "Kits ekranının bir görüntüsünü ve öndeki pencerenin öğelerini okumak istiyor. " +
+      "Tıklama ya da yazma yapamaz; yalnız bakar." + neden,
+    { title: "Kits bilgisayarına bakmak istiyor", kind: "warning", okLabel: "İzin ver", cancelLabel: "Reddet" },
+  );
+}

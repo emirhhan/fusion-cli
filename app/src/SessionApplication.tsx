@@ -747,7 +747,7 @@ export function SessionUygulama({
       section={surfaceSection}
       scheduled={<ScheduleScreen client={active?.client ?? null} defaultRoot={active?.root ?? ""} onRunNow={scheduleRunner.runNow} visible={surfaceSection === "scheduled"} />}
       library={<LibraryScreen client={active?.client ?? null} visible={surfaceSection === "library"} />}
-      kits={<KitsScreen onDeliveryClient={setDeliveryClient} />}
+      kits={<KitsScreen onDeliveryClient={setDeliveryClient} requestHost={active ? (name, data) => active.client.request(name, data) as Promise<Record<string, unknown>> : undefined} />}
     />
   );
   /** `@` sorgusunu sunucuya ilet ve gelen öneriyi listeye yaz. */

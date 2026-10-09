@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import itertools
 import logging
+import os
+import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, Protocol
 
 from ..core.tools import ToolArgs, ToolContext, ToolResult
@@ -61,6 +65,16 @@ class LocalComputer:
         self._last_sequence = 0
         self._cleanup = cleanup
         self._lock = asyncio.Lock()
+
+    @property
+    def host(self) -> LocalHost:
+        """Host kimliği model girdisiyle değiştirilemez."""
+        return self._host
+
+    @property
+    def root(self) -> Path:
+        """Yürütücünün host tarafından bağlanan proje kökü."""
+        return self._context.root
 
     def _unavailable(self, message: str) -> LocalObservation:
         return LocalObservation(self._host, "unavailable", message=message)
@@ -130,3 +144,41 @@ class LocalComputer:
                 "operation": operation,
             },
         )
+
+
+def _native_tools() -> dict[str, Callable[[ToolArgs, ToolContext], ToolResult]]:
+    """Gözlem için kullanılan iki salt okunur macOS aracı (tıklama/yazma yok)."""
+    from ..tools import desktop, desktop_inspect
+
+    return {
+        "desktop_screenshot": desktop.desktop_screenshot,
+        "desktop_accessibility": desktop_inspect.desktop_accessibility,
+    }
+
+
+#: Uygulama süreci boyunca artan gözlem sırası (her istek yeni gözlem kimliği alır).
+_SEQUENCE = itertools.count(1)
+
+
+def native_local_computer(root: Path, session_id: str) -> LocalComputer:
+    """Uygulama oturumunun kendi macOS masaüstüne bağlı salt okunur gözlemci.
+
+    Kimlik model ya da Kits girdisinden gelmez: kaynak bu uygulama süreci, oturum bu
+    istek anındaki konuşmadır. İzin her istekte uygulama arayüzünde kullanıcıya sorulur.
+    """
+    araclar = _native_tools()
+
+    async def execute(name: str, args: ToolArgs, context: ToolContext) -> ToolResult:
+        return await asyncio.to_thread(araclar[name], args, context)
+
+    async def cleanup(path: str, context: ToolContext) -> None:
+        (context.root / path).unlink(missing_ok=True)
+
+    return LocalComputer(
+        LocalHost(f"fusion-app-{os.getpid()}", session_id, sys.platform),
+        ToolContext(root),
+        execute,
+        lambda: True,
+        lambda: next(_SEQUENCE),
+        cleanup,
+    )

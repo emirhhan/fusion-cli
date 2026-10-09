@@ -11,6 +11,7 @@
     "core:window:allow-set-background-color",
     "dialog:allow-open",
     "dialog:allow-save",
+    "dialog:allow-ask",
     "opener:default"
   ]
 }
