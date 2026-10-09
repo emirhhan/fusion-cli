@@ -69,8 +69,11 @@ class GatewayApp:
         health: HealthRegistry | None = None,
         secret_store: FernetSecretStore | None = None,
         catalog: CatalogCache | None = None,
+        compact_context: bool = False,
     ) -> None:
         self._config = config
+        #: Uzun geçmişi Fusion ajanının özetlemesiyle bağlam bütçesine sığdır (Kits açar).
+        self._compact_context = compact_context
         self._config_revision = revision(config)
         self._health = health
         self._factory = provider_factory or self._default_factory
@@ -1046,6 +1049,8 @@ class GatewayApp:
             self._analytics.add_compression_saving(saved_chars(original, request.messages))
 
         spec = self._routed_spec(resolve_spec(self._config, model))
+        if self._compact_context:
+            request = await self._compacted(request, spec)
         route = f"{self._strategy.value}:{spec.model}"
         if stream:
             await self._stream(send, self._factory(spec), request, model)
@@ -1075,6 +1080,21 @@ class GatewayApp:
             ],
         )
 
+    async def _compacted(self, request: CompletionRequest, spec: ModelSpec) -> CompletionRequest:
+        """Geçmiş modelin bağlam bütçesini aşıyorsa eski kısmı özetle (ilk tur ve son turlar
+        birebir korunur). Kits uzun sohbetin tamamını her turda gönderir; ücretsiz modellerin
+        küçük penceresinde taşıyordu. Özet üretilemezse istek DEĞİŞMEZ."""
+        from ..engines.agent import compaction
+        from ..engines.agent.context_budget import context_budget
+
+        esik = context_budget(self._config, spec).compression_chars
+        ozet = await compaction.compress(
+            list(request.messages), config=self._config, threshold_chars=esik
+        )
+        if len(ozet) == len(request.messages):
+            return request
+        return _dc_replace(request, messages=tuple(ozet))
+
     def _record(self, requested: str, result: ModelResult, *, cached: bool = False) -> None:
         """Bir isteği telemetriye işle (metin saklanmaz)."""
         self._analytics.record(
@@ -1095,14 +1115,31 @@ class GatewayApp:
         chunk_id = f"fusion-{id(request)}"
         await _sse_start(send)
         finish = "stop"
+        akan_metin = False
         async for item in provider.stream(request):
             if isinstance(item, TextChunk) and item.text:
+                akan_metin = True
                 await _sse_data(
                     send, translate.to_openai_chunk(item.text, model, chunk_id=chunk_id)
                 )
             elif isinstance(item, StreamDone):
-                finish = "stop" if item.result.is_usable else "error"
-                self._record(model, item.result)
+                sonuc = item.result
+                # Akışsız düşen yedek sağlayıcı metni yalnız sonuçta verebilir.
+                if sonuc.text and not akan_metin:
+                    await _sse_data(
+                        send, translate.to_openai_chunk(sonuc.text, model, chunk_id=chunk_id)
+                    )
+                # Araç çağrıları akışın sonunda gelir; eskiden düşüyordu (ölçüldü,
+                # 8 Ekim 2026: Kits akışlı istekte boş delta + "stop" aldı).
+                if sonuc.tool_calls:
+                    await _sse_data(
+                        send,
+                        translate.tool_calls_chunk(sonuc.tool_calls, model, chunk_id=chunk_id),
+                    )
+                    finish = "tool_calls"
+                else:
+                    finish = "stop" if sonuc.is_usable else "error"
+                self._record(model, sonuc)
         await _sse_data(send, translate.final_chunk(model, chunk_id=chunk_id, finish_reason=finish))
         await _sse_done(send)
 

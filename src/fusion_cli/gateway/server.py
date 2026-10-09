@@ -21,12 +21,18 @@ DEFAULT_PORT = 8787
 _logger = logging.getLogger(__name__)
 
 
-def build_app(config: Config) -> GatewayApp:
+def build_app(config: Config, *, compact_context: bool = False) -> GatewayApp:
     """Oturum sağlığıyla birlikte gateway uygulamasını kur (test edilebilir)."""
-    return GatewayApp(config, health=build_health(config))
+    return GatewayApp(config, health=build_health(config), compact_context=compact_context)
 
 
-def serve(config: Config, *, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
+def serve(
+    config: Config,
+    *,
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
+    compact_context: bool = False,
+) -> None:
     """Gateway'i çalıştır. `uvicorn` yoksa anlaşılır hata verir."""
     try:
         import uvicorn
@@ -41,4 +47,9 @@ def serve(config: Config, *, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT)
             "açılıyor. Yalnızca güvenilir bir ağda kullanın; Origin/CSRF koruması "
             "tarayıcı kaynaklı saldırıları sınırlar ancak kimlik doğrulaması sağlamaz."
         )
-    uvicorn.run(build_app(config), host=host, port=port, log_level="warning")
+    uvicorn.run(
+        build_app(config, compact_context=compact_context),
+        host=host,
+        port=port,
+        log_level="warning",
+    )

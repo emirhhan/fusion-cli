@@ -661,3 +661,75 @@ def test_web_oturumu_paneli_uc_pencere_kipini_sunar():
     # Gizleme uyarısı (ör. macOS izni yok) panelde gösterilir ve HTML olarak yorumlanmaz.
     assert "escapeHtml(w.window_notice)" in web
     assert 'id="nativeWebWindowNotice"' in govde
+
+
+async def test_chat_stream_arac_cagrisini_iletir():
+    """Ölçüldü (8 Ekim 2026): Kits akışlı istekle araç istedi; model get_weather çağırdı ama
+    geçit yalnız metin parçalarını iletiyordu — boş delta + "stop" döndü, araç kayboldu."""
+    from fusion_cli.core.types import ModelResult, StreamDone, TokenUsage, ToolCall
+
+    cagri = ToolCall(id="c1", name="get_weather", arguments='{"city":"Ankara"}')
+
+    class _AracSaglayici(FakeProvider):
+        async def stream(self, request):
+            yield StreamDone(
+                ModelResult(
+                    name="mock", model="mock", text="", latency_ms=1, ok=True,
+                    usage=TokenUsage(prompt_tokens=1, completion_tokens=1),
+                    tool_calls=(cagri,),
+                )
+            )  # fmt: skip
+
+    app = GatewayApp(make_config(), provider_factory=lambda spec: _AracSaglayici("mock"))
+    async with _client(app) as client:
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={"model": "auto", "messages": [{"role": "user", "content": "x"}], "stream": True},
+        )
+    parcalar = [
+        json.loads(satir[6:]) for satir in resp.text.splitlines() if satir.startswith("data: {")
+    ]
+    cagrilar = [
+        call for parca in parcalar for call in parca["choices"][0]["delta"].get("tool_calls", [])
+    ]
+    assert cagrilar == [
+        {
+            "index": 0,
+            "id": "c1",
+            "type": "function",
+            "function": {"name": "get_weather", "arguments": '{"city":"Ankara"}'},
+        }
+    ]
+    assert parcalar[-1]["choices"][0]["finish_reason"] == "tool_calls"
+
+
+async def test_baglam_sikistirma_acikken_uzun_gecmis_ozetlenir(monkeypatch):
+    """Kits uzun sohbetin tamamını her turda gönderir; küçük bağlamlı ücretsiz modelde taşar.
+    Kits'in başlattığı geçit (--compact-context) Fusion ajanının özetlemesini uygular."""
+    from fusion_cli.engines.agent import compaction
+
+    gorulen: list[int] = []
+
+    class _Saglayici(FakeProvider):
+        async def stream(self, request):
+            gorulen.append(len(request.messages))
+            async for item in super().stream(request):
+                yield item
+
+    async def _ozet(messages, *, config, publisher=None, threshold_chars=None):
+        return [messages[0], *messages[-2:]]
+
+    monkeypatch.setattr(compaction, "compress", _ozet)
+    mesajlar = [{"role": "user", "content": f"mesaj {i}"} for i in range(9)]
+    for kipi, beklenen in ((False, 9), (True, 3)):
+        app = GatewayApp(
+            make_config(),
+            provider_factory=lambda spec: _Saglayici("mock", chunks=("ok",)),
+            compact_context=kipi,
+        )
+        async with _client(app) as client:
+            await client.post(
+                "/v1/chat/completions",
+                json={"model": "auto", "messages": mesajlar, "stream": True},
+            )
+        assert gorulen[-1] == beklenen

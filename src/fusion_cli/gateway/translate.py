@@ -126,6 +126,20 @@ def to_openai_chunk(delta: str, model: str, *, chunk_id: str) -> dict[str, Any]:
     }
 
 
+def tool_calls_chunk(
+    tool_calls: tuple[ToolCall, ...], model: str, *, chunk_id: str
+) -> dict[str, Any]:
+    """Akışta modelin araç çağrılarını tek parçada gönder (OpenAI `delta.tool_calls`)."""
+    calls = [{"index": index, **call} for index, call in enumerate(_tool_calls_json(tool_calls))]
+    return {
+        "id": chunk_id,
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [{"index": 0, "delta": {"tool_calls": calls}, "finish_reason": None}],
+    }
+
+
 def final_chunk(model: str, *, chunk_id: str, finish_reason: str = "stop") -> dict[str, Any]:
     """Akışı kapatan son parça (delta boş, finish_reason dolu)."""
     return {

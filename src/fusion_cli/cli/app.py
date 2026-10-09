@@ -362,6 +362,12 @@ def serve(
         "127.0.0.1", "--host", help="Dinlenecek yerel adres. Varsayılan yalnızca bu bilgisayar."
     ),
     port: int = typer.Option(8787, "--port", "-p", help="Dinlenecek port."),
+    compact_context: bool = typer.Option(
+        False,
+        "--compact-context",
+        help="Bağlam bütçesini aşan uzun geçmişi özetle (geçmişi kendisi yönetmeyen "
+        "istemciler için; Fusion Kits açar).",
+    ),
 ) -> None:
     """Yerel gateway'i çalıştır: OpenAI-uyumlu /v1 uç noktası, tüm sağlayıcılar arkada.
 
@@ -379,7 +385,7 @@ def serve(
         f"[dim](model: auto/low/medium/high/max ya da ham kimlik · Ctrl-C ile durdur)[/dim]"
     )
     try:
-        run_gateway(config, host=host, port=port)
+        run_gateway(config, host=host, port=port, compact_context=compact_context)
     except FusionError as error:
         console.print(f"[red]{error}[/red]")
         raise typer.Exit(code=1) from error
