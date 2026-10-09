@@ -85,3 +85,9 @@ def is_game_task(task: str) -> bool:
     if kural.pattern.search(task) is None:
         return False
     return kural.exclude is None or kural.exclude.search(task) is None
+
+
+def is_remotion_task(task: str) -> bool:
+    """İstek bir Remotion videosu mu (remotion-video becerisinin kuralıyla aynı karar)?"""
+    kural = next(k for k in _RULES if k.skill == "remotion-video")
+    return kural.pattern.search(task) is not None

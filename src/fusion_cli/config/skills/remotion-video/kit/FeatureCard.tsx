@@ -22,8 +22,18 @@ export const FeatureCard: React.FC<{ title: string; body?: string; icon?: string
         <div style={{ position: "absolute", inset: 0, background: `linear-gradient(110deg, transparent ${shine - 20}%, rgba(255,255,255,0.12) ${shine}%, transparent ${shine + 20}%)` }} />
         {icon && <div style={{ fontSize: 64, marginBottom: 18 }}>{icon}</div>}
         <div style={{ fontSize: 52, fontWeight: 750, letterSpacing: -1 }}>{title}</div>
-        {body && <div data-fusion-feature-body style={{ fontSize: bodyFontSize, color: theme.muted, marginTop: 14, lineHeight: 1.3 }}>{body}</div>}
+        {body && <div data-fusion-feature-body style={{ fontSize: bodyFontSize, color: theme.muted, marginTop: 14, lineHeight: 1.3 }}>{inlineCode(body)}</div>}
       </div>
     </div>
   );
 };
+
+// `komut` biçimindeki parçaları kod etiketi olarak çiz; ham ters tırnak ekranda görünmesin.
+// Ölçüldü (8 Ekim 2026, dalga43): kartlarda "`fusion serve`" ham haliyle görünüyordu.
+export const inlineCode = (text: string): React.ReactNode[] =>
+  text.split(/(`[^`]+`)/g).filter(Boolean).map((part, i) =>
+    part.startsWith("`") && part.endsWith("`") && part.length > 2
+      ? <code key={i} style={{ fontFamily: "'SF Mono', Menlo, monospace", fontSize: "0.88em", color: theme.text,
+          background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 8,
+          padding: "0.05em 0.35em" }}>{part.slice(1, -1)}</code>
+      : <React.Fragment key={i}>{part}</React.Fragment>);

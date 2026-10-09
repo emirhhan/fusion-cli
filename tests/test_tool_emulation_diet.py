@@ -13,11 +13,20 @@ def rendered() -> str:
     return render_tool_instructions(build_registry().schemas())
 
 
-def test_emulated_tool_prompt_budgeti():
-    text = rendered()
+#: Emülasyon istemi bütçesi. Diet öncesi ölçüm 14_595; diet sonrası 10_500. 8 Ekim 2026:
+#: run_shell teslim kanıtı parametreleri (expected_outputs, failure_check/sources) +157
+#: karakter getirdi ve kanıt için gerekli; bütçe yalnız o kadar büyütüldü. Remotion
+#: araçları (+1.300) ise yalnız Remotion isteğinde sunulur (`SCOPED_TOOLS`).
+PROMPT_BUDGET = 10_700
 
-    # Diet öncesi ölçüm: 14_595 karakter.
-    assert len(text) <= 10_500
+
+def test_emulated_tool_prompt_budgeti():
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+    from fusion_cli.engines.agent.loop import _permitted
+
+    registry = build_registry()
+    sirada = _permitted(None, registry, ExecutionPolicy(is_web=False))
+    assert len(render_tool_instructions(registry.schemas(sirada))) <= PROMPT_BUDGET
 
 
 def test_her_tool_icin_generated_ornek_tekrarlanmaz():
@@ -61,3 +70,18 @@ def test_tum_registry_toollari_promptta_hala_var():
 
         if name:
             assert f"- {name}:" in text
+
+
+def test_remotion_araclari_yalniz_remotion_isteginde_sunulur():
+    """Ölçüldü (8 Ekim 2026): Codex'in üç Remotion aracı (~1.300 karakter) her istekte
+    emülasyon istemine giriyordu; bütçe 10.500'den 11.943'e çıktı. Ücretsiz küçük modelde
+    istem uzunluğu kalitedir; araç yalnız ilgili istekte sunulur."""
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+    from fusion_cli.engines.agent.loop import SCOPED_TOOLS, _permitted
+
+    registry = build_registry()
+    politika = ExecutionPolicy(is_web=False)
+    sirada = _permitted(None, registry, politika)
+    assert sirada is not None and not (set(SCOPED_TOOLS) & sirada)
+    remotion = _permitted(None, registry, politika, frozenset({"remotion"}))
+    assert remotion is not None and set(SCOPED_TOOLS) <= remotion

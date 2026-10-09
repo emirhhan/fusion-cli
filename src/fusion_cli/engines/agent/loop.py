@@ -119,7 +119,7 @@ from .execution_policy import (
     refresh_mutation_policy,
 )
 from .execution_route import ExecutionRoute, choose_execution_route
-from .expertise import expertise_hint, is_game_task
+from .expertise import expertise_hint, is_game_task, is_remotion_task
 from .history import needs_compression, total_chars
 from .narration import intro_paragraph, todo_transitions
 from .output_verify import requested_outputs_in
@@ -138,7 +138,7 @@ from .teacher_flow import (
 from .teacher_plan import TeacherPlan, UnworkablePart
 from .transient import MAX_TOOL_TRANSIENT_RETRIES, is_transient_failure
 from .turn_hints import design_hint, preview_hint, scope_hint, store_hint
-from .turn_report import build_turn_report, claims_command_success
+from .turn_report import TurnReport, build_turn_report, claims_command_success
 from .verifier_repair import observe_verifier_failures
 from .workspace_hint import find_workspace_for
 
@@ -296,6 +296,8 @@ class AgentOutcome:
     #: Tur model hatasıyla bittiyse HAM hata metni. Kullanıcıya dostça mesaj gider;
     #: hatanın kalıcı mı geçici mi olduğu kararı bu ham metinden verilir.
     model_error: str | None = None
+    #: Kapanışta zaten hesaplanan rapor; yokluğu doğrulama kanıtı uydurmaz.
+    completion_report: TurnReport | None = None
 
     @property
     def made_no_changes(self) -> bool:
@@ -467,9 +469,11 @@ async def run_agent(
         # İstenen çıktılar YALNIZ bu isteğe aittir; önceki isteğin yolları taşınmaz.
         deps.tool_context.requested_outputs.clear()
         deps.tool_context.requested_outputs.update(requested_outputs_in(task))
-        deps.tool_context.task_kinds.discard("oyun")
+        deps.tool_context.task_kinds.difference_update({"oyun", "remotion"})
         if is_game_task(task):
             deps.tool_context.task_kinds.add("oyun")
+        if is_remotion_task(task):
+            deps.tool_context.task_kinds.add("remotion")
 
     if not plan_mode and not chat_mode and depth == 0:
         played = await maybe_run_playbook(task, deps)
@@ -609,7 +613,9 @@ async def run_agent(
         # önceliklidir, buradaki gözlem gerekçesiyle EZİLMEZ.
         execution = observe_execution(execution, WORKSPACE_READ_REASON)
     if allowed_tools is not None:
-        names = frozenset(_permitted(allowed_tools, registry, execution) or ())
+        names = frozenset(
+            _permitted(allowed_tools, registry, execution, deps.tool_context.task_kinds) or ()
+        )
         execution = replace(execution, allowed_tool_names=names)
     # Web taşımasında bağlam pahalıdır: uzun okuma hem gecikme hem context rot
     # üretir. SWE-agent'ın ölçümü turda ~100 satırı en iyi pencere olarak veriyor;
@@ -884,11 +890,13 @@ def _apply_turn_report(
     )
     text = report.render()
     if not text:
+        outcome.completion_report = report
         return
     if report.is_verified is False and claims_command_success(outcome.final_text):
         # Kanıtsız "testler geçti" yanlış başarıdır: tur başarılı sayılmaz, ders
         # öğrenilmez. Genel "doğrulandı" yalnız uyarı alır (`render_with_model_text`).
         report = replace(report, false_claim=True)
+    outcome.completion_report = report
     outcome.final_text = report.render_with_model_text(outcome.final_text)
     if report.blocks_success:
         outcome.ok = False
@@ -1168,7 +1176,10 @@ async def _drive(
             # dosya değişmeyen turda olduğu gibi gösteriliyordu.
             final_text = strip_thinking(result.text).strip()
             refusal_note = _refusal_note(
-                final_text, state, execution, _permitted(allowed_tools, registry, execution)
+                final_text,
+                state,
+                execution,
+                _permitted(allowed_tools, registry, execution, deps.tool_context.task_kinds),
             )
             if refusal_note is not None:
                 messages.append(refusal_note)
@@ -1891,7 +1902,11 @@ async def _call_model(
         timeout_s=timeout_s or runtime.request_timeout_s,
         max_retries=runtime.max_retries,
         tools=(
-            tuple(registry.schemas(_permitted(allowed_tools, registry, execution)))
+            tuple(
+                registry.schemas(
+                    _permitted(allowed_tools, registry, execution, deps.tool_context.task_kinds)
+                )
+            )
             if offer_tools
             else ()
         ),
@@ -1989,10 +2004,21 @@ ALWAYS_ALLOWED = frozenset({"todo_write", "ask_user", "find_skill", "read_skill"
 WEB_READ_WINDOW = 100
 
 
+#: Yalnız belirli istek türünde modele sunulan araçlar → gereken tür (`task_kinds`).
+#: Ölçüldü (8 Ekim 2026): üç Remotion aracı her istekte emülasyon istemini 10.500'den
+#: 11.943 karaktere çıkarıyordu; ücretsiz küçük modelde istem uzunluğu kalitedir.
+SCOPED_TOOLS: dict[str, str] = {
+    "scaffold_remotion": "remotion",
+    "revise_remotion_scenes": "remotion",
+    "render_remotion": "remotion",
+}
+
+
 def _permitted(
     allowed_tools: set[str] | None,
     registry: ToolRegistry,
     execution: ExecutionPolicy,
+    task_kinds: frozenset[str] | set[str] = frozenset(),
 ) -> set[str] | None:
     """Modele sunulacak ve çalıştırılabilecek araç adlarını belirle.
 
@@ -2010,6 +2036,14 @@ def _permitted(
     )
     if execution.allowed_tool_names is not None:
         names &= execution.allowed_tool_names
+    # Açıkça istenmiş araç (allowed_tools) türden bağımsız kalır.
+    names = {
+        name
+        for name in names
+        if name not in SCOPED_TOOLS
+        or SCOPED_TOOLS[name] in task_kinds
+        or (allowed_tools is not None and name in allowed_tools)
+    }
     if not execution.allow_mutation:
         names = {
             name
