@@ -40,6 +40,7 @@ from .args import (
     require_text,
 )
 from .diffing import bounded_diff
+from .lost_definitions import lost_definitions
 from .remotion_guard import guard_remotion_write
 
 #: Bir yolun "uydurma" sayılması için en az bileşen sayısı (`/mnt/data/x`). Tek
@@ -342,7 +343,15 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     if before is None:
         # Önceki içerik metin değildi; fark gösterilemez, yalnız boyut söylenir.
         return ToolResult(f"güncellendi: {shown} ({len(content)} karakter)")
-    return _change_summary(f"güncellendi: {shown}", before, content, shown)
+    header = f"güncellendi: {shown}"
+    kayip = lost_definitions(before, content)
+    if kayip:
+        header += (
+            f"\nUYARI: üzerine yazınca şu tanımlar kayboldu ama yeni içerik hâlâ kullanıyor: "
+            f"{', '.join(kayip)}. Dosyayı parça parça yazıyorsan önceki içeriği de ekle "
+            "(ya da edit_file kullan)."
+        )
+    return _change_summary(header, before, content, shown)
 
 
 def _read_text_or_none(path: Path) -> str | None:
