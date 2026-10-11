@@ -36,7 +36,7 @@ async def _kapi(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rapor: ProbeRep
     context.touched.add(tmp_path / "game.js")
     context.probed_games.add((tmp_path / "index.html").as_uri())
 
-    async def _sonda(url, keys=()):
+    async def _sonda(url, keys=(), *, play_to_end=False):
         return rapor
 
     monkeypatch.setattr(game_verify, "probe_game", _sonda)
@@ -70,7 +70,7 @@ async def test_oyun_dosyadan_da_acilarak_denenir(tmp_path, monkeypatch):
     dosya = (tmp_path / "index.html").as_uri()
     denenen: list[str] = []
 
-    async def _sonda(url, keys=()):
+    async def _sonda(url, keys=(), *, play_to_end=False):
         denenen.append(url)
         if url == dosya:
             return ProbeReport(
@@ -92,7 +92,7 @@ async def test_denenmemis_canvas_oyunu_da_kapanista_oynatilir(tmp_path, monkeypa
     context = ToolContext(root=tmp_path, task_kinds={"oyun"})
     context.touched.add(tmp_path / "game.js")
 
-    async def _sonda(url, keys=()):
+    async def _sonda(url, keys=(), *, play_to_end=False):
         return _BOZUK
 
     monkeypatch.setattr(game_verify, "probe_game", _sonda)

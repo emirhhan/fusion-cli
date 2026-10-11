@@ -155,9 +155,10 @@ class GameReport:
 _START_JS = """() => { const re = /ba[sş]la|start|play|oyna/i;
   const shown = (el) => { const r = el.getBoundingClientRect();
     if (!r.width || !r.height) return false;
+    if (getComputedStyle(el).pointerEvents === 'none') return false;
     for (let e = el; e; e = e.parentElement) { const s = getComputedStyle(e);
-      if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05 ||
-          s.pointerEvents === 'none') return false; } return true; };
+      if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05)
+        return false; } return true; };
   const b = [...document.querySelectorAll('button, [role=button], a, input[type=button]')]
     .find((el) => re.test(el.innerText || el.value || '') && shown(el));
   if (b) { b.click(); return (b.innerText || b.value || '').trim().slice(0, 30); } return null; }"""
@@ -179,14 +180,17 @@ def _play(page: Page) -> None:
             hold_key(page, key, PLAY_HOLD_MS)
 
 
-#: Öğe ve atalarından biri saydam (opacity≈0) ya da tıklamaya kapalıysa oyuncu onu görmez.
+#: Öğe ve atalarından biri saydam (opacity≈0) ya da öğe tıklamaya kapalıysa oyuncu onu görmez.
 #: Ölçüldü (dalga23): gizli "oyun bitti" katmanı `opacity:0; pointer-events:none` idi;
 #: Playwright `is_visible()` onu görünür saydı, tıklama 15 sn bekleyip oyunun TÜM
 #: ölçümlerini düşürdü — oyunda kusur yoktu.
-_REALLY_SHOWN_JS = """(el) => { for (let e = el; e; e = e.parentElement) {
-  const s = getComputedStyle(e);
-  if (parseFloat(s.opacity) < 0.05 || s.pointerEvents === 'none' ||
-      s.visibility === 'hidden' || s.display === 'none') return false; }
+#: pointer-events yalnız öğenin kendisinde okunur (kalıtsaldır): dalga47'de arayüz kabı
+#: `#ui{pointer-events:none}`, düğme `auto` idi; ataya bakmak tıklanan düğmeyi gizli
+#: saydı, oyun menüde kaldı ve "tuşlar etkisiz" yanlış alarmı çıktı.
+_REALLY_SHOWN_JS = """(el) => { if (getComputedStyle(el).pointerEvents === 'none') return false;
+  for (let e = el; e; e = e.parentElement) { const s = getComputedStyle(e);
+  if (parseFloat(s.opacity) < 0.05 || s.visibility === 'hidden' || s.display === 'none')
+    return false; }
   return true; }"""
 
 
@@ -248,11 +252,7 @@ def measure(root: Path) -> GameReport:
         hud = read_hud(page)
         _fresh_load(opened)
         keyed = motion_energy(page, shoot, press_keys=True)
-        # Ok tuşları sağ-yukarı-sol-aşağı sırasıyla basılınca oyuncu başladığı yere döner;
-        # konum tek yönlü (sağ) basışın öncesi ve sonrasıyla ölçülür.
-        konum_once = page.evaluate(_PLAYER_POS_JS)
-        hold_key(page, "ArrowRight", KEY_HOLD_MS)
-        konum_sonra = page.evaluate(_PLAYER_POS_JS)
+        player_moved = _player_moved(page)
         restart = _restart_probe(opened)
         long_raf, long_errors = _long_play(opened)
         loaded = tuple(opened.page.evaluate(_LOADED_IMAGES_JS))
@@ -263,7 +263,7 @@ def measure(root: Path) -> GameReport:
             raf_calls=raf_calls,
             idle_energy=idle,
             key_energy=keyed,
-            player_moved=_moved(konum_once, konum_sonra),
+            player_moved=player_moved,
             hud=hud,
             restart=restart,
             long_play_raf=long_raf,
@@ -331,6 +331,27 @@ def _moved(once: object, sonra: object) -> bool | None:
     if not (isinstance(once, list) and isinstance(sonra, list)):
         return None
     return abs(sonra[0] - once[0]) + abs(sonra[1] - once[1]) >= MIN_PLAYER_MOVE
+
+
+#: Oyun başındaki bölüm/dalga girişinde oyuncu kilitli olabilir (ölçüldü, dalga47: 1,5 sn
+#: "BÖLÜM 1" geçişinde güncelleme hareketi atlıyordu). Hareket birkaç kez denenir.
+MOVE_ATTEMPTS = 4
+MOVE_RETRY_WAIT_MS = 700
+
+
+def _player_moved(page: Page) -> bool | None:
+    """Tek yönlü basışın öncesi/sonrası konum. Ok tuşları sağ-yukarı-sol-aşağı basılınca
+    oyuncu başladığı yere döndüğü için enerji ölçümü konumu kanıtlamaz; kenara dayanmasın
+    diye sağ ve sol sırayla denenir."""
+    sonuc: bool | None = None
+    for deneme in range(MOVE_ATTEMPTS):
+        once = page.evaluate(_PLAYER_POS_JS)
+        hold_key(page, ("ArrowRight", "ArrowLeft")[deneme % 2], KEY_HOLD_MS)
+        sonuc = _moved(once, page.evaluate(_PLAYER_POS_JS))
+        if sonuc is not False:
+            return sonuc
+        page.wait_for_timeout(MOVE_RETRY_WAIT_MS)
+    return sonuc
 
 
 def _key_check(report: GameReport) -> Check:

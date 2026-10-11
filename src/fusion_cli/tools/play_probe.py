@@ -72,6 +72,11 @@ class ProbeReport:
     startup_problems: tuple[str, ...] = ()
     #: Çizimi gözlemlenmeyen boss gibi kaynaklar otomatik kusur sayılmaz.
     asset_usage: AssetUsage = field(default_factory=AssetUsage)
+    #: Ekrandaki can/skor yazısı ile durum kancası farkı ve oyun sonu yeniden başlatma.
+    hud_problems: tuple[str, ...] = ()
+    restart_problems: tuple[str, ...] = ()
+    #: Oyun sonu denendi mi (kapanış kapısı dener; araç varsayılanda denemez).
+    ended_checked: bool = False
 
     def problems(self) -> tuple[str, ...]:
         """Oyunu oynanamaz kılan ölçümler (kapı bunlarla turu kapatmaz)."""
@@ -88,6 +93,8 @@ class ProbeReport:
         if tuslar_etkisiz:
             sorunlar.append("tuşlar oyunu değiştirmedi (oyuncu hareket etmiyor)")
         sorunlar.extend(self.startup_problems)
+        sorunlar.extend(self.hud_problems)
+        sorunlar.extend(self.restart_problems)
         sorunlar.extend(f"görsel: {sorun}" for sorun in self.visual_problems)
         if self.asset_usage.problem:
             sorunlar.append(f"görsel: {self.asset_usage.problem}")
@@ -125,6 +132,10 @@ class ProbeReport:
                 f"çalışıyorsa bu normaldir): {self.restart_state}"
             )
         satirlar.extend(f"BAŞLATMA SORUNU: {sorun}" for sorun in self.startup_problems)
+        satirlar.extend(f"HUD SORUNU: {sorun}" for sorun in self.hud_problems)
+        satirlar.extend(f"YENİDEN BAŞLATMA SORUNU: {sorun}" for sorun in self.restart_problems)
+        if self.ended_checked and not self.restart_problems:
+            satirlar.append("Oyun sonu → yeniden başlat: sorun ölçülmedi (ya da oyun bitmedi)")
         satirlar.extend(f"GÖRSEL SORUN: {sorun}" for sorun in self.visual_problems)
         satirlar.append(self.asset_usage.summary())
         if not self.visual_problems:
@@ -151,9 +162,17 @@ async def _press(page: Page, keys: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(etkili)
 
 
-async def probe_game(url: str, keys: tuple[str, ...] = DEFAULT_KEYS) -> ProbeReport:
-    """Oyunu aç, tuşlara bas, durumu karşılaştır. Playwright yoksa ImportError."""
+async def probe_game(
+    url: str, keys: tuple[str, ...] = DEFAULT_KEYS, *, play_to_end: bool = False
+) -> ProbeReport:
+    """Oyunu aç, tuşlara bas, durumu karşılaştır. Playwright yoksa ImportError.
+
+    `play_to_end`: oyunu kendiliğinden bitmeye bırakıp yeniden başlatmayı da dene
+    (en fazla `END_WAIT_MS`; kapanış kapısı kullanır).
+    """
     from playwright.async_api import async_playwright  # tembel: opsiyonel ekstra
+
+    from .game_hud import PLAYING_LABELS, read_hud_mismatches, restart_after_end
 
     hatalar: list[str] = []
     async with async_playwright() as oynatici:
@@ -179,8 +198,10 @@ async def probe_game(url: str, keys: tuple[str, ...] = DEFAULT_KEYS) -> ProbeRep
             etkili = await _press(sayfa, keys)
             sonra, tuval_sonra = await sayfa.evaluate(_STATE), await sayfa.evaluate(_CANVAS_HASH)
             varliklar = await read_asset_usage(sayfa)
+            hud = await read_hud_mismatches(sayfa, _STATE, PLAYING_LABELS)
             await _press(sayfa, ("r",))
             yeniden = await sayfa.evaluate(_STATE)
+            son = await restart_after_end(sayfa, _STATE) if play_to_end else ()
         finally:
             await tarayici.close()
     tuval = None if tuval_once is None else tuval_once != tuval_sonra
@@ -195,6 +216,9 @@ async def probe_game(url: str, keys: tuple[str, ...] = DEFAULT_KEYS) -> ProbeRep
         gorsel,
         baslatma.problems,
         varliklar,
+        hud,
+        son,
+        play_to_end,
     )
 
 

@@ -73,7 +73,7 @@ class GameProbeVerifier:
 async def _probe_result(address: str, prefix: str) -> VerificationResult:
     """Gerçek kısa sondanın kapsamını taşı; ölçülmeyen uzun oyunu onaylama."""
     try:
-        report = await probe_game(address)
+        report = await probe_game(address, play_to_end=True)
     except Exception as error:  # sınır: Playwright yok, tarayıcı açılamadı
         _LOG.warning("Oyun sondası çalıştırılamadı", exc_info=True)
         detail = (
@@ -100,8 +100,9 @@ async def _probe_result(address: str, prefix: str) -> VerificationResult:
         criterion_id=f"game_probe:{address}",
         kind=VerificationCheckKind.TOOL,
         status=EvidenceStatus.FAILED if problems else EvidenceStatus.PASSED,
-        summary="Kısa oyun sondası çalıştı: konsol, rAF, girdi ve başlangıç bulguları; "
-        "uzun oyun, tüm dalgalar ve doğal oyun sonu bu kanıtın kapsamında değil.",
+        summary="Kısa oyun sondası çalıştı: konsol, rAF, girdi, başlangıç, HUD-durum uyumu ve "
+        "(oyun kendiliğinden biterse) oyun sonu yeniden başlatma; uzun oyun ve tüm dalgalar "
+        "bu kanıtın kapsamında değil.",
         artifact=address,
         command="play_probe",
         output=report.summary(),

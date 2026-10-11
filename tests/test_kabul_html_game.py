@@ -237,3 +237,40 @@ def test_hud_reading_counts_state_hook_lines():
 def test_varliksiz_oyun_asset_maddesinden_kalir(tmp_path):
     results = _by_name(_run(tmp_path, GOOD_GAME, sprites=False))
     assert not results["kendi ürettiği görsel varlıklar yükleniyor"]
+
+
+_KILITLI_GIRIS = """<!doctype html><html><head><meta charset="utf-8"><style>
+#ui{position:fixed;inset:0;pointer-events:none} #ui button{pointer-events:auto}
+</style></head><body><canvas width="400" height="300"></canvas>
+<div id="ui"><div id="menu"><button id="basla">BAŞLA</button></div></div><script>
+let durum='menu', x=200, kilit=0; const keys={};
+addEventListener('keydown',(e)=>{keys[e.code]=true;});
+addEventListener('keyup',(e)=>{keys[e.code]=false;});
+document.getElementById('basla').onclick=()=>{durum='playing';kilit=1.2;
+  document.getElementById('menu').style.display='none';};
+let son=performance.now();
+(function kare(t){const dt=(t-son)/1000;son=t;
+  if(durum==='playing'){if(kilit>0)kilit-=dt;else{if(keys.ArrowRight)x+=300*dt;
+    if(keys.ArrowLeft)x-=300*dt;}}requestAnimationFrame(kare);})(son);
+window.__GAME_STATE__=()=>({durum, oyuncu:{x, y:250}});
+</script></body></html>"""
+
+
+def test_kilitli_giristen_sonra_hareket_eden_oyuncu_tuslari_gecer(tmp_path):
+    """dalga47: Başla düğmesinin kabı `pointer-events:none` idi (düğme `auto`); denetçi
+    düğmeyi gizli sayıp oyunu menüde bıraktı, sonra 1,5 sn'lik "BÖLÜM 1" girişinde
+    ölçtü ve oyuncu 640→890 giderken "tuşlar etkisiz" dedi."""
+    pytest.importorskip("playwright.sync_api")
+    from evals.kabul.areas._browser import BrowserUnavailableError, open_page
+
+    (tmp_path / "index.html").write_text(_KILITLI_GIRIS, encoding="utf-8")
+    try:
+        with open_page(tmp_path, init_script=probe.INIT_SCRIPT) as opened:
+            html_game._fresh_load(opened)
+            durum = opened.page.evaluate("() => window.__GAME_STATE__().durum")
+            hareket = html_game._player_moved(opened.page)
+    except BrowserUnavailableError as hata:
+        pytest.skip(str(hata))
+
+    assert durum == "playing"
+    assert hareket is True
