@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config.models import WebSessionConfig
-from ..config.paths import user_data_dir
+from ..config.paths import web_profile_dir
 from ..core.constants import MIN_BROWSER_TURN_S
 from ..core.redaction import redact
 from ..core.refusal import looks_like_refusal
@@ -549,9 +549,7 @@ def browser_profile_dir(provider: str, account: str) -> Path:
     Kullanıcının normal tarayıcı profili HİÇBİR koşulda okunmaz; Fusion yalnızca
     kendi dizinini kullanır.
     """
-    safe_provider = _slug(provider)
-    safe_account = normalize_account(account)
-    return user_data_dir() / "web_profiles" / safe_provider / safe_account
+    return web_profile_dir(provider, account)
 
 
 # Chrome, çökme veya zorla kapatma sonrası profil kökünde bu tekil-örnek (singleton)

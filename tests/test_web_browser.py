@@ -172,7 +172,7 @@ def test_dort_native_web_saglayicisi_tanimli():
 
 
 def test_secret_adi_ve_profil_yolu_guvenli_slug_kullanir(monkeypatch, tmp_path):
-    monkeypatch.setattr("fusion_cli.providers.web_browser.user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("fusion_cli.config.paths.user_data_dir", lambda: tmp_path)
     assert web_secret_name("chatgpt_web", "kişisel hesap") == (
         "WEB_SECRET::chatgpt_web::ki-isel-hesap"
     )

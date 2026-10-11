@@ -44,6 +44,7 @@ from .paths import (
     env_file_candidates,
     memory_dir,
     user_config_candidates,
+    web_profile_dir,
 )
 
 #: Yapılandırmanın en üst düzeyinde izin verilen bölümler.
@@ -232,8 +233,23 @@ def _build_web_sessions(raw: object) -> tuple[WebSessionConfig, ...]:
     if not isinstance(raw, list):
         raise ConfigError(f"web_sessions: liste bekleniyordu, gelen: {type(raw).__name__}")
     return tuple(
-        _build(WebSessionConfig, item, f"web_sessions[{index}]") for index, item in enumerate(raw)
+        _without_missing_profile(_build(WebSessionConfig, item, f"web_sessions[{index}]"))
+        for index, item in enumerate(raw)
     )
+
+
+def _without_missing_profile(session: WebSessionConfig) -> WebSessionConfig:
+    """Tarayıcı profili diskte yoksa oturumu girişsiz say (dosya değişmez).
+
+    Profil klasörü girişi KANITLAMAZ ama yokluğu girişi kesin çürütür. Ölçüldü
+    (11 Ekim): yeni makineye veri dizini taşınmadı, config `login_verified: true`
+    dediği için öğretmen girişsiz boş bir tarayıcıyla seçiliyordu.
+    """
+    if session.transport != "browser" or not session.login_verified:
+        return session
+    if web_profile_dir(session.provider, session.account).exists():
+        return session
+    return dataclasses.replace(session, login_verified=False)
 
 
 def _build_eligibility(raw: object) -> dict[str, ProfileEligibility]:

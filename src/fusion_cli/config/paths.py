@@ -9,6 +9,7 @@ bu kullanıcı dizinlerinden okunur.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -87,6 +88,21 @@ def user_data_dir() -> Path:
     modelin kullanıldığını o dosya söyler ve o dosya hesaba özeldir.
     """
     return base_data_dir()
+
+
+def web_profile_dir(provider: str, account: str) -> Path:
+    """Bir web sağlayıcı hesabının İZOLE tarayıcı profil dizini.
+
+    Yol burada, `config` katmanında kurulur: yükleyici profilin diskte olup
+    olmadığına bakarak `login_verified` bayrağını doğrular ve `providers`
+    katmanına import edemez. Tarayıcı katmanı da aynı fonksiyonu kullanır.
+    """
+    return user_data_dir() / "web_profiles" / _slug(provider) / _slug(account)
+
+
+def _slug(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_.-]+", "-", value.strip()).strip("-._")
+    return cleaned or "main"
 
 
 def credentials_file() -> Path:

@@ -1138,6 +1138,7 @@ async def test_web_cikis_oturumu_kaldirir(tmp_path):
 
 async def test_web_dogrulama_ogretmeni_ayni_oturumda_acar(tmp_path, monkeypatch):
     from fusion_cli.config.model_select import apply_single_model
+    from fusion_cli.config.paths import web_profile_dir
 
     # Senaryo: NIM anahtarı kurulu, ajan çalışır durumda. Anahtar ortamdan
     # verilmezse `_route_roles_if_idle` rolleri web oturumuna bağlar ve test
@@ -1155,6 +1156,9 @@ async def test_web_dogrulama_ogretmeni_ayni_oturumda_acar(tmp_path, monkeypatch)
     await oturum.handle(Request("1", "web.baglan", {"saglayici": "gemini_web", "hesap": "main"}))
 
     async def verified(*_args):
+        # Gerçek doğrulama tarayıcıyı bu profil klasörüyle açar; klasör yoksa
+        # yükleyici oturumu girişsiz sayar.
+        web_profile_dir("gemini_web", "main").mkdir(parents=True, exist_ok=True)
         return {"ok": True}
 
     monkeypatch.setattr("fusion_cli.appserver.session.verify_web_session", verified)

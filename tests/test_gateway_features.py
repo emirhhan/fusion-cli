@@ -363,7 +363,7 @@ async def test_native_web_session_cookie_sifreli_kaydedilir_ve_model_listesine_g
         "fusion_cli.config.writer.user_config_candidates", lambda: (tmp_path / "config.yaml",)
     )
     monkeypatch.setattr("fusion_cli.config.writer.user_config_dir", lambda: tmp_path)
-    monkeypatch.setattr("fusion_cli.providers.web_browser.user_data_dir", lambda: tmp_path / "data")
+    monkeypatch.setattr("fusion_cli.config.paths.user_data_dir", lambda: tmp_path / "data")
     app = _app(tmp_path)
     app._config = replace(app._config, source=tmp_path / "config.yaml")
     async with _client(app) as client:
@@ -404,7 +404,7 @@ async def _post_web_session(tmp_path, monkeypatch, **fields):
         "fusion_cli.config.writer.user_config_candidates", lambda: (tmp_path / "config.yaml",)
     )
     monkeypatch.setattr("fusion_cli.config.writer.user_config_dir", lambda: tmp_path)
-    monkeypatch.setattr("fusion_cli.providers.web_browser.user_data_dir", lambda: tmp_path / "data")
+    monkeypatch.setattr("fusion_cli.config.paths.user_data_dir", lambda: tmp_path / "data")
     app = _app(tmp_path)
     app._config = replace(app._config, source=tmp_path / "config.yaml")
     async with _client(app) as client:
@@ -458,7 +458,7 @@ async def test_web_oturumu_gizleme_uyarisini_panele_tasir(tmp_path, monkeypatch)
     from fusion_cli.providers.web_browser import browser_profile_dir
     from fusion_cli.providers.web_shared_browser import WINDOW_NOTICE_FILE
 
-    monkeypatch.setattr("fusion_cli.providers.web_browser.user_data_dir", lambda: tmp_path / "data")
+    monkeypatch.setattr("fusion_cli.config.paths.user_data_dir", lambda: tmp_path / "data")
     profil = browser_profile_dir("chatgpt_web", "main")
     profil.mkdir(parents=True)
     (profil / WINDOW_NOTICE_FILE).write_text(HIDE_FAILED_MESSAGE, encoding="utf-8")
