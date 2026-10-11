@@ -17,7 +17,7 @@ export const FeatureCard: React.FC<{ title: string; body?: string; icon?: string
         background: "linear-gradient(145deg, rgba(255,255,255,0.10), rgba(255,255,255,0.03))",
         border: "1.5px solid rgba(255,255,255,0.16)", boxShadow: `0 30px 80px rgba(0,0,0,0.45), 0 0 60px ${theme.accent2}22`,
         transform: `rotateY(${(1 - s) * 55}deg) translateY(${(1 - s) * 80}px) scale(${0.9 + 0.1 * s})`, opacity: s,
-        fontFamily: theme.font, color: theme.text, overflowWrap: wrapText ? "anywhere" : "normal",
+        fontFamily: theme.font, color: theme.text, overflowWrap: wrapText ? "break-word" : "normal", wordBreak: "normal",
       }}>
         <div style={{ position: "absolute", inset: 0, background: `linear-gradient(110deg, transparent ${shine - 20}%, rgba(255,255,255,0.12) ${shine}%, transparent ${shine + 20}%)` }} />
         {icon && <div style={{ fontSize: 64, marginBottom: 18 }}>{icon}</div>}

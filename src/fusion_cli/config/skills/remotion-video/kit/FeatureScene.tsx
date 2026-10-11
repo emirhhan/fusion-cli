@@ -62,8 +62,8 @@ export const FeatureScene: React.FC<FeatureSceneProps> = ({title, subtitle, card
   return <SceneFade><CameraPush><div style={{position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center"}}>
     <Parallax depth={0.5}><div ref={content} data-fusion-feature-scene style={{width: availableWidth, display: "flex", flexDirection: "column", gap: sceneSpacing.cardsGap, fontFamily: theme.font, color: theme.text}}>
       <div style={{display: "flex", flexDirection: "column", gap: sceneSpacing.headingGap, textAlign: "center"}}>
-        <div data-fusion-content={title} style={{fontSize: sceneTypography.title, fontWeight: 800, lineHeight: sceneTypography.titleLeading, overflowWrap: "anywhere"}}>{title}</div>
-        {subtitle && <div data-fusion-content={subtitle} style={{fontSize: sceneTypography.supporting, lineHeight: sceneTypography.supportingLeading, color: theme.muted, overflowWrap: "anywhere"}}>{subtitle}</div>}
+        <div data-fusion-content={title} style={{fontSize: sceneTypography.title, fontWeight: 800, lineHeight: sceneTypography.titleLeading, overflowWrap: "break-word", wordBreak: "normal"}}>{title}</div>
+        {subtitle && <div data-fusion-content={subtitle} style={{fontSize: sceneTypography.supporting, lineHeight: sceneTypography.supportingLeading, color: theme.muted, overflowWrap: "break-word", wordBreak: "normal"}}>{subtitle}</div>}
       </div>
       <div data-fusion-feature-cards style={{display: "grid", gridTemplateColumns: `repeat(${cards.length}, minmax(0, 1fr))`, gap: sceneSpacing.columnGap}}>
         {cards.map((card, index) => <FeatureCard key={index} {...card} index={index} width={cardWidth} bodyFontSize={sceneTypography.supporting} wrapText/>)}

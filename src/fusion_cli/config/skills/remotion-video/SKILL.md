@@ -39,7 +39,7 @@ Renkleri `kit/theme.ts`'ten markaya göre ayarla.
 - En dış sabit AbsoluteFill'a data-fusion-canvas ekle; kamerayı İÇİNE koy.
 - Timeline her kare boşluğu/çoklu okunabilir sahneyi denetler; yerel grace bu
   kapıyı körleştirmez. SceneFade içindeki LayoutAudit ilk 1 sn/son 0,5 sn dışında taşma,
-  çakışma ve boş içeriği durdurur. Hata karesini ölç, konum/gap/içeriği düzelt.
+  çakışma, boş içerik ve bölünen kelimeyi durdurur. Hata karesini ölç, düzelt.
   Kit dışı anlamlı içeriğe data-fusion-content ekle, dekorlara ekleme. Kapıyı koru.
 - Sahneyi tam doldur; son 7 saniyeye soluk yazı/boş buffer koyma. 4 kartı böl.
 - Tam render öncesinde her sahneden giriş sonrasında ve çıkış öncesinde still al.
@@ -53,6 +53,7 @@ Renkleri `kit/theme.ts`'ten markaya göre ayarla.
   kare kare yapılır, bunlar çalışmaz ve video donuk çıkar.
 - fps/süre `useVideoConfig()`; host girişinde plan toplamı ve 1920×1080/30 sabittir.
 - Metin: ana başlık ≥ 96 px, destek metni ≥ 44 px (1080p); kenarlarda 120 px güvenli alan.
+- Ekran metni sade Türkçe; komut/yol/env adı yazma; ürün adı "Fusion".
 - Görsel/font: `public/` + `staticFile()`; Google fontu `@remotion/google-fonts`.
 
 ## Render ve doğrulama (bitti demeden önce)
@@ -62,7 +63,6 @@ render_remotion(output="out/video.mp4")
 job_status(id=..., wait_s=600)
 run_shell(command="ffprobe -v error -show_entries stream=width,height,r_frame_rate:format=duration -of json out/video.mp4")
 ```
-Kayıtlı plan/host browser ve yerel strict tsc kullanılır.
 Başlangıç başarı değildir: job_status çıkışı, tüm sahne kareleri ve teslim kanıtı gerekir.
 Baş/orta/son kareyi al; boş ya da aynı kare çıkıyorsa animasyon çalışmıyor demektir.
 Host girişini/kit kapısını değiştirerek render hatasını geçiştirme.

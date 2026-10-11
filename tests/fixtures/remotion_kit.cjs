@@ -94,7 +94,7 @@ if (process.argv[3] === 'audit') {
   const result = esbuild.buildSync({
     stdin: {contents: `import React from 'react'; import {createRoot} from 'react-dom/client'; import {LayoutAudit} from '${kit}/LayoutAudit';
       const mode = new URLSearchParams(location.search).get('mode');
-      const a = React.createElement('div', {key:'a', 'data-fusion-content': 'Başlık', style:{position:'absolute',left:mode==='overflow'?110:160,top:160,width:500,height:100}}, 'Başlık');
+      const a = React.createElement('div', {key:'a', 'data-fusion-content': 'Başlık', style:{position:'absolute',left:mode==='overflow'?110:160,top:160,width:mode==='wordbreak'?120:500,height:100,overflowWrap:'break-word'}}, mode==='wordbreak'?'Anahtar INTELLIGENCE_API_KEY':'Başlık');
       const b = React.createElement('div', {key:'b', 'data-fusion-content': 'Alt yazı', style:{position:'absolute',left:160,top:['overlap','nested','delayed'].includes(mode)?180:300,width:500,height:100}}, 'Alt yazı');
       let content = ['empty','dim'].includes(mode) ? (mode==='dim'?React.createElement('div',{'data-fusion-content':'Soluk',style:{opacity:.15}},'Fusion'):null) : [a,b];
       if(mode==='nested') content=React.createElement('div',{'data-fusion-content':'Grup'},content);

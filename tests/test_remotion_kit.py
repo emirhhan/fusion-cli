@@ -54,7 +54,8 @@ def test_yerlesim_denetimi_tasma_cakisma_ve_bos_kareyi_yakalar():
 
 
 @pytest.mark.parametrize(
-    "mode", ["good", "overlap", "empty", "nested", "transform", "overflow", "dim", "delayed"]
+    "mode",
+    ["good", "overlap", "empty", "nested", "transform", "overflow", "dim", "delayed", "wordbreak"],
 )
 async def test_render_kapisi_gercek_dom_hatalarini_bildirir(mode):
     browser_api = pytest.importorskip("playwright.async_api")
@@ -100,6 +101,7 @@ async def test_render_kapisi_gercek_dom_hatalarini_bildirir(mode):
                     "dim": "içerik yok",
                     "transform": "taşıyor",
                     "overflow": "taşıyor",
+                    "wordbreak": "ortadan bölünüyor",
                 }
                 assert expected[mode] in errors[0]
         finally:

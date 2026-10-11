@@ -48,9 +48,35 @@ const visibleContentRects = (root: HTMLElement, width: number, height: number): 
     Math.min(width, rect.right) - Math.max(0, rect.left) > layoutPolicy.overlapTolerance &&
     Math.min(height, rect.bottom) - Math.max(0, rect.top) > layoutPolicy.overlapTolerance);
 
+// Kelime satır sonunda ortadan bölünmesin. Ölçüldü (8 Ekim 2026, dalga44): kartlarda
+// "/sağlık/mod·el", "INTELLIGENCE_API·_KEY" ikiye bölünmüştü; yerleşim temiz geçmişti.
+// Kelimenin parçaları farklı satırlara düşüyorsa (Range dikdörtgenleri ayrı satırda) kusur.
+const MIN_WORD_LENGTH = 4;
+const brokenWords = (root: HTMLElement): LayoutFinding[] => {
+  const findings: LayoutFinding[] = [];
+  root.querySelectorAll<HTMLElement>("[data-fusion-content]").forEach((element) => {
+    if (element.querySelector("[data-fusion-content]") || opacityOf(element, root) < layoutPolicy.minOpacity) return;
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node && findings.length < 3; node = walker.nextNode()) {
+      for (const match of (node.textContent ?? "").matchAll(/\S+/g)) {
+        if (match[0].length < MIN_WORD_LENGTH) continue;
+        const range = document.createRange();
+        range.setStart(node, match.index ?? 0);
+        range.setEnd(node, (match.index ?? 0) + match[0].length);
+        const lines = new Set(Array.from(range.getClientRects()).filter(rect => rect.width > 0).map(rect => Math.round(rect.top)));
+        if (lines.size > 1) {
+          findings.push({family: "wordbreak", message: `${element.dataset.fusionContent ?? "İçerik"}: "${match[0]}" kelimesi satır sonunda ortadan bölünüyor; metni kısalt, kutuyu genişlet ya da yazıyı küçült.`});
+          break;
+        }
+      }
+    }
+  });
+  return findings;
+};
+
 const measuredFindings = (root: HTMLElement, width: number, height: number, margin: number, scope: "local" | "composition"): LayoutFinding[] => {
   const rectangles = scope === "composition" ? visibleContentRects(root, width, height) : contentRects(root, width, height);
-  const findings: LayoutFinding[] = scope === "local" ? inspectLayoutEvidence(rectangles, {width, height}, margin)
+  const findings: LayoutFinding[] = scope === "local" ? [...inspectLayoutEvidence(rectangles, {width, height}, margin), ...brokenWords(root)]
     : rectangles.length ? [] : [{family: "empty", message: "Composition karesinde okunabilir içerik yok."}];
   if (scope === "composition") {
     const readableScenes = Array.from(root.querySelectorAll<HTMLElement>("[data-fusion-scene]"))

@@ -2,7 +2,7 @@
 export type ContentRect = {label: string; left: number; top: number; right: number; bottom: number};
 export const layoutPolicy = {safeMargin: 120, overlapTolerance: 4, minOpacity: 0.5};
 
-export type LayoutFinding = {family: "empty" | "overflow" | "overlap"; message: string};
+export type LayoutFinding = {family: "empty" | "overflow" | "overlap" | "wordbreak"; message: string};
 
 export const inspectLayoutEvidence = (
   content: ContentRect[], viewport: {width: number; height: number},
