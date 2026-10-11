@@ -198,3 +198,12 @@ def test_kaynak_da_tasiyorsa_kopyanin_ayni_tasmasi_kusur_sayilmaz():
     assert not overflow_check(365, 0).passed
     assert not overflow_check(365, None).passed
     assert "kaynak 365 px" in overflow_check(365, 365).detail
+
+
+def test_kaynakta_acilan_menu_kopyada_acilmazsa_kalir():
+    from evals.kabul.areas.site_clone_probe import menu_check
+
+    assert not menu_check(0, 3).passed
+    assert menu_check(3, 3).passed
+    assert menu_check(0, 0).passed
+    assert "kaynak ölçülmedi" in menu_check(0, None).detail

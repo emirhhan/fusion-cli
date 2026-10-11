@@ -128,6 +128,7 @@ def _run(
         _image_check("ana_sayfa_gorselleri", kirik_ana),
     ]
     kopya_tasma = int(sayfa.evaluate(_OVERFLOW_JS))
+    kopya_menu = menu_panels_opened(sayfa)
     checks.append(_slider_check(sayfa))
     sutun = _grid(sayfa, pages.shop)
     checks.append(_image_check("magaza_gorselleri", _broken_images(sayfa)))
@@ -137,8 +138,9 @@ def _run(
     odeme, not_ = _checkout(sayfa, pages.checkout)
     checks.append(odeme)
     checks.append(Check("kaynaga_hotlink_yok", not hotlink, f"{len(hotlink)} istek {host} alanına"))
-    benzerlik, kaynak_tasma = _source_similarity(tarayici, source_url, ana_png)
+    benzerlik, kaynak_tasma, kaynak_menu = _source_similarity(tarayici, source_url, ana_png)
     checks.insert(3, overflow_check(kopya_tasma, kaynak_tasma))
+    checks.insert(4, menu_check(kopya_menu, kaynak_menu))
     return StoreProbe(tuple(checks), sutun, benzerlik, not_)
 
 
@@ -195,6 +197,49 @@ def shrunken_slides(ratios: list[float]) -> int:
 _OVERFLOW_JS = "() => document.documentElement.scrollWidth - window.innerWidth"
 #: Alt-piksel yuvarlama payı (px).
 OVERFLOW_TOLERANCE_PX = 2
+
+
+#: Başlık menü öğesinin üzerine gelince bu kadar yeni öğe görünürse panel açılmış sayılır.
+#: Ölçüldü (10 Ekim 2026, sneaksup): kaynakta ERKEK ~75 öğe açtı, kopyada 0 (betik sökülmüştü).
+MIN_MENU_PANEL_ELEMENTS = 10
+#: Ölçülen ilk menü öğesi sayısı ve üzerine gelince bekleme (ms).
+MENU_ITEMS_MEASURED = 3
+MENU_HOVER_MS = 900
+_MENU_ITEMS_JS = """(limit) => [...document.querySelectorAll('header a, nav a, [role=banner] a')]
+  .map((a) => ({ a, r: a.getBoundingClientRect(), t: (a.innerText || '').trim() }))
+  .filter(({ r, t }) => t && t.length <= 30 && r.width > 0 && r.top < 200)
+  .slice(0, limit).map(({ r }) => [r.x + r.width / 2, r.y + r.height / 2])"""
+_VISIBLE_JS = """() => [...document.querySelectorAll('body *')].filter((e) => {
+  const r = e.getBoundingClientRect(); const s = getComputedStyle(e);
+  return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && Number(s.opacity) > 0;
+}).length"""
+
+
+def menu_panels_opened(sayfa: Page) -> int:
+    """İlk menü öğelerinden kaçının üzerine gelince bir panel açılıyor?"""
+    acilan = 0
+    alt = sayfa.viewport_size["height"] - 2 if sayfa.viewport_size else VIEWPORT_HEIGHT - 2
+    for x, y in sayfa.evaluate(_MENU_ITEMS_JS, MENU_ITEMS_MEASURED):
+        sayfa.mouse.move(2, alt)
+        sayfa.wait_for_timeout(MENU_HOVER_MS)
+        once = int(sayfa.evaluate(_VISIBLE_JS))
+        sayfa.mouse.move(x, y, steps=5)
+        sayfa.wait_for_timeout(MENU_HOVER_MS)
+        if int(sayfa.evaluate(_VISIBLE_JS)) - once >= MIN_MENU_PANEL_ELEMENTS:
+            acilan += 1
+    sayfa.mouse.move(2, alt)
+    return acilan
+
+
+def menu_check(clone_open: int, source_open: int | None) -> Check:
+    """Kaynakta üzerine gelince açılan menü kopyada da açılmalı (kullanıcı, 10 Ekim 2026:
+    "menüde kadın erkek çocuk … her componentin aynısı bizde de olsun")."""
+    kaynak = "ölçülmedi" if source_open is None else str(source_open)
+    return Check(
+        "menu_paneli_acilir",
+        clone_open >= (source_open or 0),
+        f"üzerine gelince panel açan menü öğesi: kopya {clone_open}, kaynak {kaynak}",
+    )
 
 
 def overflow_check(clone_px: int, source_px: int | None) -> Check:
@@ -312,8 +357,10 @@ def _checkout(sayfa: Page, checkout_url: str) -> tuple[Check, str]:
     return place_order(sayfa, checkout_url, NAVIGATION_TIMEOUT_MS)
 
 
-def _source_similarity(tarayici: Browser, source_url: str, clone_png: bytes) -> tuple[float, int]:
-    """Kaynak ana sayfaya benzerlik ve kaynağın kendi yatay taşması."""
+def _source_similarity(
+    tarayici: Browser, source_url: str, clone_png: bytes
+) -> tuple[float, int, int]:
+    """Kaynak ana sayfaya benzerlik, kaynağın kendi yatay taşması ve açılan menü sayısı."""
     from playwright.sync_api import Error as PlaywrightError
 
     # Kaynak açılamazsa bu bir ÖLÇÜM hatasıdır, kopyanın kusuru değil: bir kez daha
@@ -326,7 +373,8 @@ def _source_similarity(tarayici: Browser, source_url: str, clone_png: bytes) -> 
             sayfa = baglam.new_page()
             sayfa.goto(source_url, timeout=NAVIGATION_TIMEOUT_MS, wait_until="load")
             kaynak_png = sayfa.screenshot(full_page=True)
-            return similarity(kaynak_png, clone_png), int(sayfa.evaluate(_OVERFLOW_JS))
+            tasma = int(sayfa.evaluate(_OVERFLOW_JS))
+            return similarity(kaynak_png, clone_png), tasma, menu_panels_opened(sayfa)
         except PlaywrightError as hata:
             son_hata = hata
         finally:

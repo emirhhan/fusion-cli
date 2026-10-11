@@ -30,6 +30,8 @@ if TYPE_CHECKING:
     from playwright.async_api import Browser, Page
 
 from .mirror import MAX_ASSET_BYTES, asset_local_path, is_mirrorable
+from .site_clicks import CLICK_STATE_CSS, capture_click_states
+from .site_hover import capture_hover_panels, hover_css
 from .site_responsive import CapturedTransition, CapturedVariant, captured_variants, verify_variants
 
 CAPTURE_SCRIPT = Path(__file__).with_name("assets") / "capture_page.js"
@@ -168,6 +170,10 @@ async def _capture_one(
             await _scroll(page)
             if width not in shots:
                 shots[width] = await page.screenshot(full_page=True, type="jpeg", quality=60)
+            # Menü panelleri ve sekme halleri yalnız ilk (masaüstü) görünümde yakalanır.
+            masaustu = width == VIEWPORTS[0][0]
+            panels = await capture_hover_panels(page) if masaustu else ()
+            sekmeler = await capture_click_states(page) if masaustu else ()
             values = await page.evaluate(script)
             if not metadata:
                 metadata.update(values)
@@ -178,7 +184,16 @@ async def _capture_one(
                 main=str(values.get("main", "")),
                 footer=str(values.get("footer", "")),
                 header_offset=int(values.get("headerOffset") or 0),
-                css=str(values.get("css", "")),
+                css="\n".join(
+                    filter(
+                        None,
+                        (
+                            str(values.get("css", "")),
+                            hover_css(panels),
+                            CLICK_STATE_CSS if sekmeler else "",
+                        ),
+                    )
+                ),
                 signature=str(values.get("signature", "")),
                 media_conditions=tuple(str(query) for query in values.get("mediaConditions", [])),
                 blocked=tuple(str(href) for href in values.get("blocked", [])),

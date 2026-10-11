@@ -25,6 +25,7 @@ from typing import Any
 from urllib.parse import quote_plus, urlparse
 
 from .site_capture import SiteCapture, drop_remote_srcset, localize, same_site_paths
+from .site_clicks import INTERACTIONS_RUNTIME
 from .theme_responsive import build_responsive_theme
 from .woo_store_css import store_css
 
@@ -81,6 +82,10 @@ add_action( 'after_setup_theme', function () {
 add_action( 'wp_enqueue_scripts', function () {
 	wp_enqueue_style( 'kopya', get_template_directory_uri() . '/kopya.css', array(), '1.0' );
 	wp_enqueue_style( 'kopya-ek', get_stylesheet_uri(), array( 'kopya' ), '1.0' );
+	// Kaynak betik kopyada yok: sekme halleri ve kaydırıcı okları yerel betikle çalışır.
+	wp_enqueue_script(
+		'kopya-etkilesim', get_template_directory_uri() . '/etkilesim.js', array(), '1.0', true
+	);
 }, 20 );
 """
 
@@ -267,8 +272,10 @@ def _responsive_problems(capture: SiteCapture, paths: tuple[str, ...]) -> tuple[
     """Kaynak DOM seçimi geometri veya kaynak JavaScript başarısı sayılmaz."""
     if paths:
         return (
-            "Responsive aktarım yerel JavaScript gerektirir; kaynak menü/etkileşim olayları "
-            "aktarılmadı. Ana sayfa dışında yakalanmış DOM varyantları tema rotasına aktarılmadı.",
+            "Responsive aktarım yerel JavaScript gerektirir; menü üzerine gelme panelleri, "
+            "sekme halleri ve kaydırıcı okları yerel olarak aktarıldı, diğer kaynak "
+            "etkileşimleri aktarılmadı. Ana sayfa dışında yakalanmış DOM varyantları tema "
+            "rotasına aktarılmadı.",
             "Kaynak signature geçişi piksel geometrisi kanıtı değildir; yakalanmayan viewportlarda "
             "yerleşim ve etkileşim ayrıca doğrulanmalıdır.",
         )
@@ -302,6 +309,7 @@ def write_theme(
         + _CART_COUNTER_CSS,
         "kopya.css": localize(capture.css, capture.assets, ""),
         "functions.php": _FUNCTIONS,
+        "etkilesim.js": INTERACTIONS_RUNTIME.read_text(encoding="utf-8"),
         "header.php": _HEADER_TEMPLATE.format(
             body_class=_safe(ana.body_class).replace("'", ""),
             header=wire_store_links(_prepare(ana.header, capture, source_url), category_slugs),

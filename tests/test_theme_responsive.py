@@ -220,7 +220,7 @@ def test_summary_yalniz_aktarilan_yolun_pending_bildirimini_dusurur(tmp_path):
     theme = write_theme(capture, tmp_path, "https://source.test")
     summary = _summary(capture, theme, [], list(capture.problems), tmp_path)
     assert summary.count(pending) == 1
-    assert "kaynak menü/etkileşim olayları" in summary
+    assert "diğer kaynak etkileşimleri aktarılmadı" in summary
 
 
 def test_summary_dogrulanmayan_yolda_pending_ve_bulgu_korunur(tmp_path):
