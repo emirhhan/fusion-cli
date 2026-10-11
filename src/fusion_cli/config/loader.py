@@ -67,6 +67,12 @@ _SECTIONS = (
 # PEP 695 sözdizimi yerine TypeVar: paket Python 3.11'i de destekler.
 T = TypeVar("T")
 
+# `.env`'den süreç ortamına bizim eklediğimiz anahtarlar. `load_config` bunları
+# süreç ortamında AÇIKÇA verilmiş değerlerden ayırmak için okur: `doctor` gibi
+# önce `load_environment` çağıran yollarda `.env`'deki göreli `FUSION_CONFIG`
+# zorunlu sayılıp sağlam kurulumu "hazır değil" gösteriyordu (11 Ekim).
+_DOTENV_KEYS: frozenset[str] = frozenset()
+
 
 def load_environment() -> None:
     """`.env` dosyalarını sırayla yükle. Önce yüklenen kazanır; mevcut ortam ezilmez.
@@ -77,12 +83,16 @@ def load_environment() -> None:
     olarak gölgeliyordu — kurulum "tamam" diyor, hiçbir model çağrılamıyordu.
     Doldurulmamış bir satır "bu anahtar yok" demektir, "bu anahtar boş" değil.
     """
+    global _DOTENV_KEYS
+    eklenen: set[str] = set()
     for candidate in env_file_candidates():
         if not candidate.is_file():
             continue
         for key, value in dotenv_values(candidate).items():
             if value and value.strip() and key not in os.environ:
                 os.environ[key] = value
+                eklenen.add(key)
+    _DOTENV_KEYS = _DOTENV_KEYS | eklenen
     _apply_stored_secrets()
 
 
@@ -128,7 +138,7 @@ def load_config(path: str | Path | None = None) -> Config:
     # kullanıcı config'ine düştü ve kullanıcı farklı bir modelle çalıştığını fark
     # etmedi. `.env`'den gelen değer ise yalnız bir adaydır: kullanıcıların
     # `.env`'inde göreli `config.yaml` duruyor ve başka dizinde yok sayılmalı.
-    from_env = os.environ.get(ENV_CONFIG)
+    from_env = None if ENV_CONFIG in _DOTENV_KEYS else os.environ.get(ENV_CONFIG)
     load_environment()
 
     defaults = _read_yaml(bundled_defaults())

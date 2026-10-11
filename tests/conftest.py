@@ -13,8 +13,22 @@ from __future__ import annotations
 
 import gc
 import os
+import sys
+from pathlib import Path
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def test_yorumlayicisi_pathte(monkeypatch):
+    """Kabukta koşan test komutları (`python`, `pytest`) testi koşan ortamı bulsun.
+
+    Ölçüldü (11 Ekim, yeni Mac): genel `python`/`pytest` kurulu olmayan makinede
+    iki test "command not found" ile düştü — kod değişmemişti, eski makinede bu
+    komutlar sistem genelinde vardı. Test sonucu makinenin PATH'ine bağlı olmamalı.
+    """
+    venv_bin = str(Path(sys.executable).parent)
+    monkeypatch.setenv("PATH", venv_bin + os.pathsep + os.environ.get("PATH", ""))
 
 
 @pytest.fixture(autouse=True)
