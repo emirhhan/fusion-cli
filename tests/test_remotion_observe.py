@@ -184,6 +184,10 @@ async def test_tekrarlanan_iptal_kendi_direncli_alt_surecini_yetim_birakmaz(tmp_
 
 
 async def test_renderer_ayri_gruptaki_direncli_chromium_benzeri_cocugu_temizler(tmp_path):
+    import asyncio
+
+    from fusion_cli.tools.remotion_observe import _run
+
     (tmp_path / "index.ts").write_text("placeholder")
     (tmp_path / "package.json").write_text("{}")
     modules = tmp_path / "node_modules/@remotion"
@@ -200,9 +204,29 @@ async def test_renderer_ayri_gruptaki_direncli_chromium_benzeri_cocugu_temizler(
       return new Promise(()=>{});
     };
     """)
-    request = RenderRequest(tmp_path, "index.ts", "Fusion", 0, "still.png", ("index.ts",), 0.3)
-    result = await observe_frame(request)
-    assert not result.rendered
+
+    async def runner(command, root, deadline):
+        process = asyncio.create_task(_run(command, root, deadline))
+
+        async def wait_started():
+            for _ in range(500):
+                if (tmp_path / "child.pid").exists():
+                    return
+                await asyncio.sleep(0.01)
+            raise AssertionError("Testin kendi alt süreci başlangıç sinyali vermedi.")
+
+        try:
+            await asyncio.wait_for(wait_started(), 5)
+        except (TimeoutError, AssertionError, asyncio.CancelledError, OSError):
+            process.cancel()
+            await asyncio.gather(process, return_exceptions=True)
+            raise
+        process.cancel()
+        return await process
+
+    request = RenderRequest(tmp_path, "index.ts", "Fusion", 0, "still.png", ("index.ts",), 30)
+    with pytest.raises(asyncio.CancelledError):
+        await observe_frame(request, runner=runner)
     await _assert_owned_child_dead(int((tmp_path / "child.pid").read_text()))
 
 

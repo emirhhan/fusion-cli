@@ -79,6 +79,8 @@ PLAY_ROUNDS = 6
 PLAY_HOLD_MS = 400
 #: Yeniden başlat sonrası durumun oturma süresi (ms).
 RESTART_SETTLE_MS = 700
+#: Sıfırlanan HUD sonraki oyun zamanlayıcısından önce gözlenir.
+RESTART_POLL_MS = 50
 #: Oyun ortasında R sıfırlamazsa oyunun kendiliğinden bitmesi için beklenen üst sınır.
 #: Ölçüldü (4 Ekim): örnek oyunda R yalnız "oyun bitti" ekranında çalışıyordu (geçerli
 #: tasarım); denetçi R'ye oyun ortasında bastığı için çalışan oyunu "kaldı" saydı.
@@ -228,13 +230,22 @@ def _restart_probe(opened: OpenedPage) -> RestartProbe:
     _play(page)
     played = read_hud(page).lines
     trigger = _trigger_restart(page)
-    page.wait_for_timeout(RESTART_SETTLE_MS)
-    restarted = read_hud(page).lines
+    restarted = _wait_for_hud_reset(page, initial)
     if restarted != initial and _wait_for_game_over(page):
         trigger = "oyun bittikten sonra " + _trigger_restart(page)
-        page.wait_for_timeout(RESTART_SETTLE_MS)
-        restarted = read_hud(page).lines
+        restarted = _wait_for_hud_reset(page, initial)
     return RestartProbe(initial, played, restarted, trigger)
+
+
+def _wait_for_hud_reset(page: Page, initial: tuple[str, ...]) -> tuple[str, ...]:
+    """Sıfırlanmayı süreli gözle; oyun tekrar ilerlediğinde doğru kanıtı kaybetme."""
+    restarted = read_hud(page).lines
+    for _ in range(RESTART_SETTLE_MS // RESTART_POLL_MS):
+        if restarted == initial:
+            break
+        page.wait_for_timeout(RESTART_POLL_MS)
+        restarted = read_hud(page).lines
+    return restarted
 
 
 def measure(root: Path) -> GameReport:
@@ -328,9 +339,26 @@ MIN_PLAYER_MOVE = 8
 
 
 def _moved(once: object, sonra: object) -> bool | None:
-    if not (isinstance(once, list) and isinstance(sonra, list)):
+    before, after = _position(once), _position(sonra)
+    if before is None or after is None:
         return None
-    return abs(sonra[0] - once[0]) + abs(sonra[1] - once[1]) >= MIN_PLAYER_MOVE
+    return abs(after[0] - before[0]) + abs(after[1] - before[1]) >= MIN_PLAYER_MOVE
+
+
+def _position(value: object) -> tuple[float, float] | None:
+    """Durum kancasından yalnız iki sonlu sayısal koordinatı kabul et."""
+    from math import isfinite
+
+    if not isinstance(value, list) or len(value) != 2:
+        return None
+    coordinates: list[float] = []
+    for coordinate in value:
+        if isinstance(coordinate, bool) or not isinstance(coordinate, (int, float)):
+            return None
+        if not isfinite(coordinate):
+            return None
+        coordinates.append(float(coordinate))
+    return coordinates[0], coordinates[1]
 
 
 #: Oyun başındaki bölüm/dalga girişinde oyuncu kilitli olabilir (ölçüldü, dalga47: 1,5 sn

@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
+from evals.kabul.areas.site_clone_menu import MenuPanel, menu_check, menu_panels_opened
 from evals.kabul.model import Check
 
 if TYPE_CHECKING:
@@ -199,49 +200,6 @@ _OVERFLOW_JS = "() => document.documentElement.scrollWidth - window.innerWidth"
 OVERFLOW_TOLERANCE_PX = 2
 
 
-#: Başlık menü öğesinin üzerine gelince bu kadar yeni öğe görünürse panel açılmış sayılır.
-#: Ölçüldü (10 Ekim 2026, sneaksup): kaynakta ERKEK ~75 öğe açtı, kopyada 0 (betik sökülmüştü).
-MIN_MENU_PANEL_ELEMENTS = 10
-#: Ölçülen ilk menü öğesi sayısı ve üzerine gelince bekleme (ms).
-MENU_ITEMS_MEASURED = 3
-MENU_HOVER_MS = 900
-_MENU_ITEMS_JS = """(limit) => [...document.querySelectorAll('header a, nav a, [role=banner] a')]
-  .map((a) => ({ a, r: a.getBoundingClientRect(), t: (a.innerText || '').trim() }))
-  .filter(({ r, t }) => t && t.length <= 30 && r.width > 0 && r.top < 200)
-  .slice(0, limit).map(({ r }) => [r.x + r.width / 2, r.y + r.height / 2])"""
-_VISIBLE_JS = """() => [...document.querySelectorAll('body *')].filter((e) => {
-  const r = e.getBoundingClientRect(); const s = getComputedStyle(e);
-  return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && Number(s.opacity) > 0;
-}).length"""
-
-
-def menu_panels_opened(sayfa: Page) -> int:
-    """İlk menü öğelerinden kaçının üzerine gelince bir panel açılıyor?"""
-    acilan = 0
-    alt = sayfa.viewport_size["height"] - 2 if sayfa.viewport_size else VIEWPORT_HEIGHT - 2
-    for x, y in sayfa.evaluate(_MENU_ITEMS_JS, MENU_ITEMS_MEASURED):
-        sayfa.mouse.move(2, alt)
-        sayfa.wait_for_timeout(MENU_HOVER_MS)
-        once = int(sayfa.evaluate(_VISIBLE_JS))
-        sayfa.mouse.move(x, y, steps=5)
-        sayfa.wait_for_timeout(MENU_HOVER_MS)
-        if int(sayfa.evaluate(_VISIBLE_JS)) - once >= MIN_MENU_PANEL_ELEMENTS:
-            acilan += 1
-    sayfa.mouse.move(2, alt)
-    return acilan
-
-
-def menu_check(clone_open: int, source_open: int | None) -> Check:
-    """Kaynakta üzerine gelince açılan menü kopyada da açılmalı (kullanıcı, 10 Ekim 2026:
-    "menüde kadın erkek çocuk … her componentin aynısı bizde de olsun")."""
-    kaynak = "ölçülmedi" if source_open is None else str(source_open)
-    return Check(
-        "menu_paneli_acilir",
-        clone_open >= (source_open or 0),
-        f"üzerine gelince panel açan menü öğesi: kopya {clone_open}, kaynak {kaynak}",
-    )
-
-
 def overflow_check(clone_px: int, source_px: int | None) -> Check:
     """Kopya kaynaktan fazla taşıyorsa kusur. Ölçüldü (dalga45/46): sneaksup.com 1440 px'te
     kendisi 365 px taşıyor; mutlak ölçüm birebir kopyayı kusurlu sayıyordu."""
@@ -359,8 +317,8 @@ def _checkout(sayfa: Page, checkout_url: str) -> tuple[Check, str]:
 
 def _source_similarity(
     tarayici: Browser, source_url: str, clone_png: bytes
-) -> tuple[float, int, int]:
-    """Kaynak ana sayfaya benzerlik, kaynağın kendi yatay taşması ve açılan menü sayısı."""
+) -> tuple[float, int, tuple[MenuPanel, ...]]:
+    """Kaynak benzerliği, yatay taşması ve açılan menülerin içerik kanıtı."""
     from playwright.sync_api import Error as PlaywrightError
 
     # Kaynak açılamazsa bu bir ÖLÇÜM hatasıdır, kopyanın kusuru değil: bir kez daha

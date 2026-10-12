@@ -201,9 +201,10 @@ def test_kaynak_da_tasiyorsa_kopyanin_ayni_tasmasi_kusur_sayilmaz():
 
 
 def test_kaynakta_acilan_menu_kopyada_acilmazsa_kalir():
-    from evals.kabul.areas.site_clone_probe import menu_check
+    from evals.kabul.areas.site_clone_menu import MenuPanel, menu_check
 
-    assert not menu_check(0, 3).passed
-    assert menu_check(3, 3).passed
-    assert menu_check(0, 0).passed
-    assert "kaynak ölçülmedi" in menu_check(0, None).detail
+    kaynak = (MenuPanel("Kadın", ("Sneaker",)),)
+    assert not menu_check((), kaynak).passed
+    assert menu_check(kaynak, kaynak).passed
+    assert menu_check((), ()).passed
+    assert "kaynak ölçülmedi" in menu_check((), None).detail

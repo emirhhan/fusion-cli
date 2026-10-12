@@ -6,14 +6,18 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
+import { runtimeError } from "./check-runtime.mjs";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const kitsRoot = resolve(process.env.FUSION_KITS_DIR ?? resolve(appRoot, "../../fusion-kits"));
 const target = resolve(appRoot, "src-tauri/resources/kits");
 const node = process.env.FUSION_KITS_NODE ?? process.execPath;
 
-if (Number(process.versions.node.split(".")[0]) < 24 && !process.env.FUSION_KITS_NODE) {
-  console.error("Kits paketi Node 24+ ister. FUSION_KITS_NODE ile Node 24 ikilisini gösterin.");
+const selectedVersion = spawnSync(node, ["--version"], { encoding: "utf8" });
+const runtimeIssue = runtimeError("kits", (selectedVersion.stdout ?? "").trim().replace(/^v/, ""));
+if (selectedVersion.status !== 0 || runtimeIssue) {
+  console.error(runtimeIssue ?? "Seçilen Kits Node ikilisi çalıştırılamadı.");
+  console.error("FUSION_KITS_NODE ile geçerli Node 24+ ikilisini gösterin.");
   process.exit(1);
 }
 if (!existsSync(resolve(kitsRoot, "scripts/kits-bundle.mjs"))) {

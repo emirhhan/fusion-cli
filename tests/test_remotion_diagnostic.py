@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import subprocess
 from pathlib import Path
@@ -16,7 +17,7 @@ RUNNER = (
 )
 
 
-async def test_cdp_exception_select_timeout_oncesi_tanida_korunur(tmp_path):
+async def test_cdp_exception_select_timeout_oncesi_tanida_korunur(tmp_path, monkeypatch):
     from .test_remotion_observe import _browser_fixture
 
     (tmp_path / "index.ts").write_text("entry")
@@ -32,13 +33,44 @@ async def test_cdp_exception_select_timeout_oncesi_tanida_korunur(tmp_path):
     exports.openBrowser=async()=>({newPage:async()=>page,close:async()=>{}});
     exports.selectComposition=async({puppeteerInstance})=>{
       await puppeteerInstance.newPage({});
+      const write=process.stderr.write.bind(process.stderr);
+      process.stderr.write=(text,...args)=>{
+        if(String(text).includes('Entry JS failed'))
+          return write(text,()=>require('node:fs').writeFileSync('diagnostic-ready',''));
+        return write(text,...args);
+      };
       events['Runtime.exceptionThrown']?.({exceptionDetails:{
         exception:{description:'Entry JS failed'}}});
       setInterval(()=>{},1000);return new Promise(()=>{});
     };
     """)
     request = RenderRequest(tmp_path, "index.ts", "Fusion", 0, "still.png", ("index.ts",), 0.3)
+    original_wait_for = asyncio.wait_for
+    timeout_started = False
+
+    async def wait_diagnostic():
+        for _ in range(500):
+            if (tmp_path / "diagnostic-ready").exists():
+                return
+            await asyncio.sleep(0.01)
+        raise AssertionError("CDP tanısı yazılmadı.")
+
+    async def wait_after_diagnostic(awaitable, timeout_s):
+        nonlocal timeout_started
+        if not timeout_started:
+            timeout_started = True
+            try:
+                # Başlangıç yükü tanı sonrası gerçek timeout penceresini tüketmesin.
+                await original_wait_for(wait_diagnostic(), 5)
+            except (TimeoutError, AssertionError, asyncio.CancelledError, OSError):
+                awaitable.close()
+                raise
+        return await original_wait_for(awaitable, timeout_s)
+
+    monkeypatch.setattr(asyncio, "wait_for", wait_after_diagnostic)
     result = await observe_frame(request)
+    assert timeout_started and (tmp_path / "diagnostic-ready").is_file()
+    assert "Toplam gözlem süresi doldu." in result.error
     assert not result.rendered and result.runtime is None
     assert "Entry JS failed" in result.error
 

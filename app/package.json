@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "vitest run --environment jsdom",
-    "test:watch": "vitest --environment jsdom",
+    "test": "node scripts/check-runtime.mjs app-tests && vitest run --environment jsdom",
+    "test:watch": "node scripts/check-runtime.mjs app-tests && vitest --environment jsdom",
+    "test:runtime": "node --test scripts/runtime-check.node-test.mjs",
     "test:visual": "playwright test",
     "runtime:build": "node scripts/run-python.mjs ../desktop_build/runtime/build_runtime.py --output src-tauri/resources/runtime",
     "runtime:smoke": "node scripts/run-python.mjs ../desktop_build/runtime/smoke_runtime.py src-tauri/resources/runtime/unpacked/fusion",

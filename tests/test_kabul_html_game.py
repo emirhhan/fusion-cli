@@ -12,6 +12,18 @@ from evals.kabul.areas import _game_probe as probe
 from evals.kabul.areas import html_game
 from evals.kabul.model import Inspection
 
+
+@pytest.mark.parametrize("position", [[], [1], ["1", 2], [True, 2], [float("nan"), 2]])
+def test_bozuk_oyuncu_konumu_hareket_kaniti_sayilmaz(position):
+    assert html_game._moved(position, [10, 20]) is None
+    assert html_game._moved([10, 20], position) is None
+
+
+def test_sayisal_konum_hareketi_esikle_olculur():
+    assert html_game._moved([10, 20], [18, 20]) is True
+    assert html_game._moved([10, 20], [17.5, 20]) is False
+
+
 GAME_TEMPLATE = """<!doctype html>
 <html lang="tr"><head><meta charset="utf-8"><title>Oyun</title>
 <style>body{margin:0;background:#111} canvas{display:block;margin:20px auto}</style></head>
@@ -226,6 +238,18 @@ def test_restart_only_on_game_over_with_state_hook_passes(tmp_path):
     results = _by_name(_run(tmp_path, page))
     assert results["skor/can HUD'ı var"]
     assert results["yeniden başlat durumu sıfırlıyor"]
+
+
+def test_yeniden_baslatma_gecici_sifirlanmayi_kacirmaz(monkeypatch):
+    """Sıfırlanan oyun sonraki zamanlayıcıda ilerlese de gerçek sıfırlanma okunur."""
+    readings = iter([probe.HudReading(state=("can: 3",)), probe.HudReading(state=("can: 2",))])
+
+    class Page:
+        def wait_for_timeout(self, duration):
+            pass
+
+    monkeypatch.setattr(html_game, "read_hud", lambda page: next(readings))
+    assert html_game._wait_for_hud_reset(Page(), ("can: 3",)) == ("can: 3",)
 
 
 def test_hud_reading_counts_state_hook_lines():

@@ -287,8 +287,10 @@ async def test_runtime_edilmis_onceki_kare_feature_markerini_yeniden_kullanmaz()
                 "http://kit.test/**",
                 lambda route: route.fulfill(body=html, content_type="text/html"),
             )
-            await page.goto("http://kit.test/?mode=runtime")
-            await page.wait_for_timeout(150)
+            async with page.expect_event(
+                "console", predicate=lambda message: message.text.startswith("FUSION_RUNTIME_V1:")
+            ):
+                await page.goto("http://kit.test/?mode=runtime")
             assert records
             records.clear()
             await page.evaluate("""() => {
@@ -296,11 +298,20 @@ async def test_runtime_edilmis_onceki_kare_feature_markerini_yeniden_kullanmaz()
                 value:new Promise(resolve=>{globalThis.__releaseFonts=resolve;})});
               __rerenderFrame(1);
             }""")
-            await page.wait_for_timeout(100)
+            await page.wait_for_function("""() =>
+              document.querySelector('[data-fusion-runtime-frame="1"]') &&
+              !document.querySelector('[data-fusion-feature-ready]')""")
+            # Font beklemesini atlayan ölçümün çalışacağı çizim sınırlarını da geç.
+            await page.evaluate("""() => new Promise(resolve => {
+              requestAnimationFrame(() => requestAnimationFrame(() =>
+                requestAnimationFrame(resolve)));
+            })""")
             assert records == []
             assert await page.locator("[data-fusion-feature-ready]").count() == 0
-            await page.evaluate("__releaseFonts()")
-            await page.wait_for_timeout(150)
+            async with page.expect_event(
+                "console", predicate=lambda message: message.text.startswith("FUSION_RUNTIME_V1:")
+            ):
+                await page.evaluate("__releaseFonts()")
             assert records
             record = json.loads(records[-1].split(":", 1)[1])
             assert record["frame"] == 1 and record["auditSettled"] and record["featureReady"]
