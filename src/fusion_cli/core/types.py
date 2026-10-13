@@ -7,7 +7,7 @@ veri taşıması dict ile değil bu tiplerle yapılır (RULES.md "Katman Sınır
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 
@@ -96,6 +96,16 @@ class ModelSpec:
     model: str
     tags: tuple[str, ...] = ()
     fallback: tuple[str, ...] = ()
+    supported_reasoning_efforts: tuple[str, ...] = ()
+    reasoning_efforts_verified: bool = False
+
+    def with_identity(self, model: str) -> ModelSpec:
+        """Do not inherit old verified efforts for a different model."""
+        if model == self.model:
+            return self
+        return replace(
+            self, model=model, supported_reasoning_efforts=(), reasoning_efforts_verified=False
+        )
 
     @property
     def strict(self) -> bool:
@@ -284,6 +294,9 @@ class ModelResult:
     # seçili kademesi yazar ve oturum düşerse bu anonim ücretsiz kademe olur.
     # Bilinmiyorsa boş kalır; boş olması "istenen kademe geldi" demek DEĞİLDİR.
     served_by: str = ""
+    requested_effort: str | None = None
+    applied_effort: str | None = None
+    effort_reason: str = ""
 
     @property
     def is_rate_limited(self) -> bool:

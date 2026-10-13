@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Icon } from "../ui/Icon";
 import "./ModelPicker.css";
 
@@ -22,6 +22,8 @@ export interface ModelOption {
   aciklama?: string;
   grup?: string;
   modelId?: string;
+  toolSupport?: string;
+  health?: string;
 }
 
 export interface ModelPickerProps {
@@ -33,6 +35,10 @@ export interface ModelPickerProps {
   onOpen?: () => void;
   onSelect: (deger: string) => void;
   busy?: boolean;
+  error?: string;
+  onRetry?: () => void;
+  onConnect?: () => void;
+  pending?: boolean;
 }
 
 /** Uzun model kimliğini düğmeye sığacak biçimde kısalt: sağlayıcı önekini at. */
@@ -45,9 +51,13 @@ export function shortModelName(model: string): string {
   return ad.replace(/:free$/, "").replace(/-\d+(?:\.\d+)?b-a\d+(?:\.\d+)?b(?=-|$)/gi, "") || ad;
 }
 
-export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelect, options }: ModelPickerProps) {
+export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelect, options, error, onRetry, onConnect, pending = false }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [highlight, setHighlight] = useState(0);
+  const listId = useId();
+  const search = useRef<HTMLInputElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   const kutu = useRef<HTMLDivElement>(null);
   const groupLabels: Record<string, string> = {
     low: "Basit ve hızlı görevler",
@@ -71,11 +81,12 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
 
   useEffect(() => {
     if (!open) return;
+    search.current?.focus();
     const disariTikla = (event: MouseEvent) => {
       if (!kutu.current?.contains(event.target as Node)) setOpen(false);
     };
     const kacisTusu = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") { setOpen(false); trigger.current?.focus(); }
     };
     document.addEventListener("mousedown", disariTikla);
     document.addEventListener("keydown", kacisTusu);
@@ -89,10 +100,30 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
     setOpen((current) => {
       if (!current) {
         setQuery("");
+        setHighlight(0);
         onOpen?.();
       }
       return !current;
     });
+  };
+
+  const keyboard = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault(); setOpen(false); trigger.current?.focus();
+      return;
+    }
+    if (busy || pending || !visible.length) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault(); setHighlight((value) => (value + 1) % visible.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault(); setHighlight((value) => (value + visible.length - 1) % visible.length);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault(); setHighlight(event.key === "Home" ? 0 : visible.length - 1);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const target = visible[Math.min(highlight, visible.length - 1)];
+      if (target) { setOpen(false); trigger.current?.focus(); onSelect(target.deger); }
+    }
   };
 
   return (
@@ -102,6 +133,7 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
         aria-haspopup="listbox"
         aria-label={`Model: ${activeLabel || active || "seçilmedi"}. Değiştirmek için tıkla.`}
         className="model-picker__trigger"
+        ref={trigger}
         onClick={ac}
         title={activeLabel || active}
         type="button"
@@ -110,34 +142,50 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
         <Icon name="chevron" size={14} />
       </button>
       {open && (
-        <div aria-label="Model listesi" className="model-picker__menu" role="listbox">
+        <div className="model-picker__menu">
           <input
             aria-label="Model ara"
+            aria-controls={listId}
+            aria-expanded={open}
+            aria-autocomplete="list"
+            aria-activedescendant={visible.length ? `${listId}-${Math.min(highlight, visible.length - 1)}` : undefined}
+            role="combobox"
+            ref={search}
+            onKeyDown={keyboard}
             className="model-picker__search"
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => { setQuery(event.target.value); setHighlight(0); }}
             placeholder="Model ara"
             type="search"
             value={query}
           />
           {busy && <p className="model-picker__state">Modeller okunuyor…</p>}
-          {!busy && options.length === 0 && (
+          {error && <p className="model-picker__state" role="alert">{error} {onRetry && <button onClick={onRetry} type="button">Yeniden dene</button>}</p>}
+          {!busy && !error && options.length === 0 && (
             <p className="model-picker__state">
               Seçilebilir model yok. Ayarlar'dan bir sağlayıcıya bağlan.
+              {onConnect && <button onClick={onConnect} type="button">Bağlan</button>}
             </p>
           )}
           {!busy && options.length > 0 && visible.length === 0 && (
             <p className="model-picker__state">Aramayla eşleşen etkin model yok.</p>
           )}
+          <div id={listId} role="listbox" aria-label="Model listesi">
           {!busy && groups.map(([group, entries]) => (
-            <div className="model-picker__group" key={group} role="presentation">
+            <div className="model-picker__group" key={group} role="group" aria-label={groupLabels[group] ?? group}>
               <p className="model-picker__group-title">{groupLabels[group] ?? group}</p>
               {entries?.map((option) => (
                 <button
                   aria-selected={option.modelId === active || option.deger === active}
+                  id={`${listId}-${visible.indexOf(option)}`}
+                  tabIndex={-1}
+                  disabled={pending}
+                  data-highlighted={visible.indexOf(option) === highlight}
                   className="model-picker__option"
                   key={option.deger}
                   onClick={() => {
+                    if (pending) return;
                     setOpen(false);
+                    trigger.current?.focus();
                     onSelect(option.deger);
                   }}
                   role="option"
@@ -145,10 +193,12 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
                 >
                   <strong>{option.etiket}</strong>
                   {option.aciklama && <small>{option.aciklama}</small>}
+                  {(option.toolSupport || option.health) && <small>{[option.toolSupport, option.health].filter(Boolean).join(" · ")}</small>}
                 </button>
               ))}
             </div>
           ))}
+          </div>
         </div>
       )}
     </div>

@@ -11,7 +11,10 @@ altı seviyelik kullanıcı seçimi bu üçe indirgenir ve indirgeme kullanıcı
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
+
+from .model_capability import ModelCapability
 
 
 class ReasoningEffort(Enum):
@@ -49,3 +52,25 @@ def is_downgraded(effort: ReasoningEffort) -> bool:
     """Seçilen seviye, desteklenen en yakına indirildi mi? (`xhigh`/`max` → `high`)"""
     mapped = provider_value(effort)
     return mapped is not None and mapped != effort.value
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningResolution:
+    """Requested and actually applicable reasoning parameters."""
+    requested: str | None
+    applied: str | None
+    reason: str = ""
+
+
+def resolve_reasoning(requested: str | None, capability: ModelCapability) -> ReasoningResolution:
+    """Apply only effort levels verified for this model identity."""
+    if requested is None or requested == ReasoningEffort.AUTO.value:
+        return ReasoningResolution(requested, None)
+    if not capability.reasoning_efforts_verified:
+        return ReasoningResolution(requested, None, "Modelin düşünme yoğunluğu desteği doğrulanmadı.")
+    supported = capability.supported_reasoning_efforts
+    if requested in supported:
+        return ReasoningResolution(requested, requested)
+    if requested in (ReasoningEffort.XHIGH.value, ReasoningEffort.MAX.value) and "high" in supported:
+        return ReasoningResolution(requested, "high", "Seçilen yoğunluk desteklenmiyor; high uygulanıyor.")
+    return ReasoningResolution(requested, None, "Model seçilen düşünme yoğunluğunu desteklemiyor.")

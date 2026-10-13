@@ -18,8 +18,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from ..config.eligibility import capability_from_spec
 from ..core.events import Channel, EventPublisher
 from ..core.health import HealthRegistry
+from ..core.model_capability import ModelCapability
 from ..core.protocols import Clock, LlmProvider, Sleeper
 from ..core.rate_control import RateControl
 from ..core.types import ModelSpec
@@ -91,13 +93,15 @@ def build_provider(
         if pool is not None and pool.size > 1:
             return KeyRotatingProvider(
                 lambda key: _gated(
-                    LiteLlmProvider(model, role=spec.name, clock=clock, api_key=key),
+                    LiteLlmProvider(model, role=spec.name, clock=clock, api_key=key,
+                        capability=capability_from_spec(spec) if model == spec.model else ModelCapability()),
                     keyed_label(model, key),
                 ),
                 pool,
                 label=model,
             )
-        return _gated(LiteLlmProvider(model, role=spec.name, clock=clock), model)
+        return _gated(LiteLlmProvider(model, role=spec.name, clock=clock,
+            capability=capability_from_spec(spec) if model == spec.model else ModelCapability()), model)
 
     # `strict` seçimi KALİTE için katı yapar: kullanıcının seçtiği model cevap
     # verebildiği sürece başka modele kayılmaz. Ama hiç cevap veremiyorsa (oturum

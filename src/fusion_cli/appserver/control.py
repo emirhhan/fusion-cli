@@ -225,6 +225,12 @@ def snapshot(
             "adaylar": [candidate.model for candidate in config.candidates],
             "saglayici": config.runtime.provider,
             "yogunluk": config.runtime.reasoning_effort.value,
+            "desteklenen_yogunluklar": list(config.agent.supported_reasoning_efforts),
+            "yogunluk_dogrulandi": config.agent.reasoning_efforts_verified,
+            "yogunluk_aciklamasi": (
+                "Bu modelin düşünme yoğunluğu yetenekleri doğrulanmadı."
+                if not config.agent.reasoning_efforts_verified else ""
+            ),
             # Faz 3, Görev 2 (C5/C9): agent şu an ücretsiz API çırağıyla mı
             # çalışıyor, yoksa bir web oturumuna mı kilitli? Panel bu iki alanla
             # "ücretsiz çırağa dön" CTA'sını gösterip göstermeyeceğine karar verir.

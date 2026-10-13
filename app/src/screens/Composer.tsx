@@ -95,6 +95,8 @@ interface ComposerProps {
   /** Seçilebilir modeller; liste açılınca tembel yüklenir. */
   modelOptions?: ModelOption[];
   modelsBusy?: boolean;
+  modelsError?: string;
+  onModelRetry?: () => void;
   onModelMenuOpen?: () => void;
   onModelSelect?: (deger: string) => void;
   onStop?: () => void;
@@ -131,6 +133,8 @@ export function Composer({
   activeModelLabel,
   modelOptions = [],
   modelsBusy = false,
+  modelsError,
+  onModelRetry,
   onModelMenuOpen,
   onModelSelect,
   value,
@@ -417,6 +421,8 @@ export function Composer({
                   active={activeModel}
                   activeLabel={activeModelLabel}
                   busy={modelsBusy}
+                  error={modelsError}
+                  onRetry={onModelRetry}
                   onOpen={onModelMenuOpen}
                   onSelect={onModelSelect}
                   options={modelOptions}

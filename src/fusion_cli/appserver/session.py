@@ -44,6 +44,7 @@ from ..config.apprentice_notice import apprentice_notice_shown, mark_apprentice_
 from ..config.credentials import FernetSecretStore
 from ..config.keys import secret_key
 from ..config.loader import load_config
+from ..config.eligibility import capability_from_spec
 from ..config.model_select import select_agent_spec
 from ..config.models import Config, McpServerConfig
 from ..config.paths import credentials_file
@@ -51,6 +52,7 @@ from ..core.clock import SystemClock
 from ..core.concurrency import BackgroundTasks
 from ..core.events import Event, EventSink, StatusChanged
 from ..core.remotion_browser import RemotionBrowser
+from ..core.reasoning import ReasoningEffort, resolve_reasoning
 from ..core.submission import SubmissionReceipt, SubmissionRepository
 from ..core.tools import TodoStatus
 from ..core.turn_deadline import TurnDeadline
@@ -372,6 +374,7 @@ class AppSession:
         self._admission_lock = asyncio.Lock()
         self._closed = False
         self._admission_tasks: set[asyncio.Task[dict[str, Any]]] = set()
+        self._model_selection_tasks: set[asyncio.Task[dict[str, Any]]] = set()
         self._submission_task: asyncio.Task[dict[str, Any]] | None = None
         self._local_computer = local_computer
         self._writer = writer
@@ -524,6 +527,26 @@ class AppSession:
         return resolved
 
     async def _dispatch(self, request: Request) -> dict[str, Any]:
+        # Serialize all model-changing RPCs with model slash commands and turn
+        # admissions. Ownership outlives a cancelled transport waiter.
+        if request.name in {
+            "kademe.sec", "kontrol.cirak_varsayilanina_don",
+            "web.model_sec", "web.baglan", "web.cikis",
+            "web.arac_olc", "web.dogrula", "web.pencere_kipi",
+        }:
+            owned = asyncio.create_task(self._apply_model_rpc(request))
+            self._model_selection_tasks.add(owned)
+            owned.add_done_callback(self._model_selection_done)
+            return await asyncio.shield(owned)
+        return await self._dispatch_unlocked(request)
+
+    async def _apply_model_rpc(self, request: Request) -> dict[str, Any]:
+        async with self._admission_lock:
+            if self._closed:
+                return {"ok": False, "metin": "Oturum kapandı; model işlemi uygulanmadı."}
+            return await self._dispatch_unlocked(request)
+
+    async def _dispatch_unlocked(self, request: Request) -> dict[str, Any]:
         if request.name in LOCAL_COMPUTER_ROUTES:
             if self._local_computer is not None:
                 return await dispatch_local_computer(
@@ -1434,23 +1457,14 @@ class AppSession:
                 "ok": True,
                 "metin": await render_command_text(self._registry, self._state, command.name),
             }
-        if command is not None and command.name == "development":
-            # NIM araç doğrulaması (`catalog.probe_nim_tools`) artık `run_command`'ın
-            # çağırdığı `model_flows.apply_development_model` içinde TEK yerden yapılır
-            # (bkz. o fonksiyonun 27 Eylül tarihli gerekçesi) — burada AYRICA
-            # doğrulamak aynı canlı API çağrısını iki kez yapardı. Doğrulama ağa
-            # çıkan bir çağrıdır (90s'ye kadar); bu oturumun tek event loop'unu
-            # bloklamasın diye `run_command`'ın TAMAMI ayrı bir thread'de çalıştırılır
-            # — eskiden yalnız doğrulama burada `asyncio.to_thread` ile sarılıyordu,
-            # doğrulama aşağı taşınınca sarmalayıcı da onunla birlikte indi.
-            result = await asyncio.to_thread(
-                run_command,
-                self._registry,
-                self._state,
-                name,
-                argument,
-                secret_store=self._secret_store,
-            )
+        if command is not None and command.name in {
+            "development", "model", "level", "mode", "effort",
+            "provider", "profiles",
+        }:
+            owned = asyncio.create_task(self._apply_model_command(name, argument))
+            self._model_selection_tasks.add(owned)
+            owned.add_done_callback(self._model_selection_done)
+            result = await asyncio.shield(owned)
         else:
             result = run_command(
                 self._registry, self._state, name, argument, secret_store=self._secret_store
@@ -1465,6 +1479,49 @@ class AppSession:
             return result
         self._next_turn_mode = mode
         return {**result, "gorev": task}
+
+    async def _apply_model_command(self, name: str, argument: str) -> dict[str, Any]:
+        """Do not release selection/admission ownership before the command finishes."""
+        async with self._admission_lock:
+            if self._closed:
+                return {"ok": False, "metin": "Oturum kapandı; model işlemi uygulanmadı."}
+            previous = self._state.config.agent.model
+            result = await asyncio.to_thread(
+                run_command, self._registry, self._state, name, argument,
+                secret_store=self._secret_store,
+            )
+            if result.get("ok") is not True:
+                return result
+            effort = self._state.config.runtime.reasoning_effort.value
+            resolved = resolve_reasoning(effort, capability_from_spec(self._state.config.agent))
+            if (
+                previous != self._state.config.agent.model
+                and effort != "auto"
+                and resolved.applied is None
+            ):
+                self._state.config = replace(
+                    self._state.config,
+                    runtime=replace(
+                        self._state.config.runtime,
+                        reasoning_effort=ReasoningEffort.AUTO,
+                    ),
+                )
+                resolved = resolve_reasoning("auto", capability_from_spec(self._state.config.agent))
+            return {
+                **result,
+                "model": self._state.config.agent.model,
+                "requested_effort": effort,
+                "applied_effort": resolved.applied,
+                "effort_reason": resolved.reason,
+                "uygulama": "sonraki_tur"
+                if self._turn is not None and not self._turn.done()
+                else "hazir",
+            }
+
+    def _model_selection_done(self, task: asyncio.Task[dict[str, Any]]) -> None:
+        self._model_selection_tasks.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            logging.getLogger(__name__).error("Model seçimi görevi hatayla kapandı.")
 
     def _command_options(self, data: dict[str, Any]) -> dict[str, Any]:
         """Sıradaki seçici/metin adımını döndür; yoksa `ok: False`."""
@@ -1965,6 +2022,12 @@ class AppSession:
         from ..providers.web_control import stop_all_login_processes
 
         self._closed = True
+        # An accepted model write still owns its thread even if its RPC waiter
+        # was cancelled. Drain it before closing dependent persistence services.
+        selections = tuple(self._model_selection_tasks)
+        if selections:
+            await asyncio.gather(*selections, return_exceptions=True)
+        self._model_selection_tasks.difference_update(selections)
         admissions = tuple(self._admission_tasks)
         for admission in admissions:
             admission.cancel()

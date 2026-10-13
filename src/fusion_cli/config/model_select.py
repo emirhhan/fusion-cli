@@ -186,19 +186,19 @@ def apply_single_model(config: Config, model_id: str) -> Config:
 
 def set_agent_model(config: Config, model_id: str) -> Config:
     """Agent rolünün modelini değiştir."""
-    return replace(config, agent=replace(config.agent, model=_validated(model_id)))
+    return replace(config, agent=config.agent.with_identity(_validated(model_id)))
 
 
 def set_judge_model(config: Config, model_id: str) -> Config:
     """Hakem (ve sentez) rolünün modelini değiştir."""
-    return replace(config, judge=replace(config.judge, model=_validated(model_id)))
+    return replace(config, judge=config.judge.with_identity(_validated(model_id)))
 
 
 def set_candidate_model(config: Config, key: str, model_id: str) -> Config:
     """Bir fusion adayının modelini değiştir. `key`: aday adı ya da 1-tabanlı sıra."""
     index = resolve_candidate(config, key)
     candidates = list(config.candidates)
-    candidates[index] = replace(candidates[index], model=_validated(model_id))
+    candidates[index] = candidates[index].with_identity(_validated(model_id))
     return replace(config, candidates=tuple(candidates))
 
 
@@ -278,4 +278,4 @@ def escalated_spec(spec: ModelSpec, escalation: int) -> ModelSpec:
         strategy=RoutingStrategy.ESCALATE,
         escalation=escalation,
     )
-    return replace(spec, model=zincir[0], fallback=zincir[1:])
+    return replace(spec.with_identity(zincir[0]), fallback=zincir[1:])

@@ -196,3 +196,24 @@ describe("olayAdimi", () => {
     });
   });
 });
+
+it("P4: gerçek uygulanan yoğunluğu başarılı makbuzda gösterir", () => {
+  const receipt = olayAdimi({
+    olay: "ModelCallFinished", requested_model: "provider/model",
+    result: { ok: true, model: "provider/model", served_by: "provider/actual",
+      requested_effort: "high", applied_effort: "high", effort_reason: "" },
+  });
+  expect(receipt?.ayrinti).toContain("Gözlenen: provider/actual");
+  expect(receipt?.ayrinti).toContain("Düşünme yoğunluğu: high");
+});
+
+it("P4: bilinmeyen model ve desteklenmeyen effort'u doğru bildirir", () => {
+  const receipt = olayAdimi({
+    olay: "ModelCallFinished", requested_model: "primary",
+    result: { ok: true, model: "primary", served_by: "",
+      requested_effort: "max", applied_effort: null, effort_reason: "Desteklenmiyor" },
+  });
+  expect(receipt?.ayrinti).toContain("Gözlenen: doğrulanamadı");
+  expect(receipt?.ayrinti).toContain("Uygulanan yoğunluk: yok");
+  expect(receipt?.ayrinti).toContain("Desteklenmiyor");
+});
