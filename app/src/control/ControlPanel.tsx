@@ -25,6 +25,7 @@ import "./ControlPanel.css";
 
 interface ControlPanelProps {
   client: ProtocolClient;
+  initialProviderId?: string;
   /** Sayfa başlığı; panel farklı bir kapıdan açıldığında değişir. */
   title?: string;
   onClose: () => void;
@@ -36,6 +37,7 @@ interface ControlPanelProps {
 
 export function ControlPanel({
   client,
+  initialProviderId,
   onClose,
   onProvidersChanged,
   permissionBridge = nativePermissionBridge,
@@ -78,7 +80,7 @@ export function ControlPanel({
           {secretError && (
             <p className="control-panel__warning" role="status">{secretError}</p>
           )}
-          <ProviderList client={client} onChanged={onProvidersChanged} />
+          <ProviderList initialProviderId={initialProviderId} client={client} onChanged={onProvidersChanged} />
         </section>
       </div>
 

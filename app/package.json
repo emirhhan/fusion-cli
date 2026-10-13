@@ -17,11 +17,13 @@
     "bundle:mac": "npm run listen:build:mac && npm run runtime:build && npm run runtime:smoke && tauri build --config src-tauri/tauri.bundle.conf.json --bundles app,dmg && node scripts/run-python.mjs ../desktop_build/macos/stable_sign_bundle.py --bundle-root src-tauri/target/release/bundle",
     "kits:prepare": "node scripts/prepare-kits.mjs",
     "bundle:mac:kits": "npm run kits:prepare && npm run listen:build:mac && npm run runtime:build && npm run runtime:smoke && tauri build --config src-tauri/tauri.bundle.conf.json --config src-tauri/tauri.kits.conf.json --bundles app,dmg && node scripts/run-python.mjs ../desktop_build/macos/stable_sign_bundle.py --bundle-root src-tauri/target/release/bundle",
-    "check": "npm test && npm run build && cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test",
-    "check:ci": "npm test && npm run build && cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test -- --skip terminal::tests::",
+    "check": "npm run lint:hooks && npm test && npm run build && cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test",
+    "check:ci": "npm run lint:hooks && npm test && npm run build && cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test -- --skip terminal::tests::",
     "preview": "vite preview",
     "tauri": "tauri",
-    "bundle:win": "npm run listen:build:win && npm run runtime:build && npm run runtime:smoke && tauri build --config src-tauri/tauri.windows.bundle.conf.json --bundles nsis"
+    "bundle:win": "npm run listen:build:win && npm run runtime:build && npm run runtime:smoke && tauri build --config src-tauri/tauri.windows.bundle.conf.json --bundles nsis",
+    "lint:hooks": "node scripts/check-runtime.mjs app-tests && eslint src",
+    "lint:hooks:global": "node scripts/check-runtime.mjs app-tests && FUSION_HOOKS_GLOBAL=1 eslint src"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -45,8 +47,11 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "eslint": "10.11.0",
+    "eslint-plugin-react-hooks": "7.1.1",
     "jsdom": "^30.0.1",
     "typescript": "~5.8.3",
+    "typescript-eslint": "8.71.0",
     "vite": "^7.0.4",
     "vitest": "^4.1.11"
   }

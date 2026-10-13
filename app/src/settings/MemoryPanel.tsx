@@ -60,7 +60,7 @@ export function MemoryPanel({ client }: { client: ProtocolClient }) {
     } finally { setBusy(false); }
   };
 
-  return <article className="settings__card">
+  return <article id="settings-memory" className="settings__card">
     <h3>Kaydedilmiş anılar</h3>
     <p className="settings__hint">Anılar bu bilgisayarda saklanır. Açıkken yeni görevlerin bağlamına eklenir ve seçilen model sağlayıcısına gönderilir.</p>
     <label className="settings__row settings__row--check">

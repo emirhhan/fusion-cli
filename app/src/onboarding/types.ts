@@ -26,7 +26,7 @@ export interface ProviderSummary {
   id: string;
   name: string;
   secretConfigured: boolean;
-  status: "ready" | "needs-setup" | "unavailable";
+  status: "ready" | "configured-unverified" | "needs-setup" | "unavailable";
 }
 
 /**
@@ -36,7 +36,7 @@ export interface ProviderSummary {
  * hesaplanmaz.
  */
 export interface ApprenticeStatus {
-  active: boolean;
+  active: boolean | null;
   recommendedModel: string | null;
 }
 

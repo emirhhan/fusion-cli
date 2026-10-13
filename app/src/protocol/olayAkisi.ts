@@ -108,7 +108,8 @@ function araAnlatimiSabitle(messages: Mesaj[]): Mesaj[] {
   const son = messages[messages.length - 1];
   if (son?.rol !== "asistan" || !son.akan) return messages;
   if (!son.metin.trim()) return messages.slice(0, -1);
-  return [...messages.slice(0, -1), { rol: "asistan", metin: son.metin, ara: true }];
+  const { akan: _streaming, ...stable } = son;
+  return [...messages.slice(0, -1), { ...stable, rol: "asistan", metin: son.metin, ara: true }];
 }
 
 /** Araç çıktısındaki işaretlerin durum karşılığı. */

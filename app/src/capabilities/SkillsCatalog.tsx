@@ -103,7 +103,7 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
     }).catch((reason) => setError(String(reason)));
   };
 
-  const useNext = (item: CatalogItem) => {
+  const queueNext = (item: CatalogItem) => {
     void client.request("yetenek.kullan", { tur: item.tur, ad: item.ad }).then((payload) => {
       if (payload.ok !== true) throw new Error(String(payload.metin ?? "Yetenek seçilemedi."));
       setNotice(`${item.ad}, sonraki görev için hazır.`);
@@ -146,7 +146,7 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
           {digerleri.length > 0 && <div className="skills-catalog__grid">{digerleri.map(kart)}</div>}
         </section>
         <aside aria-label="Yetenek ayrıntısı" className="skills-catalog__detail">
-          {selected ? <><div className="skills-catalog__detail-head"><SkillAvatar item={selected} /><div><h2>{selected.ad}</h2><span>{kindLabels[selected.tur]} · {sourceLabels(selected.kaynak)}{selected.izinler.length > 0 ? ` · ${selected.izinler.join(", ")}` : ""}</span></div></div><pre>{detail || "Yükleniyor…"}</pre>{selected.tur !== "talimat" && <button disabled={!selected.etkin} onClick={() => useNext(selected)} type="button">Bu {selected.tur === "beceri" ? "beceriyi" : selected.tur === "ajan" ? "ajanı" : "MCP'yi"} sonraki turda kullan</button>}{notice && <p aria-live="polite">{notice}</p>}</> : <p>Ne yaptığını, nereden geldiğini ve hangi izinleri kullandığını görmek için bir beceri seç.</p>}
+          {selected ? <><div className="skills-catalog__detail-head"><SkillAvatar item={selected} /><div><h2>{selected.ad}</h2><span>{kindLabels[selected.tur]} · {sourceLabels(selected.kaynak)}{selected.izinler.length > 0 ? ` · ${selected.izinler.join(", ")}` : ""}</span></div></div><pre>{detail || "Yükleniyor…"}</pre>{selected.tur !== "talimat" && <button disabled={!selected.etkin} onClick={() => queueNext(selected)} type="button">Bu {selected.tur === "beceri" ? "beceriyi" : selected.tur === "ajan" ? "ajanı" : "MCP'yi"} sonraki turda kullan</button>}{notice && <p aria-live="polite">{notice}</p>}</> : <p>Ne yaptığını, nereden geldiğini ve hangi izinleri kullandığını görmek için bir beceri seç.</p>}
         </aside>
       </div>
     </main>

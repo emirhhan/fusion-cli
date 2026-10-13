@@ -279,8 +279,11 @@ describe("Settings — İzinler", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Manuel/ }));
     expect(onRunCommand).toHaveBeenCalledWith("/security");
-    fireEvent.click(screen.getByRole("button", { name: /Düzenlemeleri kabul et/ }));
+    const edits = screen.getByRole("button", { name: /Düzenlemeleri kabul et/ });
+    await waitFor(() => expect((edits as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(edits);
     expect(onRunCommand).toHaveBeenCalledWith("/edits");
+    expect(onRunCommand).toHaveBeenCalledTimes(2);
   });
 });
 

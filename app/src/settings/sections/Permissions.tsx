@@ -17,12 +17,14 @@ export const PERMISSION_MODES = APPROVAL_MODES.map((mod) => ({
 
 export function Permissions({
   mod,
+  pending = false,
   kok,
   kokleSinirli,
   onChangeRoot,
   onSelectMode,
 }: {
   mod: string;
+  pending?: boolean;
   kok: string;
   kokleSinirli: boolean;
   onChangeRoot?: () => void;
@@ -38,7 +40,7 @@ export function Permissions({
               aria-pressed={secenek.id === mod}
               className="settings__choice"
               data-active={secenek.id === mod}
-              disabled={!onSelectMode}
+              disabled={!onSelectMode || pending}
               key={secenek.id}
               onClick={() => onSelectMode?.(`/${secenek.id}`)}
               type="button"

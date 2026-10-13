@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { errorMessage, operationResult, type CommandResult } from "../protocol/result";
+import { searchSettings } from "./search";
 import type { ProtocolClient } from "../protocol/client";
 import type { ThemePreference } from "../theme/theme";
 import { Button } from "../ui/Button";
@@ -58,7 +60,7 @@ interface SettingsProps {
   /** Hesabım ekranını açar. Verilmezse hesap bölümü yalnız bilgi gösterir. */
   onOpenAccount?: () => void;
   onChangeRoot?: () => void;
-  onRunCommand?: (command: string) => void | Promise<void>;
+  onRunCommand?: (command: string) => void | CommandResult | Promise<void | CommandResult>;
 }
 
 export function Settings({
@@ -76,6 +78,15 @@ export function Settings({
   const [error, setError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(readHistoryOpen);
   const [gatewayBusy, setGatewayBusy] = useState(false);
+  const [modeBusy, setModeBusy] = useState(false);
+  const [gatewayError, setGatewayError] = useState<{ message: string; retry: () => void } | null>(null);
+  const [modeError, setModeError] = useState<{ message: string; retry: () => void } | null>(null);
+  const [controlLoading, setControlLoading] = useState(true);
+  const owner = useRef(0);
+  const loadSequence = useRef(0);
+  const gatewayGuard = useRef(false);
+  const modeGuard = useRef(false);
+  const [focusRow, setFocusRow] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
@@ -114,6 +125,8 @@ export function Settings({
   }, [onClose]);
 
   const load = useCallback(async () => {
+    const generation = owner.current, sequence = ++loadSequence.current;
+    setControlLoading(true);
     try {
       const durum = (await client.request("kontrol.durum", {})) as ControlSnapshot & {
         ok?: boolean;
@@ -126,16 +139,24 @@ export function Settings({
       // kalıyordu. `catch` bloğu da GERÇEK nedeni atıyor, sabit bir metinle
       // örtüyordu — bu dosyanın altındaki `bellek`/`kontrol.anahtar_*`
       // çağrıları gibi asıl sebep gösterilmeliydi.
+      if (generation !== owner.current || sequence !== loadSequence.current) return;
       if (durum?.ok === false) throw new Error(durum.metin || "Ayarlar okunamadı.");
       setControl(durum ?? null);
-      setError(null);
+      setError(null); setControlLoading(false);
     } catch (reason) {
+      if (generation !== owner.current || sequence !== loadSequence.current) return;
+      setControlLoading(false);
       setError(`Ayarlar okunamadı: ${String(reason instanceof Error ? reason.message : reason)}`);
     }
   }, [client]);
 
   useEffect(() => {
+    const generation = ++owner.current;
+    gatewayGuard.current = false; modeGuard.current = false;
+    setControl(null); setError(null);
+    setGatewayBusy(false); setModeBusy(false); setGatewayError(null); setModeError(null);
     void load();
+    return () => { owner.current = generation + 1; };
   }, [load]);
 
   const changeHistory = (open: boolean) => {
@@ -149,21 +170,47 @@ export function Settings({
 
   const gatewayRunning = control?.gateway?.durum === "calisiyor";
   const toggleGateway = () => {
-    setGatewayBusy(true);
-    const uc = gatewayRunning ? "kontrol.gateway_durdur" : "kontrol.gateway_baslat";
-    void client
-      .request(uc, {})
-      .then(() => load())
-      .catch(() => setError("Yerel API ucu değiştirilemedi."))
-      .finally(() => setGatewayBusy(false));
+    if (!control || gatewayGuard.current) return;
+    gatewayGuard.current = true; setGatewayBusy(true); setGatewayError(null);
+    const generation = owner.current;
+    const endpoint = gatewayRunning ? "kontrol.gateway_durdur" : "kontrol.gateway_baslat";
+    const run = async () => {
+      try {
+        const payload = await client.request(endpoint, {});
+        if (generation !== owner.current) return;
+        const result = operationResult(payload, "Yerel API ucu değiştirilemedi.");
+        if (!result.ok) { setGatewayError({ message: result.message, retry: toggleGateway }); return; }
+        await load();
+      } catch (reason) { if (generation === owner.current) setGatewayError({ message: errorMessage(reason), retry: toggleGateway }); }
+      finally { if (generation === owner.current) { gatewayGuard.current = false; setGatewayBusy(false); } }
+    };
+    void run();
   };
-
   const selectMode = (command: string) => {
-    if (!onRunCommand) return;
-    void Promise.resolve(onRunCommand(command))
-      .then(load)
-      .catch(() => setError("Çalışma modu değiştirilemedi."));
+    if (!control || !onRunCommand || modeGuard.current) return;
+    modeGuard.current = true; setModeBusy(true); setModeError(null);
+    const generation = owner.current;
+    const run = async () => {
+      try {
+        const response = onRunCommand(command);
+        const payload = await response;
+        if (generation !== owner.current) return;
+        const result = operationResult(payload, "Çalışma modu değiştirilemedi.", true);
+        if (!result.ok) { setModeError({ message: result.message, retry: () => selectMode(command) }); return; }
+        await load();
+      } catch (reason) { if (generation === owner.current) setModeError({ message: errorMessage(reason), retry: () => selectMode(command) }); }
+      finally { if (generation === owner.current) { modeGuard.current = false; setModeBusy(false); } }
+    };
+    void run();
   };
+  const searchResults = searchSettings(search);
+  useEffect(() => {
+    if (!focusRow) return;
+    const target = document.getElementById(focusRow);
+    if (!target) return;
+    if (!target.matches("input,select,button,textarea")) target.tabIndex = -1;
+    target.focus(); setFocusRow(null);
+  }, [bolum, focusRow]);
 
   return (
     <section className="settings" onMouseDown={(event) => {
@@ -174,6 +221,8 @@ export function Settings({
           <h2 className="settings__sr-only" id="settings-title">Ayarlar</h2>
           <button aria-label="Ayarları kapat" className="settings__close" onClick={onClose} type="button"><span aria-hidden="true">←</span> Uygulamaya geri dön</button>
           <input aria-label="Ayarları ara" className="settings__search" onChange={(event) => setSearch(event.target.value)} placeholder="Ayarları ara" type="search" value={search} />
+          {search.trim() && <div><p role="status">{searchResults.length ? `${searchResults.length} sonuç` : BOLUMLER.some((item) => item.etiket.toLocaleLowerCase("tr").includes(search.trim().toLocaleLowerCase("tr"))) ? "Bölüm eşleşmeleri" : "Sonuç bulunamadı"}</p>
+            {searchResults.map((row) => <button key={row.id} onClick={() => { setBolum(row.section); setFocusRow(row.id); }}>{row.label}</button>)}</div>}
           <nav aria-label="Ayar bölümleri" className="settings__nav">
             {["Kişisel", "Entegrasyonlar", "Sistem"].map((grup) => {
               const items = BOLUMLER.filter((item) => item.grup === grup && item.etiket.toLocaleLowerCase("tr").includes(search.trim().toLocaleLowerCase("tr")));
@@ -196,6 +245,9 @@ export function Settings({
 
         <div className="settings__panel">
           <h3 className="settings__section-heading">{BOLUMLER.find((item) => item.id === bolum)?.etiket}</h3>
+          {controlLoading && <p role="status">Ayarlar yükleniyor…</p>}
+          {gatewayError && <p role="alert">{gatewayError.message} <button onClick={gatewayError.retry} disabled={gatewayBusy}>Yeniden dene</button></p>}
+          {modeError && <p role="alert">{modeError.message} <button onClick={modeError.retry} disabled={modeBusy}>Yeniden dene</button></p>}
           {error && (
             <p className="settings__error" role="status">
               {error}{" "}
@@ -245,6 +297,7 @@ export function Settings({
               kok={control?.kok ?? ""}
               kokleSinirli={control?.izin?.kokle_sinirli !== false}
               mod={control?.izin?.mod ?? "auto"}
+              pending={modeBusy || !control}
               onChangeRoot={onChangeRoot}
               onSelectMode={onRunCommand ? selectMode : undefined}
             />
@@ -257,7 +310,7 @@ export function Settings({
               <Advanced
                 adres={control?.gateway?.adres ?? ""}
                 calisiyor={gatewayRunning}
-                mesgul={gatewayBusy}
+                mesgul={gatewayBusy || !control}
                 onToggle={toggleGateway}
               />
               <UsagePanel client={client} />

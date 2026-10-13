@@ -1,3 +1,4 @@
+import { operationResult, errorMessage, type CommandResult } from "./protocol/result";
 import { submissionAccepted } from "./sessions/submission";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Approval } from "./dialogs/Approval";
@@ -74,8 +75,8 @@ import { buildVoiceRequest, findVoiceAnswer, speakVoiceAnswerStreamed, type Voic
 import { AccountGate } from "./account/AccountGate";
 import { AccountScreen } from "./account/AccountScreen";
 import { useAccount } from "./account/useAccount";
-import { Onboarding, type OnboardingValue } from "./onboarding";
-import type { ApprenticeStatus, DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
+import { ConnectedOnboarding } from "./onboarding/ConnectedOnboarding";
+import type { SampleProject } from "./onboarding";
 import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
 import { PermissionPrompt } from "./permissions/PermissionPrompt";
 import { usePermissions } from "./permissions/usePermissions";
@@ -432,98 +433,6 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
   );
 }
 
-function ConnectedOnboarding({
-  client,
-  projects,
-  runtimeVersion,
-  onFinish,
-}: {
-  client: ProtocolClient;
-  projects: SampleProject[];
-  runtimeVersion?: string;
-  onFinish: (projectId: string | null) => void;
-}) {
-  const [value, setValue] = useState<OnboardingValue>({ step: "welcome", selectedProjectId: null });
-  const [sources, setSources] = useState<DiscoveredSource[]>([
-    { kind: "claude", status: "not-found" },
-    { kind: "codex", status: "not-found" },
-    { kind: "hermes", status: "not-found" },
-  ]);
-  const [providers, setProviders] = useState<ProviderSummary[]>([]);
-  // Faz 3, Görev 2 (C5/C9): agent şu an ücretsiz API çırağıyla mı çalışıyor?
-  // Kaynak `kontrol.durum`'un `model.cirak_aktif`/`model.onerilen_cirak` alanları
-  // — bu bileşen kendi başına HESAPLAMAZ (tek kaynak `providers/capabilities.py`).
-  const [apprentice, setApprentice] = useState<ApprenticeStatus>({
-    active: true,
-    recommendedModel: null,
-  });
-
-  const refreshControlStatus = useCallback(() => {
-    return client.request("kontrol.durum", {}).then((control) => {
-      const rows = Array.isArray(control.saglayicilar) ? control.saglayicilar : [];
-      setProviders(rows.slice(0, 8).map((raw) => {
-        const row = raw as Record<string, unknown>;
-        const configured = row.kurulu === true;
-        return {
-          id: String(row.id ?? ""),
-          name: String(row.ad ?? row.id ?? "Sağlayıcı"),
-          secretConfigured: configured,
-          status: configured ? "ready" : "needs-setup",
-        };
-      }));
-      const model = (control.model ?? {}) as Record<string, unknown>;
-      setApprentice({
-        active: model.cirak_aktif !== false,
-        recommendedModel:
-          typeof model.onerilen_cirak === "string" ? model.onerilen_cirak : null,
-      });
-      return control;
-    });
-  }, [client]);
-
-  useEffect(() => {
-    let alive = true;
-    void Promise.all([
-      client.request("gecmis.kaynaklar", {}),
-      refreshControlStatus(),
-    ]).then(([history]) => {
-      if (!alive) return;
-      const found = new Set(
-        Array.isArray(history.kaynaklar)
-          ? history.kaynaklar.map((item) => String((item as Record<string, unknown>).ad ?? ""))
-          : [],
-      );
-      setSources((["claude", "codex", "hermes"] as const).map((kind) => ({
-        kind,
-        status: found.has(kind) ? "found" : "not-found",
-        itemCount: found.has(kind) ? 1 : 0,
-      })));
-    }).catch(() => undefined);
-    return () => { alive = false; };
-  }, [client, refreshControlStatus]);
-
-  const handleResetToApprentice = useCallback(() => {
-    // Kalıcılaştırma ve gerçek geçiş SUNUCUDA olur (`kontrol.cirak_varsayilanina_don`
-    // → `config/model_select.py::reset_to_apprentice_default`); burada yalnızca
-    // isteği yollayıp güncel durumu yeniden okuruz.
-    void client.request("kontrol.cirak_varsayilanina_don", {}).then(() => refreshControlStatus());
-  }, [client, refreshControlStatus]);
-
-  return (
-    <Onboarding
-      apprentice={apprentice}
-      onChange={setValue}
-      onComplete={({ selectedProjectId }) => onFinish(selectedProjectId)}
-      onResetToApprentice={handleResetToApprentice}
-      onSkip={() => onFinish(null)}
-      projects={projects}
-      providers={providers}
-      runtime={{ status: "ready", version: runtimeVersion }}
-      sources={sources}
-      value={value}
-    />
-  );
-}
 
 export function SessionUygulama({
   transport,
@@ -610,15 +519,28 @@ export function SessionUygulama({
   const activeVoiceTurn = useRef<VoiceTurnHandle | null>(null);
   const pendingBargeIn = useRef(false);
   const active = controller.activeSession;
+  const activeSessionId = active?.id;
+  const activeClient = active?.client;
+  const activeMessages = active?.messages;
+  const activeRunning = active?.running;
+  const commandOwner = useRef(0);
+  const commandSequence = useRef(0);
+  useEffect(() => {
+    const generation = ++commandOwner.current;
+    setCommandBusy(false); setCommandError(null);
+    return () => { commandOwner.current = generation + 1; };
+  }, [activeSessionId]);
   const workspaceMode = active
     ? workspaceModes[active.id] ?? storedWorkspaceMode(active.id) ?? "kod"
     : "kod";
   const dictation = useDictation((id, text) =>
     setDrafts((current) => ({ ...current, [id]: text })),
   );
+  const dictationRef = useRef(dictation);
+  dictationRef.current = dictation;
   useEffect(() => {
-    if (dictation.listening) void dictation.stop();
-  }, [active?.id]);
+    if (dictationRef.current.listening) void dictationRef.current.stop();
+  }, [activeSessionId]);
   // Hesap kapısı onboarding'den ÖNCE gelir: kimin kurulum yaptığı belli olmalı.
   const account = useAccount(active?.client ?? null);
   const etkinHesap =
@@ -792,7 +714,7 @@ export function SessionUygulama({
   ], [commands, history.sources]);
 
   useEffect(() => {
-    if (!active) return;
+    if (!activeSessionId) return;
     let alive = true;
     let unlisten: (() => void) | null = null;
     void listenForFileDrops((paths) => {
@@ -805,7 +727,7 @@ export function SessionUygulama({
       setAttachmentError(null);
       setAttachments((current) => ({
         ...current,
-        [active.id]: [...(current[active.id] ?? []), ...additions]
+        [activeSessionId]: [...(current[activeSessionId] ?? []), ...additions]
           .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index),
       }));
     }).then((stop) => {
@@ -815,7 +737,7 @@ export function SessionUygulama({
       if (alive) setAttachmentError("Sürükle-bırak dinleyicisi başlatılamadı. Uygulamayı yeniden dene.");
     });
     return () => { alive = false; unlisten?.(); };
-  }, [active?.id]);
+  }, [activeSessionId]);
 
   // Etkin model oturumun yapılandırmasından gelir; istemcide önbelleğe alınmaz.
   // `controlRevision` bağımlılıktır: `/model` komutu modeli değiştirdiğinde
@@ -868,11 +790,11 @@ export function SessionUygulama({
   }, [active, workspaceMode]);
 
   useEffect(() => {
-    if (!active) return;
+    if (!activeClient || !activeSessionId) return;
     let alive = true;
     void Promise.all([
-      active.client.request("komut.listele", {}),
-      active.client.request("yetenek.katalog", {}),
+      activeClient.request("komut.listele", {}),
+      activeClient.request("yetenek.katalog", {}),
     ]).then(([commandPayload, capabilityPayload]) => {
       if (!alive) return;
       const listed = Array.isArray(commandPayload.komutlar) ? commandPayload.komutlar : [];
@@ -904,7 +826,7 @@ export function SessionUygulama({
       setCommands([...commandRows, ...mcpRows]);
     }).catch(() => { if (alive) setCommands([]); });
     return () => { alive = false; };
-  }, [active?.client, active?.id]);
+  }, [activeClient, activeSessionId]);
 
   // Kapatma isteği Rust'ta durdurulur ve karar burada sorulur.
   useEffect(() => {
@@ -1018,16 +940,16 @@ export function SessionUygulama({
   }, [inspectorLayout, layout]);
   const gorulenOnizleme = useRef("");
   useEffect(() => {
-    if (!active) return;
-    const kartlar = active.messages.filter((message) => message.rol === "onizleme");
+    if (!activeMessages || !activeSessionId) return;
+    const kartlar = activeMessages.filter((message) => message.rol === "onizleme");
     const son = kartlar[kartlar.length - 1];
-    const anahtar = son ? `${active.id}|${kartlar.length}|${son.metin}` : "";
+    const anahtar = son ? `${activeSessionId}|${kartlar.length}|${son.metin}` : "";
     if (!son || anahtar === gorulenOnizleme.current) return;
     const ilkBakis = gorulenOnizleme.current === "";
     gorulenOnizleme.current = anahtar;
     // Sekme açılırken eski kart yüzünden panel zıplamasın; yalnız canlı turda aç.
-    if (!ilkBakis || active.running) openPreview(son.metin);
-  }, [active?.messages, active?.id, active?.running, openPreview]);
+    if (!ilkBakis || activeRunning) openPreview(son.metin);
+  }, [activeMessages, activeSessionId, activeRunning, openPreview]);
 
   // Açık onay konuşma penceresine de yayılır ve oradan gelen cevap aynı
   // `answer` yolundan geçer: iki ayrı onay mantığı olsaydı biri düzeltilirken
@@ -1037,14 +959,14 @@ export function SessionUygulama({
   const [planHazir, setPlanHazir] = useState<string | null>(null);
   const oncekiCalisiyor = useRef(false);
   useEffect(() => {
-    if (!active) return;
-    const bitti = oncekiCalisiyor.current && !active.running;
-    oncekiCalisiyor.current = active.running;
-    const son = active.messages[active.messages.length - 1];
+    if (!activeMessages || !activeSessionId) return;
+    const bitti = oncekiCalisiyor.current && !Boolean(activeRunning);
+    oncekiCalisiyor.current = Boolean(activeRunning);
+    const son = activeMessages[activeMessages.length - 1];
     if (bitti && approval === "plan" && son?.rol === "asistan" && !son.hata && son.metin.trim()) {
-      setPlanHazir(active.id);
+      setPlanHazir(activeSessionId);
     }
-  }, [active?.running, active?.id, approval]);
+  }, [activeRunning, activeSessionId, activeMessages, approval]);
   // Chrome eklentisi Fusion'ı yerel mesajlaşmayla kendisi bulur; köprü ETKİN sohbet
   // sekmesinde açık tutulur. Sekme değişince önceki köprü kapanır, eklenti yeni
   // sekmenin köprüsüne kendiliğinden geçer (bkz. chrome_host.py, offscreen.js).
@@ -1081,8 +1003,8 @@ export function SessionUygulama({
   }, [active?.question, active]);
 
   useEffect(() => {
-    if (!active) return;
-    const id = active.id;
+    if (!activeSessionId) return;
+    const id = activeSessionId;
     // Cevap biçimi ana penceredeki kartla AYNIDIR: izin `{ secim }`, model
     // sorusu (`ask_user`) `{ metin }` bekler; yanlış alan cevabı boşa düşürür.
     const cikar = onVoiceAnswer((cevap) => controller.answer(
@@ -1090,7 +1012,7 @@ export function SessionUygulama({
       soruTuruRef.current === "soru" ? { metin: cevap } : { secim: cevap },
     ));
     return () => void cikar.then((f) => f()).catch(() => undefined);
-  }, [active?.id, controller]);
+  }, [activeSessionId, controller]);
 
   // Ölçüldü (28 Eylül, Windows): "Çekirdek bağlantısı kapatıldı" dışında hiçbir
   // iz yoktu; çekirdeğin hata çıktısı atılıyordu. Artık günlüğe yazılıyor ve
@@ -1205,22 +1127,29 @@ export function SessionUygulama({
   const draft = drafts[active.id] ?? controller.submissionDraft(active.id);
   const activeAttachments = attachments[active.id] ?? controller.submissionAttachments(active.id);
   const setDraft = (value: string) => setDrafts((current) => ({ ...current, [active.id]: value }));
-  const executeCommand = async (input: string, recordInput = true, recordOutput = true) => {
+  const executeCommand = async (input: string, recordInput = true, recordOutput = true): Promise<CommandResult> => {
+    const generation = commandOwner.current, sequence = ++commandSequence.current;
+    const isCurrent = () => generation === commandOwner.current && sequence === commandSequence.current;
     setCommandBusy(true);
     setCommandError(null);
     try {
       const result = await controller.runCommand(active.id, input, recordInput, recordOutput);
+      if (!isCurrent()) return { ok: false, message: "Komut sonucu önceki oturuma ait." };
       const next = commandSelectorFrom(result.secici);
       setCommandSelector(next);
       // Çekirdek `/clear` için EKRAN temizleme sinyali döner; afiş basmaz.
       if (result.temizle === true) controller.clear(active.id);
       // Komut yapılandırmayı değiştirmiş olabilir; panel eski değeri göstermesin.
       if (next === null) setControlRevision((current) => current + 1);
-      if (result.ok === false) setCommandError(String(result.metin ?? "Komut tamamlanamadı."));
-    } catch {
-      setCommandError("Komut çalıştırılamadı. Bağlantıyı kontrol edip yeniden dene.");
+      const outcome = operationResult(result, "Komut tamamlanamadı.", true);
+      if (!outcome.ok) setCommandError(outcome.message);
+      return outcome;
+    } catch (reason) {
+      const message = `Komut çalıştırılamadı: ${errorMessage(reason)}`;
+      if (isCurrent()) setCommandError(message);
+      return { ok: false, message };
     } finally {
-      setCommandBusy(false);
+      if (isCurrent()) setCommandBusy(false);
     }
   };
   const send = (task: string) => {
@@ -1392,7 +1321,8 @@ export function SessionUygulama({
             void active.client.request("oturum.baslat", { mod: next });
           }}
           attachments={activeAttachments}
-          attachmentError={attachmentError ?? commandError ?? controller.submissionRecoveryError(active.id)}
+          attachmentError={attachmentError ?? controller.submissionRecoveryError(active.id)}
+          commandError={commandError}
           commands={composerCommands}
           fileSuggestions={fileSuggestions}
           onFileQuery={searchProjectFiles}

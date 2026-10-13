@@ -1,3 +1,4 @@
+import { readStorage, writeStorage } from "../platform/storage";
 import type { SessionSource, SessionState } from "./types";
 
 export const SESSION_VIEW_KEY = "fusion.session-view";
@@ -33,9 +34,11 @@ function isMetadata(value: unknown): value is PersistedSessionMetadata {
     && (item.updatedAt === undefined || (typeof item.updatedAt === "number" && Number.isFinite(item.updatedAt)));
 }
 
-export function loadSessionView(storage: StorageLike): PersistedSessionView | null {
+export function loadSessionView(storage: StorageLike | (() => StorageLike)): PersistedSessionView | null {
   try {
-    const raw = storage.getItem(SESSION_VIEW_KEY);
+    const result = readStorage(typeof storage === "function" ? storage : () => storage, SESSION_VIEW_KEY);
+    if (!result.ok) return null;
+    const raw = result.value;
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (parsed.version !== SESSION_VIEW_VERSION || !Array.isArray(parsed.sessions)) return null;
@@ -49,7 +52,7 @@ export function loadSessionView(storage: StorageLike): PersistedSessionView | nu
 }
 
 export function saveSessionView(
-  storage: StorageLike,
+  storage: StorageLike | (() => StorageLike),
   state: SessionState,
   updatedAt = Date.now(),
 ): void {
@@ -69,7 +72,7 @@ export function saveSessionView(
     }),
   };
   try {
-    storage.setItem(SESSION_VIEW_KEY, JSON.stringify(view));
+    writeStorage(typeof storage === "function" ? storage : () => storage, SESSION_VIEW_KEY, JSON.stringify(view));
   } catch {
     // Gizli gezinme/kota gibi depolama hataları ürünün çalışmasını engellemez.
   }

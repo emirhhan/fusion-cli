@@ -121,7 +121,7 @@ export function nextSessionId(): string {
 export function useSessions(transport: SessionTransport = tauriSessionTransport) {
   const [state, dispatch] = useReducer(sessionReducer, initialSessionState);
   const persistedView = useRef(
-    typeof window === "undefined" ? null : loadSessionView(window.localStorage),
+    typeof window === "undefined" ? null : loadSessionView(() => window.localStorage),
   );
   const admissions = useRef(new Map<string, (receipt: SubmissionReceipt) => void>());
   const attempts = useRef(new Map<string, string>());
@@ -417,18 +417,23 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     };
     void install();
 
+    const ownedClients = clients.current;
+    const ownedHandlers = lineHandlers.current;
+    const ownedClose = requestedClose.current;
+    const ownedRunning = runningRequests.current;
+    const ownedTimers = iptalZamanlayicilari.current;
     return () => {
       active = false;
       mounted.current = false;
       unlistenLine?.();
       unlistenClosed?.();
-      clients.current.forEach((client) => client.close());
-      clients.current.clear();
-      lineHandlers.current.clear();
-      requestedClose.current.clear();
-      runningRequests.current.clear();
-      iptalZamanlayicilari.current.forEach((zamanlayici) => clearTimeout(zamanlayici));
-      iptalZamanlayicilari.current.clear();
+      ownedClients.forEach((client) => client.close());
+      ownedClients.clear();
+      ownedHandlers.clear();
+      ownedClose.clear();
+      ownedRunning.clear();
+      ownedTimers.forEach((zamanlayici) => clearTimeout(zamanlayici));
+      ownedTimers.clear();
     };
   }, [refreshStored, restoreSessions, transport]);
 
@@ -436,7 +441,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     if (typeof window === "undefined") return;
     // İlk yüklemede kayıtları koru; başarılı silme sonrası boş görünümü de sakla.
     if (state.order.length === 0 && deletedIds.current.size === 0) return;
-    saveSessionView(window.localStorage, state);
+    saveSessionView(() => window.localStorage, state);
   }, [state]);
 
   const send = useCallback(

@@ -67,6 +67,7 @@ interface ComposerProps {
   onApprovalChange?: (mode: ApprovalMode) => void;
   attachments?: ComposerAttachment[];
   attachmentError?: string | null;
+  commandError?: string | null;
   commands?: ComposerCommand[];
   /** Kalan bağlam ölçüsü; yoksa gösterge çizilmez. */
   context?: BaglamOlcusu | null;
@@ -108,6 +109,7 @@ export function Composer({
   approval = "auto",
   attachments = [],
   attachmentError = null,
+  commandError = null,
   commands = [],
   context = null,
   costUsd = null,
@@ -335,7 +337,7 @@ export function Composer({
             ))}
           </div>
         )}
-        {(attachmentError || dictationError) && <p aria-live="polite" className="composer__attachment-error">{attachmentError || dictationError}</p>}
+        {[attachmentError, dictationError, commandError].map((error, index) => error && <p key={index} aria-live="polite" className="composer__attachment-error">{error}</p>)}
         <textarea
           aria-label="Mesaj"
           onChange={(event) => setDraft(event.target.value, event.target.selectionStart)}

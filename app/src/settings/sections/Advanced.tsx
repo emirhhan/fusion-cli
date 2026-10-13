@@ -22,7 +22,7 @@ export function Advanced({
   onToggle: () => void;
 }) {
   return (
-    <article className="settings__card">
+    <article id="settings-gateway" className="settings__card">
       <div className="settings__card-head">
         <h3>Yerel API ucu</h3>
         <i data-online={calisiyor}>{calisiyor ? "Çalışıyor" : "Kapalı"}</i>

@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 import { Button } from "../ui/Button";
 import "./Conversation.css";
@@ -116,8 +116,16 @@ function AssistantMessage({ text, onOpenFile, onReport, ara = false }: {
   /** Verilirse yanıtın altında "Hatayı bildir" düğmesi çıkar. */
   onReport?: () => void;
 }) {
-  const copy = () => {
-    void navigator.clipboard?.writeText(text);
+  const [copyState, setCopyState] = useState<string | null>(null);
+  const copyPending = useRef(false);
+  const copy = async () => {
+    if (copyPending.current) return;
+    if (!navigator.clipboard?.writeText) { setCopyState("Panoya erişilemiyor. Metni seçip manuel kopyala."); return; }
+    copyPending.current = true;
+    setCopyState("Kopyalanıyor…");
+    try { await navigator.clipboard.writeText(text); setCopyState("Kopyalandı"); }
+    catch (reason) { setCopyState(`Kopyalanamadı: ${reason instanceof Error ? reason.message : String(reason)}`); }
+    finally { copyPending.current = false; }
   };
   return (
     <article aria-label="Fusion yanıtı" className="conversation__article">
@@ -126,7 +134,8 @@ function AssistantMessage({ text, onOpenFile, onReport, ara = false }: {
         <Markdown onOpenFile={onOpenFile} text={text} />
       </div>
       {!ara && <div className="conversation__actions">
-        <Button aria-label="Yanıtı kopyala" icon="copy" iconOnly onClick={copy} />
+        <Button aria-label="Yanıtı kopyala" icon="copy" iconOnly disabled={copyPending.current} onClick={() => void copy()} />
+        {copyState && <span role="status">{copyState}</span>}
         {onReport && (
           <button className="conversation__report" onClick={onReport} type="button">
             Hatayı bildir

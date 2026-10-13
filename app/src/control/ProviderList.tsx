@@ -44,12 +44,13 @@ const PENCERE_KIPLERI: Record<PencereKipi, string> = {
 const YOKLAMA_MS = 1500;
 const GIRIS_SURESI_MS = 15 * 60 * 1000;
 
-export function ProviderList({ client, onChanged = () => undefined }: {
+export function ProviderList({ client, initialProviderId, onChanged = () => undefined }: {
   client: ProtocolClient;
+  initialProviderId?: string;
   onChanged?: () => void;
 }) {
   const [rows, setRows] = useState<ProviderRow[]>([]);
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(initialProviderId ?? null);
   const [query, setQuery] = useState("");
   const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState<string | null>(null);

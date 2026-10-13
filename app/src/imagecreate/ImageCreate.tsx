@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useImageDiscovery, type DiscoverySection } from "./useImageDiscovery";
+import { errorMessage, operationResult } from "../protocol/result";
 import { Icon } from "../ui/Icon";
 import { assetUrl } from "../platform/assetUrl";
 import { saveImageAs } from "../platform/dialog";
@@ -55,35 +57,32 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
     return client.request(name, data);
   }, [client]);
 
+  const owner = useRef(0);
+  const currentFlow = useRef(akis);
+  currentFlow.current = akis;
+  const saveGuard = useRef(false);
+  const loadGuard = useRef(false);
+  const [savePending, setSavePending] = useState(false);
+  const [loadPending, setLoadPending] = useState(false);
+  const [flowError, setFlowError] = useState<{ message: string; retry: () => void } | null>(null);
   useEffect(() => {
-    if (!client) return;
-    let iptal = false;
-    void istek("gorsel.saglayicilar", {}).then((sonuc) => {
-      if (iptal) return;
-      const liste = secenekleriOku(sonuc);
-      setSecenekler(liste);
-      const varsayilan = liste[0]?.deger ?? "";
-      setAkis((mevcut) => ({
-        ...mevcut,
-        dugumler: mevcut.dugumler.map((dugum) => (dugum.tur === "uret" && !dugum.saglayici ? { ...dugum, saglayici: varsayilan } : dugum)),
-      }));
-      setBasitAkis((mevcut) => ({
-        ...mevcut,
-        dugumler: mevcut.dugumler.map((dugum) => (dugum.tur === "uret" && !dugum.saglayici ? { ...dugum, saglayici: varsayilan } : dugum)),
-      }));
-    }).catch(() => undefined);
-    void istek("gorsel.galeri", {}).then((sonuc) => {
-      if (iptal || !Array.isArray(sonuc.dosyalar)) return;
-      setGaleri((sonuc.dosyalar as Record<string, unknown>[]).map((dosya) => ({
-        yol: String(dosya.yol), genislik: Number(dosya.genislik ?? 0), yukseklik: Number(dosya.yukseklik ?? 0),
-        istem: String(dosya.istem ?? ""), saglayici: String(dosya.saglayici ?? ""),
-      })));
-    }).catch(() => undefined);
-    void istek("gorsel.akislar", {}).then((sonuc) => {
-      if (!iptal && Array.isArray(sonuc.akislar)) setKayitlilar(sonuc.akislar as KayitliAkis[]);
-    }).catch(() => undefined);
-    return () => { iptal = true; };
-  }, [client, istek]);
+    const generation = ++owner.current;
+    saveGuard.current = false; loadGuard.current = false;
+    setSavePending(false); setLoadPending(false); setFlowError(null);
+    return () => { owner.current = generation + 1; };
+  }, [client]);
+  const applyDiscovery = useCallback((section: DiscoverySection, payload: Record<string, unknown>) => {
+    if (section === "providers") {
+      const choices = secenekleriOku(payload);
+      setSecenekler(choices);
+      const provider = choices[0]?.deger ?? "";
+      const applyDefault = (previous: Akis): Akis => ({ ...previous, dugumler: previous.dugumler.map((node) => node.tur === "uret" && !node.saglayici ? { ...node, saglayici: provider } : node) });
+      setAkis(applyDefault); setBasitAkis(applyDefault);
+    } else if (section === "gallery" && Array.isArray(payload.dosyalar)) {
+      setGaleri((payload.dosyalar as Record<string, unknown>[]).map((file) => ({ yol: String(file.yol), genislik: Number(file.genislik ?? 0), yukseklik: Number(file.yukseklik ?? 0), istem: String(file.istem ?? ""), saglayici: String(file.saglayici ?? "") })));
+    } else if (section === "flows" && Array.isArray(payload.akislar)) setKayitlilar(payload.akislar as KayitliAkis[]);
+  }, []);
+  const discovery = useImageDiscovery(client, applyDiscovery);
 
   const dugumEkle = (tur: DugumTuru) => {
     const sira = akis.dugumler.length;
@@ -122,26 +121,36 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
     }
   };
 
-  const kaydet = async () => {
+  const kaydet = async (snapshot = currentFlow.current) => {
+    if (saveGuard.current) return;
+    saveGuard.current = true; setSavePending(true); setFlowError(null);
+    const generation = owner.current;
+    const before = currentFlow.current;
     try {
-      const sonuc = await istek("gorsel.akis.kaydet", { akis: kaydedilebilir(akis) });
-      if (sonuc.ok !== true) { setBilgi(String(sonuc.metin ?? "Akış kaydedilemedi.")); return; }
-      const id = String(sonuc.id);
-      setAkis({ ...akis, id });
-      setKayitlilar((onceki) => [{ id, ad: akis.ad }, ...onceki.filter((item) => item.id !== id)]);
+      const payload = await istek("gorsel.akis.kaydet", { akis: kaydedilebilir(snapshot) });
+      if (generation !== owner.current) return;
+      const result = operationResult(payload, "Akış kaydedilemedi.");
+      if (!result.ok) { setFlowError({ message: result.message, retry: () => void kaydet(snapshot) }); return; }
+      const id = String(payload.id);
+      if (currentFlow.current === before && snapshot === before) setAkis((previous) => ({ ...previous, id }));
+      setKayitlilar((previous) => [{ id, ad: snapshot.ad }, ...previous.filter((item) => item.id !== id)]);
       setBilgi("Akış kaydedildi.");
-    } catch (reason) {
-      setBilgi(`Akış kaydedilemedi: ${String(reason)}`);
-    }
+    } catch (reason) { if (generation === owner.current) setFlowError({ message: errorMessage(reason), retry: () => void kaydet(snapshot) }); }
+    finally { if (generation === owner.current) { saveGuard.current = false; setSavePending(false); } }
   };
-
-  const yukle = async (id: string) => {
-    if (!id) return;
-    const sonuc = await istek("gorsel.akis.yukle", { id }).catch(() => ({ ok: false }) as Record<string, unknown>);
-    if (sonuc.ok === true && sonuc.akis && typeof sonuc.akis === "object") {
-      setAkis(sonuc.akis as Akis);
-      setHedef(null);
-    } else setBilgi("Akış açılamadı.");
+  const yukle = async (id: string, original = currentFlow.current) => {
+    if (!id || loadGuard.current) return;
+    loadGuard.current = true; setLoadPending(true); setFlowError(null);
+    const generation = owner.current;
+    try {
+      const payload = await istek("gorsel.akis.yukle", { id });
+      if (generation !== owner.current) return;
+      const result = operationResult(payload, "Akış açılamadı.");
+      if (!result.ok || !payload.akis || typeof payload.akis !== "object") { setFlowError({ message: result.ok ? "Akış verisi geçersiz." : result.message, retry: () => void yukle(id, original) }); return; }
+      if (currentFlow.current !== original) { setBilgi("Akış yüklendi; yeni düzenlemeler korunuyor. Açmak için akışı yeniden seç."); return; }
+      setAkis(payload.akis as Akis); setHedef(null);
+    } catch (reason) { if (generation === owner.current) setFlowError({ message: errorMessage(reason), retry: () => void yukle(id, original) }); }
+    finally { if (generation === owner.current) { loadGuard.current = false; setLoadPending(false); } }
   };
 
   const indir = async (yol: string) => {
@@ -201,22 +210,28 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
           <button aria-pressed={mod === "akis"} onClick={() => setMod("akis")} type="button">İş akışı</button>
         </div>
       </header>
+      {(["providers", "gallery", "flows"] as const).map((section) => {
+        const state = discovery.states[section];
+        const label = section === "providers" ? "Sağlayıcılar" : section === "gallery" ? "Galeri" : "Kayıtlı akışlar";
+        return state.status === "loading" ? <p key={section} role="status">{label} yükleniyor…</p> : state.status === "error" ? <p key={section} role="alert">{state.message} <button onClick={() => void discovery.load(section)}>{label}: Yeniden dene</button></p> : null;
+      })}
+      {flowError && <p role="alert">{flowError.message} <button disabled={savePending || loadPending} onClick={flowError.retry}>Yeniden dene</button></p>}
       {mod === "akis" && <>
       <div aria-label="Akış araçları" className="image-create__toolbar" role="toolbar">
         <input aria-label="Akış adı" onChange={(event) => setAkis({ ...akis, ad: event.target.value })} value={akis.ad} />
-        <select aria-label="Kayıtlı akışlar" onChange={(event) => void yukle(event.target.value)} value="">
+        <select disabled={loadPending} aria-label="Kayıtlı akışlar" onChange={(event) => void yukle(event.target.value)} value="">
           <option value="">Kayıtlı akışlar</option>
           {kayitlilar.map((item) => <option key={item.id} value={item.id}>{item.ad}</option>)}
         </select>
         <button disabled={calisiyor} onClick={() => { setAkis(baslangicAkisi(secenekler[0]?.deger)); setHedef(null); }} type="button">Yeni</button>
-        <button disabled={calisiyor || !client} onClick={() => void kaydet()} type="button">Kaydet</button>
+        <button disabled={calisiyor || !client || savePending} onClick={() => void kaydet()} type="button">Kaydet</button>
         <button className="image-create__run" disabled={calisiyor || !client} onClick={() => void calistir(hedef)} type="button">
           {calisiyor ? "Çalışıyor…" : "Çalıştır"}
         </button>
         {hedef && <button disabled={calisiyor || !client} onClick={() => void calistir()} type="button">Tüm akışı çalıştır</button>}
       </div>
       </>}
-      {!secenekler.length && client && (
+      {discovery.states.providers.status === "ready" && !secenekler.length && client && (
         <p className="image-create__error" role="alert">Görsel üretebilen bağlı sağlayıcı yok. Ayarlar → Sağlayıcılar'dan NVIDIA NIM anahtarı ekle ya da Gemini web'e bağlan.</p>
       )}
       {bilgi && <p className="image-create__info" role="status">{bilgi}</p>}
@@ -240,7 +255,7 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
         </div>}
         <aside aria-label="Galeri" className="image-create__gallery">
           {mod === "akis" && <h2>Galeri</h2>}
-          {!galeri.length && !calisiyor && (
+          {discovery.states.gallery.status === "ready" && !galeri.length && !calisiyor && (
             <div className="image-create__empty">
               <strong>Hayal et, Fusion çizsin.</strong>
               <p>Üretilen görseller burada kalır; "İndir" demeden diske kaydedilmez.</p>

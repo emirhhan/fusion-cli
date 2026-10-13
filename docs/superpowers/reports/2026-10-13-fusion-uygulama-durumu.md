@@ -45,11 +45,11 @@ Son loglar: /tmp/fusion-package2-python-full-4.log, /tmp/fusion-package2-app-tes
 
 ### Sonraki paketlere taşınan kontroller
 
-Paket3 mevcut App storage getter SecurityError ve Hook lint altyapısını; Paket11 mevcut Kits Hook lint altyapısını ele alacak. Paket7/15 typed finish state sınırı, Paket8/16 retired owner epoch dosya bakımını tekrar değerlendirecek. Empty-draft observation minor son Kits düzeltmesinde kapanmıştır. Native kurulum, gerçek günlük üretim, mikrofon/speaker ve sağlayıcı smoke bu kapıdan çıkarılamaz.
+Paket3 App storage getter SecurityError ve kendi async yollarındaki strict Hook kapısını tamamladı. Paket11 mevcut Kits Hook lint altyapısını ele alacak. Paket7/15 typed finish state sınırı, Paket8/16 retired owner epoch dosya bakımını tekrar değerlendirecek. Empty-draft observation minor son Kits düzeltmesinde kapanmıştır. Native kurulum, gerçek günlük üretim, mikrofon/speaker ve sağlayıcı smoke bu kapıdan çıkarılamaz.
 
-## Paket3–16 — hazırlık tamam, ürün uygulaması sırada
+## Paket4–16 — hazırlık tamam, ürün uygulaması sırada
 
-Yeni dosyalardaki aşağıdaki sonuçlar başarısız test örnekleridir; bağımsız kusur sayısı, ürün tamamlanması veya parite ölçümü değildir. Mevcut ürün/eski testler değiştirilmedi. Paket3 uygulaması Paket2 commit sonrasında başlar; kalanları dependency sırasıyla izler.
+Yeni dosyalardaki aşağıdaki sonuçlar başarısız test örnekleridir; bağımsız kusur sayısı, ürün tamamlanması veya parite ölçümü değildir. Mevcut ürün/eski testler değiştirilmedi. Aşağıdaki tablo tarihsel RED hazırlığıdır; Paket3 karşılıkları aşağıda GREEN olarak kapatılmıştır. Kalanlar dependency sırasıyla uygulanır.
 
 | Paket | RED | GREEN | Ana gözlem |
 |---|---:|---:|---|
@@ -67,3 +67,15 @@ Yeni dosyalardaki aşağıdaki sonuçlar başarısız test örnekleridir; bağı
 | 15 | 3 | 2 | PEM maskeleme ve teslim kapsamı |
 
 Paket14 ve16 için kaynak doğrulanmış komut, prerequisite, çıktı, kanıt ve insan kabulü matrisleri hazırlanmıştır. Gerçek üretim/kurulum/hardware çalıştırılmadı; release gates not_run. Gömülü Kits kimliği, raporun gerçek kanıta bağlanması, temiz kurulum/upgrade migration ve kalıcı rollback yedeği uygulama kapsamındadır.
+
+## Paket 3 — tamamlandı
+
+Karşılama kaynak/kontrol keşifleri bağımsız loading/error/ready durumları kullanır. Bilinmeyen sayı veya sağlayıcı sağlığı uydurulmaz; projesiz devam, sürümlü kurulum ilerlemesi ve mevcut sağlayıcı formuna gidip aynı adıma dönme korunur. Güvenli storage adapter getter SecurityError dahil hata yakalar.
+
+Ayarlar ilgili işleme ait pending/error/retry ve içerik aramasıyla satıra odaklanma sağlar. İstemci değişince eski snapshot temizlenir; güncel snapshot olmadan mutasyon açılmaz. Senkron veya başka realm Promise komutları yenileme bitene kadar aynı pending korumasına uyar. Görsel sağlayıcı/galeri/akış keşifleri bağımsızdır; geç save/load kullanıcı düzenlemesini ezmez; galeri boş görünümü yalnız başarılı boş keşifte çıkar. Ek/dikte/komut hataları ayrı gösterilir; kopyalama makbuzu kalıcı mesaj kimliğinde kalır.
+
+React, TypeScript ve sözleşme incelemeleri tamamlandı; bulunan üç durum hatası regresyon testleriyle kapandı. Son App Node22 kapısı 138 dosya/1027 PASS, build ve strict hook sırası/Paket3 async dependency lint geçti. Eski AccountScreen unused-disable uyarısı kaldı. Küresel dependency taraması dört eski uyarı gösterir: VoiceWindow üçü Paket13, PreviewPanel biri Paket9/16 sahibi; küresel temizlik iddiası yok. Üç lint dev dependency tam sürüm ve lock ile kaydedildi.
+
+Görsel kapı 10 ekran/6 PASS/4 FAIL. Önceki sabit commit b4fa6a94 aynı 6 PASS/4 FAIL verdi; dört actual PNG byte-identical. Kontrol light/dark/compact ve settings-details-compact golden farkları önceden vardır, referanslar yenilenmedi ve Paket16'ya taşındı. İlk görsel koşunun eksik browser executable hatası exact Playwright1234 headless shell cache kurulmasıyla giderildi. Native ilk açılış/VoiceOver/OS clipboard veya gerçek sağlayıcı üretimi bu kanıt değildir. Python/Kits kaynakları değişmedi; Paket2 kapısı korunur.
+
+Kullanıcının 13 Ekim marka görselleri ve FUSION_MASTER_PLAN.md sonraki aşama kaydına alındı. Önce 16 paket tamamlanacak; ardından maddeler mevcut uygulamayla karşılaştırılarak gerekli eksikler yerelde uygulanacak. Mevcut arayüz korunur; logo ilk görsel, yüklenme ikinci görsel, fontlar SF Pro Display/Inter/JetBrains Mono; palet küçük detaylarda. Push yapılmadı.

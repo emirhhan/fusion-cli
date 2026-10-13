@@ -9,6 +9,7 @@ import type {
   RuntimeSummary,
   SampleProject,
 } from "./types";
+import type { AsyncState } from "../protocol/asyncState";
 import { Button } from "../ui/Button";
 import { StatusRow } from "../ui/StatusRow";
 import "../theme/tokens.css";
@@ -42,6 +43,7 @@ const PROVIDER_STATUSES: Record<
   ProviderSummary["status"],
   { label: string; tone: "success" | "warning" | "neutral" }
 > = {
+  "configured-unverified": { label: "Yapılandırıldı · doğrulanmadı", tone: "warning" },
   ready: { label: "Hazır", tone: "success" },
   "needs-setup": { label: "Kurulum gerekli", tone: "warning" },
   unavailable: { label: "Kullanılamıyor", tone: "neutral" },
@@ -74,6 +76,14 @@ export interface OnboardingProps {
   runtime: RuntimeSummary;
   sources: DiscoveredSource[];
   value: OnboardingValue;
+  sourcesState?: AsyncState<DiscoveredSource[]>;
+  controlState?: AsyncState<unknown>;
+  controlHasSnapshot?: boolean;
+  onRetrySources?: () => void;
+  onRetryControl?: () => void;
+  onConnectProvider?: (id: string) => void;
+  resetPending?: boolean;
+  resetError?: string | null;
 }
 
 function WelcomeStep() {
@@ -114,7 +124,7 @@ function SourcesStep({ sources }: { sources: DiscoveredSource[] }) {
   return (
     <>
       <p className="onboarding__eyebrow">Yerel keşif</p>
-      <h1>Kaynaklarınız bulundu</h1>
+      <h1>{sources.some((source) => source.status === "found") ? "Kaynaklarınız bulundu" : "Kaynak bulunamadı"}</h1>
       <p className="onboarding__lead">Fusion yalnız bilgisayarınızda keşfedilen araçların özetini gösterir.</p>
       <div className="onboarding__status-list">
         {sources.map((source) => (
@@ -122,7 +132,7 @@ function SourcesStep({ sources }: { sources: DiscoveredSource[] }) {
             description={source.status === "found" ? "Yerel kaynak" : "Bu Mac'te keşfedilmedi"}
             key={source.kind}
             label={SOURCE_LABELS[source.kind]}
-            status={source.status === "found" ? `${source.itemCount ?? 0} öğe` : "Bulunamadı"}
+            status={source.status === "found" ? (source.itemCount === undefined ? "Bulundu" : `${source.itemCount} öğe`) : "Bulunamadı"}
             tone={source.status === "found" ? "success" : "neutral"}
           />
         ))}
@@ -134,7 +144,9 @@ function SourcesStep({ sources }: { sources: DiscoveredSource[] }) {
 function ApprenticeStatusRow({
   apprentice,
   onResetToApprentice,
+  resetPending,
 }: {
+  resetPending?: boolean;
   apprentice: ApprenticeStatus;
   onResetToApprentice: () => void;
 }) {
@@ -143,6 +155,7 @@ function ApprenticeStatusRow({
   // docstring'i) — yalnızca burada, panelde kalıcı bir düğme sunarız. Web
   // modeli kötülenmez: çalıştığı söylenir, somut fark (hız + gerçek araç
   // çağrısı) belirtilir.
+  if (apprentice.active === null) return <StatusRow label="Ücretsiz API çırağı" status="Durumu bilinmiyor" tone="neutral" />;
   if (apprentice.active) {
     return (
       <StatusRow
@@ -156,7 +169,7 @@ function ApprenticeStatusRow({
   return (
     <StatusRow
       action={
-        <Button onClick={onResetToApprentice} variant="secondary">
+        <Button disabled={resetPending} onClick={onResetToApprentice} variant="secondary">
           Ücretsiz çırağa dön
         </Button>
       }
@@ -176,7 +189,11 @@ function ProvidersStep({
   apprentice,
   onResetToApprentice,
   providers,
+  onConnectProvider,
+  resetPending,
 }: {
+  onConnectProvider?: (id: string) => void;
+  resetPending?: boolean;
   apprentice: ApprenticeStatus;
   onResetToApprentice: () => void;
   providers: ProviderSummary[];
@@ -187,11 +204,12 @@ function ProvidersStep({
       <h1>Sağlayıcı durumu</h1>
       <p className="onboarding__lead">Anahtar değerleri Fusion onboarding arayüzüne aktarılmaz veya gösterilmez.</p>
       <div className="onboarding__status-list">
-        <ApprenticeStatusRow apprentice={apprentice} onResetToApprentice={onResetToApprentice} />
+        <ApprenticeStatusRow apprentice={apprentice} onResetToApprentice={onResetToApprentice} resetPending={resetPending} />
         {providers.map((provider) => {
           const status = PROVIDER_STATUSES[provider.status];
           return (
             <StatusRow
+              action={onConnectProvider && <Button onClick={() => onConnectProvider(provider.id)} variant="secondary">Bağlan</Button>}
               description={provider.secretConfigured ? "Kimlik bilgisi yapılandırıldı" : "Kimlik bilgisi eklenmedi"}
               key={provider.id}
               label={redactExternalText(provider.name)}
@@ -263,7 +281,7 @@ export function Onboarding({
   providers,
   runtime,
   sources,
-  value,
+  value, sourcesState, controlState, controlHasSnapshot, onRetrySources, onRetryControl, onConnectProvider, resetPending, resetError,
 }: OnboardingProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const stepIndex = STEPS.indexOf(value.step);
@@ -300,13 +318,16 @@ export function Onboarding({
   const content = {
     welcome: <WelcomeStep />,
     runtime: <RuntimeStep runtime={runtime} />,
-    sources: <SourcesStep sources={sources} />,
-    providers: (
+    sources: sourcesState?.status === "loading" ? <><h1>Kaynaklar yükleniyor</h1><p role="status">Kaynak keşfi sürüyor.</p></> : sourcesState?.status === "error" ? <><h1>Kaynaklar okunamadı</h1><p role="alert">{sourcesState.message}</p><Button onClick={onRetrySources}>Yeniden dene</Button></> : <SourcesStep sources={sources} />,
+    providers: !controlHasSnapshot && controlState?.status === "loading" ? <><h1>Sağlayıcılar yükleniyor</h1><p role="status">Kontrol durumu yükleniyor.</p></> : !controlHasSnapshot && controlState?.status === "error" ? <><h1>Sağlayıcılar okunamadı</h1><p role="alert">{controlState.message}</p><Button onClick={onRetryControl}>Yeniden dene</Button></> : (
+      <> {controlHasSnapshot && controlState?.status === "error" && <p role="alert">{controlState.message}<Button onClick={onRetryControl}>Durumu yeniden dene</Button></p>}
       <ProvidersStep
         apprentice={apprentice}
         onResetToApprentice={onResetToApprentice}
         providers={providers}
-      />
+        onConnectProvider={onConnectProvider}
+        resetPending={resetPending}
+      /></>
     ),
     project: (
       <ProjectStep
@@ -332,12 +353,13 @@ export function Onboarding({
         </ol>
       </aside>
       <section className="onboarding__panel">
-        <div className="onboarding__content" ref={contentRef}>{content[value.step]}</div>
+        <div className="onboarding__content" ref={contentRef}>{content[value.step]}{resetError && <p role="alert">{resetError}<Button onClick={onResetToApprentice} disabled={resetPending}>Yeniden dene</Button></p>}</div>
         <footer className="onboarding__footer">
           <div>
             {stepIndex > 0 && <Button onClick={() => move(-1)} variant="ghost">Geri</Button>}
           </div>
           <div className="onboarding__actions">
+            {value.step === "project" && <Button onClick={() => onComplete({ selectedProjectId: null })} variant="secondary">Proje seçmeden devam et</Button>}
             {value.step !== "complete" && <Button onClick={() => onSkip(value)} variant="ghost">Şimdilik atla</Button>}
             {value.step === "complete" ? (
               <Button

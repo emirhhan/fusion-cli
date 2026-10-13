@@ -88,11 +88,11 @@ Bu Node yolu bu Mac'e ait; başka Mac'te Node22 executable bulunup aynı version
 
 **Kapsam:** U01–U10/U19/U21/U31/U32, K27. **Dosyalar:** `App.tsx`, `SessionApplication.tsx::ConnectedOnboarding`, onboarding, Settings, ImageCreate. **Önerilen yeni ortak interface:** `AsyncState<T> = {status:'loading'} | {status:'ready';value:T} | {status:'error';message:string}`; “boş” ready value'dur. Genel state store yazılmaz; ekran adapter'ında kullanılır.
 
-- [ ] A01/A02/A03/A28: localStorage throw, bağımsız keşif fail, count unknown, provider configured-but-unverified ve image load error fixture.
-- [ ] Mutasyon sonucu `{ok:false}` ile promise reject ayrı tests; her ikisinde görünür hata ve önceki state. Kırmızı testleri gör.
-- [ ] `Promise.allSettled` veya eşdeğer bağımsız sonuç işle; doğrulanmamış apprentice active false demek yerine pending/unknown olsun; kaynak sayısı yoksa “Bulundu”.
-- [ ] Projesiz devam ve kurulum restore; güvenli storage adapter; reset/load/save için pending ve retry. Kopyalama başarılı/başarısız makbuzu.
-- [ ] İlgili Vitest + visual mevcut fixture'ı güncel karar ile kıyasla; test/build. Native ilk açılış kabulü daha sonra paket16'da.
+- [x] A01/A02/A03/A28: localStorage throw, bağımsız keşif fail, count unknown, provider configured-but-unverified ve image load error fixture.
+- [x] Mutasyon sonucu `{ok:false}` ile promise reject ayrı tests; her ikisinde görünür hata ve önceki state. Kırmızı testleri gör.
+- [x] `Promise.allSettled` veya eşdeğer bağımsız sonuç işle; doğrulanmamış apprentice active false demek yerine pending/unknown olsun; kaynak sayısı yoksa “Bulundu”.
+- [x] Projesiz devam ve kurulum restore; güvenli storage adapter; reset/load/save için pending ve retry. Kopyalama başarılı/başarısız makbuzu.
+- [x] İlgili Vitest + visual mevcut fixture'ı güncel karar ile kıyasla; test/build. Native ilk açılış kabulü daha sonra paket16'da.
 
 ## Paket 4 — Model ve thinking sözleşmesi
 

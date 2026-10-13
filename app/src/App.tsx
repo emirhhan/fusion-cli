@@ -1,3 +1,5 @@
+import { readStorage, writeStorage } from "./platform/storage";
+import { COMPLETION_KEY } from "./onboarding/persistence";
 import { useState } from "react";
 import type { RuntimeTransport } from "./runtime/types";
 import { useRuntime } from "./runtime/useRuntime";
@@ -15,20 +17,24 @@ interface AppProps {
 export default function App({ runtimeTransport, sessionTransport }: AppProps = {}) {
   const runtime = useRuntime(runtimeTransport);
   const [onboardingComplete, setOnboardingComplete] = useState(
-    () => localStorage.getItem("fusion.onboarding.completed.v1") === "true",
+    () => { const result = readStorage(() => window.localStorage, COMPLETION_KEY); return result.ok && result.value === "true"; },
   );
+  const [completionWarning, setCompletionWarning] = useState(false);
   if (runtime.state !== "hazir") {
     return <RuntimeSetup {...runtime} onRepair={runtime.repair} />;
   }
   return (
+    <>
+    {completionWarning && <p role="status">Kurulum tercihi saklanamadı; bu oturumda geçerli.</p>}
     <SessionUygulama
       onboarding={!onboardingComplete}
       onOnboardingComplete={() => {
-        localStorage.setItem("fusion.onboarding.completed.v1", "true");
         setOnboardingComplete(true);
+        setCompletionWarning(!writeStorage(() => window.localStorage, COMPLETION_KEY, "true").ok);
       }}
       runtimeVersion={runtime.version}
       transport={sessionTransport}
     />
+    </>
   );
 }
