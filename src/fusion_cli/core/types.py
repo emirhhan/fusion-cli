@@ -294,6 +294,9 @@ class ModelResult:
     # seçili kademesi yazar ve oturum düşerse bu anonim ücretsiz kademe olur.
     # Bilinmiyorsa boş kalır; boş olması "istenen kademe geldi" demek DEĞİLDİR.
     served_by: str = ""
+    requested_effort: str | None = None
+    applied_effort: str | None = None
+    effort_reason: str = ""
 
     @property
     def is_rate_limited(self) -> bool:

@@ -11,6 +11,7 @@ altı seviyelik kullanıcı seçimi bu üçe indirgenir ve indirgeme kullanıcı
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 
 from .model_capability import ModelCapability

@@ -18,6 +18,8 @@ from dataclasses import replace
 from typing import Any
 
 from ..core.clock import SystemClock
+from ..core.model_capability import ModelCapability
+from ..core.reasoning import resolve_reasoning
 from ..core.protocols import Clock
 from ..core.redaction import redact
 from ..core.tool_emulation import CALL_CLOSE, CALL_OPEN, parse_tool_calls
@@ -74,9 +76,11 @@ class LiteLlmProvider:
     """Tek bir model kimliğine bağlı sağlayıcı."""
 
     def __init__(
-        self, model: str, *, role: str, clock: Clock | None = None, api_key: str | None = None
+        self, model: str, *, role: str, clock: Clock | None = None, api_key: str | None = None,
+        capability: ModelCapability | None = None
     ) -> None:
         self._model = model
+        self._capability = capability if capability is not None else ModelCapability()
         self._role = role
         self._clock = clock or SystemClock()
         #: Verilirse bu çağrıda ortam değişkeni yerine bu anahtar kullanılır (çok-hesap
@@ -95,7 +99,7 @@ class LiteLlmProvider:
             # Sağlayıcı hataları BEKLENEN durumdur (429, 5xx, zaman aşımı, soğuk uç):
             # akışı kesmemek için exception'a değil sonuç nesnesine çevrilir.
             return self._failure(exc, started)
-        return self._success(response, started)
+        return self._with_effort(self._success(response, started), request)
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         started = self._clock.monotonic()
@@ -115,9 +119,9 @@ class LiteLlmProvider:
                     # sessizlik sınırını tazeler (bkz. `loop._call_model`).
                     yield TextChunk("", provisional=True)
         except Exception as exc:
-            yield StreamDone(self._failure(exc, started))
+            yield StreamDone(self._with_effort(self._failure(exc, started), request))
             return
-        yield StreamDone(self._rebuild(chunks, request, started))
+        yield StreamDone(self._with_effort(self._rebuild(chunks, request, started), request))
 
     # ----------------------------------------------------------------------- #
 
@@ -141,10 +145,9 @@ class LiteLlmProvider:
         if self._api_key is not None:
             # Havuzdan gelen anahtar ortam değişkenini geçersiz kılar (çok-hesap).
             kwargs["api_key"] = self._api_key
-        if request.reasoning_effort is not None:
-            # Üst katman değeri yalnızca reasoning destekleyen modelde ayarlar; yine de
-            # `litellm.drop_params` desteklemeyen uçta bu parametreyi güvenle düşürür.
-            kwargs["reasoning_effort"] = request.reasoning_effort
+        resolution = resolve_reasoning(request.reasoning_effort, self._capability)
+        if resolution.applied is not None:
+            kwargs["reasoning_effort"] = resolution.applied
         if request.disable_thinking and self._model.startswith(_TEMPLATE_THINKING_PREFIXES):
             # Yalnız ölçülen sağlayıcıda: NIM şablon anahtarı. Başka uçlara ham gövde
             # gönderilmez (OpenAI 400 verir).
@@ -153,6 +156,10 @@ class LiteLlmProvider:
             kwargs["stream"] = True
             kwargs["stream_options"] = {"include_usage": True}
         return kwargs
+
+    def _with_effort(self, result: ModelResult, request: CompletionRequest) -> ModelResult:
+        resolved = resolve_reasoning(request.reasoning_effort, self._capability)
+        return replace(result, requested_effort=resolved.requested, applied_effort=resolved.applied, effort_reason=resolved.reason)
 
     def _elapsed_ms(self, started: float) -> int:
         return int((self._clock.monotonic() - started) * 1000)
@@ -189,6 +196,7 @@ class LiteLlmProvider:
             tool_calls=tool_calls,
             reasoning=_response_reasoning(response),
             truncated=yarim,
+            served_by=_observed_model(response),
         )
 
     def _rebuild(
@@ -211,8 +219,12 @@ class LiteLlmProvider:
                 latency_ms=self._elapsed_ms(started),
                 ok=True,
                 reasoning=akis_reasoning,
+                served_by=next((_observed_model(chunk) for chunk in reversed(chunks) if _observed_model(chunk)), ""),
             )
         sonuc = self._success(rebuilt, started)
+        if not sonuc.served_by:
+            observed = next((_observed_model(chunk) for chunk in reversed(chunks) if _observed_model(chunk)), "")
+            sonuc = replace(sonuc, served_by=observed)
         if sonuc.reasoning or not akis_reasoning:
             return sonuc
         # `stream_chunk_builder` düşünme metnini her sağlayıcıda taşımaz; parçalardan
@@ -223,6 +235,12 @@ class LiteLlmProvider:
 # --------------------------------------------------------------------------- #
 # SDK nesnelerini okuma — bu sınır dışına LiteLLM tipi sızmaz.
 # --------------------------------------------------------------------------- #
+
+
+def _observed_model(response: Any) -> str:
+    """Provider-observed identity; never use requested identity as evidence."""
+    value = response.get("model") if isinstance(response, dict) else getattr(response, "model", None)
+    return value if isinstance(value, str) else ""
 
 
 def _response_text(response: Any) -> str:
