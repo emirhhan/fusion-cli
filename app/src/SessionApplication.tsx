@@ -25,6 +25,7 @@ import {
   type DosyaOnerisi,
 } from "./screens/Composer";
 import { Conversation, type Mesaj } from "./screens/Conversation";
+import { visibleModelForSession, type OwnedModelSnapshot } from "./screens/modelSnapshot";
 import type { ModelOption } from "./screens/ModelPicker";
 import { EmptyState } from "./screens/EmptyState";
 import { Inspector, type InspectorTabId } from "./screens/Inspector";
@@ -464,8 +465,7 @@ export function SessionUygulama({
   const [commandBusy, setCommandBusy] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commands, setCommands] = useState<ComposerCommand[]>([]);
-  const [activeModel, setActiveModel] = useState("");
-  const [activeModelLabel, setActiveModelLabel] = useState("");
+  const [modelSnapshot, setModelSnapshot] = useState<OwnedModelSnapshot | null>(null);
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [modelsBusy, setModelsBusy] = useState(false);
   const [fileSuggestions, setFileSuggestions] = useState<DosyaOnerisi[]>([]);
@@ -521,6 +521,7 @@ export function SessionUygulama({
   const active = controller.activeSession;
   const activeSessionId = active?.id;
   const activeClient = active?.client;
+  const visibleModel = visibleModelForSession(modelSnapshot, activeSessionId, activeClient);
   const activeMessages = active?.messages;
   const activeRunning = active?.running;
   const commandOwner = useRef(0);
@@ -739,26 +740,26 @@ export function SessionUygulama({
     return () => { alive = false; unlisten?.(); };
   }, [activeSessionId]);
 
-  // Etkin model oturumun yapılandırmasından gelir; istemcide önbelleğe alınmaz.
-  // `controlRevision` bağımlılıktır: `/model` komutu modeli değiştirdiğinde
-  // composer'daki ad da tazelenmeli, yoksa eski model yazılı kalırdı.
+  // A model snapshot is owned by the exact session and client. A previous
+  // conversation's successful response must never be shown for a new one.
   useEffect(() => {
-    if (!active) return;
+    if (!activeClient || !activeSessionId) return;
     let alive = true;
-    void active.client
-      .request("kontrol.durum", {})
+    void activeClient.request("kontrol.durum", {})
       .then((payload) => {
         if (!alive || payload.ok !== true) return;
         const modelState = payload.model as { agent?: unknown; agent_label?: unknown } | undefined;
-        const model = modelState?.agent;
-        if (typeof model === "string") setActiveModel(model);
-        setActiveModelLabel(typeof modelState?.agent_label === "string" ? modelState.agent_label : "");
+        if (typeof modelState?.agent !== "string") return;
+        setModelSnapshot({
+          sessionId: activeSessionId,
+          client: activeClient,
+          model: modelState.agent,
+          label: typeof modelState.agent_label === "string" ? modelState.agent_label : "",
+        });
       })
       .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, [active, controlRevision]);
+    return () => { alive = false; };
+  }, [activeClient, activeSessionId, controlRevision]);
 
   /** Etkin sağlayıcıların canlı katalogda bulunan modellerini oku. */
   const loadModelOptions = useCallback(async () => {
@@ -1309,8 +1310,8 @@ export function SessionUygulama({
               setCommandError(null);
             }).catch(() => setCommandError("Sohbet kipi değiştirilemedi. Yeniden dene."));
           }}
-          activeModel={activeModel}
-          activeModelLabel={activeModelLabel}
+          activeModel={visibleModel.model}
+          activeModelLabel={visibleModel.label}
           modelOptions={modelOptions}
           modelsBusy={modelsBusy}
           onModelMenuOpen={() => void loadModelOptions()}
