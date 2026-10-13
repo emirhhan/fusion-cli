@@ -25,6 +25,7 @@ import {
   type DosyaOnerisi,
 } from "./screens/Composer";
 import { Conversation, type Mesaj } from "./screens/Conversation";
+import { useModelCatalog } from "./screens/useModelCatalog";
 import { visibleModelForSession, type OwnedModelSnapshot } from "./screens/modelSnapshot";
 import type { ModelOption } from "./screens/ModelPicker";
 import { EmptyState } from "./screens/EmptyState";
@@ -466,8 +467,6 @@ export function SessionUygulama({
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commands, setCommands] = useState<ComposerCommand[]>([]);
   const [modelSnapshot, setModelSnapshot] = useState<OwnedModelSnapshot | null>(null);
-  const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
-  const [modelsBusy, setModelsBusy] = useState(false);
   const [fileSuggestions, setFileSuggestions] = useState<DosyaOnerisi[]>([]);
   //: En son gönderilen `@` sorgusunun sırası. Geç gelen cevap yenisini EZMEZ:
   //: kullanıcı yazmaya devam ettiğinde eski sorgunun sonucu listeyi geri almamalı.
@@ -534,6 +533,11 @@ export function SessionUygulama({
   const workspaceMode = active
     ? workspaceModes[active.id] ?? storedWorkspaceMode(active.id) ?? "kod"
     : "kod";
+  const modelCatalog = useModelCatalog(activeClient, activeSessionId, workspaceMode);
+  const modelOptions = modelCatalog.options;
+  const modelsBusy = modelCatalog.state.status === "loading";
+  const modelsError = modelCatalog.state.status === "error" ? modelCatalog.state.message : "";
+  const loadModelOptions = modelCatalog.load;
   const dictation = useDictation((id, text) =>
     setDrafts((current) => ({ ...current, [id]: text })),
   );
@@ -760,35 +764,6 @@ export function SessionUygulama({
       .catch(() => undefined);
     return () => { alive = false; };
   }, [activeClient, activeSessionId, controlRevision]);
-
-  /** Etkin sağlayıcıların canlı katalogda bulunan modellerini oku. */
-  const loadModelOptions = useCallback(async () => {
-    if (!active) return;
-    setModelsBusy(true);
-    setModelOptions([]);
-    try {
-      const sonuc = await active.client.request("model.katalog", { kip: workspaceMode });
-      const modeller = Array.isArray(sonuc.modeller) ? sonuc.modeller : [];
-      setModelOptions(
-        modeller.flatMap((raw) => {
-          if (!raw || typeof raw !== "object") return [];
-          const row = raw as Record<string, unknown>;
-          if (typeof row.model !== "string" || !row.model || typeof row.kaynak !== "string") return [];
-          return [{
-            deger: `/development uygula ${row.kaynak} ${row.model}`,
-            modelId: row.model,
-            etiket: typeof row.etiket === "string" ? row.etiket : row.model,
-            aciklama: typeof row.aciklama === "string" ? row.aciklama : "",
-            grup: typeof row.grup === "string" ? row.grup : "diger",
-          }];
-        }),
-      );
-    } catch {
-      setModelOptions([]);
-    } finally {
-      setModelsBusy(false);
-    }
-  }, [active, workspaceMode]);
 
   useEffect(() => {
     if (!activeClient || !activeSessionId) return;
@@ -1314,6 +1289,8 @@ export function SessionUygulama({
           activeModelLabel={visibleModel.label}
           modelOptions={modelOptions}
           modelsBusy={modelsBusy}
+          modelsError={modelsError}
+          onModelRetry={() => void loadModelOptions()}
           onModelMenuOpen={() => void loadModelOptions()}
           onModelSelect={(komut) => void executeCommand(komut, false, false)}
           approval={approval}

@@ -22,6 +22,8 @@ export interface ModelOption {
   aciklama?: string;
   grup?: string;
   modelId?: string;
+  toolSupport?: string;
+  health?: string;
 }
 
 export interface ModelPickerProps {
@@ -33,6 +35,10 @@ export interface ModelPickerProps {
   onOpen?: () => void;
   onSelect: (deger: string) => void;
   busy?: boolean;
+  error?: string;
+  onRetry?: () => void;
+  onConnect?: () => void;
+  pending?: boolean;
 }
 
 /** Uzun model kimliğini düğmeye sığacak biçimde kısalt: sağlayıcı önekini at. */
@@ -45,7 +51,7 @@ export function shortModelName(model: string): string {
   return ad.replace(/:free$/, "").replace(/-\d+(?:\.\d+)?b-a\d+(?:\.\d+)?b(?=-|$)/gi, "") || ad;
 }
 
-export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelect, options }: ModelPickerProps) {
+export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelect, options, error, onRetry, onConnect, pending = false }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
@@ -106,7 +112,7 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
       event.preventDefault(); setOpen(false); trigger.current?.focus();
       return;
     }
-    if (busy || !visible.length) return;
+    if (busy || pending || !visible.length) return;
     if (event.key === "ArrowDown") {
       event.preventDefault(); setHighlight((value) => (value + 1) % visible.length);
     } else if (event.key === "ArrowUp") {
@@ -153,9 +159,11 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
             value={query}
           />
           {busy && <p className="model-picker__state">Modeller okunuyor…</p>}
-          {!busy && options.length === 0 && (
+          {error && <p className="model-picker__state" role="alert">{error} {onRetry && <button onClick={onRetry} type="button">Yeniden dene</button>}</p>}
+          {!busy && !error && options.length === 0 && (
             <p className="model-picker__state">
               Seçilebilir model yok. Ayarlar'dan bir sağlayıcıya bağlan.
+              {onConnect && <button onClick={onConnect} type="button">Bağlan</button>}
             </p>
           )}
           {!busy && options.length > 0 && visible.length === 0 && (
@@ -170,11 +178,14 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
                   aria-selected={option.modelId === active || option.deger === active}
                   id={`${listId}-${visible.indexOf(option)}`}
                   tabIndex={-1}
+                  disabled={pending}
                   data-highlighted={visible.indexOf(option) === highlight}
                   className="model-picker__option"
                   key={option.deger}
                   onClick={() => {
+                    if (pending) return;
                     setOpen(false);
+                    trigger.current?.focus();
                     onSelect(option.deger);
                   }}
                   role="option"
@@ -182,6 +193,7 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
                 >
                   <strong>{option.etiket}</strong>
                   {option.aciklama && <small>{option.aciklama}</small>}
+                  {(option.toolSupport || option.health) && <small>{[option.toolSupport, option.health].filter(Boolean).join(" · ")}</small>}
                 </button>
               ))}
             </div>
