@@ -79,13 +79,16 @@ export function Settings({
   const [historyOpen, setHistoryOpen] = useState(readHistoryOpen);
   const [gatewayBusy, setGatewayBusy] = useState(false);
   const [modeBusy, setModeBusy] = useState(false);
+  const [effortBusy, setEffortBusy] = useState(false);
   const [gatewayError, setGatewayError] = useState<{ message: string; retry: () => void } | null>(null);
   const [modeError, setModeError] = useState<{ message: string; retry: () => void } | null>(null);
+  const [effortError, setEffortError] = useState<{ message: string; retry: () => void } | null>(null);
   const [controlLoading, setControlLoading] = useState(true);
   const owner = useRef(0);
   const loadSequence = useRef(0);
   const gatewayGuard = useRef(false);
   const modeGuard = useRef(false);
+  const effortGuard = useRef(false);
   const [focusRow, setFocusRow] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -139,22 +142,25 @@ export function Settings({
       // kalıyordu. `catch` bloğu da GERÇEK nedeni atıyor, sabit bir metinle
       // örtüyordu — bu dosyanın altındaki `bellek`/`kontrol.anahtar_*`
       // çağrıları gibi asıl sebep gösterilmeliydi.
-      if (generation !== owner.current || sequence !== loadSequence.current) return;
+      if (generation !== owner.current || sequence !== loadSequence.current) return null;
       if (durum?.ok === false) throw new Error(durum.metin || "Ayarlar okunamadı.");
       setControl(durum ?? null);
       setError(null); setControlLoading(false);
+      return durum ?? null;
     } catch (reason) {
-      if (generation !== owner.current || sequence !== loadSequence.current) return;
+      if (generation !== owner.current || sequence !== loadSequence.current) return null;
       setControlLoading(false);
       setError(`Ayarlar okunamadı: ${String(reason instanceof Error ? reason.message : reason)}`);
+      return null;
     }
   }, [client]);
 
   useEffect(() => {
     const generation = ++owner.current;
-    gatewayGuard.current = false; modeGuard.current = false;
+    gatewayGuard.current = false; modeGuard.current = false; effortGuard.current = false;
     setControl(null); setError(null);
-    setGatewayBusy(false); setModeBusy(false); setGatewayError(null); setModeError(null);
+    setGatewayBusy(false); setModeBusy(false); setEffortBusy(false);
+    setGatewayError(null); setModeError(null); setEffortError(null);
     void load();
     return () => { owner.current = generation + 1; };
   }, [load]);
@@ -203,6 +209,42 @@ export function Settings({
     };
     void run();
   };
+  const selectEffort = (effort: string) => {
+    if (!control?.model?.yogunluk_dogrulandi || !onRunCommand || effortGuard.current) return;
+    const allowed = ["auto", ...(control.model.desteklenen_yogunluklar ?? [])];
+    if (!allowed.includes(effort)) return;
+    effortGuard.current = true;
+    setEffortBusy(true);
+    setEffortError(null);
+    const generation = owner.current;
+    const run = async () => {
+      try {
+        const payload = await onRunCommand(`/effort ${effort}`);
+        if (generation !== owner.current) return;
+        const result = operationResult(payload, "Düşünme yoğunluğu değiştirilemedi.", true);
+        if (!result.ok) {
+          setEffortError({ message: result.message, retry: () => selectEffort(effort) });
+          return;
+        }
+        const refreshed = await load();
+        if (generation !== owner.current || !refreshed) return;
+        if (refreshed.model?.yogunluk !== effort) {
+          setEffortError({ message: "Düşünme yoğunluğu güncellendiği doğrulanamadı.", retry: () => selectEffort(effort) });
+        }
+      } catch (reason) {
+        if (generation === owner.current) {
+          setEffortError({ message: errorMessage(reason), retry: () => selectEffort(effort) });
+        }
+      } finally {
+        if (generation === owner.current) {
+          effortGuard.current = false;
+          setEffortBusy(false);
+        }
+      }
+    };
+    void run();
+  };
+
   const searchResults = searchSettings(search);
   useEffect(() => {
     if (!focusRow) return;
@@ -247,7 +289,8 @@ export function Settings({
           <h3 className="settings__section-heading">{BOLUMLER.find((item) => item.id === bolum)?.etiket}</h3>
           {controlLoading && <p role="status">Ayarlar yükleniyor…</p>}
           {gatewayError && <p role="alert">{gatewayError.message} <button onClick={gatewayError.retry} disabled={gatewayBusy}>Yeniden dene</button></p>}
-          {modeError && <p role="alert">{modeError.message} <button onClick={modeError.retry} disabled={modeBusy}>Yeniden dene</button></p>}
+          {modeError && <p role="alert">{modeError.message} <button onClick={modeError.retry} disabled={modeBusy}>Yeniden dene</button></p>
+          {effortError && <p role="alert">{effortError.message} <button onClick={effortError.retry} disabled={effortBusy}>Yeniden dene</button></p>}
           {error && (
             <p className="settings__error" role="status">
               {error}{" "}
@@ -283,7 +326,7 @@ export function Settings({
           )}
 
           {bolum === "modeller" && (
-            <Models model={control?.model ?? null} onRunCommand={onRunCommand} />
+            <Models model={control?.model ?? null} onRunCommand={onRunCommand} onSelectEffort={onRunCommand ? selectEffort : undefined} effortBusy={effortBusy || controlLoading} />
           )}
 
           {bolum === "ses" && <VoicePreferences client={client} />}

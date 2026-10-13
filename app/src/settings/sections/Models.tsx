@@ -18,6 +18,10 @@ export interface ModelState {
   hakem: string;
   adaylar: string[];
   saglayici: string;
+  yogunluk?: string;
+  desteklenen_yogunluklar?: string[];
+  yogunluk_dogrulandi?: boolean;
+  yogunluk_aciklamasi?: string;
   ogretmen?: string;
   ogretmen_etiket?: string;
 }
@@ -25,10 +29,14 @@ export interface ModelState {
 export function Models({
   model,
   onRunCommand,
+  onSelectEffort,
+  effortBusy = false,
 }: {
   model: ModelState | null;
   /** CLI komutunu çalıştırır. Verilmezse değiştirme düğmeleri çizilmez. */
   onRunCommand?: (command: string) => void;
+  onSelectEffort?: (effort: string) => void;
+  effortBusy?: boolean;
 }) {
   if (!model) return <p className="settings__hint">Model bilgisi okunamadı.</p>;
   return (
@@ -44,6 +52,16 @@ export function Models({
           Öğretmen: {model.ogretmen_etiket || model.ogretmen || "bağlı değil"}.
           Bağlıysa ajan uzun kod görevinde takıldığında bu web oturumuna bir kez danışır.
         </p>
+        <p className="settings__hint">Düşünme yoğunluğu: {model.yogunluk ?? "auto"}. {model.yogunluk_aciklamasi || (!model.yogunluk_dogrulandi ? "Model desteği doğrulanmadı." : "")}</p>
+        {onSelectEffort && model.yogunluk_dogrulandi && (
+          <label>Düşünme yoğunluğu
+            <select aria-label="Düşünme yoğunluğu" disabled={effortBusy} value={model.yogunluk ?? "auto"} onChange={(event) => onSelectEffort(event.target.value)}>
+              <option value="auto">Modele bırak</option>
+              {model.desteklenen_yogunluklar?.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+        )}
+        {effortBusy && <p role="status">Düşünme yoğunluğu güncelleniyor…</p>}
         {onRunCommand && (
           <div className="settings__actions">
             <Button onClick={() => onRunCommand("/model")} variant="secondary">
