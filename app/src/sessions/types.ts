@@ -44,6 +44,11 @@ export interface SessionQuestion {
 }
 
 export interface SessionModel {
+  requestId?: string;
+  expectedTurnId?: string;
+  eventIds?: string[];
+  eventSequence?: number;
+  turnId?: string;
   updatedAt?: number;
   id: string;
   title: string;

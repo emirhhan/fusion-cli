@@ -1,3 +1,4 @@
+import { submissionAccepted } from "./sessions/submission";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
@@ -1201,8 +1202,8 @@ export function SessionUygulama({
           : page === "help" ? "Yardım"
             : active.title;
 
-  const draft = drafts[active.id] ?? "";
-  const activeAttachments = attachments[active.id] ?? [];
+  const draft = drafts[active.id] ?? controller.submissionDraft(active.id);
+  const activeAttachments = attachments[active.id] ?? controller.submissionAttachments(active.id);
   const setDraft = (value: string) => setDrafts((current) => ({ ...current, [active.id]: value }));
   const executeCommand = async (input: string, recordInput = true, recordOutput = true) => {
     setCommandBusy(true);
@@ -1233,10 +1234,18 @@ export function SessionUygulama({
       void requestTaskFolder();
     } else if (task.startsWith("/")) void executeCommand(task);
     else {
-      controller.send(active.id, task, activeAttachments);
-      setAttachments((current) => ({ ...current, [active.id]: [] }));
+      const snapshot = activeAttachments;
+      const draftSnapshot = draft;
+      return controller.submit(active.id, task, snapshot).then((receipt) => {
+        if (submissionAccepted(receipt)) {
+          setAttachments((current) => current[active.id] === snapshot || current[active.id] === undefined
+            ? { ...current, [active.id]: [] } : current);
+          setDrafts((current) => current[active.id] === draftSnapshot || current[active.id] === undefined
+            ? { ...current, [active.id]: "" } : current);
+        }
+        return receipt;
+      });
     }
-    setDraft("");
   };
   const conversationContent = active.messages.length > 0 ? (
     <Conversation
@@ -1244,6 +1253,7 @@ export function SessionUygulama({
       running={active.running}
       showSteps={showSteps}
       onOneriSec={(gorev) => send(gorev)}
+      onRetrySubmission={(requestId) => { controller.retrySubmission(active.id, requestId); }}
       onHataBildir={(metin) => setFeedback({ tur: "hata", mesaj: "Bir görev hatayla bitti.", ayrinti: metin })}
       onOpenPreview={openPreview}
       onOpenFile={(path) => {
@@ -1360,6 +1370,7 @@ export function SessionUygulama({
         <><ProjectPicker root={active.root} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root, mode: "kod" }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
         <DepoUyarisi kok={active.root} projeler={active.depoProjeleri} onAc={(kok) => { void controller.create({ root: kok, mode: "kod" }).then(() => setPage("chat")); }} />
         <Composer
+          key={active.id}
           workspaceMode={workspaceMode}
           onWorkspaceModeChange={(mode) => {
             void active.client.request("oturum.baslat", { kip: mode }).then((result) => {
@@ -1381,7 +1392,7 @@ export function SessionUygulama({
             void active.client.request("oturum.baslat", { mod: next });
           }}
           attachments={activeAttachments}
-          attachmentError={attachmentError ?? commandError}
+          attachmentError={attachmentError ?? commandError ?? controller.submissionRecoveryError(active.id)}
           commands={composerCommands}
           fileSuggestions={fileSuggestions}
           onFileQuery={searchProjectFiles}

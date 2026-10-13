@@ -34,6 +34,8 @@ export interface GorevMaddesi {
 }
 
 export interface Mesaj {
+  id?: string;
+  submissionId?: string;
   metin: string;
   rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler" | "oneriler" | "ekip" | "onizleme";
   /** Yalnız `rol === "onizleme"` için: ajanın çalıştırdığı sitenin adresi. */
@@ -172,6 +174,7 @@ export interface ConversationProps {
   onOneriSec?: (gorev: string) => void;
   /** Başarısız yanıtın "Hatayı bildir" düğmesi. Verilmezse düğme çizilmez. */
   onHataBildir?: (metin: string) => void;
+  onRetrySubmission?: (requestId: string) => void;
   /** Önizleme kartındaki "Uygulamada aç"; verilmezse yalnız bağlantı gösterilir. */
   onOpenPreview?: (url: string) => void;
 }
@@ -181,6 +184,7 @@ export function Conversation({
   onOpenFile,
   onOneriSec,
   onHataBildir,
+  onRetrySubmission,
   onOpenPreview,
   running = true,
   showSteps = false,
@@ -202,7 +206,7 @@ export function Conversation({
         {mesajlar.map((message, index) => {
           if (message.rol === "kullanici") {
             return (
-              <div className="conversation__message conversation__message--user" key={index}>
+              <div className="conversation__message conversation__message--user" key={message.id}>
                 <div className="conversation__sent">
                   <div className="conversation__role">Siz</div>
                   {message.ekler && message.ekler.length > 0 && (
@@ -215,14 +219,14 @@ export function Conversation({
           }
           if (message.rol === "degisiklik") {
             return (
-              <div className="conversation__message conversation__message--change" key={index}>
+              <div className="conversation__message conversation__message--change" key={message.id}>
                 <DiffCard diff={message.diff ?? ""} onOpenFile={onOpenFile} path={message.metin} />
               </div>
             );
           }
           if (message.rol === "gorevler") {
             return (
-              <div className="conversation__message conversation__message--tasks" key={index}>
+              <div className="conversation__message conversation__message--tasks" key={message.id}>
                 <TaskList gorevler={message.gorevler ?? []} />
               </div>
             );
@@ -233,7 +237,7 @@ export function Conversation({
             const oneriler = message.oneriler ?? [];
             if (!onOneriSec || oneriler.length === 0) return null;
             return (
-              <div className="conversation__message conversation__message--followups" key={index}>
+              <div className="conversation__message conversation__message--followups" key={message.id}>
                 <div aria-label="Sıradaki adım önerileri" className="conversation__followups">
                   {oneriler.map((oneri) => (
                     <button
@@ -252,7 +256,7 @@ export function Conversation({
           }
           if (message.rol === "onizleme" && message.onizleme) {
             return (
-              <div className="conversation__message conversation__message--preview" key={index}>
+              <div className="conversation__message conversation__message--preview" key={message.id}>
                 <PreviewCard
                   baslik={message.onizleme.baslik}
                   onOpen={onOpenPreview}
@@ -264,7 +268,7 @@ export function Conversation({
           }
           if (message.rol === "ekip") {
             return (
-              <div className="conversation__message conversation__message--team" key={index}>
+              <div className="conversation__message conversation__message--team" key={message.id}>
                 <TeamCards ajanlar={message.ajanlar ?? []} canli={running} />
               </div>
             );
@@ -278,7 +282,7 @@ export function Conversation({
             // gibi). Yalnız son çalışan blok canlı göstergeyi ve sayacı taşır.
             const aktif = running && index === sonCalisanOlay;
             return (
-              <div className="conversation__message conversation__message--event" key={index}>
+              <div className="conversation__message conversation__message--event" key={message.id}>
                 <ActivityLine
                   aktif={aktif}
                   adimlar={message.adimlar ?? []}
@@ -292,7 +296,7 @@ export function Conversation({
           return (
             <div
               className={`conversation__message conversation__message--assistant${message.ara ? " conversation__message--narration" : ""}`}
-              key={index}
+              key={message.id}
             >
               <AssistantMessage
                 ara={message.ara === true}
@@ -300,6 +304,9 @@ export function Conversation({
                 onReport={onHataBildir && hataMesajiMi(message) ? () => onHataBildir(message.metin) : undefined}
                 text={message.metin}
               />
+              {!running && message.hata && message.submissionId && onRetrySubmission && (
+                <Button variant="ghost" onClick={() => onRetrySubmission(message.submissionId!)}>Yeniden dene</Button>
+              )}
             </div>
           );
         })}

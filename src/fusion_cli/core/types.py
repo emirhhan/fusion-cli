@@ -61,6 +61,7 @@ class Message:
 
     role: str
     content: str
+    message_id: str | None = field(default=None, kw_only=True)
     tool_calls: tuple[ToolCall, ...] = ()
     tool_call_id: str | None = None
     name: str | None = None

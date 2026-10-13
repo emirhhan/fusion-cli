@@ -787,3 +787,10 @@ RUNTIME_HEALTH_BROKEN = "Fusion runtime {version}: bozuk"
 APP_COMMAND_TRUNCATED = (
     "[Çıktı görüntüleme sınırına ulaştı ve kesildi; tamamı için terminalde aynı komutu çalıştır.]"
 )
+
+# Kalıcı gönderim kabulü ve dış etki gözlemi.
+APP_SUBMISSION_STORAGE_FAILED = "Gönderim kaydı saklanamadı; yeniden deneyin."
+APP_SUBMISSION_OBSERVATION_REQUIRED = (
+    "Önce önceki işin dış etkisini doğrula; sonucu belirsiz işi yeniden çalıştıramıyorum."
+)
+APP_SUBMISSION_MISSING = "Yeniden denenecek gönderim bulunamadı."

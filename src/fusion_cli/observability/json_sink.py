@@ -46,6 +46,10 @@ def _fields(event: Event) -> dict[str, object]:
     # Ana ajanın olayında kimlik boştur; satır biçimi alt ajan olmadan değişmesin.
     if not fields.get("agent_id"):
         fields.pop("agent_id", None)
+    # Ek korelasyon yoksa legacy JSONL şekli değişmez; diğer null veriler korunur.
+    for name in ("event_id", "session_id", "turn_id", "schema_version"):
+        if fields.get(name) is None:
+            fields.pop(name, None)
     return fields
 
 

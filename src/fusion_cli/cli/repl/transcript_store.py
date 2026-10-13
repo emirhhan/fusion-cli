@@ -61,10 +61,24 @@ def load_transcript_messages(
             continue
         safe_text = redact(text)
         if event.get("event") == "UserMessage":
-            messages.append(Message("user", safe_text))
+            _upsert_message(
+                messages, Message("user", safe_text, message_id=event.get("message_id"))
+            )
         elif event.get("event") == "TurnAnswered":
-            messages.append(Message("assistant", safe_text))
+            _upsert_message(
+                messages, Message("assistant", safe_text, message_id=event.get("message_id"))
+            )
     return messages[-_MAX_HISTORY_MESSAGES:]
+
+
+def _upsert_message(messages: list[Message], message: Message) -> None:
+    """Aynı gönderimin final düzeltmesi geçmişte ikinci mesaj oluşturmaz."""
+    if message.message_id:
+        for index, existing in enumerate(messages):
+            if existing.message_id == message.message_id:
+                messages[index] = message
+                return
+    messages.append(message)
 
 
 def _conversation_digest(conversation_id: object) -> str:
@@ -100,25 +114,10 @@ def move_conversation(
     Hedefe tam yazılmadan kaynak tombstone oluşturulmaz. Çökme durumunda iki
     listede görünmesi, konuşma kaybına tercih edilir. Çağıran açık turu kapatır.
     """
-    if source_root.resolve() == target_root.resolve():
-        return
-    if not target_root.is_dir():
-        raise ValueError("Hedef proje klasörü bulunamadı.")
+    validate_conversation_move(base_dir, source_root, target_root, conversation_id)
     base = base_dir.expanduser().resolve() / "transcripts"
     source = base / _workspace_digest(source_root)
     destination = base / _workspace_digest(target_root)
-    if _conversation_digest(conversation_id) in _deleted_conversations(source):
-        raise ValueError("Kaynak sohbet silinmiş.")
-    if not any(
-        ref.conversation_id == conversation_id for ref in list_conversations(base_dir, source_root)
-    ):
-        raise ValueError("Kaynak sohbet bulunamadı.")
-    if _conversation_digest(conversation_id) in _deleted_conversations(destination):
-        raise ValueError("Hedef projede bu sohbet kimliği daha önce silinmiş.")
-    if any(
-        ref.conversation_id == conversation_id for ref in list_conversations(base_dir, target_root)
-    ):
-        raise ValueError("Hedef projede aynı kimlikli sohbet zaten var.")
     try:
         lines = (source / "events.jsonl").read_text(encoding="utf-8").splitlines()
     except OSError as error:
@@ -142,6 +141,31 @@ def move_conversation(
     with contextlib.suppress(OSError):
         target.chmod(0o600)
     delete_conversation(base_dir, source_root, conversation_id)
+
+
+def validate_conversation_move(
+    base_dir: Path, source_root: Path, target_root: Path, conversation_id: str
+) -> None:
+    """Taşıma uygulanabilirliğini herhangi bir kalıcı yazmadan önce doğrular."""
+    if source_root.resolve() == target_root.resolve():
+        return
+    if not target_root.is_dir():
+        raise ValueError("Hedef proje klasörü bulunamadı.")
+    base = base_dir.expanduser().resolve() / "transcripts"
+    source = base / _workspace_digest(source_root)
+    destination = base / _workspace_digest(target_root)
+    if _conversation_digest(conversation_id) in _deleted_conversations(source):
+        raise ValueError("Kaynak sohbet silinmiş.")
+    if not any(
+        ref.conversation_id == conversation_id for ref in list_conversations(base_dir, source_root)
+    ):
+        raise ValueError("Kaynak sohbet bulunamadı.")
+    if _conversation_digest(conversation_id) in _deleted_conversations(destination):
+        raise ValueError("Hedef projede bu sohbet kimliği daha önce silinmiş.")
+    if any(
+        ref.conversation_id == conversation_id for ref in list_conversations(base_dir, target_root)
+    ):
+        raise ValueError("Hedef projede aynı kimlikli sohbet zaten var.")
 
 
 def _workspace_digest(root: Path) -> str:
@@ -265,11 +289,24 @@ class TranscriptStore:
             with contextlib.suppress(OSError):
                 temporary.unlink(missing_ok=True)
 
-    def record_user(self, text: str) -> None:
-        self._append({"event": "UserMessage", "text": text})
+    def record_user(self, text: str, *, message_id: str | None = None) -> None:
+        self._append(
+            {
+                "event": "UserMessage",
+                "text": text,
+                **({"message_id": message_id} if message_id else {}),
+            }
+        )
 
-    def record_assistant(self, text: str) -> None:
-        self._append({"event": "TurnAnswered", "channel": "text", "text": text})
+    def record_assistant(self, text: str, *, message_id: str | None = None) -> None:
+        self._append(
+            {
+                "event": "TurnAnswered",
+                "channel": "text",
+                "text": text,
+                **({"message_id": message_id} if message_id else {}),
+            }
+        )
 
     def handle(self, event: Event) -> None:
         # JSONL sınırı: alan değerleri olay tipine göre değişir ve `_jsonable`

@@ -1,3 +1,4 @@
+import { submissionAccepted, type SubmissionResult } from "../sessions/submission";
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { anmayiBul, anmayiDegistir } from "./dosyaAnmasi";
 import { Button } from "../ui/Button";
@@ -86,7 +87,7 @@ interface ComposerProps {
   dictating?: boolean;
   dictationError?: string | null;
   onRemoveAttachment?: (path: string) => void;
-  onSend: (task: string) => void;
+  onSend: (task: string) => SubmissionResult | Promise<SubmissionResult>;
   /** Etkin ajan modeli. Boşsa seçici çizilmez. */
   activeModel?: string;
   activeModelLabel?: string;
@@ -139,7 +140,10 @@ export function Composer({
   /** Kullanıcı Esc ile listeyi kapattı mı? Sorgu değişince kendiliğinden sıfırlanır. */
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const pendingSubmission = useRef(false);
   const draft = value ?? internalValue;
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const compactLayout = attachments.length === 0 && !attachmentError && !dictationError
     && !draft.includes("\n") && draft.length < COMPACT_MESSAGE_CHARACTER_LIMIT;
   // İmleç metnin sonundan geride olabilir; anma imlecin ÖNÜNDEKİ parçaya bakar.
@@ -185,9 +189,20 @@ export function Composer({
   };
   const send = () => {
     const task = draft.trim();
-    if (!task) return;
-    setDraft("");
-    onSend(task);
+    if (!task || pendingSubmission.current) return;
+    const snapshot = draft;
+    pendingSubmission.current = true;
+    const accept = (result: SubmissionResult) => {
+      if (submissionAccepted(result) && draftRef.current === snapshot) setDraft("");
+      pendingSubmission.current = false;
+    };
+    try {
+      const result = onSend(task);
+      if (result instanceof Promise) result.then(accept, () => { pendingSubmission.current = false; });
+      else accept(result);
+    } catch {
+      pendingSubmission.current = false;
+    }
   };
   /** Sıradaki izin modu (Shift+Tab). "İzinleri atla" döngüde yoktur. */
   const nextApproval = (): ApprovalMode => nextApprovalMode(approval);

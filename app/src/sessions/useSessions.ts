@@ -1,3 +1,5 @@
+import { deleteSubmissions, moveSubmissions, loadSubmissions, saveSubmission, updateSubmission } from "./submissionPersistence";
+import { normalizeSubmissionReceipt, type SubmissionReceipt } from "./submission";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -111,7 +113,7 @@ function depoOku(deger: unknown): string[] {
   return Array.isArray(deger) ? deger.filter((item): item is string => typeof item === "string") : [];
 }
 
-function nextSessionId(): string {
+export function nextSessionId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `oturum-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -121,6 +123,12 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const persistedView = useRef(
     typeof window === "undefined" ? null : loadSessionView(window.localStorage),
   );
+  const admissions = useRef(new Map<string, (receipt: SubmissionReceipt) => void>());
+  const attempts = useRef(new Map<string, string>());
+  const retryRequests = useRef(new Set<string>());
+  const generations = useRef(new Map<string, number>());
+  const expectedTurns = useRef(new Map<string, string>());
+  const queuedRestores = useRef(new Set<string>());
   const clients = useRef(new Map<string, ProtocolClient>());
   const clientRoots = useRef(new Map<string, string>());
   const deletedIds = useRef(new Set<string>());
@@ -129,7 +137,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const runningRequests = useRef(new Set<string>());
   //: Tur sürerken yazılan mesajlar. Claude'da mesaj kaybolmaz, sıraya girer;
   //: ölçüldü (17 Eylül) — Fusion ikinci mesajı reddedip yazılanı çöpe atıyordu.
-  const kuyruk = useRef(new Map<string, { task: string; attachments: SessionAttachment[]; voice?: VoiceTurnMetadata }[]>());
+  const kuyruk = useRef(new Map<string, { task: string; attachments: SessionAttachment[]; voice?: VoiceTurnMetadata; requestId: string }[]>());
   //: `stop()` sonrası zorla-sıfırlama zamanlayıcıları (bkz. TUR_IPTAL_GUVENLI_SURE_MS).
   const iptalZamanlayicilari = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   //: Kuyruk sürülürken taze oturum haritası gerekir; `send` kapanışı eskimiş olur.
@@ -163,6 +171,19 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         (handler) => lineHandlers.current.set(id, handler),
       );
       client.onEvent((event) => {
+        if (event.olay === "GonderimMakbuzu" && typeof event.gonderim_id === "string") {
+          const normalized = normalizeSubmissionReceipt(event);
+          if (!normalized || normalized.sessionId !== id || attempts.current.get(id) !== normalized.requestId) return;
+          const expectedTurn = expectedTurns.current.get(id);
+          if (expectedTurn && normalized.turnId !== expectedTurn) return;
+          admissions.current.get(event.gonderim_id)?.({ requestId: event.gonderim_id, sessionId: id,
+            turnId: typeof event.tur_id === "string" ? event.tur_id : null,
+            state: String(event.durum), error: typeof event.hata_kodu === "string" ? event.hata_kodu : null });
+          admissions.current.delete(event.gonderim_id);
+          try { updateSubmission(id, event.gonderim_id, String(event.durum), normalized.turnId ?? undefined); }
+          catch { dispatch({type: "messageAdded", id, message: {rol: "asistan", hata: true, metin: "Gönderim makbuzu yerel olarak saklanamadı."}}); }
+          event = { ...event, turn_id: event.tur_id, session_id: id };
+        }
         if (event.olay === "SoruKapandi" && typeof event.id === "string") {
           dispatch({ type: "questionClosed", id, questionId: event.id });
           return;
@@ -214,9 +235,10 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
                 (row.rol !== "kullanici" && row.rol !== "asistan") ||
                 typeof row.metin !== "string"
               ) return [];
-              return [{ rol: row.rol, metin: row.metin }];
+              return [{ rol: row.rol, metin: row.metin, ...(typeof row.id === "string" ? { id: row.id } : {}) }];
             });
             dispatch({ type: "historyLoaded", id, messages });
+            queuedRestores.current.add(id);
           })
           .catch(() => undefined)
           // Geri açılan sohbet dolu olabilir: gösterge ilk mesajı beklemesin.
@@ -418,20 +440,29 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   }, [state]);
 
   const send = useCallback(
-    (id: string, task: string, attachments: SessionAttachment[] = [], recordMessage = true, voice?: VoiceTurnMetadata) => {
+    (id: string, task: string, attachments: SessionAttachment[] = [], recordMessage = true, voice?: VoiceTurnMetadata, requestId = nextSessionId()) => {
       const session = state.sessions[id];
       if (!session || !task.trim() || session.status !== "ready") return false;
+      try {
+        saveSubmission({requestId, sessionId: id, root: session.root, task, attachments, voice,
+          state: session.running || runningRequests.current.has(id) ? "queued" : "pending"});
+      } catch {
+        dispatch({type: "messageAdded", id, message: {rol: "asistan", hata: true,
+          metin: "Gönderim taslağı saklanamadı. Depolamayı kontrol edip yeniden dene."}});
+        return false;
+      }
       if (session.running || runningRequests.current.has(id)) {
         // Zaten çalışıyor: mesaj sıraya girer (aşağıda), tur bitince sürülür.
         // Sıraya al ve kullanıcıya YAZDIĞINI GÖSTER: bekleyen mesajın görünmemesi
         // "gitti mi, gitmedi mi?" sorusunu doğuruyordu.
         const bekleyen = kuyruk.current.get(id) ?? [];
-        kuyruk.current.set(id, [...bekleyen, { task, attachments, voice }]);
+        kuyruk.current.set(id, [...bekleyen, { task, attachments, voice, requestId }]);
         if (recordMessage) {
           dispatch({
             type: "messageAdded",
             id,
             message: {
+              id: `${requestId}:user`,
               rol: "kullanici",
               metin: task,
               ...(attachments.length > 0 ? { ekler: attachments } : {}),
@@ -450,6 +481,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           type: "messageAdded",
           id,
           message: {
+            id: `${requestId}:user`,
             rol: "kullanici",
             metin: task,
             ...(attachments.length > 0 ? { ekler: attachments } : {}),
@@ -469,7 +501,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           })
           .catch(() => undefined);
       }
-      baslatRef.current?.(id, task, attachments, voice);
+      baslatRef.current?.(id, task, attachments, voice, requestId);
       return true;
     },
     [state.sessions],
@@ -482,7 +514,9 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
    * zaman aşımı BURADAN geçer; aksi hâlde ikisi durumu farklı ölçüde
    * sıfırlar ve biri diğerinin bıraktığı yerde asılı kalır.
    */
-  const turuTamamla = (id: string, client: ProtocolClient) => {
+  const turuTamamla = (id: string, client: ProtocolClient, requestId?: string, generation?: number) => {
+    if (generation !== undefined && generations.current.get(id) !== generation) return;
+    if (requestId && attempts.current.get(id) !== requestId) return;
     const zamanlayici = iptalZamanlayicilari.current.get(id);
     if (zamanlayici !== undefined) {
       clearTimeout(zamanlayici);
@@ -498,34 +532,125 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     // Kuyruktaki mesaj kullanıcı mesajı olarak ZATEN eklendi; yeniden ekleme.
     // Doğrudan başlatılır: React durumu henüz "çalışmıyor"a dönmemiş olabilir
     // ve normal `send` yolu mesajı tekrar kuyruğa atardı.
-    if (sonraki) baslatRef.current?.(id, sonraki.task, sonraki.attachments, sonraki.voice);
+    if (sonraki) baslatRef.current?.(id, sonraki.task, sonraki.attachments, sonraki.voice, sonraki.requestId);
   };
 
   //: Turu çekirdeğe gönderen TEK yol: hem `send` hem kuyruk buradan geçer.
   //: Kuyruğu sürerken taze oturum haritası gerekir; `send` kapanışı eskimiş olur.
   const baslatRef = useRef<
-    ((id: string, task: string, attachments: SessionAttachment[], voice?: VoiceTurnMetadata) => void) | null
+    ((id: string, task: string, attachments: SessionAttachment[], voice?: VoiceTurnMetadata, requestId?: string) => void) | null
   >(null);
-  baslatRef.current = (id, task, attachments, voice) => {
+  baslatRef.current = (id, task, attachments, voice, requestId = nextSessionId()) => {
+    const generation = (generations.current.get(id) ?? 0) + 1;
+    generations.current.set(id, generation);
+    attempts.current.set(id, requestId);
+    const isRetry = retryRequests.current.delete(requestId);
+    let expectedTurnId: string | undefined;
+    try {
+      const previous = loadSubmissions(id).find((entry) => entry.requestId === requestId)?.turnId;
+      if (isRetry && previous) expectedTurnId = `${requestId}:${Number(previous.split(":").slice(-1)[0]) + 1}`;
+    } catch { /* Gönderim snapshot'ı send sınırında doğrulandı. */ }
+    if (expectedTurnId) expectedTurns.current.set(id, expectedTurnId);
+    else expectedTurns.current.delete(id);
+    dispatch({ type: "submissionStarted", id, requestId, expectedTurnId });
     const session = oturumlarRef.current[id];
     if (!session || session.status !== "ready") return;
     runningRequests.current.add(id);
     dispatch({ type: "runningChanged", id, running: true });
     void session.client
-      .request("tur.calistir", { gorev: task, ekler: attachments, ...(voice !== undefined ? { sesli: voice } : {}) })
+      .request("tur.calistir", { gorev: task, gonderim_id: requestId, ekler: attachments, ...(isRetry ? { yeniden_dene: true } : {}), ...(voice !== undefined ? { sesli: voice } : {}) })
       .then((result) => {
+        if (attempts.current.get(id) !== requestId || generations.current.get(id) !== generation) return;
+        const raw = result.makbuz as Record<string, unknown> | undefined;
+        admissions.current.get(requestId)?.({requestId, sessionId: id,
+          turnId: typeof raw?.tur_id === "string" ? raw.tur_id : null,
+          state: typeof raw?.durum === "string" ? raw.durum : result.ok === false ? "failed" : "completed",
+          error: result.ok === false ? String(result.metin ?? "Gönderim reddedildi") : null});
+        admissions.current.delete(requestId);
+        try { updateSubmission(id, requestId, String(raw?.durum ?? (result.ok === false ? "failed" : "completed")), typeof raw?.tur_id === "string" ? raw.tur_id : undefined); }
+        catch { dispatch({type: "messageAdded", id, message: {rol: "asistan", hata: true, metin: "Gönderim sonucu yerel olarak saklanamadı."}}); }
         const text = typeof result.metin === "string" ? result.metin : "";
         const hata = result.ok === false ? { hata: true } : {};
-        if (text) dispatch({ type: "messageAdded", id, message: { rol: "asistan", metin: text, ...hata } });
+        if (text) dispatch({ type: "messageAdded", id, message: { id: `${requestId}:assistant`, submissionId: requestId, rol: "asistan", metin: text, ...hata } });
       })
       .catch((reason) => {
+        if (attempts.current.get(id) !== requestId || generations.current.get(id) !== generation) return;
+        admissions.current.get(requestId)?.({requestId, sessionId: id, turnId: null, state: "failed", error: String(reason)});
+        admissions.current.delete(requestId);
         dispatch({
           type: "messageAdded",
           id,
-          message: { rol: "asistan", metin: `Hata: ${String(reason)}`, hata: true },
+          message: { id: `${requestId}:assistant`, submissionId: requestId, rol: "asistan", metin: `Hata: ${String(reason)}`, hata: true },
         });
       })
-      .finally(() => turuTamamla(id, session.client));
+      .finally(() => turuTamamla(id, session.client, requestId, generation));
+  };
+
+  useEffect(() => {
+    for (const id of queuedRestores.current) {
+      const session = state.sessions[id];
+      if (!session || session.status !== "ready") continue;
+      queuedRestores.current.delete(id);
+      try {
+        const restored = loadSubmissions(id).filter((entry) => entry.root === session.root && entry.state === "queued");
+        if (!restored.length) continue;
+        for (const entry of restored) dispatch({type: "messageAdded", id, message: {
+          id: `${entry.requestId}:user`, rol: "kullanici", metin: entry.task,
+          ...(entry.attachments.length ? {ekler: entry.attachments} : {})}});
+        const waiting = restored.map((entry) => ({task: entry.task, attachments: entry.attachments,
+          voice: entry.voice, requestId: entry.requestId}));
+        kuyruk.current.set(id, [...waiting, ...(kuyruk.current.get(id) ?? [])]);
+        if (!runningRequests.current.has(id)) {
+          const first = kuyruk.current.get(id)!.shift()!;
+          updateSubmission(id, first.requestId, "pending");
+          baslatRef.current?.(id, first.task, first.attachments, first.voice, first.requestId);
+        }
+      } catch {
+        dispatch({type: "messageAdded", id, message: {rol: "asistan", hata: true,
+          metin: "Kayıtlı gönderim kuyruğu okunamadı. Depolamayı kontrol et."}});
+      }
+    }
+  }, [state.sessions]);
+
+  const submit = (id: string, task: string, attachments: SessionAttachment[] = []): Promise<SubmissionReceipt> => {
+    const requestId = nextSessionId();
+    return new Promise((resolve) => {
+      admissions.current.set(requestId, resolve);
+      const queued = runningRequests.current.has(id) || state.sessions[id]?.running;
+      const accepted = send(id, task, attachments, true, undefined, requestId);
+      if (!accepted || queued) {
+        admissions.current.delete(requestId);
+        resolve({requestId, sessionId: id, turnId: null, state: accepted ? "queued" : "failed", error: accepted ? null : "Gönderim reddedildi"});
+      }
+    });
+  };
+
+  const retrySubmission = (id: string, requestId: string): boolean => {
+    try {
+      const session = state.sessions[id];
+      const snapshot = loadSubmissions(id).find((entry) => entry.requestId === requestId && entry.root === session?.root);
+      if (!snapshot || !session || runningRequests.current.has(id)) return false;
+      retryRequests.current.add(requestId);
+      return send(id, snapshot.task, snapshot.attachments, true, snapshot.voice, requestId);
+    } catch {
+      dispatch({type: "messageAdded", id, message: {rol: "asistan", hata: true, metin: "Gönderim taslağı okunamadı. Depolamayı kontrol et."}});
+      return false;
+    }
+  };
+
+  const submissionSnapshot = (id: string) => {
+    try { return loadSubmissions(id).filter((entry) => entry.root === state.sessions[id]?.root && ["pending", "failed", "queued"].includes(entry.state)).slice(-1)[0] ?? null; }
+    catch { return null; }
+  };
+  const submissionDraft = (id: string): string => submissionSnapshot(id)?.task ?? "";
+  const submissionAttachments = (id: string): SessionAttachment[] => submissionSnapshot(id)?.attachments ?? [];
+
+  const submissionRecoveryError = (id: string): string | null => {
+    if (runningRequests.current.has(id)) return null;
+    try {
+      return loadSubmissions(id).some((entry) => entry.root === state.sessions[id]?.root && ["accepted", "running", "recoveryRequired"].includes(entry.state))
+        ? "Önceki gönderimin sonucu belirsiz. Yeniden çalıştırmadan önce dış etkisini doğrula." : null;
+    } catch { return "Kayıtlı gönderim taslağı okunamadı. Depolamayı kontrol et."; }
   };
 
   const runCommand = useCallback(
@@ -638,6 +763,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       try {
         const result = await client.request("sohbet.sil", { sohbet_id: id, kok: root });
         if (result.ok !== true) throw new Error(String(result.metin ?? "Sohbet silinemedi."));
+        deleteSubmissions(id);
         deletedIds.current.add(id);
         try { localStorage.removeItem(`fusion.session-mode.${id}`); } catch { /* Storage is optional. */ }
         setStored((rows) => rows.filter((item) => item.id !== id));
@@ -677,6 +803,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       });
       if (result.ok !== true) throw new Error(String(result.metin ?? "Sohbet taşınamadı."));
       moved = true;
+      moveSubmissions(id, sourceRoot, targetRoot);
       setStored((rows) => {
         const others = rows.filter((item) => item.id !== id);
         return [{
@@ -738,6 +865,11 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     move,
     runCommand,
     send,
+    submit,
+    retrySubmission,
+    submissionDraft,
+    submissionAttachments,
+    submissionRecoveryError,
     sessions,
     state,
     stop,

@@ -17,6 +17,9 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit, urlunsplit
+
+from fusion_cli.core.redaction import redact
 
 if TYPE_CHECKING:
     from playwright.sync_api import ConsoleMessage, Dialog, Page, ViewportSize
@@ -99,7 +102,9 @@ def _attach_listeners(page: Page, console: ConsoleLog) -> None:
 
     def on_console(message: ConsoleMessage) -> None:
         if message.type == _ERROR_CONSOLE_TYPE:
-            console.add(message.text)
+            source_url = _console_source_url(message.location["url"])
+            detail = f"{message.text} [kaynak: {source_url}]" if source_url else message.text
+            console.add(detail)
 
     def on_dialog(dialog: Dialog) -> None:
         dialog.dismiss()
@@ -107,6 +112,18 @@ def _attach_listeners(page: Page, console: ConsoleLog) -> None:
     page.on("console", on_console)
     page.on("pageerror", lambda error: console.add(str(error)))
     page.on("dialog", on_dialog)
+
+
+def _console_source_url(url: str) -> str:
+    """Kaynağı sır içerebilen kimlik, sorgu ve parça olmadan teşhise ekle."""
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return ""
+    if parsed.scheme not in {"http", "https", "file"}:
+        return ""
+    authority = parsed.netloc.rsplit("@", 1)[-1]
+    return redact(urlunsplit((parsed.scheme, authority, parsed.path, "", "")))
 
 
 @contextmanager

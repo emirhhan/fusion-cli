@@ -103,7 +103,7 @@ describe("oturum geri yükleme", () => {
     const { result } = renderHook(() => useSessions(fake.transport));
 
     await waitFor(() => expect(result.current.activeSession?.messages).toEqual([
-      { rol: "kullanici", metin: "sohbet-a geçmişi" },
+      { id: expect.any(String), rol: "kullanici", metin: "sohbet-a geçmişi" },
     ]));
   });
 

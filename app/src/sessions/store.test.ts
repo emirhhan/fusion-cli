@@ -57,7 +57,7 @@ describe("sessionReducer", () => {
     state = sessionReducer(state, { type: "runningChanged", id: "bir", running: true });
     state = sessionReducer(state, { type: "crashed", id: "iki", reason: "süreç kapandı" });
 
-    expect(state.sessions.bir.messages).toEqual([{ rol: "kullanici", metin: "oyun yap" }]);
+    expect(state.sessions.bir.messages).toEqual([{ id: expect.any(String), rol: "kullanici", metin: "oyun yap" }]);
     expect(state.sessions.bir.running).toBe(true);
     expect(state.sessions.bir.status).toBe("ready");
     expect(state.sessions.iki.messages).toEqual([]);

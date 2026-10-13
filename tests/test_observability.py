@@ -330,3 +330,35 @@ def test_hata_ozeti_ust_sinirda_kirpar():
     from fusion_cli.ui.text import ERROR_SUMMARY_CHARS, summarize_error
 
     assert len(summarize_error("x" * 500)) <= ERROR_SUMMARY_CHARS
+
+
+def test_jsonl_explicit_correlation_korunur_diger_none_payload_atilmaz():
+    from dataclasses import dataclass
+
+    from fusion_cli.core.events import Event
+
+    @dataclass(frozen=True, slots=True)
+    class NullablePayload(Event):
+        payload: str | None = None
+
+    stream = io.StringIO()
+    renderer = JsonRenderer(stream)
+    renderer.handle(NullablePayload())
+    renderer.handle(
+        NullablePayload(
+            event_id="request:1:2",
+            session_id="conversation",
+            turn_id="request:1",
+            schema_version=1,
+        )
+    )
+    legacy, correlated = [json.loads(line) for line in stream.getvalue().splitlines()]
+    assert legacy == {"event": "NullablePayload", "payload": None}
+    assert correlated == {
+        "event": "NullablePayload",
+        "payload": None,
+        "event_id": "request:1:2",
+        "session_id": "conversation",
+        "turn_id": "request:1",
+        "schema_version": 1,
+    }

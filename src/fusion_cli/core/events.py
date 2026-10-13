@@ -38,6 +38,10 @@ class Event:
     """
 
     agent_id: str = field(default="", kw_only=True)
+    event_id: str | None = field(default=None, kw_only=True)
+    session_id: str | None = field(default=None, kw_only=True)
+    turn_id: str | None = field(default=None, kw_only=True)
+    schema_version: int | None = field(default=None, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)

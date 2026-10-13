@@ -1,9 +1,13 @@
+import { migrateMessageIds } from "./messageIdentity";
 import type { ProtocolClient } from "../protocol/client";
 import type { BaglamOlcusu, Soru } from "../protocol/types";
 import type { Mesaj } from "../screens/Conversation";
 import type { SessionModel, SessionSource, SessionState, SessionStatus } from "./types";
 import { olayEkle } from "../protocol/olayAkisi";
 import { canApplySuggestedTitle } from "./title";
+
+// Opak eski olaylarda pencere belleği sınırlıdır; wire v1 sequence kalıcı high-water kullanır.
+export const EVENT_REPLAY_WINDOW = 256;
 
 export const initialSessionState: SessionState = {
   activeId: null,
@@ -23,6 +27,7 @@ interface SessionSeed {
 }
 
 export type SessionAction =
+  | { type: "submissionStarted"; id: string; requestId: string; expectedTurnId?: string }
   | { type: "created"; session: SessionSeed }
   | { type: "historyLoaded"; id: string; messages: Mesaj[] }
   | { type: "selected"; id: string }
@@ -88,7 +93,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
     case "historyLoaded":
       return updateSession(state, action.id, (session) => ({
         ...session,
-        messages: session.messages.length === 0 ? action.messages : session.messages,
+        messages: session.messages.length === 0 ? migrateMessageIds(action.messages, action.id) : session.messages,
       }));
     case "selected":
       return state.sessions[action.id] ? { ...state, activeId: action.id } : state;
@@ -104,16 +109,40 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
     case "messageAdded":
       return updateSession(state, action.id, (session) => ({
         ...session,
-        messages: [...session.messages, action.message],
+        messages: action.message.id && session.messages.some((message) => message.id === action.message.id)
+          ? session.messages.map((message) => message.id === action.message.id ? action.message : message)
+          : migrateMessageIds([...session.messages, action.message], action.id),
         updatedAt: Date.now(),
       }));
-    case "eventReceived":
+    case "submissionStarted":
+      return updateSession(state, action.id, (session) => ({ ...session, requestId: action.requestId,
+        turnId: undefined, expectedTurnId: action.expectedTurnId, eventSequence: undefined, eventIds: [] }));
+    case "eventReceived": {
+      const current = state.sessions[action.id];
+      if (!current) return state;
+      const eventId = typeof action.event.event_id === "string" ? action.event.event_id : null;
+      const sessionId = action.event.session_id;
+      const turnId = typeof action.event.turn_id === "string" ? action.event.turn_id : undefined;
+      if (typeof sessionId === "string" && sessionId !== action.id) return state;
+      const receipt = action.event.olay === "GonderimMakbuzu";
+      if (receipt && (action.event.gonderim_id !== current.requestId || (current.expectedTurnId && turnId !== current.expectedTurnId))) return state;
+      if (turnId && !receipt && current.requestId && (!current.turnId || turnId !== current.turnId)) return state;
+      if (turnId && current.turnId && turnId !== current.turnId) return state;
+      const suffix = eventId?.split(":").slice(-1)[0];
+      const sequence = action.event.schema_version === 1 && turnId && suffix && /^\d+$/.test(suffix) ? Number(suffix) : undefined;
+      if (eventId && (current.eventIds?.includes(eventId) || current.messages.some((message) => message.id?.startsWith(`${eventId}:`)))) return state;
+      if (sequence !== undefined && current.eventSequence !== undefined && sequence <= current.eventSequence) return state;
       // Olaylar akışa BİRLEŞTİRİLEREK girer; birleştirme kuralı `olayEkle`de.
       return updateSession(state, action.id, (session) => ({
         ...session,
-        messages: olayEkle(session.messages, action.event),
+        messages: olayEkle(session.messages, action.event).map((message, index) =>
+          message.id ? message : { ...message, id: eventId ? `${eventId}:${message.rol}:${index}` : migrateMessageIds([message], `${action.id}:${index}`)[0].id }),
+        eventSequence: sequence ?? session.eventSequence,
+        eventIds: eventId ? [...(session.eventIds ?? []), eventId].slice(-EVENT_REPLAY_WINDOW) : session.eventIds,
+        turnId: turnId ?? session.turnId,
         updatedAt: Date.now(),
       }));
+    }
     case "runningChanged":
       return updateSession(state, action.id, (session) => ({
         ...session,

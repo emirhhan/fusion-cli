@@ -207,6 +207,46 @@ def test_console_error_fails_console_check(tmp_path):
     assert not _by_name(_run(tmp_path, broken))["konsol hatası 0"]
 
 
+def test_eksik_varlik_konsol_hatasi_guvenli_kaynak_adresini_gosterir(tmp_path):
+    """Gerçek 404 hatasının kaynağı görünür, sorgu ve parça kayda girmez."""
+    from evals.kabul.areas._browser import navigate, open_page
+
+    (tmp_path / "index.html").write_text(
+        '<!doctype html><img src="missing.svg?diagnostic=private#private">',
+        encoding="utf-8",
+    )
+    with open_page(tmp_path) as opened:
+        navigate(opened)
+        opened.page.wait_for_load_state("networkidle")
+        errors = opened.console.errors
+        expected_url = f"{opened.base_url}/missing.svg"
+
+    assert len(errors) == 1
+    assert "404" in errors[0]
+    assert expected_url in errors[0]
+    assert "private" not in errors[0]
+
+
+def test_konsol_kaynak_adresindeki_kimlik_bilgileri_kayda_girmez(tmp_path):
+    """Tarayıcının betik kaynak adresi kullanıcı adı ve parolayı dışarı taşımaz."""
+    from evals.kabul.areas._browser import navigate, open_page
+
+    (tmp_path / "index.html").write_text(
+        '<!doctype html><script>console.error("deneme");\n'
+        "//# sourceURL=https://demo:private@example.test/fault.js?private#private\n"
+        "</script>",
+        encoding="utf-8",
+    )
+    with open_page(tmp_path) as opened:
+        navigate(opened)
+        errors = opened.console.errors
+
+    assert len(errors) == 1
+    assert "https://example.test/fault.js" in errors[0]
+    assert "private" not in errors[0]
+    assert "demo:" not in errors[0]
+
+
 def test_dom_hud_without_canvas_text_is_detected(tmp_path):
     page = GOOD_GAME.replace("ctx.fillText('Skor: ' + score, 10, 20);", "").replace(
         "ctx.fillText('Can: ' + lives, 400, 20);", ""

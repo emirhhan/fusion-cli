@@ -1,3 +1,4 @@
+import { saveSubmission } from "./submissionPersistence";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useSessions } from "./useSessions";
@@ -162,8 +163,8 @@ describe("useSessions", () => {
     const { result } = renderHook(() => useSessions(fake.transport));
 
     await waitFor(() => expect(result.current.activeSession?.messages).toEqual([
-      { rol: "kullanici", metin: "Eski oyun sorusu" },
-      { rol: "asistan", metin: "Eski oyun yanıtı" },
+      { id: expect.any(String), rol: "kullanici", metin: "Eski oyun sorusu" },
+      { id: expect.any(String), rol: "asistan", metin: "Eski oyun yanıtı" },
     ]));
   });
 
@@ -179,11 +180,11 @@ describe("useSessions", () => {
       .toEqual(["Merhaba", "Diğerini anlat"]);
     await waitFor(() => expect(fake.sent).toHaveLength(1));
     expect(fake.baslikIstekleri).toEqual(["Merhaba"]);
-    expect(JSON.parse(fake.sent[0].line).veri).toEqual({ gorev: "Merhaba", ekler: [], sesli: {} });
+    expect(JSON.parse(fake.sent[0].line).veri).toEqual({ gorev: "Merhaba", ekler: [], sesli: {}, gonderim_id: expect.any(String) });
     act(() => fake.emitResult("varsayilan", JSON.parse(fake.sent[0].line).id, { ok: true }));
     await waitFor(() => expect(fake.sent).toHaveLength(2));
     expect(JSON.parse(fake.sent[1].line).veri).toEqual({
-      gorev: "Diğerini anlat", ekler: [], sesli: { kesilen: "İlk seçenek" },
+      gorev: "Diğerini anlat", ekler: [], sesli: { kesilen: "İlk seçenek" }, gonderim_id: expect.any(String),
     });
   });
 
@@ -491,8 +492,8 @@ describe("useSessions", () => {
       await expect(resumePromise).resolves.toEqual({ id: resumedId, secretCount: 0 });
     });
     await waitFor(() => expect(result.current.state.sessions[resumedId].messages).toEqual([
-      { rol: "kullanici", metin: "Eski oyun sorusu" },
-      { rol: "asistan", metin: "Eski oyun yanıtı" },
+      { id: expect.any(String), rol: "kullanici", metin: "Eski oyun sorusu" },
+      { id: expect.any(String), rol: "asistan", metin: "Eski oyun yanıtı" },
     ]));
 
     const command = result.current.runCommand(resumedId, "/model agent ikinci-model");
@@ -502,10 +503,10 @@ describe("useSessions", () => {
     await act(async () => { await command; });
     expect(result.current.activeSession?.id).toBe(resumedId);
     expect(result.current.state.sessions[resumedId].messages).toEqual([
-      { rol: "kullanici", metin: "Eski oyun sorusu" },
-      { rol: "asistan", metin: "Eski oyun yanıtı" },
-      { rol: "kullanici", metin: "/model agent ikinci-model" },
-      { rol: "asistan", metin: "model değiştirildi" },
+      { id: expect.any(String), rol: "kullanici", metin: "Eski oyun sorusu" },
+      { id: expect.any(String), rol: "asistan", metin: "Eski oyun yanıtı" },
+      { id: expect.any(String), rol: "kullanici", metin: "/model agent ikinci-model" },
+      { id: expect.any(String), rol: "asistan", metin: "model değiştirildi" },
     ]);
   });
 
@@ -520,6 +521,7 @@ describe("useSessions", () => {
     await act(async () => { await command; });
 
     expect(result.current.activeSession?.messages.at(-1)).toEqual({
+      id: expect.any(String),
       rol: "asistan",
       metin: "Model bulunamadı.",
     });
@@ -645,4 +647,16 @@ describe("useSessions", () => {
     state = sessionReducer(state, { type: "titleSuggested", id: "a", title: "Önerilen" });
     expect(state.sessions.a.title).toBe("Elle verilen");
   });
+});
+
+
+it("kalıcı queued snapshot aynı requestId ile mevcut sürücüden restore edilir", async () => {
+  saveSubmission({requestId: "kalici-kuyruk", sessionId: "varsayilan", root: "/aktif", task: "sıradaki", attachments: [], state: "queued"});
+  const fake = fakeTransport();
+  const {result} = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(fake.sent).toHaveLength(1));
+  const request = JSON.parse(fake.sent[0].line);
+  expect(request.ad).toBe("tur.calistir");
+  expect(request.veri.gonderim_id).toBe("kalici-kuyruk");
+  expect(result.current.activeSession?.messages.filter((message) => message.rol === "kullanici").map((message) => message.metin)).toEqual(["sıradaki"]);
 });

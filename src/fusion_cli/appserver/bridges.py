@@ -8,11 +8,12 @@ sözleşmeleri uygulama protokolüne taşır.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from itertools import count
 from pathlib import Path
 
 from ..core.events import Event
+from ..core.submission import SubmissionReceipt
 from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
 from ..engines.agent.engine_tools import QuestionOption
 from ..ui import messages
@@ -28,8 +29,16 @@ Writer = Callable[[str], None]
 class ProtocolSink:
     """Olayları tel üzerine yazan ``EventSink``."""
 
-    def __init__(self, writer: Writer) -> None:
+    def __init__(
+        self,
+        writer: Writer,
+        *,
+        receipt: SubmissionReceipt | None = None,
+        sequence: Iterator[int] | None = None,
+    ) -> None:
         self._writer = writer
+        self._receipt = receipt
+        self._sequence = sequence if sequence is not None else count(1)
 
     def handle(self, event: Event) -> None:
         """Olayı tek bir protokol satırı olarak ilet.
@@ -41,7 +50,15 @@ class ProtocolSink:
         BİR olayın iletilemediğini görür.
         """
         try:
-            self._writer(encode_event(event_to_dict(event)))
+            payload = event_to_dict(event)
+            if self._receipt is not None:
+                payload.update(
+                    event_id=f"{self._receipt.attempt_id}:{next(self._sequence)}",
+                    session_id=self._receipt.key.conversation_id,
+                    turn_id=self._receipt.attempt_id,
+                    schema_version=1,
+                )
+            self._writer(encode_event(payload))
         except TypeError:
             self._writer(
                 encode_error(messages.APP_EVENT_SERIALIZE_FAILED.format(olay=type(event).__name__))

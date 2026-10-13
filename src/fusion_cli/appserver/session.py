@@ -16,14 +16,16 @@ C1/C4).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
 import re
 import shlex
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import replace
+from itertools import count
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +38,7 @@ from ..cli.repl.transcript_store import (
     list_conversations,
     load_transcript_messages,
     move_conversation,
+    validate_conversation_move,
 )
 from ..config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
 from ..config.credentials import FernetSecretStore
@@ -48,6 +51,7 @@ from ..core.clock import SystemClock
 from ..core.concurrency import BackgroundTasks
 from ..core.events import Event, EventSink, StatusChanged
 from ..core.remotion_browser import RemotionBrowser
+from ..core.submission import SubmissionReceipt, SubmissionRepository
 from ..core.tools import TodoStatus
 from ..core.turn_deadline import TurnDeadline
 from ..core.types import Message
@@ -363,7 +367,12 @@ class AppSession:
         remotion_browser: RemotionBrowser | None = None,
         require_remotion_kit: bool = False,
         local_computer: LocalComputer | None = None,
+        submission_store: SubmissionRepository | None = None,
     ) -> None:
+        self._admission_lock = asyncio.Lock()
+        self._closed = False
+        self._admission_tasks: set[asyncio.Task[dict[str, Any]]] = set()
+        self._submission_task: asyncio.Task[dict[str, Any]] | None = None
         self._local_computer = local_computer
         self._writer = writer
         self._require_remotion_kit = require_remotion_kit
@@ -372,6 +381,11 @@ class AppSession:
         config = load_config()
         self._secret_store = FernetSecretStore(credentials_file(), secret_key=secret_key())
         self._personal_memory = PersonalMemory(config.memory_dir)
+        from ..memory.submission_store import SubmissionStore
+
+        self._submission_store = submission_store or SubmissionStore(
+            config.memory_dir / "submission.sqlite3"
+        )
         self.pending = PendingQuestions()
         self._registry = build_registry(home)
         self._state = ReplState(
@@ -569,6 +583,7 @@ class AppSession:
                     {
                         "rol": "kullanici" if message.role == "user" else "asistan",
                         "metin": sanitize_message(message).content,
+                        **({"id": message.message_id} if message.message_id else {}),
                     }
                     for message in self._state.history
                     if message.role in {"user", "assistant"}
@@ -867,6 +882,8 @@ class AppSession:
                 self._personal_memory.set_enabled, request.data.get("etkin")
             )
         if request.name == "tur.calistir":
+            if isinstance(request.data.get("gonderim_id"), str):
+                return await self._submit_turn(request)
             try:
                 voice_context = parse_voice_context(request.data.get("sesli"))
                 deadline = TurnDeadline.from_duration(request.data.get("sure_s"), SystemClock())
@@ -899,6 +916,11 @@ class AppSession:
         await asyncio.to_thread(
             delete_conversation, self._state.config.memory_dir, root, conversation_id
         )
+        await self._submission_store.delete_conversation(
+            str(self._state.config.memory_dir.resolve()),
+            str(root),
+            conversation_id,
+        )
         if root == current_root and conversation_id == self._transcript_store.session_id:
             self._cancel_turn()
             self._state.history = []
@@ -923,7 +945,36 @@ class AppSession:
             return {"ok": False, "metin": "Açık sohbeti taşıyabilmek için önce kapat."}
         if source == target:
             return {"ok": False, "metin": "Sohbet zaten bu projede."}
+        profile = str(self._state.config.memory_dir.resolve())
+        import sqlite3
+
         try:
+            prepared = await self._submission_store.move_prepared(
+                profile, str(source), conversation_id, str(target)
+            )
+            source_exists = any(
+                ref.conversation_id == conversation_id
+                for ref in list_conversations(self._state.config.memory_dir, source)
+            )
+            target_exists = any(
+                ref.conversation_id == conversation_id
+                for ref in list_conversations(self._state.config.memory_dir, target)
+            )
+            if prepared and not source_exists and target_exists:
+                await self._submission_store.move_conversation(
+                    profile, str(source), conversation_id, str(target)
+                )
+                return {"ok": True, "sohbet_id": conversation_id, "hedef_kok": str(target)}
+            await asyncio.to_thread(
+                validate_conversation_move,
+                self._state.config.memory_dir,
+                source,
+                target,
+                conversation_id,
+            )
+            await self._submission_store.prepare_move(
+                profile, str(source), conversation_id, str(target)
+            )
             await asyncio.to_thread(
                 move_conversation,
                 self._state.config.memory_dir,
@@ -931,8 +982,17 @@ class AppSession:
                 target,
                 conversation_id,
             )
-        except (ValueError, OSError) as error:
-            return {"ok": False, "metin": str(error)}
+        except (ValueError, OSError, sqlite3.Error):
+            return {"ok": False, "metin": messages.APP_SUBMISSION_STORAGE_FAILED}
+        try:
+            await self._submission_store.move_conversation(
+                str(self._state.config.memory_dir.resolve()),
+                str(source),
+                conversation_id,
+                str(target),
+            )
+        except (ValueError, OSError, sqlite3.Error):
+            return {"ok": False, "metin": messages.APP_SUBMISSION_STORAGE_FAILED}
         return {"ok": True, "sohbet_id": conversation_id, "hedef_kok": str(target)}
 
     def _list_conversations(self) -> dict[str, Any]:
@@ -1415,6 +1475,165 @@ class AppSession:
             return {"ok": False, "metin": messages.APP_COMMAND_UNKNOWN}
         return {"ok": True, "secici": payload}
 
+    async def _submit_turn(self, request: Request) -> dict[str, Any]:
+        """Yanıt bekleyicisinin iptali kabul edilmiş görevi iptal etmez."""
+        if self._closed:
+            return {"ok": False, "metin": messages.APP_SUBMISSION_STORAGE_FAILED}
+        admission = asyncio.create_task(self._admit_submission(request))
+        self._admission_tasks.add(admission)
+        admission.add_done_callback(self._admission_done)
+        return await asyncio.shield(admission)
+
+    def _admission_done(self, admission: asyncio.Task[dict[str, Any]]) -> None:
+        self._admission_tasks.discard(admission)
+        if not admission.cancelled() and admission.exception() is not None:
+            logging.getLogger(__name__).error("Gönderim kabul görevi hatayla kapandı.")
+
+    async def _admit_submission(self, request: Request) -> dict[str, Any]:
+        """Kalıcı kabul, validasyon ve görev sahipliği aynı kilidi paylaşır."""
+        import sqlite3
+
+        from ..core.submission import SubmissionKey
+        from .submission import receipt_payload
+
+        key = SubmissionKey(
+            str(self._state.config.memory_dir.resolve()),
+            str(self._root.resolve()),
+            self._conversation_id or FALLBACK_CONVERSATION_ID,
+            str(request.data["gonderim_id"]),
+        )
+        async with self._admission_lock:
+            try:
+                existing = await self._submission_store.lookup(key)
+                is_retry = request.data.get("yeniden_dene") is True
+                if is_retry and existing is None:
+                    return {"ok": False, "metin": messages.APP_SUBMISSION_MISSING}
+                if existing is not None and not (
+                    is_retry and existing.state.value in ("failed", "cancelled")
+                ):
+                    return {
+                        "ok": existing.state.value
+                        not in ("failed", "cancelled", "recoveryRequired"),
+                        "metin": "",
+                        "makbuz": receipt_payload(existing),
+                    }
+                task = str(request.data.get("gorev", ""))
+                if not task.strip():
+                    return {"ok": False, "metin": messages.RUN_EMPTY_TASK}
+                attachment_context, attachment_error = _attachment_context(
+                    request.data.get("ekler")
+                )
+                if attachment_error:
+                    return {"ok": False, "metin": attachment_error}
+                try:
+                    voice_context = parse_voice_context(request.data.get("sesli"))
+                    deadline = TurnDeadline.from_duration(request.data.get("sure_s"), SystemClock())
+                except ValueError as error:
+                    return {"ok": False, "metin": str(error)}
+                if (self._turn is not None and not self._turn.done()) or (
+                    self._submission_task is not None and not self._submission_task.done()
+                ):
+                    return {"ok": False, "metin": messages.APP_TURN_ALREADY_RUNNING}
+                claim = await (
+                    self._submission_store.retry(key)
+                    if is_retry
+                    else self._submission_store.claim(key)
+                )
+                if not claim.is_owner:
+                    return {
+                        "ok": False,
+                        "metin": messages.APP_SUBMISSION_OBSERVATION_REQUIRED,
+                        "makbuz": receipt_payload(claim.receipt),
+                    }
+                if self._closed:
+                    await self._submission_store.finish(
+                        claim.receipt, state="recoveryRequired", error_code="session_closed"
+                    )
+                    return {"ok": False, "metin": messages.APP_SUBMISSION_STORAGE_FAILED}
+                owned = asyncio.create_task(
+                    self._execute_submission(
+                        claim.receipt,
+                        task,
+                        attachment_context,
+                        _attachment_images(request.data.get("ekler")),
+                        voice_context,
+                        deadline,
+                    )
+                )
+                self._submission_task = owned
+                try:
+                    self._writer(
+                        encode_event({"olay": "GonderimMakbuzu", **receipt_payload(claim.receipt)})
+                    )
+                except OSError:
+                    logging.getLogger(__name__).error("Kabul makbuzu istemciye iletilemedi.")
+            except (OSError, sqlite3.Error):
+                return {"ok": False, "metin": messages.APP_SUBMISSION_STORAGE_FAILED}
+        return await asyncio.shield(owned)
+
+    async def _execute_submission(
+        self,
+        receipt: SubmissionReceipt,
+        task: str,
+        attachment_context: str,
+        images: tuple[str, ...],
+        voice_context: VoiceTurnContext | None,
+        deadline: TurnDeadline | None,
+    ) -> dict[str, Any]:
+        """Sonuç metadata'sının sahibi transport handler değil yürütme görevidir."""
+        import sqlite3
+
+        from .submission import receipt_payload
+
+        owned = asyncio.current_task()
+        try:
+            try:
+                await self._submission_store.finish(receipt, state="running")
+            except (OSError, sqlite3.Error):
+                await self._submission_store.finish(
+                    receipt, state="recoveryRequired", error_code="storage_failed"
+                )
+                return {"ok": False, "metin": messages.APP_SUBMISSION_STORAGE_FAILED}
+            result = await self._run_turn(
+                task,
+                attachment_context,
+                images,
+                voice_context=voice_context,
+                deadline=deadline,
+                receipt=receipt,
+                event_sequence=count(1),
+            )
+            state = (
+                "completed"
+                if result.get("ok")
+                else (
+                    "cancelled" if result.get("metin") == messages.APP_TURN_CANCELLED else "failed"
+                )
+            )
+            is_retry_safe = result.pop("_retry_safe", False) is True
+            terminal = await self._submission_store.finish(
+                receipt,
+                state=state,
+                error_code=None
+                if result.get("ok")
+                else "no_tool_effect"
+                if is_retry_safe
+                else "executor_failed",
+            )
+            return {**result, "makbuz": receipt_payload(terminal)}
+        except asyncio.CancelledError:
+            await self._submission_store.finish(receipt, state="cancelled", error_code="cancelled")
+            raise
+        except Exception:
+            logging.getLogger(__name__).error("Gönderim yürütmesi beklenmeyen hatayla bitti.")
+            await self._submission_store.finish(
+                receipt, state="failed", error_code="executor_failed"
+            )
+            raise
+        finally:
+            if self._submission_task is owned:
+                self._submission_task = None
+
     async def _run_turn(
         self,
         task: str,
@@ -1425,6 +1644,8 @@ class AppSession:
         browser_only: bool = False,
         auto_continues: int = 0,
         deadline: TurnDeadline | None = None,
+        receipt: SubmissionReceipt | None = None,
+        event_sequence: Iterator[int] | None = None,
     ) -> dict[str, Any]:
         """Görevi agent motoruyla çalıştır; olaylar tel üzerinden akar.
 
@@ -1444,13 +1665,23 @@ class AppSession:
         # Yan panelin konuşması uygulamanın sohbetine KARIŞMAZ: kendi geçmişi vardır,
         # diske yazılmaz, adımları ve soruları yalnız panele akar (Claude in Chrome gibi).
         if not browser_only:
-            self._transcript_store.record_user(task)
+            if receipt is None:
+                self._transcript_store.record_user(task)
+            elif receipt.attempt_id.endswith(":1") and auto_continues == 0:
+                self._transcript_store.record_user(
+                    task, message_id=f"{receipt.key.request_id}:user"
+                )
         history = self._chrome_history if browser_only else self._state.history
 
         # Kullanım sayacı olayları ARADAN dinler: sayaç için ayrı bir yol
         # açmak, bazı çağrı yollarının muhasebeden düşmesine yol açardı.
         writer = self._chrome.tee(_discard_line) if browser_only else self._writer
-        sink = LibrarySink(_MeteredSink(ProtocolSink(writer), self._usage), self._state.root)
+        sink = LibrarySink(
+            _MeteredSink(
+                ProtocolSink(writer, receipt=receipt, sequence=event_sequence), self._usage
+            ),
+            self._state.root,
+        )
         prompter = ProtocolPrompter(
             writer, self.pending, root=self._state.root, element_name=self._chrome.element_name
         )
@@ -1537,14 +1768,18 @@ class AppSession:
         # Teşhis izi: `/trace` bu turun neden düştüğünü sonradan söyleyebilsin.
         trace = None if browser_only else open_trace(config.memory_dir / "traces")
         trace_sinks: tuple[EventSink, ...] = (trace,) if trace is not None else ()
-        self._turn = asyncio.ensure_future(execute_turn())
+        owned_turn = asyncio.ensure_future(execute_turn())
+        self._turn = owned_turn
         try:
-            outcome = await self._turn
+            outcome = await owned_turn
         except asyncio.CancelledError:
             # İptal de bir sonuçtur: kaydedilmezse sekme yeniden açıldığında
             # soru cevapsız durur ve kullanıcı turun neden bittiğini göremez.
             if not browser_only:
-                self._transcript_store.record_assistant(messages.APP_TURN_CANCELLED)
+                self._transcript_store.record_assistant(
+                    messages.APP_TURN_CANCELLED,
+                    message_id=f"{receipt.key.request_id}:assistant" if receipt else None,
+                )
                 # Durdurulan istek geçmişte kalır (Claude'daki gibi): yoksa "devam et"
                 # dendiğinde model neyin yarıda kaldığını hiç görmüyordu.
                 self._state.history = [
@@ -1554,7 +1789,8 @@ class AppSession:
                 ]
             return {"ok": False, "metin": messages.APP_TURN_CANCELLED}
         finally:
-            self._turn = None
+            if self._turn is owned_turn:
+                self._turn = None
             if trace is not None:
                 trace.close()
             # Tur her yoldan bitti (cevap, hata, iptal): yarıda kalmış sayılmaz.
@@ -1574,7 +1810,12 @@ class AppSession:
         # model kendi ne dediğini göremiyor ve kaldığı yerden süremiyor — oysa
         # duraklama metni tam da devam etmek için gereken bilgidir.
         if outcome.final_text.strip():
-            self._transcript_store.record_assistant(outcome.final_text)
+            if receipt is None:
+                self._transcript_store.record_assistant(outcome.final_text)
+            else:
+                self._transcript_store.record_assistant(
+                    outcome.final_text, message_id=f"{receipt.key.request_id}:assistant"
+                )
         # Boş metinle "başarısız" dönmek kullanıcıya hiçbir şey söylemez.
         metin = outcome.final_text
         if not metin.strip() and not outcome.ok:
@@ -1585,7 +1826,9 @@ class AppSession:
             )
             # Özet de "ne oldu" kaydıdır: sekme yeniden açıldığında "devam et"
             # turunun modeli neyin kaldığını buradan görür.
-            self._transcript_store.record_assistant(metin)
+            self._transcript_store.record_assistant(
+                metin, message_id=f"{receipt.key.request_id}:assistant" if receipt else None
+            )
         if _should_auto_continue(outcome, auto_continues) and (
             deadline is None or deadline.remaining_s() > 0
         ):
@@ -1599,12 +1842,22 @@ class AppSession:
                     )
                 )
             )
-            return await self._run_turn(
+            continued = await self._run_turn(
                 messages.APP_TURN_AUTO_CONTINUE_TASK,
                 auto_continues=auto_continues + 1,
                 deadline=deadline,
+                receipt=receipt,
+                event_sequence=event_sequence,
             )
+            if receipt is not None:
+                continued["_retry_safe"] = False
+            return continued
         cevap: dict[str, Any] = {"ok": outcome.ok, "metin": metin}
+        if receipt is not None:
+            cevap["_retry_safe"] = (
+                getattr(outcome, "tool_calls_made", None) == 0
+                and getattr(outcome, "tool_uses", None) == ()
+            )
         kanit = evidence_payload(getattr(outcome, "completion_report", None))
         if kanit is not None:
             cevap["kanit"] = kanit
@@ -1711,8 +1964,22 @@ class AppSession:
         from ..providers.web_browser import close_all_browser_sessions
         from ..providers.web_control import stop_all_login_processes
 
+        self._closed = True
+        admissions = tuple(self._admission_tasks)
+        for admission in admissions:
+            admission.cancel()
+        if admissions:
+            await asyncio.gather(*admissions, return_exceptions=True)
+        self._admission_tasks.difference_update(admissions)
         if self._turn is not None and not self._turn.done():
             self._turn.cancel()
+        submission = self._submission_task
+        if submission is not None:
+            if self._turn is None:
+                submission.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await submission
+        await self._submission_store.close()
         await self._voice_background.close()
         self._report_voice_background_failures()
         voice_stop()

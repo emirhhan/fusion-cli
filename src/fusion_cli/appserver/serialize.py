@@ -28,6 +28,9 @@ def event_to_dict(event: Event) -> dict[str, object]:
     # alanı tanımaz, boş değer yalnız gürültü olurdu).
     if not payload.get("agent_id"):
         payload.pop("agent_id", None)
+    for name in ("event_id", "session_id", "turn_id", "schema_version"):
+        if payload.get(name) is None:
+            payload.pop(name, None)
     if isinstance(event, ToolStarted):
         # İnsan dilindeki cümle TEK KAYNAKTAN (`tool_progress.py`) gelir;
         # arayüz kendi kalıbını uydurmaz, yalnız bu alanı basar.

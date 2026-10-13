@@ -78,11 +78,11 @@ Bu Node yolu bu Mac'e ait; başka Mac'te Node22 executable bulunup aynı version
 
 **Kapsam:** U11/U17/U24, K02/K04, R07/R08. **Dosyalar:** `core/events.py`, `appserver/protocol.py`, `appserver/session.py`, App protocol/types, sessions/types/useSessions, Composer; Kits Chat/local-threads/Fusion event adapter. **Önerilen yeni interface:** `SubmissionReceipt { requestId: string; sessionId: string; turnId: string | null; state: 'queued'|'accepted'|'running'|'failed'|'cancelled'; error: string | null }`. TS yalnız UI adapter'da bu biçime normalize eder; wire Türkçe isimlerini korur. `onSend` void yerine receipt/promise kabulü tasarlanır; eski callback uyumu tek adapter'da.
 
-- [ ] A04/A05/A06/A34 için fake transport testleri yaz: send reject taslağı korur; iki Enter tek accepted; stale event başka sohbete gitmez; duplicate replay çoğaltmaz.
-- [ ] Testleri kırmızı gör. Mevcut client request id ve backend request id'yi yeni paralel UUID sistemi kurmadan genişlet.
-- [ ] D01 durable backend dedup ve task-attempt yaşam döngüsünü uygula. Backend accepted makbuzunu gerçek task kabulünde üret; failed teslimde taslak/ek snapshot'ını retry için tut. Mesajın kalıcı id'si React key olur; eski geçmiş için deterministik migration id üretilir.
-- [ ] UI reducer duplicate event'i ayıklar; tur tamamlandı event'i tek kez. Bilinmeyen optional alan tolere, bilinmeyen critical action unsupported döner.
-- [ ] Unit/protocol testleri + full gates; integration transcript örneğiyle yeni ve eski istemciyi doğrula. Commit sonrası receipt interface'ini devam dosyasına yaz.
+- [x] A04/A05/A06/A34 için fake transport testleri yaz: send reject taslağı korur; iki Enter tek accepted; stale event başka sohbete gitmez; duplicate replay çoğaltmaz.
+- [x] Testleri kırmızı gör. Mevcut client request id ve backend request id'yi yeni paralel UUID sistemi kurmadan genişlet.
+- [x] D01 durable backend dedup ve task-attempt yaşam döngüsünü uygula. Backend accepted makbuzunu gerçek task kabulünde üret; failed teslimde taslak/ek snapshot'ını retry için tut. Mesajın kalıcı id'si React key olur; eski geçmiş için deterministik migration id üretilir.
+- [x] UI reducer duplicate event'i ayıklar; tur tamamlandı event'i tek kez. Bilinmeyen optional alan tolere, bilinmeyen critical action unsupported döner.
+- [x] Unit/protocol testleri + full gates; integration transcript örneğiyle yeni ve eski istemciyi doğrula. Commit sonrası receipt interface'ini devam dosyasına yaz.
 
 ## Paket 3 — Karşılama ve async UI doğruluğu
 
