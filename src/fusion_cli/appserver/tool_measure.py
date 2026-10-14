@@ -19,7 +19,9 @@ from __future__ import annotations
 from typing import Any
 
 from ..config.models import Config
+from ..core.clock import SystemClock
 from ..core.errors import FusionError
+from ..core.protocols import Clock
 from ..engines.emulation_probe import ProbeReport, probe_emulation
 from ..providers.web_browser import normalize_account
 from ..providers.web_control import session_model, set_tool_eval_passed
@@ -29,7 +31,7 @@ __all__ = ["measure_tool_support"]
 
 
 async def measure_tool_support(
-    config: Config, provider: str, account: str = "main"
+    config: Config, provider: str, account: str = "main", *, clock: Clock | None = None
 ) -> dict[str, Any]:
     """Oturumu ölç, bayrağı yaz, sonucu arayüze döndür."""
     hesap = normalize_account(account or "main")
@@ -45,7 +47,9 @@ async def measure_tool_support(
     # yazma izni ölçülmemiş bir yeteneğe verilemez.
     olculdu = puan.tool_selection_measured > 0
     gecti = olculdu and puan.passes()
-    yeni = set_tool_eval_passed(config, provider, hesap, gecti)
+    yeni = set_tool_eval_passed(
+        config, provider, hesap, gecti, measured_at=(clock or SystemClock()).now()
+    )
     if yeni is None:
         return {"ok": False, "metin": "Ölçüm sonucu kaydedilemedi."}
     return {

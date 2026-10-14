@@ -21,7 +21,8 @@ from __future__ import annotations
 import platform
 import sys
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,8 +31,11 @@ from ..config.loader import load_config, load_environment
 from ..config.models import Config
 from ..config.paths import env_file_candidates, memory_dir, user_config_dir
 from ..config.readiness import Readiness, ReadinessReport, evaluate
+from ..core.clock import SystemClock
 from ..core.errors import ConfigError
-from ..core.model_capability import ModelCapability, ToolSupport
+from ..core.model_capability import CapabilityEvidence, ModelCapability, ToolSupport
+from ..core.protocols import Clock, LlmProvider
+from ..core.types import CompletionRequest, Message
 from ..engines.capability_probe import probe_from_samples
 
 #: Anahtarın kendisi yerine yazılan değer. Tanı çıktısı paylaşılır.
@@ -50,6 +54,7 @@ class Check:
     ok: bool | None = None
     #: Sorun varsa kullanıcının ne yapacağı. Boş bırakmak kabul edilemez.
     remedy: str = ""
+    evidence: tuple[CapabilityEvidence, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,7 +288,14 @@ def _live(config: Config) -> list[Check]:
     )
 
     async def _hepsi() -> list[Check]:
-        return list(await asyncio.gather(*[_dene(model) for model in modeller]))
+        health = list(await asyncio.gather(*[_dene(model) for model in modeller]))
+        native = await asyncio.gather(
+            *[
+                probe_native_capability(model, LiteLlmProvider(model, role="doctor"), istek)
+                for model in modeller
+            ]
+        )
+        return [*health, *native]
 
     return asyncio.run(_hepsi())
 
@@ -303,15 +315,49 @@ def capability_check(model: str, capability: ModelCapability) -> Check:
             remedy="`fusion doctor --live` ile sondajı çalıştır.",
         )
     kanitli = capability.tool_support is not ToolSupport.NONE
-    gorsel = "görsel var" if capability.vision else "görsel yok"
+    gorsel = "görsel var" if capability.vision else "görsel doğrulanmadı"
     return Check(
         f"yetenek: {model}",
         f"araç çağrısı {capability.tool_support.value}, {gorsel}",
         ok=kanitli,
+        evidence=capability.evidence,
         remedy=(
             "" if kanitli else "Bu model araç çağrısı üretemedi; değiştirici görevlerde kullanma."
         ),
     )
+
+
+async def probe_native_capability(
+    model: str, provider: LlmProvider, request: CompletionRequest, *, clock: Clock | None = None
+) -> Check:
+    """Yalnız gerçek tool-enabled yanıt native kanıt olur; metin EMULATED kalır."""
+    from ..providers.catalog import (
+        TOOL_CAPABILITY_SCHEMA,
+        TOOL_PROBE_MAX_TOKENS,
+        valid_capability_call,
+    )
+
+    native_request = replace(
+        request,
+        messages=(Message("user", "Use the sum tool to add 2 and 3."),),
+        tools=(TOOL_CAPABILITY_SCHEMA,),
+        max_tokens=TOOL_PROBE_MAX_TOKENS,
+    )
+    result = await provider.complete(native_request)
+    calls = (
+        tuple(call for call in result.tool_calls if valid_capability_call(call))
+        if result.ok
+        else None
+    )
+    timestamp = datetime.fromtimestamp((clock or SystemClock()).now(), UTC).isoformat()
+    capability = probe_from_samples(
+        tool_call_text=None,
+        native_tool_calls=calls,
+        image_echo=None,
+        measured_at=timestamp,
+        model_revision=result.served_by or None,
+    )
+    return capability_check(model, capability)
 
 
 async def probe_capability(model: str, ask: Callable[[str], Awaitable[str | None]]) -> Check:

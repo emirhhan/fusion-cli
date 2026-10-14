@@ -47,7 +47,7 @@ Son loglar: /tmp/fusion-package2-python-full-4.log, /tmp/fusion-package2-app-tes
 
 Paket3 App storage getter SecurityError ve kendi async yollarındaki strict Hook kapısını tamamladı. Paket11 mevcut Kits Hook lint altyapısını ele alacak. Paket7/15 typed finish state sınırı, Paket8/16 retired owner epoch dosya bakımını tekrar değerlendirecek. Empty-draft observation minor son Kits düzeltmesinde kapanmıştır. Native kurulum, gerçek günlük üretim, mikrofon/speaker ve sağlayıcı smoke bu kapıdan çıkarılamaz.
 
-## Paket4–16 — hazırlık tamam, ürün uygulaması sırada
+## Paket5–16 — hazırlık tamam, ürün uygulaması sırada
 
 Yeni dosyalardaki aşağıdaki sonuçlar başarısız test örnekleridir; bağımsız kusur sayısı, ürün tamamlanması veya parite ölçümü değildir. Mevcut ürün/eski testler değiştirilmedi. Aşağıdaki tablo tarihsel RED hazırlığıdır; Paket3 karşılıkları aşağıda GREEN olarak kapatılmıştır. Kalanlar dependency sırasıyla uygulanır.
 
@@ -79,3 +79,19 @@ React, TypeScript ve sözleşme incelemeleri tamamlandı; bulunan üç durum hat
 Görsel kapı 10 ekran/6 PASS/4 FAIL. Önceki sabit commit b4fa6a94 aynı 6 PASS/4 FAIL verdi; dört actual PNG byte-identical. Kontrol light/dark/compact ve settings-details-compact golden farkları önceden vardır, referanslar yenilenmedi ve Paket16'ya taşındı. İlk görsel koşunun eksik browser executable hatası exact Playwright1234 headless shell cache kurulmasıyla giderildi. Native ilk açılış/VoiceOver/OS clipboard veya gerçek sağlayıcı üretimi bu kanıt değildir. Python/Kits kaynakları değişmedi; Paket2 kapısı korunur.
 
 Kullanıcının 13 Ekim marka görselleri ve FUSION_MASTER_PLAN.md sonraki aşama kaydına alındı. Önce 16 paket tamamlanacak; ardından maddeler mevcut uygulamayla karşılaştırılarak gerekli eksikler yerelde uygulanacak. Mevcut arayüz korunur; logo ilk görsel, yüklenme ikinci görsel, fontlar SF Pro Display/Inter/JetBrains Mono; palet küçük detaylarda. Push yapılmadı.
+
+## Paket 4 — uygulama ve inceleme tamamlandı (14 Ekim)
+
+Model capability kaydı doğrulanmış yoğunluk listesini bilinmeyen/desteklenmeyenden ayırır. Gerçek LiteLLM sınırı yalnız doğrulanmış değeri gönderir; requested/applied effort ve açıklama gerçek sonuçta tutulur. API response veya stream chunk gözlenen model kimliği korunur, bilinmeyen kimlik istenen modelle doldurulmaz. Model kimliği değişimi/escalation/anahtar budama/web seçiminde eski modele ait kanıt taşınmaz. Katalog kaynak hatası boş listeden, bilinmeyen sağlık sağlıklı durumdan ayrılır.
+
+Tüm model/kademe/reset/web seçim yolları sahipli seçim ve tur kabul sırasını paylaşır; waiter iptali gerçek thread tamamlanmadan kilidi bırakmaz. Aktif tur ve continuation sabit config kullanır; seçim sonraki tur içindir. Geçersiz model seçimi başarılı makbuz üretmez. Native doctor ölçümü gerçek tool-enabled yanıtı metin emülasyonundan ayırır. Web ölçümü zaman/kimlik kapsamı/adaptör fingerprint ile bağlanır; legacy bool izin uyumu korunurken verified tarih/sürüm uydurulmaz.
+
+App katalog ve etkin modeli oturum/istemci sahibine bağlar; eski sonuç yeni oturumda görünmez. Model seçici erişilebilir combobox/listbox, belirgin klavye hedefi, grup etiketi, scroll ve gerçek retry/connect davranışı sağlar. Yoğunluk seçimi mevcut Settings pending/result/error/retry/refresh akışını kullanır. Sohbet ve Kits makbuzları requested/observed model ile requested/applied yoğunluğu gösterir; legacy receipt anahtarı indeks değildir.
+
+Son App142 dosya/1045 PASS; Kits79 dosya/364 PASS; iki build ve tip/lint/format kapıları geçti. Canonical mypy537, Ruff1094 dosya temiz. Python tam koşusu6162 PASS/4 SKIP/1 FAIL/2warning1808.97s: tek eski rate_gate sahte sağlayıcı yeni capability keyword'ünü kabul etmiyordu. Yalnız test adaptörü değiştirildi; yeni capability assertion eklendi, eski 429/yedek anahtar assertion'ları korundu. İlgili dört dosya33 PASS. Ürün kaynak hashleri aynı; tam suite yeniden geçilmiş iddiası yok. Dört Windows platform SKIP cihaz kabulü değildir. Etkilenen önceki Python28dosya410 PASS ve yeni46 PASS ayrıca kayıtlıdır.
+
+Python/React/TypeScript/son genel kod incelemesi ve test fixture incelemesi kayıtta. Kits yerel commit1e8c100270b989d4a7d3e9e29a655b5b55979275; ana commit bu raporu içeren Paket4 commitidir. Push/merge yapılmadı.
+
+Gemini kaynak smoke'u30.683s: requested auto, uygulanan auto, observed Flash. Provider yanıtı var; yalnız OK talimatına uyum yok. Bu gerçek Pro veya paketli/native başarı değildir; bunlar Paket16 kabulünde açık kalır. Eski görsel golden/Hook dependency/cleanwheel/platform kabulleri önceki kayıttaki sahiplerine devredildi.
+
+Kullanıcının son kararı gereği Paket5 başlatılmadı. Kalan12 paket, marka ve master-plan işi için `docs/superpowers/handoffs/2026-10-13-fusion-paket4-sonrasi/README.md` merkezinde ayrı chat görevleri ve taşınabilir kaynak/test hazırlıkları vardır.

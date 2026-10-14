@@ -25,7 +25,8 @@ import {
   type DosyaOnerisi,
 } from "./screens/Composer";
 import { Conversation, type Mesaj } from "./screens/Conversation";
-import type { ModelOption } from "./screens/ModelPicker";
+import { useModelCatalog } from "./screens/useModelCatalog";
+import { useActiveModel } from "./screens/useActiveModel";
 import { EmptyState } from "./screens/EmptyState";
 import { Inspector, type InspectorTabId } from "./screens/Inspector";
 import { Shell } from "./screens/Shell";
@@ -464,10 +465,7 @@ export function SessionUygulama({
   const [commandBusy, setCommandBusy] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commands, setCommands] = useState<ComposerCommand[]>([]);
-  const [activeModel, setActiveModel] = useState("");
-  const [activeModelLabel, setActiveModelLabel] = useState("");
-  const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
-  const [modelsBusy, setModelsBusy] = useState(false);
+
   const [fileSuggestions, setFileSuggestions] = useState<DosyaOnerisi[]>([]);
   //: En son gönderilen `@` sorgusunun sırası. Geç gelen cevap yenisini EZMEZ:
   //: kullanıcı yazmaya devam ettiğinde eski sorgunun sonucu listeyi geri almamalı.
@@ -742,52 +740,13 @@ export function SessionUygulama({
   // Etkin model oturumun yapılandırmasından gelir; istemcide önbelleğe alınmaz.
   // `controlRevision` bağımlılıktır: `/model` komutu modeli değiştirdiğinde
   // composer'daki ad da tazelenmeli, yoksa eski model yazılı kalırdı.
-  useEffect(() => {
-    if (!active) return;
-    let alive = true;
-    void active.client
-      .request("kontrol.durum", {})
-      .then((payload) => {
-        if (!alive || payload.ok !== true) return;
-        const modelState = payload.model as { agent?: unknown; agent_label?: unknown } | undefined;
-        const model = modelState?.agent;
-        if (typeof model === "string") setActiveModel(model);
-        setActiveModelLabel(typeof modelState?.agent_label === "string" ? modelState.agent_label : "");
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, [active, controlRevision]);
+  const { model: activeModel, label: activeModelLabel } = useActiveModel(activeClient, activeSessionId, controlRevision);
 
-  /** Etkin sağlayıcıların canlı katalogda bulunan modellerini oku. */
-  const loadModelOptions = useCallback(async () => {
-    if (!active) return;
-    setModelsBusy(true);
-    setModelOptions([]);
-    try {
-      const sonuc = await active.client.request("model.katalog", { kip: workspaceMode });
-      const modeller = Array.isArray(sonuc.modeller) ? sonuc.modeller : [];
-      setModelOptions(
-        modeller.flatMap((raw) => {
-          if (!raw || typeof raw !== "object") return [];
-          const row = raw as Record<string, unknown>;
-          if (typeof row.model !== "string" || !row.model || typeof row.kaynak !== "string") return [];
-          return [{
-            deger: `/development uygula ${row.kaynak} ${row.model}`,
-            modelId: row.model,
-            etiket: typeof row.etiket === "string" ? row.etiket : row.model,
-            aciklama: typeof row.aciklama === "string" ? row.aciklama : "",
-            grup: typeof row.grup === "string" ? row.grup : "diger",
-          }];
-        }),
-      );
-    } catch {
-      setModelOptions([]);
-    } finally {
-      setModelsBusy(false);
-    }
-  }, [active, workspaceMode]);
+  const modelCatalog = useModelCatalog(activeClient, activeSessionId, workspaceMode);
+  const modelOptions = modelCatalog.options;
+  const modelsBusy = modelCatalog.state.status === "loading";
+  const modelsError = modelCatalog.state.status === "error" ? modelCatalog.state.message : "";
+  const loadModelOptions = modelCatalog.load;
 
   useEffect(() => {
     if (!activeClient || !activeSessionId) return;
@@ -1312,6 +1271,9 @@ export function SessionUygulama({
           activeModel={activeModel}
           activeModelLabel={activeModelLabel}
           modelOptions={modelOptions}
+          modelsError={modelsError}
+          modelSelectionPending={commandBusy}
+          onModelConnect={() => { setControlTitle("Sağlayıcılar"); setPage("control"); }}
           modelsBusy={modelsBusy}
           onModelMenuOpen={() => void loadModelOptions()}
           onModelSelect={(komut) => void executeCommand(komut, false, false)}

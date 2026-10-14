@@ -15,11 +15,12 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ...config import model_select, profile
+from ...config.eligibility import capability_from_spec
 from ...config.keys import environ_snapshot
 from ...config.models import Config
 from ...core.errors import ConfigError
 from ...core.memory import Feedback, Lesson, LessonKind, LessonSource
-from ...core.reasoning import ReasoningEffort, is_downgraded, provider_value
+from ...core.reasoning import ReasoningEffort, resolve_reasoning
 from ...engines.agent.approval import ApprovalMode
 from ...history import SessionRef, available_sources, build_digest, source_by_name
 from ...memory.seed import SEED_LESSONS, seed
@@ -250,11 +251,26 @@ def _model(state: ReplState, argument: str) -> str:
     parts = argument.split()
     if not parts:
         return model_select.format_models(state.config)
+    result = model_command_result(state, parts)
+    state.config = result.config
+    return result.message
+
+
+@dataclass(frozen=True, slots=True)
+class ModelCommandResult:
+    """CLI ve App aynı gerçek seçim ret/başarı sonucunu paylaşır."""
+
+    config: Config
+    message: str
+    ok: bool
+
+
+def model_command_result(state: ReplState, parts: list[str]) -> ModelCommandResult:
     try:
-        state.config, message = _apply_model_command(state, parts)
+        config, message = _apply_model_command(state, parts)
     except ConfigError as error:
-        return str(error)
-    return message
+        return ModelCommandResult(state.config, str(error), False)
+    return ModelCommandResult(config, message, config is not state.config)
 
 
 def _apply_model_command(state: ReplState, parts: list[str]) -> tuple[Config, str]:
@@ -371,11 +387,9 @@ def _effort(state: ReplState, argument: str) -> str:
     state.config = replace(
         state.config, runtime=replace(state.config.runtime, reasoning_effort=effort)
     )
-    if is_downgraded(effort):
-        return messages.EFFORT_APPLIED_DOWNGRADED.format(
-            effort=effort.value, mapped=provider_value(effort)
-        )
-    return messages.EFFORT_APPLIED.format(effort=effort.value)
+    resolution = resolve_reasoning(effort.value, capability_from_spec(state.config.agent))
+    applied = messages.EFFORT_APPLIED.format(effort=effort.value)
+    return f"{applied}\n{resolution.reason}" if resolution.reason else applied
 
 
 def _ask_secret(prompt: str) -> str | None:

@@ -283,7 +283,7 @@ export function Settings({
           )}
 
           {bolum === "modeller" && (
-            <Models model={control?.model ?? null} onRunCommand={onRunCommand} />
+            <Models model={control?.model ?? null} onRunCommand={onRunCommand ? selectMode : undefined} pending={modeBusy} />
           )}
 
           {bolum === "ses" && <VoicePreferences client={client} />}

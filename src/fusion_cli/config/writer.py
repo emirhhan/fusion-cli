@@ -305,7 +305,10 @@ def _spec_to_dict(spec: ModelSpec) -> dict[str, object]:
     return {
         key: (list(value) if isinstance(value, tuple) else value)
         for key, value in data.items()
-        if value is not None and value != () and value != ""
+        if value is not None
+        and value != ()
+        and value != ""
+        and not (key == "reasoning_efforts_verified" and value is False)
     }
 
 

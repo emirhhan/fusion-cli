@@ -172,8 +172,13 @@ def register_session(
     model = session_model(provider, hesap)
 
     mevcut = _session_for(tuple(config.web_sessions), provider, hesap)
+    from ..config.web_evidence import web_evaluation_matches
+
     korunan_olcum = bool(getattr(mevcut, "tool_eval_passed", False)) and (
         getattr(mevcut, "tool_support", None) == tool_support
+        and getattr(mevcut, "transport", None) == "browser"
+        and mevcut is not None
+        and web_evaluation_matches(mevcut)
     )
     varsayilan = WebSessionConfig(model=model, provider=provider, account=hesap)
     oturum = WebSessionConfig(
@@ -186,6 +191,11 @@ def register_session(
         credential_ref=None,
         tool_support="emulated" if tool_support != "none" else "none",
         tool_eval_passed=korunan_olcum,
+        tool_evaluated_at=getattr(mevcut, "tool_evaluated_at", None) if korunan_olcum else None,
+        tool_evaluation_scope=getattr(mevcut, "tool_evaluation_scope", "") if korunan_olcum else "",
+        tool_evaluation_adapter_revision=getattr(mevcut, "tool_evaluation_adapter_revision", "")
+        if korunan_olcum
+        else "",
         # KULLANICI TERCİHLERİ KORUNUR. `headless` ve `timeout_s` türetilmiş durum
         # değil, bilinçli seçimdir; oturumu yeniden kaydetmek onları sıfırlamamalı.
         #
@@ -245,7 +255,7 @@ def _route_roles_if_idle(config: Config, model: str) -> tuple[Config, str]:
     def onde(spec: ModelSpec) -> ModelSpec:
         if spec.models and spec.models[0] == model:
             return spec
-        return _replace(spec, model=model, fallback=tuple(spec.models))
+        return _replace(spec.with_identity(model), fallback=tuple(spec.models))
 
     yonlendirilmis = _replace(
         config,
@@ -442,11 +452,12 @@ async def validate_session(config: Config, provider: str, account: str = "main")
 
 
 def set_tool_eval_passed(
-    config: Config, provider: str, account: str, passed: bool
+    config: Config, provider: str, account: str, passed: bool, *, measured_at: float | None = None
 ) -> Config | None:
     """Ölçüm sonucunu yapılandırmaya yaz."""
     from dataclasses import replace as _replace
 
+    from ..config.web_evidence import web_adapter_revision, web_evaluation_scope
     from ..config.writer import write_web_sessions
 
     hesap = normalize_account(account or "main")
@@ -455,7 +466,17 @@ def set_tool_eval_passed(
     for item in config.web_sessions:
         matches = item.provider == provider and normalize_account(str(item.account)) == hesap
         found = found or matches
-        sessions.append(_replace(item, tool_eval_passed=passed) if matches else item)
+        sessions.append(
+            _replace(
+                item,
+                tool_eval_passed=passed,
+                tool_evaluated_at=measured_at,
+                tool_evaluation_scope=web_evaluation_scope(item),
+                tool_evaluation_adapter_revision=web_adapter_revision(),
+            )
+            if matches
+            else item
+        )
     if not found:
         return None
     updated = _replace(config, web_sessions=tuple(sessions))

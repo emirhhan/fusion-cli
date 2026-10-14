@@ -73,7 +73,8 @@ def _sonda(monkeypatch, sonuc) -> list[str]:
 def _yazimi_yakala(monkeypatch) -> list[bool]:
     yazilan: list[bool] = []
 
-    def _yaz(config, provider, account, passed):
+    def _yaz(config, provider, account, passed, *, measured_at):
+        assert measured_at > 0
         yazilan.append(passed)
         return config
 

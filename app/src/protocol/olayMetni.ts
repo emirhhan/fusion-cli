@@ -295,12 +295,20 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
     case "ModelCallFinished": {
       // Arka plan çağrıları akışa girmez (`ModelCallStarted` ile aynı gerekçe).
       if (veri.background === true) return null;
-      const sonuc = veri.result as { reasoning?: unknown } | undefined;
+      const sonuc = veri.result as Record<string, unknown> | undefined;
       const dusunme = typeof sonuc?.reasoning === "string" ? sonuc.reasoning.trim() : "";
-      // Düşünme YOKSA adım da yok: her model çağrısı için boş bir satır açmak
-      // akışı ikiye katlar ("düşünüyor" zaten `ModelCallStarted`'da basılıyor).
-      if (!dusunme) return null;
-      return { metin: "düşündü", dusunme };
+      const requested = typeof veri.requested_model === "string" && veri.requested_model ? veri.requested_model : typeof sonuc?.model === "string" ? sonuc.model : "";
+      const observed = typeof sonuc?.served_by === "string" && sonuc.served_by ? sonuc.served_by : "doğrulanamadı";
+      const effort = typeof sonuc?.effort_reason === "string" ? sonuc.effort_reason : "";
+      const requestedEffort = typeof sonuc?.requested_effort === "string" ? sonuc.requested_effort : "";
+      const appliedEffort = typeof sonuc?.applied_effort === "string" ? sonuc.applied_effort : "";
+      const intensity = requestedEffort || appliedEffort
+        ? `İstenen yoğunluk: ${requestedEffort || "doğrulanamadı"} · Uygulanan yoğunluk: ${appliedEffort || "gönderilmedi"}` : "";
+      if (!requested && !dusunme) return null;
+      if (!requested) return { metin: "düşündü", dusunme };
+      return { metin: sonuc?.ok === false ? "model çağrısı başarısız" : "model yanıtladı", dusunme: dusunme || undefined,
+        ayrinti: [requested ? `İstenen: ${requested} · Gözlenen: ${observed}` : "", intensity, effort].filter(Boolean).join(" · ") || undefined };
+
     }
     case "SubAgentStarted": {
       const gorev = typeof veri.task === "string" ? veri.task : "";
@@ -321,7 +329,7 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
       // sebep saklanmaz: arayüz bunu görüp "Giriş penceresini aç" kartını açar.
       return {
         metin: "yedek modele geçti",
-        ayrinti: neden.includes("insan doğrulaması") ? `${gecis} · ${neden}` : gecis,
+        ayrinti: neden ? `${gecis} · ${neden}` : gecis,
       };
     }
     case "CapabilityActivated":

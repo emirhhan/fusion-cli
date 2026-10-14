@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..core.model_capability import ModelCapability, ToolSupport
+from .web_evidence import web_evaluation_matches
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
     from .models import Config
@@ -71,7 +72,7 @@ def mutation_policy_for_model(config: Config, model: str) -> MutationPolicy:
     support = _WEB_TOOL_SUPPORT.get(session.tool_support, ToolSupport.NONE)
     return can_be_mutation_agent(
         ModelCapability(tool_support=support),
-        emulated_verified=session.tool_eval_passed,
+        emulated_verified=session.tool_eval_passed and web_evaluation_matches(session),
     )
 
 

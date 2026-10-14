@@ -276,7 +276,17 @@ def test_call_kwargs_reasoning_effort_gonderir():
         timeout_s=1.0,
         reasoning_effort="high",
     )
-    kwargs = _saglayici()._call_kwargs(istek, stream=False)
+    from fusion_cli.core.model_capability import ModelCapability
+
+    provider = LiteLlmProvider(
+        "sahte/model",
+        role="agent",
+        capability=ModelCapability(
+            supported_reasoning_efforts=("high",),
+            reasoning_efforts_verified=True,
+        ),
+    )
+    kwargs = provider._call_kwargs(istek, stream=False)
     assert kwargs["reasoning_effort"] == "high"
 
 

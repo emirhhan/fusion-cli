@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from ..config.eligibility import capability_from_spec
 from ..config.models import Config, WebSessionConfig
+from ..config.web_evidence import web_evaluation_matches
 from ..core.errors import ConfigError
 from ..core.model_capability import ToolSupport
 from ..core.types import ModelSpec
@@ -40,7 +41,11 @@ def capabilities_for(
     session = next((item for item in sessions if item.enabled and item.model == spec.model), None)
     if session is not None:
         browser = session.transport == "browser"
-        emulated = session.tool_support == "emulated" and session.tool_eval_passed
+        emulated = (
+            session.tool_support == "emulated"
+            and session.tool_eval_passed
+            and web_evaluation_matches(session)
+        )
         return ProviderCapabilities(
             tools=emulated,
             native_tools=False,
@@ -48,7 +53,12 @@ def capabilities_for(
             web=True,
             long_running=not browser,
             exclusive_session=browser,
-            evaluation_state="passed" if emulated else "unverified",
+            evaluation_state=(
+                "passed-unversioned" if session.tool_evaluation_scope else "legacy-unverified"
+            )
+            if emulated
+            else "unverified",
+            last_evaluated_at=session.tool_evaluated_at or 0.0,
         )
     if spec.model.split("/", 1)[0] in {
         "chatgpt_web",

@@ -98,7 +98,7 @@ describe("ModelPicker", () => {
 
     expect(screen.getByText("Basit ve hızlı görevler")).toBeTruthy();
     expect(screen.getByText("Büyük ve karmaşık görevler")).toBeTruthy();
-    fireEvent.change(screen.getByRole("searchbox", { name: "Model ara" }), { target: { value: "Derin" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Model ara" }), { target: { value: "Derin" } });
     expect(screen.queryByText("Hızlı")).toBeNull();
     expect(screen.getByText("Derin")).toBeTruthy();
   });

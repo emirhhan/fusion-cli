@@ -323,6 +323,9 @@ class WebSessionConfig:
     #: tutturamadığında sessizce yanlış dosyaya yanlış içerik yazma riski doğar.
     #: Panel değerlendirmeyi çalıştırıp bu alanı yazar.
     tool_eval_passed: bool = False
+    tool_evaluated_at: float | None = None
+    tool_evaluation_scope: str = ""
+    tool_evaluation_adapter_revision: str = ""
     #: Son gerçek küçük istek başarıyla tamamlandı mı? Profil klasörü bunu kanıtlamaz.
     login_verified: bool = False
     #: Tur tarayıcısının pencere kipi: `visible`, `headless` ya da `hidden`.

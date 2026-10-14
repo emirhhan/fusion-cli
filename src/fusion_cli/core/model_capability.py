@@ -35,6 +35,18 @@ class ToolSupport(Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class CapabilityEvidence:
+    """Yetenek beyanının kaynağı; eksik tarih ve kapsam doğrulanmış sayılmaz."""
+
+    capability: str
+    source: str
+    measured_at: str | None = None
+    model_revision: str | None = None
+    adapter_revision: str | None = None
+    account_scope: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ModelCapability:
     """Bir modelin uygunluk kararı için gereken normalize yeteneği.
 
@@ -53,3 +65,8 @@ class ModelCapability:
     #: etiketinden türetilir (bkz. `config/eligibility.py::capability_from_spec`);
     #: etiket yoksa ihtiyatlı `False` kalır — "muhtemelen görür" varsayılmaz.
     vision: bool = False
+
+    #: Boş ve doğrulanmamış liste bilinmiyor; boş doğrulanmış liste desteklenmiyor.
+    supported_reasoning_efforts: tuple[str, ...] = ()
+    reasoning_efforts_verified: bool = False
+    evidence: tuple[CapabilityEvidence, ...] = ()

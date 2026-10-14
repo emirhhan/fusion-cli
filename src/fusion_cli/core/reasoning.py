@@ -1,17 +1,17 @@
-"""Reasoning effort — modelin "düşünme" yoğunluğu.
+"""Düşünme yoğunluğu niyeti ve adaptör sınırındaki doğrulanmış çözümleme.
 
-Effort, çalışma profilinden (mode) AYRIDIR (master prompt §7.1): profil model/
-sağlayıcı havuzunu seçer, effort seçilen model DESTEKLİYORSA düşünme yoğunluğunu
-ayarlar. Model desteklemiyorsa hatalı parametre gönderilmez; sessizce en yakına
-eşlenir ya da hiç gönderilmez.
-
-Sağlayıcıların (OpenAI uyumlu `reasoning_effort`) kabul ettiği değerler kısıtlıdır;
-altı seviyelik kullanıcı seçimi bu üçe indirgenir ve indirgeme kullanıcıya gösterilir.
+Profil model havuzunu seçer; yoğunluk ayrı bir tercihtir. Exact destek yalnız
+modelin kendi doğrulanmış listesinde varsa uygulanır. Bilinmeyen/desteksiz
+parametre gönderilmez; indirgeme yalnız kanıtlı high değeriyle yapılır.
+Legacy provider_value saf uyumluluk eşlemesidir; yetenek doğrulaması değildir.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
+
+from .model_capability import ModelCapability
 
 
 class ReasoningEffort(Enum):
@@ -49,3 +49,33 @@ def is_downgraded(effort: ReasoningEffort) -> bool:
     """Seçilen seviye, desteklenen en yakına indirildi mi? (`xhigh`/`max` → `high`)"""
     mapped = provider_value(effort)
     return mapped is not None and mapped != effort.value
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningResolution:
+    """İstenen ve gerçekten gönderilebilen yoğunluğu birbirinden ayırır."""
+
+    requested: str | None
+    applied: str | None
+    reason: str = ""
+
+
+def resolve_reasoning(requested: str | None, capability: ModelCapability) -> ReasoningResolution:
+    """Yalnız doğrulanmış değer gönderilir; bilinmeyen yetenek tahmin edilmez."""
+    if requested is None or requested == ReasoningEffort.AUTO.value:
+        return ReasoningResolution(requested, None)
+    if not capability.reasoning_efforts_verified:
+        return ReasoningResolution(
+            requested, None, "Modelin düşünme yoğunluğu desteği doğrulanmadı."
+        )
+    supported = capability.supported_reasoning_efforts
+    if requested in supported:
+        return ReasoningResolution(requested, requested)
+    if (
+        requested in (ReasoningEffort.XHIGH.value, ReasoningEffort.MAX.value)
+        and "high" in supported
+    ):
+        return ReasoningResolution(
+            requested, "high", "Seçilen yoğunluk desteklenmiyor; high uygulanıyor."
+        )
+    return ReasoningResolution(requested, None, "Model seçilen düşünme yoğunluğunu desteklemiyor.")

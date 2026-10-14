@@ -39,3 +39,32 @@ def test_bilinmeyen_yetenek_ne_gecti_ne_kaldi():
     kontrol = capability_check("yeni/model", ModelCapability(tool_support=ToolSupport.UNKNOWN))
 
     assert kontrol.ok is None
+
+
+async def test_native_probe_uses_actual_structured_result_and_keeps_missing_revision_unknown():
+    from fusion_cli.cli.doctor import probe_native_capability
+    from fusion_cli.core.types import ModelResult, ToolCall
+
+    from .fakes import FakeProvider, request
+
+    provider = FakeProvider("sample", chunks=("Yanıt",))
+
+    # Provider public complete sınırı kontrollü gerçek proje sonucu döndürür.
+    async def complete(_request):
+        assert _request.tools
+        return ModelResult(
+            name="doctor",
+            model="requested",
+            text="",
+            latency_ms=1,
+            ok=True,
+            tool_calls=(ToolCall(id="actual-call", name="sum", arguments='{"a":2,"b":3}'),),
+        )
+
+    provider.complete = complete
+    check = await probe_native_capability("requested", provider, request())
+    assert check.ok is True
+    assert "native" in check.value
+    assert check.evidence[0].source == "native-probe"
+    assert check.evidence[0].measured_at is not None
+    assert check.evidence[0].model_revision is None

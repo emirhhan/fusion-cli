@@ -210,6 +210,7 @@ def test_defter_iki_surec_arasinda_tek_kova_paylasir(tmp_path):
 
 async def test_fabrika_429_alan_anahtari_atlayip_digerine_gecer(tmp_path, monkeypatch):
     from fusion_cli.core.health import HealthRegistry
+    from fusion_cli.core.model_capability import ModelCapability
     from fusion_cli.core.types import ModelSpec
     from fusion_cli.providers import factory
 
@@ -217,7 +218,9 @@ async def test_fabrika_429_alan_anahtari_atlayip_digerine_gecer(tmp_path, monkey
     yapraklar: list[tuple[str, FakeProvider]] = []
 
     class _Yaprak(FakeProvider):
-        def __init__(self, model, *, role, clock=None, api_key=None):
+        def __init__(self, model, *, role, clock=None, api_key=None, capability=None):
+            assert isinstance(capability, ModelCapability)
+            assert not capability.reasoning_efforts_verified
             yapraklar.append((api_key or "", self))
             if api_key == "dolu":
                 super().__init__(model, ok=False, error="RateLimitError: 429")

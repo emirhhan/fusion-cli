@@ -11,7 +11,7 @@ from ..config.models import Config
 from ..config.paths import user_data_dir
 from ..config.tool_policy import mutation_policy_for_model
 from ..providers import health_cache
-from ..providers.catalog import CatalogEntry
+from ..providers.catalog import CatalogEntry, CatalogLoadResult
 
 #: Sağlıksız işaretli modelin açıklamasına eklenen uyarı. `doctor --live`
 #: sondasının bulduğu, YAKIN ZAMANDA yanıt vermeyen model için.
@@ -55,6 +55,15 @@ def _tier(config: Config, model_id: str) -> str:
     return "diger"
 
 
+async def _load_source(source: model_flows.Source) -> CatalogLoadResult:
+    """Eski tuple getiricisi aynı typed sonuca sınırda uyarlanır."""
+    if source.loader is not None:
+        return await asyncio.to_thread(source.loader)
+    if source.fetcher is not None:
+        return CatalogLoadResult(await asyncio.to_thread(source.fetcher))
+    return CatalogLoadResult()
+
+
 async def list_selectable_models(
     config: Config, *, workspace_mode: str = "sohbet"
 ) -> dict[str, Any]:
@@ -72,11 +81,11 @@ async def list_selectable_models(
     """
     sources = _allowed_sources(config)
     fetched = await asyncio.gather(
-        *(asyncio.to_thread(source.fetcher) for source in sources if source.fetcher),
-        return_exceptions=True,
+        *(_load_source(source) for source in sources), return_exceptions=True
     )
     health_path = user_data_dir() / health_cache.HEALTH_CACHE_FILENAME
-    rows: list[dict[str, str]] = []
+    rows: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
     seen: set[str] = set()
     curated_nim = {
         model
@@ -86,8 +95,13 @@ async def list_selectable_models(
     }
     for source, result in zip(sources, fetched, strict=True):
         if isinstance(result, BaseException):
+            errors.append(
+                {"kaynak": source.key, "metin": "Model kataloğu okunamadı; yeniden dene."}
+            )
             continue
-        for entry in result:
+        if result.error:
+            errors.append({"kaynak": source.key, "metin": result.error})
+        for entry in result.entries:
             if not isinstance(entry, CatalogEntry) or entry.model_id in seen:
                 continue
             # Composer ajan görevi başlatır: araçsız olduğu bilinen model seçenek
@@ -114,7 +128,15 @@ async def list_selectable_models(
                     "etiket": entry.model_id.split("/")[-1],
                     "aciklama": aciklama + _UNHEALTHY_SUFFIX if unhealthy else aciklama,
                     "grup": _tier(config, entry.model_id),
-                    "saglikli": "hayir" if unhealthy else "evet",
+                    "saglikli": "hayir" if unhealthy else "bilinmiyor",
+                    "yetenek": {
+                        "tool_support": "native" if entry.supports_tools is True else "unknown",
+                        "context_window": entry.context_length,
+                        "supported_reasoning_efforts": [],
+                        "reasoning_efforts_verified": False,
+                        "source": "catalog",
+                        "measured_at": None,
+                    },
                 }
             )
     # Kararlı sıralama: yalnız sağlıksız işaretliler sona alınır, aksi hâlde
@@ -137,4 +159,8 @@ async def list_selectable_models(
                 "grup": "web",
             }
         )
-    return {"ok": True, "modeller": rows}
+    result_payload: dict[str, Any] = {"ok": not errors or bool(rows), "modeller": rows}
+    if errors:
+        result_payload["kaynak_hatalari"] = errors
+        result_payload["metin"] = "Bazı model katalogları okunamadı; yeniden dene."
+    return result_payload

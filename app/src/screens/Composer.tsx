@@ -5,7 +5,7 @@ import { Button } from "../ui/Button";
 import { MicIcon } from "../voice/MicIcon";
 import "./Composer.css";
 import { AttachmentChip } from "./AttachmentChip";
-import { ModelPicker, type ModelOption } from "./ModelPicker";
+import { ModelPicker, shortModelName, type ModelOption } from "./ModelPicker";
 import {
   ApprovalModeMenu,
   approvalInfo,
@@ -94,6 +94,9 @@ interface ComposerProps {
   activeModelLabel?: string;
   /** Seçilebilir modeller; liste açılınca tembel yüklenir. */
   modelOptions?: ModelOption[];
+  modelsError?: string;
+  modelSelectionPending?: boolean;
+  onModelConnect?: () => void;
   modelsBusy?: boolean;
   onModelMenuOpen?: () => void;
   onModelSelect?: (deger: string) => void;
@@ -130,6 +133,9 @@ export function Composer({
   activeModel = "",
   activeModelLabel,
   modelOptions = [],
+  modelsError = "",
+  modelSelectionPending = false,
+  onModelConnect,
   modelsBusy = false,
   onModelMenuOpen,
   onModelSelect,
@@ -373,6 +379,7 @@ export function Composer({
           </div>
           {running ? (
             <span className="composer__actions">
+              {onModelSelect && activeModel && <ModelPicker active={activeModel} activeLabel={activeModelLabel ? `${activeModelLabel} · sonraki tur` : `${shortModelName(activeModel)} · sonraki tur`} options={modelOptions} busy={modelsBusy} pending={modelSelectionPending} error={modelsError} onOpen={onModelMenuOpen} onRetry={onModelMenuOpen} onConnect={onModelConnect} onSelect={onModelSelect} />}
               <ContextGauge olcu={context} onCompact={() => onSend("/compact")} />
               {maliyetRozetMetni(costUsd) && (
                 <span className="composer__cost">{maliyetRozetMetni(costUsd)}</span>
@@ -417,6 +424,10 @@ export function Composer({
                   active={activeModel}
                   activeLabel={activeModelLabel}
                   busy={modelsBusy}
+                  pending={modelSelectionPending}
+                  error={modelsError}
+                  onRetry={onModelMenuOpen}
+                  onConnect={onModelConnect}
                   onOpen={onModelMenuOpen}
                   onSelect={onModelSelect}
                   options={modelOptions}

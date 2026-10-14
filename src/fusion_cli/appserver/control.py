@@ -5,11 +5,13 @@ from __future__ import annotations
 import os
 from typing import Any, Protocol
 
+from ..config.eligibility import capability_from_spec
 from ..config.keys import environ_snapshot
 from ..config.model_select import reset_to_apprentice_default
 from ..config.models import Config
 from ..config.writer import write_model_section
 from ..core.errors import ConfigError
+from ..core.reasoning import resolve_reasoning
 from ..providers.capabilities import apprentice_active
 from ..providers.registry import BUILTIN_PROVIDERS, ProviderDefinition
 
@@ -225,6 +227,11 @@ def snapshot(
             "adaylar": [candidate.model for candidate in config.candidates],
             "saglayici": config.runtime.provider,
             "yogunluk": config.runtime.reasoning_effort.value,
+            "desteklenen_yogunluklar": list(config.agent.supported_reasoning_efforts),
+            "yogunluk_dogrulandi": config.agent.reasoning_efforts_verified,
+            "yogunluk_aciklamasi": resolve_reasoning(
+                config.runtime.reasoning_effort.value, capability_from_spec(config.agent)
+            ).reason,
             # Faz 3, Görev 2 (C5/C9): agent şu an ücretsiz API çırağıyla mı
             # çalışıyor, yoksa bir web oturumuna mı kilitli? Panel bu iki alanla
             # "ücretsiz çırağa dön" CTA'sını gösterip göstermeyeceğine karar verir.

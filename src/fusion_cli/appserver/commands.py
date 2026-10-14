@@ -32,7 +32,7 @@ from typing import Any, Literal, TypedDict
 from rich.console import Console
 
 from ..cli.repl import model_flows, profiles_flow, provider_flow
-from ..cli.repl.commands import CommandRegistry
+from ..cli.repl.commands import CommandRegistry, model_command_result
 from ..cli.repl.state import ReplState
 from ..config.credentials import FernetSecretStore
 from ..core.constants import MAX_OUTPUT_CHARS
@@ -301,6 +301,10 @@ def _run_interactive_completion(
     *,
     secret_store: FernetSecretStore | None,
 ) -> CommandResult | None:
+    if name == "model":
+        result = model_command_result(state, argument.split())
+        state.config = result.config
+        return {"ok": result.ok, "metin": result.message}
     if name == "provider":
         return _apply_provider(state, argument)
     if name == "development":

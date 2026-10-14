@@ -100,11 +100,13 @@ Bu Node yolu bu Mac'e ait; başka Mac'te Node22 executable bulunup aynı version
 
 **Önerilen additive interface:** mevcut ModelCapability'ye `supported_reasoning_efforts: tuple[str,...] = ()`, `reasoning_efforts_verified: bool = False`. Boş verified=false bilinmiyor; boş verified=true desteklenmiyor. UI `requestedModel`, `observedModel: string|null`, `fallbackReason:string|null` metadata'sını mevcut olaylardan alır. Sağlayıcı bu effort listesini gerçekten bildirmiyorsa doküman/ölçüm kaynağı ayrı kaydedilir; model adından tahmin yok.
 
-- [ ] A12–A16: stale model selection, rejected selection, fallback, unknown observed, unsupported effort ve mutation eligibility.
-- [ ] Kırmızı testleri gör; API adapter contract ve web/template kontrolünü ayır. GPT-6.1 Sol adapter seçilirse resmî Responses tool contract; Fusion defaults değiştirilmez.
-- [ ] Model katalogu typed capability projection üretir; UI arama, klavye, loading/error/retry, bağlan eylemi. Çalışan turda model bilgisi görünür, değişiklik sonraki turda.
-- [ ] Thinking gösterim ayarı gerçek effort'u değiştirmez; template disable toggle yalnız destekleyen adapter'a gider.
-- [ ] Capability/model/approval testleri, UI test/build, full Python. Gemini requested/observed örneği gerçek smoke ile doğrulanır; yedek modeli primary başarı gibi raporlama.
+- [x] A12–A16: stale model selection, rejected selection, fallback, unknown observed, unsupported effort ve mutation eligibility.
+- [x] Kırmızı testleri gör; API adapter contract ve web/template kontrolünü ayır. GPT-6.1 Sol adapter seçilirse resmî Responses tool contract; Fusion defaults değiştirilmez.
+- [x] Model katalogu typed capability projection üretir; UI arama, klavye, loading/error/retry, bağlan eylemi. Çalışan turda model bilgisi görünür, değişiklik sonraki turda.
+- [x] Thinking gösterim ayarı gerçek effort'u değiştirmez; template disable toggle yalnız destekleyen adapter'a gider.
+- [x] Capability/model/approval testleri, UI test/build, full Python. Gemini requested/observed örneği gerçek smoke ile doğrulanır; yedek modeli primary başarı gibi raporlama.
+
+**Kapanış kanıtı (14 Ekim):** App1045/Kits364, canonical mypy537/Ruff1094 ve uzman incelemeleri geçti. Tam Python6162 PASS/4 SKIP/1 FAIL; tek eski sahte sağlayıcı signature hatası test-only fix sonrası ilgili33 testte geçti; tüm tam kapı yeniden koşulmuş gibi raporlanmadı. Gerçek source Gemini auto→Flash gözlendi; literal OK uyumu yok. Paketli/native/Pro erişimi kabulü Paket16 devrinde açık, bu işaret canlı parite iddiası değildir.
 
 ## Paket 5 — İşlem onayı ve soru yaşam döngüsü
 

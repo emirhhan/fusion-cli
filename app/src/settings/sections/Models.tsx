@@ -18,6 +18,10 @@ export interface ModelState {
   hakem: string;
   adaylar: string[];
   saglayici: string;
+  yogunluk?: string;
+  desteklenen_yogunluklar?: string[];
+  yogunluk_dogrulandi?: boolean;
+  yogunluk_aciklamasi?: string;
   ogretmen?: string;
   ogretmen_etiket?: string;
 }
@@ -25,10 +29,12 @@ export interface ModelState {
 export function Models({
   model,
   onRunCommand,
+  pending = false,
 }: {
   model: ModelState | null;
   /** CLI komutunu çalıştırır. Verilmezse değiştirme düğmeleri çizilmez. */
   onRunCommand?: (command: string) => void;
+  pending?: boolean;
 }) {
   if (!model) return <p className="settings__hint">Model bilgisi okunamadı.</p>;
   return (
@@ -44,12 +50,14 @@ export function Models({
           Öğretmen: {model.ogretmen_etiket || model.ogretmen || "bağlı değil"}.
           Bağlıysa ajan uzun kod görevinde takıldığında bu web oturumuna bir kez danışır.
         </p>
+        <p className="settings__hint">Düşünme yoğunluğu: {model.yogunluk ?? "auto"}. {model.yogunluk_aciklamasi || (!model.yogunluk_dogrulandi ? "Model desteği doğrulanmadı." : "")}</p>
+        {onRunCommand && model.yogunluk_dogrulandi && <label>Düşünme yoğunluğu<select disabled={pending} aria-label="Düşünme yoğunluğu" value={model.yogunluk ?? "auto"} onChange={(event) => onRunCommand(`/effort ${event.target.value}`)}><option value="auto">Modele bırak</option>{model.desteklenen_yogunluklar?.map((effort) => <option key={effort} value={effort}>{effort}</option>)}</select></label>}
         {onRunCommand && (
           <div className="settings__actions">
-            <Button onClick={() => onRunCommand("/model")} variant="secondary">
+            <Button disabled={pending} onClick={() => onRunCommand("/model")} variant="secondary">
               Modeli değiştir
             </Button>
-            <Button onClick={() => onRunCommand("/development")} variant="secondary">
+            <Button disabled={pending} onClick={() => onRunCommand("/development")} variant="secondary">
               Bağlı sağlayıcıların modellerini getir
             </Button>
           </div>
@@ -73,7 +81,7 @@ export function Models({
         </dl>
         {onRunCommand && (
           <div className="settings__actions">
-            <Button onClick={() => onRunCommand("/mode")} variant="secondary">
+            <Button disabled={pending} onClick={() => onRunCommand("/mode")} variant="secondary">
               Model profilini değiştir
             </Button>
           </div>

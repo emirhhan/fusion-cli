@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { olayAdimi } from "./olayMetni";
 
+it("desteklenen yoğunluk nedeni boş olsa da gerçek çağrı makbuzunda korunur", () => {
+  const receipt = olayAdimi({ olay: "ModelCallFinished", requested_model: "model-A", result: { ok: true, model: "model-A", served_by: "observed", requested_effort: "high", applied_effort: "high", effort_reason: "" } });
+  expect(receipt?.ayrinti).toContain("İstenen yoğunluk: high");
+  expect(receipt?.ayrinti).toContain("Uygulanan yoğunluk: high");
+});
+
 describe("olayAdimi", () => {
   it("öğretmen görev kararı ve planını kısa adım olarak gösterir", () => {
     expect(olayAdimi({ olay: "TeacherTaskClassified", size: "orta-buyuk", reasons: ["istenen etki: workspace_mutation"] })?.metin)
@@ -64,7 +70,7 @@ describe("olayAdimi", () => {
     });
     expect(adim?.ayrinti).toContain("insan doğrulaması");
     const siradan = olayAdimi({ olay: "ModelFallbackActivated", requested_model: "a", fallback_model: "b", reason: "429" });
-    expect(siradan?.ayrinti).toBe("a → b");
+    expect(siradan?.ayrinti).toBe("a → b · 429");
   });
 
   it("model çağrısında rolü ve modeli ayrıntıya koyar", () => {
@@ -195,4 +201,14 @@ describe("olayAdimi", () => {
       ayrinti: "teşhis ve onarım gerektiren hata · birden fazla araç ailesi",
     });
   });
+});
+
+it("düşünme metni olmadan gerçek model makbuzu görünür", () => {
+  const receipt = olayAdimi({ olay: "ModelCallFinished", requested_model: "primary", result: { ok: true, model: "fallback", served_by: "observed", reasoning: "", effort_reason: "Yoğunluk doğrulanmadı" } });
+  expect(receipt?.ayrinti).toContain("İstenen: primary");
+  expect(receipt?.ayrinti).toContain("Gözlenen: observed");
+  expect(receipt?.ayrinti).toContain("Yoğunluk doğrulanmadı");
+});
+it("boş gözlem istenen modeli doğrulamış sayılmaz", () => {
+  expect(olayAdimi({ olay: "ModelCallFinished", result: { ok: true, model: "primary", served_by: "" } })?.ayrinti).toContain("Gözlenen: doğrulanamadı");
 });

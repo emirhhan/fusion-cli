@@ -10,7 +10,8 @@ sormaz; yalnızca sağlayıcıyı çağırır.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from uuid import uuid4
 
 from ..core.events import (
     Channel,
@@ -36,7 +37,9 @@ class EventingProvider:
         role: str,
         channel: Channel = Channel.MAIN,
         background: bool = False,
+        call_id_factory: Callable[[], str] | None = None,
     ) -> None:
+        self._call_id_factory = call_id_factory or (lambda: uuid4().hex)
         self._inner = inner
         self._publisher = publisher
         self._role = role
@@ -48,13 +51,15 @@ class EventingProvider:
         return self._inner.label
 
     async def complete(self, request: CompletionRequest) -> ModelResult:
-        self._publisher.publish(self._started())
+        call_id = self._call_id_factory()
+        self._publisher.publish(self._started(call_id))
         result = await self._inner.complete(request)
-        self._publish_finished(result)
+        self._publish_finished(result, call_id)
         return result
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
-        self._publisher.publish(self._started())
+        call_id = self._call_id_factory()
+        self._publisher.publish(self._started(call_id))
         async for item in self._inner.stream(request):
             if isinstance(item, TextChunk) and item.text:
                 # Boş parça yalnız canlılık işaretidir (bkz. `litellm_provider.stream`);
@@ -65,17 +70,23 @@ class EventingProvider:
                     )
                 )
             elif isinstance(item, StreamDone):
-                self._publish_finished(item.result)
+                self._publish_finished(item.result, call_id)
             yield item
 
-    def _started(self) -> ModelCallStarted:
+    def _started(self, call_id: str) -> ModelCallStarted:
         return ModelCallStarted(
-            role=self._role, model=self._inner.label, background=self._background
+            role=self._role, model=self._inner.label, background=self._background, call_id=call_id
         )
 
-    def _publish_finished(self, result: ModelResult) -> None:
+    def _publish_finished(self, result: ModelResult, call_id: str) -> None:
         self._publisher.publish(
-            ModelCallFinished(role=self._role, result=result, background=self._background)
+            ModelCallFinished(
+                role=self._role,
+                result=result,
+                background=self._background,
+                call_id=call_id,
+                requested_model=self._inner.label,
+            )
         )
         # Yalnızca kullanıcı AÇIKÇA bir web kademesi seçtiyse (bkz. `core.tier`)
         # ve gözlenen bundan farklıysa yayınlanır; `/auto` durumunda sessizdir.

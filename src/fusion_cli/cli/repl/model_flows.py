@@ -53,6 +53,7 @@ class Source:
     description: str = ""
     #: Seçim ücretlendirilir mi? Kullanıcı uyarılır.
     paid: bool = False
+    loader: Callable[[], catalog.CatalogLoadResult] | None = None
 
 
 def sources(config: Config | None = None) -> tuple[Source, ...]:
@@ -62,13 +63,17 @@ def sources(config: Config | None = None) -> tuple[Source, ...]:
             "openrouter-free",
             messages.DEV_SOURCE_OPENROUTER_FREE,
             catalog.fetch_openrouter_free,
+            loader=catalog.load_openrouter_free,
         ),
-        Source("nim-free", messages.DEV_SOURCE_NIM_FREE, catalog.fetch_nim),
+        Source(
+            "nim-free", messages.DEV_SOURCE_NIM_FREE, catalog.fetch_nim, loader=catalog.load_nim
+        ),
         Source(
             "openrouter-paid",
             messages.DEV_SOURCE_OPENROUTER_PAID,
             catalog.fetch_openrouter_paid,
             paid=True,
+            loader=catalog.load_openrouter_paid,
         ),
     )
     web: tuple[Source, ...] = ()

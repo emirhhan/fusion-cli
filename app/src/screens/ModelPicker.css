@@ -91,6 +91,12 @@
 
 .model-picker__option:hover { background: var(--surface-hover); }
 
+.model-picker__option--active {
+  background: var(--surface-hover);
+  outline: 1px solid var(--text-primary);
+  outline-offset: -1px;
+}
+
 .model-picker__option[aria-selected="true"] { background: var(--surface-accent-subtle); }
 
 .model-picker__option strong {

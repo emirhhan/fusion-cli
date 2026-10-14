@@ -245,6 +245,10 @@ def _without_missing_profile(session: WebSessionConfig) -> WebSessionConfig:
     (11 Ekim): yeni makineye veri dizini taşınmadı, config `login_verified: true`
     dediği için öğretmen girişsiz boş bir tarayıcıyla seçiliyordu.
     """
+    from .web_evidence import web_evaluation_matches
+
+    if not web_evaluation_matches(session):
+        session = dataclasses.replace(session, tool_eval_passed=False)
     if session.transport != "browser" or not session.login_verified:
         return session
     if web_profile_dir(session.provider, session.account).exists():

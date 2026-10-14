@@ -42,6 +42,7 @@ from ..cli.repl.transcript_store import (
 )
 from ..config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
 from ..config.credentials import FernetSecretStore
+from ..config.eligibility import capability_from_spec
 from ..config.keys import secret_key
 from ..config.loader import load_config
 from ..config.model_select import select_agent_spec
@@ -50,6 +51,7 @@ from ..config.paths import credentials_file
 from ..core.clock import SystemClock
 from ..core.concurrency import BackgroundTasks
 from ..core.events import Event, EventSink, StatusChanged
+from ..core.reasoning import ReasoningEffort, resolve_reasoning
 from ..core.remotion_browser import RemotionBrowser
 from ..core.submission import SubmissionReceipt, SubmissionRepository
 from ..core.tools import TodoStatus
@@ -372,6 +374,7 @@ class AppSession:
         self._admission_lock = asyncio.Lock()
         self._closed = False
         self._admission_tasks: set[asyncio.Task[dict[str, Any]]] = set()
+        self._model_selection_tasks: set[asyncio.Task[dict[str, Any]]] = set()
         self._submission_task: asyncio.Task[dict[str, Any]] | None = None
         self._local_computer = local_computer
         self._writer = writer
@@ -524,6 +527,30 @@ class AppSession:
         return resolved
 
     async def _dispatch(self, request: Request) -> dict[str, Any]:
+        """Model ve web yapılandırma girişleri aynı owned kabul sırasını paylaşır."""
+        if request.name in {
+            "kademe.sec",
+            "kontrol.cirak_varsayilanina_don",
+            "web.model_sec",
+            "web.baglan",
+            "web.cikis",
+            "web.arac_olc",
+            "web.dogrula",
+            "web.pencere_kipi",
+        }:
+            owned = asyncio.create_task(self._apply_model_rpc(request))
+            self._model_selection_tasks.add(owned)
+            owned.add_done_callback(self._model_selection_done)
+            return await asyncio.shield(owned)
+        return await self._dispatch_unlocked(request)
+
+    async def _apply_model_rpc(self, request: Request) -> dict[str, Any]:
+        async with self._admission_lock:
+            if self._closed:
+                return {"ok": False, "metin": "Oturum kapandı; model seçimi uygulanmadı."}
+            return await self._dispatch_unlocked(request)
+
+    async def _dispatch_unlocked(self, request: Request) -> dict[str, Any]:
         if request.name in LOCAL_COMPUTER_ROUTES:
             if self._local_computer is not None:
                 return await dispatch_local_computer(
@@ -601,6 +628,13 @@ class AppSession:
             return list_tiers(self._state.config)
         if request.name == "kademe.sec":
             self._state.config, sonuc = select_tier(self._state.config, request.data)
+            if sonuc.get("ok") is True:
+                from ..cli.repl import model_flows
+
+                applied = await asyncio.to_thread(
+                    model_flows.applied_result, self._state.config, str(request.data.get("ad", ""))
+                )
+                sonuc = {**sonuc, "metin": applied.message}
             return sonuc
         if request.name == "gecmis.kaynaklar":
             return list_sources(self._home)
@@ -1434,7 +1468,15 @@ class AppSession:
                 "ok": True,
                 "metin": await render_command_text(self._registry, self._state, command.name),
             }
-        if command is not None and command.name == "development":
+        if command is not None and command.name in {
+            "development",
+            "model",
+            "level",
+            "mode",
+            "effort",
+            "provider",
+            "profiles",
+        }:
             # NIM araç doğrulaması (`catalog.probe_nim_tools`) artık `run_command`'ın
             # çağırdığı `model_flows.apply_development_model` içinde TEK yerden yapılır
             # (bkz. o fonksiyonun 27 Eylül tarihli gerekçesi) — burada AYRICA
@@ -1443,14 +1485,10 @@ class AppSession:
             # bloklamasın diye `run_command`'ın TAMAMI ayrı bir thread'de çalıştırılır
             # — eskiden yalnız doğrulama burada `asyncio.to_thread` ile sarılıyordu,
             # doğrulama aşağı taşınınca sarmalayıcı da onunla birlikte indi.
-            result = await asyncio.to_thread(
-                run_command,
-                self._registry,
-                self._state,
-                name,
-                argument,
-                secret_store=self._secret_store,
-            )
+            owned = asyncio.create_task(self._apply_model_command(name, argument))
+            self._model_selection_tasks.add(owned)
+            owned.add_done_callback(self._model_selection_done)
+            result = await asyncio.shield(owned)
         else:
             result = run_command(
                 self._registry, self._state, name, argument, secret_store=self._secret_store
@@ -1465,6 +1503,58 @@ class AppSession:
             return result
         self._next_turn_mode = mode
         return {**result, "gorev": task}
+
+    async def _apply_model_command(self, name: str, argument: str) -> dict[str, Any]:
+        """Thread sona erene kadar seçim/kabul kilidi sahipliğini koru."""
+        async with self._admission_lock:
+            if self._closed:
+                return {"ok": False, "metin": "Oturum kapandı; model seçimi uygulanmadı."}
+            previous_model = self._state.config.agent.model
+            result = await asyncio.to_thread(
+                run_command,
+                self._registry,
+                self._state,
+                name,
+                argument,
+                secret_store=self._secret_store,
+            )
+            if result.get("ok") is True:
+                effort = self._state.config.runtime.reasoning_effort.value
+                resolution = resolve_reasoning(
+                    effort, capability_from_spec(self._state.config.agent)
+                )
+                reason = resolution.reason
+                if (
+                    previous_model != self._state.config.agent.model
+                    and effort != "auto"
+                    and resolution.applied is None
+                ):
+                    self._state.config = replace(
+                        self._state.config,
+                        runtime=replace(
+                            self._state.config.runtime, reasoning_effort=ReasoningEffort.AUTO
+                        ),
+                    )
+                    reason = f"{reason} Model değiştiği için yoğunluk auto oldu."
+                    result = {**result, "metin": f"{result.get('metin', '')}\n{reason}".strip()}
+                return {
+                    **result,
+                    "model": self._state.config.agent.model,
+                    "requested_effort": effort,
+                    "applied_effort": resolution.applied,
+                    "effort_reason": reason,
+                    "uygulama": "sonraki_tur"
+                    if self._turn is not None and not self._turn.done()
+                    else "hazir",
+                }
+            return result
+
+    def _model_selection_done(self, task: asyncio.Task[dict[str, Any]]) -> None:
+        self._model_selection_tasks.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            logging.getLogger(__name__).error(
+                "Model seçimi tamamlanamadı.", exc_info=task.exception()
+            )
 
     def _command_options(self, data: dict[str, Any]) -> dict[str, Any]:
         """Sıradaki seçici/metin adımını döndür; yoksa `ok: False`."""
@@ -1558,6 +1648,7 @@ class AppSession:
                         _attachment_images(request.data.get("ekler")),
                         voice_context,
                         deadline,
+                        self._state.config,
                     )
                 )
                 self._submission_task = owned
@@ -1579,6 +1670,7 @@ class AppSession:
         images: tuple[str, ...],
         voice_context: VoiceTurnContext | None,
         deadline: TurnDeadline | None,
+        config_snapshot: Config | None = None,
     ) -> dict[str, Any]:
         """Sonuç metadata'sının sahibi transport handler değil yürütme görevidir."""
         import sqlite3
@@ -1602,6 +1694,7 @@ class AppSession:
                 deadline=deadline,
                 receipt=receipt,
                 event_sequence=count(1),
+                config_snapshot=config_snapshot,
             )
             state = (
                 "completed"
@@ -1646,6 +1739,7 @@ class AppSession:
         deadline: TurnDeadline | None = None,
         receipt: SubmissionReceipt | None = None,
         event_sequence: Iterator[int] | None = None,
+        config_snapshot: Config | None = None,
     ) -> dict[str, Any]:
         """Görevi agent motoruyla çalıştır; olaylar tel üzerinden akar.
 
@@ -1685,7 +1779,7 @@ class AppSession:
         prompter = ProtocolPrompter(
             writer, self.pending, root=self._state.root, element_name=self._chrome.element_name
         )
-        config = self._state.config
+        config = config_snapshot or self._state.config
         if self._disabled_mcp:
             config = replace(
                 config,
@@ -1848,6 +1942,7 @@ class AppSession:
                 deadline=deadline,
                 receipt=receipt,
                 event_sequence=event_sequence,
+                config_snapshot=config,
             )
             if receipt is not None:
                 continued["_retry_safe"] = False
@@ -1965,6 +2060,9 @@ class AppSession:
         from ..providers.web_control import stop_all_login_processes
 
         self._closed = True
+        selections = tuple(self._model_selection_tasks)
+        if selections:
+            await asyncio.gather(*selections, return_exceptions=True)
         admissions = tuple(self._admission_tasks)
         for admission in admissions:
             admission.cancel()

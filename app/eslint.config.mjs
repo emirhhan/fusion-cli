@@ -5,6 +5,7 @@ import hooks from "eslint-plugin-react-hooks";
 const ownedAsync = [
   "src/App.tsx", "src/SessionApplication.tsx", "src/sessions/useSessions.ts",
   "src/onboarding/*.tsx", "src/settings/Settings.tsx", "src/imagecreate/*.tsx", "src/imagecreate/useImageDiscovery.ts",
+  "src/screens/ModelPicker.tsx", "src/screens/useModelCatalog.ts", "src/screens/useActiveModel.ts", "src/settings/sections/Models.tsx",
   "src/screens/Composer.tsx", "src/screens/Conversation.tsx", "src/control/ControlPanel.tsx", "src/control/ProviderList.tsx",
  ];
 export default [

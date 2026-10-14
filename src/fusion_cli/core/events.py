@@ -55,6 +55,8 @@ class StatusChanged(Event):
 class ModelCallStarted(Event):
     """Bir model çağrısı başlatıldı."""
 
+    call_id: str = field(default="", kw_only=True)
+
     role: str
     model: str
     #: Arka plan işi mi? (hakem, sentez, öz-denetim, ders çıkarımı…)
@@ -67,6 +69,9 @@ class ModelCallStarted(Event):
 @dataclass(frozen=True, slots=True)
 class ModelCallFinished(Event):
     """Bir model çağrısı bitti (başarılı ya da değil)."""
+
+    call_id: str = field(default="", kw_only=True)
+    requested_model: str = field(default="", kw_only=True)
 
     role: str
     result: ModelResult

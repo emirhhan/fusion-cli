@@ -201,7 +201,7 @@ def _only(spec: ModelSpec, excluded: str) -> ModelSpec:
     kalan = tuple(model for model in spec.models if not model.startswith(excluded))
     if not kalan or kalan == spec.models:
         return spec
-    return replace(spec, model=kalan[0], fallback=kalan[1:])
+    return replace(spec.with_identity(kalan[0]), fallback=kalan[1:])
 
 
 def _map_specs(config: Config, donustur: Callable[[ModelSpec], ModelSpec]) -> Config:
@@ -235,7 +235,7 @@ def prune_spec(spec: ModelSpec, keys: ProviderKeys) -> ModelSpec:
     kalan = tuple(model for model in spec.models if keys.supports(model))
     if not kalan or kalan == spec.models:
         return spec
-    return replace(spec, model=kalan[0], fallback=kalan[1:])
+    return replace(spec.with_identity(kalan[0]), fallback=kalan[1:])
 
 
 def prune_config(config: Config, keys: ProviderKeys) -> Config:

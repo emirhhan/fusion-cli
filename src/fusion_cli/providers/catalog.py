@@ -19,6 +19,7 @@ from dataclasses import dataclass
 import httpx
 
 from ..core.constants import WEB_TIMEOUT_S
+from ..core.types import ToolCall
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 NIM_MODELS_URL = "https://integrate.api.nvidia.com/v1/models"
@@ -39,56 +40,89 @@ class CatalogEntry:
     supports_tools: bool | None = None
 
 
-def fetch_openrouter_free(timeout_s: float = WEB_TIMEOUT_S) -> tuple[CatalogEntry, ...]:
-    """OpenRouter'ın ÜCRETSİZ modelleri. Anahtar gerekmez (public uç)."""
-    data = _get_json(OPENROUTER_MODELS_URL, timeout_s=timeout_s)
-    entries = [
-        CatalogEntry(
-            model_id=f"openrouter/{item['id']}",
-            provider="openrouter",
-            context_length=_as_int(item.get("context_length")),
-            supports_tools=_supports_tools(item),
+@dataclass(frozen=True, slots=True)
+class CatalogLoadResult:
+    """Boş katalog ile erişim hatasını ayıran tek katalog sonucu."""
+
+    entries: tuple[CatalogEntry, ...] = ()
+    error: str | None = None
+
+
+def load_openrouter_free(timeout_s: float = WEB_TIMEOUT_S) -> CatalogLoadResult:
+    return _load_openrouter(True, timeout_s)
+
+
+def load_openrouter_paid(timeout_s: float = WEB_TIMEOUT_S) -> CatalogLoadResult:
+    return _load_openrouter(False, timeout_s)
+
+
+def _load_openrouter(is_free: bool, timeout_s: float) -> CatalogLoadResult:
+    data, error = _load_json(OPENROUTER_MODELS_URL, timeout_s=timeout_s)
+    entries = tuple(
+        sorted(
+            (
+                CatalogEntry(
+                    model_id=f"openrouter/{item['id']}",
+                    provider="openrouter",
+                    context_length=_as_int(item.get("context_length")),
+                    supports_tools=_supports_tools(item),
+                )
+                for item in data
+                if item.get("id") and _is_free(item) is is_free
+            ),
+            key=lambda entry: entry.model_id,
         )
-        for item in data
-        if _is_free(item) and item.get("id")
-    ]
-    return tuple(sorted(entries, key=lambda entry: entry.model_id))
+    )
+    return CatalogLoadResult(entries, error)
+
+
+def load_nim(timeout_s: float = WEB_TIMEOUT_S) -> CatalogLoadResult:
+    api_key = os.getenv("NVIDIA_NIM_API_KEY")
+    if not api_key:
+        return CatalogLoadResult()
+    data, error = _load_json(
+        NIM_MODELS_URL, timeout_s=timeout_s, headers={"Authorization": f"Bearer {api_key}"}
+    )
+    entries = tuple(
+        sorted(
+            (
+                CatalogEntry(model_id=f"nvidia_nim/{item['id']}", provider="nvidia_nim")
+                for item in data
+                if item.get("id")
+            ),
+            key=lambda entry: entry.model_id,
+        )
+    )
+    return CatalogLoadResult(entries, error)
+
+
+def fetch_openrouter_free(timeout_s: float = WEB_TIMEOUT_S) -> tuple[CatalogEntry, ...]:
+    """Eski tuple arayüzü aynı typed kaynaktan üretilir."""
+    return load_openrouter_free(timeout_s).entries
 
 
 def fetch_openrouter_paid(timeout_s: float = WEB_TIMEOUT_S) -> tuple[CatalogEntry, ...]:
-    """OpenRouter'ın ÜCRETLİ modelleri — `fetch_openrouter_free`'in tümleyeni.
-
-    Ürünün varsayılan yolu ücretsizdir; bu liste yalnızca kullanıcı `/development`
-    altında açıkça ücretli kaynağı seçtiğinde kullanılır.
-    """
-    data = _get_json(OPENROUTER_MODELS_URL, timeout_s=timeout_s)
-    entries = [
-        CatalogEntry(
-            model_id=f"openrouter/{item['id']}",
-            provider="openrouter",
-            context_length=_as_int(item.get("context_length")),
-            supports_tools=_supports_tools(item),
-        )
-        for item in data
-        if item.get("id") and not _is_free(item)
-    ]
-    return tuple(sorted(entries, key=lambda entry: entry.model_id))
+    return load_openrouter_paid(timeout_s).entries
 
 
 def fetch_nim(timeout_s: float = WEB_TIMEOUT_S) -> tuple[CatalogEntry, ...]:
-    """NVIDIA NIM kataloğu. Anahtar yoksa boş döner."""
-    api_key = os.getenv("NVIDIA_NIM_API_KEY")
-    if not api_key:
-        return ()
-    data = _get_json(
-        NIM_MODELS_URL, timeout_s=timeout_s, headers={"Authorization": f"Bearer {api_key}"}
-    )
-    entries = [
-        CatalogEntry(model_id=f"nvidia_nim/{item['id']}", provider="nvidia_nim")
-        for item in data
-        if item.get("id")
-    ]
-    return tuple(sorted(entries, key=lambda entry: entry.model_id))
+    return load_nim(timeout_s).entries
+
+
+TOOL_CAPABILITY_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "sum",
+        "description": "Add two integers",
+        "parameters": {
+            "type": "object",
+            "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+            "required": ["a", "b"],
+        },
+    },
+}
+# Mevcut NIM sondasının çıktı bütçesi; doktor aynı küçük araç sözleşmesini kullanır.
+TOOL_PROBE_MAX_TOKENS = 80
 
 
 def probe_nim_tools(model_id: str, timeout_s: float = 90.0) -> tuple[bool, str]:
@@ -103,21 +137,8 @@ def probe_nim_tools(model_id: str, timeout_s: float = 90.0) -> tuple[bool, str]:
     payload = {
         "model": model_id.removeprefix("nvidia_nim/"),
         "messages": [{"role": "user", "content": "Use the sum tool to add 2 and 3."}],
-        "max_tokens": 80,
-        "tools": [
-            {
-                "type": "function",
-                "function": {
-                    "name": "sum",
-                    "description": "Add two integers",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
-                        "required": ["a", "b"],
-                    },
-                },
-            }
-        ],
+        "max_tokens": TOOL_PROBE_MAX_TOKENS,
+        "tools": [TOOL_CAPABILITY_SCHEMA],
         "tool_choice": "auto",
     }
     try:
@@ -144,6 +165,11 @@ def probe_nim_tools(model_id: str, timeout_s: float = 90.0) -> tuple[bool, str]:
     return True, ""
 
 
+def valid_capability_call(call: ToolCall) -> bool:
+    """SDK'nin gerçek çağrısı aynı native sonda şemasına uymalı."""
+    return _valid_sum_call({"function": {"name": call.name, "arguments": call.arguments}})
+
+
 def _valid_sum_call(call: object) -> bool:
     if not isinstance(call, dict):
         return False
@@ -162,9 +188,9 @@ def _as_int(value: object) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
-def _supports_tools(item: dict[str, object]) -> bool:
+def _supports_tools(item: dict[str, object]) -> bool | None:
     parameters = item.get("supported_parameters")
-    return isinstance(parameters, list) and "tools" in parameters
+    return "tools" in parameters if isinstance(parameters, list) else None
 
 
 def _is_free(item: dict[str, object]) -> bool:
@@ -176,16 +202,17 @@ def _is_free(item: dict[str, object]) -> bool:
     )
 
 
-def _get_json(
+def _load_json(
     url: str, *, timeout_s: float, headers: dict[str, str] | None = None
-) -> list[dict[str, object]]:
+) -> tuple[list[dict[str, object]], str | None]:
     try:
         with httpx.Client(timeout=timeout_s) as client:
             response = client.get(url, headers=headers or {})
             response.raise_for_status()
             payload = response.json()
     except (httpx.HTTPError, ValueError):
-        # Katalog alınamadı: bu bir iyileştirmedir, komutun çökmesine değmez.
-        return []
+        return [], "Model kataloğu okunamadı; yeniden dene."
     data = payload.get("data") if isinstance(payload, dict) else None
-    return [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
+    if not isinstance(data, list):
+        return [], "Model kataloğu geçerli bir liste döndürmedi; yeniden dene."
+    return [item for item in data if isinstance(item, dict)], None
