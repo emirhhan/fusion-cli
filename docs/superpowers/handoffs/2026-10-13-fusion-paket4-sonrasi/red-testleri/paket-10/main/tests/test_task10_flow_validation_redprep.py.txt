@@ -1,0 +1,40 @@
+"""Paket 10: sunucu akış doğrulamasının çevrimdışı kabul örnekleri."""
+
+from __future__ import annotations
+
+import pytest
+
+from fusion_cli.appserver.image_flows import FlowError, validate_flow
+
+
+def _flow(node_ids: list[str], edges: list[tuple[str, str]]) -> dict[str, object]:
+    return {
+        "ad": "Doğrulama örneği",
+        "dugumler": [
+            {"id": node_id, "tur": "uret", "x": 0, "y": 0, "adet": 1} for node_id in node_ids
+        ],
+        "baglantilar": [{"kaynak": source, "hedef": target} for source, target in edges],
+    }
+
+
+def test_task10_valid_disconnected_nodes_are_preserved() -> None:
+    flow = validate_flow(_flow(["a", "b"], []))
+    assert [node["id"] for node in flow["dugumler"]] == ["a", "b"]
+
+
+def test_task10_duplicate_raw_node_ids_are_rejected() -> None:
+    with pytest.raises(FlowError):
+        validate_flow(_flow(["a", "a"], []))
+
+
+def test_task10_disconnected_cycle_is_rejected() -> None:
+    with pytest.raises(FlowError):
+        validate_flow(_flow(["a", "b", "c"], [("b", "c"), ("c", "b")]))
+
+
+@pytest.mark.parametrize("coordinate", [float("nan"), float("inf"), -float("inf")])
+def test_task10_nonfinite_coordinate_is_rejected(coordinate: float) -> None:
+    flow = _flow(["a"], [])
+    flow["dugumler"] = [{"id": "a", "tur": "uret", "x": coordinate, "y": 0}]
+    with pytest.raises(FlowError):
+        validate_flow(flow)

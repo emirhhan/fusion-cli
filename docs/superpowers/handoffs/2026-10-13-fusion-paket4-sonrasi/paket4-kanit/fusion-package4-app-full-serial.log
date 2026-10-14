@@ -1,0 +1,15 @@
+
+> app@0.1.0 test
+> node scripts/check-runtime.mjs app-tests && vitest run --environment jsdom --exclude src/screens/approvalLifecycle.contract.test.tsx --maxWorkers 1
+
+
+ RUN  v4.1.11 /Users/motogate/Desktop/all/01-Projeler/fusion-cli/app
+
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+ Test Files  142 passed (142)
+      Tests  1045 passed (1045)
+   Start at  23:46:10
+   Duration  315.60s (transform 7.20s, setup 0ms, import 29.96s, tests 82.59s, environment 154.28s)
+

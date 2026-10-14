@@ -1,0 +1,36 @@
+import { renderToStaticMarkup } from 'react-dom/server';
+import { beforeEach, expect, it, vi } from 'vitest';
+import { ThreadList } from '../src/client/ThreadList';
+
+const remote = vi.hoisted(() => ({
+  threads: [] as Array<{ id: string; name: string }>,
+  error: null as Error | null,
+  hasMoreThreads: true,
+  isFetchingMoreThreads: false,
+  fetchMoreThreads: vi.fn(),
+}));
+vi.mock('@copilotkit/react-core/v2', () => ({ useThreads: () => remote }));
+beforeEach(() => {
+  remote.threads = [];
+  remote.error = null;
+});
+const render = () =>
+  renderToStaticMarkup(
+    <ThreadList
+      dots={[]}
+      dotId="agent-a"
+      local={[]}
+      onSelect={vi.fn()}
+      onNew={vi.fn()}
+    />,
+  );
+it('ikinci uzak sayfa geldikten sonra yerel kaydı olmayan sohbet görünür', () => {
+  remote.threads = [{ id: 'remote-page-1', name: 'İlk uzak sohbet' }];
+  render();
+  remote.threads.push({ id: 'remote-page-2', name: 'İkinci uzak sohbet' });
+  expect(render()).toContain('İkinci uzak sohbet');
+});
+it('birleşik uzak liste doluyken ilk sohbet boş durumu gösterilmez', () => {
+  remote.threads = [{ id: 'remote-only', name: 'Uzak sohbet' }];
+  expect(render()).not.toContain('İlk sohbetiniz burada görünecek.');
+});

@@ -1,0 +1,94 @@
+import { DatabaseSync } from 'node:sqlite';
+import { afterEach, expect, it, vi } from 'vitest';
+import { PageAutosave } from '../src/client/editor/autosave';
+import { loadChatDraft, saveChatDraft } from '../src/client/chat-draft';
+import { Pages, type Page } from '../src/server/pages';
+
+const page: Page = {
+  id: 'a',
+  spaceId: 'space-a',
+  parentId: null,
+  title: 'Belge',
+  content: 'Asıl',
+  revision: 1,
+  createdAt: 0,
+  updatedAt: 0,
+  sourceThreadId: null,
+};
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+it('ajan revizyonu ile çatışan yerel taslak SQLite CAS otoritesini aşmaz', async () => {
+  const db = new DatabaseSync(':memory:');
+  const pages = new Pages(db, (id) => id === 'space-a');
+  const stored = pages.create('space-a', { title: 'Belge', content: 'Asıl' });
+  const autosave = new PageAutosave(async (id, patch) =>
+    pages.update('space-a', id, patch),
+  );
+  try {
+    autosave.receive(stored);
+    autosave.edit({ content: 'Yerel taslak' });
+    const agent = pages.update('space-a', stored.id, {
+      content: 'Ajan değişikliği',
+      expectedRevision: stored.revision,
+    });
+    expect(await autosave.flush()).toBe(false);
+    expect(autosave.getSnapshot()).toMatchObject({
+      status: 'conflict',
+      draft: { content: 'Yerel taslak' },
+    });
+    expect(pages.get('space-a', stored.id)).toEqual(agent);
+  } finally {
+    autosave.dispose();
+    db.close();
+  }
+});
+it('alan değişiminde eski kayıt abort edilir ve geç sonuç yeni sayfayı değiştirmez', async () => {
+  let finish!: (value: Page) => void;
+  const save = vi.fn(
+    (_id: string, _patch: unknown, _signal: AbortSignal) =>
+      new Promise<Page>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const autosave = new PageAutosave(save);
+  try {
+    autosave.receive(page);
+    autosave.edit({ content: 'A taslağı' });
+    const pending = autosave.flush();
+    const next = { ...page, id: 'b', spaceId: 'space-b', content: 'B belgesi' };
+    autosave.receive(next);
+    expect(save.mock.calls[0][2].aborted).toBe(true);
+    finish({ ...page, content: 'A taslağı', revision: 2 });
+    expect(await pending).toBe(false);
+    expect(autosave.getSnapshot()).toMatchObject({
+      page: next,
+      draft: { content: 'B belgesi' },
+      status: 'saved',
+    });
+  } finally {
+    autosave.dispose();
+  }
+});
+it('bilerek boşaltılan yeni taslak eski belirsiz gönderimi gözlemlemek için saklar', () => {
+  const storage = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => storage.set(key, value),
+  });
+  const submission = {
+    runId: 'retained-run',
+    text: 'Özgün görev',
+    source: 'Özgün kaynak',
+  };
+  expect(
+    saveChatDraft('thread-a', submission.text, submission.source, submission),
+  ).toBeNull();
+  expect(saveChatDraft('thread-a', '', '')).toBeNull();
+  expect(loadChatDraft('thread-a')).toMatchObject({
+    text: '',
+    source: '',
+    submission,
+  });
+});

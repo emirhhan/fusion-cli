@@ -1,0 +1,43 @@
+import { expect, it } from 'vitest';
+import {
+  WebSpeechEngine,
+  type SpeechWindow,
+} from '../src/client/local-voice/web-speech';
+
+it('P13: ses çıkışı bulunmazsa speak başarı yerine hata bildirir', async () => {
+  const engine = new WebSpeechEngine({});
+
+  await expect(
+    engine.speak('Yanıt sohbette korunmalı.'),
+  ).rejects.toBeInstanceOf(Error);
+});
+
+it('P13: TTS onerror tamamlanmış konuşma olarak bildirilmez', async () => {
+  const answer = 'Yanıt sohbette korunmalı.';
+  let submittedText: string | undefined;
+  class FakeUtterance {
+    lang = '';
+    onerror: (() => void) | null = null;
+    constructor(public text: string) {}
+  }
+  const view: SpeechWindow = {
+    SpeechSynthesisUtterance:
+      FakeUtterance as unknown as typeof SpeechSynthesisUtterance,
+    speechSynthesis: {
+      getVoices: () => [],
+      speak: (utterance: FakeUtterance) => {
+        submittedText = utterance.text;
+        utterance.onerror?.();
+      },
+      cancel: () => {},
+    } as unknown as SpeechSynthesis,
+  };
+  const engine = new WebSpeechEngine(view);
+  const outcome = await engine.speak(answer).then(
+    () => ({ state: 'completed' as const }),
+    (error: unknown) => ({ state: 'failed' as const, error }),
+  );
+
+  expect(submittedText).toBe(answer);
+  expect(outcome).toMatchObject({ state: 'failed', error: expect.any(Error) });
+});

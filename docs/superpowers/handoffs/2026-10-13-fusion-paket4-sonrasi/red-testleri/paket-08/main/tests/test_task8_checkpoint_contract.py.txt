@@ -1,0 +1,87 @@
+"""Paket 8 için mevcut public checkpoint yüzeyinin çevrimdışı sözleşmeleri."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+
+from fusion_cli.core.checkpoint import WorkflowCheckpoint
+from fusion_cli.core.execution_plan import ExecutionPlan
+from fusion_cli.memory.checkpoint_store import JsonCheckpointStore
+
+
+def _checkpoint(root: Path, plan_id: str) -> WorkflowCheckpoint:
+    return WorkflowCheckpoint(
+        plan=ExecutionPlan(plan_id=plan_id, task="Devam kaydını koru", steps=()),
+        root=str(root),
+        conversation_id="task8-conversation",
+        completed_step_ids=(),
+        updated_at=1.0,
+    )
+
+
+def test_task8_checkpoint_public_round_trip_korunur(tmp_path: Path) -> None:
+    store = JsonCheckpointStore(tmp_path / "checkpoints")
+    checkpoint = _checkpoint(tmp_path, "task8-plan")
+
+    store.save(checkpoint)
+
+    assert store.load(checkpoint.plan.plan_id) == checkpoint
+    assert store.find_resumable(checkpoint.root, checkpoint.conversation_id) == checkpoint
+
+
+@pytest.mark.parametrize("plan_ids", [("a/b", "a_b"), (".", "..")])
+def test_task8_checkpoint_farkli_plan_kimlikleri_ezilmez(
+    tmp_path: Path, plan_ids: tuple[str, str]
+) -> None:
+    store = JsonCheckpointStore(tmp_path / "checkpoints")
+    first = _checkpoint(tmp_path, plan_ids[0])
+    second = replace(_checkpoint(tmp_path, plan_ids[1]), updated_at=2.0)
+
+    store.save(first)
+    store.save(second)
+
+    assert store.load(first.plan.plan_id) == first
+    assert store.load(second.plan.plan_id) == second
+
+
+@pytest.mark.parametrize("schema_version", [999, True, -1])
+def test_task8_checkpoint_gecersiz_dis_sema_devam_edilemez(
+    tmp_path: Path, schema_version: int | bool
+) -> None:
+    directory = tmp_path / "checkpoints"
+    store = JsonCheckpointStore(directory)
+    checkpoint = _checkpoint(tmp_path, "task8-plan")
+    store.save(checkpoint)
+    # Dosyayı public save üretir; yeni dosya adlandırma sözleşmesine bağlanmayız.
+    path = next(directory.glob("*.json"))
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["schema_version"] = schema_version
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    original_bytes = path.read_bytes()
+
+    assert store.load(checkpoint.plan.plan_id) is None
+    assert store.find_resumable(checkpoint.root, checkpoint.conversation_id) is None
+    assert path.read_bytes() == original_bytes
+
+
+def test_task8_checkpoint_replace_oncesi_hata_eski_kaydi_korur(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = tmp_path / "checkpoints"
+    store = JsonCheckpointStore(directory)
+    checkpoint = _checkpoint(tmp_path, "task8-plan")
+    store.save(checkpoint)
+
+    def fail_replace(source: Path, target: Path) -> Path:
+        raise OSError("Kontrollü replace öncesi hata")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises(OSError, match="Kontrollü replace öncesi hata"):
+        store.save(replace(checkpoint, updated_at=2.0))
+
+    assert store.load(checkpoint.plan.plan_id) == checkpoint
+    assert not tuple(directory.glob("*.tmp"))

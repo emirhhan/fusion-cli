@@ -1,0 +1,13 @@
+
+> fusion-kits@0.1.0 test
+> vitest run --exclude tests/task11-draft-conflict-scope.test.ts --exclude tests/task11-thread-pagination.test.tsx --exclude tests/task13-web-speech-redprep.test.ts --maxWorkers 1
+
+
+ RUN  v4.1.11 /Users/motogate/Desktop/all/01-Projeler/fusion-kits
+
+
+ Test Files  79 passed (79)
+      Tests  364 passed (364)
+   Start at  23:52:01
+   Duration  54.90s (transform 1.93s, setup 0ms, import 22.43s, tests 19.73s, environment 9ms)
+

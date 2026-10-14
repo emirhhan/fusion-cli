@@ -1,0 +1,9 @@
+# Chat görevi — marka kitini koruyarak uygula
+
+Önce paket5–16 uygulama raporlarını ve güncel kodu karşılaştır; mevcut işi bozma. Kullanıcının asıl görsel talimatı belgedeki eski konseptlerden üstündür. Bu chat yalnız marka varlıkları, tipografi ve küçük vurgu detaylarını uygulasın.
+
+`marka-ve-master-plan/01-logo-wordmark.png`: ilk fotoğraftaki F logo ve Fusion wordmark kesin referans; farklı/yeni benzer logo üretme. Özgün yüksek çözünürlüklü kaynak yoksa mevcut rasterı aynen koru; vektörleştirme geometrisini karşılaştır ve eşdeğerlik sınırını dürüstçe raporla. `02-loading-orbit.png`: yüklenme animasyonu referansı; screenshot animasyon kareleri sağlamaz, hareket tasarımını referans şekli koruyarak mevcut stackte uygula, reduced-motion/static fallback ve işlem gerçekten bittiğinde durma davranışı.
+
+`03-typography.png`: başlık SF Pro Display, UI Inter, kod JetBrains Mono. Gerçek font/lisans/dağıtım koşullarını doğrula; sistemde bulunma ile pakette dağıtım hakkını ayır. Font adı etiketi yetmez; computed font ve fallback'i ölç. `04-palette.png`: Graphite #0B0F14, Slate #111827, Surface #1F2937, Border #2D3748, Muted #6B7280, OffWhite #F8FAFC, Blue #3B82F6, Cyan #22D3EE, Violet #A78BFA, Mint #34D399. Kullanıcı mevcut arayüz renklerini çok fazla değiştirmemeyi, yalnız ufak detayları değiştirmeyi söyledi. Global navy/neon/gradient yeniden tasarım yok.
+
+Ana App/Kits React majörleri farklı; paylaşılan semantik token/asset otoritesini kullan, ikinci store/tema engine kurma. Mevcut işlemleri, onay/soru/model/voice erişilebilirliğini koru. Light/dark/focus/disabled/error/loading/empty/reducedmotion ve kaynak boyutları gerçek test/görüntüyle doğrula. Screenshot goldenlarını körlemesine yenileme; geçmişteki dört baseline farkı zaten raporlu. Yerel küçük commit, gerçek sonuç ve kalan sınır raporu; kullanıcıdan yeni talimat gelmeden push/merge/publish yapma.
