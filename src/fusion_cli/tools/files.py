@@ -40,6 +40,7 @@ from .args import (
     require_text,
 )
 from .diffing import bounded_diff
+from .files_read import read_large_text
 from .lost_definitions import lost_definitions
 from .remotion_guard import guard_remotion_write
 
@@ -210,6 +211,17 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     if path.is_dir():
         return ToolResult.failure(f"Bu bir dizin, dosya değil: {display_path(context, path)}")
 
+    is_artifact = context.artifacts is not None and context.artifacts.owns(path)
+    if not is_artifact and path.stat().st_size > MAX_READ_BYTES:
+        window = context.read_window or MAX_READ_LINES
+        return read_large_text(
+            path,
+            display_path(context, path),
+            offset=require_positive_int(args, "offset", default=1),
+            limit=min(require_positive_int(args, "limit", default=window), window),
+            byte_limit=MAX_READ_BYTES,
+            cancelled=context.cancelled,
+        )
     ham = path.read_bytes()
     data = ham[:MAX_READ_BYTES]
     kirpildi = len(ham) > MAX_READ_BYTES
@@ -220,7 +232,6 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
             f"Metin dosyası değil (UTF-8 çözülemedi): {display_path(context, path)}"
         )
 
-    is_artifact = context.artifacts is not None and context.artifacts.owns(path)
     lines = text.splitlines()
     if is_artifact:
         # Tool output can contain one enormous line. Split only artifacts into

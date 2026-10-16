@@ -17,12 +17,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import os
 import re
 import shlex
 import sys
+import tempfile
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from itertools import count
@@ -51,13 +53,17 @@ from ..config.paths import credentials_file
 from ..core.clock import SystemClock
 from ..core.concurrency import BackgroundTasks
 from ..core.events import Event, EventSink, StatusChanged
+from ..core.owned_thread import await_owned_thread
 from ..core.reasoning import ReasoningEffort, resolve_reasoning
 from ..core.remotion_browser import RemotionBrowser
+from ..core.skill_context import SkillSelection
+from ..core.steering import SteeringQueue
 from ..core.submission import SubmissionReceipt, SubmissionRepository
 from ..core.tools import TodoStatus
 from ..core.turn_deadline import TurnDeadline
 from ..core.types import Message
 from ..engines.agent.approval import ApprovalMode, parse_mode
+from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.context_budget import context_budget
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
 from ..engines.agent.remotion_bridge import FrameTransport
@@ -68,8 +74,9 @@ from ..memory.factory import build_memory
 from ..memory.turn_journal import FileTurnJournal
 from ..providers.capabilities import apprentice_active
 from ..providers.health_setup import build_health
-from ..tools.capabilities import CapabilityRegistry, load_agent_prompt, load_skill_text
+from ..tools.capabilities import CapabilityRegistry, load_agent_prompt
 from ..tools.safe_delete import is_container_root, project_folders
+from ..tools.skill_pages import read_skill_page
 from ..ui import messages
 from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
@@ -87,6 +94,7 @@ from .connectors import (
     connector_secret_values,
     list_connectors,
     remove_connector,
+    review_connector,
     status_payload,
 )
 from .context_gauge import baglam_olcusu
@@ -119,12 +127,15 @@ from .hosted_connectors import (
     remove_hosted_connector,
     verify_hosted_connector,
 )
-from .image_create import create_image, image_providers
-from .image_flows import export_image, list_flows, list_gallery, load_flow, save_flow
+from .image_create import create_image, image_output_dir, image_providers
+from .image_flows import export_image, list_flows, load_flow, save_flow
+from .image_job_artifacts import capture_reference, receipt_reads_supported
+from .image_jobs import ImageJobService
 from .instructions import get_instructions, instruction_block, save_instructions
-from .library import LibrarySink, add_upload, list_library, remove_entry
+from .library import LibrarySink, add_upload, remove_entry
 from .local_computer import LocalComputer, native_local_computer
 from .local_computer_routes import LOCAL_COMPUTER_ROUTES, dispatch_local_computer
+from .mcp_catalog import list_tool_catalog
 from .model_catalog import list_selectable_models
 from .personal_memory import PersonalMemory
 from .processes import ProcessManager
@@ -133,6 +144,7 @@ from .protocol import Reply, Request, encode_event, encode_result
 from .schedule import SCHEDULE_ROUTES
 from .tiers import list_tiers, select_tier
 from .usage import UsageMeter, usage_status
+from .voice import discard_prepared_voice, play_prepared_voice, prepare_voice, warm_voice
 from .voice import download_piper_model as voice_download_model
 from .voice import save_settings as voice_settings
 from .voice import speak as voice_speak
@@ -373,8 +385,10 @@ class AppSession:
     ) -> None:
         self._admission_lock = asyncio.Lock()
         self._closed = False
+        self._voice_preparations: set[asyncio.Task[dict[str, Any]]] = set()
         self._admission_tasks: set[asyncio.Task[dict[str, Any]]] = set()
         self._model_selection_tasks: set[asyncio.Task[dict[str, Any]]] = set()
+        self._image_tasks: set[asyncio.Task[dict[str, Any]]] = set()
         self._submission_task: asyncio.Task[dict[str, Any]] | None = None
         self._local_computer = local_computer
         self._writer = writer
@@ -384,12 +398,21 @@ class AppSession:
         config = load_config()
         self._secret_store = FernetSecretStore(credentials_file(), secret_key=secret_key())
         self._personal_memory = PersonalMemory(config.memory_dir)
-        from ..memory.submission_store import SubmissionStore
+        from ..memory.image_job_store import ImageJobStore
 
-        self._submission_store = submission_store or SubmissionStore(
+        self._submission_store = submission_store or ImageJobStore(
             config.memory_dir / "submission.sqlite3"
         )
+        self._image_jobs = (
+            ImageJobService(self._submission_store, image_output_dir())
+            if isinstance(self._submission_store, ImageJobStore) and receipt_reads_supported()
+            else None
+        )
         self.pending = PendingQuestions()
+        self._child_runs: ChildRuns | None = None
+        self._steering: SteeringQueue | None = None
+        self._steering_turn: str | None = None
+        self._steering_requests: set[str] = set()
         self._registry = build_registry(home)
         self._state = ReplState(
             config=config,
@@ -439,6 +462,7 @@ class AppSession:
         self._disabled_agents: set[str] = set()
         self._disabled_mcp: set[str] = set()
         self._pending_capability: tuple[str, str] | None = None
+        self._taken_skill: SkillSelection | None = None
         self._refresh_capabilities()
         self._usage = UsageMeter()
         #: Yan panelin kendi konuşma geçmişi (uygulamanın sohbetinden ayrı).
@@ -519,12 +543,15 @@ class AppSession:
             "modeller": catalog.get("modeller", []),
         }
 
+    def _question_closed(self, question_id: str) -> None:
+        """Her terminal soru sonucu tüm bağlı yüzeylerde aynı kartı kapatır."""
+        self._writer(encode_event({"olay": "SoruKapandi", "id": question_id}))
+        if self._chrome.running:
+            self._chrome.publish({"tur": "soru_kapandi", "id": question_id})
+
     def _chrome_answer(self, question_id: str, data: dict[str, Any]) -> bool:
         """Yan panelin izin/soru cevabı; masaüstündeki aynı kart da kapanır."""
-        resolved = self.pending.resolve(question_id, data)
-        if resolved:
-            self._writer(encode_event({"olay": "SoruKapandi", "id": question_id}))
-        return resolved
+        return self.pending.resolve(question_id, data)
 
     async def _dispatch(self, request: Request) -> dict[str, Any]:
         """Model ve web yapılandırma girişleri aynı owned kabul sırasını paylaşır."""
@@ -537,6 +564,7 @@ class AppSession:
             "web.arac_olc",
             "web.dogrula",
             "web.pencere_kipi",
+            "baglanti.guven",
         }:
             owned = asyncio.create_task(self._apply_model_rpc(request))
             self._model_selection_tasks.add(owned)
@@ -551,6 +579,47 @@ class AppSession:
             return await self._dispatch_unlocked(request)
 
     async def _dispatch_unlocked(self, request: Request) -> dict[str, Any]:
+        if request.name == "ajan.durdur":
+            identifier = request.data.get("agentId")
+            if (
+                self._child_runs is None
+                or self._steering_turn is None
+                or request.data.get("turnId") != self._steering_turn
+                or not isinstance(identifier, str)
+            ):
+                return {"ok": False, "metin": "Etkin alt ajan görevi bulunamadı."}
+            cancelled = await self._child_runs.cancel(identifier)
+            return {
+                "ok": cancelled,
+                "agentId": identifier,
+                "state": "cancelled" if cancelled else "stale",
+            }
+        if request.name == "tur.yonlendir":
+            target = request.data.get("turnId")
+            text = request.data.get("text")
+            identifier = request.data.get("requestId")
+            if (
+                self._steering is None
+                or self._iptal_bekliyor
+                or target != self._steering_turn
+                or not isinstance(text, str)
+                or not text.strip()
+                or not isinstance(identifier, str)
+                or not identifier
+            ):
+                return {"ok": False, "metin": "Etkin görevle eşleşen yönlendirme bulunamadı."}
+            if identifier not in self._steering_requests:
+                self._steering_requests.add(identifier)
+                self._steering.push(text)
+                self.pending.cancel_all()
+            return {"ok": True, "turnId": target, "requestId": identifier, "state": "queued"}
+        if request.name == "soru.cevapla":
+            identifier = request.data.get("questionId")
+            answer = request.data.get("answer")
+            if not isinstance(identifier, str) or not isinstance(answer, dict):
+                return {"ok": False, "metin": "Soru kimliği veya cevap geçersiz."}
+            accepted = self.pending.answer(identifier, answer)
+            return {"ok": accepted, "questionId": identifier}
         if request.name in LOCAL_COMPUTER_ROUTES:
             if self._local_computer is not None:
                 return await dispatch_local_computer(
@@ -571,23 +640,63 @@ class AppSession:
                 lambda: self._conversation_id or "fusion-app",
             )
         if request.name == "gorsel.saglayicilar":
-            return {"ok": True, "secenekler": image_providers(self._state.config)}
+            providers = {
+                "ok": True,
+                "secenekler": image_providers(self._state.config),
+                "assetProtokolu": 1,
+            }
+            if self._image_jobs is not None:
+                providers["isProtokolu"] = 1
+            return providers
+        if request.name in {
+            "gorsel.is.baslat",
+            "gorsel.is.durum",
+            "gorsel.is.iptal",
+            "gorsel.is.liste",
+        }:
+            return await self._image_job_request(request.name, request.data)
         if request.name == "gorsel.olustur":
-            return await create_image(self._state.config, request.data)
+            return await self._create_image_owned(request.data)
         if request.name == "gorsel.galeri":
-            return list_gallery()
+            from .asset_bridge import catalogued_gallery, gallery_page
+
+            if "sinir" in request.data or "cursor" in request.data:
+                return await await_owned_thread(
+                    gallery_page, request.data, self._state.config.memory_dir
+                )
+            return await await_owned_thread(catalogued_gallery, self._state.config.memory_dir)
+        if request.name == "artefakt.coz":
+            from .asset_bridge import resolve_asset
+
+            return await await_owned_thread(
+                resolve_asset, request.data, self._state.config.memory_dir
+            )
+        if request.name == "artefakt.liste":
+            from .asset_bridge import asset_page
+
+            return await await_owned_thread(asset_page, request.data, self._state.config.memory_dir)
+        if request.name == "artefakt.onizle":
+            from .asset_bridge import asset_preview
+
+            return await await_owned_thread(
+                asset_preview, request.data, self._state.config.memory_dir
+            )
         if request.name == "gorsel.kaydet":
             return export_image(request.data)
         if request.name == "gorsel.akislar":
             return list_flows()
         if request.name == "gorsel.akis.kaydet":
-            return save_flow(request.data)
+            return await await_owned_thread(save_flow, request.data)
         if request.name == "gorsel.akis.yukle":
             return load_flow(request.data)
         if request.name in SCHEDULE_ROUTES:
             return SCHEDULE_ROUTES[request.name](request.data)
         if request.name == "kitaplik.liste":
-            return list_library(request.data)
+            from .asset_bridge import catalogued_library
+
+            return await await_owned_thread(
+                catalogued_library, request.data, self._state.config.memory_dir
+            )
         if request.name == "kitaplik.ekle":
             return add_upload(request.data)
         if request.name == "kitaplik.kaldir":
@@ -735,8 +844,16 @@ class AppSession:
             return await self._stop_gateway()
         if request.name == "ses.durum":
             return voice_status()
+        if request.name == "ses.isit":
+            return await self._voice_worker(warm_voice, None)
+        if request.name == "ses.hazirla":
+            return await self._voice_worker(prepare_voice, request.data.get("metin"))
+        if request.name == "ses.haziri_cal":
+            return await self._voice_worker(play_prepared_voice, request.data.get("hazir_id"))
+        if request.name == "ses.haziri_sil":
+            return await self._voice_worker(discard_prepared_voice, request.data.get("hazir_id"))
         if request.name == "ses.konus":
-            result = voice_speak(request.data.get("metin"))
+            result = await self._voice_worker(voice_speak, request.data.get("metin"))
             if request.data.get("bekle") is True and result.get("ok") is True:
                 completed = await asyncio.to_thread(
                     voice_wait, result.get("tur_id", result.get("pid"))
@@ -777,8 +894,29 @@ class AppSession:
             return self._save_theme(request.data)
         if request.name == "ayar.talimat_kaydet":
             return save_instructions(request.data.get("metin"))
+        if request.name == "baglanti.guven":
+            if (self._turn is not None and not self._turn.done()) or (
+                self._submission_task is not None and not self._submission_task.done()
+            ):
+                return {
+                    "ok": False,
+                    "metin": "Güven sınırını değiştirmeden önce çalışan görevi durdur.",
+                }
+            updated, result = review_connector(self._state.config, request.data)
+            if updated is not None:
+                self._update_connector_config(updated)
+            return result
         if request.name == "baglanti.listele":
             return list_connectors(self._state.config, self._mcp_connections.statuses)
+        if request.name == "baglanti.araclar":
+            source_config, source_root = self._state.config, self._state.root
+            server = self._connector(request.data.get("ad"))
+            if server is None:
+                return {"ok": False, "metin": "Bağlantı bulunamadı."}
+            result = await list_tool_catalog(server)
+            if source_config is not self._state.config or source_root != self._state.root:
+                return {"ok": False, "metin": "Bağlantı değişti; katalog yeniden okunmalı."}
+            return result
         if request.name == "baglanti.ekle":
             return await self._add_connector(request.data)
         if request.name == "baglanti.dogrula":
@@ -934,6 +1072,8 @@ class AppSession:
                 deadline=deadline,
             )
         if request.name == "tur.kes":
+            if "turnId" in request.data and request.data["turnId"] != self._steering_turn:
+                return {"ok": False, "metin": "Durdurma isteği etkin görevle eşleşmiyor."}
             return self._cancel_turn()
         return {"ok": False, "metin": messages.APP_UNKNOWN_REQUEST.format(name=request.name)}
 
@@ -1148,7 +1288,10 @@ class AppSession:
         if not isinstance(value, str) or not value:
             return None
         try:
-            self._state.approval = parse_mode(value)
+            mode = parse_mode(value)
+            if mode is not self._state.approval:
+                self._state.approval_memory.revoke()
+            self._state.approval = mode
         except ValueError:
             valid = ", ".join(mode.value for mode in ApprovalMode)
             return {
@@ -1206,8 +1349,22 @@ class AppSession:
         """
         yeni, sonuc = action(self._state.config, data)
         if yeni is not None:
-            self._state.config = yeni
+            self._update_connector_config(yeni)
         return sonuc
+
+    def _update_connector_config(self, config: Config) -> None:
+        previous = {server.name: server for server in self._state.config.mcp_servers}
+        current = {server.name: server for server in config.mcp_servers}
+        changed = {
+            name
+            for name in previous.keys() | current.keys()
+            if previous.get(name) != current.get(name)
+        }
+        for name in changed:
+            self._mcp_connections.invalidate(name)
+        if changed:
+            self._state.approval_memory.revoke()
+        self._state.config = config
 
     def _connector(self, name: object) -> McpServerConfig | None:
         wanted = str(name or "")
@@ -1242,7 +1399,7 @@ class AppSession:
                 os.environ.pop(name, None)
             self._restore_connector_secrets(previous)
             return sonuc
-        self._state.config = yeni
+        self._update_connector_config(yeni)
         if sonuc.get("durum") == STATE_LOGIN_REQUIRED:
             # Sunucu sağlam, yalnız OAuth girişi bekliyor: giriş penceresini
             # hemen aç ki kullanıcı ikinci bir düğmeye basmak zorunda kalmasın.
@@ -1454,6 +1611,7 @@ class AppSession:
         döndürdüğü için masaüstünde "çalıştırıldı" deyip hiçbir şey
         göstermiyorlardı. Onlar TUI'nin kullandığı renderer'dan metne çevrilir.
         """
+        previous_approval = self._state.approval
         name = str(data.get("ad", ""))
         argument = str(data.get("arguman", ""))
         command = self._registry.get(name)
@@ -1493,6 +1651,8 @@ class AppSession:
             result = run_command(
                 self._registry, self._state, name, argument, secret_store=self._secret_store
             )
+        if self._state.approval is not previous_approval:
+            self._state.approval_memory.revoke()
         # Makrolar görevi yalnız HAZIRLAR (bkz. `cli/repl/commands.py::_macro`).
         # Terminal döngüsü hazırlanan görevi hemen çalıştırıyordu; masaüstünde bu
         # adım yoktu ve `/goal` "çalıştırılıyor…" deyip hiçbir tur başlatmıyordu.
@@ -1765,6 +1925,20 @@ class AppSession:
                 self._transcript_store.record_user(
                     task, message_id=f"{receipt.key.request_id}:user"
                 )
+        if voice_context is not None and not browser_only and not attachment_context and not images:
+            from .voice_intents import local_voice_reply
+
+            reply = local_voice_reply(task)
+            if reply is not None:
+                self._state.history = [
+                    *self._state.history,
+                    Message("user", task),
+                    Message("assistant", reply),
+                ]
+                self._transcript_store.record_assistant(
+                    reply, message_id=f"{receipt.key.request_id}:assistant" if receipt else None
+                )
+                return {"ok": True, "metin": reply, "yerel_yanit": True}
         history = self._chrome_history if browser_only else self._state.history
 
         # Kullanım sayacı olayları ARADAN dinler: sayaç için ayrı bir yol
@@ -1777,8 +1951,19 @@ class AppSession:
             self._state.root,
         )
         prompter = ProtocolPrompter(
-            writer, self.pending, root=self._state.root, element_name=self._chrome.element_name
+            writer,
+            self.pending,
+            root=self._state.root,
+            element_name=self._chrome.element_name,
+            namespace=receipt.attempt_id if receipt else "",
+            on_closed=self._question_closed,
         )
+        steering = SteeringQueue()
+        child_runs = ChildRuns()
+        self._child_runs = child_runs
+        self._steering = steering
+        self._steering_turn = receipt.attempt_id if receipt else None
+        self._steering_requests.clear()
         config = config_snapshot or self._state.config
         if self._disabled_mcp:
             config = replace(
@@ -1788,6 +1973,7 @@ class AppSession:
                 ),
             )
         capability_context = self._take_capability_context()
+        selected_skill, self._taken_skill = self._taken_skill, None
         inherited_context = self._state.take_pending_digest()
         turn_mode, self._next_turn_mode = self._next_turn_mode, macros.Mode.NONE
 
@@ -1848,6 +2034,10 @@ class AppSession:
                 step_limit=macros.mode_step_limit(turn_mode),
                 workflow=macros.mode_workflow(turn_mode),
                 approval_memory=self._state.approval_memory,
+                steering=steering,
+                child_runs=child_runs,
+                selected_skill=selected_skill,
+                current_approval=lambda: self._state.approval,
                 # Oturumun kalıcı belleği (dersler, öğretmen planları, kod indeksi).
                 # Verilmezse tur boş bellekle koşar ve hiçbir şey öğrenilmez.
                 memory=self._state.memory,
@@ -1883,13 +2073,17 @@ class AppSession:
                 ]
             return {"ok": False, "metin": messages.APP_TURN_CANCELLED}
         finally:
+            await child_runs.close()
             if self._turn is owned_turn:
+                self._child_runs = None
+                self._iptal_bekliyor = False
                 self._turn = None
+                self._steering = None
+                self._steering_turn = None
+                self._steering_requests.clear()
             if trace is not None:
                 trace.close()
-            # Tur her yoldan bitti (cevap, hata, iptal): yarıda kalmış sayılmaz.
-            if journal is not None:
-                journal.clear()
+            # Başarısız/iptal edilmiş temizliğin araç ve soru kayıtları korunur.
         # Çok-turlu sohbet: bu turun ürettiği geçmiş bir SONRAKİ `tur.calistir`e
         # taşınsın diye durumda saklanır (bkz. `tui_loop.py:417` ile aynı desen).
         if browser_only:
@@ -1923,6 +2117,15 @@ class AppSession:
             self._transcript_store.record_assistant(
                 metin, message_id=f"{receipt.key.request_id}:assistant" if receipt else None
             )
+        if journal is not None:
+            if outcome.ok:
+                # Transcript sonucu kaydedildikten sonra tamamlanmış günlük kaldırılır.
+                await await_owned_thread(journal.clear)
+            else:
+                preserved = list(outcome.messages)
+                if metin and (not preserved or preserved[-1].content != metin):
+                    preserved.append(Message("assistant", metin, harness_note=True))
+                await await_owned_thread(journal.save, preserved)
         if _should_auto_continue(outcome, auto_continues) and (
             deadline is None or deadline.remaining_s() > 0
         ):
@@ -1996,14 +2199,20 @@ class AppSession:
         return {"ok": True, "tur": kind, "ad": name, "sonraki_tur": True}
 
     def _take_capability_context(self) -> str:
+        self._taken_skill = None
         selected, self._pending_capability = self._pending_capability, None
         if selected is None:
             return ""
         kind, name = selected
         if kind == "beceri":
             item = self._all_capabilities.get_skill(name)
-            body = load_skill_text(item.path, budget=6_000) if item else ""
-            return f"# Kullanıcının açıkça seçtiği beceri: {name}\n{body}" if body else ""
+            if item is None:
+                return ""
+            page = read_skill_page(item.path)
+            if page.error:
+                return ""
+            self._taken_skill = SkillSelection(item.qualified_name, page.revision, page.next_offset)
+            return f"# Kullanıcının açıkça seçtiği beceri: {name}\n{page.text}"
         if kind == "ajan":
             item = self._all_capabilities.get_agent(name)
             body = load_agent_prompt(item.path)[:6_000] if item else ""
@@ -2020,7 +2229,12 @@ class AppSession:
             return {"ok": False, "metin": messages.APP_NO_RUNNING_TURN}
         self._turn.cancel()
         self._iptal_bekliyor = True
-        return {"ok": True, "metin": messages.APP_TURN_CANCELLED}
+        return {
+            "ok": True,
+            "state": "stopping",
+            "turnId": self._steering_turn,
+            "metin": "Durdurma istendi; açık işlemler kapatılıyor.",
+        }
 
     async def _iptal_edilen_turu_bekle(self) -> None:
         """İptal edilen tur kapanana kadar kısa bir süre bekle.
@@ -2033,8 +2247,9 @@ class AppSession:
         if not self._iptal_bekliyor or self._turn is None:
             self._iptal_bekliyor = False
             return
-        await asyncio.wait({self._turn}, timeout=TURN_CANCEL_SETTLE_S)
-        self._iptal_bekliyor = False
+        turn = self._turn
+        await asyncio.wait({turn}, timeout=TURN_CANCEL_SETTLE_S)
+        self._iptal_bekliyor = self._turn is turn and not turn.done()
 
     def resolve_reply(self, reply: Reply) -> bool:
         """Uygulamanın cevabını bekleyen soruya bağla; paneldeki kart da kapanır."""
@@ -2053,6 +2268,127 @@ class AppSession:
         )
         self._voice_background.failures.clear()
 
+    async def _create_image_owned(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Doğrudan görsel RPC'si de oturum kapanışından uzun yaşayamaz."""
+        if self._closed:
+            return {"ok": False, "metin": "Oturum kapandı; görsel üretimi başlatılmadı."}
+        task = asyncio.create_task(create_image(self._state.config, data))
+        self._image_tasks.add(task)
+        try:
+            return await task
+        finally:
+            self._image_tasks.discard(task)
+
+    async def _image_job_request(self, name: str, data: dict[str, Any]) -> dict[str, Any]:
+        """İş kimliğini oturumun gerçek profil/kök/sohbet kapsamına bağla."""
+        from ..config.keys import environ_snapshot
+        from ..core.submission import SubmissionKey
+
+        if self._closed or self._image_jobs is None:
+            return {"ok": False, "code": "unavailable", "metin": "Görsel işi kullanılamıyor."}
+        starting = name == "gorsel.is.baslat"
+        listing = name == "gorsel.is.liste"
+        identifier = "list" if listing else data.get("requestId" if starting else "jobId")
+        if not isinstance(identifier, str) or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", identifier
+        ):
+            return {"ok": False, "code": "invalid_request", "metin": "Geçersiz iş kimliği."}
+        key = SubmissionKey(
+            str(self._state.config.memory_dir.resolve()),
+            str(self._state.root.resolve()),
+            self._conversation_id or FALLBACK_CONVERSATION_ID,
+            "image:" + identifier,
+        )
+        if listing:
+            cursor, limit = data.get("sonraki", ""), data.get("limit", 20)
+            if (
+                set(data) - {"sonraki", "limit"}
+                or not isinstance(cursor, str)
+                or (cursor and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", cursor))
+                or isinstance(limit, bool)
+                or not isinstance(limit, int)
+                or not 1 <= limit <= 50
+            ):
+                return {"ok": False, "code": "invalid_request", "metin": "Geçersiz iş sayfası."}
+            return await self._image_jobs.list_jobs(
+                key, after="image:" + cursor if cursor else "", limit=limit
+            )
+        if not starting:
+            if set(data) != {"jobId"}:
+                return {"ok": False, "code": "invalid_request", "metin": "Geçersiz iş sorgusu."}
+            if name == "gorsel.is.iptal":
+                return await self._image_jobs.cancel(key)
+            return await self._image_jobs.status(key)
+        allowed = {"requestId", "islem", "istem", "saglayici", "referans", "oran"}
+        if set(data) - allowed or any(not isinstance(value, str) for value in data.values()):
+            return {"ok": False, "code": "invalid_request", "metin": "Geçersiz üretim parametresi."}
+        config = self._state.config
+        environment = environ_snapshot()
+        choices = image_providers(config, environ=environment)
+        payload = {
+            "islem": data.get("islem") or "uret",
+            "istem": data.get("istem", "").strip(),
+            "saglayici": data.get("saglayici") or (choices[0]["deger"] if choices else ""),
+            "referans": data.get("referans", ""),
+            "oran": data.get("oran") or "1:1",
+        }
+        if len(payload["istem"]) > 32768:
+            return {"ok": False, "code": "invalid_request", "metin": "Görsel istemi çok uzun."}
+        fingerprint_data: dict[str, object] = dict(payload)
+        reference = None
+        if payload["referans"]:
+            from ..core.image_jobs import ImageJobConflictError
+
+            try:
+                reference = await await_owned_thread(
+                    capture_reference,
+                    payload["referans"],
+                    image_output_dir(),
+                )
+            except ImageJobConflictError:
+                return {
+                    "ok": False,
+                    "code": "invalid_request",
+                    "metin": "Referans görsel doğrulanamadı.",
+                }
+            fingerprint_data["referansSha256"] = hashlib.sha256(reference.data).hexdigest()
+        fingerprint = hashlib.sha256(
+            json.dumps(fingerprint_data, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+
+        async def render() -> dict[str, object]:
+            if reference is None:
+                return await create_image(config, payload, environ=environment)
+            # Dizin task başlamadan önce oluşturulur; iptal edilen disk worker'ı
+            # da bitmeden context çıkmaz. Kaynak dosya artık tekrar okunmaz.
+            with tempfile.TemporaryDirectory(
+                prefix=".fusion-reference-", dir=image_output_dir()
+            ) as temporary:
+                snapshot = Path(temporary) / ("reference" + reference.suffix)
+                await await_owned_thread(snapshot.write_bytes, reference.data)
+                return await create_image(
+                    config, {**payload, "referans": str(snapshot)}, environ=environment
+                )
+
+        return await self._image_jobs.start(key, fingerprint, render)
+
+    async def _voice_worker(
+        self, operation: Callable[[object], dict[str, Any]], value: object
+    ) -> dict[str, Any]:
+        """Ses dosyası kilitleri ana olay döngüsünü tutmaz; kapanış worker'ı bekler."""
+        if self._closed:
+            return {"ok": False, "metin": "Ses oturumu kapanıyor."}
+        worker = asyncio.create_task(asyncio.to_thread(operation, value))
+        self._voice_preparations.add(worker)
+
+        def release(done: asyncio.Task[dict[str, Any]]) -> None:
+            self._voice_preparations.discard(done)
+            if not done.cancelled():
+                done.exception()
+
+        worker.add_done_callback(release)
+        return await asyncio.shield(worker)
+
     async def close(self) -> None:
         """Çalışan turu ve oturuma ait bütün yardımcı süreçleri kapat."""
         from ..mcp_bridge.pool import close_mcp_pool
@@ -2060,6 +2396,12 @@ class AppSession:
         from ..providers.web_control import stop_all_login_processes
 
         self._closed = True
+        if self._image_jobs is not None:
+            self._image_jobs.stop_accepting()
+        images = tuple(self._image_tasks)
+        for image in images:
+            if not image.done() and not image.cancelling():
+                image.cancel()
         selections = tuple(self._model_selection_tasks)
         if selections:
             await asyncio.gather(*selections, return_exceptions=True)
@@ -2077,10 +2419,18 @@ class AppSession:
                 submission.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await submission
-        await self._submission_store.close()
         await self._voice_background.close()
         self._report_voice_background_failures()
+        if self._voice_preparations:
+            await asyncio.gather(*self._voice_preparations, return_exceptions=True)
+            self._voice_preparations.clear()
         voice_stop()
+        discard_prepared_voice()
+        if images:
+            await asyncio.gather(*images, return_exceptions=True)
+        if self._image_jobs is not None:
+            await self._image_jobs.close()
+        await self._submission_store.close()
         for task in self._panel_tasks.values():
             if not task.done():
                 task.cancel()

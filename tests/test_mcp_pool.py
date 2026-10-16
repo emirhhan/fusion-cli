@@ -348,3 +348,57 @@ async def test_barindirmali_kanal_turlar_arasi_korunur(monkeypatch):
     await pool_module.ensure_hosted_tools(config, ToolRegistry())
 
     assert len(kurulan) == 1, "aynı yapılandırmada kanal yeniden kurulmamalı"
+
+
+async def test_transient_retry_uses_configured_bounded_backoff(monkeypatch):
+    attempts = []
+    now = [100.0]
+
+    class Broken(_FakeClient):
+        async def __aenter__(self):
+            attempts.append(self.name)
+            raise TimeoutError
+
+    monkeypatch.setattr(pool_module, "McpClient", Broken)
+    pool = McpToolPool(clock=lambda: now[0])
+    config = (
+        McpServerConfig("offline", command="npx", args=("offline",), retry_delays_s=(1.0, 4.0)),
+    )
+    try:
+        assert await pool.clients_for(config) == ()
+        assert await pool.clients_for(config) == ()
+        assert attempts == ["offline"]
+        now[0] += 1.0
+        assert await pool.clients_for(config) == ()
+        assert attempts == ["offline", "offline"]
+        assert await pool.clients_for(config) == ()
+        assert len(attempts) == 2
+        pool.forget("offline")
+        assert await pool.clients_for(config) == ()
+        assert len(attempts) == 3
+    finally:
+        await pool.aclose()
+
+
+async def test_pool_close_budget_cancels_stuck_supervisor(monkeypatch):
+    release = asyncio.Event()
+
+    class HangingClose(_FakeClient):
+        async def __aexit__(self, *_exc):
+            await release.wait()
+
+    monkeypatch.setattr(pool_module, "McpClient", HangingClose)
+    pool = McpToolPool()
+    config = (McpServerConfig("offline", command="npx", args=("offline",), close_timeout_s=0.01),)
+    await pool.clients_for(config)
+    close = asyncio.create_task(pool.aclose())
+    finished = False
+    try:
+        await asyncio.wait_for(asyncio.shield(close), timeout=0.1)
+        finished = True
+    except TimeoutError:
+        pass
+    finally:
+        release.set()
+        await close
+    assert finished, "Havuz kendi kapanış bütçesinde dönmedi"

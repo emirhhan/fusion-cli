@@ -1,4 +1,6 @@
 import type { RuntimeState } from "../runtime/types";
+import { LoadingMark } from "../brand/LoadingMark";
+import { Logo } from "../brand/Logo";
 import { Button } from "../ui/Button";
 import "../theme/tokens.css";
 import "./RuntimeSetup.css";
@@ -19,8 +21,7 @@ export function RuntimeSetup({ state, progress, message, version, onRepair }: Ru
     <main className="runtime-setup">
       <section className="runtime-setup__card" aria-labelledby="runtime-title">
         <div className="runtime-setup__mark" aria-hidden="true">
-          <span />
-          <span />
+          {busy ? <LoadingMark /> : <Logo size={42} />}
         </div>
         <h1 id="runtime-title">Fusion'ı hazırlıyoruz</h1>
         <p className="runtime-setup__message">{message}</p>

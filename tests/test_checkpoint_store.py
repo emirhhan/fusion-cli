@@ -90,7 +90,7 @@ def test_checkpoint_ham_prompt_ve_arac_ciktisi_saklamaz(tmp_path):
     store = JsonCheckpointStore(tmp_path / "checkpoints")
     store.save(_checkpoint(tmp_path))
 
-    raw = (tmp_path / "checkpoints" / "plan-1.json").read_text(encoding="utf-8")
+    raw = next((tmp_path / "checkpoints").glob("*.json")).read_text(encoding="utf-8")
 
     assert "messages" not in raw
     assert "tool_output" not in raw
@@ -153,6 +153,7 @@ def test_eski_surum_checkpoint_kanitsiz_okunur(tmp_path):
     store = JsonCheckpointStore(directory)
     store.save(_checkpoint(tmp_path))
     path = directory / "plan-1.json"
+    next(directory.glob("*.json")).replace(path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["schema_version"] = 2
     payload.pop("step_evidence")
@@ -180,7 +181,7 @@ def test_kanit_ciktisi_maskelenir_ve_sinirlanir(tmp_path):
         )
     )
 
-    raw = (tmp_path / "checkpoints" / "plan-1.json").read_text(encoding="utf-8")
+    raw = next((tmp_path / "checkpoints").glob("*.json")).read_text(encoding="utf-8")
     saved = store.load("plan-1")
 
     assert "sk-canli-anahtar" not in raw
@@ -188,3 +189,54 @@ def test_kanit_ciktisi_maskelenir_ve_sinirlanir(tmp_path):
     assert saved is not None
     assert len(saved.step_evidence[0].tool_uses[0].output) == MAX_CHECKPOINT_OUTPUT_CHARS
     assert len(saved.step_evidence[0].criteria[0].output) == MAX_CHECKPOINT_OUTPUT_CHARS
+
+
+def test_completed_new_checkpoint_shadows_old_running_legacy_file(tmp_path):
+    from fusion_cli.core.execution_plan import PlanStatus
+
+    directory = tmp_path / "checkpoints"
+    store = JsonCheckpointStore(directory)
+    checkpoint = _checkpoint(tmp_path)
+    store.save(checkpoint)
+    next(directory.glob("*.json")).replace(directory / "plan-1.json")
+    loaded = store.load("plan-1")
+    assert loaded == checkpoint
+    store.save(replace(loaded, plan=replace(loaded.plan, status=PlanStatus.COMPLETED)))
+    assert store.find_resumable(checkpoint.root, checkpoint.conversation_id) is None
+
+
+def test_checkpoint_kapsanmayan_teslimatlari_korur(tmp_path):
+    store = JsonCheckpointStore(tmp_path / "checkpoints")
+    checkpoint = replace(_checkpoint(tmp_path), uncovered=("ana menü", "ara sahne"))
+
+    store.save(checkpoint)
+
+    loaded = store.load("plan-1")
+    assert loaded is not None
+    assert loaded.uncovered == ("ana menü", "ara sahne")
+    payload = json.loads(next((tmp_path / "checkpoints").glob("*.json")).read_text())
+    assert payload["uncovered"] == ["ana menü", "ara sahne"]
+
+
+def test_checkpoint_eski_kapsama_alani_olmadan_okunur(tmp_path):
+    store = JsonCheckpointStore(tmp_path / "checkpoints")
+    store.save(_checkpoint(tmp_path))
+    path = next((tmp_path / "checkpoints").glob("*.json"))
+    payload = json.loads(path.read_text())
+    payload.pop("uncovered", None)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = store.load("plan-1")
+    assert loaded is not None
+    assert loaded.uncovered == ()
+
+
+def test_checkpoint_gecersiz_kapsama_listesini_reddeder(tmp_path):
+    store = JsonCheckpointStore(tmp_path / "checkpoints")
+    store.save(_checkpoint(tmp_path))
+    path = next((tmp_path / "checkpoints").glob("*.json"))
+    payload = json.loads(path.read_text())
+    payload["uncovered"] = [1]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert store.load("plan-1") is None

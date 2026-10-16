@@ -591,7 +591,7 @@ async def test_zaman_asiminda_kismi_cikti_dondurulur(registry, context, monkeypa
             stderr="",
         )
 
-    monkeypatch.setattr(shell_module.subprocess, "run", _patla)
+    monkeypatch.setattr(shell_module, "run_foreground", _patla)
     sonuc = await _calistir(registry, context, "run_shell", command="npm run start:all")
 
     assert sonuc.ok is False
@@ -607,7 +607,7 @@ async def test_zaman_asiminda_cikti_yoksa_da_yol_gosterilir(registry, context, m
     def _patla(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd="sleep 999", timeout=1.0)
 
-    monkeypatch.setattr(shell_module.subprocess, "run", _patla)
+    monkeypatch.setattr(shell_module, "run_foreground", _patla)
     sonuc = await _calistir(registry, context, "run_shell", command="sleep 999")
 
     assert sonuc.ok is False

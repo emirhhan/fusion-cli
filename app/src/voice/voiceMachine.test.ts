@@ -91,3 +91,26 @@ describe("voiceMachine", () => {
     expect(voiceMachine(second, { type: "EVALUATE_TIMEOUT", session: 1, candidateRevision: partial.candidateRevision })).toBe(second);
   });
 });
+
+it("yeni partial sonrasında eski final committed sınırını geçemez", () => {
+  const initial = voiceMachine(initialVoiceMachine, { type: "START_LISTENING", session: 1 });
+  const first = voiceMachine(initial, { type: "RECOGNITION", session: 1, event: recognition("son", "ilk mesaj", 0.9, 500, 1) });
+  const partial = voiceMachine(first, { type: "RECOGNITION", session: 1, event: recognition("kismi", "ikinci mesaj", 0.9, 500, 2) });
+  const delayed = voiceMachine(partial, { type: "RECOGNITION", session: 1, event: recognition("son", "ilk mesaj", 0.9, 500, 1) });
+  expect(delayed).toBe(partial);
+  expect(partial.candidateRevision).toBe(first.candidateRevision + 1);
+});
+
+it("aynı metinli güvenilir partial düşük puanlı son sonuçla kaybolmaz", () => {
+ const initial = voiceMachine(initialVoiceMachine, { type: "START_LISTENING", session: 1 });
+ const partial = voiceMachine(initial, { type: "RECOGNITION", session: 1, event: recognition("kismi", "Merhaba füzyon", .8, 600, 1) });
+ const final = voiceMachine(partial, { type: "RECOGNITION", session: 1, event: recognition("son", "Merhaba füzyon", .1, 20, 1) });
+ expect(final.finalText).toBe("Merhaba füzyon");
+ expect(final.phase).toBe("listening");
+});
+it("farklı final metnini partial ile değiştirip eylemi tersine çevirmez", () => {
+ const initial = voiceMachine(initialVoiceMachine, { type: "START_LISTENING", session: 1 });
+ const partial = voiceMachine(initial, { type: "RECOGNITION", session: 1, event: recognition("kismi", "dosyayı sil", .8, 600, 1) });
+ const final = voiceMachine(partial, { type: "RECOGNITION", session: 1, event: recognition("son", "dosyayı silme", .1, 600, 1) });
+ expect(final.finalText).toBeNull();
+});

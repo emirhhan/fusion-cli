@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from fusion_cli.core.checkpoint import WorkflowCheckpoint
 from fusion_cli.core.execution_plan import (
@@ -31,6 +31,7 @@ class _Deps:
     verifier: object | None = None
     budget: object | None = None
     execution: object | None = None
+    effect_recorder: object | None = None
     publisher: object = _Publisher()
 
 
@@ -165,3 +166,43 @@ async def test_butce_yuzunden_duraklayan_adim_devamda_yeniden_acilir(tmp_path):
 
     assert calisan == ["create", "finish"]
     assert result.ok is True
+
+
+async def test_kapsanmayan_teslimatlar_kayit_ve_tekrar_devamda_kaybolmaz(tmp_path):
+    (tmp_path / "result.txt").write_text("ok", encoding="utf-8")
+    deps = _Deps(ToolContext(root=tmp_path), JsonCheckpointStore(tmp_path / ".cp"))
+
+    async def agent(task, agent_deps, **kwargs):
+        raise AssertionError("Tamamlanmış adım tekrar çalıştırılmamalı.")
+
+    first = await run_execution_plan(
+        "dosya oluştur", deps, agent, plan=_plan(), uncovered=("ana menü",)
+    )
+    assert first.ok is False
+    for _ in range(2):
+        resumed = await run_execution_plan("devam et", deps, agent)
+        assert resumed.ok is False
+        loaded = deps.checkpoint_store.load("resume-1")
+        assert loaded is not None
+        assert loaded.uncovered == ("ana menü",)
+    loaded = deps.checkpoint_store.load("resume-1")
+    assert loaded is not None
+    assert loaded.uncovered == ("ana menü",)
+
+
+async def test_acik_yeni_plan_eski_kapsama_eksigini_diriltmez(tmp_path):
+    (tmp_path / "result.txt").write_text("ok", encoding="utf-8")
+    deps = _Deps(ToolContext(root=tmp_path), JsonCheckpointStore(tmp_path / ".cp"))
+
+    async def agent(task, agent_deps, **kwargs):
+        raise AssertionError("Tamamlanmış adım tekrar çalıştırılmamalı.")
+
+    await run_execution_plan(
+        "dosya oluştur", deps, agent, plan=_plan(), uncovered=("ana menü",)
+    )
+    replacement = replace(_plan(), plan_id="replacement")
+    result = await run_execution_plan("dosya oluştur", deps, agent, plan=replacement)
+    assert result.ok is True
+    loaded = deps.checkpoint_store.load("replacement")
+    assert loaded is not None
+    assert loaded.uncovered == ()

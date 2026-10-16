@@ -1,3 +1,8 @@
+import { createVoicePlayback } from "./voice/voicePlayback";
+import { localVoiceReply } from "./voice/localVoice";
+import { closeUnfinishedAgents } from "./team/ekipOlaylari";
+import { AgentPanel, agentCardsForMessages } from "./team/AgentPanel";
+import type { TeamCardsProps } from "./team/TeamCards";
 import { operationResult, errorMessage, type CommandResult } from "./protocol/result";
 import { submissionAccepted } from "./sessions/submission";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -14,7 +19,7 @@ import { useHistory } from "./history/useHistory";
 import { ProtocolClient } from "./protocol/client";
 import { olayEkle } from "./protocol/olayAkisi";
 import type { Soru } from "./protocol/types";
-import { useSessions, saveWorkspaceMode, storedWorkspaceMode, type WorkspaceMode } from "./sessions/useSessions";
+import { useSessions, nextSessionId, saveWorkspaceMode, storedWorkspaceMode, type WorkspaceMode } from "./sessions/useSessions";
 import type { SessionTransport } from "./sessions/types";
 import { AppHeader } from "./screens/AppHeader";
 import {
@@ -72,7 +77,7 @@ import {
   type VoicePrefsPayload,
 } from "./voice/bridge";
 import { openVoiceWindow } from "./voice/windowBridge";
-import { buildVoiceRequest, findVoiceAnswer, speakVoiceAnswerStreamed, type VoiceTurnHandle } from "./voice/voiceTurn";
+import { buildVoiceRequest, type VoiceTurnHandle } from "./voice/voiceTurn";
 import { AccountGate } from "./account/AccountGate";
 import { AccountScreen } from "./account/AccountScreen";
 import { useAccount } from "./account/useAccount";
@@ -157,7 +162,7 @@ function useConversation(client: ProtocolClient) {
 
   const send = (task: string) => {
     setRunning(true);
-    setMessages((current) => [...current, { rol: "kullanici", metin: task }]);
+    setMessages((current) => [...closeUnfinishedAgents(current), { rol: "kullanici", metin: task }]);
     void client
       .request("tur.calistir", { gorev: task })
       .then((result) => {
@@ -293,6 +298,7 @@ function ProjectInspector({
   selectedPath,
   width,
   requestedPreview = null,
+  agents,
 }: {
   activeTab: InspectorTabId;
   client: ProtocolClient;
@@ -309,6 +315,7 @@ function ProjectInspector({
   selectedPath: string | null;
   width: number;
   requestedPreview?: { url: string; seq: number } | null;
+  agents?: TeamCardsProps;
 }) {
   const [revision, setRevision] = useState(0);
   const processes = useProcesses(client);
@@ -333,19 +340,20 @@ function ProjectInspector({
       placement={placement}
       width={width}
       content={{
-        files: <FileExplorer client={client} key={revision} onChanged={changed} onSelected={onSelectPath} root={root} />,
+        agents: <AgentPanel ajanlar={agents?.ajanlar ?? []} canli={agents?.canli ?? false} onCancel={agents?.onCancel} />,
+        files: <FileExplorer client={client} key={root} onChanged={changed} onSelected={onSelectPath} root={root} revision={revision} />,
         // Doğrulama komutları DEĞİŞİKLİKLER sekmesinde: "ne değişti" ile
         // "hâlâ çalışıyor mu" aynı soruya bakar. Ayrı 'Testler' sekmesi git
         // durumunu ikinci kez gösteriyordu.
         changes: (
           <>
             <ChangesPanel client={client} onChanged={changed} revision={revision} />
-            <TestsPanel client={client} processes={processes} />
+            <TestsPanel client={client} processes={processes} revision={revision} />
           </>
         ),
         terminal: <TerminalPanel cwd={root} />,
         preview: (
-          <PreviewPanel client={client} requestedUrl={requestedPreview} selectedPath={selectedPath} />
+          <PreviewPanel client={client} requestedUrl={requestedPreview} selectedPath={selectedPath} revision={revision} />
         ),
       }}
     />
@@ -356,7 +364,8 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
   const conversation = useConversation(istemci);
   const layout = useLayout();
   const inspectorLayout = useInspectorLayout();
-  const inspectorPlacement = useInspectorPlacement();
+  const preferredInspectorPlacement = useInspectorPlacement();
+  const inspectorPlacement = inspectorLayout.activeTab === "agents" ? "right" : preferredInspectorPlacement;
   const [draft, setDraft] = useState("");
   const showSteps = useShowSteps();
   // Tema yalnız UYGULANIR; değiştirme Ayarlar ekranındadır.
@@ -386,7 +395,7 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
         <>
           {content}
           {conversation.question && (
-            <Approval onCevap={conversation.answer} soru={conversation.question.data} />
+            <Approval key={conversation.question.id} onCevap={conversation.answer} soru={conversation.question.data} />
           )}
         </>
       }
@@ -402,6 +411,7 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
       }
       inspector={
         <Inspector
+          content={{ agents: <AgentPanel ajanlar={agentCardsForMessages(conversation.messages)} canli={conversation.running} /> }}
           activeTab={inspectorLayout.activeTab}
           collapsed={inspectorLayout.collapsed}
           height={inspectorLayout.height}
@@ -502,6 +512,7 @@ export function SessionUygulama({
   const showSteps = useShowSteps();
   // İzin modu arayüzde GERÇEK durumu göstermeli: eskiden "Agent · Otomatik"
   // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
+  const [busySubmissionMode, setBusySubmissionMode] = useState<"steer" | "queue">("steer");
   const [approval, setApproval] = useState<ApprovalMode>("auto");
   const [closeAsked, setCloseAsked] = useState(false);
   /** Çekirdek bağlantısı koptuğunda çekirdeğin son hata çıktısı (varsa). */
@@ -509,16 +520,22 @@ export function SessionUygulama({
   /** Çökme bildirimi kapatılan konuşma; aynı çökme bir daha gösterilmez. */
   const [cokmeKapatilan, setCokmeKapatilan] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(onboarding);
-  const voiceRequest = useRef<{
+  const [voicePlaybackRevision, setVoicePlaybackRevision] = useState(0);
+  const voiceRequests = useRef<{
     afterIndex: number;
+    requestId: string;
     sawRunning: boolean;
     sessionId: string;
-  } | null>(null);
+  }[]>([]);
   const activeVoiceTurn = useRef<VoiceTurnHandle | null>(null);
   const pendingBargeIn = useRef(false);
   const active = controller.activeSession;
   const activeSessionId = active?.id;
   const activeClient = active?.client;
+  const requestKitsHost = useCallback((name: string, data: Record<string, unknown>) => {
+    if (!activeClient || !activeSessionId) return Promise.reject(new Error("Fusion oturumu yok."));
+    return activeClient.request(name, data) as Promise<Record<string, unknown>>;
+  }, [activeClient, activeSessionId]);
   const activeMessages = active?.messages;
   const activeRunning = active?.running;
   const commandOwner = useRef(0);
@@ -544,7 +561,8 @@ export function SessionUygulama({
   const etkinHesap =
     account.durum?.hesaplar.find((item) => item.kimlik === account.durum?.etkin) ?? null;
   const guncellemeSurumu = useUpdateAvailable();
-  const inspectorPlacement = useInspectorPlacement();
+  const preferredInspectorPlacement = useInspectorPlacement();
+  const inspectorPlacement = inspectorLayout.activeTab === "agents" ? "right" : preferredInspectorPlacement;
   const [dogrulamaUyarisi, setDogrulamaUyarisi] = useState<string | null>(null);
   /** Devralınan konuşmada fark edilen hassas değer sayısı; bildirim şeridinde gösterilir. */
   const [gizliDegerSayisi, setGizliDegerSayisi] = useState(0);
@@ -668,7 +686,7 @@ export function SessionUygulama({
       section={surfaceSection}
       scheduled={<ScheduleScreen client={active?.client ?? null} defaultRoot={active?.root ?? ""} onRunNow={scheduleRunner.runNow} visible={surfaceSection === "scheduled"} />}
       library={<LibraryScreen client={active?.client ?? null} visible={surfaceSection === "library"} />}
-      kits={<KitsScreen onDeliveryClient={setDeliveryClient} requestHost={active ? (name, data) => active.client.request(name, data) as Promise<Record<string, unknown>> : undefined} />}
+      kits={<KitsScreen onDeliveryClient={setDeliveryClient} requestHost={activeClient ? requestKitsHost : undefined} />}
     />
   );
   /** `@` sorgusunu sunucuya ilet ve gelen öneriyi listeye yaz. */
@@ -801,7 +819,8 @@ export function SessionUygulama({
     const cikar = onVoiceMessage((mesaj) => {
       if (mesaj.kaynak !== "kullanici") return;
       const gorev = buildVoiceRequest(mesaj.metin, mesaj.kesilen);
-      const accepted = controller.send(active.id, gorev.text, [], true, gorev.voice);
+      const requestId = nextSessionId();
+      const accepted = controller.send(active.id, gorev.text, [], true, gorev.voice, requestId);
       if (!accepted) {
         void publishVoiceRuntimeState({
           durum: "error",
@@ -809,12 +828,13 @@ export function SessionUygulama({
         });
         return;
       }
-      voiceRequest.current = {
+      voiceRequests.current.push({
         afterIndex: active.messages.length,
+        requestId,
         sawRunning: false,
         sessionId: active.id,
-      };
-      void publishVoiceRuntimeState({ durum: "thinking" });
+      });
+      void publishVoiceRuntimeState({ durum: localVoiceReply(mesaj.metin) ? "transcribing" : "thinking" });
     });
     return () => void cikar.then((f) => f()).catch(() => undefined);
   }, [active, controller]);
@@ -836,36 +856,40 @@ export function SessionUygulama({
   // oturumun kendi çekirdeği kullanılır. Tur kimliği hemen alınır; gerçek
   // bitiş ayrı `ses.bekle` isteğiyle izlenir ve zaman tahmini kullanılmaz.
   useEffect(() => {
-    const pending = voiceRequest.current;
+    if (activeVoiceTurn.current) return;
+    const pending = voiceRequests.current[0];
     if (!pending) return;
     const session = controller.state.sessions[pending.sessionId];
     if (!session) {
-      voiceRequest.current = null;
+      voiceRequests.current.shift();
+      setVoicePlaybackRevision(value => value + 1);
       return;
     }
-    if (session.running) {
+    const response = session.messages.find(message => message.id === `${pending.requestId}:assistant`);
+    if (!response && !session.completedRequestIds?.includes(pending.requestId) && session.running) {
       pending.sawRunning = true;
       return;
     }
-    if (!pending.sawRunning) return;
-    voiceRequest.current = null;
-    const answer = findVoiceAnswer(session.messages, pending.afterIndex);
+    if (!response && !session.completedRequestIds?.includes(pending.requestId)) return;
+    voiceRequests.current.shift();
+    const answer = response?.metin.trim();
     if (!answer) {
       void publishVoiceRuntimeState({ durum: "error", metin: "Fusion yanıt üretmedi." });
+      setVoicePlaybackRevision(value => value + 1);
       return;
     }
     pendingBargeIn.current = false;
     // Cevap cümle cümle seslendirilir: ilk cümle hazır olur olmaz ses başlar.
-    void speakVoiceAnswerStreamed(session.client, answer, publishVoiceRuntimeState)
-      .then((turn) => {
-        activeVoiceTurn.current = turn;
-        if (pendingBargeIn.current) void turn.cancel().catch(() => undefined);
-        void turn.finished.finally(() => {
-          if (activeVoiceTurn.current === turn) activeVoiceTurn.current = null;
-        }).catch(() => undefined);
-      })
-      .catch(() => undefined);
-  }, [controller.state.sessions]);
+    const turn = createVoicePlayback(session.client, answer, publishVoiceRuntimeState);
+    activeVoiceTurn.current = turn;
+    if (pendingBargeIn.current) void turn.cancel().catch(() => undefined);
+    void turn.finished.finally(() => {
+      if (activeVoiceTurn.current === turn) {
+        activeVoiceTurn.current = null;
+        setVoicePlaybackRevision(value => value + 1);
+      }
+    }).catch(() => undefined);
+  }, [controller.state.sessions, voicePlaybackRevision]);
 
   // Ses tercihleri konuşma penceresinden gelir ama YAZMA yolu tektir: burada,
   // ana pencerenin çekirdek bağlantısı üzerinden. Pencerenin kendi bağlantısını
@@ -884,6 +908,10 @@ export function SessionUygulama({
         model: typeof satir.model === "string" ? satir.model : null,
         robotik: typeof satir.robotik === "number" ? satir.robotik : 0.5,
       });
+      // Arayüzü bekletmeden, ilk kısa yanıtın model yüklemesini öne al.
+      void client.request("ses.isit", {}).then(result => {
+        if (result.ok === false) console.warn("Fusion ses ön hazırlığı tamamlanamadı.");
+      }).catch(() => console.warn("Fusion ses ön hazırlığı bağlantısı tamamlanamadı."));
     };
     const cikar = onVoicePrefsRequest((istek) => void yayinla(istek).catch(() => undefined));
     return () => void cikar.then((f) => f()).catch(() => undefined);
@@ -938,8 +966,6 @@ export function SessionUygulama({
     chromeIstemcisi.current = client;
     void client.request("chrome.baslat", {}).catch(() => undefined);
   }, [active?.client, active?.status]);
-  const soruTuruRef = useRef<string | undefined>(undefined);
-  soruTuruRef.current = active?.question?.data.tur;
   useEffect(() => {
     if (!active) return;
     const soru = active.question;
@@ -947,6 +973,8 @@ export function SessionUygulama({
       soru
         ? {
             acik: true,
+            sessionId: active.id,
+            questionId: soru.id,
             arac: soru.data.arac,
             metin: soru.data.soru ?? `${soru.data.arac ?? "İşlem"} çalıştırılsın mı?`,
             secenekler: (soru.data.secenekler ?? [
@@ -966,12 +994,17 @@ export function SessionUygulama({
     const id = activeSessionId;
     // Cevap biçimi ana penceredeki kartla AYNIDIR: izin `{ secim }`, model
     // sorusu (`ask_user`) `{ metin }` bekler; yanlış alan cevabı boşa düşürür.
-    const cikar = onVoiceAnswer((cevap) => controller.answer(
-      id,
-      soruTuruRef.current === "soru" ? { metin: cevap } : { secim: cevap },
-    ));
+    const question = active?.question;
+    const cikar = onVoiceAnswer((cevap) => {
+      if (typeof cevap === "string" || !question || cevap.sessionId !== id || cevap.questionId !== question.id) return;
+      void controller.answer(id, question.data.tur === "soru" ? { metin: cevap.answer } : { secim: cevap.answer })
+        .catch((reason: unknown) => {
+          setNewTaskError(String(reason));
+          void publishVoiceRuntimeState({ durum: "error", metin: "Cevap kabul edilmedi. Karttan yeniden deneyebilirsin." });
+        });
+    });
     return () => void cikar.then((f) => f()).catch(() => undefined);
-  }, [activeSessionId, controller]);
+  }, [activeSessionId, active?.question, controller]);
 
   // Ölçüldü (28 Eylül, Windows): "Çekirdek bağlantısı kapatıldı" dışında hiçbir
   // iz yoktu; çekirdeğin hata çıktısı atılıyordu. Artık günlüğe yazılıyor ve
@@ -1122,6 +1155,16 @@ export function SessionUygulama({
       void requestTaskFolder();
     } else if (task.startsWith("/")) void executeCommand(task);
     else {
+      if (active.running && busySubmissionMode === "steer" && !active.stopping && !active.stopError) {
+        if (activeAttachments.length) {
+          setCommandError("Ekli bağımsız iş için Sıraya al seçeneğini kullan.");
+          return false;
+        }
+        return controller.steer(active.id, task).then((accepted) => {
+          if (accepted) setDrafts((current) => ({ ...current, [active.id]: "" }));
+          return accepted;
+        }).catch((reason: unknown) => { setCommandError(String(reason)); return false; });
+      }
       const snapshot = activeAttachments;
       const draftSnapshot = draft;
       return controller.submit(active.id, task, snapshot).then((receipt) => {
@@ -1156,7 +1199,7 @@ export function SessionUygulama({
     <EmptyState durum={active.running ? "thinking" : "idle"} projectName={projectName(active.root)} workspaceMode={workspaceMode} onSelectPrompt={setDraft} />
   );
   const content = mediaPage
-    ? <MediaScreen active={page} image={<ImageCreate client={active.client} />} onSelect={setPage} />
+    ? <MediaScreen active={page} image={<ImageCreate client={active.client} jobScope={JSON.stringify([active.root, active.id])} />} onSelect={setPage} />
     : page === "skills"
     ? <SkillsCatalog client={active.client} onClose={() => setPage("chat")} />
     : page === "control"
@@ -1258,6 +1301,10 @@ export function SessionUygulama({
         <><ProjectPicker root={active.root} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root, mode: "kod" }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
         <DepoUyarisi kok={active.root} projeler={active.depoProjeleri} onAc={(kok) => { void controller.create({ root: kok, mode: "kod" }).then(() => setPage("chat")); }} />
         <Composer
+          stopping={active.stopping}
+          busySubmissionMode={active.stopping || active.stopError ? "queue" : busySubmissionMode}
+          busySubmissionDisabled={Boolean(active.stopError)}
+          onBusySubmissionModeChange={setBusySubmissionMode}
           key={active.id}
           workspaceMode={workspaceMode}
           onWorkspaceModeChange={(mode) => {
@@ -1284,7 +1331,7 @@ export function SessionUygulama({
           }}
           attachments={activeAttachments}
           attachmentError={attachmentError ?? controller.submissionRecoveryError(active.id)}
-          commandError={commandError}
+          commandError={active.stopError ?? commandError}
           commands={composerCommands}
           fileSuggestions={fileSuggestions}
           onFileQuery={searchProjectFiles}
@@ -1441,6 +1488,7 @@ export function SessionUygulama({
           )}
           {active.question && (
             <Approval
+              key={`${active.id}:${active.question.id}`}
               onCevap={(answer) => controller.answer(active.id, answer)}
               soru={active.question.data}
             />
@@ -1522,6 +1570,10 @@ export function SessionUygulama({
       }
       inspector={page === "chat" ? (
         <ProjectInspector
+          agents={{ ajanlar: agentCardsForMessages(active.messages), canli: active.running, onCancel: active.turnId ? async (agentId) => {
+            const result = await active.client.request("ajan.durdur", { agentId, turnId: active.turnId });
+            if (result.ok !== true) throw new Error(String(result.metin ?? "Alt ajan durdurulamadı."));
+          } : undefined }}
           activeTab={inspectorLayout.activeTab}
           client={active.client}
           collapsed={inspectorLayout.collapsed}

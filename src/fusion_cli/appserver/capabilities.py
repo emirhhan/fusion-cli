@@ -55,6 +55,8 @@ def _permissions(item: Capability) -> list[str]:
 def _item(item: Capability, *, enabled: bool, kind: str) -> dict[str, Any]:
     return {
         "ad": item.name,
+        "kimlik": item.qualified_name,
+        "surum": item.revision,
         "aciklama": item.description,
         "kaynak": item.source,
         "tur": kind,
@@ -80,11 +82,21 @@ def catalog(
     return {
         "ok": True,
         "beceriler": [
-            _item(item, enabled=item.name not in disabled_skills, kind="beceri")
+            _item(
+                item,
+                enabled=item.name not in disabled_skills
+                and item.qualified_name not in disabled_skills,
+                kind="beceri",
+            )
             for item in registry.skills()
         ],
         "ajanlar": [
-            _item(item, enabled=item.name not in disabled_agents, kind="ajan")
+            _item(
+                item,
+                enabled=item.name not in disabled_agents
+                and item.qualified_name not in disabled_agents,
+                kind="ajan",
+            )
             for item in registry.agents()
         ],
         "talimatlar": instructions,

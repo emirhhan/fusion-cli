@@ -14,8 +14,9 @@ from fusion_cli.providers.nim_image import (
     generate_nim_image,
     nim_model_from_choice,
 )
+from tests.image_fixture import image_bytes
 
-_JPEG = b"\xff\xd8\xff\xe0" + b"0" * 32
+_JPEG = image_bytes("JPEG")
 
 
 def _client(handler) -> httpx.AsyncClient:
@@ -77,3 +78,53 @@ def test_yalniz_olculmus_modeller_secilebilir() -> None:
     assert nim_model_from_choice("nvidia_nim/black-forest-labs/flux.1-dev") is not None
     assert nim_model_from_choice("nvidia_nim/black-forest-labs/flux.1-schnell") is None
     assert nim_model_from_choice("gemini_web/main") is None
+
+
+async def test_png_baslikli_html_uretilmis_gorsel_sayilmaz(tmp_path):
+    encoded = base64.b64encode(b"\x89PNG<!doctype html>").decode()
+    async with _client(
+        lambda request: httpx.Response(200, json={"artifacts": [{"base64": encoded}]})
+    ) as client:
+        with pytest.raises(NimImageError, match="geçerli bir görsel"):
+            await generate_nim_image(
+                NIM_IMAGE_MODELS[0], "örnek", tmp_path, api_key="test", client=client
+            )
+    assert list(tmp_path.iterdir()) == []
+
+
+async def test_kayit_iscisi_bitmeden_iptal_tamamlandi_sayilmaz(tmp_path, monkeypatch):
+    import asyncio
+    import threading
+
+    from fusion_cli.providers import nim_image
+
+    started, release, finished = threading.Event(), threading.Event(), threading.Event()
+    original_write = nim_image._write
+
+    def paused_write(path, data):
+        started.set()
+        release.wait(timeout=5)
+        original_write(path, data)
+        finished.set()
+
+    monkeypatch.setattr(nim_image, "_write", paused_write)
+    async with _client(
+        lambda request: httpx.Response(
+            200, json={"artifacts": [{"base64": base64.b64encode(_JPEG).decode()}]}
+        )
+    ) as client:
+        task = asyncio.create_task(
+            generate_nim_image(
+                NIM_IMAGE_MODELS[0], "örnek", tmp_path, api_key="test", client=client
+            )
+        )
+        try:
+            assert await asyncio.to_thread(started.wait, 2)
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done()
+        finally:
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert await asyncio.to_thread(finished.wait, 2)

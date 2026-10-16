@@ -1,6 +1,6 @@
 /** Ekip kartları: alt ajan olayları kendi kartına düşer, paralel ajanlar yan yana durur. */
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { olayEkle } from "../protocol/olayAkisi";
 import type { Mesaj } from "../screens/Conversation";
@@ -126,4 +126,43 @@ describe("ekip kartları", () => {
 
     expect(container.querySelector(".agent-card")?.getAttribute("data-renk")).toBe("gri");
   });
+});
+
+it("tekrarlanan başlangıç bitmiş ajan kartını yeniden açmaz", () => {
+  const start = { olay: "SubAgentStarted", sub_id: "same", task: "iş", started_at: 123 };
+  const first = olayEkle([], start)!;
+  const done = olayEkle(first, { olay: "SubAgentFinished", sub_id: "same", ok: true })!;
+  const replay = olayEkle(done, start)!;
+  const cards = replay.flatMap((message) => message.ajanlar ?? []);
+  expect(cards).toHaveLength(1);
+  expect(cards[0].durum).toBe("bitti");
+  expect(cards[0].baslangic).toBe(123000);
+});
+
+it("tek ajan iptalini bir kez gönderir ve terminal olaya kadar bekler", async () => {
+  const cards = akit([BASLA_TASARIMCI])[0].ajanlar!;
+  const onCancel = vi.fn(async () => undefined);
+  const view = render(<TeamCards ajanlar={cards} canli onCancel={onCancel} />);
+  const button = screen.getByRole("button", { name: "Ajanı durdur" });
+  fireEvent.click(button);
+  fireEvent.click(button);
+  await waitFor(() => expect(onCancel).toHaveBeenCalledOnce());
+  expect(onCancel).toHaveBeenCalledWith("tasarimci-1");
+  expect(screen.getByRole("button", { name: "Durduruluyor…" }).hasAttribute("disabled")).toBe(true);
+  const finished = akit([BASLA_TASARIMCI, { olay: "SubAgentFinished", sub_id: "tasarimci-1", status: "cancelled", ok: false }])[0].ajanlar!;
+  await act(async () => view.rerender(<TeamCards ajanlar={finished} canli onCancel={onCancel} />));
+  expect(screen.getByText("iptal edildi")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Durduruluyor…" })).toBeNull();
+});
+
+it("başlangıçtan önce gelen terminal sonuç sonraki başlangıçta korunur", () => {
+  const messages = akit([
+    { olay: "SubAgentFinished", sub_id: "late", ok: false, status: "cancelled", summary: "İptal edildi" },
+    { olay: "SubAgentStarted", sub_id: "late", task: "araştır", title: "Araştırmacı", started_at: 123 },
+  ]);
+  const cards = messages.flatMap((message) => message.ajanlar ?? []);
+  expect(cards).toHaveLength(1);
+  expect(cards[0].durum).toBe("iptal");
+  expect(cards[0].gorev).toBe("araştır");
+  expect(cards[0].baslangic).toBe(123000);
 });

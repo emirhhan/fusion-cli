@@ -720,3 +720,11 @@ it("boş shell profil hedefi için yeni çekirdek açıp istenen sayfaya gider",
   await screen.findByRole("heading", { name: "Ayarlar" });
   expect(vi.mocked(fake.transport.create).mock.calls[1][1]).toBe("/Users/test/Desktop");
 });
+
+it("tek istemcili uygulamada da alt ajanlar sağ panelden izlenir", async () => {
+ const fake = fakeClient();
+ render(<Uygulama istemci={fake.client} />);
+ await act(async () => fake.receive(JSON.stringify({ tip: "olay", veri: { olay: "SubAgentStarted", sub_id: "agent-a", title: "Kaynak uzmanı", task: "Kaynakları oku", persona: "yardimci" } })));
+ fireEvent.click(screen.getByRole("tab", { name: "Ajanlar" }));
+ expect(screen.getByRole("button", { name: /Kaynak uzmanı/ })).toBeTruthy();
+});

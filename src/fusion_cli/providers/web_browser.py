@@ -2144,7 +2144,9 @@ async def _editor_icerigi(locator: Any) -> str | None:
     olabilir). Boş okumak ise gerçek bir teslimat hatasıdır.
     """
     try:
-        deger = await locator.evaluate("el => el.innerText ?? el.value ?? ''")
+        deger = await locator.evaluate(
+            "el => typeof el.value === 'string' ? el.value : (el.innerText ?? '')"
+        )
     except Exception:
         return None
     return deger if isinstance(deger, str) else None

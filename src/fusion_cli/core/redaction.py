@@ -14,6 +14,11 @@ import re
 
 #: Sır/kişisel veri işaret eden desenler. Sıra önemsizdir; ilk eşleşme yeter.
 _SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # Tam veya kesilmiş PEM kaydının yalnız başlığı değil gövdesi de sırdır.
+    re.compile(
+        r"-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----[\s\S]*?(?:-----END \1-----|\Z)",
+        re.IGNORECASE,
+    ),
     # Bearer'ı generic Authorization alanından önce maskele; kısa test değerleri
     # de dahil olmak üzere değerin kendisi hiçbir ara aşamada görünür kalmasın.
     re.compile(r"\bBearer\s+[A-Za-z0-9._-]+\b", re.IGNORECASE),
@@ -74,6 +79,8 @@ def redact(text: str) -> str:
             "token",
             "secret",
             "password",
+            "passwd",
+            "access",
             "api",
             "bearer",
             "auth",
@@ -83,6 +90,7 @@ def redact(text: str) -> str:
             "gh",
             "xox",
             "akia",
+            "aiza",
             "@",
         )
     ):

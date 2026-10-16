@@ -7,7 +7,35 @@ kötüdür — agent her turda boş yere düzeltme turu açar.
 
 from __future__ import annotations
 
-from fusion_cli.engines.agent.web_verify import inspect_web_output
+from fusion_cli.engines.agent.web_verify import inspect_web_output, inspect_web_output_by_severity
+
+
+def test_static_empty_images_are_blocking_but_script_hydration_is_only_warning():
+    for image in ('<img src="" alt="ürün">', "<img src='   '>", '<img alt="ürün">'):
+        blocking, _, _ = inspect_web_output_by_severity({"index.html": image})
+        assert any("boş görsel" in item for item in blocking)
+        blocking, warnings, _ = inspect_web_output_by_severity(
+            {"index.html": image + '<script src="app.js"></script>'}
+        )
+        assert not any("boş görsel" in item for item in blocking)
+        assert any("boş görsel" in item for item in warnings)
+
+
+def test_template_comment_and_valid_srcset_images_are_not_empty():
+    html = (
+        '<!-- <img src=""> --><template><img src=""></template>'
+        '<img srcset="a.webp 1x, b.webp 2x"><main>hazır</main>'
+    )
+    assert not any("boş görsel" in item for item in inspect_web_output({"index.html": html}))
+
+
+def test_picture_source_needs_viewport_check_instead_of_static_blocking():
+    for media in ("", ' media="(min-width: 900px)"'):
+        blocking, warnings, _ = inspect_web_output_by_severity(
+            {"index.html": f'<picture><source srcset="hero.webp"{media}><img alt="Hero"></picture>'}
+        )
+        assert not any("boş görsel" in item for item in blocking)
+        assert any("picture" in item for item in warnings)
 
 
 def _bulgu_var(bulgular: tuple[str, ...], parca: str) -> bool:

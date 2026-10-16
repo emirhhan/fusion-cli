@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "source": "user-attached-2026-10-13",
+  "originalReferencePreserved": true,
+  "productionAsset": "transparent-imagegen-edit-with-svg-alpha-contour",
+  "approval": "pending",
+  "files": {
+    "app/src/brand/reference-logo.png": "48a13605b29c3ae8867bc6d1a41d103ff1332f22012e0a9d681ff56f2f00d215",
+    "app/src/brand/fusion-f-transparent.png": "fa39883d28de7dec8b182de8c0a620b40c889aa224b0b8acea83cf8fcf4bae32",
+    "app/src/brand/fusion-mark.svg": "e6486a6ba644c39dd4d3f488a1fa59eac9e46c0f2b8f361d943138647131e4c6",
+    "app/public/fusion.svg": "e6486a6ba644c39dd4d3f488a1fa59eac9e46c0f2b8f361d943138647131e4c6"
+  },
+  "svgViewBox": "120 20 1140 1140",
+  "logoApproval": "approved-by-user-2026-10-15",
+  "uiApproval": "pending-revision-2"
+}

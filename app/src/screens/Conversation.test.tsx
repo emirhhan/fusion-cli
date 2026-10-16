@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Conversation } from "./Conversation";
 
@@ -188,4 +188,60 @@ it("görev listesi kart olarak çizilir ve ilerleme sayısını gösterir", () =
   const liste = screen.getByLabelText("Görev listesi");
   expect(within(liste).getByText("1/3")).toBeTruthy();
   expect(within(liste).getByText("hatayı düzelt")).toBeTruthy();
+});
+
+it("başarısız kanıtı cevap metninden ayrı gösterir", () => {
+  render(<Conversation running={false} mesajlar={[{
+    id: "request:assistant", rol: "asistan", metin: "Bitti",
+    delivery: {kind: "supported", verified: false, blocking: true, falseClaim: false,
+      changed: ["ornek.py"], problems: ["Kontrol başarısız"], changedTotal: 60},
+  }]} />);
+  const card = screen.getByRole("region", {name: "Kanıt özeti"});
+  expect(within(card).getByText("Doğrulama geçmedi")).toBeTruthy();
+  expect(within(card).getByText("Kontrol başarısız")).toBeTruthy();
+  expect(within(card).getByText("60 dosyanın 1 tanesi gösteriliyor")).toBeTruthy();
+});
+
+it("geçmiş okunurken yeni yanıt için aşağı in düğmesi sunar", () => {
+  const first = {id: "first", rol: "asistan" as const, metin: "eski"};
+  const {container, rerender} = render(<Conversation mesajlar={[first]} />);
+  const scroll = container.querySelector(".conversation") as HTMLElement;
+  Object.defineProperty(scroll, "scrollHeight", {configurable: true, value: 5000});
+  Object.defineProperty(scroll, "clientHeight", {configurable: true, value: 400});
+  scroll.scrollTop = 100;
+  fireEvent.scroll(scroll);
+  rerender(<Conversation mesajlar={[first, {id: "second", rol: "asistan", metin: "yeni"}]} />);
+  expect(scroll.scrollTop).toBe(100);
+  expect(screen.getByRole("button", {name: "Yeni içeriğe git"})).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name: "Yeni içeriğe git"}));
+  expect(scroll.scrollTop).toBe(5000);
+  expect(screen.queryByRole("button", {name: "Yeni içeriğe git"})).toBeNull();
+});
+
+it("aynı son kullanıcı mesajına eski geçmiş eklenince aşağı atlamaz", () => {
+  const last = {id: "last-user", rol: "kullanici" as const, metin: "son soru"};
+  const {container, rerender} = render(<Conversation mesajlar={[last]} />);
+  const scroll = container.querySelector(".conversation") as HTMLElement;
+  Object.defineProperty(scroll, "scrollHeight", {configurable: true, value: 5000});
+  Object.defineProperty(scroll, "clientHeight", {configurable: true, value: 400});
+  scroll.scrollTop = 100;
+  fireEvent.scroll(scroll);
+  rerender(<Conversation mesajlar={[{id: "old", rol: "asistan", metin: "eski"}, last]} />);
+  expect(scroll.scrollTop).toBe(100);
+  expect(screen.queryByRole("button", {name: "Yeni içeriğe git"})).toBeNull();
+});
+
+it("gönderilmiş eki mevcut dosya açma yoluyla açar", () => {
+  const opened: string[] = [];
+  render(<Conversation onOpenFile={(path) => opened.push(path)} mesajlar={[{
+    id: "user", rol: "kullanici", metin: "incele",
+    ekler: [{kind: "file", name: "rapor.txt", path: "/project/rapor.txt"}],
+  }]} />);
+  fireEvent.click(screen.getByRole("button", {name: "rapor.txt dosyasını aç"}));
+  expect(opened).toEqual(["/project/rapor.txt"]);
+});
+
+it("alt ajan kartlarını ana sohbetin üzerinde çizmez", () => {
+ const { container } = render(<Conversation mesajlar={[{ rol: "ekip", metin: "Ekip", ajanlar: [{ id: "a", persona: "yardimci", unvan: "Araştırmacı", avatar: "yardimci", renk: "mavi", gorev: "İncele", durum: "calisiyor", adimlar: [], baslangic: 1 }] }]} />);
+ expect(container.querySelector(".team-cards")).toBeNull();
 });

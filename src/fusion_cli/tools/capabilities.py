@@ -17,12 +17,30 @@ Tarama oturumda bir kez yapılır ve önbelleklenir.
 
 from __future__ import annotations
 
-import re
+import hashlib
 import tomllib
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..config.paths import bundled_roster_dir, bundled_skills_dir, capabilities_dir
+from .capability_merge import merge_capability as _merge
+from .capability_search import search as search
+from .capability_search import search_scored as search_scored
+from .skill_pages import (
+    SKILL_TEXT_BUDGET as SKILL_TEXT_BUDGET,
+)
+from .skill_pages import (
+    load_skill_page as load_skill_page,
+)
+from .skill_pages import (
+    load_skill_text as load_skill_text,
+)
+from .skill_pages import (
+    skill_file as skill_file,
+)
+from .skill_pages import (
+    skill_files as skill_files,
+)
 
 #: Claude araç adları → Fusion araç adları. Bir agent kısıtlı araç seti bildirdiğinde
 #: bu eşleme kullanılır; bilinmeyen ad sessizce yok sayılır.
@@ -50,7 +68,6 @@ _PERSONA_KEYS: dict[str, str] = {
 }
 
 #: Bir skill talimatından modele verilecek en fazla karakter.
-SKILL_TEXT_BUDGET = 6_000
 #: Frontmatter ararken dosyanın başından okunacak karakter.
 _HEAD_CHARS = 4_000
 
@@ -73,6 +90,20 @@ class Capability:
     title: str = ""
     avatar: str = ""
     color: str = ""
+
+    @property
+    def qualified_name(self) -> str:
+        """İçerik değişse de aynı kaynağı seçen kararlı katalog kimliği."""
+        identity = hashlib.sha256(str(self.path.resolve()).encode()).hexdigest()[:12]
+        return f"{self.name}@{self.source}:{identity}"
+
+    @property
+    def revision(self) -> str:
+        """Gösterilen/yüklenen içeriğin sürümü; okunamıyorsa bilinmiyor."""
+        try:
+            return hashlib.sha256(self.path.read_bytes()).hexdigest()
+        except OSError:
+            return ""
 
 
 def parse_frontmatter(text: str) -> dict[str, object]:
@@ -111,102 +142,6 @@ def map_tools(claude_tools: tuple[str, ...]) -> set[str] | None:
     for name in claude_tools:
         allowed |= CLAUDE_TOOL_MAP.get(name.strip().lower(), frozenset())
     return allowed
-
-
-def search(items: tuple[Capability, ...], query: str, limit: int = 6) -> tuple[Capability, ...]:
-    """Ad ve açıklama üzerinde kelime örtüşmesine göre ara.
-
-    Basit ve öngörülebilir: hiç eşleşmeyenler elenir, en çok örtüşen öne gelir.
-    Boş sorgu ilk `limit` girdiyi döndürür.
-    """
-    terms = [word for word in query.lower().split() if word]
-    if not terms:
-        return items[:limit]
-    return tuple(item for item, _ in search_scored(items, query, limit=limit))
-
-
-def search_scored(
-    items: tuple[Capability, ...], query: str, limit: int = 6
-) -> tuple[tuple[Capability, int], ...]:
-    """`search` ile aynı sıralama, ama eşleşme SKORUYLA birlikte.
-
-    Skor, otomatik enjeksiyon kararı için gereklidir: tek kelimelik zayıf bir
-    örtüşme aramada gösterilebilir ama sistem promptuna 2.500 karakter uzmanlık
-    metni koymayı haklı çıkarmaz.
-    """
-    terms = [word for word in query.lower().split() if word]
-    if not terms:
-        return tuple((item, 0) for item in items[:limit])
-    scored = [(item, _score(item, terms)) for item in items]
-    matching = [(item, score) for item, score in scored if score > 0]
-    matching.sort(key=lambda pair: pair[1], reverse=True)
-    return tuple(matching[:limit])
-
-
-def load_skill_text(path: Path, budget: int = SKILL_TEXT_BUDGET) -> str:
-    """Bir skill talimatının tam metnini oku."""
-    try:
-        return path.read_text(encoding="utf-8")[:budget]
-    except OSError as exc:
-        return f"HATA: skill okunamadı: {exc}"
-
-
-def load_skill_page(path: Path, *, offset: int = 0, budget: int = SKILL_TEXT_BUDGET) -> str:
-    """Skill talimatını sayfa sayfa ver; kesilen kısım AÇIKÇA bildirilir.
-
-    Ölçüldü: bütçeyi aşan talimatın gerisi hiçbir işaret bırakmadan düşüyordu.
-    Model eksik yönergeyi tam sanıp ilerliyor, atlanan bölümdeki zorunlu adım
-    (proje kurulumu, dosya biçimi) hiç uygulanmıyordu. `read_file` ile aynı
-    sözleşme: kesilen çıktı, devamının nasıl alınacağını da söyler.
-    """
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        return f"HATA: skill okunamadı: {exc}"
-    start = max(0, offset)
-    if start >= len(text) and text:
-        return f"(skill {len(text)} karakter; offset={start} metnin sonundan sonra)"
-    page = text[start : start + budget]
-    remaining = len(text) - (start + len(page))
-    if remaining <= 0:
-        return page
-    return (
-        f"{page}\n\n[KIRPILDI: {remaining} karakter daha var. "
-        f"Devamı için read_skill(offset={start + len(page)}).]"
-    )
-
-
-#: Skill ek dosyası olarak okunabilen uzantılar (metin). Görsel/ikili dosya verilmez.
-#: Kod şablonları da metindir: Remotion/animasyon becerilerinin örnekleri .tsx/.css/.html
-#: dosyalarında duruyor ve eskiden okunamıyordu.
-_SKILL_TEXT_SUFFIXES = frozenset(
-    {
-        ".md", ".txt", ".yaml", ".yml", ".json", ".toml", ".py", ".sh",
-        ".ts", ".tsx", ".js", ".jsx", ".mjs", ".css", ".html", ".svg",
-    }
-)  # fmt: skip
-#: Listelenecek en fazla ek dosya.
-_MAX_SKILL_FILES = 40
-
-
-def skill_files(skill_md: Path) -> list[str]:
-    """SKILL.md yanındaki okunabilir ek dosyalar (skill klasörüne göreli)."""
-    folder = skill_md.parent
-    found = [
-        path.relative_to(folder).as_posix()
-        for path in sorted(folder.rglob("*"))
-        if path.is_file() and path != skill_md and path.suffix.lower() in _SKILL_TEXT_SUFFIXES
-    ]
-    return found[:_MAX_SKILL_FILES]
-
-
-def skill_file(skill_md: Path, relative: str) -> Path | None:
-    """Ek dosyanın yolu; skill klasörü dışına çıkıyorsa ya da listede yoksa None."""
-    folder = skill_md.parent.resolve()
-    target = (folder / relative).resolve()
-    if not target.is_relative_to(folder) or not target.is_file():
-        return None
-    return target if target.suffix.lower() in _SKILL_TEXT_SUFFIXES else None
 
 
 def load_agent_prompt(path: Path) -> str:
@@ -252,22 +187,28 @@ class CapabilityRegistry:
     def skills(self) -> tuple[Capability, ...]:
         if self._skills is None:
             self._skills = tuple(
-                item for item in self._discover_skills() if item.name not in self._disabled_skills
+                item
+                for item in self._discover_skills()
+                if item.name not in self._disabled_skills
+                and item.qualified_name not in self._disabled_skills
             )
         return self._skills
 
     def agents(self) -> tuple[Capability, ...]:
         if self._agents is None:
             self._agents = tuple(
-                item for item in self._discover_agents() if item.name not in self._disabled_agents
+                item
+                for item in self._discover_agents()
+                if item.name not in self._disabled_agents
+                and item.qualified_name not in self._disabled_agents
             )
         return self._agents
 
     def get_skill(self, name: str) -> Capability | None:
-        return next((item for item in self.skills() if item.name == name), None)
+        return _select(self.skills(), name)
 
     def get_agent(self, name: str) -> Capability | None:
-        return next((item for item in self.agents() if item.name == name), None)
+        return _select(self.agents(), name, bundled_override=True)
 
     # ----------------------------------------------------------------------- #
 
@@ -333,28 +274,6 @@ def _installed_folders() -> tuple[Path, ...]:
     return tuple(sorted(child for child in root.iterdir() if child.is_dir()))
 
 
-def _merge(found: dict[str, Capability], capability: Capability) -> None:
-    """Yeteneği deftere ekle; ad zaten varsa yalnız KAYNAK etiketini birleştir.
-
-    Çakışan yetenek iki satır olarak listelenmez. Ölçüldü: Codex'in 97 agent'ının
-    97'si de Claude'unkilerle aynı adı taşıyor ve içerikleri bayt bayt aynı; iki
-    satır göstermek 97 satırlık listeyi ikiye katlar ve hiçbir yeni yetenek
-    kazandırmaz. Kullanıcının sorusu "bu nereden geliyor?" olduğuna göre doğru
-    cevap tek satırda tüm kaynakları göstermektir: `skill-creator [claude+codex]`.
-
-    İÇERİK önceliklidir ve ilk bulunandan gelir; sonraki kaynaklar yalnız etikete
-    yazılır. Tekrar eden kaynak adı iki kez eklenmez.
-    """
-    mevcut = found.get(capability.name)
-    if mevcut is None:
-        found[capability.name] = capability
-        return
-    kaynaklar = mevcut.source.split("+")
-    if capability.source in kaynaklar:
-        return
-    found[capability.name] = replace(mevcut, source="+".join([*kaynaklar, capability.source]))
-
-
 def _toml_capability(path: Path, source: str) -> Capability | None:
     """Codex biçimi TOML agent'ını `Capability`'ye çevir. Bozuksa `None`.
 
@@ -407,12 +326,14 @@ def _parse_tools(value: str) -> tuple[str, ...]:
     return tuple(item.strip().strip("'\"") for item in inner.split(",") if item.strip())
 
 
-def _score(item: Capability, terms: list[str]) -> int:
-    """Kaç arama terimi ad/açıklamada KELİME olarak geçiyor.
-
-    Alt-dize değil kelime eşleşmesi: Türkçe görev metnindeki kısa kelimeler
-    ("ve", "in", "er") İngilizce açıklamaların İÇİNDE eşleşip ("de-ve-lopment",
-    "serv-er") tamamen alakasız skill'leri öne çıkarıyordu.
-    """
-    haystack = set(re.split(r"[^a-z0-9]+", f"{item.name} {item.description}".lower()))
-    return sum(1 for term in terms if term in haystack)
+def _select(
+    items: tuple[Capability, ...], name: str, *, bundled_override: bool = False
+) -> Capability | None:
+    exact = next((item for item in items if item.qualified_name == name), None)
+    if exact is not None:
+        return exact
+    matches = [item for item in items if item.name == name]
+    if bundled_override and len(matches) > 1:
+        # Yerleşik ajan için kullanıcının açık override sözleşmesini koru.
+        matches = [item for item in matches if item.source != "fusion"]
+    return matches[0] if len(matches) == 1 else None

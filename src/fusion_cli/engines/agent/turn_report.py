@@ -22,6 +22,7 @@ from ...core.job_evidence import JobCurrentSnapshot, JobPhase
 from ...core.tools import ToolFamily, tool_family
 from ...core.verification import VerificationResult
 from ...ui.text import strip_thinking
+from .completion_evidence import evidence_payload as evidence_payload
 from .job_delivery import JobDelivery, collect_job_deliveries
 from .verify_discovery import is_behavioral_command
 
@@ -146,6 +147,8 @@ class TurnReport:
         Değişiklik varsa: son mutasyondan sonra çalışan davranış kanıtı YOKSA
         veya kanıtlardan biri başarısızsa `False`; hepsi başarılıysa `True`.
         """
+        if self.gate is not None and not self.gate.ok:
+            return False
         if any(item.problem for item in self.job_deliveries):
             return False
         if not self.changed_paths:
@@ -278,6 +281,11 @@ class TurnReport:
             komutlar = "; ".join(f"`{run.command}` (çıkış {run.exit_code})" for run in basarisiz)
             return f"✗ Doğrulama başarısız: {komutlar}\nDeğişen dosyalar: {dosyalar}"
         komutlar = "; ".join(f"`{run.command}`" for run in evidence)
+        if self.gate is not None and not self.gate.ok:
+            return (
+                f"ⓘ Geçen alt kontroller: {komutlar}. Toplam doğrulama başarısız.\n"
+                f"Değişen dosyalar: {dosyalar}"
+            )
         return f"✓ Doğrulandı: {komutlar} başarıyla çalıştı.\nDeğişen dosyalar: {dosyalar}"
 
 
@@ -370,27 +378,3 @@ def _exit_code(use: ToolUse) -> int | None:
         return int(output[len(_EXIT_CODE_PREFIX) : closing])
     except ValueError:
         return None
-
-
-#: Kits'e giden kanıt özetindeki liste tavanları (protokol satırı küçük kalır).
-EVIDENCE_MAX_PATHS = 50
-EVIDENCE_MAX_PROBLEMS = 10
-
-
-def evidence_payload(report: TurnReport | None) -> dict[str, object] | None:
-    """Tur raporunun Kits gibi istemcilere giden yapılandırılmış kanıt özeti.
-
-    Kits `fusion_run` sonucunda yalnız metni görüyordu: "testler geçti" diyen ama
-    kanıtı olmayan bir tur başarılı gibi sunulabiliyordu. `None`: rapor yok (sohbet).
-    """
-    if report is None:
-        return None
-    return {
-        "dogrulandi": report.is_verified,
-        "engelliyor": report.blocks_success,
-        "yanlis_iddia": report.false_claim,
-        "degisen": list(report.changed_paths[:EVIDENCE_MAX_PATHS]),
-        "sorunlar": [item.problem for item in report.job_deliveries if item.problem][
-            :EVIDENCE_MAX_PROBLEMS
-        ],
-    }

@@ -1,3 +1,4 @@
+import { closeUnfinishedAgents } from "../team/ekipOlaylari";
 import { migrateMessageIds } from "./messageIdentity";
 import type { ProtocolClient } from "../protocol/client";
 import type { BaglamOlcusu, Soru } from "../protocol/types";
@@ -27,6 +28,7 @@ interface SessionSeed {
 }
 
 export type SessionAction =
+  | { type: "submissionCompleted"; id: string; requestId: string }
   | { type: "submissionStarted"; id: string; requestId: string; expectedTurnId?: string }
   | { type: "created"; session: SessionSeed }
   | { type: "historyLoaded"; id: string; messages: Mesaj[] }
@@ -36,6 +38,8 @@ export type SessionAction =
   | { type: "messageAdded"; id: string; message: Mesaj }
   | { type: "eventReceived"; id: string; event: Record<string, unknown> }
   | { type: "runningChanged"; id: string; running: boolean }
+  | { type: "stopRequested"; id: string }
+  | { type: "stopFailed"; id: string; error: string }
   | { type: "questionChanged"; id: string; question: { id: string; data: Soru } | null }
   /** Soru başka yerden (Chrome yan paneli) cevaplandı; yalnız aynı kartsa kapanır. */
   | { type: "questionClosed"; id: string; questionId: string }
@@ -76,8 +80,11 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         status: "ready",
         error: null,
         running: false,
+        stopping: false,
+        stopError: null,
         messages: [],
         question: null,
+        questionQueue: [],
         baglam: null,
         maliyetUsd: null,
         depoProjeleri: [],
@@ -114,8 +121,10 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
           : migrateMessageIds([...session.messages, action.message], action.id),
         updatedAt: Date.now(),
       }));
+    case "submissionCompleted":
+      return updateSession(state, action.id, session => ({ ...session, completedRequestIds: [...(session.completedRequestIds ?? []).filter(id => id !== action.requestId), action.requestId].slice(-100) }));
     case "submissionStarted":
-      return updateSession(state, action.id, (session) => ({ ...session, requestId: action.requestId,
+      return updateSession(state, action.id, (session) => ({ ...session, messages: closeUnfinishedAgents(session.messages), requestId: action.requestId,
         turnId: undefined, expectedTurnId: action.expectedTurnId, eventSequence: undefined, eventIds: [] }));
     case "eventReceived": {
       const current = state.sessions[action.id];
@@ -147,15 +156,27 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return updateSession(state, action.id, (session) => ({
         ...session,
         running: action.running,
+        stopping: action.running ? session.stopping : false,
+        stopError: action.running ? session.stopError : null,
       }));
+    case "stopRequested":
+      return updateSession(state, action.id, (session) => ({ ...session, stopping: true, stopError: null }));
+    case "stopFailed":
+      return updateSession(state, action.id, (session) => ({ ...session, stopping: false, stopError: action.error }));
     case "questionChanged":
-      return updateSession(state, action.id, (session) => ({
-        ...session,
-        question: action.question,
-      }));
+      return updateSession(state, action.id, (session) => {
+        if (!action.question) return { ...session, question: null, questionQueue: [] };
+        if (!session.question || session.question.id === action.question.id) return { ...session, question: action.question };
+        const queue = session.questionQueue ?? [];
+        return { ...session, questionQueue: [...queue.filter((question) => question.id !== action.question?.id), action.question] };
+      });
     case "questionClosed":
-      return updateSession(state, action.id, (session) =>
-        session.question?.id === action.questionId ? { ...session, question: null } : session);
+      return updateSession(state, action.id, (session) => {
+        const queue = session.questionQueue ?? [];
+        return session.question?.id === action.questionId
+          ? { ...session, question: queue[0] ?? null, questionQueue: queue.slice(1) }
+          : { ...session, questionQueue: queue.filter((question) => question.id !== action.questionId) };
+      });
     case "contextMeasured":
       return updateSession(state, action.id, (session) => ({
         ...session,
@@ -175,14 +196,20 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         status: "crashed",
         error: action.reason,
         running: false,
+        stopping: false,
+        stopError: null,
         question: null,
+        questionQueue: [],
       }));
     case "cleared":
       return updateSession(state, action.id, (session) => ({
         ...session,
         messages: [],
         question: null,
+        questionQueue: [],
         running: false,
+        stopping: false,
+        stopError: null,
       }));
     case "removed": {
       // Silme geri alınamaz: oturum listeden çıkar. Son oturum silinirse

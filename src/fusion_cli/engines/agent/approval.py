@@ -18,13 +18,23 @@ yapmak için değil. Sade `rm` yıkıcı sayılmaz — çöpe gider ve geri alı
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from enum import Enum
+from hashlib import sha256
 from pathlib import Path
 from typing import Protocol
 
 from ...config.permissions import is_allowed
-from ...core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolFamily, tool_family
+from ...core.tools import (
+    AuthorizationScope,
+    Tool,
+    ToolArgs,
+    ToolContext,
+    ToolEffect,
+    ToolFamily,
+    tool_family,
+)
 from ...tools.auto_policy import auto_risk, is_read_only_command
 from ...tools.command_policy import is_unattended_safe
 from ...tools.delete_preview import delete_caution, describe_delete, script_danger
@@ -141,6 +151,31 @@ class ApprovalRequest:
     read_only: bool = False
     #: Onay kartında gösterilecek ek bilgi (silme hedefi, sorulma nedeni).
     note: str | None = None
+    authorization_scope: AuthorizationScope | None = None
+
+    @property
+    def can_remember(self) -> bool:
+        """Yalnız doğrulanmış dar kapsam oturum boyunca saklanır."""
+        return self.danger is None and _scope(self) is not None
+
+    @property
+    def remembered_scope_description(self) -> str | None:
+        """Uzak oturum iznini tüm arayüzlerde aynı açık kapsamla anlat."""
+        scope = self.authorization_scope
+        if (
+            not self.can_remember
+            or self.effect is ToolEffect.LOCAL
+            or tool_family(self.tool.name) is ToolFamily.SHELL
+            or scope is None
+            or not scope.is_complete
+        ):
+            return None
+        targets = ", ".join(repr(target) for target in sorted(set(scope.targets)))
+        return (
+            f"Yalnız bu kapsam: sunucu {scope.server!r}; hesap {scope.account!r}; "
+            f"eylem {scope.action!r}; hedefler {targets}. "
+            "Hesap, eylem veya hedef değişirse yeniden sorulur."
+        )
 
 
 class Prompter(Protocol):
@@ -168,15 +203,23 @@ class ApprovalMemory:
 
     def __init__(self) -> None:
         self._scopes: set[str] = set()
+        self.revision = 0
+
+    def revoke(self) -> None:
+        """Oturum izinlerini açıkça geri al."""
+        self._scopes.clear()
+        self.revision += 1
 
     def is_remembered(self, request: ApprovalRequest) -> bool:
         """Bu çağrı için daha önce oturum izni verildi mi?"""
-        return request.danger is None and _scope(request) in self._scopes
+        scope = _scope(request)
+        return request.danger is None and scope is not None and scope in self._scopes
 
     def remember(self, request: ApprovalRequest) -> None:
         """Oturum iznini kaydet; yıkıcı çağrı sessizce dışarıda bırakılır."""
-        if request.danger is None:
-            self._scopes.add(_scope(request))
+        scope = _scope(request)
+        if request.danger is None and scope is not None:
+            self._scopes.add(scope)
 
 
 class _AskingApproval:
@@ -323,6 +366,7 @@ def build_request(
         risk=risk,
         read_only=effect is ToolEffect.REMOTE_READ,
         note=risk,
+        authorization_scope=tool.scope_resolver(args) if tool.scope_resolver is not None else None,
     )
 
 
@@ -367,7 +411,10 @@ async def _ask_and_remember(
     request: ApprovalRequest,
     memory: ApprovalMemory,
 ) -> Decision:
+    revision = memory.revision
     answer = await prompter.confirm(request)
+    if memory.revision != revision:
+        return Decision.BLOCKED
     if answer is ApprovalAnswer.SESSION:
         # Yıkıcı işlemler hiçbir zaman oturum iznine dönüşmez (`remember` bunu
         # uygular). UI bu seçeneği zaten göstermez; ikinci savunma hattı özel
@@ -385,7 +432,7 @@ async def _ask_and_remember(
     return Decision.DENIED
 
 
-def _scope(request: ApprovalRequest) -> str:
+def _scope(request: ApprovalRequest) -> str | None:
     """Oturum izninin dar kapsamı: araç ya da aynı shell komutu.
 
     Kabuk ailesi TEK KAYNAKTAN (`core.tools.tool_family`) tanınır ve kapsam
@@ -396,4 +443,18 @@ def _scope(request: ApprovalRequest) -> str:
     """
     if tool_family(request.tool.name) is ToolFamily.SHELL:
         return f"run_shell:{str(request.args.get('command', '')).strip()}"
+    if request.effect is not ToolEffect.LOCAL:
+        # Adaptör doğrulanmış kapsam sağlamıyorsa uzak izin yalnız bu çağrı içindir.
+        scope = request.authorization_scope
+        if scope is None or not scope.is_complete:
+            return None
+        identity = (
+            request.tool.name,
+            request.effect.value,
+            scope.server,
+            scope.account,
+            scope.action,
+            sorted(set(scope.targets)),
+        )
+        return sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()
     return request.tool.name

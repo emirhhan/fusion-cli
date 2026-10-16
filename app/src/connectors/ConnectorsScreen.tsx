@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
 import { ConnectorIcon } from "./ConnectorIcon";
 import { ConnectorSetupForm } from "./ConnectorSetupForm";
 import { ConnectorDialog } from "./ConnectorDialog";
+import { McpToolCatalog } from "./McpToolCatalog";
 import { CustomConnectorWizard } from "./CustomConnectorWizard";
 import {
   addPayloadFor,
@@ -20,6 +21,8 @@ import "./ConnectorsScreen.css";
 /** Bağlı MCP sunucusunun `baglanti.listele`'den gelen satırı. */
 interface ConnectorRow {
   ad: string;
+  guven?: "unreviewed" | "trusted" | "revoked";
+  inceleme_kimligi?: string | null;
   argumanlar?: string[];
   arac_sayisi?: number;
   durum?: string;
@@ -43,6 +46,9 @@ interface RpcResult {
 
 const STATE_LABELS: Record<string, string> = {
   bagli: "Bağlı",
+  backoff: "Yeniden deneme bekliyor",
+  degraded: "Kısmen kullanılabilir",
+  parked: "Kullanıcı işlemi gerekiyor",
   giris_bekleniyor: "Giriş bekleniyor",
   // Sunucu sağlam, yalnız kullanıcının girişini bekliyor: "hata" DEĞİL.
   giris_gerekli: "Giriş gerekli",
@@ -87,12 +93,23 @@ export function ConnectorsScreen({
   client: ProtocolClient;
   onClose: () => void;
 }) {
-  const [rows, setRows] = useState<ConnectorRow[]>([]);
+  const owner = useRef({ client, alive: true, load: 0, action: 0 });
+  if (owner.current.client !== client) owner.current = { client, alive: true, load: 0, action: 0 };
+  const [storedRows, setRows] = useState<ConnectorRow[]>([]);
+  const [rowsClient, setRowsClient] = useState(client);
+  const rows = rowsClient === client ? storedRows : [];
+  useEffect(() => {
+    const current = owner.current;
+    current.alive = true;
+    return () => { current.alive = false; };
+  }, [client]);
   const [tab, setTab] = useState<TabId>("kesfet");
   const [query, setQuery] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busyEntry, setBusyEntry] = useState<{ owner: typeof owner.current; key: string | null } | null>(null);
+  const busy = busyEntry?.owner === owner.current ? busyEntry.key : null;
   const [notice, setNotice] = useState<string | null>(null);
   const [showCustom, setShowCustom] = useState(false);
+  const [catalog, setCatalog] = useState<{ client: ProtocolClient; server: string } | null>(null);
   const [setupEntry, setSetupEntry] = useState<CatalogEntry | null>(null);
   const [custom, setCustom] = useState(CUSTOM_EMPTY);
   // Sağlayıcı-barındırmalı bağlantı: araçlar Fusion'da değil, kullanıcının zaten
@@ -103,10 +120,16 @@ export function ConnectorsScreen({
   const [oauthReturn, setOauthReturn] = useState("");
 
   const load = useCallback(async () => {
-    const result = (await client.request("baglanti.listele", {})) as RpcResult;
-    if (result?.ok) {
+    const current = owner.current, sequence = ++current.load;
+    try {
+      const result = (await client.request("baglanti.listele", {})) as RpcResult;
+      if (owner.current !== current || !current.alive || sequence !== current.load) return;
+      if (result?.ok !== true) throw new Error("Bağlantılar okunamadı.");
       setRows(result.sunucular ?? []);
-      if (result.oauth_donus_adresi) setOauthReturn(result.oauth_donus_adresi);
+      setRowsClient(client);
+      setOauthReturn(result.oauth_donus_adresi ?? "");
+    } catch {
+      if (owner.current === current && current.alive && sequence === current.load) setNotice("Bağlantılar okunamadı. Yeniden deneyebilirsin.");
     }
   }, [client]);
 
@@ -117,7 +140,7 @@ export function ConnectorsScreen({
   // Giriş bekleyen bağlantı varsa durumu kısa aralıkla tazele (OAuth tamamlanınca
   // ekran kendiliğinden "Bağlı"ya döner).
   useEffect(() => {
-    if (!rows.some((row) => row.durum === "giris_bekleniyor")) return;
+    if (!rows.some((row) => row.durum === "giris_bekleniyor" || row.durum === "backoff")) return;
     const timer = window.setInterval(() => void load(), 1200);
     return () => window.clearInterval(timer);
   }, [load, rows]);
@@ -153,18 +176,21 @@ export function ConnectorsScreen({
 
   const run = useCallback(
     async (name: string, data: Record<string, unknown>, key: string) => {
-      setBusy(key);
+      const current = owner.current, sequence = ++current.action;
+      const isCurrent = () => owner.current === current && current.alive && sequence === current.action;
+      setBusyEntry({ owner: current, key });
       setNotice(null);
       try {
         const result = (await client.request(name, data)) as RpcResult;
+        if (!isCurrent()) return null;
         setNotice(result?.metin ?? result?.mesaj ?? null);
         await load();
-        return result;
+        return isCurrent() ? result : null;
       } catch {
-        setNotice("Bağlantı işlemi tamamlanamadı.");
+        if (isCurrent()) setNotice("Bağlantı işlemi tamamlanamadı.");
         return null;
       } finally {
-        setBusy(null);
+        if (isCurrent()) setBusyEntry({ owner: current, key: null });
       }
     },
     [client, load],
@@ -319,6 +345,7 @@ export function ConnectorsScreen({
       {notice && (
         <p className="connectors__notice" role="status">
           {notice}
+          <button type="button" onClick={() => void load()}>Yeniden dene</button>
         </p>
       )}
 
@@ -334,6 +361,7 @@ export function ConnectorsScreen({
         </ConnectorDialog>
       )}
 
+      {catalog?.client === client && <McpToolCatalog client={client} server={catalog.server} onClose={() => setCatalog(null)} />}
       {showCustom && (
         <ConnectorDialog label="Özel MCP sunucusu ekle" onClose={() => setShowCustom(false)}>
           <CustomConnectorWizard
@@ -461,7 +489,7 @@ export function ConnectorsScreen({
                     <div className="connectors__row-main">
                       <strong>{entryLabel(row.ad)}</strong>
                       <span className="connectors__status">
-                        {STATE_LABELS[row.durum ?? "yapilandirildi"]}
+                        {STATE_LABELS[row.durum ?? "yapilandirildi"] ?? "Durum bilinmiyor"}
                       </span>
                       {row.durum === "bagli" && (
                         <small>{row.arac_sayisi ?? 0} araç</small>
@@ -478,7 +506,22 @@ export function ConnectorsScreen({
                         {row.mesaj}
                       </p>
                     )}
+                    {row.tasima !== "hosted" && <p>
+                      Kaynak güveni: {row.guven === "trusted" ? "İncelendi" : row.guven === "revoked" ? "Geri alındı" : "İncelenmedi"}
+                    </p>}
                     <div className="connectors__row-actions">
+                      {!hosted && <button type="button" onClick={() => setCatalog({ client, server: row.ad })}>Araçları gör</button>}
+                      {row.tasima !== "hosted" && row.guven !== "trusted" && row.inceleme_kimligi && <button
+                        type="button" disabled={mesgul(`trust:${row.ad}`)}
+                        onClick={() => void run("baglanti.guven", { ad: row.ad, guven: "trusted", inceleme_kimligi: row.inceleme_kimligi }, `trust:${row.ad}`)}>
+                        Bu kaynağın salt okuma bildirimlerine güven
+                      </button>}
+                      {row.tasima !== "hosted" && row.guven === "trusted" && <button
+                        type="button" disabled={mesgul(`trust:${row.ad}`)}
+                        onClick={() => void run("baglanti.guven", { ad: row.ad, guven: "revoked" }, `trust:${row.ad}`)}>
+                        Güveni geri al
+                      </button>}
+
                       {remote && row.durum !== "bagli" && (
                         <button
                           disabled={mesgul(`login:${row.ad}`) || pending}

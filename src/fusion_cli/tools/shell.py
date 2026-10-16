@@ -19,6 +19,8 @@ from ..core.constants import (
     SHELL_TIMEOUT_S,
     truncate_notice,
 )
+from ..core.errors import ProcessCancelledError
+from ..core.process_control import run_foreground
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .command_policy import READONLY_GIT_SUBCOMMANDS
@@ -54,15 +56,15 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     try:
         # shell=True bilinçli: kullanıcı boru/yönlendirme içeren komut yazabilmeli.
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.
-        process = subprocess.run(
+        process = run_foreground(
             command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=SHELL_TIMEOUT_S,
+            timeout_s=SHELL_TIMEOUT_S,
+            cancelled=context.cancelled,
             cwd=context.root,
             env=_shell_env(),
         )
+    except ProcessCancelledError as error:
+        return ToolResult.failure(str(error))
     except subprocess.TimeoutExpired as timeout:
         return ToolResult.failure(_timeout_message(timeout))
     except OSError as exc:

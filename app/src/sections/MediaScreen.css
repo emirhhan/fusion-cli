@@ -101,3 +101,10 @@
 .media-screen__soon button:hover {
   background: var(--surface-hover);
 }
+
+/* Dar ekranda kısa etiketlerle iki seçici aynı kompakt satıra yerleşir. */
+@media (max-width: 600px) {
+  .media-screen__tabs { position: absolute; left: 16px; top: 14px; margin: 0; }
+  .media-screen__tabs button { min-height: 30px; padding-inline: 9px; font-size: 12px; gap: 5px; }
+  .media-screen > .image-create { padding-top: 14px; }
+}

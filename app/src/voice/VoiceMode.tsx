@@ -1,12 +1,12 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { type PointerEvent, useEffect, useState } from "react";
+import { dragVoiceWindow } from "./windowBridge";
+import { VoiceQuestion } from "./VoiceQuestion";
+import { useEffect, useRef, useState } from "react";
 import { FusionAvatar, type AvatarState } from "./FusionAvatar";
-import { MicIcon } from "./MicIcon";
 import type { VoiceAsk } from "./bridge";
 import type { VoicePhase } from "./voiceMachine";
 import { VoiceSettings, type VoicePrefs } from "./VoiceSettings";
-import { Waveform } from "./Waveform";
 import "./VoiceMode.css";
+import "./VoicePet.css";
 
 export type VoiceState = VoicePhase;
 
@@ -38,10 +38,13 @@ const AVATAR: Record<VoiceState, AvatarState> = {
 
 interface VoiceModeProps {
   ask?: VoiceAsk | null;
+  answerPending?: boolean;
   listening: boolean;
   onAnswer?: (answer: string) => void;
   onClose: () => void;
+  onDrag?: () => Promise<void>;
   onMinimize: () => void;
+  onListen?: () => void;
   onPickModel?: () => void;
   onPrefsChange?: (next: VoicePrefs) => void;
   onTop?: boolean;
@@ -55,50 +58,40 @@ interface VoiceModeProps {
 
 const VARSAYILAN_TERCIH: VoicePrefs = { hiz: 1, model: null, robotik: 0.5 };
 
-function TrafficGlyph({ kind }: { kind: "close" | "minimize" | "size" }) {
-  return (
-    <svg aria-hidden="true" className="voice-panel__traffic-glyph" data-glyph={kind === "size" ? "zoom" : kind} viewBox="0 0 8 8">
-      {kind === "close" && <path d="M1.75 1.75 6.25 6.25M6.25 1.75 1.75 6.25" />}
-      {kind === "minimize" && <path d="M1.5 4h5" />}
-      {kind === "size" && <path d="M1.25 3.5V1.25H3.5L1.25 3.5Zm5.5 1v2.25H4.5L6.75 4.5Z" />}
-    </svg>
-  );
-}
-
 export function VoiceMode({
   ask = null,
+  answerPending = false,
   listening,
   onAnswer,
   onClose,
+  onDrag = dragVoiceWindow,
   onMinimize,
+  onListen,
   onPickModel,
   onPrefsChange,
   onTop = true,
   onTopChange,
-  onWideChange,
   prefs = VARSAYILAN_TERCIH,
   state,
   transcript,
   wide = true,
 }: VoiceModeProps) {
+  const dragOrigin = useRef<{ x: number; y: number } | null>(null);
+  const dragged = useRef(false);
+  const [dragError, setDragError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const startWindowDrag = (event: PointerEvent<HTMLElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    void getCurrentWindow().startDragging().catch(() => undefined);
-  };
-
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         if (menuOpen) setMenuOpen(false);
+        else if (settingsOpen) setSettingsOpen(false);
         else onClose();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [menuOpen, onClose]);
+  }, [menuOpen, settingsOpen, onClose]);
 
   useEffect(() => {
     const root = document.getElementById("root");
@@ -120,83 +113,59 @@ export function VoiceMode({
       data-state={state}
       role="region"
     >
-      <header className="voice-panel__head">
-        {wide && <span aria-label="Pencere denetimleri" className="voice-panel__window-controls">
-          <button aria-label="Konuşma kipini kapat" className="voice-panel__close" onClick={onClose} type="button"><TrafficGlyph kind="close" /></button>
-          <button aria-label="Pencereyi simge durumuna küçült" className="voice-panel__minimize" onClick={onMinimize} type="button"><TrafficGlyph kind="minimize" /></button>
-          {onWideChange && (
-            <button
-              aria-label={wide ? "Paneli küçült" : "Paneli büyüt"}
-              aria-pressed={wide}
-              className="voice-panel__size"
-              onClick={() => onWideChange(!wide)}
-              type="button"
-            >
-              <TrafficGlyph kind="size" />
-            </button>
-          )}
-        </span>}
-        <span className="voice-panel__drag voice-panel__drag--left" data-tauri-drag-region onPointerDown={startWindowDrag} />
-        <span className="voice-panel__drag voice-panel__drag--center" data-tauri-drag-region onPointerDown={startWindowDrag}>
-          <strong className="voice-panel__title" data-tauri-drag-region>Fusion Talk</strong>
-        </span>
-        <span className="voice-panel__drag voice-panel__drag--right" data-tauri-drag-region onPointerDown={startWindowDrag} />
-        {!wide && <button aria-expanded={menuOpen} aria-label="Konuşma menüsü" className="voice-panel__menu-toggle" onClick={() => setMenuOpen((open) => !open)} type="button">···</button>}
-      </header>
-
       <div className="voice-panel__stage">
-        <FusionAvatar scale={wide ? (state === "approval" ? 1.08 : 1.42) : 0.48} state={AVATAR[state]} />
+        <button type="button" className="voice-panel__character"
+          aria-label={`Fusion, dinlemeye başla. ${listening ? "Mikrofon açık." : "Mikrofon kapalı."} ${DURUM_METNI[state]}`}
+          aria-haspopup="menu" aria-expanded={menuOpen}
+          title="Konuşmak için tıkla, taşımak için sürükle"
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            dragged.current = false;
+            dragOrigin.current = { x: event.clientX, y: event.clientY };
+            event.currentTarget.setPointerCapture?.(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            const origin = dragOrigin.current;
+            // Ufak el titremesi normal sol tıklamayı pencere taşımasına dönüştürmez.
+            if (!origin || dragged.current || !(event.buttons & 1)
+              || Math.hypot(event.clientX - origin.x, event.clientY - origin.y) < 6) return;
+            dragged.current = true;
+            dragOrigin.current = null;
+            if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+            setMenuOpen(false);
+            setDragError(null);
+            void onDrag().catch(() => setDragError("Taşıma başlatılamadı. Karakteri yeniden sürükle."));
+          }}
+          onPointerUp={() => { dragOrigin.current = null; }}
+          onPointerCancel={() => { dragOrigin.current = null; }}
+          onClick={(event) => {
+            if (dragged.current && event.detail > 0) { dragged.current = false; event.preventDefault(); return; }
+            dragged.current = false;
+            setMenuOpen(false); onListen?.();
+          }}
+          onContextMenu={(event) => { event.preventDefault(); setMenuOpen((open) => !open); }}
+          onKeyDown={(event) => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); setMenuOpen(true); } }}>
+          <FusionAvatar scale={wide ? (state === "approval" ? 1.08 : 1.42) : 0.9} state={AVATAR[state]} />
+        </button>
         <div className="voice-panel__content">
-          <Waveform active={listening} />
+          {dragError && <p role="alert" className="voice-panel__error">{dragError}</p>}
+          {state !== "error" && <span className="voice-panel__sr" role="status" aria-label={listening ? "Dinliyor" : "Dinleme hazırlanıyor"}>{DURUM_METNI[state]}</span>}
+          {state !== "error" && transcript && <span className="voice-panel__sr">{transcript}</span>}
           {ask && onAnswer && (
-            <div aria-label="Onay" className="voice-ask" role="group">
-              <p className="voice-ask__text">{ask.metin}</p>
-              <div className="voice-ask__buttons">
-                {ask.secenekler.map((secenek) => (
-                  <button key={secenek.deger} onClick={() => onAnswer(secenek.deger)} type="button">
-                    {secenek.etiket}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <VoiceQuestion ask={ask} answerPending={answerPending} key={`${ask.sessionId ?? ""}:${ask.questionId ?? ""}:${ask.metin}`} onAnswer={onAnswer} />
           )}
-          {!ask && <p aria-live="polite" className="voice-panel__status">{DURUM_METNI[state]}</p>}
-          {transcript && <p className="voice-panel__transcript">{transcript}</p>}
+          {state === "error" && transcript && <p role="alert" className="voice-panel__error">{transcript}</p>}
         </div>
       </div>
 
-      <footer className="voice-panel__foot">
-        {/* Tuş DEĞİL, gösterge. Dinleme Talk açıkken sürekli açıktır;
-            konuşmak için hiçbir şeye basılmaz. */}
-        <span
-          aria-label={listening ? "Dinliyor" : "Dinleme hazırlanıyor"}
-          className="voice-panel__mic"
-          data-dinliyor={listening}
-          role="status"
-        >
-          <MicIcon size={wide ? 22 : 18} />
-        </span>
-        {wide && <>
-          <p className="voice-panel__hint">Konuş; sözümü kesebilirsin.</p>
-          {onPrefsChange && onTopChange && (
-            <button
-              aria-expanded={settingsOpen}
-              aria-label="Ses ayarları"
-              className="voice-panel__settings-toggle"
-              onClick={() => setSettingsOpen((open) => !open)}
-              type="button"
-            >
-              ⚙
-            </button>
-          )}
-        </>}
-      </footer>
-
-      {!wide && menuOpen && <div aria-label="Konuşma menüsü" className="voice-panel__menu" role="menu">
+      {menuOpen && <div aria-label="Konuşma menüsü" className="voice-panel__menu" role="menu">
+        {onPrefsChange && onTopChange && <button onClick={() => { setMenuOpen(false); setSettingsOpen(true); }} role="menuitem" type="button">Ses ayarları</button>}
         <button onClick={() => { setMenuOpen(false); onMinimize(); }} role="menuitem" type="button">Simge durumuna küçült</button>
         <button onClick={() => { setMenuOpen(false); onClose(); }} role="menuitem" type="button">Konuşmayı kapat</button>
       </div>}
-      {wide && settingsOpen && onPrefsChange && onTopChange && (
+      {settingsOpen && onPrefsChange && onTopChange && (
         <div className="voice-panel__settings-popover">
           <VoiceSettings
             onChange={onPrefsChange}

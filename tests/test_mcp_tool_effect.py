@@ -15,7 +15,7 @@ from fusion_cli.mcp_bridge.tool_effect import effect_from_annotations
         (None, ToolEffect.REMOTE_WRITE),
         (ToolAnnotations(), ToolEffect.REMOTE_WRITE),
         (ToolAnnotations(readOnlyHint=True), ToolEffect.REMOTE_READ),
-        (ToolAnnotations(readOnlyHint=True, destructiveHint=True), ToolEffect.REMOTE_READ),
+        (ToolAnnotations(readOnlyHint=True, destructiveHint=True), ToolEffect.REMOTE_DESTRUCTIVE),
         (ToolAnnotations(readOnlyHint=False, destructiveHint=True), ToolEffect.REMOTE_DESTRUCTIVE),
         (ToolAnnotations(destructiveHint=True), ToolEffect.REMOTE_DESTRUCTIVE),
         (ToolAnnotations(readOnlyHint=False, destructiveHint=False), ToolEffect.REMOTE_WRITE),

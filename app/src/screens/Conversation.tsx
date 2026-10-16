@@ -1,5 +1,8 @@
 import { useRef, useState } from "react";
 
+import { DeliveryCard } from "./DeliveryCard";
+import type { DeliveryEvidence } from "../protocol/deliveryEvidence";
+
 import { Button } from "../ui/Button";
 import "./Conversation.css";
 
@@ -10,7 +13,6 @@ import { DiffCard } from "../markdown/DiffCard";
 import { ActivityLine, activityState } from "./ActivityLine";
 import type { AjanKarti } from "../team/ekipOlaylari";
 import { PreviewCard } from "./PreviewCard";
-import { TeamCards } from "../team/TeamCards";
 import { useStickToBottom } from "./useStickToBottom";
 
 export interface MesajEki {
@@ -36,6 +38,7 @@ export interface GorevMaddesi {
 export interface Mesaj {
   id?: string;
   submissionId?: string;
+  delivery?: DeliveryEvidence;
   metin: string;
   rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler" | "oneriler" | "ekip" | "onizleme";
   /** Yalnız `rol === "onizleme"` için: ajanın çalıştırdığı sitenin adresi. */
@@ -76,21 +79,22 @@ export interface Mesaj {
  * kalmıyordu: kullanıcı hangi görseli gönderdiğini göremiyordu. Görseller
  * küçük önizlemeyle, diğer dosyalar adıyla durur.
  */
-function SentAttachments({ ekler }: { ekler: MesajEki[] }) {
+function SentAttachments({ ekler, onOpenFile }: { ekler: MesajEki[]; onOpenFile?: (path: string) => void }) {
   return (
     <div aria-label="Gönderilen ekler" className="conversation__attachments">
       {ekler.map((ek) => {
         const kaynak = ek.kind === "image" ? assetUrl(ek.path) : null;
-        return (
-          <span className="conversation__attachment" key={ek.path} title={ek.path}>
-            {kaynak ? (
-              <img alt={`${ek.name} önizlemesi`} height={44} src={kaynak} width={44} />
-            ) : (
-              <span aria-hidden="true">▤</span>
-            )}
-            <span className="conversation__attachment-name">{ek.name}</span>
-          </span>
-        );
+        const content = <>
+          {kaynak ? <img alt={`${ek.name} önizlemesi`} height={44} src={kaynak} width={44} />
+            : <span aria-hidden="true">▤</span>}
+          <span className="conversation__attachment-name">{ek.name}</span>
+        </>;
+        return onOpenFile ? (
+          <Button variant="ghost" className="conversation__attachment" key={ek.path}
+            aria-label={`${ek.name} dosyasını aç`} title={ek.path} onClick={() => onOpenFile(ek.path)}>
+            {content}
+          </Button>
+        ) : <span className="conversation__attachment" key={ek.path} title={ek.path}>{content}</span>;
       })}
     </div>
   );
@@ -206,10 +210,13 @@ export function Conversation({
   ), -1);
   const kutuRef = useRef<HTMLDivElement>(null);
   const icerikRef = useRef<HTMLDivElement>(null);
-  // Son mesaj kullanıcınınsa az önce gönderdi demektir: her durumda en alta in.
-  const kullaniciGonderdi = mesajlar[mesajlar.length - 1]?.rol === "kullanici";
-  useStickToBottom(kutuRef, icerikRef, mesajlar, kullaniciGonderdi);
+  const lastMessage = mesajlar[mesajlar.length - 1];
+  const {enAltaIn, hasNewContent} = useStickToBottom(kutuRef, icerikRef, mesajlar, false, {
+    content: lastMessage,
+    ownSubmissionId: lastMessage?.rol === "kullanici" ? lastMessage.id : undefined,
+  });
   return (
+    <div className="conversation-frame">
     <div className="conversation" ref={kutuRef}>
       <div className="conversation__stream" ref={icerikRef}>
         {mesajlar.map((message, index) => {
@@ -219,7 +226,7 @@ export function Conversation({
                 <div className="conversation__sent">
                   <div className="conversation__role">Siz</div>
                   {message.ekler && message.ekler.length > 0 && (
-                    <SentAttachments ekler={message.ekler} />
+                    <SentAttachments ekler={message.ekler} onOpenFile={onOpenFile} />
                   )}
                   <div className="conversation__bubble">{message.metin}</div>
                 </div>
@@ -275,13 +282,7 @@ export function Conversation({
               </div>
             );
           }
-          if (message.rol === "ekip") {
-            return (
-              <div className="conversation__message conversation__message--team" key={message.id}>
-                <TeamCards ajanlar={message.ajanlar ?? []} canli={running} />
-              </div>
-            );
-          }
+          if (message.rol === "ekip") return null;
           if (message.rol === "olay") {
             // Her model çağrısı ayrı bir yaşam döngüsü olayı üretir. Akışta
             // yalnız son çalışan gösterge görünür; eski çağrı göstergeleri
@@ -313,6 +314,7 @@ export function Conversation({
                 onReport={onHataBildir && hataMesajiMi(message) ? () => onHataBildir(message.metin) : undefined}
                 text={message.metin}
               />
+              {message.delivery && <DeliveryCard evidence={message.delivery} onOpenFile={onOpenFile} />}
               {!running && message.hata && message.submissionId && onRetrySubmission && (
                 <Button variant="ghost" onClick={() => onRetrySubmission(message.submissionId!)}>Yeniden dene</Button>
               )}
@@ -326,6 +328,8 @@ export function Conversation({
       <div aria-atomic="true" aria-live="polite" className="conversation__live-status" role="status">
         {sonDurum === "running" && running ? "Çalışıyor" : sonDurum === "failed" ? "Tamamlanamadı" : ""}
       </div>
+    </div>
+      {hasNewContent && <Button className="conversation__jump" variant="ghost" onClick={enAltaIn} aria-label="Yeni içeriğe git">↓ Yeni içerik</Button>}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConnectorsScreen } from "./ConnectorsScreen";
 import type { ProtocolClient } from "../protocol/client";
 
@@ -556,4 +556,53 @@ describe("ConnectorsScreen — silme", () => {
     const row = screen.getByText("Fetch").closest("li")!;
     expect(within(row).getByText(/uvx gerekir/)).toBeTruthy();
   });
+});
+
+it("önceki konuşmanın geç bağlantı listesi yeni konuşmayı değiştirmez", async () => {
+  let resolveOld!: (value: unknown) => void;
+  const oldClient = { request: vi.fn(() => new Promise((resolve) => { resolveOld = resolve; })) } as unknown as ProtocolClient;
+  const current = fakeClient([{ ad: "new-server", komut: "new-runner" }]);
+  const view = render(<ConnectorsScreen client={oldClient} onClose={() => undefined} />);
+  view.rerender(<ConnectorsScreen client={current} onClose={() => undefined} />);
+  fireEvent.click(screen.getByRole("tab", { name: /^Bağlı/ }));
+  await screen.findByText("new-server");
+  await act(async () => { resolveOld({ ok: true, sunucular: [{ ad: "old-server", komut: "old-runner" }] }); });
+  await waitFor(() => expect(screen.queryByText("old-server")).toBeNull());
+  expect(screen.getByText("new-server")).toBeTruthy();
+});
+
+it("istemci değişince önceki güven işleminin düğme kilidini taşımaz", async () => {
+  const row = { ad: "same", komut: "npx", guven: "unreviewed", inceleme_kimligi: "offline" };
+  let resolveOld!: (value: unknown) => void;
+  const old = fakeClient([row]);
+  old.request = vi.fn((name: string) => name === "baglanti.guven"
+    ? new Promise((resolve) => { resolveOld = resolve; })
+    : Promise.resolve(name === "baglanti.listele" ? { ok: true, sunucular: [row] } : { ok: true }));
+  const current = fakeClient([row]);
+  const view = render(<ConnectorsScreen client={old} onClose={() => undefined} />);
+  fireEvent.click(screen.getByRole("tab", { name: /^Bağlı/ }));
+  const button = await screen.findByRole("button", { name: /Bu kaynağın/ });
+  fireEvent.click(button);
+  expect(button.hasAttribute("disabled")).toBe(true);
+  view.rerender(<ConnectorsScreen client={current} onClose={() => undefined} />);
+  const replacement = await screen.findByRole("button", { name: /Bu kaynağın/ });
+  expect(replacement.hasAttribute("disabled")).toBe(false);
+  view.rerender(<ConnectorsScreen client={old} onClose={() => undefined} />);
+  const returned = await screen.findByRole("button", { name: /Bu kaynağın/ });
+  expect(returned.hasAttribute("disabled")).toBe(false);
+  await act(async () => { resolveOld({ ok: true }); });
+});
+
+it('bağlı sunucunun araç düğmesi yalnız o kaynağın kataloğunu açar', async () => {
+  const client = fakeClient([{ ad: 'one', komut: 'fake', durum: 'bagli' }], {
+    'baglanti.araclar': { ok: true, schemaVersion: 1, tools: [], total: 0, truncated: false },
+  });
+  render(<ConnectorsScreen client={client} onClose={vi.fn()} />);
+  await screen.findByRole('tab', { name: /^Bağlı/ });
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith('baglanti.listele', {}));
+  fireEvent.click(screen.getByRole('tab', { name: /^Bağlı/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Araçları gör' }));
+  const dialog = await screen.findByRole('dialog', { name: 'one araç kataloğu' });
+  await within(dialog).findByText('Bu sunucu araç bildirmedi.');
+  expect(client.request).toHaveBeenCalledWith('baglanti.araclar', { ad: 'one' });
 });

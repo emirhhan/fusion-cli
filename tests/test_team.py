@@ -219,3 +219,239 @@ def test_bos_kimlikli_olay_tel_uzerinde_kimlik_tasimaz():
 
     assert "agent_id" not in event_to_dict(StatusChanged("x"))
     assert event_to_dict(replace(StatusChanged("x"), agent_id="k"))["agent_id"] == "k"
+
+
+async def test_child_exception_does_not_cancel_independent_sibling(tmp_path):
+    sink = RecordingSink()
+    deps = _deps(tmp_path, sink)
+
+    async def run(task, sub_deps, **kwargs):
+        if task == "broken":
+            raise ValueError("fixture failure")
+        await asyncio.sleep(0)
+        return SimpleNamespace(final_text="verified sibling", ok=True, tool_calls_made=1)
+
+    results = await run_team(
+        deps,
+        [SubTask("broken", read_only=True), SubTask("healthy", read_only=True)],
+        depth=0,
+        run_agent=run,
+    )
+    assert [result.ok for result in results] == [False, True]
+    started = [event for event in sink.events if isinstance(event, SubAgentStarted)]
+    finished = [event for event in sink.events if isinstance(event, SubAgentFinished)]
+    assert len(started) == len(finished) == 2
+    assert {event.sub_id for event in started} == {event.sub_id for event in finished}
+
+
+async def test_cancelled_parent_closes_every_started_child(tmp_path):
+    sink = RecordingSink()
+    deps = _deps(tmp_path, sink)
+    entered = asyncio.Event()
+    count = 0
+
+    async def run(task, sub_deps, **kwargs):
+        nonlocal count
+        count += 1
+        if count == 2:
+            entered.set()
+        await asyncio.Event().wait()
+
+    parent = asyncio.create_task(
+        run_team(
+            deps,
+            [SubTask("a", read_only=True), SubTask("b", read_only=True)],
+            depth=0,
+            run_agent=run,
+        )
+    )
+    await entered.wait()
+    parent.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await parent
+    finished = [event for event in sink.events if isinstance(event, SubAgentFinished)]
+    assert len(finished) == 2
+    assert all(not event.ok for event in finished)
+
+
+async def test_child_closes_its_optional_question_before_return(tmp_path):
+    from fusion_cli.engines.agent.team import run_subagent
+
+    sink = RecordingSink()
+    deps = _deps(tmp_path, sink)
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+    owners = []
+
+    async def answer():
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    async def run(task, sub_deps, **kwargs):
+        owners.append(sub_deps.questions)
+        sub_deps.questions.start(answer())
+        await entered.wait()
+        return SimpleNamespace(final_text="sonuç", ok=True, tool_calls_made=0)
+
+    await run_subagent(deps, SubTask("oku", read_only=True), depth=0, run_agent=run)
+    try:
+        assert cancelled.is_set()
+    finally:
+        for owner in owners:
+            await owner.close()
+
+
+async def test_readonly_child_does_not_inherit_parent_mutation_evidence(tmp_path, monkeypatch):
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+    from fusion_cli.engines.agent.loop import run_agent
+    from fusion_cli.engines.agent.team import run_subagent
+    from tests.agent_harness import install_provider
+    from tests.fakes import ScriptedProvider, model_result
+
+    text = (
+        "İnceleme sonucu: mevcut yaklaşım tutarlı. Bu görev yalnız açıklamayı değerlendirdi; "
+        "dosya veya dış sistem değişikliği gerektirmedi. "
+        "Bulgular değerlendirme kapsamında tamamlandı."
+    )
+    install_provider(monkeypatch, ScriptedProvider([model_result(text)] * 4))
+    deps = _deps(tmp_path, RecordingSink())
+    deps.execution = ExecutionPolicy(
+        is_web=False,
+        requires_tool_evidence=True,
+        required_effect="workspace_mutation",
+    )
+    result = await run_subagent(
+        deps,
+        SubTask("Bu açıklamayı değerlendir", read_only=True),
+        depth=0,
+        run_agent=run_agent,
+    )
+    assert result.ok
+    assert "dosya veya dış sistem" in result.text
+
+
+def test_scoped_child_cannot_use_unbounded_shell_or_remote_mutations(tmp_path):
+    from fusion_cli.core.tools import Tool, ToolEffect, ToolResult
+    from fusion_cli.engines.agent.team import _allowed_tools
+    from fusion_cli.tools.registry import ToolRegistry
+
+    def run(args, context):
+        return ToolResult("fixture")
+
+    deps = _deps(tmp_path, RecordingSink())
+    registry = ToolRegistry()
+    for tool in [
+        Tool("write_file", "", {}, run, mutating=True),
+        Tool("run_shell", "", {}, run, mutating=True),
+        Tool("offline__write", "", {}, run, mutating=True, effect=ToolEffect.REMOTE_WRITE),
+        Tool("read_file", "", {}, run),
+    ]:
+        registry.register(tool)
+    deps.base_registry = registry
+    allowed = _allowed_tools(deps, GENERIC_PERSONA, SubTask("yaz", write_scope=("src",)))
+    assert allowed == {"write_file", "read_file"}
+
+
+async def test_persona_exception_does_not_cancel_sibling(tmp_path, monkeypatch):
+    from fusion_cli.engines.agent import team
+
+    original = team.resolve_persona
+
+    def resolve(library, name):
+        if name == "broken":
+            raise ValueError("fixture")
+        return original(library, name)
+
+    monkeypatch.setattr(team, "resolve_persona", resolve)
+    sink = RecordingSink()
+
+    async def run(task, sub_deps, **kwargs):
+        return SimpleNamespace(final_text="sonuç", ok=True, tool_calls_made=0)
+
+    results = await run_team(
+        _deps(tmp_path, sink),
+        [SubTask("a", persona="broken", read_only=True), SubTask("b", read_only=True)],
+        depth=0,
+        run_agent=run,
+    )
+    assert [result.ok for result in results] == [False, True]
+    assert len([event for event in sink.events if isinstance(event, SubAgentFinished)]) == 2
+
+
+async def test_child_write_evidence_does_not_claim_sibling_paths(tmp_path):
+    sink = RecordingSink()
+    deps = _deps(tmp_path, sink)
+    entered = asyncio.Event()
+    count = 0
+
+    async def run(task, sub_deps, **kwargs):
+        nonlocal count
+        sub_deps.tool_context.touched.add(tmp_path / task)
+        count += 1
+        if count == 2:
+            entered.set()
+        await entered.wait()
+        assert sub_deps.tool_context.touched == {tmp_path / task}
+        return SimpleNamespace(final_text="sonuç", ok=True, tool_calls_made=1)
+
+    results = await run_team(
+        deps,
+        [SubTask("a", write_scope=("a",)), SubTask("b", write_scope=("b",))],
+        depth=0,
+        run_agent=run,
+    )
+    assert all(result.ok for result in results)
+    assert deps.tool_context.touched == {tmp_path / "a", tmp_path / "b"}
+    assert [result.changed_paths for result in results] == [("a",), ("b",)]
+
+
+async def test_local_child_cancellation_returns_terminal_without_losing_sibling(tmp_path):
+    async def run(task, sub_deps, **kwargs):
+        if task == "cancelled":
+            raise asyncio.CancelledError
+        return SimpleNamespace(final_text="sonuç", ok=True, tool_calls_made=0)
+
+    results = await run_team(
+        _deps(tmp_path, RecordingSink()),
+        [SubTask("cancelled", read_only=True), SubTask("healthy", read_only=True)],
+        depth=0,
+        run_agent=run,
+    )
+    assert [result.ok for result in results] == [False, True]
+
+
+@pytest.mark.parametrize("barrier", ["question", "steering"])
+async def test_child_cannot_bypass_parent_mutation_barrier(tmp_path, monkeypatch, barrier):
+    from fusion_cli.core.steering import SteeringQueue
+    from fusion_cli.engines.agent.loop import run_agent
+    from fusion_cli.engines.agent.team import run_subagent
+    from tests.agent_harness import install_provider
+    from tests.fakes import ScriptedProvider, model_result, tool_call
+
+    install_provider(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    "", tool_calls=(tool_call("write_file", path="new.py", content="x = 1"),)
+                ),
+                model_result(
+                    "Görev değerlendirmesi tamamlandı. Dosya yazımı güven sınırına göre "
+                    "değerlendirildi; sonuç gerçek araç kaydına bağlıdır."
+                ),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, RecordingSink())
+    if barrier == "question":
+        deps.questions.start(asyncio.Event().wait())
+    else:
+        deps.steering = SteeringQueue()
+        deps.steering.push("Dosya yazmayı durdur")
+    try:
+        await run_subagent(deps, SubTask("new.py dosyasını oluştur"), depth=0, run_agent=run_agent)
+        assert not (tmp_path / "new.py").exists()
+    finally:
+        await deps.questions.close()

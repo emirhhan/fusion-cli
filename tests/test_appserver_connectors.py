@@ -41,6 +41,9 @@ class FakeConnections:
         self.status = McpConnectionStatus(server=config.name, state="kapali")
         return self.status
 
+    def invalidate(self, name):
+        self.status = McpConnectionStatus(server=name, state="kapali")
+
     async def close(self):
         return None
 
@@ -219,3 +222,21 @@ async def test_yoklamasi_basarisiz_baglanti_kaydedilmez(tmp_path, monkeypatch):
     assert yazilan == []
     assert all(server.name != "bozuk" for server in session._state.config.mcp_servers)
     assert fake.started == []
+
+
+async def test_arac_katalogu_rpc_kaynak_degismisse_eski_sonucu_gostermez(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    session, _fake = _session(tmp_path)
+    server = McpServerConfig(name="one", command="fake")
+    session._state.config = replace(session._state.config, mcp_servers=(server,))
+
+    async def catalog(config):
+        assert config is server
+        session._state.config = replace(session._state.config, mcp_servers=())
+        return {"ok": True, "tools": [{"name": "old-account-tool"}]}
+
+    monkeypatch.setattr("fusion_cli.appserver.session.list_tool_catalog", catalog)
+    result = await session._dispatch(Request("catalog", "baglanti.araclar", {"ad": "one"}))
+    assert result["ok"] is False
+    assert "old-account-tool" not in str(result)

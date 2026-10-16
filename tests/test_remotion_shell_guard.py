@@ -44,7 +44,7 @@ async def test_senkron_exit_sifir_sonrasi_hash_degismesi_basari_degil(tmp_path, 
         (tmp_path / "video/src/index.tsx").write_text("değişti")
         return subprocess.CompletedProcess(args, 0, "render tamamlandı", "")
 
-    monkeypatch.setattr(shell.subprocess, "run", run)
+    monkeypatch.setattr(shell, "run_foreground", run)
     result = shell.run_shell({"command": "echo test"}, context)
     assert not result.ok and "çıkış kodu 0" in result.output
     assert "render tamamlandı" in result.output

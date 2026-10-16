@@ -192,3 +192,28 @@ describe("ProviderList — web oturumu", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 });
+
+it("satır değiştirme kaydedilmemiş anahtarı sessizce silmez", async () => {
+  render(<ProviderList client={client()} initialProviderId="openai" />);
+  const input = await screen.findByLabelText(/API anahtarı/i) as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "SYNTHETIC_UNSAVED_KEY" } });
+  fireEvent.click(screen.getByRole("button", { name: /OpenRouter/ }));
+  expect((screen.getByLabelText(/API anahtarı/i) as HTMLInputElement).value).toBe("SYNTHETIC_UNSAVED_KEY");
+  expect(screen.getByRole("button", { name: /OpenAI/ }).getAttribute("aria-expanded")).toBe("true");
+});
+
+it("bekleyen anahtar kaydı sırasında alan ve sağlayıcı seçimi kilitlidir", async () => {
+  let resolve!: (value: Record<string, unknown>) => void;
+  const fake = client();
+  const previous = fake.request.bind(fake);
+  fake.request = vi.fn((name: string, data: Record<string, unknown>) => name === "kontrol.anahtar_kaydet" ? new Promise<Record<string, unknown>>(done => { resolve = done; }) : previous(name, data));
+  render(<ProviderList client={fake} initialProviderId="openai" />);
+  const input = await screen.findByLabelText(/API anahtarı/i) as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "SYNTHETIC_PENDING_KEY" } });
+  fireEvent.click(screen.getByRole("button", { name: "Kaydet", exact: true }));
+  expect(input.disabled).toBe(true);
+  expect((screen.getByRole("button", { name: /OpenRouter/ }) as HTMLButtonElement).disabled).toBe(true);
+  resolve({ ok: true });
+  await waitFor(() => expect(input.disabled).toBe(false));
+  expect(input.value).toBe("");
+});

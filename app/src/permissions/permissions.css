@@ -55,3 +55,17 @@
   justify-content: flex-end;
   margin-top: var(--space-5);
 }
+
+/* Talk penceresi 320×360 olabilir: kart ve eylemler viewport içinde kalır. */
+.permission-prompt__backdrop { box-sizing: border-box; padding: 12px; overflow: auto; }
+.permission-prompt { box-sizing: border-box; width: 100%; max-width: 440px; max-height: calc(100dvh - 24px); overflow-y: auto; padding: 20px; border-radius: 18px; }
+.permission-prompt h2 { font-family: var(--font-sans); font-size: 20px; font-weight: 600; line-height: 1.25; }
+.permission-prompt p:not(.permission-prompt__eyebrow) { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.permission-prompt__eyebrow { font-size: 10px; letter-spacing: .06em; }
+.permission-prompt__actions { gap: 6px; margin-top: 16px; }
+.permission-prompt__actions .ui-button { min-height: 36px; font-size: 12px; max-width: 100%; white-space: normal; }
+@media (max-width: 360px), (max-height: 420px) {
+ .permission-prompt { padding: 14px; }
+ .permission-prompt__actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+ .permission-prompt__actions .ui-button { width: 100%; }
+}

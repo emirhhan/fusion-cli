@@ -112,3 +112,24 @@ it("metin dosyasını seçilebilir satır numaralarıyla gösterir", async () =>
   expect(screen.getByText("1", { selector: ".file-explorer__line-number" })).toBeTruthy();
   expect(screen.getByText("2", { selector: ".file-explorer__line-number" })).toBeTruthy();
 });
+
+it('dosya revizyonu açık klasörü ve kaydedilmemiş editörü koruyarak listeyi yeniler', async () => {
+  let added = false;
+  const client = workspaceClient((name, data) => {
+    if (name === 'proje.durum') return { ok: true };
+    if (name === 'proje.oku') return { ok: true, yol: 'src/a.txt', tur: 'metin', mime: 'text/plain', boyut: 4, sha256: 'base', icerik: 'base', kesildi: false };
+    return { ok: true, girdiler: data.yol === ''
+      ? [{ ad: 'src', yol: 'src', tur: 'klasor', boyut: 0, degistirilme: 0 }]
+      : [{ ad: 'a.txt', yol: 'src/a.txt', tur: 'dosya', boyut: 4, degistirilme: 0 }, ...(added ? [{ ad: 'new.txt', yol: 'src/new.txt', tur: 'dosya', boyut: 1, degistirilme: 1 }] : [])] };
+  });
+  const { rerender } = render(<FileExplorer client={client} root='/project' revision={0} />);
+  fireEvent.click(await screen.findByRole('treeitem', { name: 'src' }));
+  fireEvent.click(await screen.findByRole('treeitem', { name: 'a.txt' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Düzenle' }));
+  fireEvent.change(screen.getByLabelText('Dosya içeriği'), { target: { value: 'Unsaved edit' } });
+  added = true;
+  rerender(<FileExplorer client={client} root='/project' revision={1} />);
+  await screen.findByRole('treeitem', { name: 'new.txt' });
+  expect((screen.getByLabelText('Dosya içeriği') as HTMLTextAreaElement).value).toBe('Unsaved edit');
+  expect(screen.getByRole('treeitem', { name: 'src' }).getAttribute('aria-expanded')).toBe('true');
+});

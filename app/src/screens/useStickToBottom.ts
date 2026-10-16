@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, type RefObject } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 /** Alttan bu kadar yakınsa kullanıcı "en altta" sayılır (piksel).
  *
@@ -35,8 +35,15 @@ export function useStickToBottom<T>(
   icerikRef: RefObject<HTMLElement | null>,
   bagimlilik: T,
   kullaniciGonderdi: boolean,
-): () => void {
+  cursor?: { content: unknown; ownSubmissionId?: string },
+): { enAltaIn: () => void; hasNewContent: boolean } {
   const sabitRef = useRef(true);
+  const [hasNewContent, setHasNewContent] = useState(false);
+  const content = cursor ? cursor.content : bagimlilik;
+  const ownSubmissionId = cursor?.ownSubmissionId;
+  const previousContent = useRef(content);
+  const previousSubmission = useRef(ownSubmissionId);
+  const hasCursor = cursor !== undefined;
 
   const enAltaIn = useCallback(() => {
     const kutu = kutuRef.current;
@@ -52,17 +59,28 @@ export function useStickToBottom<T>(
       kutu.scrollTop = kutu.scrollHeight;
     }
     sabitRef.current = true;
+    setHasNewContent(false);
   }, [kutuRef]);
 
   const kaydirildi = useCallback(() => {
     const kutu = kutuRef.current;
-    if (kutu) sabitRef.current = enAlttaMi(kutu);
+    if (kutu) {
+      sabitRef.current = enAlttaMi(kutu);
+      if (sabitRef.current) setHasNewContent(false);
+    }
   }, [kutuRef]);
 
   // Kural 1 ve 3: mesaj listesi değişince.
   useLayoutEffect(() => {
-    if (sabitRef.current || kullaniciGonderdi) enAltaIn();
-  }, [bagimlilik, kullaniciGonderdi, enAltaIn]);
+    const newContent = previousContent.current !== content;
+    const newSubmission = hasCursor
+      ? ownSubmissionId !== undefined && ownSubmissionId !== previousSubmission.current
+      : kullaniciGonderdi;
+    previousContent.current = content;
+    previousSubmission.current = ownSubmissionId;
+    if (sabitRef.current || newSubmission) enAltaIn();
+    else if (newContent) setHasNewContent(true);
+  }, [bagimlilik, content, ownSubmissionId, hasCursor, kullaniciGonderdi, enAltaIn]);
 
   // Kaydırma dinleyicisi ve Kural 4: içerik sonradan büyürse.
   useLayoutEffect(() => {
@@ -81,5 +99,5 @@ export function useStickToBottom<T>(
     };
   }, [kutuRef, icerikRef, kaydirildi, enAltaIn]);
 
-  return enAltaIn;
+  return { enAltaIn, hasNewContent };
 }

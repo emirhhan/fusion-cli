@@ -2969,3 +2969,135 @@ def test_chrome_baglantisi_yokken_chrome_araclari_sunulmaz(tmp_path, sink):
 
     assert not any(ad.startswith("chrome_") for ad in adlar)
     assert {"site_design", "start_preview"} <= adlar
+
+
+async def test_steering_during_model_response_discards_old_tool_batch(monkeypatch, tmp_path, sink):
+    """Sonradan gelen kullanıcı kısıtı eski modelin yazma kararını geçersiz kılar."""
+    from fusion_cli.core.steering import SteeringQueue
+
+    steering = SteeringQueue()
+
+    class SteeringProvider(ScriptedProvider):
+        async def stream(self, request):
+            if not self.calls:
+                steering.push("Dosya yazma; yalnız mevcut durumu açıkla.")
+            async for item in super().stream(request):
+                yield item
+
+    provider = SteeringProvider(
+        [
+            model_result(
+                tool_calls=[tool_call("write_file", path="obsolete.txt", content="yanlış")]
+            ),
+            model_result(text="Dosyaya dokunmadan mevcut durumu açıkladım."),
+        ]
+    )
+    _kur(monkeypatch, provider)
+    deps = _deps(tmp_path, sink)
+    deps.steering = steering
+    await run_agent("Görevi değerlendir", deps)
+    assert not (tmp_path / "obsolete.txt").exists()
+    assert any("Dosya yazma" in message.content for message in provider.seen_messages[-1])
+
+
+async def test_optional_question_does_not_block_read_or_invent_mutation_permission(
+    monkeypatch, tmp_path, sink
+):
+    """Açık isteğe bağlı soru okunabilir işi sürdürür; bağlı değişiklik başlamaz."""
+    answer = asyncio.get_running_loop().create_future()
+
+    class WaitingAsker:
+        async def ask(self, question, options=(), recommended=None):
+            return await answer
+
+    (tmp_path / "readable.txt").write_text("gerçek kaynak")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=[tool_call("ask_user", question="Hangi hedef?", required=False)]
+                ),
+                model_result(tool_calls=[tool_call("read_file", path="readable.txt")]),
+                model_result(
+                    tool_calls=[tool_call("write_file", path="blocked.txt", content="varsayım")]
+                ),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, asker=WaitingAsker())
+    await run_agent("Kaynağı incele", deps, verify=False, self_review=False)
+    reads = [
+        event
+        for event in sink.events
+        if isinstance(event, ToolExecuted) and event.name == "read_file"
+    ]
+    assert reads and reads[0].outcome is ToolOutcome.OK
+    assert not (tmp_path / "blocked.txt").exists()
+    assert answer.cancelled()
+    assert not deps.questions.pending
+
+
+@pytest.mark.parametrize("channel_cancelled", [False, True])
+async def test_optional_answer_during_read_invalidates_remaining_mutation_batch(
+    monkeypatch, tmp_path, sink, channel_cancelled
+):
+    """Aynı araç listesindeki okuma sırasında cevap gelirse eski yazma başlamaz."""
+    from fusion_cli.core.tools import Tool, ToolResult
+
+    answer = asyncio.get_running_loop().create_future()
+
+    class WaitingAsker:
+        async def ask(self, question, options=(), recommended=None):
+            return await answer
+
+    async def answer_during_read(args, context):
+        if channel_cancelled:
+            answer.cancel()
+        else:
+            answer.set_result("Dosya yazma")
+        # İki sahipli soru görevinin gerçek event-loop teslimini ilerlet; süre bekleme yok.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert deps.questions.ready
+        return ToolResult("salt okuma tamamlandı")
+
+    provider = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("ask_user", question="Hedef?", required=False)]),
+            model_result(
+                tool_calls=[
+                    tool_call("answer_during_read"),
+                    tool_call("write_file", path="stale.txt", content="yanlış"),
+                ]
+            ),
+            model_result(TAM_CEVAP),
+        ]
+    )
+    _kur(monkeypatch, provider)
+    deps = _deps(tmp_path, sink, asker=WaitingAsker())
+    deps.base_registry.register(
+        Tool("answer_during_read", "", {"type": "object"}, answer_during_read)
+    )
+    await run_agent("Kaynağı incele", deps, verify=False, self_review=False)
+    assert not (tmp_path / "stale.txt").exists()
+
+
+async def test_inflight_model_call_already_consumes_shared_budget(tmp_path, sink, monkeypatch):
+    entered = asyncio.Event()
+
+    async def call(*args, **kwargs):
+        entered.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(agent_loop, "_call_with_retries", call)
+    deps = _deps(tmp_path, sink)
+    running = asyncio.create_task(run_agent("merhaba", deps, self_review=False, chat_mode=True))
+    await entered.wait()
+    try:
+        assert deps.require_budget().model_calls == 1
+    finally:
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running

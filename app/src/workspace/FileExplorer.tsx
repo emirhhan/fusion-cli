@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import type { WorkspaceEntry } from "./types";
 import { useWorkspace } from "./useWorkspace";
@@ -9,12 +9,17 @@ interface FileExplorerProps {
   onChanged?: () => void;
   onSelected?: (path: string) => void;
   root: string;
+  revision?: number;
 }
 
-export function FileExplorer({ client, onChanged, onSelected, root }: FileExplorerProps) {
-  const { state, saveSelected, selectFile, toggleDirectory } = useWorkspace(client, root);
+export function FileExplorer({ client, onChanged, onSelected, root, revision = 0 }: FileExplorerProps) {
+  const { state, saveSelected, selectFile, toggleDirectory } = useWorkspace(client, root, revision);
   const [editContent, setEditContent] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const saveOwner = useRef({ client, root, token: null as symbol | null });
+  if (saveOwner.current.client !== client || saveOwner.current.root !== root) saveOwner.current = { client, root, token: null };
+  const editVersion = useRef(0);
 
   const moveTreeFocus = (event: KeyboardEvent<HTMLButtonElement>, target: number) => {
     const tree = event.currentTarget.closest('[role="tree"]');
@@ -40,6 +45,7 @@ export function FileExplorer({ client, onChanged, onSelected, root }: FileExplor
                 // Seçim değişikliğinin sonradan çalışan bir effect'i, kullanıcı
                 // yeni dosyada hemen Düzenle'ye bastıktan sonra editörü kapatmasın.
                 setEditContent(null);
+                ++editVersion.current;
                 setSaveError(null);
                 onSelected?.(entry.yol);
                 void selectFile(entry.yol);
@@ -123,22 +129,30 @@ export function FileExplorer({ client, onChanged, onSelected, root }: FileExplor
               <div className="file-explorer__editor">
                 <textarea
                   aria-label="Dosya içeriği"
-                  onChange={(event) => setEditContent(event.target.value)}
+                  onChange={(event) => { ++editVersion.current; setEditContent(event.target.value); }}
                   spellCheck={false}
                   value={editContent}
                 />
                 {saveError && <p role="alert">{saveError}</p>}
                 <div className="file-explorer__editor-actions">
-                  <button onClick={() => setEditContent(null)} type="button">Vazgeç</button>
+                  <button onClick={() => { ++editVersion.current; setEditContent(null); }} type="button">Vazgeç</button>
                   <button
+                    disabled={saving && saveOwner.current.token !== null}
                     onClick={() => {
+                      const current = saveOwner.current;
+                      if (current.token) return;
+                      const token = Symbol(), version = editVersion.current;
+                      current.token = token;
+                      setSaving(true);
                       void saveSelected(editContent)
-                        .then(() => {
-                          setEditContent(null);
+                        .then((result) => {
+                          if (saveOwner.current !== current || result.gorunum_guncel === false) return;
+                          if (editVersion.current === version) setEditContent(null);
                           setSaveError(null);
                           onChanged?.();
                         })
-                        .catch((reason) => setSaveError(String(reason)));
+                        .catch((reason) => { if (saveOwner.current === current && editVersion.current === version) setSaveError(String(reason)); })
+                        .finally(() => { if (saveOwner.current === current && current.token === token) { current.token = null; setSaving(false); } });
                     }}
                     type="button"
                   >

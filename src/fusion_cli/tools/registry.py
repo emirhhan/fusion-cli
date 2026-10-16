@@ -7,7 +7,6 @@ yerine `view_file` çağırmayı tercih eder ve bu bir hataya dönüşmemelidir.
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 from collections.abc import Iterable, Iterator
 from dataclasses import replace
@@ -15,14 +14,15 @@ from threading import Event
 
 from ..core.artifacts import offload_output
 from ..core.constants import MAX_OUTPUT_CHARS
-from ..core.errors import FusionError, PathAccessError
+from ..core.errors import CleanupFailedError, FusionError, PathAccessError
+from ..core.owned_thread import await_cancellable_thread
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolExecutor, ToolResult
 from .args import ArgumentError
 from .injection import flag_injection
 
 
 class _CancellationEvent(Event):
-    """Per-call cancellation combined with a caller-owned cancellation signal."""
+    """Çağrının iptalini parent iptal sinyaliyle birlikte gözle."""
 
     def __init__(self, parent: Event) -> None:
         super().__init__()
@@ -38,6 +38,8 @@ def _run_sync(run: ToolExecutor, args: ToolArgs, context: ToolContext) -> ToolRe
     Yalnızca `iscoroutinefunction` False olan executor'lar buraya gelir; dönüş
     her zaman `ToolResult`'tur (Awaitable değil).
     """
+    if context.cancelled.is_set():
+        return ToolResult.failure("Araç başlamadan iptal edildi.")
     result = run(args, context)
     assert isinstance(result, ToolResult)  # senkron yol: Awaitable dönmez
     return result
@@ -125,12 +127,12 @@ class ToolRegistry:
             # kullanmak, iptal edilen bir aramadan sonraki bütün araçları zehirler;
             # `replace` diğer paylaşılan değişiklik/todo/tarayıcı durumunu korur.
             invocation_context = replace(context, cancelled=_CancellationEvent(context.cancelled))
-            try:
-                sonuc = await asyncio.to_thread(_run_sync, tool.run, args, invocation_context)
-            except asyncio.CancelledError:
-                invocation_context.cancelled.set()
-                raise
+            sonuc = await await_cancellable_thread(
+                _run_sync, invocation_context.cancelled.set, tool.run, args, invocation_context
+            )
             return _finish(sonuc, name, context)
+        except CleanupFailedError:
+            raise
         except (ArgumentError, PathAccessError) as exc:
             return ToolResult.failure(str(exc))
         # Geniş yakalama bilinçli: burası araç sınırıdır. Beklenmedik bir hata turu

@@ -43,6 +43,7 @@ export interface PreviewPanelProps {
   client: ProtocolClient;
   openExternal?: (url: string) => Promise<void>;
   selectedPath: string | null;
+  revision?: number;
   /** Ajanın başlattığı önizleme (`PreviewReady`): gelince web kipinde açılır. `seq`
    *  aynı adresin yeniden istenmesini (sayfa yenilensin) ayırt eder. */
   requestedUrl?: { url: string; seq: number } | null;
@@ -61,6 +62,7 @@ export function PreviewPanel({
   openExternal = openWithSystem,
   selectedPath,
   requestedUrl = null,
+  revision = 0,
 }: PreviewPanelProps) {
   const [asset, setAsset] = useState<PreviewAsset | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
@@ -87,7 +89,6 @@ export function PreviewPanel({
     setAssetError(null);
     setAssetLoading(Boolean(selectedPath));
     if (!selectedPath) return () => { active = false; };
-    setMode("file");
     void client.request("proje.onizle", { yol: selectedPath })
       .then((payload) => {
         if (!active) return;
@@ -100,7 +101,9 @@ export function PreviewPanel({
         setAssetLoading(false);
       });
     return () => { active = false; };
-  }, [client, selectedPath]);
+  }, [client, selectedPath, revision]);
+
+  useEffect(() => { if (selectedPath) setMode("file"); }, [client, selectedPath]);
 
   useEffect(() => {
     setObjectUrl("");

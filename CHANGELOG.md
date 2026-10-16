@@ -3,6 +3,26 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## Yayımlanmamış — onay ve soru güvenilirliği
+
+- MCP araç ipuçları çeliştiğinde Fusion açık `destructiveHint=true` değerini
+  `readOnlyHint=true` değerinden önce değerlendirir. Bu, Fusion'ın ihtiyatlı
+  ürün politikasıdır; farklı bir öncelik kullanan istemcinin MCP standardını
+  ihlal ettiği anlamına gelmez. İpucu yoksa araç uzak yazma olarak değerlendirilir;
+  incelenmemiş veya kaynağı değişmiş sunucunun salt okuma iddiası onayı atlayamaz.
+- Uzak işlemlerde oturum izni yalnız doğrulanmış sunucu, hesap, eylem ve hedef
+  kapsamında saklanır. Masaüstü ve terminal bu kapsamı seçimden önce gösterir;
+  kapsam doğrulanamıyorsa yalnız tek işlem için izin istenir.
+- Terminal giriş hatası veya Ctrl+C onaya dönüşmez. İsteğe bağlı soru kanalının
+  kapanması bağımsız çalışmayı iptal etmez ve kullanıcı cevabı sayılmaz.
+- Geç gelen soru cevapları yeniden açılan oturumdaki sorulara uygulanmaz.
+  Yakın cevapların aynı makbuzla tekrarı işlemi ikinci kez başlatmaz.
+- Büyük dosyalarda `read_file` ilk bayt penceresinin ötesindeki satırlara ulaşır;
+  dosyanın tamamını belleğe almaz ve kısmi okuma tam okuma sayılmaz.
+- Terminal konuşma günlüğü ve checkpoint aynı sohbet kimliğini kullanır.
+  Eski ortak `repl`/`cli` kayıtları korunur; yeni oturumlara otomatik taşınmaz.
+  Geçmiş sohbeti içe alma, eski işlem izinlerini veya workflow'u yeniden başlatmaz.
+
 ## [Desktop 0.3.0-alpha.11] — 2026-09-10
 
 - Gerçek macOS uygulamasında saptanan panel genişliği düzeltildi; kontrol paneli

@@ -189,3 +189,12 @@
 }
 
 .provider-list__model-choice small { color: var(--text-secondary); }
+
+/* Dar pencerede arama ve form, yatay kırpılmadan içerik kolonuna sığar. */
+.provider-list__head { flex-wrap: wrap; min-width: 0; }
+.provider-list__search { box-sizing: border-box; max-width: 100%; }
+.provider-list__row { grid-template-columns: 32px minmax(0, 1fr) auto 12px; gap: 8px; }
+.provider-list__name { min-width: 0; overflow-wrap: anywhere; }
+.provider-list__detail { min-width: 0; }
+.provider-list__detail input { box-sizing: border-box; min-width: 0; width: 100%; }
+@media (max-width: 520px) { .provider-list__search { width: 100%; flex-basis: 100%; } .provider-list__detail { margin-left: 0; } }

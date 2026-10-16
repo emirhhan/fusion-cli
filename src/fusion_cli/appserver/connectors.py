@@ -17,7 +17,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
 from typing import Any
 
-from ..config.models import Config, McpServerConfig, McpTransport
+from ..config.models import Config, McpServerConfig, McpTransport, McpTrust
 from ..config.writer import write_mcp_servers
 from ..mcp_bridge.client import McpConnectionStatus
 from ..mcp_bridge.failures import (
@@ -27,6 +27,7 @@ from ..mcp_bridge.failures import (
 )
 from ..mcp_bridge.identity import connection_identity, duplicate_of
 from ..mcp_bridge.oauth import DEFAULT_CALLBACK_PORT, validate_remote_mcp_url
+from ..mcp_bridge.trust import effective_trust, review_identity
 from .hosted_connectors import hosted_connector_rows
 
 #: Komutun PATH'te olup olmadığını söyleyen arama (test yerine geçebilsin diye).
@@ -111,6 +112,8 @@ def status_payload(status: McpConnectionStatus) -> dict[str, Any]:
         "gecikme_ms": status.latency_ms,
         "mesaj": status.message,
         "hata_turu": status.kind,
+        **({"gozlem_zamani": status.observed_at} if status.observed_at else {}),
+        **({"yeniden_deneme_s": status.retry_after_s} if status.retry_after_s is not None else {}),
     }
 
 
@@ -142,6 +145,8 @@ def list_connectors(
                 "ortam_degiskenleri": list(server.env_names),
                 # Yalnız token'ın VAR olduğu bildirilir; değer hiçbir yanıta girmez.
                 "token_var": bool(server.token_env),
+                "guven": effective_trust(server).value,
+                "inceleme_kimligi": review_identity(server),
                 **_row_status((statuses or {}).get(server.name)),
                 **_duplicate_fields(duplicates.get(server.name)),
             }
@@ -174,6 +179,12 @@ def _row_status(status: McpConnectionStatus | dict[str, Any] | None) -> dict[str
             "gecikme_ms": status.latency_ms,
             "mesaj": status.message,
             "hata_turu": status.kind,
+            **({"gozlem_zamani": status.observed_at} if status.observed_at else {}),
+            **(
+                {"yeniden_deneme_s": status.retry_after_s}
+                if status.retry_after_s is not None
+                else {}
+            ),
         }
     if isinstance(status, dict):
         return {
@@ -328,6 +339,32 @@ def _reject_duplicate(
             "Bağlantı çalışmıyorsa Bağlantılar ekranında 'Test et' ya da 'Bağlan' ile dene."
         ),
     }
+
+
+def review_connector(config: Config, data: object) -> tuple[Config | None, dict[str, Any]]:
+    """Kullanıcının incelediği kaynak kimliği değişmediyse güven kararını kaydet."""
+    if not isinstance(data, dict):
+        return None, {"ok": False, "metin": "Geçersiz güven kararı."}
+    server = next((server for server in config.mcp_servers if server.name == data.get("ad")), None)
+    decision = data.get("guven")
+    if server is None or not isinstance(decision, str) or decision not in {"trusted", "revoked"}:
+        return None, {"ok": False, "metin": "Bağlantı veya güven kararı geçersiz."}
+    fingerprint = review_identity(server)
+    if decision == "trusted" and (not fingerprint or fingerprint != data.get("inceleme_kimligi")):
+        return None, {
+            "ok": False,
+            "metin": "Kaynak değişti veya incelenebilir sürüm taşımıyor. Listeyi yenile.",
+        }
+    reviewed = replace(server, trust=McpTrust(decision), reviewed_source=fingerprint or "")
+    updated = replace(
+        config,
+        mcp_servers=tuple(
+            reviewed if item.name == server.name else item for item in config.mcp_servers
+        ),
+    )
+    return _persist(
+        updated, "Kaynak güveni güncellendi. Bu karar yazma veya yayınlama izni vermez."
+    )
 
 
 def remove_connector(config: Config, data: object) -> tuple[Config | None, dict[str, Any]]:

@@ -87,7 +87,7 @@ describe("varyasyonlu çalıştırma", () => {
     expect(son.dugumler[1].durum).toBe("bitti");
   });
 
-  it("bir kısmı üretilirse iş sürer ve eksik not edilir", async () => {
+  it("bir kısmı üretilirse kısmi sonuç korunur ve eksik not edilir", async () => {
     const { akisiCalistir } = await import("./akisCalistir");
     let sira = 0;
     const istek = async () => (++sira === 1 ? { ok: true, dosyalar: [{ yol: "/g/1.jpg" }] } : { ok: false, metin: "kota doldu" });
@@ -100,7 +100,7 @@ describe("varyasyonlu çalıştırma", () => {
       baglantilar: [{ kaynak: "m", hedef: "u" }],
     };
     const son = await akisiCalistir(baslangic, istek, () => undefined);
-    expect(son.dugumler[1].durum).toBe("bitti");
+    expect(son.dugumler[1].durum).toBe("kismi");
     expect(son.dugumler[1].hata).toBe("1/2 varyasyon üretildi: kota doldu");
   });
 });
@@ -165,5 +165,96 @@ describe("canlı, büyüyen akış", () => {
     akis = { ...akis, dugumler: akis.dugumler.map((dugum) => (dugum.id === "m" ? { ...dugum, istem: "mavi kask" } : dugum)) };
     await akisiCalistir(akis, istek, () => undefined);
     expect(cagrilar).toEqual(["kask", "mavi kask"]);
+  });
+});
+
+it("bağlantısız döngü varsa kısmi çalışma sırası vermez", () => {
+  const akis = zincir();
+  akis.dugumler.push(
+    { id: "x", tur: "uret", x: 0, y: 0 },
+    { id: "y", tur: "varyasyon", x: 0, y: 0 },
+  );
+  akis.baglantilar.push({ kaynak: "x", hedef: "y" }, { kaynak: "y", hedef: "x" });
+  expect(() => calismaSirasi(akis)).toThrow(/döngü/);
+});
+
+it("yinelenen kimlikte çalışma sırası vermez", () => {
+  const akis = zincir();
+  akis.dugumler.push({ ...akis.dugumler[0] });
+  expect(() => calismaSirasi(akis)).toThrow(/kimlik/);
+});
+
+it("kısmi düğümü tamamlanmış sayıp alt düğümü çalıştırmaz", async () => {
+  const { akisiCalistir } = await import("./akisCalistir");
+  const akis = zincir();
+  akis.dugumler[1].adet = 2;
+  let calls = 0;
+  const request = async () => (++calls === 1
+    ? { ok: true, dosyalar: [{ yol: "/g/ilk.jpg" }] }
+    : { ok: false, metin: "kota doldu" });
+  const partial = await akisiCalistir(akis, request, () => undefined);
+  expect(calls).toBe(2);
+  await akisiCalistir(partial, request, () => undefined);
+  expect(calls).toBe(2);
+});
+
+it("kısmi düğüm açıkça yeniden çalıştırılınca yalnız eksik varyasyonu üretir", async () => {
+  const { akisiCalistir } = await import("./akisCalistir");
+  const akis = zincir();
+  akis.dugumler[1].adet = 2;
+  let calls = 0;
+  const request = async () => (++calls === 2
+    ? { ok: false, metin: "geçici kota" }
+    : { ok: true, dosyalar: [{ yol: `/g/sonuc-${calls}.png` }] });
+  const partial = await akisiCalistir(akis, request, () => undefined);
+  const completed = await akisiCalistir(partial, request, () => undefined, { hedef: "u" });
+  expect(calls).toBe(3);
+  expect(completed.dugumler.find((node) => node.id === "u")).toMatchObject({
+    durum: "bitti", yol: "/g/sonuc-1.png", sonuclar: ["/g/sonuc-1.png", "/g/sonuc-3.png"],
+  });
+  expect(completed.dugumler.find((node) => node.id === "v")?.yol).toBeUndefined();
+});
+
+it("kısmi düğüm girdisi değişince eski sonuçları yeni varyasyon saymaz", async () => {
+  const { akisiCalistir } = await import("./akisCalistir");
+  const akis = zincir();
+  akis.dugumler[1].adet = 2;
+  let calls = 0;
+  const request = async () => (++calls === 2
+    ? { ok: false, metin: "geçici kota" }
+    : { ok: true, dosyalar: [{ yol: `/g/sonuc-${calls}.png` }] });
+  const partial = await akisiCalistir(akis, request, () => undefined);
+  const changed = dugumGuncelle(partial, "m", { istem: "yeni istem" });
+  const completed = await akisiCalistir(changed, request, () => undefined, { hedef: "u" });
+  expect(calls).toBe(4);
+  expect(completed.dugumler.find((node) => node.id === "u")?.sonuclar)
+    .toEqual(["/g/sonuc-3.png", "/g/sonuc-4.png"]);
+});
+
+it.each([null, {}, { yol: "" }, { yol: "/g/x.png", genislik: -1 }])(
+  "bozuk görsel makbuzunu başarılı düğüm saymaz: %j", async (receipt) => {
+    const { akisiCalistir } = await import("./akisCalistir");
+    const result = await akisiCalistir(zincir(), async () => ({ ok: true, dosyalar: [receipt] }), () => undefined);
+    expect(result.dugumler.find((node) => node.id === "u")?.durum).toBe("hata");
+    expect(result.dugumler.find((node) => node.id === "u")?.yol).toBeUndefined();
+    expect(result.dugumler.find((node) => node.id === "v")?.yol).toBeUndefined();
+  },
+);
+
+it("eksikler tek makbuzda tamamlanırsa fazladan üretim çağırmaz", async () => {
+  const { akisiCalistir } = await import("./akisCalistir");
+  const akis = zincir();
+  akis.dugumler[1].adet = 3;
+  let initialCalls = 0;
+  const partial = await akisiCalistir(akis, async () => (++initialCalls === 1
+    ? { ok: true, dosyalar: [{ yol: "/g/ilk.png" }] }
+    : { ok: false, metin: "kota" }), () => undefined);
+  let retries = 0;
+  const completed = await akisiCalistir(partial, async () => (++retries === 1
+    ? { ok: true, dosyalar: [{ yol: "/g/ikinci.png" }, { yol: "/g/ucuncu.png" }] }
+    : { ok: false, metin: "gereksiz çağrı" }), () => undefined, { hedef: "u" });
+  expect(retries).toBe(1);
+  expect(completed.dugumler.find((node) => node.id === "u")).toMatchObject({
+    durum: "bitti", sonuclar: ["/g/ilk.png", "/g/ikinci.png", "/g/ucuncu.png"],
   });
 });

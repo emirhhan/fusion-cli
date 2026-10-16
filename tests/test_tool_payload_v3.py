@@ -53,6 +53,10 @@ def _deps(tmp_path):
         max_idle_rounds=99,
     )
     return SimpleNamespace(
+        steering=None,
+        mutation_blocked_by_pending_input=lambda: False,
+        approval_revision=None,
+        policy_factory=None,
         publisher=_Publisher(),
         tool_context=ToolContext(tmp_path),
         policy=_Allow(),

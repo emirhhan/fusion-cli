@@ -288,3 +288,17 @@
 }
 /* Boş sohbette composer ortadadır; uyarı altına değil sayfa akışına aittir. */
 [data-empty-chat="true"] .composer__disclaimer { display: none; }
+
+/* Çalışan işe gönderim seçimi, yazma kutusunun kendi hizasında kalır. */
+.composer__submission { grid-column: 1 / -1; align-items: center; display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-2); min-width: 0; font-size: var(--text-xs); color: var(--text-secondary); }
+.composer__submission select { appearance: auto; background: var(--surface-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--text-primary); font: inherit; max-width: 100%; min-width: 0; padding: 5px 8px; }
+.composer__submission select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.composer__submission select:disabled { opacity: .6; }
+.composer__notice { grid-column: 1 / -1; color: var(--text-secondary); font-size: var(--text-xs); line-height: 1.45; margin: 0 0 var(--space-2); }
+
+.composer[data-layout="compact"][data-busy-submission="true"] .composer__submission { grid-row: 1; }
+.composer[data-layout="compact"][data-busy-submission="true"] textarea,
+.composer[data-layout="compact"][data-busy-submission="true"] .composer__tools > span,
+.composer[data-layout="compact"][data-busy-submission="true"] .composer__mode,
+.composer[data-layout="compact"][data-busy-submission="true"] .composer__approval,
+.composer[data-layout="compact"][data-busy-submission="true"] .composer__actions { grid-row: 2; }

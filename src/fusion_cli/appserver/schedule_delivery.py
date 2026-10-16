@@ -37,6 +37,11 @@ def add_delivery(item: Mapping[str, object], due_at: float) -> dict[str, object]
     assert isinstance(task, str) and isinstance(root, str)
     occurrence = hashlib.sha256(json.dumps([identifier, due_at]).encode()).hexdigest()
     deliveries = _records(item)
+    for delivery in deliveries:
+        if delivery.occurrence_id == occurrence and (
+            delivery.schedule_id != identifier or delivery.task != task or delivery.root != root
+        ):
+            raise ValueError("Aynı vade farklı görev veya çalışma alanına bağlanamaz.")
     if not any(delivery.occurrence_id == occurrence for delivery in deliveries):
         deliveries = (
             *deliveries,

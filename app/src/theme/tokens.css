@@ -1,3 +1,6 @@
+@import "../brand/fonts.css";
+@import "./brand.generated.css";
+
 /* Ölçülmüş açık tema değerleri:
    docs/superpowers/specs/2026-08-29-uygulama-gorsel-dil.md
 
@@ -9,18 +12,20 @@
   --brand-obsidian: #0b0a0d;
   --brand-carbon: #14181d;
   --brand-soft-white: #f3f5f6;
-  --brand-signal: #a8ff3e;
-  /* Signal Green beyaz üstünde 1.23:1 verir — açık temada METİN OLAMAZ.
-     Açık temada okunabilir karşılığı budur (beyaz üstünde 6.27:1). */
-  --brand-signal-deep: #446b00;
+  --brand-signal: var(--fusion-cyan);
+  /* Açık zeminde vurgu metni okunabilir koyu mavidir. */
+  --brand-signal-deep: var(--fusion-accent-deep);
+  --brand-detail-blue: var(--fusion-blue);
+  --brand-detail-cyan: var(--fusion-cyan);
+  --brand-detail-violet: var(--fusion-violet);
+  --brand-detail-mint: var(--brand-detail-cyan);
 
-  --surface-canvas: #ffffff;
-  --surface-sidebar: #f9f9f9;
+  --surface-canvas: var(--fusion-canvas);
+  --surface-sidebar: var(--fusion-sidebar);
   --surface-selected: #ececec;
   --surface-message-user: #f4f4f4;
-  /* Referanstaki mor vurgu, markanın yeşiline çevrildi: vurgu artık
-     ürün kimliğinin parçası, referansın rastgele bir değeri değil. */
-  --surface-accent-subtle: #eef7dc;
+  /* Marka vurgusu logonun mavi/camgöbeği tonlarından gelir. */
+  --surface-accent-subtle: #edf3ff;
   --surface-raised: #ffffff;
   --surface-hover: #efefef;
   --surface-overlay: rgb(0 0 0 / 32%);
@@ -35,31 +40,28 @@
 
   /* Saf siyah yerine Obsidian: marka mürekkebi. Fark göz için küçük,
      kimlik için belirleyici. */
-  --text-primary: #0b0a0d;
-  --text-secondary: #5d5d5d;
+  --text-primary: var(--fusion-ink);
+  --text-secondary: var(--fusion-muted);
   --text-inverse: #ffffff;
   --text-danger: #b42318;
-  --text-success: #087a55;
+  --text-success: #1d4ed8;
   --text-warning: #925f00;
 
   --border-subtle: #e9e9eb;
   --border-strong: #c9c9cc;
   --control-primary: #0b0a0d;
-  --focus-ring: var(--brand-signal-deep);
+  --focus-ring: var(--brand-detail-blue);
 
   /* Metin seçim rengi (`::selection`): `--surface-accent-subtle` eskiden bu
      amaçla kullanılıyordu ama o token yalnız hafif bir zemin tonu için
-     ölçülmüştü — koyu temadaki karşılığı (#1e2a12) neredeyse siyah zeminden
+     ölçülmüştü — koyu temadaki karşılığı (#1b2941) neredeyse siyah zeminden
      (#050505) ayırt edilmiyordu. Seçim BELİRGİN olmalı; burada zaten
      ölçülmüş, yüksek kontrastlı marka çiftleri kullanılır (aşağıdaki
      yorumlara bkz.). */
   --selection-bg: var(--brand-signal-deep);
   --selection-text: var(--text-inverse);
 
-  /* --- Vurgu sözleşmesi ------------------------------------------------
-     `--accent` DOLGU rengidir, metin rengi değildir. Üstüne yazılacak metin
-     her zaman `--accent-on` olur (yeşil üstünde Obsidian: 16.02:1).
-     Zemin üstünde vurgulu METİN gerektiğinde `--accent-text` kullanılır. */
+  /* Marka vurgusu logonun mavi/camgöbeği tonlarından gelir. */
   --accent: var(--brand-signal);
   --accent-on: var(--brand-obsidian);
   --accent-text: var(--brand-signal-deep);
@@ -110,12 +112,10 @@
   --radius-pill: 999px;
   --yaricap: var(--radius-md);
 
-  /* Marka tipografisi Satoshi'dir. Uygulama İNTERNETE ÇIKMAZ ve font dosyası
-     depoya gömülmedi; Satoshi kurulu sistemlerde kullanılır, değilse yığın
-     sessizce Inter/sistem yazı tipine düşer. Metrikleri yakın seçildi ki
-     düşüş yerleşimi bozmasın. */
-  --font-sans: Satoshi, "Satoshi Variable", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  /* Inter ve JetBrains Mono yerel paketlenir; SF macOS sisteminden gelir. */
+  --font-heading: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, Inter, sans-serif;
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   /* Kademeler bileşenlerdeki ÖLÇÜLEN kullanımdan türedi: ham pikselde 9-30px
      arası 15 ayrı değer vardı ve aynı rol farklı ekranlarda farklı boyuttaydı.
      Aşağıdaki yedi kademe o kullanımların tamamını karşılar. */
@@ -174,18 +174,18 @@
   --ekip-mor-murekkep: #5b3cc4;
   --ekip-mavi-zemin: #e5f0ff;
   --ekip-mavi-murekkep: #1f5fbf;
-  --ekip-pembe-zemin: #ffe8f3;
-  --ekip-pembe-murekkep: #b02a6b;
-  --ekip-yesil-zemin: #e3f6ea;
-  --ekip-yesil-murekkep: #17703f;
-  --ekip-turuncu-zemin: #fff0e0;
-  --ekip-turuncu-murekkep: #a2480b;
+  --ekip-pembe-zemin: var(--ekip-mor-zemin);
+  --ekip-pembe-murekkep: var(--ekip-mor-murekkep);
+  --ekip-yesil-zemin: #e5f0ff;
+  --ekip-yesil-murekkep: #1f5fbf;
+  --ekip-turuncu-zemin: var(--ekip-mavi-zemin);
+  --ekip-turuncu-murekkep: var(--ekip-mavi-murekkep);
   --ekip-camgobegi-zemin: #e0f6f8;
   --ekip-camgobegi-murekkep: #0d6b77;
-  --ekip-sari-zemin: #fff6d6;
-  --ekip-sari-murekkep: #7d5d00;
-  --ekip-kirmizi-zemin: #ffe7e5;
-  --ekip-kirmizi-murekkep: #b3261e;
+  --ekip-sari-zemin: var(--ekip-camgobegi-zemin);
+  --ekip-sari-murekkep: var(--ekip-camgobegi-murekkep);
+  --ekip-kirmizi-zemin: var(--ekip-mor-zemin);
+  --ekip-kirmizi-murekkep: var(--ekip-mor-murekkep);
   --ekip-gri-zemin: #efefef;
   --ekip-gri-murekkep: #4a4a4a;
   /* Bileşenin kullandığı etkin kişilik rengi; `data-renk` seçicisi ezer
@@ -210,15 +210,12 @@
 }
 
 :root[data-theme="dark"] {
-  /* Koyu tema markanın kendi evidir: Carbon içerik zemini, Obsidian en derin
-     yüzey (kenar çubuğu), Soft White mürekkep, Signal Green vurgu.
-     Ölçülen kontrastlar: Soft White/Carbon 16.30:1, ikincil metin 7.05:1,
-     Signal Green/Obsidian 16.02:1 — üçü de WCAG AA'nın epey üstünde. */
-  --surface-canvas: #212121;
-  --surface-sidebar: #181818;
+  /* Marka vurgusu logonun mavi/camgöbeği tonlarından gelir. */
+  --surface-canvas: var(--fusion-canvas);
+  --surface-sidebar: var(--fusion-sidebar);
   --surface-selected: #2f2f2f;
   --surface-message-user: #303030;
-  --surface-accent-subtle: #1e2a12;
+  --surface-accent-subtle: #1b2941;
   --surface-raised: #303030;
   --surface-menu: #353535;
   --surface-hover: #2a2a2a;
@@ -231,23 +228,21 @@
   --settings-input-bg: #303030;
   --settings-selected: #2f2f2f;
   --settings-ring: #a8c6ff;
-  --text-primary: #ececec;
-  --text-secondary: #afafaf;
+  --text-primary: var(--fusion-ink);
+  --text-secondary: var(--fusion-muted);
   --text-inverse: #0b0a0d;
   --text-danger: #ff9b95;
-  --text-success: #69d3ac;
+  --text-success: #67d9ef;
   --text-warning: #f4c66e;
   --border-subtle: #353535;
   --border-strong: #565656;
   --control-primary: #f3f5f6;
-  /* Koyu zeminde markanın kendi yeşili doğrudan kullanılabilir. */
-  --focus-ring: var(--brand-signal);
+  /* Marka vurgusu logonun mavi/camgöbeği tonlarından gelir. */
+  --focus-ring: var(--brand-detail-cyan);
   --accent: var(--brand-signal);
   --accent-on: var(--brand-obsidian);
   --accent-text: var(--brand-signal);
-  /* Koyu zeminde markanın parlak yeşili + Obsidian metin: dosyanın üstünde
-     zaten ölçülü belgelenen "Signal Green/Obsidian 16.02:1" çiftinin aynısı,
-     bu yüzden seçim koyu temada da belirgin okunur. */
+  /* Marka vurgusu logonun mavi/camgöbeği tonlarından gelir. */
   --selection-bg: var(--brand-signal);
   --selection-text: var(--text-inverse);
 
@@ -256,18 +251,18 @@
   --ekip-mor-murekkep: #c7b6ff;
   --ekip-mavi-zemin: #1d2b42;
   --ekip-mavi-murekkep: #9cc4ff;
-  --ekip-pembe-zemin: #3d2232;
-  --ekip-pembe-murekkep: #ffadd5;
-  --ekip-yesil-zemin: #1b3326;
-  --ekip-yesil-murekkep: #8fe0b0;
-  --ekip-turuncu-zemin: #3d2a17;
-  --ekip-turuncu-murekkep: #ffc28a;
+  --ekip-pembe-zemin: var(--ekip-mor-zemin);
+  --ekip-pembe-murekkep: var(--ekip-mor-murekkep);
+  --ekip-yesil-zemin: #1d2b42;
+  --ekip-yesil-murekkep: #9cc4ff;
+  --ekip-turuncu-zemin: var(--ekip-mavi-zemin);
+  --ekip-turuncu-murekkep: var(--ekip-mavi-murekkep);
   --ekip-camgobegi-zemin: #173236;
   --ekip-camgobegi-murekkep: #8ce1ea;
-  --ekip-sari-zemin: #37301a;
-  --ekip-sari-murekkep: #f5d878;
-  --ekip-kirmizi-zemin: #3e2020;
-  --ekip-kirmizi-murekkep: #ffa69f;
+  --ekip-sari-zemin: var(--ekip-camgobegi-zemin);
+  --ekip-sari-murekkep: var(--ekip-camgobegi-murekkep);
+  --ekip-kirmizi-zemin: var(--ekip-mor-zemin);
+  --ekip-kirmizi-murekkep: var(--ekip-mor-murekkep);
   --ekip-gri-zemin: #353535;
   --ekip-gri-murekkep: #d6d6d6;
 }
@@ -344,3 +339,6 @@ button:disabled {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Başlıklarda macOS sistem SF ailesi; Apple fontları pakete gömülmez. */
+h1, h2, h3, h4 { font-family: var(--font-heading); font-optical-sizing: auto; }

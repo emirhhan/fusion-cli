@@ -23,6 +23,8 @@ from typing import Any
 
 from ..config.paths import user_data_dir
 from ..core.events import Event, EventSink, FilesChanged
+from ..memory.asset_catalog import AssetCatalog
+from .asset_paths import catalog_fields, generated_path, scoped_files
 from .image_flows import gallery_dir
 
 SOURCE_GENERATED = "uretilen"
@@ -100,8 +102,10 @@ def record_generated(root: Path, paths: Iterable[str], directory: Path | None = 
     stamp = time.time()
     entries = []
     for raw in paths:
-        path = Path(raw)
-        resolved = (path if path.is_absolute() else root / path).resolve()
+        try:
+            resolved = generated_path(root, raw)
+        except (OSError, ValueError, RuntimeError):
+            continue
         if resolved.is_file():
             entries.append(
                 {"yol": str(resolved), "kaynak": SOURCE_GENERATED, "kok": str(root), "zaman": stamp}
@@ -170,26 +174,47 @@ def _item(path: Path, source: str, root: str = "") -> dict[str, Any] | None:
     }
 
 
-def _gallery_items(gallery: Path) -> list[dict[str, Any]]:
+def _gallery_items(gallery: Path, catalog: AssetCatalog | None = None) -> list[dict[str, Any]]:
     if not gallery.is_dir():
         return []
-    images = (p for p in gallery.iterdir() if p.suffix.lower() in _KINDS["gorsel"])
-    return [item for item in (_item(path, SOURCE_IMAGE) for path in images) if item]
+    images = (path for path, _stamp in scoped_files(gallery, _KINDS["gorsel"]))
+    return [
+        {**item, **catalog_fields(catalog, "gallery", Path(item["yol"]), gallery)}
+        for item in (_item(path, SOURCE_IMAGE) for path in images)
+        if item
+    ]
+
+
+def _indexed_item(path: str, entry: dict[str, Any], base: Path) -> dict[str, Any] | None:
+    """Kayıttan sonra değişen symlink hedefi eski kaydın yetkisini genişletemez."""
+    source = entry.get("kaynak", SOURCE_GENERATED)
+    root = entry.get("kok", "")
+    if not isinstance(root, str) or not isinstance(source, str):
+        return None
+    scope = Path(root) if source == SOURCE_GENERATED and root else _uploads_dir(base)
+    if source not in {SOURCE_GENERATED, SOURCE_UPLOADED}:
+        return None
+    try:
+        resolved = generated_path(scope, path)
+    except (OSError, ValueError, RuntimeError):
+        return None
+    return _item(resolved, str(source), root)
 
 
 def list_library(
-    data: dict[str, Any], directory: Path | None = None, gallery: Path | None = None
+    data: dict[str, Any],
+    directory: Path | None = None,
+    gallery: Path | None = None,
+    *,
+    catalog: AssetCatalog | None = None,
 ) -> dict[str, Any]:
     """Kitaplığı listele: `tur` (gorsel|video|belge|kod|diger) ve `sorgu` ile süz."""
     base = directory or library_dir()
     kind = data.get("tur")
     query = data.get("sorgu")
     needle = query.strip().casefold() if isinstance(query, str) else ""
-    indexed = (
-        _item(Path(path), str(entry.get("kaynak", SOURCE_GENERATED)), str(entry.get("kok", "")))
-        for path, entry in _read_index(base).items()
-    )
-    items = [item for item in indexed if item] + _gallery_items(gallery or gallery_dir())
+    indexed = (_indexed_item(path, entry, base) for path, entry in _read_index(base).items())
+    items = [item for item in indexed if item] + _gallery_items(gallery or gallery_dir(), catalog)
     if isinstance(kind, str) and kind:
         items = [item for item in items if item["tur"] == kind]
     if needle:

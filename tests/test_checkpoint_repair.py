@@ -68,7 +68,7 @@ def test_restore_is_exact_idempotent_and_rejects_disjoint_state():
 def test_invalid_counter_rejects_entire_checkpoint(tmp_path, bad):
     store = JsonCheckpointStore(tmp_path)
     store.save(_checkpoint(tmp_path))
-    path = tmp_path / "plan-1.json"
+    path = next(tmp_path.glob("*.json"))
     payload = json.loads(path.read_text())
     payload["turn_repair"] = {"verify_rounds": bad, "failures": []}
     path.write_text(json.dumps(payload))
@@ -101,7 +101,7 @@ def test_private_source_path_rejects_checkpoint(tmp_path, path):
 def test_old_checkpoint_absent_field_has_no_invented_repair_usage(tmp_path):
     store = JsonCheckpointStore(tmp_path)
     store.save(_checkpoint(tmp_path))
-    path = tmp_path / "plan-1.json"
+    path = next(tmp_path.glob("*.json"))
     payload = json.loads(path.read_text())
     payload.pop("turn_repair", None)
     path.write_text(json.dumps(payload))
@@ -126,7 +126,7 @@ async def test_real_plan_entry_saves_and_restores_repair_before_resume(tmp_path,
         raise AssertionError("Model çağrısı bu sınır testinde başlamamalı.")
 
     async def save_only(run):
-        run.save()
+        await run.save()
         return AgentOutcome("kaydedildi", [])
 
     monkeypatch.setattr(plan_runner._PlanRun, "run", save_only)
@@ -181,7 +181,7 @@ def test_serialized_repair_contains_hashes_not_tool_output(tmp_path):
     record_failure_evidence(failure("first"), turn)
     store = JsonCheckpointStore(tmp_path)
     store.save(replace(_checkpoint(tmp_path), turn_repair=turn.snapshot_repairs()))
-    payload = json.loads((tmp_path / "plan-1.json").read_text())["turn_repair"]
+    payload = json.loads((next(tmp_path.glob("*.json"))).read_text())["turn_repair"]
     assert set(payload) == {"verify_rounds", "failures"}
     item = payload["failures"][0]
     assert set(item) == {"check_id", "family", "attempt_id", "origin", "sources"}
@@ -201,7 +201,7 @@ def test_malformed_failure_identity_rejects_loaded_checkpoint(tmp_path, field, v
     record_failure_evidence(failure("first"), turn)
     store = JsonCheckpointStore(tmp_path)
     store.save(replace(_checkpoint(tmp_path), turn_repair=turn.snapshot_repairs()))
-    path = tmp_path / "plan-1.json"
+    path = next(tmp_path.glob("*.json"))
     payload = json.loads(path.read_text())
     payload["turn_repair"]["failures"][0][field] = value
     path.write_text(json.dumps(payload))
@@ -213,7 +213,7 @@ def test_private_source_in_loaded_checkpoint_rejected(tmp_path):
     record_failure_evidence(failure("first"), turn)
     store = JsonCheckpointStore(tmp_path)
     store.save(replace(_checkpoint(tmp_path), turn_repair=turn.snapshot_repairs()))
-    path = tmp_path / "plan-1.json"
+    path = next(tmp_path.glob("*.json"))
     payload = json.loads(path.read_text())
     payload["turn_repair"]["failures"][0]["sources"][0]["path"] = ".env.json"
     path.write_text(json.dumps(payload))
@@ -225,7 +225,7 @@ def test_duplicate_attempt_in_loaded_checkpoint_rejected(tmp_path):
     record_failure_evidence(failure("first"), turn)
     store = JsonCheckpointStore(tmp_path)
     store.save(replace(_checkpoint(tmp_path), turn_repair=turn.snapshot_repairs()))
-    path = tmp_path / "plan-1.json"
+    path = next(tmp_path.glob("*.json"))
     payload = json.loads(path.read_text())
     failures = payload["turn_repair"]["failures"]
     failures.append(failures[0])
@@ -283,7 +283,7 @@ def test_actual_job_producer_opaque_ids_checkpoint_without_crash(tmp_path, check
     store.save(saved)
     assert store.load("plan-1") == saved
     raw = (tmp_path / "job.proof.json").read_text()
-    checkpoint_raw = (tmp_path / "checkpoints" / "plan-1.json").read_text()
+    checkpoint_raw = next((tmp_path / "checkpoints").glob("*.json")).read_text()
     assert check not in raw and check not in checkpoint_raw and family not in checkpoint_raw
     resumed = budget()
     resumed.restore_repairs(store.load("plan-1").turn_repair)

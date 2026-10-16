@@ -1,0 +1,79 @@
+/* Talk: karakterin çevresi gerçek alfa; yalnız soru ve menü kendi yüzeyini çizer. */
+:root .voice-panel,
+:root[data-theme="dark"] .voice-panel,
+:root .voice-panel[data-mode="mini"] {
+  background: transparent;
+  backdrop-filter: none;
+  border: 0;
+  box-shadow: none;
+  border-radius: 0;
+  color: var(--text-primary);
+  display: grid;
+  gap: 4px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 28px minmax(0, 1fr) 32px;
+  padding: 0 12px 6px;
+}
+.voice-panel .voice-panel__head,
+.voice-panel[data-mode="mini"] .voice-panel__head { height: 28px; inset: auto; position: relative; grid-column: 1; grid-row: 1; }
+.voice-panel .voice-panel__title { display: none; }
+.voice-panel .voice-panel__window-controls { top: 8px; left: 6px; opacity: 0; transition: opacity var(--duration-fast); }
+.voice-panel:hover .voice-panel__window-controls,
+.voice-panel:focus-within .voice-panel__window-controls { opacity: 1; }
+.voice-panel[data-mode="mini"] .voice-panel__stage,
+.voice-panel .voice-panel__stage { align-content: start; display: grid; gap: 4px; grid-column: 1; grid-row: 2; grid-template-rows: auto minmax(0, auto); overflow: auto; justify-items: center; }
+.voice-panel[data-mode="mini"] .fusion-avatar { grid-column: auto; grid-row: auto; }
+.voice-panel .voice-panel__content,
+.voice-panel[data-mode="mini"] .voice-panel__content { display: grid; grid-column: auto; grid-row: auto; justify-items: center; align-content: start; min-width: 0; width: 100%; }
+.voice-panel .voice-wave,
+.voice-panel .voice-panel__status,
+.voice-panel .voice-panel__transcript,
+.voice-panel .voice-panel__hint { display: none; }
+.voice-panel .voice-panel__status { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; display: block; }
+.voice-panel[data-state="error"] .voice-panel__status { position: static; clip-path: none; width: auto; height: auto; border-radius: var(--radius-pill); padding: 5px 10px; background: var(--surface-raised); color: var(--text-danger); }
+.voice-panel .voice-panel__foot,
+.voice-panel[data-mode="mini"] .voice-panel__foot { align-items: center; display: flex; grid-column: 1; grid-row: 3; justify-content: center; gap: 6px; }
+.voice-panel .voice-panel__mic,
+.voice-panel[data-mode="mini"] .voice-panel__mic { width: 24px; height: 24px; background: var(--surface-raised); color: var(--accent-text); border: 1px solid var(--border-subtle); }
+.voice-panel .voice-panel__mic[data-dinliyor="true"] { animation: none; background: var(--surface-raised); color: var(--accent-text); }
+.voice-panel .voice-panel__settings-toggle { min-height: 28px; min-width: 28px; background: var(--surface-raised); }
+:root .voice-panel .voice-ask,
+:root[data-theme="dark"] .voice-panel .voice-ask,
+:root .voice-panel[data-mode="mini"] .voice-ask { background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); margin: 4px 0; padding: 10px; width: min(100%, 360px); display: grid; gap: 8px; }
+.voice-ask__summary { background: transparent; border: 0; color: var(--text-primary); display: grid; gap: 4px; padding: 0; text-align: left; width: 100%; }
+.voice-ask__summary small { color: var(--accent-text); font-size: var(--text-2xs); }
+.voice-panel .voice-ask__text,
+.voice-panel[data-mode="mini"] .voice-ask__text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: normal; text-align: left; line-height: 1.45; font-size: var(--text-xs); }
+.voice-ask__full { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--text-sm); margin: 0 0 10px; }
+.voice-ask__details { max-height: 220px; overflow: auto; }
+.voice-ask__buttons { flex-wrap: wrap; }
+.voice-ask__summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 4px; border-radius: var(--radius-xs); }
+
+.voice-panel[data-mode="mini"] .voice-panel__menu-toggle { background: var(--surface-raised); border: 1px solid var(--border-subtle); color: var(--text-primary); border-radius: var(--radius-pill); }
+
+.voice-panel__character { justify-self: center; cursor: grab; touch-action: none; }
+.voice-panel__character:active { cursor: grabbing; }
+/* Boşta yalnız karakter/soru görünür; denetimler hover veya klavye odağında açılır. */
+.voice-panel .voice-panel__foot,
+.voice-panel[data-mode="mini"] .voice-panel__menu-toggle { opacity: 0; pointer-events: none; }
+.voice-panel:hover .voice-panel__foot,
+.voice-panel:focus-within .voice-panel__foot,
+.voice-panel[data-mode="mini"]:hover .voice-panel__menu-toggle,
+.voice-panel[data-mode="mini"]:focus-within .voice-panel__menu-toggle { opacity: 1; pointer-events: auto; }
+
+/* Karakter dışında kalıcı pencere denetimi yoktur. */
+:root .voice-panel { grid-template-rows: minmax(0, 1fr); padding: 8px 12px; }
+.voice-panel .voice-panel__stage { grid-row: 1; }
+.voice-panel .voice-panel__character { background: transparent; border: 0; padding: 0; cursor: pointer; color: inherit; border-radius: 24px; }
+.voice-panel__character:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.voice-panel__error { background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); color: var(--text-danger); padding: 10px 12px; margin: 4px 0; font-size: var(--text-xs); line-height: 1.5; max-width: min(100%, 360px); overflow-wrap: anywhere; max-height: 150px; overflow: auto; }
+.voice-panel__menu { max-width: calc(100% - 24px); max-height: calc(100% - 16px); overflow-y: auto; z-index: 20; }
+
+.voice-panel__sr { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+html[data-talk-surface="true"], body[data-talk-surface="true"], #root[data-talk-surface="true"] { min-width: 0; }
+
+/* Hale ve süzülme payı karakter alanında kalır; metin kartları kendi içinde kayar. */
+.voice-panel .voice-panel__stage,
+.voice-panel[data-mode="mini"] .voice-panel__stage { padding-top: 16px; overflow: visible; }
+.voice-panel .voice-panel__character { cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
+.voice-panel .voice-panel__character:active { cursor: grabbing; }

@@ -96,7 +96,7 @@ _SCREENSHOT_SCALES: weakref.WeakKeyDictionary[object, float] = weakref.WeakKeyDi
 _READ_ACTIONS = frozenset(
     {
         "scroll", "wait", "tabs", "open", "tab", "screenshot",
-        "back", "forward", "reload", "close", "hover", "text", "assets",
+        "back", "forward", "reload", "hover", "text", "assets",
     }
 )  # fmt: skip
 #: Sayfayla etkileşen ama kalıcı iz bırakmayan işlemler: otomatik kipte sorulmaz.
@@ -133,6 +133,9 @@ async def chrome_action_effect(args: ToolArgs, context: ToolContext | None) -> T
     kutusunda ya da riskli düğmeli formda sorulur (`_key_effect`).
     """
     action = args.get("action")
+    if action == "close":
+        # Sekme kapatma kaydedilmemiş kullanıcı verisini kaybettirebilir.
+        return ToolEffect.REMOTE_DESTRUCTIVE
     if action == "click_at":
         point = _point(args.get("value"), context)
         if point is None or context is None or context.chrome is None:

@@ -1129,6 +1129,7 @@ dependencies = [
  "block2",
  "flate2",
  "fs2",
+ "getrandom 0.3.4",
  "hex",
  "objc2",
  "objc2-av-foundation",

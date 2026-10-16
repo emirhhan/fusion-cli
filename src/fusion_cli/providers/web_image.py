@@ -14,15 +14,18 @@ doğrulamasındaydı; canlı ÖLÇÜLMEDİ.
 from __future__ import annotations
 
 import asyncio
-import base64
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from itertools import count
 from pathlib import Path
 from typing import Any
 
 from ..config.models import WebSessionConfig
+from ..core.atomic_file import atomic_create_bytes
+from ..core.owned_thread import await_owned_thread
+from .image_payload import decode_image_payload
 from .web_browser import (
     _POOL,
     BrowserProviderDefinition,
@@ -89,13 +92,25 @@ def save_images(
     zaman = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
     kayitlar: list[GeneratedImage] = []
     for sira, payload in enumerate(payloads, start=1):
-        veri = base64.b64decode(str(payload.get("b64", "")))
-        if not veri.startswith(b"\x89PNG"):
+        image = decode_image_payload(str(payload.get("b64", "")))
+        if image is None:
             continue
-        yol = out_dir / f"fusion-{zaman}-{sira}.png"
-        yol.write_bytes(veri)
-        kayitlar.append(GeneratedImage(yol, int(payload.get("w", 0)), int(payload.get("h", 0))))
+        yol = _publish_image(out_dir, f"fusion-{zaman}-{sira}", image.suffix, image.data)
+        kayitlar.append(GeneratedImage(yol, image.width, image.height))
     return kayitlar
+
+
+def _publish_image(directory: Path, name: str, suffix: str, data: bytes) -> Path:
+    """Aynı saniyedeki paralel üretimler için çakışmayı exclusive publish ile ayır."""
+    for index in count():
+        ending = f"-{index}" if index else ""
+        path = directory / f"{name}{ending}{suffix}"
+        try:
+            atomic_create_bytes(path, data)
+        except FileExistsError:
+            continue
+        return path
+    raise AssertionError("Sınırsız sayaç beklenmedik biçimde sonlandı.")
 
 
 _FIND_IMAGES_JS = """(args) => {
@@ -201,8 +216,10 @@ async def _wait_and_extract(
             onceki, ilk_gorulen = kaynaklar, time.monotonic()
             continue
         if ilk_gorulen is not None and time.monotonic() - ilk_gorulen >= IMAGE_SETTLE_S:
-            kayitlar = save_images(
-                await page.evaluate(_EXTRACT_JS, [list(selectors), MIN_IMAGE_EDGE]), out_dir
+            kayitlar = await await_owned_thread(
+                save_images,
+                await page.evaluate(_EXTRACT_JS, [list(selectors), MIN_IMAGE_EDGE]),
+                out_dir,
             )
             if kayitlar:
                 return kayitlar

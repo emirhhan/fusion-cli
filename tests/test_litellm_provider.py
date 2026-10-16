@@ -343,3 +343,21 @@ def test_dusunme_kapatma_yalniz_sablon_anahtarini_taniyan_saglayiciya_gider():
         messages=(Message("user", "yaz"),), temperature=0.2, max_tokens=8192, timeout_s=30.0
     )
     assert "extra_body" not in nim._call_kwargs(acik, stream=False)
+
+
+def test_usage_distinguishes_missing_partial_and_measured_zero(monkeypatch):
+    from fusion_cli.providers import litellm_provider as module
+
+    monkeypatch.setattr(module, "_estimated_cost", lambda *_: None)
+    missing = module._response_usage(SimpleNamespace(), "offline")
+    partial = module._response_usage(
+        SimpleNamespace(usage=SimpleNamespace(prompt_tokens=0)), "offline"
+    )
+    measured = module._response_usage(
+        SimpleNamespace(usage=SimpleNamespace(prompt_tokens=0, completion_tokens=0)), "offline"
+    )
+    assert missing.completeness == "unknown"
+    assert partial.completeness == "partial"
+    assert measured.completeness == "complete"
+    assert measured.total_tokens == 0
+    assert not measured.cost_known

@@ -26,21 +26,23 @@ def classify_failure(outcome: object, verification: StepVerificationResult) -> F
     if verification.findings and bool(getattr(outcome, "ok", True)):
         return FailureRecord(FailureCategory.VERIFICATION, " ".join(verification.findings))
     if any(marker in combined for marker in ("zaman aş", "timeout", "timed out")):
-        return FailureRecord(FailureCategory.TIMEOUT, combined.strip())
+        return FailureRecord(FailureCategory.TIMEOUT, combined.strip(), observed=False)
     if any(
         marker in combined
         for marker in ("geçici", "temporary", "bağlantı", "connection", "429", "503")
     ):
-        return FailureRecord(FailureCategory.TRANSIENT, combined.strip())
+        return FailureRecord(FailureCategory.TRANSIENT, combined.strip(), observed=False)
     if any(marker in combined for marker in ("onaylanmadı", "izin", "permission", "denied")):
-        return FailureRecord(FailureCategory.PERMISSION, combined.strip())
+        return FailureRecord(FailureCategory.PERMISSION, combined.strip(), observed=False)
     if failed_tools or any(
         marker in combined for marker in ("geçersiz argüman", "invalid argument", "şema")
     ):
-        return FailureRecord(FailureCategory.TOOL_CONTRACT, combined.strip())
+        return FailureRecord(FailureCategory.TOOL_CONTRACT, combined.strip(), observed=False)
     if verification.findings:
         return FailureRecord(FailureCategory.VERIFICATION, " ".join(verification.findings))
-    return FailureRecord(FailureCategory.UNKNOWN, combined.strip() or "bilinmeyen hata")
+    return FailureRecord(
+        FailureCategory.UNKNOWN, combined.strip() or "bilinmeyen hata", observed=False
+    )
 
 
 #: Kör tekrarın tanındığı deneme sayısı.
@@ -93,6 +95,11 @@ def choose_recovery(
         return RecoveryDecision(
             RecoveryAction.PAUSE,
             "İzin veya onay kısıtı otomatik yolla aşılamaz.",
+        )
+    if not failure.observed and step.retry_safety is not RetrySafety.OBSERVE_FIRST:
+        return RecoveryDecision(
+            RecoveryAction.PAUSE,
+            "Modelin hata açıklaması tek başına yeniden yürütme kanıtı değildir.",
         )
     if failure.category in _REPAIRABLE and step.retry_safety is not RetrySafety.OBSERVE_FIRST:
         guidance = _repair_guidance(failure)

@@ -153,7 +153,7 @@ def _agent_summary(driver: Mapping[str, object]) -> tuple[bool | None, str]:
     if not isinstance(turlar, list) or not turlar or not isinstance(turlar[0], dict):
         return None, ""
     ok = turlar[0].get("ok")
-    return (bool(ok) if ok is not None else None), str(turlar[0].get("metin", ""))
+    return (ok if type(ok) is bool else None), str(turlar[0].get("metin", ""))
 
 
 async def run_job(job: Job, options: RunnerOptions, chrome_lock: asyncio.Lock) -> RunRecord:
@@ -189,7 +189,7 @@ async def run_job(job: Job, options: RunnerOptions, chrome_lock: asyncio.Lock) -
         area=job.area.name,
         attempt=job.attempt,
         workdir=str(job.workdir),
-        outcome=classify(denetim, olculer, surucu_hatasi),
+        outcome=classify(denetim, olculer, surucu_hatasi, agent_ok=ok),
         inspection=denetim,
         metrics=olculer,
         agent_ok=ok,

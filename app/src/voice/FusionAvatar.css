@@ -44,18 +44,18 @@
    kalır, yoksa yüzü soluklaştırır. */
 .fusion-avatar__glow {
   background: radial-gradient(circle, var(--accent) 0%, transparent 62%);
-  grid-area: 1 / 1;
-  height: 130%;
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
   opacity: 0;
   pointer-events: none;
-  width: 130%;
 }
-.fusion-avatar[data-state="listening"] .fusion-avatar__glow { animation: fusion-pulse 1.6s ease-in-out infinite; }
-.fusion-avatar[data-state="talking"] .fusion-avatar__glow { animation: fusion-pulse 0.9s ease-in-out infinite; }
+.fusion-avatar[data-state="listening"] .fusion-avatar__glow { opacity: .16; animation: fusion-pulse 1.6s ease-in-out infinite; }
+.fusion-avatar[data-state="talking"] .fusion-avatar__glow { opacity: .16; animation: fusion-pulse 0.9s ease-in-out infinite; }
 
 @keyframes fusion-pulse {
   0%, 100% { opacity: .08; transform: scale(.9); }
-  50% { opacity: .22; transform: scale(1.05); }
+  50% { opacity: .22; transform: scale(1); }
 }
 
 @media (prefers-reduced-motion: reduce) {

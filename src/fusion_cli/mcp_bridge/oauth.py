@@ -10,11 +10,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 from mcp.client.auth import OAuthClientProvider
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 from pydantic import AnyUrl
 
 from ..config.models import McpServerConfig
+from .oauth_flow import SerializedOAuth
 from .oauth_page import callback_page
 from .tokens import KeyringTokenStorage
 
@@ -90,7 +92,7 @@ class LoopbackOAuthCallback:
         self._on_waiting = on_waiting
         self._server: asyncio.Server | None = None
         self._result: asyncio.Future[tuple[str, str | None]] | None = None
-        self.redirect_uri = ""
+        self.redirect_uri = f"http://localhost:{port}/oauth/callback" if port else ""
 
     async def start(self) -> None:
         if self._server is not None:
@@ -126,6 +128,7 @@ class LoopbackOAuthCallback:
                 "Bu MCP sunucusu giriş istiyor. Bağlantılar ekranından 'Bağlan' de; "
                 "tur sırasında giriş penceresi açılmaz."
             )
+        await self.start()
         if self._on_waiting is not None:
             self._on_waiting(True)
         await asyncio.to_thread(webbrowser.open, url, new=1, autoraise=True)
@@ -204,7 +207,7 @@ class LoopbackOAuthCallback:
 
 @dataclass(slots=True)
 class OAuthBundle:
-    auth: OAuthClientProvider
+    auth: httpx.Auth
     callback: LoopbackOAuthCallback
     storage: KeyringTokenStorage
 
@@ -238,7 +241,8 @@ async def oauth_provider_for(
     if not interactive:
         _silence_expected_login_errors()
     callback = LoopbackOAuthCallback(on_waiting=on_waiting, interactive=interactive)
-    await callback.start()
+    if not callback.redirect_uri:
+        await callback.start()
     storage = KeyringTokenStorage(config.url)
     metadata = OAuthClientMetadata(
         redirect_uris=[AnyUrl(callback.redirect_uri)],
@@ -246,20 +250,27 @@ async def oauth_provider_for(
         scope=" ".join(config.scopes) or None,
         client_name="Fusion Desktop",
     )
-    kayitli = await storage.get_client_info()
-    if registration_is_stale(kayitli, callback.redirect_uri):
-        # Token'lar da eski kayda aittir: yeni kayıtla birlikte yeniden alınmalı.
-        await storage.clear()
-        kayitli = None
-    if config.client_id and kayitli is None:
-        await storage.set_client_info(
-            OAuthClientInformationFull(**metadata.model_dump(), client_id=config.client_id)
+    from .pool import mcp_oauth_flows
+
+    lock = mcp_oauth_flows().lock_for(storage.debug_identity())
+    async with lock:
+        kayitli = await storage.get_client_info()
+        if registration_is_stale(kayitli, callback.redirect_uri):
+            await storage.clear()
+            kayitli = None
+        if config.client_id and kayitli is None:
+            await storage.set_client_info(
+                OAuthClientInformationFull(**metadata.model_dump(), client_id=config.client_id)
+            )
+
+    def fresh_provider() -> httpx.Auth:
+        return OAuthClientProvider(
+            config.url,
+            metadata,
+            storage,
+            redirect_handler=callback.open_redirect,
+            callback_handler=callback.wait_for_code,
         )
-    auth = OAuthClientProvider(
-        config.url,
-        metadata,
-        storage,
-        redirect_handler=callback.open_redirect,
-        callback_handler=callback.wait_for_code,
-    )
+
+    auth = SerializedOAuth(lock, fresh_provider)
     return OAuthBundle(auth=auth, callback=callback, storage=storage)

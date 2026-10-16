@@ -114,51 +114,53 @@ Bu Node yolu bu Mac'e ait; başka Mac'te Node22 executable bulunup aynı version
 
 **Önerilen interface:** mevcut SessionQuestion kimliği kullanılır; yanıt envelope'una `questionId`, `turnId` ve `decisionId` korelasyonu eklenir. `decision` izin için once/session/deny; bilgi için text/choice; timeout/cancel ayrı terminal. Existing protocol kelimeleri migration adapter'da korunur. AuthorizationScope sunucu/hesap/eylem/normalize hedef parmak izi tutar; raw secret içermez.
 
-- [ ] A08–A11/A32: ardışık soru state reset, double send, stale ses cevabı, target değişikliği, policy revoke, Escape deny olmayan kart.
-- [ ] Fail test; parent request kapsamını callback/key ile doğrula. Timeout önerilen seçeneği yanıt yapmaz.
-- [ ] ApprovalMemory'yi mevcut shell scope'u bozmadan uzak hedef kapsamıyla genişlet; kullanıcı geniş izin seçiyorsa scope açık metinle göster. Deny/blocked/optional default ayrı.
-- [ ] Kart pending iken disabled; gönderim fail ise retry; kapanışta odak geri. Async optional soru bağımsız işi durdurmaz; required dependent iş bekler.
-- [ ] Approval/loop/voice ve UI testler; güvenli fixture dış etki tekliği; full gate. Onay politikası değişikliği görünür release notu.
+- [x] A08–A11/A32: ardışık soru state reset, double send, stale ses cevabı, target değişikliği, policy revoke, Escape deny olmayan kart.
+- [x] Fail test; parent request kapsamını callback/key ile doğrula. Timeout önerilen seçeneği yanıt yapmaz.
+- [x] ApprovalMemory'yi mevcut shell scope'u bozmadan uzak hedef kapsamıyla genişlet; kullanıcı geniş izin seçiyorsa scope açık metinle göster. Deny/blocked/optional default ayrı.
+- [x] Kart pending iken disabled; gönderim fail ise retry; kapanışta odak geri. Async optional soru bağımsız işi durdurmaz; required dependent iş bekler.
+- [x] Approval/loop/voice ve UI testler; güvenli fixture dış etki tekliği; full gate. Onay politikası değişikliği görünür release notu.
 
 ## Paket 6 — MCP dayanıklılığı ve bağlantı merkezi
 
 **Kapsam:** E01–E08, R17/R18/R19. **Dosyalar:** mcp_bridge tool_effect/client/pool/service/oauth/tokens, config trust metadata, connectors/control.
 
-- [ ] A17–A19: annotation conflict, trusted/untrusted read, asılı list/call, refresh yarış, close cancel. Kırmızı testleri gör.
-- [ ] Fusion için çelişkide destructive/unknown kararı uygula; bunun daha ihtiyatlı ürün politikası olduğunu dokümante et. Var olan Codex read-first davranışı standardı ihlal ediyor diye iddia etme.
-- [ ] D02 yeni sunucuda unreviewed trust ve legacy explicit scope migration uygula. Server bazlı connect/list/call/close bütçesi ve bounded backoff; token single-flight, typed health/provenance metadata; sır loglama yok.
-- [ ] UI bağlandı/parked/degraded/auth gerekli ayrımı ve retry. Bir sunucu fail tüm listeyi boşaltmaz.
-- [ ] Yerel STDIO+HTTP fixture connect/list/read/cancel/close smoke; unit/full gate. **Yeni MCP sürüm geçişi bu pakette bütün eski handshake'i silmez.** Ayrı protocol matrix işi paket15'tedir.
+- [x] A17–A19: annotation conflict, trusted/untrusted read, asılı list/call, refresh yarış, close cancel. Kırmızı testleri gör.
+- [x] Fusion için çelişkide destructive/unknown kararı uygula; bunun daha ihtiyatlı ürün politikası olduğunu dokümante et. Var olan Codex read-first davranışı standardı ihlal ediyor diye iddia etme.
+- [x] D02 yeni sunucuda unreviewed trust ve legacy explicit scope migration uygula. Server bazlı connect/list/call/close bütçesi ve bounded backoff; token single-flight, typed health/provenance metadata; sır loglama yok.
+- [x] UI bağlandı/parked/degraded/auth gerekli ayrımı ve retry. Bir sunucu fail tüm listeyi boşaltmaz.
+- [x] Yerel STDIO+HTTP fixture connect/list/read/cancel/close smoke; unit/full gate. **Yeni MCP sürüm geçişi bu pakette bütün eski handshake'i silmez.** Ayrı protocol matrix işi paket15'tedir.
 
 ## Paket 7 — Ajan ekipleri ve skill doğruluğu
 
 **Kapsam:** E09–E14/E23–E26, R19–R21. R22/R23 bu paketin zorunlu kapsamına dahil değil; P2 ayrı teslim. **Dosyalar:** team, capabilities/expertise, existing subagent card/UI and MemoryPanel. **Ürettiği:** scope-normalized child result ve skill origin evidence.
 
-- [ ] A20/A21: alias/symlink scope çakışması, child parent dışına çıkış, bir child exception ve bütçe. Skill collision/unknown tool/hash değişimi testleri.
-- [ ] Fail test; root kanonik çözümlerini mevcut path validator üzerinden birleştir; child yalnız parent kapsamını daraltır.
-- [ ] Child terminal sonucu exception/cancel durumunda da bir kez; independent sibling korunur, parent cancel hepsini durdurur. Çağrı/doğrulama/süre bütçesi mevcut TurnBudget otoritesine bağlı. Token sayacı henüz yok; provider usage destekli additive sayaç ayrı E12 alt işi. Usage bilinmiyorsa kesin token tavanı garantisi verilmez.
-- [ ] Skill katalogunda origin/version, explicit/implicit loading receipt. Remote allowed-tools grant sayılmaz. Tek yüksek güvenli skill otomatik ipucu yaklaşımı korunur.
-- [ ] team/capability unit+full gate; UI team fixture. R22/R23 öğretmen açıklaması ve ders invalidation bu pakette uygulanmaz; P2 ayrı küçük görev olarak planlanır.
+- [x] A20/A21: alias/symlink scope çakışması, child parent dışına çıkış, bir child exception ve bütçe. Skill collision/unknown tool/hash değişimi testleri.
+- [x] Fail test; root kanonik çözümlerini mevcut path validator üzerinden birleştir; child yalnız parent kapsamını daraltır.
+- [x] Child terminal sonucu exception/cancel durumunda da bir kez; independent sibling korunur, parent cancel hepsini durdurur. Çağrı/doğrulama/süre bütçesi mevcut TurnBudget otoritesine bağlı. Token sayacı henüz yok; provider usage destekli additive sayaç ayrı E12 alt işi. Usage bilinmiyorsa kesin token tavanı garantisi verilmez.
+- [x] Skill katalogunda origin/version, explicit/implicit loading receipt. Remote allowed-tools grant sayılmaz. Tek yüksek güvenli skill otomatik ipucu yaklaşımı korunur.
+- [x] team/capability unit+full gate; UI team fixture. R22/R23 öğretmen açıklaması ve ders invalidation bu pakette uygulanmaz; P2 ayrı küçük görev olarak planlanır.
 
 ## Paket 8 — Checkpoint, devam ve gerçek iptal
 
 **Kapsam:** E27–E32, R10/R14. **Dosyalar:** checkpoint_store, core/checkpoint, plan_checkpoint/recovery/liveness, tools/jobs, appserver cancellation. **Tüketir:** paket2/5 kimlik ve izin sonucu.
 
-- [ ] A22–A24: same-job polling, iki plan adı collision, aynı PID parallel save, crash before replace, stale revision, v999, external executed-response-lost.
-- [ ] Fail test; unique temp+atomic replace, durability yalnız platformda desteklenen fsync; revision karşılaştırması lock/protokol ile korunur. Eski path migration read gerekir.
-- [ ] Resume completed effect'i yeniden çalıştırmadan observation; kaynak değişimi dependent step invalidation. Ham source/prompt checkpoint'e ekleme.
-- [ ] Stop gerçek owned process/task temizliğini bekler ve sonucunu UI'ya yollar; bağımsız başka session'a dokunmaz.
-- [ ] Checkpoint/recovery/jobs unit+subprocess fixture; full gate; crash/reopen gerçek native smoke paket16'da.
+- [x] A22–A24: same-job polling, iki plan adı collision, aynı PID parallel save, crash before replace, stale revision, v999, external executed-response-lost.
+- [x] Fail test; unique temp+atomic replace, durability yalnız platformda desteklenen fsync; revision karşılaştırması lock/protokol ile korunur. Eski path migration read gerekir.
+- [x] Resume completed effect'i yeniden çalıştırmadan observation; kaynak değişimi dependent step invalidation. Ham source/prompt checkpoint'e ekleme.
+- [x] Stop gerçek owned process/task temizliğini bekler ve sonucunu UI'ya yollar; bağımsız başka session'a dokunmaz.
+- [x] Checkpoint/recovery/jobs unit+subprocess fixture; full gate; crash/reopen gerçek native smoke paket16'da.
+
+**16 Ekim checklist kapanış kaydı:** P5–P8 kaynak/test/inceleme eşlemesi `.superpowers/sdd/2026-10-12-fusion-profesyonel-uygulama/task-5-8-completion-audit.md` içinde. P6 annotation önceliğinin ürün politikası olduğu CHANGELOG’da belgelendi. Python 6422 koleksiyon exit0 bu paketlerin kaynak baseline’ını, App156/1156 ve build son UI’yı kapsar; sonradan eklenen P12 bu tam Python koşusuna dahil değildir. Bu işaretler P15 yeni protokol veya P16 native/günlük kullanım kabulü değildir.
 
 ## Paket 9 — Kanıtlı kapanış ve çalışma akışı
 
 **Kapsam:** R11–R16/R24, U22/U23/U25, E35. **Dosyalar:** core artifacts/events, existing turn/completion report, Conversation/ActivityLine/PreviewPanel/ChangesPanel; no new agent engine.
 
-- [ ] Wrong-success, NoFileChanges, partial, stale screenshot, duplicate final, future schema ve rejected candidate transcript testleri.
-- [ ] Fail test; mevcut runtime `TurnOutcome` ve verifier otoritesiyle teslim kartı. Modelin “bitti” metni status değiştirmez.
-- [ ] Teslimde dosya/URL açma, screenshot viewport, source, verification receipt; yukarı okuyan kullanıcı scroll korunur, yeni mesaj düğmesi.
-- [ ] Uzun geçmiş performansı ölçülür; mevcut perf test karşılaştırılır. Gerekliyse bounded render; erişilebilirliği bozan kör virtualization yok.
-- [ ] Completion/unit/UI+visual/full gates. E35 loop modülerleştirme davranış snapshot'ıyla ayrı alt değişiklik; yeni özellik refactor'a karıştırılmaz.
+- [x] Wrong-success, NoFileChanges, partial, stale screenshot, duplicate final, future schema ve rejected candidate transcript testleri.
+- [x] Fail test; mevcut runtime `TurnOutcome` ve verifier otoritesiyle teslim kartı. Modelin “bitti” metni status değiştirmez.
+- [x] Teslimde dosya/URL açma, screenshot viewport, source, verification receipt; yukarı okuyan kullanıcı scroll korunur, yeni mesaj düğmesi.
+- [x] Uzun geçmiş performansı ölçülür; mevcut perf test karşılaştırılır. Gerekliyse bounded render; erişilebilirliği bozan kör virtualization yok.
+- [x] Completion/unit/UI+visual/full gates. E35 loop modülerleştirme davranış snapshot'ıyla ayrı alt değişiklik; yeni özellik refactor'a karıştırılmaz.
 
 ## Paket 10 — Görsel üretim iş protokolü
 
@@ -166,37 +168,37 @@ Bu Node yolu bu Mac'e ait; başka Mac'te Node22 executable bulunup aynı version
 
 **Önerilen interface:** `ImageJobReceipt {jobId:string; state:'queued'|'running'|'partial'|'completed'|'failed'|'cancelled'; assetIds:string[]; error:string|null}`. Gerçek dosya teslimi current image core üzerinden; yeni provider implementasyonu gerekmez. RPC jobId/cancel existing tools/jobs ile eşdeğer ise onu kullan. Cancellation external provider'ı durduramıyorsa kesin “uzak iş iptal edildi” iddiası yok; sonraki varyasyonun başlaması engellenir.
 
-- [ ] A28–A31: initial load error, DAG duplicate/cycle/NaN, atomic save interruption, exact_size unknown, cancel after first image, MIME fake/login HTML, missing target.
-- [ ] Fail test; server-side DAG validation ve atomic flow persistence; progress/cancel task ownership, partial results retain.
-- [ ] Basit üretim ve advanced flow; provider capability'ye göre oran/referans/seed. Hedef asset görünür; asset yoksa iş durur.
-- [ ] Viewer focus trap/return; gallery partial badge; missing variant retry yalnız eksik varyasyona. Test/unit/full gates.
-- [ ] Mevcut bağlı sağlayıcıyla dar gerçek generate/edit smoke; dosya açılır, dimensions/alpha ve referans gözle kıyaslanır. Model metni dosya kanıtı değildir.
+- [x] A28–A31: initial load error, DAG duplicate/cycle/NaN, atomic save interruption, exact_size unknown, cancel after first image, MIME fake/login HTML, missing target.
+- [x] Fail test; server-side DAG validation ve atomic flow persistence; progress/cancel task ownership, partial results retain.
+- [x] Basit üretim ve advanced flow; provider capability'ye göre oran/referans/seed. Hedef asset görünür; asset yoksa iş durur.
+- [x] Viewer focus trap/return; gallery partial badge; missing variant retry yalnız eksik varyasyona. Test/unit/full gates.
+- [x] Mevcut bağlı sağlayıcıyla dar gerçek generate/edit smoke; dosya açılır, dimensions/alpha ve referans gözle kıyaslanır. Model metni dosya kanıtı değildir.
 
 ## Paket 11 — Kits sohbet ve belge dayanıklılığı
 
 **Kapsam:** K01–K17/K23/K25, R30/R31. **Dosyalar Kits:** ThreadList, Chat, SpaceWorkspace/SpaceLibrary/PageDocument/PageReviewCard, editor autosave, api, local-threads/page-service/local-computer-bridge. **Tüketir:** paket2 task receipt; paket5 question; varsa mevcut host bridge adapter.
 
-- [ ] A25–A27: remote-only page2 thread, delayed poll, area switch, double create, draft restart, stale expectedRevision, agent patch conflict.
-- [ ] Fail test; real merged pagination, scoped async load with AbortSignal, pending create, Turkish search.
-- [ ] Draft persistent key conversation/page+revision; storage failure visible; successful save retires only matching draft. Conflict diff/merge explicit.
-- [ ] Host calls cancelled on teardown; keyboard Tabs. Büyük library için önce5.000 ölçüm, gerekliyse sunucu paginated search; 10.000 galeri ayrı paket12.
-- [ ] Kits type/lint/unit/build/format ve gerçek host integration smoke. Node22 kullanma; Kits kendi pinned scriptini kullan. Main App code değişmediyse bütün Rust build'i burada tekrar etme.
+- [x] A25–A27: remote-only page2 thread, delayed poll, area switch, double create, draft restart, stale expectedRevision, agent patch conflict.
+- [x] Fail test; real merged pagination, scoped async load with AbortSignal, pending create, Turkish search.
+- [x] Draft persistent key conversation/page+revision; storage failure visible; successful save retires only matching draft. Conflict diff/merge explicit.
+- [x] Host calls cancelled on teardown; keyboard Tabs. Büyük library için önce5.000 ölçüm, gerekliyse sunucu paginated search; 10.000 galeri ayrı paket12.
+- [x] Kits type/lint/unit/build/format ve gerçek host integration smoke. Node22 kullanma; Kits kendi pinned scriptini kullan. Main App code değişmediyse bütün Rust build'i burada tekrar etme.
 
 ## Paket 12 — Ortak artefakt köprüsü ve birleşik tasarım
 
 **Kapsam:** K26/K32/K33, R25/R28/R35. **Dosyalar:** core/artifacts, appserver image/library, App library/preview/ui/theme; Kits host api/editor/generated theme scripts. **Önerilen additive interface:** mevcut artefakt tipine `asset_id`, `kind`, `mime`, `relative_path`, `created_by_task_id`, `parent_asset_ids`, `metadata_version`. Boyut/alpha/model/seed yalnız biliniyorsa alan; yoksa null/unknown. Host resolver projenin allowlist kökleriyle path çözümlemeli.
 
 - [ ] Aynı asset chat/gallery/page roundtrip; migration eski path; root escape; missing file; parent deleted; unknown metadata; A34 backward host testleri.
-- [ ] Fail test; tek artefact authority; mevcut gallery sidecar ile migration. Galeri index/pagination total order; gerektiğinde corruption recovery scan.
-- [ ] Ortak token'lar tek kaynaktan üretilir; shared davranış şartnamesi App/Kits adapter'a taşınır. React major'larını aynı pakete zorla birleştirme.
-- [ ] Yeni image comments/compare ayrı küçük UI alt görevi; mask edit unsupported capability açık. Unit/browser/visual; iki repo gate; packaged bridge smoke.
+- [x] Fail test; tek artefact authority; mevcut gallery sidecar ile migration. Galeri index/pagination total order; gerektiğinde corruption recovery scan.
+- [x] Ortak token'lar tek kaynaktan üretilir; shared davranış şartnamesi App/Kits adapter'a taşınır. React major'larını aynı pakete zorla birleştirme.
+- [x] Yeni image comments/compare ayrı küçük UI alt görevi; mask edit unsupported capability açık. Unit/browser/visual; iki repo gate; packaged bridge smoke.
 
 ## Paket 13 — Ses ve tarayıcı gerçek kabulü
 
 **Kapsam:** K18–K22/K24/K25, R05/R32. **Dosyalar:** main voice ask/answer, Kits local voice/CallView, web login/browser host, computer panel.
 
-- [ ] A32 + mikrofon reddi, speaker unavailable, TTS fail, hangup pending, same profile lock, visible window false-positive fixtures.
-- [ ] Fail test; task/question correlation, owned cancel; TTS fail text preserved; buffer/receipt idempotency.
+- [x] A32 + mikrofon reddi, speaker unavailable, TTS fail, hangup pending, same profile lock, visible window false-positive fixtures.
+- [x] Fail test; task/question correlation, owned cancel; TTS fail text preserved; buffer/receipt idempotency.
 - [ ] Kullanıcı cihazında native visible login, mikrofon giriş, local STT/TTS ve browser devralma. Şifre/çerez okunmaz. Açılan pencere ekranda doğrulanmadan “açtım” başarı metni yok.
 - [ ] Unit/full relevant gates + L12 kanıt. Kullanıcının cihaz adımı gereken yerde gerçek blocker olarak açık söylenir; diğer bağımsız işler sürdürülür.
 
@@ -206,7 +208,7 @@ Bu Node yolu bu Mac'e ait; başka Mac'te Node22 executable bulunup aynı version
 
 - [ ] Aynı brief/input/provider/izin ile taban kaydı; günlük araştırma, kod düzeltme, MCP taslak ve belge senaryoları.
 - [ ] Site/game/video işler sıralı boş output kökünden Fusion üretimi. Başarısız output'u root elle düzeltip Fusion başarısı sayma.
-- [ ] Ürün kusuruna source regresyon; kabul ölçerindeki kusursa evaluator düzeltmesi ayrı. İkisini parite kanıtı diye birleştirme.
+- [x] Ürün kusuruna source regresyon; kabul ölçerindeki kusursa evaluator düzeltmesi ayrı. İkisini parite kanıtı diye birleştirme.
 - [ ] Gerçek viewport/kare/etkileşim+insan rubriği. Başarısız denemeler ve unavailable ayrı ama saklanmaz.
 - [ ] Kalite kapısı ve tekrar aynı kabul. “ChatGPT yerine kullanım” kararı başarısızlık/data-loss/false success matrisiyle verilir; yüzde uydurma.
 
@@ -236,3 +238,13 @@ U01–10→3; U11–17/24→2/5; U18/26–30→4; U19/21/31/32→3; U20→2'ye e
 ## Tamamlanma kaydı
 
 Bir paketin bitti sayılması için: kapsam ID'leri, red/green test, değişen dosyalar, quality gate çıktısı, canlı kanıt gerekiyorsa yolu, inceleme sonucu, commit, açık eksik. “Tüm taskları tamamladım” doğal dil cümlesi bu kaydın yerine geçmez. Başka hesap kalan paket numarası ve önceki contract'ları `06-baska-hesaba-devret.md` üzerinden devralır.
+
+
+### 16 Ekim son kabul sınırı
+
+P9–P13 işaretleri kaynak/test incelemesi ve dar davranış kanıtlarıyla güncellendi; bütün paketlerin release kabulü anlamına gelmez. P12 gerçek AppHost + paketli çekirdek + derlenmiş Kits dark/light roundtrip ve Main karşılaştırma/not 7 browser kontrolü geçti. Yerel not cihazda saklanır; bulut yorumu değildir. Son Python tam kapısı çalışıyor. Ayrı macOS adayının temiz profil kurulumu ve aynı profilde yeniden açılması geçti; visible UI/mikrofon/VoiceOver ve gerçek kullanıcı upgrade kabulü ayrı açık koşullardır. HTML oyun ve animasyon kalite koşuları başarısızdır. Yeni günlük kod/belge koşusu seçili web modelinin doğrulanmamış araç desteği nedeniyle başlamadı; gerçek yetenek ölçümü çalıştırılıyor. Kullanıcının son talimatı gereği UI onayı yeniden istenmez.
+
+
+### Son toplu kapılar ve native onboarding düzeltmesi
+
+Python tam taban exit0:6456PASS/4SKIP/0FAIL; textarea düzeltmesinden önce collection yapıldığı için yeni14test ayrı delta olarak okunur. Configuredmypy575/Ruff/formatPASS. App157dosya1167testPASS ardından sonCSS/Logo52dar test+8kurulum browserPASS; görsel işler28browserPASS. Kits96dosya443test/type/lint/formatPASS. Native03 clean profile runtime smoke/codesignPASS; gerçek mikrofon/günlük kullanıcı kabulü ayrı. P12 sohbet modelle gönderme gerçek kabulü, P13 cihaz, P14 kalite/performance ve P16 kullanıcı üç işi açık kalır. Geniş master fazları tamamlandı sayılmaz.

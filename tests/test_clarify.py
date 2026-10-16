@@ -65,3 +65,16 @@ def test_var_olan_projede_not_yok(tmp_path: Path):
 )
 def test_belirsiz_proje_istegi_olmayan_gorevde_not_yok(tmp_path: Path, gorev: str):
     assert clarification_hint(gorev, tmp_path, can_ask=True, first_turn=True) is None
+
+
+def test_long_order_project_still_requires_real_data_source(tmp_path: Path):
+    task = (
+        "Müşteri siparişlerini ve kargo durumunu sorgulayan uygulama yap. "
+        + "Arayüz sade ve anlaşılır olsun. " * 10
+    )
+    assert clarification_hint(task, tmp_path, can_ask=True, first_turn=True) is not None
+
+
+def test_given_technology_and_source_are_not_asked_again(tmp_path: Path):
+    task = "React ile Shopify sipariş paneli yap; veriyi Shopify API üzerinden oku."
+    assert clarification_hint(task, tmp_path, can_ask=True, first_turn=True) is None

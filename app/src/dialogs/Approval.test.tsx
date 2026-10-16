@@ -39,9 +39,10 @@ describe("Approval — izin kartı", () => {
 
   it("tıklama ve sayı tuşu seçimi `secim` olarak bildirir", () => {
     const onCevap = vi.fn();
-    render(<Approval soru={temel} onCevap={onCevap} />);
+    const view = render(<Approval soru={temel} onCevap={onCevap} />);
     fireEvent.click(screen.getByRole("button", { name: /Hayır/ }));
     expect(onCevap).toHaveBeenLastCalledWith({ secim: "deny" });
+    view.rerender(<Approval soru={{ ...temel }} onCevap={onCevap} />);
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "2" });
     expect(onCevap).toHaveBeenLastCalledWith({ secim: "session" });
   });

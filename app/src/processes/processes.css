@@ -206,7 +206,7 @@
 }
 
 .terminal-tabs__status--calisiyor { color: #f4c66e; }
-.terminal-tabs__status--bitti { color: #69d3ac; }
+.terminal-tabs__status--bitti { color: var(--text-success); }
 .terminal-tabs__status--hata { color: #ff9b95; }
 
 .terminal-tabs__actions { display: flex; }

@@ -26,7 +26,10 @@ function cssDosyalari(dizin: string): string[] {
 }
 
 describe("token kullanımı", () => {
-  const tokenCss = readFileSync(join(__dirname, "tokens.css"), "utf8");
+  const rootTokens = readFileSync(join(__dirname, "tokens.css"), "utf8");
+  // Yalnız gerçekten import edilen ortak dosya tanım otoritesidir.
+  expect(rootTokens).toContain('@import "./brand.generated.css"');
+  const tokenCss = rootTokens + readFileSync(join(__dirname, "brand.generated.css"), "utf8");
   const tanimli = new Set(
     [...tokenCss.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((eslesme) => eslesme[1]),
   );

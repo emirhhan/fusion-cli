@@ -23,6 +23,7 @@ const TICK_MS = 1000;
 const SONUC_METNI: Record<Exclude<OlaySonucu, "completed">, string> = {
   failed: "Tamamlanamadı",
   partial: "Kısmen tamamlandı",
+  unknown: "Sonuç doğrulanamadı",
 };
 
 function ilkHarfBuyuk(metin: string): string {

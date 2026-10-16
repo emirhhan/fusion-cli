@@ -338,3 +338,79 @@ def test_kilitli_giristen_sonra_hareket_eden_oyuncu_tuslari_gecer(tmp_path):
 
     assert durum == "playing"
     assert hareket is True
+
+
+@pytest.mark.parametrize("mode", ["duplicate", "broken", "canvas"])
+def test_asset_identity_requires_distinct_successful_project_images(tmp_path, mode):
+    from dataclasses import replace
+
+    from evals.kabul.areas._browser import navigate, open_page
+
+    sources = []
+    for number in range(html_game.MIN_ASSET_FILES):
+        relative = f"assets/group{number}/sprite.svg"
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True)
+        target.write_text("bozuk" if mode == "broken" else _SPRITE_SVG, encoding="utf-8")
+        sources.append(relative)
+    requested = sources[:1] * 8 if mode == "duplicate" else sources
+    if mode == "canvas":
+        requested = ["./" + source + "?version=1#sprite" for source in requested]
+    import json
+
+    script = "const sprites=" + json.dumps(requested) + ";"
+    script += (
+        "window.images=sprites.map(src=>{const image=new Image();image.src=src;return image;});"
+        "window.ready=Promise.allSettled(window.images.map(image=>image.decode()));"
+    )
+    (tmp_path / "index.html").write_text(f"<script>{script}</script>", encoding="utf-8")
+    with open_page(tmp_path, init_script=html_game._ASSET_INIT_SCRIPT) as opened:
+        navigate(opened)
+        decoded = opened.page.evaluate("() => window.ready")
+        assert all(
+            result["status"] == ("rejected" if mode == "broken" else "fulfilled")
+            for result in decoded
+        )
+        loaded = tuple(opened.page.evaluate(html_game._LOADED_IMAGES_JS))
+    report = html_game.GameReport(
+        console_errors=(),
+        has_area=True,
+        area_variance=100,
+        raf_calls=60,
+        idle_energy=0,
+        key_energy=1,
+        hud=probe.HudReading(),
+        restart=html_game.RestartProbe((), (), (), ""),
+        loaded_images=loaded,
+    )
+    check = html_game._asset_check(tmp_path, report)
+    assert check.passed is (mode == "canvas")
+    assert len(loaded) == (1 if mode == "duplicate" else 0 if mode == "broken" else 8)
+    if mode == "canvas":
+        assert set(loaded) == set(sources)
+    assert not html_game._asset_check(
+        tmp_path, replace(report, loaded_images=("sprite.svg",) * 8)
+    ).passed
+
+
+def test_detached_create_element_images_drawn_on_canvas_count(tmp_path):
+    from evals.kabul.areas._browser import navigate, open_page
+
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    for name in _SPRITES:
+        (assets / name).write_text(_SPRITE_SVG, encoding="utf-8")
+    script = """<canvas></canvas><script>
+    window.ready = Promise.all(Array.from({length:8}, async (_, index) => {
+        const image = document.createElement('img');
+        image.src = `assets/sprite${index}.svg`;
+        await image.decode();
+        document.querySelector('canvas').getContext('2d').drawImage(image, 0, 0);
+    }));
+    </script>"""
+    (tmp_path / "index.html").write_text(script, encoding="utf-8")
+    with open_page(tmp_path, init_script=html_game._ASSET_INIT_SCRIPT) as opened:
+        navigate(opened)
+        opened.page.evaluate("() => window.ready")
+        loaded = opened.page.evaluate(html_game._LOADED_IMAGES_JS)
+    assert set(loaded) == {f"assets/{name}" for name in _SPRITES}

@@ -12,7 +12,7 @@ import { olayAdimi, type OlayAdimi } from "../protocol/olayMetni";
  * bir ekip mesajında yan yana durur — Codex'teki gibi.
  */
 
-export type AjanDurumu = "calisiyor" | "bitti" | "yarim";
+export type AjanDurumu = "calisiyor" | "bitti" | "yarim" | "iptal" | "butce";
 
 export interface AjanKarti {
   id: string;
@@ -28,6 +28,8 @@ export interface AjanKarti {
   ozet?: string;
   sureSn?: number;
   cagriSayisi?: number;
+  detayBekleniyor?: boolean;
+  degisenYollar?: string[];
 }
 
 function metin(deger: unknown): string {
@@ -43,7 +45,7 @@ export function ekipOlayi(messages: Mesaj[], event: Record<string, unknown>): Me
   return ajanAdimi(messages, kimlik, event);
 }
 
-function ajanBasladi(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] {
+function ajanBasladi(messages: Mesaj[], event: Record<string, unknown>, placeholder = false): Mesaj[] {
   const kart: AjanKarti = {
     id: metin(event.sub_id) || `ajan-${messages.length}`,
     persona: metin(event.persona) || "yardimci",
@@ -53,8 +55,13 @@ function ajanBasladi(messages: Mesaj[], event: Record<string, unknown>): Mesaj[]
     gorev: metin(event.task),
     durum: "calisiyor",
     adimlar: [],
-    baslangic: Date.now(),
+    detayBekleniyor: placeholder,
+    baslangic: typeof event.started_at === "number" && event.started_at > 0 ? event.started_at * 1000 : Date.now(),
   };
+  const existing = messages.some((message) => message.ajanlar?.some((entry) => entry.id === kart.id));
+  if (existing) return kartiGuncelle(messages, kart.id, (current) => current.detayBekleniyor
+    ? { ...current, persona: kart.persona, unvan: kart.unvan, avatar: kart.avatar, renk: kart.renk, gorev: kart.gorev, baslangic: kart.baslangic, detayBekleniyor: false }
+    : current) ?? messages;
   const grup = typeof event.group_size === "number" && event.group_size > 1 ? event.group_size : 1;
   const indeks = acikGrup(messages, grup);
   if (indeks < 0) {
@@ -81,14 +88,20 @@ function acikGrup(messages: Mesaj[], grup: number): number {
 
 function ajanBitti(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] {
   const kimlik = metin(event.sub_id);
-  return kartiGuncelle(messages, kimlik, (kart) => ({
+  if (!kimlik) return messages;
+  const finish = (kart: AjanKarti): AjanKarti => ({
     ...kart,
-    durum: event.ok === false ? "yarim" : "bitti",
+    durum: event.status === "cancelled" ? "iptal" : event.status === "budget" ? "butce" : event.ok === false ? "yarim" : "bitti",
     ozet: metin(event.summary) || undefined,
     sureSn: typeof event.elapsed_s === "number" ? event.elapsed_s : undefined,
     cagriSayisi: typeof event.tool_calls === "number" ? event.tool_calls : undefined,
+    degisenYollar: Array.isArray(event.changed_paths) ? event.changed_paths.filter((path): path is string => typeof path === "string") : undefined,
     adimlar: kart.adimlar.map((adim) => (adim.basladi ? { ...adim, basladi: false } : adim)),
-  })) ?? messages;
+  });
+  const updated = kartiGuncelle(messages, kimlik, finish);
+  if (updated) return updated;
+  const placeholder = ajanBasladi(messages, { sub_id: kimlik }, true);
+  return kartiGuncelle(placeholder, kimlik, finish) ?? placeholder;
 }
 
 function ajanAdimi(messages: Mesaj[], kimlik: string, event: Record<string, unknown>): Mesaj[] {
@@ -120,4 +133,11 @@ function kartiGuncelle(
     return guncel;
   }
   return null;
+}
+
+/** Yeni tur kabul edilirken önceki turun bitiş olayı eksik ajanlarını kapat. */
+export function closeUnfinishedAgents(messages: Mesaj[]): Mesaj[] {
+  return messages.map((message) => message.rol === "ekip" ? { ...message,
+    ajanlar: message.ajanlar?.map((agent) => agent.durum === "calisiyor" ? { ...agent, durum: "yarim" as const } : agent),
+  } : message);
 }

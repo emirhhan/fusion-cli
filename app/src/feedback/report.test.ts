@@ -64,3 +64,26 @@ describe("buildIssueUrl", () => {
     expect(url).not.toContain("kullanici");
   });
 });
+
+describe("destek raporu sır sınırları", () => {
+  it.each([
+    ['refresh_token="SENTINEL_REFRESH_VALUE"', 'SENTINEL_REFRESH_VALUE'],
+    [JSON.stringify({ password: 'prefix\"SENTINEL_QUOTED_TAIL' }), 'SENTINEL_QUOTED_TAIL'],
+    ['{"password":"SENTINEL TWO WORDS"}', 'SENTINEL TWO WORDS'],
+    ['-----BEGIN PRIVATE KEY-----\nSENTINEL_PEM_BODY\n-----END PRIVATE KEY-----', 'SENTINEL_PEM_BODY'],
+    ['-----BEGIN RSA PRIVATE KEY-----\nSENTINEL_TRUNCATED_BODY', 'SENTINEL_TRUNCATED_BODY'],
+    ['https://user:SENTINEL_URL_PASSWORD@example.com/a?key=SENTINEL_QUERY_VALUE#SENTINEL_FRAGMENT', 'SENTINEL_URL_PASSWORD'],
+    ['https://example.com/a?unknown=SENTINEL_QUERY_VALUE', 'SENTINEL_QUERY_VALUE'],
+    ['https%3A%2F%2Fexample.com%2Fa%3Ftoken%3DSENTINEL_ENCODED', 'SENTINEL_ENCODED'],
+    ['progress 100% https%3A%2F%2Fexample.com%2Fa%3Funknown%3DSENTINEL_ENCODED_MIXED', 'SENTINEL_ENCODED_MIXED'],
+  ])("önizleme ve issue adresi %s içindeki sırrı taşımaz", (source, sentinel) => {
+    const input = { tur: 'hata' as const, mesaj: source, ayrinti: source };
+    expect(reportBody(input, ortam)).not.toContain(sentinel);
+    expect(decodeURIComponent(buildIssueUrl(input, ortam))).not.toContain(sentinel);
+  });
+  it("ortam ve ayrıntı override da aynı filtreden geçer", () => {
+    const body = reportBody({ tur: 'hata', mesaj: 'Hata' }, { surum: 'access_token=SENTINEL_ENV', platform: 'macOS' }, 'password=SENTINEL_OVERRIDE');
+    expect(body).not.toContain('SENTINEL_ENV');
+    expect(body).not.toContain('SENTINEL_OVERRIDE');
+  });
+});

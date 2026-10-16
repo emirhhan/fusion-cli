@@ -183,3 +183,46 @@ async def test_paralel_ajan_yazma_alani_disina_gorsel_yazamaz(tmp_path, monkeypa
 def gorsel_olcu(path: Path) -> tuple[int, int]:
     with Image.open(path) as gorsel:
         return gorsel.size
+
+
+@pytest.mark.parametrize("provider", [_GEMINI.value, "unknown/provider", 12])
+async def test_explicit_image_provider_is_validated_before_external_call(
+    tmp_path, monkeypatch, provider
+):
+    calls = []
+
+    async def render(config, choice, prompt, out_dir, **kwargs):
+        calls.append(choice)
+        image = _png(out_dir / "result.png", (32, 32))
+        return GenerationResult("fixture", (GeneratedImage(image, 32, 32),))
+
+    monkeypatch.setattr(image_tools, "image_choices", lambda config: (_NIM, _GEMINI))
+    monkeypatch.setattr(image_tools, "render_images", render)
+    tool = image_tools.generate_image_tool(_deps(tmp_path))
+    result = await tool.run(
+        {"prompt": "image", "width": 32, "height": 32, "path": "image.png", "provider": provider},
+        ToolContext(root=tmp_path),
+    )
+    if provider == _GEMINI.value:
+        assert calls == [_GEMINI.value]
+        assert result.ok
+    else:
+        assert calls == []
+        assert not result.ok
+
+
+async def test_image_provider_failure_shows_actual_choice_and_alternatives(tmp_path, monkeypatch):
+    from fusion_cli.providers.image_generation import ImageGenerationError
+
+    async def render(*args, **kwargs):
+        raise ImageGenerationError("timeout")
+
+    monkeypatch.setattr(image_tools, "image_choices", lambda config: (_NIM, _GEMINI))
+    monkeypatch.setattr(image_tools, "render_images", render)
+    tool = image_tools.generate_image_tool(_deps(tmp_path))
+    result = await tool.run(
+        {"prompt": "image", "width": 32, "height": 32, "path": "image.png"},
+        ToolContext(root=tmp_path),
+    )
+    assert not result.ok
+    assert _NIM.value in result.output and _GEMINI.value in result.output

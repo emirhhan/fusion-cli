@@ -74,3 +74,16 @@ describe("useCrashReporter", () => {
     expect(result.current[0]).toBeNull();
   });
 });
+
+it('çevrimdışı rapor dosyası önizlemeyle aynı temizlenmiş metni içerir', async () => {
+  const download = vi.fn();
+  render(<FeedbackDialog initial={{ tur: 'hata', mesaj: 'Hata', ayrinti: 'password=SENTINEL_EXPORT' }} loadVersion={surum} onClose={vi.fn()} downloadReport={download} />);
+  await screen.findByText(/0.4.6/);
+  fireEvent.click(screen.getByRole('button', { name: 'Rapor dosyasını indir' }));
+  expect(download).toHaveBeenCalledTimes(1);
+  const bundle = JSON.parse(download.mock.calls[0][0]);
+  expect(bundle.schemaVersion).toBe(1);
+  expect(bundle.report).not.toContain('SENTINEL_EXPORT');
+  expect(bundle.manifest.notCollected).toContain('credentials');
+  expect(screen.getByLabelText('Rapor önizlemesi').textContent).toBe(bundle.report);
+});

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
+from .effects import ExternalEffectIntent
 from .evidence import CriterionEvidence, ToolUse
 from .execution_plan import ExecutionPlan
 from .repair_ledger import RepairSnapshot
@@ -74,12 +75,16 @@ class WorkflowCheckpoint:
     #: Unresolved quality feedback must survive a paused/completed-step resume.
     quality_feedback: str = ""
     turn_repair: TurnRepairCheckpoint | None = None
+    storage_revision: int = field(default=0, compare=False)
+    effect_intents: tuple[ExternalEffectIntent, ...] = ()
+    #: Planın kapsamadığı teslimatlar devamda tamamlanmış sayılmamalı.
+    uncovered: tuple[str, ...] = ()
 
 
 class CheckpointStore(Protocol):
     """Workflow devam kayıtlarının kalıcılık yüzeyi."""
 
-    def save(self, checkpoint: WorkflowCheckpoint) -> None: ...
+    def save(self, checkpoint: WorkflowCheckpoint) -> int | None: ...
 
     def load(self, plan_id: str) -> WorkflowCheckpoint | None: ...
 

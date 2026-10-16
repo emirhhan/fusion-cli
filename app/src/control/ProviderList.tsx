@@ -44,16 +44,18 @@ const PENCERE_KIPLERI: Record<PencereKipi, string> = {
 const YOKLAMA_MS = 1500;
 const GIRIS_SURESI_MS = 15 * 60 * 1000;
 
-export function ProviderList({ client, initialProviderId, onChanged = () => undefined }: {
+export function ProviderList({ client, initialProviderId, onChanged = () => undefined, onDraftChange }: {
   client: ProtocolClient;
   initialProviderId?: string;
   onChanged?: () => void;
+  onDraftChange?: (dirty: boolean) => void;
 }) {
   const [rows, setRows] = useState<ProviderRow[]>([]);
   const [open, setOpen] = useState<string | null>(initialProviderId ?? null);
   const [query, setQuery] = useState("");
   const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  useEffect(() => { onDraftChange?.(secret.trim().length > 0); }, [secret, onDraftChange]);
   const [notice, setNotice] = useState<string | null>(null);
   const [modelChoices, setModelChoices] = useState<Record<string, string[]>>({});
   const [modelLoading, setModelLoading] = useState<string | null>(null);
@@ -260,17 +262,18 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
 
   const saveKey = async (row: ProviderRow) => {
     if (!secret.trim()) return;
+    const submitted = secret;
     setBusy(row.id);
     const sonuc = (await client.request("kontrol.anahtar_kaydet", {
       saglayici: row.id,
-      deger: secret,
+      deger: submitted,
     })) as { ok?: boolean; metin?: string };
     setBusy(null);
-    setSecret("");
     if (!sonuc?.ok) {
       setNotice(sonuc?.metin ?? "Anahtar kaydedilemedi.");
       return;
     }
+    setSecret(current => current === submitted ? "" : current);
     setNotice(`${row.ad} anahtarı kaydedildi.`);
     await load();
     onChanged();
@@ -331,7 +334,9 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
               aria-expanded={open === row.id}
               className="provider-list__row"
               data-bagli={row.bagli}
+              disabled={busy !== null}
               onClick={() => {
+                if (secret.trim()) { setNotice("Kaydedilmemiş anahtar var. Önce Kaydet'e bas veya alanı temizle."); return; }
                 setOpen((current) => (current === row.id ? null : row.id));
                 setSecret("");
               }}
@@ -458,6 +463,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
                     <label htmlFor={`key-${row.id}`}>API anahtarı</label>
                     <input
                       id={`key-${row.id}`}
+                      disabled={busy !== null}
                       onChange={(event) => setSecret(event.target.value)}
                       placeholder={row.ortam ?? ""}
                       type="password"
@@ -472,7 +478,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
                       Kaydet
                     </button>
                     {row.bagli && (
-                      <button type="button" disabled={busy === row.id} onClick={() => void run(() => verifyKey(row))}>Anahtarı sına</button>
+                      <button className="provider-list__action" type="button" disabled={busy === row.id} onClick={() => void run(() => verifyKey(row))}>Anahtarı sına</button>
                     )}
                     {row.bagli && (
                       <button

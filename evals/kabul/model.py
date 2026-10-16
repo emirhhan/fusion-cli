@@ -122,9 +122,22 @@ class RunRecord:
         return bool(self.agent_ok) and self.outcome is Outcome.FAILED
 
 
-def classify(inspection: Inspection, metrics: RunMetrics, driver_error: str) -> Outcome:
+_UNSPECIFIED_AGENT_STATUS = object()
+
+
+def classify(
+    inspection: Inspection,
+    metrics: RunMetrics,
+    driver_error: str,
+    *,
+    agent_ok: object = _UNSPECIFIED_AGENT_STATUS,
+) -> Outcome:
     """Denetim ve sürücü durumundan sonuç sınıfını çıkar."""
     if driver_error or inspection.invalid_reason or not inspection.checks:
+        return Outcome.INVALID
+    if agent_ok is False:
+        return Outcome.FAILED
+    if agent_ok is not _UNSPECIFIED_AGENT_STATUS and agent_ok is not True:
         return Outcome.INVALID
     if not inspection.all_passed:
         return Outcome.FAILED

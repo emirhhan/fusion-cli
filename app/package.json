@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "npm run brand:check && tsc && vite build",
     "test": "node scripts/check-runtime.mjs app-tests && vitest run --environment jsdom",
     "test:watch": "node scripts/check-runtime.mjs app-tests && vitest --environment jsdom",
     "test:runtime": "node --test scripts/runtime-check.node-test.mjs",
@@ -23,7 +23,8 @@
     "tauri": "tauri",
     "bundle:win": "npm run listen:build:win && npm run runtime:build && npm run runtime:smoke && tauri build --config src-tauri/tauri.windows.bundle.conf.json --bundles nsis",
     "lint:hooks": "node scripts/check-runtime.mjs app-tests && eslint src",
-    "lint:hooks:global": "node scripts/check-runtime.mjs app-tests && FUSION_HOOKS_GLOBAL=1 eslint src"
+    "lint:hooks:global": "node scripts/check-runtime.mjs app-tests && FUSION_HOOKS_GLOBAL=1 eslint src",
+    "brand:check": "node scripts/generate-brand-tokens.mjs --check --app-only"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

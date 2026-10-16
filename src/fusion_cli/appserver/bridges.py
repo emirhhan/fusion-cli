@@ -8,10 +8,15 @@ sözleşmeleri uygulama protokolüne taşır.
 from __future__ import annotations
 
 import asyncio
+import json
+from collections import OrderedDict
 from collections.abc import Callable, Iterator
+from hashlib import sha256
 from itertools import count
 from pathlib import Path
+from uuid import uuid4
 
+from ..core.constants import QUESTION_RECEIPT_HISTORY_LIMIT
 from ..core.events import Event
 from ..core.submission import SubmissionReceipt
 from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
@@ -68,13 +73,19 @@ class ProtocolSink:
 class PendingQuestions:
     """Cevap bekleyen soruların kimlikten geleceğe eşlemesi."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, receipt_history_limit: int = QUESTION_RECEIPT_HISTORY_LIMIT) -> None:
+        if receipt_history_limit < 1:
+            raise ValueError("Cevap makbuzu penceresi pozitif olmalı.")
+        self._receipt_history_limit = receipt_history_limit
         self._pending: dict[str, asyncio.Future[dict[str, object]]] = {}
         self._ids = count(1)
+        self._epoch = uuid4().hex
+        self._answered: OrderedDict[str, str] = OrderedDict()
 
-    def new_question(self) -> tuple[str, asyncio.Future[dict[str, object]]]:
+    def new_question(self, namespace: str = "") -> tuple[str, asyncio.Future[dict[str, object]]]:
         """Yeni soru kimliğini ve cevabını taşıyacak geleceği üret."""
-        identifier = str(next(self._ids))
+        sequence = f"{self._epoch}:{next(self._ids)}"
+        identifier = f"{namespace}:question:{sequence}" if namespace else sequence
         future = asyncio.get_running_loop().create_future()
         self._pending[identifier] = future
         return identifier, future
@@ -87,17 +98,35 @@ class PendingQuestions:
         future.set_result(data)
         return True
 
+    def answer(self, question_id: str, data: dict[str, object]) -> bool:
+        """Makbuzlu cevabı tek kez uygula; yakın cevapların güvenli tekrarına izin ver."""
+        decision = data.get("decisionId")
+        if not isinstance(decision, str) or not decision:
+            return False
+        digest = sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        if question_id in self._answered:
+            return self._answered[question_id] == digest
+        if not self.resolve(question_id, data):
+            return False
+        self._answered[question_id] = digest
+        if len(self._answered) > self._receipt_history_limit:
+            self._answered.popitem(last=False)
+        return True
+
     def discard(self, question_id: str, future: asyncio.Future[dict[str, object]]) -> None:
         """Yalnız bu gelecek hâlâ kimliğe bağlıysa bekleyen kaydı kaldır."""
         if self._pending.get(question_id) is future:
             self._pending.pop(question_id)
 
-    def cancel_all(self) -> None:
+    def cancel_all(self) -> tuple[str, ...]:
         """Bekleyen soruları boş cevapla kapat; uygulama kapanmış olabilir."""
+        identifiers = tuple(self._pending)
         for future in self._pending.values():
             if not future.done():
                 future.set_result({})
         self._pending.clear()
+        self._answered.clear()
+        return identifiers
 
 
 class ProtocolPrompter:
@@ -109,9 +138,13 @@ class ProtocolPrompter:
         pending: PendingQuestions,
         root: Path | None = None,
         element_name: Callable[[object], str | None] | None = None,
+        namespace: str = "",
+        on_closed: Callable[[str], None] | None = None,
     ) -> None:
         self._writer = writer
         self._pending = pending
+        self._namespace = namespace
+        self._on_closed = on_closed
         #: Tarayıcıda tıklanacak öğenin adı (ref → ad); kart "e52" yerine adı gösterir.
         self._element_name = element_name
         #: Önizleme diffi için proje kökü. Verilmezse önizleme üretilmez;
@@ -143,7 +176,7 @@ class ProtocolPrompter:
         choice = data.get("secim")
         if choice == "once":
             return ApprovalAnswer.ONCE
-        if choice == "session" and request.danger is None:
+        if choice == "session" and request.can_remember:
             return ApprovalAnswer.SESSION
         return ApprovalAnswer.DENY
 
@@ -178,12 +211,16 @@ class ProtocolPrompter:
 
     async def _ask_wire(self, payload: dict[str, object]) -> dict[str, object]:
         """Soruyu ilet, eş kimlikli cevabı bekle; kapanışta boş cevap döndür."""
-        identifier, future = self._pending.new_question()
-        self._writer(encode_question(identifier, payload))
+        identifier, future = self._pending.new_question(self._namespace)
         try:
+            self._writer(encode_question(identifier, payload))
             return await future
         finally:
             self._pending.discard(identifier, future)
+            if not future.done():
+                future.cancel()
+            if self._on_closed is not None:
+                self._on_closed(identifier)
 
 
 def _preview_args(request: ApprovalRequest) -> list[str]:
@@ -203,7 +240,11 @@ def _preview_args(request: ApprovalRequest) -> list[str]:
 def _approval_options(request: ApprovalRequest) -> list[dict[str, str]]:
     """Yıkıcı istekte oturum izni olmadan onay seçeneklerini üret."""
     options = [{"deger": "once", "etiket": messages.TUI_APPROVAL_ONCE}]
-    if request.danger is None:
-        options.append({"deger": "session", "etiket": messages.TUI_APPROVAL_SESSION})
+    if request.can_remember:
+        session = {"deger": "session", "etiket": messages.TUI_APPROVAL_SESSION}
+        description = request.remembered_scope_description
+        if description:
+            session["aciklama"] = description
+        options.append(session)
     options.append({"deger": "deny", "etiket": messages.TUI_APPROVAL_DENY})
     return options

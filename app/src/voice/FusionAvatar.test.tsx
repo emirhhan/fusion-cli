@@ -38,57 +38,12 @@ describe("FusionAvatar", () => {
     expect(screen.getByRole("img", { name: etiket }).parentElement?.getAttribute("data-state")).toBe(durum);
   });
 
-  it("dinlerken boşta ve göz kırpma kareleri arasında geçer", () => {
-    vi.spyOn(Math, "random").mockReturnValue(0);
-    render(<FusionAvatar state="listening" />);
-
-    expect(kare().src).toContain("/brand/character/idle.png");
-    act(() => vi.advanceTimersByTime(2_800));
-    expect(kare().src).toContain("/brand/character/blink.png");
-  });
-
-  it("aktif göz kırpma sırasında hareket azaltılınca eski zamanlayıcı yeniden başlamaz", () => {
-    const listeners = new Set<() => void>();
-    const media = {
-      matches: false,
-      addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
-      removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
-    };
-    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue(media));
-    vi.spyOn(Math, "random").mockReturnValue(0);
-    render(<FusionAvatar state="listening" />);
-
-    act(() => vi.advanceTimersByTime(2_800));
-    expect(kare().src).toContain("/brand/character/blink.png");
-
-    act(() => {
-      media.matches = true;
-      listeners.forEach((listener) => listener());
-    });
-    expect(kare().src).toContain("/brand/character/idle.png");
-
-    act(() => vi.advanceTimersByTime(2_930));
-    expect(kare().src).toContain("/brand/character/idle.png");
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it("konuşurken iki konuşma karesi arasında geçer", () => {
-    render(<FusionAvatar state="talking" />);
-
-    expect(kare().src).toContain("/brand/character/talking-a.png");
-    act(() => vi.advanceTimersByTime(180));
-    expect(kare().src).toContain("/brand/character/talking-b.png");
-    act(() => vi.advanceTimersByTime(180));
-    expect(kare().src).toContain("/brand/character/talking-a.png");
-  });
-
-  it("azaltılmış harekette konuşma karesini sabit tutar", () => {
-    hareketiAzalt(true);
-    render(<FusionAvatar state="talking" />);
-
-    const ilkKare = kare().src;
+  it("Fusion ana karakterini kullanır ve JavaScript zamanlayıcısı başlatmaz", () => {
+    const view = render(<FusionAvatar state="listening" />);
+    expect(kare().src).toContain("fusion-abstract.png");
+    view.rerender(<FusionAvatar state="talking" />);
     act(() => vi.advanceTimersByTime(720));
-    expect(kare().src).toBe(ilkKare);
-    expect(kare().src).toContain("/brand/character/talking-a.png");
+    expect(kare().src).toContain("fusion-abstract.png");
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import type { WorkspaceEntry, WorkspaceFile, WorkspaceState } from "./types";
 
@@ -50,12 +50,20 @@ function fileFrom(payload: Record<string, unknown>): WorkspaceFile {
   return payload as unknown as WorkspaceFile;
 }
 
-export function useWorkspace(client: ProtocolClient, root: string) {
+export function useWorkspace(client: ProtocolClient, root: string, revision = 0) {
   const [state, setState] = useState<WorkspaceState>(initialState);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const owner = useRef({ client, root, active: true, selection: 0 });
+  if (owner.current.client !== client || owner.current.root !== root) owner.current = { client, root, active: true, selection: 0 };
+  const lastRevision = useRef({ owner: owner.current, revision });
+  const refresh = useRef(0);
 
   const loadDirectory = useCallback(async (path: string) => {
+    const current = owner.current;
     const result = await client.request("proje.listele", { yol: path, cursor: 0, limit: 200 });
     const entries = entriesFrom(result);
+    if (owner.current !== current || !current.active) return entries;
     setState((current) => ({
       ...current,
       directories: { ...current.directories, [path]: entries },
@@ -66,27 +74,49 @@ export function useWorkspace(client: ProtocolClient, root: string) {
   }, [client]);
 
   useEffect(() => {
+    const current = owner.current;
+    current.active = true;
     let active = true;
     setState(initialState);
     void Promise.all([
       client.request("proje.durum", {}),
       client.request("proje.listele", { yol: "", cursor: 0, limit: 200 }),
     ]).then(([, listing]) => {
-      if (!active) return;
+      if (!active || owner.current !== current) return;
       setState({
         ...initialState,
         directories: { "": entriesFrom(listing) },
         loading: false,
       });
     }).catch((reason) => {
-      if (active) setState({ ...initialState, loading: false, error: String(reason) });
+      if (active && owner.current === current) setState({ ...initialState, loading: false, error: String(reason) });
     });
     return () => {
       active = false;
+      current.active = false;
     };
   }, [client, root]);
 
+  useEffect(() => {
+    const current = owner.current;
+    const previous = lastRevision.current;
+    lastRevision.current = { owner: current, revision };
+    if (previous.owner !== current || previous.revision === revision) return;
+    const sequence = ++refresh.current;
+    const paths = ["", ...stateRef.current.expanded];
+    void Promise.all(paths.map(async (path) => {
+      const result = await client.request("proje.listele", { yol: path, cursor: 0, limit: 200 });
+      return [path, entriesFrom(result)] as const;
+    })).then((listings) => {
+      if (owner.current !== current || !current.active || refresh.current !== sequence) return;
+      setState((value) => ({ ...value, directories: { ...value.directories, ...Object.fromEntries(listings) }, error: null }));
+    }).catch((reason) => {
+      if (owner.current === current && current.active && refresh.current === sequence) setState((value) => ({ ...value, error: String(reason) }));
+    });
+  }, [client, root, revision]);
+
   const toggleDirectory = useCallback(async (path: string) => {
+    const current = owner.current;
     if (state.expanded.has(path)) {
       setState((current) => {
         const expanded = new Set(current.expanded);
@@ -97,23 +127,27 @@ export function useWorkspace(client: ProtocolClient, root: string) {
     }
     try {
       if (!state.directories[path]) await loadDirectory(path);
+      if (owner.current !== current || !current.active) return;
       setState((current) => ({ ...current, expanded: new Set([...current.expanded, path]) }));
     } catch (reason) {
-      setState((current) => ({ ...current, error: String(reason), loading: false }));
+      if (owner.current === current && current.active) setState((value) => ({ ...value, error: String(reason), loading: false }));
     }
   }, [loadDirectory, state.directories, state.expanded]);
 
   const selectFile = useCallback(async (path: string) => {
+    const current = owner.current, sequence = ++current.selection;
     setState((current) => ({ ...current, loading: true, error: null }));
     try {
       const result = await client.request("proje.oku", { yol: path });
+      if (owner.current !== current || !current.active || current.selection !== sequence) return;
       setState((current) => ({ ...current, selected: fileFrom(result), loading: false }));
     } catch (reason) {
-      setState((current) => ({ ...current, error: String(reason), loading: false }));
+      if (owner.current === current && current.active && current.selection === sequence) setState((value) => ({ ...value, error: String(reason), loading: false }));
     }
   }, [client]);
 
   const saveSelected = useCallback(async (content: string) => {
+    const currentOwner = owner.current, selection = currentOwner.selection;
     const selected = state.selected;
     if (!selected || selected.tur !== "metin") throw new Error("Düzenlenebilir dosya seçilmedi.");
     const result = await client.request("proje.yaz", {
@@ -124,6 +158,7 @@ export function useWorkspace(client: ProtocolClient, root: string) {
     if (result.ok !== true || typeof result.sha256 !== "string") {
       throw new Error(messageFrom(result, "Dosya kaydedilemedi."));
     }
+    if (owner.current !== currentOwner || !currentOwner.active || currentOwner.selection !== selection) return { ...result, gorunum_guncel: false };
     setState((current) => ({
       ...current,
       selected: current.selected ? {
@@ -135,7 +170,7 @@ export function useWorkspace(client: ProtocolClient, root: string) {
       } : null,
       error: null,
     }));
-    return result;
+    return { ...result, gorunum_guncel: true };
   }, [client, state.selected]);
 
   return { state, saveSelected, selectFile, toggleDirectory };

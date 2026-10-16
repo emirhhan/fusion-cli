@@ -73,3 +73,16 @@ it("A bekleyen kabul B sohbetinin gönderimini kilitlemez ve A kabulü B taslağ
   await act(async () => { accept(receipt("accepted")); });
   expect(textbox).toHaveProperty("value", "B görevi");
 });
+
+it("çalışan işe mesaj seçimini kutu içinde tutar ve seçimi iletir", () => {
+  const onBusySubmissionModeChange = vi.fn();
+  const { container } = render(<Composer running busySubmissionMode="steer" onBusySubmissionModeChange={onBusySubmissionModeChange} onSend={vi.fn()} />);
+  const select = screen.getByLabelText("Çalışan işe mesaj");
+  expect(container.querySelector(".composer")?.contains(select)).toBe(true);
+  fireEvent.change(select, { target: { value: "queue" } });
+  expect(onBusySubmissionModeChange).toHaveBeenCalledWith("queue");
+});
+it("durdurma sırasında mesaj seçimi sırayı gösterir ve değiştirilemez", () => {
+  render(<Composer running stopping busySubmissionMode="queue" onBusySubmissionModeChange={vi.fn()} onSend={vi.fn()} />);
+  expect(screen.getByLabelText("Çalışan işe mesaj")).toHaveProperty("disabled", true);
+});

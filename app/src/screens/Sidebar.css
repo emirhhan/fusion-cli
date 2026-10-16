@@ -152,7 +152,7 @@
 .sidebar__profile-trigger[aria-expanded="true"] { background: var(--surface-hover); }
 .sidebar__avatar {
   align-items: center;
-  background: #20c77a;
+  background: var(--accent-text);
   border-radius: 50%;
   color: #fff;
   display: inline-flex;

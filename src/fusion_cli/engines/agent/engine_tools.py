@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Protocol
 from ...config.models import Config
 from ...core.events import (
     CouncilConsulted,
+    EventPublisher,
+    SkillLoaded,
     StatusChanged,
     TeacherConsulted,
 )
@@ -29,7 +31,6 @@ from ...memory.lessons import as_prompt_block
 from ...tools.capabilities import (
     Capability,
     CapabilityRegistry,
-    load_skill_page,
     search,
     skill_file,
     skill_files,
@@ -37,6 +38,7 @@ from ...tools.capabilities import (
 from ...tools.files import display_path, resolve_path
 from ...tools.forge import forge_tool, load_forged_tools
 from ...tools.registry import ToolRegistry
+from ...tools.skill_pages import read_skill_page
 from ...ui import messages
 from . import learning_steps
 from .clone_tools import clone_tools
@@ -616,9 +618,24 @@ def _ask_user_tool(asker: UserAsker, deps: AgentDeps) -> Tool:
         recommended = args.get("recommended")
         if not isinstance(recommended, str) or recommended not in {item.label for item in options}:
             recommended = None
-        if not options:
-            return ToolResult(await asker.ask(question))
-        return ToolResult(await asker.ask(question, options, recommended))
+        required = args.get("required", True)
+        if not isinstance(required, bool):
+            return ToolResult.failure("'required' alanı doğru/yanlış olmalı.")
+        answer = asker.ask(question, options, recommended) if options else asker.ask(question)
+        if not required:
+            receipt = deps.questions.start(answer)
+            return ToolResult(
+                f"Soru {receipt.question_id} yanıt bekliyor. Cevap varsayma; "
+                "bağımsız okuma ve planlamaya devam et."
+            )
+        text = await answer
+        return (
+            ToolResult(text)
+            if text
+            else ToolResult.failure(
+                "Kullanıcı cevap vermedi; bu karara bağlı işlem başlatılmamalı."
+            )
+        )
 
     return Tool(
         name="ask_user",
@@ -628,6 +645,11 @@ def _ask_user_tool(asker: UserAsker, deps: AgentDeps) -> Tool:
             "type": "object",
             "properties": {
                 "question": _STRING,
+                "required": {
+                    "type": "boolean",
+                    "description": "Zorunlu cevap için true; bağımsız okumaya devam "
+                    "edebilen isteğe bağlı soru için false.",
+                },
                 "options": {
                     "type": "array",
                     "description": "Kullanıcıya sunulacak 2-5 kısa cevap seçeneği.",
@@ -695,7 +717,7 @@ def _register_capability_tools(
         return
     if library.skills():
         registry.register(_find_skill_tool(library))
-        registry.register(_read_skill_tool(library))
+        registry.register(_read_skill_tool(library, publisher=deps.publisher))
     if library.agents():
         registry.register(_find_agent_tool(library))
         registry.register(_invoke_agent_tool(deps, depth=depth, run_agent=run_agent))
@@ -720,7 +742,50 @@ def _find_skill_tool(library: CapabilityRegistry) -> Tool:
     )
 
 
-def _read_skill_tool(library: CapabilityRegistry) -> Tool:
+def _skill_page_result(path: Path, args: ToolArgs, offset: int) -> ToolResult:
+    revision = args.get("revision", "")
+    page = read_skill_page(
+        path, offset=offset, revision=revision if isinstance(revision, str) else ""
+    )
+    if page.error:
+        return ToolResult.failure(page.error)
+    text = f"[revision={page.revision}]\n{page.text}"
+    if page.next_offset is not None:
+        text += (
+            f"\n\n[KIRPILDI: Devamı için read_skill(offset={page.next_offset}). "
+            f"Aynı revision={page.revision} değerini de gönder.]"
+        )
+    return ToolResult(text, structured={"revision": page.revision, "next_offset": page.next_offset})
+
+
+def _skill_receipt(
+    publisher: EventPublisher | None,
+    skill: Capability,
+    result: ToolResult,
+    offset: int,
+    reference: str = "",
+) -> None:
+    if publisher is None or not result.ok or result.structured is None:
+        return
+    revision = result.structured.get("revision")
+    next_offset = result.structured.get("next_offset")
+    if isinstance(revision, str):
+        publisher.publish(
+            SkillLoaded(
+                qualified_name=skill.qualified_name,
+                revision=revision,
+                offset=offset,
+                next_offset=next_offset if isinstance(next_offset, int) else None,
+                reference=reference,
+            )
+        )
+
+
+def _read_skill_tool(
+    library: CapabilityRegistry,
+    *,
+    publisher: EventPublisher | None = None,
+) -> Tool:
     def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
         name = str(args.get("name", ""))
         skill = library.get_skill(name)
@@ -737,15 +802,21 @@ def _read_skill_tool(library: CapabilityRegistry) -> Tool:
                     f"'{extra}' bu skill'in dosyası değil. Kullanılabilir: "
                     + (", ".join(skill_files(skill.path)) or "(ek dosya yok)")
                 )
-            return ToolResult(load_skill_page(target, offset=offset))
-        page = load_skill_page(skill.path, offset=offset)
+            result = _skill_page_result(target, args, offset)
+            _skill_receipt(publisher, skill, result, offset, extra.strip())
+            return result
+        result = _skill_page_result(skill.path, args, offset)
+        if not result.ok:
+            return result
+        page = result.output
         files = skill_files(skill.path)
         if offset == 0 and files:
             page += (
                 "\n\n[Bu skill'in ek dosyaları — talimat anıyorsa read_skill(name, file=...) "
                 "ile oku: " + ", ".join(files) + "]"
             )
-        return ToolResult(page)
+        _skill_receipt(publisher, skill, result, offset)
+        return ToolResult(page, structured=result.structured)
 
     return Tool(
         name="read_skill",
@@ -762,6 +833,7 @@ def _read_skill_tool(library: CapabilityRegistry) -> Tool:
                     **_STRING,
                     "description": "skill klasöründeki ek dosya (ör. references/examples.md)",
                 },
+                "revision": {**_STRING, "description": "İlk sayfadaki sürüm; devamda zorunlu."},
                 "offset": {
                     "type": "integer",
                     "description": "Kaçıncı karakterden itibaren okunacağı.",
@@ -824,7 +896,7 @@ def _invoke_agent_tool(
 
 
 def _format(hits: tuple[Capability, ...]) -> str:
-    return "\n".join(f"- {item.name} — {item.description}" for item in hits)
+    return "\n".join(f"- {item.qualified_name} — {item.description}" for item in hits)
 
 
 # --------------------------------------------------------------------------- #

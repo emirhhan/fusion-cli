@@ -23,8 +23,8 @@ def effect_from_annotations(annotations: ToolAnnotations | None) -> ToolEffect:
     """
     if annotations is None:
         return ToolEffect.REMOTE_WRITE
-    if annotations.readOnlyHint is True:
-        return ToolEffect.REMOTE_READ
     if annotations.destructiveHint is True:
         return ToolEffect.REMOTE_DESTRUCTIVE
+    if annotations.readOnlyHint is True:
+        return ToolEffect.REMOTE_READ
     return ToolEffect.REMOTE_WRITE

@@ -242,7 +242,7 @@ async def test_auto_modda_uzak_yazma_araci_sorulmadan_calismaz():
     assert karar is Decision.DENIED
 
 
-async def test_auto_modda_uzak_yazma_oturum_izniyle_bir_kez_sorulur():
+async def test_auto_modda_kapsamsiz_uzak_yazma_her_cagrida_sorulur():
     onayci = _SayanOnayci(ApprovalAnswer.SESSION)
     politika = build_policy(ApprovalMode.AUTO, onayci)
     arac = _arac("godot__add_node", effect=ToolEffect.REMOTE_WRITE)
@@ -251,7 +251,7 @@ async def test_auto_modda_uzak_yazma_oturum_izniyle_bir_kez_sorulur():
     ikinci = await politika.decide(build_request(arac, {"name": "b"}))
 
     assert (ilk, ikinci) == (Decision.ALLOW, Decision.ALLOW)
-    assert onayci.soru_sayisi == 1
+    assert onayci.soru_sayisi == 2
 
 
 async def test_auto_modda_yikici_uzak_arac_her_cagride_sorulur():
@@ -303,7 +303,7 @@ async def test_ortak_onay_hafizasi_yeni_politikada_da_gecerli():
 
     hafiza = ApprovalMemory()
     onayci = _SayanOnayci(ApprovalAnswer.SESSION)
-    arac = _arac("godot__add_node", effect=ToolEffect.REMOTE_WRITE)
+    arac = _arac("godot__add_node", effect=ToolEffect.LOCAL)
 
     for mod in (ApprovalMode.AUTO, ApprovalMode.AUTO, ApprovalMode.SECURITY):
         karar = await build_policy(mod, onayci, hafiza).decide(build_request(arac, {}))

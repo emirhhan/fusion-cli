@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import os
 import platform
-import signal
-import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..core.constants import PROCESS_TERMINATE_GRACE_S
+from ..core.errors import CleanupFailedError
+from ..core.owned_thread import await_owned_thread
+from ..core.process_control import ensure_process_group_exit
+from ..core.process_control import process_group_options as _process_group_kwargs
+from ..core.process_control import terminate_process_tree as terminate_process_tree
 from .bridges import Writer
 from .protocol import encode_event
 from .workspace import WorkspacePathError, resolve_workspace_path
@@ -29,43 +31,6 @@ def shell_command(system: str, shell: str | None, command: str) -> tuple[str, ..
     if system.casefold() == "windows":
         return (os.environ.get("COMSPEC", "cmd.exe"), "/c", command)
     return (shell or "/bin/sh", "-lc", command)
-
-
-def _process_group_kwargs() -> dict[str, Any]:
-    """Alt süreci kendi grubunda başlatan platforma özgü argümanlar.
-
-    Grup şart: `npm run dev` gibi komutlar kendi çocuklarını doğurur ve yalnız
-    kabuğu öldürmek onları öksüz bırakır. POSIX'te yeni oturum, Windows'ta yeni
-    süreç grubu bayrağı kullanılır.
-    """
-    if platform.system().casefold() == "windows":
-        # Sabit yalnız Windows'ta tanımlıdır; macOS'ta mypy/çalışma zamanı
-        # görmez. Değeri Windows API'sinden gelir ve değişmez.
-        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)}
-    return {"start_new_session": True}
-
-
-def terminate_process_tree(pid: int, *, force: bool) -> None:
-    """Süreci ve doğurduğu çocukları sonlandır.
-
-    POSIX'te süreç grubuna sinyal gönderilir. Windows'ta `os.killpg` YOKTUR;
-    orada ağacı `taskkill /T` sonlandırır. Eskiden bu ayrım yoktu ve Windows'ta
-    `AttributeError` `close()` içindeki `return_exceptions=True` tarafından
-    yutuluyordu: süreçler öksüz kalıyor, kimseye söylenmiyordu.
-    """
-    if platform.system().casefold() == "windows":
-        flags = ["/F"] if force else []
-        with contextlib.suppress(OSError, subprocess.SubprocessError):
-            subprocess.run(
-                ["taskkill", "/PID", str(pid), "/T", *flags],
-                capture_output=True,
-                check=False,
-                timeout=10,
-            )
-        return
-    if sys.platform != "win32":  # süreç grubu API'si yalnız POSIX'te var
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(pid, signal.SIGKILL if force else signal.SIGTERM)
 
 
 _MAX_BUFFER = 256 * 1024
@@ -175,10 +140,14 @@ class ProcessManager:
         return {"ok": True, **record.snapshot(self.root)}
 
     async def close(self) -> None:
-        await asyncio.gather(
+        results = await asyncio.gather(
             *(self._stop_record(record) for record in tuple(self._records.values())),
             return_exceptions=True,
         )
+        if any(isinstance(result, BaseException) for result in results):
+            raise CleanupFailedError(
+                "Bir veya daha fazla terminal sürecinin kapanışı doğrulanamadı."
+            )
 
     def _record(self, data: dict[str, Any]) -> ManagedProcess | None:
         process_id = data.get("surec_id")
@@ -192,23 +161,47 @@ class ProcessManager:
                 record.output = (record.output + text)[-self._max_buffer :]
                 self._event("ProcessOutput", record, metin=text)
         code = await record.process.wait()
+        # Observe owned group cleanup immediately, before releasing the live
+        # process identity. A later stop must never target a recycled old PID.
+        try:
+            await await_owned_thread(ensure_process_group_exit, record.process.pid)
+        except CleanupFailedError:
+            record.status = "temizlik_dogrulanamadi"
+            self._event("ProcessStatus", record, durum=record.status, cikis_kodu=code)
+            raise
         record.exit_code = code
         if record.status == "calisiyor":
             record.status = "bitti" if code == 0 else "hata"
         self._event("ProcessStatus", record, durum=record.status, cikis_kodu=code)
 
     async def _stop_record(self, record: ManagedProcess) -> None:
-        if record.process.returncode is None:
-            record.status = "durduruldu"
-            terminate_process_tree(record.process.pid, force=False)
+        if record.process.returncode is not None and (record.pump is None or record.pump.done()):
+            if record.pump is not None:
+                await record.pump
+            return
+        record.status = "durduruluyor"
+        self._event("ProcessStatus", record, durum=record.status)
+        try:
+            await await_owned_thread(terminate_process_tree, record.process.pid, force=False)
             try:
-                await asyncio.wait_for(record.process.wait(), timeout=1.5)
+                await asyncio.wait_for(record.process.wait(), timeout=PROCESS_TERMINATE_GRACE_S)
             except TimeoutError:
-                terminate_process_tree(record.process.pid, force=True)
-                await record.process.wait()
+                await await_owned_thread(terminate_process_tree, record.process.pid, force=True)
+                await asyncio.wait_for(record.process.wait(), timeout=PROCESS_TERMINATE_GRACE_S)
+            await await_owned_thread(ensure_process_group_exit, record.process.pid)
+            if record.pump is not None and record.pump is not asyncio.current_task():
+                try:
+                    await asyncio.wait_for(asyncio.shield(record.pump), PROCESS_TERMINATE_GRACE_S)
+                except TimeoutError:
+                    await await_owned_thread(terminate_process_tree, record.process.pid, force=True)
+                    await asyncio.wait_for(asyncio.shield(record.pump), PROCESS_TERMINATE_GRACE_S)
+        except (TimeoutError, CleanupFailedError):
+            record.status = "temizlik_dogrulanamadi"
+            self._event("ProcessStatus", record, durum=record.status)
+            raise CleanupFailedError("Terminal süreci veya çıktı akışı kapanmadı.") from None
         record.exit_code = record.process.returncode
-        if record.pump is not None and record.pump is not asyncio.current_task():
-            await asyncio.gather(record.pump, return_exceptions=True)
+        record.status = "durduruldu"
+        self._event("ProcessStatus", record, durum=record.status, cikis_kodu=record.exit_code)
 
     def _event(self, event: str, record: ManagedProcess, **extra: object) -> None:
         self._writer(

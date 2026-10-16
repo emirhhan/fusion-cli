@@ -1,8 +1,23 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ImageCreate } from "./ImageCreate";
 
 afterEach(cleanup);
+
+it("galeri sonraki sayfayı aynı cursor ile ekler ve ilk görselleri korur", async () => {
+  const cursor = [1, "12345678-1234-4234-8234-123456789012"];
+  const request = vi.fn(async (name: string, data: Record<string, unknown>) => {
+    if (name === "gorsel.galeri") return data.cursor ? { ok: true, dosyalar: [{ yol: "/gallery/b.png", istem: "İkinci" }], next_cursor: null } : { ok: true, dosyalar: [{ yol: "/gallery/a.png", istem: "İlk" }], next_cursor: cursor };
+    return { ok: true, secenekler: [], akislar: [] };
+  });
+  render(<ImageCreate client={{ request }} toUrl={path => path} />);
+  await screen.findByRole("button", { name: "İlk büyük aç" });
+  fireEvent.click(screen.getByRole("button", { name: "Daha fazla görsel göster" }));
+  await screen.findByRole("button", { name: "İkinci büyük aç" });
+  expect(screen.getByRole("button", { name: "İlk büyük aç" })).toBeTruthy();
+  expect(request).toHaveBeenCalledWith("gorsel.galeri", { sinir: 50, cursor });
+  expect(screen.queryByRole("button", { name: "Daha fazla görsel göster" })).toBeNull();
+});
 
 describe("Görsel bağımsız keşif durumu", () => {
   it("provider retry yalnız ilgili endpoint'i yeniden yükler", async () => {
@@ -113,4 +128,35 @@ it("galeri beklerken ve hata durumunda boş galeri iddia etmez; ready boşta gö
   isReady = true;
   fireEvent.click(screen.getByRole("button", { name: "Galeri: Yeniden dene" }));
   expect(await screen.findByText("Hayal et, Fusion çizsin.")).toBeTruthy();
+});
+
+it("ikinci kayıtta sunucunun onayladığı revision gönderilir", async () => {
+  const request = vi.fn(async (name: string, _data: Record<string, unknown>) => {
+    if (name === "gorsel.akis.kaydet") return { ok: true, id: "a".repeat(32), revision: 1 };
+    return { ok: true, secenekler: [], dosyalar: [], akislar: [] };
+  });
+  render(<ImageCreate client={{ request }} toUrl={(path) => path} chooseSavePath={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "İş akışı" }));
+  fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+  await screen.findByText("Akış kaydedildi.");
+  fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+  await waitFor(() => expect(request.mock.calls.filter(([name]) => name === "gorsel.akis.kaydet")).toHaveLength(2));
+  const saved = request.mock.calls.filter(([name]) => name === "gorsel.akis.kaydet");
+  expect(saved[1][1].akis).toMatchObject({ id: "a".repeat(32), revision: 1 });
+});
+
+it("yazılmış ama kalıcılığı belirsiz kaydı yeniden oluşturmak yerine okur", async () => {
+  const flowId = "c".repeat(32);
+  const request = vi.fn(async (name: string, _data: Record<string, unknown>) => {
+    if (name === "gorsel.akis.kaydet") return { ok: false, committed: true, id: flowId, revision: 1, metin: "Kalıcılık belirsiz." };
+    if (name === "gorsel.akis.yukle") return { ok: false, metin: "Kayıt okunamadı." };
+    return { ok: true, secenekler: [], dosyalar: [], akislar: [] };
+  });
+  render(<ImageCreate client={{ request }} toUrl={(path) => path} chooseSavePath={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "İş akışı" }));
+  fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+  await screen.findByText(/Kalıcılık belirsiz/);
+  fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
+  await waitFor(() => expect(request.mock.calls.some(([name]) => name === "gorsel.akis.yukle")).toBe(true));
+  expect(request.mock.calls.filter(([name]) => name === "gorsel.akis.kaydet")).toHaveLength(1);
 });

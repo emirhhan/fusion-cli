@@ -558,3 +558,33 @@ async def test_buyuk_dosyada_mesaj_hedefli_duzenlemeyi_ister(monkeypatch, tmp_pa
     assert "edit_file" in engellenen[0].output
     assert "TAMAMINI" not in engellenen[0].output
     assert hedef.read_text(encoding="utf-8").startswith("satir_0 = 0")
+
+
+async def test_parallel_model_admission_reserves_only_remaining_slot():
+    import asyncio
+
+    budget = TurnBudget(
+        clock=_FakeClock(),
+        max_model_calls=1,
+        max_verify_rounds=1,
+        max_empty_retries=1,
+        max_contract_repairs=1,
+        max_auto_continues=1,
+        max_idle_rounds=1,
+    )
+    release = asyncio.Event()
+    entered: list[int] = []
+
+    async def child(index):
+        if not budget.reserve_model_call():
+            return False
+        entered.append(index)
+        await release.wait()
+        return True
+
+    children = [asyncio.create_task(child(index)) for index in range(3)]
+    await asyncio.sleep(0)
+    assert len(entered) == 1
+    release.set()
+    assert (await asyncio.gather(*children)).count(True) == 1
+    assert budget.model_calls == 1

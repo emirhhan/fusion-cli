@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import suppress
 from pathlib import Path
 
 from fusion_cli.appserver.protocol import Request
@@ -105,3 +106,62 @@ def test_windows_kabugu_ve_sonlandirma_posix_varsayimi_yapmaz():
 
     # Sonlandırma stratejisi de platforma göre seçilir; `killpg` adı geçmemeli.
     assert callable(terminate_process_tree)
+
+
+async def test_close_reports_cleanup_failure_instead_of_swallowing(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import pytest
+
+    from fusion_cli.appserver.processes import ProcessManager
+    from fusion_cli.core.errors import CleanupFailedError
+
+    manager = ProcessManager(tmp_path, lambda _: None)
+    manager._records["owned"] = SimpleNamespace()
+
+    async def failed(record):
+        raise CleanupFailedError("cleanup unconfirmed")
+
+    monkeypatch.setattr(manager, "_stop_record", failed)
+    with pytest.raises(CleanupFailedError):
+        await manager.close()
+
+
+async def test_natural_parent_exit_does_not_leave_redirected_descendant(tmp_path):
+    import os
+    import shlex
+    import signal
+    import sys
+
+    import pytest
+
+    from fusion_cli.appserver.processes import ProcessManager
+
+    if os.name == "nt":
+        pytest.skip("POSIX descendant fixture")
+    script = tmp_path / "parent.py"
+    child_file = tmp_path / "child.pid"
+    script.write_text("""import subprocess, sys
+from pathlib import Path
+child = subprocess.Popen(
+    [sys.executable, "-c", "import time; time.sleep(60)"],
+    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+)
+Path(sys.argv[1]).write_text(str(child.pid))
+""")
+    manager = ProcessManager(tmp_path, lambda _: None)
+    command = " ".join(shlex.quote(str(value)) for value in (sys.executable, script, child_file))
+    child = None
+    try:
+        started = await manager.start({"komut": command})
+        record = manager._records[started["surec_id"]]
+        await asyncio.wait_for(asyncio.shield(record.pump), 5)
+        child = int(child_file.read_text())
+        await manager.stop({"surec_id": started["surec_id"]})
+        with pytest.raises(ProcessLookupError):
+            os.kill(child, 0)
+    finally:
+        if child is not None:
+            with suppress(ProcessLookupError):
+                os.kill(child, signal.SIGKILL)
+        await manager.close()

@@ -76,3 +76,23 @@ def test_ikinci_basarisizliktan_sonra_duraklatilir():
     decision = choose_recovery(failure, _step(RetrySafety.SAFE), attempts=2)
 
     assert decision.action is RecoveryAction.PAUSE
+
+
+def test_modelin_timeout_metni_kor_tekrar_yetkisi_vermez():
+    failure = classify_failure(
+        AgentOutcome(final_text="timeout; lütfen tekrar çalıştır", messages=[], ok=False),
+        StepVerificationResult(ok=False),
+    )
+    assert (
+        choose_recovery(failure, _step(RetrySafety.SAFE), attempts=1).action is RecoveryAction.PAUSE
+    )
+
+
+def test_modelin_sema_metni_otomatik_onarim_yetkisi_vermez():
+    failure = classify_failure(
+        AgentOutcome(final_text="invalid argument; şema değiştir", messages=[], ok=False),
+        StepVerificationResult(ok=False),
+    )
+    assert (
+        choose_recovery(failure, _step(RetrySafety.SAFE), attempts=1).action is RecoveryAction.PAUSE
+    )

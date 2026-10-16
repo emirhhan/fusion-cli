@@ -255,3 +255,22 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 #: `php -l` tek dosyayı milisaniyeler içinde ayrıştırır; 10 sn soğuk başlatmayı
 #: (Homebrew PHP'nin ilk açılışı) karşılayan geniş pay. Aşan dosya "doğrulanamadı" olur.
 PHP_LINT_TIMEOUT_S = 10.0
+
+#: MCP istemcisinin mevcut 10 saniyelik ağ varsayılanı; bütün kapanış yolları paylaşır.
+MCP_NETWORK_TIMEOUT_S = 10.0
+
+#: Mevcut config lock fallback polling aralığı; async lease de aynı aralığı kullanır.
+FILE_LOCK_POLL_S = 0.05
+
+#: Terminal ProcessManager'ın mevcut TERM→KILL bekleme payı.
+PROCESS_TERMINATE_GRACE_S = 1.5
+#: Mevcut Windows taskkill denetim süresi.
+PROCESS_CONTROL_TIMEOUT_S = 10.0
+#: Arka plan job durumunun mevcut yoklama aralığı; foreground iptali de bunu kullanır.
+PROCESS_POLL_S = 1.0
+
+
+#: Cevap makbuzlarının yeniden teslim penceresi; 256 adet SHA-256+kimlik kaydı.
+#: Yalnız ACK tutulur, izin veya yanıt metni değil. Eski kayıt atılınca tekrar
+#: reddedilir; araç ikinci kez çalıştırılmaz. Bellek oturum süresiyle büyümez.
+QUESTION_RECEIPT_HISTORY_LIMIT = 256

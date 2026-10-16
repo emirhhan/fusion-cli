@@ -15,6 +15,7 @@ dokunulmaz.
 from __future__ import annotations
 
 import dataclasses
+import math
 import os
 from enum import Enum
 from pathlib import Path
@@ -290,9 +291,21 @@ def _build_mcp_servers(raw: object) -> tuple[McpServerConfig, ...]:
         return ()
     if not isinstance(raw, list):
         raise ConfigError(f"mcp_servers: liste bekleniyordu, gelen: {type(raw).__name__}")
-    return tuple(
+    servers = tuple(
         _build(McpServerConfig, item, f"mcp_servers[{index}]") for index, item in enumerate(raw)
     )
+    for server in servers:
+        for budget in (
+            server.connect_timeout_s,
+            server.list_timeout_s,
+            server.call_timeout_s,
+            server.close_timeout_s,
+        ):
+            if budget is not None and (not math.isfinite(budget) or budget <= 0):
+                raise ConfigError("MCP ağ süre sınırları pozitif ve sonlu olmalı.")
+        if any(not math.isfinite(delay) or delay <= 0 for delay in server.retry_delays_s or ()):
+            raise ConfigError("MCP yeniden deneme aralıkları pozitif ve sonlu olmalı.")
+    return servers
 
 
 def _build_tiers(raw: object) -> tuple[TierSpec, ...]:

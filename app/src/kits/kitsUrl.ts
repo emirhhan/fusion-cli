@@ -7,7 +7,7 @@ export type KitsTheme = "dark" | "light";
 /** Kits iframe'ine tema değişikliğini bildiren mesajın türü (Kits `host-theme.ts`). */
 export const KITS_THEME_MESSAGE = "fusion-kits-theme";
 
-export function kitsFrameUrl(serviceUrl: string, theme: KitsTheme = "light"): string {
+export function kitsFrameUrl(serviceUrl: string, theme: KitsTheme = "light", assets = false): string {
   const url = new URL(serviceUrl);
   const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
   if (url.protocol !== "http:" || !loopback) throw new Error("Kits adresi yerel bir HTTP adresi olmalı.");
@@ -16,5 +16,6 @@ export function kitsFrameUrl(serviceUrl: string, theme: KitsTheme = "light"): st
   }
   url.searchParams.set("surface", "kits");
   url.searchParams.set("theme", theme);
+  if (assets) url.searchParams.set("asset_protocol", "1");
   return url.toString();
 }

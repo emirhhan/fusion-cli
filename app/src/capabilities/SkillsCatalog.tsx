@@ -5,6 +5,8 @@ import "./SkillsCatalog.css";
 type CapabilityKind = "beceri" | "ajan" | "talimat" | "mcp";
 interface CatalogItem {
   ad: string;
+  kimlik: string;
+  surum: string;
   aciklama: string;
   kaynak: string;
   tur: CapabilityKind;
@@ -22,6 +24,8 @@ function itemFrom(raw: unknown, fallbackKind: CapabilityKind): CatalogItem {
   ) throw new Error("Geçersiz katalog öğesi.");
   return {
     ad: item.ad,
+    kimlik: typeof item.kimlik === "string" ? item.kimlik : item.ad,
+    surum: typeof item.surum === "string" ? item.surum : "",
     aciklama: typeof item.aciklama === "string" ? item.aciklama : "",
     kaynak: item.kaynak,
     tur: kind as CapabilityKind,
@@ -88,7 +92,7 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
     setSelected(item);
     setDetail("");
     setNotice("");
-    void client.request("yetenek.detay", { tur: item.tur, ad: item.ad }).then((payload) => {
+    void client.request("yetenek.detay", { tur: item.tur, ad: item.kimlik }).then((payload) => {
       if (payload.ok !== true || typeof payload.icerik !== "string") throw new Error(String(payload.metin ?? "Ayrıntı alınamadı."));
       setDetail(payload.icerik);
     }).catch((reason) => setError(String(reason)));
@@ -96,22 +100,22 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
 
   const toggle = (item: CatalogItem) => {
     const enabled = !item.etkin;
-    void client.request("yetenek.etkinlik", { tur: item.tur, ad: item.ad, etkin: enabled }).then((payload) => {
+    void client.request("yetenek.etkinlik", { tur: item.tur, ad: item.kimlik, etkin: enabled }).then((payload) => {
       if (payload.ok !== true) throw new Error(String(payload.metin ?? "Durum değiştirilemedi."));
-      setItems((current) => current.map((entry) => entry.tur === item.tur && entry.ad === item.ad ? { ...entry, etkin: enabled } : entry));
-      setSelected((current) => current?.tur === item.tur && current.ad === item.ad ? { ...current, etkin: enabled } : current);
+      setItems((current) => current.map((entry) => entry.tur === item.tur && entry.kimlik === item.kimlik ? { ...entry, etkin: enabled } : entry));
+      setSelected((current) => current?.tur === item.tur && current.kimlik === item.kimlik ? { ...current, etkin: enabled } : current);
     }).catch((reason) => setError(String(reason)));
   };
 
   const queueNext = (item: CatalogItem) => {
-    void client.request("yetenek.kullan", { tur: item.tur, ad: item.ad }).then((payload) => {
+    void client.request("yetenek.kullan", { tur: item.tur, ad: item.kimlik }).then((payload) => {
       if (payload.ok !== true) throw new Error(String(payload.metin ?? "Yetenek seçilemedi."));
       setNotice(`${item.ad}, sonraki görev için hazır.`);
     }).catch((reason) => setError(String(reason)));
   };
 
   const kart = (item: CatalogItem) => (
-    <article className="skills-catalog__card" data-enabled={item.etkin} key={`${item.tur}:${item.ad}`} data-selected={selected?.tur === item.tur && selected.ad === item.ad}>
+    <article className="skills-catalog__card" data-enabled={item.etkin} key={`${item.tur}:${item.kimlik}`} data-selected={selected?.tur === item.tur && selected.kimlik === item.kimlik}>
       <button aria-label={`${item.ad} ayrıntılarını aç`} className="skills-catalog__row" onClick={() => open(item)} type="button">
         <SkillAvatar item={item} />
         <span className="skills-catalog__summary">

@@ -1,30 +1,7 @@
-/* Marka işaretinin renk sözleşmesi.
-
-   Ana mürekkep açık temada Obsidian, koyu temada Soft White; alt dilim iki
-   temada da Signal Green'dir. SVG sunum özniteliğinde CSS değişkeni kullanmak
-   bazı ekran görüntüsü motorlarında siyaha düştüğü için renkler doğrudan CSS
-   sınıflarıyla uygulanır. */
-.fusion-logo {
-  color: var(--brand-obsidian);
-  display: block;
-  flex: 0 0 auto;
-}
-
-:root[data-theme="dark"] .fusion-logo {
-  color: var(--brand-soft-white);
-}
-
-.fusion-logo__ink {
-  fill: currentcolor;
-}
-
-.fusion-logo__signal {
-  fill: var(--brand-signal);
-}
-
-/* Sözcük markası: işaretin yanındaki "Fusion". */
-.fusion-wordmark {
-  color: var(--text-primary);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
+/* Logo kullanıcı referansıdır; uygulama yüzeylerinin renklerini değiştirmez. */
+.fusion-logo { display: block; flex: 0 0 auto; border-radius: 4px; object-fit: contain; }
+.fusion-wordmark { color: var(--text-primary); font-family: var(--font-heading); font-weight: 600; letter-spacing: -0.01em; }
+.fusion-loading-mark { display: inline-flex; overflow: hidden; border-radius: 50%; }
+.fusion-loading-mark__orbit { display: block; animation: fusion-orbit-turn 4s linear infinite; }
+@keyframes fusion-orbit-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .fusion-loading-mark__orbit { animation: none; } }

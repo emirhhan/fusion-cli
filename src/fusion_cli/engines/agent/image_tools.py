@@ -54,7 +54,8 @@ def pick_generator(choices: tuple[ImageChoice, ...]) -> ImageChoice | None:
 
 def generate_image_tool(deps: AgentDeps) -> Tool | None:
     """Görsel üretebilen bir sağlayıcı varsa aracı kur; yoksa hiç sunma."""
-    generator = pick_generator(image_choices(deps.config))
+    choices = image_choices(deps.config)
+    generator = pick_generator(choices)
     if generator is None:
         return None
 
@@ -62,11 +63,30 @@ def generate_image_tool(deps: AgentDeps) -> Tool | None:
         request = _parse(args)
         if isinstance(request, str):
             return ToolResult.failure(request)
+        selected = args.get("provider", generator.value)
+        current_choices = image_choices(deps.config)
+        chosen = next((choice for choice in current_choices if choice.value == selected), None)
+        if not isinstance(selected, str) or chosen is None:
+            return ToolResult.failure(
+                "Bağlı bir görsel sağlayıcısı seç. Seçenekler: "
+                + ", ".join(choice.value for choice in current_choices)
+            )
         prompt, width, height, raw_path, alt, eager = request
         target = writable_path(context, raw_path)
-        return await _generate(
-            deps, generator, prompt, (width, height), target, alt, eager, context
-        )
+        result = await _generate(deps, chosen, prompt, (width, height), target, alt, eager, context)
+        if not result.ok:
+            alternatives = ", ".join(
+                choice.value for choice in current_choices if choice.value != chosen.value
+            )
+            return ToolResult.failure(
+                f"Denenen sağlayıcı: {chosen.value}. {result.output}"
+                + (
+                    f" Açık provider seçimiyle denenebilecek alternatifler: {alternatives}."
+                    if alternatives
+                    else ""
+                )
+            )
+        return result
 
     return Tool(
         name="generate_image",
@@ -75,10 +95,16 @@ def generate_image_tool(deps: AgentDeps) -> Tool | None:
             f"(üretici: {generator.label}). Ölçüyü istemde değil width/height ile ver; "
             "uzantı biçimi belirler (.webp önerilir). Sonuçtaki <img> önerisini sayfaya koy. "
             "Bütün görsellerde aynı üslup için markanın renklerini/tonunu istemde tekrarla."
+            " Bağlı başka bir üretici için provider parametresini açıkça seç; otomatik geçiş yok."
         ),
         parameters={
             "type": "object",
             "properties": {
+                "provider": {
+                    "type": "string",
+                    "enum": [choice.value for choice in choices],
+                    "description": "İsteğe bağlı bağlı sağlayıcı; verilmezse mevcut varsayılan.",
+                },
                 "prompt": {"type": "string", "description": "görselin ayrıntılı tarifi"},
                 "width": _INT,
                 "height": _INT,

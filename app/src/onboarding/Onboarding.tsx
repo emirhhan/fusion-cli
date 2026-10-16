@@ -10,6 +10,7 @@ import type {
   SampleProject,
 } from "./types";
 import type { AsyncState } from "../protocol/asyncState";
+import { Logo } from "../brand/Logo";
 import { Button } from "../ui/Button";
 import { StatusRow } from "../ui/StatusRow";
 import "../theme/tokens.css";
@@ -124,8 +125,8 @@ function SourcesStep({ sources }: { sources: DiscoveredSource[] }) {
   return (
     <>
       <p className="onboarding__eyebrow">Yerel keşif</p>
-      <h1>{sources.some((source) => source.status === "found") ? "Kaynaklarınız bulundu" : "Kaynak bulunamadı"}</h1>
-      <p className="onboarding__lead">Fusion yalnız bilgisayarınızda keşfedilen araçların özetini gösterir.</p>
+      <h1>{sources.some((source) => source.status === "found") ? "Kaynaklarınız bulundu" : "İçe aktarılacak sohbet bulunamadı"}</h1>
+      <p className="onboarding__lead">Bu kullanıcı profilindeki Claude, Codex ve Hermes sohbetleri aranır. Geçmiş bulunmaması Fusion kullanmanı engellemez; bu adımı atlayabilirsin.</p>
       <div className="onboarding__status-list">
         {sources.map((source) => (
           <StatusRow
@@ -342,7 +343,7 @@ export function Onboarding({
   return (
     <main className="onboarding">
       <aside aria-label="Kurulum adımları" className="onboarding__rail">
-        <div aria-hidden="true" className="onboarding__brand-mark"><span /><span /></div>
+        <div aria-hidden="true" className="onboarding__brand-mark"><Logo size={34} /></div>
         <ol>
           {STEPS.map((step, index) => (
             <li aria-current={step === value.step ? "step" : undefined} data-complete={index < stepIndex} key={step}>

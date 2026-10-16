@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitIntoSentences } from "./sentenceStream";
+import { splitIntoSentences, splitIntoSpeechChunks } from "./sentenceStream";
 
 describe("splitIntoSentences", () => {
   it("boş metni boş dizi olarak döner", () => {
@@ -47,4 +47,8 @@ describe("splitIntoSentences", () => {
       "Üçüncü.",
     ]);
   });
+});
+
+it("kısa bir konuşma yanıtını tek ses parçasında tutar", () => {
+ expect(splitIntoSpeechChunks("Merhaba. Nasıl yardımcı olayım?")).toEqual(["Merhaba. Nasıl yardımcı olayım?"]);
 });

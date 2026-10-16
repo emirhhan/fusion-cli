@@ -132,7 +132,8 @@ const SES_PENCERESI: &str = "ses";
 const SES_NORMAL_BOYUT: (f64, f64) = (380.0, 460.0);
 const SES_NORMAL_MIN_BOYUT: (f64, f64) = (360.0, 420.0);
 const SES_NORMAL_MAX_BOYUT: (f64, f64) = (520.0, 720.0);
-const SES_MINI_BOYUT: (f64, f64) = (360.0, 112.0);
+// 28 başlık + 168 karakter + 96 soru özeti + 32 denetimler + boşluk payı.
+const SES_MINI_BOYUT: (f64, f64) = (320.0, 360.0);
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -296,7 +297,7 @@ async fn ses_penceresi_ac(app: tauri::AppHandle) -> Result<(), String> {
         .always_on_top(true)
         .decorations(false)
         .transparent(true)
-        .shadow(true)
+        .shadow(false)
         .center()
         .build()
         .map_err(|error| format!("konuşma penceresi açılamadı: {error}"))?;
@@ -492,10 +493,11 @@ async fn kits_baslat(
         home.join(".local/share")
     };
     let data_dir = data_root.join("fusion-cli").join("kits");
+    let core = runtime_executable(&app.state::<RuntimeManager>())?;
     let manager = Arc::clone(manager.inner());
     let resource_dir = app.path().resource_dir().ok();
     tauri::async_runtime::spawn_blocking(move || {
-        manager.ensure_started(&home, &data_dir, resource_dir.as_deref())
+        manager.ensure_started(&home, &data_dir, resource_dir.as_deref(), &core)
     })
     .await
     .map_err(|error| format!("Kits başlatma görevi tamamlanamadı: {error}"))?
@@ -839,7 +841,7 @@ mod voice_geometry_tests {
             on_top: true,
         });
 
-        assert_eq!(plan.size, (360.0, 112.0));
+        assert_eq!(plan.size, (320.0, 360.0));
         assert_eq!(plan.min_size, None);
         assert_eq!(plan.max_size, None);
         assert!(!plan.resizable);
@@ -865,7 +867,7 @@ mod voice_geometry_tests {
     fn size_only_mode_change_does_not_overwrite_on_top_preference() {
         let plan = voice_size_plan(false);
 
-        assert_eq!(plan.size, (360.0, 112.0));
+        assert_eq!(plan.size, (320.0, 360.0));
         assert_eq!(plan.on_top, None);
     }
 

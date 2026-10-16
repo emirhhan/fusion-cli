@@ -22,6 +22,61 @@ def registry():
     return build_registry()
 
 
+def test_large_file_offset_reaches_lines_beyond_initial_byte_window(context, tmp_path, monkeypatch):
+    monkeypatch.setattr(files, "MAX_READ_BYTES", 20)
+    path = tmp_path / "large.txt"
+    path.write_text("başlangıç\n" * 100 + "aranan hedef\nson\n", encoding="utf-8")
+    result = files.read_file({"path": "large.txt", "offset": 101, "limit": 1}, context)
+    assert result.ok and "101\taranan hedef" in result.output
+    assert '"offset": 102' in result.output
+    assert path not in context.fully_read
+
+
+def test_large_file_read_does_not_load_all_bytes(context, tmp_path, monkeypatch):
+    monkeypatch.setattr(files, "MAX_READ_BYTES", 10)
+    (tmp_path / "large.txt").write_text("çççççç\nson\n", encoding="utf-8")
+
+    def forbidden(path):
+        raise AssertionError("bütün dosya belleğe alınamaz")
+
+    monkeypatch.setattr(Path, "read_bytes", forbidden)
+    result = files.read_file({"path": "large.txt"}, context)
+    assert result.ok and "KIRPILDI" in result.output
+    assert "ççççç" in result.output and "�" not in result.output
+
+
+def test_large_file_exact_byte_boundary_continues_at_next_line(context, tmp_path, monkeypatch):
+    monkeypatch.setattr(files, "MAX_READ_BYTES", 4)
+    (tmp_path / "large.txt").write_text("abc\nnext\n", encoding="utf-8")
+    result = files.read_file({"path": "large.txt"}, context)
+    assert result.ok and "1\tabc" in result.output
+    assert "2\t" not in result.output
+    assert '"offset": 2' in result.output
+
+
+def test_large_file_skips_huge_line_and_counts_crlf(context, tmp_path, monkeypatch):
+    monkeypatch.setattr(files, "MAX_READ_BYTES", 20)
+    (tmp_path / "large.txt").write_bytes(b"x" * 30_000 + b"\r\nhedef\r\nson")
+    result = files.read_file({"path": "large.txt", "offset": 2, "limit": 1}, context)
+    assert result.ok and "2\thedef" in result.output
+    assert '"offset": 3' in result.output
+
+
+def test_large_file_offset_after_eof_reports_real_line_count(context, tmp_path, monkeypatch):
+    monkeypatch.setattr(files, "MAX_READ_BYTES", 10)
+    (tmp_path / "large.txt").write_text("x" * 30_000 + "\nson", encoding="utf-8")
+    result = files.read_file({"path": "large.txt", "offset": 3}, context)
+    assert not result.ok and "yalnızca 2 satır" in result.output
+
+
+def test_large_file_read_observes_owned_cancellation(context, tmp_path, monkeypatch):
+    monkeypatch.setattr(files, "MAX_READ_BYTES", 10)
+    (tmp_path / "large.txt").write_text("x\n" * 100, encoding="utf-8")
+    context.cancelled.set()
+    result = files.read_file({"path": "large.txt", "offset": 90}, context)
+    assert not result.ok and "iptal" in result.output
+
+
 async def _calistir(registry, context, ad, **args):
     return await registry.execute(ad, args, context)
 

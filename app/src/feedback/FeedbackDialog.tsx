@@ -1,10 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import { buildIssueUrl, redact, type ReportInput, type ReportKind } from "./report";
+import { buildIssueUrl, redact, reportBody, supportBundle, type ReportInput, type ReportKind } from "./report";
 import "./FeedbackDialog.css";
 
 async function openWithSystem(url: string): Promise<void> {
   const { openUrl } = await import("@tauri-apps/plugin-opener");
   await openUrl(url);
+}
+
+function downloadWithBrowser(text: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: "application/json;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "fusion-destek-raporu.json";
+  document.body.appendChild(link);
+  try { link.click(); } finally {
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 }
 
 async function appVersion(): Promise<string> {
@@ -31,6 +43,7 @@ export interface FeedbackDialogProps {
   onClose: () => void;
   openExternal?: (url: string) => Promise<void>;
   loadVersion?: () => Promise<string>;
+  downloadReport?: (text: string) => void;
 }
 
 /**
@@ -39,12 +52,12 @@ export interface FeedbackDialogProps {
  * Sunucu yoktur: "GitHub'da aç" önceden doldurulmuş issue sayfasını sistem
  * tarayıcısında açar, kullanıcı metni orada görüp kendisi gönderir.
  */
-export function FeedbackDialog({ initial, onClose, openExternal = openWithSystem, loadVersion = appVersion }: FeedbackDialogProps) {
+export function FeedbackDialog({ initial, onClose, openExternal = openWithSystem, loadVersion = appVersion, downloadReport = downloadWithBrowser }: FeedbackDialogProps) {
   const [tur, setTur] = useState<ReportKind>(initial?.tur ?? "geri-bildirim");
   const [mesaj, setMesaj] = useState(initial?.mesaj ?? "");
   const [ayrintiEkle, setAyrintiEkle] = useState(Boolean(initial?.ayrinti));
   const [surum, setSurum] = useState("bilinmiyor");
-  const [durum, setDurum] = useState<"bos" | "acildi" | "hata">("bos");
+  const [durum, setDurum] = useState<"bos" | "acildi" | "indirildi" | "indirme-hatasi" | "hata">("bos");
   const metinRef = useRef<HTMLTextAreaElement>(null);
   const ayrinti = initial?.ayrinti?.trim() ?? "";
 
@@ -65,6 +78,7 @@ export function FeedbackDialog({ initial, onClose, openExternal = openWithSystem
 
   const girdi: ReportInput = { tur, mesaj, ayrinti: ayrintiEkle && ayrinti ? ayrinti : undefined };
   const bosMu = !mesaj.trim() && !girdi.ayrinti;
+  const ortam = { surum, platform: platformLabel() };
 
   const gonder = async () => {
     try {
@@ -108,11 +122,21 @@ export function FeedbackDialog({ initial, onClose, openExternal = openWithSystem
           </div>
         )}
         <p className="feedback-dialog__note">
-          GitHub'da doldurulmuş bir sayfa açılır; göndermeden önce metni orada görürsün. Kullanıcı adın, e-postan ve API anahtarların otomatik gizlenir. Göndermek için GitHub hesabı gerekir.
+          Sık kullanılan sır ve kişisel veri biçimleri gizlenir; paylaşmadan önce önizlemeyi kontrol et. Rapor dosyası yalnız aşağıdaki metni ve toplama listesini içerir; sohbet geçmişi veya günlükler toplanmaz. GitHub'da göndermek için hesap gerekir.
         </p>
+        <details className="feedback-dialog__details">
+          <summary>Raporun tamamını gör</summary>
+          <pre aria-label="Rapor önizlemesi">{reportBody(girdi, ortam)}</pre>
+        </details>
+        {durum === "indirildi" && <p role="status">Rapor dosyası için indirme başlatıldı.</p>}
+        {durum === "indirme-hatasi" && <p role="alert">Rapor dosyası indirilemedi. Önizlemedeki metni kopyalayabilirsin.</p>}
         {durum === "acildi" && <p className="feedback-dialog__status" role="status">GitHub sayfası tarayıcıda açıldı. Orada “Submit new issue” ile gönderebilirsin.</p>}
         {durum === "hata" && <p className="feedback-dialog__status feedback-dialog__status--error" role="alert">Tarayıcı açılamadı. Bağlantını kontrol edip yeniden dene.</p>}
         <footer>
+          <button className="feedback-dialog__secondary" disabled={bosMu} onClick={() => {
+            try { downloadReport(supportBundle(girdi, ortam)); setDurum("indirildi"); }
+            catch { setDurum("indirme-hatasi"); }
+          }} type="button">Rapor dosyasını indir</button>
           <button className="feedback-dialog__secondary" onClick={onClose} type="button">{durum === "acildi" ? "Kapat" : "Vazgeç"}</button>
           <button className="feedback-dialog__primary" disabled={bosMu} onClick={() => void gonder()} type="button">GitHub'da aç</button>
         </footer>

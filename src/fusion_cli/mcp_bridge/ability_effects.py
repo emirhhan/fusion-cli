@@ -33,10 +33,10 @@ def effect_from_ability_meta(info: Mapping[str, object] | None) -> ToolEffect | 
     annotations = meta.get("annotations") if isinstance(meta, Mapping) else None
     if not isinstance(annotations, Mapping):
         return None
-    if annotations.get("readonly") is True:
-        return ToolEffect.REMOTE_READ
     if annotations.get("destructive") is True:
         return ToolEffect.REMOTE_DESTRUCTIVE
+    if annotations.get("readonly") is True:
+        return ToolEffect.REMOTE_READ
     return ToolEffect.REMOTE_WRITE
 
 

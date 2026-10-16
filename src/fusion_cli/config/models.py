@@ -229,6 +229,14 @@ class McpTransport(StrEnum):
     STREAMABLE_HTTP = "streamable_http"
 
 
+class McpTrust(StrEnum):
+    """OAuth veya bağlantı başarısı kaynak güveni yerine geçmez."""
+
+    UNREVIEWED = "unreviewed"
+    TRUSTED = "trusted"
+    REVOKED = "revoked"
+
+
 @dataclass(frozen=True, slots=True)
 class McpServerConfig:
     """Bağlanılacak dış MCP sunucusu; eski kayıtlar stdio olarak kalır.
@@ -255,6 +263,15 @@ class McpServerConfig:
     # eklenen OAuth gecikmesi ortadan kalkar. Değer burada değil, `env_names` gibi
     # şifreli depoda durur.
     token_env: str = ""
+    trust: McpTrust = McpTrust.UNREVIEWED
+    reviewed_source: str = ""
+    #: Verilmezse istemcinin mevcut ağ bütçesi kullanılır; ayrı sayı uydurulmaz.
+    connect_timeout_s: float | None = None
+    list_timeout_s: float | None = None
+    call_timeout_s: float | None = None
+    close_timeout_s: float | None = None
+    #: None tur runtime retry dizisini kullanır; boş tuple backoff istemez.
+    retry_delays_s: tuple[float, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)

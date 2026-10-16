@@ -35,6 +35,7 @@ from types import ModuleType
 
 import yaml
 
+from ..core.constants import FILE_LOCK_POLL_S
 from ..core.errors import ConfigError
 from ..core.types import ModelSpec
 from ..core.window_mode import WindowMode
@@ -250,10 +251,18 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
                     "client_id": server.client_id,
                     "env_names": list(server.env_names),
                     "token_env": server.token_env,
+                    "trust": server.trust.value,
+                    "reviewed_source": server.reviewed_source,
+                    "connect_timeout_s": server.connect_timeout_s,
+                    "list_timeout_s": server.list_timeout_s,
+                    "call_timeout_s": server.call_timeout_s,
+                    "close_timeout_s": server.close_timeout_s,
+                    "retry_delays_s": list(server.retry_delays_s)
+                    if server.retry_delays_s is not None
+                    else None,
                 }.items()
                 if value is not None
-                and value != ()
-                and value != []
+                and (value != [] or key == "retry_delays_s")
                 and value != ""
                 and not (key == "transport" and value == McpTransport.STDIO.value)
             }
@@ -353,7 +362,7 @@ def _fallback_config_lock(lock_path: Path) -> Iterator[None]:
                 raise ConfigError(
                     f"Yapılandırma kilidi zaman aşımına uğradı ({lock_path})."
                 ) from None
-            time.sleep(0.05)
+            time.sleep(FILE_LOCK_POLL_S)
         except OSError as exc:
             raise ConfigError(f"Yapılandırma kilitlenemedi ({lock_path}): {exc}") from exc
     try:

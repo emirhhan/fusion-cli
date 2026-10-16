@@ -19,21 +19,6 @@
   width: 34px;
 }
 
-.onboarding__brand-mark span {
-  border: 1.5px solid var(--text-primary);
-  border-radius: var(--radius-sm);
-  height: 24px;
-  left: 5px;
-  position: absolute;
-  top: 5px;
-  transform: rotate(45deg);
-  width: 24px;
-}
-
-.onboarding__brand-mark span:last-child {
-  transform: rotate(-45deg);
-}
-
 .onboarding__rail ol {
   display: grid;
   gap: var(--space-1);
@@ -285,3 +270,14 @@
     transform: none;
   }
 }
+
+/* Uzun kaynak/sağlayıcı listesi alt gezinmeyi ekranın dışına itemez. */
+.onboarding { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
+.onboarding__rail { min-height: 0; overflow-y: auto; }
+.onboarding__panel { min-height: 0; overflow: hidden; }
+.onboarding__content { align-self: stretch; min-height: 0; overflow-y: auto; box-sizing: border-box; }
+.onboarding-provider { height: 100vh; height: 100dvh; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; background: var(--surface-canvas); color: var(--text-primary); }
+.onboarding-provider > .control-panel { min-height: 0; overscroll-behavior: contain; }
+.onboarding-provider__footer { flex-wrap: wrap; gap: 8px; }
+.onboarding-provider__footer > p { flex: 1 0 100%; margin: 0; color: var(--text-secondary); font-size: var(--text-xs); }
+@media (max-width: 520px) { .onboarding-provider > .control-panel { padding: 20px 16px; } .onboarding-provider__footer { align-items: center; } }

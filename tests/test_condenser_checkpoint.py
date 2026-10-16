@@ -37,7 +37,7 @@ def test_eski_kayitta_alan_yoksa_sifir_sayilir(tmp_path):
 
     store = JsonCheckpointStore(tmp_path)
     store.save(_checkpoint(tmp_path, condensations=0))
-    yol = tmp_path / "plan-1.json"
+    yol = next(tmp_path.glob("*.json"))
     payload = json.loads(yol.read_text(encoding="utf-8"))
     payload.pop("condensations")
     yol.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")

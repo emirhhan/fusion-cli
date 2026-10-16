@@ -467,7 +467,7 @@ async def test_register_into_mcp_aciklamasini_arac_etkisine_tasir():
             )
         }
     )
-    client = McpClient(())
+    client = _trusted_client("fixture")
     client._sessions["fixture"] = session
     registry = ToolRegistry()
 
@@ -604,7 +604,7 @@ async def test_yetenek_gecidi_calistir_aracina_cagri_bazli_etki_baglar():
     from fusion_cli.tools import ToolRegistry
 
     session = _YetenekOturumu()
-    client = McpClient(())
+    client = _trusted_client("ornekmagaza")
     client._sessions["ornekmagaza"] = session
     registry = ToolRegistry()
 
@@ -617,3 +617,18 @@ async def test_yetenek_gecidi_calistir_aracina_cagri_bazli_etki_baglar():
     assert okuma is ToolEffect.REMOTE_READ
     assert yazma is ToolEffect.REMOTE_DESTRUCTIVE
     assert registry.get("ornekmagaza__mcp-adapter-get-ability-info").effect_resolver is None
+
+
+def _trusted_client(server: str) -> McpClient:
+    """Salt okuma muafiyeti testleri artık açık kaynak incelemesi taşır."""
+    from dataclasses import replace
+
+    from fusion_cli.config.models import McpTrust
+    from fusion_cli.mcp_bridge.trust import review_identity
+
+    config = McpServerConfig(
+        server, transport=McpTransport.STREAMABLE_HTTP, url="https://offline.invalid/mcp"
+    )
+    identity = review_identity(config)
+    assert identity is not None
+    return McpClient((replace(config, trust=McpTrust.TRUSTED, reviewed_source=identity),))

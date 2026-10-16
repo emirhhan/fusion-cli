@@ -32,6 +32,13 @@ _PROJECT = re.compile(
     r"mağaza|magaza|e-?ticaret)",
     re.IGNORECASE,
 )
+# Uzunluk tek başına kritik veri kaynağı eksikliğini gizleyemez.
+_DATA_REQUIRED = re.compile(r"sipariş|siparis|müşteri|musteri|kargo|stok|orders?|customers?", re.I)
+_SOURCE_GIVEN = re.compile(
+    r"shopify|woocommerce|postgres|sqlite|\bcsv\b|\bexcel\b|\bmdx\b|veriyi.+(?:oku|al)", re.I
+)
+_TECH_GIVEN = re.compile(r"\breact\b|next\.js|\bvue\b|\bdjango\b|\bflask\b|\bflutter\b", re.I)
+
 #: Klasörde bunlardan biri varsa var olan bir projede çalışılıyordur.
 _PROJECT_MARKERS = (
     "package.json",
@@ -59,10 +66,15 @@ CLARIFY_NOTE = (
 def clarification_hint(task: str, root: Path, *, can_ask: bool, first_turn: bool) -> str | None:
     """Notu döndür; koşullar tutmuyorsa `None`."""
     metin = task.strip()
-    if not (can_ask and first_turn) or len(metin) > MAX_UNDERSPECIFIED_CHARS:
+    if not (can_ask and first_turn):
         return None
     if not (_BUILD.search(metin) and _PROJECT.search(metin)):
         return None
     if any((root / marker).exists() for marker in _PROJECT_MARKERS):
+        return None
+    missing_source = bool(_DATA_REQUIRED.search(metin) and not _SOURCE_GIVEN.search(metin))
+    if missing_source:
+        return CLARIFY_NOTE
+    if _TECH_GIVEN.search(metin) or len(metin) > MAX_UNDERSPECIFIED_CHARS:
         return None
     return CLARIFY_NOTE

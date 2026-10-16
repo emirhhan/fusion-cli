@@ -16,13 +16,15 @@ import os
 import platform
 import shutil
 import subprocess
-import sys
 import threading
 import time
 import uuid
 from collections.abc import Callable
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+from .prepared_voice import PreparedVoiceStore
 
 #: Sentezleyiciye verilecek metnin üst sınırı. Uzun cevabın tamamını okumak
 #: kullanıcıyı bekletir; arayüz gerekiyorsa parça parça gönderir.
@@ -554,30 +556,24 @@ def _speak_with_piper(text: str, model: Path) -> dict[str, Any]:
     # Parametreler kullanıcının kaydettiği hız/robotiklik tercihinden gelir;
     # tercih yoksa ölçülmüş varsayılanlar aynen uygulanır.
     ayar = load_settings()
-    argv = [
-        sys.executable,
-        "-m",
-        "piper",
-        "-m",
-        str(model),
-        "-f",
-        str(cikti),
-        "--length-scale",
-        str(round(ayar["length_scale"], 3)),
-        "--noise-w-scale",
-        str(round(ayar["noise_w_scale"], 3)),
-        "--sentence-silence",
-        str(ayar["sentence_silence"]),
-    ]
-    if getattr(sys, "frozen", False):
-        # Paketlenmiş ikilide `-m` yoktur; kendi alt komutu kullanılır.
-        argv = [sys.executable, "piper-say", str(model), str(cikti)]
-    try:
-        subprocess.run(argv, input=text, text=True, capture_output=True, timeout=120, check=True)
-    except (OSError, subprocess.SubprocessError) as error:
-        cikti.unlink(missing_ok=True)
-        return {"ok": False, "metin": f"Ses üretilemedi: {error}"}
+    from .piper_synthesis import synthesize_piper
 
+    try:
+        synthesize_piper(text, model, cikti, ayar)
+    except Exception as error:  # Üçüncü taraf yerel sentez kitaplığının sınırı.
+        import logging
+
+        logging.getLogger(__name__).error(
+            "Piper sentezi başarısız", extra={"error_type": type(error).__name__}
+        )
+        cikti.unlink(missing_ok=True)
+        return {"ok": False, "metin": "Ses üretilemedi. Ses modelini ve ayarlarını kontrol et."}
+
+    return _play_piper_file(cikti)
+
+
+def _play_piper_file(cikti: Path) -> dict[str, Any]:
+    """Sahipli WAV dosyasını mevcut iptal/bekleme yoluyla çal."""
     calar = (
         ["afplay", str(cikti)]
         if platform.system() == "Darwin"
@@ -597,6 +593,81 @@ def _speak_with_piper(text: str, model: Path) -> dict[str, Any]:
         cikti.unlink(missing_ok=True)
         return {"ok": False, "metin": f"Ses çalınamadı: {error}"}
     return {"ok": True, "pid": process.pid, "tur_id": turn_id, "motor": "piper"}
+
+
+@lru_cache(maxsize=1)
+def _prepared_store() -> PreparedVoiceStore:
+    return PreparedVoiceStore()
+
+
+def warm_voice(_request: object = None) -> dict[str, Any]:
+    """Talk açılırken kısa yanıtları sessizce hazırla; oynatıcıya dokunma."""
+    import logging
+    import tempfile
+
+    from .piper_synthesis import synthesize_piper
+    from .voice_intents import local_voice_replies
+
+    model = active_model_path()
+    if not model.is_file():
+        return {"ok": True, "hazir": False}
+    try:
+        with tempfile.TemporaryDirectory(prefix="fusion-voice-warm-") as directory:
+            output = Path(directory) / "reply.wav"
+            settings = load_settings()
+            for reply in local_voice_replies():
+                synthesize_piper(reply, model, output, settings)
+    except Exception as error:  # Yerel model/dosya sistemi sınırı; sır veya söz loglanmaz.
+        logging.getLogger(__name__).warning(
+            "Ses ön hazırlığı tamamlanamadı", extra={"error_type": type(error).__name__}
+        )
+        return {
+            "ok": False,
+            "metin": "Ses ön hazırlığı tamamlanamadı; konuşurken yeniden denenecek.",
+        }
+    return {"ok": True, "hazir": True}
+
+
+def prepare_voice(text: object) -> dict[str, Any]:
+    """Piper cümlesini çalmadan hazırla; sonraki oynatma yalnız kimlikle yapılır."""
+    from .piper_synthesis import synthesize_piper
+    from .voice_text import prepare_speech
+
+    model = active_model_path()
+    if not model.is_file():
+        return {"ok": False, "desteklenmiyor": True}
+    content = prepare_speech(str(text or ""))
+    if not content:
+        return {"ok": False, "metin": "Okunacak metin boş."}
+    try:
+        token = _prepared_store().prepare(
+            lambda path: synthesize_piper(content, model, path, load_settings())
+        )
+    except Exception as error:  # Yerel sentez kitaplığı ve dosya sistemi sınırı.
+        import logging
+
+        logging.getLogger(__name__).error(
+            "Ses hazırlama başarısız", extra={"error_type": type(error).__name__}
+        )
+        return {"ok": False, "metin": "Ses hazırlanamadı. Ses modelini ve ayarlarını kontrol et."}
+    return {"ok": True, "hazir_id": token}
+
+
+def play_prepared_voice(token: object) -> dict[str, Any]:
+    """Hazırlanmış sesi bir kez mevcut oynatıcıya devret."""
+    path = _prepared_store().take(token) if isinstance(token, str) else None
+    if path is None:
+        return {"ok": False, "metin": "Hazır ses bulunamadı veya zaten kullanıldı."}
+    return _play_piper_file(path)
+
+
+def discard_prepared_voice(token: object = None) -> dict[str, Any]:
+    """İptal edilmiş kuyruğun geç gelen dosyalarını da temizle."""
+    if token is None:
+        _prepared_store().close()
+    elif isinstance(token, str):
+        _prepared_store().discard(token)
+    return {"ok": True}
 
 
 def speak(text: object) -> dict[str, Any]:

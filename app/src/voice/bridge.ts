@@ -179,7 +179,18 @@ export function onVoiceBargeIn(
 export const VOICE_ASK = "fusion://ses-onay";
 export const VOICE_ANSWER = "fusion://ses-onay-cevap";
 
+export interface VoiceQuestionContext {
+  sessionId: string;
+  questionId: string;
+}
+
+export interface VoiceAnswer extends VoiceQuestionContext {
+  answer: string;
+}
+
 export interface VoiceAsk {
+  sessionId?: string;
+  questionId?: string;
   /** Onaylanacak aracın adı; yoksa serbest soru. */
   arac?: string;
   /** Soru metni ya da özet. */
@@ -207,13 +218,14 @@ export function onVoiceAsk(
 export async function answerVoiceAsk(
   answer: string,
   transport: Emitter = { emit: tauriEmit },
+  context?: VoiceQuestionContext,
 ): Promise<void> {
   if (transport.emit === tauriEmit && !kabukVar()) return;
-  await transport.emit(VOICE_ANSWER, answer);
+  await transport.emit(VOICE_ANSWER, context ? { ...context, answer } : answer);
 }
 
 export function onVoiceAnswer(
-  handler: (answer: string) => void,
+  handler: (answer: VoiceAnswer | string) => void,
   transport: Listener = { listen: tauriListen as Listener["listen"] },
 ): Promise<() => void> {
   return dinle(VOICE_ANSWER, handler, transport);

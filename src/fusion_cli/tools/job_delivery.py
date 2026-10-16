@@ -7,6 +7,8 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+from ..core.atomic_file import atomic_replace_text
+from ..core.file_lease import FileLease
 from ..core.job_evidence import ArtifactReceipt, JobCompletion, JobPhase
 from ..core.repair_ledger import SourceFingerprint
 from ..core.tools import ToolArgs
@@ -128,6 +130,16 @@ def snapshot_delivery(folder: Path, root: Path, job_id: str, code: int | None) -
 
 def save_completion(folder: Path, root: Path, job_id: str, code: int) -> None:
     """Sarmalayıcı süreç exit dosyasından önce tamamlanma anını sabitler."""
+    lease = FileLease(folder / f"{job_id}.receipt.lock")
+    if not lease.try_acquire():
+        raise ValueError("İş tamamlanma kanıtına eşzamanlı yazma isteği var.")
+    try:
+        _save_completion_locked(folder, root, job_id, code)
+    finally:
+        lease.close()
+
+
+def _save_completion_locked(folder: Path, root: Path, job_id: str, code: int) -> None:
     path = folder / f"{job_id}.receipt.json"
     if path.exists():
         return
@@ -140,9 +152,7 @@ def save_completion(folder: Path, root: Path, job_id: str, code: int) -> None:
         "sources_after": [[item.path, item.digest] for item in result.sources_after],
         "outputs": [[item.path, item.before_hash, item.after_hash] for item in result.outputs],
     }
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(value), encoding="utf-8")
-    temporary.replace(path)
+    atomic_replace_text(path, json.dumps(value))
 
 
 def observe_delivery(folder: Path, root: Path, job_id: str, code: int | None) -> JobCompletion:

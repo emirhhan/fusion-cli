@@ -381,7 +381,11 @@ async def _drive_agent(
         try:
             # Havuz açık bağlantıyı yeniden kullanır; her tur stdio sunucusunu
             # yeniden başlatmak ölçülmüş bir maliyetti (bkz. `mcp_bridge/pool.py`).
-            added += await ensure_mcp_tools(state.config.mcp_servers, deps.base_registry)
+            added += await ensure_mcp_tools(
+                state.config.mcp_servers,
+                deps.base_registry,
+                retry_delays_s=state.config.runtime.retry_delays_s,
+            )
         except Exception as error:
             console.print(
                 f"[{theme.WARN}]{messages.MCP_CONNECT_FAILED.format(error=error)}[/{theme.WARN}]"
@@ -487,8 +491,12 @@ async def _agent_turn(
             # ve `task_model_map` REPL'de sessizce uygulanmıyordu.
             task_type=state.task_type,
             health=state.health,
-            checkpoint_store=JsonCheckpointStore(state.config.memory_dir / "workflow-checkpoints"),
-            conversation_id="repl",
+            checkpoint_store=JsonCheckpointStore(
+                state.config.memory_dir / "workflow-checkpoints",
+                root=state.root,
+                conversation_id=state.conversation_id,
+            ),
+            conversation_id=state.conversation_id,
         )
         try:
             turn_extra_system = "\n\n".join(

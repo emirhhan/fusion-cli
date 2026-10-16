@@ -455,15 +455,16 @@ def piper_say(model: str, output: str) -> None:
 
     from piper import PiperVoice, SynthesisConfig
 
-    from ..appserver.voice import PIPER_DEFAULTS
+    from ..appserver.voice import load_settings
 
     metin = _sys.stdin.read()
     ses = PiperVoice.load(model)
     # `sentence_silence` yalnız Piper'ın CLI'ında var, kitaplık yapılandırmasında
     # yok; cümle araları zaten `voice_text.split_sentences` ile ayrılıyor.
+    tercihler = load_settings()
     ayar = SynthesisConfig(
-        length_scale=PIPER_DEFAULTS["length_scale"],
-        noise_w_scale=PIPER_DEFAULTS["noise_w_scale"],
+        length_scale=tercihler["length_scale"],
+        noise_w_scale=tercihler["noise_w_scale"],
     )
     with wave.open(output, "wb") as akis:
         ses.synthesize_wav(metin, akis, syn_config=ayar)

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import type { AsyncState } from "../protocol/asyncState";
 import { errorMessage, operationResult } from "../protocol/result";
+import { Button } from "../ui/Button";
 import { ControlPanel } from "../control/ControlPanel";
 import { Onboarding } from "./Onboarding";
 import { clearProgress, persistProgress, restoreProgress } from "./persistence";
@@ -31,6 +32,7 @@ export function ConnectedOnboarding({ client, projects, runtimeVersion, onFinish
   const [resetPending, setResetPending] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
   const [storageError, setStorageError] = useState(false);
+  const [providerDraft, setProviderDraft] = useState(false);
   const [provider, setProvider] = useState<string | null>(null);
   const owner = useRef(0);
   const sourcesRequest = useRef(0);
@@ -83,8 +85,19 @@ export function ConnectedOnboarding({ client, projects, runtimeVersion, onFinish
     setStorageError(!persistProgress(next).ok);
   };
   const finish = (id: string | null) => { clearProgress(); onFinish(id); };
-  if (provider !== null) return <ControlPanel client={client} initialProviderId={provider} title="Sağlayıcıya bağlan"
-    onClose={() => { setProvider(null); void loadControl(); }} onProvidersChanged={() => void loadControl()} />;
+  if (provider !== null) return <div className="onboarding-provider">
+    <ControlPanel client={client} initialProviderId={provider} title="Sağlayıcıya bağlan"
+      onClose={() => { if (!providerDraft) { setProvider(null); void loadControl(); } }}
+      onProviderDraftChange={setProviderDraft} onProvidersChanged={() => void loadControl()} />
+    <footer className="onboarding__footer onboarding-provider__footer" aria-label="Kurulumda gezinme">
+      <div><Button disabled={providerDraft} onClick={() => { setProvider(null); void loadControl(); }} variant="ghost">Kuruluma dön</Button></div>
+      <div className="onboarding__actions">
+        <Button onClick={() => finish(null)} variant="ghost">{providerDraft ? "Girişi bırak ve atla" : "Şimdilik atla"}</Button>
+        <Button disabled={providerDraft} variant="primary" onClick={() => { setProvider(null); change({ ...value, step: "project" }); void loadControl(); }}>Devam et</Button>
+      </div>
+      {providerDraft && <p role="status">Kaydedilmemiş anahtar var. Devam etmek için Kaydet'e bas veya alanı temizle.</p>}
+    </footer>
+  </div>;
   const summary = control.status === "ready" ? control.value : lastControl;
   return <>
     {storageError && <p role="status">Kurulum ilerlemesi saklanamadı; bu oturumda geçerli.</p>}

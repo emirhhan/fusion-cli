@@ -438,6 +438,56 @@ async def test_kapanista_bekleyen_sorular_serbest_birakilir(tmp_path):
     assert gelecek.done()
 
 
+@pytest.mark.parametrize("concurrent_close", [False, True])
+async def test_session_close_cancels_image_render_and_waits_for_cleanup(
+    tmp_path, monkeypatch, concurrent_close
+):
+    from fusion_cli.appserver import session as module
+
+    started, cleaning, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    cleaned = asyncio.Event()
+
+    async def render(*args, **kwargs):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaning.set()
+            await release.wait()
+            cleaned.set()
+
+    monkeypatch.setattr(module, "create_image", render)
+    session = _session(tmp_path, [])
+    running = asyncio.create_task(session._dispatch(Request("image", "gorsel.olustur", {})))
+    await started.wait()
+    closing = asyncio.create_task(session.close())
+    closings = [closing]
+    try:
+        await asyncio.wait_for(cleaning.wait(), 1.0)
+        assert not closing.done(), "üretim temizlenmeden oturum kapanmış sayılamaz"
+        if concurrent_close:
+            closings.append(asyncio.create_task(session.close()))
+            await asyncio.sleep(0)
+    finally:
+        release.set()
+        if not cleaning.is_set() and not running.done():
+            running.cancel()
+        await asyncio.gather(running, *closings, return_exceptions=True)
+    assert cleaned.is_set(), "ikinci kapanış üretimin finally temizliğini yarıda kesemez"
+
+
+async def test_closed_session_cannot_start_image_render(tmp_path, monkeypatch):
+    from fusion_cli.appserver import session as module
+
+    render = AsyncMock(return_value={"ok": True, "dosyalar": []})
+    monkeypatch.setattr(module, "create_image", render)
+    session = _session(tmp_path, [])
+    await session.close()
+    result = await session._dispatch(Request("image", "gorsel.olustur", {}))
+    assert result["ok"] is False
+    render.assert_not_awaited()
+
+
 async def test_kapanis_tts_childini_diger_surecleri_beklemeden_durdurur(tmp_path):
     """AppSession.close TTS sahipliğini kapanış zincirinin başında bırakmalı."""
     from fusion_cli.appserver import voice
@@ -831,7 +881,7 @@ async def test_oturum_izni_masaustunde_sonraki_turda_yeniden_sorulmaz(tmp_path, 
     Gerçek hata: `run_agent_task` her turda `build_policy` çağırıyordu ve izin
     kümesi turla birlikte kayboluyordu.
     """
-    from fusion_cli.core.tools import Tool, ToolEffect
+    from fusion_cli.core.tools import AuthorizationScope, Tool, ToolEffect
     from fusion_cli.engines.agent import AgentOutcome
     from fusion_cli.engines.agent.approval import ApprovalAnswer, build_request
 
@@ -842,6 +892,7 @@ async def test_oturum_izni_masaustunde_sonraki_turda_yeniden_sorulmaz(tmp_path, 
         run=lambda a, c: None,
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,
+        scope_resolver=lambda args: AuthorizationScope("offline", "test", "add_node", ("scene",)),
     )
     sorular: list[str] = []
 
@@ -1080,7 +1131,9 @@ async def test_tur_kes_calisan_turu_gercekten_iptal_eder(tmp_path, monkeypatch):
     await oturum.handle(Request(id="2", name="tur.kes", data={}))
 
     kesme_sonucu = _sonuc(satirlar, "2")
-    assert kesme_sonucu == {"ok": True, "metin": messages.APP_TURN_CANCELLED}
+    assert kesme_sonucu["ok"] is True
+    assert kesme_sonucu["state"] == "stopping"
+    assert "açık işlemler kapatılıyor" in kesme_sonucu["metin"]
 
     await gorev
     assert calisan_tur.cancelled()
@@ -1602,3 +1655,272 @@ async def test_panel_konusmasi_uygulamanin_sohbetine_karismaz(tmp_path, monkeypa
 
     assert (await oturum._chrome_settings({"yeni": True}))["ok"] is not False
     assert oturum._chrome_history == []
+
+
+async def test_running_turn_owns_steering_queue_and_rejects_other_turn(tmp_path, monkeypatch):
+    """Gerçek AppSession kurulumu aynı tur kuyruğunu motor çağrısına geçirir."""
+    from fusion_cli.core.submission import SubmissionKey, SubmissionReceipt, SubmissionState
+    from fusion_cli.engines.agent import AgentOutcome
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    observed = {}
+
+    async def fake_run(task, config, **kwargs):
+        observed.update(kwargs)
+        started.set()
+        await release.wait()
+        return AgentOutcome("tamamlandı", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", fake_run)
+    session = _session(tmp_path, [])
+    receipt = SubmissionReceipt(
+        SubmissionKey("offline", str(tmp_path), "chat", "request"),
+        "request:1",
+        SubmissionState.RUNNING,
+    )
+    turn = asyncio.create_task(session._run_turn("iş", receipt=receipt))
+    await started.wait()
+    try:
+        bad = await session._dispatch(
+            Request(
+                "bad",
+                "tur.yonlendir",
+                {"turnId": "other:1", "requestId": "steer", "text": "yanlış"},
+            )
+        )
+        assert bad["ok"] is False
+        good = Request(
+            "good",
+            "tur.yonlendir",
+            {"turnId": "request:1", "requestId": "steer", "text": "Dosyaya dokunma"},
+        )
+        assert (await session._dispatch(good))["ok"] is True
+        assert (await session._dispatch(good))["ok"] is True
+        assert len(observed["steering"].drain()) == 1
+        assert observed["current_approval"]() is session._state.approval
+    finally:
+        release.set()
+        await turn
+    assert session._steering is None
+    assert (await session._dispatch(good))["ok"] is False
+
+
+async def test_child_cancel_rpc_rejects_stale_turn_and_waits_cleanup(tmp_path):
+    from fusion_cli.engines.agent.child_runs import ChildRuns
+
+    session = _session(tmp_path, [])
+    session._steering_turn = "current"
+    runs = ChildRuns()
+    session._child_runs = runs
+    entered, cleaned = asyncio.Event(), asyncio.Event()
+
+    async def child():
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaned.set()
+
+    task = runs.start("child", child)
+    await entered.wait()
+    stale = await session._dispatch(
+        Request("stale", "ajan.durdur", {"turnId": "old", "agentId": "child"})
+    )
+    assert stale["ok"] is False
+    assert not task.done()
+    result = await session._dispatch(
+        Request("stop", "ajan.durdur", {"turnId": "current", "agentId": "child"})
+    )
+    assert result["ok"] is True
+    assert cleaned.is_set() and task.cancelled()
+    await session.close()
+
+
+async def test_persistent_image_routes_deduplicate_and_scope_receipts(tmp_path, monkeypatch):
+    from PIL import Image
+
+    from fusion_cli.appserver import session as module
+
+    monkeypatch.setattr(module, "image_output_dir", lambda: tmp_path)
+    monkeypatch.setattr(module, "image_providers", lambda *a, **kw: [{"deger": "offline"}])
+    calls = 0
+
+    async def render(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        path = tmp_path / "generated.png"
+        Image.new("RGB", (9, 6), "blue").save(path)
+        return {"ok": True, "saglayici": "offline", "dosyalar": [{"yol": str(path)}]}
+
+    monkeypatch.setattr(module, "create_image", render)
+    session = _session(tmp_path, [])
+    try:
+        discovery = await session._dispatch(Request("providers", "gorsel.saglayicilar", {}))
+        assert discovery["isProtokolu"] == 1
+        data = {"requestId": "stable-job", "istem": "deneme", "saglayici": "offline"}
+        first = await session._dispatch(Request("start", "gorsel.is.baslat", data))
+        async with asyncio.timeout(3):
+            while True:
+                status = await session._dispatch(
+                    Request("status", "gorsel.is.durum", {"jobId": "stable-job"})
+                )
+                if status.get("state") == "completed":
+                    break
+        repeated = await session._dispatch(Request("repeat", "gorsel.is.baslat", data))
+        assert first["jobId"] == repeated["jobId"] and calls == 1
+        changed = await session._dispatch(
+            Request("changed", "gorsel.is.baslat", {**data, "istem": "başka"})
+        )
+        assert changed["code"] == "job_conflict" and calls == 1
+        assert status["dosyalar"][0]["genislik"] == 9
+        listed = await session._dispatch(Request("list", "gorsel.is.liste", {}))
+        assert listed["isler"] == [
+            {"jobId": "stable-job", "state": "completed", "outputsVerified": False}
+        ]
+        session._conversation_id = "other"
+        other_list = await session._dispatch(Request("other-list", "gorsel.is.liste", {}))
+        assert other_list["isler"] == []
+        scoped = await session._dispatch(
+            Request("other", "gorsel.is.durum", {"jobId": "stable-job"})
+        )
+        assert scoped["code"] == "job_not_found"
+    finally:
+        await session.close()
+
+
+async def test_persistent_image_close_finishes_receipt_before_store_close(tmp_path, monkeypatch):
+    from fusion_cli.appserver import session as module
+
+    monkeypatch.setattr(module, "image_output_dir", lambda: tmp_path)
+    monkeypatch.setattr(module, "image_providers", lambda *a, **kw: [{"deger": "offline"}])
+    started, cleaning, release, cleaned = (asyncio.Event() for _ in range(4))
+
+    async def render(*args, **kwargs):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaning.set()
+            await release.wait()
+            cleaned.set()
+
+    monkeypatch.setattr(module, "create_image", render)
+    session = _session(tmp_path, [])
+    await session._dispatch(
+        Request("start", "gorsel.is.baslat", {"requestId": "close-job", "istem": "deneme"})
+    )
+    await started.wait()
+    closing = asyncio.create_task(session.close())
+    try:
+        await asyncio.wait_for(cleaning.wait(), 2)
+        assert not closing.done()
+        rejected = await session._dispatch(
+            Request("late", "gorsel.is.baslat", {"requestId": "late-job", "istem": "deneme"})
+        )
+        assert rejected["ok"] is False
+    finally:
+        release.set()
+        await closing
+    assert cleaned.is_set()
+    from fusion_cli.core.submission import SubmissionKey
+    from fusion_cli.memory.image_job_store import ImageJobStore
+
+    store = ImageJobStore(session._state.config.memory_dir / "submission.sqlite3")
+    try:
+        record = await store.lookup_image(
+            SubmissionKey(
+                str(session._state.config.memory_dir.resolve()),
+                str(tmp_path.resolve()),
+                "varsayilan",
+                "image:close-job",
+            )
+        )
+        assert record is not None and record.receipt.state.value == "cancelled"
+    finally:
+        await store.close()
+
+
+async def test_persistent_image_uses_captured_reference_after_original_changes(
+    tmp_path, monkeypatch
+):
+    from PIL import Image
+
+    from fusion_cli.appserver import session as module
+
+    monkeypatch.setattr(module, "image_output_dir", lambda: tmp_path)
+    monkeypatch.setattr(module, "image_providers", lambda *a, **kw: [{"deger": "offline"}])
+    reference = tmp_path / "reference.png"
+    Image.new("RGB", (9, 6), "blue").save(reference)
+    expected = reference.read_bytes()
+    entered, release = asyncio.Event(), asyncio.Event()
+    consumed = []
+    consumed_ready = asyncio.Event()
+
+    async def render(config, data, **kwargs):
+        entered.set()
+        await release.wait()
+        consumed.append(await asyncio.to_thread(Path(data["referans"]).read_bytes))
+        consumed_ready.set()
+        return {"ok": False}
+
+    from pathlib import Path
+
+    monkeypatch.setattr(module, "create_image", render)
+    session = _session(tmp_path, [])
+    try:
+        await session._dispatch(
+            Request(
+                "start",
+                "gorsel.is.baslat",
+                {
+                    "requestId": "reference-job",
+                    "istem": "deneme",
+                    "referans": str(reference),
+                },
+            )
+        )
+        await entered.wait()
+        Image.new("RGB", (9, 6), "red").save(reference)
+        release.set()
+        await asyncio.wait_for(consumed_ready.wait(), 3)
+        assert consumed == [expected]
+    finally:
+        release.set()
+        await session.close()
+    assert not list(tmp_path.glob(".fusion-reference-*"))
+
+
+async def test_gallery_and_library_asset_identity_roundtrip_is_profile_scoped(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.appserver import asset_bridge, image_flows, library
+
+    gallery = tmp_path / "gallery"
+    gallery.mkdir()
+    image = gallery / "old.png"
+    image.write_bytes(b"legacy image")
+    monkeypatch.setattr(asset_bridge, "gallery_dir", lambda: gallery)
+    monkeypatch.setattr(image_flows, "gallery_dir", lambda: gallery)
+    monkeypatch.setattr(library, "gallery_dir", lambda: gallery)
+    monkeypatch.setattr(library, "library_dir", lambda: tmp_path / "library")
+    session = _session(tmp_path, [])
+    other = AppSession([].append, root=tmp_path, home=tmp_path / "other-home")
+    other._state.config = replace(other._state.config, memory_dir=tmp_path / "other-memory")
+    try:
+        listed = await session._dispatch(Request("gallery", "gorsel.galeri", {}))
+        asset_id = listed["dosyalar"][0]["asset"]["asset_id"]
+        indexed = await session._dispatch(Request("library", "kitaplik.liste", {}))
+        assert indexed["dosyalar"][0]["asset"]["asset_id"] == asset_id
+        resolved = await session._dispatch(Request("asset", "artefakt.coz", {"asset_id": asset_id}))
+        assert resolved["ok"] is True and resolved["asset"]["available"] is True
+        rejected = await other._dispatch(Request("other", "artefakt.coz", {"asset_id": asset_id}))
+        assert rejected["ok"] is False
+        image.unlink()
+        missing = await session._dispatch(
+            Request("missing", "artefakt.coz", {"asset_id": asset_id})
+        )
+        assert missing["ok"] is True and missing["asset"]["available"] is False
+    finally:
+        await session.close()
+        await other.close()

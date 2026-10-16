@@ -26,6 +26,7 @@ import json
 import re
 import sys
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -41,9 +42,9 @@ from ...core.constants import (
     CAPABILITY_WALL_PREFIX,
     FILE_MISSING_PREFIX,
     TOOL_CALL_BLOCKED_PREFIX,
-    TOOL_CALL_DUPLICATE_PREFIX,
     UNREACHABLE_RESOURCE_PREFIX,
 )
+from ...core.effects import EffectRecorder
 from ...core.errors import ConfigError, FusionError
 from ...core.events import (
     ApprenticeHandoff,
@@ -55,6 +56,7 @@ from ...core.events import (
     NarrationPublished,
     SelfReviewFinished,
     SelfReviewStarted,
+    SkillLoaded,
     StatusChanged,
     ToolCallRepaired,
     ToolExecuted,
@@ -62,6 +64,7 @@ from ...core.events import (
     ToolStarted,
     TurnAnswered,
     TurnBudgetExhausted,
+    TurnUsageObserved,
     VerificationFailed,
 )
 from ...core.evidence import ToolUse
@@ -73,8 +76,17 @@ from ...core.protocols import TurnJournal
 from ...core.reasoning import ReasoningEffort
 from ...core.redaction import redact
 from ...core.refusal import looks_like_refusal
+from ...core.skill_context import SkillSelection
 from ...core.steering import SteeringQueue
-from ...core.tools import TodoItem, Tool, ToolContext, ToolFamily, ToolResult, tool_family
+from ...core.tools import (
+    TodoItem,
+    Tool,
+    ToolContext,
+    ToolEffect,
+    ToolFamily,
+    ToolResult,
+    tool_family,
+)
 from ...core.turn_deadline import TurnDeadline
 from ...core.types import (
     CompletionRequest,
@@ -98,7 +110,7 @@ from ...providers.web_registry import web_registry_for
 from ...tools import ToolRegistry, build_registry
 from ...tools.auto_policy import is_read_only_command
 from ...tools.capabilities import CapabilityRegistry
-from ...tools.emulation import coerce_arguments, render_tool_example, validate_arguments
+from ...tools.emulation import coerce_arguments, validate_arguments
 from ...tools.files import resolve_path
 from ...tools.preview import file_diff
 from ...tools.web import loopback_origins_in
@@ -109,6 +121,7 @@ from . import compaction, denial, learning_steps, liveness, reflexion, review
 from .apprentice_handoff import apprentice_spec, teacher_for_turn
 from .approval import ApprovalPolicy, Decision, resolve_request
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
+from .child_runs import ChildRuns
 from .clarify import clarification_hint
 from .edit_hooks import EDIT_TOOLS, run_post_edit_hooks
 from .edit_streak import next_streak, streak_note
@@ -121,12 +134,49 @@ from .execution_policy import (
 from .execution_route import ExecutionRoute, choose_execution_route
 from .expertise import expertise_hint, is_game_task, is_remotion_task
 from .history import needs_compression, total_chars
+from .loop_contract import (
+    _SHELL_FRAME as _SHELL_FRAME,
+)
+from .loop_contract import (
+    CORRECTION_NOTE_PREFIX as CORRECTION_NOTE_PREFIX,
+)
+from .loop_contract import (
+    _correction_task as _correction_task,
+)
+from .loop_contract import (
+    _duplicate_call_message as _duplicate_call_message,
+)
+from .loop_contract import (
+    _encode_arguments as _encode_arguments,
+)
+from .loop_contract import (
+    _failure_signature as _failure_signature,
+)
+from .loop_contract import (
+    _is_tool_contract_error as _is_tool_contract_error,
+)
+from .loop_contract import (
+    _parse_arguments_checked as _parse_arguments_checked,
+)
+from .loop_contract import (
+    _suggested_tool_schema as _suggested_tool_schema,
+)
+from .loop_contract import (
+    _tool_contract_abort_message as _tool_contract_abort_message,
+)
+from .loop_contract import (
+    _tool_contract_failure as _tool_contract_failure,
+)
+from .loop_contract import (
+    _verification_correction_task as _verification_correction_task,
+)
 from .narration import intro_paragraph, todo_transitions
 from .output_verify import requested_outputs_in
 from .plan_runner import run_execution_plan
 from .platform_check import ensure_limitations_disclosed, run_platform_check
 from .playbook_stage import maybe_run_playbook
 from .project_instructions import read_all_instructions
+from .questions import PendingUserQuestions
 from .repair_flow import record_failure_evidence
 from .repo_context import repo_map_block
 from .teacher_flow import (
@@ -338,7 +388,14 @@ class AgentDeps:
     #: Bu turda kaç kez bağlam özetlendi; plan yürütücüsü checkpoint'e taşır.
     condensations: int = 0
     #: Kullanıcının koşan işe ilettiği yönergeler; her alt turdan önce boşaltılır.
+    questions: PendingUserQuestions = field(default_factory=PendingUserQuestions)
+    child_runs: ChildRuns = field(default_factory=ChildRuns)
+    selected_skill: SkillSelection | None = None
+    effect_recorder: EffectRecorder | None = None
     steering: SteeringQueue | None = None
+    policy_factory: Callable[[], ApprovalPolicy] | None = None
+    approval_revision: Callable[[], object] | None = None
+    ancestor_mutation_barrier: Callable[[], bool] | None = None
     #: Kullanıcının seçtiği görev tipi (`/type`). `task_model_map` üzerinden bu turda
     #: kullanılacak modeli belirler; haritada karşılığı yoksa `agent:` rolü kullanılır.
     task_type: str = "general"
@@ -397,6 +454,15 @@ class AgentDeps:
 
     deadline: TurnDeadline | None = None
 
+    def mutation_blocked_by_pending_input(self) -> bool:
+        """Child parent girdisini tüketmeden aynı değişiklik bariyerini görür."""
+        return (
+            self.questions.pending
+            or self.questions.ready
+            or (self.steering is not None and self.steering.pending)
+            or (self.ancestor_mutation_barrier is not None and self.ancestor_mutation_barrier())
+        )
+
     def require_budget(self) -> TurnBudget:
         """Bütçeyi döndür; kurulmamışsa programlama hatasıdır.
 
@@ -409,6 +475,50 @@ class AgentDeps:
 
 
 async def run_agent(
+    task: str,
+    deps: AgentDeps,
+    *,
+    history: list[Message] | None = None,
+    plan_mode: bool = False,
+    chat_mode: bool = False,
+    extra_system: str = "",
+    depth: int = 0,
+    self_review: bool | None = None,
+    allowed_tools: set[str] | None = None,
+    step_limit: int | None = None,
+    verify: bool = True,
+    internal: bool = False,
+    require_local_mutation: bool = False,
+    system_prompt: str | None = None,
+    images: tuple[str, ...] = (),
+    workflow: bool = False,
+) -> AgentOutcome:
+    """Kök turun sahipli sorularını her çıkış yolunda temizle."""
+    try:
+        return await _run_agent(
+            task,
+            deps,
+            history=history,
+            plan_mode=plan_mode,
+            chat_mode=chat_mode,
+            extra_system=extra_system,
+            depth=depth,
+            self_review=self_review,
+            allowed_tools=allowed_tools,
+            step_limit=step_limit,
+            verify=verify,
+            internal=internal,
+            require_local_mutation=require_local_mutation,
+            system_prompt=system_prompt,
+            images=images,
+            workflow=workflow,
+        )
+    finally:
+        if depth == 0 and not internal:
+            await deps.questions.close()
+
+
+async def _run_agent(
     task: str,
     deps: AgentDeps,
     *,
@@ -547,7 +657,9 @@ async def run_agent(
                 available=registry.get("site_design") is not None,
                 clone_available=registry.get("clone_site") is not None,
             ),
-            expertise_hint(task),
+            expertise_hint(task, registry=deps.capabilities, publisher=deps.publisher)
+            if deps.selected_skill is None
+            else None,
         )
         if depth == 0 and not chat_mode and not internal
         else ()
@@ -575,6 +687,16 @@ async def run_agent(
         images=images,
     )
 
+    if depth == 0 and not internal and deps.selected_skill is not None:
+        selected = deps.selected_skill
+        deps.publisher.publish(
+            SkillLoaded(
+                qualified_name=selected.qualified_name,
+                revision=selected.revision,
+                mode="explicit",
+                next_offset=selected.next_offset,
+            )
+        )
     if deps.execution is None:
         try:
             selected_spec = select_agent_spec(
@@ -888,10 +1010,6 @@ def _apply_turn_report(
         current_jobs=current_jobs,
         require_behavioral_evidence=require_behavioral_evidence,
     )
-    text = report.render()
-    if not text:
-        outcome.completion_report = report
-        return
     if report.is_verified is False and claims_command_success(outcome.final_text):
         # Kanıtsız "testler geçti" yanlış başarıdır: tur başarılı sayılmaz, ders
         # öğrenilmez. Genel "doğrulandı" yalnız uyarı alır (`render_with_model_text`).
@@ -1086,6 +1204,14 @@ async def _drive(
         # tur bittikten sonra iletmek onu bir sonraki göreve, hiç iletmemek ise
         # kullanıcıyı turu öldürmeye zorlardı.
         apply_steering(messages, deps.steering)
+        for answer in deps.questions.drain():
+            messages.append(
+                Message(
+                    "user",
+                    f"[soru sonucu {answer.question_id} · {answer.state}] {answer.text}",
+                    harness_note=True,
+                )
+            )
         if budget.model_calls_exhausted:
             return _halt(final_text, messages, state, budget, BudgetStop.MODEL_CALLS, deps)
         if local_limit is not None and local_calls >= local_limit:
@@ -1105,6 +1231,9 @@ async def _drive(
         # Çağrıyı yalnızca MUTLAK tur sınırı daraltır. Boşta-kalma sınırı araç
         # turları arasındaki ilerlemesizliği ölçer; hâlâ yazan bir modeli kesmek
         # için kullanılmaz — takılan akışı `_call_model`'in parça başı sınırı yakalar.
+        if not budget.reserve_model_call():
+            return _halt(final_text, messages, state, budget, BudgetStop.MODEL_CALLS, deps)
+        call_id = budget.model_calls
         try:
             result = await _call_with_retries(
                 messages, deps, registry, allowed_tools, state=state, execution=execution
@@ -1124,10 +1253,19 @@ async def _drive(
                 return _halt(final_text or timeout_message, messages, state, budget, reason, deps)
             return _outcome(timeout_message, messages, state, ok=False)
 
+        budget.usage.record(call_id, result.usage)
+        observed = budget.usage.snapshot()
+        deps.publisher.publish(
+            TurnUsageObserved(
+                prompt_tokens=observed.prompt_tokens,
+                completion_tokens=observed.completion_tokens,
+                unknown_calls=observed.unknown_calls,
+                total_calls=observed.total_calls,
+            )
+        )
         state.model_calls_made += 1
         if (remaining := budget.remaining_s()) is not None and remaining <= 0:
             return _halt(final_text, messages, state, budget, BudgetStop.DEADLINE, deps)
-        budget.record_model_call()
         # Yedek zinciri BAŞKA bir modele düşmüş olabilir; yetenek kapısı turun
         # başında yapılandırılmış modele göre kapanmıştı. Kapı yalnız açılır.
         execution = refresh_mutation_policy(execution, result.served_by, deps.config)
@@ -1164,6 +1302,13 @@ async def _drive(
             budget.halt(BudgetStop.EMPTY_RESPONSES)
             _publish_budget_stop(deps, budget, state)
             return _outcome(final_text, messages, state)
+
+        if deps.questions.ready:
+            continue
+        if deps.steering is not None and deps.steering.pending:
+            # Yanıt eski talimata göre üretildi; araçları hiç başlatmadan yeniden değerlendir.
+            apply_steering(messages, deps.steering)
+            continue
 
         # Araç çağrısıyla gelen metindeki düşünme taslağı geçmişe yazılmaz: bir sonraki
         # çağrıda modele geri gider ve cevabı iki kez yazdırıyordu (ölçüldü, 27 Eylül).
@@ -2974,19 +3119,6 @@ def _agent_reads_images(deps: AgentDeps) -> bool:
     return capabilities_for(deps.config.agent, deps.config.web_sessions).images
 
 
-def _encode_arguments(args: dict[str, object]) -> str:
-    """Argümanları tekrar tespiti için KARARLI bir metne çevir.
-
-    Anahtar sırası sabitlenir: aynı çağrının farklı sırayla gelmesi onu yeni bir
-    çağrı yapmaz. Serileştirilemeyen bir değer varsa `repr` yeterlidir — burada
-    amaç eşitlik karşılaştırması, yeniden üretilebilir bir kayıt değil.
-    """
-    try:
-        return json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)
-    except (TypeError, ValueError):
-        return repr(args)
-
-
 async def _execute(
     call: ToolCall,
     args: dict[str, object],
@@ -2997,6 +3129,7 @@ async def _execute(
     plan_mode: bool = False,
 ) -> tuple[ToolResult, ToolOutcome]:
     """Onaydan geçir ve çalıştır. Bilinmeyen araç da kayıt defterinin sorunu."""
+    args = deepcopy(args)
     tool = registry.get(call.name)
     if execution.allowed_tool_names is not None and call.name not in execution.allowed_tool_names:
         # Serbest araçlar SÖYLENMELİ: gözlem turunda model yalnız "kapsamda değil"
@@ -3004,6 +3137,10 @@ async def _execute(
         allowed = ", ".join(sorted(execution.allowed_tool_names)) or "yok"
         return ToolResult.failure(
             f"Araç bu adımın izin verilen kapsamında değil. Bu adımda kullanılabilir: {allowed}"
+        ), ToolOutcome.BLOCKED
+    if deps.steering is not None and deps.steering.pending:
+        return ToolResult.failure(
+            "Yeni kullanıcı talimatı bekliyor; eski araç başlatılmadı."
         ), ToolOutcome.BLOCKED
     if (
         tool is not None
@@ -3020,16 +3157,27 @@ async def _execute(
             ),
             ToolOutcome.BLOCKED,
         )
+    if tool is not None and tool.mutating and deps.mutation_blocked_by_pending_input():
+        return ToolResult.failure(
+            "Soru sonucu yeniden değerlendirilmeli; değişiklik yerine bağımsız okuma yap."
+        ), ToolOutcome.BLOCKED
     if tool is not None and tool.mutating:
-        decision = await deps.policy.decide(
-            await resolve_request(
-                tool,
-                args,
-                deps.allowed_commands,
-                root=deps.tool_context.root,
-                context=deps.tool_context,
-            )
+        revision = deps.approval_revision() if deps.approval_revision else None
+        policy = deps.policy_factory() if deps.policy_factory else deps.policy
+        request = await resolve_request(
+            tool,
+            deepcopy(args),
+            deps.allowed_commands,
+            root=deps.tool_context.root,
+            context=deps.tool_context,
         )
+        decision = await policy.decide(request)
+        if deps.mutation_blocked_by_pending_input() or (
+            deps.approval_revision is not None and deps.approval_revision() != revision
+        ):
+            return ToolResult.failure(
+                "Onay kapsamı değişti; eski işlem başlatılmadı."
+            ), ToolOutcome.BLOCKED
         if decision is not Decision.ALLOW:
             # Engelleme (BLOCKED) HATA DEĞİLDİR: refleksiyon tetiklenmemeli, model
             # yalnızca farklı bir yol denemeli. Reddetme (DENIED) ise artık farklı
@@ -3049,8 +3197,34 @@ async def _execute(
         return ToolResult.failure(
             "Dış isteğin süre sınırı doldu; bu araç başlatılmadı."
         ), ToolOutcome.BLOCKED
+    recorder = getattr(deps, "effect_recorder", None)
+    external = (
+        tool is not None
+        and tool.mutating
+        and request.effect
+        in {
+            ToolEffect.REMOTE_WRITE,
+            ToolEffect.REMOTE_DESTRUCTIVE,
+        }
+    )
+    if recorder is not None and external:
+        await recorder.prepare(call, tool, request.effect, request.authorization_scope)
+        if deps.mutation_blocked_by_pending_input() or (
+            deps.approval_revision is not None and deps.approval_revision() != revision
+        ):
+            return ToolResult.failure(
+                "Kayıt sırasında kullanıcı kararı değişti; dış işlem başlatılmadı."
+            ), ToolOutcome.BLOCKED
+        if (remaining := budget.remaining_s()) is not None and remaining <= 0:
+            budget.halt(BudgetStop.DEADLINE)
+            return (
+                ToolResult.failure("Dış işlem başlamadan süre sınırı doldu."),
+                ToolOutcome.BLOCKED,
+            )
     deps.publisher.publish(ToolStarted(name=call.name, args=args))
     result = await registry.execute(call.name, args, deps.tool_context)
+    if recorder is not None and external:
+        await recorder.finish(call.id, result.ok)
     return result, ToolOutcome.OK if result.ok else ToolOutcome.FAILED
 
 
@@ -3069,21 +3243,6 @@ def _reads_only(tool_name: str, args: dict[str, object]) -> bool:
     )
 
 
-def _parse_arguments_checked(raw: str) -> tuple[dict[str, object], str | None]:
-    """Ham argümanları ayrıştır; bozuk JSON kanıtını SİLMEDEN.
-
-    Hatayı yutup boş sözlük döndürmek, modele "argümanların boştu" demek olurdu;
-    oysa sorun JSON'un kendisidir ve model bunu bilmeden düzeltemez.
-    """
-    try:
-        parsed = json.loads(raw)
-    except (json.JSONDecodeError, TypeError, ValueError) as error:
-        return {}, f"arguments geçerli JSON olmalı ({error})"
-    if not isinstance(parsed, dict):
-        return {}, "arguments bir JSON nesnesi olmalı"
-    return parsed, None
-
-
 #: Aynı hatanın kaç kez yinelenmesinden SONRA Fusion araya girer.
 #:
 #: 1 olsaydı ilk denemede araya girip modelin normal toparlanmasını bozardık;
@@ -3098,26 +3257,6 @@ _YINELENEN_HATA_ESIGI = 2
 #: mevcut eşiğin üzerine bir tur eklenir, sıfırdan bir eşik seçilmez
 #: (bkz. `docs/superpowers/plans/2026-09-22-ogretmen-protokolu.md` §6.2).
 _OGRETMEN_ONERI_ESIGI = _YINELENEN_HATA_ESIGI + 1
-
-
-_SHELL_FRAME = re.compile(r"^\(çıkış kodu -?\d+\)$|^\[stderr\]$")
-
-
-def _failure_signature(output: str) -> str:
-    """Hata metnini karşılaştırılabilir bir imzaya indir.
-
-    İlk satır alınır: araçlar çözüm önerilerini sonraki satırlara yazar ve o
-    öneriler aynı hatada bile değişebilir. Yol/ad gibi ayrıntılar İMZANIN
-    PARÇASIDIR — farklı dosyada aynı hata farklı iştir, yinelenme sayılmaz.
-    """
-    # Kabuk çıktısı hep "(çıkış kodu N)" ile başlar: o satır imza olsaydı birbiriyle
-    # ilgisiz her kabuk hatası "aynı hata" sayılırdı. Asıl hata satırı alınır.
-    satirlar = [
-        satir.strip()
-        for satir in output.strip().splitlines()
-        if satir.strip() and not _SHELL_FRAME.match(satir.strip())
-    ]
-    return satirlar[0] if satirlar else output.strip()
 
 
 def _repeated_failure_note(
@@ -3211,102 +3350,6 @@ _REPEATED_READ_NOTE = (
 )
 
 
-def _duplicate_call_message() -> str:
-    """Tekrarlanan çağrıda modele verilen rehberlik.
-
-    Ölçülen hata: mesaj yalnız DOSYA araçlarını sayıyordu. MCP ya da başka bir
-    dış araçla çalışan model bu listeden hiçbirini uygulayamıyor ve engellenen
-    aracı tümden yasaklanmış sanıyordu. Gerçek bir Godot turunda `add_node`
-    yolu `res://` ekiyle reddedildi; doğru düzeltme AYNI aracı ek olmadan
-    çağırmaktı, ama mesaj argüman değiştirmeyi hiç önermiyordu.
-
-    Bu yüzden ilk öneri araç-bağımsızdır: ARGÜMANI değiştir. Dosya araçları
-    yalnızca örnek olarak kalır.
-    """
-    return (
-        f"{TOOL_CALL_DUPLICATE_PREFIX} Bu çağrıyı aynı argümanlarla ZATEN yaptın ve çalışma "
-        "alanında o zamandan beri ilgili bir değişiklik olmadı. Fusion çağrıyı "
-        "çalıştırmadı — sonucu zaten elinde. Araç YASAK DEĞİL; yasak olan aynı "
-        "çağrıyı aynı argümanlarla tekrarlamak.\n"
-        "Şunlardan BİRİNİ yap:\n"
-        "1) Aynı aracı FARKLI ARGÜMANLARLA çağır. Önceki hata bir yol/biçim "
-        "sorunuysa yolu değiştir (ör. 'res://' ekini kaldır ya da ekle, göreli "
-        "yol yerine tam yol ver).\n"
-        "2) Aynı işi yapan BAŞKA bir aracı dene.\n"
-        "3) Dosya işi ise: yeni dosyada write_file, mevcut dosyada edit_file, "
-        "başka bir dosyayı read_file ile oku.\n"
-        "4) Eksik bilgi varsa ask_user ile sor.\n"
-        "5) İş bittiyse sonucu söyle."
-    )
-
-
-def _is_tool_contract_error(detail: str | None) -> bool:
-    return bool(detail and detail.startswith("TOOL_CALL_"))
-
-
-def _tool_contract_failure(
-    name: str,
-    errors: list[str],
-    function_schema: object,
-    *,
-    registry: ToolRegistry | None = None,
-) -> str:
-    """Sözleşme hatasını, ÖRNEĞİ hatanın işaret ettiği araçtan vererek bildir.
-
-    Ölçüldü (13 Eylül, Godot koşusu): `write_file` mevcut dosyada reddedildi ve
-    hata "replace_range kullan" dedi — ama örnek yine `write_file` çağrısıydı.
-    Model örneği izleyip aynı çağrıyı tekrarladı, adım bütçesi doldu ve oyun
-    yarım kaldı. Hata bir aracı önerirken başka bir aracın örneğini göstermek,
-    öneriyi geri almaktır.
-    """
-    lines = ["TOOL_CALL_INVALID", f"tool: {name}", "errors:"]
-    lines.extend(f"- {error}" for error in errors)
-    onerilen = _suggested_tool_schema(name, errors, registry)
-    if onerilen is not None:
-        lines.append("valid_example:")
-        lines.append(render_tool_example(onerilen))
-    elif isinstance(function_schema, dict):
-        lines.append("valid_example:")
-        lines.append(render_tool_example(function_schema))
-    return "\n".join(lines)
-
-
-def _suggested_tool_schema(
-    name: str, errors: list[str], registry: ToolRegistry | None
-) -> dict[str, object] | None:
-    """Hata metninde ADIYLA önerilen BAŞKA aracın şeması; yoksa None.
-
-    Metinde birden çok araç anılıyorsa EN SONA yazılan seçilir: öneriler sıra
-    halinde yazılıyor ("önce read_file ile gör, sonra edit_file ile gönder")
-    ve modelin yanlış yaptığı adım zincirin sonundaki YAZMA adımıdır.
-    """
-    if registry is None:
-        return None
-    metin = " ".join(errors)
-    sirali = sorted(
-        ((metin.rfind(aday), aday) for aday in registry.names() if aday != name),
-        reverse=True,
-    )
-    for konum, aday in sirali:
-        if konum < 0:
-            break
-        tool = registry.get(aday)
-        if tool is None:
-            continue
-        schema = tool.schema().get("function")
-        if isinstance(schema, dict):
-            return schema
-    return None
-
-
-def _tool_contract_abort_message(detail: str) -> str:
-    return (
-        "TOOL_CALL_ABORTED: Araç sözleşmesi düzeltilemedi veya aynı çağrı tekrarlandı. "
-        "Fusion güvenlik için bu turu sonlandırdı; işlem tamamlanmış kabul edilmemelidir.\n"
-        + detail
-    )
-
-
 # --------------------------------------------------------------------------- #
 # Öz-denetim ve sıkıştırma
 # --------------------------------------------------------------------------- #
@@ -3315,24 +3358,6 @@ def _tool_contract_abort_message(detail: str) -> str:
 #: Öz-denetim / doğrulama kapısı düzeltmesi turlarına eklenen notların ortak
 #: öneki. Bu bir kullanıcı mesajı DEĞİLDİR; modelin bunu görevin yeniden
 #: verildiği sanmaması için Fusion'ın kendi sesiyle işaretlenir.
-CORRECTION_NOTE_PREFIX = "[Fusion doğrulama]"
-
-
-def _correction_task(feedback: str) -> str:
-    """Öz-denetim düzeltmesi için KISA not üret.
-
-    Ölçüldü: eski talimat kullanıcının görevini BAŞTAN anlatıyordu
-    ("Kullanıcının görevi şuydu: …") ve model bunu SAHTE bir yeni kullanıcı
-    mesajı sanıp "iş henüz verilmedi, ne yapmamı istiyorsunuz" diyerek turu
-    bitiriyordu — birinci turda yapılmış işi de götürerek. Tek konuşma geçmişi
-    ilkesi burada da geçerlidir: görev zaten paylaşılan geçmişte duruyor,
-    tekrar anlatmaya gerek yok; yalnız hangi sorunun düzeltileceği söylenir.
-    """
-    return (
-        f"{CORRECTION_NOTE_PREFIX} Bir öz-denetim şu sorunu işaret etti. Gerekiyorsa "
-        "düzelt; haklı değilsen kısaca neden sorun olmadığını açıkla.\n\n"
-        f"{feedback}"
-    )
 
 
 async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> AgentOutcome:
@@ -3429,26 +3454,6 @@ async def _fix_findings(
     correction.failed_tool_calls += outcome.failed_tool_calls
     correction.model_calls_made += outcome.model_calls_made
     return correction
-
-
-def _verification_correction_task(verification: VerificationResult) -> str:
-    # Bulgu yoksa özet tek başına talimat olur: elde bundan fazlası yok, ama
-    # "doğrulama düştü" bilgisi bile modele hiçbir şey söylememekten iyidir.
-    details = verification.findings or ((verification.summary,) if verification.summary else ())
-    findings = "\n".join(f"- {finding}" for finding in details)
-    # Görev TEKRAR EDİLMEZ: paylaşılan geçmiş zaten taşıyor. Talimat sahte bir
-    # kullanıcı mesajı gibi davranıp modelin "görev yeniden mi verildi" sanmasına
-    # yol açmasın diye Fusion'ın kendi sesiyle (`CORRECTION_NOTE_PREFIX`) işaretlenir.
-    return (
-        f"{CORRECTION_NOTE_PREFIX} Doğrulama kapısı üretilen çıktıda şu somut "
-        "sorunları buldu. Bunları gerçek kod değişiklikleriyle düzelt. "
-        "Doğrulama/test komutunu şimdi TEKRAR ÇALIŞTIRMA; kapı sen değişiklik "
-        "yaptıktan sonra otomatik olarak yeniden çalışacak. Gerekirse ilgili dosyayı "
-        "oku, fakat ardından en az bir gerçek değiştirici araç çağır "
-        "(edit_file/write_file vb.). Salt açıklama, plan, JSON veya kod bloğu "
-        "düzeltme değildir. Düzeltemeyeceğin varsa nedenini tek cümleyle yaz. "
-        f"\n\n{findings}"
-    )
 
 
 async def _run_verification_correction_attempt(

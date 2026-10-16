@@ -1,0 +1,135 @@
+{
+  "mode": "built-in image_gen",
+  "userDirection": "Sade, olgun; hafif sevimli",
+  "approval": "rejected-by-user-animal-shapes",
+  "assets": [
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.superpowers/sdd/2026-10-12-fusion-profesyonel-uygulama/rejected-animal-characters/fusion-v2.png",
+      "sha256": "792eda6184fd6b617a5b4d83786f34cf055ede1fb9b5c12db72db99387fc702c",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.superpowers/sdd/2026-10-12-fusion-profesyonel-uygulama/rejected-animal-characters/yellow.png",
+      "sha256": "03e9e68f4f4929cd116234bbb81ab899837e74f6b1b0e0341d6021614bc13293",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.superpowers/sdd/2026-10-12-fusion-profesyonel-uygulama/rejected-animal-characters/pink.png",
+      "sha256": "f36a8944027ada3393e36b9c323f76b3ee0fe34c18d251a3aadb1b47b78d938f",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.superpowers/sdd/2026-10-12-fusion-profesyonel-uygulama/rejected-animal-characters/blue.png",
+      "sha256": "643166de40c6df98db1d592cf4c4e19fa64c3495cdbf07ffbee98b9d7d64ceec",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.superpowers/sdd/2026-10-12-fusion-profesyonel-uygulama/rejected-animal-characters/mint.png",
+      "sha256": "61281e06705a32a8c4d068d2ef841f4b9bcbe1b99481810332241f4848c21325",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.superpowers/sdd/2026-10-12-fusion-profesyonel-uygulama/rejected-animal-characters/orange.png",
+      "sha256": "2f17597d43c9b9ad119489a5b3e4a81156fd1296f68f7bb0037d2fc267ab2ed4",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.superpowers/sdd/2026-10-12-fusion-profesyonel-uygulama/rejected-animal-characters/green.png",
+      "sha256": "a8821804e3620531acbdf7ccd0148f1396da6dd6ee5d85a09c66e9b33292ff96",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.superpowers/sdd/2026-10-12-fusion-profesyonel-uygulama/rejected-animal-characters/red.png",
+      "sha256": "74f8ff19d76aa34e54ae684aecdab8dbb1038c438f16a0c7ae6ff0bf8111f02b",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.superpowers/sdd/2026-10-12-fusion-profesyonel-uygulama/rejected-animal-characters/purple.png",
+      "sha256": "bfec80e89cf2cfbd9a9701503900b6a82d191201b8f5c681ce2688ec91b0b6dc",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "note": "İlk bebeksi taslaklar kullanılmadı. İkinci grubun iki çıktısı araç çıktı hatası sonrası yeniden üretildi. Varlıklar Python ile düzenlenmedi; yalnız alfa denetlendi ve dosyalar kopyalandı.",
+  "activeInProduct": false
+}

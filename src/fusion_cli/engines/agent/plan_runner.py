@@ -15,6 +15,7 @@ from ...core.budget import BudgetStop
 from ...core.changeset import ChangeSet
 from ...core.checkpoint import StepCheckpointEvidence, WorkflowBudgetUsage, WorkflowCheckpoint
 from ...core.clock import SystemClock
+from ...core.effects import EffectPhase, ExternalEffectIntent
 from ...core.events import (
     ExecutionCheckpointSaved,
     ExecutionCompleted,
@@ -40,6 +41,7 @@ from ...core.execution_plan import (
 )
 from ...core.failure import RecoveryAction
 from ...core.job_evidence import JobCurrentSnapshot
+from ...core.owned_thread import await_owned_thread
 from ...core.rollback import StepRollback
 from ...core.tools import PendingWrite, TodoList, ToolContext
 from ...core.types import Message
@@ -48,6 +50,7 @@ from ...core.workspace import IsolatedWorkspace, isolate
 from ..workflow.model import BudgetEnvelope, BudgetLedger, WorkflowBudget
 from . import review
 from .attempts import Attempt, choose_attempt
+from .effect_checkpoint import PlanEffectRecorder
 from .execution_policy import ExecutionPolicy
 from .plan_checkpoint import (
     artifact_changed,
@@ -223,6 +226,9 @@ class _PlanRun:
     uncovered: tuple[str, ...] = ()
     #: Bu planda kaç kez bağlam özetlendi; devam eden tur bunu bilmelidir.
     condensations: int = 0
+    storage_revision: int = 0
+    effect_intents: dict[tuple[str, int, str], ExternalEffectIntent] = field(default_factory=dict)
+    _save_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     planning_calls: int = 0
     final_calls: int = 0
     #: İzole adayların tamamında gerçekten harcanan çağrılar. Yalnız kazanan
@@ -278,32 +284,41 @@ class _PlanRun:
         if budget is not None:
             budget.record_progress()
 
-    def save(self) -> None:
+    async def save(self) -> None:
         """Her geçişte gerçek kanıtları ve tüketilmiş zarfları sakla."""
+        async with self._save_lock:
+            await self._save_locked()
+
+    async def _save_locked(self) -> None:
         deps = self.deps
-        if deps.checkpoint_store is None or not deps.conversation_id:
+        store = deps.checkpoint_store
+        if store is None or not deps.conversation_id:
             return
         completed = tuple(
             step.step_id for step in self.current.steps if step.status is StepStatus.COMPLETED
         )
         clock = getattr(getattr(deps, "budget", None), "clock", None) or SystemClock()
-        deps.checkpoint_store.save(
-            WorkflowCheckpoint(
-                self.current,
-                str(deps.tool_context.root.resolve()),
-                deps.conversation_id,
-                completed,
-                clock.now(),
-                tuple(self.evidence.values()),
-                tuple(
-                    WorkflowBudgetUsage(envelope.value, scope, calls)
-                    for (envelope, scope), calls in self.spent.items()
-                ),
-                self.condensations,
-                self.quality_feedback,
-                deps.budget.snapshot_repairs() if deps.budget is not None else None,
-            )
+        checkpoint = WorkflowCheckpoint(
+            self.current,
+            str(deps.tool_context.root.resolve()),
+            deps.conversation_id,
+            completed,
+            clock.now(),
+            tuple(self.evidence.values()),
+            tuple(
+                WorkflowBudgetUsage(envelope.value, scope, calls)
+                for (envelope, scope), calls in self.spent.items()
+            ),
+            self.condensations,
+            self.quality_feedback,
+            deps.budget.snapshot_repairs() if deps.budget is not None else None,
+            storage_revision=self.storage_revision,
+            effect_intents=tuple(self.effect_intents.values()),
+            uncovered=self.uncovered,
         )
+        revision = await await_owned_thread(lambda: store.save(checkpoint))
+        if revision is not None:
+            self.storage_revision = revision
         deps.publisher.publish(
             ExecutionCheckpointSaved(
                 plan_id=self.current.plan_id,
@@ -371,11 +386,11 @@ class _PlanRun:
             completion_report=report,
         )
 
-    def pause(
+    async def pause(
         self, text: str, *, budget: bool = False, report: TurnReport | None = None
     ) -> AgentOutcome:
         self.current = replace(self.current, status=PlanStatus.PAUSED)
-        self.save()
+        await self.save()
         self.deps.publisher.publish(ExecutionPaused(plan_id=self.current.plan_id, reason=text))
         rendered = report.render() if report is not None else self._turn_report_text()
         return self.outcome(rendered + text, ok=False, budget_stopped=budget, report=report)
@@ -396,9 +411,12 @@ class _PlanRun:
             return None
         running = replace(step, status=StepStatus.RUNNING, attempts=step.attempts + 1)
         self.current = replace_step(self.current, running)
-        self.save()
+        await self.save()
         turn_deps = replace(self.deps, tool_context=_step_context(self.deps.tool_context))
         deps = step_deps(turn_deps, running, remaining, observe=observe)
+        deps = replace(
+            deps, effect_recorder=PlanEffectRecorder(self, running.step_id, running.attempts)
+        )
         # `step_deps` KEŞİF fazındaki adımı `observe` parametresi ne olursa olsun
         # salt-okunur açar (`observe or step.phase is PlanPhase.DISCOVERY`); araç
         # kümesi buna göre daralır. Ama bu satırdan ÖNCEKİ `observe` değişkeni
@@ -470,6 +488,7 @@ class _PlanRun:
         finally:
             if deps.tool_context.browser.is_open:
                 await deps.tool_context.browser.close()
+        running = next(item for item in self.current.steps if item.step_id == running.step_id)
         self.outcomes.append(outcome)
         self.condensations += outcome.condensations
         if not self.charge(envelope, outcome.model_calls_made, step.step_id):
@@ -482,19 +501,23 @@ class _PlanRun:
         self, step: PlanStep, outcome: AgentOutcome, *, observe: bool, deps: AgentDeps | None = None
     ) -> StepVerificationResult:
         """Gözlem turunda dış etkiyi yeniden istemeden gerçek koşulları doğrula."""
-        checked_step = (
-            replace(
-                step,
-                expected_effects=tuple(
-                    effect for effect in step.expected_effects if effect.startswith("file:")
+        active_deps = deps or self.deps
+        # Observation must retain every expected effect. Dropping non-file
+        # effects could let an unrelated local receipt certify a remote write.
+        result = await verify_step(step, outcome, active_deps, self.baseline)
+        self.progress()
+        if any(
+            item.step_id == step.step_id and item.phase is not EffectPhase.RESPONDED
+            for item in self.effect_intents.values()
+        ):
+            result = replace(
+                result,
+                ok=False,
+                findings=(
+                    *result.findings,
+                    "Dış işlem sonucu belirsiz; doğrulanmış salt-okunur makbuz gerekli.",
                 ),
             )
-            if observe
-            else step
-        )
-        active_deps = deps or self.deps
-        result = await verify_step(checked_step, outcome, active_deps, self.baseline)
-        self.progress()
         if observe and result.unverified:
             result = replace(
                 result,
@@ -515,7 +538,7 @@ class _PlanRun:
             self.evidence[step.step_id] = await capture_evidence(
                 step, outcome, result, active_deps.tool_context.root
             )
-            self.save()
+            await self.save()
         return result
 
     def _attempt_slots(self, step: PlanStep) -> int:
@@ -610,10 +633,10 @@ class _PlanRun:
         self.evidence[step.step_id] = await capture_evidence(
             tamam, secilen[2], checked, self.deps.tool_context.root
         )
-        self.save()
+        await self.save()
         return None
 
-    def _skip_empty_discovery(self, step: PlanStep) -> None:
+    async def _skip_empty_discovery(self, step: PlanStep) -> None:
         """Boş dizindeki keşif adımını Fusion'ın kendi gözlemiyle tamamla."""
         kanit = "çalışma dizini boş: Fusion doğrudan gözledi, keşfedilecek dosya yok"
         tamam = replace(step, status=StepStatus.COMPLETED, attempts=step.attempts + 1)
@@ -621,7 +644,7 @@ class _PlanRun:
         # Kayıt BOŞ kanıtla tutulur: adımın kendi ölçülebilir koşulu yoktu ve
         # uydurma kanıt yazmak, kapıyı kandırmak olurdu.
         self.evidence[step.step_id] = StepCheckpointEvidence(step_id=step.step_id)
-        self.save()
+        await self.save()
         self.deps.publisher.publish(
             ExecutionStepVerified(
                 plan_id=self.current.plan_id,
@@ -662,7 +685,7 @@ class _PlanRun:
             #
             # Kanıt UYDURULMUYOR: dizinin boş olduğunu Fusion'ın KENDİSİ gözledi ve
             # bu, modelin aynı şeyi rapor etmesinden daha güçlü bir gözlemdir.
-            self._skip_empty_discovery(step)
+            await self._skip_empty_discovery(step)
             return None
         unavailable: set[str] = set()
         if step.phase is PlanPhase.DISCOVERY:
@@ -701,7 +724,7 @@ class _PlanRun:
             onarilmis = repair_discovery_phase(self.current, step, frozenset(unavailable))
             if onarilmis is not None:
                 self.current = onarilmis
-                self.save()
+                await self.save()
                 return None
             if step.revision == 0:
                 repaired, reason = await self.replan_failed_step(
@@ -709,7 +732,7 @@ class _PlanRun:
                 )
                 if repaired:
                     return None
-            return self.pause(_pause_text(step.step_id, reason, verification, outcome))
+            return await self.pause(_pause_text(step.step_id, reason, verification, outcome))
         slots = self._attempt_slots(step)
         if slots > 1 and step.step_id not in self.repair_ids and not step.attempts:
             secildi = await self.run_candidates(step, slots)
@@ -724,16 +747,14 @@ class _PlanRun:
                 return None
         recovering = step.step_id in self.repair_ids or step.attempts > 0
         observe = step.retry_safety is RetrySafety.OBSERVE_FIRST and recovering
-        if observe and self.remaining(BudgetEnvelope.RECOVERY, step.step_id) < 2:
-            # Gözlem turu YAZMAZ: dosya ve indirme araçları kapalıdır. Son kurtarma
-            # hakkını ona harcamak, adımı düzeltme şansı olmayan bir turla kapatmak
-            # demektir.
-            #
-            # Ölçüldü (13 Eylül, Godot koşusu): `fetch-and-setup-assets` ilk denemede
-            # manifesti dosyasız yazdığı için düştü; tek kalan hak gözlem turuna
-            # gitti, model "bu aşamada dosya yazma ve indirme kapalı" diyerek yalnız
-            # plan anlattı ve adım "kurtarma hakkı tükendi" ile duraklatıldı — hiçbir
-            # asset indirilmedi.
+        if (
+            observe
+            and self.remaining(BudgetEnvelope.RECOVERY, step.step_id) < 2
+            and can_repair_local_inventory(step, self.deps.tool_context.root)
+        ):
+            # Only the existing confined local inventory repair contract permits
+            # spending the last call on writes; uncertain external effects must
+            # remain read-only even when recovery has a single call left.
             observe = False
         guidance = repair_guidance(self.repair_findings) if step.step_id in self.repair_ids else ""
         local_repair = False
@@ -742,7 +763,7 @@ class _PlanRun:
                 step, guidance, recovery=recovering, observe=observe, local_repair=local_repair
             )
             if executed is None:
-                return self.pause(
+                return await self.pause(
                     f"Workflow bütçesi tükendi; '{step.step_id}' adımında duraklatıldı.",
                     budget=True,
                 )
@@ -766,7 +787,7 @@ class _PlanRun:
                 # çağrılıyordu. Doğrulama/kurtarma hiç BAŞLAMADAN iş akışı burada
                 # durmalı; `outcome` zaten kullanıcıya gösterilecek nihai cevabı taşıyor.
                 self.current = replace(self.current, status=PlanStatus.PAUSED)
-                self.save()
+                await self.save()
                 self.deps.publisher.publish(
                     ExecutionPaused(plan_id=self.current.plan_id, reason=outcome.final_text)
                 )
@@ -802,7 +823,7 @@ class _PlanRun:
                 self.current = replace_step(
                     self.current, replace(running, status=StepStatus.BLOCKED)
                 )
-                return self.pause(
+                return await self.pause(
                     _pause_text(
                         step.step_id,
                         f"Tur durduruldu: {getattr(stop, 'value', stop)}.",
@@ -815,14 +836,14 @@ class _PlanRun:
                 # Persist the one repair allowance before enabling local writes.
                 step = replace(running, revision=running.revision + 1)
                 self.current = replace_step(self.current, step)
-                self.save()
+                await self.save()
                 guidance = "Eksik yerel asset teslimatını onar. " + "; ".join(verification.findings)
                 observe = False
                 recovering = True
                 local_repair = True
                 continue
             if local_repair:
-                return self.pause(
+                return await self.pause(
                     _pause_text(
                         running.step_id,
                         "Yerel asset onarımı başarısız.",
@@ -861,7 +882,7 @@ class _PlanRun:
                         last_progress_fingerprint=fingerprint,
                     ),
                 )
-                return self.pause(
+                return await self.pause(
                     _pause_text(
                         step.step_id,
                         reason,
@@ -879,7 +900,7 @@ class _PlanRun:
                         last_progress_fingerprint=fingerprint,
                     ),
                 )
-                return self.pause(
+                return await self.pause(
                     _pause_text(
                         step.step_id,
                         recovery.reason,
@@ -899,7 +920,7 @@ class _PlanRun:
             guidance = recovery.guidance
             step = replace(running, last_progress_fingerprint=fingerprint)
             self.current = replace_step(self.current, step)
-            self.save()
+            await self.save()
             recovering = True
             observe = recovery.action is RecoveryAction.OBSERVE
 
@@ -981,7 +1002,7 @@ class _PlanRun:
         affected = dependent_ids(self.current, {step.step_id})
         self.evidence = {key: value for key, value in self.evidence.items() if key not in affected}
         self.current = merged
-        self.save()
+        await self.save()
         return True, ""
 
     async def repair_final(self, acceptance: VerificationResult) -> bool:
@@ -1095,7 +1116,7 @@ class _PlanRun:
             if not candidate.final_text.strip():
                 return None
             if self.remaining(BudgetEnvelope.RECOVERY, scope) <= 0:
-                return self.pause("Workflow öz denetim bütçesi tükendi.", budget=True)
+                return await self.pause("Workflow öz denetim bütçesi tükendi.", budget=True)
             self.deps.publisher.publish(SelfReviewStarted())
             self.review_calls += 1
             self.charge(BudgetEnvelope.RECOVERY, 1, scope)
@@ -1112,10 +1133,10 @@ class _PlanRun:
             if not feedback:
                 return None
             self.quality_feedback = feedback
-            self.save()
+            await self.save()
         remaining = self.remaining(BudgetEnvelope.RECOVERY, scope)
         if remaining <= 0 or self.remaining(BudgetEnvelope.FINAL) <= 0:
-            return self.pause("Öz denetim düzeltme/doğrulama bütçesi tükendi.", budget=True)
+            return await self.pause("Öz denetim düzeltme/doğrulama bütçesi tükendi.", budget=True)
         policy = self.deps.execution or ExecutionPolicy(is_web=False)
         correction_deps = replace(
             self.deps,
@@ -1145,18 +1166,18 @@ class _PlanRun:
             allowed = self.charge(BudgetEnvelope.RECOVERY, correction.model_calls_made, scope)
             if not allowed or not correction.ok:
                 self.forget_rolled_back(rollback.discard())
-                return self.pause("Öz denetim düzeltmesi tamamlanamadı.", budget=not allowed)
+                return await self.pause("Öz denetim düzeltmesi tamamlanamadı.", budget=not allowed)
             self.charge(BudgetEnvelope.FINAL, 1)
             self.final_calls += 1
             # Persist actual correction and gate charges before a cancellable await.
-            self.save()
+            await self.save()
             # Previously captured evidence may describe files changed by correction.
             acceptance = await verify_plan_acceptance(self.current, self.deps)
             self.progress()
             if not acceptance.ok:
                 self.forget_rolled_back(rollback.discard())
                 detail = "; ".join(acceptance.findings) or acceptance.summary
-                return self.pause(f"Öz denetim sonrası final doğrulama başarısız: {detail}")
+                return await self.pause(f"Öz denetim sonrası final doğrulama başarısız: {detail}")
         except BaseException:
             self.forget_rolled_back(rollback.discard())
             raise
@@ -1201,7 +1222,7 @@ class _PlanRun:
             # dedi. Uyarı olarak eklemek yetmiyor — sonuç "tamamlandı" göründüğü
             # sürece kullanıcı teslim edilmemiş işi teslim sanıyor.
             eksik = ", ".join(self.uncovered)
-            return self.pause(
+            return await self.pause(
                 "İş tamamlanmadı: kullanıcının istediği şu teslimatlar için plan adımı "
                 f"üretilemedi ve teslim edilmedi: {eksik}. "
                 "Planlama bütçesi ya da model planı bunları kapsayacak biçimde "
@@ -1209,11 +1230,11 @@ class _PlanRun:
             )
         report = await self._current_delivery_report()
         if report.blocks_success:
-            return self.pause(
+            return await self.pause(
                 "İş teslim kanıtı final kapsamını doğrulamadı; plan duraklatıldı.", report=report
             )
         self.current = replace(self.current, status=PlanStatus.COMPLETED)
-        self.save()
+        await self.save()
         self.deps.publisher.publish(
             ExecutionCompleted(
                 plan_id=self.current.plan_id,
@@ -1234,7 +1255,7 @@ class _PlanRun:
                 if paused is not None:
                     return paused
             if any(step.status is not StepStatus.COMPLETED for step in self.current.steps):
-                return self.pause(
+                return await self.pause(
                     "Planın tamamlanmamış adımları güvenli devam veya bağımlılık kanıtı bekliyor."
                 )
             if self.quality_feedback:
@@ -1243,7 +1264,7 @@ class _PlanRun:
             if not self.charge(BudgetEnvelope.FINAL, 1):
                 # Bu kapı çalıştırılmadı; reddedilen ön tahsisi gerçek maliyetten çıkar.
                 self.spent[(BudgetEnvelope.FINAL, "")] -= 1
-                return self.pause(
+                return await self.pause(
                     "Workflow final doğrulama bütçesi tükendi; görev duraklatıldı.", budget=True
                 )
             self.final_calls += 1
@@ -1262,10 +1283,10 @@ class _PlanRun:
             can_repair = await self.repair_final(acceptance)
             if not can_repair or self.remaining(BudgetEnvelope.FINAL) <= 0:
                 detail = "; ".join(acceptance.findings) or acceptance.summary
-                return self.pause(
+                return await self.pause(
                     f"Planın final doğrulaması başarısız oldu; duraklatıldı: {detail}"
                 )
-            self.save()
+            await self.save()
 
 
 async def run_execution_plan(
@@ -1289,9 +1310,12 @@ async def run_execution_plan(
     """
     limits = workflow_budget(deps)
     checkpoint = None
-    if plan is None and deps.checkpoint_store is not None and deps.conversation_id:
-        checkpoint = deps.checkpoint_store.find_resumable(
-            str(deps.tool_context.root.resolve()), deps.conversation_id
+    store = deps.checkpoint_store
+    if plan is None and store is not None and deps.conversation_id:
+        checkpoint = await await_owned_thread(
+            lambda: store.find_resumable(
+                str(deps.tool_context.root.resolve()), deps.conversation_id
+            )
         )
     current = plan or (checkpoint.plan if checkpoint else None)
     execution_task = task
@@ -1347,7 +1371,12 @@ async def run_execution_plan(
             if deps.budget is None:
                 raise ValueError("Onarım checkpoint'i mevcut tur bütçesi olmadan yüklenemez.")
             deps.budget.restore_repairs(checkpoint.turn_repair)
+        run.storage_revision = checkpoint.storage_revision
+        run.effect_intents = {
+            (item.step_id, item.attempt, item.call_id): item for item in checkpoint.effect_intents
+        }
         run.quality_feedback = checkpoint.quality_feedback
+        run.uncovered = checkpoint.uncovered or run.uncovered
         run.ledger.restore(checkpoint.budget_usage)
         run.spent = {
             (BudgetEnvelope(item.envelope), item.scope): item.calls
@@ -1355,7 +1384,7 @@ async def run_execution_plan(
         }
         current, run.evidence = await resume_plan(checkpoint, deps)
     run.current = replace(current, status=PlanStatus.RUNNING)
-    run.save()
+    await run.save()
     # Plan BAŞLAMADAN önceki kapı bulguları planın suçu değildir; yarım kurulmuş
     # projede kapı her adımda düşer ve hiçbir adım geçemez. Ölçüldü: sıfırdan
     # Godot projesi kuran plan "no main scene defined" ile her adımda düştü. Bir

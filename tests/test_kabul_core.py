@@ -40,6 +40,21 @@ def test_classify_web_modeli_karsiladiysa_ogretmen_destekli() -> None:
     assert classify(_gecen(), RunMetrics(web_model_calls=3), "") is Outcome.TEACHER_ASSISTED
 
 
+@pytest.mark.parametrize("status", [False, None, "false", 1])
+def test_agent_terminal_status_cannot_be_ignored(status: object) -> None:
+    expected = Outcome.FAILED if status is False else Outcome.INVALID
+    assert classify(_gecen(), RunMetrics(), "", agent_ok=status) is expected
+
+
+@pytest.mark.parametrize("status", ["false", "true", 0, 1, {}, []])
+def test_agent_summary_requires_a_real_boolean(status: object) -> None:
+    assert runner._agent_summary({"turlar": [{"ok": status}]})[0] is None
+
+
+def test_agent_explicit_success_can_pass() -> None:
+    assert classify(_gecen(), RunMetrics(), "", agent_ok=True) is Outcome.PASSED
+
+
 def test_metrics_from_surucu_sayaclarini_okur() -> None:
     olcu = runner.metrics_from(
         {

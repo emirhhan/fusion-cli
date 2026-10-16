@@ -212,3 +212,9 @@ it("düşünme metni olmadan gerçek model makbuzu görünür", () => {
 it("boş gözlem istenen modeli doğrulamış sayılmaz", () => {
   expect(olayAdimi({ olay: "ModelCallFinished", result: { ok: true, model: "primary", served_by: "" } })?.ayrinti).toContain("Gözlenen: doğrulanamadı");
 });
+
+it.each(["future-success-v9", undefined, 42])("bilinmeyen terminal sonucu başarı veya hata uydurmaz: %s", (status) => {
+  expect(olayAdimi({ olay: "TurnOutcome", status })).toEqual({
+    metin: "görev sonucu doğrulanamadı", sonuc: "unknown",
+  });
+});

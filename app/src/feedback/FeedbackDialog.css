@@ -23,7 +23,7 @@
 
 .feedback-dialog header,
 .feedback-dialog footer { align-items: center; display: flex; justify-content: space-between; }
-.feedback-dialog footer { gap: 8px; justify-content: flex-end; }
+.feedback-dialog footer { flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .feedback-dialog h2 { font-size: var(--text-lg); margin: 0; }
 .feedback-dialog p { color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.45; margin: 0; }
 .feedback-dialog button { cursor: pointer; font: inherit; }

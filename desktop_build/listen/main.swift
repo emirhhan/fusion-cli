@@ -45,7 +45,8 @@ final class SesEtkinligiKapisi {
     private(set) var etkin = false
     private(set) var segment = 0
 
-    var finalIcinYeterli: Bool { konusmaMs >= enAzKonusmaMs }
+    var finalIcinYeterli: Bool { yeterliKonusma(konusmaMs) }
+    func yeterliKonusma(_ sure: Int) -> Bool { sure >= enAzKonusmaMs }
 
     func isle(rms: Float, sureMs: Int) -> String? {
         if gecenMs < kalibrasyonMs {
@@ -105,6 +106,7 @@ final class Tur {
     /// `endAudio()` sonrası final BOŞ gelebiliyor (ölçüldü: kısmi sonuçta 13
     /// karakter varken final 0 karakter). Kullanıcının söylediği kaybolmasın
     /// diye en iyi kısmi saklanır ve final boşsa o teslim edilir.
+    var konusmaMs = 0
     var sonKismi = ""
     var sonKismiGuven: Float = 0
     /// Bu turda en son ne zaman bir işaret geldi (kısmi sonuç ya da konuşma
@@ -265,21 +267,46 @@ func guvenYeterli(_ puan: Float) -> Bool {
 
 @discardableResult
 func metinYaz(
-    final: Bool, metin: String, guven puan: Float, callbackSegment: Int
+    final: Bool, metin: String, guven puan: Float, callbackSegment: Int, konusmaSuresi: Int? = nil
 ) -> Bool {
-    guard !metin.isEmpty, guvenYeterli(puan) else { return false }
+    guard !metin.isEmpty, final || guvenYeterli(puan) else { return false }
     // Kısmi sonuç yalnız EN GÜNCEL turdan kabul edilir; kapanmış bir turdan geç
     // gelen kısmi, kullanıcı susmuşken ekrana yazı düşürürdü. Final için
     // konuşma süresi eşiği yeterlidir.
-    guard final ? kapı.finalIcinYeterli : konusmaAcik else { return false }
+    let sure = konusmaSuresi ?? kapı.konusmaMs
+    guard final ? kapı.yeterliKonusma(sure) : konusmaAcik else { return false }
     yaz(final ? "son" : "kismi", metin, guven: puan,
-        speechMs: kapı.konusmaMs, segment: callbackSegment)
+        speechMs: sure, segment: callbackSegment)
     return true
 }
 
 func sentetikFixture(_ ad: String) -> Never {
     yaz("hazir", dil)
     for _ in 0..<30 { _ = kapı.isle(rms: 0.001, sureMs: 10) }
+    if ad == "segment-kaniti" {
+        for _ in 0..<50 { _ = kapı.isle(rms: 0.08, sureMs: 10) }
+        let oncekiSure = kapı.konusmaMs
+        for _ in 0..<40 { _ = kapı.isle(rms: 0.001, sureMs: 10) }
+        for _ in 0..<8 { _ = kapı.isle(rms: 0.08, sureMs: 10) }
+        guard metinYaz(final: true, metin: "merhaba fuzyon", guven: 0.9,
+                      callbackSegment: 1, konusmaSuresi: oncekiSure) else { bitir(14) }
+        bitir(0)
+    }
+    if ad == "kanal-sadakati" {
+        guard let bicim = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 2, interleaved: false),
+              let girdi = AVAudioPCMBuffer(pcmFormat: bicim, frameCapacity: 480),
+              let veri = girdi.floatChannelData else { bitir(11) }
+        girdi.frameLength = 480
+        for indis in 0..<480 {
+            veri[0][indis] = sin(Float(indis) * 0.1) * 0.5
+            veri[1][indis] = cos(Float(indis) * 0.1) * 0.35
+        }
+        guard let cikti = monoIndirgerAl().indirge(girdi), let sonuc = cikti.floatChannelData else { bitir(12) }
+        var hata: Float = 0
+        for indis in 0..<480 { hata = max(hata, abs(sonuc[0][indis] - veri[0][indis])) }
+        guard hata < 0.00001 else { yaz("hata", "kanal dalga biçimi bozuldu"); bitir(13) }
+        yaz("son", "kanal-sadakati basarili"); bitir(0)
+    }
     if ad == "indirgeme" {
         // Çok kanallı girişin tek kanala GERÇEKTEN indiğini kanıtlar.
         // Ölçülen hata: `AVAudioConverter` hata bildirmeden sessiz tampon
@@ -402,9 +429,10 @@ final class MonoIndirger {
     private var hedef: AVAudioFormat?
     private var kaynakBicim: AVAudioFormat?
 
-    /// Tamponu tek kanala indir. İndirgeme, kanalların ORTALAMASI değil en
-    /// yüksek genlikli örneğidir: bu makinede kanalların ikisi sessiz ve
-    /// ortalama almak konuşmayı üçte bire düşürüyordu.
+    /// Tampon boyunca tek bir kanalın dalga biçimini koru.
+    /// Her örnekte farklı kanalın tepesini seçmek yapay bir sinyal üretiyordu.
+    /// En güçlü kanal tamponun toplam enerjisiyle seçilir; sessiz kanallarla
+    /// ortalama alınıp konuşmanın seviyesi de düşürülmez.
     func indirge(_ tampon: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
         guard let kanallar = tampon.floatChannelData, tampon.frameLength > 0 else { return nil }
         if kaynakBicim != tampon.format {
@@ -425,14 +453,14 @@ final class MonoIndirger {
         let kanalSayisi = Int(tampon.format.channelCount)
         let cerceve = Int(tampon.frameLength)
         let yaz = hedefVeri[0]
-        for indis in 0..<cerceve {
-            var enGenis: Float = 0
-            for kanal in 0..<kanalSayisi {
-                let ornek = kanallar[kanal][indis]
-                if abs(ornek) > abs(enGenis) { enGenis = ornek }
-            }
-            yaz[indis] = enGenis
+        var seciliKanal = 0
+        var enYuksekEnerji: Float = -1
+        for kanal in 0..<kanalSayisi {
+            var enerji: Float = 0
+            for indis in 0..<cerceve { enerji += kanallar[kanal][indis] * kanallar[kanal][indis] }
+            if enerji > enYuksekEnerji { enYuksekEnerji = enerji; seciliKanal = kanal }
         }
+        for indis in 0..<cerceve { yaz[indis] = kanallar[seciliKanal][indis] }
         cikti.frameLength = tampon.frameLength
         return cikti
     }
@@ -627,10 +655,16 @@ func konusmaAc(segment: Int) {
                 let teslim = metin.isEmpty ? (tur?.sonKismi ?? "") : metin
                 let teslimGuven = metin.isEmpty ? (tur?.sonKismiGuven ?? 0) : puan
                 if !metinYaz(
-                    final: true, metin: teslim, guven: teslimGuven, callbackSegment: segment
+                    final: true, metin: teslim, guven: teslimGuven, callbackSegment: segment,
+                    konusmaSuresi: tur?.konusmaMs
                 ) {
-                    yaz("hata", "Güvenilir konuşma tanınamadı.",
-                        speechMs: kapı.konusmaMs, segment: segment)
+                    let sure = tur?.konusmaMs ?? 0
+                    if teslim.isEmpty && !kapı.yeterliKonusma(sure) {
+                        yaz("ses-bitti", speechMs: sure, segment: segment)
+                    } else {
+                        yaz("hata", "Ses duydum ancak sözcükleri net çözemedim. Tekrar söyleyebilirsin.",
+                            speechMs: sure, segment: segment)
+                    }
                 }
                 turTamamlandi(turNo)
             } else {
@@ -639,7 +673,8 @@ func konusmaAc(segment: Int) {
                     turlar[turNo]?.sonKismiGuven = puan
                     turlar[turNo]?.sonEtkinlik = Date()
                 }
-                metinYaz(final: false, metin: metin, guven: puan, callbackSegment: segment)
+                metinYaz(final: false, metin: metin, guven: puan, callbackSegment: segment,
+                    konusmaSuresi: turlar[turNo]?.konusmaMs)
             }
         } else if let hata = hata {
             // Hata KODU ve alanı yazılır: "iptal edildi" ile "konuşma
@@ -660,10 +695,23 @@ func konusmaAc(segment: Int) {
                     final: true,
                     metin: kalan,
                     guven: turlar[turNo]?.sonKismiGuven ?? 0,
-                    callbackSegment: segment
+                    callbackSegment: segment, konusmaSuresi: turlar[turNo]?.konusmaMs
                 )
             } else if !iptal {
-                yaz("hata", hata.localizedDescription, speechMs: kapı.konusmaMs, segment: segment)
+                let sure = turlar[turNo]?.konusmaMs ?? 0
+                if ns.domain == "kAFAssistantErrorDomain" && ns.code == 1110 {
+                    if !kalan.isEmpty {
+                        metinYaz(final: true, metin: kalan, guven: turlar[turNo]?.sonKismiGuven ?? 0,
+                                 callbackSegment: segment, konusmaSuresi: sure)
+                    } else if !kapı.yeterliKonusma(sure) {
+                        yaz("ses-bitti", speechMs: sure, segment: segment)
+                    } else {
+                        yaz("hata", "Ses duydum ancak sözcükleri net çözemedim. Tekrar söyleyebilirsin.",
+                            speechMs: sure, segment: segment)
+                    }
+                } else {
+                    yaz("hata", hata.localizedDescription, speechMs: sure, segment: segment)
+                }
             }
             turTamamlandi(turNo)
         }
@@ -776,7 +824,10 @@ func tapKur() {
                 acikIstek?.append(mono)
                 // Konuşma sesi de etkinliktir; gözcü konuşmanın ortasında
                 // turu kesmemeli.
-                if kapı.etkin { turlar[acikTurNo]?.sonEtkinlik = Date() }
+                if kapı.etkin {
+                    turlar[acikTurNo]?.sonEtkinlik = Date()
+                    turlar[acikTurNo]?.konusmaMs += sureMs
+                }
             }
         } else {
             akisTanisi.donusumBasarisiz()

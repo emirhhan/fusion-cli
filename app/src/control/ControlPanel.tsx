@@ -33,6 +33,7 @@ interface ControlPanelProps {
   /** Değeri değişince sağlayıcı listesi yeniden okunur. */
   revision?: number;
   onProvidersChanged?: () => void;
+  onProviderDraftChange?: (dirty: boolean) => void;
 }
 
 export function ControlPanel({
@@ -40,6 +41,7 @@ export function ControlPanel({
   initialProviderId,
   onClose,
   onProvidersChanged,
+  onProviderDraftChange,
   permissionBridge = nativePermissionBridge,
   revision = 0,
   title = "Kontrol Paneli",
@@ -80,7 +82,7 @@ export function ControlPanel({
           {secretError && (
             <p className="control-panel__warning" role="status">{secretError}</p>
           )}
-          <ProviderList initialProviderId={initialProviderId} client={client} onChanged={onProvidersChanged} />
+          <ProviderList initialProviderId={initialProviderId} client={client} onChanged={onProvidersChanged} onDraftChange={onProviderDraftChange} />
         </section>
       </div>
 

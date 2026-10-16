@@ -1,3 +1,6 @@
+.conversation-frame { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
+.conversation__jump { position: absolute; bottom: 16px; right: 16px; z-index: 1; background: var(--surface-raised); }
+
 .conversation {
   flex: 1;
   min-height: 0;
@@ -392,3 +395,7 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+.delivery-card { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border, #2d3748); border-radius: 10px; font-size: 0.85rem; }
+.delivery-card p, .delivery-card ul { margin: 8px 0 0; }
+.delivery-card code { overflow-wrap: anywhere; }

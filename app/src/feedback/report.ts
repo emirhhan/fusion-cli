@@ -36,13 +36,28 @@ export interface ReportEnvironment {
   platform: string;
 }
 
+/** Offline export contains only the visible user report; no diagnostic source is read. */
+export function supportBundle(input: ReportInput, env: ReportEnvironment): string {
+  return JSON.stringify({
+    schemaVersion: 1,
+    manifest: {
+      collected: ["user_report", "app_version", "platform"],
+      notCollected: ["credentials", "conversation_history", "tool_arguments", "raw_logs", "environment_variables", "browser_profiles"],
+      networkRequests: 0,
+    },
+    report: reportBody(input, env),
+  }, null, 2);
+}
+
 const GIZLENDI = "[gizlendi]";
 
 const GIZLI_KALIPLAR: ReadonlyArray<readonly [RegExp, string]> = [
+  [/-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----[\s\S]*?(?:-----END \1-----|$)/gi, GIZLENDI],
   // macOS/Linux kullanıcı klasörü: kullanıcı adı rapora girmez.
   [/\/(?:Users|home)\/[^/\s"'`]+/g, "~"],
   [/C:\\Users\\[^\\\s"'`]+/gi, "~"],
   [/Bearer\s+[A-Za-z0-9._~+/=-]+/g, `Bearer ${GIZLENDI}`],
+  [/(?:["']?)[A-Za-z0-9_.-]*(?:api[_-]?key|access[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|client[_-]?secret|credential|token|secret|password|passwd|authorization|private[_-]?key)[A-Za-z0-9_.-]*(?:["']?)\s*[:=]\s*(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s,}]+)/gi, GIZLENDI],
   // Sağlayıcı anahtarları: OpenAI/Anthropic (sk-…), NVIDIA (nvapi-…), Google (AIza…), GitHub (gh*_…).
   [/\b(?:sk|nvapi|gsk|xai)-[A-Za-z0-9_-]{12,}/g, GIZLENDI],
   [/\bAIza[0-9A-Za-z_-]{20,}/g, GIZLENDI],
@@ -52,7 +67,23 @@ const GIZLI_KALIPLAR: ReadonlyArray<readonly [RegExp, string]> = [
 
 /** Rapora girecek metinden kişisel ve gizli bilgiyi ayıkla. */
 export function redact(text: string): string {
-  return GIZLI_KALIPLAR.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), text);
+  let decoded = text;
+  for (let pass = 0; pass < 2 && /%[0-9a-f]{2}/i.test(decoded); pass++) {
+    decoded = decoded.replace(/(?:%[0-9a-f]{2})+/gi, (part) => {
+      try { return decodeURIComponent(part); } catch { return GIZLENDI; }
+    });
+  }
+  const urls = decoded.replace(/https?:\/\/[^\s"'<>`]+/gi, (raw) => {
+    try {
+      const url = new URL(raw);
+      url.username = "";
+      url.password = "";
+      url.search = "";
+      url.hash = "";
+      return url.toString();
+    } catch { return GIZLENDI; }
+  });
+  return GIZLI_KALIPLAR.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), urls);
 }
 
 function titleFor({ tur, mesaj }: ReportInput): string {
@@ -71,7 +102,7 @@ export function reportBody(input: ReportInput, env: ReportEnvironment, ayrintiOv
   ];
   if (ayrinti) parcalar.push("### Teknik ayrıntı", "```text", ayrinti, "```");
   parcalar.push("### Ortam", `- Fusion: ${env.surum}`, `- Sistem: ${env.platform}`, "", "_Fusion içinden gönderildi._");
-  return parcalar.join("\n");
+  return redact(parcalar.join("\n"));
 }
 
 function issueUrl(title: string, body: string): string {

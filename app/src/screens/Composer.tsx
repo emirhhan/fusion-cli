@@ -103,6 +103,10 @@ interface ComposerProps {
   onStop?: () => void;
   onValueChange?: (value: string) => void;
   running?: boolean;
+  stopping?: boolean;
+  busySubmissionMode?: "steer" | "queue";
+  busySubmissionDisabled?: boolean;
+  onBusySubmissionModeChange?: (mode: "steer" | "queue") => void;
   value?: string;
 }
 
@@ -128,6 +132,10 @@ export function Composer({
   onRemoveAttachment = () => undefined,
   onSend,
   onStop = () => undefined,
+  stopping = false,
+  busySubmissionMode = "steer",
+  busySubmissionDisabled = false,
+  onBusySubmissionModeChange,
   onValueChange,
   running = false,
   activeModel = "",
@@ -218,7 +226,7 @@ export function Composer({
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // Esc çalışan turu durdurur (Claude'daki davranış). Boş kutuda da çalışır;
     // kullanıcı durdurmak için fareye uzanmak zorunda kalmamalı.
-    if (event.key === "Escape" && running) {
+    if (event.key === "Escape" && running && !stopping) {
       event.preventDefault();
       onStop();
       return;
@@ -294,7 +302,16 @@ export function Composer({
 
   return (
     <div className="composer-wrap">
-      <div className="composer" data-layout={compactLayout ? "compact" : "expanded"} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+      <div className="composer" data-busy-submission={running && !!onBusySubmissionModeChange ? "true" : undefined} data-layout={compactLayout ? "compact" : "expanded"} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+        {running && onBusySubmissionModeChange && <label className="composer__submission">
+          <span>Bu mesaj</span>
+          <select aria-label="Çalışan işe mesaj" value={busySubmissionMode} disabled={stopping || busySubmissionDisabled}
+            onChange={(event) => onBusySubmissionModeChange(event.target.value as "steer" | "queue")}>
+            <option value="steer">Çalışan işe talimat ekle</option>
+            <option value="queue">Bağımsız işi sıraya al</option>
+          </select>
+        </label>}
+        {stopping && <p className="composer__notice" role="status">İşlem durduruluyor; açık işlemler kapatılıyor.</p>}
         {paletteOpen && (
           <div aria-label="Komut önerileri" className="composer__palette" role="listbox">
             {filteredCommands.map((command, index) => (
@@ -392,7 +409,7 @@ export function Composer({
               )}
               {/* ChatGPT'deki gibi: tur sürerken ses düğmelerinin yerinde beyaz
                   yuvarlak içinde kare durdur düğmesi — Fusion'ın çalıştığı buradan anlaşılır. */}
-              <button aria-label="Durdur" className="composer__stop" onClick={onStop} title="Durdur (Esc)" type="button">
+              <button aria-label={stopping ? "Durduruluyor" : "Durdur"} disabled={stopping} className="composer__stop" onClick={onStop} title={stopping ? "Açık işlemler kapatılıyor" : "Durdur (Esc)"} type="button">
                 <span aria-hidden="true" className="composer__stop-square" />
               </button>
             </span>

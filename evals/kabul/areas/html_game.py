@@ -108,11 +108,38 @@ CHECK_NAMES = (
 #: Ajanın kendisinin üretmesi beklenen görsel dosya sayısı (assets/ altında).
 MIN_ASSET_FILES = 8
 _ASSET_SUFFIXES = frozenset({".svg", ".png", ".webp", ".jpg", ".jpeg", ".gif"})
-#: Sayfanın başarıyla yüklediği görsel kaynak adları (performance kayıtları + <img>).
-_LOADED_IMAGES_JS = """() => [...new Set([
-  ...performance.getEntriesByType('resource').map((e) => e.name),
-  ...[...document.images].filter((i) => i.complete && i.naturalWidth > 0).map((i) => i.src),
-].map((u) => decodeURIComponent(u.split('?')[0]).split('/').pop()))]"""
+#: DOM dışında canvas için oluşturulan Image nesnelerini de gözle.
+_ASSET_INIT_SCRIPT = (
+    INIT_SCRIPT
+    + """;(() => {
+  const images = new Set();
+  window.Image = new Proxy(window.Image, {
+    construct(target, args, newTarget) {
+      const image = Reflect.construct(target, args, newTarget);
+      images.add(image);
+      return image;
+    }
+  });
+  const drawImage = CanvasRenderingContext2D.prototype.drawImage;
+  CanvasRenderingContext2D.prototype.drawImage = function(...args) {
+    const result = Reflect.apply(drawImage, this, args);
+    if (args[0] instanceof HTMLImageElement) images.add(args[0]);
+    return result;
+  };
+  window.__kabulImages = () => [...images, ...document.images];
+})();"""
+)
+#: Yalnız çözülmüş, aynı kökendeki görsellerin proje köküne göre yolları.
+_LOADED_IMAGES_JS = """() => [...new Set(window.__kabulImages()
+  .filter(image => image.complete && image.naturalWidth > 0)
+  .map(image => {
+    const url = new URL(image.currentSrc || image.src, document.baseURI);
+    if (url.origin !== location.origin) return null;
+    const root = new URL('.', location.href).pathname;
+    if (!url.pathname.startsWith(root)) return null;
+    try { return decodeURIComponent(url.pathname.slice(root.length)); }
+    catch { return null; }
+  }).filter(Boolean))]"""
 #: Donma ölçümü için rastgele tuşlarla oynanan süre (ms). Kullanıcı (6 Ekim 2026):
 #: "oyun bir anda duruyor" — kısa ölçümlerde görünmeyen, oynadıkça çöken döngü.
 LONG_PLAY_MS = 30_000
@@ -147,7 +174,7 @@ class GameReport:
     #: Uzun rastgele oyundan sonra 1 sn'deki rAF çağrısı ve o sırada çıkan konsol hataları.
     long_play_raf: int = MIN_LONG_PLAY_RAF
     long_play_errors: tuple[str, ...] = ()
-    #: Oyun açılıp oynanırken başarıyla yüklenen görsel dosya adları.
+    #: Oyun açılıp oynanırken başarıyla yüklenen görsellerin proje köküne göre yolları.
     loaded_images: tuple[str, ...] = ()
 
 
@@ -250,7 +277,7 @@ def _wait_for_hud_reset(page: Page, initial: tuple[str, ...]) -> tuple[str, ...]
 
 def measure(root: Path) -> GameReport:
     """Oyunu aç; tüm ölçümleri tek oturumda yap."""
-    with open_page(root, init_script=INIT_SCRIPT) as opened:
+    with open_page(root, init_script=_ASSET_INIT_SCRIPT) as opened:
         page = opened.page
         _fresh_load(opened)
         area = find_game_area(page)
@@ -446,7 +473,11 @@ def _asset_check(workdir: Path, report: GameReport) -> Check:
     """
     klasor = workdir / "assets"
     dosyalar = (
-        sorted(p.name for p in klasor.rglob("*") if p.suffix.lower() in _ASSET_SUFFIXES)
+        sorted(
+            p.relative_to(workdir).as_posix()
+            for p in klasor.rglob("*")
+            if p.is_file() and p.suffix.lower() in _ASSET_SUFFIXES
+        )
         if klasor.is_dir()
         else []
     )

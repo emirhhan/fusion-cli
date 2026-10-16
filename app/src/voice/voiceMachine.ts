@@ -1,3 +1,4 @@
+import { localVoiceReply } from "./localVoice";
 export type RecognitionEvent = {
   tur: "hazir" | "ses-basladi" | "kismi" | "son" | "ses-bitti" | "hata";
   metin: string;
@@ -24,6 +25,7 @@ export interface VoiceMachineState {
   candidateRevision: number;
   error: string | null;
   finalizedSession: number | null;
+  finalizedSegment: number | null;
   finalRevision: number;
   finalText: string | null;
   lastFinal: string | null;
@@ -69,6 +71,16 @@ export function evaluateRecognitionTurn(turn: RecognitionTurn): RecognitionDecis
   return "accept";
 }
 
+/** Aynı sözün önceki geçerli kanıtı, geç callback ile kaybolmaz. */
+export function reconcileRecognition(candidate: RecognitionEvent | null, event: RecognitionEvent): RecognitionEvent {
+  const sameText = (text: string) => text.trim().toLocaleLowerCase("tr-TR").replace(/[.!?,;:]+$/u, "");
+  if (event.tur !== "son" || !candidate || candidate.segment !== event.segment
+    || candidate.speech_ms < MINIMUM_SPEECH_MS || !hasUsableConfidence(candidate.guven)
+    || sameText(candidate.metin) !== sameText(event.metin)) return event;
+  return { ...event, speech_ms: Math.max(event.speech_ms, candidate.speech_ms),
+    guven: hasUsableConfidence(event.guven) ? event.guven : candidate.guven };
+}
+
 export type VoiceMachineEvent =
   | { type: "START_LISTENING"; session?: number }
   | { type: "RECOGNITION"; session: number; event: RecognitionEvent }
@@ -86,6 +98,7 @@ export const initialVoiceMachine: VoiceMachineState = {
   candidateRevision: 0,
   error: null,
   finalizedSession: null,
+  finalizedSegment: null,
   finalRevision: 0,
   finalText: null,
   lastFinal: null,
@@ -96,18 +109,19 @@ export const initialVoiceMachine: VoiceMachineState = {
   transcript: "",
 };
 
-function accept(state: VoiceMachineState, text: string): VoiceMachineState {
+function accept(state: VoiceMachineState, text: string, segment: number): VoiceMachineState {
   if (state.finalizedSession === state.session) return state;
   return {
     ...state,
     candidate: null,
     error: null,
     finalizedSession: state.session,
+    finalizedSegment: segment,
     finalRevision: state.finalRevision + 1,
     finalText: text,
     lastFinal: text,
     partial: "",
-    phase: "thinking",
+    phase: localVoiceReply(text) ? "listening" : "thinking",
     transcript: text,
   };
 }
@@ -122,6 +136,7 @@ export function voiceMachine(state: VoiceMachineState, event: VoiceMachineEvent)
         candidateRevision: 0,
         error: null,
         finalizedSession: null,
+        finalizedSegment: null,
         finalText: null,
         lastFinal: null,
         partial: "",
@@ -130,8 +145,13 @@ export function voiceMachine(state: VoiceMachineState, event: VoiceMachineEvent)
         transcript: "",
       };
     case "RECOGNITION": {
-      if (event.session !== state.session || state.finalizedSession === state.session) return state;
-      const recognition = event.event;
+      if (event.session !== state.session) return state;
+      const recognition = reconcileRecognition(state.candidate, event.event);
+      if (recognition.segment <= (state.finalizedSegment ?? -1)) return state;
+      if (state.candidate && recognition.segment < state.candidate.segment) return state;
+      if (state.finalizedSession === state.session) {
+        state = { ...state, finalizedSession: null, candidate: null };
+      }
       if (recognition.tur === "hazir") return { ...state, phase: "listening" };
       if (recognition.tur === "ses-basladi") return { ...state, phase: "hearing" };
       if (recognition.tur === "hata") return { ...state, error: recognition.metin, phase: "error" };
@@ -147,7 +167,7 @@ export function voiceMachine(state: VoiceMachineState, event: VoiceMachineEvent)
         session: event.session,
         timedOut: false,
       });
-      if (decision === "accept") return accept({ ...state, candidateRevision }, recognition.metin.trim());
+      if (decision === "accept") return accept({ ...state, candidateRevision }, recognition.metin.trim(), recognition.segment);
       if (decision === "reject") {
         return {
           ...state,
@@ -184,7 +204,7 @@ export function voiceMachine(state: VoiceMachineState, event: VoiceMachineEvent)
         session: event.session,
         timedOut: true,
       });
-      return decision === "accept" ? accept(state, state.candidate.metin) : state;
+      return decision === "accept" ? accept(state, state.candidate.metin, state.candidate.segment) : state;
     }
     case "ASSISTANT_STARTED":
       return { ...state, candidate: null, error: null, partial: "", phase: "talking", transcript: event.text?.trim() || state.transcript };

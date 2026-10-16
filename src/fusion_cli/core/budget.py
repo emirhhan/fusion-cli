@@ -32,6 +32,7 @@ from .checkpoint import TurnRepairCheckpoint
 from .constants import REPEAT_READ_CACHE_CHARS, REPEAT_READ_CACHE_ENTRIES
 from .protocols import Clock
 from .repair_ledger import RepairLedger
+from .usage_ledger import UsageLedger
 
 
 class BudgetStop(Enum):
@@ -133,6 +134,7 @@ class TurnBudget:
     #: Tur durduysa sebebi; durmadıysa None.
     stop: BudgetStop | None = None
     repair_ledger: RepairLedger = field(default_factory=RepairLedger)
+    usage: UsageLedger = field(default_factory=UsageLedger)
 
     _started_at: float = field(default=0.0, init=False)
     _last_progress_at: float = field(default=0.0, init=False)
@@ -214,6 +216,14 @@ class TurnBudget:
         self._last_progress_at = self.clock.monotonic()
 
     # --- sayaçlar --------------------------------------------------------- #
+
+    def reserve_model_call(self) -> bool:
+        """Aynı event loop içindeki çağrı başlamadan ortak hakkı atomik tüket."""
+        if self.model_calls_exhausted:
+            return False
+        self.model_calls += 1
+        self.usage.reserve(self.model_calls)
+        return True
 
     def record_model_call(self) -> None:
         self.model_calls += 1

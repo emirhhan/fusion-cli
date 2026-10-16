@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from uuid import uuid4
 
 from ...config.live import ConfigRevision, reload_if_changed, revision
 from ...config.models import Config
@@ -53,6 +54,8 @@ class ReplState:
     root: Path
     #: Geçmiş, yetenek ve dış bellek kökü. Composition root tarafından enjekte edilir.
     home: Path
+    #: Transcript ve checkpoint aynı sohbet sahibini kullanır; yeni REPL ayrı kapsamdır.
+    conversation_id: str = field(default_factory=lambda: f"session-{uuid4().hex}", kw_only=True)
     #: Proje kökünün YANINDA erişime açılan dizinler (`--add-dir`).
     #
     # Tek-atış `fusion agent` bunu destekliyordu ama interaktif oturum

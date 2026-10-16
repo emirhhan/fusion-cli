@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 
+import pytest
 from rich.console import Console
 
 from fusion_cli.cli.prompter import ConsolePrompter
@@ -33,6 +34,34 @@ async def test_etkilesimsiz_ortamda_onay_alinamaz(tmp_path):
     onay = await prompter.confirm(build_request(_arac(), {"path": "a.txt", "content": "x"}))
 
     assert onay is ApprovalAnswer.UNAVAILABLE
+
+
+@pytest.mark.parametrize("failure", [EOFError, KeyboardInterrupt, OSError])
+async def test_interactive_input_failure_never_becomes_enter_approval(
+    tmp_path, monkeypatch, failure
+):
+    """TTY hâlâ açık görünse bile okunamayan cevap Enter değildir."""
+    from fusion_cli.cli.prompter import Prompt
+
+    prompter, _ = _prompter(tmp_path)
+    prompter._interactive = True
+
+    def fail(*args, **kwargs):
+        raise failure()
+
+    monkeypatch.setattr(Prompt, "ask", fail)
+    result = await prompter.confirm(build_request(_arac(), {"path": "a.txt", "content": "x"}))
+    assert result is ApprovalAnswer.UNAVAILABLE
+
+
+async def test_explicit_interactive_enter_preserves_existing_confirmation(tmp_path, monkeypatch):
+    from fusion_cli.cli.prompter import Prompt
+
+    prompter, _ = _prompter(tmp_path)
+    prompter._interactive = True
+    monkeypatch.setattr(Prompt, "ask", lambda *args, **kwargs: "")
+    result = await prompter.confirm(build_request(_arac(), {"path": "a.txt", "content": "x"}))
+    assert result is True
 
 
 async def test_etkilesimsiz_ortamda_soru_anlasilir_cevap_doner(tmp_path):

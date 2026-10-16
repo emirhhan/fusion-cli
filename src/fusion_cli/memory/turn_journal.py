@@ -1,7 +1,7 @@
 """Tur günlüğü — süren turun atomik JSON kopyası (çökme sonrası devam için).
 
-Dosya konuşma başınadır ve tur bitince silinir. Kalmışsa süreç turun ortasında
-kapanmış demektir; sekme açılırken geri yüklenir. Görseller yazılmaz (data URI'ler
+Dosya konuşma başınadır ve başarıyla kalıcılaşan turdan sonra silinir. Hata veya
+iptalde korunur; sekme açılırken geri yüklenir. Görseller yazılmaz (data URI'ler
 megabaytlarca olabilir ve devam için gerekmez); metin `redact`'tan geçer çünkü
 araç çıktıları sır taşıyabilir ve dosya diskte kalır.
 """
@@ -9,13 +9,17 @@ araç çıktıları sır taşıyabilir ve dosya diskte kalır.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
-from collections.abc import Sequence
+import math
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..core.atomic_file import atomic_replace_text
 from ..core.clock import SystemClock
+from ..core.file_lease import FileLease
 from ..core.protocols import Clock
 from ..core.redaction import redact
 from ..core.types import Message, ToolCall
@@ -33,6 +37,7 @@ class JournalEntry:
     saved_at: float
     #: Kullanıcıya "yarıda kaldı" notu zaten gösterildi mi? İki kez yazılmasın.
     notified: bool
+    revision: str = ""
 
 
 class FileTurnJournal:
@@ -53,34 +58,73 @@ class FileTurnJournal:
 
     def load(self) -> JournalEntry | None:
         try:
-            raw = json.loads(self._path.read_text(encoding="utf-8"))
+            serialized = self._path.read_text(encoding="utf-8")
+            raw = json.loads(serialized)
         except FileNotFoundError:
             return None
-        except (OSError, json.JSONDecodeError) as error:
-            _LOG.warning("tur günlüğü okunamadı", extra={"hata": str(error)})
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            _LOG.warning("tur günlüğü okunamadı", extra={"hata": type(error).__name__})
             return None
-        if not isinstance(raw, dict) or raw.get("surum") != _SCHEMA:
+        if (
+            not isinstance(raw, dict)
+            or isinstance(raw.get("surum"), bool)
+            or raw.get("surum") != _SCHEMA
+        ):
             return None
-        messages = tuple(
-            message
-            for item in raw.get("mesajlar", [])
-            if (message := _message_from(item)) is not None
-        )
+        items = raw.get("mesajlar", [])
+        saved_at = raw.get("zaman", 0.0)
+        if (
+            not isinstance(items, list)
+            or isinstance(saved_at, bool)
+            or not isinstance(saved_at, int | float)
+            or not math.isfinite(saved_at)
+            or saved_at < 0
+        ):
+            return None
+        messages = tuple(message for item in items if (message := _message_from(item)) is not None)
         return JournalEntry(
             task=str(raw.get("gorev", "")),
             messages=messages,
-            saved_at=float(raw.get("zaman", 0.0)),
+            saved_at=float(saved_at),
             notified=bool(raw.get("bildirildi", False)),
+            revision=hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
         )
 
     def mark_notified(self, entry: JournalEntry) -> None:
-        self._write(entry.task, entry.messages, notified=True)
+        with self._transaction() as owned:
+            if not owned or not entry.revision:
+                return
+            current = self.load()
+            if current is not None and current.revision == entry.revision:
+                self._write_payload(entry.task, entry.messages, notified=True)
 
     def clear(self) -> None:
-        with contextlib.suppress(FileNotFoundError):
-            self._path.unlink()
+        with self._transaction() as owned:
+            if owned:
+                with contextlib.suppress(FileNotFoundError):
+                    self._path.unlink()
 
     def _write(self, task: str, messages: Sequence[Message], *, notified: bool) -> None:
+        with self._transaction() as owned:
+            if owned:
+                self._write_payload(task, messages, notified=notified)
+
+    @contextlib.contextmanager
+    def _transaction(self) -> Iterator[bool]:
+        lease = FileLease(self._path.with_suffix(self._path.suffix + ".lock"))
+        try:
+            owned = lease.try_acquire()
+            if not owned:
+                _LOG.warning("tur günlüğü başka yazıcı tarafından kullanılıyor")
+        except OSError as error:
+            _LOG.warning("tur günlüğü kilitlenemedi", extra={"hata": type(error).__name__})
+            owned = False
+        try:
+            yield owned
+        finally:
+            lease.close()
+
+    def _write_payload(self, task: str, messages: Sequence[Message], *, notified: bool) -> None:
         payload = {
             "surum": _SCHEMA,
             "gorev": redact(task),
@@ -88,16 +132,11 @@ class FileTurnJournal:
             "bildirildi": notified,
             "mesajlar": [_message_to(message) for message in messages],
         }
-        temporary = self._path.with_suffix(".tmp")
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-            with contextlib.suppress(OSError):
-                temporary.chmod(0o600)
-            temporary.replace(self._path)
+            atomic_replace_text(self._path, json.dumps(payload, ensure_ascii=False))
         except OSError as error:
             # Günlük bir iyileştirmedir: yazılamaması turu düşürmez, yalnız log'lanır.
-            _LOG.warning("tur günlüğü yazılamadı", extra={"hata": str(error)})
+            _LOG.warning("tur günlüğü yazılamadı", extra={"hata": type(error).__name__})
 
 
 def _message_to(message: Message) -> dict[str, object]:
@@ -121,13 +160,16 @@ def _message_from(item: object) -> Message | None:
     role, content = item.get("rol"), item.get("icerik")
     if not isinstance(role, str) or not isinstance(content, str):
         return None
+    raw_calls = item.get("araclar", [])
+    if not isinstance(raw_calls, list):
+        return None
     calls = tuple(
         ToolCall(
             id=str(call.get("id", "")),
             name=str(call.get("ad", "")),
             arguments=str(call.get("arguman", "")),
         )
-        for call in item.get("araclar", [])
+        for call in raw_calls
         if isinstance(call, dict)
     )
     tool_call_id = item.get("arac_id")

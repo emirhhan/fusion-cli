@@ -17,11 +17,13 @@ import {
   type VoicePrefsPayload,
   type VoiceRuntimeState,
 } from "./bridge";
+import { acknowledgeWake, routeWakeSpeech, speechFailureText } from "./wake";
 import { yankiMi } from "./echo";
 import { cuesEnabled, playCue } from "./cues";
 import { VoiceMode } from "./VoiceMode";
 import {
   evaluateRecognitionTurn,
+  reconcileRecognition,
   initialVoiceMachine,
   voiceMachine,
   type RecognitionEvent,
@@ -51,7 +53,7 @@ const PARTIAL_FINAL_DELAY_MS = 1_400;
 
 export interface VoiceWindowRuntime {
   applyGeometry(geometry: VoiceWindowGeometry): Promise<void>;
-  answerAsk(answer: string): Promise<void>;
+  answerAsk(answer: string, question?: VoiceAsk): Promise<void>;
   close(): Promise<void>;
   interruptSpeech(): Promise<void>;
   emitMessage(message: VoiceMessage): Promise<void>;
@@ -71,7 +73,9 @@ export interface VoiceWindowRuntime {
 
 const DEFAULT_RUNTIME: VoiceWindowRuntime = {
   applyGeometry: applyVoiceWindowGeometry,
-  answerAsk: answerVoiceAsk,
+  answerAsk: (answer, question) => answerVoiceAsk(answer, undefined,
+    question?.sessionId && question.questionId
+      ? { sessionId: question.sessionId, questionId: question.questionId } : undefined),
   close: closeVoiceWindow,
   interruptSpeech: interruptVoiceSpeech,
   emitMessage: emitVoiceMessage,
@@ -130,6 +134,8 @@ export function matchSpokenAnswer(text: string, ask: VoiceAsk): string | null {
 }
 
 interface VoiceWindowProps {
+  /** Kabul koşularında eski sürekli konuşma senaryolarını ayrıca sınamak için. */
+  wakeEnabled?: boolean;
   permissionBridge?: PermissionBridge;
   runtime?: VoiceWindowRuntime;
 }
@@ -141,6 +147,10 @@ const INJECTED_RUNTIME_PERMISSION_BRIDGE: PermissionBridge = {
 
 /** Ayrı, hafif Talk penceresi; ana pencerenin aynı aktif sohbetini kullanır. */
 export function VoiceWindow(props: VoiceWindowProps = {}) {
+  const awakeUntil = useRef(0);
+  const wakeAcknowledgedTurn = useRef<string | null>(null);
+  const systemRecognitionBlocked = useRef(false);
+  const wakeEnabled = props.wakeEnabled ?? true;
   const baseRuntime = props.runtime ?? DEFAULT_RUNTIME;
   const permissionBridge = props.permissionBridge
     ?? (props.runtime ? INJECTED_RUNTIME_PERMISSION_BRIDGE : nativePermissionBridge);
@@ -164,6 +174,9 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   const [recognitionOwned, setRecognitionOwned] = useState(false);
   const machineRef = useRef(machine);
   const askRef = useRef(ask);
+  const answering = useRef<VoiceAsk | null>(null);
+  const [answerPending, setAnswerPending] = useState(false);
+  const spokenQuestion = useRef<{ session: number; segment: number; question: VoiceAsk | null } | null>(null);
   const sentRevision = useRef(0);
   const activeSession = useRef(0);
   const nextSession = useRef(0);
@@ -176,6 +189,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   const bargeInEvents = useRef<RecognitionPayload[]>([]);
   const replayRecognitionEvent = useRef<((event: PendingRecognitionEvent) => void) | null>(null);
   const finalizedSession = useRef<number | null>(null);
+  const finalizedSegment = useRef(0);
+  const latestRecognitionSegment = useRef(0);
   const expectedRecognitionEnd = useRef<number | null>(null);
   const restartAfterRecognitionEndSession = useRef<number | null>(null);
   /** Ard arda beklenmedik çökme sayısı; geri çekilme buna göre büyür. */
@@ -191,10 +206,31 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   machineRef.current = machine;
   askRef.current = ask;
 
+  const sendAnswer = useCallback((answer: string, question: VoiceAsk | null) => {
+    if (!question || answering.current === question || askRef.current !== question) return;
+    answering.current = question;
+    setAnswerPending(true);
+    void runtime.answerAsk(answer, question).catch(() => {
+      if (askRef.current !== question) return;
+      answering.current = null;
+      setAnswerPending(false);
+      dispatch({ type: "FAILED", text: "Cevap gönderilemedi. Karttan yeniden deneyebilirsin." });
+    });
+  }, [runtime]);
+
   const queueRecognition = useCallback(<T,>(operation: () => Promise<T>) => {
     const queued = recognitionQueue.current.then(operation, operation);
     recognitionQueue.current = queued.then(() => undefined, () => undefined);
     return queued;
+  }, []);
+
+  const acknowledgeListening = useCallback((session: number, segment: number) => {
+    awakeUntil.current = Date.now() + 30_000;
+    const turn = `${session}:${segment}`;
+    if (wakeAcknowledgedTurn.current === turn) return;
+    wakeAcknowledgedTurn.current = turn;
+    try { acknowledgeWake((text) => { if (!kapaniyor.current) dispatch({ type: "FAILED", text }); }); }
+    catch (error) { dispatch({ type: "FAILED", text: String(error) }); }
   }, []);
 
   const clearPartialFinalTimer = useCallback(() => {
@@ -203,6 +239,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   }, []);
 
   const startListening = useCallback(async () => {
+    systemRecognitionBlocked.current = false;
+    spokenQuestion.current = null;
     clearPartialFinalTimer();
     syntheticRestartSession.current = null;
     restartAfterRecognitionEndSession.current = null;
@@ -210,6 +248,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     const previousSession = activeSession.current;
     activeSession.current = 0;
     finalizedSession.current = null;
+    finalizedSegment.current = 0;
+    latestRecognitionSegment.current = 0;
     expectedRecognitionEnd.current = previousSession || null;
     const intent = recognitionIntent.current + 1;
     recognitionIntent.current = intent;
@@ -236,6 +276,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       nextSession.current = Math.max(nextSession.current, session);
       activeSession.current = session;
       finalizedSession.current = null;
+      finalizedSegment.current = 0;
+      latestRecognitionSegment.current = 0;
       expectedRecognitionEnd.current = null;
       dispatch({ type: "START_LISTENING", session });
       const pending = pendingRecognitionEvents.current;
@@ -287,9 +329,14 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
 
   useEffect(() => {
     const remove = runtime.onAsk((incoming) => {
-      clearPartialFinalTimer();
       const open = incoming?.acik === true ? incoming : null;
+      const current = askRef.current;
+      if (open?.sessionId && open.questionId && current?.sessionId === open.sessionId
+        && current.questionId === open.questionId) return;
+      clearPartialFinalTimer();
       askRef.current = open;
+      answering.current = null;
+      setAnswerPending(false);
       setAsk(open);
       dispatch({ type: open ? "ASK_OPENED" : "ASK_CLOSED" });
       if (open && activeSession.current === 0) {
@@ -324,18 +371,24 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       }
       if (!line || typeof line.metin !== "string" || typeof line.speech_ms !== "number"
         || typeof line.segment !== "number" || (line.guven !== null && typeof line.guven !== "number")) return;
-      if (line.tur === "ses-basladi" && machineRef.current.phase === "talking") {
-        bargeInPending.current = true;
-        // Fusion'ın yarım kalan cevabı SAKLANIR: modele "sözüm burada kesildi"
-        // bilgisi gitmezse kullanıcının düzeltmesi bağlamsız kalır.
-        // `talking` evresinde `transcript`, Fusion'ın seslendirdiği metindir.
-        kesilenCevap.current = machineRef.current.transcript?.trim() || null;
-        bargeInEvents.current.push(payload);
-        void runtime.interruptSpeech();
+      if (line.tur === "kismi" || line.tur === "son") {
+        if (line.segment <= finalizedSegment.current || line.segment < latestRecognitionSegment.current) return;
+        latestRecognitionSegment.current = line.segment;
+      }
+      if (line.tur === "hata" && /Siri and Dictation are disabled/i.test(line.metin)) {
+        systemRecognitionBlocked.current = true;
+        dispatch({ type: "FAILED", text: speechFailureText(line.metin) });
         return;
       }
-      if (bargeInPending.current) {
-        bargeInEvents.current.push(payload);
+      if (line.tur === "ses-basladi" || line.tur === "kismi") {
+        const previous = spokenQuestion.current;
+        if (!previous || previous.session !== payload.session || previous.segment !== line.segment) {
+          spokenQuestion.current = { session: payload.session, segment: line.segment, question: askRef.current };
+        }
+      }
+      if ((line.tur === "son" || line.tur === "kismi") && spokenQuestion.current?.session === payload.session
+        && spokenQuestion.current.segment === line.segment && spokenQuestion.current.question !== askRef.current) {
+        restartAfterRecognitionEndSession.current = payload.session;
         return;
       }
       // Yankı ayıklama: mikrofon sürekli açık olduğu için Fusion konuşurken
@@ -349,17 +402,50 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       ) {
         return;
       }
+      const textual = line.tur === "kismi" || line.tur === "son";
+      const interruptWord = normalizeSpeech(line.metin);
+      const hasInterruptMeaning = textual && (line.metin.trim().split(/\s+/u).length >= 2
+        || ["dur", "sus", "bekle"].includes(interruptWord)
+        || routeWakeSpeech(line.metin, false).acknowledge
+        || (askRef.current && matchSpokenAnswer(line.metin, askRef.current) !== null));
+      const trustedInterrupt = hasInterruptMeaning && evaluateRecognitionTurn({
+        activeSession: activeSession.current, candidateRevision: 0, requestedRevision: 0,
+        event: { ...line, tur: "son" }, session: payload.session, timedOut: false,
+      }) === "accept";
+      const mayInterrupt = trustedInterrupt && (!wakeEnabled || Date.now() < awakeUntil.current
+        || routeWakeSpeech(line.metin, false).awake);
+      if (machineRef.current.phase === "talking" && !mayInterrupt
+        && (line.tur === "ses-basladi" || textual)) return;
+      if (!bargeInPending.current && machineRef.current.phase === "talking" && mayInterrupt) {
+        bargeInPending.current = true;
+        // Fusion'ın yarım kalan cevabı SAKLANIR: modele "sözüm burada kesildi"
+        // bilgisi gitmezse kullanıcının düzeltmesi bağlamsız kalır.
+        // `talking` evresinde `transcript`, Fusion'ın seslendirdiği metindir.
+        kesilenCevap.current = machineRef.current.transcript?.trim() || null;
+        bargeInEvents.current.push(payload);
+        void runtime.interruptSpeech();
+        return;
+      }
+      if (bargeInPending.current) {
+        bargeInEvents.current.push(payload);
+        return;
+      }
       if (line.tur === "hata") {
         expectedRecognitionEnd.current = payload.session;
         dispatch({ type: "FAILED", text: line.metin });
       } else if (line.tur === "kismi") {
+        const wake = routeWakeSpeech(line.metin, false);
+        if (wakeEnabled && wake.acknowledge && !wake.message && evaluateRecognitionTurn({
+          activeSession: activeSession.current, candidateRevision: 0, requestedRevision: 0,
+          event: { ...line, tur: "son" }, session: payload.session, timedOut: false,
+        }) === "accept") acknowledgeListening(payload.session, line.segment);
         const candidateRevision = machineRef.current.candidateRevision + 1;
         if (!askRef.current) dispatch({ type: "RECOGNITION", session: payload.session, event: line });
         clearPartialFinalTimer();
         const askAtPartial = askRef.current;
         partialFinalTimer.current = setTimeout(() => {
           partialFinalTimer.current = null;
-          if (payload.session !== activeSession.current || finalizedSession.current === payload.session) return;
+          if (payload.session !== activeSession.current || (finalizedSession.current === payload.session && line.segment <= finalizedSegment.current)) return;
           if (askRef.current !== askAtPartial) return;
           const decision = evaluateRecognitionTurn({
             activeSession: activeSession.current,
@@ -371,14 +457,12 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
           });
           if (decision !== "accept") return;
           finalizedSession.current = payload.session;
+          finalizedSegment.current = line.segment;
           expectedRecognitionEnd.current = payload.session;
           const openAsk = askAtPartial;
           const answer = openAsk ? matchSpokenAnswer(line.metin, openAsk) : null;
           if (answer) {
-            askRef.current = null;
-            setAsk(null);
-            dispatch({ type: "ASK_CLOSED" });
-            void runtime.answerAsk(answer);
+            sendAnswer(answer, openAsk);
           } else if (openAsk) {
             restartAfterRecognitionEndSession.current = null;
             syntheticRestartSession.current = payload.session;
@@ -398,8 +482,9 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
             });
         }, PARTIAL_FINAL_DELAY_MS);
       } else if (line.tur === "son") {
+        if (!askRef.current) line = reconcileRecognition(machineRef.current.candidate, line);
         clearPartialFinalTimer();
-        if (finalizedSession.current === payload.session) return;
+        if (finalizedSession.current === payload.session && line.segment <= finalizedSegment.current) return;
         const candidateRevision = machineRef.current.candidateRevision + 1;
         const decision = evaluateRecognitionTurn({
           activeSession: activeSession.current,
@@ -414,14 +499,12 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
           return;
         }
         finalizedSession.current = payload.session;
+        finalizedSegment.current = line.segment;
         expectedRecognitionEnd.current = payload.session;
         const openAsk = askRef.current;
         const answer = openAsk ? matchSpokenAnswer(line.metin, openAsk) : null;
         if (answer) {
-          askRef.current = null;
-          setAsk(null);
-          dispatch({ type: "ASK_CLOSED" });
-          void runtime.answerAsk(answer);
+          sendAnswer(answer, openAsk);
         } else if (openAsk) {
           // Fail-closed: belirsiz söz ne onaydır ne de yeni sohbet turu.
           // Yardımcı finalden sonra çıktığı için bitiş olayında yeniden dinle.
@@ -441,6 +524,12 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         return;
       }
       clearPartialFinalTimer();
+      if (systemRecognitionBlocked.current) {
+        activeSession.current = 0;
+        expectedRecognitionEnd.current = null;
+        setRecognitionOwned(false);
+        return;
+      }
       if (syntheticRestartSession.current === session) {
         syntheticRestartSession.current = null;
         activeSession.current = 0;
@@ -517,24 +606,32 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       setRecognitionOwned(false);
       void queueRecognition(() => runtime.stopRecognition()).catch(() => undefined);
     };
-  }, [clearPartialFinalTimer, queueRecognition, runtime, startListening]);
+  }, [acknowledgeListening, clearPartialFinalTimer, queueRecognition, runtime, startListening, wakeEnabled]);
 
   useEffect(() => {
     if (machine.finalRevision <= sentRevision.current || !machine.finalText) return;
     sentRevision.current = machine.finalRevision;
-    if (cuesEnabled()) playCue("thinking");
     oturumVerimliydi.current = true;
+    const routed = routeWakeSpeech(machine.finalText, !wakeEnabled || Date.now() < awakeUntil.current);
+    if (routed.acknowledge) acknowledgeListening(machine.session, machine.finalizedSegment ?? 0);
+    if (!routed.message) { dispatch({ type: "ASSISTANT_FINISHED" }); return; }
+    awakeUntil.current = Date.now() + 30_000;
+    if (cuesEnabled()) playCue("thinking");
     const kesilen = kesilenCevap.current;
     kesilenCevap.current = null;
     void runtime.emitMessage({
       kaynak: "kullanici",
-      metin: machine.finalText,
+      metin: routed.message,
       ...(kesilen ? { kesilen } : {}),
     });
-  }, [machine.finalRevision, machine.finalText, runtime]);
+  }, [acknowledgeListening, machine.finalRevision, machine.finalText, machine.finalizedSegment, machine.session, runtime, wakeEnabled]);
 
   useEffect(() => {
     const remove = runtime.onRuntimeState((incoming) => {
+      if (incoming.durum === "error") {
+        answering.current = null;
+        setAnswerPending(false);
+      }
       if (incoming.durum === "talking") {
         bargeInPending.current = false;
         bargeInEvents.current = [];
@@ -552,6 +649,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         return;
       }
       if (incoming.durum === "listening" || incoming.durum === "idle") {
+        if (awakeUntil.current > 0) awakeUntil.current = Date.now() + 30_000;
         const shouldResume = machineRef.current.autoListen;
         dispatch({ type: "ASSISTANT_FINISHED" });
         if (shouldResume && activeSession.current === 0) void startListening();
@@ -586,17 +684,15 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     document.body.style.overflow = "hidden";
   }, []);
 
-  const visibleTranscript = machine.error ?? machine.transcript;
+  const visibleTranscript = machine.error ? speechFailureText(machine.error) : machine.transcript;
   return (
     <>
     <VoiceMode
       ask={ask}
       listening={recognitionOwned}
-      onAnswer={(answer) => {
-        setAsk(null);
-        dispatch({ type: "ASK_CLOSED" });
-        void runtime.answerAsk(answer);
-      }}
+      onListen={() => { awakeUntil.current = Date.now() + 30_000; void startListening(); }}
+      answerPending={answerPending}
+      onAnswer={(answer) => sendAnswer(answer, ask)}
       onClose={() => void runtime.close()}
       onMinimize={() => void minimizeVoiceWindow()}
       onPickModel={() => {

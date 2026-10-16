@@ -103,29 +103,32 @@ class SubmissionStore:
     def _claim_transaction(self, key: SubmissionKey) -> SubmissionClaim:
         with closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
-            existing = self._read(connection, key)
-            if existing is not None:
-                return SubmissionClaim(False, existing)
-            if connection.execute(
-                "SELECT 1 FROM submission_moves WHERE profile=? AND target=? AND conversation=?",
-                (key.profile_id, key.root, key.conversation_id),
-            ).fetchone():
-                return SubmissionClaim(
-                    False,
-                    SubmissionReceipt(
-                        key,
-                        f"{key.request_id}:1",
-                        SubmissionState.RECOVERY_REQUIRED,
-                        "move_pending",
-                    ),
-                )
-            connection.execute(
-                "INSERT INTO submissions VALUES (?,?,?,?,1,'accepted',NULL,?)",
-                (*self._values(key), self._epoch()),
-            )
+            return self._claim_in_connection(connection, key)
+
+    def _claim_in_connection(
+        self, connection: sqlite3.Connection, key: SubmissionKey
+    ) -> SubmissionClaim:
+        """Alt makbuzlar aynı transaction'da mevcut kabul otoritesini kullanır."""
+        existing = self._read(connection, key)
+        if existing is not None:
+            return SubmissionClaim(False, existing)
+        if connection.execute(
+            "SELECT 1 FROM submission_moves WHERE profile=? AND target=? AND conversation=?",
+            (key.profile_id, key.root, key.conversation_id),
+        ).fetchone():
             return SubmissionClaim(
-                True, SubmissionReceipt(key, f"{key.request_id}:1", SubmissionState.ACCEPTED)
+                False,
+                SubmissionReceipt(
+                    key, f"{key.request_id}:1", SubmissionState.RECOVERY_REQUIRED, "move_pending"
+                ),
             )
+        connection.execute(
+            "INSERT INTO submissions VALUES (?,?,?,?,1,'accepted',NULL,?)",
+            (*self._values(key), self._epoch()),
+        )
+        return SubmissionClaim(
+            True, SubmissionReceipt(key, f"{key.request_id}:1", SubmissionState.ACCEPTED)
+        )
 
     async def claim(self, key: SubmissionKey) -> SubmissionClaim:
         """Unique anahtar transaction içinde tek yürütme sahibi üretir."""
@@ -231,6 +234,22 @@ class SubmissionStore:
             ).fetchone()
             if conflict is not None:
                 raise ValueError("Hedef gönderim metadata'sı kaynakla eşleşmiyor.")
+            self._prepare_move_metadata(connection, profile, root, conversation, target)
+
+    def _prepare_move_metadata(
+        self,
+        connection: sqlite3.Connection,
+        profile: str,
+        root: str,
+        conversation: str,
+        target: str,
+    ) -> None:
+        """Alt makbuzlar varsa kaynakla aynı transaction'da taşınır."""
+
+    def _delete_metadata(
+        self, connection: sqlite3.Connection, profile: str, root: str, conversation: str
+    ) -> None:
+        """Alt makbuzlar varsa gönderimle aynı transaction'da silinir."""
 
     async def prepare_move(self, profile: str, root: str, conversation: str, target: str) -> None:
         """Transcript görünür olmadan hedefte makbuz korumasını atomik kurar."""
@@ -252,6 +271,8 @@ class SubmissionStore:
 
     def _conversation(self, profile: str, root: str, conversation: str, target: str | None) -> None:
         with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._delete_metadata(connection, profile, root, conversation)
             if target is None:
                 connection.execute(
                     "DELETE FROM submissions WHERE profile=? AND root=? AND conversation=?",

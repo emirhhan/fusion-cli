@@ -24,7 +24,7 @@ describe("Karşılama — doğru keşif ve projesiz devam", () => {
   it("boş keşifte bulunan kaynak başlığı kullanmaz", () => {
     draw();
     expect(screen.queryByRole("heading", { name: "Kaynaklarınız bulundu" })).toBeNull();
-    expect(screen.getByRole("heading", { name: /kaynak.*bulunamadı/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /sohbet.*bulunamadı/i })).toBeTruthy();
   });
   it("proje seçmeden açık tamamlamayı ayrı eylemle sunar", () => {
     const props = draw({ value: { step: "project", selectedProjectId: null } });

@@ -239,6 +239,7 @@ class SubAgentStarted(Event):
     color: str = ""
     #: Aynı anda başlatılan kardeş ajan sayısı (paralel grup); tek ajanda 1.
     group_size: int = 1
+    started_at: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,6 +252,20 @@ class SubAgentFinished(Event):
     #: Kartta gösterilecek tek satırlık sonuç (ajanın cevabının başı).
     summary: str = ""
     elapsed_s: float = 0.0
+    status: str = ""
+    changed_paths: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SkillLoaded(Event):
+    """İçerik gerçekten modele yüklendi; uygulanmış iş kanıtı değildir."""
+
+    qualified_name: str
+    revision: str
+    mode: str = "explicit"
+    offset: int = 0
+    next_offset: int | None = None
+    reference: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -425,6 +440,16 @@ class MutationUnavailable(Event):
 
     reason: str
     blocking: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class TurnUsageObserved(Event):
+    """Gözlenen tüketim alt sınırı; provider iç retry ölçümü eksik olabilir."""
+
+    prompt_tokens: int
+    completion_tokens: int
+    unknown_calls: int
+    total_calls: int
 
 
 @dataclass(frozen=True, slots=True)

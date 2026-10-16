@@ -17,6 +17,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ...config.paths import bundled_skills_dir
+from ...core.events import EventPublisher, SkillLoaded
+from ...tools.capabilities import CapabilityRegistry
+from ...tools.skill_pages import read_skill_page
 
 #: Modele basılacak beceri metninin üst sınırı (karakter). Yerleşik beceriler bu
 #: sınıra sığacak şekilde yazıldı (~3 KB); 21 KB'lık eski referansın yedide biri.
@@ -62,21 +65,48 @@ def _skill_body(folder: Path, name: str) -> str:
     return govde[:MAX_EXPERTISE_CHARS]
 
 
-def expertise_hint(task: str, skills_dir: Path | None = None) -> str | None:
-    """Görev açıkça bir uzmanlık alanına aitse o becerinin kısa metni; değilse None."""
-    klasor = skills_dir or bundled_skills_dir()
-    for kural in _RULES:
-        if kural.pattern.search(task) is None:
-            continue
-        if kural.exclude is not None and kural.exclude.search(task) is not None:
-            continue
-        govde = _skill_body(klasor, kural.skill)
-        if not govde:
+def expertise_hint(
+    task: str,
+    skills_dir: Path | None = None,
+    *,
+    registry: CapabilityRegistry | None = None,
+    publisher: EventPublisher | None = None,
+) -> str | None:
+    """Tek açık uzmanlığı gerçek katalog kaynağından, toplam sınır içinde yükle."""
+    matches = [
+        rule
+        for rule in _RULES
+        if rule.pattern.search(task) is not None
+        and (rule.exclude is None or rule.exclude.search(task) is None)
+    ]
+    if len(matches) != 1:
+        return None
+    rule = matches[0]
+    if registry is None:
+        body = _skill_body(skills_dir or bundled_skills_dir(), rule.skill)
+        if not body:
             return None
-        return (
-            f"UZMANLIK NOTU ({kural.skill} becerisi; tamamı read_skill('{kural.skill}')):\n{govde}"
+        prefix = f"UZMANLIK NOTU ({rule.skill} becerisi; tamamı read_skill('{rule.skill}')):\n"
+        return (prefix + body)[:MAX_EXPERTISE_CHARS]
+    skill = registry.get_skill(rule.skill)
+    if skill is None:
+        return None
+    prefix = f"UZMANLIK NOTU ({skill.name}; tamamı read_skill('{skill.qualified_name}')):\n"
+    page = read_skill_page(skill.path, budget=MAX_EXPERTISE_CHARS - len(prefix))
+    if page.error or not page.text:
+        return None
+    body = page.text.replace("{SKILL_DIR}", str(skill.path.parent))
+    prompt = (prefix + body)[:MAX_EXPERTISE_CHARS]
+    if publisher is not None:
+        publisher.publish(
+            SkillLoaded(
+                qualified_name=skill.qualified_name,
+                revision=page.revision,
+                mode="implicit",
+                next_offset=page.next_offset,
+            )
         )
-    return None
+    return prompt
 
 
 def is_game_task(task: str) -> bool:

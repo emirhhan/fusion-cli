@@ -160,7 +160,7 @@ async def test_claude_in_chrome_esdegeri_yeni_islemler_eklenti_komutlarina_eslen
     ]
     assert not (await chrome.chrome_action({"action": "close"}, baglam)).ok
     assert not (await chrome.chrome_action({"action": "hover"}, baglam)).ok
-    for islem in ("back", "forward", "reload", "close", "hover", "text"):
+    for islem in ("back", "forward", "reload", "hover", "text"):
         assert await chrome.chrome_action_effect({"action": islem}, None) is ToolEffect.REMOTE_READ
 
 
@@ -276,3 +276,10 @@ async def test_yukleme_sinirini_asan_dosya_gonderilmez(tmp_path, monkeypatch):
     )
 
     assert not sonuc.ok and kopru.cagrilar == []
+
+
+async def test_sekme_kapatma_salt_okuma_yetkisiyle_izinli_sayilmaz():
+    assert (
+        await chrome.chrome_action_effect({"action": "close", "value": "42"}, None)
+        is ToolEffect.REMOTE_DESTRUCTIVE
+    )

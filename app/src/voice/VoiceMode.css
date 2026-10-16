@@ -9,12 +9,12 @@ body,
 
 .voice-panel {
   backdrop-filter: blur(24px) saturate(1.12);
-  background: rgb(248 250 245 / 92%);
+  background: color-mix(in srgb, var(--surface-canvas) 96%, transparent);
   border: 0;
   border-radius: var(--radius-lg);
   box-shadow: inset 0 0 0 1px rgb(25 33 25 / 10%);
   box-sizing: border-box;
-  color: #111512;
+  color: var(--text-primary);
   display: grid;
   overflow: hidden;
   position: relative;
@@ -36,9 +36,9 @@ body[data-talk-surface="true"],
 }
 
 :root[data-theme="dark"] .voice-panel {
-  background: rgb(18 21 18 / 92%);
+  background: color-mix(in srgb, var(--surface-canvas) 96%, transparent);
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 12%);
-  color: #f7f9f5;
+  color: var(--text-primary);
 }
 
 .voice-panel[data-mode="normal"] {
@@ -153,7 +153,7 @@ body[data-talk-surface="true"],
 .voice-panel__hint { font-size: var(--text-2xs); margin: 0; opacity: .58; text-align: center; }
 .voice-panel__mic {
   align-items: center;
-  background: #171b18;
+  background: var(--control-primary);
   border: 0;
   border-radius: 50%;
   color: white;
@@ -180,7 +180,7 @@ body[data-talk-surface="true"],
 }
 
 .voice-panel__settings-popover {
-  background: rgb(250 252 248 / 97%);
+  background: var(--surface-raised);
   border: 1px solid rgb(30 35 30 / 12%);
   border-radius: var(--radius-lg);
   bottom: 72px;
@@ -191,7 +191,7 @@ body[data-talk-surface="true"],
   right: 14px;
   z-index: 2;
 }
-:root[data-theme="dark"] .voice-panel__settings-popover { background: rgb(24 27 24 / 98%); }
+:root[data-theme="dark"] .voice-panel__settings-popover { background: var(--surface-raised); }
 
 .voice-wave { align-items: center; display: flex; gap: 3px; height: 28px; opacity: .32; transition: opacity 180ms cubic-bezier(.4, 0, .2, 1); }
 .voice-wave[data-active="true"] { opacity: 1; }
@@ -220,7 +220,7 @@ body[data-talk-surface="true"],
 .voice-ask__text { font-size: var(--text-xs); line-height: 1.35; margin: 0; text-align: center; text-wrap: pretty; }
 .voice-ask__buttons { display: flex; gap: 8px; justify-content: center; }
 .voice-ask__buttons button {
-  background: #171b18;
+  background: var(--control-primary);
   border: 0;
   border-radius: var(--radius-md);
   color: white;
@@ -229,7 +229,7 @@ body[data-talk-surface="true"],
   min-height: 40px;
   padding: 0 14px;
 }
-.voice-ask__buttons button:first-child { background: #477e18; }
+.voice-ask__buttons button:first-child { background: var(--brand-signal-deep); }
 
 .voice-panel[data-mode="mini"] .voice-panel__head { height: 40px; inset: 0 0 auto; pointer-events: none; position: absolute; }
 .voice-panel[data-mode="mini"] .voice-panel__window-controls { left: 14px; pointer-events: auto; top: 14px; }
@@ -264,11 +264,11 @@ body[data-talk-surface="true"],
 /* Konuşma kipinin varsayılanı: masaüstünde taşınabilir, küçük bot paneli. */
 .voice-panel[data-mode="mini"] {
   backdrop-filter: none;
-  background: #191919;
-  border: 1px solid #424242;
+  background: var(--surface-sidebar);
+  border: 1px solid var(--border-strong);
   border-radius: 20px;
   box-shadow: 0 14px 42px rgb(0 0 0 / 36%);
-  color: #f3f5f6;
+  color: var(--text-primary);
   gap: 10px;
   grid-template-columns: 76px minmax(0, 1fr) 32px;
   padding: 22px 14px 9px;
@@ -321,7 +321,7 @@ body[data-talk-surface="true"],
   background: transparent;
   border: 0;
   border-radius: 7px;
-  color: #f3f5f6;
+  color: var(--text-primary);
   font: inherit;
   font-size: 12px;
   min-height: 34px;
@@ -416,3 +416,12 @@ body[data-talk-surface="true"],
   .voice-wave,
   .voice-wave__bar { transition: none; }
 }
+
+/* Kits ile ortak yüzey hiyerarşisi ve marka tonları. */
+.voice-ask { background: var(--surface-raised); border-color: var(--border-subtle); border-radius: var(--radius-xl); box-shadow: var(--shadow-sm); }
+.voice-ask__buttons button { background: var(--surface-selected); color: var(--text-primary); border-radius: var(--radius-pill); border: 1px solid var(--border-subtle); }
+.voice-ask__buttons button:first-child { background: var(--brand-signal-deep); color: #fff; border-color: transparent; }
+.voice-wave__bar:nth-child(3n) { background: var(--brand-detail-violet); }
+.voice-wave__bar:nth-child(3n + 1) { background: var(--brand-detail-blue); }
+.voice-panel__mic { color: var(--surface-canvas); }
+.voice-panel__mic[data-dinliyor="true"] { color: #fff; }

@@ -12,7 +12,6 @@ yeniden başlasa da iş izlenebilir.
 
 from __future__ import annotations
 
-import os
 import re
 import shlex
 import signal
@@ -21,14 +20,24 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from threading import Thread
 
-from ..core.constants import JOB_LOG_TAIL_CHARS, JOB_MAX_WAIT_S
+from ..core.atomic_file import atomic_replace_text
+from ..core.constants import (
+    JOB_LOG_TAIL_CHARS,
+    JOB_MAX_WAIT_S,
+    PROCESS_POLL_S,
+    PROCESS_TERMINATE_GRACE_S,
+)
+from ..core.errors import CleanupFailedError
 from ..core.job_evidence import ArtifactReceipt
+from ..core.process_control import ensure_process_group_exit, terminate_process_tree
 from ..core.repair_ledger import FailureEvidence
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_positive_int, require_str
 from .job_delivery import observe_delivery, save_delivery
 from .job_evidence import JobEvidenceManifest, completed_evidence, save_manifest
+from .job_owner import save_owner, verified_owner
 from .remotion_shell_guard import check_shell_result
 
 #: İş dosyalarının proje köküne göre yeri.
@@ -37,11 +46,22 @@ _JOB_ID = re.compile(r"^[a-f0-9]{8}$")
 #: Durdurulan işin çıkış kodu: kabuk geleneği 128 + SIGTERM.
 _TERMINATED_EXIT = 128 + signal.SIGTERM
 #: Bekleme döngüsünün yoklama aralığı (saniye).
-_POLL_S = 1.0
+_POLL_S = PROCESS_POLL_S
 
 
 def _jobs_dir(context: ToolContext) -> Path:
     return context.root / JOBS_DIR
+
+
+def _reserve_job_id(folder: Path, command: str) -> str:
+    while True:
+        job_id = uuid.uuid4().hex[:8]
+        try:
+            with (folder / f"{job_id}.cmd").open("x", encoding="utf-8") as stream:
+                stream.write(command)
+            return job_id
+        except FileExistsError:
+            continue
 
 
 def start_job(
@@ -55,7 +75,7 @@ def start_job(
     """Komutu arka planda başlat; kimliği ve izleme yolunu döner."""
     klasor = _jobs_dir(context)
     klasor.mkdir(parents=True, exist_ok=True)
-    kimlik = uuid.uuid4().hex[:8]
+    kimlik = _reserve_job_id(klasor, command)
     gunluk = klasor / f"{kimlik}.log"
     cikis = klasor / f"{kimlik}.exit"
     if manifest is not None:
@@ -73,7 +93,9 @@ def start_job(
             kimlik,
         )
     )
+    token = "fusion-job-" + uuid.uuid4().hex
     sarmal = (
+        f": {token}; "
         f"( {command} ) > {shlex.quote(str(gunluk))} 2>&1; fusion_job_code=$?; "
         f'{observer} "$fusion_job_code" >> {shlex.quote(str(gunluk))} 2>&1; '
         f'echo "$fusion_job_code" > {shlex.quote(str(cikis))}'
@@ -91,8 +113,18 @@ def start_job(
         )
     except OSError as exc:
         return ToolResult.failure(f"Arka plan işi başlatılamadı: {exc}")
-    (klasor / f"{kimlik}.pid").write_text(str(surec.pid), encoding="utf-8")
-    (klasor / f"{kimlik}.cmd").write_text(command, encoding="utf-8")
+    Thread(target=surec.wait, name=f"fusion-job-{kimlik}", daemon=True).start()
+    try:
+        save_owner(klasor, kimlik, surec.pid, token, context, lambda: surec.poll() is not None)
+        atomic_replace_text(klasor / f"{kimlik}.pid", str(surec.pid))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        terminate_process_tree(surec.pid, force=True)
+        try:
+            surec.wait(timeout=PROCESS_TERMINATE_GRACE_S)
+        except subprocess.TimeoutExpired:
+            raise CleanupFailedError("Kaydı başarısız yeni işin kapanışı doğrulanamadı.") from None
+        ensure_process_group_exit(surec.pid)
+        return ToolResult.failure("İş sahipliği kaydedilemedi; yeni süreç kapatıldı.")
     return ToolResult(
         f"Arka plan işi başladı: {kimlik}\nKomut: {command}\nÇıktı: {gunluk}\n"
         f"Durumu ve son çıktıyı görmek için job_status(id='{kimlik}', wait_s=...) çağır; "
@@ -140,7 +172,7 @@ def job_status(args: ToolArgs, context: ToolContext) -> ToolResult:
         return cozum
     kimlik, klasor = cozum
     if args.get("stop") is True:
-        return _stop(kimlik, klasor)
+        return _stop(kimlik, klasor, context)
     bekle = min(require_positive_int(args, "wait_s", default=1), int(JOB_MAX_WAIT_S))
     bitis = time.monotonic() + bekle
     kod = _read_exit(klasor, kimlik)
@@ -177,15 +209,15 @@ def job_status(args: ToolArgs, context: ToolContext) -> ToolResult:
     )
 
 
-def _stop(kimlik: str, klasor: Path) -> ToolResult:
-    """İşin süreç grubunu durdur."""
+def _stop(kimlik: str, klasor: Path, context: ToolContext) -> ToolResult:
+    """Doğrulanmış owner'ın süreç grubunu kapat; sinyal teslimini bitiş sayma."""
     if _read_exit(klasor, kimlik) is not None:
         return ToolResult(f"İş {kimlik} zaten bitmiş.")
     try:
-        pid = int((klasor / f"{kimlik}.pid").read_text(encoding="utf-8"))
-        os.killpg(pid, signal.SIGTERM)
-    except (OSError, ValueError) as exc:
+        pid = verified_owner(klasor, kimlik, context)
+        terminate_process_tree(pid, force=False)
+        ensure_process_group_exit(pid, graceful=True)
+    except (OSError, ValueError, CleanupFailedError, subprocess.SubprocessError) as exc:
         return ToolResult.failure(f"İş {kimlik} durdurulamadı: {exc}")
-    # Sarmalayıcı kabuk da durdurulduğu için çıkış kodunu o yazamaz; SIGTERM kodu yazılır.
-    (klasor / f"{kimlik}.exit").write_text(str(_TERMINATED_EXIT), encoding="utf-8")
+    atomic_replace_text(klasor / f"{kimlik}.exit", str(_TERMINATED_EXIT))
     return ToolResult(f"İş {kimlik} durduruldu.")

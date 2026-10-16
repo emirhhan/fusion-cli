@@ -21,6 +21,7 @@ from enum import Enum
 from pathlib import Path
 from threading import Event
 from typing import Any, Protocol
+from uuid import uuid4
 
 from .artifacts import ArtifactStore
 from .browser_session import BrowserSession
@@ -285,6 +286,7 @@ class ToolContext:
 
     #: Göreli yolların çözümleneceği kök dizin.
     root: Path
+    job_scope: str = field(default_factory=lambda: uuid4().hex, kw_only=True)
     #: Bu tura ait görev listesi.
     todos: TodoList = field(default_factory=TodoList)
     #: Agent'ın bu oturumda OLUŞTURDUĞU ya da DEĞİŞTİRDİĞİ dosyalar.
@@ -377,6 +379,26 @@ EffectResolver = Callable[[ToolArgs, "ToolContext | None"], Awaitable["ToolEffec
 
 
 @dataclass(frozen=True, slots=True)
+class AuthorizationScope:
+    """Adaptörün doğruladığı sır içermeyen uzak izin kapsamı."""
+
+    server: str
+    account: str
+    action: str
+    targets: tuple[str, ...]
+
+    @property
+    def is_complete(self) -> bool:
+        """Eksik kapsam oturum iznine dönüşmez."""
+        return bool(
+            self.server and self.account and self.action and self.targets and all(self.targets)
+        )
+
+
+ScopeResolver = Callable[[ToolArgs], AuthorizationScope | None]
+
+
+@dataclass(frozen=True, slots=True)
 class Tool:
     """Şema + executor + onay bayrağı."""
 
@@ -405,6 +427,8 @@ class Tool:
     #: Etki çağrının argümanına bağlıysa (tek araçtan onlarca yetenek çalıştıran
     #: ağ geçitleri) çağrı bazlı çözücü; `None` dönerse `effect` geçerli kalır.
     effect_resolver: EffectResolver | None = None
+    #: Yalnız adaptörün bildiği hesap/eylem/hedef sınırını çözer.
+    scope_resolver: ScopeResolver | None = None
 
     def schema(self) -> dict[str, object]:
         """Model çağrısına eklenecek function-calling şeması."""

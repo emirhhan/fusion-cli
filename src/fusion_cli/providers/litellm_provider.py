@@ -300,21 +300,28 @@ def _response_usage(response: Any, model: str) -> TokenUsage:
     usage = getattr(response, "usage", None)
     if usage is None:
         return TokenUsage()
-    prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
-    completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+    prompt_value = getattr(usage, "prompt_tokens", None)
+    completion_value = getattr(usage, "completion_tokens", None)
+    prompt_tokens = int(prompt_value or 0)
+    completion_tokens = int(completion_value or 0)
+    cost = _estimated_cost(model, prompt_tokens, completion_tokens)
     return TokenUsage(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
-        cost_usd=estimate_cost(model, prompt_tokens, completion_tokens),
+        cost_usd=cost or 0.0,
+        prompt_measured=prompt_value is not None,
+        completion_measured=completion_value is not None,
+        cost_known=cost is not None and prompt_value is not None and completion_value is not None,
     )
 
 
 def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
-    """Modelin fiyat tablosuna göre tahmini maliyet (USD).
+    """Eski sayısal arayüz; bilinmeyen fiyat metadata içinde ayrıca belirtilir."""
+    return _estimated_cost(model, prompt_tokens, completion_tokens) or 0.0
 
-    Fiyat bilinmiyorsa (yeni ya da yerel model) 0 döner: bilinmeyen bir maliyeti
-    uydurmaktansa sıfır göstermek dürüsttür.
-    """
+
+def _estimated_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float | None:
+    """Sağlayıcı fiyatı yoksa maliyeti bilinmiyor olarak taşı."""
     try:
         cost = _litellm().completion_cost(
             completion_response={
@@ -328,9 +335,9 @@ def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> flo
     # Geniş yakalama bilinçli: litellm bilinmeyen/yerel modelde çeşitli istisna
     # tipleri fırlatabilir. Maliyet 0'a düşer ama SESSİZ değil — teşhis için loglanır.
     except Exception as exc:
-        _logger.debug("maliyet hesaplanamadı (model=%s): %s", model, exc)
-        return 0.0
-    return float(cost or 0.0)
+        _logger.debug("Maliyet hesaplanamadı (%s).", type(exc).__name__)
+        return None
+    return float(cost) if cost is not None else None
 
 
 def _response_tool_calls(response: Any) -> tuple[ToolCall, ...]:

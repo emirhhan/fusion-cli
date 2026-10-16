@@ -39,3 +39,17 @@ export function splitIntoSentences(text: string): string[] {
   }
   return sentences;
 }
+
+// Kısa yanıtta tek ses parçası tonlamayı korur ve oynatıcı geçişini kaldırır.
+const MAX_SPEECH_CHUNK_CHARS = 160;
+
+export function splitIntoSpeechChunks(text: string): string[] {
+  const chunks: string[] = [];
+  for (const sentence of splitIntoSentences(text)) {
+    const previous = chunks[chunks.length - 1];
+    if (previous && previous.length + 1 + sentence.length <= MAX_SPEECH_CHUNK_CHARS) {
+      chunks[chunks.length - 1] = `${previous} ${sentence}`;
+    } else chunks.push(sentence);
+  }
+  return chunks;
+}

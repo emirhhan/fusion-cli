@@ -318,17 +318,8 @@ async def test_yarim_kalan_denetim_talimati_uygulanmaz(monkeypatch):
 # --- Alt-ajan değişiklikleri ana kapıya girer -------------------------------- #
 
 
-def test_alt_ajan_baglami_touched_kumesini_paylasir():
-    """Alt-ajanın yazdığı dosya ana doğrulama kapısından KAÇMAMALI.
-
-    Gerçek boşluk: alt-ajan kendi ToolContext'iyle çalışıyordu, `depth>0` olduğu
-    için kendi kapısı hiç kurulmuyordu ve yazdığı dosya ana bağlamın `touched`
-    kümesine girmediği için ana kapı da onu görmüyordu. Dosya iki kapı arasından
-    sızıyordu.
-
-    Görev listesi ayrı kalır (alt-ajan ana listeyi ezmemeli); paylaşılan tek şey
-    değişiklik kümesidir.
-    """
+def test_alt_ajan_baglami_touched_kumesini_ayri_tutar():
+    """Child yolları kardeş kanıtını almaz; team kapanışta parent'a birleştirir."""
     from pathlib import Path
 
     from fusion_cli.core.tools import ToolContext
@@ -339,7 +330,7 @@ def test_alt_ajan_baglami_touched_kumesini_paylasir():
 
     alt.touched.add(Path("/proje/index.html"))
 
-    assert Path("/proje/index.html") in ana.touched, "değişiklik ana kapıya görünmeli"
+    assert Path("/proje/index.html") not in ana.touched, "child izi önce kendi kapsamında kalmalı"
     assert alt.todos is not ana.todos, "görev listesi ayrı kalmalı"
     assert alt.extra_roots == ana.extra_roots, "izin sınırı alt-ajanda gevşememeli"
     assert alt.restrict_to_root == ana.restrict_to_root

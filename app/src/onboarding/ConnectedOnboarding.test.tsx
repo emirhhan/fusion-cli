@@ -85,3 +85,45 @@ describe("Bağımsız onboarding otoriteleri", () => {
     expect(request.mock.calls.filter(([name]) => name === "kontrol.cirak_varsayilanina_don")).toHaveLength(1);
   });
 });
+
+it("sağlayıcı formunda kaydetmeden anahtarı kaybetmez ve kayıttan sonra devam eder", async () => {
+  let saved = false;
+  const request = vi.fn(async (name: string) => {
+    if (name === "kontrol.anahtar_kaydet") { saved = true; return { ok: true }; }
+    if (name === "saglayici.katalog") return { ok: true, saglayicilar: [{ id: "openai", ad: "OpenAI", bagli: saved, eylem: "anahtar", tur: "anahtar" }] };
+    return { ok: true, model: {}, saglayicilar: [{ id: "openai", ad: "OpenAI", kurulu: saved }] };
+  });
+  draw(request); navigate(3);
+  fireEvent.click(await screen.findByRole("button", { name: "Bağlan" }));
+  const next = await screen.findByRole("button", { name: "Devam et", exact: true });
+  fireEvent.change(await screen.findByLabelText(/API anahtarı/i), { target: { value: "SYNTHETIC_ONBOARDING_KEY" } });
+  expect((next as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Kaydet", exact: true }));
+  await waitFor(() => expect((next as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(next);
+  expect(await screen.findByRole("heading", { name: "Bir örnek proje seçin" })).toBeTruthy();
+});
+
+it("sağlayıcı formundan kurulumu atlayabilir", async () => {
+  const onFinish = vi.fn();
+  const request = async (name: string) => name === "saglayici.katalog" ? { ok: true, saglayicilar: [{ id: "openai", ad: "OpenAI", bagli: false, eylem: "anahtar", tur: "anahtar" }] } : { ok: true, model: {}, saglayicilar: [{ id: "openai", ad: "OpenAI", kurulu: false }] };
+  render(<ConnectedOnboarding client={{ request } as unknown as ProtocolClient} projects={[]} onFinish={onFinish} />);
+  navigate(3); fireEvent.click(await screen.findByRole("button", { name: "Bağlan" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Şimdilik atla", exact: true }));
+  expect(onFinish).toHaveBeenCalledWith(null);
+});
+
+it("başarısız anahtar kaydı girdiyi korur ve yanlış devamı engeller", async () => {
+  draw(async (name) => {
+    if (name === "kontrol.anahtar_kaydet") return { ok: false, metin: "Test depolaması kullanılamıyor." };
+    if (name === "saglayici.katalog") return { ok: true, saglayicilar: [{ id: "openai", ad: "OpenAI", bagli: false, eylem: "anahtar", tur: "anahtar" }] };
+    return { ok: true, model: {}, saglayicilar: [{ id: "openai", ad: "OpenAI", kurulu: false }] };
+  });
+  navigate(3); fireEvent.click(await screen.findByRole("button", { name: "Bağlan" }));
+  const input = await screen.findByLabelText(/API anahtarı/i) as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "SYNTHETIC_FAILED_KEY" } });
+  fireEvent.click(screen.getByRole("button", { name: "Kaydet", exact: true }));
+  await screen.findByText("Test depolaması kullanılamıyor.");
+  expect(input.value).toBe("SYNTHETIC_FAILED_KEY");
+  expect((screen.getByRole("button", { name: "Devam et", exact: true }) as HTMLButtonElement).disabled).toBe(true);
+});

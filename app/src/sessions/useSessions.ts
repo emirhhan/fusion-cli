@@ -1,4 +1,5 @@
 import { deleteSubmissions, moveSubmissions, loadSubmissions, saveSubmission, updateSubmission } from "./submissionPersistence";
+import { decodeDeliveryEvidence } from "../protocol/deliveryEvidence";
 import { normalizeSubmissionReceipt, type SubmissionReceipt } from "./submission";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -30,19 +31,8 @@ const DEFAULT_SESSION_ID = "varsayilan";
 // sohbet listesinden tek tıkla açılır.
 const MAX_RESTORED_SESSIONS = 8;
 const CORE_CLOSED = "Bu konuşmanın çekirdeği beklenmedik şekilde kapandı.";
-/**
- * "Durdur"a basıldıktan sonra çalışıyor durumunun ZORLA sıfırlanacağı üst
- * sınır (ms). Normalde `tur.calistir` isteğinin promise'i çekirdek iptali
- * onayladığında (`appserver/session.py` — `TURN_CANCEL_SETTLE_S = 2.0`)
- * kendiliğinden çözülür ve durum zaten sıfırlanır.
- *
- * Ölçüldü: bazı iptallerde (tarayıcı/araç temizliği asılı kaldığında) o
- * promise HİÇ çözülmüyor — `runningRequests` referansı sonsuza dek dolu
- * kalıyor ve kullanıcı yeniden başlatana kadar yeni mesaj gönderemiyordu
- * (mesaj sonsuza dek sıraya giriyordu). Bu üst sınır, çekirdeğin kendi
- * bekleme süresinin (2 sn) iki katından fazla — ağ/IPC payı bırakır — ve
- * "durum tam sıfırlanmalı" ilkesini bağlantı kesintisiz garanti eder.
- */
+/** Gerçek terminal sonuç gelmezse bu sürede bekleme uyarısı ve retry açılır.
+ * Kuyruk/admission kilidi yalnız asıl turn promise'i kapanınca bırakılır. */
 const TUR_IPTAL_GUVENLI_SURE_MS = 5_000;
 export type WorkspaceMode = "sohbet" | "kod";
 
@@ -123,6 +113,8 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const persistedView = useRef(
     typeof window === "undefined" ? null : loadSessionView(() => window.localStorage),
   );
+  const answerDecisions = useRef(new WeakMap<object, string>());
+  const answersInFlight = useRef(new WeakSet<object>());
   const admissions = useRef(new Map<string, (receipt: SubmissionReceipt) => void>());
   const attempts = useRef(new Map<string, string>());
   const retryRequests = useRef(new Set<string>());
@@ -138,7 +130,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   //: Tur sürerken yazılan mesajlar. Claude'da mesaj kaybolmaz, sıraya girer;
   //: ölçüldü (17 Eylül) — Fusion ikinci mesajı reddedip yazılanı çöpe atıyordu.
   const kuyruk = useRef(new Map<string, { task: string; attachments: SessionAttachment[]; voice?: VoiceTurnMetadata; requestId: string }[]>());
-  //: `stop()` sonrası zorla-sıfırlama zamanlayıcıları (bkz. TUR_IPTAL_GUVENLI_SURE_MS).
+  //: Temizlik doğrulanmazsa yalnız hata bildir; çalışan işin kabul kilidi açılmaz.
   const iptalZamanlayicilari = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   //: Kuyruk sürülürken taze oturum haritası gerekir; `send` kapanışı eskimiş olur.
   const oturumlarRef = useRef(state.sessions);
@@ -191,7 +183,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         dispatch({ type: "eventReceived", id, event });
       });
       client.onQuestion((questionId, data) => {
-        if (data.tur === "onay") {
+        if (data.tur === "onay" || data.tur === "soru") {
           dispatch({
             type: "questionChanged",
             id,
@@ -512,13 +504,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     [state.sessions],
   );
 
-  /**
-   * Bir turun TAMAMEN bittiğini işaretle: çalışıyor bayrağı, çalışıyor
-   * kümesi VE varsa sıradaki kuyruklanmış görev — hepsi BİRLİKTE, tek
-   * yerden. Hem normal bitiş (`.finally()`) hem de `stop()`'un güvenli
-   * zaman aşımı BURADAN geçer; aksi hâlde ikisi durumu farklı ölçüde
-   * sıfırlar ve biri diğerinin bıraktığı yerde asılı kalır.
-   */
+  /** Yalnız gerçek terminal sonuç veya bağlantı kapanışı kabul kilidini bırakır. */
   const turuTamamla = (id: string, client: ProtocolClient, requestId?: string, generation?: number) => {
     if (generation !== undefined && generations.current.get(id) !== generation) return;
     if (requestId && attempts.current.get(id) !== requestId) return;
@@ -576,7 +562,8 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         catch { dispatch({type: "messageAdded", id, message: {rol: "asistan", hata: true, metin: "Gönderim sonucu yerel olarak saklanamadı."}}); }
         const text = typeof result.metin === "string" ? result.metin : "";
         const hata = result.ok === false ? { hata: true } : {};
-        if (text) dispatch({ type: "messageAdded", id, message: { id: `${requestId}:assistant`, submissionId: requestId, rol: "asistan", metin: text, ...hata } });
+        const delivery = decodeDeliveryEvidence(result.kanit);
+        if (text || delivery) dispatch({ type: "messageAdded", id, message: { id: `${requestId}:assistant`, submissionId: requestId, rol: "asistan", metin: text, ...(delivery ? {delivery} : {}), ...hata } });
       })
       .catch((reason) => {
         if (attempts.current.get(id) !== requestId || generations.current.get(id) !== generation) return;
@@ -588,7 +575,10 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           message: { id: `${requestId}:assistant`, submissionId: requestId, rol: "asistan", metin: `Hata: ${String(reason)}`, hata: true },
         });
       })
-      .finally(() => turuTamamla(id, session.client, requestId, generation));
+      .finally(() => {
+        if (attempts.current.get(id) === requestId && generations.current.get(id) === generation) dispatch({type: "submissionCompleted", id, requestId});
+        turuTamamla(id, session.client, requestId, generation);
+      });
   };
 
   useEffect(() => {
@@ -701,37 +691,61 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
 
   const stop = useCallback(
     (id: string) => {
-      const session = state.sessions[id];
-      if (!session) return;
-      void session.client.request("tur.kes", {}).catch(() => undefined);
-      // Görsel olarak HEMEN "çalışmıyor"a döner (Claude'daki gibi anında
-      // durdurma hissi). Gerçek sıfırlama normalde `turuTamamla` ile,
-      // `tur.calistir` isteğinin promise'i çekirdeğin iptali onaylamasıyla
-      // gelir; ama bazı iptallerde o promise HİÇ çözülmüyordu (bkz.
-      // TUR_IPTAL_GUVENLI_SURE_MS) ve `runningRequests` sonsuza dek dolu
-      // kalıp yeni mesajı sonsuza dek kuyrukta bırakıyordu. Bu zamanlayıcı,
-      // promise gelmese bile durumu üst sınırda ZORLA tam sıfırlar.
-      dispatch({ type: "runningChanged", id, running: false });
-      const eskiZamanlayici = iptalZamanlayicilari.current.get(id);
-      if (eskiZamanlayici !== undefined) clearTimeout(eskiZamanlayici);
-      iptalZamanlayicilari.current.set(
-        id,
-        setTimeout(() => {
-          iptalZamanlayicilari.current.delete(id);
-          if (!runningRequests.current.has(id)) return; // Zaten normal yoldan bitti.
-          turuTamamla(id, session.client);
-        }, TUR_IPTAL_GUVENLI_SURE_MS),
-      );
+      const session = oturumlarRef.current[id];
+      if (!session?.running || iptalZamanlayicilari.current.has(id)) return;
+      const generation = generations.current.get(id);
+      const attempt = attempts.current.get(id);
+      const isCurrent = () => clients.current.get(id) === session.client
+        && generations.current.get(id) === generation && attempts.current.get(id) === attempt
+        && runningRequests.current.has(id);
+      dispatch({ type: "stopRequested", id });
+      const fail = (error: string) => {
+        if (!isCurrent()) return;
+        const timer = iptalZamanlayicilari.current.get(id);
+        if (timer !== undefined) clearTimeout(timer);
+        iptalZamanlayicilari.current.delete(id);
+        dispatch({ type: "stopFailed", id, error });
+      };
+      iptalZamanlayicilari.current.set(id, setTimeout(() => {
+        fail("İşlemin durduğu henüz doğrulanamadı. Yeniden durdurmayı deneyebilirsin.");
+      }, TUR_IPTAL_GUVENLI_SURE_MS));
+      void session.client.request("tur.kes", session.turnId ? { turnId: session.turnId } : {}).then((receipt) => {
+        if (receipt.ok !== true) fail(String(receipt.metin ?? "Durdurma isteği kabul edilmedi."));
+      }).catch(() => fail("Durdurma isteği iletilemedi. Yeniden deneyebilirsin."));
     },
-    [state.sessions],
+    [],
   );
 
+  const steer = useCallback(async (id: string, text: string): Promise<boolean> => {
+    const session = state.sessions[id];
+    if (!session?.running || session.stopping || session.stopError || !session.turnId || !text.trim()) return false;
+    const requestId = nextSessionId();
+    const receipt = await session.client.request("tur.yonlendir", {
+      turnId: session.turnId, requestId, text,
+    });
+    if (receipt.ok !== true) throw new Error(String(receipt.metin ?? "Yönlendirme kabul edilmedi."));
+    dispatch({ type: "messageAdded", id, message: { id: requestId, rol: "kullanici", metin: text } });
+    return true;
+  }, [state.sessions]);
+
   const answer = useCallback(
-    (id: string, data: Record<string, unknown>) => {
+    async (id: string, data: Record<string, unknown>) => {
       const session = state.sessions[id];
-      if (!session?.question) return;
-      session.client.reply(session.question.id, data);
-      dispatch({ type: "questionChanged", id, question: null });
+      const question = session?.question;
+      if (!question || answersInFlight.current.has(question)) return;
+      const decisionId = answerDecisions.current.get(question) ?? nextSessionId();
+      answerDecisions.current.set(question, decisionId);
+      answersInFlight.current.add(question);
+      try {
+        const receipt = await session.client.request("soru.cevapla", {
+          questionId: question.id,
+          answer: { ...data, decisionId },
+        });
+        if (receipt.ok !== true) throw new Error("Soru artık cevap beklemiyor.");
+        dispatch({ type: "questionClosed", id, questionId: question.id });
+      } finally {
+        answersInFlight.current.delete(question);
+      }
     },
     [state.sessions],
   );
@@ -857,6 +871,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   return {
     activeSession,
     answer,
+    steer,
     openStored,
     refreshStored,
     storedConversations: stored,

@@ -145,3 +145,11 @@
 .prompt-card__other button:disabled { cursor: not-allowed; opacity: 0.4; }
 
 .prompt-card__hint { color: var(--text-tertiary, var(--text-secondary)); font-size: 11px; margin: 0; }
+
+/* Kits kartlarıyla aynı yuvarlatılmış, sakin yüzey dili. */
+.prompt-card { border-radius: var(--radius-xl); box-shadow: var(--shadow-overlay); border-color: var(--border-strong); padding: 20px; gap: 12px; }
+.prompt-card__eyebrow { color: var(--accent-text); }
+.prompt-card__options { gap: 6px; }
+.prompt-card__option { border-color: var(--border-subtle); background: var(--surface-canvas); min-height: 44px; border-radius: var(--radius-md); }
+.prompt-card__option[data-recommended="true"] { background: var(--surface-accent-subtle); border-color: color-mix(in srgb, var(--accent-text) 38%, var(--border-subtle)); }
+.prompt-card__option[data-recommended="true"] .prompt-card__key { background: var(--brand-signal-deep); border-color: transparent; color: #fff; }

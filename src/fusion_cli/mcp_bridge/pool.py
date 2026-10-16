@@ -1,52 +1,30 @@
-"""MCP bağlantılarını OTURUM boyunca açık tutan havuz.
+"""MCP bağlantılarını sunucu başına oturum boyunca açık tutan havuz.
 
-Neden gerekli — ölçülmüş maliyet:
-
-Üç çağrı yeri (`cli/session.py`, `cli/app.py`, `cli/repl/loop.py`) HER TURDA
-`async with McpClient(...)` açıyordu. Her tur stdio sunucusunu yeniden
-başlatıyor (`npx -y @coding-solo/godot-mcp`) ve uzak sunucu için yetkilendirmeyi
-yeniden deniyordu; Meta Ads bağlıyken bu, tur başına 10 saniyelik bir zaman
-aşımı demekti. Bağlantı bir turun değil OTURUMUN kaynağıdır.
-
-YIĞIN AÇILDIĞI GÖREVDE KAPATILMAK ZORUNDADIR. `stdio_client` ve
-`streamablehttp_client` anyio görev grupları kurar; bir cancel scope'u başka
-görevde terk etmek `RuntimeError` fırlatır. Teardown ise başka bir görevden
-gelir (`AppSession.close`, `fusion agent` çıkışı). Bu yüzden bağlantının ömrü
-ayrı bir GÖZETMEN görevine verilir: gözetmen yığını açar, turlar hazır istemciyi
-ödünç alır, kapatma isteği gözetmene bir olayla bildirilir ve yığın kendi
-görevinde kapanır.
-
-Olay döngüsü de anahtarın parçasıdır: ölü bir döngüde kalan görev beklenemez,
-bu yüzden farklı döngü önbellek ıskasıdır (bkz. `_Entry.loop`).
-
-SUNUCU BAŞINA HAVUZ (17 Eylül denetimi): havuz eskiden bütün yapılandırma
-kümesini tek girdi tutuyordu. Kullanıcı bir bağlantıyı kapatıp açınca ya da yeni
-bir bağlantı ekleyince BÜTÜN sunucular yeniden başlıyordu; sunucular da sırayla
-bağlandığı için tur başı gecikme her sunucunun süresinin TOPLAMIYDI. Artık her
-sunucunun kendi gözetmeni var, bağlantılar eşzamanlı kurulur ve yalnız değişen
-sunucu yenilenir.
-
-KENDİLİĞİNDEN DÜZELMEYEN BAŞARISIZLIK TURDA TEKRAR DENENMEZ: girişi yapılmamış
-OAuth sunucusu (Notion), kurulu olmayan çalıştırıcı (uvx), reddedilen token… Bunlar
-kullanıcı bir şey yapmadan düzelmez; her turda yeniden denemek her turda aynı hata
-dökümü ve gecikme demekti. Sunucu bir kez sessizce "park edilir", durumu
-Bağlantılar ekranında görünür (bkz. `service.McpConnectionService.statuses`);
-kullanıcı giriş yapınca ya da bağlantıyı değiştirince park kalkar. Geçici
-arızalar (zaman aşımı, ağ) önbelleğe yazılmaz: sonraki tur yeniden dener.
+AnyIO yığınını açan gözetmen görevi kendi yığınını kapatır. Çağıranlar
+bağlantıyı ödünç alır; iptal/kapanış stop sinyaliyle sahibine iletilir.
+Değişen sunucu tek başına yenilenir, diğer bağlantılar korunur.
+Olay döngüsü de sahipliğin parçasıdır: farklı loop görevi beklenmez.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 
 from ..config.models import Config, McpServerConfig
+from ..config.paths import base_data_dir
+from ..core.constants import MCP_NETWORK_TIMEOUT_S
 from ..tools import ToolRegistry
+from .backoff import McpBackoff
 from .client import McpClient, McpConnectionStatus, failure_status
 from .failures import STATE_CONNECTED, STATE_LOGIN_REQUIRED, is_permanent_kind
 from .hosted import AskSession
 from .identity import duplicate_of, unique_configs, unique_hosted_configs
+from .lifecycle import drain_owned_tasks, wait_owned_task
+from .oauth_flow import OAuthFlowOwner
 
 __all__ = [
     "McpToolPool",
@@ -84,7 +62,11 @@ class _Parked:
 class McpToolPool:
     """MCP istemcilerini sunucu başına, turlar arasında yeniden kullan."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
+        self._backoff = McpBackoff(clock)
+        self.oauth_flows = OAuthFlowOwner(
+            directory_factory=lambda: base_data_dir() / "mcp-oauth-locks"
+        )
         self._entries: dict[str, _Entry] = {}
         self._parked: dict[str, _Parked] = {}
         #: Kopyası bildirilmiş bağlantı adları: uyarı oturumda BİR KEZ yazılır.
@@ -96,6 +78,7 @@ class McpToolPool:
         # yazmaz; o girdinin görevi burada tutulmazsa `aclose()` onu bulamaz ve
         # stdio alt süreci oturumdan sağ çıkar.
         self._draining: set[asyncio.Task[None]] = set()
+        self._draining_deadlines: dict[asyncio.Task[None], float] = {}
 
     @property
     def is_empty(self) -> bool:
@@ -106,6 +89,7 @@ class McpToolPool:
     def statuses(self) -> dict[str, McpConnectionStatus]:
         """Havuzun bildiği sunucuların durumu: canlılar ve park edilenler."""
         result = {name: parked.status for name, parked in self._parked.items()}
+        result.update(self._backoff.statuses)
         for name, entry in self._entries.items():
             status = entry.client.statuses.get(name) if entry.client else None
             if status is not None:
@@ -119,11 +103,19 @@ class McpToolPool:
         ve sunucu turda kullanılabilir.
         """
         self._parked.pop(name, None)
+        self._backoff.forget(name)
 
-    async def clients_for(self, configs: tuple[McpServerConfig, ...]) -> tuple[McpClient, ...]:
+    async def clients_for(
+        self, configs: tuple[McpServerConfig, ...], *, retry_delays_s: tuple[float, ...] = ()
+    ) -> tuple[McpClient, ...]:
         """Kullanılabilir sunucuların istemcilerini ver; eksikleri eşzamanlı bağla."""
         self._report_duplicates(configs)
-        wanted = unique_configs(configs)
+        wanted = tuple(
+            replace(config, retry_delays_s=retry_delays_s)
+            if config.retry_delays_s is None and retry_delays_s
+            else config
+            for config in unique_configs(configs)
+        )
         loop = asyncio.get_running_loop()
         async with self._lock:
             await self._discard_stale(wanted, loop)
@@ -154,6 +146,8 @@ class McpToolPool:
             )
 
     def _is_parked(self, config: McpServerConfig) -> bool:
+        if self._backoff.is_waiting(config):
+            return True
         parked = self._parked.get(config.name)
         if parked is None:
             return False
@@ -197,10 +191,11 @@ class McpToolPool:
             raise
         status = self._entry_status(entry)
         if status.state == STATE_CONNECTED:
+            self._backoff.forget(config.name)
             self._entries[config.name] = entry
             return
         # Başarısız sunucu havuzda TUTULMAZ; süreci/soketi hemen kapanır.
-        entry.stop.set()
+        self._drain(entry)
         await self._await_task(entry)
         self._record_failure(config, status)
 
@@ -214,8 +209,7 @@ class McpToolPool:
 
     def _record_failure(self, config: McpServerConfig, status: McpConnectionStatus) -> None:
         if not is_permanent_kind(status.kind):
-            # Geçici arıza ÖNBELLEĞE YAZILMAZ: sonraki tur yeniden denemeli, aksi
-            # hâlde tek bir ağ kesintisi oturumun kalanını araçsız bırakırdı.
+            self._backoff.record(config, status)
             return
         self._parked[config.name] = _Parked(config=config, status=status)
         # Kullanıcıya gürültüsüz, BİR KEZ: durum Bağlantılar ekranında görünür.
@@ -238,7 +232,17 @@ class McpToolPool:
         if task is None or task.done():
             return
         self._draining.add(task)
-        task.add_done_callback(self._draining.discard)
+        budget = (
+            entry.config.close_timeout_s
+            if entry.config.close_timeout_s is not None
+            else MCP_NETWORK_TIMEOUT_S
+        )
+        self._draining_deadlines.setdefault(task, entry.loop.time() + budget)
+        task.add_done_callback(self._draining_done)
+
+    def _draining_done(self, task: asyncio.Task[None]) -> None:
+        self._draining.discard(task)
+        self._draining_deadlines.pop(task, None)
 
     async def _supervise(self, entry: _Entry) -> None:
         """Yığını AÇ, kapatma istenene kadar tut, kendi görevinde kapat."""
@@ -261,7 +265,7 @@ class McpToolPool:
             # Ölü döngüdeki görev beklenemez; beklemek süreci kilitler.
             _LOG.warning("MCP havuzu farklı olay döngüsünde bulundu, bırakıldı")
             return
-        entry.stop.set()
+        self._drain(entry)
         await self._await_task(entry)
 
     async def discard_client(self, client: McpClient) -> None:
@@ -274,13 +278,10 @@ class McpToolPool:
                     await self._discard(entry, loop)
 
     async def _await_task(self, entry: _Entry) -> None:
-        task = entry.task
-        if task is None or task.done():
+        if entry.task is None:
             return
-        try:
-            await task
-        except Exception as error:  # kapanış hatası turu düşürmez
-            _LOG.warning("MCP bağlantısı kapatılırken hata", extra={"hata": repr(error)})
+        remaining = self._draining_deadlines.get(entry.task, entry.loop.time()) - entry.loop.time()
+        await wait_owned_task(entry.task, remaining)
 
     async def aclose(self) -> None:
         """Oturum biterken bağlantıları kapat; stdio alt süreçleri sahipsiz kalmasın."""
@@ -288,6 +289,7 @@ class McpToolPool:
             entries = tuple(self._entries.values())
             self._entries.clear()
             self._parked.clear()
+            self._backoff.clear()
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
@@ -298,22 +300,23 @@ class McpToolPool:
             await self._drain_pending(loop)
 
     async def _drain_pending(self, loop: asyncio.AbstractEventLoop) -> None:
-        """İptal yüzünden sahipsiz kalmış gözetmen görevlerinin bitmesini bekle."""
-        pending = tuple(task for task in self._draining if task.get_loop() is loop)
-        self._draining.difference_update(pending)
-        if not pending:
-            return
-        results = await asyncio.gather(*pending, return_exceptions=True)
-        for result in results:
-            if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
-                _LOG.warning("MCP bağlantısı kapanışta hata verdi", extra={"hata": repr(result)})
+        """Önceden sahiplenilmiş kapanışların kalan bütçesini tüket."""
+        await drain_owned_tasks(self._draining, self._draining_deadlines, loop)
 
 
 _POOL = McpToolPool()
 
 
+def mcp_oauth_flows() -> OAuthFlowOwner:
+    """Yeni singleton yerine mevcut havuzun OAuth sahibini kullan."""
+    return _POOL.oauth_flows
+
+
 async def ensure_mcp_tools(
-    configs: tuple[McpServerConfig, ...], registry: ToolRegistry
+    configs: tuple[McpServerConfig, ...],
+    registry: ToolRegistry,
+    *,
+    retry_delays_s: tuple[float, ...] = (),
 ) -> tuple[str, ...]:
     """Bağlan (ya da açık bağlantıları kullan) ve araçları kayıt defterine ekle.
 
@@ -325,7 +328,7 @@ async def ensure_mcp_tools(
     Bir sunucunun keşfi düşerse diğerlerinin araçları yine eklenir.
     """
     added: list[str] = []
-    for client in await _POOL.clients_for(configs):
+    for client in await _POOL.clients_for(configs, retry_delays_s=retry_delays_s):
         try:
             added.extend(await client.register_into(registry))
         except Exception as error:  # tek sunucunun kopması turu düşürmez; log'lanır

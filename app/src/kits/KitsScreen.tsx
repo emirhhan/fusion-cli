@@ -1,3 +1,4 @@
+import { AssetHost } from "./assetHost";
 import { ScheduledDeliveryClient } from "./scheduledDeliveryClient";
 import { LocalComputerHost, type ConfirmComputer, type HostRequest } from "./localComputerHost";
 import { FolderPickHost, type PickFolder } from "./folderPickHost";
@@ -94,6 +95,14 @@ export function KitsScreen({
     const folders = new FolderPickHost(window, frame.current.contentWindow, state.adres, pickFolder);
     return () => folders.close();
   }, [state, pickFolder]);
+  useEffect(() => {
+    if (state.durum !== "hazir" || !frame.current?.contentWindow) return;
+    const assets = new AssetHost(window, frame.current.contentWindow, state.adres, (name, data) => {
+      if (!requestHost) return Promise.reject(new Error("Fusion oturumu yok."));
+      return requestHost(name, data);
+    });
+    return () => assets.close();
+  }, [state, requestHost]);
   // Adres ilk açılıştaki temayı taşır; sonraki değişiklik sayfayı yeniden yüklemeden
   // (sohbet kaybolmadan) mesajla iletilir.
   const initialTheme = useRef<KitsTheme>(currentTheme());
@@ -113,7 +122,7 @@ export function KitsScreen({
     setState({ durum: "hazirlaniyor" });
     start()
       .then((status) => {
-        if (active) setState({ durum: "hazir", adres: kitsFrameUrl(status.url, initialTheme.current) });
+        if (active) setState({ durum: "hazir", adres: kitsFrameUrl(status.url, initialTheme.current, true) });
       })
       .catch((error: unknown) => {
         if (!active) return;
@@ -138,7 +147,7 @@ export function KitsScreen({
       start()
         .then((status) => {
           if (!active || new URL(status.url).origin === address) return;
-          setState({ durum: "hazir", adres: kitsFrameUrl(status.url, currentTheme()) });
+          setState({ durum: "hazir", adres: kitsFrameUrl(status.url, currentTheme(), true) });
         })
         .catch(() => {
           // Geçici yeniden başlatma: sonraki yoklamada tekrar denenir; Kits

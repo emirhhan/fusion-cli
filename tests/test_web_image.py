@@ -6,13 +6,9 @@ import base64
 from datetime import datetime
 
 from fusion_cli.providers.web_image import image_prompt, save_images
+from tests.image_fixture import image_bytes
 
-_PNG_1X1 = base64.b64encode(
-    bytes.fromhex(
-        "89504e470d0a1a0a0000000d4948445200000001000000010806000000"
-        "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082"
-    )
-).decode()
+_PNG_1X1 = base64.b64encode(image_bytes("PNG")).decode()
 
 
 def test_istem_gorsel_niyetini_acikca_soyler():
@@ -30,3 +26,30 @@ def test_png_kayitlari_dosyaya_yazilir_png_olmayan_atlanir(tmp_path):
 
     assert [k.path.name for k in kayitlar] == ["fusion-20260926-220000-1.png"]
     assert kayitlar[0].path.read_bytes().startswith(b"\x89PNG")
+
+
+async def test_gorsel_dogrulama_ve_disk_yazimi_olay_dongusunu_tutmaz(tmp_path, monkeypatch):
+    import threading
+
+    from fusion_cli.providers import web_image
+
+    main_thread = threading.get_ident()
+    writer_threads = []
+    original_save = web_image.save_images
+
+    def recorded_save(payloads, directory):
+        writer_threads.append(threading.get_ident())
+        return original_save(payloads, directory)
+
+    class Page:
+        async def evaluate(self, script, _arguments):
+            if script == web_image._FIND_IMAGES_JS:
+                return [{"src": "blob:sentetik"}]
+            return [{"b64": _PNG_1X1}]
+
+    monkeypatch.setattr(web_image, "save_images", recorded_save)
+    monkeypatch.setattr(web_image, "_POLL_S", 0)
+    monkeypatch.setattr(web_image, "IMAGE_SETTLE_S", 0)
+    images = await web_image._wait_and_extract(Page(), None, ("img",), tmp_path, 2)
+    assert len(images) == 1
+    assert writer_threads and main_thread not in writer_threads

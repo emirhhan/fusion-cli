@@ -139,7 +139,9 @@ class TestBolmeDongusu:
 
         step = _adim()
         kosu = _kosu(step)
-        monkeypatch.setattr(kosu, "save", lambda: None)
+        from unittest.mock import AsyncMock
+
+        monkeypatch.setattr(kosu, "save", AsyncMock())
         tamam, sebep = await kosu.replan_failed_step(
             step,
             AgentOutcome(final_text="olmadı", messages=[]),

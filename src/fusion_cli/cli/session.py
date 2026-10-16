@@ -9,6 +9,7 @@ karar verir; buradan yalnızca olay yayınlanır.
 
 from __future__ import annotations
 
+import hashlib
 import sys
 import time
 from collections.abc import Awaitable, Callable
@@ -35,6 +36,8 @@ from ..core.followups import suggest_followups
 from ..core.health import HealthRegistry
 from ..core.protocols import TurnJournal
 from ..core.remotion_browser import RemotionBrowser
+from ..core.skill_context import SkillSelection
+from ..core.steering import SteeringQueue
 from ..core.tools import ChromeControl, ToolContext
 from ..core.turn_deadline import TurnDeadline
 from ..core.types import (
@@ -46,6 +49,7 @@ from ..core.types import (
 )
 from ..engines.agent import AgentOutcome, run_agent
 from ..engines.agent.approval import ApprovalMemory, ApprovalMode, build_policy
+from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.loop import AgentDeps
 from ..engines.agent.remotion_bridge import FrameTransport
 from ..engines.agent.turn_evidence import evidence_from_turn
@@ -163,6 +167,10 @@ async def run_agent_task(
     conversation_id: str = "cli",
     step_limit: int | None = None,
     approval_memory: ApprovalMemory | None = None,
+    steering: SteeringQueue | None = None,
+    child_runs: ChildRuns | None = None,
+    selected_skill: SkillSelection | None = None,
+    current_approval: Callable[[], ApprovalMode] | None = None,
     chat_mode: bool = False,
     workflow: bool = False,
     allowed_tools: set[str] | None = None,
@@ -213,6 +221,13 @@ async def run_agent_task(
             # kaybolmaz, model gerektiğinde dosyayı açar (context rot).
             artifacts=ArtifactStore(config.memory_dir / "artifacts" / _artifact_id()),
         )
+        if conversation_id:
+            tool_context = replace(
+                tool_context,
+                job_scope=hashlib.sha256(
+                    f"{config.memory_dir.resolve()}\0{conversation_id}".encode()
+                ).hexdigest(),
+            )
         if remotion_browser is not None:
             tool_context = replace(tool_context, remotion_browser=remotion_browser)
         if remotion_transport is None and tool_context.remotion_browser is not None:
@@ -226,6 +241,17 @@ async def run_agent_task(
             # Sohbet boyunca yaşayan çağıran kendi hafızasını verir; yoksa
             # "oturum boyunca" izni bu turla birlikte biter (`fusion run`).
             policy=build_policy(mode, prompter, approval_memory),
+            steering=steering,
+            child_runs=child_runs if child_runs is not None else ChildRuns(),
+            selected_skill=selected_skill,
+            policy_factory=(lambda: build_policy(current_approval(), prompter, approval_memory))
+            if current_approval
+            else None,
+            approval_revision=(
+                lambda: (current_approval(), approval_memory.revision if approval_memory else 0)
+            )
+            if current_approval
+            else None,
             tool_context=tool_context,
             asker=prompter if can_ask else None,
             code_index=store.code_index if store.enabled else None,
@@ -243,7 +269,11 @@ async def run_agent_task(
             ),
             task_type=task_type,
             background=background,
-            checkpoint_store=JsonCheckpointStore(config.memory_dir / "workflow-checkpoints"),
+            checkpoint_store=JsonCheckpointStore(
+                config.memory_dir / "workflow-checkpoints",
+                root=tool_context.root,
+                conversation_id=conversation_id,
+            ),
             conversation_id=conversation_id,
             # Kayıt verilmezse tur kendi kaydını kurar: circuit breaker ve ortak hız
             # defteri tek atışlık `fusion agent`ta da çalışmalı (eskiden hiç yoktu).
@@ -362,7 +392,9 @@ async def _run_agent_with_mcp(
             # Bağlantı TURUN değil oturumun kaynağıdır: havuz açık bağlantıyı
             # yeniden kullanır (bkz. `mcp_bridge/pool.py`). Kapatma oturum
             # kapanışında yapılır, tur içinde değil.
-            eklenen += await ensure_mcp_tools(config.mcp_servers, deps.base_registry)
+            eklenen += await ensure_mcp_tools(
+                config.mcp_servers, deps.base_registry, retry_delays_s=config.runtime.retry_delays_s
+            )
         except Exception as error:
             bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
     if config.hosted_connectors:

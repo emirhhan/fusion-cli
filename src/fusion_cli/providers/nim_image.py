@@ -17,8 +17,6 @@ almadığı için bu modeller yalnız "Üret" düğümünde kullanılabilir.
 
 from __future__ import annotations
 
-import asyncio
-import base64
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
@@ -26,6 +24,9 @@ from pathlib import Path
 
 import httpx
 
+from ..core.atomic_file import atomic_create_bytes
+from ..core.owned_thread import await_owned_thread
+from .image_payload import decode_image_payload
 from .web_image import GeneratedImage
 
 #: NIM görsel üretim uç noktası (model kimliği yola eklenir).
@@ -108,14 +109,6 @@ def nim_model_from_choice(choice: str) -> NimImageModel | None:
     return next((item for item in NIM_IMAGE_MODELS if item.model == model), None)
 
 
-def _suffix(data: bytes) -> str | None:
-    if data.startswith(b"\x89PNG"):
-        return ".png"
-    if data.startswith(b"\xff\xd8"):
-        return ".jpg"
-    return None
-
-
 async def generate_nim_image(
     model: NimImageModel,
     prompt: str,
@@ -159,18 +152,15 @@ async def generate_nim_image(
     reason = str(first.get("finishReason", ""))
     if reason and reason != "SUCCESS":
         raise NimImageError(f"{model.label} görseli vermedi ({reason}); istemi değiştir.")
-    data = base64.b64decode(str(first.get("base64") or ""))
-    suffix = _suffix(data)
-    if suffix is None:
+    image = await await_owned_thread(decode_image_payload, str(first.get("base64") or ""))
+    if image is None:
         raise NimImageError(f"{model.label} geçerli bir görsel döndürmedi.")
     stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
-    path = out_dir / f"fusion-{stamp}-{secrets.token_hex(3)}{suffix}"
-    await asyncio.to_thread(_write, path, data)
-    # Bildirilen ölçü İSTENEN ölçüdür; eskiden kare dışı üretim de 1024×1024 yazılıyordu.
-    return [GeneratedImage(path, width, height)]
+    path = out_dir / f"fusion-{stamp}-{secrets.token_hex(3)}{image.suffix}"
+    await await_owned_thread(_write, path, image.data)
+    return [GeneratedImage(path, image.width, image.height)]
 
 
 def _write(path: Path, data: bytes) -> None:
     """Dosya yazımı olay döngüsünü bekletmesin diye iş parçacığında yapılır."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
+    atomic_create_bytes(path, data)

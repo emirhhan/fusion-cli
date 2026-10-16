@@ -25,6 +25,16 @@ class TokenUsage:
     completion_tokens: int = 0
     #: Tahmini maliyet (USD). Ücretsiz modellerde 0.
     cost_usd: float = 0.0
+    prompt_measured: bool = False
+    completion_measured: bool = False
+    cost_known: bool = False
+
+    @property
+    def completeness(self) -> str:
+        """Ölçülmeyen sıfır ile sağlayıcının gerçek sıfır ölçümünü ayır."""
+        if self.prompt_measured and self.completion_measured:
+            return "complete"
+        return "partial" if self.prompt_measured or self.completion_measured else "unknown"
 
     @property
     def total_tokens(self) -> int:
@@ -35,6 +45,9 @@ class TokenUsage:
             prompt_tokens=self.prompt_tokens + other.prompt_tokens,
             completion_tokens=self.completion_tokens + other.completion_tokens,
             cost_usd=self.cost_usd + other.cost_usd,
+            prompt_measured=self.prompt_measured and other.prompt_measured,
+            completion_measured=self.completion_measured and other.completion_measured,
+            cost_known=self.cost_known and other.cost_known,
         )
 
 

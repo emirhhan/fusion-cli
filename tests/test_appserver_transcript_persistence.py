@@ -319,9 +319,12 @@ async def test_sesli_cevap_ogrenmeyi_beklemez_ve_kapanis_isi_iptal_eder(tmp_path
     satirlar = []
     oturum = _session(tmp_path, satirlar)
     await _sekme(oturum)
-    await oturum.handle(Request("ses", "tur.calistir", {"gorev": "Merhaba", "sesli": {}}))
+    # Selamlaşmalar artık yereldir; bu test gerçek model yolundaki öğrenmeyi sınar.
+    await oturum.handle(
+        Request("ses", "tur.calistir", {"gorev": "Bu yöntemi ayrıntısıyla açıkla", "sesli": {}})
+    )
     assert _sonuc(satirlar, "ses")["ok"] is True
-    await started.wait()
+    await asyncio.wait_for(started.wait(), timeout=5)
     assert owners[0].pending == 1
     await oturum.close()
     assert cancelled.is_set()

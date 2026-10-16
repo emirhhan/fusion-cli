@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...core.checkpoint import ArtifactFingerprint, StepCheckpointEvidence, WorkflowCheckpoint
+from ...core.effects import EffectPhase
 from ...core.evidence import EvidenceStatus
 from ...core.execution_plan import (
     ExecutionPlan,
@@ -17,6 +18,7 @@ from ...core.execution_plan import (
     StepStatus,
     VerificationCheckKind,
 )
+from ...core.tools import ToolEffect
 from .step_verification import StepVerificationResult, evaluate_file_check, verify_step
 
 if TYPE_CHECKING:
@@ -168,6 +170,27 @@ async def resume_plan(
     evidence = {item.step_id: item for item in checkpoint.step_evidence}
     for original in checkpoint.plan.steps:
         step = next(item for item in plan.steps if item.step_id == original.step_id)
+        unresolved = tuple(
+            item
+            for item in checkpoint.effect_intents
+            if item.step_id == step.step_id and item.phase is not EffectPhase.RESPONDED
+        )
+        if unresolved:
+            safety = (
+                RetrySafety.NEVER
+                if (
+                    step.retry_safety is RetrySafety.NEVER
+                    or any(
+                        item.scope is None or item.effect is ToolEffect.REMOTE_DESTRUCTIVE
+                        for item in unresolved
+                    )
+                )
+                else RetrySafety.OBSERVE_FIRST
+            )
+            plan = replace_step(plan, replace(step, retry_safety=safety))
+            plan = invalidate(plan, {step.step_id})
+            evidence.pop(step.step_id, None)
+            continue
         if step.status is not StepStatus.COMPLETED:
             if step.retry_safety is RetrySafety.NEVER and step.attempts:
                 plan = replace_step(plan, replace(step, status=StepStatus.BLOCKED))

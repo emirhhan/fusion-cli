@@ -240,7 +240,7 @@ async def test_arac_aileleri_runtime_yurutmede_de_kisitlanir(tmp_path):
     result, _ = await _execute(
         ToolCall("call", "write_file", "{}"),
         {"path": "forbidden.txt", "content": "x"},
-        SimpleNamespace(tool_context=ToolContext(root=tmp_path)),
+        SimpleNamespace(tool_context=ToolContext(root=tmp_path), steering=None),
         registry,
         execution=ExecutionPolicy(is_web=False, allowed_tool_names=frozenset({"read_file"})),
     )
@@ -255,7 +255,7 @@ async def test_mutation_engeli_basari_kaniti_uretmez(tmp_path):
     result, _ = await _execute(
         ToolCall("call", "write_file", "{}"),
         {},
-        SimpleNamespace(),
+        SimpleNamespace(steering=None),
         build_registry(),
         execution=ExecutionPolicy(is_web=False, allow_mutation=False),
     )
@@ -597,3 +597,49 @@ def test_bulgu_yoksa_yonerge_eski_hâlinde_kalir():
     from fusion_cli.engines.agent.plan_runner import repair_guidance
 
     assert repair_guidance(()) == "Final doğrulamasında bozulan koşulları onar."
+
+
+async def test_last_recovery_call_never_repeats_uncertain_external_effect(tmp_path):
+    step = replace(
+        _step("external", expected_effects=("git_push",)),
+        retry_safety=RetrySafety.OBSERVE_FIRST,
+        attempts=1,
+        allowed_tool_families=("shell",),
+    )
+    deps = _deps(tmp_path, recovery=1)
+    modes = []
+
+    async def agent(task, agent_deps, **kwargs):
+        modes.append(agent_deps.execution.allow_mutation)
+        return AgentOutcome(final_text="timeout", messages=[], ok=False, model_calls_made=1)
+
+    result = await run_execution_plan(
+        "iş", deps, agent, plan=ExecutionPlan("uncertain-external", "iş", (step,))
+    )
+    assert not result.ok
+    assert modes == [False], "Son hak dış etkiyi körlemesine yinelememeli."
+
+
+async def test_observation_file_proof_cannot_hide_unproven_external_effect(tmp_path):
+    (tmp_path / "receipt.txt").write_text("local receipt")
+    step = replace(
+        _step("push", expected_effects=("git_push",)),
+        retry_safety=RetrySafety.OBSERVE_FIRST,
+        attempts=1,
+        verification_checks=(
+            VerificationCheck("push kanıtlandı", VerificationCheckKind.FILE_EXISTS, "receipt.txt"),
+        ),
+    )
+    deps = _deps(tmp_path, recovery=1)
+
+    async def agent(task, agent_deps, **kwargs):
+        return AgentOutcome(final_text="tamam", messages=[], model_calls_made=1)
+
+    result = await run_execution_plan(
+        "iş", deps, agent, plan=ExecutionPlan("external-proof", "iş", (step,)), self_review=False
+    )
+    assert not result.ok, "Yerel dosya, dış etkinin oluştuğunu kanıtlamaz."
+    assert (
+        deps.checkpoint_store.load("external-proof").plan.steps[0].status
+        is not StepStatus.COMPLETED
+    )

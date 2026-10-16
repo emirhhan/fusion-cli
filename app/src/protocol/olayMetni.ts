@@ -10,7 +10,7 @@
  * olduğunu gizliyordu.
  */
 
-export type OlaySonucu = "completed" | "partial" | "failed";
+export type OlaySonucu = "completed" | "partial" | "failed" | "unknown";
 
 export interface OlayAdimi {
   /** Kısa başlık: "düşünüyor", "dosya yazdı"… */
@@ -310,6 +310,16 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
         ayrinti: [requested ? `İstenen: ${requested} · Gözlenen: ${observed}` : "", intensity, effort].filter(Boolean).join(" · ") || undefined };
 
     }
+    case "SkillLoaded": {
+      const identity = typeof veri.qualified_name === "string" ? veri.qualified_name : "Beceri";
+      return { metin: "beceri yönergesi yüklendi", ayrinti: identity, kalici: true };
+    }
+    case "TurnUsageObserved": {
+      const input = typeof veri.prompt_tokens === "number" ? veri.prompt_tokens : 0;
+      const output = typeof veri.completion_tokens === "number" ? veri.completion_tokens : 0;
+      const unknown = typeof veri.unknown_calls === "number" ? veri.unknown_calls : 0;
+      return { metin: "gözlenen kullanım", ayrinti: `En az ${input + output} token${unknown ? ` · ${unknown} çağrının ölçümü eksik` : ""}` };
+    }
     case "SubAgentStarted": {
       const gorev = typeof veri.task === "string" ? veri.task : "";
       return { metin: "alt ajan başladı", ayrinti: gorev || undefined, altAjan: true };
@@ -444,7 +454,8 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
       const durum = String(veri.status ?? "");
       if (durum === "completed") return { metin: "görev tamamlandı", sonuc: "completed" };
       if (durum === "partial") return { metin: "görev kısmi kaldı", sonuc: "partial" };
-      return { metin: "görev başarısız", sonuc: "failed" };
+      if (durum === "failed") return { metin: "görev başarısız", sonuc: "failed" };
+      return { metin: "görev sonucu doğrulanamadı", sonuc: "unknown" };
     }
     default:
       return null;

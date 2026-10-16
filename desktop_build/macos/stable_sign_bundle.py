@@ -68,8 +68,20 @@ def _sign_and_verify(app: Path) -> None:
     # mühürlenirler) ve derleyicinin `linker-signed` imzası yerinde kalır. AMFI
     # bunu reddedince yardımcı mikrofondan sessizlik alır. Bu yüzden nested
     # çalıştırılabilirler dış paketten ÖNCE tek tek imzalanır.
+    entitlements = Path(__file__).resolve().parents[2] / "app/src-tauri/Entitlements.plist"
+    if not entitlements.is_file():
+        raise ValueError("Mikrofon yetki bildirimi bulunamadı.")
     for nested in _nested_executables(app):
-        _run("codesign", "--force", "--sign", "-", "--timestamp=none", str(nested))
+        _run(
+            "codesign",
+            "--force",
+            "--sign",
+            "-",
+            "--timestamp=none",
+            "--entitlements",
+            str(entitlements),
+            str(nested),
+        )
 
     _run(
         "codesign",
@@ -77,6 +89,8 @@ def _sign_and_verify(app: Path) -> None:
         "--deep",
         "--sign",
         "-",
+        "--entitlements",
+        str(entitlements),
         "--requirements",
         f"={DESIGNATED_REQUIREMENT}",
         str(app),

@@ -35,15 +35,15 @@ def test_hermes_skilleri_bulunur(tmp_path):
     assert isimler.get("deep-research") == "hermes"
 
 
-def test_claude_ayni_adli_skili_yener(tmp_path):
+def test_farkli_skill_icerikleri_kaynaklariyla_ayri_kalir(tmp_path):
     _skill_yaz(tmp_path / ".claude" / "skills", "ortak", desc="claude sürümü")
     _skill_yaz(tmp_path / ".hermes" / "skills", "ortak", desc="hermes sürümü")
 
-    bulunan = {s.name: s for s in CapabilityRegistry(tmp_path, tmp_path).skills()}
-
-    # İçerik Claude'dan gelir; etiket her iki kaynağı da gösterir.
-    assert bulunan["ortak"].source == "claude+proje+hermes"
-    assert bulunan["ortak"].description == "claude sürümü"
+    entries = [
+        item for item in CapabilityRegistry(tmp_path, tmp_path).skills() if item.name == "ortak"
+    ]
+    assert {item.source for item in entries} == {"claude+proje", "hermes"}
+    assert {item.description for item in entries} == {"claude sürümü", "hermes sürümü"}
 
 
 def test_kaynak_yoksa_kesif_dusmez(tmp_path):
@@ -68,7 +68,6 @@ def _toml_agent_yaz(home, ad, govde=TOML_AGENT):
 
 def test_codex_toml_agenti_bulunur(tmp_path):
     _toml_agent_yaz(tmp_path, "architect")
-
     bulunan = {a.name: a for a in CapabilityRegistry(tmp_path, tmp_path).agents()}
 
     assert bulunan["architect"].description == "Sistem tasarımı uzmanı"
@@ -93,7 +92,7 @@ def test_adsiz_toml_dosya_adina_duser(tmp_path):
     assert "adsiz" in isimler
 
 
-def test_claude_agenti_ayni_adli_codex_agentini_yener(tmp_path):
+def test_farkli_agent_kaynaklari_ayri_secilebilir(tmp_path):
     hedef = tmp_path / ".claude" / "agents"
     hedef.mkdir(parents=True)
     (hedef / "architect.md").write_text(
@@ -101,9 +100,11 @@ def test_claude_agenti_ayni_adli_codex_agentini_yener(tmp_path):
     )
     _toml_agent_yaz(tmp_path, "architect")
 
-    bulunan = {a.name: a for a in CapabilityRegistry(tmp_path, tmp_path).agents()}
-
-    assert bulunan["architect"].source == "claude+proje+codex"
+    registry = CapabilityRegistry(tmp_path, tmp_path)
+    entries = [item for item in registry.agents() if item.name == "architect"]
+    assert {item.source for item in entries} == {"claude+proje", "codex"}
+    assert registry.get_agent("architect") is None
+    assert all(registry.get_agent(item.qualified_name) == item for item in entries)
 
 
 def test_codex_toml_agent_promptu_developer_talimati_doner(tmp_path):
@@ -125,20 +126,25 @@ def test_bozuk_ve_eksik_codex_promptu_bos_doner(tmp_path):
     assert load_agent_prompt(tmp_path / ".codex" / "agents" / "eksik.toml") == ""
 
 
-def test_project_claude_skill_beats_codex_and_hermes(tmp_path) -> None:
+def test_project_skill_source_selected_explicitly(tmp_path) -> None:
     root = tmp_path / "proje"
     _skill_yaz(root / ".claude" / "skills", "ortak", desc="proje sürümü")
     _skill_yaz(tmp_path / ".codex" / "skills", "ortak", desc="codex sürümü")
     _skill_yaz(tmp_path / ".hermes" / "skills", "ortak", desc="hermes sürümü")
 
-    capability = CapabilityRegistry(tmp_path, root).get_skill("ortak")
+    registry = CapabilityRegistry(tmp_path, root)
+    assert registry.get_skill("ortak") is None
+    selected = next(
+        item for item in registry.skills() if item.name == "ortak" and item.source == "proje"
+    )
+    capability = registry.get_skill(selected.qualified_name)
 
     assert capability is not None
-    assert capability.source == "proje+codex+hermes"
+    assert capability.source == "proje"
     assert capability.description == "proje sürümü"
 
 
-def test_project_claude_agent_beats_codex(tmp_path) -> None:
+def test_project_agent_source_selected_explicitly(tmp_path) -> None:
     root = tmp_path / "proje"
     target = root / ".claude" / "agents"
     target.mkdir(parents=True)
@@ -147,10 +153,15 @@ def test_project_claude_agent_beats_codex(tmp_path) -> None:
     )
     _toml_agent_yaz(tmp_path, "architect")
 
-    capability = CapabilityRegistry(tmp_path, root).get_agent("architect")
+    registry = CapabilityRegistry(tmp_path, root)
+    assert registry.get_agent("architect") is None
+    selected = next(
+        item for item in registry.agents() if item.name == "architect" and item.source == "proje"
+    )
+    capability = registry.get_agent(selected.qualified_name)
 
     assert capability is not None
-    assert capability.source == "proje+codex"
+    assert capability.source == "proje"
     assert capability.description == "proje sürümü"
 
 
@@ -164,7 +175,7 @@ def test_ayni_ad_birden_fazla_kaynaktaysa_hepsi_etikette_gorunur(tmp_path):
     """
     home, root = tmp_path / "ev", tmp_path / "proje"
     _skill_yaz(home / ".claude" / "skills", "ortak", desc="claude sürümü")
-    _skill_yaz(home / ".codex" / "skills", "ortak", desc="codex sürümü")
+    _skill_yaz(home / ".codex" / "skills", "ortak", desc="claude sürümü")
 
     bulunan = {s.name: s for s in CapabilityRegistry(home, root).skills()}
 

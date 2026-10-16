@@ -129,7 +129,8 @@ async def test_real_loop_duplicate_launch_cannot_spawn_second_process(
         if not isinstance(args[0], str):
             return original_popen(*args, **kwargs)
         spawned.append(args)
-        return SimpleNamespace(pid=123456789)
+        # Yeni sahiplik sözleşmesi tamamlanmış süreçte bile wait/poll kullanır.
+        return SimpleNamespace(pid=123456789, wait=lambda timeout=None: 0, poll=lambda: 0)
 
     monkeypatch.setattr(jobs.subprocess, "Popen", popen)
     arguments = {

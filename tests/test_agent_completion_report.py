@@ -81,6 +81,11 @@ def test_kits_icin_kanit_ozeti_rapordan_uretilir(tmp_path):
     loop._apply_turn_report(outcome, _FakeDeps(context), gate=VerificationResult(ok=False))
     kanit = evidence_payload(outcome.completion_report)
     assert kanit == {
+        "schema_version": 1,
+        "degisen_sayisi": 1,
+        "degisen_kisaltildi": False,
+        "sorun_sayisi": 0,
+        "sorunlar_kisaltildi": False,
         "dogrulandi": False,
         "engelliyor": True,
         "yanlis_iddia": True,

@@ -94,3 +94,8 @@ export async function setVoiceWindowWide(genis: boolean): Promise<void> {
 export async function setVoiceWindowOnTop(ustte: boolean): Promise<void> {
   await invoke("ses_penceresi_ustte", { ustte });
 }
+
+/** Karakteri tutunca işletim sisteminin pencere taşımasını kullan; konum onMoved ile kaydolur. */
+export async function dragVoiceWindow(): Promise<void> {
+  await getCurrentWindow().startDragging();
+}

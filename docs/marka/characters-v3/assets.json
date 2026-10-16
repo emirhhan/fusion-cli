@@ -1,0 +1,135 @@
+{
+  "mode": "built-in image_gen",
+  "mainCharacterStyleApproval": "approved-by-user",
+  "completeSetApproval": "approved-by-user-2026-10-15",
+  "assets": [
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-cli/app/src/brand/character/fusion-abstract.png",
+      "sha256": "2df2454dcfe3f1b90d2f7995eb703b79823d714e52450e0a444e0b3d9b8b32fd",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-kits/public/dots/v3/blue.png",
+      "sha256": "18fca51ad8604365cf986980f68bde7386ed65f379005c19a60c78afcfcabf50",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-kits/public/dots/v3/mint.png",
+      "sha256": "0395a5bf056c6dee4d6f2a51581f1e6aec836069eeaee7b1b5a94a886f604577",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-kits/public/dots/v3/orange.png",
+      "sha256": "79bc50d6c23c8d789b83b9409f6be8af593bfa899438258d473cf427aa439d76",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-kits/public/dots/v3/purple.png",
+      "sha256": "45faf0439a443ebe822053bd3234220c0430c87d84276917fc6414bdfae07350",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-kits/public/dots/v3/green.png",
+      "sha256": "ba38c955e65f813d055e74a302ba360b4a8133588205b37b366fd9f962e55dcb",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-kits/public/dots/v3/pink.png",
+      "sha256": "594a4bd3694342e130af47b25d0fc28eb0636406b83acf259d70d66cd6fe65e6",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-kits/public/dots/v3/yellow.png",
+      "sha256": "174ec7301bc270774e4971e5779f84c7990499593ff4aad617dc52b4d2ad4dc3",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "path": "/Users/motogate/Desktop/all/01-Projeler/fusion-kits/public/dots/v3/red.png",
+      "sha256": "fdbca14e4d3af442746db29360d87378bcfd783f9c366a2f44c118f0118eb238",
+      "size": [
+        1254,
+        1254
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "editing": "Generated alpha preserved; file copies only, no Python image edits.",
+  "approvalText": "Bu UI ve karakter setini onaylıyorum"
+}

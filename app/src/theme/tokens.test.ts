@@ -7,39 +7,50 @@ import { describe, expect, it } from "vitest";
 describe("tasarım token'ları", () => {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const css = readFileSync(join(__dirname, "./tokens.css"), "utf8");
+  const shared = readFileSync(join(__dirname, "./brand.generated.css"), "utf8");
 
   it("ölçülmüş renkleri taşır", () => {
-    expect(css).toContain("--surface-canvas: #ffffff");
-    expect(css).toContain("--surface-sidebar: #f9f9f9");
+    expect(css).toContain('@import "./brand.generated.css"');
+    const light = shared.slice(0, shared.indexOf(':root[data-theme="dark"]'));
+    expect(light).toContain("--fusion-canvas: #ffffff");
+    expect(light).toContain("--fusion-sidebar: #f9f9f9");
+    expect(css).toContain("--surface-canvas: var(--fusion-canvas)");
+    expect(css).toContain("--surface-sidebar: var(--fusion-sidebar)");
     expect(css).toContain("--surface-selected: #ececec");
     expect(css).toContain("--surface-message-user: #f4f4f4");
     // Vurgu tonu BİLEREK referanstan ayrıldı: mor, markanın rengi değil.
-    // Yeşil vurgunun açık temadaki sakin karşılığı bu.
-    expect(css).toContain("--surface-accent-subtle: #eef7dc");
+    // Mavi vurgunun açık temadaki sakin karşılığı bu.
+    expect(css).toContain("--surface-accent-subtle: #edf3ff");
   });
 
   it("marka paletini tek kaynakta tanımlar", () => {
+    expect(shared).toContain("--fusion-cyan: #22d3ee");
+    expect(shared).toContain("--fusion-accent-deep: #1d4ed8");
     expect(css).toContain("--brand-obsidian: #0b0a0d");
     expect(css).toContain("--brand-carbon: #14181d");
     expect(css).toContain("--brand-soft-white: #f3f5f6");
-    expect(css).toContain("--brand-signal: #a8ff3e");
-    expect(css).toContain("--brand-signal-deep: #446b00");
+    expect(css).toContain("--brand-signal: var(--fusion-cyan)");
+    expect(css).toContain("--brand-signal-deep: var(--fusion-accent-deep)");
   });
 
-  it("Signal Green'i açık temada METİN olarak kullanmaz", () => {
-    // #a8ff3e beyaz üstünde 1.23:1 verir; metin olarak okunamaz. Açık temada
-    // vurgulu metin koyu yeşile düşer, vurgu rengi yalnız dolgudur.
+  it("Camgöbeği'i açık temada METİN olarak kullanmaz", () => {
+    // #22d3ee beyaz üstünde 1.23:1 verir; metin olarak okunamaz. Açık temada
+    // vurgulu metin koyu maviye düşer, vurgu rengi yalnız dolgudur.
     const acikTema = css.slice(0, css.indexOf(':root[data-theme="dark"]'));
     expect(acikTema).toContain("--accent-text: var(--brand-signal-deep)");
-    expect(acikTema).toContain("--focus-ring: var(--brand-signal-deep)");
+    expect(acikTema).toContain("--focus-ring: var(--brand-detail-blue)");
   });
 
   it("koyu temayı marka yüzeylerine bağlar", () => {
     const koyuTema = css.slice(css.indexOf(':root[data-theme="dark"]'));
-    expect(koyuTema).toContain("--surface-canvas: #212121");
-    expect(koyuTema).toContain("--surface-sidebar: #181818");
-    expect(koyuTema).toContain("--text-primary: #ececec");
-    expect(koyuTema).toContain("--focus-ring: var(--brand-signal)");
+    const sharedDark = shared.slice(shared.indexOf(':root[data-theme="dark"]'));
+    expect(sharedDark).toContain("--fusion-canvas: #212121");
+    expect(sharedDark).toContain("--fusion-sidebar: #181818");
+    expect(sharedDark).toContain("--fusion-ink: #ececec");
+    expect(koyuTema).toContain("--surface-canvas: var(--fusion-canvas)");
+    expect(koyuTema).toContain("--surface-sidebar: var(--fusion-sidebar)");
+    expect(koyuTema).toContain("--text-primary: var(--fusion-ink)");
+    expect(koyuTema).toContain("--focus-ring: var(--brand-detail-cyan)");
   });
 
   it("ölçülmüş kenar çubuğu genişliğini taşır", () => {
@@ -56,7 +67,7 @@ describe("tasarım token'ları", () => {
   });
 
   it("uygulama tipografisini ve sayfa sıfırlamasını sabitler", () => {
-    expect(css).toContain("--font-sans: Satoshi");
+    expect(css).toContain("--font-sans: Inter");
     expect(css).toContain("margin: 0");
   });
 
@@ -68,9 +79,9 @@ describe("tasarım token'ları", () => {
 
   /* Bkz. bug: metin seçildiğinde çıkan yeşil `::selection` rengi koyu temada
      neredeyse görünmüyordu — eskiden `--surface-accent-subtle` kullanıyordu
-     ve koyu karşılığı (#1e2a12) neredeyse siyah zeminden (#050505) ayırt
+     ve koyu karşılığı (#1b2941) neredeyse siyah zeminden (#050505) ayırt
      edilmiyordu. Artık iki temada da ÖLÇÜLÜ, yüksek kontrastlı marka
-     çiftleri kullanılır (bkz. "Signal Green/Obsidian 16.02:1" ölçümü). */
+     çiftleri kullanılır (bkz. "Camgöbeği/Obsidian 16.02:1" ölçümü). */
   it("::selection her iki temada da yüksek kontrastlı, ayrı bir token kullanır", () => {
     expect(css).toMatch(/::selection\s*{\s*background:\s*var\(--selection-bg\);\s*color:\s*var\(--selection-text\);\s*}/);
 

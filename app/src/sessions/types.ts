@@ -44,6 +44,7 @@ export interface SessionQuestion {
 }
 
 export interface SessionModel {
+  completedRequestIds?: string[];
   requestId?: string;
   expectedTurnId?: string;
   eventIds?: string[];
@@ -58,8 +59,11 @@ export interface SessionModel {
   status: SessionStatus;
   error: string | null;
   running: boolean;
+  stopping?: boolean;
+  stopError?: string | null;
   messages: Mesaj[];
   question: SessionQuestion | null;
+  questionQueue?: SessionQuestion[];
   /** Son okunan kalan bağlam ölçüsü; henüz okunmadıysa `null`. */
   baglam: BaglamOlcusu | null;
   /** Oturumun toplam maliyeti (USD); `baglam` ile AYNI `oturum.durum`

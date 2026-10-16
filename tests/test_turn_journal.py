@@ -161,3 +161,77 @@ async def test_biten_tur_gunlugu_siler(tmp_path, monkeypatch):
 
     assert _sonuc(satirlar, "t")["ok"]
     assert oturum._turn_journal("").load() is None
+
+
+@pytest.mark.parametrize("ending", ["failed", "cleanup_failed", "cancelled"])
+async def test_unfinished_turn_keeps_answer_and_tool_journal(tmp_path, monkeypatch, ending):
+    import asyncio
+
+    from fusion_cli.core.errors import CleanupFailedError
+    from fusion_cli.engines.agent.loop import AgentOutcome
+
+    lines = []
+    session = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
+    await session.handle(Request("start", "oturum.baslat", {"sohbet_id": "journal-owner"}))
+
+    async def run(*args, journal=None, **kwargs):
+        journal.save(_konusma())
+        if ending == "cleanup_failed":
+            raise CleanupFailedError("cleanup unknown")
+        if ending == "cancelled":
+            raise asyncio.CancelledError()
+        return AgentOutcome("Kontrol başarısız", _konusma(), ok=False)
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", run)
+    await session.handle(Request("turn", "tur.calistir", {"gorev": "siteyi yap"}))
+    entry = session._turn_journal("").load()
+    assert entry is not None
+    assert any(message.name == "write_file" for message in entry.messages)
+    assert any(message.content == "doğrulama notu" for message in entry.messages)
+
+
+@pytest.mark.parametrize(
+    "change", [{"mesajlar": None}, {"zaman": "invalid"}, {"zaman": float("nan")}, {"surum": True}]
+)
+def test_malformed_journal_envelope_cannot_crash_restore(tmp_path, change):
+    path = tmp_path / "journal.json"
+    payload = {"surum": 1, "mesajlar": [], "zaman": 1, "gorev": "task", "bildirildi": False}
+    payload.update(change)
+    path.write_text(json.dumps(payload))
+    assert FileTurnJournal(path).load() is None
+
+
+def test_gunluk_baska_yazarin_gecici_dosyasina_dokunmaz(tmp_path):
+    path = tmp_path / "j.json"
+    other_temporary = path.with_suffix(".tmp")
+    other_temporary.write_text("başka yazıcının verisi", encoding="utf-8")
+
+    journal = FileTurnJournal(path, task="görev")
+    journal.save(_konusma())
+
+    assert journal.load() is not None
+    assert other_temporary.read_text(encoding="utf-8") == "başka yazıcının verisi"
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_eski_bildirim_yeni_tur_kaydini_geri_alamaz(tmp_path):
+    journal = FileTurnJournal(tmp_path / "j.json", task="görev")
+    journal.save([Message("user", "eski")])
+    old = journal.load()
+    assert old is not None
+    journal.save([Message("user", "yeni")])
+    journal.mark_notified(old)
+    current = journal.load()
+    assert current is not None
+    assert current.messages[0].content == "yeni"
+    assert not current.notified
+
+
+def test_temizlenmis_tur_eski_bildirimle_dirilmez(tmp_path):
+    journal = FileTurnJournal(tmp_path / "j.json")
+    journal.save(_konusma())
+    old = journal.load()
+    assert old is not None
+    journal.clear()
+    journal.mark_notified(old)
+    assert journal.load() is None

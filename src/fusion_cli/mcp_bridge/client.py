@@ -23,19 +23,26 @@ import tempfile
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
-from dataclasses import dataclass, field, replace
-from typing import TextIO, cast
+from dataclasses import replace
+from typing import Literal, TextIO, cast
 
 from mcp import ClientSession
 
 from ..config.models import McpServerConfig, McpTransport
+from ..core.constants import MCP_NETWORK_TIMEOUT_S
 from ..core.tools import EffectResolver, Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
 from ..tools import ToolRegistry
 from .ability_effects import ABILITY_INFO, EXECUTE_ABILITY, ability_gateway_resolver
+from .cancellation import RequestTracker, notify_cancel
 from .content import normalize_call_result
-from .failures import STATE_CONNECTED, classify_failure
+from .failures import STATE_CONNECTED
+from .health import failure_status as failure_status
+from .lifecycle import close_failed_stack
 from .tool_effect import effect_from_annotations
 from .transport import open_mcp_stream
+from .trust import trusted_effect
+from .types import McpConnectionStatus as McpConnectionStatus
+from .types import RemoteTool as RemoteTool
 
 __all__ = ["McpClient", "McpServerConfig", "RemoteTool"]
 
@@ -59,73 +66,12 @@ class McpNotConnectedError(RuntimeError):
     """
 
 
-@dataclass(slots=True)
-class RemoteTool:
-    """Uzak bir MCP aracının Fusion'a taşınan tanımı."""
-
-    server: str
-    name: str
-    description: str
-    schema: dict[str, object] = field(default_factory=dict)
-    effect: ToolEffect = ToolEffect.REMOTE_WRITE
-
-
-@dataclass(frozen=True, slots=True)
-class McpConnectionStatus:
-    """Bir MCP sunucusunun diğerlerinden bağımsız sağlık sonucu."""
-
-    server: str
-    state: str
-    tool_count: int = 0
-    latency_ms: int = 0
-    message: str | None = None
-    #: Başarısızlık türü (`failures.McpFailureKind` değeri); başarıda None.
-    kind: str | None = None
-
-
-async def _close_failed_stack(stack: AsyncExitStack, error: BaseException) -> BaseException | None:
-    """Başarısız bağlantının kaynaklarını kapat; asıl hatayı döndür, dış iptalde None.
-
-    SDK taşıma görev grubundaki hatayı (ör. OAuth kaydı reddi) bekleyen
-    `initialize` çağrısını İPTAL ederek bildirir; asıl hata ancak görev grubu
-    kapanırken `ExceptionGroup` içinde görünür. Ölçüldü (Meta Ads MCP): bu iptal
-    `except Exception`'dan kaçıyor, giriş görevini düşürüyor ve arayüz sonsuza
-    dek "Giriş bekleniyor" gösteriyordu. Görevin kendisi dışarıdan iptal
-    edildiyse iptal yutulmaz.
-    """
-    try:
-        await stack.aclose()
-    except Exception as close_error:  # görev grubu asıl hatayı kapanışta verir
-        error = close_error
-    if isinstance(error, Exception):
-        return error
-    task = asyncio.current_task()
-    is_internal_cancel = isinstance(error, asyncio.CancelledError) and (
-        task is None or task.cancelling() == 0
-    )
-    return error if is_internal_cancel else None
-
-
 def _read_tail(capture: TextIO) -> str:
     """Geçici stderr dosyasının son kısmını oku (bloklayan; thread'de çağrılır)."""
     capture.flush()
     size = capture.seek(0, os.SEEK_END)
     capture.seek(max(0, size - _STDERR_TAIL_BYTES))
     return capture.read()
-
-
-def failure_status(
-    config: McpServerConfig, error: BaseException, *, latency_ms: int, stderr_tail: str = ""
-) -> McpConnectionStatus:
-    """Başarısızlığı kullanıcının üzerine eylem yapabileceği duruma çevir."""
-    failure = classify_failure(error, config, stderr_tail=stderr_tail)
-    return McpConnectionStatus(
-        server=config.name,
-        state=failure.state,
-        latency_ms=latency_ms,
-        message=failure.message,
-        kind=failure.kind.value,
-    )
 
 
 class McpClient:
@@ -135,16 +81,36 @@ class McpClient:
         self,
         configs: Sequence[McpServerConfig],
         *,
-        timeout_seconds: float = 10,
+        timeout_seconds: float = MCP_NETWORK_TIMEOUT_S,
         interactive: bool = True,
     ) -> None:
         self._configs = tuple(configs)
+        self._tracker = RequestTracker()
         self._timeout_seconds = timeout_seconds
         #: Giriş penceresi açılabilir mi? Tur yolu bunu KAPATIR.
         self._interactive = interactive
         self._stacks: dict[str, AsyncExitStack] = {}
         self._sessions: dict[str, ClientSession] = {}
         self._statuses: dict[str, McpConnectionStatus] = {}
+
+    def _trusted_effect(self, server: str, effect: ToolEffect | None) -> ToolEffect | None:
+        """Statik ve dinamik araç iddiaları aynı kaynak güven kapısından geçer."""
+        config = next((config for config in self._configs if config.name == server), None)
+        if config is None:
+            return ToolEffect.REMOTE_WRITE if effect is ToolEffect.REMOTE_READ else effect
+        return trusted_effect(config, effect)
+
+    def _server_timeout(
+        self, server: str, budget: Literal["list_timeout_s", "call_timeout_s", "close_timeout_s"]
+    ) -> float:
+        """Sunucu bütçesi yoksa kayıtlı oturumun mevcut istemci sınırını koru."""
+        config = next((config for config in self._configs if config.name == server), None)
+        configured = cast(float | None, getattr(config, budget, None))
+        return self._timeout(configured)
+
+    def _timeout(self, configured: float | None) -> float:
+        """Ayrı değer yoksa mevcut constructor bütçesini koru."""
+        return configured if configured is not None else self._timeout_seconds
 
     @property
     def statuses(self) -> dict[str, McpConnectionStatus]:
@@ -156,10 +122,25 @@ class McpClient:
         return self
 
     async def __aexit__(self, *exc: object) -> None:
-        for stack in reversed(tuple(self._stacks.values())):
-            await stack.aclose()
-        self._stacks.clear()
-        self._sessions.clear()
+        try:
+            for server, stack in reversed(tuple(self._stacks.items())):
+                try:
+                    # AnyIO kapsamı açan görev kendi stack'ini kapatır.
+                    async with asyncio.timeout(self._server_timeout(server, "close_timeout_s")):
+                        await stack.aclose()
+                except Exception as error:
+                    config = next(
+                        (item for item in self._configs if item.name == server),
+                        McpServerConfig(server),
+                    )
+                    self._statuses[server] = failure_status(config, error, latency_ms=0)
+                    _LOG.warning(
+                        "MCP kapanışı başarısız",
+                        extra={"sunucu": server, "hata": type(error).__name__},
+                    )
+        finally:
+            self._stacks.clear()
+            self._sessions.clear()
 
     async def _connect_server(self, config: McpServerConfig) -> None:
         started = time.monotonic()
@@ -178,7 +159,7 @@ class McpClient:
                     ),
                 )
                 stack.callback(stderr_capture.close)
-            async with asyncio.timeout(self._timeout_seconds) as deadline:
+            async with asyncio.timeout(self._timeout(config.connect_timeout_s)) as deadline:
                 auth = None
                 # Token yolu OAuth'u tamamen atlar: istek başlığı yeter, giriş
                 # penceresi açılmaz ve her turda yeniden yetkilendirme denenmez.
@@ -187,7 +168,9 @@ class McpClient:
 
                     bundle = await oauth_provider_for(
                         config,
-                        on_waiting=self._deadline_pause(deadline),
+                        on_waiting=self._deadline_pause(
+                            deadline, self._timeout(config.connect_timeout_s)
+                        ),
                         interactive=self._interactive,
                     )
                     auth = bundle.auth
@@ -195,20 +178,23 @@ class McpClient:
                 read, write = await stack.enter_async_context(
                     open_mcp_stream(config, auth=auth, errlog=stderr_capture)
                 )
-                session = await stack.enter_async_context(ClientSession(read, write))
+                session = await stack.enter_async_context(
+                    ClientSession(read, self._tracker.wrap(config.name, write))
+                )
                 await session.initialize()
                 self._sessions[config.name] = session
                 self._stacks[config.name] = stack
                 self._statuses[config.name] = McpConnectionStatus(
                     server=config.name,
                     state=STATE_CONNECTED,
+                    observed_at=time.monotonic(),
                     latency_ms=int((time.monotonic() - started) * 1000),
                 )
         except BaseException as error:
             stderr_tail = ""
             if stderr_capture is not None and not stderr_capture.closed:
                 stderr_tail = await asyncio.to_thread(_read_tail, stderr_capture)
-            failure = await _close_failed_stack(stack, error)
+            failure = await close_failed_stack(stack, error, self._timeout(config.close_timeout_s))
             if failure is None:
                 raise
             status = failure_status(
@@ -224,7 +210,9 @@ class McpClient:
             )
             self._statuses[config.name] = status
 
-    def _deadline_pause(self, deadline: asyncio.Timeout) -> Callable[[bool], None]:
+    def _deadline_pause(
+        self, deadline: asyncio.Timeout, timeout_seconds: float
+    ) -> Callable[[bool], None]:
         """Kullanıcı tarayıcıda giriş yaparken bağlantı süresini durdur.
 
         Süre ağ adımları içindir; OAuth girişini bekleyen kullanıcıya uygulanınca
@@ -236,7 +224,7 @@ class McpClient:
         def on_waiting(is_waiting: bool) -> None:
             # Bağlam kapandıktan sonra gelen bildirim (iptal temizliği) anlamsızdır.
             with contextlib.suppress(RuntimeError):
-                deadline.reschedule(None if is_waiting else loop.time() + self._timeout_seconds)
+                deadline.reschedule(None if is_waiting else loop.time() + timeout_seconds)
 
         return on_waiting
 
@@ -255,6 +243,11 @@ class McpClient:
         )
 
     async def list_tools(self, server: str) -> list[RemoteTool]:
+        """Bütün keşif sayfalarını tek ağ bütçesiyle sınırla."""
+        async with asyncio.timeout(self._server_timeout(server, "list_timeout_s")):
+            return await self._list_tools(server)
+
+    async def _list_tools(self, server: str) -> list[RemoteTool]:
         """Bir sunucunun araçlarını keşfet."""
         remote: list[RemoteTool] = []
         cursor: str | None = None
@@ -271,7 +264,10 @@ class McpClient:
                     description=tool.description or "",
                     schema=dict(tool.inputSchema or {}),
                     # Sahte ve eski SDK araç nesnelerinde alan olmayabilir.
-                    effect=effect_from_annotations(getattr(tool, "annotations", None)),
+                    effect=self._trusted_effect(
+                        server, effect_from_annotations(getattr(tool, "annotations", None))
+                    )
+                    or ToolEffect.REMOTE_WRITE,
                 )
                 for tool in result.tools
             )
@@ -290,8 +286,31 @@ class McpClient:
         engelliyor ve tur yarım bitiyordu — kullanıcı boş bir hata mesajıyla
         "görev başarısız" görüyordu.
         """
-        result = await self._session(server).call_tool(name, args)
-        return normalize_call_result(result)
+        session = self._session(server)
+        with self._tracker.track(server) as scope:
+            try:
+                async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
+                    result = await session.call_tool(name, args)
+                    normalized = normalize_call_result(result)
+                    current = self._statuses.get(server)
+                    if current is not None:
+                        self._statuses[server] = replace(
+                            current,
+                            state=STATE_CONNECTED,
+                            message=None,
+                            kind=None,
+                            observed_at=time.monotonic(),
+                        )
+                    return normalized
+            except (asyncio.CancelledError, TimeoutError):
+                self._statuses[server] = McpConnectionStatus(
+                    server,
+                    "degraded",
+                    message="Çağrı durduruldu; uzak sonucu gözlemeden tekrarlama.",
+                    observed_at=time.monotonic(),
+                )
+                await notify_cancel(session, scope, self._server_timeout(server, "close_timeout_s"))
+                raise
 
     async def register_into(self, registry: ToolRegistry) -> tuple[str, ...]:
         """Tüm sunucuların araçlarını Fusion kayıt defterine ekle; eklenen adları döndür.
@@ -300,7 +319,16 @@ class McpClient:
         """
         added: list[str] = []
         for server in self._sessions:
-            tools = await self.list_tools(server)
+            try:
+                tools = await self.list_tools(server)
+            except Exception as error:
+                config = next(config for config in self._configs if config.name == server)
+                self._statuses[server] = failure_status(config, error, latency_ms=0)
+                _LOG.warning(
+                    "MCP araçları keşfedilemedi",
+                    extra={"sunucu": server, "hata": type(error).__name__},
+                )
+                continue
             current = self._statuses.get(server)
             if current is not None:
                 self._statuses[server] = replace(current, tool_count=len(tools))
@@ -333,15 +361,30 @@ class McpClient:
             result = await self.call(server, ABILITY_INFO, {"ability_name": ability})
             return result.structured if result.ok else None
 
-        return ability_gateway_resolver(info)
+        resolver = ability_gateway_resolver(info)
+
+        async def resolve(args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:
+            return self._trusted_effect(server, await resolver(args, context))
+
+        return resolve
 
     def _make_run(self, server: str, tool: str) -> _ToolRun:
         async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
             del context
             try:
                 result = await self.call(server, tool, dict(args))
+            except TimeoutError:
+                return ToolResult.failure(
+                    f"MCP çağrısı süre sınırını aştı ({server}.{tool}). "
+                    "Uzak işlemin sonucu belirsiz; tekrarlamadan önce durumu gözle."
+                )
             except Exception as error:
-                return ToolResult.failure(f"MCP aracı hatası ({server}.{tool}): {error}")
+                _LOG.warning(
+                    "MCP aracı başarısız", extra={"sunucu": server, "hata": type(error).__name__}
+                )
+                return ToolResult.failure(
+                    f"MCP aracı hatası ({server}.{tool}): {type(error).__name__}"
+                )
             if not result.ok and not result.output:
                 # Modele DÜZELTME şansı veren hata: metin olduğu gibi taşınır,
                 # çünkü uzak sunucular genelde çözüm önerisini oraya yazar.

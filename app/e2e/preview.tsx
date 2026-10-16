@@ -1,3 +1,4 @@
+import { AgentPanel } from "../src/team/AgentPanel";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "../src/theme/tokens.css";
@@ -38,6 +39,7 @@ import type { AccountController } from "../src/account/useAccount";
 const params = new URLSearchParams(location.search);
 const theme = (params.get("theme") ?? "light") as ThemePreference;
 const state = params.get("state") ?? "conversation";
+const imageJobsPreview = params.get("imageJobs");
 const inspectorOpen = params.get("inspector") !== "0";
 const inspectorPlacement = params.get("inspectorPlacement") === "bottom" ? "bottom" : "right";
 const inspectorHeight = Number(params.get("inspectorHeight") ?? 280);
@@ -77,7 +79,11 @@ function gorselAdresi(yol: string): string {
 }
 const imageClient = {
   request: async (name: string) => {
-    if (name === "gorsel.saglayicilar") return { ok: true, secenekler: [{ deger: "nim/flux.1-dev", etiket: "FLUX.1 dev (NIM)", referans: false }, { deger: "gemini_web/main", etiket: "Gemini (web)", referans: true }] };
+    if (name === "gorsel.saglayicilar") return { ok: true, ...(imageJobsPreview ? { isProtokolu: 1 } : {}), secenekler: [{ deger: "nim/flux.1-dev", etiket: "FLUX.1 dev (NIM)", referans: false }, { deger: "gemini_web/main", etiket: "Gemini (web)", referans: true }] };
+    if (name === "gorsel.is.liste") return imageJobsPreview === "error" ? { ok: false }
+      : { ok: true, isler: [{ jobId: "fusion-image-preview-01", state: imageJobsPreview === "recovery" ? "recoveryRequired" : "running", outputsVerified: false }], sonraki: null };
+    if (name === "gorsel.is.durum") return { ok: true, jobId: "fusion-image-preview-01", state: "running", dosyalar: [] };
+    if (name === "gorsel.is.iptal") return new Promise<Record<string, unknown>>(() => {});
     if (name === "gorsel.galeri") return { ok: true, dosyalar: [0, 1, 2, 3, 4, 5].map((sira) => ({ yol: `/galeri/gorsel-${sira}.png`, genislik: 1024, yukseklik: 1024, istem: ["Gün batımında sisli bir dağ köyü, sinematik", "Minimal ürün fotoğrafı, beyaz zemin", "Neon ışıklı yağmurlu sokak", "Suluboya çiçek deseni", "İzometrik küçük ofis", "Soyut dalga dokusu"][sira], saglayici: "FLUX.1 dev (NIM)" })) };
     if (name === "gorsel.akislar") return { ok: true, akislar: [] };
     return { ok: true };
@@ -361,7 +367,7 @@ function Preview() {
     : state === "workspace-error" || state === "workspace-terminal" ? "terminal" : "files";
   const inspector = state.startsWith("workspace-")
     ? <WorkspaceInspector collapsed={inspectorCollapsed} initialTab={inspectorTab} terminalState={params.get("terminalState") ?? (state === "workspace-error" ? "closed" : "active")} width={inspectorWidth} />
-    : <Inspector collapsed={inspectorCollapsed} height={inspectorHeight} placement={inspectorPlacement} width={inspectorWidth} />;
+    : state === "team" ? <Inspector activeTab="agents" content={{ agents: <AgentPanel ajanlar={teamMessages.flatMap((message) => message.ajanlar ?? [])} canli /> }} /> : <Inspector collapsed={inspectorCollapsed} height={inspectorHeight} placement={inspectorPlacement} width={inspectorWidth} />;
   const railSection = params.get("rail") as MainSection | null;
   const sectionPreviewClient = {
     request: async (name: string) => name === "zamanlama.liste"
@@ -415,7 +421,7 @@ function Preview() {
           onAnswer={() => undefined}
           onClose={() => undefined}
           onMinimize={() => undefined}
-          onToggleListen={() => undefined}
+          listening={false}
           onWideChange={() => undefined}
           state={phase}
           transcript={
@@ -433,6 +439,7 @@ function Preview() {
   return (
     <>
       <Shell
+        sidebarCollapsed={params.get("sidebar") === "0"}
         rail={railSection ? <MainRail active={railSection} onSelect={() => undefined} /> : undefined}
         surface={railSection === "scheduled"
           ? <ScheduleScreen client={sectionPreviewClient} defaultRoot="/Users/ornek/proje" onRunNow={async () => undefined} />
@@ -461,10 +468,10 @@ function Preview() {
           />
         )}
         content={<>
-          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} /> : settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" || state === "video" ? <MediaScreen active={state === "video" ? "video-create" : "image-create"} image={<ImageCreate chooseSavePath={async () => null} client={imageClient} toUrl={gorselAdresi} />} onSelect={() => undefined} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation mesajlar={state === "running" ? runningMessages : state === "team" ? teamMessages : messages} running={state === "running" || state === "team"} />}
+          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} /> : settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" || state === "video" ? <MediaScreen active={state === "video" ? "video-create" : "image-create"} image={<ImageCreate chooseSavePath={async () => null} client={imageClient} jobScope={imageJobsPreview ? `preview-${imageJobsPreview}` : undefined} toUrl={gorselAdresi} />} onSelect={() => undefined} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation mesajlar={state === "running" ? runningMessages : state === "team" ? teamMessages : messages} running={state === "running" || state === "team"} />}
           {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
         </>}
-        header={<AppHeader inspectorAvailable={!capabilities && !control && !settings && !account} inspectorOpen={!capabilities && !control && !settings && !account && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" title={account ? "Hesabım" : settings ? "Ayarlar" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
+        header={<AppHeader inspectorAvailable={!capabilities && !control && !settings && !account} inspectorOpen={!capabilities && !control && !settings && !account && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={params.get("sidebar") === "0"} status="Hazır" title={account ? "Hesabım" : settings ? "Ayarlar" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
         inspector={capabilities || control || settings || account ? undefined : inspector}
         inspectorCollapsed={inspectorCollapsed}
         inspectorHeight={inspectorHeight}

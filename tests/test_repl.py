@@ -931,8 +931,10 @@ async def test_plain_repl_consumes_pending_digest_once_and_registers_history_too
     from fusion_cli.engines.agent.engine_tools import build_agent_registry
 
     observations: list[tuple[str, bool]] = []
+    conversation_ids: list[str] = []
 
     async def _fake_run_agent(task, deps, **kwargs):
+        conversation_ids.append(deps.conversation_id)
         registry = build_agent_registry(deps, depth=0, run_agent=_fake_run_agent)
         observations.append(
             (str(kwargs.get("extra_system", "")), registry.get("read_session") is not None)
@@ -950,6 +952,8 @@ async def test_plain_repl_consumes_pending_digest_once_and_registers_history_too
     assert "tek kullanımlık devralma künyesi" not in observations[1][0]
     assert observations[1][1] is True
     assert state.pending_digest is None
+    assert conversation_ids[0] == conversation_ids[1]
+    assert conversation_ids[0] not in ("", "repl", "cli")
 
 
 async def test_repl_oturum_izni_sonraki_turda_yeniden_sorulmaz(state, monkeypatch):
@@ -960,7 +964,7 @@ async def test_repl_oturum_izni_sonraki_turda_yeniden_sorulmaz(state, monkeypatc
     için her mesajda yeniden soruluyordu.
     """
     from fusion_cli.cli.repl import loop as repl_loop
-    from fusion_cli.core.tools import Tool, ToolEffect
+    from fusion_cli.core.tools import AuthorizationScope, Tool, ToolEffect
     from fusion_cli.engines.agent import AgentOutcome
     from fusion_cli.engines.agent.approval import ApprovalAnswer, build_request
 
@@ -971,6 +975,7 @@ async def test_repl_oturum_izni_sonraki_turda_yeniden_sorulmaz(state, monkeypatc
         run=lambda a, c: None,
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,
+        scope_resolver=lambda _: AuthorizationScope("godot", "local", "add_node", ("scene",)),
     )
     sorular: list[str] = []
 

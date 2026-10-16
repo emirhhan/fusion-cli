@@ -1,0 +1,18 @@
+{
+  "sources": {
+    "claude.svg": {
+      "sha256": "9008f1356f987e896f91c745ef684d752cedc2aaa877c3518a3e1818566e9ad5",
+      "source": "https://www.claude.com (resmî wordmark içindeki değişmemiş 125×125 amblem path)"
+    },
+    "codex-light.png": {
+      "sha256": "de7d43f3386105ab20952958c2c25beb0d903e2aeb6e1aef57c49a648c0d1c07",
+      "source": "/Applications/ChatGPT.app/Contents/Resources/icon-codex-light.png"
+    },
+    "codex-dark.png": {
+      "sha256": "69fb4384e161be8a20dcb94a9ac34aea4fbfaeb67514110a71e7b0732eccb0fc",
+      "source": "/Applications/ChatGPT.app/Contents/Resources/icon-codex-dark-color.png"
+    }
+  },
+  "purpose": "Sohbet devralma kaynağını belirtme; ortaklık iddiası değildir.",
+  "recolored": false
+}

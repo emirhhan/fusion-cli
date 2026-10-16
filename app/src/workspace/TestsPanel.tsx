@@ -28,13 +28,18 @@ function gitFrom(payload: Record<string, unknown>): GitState {
   return payload as unknown as GitState;
 }
 
-export function TestsPanel({ client, processes }: { client: ProtocolClient; processes: ProcessController }) {
+export function TestsPanel({ client, processes, revision = 0 }: { client: ProtocolClient; processes: ProcessController; revision?: number }) {
   const [commands, setCommands] = useState<SuggestedCommand[]>([]);
   const [git, setGit] = useState<GitState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
+    setCommands([]);
+    setGit(null);
+    setError(null);
     void Promise.all([
       client.request("proje.komut_onerileri", {}),
       client.request("proje.git_durum", {}),
@@ -43,10 +48,12 @@ export function TestsPanel({ client, processes }: { client: ProtocolClient; proc
       setCommands(commandsFrom(commandPayload));
       setGit(gitFrom(gitPayload));
       setError(null);
-    }).catch((reason) => active && setError(String(reason)));
+      setLoading(false);
+    }).catch((reason) => { if (active) { setError(String(reason)); setLoading(false); } });
     return () => { active = false; };
-  }, [client]);
+  }, [client, revision]);
 
+  if (loading) return <p role="status">Proje doğrulamaları yükleniyor…</p>;
   if (error) return <p className="tests-panel__error" role="alert">{error}</p>;
   return (
     <div className="tests-panel">

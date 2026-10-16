@@ -10,7 +10,7 @@ export type DugumTuru = "metin" | "gorsel" | "uret" | "varyasyon" | "buyut" | "d
 
 export type Islem = "uret" | "varyasyon" | "buyut" | "duzenle";
 
-export type DugumDurumu = "bos" | "calisiyor" | "bitti" | "hata";
+export type DugumDurumu = "bos" | "calisiyor" | "bitti" | "kismi" | "hata";
 
 export interface Dugum {
   id: string;
@@ -42,6 +42,7 @@ export interface Baglanti {
 
 export interface Akis {
   id?: string;
+  revision?: number;
   ad: string;
   dugumler: Dugum[];
   baglantilar: Baglanti[];
@@ -132,6 +133,9 @@ export function girdiler(akis: Akis, dugumId: string): { metin?: Dugum; gorsel?:
 /** Akışı çalıştırmadan önce bulunan sorunlar; boş dizi çalıştırılabilir demektir. */
 export function akisSorunlari(akis: Akis): string[] {
   const sorunlar: string[] = [];
+  try { calismaSirasi(akis); } catch (error) {
+    return [error instanceof Error ? error.message : "Akış doğrulanamadı."];
+  }
   const islemler = akis.dugumler.filter((dugum) => islemMi(dugum.tur));
   if (!islemler.length) sorunlar.push("Akışta en az bir işlem düğümü (Üret, Varyasyon, Büyüt, Düzenle) olmalı.");
   for (const dugum of akis.dugumler) {
@@ -150,6 +154,12 @@ export function akisSorunlari(akis: Akis): string[] {
 /** İşlem düğümlerinin bağımlılık sırası (Kahn algoritması). */
 export function calismaSirasi(akis: Akis): Dugum[] {
   const giris = new Map(akis.dugumler.map((dugum) => [dugum.id, 0]));
+  if (giris.size !== akis.dugumler.length) throw new Error("Düğüm kimlikleri benzersiz olmalı.");
+  for (const baglanti of akis.baglantilar) {
+    if (!giris.has(baglanti.kaynak) || !giris.has(baglanti.hedef)) {
+      throw new Error("Bağlantı var olmayan düğüme gidiyor.");
+    }
+  }
   for (const baglanti of akis.baglantilar) giris.set(baglanti.hedef, (giris.get(baglanti.hedef) ?? 0) + 1);
   const kuyruk = akis.dugumler.filter((dugum) => (giris.get(dugum.id) ?? 0) === 0);
   const sira: Dugum[] = [];
@@ -166,6 +176,7 @@ export function calismaSirasi(akis: Akis): Dugum[] {
       }
     }
   }
+  if (sira.length !== akis.dugumler.length) throw new Error("Akış döngü içeriyor.");
   return sira.filter((dugum) => islemMi(dugum.tur));
 }
 

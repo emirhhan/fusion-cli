@@ -6,6 +6,9 @@ import { kitsFrameUrl } from "./kitsUrl";
 afterEach(cleanup);
 
 describe("kitsFrameUrl", () => {
+  it("dosya köprüsü yalnız yeni host açıkça sunduğunda ilan edilir", () => {
+    expect(new URL(kitsFrameUrl("http://127.0.0.1:51234", "light", true)).searchParams.get("asset_protocol")).toBe("1");
+  });
   it("yerel servis adresine yalnız yüzey işaretini ekler", () => {
     expect(kitsFrameUrl("http://127.0.0.1:51234")).toBe("http://127.0.0.1:51234/?surface=kits&theme=light");
   });
@@ -27,7 +30,7 @@ describe("KitsScreen", () => {
     render(<KitsScreen start={() => Promise.resolve({ url: "http://127.0.0.1:50001" })} />);
     expect(screen.getByText("Kits hazırlanıyor…")).toBeTruthy();
     const frame = await screen.findByTitle("Fusion Kits");
-    expect(frame.getAttribute("src")).toBe("http://127.0.0.1:50001/?surface=kits&theme=light");
+    expect(frame.getAttribute("src")).toBe("http://127.0.0.1:50001/?surface=kits&theme=light&asset_protocol=1");
     expect(frame.getAttribute("referrerpolicy")).toBe("no-referrer");
   });
 
@@ -47,7 +50,7 @@ describe("KitsScreen", () => {
     document.documentElement.dataset.theme = "dark";
     render(<KitsScreen start={() => Promise.resolve({ url: "http://127.0.0.1:50003" })} />);
     const frame = (await screen.findByTitle("Fusion Kits")) as HTMLIFrameElement;
-    expect(frame.getAttribute("src")).toBe("http://127.0.0.1:50003/?surface=kits&theme=dark");
+    expect(frame.getAttribute("src")).toBe("http://127.0.0.1:50003/?surface=kits&theme=dark&asset_protocol=1");
     const post = vi.fn();
     Object.defineProperty(frame, "contentWindow", { configurable: true, value: { postMessage: post } });
     delete document.documentElement.dataset.theme;

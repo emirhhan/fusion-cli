@@ -83,6 +83,7 @@ class _FakeBudget:
 class _FakeDeps:
     tool_context: ToolContext
     execution: object | None = None
+    effect_recorder: object | None = None
     budget: object | None = None
     verifier: object | None = None
     checkpoint_store: object | None = None

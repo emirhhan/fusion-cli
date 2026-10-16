@@ -21,18 +21,11 @@ import { Icon } from "../ui/Icon";
 import "./Inspector.css";
 
 type InspectorStatus = "ready" | "loading" | "error";
-/**
- * Çalışma panelinin sekmeleri.
- *
- * Yedi sekme vardı: Dosyalar, Değişiklikler, Terminal, Süreçler, Testler,
- * Önizleme, Bağlam. Kullanıcının ölçülmüş tepkisi panelin "sahte ve dummy"
- * göründüğüydü — çoğu sekme aynı boş kutuyu çiziyor, Süreçler ile Testler ise
- * zaten Terminal'in yaptığı işi iki ayrı yerde gösteriyordu. Dördü kaldı ve
- * her biri ayrı bir soruyu cevaplıyor.
- */
-export type InspectorTabId = "files" | "changes" | "terminal" | "preview";
+/** Proje araçları ve canlı alt ajanlar için bağlamsal sekmeler. */
+export type InspectorTabId = "files" | "changes" | "terminal" | "preview" | "agents";
 
 const tabs: { id: InspectorTabId; label: string; icon: IconName }[] = [
+  { id: "agents", label: "Ajanlar", icon: "sparkle" },
   { id: "files", label: "Dosyalar", icon: "files" },
   { id: "changes", label: "Değişiklikler", icon: "changes" },
   { id: "terminal", label: "Terminal", icon: "terminal" },

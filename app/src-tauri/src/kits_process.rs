@@ -5,13 +5,14 @@
 //! iframe ile gömer. Bu modül yalnız süreç sahipliğini taşır: Kits'in kendi
 //! owner token'ı, veritabanı ve `.env` ayarı Kits'e aittir, buradan okunmaz.
 
+use std::io::Read;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Kits `package.json` `engines.node` alt sınırı.
 const MIN_NODE_MAJOR: u32 = 24;
@@ -53,6 +54,7 @@ impl KitsManager {
         home: &Path,
         data_dir: &Path,
         resource_dir: Option<&Path>,
+        core: &Path,
     ) -> Result<KitsStatus, String> {
         let mut slot = self
             .running
@@ -69,20 +71,37 @@ impl KitsManager {
         let kits_dir = find_kits_dir(&kits_dir_candidates(data_dir, resource_dir))?;
         let node = find_node(&node_candidates(home, resource_dir))?;
         let port = free_port()?;
+        let mut nonce_bytes = [0u8; 16];
+        getrandom::fill(&mut nonce_bytes)
+            .map_err(|_| "Kits başlangıç kimliği üretilemedi.".to_string())?;
+        let nonce = hex::encode(nonce_bytes);
         std::fs::create_dir_all(data_dir)
             .map_err(|error| format!("Kits veri klasörü oluşturulamadı: {error}"))?;
         let _ = std::fs::write(data_dir.join(KITS_LOG_FILE), b"");
         // Model ayarı (.env) Kits'in veri klasöründe durur; paket klasörü her
         // kurulumda yenilendiği için ayar orada tutulmaz. Geliştirme kopyasında
         // klasörün kendi .env dosyası da okunur.
+        let workspace = data_dir.join("workspace");
+        let sessions = data_dir.join("sessions");
+        std::fs::create_dir_all(&workspace)
+            .and_then(|_| std::fs::create_dir_all(&sessions))
+            .map_err(|_| "Fusion Kits çalışma alanı oluşturulamadı.".to_string())?;
         let env_file = format!("--env-file-if-exists={}", data_dir.join(".env").display());
         let mut command = Command::new(node);
         command
             .args([env_file.as_str(), "--env-file-if-exists=.env", SERVER_ENTRY])
             .current_dir(&kits_dir)
+            .env("FUSION_COMMAND", core)
+            .env("FUSION_ARGS", r#"["app"]"#)
+            .env("FUSION_ROOT", &workspace)
+            .env("FUSION_HOME", &sessions)
+            .env("FUSION_SHARE_USER_CONFIG", "1")
+            .env("FUSION_USER_HOME", home)
+            .env("KITS_GATEWAY_MODEL", "auto")
             .env("COPILOTKIT_TELEMETRY_DISABLED", "true")
             .env("HOST", "127.0.0.1")
             .env("PORT", port.to_string())
+            .env("KITS_DESKTOP_READY_NONCE", &nonce)
             .env("DATABASE_PATH", data_dir.join("fusion-kits.sqlite"))
             .env("OWNER_ID", "fusion-kits-owner")
             .env("COMPUTER_NAMESPACE", "fusion-kits")
@@ -93,7 +112,13 @@ impl KitsManager {
         let mut child = crate::core_process::pencere_acmadan(&mut command)
             .spawn()
             .map_err(|error| format!("Kits sunucusu başlatılamadı: {error}"))?;
-        if let Err(error) = wait_ready(&mut child, port, READY_TIMEOUT) {
+        if let Err(error) = wait_ready_owned(
+            &mut child,
+            port,
+            READY_TIMEOUT,
+            &data_dir.join(KITS_LOG_FILE),
+            &nonce,
+        ) {
             let _ = child.kill();
             let _ = child.wait();
             return Err(error);
@@ -148,26 +173,82 @@ fn terminate_gracefully(child: &mut Child) {
     let _ = child.wait();
 }
 
-fn wait_ready(child: &mut Child, port: u16, timeout: Duration) -> Result<(), String> {
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReadyReceipt {
+    fusion_kits_ready: u8,
+    nonce: String,
+    port: u16,
+    pid: u32,
+}
+
+fn ready_receipt_matches(line: &str, nonce: &str, pid: u32, port: u16) -> bool {
+    serde_json::from_str::<ReadyReceipt>(line).is_ok_and(|receipt| {
+        receipt.fusion_kits_ready == 1
+            && receipt.nonce == nonce
+            && receipt.pid == pid
+            && receipt.port == port
+    })
+}
+
+fn readiness_logged(log: &Path, nonce: &str, pid: u32, port: u16) -> Result<bool, String> {
+    let file = match std::fs::File::open(log) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(_) => return Err("Kits başlangıç kaydı açılamadı.".to_string()),
+    };
+    let mut bytes = Vec::new();
+    file.take(256 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "Kits başlangıç kaydı okunamadı.".to_string())?;
+    if bytes.len() > 256 * 1024 {
+        return Err("Kits başlangıç kaydı boyut sınırını aştı.".to_string());
+    }
+    // Yazılmakta olan son satır veya yarım UTF-8 sağlıklı çocuğu düşürmez.
+    Ok(bytes.split_inclusive(|byte| *byte == b'\n').any(|line| {
+        line.ends_with(b"\n")
+            && std::str::from_utf8(line)
+                .is_ok_and(|text| ready_receipt_matches(text.trim_end(), nonce, pid, port))
+    }))
+}
+
+fn wait_ready_owned(
+    child: &mut Child,
+    port: u16,
+    timeout: Duration,
+    log: &Path,
+    nonce: &str,
+) -> Result<(), String> {
     let address = SocketAddr::from(([127, 0, 0, 1], port));
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if let Ok(Some(status)) = child.try_wait() {
-            return Err(format!(
-                "Kits sunucusu açılırken kapandı ({status}). Kits klasöründe `npm run kits:doctor` çalıştır."
-            ));
+        match child.try_wait() {
+            Ok(Some(status)) => return Err(format!("Fusion Kits başlatılamadı ({status}). Yeniden dene; sorun sürerse Fusion uygulama paketini güncelle.")),
+            Err(_) => return Err("Kits süreç durumu okunamadı.".to_string()),
+            Ok(None) => {},
         }
-        if TcpStream::connect_timeout(&address, READY_POLL).is_ok() {
-            return Ok(());
+        if readiness_logged(log, nonce, child.id(), port)?
+            && TcpStream::connect_timeout(&address, READY_POLL).is_ok()
+        {
+            return match child.try_wait() {
+                Ok(None) => Ok(()),
+                _ => Err("Kits sunucusu hazır olurken kapandı.".to_string()),
+            };
         }
         std::thread::sleep(READY_POLL);
     }
-    Err("Kits sunucusu zamanında hazır olmadı.".to_string())
+    Err("Kits bağlantısı zamanında doğrulanamadı. Uygulamayla birlikte gelen Kits paketini kullanıp yeniden dene.".to_string())
 }
 
-fn free_port() -> Result<u16, String> {
+fn reserve_port() -> Result<TcpListener, String> {
     TcpListener::bind(("127.0.0.1", 0))
-        .and_then(|listener| listener.local_addr())
+        .map_err(|error| format!("Kits için boş port bulunamadı: {error}"))
+}
+
+/// En iyi çaba: Node bağlanana kadar portu başka süreç alabilir; hazır olma makbuzla doğrulanır.
+fn free_port() -> Result<u16, String> {
+    reserve_port()?
+        .local_addr()
         .map(|address| address.port())
         .map_err(|error| format!("Kits için boş port bulunamadı: {error}"))
 }
@@ -198,7 +279,7 @@ fn find_kits_dir(candidates: &[PathBuf]) -> Result<PathBuf, String> {
         .find(|dir| dir.join(SERVER_ENTRY).is_file())
         .cloned()
         .ok_or_else(|| {
-            "Fusion Kits kurulu değil ya da derlenmemiş. Kits klasöründe `npm run kits:start` ile bir kez derle."
+            "Bu Fusion paketinde Kits bileşeni bulunamadı. Kits içeren Fusion paketini yükleyip yeniden dene."
                 .to_string()
         })
 }
@@ -294,7 +375,7 @@ mod tests {
         assert_eq!(secilen, hazir.path());
         assert!(find_kits_dir(&[bos.path().to_path_buf()])
             .unwrap_err()
-            .contains("derlenmemiş"));
+            .contains("Kits bileşeni bulunamadı"));
     }
 
     #[test]
@@ -304,9 +385,15 @@ mod tests {
     }
 
     #[test]
-    fn bos_port_gercekten_baglanabilir() {
-        let port = free_port().unwrap();
-        assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
+    fn port_rezervasyonu_acikken_baska_listener_baglanamaz() {
+        let listener = reserve_port().unwrap();
+        let address = listener.local_addr().unwrap();
+        assert!(address.ip().is_loopback());
+        assert_ne!(address.port(), 0);
+        assert_eq!(
+            TcpListener::bind(address).unwrap_err().kind(),
+            std::io::ErrorKind::AddrInUse
+        );
     }
 
     #[test]
@@ -318,9 +405,17 @@ mod tests {
             .spawn()
             .unwrap();
         let port = free_port().unwrap();
-        let hata = wait_ready(&mut child, port, Duration::from_secs(10)).unwrap_err();
+        let temp = tempfile::tempdir().unwrap();
+        let hata = wait_ready_owned(
+            &mut child,
+            port,
+            Duration::from_secs(10),
+            &temp.path().join("kits.log"),
+            "test-nonce",
+        )
+        .unwrap_err();
         let _ = child.wait();
-        assert!(hata.contains("kapandı"));
+        assert!(hata.contains("Fusion Kits başlatılamadı"));
     }
 
     #[test]
@@ -330,5 +425,64 @@ mod tests {
         assert!(origins
             .iter()
             .all(|origin| !origin.contains('*') && !origin.contains('?')));
+    }
+    #[test]
+    fn hazirlik_makbuzu_nonce_pid_port_sahibine_baglidir() {
+        let receipt = r#"{"fusion_kits_ready":1,"nonce":"test-nonce","pid":123,"port":4411}"#;
+        assert!(ready_receipt_matches(receipt, "test-nonce", 123, 4411));
+        assert!(!ready_receipt_matches(receipt, "other", 123, 4411));
+        assert!(!ready_receipt_matches(receipt, "test-nonce", 124, 4411));
+        assert!(!ready_receipt_matches(receipt, "test-nonce", 123, 4412));
+        assert!(!ready_receipt_matches("{}", "test-nonce", 123, 4411));
+    }
+
+    #[test]
+    #[ignore = "Yalnız sahiplik testinin açıkça başlattığı çocuk süreç"]
+    fn hazirlik_cocuk_bekleyici() {
+        std::thread::sleep(Duration::from_secs(10));
+    }
+
+    #[test]
+    fn baska_tcp_dinleyicisi_kits_hazirligi_sayilmaz() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let temp = tempfile::tempdir().unwrap();
+        let log = temp.path().join("kits.log");
+        std::fs::write(&log, b"").unwrap();
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "kits_process::tests::hazirlik_cocuk_bekleyici",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let result = wait_ready_owned(
+            &mut child,
+            port,
+            Duration::from_millis(300),
+            &log,
+            "test-nonce",
+        );
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(
+            result.is_err(),
+            "Başka TCP sunucusu Kits olarak kabul edildi"
+        );
+    }
+    #[test]
+    fn yarim_utf8_gunluk_hazirlik_kontrolunu_bozmaz() {
+        let temp = tempfile::tempdir().unwrap();
+        let log = temp.path().join("kits.log");
+        std::fs::write(&log, [b'b', 0xc3]).unwrap();
+        assert_eq!(readiness_logged(&log, "test", 123, 4411), Ok(false));
+        let mut data = vec![255u8, 10u8];
+        data.extend_from_slice(br#"{"fusion_kits_ready":1,"nonce":"test","pid":123,"port":4411}"#);
+        data.push(10);
+        std::fs::write(&log, data).unwrap();
+        assert_eq!(readiness_logged(&log, "test", 123, 4411), Ok(true));
     }
 }

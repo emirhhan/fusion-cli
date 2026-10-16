@@ -308,7 +308,11 @@ def test_read_skill_araci_devam_offsetini_kabul_eder(tmp_path):
     sayfalar = [ilk.output]
     while "KIRPILDI" in sayfalar[-1]:
         offset = int(sayfalar[-1].split("read_skill(offset=")[1].split(")")[0])
-        sayfalar.append(tool.run({"name": "uzun", "offset": offset}, context).output)
+        sayfalar.append(
+            tool.run(
+                {"name": "uzun", "offset": offset, "revision": ilk.structured["revision"]}, context
+            ).output
+        )
 
     assert "SON-BOLUM" in sayfalar[-1]
     assert not tool.run({"name": "uzun", "offset": -1}, context).ok
@@ -330,3 +334,54 @@ def test_yerlesik_web_arayuz_becerisi_ve_kod_sablonlari_okunur(tmp_path, monkeyp
 
     assert "web-arayuz" in [item.name for item in registry.skills()]
     assert "ornek.tsx" in capabilities.skill_files(beceri / "SKILL.md")
+
+
+def test_read_skill_rejects_continuation_after_content_changed(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.engine_tools import _read_skill_tool
+
+    path = tmp_path / ".claude/skills/changing/SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("---\nname: changing\n---\n" + "a" * 7000)
+    tool = _read_skill_tool(CapabilityRegistry(tmp_path / "home", tmp_path))
+    context = ToolContext(root=tmp_path)
+    first = tool.run({"name": "changing"}, context)
+    path.write_text("---\nname: changing\n---\n" + "b" * 7000)
+    result = tool.run(
+        {"name": "changing", "offset": 6000, "revision": first.structured["revision"]}, context
+    )
+    assert not result.ok
+    assert "yeniden" in result.output
+
+
+def test_read_skill_emits_load_receipt_only_after_successful_read(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.engine_tools import _read_skill_tool
+    from tests.agent_harness import Publisher
+    from tests.fakes import RecordingSink
+
+    path = tmp_path / ".claude/skills/receipt/SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("---\nname: receipt\n---\nyönerge")
+    sink = RecordingSink()
+    library = CapabilityRegistry(tmp_path / "home", tmp_path)
+    tool = _read_skill_tool(library, publisher=Publisher(sink))
+    result = tool.run({"name": "receipt"}, ToolContext(root=tmp_path))
+    assert result.ok
+    assert len(sink.events) == 1
+    receipt = sink.events[0]
+    assert type(receipt).__name__ == "SkillLoaded"
+    assert receipt.qualified_name == library.get_skill("receipt").qualified_name
+    assert receipt.revision == result.structured["revision"]
+    tool.run({"name": "unknown"}, ToolContext(root=tmp_path))
+    assert len(sink.events) == 1
+
+
+def test_turkish_search_normalizes_diacritics_and_bounded_suffixes(tmp_path):
+    from fusion_cli.tools.capabilities import Capability, search
+
+    skill = Capability("animasyon", "Animasyonlu görsel oluştur", tmp_path / "SKILL.md", "proje")
+    assert search((skill,), "animasyon olusturmak") == (skill,)
+    assert search((skill,), "olusturmak") == (skill,)
+    assert search((skill,), "görsel") == (skill,)
+    assert search((skill,), "ve in er") == ()

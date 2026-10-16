@@ -67,7 +67,7 @@ class ConsolePrompter:
         # etkileşimsiz (cevap yok). İkincisi kullanıcının REDDİ değildir — kimseye
         # SORULAMADI; bunu insanın "hayır" demesiyle aynı saymak, hiç sorulmamış
         # bir kararı kullanıcıya mal ederdi (bkz. `ApprovalAnswer.UNAVAILABLE`).
-        if not answer and not self._interactive:
+        if answer is None or (not answer and not self._interactive):
             return ApprovalAnswer.UNAVAILABLE
         return _is_affirmative(answer)
 
@@ -129,14 +129,13 @@ class ConsolePrompter:
         )
         self._console.print(Panel(body, title=title, border_style=theme.WARN))
 
-    def _ask(self, prompt: str) -> str:
+    def _ask(self, prompt: str) -> str | None:
         try:
             return Prompt.ask(prompt, console=self._console, default="", show_default=False)
         except (EOFError, KeyboardInterrupt, OSError):
-            # Cevap alınamadı: stdin kapalı, yönlendirilmiş ya da yakalanmış olabilir
-            # (CI, cron, boru hattı). `confirm` bunu REDDETME sayar — onay alınmadan
-            # değiştirici işlem yapılamaz; `ask` ayrı bir açıklamaya çevirir.
-            return ""
+            # Okuma hatası, kullanıcının bilinçli boş Enter cevabından ayrıdır.
+            # `confirm` UNAVAILABLE döndürür; bu ne izin ne insanın reddidir.
+            return None
 
 
 def _summarize(request: ApprovalRequest) -> str:

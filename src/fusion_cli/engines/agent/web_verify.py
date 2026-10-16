@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
+from .web_images import empty_images
 from .web_interactions import empty_form_actions, inert_buttons
 from .web_motion import layout_animations
 
@@ -59,6 +60,9 @@ def inspect_web_output_by_severity(
     blocking: list[str] = []
     warnings: list[str] = []
     advisories: list[str] = []
+    image_errors, image_warnings = empty_images(html, js)
+    blocking.extend(image_errors)
+    warnings.extend(image_warnings)
 
     # Kullanıcıya gerçekten bozuk/yanlış davranış teslim edenler.
     blocking.extend(_olu_gorseller(html))

@@ -52,3 +52,12 @@ def test_remotion_becerisi_hareket_kitinin_gercek_yolunu_verir():
     kit = bundled_skills_dir() / "remotion-video" / "kit"
     assert not_ is not None and str(kit) in not_ and "{SKILL_DIR}" not in not_
     assert (kit / "index.ts").is_file() and (kit / "KineticText.tsx").is_file()
+
+
+def test_expertise_total_prompt_includes_prefix_in_budget(tmp_path):
+    path = tmp_path / "remotion-video/SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("a" * (MAX_EXPERTISE_CHARS + 100))
+    hint = expertise_hint("remotion", skills_dir=tmp_path)
+    assert hint is not None
+    assert len(hint) <= MAX_EXPERTISE_CHARS

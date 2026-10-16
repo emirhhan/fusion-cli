@@ -7,6 +7,7 @@ import asyncio
 from fusion_cli.cli.repl.state import Engine, ReplState
 from fusion_cli.cli.repl.tui import FusionTui
 from fusion_cli.cli.repl.tui_loop import TuiPrompter, _preview, _TuiSession
+from fusion_cli.core.tools import AuthorizationScope, ToolEffect
 from fusion_cli.engines.agent.approval import ApprovalAnswer, ApprovalRequest
 from fusion_cli.engines.agent.engine_tools import QuestionOption
 from fusion_cli.memory.factory import null_memory
@@ -103,6 +104,42 @@ async def test_prompter_yikici_istekte_oturum_secimi_sunmaz():
     assert [choice.value for choice in tui._choices] == ["once", "deny"]
     tui._resolve("deny")
     assert await task is ApprovalAnswer.DENY
+
+
+async def test_remote_without_verified_scope_never_offers_session_permission():
+    """CLI, masaüstüyle aynı kapsam kuralını kullanır."""
+    tui = _noop_tui()
+    tool = _Tool()
+    tool.name = "remote_write"
+    request = ApprovalRequest(tool=tool, args={}, danger=None, effect=ToolEffect.REMOTE_WRITE)
+    task = asyncio.create_task(TuiPrompter(tui, None).confirm(request))
+    await asyncio.sleep(0)
+    try:
+        assert [choice.value for choice in tui._choices] == ["once", "deny"]
+    finally:
+        tui._resolve("deny")
+        await task
+
+
+async def test_remote_session_permission_displays_scope_in_terminal():
+    tui = _noop_tui()
+    tool = _Tool()
+    tool.name = "remote_write"
+    request = ApprovalRequest(
+        tool=tool,
+        args={},
+        danger=None,
+        effect=ToolEffect.REMOTE_WRITE,
+        authorization_scope=AuthorizationScope("docs", "work", "update", ("doc-42",)),
+    )
+    task = asyncio.create_task(TuiPrompter(tui, None).confirm(request))
+    await asyncio.sleep(0)
+    try:
+        choice = next(choice for choice in tui._choices if choice.value == "session")
+        assert all(value in choice.description for value in ("docs", "work", "update", "doc-42"))
+    finally:
+        tui._resolve("deny")
+        await task
 
 
 async def test_prompter_ask_metni_doner():
@@ -333,6 +370,10 @@ async def test_tui_consumes_pending_digest_once_and_injects_home(tmp_path, monke
     assert calls[0]["extra_system"] == "TUI devralma künyesi"
     assert "TUI devralma künyesi" not in str(calls[1]["extra_system"])
     assert state.pending_digest is None
+    assert calls[0].get("conversation_id") == session._transcript_store.session_id
+    assert calls[1].get("conversation_id") == calls[0].get("conversation_id")
+    other = _TuiSession(_state(tmp_path))
+    assert other._transcript_store.session_id != calls[0].get("conversation_id")
 
 
 async def test_tui_turlari_ayni_onay_hafizasini_paylasir(tmp_path, monkeypatch) -> None:

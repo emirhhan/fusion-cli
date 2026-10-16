@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 
+import pytest
+
 from fusion_cli.core.events import ModelCallFinished
 from fusion_cli.core.redaction import REDACTED_MARK, redact
 from fusion_cli.core.types import ModelResult
@@ -70,3 +72,10 @@ def test_openrouter_ve_nim_anahtar_bicimleri_maskelenir():
     temiz = redact(metin)
     assert "sk-or-v1-0123" not in temiz
     assert "nvapi-AbCdEf" not in temiz
+
+
+@pytest.mark.parametrize(
+    "secret", ["passwd=synthetic_value", "access_key=synthetic_value", "AIza" + "a" * 32]
+)
+def test_redact_fast_path_cannot_skip_known_secret_patterns(secret):
+    assert redact(secret) == REDACTED_MARK

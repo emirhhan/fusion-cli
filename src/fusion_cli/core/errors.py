@@ -40,3 +40,15 @@ class EvalError(FusionError):
 
 class KnowledgeError(FusionError):
     """Ortak bilgi paketi işlenemedi (ör. imza için gerekli bağımlılık yok)."""
+
+
+class CheckpointConflictError(FusionError):
+    """Devam kaydı başka writer tarafından değişti; eski içerik yazılmaz."""
+
+
+class CleanupFailedError(FusionError):
+    """Sahip olunan dış işlemin temizlendiği doğrulanamadı."""
+
+
+class ProcessCancelledError(FusionError):
+    """Süreç ağacı temizlendikten sonra bildirilen çağrı iptali."""

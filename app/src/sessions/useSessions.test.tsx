@@ -587,7 +587,7 @@ describe("useSessions", () => {
      referansı sonsuza dek dolu kalıp yeni mesajı sonsuza dek kuyrukta
      bırakıyordu. `stop()` artık bir güvenli üst sınırda durumu ZORLA
      sıfırlar. */
-  it("stop() sonrası tur.calistir promise'i hiç çözülmese bile üst sınırda durum sıfırlanır ve yeni mesaj gönderilir", async () => {
+  it("stop() temizlik doğrulanmadan kuyruktaki işi başlatmaz", async () => {
     vi.useFakeTimers();
     try {
       const fake = fakeTransport();
@@ -614,7 +614,8 @@ describe("useSessions", () => {
       act(() => {
         result.current.stop("varsayilan");
       });
-      expect(result.current.state.sessions.varsayilan.running).toBe(false);
+      expect(result.current.state.sessions.varsayilan.running).toBe(true);
+      expect(result.current.state.sessions.varsayilan.stopping).toBe(true);
 
       // İkinci mesaj: promise hâlâ asılı olduğu için normalde KUYRUĞA girerdi.
       act(() => {
@@ -628,6 +629,12 @@ describe("useSessions", () => {
         await vi.advanceTimersByTimeAsync(5_000);
       });
 
+      expect(turlar()).toHaveLength(1);
+      expect(result.current.state.sessions.varsayilan.stopError).toContain("doğrulanamadı");
+      await act(async () => {
+        fake.emitResult("varsayilan", String((turlar()[0] as { id?: string }).id), { ok: false, metin: "iptal edildi" });
+        await vi.advanceTimersByTimeAsync(0);
+      });
       expect(turlar()).toHaveLength(2);
       expect(turlar()[1].veri?.gorev).toBe("ikinci görev");
       expect(result.current.state.sessions.varsayilan.running).toBe(true);
@@ -659,4 +666,41 @@ it("kalıcı queued snapshot aynı requestId ile mevcut sürücüden restore edi
   expect(request.ad).toBe("tur.calistir");
   expect(request.veri.gonderim_id).toBe("kalici-kuyruk");
   expect(result.current.activeSession?.messages.filter((message) => message.rol === "kullanici").map((message) => message.metin)).toEqual(["sıradaki"]);
+});
+
+describe("Soru cevabı makbuzu", () => {
+  it("makbuz gelmeden kartı kapatmaz ve eski makbuz yeni soruyu kapatmaz", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const id = result.current.activeSession!.id;
+    act(() => fake.emitLine({ oturum_id: id, satir: JSON.stringify({ tip: "soru", id: "q1", veri: { tur: "soru", soru: "Ad?" } }) }));
+    let sending!: Promise<void>;
+    act(() => { sending = result.current.answer(id, { metin: "örnek" }); });
+    expect(result.current.activeSession?.question?.id).toBe("q1");
+    const request = JSON.parse(fake.sent.at(-1)!.line);
+    expect(request.ad).toBe("soru.cevapla");
+    expect(request.veri.answer.decisionId).toEqual(expect.any(String));
+    act(() => fake.emitLine({ oturum_id: id, satir: JSON.stringify({ tip: "soru", id: "q2", veri: { tur: "soru", soru: "Hedef?" } }) }));
+    await act(async () => { fake.emitResult(id, request.id, { ok: true, questionId: "q1" }); await sending; });
+    expect(result.current.activeSession?.question?.id).toBe("q2");
+  });
+});
+
+it("RPC kanıtını tek correlated final mesajına bağlar", async () => {
+  const fake = fakeTransport();
+  const {result} = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+  act(() => result.current.send("varsayilan", "iş"));
+  await waitFor(() => expect(fake.sent.length).toBeGreaterThan(0));
+  const request = JSON.parse(fake.sent[0].line);
+  const kanit = {schema_version: 1, dogrulandi: false, engelliyor: true,
+    yanlis_iddia: false, degisen: ["a.py"], degisen_sayisi: 1, sorunlar: ["kontrol düştü"]};
+  act(() => fake.emitResult("varsayilan", request.id, {ok: false, metin: "Kısmi", kanit}));
+  await waitFor(() => expect(result.current.activeSession?.running).toBe(false));
+  const final = result.current.activeSession!.messages.filter((message) => message.rol === "asistan");
+  expect(final).toHaveLength(1);
+  expect(final[0].delivery).toMatchObject({kind: "supported", blocking: true, verified: false});
+  act(() => fake.emitResult("varsayilan", request.id, {ok: false, metin: "Kısmi", kanit}));
+  expect(result.current.activeSession!.messages.filter((message) => message.rol === "asistan")).toHaveLength(1);
 });

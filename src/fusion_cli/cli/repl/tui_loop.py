@@ -82,12 +82,12 @@ class TuiPrompter:
         self._tui.set_work_source(lambda: messages.TUI_CONFIRM_HINT)
         try:
             choices = [Choice("once", messages.TUI_APPROVAL_ONCE, messages.TUI_APPROVAL_ONCE_DESC)]
-            if request.danger is None:
+            if request.can_remember:
                 choices.append(
                     Choice(
                         "session",
                         messages.TUI_APPROVAL_SESSION,
-                        messages.TUI_APPROVAL_SESSION_DESC,
+                        request.remembered_scope_description or messages.TUI_APPROVAL_SESSION_DESC,
                     )
                 )
             choices.append(
@@ -96,7 +96,7 @@ class TuiPrompter:
             answer = await self._tui.await_choice(messages.TUI_APPROVAL_TITLE, choices)
             if answer == "once":
                 return ApprovalAnswer.ONCE
-            if answer == "session":
+            if answer == "session" and request.can_remember:
                 return ApprovalAnswer.SESSION
             return ApprovalAnswer.DENY
         finally:
@@ -175,7 +175,9 @@ class _TuiSession:
         # Ders çıkarımı gibi tur-sonrası işler burada fire-and-forget çalışır; cevabı
         # bekletmezler. Çıkışta drain edilir (RULES: her task'ın sahibi vardır).
         self._background = BackgroundTasks()
-        self._transcript_store = TranscriptStore(state.config.memory_dir, state.root)
+        self._transcript_store = TranscriptStore(
+            state.config.memory_dir, state.root, conversation_id=state.conversation_id
+        )
         # Eski ANSI snapshot tekrar yüklenmez; banner çoğalması kesin olarak biter.
         # events.jsonl denetim kaydı sink olarak kullanılmaya devam eder.
         self._tui = FusionTui(
@@ -428,6 +430,7 @@ class _TuiSession:
                     home=self._state.home,
                     extra_system=turn_extra_system,
                     interactive=True,
+                    conversation_id=self._state.conversation_id,
                     memory=self._state.memory,
                     history=self._state.history,
                     background=self._background,

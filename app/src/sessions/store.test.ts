@@ -65,3 +65,34 @@ describe("sessionReducer", () => {
     expect(state.sessions.iki.error).toBe("süreç kapandı");
   });
 });
+
+it.each(["cleared", "crashed"] as const)("%s eski soru kuyruğunu da temizler", (type) => {
+  let state = sessionReducer(initialSessionState, { type: "created", session: { id: "one", title: "Bir", source: "fusion", root: "/one", client: client() } });
+  for (const id of ["q1", "q2"]) state = sessionReducer(state, { type: "questionChanged", id: "one", question: { id, data: { tur: "soru", soru: id } } });
+  state = sessionReducer(state, type === "cleared" ? { type, id: "one" } : { type, id: "one", reason: "offline" });
+  state = sessionReducer(state, { type: "questionChanged", id: "one", question: { id: "q3", data: { tur: "soru", soru: "Yeni" } } });
+  state = sessionReducer(state, { type: "questionClosed", id: "one", questionId: "q3" });
+  expect(state.sessions.one.question).toBeNull();
+  expect(state.sessions.one.questionQueue).toEqual([]);
+});
+it("yalnız gerçek gönderim başlangıcı eski açık ajanları kapatır, steer/kuyruk mesajı kapatmaz", () => {
+ let state = sessionReducer(initialSessionState, { type: "created", session: { id: "bir", title: "Bir", source: "fusion", root: "/bir", client: client() } });
+ state = sessionReducer(state, { type: "eventReceived", id: "bir", event: { olay: "SubAgentStarted", sub_id: "a", title: "Uzman", task: "Oku" } });
+ for (const text of ["Yönlendirme", "Sıradaki iş"]) {
+  state = sessionReducer(state, { type: "messageAdded", id: "bir", message: { rol: "kullanici", metin: text } });
+  expect(state.sessions.bir.messages.flatMap(m => m.ajanlar ?? [])[0].durum).toBe("calisiyor");
+ }
+ state = sessionReducer(state, { type: "submissionStarted", id: "bir", requestId: "yeni" });
+ expect(state.sessions.bir.messages.flatMap(m => m.ajanlar ?? [])[0].durum).toBe("yarim");
+});
+
+it("metinsiz biten ses isteğinin kimliğini sonraki görev çalışırken korur", () => {
+  let state = sessionReducer(initialSessionState, {type: "created", session: {id: "voice", title: "Ses", source: "fusion", root: "/", client: client()}});
+  state = sessionReducer(state, {type: "submissionStarted", id: "voice", requestId: "first"});
+  state = sessionReducer(state, {type: "submissionCompleted", id: "voice", requestId: "first"});
+  state = sessionReducer(state, {type: "submissionStarted", id: "voice", requestId: "second"});
+  expect(state.sessions.voice.completedRequestIds).toEqual(["first"]);
+  expect(state.sessions.voice.messages).toEqual([]);
+  for (let index = 0; index < 110; index++) state = sessionReducer(state, {type: "submissionCompleted", id: "voice", requestId: String(index)});
+  expect(state.sessions.voice.completedRequestIds).toHaveLength(100);
+});

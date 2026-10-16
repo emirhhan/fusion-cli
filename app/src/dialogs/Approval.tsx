@@ -4,7 +4,7 @@ import { DiffCard } from "../markdown/DiffCard";
 import "./Approval.css";
 
 interface ApprovalProps {
-  onCevap: (veri: Record<string, unknown>) => void;
+  onCevap: (veri: Record<string, unknown>) => void | Promise<void>;
   soru: Soru;
   /** Kartın üst etiketi; verilmezse türe göre "İzin gerekiyor"/"Fusion soruyor". */
   eyebrow?: string;
@@ -63,9 +63,13 @@ function secenekler(soru: Soru): Secenek[] {
  * Klavye: 1-9 seçer, ↑/↓ gezinir, Enter onaylar, Esc reddeder / soruyu atlar.
  */
 export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: ApprovalProps) {
+  const sending = useRef(false);
+  const owner = useRef(soru);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
   const kartRef = useRef<HTMLElement>(null);
   const digerRef = useRef<HTMLInputElement>(null);
-  const [digerAcik, setDigerAcik] = useState(soru.tur === "soru" && !(soru.secenekler ?? []).length);
+  const [digerAcik, setDigerAcik] = useState(serbestCevap && soru.tur === "soru" && !(soru.secenekler ?? []).length);
   const [digerMetin, setDigerMetin] = useState("");
   const liste = secenekler(soru);
   const soruMu = soru.tur === "soru";
@@ -74,20 +78,58 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
   const reddet = liste.find((secenek) => secenek.reddet);
 
   useEffect(() => {
+    const previous = document.activeElement;
+    const card = kartRef.current;
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected
+        && (document.activeElement === document.body || card?.contains(document.activeElement))) previous.focus();
+    };
+  }, []);
+
+  useEffect(() => {
+    owner.current = soru;
+    sending.current = false;
+    setPending(false);
+    setError("");
+    setDigerMetin("");
+    setDigerAcik(serbestCevap && soru.tur === "soru" && !(soru.secenekler ?? []).length);
+  }, [soru, serbestCevap]);
+
+  useEffect(() => {
     if (digerAcik) digerRef.current?.focus();
     else kartRef.current?.focus();
   }, [digerAcik]);
 
-  const sec = (secenek: Secenek) => onCevap(secenek.cevap);
+  const submit = (answer: Record<string, unknown>) => {
+    if (sending.current) return;
+    sending.current = true;
+    setPending(true);
+    setError("");
+    const question = soru;
+    try {
+      Promise.resolve(onCevap(answer)).catch(() => {
+        if (owner.current !== question) return;
+        sending.current = false;
+        setPending(false);
+        setError("Cevap gönderilemedi. Tekrar deneyebilirsin.");
+      });
+    } catch {
+      sending.current = false;
+      setPending(false);
+      setError("Cevap gönderilemedi. Tekrar deneyebilirsin.");
+    }
+  };
+  const sec = (secenek: Secenek) => submit(secenek.cevap);
   const digeriGonder = () => {
-    if (digerMetin.trim()) onCevap({ metin: digerMetin.trim() });
+    if (digerMetin.trim()) submit({ metin: digerMetin.trim() });
   };
   const vazgec = () => {
-    if (soruMu) onCevap({ metin: "" });
+    if (soruMu) submit({ metin: "" });
     else if (reddet) sec(reddet);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (sending.current) return;
     if (event.key === "Escape") {
       event.preventDefault();
       vazgec();
@@ -98,7 +140,7 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
     if (Number.isInteger(sira) && sira >= 1) {
       event.preventDefault();
       if (sira <= liste.length) sec(liste[sira - 1]);
-      else if (soruMu && sira === liste.length + 1) setDigerAcik(true);
+      else if (soruMu && serbestCevap && sira === liste.length + 1) setDigerAcik(true);
       return;
     }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -142,6 +184,7 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
         <div className="prompt-card__options" role="group" aria-label="Seçenekler">
           {liste.map((secenek, index) => (
             <button
+              disabled={pending}
               className="prompt-card__option"
               data-recommended={secenek.onerilen || undefined}
               data-deny={secenek.reddet || undefined}
@@ -158,26 +201,28 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
             </button>
           ))}
           {soruMu && serbestCevap && !digerAcik && (
-            <button className="prompt-card__option" onClick={() => setDigerAcik(true)} type="button">
+            <button disabled={pending} className="prompt-card__option" onClick={() => setDigerAcik(true)} type="button">
               <span aria-hidden="true" className="prompt-card__key">{liste.length + 1}</span>
               <span className="prompt-card__label">Diğer…<small>Kendi cevabını yaz</small></span>
             </button>
           )}
-          {soruMu && digerAcik && (
+          {soruMu && serbestCevap && digerAcik && (
             <form className="prompt-card__other" onSubmit={(event) => { event.preventDefault(); digeriGonder(); }}>
               <input
+                disabled={pending}
                 aria-label="Cevabın"
                 onChange={(event) => setDigerMetin(event.target.value)}
                 placeholder="Cevabını yaz ve Enter'a bas"
                 ref={digerRef}
                 value={digerMetin}
               />
-              <button disabled={!digerMetin.trim()} type="submit">Gönder</button>
+              <button disabled={pending || !digerMetin.trim()} type="submit">Gönder</button>
             </form>
           )}
         </div>
+        {error && <p role="alert">{error}</p>}
         <p className="prompt-card__hint">
-          {soruMu ? "Sayıyla seç · Esc soruyu atla" : `Sayıyla seç · Esc ${reddet ? "reddet" : "kapat"}`}
+          {soruMu ? "Sayıyla seç · Esc soruyu atla" : reddet ? "Sayıyla seç · Esc reddet" : "Devam etmek için bir karar seç"}
         </p>
       </section>
     </div>

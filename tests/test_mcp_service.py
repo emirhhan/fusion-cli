@@ -106,3 +106,60 @@ async def test_basarili_giris_turdaki_park_kaydini_kaldirir(monkeypatch) -> None
 
     assert service.login_status("notion").state == "bagli"
     assert unutulan == ["notion"]
+
+
+def test_new_pool_failure_is_not_hidden_by_old_success():
+    old_success = McpConnectionStatus(server="offline", state="bagli", observed_at=1.0)
+    fresh_failure = McpConnectionStatus(server="offline", state="zaman_asimi", observed_at=2.0)
+    service = McpConnectionService(pool_statuses=lambda: {"offline": fresh_failure})
+    service._record("offline", old_success)
+    assert service.statuses["offline"].state == "zaman_asimi"
+
+
+async def test_old_source_probe_cannot_replace_new_source_health():
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def probe(config):
+        if config.command == "old":
+            entered.set()
+            await release.wait()
+            return McpConnectionStatus(config.name, "bagli")
+        return McpConnectionStatus(config.name, "giris_gerekli")
+
+    service = McpConnectionService(probe=probe, pool_statuses=dict)
+    old = asyncio.create_task(service.test(McpServerConfig("offline", command="old")))
+    await entered.wait()
+    await service.test(McpServerConfig("offline", command="new"))
+    release.set()
+    await old
+    assert service.statuses["offline"].state == "giris_gerekli"
+    await service.close()
+
+
+async def test_new_login_during_logout_cleanup_keeps_its_health():
+    entered, cleaning, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def probe(config):
+        if config.command == "old":
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cleaning.set()
+                await release.wait()
+                raise
+        return McpConnectionStatus(config.name, "bagli")
+
+    service = McpConnectionService(probe=probe, pool_statuses=dict)
+    old = McpServerConfig("offline", command="old")
+    service.start_login(old)
+    await entered.wait()
+    logout = asyncio.create_task(service.logout(old))
+    await cleaning.wait()
+    service.start_login(McpServerConfig("offline", command="new"))
+    await service.pending_task("offline")
+    assert service.login_status("offline").state == "bagli"
+    release.set()
+    await logout
+    assert service.login_status("offline").state == "bagli"
+    await service.close()

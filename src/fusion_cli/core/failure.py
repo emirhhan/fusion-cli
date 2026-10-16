@@ -32,6 +32,8 @@ class FailureRecord:
 
     category: FailureCategory
     detail: str
+    #: Model metninden çıkarılan tanı yürütme yetkisi vermez.
+    observed: bool = True
 
 
 @dataclass(frozen=True, slots=True)

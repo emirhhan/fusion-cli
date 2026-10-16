@@ -39,13 +39,13 @@
 }
 
 .main-rail__item:focus-visible {
-  outline: 2px solid var(--brand-signal, #b6ff3c);
+  outline: 2px solid var(--brand-signal, #22d3ee);
   outline-offset: -2px;
 }
 
 .main-rail__item[aria-current="page"] {
   background: rgb(255 255 255 / 14%);
-  color: var(--brand-signal, #b6ff3c);
+  color: var(--brand-signal, #22d3ee);
 }
 
 .main-rail__label {

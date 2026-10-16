@@ -25,6 +25,8 @@ export function islemIstemi(akis: Akis, dugum: Dugum): string {
 export interface CalistirSecenekleri {
   /** Verilirse yalnız bu düğüm ve eksik/değişmiş ataları çalışır. */
   hedef?: string;
+  /** UI sahibi değiştiyse yeni sağlayıcı işi başlatma veya eski sonucu yayımlama. */
+  devam?: () => boolean;
 }
 
 export async function akisiCalistir(
@@ -36,40 +38,50 @@ export async function akisiCalistir(
   let akis = baslangic;
   const kapsam = secenekler.hedef ? new Set([...atalar(baslangic, secenekler.hedef), secenekler.hedef]) : null;
   for (const planli of calismaSirasi(baslangic)) {
+    if (secenekler.devam?.() === false) return akis;
     if (kapsam && !kapsam.has(planli.id)) continue;
     const dugum = akis.dugumler.find((item) => item.id === planli.id) as Dugum;
     const istem = islemIstemi(akis, dugum);
     const referans = girdiler(akis, dugum.id).gorsel?.yol;
     const adet = Math.min(Math.max(1, Math.round(dugum.adet ?? 1)), MAX_ADET);
     const imza = JSON.stringify([dugum.tur, istem, referans ?? "", dugum.saglayici ?? "", adet, dugum.oran ?? "1:1"]);
-    // Akış baştan kurulmaz: girdisi değişmemiş ve sonucu olan düğüm yeniden
-    // üretilmez. Kullanıcının açıkça "▶" ile çalıştırdığı düğüm her zaman yeniden üretilir.
+    if (dugum.durum === "kismi" && dugum.girdiImzasi === imza && dugum.id !== secenekler.hedef) {
+      return akis;
+    }
+    // Bitmiş düğüm açıkça çalıştırılırsa yeniden üret; kısmi düğümde aynı
+    // girdiye ait başarılı sonuçları koruyup yalnız eksikleri tamamla.
     if (dugum.yol && dugum.girdiImzasi === imza && dugum.id !== secenekler.hedef) continue;
+    const tamamla = dugum.durum === "kismi" && dugum.girdiImzasi === imza
+      && dugum.id === secenekler.hedef && (dugum.sonuclar?.length ?? 0) > 0
+      && (dugum.sonuclar?.length ?? 0) < adet;
+    const sonuclar = tamamla ? [...(dugum.sonuclar ?? [])] : [];
     akis = dugumGuncelle(akis, dugum.id, { durum: "calisiyor", hata: undefined });
     bildir(akis, []);
-    const uretilen: UretilenGorsel[] = [];
     let hata: string | null = null;
     // Varyasyonlar sırayla istenir: aynı web oturumu tek sohbeti aynı anda işler.
-    for (let sira = 0; sira < adet; sira += 1) {
+    while (sonuclar.length < adet) {
+      if (secenekler.devam?.() === false) return akis;
       const tur = await tekUretim(istek, { istem, saglayici: dugum.saglayici ?? "", islem: dugum.tur as Islem, referans, oran: dugum.oran });
+      if (secenekler.devam?.() === false) return akis;
       if (typeof tur === "string") { hata = tur; break; }
-      uretilen.push(...tur);
-      bildir(dugumGuncelle(akis, dugum.id, { sonuclar: uretilen.map((gorsel) => gorsel.yol) }), tur);
+      sonuclar.push(...tur.map((gorsel) => gorsel.yol));
+      bildir(dugumGuncelle(akis, dugum.id, { sonuclar: [...sonuclar] }), tur);
     }
-    if (!uretilen.length) {
+    if (!sonuclar.length) {
       akis = dugumGuncelle(akis, dugum.id, { durum: "hata", hata: hata ?? "Görsel üretilemedi." });
       bildir(akis, []);
       return akis;
     }
-    // Bir kısmı üretildiyse iş sürer; eksik varyasyon düğümde not olarak kalır.
+    // Kısmi sonuç korunur; alt düğüme sessizce ilk varyasyon aktarılmaz.
     akis = dugumGuncelle(akis, dugum.id, {
-      durum: "bitti",
-      yol: uretilen[0].yol,
-      sonuclar: uretilen.map((gorsel) => gorsel.yol),
+      durum: hata ? "kismi" : "bitti",
+      yol: tamamla && dugum.yol && sonuclar.includes(dugum.yol) ? dugum.yol : sonuclar[0],
+      sonuclar,
       girdiImzasi: imza,
-      hata: hata ? `${uretilen.length}/${adet} varyasyon üretildi: ${hata}` : undefined,
+      hata: hata ? `${sonuclar.length}/${adet} varyasyon üretildi: ${hata}` : undefined,
     });
     bildir(akis, []);
+    if (hata) return akis;
   }
   return akis;
 }
@@ -92,14 +104,29 @@ async function tekUretim(
     return `Görsel üretilemedi: ${String(reason)}`;
   }
   const dosyalar = sonuc.ok === true && Array.isArray(sonuc.dosyalar)
-    ? (sonuc.dosyalar as Record<string, unknown>[])
+    ? (sonuc.dosyalar as unknown[])
     : [];
   if (!dosyalar.length) return String(sonuc.metin ?? "Görsel üretilemedi.");
-  return dosyalar.map((dosya) => ({
-    yol: String(dosya.yol),
-    genislik: Number(dosya.genislik ?? 0),
-    yukseklik: Number(dosya.yukseklik ?? 0),
-    istem: veri.istem,
-    saglayici: String(sonuc.saglayici ?? ""),
-  }));
+  const images: UretilenGorsel[] = [];
+  for (const item of dosyalar) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return "Görsel üreticisi geçersiz dosya makbuzu döndürdü.";
+    const dosya = item as Record<string, unknown>;
+    if (typeof dosya.yol !== "string" || !dosya.yol.trim()
+      || !validDimension(dosya.genislik) || !validDimension(dosya.yukseklik)) {
+      return "Görsel üreticisi geçersiz dosya makbuzu döndürdü.";
+    }
+    images.push({
+      yol: dosya.yol,
+      // Eski sağlayıcı makbuzunda boyut yoksa sıfır yalnız bilinmeyen ölçüdür.
+      genislik: typeof dosya.genislik === "number" ? dosya.genislik : 0,
+      yukseklik: typeof dosya.yukseklik === "number" ? dosya.yukseklik : 0,
+      istem: veri.istem,
+      saglayici: typeof sonuc.saglayici === "string" ? sonuc.saglayici : "",
+    });
+  }
+  return images;
+}
+
+function validDimension(value: unknown): boolean {
+  return value === undefined || (typeof value === "number" && Number.isFinite(value) && value > 0);
 }

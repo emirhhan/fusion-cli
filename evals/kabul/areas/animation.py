@@ -66,6 +66,23 @@ _SNAPSHOT_JS = (
     "el => { const s = getComputedStyle(el); "
     "return [s.opacity, s.transform, s.visibility, s.clipPath, s.filter].join('|'); })"
 )
+_IMAGE_STATES_JS = """() => Array.from(document.images).map(image => {
+    const source = image.currentSrc || image.getAttribute('src') || '';
+    const hasSourceSet = Boolean((image.getAttribute('srcset') || '').trim()) ||
+        Boolean(image.closest('picture')?.querySelector('source[srcset]'));
+    if (!source.trim() && !hasSourceSet) return 'boş';
+    const hostname = source ? new URL(source, document.baseURI).hostname : '';
+    if (['placeholder.com', 'via.placeholder.com', 'placehold.co', 'placehold.it']
+        .includes(hostname) || image.getAttribute('data-placeholder') === 'true')
+        return 'yer tutucu';
+    if (image.complete) return image.naturalWidth > 0 ? 'yüklendi' : 'bozuk';
+    const bounds = image.getBoundingClientRect();
+    const isOutside = bounds.bottom <= 0 || bounds.top >= innerHeight ||
+        bounds.right <= 0 || bounds.left >= innerWidth;
+    return image.loading === 'lazy' && isOutside ? 'ertelendi' : 'bekliyor';
+})"""
+_IMAGE_CHECK_NAME = "görseller boş veya bozuk değil"
+_IMAGE_FAILURE_STATES = frozenset({"boş", "bozuk", "yer tutucu", "bekliyor"})
 _LIVE_ANIMATIONS_JS = "document.getAnimations().length"
 _SCROLL_HEIGHT_JS = "document.documentElement.scrollHeight"
 _INNER_HEIGHT_JS = "window.innerHeight"
@@ -82,6 +99,7 @@ class RuntimeReport:
     revealed_elements: int
     scrollable: bool
     max_live_animations: int
+    image_states: tuple[str, ...] = ()
 
 
 def _live_animations(page: Page) -> int:
@@ -157,6 +175,7 @@ def measure_runtime(root: Path) -> RuntimeReport:
         after = _snapshot(page)
         stable, revealed = _count_revealed(before, stable_reference, after)
         return RuntimeReport(
+            image_states=tuple(cast("list[str]", page.evaluate(_IMAGE_STATES_JS))),
             console_errors=opened.console.errors,
             motion_ratio=_motion_ratio(frames),
             stable_elements=stable,
@@ -166,7 +185,7 @@ def measure_runtime(root: Path) -> RuntimeReport:
         )
 
 
-def _runtime_checks(report: RuntimeReport) -> tuple[Check, Check, Check]:
+def _runtime_checks(report: RuntimeReport) -> tuple[Check, ...]:
     errors = report.console_errors
     console = Check(
         "konsol hatası 0",
@@ -190,7 +209,14 @@ def _runtime_checks(report: RuntimeReport) -> tuple[Check, Check, Check]:
         report.scrollable and report.revealed_elements >= MIN_REVEALED_ELEMENTS,
         detail,
     )
-    return console, motion, reveal
+    states = report.image_states
+    images = Check(
+        _IMAGE_CHECK_NAME,
+        not any(state in _IMAGE_FAILURE_STATES for state in states),
+        "; ".join(f"{state}: {states.count(state)}" for state in sorted(set(states)))
+        or "görsel öğesi yok",
+    )
+    return console, motion, reveal, images
 
 
 def _source_checks(
@@ -225,6 +251,7 @@ def _source_checks(
 
 def _failed_runtime(reason: str) -> tuple[Check, ...]:
     names = (
+        _IMAGE_CHECK_NAME,
         "konsol hatası 0",
         "t=0/700/1600 ms kareleri arasında hareket var",
         "kaydırınca yeni öğeler görünür hale gelir",
@@ -235,6 +262,7 @@ def _failed_runtime(reason: str) -> tuple[Check, ...]:
 def _missing_output_checks() -> tuple[Check, ...]:
     reason = "index.html yok (ajan çıktı üretmedi)"
     names = (
+        _IMAGE_CHECK_NAME,
         "konsol hatası 0",
         "t=0/700/1600 ms kareleri arasında hareket var",
         "kaydırınca yeni öğeler görünür hale gelir",

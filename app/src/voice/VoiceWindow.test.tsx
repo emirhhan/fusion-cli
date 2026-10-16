@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PermissionBridge } from "../permissions/types";
 import { VoiceWindow, matchSpokenAnswer, type VoiceWindowRuntime } from "./VoiceWindow";
@@ -78,7 +78,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
 
   it("dört taze oturumu farklı metinlerle birer kez yollar, sessiz beşinci turu yollamaz", { timeout: 20_000 }, async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
 
     const texts = ["birinci mesaj", "ikinci mesaj", "üçüncü mesaj", "dördüncü mesaj"];
@@ -102,7 +102,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
 
   it("yerel sıfır güvenli konuşmayı aynı sohbete bir kez yollar", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
     fake.recognition({ tur: "son", metin: "Projeyi şimdi aç", guven: 0, speech_ms: 720 });
     await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledOnce());
@@ -111,7 +111,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
 
   it("sessizlik kaynaklı düşük güvenli Evet tekrarını ne gösterir ne yollar", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
 
     fake.recognition({ tur: "kismi", metin: "Evet", guven: 0.08, speech_ms: 0 });
@@ -123,7 +123,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
 
   it("reddedilen final sırasında etkin recognition sahipliğini durdurma eylemiyle gösterir", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
 
     fake.recognition({ tur: "son", metin: "belirsiz", guven: 0.1, speech_ms: 420 });
@@ -135,7 +135,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
   });
   it("kısmiyi yalnız gösterir, kesin sonucu bir kez sohbete yollar", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
 
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(1));
     fake.recognition({ tur: "kismi", metin: "merha" });
@@ -152,7 +152,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
 
   it("Apple final vermese de duran kısmi metni hızlıca kesinleştirir", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
 
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
     fake.recognition({ tur: "kismi", metin: "merhaba fusion" });
@@ -166,7 +166,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
 
   it("kısa düşünme duraklamasında cümleyi erken kesmez", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
 
     fake.recognition({ tur: "kismi", metin: "merhaba" });
@@ -182,7 +182,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
 
   it("Fusion konuşurken VAD'i korur ve ses-basladi olayinda barge-in bildirir", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(1));
 
     fake.runtimeState({ durum: "talking", metin: "Merhaba" });
@@ -190,22 +190,26 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
     expect(fake.runtime.stopRecognition).not.toHaveBeenCalled();
 
     fake.recognition({ tur: "ses-basladi", metin: "", guven: null, speech_ms: 80 });
+    expect(fake.runtime.interruptSpeech).not.toHaveBeenCalled();
+    fake.recognition({ tur: "kismi", metin: "araya girdim", guven: 0.92, speech_ms: 520 });
     await waitFor(() => expect(fake.runtime.interruptSpeech).toHaveBeenCalledOnce());
 
     fake.runtimeState({ durum: "interrupted" });
     fake.runtimeState({ durum: "listening" });
     expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(1);
-    await screen.findByText("Seni duyuyorum…");
+    await screen.findByText("araya girdim");
   });
 
   it("barge-in tamponlarini TTS iptal onayindan once kabul etmez", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
 
     fake.runtimeState({ durum: "talking", metin: "Uzun yanit" });
     await screen.findByText("Konuşuyorum");
     fake.recognition({ tur: "ses-basladi", metin: "", guven: null, speech_ms: 80 });
+    expect(fake.runtime.interruptSpeech).not.toHaveBeenCalled();
+    fake.recognition({ tur: "kismi", metin: "araya girdim", guven: 0.92, speech_ms: 520 });
     await waitFor(() => expect(fake.runtime.interruptSpeech).toHaveBeenCalledOnce());
     fake.recognition({ tur: "son", metin: "araya girdim", guven: 0.92, speech_ms: 520 });
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -224,7 +228,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
 
   it("sozu kesilmeden gelen konusmaya kesilen baglami eklemez", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
 
     fake.recognition({ tur: "son", metin: "merhaba", guven: 0.95, speech_ms: 600 });
@@ -237,7 +241,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
 
   it("TTS iptali basarisizsa eski tamponu atar ve taze retry konusmasini kabul eder", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
 
     fake.runtimeState({ durum: "talking", metin: "Uzun yanit" });
@@ -273,7 +277,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
     // Mikrofon tuşu kaldırıldı: Talk açıkken dinleme sürekli açıktır ve
     // konuşmak için hiçbir şeye basılmaz.
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(1));
 
     expect(screen.queryByRole("button", { name: "Dinlemeyi durdur" })).toBeNull();
@@ -289,7 +293,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
       return () => undefined;
     });
     vi.mocked(fake.runtime.startRecognition).mockImplementation(async () => { order.push("start"); });
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(order).toContain("start"));
     expect(order.indexOf("listener")).toBeLessThan(order.indexOf("start"));
   });
@@ -301,7 +305,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
       fake.recognitionEnded(null, 9);
       return 9;
     });
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
 
     await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledWith({
       kaynak: "kullanici",
@@ -315,7 +319,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
     vi.mocked(fake.runtime.preflightRecognition).mockImplementation(() => new Promise<boolean>((resolve) => {
       resolvePreflight = resolve;
     }));
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
 
     await waitFor(() => expect(fake.runtime.preflightRecognition).toHaveBeenCalledOnce());
     // Talk kapanınca bekleyen izin denetimi eski isteği başlatmamalı.
@@ -328,7 +332,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
 
   it("aynı oturumun farklı ikinci finalini sohbete ikinci kez yollamaz", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
 
     fake.recognition({ tur: "son", metin: "ilk" });
@@ -340,7 +344,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
 
   it("eski oturum çıktısını ve bitişini yeni oturuma karıştırmaz", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
     fake.recognitionEnded("süreç kapandı", 1);
     await waitFor(
@@ -361,11 +365,11 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
 
   it("mini menü açılıp kapanırken recognition sürecini kesmez", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
 
-    fireEvent.click(screen.getByRole("button", { name: "Konuşma menüsü" }));
-    fireEvent.click(screen.getByRole("button", { name: "Konuşma menüsü" }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: /Fusion.*dinle/i }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: /Fusion.*dinle/i }));
 
     expect(fake.runtime.stopRecognition).not.toHaveBeenCalled();
     expect(fake.runtime.startRecognition).toHaveBeenCalledOnce();
@@ -376,7 +380,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
     vi.mocked(fake.runtime.preflightRecognition)
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
 
     expect(await screen.findByText("Mikrofon izni verilmedi. İzin verdikten sonra yeniden deneyin.")).toBeTruthy();
     expect(fake.runtime.startRecognition).not.toHaveBeenCalled();
@@ -390,7 +394,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
 
   it("beklenmedik cikistan sonra dinleme kendiliginden toparlanir", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
     fake.recognitionEnded("Yardımcı beklenmedik kapandı", 1);
     expect(await screen.findByText("Yardımcı beklenmedik kapandı")).toBeTruthy();
@@ -404,16 +408,16 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
 
   it("recognition beklenmedik biterse dinliyorum durumunda kalmaz", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
     fake.recognitionEnded("Yardımcı beklenmedik kapandı");
     expect(await screen.findByText("Yardımcı beklenmedik kapandı")).toBeTruthy();
-    expect(screen.getByText("Bir sorun oluştu")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toBe("Yardımcı beklenmedik kapandı");
   });
 
   it("normal TTS bitisinde dusuk gecikmeli VAD oturumunu yeniden baslatmaz", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
     fake.runtimeState({ durum: "talking", metin: "Yanıt" });
     await screen.findByText("Konuşuyorum");
@@ -434,19 +438,19 @@ describe("VoiceWindow — sesli onay", () => {
 
   it("eşleşen cevabı onaya yollar, normal sohbet mesajına dönüştürmez", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(1));
     fake.ask(ASK);
     expect(await screen.findByRole("group", { name: "Onay" })).toBeTruthy();
 
     fake.recognition({ tur: "son", metin: "onayla" });
-    await waitFor(() => expect(fake.runtime.answerAsk).toHaveBeenCalledWith("evet"));
+    await waitFor(() => expect(fake.runtime.answerAsk).toHaveBeenCalledWith("evet", ASK));
     expect(fake.runtime.emitMessage).not.toHaveBeenCalled();
   });
 
   it("aynı turdaki ikinci finalin onayı iki kez çalıştırmasını engeller", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
     fake.ask(ASK);
     await screen.findByRole("group", { name: "Onay" });
@@ -455,13 +459,13 @@ describe("VoiceWindow — sesli onay", () => {
     fake.recognition({ tur: "son", metin: "onayla" });
 
     await waitFor(() => expect(fake.runtime.answerAsk).toHaveBeenCalledOnce());
-    expect(fake.runtime.answerAsk).toHaveBeenCalledWith("evet");
+    expect(fake.runtime.answerAsk).toHaveBeenCalledWith("evet", ASK);
     expect(fake.runtime.emitMessage).not.toHaveBeenCalled();
   });
 
   it("belirsiz onayı fail-closed tutar ve sohbet turuna dönüştürmez", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
     fake.ask(ASK);
     fake.recognition({ tur: "son", metin: "olabilir ama emin değilim" });
@@ -473,7 +477,7 @@ describe("VoiceWindow — sesli onay", () => {
 
   it("eski belirsiz onayın yeniden başlatma niyetini yeni oturum sonuna taşımaz", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
     fake.ask(ASK);
 
@@ -494,7 +498,7 @@ describe("VoiceWindow — sesli onay", () => {
 
   it("kısmi belirsiz onayı göndermeden yeni dinleme oturumu açar", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
     fake.ask(ASK);
 
@@ -508,7 +512,7 @@ describe("VoiceWindow — sesli onay", () => {
 
   it("önceki kısmi eveti sonradan açılan onaya uygulamaz", async () => {
     const fake = fakeRuntime();
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
 
     fake.recognition({ tur: "kismi", metin: "evet" });
@@ -524,7 +528,7 @@ describe("VoiceWindow — sesli onay", () => {
     vi.mocked(fake.runtime.stopRecognition).mockImplementation(async () => {
       fake.recognitionEnded(null, 1);
     });
-    render(<VoiceWindow runtime={fake.runtime} />);
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
     fake.ask(ASK);
 
@@ -534,4 +538,176 @@ describe("VoiceWindow — sesli onay", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2);
   });
+});
+
+it("eski soruya ait konuşma yeni soru geldiğinde onaya dönüşmez", async () => {
+  localStorage.setItem("fusion.permission-explanations.v1", JSON.stringify({ microphone: true, speech: true }));
+  const fake = fakeRuntime();
+  render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
+  await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+  fake.ask({ ...ASK, questionId: "old", sessionId: "offline" });
+  await screen.findByRole("group", { name: "Onay" });
+  fake.recognition({ tur: "kismi", metin: "onayla" });
+  fake.ask({ ...ASK, questionId: "new", sessionId: "offline" });
+  fake.recognition({ tur: "son", metin: "onayla" });
+  await waitFor(() => expect(screen.getByRole("group", { name: "Onay" })).toBeTruthy());
+  expect(fake.runtime.answerAsk).not.toHaveBeenCalled();
+});
+
+
+it("eski kısmi konuşmanın zaman aşımı yeni soruyu onaylayamaz", async () => {
+  localStorage.setItem("fusion.permission-explanations.v1", JSON.stringify({ microphone: true, speech: true }));
+  const explicitAsk = { ...ASK, secenekler: [{ deger: "once", etiket: "İzin ver" }, { deger: "deny", etiket: "Reddet" }] };
+  const fake = fakeRuntime();
+  render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
+  await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+  act(() => fake.ask({ ...explicitAsk, questionId: "old", sessionId: "offline" }));
+  act(() => fake.recognition({ tur: "kismi", metin: "izin ver" }));
+  act(() => fake.ask({ ...explicitAsk, questionId: "new", sessionId: "offline" }));
+  vi.useFakeTimers();
+  try {
+    act(() => fake.recognition({ tur: "kismi", metin: "izin ver" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1400); });
+    expect(fake.runtime.answerAsk).not.toHaveBeenCalled();
+  } finally { vi.useRealTimers(); }
+});
+
+it("aynı soru yayını konuşma sahipliğini ve gönderim kilidini korur", async () => {
+  localStorage.setItem("fusion.permission-explanations.v1", JSON.stringify({ microphone: true, speech: true }));
+  const fake = fakeRuntime();
+  const question = { ...ASK, sessionId: "offline", questionId: "same" };
+  render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
+  await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+  act(() => fake.ask(question));
+  act(() => fake.recognition({ tur: "kismi", metin: "onayla" }));
+  act(() => fake.ask({ ...question }));
+  act(() => fake.recognition({ tur: "son", metin: "onayla" }));
+  await waitFor(() => expect(fake.runtime.answerAsk).toHaveBeenCalledOnce());
+  act(() => fake.ask({ ...question }));
+  fireEvent.click(screen.getByRole("button", { name: "Sorunun tamamını oku" }));
+  fireEvent.click(screen.getByRole("button", { name: "Onayla" }));
+  expect(fake.runtime.answerAsk).toHaveBeenCalledOnce();
+});
+
+describe("VoiceWindow — uyandırma sınırı", () => {
+  it("uyandırılmadan arka plan sözünü modele göndermez; sol tıktan sonra gönderir", async () => {
+    const fake = fakeRuntime();
+    render(<VoiceWindow runtime={fake.runtime} />);
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+    act(() => fake.recognition({ tur: "son", metin: "arka plan konuşması" }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fake.runtime.emitMessage).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Fusion.*dinle/i }));
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2));
+    act(() => fake.recognition({ tur: "son", metin: "projeyi aç" }, 2));
+    await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledWith({ kaynak: "kullanici", metin: "projeyi aç" }));
+  });
+});
+
+it("Fusion sözü yerel Hm yanıtı üretir ve modele gönderilmez", async () => {
+  const speak = vi.fn();
+  vi.stubGlobal("speechSynthesis", { speak });
+  vi.stubGlobal("SpeechSynthesisUtterance", class { text: string; constructor(text: string) { this.text = text; } });
+  try {
+    const fake = fakeRuntime();
+    render(<VoiceWindow runtime={fake.runtime} />);
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+    act(() => fake.recognition({ tur: "son", metin: "Fusion" }));
+    await waitFor(() => expect(speak).toHaveBeenCalledOnce());
+    expect(speak.mock.calls[0][0].text).toBe("Hm");
+    expect(fake.runtime.emitMessage).not.toHaveBeenCalled();
+  } finally { vi.unstubAllGlobals(); }
+});
+it("Dikte kapalıysa otomatik yeniden deneme döngüsü durur", async () => {
+  const fake = fakeRuntime();
+  render(<VoiceWindow runtime={fake.runtime} />);
+  await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+  act(() => fake.recognition({ tur: "hata", metin: "Siri and Dictation are disabled" }));
+  act(() => fake.recognitionEnded());
+  expect(screen.getByRole("alert").textContent).toContain("Klavye → Dikte");
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  expect(fake.runtime.startRecognition).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: /Fusion.*dinle/i }));
+  await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2));
+});
+
+it("arka plan sesi asistanı kesmez; Fusion öneki kesebilir", async () => {
+  const fake = fakeRuntime();
+  render(<VoiceWindow runtime={fake.runtime} />);
+  await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+  act(() => fake.runtimeState({ durum: "talking", metin: "Uzun yanıt" }));
+  act(() => fake.recognition({ tur: "ses-basladi", metin: "" }));
+  act(() => fake.recognition({ tur: "kismi", metin: "arka plan sesi" }));
+  expect(fake.runtime.interruptSpeech).not.toHaveBeenCalled();
+  act(() => fake.recognition({ tur: "kismi", metin: "Fusion dur" }));
+  await waitFor(() => expect(fake.runtime.interruptSpeech).toHaveBeenCalledOnce());
+  act(() => fake.recognition({ tur: "kismi", metin: "Fusion dur şimdi" }));
+  act(() => fake.recognition({ tur: "son", metin: "Fusion dur şimdi" }));
+  expect(fake.runtime.interruptSpeech).toHaveBeenCalledOnce();
+});
+
+it("aynı yerel mikrofon sürecinde farklı konuşma segmentlerini birer kez kabul eder", async () => {
+  const fake = fakeRuntime();
+  render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
+  await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+  for (let segment = 1; segment <= 3; segment += 1) {
+    act(() => fake.recognition({ tur: "son", metin: `mesaj ${segment}`, segment }));
+    await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledTimes(segment));
+  }
+  act(() => fake.recognition({ tur: "son", metin: "geç gelen ilk mesaj", segment: 1 }));
+  expect(fake.runtime.emitMessage).toHaveBeenCalledTimes(3);
+  expect(fake.runtime.startRecognition).toHaveBeenCalledOnce();
+});
+
+it("aynı süreçte sonraki tek partial da zaman aşımında gönderilir; eski partial onu silemez", async () => {
+  const fake = fakeRuntime();
+  render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
+  await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+  act(() => fake.recognition({ tur: "son", metin: "ilk mesaj", segment: 1 }));
+  await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledOnce());
+  act(() => fake.recognition({ tur: "kismi", metin: "ikinci mesaj", segment: 2 }));
+  act(() => fake.recognition({ tur: "kismi", metin: "geç gelen ilk mesaj", segment: 1 }));
+  await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledWith({ kaynak: "kullanici", metin: "ikinci mesaj" }), { timeout: 2200 });
+  expect(fake.runtime.emitMessage).toHaveBeenCalledTimes(2);
+});
+
+it("Füzyon kısmi tanıması son sonucu beklemeden bir kez Hm der", async () => {
+  const speak = vi.fn();
+  vi.stubGlobal("speechSynthesis", { speak });
+  vi.stubGlobal("SpeechSynthesisUtterance", class { constructor(public text: string) {} });
+  try {
+    const fake = fakeRuntime();
+    render(<VoiceWindow runtime={fake.runtime} />);
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+    act(() => fake.recognition({ tur: "kismi", metin: "Füzyon" }));
+    expect(speak).toHaveBeenCalledOnce();
+    act(() => fake.recognition({ tur: "kismi", metin: "Füzyon" }));
+    act(() => fake.recognition({ tur: "son", metin: "Füzyon" }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(speak).toHaveBeenCalledOnce();
+    expect(fake.runtime.emitMessage).not.toHaveBeenCalled();
+    act(() => fake.recognition({ tur: "kismi", metin: "Füzyon", segment: 2 }));
+    expect(speak).toHaveBeenCalledTimes(2);
+  } finally { vi.unstubAllGlobals(); }
+});
+
+it("hitaplı selamdan sonra sohbeti sürdürürken adı tekrar istemez", async () => {
+ const fake=fakeRuntime(); render(<VoiceWindow runtime={fake.runtime} />);
+ await waitFor(()=>expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+ act(()=>fake.recognition({tur:"son",metin:"Merhaba Füzyon",segment:1}));
+ await waitFor(()=>expect(fake.runtime.emitMessage).toHaveBeenCalledTimes(1));
+ act(()=>fake.recognition({tur:"son",metin:"projeyi aç",segment:2}));
+ await waitFor(()=>expect(fake.runtime.emitMessage).toHaveBeenCalledWith({kaynak:"kullanici",metin:"projeyi aç"}));
+});
+it("sohbet açıkken salt ses veya hmm asistanı kesmez", async()=>{
+ const fake=fakeRuntime(); render(<VoiceWindow runtime={fake.runtime} />);
+ await waitFor(()=>expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+ fireEvent.click(screen.getByRole("button",{name:/Fusion.*dinle/i}));
+ await waitFor(()=>expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2));
+ act(()=>fake.runtimeState({durum:"talking",metin:"Yanıtım sürüyor."}));
+ act(()=>fake.recognition({tur:"ses-basladi",metin:""},2));
+ act(()=>fake.recognition({tur:"kismi",metin:"hmm"},2));
+ expect(fake.runtime.interruptSpeech).not.toHaveBeenCalled();
+ act(()=>fake.recognition({tur:"kismi",metin:"bir dakika"},2));
+ await waitFor(()=>expect(fake.runtime.interruptSpeech).toHaveBeenCalledOnce());
 });

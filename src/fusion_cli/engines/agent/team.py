@@ -1,19 +1,8 @@
-"""Alt ajan ekibi — kişilikli, kimlikli ve gerektiğinde PARALEL alt ajanlar.
+"""Kişilikli alt ajanlar: canonical kapsam, ortak bütçe ve sahipli iptal.
 
-Eskiden alt ajan kimliksizdi: olay yalnız görev metnini taşıyordu, arayüz bütün
-adımları tek "alt ajan" etiketiyle aynı listeye döküyordu ve iki alt ajan ancak
-sırayla koşabiliyordu. Bu modül üç şeyi ekler:
-
-- **Kişilik.** Her alt ajan bir ekip üyesidir (ünvan, avatar, renk, talimat, araç
-  seti). Yerleşik ekip `config/roster/`'dadır; kullanıcı `.claude/agents` altına
-  aynı adla kendi üyesini yazarsa o kazanır.
-- **Kimlik.** Alt ajanın her olayı `agent_id` taşır (`ScopedPublisher`); arayüz
-  her ajanın kartını ayrı çizer.
-- **Paralellik.** `spawn_agents` birden çok görevi aynı anda koşturur. Aynı dosyayı
-  iki ajanın ezmemesi için zamanlayıcı görevleri DALGALARA böler: salt okuyanlar ve
-  yazma alanları ayrık olanlar birlikte, alanı belirsiz yazanlar tek başına koşar.
-  Eşzamanlılık `runtime.max_parallel_agents` ile sınırlıdır; asıl hız sınırını
-  ortak hız defteri korur (bkz. `providers/rate_gate.py`).
+Görevler çakışmayan yazma alanlarında paralel çalışır. Kimlikli olaylar her
+üyenin kartına akar; bir child hatası bağımsız kardeş işi bozmaz. Ana tur
+iptali ise tüm owned işleri bekleyerek kapatır.
 """
 
 from __future__ import annotations
@@ -24,12 +13,20 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ...core.clock import SystemClock
 from ...core.events import Channel, Event, EventPublisher, SubAgentFinished, SubAgentStarted
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...tools.capabilities import CapabilityRegistry, load_agent_prompt, map_tools
+from .team_policy import allowed_tools as _allowed_tools
+from .team_policy import child_execution as _child_execution
+from .team_policy import member_brief as _member_brief
+from .team_policy import summary as _summary
+from .team_policy import team_report as _team_report
+from .team_scope import changed_paths
+from .team_scope import derive_sub_context as derive_sub_context
+from .team_scope import schedule_waves as schedule_waves
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
@@ -83,6 +80,8 @@ class SubRun:
     text: str
     ok: bool
     tool_calls: int
+    status: str = ""
+    changed_paths: tuple[str, ...] = ()
 
 
 class ScopedPublisher:
@@ -125,41 +124,6 @@ def resolve_persona(library: CapabilityRegistry | None, name: str) -> Persona:
     )
 
 
-def schedule_waves(subtasks: Sequence[SubTask]) -> list[list[int]]:
-    """Görevleri birlikte koşabilecek dalgalara böl (sıra korunur).
-
-    Kural: salt okuyan görev her dalgaya katılır; yazma alanı bildiren görev,
-    dalgadaki alanlarla çakışmıyorsa katılır; alanı belirsiz yazan görev tek
-    başına bir dalgadır (neye dokunacağı bilinmediği için kimseyle koşmaz).
-    """
-    waves: list[list[int]] = []
-    current: list[int] = []
-    claimed: list[Path] = []
-    for index, subtask in enumerate(subtasks):
-        if subtask.read_only:
-            current.append(index)
-            continue
-        scope = [Path(raw) for raw in subtask.write_scope]
-        if scope and not any(_overlaps(path, taken) for path in scope for taken in claimed):
-            current.append(index)
-            claimed.extend(scope)
-            continue
-        if current:
-            waves.append(current)
-        if scope:
-            current, claimed = [index], list(scope)
-        else:
-            waves.append([index])
-            current, claimed = [], []
-    if current:
-        waves.append(current)
-    return waves
-
-
-def _overlaps(first: Path, second: Path) -> bool:
-    return first == second or first in second.parents or second in first.parents
-
-
 async def run_subagent(
     deps: AgentDeps,
     subtask: SubTask,
@@ -169,9 +133,12 @@ async def run_subagent(
     group_size: int = 1,
 ) -> SubRun:
     """Tek bir alt ajanı kişiliğiyle başlat, olaylarını kimliğiyle akıt."""
-    from .loop import AgentDeps as _Deps
-
-    persona = resolve_persona(deps.capabilities, subtask.persona)
+    persona_error = ""
+    try:
+        persona = resolve_persona(deps.capabilities, subtask.persona)
+    except Exception as error:
+        persona = GENERIC_PERSONA
+        persona_error = type(error).__name__
     sub_id = new_agent_id(persona.name)
     deps.publisher.publish(
         SubAgentStarted(
@@ -182,14 +149,86 @@ async def run_subagent(
             avatar=persona.avatar,
             color=persona.color,
             group_size=group_size,
+            started_at=(deps.budget.clock if deps.budget is not None else SystemClock()).now(),
         )
     )
     started = time.monotonic()
+    text = "Alt ajan tamamlanamadı."
+    ok, tool_calls = False, 0
+    status = "failed"
+    context: ToolContext | None = None
+    paths: tuple[str, ...] = ()
+    try:
+        if persona_error:
+            text = f"Üye yüklenemedi ({persona_error})."
+            return SubRun(sub_id, persona, text, False, 0)
+        context = derive_sub_context(deps.tool_context, subtask)
+        owned = deps.child_runs.start(
+            sub_id, lambda: _run_child(deps, subtask, persona, sub_id, depth, run_agent, context)
+        )
+        try:
+            outcome = await owned
+        finally:
+            deps.child_runs.detach(sub_id, owned)
+        text = outcome.final_text or "Alt ajan boş yanıt verdi."
+        ok = outcome.ok and bool(outcome.final_text.strip())
+        tool_calls = outcome.tool_calls_made
+        status = (
+            "completed"
+            if ok
+            else "budget"
+            if getattr(outcome, "budget_stopped", False)
+            else "failed"
+        )
+    except asyncio.CancelledError:
+        text = "Alt ajan iptal edildi."
+        status = "cancelled"
+        current = asyncio.current_task()
+        if current is not None and current.cancelling():
+            raise
+    except Exception as error:
+        # Ham hata metni credential veya dış araç içeriği taşıyabilir.
+        text = f"Alt ajan tamamlanamadı ({type(error).__name__})."
+    finally:
+        paths = changed_paths(context)
+        deps.publisher.publish(
+            SubAgentFinished(
+                tool_calls=tool_calls,
+                sub_id=sub_id,
+                ok=ok,
+                summary=_summary(text, SUMMARY_CHARS),
+                elapsed_s=round(time.monotonic() - started, 1),
+                status=status,
+                changed_paths=paths,
+            )
+        )
+    return SubRun(
+        sub_id=sub_id,
+        persona=persona,
+        text=text,
+        ok=ok,
+        tool_calls=tool_calls,
+        status=status,
+        changed_paths=paths,
+    )
+
+
+async def _run_child(
+    deps: AgentDeps,
+    subtask: SubTask,
+    persona: Persona,
+    sub_id: str,
+    depth: int,
+    run_agent: RunAgent,
+    context: ToolContext,
+) -> AgentOutcome:
+    from .loop import AgentDeps as _Deps
+
     sub_deps = _Deps(
         config=deps.config,
         publisher=ScopedPublisher(deps.publisher, sub_id),
         policy=deps.policy,
-        tool_context=derive_sub_context(deps.tool_context, subtask),
+        tool_context=context,
         base_registry=deps.base_registry,
         asker=deps.asker,
         code_index=deps.code_index,
@@ -197,32 +236,29 @@ async def run_subagent(
         capabilities=deps.capabilities,
         health=deps.health,
         channel=Channel.SUBAGENT,
+        budget=deps.budget,
+        deadline=deps.deadline,
+        child_runs=deps.child_runs,
+        execution=_child_execution(deps, subtask),
+        policy_factory=deps.policy_factory,
+        approval_revision=deps.approval_revision,
+        effect_recorder=deps.effect_recorder,
+        ancestor_mutation_barrier=deps.mutation_blocked_by_pending_input,
     )
-    outcome = await run_agent(
-        subtask.task,
-        sub_deps,
-        depth=depth + 1,
-        self_review=False,
-        extra_system=_member_brief(persona, subtask),
-        allowed_tools=_allowed_tools(deps, persona, subtask),
-    )
-    text = outcome.final_text or "(alt ajan boş yanıt verdi)"
-    deps.publisher.publish(
-        SubAgentFinished(
-            tool_calls=outcome.tool_calls_made,
-            sub_id=sub_id,
-            ok=outcome.ok,
-            summary=_summary(text),
-            elapsed_s=round(time.monotonic() - started, 1),
+    try:
+        return await run_agent(
+            subtask.task,
+            sub_deps,
+            depth=depth + 1,
+            self_review=False,
+            extra_system=_member_brief(persona, subtask),
+            allowed_tools=_allowed_tools(deps, persona, subtask),
         )
-    )
-    return SubRun(
-        sub_id=sub_id,
-        persona=persona,
-        text=text,
-        ok=outcome.ok,
-        tool_calls=outcome.tool_calls_made,
-    )
+    finally:
+        try:
+            await sub_deps.questions.close()
+        finally:
+            deps.tool_context.touched.update(sub_deps.tool_context.touched)
 
 
 async def run_team(
@@ -233,6 +269,16 @@ async def run_team(
     run_agent: RunAgent,
 ) -> list[SubRun]:
     """Görevleri dalga dalga, dalga içinde eşzamanlı koştur; sonuçlar giriş sırasında."""
+    # Her alan herhangi bir ajan başlamadan parent yetkisiyle doğrulanır.
+    subtasks = [
+        dataclasses.replace(
+            task,
+            write_scope=tuple(
+                str(path) for path in derive_sub_context(deps.tool_context, task).write_scope or ()
+            ),
+        )
+        for task in subtasks
+    ]
     limit = max(1, deps.config.runtime.max_parallel_agents)
     gate = asyncio.Semaphore(limit)
     results: dict[int, SubRun] = {}
@@ -248,55 +294,6 @@ async def run_team(
             for index in wave:
                 group.create_task(_one(index, len(wave)))
     return [results[index] for index in range(len(subtasks))]
-
-
-def derive_sub_context(context: ToolContext, subtask: SubTask | None = None) -> ToolContext:
-    """Alt ajan bağlamı: görev listesi AYRI, değişiklik kümesi ORTAK.
-
-    Alt ajan temiz bir görev listesiyle çalışır — ana ajanın listesini ezmesi
-    kullanıcının takip ettiği planı bozardı. `touched` PAYLAŞILIR: alt ajanın
-    yazdığı dosya ana doğrulama kapısından sızmasın. Erişim sınırı aynen taşınır;
-    yazma alanı bildirildiyse alt ajan yalnız oraya yazar.
-    """
-    scope: tuple[Path, ...] | None = context.write_scope
-    if subtask is not None and subtask.write_scope:
-        scope = tuple(context.root / raw for raw in subtask.write_scope)
-    return ToolContext(
-        root=context.root,
-        touched=context.touched,
-        changes=context.changes,
-        restrict_to_root=context.restrict_to_root,
-        extra_roots=context.extra_roots,
-        chrome=context.chrome,
-        write_scope=scope,
-    )
-
-
-def _allowed_tools(deps: AgentDeps, persona: Persona, subtask: SubTask) -> set[str] | None:
-    allowed: set[str] | None = set(persona.tools) if persona.tools is not None else None
-    if not subtask.read_only:
-        return allowed
-    readers = {tool.name for tool in deps.base_registry if not tool.mutating}
-    return readers if allowed is None else allowed & readers
-
-
-def _member_brief(persona: Persona, subtask: SubTask) -> str:
-    """Üyenin talimatı + bu görevin sınırları (modelin göreceği kısa not)."""
-    parts = [persona.prompt.strip()] if persona.prompt.strip() else []
-    if subtask.read_only:
-        parts.append("Bu görevde SALT OKUYORSUN: dosya değiştirme, yalnız bulgularını raporla.")
-    elif subtask.write_scope:
-        alan = ", ".join(subtask.write_scope)
-        parts.append(
-            f"Yalnız şu yollara yazabilirsin: {alan}. Başka ajanlar aynı anda başka "
-            "dosyalarda çalışıyor; alanın dışına çıkma."
-        )
-    return "\n\n".join(parts)
-
-
-def _summary(text: str) -> str:
-    first = " ".join(text.strip().split())
-    return first if len(first) <= SUMMARY_CHARS else first[: SUMMARY_CHARS - 1] + "…"
 
 
 # --------------------------------------------------------------------------- #
@@ -400,12 +397,4 @@ def _parse_subtask(args: ToolArgs) -> SubTask | str:
         persona=persona if isinstance(persona, str) else "",
         read_only=args.get("salt_okunur") is True,
         write_scope=tuple(item.strip() for item in scope if item.strip()),
-    )
-
-
-def _team_report(runs: Sequence[SubRun]) -> str:
-    """Ana ajana dönen birleşik rapor: her üyenin sonucu kendi başlığıyla."""
-    return "\n\n".join(
-        f"## {run.persona.title} ({run.sub_id}) — {'tamam' if run.ok else 'yarım'}\n{run.text}"
-        for run in runs
     )

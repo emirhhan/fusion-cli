@@ -212,3 +212,49 @@ def test_easing_css_degiskeni_cozulerek_sayilir():
     )
 
     assert len(analyse_css(css).easings) == 2
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        '<img src="" alt="unfilled hero">',
+        '<img src="missing-hero.png" alt="Kahve">',
+        '<img src="data:image/png;base64,broken" alt="Kahve">',
+    ],
+)
+def test_broken_image_cannot_pass_with_unrelated_motion(tmp_path, image):
+    _require_browser()
+    (tmp_path / "index.html").write_text(
+        GOOD_PAGE.replace("<h1>Kahve</h1>", "<h1>Kahve</h1>" + image), encoding="utf-8"
+    )
+    inspection = _inspect(tmp_path)
+    if inspection.invalid_reason:
+        pytest.skip(inspection.invalid_reason)
+    assert not _by_name(inspection)["görseller boş veya bozuk değil"]
+    assert not inspection.all_passed
+
+
+@pytest.mark.parametrize(
+    ("attributes", "expected"),
+    [
+        ('src="image.svg"', "yüklendi"),
+        ('src="image.svg" data-placeholder="true"', "yer tutucu"),
+        ('src="image.svg" loading="lazy" style="position:absolute;top:100000px"', "ertelendi"),
+    ],
+)
+def test_image_states_distinguish_loaded_placeholder_and_deferred(tmp_path, attributes, expected):
+    _require_browser()
+    from evals.kabul.areas._browser import BrowserUnavailableError, navigate, open_page
+
+    (tmp_path / "image.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">'
+        '<rect width="40" height="40" fill="brown"/></svg>',
+        encoding="utf-8",
+    )
+    (tmp_path / "index.html").write_text(f"<img {attributes}>", encoding="utf-8")
+    try:
+        with open_page(tmp_path) as opened:
+            navigate(opened)
+            assert opened.page.evaluate(animation._IMAGE_STATES_JS) == [expected]
+    except BrowserUnavailableError as error:
+        pytest.skip(str(error))
