@@ -101,6 +101,25 @@ class ReplState:
     #: Bekleyen görevin davranış kipi (hedef, mülakat…).
     pending_mode: Mode = Mode.NONE
 
+    @classmethod
+    def from_runtime_config(cls, config: Config, **kwargs: object) -> ReplState:
+        """Kayıtlı motor ve izin modunu alarak oturum durumu kur.
+
+        Bozuk ya da tanınmayan kayıt sessizce varsayılana düşer: elle düzenlenmiş
+        bir yapılandırma yüzünden uygulamanın açılmaması kabul edilemez.
+        """
+        try:
+            engine = Engine(config.runtime.engine)
+        except ValueError:
+            engine = Engine.AGENT
+        try:
+            approval = ApprovalMode(config.runtime.approval_mode)
+        except ValueError:
+            approval = ApprovalMode.AUTO
+        if approval is ApprovalMode.BYPASS:
+            approval = ApprovalMode.AUTO
+        return cls(config=config, engine=engine, approval=approval, **kwargs)  # type: ignore[arg-type]
+
     def take_pending(self) -> tuple[str, Mode]:
         """Bekleyen görevi al ve temizle."""
         task, mode = self.pending_task, self.pending_mode

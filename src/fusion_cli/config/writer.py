@@ -188,6 +188,41 @@ def write_workflow_mode(config: Config, mode: str, path: Path | None = None) -> 
     return target
 
 
+#: Kalıcı yazılabilen motor ve izin modu değerleri (`bypass` yok: bkz. `RuntimeConfig`).
+ENGINE_VALUES = ("agent", "fusion")
+APPROVAL_MODE_VALUES = ("auto", "edits", "security", "plan")
+
+
+def _write_runtime_value(config: Config, key: str, value: str, path: Path | None) -> Path:
+    target = path or _target_path(config)
+    with _config_lock(target):
+        existing = _read_existing(target)
+        runtime = existing.get("runtime")
+        updated = dict(runtime) if isinstance(runtime, dict) else {}
+        updated[key] = value
+        existing["runtime"] = updated
+        _atomic_write(target, existing)
+    return target
+
+
+def write_engine(config: Config, engine: str, path: Path | None = None) -> Path:
+    """Zeka motorunu `runtime:` altına yaz; diğer ayarlar KORUNUR."""
+    if engine not in ENGINE_VALUES:
+        raise ValueError(f"Geçersiz motor: {engine}. Seçenekler: {', '.join(ENGINE_VALUES)}")
+    return _write_runtime_value(config, "engine", engine, path)
+
+
+def write_approval_mode(config: Config, mode: str, path: Path | None = None) -> Path:
+    """İzin modunu `runtime:` altına yaz; `bypass` yalnız oturumluktur ve reddedilir."""
+    if mode == "bypass":
+        raise ValueError("İzinleri atla kipi yalnız oturum boyunca geçerlidir, kalıcı yazılmaz.")
+    if mode not in APPROVAL_MODE_VALUES:
+        raise ValueError(
+            f"Geçersiz izin modu: {mode}. Seçenekler: {', '.join(APPROVAL_MODE_VALUES)}"
+        )
+    return _write_runtime_value(config, "approval_mode", mode, path)
+
+
 def write_provider(config: Config, provider: str, path: Path | None = None) -> Path:
     """Sağlayıcı tercihini `runtime:` altına yaz; yazılan yolu döndür.
 

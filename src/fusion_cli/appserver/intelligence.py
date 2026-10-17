@@ -21,6 +21,7 @@ from ..config.writer import (
     write_workflow_mode,
 )
 from ..core.execution_mode import ExecutionMode
+from .runtime_prefs import persist_engine
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +201,9 @@ def _apply_engine(state: ReplState, value: object) -> dict[str, Any]:
     except ValueError:
         valid = ", ".join(ENGINE_LABELS)
         return {"ok": False, "metin": f"Geçersiz motor: {value}. Seçenekler: {valid}"}
+    error = persist_engine(state.config, state.engine.value)
+    if error is not None:
+        return {"ok": False, "metin": error}
     return status(state)
 
 

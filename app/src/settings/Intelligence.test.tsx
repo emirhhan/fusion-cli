@@ -92,3 +92,15 @@ describe("Intelligence", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("Çalışan görevi durdur.");
   });
 });
+
+describe("Intelligence — kalıcılık", () => {
+  it("ayarı değiştirip ekrandan çıkıp girince seçimler durur", async () => {
+    const client = fakeClient();
+    const first = render(<Intelligence client={client as unknown as ProtocolClient} />);
+    fireEvent.click(await screen.findByLabelText("Fusion"));
+    await waitFor(() => expect(client.request).toHaveBeenCalledWith("zeka.ayarla", { anahtar: "motor", deger: "fusion" }));
+    first.unmount();
+    render(<Intelligence client={client as unknown as ProtocolClient} />);
+    await waitFor(() => expect((screen.getByLabelText("Fusion") as HTMLInputElement).checked).toBe(true));
+  });
+});

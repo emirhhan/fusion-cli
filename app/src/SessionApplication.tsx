@@ -95,6 +95,7 @@ import { useDictation } from "./voice/useDictation";
 import type { PermissionBridge } from "./permissions/types";
 import { nativePermissionBridge } from "./platform/permissions";
 import { listenForFileDrops } from "./platform/drop";
+import { hydratePrefs, installPrefsMirror } from "./platform/prefsMirror";
 import { FeedbackDialog } from "./feedback/FeedbackDialog";
 import { ImageCreate } from "./imagecreate/ImageCreate";
 import { MainRail, type MainSection } from "./screens/MainRail";
@@ -543,6 +544,29 @@ export function SessionUygulama({
   useRemoteProjectSync(active?.client ?? null, projects.registry);
   const activeSessionId = active?.id;
   const activeClient = active?.client;
+  // Tercihler çekirdekte de yedeklenir (webview deposu güvenilmez). Çekirdek
+  // yerel depodan farklı bir değer getirdiyse açık ekranlar eski değeri
+  // okumuş olur; bu yüzden pencere bir kez yenilenir (oturumlar geri yüklenir).
+  const mirroredClient = useRef<typeof activeClient>(undefined);
+  const latestClient = useRef(activeClient);
+  latestClient.current = activeClient;
+  // Yazmalar her zaman GÜNCEL oturumun istemcisinden gider (ilki kapanmış olabilir).
+  const mirrorTarget = useRef({ request: (name: string, data: Record<string, unknown>) => latestClient.current!.request(name, data) }).current;
+  useEffect(() => {
+    if (!activeClient || mirroredClient.current) return;
+    mirroredClient.current = activeClient;
+    let restore: (() => void) | undefined;
+    void hydratePrefs(activeClient).then((changed) => {
+      restore = installPrefsMirror(mirrorTarget);
+      let reloaded = false;
+      try { reloaded = sessionStorage.getItem("fusion.prefs-reloaded") === "1"; } catch { /* Depo yoksa tek yenileme riski. */ }
+      if (changed && !reloaded) {
+        try { sessionStorage.setItem("fusion.prefs-reloaded", "1"); } catch { return; }
+        window.location.reload();
+      }
+    }).catch((error: unknown) => console.error("Arayüz tercihleri çekirdekten okunamadı", error));
+    return () => restore?.();
+  }, [activeClient]);
   const requestKitsHost = useCallback((name: string, data: Record<string, unknown>) => {
     if (!activeClient || !activeSessionId) return Promise.reject(new Error("Fusion oturumu yok."));
     return activeClient.request(name, data) as Promise<Record<string, unknown>>;

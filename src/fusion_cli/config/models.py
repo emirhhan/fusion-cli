@@ -137,6 +137,12 @@ class RuntimeConfig:
     # kullanıcı koyuyu seçse bile sonraki açılışta unutuluyordu. Yapılandırma
     # katmanı zaten kalıcı ve sınanmış; tercih oraya taşınır.
     theme: str = "system"
+    #: Zeka motoru: "agent" | "fusion". Eskiden yalnız oturumda yaşıyor, uygulama
+    #: yeniden açılınca tek ajana dönüyordu; artık kullanıcının seçimi kalıcıdır.
+    engine: str = "agent"
+    #: İzin modu: "auto" | "edits" | "security" | "plan". `bypass` BİLEREK kalıcı
+    #: değildir (tek tuşla yanlışlıkla açılmamalı); yalnız oturum boyunca geçerlidir.
+    approval_mode: str = "auto"
     #: Agent: istek bir playbook'u tetiklerse serbest döngü yerine deterministik akış
     #: çalışır (daha az model çağrısı). Varsayılan kapalı: mevcut davranış korunur.
     playbooks: bool = False

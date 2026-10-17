@@ -81,7 +81,7 @@ from ..tools.skill_pages import read_skill_page
 from ..ui import messages
 from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
-from . import intelligence
+from . import intelligence, ui_prefs
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .capabilities import catalog, detail
 from .chrome_bridge import ChromeBridge
@@ -145,6 +145,7 @@ from .personal_memory import PersonalMemory
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_event, encode_result
+from .runtime_prefs import persist_approval, persist_engine
 from .schedule import SCHEDULE_ROUTES
 from .tiers import list_tiers, select_tier
 from .usage import UsageMeter, usage_status
@@ -419,8 +420,8 @@ class AppSession:
         self._steering_turn: str | None = None
         self._steering_requests: set[str] = set()
         self._registry = build_registry(home)
-        self._state = ReplState(
-            config=config,
+        self._state = ReplState.from_runtime_config(
+            config,
             memory=build_memory(config, root=root),
             root=root,
             home=home,
@@ -928,6 +929,10 @@ class AppSession:
                     "metin": "Zeka ayarını değiştirmeden önce çalışan görevi durdur.",
                 }
             return intelligence.apply(self._state, request.data)
+        if request.name == "ayar.arayuz":
+            return ui_prefs.load()
+        if request.name == "ayar.arayuz_kaydet":
+            return ui_prefs.save(request.data)
         if request.name == "ayar.tema":
             return {"ok": True, "tema": self._state.config.runtime.theme}
         if request.name == "ayar.tema_kaydet":
@@ -1332,6 +1337,7 @@ class AppSession:
             if mode is not self._state.approval:
                 self._state.approval_memory.revoke()
             self._state.approval = mode
+            persist_approval(self._state.config, mode)
         except ValueError:
             valid = ", ".join(mode.value for mode in ApprovalMode)
             return {
@@ -1527,6 +1533,7 @@ class AppSession:
             return None
         try:
             self._state.engine = Engine(value)
+            persist_engine(self._state.config, self._state.engine.value)
         except ValueError:
             valid = ", ".join(engine.value for engine in Engine)
             return {
@@ -1693,6 +1700,7 @@ class AppSession:
             )
         if self._state.approval is not previous_approval:
             self._state.approval_memory.revoke()
+            persist_approval(self._state.config, self._state.approval)
         # Makrolar görevi yalnız HAZIRLAR (bkz. `cli/repl/commands.py::_macro`).
         # Terminal döngüsü hazırlanan görevi hemen çalıştırıyordu; masaüstünde bu
         # adım yoktu ve `/goal` "çalıştırılıyor…" deyip hiçbir tur başlatmıyordu.
