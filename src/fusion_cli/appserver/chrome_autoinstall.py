@@ -136,7 +136,14 @@ def drive_chrome_ui(extension_dir: Path, runner: Runner = _osascript) -> str:
     betik.write_text(_APPLESCRIPT, encoding="utf-8")
     cevap = runner(["osascript", str(betik), str(extension_dir)])
     if cevap.returncode != 0:
-        return "error"
+        # Neden görünür olsun: "error" tek başına izin mi, zaman aşımı mı, arayüz mü söylemiyordu.
+        neden = " ".join(cevap.stderr.split())[:160]
+        if "-1743" in cevap.stderr or "not allowed" in cevap.stderr.lower():
+            return (
+                "otomasyon-izni-yok: Sistem Ayarları > Gizlilik ve Güvenlik > Otomasyon'da "
+                "Fusion'ın Chrome'u denetlemesine izin ver"
+            )
+        return f"error: {neden}" if neden else "error"
     return cevap.stdout.strip() or "error"
 
 

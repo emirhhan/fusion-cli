@@ -14,6 +14,8 @@
     -->
     <key>NSMicrophoneUsageDescription</key>
     <string>Fusion ile konuşabilmen için mikrofonu kullanır. Ses bu bilgisayardan çıkmaz.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Fusion Browser eklentisini senin yerine kurmak için yalnız Chrome'un eklentiler sayfasını açıp kullanır. Başka bir şeye dokunmaz.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Söylediklerini yazıya çevirmek için macOS'un cihaz üstü tanıyıcısını kullanır. Ses buluta gönderilmez.</string>
 </dict>
