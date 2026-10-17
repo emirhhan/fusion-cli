@@ -20,6 +20,8 @@ import { ProtocolClient } from "./protocol/client";
 import { olayEkle } from "./protocol/olayAkisi";
 import type { Soru } from "./protocol/types";
 import { useProjectRegistry } from "./sessions/useProjectRegistry";
+import { ScreenWatchWindow } from "./remote/ScreenWatchWindow";
+import { useRemoteProjectSync } from "./remote/useRemoteProjectSync";
 import { useSessions, nextSessionId, saveWorkspaceMode, storedWorkspaceMode, type WorkspaceMode } from "./sessions/useSessions";
 import type { SessionTransport } from "./sessions/types";
 import { AppHeader } from "./screens/AppHeader";
@@ -538,6 +540,7 @@ export function SessionUygulama({
   const activeVoiceTurn = useRef<VoiceTurnHandle | null>(null);
   const pendingBargeIn = useRef(false);
   const active = controller.activeSession;
+  useRemoteProjectSync(active?.client ?? null, projects.registry);
   const activeSessionId = active?.id;
   const activeClient = active?.client;
   const requestKitsHost = useCallback((name: string, data: Record<string, unknown>) => {
@@ -1384,6 +1387,7 @@ export function SessionUygulama({
   }
 
   return (
+    <>
     <Shell
       rail={mainRail}
       surface={mainSurface}
@@ -1745,6 +1749,8 @@ export function SessionUygulama({
       sidebarCollapsed={layout.sidebarCollapsed}
       onSidebarClose={layout.toggleSidebar}
     />
+    <ScreenWatchWindow client={active.client} />
+    </>
   );
 }
 

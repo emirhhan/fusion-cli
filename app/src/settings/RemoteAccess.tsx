@@ -3,6 +3,7 @@ import type { ProtocolClient } from "../protocol/client";
 import { errorMessage } from "../protocol/result";
 import { Button } from "../ui/Button";
 import { ChoiceCards, Field, PanelGroup, PanelIntro, StatusPill, ToggleRow } from "./PanelParts";
+import { markRemoteInUse } from "../remote/remoteFlag";
 import { TunnelGuide } from "./RemoteGuide";
 
 /**
@@ -56,7 +57,9 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
 
   const reload = useCallback(async () => {
     try {
-      setStatus((await call("uzak.durum")) as unknown as Status);
+      const durum = (await call("uzak.durum")) as unknown as Status;
+      setStatus(durum);
+      markRemoteInUse(durum.dinliyor);
       setDevices(((await call("uzak.cihazlar")).cihazlar ?? []) as Device[]);
       setPending(((await call("uzak.bekleyen")).sorular ?? []) as Pending[]);
       const screen = await call("uzak.ekran_bekleyen");

@@ -34,10 +34,23 @@ renk/yazı dili (Kits'in sistem yazı tipi, 14 px, nötr mürekkep; açık/koyu 
 İmza için WebCrypto gerekir: **HTTPS veya localhost** şarttır. Cihaz sırrı IndexedDB'de dışa
 aktarılamaz anahtar olarak durur. Push bildirimi bu sürümde **yok**.
 
-- **Sohbetler:** bu telefondan ve masaüstünden açılan görevler sohbet satırı olarak listelenir;
-  sohbet balonları görevin olay akışından gelir (araç adımları, yanıt, hata, satır içi onay).
-  Uzaktan RPC'de "mevcut sohbete mesaj ekle" yöntemi yoktur: mesaj kutusundan yazılan her metin
-  yeni görevdir (ekranda bu da yazar). Masaüstündeki sohbet geçmişi uzaktan listelenmez.
+- **Sohbetler:** diskteki sohbetler (`sohbet.listele`) + telefondan açılanlar tek listede; proje süzgeci
+  (Tümü / Projesiz / proje adı), `+` ile yeni sohbet, satıra dokununca geçmiş açılır (`chats.history`).
+  Sohbet içinde proje ve model seçilir. Görev çalışırken sohbet listesi/geçmişi açılamaz (tek oturum
+  kilidi): telefon son listeyi korur ve "bitince yüklenecek" der.
+- **Mesaj:** yanıt akar (`delta` olayları ~4/sn'de birleştirilir), "Durdur" görevi iptal eder, `/görsel …`
+  çekirdekte çalışır ve üretilen görsel sohbette görünür (`media.get`: yalnız izinli köklerdeki görsel
+  dosyalar, ≤4 MB, anahtar/kimlik dizinleri hariç). Dosya/görsel eki (`uploads.put`): telefonda 1280 px
+  JPEG'e küçültülür, ≤700 KB, Fusion'ın kendi yükleme dizinine yazılır, ajan yolu `ekler` ile alır.
+  Ses: tarayıcının SpeechRecognition'ı (tr-TR); ses tarayıcı hizmetine gider, Fusion'dan geçmez.
+- **Projeler:** `projects.*` + `chats.assign`; masaüstü kaydı (`fusion.projects.v1`, WebView deposunda)
+  açıkken `uzak.projeler_esitle` ile çekirdeğe eşitlenir. Telefon klasör SEÇEMEZ; klasörlü projeler yalnız
+  masaüstünden gelir. Telefondan açılan proje klasörsüzdür (varsayılan kökte çalışır).
+- **Görevler:** çalışan/biten listesi, "Durdur" (iptal). **Zamanlananlar** listelenir, duraklatılır/sürdürülür;
+  "Şimdi çalıştır" görev metnini bu oturumda yeni sohbet olarak başlatır (masaüstü uygulaması kapalıyken de).
+  **Kits** yalnız `remote_allowed` olan kitler için listelenir.
+- **Yetki:** hiçbir kapsam genişletilmedi. Okuma: `project.read`; yazan çağrılar (proje/ek/model/zamanlama/
+  görev): `agent.run`; durdurma: `agent.cancel`; ekran: `desktop.observe`. Riskli işlemler yine masaüstü onayı ister.
 - **Canlı ekran:** JPEG kare akışı (WebRTC değil). Kutu görüntüyü en-boy oranını koruyarak sığdırır;
   dokununca tam ekran olur.
 
@@ -61,9 +74,10 @@ Daha önce konuşulan "ekran paylaşılırken masaüstünde ne gösterildiğini 
 yazılı bir plan bulunamadı. Tasarım: masaüstü ek ekran yakalaması YAPMAZ; telefona en son verilen
 kareyi gösterir ("telefonun gördüğü bu"). Çekirdek tarafı hazırdır: `uzak.ekran_onizleme`
 `{cihazId}` → `{ok, seq, at, jpegBase64}` (etkin oturum yoksa `ok: false`); `uzak.ekran_bekleyen`
-etkin cihazları verir. Kalan iş masaüstü arayüzüdür (Ayarlar → Uzaktan Erişim ekranı henüz yok):
-etkin oturum varken küçük yüzen bir pencere `uzak.ekran_onizleme`yi ~1 sn'de bir çağırır, cihaz
-adı + "Kes" düğmesi gösterir. Uygulama derlenmediği için bu fazda yazılmadı.
+etkin cihazları verir. Masaüstü tarafı yazıldı: `app/src/remote/ScreenWatchWindow.tsx` etkin oturum varken sağ altta küçük,
+kapatılabilir pencere açar (cihaz adı, "Kes", "Kapat"; kare ~1 sn'de bir). Yoklama yalnız Ayarlar → Uzaktan
+Erişim bir kez açılıp dinleme başlamışsa çalışır (`fusion.remote.inuse`); kurulmamış kullanıcıda `uzak.*`
+çağrılmaz. Uygulama derlenmedi; bileşen testleri (vitest) ve tsc temiz.
 
 ## Yönetim istekleri (masaüstü ↔ çekirdek)
 `uzak.durum`, `uzak.eslestir_baslat|onayla|reddet`, `uzak.cihazlar`, `uzak.cihaz_iptal`,
