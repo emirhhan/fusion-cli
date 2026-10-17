@@ -39,11 +39,11 @@ def test_ag_kopunca_ustel_beklemeyle_kendiliginden_geri_gelir(result: dict[str, 
     assert network["frames"] >= 2 and network["maxInflight"] == 1
 
 
-def test_oturum_bitince_bir_kez_yeniden_izin_ister_ve_akis_surer(result: dict[str, Any]) -> None:
+def test_oturum_bitince_kendiliginden_yeni_onay_istemez(result: dict[str, Any]) -> None:
     expiry = result["expiry"]
-    assert expiry["calls"].count("screen.request") == 1
-    assert expiry["renewed"] is True
-    assert expiry["states"][-1] == "live" and "pending" in expiry["states"]
+    assert expiry["calls"].count("screen.request") == 0
+    assert expiry["renewed"] is False
+    assert expiry["states"][-1] == "ended"
 
 
 def test_kullanici_durdurunca_yenileme_istenmez(result: dict[str, Any]) -> None:

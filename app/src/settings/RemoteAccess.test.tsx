@@ -1,8 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../protocol/client";
 import { RemoteAccess } from "./RemoteAccess";
+import { REMOTE_SCOPES_KEY } from "./remotePreferences";
 
+beforeEach(() => window.localStorage.clear());
 afterEach(cleanup);
 
 function fakeClient(over: Record<string, Record<string, unknown>> = {}) {
@@ -108,4 +110,62 @@ it("ekran isteği masaüstünde onaylanır ve etkin paylaşım kesilebilir", asy
   fireEvent.click(await screen.findByRole("button", { name: "Paylaşımı kes" }));
   await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.ekran_kes", { cihazId: "dev_2" }));
   expect(screen.getByLabelText(/Ekranı görme/)).toBeTruthy();
+});
+
+it("seçilen kapsamları yeniden açılışta korur ve yalnız sonraki eşleştirmeye uygular", async () => {
+  const client = fakeClient();
+  const view = render(<RemoteAccess client={client} />);
+  fireEvent.click(screen.getByLabelText(/Masaüstünü kontrol etme/));
+  view.unmount();
+  render(<RemoteAccess client={client} />);
+  expect((screen.getByLabelText(/Masaüstünü kontrol etme/) as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Telefon için eşleştirme kodu oluştur" }));
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.eslestir_baslat", {
+    kanal: "pwa", kapsamlar: ["project.read", "agent.run", "agent.cancel", "desktop.control"],
+  }));
+  expect(vi.mocked(client.request).mock.calls.every(([name]) => ["uzak.durum", "uzak.cihazlar", "uzak.bekleyen", "uzak.ekran_bekleyen", "uzak.eslestir_baslat"].includes(name))).toBe(true);
+});
+
+it.each(["{", "null", '{"version":2,"scopes":["desktop.control"]}', '{"version":1,"scopes":"desktop.control"}'])("bozuk kayıtla ek kapsamları kapalı açar: %s", (stored) => {
+  window.localStorage.setItem(REMOTE_SCOPES_KEY, stored);
+  render(<RemoteAccess client={fakeClient()} />);
+  expect((screen.getByLabelText(/Masaüstünü kontrol etme/) as HTMLInputElement).checked).toBe(false);
+});
+
+it("kayıtlı kapsamları doğrular ve yalnız kapsam tercihini saklar", () => {
+  window.localStorage.setItem(REMOTE_SCOPES_KEY, JSON.stringify({ version: 1, scopes: ["desktop.observe", "unknown", "desktop.observe", 7] }));
+  render(<RemoteAccess client={fakeClient()} />);
+  expect((screen.getByLabelText(/Ekranı görme/) as HTMLInputElement).checked).toBe(true);
+  fireEvent.change(screen.getByLabelText(/Bot belirteci/), { target: { value: "deneme-belirteci" } });
+  fireEvent.click(screen.getByLabelText(/Proje dosyalarını değiştirme/));
+  expect(JSON.parse(window.localStorage.getItem(REMOTE_SCOPES_KEY)!)).toEqual({ version: 1, scopes: ["desktop.observe", "project.write"] });
+});
+
+it("onay iste anahtarı varsayılan kapalıdır ve çekirdeğe yazılır", async () => {
+  const client = fakeClient();
+  render(<RemoteAccess client={client} />);
+  const toggle = (await screen.findByLabelText("Kodla eşleştirmede masaüstü onayı iste")) as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  fireEvent.click(toggle);
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.ayar", { onayIste: true }));
+});
+
+it("yeni cihaz eşleşince masaüstünde 'bağlandı' bildirimi gösterir", async () => {
+  let status: Record<string, unknown> = { sonEslesen: null };
+  const client = {
+    request: vi.fn(async (name: string) => ({
+      ok: true, dinliyor: false, adres: "", telegram: false, telegramHata: "", cihazSayisi: 0, port: 8791,
+      agAdresleri: [], cihazlar: [], sorular: [], kod: "ABCD2345", ...(name === "uzak.durum" ? status : {}),
+    })),
+  } as unknown as ProtocolClient;
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    render(<RemoteAccess client={client} />);
+    await screen.findByLabelText("Kodla eşleştirmede masaüstü onayı iste");
+    status = { sonEslesen: { cihazId: "d1", ad: "Telefonum", zaman: 5 } };
+    await vi.advanceTimersByTimeAsync(4100);
+    expect(await screen.findByText("Telefonum bağlandı.")).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
 });

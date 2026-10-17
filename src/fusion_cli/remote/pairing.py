@@ -1,7 +1,8 @@
 """Cihaz eşleştirme: tek kullanımlık kod + masaüstü onayı + tek seferlik teslim.
 
 Akış: masaüstü `begin` → cihaz kodu girer (`submit`) → masaüstü kullanıcısı
-`approve` eder → cihaz `claim` ile kimlik ve sırrını bir kez alır.
+`approve` eder → cihaz `claim` ile kimlik ve sırrını bir kez alır. İmzalı (PWA) kanalda
+"onay iste" ayarı kapalıysa `submit` kodu kendiliğinden onaylar.
 Kod yanlış denemeleri sınırlanır; onaylanmamış kod sır vermez.
 """
 
@@ -50,7 +51,11 @@ class PairingService:
         clock: Clock,
         *,
         token_bytes: Callable[[int], bytes] = os.urandom,
+        require_approval: Callable[[], bool] = lambda: True,
+        on_paired: Callable[[Device], None] | None = None,
     ) -> None:
+        self._require_approval = require_approval
+        self._on_paired = on_paired
         self._registry = registry
         self._clock = clock
         self._token_bytes = token_bytes
@@ -84,6 +89,10 @@ class PairingService:
         pending.submitted = True
         pending.device_name = device_name
         pending.external_id = external_id
+        # Kodu masaüstünde kullanıcının KENDİSİ üretti (2 dk, hız sınırlı): imzalı (PWA) kanalda
+        # doğru kod eşleştirmeyi onaylar. Telegram kanalı ve "onay iste" ayarı eskisi gibi kalır.
+        if pending.channel == CHANNEL_SIGNED and not self._require_approval():
+            self.approve(pending.code)
         return pending.scopes
 
     def approve(self, code: str) -> Device:
@@ -101,7 +110,16 @@ class PairingService:
         if pending.channel != CHANNEL_SIGNED:
             self._pending.pop(pending.code, None)  # sır teslimi yok: kimlik kanalda
         pending.claim_expires_at = self._clock.now() + PAIRING_CLAIM_TTL_SECONDS
+        if self._on_paired is not None:
+            self._on_paired(device)
         return device
+
+    def is_approved(self, code: str) -> bool:
+        """Kod girildi ve cihaz kaydı oluştu mu (teslim bekliyor)?"""
+        try:
+            return self._lookup(code).approved_device is not None
+        except PairingError:
+            return False
 
     def reject(self, code: str) -> bool:
         return self._pending.pop(code.strip().upper(), None) is not None

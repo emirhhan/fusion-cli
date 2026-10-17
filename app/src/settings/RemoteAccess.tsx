@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import { errorMessage } from "../protocol/result";
 import { Button } from "../ui/Button";
 import { ChoiceCards, Field, PanelGroup, PanelIntro, StatusPill, ToggleRow } from "./PanelParts";
 import { markRemoteInUse } from "../remote/remoteFlag";
 import { TunnelGuide } from "./RemoteGuide";
+import { ELEVATED_SCOPES, readPairingScopes, savePairingScopes } from "./remotePreferences";
 
 /**
  * Uzaktan Erişim — telefon (PWA) ve Telegram eşleştirme.
@@ -17,18 +18,13 @@ interface Device { deviceId: string; name: string; channel: string; scopes: stri
 interface ScreenDevice { cihazId: string; ad: string }
 interface Pending { soruId: string; runId: string; baslik: string; hedef: string; onay: boolean }
 interface Status {
+  onayIste?: boolean;
+  sonEslesen?: { cihazId: string; ad: string; zaman: number } | null;
   dinliyor: boolean; adres: string; telegram: boolean; telegramHata: string; cihazSayisi: number;
   port: number; agAdresleri: string[];
 }
 
 type Mode = "local" | "tunnel" | "lan";
-
-const ELEVATED = [
-  { id: "project.write", etiket: "Proje dosyalarını değiştirme" },
-  { id: "desktop.observe", etiket: "Ekranı görme (telefonda canlı ekran)" },
-  { id: "desktop.control", etiket: "Masaüstünü kontrol etme" },
-  { id: "production.deploy", etiket: "Üretime yayın" },
-];
 
 export function RemoteAccess({ client }: { client: ProtocolClient }) {
   const [status, setStatus] = useState<Status | null>(null);
@@ -37,7 +33,7 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
   const [screenAsks, setScreenAsks] = useState<ScreenDevice[]>([]);
   const [screenLive, setScreenLive] = useState<ScreenDevice[]>([]);
   const [code, setCode] = useState<{ kod: string; kanal: string } | null>(null);
-  const [extra, setExtra] = useState<string[]>([]);
+  const [extra, setExtra] = useState<string[]>(readPairingScopes);
   const [token, setToken] = useState("");
   const [mode, setMode] = useState<Mode>("tunnel");
   const [port, setPort] = useState("8791");
@@ -45,6 +41,8 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
   const [certificate, setCertificate] = useState("");
   const [keyFile, setKeyFile] = useState("");
   const [message, setMessage] = useState("");
+  const [notice, setNotice] = useState("");
+  const seenPairing = useRef<number | null | undefined>(undefined);
 
   const call = useCallback(
     async (name: string, data: Record<string, unknown> = {}) => {
@@ -60,6 +58,14 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
       const durum = (await call("uzak.durum")) as unknown as Status;
       setStatus(durum);
       markRemoteInUse(durum.dinliyor);
+      // Yeni bir cihaz eşleşince (kendiliğinden ya da onayla) masaüstünde bildirim göster.
+      const son = durum.sonEslesen ?? null;
+      if (seenPairing.current !== undefined && son && son.zaman !== seenPairing.current) {
+        setNotice(`${son.ad} bağlandı.`);
+        setCode(null);
+        window.setTimeout(() => setNotice(""), 10000);
+      }
+      seenPairing.current = son ? son.zaman : null;
       setDevices(((await call("uzak.cihazlar")).cihazlar ?? []) as Device[]);
       setPending(((await call("uzak.bekleyen")).sorular ?? []) as Pending[]);
       const screen = await call("uzak.ekran_bekleyen");
@@ -104,6 +110,7 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
         (masaüstü kontrolü, dış servis yazma, silme) yalnız burada onaylanır.
       </PanelIntro>
       {message && <p className="px-error" role="alert">{message}</p>}
+      {notice && <p className="px-note" role="status">{notice}</p>}
 
       <PanelGroup title="Telefon (PWA)">
         <div className="px-item">
@@ -186,15 +193,26 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
 
       {mode === "tunnel" && <TunnelGuide port={port} />}
 
-      <PanelGroup note="Varsayılan kapalı. Yalnız ihtiyacın olanı aç." title="Ek yetkiler">
-        {ELEVATED.map((item) => (
+      <PanelGroup note="Seçimin bu bilgisayarda hatırlanır ve yalnız yeni eşleştirmelere uygulanır. Mevcut cihazların yetkileri değişmez." title="Ek yetkiler">
+        {ELEVATED_SCOPES.map((item) => (
           <ToggleRow
             checked={extra.includes(item.id)}
             key={item.id}
-            onChange={(checked) => setExtra(checked ? [...extra, item.id] : extra.filter((id) => id !== item.id))}
+            onChange={(checked) => {
+              const next = checked ? [...extra, item.id] : extra.filter((id) => id !== item.id);
+              setExtra(next);
+              savePairingScopes(next);
+            }}
             title={item.etiket}
           />
         ))}
+      </PanelGroup>
+      <PanelGroup note="Kapalıyken telefonda doğru kodu girmek yeterlidir (kodu sen ürettin, 2 dakika geçerli). Açıkken her eşleştirmeyi burada onaylarsın. Telegram her zaman onay ister." title="Kodla eşleştirme">
+        <ToggleRow
+          checked={status?.onayIste === true}
+          onChange={(checked) => act(async () => { await call("uzak.ayar", { onayIste: checked }); })}
+          title="Kodla eşleştirmede masaüstü onayı iste"
+        />
       </PanelGroup>
       <div className="px-actions">
         <Button onClick={() => begin("pwa")}>Telefon için eşleştirme kodu oluştur</Button>
@@ -204,7 +222,11 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
         <div className="px-pairing" role="status">
           <p className="px-note">Eşleştirme kodu (2 dakika geçerli)</p>
           <strong className="px-pairing__code">{code.kod}</strong>
-          <p className="px-note">Cihaz kodu girdikten sonra onayla.</p>
+          <p className="px-note">
+            {status?.onayIste || code.kanal === "telegram"
+              ? "Cihaz kodu girdikten sonra onayla."
+              : "Kodu telefona gir; doğru kod kendiliğinden bağlanır."}
+          </p>
           <div className="px-actions" style={{ justifyContent: "center" }}>
             <Button onClick={() => act(async () => { await call("uzak.eslestir_onayla", { kod: code.kod }); setCode(null); })}>
               Cihazı onayla

@@ -114,6 +114,11 @@ class AppSessionBackend:
         return True
 
     async def answer(self, question_id: str, answer: dict[str, Any]) -> bool:
+        answer = dict(answer)
+        answer.setdefault(
+            "decisionId",
+            uuid.uuid5(uuid.NAMESPACE_URL, question_id + json.dumps(answer, sort_keys=True)).hex,
+        )
         request_id = "uzak-" + uuid.uuid4().hex
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._results[request_id] = future

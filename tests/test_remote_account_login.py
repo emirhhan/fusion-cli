@@ -55,7 +55,7 @@ async def test_guvenli_kanal_degilse_hesap_girisi_kapali(rig: Rig) -> None:
     assert denied.status_code == 403 and not rig.registry.list_devices()
 
 
-async def test_hesapla_giris_yalniz_varsayilan_kapsamla_cihaz_kaydeder(rig: Rig) -> None:
+async def test_hesapla_giris_ekran_izleme_isteyebilir_ama_yazma_yetkisi_almaz(rig: Rig) -> None:
     _login_rig(rig)
     assert (await _post(rig, "/v1/auth/options", {})).json() == {"accountLogin": True}
     response = await _post(
@@ -65,13 +65,20 @@ async def test_hesapla_giris_yalniz_varsayilan_kapsamla_cihaz_kaydeder(rig: Rig)
     )
     body = response.json()
     assert response.status_code == 200 and body["state"] == "onaylandi"
-    assert set(body["scopes"]) == set(DEFAULT_SCOPES)
-    assert not {"desktop.control", "desktop.observe", "project.write"} & set(body["scopes"])
+    assert set(body["scopes"]) == set(DEFAULT_SCOPES) | {"desktop.observe"}
+    assert not {"desktop.control", "project.write", "production.deploy"} & set(body["scopes"])
     device = rig.registry.active(body["deviceId"])
     assert device is not None and device.name == "iPhone"
     # Verilen sır gerçekten çalışır: imzalı RPC kabul edilir.
     ok = await rig.rpc(body["deviceId"], bytes.fromhex(body["secret"]), "service.status")
     assert ok.status_code == 200
+
+    pending = await rig.rpc(body["deviceId"], bytes.fromhex(body["secret"]), "screen.request")
+    assert pending.json()["ok"] is True
+    assert body["deviceId"] in rig.service.screen_gate.pending()
+    assert body["deviceId"] not in rig.service.screen_gate.active()
+    frame = await rig.rpc(body["deviceId"], bytes.fromhex(body["secret"]), "screen.frame")
+    assert frame.json()["ok"] is False  # Masaüstü onayı olmadan görüntü verilmez.
 
 
 async def test_yanlis_parola_genel_mesaj_verir_ve_kilitler(rig: Rig) -> None:

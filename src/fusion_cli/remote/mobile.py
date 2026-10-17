@@ -15,6 +15,7 @@ from typing import Any
 
 from ..core.protocols import Clock
 from .backend import TaskBackend
+from .navigation import NavigationHost
 from .projects import ProjectError, ProjectStore
 from .scopes import Scope
 from .uploads import MediaReader, UploadError, UploadStore
@@ -43,7 +44,9 @@ class MobileApi:
         clock: Clock,
         default_root: Path,
         session_lock: asyncio.Lock,
+        navigation: NavigationHost | None = None,
     ) -> None:
+        self._navigation = navigation
         self._backend = backend
         self._projects = projects
         self._uploads = uploads
@@ -62,6 +65,8 @@ class MobileApi:
     def methods(self) -> dict[str, tuple[str, Method]]:
         read, run = Scope.PROJECT_READ.value, Scope.AGENT_RUN.value
         return {
+            "desktop.targets": (Scope.DESKTOP_OBSERVE.value, self._desktop_targets),
+            "desktop.focus": (run, self._desktop_focus),
             "projects.list": (read, self._projects_list),
             "projects.create": (run, self._projects_create),
             "projects.rename": (run, self._projects_rename),
@@ -76,6 +81,30 @@ class MobileApi:
             "uploads.put": (run, self._uploads_put),
             "media.get": (read, self._media_get),
         }
+
+    async def _desktop_targets(self, _params: dict[str, Any]) -> dict[str, Any]:
+        if self._navigation is None:
+            raise MobileError("desteklenmiyor", "Masaüstü dock bağlantısı yok.")
+        result = await self._navigation.list()
+        if not result.get("ok"):
+            raise MobileError(
+                "hedef_yok",
+                str(
+                    result.get("native_error")
+                    or result.get("chrome_error")
+                    or "Açık hedefler alınamadı."
+                ),
+            )
+        return dict(result)
+
+    async def _desktop_focus(self, params: dict[str, Any]) -> dict[str, Any]:
+        target = params.get("target")
+        if self._navigation is None or not isinstance(target, dict):
+            raise MobileError("gecersiz_istek", "Geçerli açık pencere veya sekme gerekli.")
+        result = await self._navigation.focus(target)
+        if not result.get("ok"):
+            raise MobileError("hedef_yok", str(result.get("metin", "Hedef seçilemedi.")))
+        return dict(result)
 
     # ---- tasks.create için yardımcılar ----
     def run_options(self, params: dict[str, Any]) -> dict[str, Any]:

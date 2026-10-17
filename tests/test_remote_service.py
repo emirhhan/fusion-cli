@@ -56,7 +56,14 @@ class FakeBackend:
         self.started.append(prompt)
         sink("started", {})
         if self.ask is not None:
-            sink("question", {"questionId": "q1", **self.ask})
+            sink(
+                "question",
+                {
+                    "questionId": "q1",
+                    "secenekler": [{"deger": "once"}, {"deger": "deny"}],
+                    **self.ask,
+                },
+            )
         await self.release.wait()
         sink("done", {"summary": "bitti sk-abcdefghijklmnopqrstuv"})
 

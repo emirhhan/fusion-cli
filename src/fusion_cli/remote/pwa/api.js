@@ -5,8 +5,14 @@ export const REQUEST_TIMEOUT_MS = 20000;
 const RETRYABLE = new Set(["sira_eski", "nonce_tekrar"]);
 
 export async function postJson(path, payload) {
-  const response = await fetch(path, { method: "POST", body: JSON.stringify(payload) });
-  return { status: response.status, body: await response.json() };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(path, { method: "POST", body: JSON.stringify(payload), signal: controller.signal });
+    return { status: response.status, body: await response.json() };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // İmzalı RPC istemcisi.
@@ -15,7 +21,8 @@ export async function postJson(path, payload) {
 // - `auth` işaretli hata YALNIZ sunucu "cihaz_iptal" derse fırlar; diğer 401'ler geçici hatadır.
 export function createApi(device, { fetchImpl = fetch, now = Date.now } = {}) {
   let lastSeq = 0;
-  let chain = Promise.resolve();
+  const queue = [];
+  let busy = false;
 
   async function attempt(method, params) {
     lastSeq = Math.max(lastSeq + 1, now());
@@ -60,9 +67,19 @@ export function createApi(device, { fetchImpl = fetch, now = Date.now } = {}) {
     return response.json();
   }
 
+  function pump() {
+    if (busy || queue.length === 0) return;
+    busy = true;
+    const urgent = queue.findIndex((item) => item.method === "tasks.events" || item.method.startsWith("approvals."));
+    const item = queue.splice(urgent < 0 ? 0 : urgent, 1)[0];
+    // İmza sırası yalnız gönderim sırasında üretilir; öncelik tek uçuş kuralını bozmaz.
+    void run(item.method, item.params).then(item.resolve, item.reject).finally(() => { busy = false; pump(); });
+  }
+
   return function rpc(method, params = {}) {
-    const next = chain.then(() => run(method, params));
-    chain = next.catch(() => {});
-    return next;
+    return new Promise((resolve, reject) => {
+      queue.push({ method, params, resolve, reject });
+      queueMicrotask(pump);
+    });
   };
 }

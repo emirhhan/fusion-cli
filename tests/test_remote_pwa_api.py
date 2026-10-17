@@ -48,3 +48,13 @@ def test_yalniz_cihaz_iptali_eslesmeyi_siler(result: dict[str, Any]) -> None:
 
 def test_hata_kuyrugu_tikamaz(result: dict[str, Any]) -> None:
     assert result["queue"] == {"first": "ag", "second": True}
+
+
+def test_onay_ve_sohbet_olaylari_liste_kuyrugunun_onune_gecer(result: dict[str, Any]) -> None:
+    assert result["priority"] == [
+        "initial",
+        "approvals.respond",
+        "tasks.events",
+        "projects.list",
+        "schedules.list",
+    ]

@@ -27,9 +27,9 @@ h1, h2 { font-family: var(--font); margin: 0; }
 .ico { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 /* eşleştirme */
-.pair { max-width: 420px; margin: 0 auto; padding: calc(32px + var(--safe-t)) 20px 24px; display: flex; flex-direction: column; gap: 10px; }
-.logo { align-self: center; border-radius: 16px; }
-.pair h1 { text-align: center; font-size: 22px; }
+.pair { max-width: 400px; min-height: 100svh; margin: 0 auto; padding: calc(32px + var(--safe-t)) 24px calc(32px + var(--safe-b)); display: flex; flex-direction: column; justify-content: center; gap: 12px; }
+.logo { align-self: center; object-fit: contain; }
+.pair h1 { text-align: center; font-size: 22px; margin-bottom: 24px; }
 label { font-weight: 600; margin-top: 6px; }
 input, textarea { font: inherit; width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--raised); color: inherit; }
 input:focus-visible, textarea:focus-visible, button:focus-visible, .screen-box:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -86,13 +86,12 @@ body.in-chat .tabs, body.in-chat .main-bar, body.in-chat .banner, body.in-chat .
 .chat > .muted { margin: 4px 0 0; }
 
 /* canlı ekran: en-boy oranı korunur, kutuya sığar */
-.screen-box { position: relative; display: grid; place-items: center; background: #000; border-radius: 14px; overflow: hidden; height: min(60dvh, calc((100vw - 32px) * 1.1)); }
+.screen-box { position: relative; display: grid; place-items: center; background: var(--sidebar); border-radius: 14px; overflow: hidden; width: 100%; height: auto; }
 .screen-box img { grid-area: 1 / 1; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
 .screen-box:not(.empty-screen) .screen-empty, .screen-box.empty-screen img { display: none; }
 .screen-empty { grid-area: 1 / 1; margin: 0; }
 .chip { display: inline-block; margin: 10px 0 0; padding: 4px 12px; border-radius: 99px; background: var(--bubble-user); font-size: 12px; }
 .chip.ok { color: var(--success); } .chip.bad { color: var(--danger); }
-body.fullscreen .screen-box { position: fixed; inset: 0; z-index: 50; height: 100dvh; border-radius: 0; padding: var(--safe-t) 0 var(--safe-b); }
 body.fullscreen .tabs { display: none; }
 @media (orientation: landscape) and (max-height: 500px) { .screen-box { height: calc(100dvh - 140px); } }
 @media (prefers-reduced-motion: reduce) { .typing span { animation: none; opacity: .6; } }
@@ -127,3 +126,33 @@ body.fullscreen .tabs { display: none; }
 .btn.small.danger { color: var(--danger); }
 .toast { position: fixed; left: 16px; right: 16px; bottom: calc(var(--tab-h) + var(--safe-b) + 12px); z-index: 70; margin: 0; padding: 10px 14px; border-radius: 12px; background: var(--ink); color: var(--canvas); text-align: center; }
 body.in-chat .toast { bottom: calc(76px + var(--safe-b)); }
+
+.account-login { display: flex; flex-direction: column; gap: 10px; }
+.account-login h2 { font-size: 20px; font-weight: 600; line-height: 1.4; text-align: center; margin: 0 0 18px; }
+.login-link { min-height: 44px; border: 0; padding: 8px; background: transparent; color: var(--muted); font: inherit; text-decoration: underline; cursor: pointer; }
+
+/* Telefonda açık, metni okunabilir izin kartı ve hedef dock'u. */
+.screen-box.empty-screen { min-height: 140px; padding: 24px; color: var(--muted); }
+.screen-box img { width: 100%; max-height: 65dvh; }
+body.fullscreen .screen-box { position: fixed; inset: 0; z-index: 80; width: 100vw; height: 100dvh; max-height: none; aspect-ratio: auto !important; border-radius: 0; background: var(--canvas); padding: var(--safe-t) 0 var(--safe-b); }
+body.fullscreen .screen-box img { max-height: 100dvh; width: 100%; height: 100%; object-fit: contain; }
+.screen-consent { display: grid; gap: 12px; padding: 16px; margin: 12px 0; background: var(--sidebar); border: 1px solid var(--border); border-radius: 14px; }
+.screen-consent h3, .screen-consent p { margin: 0; }
+.screen-consent__remember { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 400; }
+.screen-consent__remember input { width: 20px; height: 20px; padding: 0; flex: none; accent-color: var(--accent); }
+.mini-dock { margin: 12px 0; }
+.mini-dock__items { display: flex; gap: 8px; overflow-x: auto; padding: 6px 0; }
+.mini-dock__item { position: relative; flex: none; display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 12px; background: var(--sidebar); color: var(--ink); font: inherit; font-weight: 600; }
+.mini-dock__item img { width: 28px; height: 28px; object-fit: contain; }
+.mini-dock__kind { position: absolute; bottom: 0; right: 3px; font-size: 10px; }
+.mini-dock__error { margin: 4px 0; }
+.approval-eyebrow { color: var(--muted); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+.approval-title { font-size: 15px; margin: 0; line-height: 1.4; }
+.approval-target { margin: 4px 0; padding: 10px; background: var(--sidebar); border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.approval-actions, .approval-confirm { display: grid; gap: 8px; margin-top: 8px; }
+.approval-confirm { border-top: 1px solid var(--border); padding-top: 12px; }
+.approval-confirm p, .approval-error { margin: 0; }
+.approval-details { padding: 8px 0; }
+.approval-details summary { min-height: 32px; cursor: pointer; color: var(--muted); }
+.approval-details pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.approval[data-resolved="true"] { border-color: var(--success); }

@@ -2,7 +2,7 @@ import { approvalCard, pendingFromEvents } from "./approvals.js";
 import { createApi, postJson } from "./api.js";
 import { createChat, newChatId } from "./chat.js";
 import { h, icon } from "./dom.js";
-import { createScreenStream } from "./screen-stream.js";
+import { createScreenView } from "./screen-view.js";
 import { importKey } from "./signing.js";
 import { kv } from "./store.js";
 import { renderChats } from "./views-chats.js";
@@ -29,13 +29,14 @@ const ctx = {
 let current = "sohbetler";
 let pollTimer = null;
 let chat = null;
-let stream = null;
+let screen = null;
 let rendered = false;
 
 function say(text, cls = "") {
   const el = $("durum");
   el.textContent = text;
-  el.className = `muted ${cls}`;
+  el.hidden = !text;
+  el.className = `muted center ${cls}`;
 }
 
 function setConnection(ok, text) {
@@ -45,19 +46,42 @@ function setConnection(ok, text) {
 }
 
 // ---- eşleştirme ----
+const PAIR_WAIT_MS = 120000; // sunucudaki kod/teslim ömrüyle aynı
+const PAIR_POLL_MS = 1500;
+
 async function pair() {
   const code = $("kod").value.trim().toUpperCase();
-  if (!code) return;
-  const submitted = await postJson("/v1/pair/submit", { code, deviceName: $("cihazAdi").value });
-  if (submitted.status !== 200) return say(submitted.body.message || "Kod kabul edilmedi.", "danger");
-  say("Masaüstünde onayla…");
-  for (let i = 0; i < 60; i += 1) {
-    await new Promise((r) => setTimeout(r, 2000));
-    const claimed = await postJson("/v1/pair/claim", { code });
-    if (claimed.status !== 200) return say(claimed.body.message || "Eşleştirme başarısız.", "danger");
-    if (claimed.body.state === "onaylandi") return finishPairing(claimed.body);
+  if (!code) return say("Masaüstünde oluşturduğun eşleştirme kodunu gir.", "danger");
+  const button = $("eslestirDugme");
+  if (button.disabled) return;
+  button.disabled = true;
+  say("Kod gönderiliyor…");
+  try {
+    const submitted = await postJson("/v1/pair/submit", { code, deviceName: $("cihazAdi").value });
+    if (submitted.status === 429) return say("Çok fazla deneme. Birkaç dakika bekleyip tekrar dene.", "danger");
+    if (submitted.status !== 200) return say(submitted.body.message || "Kod kabul edilmedi.", "danger");
+    // Kod doğruysa masaüstü onayı gerekmeyebilir: sunucu "onaylandi" der ve cihaz hemen alınır.
+    let waiting = submitted.body.state !== "onaylandi";
+    if (!waiting) say("Kod doğru, bağlanıyor…");
+    const deadline = Date.now() + PAIR_WAIT_MS;
+    while (Date.now() < deadline) {
+      if (waiting) {
+        const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+        say(`Masaüstünde Fusion → Uzaktan Erişim’den bu cihazı onayla (${left} sn)…`);
+        await new Promise((r) => setTimeout(r, PAIR_POLL_MS));
+      }
+      const claimed = await postJson("/v1/pair/claim", { code });
+      if (claimed.status === 429) return say("Çok fazla deneme. Birkaç dakika bekleyip tekrar dene.", "danger");
+      if (claimed.status !== 200) return say(claimed.body.message || "Eşleştirme başarısız.", "danger");
+      if (claimed.body.state === "onaylandi") return await finishPairing(claimed.body);
+      waiting = true;
+    }
+    say("Onay zaman aşımına uğradı. Masaüstünden yeni kod oluşturup tekrar dene.", "danger");
+  } catch {
+    say("Eşleştirme tamamlanamadı: bilgisayara ulaşılamıyor veya cihaz kaydedilemedi. Tailscale bağlantısını kontrol et; masaüstünden yeni kod oluşturup tekrar dene.", "danger");
+  } finally {
+    button.disabled = false;
   }
-  say("Onay zaman aşımına uğradı.", "danger");
 }
 
 async function finishPairing(body) {
@@ -82,12 +106,26 @@ async function accountLogin() {
   }
 }
 
+function showLogin(account, focus = false) {
+  $("hesapGiris").hidden = !account;
+  $("kodGiris").hidden = account;
+  $("hesapParola").value = "";
+  // Durum satırı her zaman etkin formun ana düğmesinin ALTINDA görünür (üstte kaybolmasın).
+  $(account ? "hesapDugme" : "eslestirDugme").after($("durum"));
+  say("");
+  if (focus) $(account ? "hesapKimlik" : "kod").focus();
+}
+
 async function loadAuthOptions() {
   try {
     const result = await postJson("/v1/auth/options", {});
-    $("hesapGiris").hidden = !result.body.accountLogin;
+    const enabled = result.status === 200 && result.body.accountLogin === true;
+    $("hesabaDon").hidden = !enabled;
+    if (!enabled) showLogin(false);
   } catch {
-    $("hesapGiris").hidden = true;
+    $("hesabaDon").hidden = true;
+    showLogin(false);
+    say("Bilgisayara ulaşılamıyor. Tailscale bağlantısını kontrol edip tekrar dene.", "danger");
   }
 }
 
@@ -107,7 +145,7 @@ function buildTabs() {
 }
 
 function show(id) {
-  if (current === "ekran" && id !== "ekran") stream?.detach();
+  if (current === "ekran" && id !== "ekran") screen?.close();
   current = id;
   document.body.classList.remove("fullscreen");
   $("sohbet").hidden = true;
@@ -199,10 +237,13 @@ async function renderApprovals() {
   for (const task of ctx.tasks.filter((t) => t.state === "waiting_approval")) {
     const events = await rpc("tasks.events", { runId: task.runId });
     for (const [, question] of pendingFromEvents(events.data?.events ?? [])) {
-      cards.push(h("div", { class: "approval-wrap" }, h("div", { class: "muted small" }, task.summary), approvalCard(question, rpc, refresh)));
+      const existing = [...box.querySelectorAll("[data-question]")].find((node) => node.dataset.question === question.questionId);
+      cards.push(existing?.closest(".approval-wrap") || h("div", { class: "approval-wrap" }, h("div", { class: "muted small" }, task.summary), approvalCard(question, rpc, refresh)));
     }
   }
-  box.replaceChildren(...(cards.length ? cards : [h("p", { class: "empty" }, "Bekleyen onay yok.")]));
+  if (cards.length !== box.children.length || cards.some((card, index) => card !== box.children[index])) {
+    box.replaceChildren(...(cards.length ? cards : [h("p", { class: "empty" }, "Bekleyen onay yok.")]));
+  }
   const badge = $("rozet-onaylar");
   if (badge) { badge.textContent = String(cards.length); badge.hidden = cards.length === 0; }
 }
@@ -234,14 +275,21 @@ async function loadKits() {
 }
 
 let lastSlow = 0;
-async function refresh(authOnly = false) {
+let refreshing = null;
+function refresh(authOnly = false) {
   if (authOnly === true) return forget();
+  if (!refreshing) refreshing = refreshNow().finally(() => { refreshing = null; });
+  return refreshing;
+}
+async function refreshNow() {
   try {
     const status = await rpc("service.status");
     const list = await rpc("tasks.list");
     const next = list.data?.tasks ?? [];
     const changed = JSON.stringify(next) !== JSON.stringify(ctx.tasks) || !rendered;
     ctx.tasks = next;
+    chat?.reconcile(next);
+    if (changed) render();
     ctx.notice = status.data?.notice ?? "";
     const slow = Date.now() - lastSlow > 20000;
     if (changed || slow) {
@@ -250,7 +298,7 @@ async function refresh(authOnly = false) {
     }
     rendered = true;
     setConnection(true, "");
-    if (changed || slow) render(); // aynı veriyle yeniden çizilmez: dokunuş/seçim ortasında düğüm kaybolmasın
+    if (changed || slow) render();
   } catch (error) {
     if (error.auth) return forget();
     setConnection(false, "Bilgisayara ulaşılamıyor; yeniden deneniyor…");
@@ -268,40 +316,9 @@ async function forget() {
 }
 
 // ---- canlı ekran ----
-const SCREEN_TEXT = {
-  idle: "Ekran paylaşılmıyor.",
-  pending: "Bilgisayarda onay bekleniyor…",
-  live: "Canlı",
-  paused: "Sayfa arka planda; duraklatıldı.",
-  reconnecting: "Bağlantı koptu, yeniden deneniyor…",
-  ended: "Oturum bitti.",
-  stopped: "Ekran paylaşımı durduruldu.",
-  auth: "Eşleşme geçersiz.",
-};
-
-function screenState({ state, message, renewed }) {
-  const text = message || (renewed ? "Süre doldu; yeniden izin istendi, bilgisayarda onayla." : SCREEN_TEXT[state] ?? "");
-  $("ekranDurum").textContent = text;
-  $("ekranDurum").className = `chip ${state === "live" ? "ok" : state === "error" || state === "reconnecting" ? "bad" : ""}`;
-  const watching = ["live", "pending", "paused", "reconnecting"].includes(state);
-  $("ekranIste").hidden = watching;
-  $("ekranDur").hidden = !watching;
-  $("ekranKutu").classList.toggle("empty-screen", state !== "live" && !$("ekranKare").src);
-  if (state === "auth") void forget();
-}
-
-function screenFrame(data) {
-  $("ekranKare").src = `data:image/jpeg;base64,${data.jpegBase64}`;
-  $("ekranKutu").classList.remove("empty-screen");
-}
-
 function screenOpen() {
-  if (!stream) {
-    stream = createScreenStream({ rpc, onFrame: screenFrame, onState: screenState });
-    document.addEventListener("visibilitychange", () => stream.setVisible(!document.hidden));
-    window.addEventListener("online", () => stream.setVisible(true));
-  }
-  void stream.start({ request: false });
+  screen ??= createScreenView({ rpc, onAuth: forget, toast });
+  void screen.open();
 }
 
 // ---- açılış ----
@@ -327,9 +344,6 @@ async function start() {
   buildTabs();
   await Promise.all([loadModels(), loadKits()]);
   $("yeni").onclick = () => openChat(null);
-  $("ekranIste").onclick = () => stream.start({ request: true });
-  $("ekranDur").onclick = () => stream.stop();
-  $("ekranKutu").onclick = () => document.body.classList.toggle("fullscreen");
   show("sohbetler");
   await refresh();
   schedule();
@@ -344,13 +358,16 @@ async function main() {
   }
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
   $("eslestirDugme").onclick = pair;
-  $("hesapDugme").onclick = accountLogin;
+  $("hesapGiris").onsubmit = (event) => { event.preventDefault(); void accountLogin(); };
+  $("sifremiUnuttum").onclick = () => showLogin(false, true);
+  $("kodaGec").onclick = () => showLogin(false, true);
+  $("hesabaDon").onclick = () => showLogin(true, true);
   // Cihaz anahtarı tarayıcı baskısıyla silinmesin (özellikle ana ekran uygulaması): kalıcı depo iste.
   navigator.storage?.persist?.().catch(() => {});
   device = (await kv("get", "device").catch(() => null)) ?? null;
   if (device) return start();
   $("eslestir").hidden = false;
   void loadAuthOptions();
-  say("Eşleştirilmedi");
+  say("");
 }
 main();

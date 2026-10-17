@@ -20,7 +20,7 @@ import { ProtocolClient } from "./protocol/client";
 import { olayEkle } from "./protocol/olayAkisi";
 import type { Soru } from "./protocol/types";
 import { useProjectRegistry } from "./sessions/useProjectRegistry";
-import { ScreenWatchWindow } from "./remote/ScreenWatchWindow";
+import { DesktopDock } from "./desktop/DesktopDock";
 import { useRemoteProjectSync } from "./remote/useRemoteProjectSync";
 import { useSessions, nextSessionId, saveWorkspaceMode, storedWorkspaceMode, type WorkspaceMode } from "./sessions/useSessions";
 import type { SessionTransport } from "./sessions/types";
@@ -1511,6 +1511,7 @@ export function SessionUygulama({
       ) : undefined}
       notices={
         <>
+          <DesktopDock key={active.id} client={active.client} />
           {gizliDegerSayisi > 0 && (
             <Notification
               baslik="Konuşma devralındı"
@@ -1773,7 +1774,6 @@ export function SessionUygulama({
       sidebarCollapsed={layout.sidebarCollapsed}
       onSidebarClose={layout.toggleSidebar}
     />
-    <ScreenWatchWindow client={active.client} />
     </>
   );
 }

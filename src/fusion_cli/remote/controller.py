@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import json
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -21,8 +22,9 @@ from .asgi import RemoteApp
 from .backend import AppSessionBackend
 from .bind import BindPolicy, BindRefusedError, private_addresses, validate_bind
 from .constants import DEFAULT_REMOTE_HOST, DEFAULT_REMOTE_PORT
-from .devices import CHANNEL_SIGNED, CHANNEL_TELEGRAM, DeviceRegistry
+from .devices import CHANNEL_SIGNED, CHANNEL_TELEGRAM, Device, DeviceRegistry
 from .mobile import MobileApi
+from .navigation import NavigationHost
 from .pairing import PairingError, PairingService
 from .projects import ProjectStore
 from .rate_limit import FailureLimiter
@@ -81,11 +83,20 @@ class RemoteController:
         secrets: TokenStore,
         session_factory: Callable[[Callable[[str], None]], Any],
         clock: Clock | None = None,
+        navigation: NavigationHost | None = None,
     ) -> None:
         directory = home / "remote"
         self._clock = clock or WallClock()
         self._registry = DeviceRegistry(directory / "devices.json", self._clock)
-        self._pairing = PairingService(self._registry, self._clock)
+        self._settings_path = directory / "settings.json"
+        self._require_approval = self._load_require_approval()
+        self._last_paired: dict[str, Any] | None = None
+        self._pairing = PairingService(
+            self._registry,
+            self._clock,
+            require_approval=lambda: self._require_approval,
+            on_paired=self._remember_paired,
+        )
         self._store = TaskStore(self._clock)
         self._backend = AppSessionBackend(session_factory, root)
         self._projects = ProjectStore(directory / "projects.json")
@@ -98,6 +109,7 @@ class RemoteController:
             clock=self._clock,
             default_root=root,
             session_lock=run_lock,
+            navigation=navigation,
         )
         self._service = RemoteService(
             mobile=mobile,
@@ -138,6 +150,7 @@ class RemoteController:
             "uzak.ekran_kes": self._screen_stop,
             "uzak.ekran_onizleme": self._screen_preview,
             "uzak.projeler_esitle": self._projects_sync,
+            "uzak.ayar": self._set_setting,
         }
         handler = handlers.get(name)
         if handler is None:
@@ -154,7 +167,35 @@ class RemoteController:
             "cihazSayisi": sum(1 for d in self._registry.list_devices() if not d.revoked),
             "port": self._port,
             "agAdresleri": private_addresses(),
+            "onayIste": self._require_approval,
+            "sonEslesen": self._last_paired,
         }
+
+    def _load_require_approval(self) -> bool:
+        """Kodla eşleştirmede masaüstü onayı iste (varsayılan kapalı)."""
+        try:
+            raw = json.loads(self._settings_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        return isinstance(raw, dict) and raw.get("requireApproval") is True
+
+    def _remember_paired(self, device: Device) -> None:
+        """Masaüstü arayüzü bunu durum yoklamasında görüp "bağlandı" bildirimi gösterir."""
+        self._last_paired = {
+            "cihazId": device.device_id,
+            "ad": device.name,
+            "zaman": self._clock.now(),
+        }
+
+    async def _set_setting(self, data: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(data.get("onayIste"), bool):
+            return _fail("Ayar değeri geçersiz.")
+        self._require_approval = data["onayIste"]
+        self._settings_path.parent.mkdir(parents=True, exist_ok=True)
+        self._settings_path.write_text(
+            json.dumps({"requireApproval": self._require_approval}), encoding="utf-8"
+        )
+        return {"ok": True, "onayIste": self._require_approval}
 
     async def _pair_begin(self, data: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -185,7 +226,9 @@ class RemoteController:
         return {"ok": True, "cihazlar": [d.public_view() for d in self._registry.list_devices()]}
 
     async def _revoke(self, data: dict[str, Any]) -> dict[str, Any]:
-        return {"ok": self._registry.revoke(str(data.get("cihazId", "")))}
+        device_id = str(data.get("cihazId", ""))
+        self._service.stop_screen(device_id)
+        return {"ok": self._registry.revoke(device_id)}
 
     async def _tasks(self, _data: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "gorevler": [t.view() for t in self._store.list_tasks()]}
@@ -206,10 +249,10 @@ class RemoteController:
         }
 
     async def _screen_approve(self, data: dict[str, Any]) -> dict[str, Any]:
-        return {"ok": self._service.screen_gate.approve(str(data.get("cihazId", "")))}
+        return {"ok": self._service.approve_screen(str(data.get("cihazId", "")))}
 
     async def _screen_stop(self, data: dict[str, Any]) -> dict[str, Any]:
-        return {"ok": self._service.screen_gate.stop(str(data.get("cihazId", "")))}
+        return {"ok": self._service.stop_screen(str(data.get("cihazId", "")))}
 
     async def _projects_sync(self, data: dict[str, Any]) -> dict[str, Any]:
         """Masaüstü proje kaydını (ad, klasör, sohbet eşlemesi) telefona görünür kılar."""

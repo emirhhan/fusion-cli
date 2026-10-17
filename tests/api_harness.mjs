@@ -53,5 +53,24 @@ for (const reason of ["cihaz_iptal", "imza_gecersiz", "zaman_asimi", "sira_eski"
   const second = await rpc("b");
   out.queue = { first, second: second.ok };
 }
+// Onay ve sohbet olayları bekleyen arka plan listelerinden önce gider.
+{
+  const calls = [];
+  let release, entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  const fetchImpl = async (_url, init) => {
+    const payload = JSON.parse(new TextDecoder().decode(init.body));
+    calls.push(payload.method);
+    if (payload.method === "initial") { entered(); await new Promise((resolve) => { release = resolve; }); }
+    return json(200, { ok: true });
+  };
+  const rpc = createApi(device, { fetchImpl });
+  const first = rpc("initial");
+  await started;
+  const pending = [rpc("projects.list"), rpc("schedules.list"), rpc("approvals.respond"), rpc("tasks.events")];
+  release();
+  await Promise.all([first, ...pending]);
+  out.priority = calls;
+}
 console.log(JSON.stringify(out));
 process.exit(0);

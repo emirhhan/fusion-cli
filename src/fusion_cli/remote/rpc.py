@@ -1,8 +1,8 @@
 """Sürümlü RPC: `tasks.*`, `approvals.respond`, `kits.*`, `devices.*`, `service.status`.
 
 Her çağrı kimliği doğrulanmış bir cihaza bağlıdır; kapsam kontrolü yürütmeden
-önce yapılır. Yetki yerelden yüksek olamaz: step-up isteyen onaylar uzaktan
-yalnız reddedilebilir.
+önce yapılır. Yüksek etkili onaylar imzalı telefonda tek işleme bağlı açık
+ikinci teyitle verilir; kalıcı kapsam genişletilmez.
 """
 
 from __future__ import annotations
@@ -15,10 +15,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..core.protocols import Clock
-from .approvals import REMOTE_CHOICES, classify_question, is_approval
+from .approval_confirmation import ApprovalConfirmations
+from .approvals import classify_question, is_approval
 from .backend import EventSink, TaskBackend
 from .constants import DELTA_FLUSH_SECONDS, RPC_VERSION
-from .devices import Device, DeviceRegistry
+from .devices import CHANNEL_SIGNED, Device, DeviceRegistry
 from .mobile import MobileApi, MobileError
 from .redaction import notification_summary
 from .scopes import Scope, allows
@@ -86,11 +87,13 @@ class RemoteService:
         self._version = version
         self._screen_gate = screen_gate or ScreenShareGate(clock)
         self._screen_capture = screen_capture
+        self._remember_screen: set[str] = set()
         self._last_frames: dict[str, tuple[int, bytes, float]] = {}
         self._mobile = mobile
         self._run_lock = run_lock or asyncio.Lock()
         self._deltas: dict[str, tuple[str, float]] = {}
         self._runs: set[asyncio.Task[None]] = set()
+        self._confirmations = ApprovalConfirmations(clock)
         self._questions: dict[str, tuple[str, dict[str, Any]]] = {}
         self._active_run: str | None = None
 
@@ -111,6 +114,7 @@ class RemoteService:
             "tasks.pause": self._pause,
             "tasks.resume": self._pause,
             "approvals.respond": self._respond,
+            "approvals.challenge": self._challenge,
             "kits.list": self._kits_list,
             "kits.run": self._kits_run,
             "devices.revoke": self._revoke_self,
@@ -273,6 +277,12 @@ class RemoteService:
             "title": payload.get("baslik", ""),
             "target": payload.get("hedef", ""),
             "kind": payload.get("tur", ""),
+            "tool": payload.get("arac", ""),
+            "args": payload.get("argumanlar", []),
+            "danger": payload.get("tehlike"),
+            "reason": payload.get("neden"),
+            "diff": payload.get("diff", ""),
+            "options": payload.get("secenekler", []),
         }
         if is_approval(payload):
             approval = classify_question(payload)
@@ -347,7 +357,7 @@ class RemoteService:
         run_id, question = entry
         choice = params.get("choice")
         if is_approval(question):
-            refusal = self._approval_refusal(device, question, choice)
+            refusal = self._approval_refusal(device, question, choice, run_id, question_id, params)
             if refusal is not None:
                 return refusal
             answer: dict[str, Any] = {"secim": choice}
@@ -359,7 +369,11 @@ class RemoteService:
             if not isinstance(text, str):
                 return _fail("gecersiz_istek", "Cevap metni gerekli.")
             answer = {"metin": text}
+        if isinstance(params.get("decisionId"), str) and params["decisionId"]:
+            answer["decisionId"] = params["decisionId"]
         accepted = await self._backend.answer(question_id, answer)
+        if not accepted:
+            return _fail("cevap_reddedildi", "Soru cevabı yürütücü tarafından kabul edilmedi.")
         if accepted:
             self._questions.pop(question_id, None)
             self._store.set_state(run_id, STATE_RUNNING)
@@ -368,20 +382,68 @@ class RemoteService:
             )
         return RpcResult(True, {"accepted": accepted})
 
+    @staticmethod
+    def _choices(question: dict[str, Any]) -> set[str]:
+        options = question.get("secenekler")
+        if isinstance(options, list):
+            return {str(item.get("deger")) for item in options if isinstance(item, dict)}
+        return set()
+
+    async def _challenge(self, device: Device, params: dict[str, Any]) -> RpcResult:
+        question_id = str(params.get("questionId", ""))
+        entry = self._questions.get(question_id)
+        if entry is None:
+            return _fail("soru_yok", "Soru bulunamadı veya zaten kapandı.")
+        run_id, question = entry
+        choice = params.get("choice")
+        if device.channel != CHANNEL_SIGNED or self._need(device, Scope.AGENT_RUN.value):
+            return _fail("yetki_yok", "İmzalı ve görev yetkili telefon gerekli.")
+        if (
+            not is_approval(question)
+            or not isinstance(choice, str)
+            or choice not in self._choices(question)
+        ):
+            return _fail("gecersiz_istek", "Sunulmayan onay seçeneği.")
+        token = self._confirmations.issue(
+            device.device_id, run_id, question_id, str(choice), question
+        )
+        return RpcResult(True, {"challengeId": token})
+
     def _approval_refusal(
-        self, device: Device, question: dict[str, Any], choice: object
+        self,
+        device: Device,
+        question: dict[str, Any],
+        choice: object,
+        run_id: str,
+        question_id: str,
+        params: dict[str, Any],
     ) -> RpcResult | None:
-        """Onay uzaktan verilemiyorsa neden; verilebiliyorsa `None`."""
-        if choice not in REMOTE_CHOICES:
-            return _fail("gecersiz_istek", "Uzaktan yalnız 'once' veya 'deny' verilebilir.")
+        """İmzalı telefon tek işlem için açık teyitle bütün onayları verebilir."""
+        if not isinstance(choice, str) or choice not in self._choices(question):
+            return _fail("gecersiz_istek", "Sunulmayan onay seçeneği.")
+        if device.channel == CHANNEL_SIGNED:
+            denied = self._need(device, Scope.AGENT_RUN.value)
+            if denied:
+                return denied
         if choice == "deny":
             return None
         approval = classify_question(question)
+        if device.channel == CHANNEL_SIGNED:
+            if (approval.step_up or choice == "session") and not self._confirmations.consume(
+                params.get("confirmation"),
+                device.device_id,
+                run_id,
+                question_id,
+                choice,
+                question,
+            ):
+                return _fail("step_up", "Bu işlem için telefonda açık ikinci teyit gerekli.")
+            return None
         denied = self._need(device, approval.required_scope)
         if denied:
             return denied
-        if approval.step_up:
-            return _fail("step_up", approval.reason or "Masaüstünde onay gerekir.")
+        if approval.step_up or choice == "session":
+            return _fail("step_up", "Bu işlem imzalı telefonda açık teyit gerektirir.")
         return None
 
     async def _kits_list(self, device: Device, _params: dict[str, Any]) -> RpcResult:
@@ -409,6 +471,7 @@ class RemoteService:
         target = str(params.get("deviceId", device.device_id))
         if target != device.device_id:
             return _fail("yetki_yok", "Başka cihazı yalnız masaüstünden iptal edebilirsin.")
+        self.stop_screen(target)
         return RpcResult(True, {"revoked": self._registry.revoke(target)})
 
     def pending_questions(self) -> list[dict[str, Any]]:
@@ -428,20 +491,44 @@ class RemoteService:
     def screen_gate(self) -> ScreenShareGate:
         return self._screen_gate
 
-    async def _screen_request(self, device: Device, _params: dict[str, Any]) -> RpcResult:
+    async def _screen_request(self, device: Device, params: dict[str, Any]) -> RpcResult:
         denied = self._need(device, Scope.DESKTOP_OBSERVE.value)
         if denied:
             return denied
-        return RpcResult(True, {"state": self._screen_gate.request(device.device_id)})
+        if device.channel != CHANNEL_SIGNED:
+            return _fail("yetki_yok", "Ekran yalnız imzalı telefondan istenebilir.")
+        if params.get("remember") is True:
+            self._remember_screen.add(device.device_id)
+        state = self._screen_gate.request(device.device_id)
+        current = self._registry.active(device.device_id)
+        if state == "pending" and (
+            (current is not None and current.screen_trusted) or params.get("confirmed") is True
+        ):
+            self.approve_screen(device.device_id)
+            current = self._registry.active(device.device_id)
+            state, _remaining = self._screen_gate.status(device.device_id)
+        return RpcResult(
+            True, {"state": state, "remembered": bool(current and current.screen_trusted)}
+        )
 
     async def _screen_status(self, device: Device, _params: dict[str, Any]) -> RpcResult:
         denied = self._need(device, Scope.DESKTOP_OBSERVE.value)
         if denied:
             return denied
         state, remaining = self._screen_gate.status(device.device_id)
-        return RpcResult(True, {"state": state, "secondsLeft": remaining})
+        current = self._registry.active(device.device_id)
+        return RpcResult(
+            True,
+            {
+                "state": state,
+                "secondsLeft": remaining,
+                "remembered": bool(current and current.screen_trusted),
+            },
+        )
 
     async def _screen_frame(self, device: Device, _params: dict[str, Any]) -> RpcResult:
+        if device.channel != CHANNEL_SIGNED:
+            return _fail("yetki_yok", "Ekran yalnız imzalı telefondan izlenebilir.")
         denied = self._need(device, Scope.DESKTOP_OBSERVE.value)
         if denied:
             return denied
@@ -472,13 +559,28 @@ class RemoteService:
         return self._last_frames.get(device_id)
 
     async def _screen_stop(self, device: Device, _params: dict[str, Any]) -> RpcResult:
-        self._last_frames.pop(device.device_id, None)
-        return RpcResult(True, {"stopped": self._screen_gate.stop(device.device_id)})
+        return RpcResult(True, {"stopped": self.stop_screen(device.device_id)})
+
+    def approve_screen(self, device_id: str) -> bool:
+        """İlk yerel onaydan sonra cihazın açık hatırlama tercihini sakla."""
+        if not self._screen_gate.approve(device_id):
+            return False
+        if device_id in self._remember_screen:
+            self._registry.set_screen_trusted(device_id, True)
+            self._remember_screen.discard(device_id)
+        return True
+
+    def stop_screen(self, device_id: str) -> bool:
+        """Yerel veya telefon kesmesi oturumu ve hatırlanan güveni kaldırır."""
+        self._remember_screen.discard(device_id)
+        self._last_frames.pop(device_id, None)
+        self._registry.set_screen_trusted(device_id, False)
+        return self._screen_gate.stop(device_id)
 
     async def answer_from_desktop(self, question_id: str, choice: str) -> bool:
         """Masaüstü kullanıcısının yerel kararı (step-up burada tamamlanır)."""
         entry = self._questions.get(question_id)
-        if entry is None or choice not in REMOTE_CHOICES:
+        if entry is None or choice not in self._choices(entry[1]):
             return False
         run_id, _question = entry
         accepted = await self._backend.answer(question_id, {"secim": choice})

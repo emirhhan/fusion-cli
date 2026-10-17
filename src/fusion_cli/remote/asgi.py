@@ -38,6 +38,8 @@ _STATIC = {
             "dom",
             "media",
             "screen-stream",
+            "screen-view",
+            "dock",
             "signing",
             "store",
             "sw",
@@ -124,7 +126,12 @@ class RemoteApp:
             self._limiter.record_failure(f"pair:{client}")
             await self._json(send, 400, {"error": "eslestirme", "message": str(error)})
             return
-        await self._json(send, 200, {"scopes": sorted(scopes), "state": "onay_bekliyor"})
+        state = (
+            "onaylandi"
+            if self._pairing.is_approved(str(payload.get("code", "")))
+            else "onay_bekliyor"
+        )
+        await self._json(send, 200, {"scopes": sorted(scopes), "state": state})
 
     async def _pair_claim(self, send: Any, client: str, body: bytes) -> None:  # noqa: ANN401
         if self._limiter.is_locked(f"pair:{client}"):

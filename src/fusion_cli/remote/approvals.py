@@ -8,9 +8,6 @@ from typing import Any
 from ..core.tools import ToolFamily, tool_family
 from .scopes import Scope
 
-#: Uzaktan verilebilen karar kelimeleri; "session" (kalıcı genişletme) uzaktan YOK.
-REMOTE_CHOICES = frozenset({"once", "deny"})
-
 
 @dataclass(frozen=True, slots=True)
 class ApprovalClass:
@@ -26,24 +23,24 @@ def classify_question(question: dict[str, Any]) -> ApprovalClass:
     tool = str(question.get("arac", ""))
     if question.get("tehlike"):
         return ApprovalClass(
-            Scope.PROJECT_WRITE.value, True, "Tehlikeli işlem masaüstünde onaylanır."
+            Scope.PROJECT_WRITE.value, True, "Tehlikeli işlem için açık ikinci teyit gerekir."
         )
     if "__" in tool:
         server = tool.split("__", 1)[0]
         return ApprovalClass(
-            f"mcp.write.{server}", True, "Dış servis işlemi masaüstünde onaylanır."
+            f"mcp.write.{server}", True, "Dış servis işlemi için açık ikinci teyit gerekir."
         )
     family = tool_family(tool)
     if family is ToolFamily.DESKTOP:
         return ApprovalClass(
-            Scope.DESKTOP_CONTROL.value, True, "Masaüstü kontrolü masaüstünde onaylanır."
+            Scope.DESKTOP_CONTROL.value, True, "Masaüstü kontrolü için açık ikinci teyit gerekir."
         )
     if family in (ToolFamily.SHELL, ToolFamily.FILES, ToolFamily.VCS):
         return ApprovalClass(Scope.PROJECT_WRITE.value, False, "")
     if family in (ToolFamily.BROWSER, ToolFamily.WEB, ToolFamily.SEARCH):
         return ApprovalClass(Scope.AGENT_RUN.value, False, "")
     return ApprovalClass(
-        Scope.PROJECT_WRITE.value, True, "Sınıflandırılamayan işlem masaüstünde onaylanır."
+        Scope.PROJECT_WRITE.value, True, "Sınıflandırılamayan işlem için açık ikinci teyit gerekir."
     )
 
 

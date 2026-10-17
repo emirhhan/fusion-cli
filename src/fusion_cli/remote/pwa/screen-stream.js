@@ -15,12 +15,10 @@ export function createScreenStream({
   onState,
   sleep = defaultSleep,
   frameMs = FRAME_MS,
-  autoRenew = true,
 }) {
   let generation = 0;
   let visible = true;
   let wake = null;
-  let wasLive = false;
 
   const emit = (state, detail = {}) => onState({ state, ...detail });
   const alive = (token) => token === generation;
@@ -37,22 +35,10 @@ export function createScreenStream({
     await waitVisible(token);
   }
 
-  // Oturum bittiğinde (süre/masaüstü kesti): bir kez kendiliğinden yeniden izin iste.
-  async function ended(token) {
-    if (!wasLive || !autoRenew) { emit("ended"); wasLive = false; return false; }
-    wasLive = false;
-    const renewed = await rpc("screen.request");
-    if (!alive(token)) return false;
-    if (renewed.ok) { emit("pending", { renewed: true }); return true; }
-    emit("ended", { message: renewed.message });
-    return false;
-  }
-
   async function step(token) {
     const frame = await rpc("screen.frame");
     if (!alive(token)) return 0;
     if (frame.ok) {
-      wasLive = true;
       onFrame(frame.data);
       emit("live");
       return frameMs;
@@ -64,7 +50,8 @@ export function createScreenStream({
       const state = status.data?.state ?? "none";
       if (state === "pending") { emit("pending"); return PENDING_POLL_MS; }
       if (state === "active") return frameMs;
-      return (await ended(token)) ? PENDING_POLL_MS : -1;
+      emit("ended");
+      return -1;
     }
     emit("error", { message: frame.message || "Ekran alınamadı." });
     return BUSY_RETRY_MS;
@@ -80,6 +67,7 @@ export function createScreenStream({
         delay = await step(token);
         backoff = BACKOFF_START_MS;
       } catch (error) {
+        if (!alive(token)) return;
         if (error?.auth) { emit("auth"); return; }
         emit("reconnecting", { retryMs: backoff });
         delay = backoff;
@@ -92,34 +80,43 @@ export function createScreenStream({
 
   return {
     // İzleme başlar: etkin oturum varsa sürdürür, yoksa izin ister.
-    async start({ request = true } = {}) {
+    async start({ request = true, remember = false, confirmed = false } = {}) {
       generation += 1;
       const token = generation;
-      wasLive = false;
       try {
         const status = await rpc("screen.status");
+        if (!alive(token)) return;
+        if (!status.ok) { emit("error", { message: status.message || "Ekran durumu alınamadı." }); return; }
         const state = status.data?.state ?? "none";
-        if (state === "none") {
+        if (state === "none" || (state === "pending" && request && confirmed)) {
           if (!request) { emit("idle"); return; }
-          const asked = await rpc("screen.request");
+          const asked = await rpc("screen.request", { remember, confirmed });
+          if (!alive(token)) return;
           if (!asked.ok) { emit("error", { message: asked.message || "İstek reddedildi." }); return; }
         }
-        if (state === "active") wasLive = true;
       } catch (error) {
+        if (!alive(token)) return;
         if (error?.auth) { emit("auth"); return; }
         emit("reconnecting", { retryMs: BACKOFF_START_MS });
       }
+      if (!alive(token)) return;
+      emit("pending");
       void loop(token);
     },
     // Kullanıcı durdurdu: sunucuya bildirilir, kendiliğinden yenileme yapılmaz.
     async stop() {
       generation += 1;
-      wasLive = false;
-      try { await rpc("screen.stop"); } catch { /* bağlantı yoksa sunucu boşta süresiyle kapatır */ }
-      emit("stopped");
+      if (wake) { const resolve = wake; wake = null; resolve(); }
+      try {
+        const result = await rpc("screen.stop");
+        if (!result.ok) { emit("error", { message: result.message || "İzin kaldırılamadı. Bağlantını kontrol edip tekrar durdur." }); return; }
+        emit("stopped");
+      } catch (error) {
+        emit(error?.auth ? "auth" : "error", { message: "İzin kaldırılamadı. Bağlantını kontrol edip tekrar durdur." });
+      }
     },
     // Akış yerel olarak bırakılır (sekme değişti); sunucu oturumu açık kalır ve sürdürülebilir.
-    detach() { generation += 1; },
+    detach() { generation += 1; if (wake) { const resolve = wake; wake = null; resolve(); } },
     setVisible(value) {
       visible = value;
       if (value && wake) { const resolve = wake; wake = null; resolve(); }

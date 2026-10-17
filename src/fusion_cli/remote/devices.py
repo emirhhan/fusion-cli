@@ -32,6 +32,7 @@ class Device:
     secret_hex: str
     created_at: float
     revoked: bool = False
+    screen_trusted: bool = False
     external_id: str = ""  # Telegram kullanıcı kimliği gibi kanal-içi kimlik
 
     @property
@@ -47,6 +48,7 @@ class Device:
             "scopes": sorted(self.scopes),
             "createdAt": self.created_at,
             "revoked": self.revoked,
+            "screenTrusted": self.screen_trusted,
         }
 
 
@@ -100,7 +102,23 @@ class DeviceRegistry:
         device = self._devices.get(device_id)
         if device is None or device.revoked:
             return False
-        self._devices = {**self._devices, device_id: replace(device, revoked=True)}
+        self._devices = {
+            **self._devices,
+            device_id: replace(device, revoked=True, screen_trusted=False),
+        }
+        self._save()
+        return True
+
+    def set_screen_trusted(self, device_id: str, trusted: bool) -> bool:
+        """Yalnız etkin imzalı gözlemcinin açık ekran tercihini kalıcı tut."""
+        device = self.active(device_id)
+        if (
+            device is None
+            or device.channel != CHANNEL_SIGNED
+            or "desktop.observe" not in device.scopes
+        ):
+            return False
+        self._devices = {**self._devices, device_id: replace(device, screen_trusted=trusted)}
         self._save()
         return True
 
@@ -126,6 +144,7 @@ class DeviceRegistry:
                     created_at=float(item["createdAt"]),
                     revoked=bool(item.get("revoked", False)),
                     external_id=item.get("externalId", ""),
+                    screen_trusted=item.get("screenTrusted") is True,
                 )
             except (KeyError, TypeError, ValueError):
                 continue
@@ -144,6 +163,7 @@ class DeviceRegistry:
                     "createdAt": d.created_at,
                     "revoked": d.revoked,
                     "externalId": d.external_id,
+                    "screenTrusted": d.screen_trusted,
                 }
                 for d in self._devices.values()
             ]

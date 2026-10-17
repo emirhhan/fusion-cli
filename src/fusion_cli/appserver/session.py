@@ -116,6 +116,9 @@ from .control import (
     web_provider_cards,
 )
 from .conversation_title import conversation_title
+from .desktop_activity import DesktopActivity
+from .desktop_dock import DesktopDock
+from .desktop_routes import DESKTOP_ROUTES, dispatch_desktop
 from .file_search import FileSearchIndex, search_project_files
 from .history import (
     PreparedResume,
@@ -503,6 +506,8 @@ class AppSession:
             installer=auto_install_async,
             extension_installed=lambda: bool(install_status()["eklenti_yuklu"]),
         )
+        self._desktop_dock = DesktopDock(chrome=self._chrome)
+        self._desktop_activity = DesktopActivity()
         from ..mcp_bridge.service import McpConnectionService
 
         self._mcp_connections = McpConnectionService()
@@ -536,6 +541,7 @@ class AppSession:
                 root=root,
                 secrets=self._secret_store,
                 session_factory=lambda writer: AppSession(writer, root=root, home=home),
+                navigation=self._desktop_dock,
             )
         return self._remote
 
@@ -748,6 +754,10 @@ class AppSession:
             return add_upload(request.data)
         if request.name == "kitaplik.kaldir":
             return remove_entry(request.data)
+        if request.name in DESKTOP_ROUTES:
+            return await dispatch_desktop(
+                self._desktop_dock, self._desktop_activity, request.name, request.data
+            )
         if request.name == "chrome.baslat":
             return {"ok": True, **await self._chrome.start()}
         if request.name == "chrome.durum":
@@ -2093,7 +2103,7 @@ class AppSession:
                 remotion_browser=self._state.remotion_browser,
                 require_remotion_kit=self._require_remotion_kit,
                 deadline=deadline,
-                sinks=(sink, *trace_sinks),
+                sinks=(sink, self._desktop_activity, *trace_sinks),
                 prompter_factory=lambda _drain: prompter,
                 mode=self._state.approval,
                 root=self._state.root,
@@ -2160,6 +2170,7 @@ class AppSession:
                 ]
             return {"ok": False, "metin": messages.APP_TURN_CANCELLED}
         finally:
+            self._desktop_activity.clear()
             await child_runs.close()
             if self._turn is owned_turn:
                 self._child_runs = None

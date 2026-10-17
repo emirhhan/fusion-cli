@@ -18,6 +18,7 @@ export function createChat({ rpc, root, ctx, onBack, onChange, toast }) {
   let stream = null;
   let timer = null;
   let open = false;
+  let polling = null;
   let attachments = [];
   const answered = new Set();
 
@@ -128,9 +129,14 @@ export function createChat({ rpc, root, ctx, onBack, onChange, toast }) {
 
   async function poll() {
     clearTimeout(timer);
-    if (!open || !run) return;
+    if (!open || !run || polling === chat.token) return;
+    const token = chat.token;
+    const runId = run.runId;
+    polling = token;
     try {
-      const result = await rpc("tasks.events", { runId: run.runId, afterSeq });
+      const result = await rpc("tasks.events", { runId, afterSeq });
+      if (!open || chat?.token !== token || run?.runId !== runId) return;
+      if (!result.ok) throw new Error(result.message || "Görev akışı alınamadı.");
       const events = result.data?.events ?? [];
       for (const event of events) { apply(event); afterSeq = Math.max(afterSeq, event.seq); }
       run = { ...run, state: result.data?.state ?? run.state };
@@ -145,14 +151,20 @@ export function createChat({ rpc, root, ctx, onBack, onChange, toast }) {
       if (running()) timer = setTimeout(poll, POLL_MS);
       else onChange();
     } catch (error) {
+      if (!open || chat?.token !== token) return;
       if (error.auth) { open = false; return onChange(true); }
-      timer = setTimeout(poll, POLL_MS * 2); // ağ kopması: sohbet açık kaldıkça tekrar dener
+      timer = setTimeout(poll, POLL_MS * 2);
+    } finally {
+      if (polling === token) {
+        polling = null;
+        if (open && chat?.token === token && run?.runId !== runId) void poll();
+      }
     }
   }
 
   async function loadHistory(token) {
     const result = await rpc("chats.history", { chatId: chat.chatId, root: chat.root });
-    if (token !== chat?.token) return;
+    if (!open || token !== chat?.token || run) return;
     if (result.ok) {
       for (const m of result.data.messages) m.role === "user" ? bubble("user", m.text) : richBubble("assistant", m.text);
       scrollEnd();
@@ -211,6 +223,16 @@ export function createChat({ rpc, root, ctx, onBack, onChange, toast }) {
       open = true;
       if (run) { bubble("user", run.summary); void poll(); } else if (!next.isNew) void loadHistory(chat.token);
       if (next.isNew) input.focus();
+    },
+    reconcile(tasks) {
+      if (!open || !chat) return;
+      const next = tasks.find((item) => item.chatId === chat.chatId && ACTIVE_STATES.includes(item.state));
+      if (!next || next.runId === run?.runId) return;
+      run = { ...next };
+      afterSeq = 0;
+      stream = null;
+      syncButton();
+      void poll();
     },
     refreshSelects: fillSelects,
     close,

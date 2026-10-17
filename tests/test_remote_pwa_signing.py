@@ -81,7 +81,7 @@ def test_pwa_ekran_bolumu_guvenli_ve_kapsama_bagli() -> None:
     assert 'scope: "desktop.observe"' in script  # kapsam yoksa sekme hiç açılmaz
     assert "scopes.includes(tab.scope)" in script
     assert 'data-view="ekran"' in html
-    assert "data:image/jpeg;base64," in script  # CSP img-src data: ile uyumlu
+    assert "data:image/jpeg;base64," in (PWA / "screen-view.js").read_text()
 
 
 def test_pwa_ekran_kutusu_en_boy_oranini_korur() -> None:

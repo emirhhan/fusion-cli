@@ -110,8 +110,8 @@ class ScreenShareGate:
     def request(self, device_id: str) -> str:
         """Yeni istek; mevcut etkin oturum varsa korunur."""
         current = self._live(device_id)
-        if current is not None and current.state == STATE_ACTIVE:
-            return STATE_ACTIVE
+        if current is not None:
+            return current.state
         self._sessions[device_id] = _Session(device_id, STATE_PENDING, self._clock.now())
         return STATE_PENDING
 
