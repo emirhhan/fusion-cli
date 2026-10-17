@@ -112,6 +112,15 @@
 .settings__card button:disabled { cursor: default; opacity: 0.55; }
 .settings__card button:hover:not(:disabled) { background: var(--surface-raised); }
 
+.settings__checks { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.settings__checks li {
+  align-items: center; background: var(--surface-canvas); border-radius: var(--radius-sm);
+  display: flex; font-size: var(--text-xs); justify-content: space-between; padding: 7px 10px;
+}
+.settings__checks b { color: var(--text-secondary); font-weight: 600; }
+.settings__checks li[data-state="ok"] b { color: var(--text-success); }
+.settings__steps { color: var(--text-secondary); display: grid; font-size: var(--text-xs); gap: 4px; margin: 0; padding-left: 18px; }
+
 .settings__list { display: grid; gap: 6px; list-style: none; margin: 0 0 12px; padding: 0; }
 .settings__list li {
   align-items: center; background: var(--surface-canvas); border-radius: var(--radius-sm);

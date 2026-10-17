@@ -16,18 +16,18 @@ export function showGlow() {
   style.textContent = `
     :host { all: initial; }
     .frame { position: fixed; inset: 0; z-index: 2147483646; pointer-events: none;
-      box-shadow: inset 0 0 0 2px rgb(168 255 62 / 75%), inset 0 0 28px 4px rgb(168 255 62 / 28%);
+      box-shadow: inset 0 0 0 2px rgb(11 10 13 / 70%), inset 0 0 0 3px rgb(255 255 255 / 55%), inset 0 0 28px 4px rgb(0 0 0 / 22%);
       animation: breathe 2.4s ease-in-out infinite; }
     .pill { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 2147483647;
       display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 14px; border-radius: 999px;
       background: #0b0a0d; color: #f3f5f6; font: 500 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       box-shadow: 0 10px 30px rgb(0 0 0 / 35%), 0 0 0 1px rgb(255 255 255 / 10%); pointer-events: auto; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #a8ff3e; box-shadow: 0 0 0 4px rgb(168 255 62 / 20%);
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #ececec; box-shadow: 0 0 0 4px rgb(236 236 236 / 20%);
       animation: breathe 1.2s ease-in-out infinite; }
     button { all: unset; cursor: pointer; padding: 5px 12px; border-radius: 999px; background: #f3f5f6; color: #0b0a0d;
       font: 600 12px/1.2 -apple-system, BlinkMacSystemFont, sans-serif; }
     button:hover { background: #fff; }
-    button:focus-visible { outline: 2px solid #a8ff3e; outline-offset: 2px; }
+    button:focus-visible { outline: 2px solid #ececec; outline-offset: 2px; }
     @keyframes breathe { 50% { opacity: .55; } }
     @media (prefers-reduced-motion: reduce) { .frame, .dot { animation: none; } }`;
   const frame = document.createElement("div");

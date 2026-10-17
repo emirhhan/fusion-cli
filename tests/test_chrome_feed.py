@@ -74,3 +74,15 @@ def test_panel_kod_ve_ogretmen_adimlarini_da_gosterir() -> None:
     assert panel_item(_tool("ask_teacher", {"question": "Nasıl uygulanır?"}))["metin"] == (
         "Öğretmene danışıldı"
     )
+
+
+def test_adimlar_ekran_fare_klavye_kanalini_tasir():
+    from fusion_cli.appserver.chrome_feed import control_channel
+
+    assert control_channel("chrome_click", {}) == "fare"
+    assert control_channel("chrome_type", {}) == "klavye"
+    assert control_channel("chrome_action", {"action": "screenshot"}) == "ekran"
+    assert control_channel("chrome_action", {"action": "key"}) == "klavye"
+    assert control_channel("chrome_action", {"action": "scroll"}) == "fare"
+    assert control_channel("chrome_page", {}) is None
+    assert control_channel("chrome_action", {"action": "tabs"}) is None

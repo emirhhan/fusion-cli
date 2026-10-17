@@ -122,6 +122,29 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     expect($("send").hidden).toBe(false);
   });
 
+  it("denetim şeridi ekran, fare ve klavye adımlarını sayar; etkin kanalı ve son işlemi gösterir", async () => {
+    turnResult = new Promise(() => undefined);
+    autoConnected();
+    await loadPanel();
+    await waitFor(() => expect(status()).toBe("Bağlı"));
+    expect($("control").hidden).toBe(true);
+    send("Formu doldur");
+    await waitFor(() => expect($("cancel").hidden).toBe(false));
+    pushEvents({ ok: true, son: 9, olaylar: [
+      { seq: 6, tur: "adim", arac: "chrome_action", metin: "Ekran görüntüsü alındı", durum: "ok", kanal: "ekran" },
+      { seq: 7, tur: "adim", arac: "chrome_click", metin: "“Gönder” tıklandı", durum: "ok", kanal: "fare" },
+      { seq: 8, tur: "adim", arac: "chrome_type", metin: "“merhaba” yazıldı", durum: "ok", kanal: "klavye" },
+      { seq: 9, tur: "adim", arac: "chrome_click", metin: "“Tamam” tıklandı", durum: "ok", kanal: "fare" },
+    ] });
+    const count = (id: string) => $("control").querySelector(`[data-channel="${id}"] b`)?.textContent;
+    await waitFor(() => expect([count("ekran"), count("fare"), count("klavye")]).toEqual(["1", "2", "1"]));
+    expect($("control").hidden).toBe(false);
+    expect($("control").querySelector('[data-channel="fare"]')?.getAttribute("data-active")).toBe("true");
+    expect($("control").querySelector('[data-channel="ekran"]')?.getAttribute("data-active")).toBe("false");
+    expect($("control-last").textContent).toBe("Son: “Tamam” tıklandı");
+    expect($("control-guard").textContent).toContain("sana sorulur");
+  });
+
   it("Durdur düğmesi turu keser; ilk açılışta eski turlar oynatılmaz", async () => {
     turnResult = new Promise(() => undefined);
     autoConnected();

@@ -422,6 +422,20 @@ def chrome_host() -> None:
     host_main()
 
 
+@app.command(name="chrome-kur")
+def chrome_kur() -> None:
+    """Fusion Browser eklentisini Chrome'a kurmaya hazırla (tek onaylı akış)."""
+    from ..appserver.chrome_install import begin_install
+
+    sonuc = begin_install()
+    if not sonuc["ok"]:
+        typer.echo(sonuc["metin"], err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"Eklenti klasörü (panoya kopyalandı): {sonuc['yol']}")
+    for sira, adim in enumerate(sonuc["adimlar"], start=1):
+        typer.echo(f"{sira}. {adim}")
+
+
 @app.command(name="web-login")
 def web_login(provider: str, account: str = "main") -> None:
     """Web sağlayıcısı için görünür giriş tarayıcısını aç.

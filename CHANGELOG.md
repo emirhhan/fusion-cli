@@ -3,6 +3,14 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## Yayımlanmamış — Chrome eklentisi kurulumu ve paneli
+
+- Ayarlar → Tarayıcı'ya **Eklentiyi kur** eklendi (`fusion chrome-kur`): eklentiyi kalıcı klasöre
+  kopyalar, yerel mesajlaşmayı kaydeder (macOS ve Windows), Chrome'u açar; yüklü/eşleşti
+  durumunu doğrular. Eklenti kimliği `manifest.json` anahtarıyla yoldan bağımsız sabitlendi.
+- Yan panel Kits dilinde yenilendi (sistem yazı tipi, nötr vurgu, açık/koyu tema); ekran, fare ve
+  klavye adımları için denetim şeridi ve izin kipi özeti eklendi.
+
 ## Yayımlanmamış — ses motoru: EMA Lightning
 
 - Sesli yanıt motoru Piper yerine EMA Lightning (Türkçe, Apache-2.0, ~34 MB) oldu.

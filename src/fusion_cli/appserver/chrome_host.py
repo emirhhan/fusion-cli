@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import importlib
 import json
 import os
 import stat
@@ -114,11 +115,26 @@ def _chrome_host_dirs(home: Path) -> list[Path]:
 
 
 EXTENSION_NAME = "Fusion Browser"
+#: `manifest.json` içindeki `key` alanından türeyen, yoldan BAĞIMSIZ eklenti kimliği.
+#: Eklenti hangi klasörden yüklenirse yüklensin kimliği budur; yerel mesajlaşma
+#: izin listesi (`allowed_origins`) bu yüzden uygulama taşınınca bozulmaz.
+FIXED_EXTENSION_ID = "dmdljajadkocbomficmpladgajnnidfa"
+#: Windows'ta Chrome yerel mesajlaşma bildirimini bu kayıt defteri anahtarından okur.
+_WINDOWS_HOST_KEY = rf"Software\Google\Chrome\NativeMessagingHosts\{HOST_NAME}"
+
+
+def chrome_user_data_dir(home: Path | None = None) -> Path:
+    """Chrome profillerinin kökü (macOS ve Windows)."""
+    kok = home or Path.home()
+    if sys.platform == "win32":
+        yerel = os.environ.get("LOCALAPPDATA") or str(kok / "AppData" / "Local")
+        return Path(yerel) / "Google" / "Chrome" / "User Data"
+    return kok / "Library" / "Application Support" / "Google" / "Chrome"
 
 
 def installed_extension_ids(home: Path | None = None) -> set[str]:
     """Chrome profillerinde "Fusion Browser" adıyla yüklü eklentilerin kimlikleri."""
-    kok = (home or Path.home()) / "Library" / "Application Support" / "Google" / "Chrome"
+    kok = chrome_user_data_dir(home)
     kimlikler: set[str] = set()
     for dosya in [*kok.glob("*/Preferences"), *kok.glob("*/Secure Preferences")]:
         try:
@@ -139,18 +155,53 @@ def candidate_extension_ids(home: Path | None = None) -> set[str]:
     dizinler = [
         Path(__file__).resolve().parents[3] / "chrome-extension",
         Path("/Applications/Fusion.app/Contents/Resources/chrome-extension"),
+        base_config_dir() / "chrome-extension",
     ]
-    return {extension_id_for_path(d) for d in dizinler} | installed_extension_ids(home)
+    return (
+        {FIXED_EXTENSION_ID}
+        | {extension_id_for_path(d) for d in dizinler}
+        | installed_extension_ids(home)
+    )
 
 
 def install_native_host(extension_ids: set[str], home: Path | None = None) -> list[Path]:
-    """Başlatıcı betiği ve Chrome'un yerel mesajlaşma bildirimini yaz (macOS).
+    """Başlatıcı betiği ve Chrome'un yerel mesajlaşma bildirimini yaz (macOS, Windows).
 
     `FUSION_NO_NATIVE_HOST` tanımlıysa (testler) hiçbir şey yazılmaz.
     """
-    if sys.platform == "darwin" and not os.environ.get("FUSION_NO_NATIVE_HOST"):
+    if os.environ.get("FUSION_NO_NATIVE_HOST"):
+        return []
+    sistem = sys.platform
+    if sistem == "darwin":
         return _write_native_host(extension_ids, home or Path.home())
+    if sistem == "win32":
+        return _write_native_host_windows(extension_ids)
     return []
+
+
+def _manifest_body(betik: Path, extension_ids: set[str]) -> dict[str, Any]:
+    return {
+        "name": HOST_NAME,
+        "description": "Fusion Browser yerel eşleşme",
+        "path": str(betik),
+        "type": "stdio",
+        "allowed_origins": sorted(f"chrome-extension://{kimlik}/" for kimlik in extension_ids),
+    }
+
+
+def _write_native_host_windows(extension_ids: set[str]) -> list[Path]:
+    """Windows'ta .bat başlatıcı, bildirim dosyası ve HKCU kayıt defteri anahtarı."""
+    winreg = importlib.import_module("winreg")  # yalnız Windows'ta var
+
+    betik = base_config_dir() / "chrome-host.bat"
+    betik.parent.mkdir(parents=True, exist_ok=True)
+    komut = " ".join(f'"{parca}"' for parca in _host_command())
+    betik.write_text(f"@echo off\r\n{komut}\r\n", encoding="utf-8")
+    hedef = base_config_dir() / f"{HOST_NAME}.json"
+    hedef.write_text(json.dumps(_manifest_body(betik, extension_ids), indent=2), encoding="utf-8")
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, _WINDOWS_HOST_KEY) as anahtar:
+        winreg.SetValueEx(anahtar, "", 0, winreg.REG_SZ, str(hedef))
+    return [hedef]
 
 
 def _write_native_host(extension_ids: set[str], home: Path) -> list[Path]:
@@ -160,13 +211,7 @@ def _write_native_host(extension_ids: set[str], home: Path) -> list[Path]:
     komut = " ".join(f"'{parca}'" for parca in _host_command())
     betik.write_text(f"#!/bin/sh\nexec {komut}\n", encoding="utf-8")
     betik.chmod(0o755)
-    bildirim = {
-        "name": HOST_NAME,
-        "description": "Fusion Browser yerel eşleşme",
-        "path": str(betik),
-        "type": "stdio",
-        "allowed_origins": sorted(f"chrome-extension://{kimlik}/" for kimlik in extension_ids),
-    }
+    bildirim = _manifest_body(betik, extension_ids)
     yazilan: list[Path] = []
     for dizin in _chrome_host_dirs(home):
         if not dizin.parent.is_dir():

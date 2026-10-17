@@ -23,12 +23,11 @@ Güncellemenin sunulması için imzalı Release dosyaları yayımlanmış olmal�
 
 ### Chrome'daki açık sekmeyle çalışma
 
-Fusion'da **Ayarlar → Tarayıcı → Bağlantıyı başlat** yolundan yerel portu ve
-eşleştirme anahtarını alın. Chrome'da `chrome://extensions` sayfasını açın,
-geliştirici modunu etkinleştirip **Paketlenmemiş öğe yükle** ile uygulamanın
-gösterdiği `chrome-extension` klasörünü seçin. Fusion Browser simgesi yan paneli
-açar. Portu ve anahtarı girip **Bu sekmeye izin ver** düğmesiyle yalnız çalışmak
-istediğiniz siteye izin verin.
+Fusion'da **Ayarlar → Tarayıcı → Eklentiyi kur** düğmesine basın (ya da `fusion chrome-kur`
+çalıştırın). Fusion eklentiyi hazırlar, Chrome'u `chrome://extensions` sayfasında açar ve
+kurulumun yapıldığını doğrular; yalnız Chrome'un zorunlu tuttuğu tek onay sizdedir
+(Geliştirici modu → Paketlenmemiş öğe yükle). Ayrıntı ve sınırlar:
+[Chrome eklentisi kurulumu](docs/CHROME_EKLENTISI_KURULUM.md).
 
 Yan panelden Fusion'a görev gönderebilir, izinli sekmeyi okuyabilir ve sayfayla
 etkileşebilirsiniz. Fusion'ın `chrome_page`, `chrome_click`, `chrome_type`,

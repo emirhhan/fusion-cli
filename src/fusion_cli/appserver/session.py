@@ -85,6 +85,7 @@ from . import intelligence
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .capabilities import catalog, detail
 from .chrome_bridge import ChromeBridge
+from .chrome_install import begin_install, install_status
 from .commands import (
     command_choices,
     list_commands,
@@ -723,7 +724,13 @@ class AppSession:
         if request.name == "chrome.baslat":
             return {"ok": True, **await self._chrome.start()}
         if request.name == "chrome.durum":
-            return {"ok": True, **self._chrome.status()}
+            return {"ok": True, **self._chrome.status(), **await asyncio.to_thread(install_status)}
+        if request.name == "chrome.kur":
+            # Köprü açık olsun ki eklenti yüklenir yüklenmez el sıkışabilsin.
+            kurulum = await asyncio.to_thread(begin_install)
+            if not kurulum["ok"]:
+                return kurulum
+            return {**kurulum, **await self._chrome.start()}
         if request.name == "chrome.durdur":
             await self._chrome.close()
             return {"ok": True}

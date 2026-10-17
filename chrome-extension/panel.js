@@ -4,7 +4,7 @@
 
 import { clearSelected, execute, selectActiveTab } from "./core.js";
 import { setGlow } from "./pageGlow.js";
-import { renderAsk, renderMessage } from "./panelView.js";
+import { controlSummary, renderAsk, renderMessage } from "./panelView.js";
 
 const $ = (id) => document.getElementById(id);
 const THREAD_KEY = "fusionThread";
@@ -79,9 +79,37 @@ function renderThread() {
   $("cancel").hidden = !busy;
   $("new-chat").disabled = busy;
   $("model").disabled = busy;
+  renderControl();
   if (thread.soru) renderAsk($("ask"), thread.soru, answer);
   else { $("ask").hidden = true; $("ask").replaceChildren(); }
   $("thread").scrollTop = $("thread").scrollHeight;
+}
+
+/** Mod seçimine göre "güvenli mi" satırı: kullanıcı hangi işlemin sorulduğunu görür. */
+const GUARD_TEXT = {
+  auto: "Gönderme, silme ve satın alma sana sorulur.",
+  security: "Her tıklama ve yazma önce sana sorulur.",
+  edits: "Yazma ve sıradan tıklamalar sorulmaz; tanınmayan işlem sorulur.",
+  plan: "Yalnız okur; tıklamaz, yazmaz.",
+  bypass: "Dikkat: hiçbir şey sorulmaz.",
+};
+
+function renderControl() {
+  const last = [...thread.mesajlar].reverse().find((message) => message.rol === "asistan");
+  const summary = controlSummary(last);
+  const panel = $("control");
+  panel.hidden = !summary.used && !running();
+  panel.dataset.running = String(running());
+  for (const item of panel.querySelectorAll("[data-channel]")) {
+    const id = item.dataset.channel;
+    item.dataset.active = String(summary.active === id);
+    item.dataset.used = String(summary.counts[id] > 0);
+    item.lastElementChild.textContent = String(summary.counts[id]);
+  }
+  $("control-last").textContent = summary.last ? `Son: ${summary.last}` : "";
+  const mode = $("mode").value || "auto";
+  $("control-guard").textContent = GUARD_TEXT[mode] || GUARD_TEXT.auto;
+  $("control-guard").dataset.mode = mode;
 }
 
 async function renderStatus() {
@@ -118,7 +146,7 @@ async function applyItem(item) {
     if (running()) void setGlow(true);
     const step = item.tur === "hata"
       ? { arac: "", metin: item.metin, durum: "failed" }
-      : { arac: item.arac, metin: item.metin, durum: item.durum, hata: item.hata };
+      : { arac: item.arac, metin: item.metin, durum: item.durum, hata: item.hata, kanal: item.kanal };
     return withLastAssistant((last) => ({ adimlar: [...(last.adimlar || []), step], etiket: "Çalışıyor…" }));
   }
   if (item.tur === "soru") return { ...thread, soru: { id: item.id, veri: item.veri } };
@@ -192,6 +220,7 @@ function renderSettings(settings) {
   chip.value = mode;
   chip.dataset.mode = mode;
   chip.title = chip.selectedOptions[0]?.title || mode;
+  renderControl();
   const select = $("model");
   const rows = settings.modeller || [];
   select.replaceChildren(...rows.map((row) => {

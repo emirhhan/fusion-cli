@@ -62,6 +62,37 @@ const STEP_ICONS = {
   chrome_action: "M10 4v12M6 12l4 4 4-4",
 };
 
+/** Ekran / fare / klavye adımları kanala göre simgelenir; kanal yoksa araca göre. */
+const CHANNEL_ICONS = {
+  ekran: "M3.5 5.5h13v8h-13zM8 16.5h4",
+  fare: "M7 3.5v10l2.3-2.2 1.7 3.9 1.6-.7-1.7-3.9 3.1-.1z",
+  klavye: "M3 6.5h14v7H3zM6 9h.01M9 9h.01M12 9h.01M7 11.5h6",
+};
+
+/** Denetim kanalları ve panelde görünen adları. */
+export const CONTROL_CHANNELS = [
+  { id: "ekran", label: "Ekran" },
+  { id: "fare", label: "Fare" },
+  { id: "klavye", label: "Klavye" },
+];
+
+/**
+ * Son asistan turunun ekran/fare/klavye özeti: kanal başına adım sayısı, en son
+ * denetim adımı ve (tur sürüyorsa) şu an etkin kanal.
+ */
+export function controlSummary(message) {
+  const steps = (message?.adimlar || []).filter((step) => step.kanal);
+  const counts = Object.fromEntries(CONTROL_CHANNELS.map(({ id }) => [id, 0]));
+  steps.forEach((step) => { if (step.kanal in counts) counts[step.kanal] += 1; });
+  const last = steps.at(-1) || null;
+  return {
+    counts,
+    last: last ? last.metin : "",
+    active: message?.durum === "calisiyor" && last ? last.kanal : null,
+    used: steps.length > 0,
+  };
+}
+
 function stepRow(step) {
   const row = el("li", "step");
   row.dataset.state = step.durum || "ok";
@@ -69,7 +100,7 @@ function stepRow(step) {
   icon.setAttribute("viewBox", "0 0 20 20");
   icon.setAttribute("aria-hidden", "true");
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", STEP_ICONS[step.arac] || STEP_ICONS.chrome_page);
+  path.setAttribute("d", CHANNEL_ICONS[step.kanal] || STEP_ICONS[step.arac] || STEP_ICONS.chrome_page);
   icon.append(path);
   const text = el("span", "step__text", step.metin);
   row.append(icon, text);

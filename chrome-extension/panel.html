@@ -35,6 +35,16 @@
         <button id="select-tab" class="chip-button" type="button" hidden>Bu siteye izin ver</button>
       </div>
 
+      <section id="control" class="control" aria-label="Fusion denetimi" hidden>
+        <ul class="control__channels">
+          <li data-channel="ekran"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 5.5h13v8h-13zM8 16.5h4" /></svg><span>Ekran</span><b>0</b></li>
+          <li data-channel="fare"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 3.5v10l2.3-2.2 1.7 3.9 1.6-.7-1.7-3.9 3.1-.1z" /></svg><span>Fare</span><b>0</b></li>
+          <li data-channel="klavye"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6.5h14v7H3zM6 9h.01M9 9h.01M12 9h.01M7 11.5h6" /></svg><span>Klavye</span><b>0</b></li>
+        </ul>
+        <p id="control-last" class="control__last"></p>
+        <p id="control-guard" class="control__guard"></p>
+      </section>
+
       <main id="thread" class="thread" aria-live="polite">
         <section id="empty" class="empty">
           <img src="icons/fusion.svg" alt="" width="44" height="44" />

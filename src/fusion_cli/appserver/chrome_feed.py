@@ -61,6 +61,27 @@ _VISIBLE_TOOLS = frozenset(
 )
 
 
+#: Panelde "Ekran / Fare / Klavye" olarak görünen denetim kanalları.
+_ACTION_CHANNELS = {
+    "screenshot": "ekran",
+    "click_at": "fare",
+    "hover": "fare",
+    "scroll": "fare",
+    "key": "klavye",
+}
+
+
+def control_channel(name: str, args: Mapping[str, Any]) -> str | None:
+    """Adımın hangi denetim kanalına girdiği; okuma/gezinme adımlarında `None`."""
+    if name == "chrome_click":
+        return "fare"
+    if name == "chrome_type":
+        return "klavye"
+    if name == "chrome_action":
+        return _ACTION_CHANNELS.get(str(args.get("action")))
+    return None
+
+
 def _step(data: Mapping[str, Any]) -> dict[str, Any]:
     name = str(data.get("name", ""))
     raw_args = data.get("args")
@@ -73,6 +94,9 @@ def _step(data: Mapping[str, Any]) -> dict[str, Any]:
         "metin": step_text(name, args, output),
         "durum": outcome,
     }
+    channel = control_channel(name, args)
+    if channel:
+        item["kanal"] = channel
     if outcome == "failed":
         item["hata"] = output[:MAX_ERROR]
     return item
