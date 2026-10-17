@@ -321,3 +321,59 @@ async def test_eklenti_bagli_degilse_chrome_acilir_ve_baglaninca_komut_gider() -
         await kapali.invoke("snapshot", {})
     assert acilis == ["açıldı"]
     assert modul.BROWSER_CONNECT_WAIT_SECONDS > 0
+
+
+async def test_eklenti_kurulu_degilse_gorev_kurulumu_baslatir_ve_baglaninca_devam_eder(
+    monkeypatch,
+) -> None:
+    from fusion_cli.appserver import chrome_bridge as modul
+
+    monkeypatch.setattr(modul, "BROWSER_CONNECT_WAIT_SECONDS", 0.2)
+    monkeypatch.setattr(modul, "INSTALL_CONFIRM_WAIT_SECONDS", 2.0)
+    olaylar: list[str] = []
+
+    async def kurulum() -> dict:
+        olaylar.append("kurulum")
+        return {"ok": True}
+
+    bridge = ChromeBridge(installer=kurulum, extension_installed=lambda: False)
+    bridge._launch_browser = lambda: asyncio.sleep(0)
+    state = await bridge.start()
+    address = f"http://127.0.0.1:{state['port']}"
+    headers = {"Authorization": f"Bearer {state['anahtar']}", "Origin": ORIGIN}
+
+    async def eklenti() -> None:
+        await asyncio.sleep(0.5)  # kullanıcı Chrome onayını verdi
+        async with httpx.AsyncClient(trust_env=False) as client:
+            command = (await client.post(f"{address}/poll", headers=headers, json={})).json()
+            await client.post(
+                f"{address}/result",
+                headers=headers,
+                json={"id": command["id"], "ok": True, "veri": {"title": "Ads"}},
+            )
+
+    task = asyncio.get_running_loop().create_task(eklenti())
+    sonuc = await bridge.invoke("snapshot", {})
+    await task
+    assert olaylar == ["kurulum"] and sonuc["veri"] == {"title": "Ads"}
+    assert any("kuruluyor" in item.get("metin", "") for item in bridge._feed)
+    await bridge.close()
+
+
+async def test_eklenti_kuruluysa_kurulum_baslatilmaz_ve_acik_hata_verilir(monkeypatch) -> None:
+    from fusion_cli.appserver import chrome_bridge as modul
+
+    monkeypatch.setattr(modul, "BROWSER_CONNECT_WAIT_SECONDS", 0.1)
+    cagri: list[int] = []
+
+    async def kurulum() -> dict:
+        cagri.append(1)
+        return {}
+
+    bridge = ChromeBridge(installer=kurulum, extension_installed=lambda: True)
+    bridge._launch_browser = lambda: asyncio.sleep(0)
+    await bridge.start()
+    with pytest.raises(ConnectionError):
+        await bridge.invoke("snapshot", {})
+    assert cagri == []
+    await bridge.close()

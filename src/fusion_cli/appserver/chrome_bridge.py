@@ -42,6 +42,8 @@ ANNOUNCE_INTERVAL_S = 10.0
 #: Eklenti bağlı değilken Chrome açıldıktan sonra bağlanması için beklenen süre.
 #: Offscreen belge 5 sn'de bir eşleşmeyi dener; Chrome'un soğuk açılışı ~5-10 sn.
 BROWSER_CONNECT_WAIT_SECONDS = 25.0
+#: Kılavuzlu kurulum açıldıktan sonra kullanıcının Chrome onayını vermesi için bekleme.
+INSTALL_CONFIRM_WAIT_SECONDS = 90.0
 #: Bağlantı beklenirken durumun yoklanma aralığı.
 BROWSER_CONNECT_POLL_SECONDS = 0.5
 #: İzin kartında gösterilen öğe adının üst sınırı (sayfa `nameOf` da 120'de keser).
@@ -55,6 +57,8 @@ class ChromeBridge:
         on_cancel: Callable[[], dict[str, Any]] | None = None,
         on_answer: Callable[[str, dict[str, Any]], bool] | None = None,
         on_settings: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
+        installer: Callable[[], Awaitable[dict[str, Any]]] | None = None,
+        extension_installed: Callable[[], bool] | None = None,
     ) -> None:
         self._server: asyncio.AbstractServer | None = None
         self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
@@ -67,6 +71,9 @@ class ChromeBridge:
         self._on_cancel = on_cancel
         self._on_answer = on_answer
         self._on_settings = on_settings
+        #: Eklenti kurulu değilken görev ona ihtiyaç duyarsa kılavuzlu kurulumu başlatan işlev.
+        self._installer = installer
+        self._extension_installed = extension_installed or (lambda: True)
         #: Yan panelin canlı akışı: adımlar, sorular, tur başı/sonu (bkz. `chrome_feed`).
         self._feed: list[dict[str, Any]] = []
         self._feed_seq = 0
@@ -241,15 +248,33 @@ class ChromeBridge:
         """
         with contextlib.suppress(OSError):
             await self._launch_browser()
-        deadline = time.monotonic() + BROWSER_CONNECT_WAIT_SECONDS
+        if await self._wait_connected(BROWSER_CONNECT_WAIT_SECONDS):
+            return
+        if self._installer is not None and not await asyncio.to_thread(self._extension_installed):
+            # Eklenti kurulu değil: görev durmasın, kılavuzlu kurulum kendiliğinden açılsın.
+            self.publish(
+                {
+                    "tur": "adim",
+                    "arac": "chrome_page",
+                    "metin": "Fusion Browser eklentisi kuruluyor; Chrome'daki tek onayı bekliyor…",
+                    "durum": "ok",
+                }
+            )
+            await self._installer()
+            if await self._wait_connected(INSTALL_CONFIRM_WAIT_SECONDS):
+                return
+        raise ConnectionError(
+            "Chrome açıldı ama Fusion Browser eklentisi bağlanmadı. Ayarlar > Tarayıcı'daki "
+            "Eklentiyi kur adımlarını bitir ya da eklentinin yüklü ve açık olduğunu kontrol et."
+        )
+
+    async def _wait_connected(self, seconds: float) -> bool:
+        deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             if self.status()["bagli"]:
-                return
+                return True
             await asyncio.sleep(BROWSER_CONNECT_POLL_SECONDS)
-        raise ConnectionError(
-            "Chrome açıldı ama Fusion Browser eklentisi bağlanmadı. Chrome'da eklentinin "
-            "yüklü ve açık olduğunu kontrol et."
-        )
+        return bool(self.status()["bagli"])
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:

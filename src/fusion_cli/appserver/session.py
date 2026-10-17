@@ -474,7 +474,12 @@ class AppSession:
         #: Yan panelin kendi konuşma geçmişi (uygulamanın sohbetinden ayrı).
         self._chrome_history: list[Message] = []
         self._chrome = ChromeBridge(
-            self._chrome_turn, self._cancel_turn, self._chrome_answer, self._chrome_settings
+            self._chrome_turn,
+            self._cancel_turn,
+            self._chrome_answer,
+            self._chrome_settings,
+            installer=lambda: asyncio.to_thread(begin_install),
+            extension_installed=lambda: bool(install_status()["eklenti_yuklu"]),
         )
         from ..mcp_bridge.service import McpConnectionService
 
