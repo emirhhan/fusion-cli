@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d12">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg">
+<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="stylesheet" href="/styles.css">
+<title>Fusion Uzak</title>
+</head>
+<body>
+<main>
+  <h1>Fusion</h1>
+  <p class="mut" id="durum" role="status" aria-live="polite">Bağlanıyor…</p>
+
+  <section id="eslestir" class="card" hidden aria-labelledby="eslestirBaslik">
+    <h2 id="eslestirBaslik">Cihazı eşleştir</h2>
+    <p class="mut">Masaüstünde Fusion → Uzaktan Erişim’den kod oluştur, buraya gir ve masaüstünde onayla.</p>
+    <label for="kod">Eşleştirme kodu</label>
+    <input id="kod" autocomplete="off" autocapitalize="characters" maxlength="8" inputmode="text">
+    <label for="cihazAdi">Bu cihazın adı</label>
+    <input id="cihazAdi" value="Telefonum" maxlength="60">
+    <button id="eslestirDugme" type="button">Eşleştir</button>
+  </section>
+
+  <section id="ana" hidden>
+    <div class="card">
+      <label for="gorev">Yeni görev</label>
+      <textarea id="gorev" rows="3"></textarea>
+      <button id="gonder" type="button">Gönder</button>
+    </div>
+    <h2>Görevler</h2>
+    <div id="gorevler"></div>
+    <h2>Onaylar</h2>
+    <div id="onaylar"><p class="mut">Bekleyen onay yok.</p></div>
+    <button id="cikis" class="sec" type="button">Bu cihazın eşleşmesini kaldır</button>
+  </section>
+  <p class="mut" id="uyari"></p>
+</main>
+<script src="/app.js" type="module"></script>
+</body>
+</html>

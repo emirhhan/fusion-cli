@@ -1,0 +1,11 @@
+{
+  "gaps": [
+    "Gerçek mikrofon/hoparlör ses kabulü kullanıcı cihazında yapılmadı.",
+    "Paketli macOS uygulamasının temiz profilde kurulum ve yükseltme kabulü yapılmadı.",
+    "Windows gerçek kurulum, izin, DPI ve giriş kabulü yapılmadı.",
+    "Developer ID imzalama ve notarization hesap/sertifika gerektirir; bu pakette doğrulanmadı.",
+    "Chrome Web Store ve VS Code Marketplace yayını yapılmadı.",
+    "Uzaktan erişim (eşleştirme, Telegram, PWA) gerçek telefon ve gerçek bot ile denenmedi.",
+    "Canlı MCP OAuth sağlayıcı girişleri ve 8/24/72 saatlik dayanıklılık koşuları yapılmadı."
+  ]
+}

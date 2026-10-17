@@ -15,6 +15,7 @@ import { Models, type ModelState } from "./sections/Models";
 import { Permissions } from "./sections/Permissions";
 import { Advanced } from "./sections/Advanced";
 import { ChromeBrowser } from "./ChromeBrowser";
+import { RemoteAccess } from "./RemoteAccess";
 import "./Settings.css";
 
 /**
@@ -29,7 +30,7 @@ import "./Settings.css";
  * ayarlanabilir yanı.
  */
 
-type BolumId = "genel" | "hesap" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "izinler" | "guncellemeler" | "gelismis";
+type BolumId = "genel" | "hesap" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "izinler" | "uzak" | "guncellemeler" | "gelismis";
 
 const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: string }[] = [
   { id: "genel", etiket: "Genel", ikon: "settings", grup: "Kişisel" },
@@ -39,6 +40,7 @@ const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: string }[] 
   { id: "modeller", etiket: "Modeller", ikon: "skills", grup: "Entegrasyonlar" },
   { id: "tarayici", etiket: "Tarayıcı", ikon: "preview", grup: "Entegrasyonlar" },
   { id: "izinler", etiket: "İzinler", ikon: "help", grup: "Entegrasyonlar" },
+  { id: "uzak", etiket: "Uzaktan Erişim", ikon: "preview", grup: "Entegrasyonlar" },
   { id: "guncellemeler", etiket: "Güncellemeler", ikon: "changes", grup: "Sistem" },
   { id: "gelismis", etiket: "Gelişmiş", ikon: "terminal", grup: "Sistem" },
 ];
@@ -302,6 +304,8 @@ export function Settings({
               onSelectMode={onRunCommand ? selectMode : undefined}
             />
           )}
+
+          {bolum === "uzak" && <RemoteAccess client={client} />}
 
           {bolum === "guncellemeler" && <UpdatePanel />}
 
