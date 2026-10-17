@@ -37,7 +37,7 @@ final class SesEtkinligiKapisi {
     private let baslangicDogrulamaMs = 60
     // Yavaş konuşan biri cümle ortasında duraklayınca tur kesilmesin: 350 ms
     // cümlenin başını gönderiyordu. İnsanlar arası doğal duraklama 1-2 sn'dir.
-    private let bitisDogrulamaMs = 2000
+    let bitisDogrulamaMs = 2000
     private var gecenMs = 0
     private var kalibrasyonEnDusuk: Float = .greatestFiniteMagnitude
     /// Sürekli izlenen ortam gürültüsü tabanı (asgari istatistik: hızlı iner, yavaş çıkar).
@@ -302,7 +302,7 @@ func sentetikFixture(_ ad: String) -> Never {
     if ad == "segment-kaniti" {
         for _ in 0..<50 { _ = kapı.isle(rms: 0.08, sureMs: 10) }
         let oncekiSure = kapı.konusmaMs
-        for _ in 0..<40 { _ = kapı.isle(rms: 0.001, sureMs: 10) }
+        for _ in 0..<(kapı.bitisDogrulamaMs / 10 + 5) { _ = kapı.isle(rms: 0.001, sureMs: 10) }
         for _ in 0..<8 { _ = kapı.isle(rms: 0.08, sureMs: 10) }
         guard metinYaz(final: true, metin: "merhaba fuzyon", guven: 0.9,
                       callbackSegment: 1, konusmaSuresi: oncekiSure) else { bitir(14) }
@@ -371,7 +371,7 @@ func sentetikFixture(_ ad: String) -> Never {
                 }
             }
             metinYaz(final: false, metin: "kismi-\(tur)", guven: 0.0, callbackSegment: segment)
-            for _ in 0..<45 {
+            for _ in 0..<(kapı.bitisDogrulamaMs / 10 + 5) {
                 if let olay = kapı.isle(rms: 0.001, sureMs: 10) {
                     konusmaAcik = false
                     metinYaz(final: true, metin: "son-\(tur)", guven: 0.0, callbackSegment: segment)
@@ -399,7 +399,7 @@ func sentetikFixture(_ ad: String) -> Never {
             _ = metinYaz(final: false, metin: "supheli", guven: 0.1, callbackSegment: fixtureSegment)
             yaz("hata", "Güvenilir konuşma tanınamadı.", speechMs: kapı.konusmaMs, segment: kapı.segment)
         }
-        for _ in 0..<35 {
+        for _ in 0..<(kapı.bitisDogrulamaMs / 10 + 5) {
             if let olay = kapı.isle(rms: 0.001, sureMs: 10) {
                 // Konuşma bitti: bu andan sonra gelen KISMİ sonuç düşürülmeli.
                 konusmaAcik = false

@@ -65,7 +65,6 @@ export function ScreenWatchWindow({ client }: { client: ProtocolClient | null })
     void pull();
     const timer = window.setInterval(() => void pull(), WATCH_FRAME_MS);
     return () => { stopped = true; window.clearInterval(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- yoklama yalnız görünen cihaz kümesi değişince yenilenir
   }, [client, key]);
 
   const cut = useCallback(

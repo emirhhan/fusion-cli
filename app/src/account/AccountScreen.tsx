@@ -37,7 +37,6 @@ export function AccountScreen({
   useEffect(() => {
     setTaslak(etkin);
   // Reset the edit draft when the active account changes, not during each keystroke.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [etkin?.kimlik]);
 
   useEffect(() => {

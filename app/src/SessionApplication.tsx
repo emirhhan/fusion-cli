@@ -566,7 +566,7 @@ export function SessionUygulama({
       }
     }).catch((error: unknown) => console.error("Arayüz tercihleri çekirdekten okunamadı", error));
     return () => restore?.();
-  }, [activeClient]);
+  }, [activeClient, mirrorTarget]);
   const requestKitsHost = useCallback((name: string, data: Record<string, unknown>) => {
     if (!activeClient || !activeSessionId) return Promise.reject(new Error("Fusion oturumu yok."));
     return activeClient.request(name, data) as Promise<Record<string, unknown>>;

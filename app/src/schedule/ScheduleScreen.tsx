@@ -130,7 +130,7 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
   const toolbarRef = useRef<HTMLDivElement>(null);
 
   const openDraft = (next?: Draft) => { setError(null); setDraft(next ?? emptyDraft(defaultRoot)); };
-  const useTemplate = (template: ScheduleTemplate) => openDraft(draftFromTemplate(template, defaultRoot));
+  const applyTemplate = (template: ScheduleTemplate) => openDraft(draftFromTemplate(template, defaultRoot));
 
   const visibleTasks = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase("tr");
@@ -174,7 +174,7 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
     <ul aria-label="Şablonlar" className="schedule__grid">
       {SCHEDULE_TEMPLATES.map((template) => (
         <li key={template.id}>
-          <button className="schedule__card schedule__card--template" onClick={() => useTemplate(template)} type="button">
+          <button className="schedule__card schedule__card--template" onClick={() => applyTemplate(template)} type="button">
             <span aria-hidden="true" className="schedule__tile"><Icon name={template.simge} size={20} /></span>
             <span className="schedule__card-body">
               <strong className="schedule__title">{template.baslik}</strong>
