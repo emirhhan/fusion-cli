@@ -93,3 +93,50 @@ def test_kaynak_yoksa_hata_yakalanir(monkeypatch, chrome_kok):
     monkeypatch.setattr(chrome_install, "source_extension_dir", lambda: None)
     monkeypatch.setattr(chrome_install.sys, "platform", "darwin")
     assert chrome_install.begin_install(lambda *_: None)["ok"] is False
+
+
+def _cevap(kod=0, cikti=""):
+    import subprocess
+
+    return subprocess.CompletedProcess([], kod, cikti, "")
+
+
+def test_otomatik_kurulum_izin_yoksa_ayar_panelini_acar_ve_yonlendirir(chrome_kok):
+    from fusion_cli.appserver import chrome_autoinstall as oto
+
+    komutlar: list[list[str]] = []
+
+    def runner(komut):
+        komutlar.append(komut)
+        return _cevap(0, "false")
+
+    sonuc = oto.auto_install(runner=runner, prepare=lambda home=None: {"ok": True, "yol": "/x"})
+    assert sonuc["asama"] == "izin_gerekli" and "Erişilebilirlik" in sonuc["metin"]
+    assert ["open", oto.ACCESSIBILITY_PANE] in komutlar
+
+
+def test_otomatik_kurulum_arayuzu_surer_ve_profilde_dogrular(chrome_kok):
+    from fusion_cli.appserver import chrome_autoinstall as oto
+
+    def runner(komut):
+        if komut[1] == "-e":
+            return _cevap(0, "true")
+        _profil(chrome_kok, chrome_host.FIXED_EXTENSION_ID, state=1)
+        return _cevap(0, "ok")
+
+    sonuc = oto.auto_install(
+        runner=runner,
+        prepare=lambda home=None: {"ok": True, "yol": "/x"},
+        sleep=lambda _s: None,
+    )
+    assert sonuc["asama"] == "yuklendi" and sonuc["eklenti_yuklu"] is True
+
+
+def test_arayuz_adimi_basarisizsa_elle_kuruluma_duser(chrome_kok):
+    from fusion_cli.appserver import chrome_autoinstall as oto
+
+    def runner(komut):
+        return _cevap(0, "true" if komut[1] == "-e" else "no-switch")
+
+    sonuc = oto.auto_install(runner=runner, prepare=lambda home=None: {"ok": True, "yol": "/x"})
+    assert sonuc["asama"] == "elle" and "no-switch" in sonuc["metin"]

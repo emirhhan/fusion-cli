@@ -14,6 +14,7 @@ interface ChromeStatus {
   eklenti_surum?: string | null;
   yol?: string;
   adimlar?: string[];
+  asama?: "yuklendi" | "izin_gerekli" | "elle" | "desteklenmiyor" | "hata";
 }
 
 type Check = "ok" | "wait" | "off";
@@ -80,7 +81,8 @@ export function ChromeBrowser({ client }: { client: ProtocolClient }) {
       const result = await client.request("chrome.kur", {}) as unknown as ChromeStatus;
       if (!result.ok) throw new Error(result.metin || "Kurulum başlatılamadı.");
       setState(result);
-      setSteps(result.adimlar ?? []);
+      setSteps(result.asama === "yuklendi" ? [] : result.adimlar ?? []);
+      if (result.asama === "izin_gerekli" || result.asama === "elle") setError(result.metin ?? "");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Kurulum başlatılamadı.");
     } finally {

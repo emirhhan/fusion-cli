@@ -84,8 +84,9 @@ from ..ui.turn_stop import turn_stopped_summary
 from . import intelligence, ui_prefs
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .capabilities import catalog, detail
+from .chrome_autoinstall import auto_install_async
 from .chrome_bridge import ChromeBridge
-from .chrome_install import begin_install, install_status
+from .chrome_install import install_status
 from .commands import (
     command_choices,
     list_commands,
@@ -479,7 +480,7 @@ class AppSession:
             self._cancel_turn,
             self._chrome_answer,
             self._chrome_settings,
-            installer=lambda: asyncio.to_thread(begin_install),
+            installer=auto_install_async,
             extension_installed=lambda: bool(install_status()["eklenti_yuklu"]),
         )
         from ..mcp_bridge.service import McpConnectionService
@@ -733,10 +734,14 @@ class AppSession:
             return {"ok": True, **self._chrome.status(), **await asyncio.to_thread(install_status)}
         if request.name == "chrome.kur":
             # Köprü açık olsun ki eklenti yüklenir yüklenmez el sıkışabilsin.
-            kurulum = await asyncio.to_thread(begin_install)
+            kurulum = await auto_install_async()
             if not kurulum["ok"]:
                 return kurulum
             return {**kurulum, **await self._chrome.start()}
+        if request.name == "araclar.algila":
+            from .dev_tools import detect_dev_tools
+
+            return await asyncio.to_thread(detect_dev_tools)
         if request.name == "chrome.durdur":
             await self._chrome.close()
             return {"ok": True}

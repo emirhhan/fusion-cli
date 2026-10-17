@@ -260,7 +260,9 @@ class ChromeBridge:
                     "durum": "ok",
                 }
             )
-            await self._installer()
+            sonuc = await self._installer()
+            if sonuc.get("asama") == "izin_gerekli":
+                raise ConnectionError(str(sonuc.get("metin")))
             if await self._wait_connected(INSTALL_CONFIRM_WAIT_SECONDS):
                 return
         raise ConnectionError(
