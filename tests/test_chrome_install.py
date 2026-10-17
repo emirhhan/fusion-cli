@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -140,3 +143,22 @@ def test_arayuz_adimi_basarisizsa_elle_kuruluma_duser(chrome_kok):
 
     sonuc = oto.auto_install(runner=runner, prepare=lambda home=None: {"ok": True, "yol": "/x"})
     assert sonuc["asama"] == "elle" and "no-switch" in sonuc["metin"]
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("osacompile") is None,
+    reason="macOS AppleScript derleyicisi gerekli",
+)
+def test_autoinstall_applescript_derleniyor(tmp_path):
+    """Betik sözdizimi hatası (ayrılmış sözcük) sahada 'error' olarak görünüyordu."""
+    from fusion_cli.appserver.chrome_autoinstall import _APPLESCRIPT
+
+    kaynak = tmp_path / "kur.applescript"
+    kaynak.write_text(_APPLESCRIPT, encoding="utf-8")
+    cevap = subprocess.run(
+        ["osacompile", "-o", str(tmp_path / "kur.scpt"), str(kaynak)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert cevap.returncode == 0, cevap.stderr

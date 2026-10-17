@@ -33,13 +33,13 @@ VERIFY_POLL_SECONDS = 1.0
 
 # Düğme adları Chrome diline göre değişir; ikisi de aranır.
 _APPLESCRIPT = r"""
-on matches(el, words)
+on matches(el, wordList)
   tell application "System Events"
     repeat with attrName in {"AXTitle", "AXDescription", "AXValue"}
       try
         set txt to value of attribute (attrName as text) of el
         if txt is not missing value then
-          repeat with w in words
+          repeat with w in wordList
             if (txt as text) contains (w as text) then return true
           end repeat
         end if
@@ -49,13 +49,13 @@ on matches(el, words)
   return false
 end matches
 
-on findElement(words)
+on findElement(wordList)
   tell application "System Events"
     tell process "Google Chrome"
       repeat 25 times
         try
           repeat with el in (entire contents of front window)
-            if my matches(el, words) then return el
+            if my matches(el, wordList) then return el
           end repeat
         end try
         delay 0.6
@@ -84,8 +84,8 @@ on run argv
   if devSwitch is missing value then return "no-switch"
   tell application "System Events"
     try
-      set st to value of attribute "AXValue" of devSwitch
-      if st is 0 or st is false then click devSwitch
+      set switchState to value of attribute "AXValue" of devSwitch
+      if switchState is 0 or switchState is false then click devSwitch
     on error
       click devSwitch
     end try
