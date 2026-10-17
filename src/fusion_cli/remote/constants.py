@@ -27,7 +27,16 @@ AUTH_LOCKOUT_SECONDS = 900
 #: Cihaz sırrı baytı (256 bit).
 DEVICE_SECRET_BYTES = 32
 #: İstek gövdesi üst sınırı; bellek şişirme saldırısına karşı.
-MAX_BODY_BYTES = 256 * 1024
+#: 1 MiB: telefondan küçültülmüş görsel/dosya eki (base64 ile ~%33 şişer) tek istekte sığsın.
+MAX_BODY_BYTES = 1024 * 1024
+#: Yüklenen ek üst sınırı (çözülmüş bayt); gövde sınırının altında kalır.
+MAX_UPLOAD_BYTES = 700 * 1024
+#: Yüklenen eklerin saklanma süresi; eski ekler yeni yüklemede temizlenir.
+UPLOAD_RETENTION_SECONDS = 7 * 24 * 3600
+#: Telefona gösterilecek görselin üst boyutu (çözülmüş bayt).
+MEDIA_MAX_BYTES = 4 * 1024 * 1024
+#: Akan yanıt parçalarının en sık birleştirme aralığı: saniyede en fazla ~4 olay.
+DELTA_FLUSH_SECONDS = 0.25
 #: Görev başına tutulan olay sayısı üst sınırı.
 MAX_EVENTS_PER_TASK = 5_000
 #: Bildirim özeti uzunluğu: kod/özel içerik sohbet kanalına dökülmesin.

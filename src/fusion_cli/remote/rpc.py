@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -16,8 +17,9 @@ from typing import Any
 from ..core.protocols import Clock
 from .approvals import REMOTE_CHOICES, classify_question, is_approval
 from .backend import EventSink, TaskBackend
-from .constants import RPC_VERSION
+from .constants import DELTA_FLUSH_SECONDS, RPC_VERSION
 from .devices import Device, DeviceRegistry
+from .mobile import MobileApi, MobileError
 from .redaction import notification_summary
 from .scopes import Scope, allows
 from .screen import ScreenCapture, ScreenShareGate, ScreenUnavailableError
@@ -74,6 +76,8 @@ class RemoteService:
         version: str = "0",
         screen_gate: ScreenShareGate | None = None,
         screen_capture: ScreenCapture | None = None,
+        mobile: MobileApi | None = None,
+        run_lock: asyncio.Lock | None = None,
     ) -> None:
         self._clock = clock
         self._registry = registry
@@ -83,7 +87,9 @@ class RemoteService:
         self._screen_gate = screen_gate or ScreenShareGate(clock)
         self._screen_capture = screen_capture
         self._last_frames: dict[str, tuple[int, bytes, float]] = {}
-        self._run_lock = asyncio.Lock()
+        self._mobile = mobile
+        self._run_lock = run_lock or asyncio.Lock()
+        self._deltas: dict[str, tuple[str, float]] = {}
         self._runs: set[asyncio.Task[None]] = set()
         self._questions: dict[str, tuple[str, dict[str, Any]]] = {}
         self._active_run: str | None = None
@@ -112,7 +118,51 @@ class RemoteService:
             "screen.status": self._screen_status,
             "screen.frame": self._screen_frame,
             "screen.stop": self._screen_stop,
+            **self._mobile_handlers(),
         }
+
+    def _mobile_handlers(self) -> dict[str, Handler]:
+        if self._mobile is None:
+            return {}
+        handlers: dict[str, Handler] = {"schedules.run": self._schedule_run}
+
+        def wrap(
+            scope: str, method: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+        ) -> Handler:
+            async def handler(device: Device, params: dict[str, Any]) -> RpcResult:
+                denied = self._need(device, scope)
+                if denied:
+                    return denied
+                try:
+                    return RpcResult(True, await method(params))
+                except MobileError as error:
+                    return _fail(error.code, error.message)
+
+            return handler
+
+        for name, (scope, method) in self._mobile.methods().items():
+            handlers[name] = wrap(scope, method)
+        return handlers
+
+    async def _schedule_run(self, device: Device, params: dict[str, Any]) -> RpcResult:
+        """Zamanlanan görevi şimdi başlatır: görev metni bu oturumda yeni sohbet olarak çalışır."""
+        denied = self._need(device, Scope.AGENT_RUN.value)
+        if denied or self._mobile is None:
+            return denied or _fail("desteklenmiyor", "Zamanlananlar bu kurulumda yok.")
+        item = await self._mobile.find_schedule(str(params.get("id", "")))
+        if item is None:
+            return _fail("gorev_yok", "Zamanlanan görev bulunamadı.")
+        request: dict[str, Any] = {
+            "prompt": str(item.get("gorev", "")),
+            "chatId": "z_" + uuid.uuid4().hex[:16],
+            "idempotencyKey": str(params.get("idempotencyKey", "")),
+        }
+        try:
+            self._mobile.root_for(item.get("kok"))
+            request["root"] = item.get("kok")
+        except MobileError:
+            pass  # klasör masaüstünden bildirilmemiş: varsayılan kökte çalışır
+        return await self._create(device, request)
 
     @staticmethod
     def _need(device: Device, scope: str) -> RpcResult | None:
@@ -140,13 +190,22 @@ class RemoteService:
         if not isinstance(prompt, str) or not prompt.strip():
             return _fail("gecersiz_istek", "Görev metni gerekli.")
         key = params.get("idempotencyKey")
+        options: dict[str, Any] = {}
+        if self._mobile is not None:
+            try:
+                options = self._mobile.run_options(params)
+            except MobileError as error:
+                return _fail(error.code, error.message)
         record, is_new = self._store.create(
             device.device_id,
             notification_summary(prompt),
             project=str(params.get("project", ""))[:200],
             idempotency_key=key if isinstance(key, str) else "",
+            chat_id=str(options.get("chat_id", "")),
         )
         if is_new:
+            if options:
+                self._backend.prepare_run(record.run_id, options)
             self._launch(record.run_id, prompt)
         return RpcResult(True, {**record.view(), "duplicate": not is_new})
 
@@ -171,6 +230,11 @@ class RemoteService:
 
     def _sink_for(self, run_id: str) -> EventSink:
         def sink(kind: str, payload: dict[str, Any]) -> None:
+            if kind == "event" and payload.get("olay") == "TokenReceived":
+                if not payload.get("provisional"):
+                    self._buffer_delta(run_id, str(payload.get("text", "")))
+                return
+            self._flush_delta(run_id)
             if kind == "started":
                 self._store.set_state(run_id, STATE_RUNNING)
             elif kind == "question":
@@ -183,6 +247,22 @@ class RemoteService:
             self._store.append(run_id, kind, payload)
 
         return sink
+
+    def _buffer_delta(self, run_id: str, text: str) -> None:
+        """Akan yanıt parçalarını birleştirir: saniyede birkaç olay, binlerce değil."""
+        pending, last = self._deltas.get(run_id, ("", 0.0))  # ilk parça gecikmeden
+        pending += text
+        if self._clock.now() - last >= DELTA_FLUSH_SECONDS:
+            self._deltas.pop(run_id, None)
+            self._store.append(run_id, "delta", {"text": pending})
+            self._deltas[run_id] = ("", self._clock.now())
+        else:
+            self._deltas[run_id] = (pending, last)
+
+    def _flush_delta(self, run_id: str) -> None:
+        pending, _last = self._deltas.pop(run_id, ("", 0.0))
+        if pending:
+            self._store.append(run_id, "delta", {"text": pending})
 
     def _on_question(self, run_id: str, payload: dict[str, Any]) -> None:
         question_id = str(payload.get("questionId", ""))

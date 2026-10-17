@@ -41,6 +41,16 @@ class FakeBackend:
         self.answers: list[tuple[str, dict[str, Any]]] = []
         self.release = asyncio.Event()
         self.ask: dict[str, Any] | None = None
+        self.options: dict[str, dict[str, Any]] = {}
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.responses: dict[str, dict[str, Any]] = {}
+
+    def prepare_run(self, run_id: str, options: dict[str, Any]) -> None:
+        self.options[run_id] = options
+
+    async def call(self, name: str, data: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append((name, data))
+        return self.responses.get(name, {"ok": True})
 
     async def start(self, run_id: str, prompt: str, sink: Any) -> None:
         self.started.append(prompt)

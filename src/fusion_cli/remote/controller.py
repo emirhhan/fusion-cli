@@ -14,13 +14,16 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
+from ..config.paths import user_data_dir
 from ..core.protocols import Clock
 from .asgi import RemoteApp
 from .backend import AppSessionBackend
 from .bind import BindPolicy, BindRefusedError, private_addresses, validate_bind
 from .constants import DEFAULT_REMOTE_HOST, DEFAULT_REMOTE_PORT
 from .devices import CHANNEL_SIGNED, CHANNEL_TELEGRAM, DeviceRegistry
+from .mobile import MobileApi
 from .pairing import PairingError, PairingService
+from .projects import ProjectStore
 from .rate_limit import FailureLimiter
 from .rpc import RemoteService
 from .scopes import ELEVATED_SCOPES, parse_scopes
@@ -28,6 +31,7 @@ from .screen import MacScreenCapture
 from .signing import SignatureVerifier
 from .tasks import TaskStore
 from .telegram import HttpTelegramApi, OffsetStore, TelegramBridge
+from .uploads import MediaReader, UploadStore
 
 TELEGRAM_TOKEN_NAME = "FUSION_TELEGRAM_BOT_TOKEN"
 
@@ -76,7 +80,20 @@ class RemoteController:
         self._pairing = PairingService(self._registry, self._clock)
         self._store = TaskStore(self._clock)
         self._backend = AppSessionBackend(session_factory, root)
+        self._projects = ProjectStore(directory / "projects.json")
+        run_lock = asyncio.Lock()
+        mobile = MobileApi(
+            backend=self._backend,
+            projects=self._projects,
+            uploads=UploadStore(directory / "uploads", self._clock),
+            media=MediaReader([home, user_data_dir(), root, directory / "uploads"]),
+            clock=self._clock,
+            default_root=root,
+            session_lock=run_lock,
+        )
         self._service = RemoteService(
+            mobile=mobile,
+            run_lock=run_lock,
             clock=self._clock,
             registry=self._registry,
             store=self._store,
@@ -112,6 +129,7 @@ class RemoteController:
             "uzak.ekran_onayla": self._screen_approve,
             "uzak.ekran_kes": self._screen_stop,
             "uzak.ekran_onizleme": self._screen_preview,
+            "uzak.projeler_esitle": self._projects_sync,
         }
         handler = handlers.get(name)
         if handler is None:
@@ -184,6 +202,11 @@ class RemoteController:
 
     async def _screen_stop(self, data: dict[str, Any]) -> dict[str, Any]:
         return {"ok": self._service.screen_gate.stop(str(data.get("cihazId", "")))}
+
+    async def _projects_sync(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Masaüstü proje kaydını (ad, klasör, sohbet eşlemesi) telefona görünür kılar."""
+        self._projects.replace(data.get("projeler"), data.get("sohbetler"))
+        return {"ok": True, "projeler": len(self._projects.list_projects())}
 
     async def _screen_preview(self, data: dict[str, Any]) -> dict[str, Any]:
         """Telefonun şu an izlediği kare; ek ekran yakalaması yapmaz."""

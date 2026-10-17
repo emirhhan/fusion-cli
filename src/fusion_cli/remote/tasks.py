@@ -43,6 +43,7 @@ class TaskRecord:
     owner_device: str
     created_at: float
     project: str = ""
+    chat_id: str = ""
     state: str = STATE_QUEUED
     events: list[TaskEvent] = field(default_factory=list)
     next_seq: int = 1
@@ -52,6 +53,7 @@ class TaskRecord:
             "runId": self.run_id,
             "state": self.state,
             "project": self.project,
+            "chatId": self.chat_id,
             "summary": self.prompt_summary,
             "createdAt": self.created_at,
             "lastSeq": self.next_seq - 1,
@@ -73,6 +75,7 @@ class TaskStore:
         prompt_summary: str,
         project: str = "",
         idempotency_key: str = "",
+        chat_id: str = "",
     ) -> tuple[TaskRecord, bool]:
         """(kayıt, yeni_mi). Aynı cihaz+anahtar ikinci kez yeni görev açmaz."""
         if idempotency_key:
@@ -85,6 +88,7 @@ class TaskStore:
             owner_device=owner_device,
             created_at=self._clock.now(),
             project=project,
+            chat_id=chat_id,
         )
         self._tasks[record.run_id] = record
         if idempotency_key:
