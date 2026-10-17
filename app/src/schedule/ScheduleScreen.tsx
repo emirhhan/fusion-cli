@@ -101,79 +101,137 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
   const toggleDay = (day: number) =>
     update({ gunler: draft?.gunler.includes(day) ? draft.gunler.filter((item) => item !== day) : [...(draft?.gunler ?? []), day] });
 
+  const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+  const active = tasks.filter((task) => task.etkin && task.sonraki !== null).length;
+  const paused = tasks.length - active;
+  const openDraft = () => { setError(null); setDraft(emptyDraft(defaultRoot)); };
+
+  useEffect(() => {
+    if (!draft) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setDraft(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [draft]);
+
   return (
     <div className="schedule">
       <header className="schedule__header" data-tauri-drag-region>
-        <div>
+        <span aria-hidden="true" className="schedule__header-mark"><Icon name="clock" size={22} /></span>
+        <div className="schedule__header-text">
           <h1>Zamanlananlar</h1>
           <p className="schedule__hint">Görevler Fusion açıkken çalışır; her çalışma yeni bir sohbet açar.</p>
         </div>
-        <button className="schedule__primary" disabled={!client} onClick={() => { setError(null); setDraft(emptyDraft(defaultRoot)); }} type="button">
+        <button className="schedule__primary" disabled={!client} onClick={openDraft} type="button">
           <Icon name="new" size={16} /> Yeni görev
         </button>
       </header>
-      {error && <p className="schedule__error" role="alert">{error}</p>}
-      {draft && (
-        <form aria-label="Yeni zamanlanmış görev" className="schedule__form" onSubmit={(event) => void submit(event)}>
-          <label>Başlık<input onChange={(event) => update({ baslik: event.target.value })} placeholder="İsteğe bağlı" value={draft.baslik} /></label>
-          <label>Görev<textarea onChange={(event) => update({ gorev: event.target.value })} placeholder="Fusion ne yapsın?" required rows={3} value={draft.gorev} /></label>
-          <div className="schedule__row">
-            <label>Ne zaman
-              <select onChange={(event) => update({ tur: event.target.value as ScheduleKind })} value={draft.tur}>
-                {(Object.keys(KIND_LABEL) as ScheduleKind[]).map((kind) => <option key={kind} value={kind}>{KIND_LABEL[kind]}</option>)}
-              </select>
-            </label>
-            {draft.tur === "bir_kez" && <label>Tarih<input onChange={(event) => update({ tarih: event.target.value })} required type="date" value={draft.tarih} /></label>}
-            {draft.tur !== "aralik" && <label>Saat<input onChange={(event) => update({ saat: event.target.value })} required type="time" value={draft.saat} /></label>}
-            {draft.tur === "aralik" && <label>Dakika<input min={15} onChange={(event) => update({ dakika: event.target.value })} required type="number" value={draft.dakika} /></label>}
-          </div>
-          {draft.tur === "haftalik" && (
-            <div aria-label="Günler" className="schedule__days" role="group">
-              {DAY_LABELS.map((label, day) => (
-                <button aria-pressed={draft.gunler.includes(day)} key={label} onClick={() => toggleDay(day)} type="button">{label}</button>
-              ))}
-            </div>
-          )}
-          <div className="schedule__folder">
-            <span title={draft.kok}>Klasör: {draft.kok || "seçilmedi"}</span>
-            <button onClick={() => void chooseFolder(draft.kok).then((folder) => { if (folder) update({ kok: folder }); })} type="button">Değiştir</button>
-          </div>
-          <div className="schedule__form-actions">
-            <button onClick={() => setDraft(null)} type="button">Vazgeç</button>
-            <button className="schedule__primary" type="submit">Kaydet</button>
-          </div>
-        </form>
+      {tasks.length > 0 && (
+        <p aria-label="Özet" className="schedule__summary">
+          <strong>{active}</strong> etkin{paused > 0 && <> · <strong>{paused}</strong> duraklatıldı</>}
+        </p>
       )}
+      {error && !draft && <p className="schedule__error" role="alert">{error}</p>}
       {!client ? (
         <p className="schedule__empty">Zamanlananları görmek için Home'da bir sohbet aç.</p>
-      ) : tasks.length === 0 && !draft ? (
-        <p className="schedule__empty">Henüz zamanlanmış görev yok.</p>
+      ) : tasks.length === 0 ? (
+        <div className="schedule__empty-state">
+          <span aria-hidden="true" className="schedule__empty-disc"><Icon name="clock" size={30} /></span>
+          <p className="schedule__empty-title">Henüz zamanlanmış görev yok.</p>
+          <p className="schedule__hint">Düzenli işleri Fusion'a ver: sabah raporu, haftalık özet, fiyat güncelleme…</p>
+          <button className="schedule__primary" onClick={openDraft} type="button">İlk görevini oluştur</button>
+        </div>
       ) : (
         <ul aria-label="Zamanlanmış görevler" className="schedule__list">
           {tasks.map((task) => (
             <li className="schedule__item" data-enabled={task.etkin} key={task.id}>
+              <span aria-hidden="true" className="schedule__badge"><Icon name="clock" size={18} /></span>
               <div className="schedule__item-main">
                 <p className="schedule__title">{task.baslik}</p>
-                <p className="schedule__meta">
-                  {describeSchedule(task)}
-                  {task.etkin && task.sonraki ? ` · sıradaki ${formatMoment(task.sonraki)}` : task.sonraki ? " · duraklatıldı" : " · tamamlandı"}
-                </p>
+                {task.gorev && task.gorev !== task.baslik && <p className="schedule__prompt">{task.gorev}</p>}
+                <div className="schedule__chips">
+                  <span className="schedule__chip">{describeSchedule(task)}</span>
+                  <span className="schedule__chip" data-tone={task.etkin && task.sonraki ? "next" : "muted"}>
+                    {task.etkin && task.sonraki ? `Sıradaki ${formatMoment(task.sonraki)}` : task.sonraki ? "Duraklatıldı" : "Tamamlandı"}
+                  </span>
+                  <span className="schedule__chip" title={task.kok}><Icon name="folder" size={12} /> {folderName(task.kok)}</span>
+                </div>
                 {task.son_calisma && (
                   <p className="schedule__meta">Son çalışma {formatMoment(task.son_calisma)}{task.son_gecikmeli ? " (gecikmeli: Fusion kapalıydı)" : ""}</p>
                 )}
               </div>
               <div className="schedule__actions">
-                <button onClick={() => void runNow(task)} type="button">Şimdi çalıştır</button>
+                <button
+                  aria-label="Şimdi çalıştır"
+                  className="schedule__icon-button"
+                  onClick={() => void runNow(task)}
+                  title="Şimdi çalıştır"
+                  type="button"
+                >
+                  <Icon name="play" size={15} />
+                </button>
                 {task.sonraki !== null && (
-                  <button onClick={() => void call("zamanlama.etkin", { id: task.id, etkin: !task.etkin }, "Görev güncellenemedi.")} type="button">
-                    {task.etkin ? "Duraklat" : "Sürdür"}
+                  <button
+                    aria-checked={task.etkin}
+                    aria-label={task.etkin ? "Duraklat" : "Sürdür"}
+                    className="schedule__switch"
+                    onClick={() => void call("zamanlama.etkin", { id: task.id, etkin: !task.etkin }, "Görev güncellenemedi.")}
+                    role="switch"
+                    title={task.etkin ? "Duraklat" : "Sürdür"}
+                    type="button"
+                  >
+                    <span />
                   </button>
                 )}
-                <button aria-label={`${task.baslik} görevini sil`} onClick={() => void call("zamanlama.sil", { id: task.id }, "Görev silinemedi.")} type="button">Sil</button>
+                <button
+                  aria-label={`${task.baslik} görevini sil`}
+                  className="schedule__icon-button schedule__icon-button--danger"
+                  onClick={() => void call("zamanlama.sil", { id: task.id }, "Görev silinemedi.")}
+                  title="Sil"
+                  type="button"
+                >
+                  <Icon name="trash" size={15} />
+                </button>
               </div>
             </li>
           ))}
         </ul>
+      )}
+      {draft && (
+        <div className="schedule__overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setDraft(null); }}>
+          <div aria-label="Yeni zamanlanmış görev" aria-modal="true" className="schedule__dialog" role="dialog">
+            <form aria-label="Yeni zamanlanmış görev" className="schedule__form" onSubmit={(event) => void submit(event)}>
+              <h2>Yeni zamanlanmış görev</h2>
+              {error && <p className="schedule__error" role="alert">{error}</p>}
+              <label>Başlık<input onChange={(event) => update({ baslik: event.target.value })} placeholder="İsteğe bağlı" value={draft.baslik} /></label>
+              <label>Görev<textarea onChange={(event) => update({ gorev: event.target.value })} placeholder="Fusion ne yapsın?" required rows={4} value={draft.gorev} /></label>
+              <div className="schedule__row">
+                <label>Ne zaman
+                  <select onChange={(event) => update({ tur: event.target.value as ScheduleKind })} value={draft.tur}>
+                    {(Object.keys(KIND_LABEL) as ScheduleKind[]).map((kind) => <option key={kind} value={kind}>{KIND_LABEL[kind]}</option>)}
+                  </select>
+                </label>
+                {draft.tur === "bir_kez" && <label>Tarih<input onChange={(event) => update({ tarih: event.target.value })} required type="date" value={draft.tarih} /></label>}
+                {draft.tur !== "aralik" && <label>Saat<input onChange={(event) => update({ saat: event.target.value })} required type="time" value={draft.saat} /></label>}
+                {draft.tur === "aralik" && <label>Dakika<input min={15} onChange={(event) => update({ dakika: event.target.value })} required type="number" value={draft.dakika} /></label>}
+              </div>
+              {draft.tur === "haftalik" && (
+                <div aria-label="Günler" className="schedule__days" role="group">
+                  {DAY_LABELS.map((label, day) => (
+                    <button aria-pressed={draft.gunler.includes(day)} key={label} onClick={() => toggleDay(day)} type="button">{label}</button>
+                  ))}
+                </div>
+              )}
+              <div className="schedule__folder">
+                <span title={draft.kok}><Icon name="folder" size={14} /> {draft.kok || "Klasör seçilmedi"}</span>
+                <button onClick={() => void chooseFolder(draft.kok).then((folder) => { if (folder) update({ kok: folder }); })} type="button">Değiştir</button>
+              </div>
+              <div className="schedule__form-actions">
+                <button onClick={() => setDraft(null)} type="button">Vazgeç</button>
+                <button className="schedule__primary" type="submit">Kaydet</button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -52,7 +52,7 @@ describe("ScheduleScreen", () => {
     const onRunNow = vi.fn(async () => undefined);
     render(<ScheduleScreen client={client} defaultRoot="/proje" onRunNow={onRunNow} />);
     expect(await screen.findByText("Sabah raporu")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Duraklat" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Duraklat" }));
     await waitFor(() => expect(request).toHaveBeenCalledWith("zamanlama.etkin", { id: "a1", etkin: false }));
     fireEvent.click(screen.getByRole("button", { name: "Şimdi çalıştır" }));
     await waitFor(() => expect(onRunNow).toHaveBeenCalledWith(gorev));
@@ -83,6 +83,40 @@ describe("ScheduleScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Aralık en az 15 dakika olmalı.");
     expect(screen.getByRole("form")).toBeTruthy();
+  });
+});
+
+describe("ScheduleScreen — kart görünümü", () => {
+  it("kartta istem özeti, sıklık, sıradaki zaman ve klasör rozetleri ile açık anahtar görünür", async () => {
+    const { client } = fakeClient();
+    render(<ScheduleScreen client={client} defaultRoot="/proje" onRunNow={vi.fn()} />);
+    expect(await screen.findByText("Stok raporunu çıkar")).toBeTruthy();
+    expect(screen.getByText("Her gün 09:00")).toBeTruthy();
+    expect(screen.getByText(/^Sıradaki /)).toBeTruthy();
+    expect(screen.getByText("proje")).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Duraklat" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByLabelText("Özet").textContent).toContain("1 etkin");
+  });
+
+  it("duraklatılmış görev kapalı anahtar ve 'Duraklatıldı' rozetiyle görünür; özet sayar", async () => {
+    const paused = { ...gorev, etkin: false };
+    const { client } = fakeClient([paused, { ...gorev, id: "a2", baslik: "Haftalık özet" }]);
+    render(<ScheduleScreen client={client} defaultRoot="/proje" onRunNow={vi.fn()} />);
+    expect(await screen.findByText("Duraklatıldı")).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Sürdür" }).getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByLabelText("Özet").textContent).toBe("1 etkin · 1 duraklatıldı");
+  });
+
+  it("boş durumda çağrı düğmesi yeni görev diyaloğunu açar; Esc ve Vazgeç kapatır", async () => {
+    const { client } = fakeClient([]);
+    render(<ScheduleScreen client={client} defaultRoot="/proje" onRunNow={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "İlk görevini oluştur" }));
+    expect(screen.getByRole("dialog", { name: "Yeni zamanlanmış görev" })).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Yeni görev" }));
+    fireEvent.click(screen.getByRole("button", { name: "Vazgeç" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 

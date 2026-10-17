@@ -46,4 +46,28 @@ describe("RuntimeSetup", () => {
 
     expect(screen.queryByRole("button")).toBeNull();
   });
+
+  it("yüzde bilinmiyorsa belirsiz çubuk ve 'Birazdan hazır', biliniyorsa dolgu ölçeği gösterir", () => {
+    const { container, rerender } = render(
+      <RuntimeSetup state="kuruluyor" progress={0} message="Hazırlanıyor" onRepair={vi.fn()} />,
+    );
+    expect(screen.getByText("Birazdan hazır")).toBeTruthy();
+    expect(screen.getByRole("progressbar").getAttribute("data-indeterminate")).toBe("true");
+    rerender(<RuntimeSetup state="kuruluyor" progress={64} message="Hazırlanıyor" onRepair={vi.fn()} />);
+    expect(screen.getByText("%64")).toBeTruthy();
+    expect(screen.getByRole("progressbar").getAttribute("data-indeterminate")).toBe("false");
+    expect((container.querySelector(".runtime-setup__track span") as HTMLElement).style.transform).toBe("scaleX(0.64)");
+  });
+
+  it("camlı kartta marka logosu, aurora zemini ve süren iş için dönen halka vardır; hata durumunda halka durur", () => {
+    const { container, rerender } = render(
+      <RuntimeSetup state="denetleniyor" progress={0} message="Denetleniyor" onRepair={vi.fn()} />,
+    );
+    expect(container.querySelector(".runtime-setup__aurora")).not.toBeNull();
+    expect(container.querySelector(".runtime-setup__card img")).not.toBeNull();
+    expect(container.querySelector("main")?.getAttribute("data-busy")).toBe("true");
+    rerender(<RuntimeSetup state="hata" progress={0} message="Olmadı" onRepair={vi.fn()} />);
+    expect(container.querySelector("main")?.getAttribute("data-busy")).toBe("false");
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
 });
