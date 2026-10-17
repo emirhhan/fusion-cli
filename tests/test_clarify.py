@@ -12,7 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from fusion_cli.engines.agent.clarify import clarification_hint
+from fusion_cli.engines.agent.clarify import (
+    VAGUE_FIX_QUESTION,
+    clarification_hint,
+    vague_fix_question,
+)
 
 
 @pytest.mark.parametrize(
@@ -78,3 +82,25 @@ def test_long_order_project_still_requires_real_data_source(tmp_path: Path):
 def test_given_technology_and_source_are_not_asked_again(tmp_path: Path):
     task = "React ile Shopify sipariş paneli yap; veriyi Shopify API üzerinden oku."
     assert clarification_hint(task, tmp_path, can_ask=True, first_turn=True) is None
+
+
+@pytest.mark.parametrize("gorev", ["siteyi düzelt", "uygulamayı iyileştir", "Kodu toparla"])
+def test_belirsiz_duzeltme_istegi_model_cagrilmadan_soru_doner(gorev: str):
+    assert vague_fix_question(gorev, first_turn=True) == VAGUE_FIX_QUESTION
+
+
+@pytest.mark.parametrize(
+    "gorev",
+    [
+        "style.css'deki başlık rengini mavi yap",
+        "login sayfasındaki hatayı düzelt",
+        "sepet sayfasındaki 404 hatasını düzelt",
+        "siteyi düzelt: ana sayfada hero görseli kırık",
+    ],
+)
+def test_ayrintili_duzeltme_istegine_soru_donmez(gorev: str):
+    assert vague_fix_question(gorev, first_turn=True) is None
+
+
+def test_belirsiz_duzeltme_ilk_tur_degilse_soru_donmez():
+    assert vague_fix_question("siteyi düzelt", first_turn=False) is None

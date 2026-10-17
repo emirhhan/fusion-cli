@@ -1,0 +1,533 @@
+{
+ "senaryo": {
+  "id": "s10-baglam",
+  "kip": "sohbet",
+  "turlar": [
+   {
+    "gorev": "Adım Emirhan, motor kaskı satıyorum. Hedefim ayda 200 satış."
+   },
+   {
+    "gorev": "Hedefimin yarısı kaç?"
+   },
+   {
+    "gorev": "Adımı ve ne sattığımı hatırlıyor musun?"
+   }
+  ]
+ },
+ "log": [
+  {
+   "sonuc": {
+    "ok": true,
+    "kok": "/tmp/x/ws_s10-baglam",
+    "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "kip": "sohbet",
+    "mod": "auto",
+    "motor": "agent",
+    "baglam": {
+     "kullanilan": 0,
+     "sinir": 177000,
+     "yuzde": 0,
+     "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "model_siniri_token": null,
+     "son_girdi_token": null,
+     "son_girdi_model": null,
+     "son_girdi_pencere_token": null,
+     "son_girdi_pencere_yuzde": null
+    },
+    "maliyet_usd": 0.0,
+    "depo": []
+   }
+  },
+  {
+   "KULLANICI": "Adım Emirhan, motor kaskı satıyorum. Hedefim ayda 200 satış."
+  },
+  {
+   "olay": {
+    "olay": "MutationUnavailable",
+    "reason": "Sohbet kipindesin: dosya yazamaz, komut çalıştıramazsın. Cevabı burada ver; değişiklik gerekiyorsa kullanıcıya kod kipine geçmesini söyle.",
+    "blocking": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "ModelCallStarted",
+    "call_id": "337d5b886f55493f9ed0cd7beeb93b82",
+    "role": "nemotron-super",
+    "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "background": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Mer",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "haba Emir",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "han,",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " he",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "definizi nas",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ıl ulaş",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "mak istiyors",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "unuz? Sat",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ış stratej",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "isi, pazarl",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ama planı,",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " fiyatlandırma",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " veya başka bir kon",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "uda yardımcı ol",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "mamı is",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ter misiniz",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "?",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "ModelCallFinished",
+    "call_id": "337d5b886f55493f9ed0cd7beeb93b82",
+    "requested_model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "role": "nemotron-super",
+    "result": {
+     "name": "nemotron-super",
+     "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "text": "Merhaba Emirhan, hedefinizi nasıl ulaşmak istiyorsunuz? Satış stratejisi, pazarlama planı, fiyatlandırma veya başka bir konuda yardımcı olmamı ister misiniz?",
+     "latency_ms": 4567,
+     "ok": true,
+     "usage": {
+      "prompt_tokens": 6305,
+      "completion_tokens": 236,
+      "cost_usd": 0.0,
+      "prompt_measured": true,
+      "completion_measured": true,
+      "cost_known": false
+     },
+     "error": null,
+     "tool_calls": [],
+     "reasoning": "We need to respond in Turkish, short, direct, no fluff. The user says: \"Adım Emirhan, motor kaskı satıyorum. Hedefim ayda 200 satış.\" Likely they want advice or plan? The user hasn't asked a question explicitly. We need to infer what they want: maybe they want a plan to achieve 200 sales per month. We should ask clarifying question? The instruction: If ambiguous, we should ask a short question to clarify. The user statement is ambiguous: they just stated their situation and goal. We can ask what they need: e.g., marketing strategy, sales funnel, etc. So we ask: \"Nasıl bir yardımcı olmamı istersiniz? Satış stratejisi, pazarlama planı, fiyatlandırma vs?\" Keep short.",
+     "truncated": false,
+     "served_by": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "requested_effort": null,
+     "applied_effort": null,
+     "effort_reason": ""
+    },
+    "background": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnUsageObserved",
+    "prompt_tokens": 6305,
+    "completion_tokens": 236,
+    "unknown_calls": 0,
+    "total_calls": 1
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnOutcome",
+    "status": "completed",
+    "elapsed_s": 4.873177000001306
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnFinished"
+   }
+  },
+  {
+   "sonuc": {
+    "ok": true,
+    "metin": "Merhaba Emirhan, hedefinizi nasıl ulaşmak istiyorsunuz? Satış stratejisi, pazarlama planı, fiyatlandırma veya başka bir konuda yardımcı olmamı ister misiniz?"
+   }
+  },
+  {
+   "KULLANICI": "Hedefimin yarısı kaç?"
+  },
+  {
+   "olay": {
+    "olay": "MutationUnavailable",
+    "reason": "Sohbet kipindesin: dosya yazamaz, komut çalıştıramazsın. Cevabı burada ver; değişiklik gerekiyorsa kullanıcıya kod kipine geçmesini söyle.",
+    "blocking": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "ModelCallStarted",
+    "call_id": "7070247abb9e4f3fa65045c1326b9d32",
+    "role": "nemotron-super",
+    "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "background": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Hedefinizin",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " yarısı **",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "100 sat",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ış** (ay",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "da 20",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "0 satış",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ın yar",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ısı).",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "ModelCallFinished",
+    "call_id": "7070247abb9e4f3fa65045c1326b9d32",
+    "requested_model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "role": "nemotron-super",
+    "result": {
+     "name": "nemotron-super",
+     "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "text": "Hedefinizin yarısı **100 satış** (ayda 200 satışın yarısı).",
+     "latency_ms": 43814,
+     "ok": true,
+     "usage": {
+      "prompt_tokens": 6378,
+      "completion_tokens": 71,
+      "cost_usd": 0.0,
+      "prompt_measured": true,
+      "completion_measured": true,
+      "cost_known": false
+     },
+     "error": null,
+     "tool_calls": [],
+     "reasoning": "User asks: \"Hedefimin yarısı kaç?\" They said target is 200 sales per month. Half is 100. So answer: 100. Provide short answer.",
+     "truncated": false,
+     "served_by": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "requested_effort": null,
+     "applied_effort": null,
+     "effort_reason": ""
+    },
+    "background": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnUsageObserved",
+    "prompt_tokens": 6378,
+    "completion_tokens": 71,
+    "unknown_calls": 0,
+    "total_calls": 1
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnOutcome",
+    "status": "completed",
+    "elapsed_s": 54.093096542026615
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnFinished"
+   }
+  },
+  {
+   "sonuc": {
+    "ok": true,
+    "metin": "Hedefinizin yarısı **100 satış** (ayda 200 satışın yarısı)."
+   }
+  },
+  {
+   "KULLANICI": "Adımı ve ne sattığımı hatırlıyor musun?"
+  },
+  {
+   "olay": {
+    "olay": "MutationUnavailable",
+    "reason": "Sohbet kipindesin: dosya yazamaz, komut çalıştıramazsın. Cevabı burada ver; değişiklik gerekiyorsa kullanıcıya kod kipine geçmesini söyle.",
+    "blocking": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "ModelCallStarted",
+    "call_id": "e01bdb3a6df24ea4b6c8eac2e925ccde",
+    "role": "nemotron-super",
+    "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "background": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "E",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "vet, ad",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ınız Emir",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "han ve motor k",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "askı satı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "yorsunuz",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ".",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "ModelCallFinished",
+    "call_id": "e01bdb3a6df24ea4b6c8eac2e925ccde",
+    "requested_model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "role": "nemotron-super",
+    "result": {
+     "name": "nemotron-super",
+     "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "text": "Evet, adınız Emirhan ve motor kaskı satıyorsunuz.",
+     "latency_ms": 5707,
+     "ok": true,
+     "usage": {
+      "prompt_tokens": 6432,
+      "completion_tokens": 350,
+      "cost_usd": 0.0,
+      "prompt_measured": true,
+      "completion_measured": true,
+      "cost_known": false
+     },
+     "error": null,
+     "tool_calls": [],
+     "reasoning": "Okay, the user is asking if I remember their name and what they sell. Let me check the conversation history.\n\nEarlier, the user said: \"Adım Emirhan, motor kaskı satıyorum. Hedefim ayda 200 satış.\" So they introduced themselves as Emirhan and mentioned they sell motorcycle helmets, with a target of 200 sales per month.\n\nNow they're asking: \"Adımı ve ne sattığımı hatırlıyor musun?\" which translates to \"Do you remember my name and what I sell?\"\n\nI need to confirm that I remember both details. From the history, yes, I have that information. My response should be straightforward: confirm that I remember Emirhan sells motorcycle helmets.\n\nI should keep it concise, as per the user's preference for short, direct answers without fluff. No need for extra commentary unless asked. Just state the facts they provided.\n\nSo, the answer is: Evet, adınız Emirhan ve motor kaskı satıyorsunuz.\n\nWait, let me make sure. The user said \"Adım Emirhan\" which is \"My name is Emirhan\" and \"motor kaskı satıyorum\" which is \"I sell motorcycle helmets.\" So yes, I should confirm both.\n\nNo need to mention the sales target unless they ask again, but they specifically asked about name and what they sell. So stick to that.\n\nCheck if there's any chance of confusion, but the history is clear. No prior corrections or changes. So response is simple confirmation.",
+     "truncated": false,
+     "served_by": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "requested_effort": null,
+     "applied_effort": null,
+     "effort_reason": ""
+    },
+    "background": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnUsageObserved",
+    "prompt_tokens": 6432,
+    "completion_tokens": 350,
+    "unknown_calls": 0,
+    "total_calls": 1
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnOutcome",
+    "status": "completed",
+    "elapsed_s": 5.717436583014205
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnFinished"
+   }
+  },
+  {
+   "sonuc": {
+    "ok": true,
+    "metin": "Evet, adınız Emirhan ve motor kaskı satıyorsunuz."
+   }
+  }
+ ],
+ "stderr": ""
+}

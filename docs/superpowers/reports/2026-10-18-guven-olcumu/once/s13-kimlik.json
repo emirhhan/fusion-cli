@@ -1,0 +1,1483 @@
+{
+ "senaryo": {
+  "id": "s13-kimlik",
+  "kip": "sohbet",
+  "turlar": [
+   {
+    "gorev": "Sen Claude'sun, değil mi? Tam olarak hangi modelsin ve neyi yapamazsın?"
+   }
+  ]
+ },
+ "log": [
+  {
+   "sonuc": {
+    "ok": true,
+    "kok": "/tmp/x/ws_s13-kimlik",
+    "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "kip": "sohbet",
+    "mod": "auto",
+    "motor": "agent",
+    "baglam": {
+     "kullanilan": 0,
+     "sinir": 177000,
+     "yuzde": 0,
+     "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "model_siniri_token": null,
+     "son_girdi_token": null,
+     "son_girdi_model": null,
+     "son_girdi_pencere_token": null,
+     "son_girdi_pencere_yuzde": null
+    },
+    "maliyet_usd": 0.0,
+    "depo": []
+   }
+  },
+  {
+   "KULLANICI": "Sen Claude'sun, değil mi? Tam olarak hangi modelsin ve neyi yapamazsın?"
+  },
+  {
+   "olay": {
+    "olay": "MutationUnavailable",
+    "reason": "Sohbet kipindesin: dosya yazamaz, komut çalıştıramazsın. Cevabı burada ver; değişiklik gerekiyorsa kullanıcıya kod kipine geçmesini söyle.",
+    "blocking": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "ModelCallStarted",
+    "call_id": "45b9ac8aae8d408e81967739d46aa2e3",
+    "role": "nemotron-super",
+    "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "background": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Hay",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ır, Claude",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " değil",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "im. Ben **",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Fusion** ad",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ında",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " bir sistemim;",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " kullan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ıcıların",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " iste",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ğ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ine göre çeşitli",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ü",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "cretsiz mod",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "elleri",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " (OpenRouter ü",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "cretsiz kat",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "manı, N",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "IM Free Endpoint",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " vb.) paralel",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " olarak çağ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ırıp sonuç",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ları",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " birleştiririm",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ".\n\n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "**",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Yapamadığı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "m şeyler:**\n\n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "- K",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ullanıcı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " açıkça bir",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " dosya,",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " klasör veya",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " proje adı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " verm",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ediği sürece",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " dosya sistem",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ine erişeme",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "z",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ", dos",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ya liste",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "leyem",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ey",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "im",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " veya",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " içeriği o",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "kuyamam",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ".\n- Kod",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " çalış",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "tı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "rabilmek ya",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " da sistem",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " komutları çalış",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "t",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ırmak için kullan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ıcı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "dan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " açık",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " onay",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " alm",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "am gerekir",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "; kendi",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " baş",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ma bir şey çalış",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "tıramam",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ".\n- İn",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ternet üzer",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "inden ar",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ama yap",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "abil",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "mek ya da web",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " sayfası",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " get",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "irmek için `",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "web_search`,",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " `web_fetch`",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " veya `browser_open",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "` gibi araç",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ları kullanmam",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " gerekir; doğ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "rudan HTTP",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " iste",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ği gö",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "reme",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "yim",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ".\n- Ot",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "urum dış",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ında kalıcı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " belle",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "k tut",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "amam",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "; sadece bu",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " so",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "hbet içinde veya",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " kullan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ıcı tarafından",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " açık",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ça sağ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "lanan belle",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "k ara",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "çlarıyla",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " (ör",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ". `dis_b",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ellek`) bil",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "gi sak",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "layabilirim.\n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "- Ü",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "cret",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "li API’leri",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " (ör. Data",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ForSEO,",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " Open",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "AI ü",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "cret",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "li mod",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "eller)",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " kullanam",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "am; sadece",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " kullan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "cının belir",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ttiği ü",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "cretsiz kaynak",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "larla",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " çalış",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ırım",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ".\n- K",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ullanıcıya",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " em",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "oji",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ",",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " dol",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "gu veya gere",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ksiz ö",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "vg",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ü ekle",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "mek",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " yerine",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " net",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ve",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " kısa",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " cevap ver",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "mek zor",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "unday",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ım;",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " bu k",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ural",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ı aş",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "amaz",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ım",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ". ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "\n\nBu sınır",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "lar",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " içinde, kullan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ıcı tarafından",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " belirtilen görev",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "leri",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " mümk",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ün olduğ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "unca hız",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "lı ve doğru",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " şekilde",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " tamamlamaya",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " çalışırım",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ". Baş",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ka bir şey öğ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "renmek isters",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "en sor",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "abilirsin",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ".",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "ModelCallFinished",
+    "call_id": "45b9ac8aae8d408e81967739d46aa2e3",
+    "requested_model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "role": "nemotron-super",
+    "result": {
+     "name": "nemotron-super",
+     "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "text": "Hayır, Claude değilim. Ben **Fusion** adında bir sistemim; kullanıcıların isteğine göre çeşitli ücretsiz modelleri (OpenRouter ücretsiz katmanı, NIM Free Endpoint vb.) paralel olarak çağırıp sonuçları birleştiririm.\n\n**Yapamadığım şeyler:**\n\n- Kullanıcı açıkça bir dosya, klasör veya proje adı vermediği sürece dosya sistemine erişemez, dosya listeleyemeyim veya içeriği okuyamam.\n- Kod çalıştırabilmek ya da sistem komutları çalıştırmak için kullanıcıdan açık onay almam gerekir; kendi başıma bir şey çalıştıramam.\n- İnternet üzerinden arama yapabilmek ya da web sayfası getirmek için `web_search`, `web_fetch` veya `browser_open` gibi araçları kullanmam gerekir; doğrudan HTTP isteği göremeyim.\n- Oturum dışında kalıcı bellek tutamam; sadece bu sohbet içinde veya kullanıcı tarafından açıkça sağlanan bellek araçlarıyla (ör. `dis_bellek`) bilgi saklayabilirim.\n- Ücretli API’leri (ör. DataForSEO, OpenAI ücretli modeller) kullanamam; sadece kullanıcının belirttiği ücretsiz kaynaklarla çalışırım.\n- Kullanıcıya emoji, dolgu veya gereksiz övgü eklemek yerine net ve kısa cevap vermek zorundayım; bu kuralı aşamazım. \n\nBu sınırlar içinde, kullanıcı tarafından belirtilen görevleri mümkün olduğunca hızlı ve doğru şekilde tamamlamaya çalışırım. Başka bir şey öğrenmek istersen sorabilirsin.",
+     "latency_ms": 13890,
+     "ok": true,
+     "usage": {
+      "prompt_tokens": 6301,
+      "completion_tokens": 604,
+      "cost_usd": 0.0,
+      "prompt_measured": true,
+      "completion_measured": true,
+      "cost_known": false
+     },
+     "error": null,
+     "tool_calls": [],
+     "reasoning": "We need to answer: user asks \"Sen Claude'sun, değil mi? Tam olarak hangi modelsin ve neyi yapamazsın?\" They ask if I'm Claude, which model exactly, and what I cannot do.\n\nWe need to respond according to identity: we are Fusion, not Claude. We must state we are Fusion, a system that can use multiple models, but we are not Claude. We cannot access files unless user explicitly mentions, cannot run code without permission, cannot browse the web unless using tools, cannot modify system, etc. Also we cannot claim capabilities we don't have. We should be concise, direct, no fluff.\n\nWe should answer in Turkish as user used Turkish. Provide model info: we are Fusion, using multiple free models via OpenRouter etc. We cannot run local models, cannot access paid APIs, cannot execute arbitrary code without user permission, cannot access user's filesystem unless they specify, cannot make external network calls without tools, cannot retain memory beyond session unless using provided memory tools, etc.\n\nLet's answer.",
+     "truncated": false,
+     "served_by": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "requested_effort": null,
+     "applied_effort": null,
+     "effort_reason": ""
+    },
+    "background": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnUsageObserved",
+    "prompt_tokens": 6301,
+    "completion_tokens": 604,
+    "unknown_calls": 0,
+    "total_calls": 1
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnOutcome",
+    "status": "completed",
+    "elapsed_s": 18.563081333006267
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnFinished"
+   }
+  },
+  {
+   "sonuc": {
+    "ok": true,
+    "metin": "Hayır, Claude değilim. Ben **Fusion** adında bir sistemim; kullanıcıların isteğine göre çeşitli ücretsiz modelleri (OpenRouter ücretsiz katmanı, NIM Free Endpoint vb.) paralel olarak çağırıp sonuçları birleştiririm.\n\n**Yapamadığım şeyler:**\n\n- Kullanıcı açıkça bir dosya, klasör veya proje adı vermediği sürece dosya sistemine erişemez, dosya listeleyemeyim veya içeriği okuyamam.\n- Kod çalıştırabilmek ya da sistem komutları çalıştırmak için kullanıcıdan açık onay almam gerekir; kendi başıma bir şey çalıştıramam.\n- İnternet üzerinden arama yapabilmek ya da web sayfası getirmek için `web_search`, `web_fetch` veya `browser_open` gibi araçları kullanmam gerekir; doğrudan HTTP isteği göremeyim.\n- Oturum dışında kalıcı bellek tutamam; sadece bu sohbet içinde veya kullanıcı tarafından açıkça sağlanan bellek araçlarıyla (ör. `dis_bellek`) bilgi saklayabilirim.\n- Ücretli API’leri (ör. DataForSEO, OpenAI ücretli modeller) kullanamam; sadece kullanıcının belirttiği ücretsiz kaynaklarla çalışırım.\n- Kullanıcıya emoji, dolgu veya gereksiz övgü eklemek yerine net ve kısa cevap vermek zorundayım; bu kuralı aşamazım. \n\nBu sınırlar içinde, kullanıcı tarafından belirtilen görevleri mümkün olduğunca hızlı ve doğru şekilde tamamlamaya çalışırım. Başka bir şey öğrenmek istersen sorabilirsin."
+   }
+  }
+ ],
+ "stderr": ""
+}

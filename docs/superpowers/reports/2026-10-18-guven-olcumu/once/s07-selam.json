@@ -1,0 +1,260 @@
+{
+ "senaryo": {
+  "id": "s07-selam",
+  "kip": "sohbet",
+  "turlar": [
+   {
+    "gorev": "Selam"
+   },
+   {
+    "gorev": "Teşekkürler, görüşürüz"
+   }
+  ]
+ },
+ "log": [
+  {
+   "sonuc": {
+    "ok": true,
+    "kok": "/tmp/x/ws_s07-selam",
+    "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "kip": "sohbet",
+    "mod": "auto",
+    "motor": "agent",
+    "baglam": {
+     "kullanilan": 0,
+     "sinir": 177000,
+     "yuzde": 0,
+     "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "model_siniri_token": null,
+     "son_girdi_token": null,
+     "son_girdi_model": null,
+     "son_girdi_pencere_token": null,
+     "son_girdi_pencere_yuzde": null
+    },
+    "maliyet_usd": 0.0,
+    "depo": []
+   }
+  },
+  {
+   "KULLANICI": "Selam"
+  },
+  {
+   "olay": {
+    "olay": "MutationUnavailable",
+    "reason": "Sohbet kipindesin: dosya yazamaz, komut çalıştıramazsın. Cevabı burada ver; değişiklik gerekiyorsa kullanıcıya kod kipine geçmesini söyle.",
+    "blocking": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "ModelCallStarted",
+    "call_id": "7f08071bd4a942268b761ecbf21985db",
+    "role": "nemotron-super",
+    "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "background": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Selam",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "! Nas",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ıl yard",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ımcı ol",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "abilirim?",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "ModelCallFinished",
+    "call_id": "7f08071bd4a942268b761ecbf21985db",
+    "requested_model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "role": "nemotron-super",
+    "result": {
+     "name": "nemotron-super",
+     "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "text": "Selam! Nasıl yardımcı olabilirim?",
+     "latency_ms": 1691,
+     "ok": true,
+     "usage": {
+      "prompt_tokens": 6281,
+      "completion_tokens": 29,
+      "cost_usd": 0.0,
+      "prompt_measured": true,
+      "completion_measured": true,
+      "cost_known": false
+     },
+     "error": null,
+     "tool_calls": [],
+     "reasoning": "We need to respond in Turkish, short greeting. No need for tools.",
+     "truncated": false,
+     "served_by": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "requested_effort": null,
+     "applied_effort": null,
+     "effort_reason": ""
+    },
+    "background": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnUsageObserved",
+    "prompt_tokens": 6281,
+    "completion_tokens": 29,
+    "unknown_calls": 0,
+    "total_calls": 1
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnOutcome",
+    "status": "completed",
+    "elapsed_s": 1.931653459003428
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnFinished"
+   }
+  },
+  {
+   "sonuc": {
+    "ok": true,
+    "metin": "Selam! Nasıl yardımcı olabilirim?"
+   }
+  },
+  {
+   "KULLANICI": "Teşekkürler, görüşürüz"
+  },
+  {
+   "olay": {
+    "olay": "MutationUnavailable",
+    "reason": "Sohbet kipindesin: dosya yazamaz, komut çalıştıramazsın. Cevabı burada ver; değişiklik gerekiyorsa kullanıcıya kod kipine geçmesini söyle.",
+    "blocking": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "ModelCallStarted",
+    "call_id": "798eecb4278246809c48a8a25d0a3fb0",
+    "role": "nemotron-super",
+    "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "background": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Görüşmek",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " üzere! İyi",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " günler.",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "ModelCallFinished",
+    "call_id": "798eecb4278246809c48a8a25d0a3fb0",
+    "requested_model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "role": "nemotron-super",
+    "result": {
+     "name": "nemotron-super",
+     "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "text": "Görüşmek üzere! İyi günler.",
+     "latency_ms": 5016,
+     "ok": true,
+     "usage": {
+      "prompt_tokens": 6314,
+      "completion_tokens": 138,
+      "cost_usd": 0.0,
+      "prompt_measured": true,
+      "completion_measured": true,
+      "cost_known": false
+     },
+     "error": null,
+     "tool_calls": [],
+     "reasoning": "Okay, the user said \"Teşekkürler, görüşürüz\" which means \"Thank you, see you later\" in Turkish. They're ending the conversation.\n\nI should respond politely and keep it brief since they're signing off. No need for extra information or questions unless they ask. Just a friendly closing.\n\nLet me make sure to respond in Turkish as they've been using Turkish. Something like \"Görüşmek üzere! İyi günler.\" or similar.\n\nKeep it simple and warm. No need for emojis unless they used them, but they didn't. So plain text is fine.",
+     "truncated": false,
+     "served_by": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "requested_effort": null,
+     "applied_effort": null,
+     "effort_reason": ""
+    },
+    "background": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnUsageObserved",
+    "prompt_tokens": 6314,
+    "completion_tokens": 138,
+    "unknown_calls": 0,
+    "total_calls": 1
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnOutcome",
+    "status": "completed",
+    "elapsed_s": 5.023261041002115
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnFinished"
+   }
+  },
+  {
+   "sonuc": {
+    "ok": true,
+    "metin": "Görüşmek üzere! İyi günler."
+   }
+  }
+ ],
+ "stderr": ""
+}

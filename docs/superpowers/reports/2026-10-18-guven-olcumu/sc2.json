@@ -1,0 +1,1 @@
+[{"id": "s01b-belirsiz", "kip": "kod", "mod": "auto", "files": {"index.html": "<h1>Motogate</h1>", "style.css": "h1{color:red}"}, "turlar": [{"gorev": "siteyi düzelt"}, {"gorev": "Ana sayfadaki başlık çok küçük, style.css'de h1 font-size'ı 3rem yap."}]}]

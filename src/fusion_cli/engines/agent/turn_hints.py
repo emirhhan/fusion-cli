@@ -69,6 +69,22 @@ DESIGN_NOTE = (
 )
 
 
+def identity_hint(model: str) -> str | None:
+    """Aktif model adı/sağlayıcısı: "hangi modelsin?" sorusu uydurma yerine gerçeğe dayanır.
+
+    Ölçüldü (18 Ekim): model "Claude değilim" dedi ama hangi model olduğunu bilmiyordu,
+    kendini "paralel modelleri birleştiren sistem" diye anlattı.
+    """
+    provider, _, name = model.strip().partition("/")
+    if not provider or not name:
+        return None
+    return (
+        f"Şu an `{name}` modeliyle çalışıyorsun (sağlayıcı: {provider}). Kullanıcı hangi "
+        "model olduğunu sorarsa «Ben Fusion'ım, şu an bu modelle çalışıyorum» de; başka "
+        "bir modelmiş (Claude, GPT vb.) gibi davranma, bilmediğin teknik ayrıntıyı uydurma."
+    )
+
+
 def preview_hint(task: str, *, available: bool) -> str | None:
     if not available or _PREVIEW.search(task) is None:
         return None

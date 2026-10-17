@@ -122,7 +122,7 @@ from .apprentice_handoff import apprentice_spec, teacher_for_turn
 from .approval import ApprovalPolicy, Decision, resolve_request
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
-from .clarify import clarification_hint
+from .clarify import clarification_hint, vague_fix_question
 from .edit_hooks import EDIT_TOOLS, run_post_edit_hooks
 from .edit_streak import next_streak, streak_note
 from .engine_tools import UserAsker, build_agent_registry
@@ -187,7 +187,7 @@ from .teacher_flow import (
 )
 from .teacher_plan import TeacherPlan, UnworkablePart
 from .transient import MAX_TOOL_TRANSIENT_RETRIES, is_transient_failure
-from .turn_hints import design_hint, preview_hint, scope_hint, store_hint
+from .turn_hints import design_hint, identity_hint, preview_hint, scope_hint, store_hint
 from .turn_report import TurnReport, build_turn_report, claims_command_success
 from .verifier_repair import observe_verifier_failures
 from .workspace_hint import find_workspace_for
@@ -600,6 +600,28 @@ async def _run_agent(
             mutating=require_local_mutation,
         )
 
+    # Hedefi belirsiz kısa "düzelt" isteği: model çağrılmadan netleştirme sorusu döner.
+    vague_question = (
+        vague_fix_question(
+            task, first_turn=not any(message.role == "user" for message in history or ())
+        )
+        if depth == 0 and not chat_mode and not internal
+        else None
+    )
+    if vague_question is not None:
+        vague_outcome = AgentOutcome(
+            final_text=vague_question,
+            messages=[
+                *(history or []),
+                Message("user", task),
+                Message("assistant", vague_question),
+            ],
+            ok=True,
+            model_calls_made=0,
+        )
+        _announce_answer(vague_outcome, deps, depth=depth, internal=internal)
+        return vague_outcome
+
     # Gerçek dünya etkisi için deterministik handler varsa LLM ReAct döngüsünü
     # tamamen atla. Modelin "pushluyorum" demesi operasyon sonucu değildir; Git
     # workflow'u post-condition (local HEAD == remote HEAD) kanıtını kendisi üretir.
@@ -677,6 +699,7 @@ async def _run_agent(
                 harita,
                 teacher_hint,
                 netlestirme,
+                identity_hint(deps.config.agent.model),
                 *istek_notlari,
                 extra_system,
             )

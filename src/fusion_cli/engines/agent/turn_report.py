@@ -141,6 +141,21 @@ class TurnReport:
         )
 
     @property
+    def _unresolved_evidence(self) -> tuple[CommandRun, ...]:
+        """Kanıt komutları; AYNI komutun sonradan geçen koşusuyla aşılan başarısızlar çıkar.
+
+        Ölçüldü (18 Ekim): `pytest` "komut bulunamadı" (127) verdi, model `python3 -m pytest`
+        ile aynı testi geçirdi; rapor yine de "başarısız" yazıp doğru iddiayı GEÇERSİZ saydı.
+        Yalnız AYNI komut aşar: farklı bir komutun geçmesi başarısız testi gizlemez.
+        """
+        evidence = self._behavioral_evidence
+        return tuple(
+            run
+            for index, run in enumerate(evidence)
+            if run.exit_code == 0 or not _passed_later(run, evidence[index + 1 :])
+        )
+
+    @property
     def is_verified(self) -> bool | None:
         """`None` = değişiklik yok, sorulacak bir şey yok.
 
@@ -153,7 +168,7 @@ class TurnReport:
             return False
         if not self.changed_paths:
             return None
-        evidence = self._behavioral_evidence
+        evidence = self._unresolved_evidence
         if not evidence:
             return self._gate_passed_evidence is not None
         return all(run.exit_code == 0 for run in evidence)
@@ -260,7 +275,7 @@ class TurnReport:
 
     def _evidence_block(self) -> str:
         dosyalar = ", ".join(self.changed_paths)
-        evidence = self._behavioral_evidence
+        evidence = self._unresolved_evidence
         kapi_kaniti = self._gate_passed_evidence
         if not evidence and kapi_kaniti:
             return f"✓ Doğrulandı: {kapi_kaniti}.\nDeğişen dosyalar: {dosyalar}"
@@ -287,6 +302,18 @@ class TurnReport:
                 f"Değişen dosyalar: {dosyalar}"
             )
         return f"✓ Doğrulandı: {komutlar} başarıyla çalıştı.\nDeğişen dosyalar: {dosyalar}"
+
+
+_RUNNER_PREFIX = re.compile(r"^\s*python[\d.]*\s+-m\s+")
+
+
+def _same_command(first: str, second: str) -> bool:
+    """`pytest x` ile `python3 -m pytest x` aynı komuttur (yalnız çalıştırıcı farklı)."""
+    return _RUNNER_PREFIX.sub("", first).strip() == _RUNNER_PREFIX.sub("", second).strip()
+
+
+def _passed_later(failed: CommandRun, later: tuple[CommandRun, ...]) -> bool:
+    return any(run.exit_code == 0 and _same_command(failed.command, run.command) for run in later)
 
 
 def build_turn_report(

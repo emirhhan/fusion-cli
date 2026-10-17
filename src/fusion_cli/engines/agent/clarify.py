@@ -63,6 +63,29 @@ CLARIFY_NOTE = (
 )
 
 
+# Neyin bozuk olduğunu söylemeyen kısa "düzelt/iyileştir" isteği ("siteyi düzelt").
+_FIX_VERB = re.compile(
+    r"\b(?:düzelt|duzelt|iyileştir|iyilestir|güzelleştir|guzellestir|onar|toparla)\w*",
+    re.IGNORECASE,
+)
+_FIX_OBJECT = re.compile(
+    r"\b(?:site|sayfa|uygulama|proje|kod|panel|sistem|mağaza|magaza)\w*", re.IGNORECASE
+)
+#: Somut ayrıntı belirtisi: dosya adı/uzantısı, rakam, tırnak ya da hata sözcüğü.
+_FIX_DETAIL = re.compile(
+    r"\.\w{1,5}\b|\d|[\"'`]|hata|error|bug|renk|buton|menü|menu", re.IGNORECASE
+)
+
+#: "Kısa" sınırı (sözcük): ölçülen belirsiz istek 2 sözcüktü; ayrıntı eklenince uzar.
+MAX_VAGUE_FIX_WORDS = 4
+
+VAGUE_FIX_QUESTION = (
+    "Neyi düzeltmemi istiyorsun? Hangi sayfa ya da davranış bozuk, ne görüyorsun, ne "
+    "bekliyorsun? (Örn. «ana sayfadaki görsel kırık», «sepet butonu çalışmıyor».) "
+    "Cevabına göre başlarım; şimdilik hiçbir dosyayı değiştirmedim."
+)
+
+
 def clarification_hint(task: str, root: Path, *, can_ask: bool, first_turn: bool) -> str | None:
     """Notu döndür; koşullar tutmuyorsa `None`."""
     metin = task.strip()
@@ -78,3 +101,23 @@ def clarification_hint(task: str, root: Path, *, can_ask: bool, first_turn: bool
     if _TECH_GIVEN.search(metin) or len(metin) > MAX_UNDERSPECIFIED_CHARS:
         return None
     return CLARIFY_NOTE
+
+
+def vague_fix_question(task: str, *, first_turn: bool) -> str | None:
+    """Hedefi belirsiz kısa "düzelt" isteğinde model ÇAĞRILMADAN sorulacak soru.
+
+    Ölçüldü (18 Ekim): "siteyi düzelt" isteğinde sistem notu verilse de model soru
+    sormadan içerik uydurdu. Karar modele bırakılmaz: ilk turda soru doğrudan döner,
+    cevap sonraki turda gelir.
+    """
+    return VAGUE_FIX_QUESTION if first_turn and _is_vague_fix(task.strip()) else None
+
+
+def _is_vague_fix(text: str) -> bool:
+    """Kısa, nesnesi genel ve hiçbir ayrıntı içermeyen düzeltme isteği mi?"""
+    return bool(
+        len(text.split()) <= MAX_VAGUE_FIX_WORDS
+        and _FIX_VERB.search(text)
+        and _FIX_OBJECT.search(text)
+        and not _FIX_DETAIL.search(text)
+    )

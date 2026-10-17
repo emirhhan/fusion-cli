@@ -18,10 +18,13 @@ def test_system_prompt_context_butcesini_asmaz():
     işlerinde model varlıkları indirmek yerine yer tutucu bırakıyordu ve kural
     olmadan bu davranış tekrarlanıyordu. Kural dört satıra sıkıştırıldı; bundan
     sonra eklenecek her şey yine yer açmak zorundadır.
+
+    5.250'den 5.900'e (18 Ekim): güven ölçümünde ölçülen altı kusur için (onaysız ödeme,
+    parola üretme, dil karışması, uzun ret, kaynaksız veri, ilerleme satırı) beş kısa kural.
     """
     text = prompt()
 
-    assert len(text) <= 5_250
+    assert len(text) <= 5_900
 
 
 def test_system_prompt_kritik_calisma_ilkelerini_korur():

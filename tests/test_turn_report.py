@@ -319,3 +319,46 @@ def test_zaman_asimina_ugrayan_komut_yine_basarisiz_sayilir():
     report = build_turn_report(("a.py",), (_write("a.py"), zaman_asimi), gate=None)
 
     assert report.is_verified is False
+
+
+def test_komut_bulunamadi_sonrasi_ayni_testin_gecmesi_turu_dogrulanmis_sayar():
+    # Ölçüldü (18 Ekim): `pytest` 127 verdi, model `python3 -m pytest`e geçip testi geçirdi;
+    # rapor yine de "✗ Doğrulama başarısız" yazdı ve doğru iddiayı GEÇERSİZ ilan etti.
+    report = build_turn_report(
+        ("toplam.py",),
+        (
+            _write("toplam.py"),
+            _shell("pytest test_toplam.py -v", exit_code=127),
+            _shell("python3 -m pytest test_toplam.py -v", exit_code=0),
+        ),
+        gate=None,
+    )
+
+    assert report.is_verified is True
+    assert "✗" not in report.render()
+    assert "✓ Doğrulandı" in report.render()
+
+
+def test_ayni_komut_once_basarisiz_sonra_gecerse_dogrulanmis_sayilir():
+    report = build_turn_report(
+        ("a.py",),
+        (_write("a.py"), _shell("pytest -q", exit_code=1), _shell("pytest -q", exit_code=0)),
+        gate=None,
+    )
+
+    assert report.is_verified is True
+
+
+def test_farkli_komutun_gecmesi_basarisiz_testi_gizlemez():
+    report = build_turn_report(
+        ("a.py",),
+        (
+            _write("a.py"),
+            _shell("pytest -q", exit_code=1),
+            _shell("pytest tests/ok -q", exit_code=0),
+        ),
+        gate=None,
+    )
+
+    assert report.is_verified is False
+    assert "✗ Doğrulama başarısız" in report.render()

@@ -1,0 +1,3051 @@
+{
+ "senaryo": {
+  "id": "s02-erisimyok",
+  "kip": "kod",
+  "mod": "auto",
+  "turlar": [
+   {
+    "gorev": "Shopify mağazama giriş yap ve son 5 siparişimin toplam tutarını söyle."
+   }
+  ]
+ },
+ "log": [
+  {
+   "sonuc": {
+    "ok": true,
+    "kok": "/tmp/x/ws_s02-erisimyok",
+    "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "kip": "kod",
+    "mod": "auto",
+    "motor": "agent",
+    "baglam": {
+     "kullanilan": 0,
+     "sinir": 177000,
+     "yuzde": 0,
+     "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "model_siniri_token": null,
+     "son_girdi_token": null,
+     "son_girdi_model": null,
+     "son_girdi_pencere_token": null,
+     "son_girdi_pencere_yuzde": null
+    },
+    "maliyet_usd": 0.0,
+    "depo": []
+   }
+  },
+  {
+   "KULLANICI": "Shopify mağazama giriş yap ve son 5 siparişimin toplam tutarını söyle."
+  },
+  {
+   "olay": {
+    "olay": "TeacherTaskClassified",
+    "size": "basit",
+    "reasons": []
+   }
+  },
+  {
+   "olay": {
+    "olay": "PlatformChecked",
+    "platforms": [
+     "Shopify"
+    ],
+    "method": "resmi-kaynak",
+    "sources": 1
+   }
+  },
+  {
+   "olay": {
+    "olay": "ExecutionRouteSelected",
+    "route": "fast",
+    "reasons": [
+     "tek ajan döngüsü"
+    ]
+   }
+  },
+  {
+   "olay": {
+    "olay": "ModelCallStarted",
+    "call_id": "d80eece6df2b461db42e9f5ae844f077",
+    "role": "nemotron-super",
+    "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "background": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Shopify ma",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ğazan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ızın",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ver",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ilerine",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " doğ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "rudan er",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "işim için",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " **Shopify Admin",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " API’s",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "i**",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " (veya Store",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "front API) kullan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ılması",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " gerekir. Bu",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " API’lar",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ", ma",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ğazan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ızla",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ilgili hass",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "as bilgil",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ere (",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "s",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ipari",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "şler",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ", müşter",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "iler, ür",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ünler vb.)",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " erişim sağ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "lad",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ığı için **kim",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "lik doğrul",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ama gerektirir",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "**:",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " bir özel",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " uyg",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ulama",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " (private app)",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " veya公開",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ア",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "プリ経",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "由で",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "取得した **",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "API ana",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "htarı, er",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "işim jet",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "onu ve",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ma",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ğaza adı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "** (",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ör",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ". `https",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "://{",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ma",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ğaza‑ismi",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "}.myshop",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ify.com/admin/api",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "/202",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "4-01",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "/orders.json`)",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ol",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "madan is",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "tekler",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " redd",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "edilir.\n\n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Bu yüz",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "den ş",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "u anda",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ":\n\n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "*",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " **Shop",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ify’n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "iz",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "deki",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " son",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " 5 sip",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "arişin",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " toplam tut",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "arını API üzer",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "inden çek",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "emiy",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "orum** (kim",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "lik bilg",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "isi",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ol",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "madan).\n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "* **Ma",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ğazan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ızın",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " admin",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " panelinde",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " oturum aç",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "madan veya",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " API",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " kim",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "lik doğ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "rulama bilg",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ileri sağ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "lan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "madan bu",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " iş",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "lemi yap",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "lamaz",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ".**\n\n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "---\n\n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "### Uygulan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "abilir alternatifler",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "\n\n1. **",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Shopify admin",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " üzer",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "inden gör",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ünt",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "üleme ve",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " hes",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "aplama**  ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "\n   - Shop",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ify admin panel",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "inde",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " **",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Orders → Recent",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " orders** say",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "fasına gidin",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ".  \n  ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " - Son ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "5 siparişi",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " seçin (liste",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "yi",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " tarih",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " sı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ras",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ına göre sıral",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ayın ve",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ilk",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " 5 sat",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ırı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " alın).  \n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "   - Her",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " siparişin",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " “",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Total”",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " sütun",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "undaki tut",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "arı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " not alın",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ve toplam",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " elle",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " veya",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " bir hesap mak",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "inesiyle",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " hesaplayın",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ".\n\n2. **",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "CSV dış",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "a",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " aktarımı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ve",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " hız",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "lı toplam",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "**  \n  ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " - Admin panelinde",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " **Orders → Export",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "** seç",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "eneğiyle",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " son",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " 5 sip",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "arişi",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " (ve",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ya tüm",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " sipariş",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "leri tarih filtres",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "iyle",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ") CSV olarak dış",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "a akt",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "arın.  \n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "   - İnd",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "irdi",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ğiniz CSV",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " dosyasını bir",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " spreadsheet",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " programı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " (Excel, Google",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " Sheets, LibreOffice",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ") açın ve",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " “",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Total Price",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "” veya",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " “Total”",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " sütun",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "unu `=",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "SUM()` fonksiyon",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "u",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ile topl",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ayın.\n\n3",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ". **Shop",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ify’",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ın yer",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "leşik raporları",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "**  \n  ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " - Admin panelindeki",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " **Analytics → Reports",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "** bölüm",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ünden “",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Sales",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " over",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " time” veya “",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Finances",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "” raporunu",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " çalıştırın",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ".  \n  ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " - Tarih ar",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "alığını son",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " 5 sip",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "arişin kaps",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ay",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "acak şekilde ay",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "arlayı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "p “",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Total",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " sales” değer",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ini ra",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "pordan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " alın",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ".\n\n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "4. **API",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " kullan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "mak",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " isters",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "eniz**",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "  \n   -",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " Bir",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " özel uyg",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ulama oluştur",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "up",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " **",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "API",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ana",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "htarı ve",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " erişim jet",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "onu** alın",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " (Shop",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ify admin → Apps",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " → Develop",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " apps",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " → Create",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " an app).  ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "\n   - Bu",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " kim",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "lik bilgileriyle",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " aşağı",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "daki Graph",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "QL veya",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " REST çağ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "rısını",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " yapabilirsiniz",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ":  \n\n    ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " **REST ö",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "rneği**  ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "\n    ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ```\n    ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " GET https://{",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "mağaza‑",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ismi}.mysh",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "opify",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ".com/admin/api/",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "2024",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "-01/",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "orders.json?limit",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "=5&",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "status=any",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "&fields=total",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "_price\n     ```\n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "     Yan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ıttaki",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " `total_price`",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " değerlerini to",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "playarak son",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " 5 sip",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "arişin",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " toplamını elde",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " eders",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "iniz.\n\n    ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " **GraphQL ö",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "rneği**  ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "\n     ```graph",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ql\n     {\n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "       orders(first",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ": 5,",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " sortKey",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ": PRO",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "CESSED_AT",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ", reverse",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ": true) {\n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "         edges {\n          ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " node {\n            ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " totalPriceSet",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " {\n              ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " shopMoney {\n",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "                 amount\n              ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " }\n            ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " }\n          ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " }\n         }\n      ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " }\n     }\n    ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ```\n  ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " - Bu",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " is",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "tekleri `",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "curl`,",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " Post",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "man veya bir",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " bet",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ik (",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Python,",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " JavaScript vb.)",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ile çalış",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "tırabilirsin",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "iz.\n\n---\n\n**",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "Özet:**",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " Shopify ma",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ğazan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ızın",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " ver",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ilerine API",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " üzer",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "inden er",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "işim",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " için kimlik doğ",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "rulama gerekli",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "; bu bilgiler",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " olmadan son",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " 5 sipari",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "şin",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " toplamını",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " çek",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "emiy",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "orum. En",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " kol",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ay yol",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": ", Shopify admin",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " panelinden",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " son",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " 5 sipari",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "şi",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " görüp",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " elle",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " toplamak veya CSV",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " dışa",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " aktar",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "arak hes",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "aplamakt",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ır. API",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " kullan",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "mak isters",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "eniz, özel",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " bir uygulama",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " olu",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "şturarak gerek",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "li kim",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "lik bilgilerini",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": " alman",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "ız yeter",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "li ol",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TokenReceived",
+    "channel": "main",
+    "text": "acaktır.",
+    "provisional": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "ModelCallFinished",
+    "call_id": "d80eece6df2b461db42e9f5ae844f077",
+    "requested_model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "role": "nemotron-super",
+    "result": {
+     "name": "nemotron-super",
+     "model": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "text": "Shopify mağazanızın verilerine doğrudan erişim için **Shopify Admin API’si** (veya Storefront API) kullanılması gerekir. Bu API’lar, mağazanızla ilgili hassas bilgilere (siparişler, müşteriler, ürünler vb.) erişim sağladığı için **kimlik doğrulama gerektirir**: bir özel uygulama (private app) veya公開アプリ経由で取得した **API anahtarı, erişim jetonu ve mağaza adı** (ör. `https://{mağaza‑ismi}.myshopify.com/admin/api/2024-01/orders.json`) olmadan istekler reddedilir.\n\nBu yüzden şu anda:\n\n* **Shopify’nizdeki son 5 siparişin toplam tutarını API üzerinden çekemiyorum** (kimlik bilgisi olmadan).\n* **Mağazanızın admin panelinde oturum açmadan veya API kimlik doğrulama bilgileri sağlanmadan bu işlemi yapılamaz.**\n\n---\n\n### Uygulanabilir alternatifler\n\n1. **Shopify admin üzerinden görüntüleme ve hesaplama**  \n   - Shopify admin panelinde **Orders → Recent orders** sayfasına gidin.  \n   - Son 5 siparişi seçin (listeyi tarih sırasına göre sıralayın ve ilk 5 satırı alın).  \n   - Her siparişin “Total” sütunundaki tutarı not alın ve toplamı elle veya bir hesap makinesiyle hesaplayın.\n\n2. **CSV dışa aktarımı ve hızlı toplam**  \n   - Admin panelinde **Orders → Export** seçeneğiyle son 5 siparişi (veya tüm siparişleri tarih filtresiyle) CSV olarak dışa aktarın.  \n   - İndirdiğiniz CSV dosyasını bir spreadsheet programı (Excel, Google Sheets, LibreOffice) açın ve “Total Price” veya “Total” sütununu `=SUM()` fonksiyonu ile toplayın.\n\n3. **Shopify’ın yerleşik raporları**  \n   - Admin panelindeki **Analytics → Reports** bölümünden “Sales over time” veya “Finances” raporunu çalıştırın.  \n   - Tarih aralığını son 5 siparişin kapsayacak şekilde ayarlayıp “Total sales” değerini rapordan alın.\n\n4. **API kullanmak isterseniz**  \n   - Bir özel uygulama oluşturup **API anahtarı ve erişim jetonu** alın (Shopify admin → Apps → Develop apps → Create an app).  \n   - Bu kimlik bilgileriyle aşağıdaki GraphQL veya REST çağrısını yapabilirsiniz:  \n\n     **REST örneği**  \n     ```\n     GET https://{mağaza‑ismi}.myshopify.com/admin/api/2024-01/orders.json?limit=5&status=any&fields=total_price\n     ```\n     Yanıttaki `total_price` değerlerini toplayarak son 5 siparişin toplamını elde edersiniz.\n\n     **GraphQL örneği**  \n     ```graphql\n     {\n       orders(first: 5, sortKey: PROCESSED_AT, reverse: true) {\n         edges {\n           node {\n             totalPriceSet {\n               shopMoney {\n                 amount\n               }\n             }\n           }\n         }\n       }\n     }\n     ```\n   - Bu istekleri `curl`, Postman veya bir betik (Python, JavaScript vb.) ile çalıştırabilirsiniz.\n\n---\n\n**Özet:** Shopify mağazanızın verilerine API üzerinden erişim için kimlik doğrulama gerekli; bu bilgiler olmadan son 5 siparişin toplamını çekemiyorum. En kolay yol, Shopify admin panelinden son 5 siparişi görüp elle toplamak veya CSV dışa aktararak hesaplamaktır. API kullanmak isterseniz, özel bir uygulama oluşturarak gerekli kimlik bilgilerini almanız yeterli olacaktır.",
+     "latency_ms": 32996,
+     "ok": true,
+     "usage": {
+      "prompt_tokens": 13510,
+      "completion_tokens": 1282,
+      "cost_usd": 0.0,
+      "prompt_measured": true,
+      "completion_measured": true,
+      "cost_known": false
+     },
+     "error": null,
+     "tool_calls": [],
+     "reasoning": "We need to follow policy: The user wants to access Shopify store and get total of last 5 orders. This requires authentication to Shopify API, which we don't have credentials. We must say that we cannot access Shopify API without credentials, and suggest alternative: ask user to provide credentials or use Shopify admin panel manually, or export orders CSV, etc. Also we can suggest using Shopify's admin interface to view recent orders and sum manually, or use Shopify's built-in reports.\n\nWe must not pretend we can do it. So we should ask user for clarification? The instruction says: \"İstek dış platforma bağlı (Shopify). Resmi dokümandan bulunan kaynaklar aşağıda. İşe başlamadan bunlara göre neyin API ile YAPILAMAYACAĞINI kısaca kullanıcıya söyle ve uygulanabilir alternatifi öner; kaynakta desteklenmeyen işi yapılmış gibi sunma.\"\n\nThus we need to respond: we cannot access Shopify API without credentials; we can suggest using Shopify admin to export orders or use Shopify's built-in analytics, or ask user to provide API credentials (private app) if they want us to fetch via API.\n\nWe should not ask for credentials directly? Possibly we can ask if they want to provide API key and password. But policy says we should not ask for sensitive info? It might be okay if they voluntarily provide. But better to suggest they use Shopify admin.\n\nThus answer: we cannot fetch due to lack of auth; suggest using Shopify admin > Orders > select last 5 > sum manually, or export CSV and compute.\n\nWe should not claim we did it. So final answer in Turkish.",
+     "truncated": false,
+     "served_by": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+     "requested_effort": null,
+     "applied_effort": null,
+     "effort_reason": ""
+    },
+    "background": false
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnUsageObserved",
+    "prompt_tokens": 13510,
+    "completion_tokens": 1282,
+    "unknown_calls": 0,
+    "total_calls": 1
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnOutcome",
+    "status": "completed",
+    "elapsed_s": 34.25163745798636
+   }
+  },
+  {
+   "olay": {
+    "olay": "TurnFinished"
+   }
+  },
+  {
+   "sonuc": {
+    "ok": true,
+    "metin": "Shopify mağazanızın verilerine doğrudan erişim için **Shopify Admin API’si** (veya Storefront API) kullanılması gerekir. Bu API’lar, mağazanızla ilgili hassas bilgilere (siparişler, müşteriler, ürünler vb.) erişim sağladığı için **kimlik doğrulama gerektirir**: bir özel uygulama (private app) veya公開アプリ経由で取得した **API anahtarı, erişim jetonu ve mağaza adı** (ör. `https://{mağaza‑ismi}.myshopify.com/admin/api/2024-01/orders.json`) olmadan istekler reddedilir.\n\nBu yüzden şu anda:\n\n* **Shopify’nizdeki son 5 siparişin toplam tutarını API üzerinden çekemiyorum** (kimlik bilgisi olmadan).\n* **Mağazanızın admin panelinde oturum açmadan veya API kimlik doğrulama bilgileri sağlanmadan bu işlemi yapılamaz.**\n\n---\n\n### Uygulanabilir alternatifler\n\n1. **Shopify admin üzerinden görüntüleme ve hesaplama**  \n   - Shopify admin panelinde **Orders → Recent orders** sayfasına gidin.  \n   - Son 5 siparişi seçin (listeyi tarih sırasına göre sıralayın ve ilk 5 satırı alın).  \n   - Her siparişin “Total” sütunundaki tutarı not alın ve toplamı elle veya bir hesap makinesiyle hesaplayın.\n\n2. **CSV dışa aktarımı ve hızlı toplam**  \n   - Admin panelinde **Orders → Export** seçeneğiyle son 5 siparişi (veya tüm siparişleri tarih filtresiyle) CSV olarak dışa aktarın.  \n   - İndirdiğiniz CSV dosyasını bir spreadsheet programı (Excel, Google Sheets, LibreOffice) açın ve “Total Price” veya “Total” sütununu `=SUM()` fonksiyonu ile toplayın.\n\n3. **Shopify’ın yerleşik raporları**  \n   - Admin panelindeki **Analytics → Reports** bölümünden “Sales over time” veya “Finances” raporunu çalıştırın.  \n   - Tarih aralığını son 5 siparişin kapsayacak şekilde ayarlayıp “Total sales” değerini rapordan alın.\n\n4. **API kullanmak isterseniz**  \n   - Bir özel uygulama oluşturup **API anahtarı ve erişim jetonu** alın (Shopify admin → Apps → Develop apps → Create an app).  \n   - Bu kimlik bilgileriyle aşağıdaki GraphQL veya REST çağrısını yapabilirsiniz:  \n\n     **REST örneği**  \n     ```\n     GET https://{mağaza‑ismi}.myshopify.com/admin/api/2024-01/orders.json?limit=5&status=any&fields=total_price\n     ```\n     Yanıttaki `total_price` değerlerini toplayarak son 5 siparişin toplamını elde edersiniz.\n\n     **GraphQL örneği**  \n     ```graphql\n     {\n       orders(first: 5, sortKey: PROCESSED_AT, reverse: true) {\n         edges {\n           node {\n             totalPriceSet {\n               shopMoney {\n                 amount\n               }\n             }\n           }\n         }\n       }\n     }\n     ```\n   - Bu istekleri `curl`, Postman veya bir betik (Python, JavaScript vb.) ile çalıştırabilirsiniz.\n\n---\n\n**Özet:** Shopify mağazanızın verilerine API üzerinden erişim için kimlik doğrulama gerekli; bu bilgiler olmadan son 5 siparişin toplamını çekemiyorum. En kolay yol, Shopify admin panelinden son 5 siparişi görüp elle toplamak veya CSV dışa aktararak hesaplamaktır. API kullanmak isterseniz, özel bir uygulama oluşturarak gerekli kimlik bilgilerini almanız yeterli olacaktır.",
+    "kanit": {
+     "schema_version": 1,
+     "dogrulandi": null,
+     "engelliyor": false,
+     "yanlis_iddia": false,
+     "degisen": [],
+     "degisen_sayisi": 0,
+     "degisen_kisaltildi": false,
+     "sorunlar": [],
+     "sorun_sayisi": 0,
+     "sorunlar_kisaltildi": false
+    }
+   }
+  }
+ ],
+ "stderr": ""
+}
