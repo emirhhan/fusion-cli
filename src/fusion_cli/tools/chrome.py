@@ -96,12 +96,12 @@ _SCREENSHOT_SCALES: weakref.WeakKeyDictionary[object, float] = weakref.WeakKeyDi
 _READ_ACTIONS = frozenset(
     {
         "scroll", "wait", "tabs", "open", "tab", "screenshot",
-        "back", "forward", "reload", "hover", "text", "assets", "wheel",
+        "back", "forward", "reload", "hover", "text", "assets", "wheel", "zoom",
     }
 )  # fmt: skip
 #: Sayfayla etkileşen ama kalıcı iz bırakmayan işlemler: otomatik kipte sorulmaz.
 #: Seçim kutusu değeri yalnız formu değiştirir; gönderme ayrı bir tıklama/Enter'dır.
-_INTERACT_ACTIONS = frozenset({"select"})
+_INTERACT_ACTIONS = frozenset({"select", "check", "type_focused", "resize"})
 
 #: Enter'ın mesaj/yorum GÖNDERDİĞİ alanlar (ad, yer tutucu ya da form düğmesi).
 _MESSAGE_FIELD = re.compile(r"\b(?:mesaj|message|sohbet|chat|dm)\b", re.IGNORECASE)
@@ -143,11 +143,11 @@ async def chrome_action_effect(args: ToolArgs, context: ToolContext | None) -> T
         return ToolEffect.REMOTE_INTERACT
     if action == "drag":
         return ToolEffect.REMOTE_INTERACT
-    if action in {"click_at", "double_click"}:
+    if action in {"click_at", "double_click", "triple_click"}:
         ref = args.get("ref")
         if context is None or context.chrome is None:
             return None
-        if action == "double_click" and isinstance(ref, str) and ref:
+        if action in _CLICK_KINDS and isinstance(ref, str) and ref:
             result = await _describe(context, "describe", {"ref": ref})
             return None if result is None else _click_effect(result)
         point = _point(args.get("value"), context)
@@ -245,8 +245,34 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
     if isinstance(ref, str) and ref:
         data["ref"] = ref
     if action == "scroll":
-        data["direction"] = "up" if value == "up" else "down"
+        # value: up|down|left|right, isteğe bağlı "down:600" (piksel).
+        direction, _, amount = (value if isinstance(value, str) else "").partition(":")
+        data["direction"] = direction if direction in {"up", "left", "right"} else "down"
+        if amount.strip().isdigit():
+            data["amount"] = int(amount)
         return await _call(context, "scroll", data)
+    if action == "type_focused":
+        if not isinstance(value, str) or not value:
+            return ToolResult.failure("type_focused için 'value' alanına yazılacak metni yaz.")
+        return await _call(context, "type", {"text": value})
+    if action == "check":
+        if "ref" not in data:
+            return ToolResult.failure("check için 'ref' gerekli; value: true ya da false.")
+        wanted = not (isinstance(value, str) and value.strip().lower() == "false")
+        return await _call(context, "check", {**data, "value": wanted})
+    if action == "resize":
+        match = re.fullmatch(
+            r"\s*(\d{3,4})\s*[x,]\s*(\d{3,4})\s*", value if isinstance(value, str) else ""
+        )
+        if match is None:
+            return ToolResult.failure(
+                "resize için 'value' alanına 'genişlik,yükseklik' yaz; ör. 1280,800."
+            )
+        return await _call(
+            context, "resize", {"width": int(match.group(1)), "height": int(match.group(2))}
+        )
+    if action == "zoom":
+        return await _zoom(value, context)
     if action == "wait":
         if not isinstance(value, str) or not value.strip():
             return ToolResult.failure("wait için 'value' alanına beklenecek metni yaz.")
@@ -315,13 +341,13 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
         return await chrome_assets(args, context)
     return ToolResult.failure(
         "action: scroll, wait, key, select, tabs, open, tab, screenshot, back, forward, "
-        "reload, close, hover, text, click_at, double_click, right_click, drag, wheel, "
-        "upload ya da assets olmalı."
+        "reload, close, hover, text, click_at, double_click, right_click, triple_click, drag, "
+        "wheel, type_focused, check, resize, zoom, upload ya da assets olmalı."
     )
 
 
 #: Tıklama türleri: `click_at`/ref ile birlikte eklentiye `kind` olarak gider.
-_CLICK_KINDS = {"double_click": "double", "right_click": "right"}
+_CLICK_KINDS = {"double_click": "double", "right_click": "right", "triple_click": "triple"}
 
 
 def _delta(value: object) -> tuple[float, float] | None:
@@ -338,6 +364,36 @@ def _delta(value: object) -> tuple[float, float] | None:
     if len(numbers) == 1:
         return 0.0, numbers[0]
     return (numbers[0], numbers[1]) if len(numbers) == 2 else None
+
+
+async def _zoom(value: object, context: ToolContext) -> ToolResult:
+    """Ekran görüntüsünün bir bölgesini (x1,y1,x2,y2 — görüntü pikseli) kırpıp büyütür."""
+    match = re.fullmatch(r"\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*", str(value or ""))
+    if match is None:
+        return ToolResult.failure("zoom için 'value' alanına 'x1,y1,x2,y2' (görüntü pikseli) yaz.")
+    x1, y1, x2, y2 = (int(g) for g in match.groups())
+    if x2 <= x1 or y2 <= y1:
+        return ToolResult.failure("zoom bölgesi geçersiz: x2>x1 ve y2>y1 olmalı.")
+    shot = await chrome_screenshot({}, context)
+    if not shot.ok or not shot.content:
+        return shot
+    import io
+
+    from PIL import Image
+
+    raw = base64.b64decode(shot.content[0].data)
+    with Image.open(io.BytesIO(raw)) as image:
+        crop = image.crop((x1, y1, min(x2, image.width), min(y2, image.height)))
+        crop = crop.resize((crop.width * 2, crop.height * 2), Image.Resampling.LANCZOS).convert(
+            "RGB"
+        )
+        out = io.BytesIO()
+        crop.save(out, format="JPEG", quality=85)
+    encoded = base64.b64encode(out.getvalue()).decode("ascii")
+    return ToolResult(
+        f"Ekran görüntüsünün {x1},{y1}-{x2},{y2} bölgesi (2x büyütüldü).",
+        content=(ToolContent.image("image/jpeg", encoded),),
+    )
 
 
 async def _drag(data: dict[str, Any], value: object, context: ToolContext) -> ToolResult:

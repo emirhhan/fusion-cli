@@ -222,11 +222,23 @@ def auto_install(
     return {
         **hazir,
         "asama": "elle",
-        "metin": (
-            f"Otomatik adım tamamlanamadı ({sonuc}); adımları elle bitir. "
-            f"Tanı: {base_config_dir() / 'chrome-install-ax.txt'}"
-        ),
+        "metin": f"{_manual_message(sonuc)} Tanı: {base_config_dir() / 'chrome-install-ax.txt'}",
     }
+
+
+def _manual_message(result: str) -> str:
+    """Otomatik adım neden bitmedi ve elle ne yapılır (açılan sayfada tek tık)."""
+    if result == "error":
+        return (
+            "Fusion Chrome'u süremedi. Sistem Ayarları > Gizlilik ve Güvenlik > Otomasyon'da "
+            "Fusion için Google Chrome ve System Events'i aç, sonra Eklentiyi kur'a yeniden bas; "
+            "ya da açılan sayfada Geliştirici modu > Paketlenmemiş öğe yükle ile panodaki "
+            "klasörü seç."
+        )
+    return (
+        "Chrome'un sayfa düzeni beklenenden farklı; otomatik adım bitmedi. Açılan sayfada "
+        "Geliştirici modu > Paketlenmemiş öğe yükle ile panodaki klasörü seç."
+    )
 
 
 async def auto_install_async() -> dict[str, Any]:

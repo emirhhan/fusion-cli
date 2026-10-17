@@ -142,7 +142,7 @@ def test_arayuz_adimi_basarisizsa_elle_kuruluma_duser(chrome_kok):
         return _cevap(0, "true" if komut[1] == "-e" else "no-switch")
 
     sonuc = oto.auto_install(runner=runner, prepare=lambda home=None: {"ok": True, "yol": "/x"})
-    assert sonuc["asama"] == "elle" and "no-switch" in sonuc["metin"]
+    assert sonuc["asama"] == "elle" and "Geliştirici modu" in sonuc["metin"]
 
 
 @pytest.mark.skipif(

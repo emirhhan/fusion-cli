@@ -344,3 +344,55 @@ async def test_yeni_eylemlerin_onay_etkisi():
         await chrome.chrome_action_effect({"action": "wheel", "value": "0,300"}, baglam)
         is ToolEffect.REMOTE_READ
     )
+
+
+async def test_yeni_arac_eylemleri_eklentiye_dogru_gider():
+    kopru = _YeniEylemKoprusu()
+    baglam = SimpleNamespace(chrome=kopru)
+    assert (await chrome.chrome_action({"action": "triple_click", "ref": "e3"}, baglam)).ok
+    assert ("click", {"ref": "e3", "kind": "triple"}) in kopru.cagrilar
+    assert (await chrome.chrome_action({"action": "scroll", "value": "left:300"}, baglam)).ok
+    assert ("scroll", {"direction": "left", "amount": 300}) in kopru.cagrilar
+    assert (await chrome.chrome_action({"action": "type_focused", "value": "merhaba"}, baglam)).ok
+    assert ("type", {"text": "merhaba"}) in kopru.cagrilar
+    assert (
+        await chrome.chrome_action({"action": "check", "ref": "e4", "value": "false"}, baglam)
+    ).ok
+    assert ("check", {"ref": "e4", "value": False}) in kopru.cagrilar
+    assert (await chrome.chrome_action({"action": "resize", "value": "1280,800"}, baglam)).ok
+    assert ("resize", {"width": 1280, "height": 800}) in kopru.cagrilar
+    assert not (await chrome.chrome_action({"action": "resize", "value": "büyük"}, baglam)).ok
+    assert not (await chrome.chrome_action({"action": "check"}, baglam)).ok
+    assert not (await chrome.chrome_action({"action": "type_focused"}, baglam)).ok
+
+
+async def test_zoom_ekran_goruntusunun_bolgesini_kirpar_ve_buyutur():
+    import base64
+
+    kopru = _EkranKopru2()
+    baglam = SimpleNamespace(chrome=kopru)
+    sonuc = await chrome.chrome_action({"action": "zoom", "value": "0,0,100,50"}, baglam)
+    assert sonuc.ok and "2x" in sonuc.output
+    import io
+
+    from PIL import Image
+
+    cikti = Image.open(io.BytesIO(base64.b64decode(sonuc.content[0].data)))
+    assert cikti.size == (200, 100)
+    assert not (await chrome.chrome_action({"action": "zoom", "value": "5,5,1,1"}, baglam)).ok
+
+
+class _EkranKopru2(_Kopru):
+    async def invoke(self, name, data):
+        self.cagrilar.append((name, data))
+        if name == "screenshot":
+            import base64
+            import io
+
+            from PIL import Image
+
+            buf = io.BytesIO()
+            Image.new("RGB", (400, 300), "white").save(buf, format="JPEG")
+            gorsel = base64.b64encode(buf.getvalue()).decode()
+            return {"ok": True, "veri": {"image": f"data:image/jpeg;base64,{gorsel}", "width": 400}}
+        return {"ok": True, "veri": {}}

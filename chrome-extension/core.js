@@ -90,7 +90,7 @@ export function pageAction(operation, args) {
     const right = kind === "right";
     const base = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y,
       button: right ? 2 : 0, buttons: right ? 2 : 1 };
-    const rounds = kind === "double" ? 2 : 1;
+    const rounds = kind === "triple" ? 3 : kind === "double" ? 2 : 1;
     for (let detail = 1; detail <= rounds; detail += 1) {
       for (const type of ["pointerover", "pointerdown", "mousedown", "pointerup", "mouseup"]) {
         element.dispatchEvent(new (MouseKind(type))(type, { ...base, detail }));
@@ -99,6 +99,11 @@ export function pageAction(operation, args) {
     }
     if (kind === "double") element.dispatchEvent(new MouseEvent("dblclick", { ...base, detail: 2 }));
     if (right) element.dispatchEvent(new MouseEvent("contextmenu", base));
+    if (kind === "triple") {
+      // Üç tık satırı/paragrafı seçer: alan ise içeriğini, değilse öğenin metnini.
+      if (typeof element.select === "function") element.select();
+      else getSelection()?.selectAllChildren(element);
+    }
   };
   const target = () => {
     const match = /^e(\d+)$/.exec(args.ref || "");
@@ -252,7 +257,11 @@ export function pageAction(operation, args) {
   }
   if (operation === "type") {
     // `find` etiketi (label) de bulur; modelin yazmak istediği, etiketin bağlı olduğu alandır.
-    const labelled = target();
+    // `ref` yoksa odaktaki alana yazılır (Claude'un computer type'ı gibi).
+    const labelled = args.ref ? target() : document.activeElement;
+    if (!labelled || labelled === document.body || !safe(labelled)) {
+      throw new Error("Odakta yazılabilir alan yok. Önce alana tıkla ya da ref ver.");
+    }
     const element = labelled.tagName === "LABEL" && labelled.control ? labelled.control : labelled;
     if (!element.matches("input, textarea, select, [contenteditable='true'], [role='textbox']")) {
       throw new Error("Bu öğeye metin yazılamaz.");
@@ -314,15 +323,43 @@ export function pageAction(operation, args) {
     return { selected: option.text };
   }
   if (operation === "key") {
-    const allowed = ["Enter", "Escape", "Tab", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Backspace", "Space"];
-    if (!allowed.includes(args.key)) throw new Error(`Desteklenmeyen tuş: ${args.key}`);
-    const element = args.ref ? target() : (document.activeElement || document.body);
-    const key = args.key === "Space" ? " " : args.key;
-    for (const type of ["keydown", "keypress", "keyup"]) {
-      element.dispatchEvent(new KeyboardEvent(type, { key, code: args.key, bubbles: true, cancelable: true }));
+    // "Enter", "ctrl+a", "Shift+Tab", "Meta+Enter" gibi. Olaylar sayfa içinde üretilir:
+    // gerçek işletim sistemi kısayolu (kopyala, yapıştır) DEĞİLDİR; tümünü seç ve Tab/ok
+    // gezinmesi çalışır.
+    const NAMED = ["Enter", "Escape", "Tab", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight",
+      "Backspace", "Delete", "Space", "Home", "End", "PageUp", "PageDown"];
+    const parts = String(args.key || "").split("+").map((p) => p.trim()).filter(Boolean);
+    const main = parts.pop() || "";
+    const mods = parts.map((p) => p.toLowerCase());
+    if (mods.some((m) => !["ctrl", "control", "meta", "cmd", "shift", "alt"].includes(m))) {
+      throw new Error(`Desteklenmeyen tuş: ${args.key}`);
     }
-    if (args.key === "Enter" && element.form && element.matches("input")) element.form.requestSubmit?.();
+    const named = NAMED.find((n) => n.toLowerCase() === main.toLowerCase());
+    if (!named && !(main.length === 1 && mods.length)) throw new Error(`Desteklenmeyen tuş: ${args.key}`);
+    const element = args.ref ? target() : (document.activeElement || document.body);
+    const key = named === "Space" ? " " : named || main;
+    const init = { key, code: named || `Key${main.toUpperCase()}`, bubbles: true, cancelable: true,
+      ctrlKey: mods.includes("ctrl") || mods.includes("control"), metaKey: mods.includes("meta") || mods.includes("cmd"),
+      shiftKey: mods.includes("shift"), altKey: mods.includes("alt") };
+    for (const type of ["keydown", "keypress", "keyup"]) element.dispatchEvent(new KeyboardEvent(type, init));
+    if ((init.ctrlKey || init.metaKey) && main.toLowerCase() === "a") {
+      if (typeof element.select === "function") element.select(); else document.execCommand("selectAll", false);
+    }
+    if (named === "Enter" && !mods.length && element.form && element.matches("input")) element.form.requestSubmit?.();
     return { key: args.key };
+  }
+  if (operation === "check") {
+    // Onay/radyo kutusunu İSTENEN duruma getirir (tıklayıp tersine çevirme riski olmadan).
+    const labelled = target();
+    const element = labelled.tagName === "LABEL" && labelled.control ? labelled.control : labelled;
+    if (!element.matches("input[type='checkbox'], input[type='radio'], [role='checkbox'], [role='switch']")) {
+      throw new Error("Bu öğe bir onay kutusu değil.");
+    }
+    const wanted = args.value !== false && args.value !== "false";
+    const now = element.matches("input") ? element.checked : element.getAttribute("aria-checked") === "true";
+    if (now !== wanted) element.click();
+    const after = element.matches("input") ? element.checked : element.getAttribute("aria-checked") === "true";
+    return { checked: after, name: nameOf(element) };
   }
   if (operation === "drag") {
     // Kaynak ref'ten hedef ref'e ya da (x,y) noktasına: fare olayları ve HTML5 sürükle-bırak.
@@ -386,8 +423,10 @@ export function pageAction(operation, args) {
     if (args.ref) {
       target().scrollIntoView({ block: "center" });
     } else {
-      const amount = Math.round(innerHeight * 0.8) * (args.direction === "up" ? -1 : 1);
-      scrollBy({ top: amount, behavior: "instant" });
+      const sign = args.direction === "up" || args.direction === "left" ? -1 : 1;
+      const horizontal = args.direction === "left" || args.direction === "right";
+      const amount = Math.max(1, Math.min(10000, Number(args.amount) || Math.round((horizontal ? innerWidth : innerHeight) * 0.8))) * sign;
+      scrollBy(horizontal ? { left: amount, behavior: "instant" } : { top: amount, behavior: "instant" });
     }
     return { y: Math.round(scrollY), height: document.documentElement.scrollHeight };
   }
@@ -993,7 +1032,7 @@ export async function execute(command) {
     return {
       tabs: tabs.filter((t) => /^https?:/.test(t.url || "")).slice(0, 60).map((t) => ({
         id: t.id, title: (t.title || "").slice(0, 100), url: t.url, active: t.active,
-        bound: t.id === selected?.id,
+        bound: t.id === selected?.id, windowId: t.windowId, icon: (t.favIconUrl || "").startsWith("data:image/") ? t.favIconUrl : "",
       })),
     };
   }
@@ -1006,6 +1045,13 @@ export async function execute(command) {
     await waitForLoad(tab.id);
     const bound = await setSelected(await chrome.tabs.get(tab.id));
     return { opened: bound.id, url: destination.href };
+  }
+  if (command.islem === "tab_focus") {
+    if (!Number.isSafeInteger(veri.id) || veri.id <= 0) throw new Error("Sekme kimliği geçersiz.");
+    const tab = await chrome.tabs.get(veri.id);
+    await chrome.tabs.update(tab.id, { active: true });
+    await chrome.windows.update(tab.windowId, { focused: true });
+    return { focused: tab.id, windowId: tab.windowId };
   }
   if (command.islem === "tab_select") {
     const tab = await chrome.tabs.get(Number(veri.id));
@@ -1058,6 +1104,13 @@ export async function execute(command) {
     await waitForLoad(tab.id);
     await setSelected(await chrome.tabs.get(tab.id));
     return { url: destination.href };
+  }
+  if (command.islem === "resize") {
+    const width = Math.round(Number(veri.width));
+    const height = Math.round(Number(veri.height));
+    if (!(width >= 320 && width <= 3840 && height >= 240 && height <= 2400)) throw new Error("Boyut 320x240 ile 3840x2400 arasında olmalı.");
+    await chrome.windows.update(tab.windowId, { width, height, state: "normal" });
+    return { width, height };
   }
   if (command.islem === "wait") {
     const limit = Math.min(Number(veri.timeout_ms) || 10000, 25000);

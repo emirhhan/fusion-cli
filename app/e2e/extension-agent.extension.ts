@@ -32,6 +32,11 @@ const PAGES: Record<string, string> = {
     <p id="durum">bekliyor</p><script>
     const z=document.getElementById('zone');z.addEventListener('dragover',e=>e.preventDefault());
     z.addEventListener('drop',e=>{e.preventDefault();document.getElementById('durum').textContent='bırakıldı';});</script>`,
+  "/upload": `<h1>Yükle</h1><input type="file" id="f" aria-label="Dosya"><p id="ad">yok</p><script>
+    document.getElementById('f').addEventListener('change',e=>{document.getElementById('ad').textContent=e.target.files[0].name+':'+e.target.files[0].size;});</script>`,
+  "/keys": `<h1>Tuşlar</h1><input id="k" aria-label="Alan" value="merhaba dünya"><label><input type="checkbox" id="c" aria-label="Seçenek"> Seçenek</label>
+    <p id="son">-</p><p id="para">Üç tık paragrafı</p><script>
+    document.getElementById('k').addEventListener('keydown',e=>{document.getElementById('son').textContent=(e.ctrlKey?'ctrl+':'')+(e.shiftKey?'shift+':'')+e.key;});</script>`,
   "/mouse": `<h1>Fare</h1><button id="d">Çift tıkla</button><p id="n">0</p><div id="r">Sağ tıkla</div><p id="m">menü yok</p><div id="s" style="height:60px;overflow:auto"><div style="height:600px">uzun</div></div>
     <script>document.getElementById('d').addEventListener('dblclick',()=>document.getElementById('n').textContent='çift');
     document.getElementById('r').addEventListener('contextmenu',e=>{e.preventDefault();document.getElementById('m').textContent='menü açıldı';});</script>`,
@@ -135,4 +140,48 @@ test("sürükle-bırak", async () => {
   await exec("navigate", { url: `${origin}/dnd` });
   await exec("drag", { ref: await refOf("Öğe A"), to_ref: await refOf("Bırak") });
   expect(await text()).toContain("bırakıldı");
+});
+
+test("yeni sekme açma, sekmeleri listeleme ve sekme geçişi", async () => {
+  await exec("tab_open", { url: `${origin}/thanks` });
+  const opened = await exec("tab_open", { url: `${origin}/panel` });
+  const tabs = (await exec("tabs")).tabs as { id: number; url: string }[];
+  expect(tabs.some((t) => t.url.endsWith("/thanks"))).toBe(true);
+  expect(tabs.some((t) => t.id === opened.opened)).toBe(true);
+  const other = tabs.find((t) => t.url.endsWith("/thanks"))!;
+  await exec("tab_select", { id: other.id });
+  expect(await text()).toContain("form alındı");
+  await exec("tab_close", { id: opened.opened });
+});
+
+test("dosya yükleme", async () => {
+  await exec("tab_open", { url: `${origin}/upload` });
+  const data = Buffer.from("merhaba").toString("base64");
+  await exec("upload", { ref: await refOf("Dosya"), files: [{ name: "not.txt", mime: "text/plain", data }] });
+  expect(await text()).toContain("not.txt:7");
+});
+
+test("tuş kombinasyonu, onay kutusu, üç tık, odaktaki alana yazma, kaydırma miktarı", async () => {
+  await exec("tab_open", { url: `${origin}/keys` });
+  const alan = await refOf("Alan");
+  await exec("key", { ref: alan, key: "Shift+Tab" });
+  expect(await text()).toContain("shift+Tab");
+  await exec("key", { ref: alan, key: "ctrl+a" });
+  expect(await text()).toContain("ctrl+a");
+  const kutu = await refOf("Seçenek");
+  expect((await exec("check", { ref: kutu, value: true })).checked).toBe(true);
+  expect((await exec("check", { ref: kutu, value: true })).checked).toBe(true); // tersine çevirmez
+  expect((await exec("check", { ref: kutu, value: false })).checked).toBe(false);
+  await exec("click", { ref: alan });
+  await exec("type", { text: "yeni metin" }); // ref yok: odaktaki alan
+  const sayfa = context.pages().find((p) => p.url().endsWith("/keys"))!;
+  expect(await sayfa.locator("#k").inputValue()).toBe("yeni metin");
+  const scroll = await exec("scroll", { direction: "down", amount: 120 });
+  expect(typeof scroll.y).toBe("number");
+});
+
+test("pencere boyutu", async () => {
+  await exec("tab_open", { url: `${origin}/panel` });
+  expect(await exec("resize", { width: 900, height: 700 })).toEqual({ width: 900, height: 700 });
+  await expect(exec("resize", { width: 10, height: 10 })).rejects.toThrow();
 });

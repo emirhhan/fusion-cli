@@ -318,7 +318,7 @@ describe("Çekirdek: sekme yönetimi", () => {
     vi.resetModules();
     const core = await import("../../../chrome-extension/core.js");
     core.setPermissionWait(50);
-    await expect(core.execute({ islem: "tab_open", veri: { url: "https://evil.test/" } })).rejects.toThrow("kullanıcıdan izin gerekiyor");
+    await expect(core.execute({ islem: "tab_open", veri: { url: "https://evil.test/" } })).rejects.toThrow("kullanıcı izin vermedi");
   });
 
   it("bağlı sekme yokken adrese gitmek yeni sekme açar; diğer işlemler yine hata verir", async () => {
