@@ -127,7 +127,22 @@ def write_theme(config: Config, theme: str, path: Path | None = None) -> Path:
 #: `runtime:` altında bu fonksiyonla yazılabilecek boolean bayraklar. Rastgele bir
 #: anahtarın yanlışlıkla ezilmesini önleyen beyaz liste — `write_theme`'deki
 #: `THEME_VALUES` denetimiyle aynı gerekçe.
-_BOOLEAN_RUNTIME_FLAGS = ("teacherless", "teacher_lesson_sync")
+_BOOLEAN_RUNTIME_FLAGS = (
+    "teacherless",
+    "teacher_lesson_sync",
+    "self_review",
+    "reflexion",
+    "lessons",
+    "web_verification",
+    "browser_verification",
+    "visual_verification",
+    "playbooks",
+    "verified_synthesis",
+    "synthesis",
+)
+
+#: `workflow_mode` için kabul edilen değerler (bkz. `core.execution_mode.ExecutionMode`).
+WORKFLOW_MODE_VALUES = ("off", "always")
 
 
 def write_runtime_flag(config: Config, key: str, value: bool, path: Path | None = None) -> Path:
@@ -147,6 +162,27 @@ def write_runtime_flag(config: Config, key: str, value: bool, path: Path | None 
         runtime = existing.get("runtime")
         updated = dict(runtime) if isinstance(runtime, dict) else {}
         updated[key] = value
+        existing["runtime"] = updated
+        _atomic_write(target, existing)
+    return target
+
+
+def write_workflow_mode(config: Config, mode: str, path: Path | None = None) -> Path:
+    """Plan motoru kipini `runtime:` altına yaz; diğer ayarlar KORUNUR.
+
+    Tanınmayan değer REDDEDİLİR (bkz. `write_theme`): sessizce kabul edilen bir
+    değer yüklemede eski `auto` gibi başka bir davranışa eşlenebilir.
+    """
+    if mode not in WORKFLOW_MODE_VALUES:
+        raise ValueError(
+            f"Geçersiz plan kipi: {mode}. Seçenekler: {', '.join(WORKFLOW_MODE_VALUES)}"
+        )
+    target = path or _target_path(config)
+    with _config_lock(target):
+        existing = _read_existing(target)
+        runtime = existing.get("runtime")
+        updated = dict(runtime) if isinstance(runtime, dict) else {}
+        updated["workflow_mode"] = mode
         existing["runtime"] = updated
         _atomic_write(target, existing)
     return target

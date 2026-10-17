@@ -81,6 +81,7 @@ from ..tools.skill_pages import read_skill_page
 from ..ui import messages
 from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
+from . import intelligence
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .capabilities import catalog, detail
 from .chrome_bridge import ChromeBridge
@@ -904,6 +905,15 @@ class AppSession:
             return self._accounts.remove(request.data)
         if request.name == "ayar.talimat":
             return get_instructions()
+        if request.name == "zeka.durum":
+            return intelligence.status(self._state)
+        if request.name == "zeka.ayarla":
+            if self._turn is not None and not self._turn.done():
+                return {
+                    "ok": False,
+                    "metin": "Zeka ayarını değiştirmeden önce çalışan görevi durdur.",
+                }
+            return intelligence.apply(self._state, request.data)
         if request.name == "ayar.tema":
             return {"ok": True, "tema": self._state.config.runtime.theme}
         if request.name == "ayar.tema_kaydet":
