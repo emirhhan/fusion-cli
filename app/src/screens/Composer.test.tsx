@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Composer, maliyetRozetMetni } from "./Composer";
 
@@ -350,7 +350,7 @@ describe("Composer — @ ile dosya anma", () => {
 
   it("önerileri listeler", () => {
     anmaliComposer();
-    const liste = screen.getByRole("listbox", { name: "Dosya önerileri" });
+    const liste = screen.getByRole("listbox", { name: "Anma önerileri" });
     expect(liste).toBeTruthy();
     expect(screen.getByRole("option", { name: "app/src/screens/Composer.tsx" })).toBeTruthy();
   });
@@ -380,7 +380,7 @@ describe("Composer — @ ile dosya anma", () => {
   it("Esc listeyi kapatır", () => {
     const { textbox } = anmaliComposer();
     fireEvent.keyDown(textbox, { key: "Escape" });
-    expect(screen.queryByRole("listbox", { name: "Dosya önerileri" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Anma önerileri" })).toBeNull();
     expect(textbox.value).toBe("@comp");
   });
 
@@ -388,14 +388,14 @@ describe("Composer — @ ile dosya anma", () => {
     render(<Composer fileSuggestions={ONERILER} onSend={vi.fn()} />);
     const textbox = screen.getByRole("textbox", { name: "Mesaj" });
     fireEvent.change(textbox, { target: { value: "@comp", selectionStart: 5 } });
-    expect(screen.queryByRole("listbox", { name: "Dosya önerileri" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Anma önerileri" })).toBeNull();
   });
 
   it("öneri yoksa liste çizilmez", () => {
     render(<Composer fileSuggestions={[]} onFileQuery={vi.fn()} onSend={vi.fn()} />);
     const textbox = screen.getByRole("textbox", { name: "Mesaj" });
     fireEvent.change(textbox, { target: { value: "@zzz", selectionStart: 4 } });
-    expect(screen.queryByRole("listbox", { name: "Dosya önerileri" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Anma önerileri" })).toBeNull();
   });
 
   it("anma kapalıyken Enter normal gönderime döner", () => {
@@ -418,4 +418,44 @@ it("tur sürerken ses düğmelerinin yerinde yuvarlak durdur düğmesi çıkar; 
   expect(durdur.className).toContain("composer__stop");
   fireEvent.click(durdur);
   expect(durdu).toBe(true);
+});
+
+
+describe("Composer — @ ile MCP seçimi", () => {
+  const mcpServers = [
+    { ad: "github", aciklama: "GitHub depoları" },
+    { ad: "notion", aciklama: "Notion sayfaları" },
+  ];
+
+  function yaz(value: string, props: Partial<React.ComponentProps<typeof Composer>> = {}) {
+    const onSend = vi.fn();
+    const utils = render(
+      <Composer mcpServers={mcpServers} onFileQuery={() => undefined} onSend={onSend} {...props} />,
+    );
+    const textbox = screen.getByRole("textbox", { name: "Mesaj" }) as HTMLTextAreaElement;
+    fireEvent.change(textbox, { target: { value, selectionStart: value.length } });
+    return { ...utils, onSend, textbox };
+  }
+
+  it("@ yazınca MCP sunucuları dosyalardan önce, MCP etiketiyle listelenir", () => {
+    yaz("@git", { fileSuggestions: [{ yol: "src/github.ts" }] });
+    const options = within(screen.getByRole("listbox", { name: "Anma önerileri" })).getAllByRole("option");
+    expect(options[0].getAttribute("aria-label")).toBe("MCP github");
+    expect(options[0].textContent).toContain("GitHub depoları · MCP");
+    expect(options[1].getAttribute("aria-label")).toBe("src/github.ts");
+    expect(screen.queryByRole("option", { name: "MCP notion" })).toBeNull();
+  });
+
+  it("MCP satırını seçince yazıya @ad olarak girer", () => {
+    const { textbox } = yaz("bak @no");
+    fireEvent.click(screen.getByRole("option", { name: "MCP notion" }));
+    expect(textbox.value).toBe("bak @notion ");
+  });
+
+  it("Enter MCP satırını seçer, mesajı göndermez", () => {
+    const { textbox, onSend } = yaz("@gi");
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(textbox.value).toBe("@github ");
+  });
 });

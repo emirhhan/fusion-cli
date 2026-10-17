@@ -28,6 +28,7 @@ import {
   type ComposerAttachment,
   type ComposerCommand,
   type DosyaOnerisi,
+  type McpSunucusu,
 } from "./screens/Composer";
 import { Conversation, type Mesaj } from "./screens/Conversation";
 import { useModelCatalog } from "./screens/useModelCatalog";
@@ -103,6 +104,7 @@ import { ScheduleScreen } from "./schedule/ScheduleScreen";
 import { useScheduleRunner } from "./schedule/useScheduleRunner";
 import type { ReportInput } from "./feedback/report";
 import { useCrashReporter } from "./feedback/useCrashReporter";
+import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput } from "./screens/capabilityInput";
 
 /** Sohbetin içinden çalışma klasörünü değiştiren komut. */
 const FOLDER_COMMAND = {
@@ -478,6 +480,9 @@ export function SessionUygulama({
   const [commands, setCommands] = useState<ComposerCommand[]>([]);
 
   const [fileSuggestions, setFileSuggestions] = useState<DosyaOnerisi[]>([]);
+  // `/beceri` ve `@mcp` girdileri için etkin katalog adları.
+  const [skillNames, setSkillNames] = useState<string[]>([]);
+  const [mcpServers, setMcpServers] = useState<McpSunucusu[]>([]);
   //: En son gönderilen `@` sorgusunun sırası. Geç gelen cevap yenisini EZMEZ:
   //: kullanıcı yazmaya devam ettiğinde eski sorgunun sonucu listeyi geri almamalı.
   const fileQuerySeq = useRef(0);
@@ -801,7 +806,36 @@ export function SessionUygulama({
             destekleniyor: true,
           }];
         });
-      setCommands([...commandRows, ...mcpRows]);
+      const commandNames = new Set(commandRows.map((row) => row.ad.toLocaleLowerCase("tr")));
+      const skillRows: ComposerCommand[] = (Array.isArray(capabilityPayload.beceriler) ? capabilityPayload.beceriler : [])
+        .flatMap((raw) => {
+          if (!raw || typeof raw !== "object") return [];
+          const row = raw as Record<string, unknown>;
+          if (typeof row.ad !== "string" || row.etkin === false) return [];
+          if (commandNames.has(row.ad.toLocaleLowerCase("tr"))) return []; // komut kazanır
+          return [{
+            ad: row.ad,
+            aciklama: String(row.aciklama ?? "Beceri"),
+            grup: "Beceri",
+            kullanim: "",
+            destekleniyor: true,
+          }];
+        });
+      const imageRow: ComposerCommand[] = commandNames.has("görsel") ? [] : [{
+        ad: "görsel",
+        aciklama: "Sohbette görsel üret — /görsel gün batımında bir dağ evi --oran 16:9",
+        grup: "Görsel",
+        kullanim: "/görsel <ne çizileceği> [--oran 16:9]",
+        destekleniyor: true,
+      }];
+      setSkillNames(skillRows.map((row) => row.ad));
+      setMcpServers((Array.isArray(capabilityPayload.mcp) ? capabilityPayload.mcp : []).flatMap((raw) => {
+        if (!raw || typeof raw !== "object") return [];
+        const row = raw as Record<string, unknown>;
+        if (typeof row.ad !== "string" || row.etkin !== true) return [];
+        return [{ ad: row.ad, aciklama: String(row.aciklama ?? "MCP sunucusu") }];
+      }));
+      setCommands([...commandRows, ...imageRow, ...skillRows, ...mcpRows]);
     }).catch(() => { if (alive) setCommands([]); });
     return () => { alive = false; };
   }, [activeClient, activeSessionId]);
@@ -1152,6 +1186,12 @@ export function SessionUygulama({
       if (isCurrent()) setCommandBusy(false);
     }
   };
+  const capabilityNames = () => ({
+    skills: skillNames,
+    mcp: mcpServers.map((server) => server.ad),
+    commands: commands.map((command) => command.ad),
+  });
+  const skillFrom = (task: string) => parseCapabilityInput(task, capabilityNames()).skill;
   const send = (task: string) => {
     const resumeSource = task.match(/^\/resume(claude|codex|hermes)$/i)?.[1]?.toLocaleLowerCase("tr") as "claude" | "codex" | "hermes" | undefined;
     if (resumeSource && history.sources.some((source) => source.ad === resumeSource)) {
@@ -1161,7 +1201,7 @@ export function SessionUygulama({
       // Klasör değiştirme UYGULAMA tarafı iştir: çekirdeğin kökü açılışta
       // belirlenir, bu yüzden komutu çekirdeğe göndermek anlamsız olurdu.
       void requestTaskFolder();
-    } else if (task.startsWith("/")) void executeCommand(task);
+    } else if (task.startsWith("/") && !isImageCommand(task) && !skillFrom(task)) void executeCommand(task);
     else {
       if (active.running && busySubmissionMode === "steer" && !active.stopping && !active.stopError) {
         if (activeAttachments.length) {
@@ -1175,7 +1215,17 @@ export function SessionUygulama({
       }
       const snapshot = activeAttachments;
       const draftSnapshot = draft;
-      return controller.submit(active.id, task, snapshot).then((receipt) => {
+      const picked = parseCapabilityInput(task, capabilityNames());
+      const selections: Array<[string, string]> = [
+        ...(picked.skill ? [["beceri", picked.skill.ad] as [string, string]] : []),
+        ...picked.mcp.map((ad) => ["mcp", ad] as [string, string]),
+      ];
+      const taskText = picked.skill ? (picked.skill.rest || DEFAULT_SKILL_TASK(picked.skill.ad)) : task;
+      const prepare = selections.length === 0 || !activeClient
+        ? Promise.resolve()
+        : Promise.all(selections.map(([tur, ad]) => activeClient.request("yetenek.kullan", { tur, ad })))
+            .then(() => undefined);
+      return prepare.then(() => controller.submit(active.id, taskText, snapshot)).then((receipt) => {
         if (submissionAccepted(receipt)) {
           setAttachments((current) => current[active.id] === snapshot || current[active.id] === undefined
             ? { ...current, [active.id]: [] } : current);
@@ -1342,6 +1392,7 @@ export function SessionUygulama({
           commandError={active.stopError ?? commandError}
           commands={composerCommands}
           fileSuggestions={fileSuggestions}
+          mcpServers={mcpServers}
           onFileQuery={searchProjectFiles}
           context={active.baglam}
           costUsd={active.maliyetUsd}

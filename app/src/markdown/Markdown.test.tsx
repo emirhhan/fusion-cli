@@ -1,5 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { Markdown } from "./Markdown";
 
 afterEach(cleanup);
@@ -70,5 +70,26 @@ describe("Markdown", () => {
 
     expect(container.querySelector("a")).toBeNull();
     expect(container.textContent).toContain("javascript:alert(1)");
+  });
+});
+
+describe("Markdown — görseller", () => {
+  test("uzak adres olduğu gibi, yerel yol varlık protokolüyle çizilir", () => {
+    vi.mock("../platform/assetUrl", () => ({
+      assetUrl: (path: string) => `asset://localhost/${encodeURIComponent(path)}`,
+    }));
+    const { container } = render(
+      <Markdown text={"![uzak](https://ornek.test/a.png)\n\n![yerel](</Users/e/.local/share/fusion-cli/gallery/a b.png>)"} />,
+    );
+    const sources = Array.from(container.querySelectorAll("img")).map((img) => img.getAttribute("src"));
+    expect(sources[0]).toBe("https://ornek.test/a.png");
+    expect(sources[1]).toBe(
+      `asset://localhost/${encodeURIComponent("/Users/e/.local/share/fusion-cli/gallery/a b.png")}`,
+    );
+  });
+
+  test("varlık protokolü yoksa (tarayıcı/test) kırık resim yerine alt metin gösterir", async () => {
+    const { imageSource } = await import("./Markdown");
+    expect(imageSource("https://x.test/a.png")).toBe("https://x.test/a.png");
   });
 });

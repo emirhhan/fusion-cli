@@ -129,6 +129,7 @@ from .hosted_connectors import (
     remove_hosted_connector,
     verify_hosted_connector,
 )
+from .image_chat import parse_image_command, run_image_command
 from .image_create import create_image, image_output_dir, image_providers
 from .image_flows import export_image, list_flows, load_flow, save_flow
 from .image_job_artifacts import capture_reference, receipt_reads_supported
@@ -464,7 +465,8 @@ class AppSession:
         self._disabled_skills: set[str] = set()
         self._disabled_agents: set[str] = set()
         self._disabled_mcp: set[str] = set()
-        self._pending_capability: tuple[str, str] | None = None
+        # Kullanıcının bu tur için seçtiği beceri/ajan/MCP'ler (örn. `/beceri` + `@mcp`).
+        self._pending_capabilities: list[tuple[str, str]] = []
         self._taken_skill: SkillSelection | None = None
         self._refresh_capabilities()
         self._usage = UsageMeter()
@@ -1965,6 +1967,18 @@ class AppSession:
                     reply, message_id=f"{receipt.key.request_id}:assistant" if receipt else None
                 )
                 return {"ok": True, "metin": reply, "yerel_yanit": True}
+        image_command = None if browser_only else parse_image_command(task)
+        if image_command is not None and not attachment_context and not images:
+            ok, markdown = await run_image_command(self._state.config, image_command)
+            self._state.history = [
+                *self._state.history,
+                Message("user", task),
+                Message("assistant", markdown),
+            ]
+            self._transcript_store.record_assistant(
+                markdown, message_id=f"{receipt.key.request_id}:assistant" if receipt else None
+            )
+            return {"ok": ok, "metin": markdown, "gorsel_komutu": True}
         history = self._chrome_history if browser_only else self._state.history
 
         # Kullanım sayacı olayları ARADAN dinler: sayaç için ayrı bir yol
@@ -2221,15 +2235,22 @@ class AppSession:
         kind, name = str(data.get("tur", "")), str(data.get("ad", ""))
         if not self._known_capability(kind, name):
             return {"ok": False, "metin": "Katalog öğesi bulunamadı."}
-        self._pending_capability = (kind, name)
+        if (kind, name) not in self._pending_capabilities:
+            self._pending_capabilities = [*self._pending_capabilities, (kind, name)]
         return {"ok": True, "tur": kind, "ad": name, "sonraki_tur": True}
 
     def _take_capability_context(self) -> str:
         self._taken_skill = None
-        selected, self._pending_capability = self._pending_capability, None
-        if selected is None:
-            return ""
-        kind, name = selected
+        selected, self._pending_capabilities = self._pending_capabilities, []
+        parts: list[str] = []
+        for kind, name in selected:
+            part = self._capability_part(kind, name)
+            if part:
+                parts.append(part)
+        return "\n\n".join(parts)
+
+    def _capability_part(self, kind: str, name: str) -> str:
+        """Tek bir seçimin modele verilecek bağlamı; geçersizse boş."""
         if kind == "beceri":
             item = self._all_capabilities.get_skill(name)
             if item is None:
@@ -2237,7 +2258,10 @@ class AppSession:
             page = read_skill_page(item.path)
             if page.error:
                 return ""
-            self._taken_skill = SkillSelection(item.qualified_name, page.revision, page.next_offset)
+            if self._taken_skill is None:  # sayfalama izi yalnız ilk beceri için tutulur
+                self._taken_skill = SkillSelection(
+                    item.qualified_name, page.revision, page.next_offset
+                )
             return f"# Kullanıcının açıkça seçtiği beceri: {name}\n{page.text}"
         if kind == "ajan":
             item = self._all_capabilities.get_agent(name)

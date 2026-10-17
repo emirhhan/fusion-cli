@@ -1,3 +1,4 @@
+import { assetUrl } from "../platform/assetUrl";
 import { Fragment, type ReactNode } from "react";
 import { marked, type Token, type Tokens } from "marked";
 import { CodeCard } from "./CodeCard";
@@ -64,7 +65,7 @@ function renderInline(token: Token, onOpenFile?: (path: string) => void): ReactN
     }
     case "image": {
       const image = token as Tokens.Image;
-      return <img alt={image.text} className="markdown__image" src={image.href} />;
+      return <MarkdownImage alt={image.text} href={image.href} />;
     }
     // Ham HTML ve kaçış dizileri DÜZ METİNDİR: render edilmez, gösterilir.
     default:
@@ -160,4 +161,19 @@ export function Markdown({ text, onOpenFile }: MarkdownProps) {
       <BlockTokens onOpenFile={onOpenFile} tokens={tokens} />
     </div>
   );
+}
+
+/** Yerel (mutlak yol / file://) görseller Tauri varlık protokolüne çevrilir; uzak adresler olduğu gibi kalır. */
+const LOCAL_PATH = /^(?:file:\/\/|\/|[A-Za-z]:[\\/])/;
+
+export function imageSource(href: string): string | null {
+  if (!LOCAL_PATH.test(href)) return href;
+  const path = href.startsWith("file://") ? decodeURIComponent(href.slice(7)) : href;
+  return assetUrl(path);
+}
+
+function MarkdownImage({ alt, href }: { alt: string; href: string }) {
+  const src = imageSource(href);
+  if (src === null) return <span className="markdown__image-missing">🖼 {alt || "Görsel"}</span>;
+  return <img alt={alt} className="markdown__image" loading="lazy" src={src} />;
 }

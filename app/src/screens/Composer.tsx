@@ -51,6 +51,18 @@ export interface DosyaOnerisi {
   vurgu?: number[];
 }
 
+export interface McpSunucusu {
+  ad: string;
+  aciklama: string;
+}
+
+/** `@` listesindeki tek satır: MCP sunucusu ya da proje dosyası. */
+interface AnmaOgesi {
+  tur: "mcp" | "dosya";
+  deger: string;
+  aciklama: string;
+}
+
 export interface ComposerAttachment {
   kind: "file" | "image";
   name: string;
@@ -81,6 +93,8 @@ interface ComposerProps {
   onFileQuery?: (sorgu: string) => void;
   /** `onFileQuery` sonucunda gelen öneriler. */
   fileSuggestions?: DosyaOnerisi[];
+  /** `@ad` ile bu tur için seçilebilen etkin MCP sunucuları. */
+  mcpServers?: McpSunucusu[];
   /** Konuşma kipini aç. Verilmezse mikrofon düğmesi çizilmez. */
   onVoice?: () => void;
   /** Metni kutuya yazan dikte; konuşma kipinden ayrıdır. */
@@ -125,6 +139,7 @@ export function Composer({
   onDropFiles = () => undefined,
   onFileQuery,
   fileSuggestions = [],
+  mcpServers = [],
   onVoice,
   onDictation,
   dictating = false,
@@ -164,7 +179,15 @@ export function Composer({
     && !draft.includes("\n") && draft.length < COMPACT_MESSAGE_CHARACTER_LIMIT;
   // İmleç metnin sonundan geride olabilir; anma imlecin ÖNÜNDEKİ parçaya bakar.
   const mention = onFileQuery ? anmayiBul(draft, Math.min(caret, draft.length)) : null;
-  const mentionOpen = mention !== null && !mentionDismissed && fileSuggestions.length > 0;
+  const mentionItems: AnmaOgesi[] = mention
+    ? [
+        ...mcpServers
+          .filter((sunucu) => sunucu.ad.toLocaleLowerCase("tr").includes(mention.sorgu.toLocaleLowerCase("tr")))
+          .map((sunucu) => ({ tur: "mcp" as const, deger: sunucu.ad, aciklama: `${sunucu.aciklama} · MCP` })),
+        ...fileSuggestions.map((oneri) => ({ tur: "dosya" as const, deger: oneri.yol, aciklama: oneri.yol })),
+      ]
+    : [];
+  const mentionOpen = mention !== null && !mentionDismissed && mentionItems.length > 0;
   const filteredCommands = useMemo(() => {
     if (!draft.startsWith("/") || draft.includes("\n")) return [];
     const query = draft.slice(1).trim().toLocaleLowerCase("tr");
@@ -251,18 +274,18 @@ export function Composer({
     }
     if (mentionOpen && event.key === "ArrowDown") {
       event.preventDefault();
-      setActiveMention((current) => (current + 1) % fileSuggestions.length);
+      setActiveMention((current) => (current + 1) % mentionItems.length);
       return;
     }
     if (mentionOpen && event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveMention((current) => (current - 1 + fileSuggestions.length) % fileSuggestions.length);
+      setActiveMention((current) => (current - 1 + mentionItems.length) % mentionItems.length);
       return;
     }
     if (mentionOpen && (event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
       event.preventDefault();
-      const secili = fileSuggestions[activeMention];
-      if (secili) chooseMention(secili.yol);
+      const secili = mentionItems[activeMention];
+      if (secili) chooseMention(secili.deger);
       return;
     }
     if (paletteOpen && event.key === "ArrowDown") {
@@ -333,18 +356,18 @@ export function Composer({
           </div>
         )}
         {mentionOpen && (
-          <div aria-label="Dosya önerileri" className="composer__palette" role="listbox">
-            {fileSuggestions.map((oneri, index) => (
+          <div aria-label="Anma önerileri" className="composer__palette" role="listbox">
+            {mentionItems.map((oge, index) => (
               <button
-                aria-label={oneri.yol}
+                aria-label={oge.tur === "mcp" ? `MCP ${oge.deger}` : oge.deger}
                 aria-selected={index === activeMention}
-                key={oneri.yol}
-                onClick={() => chooseMention(oneri.yol)}
+                key={`${oge.tur}:${oge.deger}`}
+                onClick={() => chooseMention(oge.deger)}
                 role="option"
                 type="button"
               >
-                <code>@{dosyaAdi(oneri.yol)}</code>
-                <span>{oneri.yol}</span>
+                <code>@{oge.tur === "mcp" ? oge.deger : dosyaAdi(oge.deger)}</code>
+                <span>{oge.aciklama}</span>
               </button>
             ))}
           </div>
