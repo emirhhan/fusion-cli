@@ -41,8 +41,14 @@ TELEGRAM_FAILED_PAIR_LIMIT = 5
 DEFAULT_REMOTE_HOST = "127.0.0.1"
 DEFAULT_REMOTE_PORT = 8791
 
-#: Canlı ekran (görüntü akışı): onay 5 dk geçerli, kareler arası en az 0,5 sn, JPEG genişlik sınırı.
-SCREEN_SESSION_TTL_SECONDS = 300
+#: Canlı ekran (görüntü akışı). Onaylı oturum KARE ÇEKİLDİKÇE uzar: telefon bu süre boyunca hiç kare
+#: istemezse (uyku, ağ yok) oturum kapanır. Mutlak 5 dk sınırı akışı kullanım ortasında kesiyordu.
+SCREEN_IDLE_TTL_SECONDS = 600
+#: Kare çekilse bile bir oturumun yaşayabileceği en uzun süre; sonra yeniden onay gerekir.
+SCREEN_MAX_SESSION_SECONDS = 7200
+#: Onaylanmamış isteğin bekleme süresi.
+SCREEN_REQUEST_TTL_SECONDS = 300
+#: Kareler arası en az 0,5 sn, JPEG genişlik sınırı.
 SCREEN_MIN_FRAME_INTERVAL_SECONDS = 0.5
 SCREEN_MAX_WIDTH = 1280
 SCREEN_JPEG_QUALITY = 60

@@ -2,7 +2,8 @@
 
 Bu WebRTC DEĞİLDİR: saniyede ~2 kareye kadar imzalı RPC ile JPEG gönderir. Sebep: ek sunucu/TURN
 altyapısı gerektirmez ve her kare aynı kimlik/yetki katmanından geçer. Her oturum masaüstünde
-açıkça onaylanır, 5 dakikada kendiliğinden biter ve masaüstü her an kesebilir.
+açıkça onaylanır; kare çekilmedikçe (boşta) kendiliğinden biter, kare çekilse bile üst sınırı
+aşamaz ve masaüstü her an kesebilir.
 """
 
 from __future__ import annotations
@@ -17,10 +18,12 @@ from typing import Protocol
 
 from ..core.protocols import Clock
 from .constants import (
+    SCREEN_IDLE_TTL_SECONDS,
     SCREEN_JPEG_QUALITY,
+    SCREEN_MAX_SESSION_SECONDS,
     SCREEN_MAX_WIDTH,
     SCREEN_MIN_FRAME_INTERVAL_SECONDS,
-    SCREEN_SESSION_TTL_SECONDS,
+    SCREEN_REQUEST_TTL_SECONDS,
 )
 
 STATE_NONE = "none"
@@ -82,6 +85,7 @@ class _Session:
     state: str
     requested_at: float
     expires_at: float = 0.0
+    hard_deadline: float = 0.0
     last_frame_at: float = 0.0
     sequence: int = 0
 
@@ -89,9 +93,18 @@ class _Session:
 class ScreenShareGate:
     """Cihaz başına en fazla bir istek/oturum; onay masaüstündendir."""
 
-    def __init__(self, clock: Clock, *, ttl: float = SCREEN_SESSION_TTL_SECONDS) -> None:
+    def __init__(
+        self,
+        clock: Clock,
+        *,
+        idle_ttl: float = SCREEN_IDLE_TTL_SECONDS,
+        max_session: float = SCREEN_MAX_SESSION_SECONDS,
+        request_ttl: float = SCREEN_REQUEST_TTL_SECONDS,
+    ) -> None:
         self._clock = clock
-        self._ttl = ttl
+        self._idle_ttl = idle_ttl
+        self._max_session = max_session
+        self._request_ttl = request_ttl
         self._sessions: dict[str, _Session] = {}
 
     def request(self, device_id: str) -> str:
@@ -106,20 +119,23 @@ class ScreenShareGate:
         session = self._live(device_id)
         if session is None or session.state != STATE_PENDING:
             return False
+        now = self._clock.now()
         session.state = STATE_ACTIVE
-        session.expires_at = self._clock.now() + self._ttl
+        session.hard_deadline = now + self._max_session
+        session.expires_at = min(now + self._idle_ttl, session.hard_deadline)
         return True
 
     def stop(self, device_id: str) -> bool:
         return self._sessions.pop(device_id, None) is not None
 
     def status(self, device_id: str) -> tuple[str, int]:
-        """(durum, kalan saniye)."""
+        """(durum, mutlak üst sınıra kalan saniye)."""
         session = self._live(device_id)
         if session is None:
             return STATE_NONE, 0
-        remaining = max(0, round(session.expires_at - self._clock.now()))
-        return session.state, remaining if session.state == STATE_ACTIVE else 0
+        if session.state != STATE_ACTIVE:
+            return session.state, 0
+        return session.state, max(0, round(session.hard_deadline - self._clock.now()))
 
     def next_sequence(self, device_id: str) -> int | str:
         """Kare izni: sıra numarası ya da red nedeni (`onay_yok`, `cok_sik`)."""
@@ -130,6 +146,7 @@ class ScreenShareGate:
         if now - session.last_frame_at < SCREEN_MIN_FRAME_INTERVAL_SECONDS:
             return "cok_sik"
         session.last_frame_at = now
+        session.expires_at = min(now + self._idle_ttl, session.hard_deadline)
         session.sequence += 1
         return session.sequence
 
@@ -145,7 +162,9 @@ class ScreenShareGate:
             return None
         now = self._clock.now()
         expired = session.state == STATE_ACTIVE and now > session.expires_at
-        stale_request = session.state == STATE_PENDING and now - session.requested_at > self._ttl
+        stale_request = (
+            session.state == STATE_PENDING and now - session.requested_at > self._request_ttl
+        )
         if expired or stale_request:
             self._sessions.pop(device_id, None)
             return None

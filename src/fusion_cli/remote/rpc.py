@@ -82,6 +82,7 @@ class RemoteService:
         self._version = version
         self._screen_gate = screen_gate or ScreenShareGate(clock)
         self._screen_capture = screen_capture
+        self._last_frames: dict[str, tuple[int, bytes, float]] = {}
         self._run_lock = asyncio.Lock()
         self._runs: set[asyncio.Task[None]] = set()
         self._questions: dict[str, tuple[str, dict[str, Any]]] = {}
@@ -377,11 +378,21 @@ class RemoteService:
             frame = await self._screen_capture.frame()
         except ScreenUnavailableError as error:
             return _fail("ekran_kullanilamaz", str(error))
+        if isinstance(sequence, int):
+            self._last_frames[device.device_id] = (sequence, frame, self._clock.now())
         return RpcResult(
             True, {"seq": sequence, "jpegBase64": base64.b64encode(frame).decode("ascii")}
         )
 
+    def latest_screen_frame(self, device_id: str) -> tuple[int, bytes, float] | None:
+        """Telefona en son verilen kare; masaüstü önizlemesi ek yakalama yapmadan bunu gösterir."""
+        if device_id not in self._screen_gate.active():
+            self._last_frames.pop(device_id, None)
+            return None
+        return self._last_frames.get(device_id)
+
     async def _screen_stop(self, device: Device, _params: dict[str, Any]) -> RpcResult:
+        self._last_frames.pop(device.device_id, None)
         return RpcResult(True, {"stopped": self._screen_gate.stop(device.device_id)})
 
     async def answer_from_desktop(self, question_id: str, choice: str) -> bool:

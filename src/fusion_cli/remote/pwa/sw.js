@@ -1,7 +1,12 @@
 // Yalnız kabuk dosyaları önbelleğe alınır; RPC ve görev verisi ASLA önbelleğe girmez.
-const SHELL = ["/", "/app.js", "/signing.js", "/styles.css", "/manifest.webmanifest", "/icon.svg"];
-const CACHE = "fusion-kabuk-v1";
+const SHELL = [
+  "/", "/app.js", "/api.js", "/approvals.js", "/chat.js", "/dom.js", "/screen-stream.js",
+  "/signing.js", "/store.js", "/styles.css", "/manifest.webmanifest", "/icon.svg",
+  "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png",
+];
+const CACHE = "fusion-kabuk-v2";
 self.addEventListener("install", (event) => {
+  self.skipWaiting();
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
 });
 self.addEventListener("activate", (event) => {

@@ -17,14 +17,30 @@ from .rpc import RemoteService
 from .signing import SignatureVerifier, SignedRequest
 
 PWA_DIRECTORY = Path(__file__).parent / "pwa"
+_JS = "text/javascript; charset=utf-8"
+_PNG = "image/png"
 _STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
-    "/app.js": ("app.js", "text/javascript; charset=utf-8"),
-    "/signing.js": ("signing.js", "text/javascript; charset=utf-8"),
-    "/sw.js": ("sw.js", "text/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
     "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
     "/icon.svg": ("icon.svg", "image/svg+xml"),
+    "/icon-192.png": ("icon-192.png", _PNG),
+    "/icon-512.png": ("icon-512.png", _PNG),
+    "/apple-touch-icon.png": ("apple-touch-icon.png", _PNG),
+    **{
+        f"/{name}.js": (f"{name}.js", _JS)
+        for name in (
+            "app",
+            "api",
+            "approvals",
+            "chat",
+            "dom",
+            "screen-stream",
+            "signing",
+            "store",
+            "sw",
+        )
+    },
 }
 _SECURITY_HEADERS = [
     (b"x-content-type-options", b"nosniff"),

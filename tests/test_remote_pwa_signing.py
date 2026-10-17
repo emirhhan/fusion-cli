@@ -37,23 +37,54 @@ def test_pwa_dosyalari_var_ve_ic_html_enjeksiyonu_yok() -> None:
     for name in (
         "index.html",
         "app.js",
+        "api.js",
+        "approvals.js",
+        "chat.js",
+        "dom.js",
+        "screen-stream.js",
+        "store.js",
         "signing.js",
         "sw.js",
         "manifest.webmanifest",
         "styles.css",
+        "icon-192.png",
+        "icon-512.png",
+        "apple-touch-icon.png",
     ):
         assert (PWA / name).is_file()
-    assert "innerHTML" not in (PWA / "app.js").read_text()
+    for script in PWA.glob("*.js"):
+        assert "innerHTML" not in script.read_text()
     manifest = json.loads((PWA / "manifest.webmanifest").read_text())
     assert manifest["display"] == "standalone"
+    sizes = {icon["sizes"] for icon in manifest["icons"]}
+    assert {"192x192", "512x512"} <= sizes  # ana ekran simgesi PNG olmalı (iOS SVG'yi yok sayar)
+    assert any(icon["purpose"] == "maskable" for icon in manifest["icons"])
     shell = (PWA / "sw.js").read_text()
     assert "/v1/" in shell  # RPC önbelleğe alınmaz
+
+
+def test_pwa_mobil_uygulama_duzeni_alt_sekme_ve_guvenli_alan() -> None:
+    html = (PWA / "index.html").read_text()
+    css = (PWA / "styles.css").read_text()
+    script = (PWA / "app.js").read_text()
+    assert "viewport-fit=cover" in html and 'rel="apple-touch-icon"' in html
+    assert 'id="sekmeler"' in html and "safe-area-inset-bottom" in css
+    for tab in ("sohbetler", "gorevler", "onaylar", "ekran", "ayarlar"):
+        assert f'id: "{tab}"' in script
+    assert "-apple-system" in css and "font: 14px" in css  # Kits yazı tipi ve 14 px taban
+    assert "style=" not in html  # CSP style-src 'self': satır içi stil yok
 
 
 def test_pwa_ekran_bolumu_guvenli_ve_kapsama_bagli() -> None:
     script = (PWA / "app.js").read_text()
     html = (PWA / "index.html").read_text()
-    assert 'includes("desktop.observe")' in script  # kapsam yoksa bölüm hiç açılmaz
-    assert 'id="ekran"' in html and "hidden" in html.split('id="ekran"')[1][:60]
-    assert "innerHTML" not in script
+    assert 'scope: "desktop.observe"' in script  # kapsam yoksa sekme hiç açılmaz
+    assert "scopes.includes(tab.scope)" in script
+    assert 'data-view="ekran"' in html
     assert "data:image/jpeg;base64," in script  # CSP img-src data: ile uyumlu
+
+
+def test_pwa_ekran_kutusu_en_boy_oranini_korur() -> None:
+    css = (PWA / "styles.css").read_text()
+    assert "object-fit: contain" in css
+    assert "width: auto" in css and "max-height: 100%" in css  # kare kutuya sığar, esnemez

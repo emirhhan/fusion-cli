@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import time
 from collections.abc import Callable
@@ -110,6 +111,7 @@ class RemoteController:
             "uzak.ekran_bekleyen": self._screen_pending,
             "uzak.ekran_onayla": self._screen_approve,
             "uzak.ekran_kes": self._screen_stop,
+            "uzak.ekran_onizleme": self._screen_preview,
         }
         handler = handlers.get(name)
         if handler is None:
@@ -182,6 +184,19 @@ class RemoteController:
 
     async def _screen_stop(self, data: dict[str, Any]) -> dict[str, Any]:
         return {"ok": self._service.screen_gate.stop(str(data.get("cihazId", "")))}
+
+    async def _screen_preview(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Telefonun şu an izlediği kare; ek ekran yakalaması yapmaz."""
+        latest = self._service.latest_screen_frame(str(data.get("cihazId", "")))
+        if latest is None:
+            return {"ok": False}
+        sequence, frame, at = latest
+        return {
+            "ok": True,
+            "seq": sequence,
+            "at": at,
+            "jpegBase64": base64.b64encode(frame).decode("ascii"),
+        }
 
     async def _desktop_answer(self, data: dict[str, Any]) -> dict[str, Any]:
         accepted = await self._service.answer_from_desktop(

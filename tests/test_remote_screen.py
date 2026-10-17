@@ -68,7 +68,7 @@ async def test_istek_onay_kare_ve_durdurma_akisi(parts: Any) -> None:
     assert frame.ok and base64.b64decode(frame.data["jpegBase64"]).startswith(b"\xff\xd8")
     assert frame.data["seq"] == 1 and capture.calls == 1
     status = await service.call(observer, "screen.status", {})
-    assert status.data["state"] == "active" and 0 < status.data["secondsLeft"] <= 300
+    assert status.data["state"] == "active" and 0 < status.data["secondsLeft"] <= 7200
     assert (await service.call(observer, "screen.stop", {})).data["stopped"] is True
     assert (await service.call(observer, "screen.frame", {})).error == "ekran_onay_yok"
 
@@ -82,9 +82,69 @@ async def test_kare_hiz_siniri_ve_suresi_dolan_oturum(parts: Any) -> None:
     assert (await service.call(observer, "screen.frame", {})).error == "cok_sik"
     clock.value += 0.6
     assert (await service.call(observer, "screen.frame", {})).data["seq"] == 2
-    clock.value += 301
+    clock.value += 601  # kare çekilmeden boşta kalma süresi doldu
     assert (await service.call(observer, "screen.frame", {})).error == "ekran_onay_yok"
     assert capture.calls == 2
+
+
+async def test_kare_cekildikce_oturum_uzar_ve_5_dakikada_kesilmez(parts: Any) -> None:
+    clock, service, observer, _plain, capture = parts
+    await service.call(observer, "screen.request", {})
+    service.screen_gate.approve(observer.device_id)
+    for _ in range(20):  # 20 x 60 sn = 20 dk: eski 5 dk sınırını çok aşar
+        clock.value += 60
+        assert (await service.call(observer, "screen.frame", {})).ok
+    assert capture.calls == 20
+    state = (await service.call(observer, "screen.status", {})).data
+    assert state["state"] == "active" and state["secondsLeft"] > 0
+
+
+async def test_kare_cekilse_de_mutlak_ust_sinir_asilamaz() -> None:
+    clock = FakeClock()
+    gate = ScreenShareGate(clock, idle_ttl=600, max_session=1000)
+    gate.request("a")
+    gate.approve("a")
+    for _ in range(9):
+        clock.value += 100
+        assert isinstance(gate.next_sequence("a"), int)
+    clock.value += 101  # 1001. sn
+    assert gate.next_sequence("a") == "onay_yok" and gate.status("a")[0] == "none"
+
+
+async def test_onaylanmamis_istek_5_dakikada_duser() -> None:
+    clock = FakeClock()
+    gate = ScreenShareGate(clock)
+    gate.request("a")
+    clock.value += 301
+    assert gate.status("a")[0] == "none" and gate.approve("a") is False
+
+
+async def test_masaustu_onizleme_telefona_verilen_son_kareyi_gosterir(tmp_path: Path) -> None:
+    clock = FakeClock()
+    capture = FakeCapture()
+    controller = RemoteController(
+        home=tmp_path,
+        root=tmp_path,
+        secrets=MemorySecrets(),
+        session_factory=lambda writer: object(),
+        clock=clock,
+    )
+    controller._service._screen_capture = capture
+    device = controller._registry.add("Telefonum", "signed", frozenset({"desktop.observe"}))
+    assert (await controller.dispatch("uzak.ekran_onizleme", {"cihazId": device.device_id}))[
+        "ok"
+    ] is False
+    await controller._service.call(device, "screen.request", {})
+    controller._service.screen_gate.approve(device.device_id)
+    clock.value += 1
+    assert (await controller._service.call(device, "screen.frame", {})).ok
+    preview = await controller.dispatch("uzak.ekran_onizleme", {"cihazId": device.device_id})
+    assert preview["ok"] and base64.b64decode(preview["jpegBase64"]).startswith(b"\xff\xd8")
+    await controller.dispatch("uzak.ekran_kes", {"cihazId": device.device_id})
+    assert (await controller.dispatch("uzak.ekran_onizleme", {"cihazId": device.device_id}))[
+        "ok"
+    ] is False
+    await controller.aclose()
 
 
 async def test_kapsam_olmayan_cihaz_ekran_isteyemez(parts: Any) -> None:

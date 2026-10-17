@@ -3,52 +3,65 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0d12">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#212121" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Fusion">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/icon.svg">
-<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/styles.css">
-<title>Fusion Uzak</title>
+<title>Fusion</title>
 </head>
 <body>
-<main>
-  <h1>Fusion</h1>
-  <p class="mut" id="durum" role="status" aria-live="polite">Bağlanıyor…</p>
+<section id="eslestir" class="pair" hidden aria-labelledby="eslestirBaslik">
+  <img class="logo" src="/icon-192.png" width="64" height="64" alt="">
+  <h1 id="eslestirBaslik">Fusion</h1>
+  <p class="muted center" id="durum" role="status" aria-live="polite">Bağlanıyor…</p>
+  <p class="muted center">Masaüstünde Fusion → Uzaktan Erişim’den kod oluştur, buraya gir ve masaüstünde onayla.</p>
+  <label for="kod">Eşleştirme kodu</label>
+  <input id="kod" autocomplete="off" autocapitalize="characters" maxlength="8" inputmode="text">
+  <label for="cihazAdi">Bu cihazın adı</label>
+  <input id="cihazAdi" value="Telefonum" maxlength="60">
+  <button class="btn" id="eslestirDugme" type="button">Eşleştir</button>
+</section>
 
-  <section id="eslestir" class="card" hidden aria-labelledby="eslestirBaslik">
-    <h2 id="eslestirBaslik">Cihazı eşleştir</h2>
-    <p class="mut">Masaüstünde Fusion → Uzaktan Erişim’den kod oluştur, buraya gir ve masaüstünde onayla.</p>
-    <label for="kod">Eşleştirme kodu</label>
-    <input id="kod" autocomplete="off" autocapitalize="characters" maxlength="8" inputmode="text">
-    <label for="cihazAdi">Bu cihazın adı</label>
-    <input id="cihazAdi" value="Telefonum" maxlength="60">
-    <button id="eslestirDugme" type="button">Eşleştir</button>
-  </section>
+<div id="uygulama" class="shell" hidden>
+  <header class="bar main-bar">
+    <span class="bar-btn"><span id="nokta" class="dot ok" role="img" aria-label="Bağlantı durumu"></span></span>
+    <h1 class="bar-title" id="baslik">Sohbetler</h1>
+    <button class="bar-btn" id="yeni" type="button" aria-label="Yeni sohbet"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+  </header>
+  <p class="banner" id="baglanti" role="status" aria-live="polite"></p>
 
-  <section id="ana" hidden>
-    <div class="card">
-      <label for="gorev">Yeni görev</label>
-      <textarea id="gorev" rows="3"></textarea>
-      <button id="gonder" type="button">Gönder</button>
-    </div>
-    <h2>Görevler</h2>
-    <div id="gorevler"></div>
-    <h2>Onaylar</h2>
-    <div id="onaylar"><p class="mut">Bekleyen onay yok.</p></div>
-    <section id="ekran" class="card" hidden aria-labelledby="ekranBaslik">
-      <h2 id="ekranBaslik">Canlı ekran</h2>
-      <p class="mut" id="ekranDurum" role="status" aria-live="polite"></p>
-      <img id="ekranKare" alt="Bilgisayar ekranı" hidden style="width:100%;border-radius:10px">
-      <div class="row">
-        <button id="ekranIste" type="button">İzin iste</button>
-        <button id="ekranDur" class="sec" type="button" hidden>Durdur</button>
+  <main class="views">
+    <section data-view="sohbetler" aria-label="Sohbetler"><div id="liste-sohbetler" class="list"></div></section>
+    <section data-view="gorevler" aria-label="Görevler" hidden><div id="liste-gorevler"></div></section>
+    <section data-view="onaylar" aria-label="Onaylar" hidden><div id="liste-onaylar"></div></section>
+    <section data-view="ekran" aria-label="Canlı ekran" hidden>
+      <div id="ekranKutu" class="screen-box empty-screen" role="button" tabindex="0" aria-label="Tam ekranı aç veya kapat">
+        <img id="ekranKare" alt="Bilgisayar ekranı">
+        <p class="screen-empty muted">Ekran paylaşılmıyor</p>
       </div>
-      <p class="mut">Saniyede en fazla ~2 kare; her oturum bilgisayarda onaylanır ve 5 dakika sürer.</p>
+      <p id="ekranDurum" class="chip" role="status" aria-live="polite">Ekran paylaşılmıyor.</p>
+      <div class="row">
+        <button class="btn" id="ekranIste" type="button">İzlemeyi başlat</button>
+        <button class="btn ghost" id="ekranDur" type="button" hidden>Durdur</button>
+      </div>
+      <p class="muted small">Her oturum bilgisayarda onaylanır. Kare aktıkça oturum uzar; telefon uykuya geçerse bağlantı geri gelince kendiliğinden sürer. Ekrana dokununca tam ekran olur.</p>
     </section>
-    <button id="cikis" class="sec" type="button">Bu cihazın eşleşmesini kaldır</button>
-  </section>
-  <p class="mut" id="uyari"></p>
-</main>
+    <section data-view="ayarlar" aria-label="Ayarlar" hidden>
+      <p class="muted small" id="uyari"></p>
+      <button class="btn ghost danger-btn" id="cikis" type="button">Bu cihazın eşleşmesini kaldır</button>
+    </section>
+  </main>
+
+  <section id="sohbet" class="chat" hidden aria-label="Sohbet"></section>
+
+  <nav class="tabs" id="sekmeler" role="tablist" aria-label="Ana gezinme"></nav>
+</div>
 <script src="/app.js" type="module"></script>
 </body>
 </html>
