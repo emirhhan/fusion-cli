@@ -90,6 +90,7 @@ export type VoiceMachineEvent =
   | { type: "ASK_OPENED" }
   | { type: "ASK_CLOSED" }
   | { type: "FAILED"; text: string }
+  | { type: "REQUEST_SENT" }
   | { type: "STOPPED" };
 
 export const initialVoiceMachine: VoiceMachineState = {
@@ -217,6 +218,9 @@ export function voiceMachine(state: VoiceMachineState, event: VoiceMachineEvent)
       return state.phase !== "approval" ? state : { ...state, phase: state.phaseBeforeAsk ?? (state.autoListen ? "listening" : "idle"), phaseBeforeAsk: null };
     case "FAILED":
       return { ...state, candidate: null, error: event.text, partial: "", phase: "error" };
+    case "REQUEST_SENT":
+      // İstek gönderildi: mikrofon kapalı; cevap bitince dinlemeye DÖNÜLMEZ.
+      return { ...state, autoListen: false };
     case "STOPPED":
       return { ...state, autoListen: false, candidate: null, lastFinal: null, partial: "", phase: "idle" };
   }

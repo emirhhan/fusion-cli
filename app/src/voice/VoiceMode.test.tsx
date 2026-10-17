@@ -9,14 +9,14 @@ describe("VoiceMode — yalnız karakter", () => {
     fireEvent.click(screen.getByRole("button", { name: /Fusion.*dinle/i }));
     expect(onListen).toHaveBeenCalledOnce();
     expect(container.querySelector("header, footer")).toBeNull();
-    expect(screen.getByText("merhaba").className).toBe("voice-panel__sr");
+    expect(Array.from(container.querySelectorAll(".voice-panel__sr")).map((el) => el.textContent)).toContain("merhaba");
     expect(screen.queryByRole("menu")).toBeNull();
   });
-  it.each([true, false])("sağ tık üç seçenek açar (geniş=%s)", (wide) => {
+  it.each([true, false])("sağ tık dört seçenek açar (geniş=%s)", (wide) => {
     const onMinimize = vi.fn();
     render(<VoiceMode listening onClose={vi.fn()} onMinimize={onMinimize} onWideChange={vi.fn()} onPrefsChange={vi.fn()} onTopChange={vi.fn()} state="idle" wide={wide} />);
     fireEvent.contextMenu(screen.getByRole("button", { name: /Fusion.*dinle/i }));
-    expect(screen.getAllByRole("menuitem")).toHaveLength(3);
+    expect(screen.getAllByRole("menuitem")).toHaveLength(4);
     expect(screen.queryByRole("menuitem", { name: /Görünümü/ })).toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: "Simge durumuna küçült" }));
     expect(onMinimize).toHaveBeenCalledOnce();
@@ -92,46 +92,30 @@ it("taşıma sonrasında klavye aktivasyonu yutulmaz", () => {
  expect(onListen).toHaveBeenCalledOnce();
 });
 
-describe("VoiceMode — ChatGPT benzeri oturum denetimleri", () => {
-  it("oturum kapalıyken yalnız 'Konuşmaya başla' görünür; Bitir/Sessize al yoktur", () => {
+describe("VoiceMode — karaktere basarak aç/kapat", () => {
+  it("ekranda ayrı düğme yoktur; karakter tek denetimdir", () => {
+    render(<VoiceMode listening={false} onListen={vi.fn()} onClose={vi.fn()} onMinimize={vi.fn()} state="idle" />);
+    for (const name of ["Bitir", "Sessize al", "Sesi aç", "Konuşmaya başla"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+    expect(screen.getByRole("button", { name: /Mikrofon kapalı/ })).toBeTruthy();
+  });
+
+  it("karaktere basış her durumda onListen çağırır (aç/kapat kararı pencerededir)", () => {
     const onListen = vi.fn();
-    render(<VoiceMode listening={false} onListen={onListen} onClose={vi.fn()} onMinimize={vi.fn()} state="idle" />);
-    expect(screen.queryByRole("button", { name: "Bitir" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Sessize al" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Konuşmaya başla" }));
-    expect(onListen).toHaveBeenCalledOnce();
+    const { rerender } = render(<VoiceMode listening={false} onListen={onListen} onClose={vi.fn()} onMinimize={vi.fn()} state="idle" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fusion/ }));
+    rerender(<VoiceMode listening sessionOpen onListen={onListen} onClose={vi.fn()} onMinimize={vi.fn()} state="listening" />);
+    fireEvent.click(screen.getByRole("button", { name: /Mikrofon açık/ }));
+    expect(onListen).toHaveBeenCalledTimes(2);
   });
 
-  it("oturum açıkken Sessize al ve Bitir her zaman görünür ve çalışır", () => {
-    const onEnd = vi.fn();
-    const onMute = vi.fn();
-    render(
-      <VoiceMode listening sessionOpen onEnd={onEnd} onMute={onMute} onClose={vi.fn()} onMinimize={vi.fn()} state="listening" />,
-    );
-    expect(screen.queryByRole("button", { name: "Konuşmaya başla" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Sessize al" }));
-    fireEvent.click(screen.getByRole("button", { name: "Bitir" }));
-    expect(onMute).toHaveBeenCalledOnce();
-    expect(onEnd).toHaveBeenCalledOnce();
-  });
-
-  it("sessizdeyken düğme 'Sesi aç' der ve basılı durumu bildirir", () => {
-    render(
-      <VoiceMode listening={false} sessionOpen muted onEnd={vi.fn()} onMute={vi.fn()} onClose={vi.fn()} onMinimize={vi.fn()} state="idle" />,
-    );
-    expect(screen.getByRole("button", { name: "Sesi aç" }).getAttribute("aria-pressed")).toBe("true");
-  });
-
-  it("Fusion konuşurken karakter söz keser; oturum açıkken boştayken tıklama hiçbir şey başlatmaz", () => {
+  it("Fusion konuşurken karakter söz keser, mikrofonu değiştirmez", () => {
     const onInterrupt = vi.fn();
     const onListen = vi.fn();
-    const { rerender } = render(
-      <VoiceMode listening sessionOpen onInterrupt={onInterrupt} onListen={onListen} onClose={vi.fn()} onMinimize={vi.fn()} state="talking" />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: /Fusion.*dinle/i }));
+    render(<VoiceMode listening sessionOpen onInterrupt={onInterrupt} onListen={onListen} onClose={vi.fn()} onMinimize={vi.fn()} state="talking" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fusion/ }));
     expect(onInterrupt).toHaveBeenCalledOnce();
-    rerender(<VoiceMode listening sessionOpen onInterrupt={onInterrupt} onListen={onListen} onClose={vi.fn()} onMinimize={vi.fn()} state="listening" />);
-    fireEvent.click(screen.getByRole("button", { name: /Fusion.*dinle/i }));
     expect(onListen).not.toHaveBeenCalled();
   });
 });
@@ -141,4 +125,20 @@ it("düşünürken ekranda 'Hmm…' görünür, başka durumda görünmez", () =
   expect(screen.getByText("Hmm…")).toBeTruthy();
   rerender(<VoiceMode listening sessionOpen onClose={vi.fn()} onMinimize={vi.fn()} state="listening" />);
   expect(screen.queryByText("Hmm…")).toBeNull();
+});
+
+it("ne duyulduğunu ya da hangi durumda olduğunu GÖRÜNÜR bir yazıyla söyler", () => {
+  const { container, rerender } = render(<VoiceMode listening sessionOpen onClose={vi.fn()} onMinimize={vi.fn()} state="listening" />);
+  expect(container.querySelector(".voice-panel__caption")?.textContent).toBe("Dinliyorum…");
+  rerender(<VoiceMode listening sessionOpen onClose={vi.fn()} onMinimize={vi.fn()} state="hearing" transcript="projeyi aç" />);
+  expect(container.querySelector(".voice-panel__caption")?.textContent).toBe("projeyi aç");
+  rerender(<VoiceMode listening={false} onClose={vi.fn()} onMinimize={vi.fn()} state="idle" />);
+  expect(container.querySelector(".voice-panel__caption")?.textContent).toBe("Konuşmak için dokun");
+});
+
+it("sağ tık menüsünden Tanı bilgisi son adımları gösterir", () => {
+  render(<VoiceMode listening onClose={vi.fn()} onMinimize={vi.fn()} state="idle" diagnostics={["12:00:01 dinleme isteği", "12:00:02 izin denetimi: tamam"]} />);
+  fireEvent.contextMenu(screen.getByRole("button", { name: /Fusion/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Tanı bilgisi" }));
+  expect(screen.getByRole("dialog", { name: "Tanı bilgisi" }).textContent).toContain("izin denetimi: tamam");
 });

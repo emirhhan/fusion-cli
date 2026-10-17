@@ -94,9 +94,9 @@ const DEFAULT_RUNTIME: VoiceWindowRuntime = {
 
 /** Beklenmedik çökme sonrası ilk yeniden deneme gecikmesi. */
 const YENIDEN_BASLATMA_TABANI_MS = 800;
-/** Konuşma oturumunda bu kadar süre kimse konuşmazsa oturum kendiliğinden biter (ChatGPT gibi). */
-const OTURUM_BOSTA_BITIS_MS = 120_000;
-const OTURUM_KONTROL_ARALIGI_MS = 10_000;
+/** Mikrofon açıkken bu kadar süre kimse konuşmazsa kendiliğinden kapanır. */
+const OTURUM_BOSTA_BITIS_MS = 15_000;
+const OTURUM_KONTROL_ARALIGI_MS = 2_000;
 /** Düşünme bu kadar sürerse "Hmm" denir, sürerse aralıklarla tekrarlanır. */
 const DUSUNME_IPUCU_GECIKME_MS = 1_200;
 const DUSUNME_IPUCU_TEKRAR_MS = 7_000;
@@ -139,7 +139,9 @@ export function matchSpokenAnswer(text: string, ask: VoiceAsk): string | null {
 interface VoiceWindowProps {
   /** Kabul koşularında eski sürekli konuşma senaryolarını ayrıca sınamak için. */
   wakeEnabled?: boolean;
-  /** Oturumun boşta kendiliğinden bitiş süresi (ms); testler kısaltır. */
+  /** Sürekli dinleme: istek gönderilince mikrofon kapanmaz. Varsayılan kapalı (tek komut, tek basış). */
+  continuous?: boolean;
+  /** Mikrofon açıkken sessizlikte kendiliğinden kapanma süresi (ms); testler kısaltır. */
   idleEndMs?: number;
   /** Boşta bitiş denetim aralığı (ms). */
   idleCheckMs?: number;
@@ -180,10 +182,16 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   // ChatGPT'deki gibi OTURUM: kullanıcı başlatana kadar mikrofon kapalıdır; oturum açıkken
   // sürekli dinlenir ve "Bitir" ile tamamen kapanır. "Sessize al" oturumu açık tutar.
   const [sessionOpen, setSessionOpen] = useState(false);
-  const [muted, setMuted] = useState(false);
   const sessionOpenRef = useRef(false);
-  const mutedRef = useRef(false);
   const lastActivity = useRef(Date.now());
+  // Tanı izi: konuşma sorun çıkarırsa kullanıcı sağ tık → "Tanı bilgisi"nden son adımları görür.
+  const traceLines = useRef<string[]>([]);
+  const [traceVersion, setTraceVersion] = useState(0);
+  const trace = useCallback((text: string) => {
+    const stamp = new Date().toLocaleTimeString("tr-TR");
+    traceLines.current = [...traceLines.current.slice(-39), `${stamp} ${text}`];
+    setTraceVersion((value) => value + 1);
+  }, []);
   const [ask, setAsk] = useState<VoiceAsk | null>(null);
   const [recognitionOwned, setRecognitionOwned] = useState(false);
   const machineRef = useRef(machine);
@@ -268,10 +276,11 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     const intent = recognitionIntent.current + 1;
     recognitionIntent.current = intent;
     const requestedSession = nextSession.current + 1;
-    const keepOpen = (sessionOpenRef.current && !mutedRef.current) || askRef.current !== null;
+    const keepOpen = (sessionOpenRef.current ) || askRef.current !== null;
     dispatch({ type: "START_LISTENING", session: requestedSession, continuous: keepOpen });
     try {
       const permitted = await runtime.preflightRecognition();
+      trace(`izin denetimi: ${permitted ? "tamam" : "verilmedi"}`);
       if (recognitionIntent.current !== intent) return;
       if (!permitted) {
         setRecognitionOwned(false);
@@ -289,6 +298,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         return typeof started === "number" ? started : requestedSession;
       });
       if (startingIntent.current === intent) startingIntent.current = null;
+      trace(`tanıma başlatıldı (oturum ${String(session)})`);
       if (session === null || recognitionIntent.current !== intent) return;
       nextSession.current = Math.max(nextSession.current, session);
       activeSession.current = session;
@@ -305,6 +315,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       if (cuesEnabled()) playCue("listen-start");
     } catch (reason) {
       setRecognitionOwned(false);
+      trace(`başlatma hatası: ${String(reason)}`);
       dispatch({ type: "FAILED", text: `Konuşma tanıma başlatılamadı: ${String(reason)}` });
     }
   }, [clearPartialFinalTimer, queueRecognition, runtime]);
@@ -320,7 +331,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
    */
   const dinlemeyiSurdur = useCallback(() => {
     if (kapaniyor.current) return;
-    const oturumDinliyor = sessionOpenRef.current && !mutedRef.current;
+    const oturumDinliyor = sessionOpenRef.current ;
     if (!oturumDinliyor && askRef.current === null) {
       // Oturum yok ya da sessizde: mikrofon kendiliğinden geri açılmaz.
       setRecognitionOwned(false);
@@ -393,6 +404,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       } catch {
         return;
       }
+      trace(`olay ${String(line?.tur)} "${String(line?.metin ?? "").slice(0, 24)}"`);
       if (!line || typeof line.metin !== "string" || typeof line.speech_ms !== "number"
         || typeof line.segment !== "number" || (line.guven !== null && typeof line.guven !== "number")) return;
       if (line.tur === "kismi" || line.tur === "son") {
@@ -545,6 +557,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       }
     };
     const handleEnded = ({ session, reason }: RecognitionEndedPayload) => {
+      trace(`tanıma bitti (oturum ${session}) ${reason ?? ""}`);
       if (session !== activeSession.current) {
         if (activeSession.current === 0 && startingIntent.current !== null) {
           pendingRecognitionEvents.current.push({ type: "ended", payload: { session, reason } });
@@ -612,7 +625,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       removeEnded = ended;
       // Dinleyiciler yeniden kurulduysa (izin/çalışma zamanı değişti) açık oturumun dinlemesini
       // geri getir; oturum yoksa mikrofon KAPALI kalır.
-      if (sessionOpenRef.current && !mutedRef.current) void startListening();
+      if (sessionOpenRef.current ) void startListening();
     }).catch((reason) => {
       if (alive) dispatch({ type: "FAILED", text: String(reason) });
     });
@@ -638,6 +651,30 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     };
   }, [acknowledgeListening, clearPartialFinalTimer, queueRecognition, runtime, startListening, wakeEnabled]);
 
+  const closeMic = useCallback(() => {
+    clearPartialFinalTimer();
+    window.clearTimeout(yenidenBaslatmaZamani.current ?? undefined);
+    recognitionIntent.current += 1;
+    startingIntent.current = null;
+    pendingRecognitionEvents.current = [];
+    expectedRecognitionEnd.current = activeSession.current || null;
+    activeSession.current = 0;
+    setRecognitionOwned(false);
+    return queueRecognition(() => runtime.stopRecognition()).catch(() => undefined);
+  }, [clearPartialFinalTimer, queueRecognition, runtime]);
+
+  /**
+   * İstek tam algılandı ve gönderildi: mikrofon kapanır (Fusion'ın kendi sesini dinlemesin),
+   * düşünme/cevap akışı sürer. Yeni komut için karaktere yeniden basılır.
+   */
+  const finishRequest = useCallback(() => {
+    if (props.continuous === true) return;
+    sessionOpenRef.current = false;
+    setSessionOpen(false);
+    dispatch({ type: "REQUEST_SENT" });
+    void closeMic();
+  }, [closeMic, props.continuous]);
+
   useEffect(() => {
     if (machine.finalRevision <= sentRevision.current || !machine.finalText) return;
     sentRevision.current = machine.finalRevision;
@@ -655,7 +692,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       metin: routed.message,
       ...(kesilen ? { kesilen } : {}),
     });
-  }, [acknowledgeListening, machine.finalRevision, machine.finalText, machine.finalizedSegment, machine.session, runtime, wakeEnabled]);
+    finishRequest();
+  }, [finishRequest, acknowledgeListening, machine.finalRevision, machine.finalText, machine.finalizedSegment, machine.session, runtime, wakeEnabled]);
 
   useEffect(() => {
     const remove = runtime.onRuntimeState((incoming) => {
@@ -683,7 +721,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         if (awakeUntil.current > 0) awakeUntil.current = Date.now() + 30_000;
         lastActivity.current = Date.now();
         const shouldResume = machineRef.current.autoListen
-          && ((sessionOpenRef.current && !mutedRef.current) || askRef.current !== null);
+          && ((sessionOpenRef.current ) || askRef.current !== null);
         dispatch({ type: "ASSISTANT_FINISHED" });
         if (shouldResume && activeSession.current === 0) void startListening();
       } else if (incoming.durum === "error") {
@@ -717,50 +755,31 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     document.body.style.overflow = "hidden";
   }, []);
 
-  const closeMic = useCallback(() => {
-    clearPartialFinalTimer();
-    window.clearTimeout(yenidenBaslatmaZamani.current ?? undefined);
-    recognitionIntent.current += 1;
-    startingIntent.current = null;
-    pendingRecognitionEvents.current = [];
-    expectedRecognitionEnd.current = activeSession.current || null;
-    activeSession.current = 0;
-    setRecognitionOwned(false);
-    return queueRecognition(() => runtime.stopRecognition()).catch(() => undefined);
-  }, [clearPartialFinalTimer, queueRecognition, runtime]);
-
   const startSession = useCallback(() => {
     sessionOpenRef.current = true;
-    mutedRef.current = false;
     setSessionOpen(true);
-    setMuted(false);
     lastActivity.current = Date.now();
     void startListening();
   }, [startListening]);
 
-  const endSession = useCallback(() => {
+  /** Mikrofonu kapat ve oturumu bitir. `silence=true` ise Fusion'ın konuşması da kesilir. */
+  const endSession = useCallback((silence = true) => {
     sessionOpenRef.current = false;
-    mutedRef.current = false;
     setSessionOpen(false);
-    setMuted(false);
-    void runtime.interruptSpeech().catch(() => undefined);
+    if (silence) void runtime.interruptSpeech().catch(() => undefined);
     void closeMic();
     dispatch({ type: "STOPPED" });
   }, [closeMic, runtime]);
 
-  const toggleMute = useCallback(() => {
-    if (!sessionOpenRef.current) return;
-    if (mutedRef.current) {
-      mutedRef.current = false;
-      setMuted(false);
-      lastActivity.current = Date.now();
-      void startListening();
+  /** Karaktere basış: konuşuyorsa söz keser; mikrofon açıksa kapatır; kapalıysa açar. */
+  const toggleListening = useCallback(() => {
+    if (machineRef.current.phase === "talking") {
+      void runtime.interruptSpeech().catch(() => undefined);
       return;
     }
-    mutedRef.current = true;
-    setMuted(true);
-    void closeMic();
-  }, [closeMic, startListening]);
+    if (sessionOpenRef.current) endSession(false);
+    else startSession();
+  }, [endSession, runtime, startSession]);
 
   // Model düşünürken kullanıcı "takıldı mı?" diye merak etmesin: kısa bir "Hmm" duyulur.
   useEffect(() => {
@@ -785,23 +804,23 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     const limit = props.idleEndMs ?? OTURUM_BOSTA_BITIS_MS;
     const timer = window.setInterval(() => {
       if (!sessionOpenRef.current || askRef.current !== null) return;
-      if (Date.now() - lastActivity.current > limit) endSession();
+      if (Date.now() - lastActivity.current > limit) endSession(false);
     }, props.idleCheckMs ?? OTURUM_KONTROL_ARALIGI_MS);
     return () => window.clearInterval(timer);
   }, [endSession, props.idleCheckMs, props.idleEndMs]);
 
-  const visibleTranscript = machine.error ? speechFailureText(machine.error) : machine.transcript;
+  const visibleTranscript = machine.error
+    ? speechFailureText(machine.error)
+    : machine.partial || machine.transcript;
   return (
     <>
     <VoiceMode
       ask={ask}
       listening={recognitionOwned}
-      onListen={startSession}
-      onEnd={endSession}
-      onMute={toggleMute}
+      onListen={toggleListening}
       onInterrupt={() => void runtime.interruptSpeech().catch(() => undefined)}
+      diagnostics={traceVersion >= 0 ? traceLines.current : []}
       sessionOpen={sessionOpen}
-      muted={muted}
       answerPending={answerPending}
       onAnswer={(answer) => sendAnswer(answer, ask)}
       onClose={() => void runtime.close()}

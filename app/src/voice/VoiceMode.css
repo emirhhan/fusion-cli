@@ -438,3 +438,8 @@ body[data-talk-surface="true"],
 .voice-panel__control:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
 .voice-panel__thinking { color: var(--text-secondary, currentColor); font-size: 14px; letter-spacing: .04em; opacity: .75; }
+
+.voice-panel__caption { color: var(--text-secondary, currentColor); display: -webkit-box; font-size: 13px; line-height: 1.35; max-width: 100%; opacity: .85; overflow: hidden; text-align: center; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+
+.voice-panel__diagnostics { background: color-mix(in srgb, var(--surface-canvas) 96%, #000); border-radius: 10px; inset: 8px; overflow: auto; padding: 8px; position: absolute; z-index: 6; }
+.voice-panel__diagnostics pre { font-size: 11px; margin: 6px 0 0; white-space: pre-wrap; }

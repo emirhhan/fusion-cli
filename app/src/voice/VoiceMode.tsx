@@ -45,11 +45,10 @@ interface VoiceModeProps {
   onDrag?: () => Promise<void>;
   onMinimize: () => void;
   onListen?: () => void;
-  onEnd?: () => void;
-  onMute?: () => void;
   onInterrupt?: () => void;
+  /** Son adımların kısa izi; sağ tık menüsünden "Tanı bilgisi" ile açılır. */
+  diagnostics?: readonly string[];
   sessionOpen?: boolean;
-  muted?: boolean;
   onPrefsChange?: (next: VoicePrefs) => void;
   onTop?: boolean;
   onTopChange?: (next: boolean) => void;
@@ -71,11 +70,9 @@ export function VoiceMode({
   onDrag = dragVoiceWindow,
   onMinimize,
   onListen,
-  onEnd,
-  onMute,
   onInterrupt,
+  diagnostics = [],
   sessionOpen = false,
-  muted = false,
   onPrefsChange,
   onTop = true,
   onTopChange,
@@ -89,6 +86,7 @@ export function VoiceMode({
   const [dragError, setDragError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -123,9 +121,9 @@ export function VoiceMode({
     >
       <div className="voice-panel__stage">
         <button type="button" className="voice-panel__character"
-          aria-label={`Fusion. ${sessionOpen ? "Konuşma açık, dinleme sürüyor." : "Konuşma kapalı, dinlemeyi başlatmak için tıkla."} ${listening ? "Mikrofon açık." : "Mikrofon kapalı."} ${DURUM_METNI[state]}`}
+          aria-label={`Fusion. ${sessionOpen ? "Mikrofon açık, dinleme sürüyor; kapatmak için tıkla." : "Mikrofon kapalı; dinlemeyi başlatmak için tıkla."} ${listening ? "Mikrofon açık." : "Mikrofon kapalı."} ${DURUM_METNI[state]}`}
           aria-haspopup="menu" aria-expanded={menuOpen}
-          title={sessionOpen ? "Konuşurken tıklarsan sözünü keser" : "Konuşmayı başlatmak için tıkla, taşımak için sürükle"}
+          title={sessionOpen ? "Dinliyorum — kapatmak için tıkla" : "Konuşmak için tıkla, taşımak için sürükle"}
           onPointerDown={(event) => {
             if (event.button !== 0) return;
             dragged.current = false;
@@ -154,7 +152,7 @@ export function VoiceMode({
             setMenuOpen(false);
             // Fusion konuşurken tıklamak sözünü keser; oturum yoksa tıklamak oturumu başlatır.
             if (state === "talking") onInterrupt?.();
-            else if (!sessionOpen) onListen?.();
+            else onListen?.();
           }}
           onContextMenu={(event) => { event.preventDefault(); setMenuOpen((open) => !open); }}
           onKeyDown={(event) => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); setMenuOpen(true); } }}>
@@ -164,6 +162,10 @@ export function VoiceMode({
           {dragError && <p role="alert" className="voice-panel__error">{dragError}</p>}
           {state !== "error" && <span className="voice-panel__sr" role="status" aria-label={listening ? "Dinliyor" : "Dinleme hazırlanıyor"}>{DURUM_METNI[state]}</span>}
           {state === "thinking" && <span className="voice-panel__thinking" aria-hidden="true">Hmm…</span>}
+          {/* Ne olduğu GÖRÜNÜR olsun: ne duyuldu, dinliyor mu, düşünüyor mu. */}
+          {state !== "error" && state !== "thinking" && (
+            <span className="voice-panel__caption" aria-hidden="true">{transcript || DURUM_METNI[state]}</span>
+          )}
           {state !== "error" && transcript && <span className="voice-panel__sr">{transcript}</span>}
           {ask && onAnswer && (
             <VoiceQuestion ask={ask} answerPending={answerPending} key={`${ask.sessionId ?? ""}:${ask.questionId ?? ""}:${ask.metin}`} onAnswer={onAnswer} />
@@ -172,28 +174,18 @@ export function VoiceMode({
         </div>
       </div>
 
-      <div className="voice-panel__controls" role="group" aria-label="Konuşma denetimleri">
-        {sessionOpen ? (
-          <>
-            <button aria-pressed={muted} className="voice-panel__control" onClick={onMute} type="button">
-              {muted ? "Sesi aç" : "Sessize al"}
-            </button>
-            <button className="voice-panel__control voice-panel__control--end" onClick={onEnd} type="button">
-              Bitir
-            </button>
-          </>
-        ) : (
-          <button className="voice-panel__control voice-panel__control--start" onClick={onListen} type="button">
-            Konuşmaya başla
-          </button>
-        )}
-      </div>
-
       {menuOpen && <div aria-label="Konuşma menüsü" className="voice-panel__menu" role="menu">
         {onPrefsChange && onTopChange && <button onClick={() => { setMenuOpen(false); setSettingsOpen(true); }} role="menuitem" type="button">Ses ayarları</button>}
+        <button onClick={() => { setMenuOpen(false); setDiagnosticsOpen(true); }} role="menuitem" type="button">Tanı bilgisi</button>
         <button onClick={() => { setMenuOpen(false); onMinimize(); }} role="menuitem" type="button">Simge durumuna küçült</button>
         <button onClick={() => { setMenuOpen(false); onClose(); }} role="menuitem" type="button">Konuşmayı kapat</button>
       </div>}
+      {diagnosticsOpen && (
+        <div aria-label="Tanı bilgisi" className="voice-panel__diagnostics" role="dialog">
+          <button onClick={() => setDiagnosticsOpen(false)} type="button">Kapat</button>
+          <pre>{diagnostics.length ? diagnostics.join("\n") : "Henüz kayıt yok."}</pre>
+        </div>
+      )}
       {settingsOpen && onPrefsChange && onTopChange && (
         <div className="voice-panel__settings-popover">
           <VoiceSettings
