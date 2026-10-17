@@ -135,3 +135,10 @@ describe("VoiceMode — ChatGPT benzeri oturum denetimleri", () => {
     expect(onListen).not.toHaveBeenCalled();
   });
 });
+
+it("düşünürken ekranda 'Hmm…' görünür, başka durumda görünmez", () => {
+  const { rerender } = render(<VoiceMode listening sessionOpen onClose={vi.fn()} onMinimize={vi.fn()} state="thinking" />);
+  expect(screen.getByText("Hmm…")).toBeTruthy();
+  rerender(<VoiceMode listening sessionOpen onClose={vi.fn()} onMinimize={vi.fn()} state="listening" />);
+  expect(screen.queryByText("Hmm…")).toBeNull();
+});

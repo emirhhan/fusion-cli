@@ -14,6 +14,8 @@ import { listen as tauriListen } from "@tauri-apps/api/event";
 export const VOICE_EVENT = "fusion://ses-mesaji";
 
 export interface VoiceMessage {
+  /** Aynı sözün birden çok dinleyiciden iki kez işlenmesini engelleyen tek seferlik kimlik. */
+  id?: string;
   /** "kullanici": konuşulan söz. "asistan": Fusion'ın sesli cevabı. */
   kaynak: "kullanici" | "asistan";
   metin: string;
@@ -51,7 +53,7 @@ export async function emitVoiceMessage(
   // boş bir mesaj düşmesi kullanıcıyı yanıltır.
   if (!message.metin.trim()) return;
   if (transport.emit === tauriEmit && !kabukVar()) return;
-  await transport.emit(VOICE_EVENT, message);
+  await transport.emit(VOICE_EVENT, { ...message, id: message.id ?? crypto.randomUUID() });
 }
 
 export function onVoiceMessage(
@@ -227,4 +229,19 @@ export function onVoiceAnswer(
   transport: Listener = { listen: tauriListen as Listener["listen"] },
 ): Promise<() => void> {
   return dinle(VOICE_ANSWER, handler, transport);
+}
+
+/**
+ * Aynı söz birden çok dinleyiciden (ya da yeniden kurulan dinleyiciden) gelse bile yalnız bir kez işlensin.
+ * Döndürülen işlev kimlik ilk kez görülüyorsa `true` verir. Kimliksiz mesaj her zaman işlenir.
+ */
+export function createVoiceMessageDeduper(limit = 50): (id: string | undefined) => boolean {
+  const seen: string[] = [];
+  return (id) => {
+    if (!id) return true;
+    if (seen.includes(id)) return false;
+    seen.push(id);
+    if (seen.length > limit) seen.shift();
+    return true;
+  };
 }

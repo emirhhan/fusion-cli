@@ -68,6 +68,7 @@ import { listen } from "@tauri-apps/api/event";
 import {
   kabukVar,
   onVoiceBargeIn,
+  createVoiceMessageDeduper,
   onVoiceMessage,
   onVoiceAnswer,
   onVoicePrefsRequest,
@@ -812,15 +813,24 @@ export function SessionUygulama({
     return () => void cikar.then((f) => f()).catch(() => undefined);
   }, []);
 
+  // Konuşma penceresinden gelen aynı söz, dinleyici sayısı kaç olursa olsun YALNIZ BİR KEZ işlenir.
+  const firstTimeVoiceMessage = useRef(createVoiceMessageDeduper());
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const controllerRef = useRef(controller);
+  controllerRef.current = controller;
+
   // Konuşma penceresinden gelen söz AYNI sohbete düşer: kip kapandığında
   // kullanıcı yazışmış gibi tam dökümü görür.
   useEffect(() => {
-    if (!active) return;
     const cikar = onVoiceMessage((mesaj) => {
       if (mesaj.kaynak !== "kullanici") return;
+      const current = activeRef.current;
+      if (!current) return;
+      if (!firstTimeVoiceMessage.current(mesaj.id)) return;
       const gorev = buildVoiceRequest(mesaj.metin, mesaj.kesilen);
       const requestId = nextSessionId();
-      const accepted = controller.send(active.id, gorev.text, [], true, gorev.voice, requestId);
+      const accepted = controllerRef.current.send(current.id, gorev.text, [], true, gorev.voice, requestId);
       if (!accepted) {
         void publishVoiceRuntimeState({
           durum: "error",
@@ -829,15 +839,15 @@ export function SessionUygulama({
         return;
       }
       voiceRequests.current.push({
-        afterIndex: active.messages.length,
+        afterIndex: current.messages.length,
         requestId,
         sawRunning: false,
-        sessionId: active.id,
+        sessionId: current.id,
       });
       void publishVoiceRuntimeState({ durum: localVoiceReply(mesaj.metin) ? "transcribing" : "thinking" });
     });
     return () => void cikar.then((f) => f()).catch(() => undefined);
-  }, [active, controller]);
+  }, []);
 
   useEffect(() => {
     const remove = onVoiceBargeIn(() => {

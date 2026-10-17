@@ -702,6 +702,26 @@ describe("VoiceWindow — uyandırma sınırı", () => {
     expect(screen.getByRole("button", { name: "Bitir" })).toBeTruthy();
   });
 
+  it("model düşünürken kısa süre sonra 'Hmm' der, cevap başlayınca susar", async () => {
+    const speak = vi.fn();
+    const cancel = vi.fn();
+    vi.stubGlobal("speechSynthesis", { speak, cancel });
+    vi.stubGlobal("SpeechSynthesisUtterance", class { constructor(public text: string) {} });
+    try {
+      const fake = fakeRuntime();
+      render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
+      await startTalk();
+      await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+      act(() => fake.recognition({ tur: "son", metin: "bu uzun bir iş olsun" }));
+      await waitFor(() => expect(speak).toHaveBeenCalledOnce(), { timeout: 3000 });
+      expect(speak.mock.calls[0][0].text).toBe("Hmm");
+      expect(screen.getByText("Hmm…")).toBeTruthy();
+      act(() => fake.runtimeState({ durum: "talking", metin: "Cevap geldi." }));
+      expect(cancel).toHaveBeenCalled();
+      expect(screen.queryByText("Hmm…")).toBeNull();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it("Fusion konuşurken karaktere tıklamak sözünü keser, oturumu yeniden başlatmaz", async () => {
     const fake = fakeRuntime();
     render(<VoiceWindow runtime={fake.runtime} />);

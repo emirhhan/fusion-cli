@@ -28,3 +28,19 @@ export function acknowledgeWake(onError?: (message: string) => void): void {
   utterance.onerror = () => onError?.("Uyandırma duyuldu fakat kısa sesli yanıt çalınamadı. Sistem ses çıkışını kontrol et.");
   window.speechSynthesis.speak(utterance);
 }
+
+/** Düşünme sırasında kullanıcı "takıldı mı?" diye merak etmesin: kısa, sistem sesiyle "Hmm". */
+export function speakThinkingCue(): void {
+  if (!("speechSynthesis" in window)) return;
+  const utterance = new SpeechSynthesisUtterance("Hmm");
+  utterance.lang = "tr-TR";
+  utterance.rate = 0.8;
+  utterance.volume = 0.7;
+  window.speechSynthesis.speak(utterance);
+}
+
+/** Düşünme "Hmm"i yarım kalmasın: asıl cevap başlarken bekleyen ipucunu sustur. */
+export function cancelThinkingCue(): void {
+  if (!("speechSynthesis" in window)) return;
+  (window.speechSynthesis as { cancel?: () => void }).cancel?.();
+}

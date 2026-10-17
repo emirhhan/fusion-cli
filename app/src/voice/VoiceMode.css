@@ -436,3 +436,5 @@ body[data-talk-surface="true"],
 .voice-panel__control--end:hover { background: #bf3939; }
 .voice-panel__control--start { background: var(--text-primary); color: var(--surface-canvas); }
 .voice-panel__control:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+.voice-panel__thinking { color: var(--text-secondary, currentColor); font-size: 14px; letter-spacing: .04em; opacity: .75; }

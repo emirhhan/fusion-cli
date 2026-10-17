@@ -17,7 +17,7 @@ import {
   type VoicePrefsPayload,
   type VoiceRuntimeState,
 } from "./bridge";
-import { acknowledgeWake, routeWakeSpeech, speechFailureText } from "./wake";
+import { acknowledgeWake, cancelThinkingCue, routeWakeSpeech, speakThinkingCue, speechFailureText } from "./wake";
 import { yankiMi } from "./echo";
 import { cuesEnabled, playCue } from "./cues";
 import { VoiceMode } from "./VoiceMode";
@@ -97,6 +97,9 @@ const YENIDEN_BASLATMA_TABANI_MS = 800;
 /** Konuşma oturumunda bu kadar süre kimse konuşmazsa oturum kendiliğinden biter (ChatGPT gibi). */
 const OTURUM_BOSTA_BITIS_MS = 120_000;
 const OTURUM_KONTROL_ARALIGI_MS = 10_000;
+/** Düşünme bu kadar sürerse "Hmm" denir, sürerse aralıklarla tekrarlanır. */
+const DUSUNME_IPUCU_GECIKME_MS = 1_200;
+const DUSUNME_IPUCU_TEKRAR_MS = 7_000;
 
 /** Geri çekilmenin tavanı; kullanıcı sonsuza kadar sessiz kalmamalı. */
 const YENIDEN_BASLATMA_TAVANI_MS = 8_000;
@@ -758,6 +761,24 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     setMuted(true);
     void closeMic();
   }, [closeMic, startListening]);
+
+  // Model düşünürken kullanıcı "takıldı mı?" diye merak etmesin: kısa bir "Hmm" duyulur.
+  useEffect(() => {
+    if (machine.phase !== "thinking" || !sessionOpen) return;
+    let stopped = false;
+    let timer: number | undefined;
+    const cue = () => {
+      if (stopped) return;
+      try { speakThinkingCue(); } catch { /* ipucu sesi isteğe bağlıdır; cevabı engellemez */ }
+      timer = window.setTimeout(cue, DUSUNME_IPUCU_TEKRAR_MS);
+    };
+    timer = window.setTimeout(cue, DUSUNME_IPUCU_GECIKME_MS);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+      cancelThinkingCue();
+    };
+  }, [machine.phase, sessionOpen]);
 
   // Uzun sessizlikte oturum kendiliğinden biter; mikrofon sonsuza dek açık kalmaz.
   useEffect(() => {

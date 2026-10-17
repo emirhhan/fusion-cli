@@ -163,6 +163,7 @@ export function VoiceMode({
         <div className="voice-panel__content">
           {dragError && <p role="alert" className="voice-panel__error">{dragError}</p>}
           {state !== "error" && <span className="voice-panel__sr" role="status" aria-label={listening ? "Dinliyor" : "Dinleme hazırlanıyor"}>{DURUM_METNI[state]}</span>}
+          {state === "thinking" && <span className="voice-panel__thinking" aria-hidden="true">Hmm…</span>}
           {state !== "error" && transcript && <span className="voice-panel__sr">{transcript}</span>}
           {ask && onAnswer && (
             <VoiceQuestion ask={ask} answerPending={answerPending} key={`${ask.sessionId ?? ""}:${ask.questionId ?? ""}:${ask.metin}`} onAnswer={onAnswer} />
