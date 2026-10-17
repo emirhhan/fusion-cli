@@ -64,9 +64,6 @@ async def run_image_command(config: Config, command: ImageCommand) -> tuple[bool
     files = result.get("dosyalar") or []
     if not files:
         return False, "Sağlayıcı görsel döndürmedi."
+    # ChatGPT'deki gibi: yalnız görsel. Sağlayıcı/boyut/galeri notu sohbete yazılmaz.
     alt = _escape_alt(command.prompt)
-    lines = [f"![{alt}](<{item['yol']}>)" for item in files]
-    first = files[0]
-    detail = f"{result.get('saglayici', '')} · {first.get('genislik')}×{first.get('yukseklik')}"
-    lines.append(f"\n_{detail}. Galeride de duruyor (Görsel oluştur → Galeri)._")
-    return True, "\n\n".join(lines)
+    return True, "\n\n".join(f"![{alt}](<{item['yol']}>)" for item in files)

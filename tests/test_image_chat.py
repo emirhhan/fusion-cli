@@ -60,7 +60,10 @@ async def test_basarili_sonuc_markdown_gorsel_ve_kunye_doner(monkeypatch, tmp_pa
     )
     assert ok is True and seen == {"istem": "kırmızı [kedi]", "oran": "16:9"}
     assert f"(<{dosya}>)" in text and "![kırmızı (kedi)]" in text  # köşeli ayraç kaçar
-    assert "NVIDIA FLUX" in text and "1024×1024" in text
+    # ChatGPT gibi yalnız görsel: sağlayıcı, boyut ya da galeri notu yok.
+    assert text == f"![kırmızı (kedi)](<{dosya}>)"
+    for note in ("NVIDIA", "1024", "Galeri", "galeri"):
+        assert note not in text
 
 
 async def test_hatalar_kullaniciya_aynen_gosterilir(monkeypatch):
