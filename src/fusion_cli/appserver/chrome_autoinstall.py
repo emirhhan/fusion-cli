@@ -26,75 +26,60 @@ from .chrome_install import _platform, begin_install, install_status
 
 ACCESSIBILITY_PANE = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
 #: Arayüz adımlarının (sayfa yükleme, diyalog) toplam üst sınırı.
-SCRIPT_TIMEOUT_SECONDS = 90
+SCRIPT_TIMEOUT_SECONDS = 240
 #: Arayüz adımından sonra eklentinin profilde görünmesini beklemek için üst sınır.
 VERIFY_WAIT_SECONDS = 30.0
 VERIFY_POLL_SECONDS = 1.0
 
 # Düğme adları Chrome diline göre değişir; ikisi de aranır.
 _APPLESCRIPT = r"""
-on matches(el, wordList)
-  tell application "System Events"
-    repeat with attrName in {"AXTitle", "AXDescription", "AXHelp", "AXValue", "AXLabel"}
-      try
-        set txt to value of attribute (attrName as text) of el
-        if txt is not missing value then
-          repeat with w in wordList
-            if (txt as text) contains (w as text) then return true
-          end repeat
-        end if
-      end try
-    end repeat
-  end tell
-  return false
-end matches
+property dumpText : ""
 
+-- Tek geçiş: her öğenin rolü/adı/açıklaması BİR kez okunur (öğe başına üç soru).
+-- Aynı geçişte hem eşleşme aranır hem tanı metni biriktirilir; eşleşme çıkarsa hemen döner.
 on findElement(wordList)
+  set my dumpText to ""
   tell application "System Events"
     tell process "Google Chrome"
-      repeat 12 times
+      repeat 3 times
+        set my dumpText to ""
         try
+          set n to 0
           repeat with el in (entire contents of front window)
-            if my matches(el, wordList) then return el
+            set n to n + 1
+            if n > 600 then exit repeat
+            set r to ""
+            set t to ""
+            set d to ""
+            try
+              set r to (role of el) as text
+            end try
+            try
+              set t to (title of el) as text
+            end try
+            try
+              set d to (description of el) as text
+            end try
+            set my dumpText to my dumpText & r & " | " & t & " | " & d & linefeed
+            repeat with w in wordList
+              if t contains (w as text) or d contains (w as text) then return el
+            end repeat
           end repeat
+        on error errText
+          set my dumpText to my dumpText & "tarama-hatasi: " & errText & linefeed
         end try
-        delay 0.6
+        delay 2
       end repeat
     end tell
   end tell
   return missing value
 end findElement
 
-on dumpTree(pathText)
-  set out to ""
-  tell application "System Events"
-    tell process "Google Chrome"
-      try
-        set n to 0
-        repeat with el in (entire contents of front window)
-          set n to n + 1
-          if n > 400 then exit repeat
-          set r to ""
-          set t to ""
-          set d to ""
-          try
-            set r to (role of el) as text
-          end try
-          try
-            set t to (title of el) as text
-          end try
-          try
-            set d to (description of el) as text
-          end try
-          set out to out & r & " | " & t & " | " & d & linefeed
-        end repeat
-      on error errText
-        set out to out & "dump-hatasi: " & errText & linefeed
-      end try
-    end tell
-  end tell
-  do shell script "printf %s " & quoted form of out & " > " & quoted form of pathText
-end dumpTree
+on writeDump(pathText)
+  try
+    do shell script "printf %s " & quoted form of (my dumpText) & " > " & quoted form of pathText
+  end try
+end writeDump
 
 on run argv
   set extPath to item 1 of argv
@@ -118,7 +103,7 @@ on run argv
   delay 3
   set devSwitch to my findElement({"Developer mode", "Geliştirici modu"})
   if devSwitch is missing value then
-    my dumpTree(axPath)
+    my writeDump(axPath)
     return "no-switch"
   end if
   tell application "System Events"
@@ -132,7 +117,7 @@ on run argv
   delay 1
   set loadButton to my findElement({"Load unpacked", "Paketlenmemiş öğe yükle"})
   if loadButton is missing value then
-    my dumpTree(axPath)
+    my writeDump(axPath)
     return "no-load-button"
   end if
   tell application "System Events"
@@ -177,7 +162,10 @@ def drive_chrome_ui(extension_dir: Path, runner: Runner = _osascript) -> str:
     betik.parent.mkdir(parents=True, exist_ok=True)
     betik.write_text(_APPLESCRIPT, encoding="utf-8")
     tanilama = base_config_dir() / "chrome-install-ax.txt"
-    cevap = runner(["osascript", str(betik), str(extension_dir), str(tanilama)])
+    try:
+        cevap = runner(["osascript", str(betik), str(extension_dir), str(tanilama)])
+    except subprocess.TimeoutExpired:
+        return f"zaman-asimi: betik {SCRIPT_TIMEOUT_SECONDS} sn içinde bitmedi"
     if cevap.returncode != 0:
         # Neden görünür olsun: "error" tek başına izin mi, zaman aşımı mı, arayüz mü söylemiyordu.
         neden = " ".join(cevap.stderr.split())[:160]
