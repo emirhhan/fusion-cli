@@ -8,6 +8,7 @@ yalnız reddedilebilir.
 from __future__ import annotations
 
 import asyncio
+import base64
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -19,6 +20,7 @@ from .constants import RPC_VERSION
 from .devices import Device, DeviceRegistry
 from .redaction import notification_summary
 from .scopes import Scope, allows
+from .screen import ScreenCapture, ScreenShareGate, ScreenUnavailableError
 from .tasks import (
     STATE_CANCELLED,
     STATE_DONE,
@@ -70,12 +72,16 @@ class RemoteService:
         store: TaskStore,
         backend: TaskBackend,
         version: str = "0",
+        screen_gate: ScreenShareGate | None = None,
+        screen_capture: ScreenCapture | None = None,
     ) -> None:
         self._clock = clock
         self._registry = registry
         self._store = store
         self._backend = backend
         self._version = version
+        self._screen_gate = screen_gate or ScreenShareGate(clock)
+        self._screen_capture = screen_capture
         self._run_lock = asyncio.Lock()
         self._runs: set[asyncio.Task[None]] = set()
         self._questions: dict[str, tuple[str, dict[str, Any]]] = {}
@@ -101,6 +107,10 @@ class RemoteService:
             "kits.list": self._kits_list,
             "kits.run": self._kits_run,
             "devices.revoke": self._revoke_self,
+            "screen.request": self._screen_request,
+            "screen.status": self._screen_status,
+            "screen.frame": self._screen_frame,
+            "screen.stop": self._screen_stop,
         }
 
     @staticmethod
@@ -332,6 +342,47 @@ class RemoteService:
             }
             for question_id, (run_id, question) in self._questions.items()
         ]
+
+    @property
+    def screen_gate(self) -> ScreenShareGate:
+        return self._screen_gate
+
+    async def _screen_request(self, device: Device, _params: dict[str, Any]) -> RpcResult:
+        denied = self._need(device, Scope.DESKTOP_OBSERVE.value)
+        if denied:
+            return denied
+        return RpcResult(True, {"state": self._screen_gate.request(device.device_id)})
+
+    async def _screen_status(self, device: Device, _params: dict[str, Any]) -> RpcResult:
+        denied = self._need(device, Scope.DESKTOP_OBSERVE.value)
+        if denied:
+            return denied
+        state, remaining = self._screen_gate.status(device.device_id)
+        return RpcResult(True, {"state": state, "secondsLeft": remaining})
+
+    async def _screen_frame(self, device: Device, _params: dict[str, Any]) -> RpcResult:
+        denied = self._need(device, Scope.DESKTOP_OBSERVE.value)
+        if denied:
+            return denied
+        sequence = self._screen_gate.next_sequence(device.device_id)
+        if sequence == "onay_yok":
+            return _fail(
+                "ekran_onay_yok", "Ekran paylaşımı masaüstünde onaylanmadı veya süresi doldu."
+            )
+        if sequence == "cok_sik":
+            return _fail("cok_sik", "Kareler çok sık isteniyor; biraz yavaşla.")
+        if self._screen_capture is None:
+            return _fail("ekran_kullanilamaz", "Bu kurulumda ekran yakalama yok.")
+        try:
+            frame = await self._screen_capture.frame()
+        except ScreenUnavailableError as error:
+            return _fail("ekran_kullanilamaz", str(error))
+        return RpcResult(
+            True, {"seq": sequence, "jpegBase64": base64.b64encode(frame).decode("ascii")}
+        )
+
+    async def _screen_stop(self, device: Device, _params: dict[str, Any]) -> RpcResult:
+        return RpcResult(True, {"stopped": self._screen_gate.stop(device.device_id)})
 
     async def answer_from_desktop(self, question_id: str, choice: str) -> bool:
         """Masaüstü kullanıcısının yerel kararı (step-up burada tamamlanır)."""

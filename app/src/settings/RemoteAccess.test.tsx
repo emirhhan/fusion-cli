@@ -94,3 +94,18 @@ it("yerel ağ modu adres, sertifika ve anahtar olmadan başlatılamaz", async ()
     }),
   );
 });
+
+it("ekran isteği masaüstünde onaylanır ve etkin paylaşım kesilebilir", async () => {
+  const client = fakeClient({
+    "uzak.ekran_bekleyen": {
+      bekleyen: [{ cihazId: "dev_1", ad: "Telefonum" }],
+      etkin: [{ cihazId: "dev_2", ad: "iPad" }],
+    },
+  });
+  render(<RemoteAccess client={client} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Ekranı göstermeye izin ver" }));
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.ekran_onayla", { cihazId: "dev_1" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Paylaşımı kes" }));
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.ekran_kes", { cihazId: "dev_2" }));
+  expect(screen.getByLabelText(/Ekranı görme/)).toBeTruthy();
+});

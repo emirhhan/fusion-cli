@@ -23,6 +23,7 @@ from .pairing import PairingError, PairingService
 from .rate_limit import FailureLimiter
 from .rpc import RemoteService
 from .scopes import ELEVATED_SCOPES, parse_scopes
+from .screen import MacScreenCapture
 from .signing import SignatureVerifier
 from .tasks import TaskStore
 from .telegram import HttpTelegramApi, OffsetStore, TelegramBridge
@@ -75,7 +76,11 @@ class RemoteController:
         self._store = TaskStore(self._clock)
         self._backend = AppSessionBackend(session_factory, root)
         self._service = RemoteService(
-            clock=self._clock, registry=self._registry, store=self._store, backend=self._backend
+            clock=self._clock,
+            registry=self._registry,
+            store=self._store,
+            backend=self._backend,
+            screen_capture=MacScreenCapture(),
         )
         self._directory = directory
         self._secrets = secrets
@@ -102,6 +107,9 @@ class RemoteController:
             "uzak.gorevler": self._tasks,
             "uzak.onay_cevapla": self._desktop_answer,
             "uzak.bekleyen": self._pending,
+            "uzak.ekran_bekleyen": self._screen_pending,
+            "uzak.ekran_onayla": self._screen_approve,
+            "uzak.ekran_kes": self._screen_stop,
         }
         handler = handlers.get(name)
         if handler is None:
@@ -156,6 +164,24 @@ class RemoteController:
 
     async def _pending(self, _data: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "sorular": self._service.pending_questions()}
+
+    def _device_names(self, ids: list[str]) -> list[dict[str, str]]:
+        names = {d.device_id: d.name for d in self._registry.list_devices()}
+        return [{"cihazId": i, "ad": names.get(i, i)} for i in ids]
+
+    async def _screen_pending(self, _data: dict[str, Any]) -> dict[str, Any]:
+        gate = self._service.screen_gate
+        return {
+            "ok": True,
+            "bekleyen": self._device_names(gate.pending()),
+            "etkin": self._device_names(gate.active()),
+        }
+
+    async def _screen_approve(self, data: dict[str, Any]) -> dict[str, Any]:
+        return {"ok": self._service.screen_gate.approve(str(data.get("cihazId", "")))}
+
+    async def _screen_stop(self, data: dict[str, Any]) -> dict[str, Any]:
+        return {"ok": self._service.screen_gate.stop(str(data.get("cihazId", "")))}
 
     async def _desktop_answer(self, data: dict[str, Any]) -> dict[str, Any]:
         accepted = await self._service.answer_from_desktop(

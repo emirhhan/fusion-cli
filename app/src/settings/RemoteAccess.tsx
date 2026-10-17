@@ -11,6 +11,7 @@ import { Button } from "../ui/Button";
  */
 
 interface Device { deviceId: string; name: string; channel: string; scopes: string[]; revoked: boolean }
+interface ScreenDevice { cihazId: string; ad: string }
 interface Pending { soruId: string; runId: string; baslik: string; hedef: string; onay: boolean }
 interface Status {
   dinliyor: boolean; adres: string; telegram: boolean; telegramHata: string; cihazSayisi: number;
@@ -21,6 +22,7 @@ type Mode = "local" | "tunnel" | "lan";
 
 const ELEVATED = [
   { id: "project.write", etiket: "Proje dosyalarını değiştirme" },
+  { id: "desktop.observe", etiket: "Ekranı görme (telefonda canlı ekran)" },
   { id: "desktop.control", etiket: "Masaüstünü kontrol etme" },
   { id: "production.deploy", etiket: "Üretime yayın" },
 ];
@@ -29,6 +31,8 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [pending, setPending] = useState<Pending[]>([]);
+  const [screenAsks, setScreenAsks] = useState<ScreenDevice[]>([]);
+  const [screenLive, setScreenLive] = useState<ScreenDevice[]>([]);
   const [code, setCode] = useState<{ kod: string; kanal: string } | null>(null);
   const [extra, setExtra] = useState<string[]>([]);
   const [token, setToken] = useState("");
@@ -53,6 +57,9 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
       setStatus((await call("uzak.durum")) as unknown as Status);
       setDevices(((await call("uzak.cihazlar")).cihazlar ?? []) as Device[]);
       setPending(((await call("uzak.bekleyen")).sorular ?? []) as Pending[]);
+      const screen = await call("uzak.ekran_bekleyen");
+      setScreenAsks((screen.bekleyen ?? []) as ScreenDevice[]);
+      setScreenLive((screen.etkin ?? []) as ScreenDevice[]);
     } catch (reason) {
       setMessage(errorMessage(reason));
     }
@@ -216,6 +223,28 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
           ) : (
             <p className="settings__hint">Bu soru uzaktaki cihazdan yanıtlanır.</p>
           )}
+        </div>
+      ))}
+
+      <h4>Ekran paylaşımı</h4>
+      {screenAsks.length === 0 && screenLive.length === 0 && <p>Ekran isteği yok.</p>}
+      {screenAsks.map((item) => (
+        <div key={item.cihazId} className="settings__card">
+          <p>{item.ad} ekranını görmek istiyor (5 dakika, saniyede ~2 kare).</p>
+          <Button onClick={() => act(async () => { await call("uzak.ekran_onayla", { cihazId: item.cihazId }); })}>
+            Ekranı göstermeye izin ver
+          </Button>{" "}
+          <Button onClick={() => act(async () => { await call("uzak.ekran_kes", { cihazId: item.cihazId }); })}>
+            Reddet
+          </Button>
+        </div>
+      ))}
+      {screenLive.map((item) => (
+        <div key={item.cihazId} className="settings__card" role="status">
+          <p><strong>{item.ad}</strong> şu an ekranını görüyor.</p>
+          <Button onClick={() => act(async () => { await call("uzak.ekran_kes", { cihazId: item.cihazId }); })}>
+            Paylaşımı kes
+          </Button>
         </div>
       ))}
 

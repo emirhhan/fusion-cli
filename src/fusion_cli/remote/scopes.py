@@ -28,6 +28,7 @@ DEFAULT_SCOPES: frozenset[str] = frozenset(
 ELEVATED_SCOPES: frozenset[str] = frozenset(
     {
         Scope.PROJECT_WRITE.value,
+        Scope.DESKTOP_OBSERVE.value,
         Scope.DESKTOP_CONTROL.value,
         Scope.PRODUCTION_DEPLOY.value,
     }

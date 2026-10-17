@@ -40,3 +40,9 @@ TELEGRAM_FAILED_PAIR_LIMIT = 5
 #: Varsayılan dinleme adresi: internete açık bind varsayılan değildir.
 DEFAULT_REMOTE_HOST = "127.0.0.1"
 DEFAULT_REMOTE_PORT = 8791
+
+#: Canlı ekran (görüntü akışı): onay 5 dk geçerli, kareler arası en az 0,5 sn, JPEG genişlik sınırı.
+SCREEN_SESSION_TTL_SECONDS = 300
+SCREEN_MIN_FRAME_INTERVAL_SECONDS = 0.5
+SCREEN_MAX_WIDTH = 1280
+SCREEN_JPEG_QUALITY = 60

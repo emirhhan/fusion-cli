@@ -48,3 +48,12 @@ def test_pwa_dosyalari_var_ve_ic_html_enjeksiyonu_yok() -> None:
     assert manifest["display"] == "standalone"
     shell = (PWA / "sw.js").read_text()
     assert "/v1/" in shell  # RPC önbelleğe alınmaz
+
+
+def test_pwa_ekran_bolumu_guvenli_ve_kapsama_bagli() -> None:
+    script = (PWA / "app.js").read_text()
+    html = (PWA / "index.html").read_text()
+    assert 'includes("desktop.observe")' in script  # kapsam yoksa bölüm hiç açılmaz
+    assert 'id="ekran"' in html and "hidden" in html.split('id="ekran"')[1][:60]
+    assert "innerHTML" not in script
+    assert "data:image/jpeg;base64," in script  # CSP img-src data: ile uyumlu

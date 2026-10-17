@@ -149,6 +149,63 @@ async function showApprovals(runId, container) {
   }
 }
 
+// ---- canlı ekran (JPEG kare akışı; WebRTC değil) ----
+let screenLoop = null;
+const SCREEN_FRAME_MS = 600;
+
+function screenSay(text, cls = "") {
+  const el = $("ekranDurum");
+  el.textContent = text;
+  el.className = `mut ${cls}`;
+}
+
+function screenShow(active) {
+  $("ekranIste").hidden = active;
+  $("ekranDur").hidden = !active;
+  $("ekranKare").hidden = !active;
+}
+
+async function screenTick() {
+  try {
+    const status = await rpc("screen.status");
+    const state = status.data?.state ?? "none";
+    if (state === "pending") { screenShow(false); return screenSay("Bilgisayarda onay bekleniyor…"); }
+    if (state !== "active") { screenShow(false); return screenSay("Ekran paylaşılmıyor."); }
+    const frame = await rpc("screen.frame");
+    if (frame.ok) {
+      $("ekranKare").src = `data:image/jpeg;base64,${frame.data.jpegBase64}`;
+      screenShow(true);
+      screenSay(`Canlı · ${status.data.secondsLeft} sn kaldı`, "ok");
+    } else if (frame.error !== "cok_sik") {
+      screenShow(false);
+      screenSay(frame.message || "Ekran alınamadı.", "err");
+    }
+  } catch (error) {
+    if (error.auth) return;
+    screenSay("Bilgisayara ulaşılamıyor.", "err");
+  }
+}
+
+function screenStart() {
+  clearInterval(screenLoop);
+  screenLoop = setInterval(screenTick, SCREEN_FRAME_MS);
+  void screenTick();
+}
+
+async function screenAsk() {
+  const result = await rpc("screen.request");
+  if (!result.ok) return screenSay(result.message || "İstek reddedildi.", "err");
+  screenStart();
+}
+
+async function screenStop() {
+  clearInterval(screenLoop);
+  screenLoop = null;
+  await rpc("screen.stop");
+  screenShow(false);
+  screenSay("Ekran paylaşımı durduruldu.");
+}
+
 async function send() {
   const text = $("gorev").value.trim();
   if (!text) return;
@@ -170,6 +227,13 @@ async function start() {
   try { await refresh(); } catch (error) {
     if (error.auth) { await kv("delete", "device"); return location.reload(); }
     say(error.message, "err");
+  }
+  const status = await rpc("service.status");
+  if ((status.data?.scopes ?? []).includes("desktop.observe")) {
+    $("ekran").hidden = false;
+    $("ekranIste").onclick = screenAsk;
+    $("ekranDur").onclick = screenStop;
+    screenSay("Ekran paylaşılmıyor.");
   }
   clearInterval(polling);
   polling = setInterval(() => refresh().catch(() => say("Bilgisayara ulaşılamıyor.", "err")), 4000);

@@ -35,6 +35,16 @@
     <div id="gorevler"></div>
     <h2>Onaylar</h2>
     <div id="onaylar"><p class="mut">Bekleyen onay yok.</p></div>
+    <section id="ekran" class="card" hidden aria-labelledby="ekranBaslik">
+      <h2 id="ekranBaslik">Canlı ekran</h2>
+      <p class="mut" id="ekranDurum" role="status" aria-live="polite"></p>
+      <img id="ekranKare" alt="Bilgisayar ekranı" hidden style="width:100%;border-radius:10px">
+      <div class="row">
+        <button id="ekranIste" type="button">İzin iste</button>
+        <button id="ekranDur" class="sec" type="button" hidden>Durdur</button>
+      </div>
+      <p class="mut">Saniyede en fazla ~2 kare; her oturum bilgisayarda onaylanır ve 5 dakika sürer.</p>
+    </section>
     <button id="cikis" class="sec" type="button">Bu cihazın eşleşmesini kaldır</button>
   </section>
   <p class="mut" id="uyari"></p>
