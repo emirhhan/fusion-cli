@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput } from "./capabilityInput";
+import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput, parseImageRequest } from "./capabilityInput";
 
 const names = {
   skills: ["seo-denetimi", "Rapor"],
@@ -45,5 +45,14 @@ describe("isImageCommand", () => {
   it("/görsel ve /gorsel sohbet turudur; benzer komutlar değildir", () => {
     for (const yes of ["/görsel kedi", "/gorsel", "  /GÖRSEL  kedi --oran 16:9"]) expect(isImageCommand(yes)).toBe(true);
     for (const no of ["/görselleştir x", "görsel çiz", "/model", "x /görsel"]) expect(isImageCommand(no)).toBe(false);
+  });
+});
+
+describe("parseImageRequest", () => {
+  it("istemi ve --oran değerini ayırır; oran yoksa 1:1", () => {
+    expect(parseImageRequest("/görsel mavi kuş --oran 16:9")).toEqual({ prompt: "mavi kuş", aspect: "16:9" });
+    expect(parseImageRequest("/gorsel   kedi   yağmurda")).toEqual({ prompt: "kedi yağmurda", aspect: "1:1" });
+    expect(parseImageRequest("/GÖRSEL kedi --oran=9:16 yağmurda")).toEqual({ prompt: "kedi yağmurda", aspect: "9:16" });
+    expect(parseImageRequest("/görsel")).toEqual({ prompt: "", aspect: "1:1" });
   });
 });

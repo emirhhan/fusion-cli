@@ -1,5 +1,5 @@
 import { assetUrl } from "../platform/assetUrl";
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ReactNode, useEffect, useState } from "react";
 import { marked, type Token, type Tokens } from "marked";
 import { CodeCard } from "./CodeCard";
 import "./markdown.css";
@@ -174,6 +174,52 @@ export function imageSource(href: string): string | null {
 
 function MarkdownImage({ alt, href }: { alt: string; href: string }) {
   const src = imageSource(href);
+  const [loaded, setLoaded] = useState(false);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
   if (src === null) return <span className="markdown__image-missing">🖼 {alt || "Görsel"}</span>;
-  return <img alt={alt} className="markdown__image" loading="lazy" src={src} />;
+  const label = alt || "Görsel";
+  return (
+    <>
+      <button
+        aria-label={`${label} — büyüt`}
+        className="markdown__image-button"
+        data-loaded={loaded}
+        onClick={() => setOpen(true)}
+        type="button"
+      >
+        <img
+          alt={alt}
+          className="markdown__image"
+          loading="lazy"
+          onLoad={() => setLoaded(true)}
+          src={src}
+        />
+      </button>
+      {open && (
+        <div
+          aria-label={label}
+          aria-modal="true"
+          className="markdown__lightbox"
+          onClick={() => setOpen(false)}
+          role="dialog"
+        >
+          <img alt={alt} src={src} />
+          <button
+            aria-label="Kapat"
+            className="markdown__lightbox-close"
+            onClick={(event) => { event.stopPropagation(); setOpen(false); }}
+            type="button"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+    </>
+  );
 }

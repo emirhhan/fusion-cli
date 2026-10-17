@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { Markdown } from "./Markdown";
 
@@ -91,5 +91,26 @@ describe("Markdown — görseller", () => {
   test("varlık protokolü yoksa (tarayıcı/test) kırık resim yerine alt metin gösterir", async () => {
     const { imageSource } = await import("./Markdown");
     expect(imageSource("https://x.test/a.png")).toBe("https://x.test/a.png");
+  });
+});
+
+describe("Markdown — görseli büyütme", () => {
+  test("görsele tıklayınca tam ekran açılır; Esc ve Kapat ile kapanır", () => {
+    render(<Markdown text={"![mavi kuş](https://ornek.test/kus.png)"} />);
+    fireEvent.click(screen.getByRole("button", { name: "mavi kuş — büyüt" }));
+    expect(screen.getByRole("dialog", { name: "mavi kuş" })).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "mavi kuş — büyüt" }));
+    fireEvent.click(screen.getByRole("button", { name: "Kapat" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  test("yüklenene kadar görünmez, yüklenince belirir (iskelet)", () => {
+    const { container } = render(<Markdown text={"![x](https://ornek.test/a.png)"} />);
+    const frame = container.querySelector(".markdown__image-button") as HTMLElement;
+    expect(frame.dataset.loaded).toBe("false");
+    fireEvent.load(container.querySelector("img") as HTMLImageElement);
+    expect(frame.dataset.loaded).toBe("true");
   });
 });
