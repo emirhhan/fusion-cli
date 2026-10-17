@@ -156,3 +156,26 @@ body.fullscreen .screen-box img { max-height: 100dvh; width: 100%; height: 100%;
 .approval-details summary { min-height: 32px; cursor: pointer; color: var(--muted); }
 .approval-details pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .approval[data-resolved="true"] { border-color: var(--success); }
+
+/* İki aşamalı dock: uygulamalar şeridi → pencereler ve sekmeler listesi. */
+.mini-dock__apps { display: flex; gap: 12px; overflow-x: auto; padding: 8px 2px 10px; scrollbar-width: none; }
+.mini-dock__app { flex: none; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: var(--ink); font: inherit; }
+.mini-dock__tile { position: relative; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 14px; border: 1px solid var(--border); background: var(--sidebar); }
+.mini-dock__app.is-active .mini-dock__tile { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.mini-dock__tile img { width: 34px; height: 34px; object-fit: contain; }
+.mini-dock__letter { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--bubble-user); font-weight: 600; }
+.mini-dock__badge { position: absolute; top: -5px; right: -5px; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--accent-on); font-size: 11px; line-height: 18px; text-align: center; }
+.mini-dock__name { max-width: 64px; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.mini-dock__head { display: flex; align-items: center; gap: 10px; padding: 4px 0 8px; }
+.mini-dock__head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-dock__back { min-height: 36px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; background: transparent; color: var(--ink); font: inherit; }
+.mini-dock__search { margin-bottom: 8px; }
+.mini-dock__list { max-height: 46dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; border-top: 1px solid var(--border); }
+.mini-dock__group { margin: 12px 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.mini-dock__row { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 2px; border: 0; border-bottom: 1px solid var(--border); background: none; color: var(--ink); font: inherit; text-align: left; }
+.mini-dock__row img { flex: none; width: 24px; height: 24px; object-fit: contain; }
+.mini-dock__row.is-active .mini-dock__title { font-weight: 600; }
+.mini-dock__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mini-dock__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-dock__sub { font-size: 12px; color: var(--muted); }
+.mini-dock__mark { flex: none; padding: 2px 8px; border-radius: 99px; background: var(--accent); color: var(--accent-on); font-size: 11px; }

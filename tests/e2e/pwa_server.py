@@ -58,6 +58,85 @@ class Capture:
         return _jpeg()
 
 
+PNG = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+)
+
+
+class Navigation:
+    """Sahte dock: birkaç uygulama, çok pencereli Chrome ve uzun sekme listesi."""
+
+    focused: dict[str, object] | None = None
+
+    async def list(self) -> dict[str, object]:
+        windows = [
+            {
+                "kind": "window",
+                "id": 10,
+                "pid": 100,
+                "app": "Google Chrome",
+                "title": "Fusion",
+                "icon": PNG,
+                "visible": True,
+            },
+            {
+                "kind": "window",
+                "id": 11,
+                "pid": 100,
+                "app": "Google Chrome",
+                "title": "Gizli pencere",
+                "visible": False,
+            },
+            {
+                "kind": "window",
+                "id": 20,
+                "pid": 200,
+                "app": "Finder",
+                "title": "Masaüstü",
+                "visible": False,
+            },
+            {
+                "kind": "window",
+                "id": 30,
+                "pid": 300,
+                "app": "Slack",
+                "title": "genel",
+                "visible": False,
+            },
+            {
+                "kind": "window",
+                "id": 31,
+                "pid": 301,
+                "app": "Slack",
+                "title": "ekip",
+                "visible": False,
+            },
+        ]
+        tabs = [
+            {
+                "kind": "tab",
+                "id": i,
+                "windowId": 5 if i < 9 else 6,
+                "title": f"Sayfa {i}",
+                "url": f"https://site{i}.example.com/",
+                "active": i == 2,
+            }
+            for i in range(1, 13)
+        ]
+        return {
+            "ok": True,
+            "windows": windows,
+            "tabs": tabs,
+            "native_error": "",
+            "chrome_error": "",
+        }
+
+    async def focus(self, target: dict[str, object]) -> dict[str, object]:
+        Navigation.focused = target
+        return {"ok": True}
+
+
 class Backend:
     """Sahte ajan: akan yanıt, onay sorusu, iptal; oturum istekleri betikli."""
 
@@ -188,6 +267,7 @@ async def main(port: int) -> None:
         clock=clock,
         default_root=tmp,
         session_lock=lock,
+        navigation=Navigation(),
     )
     service = RemoteService(
         clock=clock,
@@ -214,6 +294,17 @@ async def main(port: int) -> None:
     )
 
     async def app(scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope["type"] == "http" and scope["path"] == "/__focused":
+            body = json.dumps(Navigation.focused).encode()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"application/json")],
+                }
+            )
+            await send({"type": "http.response.body", "body": body})
+            return
         if scope["type"] == "http" and scope["path"] == "/__code":
             code, _ = pairing.begin(
                 ["project.read", "agent.run", "agent.cancel", "desktop.observe"]

@@ -119,6 +119,30 @@ async function run(width, height) {
   await page.waitForFunction(() => document.getElementById("ekranDurum").textContent.includes("Canlı"), null, { timeout: 30000 });
   step("canlı ekran: kare gelir, oran korunur, ağ kopunca mesaj, dönünce kendiliğinden sürer");
 
+  // 9b) iki aşamalı dock: uygulamalar → pencereler/sekmeler, arama, tek dokunuşla odak, geri
+  await page.locator('[data-tab="ekran"]').click();
+  await page.locator(".mini-dock__app").first().waitFor({ timeout: 10000 });
+  assert.equal(await page.locator(".mini-dock__row").count(), 0, "1. aşamada satır olmamalı");
+  assert.equal(await page.locator(".mini-dock__app").count(), 3);
+  await page.screenshot({ path: `${shots}/${tag}-12-dock-uygulamalar.png` });
+  await page.locator('[data-app="Finder"]').click(); // tek pencere: doğrudan odak
+  await page.waitForTimeout(400);
+  assert.equal((await (await fetch(`${base}/__focused`)).json()).id, 20);
+  await page.locator('[data-app="Google Chrome"]').click();
+  await page.locator(".mini-dock__group").first().waitFor();
+  assert.equal(await page.locator(".mini-dock__apps").count(), 0, "2. aşamada uygulama şeridi gizli");
+  await page.locator(".mini-dock__search").fill("sayfa 11");
+  assert.equal(await page.locator(".mini-dock__row").count(), 1);
+  await page.locator(".mini-dock__search").fill("");
+  await page.locator(".mini-dock__list").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${shots}/${tag}-13-dock-chrome.png` });
+  await page.getByRole("button", { name: "Sayfa 3 sekmesini öne getir" }).click();
+  await page.waitForTimeout(400);
+  assert.deepEqual(await (await fetch(`${base}/__focused`)).json(), { kind: "tab", id: 3 });
+  await page.getByRole("button", { name: "Uygulamalara dön" }).click();
+  assert.equal(await page.locator(".mini-dock__app").count(), 3);
+  step("dock: uygulamalar şeridi, tek pencerede doğrudan odak, Chrome sekmeleri gruplu/aramalı, geri");
+
   assert.equal(await overflow(page), 0, "yatay taşma olmamalı");
   assert.deepEqual(errors, [], `sayfa hataları: ${errors.join("; ")}`);
   await context.close();

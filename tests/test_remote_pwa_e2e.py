@@ -51,8 +51,8 @@ def test_telefon_boyutunda_uctan_uca_akis(tmp_path: Path) -> None:
         )
         assert done.returncode == 0, done.stdout + done.stderr
         lines = done.stdout.strip().splitlines()
-        assert sum(line.startswith("375px ✓") for line in lines) == 11
-        assert sum(line.startswith("430px ✓") for line in lines) == 11
+        assert sum(line.startswith("375px ✓") for line in lines) == 12
+        assert sum(line.startswith("430px ✓") for line in lines) == 12
     finally:
         server.terminate()
         server.wait(timeout=10)
