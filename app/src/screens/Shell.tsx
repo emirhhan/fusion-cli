@@ -73,6 +73,8 @@ interface ShellProps {
    * Kabuk DOM'da kalır (yalnız gizlenir); sohbet ve taslak kaybolmaz. */
   surface?: ReactNode;
   surfaceActive?: boolean;
+  /** Kits gibi kendi gezinmesi olan yüzeyler kenar çubuğunu gizler. */
+  surfaceFullBleed?: boolean;
   /** Çalışma paneli sağda mı, görev kutusunun altında mı. */
   inspectorPlacement?: "right" | "bottom";
 }
@@ -96,6 +98,7 @@ export function Shell({
   rail,
   surface,
   surfaceActive = false,
+  surfaceFullBleed = false,
 }: ShellProps) {
   const inspectorRef = useRef<HTMLElement>(null);
   const overlayOwnsFocus = useRef(false);
@@ -194,6 +197,7 @@ export function Shell({
     <div
       className="app-shell"
       data-surface-active={rail ? surfaceActive : false}
+      data-surface-full-bleed={rail ? surfaceActive && surfaceFullBleed : false}
       data-inspector-open={inspectorOpen}
       data-inspector-overlay={inspectorOverlay}
       data-inspector-placement={inspectorPlacement}

@@ -337,3 +337,16 @@
 }
 
 .app-shell__workspace[hidden] { display: none; }
+
+/* Kits kendi menüsünü getirir: kenar çubuğu gizlenir, yüzey tüm genişliği alır. */
+.app-shell[data-surface-full-bleed="true"],
+.app-shell[data-surface-full-bleed="true"][data-inspector-open="true"] {
+  grid-template-columns: 0 minmax(0, 1fr) 0;
+}
+
+.app-shell[data-surface-full-bleed="true"] .app-shell__sidebar {
+  border-right: 0;
+  visibility: hidden;
+}
+
+.app-shell[data-surface-full-bleed="true"] .app-shell__surface-bar { display: none; }

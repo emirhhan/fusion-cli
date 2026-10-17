@@ -342,3 +342,31 @@ button:disabled {
 
 /* Başlıklarda macOS sistem SF ailesi; Apple fontları pakete gömülmez. */
 h1, h2, h3, h4 { font-family: var(--font-heading); font-optical-sizing: auto; }
+
+/* --- Kits ile aynı sakin dil ---------------------------------------------
+   Kits'in yazı tipi (sistem yazı tipi), 14 px taban boyutu ve nötr mürekkep
+   renkleri her yere uygulanır. Vurgu artık parlak mavi/camgöbeği değil; logo
+   dışındaki düğme, bağlantı ve seçim renkleri nötr mürekkeptir. Anlam taşıyan
+   durum renkleri (başarı, uyarı, tehlike) ayrı kalır. */
+:root {
+  --font-heading: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --text-base: 14px;
+  --surface-accent-subtle: #f1f1f1;
+  --text-success: #1f7a4d;
+  --focus-ring: #505050;
+  --accent: #282828;
+  --accent-on: #ffffff;
+  --accent-text: var(--text-primary);
+  --selection-bg: #3a3a3a;
+}
+
+:root[data-theme="dark"] {
+  --surface-accent-subtle: #2a2a2a;
+  --text-success: #6fcf97;
+  --focus-ring: #cfcfcf;
+  --accent: #ececec;
+  --accent-on: #0b0a0d;
+  --accent-text: var(--text-primary);
+  --selection-bg: #5a5a5a;
+}

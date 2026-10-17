@@ -1107,6 +1107,7 @@ export function SessionUygulama({
       rail={mainRail}
       surface={mainSurface}
       surfaceActive={surfaceSection !== null}
+      surfaceFullBleed={surfaceSection === "kits"}
       header={<AppHeader canNavigateBack={pageHistory.canGoBack} canNavigateForward={pageHistory.canGoForward} onNavigateBack={pageHistory.back} onNavigateForward={pageHistory.forward} title="Yeni sohbet" status="Hazır" inspectorOpen={false} onToggleInspector={() => undefined} onToggleSidebar={layout.toggleSidebar} sidebarCollapsed={layout.sidebarCollapsed} />}
       content={<>{mediaPage ? <MediaScreen active={page} image={<ImageCreate client={null} />} onSelect={setPage} /> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}{!mediaPage && <button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button>}</>}
       sidebarCollapsed={layout.sidebarCollapsed}
@@ -1355,6 +1356,7 @@ export function SessionUygulama({
       rail={mainRail}
       surface={mainSurface}
       surfaceActive={surfaceSection !== null}
+      surfaceFullBleed={surfaceSection === "kits"}
       emptyChat={page === "chat" && active.messages.length === 0 && !active.running}
       composer={page === "chat" ? (
         <><ProjectPicker root={active.root} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root, mode: "kod" }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
