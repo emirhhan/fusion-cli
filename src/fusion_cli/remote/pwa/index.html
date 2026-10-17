@@ -26,6 +26,16 @@
   <label for="cihazAdi">Bu cihazın adı</label>
   <input id="cihazAdi" value="Telefonum" maxlength="60">
   <button class="btn" id="eslestirDugme" type="button">Eşleştir</button>
+  <div id="hesapGiris" class="account-login" hidden>
+    <p class="muted center">veya</p>
+    <h2>Fusion hesabıyla giriş</h2>
+    <label for="hesapKimlik">Kullanıcı adı veya e-posta</label>
+    <input id="hesapKimlik" autocomplete="username" autocapitalize="none" autocorrect="off" maxlength="200">
+    <label for="hesapParola">Parola</label>
+    <input id="hesapParola" type="password" autocomplete="current-password" maxlength="1024">
+    <button class="btn ghost" id="hesapDugme" type="button">Giriş yap</button>
+    <p class="muted small center">Bu cihaza yalnız proje okuma ve ajan çalıştırma yetkisi verilir; ek yetkiler masaüstünden onaylanır.</p>
+  </div>
 </section>
 
 <div id="uygulama" class="shell" hidden>

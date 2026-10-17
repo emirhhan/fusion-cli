@@ -16,6 +16,7 @@ from typing import Any, Protocol
 
 from ..config.paths import user_data_dir
 from ..core.protocols import Clock
+from .account_login import AccountLogin
 from .asgi import RemoteApp
 from .backend import AppSessionBackend
 from .bind import BindPolicy, BindRefusedError, private_addresses, validate_bind
@@ -56,6 +57,13 @@ class WallClock:
 def _expand(value: object) -> str:
     """Kullanıcının yazdığı dosya yolunu `~` açılmış metne çevir; boşsa boş metin."""
     return str(Path(str(value)).expanduser()) if value else ""
+
+
+def _authenticate_account(identifier: str, password: str) -> bool:
+    """Fusion hesap deposunda kimlik + parola doğrulaması (scrypt; parola saklanmaz/loglanmaz)."""
+    from ..accounts.store import SqliteAccountStore
+
+    return SqliteAccountStore().authenticate(identifier=identifier, password=password) is not None
 
 
 def _fail(message: str) -> dict[str, Any]:
@@ -255,12 +263,22 @@ class RemoteController:
             import uvicorn
         except (BindRefusedError, ImportError) as error:
             return _fail(str(error))
+        limiter = FailureLimiter(self._clock)
+        # Hesapla giriş yalnız şifreli kanalda (TLS ya da güvenilir özel tünel) açılır.
+        account_login = (
+            AccountLogin(
+                authenticate=_authenticate_account, registry=self._registry, limiter=limiter
+            )
+            if policy.tls_enabled or policy.trusted_tunnel
+            else None
+        )
         app = RemoteApp(
             service=self._service,
             registry=self._registry,
             pairing=self._pairing,
             verifier=SignatureVerifier(self._clock),
-            limiter=FailureLimiter(self._clock),
+            limiter=limiter,
+            account_login=account_login,
         )
         config = uvicorn.Config(
             app,

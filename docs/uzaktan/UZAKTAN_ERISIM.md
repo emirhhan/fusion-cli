@@ -79,6 +79,23 @@ kapatılabilir pencere açar (cihaz adı, "Kes", "Kapat"; kare ~1 sn'de bir). Yo
 Erişim bir kez açılıp dinleme başlamışsa çalışır (`fusion.remote.inuse`); kurulmamış kullanıcıda `uzak.*`
 çağrılmaz. Uygulama derlenmedi; bileşen testleri (vitest) ve tsc temiz.
 
+## Eşleşmenin kalıcılığı ve hesapla giriş
+- **"PWA açılıp sıfırlanıyor" nedeni:** PWA aynı anda birkaç imzalı istek atıyordu; sunucu monoton sıra
+  numarası istediği için ters sırada ulaşan istek `sira_eski` ile 401 alıyor, istemci her 401'i "iptal"
+  sayıp cihaz anahtarını SİLİYOR ve sayfayı yeniliyordu; üstüne bu hatalar kilit sayacına yazılıp
+  15 dk kilit (429) açabiliyordu. Düzeltme: istekler istemcide tek tek (sırayla) gider; 401 yanıtı
+  `reason` taşır; yalnız `cihaz_iptal`de eşleşme silinir, `sira_eski`/`nonce_tekrar` bir kez yeniden
+  denenir, imza/saat hataları banner'da kalır; imza geçerliyken gelen sıra/saat/nonce hataları kilit
+  sayacına yazılmaz. 20 sn zaman aşımı kuyruğu tıkamaz. `navigator.storage.persist()` istenir.
+- **Hesapla giriş:** `/v1/auth/login` (kimlik + parola → Fusion hesap deposu, scrypt) yalnız TLS ya da
+  güvenilir özel tünel seçiliyken açılır (`/v1/auth/options` PWA'ya söyler). Hız sınırı hem istemci hem
+  kimlik başına: 5 hata → 15 dk kilit; doğru parola da kilitteyken reddedilir. Cihaz YALNIZ varsayılan
+  kapsamlarla (proje okuma, ajan çalıştırma, iptal) kaydolur; ekran/masaüstü/yazma yetkileri masaüstünde
+  ayrıca verilir. Parola loglanmaz/saklanmaz. Kod ile eşleştirme aynen durur.
+- **Doğrulanamayanlar:** iOS Safari sekmesi ile ana ekran uygulaması AYRI depo kullanır; eşleştirme
+  hangisinde yapıldıysa orada kalır (başka yerde yeniden giriş gerekir). iOS'un depoyu temizlemesi
+  (7 gün kullanılmayan site verisi) gerçek cihazda sınanmadı.
+
 ## Yönetim istekleri (masaüstü ↔ çekirdek)
 `uzak.durum`, `uzak.eslestir_baslat|onayla|reddet`, `uzak.cihazlar`, `uzak.cihaz_iptal`,
 `uzak.baslat|durdur`, `uzak.ekran_bekleyen|onayla|kes|onizleme`, `uzak.telegram_baglan|kes`, `uzak.gorevler`, `uzak.onay_cevapla`.

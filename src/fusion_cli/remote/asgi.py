@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .account_login import AccountLogin, LoginError
 from .constants import MAX_BODY_BYTES, RPC_VERSION
 from .devices import CHANNEL_SIGNED, DeviceRegistry
 from .pairing import PairingError, PairingService
@@ -71,7 +72,9 @@ class RemoteApp:
         pairing: PairingService,
         verifier: SignatureVerifier,
         limiter: FailureLimiter,
+        account_login: AccountLogin | None = None,
     ) -> None:
+        self._account_login = account_login
         self._service = service
         self._registry = registry
         self._pairing = pairing
@@ -97,6 +100,10 @@ class RemoteApp:
             await self._pair_submit(send, client, body)
         elif path == f"/{RPC_VERSION}/pair/claim":
             await self._pair_claim(send, client, body)
+        elif path == f"/{RPC_VERSION}/auth/options":
+            await self._json(send, 200, {"accountLogin": self._account_login is not None})
+        elif path == f"/{RPC_VERSION}/auth/login":
+            await self._auth_login(send, client, body)
         elif path == f"/{RPC_VERSION}/rpc":
             await self._rpc(scope, send, client, body)
         else:
@@ -144,6 +151,32 @@ class RemoteApp:
             },
         )
 
+    async def _auth_login(self, send: Any, client: str, body: bytes) -> None:  # noqa: ANN401
+        if self._account_login is None:
+            await self._json(send, 403, {"error": "hesap_girisi_kapali"})
+            return
+        payload = _parse(body)
+        try:
+            device = await self._account_login.login(
+                client,
+                str(payload.get("identifier", "")),
+                str(payload.get("password", "")),
+                str(payload.get("deviceName", "")),
+            )
+        except LoginError as error:
+            await self._json(send, error.status, {"error": error.code, "message": error.message})
+            return
+        await self._json(
+            send,
+            200,
+            {
+                "state": "onaylandi",
+                "deviceId": device.device_id,
+                "secret": device.secret_hex,
+                "scopes": sorted(device.scopes),
+            },
+        )
+
     async def _rpc(self, scope: dict[str, Any], send: Any, client: str, body: bytes) -> None:  # noqa: ANN401
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
         device_id = headers.get("x-fusion-device", "")
@@ -159,8 +192,13 @@ class RemoteApp:
             else None
         )
         if device is None or verdict is None or not verdict.ok:
-            self._limiter.record_failure(key)
-            await self._json(send, 401, {"error": "kimlik_dogrulanamadi"})
+            reason = "cihaz_iptal" if device is None else (verdict.reason if verdict else "imza")
+            # İmza geçerliyken gelen sıra/saat/nonce hataları gerçek cihazın geçici sapmasıdır:
+            # kilit sayacına yazılmaz (aksi halde eşzamanlı isteklerde cihaz kendini kilitler).
+            if reason not in {"sira_eski", "nonce_tekrar", "zaman_asimi"}:
+                self._limiter.record_failure(key)
+            # İstemci yalnız `cihaz_iptal`de eşleşmeyi siler; diğer nedenler yeniden denenir.
+            await self._json(send, 401, {"error": "kimlik_dogrulanamadi", "reason": reason})
             return
         self._limiter.record_success(key)
         request = _parse(body)

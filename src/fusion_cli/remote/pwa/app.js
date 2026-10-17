@@ -55,14 +55,40 @@ async function pair() {
     await new Promise((r) => setTimeout(r, 2000));
     const claimed = await postJson("/v1/pair/claim", { code });
     if (claimed.status !== 200) return say(claimed.body.message || "Eşleştirme başarısız.", "danger");
-    if (claimed.body.state === "onaylandi") {
-      const key = await importKey(claimed.body.secret);
-      await kv("put", "device", { deviceId: claimed.body.deviceId, key });
-      device = { deviceId: claimed.body.deviceId, key };
-      return start();
-    }
+    if (claimed.body.state === "onaylandi") return finishPairing(claimed.body);
   }
   say("Onay zaman aşımına uğradı.", "danger");
+}
+
+async function finishPairing(body) {
+  const key = await importKey(body.secret);
+  await kv("put", "device", { deviceId: body.deviceId, key });
+  device = { deviceId: body.deviceId, key };
+  return start();
+}
+
+async function accountLogin() {
+  const identifier = $("hesapKimlik").value.trim();
+  const password = $("hesapParola").value;
+  if (!identifier || !password) return say("Kullanıcı adı ve parola gerekli.", "danger");
+  say("Giriş yapılıyor…");
+  try {
+    const result = await postJson("/v1/auth/login", { identifier, password, deviceName: $("cihazAdi").value });
+    $("hesapParola").value = "";
+    if (result.status !== 200) return say(result.body.message || "Giriş başarısız.", "danger");
+    return await finishPairing(result.body);
+  } catch {
+    say("Bilgisayara ulaşılamıyor.", "danger");
+  }
+}
+
+async function loadAuthOptions() {
+  try {
+    const result = await postJson("/v1/auth/options", {});
+    $("hesapGiris").hidden = !result.body.accountLogin;
+  } catch {
+    $("hesapGiris").hidden = true;
+  }
 }
 
 // ---- sekmeler ----
@@ -318,9 +344,13 @@ async function main() {
   }
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
   $("eslestirDugme").onclick = pair;
-  device = (await kv("get", "device")) ?? null;
+  $("hesapDugme").onclick = accountLogin;
+  // Cihaz anahtarı tarayıcı baskısıyla silinmesin (özellikle ana ekran uygulaması): kalıcı depo iste.
+  navigator.storage?.persist?.().catch(() => {});
+  device = (await kv("get", "device").catch(() => null)) ?? null;
   if (device) return start();
   $("eslestir").hidden = false;
+  void loadAuthOptions();
   say("Eşleştirilmedi");
 }
 main();
