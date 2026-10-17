@@ -15,6 +15,7 @@ from . import (
     browser,
     chrome,
     desktop,
+    desktop_background,
     desktop_inspect,
     download,
     files,
@@ -55,6 +56,37 @@ def build_registry() -> ToolRegistry:
 
 _TOOLS: tuple[Tool, ...] = (
     Tool(
+        name="desktop_background_windows",
+        description=(
+            "Pencereleri (window_id, pid) listele. Ekranı bozmaz; desktop_open yerine tercih et."
+        ),
+        parameters=desktop_background.BACKGROUND_TOOL_SCHEMAS["desktop_background_windows"],
+        run=desktop_background.desktop_background_windows,
+    ),
+    Tool(
+        name="desktop_background_inspect",
+        description=("Pencereyi öne getirmeden AX öğelerini incele; eylem için güncel ref kullan."),
+        parameters=desktop_background.BACKGROUND_TOOL_SCHEMAS["desktop_background_inspect"],
+        run=desktop_background.desktop_background_inspect,
+    ),
+    Tool(
+        name="desktop_background_screenshot",
+        description=("Arka plandaki pencereyi ScreenCaptureKit ile yakala; odağı değiştirmez."),
+        parameters=desktop_background.BACKGROUND_TOOL_SCHEMAS["desktop_background_screenshot"],
+        run=desktop_background.desktop_background_screenshot,
+    ),
+    Tool(
+        name="desktop_background_action",
+        description=(
+            "İncelenmiş arka plan öğesine press veya set_value uygula; global girdi yok. "
+            "Sonucu yeniden inceleyerek doğrula."
+        ),
+        parameters=desktop_background.BACKGROUND_TOOL_SCHEMAS["desktop_background_action"],
+        run=desktop_background.desktop_background_action,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    ),
+    Tool(
         name="desktop_windows",
         description="macOS pencerelerini uygulama ve adla listele.",
         parameters=_schema({}, []),
@@ -81,7 +113,7 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="chrome_action",
-        description="scroll|wait|key|select|tabs|open|tab|close|screenshot|click_at|double_click|right_click|drag|wheel|hover|text|back|forward|reload|upload|assets",
+        description="scroll|wait|key|select|tabs|open|tab|close|screenshot|click_at|double_click|right_click|triple_click|drag|wheel|type_focused|check|resize|zoom|hover|text|back|forward|reload|upload|assets",
         parameters=_schema({"action": _STRING, "ref": _STRING, "value": _STRING}, ["action"]),
         run=chrome.chrome_action,
         mutating=True,

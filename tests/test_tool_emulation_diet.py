@@ -17,7 +17,9 @@ def rendered() -> str:
 #: run_shell teslim kanıtı parametreleri (expected_outputs, failure_check/sources) +157
 #: karakter getirdi ve kanıt için gerekli; bütçe yalnız o kadar büyütüldü. Remotion
 #: araçları (+1.300) ise yalnız Remotion isteğinde sunulur (`SCOPED_TOOLS`).
-PROMPT_BUDGET = 10_700
+# 18 Ekim 2026: chrome_action'a double_click/right_click/drag/wheel (+44 karakter) eklendi;
+# arka plan masaüstü araçları ise yalnız masaüstü isteğinde sunulur (`SCOPED_TOOLS`).
+PROMPT_BUDGET = 10_760
 
 
 def test_emulated_tool_prompt_budgeti():
@@ -84,4 +86,6 @@ def test_remotion_araclari_yalniz_remotion_isteginde_sunulur():
     sirada = _permitted(None, registry, politika)
     assert sirada is not None and not (set(SCOPED_TOOLS) & sirada)
     remotion = _permitted(None, registry, politika, frozenset({"remotion"}))
-    assert remotion is not None and set(SCOPED_TOOLS) <= remotion
+    remotion_araclari = {ad for ad, tur in SCOPED_TOOLS.items() if tur == "remotion"}
+    assert remotion is not None and remotion_araclari <= remotion
+    assert not ({ad for ad, tur in SCOPED_TOOLS.items() if tur == "masaustu"} & remotion)

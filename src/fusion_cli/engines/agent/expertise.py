@@ -117,6 +117,20 @@ def is_game_task(task: str) -> bool:
     return kural.exclude is None or kural.exclude.search(task) is None
 
 
+_DESKTOP_TASK = re.compile(
+    r"masa(ü|u)st(ü|u)|pencere|arka\s*plan|finder|safari|takvim|notlar\b|uygulama(y(ı|i)|s(ı|i))?\b"
+    r"|desktop|window|background app|bilgisayar(ım|im)?da|ekran(ı|i)?mda"
+    r"|chatgpt|codex|claude|slack|whatsapp|telegram|spotify|vs\s*code|xcode|figma|canva|terminal\b"
+    r"|\bmail\b|chrome|tarayıcı",
+    re.IGNORECASE,
+)
+
+
+def is_desktop_task(task: str) -> bool:
+    """İstek masaüstü penceresi/uygulaması üzerinde mi (arka plan araçlarını açar)?"""
+    return _DESKTOP_TASK.search(task) is not None
+
+
 def is_remotion_task(task: str) -> bool:
     """İstek bir Remotion videosu mu (remotion-video becerisinin kuralıyla aynı karar)?"""
     kural = next(k for k in _RULES if k.skill == "remotion-video")

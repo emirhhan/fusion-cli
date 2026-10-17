@@ -132,7 +132,7 @@ from .execution_policy import (
     refresh_mutation_policy,
 )
 from .execution_route import ExecutionRoute, choose_execution_route
-from .expertise import expertise_hint, is_game_task, is_remotion_task
+from .expertise import expertise_hint, is_desktop_task, is_game_task, is_remotion_task
 from .history import needs_compression, total_chars
 from .loop_contract import (
     _SHELL_FRAME as _SHELL_FRAME,
@@ -579,11 +579,13 @@ async def _run_agent(
         # İstenen çıktılar YALNIZ bu isteğe aittir; önceki isteğin yolları taşınmaz.
         deps.tool_context.requested_outputs.clear()
         deps.tool_context.requested_outputs.update(requested_outputs_in(task))
-        deps.tool_context.task_kinds.difference_update({"oyun", "remotion"})
+        deps.tool_context.task_kinds.difference_update({"oyun", "remotion", "masaustu"})
         if is_game_task(task):
             deps.tool_context.task_kinds.add("oyun")
         if is_remotion_task(task):
             deps.tool_context.task_kinds.add("remotion")
+        if is_desktop_task(task):
+            deps.tool_context.task_kinds.add("masaustu")
 
     if not plan_mode and not chat_mode and depth == 0:
         played = await maybe_run_playbook(task, deps)
@@ -2156,6 +2158,11 @@ SCOPED_TOOLS: dict[str, str] = {
     "scaffold_remotion": "remotion",
     "revise_remotion_scenes": "remotion",
     "render_remotion": "remotion",
+    # Arka plan masaüstü araçları yalnız masaüstü/pencere işinde sunulur (istem bütçesi).
+    "desktop_background_windows": "masaustu",
+    "desktop_background_inspect": "masaustu",
+    "desktop_background_screenshot": "masaustu",
+    "desktop_background_action": "masaustu",
 }
 
 

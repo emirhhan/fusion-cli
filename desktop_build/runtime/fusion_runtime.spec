@@ -9,6 +9,7 @@ bir kez kurulur ve SHA-256 manifestiyle doğrulanır.
 """
 
 import os
+import runpy
 
 from PyInstaller.utils.hooks import collect_all, copy_metadata
 
@@ -21,6 +22,15 @@ _repo_root = os.path.dirname(os.path.dirname(SPECPATH))  # noqa: F821
 datas = []
 binaries = []
 hiddenimports = []
+# Kaynak ile paketli ikili aynı derlemeden gelir. Swift yalnız derleme makinesinde
+# gerekir; çalışan uygulama tools/data/fusion-desktop-host dosyasını tercih eder.
+_native_build = runpy.run_path(
+    os.path.join(_repo_root, "desktop_build", "runtime", "native_helper.py")
+)
+_native_helper = _native_build["build_native_helper"](_repo_root, workpath)  # noqa: F821
+if _native_helper is not None:
+    binaries.append((_native_helper, "fusion_cli/tools/data"))
+
 # `tiktoken_ext` bir namespace plugin paketidir. PyInstaller yalnız `tiktoken`
 # modülünü görürse cl100k_base gibi gerçek encoding kayıtları pakete girmez ve
 # LiteLLM ilk uzun görevde "Plugins found: []" ile çöker.
