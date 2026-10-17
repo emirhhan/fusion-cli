@@ -13,60 +13,45 @@ interface RuntimeSetupProps {
 }
 
 /**
- * Açılış ekranı: koyu bir "aurora" zemin üzerinde camlı (buzlu) bir kart.
+ * Açılış ekranı: düz koyu zeminde ortada tek bir logo, başka hiçbir şey.
  *
- * Marka renkleri (mavi, camgöbeği, mor) yavaşça süzülen yumuşak ışık lekeleri olur; logo, dönen
- * renkli bir halkanın içinde durur. Hareketin tamamı `transform`/`opacity` ile yapılır ve
- * "hareketi azalt" ayarında durur. Kurulum yüzdesi kartın altında ince bir cam çubukta görünür.
+ * Kurulum/denetim sürerken ekranda yazı, çubuk ya da yüzde YOKTUR; durum yalnız ekran okuyucu
+ * için gizli metin olarak durur. Kullanıcıdan bir şey gerektiren durumlarda (onarım, hata)
+ * logonun altında kısa bir açıklama ve tek bir eylem görünür.
  */
 export function RuntimeSetup({ state, progress, message, version, onRepair }: RuntimeSetupProps) {
   const busy = state === "denetleniyor" || state === "kuruluyor";
   const repairable = state === "onarilabilir";
-  const known = progress > 0;
+  const failed = state === "hata";
+  const title = repairable ? "Çalışma zamanı onarılmalı" : failed ? "Fusion başlatılamadı" : "Fusion'ı hazırlıyoruz";
 
   return (
     <main className="runtime-setup" data-busy={busy} data-state={state}>
-      <div aria-hidden="true" className="runtime-setup__aurora">
-        <i className="runtime-setup__orb runtime-setup__orb--blue" />
-        <i className="runtime-setup__orb runtime-setup__orb--cyan" />
-        <i className="runtime-setup__orb runtime-setup__orb--violet" />
+      <div className="runtime-setup__mark" aria-hidden="true">
+        <Logo size={56} />
       </div>
-      <section className="runtime-setup__card" aria-labelledby="runtime-title">
-        <div className="runtime-setup__mark" aria-hidden="true">
-          <span className="runtime-setup__halo" />
-          <span className="runtime-setup__disc">
-            <Logo size={44} />
-          </span>
-        </div>
-        <p aria-hidden="true" className="runtime-setup__eyebrow">FUSION</p>
-        <h1 id="runtime-title">Fusion'ı hazırlıyoruz</h1>
-        <p className="runtime-setup__message">{message}</p>
+      <section aria-labelledby="runtime-title" className="runtime-setup__notice" data-visible={!busy}>
+        <h1 id="runtime-title">{title}</h1>
+        <p className="runtime-setup__message" role={busy ? "status" : undefined}>{message}</p>
         {busy && (
-          <div className="runtime-setup__progress">
-            <div
-              aria-label="Kurulum ilerlemesi"
-              aria-valuemax={100}
-              aria-valuemin={0}
-              aria-valuenow={progress}
-              className="runtime-setup__track"
-              data-indeterminate={!known}
-              role="progressbar"
-            >
-              <span style={known ? { transform: `scaleX(${Math.min(100, progress) / 100})` } : undefined} />
-            </div>
-            <span className="runtime-setup__percent">{known ? `%${progress}` : "Birazdan hazır"}</span>
-          </div>
+          <div
+            aria-label="Kurulum ilerlemesi"
+            aria-valuemax={100}
+            aria-valuemin={0}
+            aria-valuenow={progress}
+            role="progressbar"
+          />
         )}
-        {version && <p className="runtime-setup__version">Sürüm {version}</p>}
         {repairable && (
           <Button className="runtime-setup__repair" onClick={onRepair} variant="primary">
             Çalışma zamanını onar
           </Button>
         )}
-        {(repairable || state === "hata") && (
+        {(repairable || failed) && (
           <details className="runtime-setup__details">
             <summary>Ayrıntılar</summary>
             <p>{message}</p>
+            {version && <p className="runtime-setup__version">Sürüm {version}</p>}
           </details>
         )}
       </section>

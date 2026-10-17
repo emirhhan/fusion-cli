@@ -1,135 +1,41 @@
-/* Açılış ekranı her zaman koyudur: pencerenin ilk boyası (#111) ile kesintisiz birleşir. */
+/* Açılış ekranı her zaman koyu ve düzdür: pencerenin ilk boyası (#111) ile kesintisiz birleşir. */
 .runtime-setup {
   align-items: center;
-  background:
-    radial-gradient(120% 90% at 50% 0%, #11141d 0%, #0a0c11 60%, #07080b 100%);
-  color: #eef1f7;
+  background: #111111;
+  color: #ececec;
   display: flex;
-  isolation: isolate;
-  min-height: 100%;
-  overflow: hidden;
-  padding: 48px 24px;
-  position: relative;
-}
-
-/* --- Aurora: marka renklerinde süzülen yumuşak ışık lekeleri --- */
-.runtime-setup__aurora { inset: 0; pointer-events: none; position: absolute; z-index: -1; }
-.runtime-setup__orb {
-  border-radius: 50%;
-  filter: blur(70px);
-  height: 46vmax;
-  opacity: .5;
-  position: absolute;
-  width: 46vmax;
-  will-change: transform;
-}
-.runtime-setup__orb--blue { animation: runtime-drift-a 19s ease-in-out infinite alternate; background: #3b82f6; left: -12vmax; top: -14vmax; }
-.runtime-setup__orb--cyan { animation: runtime-drift-b 23s ease-in-out infinite alternate; background: #22d3ee; bottom: -20vmax; right: -10vmax; opacity: .36; }
-.runtime-setup__orb--violet { animation: runtime-drift-c 27s ease-in-out infinite alternate; background: #a78bfa; left: 30%; top: 38%; opacity: .3; }
-@keyframes runtime-drift-a { to { transform: translate3d(14vmax, 10vmax, 0) scale(1.15); } }
-@keyframes runtime-drift-b { to { transform: translate3d(-16vmax, -8vmax, 0) scale(.9); } }
-@keyframes runtime-drift-c { to { transform: translate3d(-10vmax, 12vmax, 0) scale(1.2); } }
-
-/* --- Camlı kart --- */
-.runtime-setup__card {
-  backdrop-filter: blur(28px) saturate(1.45);
-  -webkit-backdrop-filter: blur(28px) saturate(1.45);
-  background: linear-gradient(160deg, rgb(255 255 255 / 10%), rgb(255 255 255 / 4%));
-  border: 1px solid rgb(255 255 255 / 12%);
-  border-radius: 28px;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 18%), 0 30px 80px rgb(0 0 0 / 50%);
-  margin: 0 auto;
-  max-width: 440px;
-  padding: 40px 36px 34px;
-  text-align: center;
-  width: 100%;
-}
-
-/* --- Logo ve dönen halka --- */
-.runtime-setup__mark { height: 96px; margin: 0 auto 22px; position: relative; width: 96px; }
-.runtime-setup__halo {
-  animation: runtime-spin 3.2s linear infinite;
-  background: conic-gradient(from 0deg, #3b82f6, #22d3ee, #a78bfa, #3b82f6);
-  border-radius: 50%;
-  inset: 0;
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
-  position: absolute;
-}
-.runtime-setup[data-busy="false"] .runtime-setup__halo { animation: none; opacity: .45; }
-.runtime-setup__disc {
-  align-items: center;
-  background: radial-gradient(circle at 35% 25%, rgb(255 255 255 / 16%), rgb(255 255 255 / 4%) 70%);
-  border-radius: 50%;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 22%), 0 0 40px rgb(59 130 246 / 35%);
-  display: flex;
-  inset: 8px;
+  flex-direction: column;
+  gap: 28px;
   justify-content: center;
-  position: absolute;
+  min-height: 100%;
+  padding: 48px 24px;
 }
-.runtime-setup__disc img { animation: runtime-breathe 3.6s ease-in-out infinite; }
-@keyframes runtime-spin { to { transform: rotate(360deg); } }
-@keyframes runtime-breathe { 50% { transform: scale(.94); opacity: .88; } }
 
-/* --- Metinler --- */
-.runtime-setup__eyebrow {
-  background: linear-gradient(90deg, #7db4ff, #5be7ff, #c4b5fd);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  font-size: var(--text-xs, 12px);
-  font-weight: 650;
-  letter-spacing: .32em;
-  margin: 0 0 8px;
-}
-.runtime-setup h1 {
-  font-size: var(--text-2xl, 24px);
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.25;
-  margin: 0;
-}
-.runtime-setup__message { color: rgb(238 241 247 / 66%); font-size: var(--text-sm, 14px); line-height: 1.55; margin: 10px 0 26px; }
+/* Logo: yumuşakça belirir, sonra çok yavaş nefes alır. Yalnız opaklık animasyonu. */
+.runtime-setup__mark { animation: runtime-in 480ms ease-out both; }
+.runtime-setup[data-busy="true"] .runtime-setup__mark img { animation: runtime-breathe 2.6s ease-in-out 480ms infinite; }
+@keyframes runtime-in { from { opacity: 0; } }
+@keyframes runtime-breathe { 50% { opacity: .5; } }
 
-/* --- Cam ilerleme çubuğu (dolgu transform ile ölçeklenir) --- */
-.runtime-setup__progress { align-items: center; display: grid; gap: 10px; }
-.runtime-setup__track {
-  background: rgb(255 255 255 / 9%);
-  border-radius: 999px;
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 35%);
-  height: 6px;
+/* Meşgulken metin yalnız ekran okuyucuya; ekranda görünmez. */
+.runtime-setup__notice[data-visible="false"] {
+  clip: rect(0 0 0 0);
+  height: 1px;
   overflow: hidden;
-  position: relative;
-  width: 100%;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
 }
-.runtime-setup__track span {
-  background: linear-gradient(90deg, #3b82f6, #22d3ee 55%, #a78bfa);
-  border-radius: inherit;
-  display: block;
-  height: 100%;
-  transform-origin: left;
-  transition: transform 220ms ease-out;
-  width: 100%;
-}
-/* Yüzde henüz bilinmiyorsa dolgu çubuk boyunca süzülür. */
-.runtime-setup__track[data-indeterminate="true"] span {
-  animation: runtime-slide 1.5s ease-in-out infinite;
-  transform: translateX(-100%) scaleX(.4);
-  width: 100%;
-}
-@keyframes runtime-slide { to { transform: translateX(250%) scaleX(.4); } }
-.runtime-setup__percent, .runtime-setup__version { color: rgb(238 241 247 / 60%); font-size: var(--text-xs, 12px); font-variant-numeric: tabular-nums; }
-.runtime-setup__version { margin: 20px 0 0; }
-
+.runtime-setup__notice[data-visible="true"] { max-width: 400px; text-align: center; width: 100%; }
+.runtime-setup h1 { font-size: var(--text-xl, 20px); font-weight: 600; letter-spacing: -.01em; line-height: 1.3; margin: 0; }
+.runtime-setup__message { color: #a3a3a3; font-size: var(--text-sm, 14px); line-height: 1.55; margin: 8px 0 22px; }
 .runtime-setup__repair { font-weight: 550; min-height: 42px; }
-.runtime-setup__details { color: rgb(238 241 247 / 66%); font-size: var(--text-xs, 12px); line-height: 1.5; margin-top: 18px; text-align: left; }
+.runtime-setup__details { color: #a3a3a3; font-size: var(--text-xs, 12px); line-height: 1.5; margin-top: 18px; text-align: left; }
 .runtime-setup__details summary { cursor: pointer; }
 .runtime-setup__details summary:focus-visible { outline: 2px solid var(--focus-ring, #7db4ff); outline-offset: 3px; }
 .runtime-setup__details p { margin: 8px 0 0; }
+.runtime-setup__version { color: #737373; }
 
-@media (max-width: 520px) { .runtime-setup__card { padding: 32px 22px 26px; } }
 @media (prefers-reduced-motion: reduce) {
-  .runtime-setup__orb, .runtime-setup__halo, .runtime-setup__disc img { animation: none; }
-  .runtime-setup__track span { transition: none; }
-  .runtime-setup__track[data-indeterminate="true"] span { animation: none; transform: scaleX(.4); }
+  .runtime-setup__mark, .runtime-setup[data-busy="true"] .runtime-setup__mark img { animation: none; }
 }

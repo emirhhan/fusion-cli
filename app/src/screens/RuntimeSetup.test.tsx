@@ -47,27 +47,31 @@ describe("RuntimeSetup", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("yüzde bilinmiyorsa belirsiz çubuk ve 'Birazdan hazır', biliniyorsa dolgu ölçeği gösterir", () => {
-    const { container, rerender } = render(
-      <RuntimeSetup state="kuruluyor" progress={0} message="Hazırlanıyor" onRepair={vi.fn()} />,
+  it("meşgulken ekranda yalnız logo vardır: görünür yazı, çubuk, yüzde ve kart yoktur", () => {
+    const { container } = render(
+      <RuntimeSetup state="kuruluyor" progress={64} message="Çalışma zamanı kuruluyor" version="0.7.0" onRepair={vi.fn()} />,
     );
-    expect(screen.getByText("Birazdan hazır")).toBeTruthy();
-    expect(screen.getByRole("progressbar").getAttribute("data-indeterminate")).toBe("true");
-    rerender(<RuntimeSetup state="kuruluyor" progress={64} message="Hazırlanıyor" onRepair={vi.fn()} />);
-    expect(screen.getByText("%64")).toBeTruthy();
-    expect(screen.getByRole("progressbar").getAttribute("data-indeterminate")).toBe("false");
-    expect((container.querySelector(".runtime-setup__track span") as HTMLElement).style.transform).toBe("scaleX(0.64)");
+    expect(container.querySelector(".runtime-setup__mark img")).not.toBeNull();
+    const notice = container.querySelector(".runtime-setup__notice") as HTMLElement;
+    expect(notice.dataset.visible).toBe("false"); // yalnız ekran okuyucuya
+    expect(container.textContent).not.toContain("%64");
+    expect(container.querySelector("progress")).toBeNull();
+    // Durum yine de ekran okuyucuya iletilir.
+    expect(screen.getByRole("status").textContent).toBe("Çalışma zamanı kuruluyor");
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("64");
+    expect(container.textContent).not.toContain("Sürüm");
   });
 
-  it("camlı kartta marka logosu, aurora zemini ve süren iş için dönen halka vardır; hata durumunda halka durur", () => {
+  it("onarım ve hata durumunda açıklama ve tek eylem görünür", () => {
     const { container, rerender } = render(
-      <RuntimeSetup state="denetleniyor" progress={0} message="Denetleniyor" onRepair={vi.fn()} />,
+      <RuntimeSetup state="onarilabilir" progress={0} message="Dosyalar eksik" onRepair={vi.fn()} />,
     );
-    expect(container.querySelector(".runtime-setup__aurora")).not.toBeNull();
-    expect(container.querySelector(".runtime-setup__card img")).not.toBeNull();
-    expect(container.querySelector("main")?.getAttribute("data-busy")).toBe("true");
-    rerender(<RuntimeSetup state="hata" progress={0} message="Olmadı" onRepair={vi.fn()} />);
-    expect(container.querySelector("main")?.getAttribute("data-busy")).toBe("false");
+    expect((container.querySelector(".runtime-setup__notice") as HTMLElement).dataset.visible).toBe("true");
+    expect(screen.getByRole("heading", { name: "Çalışma zamanı onarılmalı" })).toBeTruthy();
+    rerender(<RuntimeSetup state="hata" progress={0} message="Olmadı" version="0.7.0" onRepair={vi.fn()} />);
+    expect(screen.getByRole("heading", { name: "Fusion başlatılamadı" })).toBeTruthy();
     expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Çalışma zamanını onar" })).toBeNull();
+    expect(container.querySelector("main")?.getAttribute("data-busy")).toBe("false");
   });
 });
