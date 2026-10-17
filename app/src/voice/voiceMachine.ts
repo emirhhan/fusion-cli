@@ -82,7 +82,7 @@ export function reconcileRecognition(candidate: RecognitionEvent | null, event: 
 }
 
 export type VoiceMachineEvent =
-  | { type: "START_LISTENING"; session?: number }
+  | { type: "START_LISTENING"; session?: number; continuous?: boolean }
   | { type: "RECOGNITION"; session: number; event: RecognitionEvent }
   | { type: "EVALUATE_TIMEOUT"; session: number; candidateRevision: number }
   | { type: "ASSISTANT_STARTED"; text?: string }
@@ -131,7 +131,8 @@ export function voiceMachine(state: VoiceMachineState, event: VoiceMachineEvent)
     case "START_LISTENING":
       return {
         ...state,
-        autoListen: true,
+        // Oturum açık değilken (ya da sessizdeyken) cevaptan sonra mikrofon kendiliğinden açılmaz.
+        autoListen: event.continuous ?? true,
         candidate: null,
         candidateRevision: 0,
         error: null,

@@ -425,3 +425,14 @@ body[data-talk-surface="true"],
 .voice-wave__bar:nth-child(3n + 1) { background: var(--brand-detail-blue); }
 .voice-panel__mic { color: var(--surface-canvas); }
 .voice-panel__mic[data-dinliyor="true"] { color: #fff; }
+
+/* Konuşma oturumu denetimleri: ChatGPT'deki gibi her zaman görünür Sessize al / Bitir. */
+.voice-panel__controls { bottom: 12px; display: flex; gap: 8px; justify-content: center; left: 0; position: absolute; right: 0; z-index: 4; }
+.voice-panel[data-mode="mini"] .voice-panel__controls { bottom: auto; flex-direction: column; left: auto; right: 6px; top: 50%; transform: translateY(-50%); }
+.voice-panel__control { background: color-mix(in srgb, var(--text-primary) 10%, transparent); border: 0; border-radius: 999px; color: var(--text-primary); cursor: pointer; font: inherit; font-size: 13px; min-height: 32px; padding: 0 14px; }
+.voice-panel__control:hover { background: color-mix(in srgb, var(--text-primary) 18%, transparent); }
+.voice-panel__control[aria-pressed="true"] { background: var(--text-primary); color: var(--surface-canvas); }
+.voice-panel__control--end { background: #d64545; color: #fff; }
+.voice-panel__control--end:hover { background: #bf3939; }
+.voice-panel__control--start { background: var(--text-primary); color: var(--surface-canvas); }
+.voice-panel__control:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }

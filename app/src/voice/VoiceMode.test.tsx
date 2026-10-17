@@ -91,3 +91,47 @@ it("taşıma sonrasında klavye aktivasyonu yutulmaz", () => {
  fireEvent.click(character, {detail:0});
  expect(onListen).toHaveBeenCalledOnce();
 });
+
+describe("VoiceMode — ChatGPT benzeri oturum denetimleri", () => {
+  it("oturum kapalıyken yalnız 'Konuşmaya başla' görünür; Bitir/Sessize al yoktur", () => {
+    const onListen = vi.fn();
+    render(<VoiceMode listening={false} onListen={onListen} onClose={vi.fn()} onMinimize={vi.fn()} state="idle" />);
+    expect(screen.queryByRole("button", { name: "Bitir" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sessize al" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Konuşmaya başla" }));
+    expect(onListen).toHaveBeenCalledOnce();
+  });
+
+  it("oturum açıkken Sessize al ve Bitir her zaman görünür ve çalışır", () => {
+    const onEnd = vi.fn();
+    const onMute = vi.fn();
+    render(
+      <VoiceMode listening sessionOpen onEnd={onEnd} onMute={onMute} onClose={vi.fn()} onMinimize={vi.fn()} state="listening" />,
+    );
+    expect(screen.queryByRole("button", { name: "Konuşmaya başla" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Sessize al" }));
+    fireEvent.click(screen.getByRole("button", { name: "Bitir" }));
+    expect(onMute).toHaveBeenCalledOnce();
+    expect(onEnd).toHaveBeenCalledOnce();
+  });
+
+  it("sessizdeyken düğme 'Sesi aç' der ve basılı durumu bildirir", () => {
+    render(
+      <VoiceMode listening={false} sessionOpen muted onEnd={vi.fn()} onMute={vi.fn()} onClose={vi.fn()} onMinimize={vi.fn()} state="idle" />,
+    );
+    expect(screen.getByRole("button", { name: "Sesi aç" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("Fusion konuşurken karakter söz keser; oturum açıkken boştayken tıklama hiçbir şey başlatmaz", () => {
+    const onInterrupt = vi.fn();
+    const onListen = vi.fn();
+    const { rerender } = render(
+      <VoiceMode listening sessionOpen onInterrupt={onInterrupt} onListen={onListen} onClose={vi.fn()} onMinimize={vi.fn()} state="talking" />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Fusion.*dinle/i }));
+    expect(onInterrupt).toHaveBeenCalledOnce();
+    rerender(<VoiceMode listening sessionOpen onInterrupt={onInterrupt} onListen={onListen} onClose={vi.fn()} onMinimize={vi.fn()} state="listening" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fusion.*dinle/i }));
+    expect(onListen).not.toHaveBeenCalled();
+  });
+});

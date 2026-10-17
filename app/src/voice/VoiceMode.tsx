@@ -45,6 +45,11 @@ interface VoiceModeProps {
   onDrag?: () => Promise<void>;
   onMinimize: () => void;
   onListen?: () => void;
+  onEnd?: () => void;
+  onMute?: () => void;
+  onInterrupt?: () => void;
+  sessionOpen?: boolean;
+  muted?: boolean;
   onPrefsChange?: (next: VoicePrefs) => void;
   onTop?: boolean;
   onTopChange?: (next: boolean) => void;
@@ -66,6 +71,11 @@ export function VoiceMode({
   onDrag = dragVoiceWindow,
   onMinimize,
   onListen,
+  onEnd,
+  onMute,
+  onInterrupt,
+  sessionOpen = false,
+  muted = false,
   onPrefsChange,
   onTop = true,
   onTopChange,
@@ -113,9 +123,9 @@ export function VoiceMode({
     >
       <div className="voice-panel__stage">
         <button type="button" className="voice-panel__character"
-          aria-label={`Fusion, dinlemeye başla. ${listening ? "Mikrofon açık." : "Mikrofon kapalı."} ${DURUM_METNI[state]}`}
+          aria-label={`Fusion. ${sessionOpen ? "Konuşma açık, dinleme sürüyor." : "Konuşma kapalı, dinlemeyi başlatmak için tıkla."} ${listening ? "Mikrofon açık." : "Mikrofon kapalı."} ${DURUM_METNI[state]}`}
           aria-haspopup="menu" aria-expanded={menuOpen}
-          title="Konuşmak için tıkla, taşımak için sürükle"
+          title={sessionOpen ? "Konuşurken tıklarsan sözünü keser" : "Konuşmayı başlatmak için tıkla, taşımak için sürükle"}
           onPointerDown={(event) => {
             if (event.button !== 0) return;
             dragged.current = false;
@@ -141,7 +151,10 @@ export function VoiceMode({
           onClick={(event) => {
             if (dragged.current && event.detail > 0) { dragged.current = false; event.preventDefault(); return; }
             dragged.current = false;
-            setMenuOpen(false); onListen?.();
+            setMenuOpen(false);
+            // Fusion konuşurken tıklamak sözünü keser; oturum yoksa tıklamak oturumu başlatır.
+            if (state === "talking") onInterrupt?.();
+            else if (!sessionOpen) onListen?.();
           }}
           onContextMenu={(event) => { event.preventDefault(); setMenuOpen((open) => !open); }}
           onKeyDown={(event) => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); setMenuOpen(true); } }}>
@@ -156,6 +169,23 @@ export function VoiceMode({
           )}
           {state === "error" && transcript && <p role="alert" className="voice-panel__error">{transcript}</p>}
         </div>
+      </div>
+
+      <div className="voice-panel__controls" role="group" aria-label="Konuşma denetimleri">
+        {sessionOpen ? (
+          <>
+            <button aria-pressed={muted} className="voice-panel__control" onClick={onMute} type="button">
+              {muted ? "Sesi aç" : "Sessize al"}
+            </button>
+            <button className="voice-panel__control voice-panel__control--end" onClick={onEnd} type="button">
+              Bitir
+            </button>
+          </>
+        ) : (
+          <button className="voice-panel__control voice-panel__control--start" onClick={onListen} type="button">
+            Konuşmaya başla
+          </button>
+        )}
       </div>
 
       {menuOpen && <div aria-label="Konuşma menüsü" className="voice-panel__menu" role="menu">
