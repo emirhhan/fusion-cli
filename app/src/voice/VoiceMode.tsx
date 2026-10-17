@@ -99,6 +99,20 @@ export function VoiceMode({
     return () => window.removeEventListener("keydown", onKey);
   }, [menuOpen, settingsOpen, onClose]);
 
+  // Açılır menü ve ayar paneli dışarıya basınca kapanır; yalnız Esc'e güvenmek
+  // pencere odakta değilken paneli açık bırakıyordu.
+  useEffect(() => {
+    if (!menuOpen && !settingsOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest(".voice-panel__menu, .voice-panel__settings-popover")) return;
+      setMenuOpen(false);
+      setSettingsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [menuOpen, settingsOpen]);
+
   useEffect(() => {
     const root = document.getElementById("root");
     document.documentElement.dataset.talkSurface = "true";
@@ -188,6 +202,7 @@ export function VoiceMode({
       )}
       {settingsOpen && onPrefsChange && onTopChange && (
         <div className="voice-panel__settings-popover">
+          <button aria-label="Ses ayarlarını kapat" className="voice-panel__settings-close" onClick={() => setSettingsOpen(false)} type="button">Kapat</button>
           <VoiceSettings
             onChange={onPrefsChange}
             onTop={onTop}

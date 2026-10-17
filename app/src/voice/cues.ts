@@ -68,3 +68,78 @@ export function cuesEnabled(): boolean {
   if (typeof window === "undefined" || !window.matchMedia) return true;
   return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
+
+/** Çalan "hmm" düşünme sesi; cevap başlayınca kısılır. */
+let hum: { stop: () => void } | null = null;
+
+/**
+ * Düşünürken çalan insan sesine benzer kapalı-ağız "hmm" (burun ünsüzü).
+ *
+ * Dil modelinden ya da sistem konuşmasından GELMEZ: Web Audio ile üretilir. Testere
+ * dalgası alçalan bir perdeyle (≈128→116 Hz, hafif titreşimli) üretilir, alçak geçiren
+ * süzgeç ve burun formantı ile "m" tınısına yumuşatılır. Sistem konuşması bu pencerede
+ * sessiz kalıyor ve Türkçe modelin "Hmm" okuması yapay duyuluyordu.
+ */
+export function playHum(): void {
+  const ctx = audioContext();
+  if (!ctx || hum) return;
+  try {
+    if (ctx.state === "suspended") void ctx.resume();
+    const now = ctx.currentTime;
+    const length = 1.05;
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0, now);
+    master.gain.linearRampToValueAtTime(0.16, now + 0.14);
+    master.gain.setValueAtTime(0.16, now + length - 0.4);
+    master.gain.exponentialRampToValueAtTime(0.0001, now + length);
+    const low = ctx.createBiquadFilter();
+    low.type = "lowpass";
+    low.frequency.value = 950;
+    const nasal = ctx.createBiquadFilter();
+    nasal.type = "peaking";
+    nasal.frequency.value = 270;
+    nasal.Q.value = 2;
+    nasal.gain.value = 9;
+    const vibrato = ctx.createOscillator();
+    const vibratoDepth = ctx.createGain();
+    vibrato.frequency.value = 5.2;
+    vibratoDepth.gain.value = 2.2;
+    vibrato.connect(vibratoDepth);
+    const voices = [-7, 7].map((detune) => {
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.detune.value = detune;
+      osc.frequency.setValueAtTime(128, now);
+      osc.frequency.linearRampToValueAtTime(116, now + length);
+      vibratoDepth.connect(osc.frequency);
+      osc.connect(low);
+      return osc;
+    });
+    low.connect(nasal).connect(master).connect(ctx.destination);
+    for (const node of [...voices, vibrato]) {
+      node.start(now);
+      node.stop(now + length + 0.05);
+    }
+    const handle = {
+      stop: () => {
+        try {
+          master.gain.cancelScheduledValues(ctx.currentTime);
+          master.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.03);
+        } catch {
+          // Zaten bitmiş olabilir.
+        }
+        hum = null;
+      },
+    };
+    hum = handle;
+    voices[0].onended = () => {
+      if (hum === handle) hum = null;
+    };
+  } catch {
+    hum = null;
+  }
+}
+
+export function stopHum(): void {
+  hum?.stop();
+}

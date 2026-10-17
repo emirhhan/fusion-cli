@@ -34,10 +34,14 @@ func yaz(_ tur: String, _ metin: String = "", guven: Float? = nil, speechMs: Int
 final class SesEtkinligiKapisi {
     private let kalibrasyonMs = 300
     private let enAzKonusmaMs = 250
-    private let baslangicDogrulamaMs = 80
-    private let bitisDogrulamaMs = 350
+    private let baslangicDogrulamaMs = 60
+    // Yavaş konuşan biri cümle ortasında duraklayınca tur kesilmesin: 350 ms
+    // cümlenin başını gönderiyordu. İnsanlar arası doğal duraklama 1-2 sn'dir.
+    private let bitisDogrulamaMs = 2000
     private var gecenMs = 0
     private var kalibrasyonEnDusuk: Float = .greatestFiniteMagnitude
+    /// Sürekli izlenen ortam gürültüsü tabanı (asgari istatistik: hızlı iner, yavaş çıkar).
+    private var taban: Float = 0
     private var kalibrasyonOrnegi = 0
     private var yuksekMs = 0
     private var sessizMs = 0
@@ -59,7 +63,8 @@ final class SesEtkinligiKapisi {
             gecenMs += sureMs
             return nil
         }
-        let gurultu = kalibrasyonEnDusuk == .greatestFiniteMagnitude ? 0 : kalibrasyonEnDusuk
+        if taban == 0 { taban = kalibrasyonEnDusuk == .greatestFiniteMagnitude ? 0 : kalibrasyonEnDusuk }
+        let gurultu = taban
         // Tabanlar ÖLÇÜMLE düşürüldü: bu makinede konuşma 0.007–0.010 RMS
         // üretiyor ve eski 0.012 tabanı konuşmayı hiç görmüyordu. Gürültüye
         // göre uyarlanan çarpan asıl karardır; taban yalnızca tam sessizlikte
@@ -68,6 +73,11 @@ final class SesEtkinligiKapisi {
         let bitisEsigi = max(0.002, gurultu * 1.8)
 
         if !etkin {
+            // Konuşma yokken taban güncellenir: oda gürültüsü değişirse eşik de
+            // onunla gelir; konuşma sırasında (eşik üstü) taban yükselmez.
+            if rms < baslangicEsigi {
+                taban = rms < taban ? rms : taban + (rms - taban) * 0.002
+            }
             yuksekMs = rms >= baslangicEsigi ? yuksekMs + sureMs : 0
             if yuksekMs >= baslangicDogrulamaMs {
                 etkin = true
@@ -545,7 +555,7 @@ final class OnTampon {
 
 //: 1024 örneklik tamponlarda ~48 kHz'de her tampon ~21 ms; 16 tampon ≈ 340 ms.
 //: Kapının 80 ms'lik doğrulama penceresini rahatça kapsar.
-let onTampon = OnTampon(kapasite: 16)
+let onTampon = OnTampon(kapasite: 24)
 
 /// Paylaşılan tur durumunu koruyan kilit.
 ///
@@ -586,7 +596,7 @@ private let geriCagriBeklemeSaniye = 5.0
 //: `endAudio()` hiç çağrılmadığı için Apple `isFinal` vermiyor, arayüz kısmi
 //: metni görüp bile hiçbir şey göndermiyordu. Bitiş kararı artık tanıyıcının
 //: kendi çıktısına da bağlıdır; kapı yalnız ek bir kaynaktır.
-private let kismiDurmaSaniye = 1.4
+private let kismiDurmaSaniye = 2.2
 
 /// Kısmi metin durduysa turu kapat; final böylece teslim edilir.
 func kismiDurmaGozcusuKur(turNo: Int, sayac: Int) {
@@ -598,6 +608,29 @@ func kismiDurmaGozcusuKur(turNo: Int, sayac: Int) {
             konusmaKapat()
         }
     }
+}
+
+/// Tanıyıcıya ses beslemesi KAPISI: yalnız kullanıcının sesi geçer, uzaktaki
+/// konuşma ve ortam gürültüsü geçmez.
+///
+/// Kapı kapalıyken tamponlar önhafızada bekler (ilk hece kaybolmasın); kapı
+/// açılınca önce onlar, sonra canlı ses verilir. Konuşma bitince 1,5 sn "kuyruk"
+/// açık kalır (cümle sonu kesilmesin). Kapı oturumun ilk 8 saniyesinde HİÇ
+/// açılmazsa (mikrofon çok kısık, eşik hatalı) güvenli tarafa düşülür ve ses
+/// koşulsuz beslenir — yardımcı asla sağır kalmamalı.
+let oturumBasi = Date()
+var beslemeKuyrugaKadar = Date.distantPast
+private let beslemeKuyrukSaniye = 1.5
+private let kapiHicAcilmadiSaniye = 8.0
+
+func beslemeAcikMi() -> Bool {
+    let simdi = Date()
+    if kapı.etkin {
+        beslemeKuyrugaKadar = simdi.addingTimeInterval(beslemeKuyrukSaniye)
+        return true
+    }
+    if simdi < beslemeKuyrugaKadar { return true }
+    return kapı.segment == 0 && simdi.timeIntervalSince(oturumBasi) > kapiHicAcilmadiSaniye
 }
 
 /// Açık turun kimliği; gözcü yalnız KENDİ turunu kapatır.
@@ -854,7 +887,12 @@ func tapKur() {
             // `append` ile `endAudio` aynı istek üzerinde yarışabiliyordu;
             // ikisi de aynı kilidi alır.
             durumla {
-                acikIstek?.append(mono)
+                if beslemeAcikMi() {
+                    for onceki in onTampon.bosalt() { acikIstek?.append(onceki) }
+                    acikIstek?.append(mono)
+                } else {
+                    onTampon.ekle(mono)
+                }
                 // Konuşma sesi de etkinliktir; gözcü konuşmanın ortasında
                 // turu kesmemeli.
                 if kapı.etkin {

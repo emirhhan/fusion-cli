@@ -1,3 +1,4 @@
+import { playHum, stopHum } from "./cues";
 import { localVoiceReply } from "./localVoice";
 /** Uyandırma yereldir; bekleme konuşmaları modele gönderilmez. */
 export function routeWakeSpeech(text: string, awake: boolean): { awake: boolean; acknowledge: boolean; message: string | null } {
@@ -29,18 +30,12 @@ export function acknowledgeWake(onError?: (message: string) => void): void {
   window.speechSynthesis.speak(utterance);
 }
 
-/** Düşünme sırasında kullanıcı "takıldı mı?" diye merak etmesin: kısa, sistem sesiyle "Hmm". */
+/** Düşünme sırasında kullanıcı "takıldı mı?" diye merak etmesin: Web Audio ile üretilen kısa "hmm" (model sesi değil). */
 export function speakThinkingCue(): void {
-  if (!("speechSynthesis" in window)) return;
-  const utterance = new SpeechSynthesisUtterance("Hmm");
-  utterance.lang = "tr-TR";
-  utterance.rate = 0.8;
-  utterance.volume = 0.7;
-  window.speechSynthesis.speak(utterance);
+  playHum();
 }
 
 /** Düşünme "Hmm"i yarım kalmasın: asıl cevap başlarken bekleyen ipucunu sustur. */
 export function cancelThinkingCue(): void {
-  if (!("speechSynthesis" in window)) return;
-  (window.speechSynthesis as { cancel?: () => void }).cancel?.();
+  stopHum();
 }

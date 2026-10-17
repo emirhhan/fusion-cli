@@ -48,7 +48,8 @@ type PendingRecognitionEvent =
   | { type: "output"; payload: RecognitionPayload }
   | { type: "ended"; payload: RecognitionEndedPayload };
 
-const PARTIAL_FINAL_DELAY_MS = 1_400;
+// Yavaş konuşanı kesmemek için yardımcının kendi bitiş süresinden (2,2 sn) uzun.
+const PARTIAL_FINAL_DELAY_MS = 2_600;
 
 export interface VoiceWindowRuntime {
   applyGeometry(geometry: VoiceWindowGeometry): Promise<void>;

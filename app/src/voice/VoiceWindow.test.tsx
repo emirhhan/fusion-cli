@@ -1,3 +1,4 @@
+import * as cues from "./cues";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PermissionBridge } from "../permissions/types";
@@ -183,7 +184,7 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
     await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledWith({
       kaynak: "kullanici",
       metin: "merhaba fusion",
-    }), { timeout: 2_000 });
+    }), { timeout: 4_000 });
     expect(fake.runtime.stopRecognition).toHaveBeenCalledOnce();
   });
 
@@ -547,7 +548,7 @@ describe("VoiceWindow — sesli onay", () => {
 
     fake.recognition({ tur: "kismi", metin: "olabilir ama emin değilim" });
 
-    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2), { timeout: 2_000 });
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2), { timeout: 4_000 });
     expect(fake.runtime.answerAsk).not.toHaveBeenCalled();
     expect(fake.runtime.emitMessage).not.toHaveBeenCalled();
     expect(screen.getByRole("group", { name: "Onay" })).toBeTruthy();
@@ -579,7 +580,7 @@ describe("VoiceWindow — sesli onay", () => {
 
     fake.recognition({ tur: "kismi", metin: "olabilir ama emin değilim" });
 
-    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2), { timeout: 2_000 });
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2), { timeout: 4_000 });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2);
   });
@@ -614,7 +615,7 @@ it("eski kısmi konuşmanın zaman aşımı yeni soruyu onaylayamaz", async () =
   vi.useFakeTimers();
   try {
     act(() => fake.recognition({ tur: "kismi", metin: "izin ver" }));
-    await act(async () => { await vi.advanceTimersByTimeAsync(1400); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2600); });
     expect(fake.runtime.answerAsk).not.toHaveBeenCalled();
   } finally { vi.useRealTimers(); }
 });
@@ -687,7 +688,7 @@ describe("VoiceWindow — uyandırma sınırı", () => {
     render(<VoiceWindow idleCheckMs={20} idleEndMs={80} runtime={fake.runtime} />);
     await startTalk();
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
-    await waitFor(() => expect(fake.runtime.stopRecognition).toHaveBeenCalled(), { timeout: 2000 });
+    await waitFor(() => expect(fake.runtime.stopRecognition).toHaveBeenCalled(), { timeout: 4000 });
     expect(await screen.findByRole("button", { name: /Mikrofon kapalı/ })).toBeTruthy();
   });
 
@@ -703,24 +704,21 @@ describe("VoiceWindow — uyandırma sınırı", () => {
     expect(screen.getByRole("button", { name: /Mikrofon açık/ })).toBeTruthy();
   });
 
-  it("model düşünürken kısa süre sonra 'Hmm' der, cevap başlayınca susar", async () => {
-    const speak = vi.fn();
-    const cancel = vi.fn();
-    vi.stubGlobal("speechSynthesis", { speak, cancel });
-    vi.stubGlobal("SpeechSynthesisUtterance", class { constructor(public text: string) {} });
+  it("model düşünürken kısa süre sonra üretilen 'hmm' sesini çalar, cevap başlayınca susar", async () => {
+    const hum = vi.spyOn(cues, "playHum").mockImplementation(() => undefined);
+    const stop = vi.spyOn(cues, "stopHum").mockImplementation(() => undefined);
     try {
       const fake = fakeRuntime();
       render(<VoiceWindow continuous wakeEnabled={false} runtime={fake.runtime} />);
       await startTalk();
       await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
       act(() => fake.recognition({ tur: "son", metin: "bu uzun bir iş olsun" }));
-      await waitFor(() => expect(speak).toHaveBeenCalledOnce(), { timeout: 3000 });
-      expect(speak.mock.calls[0][0].text).toBe("Hmm");
+      await waitFor(() => expect(hum).toHaveBeenCalledOnce(), { timeout: 3000 });
       expect(screen.getByText("Hmm…")).toBeTruthy();
       act(() => fake.runtimeState({ durum: "talking", metin: "Cevap geldi." }));
-      expect(cancel).toHaveBeenCalled();
+      expect(stop).toHaveBeenCalled();
       expect(screen.queryByText("Hmm…")).toBeNull();
-    } finally { vi.unstubAllGlobals(); }
+    } finally { hum.mockRestore(); stop.mockRestore(); }
   });
 
   it("Fusion konuşurken karaktere basmak sözünü keser, mikrofonu yeniden açmaz", async () => {
@@ -803,7 +801,7 @@ it("aynı süreçte sonraki tek partial da zaman aşımında gönderilir; eski p
   await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledOnce());
   act(() => fake.recognition({ tur: "kismi", metin: "ikinci mesaj", segment: 2 }));
   act(() => fake.recognition({ tur: "kismi", metin: "geç gelen ilk mesaj", segment: 1 }));
-  await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledWith({ kaynak: "kullanici", metin: "ikinci mesaj" }), { timeout: 2200 });
+  await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledWith({ kaynak: "kullanici", metin: "ikinci mesaj" }), { timeout: 4200 });
   expect(fake.runtime.emitMessage).toHaveBeenCalledTimes(2);
 });
 
