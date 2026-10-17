@@ -35,7 +35,7 @@ VERIFY_POLL_SECONDS = 1.0
 _APPLESCRIPT = r"""
 on matches(el, wordList)
   tell application "System Events"
-    repeat with attrName in {"AXTitle", "AXDescription", "AXValue"}
+    repeat with attrName in {"AXTitle", "AXDescription", "AXHelp", "AXValue", "AXLabel"}
       try
         set txt to value of attribute (attrName as text) of el
         if txt is not missing value then
@@ -52,7 +52,7 @@ end matches
 on findElement(wordList)
   tell application "System Events"
     tell process "Google Chrome"
-      repeat 25 times
+      repeat 12 times
         try
           repeat with el in (entire contents of front window)
             if my matches(el, wordList) then return el
@@ -65,8 +65,40 @@ on findElement(wordList)
   return missing value
 end findElement
 
+on dumpTree(pathText)
+  set out to ""
+  tell application "System Events"
+    tell process "Google Chrome"
+      try
+        set n to 0
+        repeat with el in (entire contents of front window)
+          set n to n + 1
+          if n > 400 then exit repeat
+          set r to ""
+          set t to ""
+          set d to ""
+          try
+            set r to (role of el) as text
+          end try
+          try
+            set t to (title of el) as text
+          end try
+          try
+            set d to (description of el) as text
+          end try
+          set out to out & r & " | " & t & " | " & d & linefeed
+        end repeat
+      on error errText
+        set out to out & "dump-hatasi: " & errText & linefeed
+      end try
+    end tell
+  end tell
+  do shell script "printf %s " & quoted form of out & " > " & quoted form of pathText
+end dumpTree
+
 on run argv
   set extPath to item 1 of argv
+  set axPath to item 2 of argv
   tell application "Google Chrome"
     activate
     if (count of windows) = 0 then make new window
@@ -78,10 +110,17 @@ on run argv
       try
         set value of attribute "AXManualAccessibility" to true
       end try
+      try
+        set value of attribute "AXEnhancedUserInterface" to true
+      end try
     end tell
   end tell
+  delay 3
   set devSwitch to my findElement({"Developer mode", "Geliştirici modu"})
-  if devSwitch is missing value then return "no-switch"
+  if devSwitch is missing value then
+    my dumpTree(axPath)
+    return "no-switch"
+  end if
   tell application "System Events"
     try
       set switchState to value of attribute "AXValue" of devSwitch
@@ -92,7 +131,10 @@ on run argv
   end tell
   delay 1
   set loadButton to my findElement({"Load unpacked", "Paketlenmemiş öğe yükle"})
-  if loadButton is missing value then return "no-load-button"
+  if loadButton is missing value then
+    my dumpTree(axPath)
+    return "no-load-button"
+  end if
   tell application "System Events"
     click loadButton
     delay 1.2
@@ -134,7 +176,8 @@ def drive_chrome_ui(extension_dir: Path, runner: Runner = _osascript) -> str:
     betik = base_config_dir() / "chrome-install.applescript"
     betik.parent.mkdir(parents=True, exist_ok=True)
     betik.write_text(_APPLESCRIPT, encoding="utf-8")
-    cevap = runner(["osascript", str(betik), str(extension_dir)])
+    tanilama = base_config_dir() / "chrome-install-ax.txt"
+    cevap = runner(["osascript", str(betik), str(extension_dir), str(tanilama)])
     if cevap.returncode != 0:
         # Neden görünür olsun: "error" tek başına izin mi, zaman aşımı mı, arayüz mü söylemiyordu.
         neden = " ".join(cevap.stderr.split())[:160]
@@ -191,7 +234,10 @@ def auto_install(
     return {
         **hazir,
         "asama": "elle",
-        "metin": f"Otomatik adım tamamlanamadı ({sonuc}); adımları elle bitir.",
+        "metin": (
+            f"Otomatik adım tamamlanamadı ({sonuc}); adımları elle bitir. "
+            f"Tanı: {base_config_dir() / 'chrome-install-ax.txt'}"
+        ),
     }
 
 
