@@ -96,7 +96,7 @@ _SCREENSHOT_SCALES: weakref.WeakKeyDictionary[object, float] = weakref.WeakKeyDi
 _READ_ACTIONS = frozenset(
     {
         "scroll", "wait", "tabs", "open", "tab", "screenshot",
-        "back", "forward", "reload", "hover", "text", "assets",
+        "back", "forward", "reload", "hover", "text", "assets", "wheel",
     }
 )  # fmt: skip
 #: Sayfayla etkileşen ama kalıcı iz bırakmayan işlemler: otomatik kipte sorulmaz.
@@ -138,9 +138,20 @@ async def chrome_action_effect(args: ToolArgs, context: ToolContext | None) -> T
     if action == "close":
         # Sekme kapatma kaydedilmemiş kullanıcı verisini kaybettirebilir.
         return ToolEffect.REMOTE_DESTRUCTIVE
-    if action == "click_at":
+    if action == "right_click":
+        # Bağlam menüsü açar; tıklama gibi iş yapmaz.
+        return ToolEffect.REMOTE_INTERACT
+    if action == "drag":
+        return ToolEffect.REMOTE_INTERACT
+    if action in {"click_at", "double_click"}:
+        ref = args.get("ref")
+        if context is None or context.chrome is None:
+            return None
+        if action == "double_click" and isinstance(ref, str) and ref:
+            result = await _describe(context, "describe", {"ref": ref})
+            return None if result is None else _click_effect(result)
         point = _point(args.get("value"), context)
-        if point is None or context is None or context.chrome is None:
+        if point is None:
             return None
         result = await _describe(context, "describe_at", {"x": point[0], "y": point[1]})
         return None if result is None else _click_effect(result)
@@ -278,21 +289,69 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
     if action == "text":
         page = int(value) if isinstance(value, str) and value.strip().isdigit() else 1
         return await _call(context, "text_page", {"page": max(1, page)})
-    if action == "click_at":
+    if action in {"click_at", *_CLICK_KINDS}:
+        kind = _CLICK_KINDS.get(action)
+        extra = {"kind": kind} if kind else {}
+        if action in _CLICK_KINDS and "ref" in data:
+            return with_action_check(await _call(context, "click", {**data, **extra}))
         point = _point(value, context)
         if point is None:
             return ToolResult.failure(
-                "click_at için 'value' alanına ekran görüntüsündeki 'x,y' yaz."
+                f"{action} için 'ref' ya da 'value' alanına ekran görüntüsündeki 'x,y' yaz."
             )
-        return with_action_check(await _call(context, "click_at", {"x": point[0], "y": point[1]}))
+        return with_action_check(
+            await _call(context, "click_at", {"x": point[0], "y": point[1], **extra})
+        )
+    if action == "drag":
+        return await _drag(data, value, context)
+    if action == "wheel":
+        delta = _delta(value)
+        if delta is None:
+            return ToolResult.failure("wheel için 'value' alanına 'dx,dy' (piksel) yaz; ör. 0,400.")
+        return await _call(context, "wheel", {**data, "dx": delta[0], "dy": delta[1]})
     if action == "upload":
         return await _upload(data, value, context)
     if action == "assets":
         return await chrome_assets(args, context)
     return ToolResult.failure(
         "action: scroll, wait, key, select, tabs, open, tab, screenshot, back, forward, "
-        "reload, close, hover, text, click_at, upload ya da assets olmalı."
+        "reload, close, hover, text, click_at, double_click, right_click, drag, wheel, "
+        "upload ya da assets olmalı."
     )
+
+
+#: Tıklama türleri: `click_at`/ref ile birlikte eklentiye `kind` olarak gider.
+_CLICK_KINDS = {"double_click": "double", "right_click": "right"}
+
+
+def _delta(value: object) -> tuple[float, float] | None:
+    """'dx,dy' piksel; yalnız bir sayı verilirse dikey kaydırma sayılır."""
+    if value is None or value == "":
+        return 0.0, 400.0
+    if not isinstance(value, str):
+        return None
+    parts = [p.strip() for p in value.split(",")]
+    try:
+        numbers = [float(p) for p in parts]
+    except ValueError:
+        return None
+    if len(numbers) == 1:
+        return 0.0, numbers[0]
+    return (numbers[0], numbers[1]) if len(numbers) == 2 else None
+
+
+async def _drag(data: dict[str, Any], value: object, context: ToolContext) -> ToolResult:
+    """Kaynak `ref` → hedef `value` (öğe ref'i ya da ekran görüntüsünde 'x,y')."""
+    if "ref" not in data or not isinstance(value, str) or not value.strip():
+        return ToolResult.failure(
+            "drag için 'ref' (kaynak) ve 'value' (hedef ref ya da x,y) gerekli."
+        )
+    if re.fullmatch(r"e\d+", value.strip()):
+        return await _call(context, "drag", {**data, "to_ref": value.strip()})
+    point = _point(value, context)
+    if point is None:
+        return ToolResult.failure("drag hedefi öğe ref'i (e12) ya da 'x,y' olmalı.")
+    return await _call(context, "drag", {**data, "x": point[0], "y": point[1]})
 
 
 def _point(value: object, context: ToolContext | None) -> tuple[float, float] | None:

@@ -303,3 +303,12 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
   *, *::before { animation: none !important; transition: none !important; }
   .thread { scroll-behavior: auto; }
 }
+
+/* Site izni kartı ve izinli siteler */
+.perm { margin: 8px 12px 0; }
+.perm__actions { display: flex; gap: 8px; align-items: center; }
+.perm__actions .quiet { margin: 0; width: auto; color: var(--muted); }
+.sites { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.sites__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; font-size: 13px; }
+.sites__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-button--quiet { background: transparent; border: 1px solid var(--border-strong); color: var(--muted); }

@@ -81,7 +81,7 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="chrome_action",
-        description="scroll|wait|key|select|tabs|open|tab|close|screenshot|click_at|hover|text|back|forward|reload|upload|assets",
+        description="scroll|wait|key|select|tabs|open|tab|close|screenshot|click_at|double_click|right_click|drag|wheel|hover|text|back|forward|reload|upload|assets",
         parameters=_schema({"action": _STRING, "ref": _STRING, "value": _STRING}, ["action"]),
         run=chrome.chrome_action,
         mutating=True,

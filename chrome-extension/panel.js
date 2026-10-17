@@ -4,7 +4,8 @@
 
 import { clearSelected, execute, selectActiveTab } from "./core.js";
 import { setGlow } from "./pageGlow.js";
-import { controlSummary, renderAsk, renderMessage } from "./panelView.js";
+import { PERMISSION_KEY } from "./core.js";
+import { controlSummary, renderAsk, renderMessage, renderSites } from "./panelView.js";
 
 const $ = (id) => document.getElementById(id);
 const THREAD_KEY = "fusionThread";
@@ -110,6 +111,30 @@ function renderControl() {
   const mode = $("mode").value || "auto";
   $("control-guard").textContent = GUARD_TEXT[mode] || GUARD_TEXT.auto;
   $("control-guard").dataset.mode = mode;
+}
+
+// --- Site izni (Claude eklentisi gibi: ilk kullanımda tek tık, geri alınabilir) ---
+
+/** Sabit izinler (yerel köprü, tüm siteler/ekran görüntüsü) site listesinde görünmez. */
+const FIXED_ORIGINS = new Set(["http://127.0.0.1/*", "<all_urls>", "https://*/*", "http://*/*"]);
+
+async function renderPermission() {
+  const pending = (await chrome.storage.session.get(PERMISSION_KEY))[PERMISSION_KEY];
+  const card = $("perm");
+  card.hidden = !pending;
+  if (pending) {
+    $("perm-title").textContent = `Fusion ${new URL(pending.origin).hostname} sitesine girmek istiyor`;
+    card.dataset.origin = pending.origin;
+  }
+}
+
+async function renderSiteList() {
+  const all = (await chrome.permissions.getAll?.())?.origins || [];
+  renderSites($("sites"), $("sites-empty"), all.filter((origin) => !FIXED_ORIGINS.has(origin)), async (origin) => {
+    await chrome.permissions.remove({ origins: [origin] });
+    await renderSiteList();
+    await renderTab();
+  });
 }
 
 async function renderStatus() {
@@ -366,12 +391,30 @@ $("new-chat").addEventListener("click", guard(async () => {
   await saveThread({ ...thread, mesajlar: [], soru: null });
 }));
 $("open-settings").addEventListener("click", () => {
+  void renderSiteList();
   const sheet = $("settings");
   if (typeof sheet.showModal === "function") sheet.showModal();
   else sheet.setAttribute("open", "");
 });
 $("connect").addEventListener("click", guard(connect));
 $("reload-extension").addEventListener("click", () => chrome.runtime.reload());
+$("perm-allow").addEventListener("click", guard(async () => {
+  const origin = $("perm").dataset.origin;
+  // Tıklama kullanıcı hareketidir: Chrome izin penceresini ancak böyle açar.
+  if (origin && await chrome.permissions.request({ origins: [`${origin}/*`] })) {
+    await chrome.storage.session.remove(PERMISSION_KEY);
+  }
+  await renderPermission();
+  await renderTab();
+}));
+$("perm-deny").addEventListener("click", guard(async () => {
+  await chrome.storage.session.remove(PERMISSION_KEY);
+  await renderPermission();
+}));
+chrome.storage.onChanged?.addListener((changes, area) => {
+  if (area === "session" && PERMISSION_KEY in changes) void renderPermission();
+});
+
 $("select-tab").addEventListener("click", guard(async () => { await selectActiveTab(); error(); await renderTab(); }));
 $("grant-capture").addEventListener("click", guard(async () => {
   const allowed = await chrome.permissions.request({ origins: ["<all_urls>"] });
@@ -401,6 +444,7 @@ renderThread();
 $("prompt").focus();
 await renderStatus();
 await renderTab().catch(() => undefined);
+await renderPermission().catch(() => undefined);
 
 // Panel her açılışta diskten yeni kodu yükler; arka plan hizmeti ve manifest ise
 // ancak eklenti yenilenince güncellenir. Disk sürümü yüklü sürümden yeniyse ya da

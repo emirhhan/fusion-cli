@@ -145,6 +145,38 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     expect($("control-guard").textContent).toContain("sana sorulur");
   });
 
+  it("izin verilmeyen site için panelde izin kartı açılır; tek tıkla izin verilir ve geri alınır", async () => {
+    autoConnected();
+    kit.chromeMock.permissions.getAll = vi.fn(async () => ({ origins: ["http://127.0.0.1/*", "https://ads.example.com/*"] }));
+    (kit.chromeMock.permissions as { remove?: unknown }).remove = vi.fn(async () => true);
+    kit.session.set("fusionPermission", { origin: "https://ads.example.com", at: 1 });
+    await loadPanel();
+    await waitFor(() => expect($("perm").hidden).toBe(false));
+    expect($("perm-title").textContent).toContain("ads.example.com");
+
+    click("perm-allow");
+    await waitFor(() => expect($("perm").hidden).toBe(true));
+    expect(kit.chromeMock.permissions.request).toHaveBeenCalledWith({ origins: ["https://ads.example.com/*"] });
+    expect(kit.session.has("fusionPermission")).toBe(false);
+
+    click("open-settings");
+    await waitFor(() => expect($("sites").textContent).toContain("ads.example.com"));
+    expect($("sites").textContent).not.toContain("127.0.0.1");
+    ($("sites").querySelector("button") as HTMLButtonElement).click();
+    await waitFor(() => expect((kit.chromeMock.permissions as { remove: ReturnType<typeof vi.fn> }).remove)
+      .toHaveBeenCalledWith({ origins: ["https://ads.example.com/*"] }));
+  });
+
+  it("izin kartı 'Şimdi değil' ile kapanır", async () => {
+    autoConnected();
+    kit.session.set("fusionPermission", { origin: "https://x.example.com", at: 1 });
+    await loadPanel();
+    await waitFor(() => expect($("perm").hidden).toBe(false));
+    click("perm-deny");
+    await waitFor(() => expect($("perm").hidden).toBe(true));
+    expect(kit.session.has("fusionPermission")).toBe(false);
+  });
+
   it("Durdur düğmesi turu keser; ilk açılışta eski turlar oynatılmaz", async () => {
     turnResult = new Promise(() => undefined);
     autoConnected();
@@ -275,7 +307,7 @@ describe("Çekirdek: sekme yönetimi", () => {
     kit = chromeKit({ granted: (o) => !o.includes("evil") });
     vi.resetModules();
     const core = await import("../../../chrome-extension/core.js");
-    await expect(core.execute({ islem: "tab_open", veri: { url: "https://evil.test/" } })).rejects.toThrow("izni yok");
+    await expect(core.execute({ islem: "tab_open", veri: { url: "https://evil.test/" } })).rejects.toThrow("kullanıcıdan izin gerekiyor");
   });
 
   it("bağlı sekme yokken adrese gitmek yeni sekme açar; diğer işlemler yine hata verir", async () => {

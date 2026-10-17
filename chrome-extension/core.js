@@ -75,6 +75,31 @@ export function pageAction(operation, args) {
     if (el.matches("select") && el.selectedOptions?.[0]) item.value = el.selectedOptions[0].text;
     return item;
   };
+  const refElement = (ref) => {
+    const match = /^e(\d+)$/.exec(ref || "");
+    const element = match ? refs[Number(match[1])] : null;
+    if (!element || !element.isConnected || !safe(element)) {
+      throw new Error("Öğe artık bulunamadı veya hassas alan. Sayfayı chrome_page ile yeniden oku ve güncel ref kullan.");
+    }
+    return element;
+  };
+  const MouseKind = (type) => (type.startsWith("pointer") && globalThis.PointerEvent ? PointerEvent : MouseEvent);
+  // Tıklama türleri: tek (varsayılan), çift ve sağ. Sağ tık yalnız bağlam menüsü olayını
+  // gönderir; `click()` ÇAĞRILMAZ (sağ tık bağlantıya/düğmeye basmış olmamalı).
+  const pressAt = (element, x, y, kind) => {
+    const right = kind === "right";
+    const base = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y,
+      button: right ? 2 : 0, buttons: right ? 2 : 1 };
+    const rounds = kind === "double" ? 2 : 1;
+    for (let detail = 1; detail <= rounds; detail += 1) {
+      for (const type of ["pointerover", "pointerdown", "mousedown", "pointerup", "mouseup"]) {
+        element.dispatchEvent(new (MouseKind(type))(type, { ...base, detail }));
+      }
+      if (!right) element.dispatchEvent(new MouseEvent("click", { ...base, detail }));
+    }
+    if (kind === "double") element.dispatchEvent(new MouseEvent("dblclick", { ...base, detail: 2 }));
+    if (right) element.dispatchEvent(new MouseEvent("contextmenu", base));
+  };
   const target = () => {
     const match = /^e(\d+)$/.exec(args.ref || "");
     const element = match ? refs[Number(match[1])] : null;
@@ -215,26 +240,20 @@ export function pageAction(operation, args) {
         link: Boolean(href) && !href.startsWith("#") && !href.startsWith("javascript:"),
       };
     }
-    const point = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 0 };
-    for (const type of ["pointerover", "pointerdown", "mousedown", "pointerup", "mouseup"]) {
-      element.dispatchEvent(new (type.startsWith("pointer") && globalThis.PointerEvent ? PointerEvent : MouseEvent)(type, point));
-    }
-    element.click();
-    return { clicked_at: [x, y], name: nameOf(element), url: location.href };
+    pressAt(element, x, y, args.kind);
+    return { clicked_at: [x, y], kind: args.kind || "single", name: nameOf(element), url: location.href };
   }
   if (operation === "click") {
     const element = target();
     element.scrollIntoView({ block: "center", inline: "center" });
     const rect = element.getBoundingClientRect();
-    const point = { bubbles: true, cancelable: true, composed: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2, button: 0 };
-    for (const type of ["pointerover", "pointerdown", "mousedown", "pointerup", "mouseup"]) {
-      element.dispatchEvent(new (type.startsWith("pointer") && globalThis.PointerEvent ? PointerEvent : MouseEvent)(type, point));
-    }
-    element.click();
-    return { clicked: args.ref, name: nameOf(element), url: location.href };
+    pressAt(element, rect.left + rect.width / 2, rect.top + rect.height / 2, args.kind);
+    return { clicked: args.ref, kind: args.kind || "single", name: nameOf(element), url: location.href };
   }
   if (operation === "type") {
-    const element = target();
+    // `find` etiketi (label) de bulur; modelin yazmak istediği, etiketin bağlı olduğu alandır.
+    const labelled = target();
+    const element = labelled.tagName === "LABEL" && labelled.control ? labelled.control : labelled;
     if (!element.matches("input, textarea, select, [contenteditable='true'], [role='textbox']")) {
       throw new Error("Bu öğeye metin yazılamaz.");
     }
@@ -283,7 +302,8 @@ export function pageAction(operation, args) {
     return { typed: args.ref, length: args.text.length, verified, value: verified ? undefined : current().slice(0, 200) };
   }
   if (operation === "select") {
-    const element = target();
+    const labelled = target();
+    const element = labelled.tagName === "LABEL" && labelled.control ? labelled.control : labelled;
     if (!element.matches("select")) throw new Error("Bu öğe bir seçim kutusu değil.");
     const wanted = String(args.value || "").toLocaleLowerCase("tr");
     const option = [...element.options].find((opt) =>
@@ -303,6 +323,64 @@ export function pageAction(operation, args) {
     }
     if (args.key === "Enter" && element.form && element.matches("input")) element.form.requestSubmit?.();
     return { key: args.key };
+  }
+  if (operation === "drag") {
+    // Kaynak ref'ten hedef ref'e ya da (x,y) noktasına: fare olayları ve HTML5 sürükle-bırak.
+    const source = target();
+    source.scrollIntoView({ block: "center", inline: "center" });
+    const from = source.getBoundingClientRect();
+    const sx = from.left + from.width / 2;
+    const sy = from.top + from.height / 2;
+    let destination;
+    let dx;
+    let dy;
+    if (args.to_ref) {
+      destination = refElement(args.to_ref);
+      const to = destination.getBoundingClientRect();
+      dx = to.left + to.width / 2;
+      dy = to.top + to.height / 2;
+    } else {
+      dx = Number(args.x);
+      dy = Number(args.y);
+      destination = Number.isFinite(dx) && Number.isFinite(dy) ? document.elementFromPoint(dx, dy) : null;
+      if (!destination || !safe(destination)) throw new Error("Bırakılacak noktada öğe yok ya da hassas alan.");
+    }
+    const mouse = (el, type, x, y) => el.dispatchEvent(new (MouseKind(type))(type,
+      { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 0, buttons: type.endsWith("up") ? 0 : 1 }));
+    const transfer = globalThis.DataTransfer ? new DataTransfer() : null;
+    const dnd = (el, type, x, y) => el.dispatchEvent(new DragEvent(type,
+      { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, dataTransfer: transfer }));
+    mouse(source, "pointerdown", sx, sy);
+    mouse(source, "mousedown", sx, sy);
+    if (source.draggable || source.closest("[draggable='true']")) {
+      dnd(source, "dragstart", sx, sy);
+      dnd(destination, "dragenter", dx, dy);
+      dnd(destination, "dragover", dx, dy);
+      dnd(destination, "drop", dx, dy);
+      dnd(source, "dragend", dx, dy);
+    }
+    mouse(destination, "pointermove", dx, dy);
+    mouse(destination, "mousemove", dx, dy);
+    mouse(destination, "pointerup", dx, dy);
+    mouse(destination, "mouseup", dx, dy);
+    return { dragged: args.ref, name: nameOf(source), to: nameOf(destination), url: location.href };
+  }
+  if (operation === "wheel") {
+    // Fare tekerleği: öğenin (ya da sayfanın) üstünde dx, dy piksel; kaydırılabilir üst öğe kayar.
+    const element = args.ref ? target() : (document.scrollingElement || document.documentElement);
+    const rect = element.getBoundingClientRect();
+    const dy = Math.max(-5000, Math.min(5000, Number(args.dy) || 0));
+    const dx = Math.max(-5000, Math.min(5000, Number(args.dx) || 0));
+    const event = new WheelEvent("wheel", { bubbles: true, cancelable: true, composed: true,
+      deltaX: dx, deltaY: dy, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 });
+    const handled = !element.dispatchEvent(event);
+    if (!handled) {
+      let node = element;
+      while (node && node !== document.documentElement && !(node.scrollHeight > node.clientHeight + 1 &&
+        /(auto|scroll)/.test(getComputedStyle(node).overflowY))) node = node.parentElement;
+      (node && node !== document.documentElement ? node : window).scrollBy({ top: dy, left: dx, behavior: "instant" });
+    }
+    return { wheel: [dx, dy], y: Math.round(scrollY) };
   }
   if (operation === "scroll") {
     if (args.ref) {
@@ -795,6 +873,21 @@ export async function clearSelected() {
   await chrome.storage.session.remove(TAB_KEY);
 }
 
+/** Panelin "Bu siteye izin ver" kartını açan kayıt (panel `PERMISSION_KEY`i dinler). */
+export const PERMISSION_KEY = "fusionPermission";
+
+/**
+ * İzni olmayan siteye girişte: paneldeki izin kartını tetikle ve modele NE yapacağını söyle.
+ * İzin yalnız kullanıcı tıklamasıyla verilebilir (Chrome kuralı); ajan beklemeli, sormalı.
+ */
+async function denyOrigin(origin, reason) {
+  try { await chrome.storage.session.set({ [PERMISSION_KEY]: { origin, at: Date.now() } }); } catch { /* kart açılamazsa mesaj yeter */ }
+  return new Error(
+    `${reason} ${origin} için kullanıcıdan izin gerekiyor; panelde "İzin ver" kartı gösterildi. ` +
+    "Kullanıcıya bunu kısaca söyle, birkaç saniye bekleyip (chrome_action wait) aynı komutu yeniden dene; " +
+    "kullanıcı reddederse o siteye girme ve nedenini söyle.");
+}
+
 async function permitted(origin) {
   return /^https?:/.test(origin) && chrome.permissions.contains({ origins: [`${origin}/*`] });
 }
@@ -839,7 +932,7 @@ export async function checkedTab() {
   if (origin !== selected.origin) {
     if (!await permitted(origin)) {
       await clearSelected();
-      throw new Error("Sekme izin verilmeyen bir siteye geçti. Yeni site için panelden izin verin.");
+      throw await denyOrigin(origin, "Sekme izin verilmeyen bir siteye geçti.");
     }
     await setSelected(tab);
   }
@@ -893,7 +986,7 @@ export async function execute(command) {
   if (command.islem === "tab_open") {
     const destination = new URL(veri.url);
     if (!await permitted(destination.origin)) {
-      throw new Error(`${destination.origin} için Chrome izni yok. Panelden "Chrome iznini iste" ile verin.`);
+      throw await denyOrigin(destination.origin, "Bu siteyi açmak için izin yok.");
     }
     const tab = await chrome.tabs.create({ url: destination.href, active: true });
     await waitForLoad(tab.id);
@@ -903,7 +996,7 @@ export async function execute(command) {
   if (command.islem === "tab_select") {
     const tab = await chrome.tabs.get(Number(veri.id));
     const origin = new URL(tab.url).origin;
-    if (!await permitted(origin)) throw new Error("Bu sekmenin sitesi için Chrome izni yok.");
+    if (!await permitted(origin)) throw await denyOrigin(origin, "Bu sekmenin sitesi için izin yok.");
     await setSelected(tab);
     return { selected: tab.id, url: tab.url };
   }
@@ -945,7 +1038,7 @@ export async function execute(command) {
   if (command.islem === "navigate") {
     const destination = new URL(veri.url);
     if (destination.origin !== new URL(tab.url).origin && !await permitted(destination.origin)) {
-      throw new Error(`${destination.origin} için Chrome izni yok. Panelden izin verin.`);
+      throw await denyOrigin(destination.origin, "Bu siteye gitmek için izin yok.");
     }
     await chrome.tabs.update(tab.id, { url: destination.href });
     await waitForLoad(tab.id);
@@ -961,7 +1054,7 @@ export async function execute(command) {
     }
     return { found: false, waited_ms: limit };
   }
-  const acts = command.islem === "click" || command.islem === "click_at" || command.islem === "key";
+  const acts = ["click", "click_at", "key", "drag"].includes(command.islem);
   // Eylemden ÖNCE ve SONRA imza: eylem sayfada iz bırakmadıysa model bunu bilmeli.
   // Otomatik ikinci tıklama YAPILMAZ: sepete ekle gibi işlemler iki kez çalışabilir.
   const before = acts ? await runInTab(tab, "signature", {}).catch(() => null) : null;

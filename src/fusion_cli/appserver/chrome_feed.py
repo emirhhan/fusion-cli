@@ -65,6 +65,10 @@ _VISIBLE_TOOLS = frozenset(
 _ACTION_CHANNELS = {
     "screenshot": "ekran",
     "click_at": "fare",
+    "double_click": "fare",
+    "right_click": "fare",
+    "drag": "fare",
+    "wheel": "fare",
     "hover": "fare",
     "scroll": "fare",
     "key": "klavye",
@@ -188,6 +192,10 @@ _ACTION_TEXTS = {
     "hover": "Öğenin üzerine gelindi",
     "text": "Sayfanın tamamı okundu",
     "click_at": "Ekrandaki noktaya tıklandı",
+    "double_click": "Çift tıklandı",
+    "right_click": "Sağ tıklandı",
+    "drag": "Öğe sürüklenip bırakıldı",
+    "wheel": "Fare tekerleği çevrildi",
 }
 
 

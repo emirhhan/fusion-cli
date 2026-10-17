@@ -206,3 +206,17 @@ export function renderAsk(container, question, onAnswer) {
   container.hidden = false;
   container.focus();
 }
+
+/** İzinli siteler listesi; her satırın "Kaldır" düğmesi izni geri alır. */
+export function renderSites(list, empty, origins, onRemove) {
+  list.replaceChildren(...origins.map((origin) => {
+    const item = el("li", "sites__row");
+    item.append(el("span", "sites__name", new URL(origin.replace("/*", "/")).hostname));
+    const remove = el("button", "chip-button chip-button--quiet", "Kaldır");
+    remove.type = "button";
+    remove.addEventListener("click", () => onRemove(origin));
+    item.append(remove);
+    return item;
+  }));
+  empty.hidden = origins.length > 0;
+}

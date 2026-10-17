@@ -299,3 +299,48 @@ def test_panel_turunda_sunucu_tarafi_web_araclari_yok_kod_kipinde_dosya_araclari
     for kume in (CHROME_TURN_TOOLS, CHROME_CODE_TURN_TOOLS):
         assert not {"web_fetch", "web_search"} & kume
     assert {"read_file", "edit_file"} <= CHROME_CODE_TURN_TOOLS
+
+
+class _YeniEylemKoprusu(_Kopru):
+    async def invoke(self, name, data):
+        self.cagrilar.append((name, data))
+        if name in {"describe", "describe_at"}:
+            return {"ok": True, "veri": {"name": "Sil", "tag": "button"}}
+        return {"ok": True, "veri": {}}
+
+
+async def test_cift_sag_tik_surukle_ve_tekerlek_eklentiye_dogru_gider():
+    kopru = _YeniEylemKoprusu()
+    baglam = SimpleNamespace(chrome=kopru)
+    assert (await chrome.chrome_action({"action": "double_click", "ref": "e3"}, baglam)).ok
+    assert ("click", {"ref": "e3", "kind": "double"}) in kopru.cagrilar
+    assert (await chrome.chrome_action({"action": "right_click", "value": "10,20"}, baglam)).ok
+    assert ("click_at", {"x": 10.0, "y": 20.0, "kind": "right"}) in kopru.cagrilar
+    assert (await chrome.chrome_action({"action": "drag", "ref": "e1", "value": "e2"}, baglam)).ok
+    assert ("drag", {"ref": "e1", "to_ref": "e2"}) in kopru.cagrilar
+    assert (await chrome.chrome_action({"action": "drag", "ref": "e1", "value": "5,6"}, baglam)).ok
+    assert ("drag", {"ref": "e1", "x": 5.0, "y": 6.0}) in kopru.cagrilar
+    assert (await chrome.chrome_action({"action": "wheel", "value": "0,300"}, baglam)).ok
+    assert ("wheel", {"dx": 0.0, "dy": 300.0}) in kopru.cagrilar
+    assert not (await chrome.chrome_action({"action": "drag", "ref": "e1"}, baglam)).ok
+    assert not (await chrome.chrome_action({"action": "wheel", "value": "abc"}, baglam)).ok
+
+
+async def test_yeni_eylemlerin_onay_etkisi():
+    baglam = SimpleNamespace(chrome=_YeniEylemKoprusu())
+    # Çift tıklama tıklamayla aynı kuralla denetlenir: "Sil" adlı düğme sorulur.
+    assert (
+        await chrome.chrome_action_effect({"action": "double_click", "ref": "e1"}, baglam) is None
+    )
+    assert (
+        await chrome.chrome_action_effect({"action": "right_click", "ref": "e1"}, baglam)
+        is ToolEffect.REMOTE_INTERACT
+    )
+    assert (
+        await chrome.chrome_action_effect({"action": "drag", "ref": "e1", "value": "e2"}, baglam)
+        is ToolEffect.REMOTE_INTERACT
+    )
+    assert (
+        await chrome.chrome_action_effect({"action": "wheel", "value": "0,300"}, baglam)
+        is ToolEffect.REMOTE_READ
+    )
