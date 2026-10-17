@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import { errorMessage } from "../protocol/result";
+import { ChoiceCards, PanelGroup, PanelIntro, ToggleRow } from "./PanelParts";
 
 /**
  * Zeka — Fusion'ın koddaki zekâ özelliklerini uygulamadan aç/kapat.
@@ -53,81 +54,63 @@ export function Intelligence({ client }: { client: ProtocolClient }) {
   if (!status) {
     return (
       <article className="settings__card" id="settings-intelligence">
-        <h3>Zeka</h3>
-        {error ? <p className="settings__error" role="alert">{error}</p> : <p className="settings__hint">Okunuyor…</p>}
+        <h3 className="settings__section-heading">Zeka</h3>
+        {error ? <p className="px-error" role="alert">{error}</p> : <p className="px-empty">Okunuyor…</p>}
       </article>
     );
   }
 
   const groups = [...new Set(status.bayraklar.map((flag) => flag.grup))];
+  const busyAny = busy !== null;
   return (
-    <article className="settings__card settings__card--wide" id="settings-intelligence">
-      <div className="settings__card-head">
-        <div>
-          <h3>Zeka</h3>
-          <p className="settings__hint">
-            Fusion'ın nasıl düşündüğünü, kendini nasıl denetlediğini ve nasıl öğrendiğini buradan yönet.
-            Bazıları ek model çağrısı kullanır; maliyet her satırda yazar.
-          </p>
-        </div>
-      </div>
+    <article className="settings__card" id="settings-intelligence">
+      <PanelIntro title="Zeka">
+        Fusion'ın nasıl düşündüğünü, kendini nasıl denetlediğini ve nasıl öğrendiğini buradan yönet.
+        Bazıları ek model çağrısı kullanır; maliyet her satırda yazar.
+      </PanelIntro>
 
-      <fieldset className="settings__fieldset" disabled={busy !== null}>
-        <legend>Motor</legend>
-        {status.motorlar.map((choice) => (
-          <label key={choice.deger} className="settings__choice">
-            <input
-              checked={status.motor === choice.deger}
-              name="zeka-motor"
-              onChange={() => void change("motor", choice.deger)}
-              type="radio"
-            />
-            <span>{choice.etiket}</span>
-          </label>
-        ))}
-        <small className="settings__hint">Motor bu oturum için geçerlidir; uygulama yeniden açılınca tek ajana döner.</small>
-      </fieldset>
+      <ChoiceCards
+        disabled={busyAny}
+        legend="Motor"
+        name="zeka-motor"
+        note="Motor bu oturum için geçerlidir; uygulama yeniden açılınca tek ajana döner."
+        onChange={(value) => void change("motor", value)}
+        options={status.motorlar.map((choice) => ({ value: choice.deger, title: choice.etiket }))}
+        value={status.motor}
+      />
 
-      <fieldset className="settings__fieldset" disabled={busy !== null}>
-        <legend>Plan kipi</legend>
-        {status.planKipleri.map((choice) => (
-          <label key={choice.deger} className="settings__choice">
-            <input
-              checked={status.planKipi === choice.deger}
-              name="zeka-plan"
-              onChange={() => void change("planKipi", choice.deger)}
-              type="radio"
-            />
-            <span>{choice.etiket}</span>
-          </label>
-        ))}
-      </fieldset>
+      <ChoiceCards
+        disabled={busyAny}
+        legend="Plan kipi"
+        name="zeka-plan"
+        onChange={(value) => void change("planKipi", value)}
+        options={status.planKipleri.map((choice) => ({ value: choice.deger, title: choice.etiket }))}
+        value={status.planKipi}
+      />
 
       {groups.map((group) => (
-        <fieldset key={group} className="settings__fieldset" disabled={busy !== null}>
-          <legend>{group}</legend>
+        <PanelGroup key={group} title={group}>
           {status.bayraklar
             .filter((flag) => flag.grup === group)
             .map((flag) => (
-              <div key={flag.anahtar} className="settings__switch-row">
-                <label>
-                  <input
-                    checked={flag.acik}
-                    onChange={(event) => void change(flag.anahtar, event.target.checked)}
-                    type="checkbox"
-                  />
-                  <strong>{flag.etiket}</strong>
-                </label>
-                <p className="settings__hint">{flag.aciklama}</p>
-                <small className="settings__hint">Maliyet: {flag.maliyet}</small>
-                {flag.anahtar === "teacherless" && !status.ogretmenTanimli && (
-                  <small className="settings__hint"> Öğretmen modeli tanımlı değil; açık olsa da kullanılamaz.</small>
-                )}
-              </div>
+              <ToggleRow
+                checked={flag.acik}
+                chip={`Maliyet: ${flag.maliyet}`}
+                description={flag.aciklama}
+                disabled={busyAny}
+                key={flag.anahtar}
+                onChange={(checked) => void change(flag.anahtar, checked)}
+                title={flag.etiket}
+                warning={
+                  flag.anahtar === "teacherless" && !status.ogretmenTanimli
+                    ? "Öğretmen modeli tanımlı değil; açık olsa da kullanılamaz."
+                    : undefined
+                }
+              />
             ))}
-        </fieldset>
+        </PanelGroup>
       ))}
-      {error && <p className="settings__error" role="alert">{error}</p>}
+      {error && <p className="px-error" role="alert">{error}</p>}
     </article>
   );
 }

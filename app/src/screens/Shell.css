@@ -285,3 +285,55 @@
 .app-shell__notices:not(:empty) { padding: var(--space-2) var(--space-4) 0; }
 .app-shell__workspace > .app-shell__main { grid-area: main; }
 .app-shell__workspace > .app-shell__composer { grid-area: composer; }
+
+/* --- Bölüm yüzeyleri (Zamanlananlar, Kitaplık, Kits) --------------------
+   Kenar çubuğu Ayarlar dışındaki her ekranda yerinde kalır; yüzey,
+   çalışma alanının yerine ikinci sütuna oturur. Denetçi bu ekranlarda yoktur,
+   bu yüzden üçüncü sütun her zaman sıfırdır. */
+.app-shell[data-surface-active="true"],
+.app-shell[data-surface-active="true"][data-inspector-open="true"] {
+  grid-template-columns: var(--kenar-cubugu-genislik) minmax(0, 1fr) 0;
+}
+
+.app-shell[data-surface-active="true"][data-sidebar-collapsed="true"],
+.app-shell[data-surface-active="true"][data-sidebar-collapsed="true"][data-inspector-open="true"] {
+  grid-template-columns: 0 minmax(0, 1fr) 0;
+}
+
+.app-shell__surface {
+  background: var(--surface-canvas);
+  display: flex;
+  flex-direction: column;
+  grid-column: 2;
+  grid-row: 1 / -1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.app-shell__surface[hidden] { display: none; }
+
+.app-shell__surface-bar {
+  align-items: center;
+  background: var(--surface-sidebar);
+  display: flex;
+  flex: 0 0 auto;
+  min-height: var(--header-height);
+  padding: 0 20px;
+}
+
+.app-shell__surface-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 620px) {
+  .app-shell[data-surface-active="true"],
+  .app-shell[data-surface-active="true"][data-sidebar-collapsed="false"] {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+}
+
+.app-shell__workspace[hidden] { display: none; }

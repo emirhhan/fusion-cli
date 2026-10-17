@@ -31,15 +31,17 @@ describe("Shell ana menü yuvası", () => {
     expect(container.firstElementChild?.className).toBe("app-shell");
   });
 
-  it("bölüm yüzeyi açıkken kabuğu gizler ama DOM'da tutar", () => {
+  it("bölüm yüzeyi açıkken kenar çubuğu kalır, çalışma alanı gizlenir ama DOM'da durur", () => {
     const { container, rerender } = render(
       <Shell content="sohbet" rail={<nav>ray</nav>} sidebar="kenar" surface="bölüm" surfaceActive />,
     );
-    expect(container.querySelector(".app-shell")?.hasAttribute("hidden")).toBe(true);
+    expect(container.querySelector(".app-shell")?.hasAttribute("hidden")).toBe(false);
+    expect(container.querySelector(".app-shell__sidebar")?.hasAttribute("hidden")).toBe(false);
+    expect(container.querySelector(".app-shell__workspace")?.hasAttribute("hidden")).toBe(true);
     expect(container.querySelector(".app-frame__surface")?.hasAttribute("hidden")).toBe(false);
     expect(screen.getByText("sohbet")).toBeTruthy();
     rerender(<Shell content="sohbet" rail={<nav>ray</nav>} sidebar="kenar" surface="bölüm" />);
-    expect(container.querySelector(".app-shell")?.hasAttribute("hidden")).toBe(false);
+    expect(container.querySelector(".app-shell__workspace")?.hasAttribute("hidden")).toBe(false);
     expect(container.querySelector(".app-frame__surface")?.hasAttribute("hidden")).toBe(true);
   });
 });

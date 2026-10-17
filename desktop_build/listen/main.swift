@@ -37,7 +37,7 @@ final class SesEtkinligiKapisi {
     private let baslangicDogrulamaMs = 80
     private let bitisDogrulamaMs = 350
     private var gecenMs = 0
-    private var kalibrasyonToplami: Float = 0
+    private var kalibrasyonEnDusuk: Float = .greatestFiniteMagnitude
     private var kalibrasyonOrnegi = 0
     private var yuksekMs = 0
     private var sessizMs = 0
@@ -50,12 +50,16 @@ final class SesEtkinligiKapisi {
 
     func isle(rms: Float, sureMs: Int) -> String? {
         if gecenMs < kalibrasyonMs {
-            kalibrasyonToplami += rms
+            // Ses işleme motoru açılırken ilk tamponlar yüksek bir geçici
+            // üretir (günlükte 0.05–0.15). Ortalama bu geçiciyi gürültü
+            // sanıp eşiği konuşmanın üstüne çıkarıyordu; kapı hiç açılmıyor,
+            // tur hiç kapanmıyordu. En düşük örnek gerçek taban gürültüsüdür.
+            if rms > 0 { kalibrasyonEnDusuk = min(kalibrasyonEnDusuk, rms) }
             kalibrasyonOrnegi += 1
             gecenMs += sureMs
             return nil
         }
-        let gurultu = kalibrasyonOrnegi == 0 ? 0 : kalibrasyonToplami / Float(kalibrasyonOrnegi)
+        let gurultu = kalibrasyonEnDusuk == .greatestFiniteMagnitude ? 0 : kalibrasyonEnDusuk
         // Tabanlar ÖLÇÜMLE düşürüldü: bu makinede konuşma 0.007–0.010 RMS
         // üretiyor ve eski 0.012 tabanı konuşmayı hiç görmüyordu. Gürültüye
         // göre uyarlanan çarpan asıl karardır; taban yalnızca tam sessizlikte
@@ -109,6 +113,8 @@ final class Tur {
     var konusmaMs = 0
     var sonKismi = ""
     var sonKismiGuven: Float = 0
+    /// Kısmi metin her değiştiğinde artar; durma gözcüsü bununla eşleşir.
+    var kismiSayaci = 0
     /// Bu turda en son ne zaman bir işaret geldi (kısmi sonuç ya da konuşma
     /// sesi). Gözcü buna bakar; sabit süreye bakmak konuşmanın ORTASINDA turu
     /// kesiyordu ve kullanıcı Talk'ı kapatıp açmak zorunda kalıyordu.
@@ -574,6 +580,26 @@ private let enUzunTurSaniye = 12.0
 //: gelmezse tur asılı kalmış demektir ve dinleme zorla sürdürülür.
 private let geriCagriBeklemeSaniye = 5.0
 
+//: Kısmi metin bu kadar süre DEĞİŞMEZSE kullanıcı sözünü bitirmiştir.
+//:
+//: Ölçülen hata: ses kapısı (RMS) bazı mikrofonlarda `ses-bitti` üretmiyor;
+//: `endAudio()` hiç çağrılmadığı için Apple `isFinal` vermiyor, arayüz kısmi
+//: metni görüp bile hiçbir şey göndermiyordu. Bitiş kararı artık tanıyıcının
+//: kendi çıktısına da bağlıdır; kapı yalnız ek bir kaynaktır.
+private let kismiDurmaSaniye = 1.4
+
+/// Kısmi metin durduysa turu kapat; final böylece teslim edilir.
+func kismiDurmaGozcusuKur(turNo: Int, sayac: Int) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + kismiDurmaSaniye) {
+        durumla {
+            guard !bitiyor, acikTurNo == turNo, acikIstek != nil else { return }
+            guard let tur = turlar[turNo], tur.kismiSayaci == sayac else { return }
+            taniYaz("kismi-durdu", uzunluk: tur.sonKismi.count, guven: 0, segment: turNo)
+            konusmaKapat()
+        }
+    }
+}
+
 /// Açık turun kimliği; gözcü yalnız KENDİ turunu kapatır.
 var acikTurNo = 0
 
@@ -672,6 +698,13 @@ func konusmaAc(segment: Int) {
                     turlar[turNo]?.sonKismi = metin
                     turlar[turNo]?.sonKismiGuven = puan
                     turlar[turNo]?.sonEtkinlik = Date()
+                    // Tanıyıcı metin üretti: konuşma vardır. Kapı açılmamış olsa
+                    // bile final bu yüzden "çok kısa" diye reddedilmez.
+                    if let tur = turlar[turNo] {
+                        tur.konusmaMs = max(tur.konusmaMs, 250)
+                        tur.kismiSayaci += 1
+                        kismiDurmaGozcusuKur(turNo: turNo, sayac: tur.kismiSayaci)
+                    }
                 }
                 metinYaz(final: false, metin: metin, guven: puan, callbackSegment: segment,
                     konusmaSuresi: turlar[turNo]?.konusmaMs)

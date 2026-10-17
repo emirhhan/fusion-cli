@@ -603,6 +603,7 @@ export function SessionUygulama({
   const history = useHistory(active?.client ?? null);
   const navigateSidebar = async (destination: string) => {
     setNewTaskError(null);
+    if (destination !== "feedback") setSurfaceSection(null);
     if (destination === "feedback") {
       // Rapor penceresi oturum gerektirmez; boş uygulamada da açılır.
       setFeedback({ tur: "geri-bildirim" });
@@ -1110,7 +1111,7 @@ export function SessionUygulama({
       content={<>{mediaPage ? <MediaScreen active={page} image={<ImageCreate client={null} />} onSelect={setPage} /> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}{!mediaPage && <button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button>}</>}
       sidebarCollapsed={layout.sidebarCollapsed}
       onSidebarClose={layout.toggleSidebar}
-      sidebar={<Sidebar collapsed={layout.sidebarCollapsed} etkin={null} onNavigate={(destination) => void navigateSidebar(destination)} onSil={(id) => controller.remove(id)} onMove={(id, root) => controller.move(id, root)} onYeni={() => void startDesktopChat()} onSec={(id) => { void controller.openStored(id).catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene.")); }} oturumlar={controller.storedConversations.map((conversation) => ({ session_id: conversation.id, source: "fusion", title: conversation.title, project: projectName(conversation.root), projectRoot: conversation.root, updated_at: conversation.updatedAt * 1000 }))} />}
+      sidebar={<Sidebar collapsed={layout.sidebarCollapsed} etkin={null} onNavigate={(destination) => void navigateSidebar(destination)} onSil={(id) => controller.remove(id)} onMove={(id, root) => controller.move(id, root)} onYeni={() => { setSurfaceSection(null); void startDesktopChat(); }} onSec={(id) => { setSurfaceSection(null); void controller.openStored(id).catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene.")); }} oturumlar={controller.storedConversations.map((conversation) => ({ session_id: conversation.id, source: "fusion", title: conversation.title, project: projectName(conversation.root), projectRoot: conversation.root, updated_at: conversation.updatedAt * 1000 }))} />}
     />{kapatmaOnayi}</>;
   }
 
@@ -1665,13 +1666,14 @@ export function SessionUygulama({
           onMove={(id, root) => controller.move(id, root)}
           onNavigate={(destination) => void navigateSidebar(destination)}
           onSec={(id) => {
+            setSurfaceSection(null);
             setPage("chat");
             // Açık sekme seçilir; diskte duran sohbet ise ÖNCE açılır. İkisi de
             // aynı listede durur: kullanıcı için ikisi de "dünkü konuşmam"dır.
             if (controller.state.sessions[id]) controller.select(id);
             else void controller.openStored(id, controller.storedConversations.find((item) => item.id === id)?.root ?? active?.root);
           }}
-          onYeni={() => void startDesktopChat()}
+          onYeni={() => { setSurfaceSection(null); void startDesktopChat(); }}
           oturumlar={[
             ...controller.sessions.map((session) => ({
               session_id: session.id,

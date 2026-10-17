@@ -6,6 +6,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { Button } from "../ui/Button";
 import "./Shell.css";
 
 const inspectorOverlayQuery = "(max-width: 1023px)";
@@ -192,7 +193,7 @@ export function Shell({
   const shell = (
     <div
       className="app-shell"
-      hidden={surfaceActive || undefined}
+      data-surface-active={rail ? surfaceActive : false}
       data-inspector-open={inspectorOpen}
       data-inspector-overlay={inspectorOverlay}
       data-inspector-placement={inspectorPlacement}
@@ -206,7 +207,7 @@ export function Shell({
       <aside aria-label="Ana navigasyon" className="app-shell__sidebar" id="fusion-sidebar" role="navigation">
         {sidebar}
       </aside>
-      <section className="app-shell__workspace">
+      <section className="app-shell__workspace" hidden={(rail && surfaceActive) || undefined}>
         {header && <header className="app-shell__header">{header}</header>}
         <div aria-label="Bildirimler" className="app-shell__notices" role="region">{notices}</div>
         {emptyChat && composer ? (
@@ -223,7 +224,26 @@ export function Shell({
           </>
         )}
       </section>
-      {inspector && (
+      {rail && (
+        <div className="app-shell__surface app-frame__surface" hidden={!surfaceActive}>
+          {/* Bölüm yüzeyleri kenar çubuğunu kendi başlıklarında taşımaz: Ayarlar
+              dışında her ekranda kenar çubuğu durur, bu düğme onu daraltır/açar. */}
+          {onSidebarClose && (
+            <div className="app-shell__surface-bar">
+              <Button
+                aria-controls="fusion-sidebar"
+                aria-expanded={!sidebarCollapsed}
+                aria-label={sidebarCollapsed ? "Navigasyonu aç" : "Navigasyonu daralt"}
+                icon="sidebar"
+                iconOnly
+                onClick={onSidebarClose}
+              />
+            </div>
+          )}
+          <div className="app-shell__surface-body">{surface}</div>
+        </div>
+      )}
+      {inspector && !(rail && surfaceActive) && (
         <aside
           aria-label="Denetçi"
           className="app-shell__inspector"
@@ -259,7 +279,6 @@ export function Shell({
     <div className="app-frame">
       {rail}
       {shell}
-      <div className="app-frame__surface" hidden={!surfaceActive}>{surface}</div>
     </div>
   );
 }
