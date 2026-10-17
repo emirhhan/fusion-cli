@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { selectDirectory } from "../platform/dialog";
 import { Icon } from "../ui/Icon";
 import { DAY_LABELS, describeSchedule, formatMoment, type ScheduleClient, type ScheduleKind, type ScheduledTask } from "./types";
+import { SCHEDULE_TEMPLATES, type ScheduleTemplate } from "./templates";
 import "./ScheduleScreen.css";
 
 interface ScheduleScreenProps {
@@ -31,6 +32,24 @@ const KIND_LABEL: Record<ScheduleKind, string> = {
   haftalik: "Haftanın günleri",
   aralik: "Belirli aralıkla",
 };
+
+type Tab = "mine" | "templates";
+type Filter = "all" | "active" | "paused";
+type Sort = "next" | "name" | "last";
+
+const FILTER_LABEL: Record<Filter, string> = { all: "Tümü", active: "Etkin", paused: "Duraklatılan" };
+const SORT_LABEL: Record<Sort, string> = { next: "Sıradaki zamana göre", name: "Ada göre", last: "Son çalışmaya göre" };
+
+function draftFromTemplate(template: ScheduleTemplate, root: string): Draft {
+  return {
+    ...emptyDraft(root),
+    baslik: template.baslik,
+    gorev: template.gorev,
+    gunler: template.gunler ?? [0],
+    saat: template.saat,
+    tur: template.tur,
+  };
+}
 
 function emptyDraft(root: string): Draft {
   return { baslik: "", dakika: "60", gorev: "", gunler: [0], kok: root, saat: "09:00", tarih: "", tur: "gunluk" };
@@ -102,71 +121,195 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
     update({ gunler: draft?.gunler.includes(day) ? draft.gunler.filter((item) => item !== day) : [...(draft?.gunler ?? []), day] });
 
   const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
-  const active = tasks.filter((task) => task.etkin && task.sonraki !== null).length;
-  const paused = tasks.length - active;
-  const openDraft = () => { setError(null); setDraft(emptyDraft(defaultRoot)); };
+  const [tab, setTab] = useState<Tab>("mine");
+  const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [sort, setSort] = useState<Sort>("next");
+  const [menu, setMenu] = useState<"filter" | "sort" | null>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+
+  const openDraft = (next?: Draft) => { setError(null); setDraft(next ?? emptyDraft(defaultRoot)); };
+  const useTemplate = (template: ScheduleTemplate) => openDraft(draftFromTemplate(template, defaultRoot));
+
+  const visibleTasks = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase("tr");
+    const isActive = (task: ScheduledTask) => task.etkin && task.sonraki !== null;
+    const list = tasks.filter((task) => {
+      if (filter === "active" && !isActive(task)) return false;
+      if (filter === "paused" && isActive(task)) return false;
+      return !needle || `${task.baslik} ${task.gorev}`.toLocaleLowerCase("tr").includes(needle);
+    });
+    const byNext = (task: ScheduledTask) => task.sonraki ?? Number.POSITIVE_INFINITY;
+    return [...list].sort((left, right) => {
+      if (sort === "name") return left.baslik.localeCompare(right.baslik, "tr");
+      if (sort === "last") return (right.son_calisma ?? 0) - (left.son_calisma ?? 0);
+      // Etkin görevler önde (en yakın zaman en üstte); duraklatılanlar sonda.
+      if (isActive(left) !== isActive(right)) return isActive(left) ? -1 : 1;
+      return byNext(left) - byNext(right);
+    });
+  }, [tasks, query, filter, sort]);
 
   useEffect(() => {
-    if (!draft) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setDraft(null); };
+    if (!draft && menu === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (menu !== null) setMenu(null);
+      else setDraft(null);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [draft]);
+  }, [draft, menu]);
+
+  useEffect(() => {
+    if (menu === null) return;
+    const onDown = (event: MouseEvent) => {
+      if (!toolbarRef.current?.contains(event.target as Node)) setMenu(null);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [menu]);
+
+  const templateGrid = (
+    <ul aria-label="Şablonlar" className="schedule__grid">
+      {SCHEDULE_TEMPLATES.map((template) => (
+        <li key={template.id}>
+          <button className="schedule__card schedule__card--template" onClick={() => useTemplate(template)} type="button">
+            <span aria-hidden="true" className="schedule__tile"><Icon name={template.simge} size={20} /></span>
+            <span className="schedule__card-body">
+              <strong className="schedule__title">{template.baslik}</strong>
+              <span className="schedule__prompt">{template.aciklama}</span>
+              <span className="schedule__when"><Icon name="clock" size={14} /> {describeSchedule(template)}</span>
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
 
   return (
     <div className="schedule">
       <header className="schedule__header" data-tauri-drag-region>
-        <span aria-hidden="true" className="schedule__header-mark"><Icon name="clock" size={22} /></span>
-        <div className="schedule__header-text">
-          <h1>Zamanlananlar</h1>
-          <p className="schedule__hint">Görevler Fusion açıkken çalışır; her çalışma yeni bir sohbet açar.</p>
-        </div>
-        <button className="schedule__primary" disabled={!client} onClick={openDraft} type="button">
-          <Icon name="new" size={16} /> Yeni görev
-        </button>
+        <h1>Zamanlananlar</h1>
+        <p className="schedule__hint">Görevler Fusion açıkken çalışır; her çalışma yeni bir sohbet açar.</p>
       </header>
-      {tasks.length > 0 && (
-        <p aria-label="Özet" className="schedule__summary">
-          <strong>{active}</strong> etkin{paused > 0 && <> · <strong>{paused}</strong> duraklatıldı</>}
-        </p>
-      )}
+
+      <div className="schedule__toolbar" ref={toolbarRef}>
+        <div aria-label="Zamanlananlar bölümleri" className="schedule__tabs" role="tablist">
+          <button aria-selected={tab === "mine"} className="schedule__tab" onClick={() => setTab("mine")} role="tab" type="button">Görevlerim</button>
+          <button aria-selected={tab === "templates"} className="schedule__tab" onClick={() => setTab("templates")} role="tab" type="button">Şablonlar</button>
+        </div>
+        <div className="schedule__tools">
+          {searchOpen && (
+            <input
+              aria-label="Görevlerde ara"
+              autoFocus
+              className="schedule__search"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Ara…"
+              value={query}
+            />
+          )}
+          <button
+            aria-label="Ara"
+            aria-pressed={searchOpen}
+            className="schedule__tool"
+            onClick={() => { setSearchOpen((open) => !open); if (searchOpen) setQuery(""); }}
+            title="Ara"
+            type="button"
+          >
+            <Icon name="search" size={17} />
+          </button>
+          <div className="schedule__menu-wrap">
+            <button
+              aria-expanded={menu === "filter"}
+              aria-haspopup="menu"
+              aria-label="Süz"
+              className="schedule__tool"
+              data-active={filter !== "all"}
+              onClick={() => setMenu(menu === "filter" ? null : "filter")}
+              title="Süz"
+              type="button"
+            >
+              <Icon name="filter" size={17} />
+            </button>
+            {menu === "filter" && (
+              <div aria-label="Süz" className="schedule__menu" role="menu">
+                {(Object.keys(FILTER_LABEL) as Filter[]).map((key) => (
+                  <button aria-checked={filter === key} key={key} onClick={() => { setFilter(key); setMenu(null); }} role="menuitemradio" type="button">
+                    {FILTER_LABEL[key]}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="schedule__menu-wrap">
+            <button
+              aria-expanded={menu === "sort"}
+              aria-haspopup="menu"
+              aria-label="Sırala"
+              className="schedule__tool"
+              onClick={() => setMenu(menu === "sort" ? null : "sort")}
+              title="Sırala"
+              type="button"
+            >
+              <Icon name="sort" size={17} />
+            </button>
+            {menu === "sort" && (
+              <div aria-label="Sırala" className="schedule__menu" role="menu">
+                {(Object.keys(SORT_LABEL) as Sort[]).map((key) => (
+                  <button aria-checked={sort === key} key={key} onClick={() => { setSort(key); setMenu(null); }} role="menuitemradio" type="button">
+                    {SORT_LABEL[key]}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button className="schedule__primary" disabled={!client} onClick={() => openDraft()} type="button">
+            Yeni görev
+          </button>
+        </div>
+      </div>
+
       {error && !draft && <p className="schedule__error" role="alert">{error}</p>}
-      {!client ? (
+
+      {tab === "templates" ? templateGrid : !client ? (
         <p className="schedule__empty">Zamanlananları görmek için Home'da bir sohbet aç.</p>
       ) : tasks.length === 0 ? (
-        <div className="schedule__empty-state">
-          <span aria-hidden="true" className="schedule__empty-disc"><Icon name="clock" size={30} /></span>
-          <p className="schedule__empty-title">Henüz zamanlanmış görev yok.</p>
-          <p className="schedule__hint">Düzenli işleri Fusion'a ver: sabah raporu, haftalık özet, fiyat güncelleme…</p>
-          <button className="schedule__primary" onClick={openDraft} type="button">İlk görevini oluştur</button>
-        </div>
+        <>
+          <div className="schedule__empty-state">
+            <StopwatchArt />
+            <p className="schedule__empty-title">Henüz zamanlanmış görev yok.</p>
+            <button className="schedule__primary" onClick={() => openDraft()} type="button">İlk görevini oluştur</button>
+          </div>
+          <hr aria-hidden="true" className="schedule__divider" />
+          {templateGrid}
+        </>
+      ) : visibleTasks.length === 0 ? (
+        <p className="schedule__empty">Aramana ya da süzgecine uyan görev yok.</p>
       ) : (
-        <ul aria-label="Zamanlanmış görevler" className="schedule__list">
-          {tasks.map((task) => (
-            <li className="schedule__item" data-enabled={task.etkin} key={task.id}>
-              <span aria-hidden="true" className="schedule__badge"><Icon name="clock" size={18} /></span>
-              <div className="schedule__item-main">
+        <ul aria-label="Zamanlanmış görevler" className="schedule__grid">
+          {visibleTasks.map((task) => (
+            <li className="schedule__card" data-enabled={task.etkin} key={task.id}>
+              <span aria-hidden="true" className="schedule__tile"><Icon name="clock" size={20} /></span>
+              <div className="schedule__card-body">
                 <p className="schedule__title">{task.baslik}</p>
                 {task.gorev && task.gorev !== task.baslik && <p className="schedule__prompt">{task.gorev}</p>}
-                <div className="schedule__chips">
-                  <span className="schedule__chip">{describeSchedule(task)}</span>
-                  <span className="schedule__chip" data-tone={task.etkin && task.sonraki ? "next" : "muted"}>
+                <p className="schedule__when">
+                  <Icon name="clock" size={14} />
+                  <span>{describeSchedule(task)}</span>
+                  <span className="schedule__dot" aria-hidden="true">·</span>
+                  <span data-tone={task.etkin && task.sonraki ? "next" : "muted"}>
                     {task.etkin && task.sonraki ? `Sıradaki ${formatMoment(task.sonraki)}` : task.sonraki ? "Duraklatıldı" : "Tamamlandı"}
                   </span>
-                  <span className="schedule__chip" title={task.kok}><Icon name="folder" size={12} /> {folderName(task.kok)}</span>
-                </div>
-                {task.son_calisma && (
-                  <p className="schedule__meta">Son çalışma {formatMoment(task.son_calisma)}{task.son_gecikmeli ? " (gecikmeli: Fusion kapalıydı)" : ""}</p>
-                )}
+                </p>
+                <p className="schedule__meta" title={task.kok}>
+                  <Icon name="folder" size={12} /> <span>{folderName(task.kok)}</span>
+                  {task.son_calisma ? <> · Son çalışma {formatMoment(task.son_calisma)}{task.son_gecikmeli ? " (gecikmeli: Fusion kapalıydı)" : ""}</> : null}
+                </p>
               </div>
               <div className="schedule__actions">
-                <button
-                  aria-label="Şimdi çalıştır"
-                  className="schedule__icon-button"
-                  onClick={() => void runNow(task)}
-                  title="Şimdi çalıştır"
-                  type="button"
-                >
+                <button aria-label="Şimdi çalıştır" className="schedule__icon-button" onClick={() => void runNow(task)} title="Şimdi çalıştır" type="button">
                   <Icon name="play" size={15} />
                 </button>
                 {task.sonraki !== null && (
@@ -196,6 +339,7 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
           ))}
         </ul>
       )}
+
       {draft && (
         <div className="schedule__overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setDraft(null); }}>
           <div aria-label="Yeni zamanlanmış görev" aria-modal="true" className="schedule__dialog" role="dialog">
@@ -234,5 +378,17 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
         </div>
       )}
     </div>
+  );
+}
+
+/** Boş durum çizimi: marka çizgi diliyle kronometre. */
+function StopwatchArt() {
+  return (
+    <svg aria-hidden="true" className="schedule__stopwatch" fill="none" height="84" viewBox="0 0 84 84" width="84">
+      <rect height="7" rx="2" stroke="currentColor" strokeWidth="2.4" width="20" x="32" y="4" />
+      <path d="M42 11v7" stroke="currentColor" strokeWidth="2.4" />
+      <circle cx="42" cy="46" fill="currentColor" fillOpacity=".1" r="29" stroke="currentColor" strokeWidth="2.4" />
+      <path d="M42 46V28M42 46l12 7" stroke="currentColor" strokeLinecap="round" strokeWidth="2.4" />
+    </svg>
   );
 }

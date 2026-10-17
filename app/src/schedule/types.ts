@@ -57,13 +57,19 @@ export interface ScheduleClient {
 }
 
 const DAYS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
+const FULL_DAYS = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
 
 /** Görevin ne zaman çalıştığını okunur Türkçe ile anlat. */
 export function describeSchedule(task: Pick<ScheduledTask, "tur" | "saat" | "gunler" | "dakika" | "zaman">): string {
   if (task.tur === "gunluk") return `Her gün ${task.saat ?? ""}`.trim();
   if (task.tur === "haftalik") {
-    const days = [...(task.gunler ?? [])].sort((a, b) => a - b).map((day) => DAYS[day] ?? "?").join(", ");
-    return `${days} ${task.saat ?? ""}`.trim();
+    const sorted = [...new Set(task.gunler ?? [])].sort((a, b) => a - b);
+    const time = task.saat ?? "";
+    // Okunur adlar: "Hafta içi 09:00", "Her Cuma 16:00"; başka kümeler kısaltmalarla yazılır.
+    if (sorted.join() === "0,1,2,3,4") return `Hafta içi ${time}`.trim();
+    if (sorted.length === 7) return `Her gün ${time}`.trim();
+    if (sorted.length === 1) return `Her ${FULL_DAYS[sorted[0]] ?? "?"} ${time}`.trim();
+    return `${sorted.map((day) => DAYS[day] ?? "?").join(", ")} ${time}`.trim();
   }
   if (task.tur === "aralik") {
     const minutes = task.dakika ?? 0;

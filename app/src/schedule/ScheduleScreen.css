@@ -10,25 +10,11 @@
   width: 100%;
 }
 
-/* --- Başlık: simge karosu + metin + birincil eylem --- */
-.schedule__header { align-items: center; display: flex; gap: 14px; }
-.schedule__header-mark {
-  align-items: center;
-  background: var(--surface-raised);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  color: var(--text-primary);
-  display: inline-flex;
-  flex: none;
-  height: 44px;
-  justify-content: center;
-  width: 44px;
-}
-.schedule__header-text { flex: 1; min-width: 0; }
-.schedule__header h1 { font-size: 22px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 2px; }
+/* --- Başlık: büyük sayfa başlığı (Claude'un "Scheduled tasks" sayfasıyla aynı düzen) --- */
+.schedule { max-width: 1040px; padding: calc(var(--titlebar-inset, 0px) + 40px) 32px 40px; gap: 18px; }
+.schedule__header { display: grid; gap: 6px; margin-bottom: 8px; }
+.schedule__header h1 { font-size: 34px; font-weight: 600; letter-spacing: -.025em; line-height: 1.15; margin: 0; }
 .schedule__hint, .schedule__meta, .schedule__empty { color: var(--text-secondary); font-size: 12px; line-height: 1.5; margin: 0; }
-.schedule__summary { color: var(--text-secondary); font-size: 13px; margin: 0 0 2px; }
-.schedule__summary strong { color: var(--text-primary); font-variant-numeric: tabular-nums; }
 .schedule__empty { font-size: 14px; padding: 48px 0; text-align: center; }
 .schedule__error { color: var(--text-danger); font-size: 13px; margin: 0; }
 
@@ -60,80 +46,106 @@
 }
 .schedule .schedule__primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
 
-/* --- Boş durum --- */
-.schedule__empty-state { align-items: center; display: grid; gap: 8px; justify-items: center; padding: 64px 16px; text-align: center; }
-.schedule__empty-disc {
+/* --- Araç çubuğu: sekmeler solda; ara / süz / sırala / yeni görev sağda --- */
+.schedule__toolbar { align-items: center; display: flex; gap: 12px; justify-content: space-between; position: relative; }
+.schedule__tabs { display: flex; gap: 4px; }
+.schedule .schedule__tab { border: 0; border-radius: 10px; color: var(--text-secondary); font-size: 14px; padding: 7px 14px; }
+.schedule .schedule__tab[aria-selected="true"] { background: var(--surface-hover); color: var(--text-primary); }
+.schedule__tools { align-items: center; display: flex; gap: 6px; }
+.schedule .schedule__tool {
   align-items: center;
-  background: var(--surface-raised);
-  border: 1px solid var(--border-subtle);
-  border-radius: 50%;
-  box-shadow: 0 8px 28px rgb(0 0 0 / 14%);
+  border: 0;
+  border-radius: 10px;
   color: var(--text-secondary);
   display: inline-flex;
-  height: 72px;
+  height: 34px;
   justify-content: center;
-  margin-bottom: 8px;
-  width: 72px;
+  padding: 0;
+  width: 34px;
 }
-.schedule__empty-title { font-size: 16px; font-weight: 600; margin: 0; }
-.schedule__empty-state .schedule__primary { margin-top: 10px; }
-
-/* --- Görev kartları --- */
-.schedule__list { display: flex; flex-direction: column; gap: 10px; list-style: none; margin: 0; padding: 0; }
-.schedule__item {
-  align-items: flex-start;
+.schedule .schedule__tool:hover:not(:disabled), .schedule .schedule__tool[aria-pressed="true"], .schedule .schedule__tool[aria-expanded="true"], .schedule .schedule__tool[data-active="true"] { color: var(--text-primary); }
+.schedule .schedule__tool[data-active="true"] { background: var(--surface-hover); }
+.schedule .schedule__search {
   background: var(--surface-raised);
   border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-primary);
+  height: 34px;
+  padding: 0 12px;
+  width: 200px;
+}
+.schedule__menu-wrap { position: relative; }
+.schedule__menu {
+  background: var(--surface-menu, var(--surface-raised));
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgb(0 0 0 / 28%);
+  display: grid;
+  min-width: 200px;
+  padding: 6px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+}
+.schedule .schedule__menu button { border: 0; border-radius: 9px; font-size: 13px; padding: 8px 12px; text-align: left; }
+.schedule .schedule__menu button[aria-checked="true"] { background: var(--surface-hover); font-weight: 600; }
+
+/* --- Boş durum + şablonlar --- */
+.schedule__empty-state { align-items: center; display: grid; gap: 14px; justify-items: center; padding: 44px 16px 36px; text-align: center; }
+.schedule__stopwatch { color: var(--text-primary); opacity: .9; }
+.schedule__empty-title { color: var(--text-secondary); font-size: 15px; margin: 0; }
+.schedule__divider { border: 0; border-top: 1px dashed var(--border-subtle); margin: 8px 0 18px; width: 100%; }
+
+/* --- Kart ızgarası: şablonlar ve görevler aynı dilde (çerçevesiz, simge karolu) --- */
+.schedule__grid { display: grid; gap: 6px 28px; grid-template-columns: repeat(2, minmax(0, 1fr)); list-style: none; margin: 0; padding: 0; }
+.schedule__card {
+  align-items: flex-start;
   border-radius: var(--radius-lg);
   display: flex;
   gap: 14px;
-  padding: 14px 16px;
-  transition: border-color var(--duration-fast, 150ms) var(--ease-standard, ease), box-shadow var(--duration-fast, 150ms) var(--ease-standard, ease);
+  padding: 14px 12px;
+  transition: background-color var(--duration-fast, 150ms) var(--ease-standard, ease);
 }
-.schedule__item:hover { border-color: var(--border-strong, var(--border-subtle)); box-shadow: 0 6px 20px rgb(0 0 0 / 8%); }
-.schedule__item[data-enabled="false"] { opacity: .78; }
-.schedule__item[data-enabled="false"] .schedule__title { color: var(--text-secondary); }
-.schedule__badge {
+.schedule__card:hover { background: var(--surface-hover); }
+.schedule .schedule__card--template {
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-lg);
+  display: flex;
+  padding: 14px 12px;
+  text-align: left;
+  width: 100%;
+}
+.schedule__card[data-enabled="false"] { opacity: .72; }
+.schedule__tile {
   align-items: center;
-  background: var(--surface-canvas);
+  background: var(--surface-raised);
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
   color: var(--text-secondary);
   display: inline-flex;
   flex: none;
-  height: 36px;
+  height: 42px;
   justify-content: center;
-  width: 36px;
+  width: 42px;
 }
-.schedule__item-main { display: grid; flex: 1; gap: 6px; min-width: 0; }
-.schedule__title { font-size: 14px; font-weight: 600; margin: 0; }
+.schedule__card-body { display: grid; flex: 1; gap: 4px; min-width: 0; }
+.schedule__title { font-size: 15px; font-weight: 550; margin: 0; }
 .schedule__prompt {
   color: var(--text-secondary);
   display: -webkit-box;
-  font-size: 13px;
+  font-size: 13.5px;
   line-height: 1.45;
   margin: 0;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-.schedule__chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.schedule__chip {
-  align-items: center;
-  background: var(--surface-canvas);
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  color: var(--text-secondary);
-  display: inline-flex;
-  font-size: 11.5px;
-  gap: 4px;
-  max-width: 100%;
-  overflow: hidden;
-  padding: 2px 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.schedule__chip[data-tone="next"] { color: var(--text-primary); }
+.schedule__when { align-items: center; color: var(--text-secondary); display: flex; flex-wrap: wrap; font-size: 12.5px; gap: 6px; margin: 2px 0 0; }
+.schedule__when [data-tone="next"] { color: var(--text-primary); }
+.schedule__dot { opacity: .6; }
+.schedule__meta { align-items: center; display: flex; flex-wrap: wrap; gap: 4px; }
 
 /* --- Satır eylemleri: çalıştır, aç/kapa anahtarı, sil --- */
 .schedule__actions { align-items: center; display: flex; flex: none; gap: 8px; }
@@ -224,11 +236,11 @@
 .schedule__folder button { padding: 4px 10px; }
 .schedule__form-actions { justify-content: flex-end; margin-top: 4px; }
 
-@media (max-width: 640px) {
-  .schedule { padding-inline: 16px; }
-  .schedule__item { flex-wrap: wrap; }
-  .schedule__actions { margin-left: 50px; }
+@media (max-width: 760px) {
+  .schedule { padding-inline: 18px; }
+  .schedule__grid { grid-template-columns: 1fr; }
+  .schedule__toolbar { align-items: flex-start; flex-direction: column; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .schedule button, .schedule__item, .schedule__switch, .schedule__switch span { transition: none; }
+  .schedule button, .schedule__card, .schedule__switch, .schedule__switch span { transition: none; }
 }

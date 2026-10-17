@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ScheduleScreen, draftPayload } from "./ScheduleScreen";
@@ -25,6 +25,9 @@ describe("describeSchedule", () => {
   it("takvimi okunur Türkçe ile anlatır", () => {
     expect(describeSchedule({ tur: "gunluk", saat: "09:00" })).toBe("Her gün 09:00");
     expect(describeSchedule({ tur: "haftalik", saat: "18:30", gunler: [4, 0] })).toBe("Pzt, Cum 18:30");
+    expect(describeSchedule({ tur: "haftalik", saat: "09:00", gunler: [0, 1, 2, 3, 4] })).toBe("Hafta içi 09:00");
+    expect(describeSchedule({ tur: "haftalik", saat: "16:00", gunler: [4] })).toBe("Her Cuma 16:00");
+    expect(describeSchedule({ tur: "haftalik", saat: "08:00", gunler: [0, 1, 2, 3, 4, 5, 6] })).toBe("Her gün 08:00");
     expect(describeSchedule({ tur: "aralik", dakika: 120 })).toBe("2 saatte bir");
     expect(describeSchedule({ tur: "aralik", dakika: 45 })).toBe("45 dakikada bir");
   });
@@ -86,8 +89,8 @@ describe("ScheduleScreen", () => {
   });
 });
 
-describe("ScheduleScreen — kart görünümü", () => {
-  it("kartta istem özeti, sıklık, sıradaki zaman ve klasör rozetleri ile açık anahtar görünür", async () => {
+describe("ScheduleScreen — Claude düzeni", () => {
+  it("kartta istem özeti, sıklık, sıradaki zaman ve klasör görünür; anahtar açıktır", async () => {
     const { client } = fakeClient();
     render(<ScheduleScreen client={client} defaultRoot="/proje" onRunNow={vi.fn()} />);
     expect(await screen.findByText("Stok raporunu çıkar")).toBeTruthy();
@@ -95,23 +98,84 @@ describe("ScheduleScreen — kart görünümü", () => {
     expect(screen.getByText(/^Sıradaki /)).toBeTruthy();
     expect(screen.getByText("proje")).toBeTruthy();
     expect(screen.getByRole("switch", { name: "Duraklat" }).getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByLabelText("Özet").textContent).toContain("1 etkin");
   });
 
-  it("duraklatılmış görev kapalı anahtar ve 'Duraklatıldı' rozetiyle görünür; özet sayar", async () => {
+  it("duraklatılmış görev kapalı anahtar ve 'Duraklatıldı' ile görünür", async () => {
     const paused = { ...gorev, etkin: false };
     const { client } = fakeClient([paused, { ...gorev, id: "a2", baslik: "Haftalık özet" }]);
     render(<ScheduleScreen client={client} defaultRoot="/proje" onRunNow={vi.fn()} />);
     expect(await screen.findByText("Duraklatıldı")).toBeTruthy();
     expect(screen.getByRole("switch", { name: "Sürdür" }).getAttribute("aria-checked")).toBe("false");
-    expect(screen.getByLabelText("Özet").textContent).toBe("1 etkin · 1 duraklatıldı");
   });
 
-  it("boş durumda çağrı düğmesi yeni görev diyaloğunu açar; Esc ve Vazgeç kapatır", async () => {
+  it("boşken kronometre çizimi, çağrı düğmesi ve altında şablonlar görünür; şablon formu doldurur", async () => {
+    const { client } = fakeClient([]);
+    const { container } = render(<ScheduleScreen client={client} defaultRoot="/proje" onRunNow={vi.fn()} />);
+    expect(await screen.findByText("Henüz zamanlanmış görev yok.")).toBeTruthy();
+    expect(container.querySelector(".schedule__stopwatch")).not.toBeNull();
+    const templates = within(screen.getByRole("list", { name: "Şablonlar" }));
+    expect(templates.getAllByRole("button").length).toBeGreaterThanOrEqual(6);
+    expect(templates.getByText("Hafta içi 09:00")).toBeTruthy();
+    fireEvent.click(templates.getByRole("button", { name: /Sabah özeti/ }));
+    expect(screen.getByRole("dialog", { name: "Yeni zamanlanmış görev" })).toBeTruthy();
+    expect((screen.getByLabelText("Başlık") as HTMLInputElement).value).toBe("Sabah özeti");
+    expect((screen.getByLabelText("Görev") as HTMLTextAreaElement).value).toContain("son değişiklikleri");
+    expect((screen.getByLabelText("Saat") as HTMLInputElement).value).toBe("09:00");
+    expect(screen.getByRole("button", { name: "Pzt", pressed: true })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cmt", pressed: false })).toBeTruthy();
+  });
+
+  it("şablonla açılan formu kaydetmek çekirdeğe şablonun takvimini gönderir", async () => {
+    const { client, request } = fakeClient([]);
+    render(<ScheduleScreen client={client} defaultRoot="/proje" onRunNow={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Bağımlılık güncelleme kontrolü/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("zamanlama.kaydet", expect.objectContaining({
+      baslik: "Bağımlılık güncelleme kontrolü", kok: "/proje", tur: "haftalik", saat: "09:00", gunler: [0],
+    })));
+  });
+
+  it("Şablonlar sekmesi görev varken de şablonları gösterir; Görevlerim'e dönülür", async () => {
+    const { client } = fakeClient();
+    render(<ScheduleScreen client={client} defaultRoot="/proje" onRunNow={vi.fn()} />);
+    await screen.findByText("Sabah raporu");
+    fireEvent.click(screen.getByRole("tab", { name: "Şablonlar" }));
+    expect(screen.getByRole("list", { name: "Şablonlar" })).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Zamanlanmış görevler" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Görevlerim" }));
+    expect(screen.getByRole("list", { name: "Zamanlanmış görevler" })).toBeTruthy();
+  });
+
+  it("arama, süzgeç ve sıralama görev listesini değiştirir", async () => {
+    const tasks = [
+      { ...gorev, id: "a", baslik: "Zebra", sonraki: 1_800_000_300 },
+      { ...gorev, id: "b", baslik: "Armut", sonraki: 1_800_000_100 },
+      { ...gorev, id: "c", baslik: "Kaplan", etkin: false },
+    ];
+    const { client } = fakeClient(tasks);
+    render(<ScheduleScreen client={client} defaultRoot="/proje" onRunNow={vi.fn()} />);
+    await screen.findByText("Zebra");
+    const titles = () => screen.getAllByRole("listitem").map((item) => item.querySelector(".schedule__title")?.textContent);
+    expect(titles()).toEqual(["Armut", "Zebra", "Kaplan"]); // sıradaki zamana göre, duraklatılan sonda
+    fireEvent.click(screen.getByRole("button", { name: "Sırala" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Ada göre" }));
+    expect(titles()).toEqual(["Armut", "Kaplan", "Zebra"]);
+    fireEvent.click(screen.getByRole("button", { name: "Süz" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Duraklatılan" }));
+    expect(titles()).toEqual(["Kaplan"]);
+    fireEvent.click(screen.getByRole("button", { name: "Süz" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Tümü" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ara" }));
+    fireEvent.change(screen.getByLabelText("Görevlerde ara"), { target: { value: "zeb" } });
+    expect(titles()).toEqual(["Zebra"]);
+    fireEvent.change(screen.getByLabelText("Görevlerde ara"), { target: { value: "yok böyle" } });
+    expect(screen.getByText("Aramana ya da süzgecine uyan görev yok.")).toBeTruthy();
+  });
+
+  it("diyalog Esc ve Vazgeç ile kapanır", async () => {
     const { client } = fakeClient([]);
     render(<ScheduleScreen client={client} defaultRoot="/proje" onRunNow={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "İlk görevini oluştur" }));
-    expect(screen.getByRole("dialog", { name: "Yeni zamanlanmış görev" })).toBeTruthy();
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Yeni görev" }));

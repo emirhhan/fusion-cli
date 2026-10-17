@@ -38,9 +38,27 @@ export type IconName =
   | "clock"
   | "library"
   | "play"
-  | "trash";
+  | "trash"
+  | "sun"
+  | "pulse"
+  | "branch"
+  | "shield"
+  | "flask"
+  | "scroll"
+  | "tasks"
+  | "filter"
+  | "sort";
 
 const paths: Record<IconName, ReactNode> = {
+  sun: <><circle cx="12" cy="12" r="4" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" /></>,
+  pulse: <><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M6 14h3l2-4 3 6 2-3h2" /></>,
+  branch: <><circle cx="6" cy="5.5" r="2" /><circle cx="6" cy="18.5" r="2" /><circle cx="18" cy="18.5" r="2" /><path d="M6 7.5v9M18 16.5V10a3 3 0 0 0-3-3h-2" /><path d="m15 4-2.5 3L15 10" /></>,
+  shield: <><path d="M12 3 5 6v5.5c0 4.2 2.9 7.8 7 9 4.1-1.2 7-4.8 7-9V6l-7-3Z" /><circle cx="12" cy="11.5" r="2.4" /></>,
+  flask: <><path d="M9 3h6" /><path d="M10 3v6L5 18a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3" /><path d="M7.5 15h9" /></>,
+  scroll: <><path d="M6 4h12a2 2 0 0 1 2 2v13a1 1 0 0 1-1 1H8a2 2 0 0 1-2-2V4Z" /><path d="M6 4a2 2 0 0 0-2 2v2h2" /><path d="M10 9h6M10 13h6" /></>,
+  tasks: <><path d="M10 6h10M10 12h10M10 18h10" /><rect x="3.5" y="4.5" width="3" height="3" rx=".8" /><rect x="3.5" y="10.5" width="3" height="3" rx=".8" /><rect x="3.5" y="16.5" width="3" height="3" rx=".8" /></>,
+  filter: <><path d="M5 4v7M5 15v5M12 4v2M12 10v10M19 4v9M19 17v3" /><circle cx="5" cy="13" r="2" /><circle cx="12" cy="8" r="2" /><circle cx="19" cy="15" r="2" /></>,
+  sort: <><path d="M8 4v16M4 16l4 4 4-4" /><path d="M16 20V4M12 8l4-4 4 4" /></>,
   play: <path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z" />,
   trash: <><path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" /><path d="M9 7V4h6v3" /></>,
   download: <><path d="M12 4v11" /><path d="m7 10 5 5 5-5" /><path d="M5 20h14" /></>,
