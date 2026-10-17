@@ -8,6 +8,8 @@ import "./Sidebar.css";
 export interface OturumSatiri {
   project?: string;
   projectRoot?: string;
+  /** Kalıcı proje kaydına bağlıysa onun kimliği; yoksa sohbet "Sohbetler" altındadır. */
+  projectId?: string;
   updated_at?: number;
   session_id: string;
   source: string;
@@ -15,6 +17,8 @@ export interface OturumSatiri {
 }
 
 export interface ProjeSatiri {
+  /** Yalnız kalıcı proje kayıtlarında vardır; klasörden türeyen projelerde yoktur. */
+  id?: string;
   name: string;
   pinned: boolean;
   root: string;
@@ -41,6 +45,13 @@ interface SidebarProps {
   onSec: (id: string) => void;
   onSil?: (id: string) => void | Promise<void>;
   onMove?: (id: string, targetRoot: string) => Promise<void>;
+  /** Kalıcı proje kayıtları: oluştur / yeniden adlandır / sil / sohbeti ata. */
+  onProjectCreate?: (input: { name: string; root?: string }) => void | Promise<void>;
+  onProjectRename?: (id: string, name: string) => void | Promise<void>;
+  onProjectDelete?: (id: string) => void | Promise<void>;
+  onAssign?: (sessionId: string, projectId: string | null) => void | Promise<void>;
+  /** Yeni proje için isteğe bağlı klasör seçici; iptalde null. */
+  onPickFolder?: () => Promise<string | null>;
   onYeni: () => void;
   oturumlar: OturumSatiri[];
   projeler?: ProjeSatiri[];
@@ -76,15 +87,17 @@ function NavItem({ icon, label, onClick }: NavItemProps) {
   );
 }
 
-function SessionButton({ session, active, onSelect, onDelete, onMove, moveTargets, pinned, onPin }: {
+interface MoveTarget { key: string; name: string; run: () => void | Promise<void> }
+
+function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProject, moveTargets, pinned, onPin }: {
   pinned: boolean;
   onPin: () => void;
   session: OturumSatiri;
   active: boolean;
   onSelect: () => void;
   onDelete?: () => void | Promise<void>;
-  onMove?: (root: string) => Promise<void>;
-  moveTargets: ProjeSatiri[];
+  onRemoveFromProject?: () => void | Promise<void>;
+  moveTargets: MoveTarget[];
 }) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -149,13 +162,17 @@ function SessionButton({ session, active, onSelect, onDelete, onMove, moveTarget
         <button aria-expanded={menuOpen} aria-haspopup="menu" aria-label={`${session.title} sohbet seçenekleri`} className="sidebar__session-move" onClick={() => setMenuOpen((open) => !open)} ref={menuButtonRef} type="button">···</button>
         {menuOpen && createPortal(<div aria-label={`${session.title} sohbet seçenekleri`} className="sidebar__move-menu" ref={menuPopupRef} role="menu">
           <button aria-checked={pinned} onClick={() => { onPin(); setMenuOpen(false); }} role="menuitemcheckbox" type="button">{pinned ? "Sabitlemeyi kaldır" : "Sabitle"}</button>
-          {onMove && moveTargets.length > 0 && <>
+          {moveTargets.length > 0 && <>
             <strong>Projeye taşı</strong>
-            {moveTargets.map((project) => <button key={project.root} onClick={() => {
+            {moveTargets.map((target) => <button key={target.key} onClick={() => {
               setMenuOpen(false);
-              void onMove(project.root).catch((error: unknown) => setDeleteError(String(error)));
-            }} role="menuitem" type="button">{project.name}</button>)}
+              void Promise.resolve().then(target.run).catch((error: unknown) => setDeleteError(String(error)));
+            }} role="menuitem" type="button">{target.name}</button>)}
           </>}
+          {onRemoveFromProject && <button onClick={() => {
+            setMenuOpen(false);
+            void Promise.resolve().then(onRemoveFromProject).catch((error: unknown) => setDeleteError(String(error)));
+          }} role="menuitem" type="button">Projeden çıkar</button>}
           {onDelete && <button className="sidebar__menu-danger" disabled={deleting} onClick={() => {
             setMenuOpen(false);
             setDeleting(true);
@@ -179,6 +196,11 @@ export function Sidebar({
   onSec,
   onSil,
   onMove,
+  onProjectCreate,
+  onProjectRename,
+  onProjectDelete,
+  onAssign,
+  onPickFolder,
   onYeni,
   oturumlar,
   projeler = [],
@@ -195,8 +217,31 @@ export function Sidebar({
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [projectPreferences, setProjectPreferences] = useState(readProjectPreferences);
   const [projectMenu, setProjectMenu] = useState<string | null>(null);
-  const [projectDialog, setProjectDialog] = useState<{ root: string; kind: "rename" | "remove" } | null>(null);
+  const [projectDialog, setProjectDialog] = useState<{ root: string; kind: "rename" | "remove"; recordId?: string } | null>(null);
   const [projectDraft, setProjectDraft] = useState("");
+  const [dialogError, setDialogError] = useState<string | null>(null);
+  const [dialogBusy, setDialogBusy] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createRoot, setCreateRoot] = useState<string | undefined>(undefined);
+  const closeDialogs = () => {
+    setProjectDialog(null);
+    setCreateOpen(false);
+    setCreateRoot(undefined);
+    setDialogError(null);
+  };
+  /** Diyalog işlemi: hata diyalogda kalır, başarıda diyalog kapanır. */
+  const runDialog = async (action: () => void | Promise<void>) => {
+    setDialogBusy(true);
+    setDialogError(null);
+    try {
+      await action();
+      closeDialogs();
+    } catch (error) {
+      setDialogError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDialogBusy(false);
+    }
+  };
   // Proje satırı tıklanınca sohbetleri gösterir/gizler (Codex'teki gibi bir
   // akordeon); varsayılan AÇIK — kullanıcı kapattığı projeler burada tutulur.
   const [closedProjects, setClosedProjects] = useState<Set<string>>(new Set());
@@ -271,15 +316,15 @@ export function Sidebar({
   const filteredProjects = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("tr");
     const available = projeler
-      .filter((project) => !projectPreferences[project.root]?.hidden && project.name !== "Desktop")
-      .map((project) => ({
+      .filter((project) => project.id || (!projectPreferences[project.root]?.hidden && project.name !== "Desktop"))
+      .map((project) => project.id ? project : ({
         ...project,
         name: projectPreferences[project.root]?.name || project.name,
         pinned: projectPreferences[project.root]?.pinned ?? project.pinned,
       }));
     const matches = normalized
       ? available.filter((project) =>
-          `${project.name} ${project.root}`.toLocaleLowerCase("tr").includes(normalized),
+          `${project.name} ${project.root ?? ""}`.toLocaleLowerCase("tr").includes(normalized),
         )
       : available;
     return [...matches].sort((left, right) => {
@@ -288,13 +333,16 @@ export function Sidebar({
     });
   }, [projectPreferences, projeler, query]);
   const sessionGroups = useMemo(() => {
-    const groups = new Map<string, { name: string; root?: string; sessions: OturumSatiri[] }>();
-    for (const project of filteredProjects) groups.set(project.root, { name: project.name, root: project.root, sessions: [] });
+    const groups = new Map<string, { name: string; root?: string; id?: string; sessions: OturumSatiri[] }>();
+    for (const project of filteredProjects) {
+      groups.set(project.id ? `kayit:${project.id}` : project.root, { name: project.name, root: project.root, id: project.id, sessions: [] });
+    }
     for (const session of filteredSessions) {
-      const project = filteredProjects.find((item) => session.projectRoot ? item.root === session.projectRoot : item.name === session.project);
+      const record = session.projectId ? filteredProjects.find((item) => item.id === session.projectId) : undefined;
+      const project = record ?? filteredProjects.find((item) => !item.id && (session.projectRoot ? item.root === session.projectRoot : item.name === session.project));
       const looseName = !session.projectRoot && session.project !== "Desktop"
         ? session.project : undefined;
-      const key = project?.root ?? looseName ?? "Sohbetler";
+      const key = project?.id ? `kayit:${project.id}` : project?.root ?? looseName ?? "Sohbetler";
       if (!groups.has(key)) groups.set(key, { name: project?.name ?? looseName ?? "Sohbetler", root: project?.root, sessions: [] });
       groups.get(key)!.sessions.push(session);
     }
@@ -305,7 +353,7 @@ export function Sidebar({
     return [...groups.entries()];
   }, [filteredProjects, filteredSessions, pinnedSessions]);
   const hasHistory = sessionGroups.length > 0 || availableSources.length > 0;
-  const hiddenProjects = projeler.filter((project) => projectPreferences[project.root]?.hidden);
+  const hiddenProjects = projeler.filter((project) => !project.id && projectPreferences[project.root]?.hidden);
   const toggleHistory = () => setHistoryExpanded((current) => {
     const next = !current;
     localStorage.setItem("fusion.sidebar.history-open.v1", String(next));
@@ -398,7 +446,7 @@ export function Sidebar({
                       onClick={() => setProjectsMenuOpen((open) => !open)}
                       type="button"
                     >···</button>
-                    <button aria-label="Yeni proje" onClick={() => onNavigate("new-project")} type="button">+</button>
+                    <button aria-label="Yeni proje" onClick={() => onProjectCreate ? (setProjectDraft(""), setDialogError(null), setCreateOpen(true)) : onNavigate("new-project")} type="button">+</button>
                   </span>
                   {projectsMenuOpen && (
                     <div aria-label="Proje listesi seçenekleri" className="sidebar__project-menu sidebar__projects-menu" role="menu">
@@ -416,15 +464,16 @@ export function Sidebar({
                   )}
                 </div>
                 {sessionGroups.map(([groupKey, group]) => {
-                  const isOpen = !group.root || !closedProjects.has(group.root);
+                  const pk = group.id ?? (group.root || undefined);
+                  const isOpen = !pk || !closedProjects.has(pk);
                   return (
                   <section aria-label={group.name} className="sidebar__section" key={groupKey}>
-                    <h2 className="sidebar__section-title">{group.root ? <span className="sidebar__project-row">
+                    <h2 className="sidebar__section-title">{pk ? <span className="sidebar__project-row">
                       <button
                         aria-expanded={isOpen}
                         aria-label={`${group.name} projesini aç`}
                         className="sidebar__project"
-                        onClick={() => toggleProjectOpen(group.root!)}
+                        onClick={() => toggleProjectOpen(pk)}
                         type="button"
                       >
                         <Icon name={isOpen ? "folderOpen" : "folder"} size={18} />
@@ -433,20 +482,25 @@ export function Sidebar({
                       <button
                         aria-label={`${group.name} projesinde yeni sohbet başlat`}
                         className="sidebar__project-new-chat"
-                        onClick={() => onNavigate(`project:${group.root}`)}
+                        onClick={() => onNavigate(group.id ? `project-id:${group.id}` : `project:${group.root}`)}
                         type="button"
                       ><Icon name="new" size={15} /></button>
-                      <button aria-expanded={projectMenu === group.root} aria-label={`${group.name} için proje seçeneklerini aç`} className="sidebar__project-options" onClick={() => setProjectMenu(projectMenu === group.root ? null : group.root!)} type="button">···</button>
+                      <button aria-expanded={projectMenu === pk} aria-label={`${group.name} için proje seçeneklerini aç`} className="sidebar__project-options" onClick={() => setProjectMenu(projectMenu === pk ? null : pk)} type="button">···</button>
                     </span> : group.name}</h2>
-                    {group.root && projectMenu === group.root && <div aria-label={`${group.name} proje seçenekleri`} className="sidebar__project-menu" role="menu">
-                      <button onClick={() => { setProjectDraft(group.name); setProjectDialog({ root: group.root!, kind: "rename" }); setProjectMenu(null); }} role="menuitem" type="button">Projeyi yeniden adlandır</button>
-                      <button onClick={() => { updateProject(group.root!, { pinned: !projectPreferences[group.root!]?.pinned }); setProjectMenu(null); }} role="menuitem" type="button">{projectPreferences[group.root]?.pinned ? "Sabitlemeyi kaldır" : "Projeyi sabitle"}</button>
-                      <button onClick={() => { setProjectDialog({ root: group.root!, kind: "remove" }); setProjectMenu(null); }} role="menuitem" type="button">Projeyi sil</button>
+                    {pk && projectMenu === pk && <div aria-label={`${group.name} proje seçenekleri`} className="sidebar__project-menu" role="menu">
+                      <button onClick={() => { setProjectDraft(group.name); setDialogError(null); setProjectDialog({ root: pk, kind: "rename", recordId: group.id }); setProjectMenu(null); }} role="menuitem" type="button">Projeyi yeniden adlandır</button>
+                      {!group.id && <button onClick={() => { updateProject(group.root!, { pinned: !projectPreferences[group.root!]?.pinned }); setProjectMenu(null); }} role="menuitem" type="button">{projectPreferences[group.root!]?.pinned ? "Sabitlemeyi kaldır" : "Projeyi sabitle"}</button>}
+                      <button onClick={() => { setDialogError(null); setProjectDialog({ root: pk, kind: "remove", recordId: group.id }); setProjectMenu(null); }} role="menuitem" type="button">Projeyi sil</button>
                     </div>}
                     {isOpen && (expandedGroups.has(groupKey) || query.trim() ? group.sessions : group.sessions.slice(0, 5)).map((session) => (
                       <SessionButton
-                        moveTargets={filteredProjects.filter((project) => project.root !== group.root)}
-                        onMove={onMove ? (root) => onMove(session.session_id, root) : undefined}
+                        moveTargets={[
+                          ...(onAssign ? filteredProjects.filter((project) => project.id && project.id !== group.id)
+                            .map((project) => ({ key: `kayit:${project.id}`, name: project.name, run: () => onAssign(session.session_id, project.id!) })) : []),
+                          ...(onMove ? filteredProjects.filter((project) => !project.id && project.root !== group.root)
+                            .map((project) => ({ key: project.root, name: project.name, run: () => onMove(session.session_id, project.root) })) : []),
+                        ]}
+                        onRemoveFromProject={onAssign && session.projectId && group.id ? () => onAssign(session.session_id, null) : undefined}
                         pinned={pinnedSessions.includes(pinKey(session))}
                         onPin={() => togglePin(session)}
                         active={session.session_id === etkin}
@@ -486,11 +540,29 @@ export function Sidebar({
         )}
       </div>
 
-      {projectDialog && <div className="sidebar__project-backdrop" role="presentation">
-        <div aria-label={projectDialog.kind === "rename" ? "Projeyi yeniden adlandır" : "Projeyi sil"} aria-modal="true" className="sidebar__project-dialog" role="dialog">
-          <h2>{projectDialog.kind === "rename" ? "Projeyi yeniden adlandır" : "Projeyi sil"}</h2>
-          {projectDialog.kind === "rename" ? <input aria-label="Proje adı" autoFocus maxLength={80} onChange={(event) => setProjectDraft(event.target.value)} value={projectDraft} /> : <p>Proje Fusion listesinden kaldırılır. Bilgisayarındaki klasörler ve sohbet kayıtları korunur.</p>}
-          <div><button onClick={() => setProjectDialog(null)} type="button">Vazgeç</button><button disabled={projectDialog.kind === "rename" && !projectDraft.trim()} onClick={() => { updateProject(projectDialog.root, projectDialog.kind === "rename" ? { name: projectDraft.trim() } : { hidden: true }); setProjectDialog(null); }} type="button">{projectDialog.kind === "rename" ? "Kaydet" : "Listeden kaldır"}</button></div>
+      {(projectDialog || createOpen) && <div className="sidebar__project-backdrop" role="presentation">
+        <div aria-label={createOpen ? "Yeni proje" : projectDialog!.kind === "rename" ? "Projeyi yeniden adlandır" : "Projeyi sil"} aria-modal="true" className="sidebar__project-dialog" role="dialog">
+          <h2>{createOpen ? "Yeni proje" : projectDialog!.kind === "rename" ? "Projeyi yeniden adlandır" : "Projeyi sil"}</h2>
+          {(createOpen || projectDialog!.kind === "rename")
+            ? <input aria-label="Proje adı" autoFocus maxLength={80} onChange={(event) => setProjectDraft(event.target.value)} placeholder="Proje adı" value={projectDraft} />
+            : <p>{projectDialog!.recordId ? "Proje listeden kalkar. Sohbetler silinmez; Sohbetler altına geçer." : "Proje Fusion listesinden kaldırılır. Bilgisayarındaki klasörler ve sohbet kayıtları korunur."}</p>}
+          {createOpen && onPickFolder && <div className="sidebar__project-folder">
+            <button disabled={dialogBusy} onClick={() => void onPickFolder().then((root) => { if (root) setCreateRoot(root); }).catch(() => setDialogError("Klasör seçilemedi."))} type="button">Klasör seç</button>
+            <small>{createRoot ?? "İsteğe bağlı; seçilmezse sohbetler Desktop içinde açılır."}</small>
+          </div>}
+          {dialogError && <p role="alert">{dialogError}</p>}
+          <div><button onClick={closeDialogs} type="button">Vazgeç</button>{createOpen
+            ? <button disabled={dialogBusy || !projectDraft.trim()} onClick={() => void runDialog(() => onProjectCreate!({ name: projectDraft.trim(), root: createRoot }))} type="button">Oluştur</button>
+            : <button disabled={dialogBusy || (projectDialog!.kind === "rename" && !projectDraft.trim())} onClick={() => {
+              const dialog = projectDialog!;
+              if (dialog.recordId) {
+                const id = dialog.recordId;
+                void runDialog(() => dialog.kind === "rename" ? onProjectRename?.(id, projectDraft.trim()) : onProjectDelete?.(id));
+                return;
+              }
+              updateProject(dialog.root, dialog.kind === "rename" ? { name: projectDraft.trim() } : { hidden: true });
+              closeDialogs();
+            }} type="button">{projectDialog!.kind === "rename" ? "Kaydet" : projectDialog!.recordId ? "Projeyi sil" : "Listeden kaldır"}</button>}</div>
         </div>
       </div>}
 

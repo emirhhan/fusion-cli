@@ -19,6 +19,7 @@ import { useHistory } from "./history/useHistory";
 import { ProtocolClient } from "./protocol/client";
 import { olayEkle } from "./protocol/olayAkisi";
 import type { Soru } from "./protocol/types";
+import { useProjectRegistry } from "./sessions/useProjectRegistry";
 import { useSessions, nextSessionId, saveWorkspaceMode, storedWorkspaceMode, type WorkspaceMode } from "./sessions/useSessions";
 import type { SessionTransport } from "./sessions/types";
 import { AppHeader } from "./screens/AppHeader";
@@ -467,6 +468,7 @@ export function SessionUygulama({
 }) {
   const permissions = usePermissions(permissionBridge);
   const controller = useSessions(transport);
+  const projects = useProjectRegistry(nextSessionId);
   const layout = useLayout();
   const inspectorLayout = useInspectorLayout();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -610,7 +612,7 @@ export function SessionUygulama({
       return;
     }
     try {
-      if (!active && destination !== "video-create" && !destination.startsWith("project:")) {
+      if (!active && destination !== "video-create" && !destination.startsWith("project:") && !destination.startsWith("project-id:")) {
         await controller.create({ root: await desktopDir() });
       }
             if (destination === "image-create" || destination === "video-create") {
@@ -646,6 +648,13 @@ export function SessionUygulama({
               const source = destination.slice("resume:".length) as "claude" | "codex" | "hermes";
               setHistoryOpen(true);
               void history.openSource(source);
+            } else if (destination.startsWith("project-id:")) {
+              // Kayıtlı proje: sohbet klasörde (yoksa Desktop'ta) açılır ve projeye bağlanır.
+              const record = projects.registry.projects.find((item) => item.id === destination.slice("project-id:".length));
+              if (!record) throw new Error("Proje bulunamadı.");
+              setPage("chat");
+              const id = await controller.create({ root: record.root ?? await desktopDir(), mode: "kod" });
+              projects.assign(id, record.id);
             } else if (destination.startsWith("project:")) {
               setPage("chat");
               await controller.create({ root: destination.slice("project:".length), mode: "kod" });
@@ -1101,6 +1110,29 @@ export function SessionUygulama({
       </div>
     );
   }
+  const chooseProjectFolder = async () => {
+    if (!(await permissions.ensure("workspace"))) return null;
+    const root = (await selectFolder(localStorage.getItem("fusion.last-project-root") ?? undefined))?.trim();
+    return root && root !== "/" ? root : null;
+  };
+  const recordRoots = new Set(projects.registry.projects.flatMap((record) => record.root ? [record.root] : []));
+  const projectSidebarProps = {
+    onProjectCreate: (input: { name: string; root?: string }) => { projects.create(input); },
+    onProjectRename: projects.rename,
+    onProjectDelete: projects.remove,
+    onAssign: projects.assign,
+    onPickFolder: chooseProjectFolder,
+    onSil: async (id: string) => { await controller.remove(id); projects.forget(id); },
+    /** Kalıcı kayıtlar önce gelir; klasörü bir kayda bağlı olan eski türev proje çift görünmez. */
+    projeler: [
+      ...projects.registry.projects.map((record) => ({
+        id: record.id, name: record.name, pinned: false, root: record.root ?? "", updated_at: record.createdAt,
+      })),
+      ...controller.recentProjects.filter((project) => !recordRoots.has(project.root)).map((project) => ({
+        name: project.name, pinned: false, root: project.root, updated_at: project.updatedAt,
+      })),
+    ],
+  };
   if (!active) {
     if (!hasOpenedSession.current) return <div className="app-status-screen">Hazırlanıyor…{kapatmaOnayi}</div>;
     return <><Shell
@@ -1112,7 +1144,7 @@ export function SessionUygulama({
       content={<>{mediaPage ? <MediaScreen active={page} image={<ImageCreate client={null} />} onSelect={setPage} /> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}{!mediaPage && <button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button>}</>}
       sidebarCollapsed={layout.sidebarCollapsed}
       onSidebarClose={layout.toggleSidebar}
-      sidebar={<Sidebar collapsed={layout.sidebarCollapsed} etkin={null} onNavigate={(destination) => void navigateSidebar(destination)} onSil={(id) => controller.remove(id)} onMove={(id, root) => controller.move(id, root)} onYeni={() => { setSurfaceSection(null); void startDesktopChat(); }} onSec={(id) => { setSurfaceSection(null); void controller.openStored(id).catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene.")); }} oturumlar={controller.storedConversations.map((conversation) => ({ session_id: conversation.id, source: "fusion", title: conversation.title, project: projectName(conversation.root), projectRoot: conversation.root, updated_at: conversation.updatedAt * 1000 }))} />}
+      sidebar={<Sidebar collapsed={layout.sidebarCollapsed} etkin={null} onNavigate={(destination) => void navigateSidebar(destination)} {...projectSidebarProps} onMove={(id, root) => controller.move(id, root)} onYeni={() => { setSurfaceSection(null); void startDesktopChat(); }} onSec={(id) => { setSurfaceSection(null); void controller.openStored(id).catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene.")); }} oturumlar={controller.storedConversations.map((conversation) => ({ session_id: conversation.id, source: "fusion", title: conversation.title, project: projectName(conversation.root), projectRoot: conversation.root, projectId: projects.registry.chats[conversation.id], updated_at: conversation.updatedAt * 1000 }))} />}
     />{kapatmaOnayi}</>;
   }
 
@@ -1664,7 +1696,7 @@ export function SessionUygulama({
           collapsed={layout.sidebarCollapsed}
           availableSources={history.sources.map((source) => source.ad)}
           etkin={active.id}
-          onSil={(id) => controller.remove(id)}
+          {...projectSidebarProps}
           onMove={(id, root) => controller.move(id, root)}
           onNavigate={(destination) => void navigateSidebar(destination)}
           onSec={(id) => {
@@ -1683,6 +1715,7 @@ export function SessionUygulama({
               title: session.title,
               project: projectName(session.root),
               projectRoot: session.root,
+              projectId: projects.registry.chats[session.id],
               updated_at: session.updatedAt,
             })),
             // Diskte duran ama açılmamış sohbetler. Ölçüldü (kullanıcının diski,
@@ -1695,15 +1728,10 @@ export function SessionUygulama({
                 title: conversation.title,
                 project: projectName(conversation.root),
                 projectRoot: conversation.root,
+                projectId: projects.registry.chats[conversation.id],
                 updated_at: conversation.updatedAt * 1000,
               })),
           ]}
-          projeler={controller.recentProjects.map((project) => ({
-            name: project.name,
-            pinned: false,
-            root: project.root,
-            updated_at: project.updatedAt,
-          }))}
           guncellemeSurumu={guncellemeSurumu}
           onGuncellemeAc={() => setPage("settings")}
           hesap={etkinHesap}

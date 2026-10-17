@@ -618,3 +618,21 @@
   padding: 8px 12px;
 }
 .sidebar__project-dialog > div button:last-child { background: var(--control-primary); color: var(--text-inverse); }
+
+/* Yeni proje: isteğe bağlı klasör satırı. Alt satırdaki Vazgeç/Oluştur kuralını devralmaz. */
+.sidebar__project-dialog > div.sidebar__project-folder {
+  align-items: center;
+  justify-content: start;
+  margin-top: 12px;
+}
+.sidebar__project-dialog > div.sidebar__project-folder button {
+  background: var(--control-secondary, var(--surface-raised));
+  color: var(--text-primary);
+  flex: none;
+  white-space: nowrap;
+}
+.sidebar__project-dialog > div.sidebar__project-folder small {
+  color: var(--text-secondary);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
