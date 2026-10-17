@@ -22,6 +22,7 @@ const STEPS: OnboardingStepId[] = [
   "sources",
   "providers",
   "project",
+  "guide",
   "complete",
 ];
 
@@ -31,6 +32,7 @@ const STEP_LABELS: Record<OnboardingStepId, string> = {
   sources: "Kaynaklar",
   providers: "Sağlayıcılar",
   project: "Örnek proje",
+  guide: "Eğitim",
   complete: "Tamamlandı",
 };
 
@@ -85,6 +87,8 @@ export interface OnboardingProps {
   onConnectProvider?: (id: string) => void;
   resetPending?: boolean;
   resetError?: string | null;
+  /** "Eğitim" adımının içeriği; verilmezse adım atlanabilir bir bilgi metni gösterir. */
+  guide?: ReactNode;
 }
 
 function WelcomeStep() {
@@ -282,7 +286,7 @@ export function Onboarding({
   providers,
   runtime,
   sources,
-  value, sourcesState, controlState, controlHasSnapshot, onRetrySources, onRetryControl, onConnectProvider, resetPending, resetError,
+  value, sourcesState, controlState, controlHasSnapshot, onRetrySources, onRetryControl, onConnectProvider, resetPending, resetError, guide,
 }: OnboardingProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const stepIndex = STEPS.indexOf(value.step);
@@ -337,6 +341,7 @@ export function Onboarding({
         selectedProjectId={value.selectedProjectId}
       />
     ),
+    guide: guide ?? <><h1>Fusion'ı tanıyın</h1><p className="onboarding__lead">Eğitim konuları Ayarlar → Nasıl yapılır sayfasında.</p></>,
     complete: <CompleteStep project={selectedProject} />,
   } satisfies Record<OnboardingStepId, ReactNode>;
 

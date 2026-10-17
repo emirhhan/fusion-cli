@@ -341,3 +341,22 @@ describe("Settings — Gelişmiş", () => {
     expect(screen.queryByRole("button", { name: "Bağlantı ekle" })).toBeNull();
   });
 });
+
+describe("Nasıl yapılır", () => {
+  it("Sistem grubunun en altında durur ve konuları ekran görüntüleriyle açar", async () => {
+    ciz();
+    const sistem = screen.getByRole("navigation", { name: "Ayar bölümleri" }).querySelectorAll("button");
+    expect(sistem[sistem.length - 1].textContent).toContain("Nasıl yapılır");
+    bolum("Nasıl yapılır");
+    expect(await screen.findByRole("heading", { name: "Chrome eklentisi", level: 3 })).toBeTruthy();
+    expect(screen.getAllByRole("img").length).toBeGreaterThan(10);
+  });
+
+  it("Ayarlar'da aç düğmesi ilgili ayar bölümüne geçirir", async () => {
+    ciz();
+    bolum("Nasıl yapılır");
+    fireEvent.change(await screen.findByLabelText("Konularda ara"), { target: { value: "Eklentiyi kur" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ayarlar'da aç" }));
+    expect(await screen.findByRole("heading", { name: "Chrome eklentisi" })).toBeTruthy();
+  });
+});

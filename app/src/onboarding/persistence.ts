@@ -2,7 +2,7 @@ import { readStorage, writeStorage, removeStorage } from "../platform/storage";
 import type { OnboardingValue, SampleProject } from "./types";
 export const COMPLETION_KEY = "fusion.onboarding.completed.v1";
 export const PROGRESS_KEY = "fusion.onboarding.progress.v1";
-const STEPS = ["welcome", "runtime", "sources", "providers", "project", "complete"];
+const STEPS = ["welcome", "runtime", "sources", "providers", "project", "guide", "complete"];
 export function restoreProgress(projects: SampleProject[]): OnboardingValue {
   const initial: OnboardingValue = { step: "welcome", selectedProjectId: null };
   const result = readStorage(() => window.localStorage, PROGRESS_KEY);

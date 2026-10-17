@@ -214,3 +214,18 @@ describe("Onboarding", () => {
     expect(setItem).not.toHaveBeenCalled();
   });
 });
+
+describe("eğitim adımı", () => {
+  it("proje adımından sonra gelir ve verilen eğitim içeriğini gösterir", () => {
+    renderAt("guide", { guide: <h1>Eğitim içeriği</h1> });
+    expect(screen.getByRole("heading", { name: "Eğitim içeriği" })).toBeTruthy();
+    expect(screen.getByText("Eğitim")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Şimdilik atla" })).toBeTruthy();
+  });
+
+  it("İleri eğitimden tamamlandı adımına geçirir", () => {
+    const props = renderAt("guide");
+    fireEvent.click(screen.getByRole("button", { name: "İleri" }));
+    expect(props.onChange).toHaveBeenCalledWith({ step: "complete", selectedProjectId: null });
+  });
+});

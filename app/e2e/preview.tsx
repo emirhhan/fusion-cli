@@ -256,6 +256,11 @@ const workspaceClient = {
         { model: "nvidia_nim/llama-3.3-70b", durum: "sağlıklı", skor: 0.94, ornek: 2, gecikme_ms: 1_126 },
       ],
     };
+    if (name === "chrome.durum") return { ok: true, calisiyor: true, bagli: false, port: 8765, anahtar: null, eklenti_yuklu: false, eklenti_etkin: false };
+    if (name === "uzak.durum") return { ok: true, dinliyor: false, adres: "", telegram: false, telegramHata: "", cihazSayisi: 0, port: 8791, agAdresleri: [] };
+    if (name === "uzak.cihazlar") return { ok: true, cihazlar: [] };
+    if (name === "uzak.bekleyen") return { ok: true, sorular: [] };
+    if (name === "uzak.ekran_bekleyen") return { ok: true, bekleyen: [], etkin: [] };
     if (name === "ses.durum") return {
       ok: true,
       ayar: { hiz: 1.1, model: null, robotik: 0.35 },

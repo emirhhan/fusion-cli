@@ -17,6 +17,7 @@ import { Advanced } from "./sections/Advanced";
 import { ChromeBrowser } from "./ChromeBrowser";
 import { RemoteAccess } from "./RemoteAccess";
 import { Intelligence } from "./Intelligence";
+import { HowTo } from "../guide/HowTo";
 import "./Settings.css";
 
 /**
@@ -31,7 +32,7 @@ import "./Settings.css";
  * ayarlanabilir yanı.
  */
 
-type BolumId = "genel" | "hesap" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis";
+type BolumId = "genel" | "hesap" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
 
 const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: string }[] = [
   { id: "genel", etiket: "Genel", ikon: "settings", grup: "Kişisel" },
@@ -45,6 +46,7 @@ const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: string }[] 
   { id: "uzak", etiket: "Uzaktan Erişim", ikon: "preview", grup: "Entegrasyonlar" },
   { id: "guncellemeler", etiket: "Güncellemeler", ikon: "changes", grup: "Sistem" },
   { id: "gelismis", etiket: "Gelişmiş", ikon: "terminal", grup: "Sistem" },
+  { id: "nasil", etiket: "Nasıl yapılır", ikon: "help", grup: "Sistem" },
 ];
 
 interface ControlSnapshot {
@@ -312,6 +314,8 @@ export function Settings({
           {bolum === "uzak" && <RemoteAccess client={client} />}
 
           {bolum === "guncellemeler" && <UpdatePanel />}
+
+          {bolum === "nasil" && <HowTo onOpenSettings={setBolum} />}
 
           {bolum === "gelismis" && (
             <>

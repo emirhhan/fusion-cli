@@ -4,6 +4,7 @@ export type OnboardingStepId =
   | "sources"
   | "providers"
   | "project"
+  | "guide"
   | "complete";
 
 export interface OnboardingValue {

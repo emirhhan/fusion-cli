@@ -3,6 +3,7 @@ import type { ProtocolClient } from "../protocol/client";
 import type { AsyncState } from "../protocol/asyncState";
 import { errorMessage, operationResult } from "../protocol/result";
 import { Button } from "../ui/Button";
+import { GuideTour } from "../guide/GuideTour";
 import { ControlPanel } from "../control/ControlPanel";
 import { Onboarding } from "./Onboarding";
 import { clearProgress, persistProgress, restoreProgress } from "./persistence";
@@ -107,6 +108,7 @@ export function ConnectedOnboarding({ client, projects, runtimeVersion, onFinish
       onRetrySources={() => void loadSources()} onRetryControl={() => void loadControl()}
       onChange={change} onComplete={({ selectedProjectId }) => finish(selectedProjectId)} onSkip={() => finish(null)}
       onConnectProvider={setProvider} onResetToApprentice={() => void reset()} resetPending={resetPending} resetError={resetError}
+      guide={<GuideTour client={client} />}
       projects={projects} runtime={{ status: "ready", version: runtimeVersion }} value={value} />
   </>;
 }
