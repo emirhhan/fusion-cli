@@ -57,8 +57,6 @@ async def test_chrome_panel_turnu_sohbet_kipinde_de_yalniz_tarayıcı_araclarini
         "chrome_click",
         "chrome_type",
         "chrome_navigate",
-        "web_search",
-        "web_fetch",
         "todo_write",
     }
     # Panel görevi yerel dosyaya ve kabuğa dokunamaz.
@@ -85,7 +83,10 @@ async def test_chrome_paneli_kod_kipinde_proje_ve_ogretmen_araclarini_kisitlamaz
         "ok": True,
         "metin": "bitti",
     }
-    assert kwargs_seen["allowed_tools"] is None
+    # Kod kipinde dosya araçları kalır ama sunucu tarafı web araçları kapalıdır: model
+    # girişli siteyi `web_fetch` ile değil kullanıcının Chrome'unda açmalıdır.
+    assert {"read_file", "edit_file", "ask_teacher"} <= kwargs_seen["allowed_tools"]
+    assert not {"web_fetch", "web_search"} & kwargs_seen["allowed_tools"]
     assert kwargs_seen["chat_mode"] is False
     assert kwargs_seen["chrome_bridge"] is oturum._chrome
     assert kwargs_seen["root"] == tmp_path

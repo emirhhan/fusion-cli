@@ -104,6 +104,7 @@ function stepRow(step) {
   icon.append(path);
   const text = el("span", "step__text", step.metin);
   row.append(icon, text);
+  if (step.ayrinti) row.append(el("span", "step__detail", step.ayrinti));
   if (step.durum === "failed" && step.hata) row.append(el("span", "step__error", step.hata));
   if (step.durum === "denied" || step.durum === "blocked") row.append(el("span", "step__error", "İzin verilmedi"));
   return row;

@@ -182,6 +182,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 }
 .step svg { width: 14px; height: 14px; margin-top: 2px; fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .step__text { overflow-wrap: anywhere; }
+.step__detail { grid-column: 2; color: var(--faint); font-size: 11.5px; overflow-wrap: anywhere; }
 .step__error { grid-column: 2; color: var(--danger); font-size: 11.5px; }
 .step[data-state="failed"] svg, .step[data-state="denied"] svg, .step[data-state="blocked"] svg { stroke: var(--danger); }
 

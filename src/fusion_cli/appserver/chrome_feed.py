@@ -94,12 +94,39 @@ def _step(data: Mapping[str, Any]) -> dict[str, Any]:
         "metin": step_text(name, args, output),
         "durum": outcome,
     }
+    detail = step_detail(name, args, output)
+    if detail:
+        item["ayrinti"] = detail
     channel = control_channel(name, args)
     if channel:
         item["kanal"] = channel
     if outcome == "failed":
         item["hata"] = output[:MAX_ERROR]
     return item
+
+
+MAX_DETAIL = 200
+
+
+def step_detail(name: str, args: Mapping[str, Any], output: str = "") -> str:
+    """Adım satırının açılır ayrıntısı: hedef adres, bulunan öğe, sayfa başlığı.
+
+    Parola/kart alanına yazılan metin ASLA gösterilmez ya da kaydedilmez.
+    """
+    parts: list[str] = []
+    if name == "chrome_navigate" and isinstance(args.get("url"), str):
+        parts.append(str(args["url"]))
+    if name == "chrome_action" and args.get("action") == "open" and args.get("value"):
+        parts.append(str(args["value"]))
+    for field in ("title", "name", "label", "url"):
+        value = _output_field(output, field)
+        if value and value not in parts:
+            parts.append(value)
+    if name == "chrome_type":
+        field = _output_field(output, "name") or _output_field(output, "label")
+        parts = [f"Alan: {field}"] if field else []
+    text = " · ".join(" ".join(part.split()) for part in parts)
+    return text if len(text) <= MAX_DETAIL else text[: MAX_DETAIL - 1] + "…"
 
 
 def step_text(name: str, args: Mapping[str, Any], output: str = "") -> str:

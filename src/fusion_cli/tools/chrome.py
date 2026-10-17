@@ -115,9 +115,11 @@ _MESSAGE_FIELD = re.compile(r"\b(?:mesaj|message|sohbet|chat|dm)\b", re.IGNORECA
 _RISKY_CLICK = re.compile(
     r"\b(?:gönder|paylaş|yayınla|yayımla|sil|silin|kaldır|satın al|ödeme yap|öde|"
     r"siparişi tamamla|siparişi onayla|onayla|kaydet|uygula|etkinleştir|devre dışı bırak|"
-    r"duraklat|yorum yap|yanıtla|takip et|beğen|abone ol|"
+    r"duraklat|yorum yap|yanıtla|takip et|beğen|abone ol|kayıt ol|üye ol|hesap oluştur|"
+    r"hesabı bağla|"
     r"submit|send|post|publish|share|delete|remove|buy|purchase|pay|checkout|"
-    r"confirm|save|apply|enable|disable|pause|follow|like|reply|comment)\b",
+    r"confirm|save|apply|enable|disable|pause|follow|like|reply|comment|sign up|register|"
+    r"create (?:an )?account|connect (?:your )?account)\b",
     re.IGNORECASE,
 )
 

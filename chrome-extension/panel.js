@@ -146,8 +146,8 @@ async function applyItem(item) {
     if (running()) void setGlow(true);
     const step = item.tur === "hata"
       ? { arac: "", metin: item.metin, durum: "failed" }
-      : { arac: item.arac, metin: item.metin, durum: item.durum, hata: item.hata, kanal: item.kanal };
-    return withLastAssistant((last) => ({ adimlar: [...(last.adimlar || []), step], etiket: "Çalışıyor…" }));
+      : { arac: item.arac, metin: item.metin, durum: item.durum, hata: item.hata, kanal: item.kanal, ayrinti: item.ayrinti };
+    return withLastAssistant((last) => ({ adimlar: [...(last.adimlar || []), step], etiket: step.metin || "Çalışıyor…" }));
   }
   if (item.tur === "soru") return { ...thread, soru: { id: item.id, veri: item.veri } };
   if (item.tur === "soru_kapandi") return thread.soru?.id === item.id ? { ...thread, soru: null } : thread;

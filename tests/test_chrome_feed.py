@@ -22,6 +22,7 @@ def test_tarayici_adimlari_insan_diliyle_yazilir() -> None:
         "arac": "chrome_navigate",
         "metin": "instagram.com açıldı",
         "durum": "ok",
+        "ayrinti": "https://www.instagram.com/ornek.magaza/",
     }
     tik = panel_item(_tool("chrome_click", {"ref": "e5"}, json.dumps({"name": "Kampanyalar"})))
     assert tik is not None and tik["metin"] == "“Kampanyalar” tıklandı"
@@ -86,3 +87,18 @@ def test_adimlar_ekran_fare_klavye_kanalini_tasir():
     assert control_channel("chrome_action", {"action": "scroll"}) == "fare"
     assert control_channel("chrome_page", {}) is None
     assert control_channel("chrome_action", {"action": "tabs"}) is None
+
+
+def test_adim_ayrintisi_hedef_adresi_ve_bulunan_ogeyi_gosterir():
+    from fusion_cli.appserver.chrome_feed import step_detail
+
+    cikti = '{"title": "Ads Manager", "url": "https://business.facebook.com/adsmanager"}'
+    ayrinti = step_detail(
+        "chrome_navigate", {"url": "https://business.facebook.com/adsmanager"}, cikti
+    )
+    assert "Ads Manager" in ayrinti and ayrinti.count("business.facebook.com/adsmanager") == 1
+    assert step_detail("chrome_click", {}, '{"name": "Giriş yap"}') == "Giriş yap"
+    assert (
+        step_detail("chrome_type", {"text": "gizli-parola"}, '{"name": "Parola"}') == "Alan: Parola"
+    )
+    assert "gizli-parola" not in step_detail("chrome_type", {"text": "gizli-parola"}, "{}")

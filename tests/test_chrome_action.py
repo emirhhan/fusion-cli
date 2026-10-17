@@ -283,3 +283,19 @@ async def test_sekme_kapatma_salt_okuma_yetkisiyle_izinli_sayilmaz():
         await chrome.chrome_action_effect({"action": "close", "value": "42"}, None)
         is ToolEffect.REMOTE_DESTRUCTIVE
     )
+
+
+def test_kayit_ve_hesap_olusturma_dugmeleri_riskli_sayilir():
+    from fusion_cli.tools.chrome import _RISKY_CLICK
+
+    for ad in ("Kayıt ol", "Hesap oluştur", "Sign up", "Create account", "Hesabı bağla"):
+        assert _RISKY_CLICK.search(ad), ad
+    assert not _RISKY_CLICK.search("Reklamlar")
+
+
+def test_panel_turunda_sunucu_tarafi_web_araclari_yok_kod_kipinde_dosya_araclari_var():
+    from fusion_cli.appserver.session import CHROME_CODE_TURN_TOOLS, CHROME_TURN_TOOLS
+
+    for kume in (CHROME_TURN_TOOLS, CHROME_CODE_TURN_TOOLS):
+        assert not {"web_fetch", "web_search"} & kume
+    assert {"read_file", "edit_file"} <= CHROME_CODE_TURN_TOOLS

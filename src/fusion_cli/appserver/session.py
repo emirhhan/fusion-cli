@@ -173,6 +173,11 @@ from .workspace import (
 #: model hesap seçim ekranında durup "hesap seçmemi ister misin?" diye sordu; salt
 #: okuma görevinde görevde adı geçen ya da tek uygun hesabı seçmek beklenen adımdır.
 CHROME_NOTE = (
+    "Bu bir tarayıcı ajanı görevidir: 'siteye gir', 'kayıt ol', 'formu doldur', 'sayfadan çıkar', "
+    "'hesabımı incele' gibi isteklerde HEMEN chrome_navigate (ya da chrome_action open) ile "
+    "siteyi kullanıcının Chrome'unda aç, chrome_page ile oku, tıkla, yaz, kaydır. Sunucu "
+    "tarafında sayfa getirme ya da arama aracı YOKTUR ve kullanıcının girişli oturumunu "
+    "görmez; adres bilinmiyorsa Chrome'da arama sitesini aç. "
     "İnternet sitelerindeki işler (Google Ads, Instagram, Meta, mağaza paneli, herhangi bir "
     "site) kullanıcının kendi Chrome'unda chrome_* araçlarıyla yapılır; Chrome kapalıysa Fusion "
     "onu kendisi açar. browser_* ayrı ve oturumsuz bir tarayıcıdır, yalnız yerel projeyi "
@@ -199,11 +204,22 @@ CHROME_TURN_TOOLS = {
     "chrome_click",
     "chrome_type",
     "chrome_navigate",
-    # Claude in Chrome gibi: panel görevi web'de araştırabilir ve uzun işi
-    # adım listesiyle yürütebilir; yerel dosya ve kabuk yine kapalıdır.
-    "web_search",
-    "web_fetch",
     "todo_write",
+}
+#: Kod çalışma alanında panel görevi siteden aldığını projeye de uygulayabilir.
+#: `web_fetch`/`web_search` BİLEREK yok: sunucu tarafı getirme kullanıcının girişli
+#: oturumunu görmez. Ölçüldü (17 Ekim, Meta Ads): kod kipinde araç kısıtı yoktu,
+#: model `web_fetch` seçti, tarayıcı araçlarını hiç çağırmadı.
+CHROME_CODE_TURN_TOOLS = CHROME_TURN_TOOLS | {
+    "read_file",
+    "write_file",
+    "edit_file",
+    "multi_edit",
+    "list_dir",
+    "grep",
+    "glob",
+    "run_shell",
+    "ask_teacher",
 }
 
 
@@ -2082,7 +2098,9 @@ class AppSession:
                 history=history,
                 chrome_bridge=self._chrome,
                 allowed_tools=(
-                    CHROME_TURN_TOOLS if browser_only and self._workspace_mode != "kod" else None
+                    (CHROME_CODE_TURN_TOOLS if self._workspace_mode == "kod" else CHROME_TURN_TOOLS)
+                    if browser_only
+                    else None
                 ),
                 extra_system=extra_system,
                 # Görsel ekler modele GERÇEKTEN gider; yol metni ayrıca kalır.
