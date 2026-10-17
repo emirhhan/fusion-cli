@@ -905,8 +905,6 @@ export function SessionUygulama({
       const satir = kaynak as Record<string, unknown>;
       await publishVoicePrefs({
         hiz: typeof satir.hiz === "number" ? satir.hiz : 1,
-        model: typeof satir.model === "string" ? satir.model : null,
-        robotik: typeof satir.robotik === "number" ? satir.robotik : 0.5,
       });
       // Arayüzü bekletmeden, ilk kısa yanıtın model yüklemesini öne al.
       void client.request("ses.isit", {}).then(result => {

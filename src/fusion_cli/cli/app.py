@@ -443,31 +443,19 @@ def web_login(provider: str, account: str = "main") -> None:
     asyncio.run(open_login_browser(provider, account))
 
 
-@app.command(name="piper-say", hidden=True)
-def piper_say(model: str, output: str) -> None:
-    """Standart girdideki metni Piper ile seslendirip WAV'a yaz.
+@app.command(name="ema-say", hidden=True)
+def ema_say(output: str) -> None:
+    """Standart girdideki metni EMA Lightning ile seslendirip WAV'a yaz.
 
-    Paketlenmiş ikilide `python -m piper` ÇALIŞMAZ (`-m` bayrağı yoktur); ses
-    motoru bu alt komut üzerinden çağrılır.
+    Paketlenmiş ikilide ses motoru süreç dışından bu alt komutla sınanabilir.
     """
     import sys as _sys
-    import wave
+    from pathlib import Path
 
-    from piper import PiperVoice, SynthesisConfig
-
+    from ..appserver.ema_synthesis import synthesize_ema
     from ..appserver.voice import load_settings
 
-    metin = _sys.stdin.read()
-    ses = PiperVoice.load(model)
-    # `sentence_silence` yalnız Piper'ın CLI'ında var, kitaplık yapılandırmasında
-    # yok; cümle araları zaten `voice_text.split_sentences` ile ayrılıyor.
-    tercihler = load_settings()
-    ayar = SynthesisConfig(
-        length_scale=tercihler["length_scale"],
-        noise_w_scale=tercihler["noise_w_scale"],
-    )
-    with wave.open(output, "wb") as akis:
-        ses.synthesize_wav(metin, akis, syn_config=ayar)
+    synthesize_ema(_sys.stdin.read(), Path(output), load_settings()["hiz"])
 
 
 @app.command(name="runtime-health", hidden=True)

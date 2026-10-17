@@ -45,7 +45,6 @@ interface VoiceModeProps {
   onDrag?: () => Promise<void>;
   onMinimize: () => void;
   onListen?: () => void;
-  onPickModel?: () => void;
   onPrefsChange?: (next: VoicePrefs) => void;
   onTop?: boolean;
   onTopChange?: (next: boolean) => void;
@@ -56,7 +55,7 @@ interface VoiceModeProps {
   wide?: boolean;
 }
 
-const VARSAYILAN_TERCIH: VoicePrefs = { hiz: 1, model: null, robotik: 0.5 };
+const VARSAYILAN_TERCIH: VoicePrefs = { hiz: 1 };
 
 export function VoiceMode({
   ask = null,
@@ -67,7 +66,6 @@ export function VoiceMode({
   onDrag = dragVoiceWindow,
   onMinimize,
   onListen,
-  onPickModel,
   onPrefsChange,
   onTop = true,
   onTopChange,
@@ -169,7 +167,6 @@ export function VoiceMode({
         <div className="voice-panel__settings-popover">
           <VoiceSettings
             onChange={onPrefsChange}
-            onPickModel={onPickModel}
             onTop={onTop}
             onTopChange={onTopChange}
             prefs={prefs}

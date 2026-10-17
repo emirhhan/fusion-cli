@@ -30,23 +30,6 @@ export async function selectFiles(defaultPath?: string): Promise<string[]> {
 }
 
 /**
- * Piper ses modeli seçer.
- *
- * Süzgeç `.onnx` ile SINIRLI: Fusion ses klonlamaz ve kullanıcının konuşma
- * kaydı (WAV/MP3) bir ses modeli değildir. Süzgeç olmadan kullanıcı ses
- * kaydını seçip klonlandığını sanıyor, hata çok sonra Piper'dan geliyordu.
- */
-export async function selectVoiceModel(): Promise<string | null> {
-  const selected = await open({
-    directory: false,
-    filters: [{ extensions: ["onnx"], name: "Piper ses modeli" }],
-    multiple: false,
-    title: "Piper ses modeli seç (.onnx)",
-  });
-  return typeof selected === "string" ? selected : null;
-}
-
-/**
  * Görseli "İndir" ile kaydetmek için yerel kayıt penceresini açar.
  *
  * Üretilen görseller kendiliğinden diske/Finder'a inmez; kullanıcı yalnız bu

@@ -87,8 +87,6 @@ export interface VoiceRuntimeState {
 
 export interface VoicePrefsPayload {
   hiz: number;
-  model: string | null;
-  robotik: number;
 }
 
 /** Pencereden ana pencereye: bu tercihleri uygula (null ise yalnız oku). */

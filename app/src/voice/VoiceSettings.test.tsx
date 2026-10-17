@@ -4,15 +4,15 @@ import { VoiceSettings } from "./VoiceSettings";
 
 afterEach(cleanup);
 
-const PREFS = { hiz: 1, model: null, robotik: 0.5 };
+const PREFS = { hiz: 1 };
 
 describe("VoiceSettings", () => {
-  it("hız ve robotiklik sürgüleri değeri gösterir", () => {
+  it("hız sürgüsü değeri gösterir, robotik sürgüsü yoktur", () => {
     render(
       <VoiceSettings onChange={vi.fn()} onTop onTopChange={vi.fn()} prefs={{ ...PREFS, hiz: 1.25 }} />,
     );
     expect(screen.getByText("1.25×")).toBeTruthy();
-    expect(screen.getByText("50%")).toBeTruthy();
+    expect(screen.queryByLabelText("Robotik")).toBeNull();
   });
 
   it("sürgü BIRAKILINCA gönderilir, sürüklerken değil", () => {
@@ -49,40 +49,13 @@ describe("VoiceSettings", () => {
   });
 
   it("kayıt sürerken çakışan tercih değişikliklerini engeller", () => {
-    render(
-      <VoiceSettings
-        disabled
-        onChange={vi.fn()}
-        onPickModel={vi.fn()}
-        onTop
-        onTopChange={vi.fn()}
-        prefs={PREFS}
-      />,
-    );
+    render(<VoiceSettings disabled onChange={vi.fn()} onTop onTopChange={vi.fn()} prefs={PREFS} />);
 
     expect((screen.getByLabelText("Hız") as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByLabelText("Robotik") as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Piper ses modeli seç" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("düğme ses klonlama vaat etmez, Piper modeli ister", () => {
-    render(
-      <VoiceSettings onChange={vi.fn()} onPickModel={vi.fn()} onTop onTopChange={vi.fn()} prefs={PREFS} />,
-    );
-    expect(screen.getByRole("button", { name: "Piper ses modeli seç" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /kendi ses dosyam/i })).toBeNull();
-  });
-
-  it("seçilen model dosyasının adını gösterir", () => {
-    render(
-      <VoiceSettings
-        onChange={vi.fn()}
-        onPickModel={vi.fn()}
-        onTop
-        onTopChange={vi.fn()}
-        prefs={{ ...PREFS, model: "/Users/e/sesler/benim.onnx" }}
-      />,
-    );
-    expect(screen.getByText("benim.onnx")).toBeTruthy();
+  it("ses klonlama ya da model seçme vaat eden düğme göstermez", () => {
+    render(<VoiceSettings onChange={vi.fn()} onTop onTopChange={vi.fn()} prefs={PREFS} />);
+    expect(screen.queryByRole("button", { name: /model|kendi ses/i })).toBeNull();
   });
 });

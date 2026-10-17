@@ -1,0 +1,6 @@
+EMA Lightning (Türkçe metinden konuşma) — Canberk Aslan, Apache License 2.0.
+Kaynak: https://huggingface.co/canberkkkkkk/ema-lightning
+Bu klasördeki text.onnx / sound.onnx / decoder.onnx dosyaları yayımlanmış PyTorch
+ağırlıklarının ONNX'e dönüştürülmüş halidir (tek değişiklik: expm1 yerine exp-1).
+Sayı/tarih okuma için normalizer-tr (Apache-2.0) kullanılır. Metin ön yüzü ve parça
+bölme mantığı ema-lightning kaynağından uyarlanmıştır.

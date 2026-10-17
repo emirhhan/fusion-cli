@@ -155,10 +155,10 @@ describe("Settings — yapı", () => {
     const fake = ciz();
     bolum("Ses");
 
-    expect(await screen.findByText(/Konuşma hızı, tını/)).toBeTruthy();
+    expect(await screen.findByText(/Konuşma hızı ve çevrimdışı/)).toBeTruthy();
     expect(vi.mocked(fake.request)).toHaveBeenCalledWith("ses.durum", {});
     bolum("Gelişmiş");
-    expect(screen.queryByText(/Konuşma hızı, tını/)).toBeNull();
+    expect(screen.queryByText(/Konuşma hızı ve çevrimdışı/)).toBeNull();
   });
 
   /* Kullanıcının ölçülmüş şikayeti: "Fusion for macOS" eyebrow'u ve "Çalışma

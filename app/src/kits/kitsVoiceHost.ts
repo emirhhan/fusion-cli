@@ -5,7 +5,7 @@ import type { HostRequest } from "./localComputerHost";
  * `fusion-kits/src/client/local-voice/fusion-bridge.ts`).
  *
  * Tanıma cihaz içi `fusion-listen` yardımcısıyla, seslendirme oturumun
- * `ses.konus` RPC'siyle (macOS `say`/Piper) yapılır: anahtar istemez, ses ve
+ * `ses.konus` RPC'siyle (macOS `say`/EMA) yapılır: anahtar istemez, ses ve
  * metin Mac'ten çıkmaz. İstek yalnız bu iframe penceresinden ve Kits kökeninden
  * kabul edilir; Kits yalnız dinle/dur/seslendir isteyebilir. */
 export const VOICE_REQUEST = "fusion-kits-voice";

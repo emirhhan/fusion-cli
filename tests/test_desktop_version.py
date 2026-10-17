@@ -29,7 +29,7 @@ def test_macos_paketi_apple_hesabi_olmadan_ad_hoc_imzalanir():
 
 
 def test_masaustu_ci_ses_motorunu_paketleme_ortamina_kurar():
-    """PyInstaller, spec'te Piper'ı topluyorsa CI da `voice` extrasını kurmalı."""
+    """PyInstaller ses motorunu topluyorsa CI da `voice` extrasını kurmalı."""
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github/workflows/desktop.yml").read_text(encoding="utf-8")
 

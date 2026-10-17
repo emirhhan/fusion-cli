@@ -6,11 +6,7 @@ import { VoicePreferences } from "./VoicePreferences";
 afterEach(cleanup);
 
 function voiceClient(options: { installed?: boolean } = {}) {
-  const state = {
-    hiz: 1,
-    model: null as string | null,
-    robotik: 0.5,
-  };
+  const state = { hiz: 1 };
   return {
     onEvent: vi.fn(() => () => undefined),
     request: vi.fn(async (name: string, data: Record<string, unknown>) => {
@@ -20,8 +16,8 @@ function voiceClient(options: { installed?: boolean } = {}) {
           ayar: { ...state },
           kullanilabilir: true,
           model_kurulu: options.installed ?? false,
-          motor: options.installed ? "piper" : "sistem",
-          ses: options.installed ? "tr_TR-dfki-medium" : "Cem",
+          motor: options.installed ? "ema" : "sistem",
+          ses: options.installed ? "EMA Lightning" : "Cem",
           turkce: true,
           yukseltme: null,
         };
@@ -29,10 +25,6 @@ function voiceClient(options: { installed?: boolean } = {}) {
       if (name === "ses.ayar") {
         Object.assign(state, data);
         return { ok: true, ...state };
-      }
-      if (name === "ses.model_indir") {
-        options.installed = true;
-        return { ok: true, yol: "/voices/tr_TR-dfki-medium.onnx" };
       }
       return { ok: false, metin: "Bilinmeyen istek" };
     }),
@@ -43,9 +35,9 @@ describe("VoicePreferences", () => {
   it("gerçek motoru ve kayıtlı ses tercihlerini gösterir", async () => {
     render(<VoicePreferences client={voiceClient({ installed: true })} />);
 
-    expect(await screen.findByText("Piper · tr_TR-dfki-medium")).toBeTruthy();
+    expect(await screen.findByText("EMA Lightning · EMA Lightning")).toBeTruthy();
     expect(screen.getByText("1.00×")).toBeTruthy();
-    expect(screen.getByText("50%")).toBeTruthy();
+    expect(screen.queryByLabelText("Robotik")).toBeNull();
   });
 
   it("değiştirilen hızı çekirdeğe kaydedip ekranda korur", async () => {
@@ -68,25 +60,10 @@ describe("VoicePreferences", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("Fusion Türkçe modelini uygulama içinden indirir", async () => {
-    render(<VoicePreferences client={voiceClient()} />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Türkçe modeli indir" }));
-
-    expect(await screen.findByText("Piper · tr_TR-dfki-medium")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Türkçe modeli indir" })).toBeNull();
-  });
-
-  it("geçerli Piper modelini seçip dosya adını gösterir", async () => {
-    render(
-      <VoicePreferences
-        client={voiceClient()}
-        selectModel={async () => "/Users/test/sesler/ozel.onnx"}
-      />,
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: "Piper ses modeli seç" }));
-
-    expect(await screen.findByText("ozel.onnx")).toBeTruthy();
+  it("model uygulamayla geldiği için indirme ve model seçme düğmesi yoktur", async () => {
+    render(<VoicePreferences client={voiceClient({ installed: true })} />);
+    await screen.findByText("EMA Lightning · EMA Lightning");
+    expect(screen.queryByRole("button", { name: /indir/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /model seç/i })).toBeNull();
   });
 });

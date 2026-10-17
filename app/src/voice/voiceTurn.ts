@@ -106,7 +106,7 @@ export async function speakVoiceAnswer(
  * `speakVoiceAnswer` gibi ama TEK büyük TTS turu yerine cevabı cümlelere
  * bölüp AYRI turlar hâlinde art arda seslendirir.
  *
- * Neden: `ses.konus` tüm metni Piper'a TEK seferde verir ve konuşma ancak
+ * Neden: `ses.konus` tüm metni ses motoruna TEK seferde verir ve konuşma ancak
  * TÜM metin sentezlendikten sonra başlar (bkz. `appserver/voice.py::speak`).
  * Uzun bir cevapta bu, kullanıcının sesi duymadan önce sentezin TAMAMINI
  * beklemesi demektir. Cümle cümle göndermek ilk sesin, YALNIZ ilk cümle

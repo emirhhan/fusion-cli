@@ -40,7 +40,6 @@ import {
   type VoiceWindowGeometry,
   type VoiceWindowSnapshot,
 } from "./windowBridge";
-import { selectVoiceModel } from "../platform/dialog";
 
 type Unlisten = () => void;
 interface RecognitionPayload { session: number; line: string; }
@@ -63,7 +62,6 @@ export interface VoiceWindowRuntime {
   onRecognitionEnded(handler: (payload: RecognitionEndedPayload) => void): Promise<Unlisten>;
   onRuntimeState(handler: (state: VoiceRuntimeState) => void): Promise<Unlisten>;
   onWindowGeometry(handler: (snapshot: VoiceWindowSnapshot) => void): Promise<Unlisten>;
-  pickModel(): Promise<string | null>;
   /** PermissionCenter için dar, enjekte edilebilir ön denetim noktası. */
   preflightRecognition(): Promise<boolean>;
   requestPrefs(prefs: VoicePrefsPayload | null): Promise<void>;
@@ -88,7 +86,6 @@ const DEFAULT_RUNTIME: VoiceWindowRuntime = {
   ),
   onRuntimeState: onVoiceRuntimeState,
   onWindowGeometry: onVoiceWindowGeometryChanged,
-  pickModel: selectVoiceModel,
   preflightRecognition: async () => true,
   requestPrefs: requestVoicePrefs,
   startRecognition: startSpeechRecognition,
@@ -169,7 +166,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   const geometryRef = useRef(initialGeometry.current);
   const [wide, setWide] = useState(initialGeometry.current.wide);
   const [onTop, setOnTop] = useState(initialGeometry.current.onTop);
-  const [prefs, setPrefs] = useState<VoicePrefs>({ hiz: 1, model: null, robotik: 0.5 });
+  const [prefs, setPrefs] = useState<VoicePrefs>({ hiz: 1 });
   const [ask, setAsk] = useState<VoiceAsk | null>(null);
   const [recognitionOwned, setRecognitionOwned] = useState(false);
   const machineRef = useRef(machine);
@@ -695,14 +692,6 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       onAnswer={(answer) => sendAnswer(answer, ask)}
       onClose={() => void runtime.close()}
       onMinimize={() => void minimizeVoiceWindow()}
-      onPickModel={() => {
-        void runtime.pickModel().then((path) => {
-          if (!path) return;
-          const next = { ...prefs, model: path };
-          setPrefs(next);
-          return runtime.requestPrefs(next);
-        }).catch(() => undefined);
-      }}
       onPrefsChange={(next) => {
         setPrefs(next);
         void runtime.requestPrefs(next);

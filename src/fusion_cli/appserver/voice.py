@@ -1,9 +1,9 @@
 """Sesli yanıt: Fusion'ın kullanıcıyla konuşması.
 
-Tasarım kararı — BEDAVA ve ÇEVRİMDIŞI: Piper modeli kuruluysa o, değilse
-işletim sisteminin kendi sentezleyicisi kullanılır. Model yalnız kullanıcı
-uygulama içinden açıkça istediğinde indirilir; konuşma sırasında API anahtarı
-istenmez ve metin ağa çıkmaz. Kullanıcının kotası ve gizliliği etkilenmez.
+Tasarım kararı — BEDAVA ve ÇEVRİMDIŞI: EMA Lightning (Türkçe, ~34 MB ONNX) uygulamayla
+gelir ve kullanılabiliyorsa o, değilse işletim sisteminin kendi sentezleyicisi
+kullanılır. Konuşma sırasında API anahtarı istenmez ve metin ağa çıkmaz.
+Kullanıcının kotası ve gizliliği etkilenmez.
 
 Türkçe uyumu ölçüldü: macOS'ta `Yelda tr_TR` sesi kuruludur.
 """
@@ -219,19 +219,8 @@ def upgrade_hint(installed: tuple[tuple[str, str, str], ...]) -> str | None:
     )
 
 
-#: Piper sentez parametreleri. Değerler UYDURULMADI: aynı cümle üç farklı hızda
-#: dinlenerek seçildi ve kullanıcı "biraz hızlandıralım, robotik olsa da olur"
-#: dedi. Bu yüzden `length_scale` 1.0'ın altında — varsayılandan hızlı.
-PIPER_DEFAULTS: dict[str, float] = {
-    "length_scale": 0.92,
-    # Hece süresi değişkenliği: mekanik tınıyı azaltan asıl ayar.
-    "noise_w_scale": 0.9,
-    "sentence_silence": 0.25,
-}
-
-#: Piper'ın Türkçe modeli. Katalogda doğrulandı: tek Türkçe ses budur
-#: (`fahrettin` ve `fettah` 404 veriyor). MIT lisanslı, 60 MB, çevrimdışı.
-PIPER_TURKISH_MODEL = "tr_TR-dfki-medium"
+#: Ses motorunun adı (arayüzde ve `ses.durum` yanıtında görünür).
+EMA_VOICE_NAME = "EMA Lightning"
 
 
 def _data_home() -> Path:
@@ -244,13 +233,11 @@ def _data_home() -> Path:
     return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "fusion"
 
 
-def piper_model_path() -> Path:
-    """İndirilen Piper modelinin yolu.
+def ema_ready() -> bool:
+    """EMA model dosyaları pakette eksiksiz mi? Yarım kurulum hazır sayılmaz."""
+    from .ema_synthesis import is_installed
 
-    Model uygulama PAKETİNE yazılmaz: paket imzasını bozar ve her güncellemede
-    silinir. Kullanıcı veri dizini güncellemeden etkilenmez.
-    """
-    return _data_home() / "voices" / f"{PIPER_TURKISH_MODEL}.onnx"
+    return is_installed()
 
 
 #: Konuşma hızı çarpanı için kabul edilen aralık. Alt sınırın altında sesler
@@ -269,87 +256,32 @@ def _clamp(value: float, low: float, high: float) -> float:
 
 
 def load_settings() -> dict[str, Any]:
-    """Kayıtlı tercihleri, uygulanacak sentez parametreleriyle birlikte döndür.
+    """Kayıtlı hız tercihini döndür.
 
     Dosya yoksa ya da BOZUKSA varsayılana düşülür: elle düzenlenmiş bozuk bir
-    JSON yüzünden konuşmanın tamamen susması kabul edilemez.
+    JSON yüzünden konuşmanın tamamen susması kabul edilemez. EMA tek sesli ve
+    tek parametreli (hız) olduğundan başka ayar tutulmaz.
     """
     hiz = 1.0
-    robotik = 0.5
-    model: str | None = None
     try:
         ham = json.loads(settings_path().read_text(encoding="utf-8"))
         if isinstance(ham, dict):
             hiz = _clamp(float(ham.get("hiz", 1.0)), *HIZ_ARALIGI)
-            robotik = _clamp(float(ham.get("robotik", 0.5)), 0.0, 1.0)
-            aday = ham.get("model")
-            model = str(aday) if isinstance(aday, str) and aday else None
     except (OSError, ValueError, TypeError):
-        hiz, robotik, model = 1.0, 0.5, None
-
-    # Hız ile `length_scale` TERS orantılıdır: hızlı okumak süreyi kısaltır.
-    # Robotiklik de terstir: hece süresi değişkenliği (`noise_w_scale`)
-    # AZALDIKÇA ses mekanikleşir. Çarpan 0,5'te 1,0 olacak biçimde kuruldu,
-    # yani varsayılan tercih ölçülmüş değerleri aynen korur.
-    return {
-        "hiz": hiz,
-        "robotik": robotik,
-        "model": model,
-        "length_scale": PIPER_DEFAULTS["length_scale"] / hiz,
-        "noise_w_scale": PIPER_DEFAULTS["noise_w_scale"] * (1.6 - robotik * 1.2),
-        "sentence_silence": PIPER_DEFAULTS["sentence_silence"],
-    }
+        hiz = 1.0
+    return {"hiz": hiz}
 
 
 def save_settings(data: object) -> dict[str, Any]:
-    """`ses.ayar`: hız, robotiklik ve kendi ses modelini kaydet."""
+    """`ses.ayar`: konuşma hızını kaydet."""
     if not isinstance(data, dict):
         return {"ok": False, "metin": "Geçersiz ayar."}
-    mevcut = load_settings()
-    yeni: dict[str, Any] = {
-        "hiz": mevcut["hiz"],
-        "robotik": mevcut["robotik"],
-        "model": mevcut["model"],
-    }
+    yeni: dict[str, Any] = dict(load_settings())
     if "hiz" in data:
         try:
             yeni["hiz"] = _clamp(float(data["hiz"]), *HIZ_ARALIGI)
         except (TypeError, ValueError):
             return {"ok": False, "metin": "Hız bir sayı olmalı."}
-    if "robotik" in data:
-        try:
-            yeni["robotik"] = _clamp(float(data["robotik"]), 0.0, 1.0)
-        except (TypeError, ValueError):
-            return {"ok": False, "metin": "Robotiklik bir sayı olmalı."}
-    if "model" in data:
-        ham = data["model"]
-        if ham in (None, ""):
-            yeni["model"] = None
-        else:
-            yol = Path(str(ham)).expanduser()
-            if not yol.is_file():
-                return {"ok": False, "metin": f"Ses modeli bulunamadı: {yol}"}
-            # Kullanıcının KENDİ KONUŞMA KAYDI bir ses modeli değildir. Fusion
-            # ses klonlama yapmaz; kabul edilen tek şey Piper'ın `.onnx` modeli
-            # ve yanındaki yapılandırmasıdır. WAV/MP3 kabul etmek, klonlandı
-            # sanan kullanıcıya sonradan anlamsız bir Piper hatası verirdi.
-            if yol.suffix.casefold() != ".onnx":
-                return {
-                    "ok": False,
-                    "metin": (
-                        "Yalnız Piper ses modeli (.onnx) kullanılabilir. "
-                        "Kendi ses kaydından ses üretme desteklenmiyor."
-                    ),
-                }
-            if not yol.with_suffix(".onnx.json").is_file():
-                return {
-                    "ok": False,
-                    "metin": (
-                        f"Modelin yapılandırma dosyası eksik: {yol.name}.json aynı klasörde olmalı."
-                    ),
-                }
-            yeni["model"] = str(yol)
-
     try:
         settings_path().parent.mkdir(parents=True, exist_ok=True)
         settings_path().write_text(json.dumps(yeni, ensure_ascii=False), encoding="utf-8")
@@ -358,104 +290,28 @@ def save_settings(data: object) -> dict[str, Any]:
     return {"ok": True, **yeni}
 
 
-def active_model_path() -> Path:
-    """Konuşurken kullanılacak model. Kullanıcının kendi dosyası öncelenir."""
-    kendi = load_settings()["model"]
-    if kendi:
-        yol = Path(str(kendi))
-        if yol.is_file():
-            return yol
-    return piper_model_path()
+def download_voice_model(_progress: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+    """`ses.model_indir`: EMA modeli uygulamayla geldiği için indirme gerekmez.
 
-
-def piper_download_urls() -> tuple[str, str]:
-    """Model ve yapılandırma dosyasının indirme adresleri.
-
-    Kaynak, Piper'ın resmî ses deposudur. Adres elle kurulmaz; katalogdaki
-    dizin düzeni sabittir (`<dil>/<yerel>/<ses>/<kalite>`).
+    Eski arayüzlerle uyum için istek yaşar; model dosyaları eksikse (bozuk kurulum)
+    bunu dürüstçe söyler.
     """
-    taban = (
-        "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
-        "tr/tr_TR/dfki/medium/tr_TR-dfki-medium"
-    )
-    return f"{taban}.onnx", f"{taban}.onnx.json"
+    if ema_ready():
+        return {"ok": True, "zaten": True}
+    return {"ok": False, "metin": "Ses modeli dosyaları eksik; uygulamayı yeniden kur."}
 
 
-def _open_url(url: str) -> Any:  # noqa: ANN401 — urlopen'ın dönüşü tiplenmemiş
-    """Adresi aç. Testler bunu değiştirir; ağa gerçekten çıkılmaz."""
-    from urllib.request import urlopen
-
-    return urlopen(url, timeout=60)
-
-
-def download_piper_model(progress: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
-    """Türkçe Piper modelini indir.
-
-    İndirme SESSİZ olmaz: 60 MB'lık dosyada kullanıcı ilerlemeyi görmeli.
-    Yarım kalan dosya "kurulu" sanılırsa Piper her açılışta çöker; bu yüzden
-    önce geçici ada yazılır ve ancak tamamlanınca yerine taşınır.
-    """
-    hedef = piper_model_path()
-    if hedef.is_file():
-        return {"ok": True, "zaten": True, "yol": str(hedef)}
-    hedef.parent.mkdir(parents=True, exist_ok=True)
-    onnx_url, config_url = piper_download_urls()
-
-    gecici = hedef.with_suffix(".onnx.indiriliyor")
-    try:
-        with _open_url(onnx_url) as yanit:
-            toplam = int(yanit.headers.get("Content-Length") or 0)
-            inen = 0
-            with gecici.open("wb") as akis:
-                while True:
-                    parca = yanit.read(1024 * 256)
-                    if not parca:
-                        break
-                    akis.write(parca)
-                    inen += len(parca)
-                    progress({"inen": inen, "toplam": toplam or inen})
-        with _open_url(config_url) as yanit:
-            hedef.with_suffix(".onnx.json").write_bytes(yanit.read())
-    except Exception as error:  # ağ, disk, kesinti
-        gecici.unlink(missing_ok=True)
-        return {"ok": False, "metin": f"Ses modeli indirilemedi: {error}"}
-
-    gecici.replace(hedef)
-    return {"ok": True, "zaten": False, "yol": str(hedef)}
-
-
-def piper_argv(model: str, output: str, settings: dict[str, float]) -> list[str]:
-    """Piper'ı çalıştıracak komutu üret."""
-    return [
-        "piper",
-        "-m",
-        model,
-        "-f",
-        output,
-        "--length-scale",
-        str(settings["length_scale"]),
-        "--noise-w-scale",
-        str(settings["noise_w_scale"]),
-        "--sentence-silence",
-        str(settings["sentence_silence"]),
-    ]
-
-
-def engine_for(
-    *, piper_model: str | None, system_voice: str | None
-) -> tuple[str | None, str | None]:
+def engine_for(*, ema_available: bool, system_voice: str | None) -> tuple[str | None, str | None]:
     """Hangi motorun kullanılacağını ve gerekiyorsa sebebini döndür.
 
-    Piper varsa o tercih edilir: sistem sesinden daha doğal ve Windows'ta da
-    çalışır. Model indirilmemişse sistem sesine düşülür ama SEBEBİ söylenir —
+    EMA varsa o tercih edilir: sistem sesinden daha doğal ve Windows'ta da
+    çalışır. Kullanılamıyorsa sistem sesine düşülür ama SEBEBİ söylenir —
     sessizce daha kötü sesle konuşmak kullanıcıyı yanıltır.
     """
-    if piper_model:
-        return "piper", None
+    if ema_available:
+        return "ema", None
     if system_voice:
-        return "sistem", (
-            "Daha doğal ses için Piper modeli indirilmedi; şimdilik sistem sesi kullanılıyor."
-        )
+        return "sistem", ("Ses modeli dosyaları eksik; şimdilik sistem sesi kullanılıyor.")
     return None, "Bu bilgisayarda kullanılabilir bir Türkçe ses yok."
 
 
@@ -538,12 +394,11 @@ def speak_argv(system: str, text: str, *, voice: str | None) -> list[str]:
     raise ValueError(f"Sesli yanıt bu platformda desteklenmiyor: {system}")
 
 
-def _speak_with_piper(text: str, model: Path) -> dict[str, Any]:
-    """Metni Piper ile seslendirip çal.
+def _speak_with_ema(text: str) -> dict[str, Any]:
+    """Metni EMA ile seslendirip çal.
 
-    Piper ses dosyası üretir, çalmayı işletim sistemine bırakırız. İki adımı
-    tek boruya bağlamak yerine geçici dosya kullanılır: Piper'ın çıktısı WAV
-    başlığı taşır ve akış hâlinde çalmak platforma göre değişirdi.
+    EMA ses dosyası üretir, çalmayı işletim sistemine bırakırız. Geçici dosya
+    kullanılır: WAV başlığı taşır ve akış hâlinde çalmak platforma göre değişirdi.
     """
     import tempfile
 
@@ -553,26 +408,23 @@ def _speak_with_piper(text: str, model: Path) -> dict[str, Any]:
 
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as gecici:
         cikti = Path(gecici.name)
-    # Parametreler kullanıcının kaydettiği hız/robotiklik tercihinden gelir;
-    # tercih yoksa ölçülmüş varsayılanlar aynen uygulanır.
-    ayar = load_settings()
-    from .piper_synthesis import synthesize_piper
+    from .ema_synthesis import synthesize_ema
 
     try:
-        synthesize_piper(text, model, cikti, ayar)
-    except Exception as error:  # Üçüncü taraf yerel sentez kitaplığının sınırı.
+        synthesize_ema(text, cikti, load_settings()["hiz"])
+    except Exception as error:  # Yerel model/ONNX çalışma zamanı sınırı.
         import logging
 
         logging.getLogger(__name__).error(
-            "Piper sentezi başarısız", extra={"error_type": type(error).__name__}
+            "EMA sentezi başarısız", extra={"error_type": type(error).__name__}
         )
         cikti.unlink(missing_ok=True)
-        return {"ok": False, "metin": "Ses üretilemedi. Ses modelini ve ayarlarını kontrol et."}
+        return {"ok": False, "metin": "Ses üretilemedi. Ses modelini kontrol et."}
 
-    return _play_piper_file(cikti)
+    return _play_wav_file(cikti)
 
 
-def _play_piper_file(cikti: Path) -> dict[str, Any]:
+def _play_wav_file(cikti: Path) -> dict[str, Any]:
     """Sahipli WAV dosyasını mevcut iptal/bekleme yoluyla çal."""
     calar = (
         ["afplay", str(cikti)]
@@ -592,7 +444,7 @@ def _play_piper_file(cikti: Path) -> dict[str, Any]:
     except OSError as error:
         cikti.unlink(missing_ok=True)
         return {"ok": False, "metin": f"Ses çalınamadı: {error}"}
-    return {"ok": True, "pid": process.pid, "tur_id": turn_id, "motor": "piper"}
+    return {"ok": True, "pid": process.pid, "tur_id": turn_id, "motor": "ema"}
 
 
 @lru_cache(maxsize=1)
@@ -601,22 +453,21 @@ def _prepared_store() -> PreparedVoiceStore:
 
 
 def warm_voice(_request: object = None) -> dict[str, Any]:
-    """Talk açılırken kısa yanıtları sessizce hazırla; oynatıcıya dokunma."""
+    """Talk açılırken modeli yükle ve kısa yanıtları sessizce hazırla; oynatıcıya dokunma."""
     import logging
     import tempfile
 
-    from .piper_synthesis import synthesize_piper
+    from .ema_synthesis import synthesize_ema
     from .voice_intents import local_voice_replies
 
-    model = active_model_path()
-    if not model.is_file():
+    if not ema_ready():
         return {"ok": True, "hazir": False}
     try:
         with tempfile.TemporaryDirectory(prefix="fusion-voice-warm-") as directory:
             output = Path(directory) / "reply.wav"
-            settings = load_settings()
+            hiz = load_settings()["hiz"]
             for reply in local_voice_replies():
-                synthesize_piper(reply, model, output, settings)
+                synthesize_ema(reply, output, hiz)
     except Exception as error:  # Yerel model/dosya sistemi sınırı; sır veya söz loglanmaz.
         logging.getLogger(__name__).warning(
             "Ses ön hazırlığı tamamlanamadı", extra={"error_type": type(error).__name__}
@@ -629,27 +480,25 @@ def warm_voice(_request: object = None) -> dict[str, Any]:
 
 
 def prepare_voice(text: object) -> dict[str, Any]:
-    """Piper cümlesini çalmadan hazırla; sonraki oynatma yalnız kimlikle yapılır."""
-    from .piper_synthesis import synthesize_piper
+    """Cümleyi çalmadan hazırla; sonraki oynatma yalnız kimlikle yapılır."""
+    from .ema_synthesis import synthesize_ema
     from .voice_text import prepare_speech
 
-    model = active_model_path()
-    if not model.is_file():
+    if not ema_ready():
         return {"ok": False, "desteklenmiyor": True}
     content = prepare_speech(str(text or ""))
     if not content:
         return {"ok": False, "metin": "Okunacak metin boş."}
+    hiz = load_settings()["hiz"]
     try:
-        token = _prepared_store().prepare(
-            lambda path: synthesize_piper(content, model, path, load_settings())
-        )
-    except Exception as error:  # Yerel sentez kitaplığı ve dosya sistemi sınırı.
+        token = _prepared_store().prepare(lambda path: synthesize_ema(content, path, hiz))
+    except Exception as error:  # Yerel sentez ve dosya sistemi sınırı.
         import logging
 
         logging.getLogger(__name__).error(
             "Ses hazırlama başarısız", extra={"error_type": type(error).__name__}
         )
-        return {"ok": False, "metin": "Ses hazırlanamadı. Ses modelini ve ayarlarını kontrol et."}
+        return {"ok": False, "metin": "Ses hazırlanamadı. Ses modelini kontrol et."}
     return {"ok": True, "hazir_id": token}
 
 
@@ -658,7 +507,7 @@ def play_prepared_voice(token: object) -> dict[str, Any]:
     path = _prepared_store().take(token) if isinstance(token, str) else None
     if path is None:
         return {"ok": False, "metin": "Hazır ses bulunamadı veya zaten kullanıldı."}
-    return _play_piper_file(path)
+    return _play_wav_file(path)
 
 
 def discard_prepared_voice(token: object = None) -> dict[str, Any]:
@@ -687,11 +536,10 @@ def speak(text: object) -> dict[str, Any]:
     with _SPEECH_LIFECYCLE_LOCK:
         if _REAPING_SPEECH is not None:
             return _speech_busy_result()
-    # Piper modeli indirilmişse o tercih edilir: sistem sesleri Türkçe'de
-    # compact kademede kalıyor ve Windows'ta Türkçe ses hiç yok.
-    model = active_model_path()
-    if model.is_file():
-        return _speak_with_piper(content, model)
+    # EMA varsa o tercih edilir: sistem sesleri Türkçe'de compact kademede
+    # kalıyor ve Windows'ta Türkçe ses hiç yok.
+    if ema_ready():
+        return _speak_with_ema(content)
 
     voice = best_voice(installed_voice_records())
     try:
@@ -744,34 +592,33 @@ def status() -> dict[str, Any]:
     """`ses.durum`: hangi motor, hangi ses ve gerçekten uygulanabilir bir öneri var mı?
 
     Öneri KOŞULLUDUR. Daha önce burada bir hata vardı: Cem zaten kuruluyken ve
-    motor Piper'ken bile "Cem'i indir" deniyordu. Kurulu olanı önermek
+    motor EMA iken bile "Cem'i indir" deniyordu. Kurulu olanı önermek
     kullanıcıyı yanıltır; öneri yalnız gerçekten işe yarayacaksa çıkar.
     """
     records = installed_voice_records()
     system_voice = best_voice(records)
     ayar = load_settings()
-    model = active_model_path()
-    piper_ready = model.is_file()
-    supported = piper_ready or platform.system().casefold() in ("darwin", "windows")
+    ema_available = ema_ready()
+    supported = ema_available or platform.system().casefold() in ("darwin", "windows")
 
-    if piper_ready:
-        # Piper devredeyken sistem sesi önerisi anlamsızdır.
+    if ema_available:
+        # EMA devredeyken sistem sesi önerisi anlamsızdır.
         hint: str | None = None
     elif system_voice:
         hint = upgrade_hint(records)
     else:
         hint = (
-            "Türkçe ses bulunamadı. Ayarlar'dan Fusion'ın kendi ses modelini "
-            "indirerek konuşmayı açabilirsin."
+            "Türkçe ses bulunamadı ve Fusion'ın ses modeli dosyaları eksik; "
+            "uygulamayı yeniden kurmayı dene."
         )
 
     return {
         "ok": True,
         "kullanilabilir": supported,
-        "motor": "piper" if piper_ready else "sistem",
-        "ses": PIPER_TURKISH_MODEL if piper_ready else system_voice,
-        "turkce": piper_ready or system_voice is not None,
-        "model_kurulu": piper_ready,
+        "motor": "ema" if ema_available else "sistem",
+        "ses": EMA_VOICE_NAME if ema_available else system_voice,
+        "turkce": ema_available or system_voice is not None,
+        "model_kurulu": ema_available,
         "yukseltme": hint,
-        "ayar": {"hiz": ayar["hiz"], "robotik": ayar["robotik"], "model": ayar["model"]},
+        "ayar": {"hiz": ayar["hiz"]},
     }

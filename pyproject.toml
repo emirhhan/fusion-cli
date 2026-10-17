@@ -52,13 +52,14 @@ mcp = ["mcp>=1.9,<2"]
 desktop = [
     "pyinstaller>=6.15,<7",
 ]
-# Sesli yanıt motoru. Sistem sesleri (macOS `say`) Türkçe'de compact kademede
-# kalıyor ve robotik duyuluyor; Windows'ta ise Türkçe ses HİÇ yok. Piper her iki
-# platformda da aynı sinir ağı modelini çalıştırır. MIT lisanslı, çevrimdışı.
-# Bedeli ölçüldü: onnxruntime 80 MB + piper 46 MB. Model (60 MB) pakete
-# GİRMEZ, ilk kullanımda kullanıcı verisine indirilir.
+# Sesli yanıt motoru: EMA Lightning (Türkçe, Apache-2.0, ~34 MB ONNX). Sistem sesleri
+# Türkçe'de robotik kalıyor, Windows'ta Türkçe ses hiç yok; EMA her platformda aynı
+# modeli çalıştırır. Model dosyaları pakete GİRER (çevrimdışı, indirme yok); PyTorch
+# gerekmez: yalnız onnxruntime + sayı/tarih okuyucu. Sürüm sabit: 0.8.0 ile doğrulandı.
 voice = [
-    "piper-tts>=1.7,<2",
+    "onnxruntime>=1.18,<2",
+    "numpy>=1.26",
+    "normalizer-tr==0.8.0",
 ]
 dev = [
     "pytest>=8.0,<9",
@@ -84,11 +85,12 @@ where = ["src"]
 # ilk komutta çökertir: prompt dosyaları import anında okunuyor. `tests/test_packaging.py`
 # bu listeyi dosya sistemine karşı doğrular.
 [tool.setuptools.package-data]
-"fusion_cli.appserver" = ["data/*.json"]
+"fusion_cli.appserver" = ["data/*.json", "data/ema/*"]
 "fusion_cli.providers" = ["data/*.json"]
 "fusion_cli.config" = ["*.yaml", "roster/*.md", "skills/*/SKILL.md", "skills/*/kit/*"]
 "fusion_cli.tools" = ["scaffold/*", "assets/*"]
 "fusion_cli.engines.agent" = ["prompts/*"]
+"fusion_cli.remote" = ["pwa/*"]
 "fusion_cli.gateway" = ["*.html", "static/*.css", "static/*.js", "static/fonts/*"]
 "fusion_cli.engines.fusion" = ["prompts/*"]
 

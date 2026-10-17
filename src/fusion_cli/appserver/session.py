@@ -74,6 +74,7 @@ from ..memory.factory import build_memory
 from ..memory.turn_journal import FileTurnJournal
 from ..providers.capabilities import apprentice_active
 from ..providers.health_setup import build_health
+from ..remote.controller import RemoteController
 from ..tools.capabilities import CapabilityRegistry, load_agent_prompt
 from ..tools.safe_delete import is_container_root, project_folders
 from ..tools.skill_pages import read_skill_page
@@ -145,7 +146,7 @@ from .schedule import SCHEDULE_ROUTES
 from .tiers import list_tiers, select_tier
 from .usage import UsageMeter, usage_status
 from .voice import discard_prepared_voice, play_prepared_voice, prepare_voice, warm_voice
-from .voice import download_piper_model as voice_download_model
+from .voice import download_voice_model as voice_download_model
 from .voice import save_settings as voice_settings
 from .voice import speak as voice_speak
 from .voice import status as voice_status
@@ -397,6 +398,7 @@ class AppSession:
         self._home = home
         config = load_config()
         self._secret_store = FernetSecretStore(credentials_file(), secret_key=secret_key())
+        self._remote: RemoteController | None = None
         self._personal_memory = PersonalMemory(config.memory_dir)
         from ..memory.image_job_store import ImageJobStore
 
@@ -494,6 +496,18 @@ class AppSession:
             data = {"ok": False, "metin": str(error)}
         self._writer(encode_result(request.id, data))
 
+    def _remote_controller(self) -> RemoteController:
+        """Uzak erişim yöneticisi ilk `uzak.*` isteğinde kurulur; açılışa maliyeti yok."""
+        if self._remote is None:
+            root, home = self._root, self._home
+            self._remote = RemoteController(
+                home=home,
+                root=root,
+                secrets=self._secret_store,
+                session_factory=lambda writer: AppSession(writer, root=root, home=home),
+            )
+        return self._remote
+
     async def _chrome_turn(self, prompt: str) -> dict[str, Any]:
         """Yan panelden gelen görevi mevcut sohbetin aynı onay kapısında yürüt."""
         self._chrome.publish({"tur": "basladi"})
@@ -579,6 +593,8 @@ class AppSession:
             return await self._dispatch_unlocked(request)
 
     async def _dispatch_unlocked(self, request: Request) -> dict[str, Any]:
+        if request.name.startswith("uzak."):
+            return await self._remote_controller().dispatch(request.name, request.data)
         if request.name == "ajan.durdur":
             identifier = request.data.get("agentId")
             if (
@@ -2441,4 +2457,6 @@ class AppSession:
         await self._processes.close()
         await close_all_browser_sessions()
         stop_all_login_processes()
+        if self._remote is not None:
+            await self._remote.aclose()
         self.pending.cancel_all()

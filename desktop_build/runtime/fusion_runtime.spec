@@ -33,8 +33,8 @@ for package in (
     "keyring",
     "httpx",
     "mcp",
-    "piper",
     "onnxruntime",
+    "normalizer_tr",
     # Web sağlayıcıları (ChatGPT/Claude/Gemini arayüzü) Playwright'a bağlıdır.
     # Ölçüldü (alpha.12 release'i): paket toplanmadığı için paketlenmiş uygulamada
     # HİÇBİR web sağlayıcısı çalışmıyordu; arayüzde duruyorlar ama altlarında motor
@@ -53,7 +53,7 @@ for distribution in (
     "chromadb",
     "keyring",
     "httpx",
-    "piper-tts",
+    "normalizer-tr",
     "onnxruntime",
     "playwright",
 ):

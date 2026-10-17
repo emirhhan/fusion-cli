@@ -3,6 +3,16 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## Yayımlanmamış — ses motoru: EMA Lightning
+
+- Sesli yanıt motoru Piper yerine EMA Lightning (Türkçe, Apache-2.0, ~34 MB) oldu.
+  Model ONNX'e çevrilip uygulamaya gömüldü: PyTorch ve ilk kullanımda indirme gerekmez,
+  çevrimdışı çalışır. Resmî PyTorch motoruyla çıktı örnek örnek eşleşir (en büyük fark 9e-5).
+- EMA tek sesli ve tek parametrelidir: "Robotik" sürgüsü ve "Piper ses modeli seç" düğmesi
+  kaldırıldı; eski ayar dosyasındaki `robotik` ve `model` alanları yok sayılır.
+- Model dosyaları eksikse macOS sistem sesine düşülür ve sebebi söylenir.
+- Yeni bağımlılık: `normalizer-tr==0.8.0` (sayı/tarih okuma); `piper-tts` kaldırıldı.
+
 ## Yayımlanmamış — onay ve soru güvenilirliği
 
 - MCP araç ipuçları çeliştiğinde Fusion açık `destructiveHint=true` değerini
