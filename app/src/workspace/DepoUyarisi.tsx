@@ -23,6 +23,8 @@ export function DepoUyarisi({ kok, projeler, onAc }: DepoUyarisiProps) {
   const kalan = projeler.length - gosterilen.length;
   const ayirici = kok.includes("\\") && !kok.includes("/") ? "\\" : "/";
   return (
+    // Kolon, proje seçici ve yazı kutusuyla AYNI genişlik/hizada durur; şerit tam ekrana yayılmaz.
+    <div className="depo-uyarisi-kolon">
     <aside aria-label="Proje deposu uyarısı" className="depo-uyarisi" role="note">
       <p className="depo-uyarisi__metin">
         <strong>Bu klasör tek bir proje değil</strong> — içinde {projeler.length} proje var. Ajan
@@ -43,5 +45,6 @@ export function DepoUyarisi({ kok, projeler, onAc }: DepoUyarisiProps) {
         {kalan > 0 && <span className="depo-uyarisi__kalan">+{kalan} proje</span>}
       </div>
     </aside>
+    </div>
   );
 }

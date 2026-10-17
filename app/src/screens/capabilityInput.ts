@@ -43,3 +43,13 @@ export const DEFAULT_SKILL_TASK = (skill: string) => `${skill} becerisini bu gö
 
 /** `/görsel` ve `/gorsel` sohbet içinde görsel üretir; slash komutu değil, normal bir turdur. */
 export const isImageCommand = (text: string) => /^\/g[öo]rsel(?:\s|$)/i.test(text.trim());
+
+/** `/görsel` komutundan istem ve en-boy oranı (`--oran 16:9`); oran yoksa 1:1. */
+export function parseImageRequest(text: string): { prompt: string; aspect: string } {
+  const rest = text.trim().replace(/^\/g[öo]rsel(?:i|ler)?\s*/i, "");
+  const option = /(?:^|\s)--(?:oran|aspect)[ =](\d+:\d+)(?=\s|$)/.exec(rest);
+  const aspect = option?.[1] ?? "1:1";
+  const prompt = (option ? rest.slice(0, option.index) + rest.slice(option.index + option[0].length) : rest)
+    .replace(/\s+/g, " ").trim();
+  return { prompt, aspect };
+}

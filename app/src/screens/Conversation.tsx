@@ -13,6 +13,8 @@ import { DiffCard } from "../markdown/DiffCard";
 import { ActivityLine, activityState } from "./ActivityLine";
 import type { AjanKarti } from "../team/ekipOlaylari";
 import { PreviewCard } from "./PreviewCard";
+import { ImageGenerationCard } from "./ImageGenerationCard";
+import { isImageCommand, parseImageRequest } from "./capabilityInput";
 import { useStickToBottom } from "./useStickToBottom";
 
 export interface MesajEki {
@@ -208,6 +210,12 @@ export function Conversation({
     message.rol === "olay" && activityState(message.adimlar ?? []) === "running"
       ? index : last
   ), -1);
+  // `/görsel` çalışırken (cevap henüz yok) ChatGPT gibi bir "oluşturuluyor" kartı göster.
+  const sonKullanici = [...mesajlar].reverse().find((message) => message.rol === "kullanici");
+  const sonKullaniciSirasi = sonKullanici ? mesajlar.lastIndexOf(sonKullanici) : -1;
+  const gorselBekliyor = running && sonKullanici !== undefined && isImageCommand(sonKullanici.metin)
+    && !mesajlar.slice(sonKullaniciSirasi + 1).some((message) => message.rol === "asistan");
+  const gorselIstegi = gorselBekliyor && sonKullanici ? parseImageRequest(sonKullanici.metin) : null;
   const kutuRef = useRef<HTMLDivElement>(null);
   const icerikRef = useRef<HTMLDivElement>(null);
   const lastMessage = mesajlar[mesajlar.length - 1];
@@ -321,6 +329,11 @@ export function Conversation({
             </div>
           );
         })}
+        {gorselIstegi && (
+          <div className="conversation__message conversation__message--assistant">
+            <ImageGenerationCard aspect={gorselIstegi.aspect} prompt={gorselIstegi.prompt} />
+          </div>
+        )}
       </div>
       {/* Ekran okuyucu için durum; görsel gösterge `ActivityLine`'dadır.
           Tamamlanan iş DUYURULMAZ: her basit soruda "Tamamlandı" demek
