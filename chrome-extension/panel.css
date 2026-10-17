@@ -67,8 +67,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 [hidden] { display: none !important; }
 
 /* Gizlenen bölümler (güncelleme bandı, denetim şeridi) satır kaydırmasın diye ızgara değil sütun. */
-.app { display: flex; flex-direction: column; height: 100vh; }
-.app > * { flex: none; }
+.app { display: flex; flex-direction: column; height: 100vh; width: 100%; min-width: 0; overflow-x: hidden; }
+.app > * { flex: none; min-width: 0; max-width: 100%; }
 .app > .thread { flex: 1 1 auto; min-height: 0; }
 
 /* Üst çubuk */
@@ -136,7 +136,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 .control__guard[data-mode="bypass"] { color: var(--danger); }
 
 /* Konuşma */
-.thread { overflow-y: auto; padding: 14px 14px 8px; scroll-behavior: smooth; }
+.thread { overflow-x: hidden; overflow-y: auto; padding: 14px 14px 8px; scroll-behavior: smooth; }
 .empty { display: grid; justify-items: center; gap: 10px; padding: 36px 8px 8px; text-align: center; }
 .empty img { border-radius: 12px; }
 .empty h1 { margin: 6px 0 0; font-size: 19px; letter-spacing: -0.02em; line-height: 1.25; }
@@ -150,7 +150,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 .suggestion:hover { background: var(--hover); border-color: var(--border-strong); }
 .suggestion:active { transform: scale(.99); }
 
-.messages { display: grid; gap: 18px; margin: 0; padding: 0; list-style: none; }
+.messages { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; margin: 0; padding: 0; list-style: none; }
 .message--kullanici { display: flex; justify-content: flex-end; }
 .bubble {
   max-width: 88%; padding: 8px 12px; border-radius: 16px 16px 4px 16px; background: var(--user-bubble);
@@ -197,7 +197,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 .prose pre code { padding: 0; background: none; }
 
 /* Alt kısım: izin kartı + yazma kutusu */
-.dock { display: grid; gap: 8px; padding: 8px 12px 10px; }
+.dock { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 8px 12px 10px; }
 .error { margin: 0; color: var(--danger); font-size: 12px; }
 .error:empty { display: none; }
 
@@ -236,10 +236,10 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 .ask__hint { margin: 0; color: var(--faint); font-size: 11px; }
 
 .composer {
-  display: grid; gap: 4px; padding: 10px 8px 8px 14px; border: 1px solid var(--border);
+  min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 10px 8px 8px 14px; border: 1px solid var(--border);
   border-radius: 20px; background: var(--field); transition: border-color var(--fast) var(--ease);
 }
-.composer__bar { display: flex; align-items: center; gap: 6px; }
+.composer__bar { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .mode-chip, .model-chip {
   min-width: 0; height: 28px; border: 1px solid var(--border); border-radius: 999px; padding: 0 10px;
   background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer;
@@ -251,11 +251,12 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 .mode-chip { appearance: none; field-sizing: content; padding-right: 12px; flex-shrink: 0; max-width: 45%; text-overflow: ellipsis; }
 .mode-chip[data-mode="security"] { color: var(--text); border-color: var(--border-strong); }
 .mode-chip[data-mode="bypass"] { color: var(--danger); border-color: var(--danger); }
-.model-chip { margin-left: auto; max-width: 55%; text-overflow: ellipsis; appearance: none; padding-right: 12px; }
+.model-chip { margin-left: auto; flex: 1 1 0; width: 0; min-width: 0; max-width: 55%; text-overflow: ellipsis; appearance: none; padding-right: 12px; }
+.message, .message--asistan, .bubble, .prose { min-width: 0; max-width: 100%; }
 .model-chip:disabled, .mode-chip:disabled { opacity: .5; cursor: default; }
 .composer:focus-within { border-color: var(--border-strong); }
 .composer textarea {
-  min-width: 0; max-height: 160px; padding: 4px 6px 4px 0; border: 0; background: transparent; color: var(--text);
+  width: 100%; min-width: 0; max-height: 160px; padding: 4px 6px 4px 0; border: 0; background: transparent; color: var(--text);
   font: inherit; line-height: 1.45; resize: none; outline: none;
 }
 .composer textarea::placeholder { color: var(--faint); }

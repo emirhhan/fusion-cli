@@ -16,7 +16,7 @@ from fusion_cli.appserver import chrome_host, chrome_install
 def _profil(kok: Path, kimlik: str, **bilgi: object) -> None:
     dizin = kok / "Default"
     dizin.mkdir(parents=True, exist_ok=True)
-    kayit = {"manifest": {"name": "Fusion Browser", "version": "0.3.10"}, **bilgi}
+    kayit = {"manifest": {"name": "Fusion Browser", "version": "0.3.11"}, **bilgi}
     (dizin / "Preferences").write_text(
         json.dumps({"extensions": {"settings": {kimlik: kayit}}}), encoding="utf-8"
     )
@@ -52,7 +52,7 @@ def test_yuklu_degilse_yuklu_yok_gorunur(chrome_kok):
 def test_yuklu_ve_etkin_eklenti_dogrulanir(chrome_kok):
     _profil(chrome_kok, chrome_host.FIXED_EXTENSION_ID, state=1)
     durum = chrome_install.install_status()
-    assert durum == {"eklenti_yuklu": True, "eklenti_etkin": True, "eklenti_surum": "0.3.10"}
+    assert durum == {"eklenti_yuklu": True, "eklenti_etkin": True, "eklenti_surum": "0.3.11"}
 
 
 def test_devre_disi_eklenti_yuklu_ama_etkin_degil(chrome_kok):
