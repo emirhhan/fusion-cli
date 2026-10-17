@@ -876,16 +876,31 @@ export async function clearSelected() {
 /** Panelin "Bu siteye izin ver" kartını açan kayıt (panel `PERMISSION_KEY`i dinler). */
 export const PERMISSION_KEY = "fusionPermission";
 
+/** Kullanıcının izin kartına basması için komutun bekleyeceği süre (köprü zaman aşımı 30 sn). */
+let permissionWaitMs = 25000;
+/** Testler bekleme süresini kısaltır. */
+export function setPermissionWait(ms) { permissionWaitMs = ms; }
+
 /**
- * İzni olmayan siteye girişte: paneldeki izin kartını tetikle ve modele NE yapacağını söyle.
- * İzin yalnız kullanıcı tıklamasıyla verilebilir (Chrome kuralı); ajan beklemeli, sormalı.
+ * İzni olmayan siteye girişte: paneldeki izin kartını aç ve kullanıcının tıklamasını BEKLE;
+ * izin gelince komut kaldığı yerden sürer (ajanın yeniden denemesine gerek kalmaz).
+ * İzin yalnız kullanıcı tıklamasıyla verilebilir (Chrome kuralı). Süre dolarsa ya da
+ * kullanıcı reddederse modele ne yapacağı söylenir.
  */
-async function denyOrigin(origin, reason) {
+async function ensurePermission(origin, reason) {
+  if (await permitted(origin)) return;
   try { await chrome.storage.session.set({ [PERMISSION_KEY]: { origin, at: Date.now() } }); } catch { /* kart açılamazsa mesaj yeter */ }
-  return new Error(
-    `${reason} ${origin} için kullanıcıdan izin gerekiyor; panelde "İzin ver" kartı gösterildi. ` +
-    "Kullanıcıya bunu kısaca söyle, birkaç saniye bekleyip (chrome_action wait) aynı komutu yeniden dene; " +
-    "kullanıcı reddederse o siteye girme ve nedenini söyle.");
+  const until = Date.now() + permissionWaitMs;
+  while (Date.now() < until) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    if (await permitted(origin)) return;
+    const pending = (await chrome.storage.session.get(PERMISSION_KEY).catch(() => ({})))[PERMISSION_KEY];
+    if (!pending) break; // kullanıcı "Şimdi değil" dedi
+  }
+  if (await permitted(origin)) return;
+  throw new Error(
+    `${reason} ${origin} için kullanıcı izin vermedi (panelde izin kartı açıldı). ` +
+    "Kullanıcıya kısaca söyle; izin gelirse aynı komutu yeniden dene, vermezse o siteye girme.");
 }
 
 async function permitted(origin) {
@@ -931,8 +946,7 @@ export async function checkedTab() {
   const origin = new URL(tab.pendingUrl || tab.url).origin;
   if (origin !== selected.origin) {
     if (!await permitted(origin)) {
-      await clearSelected();
-      throw await denyOrigin(origin, "Sekme izin verilmeyen bir siteye geçti.");
+      await ensurePermission(origin, "Sekme izin verilmeyen bir siteye geçti.");
     }
     await setSelected(tab);
   }
@@ -986,7 +1000,7 @@ export async function execute(command) {
   if (command.islem === "tab_open") {
     const destination = new URL(veri.url);
     if (!await permitted(destination.origin)) {
-      throw await denyOrigin(destination.origin, "Bu siteyi açmak için izin yok.");
+      await ensurePermission(destination.origin, "Bu siteyi açmak için izin yok.");
     }
     const tab = await chrome.tabs.create({ url: destination.href, active: true });
     await waitForLoad(tab.id);
@@ -996,7 +1010,7 @@ export async function execute(command) {
   if (command.islem === "tab_select") {
     const tab = await chrome.tabs.get(Number(veri.id));
     const origin = new URL(tab.url).origin;
-    if (!await permitted(origin)) throw await denyOrigin(origin, "Bu sekmenin sitesi için izin yok.");
+    await ensurePermission(origin, "Bu sekmenin sitesi için izin yok.");
     await setSelected(tab);
     return { selected: tab.id, url: tab.url };
   }
@@ -1038,7 +1052,7 @@ export async function execute(command) {
   if (command.islem === "navigate") {
     const destination = new URL(veri.url);
     if (destination.origin !== new URL(tab.url).origin && !await permitted(destination.origin)) {
-      throw await denyOrigin(destination.origin, "Bu siteye gitmek için izin yok.");
+      await ensurePermission(destination.origin, "Bu siteye gitmek için izin yok.");
     }
     await chrome.tabs.update(tab.id, { url: destination.href });
     await waitForLoad(tab.id);

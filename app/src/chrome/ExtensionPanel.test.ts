@@ -167,6 +167,16 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
       .toHaveBeenCalledWith({ origins: ["https://ads.example.com/*"] }));
   });
 
+  it("'Tüm sitelere izin ver' tek tıkla tüm siteleri kapsar", async () => {
+    autoConnected();
+    kit.session.set("fusionPermission", { origin: "https://x.example.com", at: 1 });
+    await loadPanel();
+    await waitFor(() => expect($("perm").hidden).toBe(false));
+    click("perm-all");
+    await waitFor(() => expect($("perm").hidden).toBe(true));
+    expect(kit.chromeMock.permissions.request).toHaveBeenCalledWith({ origins: ["<all_urls>"] });
+  });
+
   it("izin kartı 'Şimdi değil' ile kapanır", async () => {
     autoConnected();
     kit.session.set("fusionPermission", { origin: "https://x.example.com", at: 1 });
@@ -307,6 +317,7 @@ describe("Çekirdek: sekme yönetimi", () => {
     kit = chromeKit({ granted: (o) => !o.includes("evil") });
     vi.resetModules();
     const core = await import("../../../chrome-extension/core.js");
+    core.setPermissionWait(50);
     await expect(core.execute({ islem: "tab_open", veri: { url: "https://evil.test/" } })).rejects.toThrow("kullanıcıdan izin gerekiyor");
   });
 

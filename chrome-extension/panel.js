@@ -407,6 +407,14 @@ $("perm-allow").addEventListener("click", guard(async () => {
   await renderPermission();
   await renderTab();
 }));
+$("perm-all").addEventListener("click", guard(async () => {
+  // Ekran görüntüsü izniyle aynı kapsam: tüm siteler. Riskli adımlar yine onay ister.
+  if (await chrome.permissions.request({ origins: ["<all_urls>"] })) {
+    await chrome.storage.session.remove(PERMISSION_KEY);
+  }
+  await renderPermission();
+  await renderTab();
+}));
 $("perm-deny").addEventListener("click", guard(async () => {
   await chrome.storage.session.remove(PERMISSION_KEY);
   await renderPermission();
