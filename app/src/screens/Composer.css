@@ -139,7 +139,9 @@
    700'den 900'e çıkarıldı: bağlam uyarısı + model çipi + maliyet + Çalışma/
    Otomatik aynı anda görünürken 700-900px arası konteynerde de metin sütunu
    birkaç piksele düşüyordu (bkz. yukarı `minmax(120px, 1fr)` yorumu). */
-@container conversation-workspace (max-width: 900px) {
+/* Her genişlikte yığılı düzen: metin üstte tam genişlikte, araçlar altta (Claude gibi).
+   Tek satıra sığdırma, araç düğmeleri çoğalınca metin sütununu yarıya daraltıyordu. */
+@container conversation-workspace (min-width: 0px) {
   .composer[data-layout="compact"] {
     display: block;
     padding: var(--space-3) var(--space-4);
