@@ -122,6 +122,13 @@ final class Tur {
     /// diye en iyi kısmi saklanır ve final boşsa o teslim edilir.
     var konusmaMs = 0
     var sonKismi = ""
+    /// Tanıyıcının O ANKİ hipotezi (birleştirilmemiş ham metin).
+    var hamKismi = ""
+    /// Tanıyıcı uzun bir duraklamadan sonra hipotezini SIFIRLAYIP yalnız yeni
+    /// parçayı veriyor (ölçüldü: 1,8 sn duraklama sonrası "Bugün gittiğimiz
+    /// parka çok fazla aptal bir kullanıcı vardı" yerine yalnız "Ve ben o
+    /// parkın banını" geldi). Sıfırlanmadan önceki metin burada saklanır.
+    var onceki = ""
     var sonKismiGuven: Float = 0
     /// Kısmi metin her değiştiğinde artar; durma gözcüsü bununla eşleşir.
     var kismiSayaci = 0
@@ -131,6 +138,18 @@ final class Tur {
     var sonEtkinlik = Date()
 
     init(istek: SFSpeechAudioBufferRecognitionRequest) { self.istek = istek }
+
+    /// Duraklama öncesi metin + tanıyıcının güncel hipotezi.
+    func tamMetin(_ ham: String) -> String {
+        onceki.isEmpty ? ham : onceki + " " + ham
+    }
+
+    /// Yeni ham hipotez önceki hipotezin YARISINDAN kısaysa tanıyıcı sıfırlamıştır.
+    /// Normal düzeltmeler (parça→parka) birkaç karakter oynatır; sıfırlama ise
+    /// ölçümde 60+ karakterden 2 karaktere düştü.
+    func hipotezSifirlandiMi(_ ham: String) -> Bool {
+        !hamKismi.isEmpty && ham.count * 2 < hamKismi.count
+    }
 }
 
 /// Yaşayan turlar, numaralarına göre.
@@ -508,23 +527,51 @@ private let EN_YUKSEK_KAZANC: Float = 24.0
 //: Bu tepenin altındaki tampon gürültü sayılır ve YÜKSELTİLMEZ.
 private let GURULTU_TABANI: Float = 0.0015
 
-/// Tamponu tanıyıcının beklediği seviyeye taşı.
+/// Konuşma tepe zarfı ve ondan türeyen KALICI kazanç.
 ///
-/// Kırpma yapılmaz: kazanç uygulandıktan sonra örnekler [-1, 1] aralığına
-/// sıkıştırılır, aksi halde yüksek sesli konuşma bozularak tanınamaz hâle gelir.
+/// Eskiden kazanç HER TAMPONUN kendi tepesine göre hesaplanıyordu. Ölçüldü
+/// (WAV girişiyle): sessiz odada 0.0006 RMS'lik gürültü tamponu 24 kat
+/// yükseltilip 0.015 RMS'e, yani konuşma seviyesine çıkıyor; tanıyıcı bu
+/// "yüksek gürültüden" hayalet sözcük ("Evet") üretiyordu ve kelime aralarındaki
+/// sessizlikler de konuşma gibi yükseliyordu. Artık kazancı yalnız KONUŞMA
+/// tamponları belirler (kapı etkinken); sessizlik ve gürültü, son konuşmanın
+/// kazancıyla aynı oranda taşınır, tek tek yükseltilmez.
+final class KazancZarfi {
+    private var zarf: Float = 0
+    /// Tepe zarfının tampon başına sönümü: 47 tampon/sn'de 0.995^47 ≈ 0.79/sn,
+    /// yani konuşma bittikten sonra bile kazanç ~birkaç sn sabit kalır.
+    private let sonum: Float = 0.995
+
+    var kazanc: Float {
+        guard zarf > GURULTU_TABANI else { return 1 }
+        return max(1, min(HEDEF_TEPE / zarf, EN_YUKSEK_KAZANC))
+    }
+
+    /// Konuşma tamponunun tepesini zarfa kat (hızlı yükselir, yavaş söner).
+    func konusmayiGoz(tepe: Float) { zarf = max(tepe, zarf * sonum) }
+}
+
+func kazancZarfiAl() -> KazancZarfi {
+    enum Depo { static let ortak = KazancZarfi() }
+    return Depo.ortak
+}
+
+func tepeBul(_ tampon: AVAudioPCMBuffer) -> Float {
+    guard let kanallar = tampon.floatChannelData, tampon.frameLength > 0 else { return 0 }
+    var tepe: Float = 0
+    for indis in 0..<Int(tampon.frameLength) { tepe = max(tepe, abs(kanallar[0][indis])) }
+    return tepe
+}
+
+/// Tamponu tanıyıcıya GİDERKEN kazançla çarp. Kırpma yok: örnekler [-1, 1]'e
+/// sıkıştırılır. VPIO açıkken uygulanmaz (kendi otomatik kazancı vardır).
 func kazancUygula(_ tampon: AVAudioPCMBuffer) {
-    // VPIO kendi otomatik kazancını uygular; üstüne ikinci bir kazanç bindirmek
-    // sinyali bozar ve yankı gidermenin ölçümünü şaşırtır.
     guard !yankiGidermeAcik else { return }
     guard let kanallar = tampon.floatChannelData, tampon.frameLength > 0 else { return }
-    let veri = kanallar[0]
-    let cerceve = Int(tampon.frameLength)
-    var tepe: Float = 0
-    for indis in 0..<cerceve { tepe = max(tepe, abs(veri[indis])) }
-    guard tepe > GURULTU_TABANI else { return }
-    let kazanc = min(HEDEF_TEPE / tepe, EN_YUKSEK_KAZANC)
+    let kazanc = kazancZarfiAl().kazanc
     guard kazanc > 1.0 else { return }
-    for indis in 0..<cerceve {
+    let veri = kanallar[0]
+    for indis in 0..<Int(tampon.frameLength) {
         veri[indis] = max(-1.0, min(1.0, veri[indis] * kazanc))
     }
 }
@@ -711,7 +758,7 @@ func konusmaAc(segment: Int) {
                 // varken final 0 karakter döndü. Kullanıcının söylediği
                 // kaybolmasın diye o turun en son kısmi metni teslim edilir.
                 let tur = turlar[turNo]
-                let teslim = metin.isEmpty ? (tur?.sonKismi ?? "") : metin
+                let teslim = metin.isEmpty ? (tur?.sonKismi ?? "") : (tur?.tamMetin(metin) ?? metin)
                 let teslimGuven = metin.isEmpty ? (tur?.sonKismiGuven ?? 0) : puan
                 if !metinYaz(
                     final: true, metin: teslim, guven: teslimGuven, callbackSegment: segment,
@@ -727,8 +774,14 @@ func konusmaAc(segment: Int) {
                 }
                 turTamamlandi(turNo)
             } else {
+                var tamMetin = metin
+                if !metin.isEmpty, let tur = turlar[turNo] {
+                    if tur.hipotezSifirlandiMi(metin) { tur.onceki = tur.sonKismi }
+                    tur.hamKismi = metin
+                    tamMetin = tur.tamMetin(metin)
+                }
                 if !metin.isEmpty {
-                    turlar[turNo]?.sonKismi = metin
+                    turlar[turNo]?.sonKismi = tamMetin
                     turlar[turNo]?.sonKismiGuven = puan
                     turlar[turNo]?.sonEtkinlik = Date()
                     // Tanıyıcı metin üretti: konuşma vardır. Kapı açılmamış olsa
@@ -739,7 +792,7 @@ func konusmaAc(segment: Int) {
                         kismiDurmaGozcusuKur(turNo: turNo, sayac: tur.kismiSayaci)
                     }
                 }
-                metinYaz(final: false, metin: metin, guven: puan, callbackSegment: segment,
+                metinYaz(final: false, metin: tamMetin, guven: puan, callbackSegment: segment,
                     konusmaSuresi: turlar[turNo]?.konusmaMs)
             }
         } else if let hata = hata {
@@ -854,6 +907,58 @@ func yankiGidermeyiAc(_ girdi: AVAudioInputNode) {
     }
 }
 
+/// Tek bir giriş tamponunun BORU HATTI: kapı, mono indirgeme, kazanç, önhafıza,
+/// besleme kapısı ve tanıyıcı. Mikrofon tapı da test amaçlı WAV girişi de
+/// AYNI fonksiyonu çağırır; böylece ölçüm gerçek hattı sınar.
+func tamponIsle(_ tampon: AVAudioPCMBuffer) {
+    let biçim = tampon.format
+    let sureMs = max(1, Int(Double(tampon.frameLength) / biçim.sampleRate * 1000))
+    let seviye = rms(tampon)
+    akisTanisi.olc(rms: seviye, biçim: biçim)
+    let olay = kapı.isle(rms: seviye, sureMs: sureMs)
+    // Ses tanıyıcıya KOŞULSUZ akar. Eskiden kapı açılmadan tampon
+    // tutuluyordu; kapının eşiği bu mikrofonun seviyesinin üstünde kalınca
+    // tanıyıcıya tek bir örnek bile gitmiyor ve hiçbir şey olmuyordu.
+    // Apple'ın tanıyıcısı kendi bitiş tespitini zaten yapar; VAD'ın işi
+    // sesi ENGELLEMEK değil, turun ne zaman biteceğini söylemektir.
+    if let mono = monoIndirgerAl().indirge(tampon) {
+        // Zarf yalnız konuşma sırasında beslenir; kazanç tanıyıcıya GİDERKEN
+        // uygulanır, önhafızadaki tamponlar HAM saklanır.
+        if kapı.etkin { kazancZarfiAl().konusmayiGoz(tepe: tepeBul(mono)) }
+        akisTanisi.olcMono(rms: rms(mono))
+        // `append` ile `endAudio` aynı istek üzerinde yarışabiliyordu;
+        // ikisi de aynı kilidi alır.
+        durumla {
+            if beslemeAcikMi() {
+                for onceki in onTampon.bosalt() { kazancUygula(onceki); acikIstek?.append(onceki) }
+                kazancUygula(mono)
+                acikIstek?.append(mono)
+            } else {
+                onTampon.ekle(mono)
+            }
+            // Konuşma sesi de etkinliktir; gözcü konuşmanın ortasında
+            // turu kesmemeli.
+            if kapı.etkin {
+                turlar[acikTurNo]?.sonEtkinlik = Date()
+                turlar[acikTurNo]?.konusmaMs += sureMs
+            }
+        }
+    } else {
+        akisTanisi.donusumBasarisiz()
+    }
+    guard let olay = olay else { return }
+    if olay == "ses-bitti" {
+        // YALNIZCA kapatılır. Sıradaki tur, bir öncekinin finali gelince
+        // açılır: `SFSpeechRecognizer` aynı anda TEK görev destekler ve
+        // yeni görev başlatmak bir öncekini iptal eder (ölçüldü:
+        // `kLSRErrorDomain kod=301`, final boş dönüyordu).
+        konusmaKapat()
+        yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
+    } else {
+        yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
+    }
+}
+
 func tapKur() {
     let girdi = motor.inputNode
     // Ses işleme tap kurulmadan ÖNCE açılır: biçimi değiştirir (genelde tek
@@ -872,48 +977,7 @@ func tapKur() {
         uzunluk: 0, guven: 0, segment: 0
     )
     girdi.installTap(onBus: 0, bufferSize: 1024, format: biçim) { tampon, _ in
-        let sureMs = max(1, Int(Double(tampon.frameLength) / biçim.sampleRate * 1000))
-        let seviye = rms(tampon)
-        akisTanisi.olc(rms: seviye, biçim: biçim)
-        let olay = kapı.isle(rms: seviye, sureMs: sureMs)
-        // Ses tanıyıcıya KOŞULSUZ akar. Eskiden kapı açılmadan tampon
-        // tutuluyordu; kapının eşiği bu mikrofonun seviyesinin üstünde kalınca
-        // tanıyıcıya tek bir örnek bile gitmiyor ve hiçbir şey olmuyordu.
-        // Apple'ın tanıyıcısı kendi bitiş tespitini zaten yapar; VAD'ın işi
-        // sesi ENGELLEMEK değil, turun ne zaman biteceğini söylemektir.
-        if let mono = monoIndirgerAl().indirge(tampon) {
-            kazancUygula(mono)
-            akisTanisi.olcMono(rms: rms(mono))
-            // `append` ile `endAudio` aynı istek üzerinde yarışabiliyordu;
-            // ikisi de aynı kilidi alır.
-            durumla {
-                if beslemeAcikMi() {
-                    for onceki in onTampon.bosalt() { acikIstek?.append(onceki) }
-                    acikIstek?.append(mono)
-                } else {
-                    onTampon.ekle(mono)
-                }
-                // Konuşma sesi de etkinliktir; gözcü konuşmanın ortasında
-                // turu kesmemeli.
-                if kapı.etkin {
-                    turlar[acikTurNo]?.sonEtkinlik = Date()
-                    turlar[acikTurNo]?.konusmaMs += sureMs
-                }
-            }
-        } else {
-            akisTanisi.donusumBasarisiz()
-        }
-        guard let olay = olay else { return }
-        if olay == "ses-bitti" {
-            // YALNIZCA kapatılır. Sıradaki tur, bir öncekinin finali gelince
-            // açılır: `SFSpeechRecognizer` aynı anda TEK görev destekler ve
-            // yeni görev başlatmak bir öncekini iptal eder (ölçüldü:
-            // `kLSRErrorDomain kod=301`, final boş dönüyordu).
-            konusmaKapat()
-            yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
-        } else {
-            yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
-        }
+        tamponIsle(tampon)
     }
     tapKurulu = true
 }
@@ -929,12 +993,62 @@ func tapYenidenKur() {
     }
 }
 
+/// TEST GİRİŞİ: `FUSION_LISTEN_WAV=<yol>` ile mikrofon yerine kayıtlı ses
+/// dosyası, GERÇEK ZAMANLI hızla aynı boru hattına (`tamponIsle`) beslenir.
+/// Üretimde env verilmediği için hiçbir şey değişmez. Dosya bitince
+/// `FUSION_LISTEN_WAV_SONRA_SN` (varsayılan 6) saniye sessizlik eklenir ve
+/// stderr'e `wav-bitti` yazılır; ölçüm betiği finalleri bekleyip süreci kapatır.
+func wavBesle(yol: String) {
+    guard let dosya = try? AVAudioFile(forReading: URL(fileURLWithPath: yol)) else {
+        yaz("hata", "WAV açılamadı"); bitir(5)
+    }
+    let biçim = dosya.processingFormat
+    let sonraSn = Double(ProcessInfo.processInfo.environment["FUSION_LISTEN_WAV_SONRA_SN"] ?? "") ?? 6.0
+    let cerceve: AVAudioFrameCount = 1024
+    let aralik = Double(cerceve) / biçim.sampleRate
+    Thread.detachNewThread {
+        let baslangic = Date()
+        var gonderilen = 0.0
+        func bekle() {
+            let hedef = baslangic.addingTimeInterval(gonderilen)
+            let fark = hedef.timeIntervalSinceNow
+            if fark > 0 { Thread.sleep(forTimeInterval: fark) }
+        }
+        while let tampon = AVAudioPCMBuffer(pcmFormat: biçim, frameCapacity: cerceve),
+              (try? dosya.read(into: tampon)) != nil, tampon.frameLength > 0 {
+            bekle()
+            tamponIsle(tampon)
+            gonderilen += Double(tampon.frameLength) / biçim.sampleRate
+        }
+        var kalan = sonraSn
+        while kalan > 0 {
+            guard let sessiz = AVAudioPCMBuffer(pcmFormat: biçim, frameCapacity: cerceve) else { break }
+            sessiz.frameLength = cerceve
+            if let veri = sessiz.floatChannelData {
+                for k in 0..<Int(biçim.channelCount) { for i in 0..<Int(cerceve) { veri[k][i] = 0 } }
+            }
+            bekle()
+            tamponIsle(sessiz)
+            gonderilen += aralik
+            kalan -= aralik
+        }
+        FileHandle.standardError.write("wav-bitti\n".data(using: .utf8) ?? Data())
+    }
+}
+
 func başlat() {
     guard tanıyıcı.isAvailable else { yaz("hata", "Tanıyıcı şu an kullanılamıyor."); bitir(3) }
     guard tanıyıcı.supportsOnDeviceRecognition else {
         yaz("hata", "Bu cihaz Türkçe çevrimdışı konuşma tanımayı desteklemiyor."); bitir(9)
     }
 
+    if let wavYolu = ProcessInfo.processInfo.environment["FUSION_LISTEN_WAV"], !wavYolu.isEmpty {
+        taniYaz("wav-girisi", uzunluk: 0, guven: 0, segment: 0)
+        yaz("hazir", dil)
+        konusmaAc(segment: kapı.segment + 1)
+        wavBesle(yol: wavYolu)
+        return
+    }
     tapKur()
     motor.prepare()
     do { try motor.start() } catch {
