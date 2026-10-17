@@ -88,3 +88,77 @@ def test_pwa_ekran_kutusu_en_boy_oranini_korur() -> None:
     css = (PWA / "styles.css").read_text()
     assert "object-fit: contain" in css
     assert "width: auto" in css and "max-height: 100%" in css  # kare kutuya sığar, esnemez
+
+
+def test_pwa_her_modul_sunuluyor_ve_onbellege_aliniyor() -> None:
+    import re
+
+    from fusion_cli.remote.asgi import _STATIC
+
+    served = {path.lstrip("/") for path in _STATIC}
+    shell = (PWA / "sw.js").read_text()
+    for script in PWA.glob("*.js"):
+        assert script.name in served, f"{script.name} ASGI'de sunulmuyor"
+        for target in re.findall(r'from "\./([a-z-]+\.js)"', script.read_text()):
+            assert target in served and (PWA / target).is_file(), f"{script.name} → {target}"
+        if script.name != "sw.js":
+            assert f'"/{script.name}"' in shell, f"{script.name} sw önbelleğinde yok"
+    for name, _type in _STATIC.values():
+        assert (PWA / name).is_file()
+
+
+def test_pwa_mobil_kullanim_ozellikleri_baglanmis() -> None:
+    chat = (PWA / "chat.js").read_text()
+    app = (PWA / "app.js").read_text()
+    for needle in (
+        "chats.history",
+        "uploads.put",
+        "tasks.cancel",
+        "tasks.create",
+        "renderRichText",
+    ):
+        assert needle in chat, needle
+    for needle in (
+        "projects.create",
+        "schedules.run",
+        "schedules.enable",
+        "models.select",
+        "kits.run",
+    ):
+        assert needle in app, needle
+    assert "SpeechRecognition" in (PWA / "voice.js").read_text()
+    assert "media.get" in (PWA / "media.js").read_text()
+
+
+@pytest.mark.skipif(not Path(NODE).exists() and shutil.which("node") is None, reason="node yok")
+def test_sohbet_satirlari_proje_suzgeci_ve_canli_gorev_birlesimi(tmp_path: Path) -> None:
+    script = tmp_path / "t.mjs"
+    script.write_text(
+        f"""
+import {{ chatRows, filterRows }} from "{(PWA / "views-chats.js").as_uri()}";
+const ctx = {{
+  chats: [
+    {{ id: "c1", title: "Eski", updatedAt: 10, projectId: "p1", root: "/k" }},
+    {{ id: "c2", title: "Yeni", updatedAt: 30, projectId: null, root: "/k" }},
+  ],
+  chatProjects: {{ c3: "p1" }},
+  tasks: [
+    {{ runId: "r1", chatId: "c1", state: "running", createdAt: 50, summary: "calisiyor" }},
+    {{ runId: "r2", chatId: "c3", state: "queued", createdAt: 40, summary: "henuz diskte yok" }},
+    {{ runId: "r3", chatId: "", state: "done", createdAt: 5, summary: "eski gorev" }},
+  ],
+}};
+const rows = chatRows(ctx);
+console.log(JSON.stringify({{
+  order: rows.map((r) => r.title),
+  activeOnC1: rows.find((r) => r.chatId === "c1").task.runId,
+  p1: filterRows(rows, "p1").map((r) => r.chatId),
+  none: filterRows(rows, "none").map((r) => r.chatId),
+}}));
+"""
+    )
+    done = subprocess.run([NODE, str(script)], capture_output=True, text=True, check=True)
+    result = json.loads(done.stdout)
+    assert result["order"] == ["henuz diskte yok", "Yeni", "Eski", "eski gorev"]
+    assert result["activeOnC1"] == "r1"
+    assert result["p1"] == ["c3", "c1"] and result["none"] == ["c2", ""]

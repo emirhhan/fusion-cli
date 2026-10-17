@@ -35,10 +35,15 @@ _STATIC = {
             "approvals",
             "chat",
             "dom",
+            "media",
             "screen-stream",
             "signing",
             "store",
             "sw",
+            "views-chats",
+            "views-settings",
+            "views-tasks",
+            "voice",
         )
     },
 }

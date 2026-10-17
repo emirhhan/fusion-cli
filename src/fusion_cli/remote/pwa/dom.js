@@ -27,6 +27,11 @@ const ICONS = {
   send: "M12 19V5M6 11l6-6 6 6",
   expand: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
   close: "M6 6l12 12M18 6L6 18",
+  stop: "M7 7h10v10H7z",
+  mic: "M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z M6 11a6 6 0 0 0 12 0 M12 17v4",
+  folder: "M3 7h6l2 2h10v10H3z",
+  clock: "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z M12 8v4l3 2",
+  bolt: "M13 3L5 14h6l-1 7 8-11h-6z",
 };
 
 export function icon(name) {

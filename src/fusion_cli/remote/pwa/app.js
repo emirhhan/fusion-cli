@@ -1,10 +1,13 @@
 import { approvalCard, pendingFromEvents } from "./approvals.js";
 import { createApi, postJson } from "./api.js";
-import { createChat } from "./chat.js";
-import { ACTIVE_STATES, STATE_LABEL, h, icon, timeAgo } from "./dom.js";
+import { createChat, newChatId } from "./chat.js";
+import { h, icon } from "./dom.js";
 import { createScreenStream } from "./screen-stream.js";
 import { importKey } from "./signing.js";
 import { kv } from "./store.js";
+import { renderChats } from "./views-chats.js";
+import { renderSettings } from "./views-settings.js";
+import { renderTasks } from "./views-tasks.js";
 
 const $ = (id) => document.getElementById(id);
 const POLL_MS = 4000;
@@ -18,8 +21,11 @@ const TABS = [
 
 let device = null;
 let rpc = null;
-let tasks = [];
-let scopes = [];
+const ctx = {
+  tasks: [], chats: [], projects: [], chatProjects: {}, schedules: [], kits: [], scopes: [],
+  tiers: [], tiersEditable: false, activeTier: "", tier: localStorage.getItem("fusion.tier") ?? "",
+  filter: "all", notice: "",
+};
 let current = "sohbetler";
 let pollTimer = null;
 let chat = null;
@@ -64,7 +70,7 @@ function buildTabs() {
   const bar = $("sekmeler");
   bar.replaceChildren();
   for (const tab of TABS) {
-    if (tab.scope && !scopes.includes(tab.scope)) continue;
+    if (tab.scope && !ctx.scopes.includes(tab.scope)) continue;
     const badge = h("span", { class: "badge", id: `rozet-${tab.id}`, hidden: true });
     bar.append(
       h("button", { class: "tab", type: "button", role: "tab", "data-tab": tab.id, "aria-label": tab.label, onclick: () => show(tab.id) },
@@ -92,77 +98,133 @@ function show(id) {
   render();
 }
 
-function openChat(task) {
-  chat.show(task);
+function toast(text) {
+  const el = $("toast");
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { el.hidden = true; }, 3500);
+}
+
+function openChat(row) {
+  const isNew = !row;
+  chat.show(isNew
+    ? { chatId: newChatId(), root: undefined, projectId: ctx.filter.startsWith("p_") ? ctx.filter : null, title: "Yeni sohbet", isNew: true }
+    : { chatId: row.chatId, root: row.root, projectId: row.projectId, title: row.title, run: row.task && ["queued", "running", "waiting_approval", "paused"].includes(row.task.state) ? row.task : null });
   for (const view of document.querySelectorAll("[data-view]")) view.hidden = true;
   $("sohbet").hidden = false;
   document.body.classList.add("in-chat");
 }
 
 // ---- listeler ----
-function taskRow(task) {
-  const active = ACTIVE_STATES.includes(task.state);
-  return h("button", { class: "row-item", type: "button", onclick: () => openChat(task) },
-    h("span", { class: `avatar ${active ? "live" : ""}` }, icon("chat")),
-    h("span", { class: "row-main" },
-      h("span", { class: "row-title" }, task.summary || "(boş)"),
-      h("span", { class: "row-sub" }, STATE_LABEL[task.state] ?? task.state)),
-    h("span", { class: "row-time muted" }, timeAgo(task.createdAt)));
-}
+const call = async (method, params) => {
+  const result = await rpc(method, params);
+  if (!result.ok) toast(result.message || "İşlem yapılamadı.");
+  return result;
+};
 
-function renderTasks() {
-  const chats = $("liste-sohbetler");
-  chats.replaceChildren(...(tasks.length ? tasks.map(taskRow) : [h("p", { class: "empty" }, "Henüz sohbet yok. Sağ üstteki + ile başla.")]));
-  const box = $("liste-gorevler");
-  box.replaceChildren();
-  const running = tasks.filter((t) => ACTIVE_STATES.includes(t.state));
-  const finished = tasks.filter((t) => !ACTIVE_STATES.includes(t.state));
-  const group = (name, items, cancellable) => {
-    if (!items.length) return;
-    box.append(h("h2", { class: "group" }, name));
-    for (const task of items) {
-      box.append(h("div", { class: "task" }, taskRow(task),
-        cancellable ? h("button", { class: "btn ghost small", type: "button", onclick: async () => { await rpc("tasks.cancel", { runId: task.runId }); refresh(); } }, "İptal") : null));
-    }
-  };
-  group("Çalışan", running, true);
-  group("Biten", finished, false);
-  if (!tasks.length) box.append(h("p", { class: "empty" }, "Görev yok."));
+function render() {
+  renderChats(ctx, $("liste-sohbetler"), {
+    open: openChat,
+    onProjectCreate: async (name) => {
+      const result = await call("projects.create", { name });
+      if (result.ok) { await loadProjects(); render(); }
+      return result.ok;
+    },
+  });
+  renderTasks(ctx, $("liste-gorevler"), {
+    open: (task) => openChat({ chatId: task.chatId, root: undefined, projectId: ctx.chatProjects[task.chatId] ?? null, title: task.summary, task }),
+    cancel: async (task) => { await call("tasks.cancel", { runId: task.runId }); refresh(); },
+    toggleSchedule: async (item) => { await call("schedules.enable", { id: item.id, enabled: !item.enabled }); await loadSchedules(); render(); },
+    runSchedule: async (item) => {
+      const result = await call("schedules.run", { id: item.id, idempotencyKey: crypto.randomUUID() });
+      if (result.ok) { toast("Görev başlatıldı."); await refresh(); show("sohbetler"); }
+    },
+    runKit: async (kit) => { const r = await call("kits.run", { slug: kit.slug, idempotencyKey: crypto.randomUUID() }); if (r.ok) { toast("Kit başlatıldı."); refresh(); } },
+  });
+  renderSettings(ctx, $("liste-ayarlar"), {
+    selectTier: async (name) => {
+      ctx.tier = name;
+      localStorage.setItem("fusion.tier", name);
+      const result = await call("models.select", { name });
+      if (result.ok) toast("Model seçildi.");
+      chat?.refreshSelects();
+    },
+    renameProject: async (project) => {
+      const name = prompt("Proje adı", project.name);
+      if (name === null) return;
+      if ((await call("projects.rename", { projectId: project.id, name })).ok) { await loadProjects(); render(); }
+    },
+    deleteProject: async (project) => {
+      if (!confirm(`“${project.name}” silinsin mi? Sohbetler silinmez, projesiz kalır.`)) return;
+      if ((await call("projects.delete", { projectId: project.id })).ok) { await loadProjects(); render(); }
+    },
+    unpair: async () => {
+      try { await rpc("devices.revoke", {}); } catch { /* sunucu zaten reddetmiş olabilir */ }
+      await forget();
+    },
+  });
+  if (current === "onaylar" || ctx.tasks.some((t) => t.state === "waiting_approval")) void renderApprovals().catch(() => {});
 }
 
 async function renderApprovals() {
   const box = $("liste-onaylar");
   const cards = [];
-  for (const task of tasks.filter((t) => t.state === "waiting_approval")) {
+  for (const task of ctx.tasks.filter((t) => t.state === "waiting_approval")) {
     const events = await rpc("tasks.events", { runId: task.runId });
     for (const [, question] of pendingFromEvents(events.data?.events ?? [])) {
       cards.push(h("div", { class: "approval-wrap" }, h("div", { class: "muted small" }, task.summary), approvalCard(question, rpc, refresh)));
     }
   }
   box.replaceChildren(...(cards.length ? cards : [h("p", { class: "empty" }, "Bekleyen onay yok.")]));
-  for (const id of ["onaylar"]) {
-    const badge = $(`rozet-${id}`);
-    if (badge) { badge.textContent = String(cards.length); badge.hidden = cards.length === 0; }
-  }
+  const badge = $("rozet-onaylar");
+  if (badge) { badge.textContent = String(cards.length); badge.hidden = cards.length === 0; }
 }
 
-function render() {
-  renderTasks();
-  if (current === "onaylar" || tasks.some((t) => t.state === "waiting_approval")) void renderApprovals().catch(() => {});
+async function loadProjects() {
+  const result = await rpc("projects.list");
+  if (result.ok) { ctx.projects = result.data.projects; ctx.chatProjects = result.data.chatProjects; }
+}
+async function loadChats() {
+  const result = await rpc("chats.list");
+  if (result.ok) ctx.chats = result.data.chats; // "mesgul" ise son liste korunur
+}
+async function loadSchedules() {
+  const result = await rpc("schedules.list");
+  ctx.schedules = result.ok ? result.data.schedules : null;
+}
+async function loadModels() {
+  const result = await rpc("models.list");
+  if (!result.ok) return;
+  ctx.tiers = result.data.tiers;
+  ctx.activeTier = result.data.active ?? "";
+  ctx.tiersEditable = result.data.editable;
+  if (!ctx.tiers.some((t) => t.name === ctx.tier)) ctx.tier = "";
+}
+async function loadKits() {
+  if (!ctx.scopes.includes("kits.list")) return;
+  const result = await rpc("kits.list");
+  ctx.kits = result.ok ? result.data.kits : [];
 }
 
+let lastSlow = 0;
 async function refresh(authOnly = false) {
   if (authOnly === true) return forget();
   try {
     const status = await rpc("service.status");
     const list = await rpc("tasks.list");
     const next = list.data?.tasks ?? [];
-    const changed = JSON.stringify(next) !== JSON.stringify(tasks) || !rendered;
-    tasks = next;
+    const changed = JSON.stringify(next) !== JSON.stringify(ctx.tasks) || !rendered;
+    ctx.tasks = next;
+    ctx.notice = status.data?.notice ?? "";
+    const slow = Date.now() - lastSlow > 20000;
+    if (changed || slow) {
+      lastSlow = Date.now();
+      await Promise.all([loadChats(), loadProjects(), loadSchedules()]);
+    }
     rendered = true;
-    $("uyari").textContent = status.data?.notice ?? "";
     setConnection(true, "");
-    if (changed) render(); // aynı veriyle yeniden çizilmez: dokunuş ortasında düğüm kaybolmasın
+    if (changed || slow) render(); // aynı veriyle yeniden çizilmez: dokunuş/seçim ortasında düğüm kaybolmasın
   } catch (error) {
     if (error.auth) return forget();
     setConnection(false, "Bilgisayara ulaşılamıyor; yeniden deneniyor…");
@@ -224,25 +286,23 @@ async function start() {
   chat = createChat({
     rpc,
     root: $("sohbet"),
+    ctx,
+    toast,
     onBack: () => show("sohbetler"),
-    onCreated: (task) => { refresh(); openChat(task); },
     onChange: (authFailed) => (authFailed === true ? forget() : refresh()),
   });
   try {
     const status = await rpc("service.status");
-    scopes = status.data?.scopes ?? [];
+    ctx.scopes = status.data?.scopes ?? [];
   } catch (error) {
     if (error.auth) return forget();
     setConnection(false, "Bilgisayara ulaşılamıyor; yeniden deneniyor…");
   }
   buildTabs();
+  await Promise.all([loadModels(), loadKits()]);
   $("yeni").onclick = () => openChat(null);
   $("ekranIste").onclick = () => stream.start({ request: true });
   $("ekranDur").onclick = () => stream.stop();
-  $("cikis").onclick = async () => {
-    try { await rpc("devices.revoke", {}); } catch { /* sunucu zaten reddetmiş olabilir */ }
-    await forget();
-  };
   $("ekranKutu").onclick = () => document.body.classList.toggle("fullscreen");
   show("sohbetler");
   await refresh();

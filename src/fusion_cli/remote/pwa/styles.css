@@ -96,3 +96,34 @@ body.fullscreen .screen-box { position: fixed; inset: 0; z-index: 50; height: 10
 body.fullscreen .tabs { display: none; }
 @media (orientation: landscape) and (max-height: 500px) { .screen-box { height: calc(100dvh - 140px); } }
 @media (prefers-reduced-motion: reduce) { .typing span { animation: none; opacity: .6; } }
+
+/* mobil kullanım: sohbet seçiciler, ekler, proje süzgeci, kartlar */
+.picks { flex: none; display: flex; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); }
+.pick { font: inherit; flex: 1; min-width: 0; min-height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--raised); color: var(--ink); }
+.pick.wide { width: 100%; flex: none; min-height: 44px; }
+.pick[hidden] { display: none; }
+.chips { display: flex; gap: 6px; padding: 6px 12px 0; flex-wrap: wrap; }
+.chips.scroll { flex-wrap: nowrap; overflow-x: auto; padding: 4px 0 8px; margin: 0 -16px; padding-inline: 16px; scrollbar-width: none; }
+.chip-btn { flex: none; font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 99px; border: 1px solid var(--border); background: transparent; color: var(--ink); white-space: nowrap; }
+.chip-btn.on { background: var(--accent); color: var(--accent-on); border-color: var(--accent); }
+.chip-att { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 8px; border-radius: 99px; background: var(--bubble-user); font-size: 12px; }
+.chip-att img { width: 24px; height: 24px; object-fit: cover; border-radius: 6px; }
+.chip-att button { display: grid; place-items: center; width: 22px; height: 22px; border: 0; background: none; color: inherit; padding: 0; }
+.chip-att .ico { width: 14px; height: 14px; }
+.inline-form { display: flex; gap: 8px; margin: 4px 0 8px; } .inline-form input { flex: 1; }
+.round { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-on); display: grid; place-items: center; padding: 0; }
+.round.ghost { background: transparent; color: var(--ink); border: 1px solid var(--border); }
+.round.stop { background: var(--danger); color: var(--canvas); }
+.round.on { background: var(--danger); color: var(--canvas); border-color: var(--danger); }
+.round[hidden] { display: none; }
+.composer .send { display: none; }
+.att-note { margin-top: 6px; font-size: 12px; } .att-note img { max-width: 160px; max-height: 120px; border-radius: 10px; display: block; }
+.gen-frame { display: block; padding: 0; margin: 6px 0; border: 0; background: none; max-width: 100%; }
+.gen { display: block; max-width: 100%; max-height: 320px; border-radius: 14px; }
+.gen-frame.big { position: fixed; inset: 0; z-index: 60; background: #000; display: grid; place-items: center; margin: 0; }
+.gen-frame.big .gen { max-width: 100vw; max-height: 100dvh; border-radius: 0; }
+.card-row { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.card-row .btn { flex: none; }
+.btn.small.danger { color: var(--danger); }
+.toast { position: fixed; left: 16px; right: 16px; bottom: calc(var(--tab-h) + var(--safe-b) + 12px); z-index: 70; margin: 0; padding: 10px 14px; border-radius: 12px; background: var(--ink); color: var(--canvas); text-align: center; }
+body.in-chat .toast { bottom: calc(76px + var(--safe-b)); }
