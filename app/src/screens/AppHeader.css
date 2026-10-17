@@ -1,6 +1,7 @@
 .app-header {
   align-items: center;
-  background: color-mix(in srgb, var(--surface-canvas) 92%, transparent);
+  /* Kenar çubuğuyla AYNI renk: üst şerit ile sol menü tek yüzey gibi görünür. */
+  background: var(--surface-sidebar);
   border-bottom: 0;
   display: grid;
   gap: var(--space-2);

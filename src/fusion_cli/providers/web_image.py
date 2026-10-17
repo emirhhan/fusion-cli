@@ -14,6 +14,7 @@ doğrulamasındaydı; canlı ÖLÇÜLMEDİ.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -64,6 +65,45 @@ IMAGE_WAIT_S = 180.0
 IMAGE_SETTLE_S = 4.0
 _POLL_S = 2.0
 _BLOCK_CHECK_EVERY = 8
+#: Reddi yoklama aralığı (yoklama sayısı): bu sıklıkta sayfa metni okunur.
+_REFUSAL_CHECK_EVERY = 2
+#: Sağlayıcının "bunu üretemem" cümlesini tanıyan kalıplar (Türkçe ve İngilizce).
+_REFUSAL = re.compile(
+    r"yerine getiremiyorum|oluşturamıyorum|üretemiyorum|yardımcı olamıyorum|yardımcı olamam"
+    r"|I can[’']?t (?:help|create|generate|fulfill)|I[’']?m (?:unable|not able) to"
+    r"|I cannot (?:create|generate|help|fulfill)"
+    r"|can[’']?t (?:create|generate) (?:that|this|images?)",
+    re.IGNORECASE,
+)
+_REFUSAL_MAX_CHARS = 400
+
+
+def refusal_text(body: str, prompt: str) -> str:
+    """Sayfa metninden sağlayıcının RED cümlesini (yalnız onu) çıkar; yoksa boş.
+
+    Gönderdiğimiz istemin yansıması ve arayüz yazıları (model adı, "Hatayı bildir",
+    "Yeniden dene" …) dışarıda kalır. Cevap sayfanın sonundadır; son eşleşme alınır ki
+    kenar çubuğundaki eski sohbet başlıkları karışmasın.
+    """
+    echo = " ".join(prompt.split()).lower()[:60]
+    found = ""
+    for line in body.splitlines():
+        text = " ".join(line.split())
+        if not text or len(text) > _REFUSAL_MAX_CHARS:
+            continue
+        if echo and echo in text.lower():
+            continue
+        if _REFUSAL.search(text):
+            found = text
+    return found
+
+
+async def _page_refusal(page: Any, prompt: str) -> str:
+    try:
+        return refusal_text(await page.inner_text("body"), prompt)
+    except Exception:
+        return ""
+
 
 _PROMPT_PREFIX = "Bir görsel oluştur: "
 
@@ -186,7 +226,9 @@ async def generate_images(
             await _fill_editor(girdi, image_prompt(prompt))
             gonder = await _first_visible(page, definition.send_selectors, timeout_ms=2_000)
             await (gonder.click() if gonder is not None else girdi.press("Enter"))
-            return await _wait_and_extract(page, definition, selectors, out_dir, wait_s)
+            return await _wait_and_extract(
+                page, definition, selectors, out_dir, wait_s, prompt=image_prompt(prompt)
+            )
         finally:
             await page.close()
             manager.schedule_idle_release(session.provider, session.account)
@@ -198,6 +240,7 @@ async def _wait_and_extract(
     selectors: tuple[str, ...],
     out_dir: Path,
     wait_s: float,
+    prompt: str = "",
 ) -> list[GeneratedImage]:
     basla = time.monotonic()
     ilk_gorulen: float | None = None
@@ -208,6 +251,11 @@ async def _wait_and_extract(
         kontrol += 1
         if kontrol % _BLOCK_CHECK_EVERY == 0:
             await _raise_if_blocked_early(page, definition)
+        if kontrol % _REFUSAL_CHECK_EVERY == 0:
+            red = await _page_refusal(page, prompt)
+            if red:
+                # Sağlayıcı reddetti: 180 sn beklemeden, cümlesiyle birlikte bildir.
+                raise WebBrowserError(red)
         bulunan = await page.evaluate(_FIND_IMAGES_JS, [list(selectors), MIN_IMAGE_EDGE])
         kaynaklar = sorted(str(item.get("src", "")) for item in bulunan)
         if not kaynaklar:
@@ -224,11 +272,7 @@ async def _wait_and_extract(
             if kayitlar:
                 return kayitlar
     await _raise_if_blocked_early(page, definition)
-    try:
-        cevap = (await page.inner_text("body"))[-400:].strip()
-    except Exception:
-        cevap = ""
-    raise WebBrowserError(
-        f"{definition.name} {wait_s:.0f} sn içinde görsel üretmedi."
-        + (f" Sayfadaki son metin: {cevap}" if cevap else "")
-    )
+    red = await _page_refusal(page, prompt)
+    if red:
+        raise WebBrowserError(red)
+    raise WebBrowserError(f"{definition.name} görseli {wait_s:.0f} sn içinde üretemedi.")

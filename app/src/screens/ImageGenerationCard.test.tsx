@@ -1,7 +1,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Conversation, type Mesaj } from "./Conversation";
-import { ImageGenerationCard } from "./ImageGenerationCard";
+import { ImageGenerationCard, estimatedPercent } from "./ImageGenerationCard";
 
 afterEach(() => {
   cleanup();
@@ -17,13 +17,31 @@ describe("ImageGenerationCard", () => {
     expect((container.querySelector(".image-generation__canvas") as HTMLElement).style.aspectRatio).toBe("16 / 9");
   });
 
-  it("geçersiz oranda 1:1'e düşer ve geçen süreyi saniye saniye sayar", () => {
+  it("geçersiz oranda 1:1'e düşer; yüzde saniye değil tahmini ilerlemedir ve %97'yi geçmez", () => {
     vi.useFakeTimers();
     const { container } = render(<ImageGenerationCard aspect="0:9" prompt="" />);
     expect((container.querySelector(".image-generation__canvas") as HTMLElement).style.aspectRatio).toBe("1 / 1");
-    expect(screen.getByText("Başlıyor")).toBeTruthy();
-    act(() => { vi.advanceTimersByTime(3200); });
-    expect(screen.getByText("3 sn")).toBeTruthy();
+    expect(screen.getByText("%0")).toBeTruthy();
+    expect(screen.queryByText(/\d sn/)).toBeNull();
+    const bar = screen.getByRole("progressbar", { name: "Tahmini ilerleme" });
+    act(() => { vi.advanceTimersByTime(10_000); });
+    const mid = Number(bar.getAttribute("aria-valuenow"));
+    expect(mid).toBeGreaterThan(30);
+    expect(mid).toBeLessThan(50);
+    expect(screen.getByText(`%${mid}`)).toBeTruthy();
+    act(() => { vi.advanceTimersByTime(600_000); });
+    expect(Number(bar.getAttribute("aria-valuenow"))).toBe(97);
+  });
+
+  it("tahmin tek yönlü artar: geriye gitmez ve hızla yavaşlar", () => {
+    let previous = -1;
+    for (let second = 0; second <= 120; second += 5) {
+      const value = estimatedPercent(second);
+      expect(value).toBeGreaterThanOrEqual(previous);
+      previous = value;
+    }
+    expect(estimatedPercent(0)).toBe(0);
+    expect(estimatedPercent(5) - estimatedPercent(0)).toBeGreaterThan(estimatedPercent(65) - estimatedPercent(60));
   });
 });
 
