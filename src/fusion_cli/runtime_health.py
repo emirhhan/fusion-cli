@@ -13,6 +13,7 @@ from . import __version__
 _REQUIRED_RESOURCES = (
     "config/defaults.yaml",
     "engines/agent/prompts/system.md",
+    "engines/agent/prompts/fusion_bilgi.md",
     "engines/agent/prompts/lessons.txt",
     "engines/fusion/prompts/judge.txt",
     "gateway/dashboard.html",

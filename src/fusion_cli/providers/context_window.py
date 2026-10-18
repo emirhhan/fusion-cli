@@ -14,9 +14,24 @@ from functools import lru_cache
 _OPENROUTER_MIRRORED_PREFIXES = ("nvidia_nim/",)
 
 
+#: Yerel Ollama modellerine istekte verdiğimiz bağlam uzunluğu (token). Ollama
+#: varsayılanı 4096'dır ve Fusion'ın istemi + araç şemaları (~10 bin token) bunu aşar.
+#: 18 Ekim 2026'da qwen3.5 9B Q4 ile 16 GB makinede ölçüldü: 32k → 6,1 GB, 64k → 6,95 GB,
+#: 128k → 8,3 GB bellek. 64k, uzun kod görevine yer bırakır ve makinede Chrome
+#: oturumlarıyla rahat sığar; 128k bellek baskısı yaratır.
+OLLAMA_NUM_CTX = 65536
+_OLLAMA_PREFIXES = ("ollama/", "ollama_chat/")
+
+
 @lru_cache(maxsize=256)
 def input_window_tokens(model: str) -> int | None:
-    """LiteLLM metadatası yoksa sınır uydurmadan ``None`` döndür."""
+    """LiteLLM metadatası yoksa sınır uydurmadan ``None`` döndür.
+
+    Yerel Ollama modelinde pencere kataloğun söylediği DEĞİL, istekte bizim verdiğimiz
+    `num_ctx`tir; özetleme eşiği buna göre kurulur.
+    """
+    if model.startswith(_OLLAMA_PREFIXES):
+        return OLLAMA_NUM_CTX
     own = _catalog_window(model)
     if own is not None:
         return own

@@ -33,6 +33,7 @@ from ..core.types import (
     TokenUsage,
     ToolCall,
 )
+from .context_window import OLLAMA_NUM_CTX
 
 #: NVIDIA NIM anahtarı varken taban adres verilmemişse kullanılacak varsayılan uç.
 NIM_DEFAULT_API_BASE = "https://integrate.api.nvidia.com/v1"
@@ -73,10 +74,6 @@ def configure_litellm() -> None:
 
 
 
-#: Yerel Ollama modellerine verilen bağlam uzunluğu (token). Fusion'ın istemi + araç
-#: şemaları ~8-10 bin token tutar; 32768 geçmişe ve araç çıktılarına yer bırakır ve
-#: 16 GB makinede 9B Q4 modelle rahat sığar (qwen35 mimarisi KV'yi az tutar).
-OLLAMA_NUM_CTX = 32768
 
 class LiteLlmProvider:
     """Tek bir model kimliğine bağlı sağlayıcı."""

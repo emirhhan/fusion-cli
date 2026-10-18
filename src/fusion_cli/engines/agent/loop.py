@@ -181,6 +181,7 @@ from .project_instructions import read_all_instructions
 from .questions import PendingUserQuestions
 from .repair_flow import record_failure_evidence
 from .repo_context import repo_map_block
+from .self_knowledge import GUIDE, knowledge_block
 from .teacher_flow import (
     prepare_teacher_plan,
     review_teacher_changes,
@@ -783,6 +784,21 @@ async def _run_agent(
         and API_SYSTEM_PROMPT not in messages[0].content
     ):
         messages[0] = Message("system", f"{messages[0].content}\n\n{API_SYSTEM_PROMPT}")
+    # Öz-bilgi katmanı TÜM modellere (yerel, API, web) bir kez eklenir: model Fusion'ın
+    # ne olduğunu ve BU turda hangi araç ailelerini taşıdığını bilir.
+    if (
+        not internal
+        and system_prompt is None
+        and messages
+        and messages[0].role == "system"
+        and GUIDE not in messages[0].content
+    ):
+        teacher = deps.config.teacher.model if deps.config.teacher is not None else ""
+        messages[0] = Message(
+            "system",
+            f"{messages[0].content}\n\n"
+            f"{knowledge_block([tool.name for tool in registry], teacher)}",
+        )
     # Web AI'nın toplam süre sınırı bütçeye TUR BAŞINDA bir kez yazılır; iç içe
     # çağrılarda yeniden kurulsaydı süre sınırı her düzeltmede tazelenirdi.
     budget = deps.require_budget()
