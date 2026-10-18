@@ -69,6 +69,7 @@ dev = [
     "ruff>=0.6,<1",
     "mypy>=1.11,<2",
     "types-PyYAML>=6,<7",
+    "types-regex>=2024.11.6,<2027",
 ]
 
 [project.scripts]

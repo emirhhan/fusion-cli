@@ -27,6 +27,13 @@ async def test_iptalden_sonra_yeni_tur_kabul_edilir() -> None:
 
         def __init__(self, gorev: asyncio.Task[None]) -> None:
             self._turn = gorev
+            self._turn_settled = asyncio.Event()
+            gorev.add_done_callback(self._settle)
+
+        def _settle(self, _gorev: asyncio.Task[None]) -> None:
+            self._turn = None
+            self._iptal_bekliyor = False
+            self._turn_settled.set()
 
     async def _uzun_is() -> None:
         try:

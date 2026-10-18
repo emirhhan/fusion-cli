@@ -521,6 +521,8 @@ class AppSession:
         self._panel_tasks: dict[str, asyncio.Task[None]] = {}
         self._voice_background = BackgroundTasks()
         self._turn: asyncio.Task[Any] | None = None
+        self._turn_settled = asyncio.Event()
+        self._turn_settled.set()
         #: Bir makronun (`/goal` …) bir SONRAKİ tura taşıyacağı davranış kipi.
         self._next_turn_mode = macros.Mode.NONE
 
@@ -789,7 +791,7 @@ class AppSession:
                         **({"id": message.message_id} if message.message_id else {}),
                     }
                     for message in self._state.history
-                    if message.role in {"user", "assistant"}
+                    if message.role in {"user", "assistant"} and not message.harness_note
                 ],
             }
         if request.name == "sohbet.sil":
@@ -799,13 +801,15 @@ class AppSession:
 
             return await await_owned_thread(
                 fork_response, self._state.config.memory_dir, self._root,
-                self._conversation_id, list(self._state.history), request.data,
+                self._conversation_id or FALLBACK_CONVERSATION_ID,
+                list(self._state.history), request.data,
             )
         if request.name == "yanit.degerlendir":
             from .response_actions import save_rating
 
             return await await_owned_thread(
-                save_rating, self._state.config.memory_dir, self._conversation_id, request.data,
+                save_rating, self._state.config.memory_dir,
+                self._conversation_id or FALLBACK_CONVERSATION_ID, request.data,
             )
         if request.name == "sohbet.tasi":
             return await self._move_conversation(request.data)
@@ -1336,7 +1340,11 @@ class AppSession:
         entry = journal.load()
         if entry is None or not entry.messages:
             return
-        self._state.history = list(entry.messages)
+        from ..core.turn_resume import interrupted_history
+
+        self._state.history = interrupted_history(
+            entry.messages, task=entry.task, root=str(self._state.root.resolve())
+        )
         if entry.notified:
             return
         gorev = entry.task.strip()[: messages.APP_TURN_INTERRUPTED_TASK_CHARS]
@@ -2027,7 +2035,7 @@ class AppSession:
         if not task.strip():
             return {"ok": False, "metin": messages.RUN_EMPTY_TASK}
         await self._iptal_edilen_turu_bekle()
-        if self._turn is not None and not self._turn.done():
+        if self._turn is not None:
             return {"ok": False, "metin": messages.APP_TURN_ALREADY_RUNNING}
         from ..cli.session import open_trace, run_agent_task
 
@@ -2107,6 +2115,10 @@ class AppSession:
         # Kullanıcının kalıcı talimatı da bağlama girer. Sistem istemi
         # DEĞİŞTİRİLMEZ: kimlik ve onay sözleşmesi orada durur.
         async def execute_turn() -> AgentOutcome:
+            if journal is not None:
+                # Çalışan tur sahipliği kurulduktan sonra I/O yap; paralel
+                # istek ilk turu görünmezken ikinci bir tur başlatamasın.
+                journal.save([*history, Message("user", task)])
             # Belleği okumak diske gider. Beklemeyi çalışan tur nesnesi
             # oluşturulduktan SONRA yap; aksi halde aynı anda gelen ikinci
             # istek ilk tur henüz görünmediği için üst üste başlayabilir.
@@ -2183,9 +2195,11 @@ class AppSession:
         trace_sinks: tuple[EventSink, ...] = (trace,) if trace is not None else ()
         owned_turn = asyncio.ensure_future(execute_turn())
         self._turn = owned_turn
+        self._turn_settled.clear()
         try:
             outcome = await owned_turn
         except asyncio.CancelledError:
+            self._iptal_bekliyor = True
             # İptal de bir sonuçtur: kaydedilmezse sekme yeniden açıldığında
             # soru cevapsız durur ve kullanıcı turun neden bittiğini göremez.
             if not browser_only:
@@ -2195,11 +2209,17 @@ class AppSession:
                 )
                 # Durdurulan istek geçmişte kalır (Claude'daki gibi): yoksa "devam et"
                 # dendiğinde model neyin yarıda kaldığını hiç görmüyordu.
-                self._state.history = [
-                    *self._state.history,
-                    Message("user", task),
-                    Message("assistant", messages.APP_TURN_CANCELLED_CONTEXT),
+                from ..core.turn_resume import interrupted_history
+
+                entry = journal.load() if journal is not None else None
+                preserved = list(entry.messages) if entry is not None else [
+                    *history, Message("user", task)
                 ]
+                self._state.history = interrupted_history(
+                    preserved, task=task, root=str(self._state.root.resolve())
+                )
+                if journal is not None:
+                    await await_owned_thread(journal.save, self._state.history)
             return {"ok": False, "metin": messages.APP_TURN_CANCELLED}
         finally:
             self._desktop_activity.clear()
@@ -2208,6 +2228,7 @@ class AppSession:
                 self._child_runs = None
                 self._iptal_bekliyor = False
                 self._turn = None
+                self._turn_settled.set()
                 self._steering = None
                 self._steering_turn = None
                 self._steering_requests.clear()
@@ -2387,9 +2408,10 @@ class AppSession:
         if not self._iptal_bekliyor or self._turn is None:
             self._iptal_bekliyor = False
             return
-        turn = self._turn
-        await asyncio.wait({turn}, timeout=TURN_CANCEL_SETTLE_S)
-        self._iptal_bekliyor = self._turn is turn and not turn.done()
+        try:
+            await asyncio.wait_for(self._turn_settled.wait(), timeout=TURN_CANCEL_SETTLE_S)
+        except TimeoutError:
+            return
 
     def resolve_reply(self, reply: Reply) -> bool:
         """Uygulamanın cevabını bekleyen soruya bağla; paneldeki kart da kapanır."""

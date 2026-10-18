@@ -670,7 +670,9 @@ async def test_history_run_agent_task_a_gecirilir(tmp_path, monkeypatch):
     `docs/superpowers/sdd/final-fix-report.md` C2)."""
     satirlar: list[str] = []
     oturum = _session(tmp_path, satirlar)
-    ilk_turun_ciktisi = [SimpleNamespace(role="assistant", content="ilk turun cevabı")]
+    from fusion_cli.core.types import Message
+
+    ilk_turun_ciktisi = [Message("assistant", "ilk turun cevabı")]
     gorulen_gecmisler: list[object] = []
 
     def _sahte(*_args, **kwargs):
@@ -1142,10 +1144,8 @@ async def test_tur_kes_calisan_turu_gercekten_iptal_eder(tmp_path, monkeypatch):
     assert tur_sonucu == {"ok": False, "metin": messages.APP_TURN_CANCELLED}
     assert oturum._turn is None
     # Durdurulan istek geçmişte kalır; sonraki "devam et" onu görür.
-    assert [(m.role, m.content) for m in oturum._state.history[-2:]] == [
-        ("user", "iş"),
-        ("assistant", messages.APP_TURN_CANCELLED_CONTEXT),
-    ]
+    assert any(m.role == "user" and m.content == "iş" for m in oturum._state.history)
+    assert "Kesilen turun devam bağlamı" in oturum._state.history[-1].content
 
 
 async def test_web_baglan_oturumu_yapilandirmaya_yazar(tmp_path):

@@ -131,7 +131,8 @@ async def test_sekme_yarida_kalan_isi_geri_yukler_ve_bir_kez_bildirir(tmp_path):
     for _ in range(2):
         yeni = AppSession(satirlar.append, root=tmp_path, home=tmp_path / "ev")
         await yeni.handle(Request(id="b", name="oturum.baslat", data={"sohbet_id": "sekme"}))
-        assert yeni._state.history == _konusma()
+        assert yeni._state.history[:-1] == _konusma()
+        assert "siteyi yap" in yeni._state.history[-1].content
 
     bildirimler = [
         mesaj.content
@@ -235,3 +236,160 @@ def test_temizlenmis_tur_eski_bildirimle_dirilmez(tmp_path):
     journal.clear()
     journal.mark_notified(old)
     assert journal.load() is None
+
+
+@pytest.mark.parametrize("reopen", [False, True])
+async def test_durdur_devam_et_arac_gecmisini_korur(tmp_path, monkeypatch, reopen):
+    import asyncio
+
+    from fusion_cli.engines.agent.loop import AgentOutcome
+
+    session = AppSession(lambda _line: None, root=tmp_path, home=tmp_path / "home")
+    await session.handle(Request("start", "oturum.baslat", {"sohbet_id": "resume"}))
+    seen = []
+
+    async def run(task, _config, *, journal, history, **_kwargs):
+        if task == "siteyi yap":
+            journal.save(_konusma())
+            raise asyncio.CancelledError()
+        seen.extend(history)
+        return AgentOutcome("bitti", list(history), ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", run)
+    await session.handle(Request("first", "tur.calistir", {"gorev": "siteyi yap"}))
+    if reopen:
+        session = AppSession(lambda _line: None, root=tmp_path, home=tmp_path / "home")
+        await session.handle(Request("start", "oturum.baslat", {"sohbet_id": "resume"}))
+    await session.handle(Request("next", "tur.calistir", {"gorev": "Devam et"}))
+
+    assert any(m.name == "write_file" and m.role == "tool" for m in seen)
+    assert sum(m.role == "user" and m.content == "siteyi yap" for m in seen) == 1
+    assert any(str(tmp_path.resolve()) in m.content and "yeniden" in m.content for m in seen)
+
+
+async def test_iptal_ilk_aractan_once_olsa_da_gunluk_kalir(tmp_path, monkeypatch):
+    import asyncio
+
+    session = AppSession(lambda _line: None, root=tmp_path, home=tmp_path / "home")
+    await session.handle(Request("start", "oturum.baslat", {"sohbet_id": "resume"}))
+
+    async def run(*_args, **_kwargs):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", run)
+    await session.handle(Request("first", "tur.calistir", {"gorev": "siteyi yap"}))
+
+    entry = session._turn_journal("").load()
+    assert entry is not None
+    assert entry.task == "siteyi yap"
+    assert any(m.content == "siteyi yap" for m in entry.messages)
+
+
+def test_yarim_arac_grubunda_biten_sonuc_korunur_belirsiz_cagri_tekrarlanmaz():
+    from fusion_cli.core.turn_resume import interrupted_history
+
+    calls = (
+        ToolCall("done", "write_file", '{"path":"a.txt"}'),
+        ToolCall("unknown", "run_shell", '{"command":"external-action"}'),
+    )
+    original = [
+        Message("user", "dosyayı yaz sonra uzak işlemi yap"),
+        Message("assistant", "", tool_calls=calls),
+        Message("tool", "yazıldı", tool_call_id="done", name="write_file", ok=True),
+    ]
+    history = interrupted_history(original, task="asıl iş", root="/proje ")
+    assert history[:3] == original
+    unknown = history[3]
+    assert unknown.tool_call_id == "unknown" and unknown.ok is False
+    assert "gerçekleşmiş olabilir" in unknown.content
+    assert "'/proje '" in history[-1].content
+    assert interrupted_history(history, task="asıl iş", root="/proje ") == history
+
+
+@pytest.mark.parametrize("internal", [False, True])
+async def test_arac_grubu_ortasinda_iptal_biten_aracin_sonucunu_saklar(
+    tmp_path, monkeypatch, internal
+):
+    import asyncio
+    from dataclasses import replace
+
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+    from fusion_cli.engines.agent.loop import AgentDeps, run_agent
+    from tests.agent_harness import Publisher, install_provider
+    from tests.fakes import (
+        AlwaysApprove,
+        RecordingSink,
+        ScriptedProvider,
+        make_config,
+        model_result,
+        tool_call,
+    )
+
+    call = tool_call("list_dir", path=".")
+    install_provider(monkeypatch, ScriptedProvider([model_result(tool_calls=[call])]))
+    journal = FileTurnJournal(tmp_path / "j.json", task="listele")
+    deps = AgentDeps(
+        config=make_config(),
+        publisher=Publisher(RecordingSink()),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=tmp_path),
+    )
+
+    async def interrupted(_calls, messages, *_args, **_kwargs):
+        messages.append(Message("tool", "dosyalar", tool_call_id=call.id, name="list_dir", ok=True))
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr("fusion_cli.engines.agent.loop._run_tools", interrupted)
+    with pytest.raises(asyncio.CancelledError):
+        await run_agent("listele", replace(deps, journal=journal), internal=internal)
+    entry = journal.load()
+    assert entry is not None
+    assert any(m.name == "list_dir" and m.content == "dosyalar" for m in entry.messages)
+
+
+async def test_devam_turu_iptal_gunlugu_kalici_olana_kadar_baslamaz(tmp_path, monkeypatch):
+    import asyncio
+
+    from fusion_cli.appserver import session as module
+    from fusion_cli.core.turn_resume import RESUME_PREFIX
+    from fusion_cli.engines.agent.loop import AgentOutcome
+
+    session = AppSession(lambda _line: None, root=tmp_path, home=tmp_path / "home")
+    await session.handle(Request("start", "oturum.baslat", {"sohbet_id": "resume"}))
+    started, saving, release, continued = (asyncio.Event() for _ in range(4))
+    original_thread = module.await_owned_thread
+
+    async def thread(function, *args, **kwargs):
+        if (
+            function.__name__ == "save"
+            and args
+            and any(m.content.startswith(RESUME_PREFIX) for m in args[0])
+            and not saving.is_set()
+        ):
+            saving.set()
+            await release.wait()
+        return await original_thread(function, *args, **kwargs)
+
+    async def run(task, _config, *, journal, history, **_kwargs):
+        if task == "siteyi yap":
+            journal.save(_konusma())
+            started.set()
+            await asyncio.Event().wait()
+        continued.set()
+        return AgentOutcome("bitti", list(history), ok=True)
+
+    monkeypatch.setattr(module, "await_owned_thread", thread)
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", run)
+    first = asyncio.create_task(session._run_turn("siteyi yap"))
+    await asyncio.wait_for(started.wait(), 5)
+    session._cancel_turn()
+    await asyncio.wait_for(saving.wait(), 5)
+    second = asyncio.create_task(session._run_turn("Devam et"))
+    try:
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(continued.wait(), 0.05)
+    finally:
+        release.set()
+        await asyncio.gather(first, second)
+    assert continued.is_set()

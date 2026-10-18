@@ -1432,18 +1432,22 @@ async def _drive(
 
         state.answer_before_nudge = ""
         before = _progress_marker(deps, state)
-        errored = await _run_tools(
-            result.tool_calls,
-            messages,
-            deps,
-            registry,
-            state,
-            execution=execution,
-            plan_mode=plan_mode,
-        )
+        try:
+            errored = await _run_tools(
+                result.tool_calls,
+                messages,
+                deps,
+                registry,
+                state,
+                execution=execution,
+                plan_mode=plan_mode,
+            )
+        finally:
+            # Bir araç grubu ortasında durdurulsa da tamamlanan sonuçlar ve
+            # sonucu belirsiz çağrı kimlikleri kaybolmaz. İptal yutulmaz.
+            if deps.journal is not None:
+                deps.journal.save(messages)
         budget.record_round(progressed=progressed(_round_signals(deps, state, before)))
-        if deps.journal is not None and not internal:
-            deps.journal.save(messages)
         if (remaining := budget.remaining_s()) is not None and remaining <= 0:
             return _halt_local(
                 final_text,
