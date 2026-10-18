@@ -24,7 +24,7 @@ from ..providers.codex_cli import PREFIX as CODEX_PREFIX
 from ..providers.codex_cli import codex_ready
 from .model_catalog import list_selectable_models
 
-ROLES = ("agent", "teacher", "judge", "candidates")
+ROLES = ("agent", "teacher", "judge", "candidates", "codex_yedek")
 
 
 def _current(config: Config) -> dict[str, Any]:
@@ -33,6 +33,7 @@ def _current(config: Config) -> dict[str, Any]:
         "teacher": config.teacher.model if config.teacher is not None else "",
         "judge": config.judge.model,
         "candidates": [spec.model for spec in config.candidates],
+        "codex_yedek": config.runtime.teacher_codex_fallback,
     }
 
 
@@ -58,7 +59,7 @@ def _codex_row() -> dict[str, Any]:
     ready = codex_ready()
     return {
         "model": f"{CODEX_PREFIX}default",
-        "etiket": "ChatGPT · Codex (abonelik, çerezsiz)",
+        "etiket": "ChatGPT · Codex (KODLAMA limitini harcar)",
         "grup": "Abonelik",
         "hazir": ready,
         "not": "" if ready else "terminalde `codex login` gerekir",
@@ -95,7 +96,17 @@ async def role_state(config: Config) -> dict[str, Any]:
             options.append(
                 {"model": model, "etiket": model, "grup": "Ayarlı", "hazir": True, "not": ""}
             )
-    return {"ok": True, "roller": current, "secenekler": options}
+    sessions = [
+        {
+            "saglayici": session.provider,
+            "hesap": session.account,
+            "etiket": f"{session.provider.removesuffix('_web').title()} ({session.account})",
+            "dogrulandi": session.login_verified,
+        }
+        for session in config.web_sessions
+        if session.enabled
+    ]
+    return {"ok": True, "roller": current, "secenekler": options, "oturumlar": sessions}
 
 
 def _validated(model: object) -> str:
@@ -137,6 +148,10 @@ def apply_role(config: Config, role: str, value: object) -> Config:
             task_model_map=dict.fromkeys(config.task_model_map, specs[0].name),
         )
         writer.write_model_section(new)
+    elif role == "codex_yedek":
+        enabled = value is True
+        new = replace(config, runtime=replace(config.runtime, teacher_codex_fallback=enabled))
+        writer.write_runtime_flag(new, "teacher_codex_fallback", enabled)
     else:
         raise ConfigError(f"Bilinmeyen rol: {role!r}. Geçerli: {', '.join(ROLES)}")
     return new

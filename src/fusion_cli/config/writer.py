@@ -144,6 +144,7 @@ def write_theme(config: Config, theme: str, path: Path | None = None) -> Path:
 _BOOLEAN_RUNTIME_FLAGS = (
     "teacherless",
     "teacher_lesson_sync",
+    "teacher_codex_fallback",
     "self_review",
     "reflexion",
     "lessons",

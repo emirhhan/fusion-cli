@@ -83,3 +83,14 @@ def test_codex_kurulu_degilse_hata_doner(monkeypatch) -> None:
 def test_codex_ajan_modeli_olamaz(config) -> None:
     ok, sonuc = asyncio.run(model_roles.assign(config, "agent", "codex_cli/default"))
     assert ok is None and "araç" in sonuc["metin"]
+
+
+def test_codex_yedegi_varsayilan_kapali_ve_acilip_kapanir(config) -> None:
+    from fusion_cli.engines.agent.engine_tools import teacher_candidates
+
+    assert config.runtime.teacher_codex_fallback is False
+    acik = model_roles.apply_role(config, "codex_yedek", True)
+    assert load_config(config.source).runtime.teacher_codex_fallback is True
+    assert acik.runtime.teacher_codex_fallback is True
+    kapali = teacher_candidates(config, config.agent)
+    assert all(not a.model.startswith("codex_cli/") for a in kapali)

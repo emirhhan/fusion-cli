@@ -109,6 +109,10 @@ class RuntimeConfig:
     #: bayrakla olur, `.fusion/ogretmen.md` günlüğü bundan ETKİLENMEZ, o her
     #: zaman yazılır.
     teacher_lesson_sync: bool = True
+    #: Web sohbet oturumları yanıt vermezse öğretmen için Codex (ChatGPT'nin KODLAMA
+    #: limiti) son yedek olarak denensin mi? Varsayılan KAPALI: öğretmen yalnız
+    #: ChatGPT/Gemini SOHBET limitlerini harcar; Codex limiti ancak kullanıcı isterse.
+    teacher_codex_fallback: bool = False
     #: Modele HİÇ SUNULMAYACAK araçların adları (takma adları da kapanır). Kullanıcı bir
     #: aracı istemiyorsa ya da bir yeteneği araçsız ölçmek istiyorsa (ör. `clone_site`
     #: kapalıyken model siteyi kendisi kurabiliyor mu?) buradan kapatır.

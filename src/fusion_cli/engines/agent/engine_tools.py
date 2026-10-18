@@ -181,10 +181,14 @@ def teacher_candidates(config: Config, teacher: ModelSpec) -> list[ModelSpec]:
             and session.login_verified
         ):
             adaylar.append(ModelSpec(name=f"ogretmen-yedek-{len(adaylar)}", model=session.model))
-    # Çerezsiz yol: Codex ChatGPT girişi hazırsa son yedek olarak her zaman eklenir.
+    # Codex ChatGPT'nin KODLAMA limitini harcar: yalnız kullanıcı açtıysa yedek olur.
     from ...providers.codex_cli import PREFIX, codex_ready
 
-    if teacher.model != f"{PREFIX}default" and codex_ready():
+    if (
+        config.runtime.teacher_codex_fallback
+        and teacher.model != f"{PREFIX}default"
+        and codex_ready()
+    ):
         adaylar.append(ModelSpec(name="ogretmen-codex", model=f"{PREFIX}default"))
     return adaylar[: TEACHER_FALLBACKS + 2]
 

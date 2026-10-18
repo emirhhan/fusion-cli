@@ -245,6 +245,8 @@ runtime:
   # `recall_lessons` ile geri çağırabilsin)? Çakışan bir ders bulunursa zaten
   # yazılmaz; bu bayrak kullanıcının kendi tercihiyle tamamen kapatması içindir.
   teacher_lesson_sync: true
+  # Öğretmen için Codex limitini son yedek olarak kullan (varsayılan kapalı; yalnız sohbet limitleri).
+  teacher_codex_fallback: false
   # Kod değiştiren tur sonrası çalıştırılacak doğrulama komutları. Boş = KAPALI
   # (varsayılan): mevcut davranış korunur. Doldurulursa (ör. ["ruff check", "pytest -q"])
   # kapının sonucu ders güvenini besler — "doğrulamadan bitirme" kuralı gerçekten uygulanır.
