@@ -2591,29 +2591,54 @@ def _cozum_adimlari(definition: BrowserProviderDefinition) -> str:
     )
 
 
+#: Gerçek insan-doğrulama sayfasının DOM kanıtı (Cloudflare Turnstile / ara sayfa).
+_CHALLENGE_DOM = (
+    'iframe[src*="challenges.cloudflare.com"]',
+    "#challenge-running",
+    "#challenge-stage",
+    'input[name="cf-turnstile-response"]',
+)
+
+
+async def _challenge_dom_present(page: Any) -> bool:
+    for selector in _CHALLENGE_DOM:
+        try:
+            if await page.locator(selector).count() > 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 async def _challenge_signal(
     page: Any, definition: BrowserProviderDefinition, *, body: str
 ) -> str | None:
-    """Bot doğrulaması işaretini gövdede VE BAŞLIKTA ara.
+    """Bot doğrulaması işaretini BAŞLIKTA, DOM'da ve (yalnız mesaj kutusu yokken) gövdede ara.
 
     Başlık neden gerekli — ölçüldü: Cloudflare ara sayfasının gövdesi BOŞ gelir
-    (JS ile sonradan doldurulur) ve sinyal yalnız `<title>` içinde bulunur. Yalnız
-    gövdeye bakan sınıflandırma bu sayfayı hiç tanımıyordu.
+    (JS ile sonradan doldurulur) ve sinyal yalnız `<title>` içinde bulunur.
+
+    Gövde taraması neden KOŞULLU — ölçüldü (18 Ekim 2026): ChatGPT cevabında "captcha
+    kullanımı"ndan söz edince (VFS kullanım koşulları hakkında) sayfa metninde bu
+    kelime kaldı ve Fusion çalışan, girişli bir oturumu "captcha istiyor" diye düşürdü;
+    öğretmen çağrısı sebepsiz başarısız oldu. Mesaj kutusu görünürken sayfa
+    sohbet arayüzüdür, doğrulama ara sayfası DEĞİLDİR: gövdedeki kelime kanıt sayılmaz.
     """
-    del definition  # imza simetrisi; sınıflandırma sağlayıcıya özgü değil
-    işaret = _matched_marker(body, _CHALLENGE_MARKERS)
-    if işaret is not None:
-        return işaret
     try:
-        title = await page.title()
+        title = str(await page.title() or "").lower()
     except Exception:
-        # Başlık okunamıyorsa teşhis GÖVDEYE düşer; burada hata yükseltmek
+        # Başlık okunamıyorsa teşhis gövdeye/DOM'a düşer; burada hata yükseltmek
         # asıl arızayı gizlerdi.
+        title = ""
+    # Başlık `.lower()` ile verilir; `_matched_marker` büyük/küçük harfe duyarlı.
+    isaret = _matched_marker(title, _CHALLENGE_MARKERS)
+    if isaret is not None:
+        return isaret
+    if await _challenge_dom_present(page):
+        return "cloudflare doğrulaması"
+    if await _any_visible(page, definition.input_selectors):
         return None
-    # Gövde `_page_chrome_text` içinde `.lower()` ile veriliyor ve
-    # `_matched_marker` büyük/küçük harfe DUYARLI. Başlık aynı normalleştirmeden
-    # geçmezse "Bir dakika lütfen" hiçbir zaman eşleşmez.
-    return _matched_marker(str(title or "").lower(), _CHALLENGE_MARKERS)
+    return _matched_marker(body, _CHALLENGE_MARKERS)
 
 
 async def _raise_if_blocked(

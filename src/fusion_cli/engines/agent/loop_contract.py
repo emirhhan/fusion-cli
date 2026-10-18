@@ -33,10 +33,29 @@ def _parse_arguments_checked(raw: str) -> tuple[dict[str, object], str | None]:
     try:
         parsed = json.loads(raw)
     except (json.JSONDecodeError, TypeError, ValueError) as error:
-        return {}, f"arguments geçerli JSON olmalı ({error})"
+        # Model geçerli nesnenin ARKASINA artık bırakabiliyor (ikinci nesne, kapanış
+        # çiti, düz metin): "Extra data". İlk tam nesne açıkça okunabiliyorsa çağrı
+        # yapılır — aksi hâlde doğru argümanlar yüzünden tur "zorunlu alan eksik"
+        # onarım döngüsüne giriyordu (18 Ekim 2026, web_search).
+        ilk = _first_json_object(raw) if isinstance(raw, str) else None
+        if ilk is None:
+            return {}, f"arguments geçerli JSON olmalı ({error})"
+        return ilk, None
     if not isinstance(parsed, dict):
         return {}, "arguments bir JSON nesnesi olmalı"
     return parsed, None
+
+
+def _first_json_object(raw: str) -> dict[str, object] | None:
+    """Metnin başındaki ilk TAM JSON nesnesini döndür; yoksa None."""
+    metin = raw.lstrip()
+    if not metin.startswith("{"):
+        return None
+    try:
+        nesne, _son = json.JSONDecoder().raw_decode(metin)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return nesne if isinstance(nesne, dict) else None
 
 
 _SHELL_FRAME = re.compile(r"^\(çıkış kodu -?\d+\)$|^\[stderr\]$")
