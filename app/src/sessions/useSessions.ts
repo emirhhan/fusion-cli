@@ -34,6 +34,18 @@ const CORE_CLOSED = "Bu konuşmanın çekirdeği beklenmedik şekilde kapandı."
 /** Gerçek terminal sonuç gelmezse bu sürede bekleme uyarısı ve retry açılır.
  * Kuyruk/admission kilidi yalnız asıl turn promise'i kapanınca bırakılır. */
 const TUR_IPTAL_GUVENLI_SURE_MS = 5_000;
+/** Her geri yükleme yolu aynı görünür mesaj sözleşmesini korur. */
+function historyMessages(rows: unknown[]): Mesaj[] {
+  return rows.flatMap((item): Mesaj[] => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    if ((row.rol !== "kullanici" && row.rol !== "asistan") || typeof row.metin !== "string") return [];
+    return [{ rol: row.rol, metin: row.metin,
+      ...(row.ara === true ? { ara: true } : {}),
+      ...(typeof row.id === "string" ? { id: row.id } : {}),
+    }];
+  });
+}
 export type WorkspaceMode = "sohbet" | "kod";
 
 export function storedWorkspaceMode(id: string): WorkspaceMode | null {
@@ -220,15 +232,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           .then(() => client.request("oturum.gecmis", {}))
           .then((result) => {
             if (!Array.isArray(result.mesajlar)) return;
-            const messages: Mesaj[] = result.mesajlar.flatMap((item) => {
-              if (!item || typeof item !== "object") return [];
-              const row = item as Record<string, unknown>;
-              if (
-                (row.rol !== "kullanici" && row.rol !== "asistan") ||
-                typeof row.metin !== "string"
-              ) return [];
-              return [{ rol: row.rol, metin: row.metin, ...(typeof row.id === "string" ? { id: row.id } : {}) }];
-            });
+            const messages = historyMessages(result.mesajlar);
             dispatch({ type: "historyLoaded", id, messages });
             queuedRestores.current.add(id);
           })
@@ -280,15 +284,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         });
         void connection.client.request("oturum.gecmis", {}).then((history) => {
           if (!Array.isArray(history.mesajlar)) return;
-          const messages: Mesaj[] = history.mesajlar.flatMap((item) => {
-            if (!item || typeof item !== "object") return [];
-            const row = item as Record<string, unknown>;
-            if (
-              (row.rol !== "kullanici" && row.rol !== "asistan") ||
-              typeof row.metin !== "string"
-            ) return [];
-            return [{ rol: row.rol, metin: row.metin }];
-          });
+          const messages = historyMessages(history.mesajlar);
           dispatch({ type: "historyLoaded", id: connection.id, messages });
         }).catch(() => undefined);
         olcuyuTazele(connection.id, connection.client, dispatch);

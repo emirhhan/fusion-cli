@@ -8,8 +8,20 @@ import type { SessionClosedEvent, SessionLineEvent, SessionTransport } from "./t
 
 afterEach(() => localStorage.clear());
 
+it("geri yüklenen ara anlatımın işaretini korur", async () => {
+  const fake = fakeTransport([
+    { rol: "kullanici", metin: "Projeyi yap" },
+    { rol: "asistan", metin: "Dosyayı okuyorum", ara: true },
+    { rol: "asistan", metin: "Bitti" },
+  ]);
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(result.current.activeSession?.messages).toHaveLength(3));
+  expect(result.current.activeSession?.messages[1].ara).toBe(true);
+  expect(result.current.activeSession?.messages[2].ara).toBeUndefined();
+});
+
 function fakeTransport(
-  initialHistory: { rol: "kullanici" | "asistan"; metin: string }[] = [],
+  initialHistory: { rol: "kullanici" | "asistan"; metin: string; ara?: boolean }[] = [],
   resumedHistory = initialHistory,
   //: Sırayla dönecek `oturum.durum` ölçüleri; biterse boş ölçü döner.
   baglamlar: Record<string, number>[] = [],

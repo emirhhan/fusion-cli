@@ -247,6 +247,27 @@ async def test_canli_fusion_gecmisi_de_sirli_mesaji_redakte_eder(tmp_path):
     assert "normal oyun geçmişi" in metin
 
 
+async def test_geri_yuklenen_arac_anlatimi_ana_cevap_sayilmaz(tmp_path):
+    from fusion_cli.core.types import Message, ToolCall
+
+    lines = []
+    session = _session(tmp_path, lines)
+    session._state.history = [
+        Message("user", "projeyi yap"),
+        Message("assistant", "Dosyayı yazıyorum", tool_calls=(ToolCall("c", "write_file", "{}"),)),
+        Message("tool", "yazıldı", tool_call_id="c", name="write_file", ok=True),
+        Message("assistant", "", tool_calls=(ToolCall("empty", "list_dir", "{}"),)),
+        Message("assistant", "Doğrulandı"),
+        Message("user", "iç devam bağlamı", harness_note=True),
+    ]
+    await session.handle(Request("history", "oturum.gecmis", {}))
+    assert _sonuc(lines, "history")["mesajlar"] == [
+        {"rol": "kullanici", "metin": "projeyi yap"},
+        {"rol": "asistan", "metin": "Dosyayı yazıyorum", "ara": True},
+        {"rol": "asistan", "metin": "Doğrulandı"},
+    ]
+
+
 async def test_yerel_fusion_gecmisi_ayni_proje_icin_devam_baglamina_yuklenir(tmp_path, monkeypatch):
     from fusion_cli.config.loader import load_config
 

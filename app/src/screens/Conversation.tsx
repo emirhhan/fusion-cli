@@ -11,6 +11,7 @@ import { assetUrl } from "../platform/assetUrl";
 import { Markdown } from "../markdown/Markdown";
 import { DiffCard } from "../markdown/DiffCard";
 import { ActivityLine, activityState } from "./ActivityLine";
+import { WorkHistory, workGroups } from "./WorkHistory";
 import type { AjanKarti } from "../team/ekipOlaylari";
 import { PreviewCard } from "./PreviewCard";
 import { ImageGenerationCard } from "./ImageGenerationCard";
@@ -254,6 +255,12 @@ export function Conversation({
   const kutuRef = useRef<HTMLDivElement>(null);
   const icerikRef = useRef<HTMLDivElement>(null);
   const lastMessage = mesajlar[mesajlar.length - 1];
+  const groups = workGroups(mesajlar, hataMesajiMi);
+  const latestWorkStart = Math.max(-1, ...groups.keys());
+  const grouped = new Set<number>();
+  for (const [start, group] of groups) {
+    for (let index = start + 1; index < group.end; index += 1) grouped.add(index);
+  }
   const {enAltaIn, hasNewContent} = useStickToBottom(kutuRef, icerikRef, mesajlar, false, {
     content: lastMessage,
     ownSubmissionId: lastMessage?.rol === "kullanici" ? lastMessage.id : undefined,
@@ -263,6 +270,16 @@ export function Conversation({
     <div className="conversation" ref={kutuRef}>
       <div className="conversation__stream" ref={icerikRef}>
         {mesajlar.map((message, index) => {
+          if (grouped.has(index)) return null;
+          const group = groups.get(index);
+          if (group) return <WorkHistory
+            key={message.id ?? `work-${index}`}
+            items={group.items}
+            active={running && index === latestWorkStart && index > sonKullaniciSirasi}
+            activityIndex={sonCalisanOlay >= index && sonCalisanOlay < group.end ? sonCalisanOlay - index : undefined}
+            showSteps={showSteps}
+            onOpenFile={onOpenFile}
+          />;
           if (message.rol === "kullanici") {
             return (
               <div className="conversation__message conversation__message--user" key={message.id}>
@@ -352,7 +369,7 @@ export function Conversation({
               key={message.id}
             >
               <AssistantMessage
-                ara={message.ara === true || message.akan === true}
+                ara={(message.ara === true && !hataMesajiMi(message)) || message.akan === true}
                 onReadAloud={onReadAloud ? () => onReadAloud(message.metin) : undefined}
                 onEvaluate={onEvaluate ? (rating) => onEvaluate(message.metin, rating) : undefined}
                 onContinue={onContinueInNewChat ? () => onContinueInNewChat(index) : undefined}

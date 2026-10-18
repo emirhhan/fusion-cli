@@ -788,10 +788,12 @@ class AppSession:
                     {
                         "rol": "kullanici" if message.role == "user" else "asistan",
                         "metin": sanitize_message(message).content,
+                        **({"ara": True} if message.tool_calls else {}),
                         **({"id": message.message_id} if message.message_id else {}),
                     }
                     for message in self._state.history
-                    if message.role in {"user", "assistant"} and not message.harness_note
+                    if message.role in {"user", "assistant"}
+                    and not message.harness_note and message.content.strip()
                 ],
             }
         if request.name == "sohbet.sil":
