@@ -23,6 +23,7 @@ class SecretStore(Protocol):
     def list_names(self) -> tuple[str, ...]: ...
     def set(self, env_name: str, value: str) -> None: ...
     def delete(self, env_name: str) -> bool: ...
+    def get(self, env_name: str) -> str | None: ...
 
 
 def _provider(provider_id: str) -> ProviderDefinition | None:
@@ -263,6 +264,21 @@ def save_secret(store: SecretStore, provider_id: str, value: object) -> dict[str
     # Çalışan oturum yeni anahtarı hemen kullanabilsin; değer yanıta/loga girmez.
     os.environ[definition.auth_env or ""] = secret
     return {"ok": True, "saglayici": definition.id, "kurulu": True}
+
+
+def reveal_secret(store: SecretStore, provider_id: str) -> dict[str, Any]:
+    """Kullanıcının kendi kayıtlı anahtarını arayüze geri ver (göz düğmesi için).
+
+    Anahtar yalnız bu yerel uygulama sürecinden kullanıcının kendi arayüzüne gider;
+    log'a ve olay akışına yazılmaz.
+    """
+    definition = _provider(provider_id)
+    if definition is None or not definition.auth_env:
+        return {"ok": False, "metin": "Sağlayıcı bulunamadı veya anahtar kabul etmiyor."}
+    if not store.available:
+        return {"ok": False, "metin": "Sistem anahtarlığı kullanılamıyor."}
+    value = store.get(definition.auth_env)
+    return {"ok": True, "saglayici": definition.id, "deger": value or ""}
 
 
 def delete_secret(store: SecretStore, provider_id: str) -> dict[str, Any]:

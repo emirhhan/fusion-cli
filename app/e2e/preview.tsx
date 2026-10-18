@@ -203,6 +203,8 @@ const workspaceClient = {
       mcp: [{ ad: "figma", aciklama: "Figma tasarım dosyaları ve düğümleri", kaynak: "fusion", tur: "mcp", etkin: false, izinler: ["yerel komut", "dış araçlar"] }],
     };
     if (name === "yetenek.detay") return { ok: true, tur: data.tur, ad: data.ad, icerik: "Bu uzmanlık, görevin gerektirdiği dosyaları önce okur; değişiklikten sonra test ve görsel kanıt toplar.", kesildi: false };
+    if (name === "model.roller") return { ok: true, roller: { agent: "gemini_web/main/auto", teacher: "", judge: "gemini_web/main/auto", candidates: ["gemini_web/main/auto"], codex_yedek: false }, oturumlar: [{ saglayici: "gemini_web", hesap: "main", etiket: "Gemini (main)", dogrulandi: true }, { saglayici: "chatgpt_web", hesap: "main", etiket: "ChatGPT (main)", dogrulandi: false }], secenekler: [{ model: "gemini_web/main/auto", etiket: "Gemini · 3.6 Flash (main)", grup: "Web oturumları", hazir: true, not: "" }, { model: "chatgpt_web/main/auto", etiket: "ChatGPT · otomatik (main)", grup: "Web oturumları", hazir: false, not: "giriş doğrulanmadı" }, { model: "codex_cli/default", etiket: "ChatGPT · Codex (KODLAMA limitini harcar)", grup: "Abonelik", hazir: true, not: "", arac: false }, { model: "nvidia_nim/nemotron-3-ultra", etiket: "nemotron-3-ultra", grup: "API / yerel", hazir: true, not: "" }] };
+    if (name === "kontrol.anahtar_goster") return { ok: true, deger: "nvapi-ORNEK-KAYITLI-ANAHTAR-1234" };
     if (name === "saglayici.katalog") return { ok: true, saglayicilar: [
       { id: "gemini_web", ad: "Gemini", tur: "web", eylem: "oturum", bagli: true, olcum_gecti: true, hesap: "main", secili_model: "" },
       { id: "chatgpt_web", ad: "ChatGPT", tur: "web", eylem: "oturum", bagli: false, hesap: "main" },

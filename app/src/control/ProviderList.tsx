@@ -54,8 +54,12 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
   const [open, setOpen] = useState<string | null>(initialProviderId ?? null);
   const [query, setQuery] = useState("");
   const [secret, setSecret] = useState("");
+  /** Kasada kayıtlı değer; göz düğmesiyle görünür, kaydedince silinmez. */
+  const [stored, setStored] = useState("");
+  const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  useEffect(() => { onDraftChange?.(secret.trim().length > 0); }, [secret, onDraftChange]);
+  const dirty = secret.trim().length > 0 && secret !== stored;
+  useEffect(() => { onDraftChange?.(dirty); }, [dirty, onDraftChange]);
   const [notice, setNotice] = useState<string | null>(null);
   const [modelChoices, setModelChoices] = useState<Record<string, string[]>>({});
   const [modelLoading, setModelLoading] = useState<string | null>(null);
@@ -105,6 +109,20 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
     if (!q) return rows;
     return rows.filter((row) => row.ad.toLocaleLowerCase("tr").includes(q));
   }, [query, rows]);
+
+  useEffect(() => {
+    const row = rows.find((item) => item.id === open);
+    setReveal(false);
+    if (!row || row.tur !== "anahtar" || !row.bagli) { setSecret(""); setStored(""); return; }
+    let alive = true;
+    void client.request("kontrol.anahtar_goster", { saglayici: row.id }).then((result) => {
+      if (!alive) return;
+      const value = result.ok && typeof result.deger === "string" ? result.deger : "";
+      setStored(value);
+      setSecret(value);
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [client, open, rows]);
 
   useEffect(() => {
     const row = rows.find((item) => item.id === open);
@@ -273,7 +291,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
       setNotice(sonuc?.metin ?? "Anahtar kaydedilemedi.");
       return;
     }
-    setSecret(current => current === submitted ? "" : current);
+    setStored(submitted);
     setNotice(`${row.ad} anahtarı kaydedildi.`);
     await load();
     onChanged();
@@ -290,23 +308,144 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
       setNotice(sonuc?.metin ?? "Anahtar silinemedi.");
       return;
     }
+    setSecret("");
+    setStored("");
     setNotice(`${row.ad} anahtarı silindi.`);
     await load();
     onChanged();
   };
 
+  const toggle = (row: ProviderRow) => {
+    if (dirty) { setNotice("Kaydedilmemiş anahtar var. Önce Kaydet'e bas veya alanı temizle."); return; }
+    setOpen((current) => (current === row.id ? null : row.id));
+  };
+
+  const stateText = (row: ProviderRow) => row.tur === "anahtar"
+    ? (row.bagli ? "anahtar kayıtlı" : "anahtar yok")
+    : row.bagli ? (row.olcum_gecti ? "bağlı · dosya yazabilir" : "bağlı · yalnız okur") : "bağlı değil";
+
+  const detail = (row: ProviderRow) => (
+    <div className="pv-detail" key={`detail-${row.id}`} role="region" aria-label={`${row.ad} ayrıntıları`}>
+      <div className="pv-detail__head">
+        <span className="pv-mark pv-mark--lg">
+          {row.tur === "web" ? <ProviderLogo id={row.id as ProviderId} size={22} /> : <span aria-hidden="true">{row.ad.slice(0, 1)}</span>}
+        </span>
+        <div>
+          <h4>{row.ad}</h4>
+          <p><span className="pv-dot" data-bagli={row.bagli} aria-hidden="true" /> {stateText(row)}</p>
+        </div>
+        <button aria-label="Ayrıntıyı kapat" className="pv-close" onClick={() => toggle(row)} type="button">×</button>
+      </div>
+      {row.eylem === "oturum" ? (
+        <div className="pv-detail__body">
+          <p>Kendi aboneliğinle çalışır; anahtar gerekmez. Giriş ayrı bir pencerede yapılır ve oturum bu bilgisayarda kalır.</p>
+          {row.pencere_kipi && (
+            <p className="provider-list__meta">Tarayıcı penceresi: {PENCERE_KIPLERI[row.pencere_kipi] ?? row.pencere_kipi}</p>
+          )}
+          {row.bagli && (
+            <label className="provider-list__model-choice">
+              <span>Bu web oturumunda kullanılacak model</span>
+              <select
+                aria-label={`${row.ad} web modeli`}
+                disabled={busy === row.id || modelLoading === row.id || !modelChoices[row.id]}
+                onChange={(event) => void run(() => selectWebModel(row, event.target.value))}
+                value={row.secili_model ?? "Otomatik"}
+              >
+                {row.secili_model && modelChoices[row.id] && !modelChoices[row.id].includes(row.secili_model) && (
+                  <option disabled value={row.secili_model}>{row.secili_model} (artık sunulmuyor)</option>
+                )}
+                {(modelChoices[row.id] ?? [row.secili_model ?? "Otomatik"]).map((choice) => (
+                  <option key={choice} value={choice}>{choice}</option>
+                ))}
+              </select>
+              <small>{modelError ?? (modelLoading === row.id
+                ? "Hesabındaki seçenekler okunuyor…"
+                : row.secili_model && modelChoices[row.id] && !modelChoices[row.id].includes(row.secili_model)
+                  ? "Seçili model artık yok. Devam etmek için kullanılabilir bir model seç."
+                  : "Yalnız bu hesabın canlı menüsünde bulunan modeller gösterilir.")}</small>
+            </label>
+          )}
+          {row.pencere_uyarisi && <p className="provider-list__warn" role="status">{row.pencere_uyarisi}</p>}
+          {!row.bagli && row.profil_var && (
+            <p className="provider-list__warn">Tarayıcı profili var ama oturum kayıtlı değil — giriş yarım kalmış olabilir. Yeniden bağlan.</p>
+          )}
+          <div className="provider-list__buttons">
+            <button className="provider-list__action provider-list__action--primary" disabled={busy === row.id} onClick={() => void login(row)} type="button">
+              {busy === row.id ? "Sürüyor…" : row.bagli ? "Yeniden bağlan" : "Oturum aç"}
+            </button>
+            {row.bagli && (
+              <>
+                <button
+                  className="provider-list__action"
+                  disabled={busy === row.id}
+                  onClick={() => void run(async () => {
+                    const sonuc = await client.request("web.arac_olc", { saglayici: row.id, hesap: row.hesap ?? "main" });
+                    setNotice(String(sonuc?.metin ?? "Ölçüm tamamlanamadı."));
+                    await load();
+                  })}
+                  type="button"
+                >
+                  {row.olcum_gecti ? "Araç ölçümünü yenile" : "Araç desteğini ölç"}
+                </button>
+                <button className="provider-list__action" disabled={busy === row.id} onClick={() => void run(() => verify(row))} type="button">Bağlantıyı sına</button>
+                <button className="provider-list__action provider-list__action--danger" disabled={busy === row.id} onClick={() => void run(() => logout(row))} type="button">Çıkış yap</button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="pv-detail__body">
+          <label htmlFor={`key-${row.id}`}>API anahtarı</label>
+          <div className="pv-field">
+            <input
+              autoComplete="off"
+              id={`key-${row.id}`}
+              disabled={busy !== null}
+              onChange={(event) => setSecret(event.target.value)}
+              placeholder={row.ortam ?? ""}
+              spellCheck={false}
+              type={reveal ? "text" : "password"}
+              value={secret}
+            />
+            <button
+              aria-label={reveal ? "Anahtarı gizle" : "Anahtarı göster"}
+              aria-pressed={reveal}
+              className="pv-eye"
+              onClick={() => setReveal((value) => !value)}
+              title={reveal ? "Gizle" : "Göster"}
+              type="button"
+            >
+              <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
+                <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" />
+                <circle cx="12" cy="12" r="3" />
+                {!reveal && <path d="M4 4l16 16" />}
+              </svg>
+            </button>
+          </div>
+          <p className="pv-hint">
+            {row.bagli
+              ? "Kayıtlı anahtar şifreli yerel kasada durur; göz düğmesiyle istediğin zaman görebilirsin."
+              : "Anahtar yerel şifreli kasada saklanır ve sonradan buradan görülebilir."}
+            {row.ortam ? ` Ortam değişkeni: ${row.ortam}` : ""}
+          </p>
+          <div className="provider-list__buttons">
+            <button className="provider-list__action provider-list__action--primary" disabled={busy === row.id || !dirty} onClick={() => void run(() => saveKey(row))} type="button">Kaydet</button>
+            {row.bagli && <button className="provider-list__action" type="button" disabled={busy === row.id} onClick={() => void run(() => verifyKey(row))}>Anahtarı sına</button>}
+            {row.bagli && <button className="provider-list__action provider-list__action--danger" disabled={busy === row.id} onClick={() => void run(() => dropKey(row))} type="button">Kayıtlı anahtarı sil</button>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <section aria-label="Sağlayıcılar" className="provider-list">
-      <header className="provider-list__head">
-        <h3>Model sağlayıcıları</h3>
-        <input
-          aria-label="Sağlayıcı ara"
-          className="provider-list__search"
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Ara"
-          type="search"
-          value={query}
-        />
+      <header className="pv-head">
+        <div>
+          <h3>Model sağlayıcıları</h3>
+          <p>Bir karta dokun: anahtar gir ya da abonelik oturumunu aç.</p>
+        </div>
+        <input aria-label="Sağlayıcı ara" className="provider-list__search" onChange={(event) => setQuery(event.target.value)} placeholder="Ara" type="search" value={query} />
       </header>
 
       {notice && <p className="provider-list__notice" role="status">{notice}</p>}
@@ -319,185 +458,37 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
         </p>
       )}
 
-      {/* ChatGPT ayar düzeni: abonelik oturumları ve API anahtarları ayrı gruplarda. */}
       {([["web", "Abonelik oturumları", "Kendi ChatGPT, Gemini ya da Claude aboneliğinle; anahtar gerekmez."], ["anahtar", "API anahtarları", "Ücretsiz katmanı olan sağlayıcılar; anahtar şifreli kasada saklanır."]] as const).map(([tur, baslik, aciklama]) => {
         const grup = filtered.filter((row) => row.tur === tur);
         if (grup.length === 0) return null;
+        const acik = grup.find((row) => row.id === open);
         return (
-          <div className="provider-list__group" key={tur}>
-            <h4>{baslik}</h4>
-            <p className="provider-list__group-hint">{aciklama}</p>
-            <ul className="provider-list__rows">
+          <div className="pv-group" key={tur}>
+            <div className="pv-group__title"><h4>{baslik}</h4><p>{aciklama}</p></div>
+            <ul className="pv-grid">
               {grup.map((row) => (
-          <li key={row.id}>
-            <button
-              aria-expanded={open === row.id}
-              className="provider-list__row"
-              data-bagli={row.bagli}
-              disabled={busy !== null}
-              onClick={() => {
-                if (secret.trim()) { setNotice("Kaydedilmemiş anahtar var. Önce Kaydet'e bas veya alanı temizle."); return; }
-                setOpen((current) => (current === row.id ? null : row.id));
-                setSecret("");
-              }}
-              type="button"
-            >
-              <span className="provider-list__mark">
-                {row.tur === "web" ? (
-                  <ProviderLogo id={row.id as ProviderId} size={18} />
-                ) : (
-                  <span aria-hidden="true">{row.ad.slice(0, 1)}</span>
-                )}
-              </span>
-              <span className="provider-list__name">{row.ad}</span>
-              <span className="provider-list__state" data-bagli={row.bagli}>{row.tur === "anahtar" ? (row.bagli ? "anahtar kayıtlı" : "anahtar yok") : row.bagli ? (row.olcum_gecti ? "bağlı · dosya yazabilir" : "bağlı · yalnız okur") : "bağlı değil"}</span>
-            </button>
-
-            {open === row.id && (
-              <div className="provider-list__detail">
-                {row.eylem === "oturum" ? (
-                  <>
-                    <p>
-                      Kendi aboneliğinle çalışır; anahtar gerekmez. Giriş ayrı bir pencerede
-                      yapılır ve oturum bu bilgisayarda kalır.
-                    </p>
-                    {row.pencere_kipi && (
-                      <p className="provider-list__meta">
-                        Tarayıcı penceresi: {PENCERE_KIPLERI[row.pencere_kipi] ?? row.pencere_kipi}
-                      </p>
-                    )}
-                    {row.bagli && (
-                      <label className="provider-list__model-choice">
-                        <span>Bu web oturumunda kullanılacak model</span>
-                        <select
-                          aria-label={`${row.ad} web modeli`}
-                          disabled={busy === row.id || modelLoading === row.id || !modelChoices[row.id]}
-                          onChange={(event) => void run(() => selectWebModel(row, event.target.value))}
-                          value={row.secili_model ?? "Otomatik"}
-                        >
-                          {row.secili_model && modelChoices[row.id]
-                            && !modelChoices[row.id].includes(row.secili_model) && (
-                              <option disabled value={row.secili_model}>
-                                {row.secili_model} (artık sunulmuyor)
-                              </option>
-                            )}
-                          {(modelChoices[row.id] ?? [row.secili_model ?? "Otomatik"]).map((choice) => (
-                            <option key={choice} value={choice}>{choice}</option>
-                          ))}
-                        </select>
-                        <small>{modelError ?? (modelLoading === row.id
-                          ? "Hesabındaki seçenekler okunuyor…"
-                          : row.secili_model && modelChoices[row.id]
-                            && !modelChoices[row.id].includes(row.secili_model)
-                            ? "Seçili model artık yok. Devam etmek için kullanılabilir bir model seç."
-                            : "Yalnız bu hesabın canlı menüsünde bulunan modeller gösterilir.")}</small>
-                      </label>
-                    )}
-                    {/* Gizleme başarısız olursa pencere ekranda kalır; sebebi
-                        ve çözümü burada yazar, sessizce yutulmaz. */}
-                    {row.pencere_uyarisi && (
-                      <p className="provider-list__warn" role="status">
-                        {row.pencere_uyarisi}
-                      </p>
-                    )}
-                    {!row.bagli && row.profil_var && (
-                      <p className="provider-list__warn">
-                        Tarayıcı profili var ama oturum kayıtlı değil — giriş yarım kalmış
-                        olabilir. Yeniden bağlan.
-                      </p>
-                    )}
-                    <div className="provider-list__buttons">
-                      <button
-                        className="provider-list__action"
-                        disabled={busy === row.id}
-                        onClick={() => void login(row)}
-                        type="button"
-                      >
-                        {busy === row.id ? "Sürüyor…" : row.bagli ? "Yeniden bağlan" : "Oturum aç"}
-                      </button>
-                      {row.bagli && (
-                        <>
-                          {/* Ölçüm, modelin dosya yazabilmesinin ÖN KOŞULU.
-                              Puanlayıcı baştan beri vardı ama onu çalıştıran
-                              hiçbir yol yoktu: bayrak yalnız config elle
-                              düzenlenerek açılabiliyordu. */}
-                          <button
-                            className="provider-list__action"
-                            disabled={busy === row.id}
-                            onClick={() =>
-                              void run(async () => {
-                                const sonuc = await client.request("web.arac_olc", {
-                                  saglayici: row.id,
-                                  hesap: row.hesap ?? "main",
-                                });
-                                setNotice(String(sonuc?.metin ?? "Ölçüm tamamlanamadı."));
-                                await load();
-                              })
-                            }
-                            type="button"
-                          >
-                            {row.olcum_gecti ? "Araç ölçümünü yenile" : "Araç desteğini ölç"}
-                          </button>
-                          <button
-                            className="provider-list__action"
-                            disabled={busy === row.id}
-                            onClick={() => void run(() => verify(row))}
-                            type="button"
-                          >
-                            Bağlantıyı sına
-                          </button>
-                          <button
-                            className="provider-list__action provider-list__action--danger"
-                            disabled={busy === row.id}
-                            onClick={() => void run(() => logout(row))}
-                            type="button"
-                          >
-                            Çıkış yap
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <label htmlFor={`key-${row.id}`}>API anahtarı</label>
-                    <input
-                      id={`key-${row.id}`}
-                      disabled={busy !== null}
-                      onChange={(event) => setSecret(event.target.value)}
-                      placeholder={row.ortam ?? ""}
-                      type="password"
-                      value={secret}
-                    />
-                    <button
-                      className="provider-list__action"
-                      disabled={busy === row.id || !secret.trim()}
-                      onClick={() => void run(() => saveKey(row))}
-                      type="button"
-                    >
-                      Kaydet
-                    </button>
-                    {row.bagli && (
-                      <button className="provider-list__action" type="button" disabled={busy === row.id} onClick={() => void run(() => verifyKey(row))}>Anahtarı sına</button>
-                    )}
-                    {row.bagli && (
-                      <button
-                        className="provider-list__action"
-                        disabled={busy === row.id}
-                        onClick={() => void run(() => dropKey(row))}
-                        type="button"
-                      >
-                        Kayıtlı anahtarı sil
-                      </button>
-                    )}
-                    <small>Anahtar yerel şifreli kasada saklanır; arayüze geri okunmaz.</small>
-                  </>
-                )}
-              </div>
-            )}
-          </li>
+                <li key={row.id}>
+                  <button
+                    aria-expanded={open === row.id}
+                    className="pv-card"
+                    data-bagli={row.bagli}
+                    disabled={busy !== null}
+                    onClick={() => toggle(row)}
+                    type="button"
+                  >
+                    <span className="pv-card__top">
+                      <span className="pv-mark">
+                        {row.tur === "web" ? <ProviderLogo id={row.id as ProviderId} size={20} /> : <span aria-hidden="true">{row.ad.slice(0, 1)}</span>}
+                      </span>
+                      <span className="pv-dot" data-bagli={row.bagli} aria-hidden="true" />
+                    </span>
+                    <span className="pv-card__name">{row.ad}</span>
+                    <span className="pv-card__state" data-bagli={row.bagli}>{stateText(row)}</span>
+                  </button>
+                </li>
               ))}
             </ul>
+            {acik && detail(acik)}
           </div>
         );
       })}

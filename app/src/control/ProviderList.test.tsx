@@ -215,5 +215,21 @@ it("bekleyen anahtar kaydı sırasında alan ve sağlayıcı seçimi kilitlidir"
   expect((screen.getByRole("button", { name: /OpenRouter/ }) as HTMLButtonElement).disabled).toBe(true);
   resolve({ ok: true });
   await waitFor(() => expect(input.disabled).toBe(false));
-  expect(input.value).toBe("");
+  expect(input.value).toBe("SYNTHETIC_PENDING_KEY"); // kaydedilen anahtar alanda kalır
+});
+
+
+it("kayıtlı anahtar açılışta kasadan okunur ve göz düğmesiyle görünür", async () => {
+  const request = vi.fn(async (name: string) => {
+    if (name === "saglayici.katalog") return { ok: true, saglayicilar: [{ id: "nvidia_nim", ad: "NVIDIA NIM", bagli: true, eylem: "anahtar", tur: "anahtar", ortam: "NVIDIA_API_KEY" }] };
+    if (name === "kontrol.anahtar_goster") return { ok: true, deger: "nvapi-KAYITLI" };
+    return { ok: true };
+  });
+  render(<ProviderList client={{ request } as unknown as ProtocolClient} />);
+  fireEvent.click(await screen.findByRole("button", { name: /NVIDIA NIM/ }));
+  const input = (await screen.findByLabelText("API anahtarı")) as HTMLInputElement;
+  await waitFor(() => expect(input.value).toBe("nvapi-KAYITLI"));
+  expect(input.type).toBe("password");
+  fireEvent.click(screen.getByRole("button", { name: "Anahtarı göster" }));
+  expect(input.type).toBe("text");
 });

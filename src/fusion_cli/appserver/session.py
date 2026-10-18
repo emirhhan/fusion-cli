@@ -899,6 +899,10 @@ class AppSession:
                 str(request.data.get("saglayici", "")),
                 request.data.get("deger"),
             )
+        if request.name == "kontrol.anahtar_goster":
+            from .control import reveal_secret
+
+            return reveal_secret(self._secret_store, str(request.data.get("saglayici", "")))
         if request.name == "kontrol.anahtar_sil":
             return delete_secret(self._secret_store, str(request.data.get("saglayici", "")))
         if request.name == "kontrol.anahtar_dogrula":

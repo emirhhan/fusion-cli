@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../../protocol/client";
 import { RoleModels } from "./RoleModels";
 
@@ -18,26 +18,29 @@ function fakeClient() {
 }
 
 describe("RoleModels", () => {
+  afterEach(cleanup);
+
   it("öğretmen modelini seçince kalıcı atama isteği gönderir", async () => {
     const { client, request } = fakeClient();
     render(<RoleModels client={client} />);
-    const select = await screen.findByLabelText("Öğretmene sor modeli");
-    fireEvent.change(select, { target: { value: "codex_cli/default" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Öğretmene sor" }));
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT · Codex/ }));
     await waitFor(() => expect(request).toHaveBeenCalledWith("model.rol_ata", { rol: "teacher", deger: "codex_cli/default" }));
   });
 
   it("Codex araç çağıramadığı için varsayılan model listesinde yoktur", async () => {
     const { client } = fakeClient();
     render(<RoleModels client={client} />);
-    const select = await screen.findByLabelText("Varsayılan model");
-    expect(select.querySelector('option[value="codex_cli/default"]')).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Varsayılan model" }));
+    await screen.findByRole("button", { name: /Gemini/ });
+    expect(screen.queryByRole("button", { name: /ChatGPT · Codex/ })).toBeNull();
   });
 
   it("son adayı kaldırmaya izin vermez", async () => {
     const { client, request } = fakeClient();
     render(<RoleModels client={client} />);
-    const boxes = await screen.findAllByRole("checkbox");
-    fireEvent.click(boxes[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Fusion adayları" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Gemini/, pressed: true }));
     expect(request).not.toHaveBeenCalledWith("model.rol_ata", expect.objectContaining({ rol: "candidates" }));
   });
 });
