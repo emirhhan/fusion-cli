@@ -6,6 +6,7 @@ import { nativePermissionBridge } from "../platform/permissions";
 import type { ProtocolClient } from "../protocol/client";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
+import { RoleModels } from "../settings/sections/RoleModels";
 import { ProviderList } from "./ProviderList";
 import "./ControlPanel.css";
 
@@ -70,7 +71,7 @@ export function ControlPanel({
     <main className="control-panel">
       <PageHeader
         actions={<Button onClick={onClose} variant="secondary">Kapat</Button>}
-        description="Model sağlayıcılarına bağlan: anahtar gir ya da web oturumu aç."
+        description="Model rollerini seç, sağlayıcılara bağlan: anahtar gir ya da web oturumu aç."
         title={title}
       />
       {error && <p className="control-panel__notice" data-error="true" role="alert">{error}</p>}
@@ -82,6 +83,7 @@ export function ControlPanel({
           {secretError && (
             <p className="control-panel__warning" role="status">{secretError}</p>
           )}
+          <RoleModels client={client} />
           <ProviderList initialProviderId={initialProviderId} client={client} onChanged={onProvidersChanged} onDraftChange={onProviderDraftChange} />
         </section>
       </div>
