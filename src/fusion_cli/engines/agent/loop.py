@@ -98,6 +98,7 @@ from ...core.types import (
     TextChunk,
     ToolCall,
     is_permanent_error,
+    is_rate_limit_error,
 )
 from ...core.verification import VerificationResult, Verifier
 from ...core.web_response import classify_response
@@ -2039,7 +2040,10 @@ async def _retry_sleep(delay_s: float) -> None:
 def _short_reason(error: str | None) -> str:
     """Geçici hatanın kullanıcıya gösterilecek kısa adı; ham istisna metni gösterilmez."""
     lowered = (error or "").lower()
-    if "429" in lowered or "rate" in lowered or "too many" in lowered:
+    # "rate" alt dizgisi "generated"/"operate" içinde de geçer: bozuk bir istek hatası
+    # "hız sınırı" diye etiketlenip 60 sn'lik bekleme döngüsüne giriyordu. Ortak,
+    # dar sınıflandırma kullanılır.
+    if is_rate_limit_error(error):
         return "hız sınırına takıldı"
     if "timeout" in lowered or "timed out" in lowered:
         return "zamanında yanıt vermedi"

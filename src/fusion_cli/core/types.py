@@ -283,6 +283,9 @@ _PERMANENT_MARKERS = (
     "maximum context",
     "prompt is too long",
     "exceeds the context",
+    # İstek KURULURKEN patlayan hata (ör. bozuk araç argümanı): beklemek hiçbir şeyi
+    # değiştirmez; yeniden denemek yerine zincir ilerler.
+    "transform_request",
 )
 
 

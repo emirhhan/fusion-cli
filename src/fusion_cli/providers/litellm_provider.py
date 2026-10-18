@@ -11,6 +11,7 @@ ayrı bir proxy sunucusu çalıştırmaya gerek yoktur.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -421,6 +422,31 @@ def _unwrap_emulation_leak(name: str, arguments: str) -> tuple[str, str]:
 _TEMPLATE_THINKING_PREFIXES = ("nvidia_nim/",)
 
 
+def _valid_arguments(raw: str) -> str:
+    """Araç argümanlarını GEÇERLİ JSON metnine indir.
+
+    Modelin bozuk ürettiği argüman (ör. geçerli nesnenin arkasında artık veri) geçmişte
+    olduğu gibi kalırsa, SONRAKİ her istekte LiteLLM'in Ollama dönüştürücüsü
+    `json.loads` ile patlıyordu ("Extra data"): tek bozuk çağrı turu öldürüyor, 10 kez
+    60 sn beklenip yeniden deneniyordu (18 Ekim 2026, soak koşuları). İlk tam nesne
+    korunur; hiç okunamazsa boş nesne gönderilir.
+    """
+    try:
+        json.loads(raw)
+        return raw
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    metin = raw.lstrip() if isinstance(raw, str) else ""
+    if metin.startswith("{"):
+        try:
+            nesne, _son = json.JSONDecoder().raw_decode(metin)
+        except (json.JSONDecodeError, ValueError):
+            nesne = None
+        if isinstance(nesne, dict):
+            return json.dumps(nesne, ensure_ascii=False)
+    return "{}"
+
+
 def _to_wire(message: Message) -> dict[str, Any]:
     """Proje mesajını sağlayıcının beklediği sözlüğe çevir.
 
@@ -437,7 +463,7 @@ def _to_wire(message: Message) -> dict[str, Any]:
             {
                 "id": call.id,
                 "type": "function",
-                "function": {"name": call.name, "arguments": call.arguments},
+                "function": {"name": call.name, "arguments": _valid_arguments(call.arguments)},
             }
             for call in message.tool_calls
         ]
