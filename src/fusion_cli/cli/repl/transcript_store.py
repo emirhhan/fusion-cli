@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core.events import Event
+from ...core.leak_filter import is_harness_note, strip_harness_leaks
 from ...core.redaction import redact
 from ...core.types import Message
 
@@ -58,7 +59,9 @@ def load_transcript_messages(
         text = event.get("text")
         if not isinstance(text, str) or not text.strip():
             continue
-        safe_text = redact(text)
+        safe_text = strip_harness_leaks(redact(text))
+        if not safe_text or (event.get("event") == "UserMessage" and is_harness_note(text)):
+            continue
         if event.get("event") == "UserMessage":
             _upsert_message(
                 messages, Message("user", safe_text, message_id=event.get("message_id"))
@@ -289,6 +292,8 @@ class TranscriptStore:
                 temporary.unlink(missing_ok=True)
 
     def record_user(self, text: str, *, message_id: str | None = None) -> None:
+        if is_harness_note(text):
+            return
         self._append(
             {
                 "event": "UserMessage",
@@ -302,7 +307,7 @@ class TranscriptStore:
             {
                 "event": "TurnAnswered",
                 "channel": "text",
-                "text": text,
+                "text": strip_harness_leaks(text),
                 **({"message_id": message_id} if message_id else {}),
             }
         )
@@ -313,6 +318,8 @@ class TranscriptStore:
         payload: dict[str, Any] = {"event": type(event).__name__}
         for field in dataclasses.fields(event):
             payload[field.name] = _jsonable(getattr(event, field.name))
+        if isinstance(payload.get("text"), str):
+            payload["text"] = strip_harness_leaks(payload["text"])
         self._append(payload)
 
     def _append(self, payload: dict[str, Any]) -> None:

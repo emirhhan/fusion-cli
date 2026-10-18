@@ -70,6 +70,7 @@ from ...core.events import (
 from ...core.evidence import ToolUse
 from ...core.health import HealthRegistry
 from ...core.job_evidence import JobCompletion, JobCurrentSnapshot
+from ...core.leak_filter import strip_harness_leaks
 from ...core.memory import CodeIndex, Lesson, LessonMemory
 from ...core.progress import RoundSignals, progressed
 from ...core.protocols import TurnJournal
@@ -1075,7 +1076,9 @@ def _announce_answer(outcome: AgentOutcome, deps: AgentDeps, *, depth: int, inte
         return
     if not outcome.final_text.strip():
         return
-    deps.publisher.publish(TurnAnswered(channel=deps.channel, text=outcome.final_text))
+    deps.publisher.publish(
+        TurnAnswered(channel=deps.channel, text=strip_harness_leaks(outcome.final_text))
+    )
 
 
 # --------------------------------------------------------------------------- #
