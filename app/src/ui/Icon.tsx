@@ -1,6 +1,9 @@
 import type { ReactNode, SVGProps } from "react";
 
 export type IconName =
+  | "speaker"
+  | "thumbsUp"
+  | "thumbsDown"
   | "download"
   | "sparkle"
   | "expand"
@@ -50,6 +53,9 @@ export type IconName =
   | "sort";
 
 const paths: Record<IconName, ReactNode> = {
+  speaker: <><path d="M11 4 6 8H3v8h3l5 4V4Z" /><path d="M15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14" /></>,
+  thumbsUp: <><path d="M8 10v11H4V10h4ZM8 10l5-8c2 0 3 2 2 5l-1 3h5a2 2 0 0 1 2 2l-2 7a3 3 0 0 1-3 2H8" /></>,
+  thumbsDown: <><path d="M8 14V3H4v11h4ZM8 14l5 8c2 0 3-2 2-5l-1-3h5a2 2 0 0 0 2-2l-2-7a3 3 0 0 0-3-2H8" /></>,
   sun: <><circle cx="12" cy="12" r="4" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" /></>,
   pulse: <><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M6 14h3l2-4 3 6 2-3h2" /></>,
   branch: <><circle cx="6" cy="5.5" r="2" /><circle cx="6" cy="18.5" r="2" /><circle cx="18" cy="18.5" r="2" /><path d="M6 7.5v9M18 16.5V10a3 3 0 0 0-3-3h-2" /><path d="m15 4-2.5 3L15 10" /></>,

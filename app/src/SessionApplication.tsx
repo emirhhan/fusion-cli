@@ -20,6 +20,7 @@ import { ProtocolClient } from "./protocol/client";
 import { olayEkle } from "./protocol/olayAkisi";
 import type { Soru } from "./protocol/types";
 import { useProjectRegistry } from "./sessions/useProjectRegistry";
+import { createAndOpenProject, openProjectChat, ProjectOpenError } from "./sessions/projectActions";
 import { useRemoteProjectSync } from "./remote/useRemoteProjectSync";
 import { useSessions, nextSessionId, saveWorkspaceMode, storedWorkspaceMode, type WorkspaceMode } from "./sessions/useSessions";
 import type { SessionTransport } from "./sessions/types";
@@ -471,6 +472,7 @@ export function SessionUygulama({
   const permissions = usePermissions(permissionBridge);
   const controller = useSessions(transport);
   const projects = useProjectRegistry(nextSessionId);
+  const [accountHost, setAccountHost] = useState<HTMLDivElement | null>(null);
   const layout = useLayout();
   const inspectorLayout = useInspectorLayout();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -538,11 +540,17 @@ export function SessionUygulama({
     sessionId: string;
   }[]>([]);
   const activeVoiceTurn = useRef<VoiceTurnHandle | null>(null);
+  const manualVoiceTurn = useRef<VoiceTurnHandle | null>(null);
+  const manualVoiceGeneration = useRef(0);
   const pendingBargeIn = useRef(false);
   const active = controller.activeSession;
   useRemoteProjectSync(active?.client ?? null, projects.registry);
   const activeSessionId = active?.id;
   const activeClient = active?.client;
+  useEffect(() => () => {
+    manualVoiceGeneration.current += 1;
+    void manualVoiceTurn.current?.cancel().catch(() => undefined);
+  }, [activeSessionId]);
   // Tercihler çekirdekte de yedeklenir (webview deposu güvenilmez). Çekirdek
   // yerel depodan farklı bir değer getirdiyse açık ekranlar eski değeri
   // okumuş olur; bu yüzden pencere bir kez yenilenir (oturumlar geri yüklenir).
@@ -621,11 +629,12 @@ export function SessionUygulama({
   const startDesktopChat = async () => {
     setNewTaskError(null);
     try {
-      const root = await desktopDir();
-      await controller.create({ root });
+      const record = active ? projects.registry.projects.find((item) => item.id === projects.registry.chats[active.id]) : undefined;
+      if (record) await openProjectChat(record, { createChat: controller.create, desktopRoot: desktopDir, assign: projects.assign });
+      else await controller.create({ root: active?.root || await desktopDir() });
       setPage("chat");
-    } catch {
-      setNewTaskError("Desktop klasörü açılamadı. Yeniden dene veya bir klasör seç.");
+    } catch (reason) {
+      setNewTaskError(`Yeni sohbet açılamadı: ${reason instanceof Error ? reason.message : String(reason)}`);
     }
   };
   const history = useHistory(active?.client ?? null);
@@ -679,14 +688,13 @@ export function SessionUygulama({
               const record = projects.registry.projects.find((item) => item.id === destination.slice("project-id:".length));
               if (!record) throw new Error("Proje bulunamadı.");
               setPage("chat");
-              const id = await controller.create({ root: record.root ?? await desktopDir(), mode: "kod" });
-              projects.assign(id, record.id);
+              await openProjectChat(record, { createChat: controller.create, desktopRoot: desktopDir, assign: projects.assign });
             } else if (destination.startsWith("project:")) {
               setPage("chat");
               await controller.create({ root: destination.slice("project:".length), mode: "kod" });
             }
-    } catch {
-      setNewTaskError("Sayfa veya proje açılamadı. Yeniden dene.");
+    } catch (reason) {
+      setNewTaskError(`Sayfa veya proje açılamadı: ${reason instanceof Error ? reason.message : String(reason)}`);
     }
   };
   // Manuel "Şimdi çalıştır" arka planda sohbet açar; kullanıcının o an
@@ -722,7 +730,7 @@ export function SessionUygulama({
       setPage("chat");
     }
   };
-  const mainRail = <MainRail active={mainSection} onSelect={selectMainSection} />;
+  const mainRail = <MainRail active={mainSection} onSelect={selectMainSection} accountHostRef={setAccountHost} />;
   const mainSurface = (
     <MainSurface
       section={surfaceSection}
@@ -1138,12 +1146,25 @@ export function SessionUygulama({
   }
   const chooseProjectFolder = async () => {
     if (!(await permissions.ensure("workspace"))) return null;
-    const root = (await selectFolder(localStorage.getItem("fusion.last-project-root") ?? undefined))?.trim();
+    const root = await selectFolder(localStorage.getItem("fusion.last-project-root") ?? undefined);
     return root && root !== "/" ? root : null;
   };
   const recordRoots = new Set(projects.registry.projects.flatMap((record) => record.root ? [record.root] : []));
   const projectSidebarProps = {
-    onProjectCreate: (input: { name: string; root?: string }) => { projects.create(input); },
+    profileHost: accountHost,
+    onProjectCreate: async (input: { name: string; root?: string }) => {
+      setNewTaskError(null);
+      try {
+        await createAndOpenProject(input, { createRecord: projects.create, createChat: controller.create, desktopRoot: desktopDir, assign: projects.assign });
+        setSurfaceSection(null);
+        setPage("chat");
+      } catch (reason) {
+        if (!(reason instanceof ProjectOpenError)) throw reason;
+        setSurfaceSection(null);
+        setPage("chat");
+        setNewTaskError(`${reason.message}. Projenin yanındaki + ile yeniden deneyebilirsin.`);
+      }
+    },
     onProjectRename: projects.rename,
     onProjectDelete: projects.remove,
     onAssign: projects.assign,
@@ -1208,10 +1229,12 @@ export function SessionUygulama({
   // Ölçüldü: Ayarlar açıkken ekranda "Ayarlar" iki kez yazıyordu ve erişilebilirlik
   // ağacında aynı adla iki başlık düğümü oluşuyordu. Şerit bu sayfalarda çalışma
   // alanını gösterir; sayfanın kimliği sayfanın kendi başlığındadır.
+  const activeProject = projects.registry.projects.find((record) => record.id === projects.registry.chats[active.id]);
+  const activeProjectName = activeProject?.name ?? projectName(active.root);
   const headerTitle = page === "account" ? "Hesabım"
     : page === "settings" ? active.title
     : SAYFA_KENDI_BASLIGINI_TASIR.includes(page)
-    ? projectName(active.root)
+    ? activeProjectName
     : page === "image-create" ? "Görsel oluştur"
       : page === "video-create" ? "Video oluştur"
         : page === "skills" ? "Beceriler ve Ajanlar"
@@ -1301,6 +1324,32 @@ export function SessionUygulama({
       mesajlar={active.messages}
       running={active.running}
       showSteps={showSteps}
+      onReadAloud={async (text) => {
+        const generation = ++manualVoiceGeneration.current;
+        await manualVoiceTurn.current?.cancel();
+        if (generation !== manualVoiceGeneration.current) return;
+        const turn = createVoicePlayback(active.client, text, async () => undefined);
+        manualVoiceTurn.current = turn;
+        try { await turn.finished; }
+        finally { if (manualVoiceTurn.current === turn) manualVoiceTurn.current = null; }
+      }}
+      onEvaluate={async (text, rating) => {
+        const result = await active.client.request("yanit.degerlendir", { metin: text, rating });
+        if (result.ok !== true) throw new Error(String(result.metin ?? "Değerlendirme kaydedilemedi."));
+      }}
+      onContinueInNewChat={async (index) => {
+        const message = active.messages[index];
+        const occurrence = active.messages.slice(0, index).filter((item) => item.rol === "asistan" && !item.ara && !item.akan && item.metin === message.metin).length;
+        const result = await active.client.request("sohbet.dallan", { metin: message.metin, eslesme: occurrence });
+        if (result.ok !== true || typeof result.sohbet_id !== "string") throw new Error(String(result.metin ?? "Yeni sohbet açılamadı."));
+        const projectId = projects.registry.chats[active.id];
+        if (projectId) projects.assign(result.sohbet_id, projectId);
+        saveWorkspaceMode(result.sohbet_id, workspaceMode);
+        await controller.refreshStored();
+        await controller.openStored(result.sohbet_id, active.root);
+        setSurfaceSection(null);
+        setPage("chat");
+      }}
       onOneriSec={(gorev) => send(gorev)}
       onRetrySubmission={(requestId) => { controller.retrySubmission(active.id, requestId); }}
       onHataBildir={(metin) => setFeedback({ tur: "hata", mesaj: "Bir görev hatayla bitti.", ayrinti: metin })}
@@ -1314,7 +1363,7 @@ export function SessionUygulama({
       }}
     />
   ) : (
-    <EmptyState durum={active.running ? "thinking" : "idle"} projectName={projectName(active.root)} workspaceMode={workspaceMode} onSelectPrompt={setDraft} />
+    <EmptyState durum={active.running ? "thinking" : "idle"} projectName={activeProjectName} workspaceMode={workspaceMode} onSelectPrompt={setDraft} />
   );
   const content = mediaPage
     ? <MediaScreen active={page} image={<ImageCreate client={active.client} jobScope={JSON.stringify([active.root, active.id])} />} onSelect={setPage} />
@@ -1384,7 +1433,7 @@ export function SessionUygulama({
     setNewTaskError(null);
     try {
       const storedRoot = localStorage.getItem("fusion.last-project-root") ?? undefined;
-      const root = (await selectFolder(storedRoot === "/" ? undefined : storedRoot))?.trim();
+      const root = await selectFolder(storedRoot === "/" ? undefined : storedRoot);
       if (!root) {
         setNewTaskOpen(false);
         return;
@@ -1397,8 +1446,8 @@ export function SessionUygulama({
       localStorage.setItem("fusion.last-project-root", root);
       setPage("chat");
       setNewTaskOpen(false);
-    } catch {
-      setNewTaskError("Klasör açılamadı. Erişimi kontrol edip yeniden dene.");
+    } catch (reason) {
+      setNewTaskError(`Klasör açılamadı: ${errorMessage(reason)}`);
     } finally {
       setNewTaskBusy(false);
     }
@@ -1418,7 +1467,7 @@ export function SessionUygulama({
       surfaceFullBleed={surfaceSection === "kits"}
       emptyChat={page === "chat" && active.messages.length === 0 && !active.running}
       composer={page === "chat" ? (
-        <><ProjectPicker root={active.root} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root, mode: "kod" }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
+        <><ProjectPicker root={active.root} name={activeProjectName} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root, mode: "kod" }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
         <DepoUyarisi kok={active.root} projeler={active.depoProjeleri} onAc={(kok) => { void controller.create({ root: kok, mode: "kod" }).then(() => setPage("chat")); }} />
         <Composer
           stopping={active.stopping}

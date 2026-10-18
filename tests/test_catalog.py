@@ -8,6 +8,14 @@ import pytest
 from fusion_cli.providers import catalog
 
 
+def test_ollama_installed_models_are_discovered(monkeypatch):
+    _sahte_yanit(
+        monkeypatch, {"models": [{"name": "huihui_ai/qwen3.5-abliterated:9b"}, {"name": 123}, {}]}
+    )
+    result = catalog.fetch_ollama()
+    assert [entry.model_id for entry in result] == ["ollama_chat/huihui_ai/qwen3.5-abliterated:9b"]
+
+
 @pytest.mark.parametrize(
     ("status", "tool_calls", "expected"),
     [

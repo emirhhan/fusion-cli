@@ -36,7 +36,7 @@ def _allowed_sources(config: Config) -> tuple[model_flows.Source, ...]:
             and keys.nim
             and preference is not ProviderPreference.OPENROUTER
         )
-        if openrouter or nim:
+        if openrouter or nim or source.key == "ollama-local":
             allowed.append(source)
     return tuple(allowed)
 

@@ -14,6 +14,10 @@ function storage() {
 }
 
 describe("proje kayıtları", () => {
+  it("preserves spaces in native folder paths", () => {
+    const value = addProject(emptyRegistry, { id: "p", name: "VFSbot", root: "/Desktop/VFS-BOT ", now: 1 });
+    expect(value.projects[0].root).toBe("/Desktop/VFS-BOT ");
+  });
   it("ad vererek proje oluşturur; klasör isteğe bağlıdır", () => {
     const a = addProject(emptyRegistry, { id: "p1", name: "  Site  ", now: 5 });
     expect(a.projects).toEqual([{ id: "p1", name: "Site", createdAt: 5 }]);

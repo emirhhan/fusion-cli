@@ -794,6 +794,19 @@ class AppSession:
             }
         if request.name == "sohbet.sil":
             return await self._delete_conversation(request.data)
+        if request.name == "sohbet.dallan":
+            from .response_actions import fork_response
+
+            return await await_owned_thread(
+                fork_response, self._state.config.memory_dir, self._root,
+                self._conversation_id, list(self._state.history), request.data,
+            )
+        if request.name == "yanit.degerlendir":
+            from .response_actions import save_rating
+
+            return await await_owned_thread(
+                save_rating, self._state.config.memory_dir, self._conversation_id, request.data,
+            )
         if request.name == "sohbet.tasi":
             return await self._move_conversation(request.data)
         if request.name == "sohbet.listele":

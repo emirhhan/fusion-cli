@@ -8,7 +8,7 @@
      tokens.css): trafik ışıkları bu payın üstüne biner, sohbet ve marka
      satırı ışıkların ALTINDA kalmaz. Ayrı bir boş şerit ÇİZİLMEZ — pay
      kenar çubuğunun kendi dolgusudur. */
-  padding: calc(10px + var(--titlebar-inset)) 12px 12px;
+  padding: calc(6px + var(--titlebar-inset)) 12px 12px;
   position: relative;
 }
 
@@ -32,12 +32,22 @@
 .sidebar__brand {
   align-items: center;
   display: flex;
-  font-size: var(--text-sm);
+  font-size: 16px;
+  font-family: var(--font-heading);
   font-weight: 600;
-  gap: var(--space-2);
+  gap: 10px;
   height: 44px;
   padding: 0 var(--space-2);
 }
+
+.sidebar__top > .sidebar__nav-item { margin: 0; }
+
+:root[data-theme="dark"] .sidebar__nav-item { color: #a8a8a8; }
+:root[data-theme="dark"] .sidebar__project { color: #a6a6a6; }
+:root[data-theme="dark"] .sidebar__session { color: #a1a1a1; }
+:root[data-theme="dark"] .sidebar__history-toggle,
+:root[data-theme="dark"] .sidebar__projects-heading,
+:root[data-theme="dark"] .sidebar__section-title { color: #9c9c9c; }
 
 .sidebar__brand-mark {
   align-items: center;
@@ -126,7 +136,7 @@
 .sidebar__scroll {
   min-height: 0;
   overflow: hidden auto;
-  padding-top: var(--space-2);
+  padding-top: 0;
 }
 
 .sidebar__profile-wrap { position: relative; }
@@ -239,7 +249,7 @@
   padding: var(--space-2);
 }
 
-.sidebar__history { margin-top: var(--space-3); }
+.sidebar__history { margin-top: 8px; }
 
 .sidebar__history-toggle {
   align-items: center;
@@ -636,3 +646,32 @@
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
+
+.sidebar__pinned { display: flex; flex-direction: column; gap: 2px; }
+.sidebar__agents { margin-top: 16px; }
+.sidebar__project-info {
+  position: fixed; z-index: var(--z-dialog); width: 280px; padding: 14px;
+  display: grid; gap: 8px; background: var(--surface-menu, var(--surface-raised));
+  color: var(--text-primary); border: 1px solid var(--border-subtle);
+  border-radius: 10px; box-shadow: var(--shadow-overlay); font-size: var(--text-sm);
+}
+.sidebar__project-info strong { font-weight: 500; }
+.sidebar__project-info span, .sidebar__project-info small { color: var(--text-secondary); }
+.sidebar__project-info small { overflow-wrap: anywhere; }
+.sidebar__project-info button { justify-self: start; background: transparent; border: 0; color: var(--text-primary); padding: 4px 0; cursor: pointer; }
+.sidebar__project-info button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+:root[data-theme="dark"] .sidebar { background: #262626; }
+:root[data-theme="dark"] .sidebar__projects-heading,
+:root[data-theme="dark"] .sidebar__section-title,
+:root[data-theme="dark"] .sidebar__history-toggle { color: #909090; }
+:root[data-theme="dark"] .sidebar__project[aria-expanded="true"],
+:root[data-theme="dark"] .sidebar__session { color: #d6d6d6; }
+:root[data-theme="dark"] .sidebar__project[aria-expanded="false"] { color: #6f6f6f; }
+:root[data-theme="dark"] .sidebar__session[data-etkin="true"] { background: #303030; }
+
+.sidebar__project-info strong,
+.sidebar__project-info span,
+.sidebar__project-info small,
+.sidebar__project-info button { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.sidebar__project-info svg { flex: none; color: var(--text-secondary); }
+.sidebar__project-info small { padding-block: 10px; border-block: 1px solid var(--border-subtle); }

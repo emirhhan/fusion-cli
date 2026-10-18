@@ -1,0 +1,51 @@
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { Sidebar } from "./Sidebar";
+beforeEach(() => localStorage.clear());
+afterEach(cleanup);
+const root = "/Users/test/Desktop";
+const sessions = Array.from({ length: 7 }, (_, i) => ({ session_id: String(i), source: "fusion", title: `Desktop chat ${i}`, project: "Desktop", projectRoot: root, updated_at: i }));
+const props = { etkin: null, oturumlar: sessions, onYeni: vi.fn(), onSec: vi.fn() };
+it("keeps pinned and projects visible without history wrapper and groups Desktop", () => {
+  localStorage.setItem("fusion.sidebar.history-open.v1", "false");
+  render(<Sidebar {...props} />);
+  expect(screen.getByRole("region", { name: "Sabitlenenler" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Geçmişi/ })).toBeNull();
+  const desktop = screen.getByRole("region", { name: "Desktop" });
+  expect(within(desktop).getAllByRole("button", { name: /^Desktop chat \d$/ })).toHaveLength(5);
+  fireEvent.click(screen.getByRole("button", { name: "Desktop: Daha fazla göster" }));
+  expect(within(desktop).getAllByRole("button", { name: /^Desktop chat \d$/ })).toHaveLength(7);
+});
+it("shows a keyboard dismissible project card with edit action", () => {
+  render(<Sidebar {...props} />);
+  const row = screen.getByRole("button", { name: "Desktop projesini aç" });
+  fireEvent.focus(row);
+  const card = screen.getByRole("dialog", { name: "Desktop proje bilgileri" });
+  expect(card.textContent).toContain("7 sohbet");
+  expect(card.textContent).toContain("~/Desktop");
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.mouseEnter(row.closest(".sidebar__project-row")!);
+  fireEvent.click(screen.getByRole("button", { name: "Desktop projesini düzenle" }));
+  expect(screen.getByRole("dialog", { name: "Projeyi yeniden adlandır" })).toBeTruthy();
+});
+it("puts pinned chats in their own section and other agents below projects", () => {
+  localStorage.setItem("fusion.sidebar.pinned-sessions.v1", JSON.stringify([`${root}:fusion:0`]));
+  const navigate = vi.fn();
+  render(<Sidebar {...props} onNavigate={navigate} availableSources={["codex", "claude", "hermes"]} />);
+  expect(within(screen.getByRole("region", { name: "Sabitlenenler" })).getByText("Desktop chat 0")).toBeTruthy();
+  expect(screen.queryByText("Devam et")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Diğer ajanlar" }));
+  fireEvent.click(screen.getByRole("button", { name: "Codex geçmişi" }));
+  expect(navigate).toHaveBeenCalledWith("resume:codex");
+});
+it("opens project information with the keyboard and restores focus on Escape", () => {
+  render(<Sidebar {...props} />);
+  const row = screen.getByRole("button", { name: "Desktop projesini aç" });
+  act(() => row.focus());
+  fireEvent.keyDown(row, { key: "ArrowRight" });
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Desktop projesini düzenle" }));
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(document.activeElement).toBe(row);
+  expect(screen.queryByRole("dialog")).toBeNull();
+});

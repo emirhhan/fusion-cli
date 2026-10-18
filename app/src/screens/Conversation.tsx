@@ -114,8 +114,11 @@ export function hataMesajiMi(message: Mesaj): boolean {
   return message.rol === "asistan" && (message.hata === true || message.metin.startsWith("Hata:"));
 }
 
-function AssistantMessage({ text, onOpenFile, onReport, ara = false }: {
+function AssistantMessage({ text, onOpenFile, onReport, onReadAloud, onEvaluate, onContinue, ara = false }: {
   text: string;
+  onReadAloud?: () => Promise<void> | void;
+  onEvaluate?: (rating: "positive" | "negative") => Promise<void> | void;
+  onContinue?: () => Promise<void> | void;
   /** Adımlar arasındaki ara anlatım: Claude'daki gibi düz metin, eylem satırı yok. */
   ara?: boolean;
   onOpenFile?: (path: string) => void;
@@ -124,6 +127,22 @@ function AssistantMessage({ text, onOpenFile, onReport, ara = false }: {
 }) {
   const [copyState, setCopyState] = useState<string | null>(null);
   const copyPending = useRef(false);
+  const [evaluationOpen, setEvaluationOpen] = useState(false);
+  const [rating, setRating] = useState<"positive" | "negative" | null>(null);
+  const [actionPending, setActionPending] = useState(false);
+  const actionLock = useRef(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const perform = async (callback: () => Promise<void> | void, success?: () => void) => {
+    if (actionLock.current) return;
+    actionLock.current = true;
+    setActionPending(true);
+    setActionError(null);
+    setActionStatus(null);
+    try { await callback(); success?.(); }
+    catch (reason) { setActionError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { actionLock.current = false; setActionPending(false); }
+  };
   const copy = async () => {
     if (copyPending.current) return;
     if (!navigator.clipboard?.writeText) { setCopyState("Panoya erişilemiyor. Metni seçip manuel kopyala."); return; }
@@ -141,7 +160,17 @@ function AssistantMessage({ text, onOpenFile, onReport, ara = false }: {
       </div>
       {!ara && <div className="conversation__actions">
         <Button aria-label="Yanıtı kopyala" icon="copy" iconOnly disabled={copyPending.current} onClick={() => void copy()} />
+        {onReadAloud && <Button aria-label="Sesli oku" title="Sesli oku" icon="speaker" iconOnly disabled={actionPending} onClick={() => void perform(onReadAloud)} />}
+        {onEvaluate && <div className="conversation__evaluation">
+          <Button aria-label="Yanıtı değerlendir" title="Yanıtı değerlendir" aria-expanded={evaluationOpen} icon="thumbsUp" iconOnly onClick={() => setEvaluationOpen(!evaluationOpen)} />
+          {evaluationOpen && <div role="group" aria-label="Yanıt değerlendirmesi" className="conversation__rating" onKeyDown={(event) => { if (event.key === "Escape") { setEvaluationOpen(false); event.currentTarget.parentElement?.querySelector<HTMLButtonElement>("button")?.focus(); } }}>
+            {(["positive", "negative"] as const).map((value) => <Button key={value} aria-label={value === "positive" ? "Olumlu değerlendir" : "Olumsuz değerlendir"} aria-pressed={rating === value} icon={value === "positive" ? "thumbsUp" : "thumbsDown"} iconOnly disabled={actionPending} onClick={() => void perform(() => onEvaluate(value), () => { setRating(value); setEvaluationOpen(false); setActionStatus("Değerlendirmen kaydedildi"); })} />)}
+          </div>}
+        </div>}
+        {onContinue && <Button aria-label="Yeni sohbette devam et" title="Yeni sohbette devam et" icon="branch" iconOnly disabled={actionPending} onClick={() => void perform(onContinue)} />}
         {copyState && <span role="status">{copyState}</span>}
+        {actionStatus && <span role="status">{actionStatus}</span>}
+        {actionError && <span role="alert">{actionError}</span>}
         {onReport && (
           <button className="conversation__report" onClick={onReport} type="button">
             Hatayı bildir
@@ -179,6 +208,9 @@ function TaskList({ gorevler }: { gorevler: GorevMaddesi[] }) {
 
 export interface ConversationProps {
   mesajlar: Mesaj[];
+  onReadAloud?: (text: string) => Promise<void> | void;
+  onEvaluate?: (text: string, rating: "positive" | "negative") => Promise<void> | void;
+  onContinueInNewChat?: (messageIndex: number) => Promise<void> | void;
   /** Çekirdeğin gerçek tur durumu; iptalden sonra eski olayın saati işlemez. */
   running?: boolean;
   /** Kod kartındaki dosya adına tıklanınca çağrılır; çalışma paneli o dosyayı açar. */
@@ -196,6 +228,9 @@ export interface ConversationProps {
 
 export function Conversation({
   mesajlar,
+  onReadAloud,
+  onEvaluate,
+  onContinueInNewChat,
   onOpenFile,
   onOneriSec,
   onHataBildir,
@@ -317,7 +352,10 @@ export function Conversation({
               key={message.id}
             >
               <AssistantMessage
-                ara={message.ara === true}
+                ara={message.ara === true || message.akan === true}
+                onReadAloud={onReadAloud ? () => onReadAloud(message.metin) : undefined}
+                onEvaluate={onEvaluate ? (rating) => onEvaluate(message.metin, rating) : undefined}
+                onContinue={onContinueInNewChat ? () => onContinueInNewChat(index) : undefined}
                 onOpenFile={onOpenFile}
                 onReport={onHataBildir && hataMesajiMi(message) ? () => onHataBildir(message.metin) : undefined}
                 text={message.metin}

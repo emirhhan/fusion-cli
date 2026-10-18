@@ -158,6 +158,47 @@ describe("Uygulama", () => {
 });
 
 describe("SessionUygulama", () => {
+  it("opens a named project in its selected folder and + creates another chat there", async () => {
+    localStorage.setItem("fusion.permission-explanations.v1", JSON.stringify({ workspace: true }));
+    const fake = composerTransport({ "ayar.arayuz": { ok: true, degerler: {} } });
+    vi.mocked(fake.transport.create).mockImplementation(async (id, root) => ({
+      oturum_id: id, kok: root ?? "/Users/test/Desktop", pid: 41,
+      durum: "calisiyor", kapanis_nedeni: null,
+    }));
+    render(<SessionUygulama transport={fake.transport} selectFolder={async () => "/work/blog"} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Yeni proje" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Proje adı" }), { target: { value: "Benim Blogum" } });
+    fireEvent.click(screen.getByRole("button", { name: "Klasör seç" }));
+    await screen.findByText("/work/blog");
+    fireEvent.click(screen.getByRole("button", { name: "Oluştur" }));
+    await screen.findByRole("button", { name: "Proje seç: Benim Blogum" });
+    expect(vi.mocked(fake.transport.create).mock.calls.at(-1)?.[1]).toBe("/work/blog");
+    const previousId = vi.mocked(fake.transport.create).mock.calls.at(-1)?.[0];
+    fireEvent.click(screen.getByRole("button", { name: "Benim Blogum projesinde yeni sohbet başlat" }));
+    await waitFor(() => expect(vi.mocked(fake.transport.create).mock.calls.at(-1)?.[0]).not.toBe(previousId));
+    expect(vi.mocked(fake.transport.create).mock.calls.at(-1)?.[1]).toBe("/work/blog");
+    expect(screen.getByRole("button", { name: "Proje seç: Benim Blogum" })).toBeTruthy();
+  });
+
+  it("reveals a project start failure from Library and keeps the project for retry", async () => {
+    localStorage.setItem("fusion.permission-explanations.v1", JSON.stringify({ workspace: true }));
+    const fake = composerTransport({ "ayar.arayuz": { ok: true, degerler: {} } });
+    vi.mocked(fake.transport.create).mockImplementation(async (id, root) => {
+      if (root === "/missing") throw new Error("çalışma dizini bulunamadı: /missing");
+      return { oturum_id: id, kok: "/Users/test/Desktop", pid: 41, durum: "calisiyor", kapanis_nedeni: null };
+    });
+    render(<SessionUygulama transport={fake.transport} selectFolder={async () => "/missing"} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Kitaplık", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Yeni proje" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Proje adı" }), { target: { value: "Tekrar dene" } });
+    fireEvent.click(screen.getByRole("button", { name: "Klasör seç" }));
+    await screen.findByText("/missing");
+    fireEvent.click(screen.getByRole("button", { name: "Oluştur" }));
+    const alert = await screen.findByText(/Proje kaydedildi fakat sohbet açılamadı/);
+    expect(alert.closest('[hidden]')).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "Tekrar dene projesinde yeni sohbet başlat" })).toBeTruthy();
+  });
   it("yalnız etkin MCP satırını önerir; tıklama inputu doldurur, Enter komutu yürütür", async () => {
     const fake = composerTransport({
       "gecmis.kaynaklar": { ok: true, kaynaklar: [] },
@@ -286,7 +327,7 @@ describe("SessionUygulama", () => {
       onClosed: vi.fn(async () => () => undefined),
     };
     const selectFolder = vi.fn()
-      .mockResolvedValueOnce("/Users/test/Desktop/Oyun")
+      .mockResolvedValueOnce("/Users/test/Desktop/VFS-BOT ")
       .mockResolvedValueOnce(null);
 
     render(<SessionUygulama selectFolder={selectFolder} transport={transport} />);
@@ -296,14 +337,14 @@ describe("SessionUygulama", () => {
     fireEvent.click(screen.getByRole("button", { name: "Yeni proje / klasör seç" }));
     fireEvent.click(screen.getByRole("button", { name: /Devam et/i }));
     await waitFor(() => expect(transport.create).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(transport.create).mock.calls[1][1]).toBe("/Users/test/Desktop/Oyun");
-    expect(localStorage.getItem("fusion.last-project-root")).toBe("/Users/test/Desktop/Oyun");
+    expect(vi.mocked(transport.create).mock.calls[1][1]).toBe("/Users/test/Desktop/VFS-BOT ");
+    expect(localStorage.getItem("fusion.last-project-root")).toBe("/Users/test/Desktop/VFS-BOT ");
 
     fireEvent.click(screen.getByRole("button", { name: /Proje seç:/ }));
     fireEvent.click(screen.getByRole("button", { name: "Yeni proje / klasör seç" }));
     await waitFor(() => expect(selectFolder).toHaveBeenCalledTimes(2));
     expect(transport.create).toHaveBeenCalledTimes(2);
-    expect(selectFolder).toHaveBeenLastCalledWith("/Users/test/Desktop/Oyun");
+    expect(selectFolder).toHaveBeenLastCalledWith("/Users/test/Desktop/VFS-BOT ");
   });
 
   it("aktif projenin dosya ağacını açar ve seçilen metni gösterir", async () => {
@@ -506,7 +547,7 @@ describe("SessionUygulama", () => {
     fireEvent.click(screen.getByRole("button", { name: "Yeni sohbet" }));
 
     await waitFor(() => expect(transport.create).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(transport.create).mock.calls[1][1]).toBe("/Users/test/Desktop");
+    expect(vi.mocked(transport.create).mock.calls[1][1]).toBe("/proje");
     expect(screen.getByRole("heading", { name: "Yeni görev" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "ilk görev" }));
     expect(screen.getByRole("heading", { name: "ilk görev" })).toBeTruthy();
@@ -590,6 +631,7 @@ describe("SessionUygulama", () => {
     expect(await screen.findByRole("button", { name: "Eski oyun konuşması" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Kapat" }));
 
+    fireEvent.click(screen.getByRole("button", { name: /Diğer ajanlar/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Claude geçmişi" }));
     expect(await screen.findByRole("dialog", { name: "Bir konuşma seçin" })).toBeTruthy();
     expect(await screen.findByRole("button", { name: "Eski oyun konuşması" })).toBeTruthy();

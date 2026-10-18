@@ -363,6 +363,7 @@ function historyFixture(): HistoryController {
 }
 
 function Preview() {
+  const [accountHost, setAccountHost] = React.useState<HTMLDivElement | null>(null);
   const [previewMode, setPreviewMode] = React.useState<"sohbet" | "kod">(params.get("mode") === "chat" ? "sohbet" : "kod");
   const inspectorCollapsed = params.get("inspectorLayout") === "collapsed";
   const inspectorWidth = Number(params.get("inspectorWidth") ?? "420");
@@ -399,7 +400,7 @@ function Preview() {
   const initialComposerValue = state === "composer-menu"
     ? "/m"
     : state === "composer-attachment"
-      ? "Bu dosyayı incele"
+      ? (params.get("long") === "1" ? "Proje klasörünü incele, sohbetleri düzenle ve görsellerdeki ayrıntılara dikkat et. ".repeat(80) : "Bu dosyayı incele")
       : "";
   const [composerValue, setComposerValue] = React.useState(initialComposerValue);
   const [onboardingValue, setOnboardingValue] = React.useState<OnboardingValue>({ step: "sources", selectedProjectId: "/Projects/fusion-cli" });
@@ -445,7 +446,7 @@ function Preview() {
     <>
       <Shell
         sidebarCollapsed={params.get("sidebar") === "0"}
-        rail={railSection ? <MainRail active={railSection} onSelect={() => undefined} /> : undefined}
+        rail={railSection ? <MainRail active={railSection} onSelect={() => undefined} accountHostRef={setAccountHost} /> : undefined}
         surface={railSection === "scheduled"
           ? <ScheduleScreen client={sectionPreviewClient} defaultRoot="/Users/ornek/proje" onRunNow={async () => undefined} />
           : <LibraryScreen client={sectionPreviewClient} toUrl={() => null} />}
@@ -456,7 +457,7 @@ function Preview() {
             workspaceMode={previewMode}
             onWorkspaceModeChange={setPreviewMode}
             approval="auto"
-            attachments={state === "composer-attachment" ? composerAttachments : []}
+            attachments={state === "composer-attachment" ? (params.get("long") === "1" ? Array.from({ length: 7 }, (_, index) => ({ kind: "image" as const, path: `/preview-image-${index}.png`, name: `Görsel ${index + 1}` })) : composerAttachments) : []}
             commands={composerCommands}
             mode="sohbet"
             onApprovalChange={() => undefined}
@@ -473,7 +474,7 @@ function Preview() {
           />
         )}
         content={<>
-          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} /> : settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" || state === "video" ? <MediaScreen active={state === "video" ? "video-create" : "image-create"} image={<ImageCreate chooseSavePath={async () => null} client={imageClient} jobScope={imageJobsPreview ? `preview-${imageJobsPreview}` : undefined} toUrl={gorselAdresi} />} onSelect={() => undefined} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation mesajlar={state === "running" ? runningMessages : state === "team" ? teamMessages : messages} running={state === "running" || state === "team"} />}
+          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} /> : settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" || state === "video" ? <MediaScreen active={state === "video" ? "video-create" : "image-create"} image={<ImageCreate chooseSavePath={async () => null} client={imageClient} jobScope={imageJobsPreview ? `preview-${imageJobsPreview}` : undefined} toUrl={gorselAdresi} />} onSelect={() => undefined} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation onReadAloud={async () => undefined} onEvaluate={async () => undefined} onContinueInNewChat={async () => undefined} mesajlar={state === "running" ? runningMessages : state === "team" ? teamMessages : messages} running={state === "running" || state === "team"} />}
           {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
         </>}
         header={<AppHeader inspectorAvailable={!capabilities && !control && !settings && !account} inspectorOpen={!capabilities && !control && !settings && !account && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={params.get("sidebar") === "0"} status="Hazır" title={account ? "Hesabım" : settings ? "Ayarlar" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
@@ -483,7 +484,7 @@ function Preview() {
         inspectorOpen={!capabilities && !control && !settings && !account && inspectorOpen}
         inspectorPlacement={inspectorPlacement}
         inspectorWidth={inspectorWidth}
-        sidebar={<Sidebar availableSources={["claude", "codex"]} etkin="1" onSec={() => undefined} onYeni={() => undefined} oturumlar={[{ session_id: "1", source: "fusion", title: "macOS uygulaması" }, { session_id: "2", source: "claude", title: "Fusion CLI testleri" }]} />}
+        sidebar={<Sidebar projeler={params.get("projects") === "1" ? ["Desktop", "02-Motogate", "GATE HOLDING"].map((name, index) => ({ name, root: `/Users/test/${name}`, pinned: false, updated_at: 3 - index })) : []} profileHost={railSection ? accountHost : undefined} availableSources={["claude", "codex"]} etkin="1" onSec={() => undefined} onYeni={() => undefined} oturumlar={params.get("projects") === "1" ? ["Desktop", "02-Motogate", "GATE HOLDING"].flatMap((project, p) => Array.from({ length: p === 2 ? 2 : 7 }, (_, i) => ({ session_id: `${p}-${i}`, source: "fusion", title: ["Fusion hatalarını düzelt ve yeni özellikleri ekle", "Crossover kurulumlarını kalıcı yap", "Valorant Mobile’ı Mac’te çalıştır", "Mobil eşleştir butonunu düzelt", "Crossover’da Overwatch aç", "Proje görünümünü güncelle", "İçe aktarılan sohbet"][i], project, projectRoot: `/Users/test/${project}` }))) : [{ session_id: "1", source: "fusion", title: "macOS uygulaması" }, { session_id: "2", source: "claude", title: "Fusion CLI testleri" }]} />}
       />
       {state.startsWith("history-") && (
         <HistoryPicker

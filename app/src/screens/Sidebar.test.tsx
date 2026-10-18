@@ -193,7 +193,7 @@ describe("Sidebar", () => {
     expect(projectButtons.map((button) => button.textContent)).toEqual(["Sabit", "Bugün", "Dün"]);
   });
 
-  it("yalnız keşfedilmiş geçmiş kaynaklarını önerir", () => {
+  it("diğer ajanlarda üç geçmiş kaynağını gösterir", () => {
     render(
       <Sidebar
         availableSources={["claude", "codex"]}
@@ -203,9 +203,10 @@ describe("Sidebar", () => {
         oturumlar={[]}
       />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Diğer ajanlar" }));
     expect(screen.getByRole("button", { name: /claude geçmişi/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /codex geçmişi/i })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /hermes geçmişi/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /hermes geçmişi/i })).toBeTruthy();
   });
 
   it("dar modda metni saklarken erişilebilir adları korur", () => {
@@ -256,18 +257,11 @@ describe("Sidebar — sohbet silme ve projeye gruplama", () => {
     expect(screen.getByRole("region", { name: "Sohbetler" })).toBeTruthy();
   });
 
-  it("geçmişi varsayılan açık gösterir, daraltır ve tercihi saklar", () => {
-    const { unmount } = render(<Sidebar oturumlar={gruplu} etkin="1" onSec={vi.fn()} onYeni={vi.fn()} />);
-    const toggle = screen.getByRole("button", { name: "Geçmişi daralt" });
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByText("oyun")).toBeTruthy();
-    fireEvent.click(toggle);
-    expect(screen.queryByText("oyun")).toBeNull();
-    expect(localStorage.getItem("fusion.sidebar.history-open.v1")).toBe("false");
-    unmount();
-
+  it("eski geçmiş tercihi sohbetleri gizlemez", () => {
+    localStorage.setItem("fusion.sidebar.history-open.v1", "false");
     render(<Sidebar oturumlar={gruplu} etkin="1" onSec={vi.fn()} onYeni={vi.fn()} />);
-    expect(screen.getByRole("button", { name: "Geçmişi genişlet" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("button", { name: /Geçmişi/ })).toBeNull();
+    expect(screen.getByText("oyun")).toBeTruthy();
   });
 
   it("çöp kutusu tek tıkta silmeyi başlatır", async () => {
@@ -322,13 +316,13 @@ describe("Sidebar yeni düzen", () => {
     render(<Sidebar etkin={null} oturumlar={many} onYeni={vi.fn()} onSec={vi.fn()} />);
     expect(screen.queryByText("Sohbet 0")).toBeNull();
     expect(screen.getByText("Sohbet 6")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Sohbetler: Daha fazla göster" }));
+    fireEvent.click(screen.getByRole("button", { name: "Desktop: Daha fazla göster" }));
     expect(screen.getByText("Sohbet 0")).toBeTruthy();
   });
   it("sabitlemeyi yeniden açılışta korur ve eski sohbeti ilk beşe taşır", () => {
     const props = { etkin: null, oturumlar: many, onYeni: vi.fn(), onSec: vi.fn() };
     const view = render(<Sidebar {...props} />);
-    fireEvent.click(screen.getByRole("button", { name: "Sohbetler: Daha fazla göster" }));
+    fireEvent.click(screen.getByRole("button", { name: "Desktop: Daha fazla göster" }));
     fireEvent.click(screen.getByRole("button", { name: "Sohbet 0 sohbet seçenekleri" }));
     fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Sabitle" }));
     view.unmount(); render(<Sidebar {...props} />);
@@ -507,7 +501,7 @@ describe("Sidebar — macOS başlık çubuğu payı", () => {
     // jsdom `getComputedStyle` CSS özel özelliklerini (`var()`) çözmediği için
     // piksel değeri yerine kuralın kaynakta doğru değişkene bağlı olduğu
     // doğrulanır; piksel-doğru sonuç `e2e/` görsel regresyonuyla doğrulanır.
-    expect(sidebarStyles).toMatch(/\.sidebar\s*\{[^}]*padding:\s*calc\(10px \+ var\(--titlebar-inset\)\)/);
+    expect(sidebarStyles).toMatch(/\.sidebar\s*\{[^}]*padding:\s*calc\(6px \+ var\(--titlebar-inset\)\)/);
     expect(sidebarStyles).toMatch(/\.sidebar__titlebar-spacer\s*\{[^}]*height:\s*var\(--titlebar-inset\)/);
   });
 });

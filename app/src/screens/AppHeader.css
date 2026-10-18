@@ -1,15 +1,14 @@
 .app-header {
   align-items: center;
-  /* Kenar çubuğuyla AYNI renk: üst şerit ile sol menü tek yüzey gibi görünür. */
-  background: var(--surface-sidebar);
-  border-bottom: 0;
+  background: var(--surface-canvas);
+  border-bottom: 1px solid var(--border-subtle);
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-4);
   grid-template-columns: auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: var(--header-height);
   overflow: hidden;
-  padding: 0 20px;
+  padding: 0 16px 0 24px;
 }
 
 .app-header__nav {

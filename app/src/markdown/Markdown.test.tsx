@@ -5,6 +5,11 @@ import { Markdown } from "./Markdown";
 afterEach(cleanup);
 
 describe("Markdown", () => {
+  test("table cells support safe line breaks without rendering arbitrary HTML", () => {
+    const { container } = render(<Markdown text={"| Ad | Açıklama |\n|---|---|\n| Test | ilk<br>ikinci<br/>üçüncü |"} />);
+    expect(container.querySelectorAll("td br")).toHaveLength(2);
+    expect(container.querySelector("script")).toBeNull();
+  });
   test("başlık, kalın metin ve satır içi kodu biçimlendirir", () => {
     const { container } = render(<Markdown text={"# Kurulum\n\nÖnce **projeyi** aç, sonra `npm install` çalıştır."} />);
 

@@ -54,7 +54,7 @@ export function addProject(
   input: { id: string; name: string; root?: string; now: number },
 ): ProjectRegistry {
   const name = cleanName(registry, input.name);
-  const root = input.root?.trim();
+  const root = input.root;
   const record: ProjectRecord = { id: input.id, name, ...(root ? { root } : {}), createdAt: input.now };
   return { ...registry, projects: [...registry.projects, record] };
 }

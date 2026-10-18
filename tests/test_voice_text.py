@@ -13,6 +13,19 @@ import pytest
 from fusion_cli.appserver.voice_text import prepare_speech, split_sentences
 
 
+@pytest.mark.parametrize(
+    "emoji", ["😀", "👍🏽", "👨‍👩‍👧‍👦", "🇹🇷", "❤️", "1️⃣", "✅", "©️", "⬆️", "↔️", "‼️"]
+)
+def test_emojis_are_not_spoken(emoji):
+    assert prepare_speech(f"Merhaba {emoji} dünya.") == "Merhaba dünya."
+    assert prepare_speech(emoji) == ""
+
+
+def test_emoji_cleaning_preserves_numbers_turkish_and_math():
+    assert prepare_speech("3 + 2 = 5. Çığ, öğün!") == "3 + 2 = 5. Çığ, öğün!"
+    assert prepare_speech("⌈3⌉ + ⌊2⌋ = 5") == "⌈3⌉ + ⌊2⌋ = 5"
+
+
 def test_markdown_isaretleri_okunmaz():
     assert "*" not in prepare_speech("**Testler** geçti")
     assert "`" not in prepare_speech("`app.py` dosyası")

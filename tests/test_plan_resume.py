@@ -197,9 +197,7 @@ async def test_acik_yeni_plan_eski_kapsama_eksigini_diriltmez(tmp_path):
     async def agent(task, agent_deps, **kwargs):
         raise AssertionError("Tamamlanmış adım tekrar çalıştırılmamalı.")
 
-    await run_execution_plan(
-        "dosya oluştur", deps, agent, plan=_plan(), uncovered=("ana menü",)
-    )
+    await run_execution_plan("dosya oluştur", deps, agent, plan=_plan(), uncovered=("ana menü",))
     replacement = replace(_plan(), plan_id="replacement")
     result = await run_execution_plan("dosya oluştur", deps, agent, plan=replacement)
     assert result.ok is True

@@ -157,6 +157,16 @@ class LiteLlmProvider:
             # Yalnız ölçülen sağlayıcıda: NIM şablon anahtarı. Başka uçlara ham gövde
             # gönderilmez (OpenAI 400 verir).
             kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+        measured_local_default = self._model in {
+            "ollama/huihui_ai/qwen3.5-abliterated:9b",
+            "ollama_chat/huihui_ai/qwen3.5-abliterated:9b",
+        } and request.reasoning_effort in (None, "auto")
+        # Measured on the local 9B: even a greeting exhausted 512 tokens in
+        # thinking. Keep the default usable; an explicit effort opts back in.
+        if self._model.startswith(("ollama/", "ollama_chat/")) and (
+            request.disable_thinking or measured_local_default
+        ):
+            kwargs["think"] = False
         if stream:
             kwargs["stream"] = True
             kwargs["stream_options"] = {"include_usage": True}

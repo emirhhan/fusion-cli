@@ -212,7 +212,7 @@ export function Shell({
         {sidebar}
       </aside>
       <section className="app-shell__workspace" hidden={(rail && surfaceActive) || undefined}>
-        {header && <header className="app-shell__header">{header}</header>}
+        {!rail && header && <header className="app-shell__header">{header}</header>}
         <div aria-label="Bildirimler" className="app-shell__notices" role="region">{notices}</div>
         {emptyChat && composer ? (
           <main className="app-shell__main">
@@ -280,7 +280,8 @@ export function Shell({
   );
   if (!rail) return shell;
   return (
-    <div className="app-frame">
+    <div className="app-frame" data-surface-active={surfaceActive} data-surface-full-bleed={surfaceActive && surfaceFullBleed}>
+      <header className="app-frame__titlebar" data-tauri-drag-region>{header}</header>
       {rail}
       {shell}
     </div>

@@ -21,6 +21,28 @@ from fusion_cli.providers.litellm_provider import LiteLlmProvider
 from .fakes import request
 
 
+def test_disable_thinking_is_forwarded_to_ollama():
+    from dataclasses import replace
+
+    provider = LiteLlmProvider("ollama_chat/huihui_ai/qwen3.5-abliterated:9b", role="agent")
+    kwargs = provider._call_kwargs(replace(request(), disable_thinking=True), stream=False)
+    assert kwargs["think"] is False
+
+
+def test_measured_local_qwen_uses_fast_default_without_explicit_reasoning():
+    provider = LiteLlmProvider("ollama_chat/huihui_ai/qwen3.5-abliterated:9b", role="agent")
+    assert provider._call_kwargs(request(), stream=False)["think"] is False
+
+
+def test_local_qwen_explicit_reasoning_keeps_model_default():
+    from dataclasses import replace
+
+    provider = LiteLlmProvider("ollama_chat/huihui_ai/qwen3.5-abliterated:9b", role="agent")
+    assert "think" not in provider._call_kwargs(
+        replace(request(), reasoning_effort="high"), stream=False
+    )
+
+
 def _yanit(
     content: str = "",
     *,

@@ -399,3 +399,10 @@
 .delivery-card { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border, #2d3748); border-radius: 10px; font-size: 0.85rem; }
 .delivery-card p, .delivery-card ul { margin: 8px 0 0; }
 .delivery-card code { overflow-wrap: anywhere; }
+
+.conversation__actions { align-items: center; flex-wrap: wrap; gap: 2px; opacity: 1; color: var(--text-secondary); }
+.conversation__actions > .ui-button, .conversation__evaluation > .ui-button { color: var(--text-secondary); }
+.conversation__actions [role="status"], .conversation__actions [role="alert"] { font-size: var(--text-xs); margin-left: var(--space-2); }
+.conversation__actions [role="alert"] { color: var(--text-danger); }
+.conversation__evaluation { position: relative; }
+.conversation__rating { position: absolute; bottom: calc(100% + 4px); left: 0; display: flex; padding: 4px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: 0 4px 12px rgb(0 0 0 / 10%); z-index: 2; }

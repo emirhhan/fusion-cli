@@ -202,6 +202,25 @@ def _is_free(item: dict[str, object]) -> bool:
     )
 
 
+def fetch_ollama(timeout_s: float = 0.75) -> tuple[CatalogEntry, ...]:
+    """Discover optional local models without cloud keys or proxy credentials."""
+    try:
+        with httpx.Client(timeout=timeout_s, trust_env=False) as client:
+            response = client.get("http://127.0.0.1:11434/api/tags")
+            response.raise_for_status()
+            payload = response.json()
+    except (httpx.HTTPError, ValueError):
+        return ()
+    models = payload.get("models", []) if isinstance(payload, dict) else []
+    if not isinstance(models, list):
+        return ()
+    return tuple(
+        CatalogEntry(f"ollama_chat/{row['name']}", "ollama")
+        for row in models
+        if isinstance(row, dict) and isinstance(row.get("name"), str) and row["name"].strip()
+    )
+
+
 def _load_json(
     url: str, *, timeout_s: float, headers: dict[str, str] | None = None
 ) -> tuple[list[dict[str, object]], str | None]:

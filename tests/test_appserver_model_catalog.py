@@ -9,7 +9,31 @@ from fusion_cli.appserver import model_catalog
 from fusion_cli.cli.repl.model_flows import Source
 from fusion_cli.config.keys import ProviderKeys
 from fusion_cli.config.models import Config, WebSessionConfig
+from fusion_cli.core.types import ModelSpec
 from fusion_cli.providers.catalog import CatalogEntry
+
+
+async def test_configured_ollama_model_is_selectable_without_cloud_keys(monkeypatch):
+    monkeypatch.setattr(model_catalog.model_flows.catalog, "fetch_ollama", lambda: ())
+    config = _config()
+    config.candidates = (
+        ModelSpec(name="Yerel Qwen", model="ollama_chat/huihui_ai/qwen3.5-abliterated:9b"),
+    )
+    monkeypatch.setattr(model_catalog, "detect", lambda: ProviderKeys(False, False))
+    result = await model_catalog.list_selectable_models(config)
+    assert [row["model"] for row in result["modeller"]] == [config.candidates[0].model]
+    assert result["modeller"][0]["kaynak"] == "ollama-local"
+
+
+async def test_installed_ollama_model_remains_available_after_selecting_cloud(monkeypatch):
+    monkeypatch.setattr(model_catalog, "detect", lambda: ProviderKeys(False, False))
+    monkeypatch.setattr(
+        model_catalog.model_flows.catalog,
+        "fetch_ollama",
+        lambda: (CatalogEntry("ollama_chat/local:9b", "ollama"),),
+    )
+    result = await model_catalog.list_selectable_models(_config())
+    assert [row["model"] for row in result["modeller"]] == ["ollama_chat/local:9b"]
 
 
 def _config(*, sessions: tuple[WebSessionConfig, ...] = ()) -> Config:

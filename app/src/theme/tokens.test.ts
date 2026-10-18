@@ -45,7 +45,7 @@ describe("tasarım token'ları", () => {
     const koyuTema = css.slice(css.indexOf(':root[data-theme="dark"]'));
     const sharedDark = shared.slice(shared.indexOf(':root[data-theme="dark"]'));
     expect(sharedDark).toContain("--fusion-canvas: #212121");
-    expect(sharedDark).toContain("--fusion-sidebar: #181818");
+    expect(sharedDark).toContain("--fusion-sidebar: #262626");
     expect(sharedDark).toContain("--fusion-ink: #ececec");
     expect(koyuTema).toContain("--surface-canvas: var(--fusion-canvas)");
     expect(koyuTema).toContain("--surface-sidebar: var(--fusion-sidebar)");

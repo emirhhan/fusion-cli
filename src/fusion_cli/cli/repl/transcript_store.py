@@ -23,7 +23,6 @@ from ...core.redaction import redact
 from ...core.types import Message
 
 _MAX_SNAPSHOT_BYTES = 1_500_000
-_MAX_EVENTS_BYTES = 8_000_000
 _MAX_HISTORY_MESSAGES = 100
 
 
@@ -326,23 +325,10 @@ class TranscriptStore:
         }
         line = redact(json.dumps(payload, ensure_ascii=False, default=str)) + "\n"
         try:
-            self._rotate_if_needed()
+            # Kalıcı sohbet günlüğü eklemelidir; döndürme başka sohbetleri kaybettirir.
             with self.events_path.open("a", encoding="utf-8") as handle:
                 handle.write(line)
             self.events_path.chmod(0o600)
-        except OSError:
-            return
-
-    def _rotate_if_needed(self) -> None:
-        try:
-            if self.events_path.stat().st_size < _MAX_EVENTS_BYTES:
-                return
-        except OSError:
-            return
-        older = self.events_path.with_suffix(".jsonl.1")
-        try:
-            older.unlink(missing_ok=True)
-            self.events_path.replace(older)
         except OSError:
             return
 

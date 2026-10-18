@@ -55,12 +55,12 @@ describe("Sidebar — kalıcı projeler", () => {
     expect(screen.getByRole("dialog")).toBeTruthy();
   });
 
-  it("proje sohbeti kayıtlı projenin altında, projesiz sohbet Sohbetler altında durur", () => {
+  it("proje sohbeti kayıtlı projenin altında, projesiz sohbet Desktop altında durur", () => {
     kur();
     const proje = screen.getByRole("region", { name: "Mağaza" });
     expect(proje.textContent).toContain("Sepet hatası");
     expect(proje.textContent).not.toContain("Serbest sohbet");
-    expect(screen.getByRole("region", { name: "Sohbetler" }).textContent).toContain("Serbest sohbet");
+    expect(screen.getByRole("region", { name: "Desktop" }).textContent).toContain("Serbest sohbet");
   });
 
   it("boş kayıtlı proje de listelenir ve içinde yeni sohbet başlatır", () => {

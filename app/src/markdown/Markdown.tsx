@@ -55,6 +55,9 @@ function renderInline(token: Token, onOpenFile?: (path: string) => void): ReactN
       return <code className="markdown__inline-code">{(token as Tokens.Codespan).text}</code>;
     case "br":
       return <br />;
+    case "html":
+      // Only this inert inline tag is supported; all other HTML stays text.
+      return /^<br\s*\/?\s*>$/i.test(token.raw.trim()) ? <br /> : token.raw;
     case "link": {
       const link = token as Tokens.Link;
       return (

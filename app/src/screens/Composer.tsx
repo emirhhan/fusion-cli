@@ -1,5 +1,5 @@
 import { submissionAccepted, type SubmissionResult } from "../sessions/submission";
-import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { anmayiBul, anmayiDegistir } from "./dosyaAnmasi";
 import { Button } from "../ui/Button";
 import { MicIcon } from "../voice/MicIcon";
@@ -177,6 +177,25 @@ export function Composer({
   draftRef.current = draft;
   const compactLayout = attachments.length === 0 && !attachmentError && !dictationError
     && !draft.includes("\n") && draft.length < COMPACT_MESSAGE_CHARACTER_LIMIT;
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const resize = () => {
+      textarea.style.height = "auto";
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    };
+    resize();
+    // Reflow when panels or the window change the available text width.
+    if (typeof ResizeObserver === "undefined") return;
+    let previousWidth = textarea.getBoundingClientRect().width;
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry || entry.contentRect.width === previousWidth) return;
+      previousWidth = entry.contentRect.width;
+      resize();
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [draft, compactLayout]);
   // İmleç metnin sonundan geride olabilir; anma imlecin ÖNÜNDEKİ parçaya bakar.
   const mention = onFileQuery ? anmayiBul(draft, Math.min(caret, draft.length)) : null;
   const mentionItems: AnmaOgesi[] = mention

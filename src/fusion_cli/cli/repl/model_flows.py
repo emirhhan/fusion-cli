@@ -89,9 +89,43 @@ def sources(config: Config | None = None) -> tuple[Source, ...]:
                 description="Control Panel'de bağladığın ChatGPT/Claude/Gemini/Copilot oturumları",
             ),
         )
+    local: tuple[Source, ...] = ()
+    if config is not None:
+        specs = (
+            getattr(config, "agent", None),
+            getattr(config, "judge", None),
+            *getattr(config, "candidates", ()),
+            *(
+                spec
+                for tier in getattr(config, "tiers", ())
+                for spec in (tier.agent, tier.judge, *tier.candidates)
+            ),
+        )
+        local_ids = dict.fromkeys(
+            model
+            for item in specs
+            if item is not None
+            for model in item.models
+            if model.startswith(("ollama/", "ollama_chat/"))
+        )
+        local_entries = tuple(CatalogEntry(model, "ollama") for model in local_ids)
+
+        def local_models() -> tuple[CatalogEntry, ...]:
+            entries = (*local_entries, *catalog.fetch_ollama())
+            return tuple({entry.model_id: entry for entry in entries}.values())
+
+        local = (
+            Source(
+                "ollama-local",
+                "Ollama · yerel",
+                local_models,
+                description="Bu bilgisayardaki yerel modeller",
+            ),
+        )
     return (
         *base,
         *web,
+        *local,
         Source(
             "custom",
             messages.DEV_SOURCE_CUSTOM,

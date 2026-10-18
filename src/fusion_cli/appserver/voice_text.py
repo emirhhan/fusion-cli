@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import re
 
+import regex
+
 #: Seslendirilecek metnin üst sınırı. Uzun cevabın tamamını okumak kullanıcıyı
 #: dakikalarca bekletir; kesildiği AÇIKÇA söylenir, sessizce yarıda kesilmez.
 MAX_CHARS = 4_000
@@ -63,6 +65,12 @@ _PERCENT = re.compile(r"%\s*(\d+(?:[.,]\d+)?)")
 #: bitişik yazımda sınır oluşmaz ve dönüşüm hiç çalışmazdı.
 _DECIMAL = re.compile(r"\b(\d+)[.,](\d+)(?![\d.,])")
 _SENTENCE = re.compile(r"[^.!?…]+[.!?…]*")
+# Keycap digits must be removed as a sequence, before ordinary numbers are read.
+_EMOJI = regex.compile(
+    r"[0-9#*]\ufe0f?\u20e3"
+    r"|[\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Modifier}]"
+    r"|[\u200d\ufe0e\ufe0f\u20e3\U000e0020-\U000e007f]"
+)
 
 
 def _strip_markdown(text: str) -> str:
@@ -102,7 +110,7 @@ def prepare_speech(text: str) -> str:
     """
     if not text or not text.strip():
         return ""
-    hazir = _strip_markdown(text)
+    hazir = _strip_markdown(_EMOJI.sub(" ", text))
     # Kesir yoldan ÖNCE çevrilir: "169/169" bir dosya yolu değildir.
     hazir = _FRACTION.sub(r"\1 bölü \2", hazir)
     hazir = _PATH.sub(_speak_path, hazir)
