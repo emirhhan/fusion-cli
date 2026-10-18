@@ -213,7 +213,17 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         ),
         # Sıra dardan genişe: `article[data-testid^="conversation-turn-"]` tüm turu
         # (kullanıcı mesajı, eylem düğmeleri) kapsayan geniş kaptır, en sonda.
+        #
+        # 18 Ekim 2026 ölçümü (canlı Plus oturumu): ChatGPT mesaj işaretini
+        # değiştirdi — `data-message-author-role` ve `conversation-turn-*` testid'leri
+        # 0 eşleşme veriyor, cevap geliyor ama Fusion onu görmediği için her tur
+        # "zaman aşımı" ile ölüyordu. Yeni kaplar: asistan turu
+        # `data-content-search-unit-key="…:assistant"`, cevap gövdesi
+        # `data-markdown-text-style="assistant-message"`, kullanıcı balonu
+        # `data-user-message-bubble`. Eskiler yedekte.
         response_selectors=(
+            '[data-markdown-text-style="assistant-message"]',
+            '[data-content-search-unit-key$=":assistant"]',
             '[data-testid^="conversation-turn-"] [data-message-author-role="assistant"]',
             '[data-message-author-role="assistant"]',
             'article[data-testid^="conversation-turn-"]',
@@ -225,6 +235,8 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         ),
         login_markers=("log in", "sign up", "giriş yap", "oturum aç"),
         history_selectors=(
+            "[data-content-search-unit-key]",
+            '[data-user-message-bubble="true"]',
             "[data-message-author-role]",
             'article[data-testid^="conversation-turn-"]',
             "main .group\\/conversation-turn",

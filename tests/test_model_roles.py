@@ -94,3 +94,13 @@ def test_codex_yedegi_varsayilan_kapali_ve_acilip_kapanir(config) -> None:
     assert acik.runtime.teacher_codex_fallback is True
     kapali = teacher_candidates(config, config.agent)
     assert all(not a.model.startswith("codex_cli/") for a in kapali)
+
+
+def test_chatgpt_yeni_mesaj_kaplari_once_denenir() -> None:
+    """18 Ekim 2026: ChatGPT mesaj işaretini değiştirdi; yeni kaplar ilk sırada olmalı."""
+    from fusion_cli.providers.web_browser import provider_definition
+
+    tanim = provider_definition("chatgpt_web")
+    assert tanim.response_selectors[0] == '[data-markdown-text-style="assistant-message"]'
+    assert '[data-content-search-unit-key$=":assistant"]' in tanim.response_selectors
+    assert "[data-content-search-unit-key]" in tanim.history_selectors
