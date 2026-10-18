@@ -210,7 +210,10 @@ def _no_answer_available(result: ModelResult) -> bool:
     kalite sorunudur ve strict modelde yedeğe geçirmez.
     """
     return (
-        (not result.ok and (is_infrastructure_error(result.error) or is_permanent_error(result.error)))
+        (
+            not result.ok
+            and (is_infrastructure_error(result.error) or is_permanent_error(result.error))
+        )
         or is_unavailable_error(result.error)
         or (result.truncated and not result.is_usable)
     )
