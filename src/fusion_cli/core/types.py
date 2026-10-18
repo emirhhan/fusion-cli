@@ -197,7 +197,49 @@ _UNAVAILABLE_MARKERS = (
     "oturumu açık değil",
     "süresi dolmuş",
     "giriş gerekli",
+    # Bağlam taşması: aynı istem aynı modelde tekrar denenince yine taşar; çare
+    # daha geniş bağlamlı başka bir modele geçmektir (18 Ekim 2026).
+    "context length",
+    "context_length_exceeded",
+    "contextwindowexceeded",
+    "maximum context",
+    "context window",
+    "prompt is too long",
+    "too many tokens",
+    "exceeds the context",
 )
+
+
+#: Altyapı arızası işaretleri: model/sunucu hiç cevap üretemedi (kalite sorunu DEĞİL).
+#: Katı (strict) modelde bile yedeğe geçmenin gerekçesidir.
+_INFRA_MARKERS = (
+    "connecterror",
+    "connection",
+    "connect call failed",
+    "refused",
+    "unreachable",
+    "timeout",
+    "timed out",
+    "apiconnectionerror",
+    "serviceunavailable",
+    "service unavailable",
+    "internalservererror",
+    "internal server error",
+    "overloaded",
+    "bad gateway",
+    "502",
+    "503",
+    "504",
+    "500",
+)
+
+
+def is_infrastructure_error(detail: str | None) -> bool:
+    """Hata sunucu/bağlantı/bağlam gibi altyapı kaynaklı mı?"""
+    if not detail:
+        return False
+    lowered = detail.lower()
+    return is_unavailable_error(detail) or any(marker in lowered for marker in _INFRA_MARKERS)
 
 
 def is_authentication_error(detail: str | None) -> bool:
@@ -235,6 +277,12 @@ _PERMANENT_MARKERS = (
     "invalid api key",
     "401",
     "403",
+    "context length",
+    "context_length_exceeded",
+    "contextwindowexceeded",
+    "maximum context",
+    "prompt is too long",
+    "exceeds the context",
 )
 
 

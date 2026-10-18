@@ -113,6 +113,9 @@ class RuntimeConfig:
     #: limiti) son yedek olarak denensin mi? Varsayılan KAPALI: öğretmen yalnız
     #: ChatGPT/Gemini SOHBET limitlerini harcar; Codex limiti ancak kullanıcı isterse.
     teacher_codex_fallback: bool = False
+    #: Birincil model (yerel/API) cevap veremezse, girişi doğrulanmış ve araç ölçümünü
+    #: geçmiş web oturumlarına otomatik geç (bağlam taşması, model kapalı, sunucu hatası).
+    auto_web_fallback: bool = True
     #: Modele HİÇ SUNULMAYACAK araçların adları (takma adları da kapanır). Kullanıcı bir
     #: aracı istemiyorsa ya da bir yeteneği araçsız ölçmek istiyorsa (ör. `clone_site`
     #: kapalıyken model siteyi kendisi kurabiliyor mu?) buradan kapatır.

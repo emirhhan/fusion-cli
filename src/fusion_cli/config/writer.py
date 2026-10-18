@@ -145,6 +145,7 @@ _BOOLEAN_RUNTIME_FLAGS = (
     "teacherless",
     "teacher_lesson_sync",
     "teacher_codex_fallback",
+    "auto_web_fallback",
     "self_review",
     "reflexion",
     "lessons",

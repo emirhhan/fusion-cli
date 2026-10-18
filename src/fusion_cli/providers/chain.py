@@ -40,6 +40,8 @@ from ..core.types import (
     ModelResult,
     StreamDone,
     StreamItem,
+    is_infrastructure_error,
+    is_permanent_error,
     is_unavailable_error,
 )
 from .stream_opening import first_meaningful
@@ -200,5 +202,15 @@ async def _close(stream: AsyncIterator[StreamItem]) -> None:
 
 
 def _no_answer_available(result: ModelResult) -> bool:
-    """Seçili model yanıt üretemediyse yedeğe geçilebilir."""
-    return is_unavailable_error(result.error) or (result.truncated and not result.is_usable)
+    """Seçili model yanıt üretemediyse yedeğe geçilebilir.
+
+    Altyapı arızası "cevap yok" demektir: model kapalı (Ollama durmuş), bağlantı koptu,
+    sunucu 500 verdi, bağlam taştı. Eskiden yalnız bilinen birkaç hata metni sayılıyordu
+    ve katı (strict) modelde bu arızalar zinciri sessizce kesiyordu. Boş/zayıf cevap ise
+    kalite sorunudur ve strict modelde yedeğe geçirmez.
+    """
+    return (
+        (not result.ok and (is_infrastructure_error(result.error) or is_permanent_error(result.error)))
+        or is_unavailable_error(result.error)
+        or (result.truncated and not result.is_usable)
+    )

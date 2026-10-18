@@ -107,6 +107,7 @@ from ...providers.capabilities import (
     infer_task_requirements,
 )
 from ...providers.factory import build_provider
+from ...providers.fallback_plan import live_fallbacks
 from ...providers.web_registry import web_registry_for
 from ...tools import ToolRegistry, build_registry
 from ...tools.auto_policy import is_read_only_command
@@ -2067,7 +2068,7 @@ async def _call_model(
 ) -> ModelResult:
     """Modeli akıtarak çağır; metin parçaları olay olarak yayınlanır."""
     runtime = deps.config.runtime
-    spec = _active_spec(deps, execution)
+    spec = live_fallbacks(_active_spec(deps, execution), deps.config)
     request = CompletionRequest(
         messages=tuple(messages),
         temperature=runtime.temperature,

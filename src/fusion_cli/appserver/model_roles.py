@@ -24,7 +24,7 @@ from ..providers.codex_cli import PREFIX as CODEX_PREFIX
 from ..providers.codex_cli import codex_ready
 from .model_catalog import list_selectable_models
 
-ROLES = ("agent", "teacher", "judge", "candidates", "codex_yedek")
+ROLES = ("agent", "teacher", "judge", "candidates", "codex_yedek", "web_yedek")
 
 
 def _current(config: Config) -> dict[str, Any]:
@@ -34,6 +34,7 @@ def _current(config: Config) -> dict[str, Any]:
         "judge": config.judge.model,
         "candidates": [spec.model for spec in config.candidates],
         "codex_yedek": config.runtime.teacher_codex_fallback,
+        "web_yedek": config.runtime.auto_web_fallback,
     }
 
 
@@ -152,6 +153,10 @@ def apply_role(config: Config, role: str, value: object) -> Config:
         enabled = value is True
         new = replace(config, runtime=replace(config.runtime, teacher_codex_fallback=enabled))
         writer.write_runtime_flag(new, "teacher_codex_fallback", enabled)
+    elif role == "web_yedek":
+        enabled = value is True
+        new = replace(config, runtime=replace(config.runtime, auto_web_fallback=enabled))
+        writer.write_runtime_flag(new, "auto_web_fallback", enabled)
     else:
         raise ConfigError(f"Bilinmeyen rol: {role!r}. Geçerli: {', '.join(ROLES)}")
     return new

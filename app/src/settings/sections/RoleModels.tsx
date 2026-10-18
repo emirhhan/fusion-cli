@@ -13,7 +13,7 @@ import "./RoleModels.css";
 
 interface Option { model: string; etiket: string; grup: string; hazir: boolean; not: string; arac?: boolean }
 interface WebSession { saglayici: string; hesap: string; etiket: string; dogrulandi: boolean }
-interface Roles { agent: string; teacher: string; judge: string; candidates: string[]; codex_yedek?: boolean }
+interface Roles { agent: string; teacher: string; judge: string; candidates: string[]; codex_yedek?: boolean; web_yedek?: boolean }
 
 type RoleId = "agent" | "teacher" | "judge" | "candidates";
 
@@ -203,6 +203,14 @@ export function RoleModels({ client }: { client: ProtocolClient }) {
         </ul>
       </div>
 
+      <label className="rm__switch">
+        <input type="checkbox" role="switch" disabled={busy} checked={roles.web_yedek !== false} onChange={(event) => void assign("web_yedek", event.target.checked)} />
+        <span className="rm__switch-ui" aria-hidden="true" />
+        <span>
+          <b>Otomatik yedek model</b>
+          <small>Seçili model cevap veremezse (kapalı, bağlam taştı, sunucu hatası) giriş yapılmış ve araç ölçümünü geçmiş web oturumuna otomatik geç.</small>
+        </span>
+      </label>
       <label className="rm__switch">
         <input type="checkbox" role="switch" disabled={busy} checked={roles.codex_yedek === true} onChange={(event) => void assign("codex_yedek", event.target.checked)} />
         <span className="rm__switch-ui" aria-hidden="true" />
