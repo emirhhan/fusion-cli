@@ -72,6 +72,12 @@ def configure_litellm() -> None:
         os.environ["NVIDIA_NIM_API_BASE"] = NIM_DEFAULT_API_BASE
 
 
+
+#: Yerel Ollama modellerine verilen bağlam uzunluğu (token). Fusion'ın istemi + araç
+#: şemaları ~8-10 bin token tutar; 32768 geçmişe ve araç çıktılarına yer bırakır ve
+#: 16 GB makinede 9B Q4 modelle rahat sığar (qwen35 mimarisi KV'yi az tutar).
+OLLAMA_NUM_CTX = 32768
+
 class LiteLlmProvider:
     """Tek bir model kimliğine bağlı sağlayıcı."""
 
@@ -167,6 +173,18 @@ class LiteLlmProvider:
             request.disable_thinking or measured_local_default
         ):
             kwargs["think"] = False
+        if self._model.startswith(("ollama/", "ollama_chat/")):
+            # Ollama bağlamı varsayılanda 4096 token'da tutar (18 Ekim 2026'da
+            # `/api/ps` ile ölçüldü: context_length 4096). Fusion'ın sistem istemi ve
+            # araç şemaları tek başına bunu aşıyor; Ollama en eski mesajları, yani
+            # SİSTEM İSTEMİNİ, sessizce kesiyordu. Model araç sözleşmesini görmeden
+            # tekrar döngüsüne giriyor ve görevleri hiç bitiremiyordu.
+            kwargs["num_ctx"] = OLLAMA_NUM_CTX
+            # Qwen'in önerdiği örnekleme (düşünmesiz mod); düşük sıcaklıkta tekrar
+            # döngüsüne girmesini cezayla kırar.
+            kwargs.setdefault("top_k", 20)
+            kwargs.setdefault("top_p", 0.8)
+            kwargs.setdefault("repeat_penalty", 1.1)
         if stream:
             kwargs["stream"] = True
             kwargs["stream_options"] = {"include_usage": True}

@@ -37,9 +37,21 @@ Ping = Callable[[], Awaitable[str | None]]
 ChunkCount = Callable[[], int]
 
 
+#: Yerel sunucular isteği tek yuvada sırayla işler. Uzun bir istem (10 bin+ token)
+#: işlenirken gelen yoklama kuyrukta bekler ve süresinde cevap alamaz; sunucu "ölü"
+#: sanılıp çağrı kesiliyordu (18 Ekim 2026, Ollama + Qwen 9B: ilk çağrı 30. sn'de
+#: kesildi, Ollama günlüğünde "client closing the connection").
+_LOCAL_PREFIXES = ("ollama", "ollama_chat", "lm_studio", "llamafile")
+
+
 def is_api_model(spec: ModelSpec) -> bool:
-    """Web oturumu modelleri (ör. gemini_web/…) yoklanmaz: her yoklama bir sohbet açar."""
-    return not spec.model.split("/", 1)[0].endswith("_web")
+    """Web oturumu ve yerel modeller yoklanmaz.
+
+    Web: her yoklama bir sohbet açar. Yerel: sunucu tek yuvalıdır, meşgulken yoklamaya
+    cevap veremez.
+    """
+    provider = spec.model.split("/", 1)[0]
+    return not provider.endswith("_web") and provider not in _LOCAL_PREFIXES
 
 
 def ping_for(spec: ModelSpec) -> Ping:

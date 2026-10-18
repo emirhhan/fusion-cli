@@ -128,3 +128,12 @@ def test_ek_gecerli_arguman_korunumu_bozmaz_ama_degisen_deger_bozar() -> None:
     )
     assert score_emulation([ek]).argument_preservation == 1.0
     assert score_emulation([yanlis]).argument_preservation == 0.0
+
+
+def test_yerel_modeller_canlilik_yoklamasina_girmez() -> None:
+    from fusion_cli.core.types import ModelSpec
+    from fusion_cli.engines.agent.liveness import is_api_model
+
+    assert not is_api_model(ModelSpec(name="a", model="ollama_chat/huihui_ai/qwen3.5:9b"))
+    assert not is_api_model(ModelSpec(name="a", model="gemini_web/main/auto"))
+    assert is_api_model(ModelSpec(name="a", model="nvidia_nim/nvidia/nemotron-3-ultra"))
