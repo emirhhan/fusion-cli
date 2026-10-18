@@ -1131,6 +1131,21 @@ class AppSession:
             return await self._run_command(request.data)
         if request.name == "komut.secenekler":
             return self._command_options(request.data)
+        if request.name == "model.roller":
+            from .model_roles import role_state
+
+            return await role_state(self._state.config)
+        if request.name == "model.rol_ata":
+            from .model_roles import assign
+
+            yeni, sonuc = await assign(
+                self._state.config,
+                str(request.data.get("rol") or ""),
+                request.data.get("deger"),
+            )
+            if yeni is not None:
+                self._state.config = yeni
+            return sonuc
         if request.name == "model.katalog":
             return await list_selectable_models(
                 self._state.config,

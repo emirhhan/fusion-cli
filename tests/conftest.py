@@ -148,3 +148,9 @@ def _yerlesik_beceriler_yalitilir(tmp_path_factory, monkeypatch):
     """
     bos = tmp_path_factory.mktemp("yerlesik-beceri-yok")
     monkeypatch.setattr("fusion_cli.tools.capabilities.bundled_skills_dir", lambda: bos)
+
+
+@pytest.fixture(autouse=True)
+def _codex_hazir_degil(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Testler makinedeki gerçek Codex girişine bağlı olmasın: öğretmen yedeği eklenmez."""
+    monkeypatch.setattr("fusion_cli.providers.codex_cli.codex_ready", lambda: False)

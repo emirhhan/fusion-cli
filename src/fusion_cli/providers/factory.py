@@ -27,6 +27,7 @@ from ..core.rate_control import RateControl
 from ..core.types import ModelSpec
 from .chain import FallbackProvider
 from .circuit import CircuitBreakingProvider
+from .codex_cli import CodexCliProvider, is_codex_model
 from .eventing import EventingProvider
 from .key_pool import KeyPool, KeyPoolRegistry, ledger_key_pool
 from .key_rotation import KeyRotatingProvider
@@ -66,6 +67,8 @@ def build_provider(
     """
 
     def _leaf(model: str) -> LlmProvider:
+        if is_codex_model(model):
+            return CodexCliProvider(model, role=spec.name)
         # Model kullanıcının yetkili bir web (oturum tabanlı) ucuyla eşleşiyorsa API
         # yerine web transport'u kullanılır. Diğer katmanlar (retry/fallback/circuit)
         # bunu da sarar; web ucu da bir `LlmProvider`'dır.

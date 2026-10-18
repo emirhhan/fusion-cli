@@ -12,6 +12,7 @@ import { UsagePanel } from "./UsagePanel";
 import { VoicePreferences } from "./VoicePreferences";
 import { General, readHistoryOpen, HISTORY_KEY } from "./sections/General";
 import { Models, type ModelState } from "./sections/Models";
+import { RoleModels } from "./sections/RoleModels";
 import { Permissions } from "./sections/Permissions";
 import { Advanced } from "./sections/Advanced";
 import { ChromeBrowser } from "./ChromeBrowser";
@@ -289,7 +290,10 @@ export function Settings({
           )}
 
           {bolum === "modeller" && (
-            <Models model={control?.model ?? null} onRunCommand={onRunCommand ? selectMode : undefined} pending={modeBusy} />
+            <>
+              <RoleModels client={client} />
+              <Models model={control?.model ?? null} onRunCommand={onRunCommand ? selectMode : undefined} pending={modeBusy} />
+            </>
           )}
 
           {bolum === "ses" && <VoicePreferences client={client} />}

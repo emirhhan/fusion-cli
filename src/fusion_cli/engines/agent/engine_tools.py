@@ -181,7 +181,12 @@ def teacher_candidates(config: Config, teacher: ModelSpec) -> list[ModelSpec]:
             and session.login_verified
         ):
             adaylar.append(ModelSpec(name=f"ogretmen-yedek-{len(adaylar)}", model=session.model))
-    return adaylar[: TEACHER_FALLBACKS + 1]
+    # Çerezsiz yol: Codex ChatGPT girişi hazırsa son yedek olarak her zaman eklenir.
+    from ...providers.codex_cli import PREFIX, codex_ready
+
+    if teacher.model != f"{PREFIX}default" and codex_ready():
+        adaylar.append(ModelSpec(name="ogretmen-codex", model=f"{PREFIX}default"))
+    return adaylar[: TEACHER_FALLBACKS + 2]
 
 
 def _without(registry: ToolRegistry, names: frozenset[str]) -> ToolRegistry:
@@ -312,7 +317,10 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
             and session.login_verified
             for session in deps.config.web_sessions
         ):
-            return ToolResult.failure("Giriş doğrulanmış bağlı web öğretmen oturumu yok.")
+            return ToolResult.failure(
+                "Giriş doğrulanmış bağlı web öğretmen oturumu yok. Öğretmen olmadan, "
+                "kendi bilgin ve araçlarınla işe devam et."
+            )
         question = args.get("question")
         if not isinstance(question, str) or not question.strip():
             return ToolResult.failure("'question' alanı boş olmayan bir metin olmalı.")
@@ -373,7 +381,15 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
             if refused:
                 return _teacher_refused()
             hata = result.error if result is not None else None
-            return ToolResult.failure(f"Öğretmene ulaşılamadı: {hata or 'bilinmeyen hata'}")
+            # Ulaşılamayan öğretmen turu bozmamalı: bu turda bir daha sorulmaz ve
+            # model kendi bilgisi ve araçlarıyla işi sürdürür.
+            deps.teacher_calls_used = TURN_LIMIT
+            return ToolResult.failure(
+                f"Öğretmene ulaşılamadı: {hata or 'bilinmeyen hata'}\n\n"
+                "ÖĞRETMEN OLMADAN DEVAM ET: Bu turda öğretmene tekrar sorma. İşi kendi "
+                "bilginle ve araçlarınla (dosya okuma/arama, web araştırması, komutlar) "
+                "sürdür; durma, kullanıcıya öğretmeni açmasını da söyleme."
+            )
         if looks_like_refusal(result.text):
             return _teacher_refused()
 

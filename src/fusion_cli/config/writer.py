@@ -78,6 +78,20 @@ def write_model_section(config: Config, path: Path | None = None) -> Path:
     return target
 
 
+def write_teacher(config: Config, path: Path | None = None) -> Path:
+    """Öğretmen rolünü yaz. `config.teacher` None ise `teacher:` anahtarı silinir
+    (otomatik seçime dönülür)."""
+    target = path or _target_path(config)
+    with _config_lock(target):
+        existing = _read_existing(target)
+        if config.teacher is None:
+            existing.pop("teacher", None)
+        else:
+            existing["teacher"] = _spec_to_dict(config.teacher)
+        _atomic_write(target, existing)
+    return target
+
+
 def write_verification_commands(
     config: Config, commands: tuple[str, ...], path: Path | None = None
 ) -> Path:
