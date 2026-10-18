@@ -109,7 +109,19 @@ def score_emulation(cases: Sequence[EvalCase]) -> EmulationEvalScore:
 
         if ilk is not None and case.expected_arguments is not None:
             arg_toplam += 1
-            arg_basari += 1 if json.loads(ilk.arguments) == dict(case.expected_arguments) else 0
+            # Beklenen her argüman AYNEN korunmalı; şemada geçerli ek isteğe bağlı
+            # argüman (ör. `search_code`'a `path: "."`) korunumu bozmaz. Birebir eşitlik
+            # istemek geçerli ve doğru çağrıları (Gemini, 18 Ekim 2026: pattern doğru,
+            # path ek) başarısız sayıp dosya yazma iznini sebepsiz kapatıyordu.
+            gercek = json.loads(ilk.arguments)
+            arg_basari += (
+                1
+                if all(
+                    anahtar in gercek and gercek[anahtar] == deger
+                    for anahtar, deger in case.expected_arguments.items()
+                )
+                else 0
+            )
 
     return EmulationEvalScore(
         tool_selection=_ratio(secim_basari, secim_toplam),

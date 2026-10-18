@@ -104,3 +104,27 @@ def test_chatgpt_yeni_mesaj_kaplari_once_denenir() -> None:
     assert tanim.response_selectors[0] == '[data-markdown-text-style="assistant-message"]'
     assert '[data-content-search-unit-key$=":assistant"]' in tanim.response_selectors
     assert "[data-content-search-unit-key]" in tanim.history_selectors
+
+
+def test_ek_gecerli_arguman_korunumu_bozmaz_ama_degisen_deger_bozar() -> None:
+    from fusion_cli.tools.emulation_eval import EvalCase, score_emulation
+
+    def cagri(args: str) -> str:
+        return (
+            'FUSION_TOOL_CALL\n```json\n{"name":"search_code","arguments":' + args + "}\n```\n"
+            "FUSION_TOOL_CALL_END"
+        )
+
+    beklenen = {"pattern": "TODO"}
+    ek = EvalCase(
+        output=cagri('{"path":".","pattern":"TODO"}'),
+        expected_tool="search_code",
+        expected_arguments=beklenen,
+    )
+    yanlis = EvalCase(
+        output=cagri('{"pattern":"FIXME"}'),
+        expected_tool="search_code",
+        expected_arguments=beklenen,
+    )
+    assert score_emulation([ek]).argument_preservation == 1.0
+    assert score_emulation([yanlis]).argument_preservation == 0.0
