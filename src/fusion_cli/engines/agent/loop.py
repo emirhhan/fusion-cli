@@ -3157,6 +3157,7 @@ async def _run_tools(
                 name=call.name,
                 ok=result.ok,
                 images=gorseller,
+                tool_diff=diff,
             )
         )
     return errored

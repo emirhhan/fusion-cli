@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { parseDiff } from "../markdown/DiffCard";
 import { adimOzeti, sureMetni, tokenMetni } from "../protocol/adimOzeti";
 import type { OlayAdimi, OlaySonucu } from "../protocol/olayMetni";
+import { Icon, type IconName } from "../ui/Icon";
 
 /**
  * Çalışma göstergesi — tek satır, iş bitince kaybolur.
@@ -142,9 +143,14 @@ export function ToolTrail({ adimlar }: { adimlar: OlayAdimi[] }) {
 function ToolSummary({ adimlar }: { adimlar: OlayAdimi[] }) {
   const baslik = adimOzeti(adimlar) || adimlar[adimlar.length - 1].metin;
   const hata = adimlar.some((adim) => adim.durum === "failed");
+  const names = adimlar.map((step) => step.arac ?? "");
+  const icon: IconName = names.some((name) => ["write_file", "edit_file", "multi_edit"].includes(name)) ? "edit"
+    : names.some((name) => ["run_shell", "git"].includes(name)) ? "terminal"
+    : names.includes("ask_teacher") ? "sparkle"
+    : names.some((name) => /search|fetch|browser|chrome/.test(name)) ? "search" : "files";
   return (
     <details className="activity__summary" data-failed={hata ? "true" : undefined}>
-      <summary>{baslik}</summary>
+      <summary><Icon name={icon} /><span>{baslik}{hata ? " · hata" : ""}</span></summary>
       <ToolTrail adimlar={adimlar} />
     </details>
   );

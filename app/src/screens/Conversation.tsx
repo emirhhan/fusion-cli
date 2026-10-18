@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 
 import { DeliveryCard } from "./DeliveryCard";
 import type { DeliveryEvidence } from "../protocol/deliveryEvidence";
@@ -11,7 +11,8 @@ import { assetUrl } from "../platform/assetUrl";
 import { Markdown } from "../markdown/Markdown";
 import { DiffCard } from "../markdown/DiffCard";
 import { ActivityLine, activityState } from "./ActivityLine";
-import { WorkHistory, workGroups } from "./WorkHistory";
+import { ChangeSummary, turnChanges } from "./ChangeSummary";
+import { AgentActivity } from "./AgentActivity";
 import type { AjanKarti } from "../team/ekipOlaylari";
 import { PreviewCard } from "./PreviewCard";
 import { ImageGenerationCard } from "./ImageGenerationCard";
@@ -115,8 +116,9 @@ export function hataMesajiMi(message: Mesaj): boolean {
   return message.rol === "asistan" && (message.hata === true || message.metin.startsWith("Hata:"));
 }
 
-function AssistantMessage({ text, onOpenFile, onReport, onReadAloud, onEvaluate, onContinue, ara = false }: {
+function AssistantMessage({ text, onOpenFile, onReport, onReadAloud, onEvaluate, onContinue, ara = false, children }: {
   text: string;
+  children?: ReactNode;
   onReadAloud?: () => Promise<void> | void;
   onEvaluate?: (rating: "positive" | "negative") => Promise<void> | void;
   onContinue?: () => Promise<void> | void;
@@ -159,6 +161,7 @@ function AssistantMessage({ text, onOpenFile, onReport, onReadAloud, onEvaluate,
       <div className="conversation__text">
         <Markdown onOpenFile={onOpenFile} text={text} />
       </div>
+      {children}
       {!ara && <div className="conversation__actions">
         <Button aria-label="Yanıtı kopyala" icon="copy" iconOnly disabled={copyPending.current} onClick={() => void copy()} />
         {onReadAloud && <Button aria-label="Sesli oku" title="Sesli oku" icon="speaker" iconOnly disabled={actionPending} onClick={() => void perform(onReadAloud)} />}
@@ -255,12 +258,7 @@ export function Conversation({
   const kutuRef = useRef<HTMLDivElement>(null);
   const icerikRef = useRef<HTMLDivElement>(null);
   const lastMessage = mesajlar[mesajlar.length - 1];
-  const groups = workGroups(mesajlar, hataMesajiMi);
-  const latestWorkStart = Math.max(-1, ...groups.keys());
-  const grouped = new Set<number>();
-  for (const [start, group] of groups) {
-    for (let index = start + 1; index < group.end; index += 1) grouped.add(index);
-  }
+  const changes = useMemo(() => turnChanges(mesajlar, running), [mesajlar, running]);
   const {enAltaIn, hasNewContent} = useStickToBottom(kutuRef, icerikRef, mesajlar, false, {
     content: lastMessage,
     ownSubmissionId: lastMessage?.rol === "kullanici" ? lastMessage.id : undefined,
@@ -270,16 +268,6 @@ export function Conversation({
     <div className="conversation" ref={kutuRef}>
       <div className="conversation__stream" ref={icerikRef}>
         {mesajlar.map((message, index) => {
-          if (grouped.has(index)) return null;
-          const group = groups.get(index);
-          if (group) return <WorkHistory
-            key={message.id ?? `work-${index}`}
-            items={group.items}
-            active={running && index === latestWorkStart && index > sonKullaniciSirasi}
-            activityIndex={sonCalisanOlay >= index && sonCalisanOlay < group.end ? sonCalisanOlay - index : undefined}
-            showSteps={showSteps}
-            onOpenFile={onOpenFile}
-          />;
           if (message.rol === "kullanici") {
             return (
               <div className="conversation__message conversation__message--user" key={message.id}>
@@ -297,6 +285,7 @@ export function Conversation({
             return (
               <div className="conversation__message conversation__message--change" key={message.id}>
                 <DiffCard diff={message.diff ?? ""} onOpenFile={onOpenFile} path={message.metin} />
+                {changes.has(index) && <ChangeSummary files={changes.get(index)!} onOpenFile={onOpenFile} />}
               </div>
             );
           }
@@ -342,7 +331,10 @@ export function Conversation({
               </div>
             );
           }
-          if (message.rol === "ekip") return null;
+          if (message.rol === "ekip") return <div className="conversation__message conversation__message--event" key={message.id}>
+            <AgentActivity agents={message.ajanlar ?? []} running={running} />
+            {changes.has(index) && <ChangeSummary files={changes.get(index)!} onOpenFile={onOpenFile} />}
+          </div>;
           if (message.rol === "olay") {
             // Her model çağrısı ayrı bir yaşam döngüsü olayı üretir. Akışta
             // yalnız son çalışan gösterge görünür; eski çağrı göstergeleri
@@ -360,6 +352,7 @@ export function Conversation({
                   tokenSayisi={message.tokenSayisi}
                   showSteps={showSteps}
                 />
+                {changes.has(index) && <ChangeSummary files={changes.get(index)!} onOpenFile={onOpenFile} />}
               </div>
             );
           }
@@ -376,7 +369,9 @@ export function Conversation({
                 onOpenFile={onOpenFile}
                 onReport={onHataBildir && hataMesajiMi(message) ? () => onHataBildir(message.metin) : undefined}
                 text={message.metin}
-              />
+              >
+                {changes.has(index) && <ChangeSummary files={changes.get(index)!} onOpenFile={onOpenFile} />}
+              </AssistantMessage>
               {message.delivery && <DeliveryCard evidence={message.delivery} onOpenFile={onOpenFile} />}
               {!running && message.hata && message.submissionId && onRetrySubmission && (
                 <Button variant="ghost" onClick={() => onRetrySubmission(message.submissionId!)}>Yeniden dene</Button>

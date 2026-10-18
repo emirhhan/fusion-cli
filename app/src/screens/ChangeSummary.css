@@ -1,0 +1,21 @@
+.change-summary { margin: 20px 0 12px; border: 1px solid var(--border-subtle); border-radius: 12px; overflow: hidden; background: var(--surface-raised); font-size: var(--text-base); }
+.change-summary__header { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 14px 16px; }
+.change-summary__icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: var(--surface-canvas); color: var(--text-secondary); flex: none; }
+.change-summary__icon svg { width: 22px; height: 22px; }
+.change-summary__heading { display: grid; gap: 4px; min-width: 0; flex: 1; }
+.change-summary__heading strong { font-weight: 550; }
+.change-summary__counts { display: inline-flex; gap: 5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.change-summary__added { color: var(--text-success); }
+.change-summary__removed { color: var(--text-danger); }
+.change-summary__view { border: 1px solid var(--border-strong); border-radius: 8px; background: transparent; color: var(--text-primary); padding: 6px 10px; font: inherit; cursor: pointer; }
+.change-summary__files { list-style: none; margin: 0; padding: 6px 12px; border-top: 1px solid var(--border-subtle); }
+.change-summary__files > li { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 10px 0; }
+.change-summary__path { text-align: left; font: inherit; color: var(--text-secondary); border: 0; background: transparent; padding: 0; min-width: 0; overflow-wrap: anywhere; }
+button.change-summary__path { cursor: pointer; }
+button.change-summary__path:hover { color: var(--text-primary); text-decoration: underline; text-underline-offset: 3px; }
+.change-summary__more { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; border-top: 1px solid var(--border-subtle); background: var(--surface-hover); color: var(--text-primary); padding: 12px; font: inherit; text-align: left; cursor: pointer; }
+.change-summary__more svg { width: 14px; height: 14px; transform: rotate(90deg); }
+.change-summary__more[aria-expanded="true"] svg { transform: rotate(-90deg); }
+.change-summary__diffs { padding: 0 12px 8px; border-top: 1px solid var(--border-subtle); }
+.change-summary button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@container conversation-workspace (max-width: 520px) { .change-summary__view { width: 100%; text-align: center; } .change-summary__header { padding: 12px; } }

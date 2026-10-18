@@ -68,7 +68,6 @@ from ..engines.agent.context_budget import context_budget
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
 from ..engines.agent.remotion_bridge import FrameTransport
 from ..engines.agent.turn_report import evidence_payload
-from ..history.sanitize import sanitize_message
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
 from ..memory.turn_journal import FileTurnJournal
@@ -128,6 +127,7 @@ from .history import (
     preview_session,
     search_sessions,
 )
+from .history_view import visible_history
 from .hosted_connectors import (
     add_hosted_connector,
     hosted_provider_rows,
@@ -784,17 +784,7 @@ class AppSession:
         if request.name == "oturum.gecmis":
             return {
                 "ok": True,
-                "mesajlar": [
-                    {
-                        "rol": "kullanici" if message.role == "user" else "asistan",
-                        "metin": sanitize_message(message).content,
-                        **({"ara": True} if message.tool_calls else {}),
-                        **({"id": message.message_id} if message.message_id else {}),
-                    }
-                    for message in self._state.history
-                    if message.role in {"user", "assistant"}
-                    and not message.harness_note and message.content.strip()
-                ],
+                "mesajlar": visible_history(self._state.history),
             }
         if request.name == "sohbet.sil":
             return await self._delete_conversation(request.data)

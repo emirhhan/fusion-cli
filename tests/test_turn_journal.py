@@ -393,3 +393,18 @@ async def test_devam_turu_iptal_gunlugu_kalici_olana_kadar_baslamaz(tmp_path, mo
         release.set()
         await asyncio.gather(first, second)
     assert continued.is_set()
+
+
+def test_gunluk_diffi_maskeli_korur_ve_eski_kayitla_uyumludur(tmp_path):
+    gunluk = FileTurnJournal(tmp_path / 'j.json')
+    gunluk.save([Message('tool', 'ok', ok=True, tool_diff='+password=ornek')])
+    entry = gunluk.load()
+    assert entry is not None
+    assert entry.messages[0].tool_diff == '+[gizlendi]'
+    raw = json.loads(gunluk.path.read_text())
+    assert raw['surum'] == 1
+    raw['mesajlar'][0].pop('tool_diff')
+    gunluk.path.write_text(json.dumps(raw))
+    legacy = gunluk.load()
+    assert legacy is not None
+    assert legacy.messages[0].tool_diff is None

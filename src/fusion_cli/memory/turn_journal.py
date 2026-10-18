@@ -150,6 +150,7 @@ def _message_to(message: Message) -> dict[str, object]:
         "arac_id": message.tool_call_id,
         "ad": message.name,
         "ok": message.ok,
+        "tool_diff": redact(message.tool_diff) if message.tool_diff is not None else None,
         "harness": message.harness_note,
     }
 
@@ -182,5 +183,6 @@ def _message_from(item: object) -> Message | None:
         tool_call_id=tool_call_id if isinstance(tool_call_id, str) else None,
         name=name if isinstance(name, str) else None,
         ok=ok if isinstance(ok, bool) else None,
+        tool_diff=item["tool_diff"] if isinstance(item.get("tool_diff"), str) else None,
         harness_note=bool(item.get("harness", False)),
     )

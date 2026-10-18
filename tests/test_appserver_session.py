@@ -264,6 +264,9 @@ async def test_geri_yuklenen_arac_anlatimi_ana_cevap_sayilmaz(tmp_path):
     assert _sonuc(lines, "history")["mesajlar"] == [
         {"rol": "kullanici", "metin": "projeyi yap"},
         {"rol": "asistan", "metin": "Dosyayı yazıyorum", "ara": True},
+        {"rol": "olay", "id": "c", "olay": {"olay": "ToolExecuted",
+         "name": "write_file", "args": {}, "outcome": "ok",
+         "output": "yazıldı", "diff": None}},
         {"rol": "asistan", "metin": "Doğrulandı"},
     ]
 

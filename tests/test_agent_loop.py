@@ -3101,3 +3101,15 @@ async def test_inflight_model_call_already_consumes_shared_budget(tmp_path, sink
         running.cancel()
         with pytest.raises(asyncio.CancelledError):
             await running
+
+
+async def test_arac_mesaji_yalniz_basarili_gercek_olay_diffini_korur(monkeypatch, tmp_path, sink):
+    _kur(monkeypatch, ScriptedProvider([
+        model_result(tool_calls=[tool_call('write_file', path='a.txt', content='yeni\n')]),
+        model_result(TAM_CEVAP),
+    ]))
+    sonuc = await run_agent('dosyayı güncelle', _deps(tmp_path, sink))
+    olay = next(event for event in sink.events if isinstance(event, ToolExecuted))
+    mesaj = next(message for message in sonuc.messages if message.role == 'tool')
+    assert olay.diff is not None
+    assert mesaj.tool_diff == olay.diff

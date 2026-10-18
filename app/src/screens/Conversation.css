@@ -1,4 +1,4 @@
-.conversation-frame { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
+.conversation-frame { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; background: var(--surface-conversation); }
 .conversation__jump { position: absolute; bottom: 16px; right: 16px; z-index: 1; background: var(--surface-raised); }
 
 .conversation {
@@ -25,14 +25,15 @@
 .conversation__message {
   display: flex;
   /* Satır arası daraltıldı: paragraflar arasındaki boşluk okumayı bölüyordu. */
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-6);
   min-width: 0;
 }
 
 /* Çalışma satırları asıl cevaba YAKIN durur: aralarındaki geniş boşluk,
    ilerleme ile cevabı iki ayrı ekran gibi gösteriyordu. */
 .conversation__message--event {
-  margin-bottom: var(--space-2);
+  display: block;
+  margin-bottom: var(--space-5);
 }
 
 .conversation__message--event + .conversation__message--assistant {
@@ -63,7 +64,7 @@
 
 .conversation__text {
   line-height: var(--line-body);
-  max-width: 72ch;
+  max-width: 100%;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
@@ -161,7 +162,7 @@
   font-size: 0.95rem;
   padding: 10px 16px;
 }
-.conversation__text { font-size: 0.98rem; line-height: 1.65; }
+.conversation__text { font-size: var(--text-base); line-height: 1.6; }
 .conversation__message--assistant .conversation__article { padding: 0 8px; }
 /* Adım satırları anlatım metniyle aynı sol çizgiden başlar. */
 .conversation__message--event { padding: 0 8px; }
@@ -224,28 +225,25 @@
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .activity__trail-diff .diff-card__line { white-space: pre-wrap; }
-.conversation__message--narration { opacity: .92; margin-bottom: var(--space-2); }
-.conversation__work { display: grid; gap: var(--space-2); padding: 0 8px; }
-.conversation__work-details { color: var(--text-secondary); font-size: var(--text-sm); min-width: 0; }
-.conversation__work-details > summary { cursor: pointer; padding: var(--space-2) 0; }
-.conversation__work-details > summary span { margin-left: var(--space-2); opacity: .8; }
-.conversation__work-details > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-sm); }
-.conversation__work-details[data-failed] > summary { color: var(--text-danger); }
-.conversation__work-list { display: grid; gap: var(--space-3); margin: var(--space-2) 0; padding-left: var(--space-5); border-left: 1px solid var(--border-subtle); }
-.conversation__work-list > li { min-width: 0; overflow-wrap: anywhere; }
-.conversation__work-current { color: var(--text-secondary); font-size: var(--text-sm); min-width: 0; }
+.conversation__message--narration { opacity: 1; margin-bottom: var(--space-4); }
 .activity__now { display: flex; align-items: baseline; gap: 8px; font-size: var(--text-sm); }
 /* Claude'un dönen yıldızı; çalışıldığını metin değişmese de gösterir. */
 .activity__spark { display: inline-block; color: var(--accent, var(--text-primary)); line-height: 1; }
 .activity__summary[data-failed="true"] > summary { color: var(--text-danger); }
 .activity__summary,
 .activity > .activity__trail { flex: 1 1 100%; min-width: 0; }
-.activity__summary > summary { cursor: pointer; color: var(--text-secondary); font-size: var(--text-sm); list-style: none; }
+.activity__summary > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-secondary); font-size: var(--text-base); line-height: 1.6; list-style: none; }
+.activity__summary > summary > svg { width: 16px; height: 16px; flex: none; }
+.activity__summary > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; border-radius: var(--radius-sm); }
 .activity__summary > summary::-webkit-details-marker { display: none; }
-.activity__summary > summary::after { content: "›"; display: inline-block; margin-left: 6px; transition: transform var(--duration-fast) var(--ease-standard); }
+.activity__summary > summary::after { content: "›"; display: inline-block; opacity: 0; margin-left: 2px; transition: transform var(--duration-fast) var(--ease-standard); }
+.activity__summary > summary:hover::after, .activity__summary > summary:focus-visible::after, .activity__summary[open] > summary::after { opacity: 1; }
 .activity__summary[open] > summary::after { transform: rotate(90deg); }
 .activity__summary > summary:hover { color: var(--text-primary); }
 .activity__summary[open] .activity__trail { margin-top: 6px; }
+.agent-activity { display: grid; gap: var(--space-3); }
+.agent-activity__icon { color: var(--ekip-mor-murekkep); }
+.agent-activity__detail { color: var(--text-secondary); font-size: var(--text-sm); margin: var(--space-2) 0 0 24px; }
 
 /* Nabız yalnız hareket kabul eden kullanıcıda çalışır; kapalıyken satır
    sabit durur ve bilgi kaybı olmaz. */

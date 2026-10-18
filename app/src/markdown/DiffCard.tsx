@@ -49,10 +49,11 @@ export interface DiffCardProps {
   /** Değişen dosyanın yolu; başlıkta görünür ve tıklanınca açılır. */
   path: string;
   onOpenFile?: (path: string) => void;
+  initialExpanded?: boolean;
 }
 
-export function DiffCard({ diff, path, onOpenFile }: DiffCardProps) {
-  const [open, setOpen] = useState(false);
+export function DiffCard({ diff, path, onOpenFile, initialExpanded = false }: DiffCardProps) {
+  const [open, setOpen] = useState(initialExpanded);
   const rows = useMemo(() => parseDiff(diff), [diff]);
   const { added, removed } = useMemo(() => countChanges(rows), [rows]);
   const collapsible = rows.length > PREVIEW_LINES;

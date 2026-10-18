@@ -1,3 +1,4 @@
+import { historyMessages } from "./history";
 import { deleteSubmissions, moveSubmissions, loadSubmissions, saveSubmission, updateSubmission } from "./submissionPersistence";
 import { decodeDeliveryEvidence } from "../protocol/deliveryEvidence";
 import { normalizeSubmissionReceipt, type SubmissionReceipt } from "./submission";
@@ -6,7 +7,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ProtocolClient } from "../protocol/client";
 import { baglamOlcusuOku, type BaglamOlcusu, type Soru } from "../protocol/types";
-import type { Mesaj } from "../screens/Conversation";
 import { initialSessionState, sessionReducer } from "./store";
 import { loadSessionView, saveSessionView } from "./persistence";
 import { isProjectRoot, projectName } from "./projectRoots";
@@ -34,18 +34,6 @@ const CORE_CLOSED = "Bu konuşmanın çekirdeği beklenmedik şekilde kapandı."
 /** Gerçek terminal sonuç gelmezse bu sürede bekleme uyarısı ve retry açılır.
  * Kuyruk/admission kilidi yalnız asıl turn promise'i kapanınca bırakılır. */
 const TUR_IPTAL_GUVENLI_SURE_MS = 5_000;
-/** Her geri yükleme yolu aynı görünür mesaj sözleşmesini korur. */
-function historyMessages(rows: unknown[]): Mesaj[] {
-  return rows.flatMap((item): Mesaj[] => {
-    if (!item || typeof item !== "object") return [];
-    const row = item as Record<string, unknown>;
-    if ((row.rol !== "kullanici" && row.rol !== "asistan") || typeof row.metin !== "string") return [];
-    return [{ rol: row.rol, metin: row.metin,
-      ...(row.ara === true ? { ara: true } : {}),
-      ...(typeof row.id === "string" ? { id: row.id } : {}),
-    }];
-  });
-}
 export type WorkspaceMode = "sohbet" | "kod";
 
 export function storedWorkspaceMode(id: string): WorkspaceMode | null {
