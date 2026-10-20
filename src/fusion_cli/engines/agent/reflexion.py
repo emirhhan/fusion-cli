@@ -192,10 +192,26 @@ _EFFECT_LABELS = {
 }
 
 
-def tool_evidence_required_note(effect: str | None) -> Message:
-    """Model eylem sözü verdi ama gerçek araç çalıştırmadıysa bir kez zorla."""
+def tool_evidence_required_note(effect: str | None, attempt: int = 1) -> Message:
+    """Model eylem sözü verdi ama gerçek araç çalıştırmadıysa onu araca zorla.
+
+    İlk uyarı kanonik çağrıyı gösterir. Küçük modeller bunu yok sayıp yine niyet
+    yazabiliyor (20 Ekim: 9B model iki kez "betiği çalıştıracağım" dedi, hiç araç
+    çağırmadı); sonraki uyarılar açıklamayı yasaklar ve ilk adımı somut söyler.
+    """
 
     label = _EFFECT_LABELS.get(effect or "", "kullanıcının istediği gerçek işlem")
+    if attempt >= 2:
+        son = " Bu SON uyarı: bundan sonra tur başarısız kapanır." if attempt >= 3 else ""
+        return Message(
+            "user",
+            f"[eylem-kanıtı-zorunlu] Hâlâ {label} için araç çağırmadın.{son} "
+            "Cevabında YALNIZCA bir araç çağrısı olsun, açıklama yazma. Nereden "
+            "başlayacağını bilmiyorsan ilk adım olarak list_dir (path='.') ile klasörü "
+            "listele, sonra read_file ya da search_code ile ilerle. Bilgi eksikse "
+            "ask_user kullan.",
+            harness_note=True,
+        )
     return Message(
         "user",
         "[eylem-kanıtı-zorunlu] Kullanıcı gerçek bir işlem istedi fakat henüz "

@@ -80,7 +80,7 @@ class ExecutionPolicy:
     required_effect: str | None = None
     #: Bu turun metni açık bir değişiklik etkisi istiyor mu (`_MUTATING_EFFECTS`).
     complex_task: bool = False
-    max_evidence_reprompts: int = 1
+    max_evidence_reprompts: int = 3
     # Bu modelin dosya/shell değiştirmesine izin var mı? Doğrulanmamış taklit-araç
     # modelleri (bkz. config.tool_policy) okur ve planlar ama değiştiremez.
     allow_mutation: bool = True
@@ -134,7 +134,7 @@ def policy_for(
             offer_tools=not explicit_no_tools,
             requires_tool_evidence=requires_evidence,
             required_effect=required_effect,
-            max_evidence_reprompts=0 if explicit_no_tools else 1,
+            max_evidence_reprompts=0 if explicit_no_tools else 3,
             complex_task=complex_task,
         )
 
@@ -163,7 +163,7 @@ def policy_for(
         offer_tools=not explicit_no_tools and (requires_evidence or not simple_chat),
         requires_tool_evidence=requires_evidence,
         required_effect=required_effect,
-        max_evidence_reprompts=0 if explicit_no_tools else 1,
+        max_evidence_reprompts=0 if explicit_no_tools else 3,
     )
 
 

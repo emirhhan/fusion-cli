@@ -1385,7 +1385,9 @@ async def _drive(
                     state.evidence_reprompts += 1
                     messages.pop()  # Kanıtsız iddia sonraki turda olgu olarak taşınmaz.
                     messages.append(
-                        reflexion.tool_evidence_required_note(execution.required_effect)
+                        reflexion.tool_evidence_required_note(
+                            execution.required_effect, state.evidence_reprompts
+                        )
                         if execution.requires_tool_evidence
                         else reflexion.unsupported_claim_note()
                     )
@@ -1428,7 +1430,9 @@ async def _drive(
                 if state.evidence_reprompts < execution.max_evidence_reprompts:
                     state.evidence_reprompts += 1
                     messages.append(
-                        reflexion.tool_evidence_required_note(execution.required_effect)
+                        reflexion.tool_evidence_required_note(
+                            execution.required_effect, state.evidence_reprompts
+                        )
                     )
                     continue
                 return _outcome(

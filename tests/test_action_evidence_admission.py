@@ -27,7 +27,7 @@ def deps_for(tmp_path, model):
 
 @pytest.mark.parametrize("model", MODELS)
 async def test_calismaya_baslama_aracsiz_basari_sayilmaz(tmp_path, monkeypatch, model):
-    provider = ScriptedProvider([model_result(LIE), model_result(LIE)])
+    provider = ScriptedProvider([model_result(LIE)] * 4)
     install_provider(monkeypatch, provider)
     result = await run_agent(TASK, deps_for(tmp_path, model))
     assert not result.ok
@@ -39,7 +39,7 @@ async def test_calismaya_baslama_aracsiz_basari_sayilmaz(tmp_path, monkeypatch, 
 async def test_siniflandirilmayan_istekte_yalan_islem_iddiasi_da_engellenir(
     tmp_path, monkeypatch, model
 ):
-    install_provider(monkeypatch, ScriptedProvider([model_result(LIE), model_result(LIE)]))
+    install_provider(monkeypatch, ScriptedProvider([model_result(LIE)] * 4))
     result = await run_agent("bir el at", deps_for(tmp_path, model))
     assert not result.ok
     assert LIE not in result.final_text
@@ -93,8 +93,7 @@ async def test_okuma_kaniti_yazma_iddiasini_dogrulamaz(tmp_path, monkeypatch):
         ScriptedProvider(
             [
                 model_result(tool_calls=[tool_call("list_dir", path=".")]),
-                model_result(LIE),
-                model_result(LIE),
+                *[model_result(LIE)] * 4,
             ]
         ),
     )
@@ -104,7 +103,7 @@ async def test_okuma_kaniti_yazma_iddiasini_dogrulamaz(tmp_path, monkeypatch):
 
 
 async def test_sohbet_yalan_mutasyonu_duzeltmek_icin_yazmaya_acilmaz(tmp_path, monkeypatch):
-    install_provider(monkeypatch, ScriptedProvider([model_result(LIE), model_result(LIE)]))
+    install_provider(monkeypatch, ScriptedProvider([model_result(LIE)] * 4))
     result = await run_agent("bir el at", deps_for(tmp_path, "openai/test"), chat_mode=True)
     assert not result.ok
     assert LIE not in result.final_text
@@ -145,7 +144,7 @@ def test_oneri_gecmis_ve_alinti_bu_turun_mutasyonu_sayilmaz(text):
 
 async def test_ingilizce_kanitsiz_basari_da_engellenir(tmp_path, monkeypatch):
     lie = "I added the font layer. Everything is complete."
-    install_provider(monkeypatch, ScriptedProvider([model_result(lie), model_result(lie)]))
+    install_provider(monkeypatch, ScriptedProvider([model_result(lie)] * 4))
     result = await run_agent("bir el at", deps_for(tmp_path, "openai/test"))
     assert not result.ok
     assert lie not in result.final_text
@@ -224,3 +223,21 @@ def test_dosya_adi_ve_yolu_mutasyon_iddiasinin_hedefi_sayilir(text):
     from fusion_cli.engines.agent.action_evidence import claimed_effects
 
     assert claimed_effects(text) == ("workspace_mutation",)
+
+
+async def test_model_iki_kez_niyet_yazsa_da_ucuncu_uyaridan_sonra_arac_cagirir(
+    tmp_path, monkeypatch
+):
+    provider = ScriptedProvider(
+        [
+            model_result(LIE),
+            model_result(LIE),
+            model_result(tool_calls=[tool_call("write_file", path="font.txt", content="Türkçe")]),
+            model_result("font.txt dosyasını güncelledim."),
+        ]
+    )
+    install_provider(monkeypatch, provider)
+    result = await run_agent("bir el at", deps_for(tmp_path, "ollama_chat/test"))
+    assert result.ok
+    assert (tmp_path / "font.txt").read_text() == "Türkçe"
+    assert result.mutating_tool_calls_made == 1
