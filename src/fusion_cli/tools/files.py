@@ -43,6 +43,7 @@ from .diffing import bounded_diff
 from .files_read import read_large_text
 from .lost_definitions import lost_definitions
 from .remotion_guard import guard_remotion_write
+from .user_folders import user_folder_hint
 
 #: Bir yolun "uydurma" sayılması için en az bileşen sayısı (`/mnt/data/x`). Tek
 #: bileşenli `/api` gibi metinler çoğu kez URL yolu ya da desendir, yol değil.
@@ -204,7 +205,8 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         # Çıkışsız hata mesajı kilitlenme üretir: model ne yapacağını bilemez ve
         # aynı çağrıyı tekrarlar. Her engelleme yasal bir sonraki hamle göstermeli.
         return ToolResult.failure(
-            f"{FILE_MISSING_PREFIX} {display_path(context, path)}.{_benzer_oneri(path)} "
+            f"{FILE_MISSING_PREFIX} {display_path(context, path)}.{_benzer_oneri(path)}"
+            f"{user_folder_hint(path.name)} "
             "Yolu list_dir ya da glob ile doğrula; dosyanın oluşturulması gerekiyorsa "
             "write_file kullan."
         )
@@ -442,7 +444,8 @@ def _yapi_engeli(path: Path, updated: str, context: ToolContext) -> ToolResult |
 def _missing_edit_target(path: Path, context: ToolContext) -> ToolResult:
     """Düzenlenecek dosya yok: komşu adı öner ve iki çıkışı söyle."""
     return ToolResult.failure(
-        f"{FILE_MISSING_PREFIX} {display_path(context, path)}.{_benzer_oneri(path)} "
+        f"{FILE_MISSING_PREFIX} {display_path(context, path)}.{_benzer_oneri(path)}"
+        f"{user_folder_hint(path.name)} "
         "Düzenlenecek bir dosya yok — içeriği write_file ile oluştur, ya da doğru "
         "yolu list_dir / glob ile bul."
     )
