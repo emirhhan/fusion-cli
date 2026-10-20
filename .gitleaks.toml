@@ -1,0 +1,13 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Sır maskeleme testlerindeki sabit, sentetik örnekler"
+condition = "AND"
+paths = ['''^tests/(test_history_search|test_teacher_brief|test_tools_search_shell)\.py$''']
+regexTarget = "line"
+regexes = [
+  '''(?:OPENAI_API_KEY|API_TOKEN)=sk-12345678901234567890''',
+  '''OPENROUTER_API_KEY=sk-or-v1-gercekgibi0123456789abcdef''',
+  '''KEY = "sk-or-v1-gercekgibi0123456789abcdef"''',
+]

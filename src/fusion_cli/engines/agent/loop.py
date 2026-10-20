@@ -1,0 +1,3779 @@
+"""Agent döngüsü: tek model + araçlar + öz-denetim.
+
+Bir tur şöyle akar:
+
+    model çağrısı ──▶ araç istedi mi?
+                       ├── evet → onay → çalıştır → sonucu geçmişe ekle → tekrar
+                       └── hayır → nihai cevap
+
+Üzerine üç iyileştirme katmanı biner:
+
+- **Refleksiyon** — bir araç hata döndürdüğünde modele "farklı yaklaş" notu enjekte
+  edilir. Ek model çağrısı YOK; bedava bir davranış düzeltmesidir.
+- **Otomatik devam** — model işi yarım bırakmış görünüyorsa bir kez "devam et" denir.
+- **Öz-eleştiri** — tur bitince denetçi model sonucu kontrol eder; somut bir sorun
+  bulursa TEK düzeltici tur çalışır. Sonsuz düzeltme döngüsü yoktur.
+
+Motor konsolu tanımaz: tüm ilerleme olay olarak yayınlanır. Araçlar arasında ayrım
+yapmaz: alt-ajan devri de dosya okumak da kayıt defterinden geçer.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import re
+import sys
+from collections.abc import Awaitable, Callable
+from copy import deepcopy
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+
+from ...config.eligibility import effort_for_spec
+from ...config.model_select import escalated_spec, select_agent_spec
+from ...config.models import Config
+from ...config.tool_policy import mutation_policy_for_model
+from ...core.budget import BudgetStop, TurnBudget
+from ...core.checkpoint import CheckpointStore
+from ...core.clock import SystemClock
+from ...core.concurrency import BackgroundTasks
+from ...core.constants import (
+    CAPABILITY_WALL_PREFIX,
+    FILE_MISSING_PREFIX,
+    TOOL_CALL_BLOCKED_PREFIX,
+    UNREACHABLE_RESOURCE_PREFIX,
+)
+from ...core.effects import EffectRecorder
+from ...core.errors import ConfigError, FusionError
+from ...core.events import (
+    ApprenticeHandoff,
+    Channel,
+    ContextCompressed,
+    EventPublisher,
+    ExecutionRouteSelected,
+    MutationUnavailable,
+    NarrationPublished,
+    SelfReviewFinished,
+    SelfReviewStarted,
+    SkillLoaded,
+    StatusChanged,
+    ToolCallRepaired,
+    ToolExecuted,
+    ToolOutcome,
+    ToolStarted,
+    TurnAnswered,
+    TurnBudgetExhausted,
+    TurnUsageObserved,
+    VerificationFailed,
+)
+from ...core.evidence import ToolUse
+from ...core.health import HealthRegistry
+from ...core.job_evidence import JobCompletion, JobCurrentSnapshot
+from ...core.leak_filter import strip_harness_leaks
+from ...core.memory import CodeIndex, Lesson, LessonMemory
+from ...core.progress import RoundSignals, progressed
+from ...core.protocols import TurnJournal
+from ...core.reasoning import ReasoningEffort
+from ...core.redaction import redact
+from ...core.refusal import looks_like_refusal
+from ...core.skill_context import SkillSelection
+from ...core.steering import SteeringQueue
+from ...core.tools import (
+    TodoItem,
+    Tool,
+    ToolContext,
+    ToolEffect,
+    ToolFamily,
+    ToolResult,
+    tool_family,
+)
+from ...core.turn_deadline import TurnDeadline
+from ...core.types import (
+    CompletionRequest,
+    Message,
+    ModelResult,
+    ModelSpec,
+    StreamDone,
+    TextChunk,
+    ToolCall,
+    is_permanent_error,
+    is_rate_limit_error,
+)
+from ...core.verification import VerificationResult, Verifier
+from ...core.web_response import classify_response
+from ...providers.capabilities import (
+    TaskRequirements,
+    capabilities_for,
+    infer_task_requirements,
+)
+from ...providers.factory import build_provider
+from ...providers.fallback_plan import live_fallbacks
+from ...providers.web_registry import web_registry_for
+from ...tools import ToolRegistry, build_registry
+from ...tools.auto_policy import is_read_only_command
+from ...tools.capabilities import CapabilityRegistry
+from ...tools.emulation import coerce_arguments, validate_arguments
+from ...tools.files import resolve_path
+from ...tools.preview import file_diff
+from ...tools.web import loopback_origins_in
+from ...ui.text import strip_thinking
+from ..effects.model import EffectKind
+from ..effects.runner import maybe_run_effect_workflow
+from . import compaction, denial, learning_steps, liveness, reflexion, review
+from .action_evidence import claimed_effects
+from .apprentice_handoff import apprentice_spec, teacher_for_turn
+from .approval import ApprovalPolicy, Decision, resolve_request
+from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
+from .child_runs import ChildRuns
+from .clarify import clarification_hint, vague_fix_question
+from .edit_hooks import EDIT_TOOLS, run_post_edit_hooks
+from .edit_streak import next_streak, streak_note
+from .engine_tools import UserAsker, build_agent_registry
+from .execution_policy import (
+    ExecutionPolicy,
+    policy_for,
+    refresh_mutation_policy,
+)
+from .execution_route import ExecutionRoute, choose_execution_route
+from .expertise import expertise_hint, is_desktop_task, is_game_task, is_remotion_task
+from .history import needs_compression, total_chars
+from .loop_contract import (
+    _SHELL_FRAME as _SHELL_FRAME,
+)
+from .loop_contract import (
+    CORRECTION_NOTE_PREFIX as CORRECTION_NOTE_PREFIX,
+)
+from .loop_contract import (
+    _correction_task as _correction_task,
+)
+from .loop_contract import (
+    _duplicate_call_message as _duplicate_call_message,
+)
+from .loop_contract import (
+    _encode_arguments as _encode_arguments,
+)
+from .loop_contract import (
+    _failure_signature as _failure_signature,
+)
+from .loop_contract import (
+    _is_tool_contract_error as _is_tool_contract_error,
+)
+from .loop_contract import (
+    _parse_arguments_checked as _parse_arguments_checked,
+)
+from .loop_contract import (
+    _suggested_tool_schema as _suggested_tool_schema,
+)
+from .loop_contract import (
+    _tool_contract_abort_message as _tool_contract_abort_message,
+)
+from .loop_contract import (
+    _tool_contract_failure as _tool_contract_failure,
+)
+from .loop_contract import (
+    _verification_correction_task as _verification_correction_task,
+)
+from .narration import intro_paragraph, todo_transitions
+from .output_verify import requested_outputs_in
+from .plan_runner import run_execution_plan
+from .platform_check import ensure_limitations_disclosed, run_platform_check
+from .playbook_stage import maybe_run_playbook
+from .project_instructions import read_all_instructions
+from .questions import PendingUserQuestions
+from .repair_flow import record_failure_evidence
+from .repo_context import repo_map_block
+from .self_knowledge import GUIDE, knowledge_block
+from .teacher_flow import (
+    prepare_teacher_plan,
+    review_teacher_changes,
+    settle_teacher_plan,
+    teacher_is_ready,
+)
+from .teacher_plan import TeacherPlan, UnworkablePart
+from .transient import MAX_TOOL_TRANSIENT_RETRIES, is_transient_failure
+from .turn_hints import design_hint, identity_hint, preview_hint, scope_hint, store_hint
+from .turn_report import TurnReport, build_turn_report, claims_command_success
+from .verifier_repair import observe_verifier_failures
+from .workspace_hint import find_workspace_for
+
+_PROMPTS = Path(__file__).parent / "prompts"
+SYSTEM_PROMPT = (_PROMPTS / "system.md").read_text(encoding="utf-8")
+#: Sohbet kipinin kimliği. Aynı motor ve aynı tek model kullanılır; fark, Fusion'ın
+#: kendiliğinden çalışma dizinini taramamasıdır. Kod kipi `SYSTEM_PROMPT` ile kalır.
+CHAT_SYSTEM_PROMPT = (_PROMPTS / "system_chat.md").read_text(encoding="utf-8")
+#: Yalnız araç çağırabilen API modellerine çekirdeğin ARDINDAN eklenen kapsamlı
+#: çalışma ve konuşma ilkeleri. Web modellerinin bağlamı dar olduğundan onlara
+#: verilmez; çekirdeğin bağlam bütçesi (`tests/test_system_prompt_diet.py`) bu
+#: katmanı kapsamaz.
+API_SYSTEM_PROMPT = (_PROMPTS / "system_api.md").read_text(encoding="utf-8")
+PLAN_MODE_PROMPT = (_PROMPTS / "plan_mode.md").read_text(encoding="utf-8")
+
+#: Yarım kalan turda en fazla kaç kez "devam et" enjekte edilir.
+MAX_AUTO_CONTINUE = 1
+#: İlerlemesiz turlar birikince kullanıcıya gösterilen durum satırı.
+STALL_STATUS = "İlerleme yavaşladı; model sıradaki somut adıma yönlendirildi"
+#: Doğrulama kapısının bir turda en fazla kaç kez çalışacağı.
+#:
+#: 1 yetmiyordu: düzeltici tur KENDİ hatasını üretebiliyor. Gerçek koşuda kapı beş
+#: sorunu bildirdi, model düzeltirken index.html'i yeniden yazdı ve <script> etiketini
+#: düşürdü — sayfa tamamen boş kaldı, kapı bir daha bakmadığı için öyle teslim edildi.
+#: 2 bu regresyonu yakalar; daha fazlası sonsuz düzeltme döngüsü riskidir.
+MAX_VERIFY_ROUNDS = 2
+
+#: Boş cevapta kaç kez daha denenir. Sınırsız denemek kotayı ve zamanı tüketir;
+#: hiç denememek turu iş yapmadan bitirir (ölçüldü).
+MAX_EMPTY_RETRIES = 2
+#: Bozuk araç çağrısı için TÜM tur boyunca tanınan onarım hakkı.
+#
+# Eskiden 1'di ve 12 turluk işler için ölçülmüştü. Turlar 22 tura çıkınca bu hak
+# orantısız kaldı: yirmi adımlık bir işin herhangi bir yerindeki TEK yazım hatası
+# tüm turu öldürüyor ve o ana kadarki işi çöpe atıyordu (ölçüldü: dört koşunun
+# biri böyle düştü).
+#
+# Sayı tur uzunluğuyla birlikte büyütülür, sınırsız değildir: aynı bozuk çağrıyı
+# tekrarlayan model zaten `seen >= 1` kuralıyla ayrıca durdurulur ve ilerleme
+# üretmeyen turları "ilerleme yok" kapısı bitirir.
+MAX_TOOL_CONTRACT_REPAIRS = 4
+
+
+#: Plan modunda değiştirici araç hiç çalıştırılmaz ve kullanıcıya sorulmaz.
+BLOCKED_MESSAGE = "PLAN MODU: değişiklik yapılamaz. Sorma, yalnızca planı sun."
+#: Görev gerçek bir etki istiyor ama model bunu yapamıyor. Kullanıcıya NE YAPACAĞINI
+#: söyler: sebep + çıkış yolu. Hata mesajı eyleme dönüştürülebilir olmalıdır (RULES).
+MUTATION_UNAVAILABLE_ANSWER = (
+    "Bu görev dosya/sistem değişikliği gerektiriyor ama seçili model bunu yapamıyor: "
+    "{reason}.\n\n"
+    "Yapılacak: `fusion serve` ile paneli aç → Sağlayıcılar → ilgili web oturumu → "
+    '"Araç yeteneğini ölç". Ölçüm geçerse izin açılır. Alternatif olarak `/model` ile '
+    "araç yetenekli bir API modeline geç.\n\n"
+    "Hiçbir değişiklik yapılmadı."
+)
+#: Model yetenek kapısına takıldı: okuyabilir, planlayabilir ama değiştiremez.
+MUTATION_BLOCKED_MESSAGE = (
+    "Bu model dosya/sistem değiştiremez ({reason}). Değişiklik önerini metin olarak "
+    "yaz; uygulamayı kullanıcı ya da araç yetenekli bir model üstlenecek."
+)
+
+_DECISION_OUTCOMES = {
+    Decision.DENIED: ToolOutcome.DENIED,
+    Decision.BLOCKED: ToolOutcome.BLOCKED,
+}
+
+
+def _decision_message(decision: Decision, *, plan_mode: bool) -> str:
+    """Reddedilen/engellenen çağrı için modele dönecek metni seç.
+
+    `Decision.BLOCKED` İKİ ayrı sebepten gelebilir ve ikisinin metni FARKLI
+    olmalıdır: plan modunda hiç sorulmaz (`BLOCKED_MESSAGE`); auto/security
+    modunda ise oturum etkileşimsiz olduğu için sorulAMAMIŞTIR
+    (`denial.APPROVAL_UNAVAILABLE_MESSAGE`) — tur ikisinde de sürer ama sebep
+    kullanıcıya değil ortama aittir. `Decision.DENIED` ise artık YALNIZCA gerçek
+    bir insan reddini taşır; o turu durdurduğu için kısa bir iz mesajı yeter
+    (bkz. `loop._drive`, `denial.DENIAL_STOP_ANSWER`).
+    """
+    if decision is Decision.DENIED:
+        return denial.DENIED_TOOL_RESULT
+    if plan_mode:
+        return BLOCKED_MESSAGE
+    return denial.APPROVAL_UNAVAILABLE_MESSAGE
+
+
+def _new_budget(config: Config, deadline: TurnDeadline | None = None) -> TurnBudget:
+    """Bir kullanıcı turu için bütçe kur.
+
+    Eşiklerin bir kısmı yapılandırmadan, bir kısmı yukarıdaki sabitlerden gelir ve bu
+    bilinçlidir: kullanıcının ayarlaması anlamlı olanlar (adım sayısı, boşta tur)
+    `defaults.yaml`'dadır; "kaç kez devam et denir" gibi davranış detayları koddadır
+    ve gerekçeleri sabitin yanında yazılıdır.
+    """
+    return TurnBudget(
+        clock=deadline.clock if deadline else SystemClock(),
+        total_timeout_s=deadline.remaining_s() if deadline else None,
+        max_model_calls=config.runtime.agent_max_steps,
+        max_verify_rounds=MAX_VERIFY_ROUNDS,
+        max_empty_retries=MAX_EMPTY_RETRIES,
+        max_contract_repairs=MAX_TOOL_CONTRACT_REPAIRS,
+        max_auto_continues=MAX_AUTO_CONTINUE,
+        max_idle_rounds=config.runtime.agent_max_idle_rounds,
+    )
+
+
+@dataclass(slots=True)
+class AgentOutcome:
+    """Bir agent turunun sonucu."""
+
+    final_text: str
+    messages: list[Message]
+    tool_calls_made: int = 0
+    #: Adım sınırına dayanıldı mı?
+    hit_step_limit: bool = False
+    #: Tur temiz bitti mi? Model akışı hata verirse False. Ders güvenini besler.
+    ok: bool = True
+    #: Başarıyla çalışan değiştirici araç sayısı. Koşullu denetim/öğrenme kapısı kullanır.
+    mutating_tool_calls_made: int = 0
+    #: Başarısız araç sayısı. Basit salt-okuma turu ile sorunlu turu ayırır.
+    failed_tool_calls: int = 0
+    #: Bu turda yapılan gerçek model çağrısı sayısı (teşhis ve bütçe için).
+    model_calls_made: int = 0
+    #: Bu turda kaç kez bağlam özetlendi (condensation).
+    #
+    # Sayı teşhis sinyalidir: sık özetleme, bağlamın taşmakta olduğunu söyler ve
+    # devam eden turun neyin özetlendiğini bilmesi gerekir.
+    condensations: int = 0
+    #: Planlama çağrıları toplam model sayısına dahildir; final kapıları model değildir.
+    planning_calls_made: int = 0
+    final_verification_calls: int = 0
+    #: Aynı çağrı bu turda ZATEN yapıldığı için engellenen çağrı sayısı.
+    #:
+    #: "Hiçbir şey yapmadım" ile "iş zaten yapılmıştı" farklı sonuçlardır ve
+    #: sayaçlar bunları ayırt edemezse plan adımı geçilemez hâle gelir.
+    already_done_calls: int = 0
+    #: Turda DENENEN araç çağrıları, çalışma sırasıyla. Sayaçlar "kaç tane"
+    #: sorusuna cevap verir; yükseltme kararı "hangileri, hangi sırada" bilgisini
+    #: ister (bağımlılık zinciri ve araç ailesi bundan okunur).
+    tool_uses: tuple[ToolUse, ...] = ()
+
+    #: Nihai cevap akış sırasında ekrana ulaştı mı? Ulaştıysa `TurnAnswered`
+    #: yayınlanmaz; aynı metin iki kez basılmaz.
+    answer_streamed: bool = False
+    #: Görevdeki dosyaların hiçbiri bulunamadı — muhtemelen yanlış çalışma dizini.
+    wrong_workspace: bool = False
+    #: Tur bir BÜTÇE sınırına çarparak bitti mi? Sebep ayrıca yayınlanmıştır;
+    #: `final_text` modelin cevabıdır, hata metni değildir.
+    budget_stopped: bool = False
+    #: Bütçe durdurduysa sebebi (`BudgetStop` değeri); arayüz özet metnini kurar.
+    stop_reason: str | None = None
+    #: Tur bittiğindeki görev listesi; yarım kalan işin özetinde gösterilir.
+    todos: tuple[TodoItem, ...] = ()
+    #: Turda modele "ilerleme yok" uyarısı verildi mi? Ders çıkarımı bu turu atlar.
+    stalled: bool = False
+    #: Tur model hatasıyla bittiyse HAM hata metni. Kullanıcıya dostça mesaj gider;
+    #: hatanın kalıcı mı geçici mi olduğu kararı bu ham metinden verilir.
+    model_error: str | None = None
+    #: Kapanışta zaten hesaplanan rapor; yokluğu doğrulama kanıtı uydurmaz.
+    completion_report: TurnReport | None = None
+
+    @property
+    def made_no_changes(self) -> bool:
+        """Tur araç çalıştırdı ama hiçbir şey değiştirmedi mi?
+
+        Araç HİÇ çağrılmayan tur dışarıdadır: düz sohbet cevabında "değişiklik
+        yapılmadı" demek gürültüdür, kimse değişiklik beklemiyordu.
+        """
+        return self.tool_calls_made > 0 and self.mutating_tool_calls_made == 0
+
+
+@dataclass(slots=True)
+class AgentDeps:
+    """Motorun dış bağımlılıkları. Testte tamamı sahteyle verilebilir."""
+
+    config: Config
+    publisher: EventPublisher
+    policy: ApprovalPolicy
+    tool_context: ToolContext
+    #: Yerleşik araçlar. Motora bağlı araçlar çalışma anında bunun kopyasına eklenir.
+    base_registry: ToolRegistry = field(default_factory=build_registry)
+    #: Kullanıcıya soru sorabilen taraf. Yoksa `ask_user` aracı hiç sunulmaz.
+    asker: UserAsker | None = None
+    #: Anlamsal kod araması. Yoksa `search_codebase` aracı hiç sunulmaz.
+    code_index: CodeIndex | None = None
+    #: Öğrenilen dersler. Yoksa hatırlama ve ders çıkarımı atlanır.
+    lessons: LessonMemory | None = None
+    #: Skill/agent kütüphanesi. Yoksa arama ve devretme araçları hiç sunulmaz.
+    capabilities: CapabilityRegistry | None = None
+    #: Geçmiş kaynaklarının aranacağı ev dizini. Yoksa `read_session` aracı hiç sunulmaz.
+    home: Path | None = None
+    #: Kullanıcının `.claude/settings.local.json` içinde onaysız izin verdiği komutlar.
+    allowed_commands: frozenset[str] = frozenset()
+    #: Verilirse ders çıkarımı turu BEKLETMEDEN arka planda çalışır (REPL için).
+    #: Verilmezse tur içinde beklenir (tek seferlik CLI için doğru davranış).
+    background: BackgroundTasks | None = None
+    channel: Channel = Channel.MAIN
+    #: Bu turda kaç kez bağlam özetlendi; plan yürütücüsü checkpoint'e taşır.
+    condensations: int = 0
+    #: Kullanıcının koşan işe ilettiği yönergeler; her alt turdan önce boşaltılır.
+    questions: PendingUserQuestions = field(default_factory=PendingUserQuestions)
+    child_runs: ChildRuns = field(default_factory=ChildRuns)
+    selected_skill: SkillSelection | None = None
+    effect_recorder: EffectRecorder | None = None
+    steering: SteeringQueue | None = None
+    policy_factory: Callable[[], ApprovalPolicy] | None = None
+    approval_revision: Callable[[], object] | None = None
+    ancestor_mutation_barrier: Callable[[], bool] | None = None
+    #: Kullanıcının seçtiği görev tipi (`/type`). `task_model_map` üzerinden bu turda
+    #: kullanılacak modeli belirler; haritada karşılığı yoksa `agent:` rolü kullanılır.
+    task_type: str = "general"
+    #: Verilirse kod değiştiren tur sonrası doğrulama kapısı çalışır ve sonucu ders
+    #: güvenini besler. Verilmezse (varsayılan) mevcut davranış birebir korunur.
+    verifier: Verifier | None = None
+    #: Oturum boyunca paylaşılan sağlayıcı sağlığı (circuit breaker + güvenilirlik).
+    #: Verilirse sağlıksız model turlar arası atlanır. Verilmezse breaker kurulmaz.
+    health: HealthRegistry | None = None
+    #: Verilirse kök turun konuşması her araç turundan sonra diske yazılır; süreç
+    #: tur ortasında kapanırsa sekme kaldığı adımdan sürdürebilir. Alt ajanlar ve
+    #: iç (denetim) turları yazmaz: günlük kullanıcının asıl turunu taşır.
+    journal: TurnJournal | None = None
+    #: Aynı üst görevde otomatik web öğretmene yalnız bir kez danışılır.
+    auto_teacher_used: bool = False
+    #: İlk plan, takılma ve son denetim aynı tur bütçesini paylaşır.
+    teacher_calls_used: int = 0
+    #: Öğretmen yok/bütçe dolu bildirimi bu turda bir kez gösterilir.
+    teacher_unavailable_notified: bool = False
+    #: Otomatik öğretmen çağrısı sürerken cevap anında ders olarak yazılmaz.
+    teacher_lesson_sync_deferred: bool = False
+    #: Bu turda öğretmenden alınan ve tur sonunda sonucuyla yazılacak plan.
+    pending_teacher_plan: TeacherPlan | None = None
+    #: Bu turda hafızadan yeniden kullanılan plan dersi.
+    reused_teacher_lesson: Lesson | None = None
+    #: Öğretmenin bu turda bildirdiği dış kısıtlar; cevapta anılmadıysa eklenir.
+    platform_limitations: list[UnworkablePart] = field(default_factory=list)
+    #: Bu turda adı geçen dış platformlar ve resmi kaynaktan doğrulanıp doğrulanmadığı.
+    platform_names: tuple[str, ...] = ()
+    platform_check_verified: bool = False
+    #: Yalnız mevcut kullanıcı turunda geçerli model devri; açık model seçimini
+    #: yapılandırma dosyasında değiştirmez.
+    active_model_override: ModelSpec | None = None
+    #: TURUN TAMAMI için tek sayaç otoritesi. `run_agent` bunu tur başında bir kez
+    #: kurar; öz-denetim ve doğrulama kapısının açtığı iç içe çağrılara AYNI nesne
+    #: devredilir. `None` bırakılırsa ilk `run_agent` çağrısı kurar.
+    #:
+    #: Testler kendi bütçesini vererek sınırları daraltabilir.
+    budget: TurnBudget | None = None
+    #: Turun yürütme politikası. Bütçe gibi TUR BAŞINDA belirlenir ve iç içe
+    #: çağrılara devredilir.
+    #:
+    #: Ölçüldü: öz-denetim/doğrulama turu politikayı DÜZELTME METNİNDEN yeniden
+    #: türetiyordu. Asıl görev BUGFIX (12 araç turu) olsa bile düzeltme metni basit
+    #: sohbet sanılıp 5 tura düşüyor ve iş yarıda kesiliyordu.
+    execution: ExecutionPolicy | None = None
+    #: Profesyonel workflow'un kesintiden sonra devam edebilmesi için kalıcı depo.
+    checkpoint_store: CheckpointStore | None = None
+    #: Aynı kökteki farklı sohbetlerin checkpoint'lerini birbirinden ayırır.
+    conversation_id: str = ""
+    #: İlk dış turda çıkarılan zorunlu model yetenekleri; iç turlar aynı kararı taşır.
+    task_requirements: TaskRequirements | None = None
+    #: Bu turda `recall_lessons` ile hatırlanan dersler. Tur sonunda güvenleri
+    #: turun sonucuna göre güncellenir (`learning_steps.reinforce_recalled`).
+    recalled_lessons: list[Lesson] = field(default_factory=list)
+
+    deadline: TurnDeadline | None = None
+
+    def mutation_blocked_by_pending_input(self) -> bool:
+        """Child parent girdisini tüketmeden aynı değişiklik bariyerini görür."""
+        return (
+            self.questions.pending
+            or self.questions.ready
+            or (self.steering is not None and self.steering.pending)
+            or (self.ancestor_mutation_barrier is not None and self.ancestor_mutation_barrier())
+        )
+
+    def require_budget(self) -> TurnBudget:
+        """Bütçeyi döndür; kurulmamışsa programlama hatasıdır.
+
+        `run_agent` her çalıştığında bütçenin kurulu olduğunu garanti eder; bu metot
+        yalnızca döngü içindeki kodun `None` kontrolü yapmasını gereksiz kılar.
+        """
+        if self.budget is None:
+            raise FusionError("Tur bütçesi kurulmadan agent döngüsü çalıştırılamaz.")
+        return self.budget
+
+
+async def run_agent(
+    task: str,
+    deps: AgentDeps,
+    *,
+    history: list[Message] | None = None,
+    plan_mode: bool = False,
+    chat_mode: bool = False,
+    extra_system: str = "",
+    depth: int = 0,
+    self_review: bool | None = None,
+    allowed_tools: set[str] | None = None,
+    step_limit: int | None = None,
+    verify: bool = True,
+    internal: bool = False,
+    require_local_mutation: bool = False,
+    system_prompt: str | None = None,
+    images: tuple[str, ...] = (),
+    workflow: bool = False,
+) -> AgentOutcome:
+    """Kök turun sahipli sorularını her çıkış yolunda temizle."""
+    try:
+        return await _run_agent(
+            task,
+            deps,
+            history=history,
+            plan_mode=plan_mode,
+            chat_mode=chat_mode,
+            extra_system=extra_system,
+            depth=depth,
+            self_review=self_review,
+            allowed_tools=allowed_tools,
+            step_limit=step_limit,
+            verify=verify,
+            internal=internal,
+            require_local_mutation=require_local_mutation,
+            system_prompt=system_prompt,
+            images=images,
+            workflow=workflow,
+        )
+    finally:
+        if depth == 0 and not internal:
+            await deps.questions.close()
+
+
+async def _run_agent(
+    task: str,
+    deps: AgentDeps,
+    *,
+    history: list[Message] | None = None,
+    plan_mode: bool = False,
+    chat_mode: bool = False,
+    extra_system: str = "",
+    depth: int = 0,
+    self_review: bool | None = None,
+    allowed_tools: set[str] | None = None,
+    step_limit: int | None = None,
+    verify: bool = True,
+    internal: bool = False,
+    require_local_mutation: bool = False,
+    system_prompt: str | None = None,
+    images: tuple[str, ...] = (),
+    workflow: bool = False,
+) -> AgentOutcome:
+    """Bir görevi araçlarla çalıştır. Döndürülen geçmiş bir sonraki tura beslenir.
+
+    `allowed_tools` verilirse modele YALNIZCA o araçlar sunulur (uzman agent'lar
+    kendi araç setini bildirebilir). Boş küme tüm araçları kapatır; dolu kümede
+    görev yönetimi ve soru sorma araçları ayrıca sunulur.
+
+    `chat_mode` sohbet turudur: model okur ve cevaplar, çalışma alanını
+    DEĞİŞTİRMEZ ve plan motoruna girmez (bkz. `chat_mode.py`).
+
+    Varsayılan yol tek ReAct döngüsüdür; ne zaman araç kullanacağına ve çok
+    adımlı işte `todo_write` ile plan tutacağına model karar verir. Plan motoru
+    yalnız `workflow=True` (kullanıcı `/plan-yurut` seçti) ya da
+    `workflow_mode: always` ile çalışır ve kök konuşmanın tamamını alır.
+    """
+    # Bütçe turun EN BAŞINDA bir kez kurulur ve buradan sonra her iç içe çağrı aynı
+    # nesneyi görür. Öz-denetim ve doğrulama kapısı `run_agent`'ı yeniden çağırdığı
+    # için, bütçe orada kurulsaydı her düzeltici tur sıfırdan başlardı — düzeltilen
+    # hata tam olarak buydu.
+    if deps.budget is None:
+        deps.budget = _new_budget(deps.config, deps.deadline)
+    if deps.deadline is not None:
+        deps.budget.constrain_remaining_s(deps.deadline.remaining_s())
+        if (
+            external_remaining := deps.budget.remaining_s()
+        ) is not None and external_remaining <= 0:
+            return _halt(
+                "Dış isteğin süre sınırı doldu; yeni işlem başlatılmadı.",
+                [*(history or []), Message("user", task)],
+                _State(internal=internal),
+                deps.budget,
+                BudgetStop.DEADLINE,
+                deps,
+            )
+    if depth == 0 and not internal:
+        deps.active_model_override = None
+        # Kullanıcının mesajında AÇIKÇA yazdığı yerel adresler tarayıcı araçlarına
+        # açılır (kendi geliştirme sunucusu, Fusion'ın önizlemesi). Düzeltici iç
+        # turlar ve alt ajanlar bu kümeye ekleme yapamaz.
+        deps.tool_context.local_origins.update(loopback_origins_in(task))
+        # İstenen çıktılar YALNIZ bu isteğe aittir; önceki isteğin yolları taşınmaz.
+        deps.tool_context.requested_outputs.clear()
+        deps.tool_context.requested_outputs.update(requested_outputs_in(task))
+        deps.tool_context.task_kinds.difference_update({"oyun", "remotion", "masaustu"})
+        if is_game_task(task):
+            deps.tool_context.task_kinds.add("oyun")
+        if is_remotion_task(task):
+            deps.tool_context.task_kinds.add("remotion")
+        if is_desktop_task(task):
+            deps.tool_context.task_kinds.add("masaustu")
+
+    if not plan_mode and not chat_mode and depth == 0:
+        played = await maybe_run_playbook(task, deps)
+        if played is not None:
+            return played
+
+    registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
+    if deps.task_requirements is None and depth == 0:
+        deps.task_requirements = infer_task_requirements(
+            task,
+            has_images=bool(images),
+            mutating=require_local_mutation,
+        )
+
+    # Hedefi belirsiz kısa "düzelt" isteği: model çağrılmadan netleştirme sorusu döner.
+    vague_question = (
+        vague_fix_question(
+            task, first_turn=not any(message.role == "user" for message in history or ())
+        )
+        if depth == 0 and not chat_mode and not internal
+        else None
+    )
+    if vague_question is not None:
+        vague_outcome = AgentOutcome(
+            final_text=vague_question,
+            messages=[
+                *(history or []),
+                Message("user", task),
+                Message("assistant", vague_question),
+            ],
+            ok=True,
+            model_calls_made=0,
+        )
+        _announce_answer(vague_outcome, deps, depth=depth, internal=internal)
+        return vague_outcome
+
+    # Gerçek dünya etkisi için deterministik handler varsa LLM ReAct döngüsünü
+    # tamamen atla. Modelin "pushluyorum" demesi operasyon sonucu değildir; Git
+    # workflow'u post-condition (local HEAD == remote HEAD) kanıtını kendisi üretir.
+    effect_result = (
+        None
+        if chat_mode
+        else await maybe_run_effect_workflow(task, deps, registry, plan_mode=plan_mode, depth=depth)
+    )
+    if effect_result is not None:
+        effect_messages = list(history or [])
+        effect_messages.append(Message("user", task))
+        effect_messages.append(Message("assistant", effect_result.final_text))
+        return AgentOutcome(
+            final_text=effect_result.final_text,
+            messages=effect_messages,
+            tool_calls_made=effect_result.tool_calls_made,
+            ok=effect_result.ok,
+            mutating_tool_calls_made=effect_result.mutating_tool_calls_made,
+            failed_tool_calls=effect_result.failed_tool_calls,
+            model_calls_made=0,
+        )
+
+    # Dersler ve beceri metinleri tur başında sisteme BASILMAZ; model onları
+    # `recall_lessons` / `find_skill` + `read_skill` ile ister. Ölçüldü: görev
+    # türüne göre seçilen uzmanlık ve dersler yanlış türde yanlış bağlamı
+    # taşıyordu (WEBSITE sanılan bir turda 21 KB'lık web referansı eklendi).
+    proje_ve_dis_bellek = read_all_instructions(deps.tool_context.root, deps.home)
+    # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Kod kipinde
+    # kök turda eklenir; sohbet kipi çalışma dizinini taramaz.
+    harita = repo_map_block(deps.tool_context.root) if depth == 0 and not chat_mode else ""
+    teacher_hint = (
+        "Karmaşık çok dosyalı görevde kendi incelemenden sonra bir mimari risk veya "
+        "doğrulama belirsizliği kalırsa `ask_teacher` ile tek somut soru sor. "
+        "Sırları ve özel verileri öğretmene gönderme."
+        if depth == 0 and not chat_mode and teacher_is_ready(deps, registry)
+        else ""
+    )
+    # Belirsiz yeni proje isteğinde koda başlamadan seçenekli soru (bkz. `clarify`).
+    netlestirme = (
+        clarification_hint(
+            task,
+            deps.tool_context.root,
+            can_ask=registry.get("ask_user") is not None,
+            first_turn=not any(message.role == "user" for message in history or ()),
+        )
+        if depth == 0 and not chat_mode and not internal
+        else None
+    )
+    # İsteğe özel yönlendirme: önizleme, çok büyük kapsam, siteye benzetme (bkz. `turn_hints`).
+    istek_notlari = (
+        (
+            preview_hint(task, available=registry.get("start_preview") is not None),
+            scope_hint(task),
+            store_hint(task),
+            design_hint(
+                task,
+                available=registry.get("site_design") is not None,
+                clone_available=registry.get("clone_site") is not None,
+            ),
+            expertise_hint(task, registry=deps.capabilities, publisher=deps.publisher)
+            if deps.selected_skill is None
+            else None,
+        )
+        if depth == 0 and not chat_mode and not internal
+        else ()
+    )
+    messages = _initial_messages(
+        task,
+        history,
+        plan_mode=plan_mode,
+        extra_system="\n\n".join(
+            part
+            for part in (
+                proje_ve_dis_bellek,
+                harita,
+                teacher_hint,
+                netlestirme,
+                identity_hint(deps.config.agent.model),
+                *istek_notlari,
+                extra_system,
+            )
+            if part
+        ),
+        # İç düzeltici turlar sistem metnini geçmişten miras alır; yeniden
+        # hesaplanan ders/uzmanlık bloğu öneki kaydırıp sohbeti sıfırlıyordu.
+        inherit_system=internal,
+        system_prompt=system_prompt,
+        images=images,
+    )
+
+    if depth == 0 and not internal and deps.selected_skill is not None:
+        selected = deps.selected_skill
+        deps.publisher.publish(
+            SkillLoaded(
+                qualified_name=selected.qualified_name,
+                revision=selected.revision,
+                mode="explicit",
+                next_offset=selected.next_offset,
+            )
+        )
+    if deps.execution is None:
+        try:
+            selected_spec = select_agent_spec(
+                deps.config, deps.task_type, requirements=deps.task_requirements
+            )
+        except ConfigError as error:
+            # Henüz hiçbir model çağrılmadı. Normal başarısız sonuç döndürerek
+            # oturumun bitiş olayı ve ekleri içeren geçmişi kaydetmesini sağla.
+            messages.append(Message("assistant", str(error)))
+            return AgentOutcome(final_text=str(error), messages=messages, ok=False)
+        # Geçmişin tamamını birleştirme: yalnız açık devam talebi önceki
+        # kullanıcı işini miras alır. Yeni soru/selam eski mutasyonu gerektirmez.
+        deps.execution = policy_for(deps.config, selected_spec, task, history=history or ())
+        handed = _hand_off_to_apprentice(task, selected_spec, deps, plan_mode=plan_mode)
+        if handed:
+            # Öğretmen bu tur eklendiyse `ask_teacher` aracı defterde olmalı.
+            registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
+    execution = deps.execution
+    if chat_mode:
+        # Sohbet turu: değiştirme kapalı, kanıt kapıları kapalı, yalnız okuyan araçlar.
+        execution = chat_execution(execution)
+        allowed_tools = set(chat_tool_names(registry)) if allowed_tools is None else allowed_tools
+    elif (
+        not plan_mode and execution.allow_mutation and execution.required_effect == "workspace_read"
+    ):
+        # Kod kipinde de gözlem kilidi: turun METNİ yalnızca okuma/inceleme
+        # istiyorsa model o turda yazamaz. Plan modu zaten kendi onay
+        # politikasıyla (`PlanApproval`) her değişikliği engeller; model gerçek
+        # bir yetenek kısıtına (`allow_mutation=False`) çarpmışsa o kısıt
+        # önceliklidir, buradaki gözlem gerekçesiyle EZİLMEZ.
+        execution = observe_execution(execution, WORKSPACE_READ_REASON)
+    if allowed_tools is not None:
+        names = frozenset(
+            _permitted(allowed_tools, registry, execution, deps.tool_context.task_kinds) or ()
+        )
+        execution = replace(execution, allowed_tool_names=names)
+    # Web taşımasında bağlam pahalıdır: uzun okuma hem gecikme hem context rot
+    # üretir. SWE-agent'ın ölçümü turda ~100 satırı en iyi pencere olarak veriyor;
+    # API yolunda mevcut ölçülmüş davranış (800 satır) korunur.
+    if execution.is_web and deps.tool_context.read_window is None:
+        deps.tool_context = replace(deps.tool_context, read_window=WEB_READ_WINDOW)
+    # Kapsamlı talimat katmanı yalnız kök sistem metnine, API modelinde ve bir kez
+    # eklenir. İç turlar sistem metnini geçmişten devralır (önek kaymasın); açık
+    # `system_prompt` veren çağıranlar (sohbet kipi, plan adımı) kendi metnini korur.
+    if (
+        not execution.is_web
+        and not internal
+        and system_prompt is None
+        and messages
+        and messages[0].role == "system"
+        and API_SYSTEM_PROMPT not in messages[0].content
+    ):
+        messages[0] = Message("system", f"{messages[0].content}\n\n{API_SYSTEM_PROMPT}")
+    # Öz-bilgi katmanı TÜM modellere (yerel, API, web) bir kez eklenir: model Fusion'ın
+    # ne olduğunu ve BU turda hangi araç ailelerini taşıdığını bilir.
+    if (
+        not internal
+        and system_prompt is None
+        and messages
+        and messages[0].role == "system"
+        and GUIDE not in messages[0].content
+    ):
+        teacher = deps.config.teacher.model if deps.config.teacher is not None else ""
+        messages[0] = Message(
+            "system",
+            f"{messages[0].content}\n\n"
+            f"{knowledge_block([tool.name for tool in registry], teacher)}",
+        )
+    # Web AI'nın toplam süre sınırı bütçeye TUR BAŞINDA bir kez yazılır; iç içe
+    # çağrılarda yeniden kurulsaydı süre sınırı her düzeltmede tazelenirdi.
+    budget = deps.require_budget()
+    if execution.total_timeout_s is not None:
+        budget.constrain_remaining_s(execution.total_timeout_s - budget.elapsed_s)
+    if budget.idle_timeout_s is None and execution.idle_timeout_s is not None:
+        budget.idle_timeout_s = execution.idle_timeout_s
+
+    # Yetenek kapısı sessiz kalmamalı: değiştirici araçlar sunulmuyorsa kullanıcı
+    # bunu ve nasıl kaldıracağını GÖRMELİ. Görev zaten gerçek bir etki istiyorsa
+    # model çağrısı harcamadan dururuz — hiçbir tur bu kısıtı aşamaz.
+    if not execution.allow_mutation and not plan_mode:
+        # Yalnız bu turun metni açık bir DEĞİŞİKLİK istiyorsa model çağrılmadan
+        # durulur. Okuma ve web araması etkisi değişiklik değildir: model okuyup
+        # cevaplayabilir; değiştirici araçlar zaten sunulmaz ve kullanıcı
+        # `MutationUnavailable` ile nedenini görür. Ölçüldü (19 Eylül G7): "akışı
+        # incele ve anlat" `workspace_read` aldığı için model hiç çağrılmıyordu.
+        blocking = not execution.observe_only and execution.complex_task
+        deps.publisher.publish(
+            MutationUnavailable(reason=execution.mutation_block_reason, blocking=blocking)
+        )
+        if blocking:
+            return AgentOutcome(
+                final_text=MUTATION_UNAVAILABLE_ANSWER.format(
+                    reason=execution.mutation_block_reason
+                ),
+                messages=[*(history or []), Message("user", task)],
+                ok=False,
+            )
+
+    if depth == 0 and not internal and not plan_mode and not chat_mode:
+        await _publish_intro(task, messages, deps, execution, tuple(registry.names()))
+        # Salt okuma turunda (soru, geçmiş sorgusu) öğretmenden İŞ PLANI istenmez.
+        # Ölçüldü (1 Ekim olayı): "silmiş olabilir misin?" sorusu kurtarma planına
+        # dönüştü ve ajan cevap yerine dosya yazdı.
+        if execution.allow_mutation:
+            await prepare_teacher_plan(task, messages, deps, registry)
+        await run_platform_check(task, messages, deps, registry)
+
+    if not plan_mode and not chat_mode and depth == 0:
+        route = choose_execution_route(deps.config.runtime.workflow_mode, requested=workflow)
+        deps.publisher.publish(
+            ExecutionRouteSelected(route=route.route.value, reasons=route.reasons)
+        )
+        if route.route is ExecutionRoute.WORKFLOW:
+            # Plan motoru KÖK konuşmayı alır: sistem + önceki sohbet + bu turun
+            # mesajı. Geçmişsiz plan her adımda kullanıcının önceki söylediklerini
+            # kaybediyordu (gizli kelime vakası).
+            planned = await run_execution_plan(
+                task, deps, run_agent, conversation=messages, self_review=self_review
+            )
+            settle_teacher_plan(task, planned, deps, verification=None)
+            return planned
+
+    outcome = await _drive(
+        messages,
+        deps,
+        registry,
+        plan_mode=plan_mode,
+        allowed_tools=allowed_tools,
+        step_limit=step_limit,
+        execution=execution,
+        internal=internal,
+        auto_teacher=depth == 0 and not internal,
+        require_local_mutation=require_local_mutation,
+    )
+
+    verification = None
+    # Doğrulama turu hakkı da tur genelidir: iç içe bir düzeltme kendi kapı bütçesini
+    # açamaz (`verify=False` ile zaten kapatılıyor, bütçe bunu ikinci kez garanti eder).
+    while verify and budget.stop is None and budget.take_verify_round():
+        verification = await _verify(outcome, deps, plan_mode=plan_mode, depth=depth)
+        # Bulgu YOKLUĞU başarı değildir: `ok=False` tek başına düzeltmeyi hak eder.
+        # Koşul eskiden `not verification.findings` de arıyordu; yalnızca özet
+        # dolduran bir kapı (komut doğrulayıcısı) başarısız olduğunda agent
+        # düzeltmeye hiç başlamıyordu.
+        if verification is None or verification.ok:
+            break
+        # Somut bir verifier bulgusu correction için yeni ve eyleme geçirilebilir
+        # bilgidir. Idle saatini tazele; mutlak tur deadline'ı değişmez. Aksi halde
+        # uzun bir web turunun sonunda bulunan hata, düzeltici model daha araç
+        # çağırmadan eski hareketsizlik süresine takılıyordu.
+        repair_note = observe_verifier_failures(verification, budget)
+        if repair_note:
+            verification = replace(verification, findings=(*verification.findings, repair_note))
+        budget.record_progress()
+        outcome = await _fix_findings(verification, outcome, deps)
+
+    if depth == 0 and not internal and not plan_mode and not chat_mode and budget.stop is None:
+        teacher_findings = await review_teacher_changes(task, outcome, deps, registry)
+        if teacher_findings:
+            teacher_gate = VerificationResult(
+                ok=False,
+                summary="Öğretmen denetimi somut eksikler buldu.",
+                findings=teacher_findings,
+            )
+            prior_mutations = outcome.mutating_tool_calls_made
+            outcome = await _fix_findings(teacher_gate, outcome, deps)
+            if verify:
+                verification = await _verify(outcome, deps, plan_mode=plan_mode, depth=depth)
+            if outcome.mutating_tool_calls_made <= prior_mutations:
+                outcome.ok = False
+                outcome.final_text += (
+                    "\n\nÖğretmen bulgusu için doğrulanmış bir düzeltme yapılmadı."
+                )
+            else:
+                remaining = await review_teacher_changes(task, outcome, deps, registry)
+                if remaining is None or remaining:
+                    outcome.ok = False
+                    outcome.final_text += "\n\nÖğretmen bulgularının giderildiği doğrulanamadı."
+
+    if verification is not None and not verification.ok:
+        outcome.ok = False
+
+    # Deterministik kapılar olasılıksal model hakeminden önce çalışır. Somut bir
+    # derleme/statik/tarayıcı bulgusu varken hakeme bütçe harcatmak, düzeltilebilir
+    # hatanın bütçe kapanınca verifier'a hiç ulaşmamasına yol açıyordu.
+    should_review = deps.config.runtime.self_review if self_review is None else self_review
+    # Öz-denetim yalnız GERÇEK bir dosya mutasyonu olduğunda çalışır. Ölçüldü
+    # (B2 gecikmesi): "Sadece 'merhaba' yaz" gibi araçsız bir tur, eski koşulda
+    # (web taşımasında regex tabanlı `_web_self_review_needed`, API taşımasında
+    # koşulsuz) yine de bir hakem çağrısı harcıyordu. Koşul artık YAPISAL: metne
+    # bakmaz, yalnızca turda GERÇEKTEN mutasyon olup olmadığına bakar.
+    if outcome.mutating_tool_calls_made == 0:
+        should_review = False
+    # Tarayıcı araçları kayıtta "değiştirici" olsa da denetlenecek DOSYA bırakmaz.
+    # Ölçüldü (27 Eylül): Chrome okuma turunda öz-denetim fazladan bir model çağrısı
+    # yapıyor, panel hazır cevabı ancak ondan sonra görüyordu.
+    if all(
+        name.startswith(_BROWSER_TOOL_PREFIXES)
+        for name, _args, mutating in budget.successful_tool_evidence
+        if mutating
+    ):
+        should_review = False
+    # Kullanıcı GERÇEKTEN reddettiyse (`USER_DENIED`) öz-denetim çalışmaz: `_drive`
+    # bu turda modeli BİR DAHA ÇAĞIRMAYACAĞINI zaten garanti eder (bkz. döngü
+    # başındaki kontrol); öz-denetim bir model çağrısı daha yaparak bunu ihlal
+    # ederdi. Diğer bütçe durdurmaları (sözleşme onarılamadı, zaman aşımı…) bunun
+    # dışındadır: gerçek bir mutasyon olmuşsa öz-denetim yine de çalışmalı — onu
+    # kapatmak `test_mutasyondan_sonraki_arac_sozlesmesi_hatasi_oz_denetimi_atlamaz`
+    # ile ölçülen davranışı (geç bir sözleşme hatası yazılmış artefaktı denetimsiz
+    # bırakmamalı) bozardı.
+    if budget.stop is BudgetStop.USER_DENIED:
+        should_review = False
+    # Yanlış dizinde düzeltilecek bir şey YOKTUR. Ölçüldü: öz-denetim düzeltici
+    # turu tam bu durumda görevi terk edip kendine yeni iş uydurdu (o projenin
+    # README'sini okuyup "test paketini çalıştır" diye plan yazdı). Doğru cevap
+    # "bu dizinde o dosyalar yok" demektir; onu ikinci bir tur iyileştiremez.
+    if outcome.wrong_workspace:
+        should_review = False
+    if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
+        outcome = await _self_review(task, outcome, deps)
+
+    # Sohbet/gözlem turunda rapor yoktur: çalışma alanı zaten değiştirilemez,
+    # dolayısıyla doğrulanacak bir şey de yoktur (bkz. modül docstring "Gözlem
+    # turunda yazma tamamen kapalı olmalı").
+    #
+    # Rapor yalnız KÖK turda uygulanır — `_announce_answer`'daki
+    # `internal or depth != 0` erken çıkışıyla AYNI gerekçe. Öz-denetim
+    # (`_self_review`) ve doğrulama düzeltmesi (`_fix_findings`) `run_agent`'ı
+    # `internal=True` ile YENİDEN çağırır ve o iç çağrı da buraya, kendi
+    # sonunda, ayrıca gelir. Koşul olmadan aynı "✓ Doğrulandı" bloğu ÖNCE iç
+    # düzeltici turda (kendi `final_text`'inin başına), SONRA kök turda
+    # (düzeltmenin döndürdüğü `outcome` üzerinde bir daha) eklenir ve kullanıcı
+    # aynı metni art arda iki kez görür (ölçüldü). `plan_runner.py` da adım
+    # çağrılarını `internal=True` ile yapıp KENDİ konsolide raporunu
+    # (`_turn_report_text`) tüm adımların `tool_uses`'ından ayrıca kurduğu için
+    # buradaki iç turların atlanması onu bozmaz, aksine aynı çiftlenmeyi orada
+    # da önler.
+    if not chat_mode and not internal and depth == 0:
+        from ...tools.job_current import snapshot_current_jobs
+
+        current_jobs = await asyncio.to_thread(
+            snapshot_current_jobs, deps.tool_context.root, outcome.tool_uses
+        )
+        _apply_turn_report(
+            outcome,
+            deps,
+            gate=verification,
+            current_jobs=current_jobs,
+            require_behavioral_evidence=(
+                verify and execution.complex_task and len(deps.tool_context.changes.paths) > 1
+            ),
+        )
+
+    # Cevap ÖĞRENMEDEN ÖNCE duyurulur. Ölçüldü: iş bir dakikada bitti, cevap
+    # hazırdı, ama ders çıkarımı bitene kadar ekrana hiçbir şey basılmadı ve
+    # kullanıcı 20 dakika boş ekran gördü. Öğrenme muhasebedir; kullanıcıyı
+    # bekletemez.
+    if not chat_mode and not internal and depth == 0:
+        ensure_limitations_disclosed(outcome, deps)
+    _announce_answer(outcome, deps, depth=depth, internal=internal)
+
+    await learning_steps.learn(
+        task,
+        outcome,
+        deps,
+        plan_mode=plan_mode,
+        allow_read_only=execution.learn_read_only_turns,
+    )
+    # Hatırlanan derslerin kaydı turun TAMAMINA aittir; iç içe düzeltici turlar
+    # onu erkenden tüketip kendi (ara) sonucuyla pekiştirmemeli.
+    if depth == 0 and not internal:
+        await learning_steps.reinforce_recalled(
+            outcome, deps, plan_mode=plan_mode, verification=verification
+        )
+        settle_teacher_plan(task, outcome, deps, verification=verification)
+    outcome.messages = await _maybe_compress(outcome.messages, deps)
+    # Özetleme sayısı turun sonucuna taşınır: plan yürütücüsü onu checkpoint'e
+    # yazar ve devam eden tur neyin özetlendiğini bilir.
+    outcome.condensations = deps.condensations
+    # Tarayıcı oturumunun sahibi EN DIŞTAKİ turdur. İç içe çağrılar (öz-denetim,
+    # doğrulama düzeltmesi, alt-ajan) aynı bağlamı paylaşır; onların kapatması
+    # sürmekte olan turun sayfasını elinden alırdı. Kapatılmayan oturum arkada
+    # bir chromium süreci bırakır — RULES.md "oluşturulan her task'ın sahibi vardır".
+    if depth == 0 and deps.tool_context.browser.is_open:
+        await deps.tool_context.browser.close()
+    return outcome
+
+
+def _apply_turn_report(
+    outcome: AgentOutcome,
+    deps: AgentDeps,
+    *,
+    gate: VerificationResult | None,
+    current_jobs: tuple[JobCurrentSnapshot, ...] = (),
+    require_behavioral_evidence: bool = False,
+) -> None:
+    """Turun raporunu MODELİN BEYANINDAN değil gerçek kayıttan kur ve ekle.
+
+    Ölçüldü: model "hiçbir dosya değiştirmedim" ya da "tüm testler geçti"
+    diyebiliyordu ve bu cümle onun kendi sözüydü — gerçek değişiklik kaydına
+    (`deps.tool_context.changes`, A12) ya da gerçekten çalışan bir `run_shell`
+    çağrısının çıkış koduna (A1) hiç bakılmıyordu. `build_turn_report` yalnız bu
+    ikisine bakar; hiçbir mutasyon yoksa (D4) rapor boş kalır.
+
+    Bilinen bir bozukluğu (`gate.ok is False`) ya da GERÇEKTEN başarısız biten
+    bir doğrulama komutunu başarı diye teslim etmek hiç yazmamaktan kötüdür; bu
+    yüzden `report.blocks_success` turu `ok=False` yapar. Birden fazla dosya
+    değiştiren uzun kod görevinde son değişiklikten sonra davranış testi eksikse
+    de tamamlanma kanıtı yoktur.
+    """
+    from ...tools.files import display_path
+
+    changed_paths = tuple(
+        display_path(deps.tool_context, path) for path in deps.tool_context.changes.paths
+    )
+    report = build_turn_report(
+        changed_paths,
+        outcome.tool_uses,
+        gate,
+        current_jobs=current_jobs,
+        require_behavioral_evidence=require_behavioral_evidence,
+    )
+    if report.is_verified is False and claims_command_success(outcome.final_text):
+        # Kanıtsız "testler geçti" yanlış başarıdır: tur başarılı sayılmaz, ders
+        # öğrenilmez. Genel "doğrulandı" yalnız uyarı alır (`render_with_model_text`).
+        report = replace(report, false_claim=True)
+    outcome.completion_report = report
+    outcome.final_text = report.render_with_model_text(outcome.final_text)
+    if report.blocks_success:
+        outcome.ok = False
+
+
+def _announce_answer(outcome: AgentOutcome, deps: AgentDeps, *, depth: int, internal: bool) -> None:
+    """Kabul edilmiş nihai cevabı TEK noktadan yayınla.
+
+    Yayın noktası bilinçli olarak `run_agent`'ın SONUDUR, `_drive`'ın değil:
+    `_drive` her çağrıldığında bir "nihai cevap" üretir ve öz-denetim ile doğrulama
+    kapısı onu ikinci, üçüncü kez çalıştırır. `_outcome` içinde yayınlamak, çift
+    basma hatasını çözerken aynı hatayı düzeltici turlarda çoğaltırdı.
+
+    Üç kapı vardır ve üçü de gereklidir:
+
+    - `depth == 0` — alt-ajanın cevabı kullanıcının turu değildir; o zaten araç
+      sonucu olarak özetlenip basılır.
+    - `not internal` — öz-denetim ve doğrulama düzeltmesi `run_agent`'ı YENİDEN
+      çağırır ve bunlar `depth=0`'dır. Bayrak olmadan düzeltici tur da cevabını
+      yayınlıyor, dış tur aynı metni ikinci kez basıyordu (gerçek koşuda cevap
+      ekrana yapışık iki kez düştü).
+    - `outcome.ok` ya da BÜTÇE durdurması — başarısızlık metinleri
+      `ErrorOccurred`'ın tekelindedir. Bütçeyle kesilen tur istisnadır: sebep
+      ayrıca yayınlanmıştır ve `final_text` modelin cevabıdır, hata metni değil.
+      İkisini birden hata gibi basmak "✗ hata İş başarıyla tamamlanmıştır" gibi
+      kendiyle çelişen satırlar üretiyordu (ölçüldü).
+    - `not answer_streamed` — gerçekten akıtan sağlayıcılarda cevap ekrana zaten
+      ulaştı. İki yol asla aynı anda çalışmaz.
+    """
+    if internal or depth != 0 or outcome.answer_streamed:
+        return
+    if not (outcome.ok or outcome.budget_stopped):
+        return
+    if not outcome.final_text.strip():
+        return
+    deps.publisher.publish(
+        TurnAnswered(channel=deps.channel, text=strip_harness_leaks(outcome.final_text))
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Döngü
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(slots=True)
+class _State:
+    """TEK bir `_drive` çağrısının muhasebesi.
+
+    Tur geneli sayaçlar burada DEĞİL `deps.budget` içindedir: iç içe düzeltici turlar
+    aynı bütçeyi paylaşmalıdır. Buradakiler yalnızca bu çağrının raporlanan sonucunu
+    üretir ve çağıran tarafından toplanır.
+    """
+
+    observation_calls: int = 0
+    tool_calls_made: int = 0
+    mutating_tool_calls_made: int = 0
+    failed_tool_calls: int = 0
+    model_calls_made: int = 0
+    #: Çıktı bütçesi çarpanı: model bütçeyi düşünmeye harcayıp cevapsız kalırsa büyür.
+    max_tokens_scale: int = 1
+    #: Çıktı bütçesi düşünmeye gittiyse turun kalanında düşünme yoğunluğu düşürülür.
+    reasoning_relief: bool = False
+    #: Yinelenen olduğu için engellenen çağrı sayısı (bkz. AgentOutcome).
+    already_done_calls: int = 0
+    #: Denenen her araç çağrısı, SIRAYLA. Engellenen ve düşen çağrılar da girer:
+    #: yükseltme kararı "ne denendi" bilgisini "ne başardı" kadar önemser.
+    tool_uses: list[ToolUse] = field(default_factory=list)
+    tool_rounds: int = 0
+    tool_calls_last_turn: int = 0
+    evidence_reprompts: int = 0
+    #: "Hiç araç çağırmadan bitirme" kapısının kaç kez konuştuğu. Bir kezle sınırlı.
+    never_acted_prompts: int = 0
+    #: Otomatik-devam notundan ÖNCEKİ araçsız cevap (asıl teslim). Not "bittiyse tek
+    #: cümleyle teyit et" dediği için araçsız cevap teyittir; teslimi ezmemelidir.
+    #: Araç çağrısı yapılınca sıfırlanır (iş sürdü, eski cevap eskidi).
+    answer_before_nudge: str = ""
+    #: Sıkıştırmaya rağmen bağlamın eşikte kaldığı ardışık çağrı sayısı.
+    compaction_thrash: int = 0
+    #: Turda "ilerleme yok" uyarısı verildi mi? Böyle turdan ders çıkarılmaz.
+    stalled: bool = False
+    #: (araç, sonuç özeti) → farklı argümanlarla aynı sonucu kaç kez verdi.
+    same_output_counts: dict[tuple[str, str], int] = field(default_factory=dict)
+    #: Aynı dosyaya ardışık düzenleme serisi: (yol, sayı). Bkz. `edit_streak`.
+    edit_streak: tuple[str, int] = ("", 0)
+    #: Aynı okuma çağrısı tekrar koruması tarafından engellendi mi?
+    repeat_blocked: bool = False
+    #: Araç varken kalıp ret cevabı bir kez geri çevrildi mi? (bkz. `refusal.py`)
+    refusal_nudged: bool = False
+    #: Uzun okuma dizisinden sonra verilen tek ilerleme uyarısı.
+    exploration_pushes: int = 0
+    #: Otomatik öğretmen danışması gerçekten yanıt verdi mi?
+    teacher_advice_ok: bool = False
+    #: Bu tur bir İÇ düzeltici tur mu (öz-denetim, doğrulama kapısı)? İç turlar
+    #: araçsız bitebilir ve bu meşrudur: asıl işi dış tur zaten yapmıştır, iç tur
+    #: yalnızca düzeltir ya da açıklar.
+    internal: bool = False
+    #: Blocking verification correction araçsız kapanamaz.
+    require_local_mutation: bool = False
+    tool_contract_abort: str = ""
+    repeated_failure_abort: str = ""
+    failed_call_counts: dict[tuple[str, str], int] = field(default_factory=dict)
+    #: Bir araç "bu iş benimle YAPILAMAZ" dedi mi? (şifre duvarı, oturum kapısı…)
+    #
+    # Eylem-kanıtı kapısı buna bakar. Kapı, kanıt yokluğunu her zaman modelin
+    # tembelliği sayıyordu ve dürüst "erişemedim" cevabını "İşlem tamamlanmadı"
+    # metniyle EZİYORDU. Ölçülen sonuç: harness modeli, yapamadığı işi yapmış gibi
+    # göstermeye — yani uydurmaya — itiyordu.
+    capability_wall: bool = False
+    #: Bu çağrıda nihai cevap metni GERÇEKTEN aktı mı? `TurnAnswered` buna bakar.
+    answer_streamed: bool = False
+    #: Son model çağrısında metin aktı mı? Aktıysa çağrı yeniden denenmez.
+    call_streamed: bool = False
+    #: Son model çağrısında gelen akış parçası (düşünme ve araç argümanı dahil). Süre
+    #: sınırında biten çağrıda "model sessizce çalışıyordu" ile "bağlantı ölüydü"yü
+    #: ayırmak için durum mesajına yazılır (ölçüm; 600 sn bekleyişlerin nedeni bilinmiyor).
+    call_chunks: int = 0
+    #: Canlılık yoklaması sunucuyu sağlıksız bulduysa nedeni (bkz. `liveness`).
+    unresponsive_reason: str = ""
+    #: Arka arkaya başarısız olan DEĞİŞTİRİCİ çağrı sayısı. Düzenleme döngüsü kapısı.
+    failed_mutations_in_row: int = 0
+    #: Döngü kapısı bu turda kaç kez konuştu.
+    edit_loop_pushes: int = 0
+    #: Modele en son kaç değişiklik kaydı bildirildi.
+    logged_changes: int = 0
+    #: (araç adı, hata imzası) → kaç kez. Aracın kendi önerisi işe yaramadığında
+    #: modele Fusion'ın notunu vermek için tutulur.
+    repeated_failures: dict[tuple[str, str], int] = field(default_factory=dict)
+    #: "Dosya yok" ile düşen okumaların İSTENEN yolları (öneri araması için).
+    missing_paths: list[str] = field(default_factory=list)
+    #: Başarıyla okunan dosya sayısı. Yanlış-dizin hipotezi buna bakar.
+    successful_file_reads: int = 0
+    #: Yanlış dizin uyarısı verildi mi?
+    warned_wrong_workspace: bool = False
+    #: Kullanıcının GERÇEKTEN reddettiği son aracın adı. `_drive` turu bu isimle
+    #: durdurur (bkz. `denial.DENIAL_STOP_ANSWER`); yalnızca `budget.stop is
+    #: BudgetStop.USER_DENIED` iken anlamlıdır.
+    denied_tool_name: str | None = None
+
+
+async def _drive(
+    messages: list[Message],
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    *,
+    plan_mode: bool,
+    allowed_tools: set[str] | None = None,
+    step_limit: int | None = None,
+    execution: ExecutionPolicy,
+    internal: bool = False,
+    auto_teacher: bool = False,
+    require_local_mutation: bool = False,
+) -> AgentOutcome:
+    state = _State(
+        internal=internal,
+        require_local_mutation=require_local_mutation,
+    )
+    budget = deps.require_budget()
+    final_text = ""
+    # Tur geneli model çağrısı sınırı BÜTÇEDEDİR: iç içe düzeltici turlar aynı
+    # bütçeden yer. Buradaki `local_limit` yalnızca BU çağrıyı daha da daraltır
+    # (alt-ajanın `step_limit`'i ve Web AI'nın tur başı sınırı).
+    local_limit = step_limit
+    if execution.max_model_calls is not None:
+        local_limit = min(local_limit or execution.max_model_calls, execution.max_model_calls)
+    local_calls = 0
+
+    while True:
+        if budget.stop is BudgetStop.USER_DENIED:
+            # Kullanıcı ÖNCEKİ araç turunda GERÇEKTEN "hayır" dedi (`_run_tools`).
+            # Bu bir bütçe olayı DEĞİLDİR: `_halt`/`_halt_local`'ın aksine
+            # `TurnBudgetExhausted` YAYINLANMAZ ve tur `ok=True` ile biter — model
+            # bir hata yapmadı, kullanıcı bir karar verdi. Model bir DAHA
+            # ÇAĞRILMAZ: aksi hâlde reddedilen işi başka bir yoldan yine
+            # denenebilir ve kullanıcının kararı yok sayılmış olurdu.
+            return _outcome(
+                denial.DENIAL_STOP_ANSWER.format(tool=state.denied_tool_name or "araç"),
+                messages,
+                state,
+            )
+        if budget.stop is BudgetStop.NO_PROGRESS:
+            return _halt(
+                "Onarım bütçesi tükendi; ürün sonucu doğrulanmadı.",
+                messages,
+                state,
+                budget,
+                BudgetStop.NO_PROGRESS,
+                deps,
+            )
+        # Kullanıcının araya girdiği yönerge, sıradaki model çağrısından ÖNCE girer:
+        # tur bittikten sonra iletmek onu bir sonraki göreve, hiç iletmemek ise
+        # kullanıcıyı turu öldürmeye zorlardı.
+        apply_steering(messages, deps.steering)
+        for answer in deps.questions.drain():
+            messages.append(
+                Message(
+                    "user",
+                    f"[soru sonucu {answer.question_id} · {answer.state}] {answer.text}",
+                    harness_note=True,
+                )
+            )
+        if budget.model_calls_exhausted:
+            return _halt(final_text, messages, state, budget, BudgetStop.MODEL_CALLS, deps)
+        if local_limit is not None and local_calls >= local_limit:
+            return _halt_local(final_text, messages, state, budget, BudgetStop.MODEL_CALLS, deps)
+        local_calls += 1
+        time_stop = budget.time_stop_reason()
+        if time_stop is not None:
+            return _halt(final_text, messages, state, budget, time_stop, deps)
+        if not await _compact_before_call(messages, deps, state):
+            return _halt(final_text, messages, state, budget, BudgetStop.CONTEXT_THRASH, deps)
+        if local_calls == 1:
+            # Turun ilk çağrısından önceki hazırlık (bağlam sıkıştırma, hatırlama,
+            # tarayıcı bağlantısı) "ilerlemesizlik" değildir. Ölçüldü (28 Eylül):
+            # hazırlık boşta-kalma penceresini yiyince "devam et" turu modele
+            # yalnızca 1,7 saniye verdi ve hiç cevap alamadan kesildi.
+            budget.record_progress()
+        # Çağrıyı yalnızca MUTLAK tur sınırı daraltır. Boşta-kalma sınırı araç
+        # turları arasındaki ilerlemesizliği ölçer; hâlâ yazan bir modeli kesmek
+        # için kullanılmaz — takılan akışı `_call_model`'in parça başı sınırı yakalar.
+        if not budget.reserve_model_call():
+            return _halt(final_text, messages, state, budget, BudgetStop.MODEL_CALLS, deps)
+        call_id = budget.model_calls
+        try:
+            result = await _call_with_retries(
+                messages, deps, registry, allowed_tools, state=state, execution=execution
+            )
+        except _CallTimeoutError as timed_out:
+            # Bu çağrının SÜRESİ `idle_timeout_s`'ten büyük olabilir; o durumda
+            # `time_stop_reason()` BİTEN tek çağrıyı "art arda ilerleme yok" sayar.
+            # Ölçüldü (27 Eylül): `_halt` boş metinle dönüyor, kullanıcı asıl sebebi
+            # (modelin süresinde yanıt vermediği) göremiyordu. Gerçek çok-turlu
+            # sınırlar `_halt` üzerinden yayınlanır; kullanıcıya giden METİN boş kalmaz.
+            timeout_message = (
+                f"Model yanıtı {timed_out.seconds:g} saniyede tamamlanmadı. "
+                "Bu çağrı durduruldu; farklı bir model seçip yeniden deneyebilirsin."
+            )
+            reason = budget.time_stop_reason()
+            if reason is not None:
+                return _halt(final_text or timeout_message, messages, state, budget, reason, deps)
+            return _outcome(timeout_message, messages, state, ok=False)
+
+        budget.usage.record(call_id, result.usage)
+        observed = budget.usage.snapshot()
+        deps.publisher.publish(
+            TurnUsageObserved(
+                prompt_tokens=observed.prompt_tokens,
+                completion_tokens=observed.completion_tokens,
+                unknown_calls=observed.unknown_calls,
+                total_calls=observed.total_calls,
+            )
+        )
+        state.model_calls_made += 1
+        if (remaining := budget.remaining_s()) is not None and remaining <= 0:
+            return _halt(final_text, messages, state, budget, BudgetStop.DEADLINE, deps)
+        # Yedek zinciri BAŞKA bir modele düşmüş olabilir; yetenek kapısı turun
+        # başında yapılandırılmış modele göre kapanmıştı. Kapı yalnız açılır.
+        execution = refresh_mutation_policy(execution, result.served_by, deps.config)
+        if _is_tool_contract_error(result.error):
+            if budget.take_contract_repair():
+                if result.text.strip():
+                    messages.append(Message("assistant", result.text))
+                messages.append(
+                    reflexion.tool_contract_repair_note(result.error or "geçersiz çağrı")
+                )
+                # Onarım SESSİZ kalmamalı: her onarım fazladan bir model çağrısı
+                # harcar ve tekrarlarsa turu bitirir. Kullanıcı turun neden
+                # uzadığını göremezse Fusion'ı yavaş sanır — ekranda hiçbir iz
+                # yokken arka planda üç çağrı yanmış olabilir.
+                deps.publisher.publish(ToolCallRepaired())
+                continue
+            budget.halt(BudgetStop.CONTRACT_UNREPAIRABLE)
+            _publish_budget_stop(deps, budget, state)
+            return _outcome(
+                _tool_contract_abort_message(result.error or "geçersiz çağrı"),
+                messages,
+                state,
+                ok=False,
+            )
+        if not result.ok:
+            failed = _outcome(_model_failure_message(result.error), messages, state, ok=False)
+            failed.model_error = result.error
+            return failed
+
+        if not result.is_usable:
+            if budget.take_empty_retry():
+                messages.append(reflexion.empty_response_note())
+                continue
+            budget.halt(BudgetStop.EMPTY_RESPONSES)
+            _publish_budget_stop(deps, budget, state)
+            return _outcome(final_text, messages, state)
+
+        if deps.questions.ready:
+            continue
+        if deps.steering is not None and deps.steering.pending:
+            # Yanıt eski talimata göre üretildi; araçları hiç başlatmadan yeniden değerlendir.
+            apply_steering(messages, deps.steering)
+            continue
+
+        # Araç çağrısıyla gelen metindeki düşünme taslağı geçmişe yazılmaz: bir sonraki
+        # çağrıda modele geri gider ve cevabı iki kez yazdırıyordu (ölçüldü, 27 Eylül).
+        history_text = strip_thinking(result.text).strip() if result.tool_calls else result.text
+        messages.append(Message("assistant", history_text, tool_calls=result.tool_calls))
+
+        if not result.tool_calls:
+            # Açılışsız `</think>` dahil düşünme metni kullanıcıya gitmez. Ölçüldü
+            # (26 Eylül, Ornekmagaza okuma turu): "I have the data…</think>| Sipariş No…"
+            # dosya değişmeyen turda olduğu gibi gösteriliyordu.
+            final_text = strip_thinking(result.text).strip()
+            # İstek sınıflandırılmasa bile modelin işlem beyanı kanıt ister.
+            # Bu kapı modele/sağlayıcıya değil GERÇEK araç sonuçlarına bakar.
+            unsupported_claim = next(
+                (
+                    effect
+                    for effect in claimed_effects(final_text)
+                    if not _tool_evidence_satisfied(
+                        replace(execution, required_effect=effect), budget
+                    )
+                ),
+                None,
+            )
+            if unsupported_claim is not None and not plan_mode:
+                if (
+                    execution.allow_mutation
+                    and not state.capability_wall
+                    and not state.warned_wrong_workspace
+                    and state.evidence_reprompts < execution.max_evidence_reprompts
+                ):
+                    state.evidence_reprompts += 1
+                    messages.pop()  # Kanıtsız iddia sonraki turda olgu olarak taşınmaz.
+                    messages.append(
+                        reflexion.tool_evidence_required_note(execution.required_effect)
+                        if execution.requires_tool_evidence
+                        else reflexion.unsupported_claim_note()
+                    )
+                    continue
+                # Sohbet/gözlem kipi yazmaya açılmaz; kanıtsız iddia teslim edilmez.
+                messages[-1] = Message(
+                    "assistant", reflexion.unverified_action_message(unsupported_claim)
+                )
+                return _outcome(
+                    reflexion.unverified_action_message(unsupported_claim),
+                    messages,
+                    state,
+                    ok=False,
+                )
+            refusal_note = _refusal_note(
+                final_text,
+                state,
+                execution,
+                _permitted(allowed_tools, registry, execution, deps.tool_context.task_kinds),
+            )
+            if refusal_note is not None:
+                messages.append(refusal_note)
+                continue
+            if state.refusal_nudged and looks_like_refusal(final_text):
+                # İkinci kez araç denemeden ret: dürüstçe başarısız dön, başarı sayma.
+                return _outcome(final_text, messages, state, ok=False)
+            # `capability_wall`: bir araç işin kendisiyle yapılamayacağını bildirdiyse
+            # kanıt istemek anlamsızdır. Modeli zorlamak onu uydurmaya iter ve dürüst
+            # cevabı "İşlem tamamlanmadı" metniyle ezer — kullanıcı ne olduğunu
+            # öğrenemez. Kanıt yokluğunun sebebi burada BİLİNİYOR.
+            if (
+                not plan_mode
+                and execution.requires_tool_evidence
+                and not state.capability_wall
+                # Yanlış dizinde kanıt aramak anlamsızdır: değiştirilecek dosya
+                # zaten yok. Zorlamak modeli iş uydurmaya iten üçüncü kapıydı.
+                and not state.warned_wrong_workspace
+                and not _tool_evidence_satisfied(execution, budget)
+            ):
+                if state.evidence_reprompts < execution.max_evidence_reprompts:
+                    state.evidence_reprompts += 1
+                    messages.append(
+                        reflexion.tool_evidence_required_note(execution.required_effect)
+                    )
+                    continue
+                return _outcome(
+                    reflexion.unverified_action_message(execution.required_effect),
+                    messages,
+                    state,
+                    ok=False,
+                )
+            if state.answer_before_nudge and not result.truncated:
+                # Ölçüldü (4 Ekim, tarayıcı kabul koşusu): bekleyen todo yüzünden not
+                # altı kez gitti, model her seferinde "tamamlandı" dedi ve son kısa
+                # teyit fiyatı içeren asıl cevabın yerine geçti.
+                return _outcome(
+                    reflexion.keep_delivery(state.answer_before_nudge, final_text),
+                    messages,
+                    state,
+                )
+            continue_note = _auto_continue_note(
+                final_text,
+                deps,
+                state,
+                plan_mode=plan_mode,
+                execution=execution,
+                truncated=result.truncated,
+            )
+            if continue_note is not None:
+                if continue_note.content == reflexion.AUTO_CONTINUE_NOTE:
+                    state.answer_before_nudge = final_text
+                messages.append(continue_note)
+                continue
+            return _outcome(final_text, messages, state)
+
+        if execution.max_tool_rounds is not None and state.tool_rounds >= execution.max_tool_rounds:
+            return _halt_local(final_text, messages, state, budget, BudgetStop.TOOL_ROUNDS, deps)
+
+        state.answer_before_nudge = ""
+        before = _progress_marker(deps, state)
+        try:
+            errored = await _run_tools(
+                result.tool_calls,
+                messages,
+                deps,
+                registry,
+                state,
+                execution=execution,
+                plan_mode=plan_mode,
+            )
+        finally:
+            # Bir araç grubu ortasında durdurulsa da tamamlanan sonuçlar ve
+            # sonucu belirsiz çağrı kimlikleri kaybolmaz. İptal yutulmaz.
+            if deps.journal is not None:
+                deps.journal.save(messages)
+        budget.record_round(progressed=progressed(_round_signals(deps, state, before)))
+        if (remaining := budget.remaining_s()) is not None and remaining <= 0:
+            return _halt_local(
+                final_text,
+                messages,
+                state,
+                budget,
+                BudgetStop.DEADLINE,
+                deps,
+            )
+        if state.tool_contract_abort or state.repeated_failure_abort:
+            return _halt(
+                state.tool_contract_abort or state.repeated_failure_abort,
+                messages,
+                state,
+                budget,
+                BudgetStop.REPEATED_CALL,
+                deps,
+            )
+        exploration_note = _exploration_note(
+            state,
+            execution,
+            plan_mode=plan_mode,
+            teacher_available=registry.get("ask_teacher") is not None,
+        )
+        if exploration_note is not None:
+            state.exploration_pushes += 1
+            messages.append(Message("user", exploration_note, harness_note=True))
+        teacher_stall = _plateau_reason(state, deps, exploration_note=exploration_note)
+        # Gerçek takılma (aynı hata, tekrar koruması, ilerleme yok) görev BÜYÜKLÜĞÜNE
+        # bakmaz. Ölçüldü (2 Ekim, kabul koşusu): görev "basit" sınıflandırıldı, model
+        # aynı "Access denied" hatasını üç kez aldı ve öğretmen hazır olduğu halde
+        # hiç sorulmadı. Yalnız "okuma uzun sürdü" nedeni karmaşık işe özeldir.
+        gercek_takilma = _teacher_stall_reason(state) is not None
+        if (
+            auto_teacher
+            and (execution.complex_task or gercek_takilma)
+            and teacher_stall is not None
+            and not deps.auto_teacher_used
+            and teacher_is_ready(deps, registry)
+            and (allowed_tools is None or "ask_teacher" in allowed_tools)
+        ):
+            deps.auto_teacher_used = True
+            await _consult_teacher_on_plateau(messages, deps, registry, state, reason=teacher_stall)
+        takeover = _teacher_takeover_spec(deps, state, execution, auto_teacher=auto_teacher)
+        if takeover is not None:
+            deps.active_model_override = takeover
+            original_task = next(
+                (
+                    item.content
+                    for item in reversed(messages)
+                    if item.role == "user" and not item.harness_note
+                ),
+                "",
+            )
+            execution = policy_for(deps.config, takeover, original_task)
+            deps.execution = execution
+            if deps.tool_context.read_window is None:
+                deps.tool_context = replace(deps.tool_context, read_window=WEB_READ_WINDOW)
+            if execution.max_model_calls is not None:
+                local_limit = min(
+                    local_limit or execution.max_model_calls, execution.max_model_calls
+                )
+            messages.append(
+                Message(
+                    "user",
+                    "FUSION_NOT: Öğretmen yanıtına rağmen dosya değişikliği yapılmadı. "
+                    "Doğrulanmış öğretmen şimdi aynı görevi devralıyor. Önceki okumaları "
+                    "kullan; ilk somut değişikliği uygula, ardından istenen testlerle doğrula.",
+                    harness_note=True,
+                )
+            )
+            deps.publisher.publish(StatusChanged("Doğrulanmış web öğretmeni görevi devraldı."))
+
+        # Blocking verification correction gerçek bir mutation üretmeden
+        # NO_PROGRESS'a düşmemeli. Model önce read_file yapabilir veya yanlış/
+        # başarısız bir araç deneyebilir; bu durumda sınırlı bir mutation reprompt'u
+        # daha verilir. Hak bittiğinde normal idle kapısı tekrar otoritedir.
+        if _never_acted(state, execution):
+            state.never_acted_prompts += 1
+            note = _spend(deps, reflexion.verification_action_required_note())
+            if note is not None:
+                messages.append(note)
+                continue
+
+        if budget.idle:
+            # Tur KESİLMEZ: Claude Code'da ilerleme kapısı yoktur; döngü model işi
+            # bitirene ya da kullanıcı durdurana kadar sürer. Ölçüldü (28 Eylül):
+            # kesmek 13 dakikalık keşfi cevapsız bırakıyordu. Model yalnız
+            # döngüden çıkması için uyarılır; sayaç sıfırlanır ki uyarı her
+            # ilerlemesiz dizide bir kez gelsin, her turda değil.
+            budget.idle_rounds = 0
+            state.stalled = True
+            messages.append(reflexion.stall_rescue_note())
+            deps.publisher.publish(StatusChanged(STALL_STATUS))
+            if (
+                auto_teacher
+                and not deps.auto_teacher_used
+                and teacher_is_ready(deps, registry)
+                and (allowed_tools is None or "ask_teacher" in allowed_tools)
+            ):
+                deps.auto_teacher_used = True
+                await _consult_teacher_on_plateau(
+                    messages, deps, registry, state, reason="ilerleme yok uyarısı"
+                )
+        if _stuck_editing(state, plan_mode=plan_mode):
+            state.edit_loop_pushes += 1
+            messages.append(reflexion.repeated_edit_note(state.failed_mutations_in_row))
+            # Sayaç SIFIRLANMAZ. Sıfırlamak, notun gösterdiği çıkışı tam da model
+            # onu izlemeye çalıştığı anda kapatıyordu: not "write_file ile yeniden
+            # yaz" diyor, model deniyor, ama toptan-yazma engelinin kalkması aynı
+            # sayaca bakıyor ve sayaç yeni sıfırlanmış oluyordu (ölçüldü — tur ölü
+            # kilide düştü). Kapının kaç kez konuştuğu ayrı sayaçta tutulur.
+        elif errored and deps.config.runtime.reflexion and not plan_mode:
+            messages.append(reflexion.note(persistent=False))
+        if _looks_like_wrong_workspace(state):
+            state.warned_wrong_workspace = True
+            oneri = find_workspace_for(tuple(state.missing_paths), deps.tool_context.root)
+            messages.append(
+                reflexion.wrong_workspace_note(
+                    str(deps.tool_context.root), str(oneri) if oneri else ""
+                )
+            )
+        _record_changes(messages, deps, state)
+
+
+def apply_steering(messages: list[Message], queue: SteeringQueue | None) -> int:
+    """Kullanıcının araya girdiği yönergeleri sıradaki çağrıdan ÖNCE mesajlara ekle.
+
+    Yönerge harness notudur: modelin kendi cevabına karışmaz, kullanıcının sözü
+    olarak taşınır. Kuyruk tek seferlik boşaltılır — bir kez söyleneni her turda
+    tekrar etmek, onu sonsuz bir talimata çevirirdi. Kuyruk yoksa akış değişmez.
+    """
+    if queue is None or not queue.pending:
+        return 0
+    notlar = queue.drain()
+    messages.extend(notlar)
+    return len(notlar)
+
+
+def _round_signals(
+    deps: AgentDeps, state: _State, before: tuple[int, int, int, int]
+) -> RoundSignals:
+    """Turun sinyallerini önceki ölçümle farkını alarak topla.
+
+    İkili "bir şey değişti mi" kararı, başarısız üç çağrıyla hiç çağrı yapmamayı
+    aynı kefeye koyuyordu ve eşiği ayarlamak imkânsızdı. Sinyaller ayrıştırılınca
+    budama kararı ölçülebilir ve ayarlanabilir olur.
+    """
+    simdi = _progress_marker(deps, state)
+    return RoundSignals(
+        mutations=max(0, simdi[1] - before[1]),
+        new_reads=max(0, (simdi[0] - before[0]) - (simdi[1] - before[1])),
+        failures=max(0, simdi[2] - before[2]),
+        repeats=max(0, simdi[3] - before[3]),
+    )
+
+
+def _progress_marker(deps: AgentDeps, state: _State) -> tuple[int, int, int, int]:
+    """Turun ilerleyip ilerlemediğini ölçen iki sayı.
+
+    Başarılı araç sayısı VE dokunulan dosya sayısı birlikte bakılır: bir tur yalnızca
+    okuma yapmış olabilir (dosya sayısı artmaz ama iş yapılmıştır) ya da yalnızca
+    yazma (ikisi de artar). İkisi de sabit kaldıysa o turda hiçbir şey olmamıştır.
+    """
+    return (
+        state.tool_calls_made - state.observation_calls,
+        len(deps.tool_context.touched),
+        state.failed_tool_calls,
+        state.already_done_calls,
+    )
+
+
+def _halt(
+    final_text: str,
+    messages: list[Message],
+    state: _State,
+    budget: TurnBudget,
+    reason: BudgetStop,
+    deps: AgentDeps,
+) -> AgentOutcome:
+    """Bütçe sebebiyle turu bitir, sebebini YAYINLA ve sonucu döndür.
+
+    `ok=False`: bütçeyle kesilen bir tur tamamlanmış sayılmaz. Ders çıkarımı ve
+    öz-denetim bu bayrağa bakar; kesilen turu başarı gibi öğrenmek zararlıdır.
+    """
+    budget.halt(reason)
+    _publish_budget_stop(deps, budget, state)
+    text = final_text.strip()
+    outcome = _outcome(text, messages, state, hit_step_limit=True, ok=False)
+    # Sebep AZ ÖNCE yayınlandı. `final_text` modelin cevabıdır, hata metni
+    # değildir; ikisini birden hata gibi basmak "✗ hata İş başarıyla
+    # tamamlanmıştır" gibi kendiyle çelişen satırlar üretiyordu (ölçüldü).
+    outcome.budget_stopped = True
+    outcome.stop_reason = reason.value
+    outcome.todos = deps.tool_context.todos.items
+    return outcome
+
+
+def _halt_local(
+    final_text: str,
+    messages: list[Message],
+    state: _State,
+    budget: TurnBudget,
+    reason: BudgetStop,
+    deps: AgentDeps,
+) -> AgentOutcome:
+    """Yalnız bu ``_drive`` çağrısının sınırında dur; dış kapıları açık bırak.
+
+    Web yürütme politikasındaki model/araç sınırları çağrı-yereldir. Doğrulama ve
+    öz-denetim alt turları aynı ``TurnBudget`` nesnesini paylaşsa da bu yerel sınıra
+    çarpılması, çalışma alanının son post-condition doğrulamasını engellememelidir.
+    Gerçek tur-geneli sayaç ve süre sınırları `_halt` üzerinden otorite olmaya devam
+    eder.
+    """
+    deps.publisher.publish(
+        TurnBudgetExhausted(
+            reason=reason.value,
+            model_calls=budget.model_calls,
+            tool_rounds=state.tool_rounds,
+            idle_rounds=budget.idle_rounds,
+            elapsed_s=budget.elapsed_s,
+        )
+    )
+    text = final_text.strip()
+    outcome = _outcome(text, messages, state, hit_step_limit=True, ok=False)
+    outcome.budget_stopped = True
+    outcome.stop_reason = reason.value
+    outcome.todos = deps.tool_context.todos.items
+    return outcome
+
+
+def _publish_budget_stop(deps: AgentDeps, budget: TurnBudget, state: _State) -> None:
+    if budget.stop is None:
+        return
+    deps.publisher.publish(
+        TurnBudgetExhausted(
+            reason=budget.stop.value,
+            model_calls=budget.model_calls,
+            tool_rounds=state.tool_rounds,
+            idle_rounds=budget.idle_rounds,
+            elapsed_s=budget.elapsed_s,
+        )
+    )
+
+
+def _note_tool_use(
+    state: _State,
+    name: str,
+    tool: Tool | None,
+    *,
+    ok: bool,
+    arguments: dict[str, object] | None = None,
+    output: str = "",
+    job_completion: JobCompletion | None = None,
+    is_observation: bool = False,
+) -> None:
+    """Denenen araç çağrısını sırayla kaydet (adım ve tur kanıtı)."""
+    state.tool_uses.append(
+        ToolUse(
+            name=name,
+            ok=ok,
+            mutating=bool(tool is not None and tool.mutating and not is_observation),
+            arguments=arguments or {},
+            output=output,
+            job_completion=job_completion,
+        )
+    )
+
+
+def _outcome(
+    final_text: str,
+    messages: list[Message],
+    state: _State,
+    *,
+    hit_step_limit: bool = False,
+    ok: bool = True,
+) -> AgentOutcome:
+    return AgentOutcome(
+        final_text=final_text,
+        messages=messages,
+        tool_calls_made=state.tool_calls_made,
+        hit_step_limit=hit_step_limit,
+        ok=ok,
+        mutating_tool_calls_made=state.mutating_tool_calls_made,
+        failed_tool_calls=state.failed_tool_calls,
+        model_calls_made=state.model_calls_made,
+        answer_streamed=state.answer_streamed,
+        wrong_workspace=state.warned_wrong_workspace,
+        tool_uses=tuple(state.tool_uses),
+        already_done_calls=state.already_done_calls,
+        stalled=state.stalled,
+    )
+
+
+def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> bool:
+    """Gerçek eylem isteği başarılı bir araç sonucu ile kanıtlandı mı?
+
+    Kanıt BÜTÇEDEN okunur, turun yerel durumundan değil: doğrulama düzeltmesi ve
+    öz-denetim `run_agent`'ı yeniden çağırır ve taze bir durumla başlar. Kanıt orada
+    tutulsaydı iç içe tur, ana turun zaten yaptığı işi baştan kanıtlamak zorunda
+    kalırdı — ölçüldü, model işi yapmışken düzeltici tur "işlem tamamlanmadı" dedi.
+    """
+
+    effect = execution.required_effect
+    if effect is None:
+        return True
+    evidence = budget.successful_tool_evidence
+    if effect == "git_push":
+        return any(
+            tool_family(name) is ToolFamily.SHELL and _shell_contains_git_action(args, "push")
+            for name, args, _ in evidence
+        )
+    if effect == "git_commit":
+        return any(
+            tool_family(name) is ToolFamily.SHELL and _shell_contains_git_action(args, "commit")
+            for name, args, _ in evidence
+        )
+    if effect == "shell_action":
+        return any(tool_family(name) is ToolFamily.SHELL for name, _, _ in evidence)
+    if effect == "workspace_mutation":
+        return any(mutating for _, _, mutating in evidence)
+    if effect == "web_lookup":
+        return any(
+            name in {"web_search", "web_fetch", "read_url_content"} for name, _, _ in evidence
+        )
+    if effect.startswith("file:"):
+        # Dosya teslim eden adımın kanıtı DEĞİŞTİREN bir araçtır.
+        #
+        # Eskiden `file:` etkisi son satıra düşüyordu ve "herhangi bir başarılı
+        # araç" kanıt sayılıyordu. Ölçüldü (13 Eylül, Godot koşusu): adım
+        # `file:ASSETS.json` bekliyordu, model tek bir `web_search` yaptı, sonra
+        # "assetleri bulup indireceğim" diyen bir metinle turu bitirdi ve kanıt
+        # kapısı bunu YETERLİ saydı. Hiçbir dosya yazılmadı, hiçbir yeniden istem
+        # yapılmadı; adım doğrulamada düştü ve kurtarma hakkı boşa gitti.
+        return any(mutating for _, _, mutating in evidence)
+    if effect == "workspace_read":
+        return any(
+            name
+            in {
+                "read_file",
+                "view_file",
+                "list_dir",
+                "search_code",
+                "grep_search",
+                "search_codebase",
+                "glob",
+                "git",
+            }
+            for name, _, _ in evidence
+        )
+    return bool(evidence)
+
+
+def _shell_contains_git_action(args: dict[str, object], action: str) -> bool:
+    command = args.get("command")
+    if not isinstance(command, str):
+        return False
+    # Yalnızca gerçek bir komut segmentindeki git çağrısını kabul et.
+    # `echo git push` gibi yalnızca metin basan komutlar kanıt sayılmaz;
+    # `cd repo && git -C . push`, `sudo git push` ve `env X=1 git push` sayılır.
+    pattern = (
+        rf"(?:^|(?:&&|\|\||;|\n)\s*)"
+        rf"(?:(?:sudo|command)\s+)?"
+        rf"(?:env(?:\s+[A-Za-z_][A-Za-z0-9_]*=[^\s;&|]+)+\s+)?"
+        rf"git\b(?:(?![;&|\n]).){{0,180}}\b{re.escape(action)}\b"
+    )
+    return bool(re.search(pattern, command, re.IGNORECASE))
+
+
+async def _publish_intro(
+    task: str,
+    messages: list[Message],
+    deps: AgentDeps,
+    execution: ExecutionPolicy,
+    tool_names: tuple[str, ...],
+) -> None:
+    """Karmaşık işte, işe başlamadan kullanıcıya kısa giriş paragrafı yaz.
+
+    Yalnız API modellerinde istenir: web modelleri metni zaten kendileri yazar
+    ve her web çağrısı onlarca saniye sürer. Giriş modele de not olarak verilir
+    ki aynı cümleleri tekrarlamasın.
+    """
+    if not execution.complex_task or execution.is_web:
+        return
+    intro = await intro_paragraph(
+        task, _active_spec(deps, execution), deps.config, deps.publisher, tool_names
+    )
+    if not intro:
+        return
+    deps.publisher.publish(NarrationPublished(text=intro))
+    messages.append(
+        Message(
+            "user",
+            f"FUSION_NOT: Kullanıcıya şu girişi zaten yazdın; tekrar etme, işe başla:\n{intro}",
+            harness_note=True,
+        )
+    )
+
+
+def _hand_off_to_apprentice(
+    task: str, selected: ModelSpec, deps: AgentDeps, *, plan_mode: bool
+) -> bool:
+    """Seçili model yazamıyor ama görev yazma istiyorsa turu çırağa devret.
+
+    Yalnız yetenek kısıtında devredilir; kullanıcı kipi (sohbet, plan) ya da
+    salt okuma isteği devri tetiklemez. Yapılandırma değişmez, devir tur kapsamlıdır.
+    """
+    execution = deps.execution
+    if (
+        execution is None
+        or plan_mode
+        or execution.allow_mutation
+        or not execution.mutation_blocked_by_capability
+        or execution.required_effect != EffectKind.WORKSPACE_MUTATION.value
+    ):
+        return False
+    apprentice = apprentice_spec(deps.config)
+    if apprentice is None:
+        return False
+    teacher = teacher_for_turn(deps.config, selected)
+    if teacher is not None and deps.config.teacher is None:
+        deps.config = replace(deps.config, teacher=teacher)
+    deps.active_model_override = apprentice
+    deps.execution = policy_for(deps.config, apprentice, task)
+    deps.publisher.publish(
+        ApprenticeHandoff(
+            selected_model=selected.model,
+            apprentice_model=apprentice.model,
+            teacher_model=teacher.model if teacher is not None else "",
+        )
+    )
+    return True
+
+
+def _active_spec(deps: AgentDeps, execution: ExecutionPolicy) -> ModelSpec:
+    """Bu çağrıda kullanılacak model.
+
+    Takılan adım bir üst modele yükselir: aynı modelle aynı duvara çarpmak yerine
+    zincirde yukarı kayılır. `strict` rolde kullanıcının seçimi korunur.
+    """
+    return deps.active_model_override or escalated_spec(
+        select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements),
+        execution.escalation,
+    )
+
+
+#: Geçici model hatasında (hız sınırı, sunucu hatası, zaman aşımı) varsayılan yeniden
+#: deneme sayısı; asıl değer `runtime.model_retry_attempts`tan okunur.
+#
+# Claude Code belgesi (code.claude.com/docs/en/errors): geçici hatalar "10 kereye
+# kadar üstel geri çekilmeyle" yeniden denenir; bekleme ekranda geri sayımla
+# gösterilir. Ölçüldü (28 Eylül): Fusion aynı modeli yalnız 3 kez (1,5 sn, 4 sn)
+# deniyordu; NIM'in dakikalık sınırı 60 sn'de sıfırlandığı için 28 dakikalık iş ham
+# "RateLimitError 429" metniyle bitti.
+MAX_TRANSIENT_RETRIES = 10
+#: Üstel geri çekilmenin ilk beklemesi ve tavanı (sn). Tavan, NIM'in dakikalık hız
+#: sınırı penceresidir (60 sn / 40 istek, bkz. `defaults.yaml` `retry_delays_s`):
+#: daha uzun beklemek sınırın sıfırlanmasından sonra boşuna vakit kaybettirir.
+RETRY_BASE_DELAY_S = 2.0
+#: Çıktı bütçesinin en fazla kaç katına büyütüleceği. 4: varsayılan bütçe düşünen
+#: modelin uzun bir planı da yazmasına yeter; daha fazlası tek çağrıyı dakikalarca
+#: uzatır ve bağlam penceresini zorlar.
+MAX_TOKENS_ESCALATION = 4
+RETRY_MAX_DELAY_S = 60.0
+
+
+class _CallTimeoutError(Exception):
+    """Model çağrısı tüm denemelerde süresinde tamamlanmadı."""
+
+    def __init__(self, seconds: float) -> None:
+        super().__init__(seconds)
+        self.seconds = seconds
+
+
+#: Süre sınırında bitmeyen çağrıdan sonra modele eklenen not. Aynı isteği aynen yinelemek
+#: aynı sonucu verir. Ölçüldü (2 Ekim 2026, NIM Nemotron 3 Ultra): araç çağrısı parça
+#: parça akmıyor (250 satırlık dosya 181 sn tek sessizlik); tema dosyası yazan çağrı 600 sn
+#: sınırını iki kez aştı ve her seferinde baştan başladı — 20 dakikada tek dosya yazılamadı.
+SHORTER_AFTER_TIMEOUT_NOTE = (
+    "FUSION_NOT: Önceki cevabın süre sınırında tamamlanmadı; büyük olasılıkla tek çağrıda "
+    "çok uzun bir içerik yazıyordun. Şimdi KISA bir adım at: tek çağrıda en fazla ~100 "
+    "satır yaz, büyük dosyayı birden çok dosyaya böl ya da önce iskeleti yazıp sonra "
+    "edit_file ile bölüm bölüm ekle."
+)
+
+
+def retry_delay_s(attempt: int) -> float:
+    """`attempt`. yeniden denemeden önceki bekleme (0'dan başlar)."""
+    return min(RETRY_BASE_DELAY_S * float(2**attempt), RETRY_MAX_DELAY_S)
+
+
+async def _call_with_retries(
+    messages: list[Message],
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    allowed_tools: set[str] | None,
+    *,
+    state: _State,
+    execution: ExecutionPolicy,
+) -> ModelResult:
+    """Modeli çağır; geçici hatada üstel geri çekilmeyle yeniden dene.
+
+    Metin akmış bir çağrı yeniden DENENMEZ: ekrandaki cevabı ikinci kez baştan
+    yazdırırdı. Kalıcı hata (olmayan model, geçersiz anahtar, günlük kota) da
+    denenmez: beklemek onu çözmez.
+    """
+    budget = deps.require_budget()
+    attempt = 0
+    while True:
+        remaining = budget.remaining_s()
+        if remaining is not None and remaining <= 0:
+            raise _CallTimeoutError(budget.total_timeout_s or 0.0)
+        call_timeout = (
+            min(deps.config.runtime.request_timeout_s, remaining)
+            if remaining
+            else deps.config.runtime.request_timeout_s
+        )
+        # Mutlak tur sınırı varsa dış sınır odur: yazmaya devam eden cevap kesilmez,
+        # sessiz kalan akışı parça başı sınır keser. Sınır yoksa (CLI) sonsuza dek
+        # damlayan akışa karşı zincir uzunluğuyla büyüyen eski üst sınır korunur.
+        attempts = 1 + len(_active_spec(deps, execution).fallback)
+        chain_timeout = remaining if remaining else call_timeout * attempts
+        state.call_streamed = False
+        state.call_chunks = 0
+        state.unresponsive_reason = ""
+        result: ModelResult | None = None
+        try:
+            async with asyncio.timeout(max(0.01, chain_timeout)):
+                result = await _call_model(
+                    messages,
+                    deps,
+                    registry,
+                    allowed_tools,
+                    state=state,
+                    execution=execution,
+                    offer_tools=execution.offer_tools,
+                    timeout_s=call_timeout,
+                )
+        except TimeoutError:
+            result = None
+        if (
+            result is not None
+            and result.truncated
+            and not result.is_usable
+            and state.max_tokens_scale < MAX_TOKENS_ESCALATION
+        ):
+            # Aynı bütçeyle tekrar denemek aynı sonucu verir (model yine düşünmeye
+            # harcar). Ölçüldü (30 Eylül): ilk tur "çıktı bütçesi doldu" ile bitti ve
+            # kullanıcıya ayar değiştirmesi söylendi. Bütçe büyütülüp hemen denenir.
+            state.max_tokens_scale *= 2
+            # Yalnız bütçeyi büyütmek yetmedi. Ölçüldü (3 Ekim 2026, 14. kabul koşusu):
+            # 8192 token düşünmeyle bitti, 16384 ile aynı çağrı 600 sn sınırını aştı.
+            # Bundan sonra düşünme yoğunluğu düşürülür ve modele kısa adım notu gider.
+            state.reasoning_relief = True
+            if not any(m.content == SHORTER_AFTER_TIMEOUT_NOTE for m in messages):
+                messages.append(Message("user", SHORTER_AFTER_TIMEOUT_NOTE, harness_note=True))
+            deps.publisher.publish(
+                StatusChanged(
+                    "Model çıktı bütçesini düşünmeye harcadı; bütçe "
+                    f"{state.max_tokens_scale} katıyla ve düşük düşünme yoğunluğuyla "
+                    "yeniden deneniyor"
+                )
+            )
+            continue
+        retryable = not state.call_streamed and (
+            result is None or (not result.is_usable and not is_permanent_error(result.error))
+        )
+        out_of_time = budget.time_stop_reason() is not None
+        max_retries = deps.config.runtime.model_retry_attempts
+        if not retryable or attempt >= max_retries or out_of_time:
+            if result is None:
+                raise _CallTimeoutError(call_timeout)
+            return result
+        delay = retry_delay_s(attempt)
+        attempt += 1
+        if result is None and not any(m.content == SHORTER_AFTER_TIMEOUT_NOTE for m in messages):
+            messages.append(Message("user", SHORTER_AFTER_TIMEOUT_NOTE, harness_note=True))
+        if result is not None:
+            neden = _short_reason(result.error)
+        elif state.unresponsive_reason:
+            neden = f"yanıt vermiyor, sunucu sağlıksız ({state.unresponsive_reason})"
+        else:
+            neden = f"yanıt vermedi ({state.call_chunks} akış parçası geldi)"
+        deps.publisher.publish(
+            StatusChanged(
+                f"Model geçici olarak {neden}; {delay:g} sn sonra yeniden deneniyor "
+                f"· deneme {attempt}/{max_retries}"
+            )
+        )
+        remaining = budget.remaining_s()
+        await _retry_sleep(min(delay, max(0.0, remaining)) if remaining is not None else delay)
+
+
+async def _retry_sleep(delay_s: float) -> None:
+    """Yeniden denemeden önce bekle (testler bu fonksiyonu sahtesiyle değiştirir)."""
+    await asyncio.sleep(delay_s)
+
+
+def _short_reason(error: str | None) -> str:
+    """Geçici hatanın kullanıcıya gösterilecek kısa adı; ham istisna metni gösterilmez."""
+    lowered = (error or "").lower()
+    # "rate" alt dizgisi "generated"/"operate" içinde de geçer: bozuk bir istek hatası
+    # "hız sınırı" diye etiketlenip 60 sn'lik bekleme döngüsüne giriyordu. Ortak,
+    # dar sınıflandırma kullanılır.
+    if is_rate_limit_error(error):
+        return "hız sınırına takıldı"
+    if "timeout" in lowered or "timed out" in lowered:
+        return "zamanında yanıt vermedi"
+    if any(code in lowered for code in ("500", "502", "503", "504", "529", "overload")):
+        return "sunucu hatası verdi"
+    return "yanıt veremedi"
+
+
+def _model_failure_message(error: str | None) -> str:
+    """Tüm denemeler bitince kullanıcıya giden açıklama; ham istisna metni yerine.
+
+    Ölçüldü (28 Eylül): tur "RateLimitError: litellm.RateLimitError: …
+    Nvidia_nimException - Error code: 429" metniyle bitiyordu.
+    """
+    if not error:
+        return "Model bir yanıt üretemedi. Farklı bir model seçip yeniden deneyebilirsin."
+    if is_permanent_error(error):
+        return (
+            f"Model kullanılamıyor ({_short_reason(error)}). "
+            "Farklı bir model seçip yeniden deneyebilirsin."
+        )
+    if _short_reason(error) == "yanıt veremedi":
+        # Tanınmayan hata: sebebi saklamak kullanıcıyı çaresiz bırakır; ayrıntı eklenir.
+        return f"Model yanıt veremedi: {error}"
+    return (
+        f"Model yeniden denemelere rağmen {_short_reason(error)}. "
+        'Biraz sonra "devam et" yazarak kaldığın yerden sürdürebilir ya da farklı '
+        "bir model seçebilirsin."
+    )
+
+
+async def _call_model(
+    messages: list[Message],
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    allowed_tools: set[str] | None = None,
+    *,
+    state: _State,
+    execution: ExecutionPolicy,
+    offer_tools: bool = True,
+    timeout_s: float | None = None,
+) -> ModelResult:
+    """Modeli akıtarak çağır; metin parçaları olay olarak yayınlanır."""
+    runtime = deps.config.runtime
+    spec = live_fallbacks(_active_spec(deps, execution), deps.config)
+    request = CompletionRequest(
+        messages=tuple(messages),
+        temperature=runtime.temperature,
+        max_tokens=runtime.max_tokens * state.max_tokens_scale,
+        timeout_s=timeout_s or runtime.request_timeout_s,
+        max_retries=runtime.max_retries,
+        tools=(
+            tuple(
+                registry.schemas(
+                    _permitted(allowed_tools, registry, execution, deps.tool_context.task_kinds)
+                )
+            )
+            if offer_tools
+            else ()
+        ),
+        reasoning_effort=effort_for_spec(
+            spec, ReasoningEffort.LOW if state.reasoning_relief else runtime.reasoning_effort
+        ),
+        disable_thinking=state.reasoning_relief,
+    )
+    provider = build_provider(
+        spec,
+        publisher=deps.publisher,
+        retry_delays_s=runtime.retry_delays_s,
+        channel=deps.channel,
+        health=deps.health,
+        web_sessions=web_registry_for(deps.config),
+    )
+
+    result: ModelResult | None = None
+    # İlk gerçek yanıt için mutlak sınır; ardından iki parça arasındaki sessizlik
+    # sınırı. Boş geçici parçalar (modelin düşünmesi) ilk sınırı uzatamaz.
+    inactivity_s = request.timeout_s
+    loop = asyncio.get_running_loop()
+
+    async def _consume() -> None:
+        nonlocal result
+        async with asyncio.timeout(inactivity_s) as silence:
+            async for item in provider.stream(request):
+                if isinstance(item, StreamDone) or (
+                    isinstance(item, TextChunk) and item.text and not item.provisional
+                ):
+                    silence.reschedule(loop.time() + inactivity_s)
+                _observe_stream_item(item, state)
+                if isinstance(item, StreamDone):
+                    result = item.result
+
+    if liveness.is_api_model(spec):
+        await _consume_with_liveness(_consume, spec, state)
+    else:
+        await _consume()
+    return result or ModelResult(
+        name=spec.name,
+        model=spec.model,
+        text="",
+        latency_ms=0,
+        ok=False,
+        error="Model akışı sonuç üretmeden bitti.",
+    )
+
+
+async def _consume_with_liveness(
+    consume: Callable[[], Awaitable[None]], spec: ModelSpec, state: _State
+) -> None:
+    """Akışı tüket; hiç parça gelmeden sessizlik uzarsa sunucuyu yokla (bkz. `liveness`).
+
+    Sunucu sağlıksızsa beklemeye son verilir ve `TimeoutError` yükselir: yeniden deneme
+    döngüsü bunu geçici hata sayar ve nedeni durum mesajına yazar.
+    """
+    tuketici = asyncio.ensure_future(consume())
+    bekci = asyncio.ensure_future(
+        liveness.watch(lambda: state.call_chunks, liveness.ping_for(spec))
+    )
+    try:
+        await asyncio.wait({tuketici, bekci}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        kalan = [gorev for gorev in (tuketici, bekci) if not gorev.done()]
+        if bekci.done() and not tuketici.done():
+            state.unresponsive_reason = bekci.result()
+        for gorev in kalan:
+            gorev.cancel()
+        await asyncio.gather(*kalan, return_exceptions=True)
+    if state.unresponsive_reason:
+        raise TimeoutError(state.unresponsive_reason)
+    tuketici.result()
+
+
+def _observe_stream_item(item: object, state: _State) -> None:
+    # Beyan değil GÖZLEM: metin gerçekten aktıysa turun cevabı ekrana ulaşmış
+    # demektir ve `TurnAnswered` ikinci kez basmamalıdır. Sarmalayıcı zinciri ne
+    # olursa olsun (yedek, tekrar deneme) bu ölçüm doğrudur — sağlayıcının
+    # "akıtır mıyım" beyanına güvenmek yanıltıcı olurdu.
+    if isinstance(item, TextChunk):
+        state.call_chunks += 1
+    if isinstance(item, TextChunk) and not item.provisional:
+        state.answer_streamed = True
+        state.call_streamed = True
+
+
+#: Araç kısıtlaması olsa bile daima sunulan araçlar. Bunlar olmadan agent planlayamaz
+#: ya da belirsizliği gideremez.
+#: Denetlenecek dosya bırakmayan, uzak sayfada çalışan araçların ad önekleri.
+_BROWSER_TOOL_PREFIXES = ("chrome_", "browser_")
+ALWAYS_ALLOWED = frozenset({"todo_write", "ask_user", "find_skill", "read_skill", "recall_lessons"})
+
+#: Web taşımasında bir okumada gösterilecek en fazla satır (SWE-agent ölçümü).
+WEB_READ_WINDOW = 100
+
+
+#: Yalnız belirli istek türünde modele sunulan araçlar → gereken tür (`task_kinds`).
+#: Ölçüldü (8 Ekim 2026): üç Remotion aracı her istekte emülasyon istemini 10.500'den
+#: 11.943 karaktere çıkarıyordu; ücretsiz küçük modelde istem uzunluğu kalitedir.
+SCOPED_TOOLS: dict[str, str] = {
+    "scaffold_remotion": "remotion",
+    "revise_remotion_scenes": "remotion",
+    "render_remotion": "remotion",
+    # Arka plan masaüstü araçları yalnız masaüstü/pencere işinde sunulur (istem bütçesi).
+    "desktop_background_windows": "masaustu",
+    "desktop_background_inspect": "masaustu",
+    "desktop_background_screenshot": "masaustu",
+    "desktop_background_action": "masaustu",
+}
+
+
+def _permitted(
+    allowed_tools: set[str] | None,
+    registry: ToolRegistry,
+    execution: ExecutionPolicy,
+    task_kinds: frozenset[str] | set[str] = frozenset(),
+) -> set[str] | None:
+    """Modele sunulacak ve çalıştırılabilecek araç adlarını belirle.
+
+    Mutation izni yoksa değiştirici araçların ŞEMASI hiç gönderilmez: modele
+    yapamayacağı bir yeteneği göstermek, denemesine ve turu boşa harcamasına yol açar.
+    Düzenleme sözleşmesi tüm sağlayıcılarda aynıdır (`edit_file` / `multi_edit` /
+    `write_file`); sağlayıcıya göre şema daraltılmaz.
+    """
+    if allowed_tools is not None and not allowed_tools:
+        return set()
+    names = (
+        set(registry.names())
+        if allowed_tools is None
+        else ((allowed_tools | ALWAYS_ALLOWED) & set(registry.names()))
+    )
+    if execution.allowed_tool_names is not None:
+        names &= execution.allowed_tool_names
+    # Açıkça istenmiş araç (allowed_tools) türden bağımsız kalır.
+    names = {
+        name
+        for name in names
+        if name not in SCOPED_TOOLS
+        or SCOPED_TOOLS[name] in task_kinds
+        or (allowed_tools is not None and name in allowed_tools)
+    }
+    if not execution.allow_mutation:
+        names = {
+            name
+            for name in names
+            if not (registry.get(name) is not None and registry.get(name).mutating)  # type: ignore[union-attr]
+        }
+    return names
+
+
+def _refusal_note(
+    final_text: str,
+    state: _State,
+    execution: ExecutionPolicy,
+    tools: set[str] | None,
+) -> Message | None:
+    """Araç varken hiçbirini denemeden verilen kalıp ret: modele bir kez araçlarını hatırlat.
+
+    Ölçüldü (27 Eylül): tarayıcı görevinde Nemotron ve Gemini araç denemeden
+    "dil modeliyim, yardımcı olamıyorum" dedi ve tur başarılı sayıldı.
+    """
+    if state.refusal_nudged or state.tool_rounds or not execution.offer_tools or not tools:
+        return None
+    if not looks_like_refusal(final_text):
+        return None
+    state.refusal_nudged = True
+    return reflexion.refusal_note(sorted(tools))
+
+
+def _auto_continue_note(
+    final_text: str,
+    deps: AgentDeps,
+    state: _State,
+    *,
+    plan_mode: bool,
+    execution: ExecutionPolicy,
+    truncated: bool,
+) -> Message | None:
+    """Tur devam ettirilecekse modele enjekte edilecek notu döndür, yoksa `None`.
+
+    Not TÜRÜ ayrılır: "işi yarım bıraktın" ile "iş yapmadan bana soru sordun" farklı
+    davranışlardır ve modele farklı şey söylenmelidir.
+    """
+    if plan_mode:
+        return None
+    # Yanlış dizinde "devam et" demek, modeli iş UYDURMAYA iter. Doğru cevap
+    # "bu dizinde o dosyalar yok" demektir ve o cevap zaten verilmiştir; onu
+    # zorlamak turu kullanıcının istemediği bir işe çevirir (ölçüldü).
+    if state.warned_wrong_workspace:
+        return None
+    # Taşıma bütünlüğü her teşhisin önündedir: kesilmiş yanıt, kapanmamış blok ve
+    # boş yanıt farklı hamleler ister. Üçünü "işi yarım bıraktın" notuna bağlamak
+    # ya yapılan işi çöpe atıyor ya da modele yanlış şeyi düzelttiriyordu.
+    butunluk = classify_response(final_text, truncated=truncated, has_tool_calls=False)
+    tasima_notu = reflexion.integrity_note(butunluk)
+    if tasima_notu is not None:
+        return _spend(deps, tasima_notu)
+    # Bloklayan doğrulama düzeltmesi araçsız kapanamaz; bu tek dal korunur (bkz.
+    # `_never_acted`). Kapsamı büyüten genel dürtme kapıları (hiç çağrı yapmadan
+    # soru sorma, keşifte takılma, "yarım kalmış gibi görünme") kaldırıldı: model
+    # ne zaman araç kullanacağına, ne zaman bitireceğine kendi karar verir.
+    if _never_acted(state, execution):
+        state.never_acted_prompts += 1
+        return _spend(deps, reflexion.verification_action_required_note())
+    wanted = deps.tool_context.todos.has_pending
+    return _spend(deps, reflexion.auto_continue_note()) if wanted else None
+
+
+def _spend(deps: AgentDeps, note: Message) -> Message | None:
+    """Devam hakkını harca ve notu döndür; hak kalmadıysa `None`.
+
+    Hak yalnızca GERÇEKTEN devam edilecekse harcanır; sırayı tersine çevirmek
+    devam etmeyen turlarda da bütçe yakardı.
+    """
+    bekleyen = deps.tool_context.todos.pending_count
+    return note if deps.require_budget().take_auto_continue(pending_todos=bekleyen) else None
+
+
+#: Aynı turda kaç başarısız değiştirici çağrıdan sonra çıkış yolu gösterilir.
+#
+# İki deneme normaldir (ilk `old` tutmaz, model düzeltir). Üçüncüde model artık
+# yaklaşımını değiştirmiyor, aynı şeyi daha dar pencereyle tekrarlıyor.
+MAX_FAILED_MUTATIONS_IN_ROW = 3
+#: Toptan yazma çıkışının açıldığı başarısız düzenleme sayısı.
+#
+# Döngü notundan DAHA ERKEN açılır: boşta-tur kapısı üç ilerlemesiz turda turu
+# öldürüyor ve çıkış üçüncüde açılırsa hiç kullanılamıyor (ölçüldü — model
+# write_file'a kaçtı, engellendi, tur öldü). İki başarısız hedefli düzenleme,
+# modelin 'old' metnini tutturamadığını göstermeye yeter.
+MAX_EDITS_BEFORE_REWRITE = 2
+
+#: Tamamı okunmuş bir dosyanın toptan yeniden yazılmasının serbest olduğu üst sınır.
+#
+# Kuralın gerekçesi hacimdir: "yüz satırlık bir dosyayı baştan üretmek modele yüz
+# satırlık hata yüzeyi açar". Küçük dosyada o yüzey yoktur ve kural yalnızca
+# maliyet üretir.
+#
+# Ölçüldü (6 Eylül, 24 görev × 3 koşu): engellenen 34 toptan yazmanın TAMAMI
+# 1-45 satırlık dosyalardaydı; 34'ünün 28'i 12 satır ve altındaydı. Model her
+# seferinde `replace_range`'e düşmek zorunda kaldı ve tek satırlık JSON'u satır
+# aralığıyla onarmaya çalışırken tur harcadı. Yıkıcı başarısızlıkların ölçüldüğü
+# rejim ise ~100 satırdı.
+#
+# Sınır, gözlenen meşru vakaların (45) üstüne, ölçülen yıkıcı rejimin (~100)
+# belirgin altına konur.
+MAX_LINES_FOR_FULL_REWRITE = 60
+#: Döngü kapısının bir turda en fazla kaç kez konuşacağı.
+MAX_EDIT_LOOP_PUSHES = 2
+
+
+def _stuck_editing(state: _State, *, plan_mode: bool) -> bool:
+    """Model aynı düzenlemeyi tekrar tekrar deneyip düşüyor mu?"""
+    if plan_mode or state.edit_loop_pushes >= MAX_EDIT_LOOP_PUSHES:
+        return False
+    return state.failed_mutations_in_row >= MAX_FAILED_MUTATIONS_IN_ROW
+
+
+#: Okuma araçları. Yanlış-dizin hipotezi yalnızca bunlara bakar.
+_FILE_READ_TOOLS = frozenset({"read_file", "view_file"})
+#: Kaç "dosya yok" hatasından sonra yanlış dizin hipotezi kurulur.
+#
+# İki hata rastlantı olabilir (model yanlış ad tahmin etti). Üçüncüde ve HİÇBİR
+# dosya okunamamışken, en olası açıklama çalışma dizininin yanlış olmasıdır.
+MAX_MISSING_READS = 3
+
+
+def _looks_like_wrong_workspace(state: _State) -> bool:
+    """Görevdeki dosyaların hiçbiri bu dizinde yok gibi mi görünüyor?
+
+    Ölçüldü: kullanıcı fusion'ı yanlış klasörde açtı. Model dört dosyayı da
+    bulamadı, sonra öz-denetim düzeltici turunda GÖREVİ TERK ETTİ ve kendine yeni
+    iş uydurdu — o projenin README'sini okuyup "test paketini çalıştır" diye todo
+    listesi yazdı. Kullanıcının sorduğu şeyle hiç ilgisi yoktu.
+
+    Doğru davranış durmaktır: bu bir "yapılamayan iş"tir, uydurulacak bir iş değil.
+    """
+    if state.warned_wrong_workspace or state.successful_file_reads > 0:
+        return False
+    return len(state.missing_paths) >= MAX_MISSING_READS
+
+
+def _record_changes(messages: list[Message], deps: AgentDeps, state: _State) -> None:
+    """Değişen dosyaları modele OLGU olarak hatırlat.
+
+    Model kendi işini takip edemiyor: bir koşuda üç dosya oluşturup kapanışta
+    "herhangi bir değişiklik yapılmamıştır" dedi, başka bir koşuda dokunmadığı
+    dosyayı "güncelledim" dedi. Kayıt yalnızca liste BÜYÜDÜĞÜNDE eklenir; her
+    turda tekrarlamak promptu şişirir.
+    """
+    yollar = deps.tool_context.changes.paths
+    if len(yollar) == state.logged_changes:
+        return
+    state.logged_changes = len(yollar)
+    from ...tools.files import display_path
+
+    messages.append(
+        reflexion.change_log_note(tuple(display_path(deps.tool_context, y) for y in yollar))
+    )
+
+
+def _never_acted(state: _State, execution: ExecutionPolicy) -> bool:
+    """Bloklayan doğrulama düzeltmesi HİÇ araç çağırmadan turu kapatıyor mu?
+
+    Yalnızca `require_local_mutation` (blocking verification correction) dalı
+    kalır: bu alt tur gerçek bir mutation ÜRETMEK ZORUNDADIR, dış turun eski
+    kanıtıyla kapanamaz. Genel "karmaşık görevde hiç araç çağırmadı" dürtüsü
+    kaldırıldı (B4/A13): model ne zaman araç kullanacağına kendi karar verir ve
+    araçsız bitirdiği bir tur, aksini gerektiren bir kapıya (kanıt kapısı,
+    doğrulama düzeltmesi) çarpmıyorsa geçerli bir teslimdir.
+
+    BİR KEZ değil İKİ KEZ konuşur (blocking correction'a özeldir): model ikinci
+    kez de araçsız gelirse zorlamak çağrı harcamaktır; o noktada cevabı olduğu
+    gibi teslim etmek dürüst olandır.
+    """
+    if not state.require_local_mutation:
+        return False
+    # Blocking verification correction dış turun eski evidence'ı ile kapanamaz;
+    # BU alt tur gerçek bir mutation üretmelidir.
+    if state.mutating_tool_calls_made > 0:
+        return False
+    if not execution.offer_tools:
+        return False
+    return state.never_acted_prompts < 2
+
+
+def _exploration_note(
+    state: _State,
+    execution: ExecutionPolicy,
+    *,
+    plan_mode: bool,
+    teacher_available: bool,
+) -> str | None:
+    """İstenen değişiklikte uzun salt-okuma döngüsünü bir kez kır."""
+    if (
+        plan_mode
+        or state.internal
+        or not execution.complex_task
+        or not execution.allow_mutation
+        or state.mutating_tool_calls_made
+        or state.tool_calls_made < 5
+        or state.exploration_pushes
+    ):
+        return None
+    note = (
+        "FUSION_NOT: Bu görevde en az 5 araç çağrısı yaptın ama henüz "
+        "hiç dosya değiştirmedin. Daha fazla genel dizin taraması yapma. "
+        "İncelediğin dosyalardan ilk somut değişikliği seç ve uygula."
+    )
+    if teacher_available:
+        note += (
+            " Mimari karar veya doğrulama konusunda bir belirsizlik kaldıysa "
+            "`ask_teacher` ile tek somut soru sor, cevabı değerlendir, ardından uygula."
+        )
+    return note
+
+
+def _teacher_takeover_spec(
+    deps: AgentDeps, state: _State, execution: ExecutionPolicy, *, auto_teacher: bool
+) -> ModelSpec | None:
+    """Başarılı öğütten sonra süren salt-okuma döngüsünü doğrulanmış modele devret."""
+    threshold = deps.config.runtime.agent_teacher_takeover_tools
+    if (
+        not auto_teacher
+        or not state.teacher_advice_ok
+        or state.internal
+        or (deps.budget is not None and deps.budget.stop is not None)
+        or state.capability_wall
+        or not execution.complex_task
+        or not execution.allow_mutation
+        or state.mutating_tool_calls_made
+        or state.tool_calls_made < threshold
+        or threshold <= 0
+        or deps.active_model_override is not None
+        or (
+            execution.allowed_tool_names is not None
+            and not execution.allowed_tool_names.intersection(
+                {"write_file", "edit_file", "multi_edit", "run_shell"}
+            )
+        )
+    ):
+        return None
+    selected = select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements)
+    teacher = deps.config.teacher
+    if selected.strict or teacher is None or selected.model == teacher.model:
+        return None
+    verified = any(
+        session.model == teacher.model
+        and session.enabled
+        and session.login_verified
+        and session.tool_support == "emulated"
+        and session.tool_eval_passed
+        for session in deps.config.web_sessions
+    )
+    if not verified or not mutation_policy_for_model(deps.config, teacher.model).ok:
+        return None
+    return ModelSpec(name="ogretmen-agent", model=teacher.model, tags=("strict",))
+
+
+def _teacher_stall_reason(state: _State) -> str | None:
+    """Var olan hata ve tekrar sinyallerinden somut danışma nedeni çıkar."""
+    if any(count >= _YINELENEN_HATA_ESIGI for count in state.repeated_failures.values()):
+        return "aynı araç hatası tekrarlandı"
+    if state.repeat_blocked:
+        return "tekrar koruması aynı okumayı engelledi"
+    if any(count >= SAME_OUTPUT_WARN_AT for count in state.same_output_counts.values()):
+        return "farklı aramalar aynı sonucu üretti"
+    if state.stalled:
+        return "ilerleme yok uyarısı"
+    return None
+
+
+def _has_teacher_plan(deps: AgentDeps) -> bool:
+    """Bu turda öğretmenden ya da hafızadan bir plan alındı mı?"""
+    return deps.pending_teacher_plan is not None or deps.reused_teacher_lesson is not None
+
+
+def _plateau_reason(state: _State, deps: AgentDeps, *, exploration_note: str | None) -> str | None:
+    """Otomatik öğretmen danışması için somut takılma nedeni; yoksa None.
+
+    Plan varken "okuma uzun sürdü" tek başına neden değildir: plan zaten ilk
+    adımı söyledi. Ölçüldü (29 Eylül, canlı): plan alındıktan 30 sn sonra bu
+    yüzden ikinci, genel bir öğretmen sorusu gidiyordu.
+    """
+    reason = _teacher_stall_reason(state)
+    if reason is not None:
+        return reason
+    if exploration_note and not _has_teacher_plan(deps):
+        return "okuma ve arama adımlarında ilerleme yok"
+    return None
+
+
+def _plateau_question(deps: AgentDeps, reason: str, state: _State | None = None) -> str:
+    """Takılma anına özel öğretmen sorusu.
+
+    Takılma bir HATAYSA soru o hatayı taşır. Ölçüldü (2 Ekim, kabul koşusu): model
+    "Access denied" hatasını üç kez aldı; öğretmene "çok dosyalı göreve başlarken ilk
+    değişiklik ne olmalı?" diye genel bir soru gitti ve hata hiç söylenmedi.
+    """
+    hata = _top_failure(state) if state is not None else None
+    if hata is not None:
+        arac, imza, sayi = hata
+        return (
+            f"`{arac}` şu hatayı {sayi} kez verdi ve aşamadım: {imza[:300]}. Kök neden ne "
+            "olabilir ve görevi sürdürmek için SIRADAKİ SOMUT adım (komut/araç) ne? Kısa cevap ver."
+        )
+    if _has_teacher_plan(deps):
+        return (
+            f"Önceki planı uygularken takıldım: {reason}. Bu takılmayı aşmak için "
+            "şimdi hangi somut adımı atmalıyım? Kısa, uygulanabilir cevap ver."
+        )
+    return (
+        "Bu çok dosyalı göreve başlarken ilk somut dosya değişikliği ve "
+        "onu doğrulayacak test ne olmalı? Kısa, uygulanabilir cevap ver."
+    )
+
+
+def _top_failure(state: _State) -> tuple[str, str, int] | None:
+    """En çok yinelenen araç hatası (araç, hata satırı, sayı); eşik altındaysa None."""
+    if not state.repeated_failures:
+        return None
+    (arac, imza), sayi = max(state.repeated_failures.items(), key=lambda item: item[1])
+    return (arac, imza, sayi) if sayi >= _YINELENEN_HATA_ESIGI else None
+
+
+async def _consult_teacher_on_plateau(
+    messages: list[Message],
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    state: _State,
+    *,
+    reason: str = "okuma ve arama adımlarında ilerleme yok",
+) -> None:
+    """Ask the configured web teacher once when a complex task stalls in reading.
+
+    The task excerpt is bounded and redacted; source file contents are not copied
+    into the brief. The existing ``teacherless`` setting disables the tool.
+    """
+    original_task = next(
+        (
+            message.content
+            for message in reversed(messages)
+            if message.role == "user" and not message.harness_note
+        ),
+        "",
+    )
+    args: dict[str, object] = {
+        "question": _plateau_question(deps, reason, state),
+        "durum": f"Görev özeti: {redact(original_task)[:700]}",
+        "denenenler": (
+            f"Ajan {state.tool_calls_made} araç çağrısı yaptı. Takılma nedeni: {reason}."
+        ),
+    }
+    call = ToolCall(
+        id=f"fusion-auto-teacher-{state.model_calls_made}",
+        name="ask_teacher",
+        arguments=json.dumps(args, ensure_ascii=False),
+    )
+    messages.append(Message("assistant", "", tool_calls=(call,)))
+    try:
+        async with asyncio.timeout(max(1.0, deps.config.runtime.request_timeout_s)):
+            result = await registry.execute("ask_teacher", args, deps.tool_context)
+    except TimeoutError:
+        result = ToolResult.failure("Öğretmen yanıtı süre sınırında tamamlanmadı.")
+    state.tool_calls_made += 1
+    state.tool_rounds += 1
+    if not result.ok:
+        state.failed_tool_calls += 1
+    else:
+        state.teacher_advice_ok = True
+    _note_tool_use(
+        state,
+        "ask_teacher",
+        registry.get("ask_teacher"),
+        ok=result.ok,
+        arguments=args,
+        output=result.output,
+    )
+    deps.publisher.publish(
+        ToolExecuted(
+            name="ask_teacher",
+            args={"question": args["question"]},
+            outcome=ToolOutcome.OK if result.ok else ToolOutcome.FAILED,
+            output=result.output,
+        )
+    )
+    messages.append(
+        Message("tool", result.output, tool_call_id=call.id, name="ask_teacher", ok=result.ok)
+    )
+
+
+def _targeted_edit_required(
+    name: str,
+    args: dict[str, object],
+    deps: AgentDeps,
+    execution: ExecutionPolicy,
+    state: _State,
+) -> list[str]:
+    """Taklit araç kullanan modelde var olan dosya toptan yeniden yazılamaz.
+
+    Ölçüldü (Gemini web, aynı görev altı koşu): yıkıcı başarısızlıkların HEPSİNDE
+    `write_file` vardı — bozuk sözdizimi, 13 ruff hatası, toplanamayan test dosyası.
+    Yalnızca `edit_file` kullanan koşular eksik kalabildi ama kodu hiç bozmadı.
+
+    Sebep yapısal: yüz satırlık bir dosyayı baştan üretmek modele yüz satırlık hata
+    yüzeyi açar, hedefli düzenleme birkaç satırlık. Ücretsiz bir web modeli o yüzeyi
+    tutarlı biçimde temiz geçemiyor.
+
+    Karar MOTOR katmanında verilir çünkü sağlayıcı politikasıdır; `files.py`
+    sağlayıcıdan habersiz kalır. Yeni dosya yazmak serbesttir — kısıt yalnızca var
+    olan bir dosyanın ÜZERİNE yazmaya karşıdır.
+
+    Kısıt agent'ın BU TURDA kendi oluşturduğu dosyayı kapsamaz. Ölçülen ölü kilit:
+    `scaffold_web` iskeleyi diske yazıyor ve "şimdi bunları DOLDUR" diyor; ama iskele
+    dosyasını doldurmak tanımı gereği toptan yazmadır ve kural onu engelliyordu.
+    Model `write_file` deneyip bloklanıyor, `edit_file` deneyip 'old' metnini
+    tutturamıyor, içeriği öğrenmek için yeniden okumaya kalkınca tekrar kapısına
+    takılıyor ve tur "ilerleme yok" ile ölüyordu. Kuralın gerekçesi (kullanıcının
+    kodunu koru) dakikalar önce agent'ın kendi yazdığı yer tutucu dosyada geçersizdir.
+    """
+    if not execution.is_web or name not in _FULL_WRITE_TOOLS:
+        return []
+    raw = args.get("path")
+    if not isinstance(raw, str) or not raw.strip():
+        return []
+    try:
+        hedef = resolve_path(deps.tool_context, raw)
+    except FusionError:
+        return []
+    if not hedef.exists():
+        return []
+    if deps.tool_context.changes.was_created_this_turn(hedef):
+        return []
+    if _rewrite_is_last_resort(hedef, deps, state):
+        return []
+    satir = _line_count(hedef)
+    if satir <= MAX_LINES_FOR_FULL_REWRITE:
+        # Küçük dosyada çıkış yolu VARDIR ve söylenmelidir: tamamını okuduktan
+        # sonra toptan yazma serbest (bkz. `_rewrite_is_last_resort`).
+        #
+        # Ölçüldü (13 Eylül, koşu 27): mesaj yalnız kaldırılan `replace_range`
+        # aracını öneriyordu. Model `scenes/main.tscn` için `write_file` denedi,
+        # engellendi, `edit_file` ile boş 'old' gönderdi, tekrar `write_file`
+        # denedi ve tekrar kapısına takıldı; adım bütçesi doldu, sahne hiç
+        # yazılamadı. Sahne dosyası satır satır yamanacak bir metin değildir,
+        # yeniden üretilir.
+        return [
+            f"'{raw}' zaten var ({satir} satır) ve İÇERİĞİNİ BU ADIMDA OKUMADIN. "
+            "Önce `read_file` ile TAMAMINI oku; tamamını gördükten sonra `write_file` "
+            "ile yeniden yazmana izin verilir. Yalnız küçük bir parça değişecekse "
+            "`edit_file` ile o parçayı gönder."
+        ]
+    return [
+        f"'{raw}' zaten var ve {satir} satır. Var olan dosyayı toptan yeniden yazma — "
+        "önce read_file ile ilgili satırları gör, sonra edit_file ile YALNIZCA değişecek "
+        "parçayı gönder."
+    ]
+
+
+def _rewrite_is_last_resort(hedef: Path, deps: AgentDeps, state: _State) -> bool:
+    """Toptan yazma artık TEK çıkış mı?
+
+    Kural olmadan ölçülen ölü kilit: `edit_file` üç kez "'old' bulunamadı" verdi,
+    model `write_file`'a kaçtı ve KOŞULSUZ engellendi, tekrar `edit_file` denedi,
+    yine tutmadı ve tur "ilerleme yok" ile öldü. Model doğru dosyayı, doğru
+    niyetle hedeflemişti; çıkışı olmayan bir kapıya çarptı.
+
+    İki koşul BİRLİKTE aranır:
+
+    - Hedefli düzenleme bu turda arka arkaya birkaç kez düşmüş olmalı. Bir-iki
+      başarısızlık normaldir ve model kendi kendine toparlar.
+    - Model dosyanın TAMAMINI okumuş olmalı. Kuralın gerekçesi "yüz satırlık
+      dosyayı baştan üretmek yüz satırlık hata yüzeyi açar" idi; içeriğin tamamı
+      görülmüşse yazma artık kör değildir ve o gerekçe düşer.
+    """
+    if hedef not in deps.tool_context.fully_read:
+        return False
+    if _line_count(hedef) <= MAX_LINES_FOR_FULL_REWRITE:
+        return True
+    return state.failed_mutations_in_row >= MAX_EDITS_BEFORE_REWRITE
+
+
+def _line_count(path: Path) -> int:
+    """Dosyanın satır sayısı; okunamıyorsa kuralı gevşetmeyecek şekilde sonsuz."""
+    try:
+        return len(path.read_text(encoding="utf-8").splitlines())
+    except OSError:
+        return sys.maxsize
+    except UnicodeDecodeError:
+        # İkili dosya: toptan yazmanın hacim gerekçesi burada ölçülemez, kısıt kalsın.
+        return sys.maxsize
+
+
+#: Dosyanın tamamını değiştiren araçlar.
+_FULL_WRITE_TOOLS = frozenset({"write_file"})
+
+
+def _acts_on_remote_state(name: str) -> bool:
+    """Durumu çalışma alanı dışında (sayfa, masaüstü) tutan araç mı."""
+    return tool_family(name) in (ToolFamily.BROWSER, ToolFamily.DESKTOP)
+
+
+def _is_rerunnable(name: str, tool: Tool | None = None) -> bool:
+    """Onay açısından değiştirici sayılan ama TEKRAR EDİLMESİ meşru olan araç mı.
+
+    Tekrar imzasında değiştirici araçların çağı sıfırlanır ("aynı yazma iki kez
+    istenmez"). `run_shell` bu kuralın altında yanlış kalıyordu: doğrulama komutu
+    tam olarak tekrarlanmak İÇİN vardır. Ölçüldü — model kodu düzeltti, `npm test`
+    çalıştırmak istedi ve TOOL_CALL_DUPLICATE ile engellendi; düzeltmenin işe
+    yarayıp yaramadığını doğrulayamadı.
+
+    Çağa bağlanmak doğru davranışı verir: değişiklik olmadan aynı komutu tekrar
+    etmek yine tekrardır, değişiklikten SONRA tekrar etmek yeni bilgidir.
+
+    Sınıflandırma TEK KAYNAKTAN (`core.tools.tool_family`) okunur, burada ikinci
+    bir ad listesi açılmaz. Ölçüldü (masaüstü uygulaması, API modeli): model
+    doğrulama komutunu `run_shell` yerine takma adı `bash` ile çağırdı; birebir
+    ad karşılaştırması `"bash" != "run_shell"` olduğu için bu istisnayı hiç
+    görmedi ve tam da çözmek için var olduğu ölü kilit takma ad altında geri
+    geldi (bkz. `engines/agent/turn_report.py::_is_shell_call`, aynı yaklaşım).
+
+    Kabuk dışındaki araçlar bunu kendileri beyan eder (`Tool.reruns_on_change`): projeyi
+    çalıştırıp ölçen `start_preview` da değişiklikten sonra yeniden çağrılmak İÇİN vardır.
+    """
+    if tool is not None and tool.reruns_on_change:
+        return True
+    return tool_family(name) is ToolFamily.SHELL
+
+
+# --------------------------------------------------------------------------- #
+# Araç yürütme
+# --------------------------------------------------------------------------- #
+
+
+def _post_edit_commands(deps: AgentDeps) -> tuple[str, ...]:
+    """Kullanıcının düzenleme kancaları; yapılandırmasız (alt sistem testi) bağlamda yok."""
+    config = getattr(deps, "config", None)
+    runtime = getattr(config, "runtime", None)
+    return tuple(getattr(runtime, "post_edit_commands", ()))
+
+
+async def _run_tools(
+    calls: tuple[ToolCall, ...],
+    messages: list[Message],
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    state: _State,
+    *,
+    execution: ExecutionPolicy,
+    plan_mode: bool = False,
+) -> bool:
+    """Çalıştırmadan ÖNCE doğrula; bozuk ve tekrar eden çağrı zincirini kes.
+
+    Sıra önemlidir: sözleşme ihlali (bozuk JSON, bilinmeyen araç, eksik alan) araç
+    hiç çalışmadan yakalanır ve modele düzeltme şansı verilir. İkinci kez aynı hata
+    gelirse tur sonlandırılır — düzeltemeyen bir model sonsuza kadar denemez.
+    """
+    state.tool_calls_last_turn = len(calls)
+    state.tool_rounds += 1
+    errored = False
+
+    budget = deps.require_budget()
+    for call in calls:
+        if state.repeated_failure_abort:
+            output = "Tekrar döngüsü durduruldu; bu araç başlatılmadı."
+            deps.publisher.publish(
+                ToolExecuted(
+                    name=call.name,
+                    args={},
+                    outcome=ToolOutcome.BLOCKED,
+                    output=output,
+                    diff=None,
+                )
+            )
+            messages.append(
+                Message(
+                    "tool",
+                    output,
+                    tool_call_id=call.id,
+                    name=call.name,
+                    ok=False,
+                )
+            )
+            errored = True
+            continue
+        if (remaining := budget.remaining_s()) is not None and remaining <= 0:
+            budget.halt(BudgetStop.DEADLINE)
+            messages.append(
+                Message(
+                    "tool",
+                    "Dış isteğin süre sınırı doldu; bu araç başlatılmadı.",
+                    tool_call_id=call.id,
+                    name=call.name,
+                    ok=False,
+                )
+            )
+            errored = True
+            continue
+        if budget.stop is BudgetStop.USER_DENIED:
+            # Bu TUR'daki önceki bir çağrı AZ ÖNCE reddedildi (aşağıda). Aynı model
+            # yanıtındaki kalan çağrılar hiç çalıştırılmaz — kullanıcının kararı bir
+            # sonraki çağrıda yok sayılmamalı. Sağlayıcı sözleşmesi yine de her
+            # `tool_call`'a bir sonuç ister; bu yüzden "atlandı" mesajı gönderilir.
+            output = denial.SKIPPED_TOOL_RESULT
+            deps.publisher.publish(
+                ToolExecuted(
+                    name=call.name,
+                    args={},
+                    outcome=ToolOutcome.DENIED,
+                    output=output,
+                    diff=None,
+                )
+            )
+            messages.append(Message("tool", output, tool_call_id=call.id, name=call.name, ok=False))
+            state.failed_tool_calls += 1
+            errored = True
+            continue
+
+        args, parse_error = _parse_arguments_checked(call.arguments)
+        tool = registry.get(call.name)
+        function_schema = tool.schema().get("function") if tool is not None else None
+        # Fazla kodlanmış yapısal argüman ONARILIR: bir dizi alanının JSON METNİ
+        # olarak gelmesi niyet hatası değil kodlama hatasıdır ve turu düşürmemeli.
+        #
+        # Onarım imzadan ÖNCE yapılır: aynı mantıksal çağrının kodlanmış ve çözülmüş
+        # hâlleri iki ayrı imza üretseydi tekrar kapısı bu çağrıyı hiç göremezdi.
+        if isinstance(function_schema, dict):
+            args = coerce_arguments(function_schema, args)
+        # İmza TUR BOYUNCA paylaşılır: düzeltici turun ana turdaki çağrıyı birebir
+        # tekrar etmesi, her tura ayrı ayrı bakıldığında görünmeyen bir döngüdür.
+        signature = budget.signature(
+            call.name,
+            _encode_arguments(args),
+            mutating=tool is not None and tool.mutating and not _is_rerunnable(call.name, tool),
+            after_shell=tool is not None and tool.reruns_on_change,
+            remote=_acts_on_remote_state(call.name),
+        )
+        seen = budget.count_call(signature)
+
+        contract_errors: list[str] = []
+        if parse_error:
+            contract_errors.append(parse_error)
+        if tool is None:
+            contract_errors.append(
+                "bilinmeyen araç; kullanılabilir araçlar: " + ", ".join(registry.names())
+            )
+        elif isinstance(function_schema, dict):
+            contract_errors.extend(validate_arguments(function_schema, args))
+
+        if not contract_errors:
+            contract_errors.extend(_targeted_edit_required(call.name, args, deps, execution, state))
+
+        if contract_errors:
+            # Aynı bozuk çağrı ikinci kez geldiyse onarım hakkı harcanmaz: model
+            # düzeltmiyor, tekrarlıyor.
+            no_more_repairs = seen >= 1 or not budget.take_contract_repair()
+            output = _tool_contract_failure(
+                call.name,
+                contract_errors,
+                tool.schema().get("function") if tool is not None else None,
+                registry=registry,
+            )
+            outcome = ToolOutcome.BLOCKED if no_more_repairs else ToolOutcome.FAILED
+            deps.publisher.publish(
+                ToolExecuted(
+                    name=call.name,
+                    args=args,
+                    outcome=outcome,
+                    output=output,
+                    diff=None,
+                )
+            )
+            messages.append(Message("tool", output, tool_call_id=call.id, name=call.name, ok=False))
+            state.failed_tool_calls += 1
+            _note_tool_use(state, call.name, tool, ok=False, arguments=args, output=output)
+            errored = True
+            # Tur BURADA ÖLDÜRÜLMEZ — tekrar kapısıyla (aşağıda) aynı gerekçe.
+            #
+            # Eskiden onarım hakkı bitince tur anında sonlandırılıyordu; tekrar kapısı
+            # ise "turu kesmek o ana kadarki TÜM ilerlemeyi çöpe atar" diyerek
+            # kesmiyordu. İki kapının aynı durumda farklı davranması bir çelişkiydi.
+            #
+            # Ölçüldü: iki bozuk JSON gönderip ÜÇÜNCÜ turda doğru hamleyi yapan bir
+            # model, doğru hamlesine hiç ulaşamadan öldürülüyordu. Karar tek bir
+            # otoriteye, "ilerleme yok" kapısına bırakılır: model toparlanamazsa tur
+            # yine biter — ama üç şans sonra, tek hamlede değil.
+            continue
+
+        # Başarısız düzenleme okumayı tazeler; bu, aynı başarısız komuta yeni
+        # deneme hakkı vermez. Sayaç çağdan bağımsızdır ve kabuk takma adlarını birleştirir.
+        failure_key = (
+            "run_shell" if tool_family(call.name) is ToolFamily.SHELL else call.name,
+            _encode_arguments(args),
+        )
+        if failure_key in state.failed_call_counts:
+            state.failed_call_counts[failure_key] += 1
+            if state.failed_call_counts[failure_key] >= REPEAT_BLOCK_AT:
+                output = (
+                    f"Aynı başarısız `{call.name}` çağrısı değişiklik olmadan "
+                    f"{REPEAT_BLOCK_AT} kez istendi; tekrar döngüsü durduruldu. "
+                    "Hata nedenini giderip farklı argümanlarla yeniden deneyin. "
+                    "Kabuk zaten seçili proje dizininde çalışır; boşluk içeren yolları "
+                    "tırnak içine alın veya göreli yol kullanın."
+                )
+                deps.publisher.publish(
+                    ToolExecuted(
+                        name=call.name,
+                        args=args,
+                        outcome=ToolOutcome.BLOCKED,
+                        output=output,
+                        diff=None,
+                    )
+                )
+                messages.append(
+                    Message(
+                        "tool",
+                        output,
+                        tool_call_id=call.id,
+                        name=call.name,
+                        ok=False,
+                    )
+                )
+                state.failed_tool_calls += 1
+                state.repeated_failure_abort = output
+                _note_tool_use(state, call.name, tool, ok=False, arguments=args, output=output)
+                errored = True
+                continue
+
+        # Değiştirici araçta tek tekrar bile döngüdür: aynı yazma iki kez istenmez.
+        # Okuma araçlarında çalışma alanı değişmediği sürece birkaç tekrara izin verilir.
+        duplicate_limit = (
+            1 if tool is not None and tool.mutating else execution.max_same_tool_without_change
+        )
+        # Kapı artık TÜM sağlayıcılarda açık. Eskiden yalnızca web modelleri
+        # denetleniyordu; API modelleri aynı çağrıyı sınırsız tekrar edebiliyordu.
+        if seen >= duplicate_limit:
+            # Engellenen yineleme, işin ZATEN YAPILDIĞININ kanıtıdır: düşen
+            # çağrılar bu noktaya gelmeden unutulur (`forget_call`).
+            state.already_done_calls += 1
+            # OKUMA tekrarına HATA değil, ilk sonucun kendisi döner.
+            #
+            # Ölçülen ölü kilit (Godot koşusu): model `list_dir .` çağrısını
+            # yineledi, kapı onu `blocked` yaptı, engellenen çağrı ilerleme
+            # saymadığı için boşta tur sayacı doldu ve görev "agent adım bütçesi
+            # doldu" ile öldü. Oysa model yalnızca zaten sahip olduğu bilgiyi
+            # yeniden istiyordu; ona hata vermek zinciri kırıyor, bilgiyi vermek
+            # sürdürüyor ve YENİ İŞ YAPTIRMIYOR. Değiştirici araçlar bu yoldan
+            # yararlanamaz: aynı yazma iki kez yapılmaz, orası hâlâ engellidir.
+            if tool is not None and not tool.mutating and seen + 1 >= REPEAT_BLOCK_AT:
+                # Önbellekteki sonucu tekrar tekrar vermek döngüyü beslemeye devam
+                # ediyordu. Ölçüldü (29 Eylül): model aynı glob'u onlarca kez istedi.
+                # Hermes Agent ve OpenClaw aynı noktada çağrıyı ENGELLER; tur kesilmez.
+                output = _repeat_block_message(call.name, seen + 1)
+                deps.publisher.publish(
+                    ToolExecuted(
+                        name=call.name,
+                        args=args,
+                        outcome=ToolOutcome.BLOCKED,
+                        output=output,
+                        diff=None,
+                    )
+                )
+                messages.append(
+                    Message("tool", output, tool_call_id=call.id, name=call.name, ok=False)
+                )
+                state.failed_tool_calls += 1
+                state.repeat_blocked = True
+                _note_tool_use(state, call.name, tool, ok=False, arguments=args, output=output)
+                errored = True
+                continue
+            onbellek = budget.recall_read(signature)
+            if onbellek is not None:
+                output = f"{_REPEATED_READ_NOTE}\n\n{onbellek}"
+                deps.publisher.publish(
+                    ToolExecuted(
+                        name=call.name,
+                        args=args,
+                        outcome=ToolOutcome.OK,
+                        output=output,
+                        diff=None,
+                    )
+                )
+                messages.append(
+                    Message("tool", output, tool_call_id=call.id, name=call.name, ok=True)
+                )
+                _note_tool_use(state, call.name, tool, ok=True, arguments=args, output=output)
+                # Kanıt sayaçları ARTMAZ: yeni bir iş yapılmadı, yalnızca bilinen
+                # bir sonuç tekrar sunuldu. İlerleme kapısı bunu ilerleme saymaz
+                # ve model kendini toparlayamazsa tur yine biter.
+                continue
+            output = _duplicate_call_message()
+            deps.publisher.publish(
+                ToolExecuted(
+                    name=call.name,
+                    args=args,
+                    outcome=ToolOutcome.BLOCKED,
+                    output=output,
+                    diff=None,
+                )
+            )
+            messages.append(Message("tool", output, tool_call_id=call.id, name=call.name, ok=False))
+            state.failed_tool_calls += 1
+            _note_tool_use(state, call.name, tool, ok=False, arguments=args, output=output)
+            errored = True
+            # Tur BURADA ÖLDÜRÜLMEZ. Tekrarlanan bir çağrı zararsız bir verimsizliktir;
+            # turu kesmek o ana kadarki TÜM ilerlemeyi çöpe atar. Ölçüldü: model dört
+            # dosyayı okuyup birini düzelttikten sonra aynı dosyayı üç kez okudu ve
+            # yapılan iş boşa gitti.
+            #
+            # Karar "ilerleme yok" kapısına bırakılır: engellenen çağrı ilerleme
+            # üretmediği için boşta tur sayacı artar ve model kendini toparlayamazsa
+            # tur yine biter — ama üç şans sonra, tek hamlede değil.
+            continue
+
+        pending_diff = file_diff(call.name, args, deps.tool_context)
+        todos_before = tuple(deps.tool_context.todos.items)
+        result, outcome = await _execute(
+            call, args, deps, registry, execution=execution, plan_mode=plan_mode
+        )
+        repair_feedback = record_failure_evidence(result, budget)
+        if result.is_observation:
+            budget.forget_call(signature)
+        if outcome is ToolOutcome.OK and call.name == "todo_write":
+            for sentence in todo_transitions(todos_before, tuple(deps.tool_context.todos.items)):
+                deps.publisher.publish(NarrationPublished(text=sentence))
+        _note_tool_use(
+            state,
+            call.name,
+            tool,
+            ok=outcome is ToolOutcome.OK,
+            arguments=args,
+            output=result.output,
+            job_completion=result.job_completion,
+            is_observation=result.is_observation,
+        )
+        if outcome in (ToolOutcome.DENIED, ToolOutcome.BLOCKED):
+            # Onay verilmeyen ya da yetenek kapısına takılan çağrı HİÇ ÇALIŞMADI.
+            # Tekrar kapısına kanıt olarak yazılırsa, koşullar düzelse bile aynı
+            # çağrı "bunu zaten yaptın ve o zamandan beri bir şey değişmedi"
+            # diyen bir engelle karşılaşır.
+            #
+            # Ölçüldü (Godot koşusu): doğrulama adımındaki
+            # `godot --headless --path . --quit` etkileşimsiz oturumda onay
+            # alınamayıp `blocked` döndü; ikinci deneme `TOOL_CALL_DUPLICATE` ile
+            # engellendi ve adım hiçbir zaman kanıt üretemedi.
+            budget.forget_call(signature)
+        if outcome is ToolOutcome.DENIED:
+            # Bu bir hata ya da bütçe olayı DEĞİLDİR — insan GERÇEKTEN "hayır"
+            # dedi. Tur burada durur (`_drive` bir sonraki döngü başında bunu
+            # görüp modeli bir daha çağırmadan döner); aynı yanıttaki KALAN
+            # çağrılar döngünün başındaki kontrolle atlanır.
+            state.denied_tool_name = call.name
+            budget.halt(BudgetStop.USER_DENIED)
+        # Duvar ve ulaşılamaz kaynak, kanıt kapısı açısından AYNI durumdur: iş bu
+        # araçla yapılamadı. Modeli kanıt üretmeye zorlamak onu uydurmaya iter.
+        if result.output.startswith((CAPABILITY_WALL_PREFIX, UNREACHABLE_RESOURCE_PREFIX)):
+            state.capability_wall = True
+        if outcome is ToolOutcome.OK:
+            state.failed_call_counts.pop(failure_key, None)
+            if (
+                tool_family(call.name) is ToolFamily.SHELL
+                and not _reads_only(call.name, args)
+                and not result.is_observation
+            ):
+                state.failed_call_counts.clear()
+            state.tool_calls_made += 1
+            if result.is_observation:
+                state.observation_calls += 1
+            # Okuma sonucu turda saklanır: aynı okuma yinelenirse engel yerine
+            # bu sonuç döner (bkz. tekrar kapısı).
+            if tool is not None and not tool.mutating:
+                budget.remember_read(signature, result.output)
+            if call.name in _FILE_READ_TOOLS:
+                state.successful_file_reads += 1
+            mutating = bool(tool is not None and tool.mutating)
+            budget.successful_tool_evidence.append((call.name, args, mutating))
+            if mutating and _acts_on_remote_state(call.name):
+                budget.remote_epoch += 1
+            if mutating and not result.is_observation:
+                state.mutating_tool_calls_made += 1
+                state.failed_mutations_in_row = 0
+                # Çağı yalnızca DOSYA değişikliği ilerletir. `run_shell` başarılı
+                # olduğunda da ilerletmek, aynı komutun tekrar imzasını her
+                # seferinde tazeliyor ve tekrar kapısını `run_shell` için işlevsiz
+                # bırakıyordu (bkz. `_is_rerunnable`).
+                if not _is_rerunnable(call.name, tool):
+                    budget.record_mutation()
+                    state.failed_call_counts.clear()
+                else:
+                    # Kabuk/çalıştırma başarılıysa düşen çağrıların ön koşulu değişmiş
+                    # olabilir (bkz. `forget_failed_calls`); çağ yine ilerlemez.
+                    budget.forget_failed_calls()
+                    if tool is not None and not tool.reruns_on_change:
+                        budget.shell_epoch += 1
+        elif outcome is ToolOutcome.FAILED:
+            state.failed_call_counts.setdefault(failure_key, 1)
+            state.failed_tool_calls += 1
+            errored = True
+            # Sayaç YALNIZCA değiştirici çağrılarda büyür: okuma hatası (yanlış
+            # dosya adı) düzenleme döngüsü değildir ve o kapıyı tetiklememeli.
+            if call.name in _FILE_READ_TOOLS and result.output.startswith(FILE_MISSING_PREFIX):
+                istenen = args.get("path")
+                if isinstance(istenen, str):
+                    state.missing_paths.append(istenen)
+            if tool is not None and tool.mutating:
+                state.failed_mutations_in_row += 1
+                # Düşen bir düzenlemeden sonra YENİDEN OKUMA serbest kalmalı:
+                # toparlanmanın tek yolu odur ve tekrar kapısı onu engelliyordu.
+                budget.record_failed_mutation()
+                # Düşen çağrı YAPILMAMIŞTIR. Hemen unutulmaz — arada hiçbir şey
+                # değişmeden yinelemek gerçek tekrardır — ama başarılı bir
+                # değişiklikten sonra unutulur: engeli kalkmış olabilir.
+                budget.note_failed_call(signature)
+            # Geçici ağ/zaman aşımı hatası işin kendisi hakkında bir şey söylemez: aynı
+            # çağrı birkaç saniye sonra başarılı olabilir. Ölçüldü (7 Ekim, dalga24):
+            # clone_site kaynak sayfada 60 sn zaman aşımına düştü, yeniden deneme
+            # TOOL_CALL_DUPLICATE ile engellendi ve model siteyi elle yazmaya döndü
+            # (16/17 → 10/17). Aynı çağrıya en çok `MAX_TOOL_TRANSIENT_RETRIES` hak verilir.
+            if is_transient_failure(result.output):
+                hak = budget.transient_retries.get(signature, 0)
+                if hak < MAX_TOOL_TRANSIENT_RETRIES:
+                    budget.transient_retries[signature] = hak + 1
+                    budget.forget_call(signature)
+
+        diff = pending_diff if outcome is ToolOutcome.OK else None
+        deps.publisher.publish(
+            ToolExecuted(
+                name=call.name,
+                args=args,
+                outcome=outcome,
+                output=result.output,
+                diff=diff,
+            )
+        )
+        govde = result.output
+        if repair_feedback.note:
+            govde = f"{govde}\n\n[onarım kanıtı] {repair_feedback.note}"
+        if outcome is ToolOutcome.OK and tool is not None and not tool.mutating:
+            ayni = _same_output_note(state, call.name, result.output)
+            if ayni is not None:
+                govde = f"{govde}\n\n{ayni}"
+        if outcome is ToolOutcome.OK and call.name in EDIT_TOOLS:
+            yol = args.get("path")
+            state.edit_streak = next_streak(state.edit_streak, yol if isinstance(yol, str) else "")
+            seri = streak_note(state.edit_streak)
+            if seri is not None:
+                govde = f"{govde}\n\n{seri}"
+        elif outcome is ToolOutcome.OK and tool is not None and tool.mutating:
+            state.edit_streak = ("", 0)
+        hooks = _post_edit_commands(deps) if call.name in EDIT_TOOLS else ()
+        if outcome is ToolOutcome.OK and hooks:
+            raw_path = args.get("path")
+            if isinstance(raw_path, str) and raw_path:
+                hook_note = await run_post_edit_hooks(
+                    hooks, deps.tool_context.root / raw_path, deps.tool_context.root
+                )
+                if hook_note is not None:
+                    govde = f"{govde}\n\n{hook_note}"
+        if outcome is ToolOutcome.FAILED:
+            imza = (call.name, _failure_signature(result.output))
+            state.repeated_failures[imza] = state.repeated_failures.get(imza, 0) + 1
+            not_ = _repeated_failure_note(
+                call.name,
+                result.output,
+                state.repeated_failures[imza],
+                teacher_available=(
+                    deps.config.teacher is not None and not deps.config.runtime.teacherless
+                ),
+            )
+            if not_ is not None:
+                govde = f"{govde}\n\n{not_}"
+        gorseller = result.images
+        if gorseller and not _agent_reads_images(deps):
+            gorseller = ()
+            govde = f"{govde}\n\n{IMAGES_NOT_SENT_NOTE}"
+        messages.append(
+            Message(
+                "tool",
+                govde,
+                tool_call_id=call.id,
+                name=call.name,
+                ok=result.ok,
+                images=gorseller,
+                tool_diff=diff,
+            )
+        )
+    return errored
+
+
+#: Görsel okuyamayan agent modeline araç sonucundaki görsel GÖNDERİLMEZ. Ölçüldü (2 Ekim
+#: 2026, NIM Nemotron 3 Ultra): ekran görüntüsü taşıyan tek araç sonucu (`site_design`)
+#: sonraki HER isteği "Received multimodal data but multimodal processing is not enabled"
+#: ile düşürdü; devre açıldı ve tur orada kaldı.
+IMAGES_NOT_SENT_NOTE = (
+    "[Ekran görüntüsü bu modele gönderilmedi: model görsel okuyamıyor. Görsel dosyaya "
+    "kaydedildiyse tasarım/kalite yargısı için ask_teacher(question, gorseller=[yol]) ile "
+    "öğretmene göster; basit içerik sorusu için view_image(path, question).]"
+)
+
+
+def _agent_reads_images(deps: AgentDeps) -> bool:
+    return capabilities_for(deps.config.agent, deps.config.web_sessions).images
+
+
+async def _execute(
+    call: ToolCall,
+    args: dict[str, object],
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    *,
+    execution: ExecutionPolicy,
+    plan_mode: bool = False,
+) -> tuple[ToolResult, ToolOutcome]:
+    """Onaydan geçir ve çalıştır. Bilinmeyen araç da kayıt defterinin sorunu."""
+    args = deepcopy(args)
+    tool = registry.get(call.name)
+    if execution.allowed_tool_names is not None and call.name not in execution.allowed_tool_names:
+        # Serbest araçlar SÖYLENMELİ: gözlem turunda model yalnız "kapsamda değil"
+        # cevabını görünce aynı yazma aracını başka argümanla yeniden deniyordu.
+        allowed = ", ".join(sorted(execution.allowed_tool_names)) or "yok"
+        return ToolResult.failure(
+            f"Araç bu adımın izin verilen kapsamında değil. Bu adımda kullanılabilir: {allowed}"
+        ), ToolOutcome.BLOCKED
+    if deps.steering is not None and deps.steering.pending:
+        return ToolResult.failure(
+            "Yeni kullanıcı talimatı bekliyor; eski araç başlatılmadı."
+        ), ToolOutcome.BLOCKED
+    if (
+        tool is not None
+        and tool.mutating
+        and not execution.allow_mutation
+        and not _reads_only(tool.name, args)
+    ):
+        # Yetenek kapısı onaydan ÖNCE gelir: kullanıcıya sormanın anlamı yok, bu
+        # model bu işi güvenilir yapamıyor. Şema hiç sunulmadığı için buraya normalde
+        # gelinmez; ikinci savunma hattıdır.
+        return (
+            ToolResult.failure(
+                MUTATION_BLOCKED_MESSAGE.format(reason=execution.mutation_block_reason)
+            ),
+            ToolOutcome.BLOCKED,
+        )
+    if tool is not None and tool.mutating and deps.mutation_blocked_by_pending_input():
+        return ToolResult.failure(
+            "Soru sonucu yeniden değerlendirilmeli; değişiklik yerine bağımsız okuma yap."
+        ), ToolOutcome.BLOCKED
+    if tool is not None and tool.mutating:
+        revision = deps.approval_revision() if deps.approval_revision else None
+        policy = deps.policy_factory() if deps.policy_factory else deps.policy
+        request = await resolve_request(
+            tool,
+            deepcopy(args),
+            deps.allowed_commands,
+            root=deps.tool_context.root,
+            context=deps.tool_context,
+        )
+        decision = await policy.decide(request)
+        if deps.mutation_blocked_by_pending_input() or (
+            deps.approval_revision is not None and deps.approval_revision() != revision
+        ):
+            return ToolResult.failure(
+                "Onay kapsamı değişti; eski işlem başlatılmadı."
+            ), ToolOutcome.BLOCKED
+        if decision is not Decision.ALLOW:
+            # Engelleme (BLOCKED) HATA DEĞİLDİR: refleksiyon tetiklenmemeli, model
+            # yalnızca farklı bir yol denemeli. Reddetme (DENIED) ise artık farklı
+            # bir sınıftır: turu durdurur (bkz. `_run_tools`, `_drive`).
+            message = _decision_message(decision, plan_mode=plan_mode)
+            return ToolResult.failure(message), _DECISION_OUTCOMES[decision]
+
+    # Onay SORULACAKSA (değiştirici araç) buraya ancak onaydan SONRA gelinir;
+    # araç henüz çalışmadı ama artık kesinlikle çalışacak. Arayüz bu olayı
+    # dinleyip "… okunuyor/… yapılıyor" gibi şimdiki-zamanlı, soluk bir durum
+    # satırı basar (bkz. `appserver/tool_progress.py`) — `ToolExecuted` yalnız
+    # BİTİNCE geldiği için uzun süren bir araç boyunca kullanıcı hiçbir şey
+    # görmüyordu.
+    budget = deps.require_budget()
+    if (remaining := budget.remaining_s()) is not None and remaining <= 0:
+        budget.halt(BudgetStop.DEADLINE)
+        return ToolResult.failure(
+            "Dış isteğin süre sınırı doldu; bu araç başlatılmadı."
+        ), ToolOutcome.BLOCKED
+    recorder = getattr(deps, "effect_recorder", None)
+    external = (
+        tool is not None
+        and tool.mutating
+        and request.effect
+        in {
+            ToolEffect.REMOTE_WRITE,
+            ToolEffect.REMOTE_DESTRUCTIVE,
+        }
+    )
+    if recorder is not None and external:
+        await recorder.prepare(call, tool, request.effect, request.authorization_scope)
+        if deps.mutation_blocked_by_pending_input() or (
+            deps.approval_revision is not None and deps.approval_revision() != revision
+        ):
+            return ToolResult.failure(
+                "Kayıt sırasında kullanıcı kararı değişti; dış işlem başlatılmadı."
+            ), ToolOutcome.BLOCKED
+        if (remaining := budget.remaining_s()) is not None and remaining <= 0:
+            budget.halt(BudgetStop.DEADLINE)
+            return (
+                ToolResult.failure("Dış işlem başlamadan süre sınırı doldu."),
+                ToolOutcome.BLOCKED,
+            )
+    deps.publisher.publish(ToolStarted(name=call.name, args=args))
+    result = await registry.execute(call.name, args, deps.tool_context)
+    if recorder is not None and external:
+        await recorder.finish(call.id, result.ok)
+    return result, ToolOutcome.OK if result.ok else ToolOutcome.FAILED
+
+
+def _reads_only(tool_name: str, args: dict[str, object]) -> bool:
+    """Kabuk çağrısı YALNIZ okuyor mu (`ls`, `pwd`, `git log`)?
+
+    Ölçüldü (2 Ekim, kabul koşusu): değiştirme yetkisi olmayan modelde `ls -la` ve
+    `pwd` bile "bu model dosya değiştiremez" diye engellendi; model klasörü
+    göremeden tur boşa döndü. Okuma değişiklik değildir.
+    """
+    command = args.get("command")
+    return (
+        tool_family(tool_name) is ToolFamily.SHELL
+        and isinstance(command, str)
+        and is_read_only_command(command)
+    )
+
+
+#: Aynı hatanın kaç kez yinelenmesinden SONRA Fusion araya girer.
+#:
+#: 1 olsaydı ilk denemede araya girip modelin normal toparlanmasını bozardık;
+#: daha yükseği turu döngüde tutar. Ölçülen vakada hata üç kez yinelendi.
+_YINELENEN_HATA_ESIGI = 2
+
+#: Öğretmene danışma ÖNERİSİNİN eşiği (Faz 4, Görev 1).
+#:
+#: Yeni bir sayı UYDURULMADI: temel "farklı argümanlarla dene" notu zaten
+#: `_YINELENEN_HATA_ESIGI`'de veriliyor. Öğretmen önerisi o notun bile işe
+#: yaramadığı, yani AYNI hatanın bir kez daha yinelendiği durumdur — bu yüzden
+#: mevcut eşiğin üzerine bir tur eklenir, sıfırdan bir eşik seçilmez
+#: (bkz. `geliştirme belgeleri` §6.2).
+_OGRETMEN_ONERI_ESIGI = _YINELENEN_HATA_ESIGI + 1
+
+
+def _repeated_failure_note(
+    tool_name: str, output: str, count: int, *, teacher_available: bool = False
+) -> str | None:
+    """Aynı araç aynı hatayı yineliyorsa modele Fusion'ın notu; yoksa `None`.
+
+    Ölçülen hata: `godot__add_node` üç kez "Scene file does not exist" verdi ve
+    her seferinde kendi önerisi olarak "Use create_scene first" dedi. Sahne
+    zaten vardı; öneri yanlıştı. Model itaatle o öneriyi uygulayıp döngüye
+    girdi — inatçı değildi, aracın SÖYLEDİĞİNİ yapıyordu.
+
+    Tekrar kapısı burada yardım etmez: çağrılar birbirinin aynısı değildir
+    (araçlar dönüşümlü çağrılıyor). Bu yüzden ölçüt çağrı imzası değil HATA
+    imzasıdır.
+
+    `teacher_available` yalnızca `config.teacher` tanımlıysa `True` gelir
+    (bkz. çağıran yer); tanımsızken öneri BASILMAZ — model elinde olmayan bir
+    aracı çağırmaya yönlendirilmez.
+    """
+    if count < _YINELENEN_HATA_ESIGI:
+        return None
+    not_ = (
+        f"FUSION_NOT: `{tool_name}` aynı hatayı {count} kez verdi ve aracın kendi "
+        "önerisi işe yaramadı. Aynı yolu tekrar deneme; FARKLI ARGÜMANLARLA çağır ya "
+        "da yaklaşımı değiştir (başka bir araç, başka bir yöntem)."
+    )
+    if "res://" in output:
+        # Godot'ya özel ölçülmüş çare yalnız o hatada söylenir.
+        not_ += (
+            " Sebep çoğu kez yol biçimidir: 'res://' ekini kaldırmayı ya da eklemeyi, "
+            "göreli yol yerine tam yol vermeyi dene."
+        )
+    if teacher_available and count >= _OGRETMEN_ONERI_ESIGI:
+        not_ += (
+            " Bu hata FARKLI yaklaşımlara rağmen sürüyorsa `ask_teacher` ile web "
+            "öğretmene danışmayı düşün — turu bu döngüde harcamak yerine."
+        )
+    return not_
+
+
+#: Birebir aynı OKUMA/ARAMA bu kaçıncı kez istenince çalıştırılmaz.
+#
+# Hermes Agent (`agent/tool_guardrails.py`, MIT): salt-okunur araç aynı sonucu 2.
+# kez verince uyarır, 5.'de çağrıyı engeller; OpenClaw ve OpenHands da benzer
+# eşiklerle engeller. Fusion 3. ve 4. tekrarda önbellekteki sonucu uyarıyla verir
+# (bkz. `_REPEATED_READ_NOTE`), 5.'de keser. Tur KESİLMEZ; model yalnız bu aramanın
+# bir işe yaramadığını açıkça öğrenir.
+REPEAT_BLOCK_AT = 5
+#: Aynı okuma aracı FARKLI argümanlarla bu kadar kez birebir aynı sonucu verince not
+#: eklenir. OpenClaw'ın "argument churn" dedektörünün karşılığı: model deseni hafifçe
+#: değiştirip (`mcp` → `**/lib/mcp/**`) aynı boş sonucu tekrar tekrar alıyordu.
+SAME_OUTPUT_WARN_AT = 3
+
+
+def _repeat_block_message(name: str, count: int) -> str:
+    return (
+        f"{TOOL_CALL_BLOCKED_PREFIX} `{name}` çağrısını aynı argümanlarla {count}. kez istedin; "
+        "sonuç hiç değişmedi ve araç çalıştırılmadı. Bu aramayı bırak. Elindeki "
+        "sonuçlarla bir sonraki SOMUT adımı at (bulduğun dosyayı oku ya da düzenle); "
+        "aradığın şey yoksa farklı bir klasörde ya da farklı bir araçla ara, "
+        "bulunamıyorsa bunu kullanıcıya açıkça söyle."
+    )
+
+
+def _same_output_note(state: _State, name: str, output: str) -> str | None:
+    """Aynı araç farklı argümanlarla birebir aynı sonucu veriyorsa yönlendirici not."""
+    ozet = hashlib.sha256(output.encode("utf-8", "replace")).hexdigest()
+    anahtar = (name, ozet)
+    sayi = state.same_output_counts.get(anahtar, 0) + 1
+    state.same_output_counts[anahtar] = sayi
+    if sayi < SAME_OUTPUT_WARN_AT:
+        return None
+    return (
+        f"NOT: `{name}` son {sayi} farklı çağrıda birebir aynı sonucu verdi. Argümanı "
+        "değiştirmek sonucu değiştirmiyor. Elindeki bilgiyle ilerle; aradığın şey bu "
+        "klasörde yoksa başka bir klasörde ya da başka bir araçla ara."
+    )
+
+
+#: Tekrarlanan OKUMA çağrısında sonucun önüne konan not.
+#
+# Sonucu sessizce geri vermek, modelin aracı yeniden çalıştırdığını sanmasına ve
+# değişmeyen bir dosyayı "taze" bilgi sayıp aynı döngüye girmesine yol açardı.
+# Not, sonucun ÖNBELLEKTEN geldiğini ve çalışma alanının değişmediğini söyler.
+_REPEATED_READ_NOTE = (
+    "TOOL_CALL_CACHED: Bu okumayı aynı argümanlarla zaten yapmıştın ve çalışma "
+    "alanında o zamandan beri ilgili bir değişiklik olmadı. Araç yeniden "
+    "çalıştırılmadı; önceki sonuç aşağıda. Aynı okumayı bir daha isteme — "
+    "elindeki bilgiyle sonraki adıma geç."
+)
+
+
+# --------------------------------------------------------------------------- #
+# Öz-denetim ve sıkıştırma
+# --------------------------------------------------------------------------- #
+
+
+#: Öz-denetim / doğrulama kapısı düzeltmesi turlarına eklenen notların ortak
+#: öneki. Bu bir kullanıcı mesajı DEĞİLDİR; modelin bunu görevin yeniden
+#: verildiği sanmaması için Fusion'ın kendi sesiyle işaretlenir.
+
+
+async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> AgentOutcome:
+    deps.publisher.publish(SelfReviewStarted())
+    feedback = await review.review_turn(
+        task, outcome.final_text, outcome.messages, config=deps.config, publisher=deps.publisher
+    )
+    deps.publisher.publish(
+        SelfReviewFinished(issue_found=bool(feedback), completed=feedback is not None)
+    )
+    if not feedback:
+        return outcome
+
+    correction = await run_agent(
+        _correction_task(feedback),
+        deps,
+        history=outcome.messages,
+        self_review=False,
+        internal=True,
+        # Kapı bu turda çalışmaz: dış döngü zaten doğrulayacak. Aksi halde iç içe
+        # doğrulama olur ve MAX_VERIFY_ROUNDS sessizce ikiye katlanır.
+        verify=False,
+    )
+    correction.tool_calls_made += outcome.tool_calls_made
+    correction.mutating_tool_calls_made += outcome.mutating_tool_calls_made
+    correction.failed_tool_calls += outcome.failed_tool_calls
+    correction.model_calls_made += outcome.model_calls_made
+    return correction
+
+
+async def _verify(
+    outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool, depth: int
+) -> VerificationResult | None:
+    """Doğrulama kapısını çalıştır.
+
+    Sonuç iki yere birden gider: modele düzeltme talimatı ve ders güvenine sinyal.
+    İki kez çalıştırmak hem israf hem de iki farklı cevap alma riskidir.
+
+    İş yapılmadıysa kapı anlamsızdır; plan modunda ise hiçbir şey değişmediği için
+    hiç çalışmaz.
+
+    Ölçü DEĞİŞTİRİCİ çağrıdır, çağrı sayısı değil. Ölçüldü (17 Eylül denetimi):
+    yalnız kod açıklaması istenen bir tur `read_file` çağırdığı için kapı devreye
+    girdi ve cevabın sonuna "doğrulanamadı: ruff check .", "mypy src" uyarıları
+    eklendi — kullanıcının kodunda hiçbir şey değişmemişken. Kapının sorusu
+    "bozdum mu"dur; hiçbir şeyi değiştirmeyen turda sorulacak bir soru yoktur.
+    """
+    if deps.verifier is None or plan_mode or depth > 0:
+        return None
+    if outcome.mutating_tool_calls_made == 0:
+        return None
+    return await deps.verifier.verify()
+
+
+async def _fix_findings(
+    verification: VerificationResult, outcome: AgentOutcome, deps: AgentDeps
+) -> AgentOutcome:
+    """Somut bulguları modele düzeltme talimatı olarak ver ve TEK düzeltici tur aç.
+
+    Model çağrısı EKLEMEZ (talimat deterministik üretilir) ama düzeltici turun kendisi
+    bir tur maliyetindedir. Öz-denetimdeki disiplinin aynısı: ikinci bir kapı turu yok,
+    sonsuz düzeltme döngüsü yok.
+    """
+    deps.publisher.publish(
+        VerificationFailed(summary=verification.summary, findings=verification.findings)
+    )
+    correction_task = _verification_correction_task(verification)
+    correction_deps = _verification_correction_deps(deps)
+    correction = await _run_verification_correction_attempt(
+        correction_task,
+        correction_deps,
+        history=outcome.messages,
+    )
+    if (
+        correction_deps is not deps
+        and not correction.ok
+        and deps.budget is not None
+        and deps.budget.stop is None
+        and not is_permanent_error(correction.model_error or correction.final_text)
+    ):
+        retry = await _run_verification_correction_attempt(
+            correction_task,
+            deps,
+            history=outcome.messages,
+        )
+        retry.tool_calls_made += correction.tool_calls_made
+        retry.mutating_tool_calls_made += correction.mutating_tool_calls_made
+        retry.failed_tool_calls += correction.failed_tool_calls
+        retry.model_calls_made += correction.model_calls_made
+        correction = retry
+
+    correction.tool_calls_made += outcome.tool_calls_made
+    correction.mutating_tool_calls_made += outcome.mutating_tool_calls_made
+    correction.failed_tool_calls += outcome.failed_tool_calls
+    correction.model_calls_made += outcome.model_calls_made
+    return correction
+
+
+async def _run_verification_correction_attempt(
+    task: str,
+    deps: AgentDeps,
+    *,
+    history: list[Message],
+) -> AgentOutcome:
+    return await run_agent(
+        task,
+        deps,
+        history=history,
+        self_review=False,
+        internal=True,
+        require_local_mutation=True,
+        # Kapı düzeltici turda TEKRAR çalışmaz: sonsuz düzeltme döngüsü yok.
+        verify=False,
+    )
+
+
+def _verification_correction_deps(deps: AgentDeps) -> AgentDeps:
+    """Semantik olarak başarısız modeli varsa ilk fallback ile değiştir.
+
+    Provider zinciri transport/kota hatasında fallback'e geçer; doğrulama bulgusu
+    ise başarılı HTTP cevabının içindeki semantik başarısızlıktır ve zinciri doğal
+    olarak ilerletmez. Aynı modele aynı artefaktı yeniden yazdırmak ölçülen koşulda
+    aynı kusuru tekrarladı. Burada yalnız correction alt turu farklılaştırılır;
+    bütçe, çalışma alanı, onay ve kalan fallback sırası paylaşılmaya devam eder.
+    """
+    selected = select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements)
+    if not selected.fallback:
+        return deps
+
+    correction_spec = ModelSpec(
+        name=f"{selected.name}-verification-corrector",
+        model=selected.fallback[0],
+        tags=selected.tags,
+        fallback=selected.fallback[1:],
+    )
+    correction_config = replace(
+        deps.config,
+        agent=correction_spec,
+        task_model_map={},
+    )
+    return replace(deps, config=correction_config)
+
+
+#: Sıkıştırmadan hemen sonra bağlam yine eşikteyse kaç denemede durulur.
+#
+# Claude Code belgesi: tek bir dev çıktı bağlamı her özetten hemen sonra yeniden
+# doldurursa "birkaç denemeden sonra" otomatik sıkıştırmayı bırakıp hata gösterir,
+# döngüye girmez. Üç, geçici bir büyük okumayı (sonraki turda temizlenir) tolere
+# eder ama kalıcı taşmayı sonsuz özet döngüsüne çevirmez.
+MAX_COMPACTION_THRASH = 3
+
+
+async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: _State) -> bool:
+    """Model çağrısından ÖNCE bağlamı eşiğin altına indir; taşma kalıcıysa False.
+
+    Eskiden sıkıştırma yalnız tur BİTTİKTEN sonra yapılıyordu: uzun tek bir turda
+    geçmiş sınırsız büyüyor, sonunda modelin penceresi taşıyordu (ölçüldü, 28 Eylül).
+    """
+    selected = select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements)
+    from .context_budget import context_budget
+
+    threshold = context_budget(deps.config, selected).compression_chars
+    if not needs_compression(messages, threshold_chars=threshold):
+        state.compaction_thrash = 0
+        return True
+    before = len(messages)
+    before_chars = total_chars(messages)
+    compacted = await compaction.compact_in_turn(
+        messages, config=deps.config, publisher=deps.publisher, threshold_chars=threshold
+    )
+    if total_chars(compacted) < before_chars:
+        messages[:] = compacted
+        deps.publisher.publish(ContextCompressed(before=before, after=len(compacted)))
+        deps.condensations += 1
+    if needs_compression(messages, threshold_chars=threshold):
+        state.compaction_thrash += 1
+        return state.compaction_thrash < MAX_COMPACTION_THRASH
+    state.compaction_thrash = 0
+    return True
+
+
+async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Message]:
+    before = len(messages)
+    selected = select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements)
+    from .context_budget import context_budget
+
+    threshold = context_budget(deps.config, selected).compression_chars
+    compressed = await compaction.compress(
+        messages, config=deps.config, publisher=deps.publisher, threshold_chars=threshold
+    )
+    if len(compressed) < before:
+        deps.publisher.publish(ContextCompressed(before=before, after=len(compressed)))
+        deps.condensations += 1
+    return compressed
+
+
+def _initial_messages(
+    task: str,
+    history: list[Message] | None,
+    *,
+    plan_mode: bool,
+    extra_system: str,
+    inherit_system: bool = False,
+    system_prompt: str | None = None,
+    images: tuple[str, ...] = (),
+) -> list[Message]:
+    """Turun mesaj listesini kur: TEK sistem mesajı + geçmiş + yeni görev.
+
+    Sistem mesajı BAŞA EKLENMEZ, geçmişinkinin YERİNE geçer. Ölçüldü: geçmiş
+    her zaman bir önceki turun `outcome.messages` listesidir ve o liste zaten bir
+    sistem mesajıyla başlar; başa bir tane daha eklemek listeyi
+    `[system, system, user, …]` yapıyordu.
+
+    Bunun görünmeyen bedeli tarayıcı sohbetiydi. `_deliver_turn` sohbeti ancak
+    gönderilmiş önek DEĞİŞMEMİŞSE sürdürür; fazladan sistem mesajı öneki
+    kaydırdığı için önek hiçbir zaman tutmuyordu. Sonuç: hem öz-denetim düzeltici
+    turu hem de TUI'deki HER takip mesajı yeni bir tarayıcı sohbeti açıyor ve
+    geçmişin tamamını tek düz metin olarak yeniden gönderiyordu — `ConversationState`
+    docstring'inin "model aynı araç çağrılarını yeniden üretir" diye ölçtüğü durumun
+    ta kendisi. Canlı izde tam olarak bu görüldü: düzeltici tur dizini baştan
+    listeledi, 1388 satırlık dosyayı yeniden okudu ve görevi kaybetti.
+
+    Sistem metni GERÇEKTEN değiştiyse (plan kipi açıldı) önek zaten kasıtlı olarak
+    tutmaz ve sohbetin sıfırlanması doğrudur: model artık başka talimatlarla
+    çalışıyordur.
+
+    `inherit_system` İÇ turlar içindir (öz-denetim düzeltmesi, doğrulama kapısı
+    düzeltmesi) ve sistem metnini geçmişten olduğu gibi alır. Ölçüldü: çiftlenme
+    giderildikten sonra bile sohbet düşmeye devam etti, çünkü `run_agent` dersleri
+    ve uzmanlık talimatını HER çağrıda o turun metnine göre hatırlıyor; düzeltici
+    turun metni asıl görevden farklı olduğu için hatırlanan blok da farklı çıkıyor
+    ve önek yine kayıyordu. Düzeltici tur aynı konuşmanın devamıdır — model zaten
+    o talimatlarla çalışıyor, talimatı ortasından değiştirmek için bir sebep yok.
+    """
+    gecmis = list(history or [])
+    devralinabilir = inherit_system and bool(gecmis) and gecmis[0].role == "system"
+    if devralinabilir:
+        system = gecmis[0].content
+    else:
+        system = SYSTEM_PROMPT if system_prompt is None else system_prompt
+        if plan_mode:
+            system += f"\n\n{PLAN_MODE_PROMPT}"
+        if extra_system:
+            system += f"\n\n{extra_system}"
+    # Yalnızca BAŞTAKİ sistem mesajı düşürülür. Tur içinde araya giren sistem
+    # notları (değişiklik kaydı, kapı uyarısı) konuşmanın parçasıdır ve kalır;
+    # onları atmak öneki yine kaydırırdı.
+    if gecmis and gecmis[0].role == "system":
+        gecmis = gecmis[1:]
+    return [Message("system", system), *gecmis, Message("user", task, images=images)]

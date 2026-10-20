@@ -1,0 +1,191 @@
+import { useCallback, useRef, useState } from "react";
+import type {
+  PermissionBridge,
+  PermissionKind,
+  PermissionPromptPhase,
+  PermissionState,
+} from "./types";
+
+export const EXPLANATION_SEEN_KEY = "fusion.permission-explanations.v1"; // gitleaks:allow
+
+type ExplanationSeen = Partial<Record<PermissionKind, true>>;
+type PermissionStates = Record<PermissionKind, PermissionState>;
+
+const UNKNOWN_STATES: PermissionStates = {
+  workspace: "unknown",
+  microphone: "unknown",
+  speech: "unknown",
+  keychain: "unknown",
+};
+
+function readExplanationSeen(storage: Pick<Storage, "getItem">): ExplanationSeen {
+  try {
+    const raw = storage.getItem(EXPLANATION_SEEN_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        ([kind, seen]) => kind in UNKNOWN_STATES && seen === true,
+      ),
+    ) as ExplanationSeen;
+  } catch {
+    return {};
+  }
+}
+
+function saveExplanationSeen(storage: Pick<Storage, "setItem">, seen: ExplanationSeen): void {
+  storage.setItem(EXPLANATION_SEEN_KEY, JSON.stringify(seen));
+}
+
+export function usePermissions(
+  bridge: PermissionBridge,
+  storage: Storage = window.localStorage,
+) {
+  const [state, setState] = useState<PermissionStates>(UNKNOWN_STATES);
+  const [activeKind, setActiveKind] = useState<PermissionKind | null>(null);
+  const [phase, setPhase] = useState<PermissionPromptPhase>("preflight");
+  const [error, setError] = useState<string | null>(null);
+  const [hasQueuedPermission, setHasQueuedPermission] = useState(false);
+  const [isRequesting, setIsRequesting] = useState(false);
+  const states = useRef<PermissionStates>(UNKNOWN_STATES);
+  const explanations = useRef(readExplanationSeen(storage));
+  const pending = useRef(new Map<PermissionKind, {
+    kind: PermissionKind;
+    promise: Promise<boolean>;
+    resolve: (granted: boolean) => void;
+  }>());
+  const queued = useRef<PermissionKind[]>([]);
+  const active = useRef<PermissionKind | null>(null);
+  const activeGeneration = useRef(0);
+  const inFlight = useRef(new Map<PermissionKind, Promise<void>>());
+  const requestPermission = useRef<((kind: PermissionKind) => Promise<void>) | null>(null);
+
+  const begin = useCallback((kind: PermissionKind) => {
+    activeGeneration.current += 1;
+    active.current = kind;
+    setActiveKind(kind);
+    setPhase("preflight");
+    setError(null);
+    if (explanations.current[kind]) void requestPermission.current?.(kind);
+  }, []);
+
+  const beginNext = useCallback(() => {
+    const following = queued.current.shift();
+    setHasQueuedPermission(queued.current.length > 0);
+    if (following) {
+      begin(following);
+      return;
+    }
+    active.current = null;
+    setActiveKind(null);
+  }, [begin]);
+
+  const ensure = useCallback((kind: PermissionKind): Promise<boolean> => {
+    if (states.current[kind] === "granted") return Promise.resolve(true);
+    const existing = pending.current.get(kind);
+    if (existing) return existing.promise;
+
+    let resolve!: (granted: boolean) => void;
+    const promise = new Promise<boolean>((next) => { resolve = next; });
+    pending.current.set(kind, { kind, promise, resolve });
+    if (active.current === null) begin(kind);
+    else {
+      queued.current.push(kind);
+      setHasQueuedPermission(true);
+    }
+    return promise;
+  }, [begin]);
+
+  const request = useCallback((kind: PermissionKind): Promise<void> => {
+    const existing = inFlight.current.get(kind);
+    if (existing) return existing;
+
+    const generation = activeGeneration.current;
+    setError(null);
+    setIsRequesting(true);
+    const operation = (async () => {
+      let next: PermissionState;
+      try {
+        next = await bridge.request(kind);
+      } catch {
+        if (active.current !== kind || activeGeneration.current !== generation) return;
+        setPhase("error");
+        setError("İzin durumu alınamadı. Bağlantıyı kontrol edip yeniden deneyin.");
+        return;
+      }
+      if (active.current !== kind || activeGeneration.current !== generation) return;
+      states.current = { ...states.current, [kind]: next };
+      setState(states.current);
+
+      if (next === "granted") {
+        const waiting = pending.current.get(kind);
+        pending.current.delete(kind);
+        waiting?.resolve(true);
+        beginNext();
+        return;
+      }
+      setPhase(next === "restricted" ? "restricted" : "denied");
+    })().finally(() => {
+      if (inFlight.current.get(kind) === operation) inFlight.current.delete(kind);
+      if (active.current === kind && activeGeneration.current === generation) setIsRequesting(false);
+      else if (inFlight.current.size === 0) setIsRequesting(false);
+    });
+    inFlight.current.set(kind, operation);
+    return operation;
+  }, [beginNext, bridge]);
+
+  requestPermission.current = request;
+
+  const continuePermission = useCallback(async () => {
+    if (!activeKind) return;
+    explanations.current = { ...explanations.current, [activeKind]: true };
+    saveExplanationSeen(storage, explanations.current);
+    await request(activeKind);
+  }, [activeKind, request, storage]);
+
+  const retry = useCallback(async () => {
+    if (activeKind) await request(activeKind);
+  }, [activeKind, request]);
+
+  const continueToNext = useCallback(() => {
+    if (!activeKind || !hasQueuedPermission) return;
+    const waiting = pending.current.get(activeKind);
+    pending.current.delete(activeKind);
+    waiting?.resolve(false);
+    beginNext();
+  }, [activeKind, beginNext, hasQueuedPermission]);
+
+  const dismiss = useCallback(() => {
+    if (!activeKind) return;
+    const waiting = pending.current.get(activeKind);
+    pending.current.delete(activeKind);
+    waiting?.resolve(false);
+    beginNext();
+  }, [activeKind, beginNext]);
+
+  const openSettings = useCallback(async (kind: PermissionKind) => {
+    setError(null);
+    try {
+      await bridge.openSettings(kind);
+    } catch {
+      setPhase("error");
+      setError("Sistem Ayarları açılamadı. Ayarları elle açıp yeniden deneyin.");
+    }
+  }, [bridge]);
+
+  return {
+    state,
+    activeKind,
+    phase,
+    error,
+    ensure,
+    continue: continuePermission,
+    retry,
+    continueToNext,
+    dismiss,
+    hasQueuedPermission,
+    isRequesting,
+    openSettings,
+  };
+}

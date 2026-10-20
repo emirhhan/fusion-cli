@@ -1,0 +1,173 @@
+"""Yapılandırmadan sağlayıcı kurma — kompozisyonun toplandığı tek yer.
+
+    ModelSpec ──▶ her model kimliği için LiteLlmProvider
+                 └─▶ RetryingProvider   (geçici arızada AYNI modeli tekrar dene)
+                     └─▶ FallbackProvider   (tükenirse SIRADAKİ modele geç)
+                         └─▶ EventingProvider  (yaşam döngüsünü olaya çevir)
+
+Sıra anlamlıdır ve içten dışa okunur: yeniden deneme her modelin KENDİ içinde olur,
+zincire geçiş ancak o model tamamen tükendiğinde. Katmanlar ters sırada olsaydı
+"her modele iki deneme" kuralı zincirin tamamına iki deneme anlamına gelirdi.
+
+Üst katmanlar bu fonksiyonu çağırır ve elinde tek bir `LlmProvider` olur; içindeki
+katmanları bilmez. Yeni bir davranış eklemek (ör. önbellek, hız sınırı) buraya bir
+sarmalayıcı daha eklemekten ibarettir.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+from ..config.eligibility import capability_from_spec
+from ..core.events import Channel, EventPublisher
+from ..core.health import HealthRegistry
+from ..core.model_capability import ModelCapability
+from ..core.protocols import Clock, LlmProvider, Sleeper
+from ..core.rate_control import RateControl
+from ..core.types import ModelSpec
+from .chain import FallbackProvider
+from .circuit import CircuitBreakingProvider
+from .codex_cli import CodexCliProvider, is_codex_model
+from .eventing import EventingProvider
+from .key_pool import KeyPool, KeyPoolRegistry, ledger_key_pool
+from .key_rotation import KeyRotatingProvider
+from .litellm_provider import LiteLlmProvider, configure_litellm
+from .rate_gate import gate, keyed_label
+from .registry import ProviderKind, provider_for_model
+from .retrying import wrap as wrap_with_retry
+from .web_registry import WebSessionRegistry, unconfigured_web_provider
+
+
+def build_provider(
+    spec: ModelSpec,
+    *,
+    publisher: EventPublisher | None,
+    retry_delays_s: Sequence[float],
+    channel: Channel = Channel.MAIN,
+    clock: Clock | None = None,
+    sleeper: Sleeper | None = None,
+    background: bool = False,
+    health: HealthRegistry | None = None,
+    key_pools: KeyPoolRegistry | None = None,
+    web_sessions: WebSessionRegistry | None = None,
+) -> LlmProvider:
+    """`ModelSpec`'ten kullanıma hazır ve dayanıklı bir sağlayıcı üret.
+
+    `background=True` verilirse çağrı kullanıcıya ilerleme satırı olarak GÖSTERİLMEZ
+    ama olayları yine de yayınlanır. Görünürlük ile muhasebe ayrı şeylerdir: hakem,
+    sentez, öz-denetim ve ders çıkarımı arka planda çalışır ama harcadıkları token
+    sayıma girmelidir.
+
+    `publisher=None` yalnızca olay veriyolu hiç kurulmamışsa (ör. birim testi)
+    kullanılır; bu durumda çağrı tamamen sessizdir ve muhasebeye de girmez.
+
+    `retry_delays_s` zorunludur ve varsayılanı YOKTUR: bir arızadan sonra ne kadar
+    beklendiği ürün kararıdır, kütüphane varsayılanı değil. Değer `defaults.yaml`'dan
+    (`runtime.retry_delays_s`) gelir. Boş liste "hiç yeniden deneme" demektir.
+    """
+
+    def _leaf(model: str) -> LlmProvider:
+        if is_codex_model(model):
+            return CodexCliProvider(model, role=spec.name)
+        # Model kullanıcının yetkili bir web (oturum tabanlı) ucuyla eşleşiyorsa API
+        # yerine web transport'u kullanılır. Diğer katmanlar (retry/fallback/circuit)
+        # bunu da sarar; web ucu da bir `LlmProvider`'dır.
+        if web_sessions is not None:
+            web = web_sessions.build(model, clock=clock)
+            if web is not None:
+                return web
+        definition = provider_for_model(model)
+        if definition is not None and definition.kind is ProviderKind.BROWSER_BACKED:
+            return unconfigured_web_provider(model, clock=clock)
+        # LiteLLM ağır ve web-only kullanımda gereksizdir; yalnızca gerçek API
+        # yaprağı kurulurken yüklenir.
+        configure_litellm()
+        rate = health.rate_control if health is not None else None
+        provider_id = definition.id if definition is not None else ""
+
+        def _gated(inner: LlmProvider, key: str) -> LlmProvider:
+            if rate is None:
+                return inner
+            return gate(inner, rate, key=key, provider_id=provider_id, clock=clock, sleeper=sleeper)
+
+        # Sağlayıcının anahtar havuzunda BİRDEN ÇOK anahtar varsa istekler bunlar
+        # arasında döndürülür (biri hız sınırına takılınca öteki devreye girer).
+        pool = _key_pool(definition.auth_env if definition is not None else None, key_pools, rate)
+        if pool is not None and pool.size > 1:
+            return KeyRotatingProvider(
+                lambda key: _gated(
+                    LiteLlmProvider(
+                        model,
+                        role=spec.name,
+                        clock=clock,
+                        api_key=key,
+                        capability=capability_from_spec(spec)
+                        if model == spec.model
+                        else ModelCapability(),
+                    ),
+                    keyed_label(model, key),
+                ),
+                pool,
+                label=model,
+            )
+        return _gated(
+            LiteLlmProvider(
+                model,
+                role=spec.name,
+                clock=clock,
+                capability=capability_from_spec(spec) if model == spec.model else ModelCapability(),
+            ),
+            model,
+        )
+
+    # `strict` seçimi KALİTE için katı yapar: kullanıcının seçtiği model cevap
+    # verebildiği sürece başka modele kayılmaz. Ama hiç cevap veremiyorsa (oturum
+    # kapalı, captcha, kota) zincir yine de ilerler — ölçüldü (17 Eylül): seçili
+    # web oturumu doğrulamaya takıldı, girişi yapılmış ikinci oturum dururken yedi
+    # tur üst üste düştü. Sessiz kalmak kullanıcıya yardım etmiyordu.
+    model_ids = spec.models
+    models = [_leaf(model) for model in model_ids]
+    retrying = wrap_with_retry(models, delays_s=retry_delays_s, sleeper=sleeper)
+    # `health` verilirse her modelin yeniden-deneme katmanı circuit breaker ile sarılır:
+    # devresi açık model çağrılmadan atlanır ve zincir sıradakine geçer. Verilmezse
+    # (varsayılan) mevcut davranış birebir korunur.
+    resilient: Sequence[LlmProvider]
+    if health is not None:
+        resilient = [
+            CircuitBreakingProvider(
+                provider, health=health.for_model(provider.label), role=spec.name
+            )
+            for provider in retrying
+        ]
+    else:
+        resilient = retrying
+    inner = FallbackProvider(
+        resilient,
+        role=spec.name,
+        publisher=publisher,
+        background=background,
+        only_when_unavailable=spec.strict,
+    )
+    if publisher is None:
+        return inner
+    return EventingProvider(
+        inner, publisher=publisher, role=spec.name, channel=channel, background=background
+    )
+
+
+def _key_pool(
+    auth_env: str | None, key_pools: KeyPoolRegistry | None, rate: RateControl | None
+) -> KeyPool | None:
+    """Sağlayıcının anahtar havuzu: açık kayıt defteri ya da paylaşılan defterden.
+
+    Masaüstü ve REPL tur başına sağlayıcı kurar; süreç içi bir havuz her turda
+    sıfırlanırdı. Defterle kurulan havuz sırasını ve soğumayı süreçler arası
+    defterden okur, böylece tur başına yeniden kurmak durumu kaybettirmez.
+    """
+    if auth_env is None:
+        return None
+    if key_pools is not None:
+        return key_pools.for_env(auth_env)
+    if rate is None:
+        return None
+    return ledger_key_pool(auth_env, rate)

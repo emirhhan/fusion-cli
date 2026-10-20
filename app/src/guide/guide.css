@@ -1,0 +1,29 @@
+/* Eğitim yüzeyleri: Fusion nötr dili, sistem yazı tipi, 14px taban (tokens.css). */
+.guide-howto, .guide-tour { display: grid; gap: var(--space-4); font-size: var(--text-sm); }
+.guide-howto__group { display: grid; gap: 0; }
+.guide-howto__group h4 { color: var(--text-secondary); font-size: var(--text-xs); letter-spacing: 0.04em; margin: var(--space-2) 0 0; text-transform: uppercase; }
+.guide-topic { display: grid; gap: var(--space-3); padding: var(--space-5) 0; }
+.guide-topic + .guide-topic { border-top: 1px solid var(--border-subtle); }
+.guide-topic__head { align-items: center; display: flex; gap: var(--space-3); justify-content: space-between; }
+.guide-topic__head h3 { font-size: var(--text-md); margin: 0; }
+.guide-topic__badge { background: var(--surface-hover); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--text-secondary); font-size: var(--text-xs); padding: 2px var(--space-2); white-space: nowrap; }
+.guide-topic__summary, .guide-topic__where { margin: 0; text-wrap: pretty; }
+.guide-topic__where { color: var(--text-secondary); }
+.guide-topic__figure { margin: 0; }
+.guide-topic__figure img { aspect-ratio: 8 / 5; background: var(--surface-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); display: block; height: auto; max-width: 100%; object-fit: contain; object-position: top left; width: 100%; }
+.guide-topic[data-size="compact"] .guide-topic__figure img { max-width: 640px; }
+.guide-topic__steps { display: grid; gap: var(--space-2); margin: 0; padding-left: var(--space-5); }
+.guide-topic__steps li { line-height: 1.5; text-wrap: pretty; }
+.guide-topic__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.guide-tour__tabs { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.guide-tour__tabs button { background: transparent; border: 1px solid var(--border-subtle); border-radius: 999px; color: var(--text-secondary); cursor: pointer; font: inherit; padding: var(--space-1) var(--space-3); }
+.guide-tour__tabs button[aria-current="step"] { background: var(--control-primary); border-color: var(--control-primary); color: var(--text-inverse); }
+.guide-tour__tabs button[data-seen="true"]:not([aria-current="step"]) { color: var(--text-primary); }
+.guide-tour__tabs button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.guide-tour__pager { align-items: center; display: flex; flex-wrap: wrap; gap: var(--space-3); justify-content: space-between; }
+.guide-devtools { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); display: grid; gap: var(--space-3); padding: var(--space-4); }
+.guide-devtools h3 { font-size: var(--text-md); margin: 0; }
+.guide-devtools__lead, .guide-devtools__note { color: var(--text-secondary); margin: 0; }
+.guide-devtools__list { display: grid; gap: var(--space-2); }
+.guide-devtools__link { color: var(--brand-signal-deep); }
+@media (max-width: 640px) { .guide-topic { padding: var(--space-4) 0; } .guide-topic__head { align-items: flex-start; } }

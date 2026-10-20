@@ -1,0 +1,1432 @@
+"""Planı kanıtlı alt turlarla yürüt, finalde bozulan güvenli dalı onar."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from contextlib import ExitStack
+from dataclasses import asdict, dataclass, field, replace
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from ...core.assets import UNUSED_ASSETS_PREFIX, is_asset_inventory
+from ...core.browser_session import BrowserSession
+from ...core.budget import BudgetStop
+from ...core.changeset import ChangeSet
+from ...core.checkpoint import StepCheckpointEvidence, WorkflowBudgetUsage, WorkflowCheckpoint
+from ...core.clock import SystemClock
+from ...core.effects import EffectPhase, ExternalEffectIntent
+from ...core.events import (
+    ExecutionCheckpointSaved,
+    ExecutionCompleted,
+    ExecutionPaused,
+    ExecutionPlanCreated,
+    ExecutionRetryScheduled,
+    ExecutionStepStarted,
+    ExecutionStepVerified,
+    SelfReviewFinished,
+    SelfReviewStarted,
+)
+from ...core.evidence import EvidenceStatus
+from ...core.execution_plan import (
+    ExecutionPlan,
+    PlanPhase,
+    PlanStatus,
+    PlanStep,
+    RetrySafety,
+    StepStatus,
+    VerificationCheckKind,
+    ready_steps,
+    validate_plan,
+)
+from ...core.failure import RecoveryAction
+from ...core.job_evidence import JobCurrentSnapshot
+from ...core.owned_thread import await_owned_thread
+from ...core.rollback import StepRollback
+from ...core.tools import PendingWrite, TodoList, ToolContext
+from ...core.types import Message
+from ...core.verification import VerificationResult
+from ...core.workspace import IsolatedWorkspace, isolate
+from ..workflow.model import BudgetEnvelope, BudgetLedger, WorkflowBudget
+from . import review
+from .attempts import Attempt, choose_attempt
+from .effect_checkpoint import PlanEffectRecorder
+from .execution_policy import ExecutionPolicy
+from .plan_checkpoint import (
+    artifact_changed,
+    capture_evidence,
+    dependent_ids,
+    invalidate,
+    replace_step,
+    resume_plan,
+    stale_step_ids,
+)
+from .plan_context import (
+    empty_workspace,
+    step_deps,
+    step_prompt,
+    workflow_budget,
+    workspace_block,
+)
+from .plan_generation import RunAgent, generate_plan
+from .plan_phase_repair import repair_discovery_phase
+from .progress import progress_fingerprint
+from .recovery import can_repair_local_inventory, choose_recovery, classify_failure
+from .replan import merge_replanned_plan
+from .step_verification import StepVerificationResult, verify_plan_acceptance, verify_step
+from .turn_report import TurnReport, build_turn_report
+
+if TYPE_CHECKING:
+    from .loop import AgentDeps, AgentOutcome
+
+
+def _step_context(context: ToolContext, root: Path | None = None) -> ToolContext:
+    """Bir alt turun değişken araç durumunu diğer adımlardan ayır.
+
+    `fully_read` KOPYALANIR, sıfırlanmaz: paylaşılan konuşma geçmişinde (bkz.
+    `_PlanRun.messages`) model bu dosyaları zaten okumuş görünür; sıfırlamak onu
+    aynı dosyayı ikinci kez okumaya zorlardı. `touched`, `changes`, `todos` ve
+    `browser` adım başına ayrı kalır: adım kanıtı ve geri alma buna dayanır.
+    """
+    return replace(
+        context,
+        root=root or context.root,
+        todos=TodoList(),
+        touched=set(),
+        fully_read=set(context.fully_read),
+        pending=PendingWrite(),
+        browser=BrowserSession(),
+        changes=ChangeSet(),
+        available_tools=set(context.available_tools),
+    )
+
+
+#: Düşen bir denemenin geri aldığı yazmaları geçmişe OLGU olarak kaydet.
+#
+# Adım paylaşılan konuşmayı miras alıyor; sonraki deneme aynı dosyayı "az önce
+# yazdım" sanıp atlamamalı. Not, `reflexion.CHANGE_LOG_NOTE` ile aynı deseni
+# izler: harness'ın kendi gözlemidir, model beyanı değildir.
+_ROLLBACK_NOTE = "[Fusion] Şu değişiklikler geri alındı: {paths}"
+
+
+def _rollback_note(paths: tuple[str, ...]) -> Message:
+    """Geri alınan yolları modele olgu olarak hatırlat."""
+    return Message("user", _ROLLBACK_NOTE.format(paths=", ".join(paths)), harness_note=True)
+
+
+def _display_paths(root: Path, paths: tuple[Path, ...]) -> tuple[str, ...]:
+    """Geri alınan yolları kullanıcıya ve modele okunur, kısa biçimde göster."""
+    isimler: list[str] = []
+    for path in paths:
+        try:
+            isimler.append(path.relative_to(root).as_posix())
+        except ValueError:
+            isimler.append(path.name)
+    return tuple(isimler)
+
+
+#: Başarısız bir adım en çok kaç kez DAHA KÜÇÜK parçalara bölünmeye çalışılır.
+#
+# Üç deneme ölçüme dayanır: ilk bölme genelde çok kaba kalıyor, ikincisi adımı
+# gerçekten ayırıyor. Üçüncüden sonrası aynı cevabı farklı kelimelerle üretiyor
+# ve yalnız bütçe yakıyor — orada karar kullanıcıya geçer.
+_MAX_STEP_SPLITS = 3
+
+#: Bölme de tutmadığında kullanıcıya sorulan cümle.
+_BOLUNEMEDI_SORUSU = (
+    "Bu adım daha küçük parçalara da bölünemedi: '{hedef}'. "
+    "Hedefi daralt, farklı bir yol tarif et ya da bu adımı atlamamı söyle."
+)
+
+
+#: Salt-okunur inceleme araçları: bunların kanıtını Fusion kendi gözlemiyle verebilir.
+_INSPECTION_TOOLS = frozenset(
+    {"list_dir", "list_files", "read_file", "view_file", "glob", "grep_search", "search_code"}
+)
+
+
+def _only_inspection_checks(step: PlanStep) -> bool:
+    """Adımın TÜM kontrolleri salt-okunur inceleme çağrısı mı?
+
+    Boş dizinde bu kontrollerin söyleyebileceği tek şey "burada bir şey yok" ve
+    Fusion bunu doğrudan gözleyebilir. Komut, dosya ya da yeniden-üretim kontrolü
+    varsa atlama YAPILMAZ: onların kanıtı gerçekten çalıştırmayı gerektirir ve
+    atlamak işi yapılmış saymak olurdu.
+    """
+    for check in step.verification_checks:
+        if check.kind is not VerificationCheckKind.TOOL:
+            return False
+        if check.target not in _INSPECTION_TOOLS:
+            return False
+    return True
+
+
+def repair_guidance(findings: tuple[str, ...]) -> str:
+    """Final onarımı adımına verilen yönerge.
+
+    Ölçüldü (13 Eylül, Godot koşusu): adım yalnız "Final doğrulamasında bozulan
+    koşulları onar." cümlesini alıyordu ve NEYİN bozuk olduğunu bilmiyordu. Model
+    `project.godot` dosyasını yeniden yazmaya çalıştı, kapı aynı bulguyla yine
+    düştü ve koşu iki adım arasında 50 dakika döndü. Bulgu, düzeltmenin ta kendisi.
+    """
+    yonerge = "Final doğrulamasında bozulan koşulları onar."
+    if not findings:
+        return yonerge
+    return (
+        yonerge
+        + "\nBOZULAN KOŞULLAR (birebir bunları gider):\n"
+        + "\n".join(f"- {bulgu}" for bulgu in findings)
+    )
+
+
+def _bolme_talimati(step: PlanStep, deneme: int) -> str:
+    """Adımı alt adımlara bölmesini isteyen ek talimat.
+
+    Genel "yeniden planla" isteği aynı hedefi farklı kelimelerle geri getiriyordu
+    ve `merge_replanned_plan` onu haklı olarak reddediyordu. Bu talimat NE
+    İSTENDİĞİNİ açıkça söyler: aynı işi yeniden tarif etme, PARÇALA.
+    """
+    return (
+        f"BÖLME TALİMATI (deneme {deneme}/{_MAX_STEP_SPLITS}):\n"
+        f"'{step.step_id}' adımı bu hâliyle tamamlanamıyor: {step.goal}\n"
+        "Aynı hedefi yeniden yazma — onu 2-4 DAHA KÜÇÜK adıma böl. Her alt adım "
+        "tek bir somut çıktı üretmeli ve kendi başına doğrulanabilmeli. "
+        "Alt adımların hedefleri birbirinden ve başarısız hedeften FARKLI olmalı. "
+        "Önce bilgi eksikse ilk alt adım yalnız keşif olsun, sonrakiler o bilgiye "
+        "dayansın."
+    )
+
+
+@dataclass
+class _PlanRun:
+    """Bir plan çalıştırmasının tek durum ve sayaç otoritesi."""
+
+    task: str
+    deps: AgentDeps
+    agent: RunAgent
+    current: ExecutionPlan
+    limits: WorkflowBudget
+    ledger: BudgetLedger
+    #: Kök konuşma + o ana kadarki tüm adım turlarının PAYLAŞILAN geçmişi.
+    #:
+    #: Ölçüldü ("gizli kelime" vakası): her adım kendi taze geçmişiyle çalışıyordu
+    #: ve kullanıcının kök turda söylediği bir şeyi (gizli kelime, tercih, kısıt)
+    #: ikinci adım hiç görmüyordu. Adımlar artık aynı konuşmanın DEVAMI: bir
+    #: sonraki adım öncekinin asistan ve araç mesajlarını miras alır.
+    messages: list[Message] = field(default_factory=list)
+    evidence: dict[str, StepCheckpointEvidence] = field(default_factory=dict)
+    outcomes: list[AgentOutcome] = field(default_factory=list)
+    spent: dict[tuple[BudgetEnvelope, str], int] = field(default_factory=dict)
+    baseline: tuple[str, ...] = ()
+    #: Görevde istenip PLANLANAMAYAN teslimatlar (bkz. `plan_coverage`).
+    #:
+    #: Plan yine yürütülür ama sonuç sessizce "tamamlandı" diye raporlanamaz:
+    #: ölçüldü (Dead Cells koşusu) — asset, UI ve ara sahne istenmişti, plan
+    #: hiçbirini içermiyordu ve koşu başarıyla bitti sayıldı.
+    uncovered: tuple[str, ...] = ()
+    #: Bu planda kaç kez bağlam özetlendi; devam eden tur bunu bilmelidir.
+    condensations: int = 0
+    storage_revision: int = 0
+    effect_intents: dict[tuple[str, int, str], ExternalEffectIntent] = field(default_factory=dict)
+    _save_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    planning_calls: int = 0
+    final_calls: int = 0
+    #: İzole adayların tamamında gerçekten harcanan çağrılar. Yalnız kazanan
+    #: `outcomes` listesine girer; kaybedenlerin maliyeti yine de kaybolmamalıdır.
+    attempt_model_calls: int = 0
+    repair_ids: set[str] = field(default_factory=set)
+    #: Final kabulün BULGULARI — onarım adımına birebir verilir.
+    #:
+    #: Ölçüldü (13 Eylül, Godot koşusu): onarım adımı yalnız "Final doğrulamasında
+    #: bozulan koşulları onar." cümlesini alıyordu. Model neyin bozuk olduğunu
+    #: bilmediği için `project.godot` dosyasını yeniden yazmaya çalıştı, kapı
+    #: aynı bulguyla yine düştü ve koşu iki adım arasında 50 dakika döndü.
+    repair_findings: tuple[str, ...] = ()
+    self_review: bool = False
+    review_calls: int = 0
+    quality_feedback: str = ""
+
+    def charge(self, envelope: BudgetEnvelope, calls: int, scope: str = "") -> bool:
+        """Reddedilen harcama bile gerçekte yapıldı; checkpoint'te kaybolmaz."""
+        key = (
+            envelope,
+            scope if envelope in {BudgetEnvelope.PER_STEP, BudgetEnvelope.RECOVERY} else "",
+        )
+        self.spent[key] = self.spent.get(key, 0) + calls
+        return self.ledger.charge(envelope, calls, scope=scope).allowed
+
+    def remaining(self, envelope: BudgetEnvelope, scope: str = "") -> int:
+        return max(0, self.limits.limit_for(envelope) - self.ledger.used(envelope, scope=scope))
+
+    def forget_rolled_back(self, paths: tuple[Path, ...]) -> None:
+        """Geri alınan yazmaları tekrar kaydından da düş.
+
+        Geri alma diski ESKİ hâline döndürür; o hâlde aynı düzenlemeyi yeniden
+        istemek tekrar DEĞİLDİR, tek çıkış yoludur. İki kapı birbirini kilitliyordu:
+        doğrulaması düşen adımın doğru düzenlemesi geri alınıyor, model aynı
+        düzenlemeyi yineleyince tekrar kapısı "bunu zaten yaptın" diyordu.
+        """
+        if not paths:
+            return
+        butce = getattr(self.deps, "budget", None)
+        if butce is not None:
+            butce.forget_calls_touching(paths)
+
+    def progress(self) -> None:
+        """Doğrulama kapısı çalıştı: idle saatini tazele.
+
+        Idle sınırı DURAN BİR MODELİ yakalamak içindir; Fusion'ın kendi kapısını
+        beklemek hareketsizlik değildir. Ölçüldü (Godot koşusu): tur, her biri
+        120 saniyelik iki `godot --headless` kapısı yüzünden `inactivity` ile
+        öldü. Mutlak tur süresi (`total_timeout_s`) DEĞİŞMEZ.
+        """
+        budget = getattr(self.deps, "budget", None)
+        if budget is not None:
+            budget.record_progress()
+
+    async def save(self) -> None:
+        """Her geçişte gerçek kanıtları ve tüketilmiş zarfları sakla."""
+        async with self._save_lock:
+            await self._save_locked()
+
+    async def _save_locked(self) -> None:
+        deps = self.deps
+        store = deps.checkpoint_store
+        if store is None or not deps.conversation_id:
+            return
+        completed = tuple(
+            step.step_id for step in self.current.steps if step.status is StepStatus.COMPLETED
+        )
+        clock = getattr(getattr(deps, "budget", None), "clock", None) or SystemClock()
+        checkpoint = WorkflowCheckpoint(
+            self.current,
+            str(deps.tool_context.root.resolve()),
+            deps.conversation_id,
+            completed,
+            clock.now(),
+            tuple(self.evidence.values()),
+            tuple(
+                WorkflowBudgetUsage(envelope.value, scope, calls)
+                for (envelope, scope), calls in self.spent.items()
+            ),
+            self.condensations,
+            self.quality_feedback,
+            deps.budget.snapshot_repairs() if deps.budget is not None else None,
+            storage_revision=self.storage_revision,
+            effect_intents=tuple(self.effect_intents.values()),
+            uncovered=self.uncovered,
+        )
+        revision = await await_owned_thread(lambda: store.save(checkpoint))
+        if revision is not None:
+            self.storage_revision = revision
+        deps.publisher.publish(
+            ExecutionCheckpointSaved(
+                plan_id=self.current.plan_id,
+                completed_steps=len(completed),
+            )
+        )
+
+    def _turn_report_text(self) -> str:
+        return self._turn_report().render()
+
+    def _turn_report(self, current_jobs: tuple[JobCurrentSnapshot, ...] = ()) -> TurnReport:
+        """Kök `ChangeSet` ve tüm adımların araç kaydından KISA bir rapor kur.
+
+        `engines/agent/loop.py::_apply_turn_report` ile aynı kaynağı kullanır:
+        modelin "hiçbir dosya değiştirmedim" demesi değil, GERÇEKTEN dokunulan
+        dosyalar (A12). Kapı burada verilmez: `finish`/`pause` metni zaten kendi
+        uyarılarını (`warnings`, duraklama nedeni) üretir; ikinci bir uyarı bloğu
+        açmak aynı bulguyu iki kez göstermek olurdu.
+        """
+        from ...tools.files import display_path
+
+        changed_paths = tuple(
+            display_path(self.deps.tool_context, path)
+            for path in self.deps.tool_context.changes.paths
+        )
+        tool_uses = tuple(use for item in self.outcomes for use in item.tool_uses)
+        return build_turn_report(changed_paths, tool_uses, gate=None, current_jobs=current_jobs)
+
+    def outcome(
+        self,
+        text: str,
+        *,
+        ok: bool,
+        budget_stopped: bool = False,
+        report: TurnReport | None = None,
+    ) -> AgentOutcome:
+        """Tüm çıkış yollarında gerçek alt tur sayaçlarını topla.
+
+        Geçmiş artık `self.messages`'ta paylaşılan konuşmanın kendisidir; ayrı
+        ayrı adım çıktılarını yeniden birleştirmeye gerek yok. Son mesaj zaten
+        aynı metni taşıyorsa (adımın kendi asistan cevabı) tekrar eklenmez.
+        """
+        from .loop import AgentOutcome
+
+        messages = list(self.messages)
+        if not messages or messages[-1].role != "assistant" or messages[-1].content != text:
+            messages.append(Message("assistant", text))
+        return AgentOutcome(
+            final_text=text,
+            messages=messages,
+            ok=ok,
+            tool_calls_made=sum(item.tool_calls_made for item in self.outcomes),
+            model_calls_made=self.planning_calls
+            + self.attempt_model_calls
+            + self.review_calls
+            + sum(item.model_calls_made for item in self.outcomes),
+            planning_calls_made=self.planning_calls,
+            final_verification_calls=self.final_calls,
+            mutating_tool_calls_made=sum(item.mutating_tool_calls_made for item in self.outcomes),
+            failed_tool_calls=sum(item.failed_tool_calls for item in self.outcomes),
+            already_done_calls=sum(item.already_done_calls for item in self.outcomes),
+            tool_uses=tuple(use for item in self.outcomes for use in item.tool_uses),
+            hit_step_limit=any(item.hit_step_limit for item in self.outcomes),
+            budget_stopped=budget_stopped,
+            completion_report=report,
+        )
+
+    async def pause(
+        self, text: str, *, budget: bool = False, report: TurnReport | None = None
+    ) -> AgentOutcome:
+        self.current = replace(self.current, status=PlanStatus.PAUSED)
+        await self.save()
+        self.deps.publisher.publish(ExecutionPaused(plan_id=self.current.plan_id, reason=text))
+        rendered = report.render() if report is not None else self._turn_report_text()
+        return self.outcome(rendered + text, ok=False, budget_stopped=budget, report=report)
+
+    async def execute(
+        self,
+        step: PlanStep,
+        guidance: str,
+        *,
+        recovery: bool,
+        observe: bool,
+        local_repair: bool = False,
+    ) -> tuple[PlanStep, AgentOutcome, AgentDeps] | None:
+        """Çağrıdan önce zarfı sınırla; yürütme başlamadan checkpoint al."""
+        envelope = BudgetEnvelope.RECOVERY if recovery else BudgetEnvelope.PER_STEP
+        remaining = self.remaining(envelope, step.step_id)
+        if remaining <= 0:
+            return None
+        running = replace(step, status=StepStatus.RUNNING, attempts=step.attempts + 1)
+        self.current = replace_step(self.current, running)
+        await self.save()
+        turn_deps = replace(self.deps, tool_context=_step_context(self.deps.tool_context))
+        deps = step_deps(turn_deps, running, remaining, observe=observe)
+        deps = replace(
+            deps, effect_recorder=PlanEffectRecorder(self, running.step_id, running.attempts)
+        )
+        # `step_deps` KEŞİF fazındaki adımı `observe` parametresi ne olursa olsun
+        # salt-okunur açar (`observe or step.phase is PlanPhase.DISCOVERY`); araç
+        # kümesi buna göre daralır. Ama bu satırdan ÖNCEKİ `observe` değişkeni
+        # `step_prompt`'a ve `plan_mode`'a hâlâ ESKİ (düzeltilmemiş) hâliyle
+        # gidiyordu. Sonuç: model GÖZLEM TURU notunu hiç görmeden `edit_file`
+        # denemeye devam ediyor, her ret bütçeye "ilerleme yok" olarak yazılıyor
+        # ve gerçekten okuma yapmış bir adım `no_progress` ile düşüyordu. Tek
+        # kaynak `deps.execution.observe_only` olmalı; ikinci bir hesaplama
+        # eklenmez (RULES.md "Genel Tasarım" — aynı işi yapan ikinci yol açılmaz).
+        if deps.execution is not None:
+            observe = deps.execution.observe_only
+        if local_repair and deps.execution is not None:
+            permitted = frozenset(
+                {
+                    "read_file",
+                    "view_file",
+                    "list_dir",
+                    "list_files",
+                    "glob",
+                    "grep_search",
+                    "web_search",
+                    "web_fetch",
+                    "read_url_content",
+                    "download_file",
+                    # Arşiv açmadan indirilen paket kullanılamaz: asset paketleri
+                    # ZIP gelir. Ölçüldü (13 Eylül, Godot koşusu): onarım turunda
+                    # `download_file` açıktı ama `extract_archive` kapalıydı; model
+                    # bir python betiği yazıp `run_shell` denedi, o da kapsam dışı
+                    # olduğu için engellendi ve adım hiç asset açmadan düştü.
+                    "extract_archive",
+                    "write_file",
+                    "create_file",
+                    "edit_file",
+                    "multi_edit",
+                }
+            )
+            deps = replace(
+                deps,
+                execution=replace(
+                    deps.execution,
+                    allowed_tool_names=(deps.execution.allowed_tool_names or frozenset())
+                    & permitted,
+                ),
+            )
+        prompt = step_prompt(
+            running,
+            self.evidence,
+            workspace=workspace_block(self.deps.tool_context),
+            observe=observe,
+        )
+        if guidance:
+            prompt += f"\n\nKURTARMA YÖNERGESİ:\n{guidance}"
+        allowed = deps.execution.allowed_tool_names if deps.execution else frozenset()
+        try:
+            outcome = await self.agent(
+                prompt,
+                deps,
+                depth=1,
+                self_review=False,
+                verify=False,
+                internal=True,
+                plan_mode=observe,
+                allowed_tools=set(allowed or ()),
+                history=self.messages,
+            )
+        except BaseException:
+            deps.tool_context.changes.restore()
+            raise
+        finally:
+            if deps.tool_context.browser.is_open:
+                await deps.tool_context.browser.close()
+        running = next(item for item in self.current.steps if item.step_id == running.step_id)
+        self.outcomes.append(outcome)
+        self.condensations += outcome.condensations
+        if not self.charge(envelope, outcome.model_calls_made, step.step_id):
+            deps.tool_context.changes.restore()
+            self.current = replace_step(self.current, replace(running, status=StepStatus.BLOCKED))
+            return None
+        return running, outcome, deps
+
+    async def verify(
+        self, step: PlanStep, outcome: AgentOutcome, *, observe: bool, deps: AgentDeps | None = None
+    ) -> StepVerificationResult:
+        """Gözlem turunda dış etkiyi yeniden istemeden gerçek koşulları doğrula."""
+        active_deps = deps or self.deps
+        # Observation must retain every expected effect. Dropping non-file
+        # effects could let an unrelated local receipt certify a remote write.
+        result = await verify_step(step, outcome, active_deps, self.baseline)
+        self.progress()
+        if any(
+            item.step_id == step.step_id and item.phase is not EffectPhase.RESPONDED
+            for item in self.effect_intents.values()
+        ):
+            result = replace(
+                result,
+                ok=False,
+                findings=(
+                    *result.findings,
+                    "Dış işlem sonucu belirsiz; doğrulanmış salt-okunur makbuz gerekli.",
+                ),
+            )
+        if observe and result.unverified:
+            result = replace(
+                result,
+                ok=False,
+                findings=(*result.findings, "Dış durum salt-okunur kanıtla doğrulanamadı."),
+            )
+        self.deps.publisher.publish(
+            ExecutionStepVerified(
+                plan_id=self.current.plan_id,
+                step_id=step.step_id,
+                ok=result.ok,
+                evidence=result.evidence,
+                findings=result.findings,
+            )
+        )
+        if result.ok:
+            self.current = replace_step(self.current, replace(step, status=StepStatus.COMPLETED))
+            self.evidence[step.step_id] = await capture_evidence(
+                step, outcome, result, active_deps.tool_context.root
+            )
+            await self.save()
+        return result
+
+    def _attempt_slots(self, step: PlanStep) -> int:
+        """Bu adım için kaç aday koşturulacak.
+
+        Paralel deneme OPT-IN'dir: zarf sıfırsa davranış birebir eskisi gibidir.
+        Yinelenemez yan etkisi olan adımda (NEVER) aday çoğaltılmaz — aynı dış
+        etkiyi iki kez üretmek, kazanan seçmekten daha pahalıdır.
+        """
+        if step.retry_safety is RetrySafety.NEVER or self.deps.tool_context.extra_roots:
+            return 1
+        kalan = self.remaining(BudgetEnvelope.ATTEMPTS)
+        return 2 if kalan >= 2 else 1
+
+    async def run_candidates(self, step: PlanStep, slots: int) -> AgentOutcome | None:
+        """Adımı izole kopyalarda birkaç kez dene, kazananı KANITLA seç.
+
+        Adaylar asıl projeyi görmez; yalnız kazananın değişikliği uygulanır. Hiçbir
+        aday doğrulanmış kanıt üretemezse kazanan yoktur ve akış normal (tek turlu)
+        yola düşer: yanlış adayı uygulamak, hiç denememekten kötüdür.
+        """
+        adaylar: list[tuple[Attempt, IsolatedWorkspace, AgentOutcome]] = []
+        with ExitStack() as stack:
+            for sira in range(slots):
+                kalan = self.remaining(BudgetEnvelope.ATTEMPTS)
+                if kalan <= 0:
+                    break
+                alan = stack.enter_context(
+                    isolate(self.deps.tool_context.root, name=f"{step.step_id}-{sira}")
+                )
+                aday_baglam = _step_context(self.deps.tool_context, alan.root)
+                aday_deps = replace(self.deps, tool_context=aday_baglam)
+                running = replace(step, status=StepStatus.RUNNING, attempts=step.attempts + 1)
+                try:
+                    outcome = await self.agent(
+                        step_prompt(
+                            running,
+                            self.evidence,
+                            workspace=workspace_block(aday_baglam),
+                        ),
+                        step_deps(
+                            aday_deps,
+                            running,
+                            kalan,
+                            observe=False,
+                        ),
+                        depth=1,
+                        self_review=False,
+                        verify=False,
+                        internal=True,
+                        history=self.messages,
+                    )
+                finally:
+                    if aday_baglam.browser.is_open:
+                        await aday_baglam.browser.close()
+                self.attempt_model_calls += outcome.model_calls_made
+                if not self.charge(BudgetEnvelope.ATTEMPTS, outcome.model_calls_made):
+                    break
+                checked = await verify_step(running, outcome, aday_deps, self.baseline)
+                adaylar.append(
+                    (
+                        Attempt(
+                            name=f"{step.step_id}-{sira}",
+                            ok=outcome.ok,
+                            criteria=checked.criteria,
+                            model_calls=outcome.model_calls_made,
+                        ),
+                        alan,
+                        outcome,
+                    )
+                )
+            kazanan = choose_attempt([aday for aday, _, _ in adaylar])
+            if kazanan is None:
+                return None
+            secilen = next(item for item in adaylar if item[0].name == kazanan.name)
+            terfi_kaydi = ChangeSet()
+            degisenler = secilen[1].apply(changes=terfi_kaydi)
+            uygulanan = {self.deps.tool_context.root / goreli for goreli in degisenler}
+            self.deps.tool_context.touched.update(uygulanan)
+            tamam = replace(step, status=StepStatus.COMPLETED, attempts=step.attempts + 1)
+            checked = await verify_step(tamam, secilen[2], self.deps, self.baseline)
+            if not checked.ok:
+                terfi_kaydi.restore()
+                self.deps.tool_context.touched.difference_update(uygulanan)
+                return None
+            self.deps.tool_context.changes.absorb(terfi_kaydi)
+            # Model çağrıları yukarıda bütün adaylar için ayrıca sayıldı. Kazananın
+            # araç ve mutasyon kanıtlarını korurken çağrısını iki kez sayma.
+            self.outcomes.append(replace(secilen[2], model_calls_made=0))
+            self.messages = secilen[2].messages
+        self.current = replace_step(self.current, tamam)
+        self.evidence[step.step_id] = await capture_evidence(
+            tamam, secilen[2], checked, self.deps.tool_context.root
+        )
+        await self.save()
+        return None
+
+    async def _skip_empty_discovery(self, step: PlanStep) -> None:
+        """Boş dizindeki keşif adımını Fusion'ın kendi gözlemiyle tamamla."""
+        kanit = "çalışma dizini boş: Fusion doğrudan gözledi, keşfedilecek dosya yok"
+        tamam = replace(step, status=StepStatus.COMPLETED, attempts=step.attempts + 1)
+        self.current = replace_step(self.current, tamam)
+        # Kayıt BOŞ kanıtla tutulur: adımın kendi ölçülebilir koşulu yoktu ve
+        # uydurma kanıt yazmak, kapıyı kandırmak olurdu.
+        self.evidence[step.step_id] = StepCheckpointEvidence(step_id=step.step_id)
+        await self.save()
+        self.deps.publisher.publish(
+            ExecutionStepVerified(
+                plan_id=self.current.plan_id,
+                step_id=step.step_id,
+                ok=True,
+                evidence=(kanit,),
+                findings=(),
+            )
+        )
+
+    async def run_step(self, step: PlanStep) -> AgentOutcome | None:
+        """Tek adımı ve mevcut sınırlı kurtarma kararını yürüt."""
+        self.deps.publisher.publish(
+            ExecutionStepStarted(
+                plan_id=self.current.plan_id,
+                step_id=step.step_id,
+                index=next(
+                    index
+                    for index, item in enumerate(self.current.steps, 1)
+                    if item.step_id == step.step_id
+                ),
+                total_steps=len(self.current.steps),
+                goal=step.goal,
+            )
+        )
+        if (
+            step.phase is PlanPhase.DISCOVERY
+            and empty_workspace(self.deps.tool_context.root)
+            and _only_inspection_checks(step)
+        ):
+            # BOŞ dizinde keşfedilecek hiçbir şey yok ve keşif adımı yazamaz: model
+            # ilk hamlede `project.godot` yazmaya çalışıp engellenir, sonra aynı
+            # listelemeyi tekrarlar ve adım bütçesi dolar.
+            #
+            # Ölçüldü (13 Eylül, üç ayrı Godot koşusu): boş dizinde keşif adımı
+            # 15-17 model çağrısı harcadı, iki denemesi de "adım bütçesi doldu" ile
+            # düştü ve koşu hiçbir şey teslim etmeden bitti.
+            #
+            # Kanıt UYDURULMUYOR: dizinin boş olduğunu Fusion'ın KENDİSİ gözledi ve
+            # bu, modelin aynı şeyi rapor etmesinden daha güçlü bir gözlemdir.
+            await self._skip_empty_discovery(step)
+            return None
+        unavailable: set[str] = set()
+        if step.phase is PlanPhase.DISCOVERY:
+            scoped = step_deps(self.deps, step, remaining=1, observe=True)
+            allowed = scoped.execution.allowed_tool_names if scoped.execution else frozenset()
+            for check in step.verification_checks:
+                if check.kind in {
+                    VerificationCheckKind.COMMAND,
+                    VerificationCheckKind.REPRODUCTION,
+                }:
+                    unavailable.add("run_shell")
+                elif check.kind is VerificationCheckKind.TOOL and check.target not in (
+                    allowed or ()
+                ):
+                    unavailable.add(check.target)
+        if unavailable:
+            # Keşifte kabuk kapalıdır. Modeli bildiğimiz aynı engele tekrar
+            # gönderme; eski checkpoint'lerde de sözleşmeyi önce onar.
+            from .loop import AgentOutcome
+
+            finding = (
+                f"Keşif adımında {', '.join(sorted(unavailable))} kapalı fakat başarı koşulu "
+                "bu araçları zorunlu tutuyor. Gerekiyorsa bu kontrolü execution evresindeki "
+                "bir adıma taşı; keşfi salt-okunur araç kanıtıyla sınırla."
+            )
+            verification = StepVerificationResult(ok=False, findings=(finding,))
+            outcome = AgentOutcome(final_text=finding, messages=[], ok=False)
+            reason = "Adımın araç kapsamı ile doğrulama koşulu çelişiyor."
+            # Çelişki MEKANİK olarak giderilebiliyorsa modele sorulmaz.
+            #
+            # Ölçüldü (13 Eylül, Godot koşusu): yeniden planlama keşif adımını
+            # ikiye böldü ve aynı komut kontrolünü yeni adıma aynen taşıdı; ikinci
+            # ziyarette hak kalmadığı için koşu hiçbir şey teslim etmeden
+            # duraklatıldı. Kontrolü bağlı yürütme adımına taşımak yeni yetki
+            # açmaz ve cevabı değişmeyen bir soruyu tekrar sormaz.
+            onarilmis = repair_discovery_phase(self.current, step, frozenset(unavailable))
+            if onarilmis is not None:
+                self.current = onarilmis
+                await self.save()
+                return None
+            if step.revision == 0:
+                repaired, reason = await self.replan_failed_step(
+                    step, outcome, verification, "discovery-command-conflict"
+                )
+                if repaired:
+                    return None
+            return await self.pause(_pause_text(step.step_id, reason, verification, outcome))
+        slots = self._attempt_slots(step)
+        if slots > 1 and step.step_id not in self.repair_ids and not step.attempts:
+            secildi = await self.run_candidates(step, slots)
+            if (
+                secildi is None
+                and self.current.steps
+                and any(
+                    item.step_id == step.step_id and item.status is StepStatus.COMPLETED
+                    for item in self.current.steps
+                )
+            ):
+                return None
+        recovering = step.step_id in self.repair_ids or step.attempts > 0
+        observe = step.retry_safety is RetrySafety.OBSERVE_FIRST and recovering
+        if (
+            observe
+            and self.remaining(BudgetEnvelope.RECOVERY, step.step_id) < 2
+            and can_repair_local_inventory(step, self.deps.tool_context.root)
+        ):
+            # Only the existing confined local inventory repair contract permits
+            # spending the last call on writes; uncertain external effects must
+            # remain read-only even when recovery has a single call left.
+            observe = False
+        guidance = repair_guidance(self.repair_findings) if step.step_id in self.repair_ids else ""
+        local_repair = False
+        while True:
+            executed = await self.execute(
+                step, guidance, recovery=recovering, observe=observe, local_repair=local_repair
+            )
+            if executed is None:
+                return await self.pause(
+                    f"Workflow bütçesi tükendi; '{step.step_id}' adımında duraklatıldı.",
+                    budget=True,
+                )
+            running, outcome, turn_deps = executed
+            # Konuşma geçmişi BAŞARI/BAŞARISIZLIK fark etmeksizin güncellenir: model
+            # ne denediğini bir sonraki denemede de bilmeli. Okuma bilgisi de aynı
+            # şekilde kalıcıdır (bkz. `_step_context`).
+            self.messages = outcome.messages
+            self.deps.tool_context.fully_read.update(turn_deps.tool_context.fully_read)
+            if getattr(getattr(turn_deps, "budget", None), "stop", None) is BudgetStop.USER_DENIED:
+                # Kullanıcı bu adımda bir aracı GERÇEKTEN reddetti (bkz. `denial.py`).
+                # `_drive` bu turda modeli bir daha ÇAĞIRMADAN zaten durdu (`outcome.ok`
+                # `True`, metin `denial.DENIAL_STOP_ANSWER`), ama plan motoru bunu hiç
+                # sormadan adımı sıradan bir "başarısız deneme" sayıp doğrulama ve
+                # kurtarma için modeli YENİDEN çağırıyordu — kullanıcının kararı bir
+                # sonraki adımda yok sayılıyordu.
+                #
+                # Ölçüldü (masaüstü `fusion app`, `appserver/session.py` yolu):
+                # "build klasörünü sil" görevinde `list_dir` sonrası reddedilen
+                # `run_shell("rm -rf build")` turu durdurmuyor, model 3. kez
+                # çağrılıyordu. Doğrulama/kurtarma hiç BAŞLAMADAN iş akışı burada
+                # durmalı; `outcome` zaten kullanıcıya gösterilecek nihai cevabı taşıyor.
+                self.current = replace(self.current, status=PlanStatus.PAUSED)
+                await self.save()
+                self.deps.publisher.publish(
+                    ExecutionPaused(plan_id=self.current.plan_id, reason=outcome.final_text)
+                )
+                return outcome
+            geri_alma = StepRollback(turn_deps.tool_context.changes)
+            try:
+                verification = await self.verify(running, outcome, observe=observe, deps=turn_deps)
+            except BaseException:
+                self.forget_rolled_back(geri_alma.discard())
+                raise
+            if verification.ok:
+                self.deps.tool_context.changes.absorb(turn_deps.tool_context.changes)
+                self.deps.tool_context.touched.update(turn_deps.tool_context.touched)
+                return None
+            # Düşen deneme diske yarım durum bırakmamalı: sonraki deneme kendi
+            # hatasıyla değil öncekinin enkazıyla uğraşıyordu (ölçüldü, Godot koşusu).
+            #
+            # Geri alınan yazmalar tekrar kaydından da düşmelidir: aksi halde model
+            # AYNI doğru düzenlemeyi tekrar denediğinde "bunu zaten yaptın" cevabını
+            # alır ve adım hiç ilerleyemez (ölçüldü, 7 Eylül 42 görevlik set).
+            rolled_back = geri_alma.discard()
+            self.forget_rolled_back(rolled_back)
+            gorunen_yollar: tuple[str, ...] = ()
+            if rolled_back:
+                # Geri alınan dosya artık ESKİ hâlinde: "zaten okudum" bilgisi geçersiz.
+                self.deps.tool_context.fully_read.difference_update(rolled_back)
+                gorunen_yollar = _display_paths(self.deps.tool_context.root, rolled_back)
+                self.messages.append(_rollback_note(gorunen_yollar))
+            # Kullanıcı bu turu zaten durdurdu (ör. bir aracı reddetti): kör kurtarma
+            # denemek yerine turun durma nedeniyle doğrudan duraklat.
+            stop = getattr(self.deps.budget, "stop", None)
+            if stop is not None:
+                self.current = replace_step(
+                    self.current, replace(running, status=StepStatus.BLOCKED)
+                )
+                return await self.pause(
+                    _pause_text(
+                        step.step_id,
+                        f"Tur durduruldu: {getattr(stop, 'value', stop)}.",
+                        verification,
+                        outcome,
+                        rolled_back=gorunen_yollar,
+                    )
+                )
+            if observe and can_repair_local_inventory(running, self.deps.tool_context.root):
+                # Persist the one repair allowance before enabling local writes.
+                step = replace(running, revision=running.revision + 1)
+                self.current = replace_step(self.current, step)
+                await self.save()
+                guidance = "Eksik yerel asset teslimatını onar. " + "; ".join(verification.findings)
+                observe = False
+                recovering = True
+                local_repair = True
+                continue
+            if local_repair:
+                return await self.pause(
+                    _pause_text(
+                        running.step_id,
+                        "Yerel asset onarımı başarısız.",
+                        verification,
+                        outcome,
+                        rolled_back=gorunen_yollar,
+                    )
+                )
+            fingerprint = progress_fingerprint(running, outcome, verification)
+            repeated = bool(running.last_progress_fingerprint) and (
+                fingerprint == running.last_progress_fingerprint
+            )
+            recovery = choose_recovery(
+                classify_failure(outcome, verification),
+                running,
+                running.attempts,
+                previous_guidance=guidance,
+            )
+            should_replan = (
+                not observe
+                and running.retry_safety is not RetrySafety.NEVER
+                and running.revision == 0
+                and (repeated or recovery.action is RecoveryAction.PAUSE)
+            )
+            if should_replan:
+                replanned, reason = await self.replan_failed_step(
+                    running, outcome, verification, fingerprint
+                )
+                if replanned:
+                    return None
+                self.current = replace_step(
+                    self.current,
+                    replace(
+                        running,
+                        status=StepStatus.BLOCKED,
+                        last_progress_fingerprint=fingerprint,
+                    ),
+                )
+                return await self.pause(
+                    _pause_text(
+                        step.step_id,
+                        reason,
+                        verification,
+                        outcome,
+                        rolled_back=gorunen_yollar,
+                    )
+                )
+            if recovery.action is RecoveryAction.PAUSE or observe:
+                self.current = replace_step(
+                    self.current,
+                    replace(
+                        running,
+                        status=StepStatus.BLOCKED,
+                        last_progress_fingerprint=fingerprint,
+                    ),
+                )
+                return await self.pause(
+                    _pause_text(
+                        step.step_id,
+                        recovery.reason,
+                        verification,
+                        outcome,
+                        rolled_back=gorunen_yollar,
+                    )
+                )
+            self.deps.publisher.publish(
+                ExecutionRetryScheduled(
+                    step_id=step.step_id,
+                    action=recovery.action.value,
+                    reason=recovery.reason,
+                    attempt=running.attempts + 1,
+                )
+            )
+            guidance = recovery.guidance
+            step = replace(running, last_progress_fingerprint=fingerprint)
+            self.current = replace_step(self.current, step)
+            await self.save()
+            recovering = True
+            observe = recovery.action is RecoveryAction.OBSERVE
+
+    async def replan_failed_step(
+        self,
+        step: PlanStep,
+        outcome: AgentOutcome,
+        verification: StepVerificationResult,
+        fingerprint: str,
+    ) -> tuple[bool, str]:
+        """Aynı duvara çarpan dalı yeniden üret; tutmazsa adımı parçalara böl.
+
+        Önce genel bir yeniden planlama istenir. Model aynı hedefi geri getirirse
+        (`merge_replanned_plan` onu reddeder) adım `_MAX_STEP_SPLITS` kez DAHA
+        KÜÇÜK alt adımlara bölünmeye çalışılır. Hiçbiri tutmazsa karar
+        kullanıcıya bırakılır: körlemesine denemeye devam etmek bütçe yakmaktan
+        başka bir şey yapmaz.
+        """
+        remaining = self.remaining(BudgetEnvelope.RECOVERY, step.step_id)
+        if remaining <= 0:
+            return False, "Yeniden planlama için ayrılan kurtarma bütçesi tükendi."
+        completed = (
+            ", ".join(
+                item.step_id for item in self.current.steps if item.status is StepStatus.COMPLETED
+            )
+            or "yok"
+        )
+        findings = "; ".join(verification.findings) or "doğrulama kanıtı üretilemedi"
+        task = (
+            f"{self.task}\n\n"
+            "YENİDEN PLANLAMA GÖREVİ:\n"
+            f"Başarısız adım: {step.step_id} — {step.goal}\n"
+            f"Doğrulama bulguları: {findings[:2000]}\n"
+            f"Adımın son açıklaması: {outcome.final_text[:1200]}\n"
+            f"Korunacak tamamlanmış adım kimlikleri: {completed}\n"
+            "Mevcut plan (kalan teslimatlar da korunmalıdır):\n"
+            f"{json.dumps(asdict(self.current), ensure_ascii=False)}\n"
+            "Hata onarımı ana görevin kapsamını küçültmez. Hikaye, arayüz, test veya "
+            "başka bir kalan teslimatı silme; etkilenen dalın hedeflerini yeni adımlarda koru.\n"
+            "Aynı hatalı varsayımı tekrar etme. Kanıtlanmış doğru hedefleri koru; "
+            "sorun evre veya araç kapsamıysa yalnız bu çelişkiyi gider. "
+            "Önce gerçek yolu keşfeden "
+            "bir adım gerekiyorsa ekle. Tamamlanmış adımları aynı kimlikle plana koy; "
+            "onların işini yeniden isteme. Başarısız adımı ve ona bağlı dalı yeni kanıta "
+            "göre değiştir. Eksiksiz ve geçerli bir yürütme planı döndür."
+        )
+        # Aynı hedefi tekrar eden bir plan REDDEDİLİR; eskiden burada iş biterdi ve
+        # kullanıcı "yeniden plan aynı başarısız hedefi tekrarladı" diyen duraklamayla
+        # baş başa kalırdı. Model aynı duvara toslamaya devam ediyorsa doğru hamle
+        # pes etmek değil, adımı DAHA KÜÇÜK parçalara bölmektir: büyük bir hedefi
+        # tek turda tutturamayan model, üç küçük hedefi ayrı ayrı tutturabiliyor.
+        merged: ExecutionPlan | None = None
+        son_hata = ""
+        for deneme in range(_MAX_STEP_SPLITS + 1):
+            istek = task if deneme == 0 else f"{task}\n\n{_bolme_talimati(step, deneme)}"
+            kalan = self.remaining(BudgetEnvelope.RECOVERY, step.step_id)
+            if kalan <= 0:
+                son_hata = "Yeniden planlama için ayrılan kurtarma bütçesi tükendi."
+                break
+            generated = await generate_plan(
+                istek, self.deps, self.agent, kalan, history=self.messages
+            )
+            self.planning_calls += generated.calls
+            if not self.charge(BudgetEnvelope.RECOVERY, generated.calls, step.step_id):
+                son_hata = "Yeniden planlama kurtarma bütçesini aştı."
+                break
+            if generated.plan is None:
+                son_hata = f"Yeniden plan üretilemedi: {generated.error}"
+                continue
+            merged = merge_replanned_plan(self.current, generated.plan, step.step_id, fingerprint)
+            if merged is not None:
+                break
+            son_hata = "Yeniden plan aynı başarısız hedefi tekrarladı veya geçersiz bir dal üretti."
+        if merged is None:
+            # Bölme de tutmadıysa karar KULLANICININ: model bu adımı kendi başına
+            # aşamıyor ve körlemesine denemeye devam etmek bütçeyi yakmaktan başka
+            # bir şey yapmaz.
+            return False, f"{son_hata} {_BOLUNEMEDI_SORUSU.format(hedef=step.goal)}".strip()
+        affected = dependent_ids(self.current, {step.step_id})
+        self.evidence = {key: value for key, value in self.evidence.items() if key not in affected}
+        self.current = merged
+        await self.save()
+        return True, ""
+
+    async def repair_final(self, acceptance: VerificationResult) -> bool:
+        """Bulgunun ilişkili dalını aç; bağımsız tamamlanan adımları koru."""
+        roots = await stale_step_ids(self.current, self.deps.tool_context.root)
+        if not roots:
+            roots = {
+                step.step_id
+                for step in self.current.steps
+                if any(
+                    evidence.criterion_id in step.success_criteria
+                    and evidence.status is EvidenceStatus.FAILED
+                    for evidence in acceptance.evidence
+                )
+            }
+        if not roots:
+            roots = self._product_step_ids(acceptance)
+        if not roots:
+            return False
+        self.repair_findings = tuple(acceptance.findings) or (
+            (acceptance.summary,) if acceptance.summary else ()
+        )
+        affected = dependent_ids(self.current, roots)
+        self.current = invalidate(self.current, roots)
+        self.evidence = {key: value for key, value in self.evidence.items() if key not in affected}
+        self.repair_ids.update(affected)
+        return all(
+            step.retry_safety is not RetrySafety.NEVER
+            and self.remaining(BudgetEnvelope.RECOVERY, step.step_id) > 0
+            for step in self.current.steps
+            if step.step_id in affected
+        )
+
+    def _step_owning_mentioned_file(self, acceptance: VerificationResult) -> set[str]:
+        """Bulguda ADI GEÇEN dosyayı üreten adım; yoksa boş küme.
+
+        İki kaynak sırayla denenir: adımın BİLDİRDİĞİ etkiler ve adımın GERÇEKTEN
+        dokunduğu dosyalar. İkincisi zorunlu — plan her dosyayı bildirmez.
+
+        Ölçüldü (13 Eylül, koşu 31): kapı `Player.tscn` için doğru bulguyu verdi
+        ama hiçbir adım o yolu `expected_effects` içinde bildirmiyordu (adım
+        yalnız `file:scenes/Main.tscn` diyordu). Eşleme boş kalınca tek bir onarım
+        denemesi bile yapılmadı ve koşu "kısmi" bitti — oysa dosyayı yazan adım
+        kanıt kaydında apaçık duruyordu.
+        """
+        metin = " ".join((acceptance.summary, *acceptance.findings))
+        for step in self.current.steps:
+            for effect in step.expected_effects:
+                if not effect.startswith("file:"):
+                    continue
+                yol = effect.removeprefix("file:").strip()
+                if yol and (yol in metin or Path(yol).name in metin):
+                    return {step.step_id}
+        for step in self.current.steps:
+            if any(ad in metin for ad in self._touched_names(step.step_id)):
+                return {step.step_id}
+        return set()
+
+    def _touched_names(self, step_id: str) -> set[str]:
+        """Adımın kanıt kaydında geçen dosya adları."""
+        kayit = self.evidence.get(step_id)
+        if kayit is None:
+            return set()
+        adlar = {Path(item.path).name for item in kayit.artifacts if item.path}
+        for kullanim in kayit.tool_uses:
+            yol = kullanim.arguments.get("path")
+            if isinstance(yol, str) and yol.strip():
+                adlar.add(Path(yol).name)
+        return {ad for ad in adlar if ad}
+
+    def _product_step_ids(self, acceptance: VerificationResult) -> set[str]:
+        """Ürünü kuran adım — hiçbir adımın kanıtına bağlanamayan bulgular için.
+
+        "İndirilen varlıklar hiç kullanılmamış" bulgusu tek bir adımın kanıtını
+        çürütmez: eksik olan şey, varlığı ÜRÜNE bağlayan referanstır. Onarılacak
+        adım varlığı getiren adım değil, sahneyi/kodu yazan adımdır.
+        """
+        dosyanin_adimi = self._step_owning_mentioned_file(acceptance)
+        if dosyanin_adimi:
+            # Bulgu bir DOSYAYI adıyla suçluyorsa onarılacak adım bellidir: o
+            # dosyayı üreten adım.
+            #
+            # Ölçüldü (13 Eylül, Godot koşusu): kapı "main.gd: çalışma anında
+            # üretilen GDScript reload() edilmeden bağlanıyor" dedi; hiçbir adım
+            # köke bağlanamadığı için tek bir onarım denemesi bile yapılmadı ve
+            # koşu "kısmi" bitti. Oysa `main.gd`'yi yazan adım plandaydı.
+            return dosyanin_adimi
+        if UNUSED_ASSETS_PREFIX not in acceptance.summary:
+            return set()
+        adaylar = [
+            step.step_id
+            for step in self.current.steps
+            if step.phase is PlanPhase.EXECUTION
+            and any(
+                effect.startswith("file:")
+                and not is_asset_inventory(Path(effect.removeprefix("file:").strip()))
+                for effect in step.expected_effects
+            )
+        ]
+        return {adaylar[-1]} if adaylar else set()
+
+    async def quality_gate(self) -> VerificationResult | AgentOutcome | None:
+        """Spend one bounded review/correction before recording completion."""
+        scope = "$quality-review"
+        text = self.outcomes[-1].final_text if self.outcomes else "Bekleyen kalite düzeltmesi."
+        candidate = self.outcome(text, ok=True)
+        feedback: str | None = self.quality_feedback
+        if not feedback:
+            if not self.self_review or not self.outcomes or not self.outcomes[-1].ok:
+                return None
+            if not candidate.final_text.strip():
+                return None
+            if self.remaining(BudgetEnvelope.RECOVERY, scope) <= 0:
+                return await self.pause("Workflow öz denetim bütçesi tükendi.", budget=True)
+            self.deps.publisher.publish(SelfReviewStarted())
+            self.review_calls += 1
+            self.charge(BudgetEnvelope.RECOVERY, 1, scope)
+            feedback = await review.review_turn(
+                self.task,
+                candidate.final_text,
+                candidate.messages,
+                config=self.deps.config,
+                publisher=self.deps.publisher,
+            )
+            self.deps.publisher.publish(
+                SelfReviewFinished(issue_found=bool(feedback), completed=feedback is not None)
+            )
+            if not feedback:
+                return None
+            self.quality_feedback = feedback
+            await self.save()
+        remaining = self.remaining(BudgetEnvelope.RECOVERY, scope)
+        if remaining <= 0 or self.remaining(BudgetEnvelope.FINAL) <= 0:
+            return await self.pause("Öz denetim düzeltme/doğrulama bütçesi tükendi.", budget=True)
+        policy = self.deps.execution or ExecutionPolicy(is_web=False)
+        correction_deps = replace(
+            self.deps,
+            execution=replace(
+                policy, max_model_calls=min(policy.max_model_calls or remaining, remaining)
+            ),
+            tool_context=_step_context(self.deps.tool_context),
+        )
+        rollback = StepRollback(correction_deps.tool_context.changes)
+        try:
+            try:
+                correction = await self.agent(
+                    f"ASIL KULLANICI GÖREVİ:\n{self.task}\n\nÖZ DENETİM DÜZELTMESİ:\n{feedback}",
+                    correction_deps,
+                    history=self.messages,
+                    depth=1,
+                    self_review=False,
+                    verify=False,
+                    internal=True,
+                )
+            finally:
+                if correction_deps.tool_context.browser.is_open:
+                    await correction_deps.tool_context.browser.close()
+            self.outcomes.append(correction)
+            self.messages = correction.messages
+            self.condensations += correction.condensations
+            allowed = self.charge(BudgetEnvelope.RECOVERY, correction.model_calls_made, scope)
+            if not allowed or not correction.ok:
+                self.forget_rolled_back(rollback.discard())
+                return await self.pause("Öz denetim düzeltmesi tamamlanamadı.", budget=not allowed)
+            self.charge(BudgetEnvelope.FINAL, 1)
+            self.final_calls += 1
+            # Persist actual correction and gate charges before a cancellable await.
+            await self.save()
+            # Previously captured evidence may describe files changed by correction.
+            acceptance = await verify_plan_acceptance(self.current, self.deps)
+            self.progress()
+            if not acceptance.ok:
+                self.forget_rolled_back(rollback.discard())
+                detail = "; ".join(acceptance.findings) or acceptance.summary
+                return await self.pause(f"Öz denetim sonrası final doğrulama başarısız: {detail}")
+        except BaseException:
+            self.forget_rolled_back(rollback.discard())
+            raise
+        self.deps.tool_context.changes.absorb(correction_deps.tool_context.changes)
+        self.deps.tool_context.touched.update(correction_deps.tool_context.touched)
+        self.quality_feedback = ""
+        return acceptance
+
+    async def _current_delivery_report(self) -> TurnReport:
+        """Son onarım ve aday terfisinden sonra yalnız final kök kapsamını ölç."""
+        from ...tools.job_current import snapshot_current_jobs
+
+        uses = tuple(use for item in self.outcomes for use in item.tool_uses)
+        snapshots = await asyncio.to_thread(
+            snapshot_current_jobs, self.deps.tool_context.root, uses
+        )
+        return self._turn_report(snapshots)
+
+    async def finish(self, acceptance: VerificationResult) -> AgentOutcome:
+        """Final geçmeden tamamlandı kaydetme; doğrulanmayan koşulları açıkça bildir."""
+        quality = await self.quality_gate()
+        if isinstance(quality, VerificationResult):
+            acceptance = quality
+        elif quality is not None:
+            return quality
+        warnings = list(acceptance.warnings)
+        warnings.extend(
+            f"Kullanıcının istediği '{ad}' için plan adımı üretilemedi; teslim edilmedi."
+            for ad in self.uncovered
+        )
+        for saved in self.evidence.values():
+            for criterion in saved.criteria:
+                if criterion.status is not EvidenceStatus.PASSED:
+                    warnings.append(
+                        f"Başarı koşulu doğrulanamadı: {saved.step_id} / {criterion.criterion_id}."
+                    )
+        if self.uncovered:
+            # Kullanıcının ADIYLA istediği bir teslimat planlanamadıysa iş BİTMEMİŞTİR.
+            #
+            # Ölçüldü (13 Eylül, Godot koşusu): asset, UI ve ara sahne istenmişti;
+            # plan ikisini bile içermedi, koşu `project.godot` yazıp "tamamlandı"
+            # dedi. Uyarı olarak eklemek yetmiyor — sonuç "tamamlandı" göründüğü
+            # sürece kullanıcı teslim edilmemiş işi teslim sanıyor.
+            eksik = ", ".join(self.uncovered)
+            return await self.pause(
+                "İş tamamlanmadı: kullanıcının istediği şu teslimatlar için plan adımı "
+                f"üretilemedi ve teslim edilmedi: {eksik}. "
+                "Planlama bütçesi ya da model planı bunları kapsayacak biçimde "
+                "üretemedi; görevi daha küçük parçalara bölerek tekrar isteyin."
+            )
+        report = await self._current_delivery_report()
+        if report.blocks_success:
+            return await self.pause(
+                "İş teslim kanıtı final kapsamını doğrulamadı; plan duraklatıldı.", report=report
+            )
+        self.current = replace(self.current, status=PlanStatus.COMPLETED)
+        await self.save()
+        self.deps.publisher.publish(
+            ExecutionCompleted(
+                plan_id=self.current.plan_id,
+                total_steps=len(self.current.steps),
+                warnings=tuple(warnings),
+            )
+        )
+        text = self.outcomes[-1].final_text if self.outcomes else "Yürütme planı tamamlandı."
+        if warnings:
+            text += "\n\n" + "\n".join(f"UYARI: {warning}" for warning in warnings)
+        return self.outcome(report.render() + text, ok=True, report=report)
+
+    async def run(self) -> AgentOutcome:
+        """Adımları ve final onarımını aynı zarf yaşam döngüsü içinde yürüt."""
+        while True:
+            while ready := ready_steps(self.current):
+                paused = await self.run_step(ready[0])
+                if paused is not None:
+                    return paused
+            if any(step.status is not StepStatus.COMPLETED for step in self.current.steps):
+                return await self.pause(
+                    "Planın tamamlanmamış adımları güvenli devam veya bağımlılık kanıtı bekliyor."
+                )
+            if self.quality_feedback:
+                # The correction below must itself pass a fresh final acceptance.
+                return await self.finish(VerificationResult(ok=True))
+            if not self.charge(BudgetEnvelope.FINAL, 1):
+                # Bu kapı çalıştırılmadı; reddedilen ön tahsisi gerçek maliyetten çıkar.
+                self.spent[(BudgetEnvelope.FINAL, "")] -= 1
+                return await self.pause(
+                    "Workflow final doğrulama bütçesi tükendi; görev duraklatıldı.", budget=True
+                )
+            self.final_calls += 1
+            evidence = tuple(
+                [
+                    criterion
+                    for saved in self.evidence.values()
+                    if not await artifact_changed(saved, self.deps.tool_context.root)
+                    for criterion in saved.criteria
+                ]
+            )
+            acceptance = await verify_plan_acceptance(self.current, self.deps, evidence=evidence)
+            self.progress()
+            if acceptance.ok:
+                return await self.finish(acceptance)
+            can_repair = await self.repair_final(acceptance)
+            if not can_repair or self.remaining(BudgetEnvelope.FINAL) <= 0:
+                detail = "; ".join(acceptance.findings) or acceptance.summary
+                return await self.pause(
+                    f"Planın final doğrulaması başarısız oldu; duraklatıldı: {detail}"
+                )
+            await self.save()
+
+
+async def run_execution_plan(
+    task: str,
+    deps: AgentDeps,
+    run_agent: RunAgent,
+    *,
+    plan: ExecutionPlan | None = None,
+    self_review: bool | None = None,
+    uncovered: tuple[str, ...] = (),
+    conversation: list[Message] | None = None,
+) -> AgentOutcome:
+    """Plan üretimi, kanıtlı devam ve final onarımı için ortak giriş noktası.
+
+    `uncovered`, hazır bir plan verildiğinde (test ya da checkpoint) kapsanmayan
+    teslimatları taşır; plan burada üretilirse değer `generate_plan`'dan gelir.
+
+    `conversation`, sistem mesajıyla başlayan ve bu turun kullanıcı mesajıyla
+    biten KÖK konuşmadır. Verilirse plan üretimi ve HER adım bu geçmişi görür
+    (bkz. `_PlanRun.messages`); `None` ise bugünkü davranış korunur.
+    """
+    limits = workflow_budget(deps)
+    checkpoint = None
+    store = deps.checkpoint_store
+    if plan is None and store is not None and deps.conversation_id:
+        checkpoint = await await_owned_thread(
+            lambda: store.find_resumable(
+                str(deps.tool_context.root.resolve()), deps.conversation_id
+            )
+        )
+    current = plan or (checkpoint.plan if checkpoint else None)
+    execution_task = task
+    if checkpoint is not None and task != checkpoint.plan.task:
+        execution_task = (
+            f"ASIL KULLANICI GÖREVİ:\n{checkpoint.plan.task}\n\n"
+            f"KULLANICININ SON YÖNLENDİRMESİ:\n{task}"
+        )
+    run = _PlanRun(
+        execution_task,
+        deps,
+        run_agent,
+        current or ExecutionPlan("", task, ()),
+        limits,
+        BudgetLedger(limits),
+        messages=list(conversation) if conversation is not None else [],
+    )
+    run.self_review = (
+        getattr(getattr(getattr(deps, "config", None), "runtime", None), "self_review", False)
+        if self_review is None
+        else self_review
+    )
+    if current is None:
+        generated = await generate_plan(
+            task,
+            deps,
+            run_agent,
+            limits.planning,
+            check_coverage=True,
+            history=conversation,
+        )
+        run.planning_calls = generated.calls
+        allowed = run.charge(BudgetEnvelope.PLANNING, generated.calls)
+        if not allowed or generated.plan is None:
+            return run.outcome(
+                f"Plan üretilemedi: {generated.error or 'Planlama bütçesi tükendi.'}",
+                ok=False,
+                budget_stopped=not allowed or limits.planning == 0,
+            )
+        # Modelin görev özetini kullanıcı isteğinin yerine kalıcılaştırma.
+        current = replace(generated.plan, task=task)
+        run.uncovered = generated.missing or uncovered
+    if not run.uncovered:
+        run.uncovered = uncovered
+    validation = validate_plan(current)
+    if not validation.ok:
+        return run.outcome(f"Yürütme planı geçersiz: {' '.join(validation.errors)}", ok=False)
+    deps.publisher.publish(
+        ExecutionPlanCreated(plan_id=current.plan_id, total_steps=len(current.steps))
+    )
+    if checkpoint is not None:
+        if checkpoint.turn_repair is not None:
+            if deps.budget is None:
+                raise ValueError("Onarım checkpoint'i mevcut tur bütçesi olmadan yüklenemez.")
+            deps.budget.restore_repairs(checkpoint.turn_repair)
+        run.storage_revision = checkpoint.storage_revision
+        run.effect_intents = {
+            (item.step_id, item.attempt, item.call_id): item for item in checkpoint.effect_intents
+        }
+        run.quality_feedback = checkpoint.quality_feedback
+        run.uncovered = checkpoint.uncovered or run.uncovered
+        run.ledger.restore(checkpoint.budget_usage)
+        run.spent = {
+            (BudgetEnvelope(item.envelope), item.scope): item.calls
+            for item in checkpoint.budget_usage
+        }
+        current, run.evidence = await resume_plan(checkpoint, deps)
+    run.current = replace(current, status=PlanStatus.RUNNING)
+    await run.save()
+    # Plan BAŞLAMADAN önceki kapı bulguları planın suçu değildir; yarım kurulmuş
+    # projede kapı her adımda düşer ve hiçbir adım geçemez. Ölçüldü: sıfırdan
+    # Godot projesi kuran plan "no main scene defined" ile her adımda düştü. Bir
+    # kez çalışır (kapı pahalıdır); final kabul yine TAM temizlik ister.
+    if deps.verifier is not None:
+        baseline = await deps.verifier.verify()
+        if not baseline.ok:
+            run.baseline = baseline.findings or ((baseline.summary,) if baseline.summary else ())
+    run.progress()
+    return await run.run()
+
+
+def _pause_text(
+    step_id: str,
+    reason: str,
+    verification: StepVerificationResult,
+    outcome: AgentOutcome,
+    rolled_back: tuple[str, ...] = (),
+) -> str:
+    """Duraklatma mesajını kur: NEDEN duraklatıldığı + NE OLDUĞU birlikte.
+
+    Ölçüldü (6 Eylül canlı koşusu, `erisilemeyen-kaynagi-uydurma`): adım
+    doğrulamadan geçemedi ("beklenen çalışma alanı değişikliği gözlenmedi") ve
+    duraklatma mesajı modelin açıklamasının YERİNE geçti. Kullanıcı yalnızca
+    "adım duraklatıldı" gördü; adresin var olmadığını hiç öğrenemedi. Oysa
+    modelin açıklaması tam da eksik olan bilgiydi.
+
+    Bulgu ile açıklama farklı sorulara cevap verir ve biri diğerinin yerine
+    geçemez: bulgu kapının neden kapandığını, açıklama işin neden yapılamadığını
+    söyler.
+
+    `rolled_back` düşen denemenin GERİ ALDIĞI dosyalardır (bkz. A9): geri alma
+    sessizce olursa kullanıcı "adım duraklatıldı" görür ama diskteki dosyanın
+    neden kaybolduğunu hiç öğrenemez.
+    """
+    bulgular = "; ".join(verification.findings)
+    parcalar = [f"Plan adımı duraklatıldı: {step_id}.", reason]
+    if bulgular:
+        parcalar.append(bulgular)
+    anlatim = outcome.final_text.strip()
+    if anlatim and anlatim not in bulgular:
+        parcalar.append(anlatim)
+    if rolled_back:
+        parcalar.append("Geri alınan değişiklikler: " + ", ".join(rolled_back))
+    return " ".join(parca for parca in parcalar if parca)

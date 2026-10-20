@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Ana pencere ve konuşma penceresi yetkileri",
+  "windows": ["main", "ses"],
+  "permissions": [
+    "core:default",
+    "updater:default",
+    "process:allow-restart",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-background-color",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-ask",
+    "opener:default"
+  ]
+}

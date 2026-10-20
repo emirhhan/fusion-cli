@@ -1,0 +1,254 @@
+"""Tarayıcı doğrulayıcı — gözlemden bulguya çeviren saf karar ve zarif atlama.
+
+Tarayıcıyı süren yapıştırıcı kod ince tutulur; karar mantığı saf ve doğrudan test
+edilir. Playwright kurulu olmayan makinede testler yine çalışır.
+"""
+
+from __future__ import annotations
+
+from fusion_cli.engines.agent.browser_verify import (
+    BrowserVerifier,
+    PageObservation,
+    page_findings,
+)
+
+
+def _gozlem(**overrides) -> PageObservation:
+    defaults: dict[str, object] = {
+        "name": "index.html",
+        "console_errors": (),
+        "failed_requests": (),
+        "overflowing": (),
+        "oversized_icons": (),
+        "clipped": (),
+        "small_targets": (),
+        "empty_sections": (),
+        "oversized_blocks": (),
+    }
+    defaults.update(overrides)
+    return PageObservation(**defaults)  # type: ignore[arg-type]
+
+
+def test_temiz_sayfa_bulgu_uretmez():
+    assert page_findings((_gozlem(),)) == ()
+
+
+def test_konsol_hatasi_bildirilir():
+    bulgular = page_findings((_gozlem(console_errors=("TypeError: x is not a function",)),))
+
+    assert any("konsol" in b.lower() for b in bulgular)
+    assert any("TypeError" in b for b in bulgular)
+
+
+def test_yuklenemeyen_kaynak_bildirilir():
+    bulgular = page_findings(
+        (_gozlem(failed_requests=("https://via.placeholder.com/80", "./yok.png")),)
+    )
+
+    assert any("yüklenemedi" in b.lower() for b in bulgular)
+    assert any("via.placeholder.com" in b for b in bulgular)
+
+
+def test_ayni_kaynak_tekrar_tekrar_bildirilmez():
+    """12 kırık görsel 12 satır bulgu üretmemeli; talimat okunabilir kalmalı."""
+    ayni = ("https://via.placeholder.com/80",) * 12
+    bulgular = page_findings((_gozlem(failed_requests=ayni),))
+
+    assert len(bulgular) == 1
+
+
+def test_bildirilen_sayi_farkli_kaynak_sayisidir():
+    """Sayfa her genişlik için yeniden yükleniyor; ham sayım şişik olur.
+
+    Aynı görsel 3 kez denenip 3 kez düşerse bu 3 ayrı sorun değildir.
+    """
+    gozlem = _gozlem(failed_requests=("a.png", "a.png", "a.png", "b.png", "b.png", "b.png"))
+
+    bulgular = page_findings((gozlem,))
+
+    assert "2 kaynak" in bulgular[0], bulgular[0]
+
+
+def test_yatay_tasma_bildirilir():
+    bulgular = page_findings((_gozlem(overflowing=((375, 412),)),))
+
+    assert any("375" in b for b in bulgular)
+    assert any("taşma" in b.lower() for b in bulgular)
+
+
+def test_birden_cok_sayfa_ayri_ayri_bildirilir():
+    bulgular = page_findings(
+        (
+            _gozlem(name="a.html", console_errors=("hata A",)),
+            _gozlem(name="b.html", console_errors=("hata B",)),
+        )
+    )
+
+    assert any("a.html" in b for b in bulgular)
+    assert any("b.html" in b for b in bulgular)
+
+
+async def test_playwright_yoksa_kapi_sessizce_gecer(tmp_path, monkeypatch):
+    """Opsiyonel ekstra kurulmamışsa doğrulama turu DÜŞÜRMEZ."""
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent import browser_verify
+
+    monkeypatch.setattr(browser_verify, "_playwright_available", lambda: False)
+    sayfa = tmp_path / "a.html"
+    sayfa.write_text("<main>x</main>", encoding="utf-8")
+    context = ToolContext(root=tmp_path)
+    context.touched.add(sayfa)
+
+    sonuc = await BrowserVerifier(context).verify()
+
+    assert sonuc.ok
+    assert sonuc.findings == ()
+
+
+async def test_html_yoksa_tarayici_hic_acilmaz(tmp_path, monkeypatch):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent import browser_verify
+
+    def _patlat():
+        raise AssertionError("HTML yokken tarayıcı yoklanmamalı")
+
+    monkeypatch.setattr(browser_verify, "_playwright_available", _patlat)
+    context = ToolContext(root=tmp_path)
+    context.touched.add(tmp_path / "script.js")
+
+    assert (await BrowserVerifier(context).verify()).ok
+
+
+# --- Ölçülen ama bildirilmeyen hatalar --------------------------------------- #
+#
+# Hepsi gerçek bir koşunun çıktısında GÖRÜLDÜ: favori kalbi butonunun 2,5 katıydı,
+# üçüncü müşteri yorumu kapsayıcıyı taşıp erişilemez hale gelmişti, 17 tıklanabilir
+# öğe 32px'in altındaydı. Üçü de ölçülebilir; hiçbiri bildirilmiyordu.
+
+
+def test_devasa_ikon_bildirilir():
+    bulgular = page_findings((_gozlem(oversized_icons=(("button.favorite-btn", 100, 40),)),))
+
+    assert any("ikon" in b.lower() for b in bulgular)
+    assert any("favorite-btn" in b for b in bulgular)
+
+
+def test_orantili_ikon_bildirilmez():
+    assert page_findings((_gozlem(oversized_icons=()),)) == ()
+
+
+def test_erisilemeyen_icerik_bildirilir():
+    bulgular = page_findings((_gozlem(clipped=(("div.review-card", 1440, 1900),)),))
+
+    assert any("erişilemiyor" in b.lower() or "kırpıl" in b.lower() for b in bulgular)
+    assert any("review-card" in b for b in bulgular)
+
+
+def test_kucuk_dokunma_hedefi_bildirilir():
+    bulgular = page_findings((_gozlem(small_targets=(("a.footer-link", 18, 14),)),))
+
+    assert any("dokunma" in b.lower() for b in bulgular)
+
+
+def test_bulgular_sayfa_basina_gruplanir():
+    """Her sorun türü için TEK satır: 17 küçük hedef 17 satır üretmemeli."""
+    hedefler = tuple((f"a.link-{i}", 18, 14) for i in range(17))
+
+    bulgular = page_findings((_gozlem(small_targets=hedefler),))
+
+    assert len(bulgular) == 1
+    assert "17" in bulgular[0]
+
+
+def test_ayni_ogenin_farkli_genisliklerdeki_olcumu_tekillestirilir():
+    """Sayfa üç genişlikte ölçülür; birebir aynı ölçüm üç kez bildirilmemeli.
+
+    Ölçü DAHİL tekilleştirilir: aynı öğe farklı genişlikte farklı boyut alıyorsa bu
+    ayrı bir bulgudur. Yalnızca seçiciye göre tekilleştirmek 16 küçük hedefi 2'ye
+    indiriyordu — sayı yalan söylüyordu.
+    """
+    from fusion_cli.engines.agent.browser_verify import _tekil_ucluler
+
+    ham = [("a.link", 18, 14), ("a.link", 18, 14), ("button.x", 10, 10)]
+
+    assert len(_tekil_ucluler(ham)) == 2
+
+
+def test_bos_bolum_bildirilir():
+    """Başlığı olan ama içi boş bölüm: sayfa geçerli görünür, içerik yoktur.
+
+    Gerçek hata: <script> etiketi düştüğü için Kategoriler, Çok Satanlar ve Müşteri
+    Yorumları bölümleri tamamen boş kaldı. Konsol tertemizdi, HTML geçerliydi.
+    """
+    bulgular = page_findings((_gozlem(empty_sections=("section#kategoriler", "section#urunler")),))
+
+    assert any("boş" in b.lower() for b in bulgular)
+    assert any("kategoriler" in b for b in bulgular)
+
+
+def test_dolu_bolum_bildirilmez():
+    assert page_findings((_gozlem(empty_sections=()),)) == ()
+
+
+def test_ekran_disi_cekmece_erisilemez_sayilmaz():
+    """position:fixed öğeler akış dışıdır: kapalı mini sepet, modal, toast.
+
+    Gerçek yanlış pozitif: kapalı mini sepet translateX ile ekran dışında park
+    edilmişti ve kapı bunu "erişilemeyen içerik" diye bildiriyordu.
+    """
+    from fusion_cli.engines.agent.browser_verify import _LAYOUT_PROBE
+
+    assert "position" in _LAYOUT_PROBE and "fixed" in _LAYOUT_PROBE
+
+
+def test_devasa_footer_bildirilir():
+    """Footer ekran yüksekliğini aşıyorsa yapısı yanlıştır.
+
+    Ölçülen gerçek hata: model tüm bağlantı gruplarını tek div'e koydu, o sütun
+    1109px'e uzadı ve footer 1237px oldu — 900px'lik ekranın %137'si.
+    """
+    bulgular = page_findings((_gozlem(oversized_blocks=(("footer", 1237, 900),)),))
+
+    assert any("footer" in b.lower() for b in bulgular)
+    assert any("1237" in b for b in bulgular)
+
+
+def test_makul_footer_bildirilmez():
+    assert page_findings((_gozlem(oversized_blocks=()),)) == ()
+    # Gerçek bir mağazanın düzgün footer'ı ekranın %104'ü çıktı; bozukluk değil.
+    assert page_findings((_gozlem(oversized_blocks=(("footer", 937, 900),)),)) == ()
+
+
+def test_sayfa_adi_sorguyu_tasir():
+    from fusion_cli.engines.agent.browser_verify import _page_name
+
+    assert _page_name("http://127.0.0.1:8080/") == "/"
+    assert _page_name("http://127.0.0.1:8080/?product_cat=erkek") == "/?product_cat=erkek"
+    assert _page_name("http://127.0.0.1:8080/sepet/") == "/sepet/"
+
+
+def test_buyuk_urun_fotografi_ikon_sayilmaz_boyutsuz_svg_sayilir(tmp_path):
+    """Ölçüldü (4 Ekim 2026): ürün galerisi fotoğrafları "devasa ikon" bulgusu oluyordu."""
+    import pytest
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from fusion_cli.engines.agent.browser_verify import _LAYOUT_PROBE
+
+    sayfa = tmp_path / "index.html"
+    sayfa.write_text(
+        '<a href="/buyuk"><img style="width:400px;height:300px" alt="ürün"></a>'
+        '<button><svg viewBox="0 0 24 24" style="width:200px;height:200px">'
+        '<path d="M0 0h24v24H0z"/></svg></button>',
+        encoding="utf-8",
+    )
+    try:
+        with playwright.sync_playwright() as p:
+            tarayici = p.chromium.launch()
+            page = tarayici.new_page()
+            page.goto(sayfa.as_uri())
+            olcum = page.evaluate(_LAYOUT_PROBE)
+            tarayici.close()
+    except playwright.Error as hata:
+        pytest.skip(f"tarayıcı yok: {hata}")
+
+    assert [row[0] for row in olcum["oversizedIcons"]] == ["button"]

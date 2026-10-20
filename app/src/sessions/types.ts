@@ -1,0 +1,121 @@
+import type { ProtocolClient } from "../protocol/client";
+import type { BaglamOlcusu, Soru } from "../protocol/types";
+import type { Mesaj } from "../screens/Conversation";
+
+export interface VoiceTurnMetadata {
+  kesilen?: string;
+}
+
+export type SessionSource = "fusion" | "claude" | "codex" | "hermes";
+export type SessionStatus = "ready" | "crashed" | "closed";
+
+export interface BackendSessionSnapshot {
+  oturum_id: string;
+  kok: string;
+  pid: number;
+  durum: "calisiyor" | "kapandi";
+  kapanis_nedeni: string | null;
+}
+
+export interface SessionLineEvent {
+  oturum_id: string;
+  satir: string;
+}
+
+export interface SessionClosedEvent {
+  oturum_id: string;
+  neden: string;
+}
+
+export type Unlisten = () => void;
+
+export interface SessionTransport {
+  create(id: string, root?: string): Promise<BackendSessionSnapshot>;
+  send(id: string, line: string): Promise<void>;
+  close(id: string): Promise<void>;
+  list(): Promise<BackendSessionSnapshot[]>;
+  onLine(handler: (event: SessionLineEvent) => void): Promise<Unlisten>;
+  onClosed(handler: (event: SessionClosedEvent) => void): Promise<Unlisten>;
+}
+
+export interface SessionQuestion {
+  id: string;
+  data: Soru;
+}
+
+export interface SessionModel {
+  completedRequestIds?: string[];
+  requestId?: string;
+  expectedTurnId?: string;
+  eventIds?: string[];
+  eventSequence?: number;
+  turnId?: string;
+  updatedAt?: number;
+  id: string;
+  title: string;
+  source: SessionSource;
+  root: string;
+  pid: number | null;
+  status: SessionStatus;
+  error: string | null;
+  running: boolean;
+  stopping?: boolean;
+  stopError?: string | null;
+  messages: Mesaj[];
+  question: SessionQuestion | null;
+  questionQueue?: SessionQuestion[];
+  /** Son okunan kalan bağlam ölçüsü; henüz okunmadıysa `null`. */
+  baglam: BaglamOlcusu | null;
+  /** Oturumun toplam maliyeti (USD); `baglam` ile AYNI `oturum.durum`
+   * yanıtından gelir (bkz. `useSessions.ts::olcuyuTazele`), henüz
+   * okunmadıysa `null`. */
+  maliyetUsd: number | null;
+  /** Kök bir proje DEPOSUYSA (Masaüstü gibi) içindeki projeler, köke göreli;
+   *  tek projede açıksa boş. Aynı `oturum.durum` yanıtından gelir. */
+  depoProjeleri: string[];
+  client: ProtocolClient;
+}
+
+export interface NewSession {
+  mode?: "sohbet" | "kod";
+  updatedAt?: number;
+  id?: string;
+  title?: string;
+  source?: SessionSource;
+  root?: string;
+}
+
+export interface ResumeSession {
+  source: Exclude<SessionSource, "fusion">;
+  sessionId: string;
+  title: string;
+  root?: string;
+}
+
+export interface SessionAttachment {
+  kind: "file" | "image";
+  name: string;
+  path: string;
+}
+
+export interface SessionState {
+  activeId: string | null;
+  order: string[];
+  sessions: Record<string, SessionModel>;
+  connectionError: string | null;
+}
+
+export interface RecentProject {
+  name: string;
+  root: string;
+  updatedAt: number;
+}
+
+/** Diskte duran, henüz açılmamış bir sohbetin künyesi. */
+export interface StoredConversation {
+  id: string;
+  root: string;
+  title: string;
+  updatedAt: number;
+  messageCount: number;
+}

@@ -1,0 +1,452 @@
+"""Ink-benzeri tek yol REPL döngüsü — komut yönlendirme, önizleme ve prompter."""
+
+from __future__ import annotations
+
+import asyncio
+
+from fusion_cli.cli.repl.state import Engine, ReplState
+from fusion_cli.cli.repl.tui import FusionTui
+from fusion_cli.cli.repl.tui_loop import TuiPrompter, _preview, _TuiSession
+from fusion_cli.core.tools import AuthorizationScope, ToolEffect
+from fusion_cli.engines.agent.approval import ApprovalAnswer, ApprovalRequest
+from fusion_cli.engines.agent.engine_tools import QuestionOption
+from fusion_cli.memory.factory import null_memory
+
+from .fakes import make_config
+
+
+def _state(tmp_path) -> ReplState:
+    return ReplState(config=make_config(), memory=null_memory(), root=tmp_path, home=tmp_path)
+
+
+class _Tool:
+    name = "run_shell"
+
+
+def test_onay_onizlemesi_tehlike_gerekcesini_gosterir():
+    request = ApprovalRequest(tool=_Tool(), args={"command": "rm -rf /"}, danger="kök silme")
+
+    metin = _preview(request)
+
+    assert "run_shell(" in metin and "kök silme" in metin
+
+
+def test_onay_onizlemesi_tehlikesizde_gerekce_yok():
+    request = ApprovalRequest(tool=_Tool(), args={"command": "ls"}, danger=None)
+
+    metin = _preview(request)
+
+    assert "run_shell(" in metin
+
+
+def _noop_tui() -> FusionTui:
+    return FusionTui(
+        on_submit=lambda _t: None,
+        on_interrupt=lambda: None,
+        on_exit=lambda: None,
+        on_cycle_mode=lambda: None,
+    )
+
+
+async def test_prompter_confirm_modali_e_ile_true_doner():
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(
+        prompter.confirm(ApprovalRequest(tool=_Tool(), args={}, danger=None))
+    )
+    await asyncio.sleep(0)
+
+    tui._resolve("once")
+
+    assert await task is ApprovalAnswer.ONCE
+
+
+async def test_prompter_confirm_sonrasi_onceki_calisma_satirini_geri_getirir():
+    tui = _noop_tui()
+    tui.set_work_source(lambda: "hazırlanıyor…")
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(
+        prompter.confirm(ApprovalRequest(tool=_Tool(), args={}, danger=None))
+    )
+    await asyncio.sleep(0)
+    tui._resolve("once")
+    await task
+
+    assert "hazırlanıyor…" in tui._work_now()
+
+
+async def test_prompter_tehlikesiz_istekte_oturum_secimi_sunar():
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(
+        prompter.confirm(ApprovalRequest(tool=_Tool(), args={}, danger=None))
+    )
+    await asyncio.sleep(0)
+
+    assert tui._mode == "choice"
+    assert [choice.value for choice in tui._choices] == ["once", "session", "deny"]
+    tui._resolve("session")
+    assert await task is ApprovalAnswer.SESSION
+
+
+async def test_prompter_yikici_istekte_oturum_secimi_sunmaz():
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(
+        prompter.confirm(ApprovalRequest(tool=_Tool(), args={}, danger="riskli"))
+    )
+    await asyncio.sleep(0)
+
+    assert [choice.value for choice in tui._choices] == ["once", "deny"]
+    tui._resolve("deny")
+    assert await task is ApprovalAnswer.DENY
+
+
+async def test_remote_without_verified_scope_never_offers_session_permission():
+    """CLI, masaüstüyle aynı kapsam kuralını kullanır."""
+    tui = _noop_tui()
+    tool = _Tool()
+    tool.name = "remote_write"
+    request = ApprovalRequest(tool=tool, args={}, danger=None, effect=ToolEffect.REMOTE_WRITE)
+    task = asyncio.create_task(TuiPrompter(tui, None).confirm(request))
+    await asyncio.sleep(0)
+    try:
+        assert [choice.value for choice in tui._choices] == ["once", "deny"]
+    finally:
+        tui._resolve("deny")
+        await task
+
+
+async def test_remote_session_permission_displays_scope_in_terminal():
+    tui = _noop_tui()
+    tool = _Tool()
+    tool.name = "remote_write"
+    request = ApprovalRequest(
+        tool=tool,
+        args={},
+        danger=None,
+        effect=ToolEffect.REMOTE_WRITE,
+        authorization_scope=AuthorizationScope("docs", "work", "update", ("doc-42",)),
+    )
+    task = asyncio.create_task(TuiPrompter(tui, None).confirm(request))
+    await asyncio.sleep(0)
+    try:
+        choice = next(choice for choice in tui._choices if choice.value == "session")
+        assert all(value in choice.description for value in ("docs", "work", "update", "doc-42"))
+    finally:
+        tui._resolve("deny")
+        await task
+
+
+async def test_prompter_ask_metni_doner():
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(prompter.ask("hangi dosya?"))
+    await asyncio.sleep(0)
+    tui._resolve("src/app.py")
+
+    assert await task == "src/app.py"
+
+
+async def test_prompter_ask_onerilen_secenek_ve_diger_sunar():
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(
+        prompter.ask(
+            "hangi renk?",
+            (
+                QuestionOption("mavi", "Sakin görünür."),
+                QuestionOption("kırmızı", "Daha canlıdır."),
+            ),
+            "mavi",
+        )
+    )
+    await asyncio.sleep(0)
+
+    assert tui._mode == "choice"
+    assert [choice.value for choice in tui._choices] == ["mavi", "kırmızı", "__other__"]
+    assert "önerilen" in tui._choices[0].description.lower()
+    tui._resolve("mavi")
+    assert await task == "mavi"
+
+
+async def test_prompter_ask_diger_secilince_serbest_metin_alir():
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(
+        prompter.ask("hangisi?", (QuestionOption("A", "İlk seçenek."),), "A")
+    )
+    await asyncio.sleep(0)
+    tui._resolve("__other__")
+    await asyncio.sleep(0)
+
+    assert tui._mode == "ask"
+    tui._resolve("kendi cevabım")
+    assert await task == "kendi cevabım"
+
+
+async def test_bilinmeyen_komut_uyarir(tmp_path):
+    session = _TuiSession(_state(tmp_path))
+
+    await session._command("/olmayan")
+
+    assert "bilinmeyen komut" in session.tui.transcript.lower()
+
+
+async def test_agent_fusion_komutu_motoru_degistirir(tmp_path):
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+
+    await session._command("/fusion")
+    assert state.engine is Engine.FUSION
+
+    await session._command("/agent")
+    assert state.engine is Engine.AGENT
+
+
+async def test_argumansiz_secici_komut_yonlendirir(tmp_path):
+    """TUI çalışırken iç içe seçici açılmaz; argümansız /model yönlendirme basar."""
+    session = _TuiSession(_state(tmp_path))
+
+    await session._command("/model")
+
+    assert "argüman ister" in session.tui.transcript
+
+
+def test_would_open_picker_nested_secici_komutlarini_yakalar():
+    from fusion_cli.cli.repl.tui_loop import _would_open_picker
+
+    assert _would_open_picker("provider", "")
+    assert _would_open_picker("development", "x")
+    assert _would_open_picker("model", "")  # argümansız katalog
+    assert not _would_open_picker("model", "premium")  # argümanla uygular
+    assert _would_open_picker("profiles", "edit code")
+    assert _would_open_picker("providers", "add")
+    # mode/level/effort uygulama-içi modalla çözülür; guard'lanmaz.
+    assert not _would_open_picker("mode", "")
+    assert not _would_open_picker("level", "")
+
+
+async def test_provider_komutu_gorunumu_bozmaz(tmp_path):
+    """/provider nested seçici açacaktı; TUI'de yönlendirme basar, görünüm bozulmaz."""
+    session = _TuiSession(_state(tmp_path))
+
+    await session._command("/provider")
+
+    assert "argüman ister" in session.tui.transcript
+
+
+async def test_mode_komutu_uygulama_ici_secimle_uygulanir(tmp_path):
+    """/mode uygulama-içi seçim açar; seçilen değer handler'a argüman olarak uygulanır."""
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+
+    task = asyncio.ensure_future(session._command("/mode"))
+    await asyncio.sleep(0)
+    assert session.tui._mode == "choice"  # nested picker DEĞİL, uygulama-içi modal
+
+    session.tui._resolve("auto")  # ilk seçenek: auto kipi
+    await task
+
+    assert state.auto_profile is True
+
+
+async def test_mesgulken_gonderi_kuyruga_alinir(tmp_path):
+    """Tur çalışırken yazılan mesaj SESSİZCE DÜŞMEZ; kuyruğa alınır ve bildirilir."""
+    session = _TuiSession(_state(tmp_path))
+
+    async def _bekle() -> None:
+        await asyncio.sleep(10)
+
+    session._task = asyncio.ensure_future(_bekle())
+    session._submit("ikinci mesaj")
+
+    assert session._queue == ["ikinci mesaj"]
+    assert "sıraya alındı" in session.tui.transcript
+    session._task.cancel()
+
+
+async def test_kuyruk_tur_bitince_islenir(tmp_path):
+    """Bir tur bitince kuyruktaki sonraki satır kendiliğinden işlenir."""
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+    session._queue = ["/agent"]
+
+    await session._handle("/fusion")  # bu tur biter, finally kuyruğu boşaltır
+    assert state.engine is Engine.FUSION
+
+    assert session._task is not None
+    await session._task  # kuyruktan gelen /agent
+    assert state.engine is Engine.AGENT
+
+
+def test_mesgulken_yeni_satir_gorev_baslatmaz(tmp_path):
+    session = _TuiSession(_state(tmp_path))
+
+    async def _bekleyen() -> None:
+        await asyncio.sleep(10)
+
+    async def _dene() -> None:
+        session._task = asyncio.ensure_future(_bekleyen())
+        session._submit("yeni görev")  # meşgulken yok sayılmalı
+        assert session._task is not None
+        # Aynı görev; yenisi başlatılmadı.
+        mevcut = session._task
+        session._submit("bir daha")
+        assert session._task is mevcut
+        session._task.cancel()
+
+    asyncio.run(_dene())
+
+
+# --- /undo TUI'de çalışmıyordu --------------------------------------------- #
+#
+# Ölçüldü: kullanıcı bir CSS düzeltmesini geri almak istedi, `/undo` "geri
+# alınacak değişiklik yok" dedi — oysa dosya gerçekten değişmişti. Sebep:
+# değişiklik kümesi YALNIZCA eski satır-içi REPL'de saklanıyordu; varsayılan
+# olan TUI hiç saklamıyordu. Araç bağlamı `run_agent_task` içinde gizlice
+# kuruluyor ve çağıranın elinde hiçbir referans kalmıyordu.
+
+
+async def test_agent_turu_verilen_arac_baglamini_kullanir(tmp_path):
+    """Çağıran bağlam verdiyse o kullanılmalı; yoksa `/undo` bağlanamaz."""
+    from fusion_cli.cli.session import run_agent_task
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent import loop as agent_loop
+
+    from .fakes import ScriptedProvider, make_config, model_result, tool_call
+
+    context = ToolContext(root=tmp_path)
+    provider = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("write_file", path="a.txt", content="yeni")]),
+            model_result("`a.txt` oluşturuldu."),
+        ]
+    )
+    original = agent_loop.build_provider
+    agent_loop.build_provider = lambda *a, **k: provider
+    try:
+        await run_agent_task(
+            "a.txt oluştur",
+            make_config(),
+            sinks=(),
+            prompter_factory=lambda _flush: _Onaylayan(),
+            root=tmp_path,
+            interactive=False,
+            tool_context=context,
+        )
+    finally:
+        agent_loop.build_provider = original
+
+    assert context.changes.paths, "değişiklik kümesi çağıranın bağlamında birikmedi"
+    assert (tmp_path / "a.txt").exists()
+
+
+async def test_tui_consumes_pending_digest_once_and_injects_home(tmp_path, monkeypatch) -> None:
+    from fusion_cli.engines.agent import AgentOutcome
+
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+    calls: list[dict[str, object]] = []
+
+    async def _fake_run_agent_task(task, config, **kwargs):
+        calls.append(kwargs)
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _fake_run_agent_task)
+    state.pending_digest = "TUI devralma künyesi"
+
+    await session._turn("ilk görev")
+    await session._turn("ikinci görev")
+
+    assert calls[0]["home"] == state.home
+    assert calls[0]["extra_system"] == "TUI devralma künyesi"
+    assert "TUI devralma künyesi" not in str(calls[1]["extra_system"])
+    assert state.pending_digest is None
+    assert calls[0].get("conversation_id") == session._transcript_store.session_id
+    assert calls[1].get("conversation_id") == calls[0].get("conversation_id")
+    other = _TuiSession(_state(tmp_path))
+    assert other._transcript_store.session_id != calls[0].get("conversation_id")
+
+
+async def test_tui_turlari_ayni_onay_hafizasini_paylasir(tmp_path, monkeypatch) -> None:
+    """Oturum boyunca verilen izin TUI'de de tur değişince unutulmamalı."""
+    from fusion_cli.engines.agent import AgentOutcome
+
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+    calls: list[dict[str, object]] = []
+
+    async def _fake_run_agent_task(task, config, **kwargs):
+        calls.append(kwargs)
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _fake_run_agent_task)
+
+    await session._turn("ilk görev")
+    await session._turn("ikinci görev")
+
+    assert calls[0].get("approval_memory") is not None
+    assert calls[0]["approval_memory"] is calls[1]["approval_memory"]
+
+
+class _Onaylayan:
+    async def confirm(self, request):
+        return True
+
+    async def ask(self, question):
+        return ""
+
+
+async def test_goal_kipi_tui_de_prompt_ve_adim_sinirini_tasir(tmp_path, monkeypatch) -> None:
+    """`/goal` TUI'de kipin ÜÇ ayarını da taşımalı.
+
+    Buraya eskiden yalnız `workflow` geçiyordu: hedef kipinin sistem promptu
+    ("pes etme, ask_user ile müdahale iste") ve yükseltilmiş adım sınırı (100)
+    sessizce düşüyordu. Düz konsol yüzeyi (`loop.py`) üçünü de geçiriyordu.
+    """
+    from fusion_cli.cli.repl import macros
+    from fusion_cli.engines.agent import AgentOutcome
+
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+    calls: list[dict[str, object]] = []
+
+    async def _fake_run_agent_task(task, config, **kwargs):
+        calls.append(kwargs)
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _fake_run_agent_task)
+
+    await session._turn("hedefi tamamla", mode=macros.Mode.GOAL)
+
+    assert calls[0]["step_limit"] == macros.MODE_STEP_LIMITS[macros.Mode.GOAL]
+    assert "HEDEF KİPİNDESİN" in str(calls[0]["extra_system"])
+    assert calls[0]["workflow"] is False
+
+
+async def test_kipsiz_turda_varsayilan_butce_korunur(tmp_path, monkeypatch) -> None:
+    """Makro yoksa adım sınırı yükseltilmez; varsayılan bütçe geçerlidir."""
+    from fusion_cli.engines.agent import AgentOutcome
+
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+    calls: list[dict[str, object]] = []
+
+    async def _fake_run_agent_task(task, config, **kwargs):
+        calls.append(kwargs)
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _fake_run_agent_task)
+
+    await session._turn("sıradan görev")
+
+    assert calls[0]["step_limit"] is None
+    assert calls[0]["extra_system"] == ""

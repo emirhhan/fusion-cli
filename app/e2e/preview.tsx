@@ -1,0 +1,503 @@
+import { AgentPanel } from "../src/team/AgentPanel";
+import React from "react";
+import ReactDOM from "react-dom/client";
+import "../src/theme/tokens.css";
+import "../src/brand/brand.css";
+import "../src/App.css";
+import { Approval } from "../src/dialogs/Approval";
+import { HistoryPicker } from "../src/dialogs/HistoryPicker";
+import type { HistoryController } from "../src/history/useHistory";
+import { AppHeader } from "../src/screens/AppHeader";
+import { Composer } from "../src/screens/Composer";
+import { Conversation, type Mesaj } from "../src/screens/Conversation";
+import { olayEkle } from "../src/protocol/olayAkisi";
+import { EmptyState } from "../src/screens/EmptyState";
+import { Inspector } from "../src/screens/Inspector";
+import { Shell } from "../src/screens/Shell";
+import { MainRail, type MainSection } from "../src/screens/MainRail";
+import { LibraryScreen } from "../src/library/LibraryScreen";
+import { MediaScreen } from "../src/sections/MediaScreen";
+import { ScheduleScreen } from "../src/schedule/ScheduleScreen";
+import { Sidebar } from "../src/screens/Sidebar";
+import { applyTheme, type ThemePreference } from "../src/theme/theme";
+import { FileExplorer } from "../src/workspace/FileExplorer";
+import { ChangesPanel } from "../src/workspace/ChangesPanel";
+import { PreviewPanel } from "../src/workspace/PreviewPanel";
+import { TerminalPanel } from "../src/processes/TerminalPanel";
+import type { TerminalRuntime, TerminalSession } from "../src/processes/terminalBridge";
+import type { ProtocolClient } from "../src/protocol/client";
+import { SkillsCatalog } from "../src/capabilities/SkillsCatalog";
+import { ControlPanel } from "../src/control/ControlPanel";
+import { ConnectorsScreen } from "../src/connectors/ConnectorsScreen";
+import { Settings } from "../src/settings/Settings";
+import { VoiceMode, type VoiceState } from "../src/voice/VoiceMode";
+import { Onboarding, type OnboardingValue } from "../src/onboarding";
+import { AccountScreen } from "../src/account/AccountScreen";
+import { ImageCreate } from "../src/imagecreate/ImageCreate";
+import type { AccountController } from "../src/account/useAccount";
+
+const params = new URLSearchParams(location.search);
+const theme = (params.get("theme") ?? "light") as ThemePreference;
+const state = params.get("state") ?? "conversation";
+const imageJobsPreview = params.get("imageJobs");
+const inspectorOpen = params.get("inspector") !== "0";
+const inspectorPlacement = params.get("inspectorPlacement") === "bottom" ? "bottom" : "right";
+const inspectorHeight = Number(params.get("inspectorHeight") ?? 280);
+applyTheme(theme);
+
+const messages = [
+  { rol: "kullanici" as const, metin: "Fusion için profesyonel bir macOS uygulaması hazırla." },
+  { rol: "olay" as const, metin: "7 arayüz testi ve üretim derlemesi tamamlandı" },
+  { rol: "asistan" as const, metin: "Uygulama kabuğunu tamamladım. Sol navigasyon, konuşma alanı ve bağlamsal denetçi aynı tasarım sistemiyle çalışıyor.\n\nAçık ve koyu tema ile dar pencere davranışları da doğrulandı." },
+];
+
+/** Ekip önizlemesi: gerçek olay akışından (olayEkle) üretilir, elle kart yazılmaz. */
+const ekipBasla = (sub_id: string, persona: string, title: string, color: string, task: string) => ({
+  olay: "SubAgentStarted", sub_id, persona, title, avatar: persona, color, task, group_size: 3,
+});
+const teamMessages = [
+  { rol: "kullanici" as const, metin: "Kafe için tek sayfalık bir site yap; görselleri de üret." },
+  ...[
+    ekipBasla("arastirmaci-1", "arastirmaci", "Araştırmacı", "turuncu", "Benzer kafe sitelerini incele ve bölüm yapısını çıkar"),
+    ekipBasla("tasarimci-1", "tasarimci", "Arayüz Tasarımcısı", "pembe", "Ana sayfanın düzenini, tipografisini ve renk sistemini kur"),
+    ekipBasla("gorselci-1", "gorselci", "Görsel Üretici", "sari", "Hero 1920×1080 ve 3 ürün görselini üret, sayfaya yerleştir"),
+    { olay: "ToolStarted", name: "web_search", args: { query: "üçüncü dalga kafe sitesi" }, agent_id: "arastirmaci-1" },
+    { olay: "ToolExecuted", name: "web_search", args: { query: "üçüncü dalga kafe sitesi" }, outcome: "ok", output: "8 sonuç", agent_id: "arastirmaci-1" },
+    { olay: "SubAgentFinished", sub_id: "arastirmaci-1", ok: true, summary: "6 bölüm önerildi: hero, menü, hikâye, ürünler, yorumlar, iletişim", elapsed_s: 48, tool_calls: 4 },
+    { olay: "ToolStarted", name: "write_file", args: { path: "site/css/ana.css" }, agent_id: "tasarimci-1" },
+    { olay: "ToolStarted", name: "generate_image", args: { prompt: "sıcak ışıklı kafe", width: 1920, height: 1080 }, agent_id: "gorselci-1" },
+  ].reduce<Mesaj[]>((akis, olay) => olayEkle(akis, olay), []),
+];
+
+/** Görsel oluştur önizlemesi: gerçek dosya yerine renk geçişli SVG'ler. */
+const GORSEL_RENKLERI = [["#ff9a8b", "#6a5acd"], ["#43cea2", "#185a9d"], ["#f7971e", "#ffd200"], ["#654ea3", "#eaafc8"], ["#1d2b64", "#f8cdda"], ["#00c9ff", "#92fe9d"]];
+function gorselAdresi(yol: string): string {
+  const sira = Number(yol.match(/(\d+)/)?.[1] ?? 0) % GORSEL_RENKLERI.length;
+  const [a, b] = GORSEL_RENKLERI[sira];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="768" height="768"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="768" height="768" fill="url(#g)"/><circle cx="520" cy="260" r="120" fill="white" opacity=".35"/></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+const imageClient = {
+  request: async (name: string) => {
+    if (name === "gorsel.saglayicilar") return { ok: true, ...(imageJobsPreview ? { isProtokolu: 1 } : {}), secenekler: [{ deger: "nim/flux.1-dev", etiket: "FLUX.1 dev (NIM)", referans: false }, { deger: "gemini_web/main", etiket: "Gemini (web)", referans: true }] };
+    if (name === "gorsel.is.liste") return imageJobsPreview === "error" ? { ok: false }
+      : { ok: true, isler: [{ jobId: "fusion-image-preview-01", state: imageJobsPreview === "recovery" ? "recoveryRequired" : "running", outputsVerified: false }], sonraki: null };
+    if (name === "gorsel.is.durum") return { ok: true, jobId: "fusion-image-preview-01", state: "running", dosyalar: [] };
+    if (name === "gorsel.is.iptal") return new Promise<Record<string, unknown>>(() => {});
+    if (name === "gorsel.galeri") return { ok: true, dosyalar: [0, 1, 2, 3, 4, 5].map((sira) => ({ yol: `/galeri/gorsel-${sira}.png`, genislik: 1024, yukseklik: 1024, istem: ["Gün batımında sisli bir dağ köyü, sinematik", "Minimal ürün fotoğrafı, beyaz zemin", "Neon ışıklı yağmurlu sokak", "Suluboya çiçek deseni", "İzometrik küçük ofis", "Soyut dalga dokusu"][sira], saglayici: "FLUX.1 dev (NIM)" })) };
+    if (name === "gorsel.akislar") return { ok: true, akislar: [] };
+    return { ok: true };
+  },
+};
+
+/** Claude tarzı akış: anlatım, gruplanmış adımlar ve canlı durum satırı. */
+const runningMessages = [
+  { rol: "kullanici" as const, metin: "Testleri düzelt ve kalite kapısını çalıştır." },
+  { rol: "asistan" as const, metin: "Önce son commit'leri ve rapor dosyalarını okuyorum.", ara: true },
+  {
+    rol: "olay" as const, metin: "", tokenSayisi: 2034, baslangicZamani: Date.now() - 554_000,
+    adimlar: [
+      { metin: "git log çalıştırılıyor", arac: "run_shell", durum: "ok", komut: "git log --oneline -5", cikti: "9ec8b36 docs: …" },
+      { metin: "dosyalar aranıyor", arac: "glob", durum: "ok" },
+      { metin: "Makefile okunuyor", arac: "read_file", durum: "ok", ayrinti: "Makefile" },
+      { metin: "pytest çalıştırılıyor", arac: "run_shell", basladi: true },
+    ],
+  },
+];
+
+const composerCommands = [
+  { ad: "models", aciklama: "Modelleri listele", grup: "Model", kullanim: "", destekleniyor: true },
+  { ad: "model", aciklama: "Etkin modeli değiştir", grup: "Model", kullanim: "[model]", destekleniyor: true },
+  { ad: "mode", aciklama: "Çalışma profilini değiştir", grup: "Oturum", kullanim: "[profil]", destekleniyor: true },
+  { ad: "mcp github", aciklama: "GitHub MCP sunucusunu yönet", grup: "MCP", kullanim: "", destekleniyor: true },
+] satisfies React.ComponentProps<typeof Composer>["commands"];
+
+const composerAttachments = [
+  { kind: "file" as const, name: "arayuz-notlari.md", path: "/Projects/fusion-cli/docs/arayuz-notlari.md" },
+];
+
+function terminalFixture(terminalState: string): TerminalRuntime {
+  const output = terminalState === "ansi"
+    ? "\u001b[38;2;104;211;145myeşil çıktı\u001b[0m\r\nANSI renkleri korundu\r\nfusion@workspace % "
+    : terminalState === "closed"
+      ? "python3 -c 'raise SystemExit(1)'\r\n"
+      : "Fusion çalışma alanı\r\nfusion@workspace % ";
+  const closed = terminalState === "closed" ? { reason: "shell exited", exitCode: 1 } : null;
+  const runtime = {
+    open: async (cwd: string, cols: number, rows: number) => ({ terminalId: "terminal-preview-1", cwd, cols, rows, pid: 4242 }),
+    write: async () => undefined,
+    resize: async () => undefined,
+    close: async () => undefined,
+    onOutput: async () => () => undefined,
+    onClosed: async () => () => undefined,
+    openSession: async (cwd: string, cols: number, rows: number) => {
+      const outputHandlers = new Set<(data: Uint8Array) => void>();
+      const closedHandlers = new Set<(event: { reason: string; exitCode: number | null }) => void>();
+      const session: TerminalSession = {
+        snapshot: { terminalId: "terminal-preview-1", cwd, cols, rows, pid: 4242 },
+        write: async () => undefined,
+        resize: async () => undefined,
+        close: async () => undefined,
+        clearRetention: () => undefined,
+        onOutput: (handler) => {
+          outputHandlers.add(handler);
+          handler(new TextEncoder().encode(output));
+          return () => outputHandlers.delete(handler);
+        },
+        onClosed: (handler) => {
+          closedHandlers.add(handler);
+          if (closed) queueMicrotask(() => handler(closed));
+          return () => closedHandlers.delete(handler);
+        },
+        dispose: () => {
+          outputHandlers.clear();
+          closedHandlers.clear();
+        },
+      };
+      return session;
+    },
+  } satisfies TerminalRuntime;
+  return runtime;
+}
+
+const workspaceClient = {
+  request: async (name: string, data: Record<string, unknown>) => {
+    if (name === "ders.listele") return { ok: true, dersler: [
+      { id: "ilk-proje", baslik: "İlk proje", ozet: "Fusion'ın nerede çalıştığını anla ve ilk görevini ver.", adim_sayisi: 6 },
+      { id: "basit-oyun-veya-site", baslik: "Basit oyun veya web sitesi", ozet: "Tek dosyalık küçük bir şey üret, çalıştır ve düzelt.", adim_sayisi: 6 },
+      { id: "varlik-ekleme-onizleme", baslik: "Görsel ve dosya ekleme", ozet: "Kendi dosyanı Fusion'a ver ve sonucu önizle.", adim_sayisi: 6 },
+      { id: "model-ve-dusunme-duzeyi", baslik: "Model ve düşünme düzeyi", ozet: "Hangi yapay zekânın çalıştığını gör ve değiştir.", adim_sayisi: 6 },
+      { id: "izinler-ve-geri-alma", baslik: "İzinler ve geri alma", ozet: "Fusion'ın neye dokunabildiğini sen belirle.", adim_sayisi: 6 },
+      { id: "gecmis-surdurme", baslik: "Geçmiş sürdürme", ozet: "Claude ve Codex'te kaldığın yerden devam et.", adim_sayisi: 6 },
+      { id: "beceri-ve-ajan-kullanma", baslik: "Beceri ve ajan kullanma", ozet: "Bilgisayarındaki hazır uzmanlıkları Fusion'a bağla.", adim_sayisi: 6 },
+      { id: "test-paketleme-paylasma", baslik: "Test etme, paketleme ve paylaşma", ozet: "Yaptığın şeyi doğrula ve başkasına ver.", adim_sayisi: 6 },
+    ] };
+    if (name === "ders.getir") return { ok: true, id: "izinler-ve-geri-alma", baslik: "İzinler ve geri alma", ozet: "Küçük zararsız bir değişiklik yap, sonra geri al.", adimlar: [
+      { id: "onay-modu", baslik: "Onay modunu tanı", aciklama: "Kontrol panelinden mevcut izin/onay modunu gör.", onizleme: "İzinler kartını göreceksin.", eylem: { tur: "sekme", hedef: "kontrol" } },
+      { id: "degisiklik-yap", baslik: "Küçük bir değişiklik yap", aciklama: "Zararsız, geri alınabilir küçük bir dosya değişikliği iste.", onizleme: "test.txt eklenecek.", eylem: { tur: "composer", gorev: "Proje klasörüne test.txt adında zararsız, boş bir dosya ekle." } },
+      { id: "geri-al", baslik: "Değişikliği geri al", aciklama: "Proje sekmesindeki değişiklikler listesinden son adımı geri al.", onizleme: "Geri alma seçeneğini göreceksin.", eylem: { tur: "sekme", hedef: "proje" } },
+    ] };
+    if (name === "proje.durum") return { ok: true, kok: "/Projects/fusion-cli", git: true, okunabilir: true, yazilabilir: true };
+    if (name === "proje.listele") {
+      if (data.yol === "assets") return { ok: true, girdiler: [{ ad: "fusion-preview.svg", yol: "assets/fusion-preview.svg", tur: "dosya", boyut: 205, degistirilme: 1 }], next_cursor: null, has_more: false };
+      if (data.yol === "src") return { ok: true, girdiler: [{ ad: "app.py", yol: "src/app.py", tur: "dosya", boyut: 422, degistirilme: 1 }], next_cursor: null, has_more: false };
+      return { ok: true, girdiler: [
+        { ad: "assets", yol: "assets", tur: "klasor", boyut: 0, degistirilme: 1 },
+        { ad: "src", yol: "src", tur: "klasor", boyut: 0, degistirilme: 1 },
+        { ad: "README.md", yol: "README.md", tur: "dosya", boyut: 5820, degistirilme: 1 },
+      ], next_cursor: null, has_more: false };
+    }
+    if (name === "proje.oku") return { ok: true, yol: String(data.yol), tur: String(data.yol).endsWith(".svg") ? "metin" : "metin", mime: String(data.yol).endsWith(".svg") ? "image/svg+xml" : "text/markdown", boyut: 5820, sha256: "visual", icerik: "# Fusion App\n\nProfesyonel macOS çalışma alanı\n\n" + Array.from({ length: 28 }, (_, index) => `${index + 1}. Dosyalar, terminal, testler ve önizleme aynı güvenli oturumda çalışır.`).join("\n"), kesildi: false };
+    if (name === "proje.degisiklikler") return { ok: true, degisiklikler: [{ yol: "src/app.py", added: 5, removed: 2, geri_alinabilir: true, diff: "--- a/src/app.py\n+++ b/src/app.py\n@@ -1,2 +1,5 @@\n-print('old')\n+print('Fusion hazır')\n+run_tests()\n+open_preview()" }] };
+    if (name === "proje.komut_onerileri") return { ok: true, komutlar: [{ tur: "check", ad: "Tüm kalite kapısı", komut: "make check" }, { tur: "build", ad: "Üretim derlemesi", komut: "npm run build" }] };
+    if (name === "proje.git_durum") return { ok: true, git: true, branch: "fusion-app", degisen: 3, ileride: 2, geride: 0 };
+    if (name === "proje.onizle") return { ok: true, yol: String(data.yol), tur: "image", mime: "image/svg+xml", boyut: 205, base64: btoa('<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420"><rect width="100%" height="100%" rx="24" fill="#101828"/><circle cx="360" cy="180" r="88" fill="#10a37f"/><text x="360" y="320" text-anchor="middle" fill="white" font-size="34" font-family="sans-serif">Fusion App</text></svg>') };
+    if (name === "web.onizleme_dogrula") return { ok: true, url: String(data.url), durum: 200 };
+    if (name === "yetenek.katalog") return { ok: true,
+      beceriler: [
+        { ad: "frontend-design", aciklama: "Üretim kalitesinde arayüz tasarım disiplini", kaynak: "claude+codex", tur: "beceri", etkin: true, izinler: ["dosya okuma", "dosya düzenleme"] },
+        { ad: "systematic-debugging", aciklama: "Kanıta dayalı hata ayıklama", kaynak: "claude", tur: "beceri", etkin: true, izinler: ["dosya okuma", "komut çalıştırma"] },
+      ],
+      ajanlar: [{ ad: "architect", aciklama: "Mimari kararları ve sınırları inceler", kaynak: "codex", tur: "ajan", etkin: true, izinler: ["dosya okuma"] }],
+      talimatlar: [{ ad: "CLAUDE.md", aciklama: "Aktif proje talimatı", kaynak: "proje", tur: "talimat", etkin: true, izinler: [] }],
+      mcp: [{ ad: "figma", aciklama: "Figma tasarım dosyaları ve düğümleri", kaynak: "fusion", tur: "mcp", etkin: false, izinler: ["yerel komut", "dış araçlar"] }],
+    };
+    if (name === "yetenek.detay") return { ok: true, tur: data.tur, ad: data.ad, icerik: "Bu uzmanlık, görevin gerektirdiği dosyaları önce okur; değişiklikten sonra test ve görsel kanıt toplar.", kesildi: false };
+    if (name === "model.roller") return { ok: true, roller: { agent: "gemini_web/main/auto", teacher: "", judge: "gemini_web/main/auto", candidates: ["gemini_web/main/auto"], codex_yedek: false }, oturumlar: [{ saglayici: "gemini_web", hesap: "main", etiket: "Gemini (main)", dogrulandi: true }, { saglayici: "chatgpt_web", hesap: "main", etiket: "ChatGPT (main)", dogrulandi: false }], secenekler: [{ model: "gemini_web/main/auto", etiket: "Gemini · 3.6 Flash (main)", grup: "Web oturumları", hazir: true, not: "" }, { model: "chatgpt_web/main/auto", etiket: "ChatGPT · otomatik (main)", grup: "Web oturumları", hazir: false, not: "giriş doğrulanmadı" }, { model: "codex_cli/default", etiket: "ChatGPT · Codex (KODLAMA limitini harcar)", grup: "Abonelik", hazir: true, not: "", arac: false }, { model: "nvidia_nim/nemotron-3-ultra", etiket: "nemotron-3-ultra", grup: "API / yerel", hazir: true, not: "" }] };
+    if (name === "kontrol.anahtar_goster") return { ok: true, deger: "nvapi-ORNEK-KAYITLI-ANAHTAR-1234" };
+    if (name === "saglayici.katalog") return { ok: true, saglayicilar: [
+      { id: "gemini_web", ad: "Gemini", tur: "web", eylem: "oturum", bagli: true, olcum_gecti: true, hesap: "main", secili_model: "" },
+      { id: "chatgpt_web", ad: "ChatGPT", tur: "web", eylem: "oturum", bagli: false, hesap: "main" },
+      { id: "claude_web", ad: "Claude", tur: "web", eylem: "oturum", bagli: false, hesap: "main" },
+      { id: "nvidia_nim", ad: "NVIDIA NIM", tur: "anahtar", eylem: "anahtar", bagli: true, ortam: "NVIDIA_NIM_API_KEY" },
+      { id: "openrouter", ad: "OpenRouter", tur: "anahtar", eylem: "anahtar", bagli: false, ortam: "OPENROUTER_API_KEY" },
+    ] };
+    if (name === "kontrol.durum") return { ok: true, kok: "/Projects/fusion-cli",
+      model: { agent: "openrouter/qwen3-coder", hakem: "nvidia_nim/llama-3.3-70b", adaylar: ["openrouter/deepseek-r1", "nvidia_nim/qwen3-next"], saglayici: "auto", yogunluk: "high" },
+      izin: { mod: "ask", kokle_sinirli: false },
+      mcp: [{ ad: "figma", komut: "npx" }, { ad: "github", komut: "docker" }],
+      saglayicilar: [
+        { id: "openrouter", ad: "OpenRouter", ortam: "OPENROUTER_API_KEY", kurulu: true },
+        { id: "nvidia_nim", ad: "NVIDIA NIM", ortam: "NVIDIA_NIM_API_KEY", kurulu: true },
+        { id: "openai", ad: "OpenAI", ortam: "OPENAI_API_KEY", kurulu: false },
+        { id: "anthropic", ad: "Anthropic", ortam: "ANTHROPIC_API_KEY", kurulu: false },
+      ],
+      sir_deposu_hazir: true, gateway: { durum: "calisiyor", adres: "http://127.0.0.1:8787/v1", pid: 4821 },
+    };
+    if (name === "ayar.talimat") return {
+      ok: true,
+      metin: "Türkçe yaz. Değişikliklerden sonra testleri çalıştır.",
+      sinir: 4000,
+    };
+    if (name === "baglanti.listele") return {
+      ok: true,
+      sunucular: [
+        { ad: "figma", komut: "npx", argumanlar: ["-y", "figma-developer-mcp"] },
+        { ad: "github", komut: "docker", argumanlar: ["run", "github-mcp"] },
+      ],
+    };
+    if (name === "web.saglayicilar") return {
+      ok: true,
+      saglayicilar: [{ id: "claude_web", ad: "Claude Web", bagli: true }],
+    };
+    if (name === "kullanim.durum") return {
+      ok: true,
+      kullanim: {
+        cagri: 7,
+        girdi_token: 18_420,
+        cikti_token: 3_180,
+        toplam_token: 21_600,
+        maliyet_usd: 0.0284,
+        modeller: [
+          { model: "openrouter/qwen3-coder", toplam_token: 17_900, maliyet_usd: 0.0201 },
+          { model: "nvidia_nim/llama-3.3-70b", toplam_token: 3_700, maliyet_usd: 0.0083 },
+        ],
+      },
+      saglik: [
+        { model: "openrouter/qwen3-coder", durum: "sağlıklı", skor: 0.98, ornek: 5, gecikme_ms: 842 },
+        { model: "nvidia_nim/llama-3.3-70b", durum: "sağlıklı", skor: 0.94, ornek: 2, gecikme_ms: 1_126 },
+      ],
+    };
+    if (name === "chrome.durum") return { ok: true, calisiyor: true, bagli: false, port: 8765, anahtar: null, eklenti_yuklu: false, eklenti_etkin: false };
+    if (name === "uzak.durum") return { ok: true, dinliyor: false, adres: "", telegram: false, telegramHata: "", cihazSayisi: 0, port: 8791, agAdresleri: [] };
+    if (name === "uzak.cihazlar") return { ok: true, cihazlar: [] };
+    if (name === "uzak.bekleyen") return { ok: true, sorular: [] };
+    if (name === "uzak.ekran_bekleyen") return { ok: true, bekleyen: [], etkin: [] };
+    if (name === "ses.durum") return {
+      ok: true,
+      ayar: { hiz: 1.1, model: null, robotik: 0.35 },
+      kullanilabilir: true,
+      model_kurulu: false,
+      motor: "sistem",
+      ses: "Cem",
+      turkce: true,
+      yukseltme: null,
+    };
+    return { ok: true };
+  },
+} as unknown as ProtocolClient;
+
+const accountPreview = {
+  durum: { hesaplar: [{ kimlik: "preview", kullanici_adi: "Kullanici", eposta: "kullanici@example.com", avatar: "", olusturuldu: 0 }], etkin: "preview", kurulum_gerekli: false },
+  yukleniyor: false,
+  hata: null,
+  kayit: async () => null,
+  giris: async () => false,
+  cikis: async () => true,
+  kurtar: async () => false,
+  guncelle: async () => true,
+  sil: async () => false,
+  tazele: async () => undefined,
+} as AccountController;
+
+function WorkspaceInspector({ collapsed = false, initialTab = "files" as const, terminalState = "active", width = 420 }) {
+  const [selected, setSelected] = React.useState<string | null>(null);
+  const [activeTab, setActiveTab] = React.useState<React.ComponentProps<typeof Inspector>["activeTab"]>(initialTab);
+  return (
+    <Inspector
+      activeTab={activeTab}
+      collapsed={collapsed}
+      height={inspectorHeight}
+      placement={inspectorPlacement}
+      content={{
+        files: <FileExplorer client={workspaceClient} onSelected={setSelected} root="/Projects/fusion-cli" />,
+        changes: <ChangesPanel client={workspaceClient} revision={0} />,
+        terminal: <TerminalPanel cwd="/Projects/fusion-cli" runtime={terminalFixture(terminalState)} />,
+        preview: <PreviewPanel client={workspaceClient} selectedPath={selected} />,
+        context: <div><strong>Aktif bağlam</strong><p>CLAUDE.md · 4 skill · 2 MCP sunucusu</p></div>,
+      }}
+      onActiveTabChange={setActiveTab}
+      onCollapsedChange={() => undefined}
+      onWidthChange={() => undefined}
+      width={width}
+    />
+  );
+}
+
+const historySession = {
+  kaynak: "claude" as const,
+  oturum_id: "claude-fusion-app",
+  baslik: state === "history-long"
+    ? "Fusion masaüstü uygulamasının tüm ekranları, çoklu oturum mimarisi ve profesyonel dağıtım akışı"
+    : "Fusion macOS uygulaması",
+  guncellendi: 1_788_000_000,
+  tur_sayisi: 18,
+  boyut: 24_500,
+};
+
+function historyFixture(): HistoryController {
+  const selected = ["history-preview", "history-warning", "history-long"].includes(state)
+    ? historySession
+    : null;
+  return {
+    error: state === "history-error" ? "Claude geçmişi şu anda okunamadı. Tekrar deneyebilirsiniz." : null,
+    loadMoreSessions: async () => undefined,
+    loadMoreTurns: async () => undefined,
+    loading: false,
+    openSource: async () => undefined,
+    selected,
+    selectSession: async () => undefined,
+    searchNotice: "",
+    searchPartial: false,
+    searchQuery: "",
+    searchResults: [],
+    searchSessions: async () => undefined,
+    searching: false,
+    sessionCursor: state === "history-preview" ? 30 : null,
+    sessions: state === "history-empty" ? [] : [
+      historySession,
+      { ...historySession, oturum_id: "claude-game", baslik: "Tarayıcı oyunu ve görsel varlıklar", tur_sayisi: 9 },
+      { ...historySession, oturum_id: "claude-tests", baslik: "Fusion CLI test sözleşmeleri", tur_sayisi: 27 },
+    ],
+    source: state === "history-source" ? null : "claude",
+    sources: [
+      { ad: "claude", komut: "/resumeclaude" },
+      { ad: "codex", komut: "/resumecodex" },
+    ],
+    turnCursor: state === "history-preview" ? 30 : null,
+    turns: selected ? [
+      { rol: "user", metin: "Fusion uygulamasını profesyonel bir macOS ürünü olarak tamamla.", zaman: 1_787_999_800 },
+      { rol: "assistant", metin: state === "history-long"
+        ? "Çoklu oturum yöneticisini, geçmiş kaynak seçicisini, güvenli metadata kalıcılığını ve paketli çalışma zamanını tek mimaride doğruluyorum. Bu uzun yanıt dar alanlarda taşmadan okunabilmeli."
+        : "Çoklu oturum ve geçmiş seçme akışını tamamlıyorum.", zaman: 1_787_999_900 },
+    ] : [],
+  };
+}
+
+function Preview() {
+  const [accountHost, setAccountHost] = React.useState<HTMLDivElement | null>(null);
+  const [previewMode, setPreviewMode] = React.useState<"sohbet" | "kod">(params.get("mode") === "chat" ? "sohbet" : "kod");
+  const inspectorCollapsed = params.get("inspectorLayout") === "collapsed";
+  const inspectorWidth = Number(params.get("inspectorWidth") ?? "420");
+  const requestedInspectorTab = params.get("inspectorTab");
+  const inspectorTab = requestedInspectorTab === "preview" || requestedInspectorTab === "terminal"
+    ? requestedInspectorTab
+    : state === "workspace-error" || state === "workspace-terminal" ? "terminal" : "files";
+  const inspector = state.startsWith("workspace-")
+    ? <WorkspaceInspector collapsed={inspectorCollapsed} initialTab={inspectorTab} terminalState={params.get("terminalState") ?? (state === "workspace-error" ? "closed" : "active")} width={inspectorWidth} />
+    : state === "team" ? <Inspector activeTab="agents" content={{ agents: <AgentPanel ajanlar={teamMessages.flatMap((message) => message.ajanlar ?? [])} canli /> }} /> : <Inspector collapsed={inspectorCollapsed} height={inspectorHeight} placement={inspectorPlacement} width={inspectorWidth} />;
+  const railSection = params.get("rail") as MainSection | null;
+  const sectionPreviewClient = {
+    request: async (name: string) => name === "zamanlama.liste"
+      ? { ok: true, gorevler: [
+          { id: "1", baslik: "Sabah stok raporu", gorev: "Stok raporunu çıkar", kok: "/Users/ornek/proje", tur: "gunluk", saat: "09:00", etkin: true, sonraki: 1791180000, son_calisma: 1791093600 },
+          { id: "2", baslik: "Haftalık reklam özeti", gorev: "Reklam özetini hazırla", kok: "/Users/ornek/proje", tur: "haftalik", saat: "18:30", gunler: [0, 4], etkin: false, sonraki: 1791300000, son_calisma: null },
+        ] }
+      : { ok: true, toplam: 4, dosyalar: [
+          { yol: "/Users/ornek/proje/rapor.md", ad: "rapor.md", tur: "belge", kaynak: "uretilen", kok: "/Users/ornek/proje", boyut: 4200, degisim: 4 },
+          { yol: "/Users/ornek/galeri/kask.png", ad: "kask.png", tur: "gorsel", kaynak: "gorsel", kok: "", boyut: 812000, degisim: 3 },
+          { yol: "/Users/ornek/proje/src/app.tsx", ad: "app.tsx", tur: "kod", kaynak: "uretilen", kok: "/Users/ornek/proje", boyut: 9100, degisim: 2 },
+          { yol: "/Users/ornek/kitaplik/fatura.pdf", ad: "fatura.pdf", tur: "belge", kaynak: "yuklenen", kok: "", boyut: 120000, degisim: 1 },
+        ] },
+  };
+  const capabilities = state === "capabilities";
+  const control = state === "control";
+  const connectors = state === "connectors";
+  const onboarding = state === "onboarding";
+  const settings = state === "settings";
+  const account = state === "account";
+  const voice = state.startsWith("voice-");
+  const voiceMini = params.get("voiceMode") === "mini";
+  const fullComposer = params.get("fullComposer") === "1";
+  const initialComposerValue = state === "composer-menu"
+    ? "/m"
+    : state === "composer-attachment"
+      ? (params.get("long") === "1" ? "Proje klasörünü incele, sohbetleri düzenle ve görsellerdeki ayrıntılara dikkat et. ".repeat(80) : "Bu dosyayı incele")
+      : "";
+  const [composerValue, setComposerValue] = React.useState(initialComposerValue);
+  const [onboardingValue, setOnboardingValue] = React.useState<OnboardingValue>({ step: "sources", selectedProjectId: "/Projects/fusion-cli" });
+  if (onboarding) return <Onboarding value={onboardingValue} onChange={setOnboardingValue} onSkip={() => undefined} onComplete={() => undefined}
+    runtime={{ status: "ready", version: "0.3.0a1" }}
+    sources={[{ kind: "claude", status: "found", itemCount: 18 }, { kind: "codex", status: "found", itemCount: 24 }, { kind: "hermes", status: "not-found" }]}
+    providers={[{ id: "openrouter", name: "OpenRouter", secretConfigured: true, status: "ready" }, { id: "nvidia", name: "NVIDIA NIM", secretConfigured: true, status: "ready" }]}
+    projects={[{ id: "/Projects/fusion-cli", name: "fusion-cli", description: "Aktif çalışma alanı", path: "/Projects/fusion-cli" }]} />;
+  if (voice) {
+    const phase = state.replace("voice-", "") as VoiceState;
+    const ask = phase === "approval" ? {
+      acik: true,
+      arac: "write_file",
+      metin: "app.ts dosyasındaki değişiklikler uygulansın mı?",
+      secenekler: [
+        { deger: "evet", etiket: "Onayla" },
+        { deger: "hayir", etiket: "Reddet" },
+      ],
+    } : null;
+    return (
+      <main className="voice-preview">
+        <VoiceMode
+          ask={ask}
+          onAnswer={() => undefined}
+          onClose={() => undefined}
+          onMinimize={() => undefined}
+          listening={false}
+          onWideChange={() => undefined}
+          state={phase}
+          transcript={
+            phase === "listening" || phase === "transcribing"
+              ? "Fusion, bu projede neler var?"
+              : phase === "talking"
+                ? "Üç dosyada değişiklik yaptım, testlerin hepsi geçti."
+                : ""
+          }
+          wide={!voiceMini}
+        />
+      </main>
+    );
+  }
+  return (
+    <>
+      <Shell
+        sidebarCollapsed={params.get("sidebar") === "0"}
+        rail={railSection ? <MainRail active={railSection} onSelect={() => undefined} accountHostRef={setAccountHost} /> : undefined}
+        surface={railSection === "scheduled"
+          ? <ScheduleScreen client={sectionPreviewClient} defaultRoot="/Users/ornek/proje" onRunNow={async () => undefined} />
+          : <LibraryScreen client={sectionPreviewClient} toUrl={() => null} />}
+        surfaceActive={railSection === "library" || railSection === "scheduled"}
+        emptyChat={state === "empty"}
+        composer={capabilities || connectors || control || settings || account || state === "image" || state === "video" ? undefined : (
+          <Composer
+            workspaceMode={previewMode}
+            onWorkspaceModeChange={setPreviewMode}
+            approval="auto"
+            attachments={state === "composer-attachment" ? (params.get("long") === "1" ? Array.from({ length: 7 }, (_, index) => ({ kind: "image" as const, path: `/preview-image-${index}.png`, name: `Görsel ${index + 1}` })) : composerAttachments) : []}
+            commands={composerCommands}
+            mode="sohbet"
+            onApprovalChange={() => undefined}
+            onModeChange={() => undefined}
+            onSend={() => undefined}
+            onVoice={() => undefined}
+            onDictation={fullComposer ? () => undefined : undefined}
+            activeModel={fullComposer ? "nvidia_nim/deepseek-v3" : undefined}
+            activeModelLabel={fullComposer ? "DeepSeek V3" : undefined}
+            onModelSelect={fullComposer ? () => undefined : undefined}
+            modelOptions={fullComposer ? [{ deger: "/model deepseek-v3", etiket: "DeepSeek V3", grup: "high" }] : undefined}
+            onValueChange={setComposerValue}
+            value={composerValue}
+          />
+        )}
+        content={<>
+          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} /> : settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" || state === "video" ? <MediaScreen active={state === "video" ? "video-create" : "image-create"} image={<ImageCreate chooseSavePath={async () => null} client={imageClient} jobScope={imageJobsPreview ? `preview-${imageJobsPreview}` : undefined} toUrl={gorselAdresi} />} onSelect={() => undefined} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation onReadAloud={async () => undefined} onEvaluate={async () => undefined} onContinueInNewChat={async () => undefined} mesajlar={state === "running" ? runningMessages : state === "team" ? teamMessages : messages} running={state === "running" || state === "team"} />}
+          {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
+        </>}
+        header={<AppHeader inspectorAvailable={!capabilities && !control && !settings && !account} inspectorOpen={!capabilities && !control && !settings && !account && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={params.get("sidebar") === "0"} status="Hazır" title={account ? "Hesabım" : settings ? "Ayarlar" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
+        inspector={capabilities || control || settings || account ? undefined : inspector}
+        inspectorCollapsed={inspectorCollapsed}
+        inspectorHeight={inspectorHeight}
+        inspectorOpen={!capabilities && !control && !settings && !account && inspectorOpen}
+        inspectorPlacement={inspectorPlacement}
+        inspectorWidth={inspectorWidth}
+        sidebar={<Sidebar projeler={params.get("projects") === "1" ? ["Desktop", "02-example", "GATE HOLDING"].map((name, index) => ({ name, root: `/Users/test/${name}`, pinned: false, updated_at: 3 - index })) : []} profileHost={railSection ? accountHost : undefined} availableSources={["claude", "codex"]} etkin="1" onSec={() => undefined} onYeni={() => undefined} oturumlar={params.get("projects") === "1" ? ["Desktop", "02-example", "GATE HOLDING"].flatMap((project, p) => Array.from({ length: p === 2 ? 2 : 7 }, (_, i) => ({ session_id: `${p}-${i}`, source: "fusion", title: ["Fusion hatalarını düzelt ve yeni özellikleri ekle", "Crossover kurulumlarını kalıcı yap", "Valorant Mobile’ı Mac’te çalıştır", "Mobil eşleştir butonunu düzelt", "Crossover’da Overwatch aç", "Proje görünümünü güncelle", "İçe aktarılan sohbet"][i], project, projectRoot: `/Users/test/${project}` }))) : [{ session_id: "1", source: "fusion", title: "macOS uygulaması" }, { session_id: "2", source: "claude", title: "Fusion CLI testleri" }]} />}
+      />
+      {state.startsWith("history-") && (
+        <HistoryPicker
+          history={historyFixture()}
+          onClose={() => undefined}
+          onResume={async () => ({ id: "resumed", secretCount: state === "history-warning" ? 2 : 0 })}
+          open
+        />
+      )}
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><Preview /></React.StrictMode>);

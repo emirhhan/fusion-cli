@@ -1,0 +1,21 @@
+import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+test('yerel destek raporu indirilen baytlarda önizlemeyle eşleşir', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.goto('/e2e/feedback-export.html');
+  await page.getByText('Raporun tamamını gör', { exact: true }).click();
+  await expect(page.getByLabel('Rapor önizlemesi')).toContainText('0.4.6');
+  const preview = await page.getByLabel('Rapor önizlemesi').textContent();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Rapor dosyasını indir' }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe('fusion-destek-raporu.json');
+  const body = await readFile((await file.path())!, 'utf8');
+  const bundle = JSON.parse(body);
+  expect(bundle.report).toBe(preview);
+  expect(body).not.toContain('SENTINEL_DOWNLOAD');
+  expect(bundle.manifest.networkRequests).toBe(0);
+  const box = await page.getByRole('button', { name: 'Rapor dosyasını indir' }).boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+});

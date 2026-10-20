@@ -1,0 +1,57 @@
+import { open } from "@tauri-apps/plugin-dialog";
+
+/** İşletim sisteminin yerel klasör seçicisini açar. */
+export async function selectDirectory(defaultPath?: string): Promise<string | null> {
+  const selected = await open({
+    defaultPath: defaultPath || undefined,
+    directory: true,
+    multiple: false,
+    title: "Fusion çalışma klasörünü seç",
+  });
+  return typeof selected === "string" ? selected : null;
+}
+
+/** Kits'in proje listesine eklenecek klasörü seçer. */
+export async function selectProjectFolder(): Promise<string | null> {
+  const selected = await open({ directory: true, multiple: false, title: "Kits'e proje klasörü ekle" });
+  return typeof selected === "string" ? selected : null;
+}
+
+/** Ataç düğmesi için bir veya daha fazla yerel dosya seçer. */
+export async function selectFiles(defaultPath?: string): Promise<string[]> {
+  const selected = await open({
+    defaultPath: defaultPath || undefined,
+    directory: false,
+    multiple: true,
+    title: "Fusion'a dosya ekle",
+  });
+  if (Array.isArray(selected)) return selected;
+  return typeof selected === "string" ? [selected] : [];
+}
+
+/**
+ * Görseli "İndir" ile kaydetmek için yerel kayıt penceresini açar.
+ *
+ * Üretilen görseller kendiliğinden diske/Finder'a inmez; kullanıcı yalnız bu
+ * pencerede seçtiği yere kaydeder. İptalde `null` döner.
+ */
+export async function saveImageAs(defaultName: string): Promise<string | null> {
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const selected = await save({
+    defaultPath: defaultName,
+    filters: [{ extensions: ["png", "jpg", "jpeg"], name: "Görsel" }],
+    title: "Görseli kaydet",
+  });
+  return typeof selected === "string" ? selected : null;
+}
+
+/** Kits ekrana bakmak istediğinde her seferinde kullanıcıya yerel pencereyle sorar. */
+export async function askComputerAccess(reason: string): Promise<boolean> {
+  const { ask } = await import("@tauri-apps/plugin-dialog");
+  const neden = reason.trim() ? `\n\nNedeni: ${reason.trim()}` : "";
+  return ask(
+    "Kits ekranının bir görüntüsünü ve öndeki pencerenin öğelerini okumak istiyor. " +
+      "Tıklama ya da yazma yapamaz; yalnız bakar." + neden,
+    { title: "Kits bilgisayarına bakmak istiyor", kind: "warning", okLabel: "İzin ver", cancelLabel: "Reddet" },
+  );
+}

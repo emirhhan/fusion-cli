@@ -1,0 +1,387 @@
+"""Skill/agent kütüphanesi: frontmatter, arama, araç eşleme, keşif."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from fusion_cli.tools.capabilities import (
+    Capability,
+    CapabilityRegistry,
+    load_agent_prompt,
+    load_skill_page,
+    load_skill_text,
+    map_tools,
+    parse_frontmatter,
+    search,
+)
+
+SKILL = """---
+name: pdf-doldur
+description: PDF formlarını programatik olarak doldurur
+---
+
+# Talimat
+Önce formu incele.
+"""
+
+AGENT = """---
+name: guvenlik-denetcisi
+description: Kod tabanında güvenlik açığı arar
+tools: [Read, Grep, Bash]
+---
+
+Sen bir güvenlik denetçisisin. Sızıntı ve enjeksiyon ara.
+"""
+
+
+# --- Frontmatter -------------------------------------------------------------- #
+
+
+def test_frontmatter_alanlari_okunur():
+    fields = parse_frontmatter(SKILL)
+
+    assert fields["name"] == "pdf-doldur"
+    assert "PDF" in str(fields["description"])
+
+
+def test_arac_listesi_ayristirilir():
+    assert parse_frontmatter(AGENT)["tools"] == ("Read", "Grep", "Bash")
+
+
+def test_yildiz_tam_yetki_demektir():
+    assert parse_frontmatter("---\nname: a\ntools: '*'\n---\ngovde")["tools"] == ("*",)
+
+
+def test_virgullu_arac_listesi_de_okunur():
+    assert parse_frontmatter("---\nname: a\ntools: Read, Bash\n---\nx")["tools"] == ("Read", "Bash")
+
+
+def test_frontmatter_yoksa_bos_doner():
+    assert parse_frontmatter("# Sadece markdown\n") == {}
+
+
+def test_kapanmamis_frontmatter_bos_doner():
+    assert parse_frontmatter("---\nname: a\n") == {}
+
+
+def test_tirnaklar_soyulur():
+    assert parse_frontmatter("---\nname: 'a-b'\n---\nx")["name"] == "a-b"
+
+
+# --- Araç eşleme --------------------------------------------------------------- #
+
+
+def test_claude_arac_adlari_fusion_adlarina_cevrilir():
+    mapped = map_tools(("Read", "Bash"))
+
+    assert mapped is not None
+    assert "read_file" in mapped and "run_shell" in mapped
+
+
+def test_yildiz_kisitlama_yapmaz():
+    assert map_tools(("*",)) is None
+
+
+def test_bos_liste_kisitlama_yapmaz():
+    assert map_tools(()) is None
+
+
+def test_bilinmeyen_arac_adi_sessizce_atlanir():
+    assert map_tools(("Uydurma", "Read")) == {"read_file", "view_file"}
+
+
+# --- Arama --------------------------------------------------------------------- #
+
+
+def _yetenek(name, description=""):
+    from pathlib import Path
+
+    return Capability(name=name, description=description, path=Path("x"), source="test")
+
+
+def test_arama_ad_ve_aciklamada_eslesir():
+    items = (_yetenek("pdf-doldur", "PDF formu"), _yetenek("excel", "tablo"))
+
+    assert [item.name for item in search(items, "pdf")] == ["pdf-doldur"]
+
+
+def test_cok_eslesen_one_gelir():
+    items = (
+        _yetenek("a", "güvenlik"),
+        _yetenek("b", "güvenlik denetimi kod"),
+    )
+
+    assert search(items, "güvenlik kod denetimi")[0].name == "b"
+
+
+def test_eslesmeyenler_elenir():
+    assert search((_yetenek("a", "tablo"),), "pdf") == ()
+
+
+def test_bos_sorgu_ilk_girdileri_dondurur():
+    items = tuple(_yetenek(f"a{index}") for index in range(10))
+
+    assert len(search(items, "", limit=3)) == 3
+
+
+# --- Keşif --------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def library(tmp_path):
+    home, root = tmp_path / "home", tmp_path / "proje"
+    (home / ".claude" / "skills" / "pdf").mkdir(parents=True)
+    (home / ".claude" / "skills" / "pdf" / "SKILL.md").write_text(SKILL, encoding="utf-8")
+    (home / ".claude" / "agents").mkdir(parents=True)
+    (home / ".claude" / "agents" / "guvenlik.md").write_text(AGENT, encoding="utf-8")
+    root.mkdir()
+    return CapabilityRegistry(home, root)
+
+
+def test_skill_kesfedilir(library):
+    skills = library.skills()
+
+    assert [item.name for item in skills] == ["pdf-doldur"]
+    assert skills[0].source == "claude"
+
+
+def test_agent_kesfedilir_ve_araclari_okunur(library):
+    agent = library.get_agent("guvenlik-denetcisi")
+
+    assert agent is not None
+    assert agent.tools == ("Read", "Grep", "Bash")
+
+
+def test_proje_yerel_skill_de_bulunur(tmp_path):
+    home, root = tmp_path / "home", tmp_path / "proje"
+    home.mkdir()
+    (root / ".claude" / "skills" / "yerel").mkdir(parents=True)
+    (root / ".claude" / "skills" / "yerel" / "SKILL.md").write_text(
+        "---\nname: yerel-beceri\ndescription: x\n---\ngovde", encoding="utf-8"
+    )
+
+    skills = CapabilityRegistry(home, root).skills()
+
+    assert [item.name for item in skills] == ["yerel-beceri"]
+    assert skills[0].source == "proje"
+
+
+def test_ayni_ad_iki_kaynakta_varsa_ilki_kazanir(tmp_path):
+    home, root = tmp_path / "home", tmp_path / "proje"
+    for base in (home / ".claude" / "skills" / "a", root / ".claude" / "skills" / "a"):
+        base.mkdir(parents=True)
+        base.joinpath("SKILL.md").write_text(
+            f"---\nname: ayni\ndescription: {base.parts[-3]}\n---\nx", encoding="utf-8"
+        )
+
+    skills = CapabilityRegistry(home, root).skills()
+
+    assert len(skills) == 1
+    # Tek kayıt kalır; etiket kaynakları birleştirir, içerik ilkinden gelir.
+    assert skills[0].source.split("+")[0] == "claude"
+
+
+def test_olmayan_dizin_kesfi_dusurmez(tmp_path):
+    registry = CapabilityRegistry(tmp_path / "yok", tmp_path / "yok2")
+
+    # Kullanıcı dizinleri yok; yalnız pakete gömülü yerleşik ekip bulunur.
+    assert registry.skills() == ()
+    assert registry.agents()
+    assert {agent.source for agent in registry.agents()} == {"fusion"}
+
+
+def test_skill_metni_okunur(library):
+    skill = library.get_skill("pdf-doldur")
+
+    assert skill is not None
+    assert "Önce formu incele" in load_skill_text(skill.path)
+
+
+def test_agent_promptu_frontmattersiz_doner(library):
+    agent = library.get_agent("guvenlik-denetcisi")
+
+    assert agent is not None
+    prompt = load_agent_prompt(agent.path)
+    assert prompt.startswith("Sen bir güvenlik denetçisisin")
+    assert "name:" not in prompt
+
+
+def test_okunamayan_dosya_hata_metni_dondurur(tmp_path):
+    assert "okunamadı" in load_skill_text(tmp_path / "yok.md")
+
+
+# --- Kelime sınırı ----------------------------------------------------------- #
+
+
+def test_kisa_kelime_baska_kelimenin_icinde_eslesmez():
+    """Türkçe görev metnindeki "ve", "in", "er" İngilizce açıklamalarda gürültü yapıyordu.
+
+    Alt-dize eşleşmesi yüzünden "ve" → "de-ve-lopment" eşleşiyor ve tamamen alakasız
+    skill'ler öne çıkıyordu.
+    """
+    item = Capability(
+        name="laravel-plugin-discovery",
+        description="Discover Laravel plugins for development server",
+        path=Path(),
+        source="global",
+    )
+
+    assert search((item,), "ve in er") == ()
+
+
+def test_gercek_kelime_hala_eslesir():
+    item = Capability(
+        name="frontend-design",
+        description="Frontend design direction for production UI",
+        path=Path(),
+        source="global",
+    )
+
+    assert search((item,), "frontend design") == (item,)
+
+
+def test_bilesik_kelime_tam_eslesmeyle_bulunur():
+    item = Capability(
+        name="react-patterns", description="React hooks", path=Path(), source="global"
+    )
+
+    assert search((item,), "react") == (item,)
+
+
+# --- Uzun skill'in devamı ----------------------------------------------------- #
+
+
+def test_uzun_skill_sessizce_kesilmez(tmp_path):
+    """Bütçeyi aşan skill, kalanı okunabilecek şekilde bildirilmeli.
+
+    Ölçüldü: 6.000 karakterlik sınır aşıldığında talimatın gerisi hiçbir işaret
+    bırakmadan düşüyordu; model eksik yönergeyi tam sanıp ilerliyordu.
+    """
+    path = tmp_path / "uzun.md"
+    path.write_text("A" * 200 + "SON-BOLUM", encoding="utf-8")
+
+    ilk = load_skill_page(path, budget=100)
+
+    assert ilk.startswith("A" * 100)
+    assert "SON-BOLUM" not in ilk
+    assert "offset=100" in ilk
+
+
+def test_skill_devami_kaldigi_yerden_okunur(tmp_path):
+    path = tmp_path / "uzun.md"
+    path.write_text("A" * 200 + "SON-BOLUM", encoding="utf-8")
+
+    devam = load_skill_page(path, offset=100, budget=1_000)
+
+    assert "SON-BOLUM" in devam
+    assert "offset=" not in devam
+
+
+def test_kisa_skill_devam_notu_almaz(tmp_path):
+    path = tmp_path / "kisa.md"
+    path.write_text("kısa talimat", encoding="utf-8")
+
+    assert load_skill_page(path, budget=100) == "kısa talimat"
+
+
+def test_read_skill_araci_devam_offsetini_kabul_eder(tmp_path):
+    """Model kırpılan talimatın devamını aynı araçla alabilmeli."""
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.engine_tools import _read_skill_tool
+
+    skills = tmp_path / ".claude" / "skills" / "uzun"
+    skills.mkdir(parents=True)
+    (skills / "SKILL.md").write_text(
+        "---\nname: uzun\ndescription: uzun talimat\n---\n" + "A" * 12_000 + "SON-BOLUM",
+        encoding="utf-8",
+    )
+    library = CapabilityRegistry(tmp_path / "yok", tmp_path)
+    tool = _read_skill_tool(library)
+    context = ToolContext(root=tmp_path)
+
+    ilk = tool.run({"name": "uzun"}, context)
+    assert "KIRPILDI" in ilk.output and "SON-BOLUM" not in ilk.output
+
+    # Devam, aracın KENDİ bildirdiği offset ile alınır: sözleşme budur.
+    sayfalar = [ilk.output]
+    while "KIRPILDI" in sayfalar[-1]:
+        offset = int(sayfalar[-1].split("read_skill(offset=")[1].split(")")[0])
+        sayfalar.append(
+            tool.run(
+                {"name": "uzun", "offset": offset, "revision": ilk.structured["revision"]}, context
+            ).output
+        )
+
+    assert "SON-BOLUM" in sayfalar[-1]
+    assert not tool.run({"name": "uzun", "offset": -1}, context).ok
+
+
+def test_yerlesik_web_arayuz_becerisi_ve_kod_sablonlari_okunur(tmp_path, monkeypatch):
+    """web_reference.md eskiden hiçbir yerden yüklenmiyordu; artık yerleşik beceri.
+    Remotion/animasyon örnekleri .tsx/.css dosyalarında olduğu için okunabilir olmalı."""
+    from fusion_cli.config.paths import bundled_skills_dir
+    from fusion_cli.tools import capabilities
+
+    monkeypatch.setattr(capabilities, "bundled_skills_dir", bundled_skills_dir)
+    beceri = tmp_path / "home" / ".claude" / "skills" / "hareket"
+    beceri.mkdir(parents=True)
+    (beceri / "SKILL.md").write_text("---\nname: hareket\ndescription: d\n---\nx", encoding="utf-8")
+    (beceri / "ornek.tsx").write_text("export const A = 1;", encoding="utf-8")
+
+    registry = capabilities.CapabilityRegistry(tmp_path / "home", tmp_path / "proje")
+
+    assert "web-arayuz" in [item.name for item in registry.skills()]
+    assert "ornek.tsx" in capabilities.skill_files(beceri / "SKILL.md")
+
+
+def test_read_skill_rejects_continuation_after_content_changed(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.engine_tools import _read_skill_tool
+
+    path = tmp_path / ".claude/skills/changing/SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("---\nname: changing\n---\n" + "a" * 7000)
+    tool = _read_skill_tool(CapabilityRegistry(tmp_path / "home", tmp_path))
+    context = ToolContext(root=tmp_path)
+    first = tool.run({"name": "changing"}, context)
+    path.write_text("---\nname: changing\n---\n" + "b" * 7000)
+    result = tool.run(
+        {"name": "changing", "offset": 6000, "revision": first.structured["revision"]}, context
+    )
+    assert not result.ok
+    assert "yeniden" in result.output
+
+
+def test_read_skill_emits_load_receipt_only_after_successful_read(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.engine_tools import _read_skill_tool
+    from tests.agent_harness import Publisher
+    from tests.fakes import RecordingSink
+
+    path = tmp_path / ".claude/skills/receipt/SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("---\nname: receipt\n---\nyönerge")
+    sink = RecordingSink()
+    library = CapabilityRegistry(tmp_path / "home", tmp_path)
+    tool = _read_skill_tool(library, publisher=Publisher(sink))
+    result = tool.run({"name": "receipt"}, ToolContext(root=tmp_path))
+    assert result.ok
+    assert len(sink.events) == 1
+    receipt = sink.events[0]
+    assert type(receipt).__name__ == "SkillLoaded"
+    assert receipt.qualified_name == library.get_skill("receipt").qualified_name
+    assert receipt.revision == result.structured["revision"]
+    tool.run({"name": "unknown"}, ToolContext(root=tmp_path))
+    assert len(sink.events) == 1
+
+
+def test_turkish_search_normalizes_diacritics_and_bounded_suffixes(tmp_path):
+    from fusion_cli.tools.capabilities import Capability, search
+
+    skill = Capability("animasyon", "Animasyonlu görsel oluştur", tmp_path / "SKILL.md", "proje")
+    assert search((skill,), "animasyon olusturmak") == (skill,)
+    assert search((skill,), "olusturmak") == (skill,)
+    assert search((skill,), "görsel") == (skill,)
+    assert search((skill,), "ve in er") == ()

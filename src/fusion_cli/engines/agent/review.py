@@ -1,0 +1,111 @@
+"""Öz-eleştiri — turu hızlı bir denetçi modele kontrol ettirir.
+
+Denetçi "TAMAM" derse hiçbir şey olmaz. Somut bir sorun bulursa tek paragraflık bir
+düzeltme talimatı üretir ve motor agent'a TEK bir düzeltici tur verir. Sonsuz
+düzeltme döngüsü bilinçli olarak yoktur: ikinci bir denetim yapılmaz.
+
+Denetim başarısız olursa (zaman aşımı, bozuk yanıt) düzeltme atlanır; bu durum
+"sorun yok" kararından ayrı bildirilir.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+from ...config.models import Config
+from ...core.events import EventPublisher
+from ...core.types import CompletionRequest, Message, ModelResult
+from ...providers.factory import build_provider
+from ...providers.web_registry import web_registry_for
+from . import history
+
+_PROMPT = (Path(__file__).parent / "prompts" / "review.txt").read_text(encoding="utf-8")
+
+#: Denetçinin "sorun yok" cevabı.
+CLEAN_VERDICT = "TAMAM"
+#: Bundan kısa bir cevap anlamlı bir talimat taşıyamaz.
+MIN_INSTRUCTION_CHARS = 8
+
+#: Denetçiye gösterilecek oturum izinin uzunluğu.
+#:
+#: Varsayılan iz bütçesi (3.000 karakter) yalnızca ~10 adım taşır. Uzun bir turda
+#: denetçi üretilen dosyaları hiç görmeden "TAMAM" diyordu — yapısal olarak hiçbir şey
+#: yakalayamazdı. Hakem modelinin bağlamı en az 131k token. 60.000 karakter (~20k
+#: token), birkaç araç turunu ve tek dosyalık uygulamaların gerçek kodunu taşır.
+TRACE_CHARS = 60_000
+#: İzde tek bir mesajdan alınacak karakter. 600 karakter yalnız dosyanın başını
+#: gösteriyor; davranışı kuran state mutasyonları çoğu kez sonraki bölümde kalıyordu.
+TRACE_MESSAGE_CHARS = 16_000
+#: Agent'ın nihai cevabından denetçiye gösterilecek kısım.
+#:
+#: Asılsız "hepsi yapıldı" iddiaları genelde cevabın SONUNDAKİ madde listesindedir;
+#: 1.500 karakter o listeyi kesiyordu.
+FINAL_TEXT_CHARS = 4_000
+
+
+def parse_feedback(text: str) -> str:
+    """Denetçi çıktısını düzeltme talimatına çevir; sorun yoksa boş metin."""
+    verdict = (text or "").strip()
+    if not verdict or len(verdict) < MIN_INSTRUCTION_CHARS:
+        return ""
+    if verdict.upper().startswith(CLEAN_VERDICT):
+        return ""
+    return verdict
+
+
+async def review_turn(
+    task: str,
+    final_text: str,
+    messages: list[Message],
+    *,
+    config: Config,
+    publisher: EventPublisher | None = None,
+) -> str | None:
+    """Düzeltme talimatı, açık temiz karar için boş metin, denetim yoksa None döner."""
+    trace = history.transcript(messages, TRACE_CHARS, message_chars=TRACE_MESSAGE_CHARS)
+    if not trace.strip() and not final_text.strip():
+        return None
+
+    prompt = (
+        _PROMPT.replace("{task}", task)
+        .replace("{trace}", trace)
+        .replace("{final}", final_text[:FINAL_TEXT_CHARS])
+    )
+    try:
+        result = await asyncio.wait_for(
+            _ask(prompt, config, publisher), timeout=config.runtime.judge_timeout_s + 2.0
+        )
+    except TimeoutError:
+        # Web taşıması istek zaman aşımını her zaman uygulamıyor. Öz-denetim
+        # kullanıcının tamamlanmış görevini dakikalarca bekletemez.
+        return None
+    if not result.ok or result.truncated:
+        # Yarım kalmış talimat, hiç talimattan KÖTÜDÜR: agent eksik bir cümleye göre
+        # düzeltme yapmaya kalkar. Sıkıştırmadaki "yarım özet" kuralıyla aynı duruş.
+        return None
+    if not result.text.strip() or (
+        len(result.text.strip()) < MIN_INSTRUCTION_CHARS
+        and result.text.strip().upper() != CLEAN_VERDICT
+    ):
+        return None
+    return parse_feedback(result.text)
+
+
+async def _ask(prompt: str, config: Config, publisher: EventPublisher | None) -> ModelResult:
+    request = CompletionRequest(
+        messages=(Message("user", prompt),),
+        temperature=config.runtime.utility_temperature,
+        max_tokens=config.runtime.judge_max_tokens,
+        timeout_s=config.runtime.judge_timeout_s,
+        max_retries=config.runtime.max_retries,
+    )
+    # Arka plan işi: ilerleme satırı GÖSTERİLMEZ ama harcadığı token muhasebeye girer.
+    provider = build_provider(
+        config.judge,
+        publisher=publisher,
+        retry_delays_s=config.runtime.retry_delays_s,
+        background=True,
+        web_sessions=web_registry_for(config),
+    )
+    return await provider.complete(request)

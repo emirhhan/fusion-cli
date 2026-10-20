@@ -1,0 +1,494 @@
+"""Oturum kurulumu — veriyolu, dinleyiciler ve sağlayıcı burada birleştirilir.
+
+Tek bir görevi çalıştırmanın uçtan uca akışı budur. Faz 2'den itibaren burada
+motorlar (fusion, agent) çağrılacak; kurulum akışı aynı kalacak.
+
+Dikkat: bu dosya hiçbir şey BASMAZ. Kullanıcıya ne gösterileceğine dinleyiciler
+karar verir; buradan yalnızca olay yayınlanır.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import sys
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, replace
+from datetime import datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
+
+from ..config.models import Config
+from ..config.permissions import load_allowed_commands
+from ..core.artifacts import ArtifactStore
+from ..core.concurrency import BackgroundTasks
+from ..core.events import (
+    ErrorOccurred,
+    EventSink,
+    FilesChanged,
+    FollowupsSuggested,
+    FusionCompleted,
+    NoFileChanges,
+    TurnFinished,
+    TurnOutcome,
+)
+from ..core.followups import suggest_followups
+from ..core.health import HealthRegistry
+from ..core.protocols import TurnJournal
+from ..core.remotion_browser import RemotionBrowser
+from ..core.skill_context import SkillSelection
+from ..core.steering import SteeringQueue
+from ..core.tools import ChromeControl, ToolContext
+from ..core.turn_deadline import TurnDeadline
+from ..core.types import (
+    CompletionRequest,
+    FusionResult,
+    Message,
+    VerdictSource,
+    is_rate_limit_error,
+)
+from ..engines.agent import AgentOutcome, run_agent
+from ..engines.agent.approval import ApprovalMemory, ApprovalMode, build_policy
+from ..engines.agent.child_runs import ChildRuns
+from ..engines.agent.loop import AgentDeps
+from ..engines.agent.remotion_bridge import FrameTransport
+from ..engines.agent.turn_evidence import evidence_from_turn
+from ..engines.agent.verification import build_verifier
+from ..engines.fusion import run_fusion
+from ..memory.checkpoint_store import JsonCheckpointStore
+from ..memory.factory import Memory, build_memory, null_memory
+from ..observability.audit import AuditSink
+from ..observability.bus import EventBus
+from ..observability.cost import CostTracker
+from ..observability.json_sink import JsonRenderer
+from ..observability.trace_store import TraceStore, TraceWriter
+from ..observability.tracing import LangfuseTracer
+from ..providers.health_setup import build_health
+from ..tools.capabilities import CapabilityRegistry
+from ..tools.remotion_observe import browser_transport
+from ..ui import messages
+
+if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
+    from ..engines.agent.approval import Prompter
+    from ..engines.agent.engine_tools import UserAsker
+
+    class AgentPrompter(Prompter, UserAsker, Protocol):
+        """Hem onay soran hem soru sorabilen arayüz (terminal uygulaması ikisini de yapar)."""
+
+    #: Veriyolu boşaltma fonksiyonunu alıp prompter üreten fabrika.
+    PrompterFactory = Callable[[Callable[[], Awaitable[None]]], AgentPrompter]
+
+
+def build_request(task: str, config: Config) -> CompletionRequest:
+    """Görev metnini yapılandırmadaki çalışma zamanı ayarlarıyla isteğe çevir."""
+    runtime = config.runtime
+    return CompletionRequest(
+        messages=(Message("user", task),),
+        temperature=runtime.temperature,
+        max_tokens=runtime.max_tokens,
+        timeout_s=runtime.request_timeout_s,
+        max_retries=runtime.max_retries,
+    )
+
+
+async def run_task(
+    task: str,
+    config: Config,
+    *,
+    sinks: tuple[EventSink, ...],
+    task_type: str = "general",
+    synthesis: bool | None = None,
+    memory: Memory | None = None,
+    health: HealthRegistry | None = None,
+) -> FusionResult:
+    """Görevi fusion motoruyla çalıştır ve sonucu döndür.
+
+    Hata fırlatmaz: hiçbir aday yanıt veremezse `VerdictSource.NONE` ile döner ve
+    kullanıcıya gösterilecek açıklama olay olarak yayınlanır.
+    """
+    started_at = time.monotonic()
+    async with EventBus() as bus:
+        for sink in sinks:
+            bus.subscribe(sink)
+
+        store = memory or null_memory()
+        _warn_if_unavailable(store, bus)
+        result = await run_fusion(
+            task,
+            config,
+            publisher=bus,
+            task_type=task_type,
+            synthesis=synthesis,
+            memory=store.performance,
+            health=health,
+        )
+        if result.source is VerdictSource.NONE:
+            bus.publish(ErrorOccurred(_failure_message(result), fatal=True))
+        else:
+            bus.publish(FusionCompleted(result))
+        bus.publish(
+            TurnOutcome(
+                status="failed" if result.source is VerdictSource.NONE else "completed",
+                elapsed_s=time.monotonic() - started_at,
+            )
+        )
+        bus.publish(TurnFinished())
+        return result
+
+
+def _failure_message(result: FusionResult) -> str:
+    """Tüm adaylar başarısızsa: hız sınırı mı, genel bir sorun mu?"""
+    if any(candidate.is_rate_limited for candidate in result.candidates):
+        return messages.ERROR_RATE_LIMITED
+    return messages.ERROR_NO_ANSWER
+
+
+async def run_agent_task(
+    task: str,
+    config: Config,
+    *,
+    sinks: tuple[EventSink, ...],
+    prompter_factory: PrompterFactory,
+    mode: ApprovalMode = ApprovalMode.AUTO,
+    task_type: str = "general",
+    root: Path | None = None,
+    home: Path | None = None,
+    extra_system: str = "",
+    interactive: bool | None = None,
+    memory: Memory | None = None,
+    extra_roots: tuple[Path, ...] = (),
+    history: list[Message] | None = None,
+    background: BackgroundTasks | None = None,
+    tool_context: ToolContext | None = None,
+    chrome_bridge: ChromeControl | None = None,
+    capabilities: CapabilityRegistry | None = None,
+    system_prompt: str | None = None,
+    images: tuple[str, ...] = (),
+    conversation_id: str = "cli",
+    step_limit: int | None = None,
+    approval_memory: ApprovalMemory | None = None,
+    steering: SteeringQueue | None = None,
+    child_runs: ChildRuns | None = None,
+    selected_skill: SkillSelection | None = None,
+    current_approval: Callable[[], ApprovalMode] | None = None,
+    chat_mode: bool = False,
+    workflow: bool = False,
+    allowed_tools: set[str] | None = None,
+    health: HealthRegistry | None = None,
+    journal: TurnJournal | None = None,
+    require_remotion_kit: bool = False,
+    remotion_transport: FrameTransport | None = None,
+    remotion_browser: RemotionBrowser | None = None,
+    deadline: TurnDeadline | None = None,
+) -> AgentOutcome:
+    """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
+
+    `workflow` kullanıcının bu tur için plan motorunu seçtiğini söyler (`/plan-yurut`).
+
+    `interactive` False ise `ask_user` aracı modele HİÇ sunulmaz: cevaplanamayacak
+    soru sormak turu boşa harcar. `history` verilirse çok-turlu sohbet sürdürülür.
+
+    `background` verilirse ders çıkarımı gibi tur SONRASI işler fire-and-forget çalışır
+    ve cevabı bekletmez; verilmezse bu işler turu bloklar (gözlemlenen "ekstra gecikme").
+    """
+    can_ask = sys.stdin.isatty() if interactive is None else interactive
+    started_at = time.monotonic()
+
+    async with EventBus() as bus:
+        for sink in sinks:
+            bus.subscribe(sink)
+        # Her araç sonucu kalıcı denetim günlüğüne de yazılır (silinmez).
+        bus.subscribe(
+            AuditSink(config.memory_dir / "audit", conversation_id, root=root or Path.cwd())
+        )
+
+        # Prompter veriyolunu tanır: terminali devralmadan önce bekleyen olayları
+        # boşaltır, böylece onay paneli akan çıktının ortasına düşmez.
+        prompter = prompter_factory(bus.drain)
+        store = memory or null_memory()
+        _warn_if_unavailable(store, bus)
+        # Çağıran bir bağlam verdiyse O kullanılır. `/undo` turun değişiklik
+        # kümesine erişebilmek zorundadır; bağlam burada gizlice kurulduğunda
+        # çağıranın elinde hiçbir referans kalmıyor ve geri alma sessizce
+        # işlevsiz kalıyordu (ölçüldü: TUI'de `/undo` her zaman "geri alınacak
+        # değişiklik yok" diyordu, oysa dosyalar değişmişti).
+        tool_context = tool_context or ToolContext(
+            root=root or Path.cwd(),
+            chrome=chrome_bridge,
+            extra_roots=extra_roots,
+            restrict_to_root=config.runtime.restrict_to_root,
+            # Bağlamı şişiren araç çıktısı kırpılmak yerine diske alınır: bilgi
+            # kaybolmaz, model gerektiğinde dosyayı açar (context rot).
+            artifacts=ArtifactStore(config.memory_dir / "artifacts" / _artifact_id()),
+        )
+        if conversation_id:
+            tool_context = replace(
+                tool_context,
+                job_scope=hashlib.sha256(
+                    f"{config.memory_dir.resolve()}\0{conversation_id}".encode()
+                ).hexdigest(),
+            )
+        if remotion_browser is not None:
+            tool_context = replace(tool_context, remotion_browser=remotion_browser)
+        if remotion_transport is None and tool_context.remotion_browser is not None:
+            remotion_transport = browser_transport(tool_context.remotion_browser)
+        if require_remotion_kit:
+            tool_context.remotion_contract.require()
+        deps = AgentDeps(
+            config=config,
+            deadline=deadline,
+            publisher=bus,
+            # Sohbet boyunca yaşayan çağıran kendi hafızasını verir; yoksa
+            # "oturum boyunca" izni bu turla birlikte biter (`fusion run`).
+            policy=build_policy(mode, prompter, approval_memory),
+            steering=steering,
+            child_runs=child_runs if child_runs is not None else ChildRuns(),
+            selected_skill=selected_skill,
+            policy_factory=(lambda: build_policy(current_approval(), prompter, approval_memory))
+            if current_approval
+            else None,
+            approval_revision=(
+                lambda: (current_approval(), approval_memory.revision if approval_memory else 0)
+            )
+            if current_approval
+            else None,
+            tool_context=tool_context,
+            asker=prompter if can_ask else None,
+            code_index=store.code_index if store.enabled else None,
+            lessons=store.lessons,
+            capabilities=capabilities
+            or (CapabilityRegistry(home, tool_context.root) if home is not None else None),
+            home=home,
+            allowed_commands=load_allowed_commands(tool_context.root),
+            verifier=build_verifier(
+                config,
+                root=tool_context.root,
+                tool_context=tool_context,
+                remotion_state=tool_context.remotion_contract,
+                remotion_transport=remotion_transport,
+            ),
+            task_type=task_type,
+            background=background,
+            checkpoint_store=JsonCheckpointStore(
+                config.memory_dir / "workflow-checkpoints",
+                root=tool_context.root,
+                conversation_id=conversation_id,
+            ),
+            conversation_id=conversation_id,
+            # Kayıt verilmezse tur kendi kaydını kurar: circuit breaker ve ortak hız
+            # defteri tek atışlık `fusion agent`ta da çalışmalı (eskiden hiç yoktu).
+            health=health or build_health(config),
+            journal=journal,
+        )
+        outcome = await _run_agent_with_mcp(
+            task,
+            deps,
+            config,
+            bus,
+            history=history,
+            mode=mode,
+            extra_system=extra_system,
+            system_prompt=system_prompt,
+            images=images,
+            step_limit=step_limit,
+            chat_mode=chat_mode,
+            workflow=workflow,
+            allowed_tools=allowed_tools,
+        )
+
+        # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
+        # kapı turu kestiğinde sebep ZATEN yayınlandı; ikinci bir "(model boş yanıt
+        # verdi)" satırı basmak, açıklanmış bir durumu ikinci kez ve daha az
+        # bilgiyle söylemekti.
+        if not outcome.final_text.strip() and outcome.ok:
+            bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER, fatal=True))
+        elif not outcome.ok and is_rate_limit_error(outcome.final_text):
+            bus.publish(ErrorOccurred(messages.ERROR_RATE_LIMITED, fatal=False))
+        elif not outcome.ok and not outcome.budget_stopped:
+            # Bütçe durdurmasında sebep zaten yayınlandı; cevabı ikinci kez ve
+            # hata kılığında basmak kendiyle çelişen satır üretir.
+            bus.publish(ErrorOccurred(outcome.final_text, fatal=False))
+        # Rozet yalnızca BAŞARILI turda anlamlıdır. Başarısız turda hata mesajı
+        # zaten "değişiklik yapılmış kabul edilmemelidir" diyor; rozeti de basmak
+        # aynı olguyu iki kez, iki farklı üslupla söylemekti ve kullanıcı ikincisini
+        # yeni bilgi sanıyordu. Plan modunda değişiklik zaten yasaktır.
+        if outcome.ok and outcome.made_no_changes and mode is not ApprovalMode.PLAN:
+            bus.publish(NoFileChanges())
+        elif tool_context.changes.paths:
+            # Liste modelin hafızasından değil değişiklik kümesinden gelir.
+            bus.publish(FilesChanged(_changed_names(tool_context)))
+        if outcome.ok:
+            status = "completed"
+        else:
+            status = "partial" if tool_context.changes.paths else "failed"
+        # Takip önerileri: YENİ MODEL ÇAĞRISI YOK, turun kendi kanıtından.
+        # Kanıt yoksa olay hiç yayınlanmaz (bkz. `core/followups.py`).
+        oneriler = suggest_followups(
+            evidence_from_turn(
+                outcome,
+                tool_context,
+                verification_command=next(iter(config.runtime.verification_commands), ""),
+            )
+        )
+        if oneriler:
+            bus.publish(FollowupsSuggested(tuple((item.label, item.prompt) for item in oneriler)))
+        bus.publish(TurnOutcome(status=status, elapsed_s=time.monotonic() - started_at))
+        bus.publish(TurnFinished())
+        return outcome
+
+
+async def _run_agent_with_mcp(
+    task: str,
+    deps: AgentDeps,
+    config: Config,
+    bus: EventBus,
+    *,
+    history: list[Message] | None,
+    mode: ApprovalMode,
+    extra_system: str,
+    system_prompt: str | None = None,
+    images: tuple[str, ...] = (),
+    step_limit: int | None = None,
+    chat_mode: bool = False,
+    workflow: bool = False,
+    allowed_tools: set[str] | None = None,
+) -> AgentOutcome:
+    """`run_agent` çağır; yapılandırılmış dış MCP sunucuları varsa önce bağla.
+
+    `fusion agent`/tek-atış CLI yolu MCP'siz çalışıyordu — yalnızca REPL
+    (`cli/repl/loop.py`) dış araçları bağlıyordu. Kullanıcı "şu MCP'yi kur"
+    dedikten sonra `fusion agent` ile de bir görev verirse (ör. otomasyon
+    betiği) bağlı MCP'nin araçları modele hiç sunulmuyordu. MCP bir
+    zenginleştirmedir; kurulu değilse ya da bağlanamazsa tur YİNE DE
+    MCP'siz devam eder (REPL ile aynı davranış).
+    """
+    plan_mode = mode is ApprovalMode.PLAN
+
+    async def _run() -> AgentOutcome:
+        return await run_agent(
+            task,
+            deps,
+            history=history,
+            plan_mode=plan_mode,
+            chat_mode=chat_mode,
+            allowed_tools=allowed_tools,
+            extra_system=extra_system,
+            system_prompt=system_prompt,
+            images=images,
+            step_limit=step_limit,
+            workflow=workflow,
+        )
+
+    if not config.mcp_servers and not config.hosted_connectors:
+        return await _run()
+    try:
+        from ..mcp_bridge.pool import ensure_hosted_tools, ensure_mcp_tools
+    except ImportError:
+        bus.publish(ErrorOccurred(messages.MCP_MISSING_DEP, fatal=False))
+        return await _run()
+    eklenen: tuple[str, ...] = ()
+    if config.mcp_servers:
+        try:
+            # Bağlantı TURUN değil oturumun kaynağıdır: havuz açık bağlantıyı
+            # yeniden kullanır (bkz. `mcp_bridge/pool.py`). Kapatma oturum
+            # kapanışında yapılır, tur içinde değil.
+            eklenen += await ensure_mcp_tools(
+                config.mcp_servers, deps.base_registry, retry_delays_s=config.runtime.retry_delays_s
+            )
+        except Exception as error:
+            bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
+    if config.hosted_connectors:
+        # Sağlayıcı-barındırmalı connector'lar ayrı yoldan gelir: bağlantı yoktur,
+        # araçlar sağlayıcının oturumunda yaşar. Biri düşerse diğeri yine eklenir.
+        try:
+            eklenen += await ensure_hosted_tools(config, deps.base_registry)
+        except Exception as error:
+            bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
+    # Yapı denetimi hangi araçların VAR olduğunu bilmeli: bir biçimi zaten doğru
+    # üreten araç varsa model elle yazmaya değil ona yönlendirilir.
+    deps.tool_context.available_tools.update(eklenen)
+    return await _run()
+
+
+def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:
+    """Değişen yolları kullanıcıya gösterilecek biçimde (köke göreli) ver."""
+    from ..tools.files import display_path
+
+    return tuple(display_path(tool_context, path) for path in tool_context.changes.paths)
+
+
+def open_memory(config: Config, *, root: Path, enabled: bool = True) -> Memory:
+    """Belleği aç. Kapalıysa ya da açılamıyorsa boş belleğe düşer."""
+    return build_memory(config, root=root) if enabled else null_memory()
+
+
+def _warn_if_unavailable(memory: Memory, bus: EventBus) -> None:
+    """Bellek açılamadıysa kullanıcıya söyle — sessizce öğrenmemek kabul edilemez."""
+    if memory.unavailable_reason is not None:
+        bus.publish(
+            ErrorOccurred(
+                messages.MEMORY_UNAVAILABLE.format(reason=memory.unavailable_reason),
+                fatal=False,
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Observers:
+    """Bir turu izleyen dinleyiciler ve kapanışta yapılacaklar."""
+
+    sinks: tuple[EventSink, ...]
+    cost: CostTracker
+    tracer: LangfuseTracer
+    trace: TraceWriter | None = None
+
+    def finish(self) -> None:
+        """Bekleyen izleme kayıtlarını gönder ve izi kapat."""
+        self.tracer.flush()
+        if self.trace is not None:
+            self.trace.close()
+
+
+def build_observers(
+    task: str,
+    *,
+    renderer: EventSink | None = None,
+    as_json: bool = False,
+    trace_dir: Path | None = None,
+) -> Observers:
+    """Turu izleyecek dinleyicileri kur.
+
+    Sıra önemlidir: render önce gelir ki kullanıcı çıktıyı beklemesin. İzleme ve
+    maliyet toplama sessizdir, ekrana bir şey basmaz.
+
+    `trace_dir` verilirse tur kendi JSONL izini bırakır. İz TEŞHİS içindir: bir
+    koşunun neden düştüğü sonradan `fusion trace` ile sorulabilsin diye tutulur.
+    Yazılamıyorsa tur devam eder; teşhis kaydı işin kendisini durdurmaz.
+    """
+    cost = CostTracker()
+    tracer = LangfuseTracer(task=task)
+    sinks: list[EventSink] = []
+    if as_json:
+        sinks.append(JsonRenderer())
+    elif renderer is not None:
+        sinks.append(renderer)
+    sinks.extend((cost, tracer))
+    trace = open_trace(trace_dir)
+    if trace is not None:
+        sinks.append(trace)
+    return Observers(sinks=tuple(sinks), cost=cost, tracer=tracer, trace=trace)
+
+
+def open_trace(trace_dir: Path | None) -> TraceWriter | None:
+    """Koşu izini aç; kimlik zaman damgasıdır, sıralama da bundan gelir."""
+    if trace_dir is None:
+        return None
+    try:
+        return TraceStore(trace_dir).writer(datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
+    except OSError:
+        return None
+
+
+def _artifact_id() -> str:
+    """Oturum artifact dizininin adı — iz kimliğiyle aynı zaman damgası biçimi."""
+    return datetime.now().strftime("%Y%m%d-%H%M%S-%f")

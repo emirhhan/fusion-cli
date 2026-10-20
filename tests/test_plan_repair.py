@@ -1,0 +1,645 @@
+"""Final onarımı, gerçek checkpoint kanıtı ve salt-okunur kurtarma."""
+
+from dataclasses import replace
+from types import SimpleNamespace
+
+import pytest
+
+from fusion_cli.core.execution_plan import (
+    ExecutionPlan,
+    PlanPhase,
+    PlanStatus,
+    RetrySafety,
+    StepStatus,
+    VerificationCheck,
+    VerificationCheckKind,
+)
+from fusion_cli.core.tools import ToolContext
+from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+from fusion_cli.engines.agent.loop import AgentOutcome
+from fusion_cli.engines.agent.plan_runner import run_execution_plan
+from fusion_cli.memory.checkpoint_store import JsonCheckpointStore
+from fusion_cli.tools import build_registry
+from tests.test_plan_runner import _FakeDeps, _step
+
+
+def _file_step(name, path, *, depends_on=()):
+    step = _step(name, depends_on=depends_on, expected_effects=(f"file:{path}",))
+    return replace(
+        step,
+        verification_checks=(
+            VerificationCheck(
+                step.success_criteria[0],
+                VerificationCheckKind.FILE_CONTAINS,
+                path,
+                "sağlam",
+            ),
+        ),
+    )
+
+
+def test_kesif_adimi_ana_gorevi_uygulamaya_baslayamaz(tmp_path):
+    from fusion_cli.engines.agent.plan_context import step_deps
+
+    discovery = replace(
+        _step("discover"),
+        phase=PlanPhase.DISCOVERY,
+        expected_effects=(),
+        allowed_tool_families=("files", "shell", "web"),
+    )
+    deps = step_deps(_deps(tmp_path), discovery, remaining=4, observe=False)
+
+    assert deps.execution.observe_only
+    assert not deps.execution.allow_mutation
+    assert "list_dir" in deps.execution.allowed_tool_names
+    assert "read_file" in deps.execution.allowed_tool_names
+    assert "write_file" not in deps.execution.allowed_tool_names
+    assert "run_shell" not in deps.execution.allowed_tool_names
+
+
+def _deps(root, *, recovery=12, final=2):
+    deps = _FakeDeps(
+        ToolContext(root=root),
+        execution=ExecutionPolicy(is_web=False),
+        checkpoint_store=JsonCheckpointStore(root / ".cp"),
+        conversation_id="conv",
+        config=SimpleNamespace(
+            runtime=SimpleNamespace(
+                workflow_step_calls=24,
+                workflow_recovery_calls=recovery,
+                workflow_final_verification_calls=final,
+                workflow_planning_calls=2,
+            )
+        ),
+    )
+    return deps
+
+
+@pytest.mark.parametrize("recovery,expected_ok", [(12, True), (0, False)])
+async def test_final_bozulan_adimi_onarir_bagimsizi_korur(tmp_path, recovery, expected_ok):
+    plan = ExecutionPlan(
+        "repair",
+        "iş",
+        (
+            _file_step("create", "a.txt"),
+            _file_step("independent", "b.txt"),
+            _file_step("finish", "c.txt", depends_on=("create",)),
+        ),
+    )
+    deps = _deps(tmp_path, recovery=recovery)
+    called = []
+
+    async def agent(task, agent_deps, **kwargs):
+        name = next(step.step_id for step in plan.steps if f"[Plan adımı {step.step_id}]" in task)
+        called.append(name)
+        path = {"create": "a.txt", "independent": "b.txt", "finish": "c.txt"}[name]
+        (tmp_path / path).write_text("sağlam")
+        if name == "finish" and called.count("finish") == 1:
+            (tmp_path / "a.txt").write_text("bozuk")
+        return AgentOutcome(final_text="tamam", messages=[], model_calls_made=1)
+
+    result = await run_execution_plan("iş", deps, agent, plan=plan)
+    saved = deps.checkpoint_store.load("repair")
+    assert result.ok is expected_ok
+    assert called.count("independent") == 1
+    assert saved.plan.status is (PlanStatus.COMPLETED if expected_ok else PlanStatus.PAUSED)
+    if expected_ok:
+        assert called == ["create", "independent", "finish", "create", "finish"]
+        assert result.final_verification_calls == 2
+        assert saved.step_evidence and saved.budget_usage
+    else:
+        assert called == ["create", "independent", "finish"]
+        assert saved.plan.steps[1].status is StepStatus.COMPLETED
+
+
+async def test_observe_first_kurtarmasi_yalniz_okuma_yapar(tmp_path):
+    step = replace(_step("observe"), retry_safety=RetrySafety.OBSERVE_FIRST)
+    deps = _deps(tmp_path)
+    seen = []
+
+    async def agent(task, agent_deps, **kwargs):
+        seen.append((agent_deps.execution.allow_mutation, kwargs.get("allowed_tools")))
+        return AgentOutcome(final_text="timeout", messages=[], ok=False, model_calls_made=1)
+
+    result = await run_execution_plan(
+        "iş", deps, agent, plan=ExecutionPlan("observe", "iş", (step,))
+    )
+    assert not result.ok
+    assert len(seen) == 2
+    assert seen[1][0] is False
+    assert "write_file" not in seen[1][1]
+    assert "read_file" in seen[1][1]
+
+
+async def test_kesif_adimi_ilk_denemede_de_gozlemle_calisir(tmp_path):
+    """DISCOVERY fazındaki bir adım İLK denemesinde de salt-okunur olmalı.
+
+    Ölçüldü (`/plan-yurut ... indirim_uygula ekle` koşusu, 18 Eylül): `observe`
+    yalnız `step.retry_safety is OBSERVE_FIRST and recovering` ile hesaplanıyordu;
+    adımın `phase is PlanPhase.DISCOVERY` olması hiç bakılmıyordu. Sonuç: bir
+    okuma adımı (`read_stok`, attempts=0, kurtarma değil) tam yetkiyle -- `edit_file`
+    ve `write_file` dahil -- açılıyor ve model bir okuma adımında dosya
+    değiştirebiliyordu.
+    """
+    (tmp_path / "stok.py").write_text("# mevcut dosya")
+    step = replace(
+        _step("read_stok"),
+        phase=PlanPhase.DISCOVERY,
+        expected_effects=(),
+        allowed_tool_families=("files",),
+    )
+    deps = _deps(tmp_path)
+    seen = []
+
+    async def agent(task, agent_deps, **kwargs):
+        seen.append((agent_deps.execution.allow_mutation, kwargs.get("allowed_tools")))
+        return AgentOutcome(final_text="okundu", messages=[], model_calls_made=1)
+
+    result = await run_execution_plan("iş", deps, agent, plan=ExecutionPlan("kesif", "iş", (step,)))
+    assert result.ok
+    assert len(seen) == 1
+    allow_mutation, allowed_tools = seen[0]
+    assert allow_mutation is False
+    assert "write_file" not in allowed_tools
+    assert "edit_file" not in allowed_tools
+    assert "read_file" in allowed_tools
+
+
+async def test_kesif_adimi_istemi_gozlem_notu_tasir(tmp_path):
+    """DISCOVERY adımının istemi de GÖZLEM TURU notunu taşımalı.
+
+    Ölçüldü: `run_step` içindeki `observe` bayrağı yalnız
+    `retry_safety is OBSERVE_FIRST and recovering` ile hesaplanıp `execute()`'a
+    öyle geçiyordu; `step_deps` içindeki `observe or phase is DISCOVERY`
+    düzeltmesi yalnız ARAÇ KÜMESİNE uygulanıyor, `step_prompt`'a giden `observe`
+    değeri düzeltilmeden kalıyordu. Sonuç: model yazma araçlarının kapalı
+    olduğunu HİÇ öğrenmeden `edit_file` denemeye devam ediyor, her ret bir
+    "ilerleme yok" cezası biriktiriyor ve adım gerçek bir okuma yapmasına rağmen
+    `no_progress` ile düşüyordu.
+    """
+    (tmp_path / "stok.py").write_text("# mevcut dosya")
+    step = replace(
+        _step("read_stok"),
+        phase=PlanPhase.DISCOVERY,
+        expected_effects=(),
+        allowed_tool_families=("files",),
+    )
+    deps = _deps(tmp_path)
+    seen_prompts = []
+
+    async def agent(task, agent_deps, **kwargs):
+        seen_prompts.append(task)
+        return AgentOutcome(final_text="okundu", messages=[], model_calls_made=1)
+
+    result = await run_execution_plan("iş", deps, agent, plan=ExecutionPlan("kesif", "iş", (step,)))
+    assert result.ok
+    assert len(seen_prompts) == 1
+    assert "GÖZLEM TURU" in seen_prompts[0]
+
+
+async def test_never_final_hatasi_yan_etkiyi_tekrarlamaz(tmp_path):
+    step = replace(_file_step("create", "a.txt"), retry_safety=RetrySafety.NEVER)
+    plan = ExecutionPlan("never", "iş", (step, _file_step("finish", "b.txt")))
+    deps = _deps(tmp_path)
+    called = []
+
+    async def agent(task, agent_deps, **kwargs):
+        name = "create" if "[Plan adımı create]" in task else "finish"
+        called.append(name)
+        (tmp_path / ("a.txt" if name == "create" else "b.txt")).write_text("sağlam")
+        if name == "finish":
+            (tmp_path / "a.txt").unlink()
+        return AgentOutcome(final_text="tamam", messages=[], model_calls_made=1)
+
+    result = await run_execution_plan("iş", deps, agent, plan=plan)
+    assert not result.ok
+    assert called == ["create", "finish"]
+    assert deps.checkpoint_store.load("never").plan.status is PlanStatus.PAUSED
+
+
+async def test_final_zarfi_sifirsa_kapi_ve_istenmeyen_onarim_calismaz(tmp_path):
+    deps = _deps(tmp_path, final=0)
+
+    async def agent(task, agent_deps, **kwargs):
+        return AgentOutcome(final_text="tamam", messages=[], model_calls_made=1)
+
+    result = await run_execution_plan(
+        "iş", deps, agent, plan=ExecutionPlan("zero", "iş", (_step("one"),))
+    )
+    assert not result.ok
+    assert result.budget_stopped
+    assert result.final_verification_calls == 0
+    assert deps.checkpoint_store.load("zero").plan.status is PlanStatus.PAUSED
+
+
+async def test_arac_aileleri_runtime_yurutmede_de_kisitlanir(tmp_path):
+    from fusion_cli.core.types import ToolCall
+    from fusion_cli.engines.agent.loop import _execute
+
+    registry = build_registry()
+    result, _ = await _execute(
+        ToolCall("call", "write_file", "{}"),
+        {"path": "forbidden.txt", "content": "x"},
+        SimpleNamespace(tool_context=ToolContext(root=tmp_path), steering=None),
+        registry,
+        execution=ExecutionPolicy(is_web=False, allowed_tool_names=frozenset({"read_file"})),
+    )
+    assert not result.ok
+    assert not (tmp_path / "forbidden.txt").exists()
+
+
+async def test_mutation_engeli_basari_kaniti_uretmez(tmp_path):
+    from fusion_cli.core.types import ToolCall
+    from fusion_cli.engines.agent.loop import _execute
+
+    result, _ = await _execute(
+        ToolCall("call", "write_file", "{}"),
+        {},
+        SimpleNamespace(steering=None),
+        build_registry(),
+        execution=ExecutionPolicy(is_web=False, allow_mutation=False),
+    )
+    assert not result.ok
+
+
+async def test_checkpoint_artifact_degisince_eski_kanit_kullanilmaz(tmp_path):
+    from fusion_cli.core.checkpoint import WorkflowCheckpoint
+    from fusion_cli.engines.agent.plan_checkpoint import capture_evidence
+    from fusion_cli.engines.agent.step_verification import verify_step
+
+    step = replace(_file_step("create", "a.txt"), status=StepStatus.COMPLETED, attempts=1)
+    deps = _deps(tmp_path)
+    (tmp_path / "a.txt").write_text("sağlam ilk")
+    outcome = AgentOutcome(final_text="rapor", messages=[])
+    checked = await verify_step(step, outcome, deps)
+    saved_evidence = await capture_evidence(step, outcome, checked, tmp_path)
+    checkpoint = WorkflowCheckpoint(
+        ExecutionPlan("fingerprint", "iş", (step,), status=PlanStatus.PAUSED),
+        str(tmp_path.resolve()),
+        "conv",
+        ("create",),
+        1.0,
+        step_evidence=(saved_evidence,),
+    )
+    deps.checkpoint_store.save(checkpoint)
+    assert deps.checkpoint_store.load("fingerprint") == checkpoint
+    (tmp_path / "a.txt").write_text("sağlam ama farklı")
+    called = []
+
+    async def agent(task, agent_deps, **kwargs):
+        called.append(task)
+        return AgentOutcome(final_text="yeniden ölçüldü", messages=[], model_calls_made=1)
+
+    result = await run_execution_plan("devam", deps, agent)
+    assert result.ok
+    assert len(called) == 1
+
+
+async def test_resume_sahte_mutasyon_kaniti_uretmez(tmp_path):
+    from fusion_cli.core.checkpoint import WorkflowCheckpoint
+
+    deps = _deps(tmp_path)
+    step = replace(
+        _step("mutate", expected_effects=("workspace_mutation",)),
+        status=StepStatus.COMPLETED,
+        attempts=1,
+    )
+    deps.checkpoint_store.save(
+        WorkflowCheckpoint(
+            ExecutionPlan("no-fake", "iş", (step,), status=PlanStatus.PAUSED),
+            str(tmp_path.resolve()),
+            "conv",
+            ("mutate",),
+            1.0,
+        )
+    )
+    called = []
+
+    async def agent(task, agent_deps, **kwargs):
+        called.append(task)
+        return AgentOutcome(final_text="iş yapılmadı", messages=[], model_calls_made=1)
+
+    result = await run_execution_plan("devam", deps, agent)
+    assert not result.ok
+    assert called
+    assert result.mutating_tool_calls_made == 0
+
+
+async def test_tipli_kontrolsuz_adim_olculen_dosyayi_bagimliya_tasir(tmp_path):
+    plan = ExecutionPlan(
+        "artifact",
+        "iş",
+        (
+            _step("create", expected_effects=("file:a.txt",)),
+            _step("use", depends_on=("create",)),
+        ),
+    )
+    deps = _deps(tmp_path)
+    prompts = []
+
+    async def agent(task, agent_deps, **kwargs):
+        prompts.append(task)
+        (tmp_path / "a.txt").write_text("sağlam")
+        return AgentOutcome(final_text="tamam", messages=[], tool_calls_made=1, model_calls_made=1)
+
+    result = await run_execution_plan("iş", deps, agent, plan=plan)
+
+    assert result.ok
+    assert "üretilen dosya: a.txt" in prompts[1]
+    assert "tamam" not in prompts[1].split("BAŞARI KOŞULLARI")[0].split("BAĞIMLILIK KANITLARI")[1]
+
+
+async def test_adim_kapsami_disindaki_arac_yapi_kapisini_yonlendiremez(tmp_path):
+    """Kapı, adımın ÇAĞIRAMAYACAĞI bir araca yönlendirirse iş imkânsız olur.
+
+    Ölçüldü (canlı Godot koşusu): plan `step-4-main-scene` adımını yalnız
+    `files` ailesiyle açtı; `godot__save_scene` bu adımda çağrılamıyordu ama
+    yapı kapısı hâlâ "sahneyi elle yazma, o araçları kullan" diyordu. Model üç
+    turda aynı duvara çarptı, adım bloklandı ve oyun teslim edilemedi.
+    """
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.plan_context import step_deps
+
+    context = ToolContext(root=tmp_path)
+    context.available_tools.update({"godot__add_node", "godot__save_scene", "read_file"})
+    deps = _deps(tmp_path)
+    deps.tool_context = context
+
+    dar = step_deps(deps, _step("sahne"), remaining=4, observe=False)
+
+    assert "godot__save_scene" not in dar.tool_context.available_tools
+    # Paylaşılan tur durumu KOPYALANMAZ: değişiklik kaydı aynı nesne kalmalı.
+    assert dar.tool_context.changes is context.changes
+
+
+def _tool_names(deps):
+    return deps.execution.allowed_tool_names
+
+
+async def test_adim_kapsami_gozlemi_engellemez(tmp_path):
+    """Kapsam YAN ETKİYİ sınırlar, bakmayı değil.
+
+    Ölçüldü (canlı starter koşusu): plan `traceback-okuyup-duzelt` adımını yalnız
+    `shell` ailesiyle açtı; model traceback'i okuyup `read_file` demek istedi ve
+    "araç bu adımın izin verilen kapsamında değil" cevabını aldı. Aynı koşuda
+    `test-ciktisini-okuyup-duzelt` adımında `read_file`, `replace_range` ve
+    `edit_file` birlikte kapalıydı: görev yapılamaz hâle geldi.
+    """
+    from dataclasses import replace as _replace
+
+    from fusion_cli.engines.agent.plan_context import step_deps
+
+    adim = _replace(_step("kabuk"), allowed_tool_families=("shell",))
+
+    dar = step_deps(_deps(tmp_path), adim, remaining=4, observe=False)
+
+    assert "read_file" in _tool_names(dar)
+    assert "list_dir" in _tool_names(dar)
+
+
+async def test_adimin_kendi_etkisi_kapsam_disinda_birakilmaz(tmp_path):
+    """Plan `files` ailesini yazmayı unutsa da dosya etkisi olan adım yazabilmeli."""
+    from dataclasses import replace as _replace
+
+    from fusion_cli.engines.agent.plan_context import step_deps
+
+    adim = _replace(
+        _step("duzelt", expected_effects=("file:metin.py",)),
+        allowed_tool_families=("shell",),
+    )
+
+    dar = step_deps(_deps(tmp_path), adim, remaining=4, observe=False)
+
+    assert "write_file" in _tool_names(dar)
+    assert "edit_file" in _tool_names(dar)
+
+
+async def test_kapsam_disi_yan_etki_araci_hala_kapalidir(tmp_path):
+    """Gevşetme yalnız gözlem ve adımın KENDİ etkisine aittir."""
+    from fusion_cli.engines.agent.plan_context import step_deps
+
+    # Adım `files` ailesiyle açıldı ve kabuk etkisi bildirmedi: kabuk kapalı kalır.
+    dar = step_deps(
+        _deps(tmp_path), _step("yaz", expected_effects=("file:a.txt",)), remaining=4, observe=False
+    )
+
+    assert "write_file" in _tool_names(dar)
+    assert "run_shell" not in _tool_names(dar)
+
+
+async def test_kabuk_izni_varken_dosya_araclari_kapatilmaz(tmp_path):
+    """Kabuk açıkken dosya düzenlemeyi kapatmak gerçek bir kısıt değildir.
+
+    Ölçüldü (6 Eylül canlı koşusu): plan `test-ciktisini-okuyup-duzelt` adımını
+    yalnız `shell` ailesiyle açtı; `replace_range` ve `edit_file` "kapsam dışı"
+    diye engellendi. Ama `shell` zaten `sed` ile aynı düzenlemeyi yapabilir —
+    kısıt işi engellemiyor, yalnız modeli daha kötü araca itiyor.
+    """
+    from dataclasses import replace as _replace
+
+    from fusion_cli.engines.agent.plan_context import step_deps
+
+    adim = _replace(_step("duzelt"), allowed_tool_families=("shell",), expected_effects=())
+
+    dar = step_deps(_deps(tmp_path), adim, remaining=4, observe=False)
+
+    assert "run_shell" in dar.execution.allowed_tool_names
+    assert "edit_file" in dar.execution.allowed_tool_names
+    assert "multi_edit" in dar.execution.allowed_tool_names
+
+
+async def test_kabuk_izni_yokken_dosya_araclari_kapali_kalir(tmp_path):
+    from dataclasses import replace as _replace
+
+    from fusion_cli.engines.agent.plan_context import step_deps
+
+    adim = _replace(_step("oku"), allowed_tool_families=("search",), expected_effects=())
+
+    dar = step_deps(_deps(tmp_path), adim, remaining=4, observe=False)
+
+    assert "edit_file" not in dar.execution.allowed_tool_names
+
+
+@pytest.mark.parametrize("resume", [False, True])
+@pytest.mark.parametrize("check_kind", [VerificationCheckKind.COMMAND, VerificationCheckKind.TOOL])
+async def test_kesifteki_kabuk_kontrolu_calistirilmadan_plan_onarilir(tmp_path, resume, check_kind):
+    import json
+
+    from fusion_cli.core.checkpoint import WorkflowCheckpoint
+    from fusion_cli.core.evidence import ToolUse
+
+    step = replace(
+        _step("godot-check"),
+        phase=PlanPhase.DISCOVERY,
+        allowed_tool_families=("shell",),
+        retry_safety=RetrySafety.OBSERVE_FIRST,
+        verification_checks=(
+            VerificationCheck(
+                "godot-check kanıtlandı",
+                check_kind,
+                "run_shell" if check_kind is VerificationCheckKind.TOOL else "godot --version",
+                '{"command":"godot --version"}' if check_kind is VerificationCheckKind.TOOL else "",
+            ),
+        ),
+    )
+    plan = ExecutionPlan("scope-repair", "oyun yap", (step,), status=PlanStatus.PAUSED)
+    deps = _deps(tmp_path)
+    if resume:
+        saved = replace(plan, steps=(replace(step, attempts=1, status=StepStatus.BLOCKED),))
+        deps.checkpoint_store.save(
+            WorkflowCheckpoint(saved, str(tmp_path.resolve()), "conv", (), 1.0)
+        )
+    calls = []
+
+    async def agent(task, agent_deps, **kwargs):
+        if "YENİDEN PLANLAMA GÖREVİ" in task:
+            assert "oyun yap" in task
+            if resume:
+                assert "kaldığın yerden devam et" in task
+            calls.append("repair")
+            candidate = {
+                "plan_id": "fixed",
+                "task": "oyun yap",
+                "schema_version": 2,
+                "steps": [
+                    {
+                        "step_id": "godot-check",
+                        "goal": step.goal,
+                        "depends_on": [],
+                        "expected_effects": [],
+                        "allowed_tool_families": ["shell"],
+                        "success_criteria": list(step.success_criteria),
+                        "verification_hint": step.verification_hint,
+                        "verification_checks": [
+                            {
+                                "criterion_id": step.success_criteria[0],
+                                "kind": "command",
+                                "target": "godot --version",
+                                "expected": "",
+                            }
+                        ],
+                        "phase": "execution",
+                        "retry_safety": "safe",
+                    }
+                ],
+            }
+            return AgentOutcome(final_text=json.dumps(candidate), messages=[], model_calls_made=1)
+        # Çelişki MEKANİK olarak giderilir: adım kabuk araçlarını kendisi istemişti,
+        # yanlış olan tek şey evre etiketiydi. Modele yeniden plan sorulmaz — ölçüldü
+        # (13 Eylül, Godot koşusu): sorulduğunda aynı çelişkiyi yeni adıma taşıdı ve
+        # koşu hiçbir şey teslim etmeden duraklatıldı.
+        assert calls == [], "Mekanik olarak onarılabilen çelişki için model çağrıldı"
+        calls.append("execute")
+        assert "run_shell" in kwargs["allowed_tools"]
+        return AgentOutcome(
+            final_text="Sürüm doğrulandı",
+            messages=[],
+            model_calls_made=1,
+            tool_calls_made=1,
+            tool_uses=(
+                ToolUse("run_shell", arguments={"command": "godot --version"}, output="4.5.stable"),
+            ),
+        )
+
+    outcome = await run_execution_plan(
+        "kaldığın yerden devam et" if resume else "oyun yap",
+        deps,
+        agent,
+        plan=None if resume else plan,
+    )
+    assert outcome.ok
+    assert calls == ["execute"]
+    kayit = deps.checkpoint_store.load("scope-repair")
+    assert kayit.plan.steps[0].phase is PlanPhase.EXECUTION
+
+
+@pytest.mark.parametrize("recovery,revision", [(0, 0), (12, 1)])
+async def test_kapsam_onarimi_butce_ve_tek_revision_sinirini_asmaz(tmp_path, recovery, revision):
+    step = replace(
+        _step("check"),
+        phase=PlanPhase.DISCOVERY,
+        revision=revision,
+        verification_checks=(
+            VerificationCheck("check kanıtlandı", VerificationCheckKind.COMMAND, "godot --version"),
+        ),
+    )
+
+    async def agent(*args, **kwargs):
+        pytest.fail("Sınırı tükenmiş onarım model çağırmamalı")
+
+    result = await run_execution_plan(
+        "oyun yap",
+        _deps(tmp_path, recovery=recovery),
+        agent,
+        plan=ExecutionPlan("bounded-scope", "oyun yap", (step,)),
+    )
+    assert not result.ok
+    assert "run_shell kapalı" in result.final_text
+
+
+def test_final_onarim_yonergesi_bozulan_kosulu_birebir_tasir():
+    """Onarım adımı NEYİN bozuk olduğunu bilmezse kör onarım yapar.
+
+    Ölçüldü (13 Eylül, Godot koşusu): adım yalnız "Final doğrulamasında bozulan
+    koşulları onar." cümlesini alıyordu; model `project.godot` dosyasını yeniden
+    yazmaya çalıştı, kapı aynı bulguyla yine düştü ve koşu iki adım arasında
+    50 dakika döndü.
+    """
+    from fusion_cli.engines.agent.plan_runner import repair_guidance
+
+    yonerge = repair_guidance(("indirilen varlıklar üründe HİÇ kullanılmamış: assets/player.png",))
+
+    assert "BOZULAN KOŞULLAR" in yonerge
+    assert "assets/player.png" in yonerge
+
+
+def test_bulgu_yoksa_yonerge_eski_hâlinde_kalir():
+    from fusion_cli.engines.agent.plan_runner import repair_guidance
+
+    assert repair_guidance(()) == "Final doğrulamasında bozulan koşulları onar."
+
+
+async def test_last_recovery_call_never_repeats_uncertain_external_effect(tmp_path):
+    step = replace(
+        _step("external", expected_effects=("git_push",)),
+        retry_safety=RetrySafety.OBSERVE_FIRST,
+        attempts=1,
+        allowed_tool_families=("shell",),
+    )
+    deps = _deps(tmp_path, recovery=1)
+    modes = []
+
+    async def agent(task, agent_deps, **kwargs):
+        modes.append(agent_deps.execution.allow_mutation)
+        return AgentOutcome(final_text="timeout", messages=[], ok=False, model_calls_made=1)
+
+    result = await run_execution_plan(
+        "iş", deps, agent, plan=ExecutionPlan("uncertain-external", "iş", (step,))
+    )
+    assert not result.ok
+    assert modes == [False], "Son hak dış etkiyi körlemesine yinelememeli."
+
+
+async def test_observation_file_proof_cannot_hide_unproven_external_effect(tmp_path):
+    (tmp_path / "receipt.txt").write_text("local receipt")
+    step = replace(
+        _step("push", expected_effects=("git_push",)),
+        retry_safety=RetrySafety.OBSERVE_FIRST,
+        attempts=1,
+        verification_checks=(
+            VerificationCheck("push kanıtlandı", VerificationCheckKind.FILE_EXISTS, "receipt.txt"),
+        ),
+    )
+    deps = _deps(tmp_path, recovery=1)
+
+    async def agent(task, agent_deps, **kwargs):
+        return AgentOutcome(final_text="tamam", messages=[], model_calls_made=1)
+
+    result = await run_execution_plan(
+        "iş", deps, agent, plan=ExecutionPlan("external-proof", "iş", (step,)), self_review=False
+    )
+    assert not result.ok, "Yerel dosya, dış etkinin oluştuğunu kanıtlamaz."
+    assert (
+        deps.checkpoint_store.load("external-proof").plan.steps[0].status
+        is not StepStatus.COMPLETED
+    )

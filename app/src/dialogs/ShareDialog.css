@@ -1,0 +1,41 @@
+.share-dialog__backdrop {
+  align-items: center;
+  background: var(--surface-overlay);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
+  z-index: var(--z-dialog);
+}
+
+.share-dialog {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 70px rgb(0 0 0 / 34%);
+  display: grid;
+  gap: 16px;
+  max-height: min(700px, calc(100vh - 48px));
+  padding: 24px;
+  width: min(600px, calc(100vw - 32px));
+}
+
+.share-dialog header,
+.share-dialog footer { align-items: center; display: flex; justify-content: space-between; }
+.share-dialog footer { justify-content: flex-end; }
+.share-dialog h2 { font-size: var(--text-lg); margin: 0; }
+.share-dialog p { color: var(--text-secondary); font-size: var(--text-sm); margin: 0; }
+.share-dialog textarea {
+  background: var(--surface-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font: inherit;
+  min-height: 220px;
+  padding: 12px;
+  resize: vertical;
+}
+.share-dialog button { background: transparent; border: 0; color: var(--text-primary); cursor: pointer; font: inherit; min-height: 36px; }
+.share-dialog footer button { background: var(--text-primary); border-radius: var(--radius-pill); color: var(--surface-canvas); padding: 8px 18px; }
+.share-dialog button:focus-visible,
+.share-dialog textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }

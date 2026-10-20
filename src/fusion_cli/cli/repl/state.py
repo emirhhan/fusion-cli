@@ -1,0 +1,174 @@
+"""REPL oturum durumu.
+
+Tek bir yerde tutulur ve komut işleyicilerine geçirilir; modüller arası global
+değişken yoktur. Oturum boyunca değişen her şey buradadır.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+from uuid import uuid4
+
+from ...config.live import ConfigRevision, reload_if_changed, revision
+from ...config.models import Config
+from ...config.permissions import load_allowed_commands
+from ...core.changeset import ChangeSet
+from ...core.health import HealthRegistry
+from ...core.remotion_browser import RemotionBrowser
+from ...core.types import FusionResult, Message
+from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
+from ...engines.agent.remotion_bridge import FrameTransport
+from ...memory.factory import Memory
+from ...observability.cost import CostTracker
+from ...tools.capabilities import CapabilityRegistry
+from .macros import Mode
+
+
+@dataclass(frozen=True, slots=True)
+class Reminder:
+    """Kullanıcının kurduğu, süresi dolunca gösterilecek hatırlatma."""
+
+    due_in_seconds: int
+    text: str
+
+
+class Engine(Enum):
+    """Bir mesajın hangi motora gideceği. Onay modundan BAĞIMSIZDIR."""
+
+    AGENT = "agent"
+    FUSION = "fusion"
+
+
+#: Fusion görev tipleri — `task_model_map` anahtarlarıyla aynı.
+TASK_TYPES = ("general", "code", "reasoning", "agent")
+
+
+@dataclass(slots=True)
+class ReplState:
+    """Oturumun tüm değişken durumu."""
+
+    config: Config
+    memory: Memory
+    root: Path
+    #: Geçmiş, yetenek ve dış bellek kökü. Composition root tarafından enjekte edilir.
+    home: Path
+    #: Transcript ve checkpoint aynı sohbet sahibini kullanır; yeni REPL ayrı kapsamdır.
+    conversation_id: str = field(default_factory=lambda: f"session-{uuid4().hex}", kw_only=True)
+    #: Proje kökünün YANINDA erişime açılan dizinler (`--add-dir`).
+    #
+    # Tek-atış `fusion agent` bunu destekliyordu ama interaktif oturum
+    # desteklemiyordu: iki projeye birden dokunan bir görevde model ikinci projeye
+    # erişemiyor, `run_shell(ls -la ..)` ile dolaşmaya çalışıp tur bütçesini
+    # yakıyordu.
+    extra_roots: tuple[Path, ...] = ()
+    #: Yalnız host enjekte eder; model/scaffold tarayıcı seçemez.
+    remotion_transport: FrameTransport | None = field(default=None, kw_only=True)
+    remotion_browser: RemotionBrowser | None = field(default=None, kw_only=True)
+    engine: Engine = Engine.AGENT
+    approval: ApprovalMode = ApprovalMode.AUTO
+    task_type: str = "general"
+    #: `/mode auto` açık mı? Açıkken her tur görevi sınıflandırıp kademe seçilir.
+    auto_profile: bool = False
+    show_all_answers: bool = False
+    #: `/thinking` açık mı? Açıkken model düşünmesi (`<think>…`) gizlenmez, Claude Code
+    #: gibi sönük bir blok olarak akıtılır. Varsayılan kapalı — sade akış korunur.
+    show_thinking: bool = False
+    #: Açılış dolgusu hâlâ ekranda mı? İlk mesajda ekran dolgusuz yeniden çizilir.
+    welcome_padded: bool = True
+    synthesis: bool | None = None
+    #: Agent motorunun çok-turlu sohbet geçmişi.
+    history: list[Message] = field(default_factory=list)
+    #: Son fusion sonucu — geri bildirim komutları buna uygulanır.
+    last_fusion: FusionResult | None = None
+    #: Oturum boyunca biriken token ve maliyet. Her tur aynı toplayıcıyı besler.
+    cost: CostTracker = field(default_factory=CostTracker)
+    #: Son agent turunun dosya değişiklikleri — `/undo` bunu geri alır.
+    #: Yalnızca SON tur tutulur: daha derin bir geçmiş, kullanıcının aradan yaptığı
+    #: elle değişiklikleri sessizce ezme riski taşır.
+    last_changes: ChangeSet | None = None
+    #: Skill/agent kütüphanesi. Tarama oturumda bir kez yapılır.
+    capabilities: CapabilityRegistry | None = None
+    #: Oturum boyunca paylaşılan sağlayıcı sağlığı (circuit breaker + güvenilirlik).
+    #: Tur ötesi durum burada yaşar; her agent turu aynı kaydı besler ve okur.
+    health: HealthRegistry | None = None
+    #: Etkin yapılandırma dosyasının sürümü; turlar arasında kontrol paneli
+    #: değişikliklerini yakalamak için kullanılır.
+    config_revision: ConfigRevision = field(init=False)
+    #: Bir makronun hazırladığı, çalıştırılmayı bekleyen görev.
+    pending_task: str = ""
+    #: Bekleyen görevin davranış kipi (hedef, mülakat…).
+    pending_mode: Mode = Mode.NONE
+
+    @classmethod
+    def from_runtime_config(cls, config: Config, **kwargs: object) -> ReplState:
+        """Kayıtlı motor ve izin modunu alarak oturum durumu kur.
+
+        Bozuk ya da tanınmayan kayıt sessizce varsayılana düşer: elle düzenlenmiş
+        bir yapılandırma yüzünden uygulamanın açılmaması kabul edilemez.
+        """
+        try:
+            engine = Engine(config.runtime.engine)
+        except ValueError:
+            engine = Engine.AGENT
+        try:
+            approval = ApprovalMode(config.runtime.approval_mode)
+        except ValueError:
+            approval = ApprovalMode.AUTO
+        if approval is ApprovalMode.BYPASS:
+            approval = ApprovalMode.AUTO
+        return cls(config=config, engine=engine, approval=approval, **kwargs)  # type: ignore[arg-type]
+
+    def take_pending(self) -> tuple[str, Mode]:
+        """Bekleyen görevi al ve temizle."""
+        task, mode = self.pending_task, self.pending_mode
+        self.pending_task, self.pending_mode = "", Mode.NONE
+        return task, mode
+
+    #: `.claude/settings.local.json` içindeki onaysız komutlar.
+    allowed_commands: frozenset[str] = frozenset()
+    #: "Oturum boyunca" verilen onay izinleri. Politika her tur yeniden kurulur;
+    #: izinler turla birlikte kaybolmasın diye sohbet durumunda yaşar.
+    approval_memory: ApprovalMemory = field(default_factory=ApprovalMemory)
+    #: Kurulmuş ama henüz gösterilmemiş hatırlatmalar.
+    reminders: list[Reminder] = field(default_factory=list)
+    #: Devralınan oturumun künyesi. Bir sonraki turda sistem bağlamına eklenir.
+    pending_digest: str | None = None
+
+    def take_pending_digest(self) -> str:
+        """Devralma künyesini bir kez al ve sonraki turlardan temizle."""
+        digest = self.pending_digest or ""
+        self.pending_digest = None
+        return digest
+
+    def __post_init__(self) -> None:
+        if self.capabilities is None:
+            self.capabilities = CapabilityRegistry(self.home, self.root)
+        if not self.allowed_commands:
+            self.allowed_commands = load_allowed_commands(self.root)
+        self.config_revision = revision(self.config)
+
+    def refresh_config(self) -> bool:
+        """Bir sonraki turdan önce kontrol paneli yapılandırma değişikliklerini uygula.
+
+        Etkin turlar başladıkları anlık görüntüyle devam eder; bu metot yalnızca
+        giriş/HTTP istek sınırlarında çağrılır.
+        """
+        updated, rev, changed = reload_if_changed(self.config, self.config_revision)
+        self.config = updated
+        self.config_revision = rev
+        return changed
+
+    running: bool = True
+
+    def cycle_approval(self) -> ApprovalMode:
+        """Onay modunu sırayla döndür (shift-tab davranışı)."""
+        self.approval = next_mode(self.approval)
+        return self.approval
+
+    def reset_history(self) -> int:
+        """Agent sohbet geçmişini temizle; silinen mesaj sayısını döndür."""
+        removed = len(self.history)
+        self.history = []
+        return removed

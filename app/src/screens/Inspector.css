@@ -1,0 +1,260 @@
+.inspector {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-width: 0;
+  position: relative;
+}
+
+.inspector__resize-handle {
+  bottom: 0;
+  cursor: col-resize;
+  left: -5px;
+  position: absolute;
+  top: 0;
+  width: 10px;
+  z-index: 3;
+}
+
+.inspector__resize-handle::after {
+  background: transparent;
+  bottom: 0;
+  content: "";
+  left: 4px;
+  position: absolute;
+  top: 0;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+  width: 2px;
+}
+
+.inspector__resize-handle:hover::after,
+.inspector__resize-handle:focus-visible::after {
+  background: var(--focus-ring);
+}
+
+.inspector[data-placement="bottom"] .inspector__resize-handle {
+  bottom: auto;
+  cursor: row-resize;
+  height: 10px;
+  left: 0;
+  right: 0;
+  top: -5px;
+  width: auto;
+}
+
+.inspector[data-placement="bottom"] .inspector__resize-handle::after {
+  bottom: auto;
+  height: 2px;
+  left: 0;
+  right: 0;
+  top: 4px;
+  width: auto;
+}
+
+.inspector__topbar {
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  min-width: 0;
+}
+
+.inspector__tabs {
+  display: flex;
+  flex: 1 1 auto;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-x: auto;
+  padding: var(--space-2);
+  scrollbar-width: none;
+}
+
+.inspector__tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.inspector__tabs button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  display: flex;
+  flex: 0 0 auto;
+  height: 40px;
+  justify-content: center;
+  min-width: 40px;
+  padding: 0 var(--space-2);
+  position: relative;
+  transition-duration: var(--duration-fast);
+  transition-property: background-color, color, transform;
+  transition-timing-function: var(--ease-standard);
+}
+
+.inspector__tabs button span {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.inspector__tabs button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.inspector__tabs button:active {
+  transform: scale(0.96);
+}
+
+.inspector__tabs button[aria-selected="true"] {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+
+.inspector__tabs button[aria-selected="true"]::after {
+  background: var(--text-primary);
+  border-radius: var(--radius-pill);
+  bottom: -9px;
+  content: "";
+  height: 2px;
+  left: var(--space-2);
+  position: absolute;
+  right: var(--space-2);
+}
+
+.inspector__collapse {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  display: flex;
+  flex: 0 0 40px;
+  height: 40px;
+  justify-content: center;
+  margin-right: var(--space-2);
+  transition-duration: var(--duration-fast);
+  transition-property: background-color, color, transform;
+  transition-timing-function: var(--ease-standard);
+  width: 40px;
+}
+
+.inspector__collapse:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.inspector__collapse:active {
+  transform: scale(0.96);
+}
+
+.inspector__collapse svg {
+  transform: rotate(180deg);
+}
+
+.inspector[data-collapsed="true"] {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.inspector[data-collapsed="true"] .inspector__topbar {
+  align-items: stretch;
+  border-bottom: 0;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.inspector[data-collapsed="true"] .inspector__tabs {
+  align-items: center;
+  flex-direction: column;
+  overflow: hidden auto;
+  padding: var(--space-2);
+}
+
+.inspector[data-collapsed="true"] .inspector__tabs button[aria-selected="true"]::after {
+  bottom: var(--space-2);
+  left: -8px;
+  right: auto;
+  top: var(--space-2);
+  height: auto;
+  width: 2px;
+}
+
+.inspector[data-collapsed="true"] .inspector__collapse {
+  margin: var(--space-2);
+  order: -1;
+}
+
+.inspector[data-collapsed="true"] .inspector__collapse svg {
+  transform: none;
+}
+
+.inspector[data-collapsed="true"][data-placement="bottom"] .inspector__topbar,
+.inspector[data-collapsed="true"][data-placement="bottom"] .inspector__tabs {
+  flex-direction: row;
+}
+
+.inspector[data-collapsed="true"][data-placement="bottom"] .inspector__tabs {
+  overflow: auto hidden;
+}
+
+.inspector[data-collapsed="true"][data-placement="bottom"] .inspector__collapse {
+  margin: 0 var(--space-2);
+  order: 0;
+}
+
+.inspector[data-collapsed="true"][data-placement="bottom"] .inspector__tabs button[aria-selected="true"]::after {
+  bottom: -8px;
+  height: 2px;
+  left: var(--space-2);
+  right: var(--space-2);
+  top: auto;
+  width: auto;
+}
+
+.inspector__panel {
+  min-height: 0;
+  /* `min-width: 0` OLMADAN grid öğesi kendi içeriği kadar genişler ve dar
+     panelde düğmeler panelin dışına taşıyordu (ölçüldü: "Adresi aç" düğmesi
+     pencerenin sağına çıkıyordu). Yatay taşma panelin İÇİNDE kaydırılır. */
+  min-width: 0;
+  overflow: auto;
+  padding: var(--space-4);
+}
+
+.inspector__panel-title {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.inspector__panel-title h2 {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  margin: 0;
+}
+
+.inspector__empty,
+.inspector__state {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  margin: var(--space-8) auto;
+  max-width: 240px;
+  text-align: center;
+}
+
+.inspector__empty p {
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2);
+}
+
+.inspector__empty span {
+  font-size: var(--text-xs);
+}
+
+.inspector__state--error {
+  color: var(--text-danger);
+}

@@ -1,0 +1,204 @@
+# Bakım işleri — var olan kodu ANLAYIP davranışı bozmadan değiştirmek.
+#
+# starter.yaml çoğunlukla "sıfırdan üret", refactor.yaml "çok dosyalı tutarlılık"
+# ölçüyor. Buradaki görevler günlük bakım işleridir: geriye dönük uyumluluk,
+# sessiz hata yutma, döngüsel import, tek kaynak sabiti, sınır durumu. Hepsinde
+# mevcut davranışın KORUNMASI da ölçülür — yalnız yeni davranışı eklemek yetmez.
+#
+# Ölçüt daima exit_code'dur: davranış çalıştırılarak kanıtlanır. Her görevin
+# referans çözümü tests/test_eval_criteria_sound.py içindedir.
+tasks:
+  - id: eski-adi-koruyarak-yeniden-adlandir
+    request: >-
+      metin.py içindeki `kisalt` fonksiyonunun adı `ozetle` olsun. Eski adı
+      kullanan kod KIRILMAMALI; `kisalt` da çalışmaya devam etmeli.
+    setup:
+      metin.py: |
+        def kisalt(s, sinir=5):
+            return s if len(s) <= sinir else s[:sinir] + "..."
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: >-
+        python -c "import metin;
+        assert metin.ozetle('abcdefgh') == 'abcde...';
+        assert metin.kisalt('abcdefgh') == 'abcde...';
+        assert metin.ozetle('abc') == 'abc'"
+
+  - id: sessiz-hata-yutmayi-bitir
+    request: >-
+      ayar.py içindeki oku() fonksiyonu her hatayı yutup None dönüyor. Dosya
+      yoksa None dönmeye devam etsin ama BOZUK içerikte ValueError yükseltsin.
+    setup:
+      ayar.py: |
+        import json
+
+
+        def oku(yol):
+            try:
+                with open(yol, encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                return None
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: |
+        python -c "
+        import pathlib, ayar
+        pathlib.Path('bozuk.json').write_text('{bozuk', encoding='utf-8')
+        pathlib.Path('iyi.json').write_text('{\"a\": 1}', encoding='utf-8')
+        assert ayar.oku('yok.json') is None
+        assert ayar.oku('iyi.json') == {'a': 1}
+        try:
+            ayar.oku('bozuk.json')
+        except ValueError:
+            pass
+        else:
+            raise SystemExit('bozuk icerikte ValueError beklendi')
+        "
+
+  - id: dongusel-importu-coz
+    request: >-
+      Proje `import` edilemiyor: kullanici.py ile siparis.py birbirini import
+      ediyor. Döngüyü çöz; iki modülün dışa açık davranışı aynı kalsın.
+    setup:
+      kullanici.py: |
+        from siparis import siparis_ozeti
+
+
+        def kullanici_ozeti(ad, tutarlar):
+            return f"{ad}: {siparis_ozeti(tutarlar)}"
+      siparis.py: |
+        from kullanici import kullanici_ozeti
+
+
+        def siparis_ozeti(tutarlar):
+            return f"{len(tutarlar)} sipariş / {sum(tutarlar)} TL"
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: >-
+        python -c "from kullanici import kullanici_ozeti; from siparis import siparis_ozeti;
+        assert siparis_ozeti([10, 20]) == '2 sipariş / 30 TL';
+        assert kullanici_ozeti('Ali', [10, 20]) == 'Ali: 2 sipariş / 30 TL'"
+
+  - id: surum-sabitini-tek-kaynaga-indir
+    request: >-
+      Sürüm numarası üç dosyada ayrı ayrı yazılı ve biri farklı. Tek kaynağa
+      indir; hepsi aynı sürümü versin ve sürüm 2.0.0 olsun.
+    setup:
+      paket/__init__.py: |
+        SURUM = "1.4.0"
+      paket/cli.py: |
+        SURUM = "1.4.0"
+
+
+        def surum_yaz():
+            return f"v{SURUM}"
+      paket/rapor.py: |
+        SURUM = "1.3.0"
+
+
+        def baslik():
+            return f"Rapor (v{SURUM})"
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: >-
+        python -c "from paket import SURUM; from paket.cli import surum_yaz;
+        from paket.rapor import baslik;
+        assert SURUM == '2.0.0', SURUM;
+        assert surum_yaz() == 'v2.0.0';
+        assert baslik() == 'Rapor (v2.0.0)'"
+
+  - id: sinir-durumu-bos-girdi
+    request: >-
+      ortalama.py boş listede ZeroDivisionError veriyor. Boş listede 0.0
+      dönsün; mevcut davranış değişmesin.
+    setup:
+      ortalama.py: |
+        def ortalama(sayilar):
+            return sum(sayilar) / len(sayilar)
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: >-
+        python -c "from ortalama import ortalama;
+        assert ortalama([]) == 0.0;
+        assert ortalama([2, 4]) == 3.0"
+
+  - id: tekrari-ortak-yardimciya-cikar
+    request: >-
+      fiyat.py içinde aynı yuvarlama mantığı üç kez tekrarlanıyor. Ortak bir
+      yardımcıya çıkar; üç fonksiyonun sonucu birebir aynı kalsın.
+    setup:
+      fiyat.py: |
+        def net(tutar):
+            return int(tutar * 100 + 0.5) / 100
+
+
+        def brut(tutar):
+            return int(tutar * 1.2 * 100 + 0.5) / 100
+
+
+        def indirimli(tutar, oran):
+            return int(tutar * (1 - oran) * 100 + 0.5) / 100
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      # Davranış TEK BAŞINA yetmez: tekrarı çıkarmak davranışı değiştirmez, bu
+      # yüzden yalnız davranışa bakan bir ölçüt hiçbir şey yapmayan agent'ı da
+      # geçirirdi (ölçüldü). Yuvarlama sabitinin kaç kez geçtiği, tekrarın gerçekten
+      # tek yere indiğinin doğrudan kanıtıdır.
+      command: |
+        python -c "
+        import pathlib
+        from fiyat import net, brut, indirimli
+        assert net(10.005) == 10.01
+        assert brut(10.0) == 12.0
+        assert indirimli(10.0, 0.1) == 9.0
+        kaynak = pathlib.Path('fiyat.py').read_text(encoding='utf-8')
+        assert kaynak.count('0.5') <= 1, 'yuvarlama mantigi hala tekrarliyor'
+        "
+
+  - id: turkce-karakterli-slug
+    request: >-
+      slug.py içindeki slug() Türkçe karakterleri siliyor. Türkçe harfleri
+      ASCII karşılığına çevirsin (ç→c, ğ→g, ı→i, ö→o, ş→s, ü→u).
+    setup:
+      slug.py: |
+        import re
+
+
+        def slug(metin):
+            return re.sub(r"[^a-z0-9]+", "-", metin.lower()).strip("-")
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: >-
+        python -c "from slug import slug;
+        assert slug('Çığır Açan Ürün') == 'cigir-acan-urun', slug('Çığır Açan Ürün');
+        assert slug('Hello World') == 'hello-world'"
+
+  - id: varsayilanlari-birlestir
+    request: >-
+      yapilandirma.py içindeki yukle(), kullanıcı ayarlarını varsayılanlarla
+      BİRLEŞTİRMELİ; şu an kullanıcı sözlüğü varsayılanları tamamen eziyor.
+      İç içe sözlükler de birleşsin.
+    setup:
+      yapilandirma.py: |
+        VARSAYILAN = {"port": 8080, "log": {"seviye": "info", "dosya": "app.log"}}
+
+
+        def yukle(kullanici):
+            return kullanici or VARSAYILAN
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: >-
+        python -c "from yapilandirma import yukle;
+        s = yukle({'log': {'seviye': 'debug'}});
+        assert s['port'] == 8080, s;
+        assert s['log']['seviye'] == 'debug', s;
+        assert s['log']['dosya'] == 'app.log', s"

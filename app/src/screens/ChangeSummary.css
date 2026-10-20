@@ -1,0 +1,21 @@
+.change-summary { margin: 12px 0; font-size: var(--text-sm); }
+.change-summary__group { border-top: 1px solid var(--border-subtle); }
+.change-summary__group:last-child { border-bottom: 1px solid var(--border-subtle); }
+.change-summary__head { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: transparent; color: var(--text-secondary); padding: 8px 4px; font: inherit; text-align: left; cursor: pointer; }
+.change-summary__head strong { font-weight: 500; color: var(--text-primary); }
+.change-summary__head svg { width: 14px; height: 14px; transition: transform var(--duration-fast) var(--ease-standard); }
+.change-summary__head[aria-expanded="true"] svg { transform: rotate(90deg); }
+.change-summary__counts { display: inline-flex; gap: 5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.change-summary__added { color: var(--text-success); }
+.change-summary__removed { color: var(--text-danger); }
+.change-summary__files { list-style: none; margin: 0; padding: 0 4px 6px 26px; }
+.change-summary__row { display: flex; align-items: baseline; gap: 12px; padding: 4px 0; }
+.change-summary__path { flex: 1; text-align: left; font: inherit; color: var(--text-secondary); border: 0; background: transparent; padding: 0; min-width: 0; overflow-wrap: anywhere; }
+button.change-summary__path { cursor: pointer; }
+button.change-summary__path:hover { color: var(--text-primary); text-decoration: underline; text-underline-offset: 3px; }
+.change-summary__view { border: 0; background: transparent; color: var(--text-secondary); padding: 0 4px; font: inherit; cursor: pointer; }
+.change-summary__view:hover, .change-summary__view[aria-expanded="true"] { color: var(--text-primary); }
+.change-summary__diffs { padding: 4px 0 8px; }
+.change-summary button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.change-summary__view svg { width: 14px; height: 14px; transition: transform var(--duration-fast) var(--ease-standard); }
+.change-summary__view[aria-expanded="true"] svg { transform: rotate(90deg); }

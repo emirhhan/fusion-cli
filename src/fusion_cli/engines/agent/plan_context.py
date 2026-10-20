@@ -1,0 +1,342 @@
+"""Plan alt turlarının bütçe, araç ve istem sınırlarını kurar."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from dataclasses import replace
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from ...core.assets import is_asset_inventory
+from ...core.checkpoint import StepCheckpointEvidence
+from ...core.execution_plan import PlanPhase, PlanStep, VerificationCheck, VerificationCheckKind
+from ...core.tools import ToolContext, ToolFamily, tool_family
+from ...tools import build_registry
+from ..workflow.model import WorkflowBudget
+from .execution_policy import ExecutionPolicy
+from .plan_checkpoint import dependency_text
+
+if TYPE_CHECKING:
+    from .loop import AgentDeps
+
+
+def workflow_budget(deps: AgentDeps) -> WorkflowBudget:
+    """Mevcut yapılandırılmış zarfları alt turun sınırıyla birleştir.
+
+    Adım zarfı, bir adımın alt-turuna TANINAN haktan küçük olamaz: alt tur zaten
+    kendi politika sınırıyla kısıtlıdır, zarf bundan küçükse fatura iş DOĞRU
+    giderken kesilir. Ölçüldü (Godot koşusu): 19-22 başarılı araç çağrısıyla
+    ilerleyen adım tek bir hata vermeden yalnız zarf yüzünden duraklatıldı.
+    """
+    runtime = getattr(getattr(deps, "config", None), "runtime", None)
+    defaults = WorkflowBudget()
+    step_calls = getattr(getattr(deps, "execution", None), "max_model_calls", None)
+    per_step = getattr(runtime, "workflow_step_calls", defaults.per_step)
+    if isinstance(step_calls, int):
+        per_step = max(per_step, step_calls)
+    return WorkflowBudget(
+        planning=getattr(runtime, "workflow_planning_calls", defaults.planning),
+        per_step=per_step,
+        recovery=getattr(runtime, "workflow_recovery_calls", defaults.recovery),
+        final=getattr(runtime, "workflow_final_verification_calls", defaults.final),
+        attempts=getattr(runtime, "workflow_attempt_calls", defaults.attempts),
+    )
+
+
+#: Bildirilen beklenen etkinin ZORUNLU kıldığı araç aileleri.
+#:
+#: Plan ailesini yazmayı unutursa adım kendi etkisini üretemez hâle gelir. Ölçüldü
+#: (canlı starter koşusu): `test-ciktisini-okuyup-duzelt` adımı dosyayı düzeltmesi
+#: gerekirken yalnız `shell` ailesiyle açıldı; `replace_range` ve `edit_file`
+#: kapalıydı ve görev yapılamadı. Adımın kendi sözleşmesi, kapsamının alt sınırıdır.
+_ETKI_AILELERI: dict[str, str] = {
+    "workspace_mutation": ToolFamily.FILES.value,
+    "shell_action": ToolFamily.SHELL.value,
+    "git_commit": ToolFamily.VCS.value,
+    "git_push": ToolFamily.VCS.value,
+}
+
+
+def _effect_families(step: PlanStep) -> set[str]:
+    """Adımın bildirdiği etkiyi üretebilmesi için gereken aileler."""
+    families = set()
+    for effect in step.expected_effects:
+        if effect.startswith("file:"):
+            families.add(ToolFamily.FILES.value)
+            continue
+        aile = _ETKI_AILELERI.get(effect)
+        if aile is not None:
+            families.add(aile)
+    return families
+
+
+def step_deps(deps: AgentDeps, step: PlanStep, remaining: int, *, observe: bool) -> AgentDeps:
+    """Adım ailesini gerçek kayıt adlarına çevir; gözlem turunu salt-okunur kıl.
+
+    Kapsam YAN ETKİYİ sınırlar, bakmayı değil: okuma araçları her adımda açıktır.
+    Ölçüldü (canlı starter koşusu): yalnız `shell` ailesiyle açılan adımda model
+    traceback'i okumak için `read_file` çağırdı ve "kapsam dışı" cevabını aldı;
+    başka bir adımda `read_file`, `replace_range` ve `edit_file` birlikte kapalıydı
+    ve görev yapılamaz hâle geldi. Gözlemin yan etkisi yoktur, planın niyetini de
+    ihlal edemez; kapsamın işi bir adımın BAŞKA adımın işini yapmasını önlemektir.
+    """
+    observe = observe or step.phase is PlanPhase.DISCOVERY
+    policy = getattr(deps, "execution", None) or ExecutionPolicy(is_web=False)
+    registry = getattr(deps, "base_registry", None) or build_registry()
+    families = set(step.allowed_tool_families) | _effect_families(step)
+    # Kabuk açıkken dosya düzenlemeyi kapatmak GERÇEK bir kısıt değildir: `sed` ile
+    # aynı değişiklik zaten yapılabilir. Ölçüldü (6 Eylül): yalnız `shell` ailesiyle
+    # açılan adımda `edit_file` ve `replace_range` engellendi; kısıt işi engellemedi,
+    # modeli daha kötü ve denetlenmesi zor araca itti.
+    if ToolFamily.SHELL.value in families:
+        families.add(ToolFamily.FILES.value)
+    known = ((name, registry.get(name)) for name in registry.names())
+    allowed = frozenset(
+        name
+        for name, tool in known
+        if tool is not None
+        and (not tool.mutating or tool_family(name).value in families)
+        and (not observe or not tool.mutating)
+    )
+    if policy.allowed_tool_names is not None:
+        allowed &= policy.allowed_tool_names
+    effect = step.expected_effects[0] if step.expected_effects and not observe else None
+    # Yapı kapısı "bu biçimi üreten araç VAR" derken adımın ÇAĞIRABİLECEĞİ araca
+    # bakmalı. Ölçüldü (canlı Godot koşusu): plan sahne adımını yalnız `files`
+    # ailesiyle açtı, `godot__save_scene` bu adımda kapalıydı ama kapı hâlâ o
+    # araca yönlendirdi; model aynı duvara üç kez çarptı ve oyun teslim edilemedi.
+    # Kural depoda zaten yazılı: bir kapı, işi YAPAMAYAN bir yeteneğe yönlendiremez.
+    context = replace(
+        deps.tool_context, available_tools=set(deps.tool_context.available_tools) & allowed
+    )
+    return replace(
+        deps,
+        tool_context=context,
+        execution=replace(
+            policy,
+            required_effect=effect,
+            requires_tool_evidence=effect is not None,
+            allow_mutation=policy.allow_mutation and not observe,
+            mutation_block_reason="Bu adım yalnız mevcut durumu gözlemleyebilir."
+            if observe
+            else policy.mutation_block_reason,
+            observe_only=observe,
+            # Adım kaçıncı kez deneniyorsa zincir o kadar yukarı kaydırılır: aynı
+            # modelle aynı duvara çarpmak yerine bir üst modele yükselinir.
+            escalation=step.attempts,
+            complex_task=policy.complex_task and not observe,
+            # Adımın harcama yetkisi ZARFTIR, görev düzeyi kademesi değil.
+            #
+            # Ölçüldü (Dead Cells koşusu, `assets/ASSETS.json` adımı): görev metni
+            # karmaşıklık anahtar kelimelerine çarpmadı ve `file:` etkisi
+            # `_MUTATING_EFFECTS` içinde olmadığı için `policy_for` sohbet
+            # kademesini verdi (`max_model_calls=8`). `workflow_budget()` adım
+            # zarfını doğru biçimde 40'a yükseltti ama burada `min(8, 40)`
+            # uygulanıyordu: zarf hiç bağlamadı, adım hiçbir hata vermeden
+            # 8 çağrıda "adım bütçesi doldu" ile düştü.
+            #
+            # `remaining` zarfın kalanıdır ve `workflow_budget()` zarfı zaten alt
+            # turun kendi sınırından küçük olmayacak şekilde kuruyor; bu yüzden
+            # kalan tek otoritedir. Sınır hâlâ AŞAĞI çalışır: zarf tükenmeye
+            # yakınsa adım kalanla yetinir (gözlem sondası `remaining=1` ile gelir).
+            max_model_calls=remaining,
+            allowed_tool_names=allowed,
+        ),
+    )
+
+
+def measurement_block(step: PlanStep) -> str:
+    """Kapının BİREBİR bakacağı hedefleri adım istemine yaz.
+
+    Ölçüldü (7 Eylül canlı Godot koşusu, `game-manager-eksiklerini-tamamla`):
+    plan adıma `scripts/game_manager.gd` hedefli bir kontrol iliştirdi; adım
+    istemi ise yalnız başarı koşulunun METNİNİ taşıyordu. Model işi yaptı ama
+    dosyayı başka bir ada yazdı, kapı tahmin edilen yola baktı ve "kontrol
+    hedefi dosya bulunamadı" ile düştü. Üç deneme de aynı duvara çarptı.
+
+    Hedefler plan yazılırken, yani depo keşfedilmeden ÜRETİLİR; adımın onları
+    görmemesi ölçümü kör bir bilmeceye çevirir. Blok yalnız hedefleri taşır,
+    içerik taşımaz.
+    """
+    satirlar: list[str] = []
+    for effect in step.expected_effects:
+        if effect.startswith("file:"):
+            _ekle(satirlar, f"- dosya: {effect.removeprefix('file:').strip()}")
+    for check in step.verification_checks:
+        _ekle(satirlar, _check_line(check))
+    if not satirlar:
+        return ""
+    return (
+        "ÖLÇÜLECEK KANIT (kapı birebir buna bakar):\n"
+        + "\n".join(satirlar)
+        + "\nYollar ve adlar birebir bunlar olmalı; başka bir ada ya da klasöre "
+        "yazarsan adım düşer. Hedef yanlış görünüyorsa dosyayı doğru yola TAŞI.\n\n"
+    )
+
+
+def _ekle(satirlar: list[str], satir: str) -> None:
+    """Aynı hedefi iki kez yazma: `file:` etkisi ve kontrol çoğu kez aynıdır."""
+    if satir and satir not in satirlar:
+        satirlar.append(satir)
+
+
+def _check_line(check: VerificationCheck) -> str:
+    """Tek kontrolü, modelin uygulayabileceği tek satırlık kontrata çevir."""
+    if check.kind is VerificationCheckKind.FILE_EXISTS:
+        return f"- dosya: {check.target}"
+    if check.kind is VerificationCheckKind.FILE_CONTAINS:
+        return f"- dosya: {check.target} (içinde birebir geçmeli: {check.expected})"
+    if check.kind is VerificationCheckKind.COMMAND:
+        return f"- komut: {check.target} (bu adımda gerçekten çalıştırılmalı)"
+    if check.kind is VerificationCheckKind.TOOL:
+        return f"- araç çağrısı: {check.target} ({check.expected})"
+    return ""
+
+
+#: Gözlem turunda yazma araçları kapalıdır (bkz. `step_deps`). Ölçüldü (Dead Cells
+#: koşusu): model bunu bilmeden `run_shell` ve `write_file` çağırdı, ikisi de
+#: engellendi ve adım "dosya bulunamadı" ile duraklatıldı.
+OBSERVE_NOTE = (
+    "BU BİR GÖZLEM TURUDUR: dosya yazan, komut çalıştıran ve indiren araçlar bu turda "
+    "KAPALIDIR. Onları çağırma; yalnız okuyarak mevcut durumu ve eksikleri raporla.\n\n"
+)
+
+
+#: Asset teslimatı olan adımın SIRA talimatı.
+#
+# Ölçüldü (13 Eylül, iki ayrı Godot koşusu): adım "ücretsiz assetleri indir ve
+# ASSETS.json manifestini oluştur" diyordu; model her iki koşuda da ÖNCE manifesti
+# yazdı, hiç indirme yapmadı ve "manifest oluşturuldu" diye bildirdi. Manifest
+# doğrulaması dosyaları bulamayınca adım düştü. Sıra, kapı düşmeden ÖNCE söylenir.
+ASSET_ORDER_NOTE = (
+    "ASSET SIRASI (bu adımda zorunlu): 1) `web_search` ile lisansı açık (CC0/MIT) "
+    "kaynak SAYFASINI bul, 2) sayfayı `web_fetch` ile aç ve GERÇEK dosya/arşiv "
+    "bağlantısını oradan al — arama sonucu genellikle liste sayfasıdır ve adresi "
+    "ezberden üretmek çalışmaz, 3) `download_file` ile indir, 4) arşivse "
+    "`extract_archive` ile aç, 5) dosyaların diskte olduğunu `list_dir` ile doğrula, "
+    "6) manifesti EN SON şu biçimde yaz: "
+    '{"source_url": "<indirdiğin sayfa>", "license": "CC0", '
+    '"files": ["assets/player.png", …]}'
+    ". Manifest, indirilmemiş dosyayı bildirirse adım düşer. "
+    # Ölçüldü (13 Eylül, beş koşu): kenney.nl ve opengameart.org sayfalarındaki
+    # bağlantılar doğrudan dosyaya gidiyor ve `download_file` ile indi (üç koşuda
+    # gerçek paket geldi). itch.io listeleri indirme bağlantısı vermiyor; üç koşu
+    # orada döndü, sonunda adres uydurmaya geçip 404 aldı ve hiçbir asset gelmedi.
+    "Kaynak seçimi (ölçülmüş): kenney.nl ve opengameart.org sayfaları doğrudan "
+    "dosya/arşiv bağlantısı verir. itch.io listeleri indirme bağlantısı vermez; "
+    "orada dönüp durma, adres de uydurma.\n\n"
+)
+
+
+def asset_step(step: PlanStep) -> bool:
+    """Bu adım gerçek dosya teslim eden bir asset adımı mı?
+
+    Karar adımın KENDİ sözleşmesinden okunur: beklenen etki ya da doğrulama hedefi
+    bir asset envanteri (`ASSETS.json`) ise bu adım dosya indirmek zorundadır.
+    """
+    hedefler = [effect.removeprefix("file:") for effect in step.expected_effects]
+    hedefler.extend(check.target for check in step.verification_checks if check.target)
+    return any(is_asset_inventory(Path(hedef)) for hedef in hedefler)
+
+
+def step_prompt(
+    step: PlanStep,
+    evidence: dict[str, StepCheckpointEvidence],
+    *,
+    workspace: str = "",
+    observe: bool = False,
+) -> str:
+    """Dar adım istemini yalnız gerçek bağımlılık kanıtlarıyla üret.
+
+    Ana görev metni burada TEKRAR EDİLMEZ: adımlar artık kök konuşmayı miras
+    alıyor (bkz. `plan_runner._PlanRun.messages`) ve görev zaten geçmişte durur.
+    Bu metin kendisi bir kullanıcı mesajı olarak geçmişe eklenir; `[Plan adımı
+    …]` öneki hangi adımın çalıştığını konuşma içinde görünür kılar.
+    """
+    return (
+        f"[Plan adımı {step.step_id}] {step.goal}\n\n"
+        f"ADIM EVRESİ: {step.phase.value}\n"
+        + (OBSERVE_NOTE if observe else "")
+        + (ASSET_ORDER_NOTE if not observe and asset_step(step) else "")
+        + "Yalnız bu adımı yürüt; ana görevi yeniden planlama veya başka adımlara geçme.\n\n"
+        f"{workspace}"
+        f"BAĞIMLILIK KANITLARI:\n{dependency_text(step, evidence)}\n\nBAŞARI KOŞULLARI:\n"
+        + "\n".join(f"- {criterion}" for criterion in step.success_criteria)
+        + f"\n\nDOĞRULAMA İPUCU:\n{step.verification_hint}\n\n"
+        + measurement_block(step)
+        + "Adım bitince tek cümleyle ne yaptığını söyle."
+    )
+
+
+#: Adım isteminde listelenecek en fazla dosya adı.
+#
+# Adım istemi DAR olmalı; amaç dosya sistemini kopyalamak değil, aynı keşfi
+# ikinci kez yaptırmamak. Uzun liste bağlamı şişirir ve context rot üretir.
+MAX_STEP_WORKSPACE_FILES = 12
+
+
+def workspace_block(context: ToolContext) -> str:
+    """Bu turda ZATEN okunan ve değiştirilen dosyaları adım istemine yaz.
+
+    Ölçüldü (7 Eylül canlı koşusu, `surum-sabitini-tek-kaynaga-indir`): depo
+    haritası yalnız üst turda (`depth == 0`) veriliyor; plan adımları alt turda
+    koştuğu için hiçbir bağlam görmüyordu. Her adım `list_dir` ve `glob **/*` ile
+    baştan başladı, aynı üç dosyayı üst üste okudu ve bütçe iş bitmeden tükendi.
+
+    Adımın kendi keşfini yapması yanlış değildir; aynı keşfi ÜÇÜNCÜ kez yapması
+    israftır. Blok yalnız ADLARI taşır, içerik taşımaz: yönlendirir, bağlamı
+    şişirmez.
+    """
+    okunan = _relative_names(context, context.fully_read)
+    degisen = _relative_names(context, context.touched)
+    if not okunan and not degisen:
+        return _bos_dizin_notu(context)
+    satirlar = ["ÇALIŞMA ALANI (bu turda):"]
+    if okunan:
+        satirlar.append(f"- okunan: {', '.join(okunan)}")
+    if degisen:
+        satirlar.append(f"- değiştirilen: {', '.join(degisen)}")
+    satirlar.append("Bu dosyaları yeniden aramana gerek yok; içeriği gerekiyorsa doğrudan oku.")
+    return "\n".join(satirlar) + "\n\n"
+
+
+def empty_workspace(root: Path) -> bool:
+    """Çalışma dizininde kullanıcının HİÇBİR dosyası yok mu?
+
+    Gizli girdiler sayılmaz: `.fusion` devam kaydı ya da `.git` verisi kullanıcının
+    projesi değildir.
+    """
+    try:
+        return not any(item for item in root.iterdir() if not item.name.startswith("."))
+    except OSError:
+        return False
+
+
+def _bos_dizin_notu(context: ToolContext) -> str:
+    """Çalışma dizini boşsa bunu AÇIKÇA söyle.
+
+    Ölçüldü (13 Eylül, Godot koşusu): boş dizinde keşif adımı `list_dir` çağrısını
+    tekrar tekrar yaptı, tekrar önbelleği aynı cevabı döndürdü ve adım 15 model
+    çağrısı + 18 dakika sonra "ilerleme yok" ile düştü. Modelin eksik bilgisi
+    basitti: dizinde hiçbir şey yoktu ve keşfedecek bir şey kalmamıştı.
+    """
+    if not empty_workspace(context.root):
+        return ""
+    return (
+        "ÇALIŞMA DİZİNİ BOŞ: keşfedilecek mevcut dosya yok. Bir kez doğrulaman "
+        "yeterli; aynı listelemeyi yinelemek ilerleme değildir. Bulguyu yaz ve "
+        "adımı bitir.\n\n"
+    )
+
+
+def _relative_names(context: ToolContext, paths: Iterable[Path]) -> list[str]:
+    """Yolları proje köküne göre kısalt; kök dışındakiler olduğu gibi kalır."""
+    adlar: list[str] = []
+    for path in sorted(paths):
+        try:
+            adlar.append(path.relative_to(context.root).as_posix())
+        except ValueError:
+            adlar.append(path.name)
+        if len(adlar) >= MAX_STEP_WORKSPACE_FILES:
+            break
+    return adlar

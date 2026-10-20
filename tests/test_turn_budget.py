@@ -1,0 +1,590 @@
+"""Tur bütçesi — sayaçların tek yerde birikmesi ve döngü kapıları.
+
+Bu dosyanın varlık sebebi ölçülmüş bir hatadır: bütçe sayaçları `_drive`'ın yerel
+durumundaydı ve öz-denetim/doğrulama kapısı `run_agent`'ı YENİDEN çağırdığı için her
+düzeltici tur sıfırdan başlıyordu. Bütçeler toplanmıyor, çarpılıyordu.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from fusion_cli.core.budget import BudgetStop, TurnBudget
+from fusion_cli.core.events import ToolExecuted, ToolOutcome, TurnBudgetExhausted
+from fusion_cli.core.tools import ToolContext
+from fusion_cli.engines.agent import loop as agent_loop
+from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+from fusion_cli.engines.agent.loop import AgentDeps, run_agent
+from fusion_cli.engines.agent.reflexion import STALL_RESCUE_NOTE
+
+from .fakes import (
+    AlwaysApprove,
+    RecordingSink,
+    ScriptedProvider,
+    make_config,
+    model_result,
+    tool_call,
+)
+
+
+class _FakeClock:
+    """Testin elle ilerlettiği saat. Gerçek bekleme yok."""
+
+    def __init__(self) -> None:
+        self.value = 0.0
+
+    def monotonic(self) -> float:
+        return self.value
+
+    def now(self) -> float:
+        return self.value
+
+
+class _Publisher:
+    def __init__(self, sink):
+        self._sink = sink
+
+    def publish(self, event):
+        self._sink.handle(event)
+
+
+@pytest.fixture
+def sink():
+    return RecordingSink()
+
+
+def _deps(tmp_path, sink, **config_args):
+    return AgentDeps(
+        config=make_config(**config_args),
+        publisher=_Publisher(sink),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=tmp_path),
+    )
+
+
+def _kur(monkeypatch, provider):
+    def _build(spec, **kwargs):
+        return provider
+
+    monkeypatch.setattr(agent_loop, "build_provider", _build)
+    return provider
+
+
+def _budget(clock=None, **overrides) -> TurnBudget:
+    limits = {
+        "max_model_calls": 50,
+        "max_verify_rounds": 2,
+        "max_empty_retries": 2,
+        "max_contract_repairs": 1,
+        "max_auto_continues": 1,
+        "max_idle_rounds": 3,
+    }
+    limits.update(overrides)
+    return TurnBudget(clock=clock or _FakeClock(), **limits)
+
+
+# --------------------------------------------------------------------------- #
+# TurnBudget'in kendi davranışı
+# --------------------------------------------------------------------------- #
+
+
+def test_hak_biten_sayac_false_dondurur():
+    budget = _budget(max_empty_retries=2)
+
+    assert budget.take_empty_retry() is True
+    assert budget.take_empty_retry() is True
+    assert budget.take_empty_retry() is False
+    assert budget.empty_retries == 2
+
+
+def test_ilerleme_bosta_tur_sayacini_sifirlar():
+    budget = _budget(max_idle_rounds=3)
+
+    budget.record_round(progressed=False)
+    budget.record_round(progressed=False)
+    assert budget.idle_rounds == 2
+    assert not budget.idle
+
+    budget.record_round(progressed=True)
+    assert budget.idle_rounds == 0
+
+
+def test_ardisik_ilerlemesiz_turlar_bosta_esigine_ulasir():
+    budget = _budget(max_idle_rounds=3)
+
+    for _ in range(3):
+        budget.record_round(progressed=False)
+
+    assert budget.idle
+
+
+def test_mutasyon_okuma_imzasini_tazeler_yazma_imzasini_tazelemez():
+    budget = _budget()
+    okuma_once = budget.signature("read_file", '{"path":"a"}', mutating=False)
+    yazma_once = budget.signature("write_file", '{"path":"a"}', mutating=True)
+
+    budget.record_mutation()
+
+    # Çalışma alanı değişti: aynı dosyayı yeniden okumak yeni bilgi getirir.
+    assert budget.signature("read_file", '{"path":"a"}', mutating=False) != okuma_once
+    # Aynı yazmayı ikinci kez istemek her durumda tekrardır.
+    assert budget.signature("write_file", '{"path":"a"}', mutating=True) == yazma_once
+
+
+def test_ilk_durdurma_sebebi_korunur():
+    budget = _budget()
+
+    budget.halt(BudgetStop.NO_PROGRESS)
+    budget.halt(BudgetStop.DEADLINE)
+
+    assert budget.stop is BudgetStop.NO_PROGRESS
+
+
+def test_sure_sinirsizken_zaman_asimi_olmaz():
+    budget = _budget()
+    assert budget.remaining_s() is None
+    assert budget.out_of_time() is False
+
+
+def test_sure_dolunca_zaman_asimi_bildirilir():
+    clock = _FakeClock()
+    budget = _budget(clock=clock)
+    budget.total_timeout_s = 10.0
+
+    clock.value = 9.0
+    assert budget.out_of_time() is False
+
+    clock.value = 10.5
+    assert budget.out_of_time() is True
+
+
+# --------------------------------------------------------------------------- #
+# Döngü kapıları
+# --------------------------------------------------------------------------- #
+
+
+async def test_ayni_cagri_api_saglayicisinda_da_durdurulur(monkeypatch, tmp_path, sink):
+    """Tekrar kapısı eskiden YALNIZCA web modellerinde açıktı.
+
+    API modelleri aynı aracı aynı argümanlarla sınırsız tekrar edebiliyordu; kullanıcının
+    gördüğü "aynı şeyi tekrar tekrar deniyor" davranışının bir kaynağı buydu.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [model_result(tool_calls=[tool_call("list_dir", path=".")]) for _ in range(10)]
+        ),
+    )
+
+    sonuc = await run_agent(
+        "dur durak bilmez",
+        _deps(tmp_path, sink, runtime={"agent_max_idle_rounds": 3, "agent_max_steps": None}),
+    )
+
+    # Araç yalnız izin verilen tekrar sınırı kadar (2) çalışır; kalan sekiz çağrı
+    # önbellekten cevaplanır.
+    # Kapı hâlâ açıktır — sınırsız tekrar YOK — ama tekrar artık hata değil,
+    # bilinen sonucun geri verilmesidir.
+    onbellekten = [
+        event
+        for event in sink.events
+        if isinstance(event, ToolExecuted) and "TOOL_CALL_CACHED" in event.output
+    ]
+    assert onbellekten, "tekrar eden okuma önbellekten cevaplanmalı"
+    assert sonuc.tool_calls_made == 2
+    # Tur ilerlemesizlikte KESİLMEZ (Claude Code'da ilerleme kapısı yoktur); model
+    # döngüden çıkması için uyarılır ve işi kendisi bitirir.
+    notlar = [m.content for m in sonuc.messages if m.role == "user" and m.harness_note]
+    assert STALL_RESCUE_NOTE in notlar
+    tukendi = [event for event in sink.events if isinstance(event, TurnBudgetExhausted)]
+    assert not tukendi
+
+
+async def test_ilerlemesiz_turlar_turu_kesmez_modeli_uyarir(monkeypatch, tmp_path, sink):
+    """Ölçüldü (28 Eylül): ilerleme kapısı büyük görevi keşfin ortasında cevapsız
+    kesiyordu. Claude Code'un döngüsü model işi bitirene kadar sürer."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                *[
+                    model_result(tool_calls=[tool_call("read_file", path=f"yok-{index}.txt")])
+                    for index in range(7)
+                ],
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent(
+        "olmayan dosyaları oku",
+        _deps(tmp_path, sink, runtime={"agent_max_idle_rounds": 3}),
+    )
+
+    notlar = [m.content for m in sonuc.messages if m.role == "user" and m.harness_note]
+    assert notlar.count(STALL_RESCUE_NOTE) == 2
+    assert not [event for event in sink.events if isinstance(event, TurnBudgetExhausted)]
+    assert sonuc.final_text == TAM_CEVAP
+
+
+#: Otomatik-devam sezgiseli kısa/teslimsiz cevapları "yarım" sayar ve fazladan çağrı
+#: açar. Bütçe testleri o davranışı değil, sayaçların paylaşımını ölçer.
+TAM_CEVAP = "Görevi tamamladım; değişiklik `src/app.py:12` satırında yapıldı ve doğrulandı."
+
+
+async def test_ozdenetim_turu_ana_turun_butcesini_devralir(monkeypatch, tmp_path, sink):
+    """Faz 1'in çekirdek regresyonu: düzeltici tur bütçeyi baştan başlatmamalı.
+
+    Öz-denetim `run_agent`'ı YENİDEN çağırır. Bütçe orada kurulsaydı ana turda
+    harcanan model çağrıları unutulur ve toplam sınırı aşardı — bu, kullanıcının
+    "bir türlü bitmeyen tur" olarak gördüğü davranıştı.
+
+    Kurgu: ana tur TEMİZ biter (iki model çağrısı), sonra denetçi bir sorun bulur ve
+    düzeltici tur açılır. Paylaşılan bütçede düzeltici tura yalnızca KALAN hak kadar
+    çağrı düşer.
+
+    Ana turda bir MUTASYON (`write_file`) olmalı: öz-denetim artık yalnız gerçek
+    bir değişiklik olduğunda çalışır (bkz. `test_oz_denetim_yalniz_degisiklik_
+    yapilan_turda_calisir`, B2 gecikmesi).
+    """
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                # Ana tur: bir mutasyon, sonra tamamlanmış görünen nihai cevap.
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result(TAM_CEVAP),
+                # Düzeltici tur: bütçe izin verdiği sürece araç çağırmayı sürdürür.
+                *[
+                    model_result(tool_calls=[tool_call("list_dir", path=f"duzelt-{i}")])
+                    for i in range(20)
+                ],
+            ]
+        ),
+    )
+
+    # Denetçi bir kez sorun bildirir; düzeltici tur `self_review=False` ile açıldığı
+    # için tekrar çağrılmaz.
+    async def _bulgu_var(*args, **kwargs):
+        return "Bir sorun var, düzelt."
+
+    monkeypatch.setattr(agent_loop.review, "review_turn", _bulgu_var)
+
+    deps = _deps(tmp_path, sink, runtime={"agent_max_steps": 4, "self_review": True})
+    await run_agent("uzun iş", deps)
+
+    # Ana tur 2 çağrı harcadı; düzeltici tura yalnızca 2 hak kalmalı.
+    assert provider.calls == 4, f"tur bütçesi paylaşılmadı: {provider.calls} çağrı"
+    assert deps.budget.model_calls == 4
+    assert deps.budget.stop is BudgetStop.MODEL_CALLS
+
+
+async def test_butce_disaridan_verilebilir_ve_paylasilir(monkeypatch, tmp_path, sink):
+    """Bütçe enjekte edilebilir: testler ve çağıranlar sınırı daraltabilir."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [model_result(tool_calls=[tool_call("list_dir", path=f"alt-{i}")]) for i in range(20)]
+        ),
+    )
+    deps = _deps(tmp_path, sink)
+    deps.budget = _budget(max_model_calls=2)
+
+    sonuc = await run_agent("kısa bütçe", deps)
+
+    assert deps.budget.model_calls == 2
+    assert deps.budget.stop is BudgetStop.MODEL_CALLS
+    assert not sonuc.ok
+
+
+async def test_verifier_bulgusu_correction_idle_saatini_tazeler(monkeypatch, tmp_path, sink):
+    """Somut bulgu geldiğinde correction eski hareketsizlik süresine kurban gitmemeli."""
+    from fusion_cli.core.verification import VerificationResult
+
+    clock = _FakeClock()
+
+    class _SlowFindingVerifier:
+        async def verify(self):
+            clock.value = 11.0
+            return VerificationResult(ok=False, summary="bozuk", findings=("hp azalmıyor",))
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.js", content="x")]),
+                model_result(TAM_CEVAP),
+                model_result(tool_calls=[tool_call("write_file", path="a.js", content="fixed")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink)
+    deps.verifier = _SlowFindingVerifier()
+    deps.budget = _budget(clock=clock, total_timeout_s=100.0, idle_timeout_s=10.0)
+
+    await run_agent("a.js düzelt", deps)
+
+    assert (tmp_path / "a.js").read_text() == "fixed"
+
+
+# --- Yürütme politikası da devredilir ----------------------------------------- #
+#
+# Ölçüldü: öz-denetim/doğrulama turu politikayı DÜZELTME METNİNDEN yeniden
+# türetiyordu. Asıl görev BUGFIX (12 araç turu) olsa bile düzeltme metni basit
+# sohbet sanılıp 5 tura düşüyor ve iş yarıda kesiliyordu.
+
+
+async def test_yurutme_politikasi_ic_ice_turlarda_korunur(monkeypatch, tmp_path, sink):
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+    deps = _deps(tmp_path, sink)
+    deps.execution = ExecutionPolicy(is_web=True, max_tool_rounds=12, max_model_calls=16)
+
+    await run_agent("herhangi bir görev", deps)
+
+    # Politika turun başında verildiyse `policy_for` ile EZİLMEMELİ.
+    assert deps.execution.max_tool_rounds == 12
+    assert deps.execution.max_model_calls == 16
+
+
+async def test_politika_ilk_turda_bir_kez_belirlenir(monkeypatch, tmp_path, sink):
+    _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+    deps = _deps(tmp_path, sink)
+    assert deps.execution is None
+
+    await run_agent("envanter.py'deki hataları düzelt", deps)
+
+    assert deps.execution is not None
+    # BUGFIX görevi cömert bütçe almalı; basit sohbet bütçesi değil.
+    assert (deps.execution.max_tool_rounds or 99) > 5
+
+
+async def test_degisiklik_yapilmis_turda_fazladan_devam_acilmaz(monkeypatch, tmp_path, sink):
+    """Mutasyon olduysa düzyazı gerçek bir teslim olabilir; hak boşa harcanmaz."""
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="y.py", content="x = 1\n")]),
+                model_result(TAM_CEVAP),
+                model_result("fazladan"),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.execution = ExecutionPolicy(is_web=True, complex_task=True, heuristic_auto_continue=False)
+
+    await run_agent("testleri geçir", deps)
+
+    assert provider.calls == 2, f"gereksiz devam açıldı: {provider.calls}"
+
+
+async def test_basit_gorevde_okuyup_durmak_devam_acmaz(monkeypatch, tmp_path, sink):
+    """Salt-okuma bir soru için düzyazı ZATEN doğru cevaptır."""
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="a.py")]),
+                model_result("Dosyada tek bir atama var."),
+                model_result("fazladan"),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    # Gerçek web politikasıyla aynı: eski "yarım mı" sezgiseli web'de kapalıdır.
+    deps.execution = ExecutionPolicy(is_web=True, complex_task=False, heuristic_auto_continue=False)
+
+    await run_agent("bu dosyada ne var", deps)
+
+    assert provider.calls == 2, f"basit görevde devam açıldı: {provider.calls}"
+
+
+# --- Taklit kipte var olan dosya toptan yazılamaz ------------------------------ #
+#
+# Ölçüldü (Gemini web, aynı görev altı koşu): yıkıcı başarısızlıkların HEPSİNDE
+# write_file vardı — bozuk sözdizimi, 13 ruff hatası, toplanamayan test dosyası.
+# Yalnızca edit_file kullanan koşular eksik kalabildi ama kodu hiç bozmadı.
+
+
+async def test_web_modelinde_var_olan_dosya_write_file_ile_ezilemez(monkeypatch, tmp_path, sink):
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    hedef = tmp_path / "a.py"
+    hedef.write_text("değerli = 1\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="yeni\n")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.execution = ExecutionPolicy(is_web=True, heuristic_auto_continue=False)
+
+    await run_agent("a.py'yi düzelt", deps)
+
+    assert hedef.read_text(encoding="utf-8") == "değerli = 1\n", "dosya ezilmemeli"
+    engellenen = [
+        event
+        for event in sink.events
+        if isinstance(event, ToolExecuted) and event.outcome is not ToolOutcome.OK
+    ]
+    # Mesaj ÇIKIŞ YOLUNU söyler: küçük dosyada "tamamını oku, sonra yeniden yaz".
+    # Ölçüldü (koşu 27): yalnız `replace_range` öneren mesajla model sahne dosyasını
+    # hiç yazamadı ve adım bütçesi doldu.
+    assert engellenen
+    assert "read_file" in engellenen[0].output
+    assert "TAMAMINI" in engellenen[0].output
+
+
+async def test_web_modelinde_yeni_dosya_yazilabilir(monkeypatch, tmp_path, sink):
+    """Kısıt yalnızca ÜZERİNE yazmaya karşıdır; yeni dosya serbesttir."""
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="y.py", content="x = 1\n")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.execution = ExecutionPolicy(is_web=True, heuristic_auto_continue=False)
+
+    await run_agent("y.py oluştur", deps)
+
+    assert (tmp_path / "y.py").read_text(encoding="utf-8") == "x = 1\n"
+
+
+async def test_api_modelinde_kisit_yok(monkeypatch, tmp_path, sink):
+    """Ölçüm web modellerinde yapıldı; API modellerine kanıtsız kısıt konmaz.
+
+    "Tam okunmamış dosyayı ezme" muhafızı ayrı bir konudur ve HER sağlayıcıda
+    geçerlidir; bu yüzden model önce dosyayı okur.
+    """
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    hedef = tmp_path / "a.py"
+    hedef.write_text("eski\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="a.py")]),
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="yeni\n")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.execution = ExecutionPolicy(is_web=False)
+
+    await run_agent("a.py'yi yenile", deps)
+
+    assert hedef.read_text(encoding="utf-8") == "yeni\n"
+
+
+async def test_bozuk_cagri_turu_tek_hamlede_oldurmez(monkeypatch, tmp_path, sink):
+    """Uzun bir işin ortasındaki tek yazım hatası yapılmış işi çöpe atmamalı.
+
+    Ölçüldü: onarım hakkı (1) 12 turluk işler için belirlenmişti; turlar 22 tura
+    çıkınca yirmi adımlık bir işin herhangi bir yerindeki tek bozuk çağrı tüm turu
+    öldürüyordu. Dört koşunun biri böyle düştü.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("list_dir", path="a")]),
+                # İki AYRI sözleşme ihlali: uzun bir turda birden fazla yazım
+                # hatası olağandır. (Aynı bozuk çağrının tekrarı ayrı bir kuralla,
+                # `seen >= 1` ile, zaten durdurulur — burada ölçülen o değil.)
+                model_result(tool_calls=[tool_call("olmayan_arac", path="x")]),
+                model_result(tool_calls=[tool_call("baska_olmayan", path="y")]),
+                # Model kendini toparlıyor ve işi bitiriyor.
+                model_result(tool_calls=[tool_call("list_dir", path="b")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+
+    sonuc = await run_agent("uzun iş", deps)
+
+    assert sonuc.ok, f"tek bozuk çağrı turu öldürdü: {sonuc.final_text[:120]}"
+    assert sonuc.final_text == TAM_CEVAP
+
+
+async def test_buyuk_dosyada_mesaj_hedefli_duzenlemeyi_ister(monkeypatch, tmp_path, sink):
+    """60 satırdan büyük dosyada toptan yazma çıkışı YOKTUR; mesaj da onu önermez."""
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    hedef = tmp_path / "buyuk.py"
+    hedef.write_text("".join(f"satir_{i} = {i}\n" for i in range(120)), encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=[tool_call("write_file", path="buyuk.py", content="yeni\n")]
+                ),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.execution = ExecutionPolicy(is_web=True, heuristic_auto_continue=False)
+
+    await run_agent("buyuk.py'yi düzelt", deps)
+
+    engellenen = [
+        event
+        for event in sink.events
+        if isinstance(event, ToolExecuted) and event.outcome is not ToolOutcome.OK
+    ]
+    assert engellenen
+    assert "edit_file" in engellenen[0].output
+    assert "TAMAMINI" not in engellenen[0].output
+    assert hedef.read_text(encoding="utf-8").startswith("satir_0 = 0")
+
+
+async def test_parallel_model_admission_reserves_only_remaining_slot():
+    import asyncio
+
+    budget = TurnBudget(
+        clock=_FakeClock(),
+        max_model_calls=1,
+        max_verify_rounds=1,
+        max_empty_retries=1,
+        max_contract_repairs=1,
+        max_auto_continues=1,
+        max_idle_rounds=1,
+    )
+    release = asyncio.Event()
+    entered: list[int] = []
+
+    async def child(index):
+        if not budget.reserve_model_call():
+            return False
+        entered.append(index)
+        await release.wait()
+        return True
+
+    children = [asyncio.create_task(child(index)) for index in range(3)]
+    await asyncio.sleep(0)
+    assert len(entered) == 1
+    release.set()
+    assert (await asyncio.gather(*children)).count(True) == 1
+    assert budget.model_calls == 1

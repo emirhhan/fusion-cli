@@ -1,0 +1,385 @@
+/** Bilinen MCP sunucularının küratörlü kataloğu.
+ *
+ * Amaç: kullanıcı en çok kullanılan sunuculara komut/URL ezberlemeden tek tıkla
+ * bağlansın. Her giriş `baglanti.ekle` RPC'sinin BEKLEDİĞİ alanları taşır; ekran
+ * yalnız bunu iletir, kendi uç noktasını uydurmaz.
+ *
+ * Uç noktalar ve paketler sağlayıcıların yayımladığı belgelerden derlendi.
+ * Değişebilirler; katalog bir BAŞLANGIÇ değeridir, kullanıcı "Ekle" ile kendi
+ * değerini girip düzeltebilir.
+ *
+ * Doğrulama (18 Eylül 2026): npm paketleri `npm view <paket>` ile, PyPI paketleri
+ * pypi.org JSON uç noktasıyla, uzak uç noktalar MCP `initialize` isteğiyle
+ * denendi. Kaldırılanlar: `server-puppeteer`, `server-gdrive`, `server-slack`
+ * npm'de "no longer supported" (deprecated); `server-gmail` npm'de hiç yok (404).
+ * Linear ve Sentry'nin `/sse` adresi 404 veriyordu; uzak girişler Streamable
+ * HTTP konuştuğu için hepsi `/mcp` uç noktasına çevrildi.
+ * Remote uç noktalar backend'de `validate_remote_mcp_url`'den geçer: HTTPS
+ * zorunlu, düz HTTP yalnız loopback (Figma masaüstü) için.
+ */
+
+export type ConnectorTransport = "stdio" | "streamable_http";
+/** `token`: uzak sunucuya `Authorization: Bearer` ile giden erişim token'ı
+ *  (OAuth istemci kaydı olmayan sunucular için; bkz. `McpServerConfig.token_env`). */
+export type SetupFieldTarget = "argument" | "environment" | "secret_argument" | "token";
+
+export interface SetupField {
+  id: string;
+  label: string;
+  placeholder: string;
+  secret?: boolean;
+  target: SetupFieldTarget;
+  environmentName?: string;
+}
+
+export interface CatalogEntry {
+  /** Bağlantının kaydedileceği ad (baglanti.ekle `ad`). Benzersiz. */
+  id: string;
+  /** Ekranda görünen etiket. */
+  label: string;
+  /** Bir cümlelik ne-işe-yarar. */
+  description: string;
+  /** Gruplama ve tint için kategori. */
+  category: "Ticaret" | "Geliştirme" | "Üretkenlik" | "Veri" | "Araç";
+  /** İkon kutusunun rengi (kategori kimliği; marka rengini taklit etmez). */
+  tint: string;
+  /** İkon monogramı (1-2 harf). */
+  glyph: string;
+  transport: ConnectorTransport;
+  /** stdio için çalıştırılacak komut (shlex ile parçalanır). */
+  command?: string;
+  /** streamable_http için MCP adresi. */
+  url?: string;
+  /** OAuth kapsamları (boşlukla ayrılmış). Çoğu remote sunucu boş kabul eder. */
+  scopes?: string;
+  /** Üstte öne çıkan banner kartı mı? Tam 3 giriş işaretli. */
+  featured?: boolean;
+  /** Bağlanınca OAuth girişi gerektirir mi? (Sadece bilgilendirme rozeti.) */
+  oauth?: boolean;
+  /** Bağlantı kurulmadan önce kullanıcıdan alınması gereken alanlar. */
+  setup?: readonly SetupField[];
+  /** Kurulum formunda gösterilen adım adım rehber (token alma gibi). */
+  guide?: readonly string[];
+  /** Rehberin başladığı resmi sayfa. */
+  guideUrl?: string;
+}
+
+/** Yerel girişlerin ihtiyaç duyduğu, ayrıca kurulması gereken çalıştırıcılar.
+ *  Kurulu değilse backend eklemeyi reddeder ve kurulum komutunu söyler. */
+const RUNNERS = ["npx", "uvx"] as const;
+export type ConnectorRunner = (typeof RUNNERS)[number];
+
+const CATALOG: readonly CatalogEntry[] = [
+  {
+    // Meta'nın barındırdığı MCP dinamik istemci kaydını reddediyor; client_id
+    // olmadan OAuth başlamıyor (ölçüldü, bkz. `McpServerConfig.token_env`).
+    // Aynı sunucu `Authorization: Bearer` kabul ettiği için kullanıcı kendi
+    // token'ını yapıştırarak uygulama kaydı ya da App Review olmadan bağlanır.
+    id: "meta-ads",
+    label: "Meta Reklamları",
+    description: "Facebook ve Instagram reklam hesapları, kampanyalar ve içgörüler.",
+    category: "Ticaret",
+    tint: "#0866ff",
+    glyph: "Me",
+    transport: "streamable_http",
+    url: "https://mcp.facebook.com/ads",
+    guideUrl: "https://business.facebook.com/settings/system-users",
+    // Adımlar Meta'nın sistem kullanıcısı akışına göre (30 Eylül 2026 araması:
+    // "Add assets", "Generate new token", süre "Never"). Token üretimi bir uygulama
+    // seçmeyi zorunlu kılar; uygulama App Review gerektirmez, kullanıcının kendisine aittir.
+    guide: [
+      "developers.facebook.com'da \"İşletme\" türünde bir uygulama oluştur (varsa bu adımı atla). İncelemeye göndermen gerekmez.",
+      "Meta İşletme Ayarları'nda Kullanıcılar → Sistem kullanıcıları'ndan bir sistem kullanıcısı ekle; çalışan rolü yeterli.",
+      "\"Varlık ekle\" (Add assets) ile reklam hesabını ve oluşturduğun uygulamayı bu kullanıcıya ata.",
+      "\"Yeni token oluştur\"a (Generate new token) bas, uygulamanı seç, süreyi \"Hiçbir zaman\" (Never) yap ve ads_read iznini işaretle; değişiklik yaptırmak istersen ads_management'ı da ekle.",
+      "Meta token'ı yalnız bir kez gösterir: kopyala ve aşağıya yapıştır. Şifreli depoda saklanır, yapılandırma dosyasına yazılmaz.",
+    ],
+    setup: [
+      {
+        id: "token",
+        label: "Meta erişim token'ı",
+        placeholder: "EAA…",
+        secret: true,
+        target: "token",
+      },
+    ],
+  },
+  // --- Banner (öne çıkan 3) ------------------------------------------------ //
+  {
+    id: "shopify",
+    label: "Shopify",
+    description: "Mağaza geliştirme dokümanları ve GraphQL şeması araçları.",
+    category: "Ticaret",
+    tint: "#5a8f3d",
+    glyph: "Sh",
+    transport: "stdio",
+    command: "npx -y @shopify/dev-mcp@latest",
+    featured: true,
+  },
+  {
+    id: "github",
+    label: "GitHub",
+    description: "Depo, konu, pull request ve kod araması; resmi uzak MCP.",
+    category: "Geliştirme",
+    tint: "#6e7681",
+    glyph: "GH",
+    transport: "streamable_http",
+    url: "https://api.githubcopilot.com/mcp/",
+    oauth: true,
+    featured: true,
+  },
+
+  // --- Katalog ------------------------------------------------------------- //
+  {
+    id: "notion",
+    label: "Notion",
+    description: "Sayfa, veritabanı ve içerik araçları; resmi uzak MCP.",
+    category: "Üretkenlik",
+    tint: "#8a8a86",
+    glyph: "No",
+    transport: "streamable_http",
+    url: "https://mcp.notion.com/mcp",
+    oauth: true,
+    featured: true,
+  },
+  {
+    id: "linear",
+    label: "Linear",
+    description: "Konu, proje ve döngü yönetimi; resmi uzak MCP.",
+    category: "Geliştirme",
+    tint: "#5b60d6",
+    glyph: "Li",
+    transport: "streamable_http",
+    url: "https://mcp.linear.app/mcp",
+    oauth: true,
+  },
+  {
+    id: "sentry",
+    label: "Sentry",
+    description: "Hata izleme ve olay ayrıntıları; resmi uzak MCP.",
+    category: "Geliştirme",
+    tint: "#8b5cf6",
+    glyph: "Se",
+    transport: "streamable_http",
+    url: "https://mcp.sentry.dev/mcp",
+    oauth: true,
+  },
+  {
+    id: "stripe",
+    label: "Stripe",
+    description: "Ödeme, müşteri ve fatura araçları; resmi uzak MCP.",
+    category: "Ticaret",
+    tint: "#635bff",
+    glyph: "St",
+    transport: "streamable_http",
+    url: "https://mcp.stripe.com/",
+    oauth: true,
+  },
+  {
+    id: "atlassian",
+    label: "Atlassian",
+    description: "Jira ve Confluence araçları; resmi uzak MCP.",
+    category: "Üretkenlik",
+    tint: "#2b7fff",
+    glyph: "At",
+    transport: "streamable_http",
+    url: "https://mcp.atlassian.com/v1/mcp",
+    oauth: true,
+  },
+  {
+    id: "cloudflare",
+    label: "Cloudflare",
+    description: "Workers, bağlamalar ve gözlemlenebilirlik; resmi uzak MCP.",
+    category: "Geliştirme",
+    tint: "#f38020",
+    glyph: "Cf",
+    transport: "streamable_http",
+    url: "https://bindings.mcp.cloudflare.com/mcp",
+    oauth: true,
+  },
+  {
+    id: "asana",
+    label: "Asana",
+    description: "Görev ve proje yönetimi; resmi uzak MCP.",
+    category: "Üretkenlik",
+    tint: "#f06a6a",
+    glyph: "As",
+    transport: "streamable_http",
+    url: "https://mcp.asana.com/v2/mcp",
+    oauth: true,
+  },
+  {
+    id: "vercel",
+    label: "Vercel",
+    description: "Dağıtım ve proje araçları; resmi uzak MCP.",
+    category: "Geliştirme",
+    tint: "#8b8b8b",
+    glyph: "Ve",
+    transport: "streamable_http",
+    url: "https://mcp.vercel.com",
+    oauth: true,
+  },
+  {
+    id: "postgres",
+    label: "PostgreSQL",
+    description: "Salt-okunur sorgu, şema inceleme ve sağlık analizi.",
+    category: "Veri",
+    tint: "#336791",
+    glyph: "Pg",
+    transport: "stdio",
+    // Salt-okunur kip: ajan veritabanında yazma sorgusu çalıştıramaz.
+    command: "uvx postgres-mcp --access-mode=restricted",
+    setup: [
+      {
+        id: "dsn",
+        label: "PostgreSQL bağlantı adresi",
+        placeholder: "postgresql://kullanici:parola@localhost/veritabani",
+        secret: true,
+        target: "environment",
+        environmentName: "DATABASE_URI",
+      },
+    ],
+  },
+  {
+    id: "filesystem",
+    label: "Dosya sistemi",
+    description: "Belirli bir klasörde güvenli dosya okuma ve yazma.",
+    category: "Araç",
+    tint: "#6b7280",
+    glyph: "Fs",
+    transport: "stdio",
+    command: "npx -y @modelcontextprotocol/server-filesystem",
+    setup: [
+      {
+        id: "root",
+        label: "İzin verilen klasör",
+        placeholder: "/Users/ad/Proje",
+        target: "argument",
+      },
+    ],
+  },
+  {
+    id: "brave-search",
+    label: "Brave Search",
+    description: "Web araması; Brave API anahtarı ister.",
+    category: "Araç",
+    tint: "#fb542b",
+    glyph: "Br",
+    transport: "stdio",
+    command: "npx -y @brave/brave-search-mcp-server",
+    setup: [
+      {
+        id: "api-key",
+        label: "Brave API anahtarı",
+        placeholder: "BSA…",
+        secret: true,
+        target: "environment",
+        environmentName: "BRAVE_API_KEY",
+      },
+    ],
+  },
+  {
+    id: "playwright",
+    label: "Playwright",
+    description: "Tarayıcıyı sürerek sayfa gezme, form doldurma ve ekran görüntüsü.",
+    category: "Araç",
+    tint: "#2ead33",
+    glyph: "Pw",
+    transport: "stdio",
+    command: "npx -y @playwright/mcp@latest",
+  },
+  {
+    id: "fetch",
+    label: "Fetch",
+    description: "URL getirme ve içeriği metne çevirme.",
+    category: "Araç",
+    tint: "#0ea5e9",
+    glyph: "Ft",
+    transport: "stdio",
+    command: "uvx mcp-server-fetch",
+  },
+  {
+    id: "sequential-thinking",
+    label: "Sıralı Düşünme",
+    description: "Adım adım muhakeme için yardımcı düşünme aracı.",
+    category: "Araç",
+    tint: "#10b981",
+    glyph: "Sq",
+    transport: "stdio",
+    command: "npx -y @modelcontextprotocol/server-sequential-thinking",
+  },
+  {
+    id: "figma",
+    label: "Figma",
+    description: "Tasarım dosyası ve düğüm bağlamı; Figma masaüstü geliştirme modu.",
+    category: "Araç",
+    tint: "#a259ff",
+    glyph: "Fi",
+    transport: "streamable_http",
+    url: "http://127.0.0.1:3845/mcp",
+  },
+];
+
+/** Öne çıkan banner girişleri (tam 3). */
+export const featuredConnectors: readonly CatalogEntry[] = CATALOG.filter((e) => e.featured);
+
+/** Banner dışında kalan katalog girişleri. */
+export const catalogConnectors: readonly CatalogEntry[] = CATALOG.filter((e) => !e.featured);
+
+/** Tüm katalog. */
+export const allConnectors: readonly CatalogEntry[] = CATALOG;
+
+/** Girişin çalışması için kurulu olması gereken çalıştırıcı (npx/uvx); yoksa null.
+ *  Komuttan türetilir: aynı bilgiyi ayrı bir alanda tekrar yazmak ayrışırdı. */
+export function requiredRunner(entry: CatalogEntry): ConnectorRunner | null {
+  if (entry.transport !== "stdio" || !entry.command) return null;
+  const first = entry.command.trim().split(/\s+/)[0];
+  return (RUNNERS as readonly string[]).includes(first) ? (first as ConnectorRunner) : null;
+}
+
+/** Bir katalog girişini `baglanti.ekle` RPC yüküne çevir. */
+export function addPayloadFor(
+  entry: CatalogEntry,
+  values: Readonly<Record<string, string>> = {},
+): Record<string, unknown> {
+  if (entry.transport === "stdio") {
+    const arguments_ = entry.setup
+      ?.filter((field) => field.target === "argument" || field.target === "secret_argument")
+      .map((field) =>
+        field.target === "secret_argument"
+          ? `__FUSION_SECRET__:${field.environmentName}`
+          : values[field.id],
+      )
+      .filter(Boolean);
+    const environment = Object.fromEntries(
+      (entry.setup ?? [])
+        .filter(
+          (field) =>
+            (field.target === "environment" || field.target === "secret_argument") &&
+            field.environmentName,
+        )
+        .map((field) => [field.environmentName!, values[field.id]]),
+    );
+    return {
+      ad: entry.id,
+      komut: entry.command,
+      ...(arguments_?.length ? { argumanlar: arguments_ } : {}),
+      ...(Object.keys(environment).length ? { ortam: environment } : {}),
+    };
+  }
+  return {
+    ad: entry.id,
+    tasima: entry.transport,
+    url: entry.url,
+    kapsamlar: entry.scopes ?? "",
+    client_id: "",
+    ...tokenField(entry, values),
+  };
+}
+
+/** Uzak sunucunun Bearer token'ı; alan yoksa ya da boşsa payload'a girmez. */
+function tokenField(entry: CatalogEntry, values: Readonly<Record<string, string>>): { token?: string } {
+  const field = entry.setup?.find((item) => item.target === "token");
+  const token = field ? values[field.id]?.trim() : "";
+  return token ? { token } : {};
+}

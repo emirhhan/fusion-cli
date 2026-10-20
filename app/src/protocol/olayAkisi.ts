@@ -1,0 +1,255 @@
+import type { GorevMaddesi, Mesaj, TakipOnerisi } from "../screens/Conversation";
+import { adimiEkle } from "./adimBirlestir";
+import { olayAdimi } from "./olayMetni";
+import { ekipOlayi } from "../team/ekipOlaylari";
+
+/**
+ * Olayı sohbet akışına ekle.
+ *
+ * Ardışık adımlar TEK bir çalışma bloğunda toplanır. Eskiden her olay ayrı bir
+ * satır açıyordu ve iki model çağrısı üst üste iki özdeş "model düşünüyor…"
+ * satırı olarak görünüyordu — kullanıcı bunu tekrar sandı, haklıydı.
+ *
+ * Turun sonucu ("görev tamamlandı") bloğa KATILMAZ: o bir adım değil, akışın
+ * kapanışıdır ve kendi satırında durur.
+ */
+export function olayEkle(gelen: Mesaj[], event: Record<string, unknown>): Mesaj[] {
+  // Alt ajan olayları ana bloğa değil, ajanın kendi kartına düşer.
+  const ekipSonuc = ekipOlayi(gelen, event);
+  if (ekipSonuc) return ekipSonuc;
+  const messages = event.olay === "ToolStarted" ? araAnlatimiSabitle(gelen) : gelen;
+  const akanSonuc = akanCevap(messages, event);
+  if (akanSonuc) return akanSonuc;
+
+  if (event.olay === "PreviewReady" && typeof event.url === "string") {
+    // Ajan siteyi çalıştırdı: sohbette tıklanabilir kart (aynı adres tekrar
+    // gelirse eski kart güncellenir, alt alta çoğalmaz).
+    const kart: Mesaj = {
+      rol: "onizleme",
+      metin: event.url,
+      onizleme: {
+        url: event.url,
+        baslik: typeof event.title === "string" ? event.title : undefined,
+        tur: typeof event.kind === "string" ? event.kind : undefined,
+      },
+    };
+    return [...araAnlatimiSabitle(messages).filter((m) => !(m.rol === "onizleme" && m.metin === event.url)), kart];
+  }
+
+  if (event.olay === "NarrationPublished") {
+    // Giriş paragrafı ve adım geçişleri adımların ARASINDA normal metin olarak
+    // durur (Claude gibi). Akmakta olan balon varsa önce ara anlatıma sabitlenir.
+    const metin = typeof event.text === "string" ? event.text.trim() : "";
+    if (!metin) return messages;
+    return [...araAnlatimiSabitle(messages), { rol: "asistan", metin, ara: true }];
+  }
+
+  const tokenSonuc = tokenEkle(messages, event);
+  if (tokenSonuc) return tokenSonuc;
+
+  const gorevSonuc = gorevListesi(messages, event);
+  if (gorevSonuc) return gorevSonuc;
+
+  const oneriSonuc = takipOnerileri(messages, event);
+  if (oneriSonuc) return oneriSonuc;
+
+  const adim = olayAdimi(event);
+  if (!adim) return messages;
+
+  if (adim.sonuc) {
+    return [...messages, { rol: "olay", metin: adim.metin, adimlar: [adim] }];
+  }
+
+  // Görev listesi kartı her güncellemede sona taşınır; bloğu BÖLMEMELİ.
+  // Ölçüldü (30 Eylül): her todo_write yeni blok açtırıyor, sohbet "4 adım ·",
+  // "3 adım ·" diye alt alta satırlara bölünüyordu.
+  const sonIndeks = sonBlokIndeksi(messages);
+  const son = sonIndeks >= 0 ? messages[sonIndeks] : undefined;
+  const bloklanabilir = son?.rol === "olay" && !son.adimlar?.some((item) => item.sonuc);
+  if (!bloklanabilir) {
+    // Aynı turun önceki bloğu varsa sayaç ONUN başlangıcından sürer. Ölçüldü
+    // (28 Eylül): araya bir cevap parçası girince yeni blok açılıyor ve
+    // "düşünüyor 25 sn" tur ortasında 0'a dönüyordu.
+    const baslangicZamani = turunBaslangici(messages) ?? Date.now();
+    const tokenSayisi = turunTokeni(messages);
+    // Bloğun başlangıcı BURADA damgalanır: `ActivityLine`'daki süre sayacı
+    // bileşen yeniden bağlansa bile (sekme değişimi) bu sabit zamandan
+    // hesaplar; `Date.now()` bir bileşen ref'inde tutulsaydı yeniden
+    // bağlanınca kaybolurdu.
+    // Diff akışa ayrı kart olarak DÜŞMEZ: adım satırının içinde durur ve satır
+    // açılınca görünür (Claude'daki gibi). Kod ve uzun çıktı akışı kaplamaz.
+    return [
+      ...messages,
+      { rol: "olay", metin: adim.metin, adimlar: [adim], baslangicZamani, tokenSayisi },
+    ];
+  }
+
+  const adimlar = adimiEkle(son?.adimlar ?? [], adim);
+  const guncel = [...messages];
+  guncel[sonIndeks] = { ...(son as Mesaj), adimlar, metin: adim.metin };
+  return guncel;
+}
+
+/** Sondaki görev listesi kartı atlanarak son mesajın konumu. */
+function sonBlokIndeksi(messages: Mesaj[]): number {
+  let indeks = messages.length - 1;
+  while (indeks >= 0 && messages[indeks].rol === "gorevler") indeks -= 1;
+  return indeks;
+}
+
+/**
+ * Araç başlarken akmakta olan metin bir ARA ANLATIMDIR ("Şimdi testleri
+ * çalıştırıyorum…"): aynı model çağrısı metinden sonra araç istedi. Eskiden bu
+ * metin sonraki model çağrısında siliniyordu ve kullanıcı adımlar arasındaki
+ * açıklamayı hiç göremiyordu. Nihai cevap asla araçtan önce gelmediği için
+ * yalnız bu noktada sabitlemek, nihai cevabı iki kez göstermez.
+ */
+function araAnlatimiSabitle(messages: Mesaj[]): Mesaj[] {
+  const son = messages[messages.length - 1];
+  if (son?.rol !== "asistan" || !son.akan) return messages;
+  if (!son.metin.trim()) return messages.slice(0, -1);
+  const { akan: _streaming, ...stable } = son;
+  return [...messages.slice(0, -1), { ...stable, rol: "asistan", metin: son.metin, ara: true }];
+}
+
+/** Araç çıktısındaki işaretlerin durum karşılığı. */
+const GOREV_DURUMU: Record<string, GorevMaddesi["durum"]> = {
+  "☐": "bekliyor",
+  "▶": "yapiliyor",
+  "☒": "bitti",
+};
+
+/**
+ * Modelin görev listesini canlı kart olarak göster.
+ *
+ * `todo_write` aracı çalışıyordu ama çıktısı akışta sıradan bir "araç çalıştı"
+ * satırıydı: kullanıcı planın neresinde olunduğunu göremiyordu. Liste TEK kart
+ * olarak durur ve her güncellemede yerine geçer; çoğalması planı okunmaz yapardı.
+ */
+function gorevListesi(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
+  if (event.olay !== "ToolExecuted" || event.name !== "todo_write") return null;
+  if (event.outcome !== undefined && event.outcome !== "ok") return null;
+  const cikti = typeof event.output === "string" ? event.output : "";
+  const gorevler: GorevMaddesi[] = [];
+  for (const satir of cikti.split("\n")) {
+    const kirpik = satir.trim();
+    const durum = GOREV_DURUMU[kirpik.slice(0, 1)];
+    if (!durum) continue;
+    const metin = kirpik.slice(1).trim();
+    if (metin) gorevler.push({ durum, metin });
+  }
+  if (gorevler.length === 0) return messages;
+  const eskisiz = messages.filter((mesaj) => mesaj.rol !== "gorevler");
+  return [...eskisiz, { rol: "gorevler", metin: "Görevler", gorevler }];
+}
+
+/**
+ * Model yazarken metni canlı göster.
+ *
+ * Çekirdek `TokenReceived` olaylarını zaten gönderiyordu ama arayüz onları
+ * yok sayıyordu: cevap ancak tur bitince, tek parça hâlinde düşüyordu. Claude'da
+ * metin yazıldıkça görünür; ölçüldü (17 Eylül denetimi) — bekleyen kullanıcı
+ * turun ilerleyip ilerlemediğini göremiyordu.
+ *
+ * Akan balon GEÇİCİDİR: tur bitince kalkar, nihai cevabı uygulama ekler. Böylece
+ * motorun kabul etmediği ara metin kalıcı cevap gibi durmaz.
+ */
+function akanCevap(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
+  const olay = String(event.olay ?? "");
+  if (olay === "TokenReceived") {
+    // Arka plan çağrıları (ders çıkarımı, özet) kullanıcının cevabı değildir.
+    if (event.channel !== undefined && event.channel !== "main") return messages;
+    const parca = typeof event.text === "string" ? event.text : "";
+    if (!parca) return messages;
+    const son = messages[messages.length - 1];
+    if (son?.rol === "asistan" && son.akan) {
+      const guncel: Mesaj = { ...son, metin: son.metin + parca };
+      return [...messages.slice(0, -1), guncel];
+    }
+    return [...messages, { rol: "asistan", metin: parca, akan: true }];
+  }
+  if (olay === "ModelCallStarted" || olay === "TurnFinished" || olay === "TurnAnswered") {
+    // Yeni çağrı yeni metin demektir; biten tur ise nihai cevaba yerini bırakır.
+    const temiz = messages.filter((mesaj) => !(mesaj.rol === "asistan" && mesaj.akan));
+    if (olay !== "ModelCallStarted") {
+      let boundary = -1;
+      temiz.forEach((message, index) => { if (message.rol === "kullanici") boundary = index; });
+      const finishedAt = Date.now();
+      return temiz.map((message, index) => index > boundary && message.baslangicZamani !== undefined && message.bitisZamani === undefined
+        ? { ...message, bitisZamani: finishedAt } : message);
+    }
+    return temiz.length === messages.length ? null : (olayEkle(temiz, event) as Mesaj[]);
+  }
+  return null;
+}
+
+
+
+/**
+ * Tur sonundaki takip önerilerini akışa ekle.
+ *
+ * Öneriler adım DEĞİLDİR: çalışma bloğuna katılmaz, turun kapanışının ardına
+ * kendi satırında düşer. Boş liste hiç mesaj açmaz — kanıt yoksa öneri de yok
+ * (bkz. `core/followups.py`).
+ */
+function takipOnerileri(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
+  if (event.olay !== "FollowupsSuggested") return null;
+  const ham = Array.isArray(event.items) ? event.items : [];
+  const oneriler: TakipOnerisi[] = ham
+    .filter((item): item is [string, string] =>
+      Array.isArray(item) && typeof item[0] === "string" && typeof item[1] === "string",
+    )
+    .map(([etiket, gorev]) => ({ etiket, gorev }));
+  if (oneriler.length === 0) return messages;
+  return [...messages, { rol: "oneriler", metin: "", oneriler }];
+}
+
+/**
+ * Ön plan model çağrısının çıktı token'ını turun son bloğuna ekle.
+ *
+ * Claude'un durum satırı "9m 14s · 2.0k tokens" der; çekirdek kullanımı
+ * `ModelCallFinished.result.usage` içinde zaten gönderiyordu, arayüz okumuyordu.
+ * Sağlayıcı kullanım bildirmezse (web oturumları) sayı uydurulmaz, satırda yer
+ * almaz. Arka plan çağrıları (hakem, öz-denetim) kullanıcının turu sayılmaz.
+ */
+function tokenEkle(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
+  if (event.olay !== "ModelCallFinished" || event.background === true) return null;
+  const sonuc = event.result as { usage?: { completion_tokens?: unknown } } | undefined;
+  const adet = sonuc?.usage?.completion_tokens;
+  if (typeof adet !== "number" || adet <= 0) return null;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const mesaj = messages[index];
+    if (mesaj.rol === "kullanici") return null;
+    if (mesaj.rol === "olay" && !mesaj.adimlar?.some((item) => item.sonuc)) {
+      const guncel = [...messages];
+      guncel[index] = { ...mesaj, tokenSayisi: (mesaj.tokenSayisi ?? 0) + adet };
+      // Olay ayrıca adım olarak da işlenebilir (düşünme metni); sayaç güncellendi.
+      const adim = olayAdimi(event);
+      return adim ? olayEkle(guncel, { ...event, result: { ...(event.result as object), usage: undefined } }) : guncel;
+    }
+  }
+  return null;
+}
+
+/** Turun önceki bloklarının token toplamı; yeni blok sayacı oradan sürdürür. */
+function turunTokeni(messages: Mesaj[]): number | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const mesaj = messages[index];
+    if (mesaj.rol === "kullanici") return undefined;
+    if (mesaj.rol === "olay" && mesaj.tokenSayisi !== undefined) return mesaj.tokenSayisi;
+  }
+  return undefined;
+}
+
+/** Turun (son kullanıcı mesajından sonraki) ilk bloğunun başlangıç zamanı. */
+function turunBaslangici(messages: Mesaj[]): number | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const mesaj = messages[index];
+    if (mesaj.rol === "kullanici") return undefined;
+    if (mesaj.rol === "olay" && mesaj.baslangicZamani !== undefined) {
+      const onceki = turunBaslangici(messages.slice(0, index));
+      return onceki ?? mesaj.baslangicZamani;
+    }
+  }
+  return undefined;
+}

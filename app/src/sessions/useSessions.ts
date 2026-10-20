@@ -1,0 +1,882 @@
+import { historyMessages } from "./history";
+import { deleteSubmissions, moveSubmissions, loadSubmissions, saveSubmission, updateSubmission } from "./submissionPersistence";
+import { decodeDeliveryEvidence } from "../protocol/deliveryEvidence";
+import { normalizeSubmissionReceipt, type SubmissionReceipt } from "./submission";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { ProtocolClient } from "../protocol/client";
+import { baglamOlcusuOku, type BaglamOlcusu, type Soru } from "../protocol/types";
+import { initialSessionState, sessionReducer } from "./store";
+import { loadSessionView, saveSessionView } from "./persistence";
+import { isProjectRoot, projectName } from "./projectRoots";
+import { DEFAULT_TITLE } from "./title";
+import type {
+  VoiceTurnMetadata,
+  BackendSessionSnapshot,
+  NewSession,
+  ResumeSession,
+  SessionClosedEvent,
+  SessionLineEvent,
+  SessionAttachment,
+  SessionTransport,
+  StoredConversation,
+} from "./types";
+
+const DEFAULT_SESSION_ID = "varsayilan";
+//: Açılışta geri açılacak en fazla sekme.
+//
+// Sınır bir tercih değil, koruma: 110 sohbeti olan bir kullanıcıda hepsini
+// açmak her biri için ayrı bir çekirdek süreci başlatırdı. Gerisi saklı
+// sohbet listesinden tek tıkla açılır.
+const MAX_RESTORED_SESSIONS = 8;
+const CORE_CLOSED = "Bu konuşmanın çekirdeği beklenmedik şekilde kapandı.";
+/** Gerçek terminal sonuç gelmezse bu sürede bekleme uyarısı ve retry açılır.
+ * Kuyruk/admission kilidi yalnız asıl turn promise'i kapanınca bırakılır. */
+const TUR_IPTAL_GUVENLI_SURE_MS = 5_000;
+export type WorkspaceMode = "sohbet" | "kod";
+
+export function storedWorkspaceMode(id: string): WorkspaceMode | null {
+  try {
+    const value = localStorage.getItem(`fusion.session-mode.${id}`);
+    return value === "sohbet" || value === "kod" ? value : null;
+  } catch { return null; }
+}
+
+export function saveWorkspaceMode(id: string, mode: WorkspaceMode): void {
+  try { localStorage.setItem(`fusion.session-mode.${id}`, mode); } catch { /* Private storage can be unavailable. */ }
+}
+
+export const tauriSessionTransport: SessionTransport = {
+  create: (id, root) =>
+    invoke<BackendSessionSnapshot>("oturum_olustur", {
+      oturumId: id,
+      kok: root ?? null,
+    }),
+  send: (id, line) => invoke("oturuma_yaz", { oturumId: id, satir: line }),
+  close: (id) => invoke("oturum_kapat", { oturumId: id }),
+  list: () => invoke<BackendSessionSnapshot[]>("oturumlari_listele"),
+  onLine: (handler) =>
+    listen<SessionLineEvent>("oturum-satir", (event) => handler(event.payload)),
+  onClosed: (handler) =>
+    listen<SessionClosedEvent>("oturum-kapandi", (event) => handler(event.payload)),
+};
+
+/**
+ * Kalan bağlamı çekirdekten oku. Tek ölçü kaynağı `oturum.durum`dur: geçmiş
+ * tur sonunda, komutla (`/compact`, `/clear`) ya da devralmayla değişir ve her
+ * seferinde aynı yoldan okunur.
+ */
+/** Ham `oturum.durum` sayısını doğrula; negatif/sonsuz/eksikse `null`. */
+function maliyetOku(deger: unknown): number | null {
+  return typeof deger === "number" && Number.isFinite(deger) && deger >= 0 ? deger : null;
+}
+
+function olcuyuTazele(
+  id: string,
+  client: ProtocolClient,
+  dispatch: (action: {
+    type: "contextMeasured";
+    id: string;
+    baglam: BaglamOlcusu | null;
+    maliyetUsd: number | null;
+    depoProjeleri: string[];
+  }) => void,
+): void {
+  void client
+    .request("oturum.durum", {})
+    .then((result) =>
+      dispatch({
+        type: "contextMeasured",
+        id,
+        baglam: baglamOlcusuOku(result.baglam),
+        maliyetUsd: maliyetOku(result.maliyet_usd),
+        depoProjeleri: depoOku(result.depo),
+      }),
+    )
+    // Çekirdek kapandıysa gösterge son ölçüde kalır; kapanış ayrıca bildirilir.
+    .catch(() => undefined);
+}
+
+/** `oturum.durum.depo`: yalnız metin dizisi kabul edilir; başka her şey boş liste. */
+function depoOku(deger: unknown): string[] {
+  return Array.isArray(deger) ? deger.filter((item): item is string => typeof item === "string") : [];
+}
+
+export function nextSessionId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `oturum-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+export function useSessions(transport: SessionTransport = tauriSessionTransport) {
+  const [state, dispatch] = useReducer(sessionReducer, initialSessionState);
+  const persistedView = useRef(
+    typeof window === "undefined" ? null : loadSessionView(() => window.localStorage),
+  );
+  const answerDecisions = useRef(new WeakMap<object, string>());
+  const answersInFlight = useRef(new WeakSet<object>());
+  const admissions = useRef(new Map<string, (receipt: SubmissionReceipt) => void>());
+  const attempts = useRef(new Map<string, string>());
+  const retryRequests = useRef(new Set<string>());
+  const generations = useRef(new Map<string, number>());
+  const expectedTurns = useRef(new Map<string, string>());
+  const queuedRestores = useRef(new Set<string>());
+  const clients = useRef(new Map<string, ProtocolClient>());
+  const clientRoots = useRef(new Map<string, string>());
+  const deletedIds = useRef(new Set<string>());
+  const lineHandlers = useRef(new Map<string, (line: string) => void>());
+  const requestedClose = useRef(new Set<string>());
+  const runningRequests = useRef(new Set<string>());
+  //: Tur sürerken yazılan mesajlar. Claude'da mesaj kaybolmaz, sıraya girer;
+  //: ölçüldü (17 Eylül) — Fusion ikinci mesajı reddedip yazılanı çöpe atıyordu.
+  const kuyruk = useRef(new Map<string, { task: string; attachments: SessionAttachment[]; voice?: VoiceTurnMetadata; requestId: string }[]>());
+  //: Temizlik doğrulanmazsa yalnız hata bildir; çalışan işin kabul kilidi açılmaz.
+  const iptalZamanlayicilari = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  //: Kuyruk sürülürken taze oturum haritası gerekir; `send` kapanışı eskimiş olur.
+  const oturumlarRef = useRef(state.sessions);
+  oturumlarRef.current = state.sessions;
+  const mounted = useRef(false);
+  const [stored, setStored] = useState<StoredConversation[]>([]);
+  const storedRef = useRef<StoredConversation[]>([]);
+  storedRef.current = stored;
+
+  const connect = useCallback(
+    async (input: NewSession = {}, publish = true) => {
+      const id = input.id ?? nextSessionId();
+      requestedClose.current.delete(id);
+      const existing = clients.current.get(id);
+      if (existing) {
+        if (publish) dispatch({ type: "selected", id });
+        return { id, client: existing, snapshot: null };
+      }
+
+      const snapshot = await transport.create(id, input.root);
+      if (!mounted.current) throw new Error("Oturum görünümü kapandı.");
+      const client = new ProtocolClient(
+        (line) => {
+          void transport.send(id, line).catch((reason) => {
+            const message = String(reason);
+            client.close(message);
+            dispatch({ type: "crashed", id, reason: message });
+          });
+        },
+        (handler) => lineHandlers.current.set(id, handler),
+      );
+      client.onEvent((event) => {
+        if (event.olay === "GonderimMakbuzu" && typeof event.gonderim_id === "string") {
+          const normalized = normalizeSubmissionReceipt(event);
+          if (!normalized || normalized.sessionId !== id || attempts.current.get(id) !== normalized.requestId) return;
+          const expectedTurn = expectedTurns.current.get(id);
+          if (expectedTurn && normalized.turnId !== expectedTurn) return;
+          admissions.current.get(event.gonderim_id)?.({ requestId: event.gonderim_id, sessionId: id,
+            turnId: typeof event.tur_id === "string" ? event.tur_id : null,
+            state: String(event.durum), error: typeof event.hata_kodu === "string" ? event.hata_kodu : null });
+          admissions.current.delete(event.gonderim_id);
+          try { updateSubmission(id, event.gonderim_id, String(event.durum), normalized.turnId ?? undefined); }
+          catch { dispatch({type: "messageAdded", id, message: {rol: "asistan", hata: true, metin: "Gönderim makbuzu yerel olarak saklanamadı."}}); }
+          event = { ...event, turn_id: event.tur_id, session_id: id };
+        }
+        if (event.olay === "SoruKapandi" && typeof event.id === "string") {
+          dispatch({ type: "questionClosed", id, questionId: event.id });
+          return;
+        }
+        dispatch({ type: "eventReceived", id, event });
+      });
+      client.onQuestion((questionId, data) => {
+        if (data.tur === "onay" || data.tur === "soru") {
+          dispatch({
+            type: "questionChanged",
+            id,
+            question: { id: questionId, data: data as unknown as Soru },
+          });
+        }
+      });
+      clients.current.set(id, client);
+      clientRoots.current.set(id, snapshot.kok);
+      // Sekme kimliği HER bağlanmada bildirilir. Ölçüldü (kullanıcının diski):
+      // `resume` yolu kimliği hiç göndermiyordu, çekirdek de rastgele bir kimlik
+      // üretiyordu; o konuşmalara bir daha ulaşılamıyordu.
+      // Her sohbet kod kipinde açılır. Konuşma kipi dosya yazamaz ve komut
+      // çalıştıramaz; model bunu söylemeden "yaptım" diyordu (Summertime Saga
+      // sohbetleri, 19 Ekim). Kullanıcı kipi sohbet başına değiştirebilir.
+      const workspaceMode = storedWorkspaceMode(id) ?? input.mode ?? "kod";
+      saveWorkspaceMode(id, workspaceMode);
+      const baslatildi = client.request("oturum.baslat", { sohbet_id: id, kip: workspaceMode }).catch(() => undefined);
+      if (publish) {
+        dispatch({
+          type: "created",
+          session: {
+            id,
+            title: input.title ?? DEFAULT_TITLE,
+            updatedAt: input.updatedAt,
+            source: input.source ?? "fusion",
+            root: snapshot.kok,
+            pid: snapshot.pid,
+            client,
+          },
+        });
+        // Geçmiş, sekme kimliği arka uca bildirildikten SONRA istenir: kimliksiz
+        // sorulursa proje genelindeki başka bir konuşma yüklenir.
+        void baslatildi
+          .then(() => client.request("oturum.gecmis", {}))
+          .then((result) => {
+            if (!Array.isArray(result.mesajlar)) return;
+            const messages = historyMessages(result.mesajlar);
+            dispatch({ type: "historyLoaded", id, messages });
+            queuedRestores.current.add(id);
+          })
+          .catch(() => undefined)
+          // Geri açılan sohbet dolu olabilir: gösterge ilk mesajı beklemesin.
+          .finally(() => olcuyuTazele(id, client, dispatch));
+      }
+      return { id, client, snapshot };
+    },
+    [transport],
+  );
+
+  const create = useCallback(
+    async (input: NewSession = {}) => (await connect(input)).id,
+    [connect],
+  );
+
+  const resume = useCallback(
+    async (input: ResumeSession) => {
+      const connection = await connect(
+        {
+          title: `[${input.source}] ${input.title}`,
+          source: input.source,
+          root: input.root,
+        },
+        false,
+      );
+      if (!connection.snapshot) {
+        throw new Error("Devralma için yeni bir konuşma oluşturulamadı.");
+      }
+      try {
+        const result = await connection.client.request("gecmis.surdur", {
+          kaynak: input.source,
+          oturum_id: input.sessionId,
+        });
+        if (result.ok !== true) {
+          throw new Error(typeof result.metin === "string" ? result.metin : "Geçmiş devralınamadı.");
+        }
+        dispatch({
+          type: "created",
+          session: {
+            id: connection.id,
+            title: `[${input.source}] ${input.title}`,
+            source: input.source,
+            root: connection.snapshot.kok,
+            pid: connection.snapshot.pid,
+            client: connection.client,
+          },
+        });
+        void connection.client.request("oturum.gecmis", {}).then((history) => {
+          if (!Array.isArray(history.mesajlar)) return;
+          const messages = historyMessages(history.mesajlar);
+          dispatch({ type: "historyLoaded", id: connection.id, messages });
+        }).catch(() => undefined);
+        olcuyuTazele(connection.id, connection.client, dispatch);
+        return {
+          id: connection.id,
+          secretCount: typeof result.sir_sayisi === "number" ? result.sir_sayisi : 0,
+        };
+      } catch (reason) {
+        connection.client.close();
+        clients.current.delete(connection.id);
+        lineHandlers.current.delete(connection.id);
+        requestedClose.current.add(connection.id);
+        await transport.close(connection.id).catch(() => undefined);
+        throw reason;
+      }
+    },
+    [connect, transport],
+  );
+
+  const restoreSessions = useCallback(async () => {
+    // Kaydedilmiş sekmeler zaten yazılıyordu; yalnız okunmuyordu. Ölçüldü
+    // (kullanıcının makinesi, 7-8 Eylül): her açılışta tek ve sabit kimlikli bir
+    // sekme açılıyor, dünkü konuşmalara giden yol tamamen kapanıyordu.
+    const saved = persistedView.current?.sessions ?? [];
+    const restorable = [...saved]
+      .sort((left, right) => left.updatedAt - right.updatedAt)
+      .slice(-MAX_RESTORED_SESSIONS);
+    if (restorable.length === 0) {
+      // Boş kayıt, son sohbetin silindiğini gösterir; eski sabit kimliği diriltme.
+      await create(persistedView.current ? {} : { id: DEFAULT_SESSION_ID, mode: "kod" });
+      return;
+    }
+    for (const session of restorable) {
+      await connect({
+        id: session.id,
+        title: session.title,
+        source: session.source,
+        root: session.root,
+        updatedAt: session.updatedAt,
+      }).catch(() => undefined);
+    }
+    const activeId = persistedView.current?.activeId;
+    if (activeId && restorable.some((session) => session.id === activeId)) {
+      dispatch({ type: "selected", id: activeId });
+    }
+  }, [connect, create]);
+
+  const refreshStored = useCallback(async () => {
+    // Liste AÇIK sekmeden istenir: çekirdek kendi kökündeki sohbetleri bilir.
+    const entry = clients.current.entries().next().value;
+    if (!entry) return;
+    const [clientId, client] = entry;
+    const result = await client.request("sohbet.listele", {}).catch(() => null);
+    if (!result || !Array.isArray(result.sohbetler)) return;
+    const rows: StoredConversation[] = result.sohbetler.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const row = item as Record<string, unknown>;
+      if (typeof row.sohbet_id !== "string" || typeof row.baslik !== "string") return [];
+      if (deletedIds.current.has(row.sohbet_id)) return [];
+      return [{
+        id: row.sohbet_id,
+        root: typeof row.kok === "string" ? row.kok : clientRoots.current.get(clientId) ?? "",
+        title: row.baslik,
+        updatedAt: typeof row.guncelleme === "number" ? row.guncelleme : 0,
+        messageCount: typeof row.mesaj_sayisi === "number" ? row.mesaj_sayisi : 0,
+      }];
+    });
+    setStored(rows);
+  }, []);
+
+  const openStored = useCallback(
+    async (id: string, root?: string) => {
+      const known = storedRef.current.find((item) => item.id === id);
+      await connect({ id, title: known?.title ?? DEFAULT_TITLE, root: root ?? known?.root, updatedAt: known ? known.updatedAt * 1000 : undefined });
+      dispatch({ type: "selected", id });
+    },
+    [connect],
+  );
+
+  useEffect(() => {
+    mounted.current = true;
+    let active = true;
+    let unlistenLine: (() => void) | null = null;
+    let unlistenClosed: (() => void) | null = null;
+
+    const install = async () => {
+      try {
+        const listeners = await Promise.all([
+          transport.onLine((event) => lineHandlers.current.get(event.oturum_id)?.(event.satir)),
+          transport.onClosed((event) => {
+            const client = clients.current.get(event.oturum_id);
+            client?.close(CORE_CLOSED);
+            clients.current.delete(event.oturum_id);
+            lineHandlers.current.delete(event.oturum_id);
+            if (requestedClose.current.has(event.oturum_id)) {
+              dispatch({ type: "statusChanged", id: event.oturum_id, status: "closed" });
+            } else {
+              dispatch({
+                type: "crashed",
+                id: event.oturum_id,
+                reason: event.neden || CORE_CLOSED,
+              });
+            }
+          }),
+        ]);
+        if (!active) {
+          listeners.forEach((unlisten) => unlisten());
+          return;
+        }
+        [unlistenLine, unlistenClosed] = listeners;
+        await restoreSessions();
+        // Saklı sohbetler açılışta bir kez okunur: liste kullanıcıya
+        // "nereye dönebilirim" sorusunun cevabıdır, sekmelerden bağımsızdır.
+        await refreshStored();
+      } catch (reason) {
+        if (active) dispatch({ type: "connectionFailed", reason: String(reason) });
+      }
+    };
+    void install();
+
+    const ownedClients = clients.current;
+    const ownedHandlers = lineHandlers.current;
+    const ownedClose = requestedClose.current;
+    const ownedRunning = runningRequests.current;
+    const ownedTimers = iptalZamanlayicilari.current;
+    return () => {
+      active = false;
+      mounted.current = false;
+      unlistenLine?.();
+      unlistenClosed?.();
+      ownedClients.forEach((client) => client.close());
+      ownedClients.clear();
+      ownedHandlers.clear();
+      ownedClose.clear();
+      ownedRunning.clear();
+      ownedTimers.forEach((zamanlayici) => clearTimeout(zamanlayici));
+      ownedTimers.clear();
+    };
+  }, [refreshStored, restoreSessions, transport]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // İlk yüklemede kayıtları koru; başarılı silme sonrası boş görünümü de sakla.
+    if (state.order.length === 0 && deletedIds.current.size === 0) return;
+    saveSessionView(() => window.localStorage, state);
+  }, [state]);
+
+  const send = useCallback(
+    (id: string, task: string, attachments: SessionAttachment[] = [], recordMessage = true, voice?: VoiceTurnMetadata, requestId = nextSessionId()) => {
+      const session = state.sessions[id];
+      if (!session || !task.trim() || session.status !== "ready") return false;
+      try {
+        saveSubmission({requestId, sessionId: id, root: session.root, task, attachments, voice,
+          state: session.running || runningRequests.current.has(id) ? "queued" : "pending"});
+      } catch {
+        dispatch({type: "messageAdded", id, message: {rol: "asistan", hata: true,
+          metin: "Gönderim taslağı saklanamadı. Depolamayı kontrol edip yeniden dene."}});
+        return false;
+      }
+      if (session.running || runningRequests.current.has(id)) {
+        // Zaten çalışıyor: mesaj sıraya girer (aşağıda), tur bitince sürülür.
+        // Sıraya al ve kullanıcıya YAZDIĞINI GÖSTER: bekleyen mesajın görünmemesi
+        // "gitti mi, gitmedi mi?" sorusunu doğuruyordu.
+        const bekleyen = kuyruk.current.get(id) ?? [];
+        kuyruk.current.set(id, [...bekleyen, { task, attachments, voice, requestId }]);
+        if (recordMessage) {
+          dispatch({
+            type: "messageAdded",
+            id,
+            message: {
+              id: `${requestId}:user`,
+              rol: "kullanici",
+              metin: task,
+              ...(attachments.length > 0 ? { ekler: attachments } : {}),
+            },
+          });
+        }
+        return true;
+      }
+      runningRequests.current.add(id);
+      dispatch({ type: "runningChanged", id, running: true });
+      // Ekler mesajla birlikte KAYDEDİLİR: gönderdikten sonra composer temizlenir
+      // ve aksi hâlde kullanıcının ne gönderdiğinin geçmişte hiçbir izi kalmaz.
+      // Makro turunda kullanıcının yazdığı `/goal …` satırı zaten kayıtlıdır.
+      if (recordMessage) {
+        dispatch({
+          type: "messageAdded",
+          id,
+          message: {
+            id: `${requestId}:user`,
+            rol: "kullanici",
+            metin: task,
+            ...(attachments.length > 0 ? { ekler: attachments } : {}),
+          },
+        });
+      }
+      if (session.title === DEFAULT_TITLE) {
+        // Başlık çekirdekten TURDAN ÖNCE istenir: model çağrılmaz, saf bir
+        // sezgiseldir ve tur sürerken de hemen cevaplanır. İstek başarısız
+        // olursa sekme varsayılan adında kalır.
+        void session.client
+          .request("sohbet.baslik", { metin: task })
+          .then((result) => {
+            if (result.ok === true && typeof result.baslik === "string") {
+              dispatch({ type: "titleSuggested", id, title: result.baslik });
+            }
+          })
+          .catch(() => undefined);
+      }
+      baslatRef.current?.(id, task, attachments, voice, requestId);
+      return true;
+    },
+    [state.sessions],
+  );
+
+  /** Yalnız gerçek terminal sonuç veya bağlantı kapanışı kabul kilidini bırakır. */
+  const turuTamamla = (id: string, client: ProtocolClient, requestId?: string, generation?: number) => {
+    if (generation !== undefined && generations.current.get(id) !== generation) return;
+    if (requestId && attempts.current.get(id) !== requestId) return;
+    const zamanlayici = iptalZamanlayicilari.current.get(id);
+    if (zamanlayici !== undefined) {
+      clearTimeout(zamanlayici);
+      iptalZamanlayicilari.current.delete(id);
+    }
+    runningRequests.current.delete(id);
+    dispatch({ type: "runningChanged", id, running: false });
+    // Geçmiş tur SONUNDA büyür ve gerekirse özetlenir; ölçü de şimdi eskidi.
+    olcuyuTazele(id, client, dispatch);
+    const bekleyen = kuyruk.current.get(id) ?? [];
+    const sonraki = bekleyen.shift();
+    kuyruk.current.set(id, bekleyen);
+    // Kuyruktaki mesaj kullanıcı mesajı olarak ZATEN eklendi; yeniden ekleme.
+    // Doğrudan başlatılır: React durumu henüz "çalışmıyor"a dönmemiş olabilir
+    // ve normal `send` yolu mesajı tekrar kuyruğa atardı.
+    if (sonraki) baslatRef.current?.(id, sonraki.task, sonraki.attachments, sonraki.voice, sonraki.requestId);
+  };
+
+  //: Turu çekirdeğe gönderen TEK yol: hem `send` hem kuyruk buradan geçer.
+  //: Kuyruğu sürerken taze oturum haritası gerekir; `send` kapanışı eskimiş olur.
+  const baslatRef = useRef<
+    ((id: string, task: string, attachments: SessionAttachment[], voice?: VoiceTurnMetadata, requestId?: string) => void) | null
+  >(null);
+  baslatRef.current = (id, task, attachments, voice, requestId = nextSessionId()) => {
+    const generation = (generations.current.get(id) ?? 0) + 1;
+    generations.current.set(id, generation);
+    attempts.current.set(id, requestId);
+    const isRetry = retryRequests.current.delete(requestId);
+    let expectedTurnId: string | undefined;
+    try {
+      const previous = loadSubmissions(id).find((entry) => entry.requestId === requestId)?.turnId;
+      if (isRetry && previous) expectedTurnId = `${requestId}:${Number(previous.split(":").slice(-1)[0]) + 1}`;
+    } catch { /* Gönderim snapshot'ı send sınırında doğrulandı. */ }
+    if (expectedTurnId) expectedTurns.current.set(id, expectedTurnId);
+    else expectedTurns.current.delete(id);
+    dispatch({ type: "submissionStarted", id, requestId, expectedTurnId });
+    const session = oturumlarRef.current[id];
+    if (!session || session.status !== "ready") return;
+    runningRequests.current.add(id);
+    dispatch({ type: "runningChanged", id, running: true });
+    void session.client
+      .request("tur.calistir", { gorev: task, gonderim_id: requestId, ekler: attachments, ...(isRetry ? { yeniden_dene: true } : {}), ...(voice !== undefined ? { sesli: voice } : {}) })
+      .then((result) => {
+        if (attempts.current.get(id) !== requestId || generations.current.get(id) !== generation) return;
+        const raw = result.makbuz as Record<string, unknown> | undefined;
+        admissions.current.get(requestId)?.({requestId, sessionId: id,
+          turnId: typeof raw?.tur_id === "string" ? raw.tur_id : null,
+          state: typeof raw?.durum === "string" ? raw.durum : result.ok === false ? "failed" : "completed",
+          error: result.ok === false ? String(result.metin ?? "Gönderim reddedildi") : null});
+        admissions.current.delete(requestId);
+        try { updateSubmission(id, requestId, String(raw?.durum ?? (result.ok === false ? "failed" : "completed")), typeof raw?.tur_id === "string" ? raw.tur_id : undefined); }
+        catch { dispatch({type: "messageAdded", id, message: {rol: "asistan", hata: true, metin: "Gönderim sonucu yerel olarak saklanamadı."}}); }
+        const text = typeof result.metin === "string" ? result.metin : "";
+        const hata = result.ok === false ? { hata: true } : {};
+        const delivery = decodeDeliveryEvidence(result.kanit);
+        if (text || delivery) dispatch({ type: "messageAdded", id, message: { id: `${requestId}:assistant`, submissionId: requestId, rol: "asistan", metin: text, ...(delivery ? {delivery} : {}), ...hata } });
+      })
+      .catch((reason) => {
+        if (attempts.current.get(id) !== requestId || generations.current.get(id) !== generation) return;
+        admissions.current.get(requestId)?.({requestId, sessionId: id, turnId: null, state: "failed", error: String(reason)});
+        admissions.current.delete(requestId);
+        dispatch({
+          type: "messageAdded",
+          id,
+          message: { id: `${requestId}:assistant`, submissionId: requestId, rol: "asistan", metin: `Hata: ${String(reason)}`, hata: true },
+        });
+      })
+      .finally(() => {
+        if (attempts.current.get(id) === requestId && generations.current.get(id) === generation) dispatch({type: "submissionCompleted", id, requestId});
+        turuTamamla(id, session.client, requestId, generation);
+      });
+  };
+
+  useEffect(() => {
+    for (const id of queuedRestores.current) {
+      const session = state.sessions[id];
+      if (!session || session.status !== "ready") continue;
+      queuedRestores.current.delete(id);
+      try {
+        const restored = loadSubmissions(id).filter((entry) => entry.root === session.root && entry.state === "queued");
+        if (!restored.length) continue;
+        for (const entry of restored) dispatch({type: "messageAdded", id, message: {
+          id: `${entry.requestId}:user`, rol: "kullanici", metin: entry.task,
+          ...(entry.attachments.length ? {ekler: entry.attachments} : {})}});
+        const waiting = restored.map((entry) => ({task: entry.task, attachments: entry.attachments,
+          voice: entry.voice, requestId: entry.requestId}));
+        kuyruk.current.set(id, [...waiting, ...(kuyruk.current.get(id) ?? [])]);
+        if (!runningRequests.current.has(id)) {
+          const first = kuyruk.current.get(id)!.shift()!;
+          updateSubmission(id, first.requestId, "pending");
+          baslatRef.current?.(id, first.task, first.attachments, first.voice, first.requestId);
+        }
+      } catch {
+        dispatch({type: "messageAdded", id, message: {rol: "asistan", hata: true,
+          metin: "Kayıtlı gönderim kuyruğu okunamadı. Depolamayı kontrol et."}});
+      }
+    }
+  }, [state.sessions]);
+
+  const submit = (id: string, task: string, attachments: SessionAttachment[] = []): Promise<SubmissionReceipt> => {
+    const requestId = nextSessionId();
+    return new Promise((resolve) => {
+      admissions.current.set(requestId, resolve);
+      const queued = runningRequests.current.has(id) || state.sessions[id]?.running;
+      const accepted = send(id, task, attachments, true, undefined, requestId);
+      if (!accepted || queued) {
+        admissions.current.delete(requestId);
+        resolve({requestId, sessionId: id, turnId: null, state: accepted ? "queued" : "failed", error: accepted ? null : "Gönderim reddedildi"});
+      }
+    });
+  };
+
+  const retrySubmission = (id: string, requestId: string): boolean => {
+    try {
+      const session = state.sessions[id];
+      const snapshot = loadSubmissions(id).find((entry) => entry.requestId === requestId && entry.root === session?.root);
+      if (!snapshot || !session || runningRequests.current.has(id)) return false;
+      retryRequests.current.add(requestId);
+      return send(id, snapshot.task, snapshot.attachments, true, snapshot.voice, requestId);
+    } catch {
+      dispatch({type: "messageAdded", id, message: {rol: "asistan", hata: true, metin: "Gönderim taslağı okunamadı. Depolamayı kontrol et."}});
+      return false;
+    }
+  };
+
+  const submissionSnapshot = (id: string) => {
+    try { return loadSubmissions(id).filter((entry) => entry.root === state.sessions[id]?.root && ["pending", "failed", "queued"].includes(entry.state)).slice(-1)[0] ?? null; }
+    catch { return null; }
+  };
+  const submissionDraft = (id: string): string => submissionSnapshot(id)?.task ?? "";
+  const submissionAttachments = (id: string): SessionAttachment[] => submissionSnapshot(id)?.attachments ?? [];
+
+  const submissionRecoveryError = (id: string): string | null => {
+    if (runningRequests.current.has(id)) return null;
+    try {
+      return loadSubmissions(id).some((entry) => entry.root === state.sessions[id]?.root && ["accepted", "running", "recoveryRequired"].includes(entry.state))
+        ? "Önceki gönderimin sonucu belirsiz. Yeniden çalıştırmadan önce dış etkisini doğrula." : null;
+    } catch { return "Kayıtlı gönderim taslağı okunamadı. Depolamayı kontrol et."; }
+  };
+
+  const runCommand = useCallback(
+    async (id: string, input: string, recordInput = true, recordOutput = true) => {
+      const session = state.sessions[id];
+      const trimmed = input.trim();
+      if (!session || !trimmed.startsWith("/") || session.status !== "ready") {
+        return { ok: false, metin: "Komut çalıştırılamadı." };
+      }
+      const [name, ...parts] = trimmed.slice(1).split(/\s+/);
+      if (recordInput) {
+        dispatch({ type: "messageAdded", id, message: { rol: "kullanici", metin: trimmed } });
+      }
+      const result = await session.client.request("komut.calistir", {
+        ad: name,
+        arguman: parts.join(" "),
+      });
+      // `/compact`, `/clear` geçmişi; `/model` web eşiğini değiştirebilir.
+      olcuyuTazele(id, session.client, dispatch);
+      const text = typeof result.metin === "string" ? result.metin : "";
+      const preparedTask = typeof result.gorev === "string" && result.gorev.trim()
+        ? result.gorev : null;
+      if (recordOutput && !preparedTask && (text || !result.secici)) {
+        dispatch({
+          type: "messageAdded",
+          id,
+          message: {
+            rol: "asistan",
+            metin: text || (result.ok === false ? "Komut başarısız." : "Komut tamamlandı."),
+          },
+        });
+      }
+      // Makro (`/goal` …) görevi yalnız hazırlar; çekirdek görevi geri verir ve
+      // tur burada normal gönderim yolundan başlar. Aksi hâlde komut
+      // "çalıştırılıyor…" deyip hiçbir iş yapmıyordu.
+      if (preparedTask) {
+        send(id, preparedTask, [], false);
+      }
+      return result;
+    },
+    [state.sessions, send],
+  );
+
+  const stop = useCallback(
+    (id: string) => {
+      const session = oturumlarRef.current[id];
+      if (!session?.running || iptalZamanlayicilari.current.has(id)) return;
+      const generation = generations.current.get(id);
+      const attempt = attempts.current.get(id);
+      const isCurrent = () => clients.current.get(id) === session.client
+        && generations.current.get(id) === generation && attempts.current.get(id) === attempt
+        && runningRequests.current.has(id);
+      dispatch({ type: "stopRequested", id });
+      const fail = (error: string) => {
+        if (!isCurrent()) return;
+        const timer = iptalZamanlayicilari.current.get(id);
+        if (timer !== undefined) clearTimeout(timer);
+        iptalZamanlayicilari.current.delete(id);
+        dispatch({ type: "stopFailed", id, error });
+      };
+      iptalZamanlayicilari.current.set(id, setTimeout(() => {
+        fail("İşlemin durduğu henüz doğrulanamadı. Yeniden durdurmayı deneyebilirsin.");
+      }, TUR_IPTAL_GUVENLI_SURE_MS));
+      void session.client.request("tur.kes", session.turnId ? { turnId: session.turnId } : {}).then((receipt) => {
+        if (receipt.ok !== true) fail(String(receipt.metin ?? "Durdurma isteği kabul edilmedi."));
+      }).catch(() => fail("Durdurma isteği iletilemedi. Yeniden deneyebilirsin."));
+    },
+    [],
+  );
+
+  const steer = useCallback(async (id: string, text: string): Promise<boolean> => {
+    const session = state.sessions[id];
+    if (!session?.running || session.stopping || session.stopError || !session.turnId || !text.trim()) return false;
+    const requestId = nextSessionId();
+    const receipt = await session.client.request("tur.yonlendir", {
+      turnId: session.turnId, requestId, text,
+    });
+    if (receipt.ok !== true) throw new Error(String(receipt.metin ?? "Yönlendirme kabul edilmedi."));
+    dispatch({ type: "messageAdded", id, message: { id: requestId, rol: "kullanici", metin: text } });
+    return true;
+  }, [state.sessions]);
+
+  const answer = useCallback(
+    async (id: string, data: Record<string, unknown>) => {
+      const session = state.sessions[id];
+      const question = session?.question;
+      if (!question || answersInFlight.current.has(question)) return;
+      const decisionId = answerDecisions.current.get(question) ?? nextSessionId();
+      answerDecisions.current.set(question, decisionId);
+      answersInFlight.current.add(question);
+      try {
+        const receipt = await session.client.request("soru.cevapla", {
+          questionId: question.id,
+          answer: { ...data, decisionId },
+        });
+        if (receipt.ok !== true) throw new Error("Soru artık cevap beklemiyor.");
+        dispatch({ type: "questionClosed", id, questionId: question.id });
+      } finally {
+        answersInFlight.current.delete(question);
+      }
+    },
+    [state.sessions],
+  );
+
+  const close = useCallback(
+    async (id: string) => {
+      requestedClose.current.add(id);
+      try {
+        await transport.close(id);
+        clients.current.get(id)?.close();
+        clients.current.delete(id);
+        lineHandlers.current.delete(id);
+        dispatch({ type: "statusChanged", id, status: "closed" });
+      } catch (reason) {
+        requestedClose.current.delete(id);
+        dispatch({ type: "crashed", id, reason: String(reason) });
+        throw reason;
+      }
+    },
+    [transport],
+  );
+
+  /** Disk kaydı silinmeden görünümden çıkarma; başarısızlık tekrar denenebilsin. */
+  const remove = useCallback(
+    async (id: string) => {
+      const session = state.sessions[id];
+      const known = storedRef.current.find((item) => item.id === id);
+      const root = session?.root ?? known?.root;
+      if (!root) throw new Error("Sohbetin proje kökü bulunamadı. Geçmişi yenileyin.");
+      const live = session?.status === "ready" ? session : Object.values(state.sessions)
+        .find((item) => item.status === "ready" && clients.current.has(item.id));
+      const temporary = live ? null : await connect({ root }, false);
+      const client = live?.client ?? temporary!.client;
+      try {
+        const result = await client.request("sohbet.sil", { sohbet_id: id, kok: root });
+        if (result.ok !== true) throw new Error(String(result.metin ?? "Sohbet silinemedi."));
+        deleteSubmissions(id);
+        deletedIds.current.add(id);
+        try { localStorage.removeItem(`fusion.session-mode.${id}`); } catch { /* Storage is optional. */ }
+        setStored((rows) => rows.filter((item) => item.id !== id));
+        dispatch({ type: "removed", id });
+        // Diskte silme tamamlandı; çökmüş sürecin kapanma hatası bunu geri alamaz.
+        if (session) await close(id).catch(() => undefined);
+      } finally {
+        if (temporary) await close(temporary.id).catch(() => undefined);
+      }
+    },
+    [close, connect, state.sessions],
+  );
+
+  const move = useCallback(async (id: string, targetRoot: string) => {
+    const session = state.sessions[id];
+    const known = storedRef.current.find((item) => item.id === id);
+    const sourceRoot = session?.root ?? known?.root;
+    if (!sourceRoot || sourceRoot === targetRoot) throw new Error("Farklı bir hedef proje seç.");
+    if (session?.running || kuyruk.current.get(id)?.length) {
+      throw new Error("Çalışan veya sırada görevi olan sohbet taşınamaz.");
+    }
+    const title = session?.title ?? known?.title ?? DEFAULT_TITLE;
+    const wasOpen = Boolean(session && clients.current.has(id));
+    if (wasOpen) await close(id);
+    let temporary: Awaited<ReturnType<typeof connect>> | null = null;
+    let moved = false;
+    try {
+      const peer = Object.values(state.sessions).find((item) =>
+        item.id !== id && item.status === "ready" && clients.current.has(item.id),
+      );
+      temporary = peer ? null : await connect({ root: sourceRoot }, false);
+      const client = peer?.client ?? temporary!.client;
+      const result = await client.request("sohbet.tasi", {
+        sohbet_id: id,
+        kaynak_kok: sourceRoot,
+        hedef_kok: targetRoot,
+      });
+      if (result.ok !== true) throw new Error(String(result.metin ?? "Sohbet taşınamadı."));
+      moved = true;
+      moveSubmissions(id, sourceRoot, targetRoot);
+      setStored((rows) => {
+        const others = rows.filter((item) => item.id !== id);
+        return [{
+          id,
+          root: targetRoot,
+          title,
+          updatedAt: Date.now() / 1000,
+          messageCount: known?.messageCount ?? session?.messages.length ?? 0,
+        }, ...others];
+      });
+      if (wasOpen) await connect({ id, root: targetRoot, title });
+    } catch (error) {
+      // Taşıma diskte tamamlandıysa kaynakta yeniden açmak boş bir sohbet
+      // yaratır ve taşınan geçmişi görünmez kılar.
+      if (wasOpen) {
+        const root = moved ? targetRoot : sourceRoot;
+        await connect({ id, root, title }).catch(() => undefined);
+      }
+      throw error;
+    } finally {
+      if (temporary) await close(temporary.id).catch(() => undefined);
+    }
+  }, [close, connect, state.sessions]);
+
+  const activeSession = state.activeId ? state.sessions[state.activeId] ?? null : null;
+  const sessions = useMemo(
+    () => state.order.map((id) => state.sessions[id]).filter(Boolean),
+    [state.order, state.sessions],
+  );
+  const recentProjects = useMemo(() => {
+    const roots = new Map<string, { name: string; root: string; updatedAt: number }>();
+    for (const session of persistedView.current?.sessions ?? []) {
+      const name = projectName(session.root);
+      roots.set(session.root, { name, root: session.root, updatedAt: session.updatedAt });
+    }
+    const now = Date.now();
+    sessions.forEach((session) => {
+      const name = projectName(session.root);
+      roots.set(session.root, { name, root: session.root, updatedAt: now });
+    });
+    return [...roots.values()]
+      .filter((project) => isProjectRoot(project.root))
+      .sort((left, right) => right.updatedAt - left.updatedAt);
+  }, [sessions]);
+
+  return {
+    activeSession,
+    answer,
+    steer,
+    openStored,
+    refreshStored,
+    storedConversations: stored,
+    clear: (id: string) => dispatch({ type: "cleared", id }),
+    close,
+    create,
+    select: (id: string) => dispatch({ type: "selected", id }),
+    resume,
+    recentProjects,
+    remove,
+    move,
+    runCommand,
+    send,
+    submit,
+    retrySubmission,
+    submissionDraft,
+    submissionAttachments,
+    submissionRecoveryError,
+    sessions,
+    state,
+    stop,
+  };
+}

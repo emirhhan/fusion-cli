@@ -1,0 +1,760 @@
+"""Native browser-backed web provider primitives (no real account/network)."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from unittest import mock
+
+import pytest
+
+from fusion_cli.config.models import WebSessionConfig
+from fusion_cli.core.constants import MIN_BROWSER_TURN_S
+from fusion_cli.core.types import Message
+from fusion_cli.providers import web_registry
+from fusion_cli.providers.web_browser import (
+    WEB_BROWSER_PROVIDERS,
+    WebBrowserAuthError,
+    WebBrowserError,
+    _raise_known_page_error,
+    browser_profile_dir,
+    browser_turn_budget,
+    clear_profile_singletons,
+    format_browser_prompt,
+    parse_cookie_header,
+    web_secret_name,
+)
+from fusion_cli.providers.web_registry import WebSessionRegistry
+
+
+async def test_tarayici_guvenlik_sandboxunu_kapatmaz(tmp_path):
+    from fusion_cli.providers.web_browser import _launch_profile_context
+
+    chromium = mock.Mock()
+    chromium.launch_persistent_context = mock.AsyncMock()
+    await _launch_profile_context(chromium, profile=tmp_path, headless=False, accept_downloads=True)
+    assert chromium.launch_persistent_context.call_args.kwargs["chromium_sandbox"] is True
+    assert set(chromium.launch_persistent_context.call_args.kwargs["ignore_default_args"]) == {
+        "--use-mock-keychain",
+        "--password-store=basic",
+    }
+
+
+class _Emitter:
+    """Playwright nesnelerinin `on(olay, geri_çağrı)` yüzeyini taklit eder."""
+
+    def __init__(self, close_event: str):
+        self.listeners = {}
+        self.close_event = close_event
+        self.closed = False
+
+    def on(self, event, callback):
+        self.listeners[event] = callback
+
+    async def close(self):
+        self.closed = True
+        callback = self.listeners.get(self.close_event)
+        if callback:
+            callback(self)
+
+
+class _SharedSpy:
+    """`SharedProfileBrowser` yerine geçip bırakma çağrılarını kaydeder."""
+
+    def __init__(self, calls, profile):
+        self._calls = calls
+        self._profile = profile
+
+    async def release(self, *, force, timeout_s):
+        self._calls.append((self._profile, force))
+
+
+def _pool_with_fake_connections(monkeypatch, tmp_path):
+    from fusion_cli.providers import web_browser
+
+    pairs = [(_Emitter("disconnected"), _Emitter("close")) for _ in range(2)]
+    connect = mock.AsyncMock(side_effect=pairs)
+    monkeypatch.setattr(web_browser, "_connect_shared_context", connect)
+    monkeypatch.setattr(
+        web_browser, "browser_profile_dir", lambda *parts: tmp_path.joinpath(*parts)
+    )
+    releases = []
+    monkeypatch.setattr(
+        web_browser,
+        "_shared_profile_browser",
+        lambda _playwright, profile: _SharedSpy(releases, profile),
+    )
+    manager = web_browser.BrowserSessionPool()
+    manager._playwright = mock.Mock()
+    return manager, pairs, releases
+
+
+def _gemini_session() -> WebSessionConfig:
+    return WebSessionConfig(model="gemini_web/main/auto", provider="gemini_web", account="main")
+
+
+async def test_kapanan_baglam_havuzdan_atilir_ve_yeniden_acilir(monkeypatch, tmp_path):
+    from fusion_cli.providers.web_session import WebSessionCredential
+
+    manager, pairs, _ = _pool_with_fake_connections(monkeypatch, tmp_path)
+    credential = WebSessionCredential()
+    (_, first), (_, second) = pairs
+
+    assert await manager.context_for(_gemini_session(), credential) is first
+    await first.close()
+    assert await manager.context_for(_gemini_session(), credential) is second
+
+
+async def test_paylasilan_chrome_baglantisi_kopunca_yeniden_baglanir(monkeypatch, tmp_path):
+    """Başka bir sekme giriş için Chrome'u kapatınca bu sekme sonraki turda bağlanmalı."""
+    from fusion_cli.providers.web_session import WebSessionCredential
+
+    manager, pairs, _ = _pool_with_fake_connections(monkeypatch, tmp_path)
+    credential = WebSessionCredential()
+    (first_browser, first), (_, second) = pairs
+
+    assert await manager.context_for(_gemini_session(), credential) is first
+    await first_browser.close()
+    assert await manager.context_for(_gemini_session(), credential) is second
+
+
+async def test_giris_icin_profil_birakmak_paylasilan_chromeu_zorla_kapatir(monkeypatch, tmp_path):
+    from fusion_cli.providers.web_session import WebSessionCredential
+
+    manager, pairs, releases = _pool_with_fake_connections(monkeypatch, tmp_path)
+    await manager.context_for(_gemini_session(), WebSessionCredential())
+
+    await manager.close_session("gemini_web", "main")
+
+    first_browser, _ = pairs[0]
+    assert first_browser.closed is True
+    assert releases == [(tmp_path / "gemini_web" / "main", True)]
+
+
+async def test_surec_kapanirken_yalniz_kendi_kirasini_birakir(monkeypatch, tmp_path):
+    from fusion_cli.providers.web_session import WebSessionCredential
+
+    manager, _, releases = _pool_with_fake_connections(monkeypatch, tmp_path)
+    await manager.context_for(_gemini_session(), WebSessionCredential())
+
+    await manager.close()
+
+    assert releases == [(tmp_path / "gemini_web" / "main", False)]
+
+
+def test_cookie_header_degerindeki_esittir_isaretini_korur():
+    parsed = parse_cookie_header("a=1; session=abc==; empty=; flag")
+    assert parsed == {"a": "1", "session": "abc==", "empty": ""}
+
+
+def test_browser_prompt_tum_kanonik_gecmisi_ve_tool_sonucunu_tasir():
+    prompt = format_browser_prompt(
+        (
+            Message("system", "kurallar"),
+            Message("user", "dosyayı oku"),
+            Message("tool", "içerik", name="read_file", ok=True),
+        )
+    )
+    assert "### FUSION//SİSTEM" in prompt
+    assert "### FUSION//KULLANICI" in prompt
+    assert "ARAÇ SONUCU (read_file · başarılı)" in prompt
+    assert "içerik" in prompt
+
+
+def test_dort_native_web_saglayicisi_tanimli():
+    assert set(WEB_BROWSER_PROVIDERS) == {
+        "chatgpt_web",
+        "claude_web",
+        "gemini_web",
+        "copilot_web",
+    }
+    assert all(item.input_selectors for item in WEB_BROWSER_PROVIDERS.values())
+    assert all(item.response_selectors for item in WEB_BROWSER_PROVIDERS.values())
+
+
+def test_secret_adi_ve_profil_yolu_guvenli_slug_kullanir(monkeypatch, tmp_path):
+    monkeypatch.setattr("fusion_cli.config.paths.user_data_dir", lambda: tmp_path)
+    assert web_secret_name("chatgpt_web", "kişisel hesap") == (
+        "WEB_SECRET::chatgpt_web::ki-isel-hesap"
+    )
+    assert browser_profile_dir("chatgpt_web", "kişisel hesap") == (
+        tmp_path / "web_profiles" / "chatgpt_web" / "ki-isel-hesap"
+    )
+
+
+def test_clear_profile_singletons_takili_kilitleri_siler(tmp_path, monkeypatch):
+    monkeypatch.setattr("fusion_cli.providers.web_browser._profile_process_alive", lambda _: False)
+    # Chrome, çökme/zorla kapatma sonrası bu sembolik bağlantıları geride bırakır ve
+    # bir sonraki başlatmada "mevcut oturuma devret" moduna girip hemen kapanır.
+    (tmp_path / "SingletonLock").symlink_to("unknown-host-2311")
+    (tmp_path / "SingletonCookie").symlink_to("3427299203296085704")
+    (tmp_path / "SingletonSocket").symlink_to("/var/folders/tmp/SingletonSocket")
+    (tmp_path / "Default").mkdir()
+
+    clear_profile_singletons(tmp_path)
+
+    assert not (tmp_path / "SingletonLock").exists()
+    assert not (tmp_path / "SingletonLock").is_symlink()
+    assert not (tmp_path / "SingletonCookie").is_symlink()
+    assert not (tmp_path / "SingletonSocket").is_symlink()
+    # Profilin geri kalanına dokunulmaz.
+    assert (tmp_path / "Default").is_dir()
+
+
+def test_clear_profile_singletons_olmayan_dizinde_patlamaz(tmp_path):
+    clear_profile_singletons(tmp_path / "yok")
+
+
+def test_etkin_profilin_kilidi_silinmez(tmp_path, monkeypatch):
+    lock = tmp_path / "SingletonLock"
+    lock.symlink_to("test-host-123")
+    monkeypatch.setattr("fusion_cli.providers.web_browser._profile_process_alive", lambda _: True)
+    with pytest.raises(WebBrowserError, match="hâlâ açık"):
+        clear_profile_singletons(tmp_path)
+    assert lock.is_symlink()
+
+
+def test_web_session_varsayilanlari_browser_icin_genisletilebilir():
+    base = WebSessionConfig(model="custom", endpoint="http://x/v1")
+    browser = replace(
+        base,
+        model="chatgpt_web/main/auto",
+        endpoint="",
+        provider="chatgpt_web",
+        transport="browser",
+        credential_ref="WEB_SECRET::chatgpt_web::main",
+        tool_support="emulated",
+    )
+    assert browser.transport == "browser"
+    assert browser.tool_support == "emulated"
+    assert browser.endpoint == ""
+
+
+class _FakeLocator:
+    def __init__(self, *, text: str = "", visible: bool = False):
+        self._text = text
+        self._visible = visible
+        self.last = self
+
+    # Playwright'ın imzasını taklit eder; sahte olduğu için gerçek bir zaman
+    # aşımı uygulamaz. Ad Playwright tarafından dayatılır, bizim seçimimiz değil.
+    async def inner_text(self, timeout=0):  # noqa: ASYNC109
+        return self._text
+
+    async def count(self):
+        return 1 if self._visible else 0
+
+    async def is_visible(self):
+        return self._visible
+
+
+class _FakePage:
+    def __init__(self, url: str, body: str, visible_selectors=()):
+        self.url = url
+        self._body = body
+        self._visible = set(visible_selectors)
+
+    def locator(self, selector):
+        if selector == "body":
+            return _FakeLocator(text=self._body, visible=True)
+        return _FakeLocator(visible=selector in self._visible)
+
+
+async def test_gemini_bodyde_sign_in_metni_tek_basina_auth_sayilmaz():
+    page = _FakePage(
+        "https://gemini.google.com/app",
+        "Gemini Sign in terms and privacy",
+    )
+    await _raise_known_page_error(page, WEB_BROWSER_PROVIDERS["gemini_web"])
+
+
+@pytest.mark.parametrize("label", ("Oturum aç", "Sign in"))
+@pytest.mark.parametrize("selector", ('button:text-is("{}")', 'button[aria-label="{}"]'))
+async def test_gemini_anonim_sohbetin_gorunen_giris_dugmesi_auth_ister(label, selector):
+    page = _FakePage(
+        "https://gemini.google.com/app",
+        f"Gemini {label} Flash-Lite",
+        visible_selectors=(selector.format(label),),
+    )
+    with pytest.raises(WebBrowserAuthError):
+        await _raise_known_page_error(page, WEB_BROWSER_PROVIDERS["gemini_web"])
+
+
+async def test_gemini_accounts_url_gercek_auth_sinyalidir():
+    page = _FakePage(
+        "https://accounts.google.com/v3/signin/identifier",
+        "Choose an account",
+    )
+    with pytest.raises(WebBrowserAuthError):
+        await _raise_known_page_error(page, WEB_BROWSER_PROVIDERS["gemini_web"])
+
+
+def test_tarayici_turu_butcesi_yapilandirmadan_gelir():
+    """Tur bütçesi `session.timeout_s`'tir; 20 sn'lik HTTP sabitine kırpılmaz."""
+    session = WebSessionConfig(model="gemini_web/pro", transport="browser", timeout_s=180.0)
+    assert browser_turn_budget(session) == 180.0
+
+
+def test_tarayici_turu_butcesi_tabanin_altina_inmez():
+    session = WebSessionConfig(model="gemini_web/pro", transport="browser", timeout_s=1.0)
+    assert browser_turn_budget(session) == MIN_BROWSER_TURN_S
+
+
+def test_kayit_defteri_oturum_butcesini_transporta_gecirir():
+    """Asıl hata buydu: bütçe hiç geçilmiyor, varsayılan sabite düşülüyordu."""
+    gecilen: dict[str, float | None] = {}
+
+    def sahte_transport(session, *, timeout_s=None, trace_dir=None):
+        gecilen["timeout_s"] = timeout_s
+        return None
+
+    session = WebSessionConfig(model="gemini_web/pro", transport="browser", timeout_s=180.0)
+    registry = WebSessionRegistry((session,), environ={})
+    with mock.patch.object(web_registry, "build_browser_transport", sahte_transport):
+        registry.build_session(session)
+
+    assert gecilen["timeout_s"] == 180.0
+
+
+def test_insan_dogrulamasi_mesaji_calistirilabilir_komut_icerir():
+    """Ölçülen eksiklik: mesaj 'görünür tarayıcıda tamamla' diyor ama NASIL demiyordu."""
+    from fusion_cli.providers.web_browser import _human_verification_message
+
+    tanim = WEB_BROWSER_PROVIDERS["gemini_web"]
+    mesaj = _human_verification_message(tanim, "verify you are human")
+
+    assert "fusion web-login gemini_web" in mesaj
+    assert "fusion serve" in mesaj
+    assert "captcha" in mesaj.lower()
+
+
+def test_oturum_kapali_mesaji_da_ayni_cikisi_gosterir():
+    from fusion_cli.providers.web_browser import _login_required_message
+
+    mesaj = _login_required_message(WEB_BROWSER_PROVIDERS["gemini_web"])
+
+    assert "fusion web-login gemini_web" in mesaj
+
+
+def test_cozum_adimlari_saglayiciya_gore_degisir():
+    """Komut sabit metin değil; oturumun sağlayıcı kimliğini taşır."""
+    from fusion_cli.providers.web_browser import _cozum_adimlari
+
+    assert "fusion web-login chatgpt_web" in _cozum_adimlari(WEB_BROWSER_PROVIDERS["chatgpt_web"])
+
+
+def _web_login_ayristir(argv: list[str]) -> None:
+    """Komutu `fusion web-login`'in KENDİ ayrıştırıcısına ver.
+
+    Grup seviyesinde `make_context` alt komutun argümanlarını ayrıştırmaz ve her
+    şeyi kabul ediyormuş gibi görünür — bu yüzden alt komut doğrudan çözülür.
+    Yalnız ayrıştırma yapılır; geri çağırım çalışmaz, tarayıcı açılmaz.
+    """
+    from typer.main import get_command
+
+    from fusion_cli.cli.app import app
+
+    grup = get_command(app)
+    with grup.make_context("fusion", [], resilient_parsing=True) as ctx:
+        alt = grup.get_command(ctx, "web-login")
+        assert alt is not None
+        alt.make_context("web-login", list(argv), parent=ctx, resilient_parsing=False)
+
+
+def test_cozum_adimlarindaki_komut_gercekten_ayristirilabilir():
+    """Mesajdaki komut CLI ayrıştırıcısından GEÇMELİ.
+
+    Ölçülen hata: mesaj `fusion web-login <saglayici> <hesap>` yazıyordu ama
+    `account` konumsal DEĞİL, seçenek. Kullanıcı komutu birebir kopyaladı ve
+    "Got unexpected extra argument(s)" aldı. Doğru komut ADINI taşımak yetmiyor;
+    sözdiziminin de tutması gerekiyor.
+    """
+    import shlex
+
+    from fusion_cli.providers.web_browser import _cozum_adimlari
+
+    for tanim in WEB_BROWSER_PROVIDERS.values():
+        satir = next(
+            parca.strip()
+            for parca in _cozum_adimlari(tanim).splitlines()
+            if parca.strip().startswith("fusion web-login")
+        )
+        # `fusion` önekini at; geriye alt komut adı ve argümanları kalır.
+        _web_login_ayristir(shlex.split(satir)[2:])
+
+
+def test_hesabi_konumsal_veren_komut_reddedilir():
+    """Ayrıştırma sınaması gerçekten ayırt ediyor mu?
+
+    Bu olmadan yukarıdaki test her şeyi kabul eden bir ayrıştırıcıya da
+    "geçti" derdi; nitekim ilk yazımda grup seviyesinde çağrıldığı için
+    hatalı sözdizimi de geçiyordu.
+    """
+    with pytest.raises(Exception, match="unexpected extra argument"):
+        _web_login_ayristir(["chatgpt_web", "main"])
+
+
+def test_cozum_adimlari_calismayan_python_m_komutunu_onermez():
+    """Önerilen komut iki kurulumda da çalışmalı.
+
+    Kullanıcı bunu gerçekten yaşadı: mesajın söylediği
+    `python -m fusion_cli.providers.web_login` kabuğun varsayılan Python'uyla
+    ModuleNotFoundError verdi. Paketlenmiş ikilide de çalışmaz — `sys.executable`
+    Fusion'ın kendisidir ve `-m` bayrağını tanımaz (bkz. `cli/app.py::web_login`).
+    """
+    from fusion_cli.providers.web_browser import _cozum_adimlari
+
+    for tanim in WEB_BROWSER_PROVIDERS.values():
+        assert "python -m" not in _cozum_adimlari(tanim)
+
+
+def test_web_login_komutu_yardimda_gorunur():
+    """Hata metninin önerdiği komut `--help`'te bulunabilmeli.
+
+    Komut `hidden=True` idi: adını hatırlamayan kullanıcı için çıkışsız bir yol.
+    """
+    from fusion_cli.cli.app import app
+
+    komut = next(item for item in app.registered_commands if item.name == "web-login")
+
+    assert not komut.hidden
+
+
+# --------------------------------------------------------------------------- #
+# Kendi promptumuz kanıt sayılmamalı — ölçülmüş yanlış-pozitif
+# --------------------------------------------------------------------------- #
+
+
+def test_gonderilen_metin_govdeden_cikarilir():
+    from fusion_cli.providers.web_browser import strip_sent_text
+
+    govde = "gemini  sen fusion'sın ve captcha çözemezsin  yeni sohbet"
+    temiz = strip_sent_text(govde, "Sen Fusion'sın ve CAPTCHA çözemezsin")
+
+    assert "captcha" not in temiz
+
+
+def test_kisa_satirlar_govdeden_silinmez():
+    """Kısa satırlar sağlayıcının arayüzünde de bulunur; silmek gerçek uyarıyı gizler."""
+    from fusion_cli.providers.web_browser import strip_sent_text
+
+    govde = "verify you are human"
+    assert "verify you are human" in strip_sent_text(govde, "human\nok\n-")
+
+
+def test_bos_prompt_govdeyi_degistirmez():
+    from fusion_cli.providers.web_browser import strip_sent_text
+
+    assert strip_sent_text("captcha", "") == "captcha"
+
+
+def test_gercek_sistem_promptu_yanlis_pozitif_uretmez():
+    """ÖLÇÜLEN HATA: sistem promptuna 'insan doğrulaması (CAPTCHA)' cümlesi eklendi.
+
+    Fusion promptu Gemini'ye yazıyor, sonra sayfayı 'captcha var mı' diye tarıyor
+    ve KENDİ yazdığı kelimeyi bulup turu düşürüyordu. Kullanıcı gerçekten giriş
+    yapmış olmasına rağmen hatayı almaya devam etti.
+
+    Bu test sistem promptunun TAMAMINI gövdeye koyar ve hiçbir tetikleyici
+    işaret üretmediğini doğrular. Prompt yeniden bir challenge kelimesi içerirse
+    `strip_sent_text` sonrasında da yanlış pozitif üretmemelidir.
+    """
+    from fusion_cli.engines.agent.loop import SYSTEM_PROMPT
+    from fusion_cli.providers.web_browser import (
+        _CHALLENGE_MARKERS,
+        _matched_marker,
+        strip_sent_text,
+    )
+
+    # Sağlayıcı arayüzü + bizim promptumuz aynı gövdede.
+    govde = f"gemini yeni sohbet {SYSTEM_PROMPT} gönder".lower()
+    assert _matched_marker(govde, _CHALLENGE_MARKERS) is None
+
+    temiz = strip_sent_text(govde, SYSTEM_PROMPT)
+
+    assert _matched_marker(temiz, _CHALLENGE_MARKERS) is None, (
+        "sistem promptundaki bir kelime hâlâ insan doğrulaması sanılıyor"
+    )
+
+
+def test_gercek_captcha_hala_yakalanir():
+    """Muafiyet dar olmalı: sağlayıcının GERÇEK uyarısı elenmemeli."""
+    from fusion_cli.engines.agent.loop import SYSTEM_PROMPT
+    from fusion_cli.providers.web_browser import (
+        _CHALLENGE_MARKERS,
+        _matched_marker,
+        strip_sent_text,
+    )
+
+    govde = f"{SYSTEM_PROMPT}\nplease verify you are human to continue".lower()
+    temiz = strip_sent_text(govde, SYSTEM_PROMPT)
+
+    assert _matched_marker(temiz, _CHALLENGE_MARKERS) is not None
+
+
+# --------------------------------------------------------------------------- #
+# Sürdürülen sohbet — GEÇMİŞTEKİ promptlarımız da kanıt sayılmamalı
+# --------------------------------------------------------------------------- #
+
+
+class _SahteLocator:
+    def __init__(self, metinler: list[str]) -> None:
+        self._metinler = metinler
+
+    async def inner_text(self, **_: object) -> str:
+        return self._metinler[0] if self._metinler else ""
+
+    async def all_inner_texts(self) -> list[str]:
+        return self._metinler
+
+
+class _SahteSayfa:
+    """Gemini'nin SÜRDÜRÜLEN sohbeti: geçmiş turlarımız ekranda duruyor."""
+
+    def __init__(self, govde: str, secici_metin: dict[str, list[str]]) -> None:
+        self._govde = govde
+        self._secici = secici_metin
+
+    def locator(self, selector: str) -> _SahteLocator:
+        if selector == "body":
+            return _SahteLocator([self._govde])
+        return _SahteLocator(self._secici.get(selector, []))
+
+
+def _gemini_sohbeti(ek: str = "") -> tuple[object, list[str]]:
+    from fusion_cli.engines.agent.loop import SYSTEM_PROMPT
+
+    gecmis = [
+        f"{SYSTEM_PROMPT}\n\nGörev: projeyi incele",
+        f"{SYSTEM_PROMPT}\n\nGörev: dashboard göm",
+    ]
+    govde = "Gemini  Yeni sohbet  " + "  ".join(gecmis) + "  Gemini'ye sor" + ek
+    return _SahteSayfa(govde, {"user-query": gecmis}), gecmis
+
+
+async def test_surdurulen_sohbetteki_gecmis_promptlar_captcha_sanilmaz():
+    """ÖLÇÜLEN HATA: sohbet sürdüğü için önceki turların promptu ekranda kalıyor.
+
+    Yalnızca BU turun promptunu çıkarmak yetmiyordu; kullanıcı her turda
+    'insan doğrulaması istiyor' hatası alıyordu.
+    """
+    from fusion_cli.providers.web_browser import (
+        _CHALLENGE_MARKERS,
+        _matched_marker,
+        _page_chrome_text,
+    )
+
+    sayfa, _ = _gemini_sohbeti()
+    temiz = await _page_chrome_text(sayfa, WEB_BROWSER_PROVIDERS["gemini_web"], sent_prompt="")
+
+    assert _matched_marker(temiz, _CHALLENGE_MARKERS) is None
+
+
+async def test_surdurulen_sohbette_gercek_captcha_yine_yakalanir():
+    """Muafiyet dar olmalı: sağlayıcının gerçek uyarısı elenmemeli."""
+    from fusion_cli.providers.web_browser import (
+        _CHALLENGE_MARKERS,
+        _matched_marker,
+        _page_chrome_text,
+    )
+
+    sayfa, _ = _gemini_sohbeti(ek="  Verify you are human to continue")
+    temiz = await _page_chrome_text(sayfa, WEB_BROWSER_PROVIDERS["gemini_web"], sent_prompt="")
+
+    assert _matched_marker(temiz, _CHALLENGE_MARKERS) is not None
+
+
+async def test_govde_ve_cikarilan_parcalar_ayni_normallestirmeden_gecer():
+    """Kusur buydu: normalleştirilmiş parça ham gövdede bulunmuyor, replace
+    sessizce hiçbir şey yapmıyordu."""
+    from fusion_cli.providers.web_browser import _page_chrome_text
+
+    uzun = "satır bir\n\n\n\nsatır iki captcha burada"
+    sayfa = _SahteSayfa(f"kabuk {uzun} kabuk", {"user-query": [uzun]})
+    temiz = await _page_chrome_text(sayfa, WEB_BROWSER_PROVIDERS["gemini_web"], sent_prompt="")
+
+    assert "captcha" not in temiz
+
+
+def test_her_tarayici_saglayicisinin_sohbet_secicisi_var():
+    """Yeni sağlayıcı eklenirse sohbet alanı tanımsız kalmamalı."""
+    eksik = [tanim.id for tanim in WEB_BROWSER_PROVIDERS.values() if not tanim.history_selectors]
+    assert not eksik, f"sohbet seçicisi tanımsız sağlayıcılar: {eksik}"
+
+
+# --- yanıt seçicileri: birlik değil TERCİH SIRASI ------------------------- #
+#
+# Ölçüldü (Gemini web): cevabın içine "COGNOiSe.com - The IBM Cognos Community"
+# gibi alakasız bir metin karıştı. Kaynak modelin uydurması değil, sayfanın
+# kendisiydi: `model-response` GENİŞ bir kaptır ve kaynak/atıf kartlarını da
+# içerir. Seçiciler birleştirildiği için dar seçicinin temiz metni ile geniş
+# seçicinin çöplü metni aynı listeye giriyor, sonuncusu okunuyordu.
+#
+# Bu dosyanın her yerinde seçiciler tercih sırasıdır (`_first_visible` İLKİNİ
+# döndürür); yalnızca burada birlik gibi davranıyordu.
+
+
+class _SecicilerePageMock:
+    """Seçiciye göre farklı metin döndüren sahte sayfa."""
+
+    def __init__(self, by_selector):
+        self._by_selector = by_selector
+
+    def locator(self, selector):
+        return _MetinLocator(self._by_selector.get(selector, []))
+
+
+class _MetinLocator:
+    def __init__(self, texts):
+        self._texts = texts
+        self.last = self
+
+    async def all_inner_texts(self):
+        return list(self._texts)
+
+    async def evaluate_all(self, _script):
+        """Gerçek sayfada kod bloğu süsleri DOM'dan çıkarılır; sahtede metin
+        zaten temiz kabul edilir."""
+        return list(self._texts)
+
+
+async def test_yanit_ilk_sonuc_veren_seciciden_okunur():
+    from fusion_cli.providers.web_browser import _response_snapshot
+
+    page = _SecicilerePageMock(
+        {
+            "dar": ["Dizin listelendi."],
+            "genis": ["Dizin listelendi.\nCOGNOiSe.com - The IBM Cognos Community"],
+        }
+    )
+
+    snapshot = await _response_snapshot(page, ("dar", "genis"))
+
+    assert snapshot == ("Dizin listelendi.",)
+
+
+async def test_ilk_secici_bossa_sonrakine_dusulur():
+    from fusion_cli.providers.web_browser import _response_snapshot
+
+    page = _SecicilerePageMock({"dar": [], "genis": ["cevap"]})
+
+    assert await _response_snapshot(page, ("dar", "genis")) == ("cevap",)
+
+
+async def test_hicbir_secici_eslesmezse_bos_doner():
+    from fusion_cli.providers.web_browser import _response_snapshot
+
+    page = _SecicilerePageMock({})
+
+    assert await _response_snapshot(page, ("dar", "genis")) == ()
+
+
+async def test_kod_blogu_dil_etiketi_cevaba_karismaz():
+    """Kod bloğunun başlık çubuğu yanıt metnine GİRMEZ.
+
+    Ölçüldü (Gemini web): `all_inner_texts` kod bloğunun başlığını da alıyor ve
+    dil etiketi ("Ini, TOML") dosya içeriğinin ilk satırı oluyordu. Gerçek
+    sonucu: yazılan `project.godot` bozuluyor ve Godot "no main scene defined"
+    diyordu. Süsler DOM'dan çıkarılır; metin tahminle temizlenmez.
+    """
+    from fusion_cli.providers.web_browser import _KOD_BLOGU_SUSLERI, _response_snapshot
+
+    class _SusluLocator(_MetinLocator):
+        async def evaluate_all(self, script):
+            # Betiğin süsleri gerçekten kaldırdığını, sahte DOM üzerinden
+            # taklit ederek doğrula.
+            assert "remove" in script
+            for secici in _KOD_BLOGU_SUSLERI:
+                assert secici in script
+            return ['[application]\nconfig/name="Oyun"']
+
+    class _Page:
+        def locator(self, selector):
+            del selector
+            return _SusluLocator(["Ini, TOML\n[application]"])
+
+    snapshot = await _response_snapshot(_Page(), ("dar",))
+
+    assert snapshot == ('[application]\nconfig/name="Oyun"',)
+    assert "Ini, TOML" not in snapshot[0]
+
+
+async def test_anonim_composer_acik_olsa_da_istem_gonderilmeden_giris_istenir(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from fusion_cli.providers import web_browser as browser
+
+    page = _FakePage(
+        "https://gemini.google.com/app",
+        "Gemini",
+        visible_selectors=('button[aria-label="Oturum aç"]',),
+    )
+    fill = AsyncMock()
+    monkeypatch.setattr(browser, "_first_visible", AsyncMock(return_value=AsyncMock()))
+    monkeypatch.setattr(browser, "_response_snapshot", AsyncMock(return_value=()))
+    monkeypatch.setattr(browser, "_fill_editor", fill)
+    monkeypatch.setattr(browser, "_wait_for_response", AsyncMock(return_value="yanıt"))
+    with pytest.raises(WebBrowserAuthError):
+        await browser._send_turn(page, WEB_BROWSER_PROVIDERS["gemini_web"], "kullanıcı görevi")
+    fill.assert_not_awaited()
+
+
+def test_chatgpt_composer_prosemirror_secicisini_once_dener():
+    """ChatGPT composer'ı ProseMirror; ölçülmüş seçici ilk sırada olmalı.
+
+    Ölçüldü (22 Eylül 2026, gerçek Plus oturumu, TR arayüz): oturum açık ve
+    sayfa yüklüyken eski BEŞ giriş seçicisinin hepsi 0 eşleşme verdi; sayfadaki
+    tek composer `div.ProseMirror[contenteditable="true"]` idi. Yani CAPTCHA
+    olmasa bile her ChatGPT turu "mesaj alanı bulunamadı" ile ölüyordu.
+    """
+    tanim = WEB_BROWSER_PROVIDERS["chatgpt_web"]
+
+    assert tanim.input_selectors[0] == 'div.ProseMirror[contenteditable="true"]'
+    # Eskiler yedekte KALMALI: başka sürüm/arayüz varyantı onları kullanabilir.
+    assert "#prompt-textarea" in tanim.input_selectors
+
+
+def test_chatgpt_gonder_secicisi_dil_bagimsiz_olani_once_dener():
+    """Aynı ölçüm: `form button[type=submit]` tuttu, `data-testid` tutmadı.
+
+    `aria-label` yerelleştirilmiş ("gönder"), ona güvenilemez — arayüz dili
+    değişince sessizce Enter yoluna düşer ve tur başına 2 saniye yakar.
+    """
+    tanim = WEB_BROWSER_PROVIDERS["chatgpt_web"]
+
+    assert tanim.send_selectors[0] == 'form button[type="submit"]'
+    assert tanim.send_selectors[0].islower() or "aria-label" not in tanim.send_selectors[0]
+
+
+class _DogrulamaSayfasi(_FakePage):
+    """Cloudflare ara sayfası: gövde boş, sinyal yalnız başlıkta."""
+
+    def __init__(self, title: str) -> None:
+        super().__init__("https://chatgpt.com/", "")
+        self._title = title
+        self.gidilen: list[str] = []
+
+    async def goto(self, url, **_kwargs):
+        self.gidilen.append(url)
+
+    async def title(self):
+        return self._title
+
+
+async def test_dogrulama_sayfasi_sohbet_acilir_acilmaz_bildirilir():
+    """Ölçüldü (26 Eylül): ChatGPT 'Bir dakika lütfen…' sayfasındayken model menüsü
+    12 sn bekleniyor, seçici hatası yeniden deneniyor ve 120 sn'lik dış sınır
+    doluyordu; kullanıcı yalnız 'zaman aşımı' görüyordu. Doğrulama artık sayfa
+    açılır açılmaz, model seçiminden ÖNCE bildirilir."""
+    from fusion_cli.providers.web_browser import _open_ready_conversation
+
+    sayfa = _DogrulamaSayfasi("Bir dakika lütfen...")
+    with pytest.raises(WebBrowserAuthError, match="insan doğrulaması"):
+        await _open_ready_conversation(sayfa, WEB_BROWSER_PROVIDERS["chatgpt_web"])
+    assert sayfa.gidilen == ["https://chatgpt.com/"]
+
+
+async def test_temiz_sohbet_sayfasi_acilista_engellenmez():
+    from fusion_cli.providers.web_browser import _open_ready_conversation
+
+    sayfa = _DogrulamaSayfasi("ChatGPT")
+    await _open_ready_conversation(sayfa, WEB_BROWSER_PROVIDERS["chatgpt_web"])

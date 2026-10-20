@@ -1,0 +1,71 @@
+# Sırlar — asla commit edilmez
+.env
+.env.*
+!.env.example
+
+# Yerel geliştirme talimatları ve oturumları
+.claude/
+.codex/
+.superpowers/
+CLAUDE.md
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Araç önbellekleri
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Çalışma zamanı verisi (vektör bellek, indeks, REPL geçmişi)
+.fusion/
+
+# İşletim sistemi
+.DS_Store
+
+# İzole geliştirme çalışma alanları
+.worktrees/
+
+# Agent koşularının ürettiği örnek siteler (depoya ait değil).
+voltiva-shop/
+
+# Geçici onarım yedekleri ve raporları
+.fusion-repair-backup/
+fusion-repair-report-*.txt
+.eval-artifacts/
+
+# Masaüstü çalışma zamanı paketi — deterministik derleme ürünü, commit edilmez
+app/src-tauri/resources/runtime/runtime-manifest.json
+app/src-tauri/resources/runtime/fusion-runtime.tar.gz
+app/src-tauri/resources/runtime/unpacked/
+desktop_build/runtime/work/
+*.tar.gz
+app/src-tauri/resources/fusion-listen
+# Kits paketi ve Node çalışma zamanı derleme sırasında üretilir.
+app/src-tauri/resources/kits/
+
+# Bağımlılıklar, derleme ve test çıktıları
+node_modules/
+.build/
+target/
+playwright-report/
+test-results/
+*.log
+*.pem
+*.p12
+*.key
+*.ses
+*.sqlite*
+*.db
+
+# Yerel önbellek bağlantıları da yayımlanmaz
+app/src-tauri/target
+.venv

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#212121" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Fusion">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/styles.css?v=mobile-workspace-20261017">
+<title>Fusion</title>
+</head>
+<body>
+<section id="eslestir" class="pair" hidden aria-labelledby="eslestirBaslik">
+  <img class="logo" src="/icon-192.png?v=logo-20261017" width="80" height="80" alt="">
+  <h1 id="eslestirBaslik">Fusion</h1>
+  <p class="muted center" id="durum" role="status" aria-live="polite" hidden></p>
+  <form id="hesapGiris" class="account-login">
+    <h2>Fusion hesabınla giriş yap</h2>
+    <label for="hesapKimlik">Kullanıcı adı veya e-posta</label>
+    <input id="hesapKimlik" autocomplete="username" autocapitalize="none" autocorrect="off" maxlength="200">
+    <label for="hesapParola">Parola</label>
+    <input id="hesapParola" type="password" autocomplete="current-password" maxlength="1024">
+    <button class="btn" id="hesapDugme" type="submit">Giriş yap</button>
+    <button class="login-link" id="kodaGec" type="button">Eşleştirme koduyla bağlan</button>
+    <button class="login-link" id="sifremiUnuttum" type="button">Şifremi unuttum</button>
+  </form>
+  <div id="kodGiris" class="account-login" hidden>
+    <h2>Eşleştirme koduyla giriş</h2>
+    <p class="muted center">Masaüstünde Fusion → Uzaktan Erişim’den kod oluştur ve buraya gir. Doğru kod cihazı kendiliğinden bağlar.</p>
+    <label for="kod">Eşleştirme kodu</label>
+    <input id="kod" autocomplete="off" autocapitalize="characters" maxlength="8" inputmode="text">
+    <label for="cihazAdi">Bu cihazın adı</label>
+    <input id="cihazAdi" value="Telefonum" maxlength="60">
+    <button class="btn" id="eslestirDugme" type="button">Eşleştir</button>
+    <button class="login-link" id="hesabaDon" type="button" hidden>Hesapla girişe dön</button>
+  </div>
+</section>
+
+<div id="uygulama" class="shell" hidden>
+  <header class="bar main-bar">
+    <span class="bar-btn"><span id="nokta" class="dot ok" role="img" aria-label="Bağlantı durumu"></span></span>
+    <h1 class="bar-title" id="baslik">Sohbetler</h1>
+    <button class="bar-btn" id="yeni" type="button" aria-label="Yeni sohbet"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+  </header>
+  <p class="banner" id="baglanti" role="status" aria-live="polite"></p>
+
+  <main class="views">
+    <section data-view="sohbetler" aria-label="Sohbetler"><div id="liste-sohbetler" class="list"></div></section>
+    <section data-view="gorevler" aria-label="Görevler" hidden><div id="liste-gorevler"></div></section>
+    <section data-view="onaylar" aria-label="Onaylar" hidden><div id="liste-onaylar"></div></section>
+    <section data-view="ekran" aria-label="Canlı ekran" hidden>
+      <div id="ekranKutu" class="screen-box empty-screen" role="button" tabindex="0" aria-label="Tam ekranı aç veya kapat">
+        <img id="ekranKare" alt="Bilgisayar ekranı">
+        <p class="screen-empty muted">Ekran paylaşılmıyor</p>
+      </div>
+      <p id="ekranDurum" class="chip" role="status" aria-live="polite">Ekran paylaşılmıyor.</p>
+      <div class="row">
+        <button class="btn" id="ekranIste" type="button">İzlemeyi başlat</button>
+        <button class="btn ghost" id="ekranDur" type="button" hidden>Durdur</button>
+      </div>
+      <p class="muted small">İzlemeyi bu telefondan onayla; istersen bu cihaz için izni hatırla. Durdur düğmesi hatırlanan izni kaldırır. Ekrana dokununca tam ekran olur.</p>
+    </section>
+    <section data-view="ayarlar" aria-label="Ayarlar" hidden><div id="liste-ayarlar"></div></section>
+  </main>
+
+  <section id="sohbet" class="chat" hidden aria-label="Sohbet"></section>
+
+  <p class="toast" id="toast" role="status" aria-live="polite" hidden></p>
+  <nav class="tabs" id="sekmeler" role="tablist" aria-label="Ana gezinme"></nav>
+</div>
+<script src="/app.js?v=mobile-workspace-20261017" type="module"></script>
+</body>
+</html>

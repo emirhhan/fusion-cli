@@ -1,0 +1,150 @@
+/* En soldaki ana menü: Home, Zamanlananlar, Kitaplık, Görsel ve video, Kits.
+   Tema açık da olsa koyu kalır; bölüm değiştirici, içerik yüzeyi değildir. */
+.main-rail {
+  align-items: stretch;
+  background: var(--surface-rail);
+  color: var(--text-secondary);
+  display: flex;
+  flex: 0 0 var(--main-rail-width);
+  flex-direction: column;
+  gap: 4px;
+  overflow: visible;
+  padding: 0 6px 12px;
+  width: var(--main-rail-width);
+}
+
+/* macOS trafik ışıkları pencerenin sol üstünde durur; ilk madde altına girmez. */
+.main-rail__titlebar-spacer {
+  flex: 0 0 calc(var(--titlebar-inset, 0px) + 12px);
+}
+
+.main-rail__item {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  height: 40px;
+  flex: 0 0 40px;
+  padding: 0;
+  position: relative;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.main-rail__item:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.main-rail__item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.main-rail__item[aria-current="page"] {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+
+.main-rail__label {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.4;
+  left: calc(100% + 8px);
+  padding: 7px 10px;
+  pointer-events: auto;
+  position: absolute;
+  white-space: nowrap;
+  visibility: hidden;
+  z-index: var(--z-popover);
+}
+.main-rail__item:hover .main-rail__label,
+.main-rail__item:focus-visible .main-rail__label { visibility: visible; }
+.main-rail__label::before { content: ""; position: absolute; inset: 0 100% 0 -10px; }
+.main-rail__item[data-tooltip-hidden="true"] .main-rail__label { visibility: hidden; }
+
+.main-rail__account { margin-top: auto; position: relative; z-index: var(--z-popover); }
+.main-rail__account .sidebar__bottom { gap: 4px; }
+.main-rail__account .sidebar__profile-trigger { display: flex; justify-content: center; min-height: 40px; padding: 4px 0; }
+.main-rail__account .sidebar__profile-trigger > .sidebar__profile-copy,
+.main-rail__account .sidebar__profile-status { display: none; }
+.main-rail__account .sidebar__profile-menu { position: absolute; bottom: 0; left: calc(100% + 8px); max-height: calc(100vh - 24px); }
+.main-rail__account .sidebar__avatar { color: var(--surface-canvas); }
+.main-rail__account .sidebar__update { width: 40px; min-width: 0; padding: 8px; }
+.main-rail__account .sidebar__update .sidebar__label { display: none; }
+
+@media (max-width: 620px) {
+  .main-rail {
+    flex-basis: var(--main-rail-width-narrow);
+    width: var(--main-rail-width-narrow);
+    padding-inline: 4px;
+  }
+
+}
+
+/* Üst çubuk ve ikon şeridi tek dış çerçeveyi oluşturur. */
+.app-frame {
+  --header-height: 40px;
+  background: var(--surface-rail);
+  display: grid;
+  grid-template-columns: var(--main-rail-width) minmax(0, 1fr);
+  grid-template-rows: 40px minmax(0, 1fr);
+  height: 100%;
+  overflow: hidden;
+  width: 100%;
+}
+
+.app-frame__titlebar {
+  background: var(--surface-rail);
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+}
+.app-frame__titlebar .app-header {
+  background: transparent;
+  border: 0;
+  height: 40px;
+  min-height: 40px;
+  padding-left: calc(var(--titlebar-safe-left, 0px) + 12px);
+}
+.app-frame > .main-rail { grid-column: 1; grid-row: 2; min-height: 0; }
+.app-frame .main-rail__titlebar-spacer { flex-basis: 8px; }
+.app-frame > .app-shell {
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  grid-column: 2;
+  grid-row: 2;
+  height: auto;
+  margin: 0 4px 4px 0;
+  min-height: 0;
+  width: auto;
+}
+.app-frame .sidebar { --titlebar-inset: 0px; }
+.app-frame[data-surface-active="true"] > .app-frame__titlebar .app-header__identity,
+.app-frame[data-surface-active="true"] > .app-frame__titlebar .app-header__actions,
+.app-frame[data-surface-full-bleed="true"] > .app-frame__titlebar .app-header__nav { visibility: hidden; }
+
+.app-frame > .app-shell,
+.app-frame__surface {
+  --titlebar-safe-left: 0px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.app-frame__surface {
+  background: var(--surface-canvas);
+  height: 100%;
+  overflow: hidden;
+}
+
+.app-frame > [hidden] {
+  display: none;
+}

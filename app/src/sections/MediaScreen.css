@@ -1,0 +1,110 @@
+.media-screen {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+}
+
+/* Görsel ekranının üst satırıyla aynı hizada, solda durur (o satırın sağında
+   "Basit oluştur / İş akışı" vardır). Ölçüler `.image-create` dolgusuyla eşleşir. */
+.media-screen__tabs {
+  background: var(--surface-hover);
+  border-radius: var(--radius-pill);
+  display: flex;
+  gap: 2px;
+  left: 24px;
+  padding: 3px;
+  position: absolute;
+  top: 16px;
+  z-index: 1;
+}
+
+.media-screen__tabs button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: var(--text-sm);
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 14px;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.media-screen__tabs button:hover {
+  color: var(--text-primary);
+}
+
+.media-screen__tabs button[aria-selected="true"] {
+  background: var(--surface-canvas);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 10%);
+  color: var(--text-primary);
+  font-weight: 550;
+}
+
+.media-screen__tabs button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.media-screen__soon {
+  align-items: center;
+  color: var(--text-secondary);
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.media-screen__soon-icon {
+  align-items: center;
+  background: var(--surface-hover);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  display: inline-flex;
+  height: 56px;
+  justify-content: center;
+  width: 56px;
+}
+
+.media-screen__soon h2 {
+  color: var(--text-primary);
+  font-size: 20px;
+  margin: 6px 0 0;
+}
+
+.media-screen__soon p {
+  margin: 0;
+  max-width: 420px;
+}
+
+.media-screen__soon button {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  margin-top: 8px;
+  padding: 7px 16px;
+}
+
+.media-screen__soon button:hover {
+  background: var(--surface-hover);
+}
+
+/* Dar ekranda kısa etiketlerle iki seçici aynı kompakt satıra yerleşir. */
+@media (max-width: 600px) {
+  .media-screen__tabs { position: absolute; left: 16px; top: 14px; margin: 0; }
+  .media-screen__tabs button { min-height: 30px; padding-inline: 9px; font-size: 12px; gap: 5px; }
+  .media-screen > .image-create { padding-top: 14px; }
+}

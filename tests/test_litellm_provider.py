@@ -1,0 +1,391 @@
+"""LiteLLM adaptörü — SDK yanıtlarının proje tiplerine çevrilmesi.
+
+Ağa çıkılmaz: SDK yanıt nesneleri basit sahtelerle taklit edilir. Buradaki testler
+reasoning modelleriyle çalışırken ortaya çıkan iki sessiz kaybı sabitler:
+
+1. Düşünme metni `reasoning_content` alanında gelir; okunmazsa tamamen kaybolur.
+2. Model bütçesi düşünme sırasında dolarsa `content` BOŞ gelir. Bu bir başarı değil,
+   kesilmiş bir turdur; sessizce boş cevap dönmek kullanıcıya "hiçbir şey yapmadı"
+   gibi görünür.
+"""
+
+from __future__ import annotations
+
+import json
+from types import SimpleNamespace
+
+from fusion_cli.core.tool_emulation import CALL_OPEN
+from fusion_cli.core.types import StreamDone
+from fusion_cli.providers.litellm_provider import LiteLlmProvider
+
+from .fakes import request
+
+
+def test_disable_thinking_is_forwarded_to_ollama():
+    from dataclasses import replace
+
+    provider = LiteLlmProvider("ollama_chat/huihui_ai/qwen3.5-abliterated:9b", role="agent")
+    kwargs = provider._call_kwargs(replace(request(), disable_thinking=True), stream=False)
+    assert kwargs["think"] is False
+
+
+def test_measured_local_qwen_uses_fast_default_without_explicit_reasoning():
+    provider = LiteLlmProvider("ollama_chat/huihui_ai/qwen3.5-abliterated:9b", role="agent")
+    assert provider._call_kwargs(request(), stream=False)["think"] is False
+
+
+def test_local_qwen_explicit_reasoning_keeps_model_default():
+    from dataclasses import replace
+
+    provider = LiteLlmProvider("ollama_chat/huihui_ai/qwen3.5-abliterated:9b", role="agent")
+    assert "think" not in provider._call_kwargs(
+        replace(request(), reasoning_effort="high"), stream=False
+    )
+
+
+def test_local_ollama_stays_loaded_between_turns():
+    """Boşta 5 dk sonra boşaltılan model her yeni turda ~4 dk soğuk başlıyordu (ölçüldü)."""
+    provider = LiteLlmProvider("ollama_chat/huihui_ai/qwen3.5-abliterated:9b", role="agent")
+    assert provider._call_kwargs(request(), stream=False)["keep_alive"] == "60m"
+
+
+def _yanit(
+    content: str = "",
+    *,
+    reasoning: str | None = None,
+    finish_reason: str = "stop",
+) -> SimpleNamespace:
+    """SDK'nın döndürdüğü yanıt nesnesinin taklidi."""
+    message = SimpleNamespace(content=content, tool_calls=None)
+    if reasoning is not None:
+        message.reasoning_content = reasoning
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=message, finish_reason=finish_reason)],
+        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=20),
+    )
+
+
+def _saglayici() -> LiteLlmProvider:
+    return LiteLlmProvider("sahte/model", role="agent")
+
+
+async def test_reasoning_icerigi_okunur_ve_cevaba_karistirilmaz(monkeypatch):
+    """Düşünme metni taşınır ama nihai cevabın içine sızmaz."""
+    yanit = _yanit("Nihai cevap.", reasoning="Önce şunu düşüneyim…")
+    _sdk(monkeypatch, yanit)
+
+    sonuc = await _saglayici().complete(request())
+
+    assert sonuc.text == "Nihai cevap."
+    assert sonuc.reasoning == "Önce şunu düşüneyim…"
+
+
+async def test_reasoning_alternatif_alan_adiyla_da_okunur(monkeypatch):
+    """Bazı sağlayıcılar `reasoning_content` yerine `reasoning` yazar."""
+    message = SimpleNamespace(content="cevap", tool_calls=None, reasoning="düşünce")
+    yanit = SimpleNamespace(
+        choices=[SimpleNamespace(message=message, finish_reason="stop")], usage=None
+    )
+    _sdk(monkeypatch, yanit)
+
+    sonuc = await _saglayici().complete(request())
+
+    assert sonuc.reasoning == "düşünce"
+
+
+async def test_butce_dusunme_sirasinda_dolarsa_tur_basarisiz_sayilir(monkeypatch):
+    """content boş + finish_reason=length → sessiz boş cevap DEĞİL, açık hata."""
+    yanit = _yanit("", reasoning="yarım kalmış düşünce", finish_reason="length")
+    _sdk(monkeypatch, yanit)
+
+    sonuc = await _saglayici().complete(request())
+
+    assert not sonuc.ok
+    assert "bütçe" in (sonuc.error or "").lower()
+    assert sonuc.reasoning == "yarım kalmış düşünce"
+
+
+async def test_arac_cagrisi_varsa_bos_content_hata_degildir(monkeypatch):
+    """Araç çağıran tur metin üretmez; bu normaldir."""
+    message = SimpleNamespace(
+        content="",
+        tool_calls=[
+            SimpleNamespace(id="1", function=SimpleNamespace(name="read_file", arguments="{}"))
+        ],
+    )
+    yanit = SimpleNamespace(
+        choices=[SimpleNamespace(message=message, finish_reason="tool_calls")], usage=None
+    )
+    _sdk(monkeypatch, yanit)
+
+    sonuc = await _saglayici().complete(request())
+
+    assert sonuc.ok
+    assert sonuc.tool_calls[0].name == "read_file"
+
+
+async def test_yerlesik_cagrida_taklit_isaretcisi_ad_olarak_sizmaz(monkeypatch):
+    """Model, yerleşik (native) araç çağrısının `name` alanına taklit protokolünün
+    sınırlayıcısını (`FUSION_TOOL_CALL`) yazarsa, gerçek çağrı KAYBOLMAMALI.
+
+    Ölçüldü (masaüstü uygulaması, nvidia_nim/nemotron): bir turdaki `ToolExecuted`
+    olayının araç adı `FUSION_TOOL_CALL` çıktı — kayıt defterinde böyle bir araç
+    yok, çağrı "bilinmeyen araç" ile düşer. Ama `function.arguments` alanında
+    modelin GERÇEKTEN istediği çağrı (`{"name": ..., "arguments": ...}`) hâlâ
+    duruyordu; niyet kayıp değil, yanlış yere yazılmıştı. `_response_tool_calls`
+    bunu sözleşme hatası saymadan önce taklit gövdesi olarak ayrıştırmalı.
+    """
+    gomulu = json.dumps({"name": "read_file", "arguments": {"path": "a.py"}})
+    message = SimpleNamespace(
+        content="",
+        tool_calls=[
+            SimpleNamespace(id="1", function=SimpleNamespace(name=CALL_OPEN, arguments=gomulu))
+        ],
+    )
+    yanit = SimpleNamespace(
+        choices=[SimpleNamespace(message=message, finish_reason="tool_calls")], usage=None
+    )
+    _sdk(monkeypatch, yanit)
+
+    sonuc = await _saglayici().complete(request())
+
+    assert sonuc.ok
+    assert sonuc.tool_calls[0].name == "read_file"
+    assert json.loads(sonuc.tool_calls[0].arguments) == {"path": "a.py"}
+
+
+async def test_akista_reasoning_parcalari_metne_karismaz(monkeypatch):
+    """Akışta düşünme parçaları kullanıcıya metin olarak yayınlanmaz."""
+    parcalar = [
+        SimpleNamespace(
+            choices=[SimpleNamespace(delta=SimpleNamespace(content=None, reasoning_content="dü"))]
+        ),
+        SimpleNamespace(
+            choices=[SimpleNamespace(delta=SimpleNamespace(content=None, reasoning_content="şün"))]
+        ),
+        SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="cevap"))]),
+    ]
+    _sdk(
+        monkeypatch,
+        akis=parcalar,
+        stream_chunk_builder=lambda chunks, messages: _yanit("cevap", reasoning="düşün"),
+    )
+
+    metinler = []
+    sonuc = None
+    async for item in _saglayici().stream(request()):
+        if isinstance(item, StreamDone):
+            sonuc = item.result
+        else:
+            metinler.append(item.text)
+
+    assert "".join(metinler) == "cevap"
+    assert sonuc is not None and sonuc.reasoning == "düşün"
+
+
+async def test_metinsiz_parcalar_canlilik_isareti_olarak_iletilir(monkeypatch):
+    """Ölçüldü (29 Eylül): model uzun bir dosyayı araç argümanı olarak yazarken akış
+    yalnız metin parçalarını iletiyordu; iki dakika "sessiz" sanılıp çağrı her
+    denemede kesildi. Araç argümanı ve düşünme parçaları boş, geçici bir parça
+    olarak iletilir: ekrana metin düşmez ama model "yazıyor" sayılır."""
+    arac_parcasi = SimpleNamespace(
+        choices=[SimpleNamespace(delta=SimpleNamespace(content=None, tool_calls=[object()]))]
+    )
+    parcalar = [
+        arac_parcasi,
+        SimpleNamespace(
+            choices=[SimpleNamespace(delta=SimpleNamespace(content=None, reasoning_content="dü"))]
+        ),
+        arac_parcasi,
+    ]
+    _sdk(
+        monkeypatch,
+        akis=parcalar,
+        stream_chunk_builder=lambda chunks, messages: _yanit(""),
+    )
+
+    ogeler = [item async for item in _saglayici().stream(request())]
+
+    canlilik = [item for item in ogeler if not isinstance(item, StreamDone)]
+    assert len(canlilik) == 3
+    assert all(item.text == "" and item.provisional for item in canlilik)
+    assert isinstance(ogeler[-1], StreamDone)
+
+
+# --------------------------------------------------------------------------- #
+
+
+def _sdk(monkeypatch, yanit=None, *, akis=None, stream_chunk_builder=None):
+    """LiteLLM modülünü sahte bir SDK ile değiştir."""
+    sahte = SimpleNamespace(
+        acompletion=_sahte_akis(akis) if akis is not None else _sahte_acompletion(yanit),
+        completion_cost=lambda **kwargs: 0.0,
+    )
+    if stream_chunk_builder is not None:
+        sahte.stream_chunk_builder = stream_chunk_builder
+    monkeypatch.setattr("fusion_cli.providers.litellm_provider._litellm", lambda: sahte)
+
+
+def _sahte_acompletion(yanit):
+    async def _cagir(**kwargs):
+        return yanit
+
+    return _cagir
+
+
+def _sahte_akis(parcalar):
+    async def _cagir(**kwargs):
+        async def _uret():
+            for parca in parcalar:
+                yield parca
+
+        return _uret()
+
+    return _cagir
+
+
+async def test_kesilen_yanit_isaretlenir(monkeypatch):
+    """finish_reason=length → çıktı yarım; üst katman buna güvenmemeli."""
+    _sdk(monkeypatch, _yanit("Yarım cüml", finish_reason="length"))
+
+    sonuc = await _saglayici().complete(request())
+
+    assert sonuc.truncated
+
+
+async def test_tamamlanan_yanit_kesik_isaretlenmez(monkeypatch):
+    _sdk(monkeypatch, _yanit("Tam cevap.", finish_reason="stop"))
+
+    sonuc = await _saglayici().complete(request())
+
+    assert not sonuc.truncated
+
+
+# --- Görsel taşıyan mesajlar ------------------------------------------------- #
+
+
+def test_gorselsiz_mesaj_duz_metin_kalir():
+    """Mevcut davranış korunur: görsel yoksa içerik dizgedir, liste değil."""
+    from fusion_cli.core.types import Message
+    from fusion_cli.providers.litellm_provider import _to_wire
+
+    assert _to_wire(Message("user", "merhaba"))["content"] == "merhaba"
+
+
+def test_gorselli_mesaj_cok_parcali_icerige_cevrilir():
+    from fusion_cli.core.types import Message
+    from fusion_cli.providers.litellm_provider import _to_wire
+
+    wire = _to_wire(Message("user", "bu ne?", images=("data:image/png;base64,AAA",)))
+
+    icerik = wire["content"]
+    assert isinstance(icerik, list)
+    assert icerik[0] == {"type": "text", "text": "bu ne?"}
+    assert icerik[1]["type"] == "image_url"
+    assert icerik[1]["image_url"]["url"] == "data:image/png;base64,AAA"
+
+
+def test_birden_cok_gorsel_sirayla_eklenir():
+    from fusion_cli.core.types import Message
+    from fusion_cli.providers.litellm_provider import _to_wire
+
+    wire = _to_wire(Message("user", "karşılaştır", images=("data:a", "data:b")))
+
+    assert [p["image_url"]["url"] for p in wire["content"][1:]] == ["data:a", "data:b"]
+
+
+def test_call_kwargs_reasoning_effort_gonderir():
+    from fusion_cli.core.types import CompletionRequest, Message
+
+    istek = CompletionRequest(
+        messages=(Message("user", "selam"),),
+        temperature=0.0,
+        max_tokens=16,
+        timeout_s=1.0,
+        reasoning_effort="high",
+    )
+    from fusion_cli.core.model_capability import ModelCapability
+
+    provider = LiteLlmProvider(
+        "sahte/model",
+        role="agent",
+        capability=ModelCapability(
+            supported_reasoning_efforts=("high",),
+            reasoning_efforts_verified=True,
+        ),
+    )
+    kwargs = provider._call_kwargs(istek, stream=False)
+    assert kwargs["reasoning_effort"] == "high"
+
+
+def test_nemotron_3_arac_cagrisinda_dusunmeyi_cevaba_doken_sablon_secimi_gonderilmez():
+    """Ölçüldü (27 Eylül): `force_nonempty_content` düşünmeyi cevap metnine döküyordu."""
+    from fusion_cli.core.types import CompletionRequest, Message
+
+    istek = CompletionRequest(
+        messages=(Message("user", "Dosyayı incele"),),
+        temperature=0.3,
+        max_tokens=8192,
+        timeout_s=30.0,
+        tools=({"type": "function", "function": {"name": "read_file"}},),
+    )
+    kwargs = LiteLlmProvider(
+        "nvidia_nim/nvidia/nemotron-3-super-120b-a12b", role="agent"
+    )._call_kwargs(istek, stream=False)
+
+    assert "extra_body" not in kwargs
+    assert "extra_body" not in _saglayici()._call_kwargs(istek, stream=False)
+
+
+def test_call_kwargs_effort_yoksa_parametre_konmaz():
+    from fusion_cli.core.types import CompletionRequest, Message
+
+    istek = CompletionRequest(
+        messages=(Message("user", "selam"),),
+        temperature=0.0,
+        max_tokens=16,
+        timeout_s=1.0,
+    )
+    kwargs = _saglayici()._call_kwargs(istek, stream=False)
+    assert "reasoning_effort" not in kwargs
+
+
+def test_dusunme_kapatma_yalniz_sablon_anahtarini_taniyan_saglayiciya_gider():
+    """Ölçüldü (3 Ekim 2026): Nemotron 3 Ultra bütçeyi düşünmeye harcıyordu; `enable_thinking`
+    kapalıyken aynı iş 161 sn → 29 sn, düşünme metni 0, araç çağrısı geçerli."""
+    from fusion_cli.core.types import CompletionRequest, Message
+
+    istek = CompletionRequest(
+        messages=(Message("user", "yaz"),),
+        temperature=0.2,
+        max_tokens=8192,
+        timeout_s=30.0,
+        disable_thinking=True,
+    )
+    nim = LiteLlmProvider("nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b", role="agent")
+    assert nim._call_kwargs(istek, stream=False)["extra_body"] == {
+        "chat_template_kwargs": {"enable_thinking": False}
+    }
+    assert "extra_body" not in _saglayici()._call_kwargs(istek, stream=False)
+    acik = CompletionRequest(
+        messages=(Message("user", "yaz"),), temperature=0.2, max_tokens=8192, timeout_s=30.0
+    )
+    assert "extra_body" not in nim._call_kwargs(acik, stream=False)
+
+
+def test_usage_distinguishes_missing_partial_and_measured_zero(monkeypatch):
+    from fusion_cli.providers import litellm_provider as module
+
+    monkeypatch.setattr(module, "_estimated_cost", lambda *_: None)
+    missing = module._response_usage(SimpleNamespace(), "offline")
+    partial = module._response_usage(
+        SimpleNamespace(usage=SimpleNamespace(prompt_tokens=0)), "offline"
+    )
+    measured = module._response_usage(
+        SimpleNamespace(usage=SimpleNamespace(prompt_tokens=0, completion_tokens=0)), "offline"
+    )
+    assert missing.completeness == "unknown"
+    assert partial.completeness == "partial"
+    assert measured.completeness == "complete"
+    assert measured.total_tokens == 0
+    assert not measured.cost_known

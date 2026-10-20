@@ -1,0 +1,429 @@
+.conversation-frame { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
+.conversation__jump { position: absolute; bottom: 16px; right: 16px; z-index: 1; background: var(--surface-raised); }
+
+.conversation {
+  /* Sohbet tipografisi: sistem yazı tipi, 13px sohbet metni, 12px kod. */
+  --chat-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --chat-font-size: 13px;
+  --chat-line-height: 1.5;
+  font-family: var(--chat-font-family, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  padding: var(--space-8) 0;
+  scroll-behavior: smooth;
+}
+
+.conversation__stream {
+  margin: 0 auto;
+  width: min(var(--icerik-en-fazla), calc(100% - 48px));
+}
+
+.conversation__disclaimer {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  margin: var(--space-5) 0;
+  text-align: center;
+}
+
+.conversation__message {
+  display: flex;
+  /* Satır arası daraltıldı: paragraflar arasındaki boşluk okumayı bölüyordu. */
+  margin-bottom: var(--space-6);
+  min-width: 0;
+}
+
+/* Çalışma satırları asıl cevaba YAKIN durur: aralarındaki geniş boşluk,
+   ilerleme ile cevabı iki ayrı ekran gibi gösteriyordu. */
+.conversation__message--event {
+  display: block;
+  margin-bottom: var(--space-5);
+}
+
+.conversation__message--event + .conversation__message--assistant {
+  margin-top: var(--space-2);
+}
+
+.conversation__message--user {
+  justify-content: flex-end;
+}
+
+.conversation__bubble {
+  background: var(--surface-message-user);
+  color: var(--text-primary);
+  border-radius: var(--radius-lg);
+  max-width: 82%;
+  overflow-wrap: anywhere;
+  padding: 10px var(--space-4);
+  white-space: pre-wrap;
+}
+
+.conversation__message--assistant {
+  display: block;
+}
+
+.conversation__article {
+  width: 100%;
+}
+
+.conversation__text {
+  line-height: var(--line-body);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.conversation__actions {
+  display: flex;
+  margin-top: var(--space-2);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.conversation__article:hover .conversation__actions,
+.conversation__article:focus-within .conversation__actions,
+.conversation__actions:has(.conversation__report) {
+  opacity: 1;
+}
+
+/* Başarısız yanıtta her zaman görünür: kullanıcı raporu aramak zorunda kalmaz. */
+.conversation__report {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: var(--text-sm);
+  margin-left: var(--space-2);
+  min-height: 28px;
+  padding: 2px 12px;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+
+.conversation__report:hover { background: var(--surface-hover, rgb(255 255 255 / 6%)); color: var(--text-primary); }
+.conversation__report:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+
+/* Gönderilen ekler: kullanıcı ne yolladığını geçmişte de görür. */
+.conversation__sent {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: end;
+  max-width: 82%;
+}
+
+.conversation__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.conversation__attachment {
+  align-items: center;
+  background: var(--surface-hover);
+  border-radius: var(--radius-md);
+  display: flex;
+  gap: var(--space-2);
+  max-width: 220px;
+  padding: 4px 10px 4px 4px;
+}
+
+.conversation__attachment img {
+  border-radius: var(--radius-sm);
+  display: block;
+  height: 44px;
+  object-fit: cover;
+  width: 44px;
+}
+
+.conversation__attachment-name {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation__sent .conversation__bubble { max-width: 100%; }
+
+/* ChatGPT tarzı akış: rol etiketleri yerine boşluk ve hizalama konuşmacıyı
+   ayırır; kullanıcı balonu sağda, asistan metni geniş okuma kolonunda kalır. */
+.conversation__role { display: none; }
+/* DİKKAT: burada `.conversation__message { margin-bottom: ... }` YOKTU —
+   eskiden sabit `24px` ile YİNELENİYORDU (aynı seçici, temel kuralla eşit
+   özgüllük) ve dosyada SONRA geldiği için yukarı `.conversation__message--event`
+   sıkılaştırmasının (8px) üstüne biniyordu: ardışık araç adımları arasında
+   ~60-80px boşluk kalıyordu (ölçüldü). Temel kural (üstte, `var(--space-4)`)
+   zaten aynı işi token'la yapıyor; ikinci bir yol açılmaz (RULES). */
+.conversation__message--user { padding-left: 72px; }
+.conversation__bubble {
+  background: var(--surface-message-user);
+  border-radius: 18px;
+  font-size: var(--chat-font-size, 13px);
+  padding: 10px 16px;
+}
+.conversation__text { font-size: var(--chat-font-size, 13px); line-height: var(--chat-line-height, 1.5); }
+.conversation__message--assistant .conversation__article { padding: 0 8px; }
+/* Adım satırları anlatım metniyle aynı sol çizgiden başlar. */
+.conversation__message--event { padding: 0 8px; }
+
+/* Canlı durum yalnız ekran okuyucuya duyurulur; görsel durum ActivityLine'da
+   zaten bir kez gösterilir. Bu kural eksik olduğunda sayfanın solunda ikinci
+   bir “Çalışıyor” satırı beliriyordu. */
+.conversation__live-status {
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@container conversation-workspace (max-width: 640px) {
+  .conversation__stream { width: calc(100% - 28px); }
+  .conversation__bubble { max-width: 92%; }
+}
+
+/* --- Çalışma göstergesi ------------------------------------------------
+   Tek satır. Çalışırken yanıp söner, bitince DOM'dan tamamen çıkar; yalnız
+   başarısızlık ve kullanıcının açtığı adım dökümü iz bırakır. */
+
+.activity {
+  align-items: baseline;
+  color: var(--text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+
+.activity__pulse { color: var(--text-secondary); }
+/* Claude'daki gibi kalıcı adım izi: her araç tek soluk satır. */
+.activity__trail { display: grid; gap: 2px; margin: 0 0 4px; padding: 0; list-style: none; }
+.activity__trail li { display: flex; align-items: baseline; gap: 6px; color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.5; }
+.activity__trail li[data-state="failed"] { color: var(--text-danger); }
+.activity__trail-text { overflow-wrap: anywhere; }
+.activity__trail-mark { flex: none; font-size: var(--text-xs); opacity: .8; }
+.activity__trail-item { min-width: 0; flex: 1; }
+.activity__trail-item > summary { display: flex; align-items: baseline; gap: 6px; cursor: pointer; list-style: none; border-radius: var(--radius-sm); }
+.activity__trail-item > summary::-webkit-details-marker { display: none; }
+.activity__trail-item > summary::after { content: "›"; flex: none; transition: transform var(--duration-fast) var(--ease-standard); }
+.activity__trail-item[open] > summary::after { transform: rotate(90deg); }
+.activity__trail-item > summary:hover { color: var(--text-primary); }
+.activity__trail-item > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.activity__trail-body { display: grid; gap: 6px; margin: 4px 0 6px; }
+.activity__trail-note { margin: 0; color: var(--text-secondary); }
+.activity__trail-command,
+.activity__trail-diff,
+.activity__trail-output {
+  margin: 0; max-height: 320px; overflow: auto; padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.activity__trail-diff .diff-card__line { white-space: pre-wrap; }
+.conversation__message--narration { opacity: 1; margin-bottom: var(--space-4); }
+.activity__now { display: flex; align-items: baseline; gap: 8px; font-size: var(--text-sm); }
+/* Claude'un dönen yıldızı; çalışıldığını metin değişmese de gösterir. */
+.activity__spark { display: inline-block; color: var(--accent, var(--text-primary)); line-height: 1; }
+.activity__summary[data-failed="true"] > summary { color: var(--text-danger); }
+.activity__summary,
+.activity > .activity__trail { flex: 1 1 100%; min-width: 0; }
+.activity__summary > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-secondary); font-size: var(--text-base); line-height: 1.6; list-style: none; }
+.activity__summary > summary > svg { width: 16px; height: 16px; flex: none; }
+.activity__summary > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; border-radius: var(--radius-sm); }
+.activity__summary > summary::-webkit-details-marker { display: none; }
+.activity__summary > summary::after { content: "›"; display: inline-block; opacity: 0; margin-left: 2px; transition: transform var(--duration-fast) var(--ease-standard); }
+.activity__summary > summary:hover::after, .activity__summary > summary:focus-visible::after, .activity__summary[open] > summary::after { opacity: 1; }
+.activity__summary[open] > summary::after { transform: rotate(90deg); }
+.activity__summary > summary:hover { color: var(--text-primary); }
+.activity__summary[open] .activity__trail { margin-top: 6px; }
+.agent-activity { display: grid; gap: var(--space-3); }
+.agent-activity__icon { color: var(--ekip-mor-murekkep); }
+.agent-activity__detail { color: var(--text-secondary); font-size: var(--text-sm); margin: var(--space-2) 0 0 24px; }
+
+/* Nabız yalnız hareket kabul eden kullanıcıda çalışır; kapalıyken satır
+   sabit durur ve bilgi kaybı olmaz. */
+@media (prefers-reduced-motion: no-preference) {
+  .activity__pulse { animation: activity-pulse 1.4s ease-in-out infinite; }
+  .activity__spark { animation: activity-spark 2.4s linear infinite; }
+}
+
+@keyframes activity-spark {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes activity-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.42; }
+}
+
+.activity__elapsed {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.activity[data-state="failed"] .activity__result { color: var(--text-danger); }
+.activity[data-state="partial"] .activity__result { color: var(--text-warning); }
+.activity__result { font-weight: 500; }
+.activity__detail { min-width: 0; overflow-wrap: anywhere; }
+
+.activity__steps { min-width: 0; width: 100%; }
+
+.activity__steps summary {
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  list-style: none;
+  padding: var(--space-1) 0;
+}
+.activity__steps summary::-webkit-details-marker { display: none; }
+.activity__steps summary:hover { color: var(--text-primary); }
+
+.activity__steps ol {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 0;
+  padding-inline-start: var(--space-5);
+}
+
+.activity__steps li { display: grid; gap: 2px; min-width: 0; }
+.activity__step-title { color: var(--text-primary); font-size: var(--text-xs); }
+.activity__step-detail { color: var(--text-secondary); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.activity__steps a { color: var(--accent-text); font-size: var(--text-xs); overflow-wrap: anywhere; }
+
+/* Değişiklik kartı satırın TAMAMINI kaplar. `.conversation__message` flex'tir
+   ve kart içeriğine göre büzülüyordu; yan yana duran ikinci bir öğe yok, bu
+   yüzden blok akışı doğru olan. */
+.conversation__message--change { display: block; }
+
+/* Canlı görev listesi: plan kartı akışta tek satır gibi durur, dikkat çalmaz. */
+.conversation__tasks {
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  display: grid;
+  gap: 6px;
+  max-width: 640px;
+}
+
+.conversation__tasks header {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  display: flex;
+  justify-content: space-between;
+}
+
+.conversation__tasks ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 0.92rem;
+}
+
+.conversation__tasks li {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.conversation__tasks li[data-durum="bitti"] {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+}
+
+.conversation__tasks li[data-durum="yapiliyor"] {
+  font-weight: 600;
+}
+
+/* Takip önerileri: turun kapanışının ardına düşen tıklanabilir rozetler.
+   Cevabın parçası gibi görünmemeli — sönük ve kenarlıklı dururlar. */
+.conversation__followups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding-block: var(--space-1);
+}
+
+.conversation__followup {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill, 999px);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85em;
+  padding: 0.3em 0.9em;
+  text-align: left;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.conversation__followup:hover,
+.conversation__followup:focus-visible {
+  background: var(--surface-raised);
+  border-color: var(--border-strong, var(--border-subtle));
+  color: var(--text-primary);
+}
+
+/* Alt ajan adımı: ana turun adımlarından ayırt edilebilmeli.
+   CLI'de bu ayrım `┌ alt-ajan` başlığıyla zaten vardı; masaüstünde alt ajanın
+   adımları ana turun adımlarına karışıyordu. */
+.activity__steps li[data-sub-agent="true"] {
+  border-left: 2px solid var(--border-subtle);
+  padding-left: var(--space-1);
+}
+
+.activity__step-badge {
+  background: var(--surface-raised);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.75em;
+  margin-right: 0.4em;
+  padding: 0.05em 0.4em;
+}
+
+/* Modelin düşünme metni. Cevap DEĞİLDİR: sönük, küçük ve katlanabilir
+   listenin içinde durur; kullanıcı onu cevapla karıştırmamalı. */
+.activity__step-thinking {
+  color: var(--text-secondary);
+  font-size: 0.85em;
+  margin: var(--space-1) 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.delivery-card { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border, #2d3748); border-radius: 10px; font-size: 0.85rem; }
+.delivery-card p, .delivery-card ul { margin: 8px 0 0; }
+.delivery-card code { overflow-wrap: anywhere; }
+
+.conversation__actions { align-items: center; flex-wrap: wrap; gap: 2px; opacity: 1; color: var(--text-secondary); }
+.conversation__actions > .ui-button, .conversation__evaluation > .ui-button { color: var(--text-secondary); }
+.conversation__actions [role="status"], .conversation__actions [role="alert"] { font-size: var(--text-xs); margin-left: var(--space-2); }
+.conversation__actions [role="alert"] { color: var(--text-danger); }
+.conversation__evaluation { position: relative; }
+.conversation__rating { position: absolute; bottom: calc(100% + 4px); left: 0; display: flex; padding: 4px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: 0 4px 12px rgb(0 0 0 / 10%); z-index: 2; }
+
+/* Aynı kompakt kronoloji canlı akışta ve açılan geçmişte korunur. */
+.conversation__work, .conversation__work-details { margin-bottom: var(--space-4); min-width: 0; }
+.conversation__work-details > summary { cursor: pointer; color: var(--text-secondary); font-size: var(--text-sm); padding: var(--space-1) 8px; }
+.conversation__work-details > summary:focus-visible { outline: 2px solid var(--focus-ring); border-radius: var(--radius-sm); }
+.conversation__work-content { display: grid; gap: var(--space-2); }
+.conversation__work-content .conversation__message { margin: 0; }
+.conversation__work-content .conversation__text { font-size: var(--text-sm); line-height: 1.5; }
+.conversation__work-content .conversation__text p { margin: 0 0 var(--space-1); }

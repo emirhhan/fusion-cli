@@ -1,0 +1,252 @@
+"""Hangi sağlayıcı anahtarlarının kurulu olduğu — tek doğruluk kaynağı.
+
+Ürün iki sağlayıcıyla çalışır ve BİRİ yeterlidir:
+
+- **OpenRouter** zorunludur. Ücretsiz katmanı anahtarla açılır ve merdivenin her
+  kademesinde en az bir OpenRouter modeli vardır; bu yüzden ürünün taban çizgisidir.
+- **NVIDIA NIM** opsiyoneldir. Varsa ayrı bir ücretsiz kotadan çalışır ve bazı
+  roller ona kayar; yoksa hiçbir kademe boşta kalmaz.
+
+Model zincirleri buna göre BUDANIR. Eskiden NIM anahtarı olmayan kullanıcıda her
+tur önce başarısız bir `nvidia_nim/` çağrısı yapılıyor, sonra yedeğe düşülüyordu:
+çalışıyordu ama her rolde bir boşa çağrı ve gereksiz gecikme demekti.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import secrets
+import sys
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from enum import Enum
+
+from ..core.types import ModelSpec
+from .models import Config
+
+_logger = logging.getLogger(__name__)
+
+#: Ortam değişkeni adları. Tek yerde tutulur; `.env` şablonu ve kurulum sihirbazı
+#: da buradan okur, iki listenin ayrışması mümkün olmasın.
+OPENROUTER_ENV = "OPENROUTER_API_KEY"
+NIM_ENV = "NVIDIA_NIM_API_KEY"
+#: Resmî API sağlayıcılarının anahtar ortam değişkenleri. Bunlar ürünün ücretsiz
+#: taban çizgisine (OpenRouter + NIM) dahil DEĞİLDİR; kullanıcı isterse resmî API'yi
+#: kendi anahtarıyla ekler. LiteLLM bu önekleri doğrudan çalıştırır.
+OPENAI_ENV = "OPENAI_API_KEY"
+GEMINI_ENV = "GEMINI_API_KEY"
+ANTHROPIC_ENV = "ANTHROPIC_API_KEY"
+
+#: Model kimliği önekleri.
+OPENROUTER_PREFIX = "openrouter/"
+NIM_PREFIX = "nvidia_nim/"
+OPENAI_PREFIX = "openai/"
+GEMINI_PREFIX = "gemini/"
+ANTHROPIC_PREFIX = "anthropic/"
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderKeys:
+    """Kurulu olan sağlayıcılar."""
+
+    openrouter: bool
+    nim: bool
+
+    @property
+    def any_configured(self) -> bool:
+        return self.openrouter or self.nim
+
+    def supports(self, model_id: str) -> bool:
+        """Bu model kimliği kurulu bir sağlayıcıya mı ait?
+
+        Tanınmayan önekler (ollama, openai, yerel uçlar) True döner: kullanıcı
+        onları bilerek yazmıştır ve anahtar gereksinimlerini biz bilemeyiz.
+        Budama yalnızca YÖNETTİĞİMİZ iki sağlayıcı için yapılır.
+        """
+        if model_id.startswith(NIM_PREFIX):
+            return self.nim
+        if model_id.startswith(OPENROUTER_PREFIX):
+            return self.openrouter
+        return True
+
+
+#: Şifreli credential deposunun ana anahtarı (Fernet). Kullanıcı ortama koyar;
+#: koda/dosyaya/git'e ASLA girmez. Yoksa depo devre dışı kalır ve kullanıcı bilgilendirilir.
+FUSION_SECRET_ENV = "FUSION_SECRET_KEY"
+
+
+def secret_key() -> str | None:
+    """Önce ortamı, macOS'ta yerel kasayı, diğer sistemlerde anahtarlığı kullan."""
+    value = os.environ.get(FUSION_SECRET_ENV, "").strip()
+    if value:
+        return value
+    if _uses_local_vault():
+        return _local_master_key()
+    return _keyring_master_key()
+
+
+def _uses_local_vault() -> bool:
+    return sys.platform == "darwin"
+
+
+def _local_master_key() -> str | None:
+    # Yerel kasa POSIX'e özgüdür (`fcntl`); Windows'ta modül hiç içe aktarılmaz.
+    if sys.platform != "win32":
+        from .local_vault import local_master_key
+        from .paths import user_data_dir
+
+        try:
+            return local_master_key(user_data_dir())
+        except (OSError, ValueError):
+            _logger.exception("Yerel kasa açılamadı; mevcut kayıtlar korunuyor.")
+    return None
+
+
+def _keyring_master_key() -> str | None:
+    """Sistem anahtarlığındaki Fusion master key'i al; mümkünse ilk kullanımda üret.
+
+    Anahtarlık erişimi bir SINIR'dır: keyring backend'i platforma göre değişir ve
+    `KeyringError` dışında da hata verebilir — örneğin macOS'ta oturumda varsayılan
+    Keychain yoksa Security framework `RuntimeError`/ham OSStatus fırlatır ve bu ham
+    hata kullanıcıya "anahtar zinciri bulunamıyor" olarak kaçardı. Bu yüzden her
+    başarısızlık burada yakalanır, loglanır ve `None` döner: sır deposu devre dışı
+    kalır ama uygulama (ve native tarayıcı girişi) tam çalışmaya devam eder (RULES:
+    depo erişilemezse özellik kapanır, uygulama çökmez).
+    """
+    if sys.platform not in {"darwin", "linux", "win32"}:
+        return None
+    try:
+        import keyring
+    except ImportError:
+        return None
+    service = "fusion-cli"
+    account = "credential-master-key"
+    try:
+        current = keyring.get_password(service, account)
+        if current:
+            return current
+        generated = secrets.token_urlsafe(48)
+        keyring.set_password(service, account, generated)
+        return generated
+    # Sınır katmanı: keyring backend'i KeyringError dışında da (RuntimeError, ham
+    # OSStatus) hata verebilir; her başarısızlık yutulmadan loglanır ve None döner.
+    except Exception as error:
+        _logger.warning("Sistem anahtarlığına erişilemedi, sır deposu devre dışı: %s", error)
+        return None
+
+
+def environ_snapshot() -> dict[str, str]:
+    """Ortam değişkenlerinin anlık kopyası. Ortam erişimi config katmanındadır
+    (RULES.md): üst katmanlar `os.environ`'a doğrudan dokunmaz, bunu çağırır."""
+    return dict(os.environ)
+
+
+def detect(environ: dict[str, str] | None = None) -> ProviderKeys:
+    """Ortamdan kurulu sağlayıcıları oku.
+
+    Boş string kurulu SAYILMAZ: `.env` şablonu anahtarları `OPENROUTER_API_KEY=`
+    olarak bırakır ve doldurulmamış bir satır "kurulu" sayılsaydı ürün, anahtarı
+    olmayan kullanıcıda kurulumu tamamlanmış gibi davranırdı.
+    """
+    source = environ if environ is not None else dict(os.environ)
+    return ProviderKeys(
+        openrouter=bool(source.get(OPENROUTER_ENV, "").strip()),
+        nim=bool(source.get(NIM_ENV, "").strip()),
+    )
+
+
+class ProviderPreference(Enum):
+    """Kullanıcının hangi sağlayıcıya kilitlendiği.
+
+    Neden gerekli: bir sağlayıcının tükenmesi ötekini de tüketiyordu. NIM kredisi
+    bitince her çağrı yedeğe düştü, hepsi OpenRouter'a gitti ve günlük 50 istek
+    birkaç dakikada bitti — kullanıcı iki kotayı birden kaybetti ve sebebini
+    göremedi. Tercih belirlenince ötekinin kotasına HİÇ dokunulmaz.
+
+    `AUTO` varsayılandır ve mevcut davranışı korur: zincir iki sağlayıcıya yayılır,
+    biri yavaşsa/hata verirse öteki devreye girer. Dayanıklılık ile kota
+    öngörülebilirliği arasındaki takas kullanıcının kararıdır.
+    """
+
+    AUTO = "auto"
+    NVIDIA = "nvidia"
+    OPENROUTER = "openrouter"
+
+    @property
+    def prefix(self) -> str:
+        """Bu tercihin izin verdiği model öneki. AUTO'da anlamsızdır."""
+        return NIM_PREFIX if self is ProviderPreference.NVIDIA else OPENROUTER_PREFIX
+
+    @property
+    def excluded_prefix(self) -> str:
+        """Bu tercihte zincirden çıkarılacak önek."""
+        return OPENROUTER_PREFIX if self is ProviderPreference.NVIDIA else NIM_PREFIX
+
+
+def apply_preference(config: Config, preference: ProviderPreference) -> Config:
+    """Zincirleri tek bir sağlayıcıya indir. `AUTO` ise yapılandırma değişmez."""
+    if preference is ProviderPreference.AUTO:
+        return config
+    return _map_specs(config, lambda spec: _only(spec, preference.excluded_prefix))
+
+
+def _only(spec: ModelSpec, excluded: str) -> ModelSpec:
+    """Zincirden bir sağlayıcıyı çıkar.
+
+    Zincirin tamamı düşerse spec DEĞİŞMEZ: modelsiz rol turu çökertir ve "hiç model
+    yok" hatası, kullanıcının anlayabileceği bir şey değildir. Tanınmayan önekler
+    (ollama, vLLM) hiç elenmez — yönettiğimiz iki sağlayıcıdan biri değildirler.
+    """
+    kalan = tuple(model for model in spec.models if not model.startswith(excluded))
+    if not kalan or kalan == spec.models:
+        return spec
+    return replace(spec.with_identity(kalan[0]), fallback=kalan[1:])
+
+
+def _map_specs(config: Config, donustur: Callable[[ModelSpec], ModelSpec]) -> Config:
+    """Tüm rollerin spec'lerine aynı dönüşümü uygula (kademeler dahil)."""
+    return replace(
+        config,
+        agent=donustur(config.agent),
+        judge=donustur(config.judge),
+        candidates=tuple(donustur(spec) for spec in config.candidates),
+        vision=donustur(config.vision) if config.vision else None,
+        tiers=tuple(
+            replace(
+                tier,
+                agent=donustur(tier.agent),
+                judge=donustur(tier.judge),
+                candidates=tuple(donustur(spec) for spec in tier.candidates),
+            )
+            for tier in config.tiers
+        ),
+    )
+
+
+def prune_spec(spec: ModelSpec, keys: ProviderKeys) -> ModelSpec:
+    """Bir rolün model zincirinden anahtarı olmayan sağlayıcıları çıkar.
+
+    Zincirin TAMAMI düşerse spec olduğu gibi bırakılır: modelsiz bir rol turu
+    çökertir ve "hiç model yok" hatası, "anahtarın yok" hatasından çok daha
+    anlaşılmazdır. Bu durumda çağrı yine başarısız olur ama sebebi sağlayıcıdan
+    gelen açık bir kimlik doğrulama hatası olur.
+    """
+    kalan = tuple(model for model in spec.models if keys.supports(model))
+    if not kalan or kalan == spec.models:
+        return spec
+    return replace(spec.with_identity(kalan[0]), fallback=kalan[1:])
+
+
+def prune_config(config: Config, keys: ProviderKeys) -> Config:
+    """Tüm rollerin zincirlerini kurulu sağlayıcılara göre buda.
+
+    Hiç anahtar yoksa yapılandırma DEĞİŞTİRİLMEZ: budama kurulum eksikliğini
+    gizlerdi ve kullanıcı "model yok" hatasıyla karşılaşırdı; oysa asıl sorun
+    anahtarın hiç girilmemiş olmasıdır ve onu kurulum akışı söylemelidir.
+    """
+    if not keys.any_configured:
+        return config
+    if keys.openrouter and keys.nim:
+        return config
+    return _map_specs(config, lambda spec: prune_spec(spec, keys))

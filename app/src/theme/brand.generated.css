@@ -1,0 +1,23 @@
+/* ÜRETİLMİŞ — kaynak: Fusion app/src/theme/brand-tokens.json */
+:root {
+  --fusion-accent-deep: #1d4ed8;
+  --fusion-blue: #3b82f6;
+  --fusion-cyan: #22d3ee;
+  --fusion-violet: #a78bfa;
+  --fusion-canvas: #ffffff;
+  --fusion-dialog-border: #cdd9ed;
+  --fusion-dialog-surface: #f3f6fc;
+  --fusion-ink: #0b0a0d;
+  --fusion-input-surface: #ffffff;
+  --fusion-muted: #5d5d5d;
+  --fusion-sidebar: #f9f9f9;
+}
+:root[data-theme="dark"] {
+  --fusion-canvas: #212121;
+  --fusion-dialog-border: #34415a;
+  --fusion-dialog-surface: #182130;
+  --fusion-ink: #ececec;
+  --fusion-input-surface: #111827;
+  --fusion-muted: #afafaf;
+  --fusion-sidebar: #262626;
+}

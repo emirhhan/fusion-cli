@@ -1,0 +1,474 @@
+"""Tiplenmiş yapılandırma nesneleri.
+
+DİKKAT — bu dosyadaki alanlara varsayılan değer YAZILMAZ. Varsayılanların tek kaynağı
+`defaults.yaml`'dır. Eski projede aynı varsayılan hem kodda hem dosyada duruyordu ve
+ikisi zamanla ayrıştı (ör. timeout kodda 120, dosyada 45). Alanları zorunlu bırakmak
+bu sapmayı derleme/yükleme anında imkânsız kılar: `defaults.yaml` bir alanı unutursa
+yapılandırma hiç yüklenmez ve test kırılır.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import StrEnum
+from pathlib import Path
+
+from ..core.execution_mode import ExecutionMode
+from ..core.reasoning import ReasoningEffort
+from ..core.routing_strategy import RoutingStrategy
+from ..core.types import ModelSpec
+from ..core.window_mode import WindowMode
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeConfig:
+    """Çalışma zamanı davranışı."""
+
+    request_timeout_s: float
+    max_retries: int
+    temperature: float
+    max_tokens: int
+    #: Deterministik olması gereken çağrılar (hakem, sentez, ısıtma) için sıcaklık.
+    #: Ana `temperature`'dan ayrıdır: kullanıcı yaratıcılığı artırsa bile hakem
+    #: JSON'a sadık kalmalı, seçim kararlı olmalıdır.
+    judge_temperature: float
+    #: Yardımcı arka plan çağrıları (ders çıkarımı, bağlam sıkıştırma, öz-denetim)
+    #: için düşük ama sıfır olmayan sıcaklık.
+    utility_temperature: float
+    #: Varsayılan reasoning yoğunluğu (mode'dan AYRI). `/effort` ile oturum içinde
+    #: değiştirilir. Model desteklemiyorsa sessizce en yakına eşlenir / hiç gönderilmez.
+    reasoning_effort: ReasoningEffort
+    #: Circuit breaker: bir model arka arkaya kaç kez başarısız olursa devre açılır ve
+    #: o model geçici olarak atlanır. Ölü modeli her turda yeniden yoklamamak için.
+    circuit_failure_threshold: int
+    #: Devre açıldıktan sonra modelin yeniden denenmesi için beklenecek süre (saniye).
+    circuit_cooldown_s: float
+    #: Güvenilirlik skorunun son-ağırlığı (EWMA). 1'e yakın: son sonuç baskın; 0'a
+    #: yakın: geçmiş baskın. Kısa arıza modeli kalıcı kötü saymasın diye orta bir değer.
+    reliability_alpha: float
+    #: Yedek zincirinin deneme sırası stratejisi. `priority` mevcut ölçülmüş sırayı
+    #: korur; diğerleri (free_first, headroom, least_used, round_robin, random) yalnızca
+    #: kullanıcı açıkça seçerse devreye girer (gateway'de). Bkz. core/routing_strategy.
+    routing_strategy: RoutingStrategy
+    #: Geçici arızada AYNI modelin yeniden denenmesinden önce beklenecek süreler.
+    #: Liste uzunluğu deneme sayısını TANIMLAR: iki gecikme → toplam üç deneme.
+    #: Boş liste = yeniden deneme yok. Zincirdeki her modele ayrı ayrı uygulanır.
+    retry_delays_s: tuple[float, ...]
+    #: Hakem için sıkı son tarih. Aşılırsa sezgisel kazanan seçilir, tur durmaz.
+    judge_timeout_s: float
+    #: Hakem bütçesi. Reasoning modelleri düşünme + JSON'u buraya sığdırmalıdır.
+    judge_max_tokens: int
+    #: Bu sayının altında başarılı aday kalırsa tur cevapsız biter.
+    min_successful_candidates: int
+    #: Yeterli cevap geldikten sonra yavaş adaylara tanınan ek süre.
+    straggler_grace_s: float
+    #: İlk cevaptan itibaren adaylar için mutlak üst sınır.
+    candidate_hard_cap_s: float
+    #: Hangi sağlayıcıya kilitlenildiği: "auto" | "nvidia" | "openrouter".
+    #:
+    #: `auto` zinciri iki sağlayıcıya yayar (dayanıklılık). Tek sağlayıcı seçilirse
+    #: ötekinin kotasına HİÇ dokunulmaz — bir sağlayıcının tükenmesi ötekini de
+    #: tüketmesin diye (ölçüldü: NIM bitince tüm yük OpenRouter'a düştü ve günlük
+    #: 50 istek birkaç dakikada bitti).
+    provider: str
+    #: Sentez, hakemin kararını GÖREREK mi çalışsın?
+    #:
+    #: False (hızlı kip): hakem ve sentez paralel çalışır, gecikme ikisinin
+    #: maksimumudur — ama sentez hangi adayın kazandığını bilmez ve tüm cevapları
+    #: eşit ağırlıkta okur; zayıf adayın hatası nihai cevaba sızabilir.
+    #: True (doğrulanmış kip): hakem önce çalışır, kararı senteze taşınır. Gecikme
+    #: artar; fusion zaten "yavaş ama dikkatli" motordur, hız isteyen agent'ı kullanır.
+    verified_synthesis: bool
+    #: Hakem seçtikten sonra tüm cevapları tek üstün cevapta birleştir.
+    synthesis: bool
+    #: Agent modunda model çağrısı üst sınırı; `None` = sınır yok (varsayılan).
+    #: Turun TAMAMI için geçerlidir: öz-denetim ve doğrulama kapısının açtığı
+    #: düzeltici turlar da aynı bütçeden yer.
+    agent_max_steps: int | None
+    #: Ardışık kaç araç turu hiçbir ilerleme (başarılı araç / dosya dokunuşu)
+    #: üretmezse modele "sıradaki somut adımı at" notu gönderilir. Tur kesilmez.
+    agent_max_idle_rounds: int
+    #: Agent: tur bitince denetçi model sonucu kontrol eder, gerekirse düzeltir.
+    self_review: bool
+    #: Agent: araç hatasında modele "farklı yaklaş" notu enjekte edilir.
+    reflexion: bool
+    #: Agent: her görevden ders çıkarılır ve benzer görevlerde promptta hatırlatılır.
+    lessons: bool
+    #: Karmaşık bir değişiklik görevinde öğretmen yanıtı alınmışken toplam araç
+    #: çağrısı bu sınıra ulaşıp dosya hâlâ değişmemişse web öğretmeni devralır.
+    #: 0 devralmayı kapatır; açıkça seçilen zorunlu model hiçbir zaman değişmez.
+    agent_teacher_takeover_tools: int = 10
+    #: `ask_teacher` aracı modele HİÇ SUNULMAZ — `config.teacher` tanımlı olsa
+    #: bile. Kullanıcının "öğretmensiz çalış" tercihi (Faz 4, Görev 3); `council`
+    #: bundan ETKİLENMEZ, o ayrı ve çoklu-API-model bir araçtır.
+    teacherless: bool = False
+    #: `ask_teacher`'ın öğretmen cevabından çıkardığı ders `ChromaLessonMemory`'ye
+    #: de yazılsın mı (model `recall_lessons` ile geri çağırabilsin)? Varsayılan
+    #: AÇIK. Çakışan bir ders bulunursa (bkz. `engine_tools._ogretmen_dersi_yaz`)
+    #: yazılmaz ve kullanıcıya bunu kapatma seçeneği sunulur — açıp kapamak bu
+    #: bayrakla olur, `.fusion/ogretmen.md` günlüğü bundan ETKİLENMEZ, o her
+    #: zaman yazılır.
+    teacher_lesson_sync: bool = True
+    #: Web sohbet oturumları yanıt vermezse öğretmen için Codex (ChatGPT'nin KODLAMA
+    #: limiti) son yedek olarak denensin mi? Varsayılan KAPALI: öğretmen yalnız
+    #: ChatGPT/Gemini SOHBET limitlerini harcar; Codex limiti ancak kullanıcı isterse.
+    teacher_codex_fallback: bool = False
+    #: Birincil model (yerel/API) cevap veremezse, girişi doğrulanmış ve araç ölçümünü
+    #: geçmiş web oturumlarına otomatik geç (bağlam taşması, model kapalı, sunucu hatası).
+    auto_web_fallback: bool = True
+    #: Modele HİÇ SUNULMAYACAK araçların adları (takma adları da kapanır). Kullanıcı bir
+    #: aracı istemiyorsa ya da bir yeteneği araçsız ölçmek istiyorsa (ör. `clone_site`
+    #: kapalıyken model siteyi kendisi kurabiliyor mu?) buradan kapatır.
+    disabled_tools: tuple[str, ...] = ()
+    #: Agent: kod değiştiren tur sonrası çalıştırılacak doğrulama komutları (ruff/mypy/
+    #: pytest ya da alt kümesi). Boş = doğrulama kapalı; sonuç ders güvenini besler.
+    verification_commands: tuple[str, ...] = ()
+    #: Agent: üretilen HTML/CSS/JS mekanik olarak denetlenir (kırık görsel kaynağı,
+    #: boş bağlantı, eksik <main>, stilsiz sınıf oranı, metin/kod tutar çelişkisi).
+    #: Varsayılan AÇIK: bulgular modele düzeltme talimatı olarak döner.
+    web_verification: bool = True
+    #: Agent: üretilen sayfa gerçekten açılıp ölçülür (konsol hatası, yüklenemeyen
+    #: kaynak, yatay taşma). `fusion-cli[web]` ekstrası gerekir; kurulu değilse
+    #: kapı sessizce geçer.
+    browser_verification: bool = True
+    #: Agent: üretilen sayfa kırpılıp GÖREN bir modele dar sorular sorulur.
+    #: Varsayılan KAPALI: ölçümde ücretsiz görme modelleri açık uçlu kullanımda
+    #: güvenilmez çıktı verdi ve her soru ayrı çağrı olduğu için maliyetlidir.
+    visual_verification: bool = False
+    #: Arayüz teması: "system" | "light" | "dark".
+    #
+    # Neden YAPILANDIRMADA — ölçüldü (11 Eylül): tercih webview `localStorage`'ında
+    # tutuluyordu ve o depo kullanıcının kurulumunda hiç yazılmıyordu
+    # (`WebsiteData/LocalStorage` 0 bayt). Yazma hatası yutulduğu için tercih her
+    # açılışta `system`'e düşüyor, macOS koyu temadayken içerik beyaz kalıyor ve
+    # kullanıcı koyuyu seçse bile sonraki açılışta unutuluyordu. Yapılandırma
+    # katmanı zaten kalıcı ve sınanmış; tercih oraya taşınır.
+    theme: str = "system"
+    #: Zeka motoru: "agent" | "fusion". Eskiden yalnız oturumda yaşıyor, uygulama
+    #: yeniden açılınca tek ajana dönüyordu; artık kullanıcının seçimi kalıcıdır.
+    engine: str = "agent"
+    #: İzin modu: "auto" | "edits" | "security" | "plan". `bypass` BİLEREK kalıcı
+    #: değildir (tek tuşla yanlışlıkla açılmamalı); yalnız oturum boyunca geçerlidir.
+    approval_mode: str = "auto"
+    #: Agent: istek bir playbook'u tetiklerse serbest döngü yerine deterministik akış
+    #: çalışır (daha az model çağrısı). Varsayılan kapalı: mevcut davranış korunur.
+    playbooks: bool = False
+    #: Agent: varsayılan tek döngüdür (`OFF`); `ALWAYS` her kök turu plan
+    #: motoruna sokar. Eski `auto` ve boolean değerler bkz. `ExecutionMode._missing_`.
+    workflow_mode: ExecutionMode = ExecutionMode.OFF
+    #: Workflow modunda tur başına sabit model-çağrısı bütçesi (oran sınırı kapısı).
+    workflow_max_model_calls: int = 12
+    #: Tipli plan üretimi ve onarım çağrıları için zarf.
+    #
+    # 2 iken tek onarım hakkı vardı ve iki farklı onarım sebebi onun için
+    # yarışıyordu: bozuk JSON (biçim) ve eksik teslimat (kapsama). Ölçüldü
+    # (13 Eylül, Godot koşusu): plan asset/UI/ara sahne adımı içermedi, kapsama
+    # onarımı için hak kalmadı ve koşu iskeletle "tamamlandı" dedi. 3 ile her iki
+    # onarım aynı planlama evresinde yapılabilir.
+    workflow_planning_calls: int = 3
+    #: Her plan adımının bağımsız model çağrısı zarfı.
+    #
+    # Bir adım TEK bir alt-tur olarak çalışır ve o alt-tur kendi tur sınırına
+    # kadar (web/karmaşık: 28) model çağrısı harcayabilir. Zarf bundan küçükse
+    # fatura ilk adımda kesilir. Ölçüldü (Godot koşusu): 8 ile, 20 başarılı
+    # araç çağrısıyla ilerleyen adım hiç tamamlanamadan duraklatıldı.
+    workflow_step_calls: int = 24
+    #: Bir plan adımının hata sınıflandırmasından sonra kullanabileceği kurtarma çağrısı.
+    #
+    # Kurtarma da bir alt-turdur; iki çağrılık zarf ilk denemede taşıyordu.
+    # Kör tekrarı bu sayaç değil hata sınıflandırması ve `retry_safety` engeller.
+    #
+    # Adım zarfı gerçek işin boyuna açıldığında (bkz. `execution_policy`) kurtarma
+    # da onunla orantılı olmalı: düşen bir adımı 12 çağrıyla toparlamak, adımın
+    # kendisi 90 çağrı harcayabiliyorken anlamsız bir darlıktı.
+    workflow_recovery_calls: int = 24
+    #: Final kabul doğrulaması ve gerekirse raporlama çağrısı zarfı.
+    workflow_final_verification_calls: int = 2
+    #: Paralel deneme (test-time scaling) için EK çağrı hakkı.
+    #
+    # Varsayılan 0: özellik opt-in'dir ve yapılandırılmadan tek fazla çağrı
+    # harcanmaz. Açıldığında adım izole kopyalarda birkaç kez koşar ve kazanan
+    # kanıtla seçilir; maliyet artar, kazanç ölçülür.
+    workflow_attempt_calls: int = 0
+    #: Gateway: aynı istek (model+mesajlar) tekrar gelirse önbellekten anında dön (token
+    #: tasarrufu). Yalnızca gateway'i etkiler; agent/fusion motorları etkilenmez.
+    gateway_cache: bool = True
+    #: Gateway: giden mesajlarda güvenli sıkıştırma (fazla boş satır + satır sonu boşluğu).
+    #: İçerik BOZULMAZ; kod girintisi korunur. Varsayılan kapalı (opt-in).
+    gateway_compression: bool = False
+    #: Gateway: yanıtta sızan sır/anahtar deseni maskelenir (credential guardrail).
+    gateway_mask_secrets: bool = True
+    #: Web AI alışverişini diske yaz (teşhis). Varsayılan kapalı: gönderilen prompt
+    #: dosya içeriği taşır ve onu diske yazmak gizlilik genişletmesidir.
+    web_trace: bool = False
+    #: Dosya araçları yalnızca proje kökü (+ `--add-dir`) altında mı çalışsın?
+    #: Varsayılan KAPALI: kullanıcı kök dışındaki projelerde/dosyalarda da çalışabilsin.
+    #: `true` yapıldığında kök dışına erişim `PathAccessError` ile reddedilir.
+    restrict_to_root: bool = False
+    #: Agent turunda geçici model hatasında (429, 5xx, zaman aşımı) yeniden deneme
+    #: sayısı; beklemeler üstel artar. 0 = yeniden deneme yok. Varsayılan 10:
+    #: Claude Code'un belgelenmiş varsayılanı (bkz. `loop.MAX_TRANSIENT_RETRIES`).
+    model_retry_attempts: int = 10
+    #: Sağlayıcı kimliği → MODEL başına dakikalık istek sınırı. Bilinen sınır önden
+    #: korunur (paralel ajanlar ve sekmeler ortak kovadan hak alır) ki 429 hiç
+    #: gelmesin. Listede olmayan sağlayıcı yavaşlatılmaz; yalnız 429'u paylaşılır.
+    rate_limit_per_minute: dict[str, float] = field(default_factory=dict)
+    #: Kovadan hak için en fazla bu kadar beklenir; daha uzunsa çağrı yapılmadan
+    #: zincirdeki yedeğe geçilir.
+    rate_pace_max_wait_s: float = 3.0
+    #: `spawn_agents` ile aynı anda koşabilecek alt ajan sayısı. Asıl hız sınırını
+    #: paylaşılan defter korur; bu tavan bağlamı ve kullanıcının takip edebileceği
+    #: kart sayısını sınırlar.
+    max_parallel_agents: int = 4
+    #: Ajan bir dosyayı değiştirince o dosya için çalışacak kullanıcı komutları
+    #: (`{path}` yerine dosya yolu). Boş = kanca yok (varsayılan davranış).
+    post_edit_commands: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingConfig:
+    """Anlamsal arama için gömme sağlayıcısı."""
+
+    #: "local" (ChromaDB gömülü ONNX, çevrimdışı) | "nim" (NVIDIA NIM, çok-dilli)
+    provider: str
+    #: NIM seçilirse kullanılacak model kimliği.
+    model: str
+
+
+class McpTransport(StrEnum):
+    """MCP sunucusuna ulaşmak için kullanılan standart taşıma."""
+
+    STDIO = "stdio"
+    STREAMABLE_HTTP = "streamable_http"
+
+
+class McpTrust(StrEnum):
+    """OAuth veya bağlantı başarısı kaynak güveni yerine geçmez."""
+
+    UNREVIEWED = "unreviewed"
+    TRUSTED = "trusted"
+    REVOKED = "revoked"
+
+
+@dataclass(frozen=True, slots=True)
+class McpServerConfig:
+    """Bağlanılacak dış MCP sunucusu; eski kayıtlar stdio olarak kalır.
+
+    Burada tutulur (mcp SDK'sını import ETMEZ): yapılandırma, MCP kurulu olmadan da
+    yüklenebilmeli. Bağlantıyı kuran `mcp_bridge` katmanı SDK'yı ayrıca ister."""
+
+    name: str
+    command: str = ""
+    args: tuple[str, ...] = ()
+    transport: McpTransport = McpTransport.STDIO
+    url: str = ""
+    scopes: tuple[str, ...] = ()
+    client_id: str = ""
+    #: stdio sunucusunun ihtiyaç duyduğu sırların yalnız ORTAM DEĞİŞKENİ adları.
+    #: Değerler config'e girmez; şifreli depodan süreç ortamına yüklenir.
+    env_names: tuple[str, ...] = ()
+    #: Uzak sunucuya `Authorization: Bearer` ile gidecek token'ın ORTAM DEĞİŞKENİ adı.
+    #
+    # OAuth'a alternatif yoldur. Ölçüldü (mcp.facebook.com/ads): sunucu dinamik
+    # istemci kaydını reddediyor, yani client_id olmadan OAuth hiç başlamıyor; aynı
+    # sunucunun metadatası `bearer_methods_supported: ["header"]` diyor. Token dolu
+    # olduğunda OAuth akışı HİÇ kurulmaz: giriş penceresi, client_id ve her tura
+    # eklenen OAuth gecikmesi ortadan kalkar. Değer burada değil, `env_names` gibi
+    # şifreli depoda durur.
+    token_env: str = ""
+    trust: McpTrust = McpTrust.UNREVIEWED
+    reviewed_source: str = ""
+    #: Verilmezse istemcinin mevcut ağ bütçesi kullanılır; ayrı sayı uydurulmaz.
+    connect_timeout_s: float | None = None
+    list_timeout_s: float | None = None
+    call_timeout_s: float | None = None
+    close_timeout_s: float | None = None
+    #: None tur runtime retry dizisini kullanır; boş tuple backoff istemez.
+    retry_delays_s: tuple[float, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class HostedConnectorConfig:
+    """Web sağlayıcısının KENDİ connector ekranından bağlanmış uzak MCP sunucusu.
+
+    Fusion bu sunucuya MCP KONUŞMAZ. Araçlar sağlayıcının ajan döngüsünün içinde
+    yaşar; Fusion onları zaten sürdüğü web oturumuna yazıp okuyarak kullanır
+    (bkz. `mcp_bridge/hosted.py`).
+
+    Neden bu model gerekli — ölçülmüş engel: Meta'nın barındırdığı MCP dinamik
+    istemci kaydını reddediyor ve BAŞKALARININ reklam hesabına OAuth ile
+    girebilmek Meta'da App Review istiyor. Buna karşılık aynı sunucu
+    ChatGPT/Claude/Gemini'nin connector ekranından tek girişle bağlanabiliyor,
+    çünkü o istemciler sunucu tarafında onaylı.
+    """
+
+    #: Kullanıcıya görünen ad; araç adlarının öneki de budur.
+    name: str
+    #: MCP adresi. Kullanıcı bunu sağlayıcının connector paneline yapıştırır.
+    url: str
+    #: Bu connector'ı barındıran web sağlayıcısı (`claude_web`, `chatgpt_web`, ...).
+    provider: str
+    #: Aynı sağlayıcıda birden çok oturumu ayıran etiket.
+    account: str = "main"
+    #: Keşif ÖLÇÜMÜ geçti mi?
+    #
+    # Varsayılan False ve bu bilinçli — `WebSessionConfig.tool_eval_passed` ile
+    # aynı gerekçe: doğrulanmamış bir connector'ın araçlarını kayıt defterine
+    # eklemek, modelin var olmayan yeteneklere güvenmesine yol açar.
+    verified: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class WebSessionConfig:
+    """Kullanıcının kendi web aboneliği veya yetkili OpenAI-uyumlu web ucu.
+
+    `transport="http"` eski/kendi barındırılan OpenAI-uyumlu uçları korur.
+    `transport="browser"` ise Fusion'ın izole Playwright profilini kullanarak ChatGPT,
+    Claude, Gemini veya Copilot web arayüzünü native bir sağlayıcı gibi çalıştırır.
+
+    Sır burada TUTULMAZ. API token'ı `auth_env`, web Cookie başlığı ise
+    `credential_ref` ile şifreli depodan çözülür.
+    """
+
+    #: Zincirde/rolde kullanılan kararlı model kimliği.
+    model: str
+    #: Genel HTTP transport için `/chat/completions` ucu. Browser transport'ta boş.
+    endpoint: str = ""
+    #: `custom`, `chatgpt_web`, `claude_web`, `gemini_web`, `copilot_web`.
+    provider: str = "custom"
+    #: Aynı sağlayıcıda birden çok oturumu ayıran kullanıcı etiketi.
+    account: str = "main"
+    #: `http` ya da `browser`.
+    transport: str = "http"
+    #: Bearer token'ın ortam değişkeni adı (yalnız genel HTTP ucu için).
+    auth_env: str | None = None
+    #: Cookie başlığının şifreli depodaki anahtarı; değerin kendisi config'e girmez.
+    credential_ref: str | None = None
+    #: Araç desteği: "none" ya da "emulated".
+    tool_support: str = "none"
+    #: Taklit araç çağrısı değerlendirmesini GEÇTİ mi? (bkz. `tools.emulation_eval`)
+    #:
+    #: Varsayılan False ve bu bilinçli: doğrulanmamış bir taklit-araç modeli dosya
+    #: değiştiren agent OLAMAZ. Model araç çağrısını metin olarak üretir; biçimi
+    #: tutturamadığında sessizce yanlış dosyaya yanlış içerik yazma riski doğar.
+    #: Panel değerlendirmeyi çalıştırıp bu alanı yazar.
+    tool_eval_passed: bool = False
+    tool_evaluated_at: float | None = None
+    tool_evaluation_scope: str = ""
+    tool_evaluation_adapter_revision: str = ""
+    #: Son gerçek küçük istek başarıyla tamamlandı mı? Profil klasörü bunu kanıtlamaz.
+    login_verified: bool = False
+    #: Tur tarayıcısının pencere kipi: `visible`, `headless` ya da `hidden`.
+    #:
+    #: Alan adı `headless` OLARAK KALIR ve eski dosyalar bozulmaz: `WindowMode` bir
+    #: `IntEnum` olduğu için `headless: true` → `HEADLESS`, `headless: false` →
+    #: `VISIBLE` diye okunur. Üçüncü kip `headless: hidden` yazılarak seçilir.
+    headless: WindowMode = WindowMode.HEADLESS
+    #: Web UI çağrısı için üst süre sınırı.
+    timeout_s: float = 180.0
+    #: Kullanıcı bu oturumu geçici olarak kapatabilir.
+    enabled: bool = True
+    #: Sağlayıcının kendi arayüzünde doğrulanmış model/kip etiketi. Boşsa otomatik.
+    selected_model: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileEligibility:
+    """Bir profilin bir modeli ÖNERMESİ için gereken eşikler.
+
+    Eşikler koda gömülmez, `defaults.yaml`'dan gelir (RULES.md "eşikler
+    yapılandırmadan okunur"). Filtre yalnızca BİLİNEN-kötü modeli eler; bilinmeyen
+    yetenek gizlenmez (gerçekçilik: canlı katalog modellerinin çoğu doğrulanmamıştır).
+    """
+
+    #: Gereken en az bağlam penceresi (token). 0 = sınır yok. Model bağlamı
+    #: BİLİNİYOR ve bu değerin altındaysa elenir; bilinmiyorsa (0) elenmez.
+    min_context: int
+    #: `NONE` (araçsız) modele bu profilde izin var mı? Mutation profilleri (medium+)
+    #: `false` verir: araçsız model dosya değiştiren agent olamaz (master prompt §5.3).
+    allow_no_tools: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TierSpec:
+    """Tek bir model kademesi (low, medium, high, ultra, premium).
+
+    Kademe üç rolü BİRLİKTE taşır: kullanıcı tek seçimle motorun tamamını o seviyeye
+    alır. Roller ayrı ayrı seçilseydi tutarsız bileşim (küçük agent + büyük hakem)
+    sessizce kurulabilirdi; kademe bunu yapısal olarak imkânsız kılar.
+    """
+
+    #: Kullanıcının yazdığı kademe adı (`low`, `medium`, …). Küçük harf.
+    name: str
+    #: Seçim ekranında adın yanında görünen kısa açıklama.
+    label: str
+    agent: ModelSpec
+    judge: ModelSpec
+    candidates: tuple[ModelSpec, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class Config:
+    """Uygulamanın tüm yapılandırması. Katmanlara ham dict değil bu nesne geçer."""
+
+    agent: ModelSpec
+    #: Fusion havuzu: aynı göreve paralel sorulan modeller.
+    candidates: tuple[ModelSpec, ...]
+    #: Hakem ve sentez rolü. Hızlı olmalı ve JSON'a sadık kalmalıdır.
+    judge: ModelSpec
+    #: Görev tipi → tercih edilen aday adı. Bellek katmanı geldiğinde bunu ezecek.
+    task_model_map: dict[str, str]
+    runtime: RuntimeConfig
+    embedding: EmbeddingConfig
+    #: Kalıcı belleğin (vektör deposu) tutulduğu dizin.
+    memory_dir: Path
+    #: Bu yapılandırmanın hangi kullanıcı dosyasından geldiği (yoksa None: yalnız varsayılanlar).
+    source: Path | None
+    #: Görme yetenekli model (görsel doğrulama kapısı). Tanımlı değilse kapı hiç
+    #: kurulmaz; görme opsiyoneldir.
+    vision: ModelSpec | None = None
+    #: Öğretmen rolü — `ask_teacher` aracının danıştığı web oturumu (ChatGPT/Gemini
+    #: web). Kullanıcının kendi web girişine bağlı olduğu için opsiyoneldir; tanımlı
+    #: değilse ya da eşleşen `web_sessions` girişi giriş yapılmamışsa araç
+    #: `ConfigError` ile anlaşılır bir mesaj verir (bkz. `engine_tools.py`).
+    teacher: ModelSpec | None = None
+    #: Seçilebilir model kademeleri, `defaults.yaml`'daki yazım SIRASIYLA. Sıra
+    #: anlamlıdır: seçim ekranı bu sırayı gösterir ve renk geçişini buna yayar.
+    tiers: tuple[TierSpec, ...] = ()
+    #: Profil adı → uygunluk eşikleri. Model seçim ekranı aktif profile göre bu
+    #: eşiklerle süzülür. Tanımsızsa filtre uygulanmaz (özellik sessizce kapanır).
+    profile_eligibility: dict[str, ProfileEligibility] = field(default_factory=dict)
+    #: Ajanın bağlanacağı dış MCP sunucuları. Boşsa MCP istemcisi hiç kurulmaz.
+    mcp_servers: tuple[McpServerConfig, ...] = ()
+    #: Kullanıcının yetkili olduğu web (oturum tabanlı) uçlar. Boşsa özellik kapalı;
+    #: tanımlıysa eşleşen model kimlikleri API yerine web transport'uyla karşılanır.
+    web_sessions: tuple[WebSessionConfig, ...] = ()
+    #: Web sağlayıcısının connector ekranından bağlanmış uzak MCP sunucuları.
+    hosted_connectors: tuple[HostedConnectorConfig, ...] = ()
+
+    def candidate_by_name(self, name: str) -> ModelSpec | None:
+        """Ada göre aday bul; yoksa None."""
+        return next((item for item in self.candidates if item.name == name), None)
+
+    def tier_by_name(self, name: str) -> TierSpec | None:
+        """Ada göre kademe bul (büyük/küçük harf duyarsız); yoksa None."""
+        wanted = name.strip().lower()
+        return next((item for item in self.tiers if item.name == wanted), None)
+
+
+def hosted_connector_ready(config: Config, connector: HostedConnectorConfig) -> bool:
+    """Connector'ı taşıyacak web oturumu var ve kullanılabilir mi?
+
+    Sağlayıcı-barındırmalı connector yalnız o sağlayıcının oturumu AÇIKKEN
+    çalışır: araçlar Fusion'da değil sağlayıcının ajan döngüsünde yaşar. Bu yüzden
+    "çalışabilir mi" sorusu bir tahmin değil, yapılandırmadan okunan bir olgudur —
+    arayüz uyarısını da bu fonksiyon besler.
+    """
+    return any(
+        session.provider == connector.provider
+        and session.account == connector.account
+        and session.transport == "browser"
+        and session.enabled
+        and session.login_verified
+        for session in config.web_sessions
+    )

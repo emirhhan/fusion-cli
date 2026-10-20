@@ -1,0 +1,516 @@
+"""Kullanıcının izin verdiği açık Chrome sekmesine bağlı araçlar."""
+
+from __future__ import annotations
+
+import base64
+import binascii
+import contextlib
+import json
+import mimetypes
+import re
+import weakref
+from typing import Any
+
+from ..core.constants import MAX_UPLOAD_BYTES
+from ..core.tool_content import ToolContent
+from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
+from .args import require_str
+from .web import browser_block_reason
+
+
+async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolResult:
+    if context.chrome is None:
+        return ToolResult.failure(
+            "Chrome bağlantısı yalnız Fusion masaüstü uygulamasında kullanılabilir."
+        )
+    try:
+        result = await context.chrome.invoke(name, data)
+    except (ConnectionError, TimeoutError) as exc:
+        return ToolResult.failure(str(exc))
+    if not result.get("ok"):
+        return ToolResult.failure(str(result.get("hata") or "Chrome komutu başarısız."))
+    return ToolResult(json.dumps(result.get("veri", {}), ensure_ascii=False))
+
+
+async def chrome_page(args: ToolArgs, context: ToolContext) -> ToolResult:
+    """Bağlı sekmeyi oku; `query` verilirse metne/etikete göre öğe bul (ref al)."""
+    query = args.get("query")
+    if isinstance(query, str) and query.strip():
+        return await _call(context, "find", {"query": query.strip()})
+    return await _call(context, "snapshot", {})
+
+
+async def chrome_assets(_args: ToolArgs, context: ToolContext) -> ToolResult:
+    """Bağlı sekmedeki görselleri (gerçek ölçüleriyle), arka planları ve paleti topla."""
+    return await _call(context, "assets", {})
+
+
+#: Tıklama sayfada iz bırakmadığında modele eklenen not. Otomatik yeniden tıklama
+#: YAPILMAZ: "sepete ekle", "gönder" gibi işlemler iki kez çalışabilir.
+NO_CHANGE_NOTE = (
+    "NOT: Tıklamadan sonra sayfada görünür bir değişiklik olmadı (adres, metin, açılır "
+    "pencere, seçim aynı). Öğe doğru mu? chrome_page ile yeniden oku; gerekirse farklı "
+    "öğeyi ya da screenshot + click_at dene. Aynı tıklamayı körlemesine tekrarlama."
+)
+
+
+def with_action_check(result: ToolResult) -> ToolResult:
+    """Eylem sonucu `changed: false` taşıyorsa modele açık not ekle."""
+    if not result.ok:
+        return result
+    try:
+        veri = json.loads(result.output)
+    except json.JSONDecodeError:
+        return result
+    if isinstance(veri, dict) and veri.get("changed") is False:
+        return ToolResult(f"{result.output}\n{NO_CHANGE_NOTE}")
+    return result
+
+
+async def chrome_click(args: ToolArgs, context: ToolContext) -> ToolResult:
+    return with_action_check(await _call(context, "click", {"ref": require_str(args, "ref")}))
+
+
+async def chrome_type(args: ToolArgs, context: ToolContext) -> ToolResult:
+    result = await _call(
+        context, "type", {"ref": require_str(args, "ref"), "text": require_str(args, "text")}
+    )
+    if not result.ok:
+        return result
+    with contextlib.suppress(json.JSONDecodeError):
+        veri = json.loads(result.output)
+        if isinstance(veri, dict) and veri.get("verified") is False:
+            return ToolResult.failure(
+                "Yazılan metin alana oturmadı (iki yöntem denendi). Alandaki değer: "
+                f"{veri.get('value', '')!r}. Alanı chrome_page ile yeniden oku; maskeli ya da "
+                "özel bir editörse önce tıklayıp odakla, sonra tekrar yaz."
+            )
+    return result
+
+
+#: Son ekran görüntüsünün ölçeği (sayfa CSS pikseli / görüntü pikseli), bağlantı başına.
+#: `click_at` görüntü koordinatını bununla sayfa ölçeğine çevirir.
+_SCREENSHOT_SCALES: weakref.WeakKeyDictionary[object, float] = weakref.WeakKeyDictionary()
+
+#: Sayfayı YALNIZ okuyan işlemler: hiçbir kipte sorulmaz, plan kipinde serbest.
+_READ_ACTIONS = frozenset(
+    {
+        "scroll", "wait", "tabs", "open", "tab", "screenshot",
+        "back", "forward", "reload", "hover", "text", "assets", "wheel", "zoom",
+    }
+)  # fmt: skip
+#: Sayfayla etkileşen ama kalıcı iz bırakmayan işlemler: otomatik kipte sorulmaz.
+#: Seçim kutusu değeri yalnız formu değiştirir; gönderme ayrı bir tıklama/Enter'dır.
+_INTERACT_ACTIONS = frozenset({"select", "check", "type_focused", "resize"})
+
+#: Enter'ın mesaj/yorum GÖNDERDİĞİ alanlar (ad, yer tutucu ya da form düğmesi).
+_MESSAGE_FIELD = re.compile(r"\b(?:mesaj|message|sohbet|chat|dm)\b", re.IGNORECASE)
+
+#: Tıklanınca geri dönüşü zor ya da dışa dönük iş yapan düğme adları (TR/EN).
+#: Claude in Chrome da gezinmeyi ve sıradan tıklamayı sormaz; göndermede durur.
+#:
+#: Fiiller KELİME olarak aranır. Ölçüldü (27 Eylül): Instagram gönderi kartının
+#: adı "1.234 beğenme, 12 yorum" içeriyor; alt dize araması bunu "beğen" sanıp
+#: salt okuma turunu izin sorusunda durduruyordu.
+_RISKY_CLICK = re.compile(
+    r"\b(?:gönder|paylaş|yayınla|yayımla|sil|silin|kaldır|satın al|ödeme yap|öde|"
+    r"siparişi tamamla|siparişi onayla|onayla|kaydet|uygula|etkinleştir|devre dışı bırak|"
+    r"duraklat|yorum yap|yanıtla|takip et|beğen|abone ol|kayıt ol|üye ol|hesap oluştur|"
+    r"hesabı bağla|"
+    r"submit|send|post|publish|share|delete|remove|buy|purchase|pay|checkout|"
+    r"confirm|save|apply|enable|disable|pause|follow|like|reply|comment|sign up|register|"
+    r"create (?:an )?account|connect (?:your )?account)\b",
+    re.IGNORECASE,
+)
+
+#: Bağlantı olsa bile oturumu kapatan tıklamalar sorulur.
+_LOGOUT_LINK = re.compile(r"çıkış yap|oturumu kapat|log ?out|sign ?out", re.IGNORECASE)
+
+
+async def chrome_action_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:
+    """Kaydırma, bekleme ve sekme okumadır; seçim ve tuş etkileşimdir.
+
+    Koordinata tıklama (`click_at`) ref'li tıklamayla aynı kuralla denetlenir: noktadaki
+    öğenin adı okunur, gönder/sil/satın al gibiyse sorulur. Enter yalnız mesaj/yorum
+    kutusunda ya da riskli düğmeli formda sorulur (`_key_effect`).
+    """
+    action = args.get("action")
+    if action == "close":
+        # Sekme kapatma kaydedilmemiş kullanıcı verisini kaybettirebilir.
+        return ToolEffect.REMOTE_DESTRUCTIVE
+    if action == "right_click":
+        # Bağlam menüsü açar; tıklama gibi iş yapmaz.
+        return ToolEffect.REMOTE_INTERACT
+    if action == "drag":
+        return ToolEffect.REMOTE_INTERACT
+    if action in {"click_at", "double_click", "triple_click"}:
+        ref = args.get("ref")
+        if context is None or context.chrome is None:
+            return None
+        if action in _CLICK_KINDS and isinstance(ref, str) and ref:
+            result = await _describe(context, "describe", {"ref": ref})
+            return None if result is None else _click_effect(result)
+        point = _point(args.get("value"), context)
+        if point is None:
+            return None
+        result = await _describe(context, "describe_at", {"x": point[0], "y": point[1]})
+        return None if result is None else _click_effect(result)
+    if action == "key":
+        return await _key_effect(args, context)
+    if action in _INTERACT_ACTIONS:
+        return ToolEffect.REMOTE_INTERACT
+    return ToolEffect.REMOTE_READ if action in _READ_ACTIONS else None
+
+
+async def chrome_read_effect(_args: ToolArgs, _context: ToolContext | None) -> ToolEffect:
+    """Gezinme yalnız okur."""
+    return ToolEffect.REMOTE_READ
+
+
+async def chrome_type_effect(_args: ToolArgs, _context: ToolContext | None) -> ToolEffect:
+    """Alana yazma kalıcı iz bırakmaz: gönderme ayrı bir eylemdir."""
+    return ToolEffect.REMOTE_INTERACT
+
+
+async def _key_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:
+    """Tab/ok/Escape iz bırakmaz; Enter'ın ne yapacağı odaktaki alana bakılarak anlaşılır.
+
+    Ölçüldü (2 Ekim, kullanıcı): otomatik kipte arama kutusuna yazıp Enter'a basmak
+    bile soruluyordu. Arama kutusunda Enter gezinmedir; mesaj/yorum kutusunda ya da
+    "Gönder/Satın al" düğmeli formda göndermedir ve sorulur.
+    """
+    key = args.get("value")
+    if isinstance(key, str) and key and key != "Enter":
+        return ToolEffect.REMOTE_INTERACT
+    if context is None or context.chrome is None:
+        return None
+    ref = args.get("ref")
+    result = await _describe(context, "describe_key", {"ref": ref} if isinstance(ref, str) else {})
+    veri = result.get("veri") if result is not None and result.get("ok") else None
+    if not isinstance(veri, dict):
+        return None
+    if veri.get("search"):
+        return ToolEffect.REMOTE_INTERACT
+    ipucu = f"{veri.get('name', '')} {veri.get('hint', '')} {veri.get('submit_name', '')}"
+    if veri.get("editable") or _RISKY_CLICK.search(ipucu) or _MESSAGE_FIELD.search(ipucu):
+        return None
+    return ToolEffect.REMOTE_INTERACT
+
+
+async def _describe(
+    context: ToolContext, operation: str, data: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Eklentiden öğe tarifini al; bağlantı yoksa None (çağrı sorulur)."""
+    if context.chrome is None:
+        return None
+    try:
+        return await context.chrome.invoke(operation, data)
+    except (ConnectionError, TimeoutError):
+        return None
+
+
+async def chrome_click_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:
+    """Tıklanacak öğenin adına bak: gönder/sil/satın al gibi ise sor, değilse sorma.
+
+    Ad okunamazsa `None` döner ve aracın kendi (sorulan) etkisi geçerli olur.
+    """
+    ref = args.get("ref")
+    if context is None or context.chrome is None or not isinstance(ref, str):
+        return None
+    result = await _describe(context, "describe", {"ref": ref})
+    return None if result is None else _click_effect(result)
+
+
+def _click_effect(result: dict[str, Any]) -> ToolEffect | None:
+    """`describe` sonucundan tıklamanın etkisini çıkar; okunamazsa `None` (sorulur)."""
+    veri = result.get("veri") if result.get("ok") else None
+    if not isinstance(veri, dict):
+        return None
+    ad = f"{veri.get('name', '')} {veri.get('type', '')}"
+    if veri.get("link") and not veri.get("submit"):
+        # Gerçek adrese giden bağlantı yalnız gezinir; iş yapan şey sonraki sayfadaki
+        # düğmedir ve o ayrıca denetlenir. Tek istisna oturumu kapatmak.
+        return None if _LOGOUT_LINK.search(ad) else ToolEffect.REMOTE_READ
+    if veri.get("submit") or _RISKY_CLICK.search(ad):
+        return None
+    return ToolEffect.REMOTE_INTERACT
+
+
+async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
+    """Tek araçta yardımcı sayfa işlemleri (Claude'daki gibi `action` alanıyla)."""
+    action = require_str(args, "action")
+    ref = args.get("ref")
+    value = args.get("value")
+    data: dict[str, Any] = {}
+    if isinstance(ref, str) and ref:
+        data["ref"] = ref
+    if action == "scroll":
+        # value: up|down|left|right, isteğe bağlı "down:600" (piksel).
+        direction, _, amount = (value if isinstance(value, str) else "").partition(":")
+        data["direction"] = direction if direction in {"up", "left", "right"} else "down"
+        if amount.strip().isdigit():
+            data["amount"] = int(amount)
+        return await _call(context, "scroll", data)
+    if action == "type_focused":
+        if not isinstance(value, str) or not value:
+            return ToolResult.failure("type_focused için 'value' alanına yazılacak metni yaz.")
+        return await _call(context, "type", {"text": value})
+    if action == "check":
+        if "ref" not in data:
+            return ToolResult.failure("check için 'ref' gerekli; value: true ya da false.")
+        wanted = not (isinstance(value, str) and value.strip().lower() == "false")
+        return await _call(context, "check", {**data, "value": wanted})
+    if action == "resize":
+        match = re.fullmatch(
+            r"\s*(\d{3,4})\s*[x,]\s*(\d{3,4})\s*", value if isinstance(value, str) else ""
+        )
+        if match is None:
+            return ToolResult.failure(
+                "resize için 'value' alanına 'genişlik,yükseklik' yaz; ör. 1280,800."
+            )
+        return await _call(
+            context, "resize", {"width": int(match.group(1)), "height": int(match.group(2))}
+        )
+    if action == "zoom":
+        return await _zoom(value, context)
+    if action == "wait":
+        if not isinstance(value, str) or not value.strip():
+            return ToolResult.failure("wait için 'value' alanına beklenecek metni yaz.")
+        return await _call(context, "wait", {"text": value, "timeout_ms": 20_000})
+    if action == "key":
+        data["key"] = value if isinstance(value, str) and value else "Enter"
+        return with_action_check(await _call(context, "key", data))
+    if action == "screenshot":
+        return await chrome_screenshot(args, context)
+    if action == "tabs":
+        return await _call(context, "tabs", {})
+    if action == "open":
+        if not isinstance(value, str) or not value.strip():
+            return ToolResult.failure("open için 'value' alanına adresi yaz.")
+        url = value if value.startswith(("https://", "http://")) else f"https://{value}"
+        reason = browser_block_reason(url, context.local_origins)
+        if reason is not None:
+            return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
+        return await _call(context, "tab_open", {"url": url})
+    if action == "tab":
+        if not isinstance(value, str) or not value.strip().isdigit():
+            return ToolResult.failure(
+                "tab için 'value' alanına 'tabs' çıktısındaki sekme id'sini yaz."
+            )
+        return await _call(context, "tab_select", {"id": int(value)})
+    if action == "select":
+        if "ref" not in data or not isinstance(value, str):
+            return ToolResult.failure("select için 'ref' ve 'value' gerekli.")
+        return await _call(context, "select", {**data, "value": value})
+    if action in {"back", "forward", "reload"}:
+        return await _call(context, "history", {"dir": action})
+    if action == "close":
+        if not isinstance(value, str) or not value.strip().isdigit():
+            return ToolResult.failure("close için 'value' alanına sekme id'sini yaz.")
+        return await _call(context, "tab_close", {"id": int(value)})
+    if action == "hover":
+        if "ref" not in data:
+            return ToolResult.failure("hover için 'ref' gerekli.")
+        return await _call(context, "hover", data)
+    if action == "text":
+        page = int(value) if isinstance(value, str) and value.strip().isdigit() else 1
+        return await _call(context, "text_page", {"page": max(1, page)})
+    if action in {"click_at", *_CLICK_KINDS}:
+        kind = _CLICK_KINDS.get(action)
+        extra = {"kind": kind} if kind else {}
+        if action in _CLICK_KINDS and "ref" in data:
+            return with_action_check(await _call(context, "click", {**data, **extra}))
+        point = _point(value, context)
+        if point is None:
+            return ToolResult.failure(
+                f"{action} için 'ref' ya da 'value' alanına ekran görüntüsündeki 'x,y' yaz."
+            )
+        return with_action_check(
+            await _call(context, "click_at", {"x": point[0], "y": point[1], **extra})
+        )
+    if action == "drag":
+        return await _drag(data, value, context)
+    if action == "wheel":
+        delta = _delta(value)
+        if delta is None:
+            return ToolResult.failure("wheel için 'value' alanına 'dx,dy' (piksel) yaz; ör. 0,400.")
+        return await _call(context, "wheel", {**data, "dx": delta[0], "dy": delta[1]})
+    if action == "upload":
+        return await _upload(data, value, context)
+    if action == "assets":
+        return await chrome_assets(args, context)
+    return ToolResult.failure(
+        "action: scroll, wait, key, select, tabs, open, tab, screenshot, back, forward, "
+        "reload, close, hover, text, click_at, double_click, right_click, triple_click, drag, "
+        "wheel, type_focused, check, resize, zoom, upload ya da assets olmalı."
+    )
+
+
+#: Tıklama türleri: `click_at`/ref ile birlikte eklentiye `kind` olarak gider.
+_CLICK_KINDS = {"double_click": "double", "right_click": "right", "triple_click": "triple"}
+
+
+def _delta(value: object) -> tuple[float, float] | None:
+    """'dx,dy' piksel; yalnız bir sayı verilirse dikey kaydırma sayılır."""
+    if value is None or value == "":
+        return 0.0, 400.0
+    if not isinstance(value, str):
+        return None
+    parts = [p.strip() for p in value.split(",")]
+    try:
+        numbers = [float(p) for p in parts]
+    except ValueError:
+        return None
+    if len(numbers) == 1:
+        return 0.0, numbers[0]
+    return (numbers[0], numbers[1]) if len(numbers) == 2 else None
+
+
+async def _zoom(value: object, context: ToolContext) -> ToolResult:
+    """Ekran görüntüsünün bir bölgesini (x1,y1,x2,y2 — görüntü pikseli) kırpıp büyütür."""
+    match = re.fullmatch(r"\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*", str(value or ""))
+    if match is None:
+        return ToolResult.failure("zoom için 'value' alanına 'x1,y1,x2,y2' (görüntü pikseli) yaz.")
+    x1, y1, x2, y2 = (int(g) for g in match.groups())
+    if x2 <= x1 or y2 <= y1:
+        return ToolResult.failure("zoom bölgesi geçersiz: x2>x1 ve y2>y1 olmalı.")
+    shot = await chrome_screenshot({}, context)
+    if not shot.ok or not shot.content:
+        return shot
+    import io
+
+    from PIL import Image
+
+    raw = base64.b64decode(shot.content[0].data)
+    with Image.open(io.BytesIO(raw)) as image:
+        crop = image.crop((x1, y1, min(x2, image.width), min(y2, image.height)))
+        crop = crop.resize((crop.width * 2, crop.height * 2), Image.Resampling.LANCZOS).convert(
+            "RGB"
+        )
+        out = io.BytesIO()
+        crop.save(out, format="JPEG", quality=85)
+    encoded = base64.b64encode(out.getvalue()).decode("ascii")
+    return ToolResult(
+        f"Ekran görüntüsünün {x1},{y1}-{x2},{y2} bölgesi (2x büyütüldü).",
+        content=(ToolContent.image("image/jpeg", encoded),),
+    )
+
+
+async def _drag(data: dict[str, Any], value: object, context: ToolContext) -> ToolResult:
+    """Kaynak `ref` → hedef `value` (öğe ref'i ya da ekran görüntüsünde 'x,y')."""
+    if "ref" not in data or not isinstance(value, str) or not value.strip():
+        return ToolResult.failure(
+            "drag için 'ref' (kaynak) ve 'value' (hedef ref ya da x,y) gerekli."
+        )
+    if re.fullmatch(r"e\d+", value.strip()):
+        return await _call(context, "drag", {**data, "to_ref": value.strip()})
+    point = _point(value, context)
+    if point is None:
+        return ToolResult.failure("drag hedefi öğe ref'i (e12) ya da 'x,y' olmalı.")
+    return await _call(context, "drag", {**data, "x": point[0], "y": point[1]})
+
+
+def _point(value: object, context: ToolContext | None) -> tuple[float, float] | None:
+    """Ekran görüntüsü koordinatını ('x,y') sayfanın CSS pikseline çevir.
+
+    Görüntü Retina'da iki kat piksel gelir; ölçek son ekran görüntüsünden
+    (`chrome_screenshot`) köprüye yazılır. Ekran görüntüsü yoksa ölçek 1'dir.
+    """
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*", value)
+    if match is None:
+        return None
+    chrome = context.chrome if context is not None else None
+    try:
+        scale = _SCREENSHOT_SCALES.get(chrome, 1.0) if chrome is not None else 1.0
+    except TypeError:
+        scale = 1.0
+    return round(float(match.group(1)) * scale, 1), round(float(match.group(2)) * scale, 1)
+
+
+async def chrome_navigate(args: ToolArgs, context: ToolContext) -> ToolResult:
+    url = require_str(args, "url")
+    if not url.startswith(("https://", "http://")):
+        url = f"https://{url}"
+    reason = browser_block_reason(url, context.local_origins)
+    if reason is not None:
+        return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
+    return await _call(context, "navigate", {"url": url})
+
+
+async def chrome_screenshot(_args: ToolArgs, context: ToolContext) -> ToolResult:
+    if context.chrome is None:
+        return ToolResult.failure("Chrome eklentisi bağlı değil.")
+    try:
+        result = await context.chrome.invoke("screenshot", {})
+    except (ConnectionError, TimeoutError) as exc:
+        return ToolResult.failure(str(exc))
+    if not result.get("ok"):
+        return ToolResult.failure(str(result.get("hata") or "Ekran görüntüsü alınamadı."))
+    data = result.get("veri")
+    image = data.get("image") if isinstance(data, dict) else None
+    if not isinstance(image, str) or not image.startswith("data:image/jpeg;base64,"):
+        return ToolResult.failure("Chrome geçersiz görsel döndürdü.")
+    encoded = image.partition(",")[2]
+    try:
+        decoded = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error):
+        return ToolResult.failure("Chrome görseli çözülemedi.")
+    if len(decoded) > 3_000_000:
+        return ToolResult.failure("Chrome görseli çok büyük.")
+    size = jpeg_size(decoded)
+    css_width = data.get("width") if isinstance(data, dict) else None
+    note = "İzinli Chrome sekmesinin ekran görüntüsü."
+    if size is not None and isinstance(css_width, int) and css_width > 0:
+        # click_at görüntü koordinatı alır; köprü onu sayfa ölçeğine çevirir.
+        with contextlib.suppress(TypeError):
+            _SCREENSHOT_SCALES[context.chrome] = css_width / size[0]
+        note += f" Görüntü {size[0]}x{size[1]} px; tıklamak için chrome_action click_at 'x,y'."
+    return ToolResult(note, content=(ToolContent.image("image/jpeg", encoded),))
+
+
+def jpeg_size(data: bytes) -> tuple[int, int] | None:
+    """JPEG başlığından (SOF işareti) genişlik ve yüksekliği oku; okunamazsa `None`."""
+    index = 2
+    while index + 9 < len(data):
+        if data[index] != 0xFF:
+            return None
+        marker = data[index + 1]
+        length = int.from_bytes(data[index + 2 : index + 4], "big")
+        if marker in {0xC0, 0xC1, 0xC2}:
+            height = int.from_bytes(data[index + 5 : index + 7], "big")
+            width = int.from_bytes(data[index + 7 : index + 9], "big")
+            return width, height
+        index += 2 + length
+    return None
+
+
+async def _upload(data: dict[str, Any], value: object, context: ToolContext) -> ToolResult:
+    """Projedeki dosyaları sayfanın dosya seçme alanına koy (göndermez)."""
+    if "ref" not in data or not isinstance(value, str) or not value.strip():
+        return ToolResult.failure(
+            "upload için 'ref' (dosya alanı) ve 'value' (dosya yolları) gerekli."
+        )
+    from .files import resolve_path
+
+    files: list[dict[str, str]] = []
+    toplam = 0
+    for raw in (part.strip() for part in value.split(",") if part.strip()):
+        path = resolve_path(context, raw)
+        if not path.is_file():
+            return ToolResult.failure(f"Dosya yok: {raw}")
+        icerik = path.read_bytes()
+        toplam += len(icerik)
+        if toplam > MAX_UPLOAD_BYTES:
+            return ToolResult.failure(
+                f"Yükleme sınırı aşıldı ({MAX_UPLOAD_BYTES // (1024 * 1024)} MB)."
+            )
+        files.append(
+            {
+                "name": path.name,
+                "mime": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+                "data": base64.b64encode(icerik).decode("ascii"),
+            }
+        )
+    return await _call(context, "upload", {**data, "files": files})

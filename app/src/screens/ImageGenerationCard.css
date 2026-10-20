@@ -1,0 +1,51 @@
+.image-generation { margin: 0; max-width: min(100%, 520px); }
+.image-generation__canvas {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  max-height: 60vh;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+/* Yalnız transform kullanılır: ışıltı bileşik katmanda döner, yerleşimi etkilemez. */
+.image-generation__shimmer {
+  animation: image-generation-sweep 1.8s var(--ease-standard, ease-in-out) infinite;
+  background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--text-primary) 14%, transparent) 50%, transparent 80%);
+  inset: 0;
+  position: absolute;
+  transform: translateX(-100%);
+}
+.image-generation__label {
+  align-items: center;
+  color: var(--text-secondary);
+  display: grid;
+  gap: 4px;
+  inset: 0;
+  justify-items: center;
+  place-content: center;
+  position: absolute;
+  text-align: center;
+}
+.image-generation__label strong { color: var(--text-primary); font-size: var(--text-sm, 14px); font-weight: 600; }
+.image-generation__percent { color: var(--text-primary); font-size: 26px; font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: -.01em; }
+.image-generation__bar { background: color-mix(in srgb, var(--text-primary) 10%, transparent); bottom: 0; height: 3px; left: 0; position: absolute; right: 0; }
+/* Yalnız transform: dolgu soldan ölçeklenir, yerleşimi etkilemez. */
+.image-generation__bar span { background: var(--text-primary); display: block; height: 100%; opacity: .7; transform-origin: left; transition: transform .4s ease-out; width: 100%; }
+.image-generation__spark { animation: image-generation-pulse 1.6s ease-in-out infinite; font-size: 22px; }
+.image-generation__prompt {
+  color: var(--text-secondary);
+  display: -webkit-box;
+  font-size: var(--text-xs, 12px);
+  margin-top: 6px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+@keyframes image-generation-sweep { to { transform: translateX(100%); } }
+@keyframes image-generation-pulse { 50% { opacity: .45; transform: scale(.85); } }
+@media (prefers-reduced-motion: reduce) {
+  .image-generation__bar span { transition: none; }
+  .image-generation__shimmer, .image-generation__spark { animation: none; }
+  .image-generation__shimmer { transform: none; opacity: .5; }
+}

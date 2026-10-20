@@ -1,0 +1,235 @@
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ProtocolClient } from "../protocol/client";
+import { ProviderList } from "./ProviderList";
+
+afterEach(cleanup);
+
+const SATIRLAR = [
+  { id: "chatgpt_web", ad: "ChatGPT Web", tur: "web", eylem: "oturum", bagli: false, hesap: "main" },
+  { id: "gemini_web", ad: "Gemini Web", tur: "web", eylem: "oturum", bagli: true, hesap: "main" },
+  { id: "openrouter", ad: "OpenRouter", tur: "anahtar", eylem: "anahtar", bagli: true, ortam: "OPENROUTER_API_KEY" },
+  { id: "openai", ad: "OpenAI", tur: "anahtar", eylem: "anahtar", bagli: false, ortam: "OPENAI_API_KEY" },
+];
+
+function client(overrides: Record<string, unknown> = {}) {
+  return {
+    request: vi.fn(async (name: string) => {
+      if (name in overrides) return overrides[name];
+      if (name === "saglayici.katalog") return { ok: true, saglayicilar: SATIRLAR };
+      if (name === "web.giris") return { ok: true, pid: 7 };
+      if (name === "web.giris_durumu") return { ok: true, acik: false };
+      if (name === "web.baglan") return { ok: true };
+      if (name === "web.dogrula") return { ok: true, gecikme_ms: 120 };
+      if (name === "web.model_secenekleri") return { ok: true, secili: "Otomatik", secenekler: ["Otomatik", "Flash", "Pro"] };
+      return { ok: true };
+    }),
+  } as unknown as ProtocolClient;
+}
+
+describe("ProviderList", () => {
+  it("kısa satırlar çizer; hiçbirinde açık anahtar kutusu yoktur", async () => {
+    render(<ProviderList client={client()} />);
+    expect(await screen.findByText("ChatGPT Web")).toBeTruthy();
+    expect(screen.getByText("OpenRouter")).toBeTruthy();
+
+    // Kullanıcı uzun uzun input kutuları istemiyor: detay tıklayınca açılır.
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("web sağlayıcısına tıklayınca oturum açma sunar, anahtar sormaz", async () => {
+    render(<ProviderList client={client()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web/ }));
+
+    expect(await screen.findByRole("button", { name: "Oturum aç" })).toBeTruthy();
+    expect(screen.queryByLabelText(/API anahtarı/i)).toBeNull();
+  });
+
+  it("anahtarlı sağlayıcıya tıklayınca anahtar alanı açılır", async () => {
+    render(<ProviderList client={client()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /OpenAI/ }));
+
+    expect(await screen.findByLabelText(/API anahtarı/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Oturum aç" })).toBeNull();
+  });
+
+  it("bağlı olanı ayırt eder", async () => {
+    render(<ProviderList client={client()} />);
+    await screen.findByText("Gemini Web");
+    // Durum etiketi artık ölçümü de söylüyor: "bağlı · dosya yazabilir" /
+    // "bağlı · yalnız okur". Ölçüm geçmemiş bir oturum dosya yazamaz ve kullanıcının
+    // bunu satırda görmesi gerekiyor.
+    expect(screen.getAllByText(/^bağlı · /).length).toBe(1);
+    expect(screen.getByText("anahtar kayıtlı")).toBeTruthy();
+  });
+
+  it("liste boşsa sessiz kalmaz", async () => {
+    // Boş bir kutu, bağlantı hatasıyla "hiç sağlayıcı yok" durumunu ayırt
+    // edilemez kılıyordu.
+    render(<ProviderList client={client({ "saglayici.katalog": { ok: true, saglayicilar: [] } })} />);
+    expect(await screen.findByText(/Sağlayıcı listesi boş/)).toBeTruthy();
+  });
+
+  it("arama ile süzülür", async () => {
+    render(<ProviderList client={client()} />);
+    await screen.findByText("OpenRouter");
+    fireEvent.change(screen.getByRole("searchbox", { name: /ara/i }), { target: { value: "gemini" } });
+
+    expect(screen.queryByText("OpenRouter")).toBeNull();
+    expect(screen.getByText("Gemini Web")).toBeTruthy();
+  });
+});
+
+describe("ProviderList — web oturumu", () => {
+  it("canlı web model menüsünü gösterir ve seçimi kaydeder", async () => {
+    const fake = client();
+    render(<ProviderList client={fake} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Gemini Web/ }));
+    const picker = await screen.findByRole("combobox", { name: "Gemini Web web modeli" });
+    await waitFor(() => expect(picker.hasAttribute("disabled")).toBe(false));
+    fireEvent.change(picker, { target: { value: "Pro" } });
+    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("web.model_sec", {
+      saglayici: "gemini_web", hesap: "main", secim: "Pro",
+    }));
+  });
+
+  it("artık sunulmayan seçili modeli açıkça gösterir", async () => {
+    const rows = SATIRLAR.map((row) => row.id === "gemini_web"
+      ? { ...row, secili_model: "Eski Pro" } : row);
+    render(<ProviderList client={client({
+      "saglayici.katalog": { ok: true, saglayicilar: rows },
+    })} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Gemini Web/ }));
+    expect(await screen.findByText(/Seçili model artık yok/)).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Eski Pro \(artık sunulmuyor\)/ })).toBeTruthy();
+  });
+
+  it("giriş isteği hata verirse Sürüyor durumunda takılı kalmaz", async () => {
+    const failing = {
+      request: vi.fn(async (name: string) => {
+        if (name === "saglayici.katalog") return { ok: true, saglayicilar: SATIRLAR };
+        if (name === "web.giris") throw new Error("bağlantı kesildi");
+        return { ok: true };
+      }),
+    } as unknown as ProtocolClient;
+    render(<ProviderList client={failing} />);
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Oturum aç" }));
+
+    expect(await screen.findByText(/giriş penceresi başlatılamadı/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Oturum aç" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("giriş penceresi kapanınca oturumu kaydeder ve gerçekten sınar", async () => {
+    // Eskiden yalnız liste tazeleniyordu: profil klasörü oluştuğu için "bağlı"
+    // görünüyor, Fusion ise sağlayıcıyı hiç kullanamıyordu.
+    const fake = client();
+    render(<ProviderList client={fake} />);
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Oturum aç" }));
+
+    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("web.baglan", {
+      saglayici: "chatgpt_web",
+      hesap: "main",
+    }));
+    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("web.dogrula", {
+      saglayici: "chatgpt_web",
+      hesap: "main",
+    }));
+  });
+
+  it("sınama geçmezse bunu açıkça söyler", async () => {
+    const fake = client({ "web.dogrula": { ok: false, metin: "Oturum cevap vermedi" } });
+    render(<ProviderList client={fake} />);
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Oturum aç" }));
+
+    expect(await screen.findByText(/sınama geçmedi/i)).toBeTruthy();
+  });
+
+  it("bağlı sağlayıcıda sınama ve çıkış sunar", async () => {
+    const fake = client();
+    render(<ProviderList client={fake} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Gemini Web/ }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Çıkış yap" }));
+    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("web.cikis", {
+      saglayici: "gemini_web",
+      hesap: "main",
+    }));
+  });
+
+  it("profil var ama oturum kayıtlı değilse uyarır", async () => {
+    const fake = client({
+      "saglayici.katalog": {
+        ok: true,
+        saglayicilar: [
+          { id: "chatgpt_web", ad: "ChatGPT Web", tur: "web", eylem: "oturum", bagli: false, profil_var: true, hesap: "main" },
+        ],
+      },
+    });
+    render(<ProviderList client={fake} />);
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web/ }));
+
+    expect(await screen.findByText(/giriş yarım kalmış olabilir/i)).toBeTruthy();
+  });
+
+  it("web oturumunun pencere kipini ve gizleme uyarısını gösterir", async () => {
+    // Gizleme izni yoksa ChatGPT penceresi ekranda kalır; kullanıcı SEBEBİNİ görmeli.
+    const uyari = "Fusion'ın tarayıcı penceresi gizlenemedi. Otomasyon iznini aç.";
+    const satirlar = [
+      { ...SATIRLAR[0], bagli: true, pencere_kipi: "hidden", pencere_uyarisi: uyari },
+      { ...SATIRLAR[1], pencere_kipi: "headless", pencere_uyarisi: null },
+    ];
+    render(<ProviderList client={client({ "saglayici.katalog": { ok: true, saglayicilar: satirlar } })} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web/ }));
+    expect(await screen.findByText("Tarayıcı penceresi: Gizli")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe(uyari);
+
+    fireEvent.click(screen.getByRole("button", { name: /Gemini Web/ }));
+    expect(await screen.findByText("Tarayıcı penceresi: Görünmez")).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+});
+
+it("satır değiştirme kaydedilmemiş anahtarı sessizce silmez", async () => {
+  render(<ProviderList client={client()} initialProviderId="openai" />);
+  const input = await screen.findByLabelText(/API anahtarı/i) as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "SYNTHETIC_UNSAVED_KEY" } });
+  fireEvent.click(screen.getByRole("button", { name: /OpenRouter/ }));
+  expect((screen.getByLabelText(/API anahtarı/i) as HTMLInputElement).value).toBe("SYNTHETIC_UNSAVED_KEY");
+  expect(screen.getByRole("button", { name: /OpenAI/ }).getAttribute("aria-expanded")).toBe("true");
+});
+
+it("bekleyen anahtar kaydı sırasında alan ve sağlayıcı seçimi kilitlidir", async () => {
+  let resolve!: (value: Record<string, unknown>) => void;
+  const fake = client();
+  const previous = fake.request.bind(fake);
+  fake.request = vi.fn((name: string, data: Record<string, unknown>) => name === "kontrol.anahtar_kaydet" ? new Promise<Record<string, unknown>>(done => { resolve = done; }) : previous(name, data));
+  render(<ProviderList client={fake} initialProviderId="openai" />);
+  const input = await screen.findByLabelText(/API anahtarı/i) as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "SYNTHETIC_PENDING_KEY" } });
+  fireEvent.click(screen.getByRole("button", { name: "Kaydet", exact: true }));
+  expect(input.disabled).toBe(true);
+  expect((screen.getByRole("button", { name: /OpenRouter/ }) as HTMLButtonElement).disabled).toBe(true);
+  resolve({ ok: true });
+  await waitFor(() => expect(input.disabled).toBe(false));
+  expect(input.value).toBe("SYNTHETIC_PENDING_KEY"); // kaydedilen anahtar alanda kalır
+});
+
+
+it("kayıtlı anahtar açılışta kasadan okunur ve göz düğmesiyle görünür", async () => {
+  const request = vi.fn(async (name: string) => {
+    if (name === "saglayici.katalog") return { ok: true, saglayicilar: [{ id: "nvidia_nim", ad: "NVIDIA NIM", bagli: true, eylem: "anahtar", tur: "anahtar", ortam: "NVIDIA_API_KEY" }] };
+    if (name === "kontrol.anahtar_goster") return { ok: true, deger: "nvapi-KAYITLI" };
+    return { ok: true };
+  });
+  render(<ProviderList client={{ request } as unknown as ProtocolClient} />);
+  fireEvent.click(await screen.findByRole("button", { name: /NVIDIA NIM/ }));
+  const input = (await screen.findByLabelText("API anahtarı")) as HTMLInputElement;
+  await waitFor(() => expect(input.value).toBe("nvapi-KAYITLI"));
+  expect(input.type).toBe("password");
+  fireEvent.click(screen.getByRole("button", { name: "Anahtarı göster" }));
+  expect(input.type).toBe("text");
+});

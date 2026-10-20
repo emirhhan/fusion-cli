@@ -1,0 +1,64 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Fusion",
+  "version": "0.7.16",
+  "identifier": "com.fusion.desktop",
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQwQjJCREE2Q0IyODQ3NTEKUldSUlJ5akxwcjJ5ME1sL2xSNEtQdnJITWFxOCs3a0R3NlUxclF5OWlFczU4c3BpdWwvNmR5VmMK",
+      "endpoints": [
+        "https://github.com/emirhhan/fusion-cli/releases/latest/download/latest.json"
+      ]
+    }
+  },
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "title": "Fusion",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 600,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "backgroundColor": "#111111",
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "frame-src 'self' blob: data: http://localhost:* http://127.0.0.1:* http://[::1]:*",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$HOME/**",
+          "$HOME/.local/share/fusion-cli/gallery/**",
+          "$LOCALDATA/fusion-cli/gallery/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "entitlements": "Entitlements.plist"
+    }
+  }
+}

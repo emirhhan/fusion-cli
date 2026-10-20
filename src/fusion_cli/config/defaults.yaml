@@ -1,0 +1,777 @@
+# Fusion-CLI varsayılan yapılandırması — TEK DOĞRULUK KAYNAĞI.
+#
+# Kod içinde varsayılan değer YAZILMAZ; her ayarın varsayılanı burada durur.
+# Kullanıcı yapılandırması bunun ÜZERİNE derin birleştirilir, bu dosya değişmez.
+#
+# Model kimlikleri LiteLLM biçimindedir: "<sağlayıcı>/<model>"
+#   OpenRouter  -> openrouter/<id>
+#   NVIDIA NIM  -> nvidia_nim/<id>
+
+# Agent motorunun kullandığı model. `fallback` yedek zinciridir ve SIRALI denenir:
+# birincil, yeniden denemeleri de tükenene kadar yedeğe geçilmez. Böylece seçilen
+# model hiçbir koşulda "daha hızlı olduğu için" bir yedeğe kaptırmaz — zincir eskiden
+# yarıştırılıyordu ve yavaş ama yetenekli modeller kendi turlarını kaybediyordu
+# (bkz. `providers/chain.py`).
+#
+# Aşağıdaki üçlü 2026-07-23'te canlı ölçümle DOĞRULANMIŞTIR (yanıt süreleri: 1.1s / 1.1s / 2.5s).
+# Yedek zinciri bilinçli olarak hem farklı SAĞLAYICIYA hem farklı MODELE yayılır:
+#   1) NIM kotası dolarsa aynı model OpenRouter'dan gelir,
+#   2) o model tamamen erişilemezse bambaşka bir aile (gpt-oss) devralır.
+# Böylece tek nokta arızası kalmaz.
+#
+# 2026-09-22 EKLENMESİ: zincir buraya kadar hep AYNI kademedeki modeller
+# arasında dolaşıyordu (120B sınıfı → 120B sınıfı). Denetim (17 Eylül) bunun
+# "kademe yükselten" bir zincir OLMADIĞINI, yalnız aynı seviyenin sağlayıcı
+# kopyaları arasında gezindiğini bulmuştu (C6). `nemotron-3-ultra-550b-a55b`
+# (550B/55B, `tiers: ultra`'nın baş modeli) canlı ölçümle GERÇEKTEN farklı bir
+# kademe olarak zincire eklendi — ölçüm bu görev sırasında `LiteLlmProvider`
+# ile gerçek bir araç çağrısı turu yapılarak tekrarlandı:
+#   nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b        → 3.01s, araç çağrısı doğru
+#   openrouter/nvidia/nemotron-3-ultra-550b-a55b:free   → 21.75s, araç çağrısı doğru (yavaş ama çalışıyor)
+# gpt-oss-20b'den ÖNCE eklendi: gpt-oss-20b (20B) ultra'dan (550B/55B) daha
+# küçük bir modeldir, tükenmeden önce daha yetenekli kademeye çıkmak mantıklı.
+#
+# 2026-09-22 DÜZELTME: `openai/gpt-oss` ailesinin İKİ üyesi de gerçek koşuda
+# öldü — uydurma değil, gerçek turlarda yakalandı:
+#   nvidia_nim/openai/gpt-oss-120b       → 410 Gone, "reached its end of life
+#                                          on 2026-09-03T08:00:00Z"
+#   openrouter/openai/gpt-oss-20b:free   → 404, "This model is unavailable
+#                                          for free. The paid version is
+#                                          available now"
+# "Bambaşka bir aile" rolünü artık `qwen3.8-27b` üstleniyor — canlı ölçüldü
+# (gerçek `run_agent` turu, gerçek araç çağrısı, `wc -l` sonucu doğru):
+#   openrouter/qwen/qwen3.8-27b:free    → basit çağrı 3.9s, araç çağrısı 5.3s,
+#                                          ikisi de doğru
+# NIM kataloğunda (82 model, canlı çekildi) Qwen yok; denenen NIM adayları
+# (mistral-large-2-instruct, ai21labs/jamba-1.5-large-instruct) 404 döndü,
+# moonshotai/kimi-k3 7+ dakika hiç yanıt vermedi (CPU boşta, bağlantı asılı) —
+# hiçbiri zincire GİRMEDİ. Bu yüzden bu basamakta NIM/OpenRouter çifti yok,
+# tek OpenRouter girdisi var.
+agent:
+  name: nemotron-super
+  model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+  tags: [code, agent, reasoning]
+  # Zincirde HER sağlayıcıdan İKİ model bulunur. Sebep ölçüldü (2026-07-26):
+  # NVIDIA NIM'in hız sınırı MODEL BAŞINADIR — aynı anahtarla aynı saniyede
+  # nemotron-super 429 verirken deepseek-v4-flash çalışıyordu. Tek modelli bir
+  # rol, o model kısıtlanınca tamamen ölür ve kullanıcı "kotam bitti" sanır.
+  # `/provider` ile tek sağlayıcıya kilitlenen kullanıcı da yedeksiz kalmamalı.
+  fallback:
+    - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+    - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+    - openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+    - openrouter/qwen/qwen3.8-27b:free
+
+# Çalışma zamanı davranışı.
+runtime:
+  # Takılan çağrı bu sürede düşer.
+  #
+  # Ölçülen üretim hızı (2026-07-25, nemotron-3-super): ~104 token/s. Aşağıdaki
+  # max_tokens tamamen kullanılırsa çağrı ~80s sürer; 45s bu turu ORTASINDA keserdi.
+  # 120s tam bir üretime yer bırakır, gerçekten takılan çağrıyı yine de düşürür.
+  # (Not: max_tokens=8192 @ ~104 tok/s ≈ 79s; 120 altındaki değerler uzun kod
+  #  üretimini ORTASINDA keser, o yüzden 120'nin altına inilmez.)
+  #
+  # 600: Claude Code'un belgelenmiş istek zaman aşımı (`API_TIMEOUT_MS` varsayılanı
+  # 600000 ms, code.claude.com/docs/en/errors). Ölçüldü (29 Eylül): NIM, modelin büyük
+  # bir dosyayı araç argümanı olarak yazdığı sürede akışta hiç parça göndermedi;
+  # 120 sn'lik sessizlik sınırı her denemede çağrıyı kesti ve iş 10 denemede ilerlemedi.
+  # Akmaya devam eden çağrı zaten kesilmez; bu yalnız gerçekten takılanın üst sınırıdır.
+  request_timeout_s: 600
+  # Sağlayıcı KÜTÜPHANESİ içi yeniden deneme (LiteLLM). Düşük tutulur: asıl yeniden
+  # deneme aşağıdaki `retry_delays_s` ile bizim kontrolümüzde yapılır, çünkü
+  # kütüphanenin gecikmesi ayarlanamıyor ve kalıcı hatayı geçiciden ayırt etmiyor.
+  max_retries: 0
+  # Geçici arızada AYNI modelin yeniden denenmesinden önce beklenecek süreler.
+  # Liste uzunluğu deneme sayısını TANIMLAR: iki gecikme → toplam üç deneme.
+  #
+  # KISA tutulur (1.5s, 4.0s): geçici bir ağ dalgalanmasını ya da tek-tük 5xx'i
+  # hızla toparlar ve kullanıcıyı bekletmez. Dakikalık HIZ SINIRI (NIM 60s/40 istek)
+  # burada uzun beklemeyle DEĞİL, circuit breaker + yedek zincirle çözülür: sınıra
+  # takılan model devreye alınır ve istek SIRADAKİ modele düşer — kullanıcı 60-100s
+  # beklemek yerine başka modelle anında ilerler.
+  #
+  # Kalıcı hatalarda (olmayan model, geçersiz anahtar, GÜNLÜK kota) hiç beklenmez —
+  # bu süreler yalnızca beklemenin işe yaradığı arızalar için harcanır.
+  # Boş liste ([]) yeniden denemeyi tamamen kapatır.
+  retry_delays_s: [1.5, 4.0]
+  # Agent turunda geçici model hatası (429 hız sınırı, 5xx, zaman aşımı) bu kadar
+  # kez daha denenir; beklemeler üstel artar (2, 4, 8 … sn, en fazla 60 sn).
+  # Yukarıdaki kısa denemelerden AYRIDIR: onlar anlık dalgalanmayı, bu dakikalık
+  # hız sınırının sıfırlanmasını bekler. Claude Code'un belgelenmiş varsayılanı 10'dur
+  # (code.claude.com/docs/en/errors). Ölçüldü (28 Eylül): 3 denemeyle 28 dakikalık
+  # iş NIM'in 429 hatasıyla bitti. 0 = yeniden deneme yok.
+  model_retry_attempts: 10
+  # Sağlayıcı başına MODEL başı dakikalık istek sınırı; önden korunur ki 429 hiç
+  # gelmesin. Masaüstünde her sekme ayrı süreçtir ve paralel alt ajanlar aynı modeli
+  # aynı anda çağırır: kova bütün süreçlerde ORTAKTIR (bkz. providers/rate_gate.py).
+  # NIM: 40 istek / 60 sn, model başına (ölçüldü; bkz. providers/retrying.py).
+  # Ölçülmemiş sağlayıcı buraya yazılmaz: yalnız 429'u sekmeler arası paylaşılır.
+  rate_limit_per_minute:
+    nvidia_nim: 40
+  # Kovadan hak için en fazla beklenecek süre. 40/dk'da bir hak 1,5 sn'de dolar;
+  # 3 sn iki hak aralığıdır. Daha uzun bekleme gerekiyorsa çağrı yedeğe bırakılır.
+  rate_pace_max_wait_s: 3.0
+  # `spawn_agents` ile aynı anda koşabilecek alt ajan sayısı. Gerekçe (TAHMİN,
+  # canlı ölçümle güncellenecek): bir ajan ücretsiz modelde dakikada ~6-10 çağrı
+  # yapar; 4 ajan NIM'in model başı 40/dk sınırına yaklaşır. Aşanı ortak kova
+  # yavaşlatır.
+  max_parallel_agents: 4
+  # Ajan bir dosyayı değiştirince çalışacak komutlar; `{path}` dosya yoluyla değişir.
+  # Örnek: ["npx prettier --write {path}"]. Boş liste = kanca yok.
+  post_edit_commands: []
+  temperature: 0.3
+  # Varsayılan reasoning yoğunluğu. Mode'dan (kademe) AYRIDIR: kademe modeli seçer,
+  # bu ayar model destekliyorsa düşünme yoğunluğunu belirler. auto | low | medium |
+  # high | xhigh | max. `auto` parametreyi hiç göndermez (karar modele bırakılır);
+  # model reasoning desteklemiyorsa değer sessizce düşürülür (bkz. core/reasoning.py).
+  reasoning_effort: auto
+  # Circuit breaker: bir model arka arkaya bu kadar başarısız olursa devre açılır ve
+  # cooldown boyunca ATLANIR (zincir sıradaki modele geçer). Ölü/erişilemez bir modeli
+  # her turda yeniden yoklayıp kullanıcıyı bekletmemek için. 3, geçici bir dalgalanmayı
+  # (tek-iki 5xx) tolere eder ama ısrarlı arızayı hızla dışlar.
+  circuit_failure_threshold: 3
+  # Devre açıldıktan sonra yarı-açık denemeye kadar beklenen süre. 60s, NIM'in
+  # dakikalık penceresiyle uyumludur: geçici sınır bu sürede çoğu kez temizlenir.
+  circuit_cooldown_s: 60
+  # Güvenilirlik skoru EWMA ağırlığı. 0.3: son sonuç %30 ağırlık taşır, geçmiş %70 —
+  # skor tek bir arızada çakılmaz ama ısrarlı bozulmayı birkaç turda yansıtır.
+  reliability_alpha: 0.3
+  # Yedek zincirinin deneme sırası. priority = mevcut ölçülmüş sıra (varsayılan; bozma).
+  # Diğerleri gateway'de açıkça seçilebilir: free_first | headroom | least_used |
+  # round_robin | random.
+  routing_strategy: priority
+  # Gateway davranışı (yalnızca 'fusion serve' geçidini etkiler; agent/fusion motorları değil).
+  gateway_cache: true          # aynı istek tekrar gelirse önbellekten anında dön (token tasarrufu)
+  gateway_compression: false   # giden mesajlarda güvenli sıkıştırma (opt-in; içerik bozulmaz)
+  gateway_mask_secrets: true   # yanıtta sızan anahtar/sır desenini maskele
+  # Web AI alışverişini diske yaz (teşhis). Varsayılan KAPALI ve bu bilinçli:
+  # gönderilen prompt dosya içeriği taşır ve onu diske yazmak gizlilik genişletmesidir.
+  # Açıldığında her tur `<bellek>/web-traces/<sağlayıcı>-<hesap>.jsonl` dosyasına
+  # redakte edilmiş olarak eklenir; dosya son turlarla sınırlı tutulur.
+  #
+  # Açman gereken tek durum: web modeli araç sonuçlarına tepki vermiyorsa. Ekranda
+  # modelin metni görünmez (taklit araç ayrıştırmasında tüketilir), bu yüzden
+  # "ne gördü, ne cevapladı" sorusu başka türlü cevaplanamaz.
+  web_trace: false
+  # Dosya araçları proje kökü dışına çıkabilsin mi? false = kısıt yok (kullanıcı her
+  # projede çalışabilir). true yaparsan kök (+ --add-dir) dışına erişim reddedilir.
+  restrict_to_root: false
+  # Tur başına çıktı bütçesi.
+  #
+  # DİKKAT: reasoning modellerinde düşünme token'ları da BU bütçeden yenir.
+  # Ölçüm (2026-07-25, tek dosyalık açılış sayfası üreten görev):
+  #   2048 → finish_reason=length, sayfa yarıda kesildi (</html> hiç gelmedi)
+  #   8192 → finish_reason=stop, sayfa tam, 1946 token kullanıldı
+  # Yani 2048 kodlama işleri için yapısal olarak yetersizdi; 8192 ölçülen ihtiyacın
+  # ~4 katı başlık payı bırakır.
+  max_tokens: 8192
+  # Hakem/sentez/ısıtma gibi deterministik olması gereken çağrılar için sıcaklık.
+  judge_temperature: 0.0
+  # Ders çıkarımı, bağlam sıkıştırma, öz-denetim gibi yardımcı çağrılar için sıcaklık.
+  utility_temperature: 0.1
+
+  # --- Fusion zamanlaması ---
+  # Hakem için SIKI son tarih: bu sürede JSON gelmezse hakem atlanır, sezgisel kazanan
+  # seçilir. Sentez yine üretilir → kullanıcı hiçbir senaryoda beklemede kalmaz.
+  judge_timeout_s: 12
+  # Reasoning modelleri önce "düşünür", sonra JSON/talimat verir; ikisi bu bütçeye
+  # sığmalıdır.
+  #
+  # Ölçüm (2026-07-25, nemotron-3-super, 5.4k karakterlik denetim prompt'u, 3 koşu):
+  # çıktı 486–1150 token arasında oynuyor — düşünme uzunluğu değişken. 1024 ile denetim
+  # talimatı kelime ortasında kesiliyordu ("CSS dosyas") ve yarım talimat agent'a
+  # düzeltme emri olarak gidiyordu. 3072, ölçülen en yüksek değerin ~2,7 katı.
+  judge_max_tokens: 3072
+  # Bu sayının altında başarılı aday kalırsa tur cevapsız biter.
+  min_successful_candidates: 1
+  # Yeterli cevap geldikten sonra yavaş adaylara tanınan ek süre.
+  straggler_grace_s: 6.0
+  # İlk cevaptan itibaren adaylar için mutlak üst sınır: soğuk bir uç turu kilitleyemez.
+  candidate_hard_cap_s: 25.0
+  # Hakem seçtikten sonra tüm cevapları tek üstün cevapta birleştir (bir çağrı daha ekler).
+  # Hangi sağlayıcı kullanılsın: auto | nvidia | openrouter
+  #
+  # auto (varsayılan) zinciri iki sağlayıcıya yayar: biri yavaşsa ya da hata
+  # verirse öteki devreye girer. Bedeli şudur — bir sağlayıcı tükenince tüm yük
+  # ötekine biner ve onun kotası da hızla biter (ölçüldü: NIM kredisi bitince
+  # OpenRouter'ın günlük 50 isteği birkaç dakikada tükendi).
+  #
+  # Tek sağlayıcı seçilirse ötekine HİÇ istek gitmez; kota öngörülebilir olur ama
+  # yedek kalmaz. `/provider` komutu bunu ekrandan değiştirir.
+  provider: auto
+
+  # Sentez hakemin kararını GÖREREK mi çalışsın? Varsayılan AÇIK: paralel kipte
+  # sentez tüm cevapları eşit ağırlıkta okuyor ve hakemin zayıf bulduğu adayın
+  # hatası nihai cevaba geri sızabiliyordu. Bedeli gecikmedir (hakem + sentez seri
+  # çalışır); hız gerekiyorsa `false` yaz, mevcut paralel davranışa dönülür.
+  verified_synthesis: true
+  synthesis: true
+
+  # --- Agent davranışı ---
+  # NIM ajanı öğretmene danıştıktan sonra da toplam 10 araç çağrısına kadar
+  # değişiklik yapmadan okursa, araç sınamasını geçmiş web öğretmeni devralır.
+  # 0 = kapalı. Kullanıcının zorunlu/tek model seçimi bu yolla değiştirilmez.
+  agent_teacher_takeover_tools: 10
+  # Model çağrısı üst sınırı. Boş (null) = sınır yok.
+  #
+  # Claude Code'un belgelenmiş varsayılanı: döngü, model araç çağırmayı bırakıp
+  # cevabını verene kadar sürer; `max_turns` ve bütçe sınırı varsayılan olarak
+  # YOKTUR (bkz. code.claude.com/docs/en/agent-sdk/agent-loop). Kullanıcı her an
+  # durdurabilir ya da yön verebilir. Ölçüldü (28 Eylül): 200'lük sınır ve
+  # ilerleme kapısı büyük proje görevini yarıda kesiyordu. Sınır isteyen kullanıcı
+  # buraya bir sayı yazar; sınır dolunca iş özetlenir ve kaldığı yerden sürer.
+  agent_max_steps: null
+  # Ardışık kaç araç turu HİÇBİR ilerleme üretmezse modele "aramayı bırak, sıradaki
+  # somut adımı at" notu gönderilir. Tur KESİLMEZ (Claude Code'da ilerleme kapısı
+  # yoktur); not yalnız modeli döngüden çıkarmaya çalışır.
+  #
+  # İlerleme = başarılı yeni okuma ya da çalışma alanında dosya değişikliği.
+  # Tek bir ilerlemesiz tur normaldir: model yanlış yolu dener, hatayı okur, düzeltir.
+  agent_max_idle_rounds: 3
+  # Tur bitince denetçi model sonucu kontrol eder; somut sorun bulursa TEK düzeltici
+  # tur çalışır. Bir hakem çağrısı ekler, çıktı daha sağlam olur. Hız istiyorsan kapat.
+  self_review: true
+  # Araç hata döndürünce modele "ne yanlış gitti, farklı yaklaş" notu enjekte edilir.
+  # EK MODEL ÇAĞRISI YOK; körlemesine tekrarı önler.
+  reflexion: true
+  # Her görevden ders çıkarılır ve benzer görevlerde sistem promptunda hatırlatılır.
+  # Öz-gelişimin çekirdeği; bir model çağrısı ekler.
+  lessons: true
+  # `ask_teacher` aracı modele hiç sunulmaz (`config.teacher` tanımlı olsa bile).
+  # `council` bundan etkilenmez — ayrı, çoklu-API-model bir araçtır (Faz 4, Görev 3).
+  teacherless: false
+  # Öğretmen cevabından çıkan ders `ChromaLessonMemory`'ye de yazılsın mı (model
+  # `recall_lessons` ile geri çağırabilsin)? Çakışan bir ders bulunursa zaten
+  # yazılmaz; bu bayrak kullanıcının kendi tercihiyle tamamen kapatması içindir.
+  teacher_lesson_sync: true
+  # Öğretmen için Codex limitini son yedek olarak kullan (varsayılan kapalı; yalnız sohbet limitleri).
+  teacher_codex_fallback: false
+  # Model cevap veremezse doğrulanmış web oturumlarına otomatik geç.
+  auto_web_fallback: true
+  # Kod değiştiren tur sonrası çalıştırılacak doğrulama komutları. Boş = KAPALI
+  # (varsayılan): mevcut davranış korunur. Doldurulursa (ör. ["ruff check", "pytest -q"])
+  # kapının sonucu ders güvenini besler — "doğrulamadan bitirme" kuralı gerçekten uygulanır.
+  verification_commands: []
+  # Üretilen HTML/CSS/JS mekanik olarak denetlenir: kapanmış görsel servisi, boş
+  # bağlantı (href="#"), eksik <main>, CSS'te karşılığı olmayan sınıf oranı ve
+  # sayfada vaat edilen tutarın kodda bulunmaması.
+  #
+  # Varsayılan AÇIK. Ölçüm: model prompt'ta AÇIKÇA yasaklanan şeyleri yapıyor
+  # ("bozuk görsel, boş bağlantı bulunmasın" denmesine rağmen 12 kırık görsel ve
+  # 18 boş bağlantı üretti) ama araç sonucuna tepki verip düzeltiyor. Bu yüzden
+  # kural prompt'ta değil kapıda durur; bulgular modele talimat olarak döner.
+  web_verification: true
+  # Üretilen sayfa GERÇEKTEN açılıp ölçülür: konsol hataları, yüklenemeyen kaynaklar
+  # ve 375/768/1440 px genişliklerinde yatay taşma. Bunlar metin taramasıyla
+  # görülemez — kullanıcının şartnamesinde "yatay taşma veya konsol hatası
+  # bulunmasın" yazmasına rağmen statik kapı 24 konsol hatasını göremedi.
+  #
+  # Playwright ZORUNLU DEĞİLDİR: `pip install "fusion-cli[web]"` ile gelir ve ardından
+  # `playwright install chromium` gerekir. Kurulu değilse kapı sessizce geçer.
+  browser_verification: true
+  # Üretilen sayfa bölgelere kırpılıp GÖREN bir modele dar sorular sorulur
+  # (header tek satırda mı, hero'da aşırı boşluk var mı, metin okunuyor mu).
+  #
+  # Varsayılan KAPALI ve bu bilinçli. Ölçüm (2026-07-25): ücretsiz görme modelleri
+  # tek soru + kırpılmış bölge ile doğru cevap veriyor ("kalp ikonu çok büyük"), ama
+  # açık uçlu "hataları listele" ile ya susuyor ya olmayan hata uyduruyor; dört soru
+  # tek çağrıda sorulunca ayırt etme gücü sıfıra düşüyor. Bu yüzden her soru ayrı
+  # çağrıdır ve pahalıdır. Geometriyle ÖLÇÜLEBİLEN hiçbir şey buraya sorulmaz.
+  visual_verification: false
+  # İstek bir playbook'u (deterministik çok-adımlı akış) tetiklerse serbest ReAct
+  # döngüsü yerine o akış çalışır — daha az model çağrısı, öngörülebilir sonuç.
+  # KAPALI (varsayılan): mevcut agent davranışı birebir korunur.
+  playbooks: false
+  # off: tek ajan döngüsü; çok adımlı işte planı model todo_write ile tutar.
+  # always: her kök tur plan motorunda yürür. Tek tur için /plan-yurut kullanılır.
+  # Eski "auto" değeri off olarak okunur.
+  workflow_mode: "off"
+  workflow_max_model_calls: 12
+  # Profesyonel yürütmenin bağımsız çağrı zarfları. Bir adımın taşması planlama veya
+  # final doğrulama hakkını tüketmez; sınır aşımında checkpoint alınarak duraklanır.
+  workflow_planning_calls: 2
+  workflow_step_calls: 24
+  workflow_recovery_calls: 24
+  # Paralel deneme ek çağrı hakkı; 0 = kapalı (opt-in).
+  workflow_attempt_calls: 0
+  workflow_final_verification_calls: 2
+
+# ---------------------------------------------------------------------------
+# Fusion havuzu: aynı görev bu modellere PARALEL sorulur, hakem en iyisini seçer,
+# sentez hepsinin en iyi yanlarını tek cevapta birleştirir.
+#
+# Üçü de 2026-07-23'te canlı ölçümle doğrulanmıştır. Her adayın yedeği bilinçli
+# olarak FARKLI bir sağlayıcıdadır: bir sağlayıcının kotası dolduğunda havuz çökmez.
+candidates:
+  - name: nemotron-super
+    model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+    tags: [reasoning, general]
+    fallback:
+      - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+  # 2026-09-27 DÜZELTME: BOTH tarafı da öldü — model seçicideki TÜM modeller
+  # canlı `LiteLlmProvider.stream()` çağrısıyla (gerçek "naber" sohbeti + gerçek
+  # `sum` araç çağrısı) sırayla denendi:
+  #   openrouter/nvidia/nemotron-3-nano-30b-a3b:free → 404 "unavailable for
+  #     free, use nvidia/nemotron-3-nano-30b-a3b instead"
+  #   nvidia_nim/nvidia/nemotron-3-nano-30b-a3b      → 410 Gone, "reached its
+  #     end of life on 2026-09-01T09:00:00Z"
+  # Yani bu adayın birincili DE yedeği DE hiçbir turda cevap veremiyordu.
+  # Yerine, AYNI ölçümde çalıştığı doğrulanmış (`goz-cirak` adayıyla aynı model
+  # ailesi, farklı sağlayıcı sırası) `nano-omni-reasoning` çifti kondu:
+  #   nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning        → sohbet 1.07s, araç 3.34s (ikisi de doğru)
+  #   openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free  → sohbet 1.74s, araç 4.83s (ikisi de doğru)
+  - name: nemotron-nano
+    model: nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
+    tags: [general]
+    fallback:
+      - openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+  # 2026-09-22 DÜZELTME: `openrouter/openai/gpt-oss-20b:free` gerçek koşuda 404
+  # döndü ("unavailable for free"). Yerine canlı ölçülen `qwen3.8-27b` geçti
+  # (bkz. üstteki `agent:` yorumundaki ölçüm). Önceki adayın yedeği YOKTU
+  # (`fallback: []`) — bu da düzeltildi, tek sağlayıcılı bir aday artık yedeksiz
+  # kalmıyor.
+  - name: qwen
+    model: openrouter/qwen/qwen3.8-27b:free
+    tags: [code, agent]
+    fallback:
+      - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+  # 2026-09-22 EKLENDİ (C4): mesaja doğrudan eklenen bir görsel `select_compatible_model`'e
+  # `images=True` gereksinimiyle geliyordu ama hiçbir agent adayı `vision` etiketi
+  # taşımıyordu; istek model hiç çağrılmadan `ConfigError` ile ölüyordu. Bu model
+  # `LiteLlmProvider` ile canlı ölçüldü (gerçek araç şeması + 200x200 düz kırmızı PNG):
+  #   nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning        → araç çağrısı 6.13s (doğru), görsel 3.11s ("kırmızı", doğru)
+  #   openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free  → araç çağrısı 6.34s (doğru), görsel 3.51s ("kırmızı", doğru)
+  # Ayrı `vision:` rolündeki `llama-3.2-11b-vision-instruct` yalnızca `view_image`
+  # aracı için kullanılır ve araç çağırmaz; bu aday AGENT turunda hem araç hem
+  # görsel gerektiren işi tek modelle karşılar.
+  - name: goz-cirak
+    model: nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
+    tags: [agent, vision]
+    fallback:
+      - openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+
+# Hakem + sentez rolü. Hızlı olmalı ve JSON'a sadık kalmalıdır.
+#
+# 2026-09-22 DÜZELTME: birincil `nvidia_nim/openai/gpt-oss-120b` 410 Gone
+# (EOL, bkz. üstteki `agent:` yorumu) — her hakem çağrısında boşa bir
+# başarısız deneme gidiyordu. Zaten kanıtlanmış bir yedek (`nemotron-super`,
+# bu oturumdaki gerçek turlarda defalarca doğru JSON/"TAMAM" üretti) birincile
+# yükseltildi; ölü model YEDEKTEN de çıkarıldı, "bambaşka aile" rolünü
+# `qwen3.8-27b` üstlendi.
+judge:
+  name: hakem
+  # Kademelerdeki hakemle aynı desen: her sağlayıcıdan iki model (bkz. `agent:`).
+  # NIM'den ikinci girdi (`nemotron-3-ultra`) `/provider nvidia` ile tek
+  # sağlayıcıya kilitlenen kullanıcının da yedeksiz kalmaması için var —
+  # `test_her_rol_her_saglayici_tercihinde_yedekli_kalir` bunu zorunlu kılar.
+  model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+  fallback:
+    - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+    - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+    - openrouter/qwen/qwen3.8-27b:free
+
+# Görme yetenekli model — `view_image` aracı ve görsel doğrulama kapısı için.
+#
+# Ölçüm (2026-09-04): önceki varsayılan `nvidia/nemotron-nano-12b-v2-vl`
+# 2026-08-26'da EOL oldu ve 410 Gone dönüyor; yedeği de AYNI modelin başka
+# sağlayıcıdaki hâliydi, o da ölüydü. Yani görsel kapısı sessizce çalışmıyordu.
+# Yerine geçen model gerçek bir asset üzerinde denendi ve doğru cevap verdi
+# (bir uygulama ikonunu "logo ve metin ikonu" diye tanıdı).
+#
+# Yedek YAZILMADI: denenen OpenRouter görsel modellerinin hiçbiri erişilebilir
+# değildi ("No endpoints found") ve 90b sürümü 90 sn sınırında zaman aşımına
+# uğradı. Uydurulmuş bir yedek, kapıyı sessizce yeniden bozardı.
+vision:
+  name: goz
+  model: nvidia_nim/meta/llama-3.2-11b-vision-instruct
+
+# Öğretmen — `ask_teacher` aracının danıştığı web oturumu (Faz 4, 22 Eylül).
+#
+# Görme gibi OPSİYONELDİR ve BURADA VARSAYILAN YOK. Açık `teacher:` seçimi
+# yapılmamışsa giriş doğrulanmış ChatGPT/Gemini web oturumu otomatik seçilir;
+# seçilmiş modeli olan oturum önceliklidir. Hiçbiri yoksa `ask_teacher` sunulmaz.
+# Kullanıcı belirli bir oturumu kendi `config.yaml`'ında seçebilir:
+#
+# teacher:
+#   name: ogretmen
+#   model: chatgpt_web/main/auto     # ya da gemini_web/main/auto
+#
+# Model kimliği ilgili `web_sessions` girişiyle (aynı `provider`+`account`)
+# eşleşmeli ve o oturum giriş yapılmış (`login_verified`) olmalıdır; değilse
+# araç çağrıldığında `ConfigError` ile anlaşılır bir mesaj döner.
+
+# Görev tipine göre kullanılacak model. Yalnızca yukarıda tanımlı bir aday adı yazılabilir;
+# tanınmayan ad sessizce `agent:` rolüne düşer.
+#
+# Bu harita İKİ motoru birden yönlendirir:
+#   fusion — bu adayı havuzun başına alır (hakem yine hepsini görür),
+#   agent  — turu doğrudan bu modelle çalıştırır.
+#
+# Anahtarlar kullanıcının `/type` ile seçtiği tiplerdir (general, code, reasoning, agent).
+#
+# `code` ve `agent` eskiden gpt-oss'a (20B) bakıyordu. Harita agent motorunda hiç
+# uygulanmadığı için bunun bir etkisi yoktu; artık uygulandığına göre kodlama turlarını
+# havuzun en küçük modeline yönlendirmek doğrudan kalite kaybı olurdu. İkisi de
+# nemotron-super'a alındı: kod ve araç kullanımı havuzun en yetenekli modelini ister.
+task_model_map:
+  general: nemotron-super
+  code: nemotron-super
+  reasoning: nemotron-super
+  agent: nemotron-super
+
+# ---------------------------------------------------------------------------
+# Anlamsal arama için gömme sağlayıcısı (ders belleği + kod indeksi).
+#   local — ChromaDB gömülü ONNX modeli. Hızlı, çevrimdışı, anahtarsız. Türkçe: orta.
+#   nim   — NVIDIA NIM ücretsiz çok-dilli gömme. Türkçe daha iyi ama her sorguya
+#           ağ gecikmesi ekler. Erişilemezse SESSİZCE yerele düşülür.
+embedding:
+  provider: local
+  model: nvidia/nv-embedqa-e5-v5
+
+# ---------------------------------------------------------------------------
+# Havuza EKLENECEK adaylar. `candidates` yazarsan varsayılanların yerini alır;
+# burası ise onların YANINA ekler. Yerel/açık kaynak modeller için doğru yer:
+#
+# extra_candidates:
+#   - name: qwen-yerel
+#     model: ollama/qwen2.5-coder:7b     # önce: ollama serve && ollama pull …
+#     tags: [code]
+#   - name: llama-yerel
+#     model: ollama/llama3.1:8b
+#     tags: [general]
+#
+# vLLM / LM Studio için:  openai/<model>  + OPENAI_API_BASE=http://localhost:8000/v1
+# Not: yerel modeller tool-calling desteklemeyebilir; agent modunda düz sohbete düşer.
+
+# ---------------------------------------------------------------------------
+# Model kademeleri: tek seçimle agent, hakem ve aday havuzunu birlikte değiştirir.
+#
+# Beş kademenin TAMAMI ücretsizdir ve bu bir kuraldır, tercih değil: OpenRouter'da
+# `:free` soneki olmayan her model ücretlidir ve kademelere GİREMEZ. `test_config`
+# bunu her koşuda doğrular — bir kademe seçmek asla fatura çıkarmaz.
+#
+# OMURGA NVIDIA NIM'DİR. Sebep kota: OpenRouter'ın ücretsiz katmanı hesap başına
+# günde 50 istek verir ve bir fusion turu ~4 istek harcar — yani günde ~12 tur.
+# NIM'in ücretsiz geliştirici kotası çok daha geniştir (~1000 kredi, 40 istek/dk).
+# Bu yüzden her kademenin agent rolü NIM'den başlar; OpenRouter modelleri YEDEKTİR
+# ve yalnızca NIM anahtarı olmayan kullanıcıda ya da NIM arızasında devreye girer.
+#
+# MODELLER YOKLANARAK SEÇİLDİ. 2026-09-24'te bu hesapta canlı NIM
+# kataloğunda 82 kayıt vardı; bunların bir bölümü chat dışı ya da 404 dönüyor.
+# Yüksek kademedeki GLM 5.3 ailesi, Nemotron Lightning ve Mistral Nemotron
+# gerçek araç çağrısıyla doğrulandı. Katalogda listelenmek çalışmak DEĞİLDİR:
+#   qwen3.5-397b, kimi-k2.6, mistral-large-2, nemotron-nano-3-30b → NotFound
+#   deepseek-v4-pro, mistral-medium-3.5 → zaman aşımı
+#   llama-3.3-70b → ServiceUnavailable
+#   minimax-m3 (170s), llama-4-maverick (91s) → çalışıyor ama ürüne fazla yavaş
+# Aşağıdakilerin hepsi gerçek bir çağrıyla doğrulandı; parantezdeki süre ölçümdür.
+#
+#   low     nemotron-3-super-120b-a12b  (0.5s)  120B/12B — paketin varsayılanı
+#   medium  deepseek-v4.1-flash         2026-09-22'de canlı ölçüldü
+#   high    glm-5.3-flash              2026-09-24'te araç çağrısı doğru
+#   ultra   nemotron-3-ultra-550b-a55b  (5.8s)  550B/55B
+#   premium glm-5.3                    2026-09-24'te araç çağrısı doğru
+#
+# `premium` bilinçli olarak YAVAŞTIR ve etiketi bunu söyler: en yetenekli model
+# aynı zamanda en hızlısı değildir ve kullanıcı bu takası bilerek yapmalıdır.
+tiers:
+  - name: low
+    label: Nemotron 3 Super 120B — varsayılan, en hızlısı (~0.5s)
+    agent:
+      name: nemotron-super
+      model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+      tags: [code, agent, reasoning]
+      # 2026-09-22: `agent:` üst rolüyle AYNI zincir (bkz. yukarıdaki gerekçe) —
+      # `low` kademesi paketin gömülü varsayılanı olduğu için ikisi ayrışırsa
+      # kademe seçmeyen kullanıcıyla `apply_tier("low")` çağıran kullanıcı
+      # farklı dayanıklılık görür. `nemotron-3-ultra` GERÇEKTEN farklı bir
+      # kademeye yükselen adımdır (120B/12B → 550B/55B).
+      fallback:
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+        - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+        - openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+        - openrouter/qwen/qwen3.8-27b:free
+    judge:
+      name: hakem
+      # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
+      # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
+      # 2026-09-22: birincil `gpt-oss-120b` 410 Gone (EOL) — bkz. üst seviye
+      # `judge:` yorumu. Aynı düzeltme burada da uygulandı; ikinci NIM girdisi
+      # `/provider nvidia` yedeği için gerekli.
+      model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+      fallback:
+        - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+        - openrouter/qwen/qwen3.8-27b:free
+    candidates:
+      - name: nemotron-super
+        model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        tags: [reasoning, general]
+        fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+      - name: laguna-xs
+        model: nvidia_nim/poolside/laguna-xs-2.1
+        tags: [code, agent]
+        fallback: [openrouter/poolside/laguna-xs-2.1:free]
+      # 2026-09-28 ÖLÇÜM: `agent` etiketi KALDIRILDI — canlı sondada sohbet
+      # doğru geldi (2.35s) ama `sum` ARAÇ ÇAĞRISI 60 sn sert üst sınırda hiç
+      # yanıt üretmeden takıldı (bkz. `medium` kademesindeki aynı tarihli ölçüm).
+      # Agent turu neredeyse her zaman araç çağırır; bu etiket kullanıcıyı
+      # "araç kullanabilir" diye yanıltırdı. Fusion havuzunda bir aday olarak
+      # kalmaya devam ediyor çünkü `candidate_hard_cap_s: 25.0` onu ORADA 60
+      # değil 25 saniyede keser — tek başına seçilebilir bir agent modeli
+      # OLARAK sunulmamalı.
+      - name: nemotron-lightning
+        model: nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b
+        tags: [general]
+        fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+
+  - name: medium
+    # 2026-09-28 ÖLÇÜM (bu görev sırasında, depo dışından `httpx` ile gerçek
+    # sohbet + `sum` araç çağrısı sondası — bkz. `providers/catalog.py::probe_nim_tools`
+    # aynı yöntem): önceki baş model `deepseek-v4.1-flash` YİNE (üçüncü kez,
+    # 2026-09-22'den beri) 60 sn'lik sert üst sınırda TEK PARÇA ÜRETMEDEN takıldı
+    # (hem sohbet hem araç çağrısı). Artık "geçici tıkanıklık" sayılamaz — kalıcı
+    # arıza kabul edilip KADEMEDEN ÇIKARILDI (talimat: "ölçümde hâlâ ölüyse
+    # kademelerden çıkar").
+    #
+    # Yerine GERÇEKTEN yanıt veren, farklı bir aile aranarak aynı oturumda NIM
+    # kataloğundaki adaylar yeniden denendi:
+    #   nvidia/nemotron-3-nano-omni-30b-a3b-reasoning → sohbet 2.68s, araç 3.58s (ikisi de doğru)
+    #   nvidia/nemotron-3.5-lightning-30b-a3b          → sohbet 2.35s doğru, ARAÇ 60s'de takıldı
+    #     (bu yüzden agent/judge başı OLAMAZ — agent turu neredeyse her zaman
+    #     araç çağırır; `low` kademesindeki aday listesinde araçsız bir seçenek
+    #     olarak kalmaya devam ediyor)
+    # `nano-omni-reasoning` baş model olarak seçildi: `low`'un baş modelinden
+    # (`nemotron-super`, 120B/12B) FARKLI bir mimari/boyut (30B/3B, reasoning
+    # ayarlı) olduğu için `active_tier_name` çakışması yaratmaz.
+    label: Nemotron 3 Nano Omni 30B (reasoning) — NIM orta kademe (~3s)
+    agent:
+      name: nemotron-nano-omni
+      model: nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
+      tags: [code, agent, reasoning]
+      fallback:
+        - openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+    judge:
+      name: hakem
+      # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
+      # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
+      # 2026-09-22: birincil `gpt-oss-120b` 410 Gone (EOL) — bkz. üst seviye
+      # `judge:` yorumu. Aynı düzeltme burada da uygulandı; ikinci NIM girdisi
+      # `/provider nvidia` yedeği için gerekli.
+      model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+      fallback:
+        - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+        - openrouter/qwen/qwen3.8-27b:free
+    candidates:
+      - name: nemotron-nano-omni
+        model: nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
+        tags: [reasoning, general]
+        fallback: [openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free]
+      - name: nemotron-super
+        model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        tags: [code, agent]
+        fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+
+  - name: high
+    # 2026-09-28 ÖLÇÜM: bu kademenin İKİ üyesi de (`glm-5.3-flash` baş model,
+    # `glm-5.3` birinci yedek) YİNE (ikinci kez, 2026-09-27'den beri) canlı
+    # sondada HİÇ parça üretmeden takıldı (60s sert üst sınırda) — `glm-5.3-flash`
+    # bu kez sohbet turunda "BOŞ İÇERİK" ile 58.86s'de, araç turunda 55.57s'de
+    # (araç çağrısı bu kez doğru geldi ama 55 saniyede — kullanıcının "neredeyse
+    # hiç çalışmıyor" şikâyetiyle birebir örtüşen bir gecikme). İki ardışık
+    # ölçümde de aynı sonuç: kalıcı arıza kabul edilip İKİ GLM ÜYESİ DE
+    # KADEMEDEN ÇIKARILDI (talimat: "ölçümde hâlâ ölüyse kademelerden çıkar").
+    #
+    # Yerine, aynı oturumda canlı sondalanan `mistralai/mistral-nemotron` baş
+    # model oldu: sohbet 12.55s, araç 10.89s — YAVAŞ ama GERÇEKTEN yanıt
+    # veriyor ve `low`/`medium`'dan (nemotron-super, nano-omni-reasoning) FARKLI
+    # bir model ailesi (Mistral tabanlı), bu yüzden `active_tier_name` çakışması
+    # yaratmaz. `high` etiketi artık "daha büyük/yetenekli" değil "farklı aile,
+    # orta-yavaş" anlamına gelir — dürüst olmak, ölçülmemiş bir hız vaadinden
+    # iyidir.
+    label: Mistral Nemotron — NIM farklı aile, orta-yavaş (~12s)
+    agent:
+      name: mistral-nemotron
+      model: nvidia_nim/mistralai/mistral-nemotron
+      tags: [code, agent, reasoning]
+      fallback:
+        - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+        - openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+    judge:
+      name: hakem
+      # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
+      # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
+      # 2026-09-22: birincil `gpt-oss-120b` 410 Gone (EOL) — bkz. üst seviye
+      # `judge:` yorumu. Aynı düzeltme burada da uygulandı; ikinci NIM girdisi
+      # `/provider nvidia` yedeği için gerekli.
+      model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+      fallback:
+        - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+        - openrouter/qwen/qwen3.8-27b:free
+    candidates:
+      - name: mistral-nemotron
+        model: nvidia_nim/mistralai/mistral-nemotron
+        tags: [code, agent]
+        fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
+      - name: nemotron-ultra
+        model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+        tags: [reasoning, code]
+        fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
+
+  - name: ultra
+    label: Nemotron 3 Ultra 550B — 550B/55B, ağır işler (~6s)
+    agent:
+      name: nemotron-ultra
+      model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+      tags: [code, agent, reasoning]
+      fallback:
+        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        - openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+    judge:
+      name: hakem
+      # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
+      # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
+      # 2026-09-22: birincil `gpt-oss-120b` 410 Gone (EOL) — bkz. üst seviye
+      # `judge:` yorumu. Aynı düzeltme burada da uygulandı; ikinci NIM girdisi
+      # `/provider nvidia` yedeği için gerekli.
+      model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+      fallback:
+        - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+        - openrouter/qwen/qwen3.8-27b:free
+    candidates:
+      - name: nemotron-ultra
+        model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+        tags: [reasoning, code]
+        fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
+      # 2026-09-28: `glm-5.3-flash` bu oturumda da (bkz. `high` kademesindeki
+      # ölçüm) 55-59 sn'de takılıyordu; havuzdan çıkarıldı, yerine `medium`
+      # kademesinin doğrulanmış başı kondu.
+      - name: nemotron-nano-omni
+        model: nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
+        tags: [code, agent]
+        fallback: [openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free]
+
+  - name: premium
+    # 2026-09-28 ÖLÇÜM: baş model `glm-5.3` YİNE (üçüncü kez, 2026-09-27'den
+    # beri) canlı sondada 60 sn sert üst sınırda TEK PARÇA ÜRETMEDEN takıldı
+    # (hem sohbet hem araç çağrısı) — bkz. `high` kademesindeki aynı tarihli
+    # ölçüm, aynı model ailesi. Artık kalıcı arıza kabul edilip KADEMEDEN
+    # ÇIKARILDI (talimat: "ölçümde hâlâ ölüyse kademelerden çıkar").
+    #
+    # `nemotron-3-ultra` buraya baş model olarak ALINAMAZ: `ultra` kademesiyle
+    # birebir aynı `agent.model` değerine düşürür ve `appserver/tiers.py::
+    # active_tier_name` `premium` seçildiğinde `ultra` görünmesine yol açardı
+    # (aynı çakışma daha önce `medium`/`low` arasında yaşanmış ve
+    # `test_kademe_sec_baş_modeli_ve_hakemi_birlikte_degistirir` ile
+    # yakalanmıştı). `low`/`medium`/`high`/`ultra` baş modellerinin TAMAMI
+    # (nemotron-super, nemotron-nano-omni-reasoning, mistral-nemotron,
+    # nemotron-3-ultra) bu oturumda zaten kullanıldığı için beşinci, GERÇEKTEN
+    # farklı bir NIM modeli arandı:
+    #   poolside/laguna-xs-2.1 → sohbet OK ama 41.39s (yavaş); araç çağrısı
+    #     503 "ResourceExhausted: Worker local total request limit reached"
+    #     (worker aşırı yüklü — İKİ ayrı ölçümde de aynı sonuç, tekrarlanabilir)
+    #   nvidia/nemotron-3.5-lightning-30b-a3b → sohbet OK (2.35s) ama araç
+    #     çağrısı 60s'de takıldı (agent/judge başı olamaz, bkz. `medium` yorumu)
+    # `laguna-xs` seçildi: 503 hatası ALTI SANİYE DEĞİL, ALT SANİYE içinde
+    # gelir (0.19-0.42s arası, üç ayrı ölçüm) — yani baş model tıkanınca zincir
+    # `glm-5.3`'ün 60 saniyelik SESSİZ ASILI KALMASI yerine HEMEN yedeğe düşer.
+    # Kullanıcının "takılmadan çalışan" isteği bu yüzden "her zaman en yetenekli
+    # baş modelle" değil "asla 60 saniye asılı kalmayan bir zincirle"
+    # karşılanıyor: pratikte bu kademenin gerçek işini çoğunlukla ilk yedek
+    # (`nemotron-3-ultra`) görür, `laguna-xs` hızlı-başarısız bir kapı gibi
+    # davranır. Bu dürüstçe etikette de yazılıdır.
+    label: Poolside Laguna XS — NIM (baş model kararsız, hızlı yedeğe düşer; bkz. yorum)
+    agent:
+      name: laguna-xs
+      model: nvidia_nim/poolside/laguna-xs-2.1
+      tags: [code, agent, reasoning]
+      fallback:
+        - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+        - openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+        - openrouter/qwen/qwen3.8-27b:free
+    judge:
+      name: hakem
+      # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
+      # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
+      # 2026-09-22: birincil `gpt-oss-120b` 410 Gone (EOL) — bkz. üst seviye
+      # `judge:` yorumu. Aynı düzeltme burada da uygulandı; ikinci NIM girdisi
+      # `/provider nvidia` yedeği için gerekli.
+      model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+      fallback:
+        - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+        - openrouter/qwen/qwen3.8-27b:free
+    candidates:
+      - name: laguna-xs
+        model: nvidia_nim/poolside/laguna-xs-2.1
+        tags: [code, agent]
+        fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
+      - name: nemotron-ultra
+        model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+        tags: [reasoning, code]
+        fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
+
+# ---------------------------------------------------------------------------
+# Profil uygunluk eşikleri — model seçim ekranı aktif profile göre bunlarla süzülür.
+#
+# Filtre YALNIZCA bilinen-kötü modeli eler; doğrulanmamış (bilinmeyen) yetenek
+# gizlenmez. Gerçekçilik: canlı katalog modellerinin çoğunun araç desteği ve
+# reasoning'i doğrulanmamıştır — hepsini gizlemek listeyi işe yaramaz hale getirir.
+#
+#   min_context   : gereken en az bağlam (token). 0 = sınır yok. Model bağlamı
+#                   BİLİNİYOR ve altındaysa elenir; bilinmiyorsa (0) elenmez.
+#   allow_no_tools: araçsız (NONE) modele bu profilde izin var mı? Mutation
+#                   profilleri (medium+) false verir — araçsız model dosya
+#                   değiştiren agent olamaz (master prompt §5.3).
+#
+# 128000 eşiği: çok dosyalı/mimari işler büyük bağlam ister; OpenRouter model
+# meta verisinde 128K, ciddi kodlama modelleri için yaygın alt sınırdır.
+profile_eligibility:
+  low:
+    min_context: 0
+    allow_no_tools: true
+  medium:
+    min_context: 0
+    allow_no_tools: false
+  high:
+    min_context: 128000
+    allow_no_tools: false
+  max:
+    min_context: 128000
+    allow_no_tools: false
+
+# ---------------------------------------------------------------------------
+# Ajanın bağlanacağı dış MCP sunucuları (opsiyonel). Her giriş stdio ile başlatılır.
+# Örnek:
+#   mcp_servers:
+#     - name: github
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-github"]
+# Boş liste = MCP istemcisi hiç kurulmaz (varsayılan).
+mcp_servers: []
+
+# ---------------------------------------------------------------------------
+# Web sağlayıcıları (opsiyonel). İki transport vardır:
+# - http: kullanıcının kendi OpenAI-uyumlu ucu (OpenWebUI/LibreChat/kurumsal uç).
+# - browser: kullanıcının kendi ChatGPT/Claude/Gemini/Copilot aboneliğini Fusion'ın
+#   izole Playwright profiliyle açar. Normal tarayıcı profili okunmaz; CAPTCHA/anti-bot
+#   bypass yapılmaz. Cookie değeri config'e girmez, yalnız `credential_ref` metadata'sı
+#   bulunur; sır şifreli depoda saklanır. Bu bölüm normalde Control Panel tarafından yazılır.
+# Örnek metadata (cookie DEĞİL):
+#   web_sessions:
+#     - model: chatgpt_web/main/auto
+#       provider: chatgpt_web
+#       account: main
+#       transport: browser
+#       credential_ref: WEB_SECRET::chatgpt_web::main
+#       tool_support: emulated
+# Boş liste = web sağlayıcı yok (varsayılan).
+web_sessions: []

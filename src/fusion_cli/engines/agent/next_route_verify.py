@@ -1,0 +1,260 @@
+"""Değişen Next istemci ve rotalarında eksik entegrasyon ile yetkili proxy'yi denetle.
+
+Derleme ve sahte fetch testleri eksik route'u, koşulsuz başarıyı ya da yetki
+kontrolü olmayan yerel servis proxy'sini göremediğinden gerekir.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+from ...core.changeset import ChangeSet
+from ...core.verification import VerificationResult
+
+_SOURCE_SUFFIXES = frozenset({".ts", ".tsx", ".js", ".jsx"})
+_BASE = re.compile(
+    r"\b(?:const|let)\s+(?P<name>[A-Z][A-Z0-9_]*)\s*=\s*"
+    r"[\"'](?P<base>/api/[A-Za-z0-9/_-]+)[\"']"
+)
+_INLINE_DYNAMIC = re.compile(r"\bfetch\s*\(\s*`(?P<base>/api(?:/[A-Za-z0-9_-]+)+)/\$\{")
+_STATIC_SUCCESS = re.compile(
+    r"\breturn\s+NextResponse\.json\s*\(\s*\{\s*success\s*:\s*true"
+    r"(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)?\s*\}\s*\)"
+)
+_LOCAL_IMPORT = re.compile(r"\bfrom\s*[\"'](?:@/|\.{1,2}/)")
+_NAMED_LOCAL_IMPORT = re.compile(
+    r"\bimport\s*\{(?P<names>[^}]+)\}\s*from\s*[\"']"
+    r"(?P<module>@/[^\"']+|\.{1,2}/[^\"']+)[\"']"
+)
+_CALLER_AUTH = re.compile(
+    r"\b(?:auth|getServerSession|requireAuth|verifySession|authenticate)\s*\("
+)
+_PRIVILEGED_STOCK_HEADER = re.compile(r"[\"']X-MG-Panel[\"']\s*:", re.IGNORECASE)
+_EXPORT_DECLARATION = re.compile(r"\bexport\s+(?:async\s+)?(?:function|const)\s+\w+\b")
+_RETURN = re.compile(r"\breturn\b")
+_DENIAL = re.compile(r"\bstatus\s*:\s*(?:401|403)\b")
+_COMMENTS = re.compile(r"/\*.*?\*/|//[^\n]*", re.DOTALL)
+_SESSION_SECRET_FALLBACK = re.compile(
+    r"process\.env\.(?:SESSION_SECRET|AUTH_SECRET)\s*(?:\|\||\?\?)\s*[\"'`]"
+)
+_LOCAL_ORIGIN_BYPASS = re.compile(r"\b(?:originUrl|originURL)\.hostname\s*\)")
+
+
+class NextRouteVerifier:
+    def __init__(self, root: Path, changed_paths: ChangeSet | tuple[Path, ...]) -> None:
+        self._root = root.resolve()
+        self._changed_paths = changed_paths
+
+    async def verify(self) -> VerificationResult:
+        findings: list[str] = []
+        paths = (
+            self._changed_paths.paths
+            if isinstance(self._changed_paths, ChangeSet)
+            else self._changed_paths
+        )
+        for path in paths:
+            source = path.resolve()
+            if (
+                not source.is_relative_to(self._root)
+                or not source.is_file()
+                or source.suffix not in _SOURCE_SUFFIXES
+                or "__tests__" in source.parts
+            ):
+                continue
+            try:
+                content = source.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                continue
+            if _is_stub_post(source.relative_to(self._root), content):
+                findings.append(
+                    f"{source.relative_to(self._root)}: POST rotası yerel servis veya "
+                    "veri işlemi olmadan koşulsuz başarı döndürüyor."
+                )
+            if _is_denial_only_post(source.relative_to(self._root), content):
+                findings.append(
+                    f"{source.relative_to(self._root)}: POST rotası bütün istekleri "
+                    "401/403 ile reddediyor; yetkili işlem yolu yok."
+                )
+            if _is_unprotected_privileged_proxy(self._root, source, content):
+                findings.append(
+                    f"{source.relative_to(self._root)}: POST rotası yetkili yerel servis "
+                    "başlığıyla işlem yapıyor ama çağıran kullanıcı için açık yetki "
+                    "kontrolü görünmüyor."
+                )
+            if _exposes_privileged_header_to_browser(source.relative_to(self._root), content):
+                findings.append(
+                    f"{source.relative_to(self._root)}: tarayıcı isteğine sabit X-MG-Panel "
+                    "başlığı eklenmiş. Her ziyaretçi bu değeri kopyalayabilir; "
+                    "sunucuda gerçek çağıran yetkisi gerekir."
+                )
+            if _SESSION_SECRET_FALLBACK.search(content):
+                findings.append(
+                    f"{source.relative_to(self._root)}: oturum imzası için sabit "
+                    "gizli anahtar yedeği var. Anahtar eksikse işlem kapalı kalmalı."
+                )
+            if _LOCAL_ORIGIN_BYPASS.search(content) and re.search(
+                r"[\"'](?:localhost|127\.0\.0\.1)[\"']", content
+            ):
+                findings.append(
+                    f"{source.relative_to(self._root)}: Origin doğrulaması "
+                    "localhost adresini istek Host değerinden bağımsız kabul ediyor."
+                )
+            bases = {match.group("base") for match in _INLINE_DYNAMIC.finditer(content)}
+            for match in _BASE.finditer(content):
+                name, base = match.group("name", "base")
+                if re.search(rf"\bfetch\s*\(\s*`\$\{{{re.escape(name)}\}}/", content):
+                    bases.add(base)
+            for base in sorted(bases):
+                if _has_route(self._root, base) or _has_rewrite(self._root, base):
+                    continue
+                relative = source.relative_to(self._root)
+                findings.append(
+                    f"{relative}: {base}/* çağrılıyor ama Next catch-all API rotası "
+                    "veya yönlendirmesi yok. İstemci istekleri 404 dönecek."
+                )
+        if findings:
+            return VerificationResult(
+                ok=False,
+                summary="Next API bağlantısı veya yetkisi doğrulanamadı",
+                findings=tuple(findings),
+            )
+        return VerificationResult(ok=True)
+
+
+def _is_stub_post(relative: Path, content: str) -> bool:
+    parts = relative.parts
+    if not any(parts[index : index + 2] == ("app", "api") for index in range(len(parts) - 1)):
+        return False
+    if relative.name not in {"route.ts", "route.js"}:
+        return False
+    return bool(
+        _STATIC_SUCCESS.search(content)
+        and not _LOCAL_IMPORT.search(content)
+        and not re.search(r"\b(?:fetch|writeFile|prisma)\s*[.(]", content)
+    )
+
+
+def _is_denial_only_post(relative: Path, content: str) -> bool:
+    """Tek dönüşü açık ret olan bir POST rotasında başarılı işlem yolu yoktur."""
+    if relative.name not in {"route.ts", "route.js"} or not any(
+        relative.parts[index : index + 2] == ("app", "api")
+        for index in range(len(relative.parts) - 1)
+    ):
+        return False
+    declaration = next(
+        (
+            match
+            for match in _EXPORT_DECLARATION.finditer(content)
+            if match.group().split()[-1] == "POST"
+        ),
+        None,
+    )
+    if declaration is None:
+        return False
+    rest = content[declaration.end() :]
+    following = _EXPORT_DECLARATION.search(rest)
+    post_body = _COMMENTS.sub("", rest[: following.start()] if following else rest)
+    return len(_RETURN.findall(post_body)) == 1 and bool(_DENIAL.search(post_body))
+
+
+def _exposes_privileged_header_to_browser(relative: Path, content: str) -> bool:
+    if relative.name in {"route.ts", "route.js"} or '"use server"' in content:
+        return False
+    return bool(
+        _PRIVILEGED_STOCK_HEADER.search(content)
+        and re.search(r"\bfetch\s*\(\s*(?:`|[\"'])/api/", content)
+    )
+
+
+def _is_unprotected_privileged_proxy(root: Path, source: Path, content: str) -> bool:
+    relative = source.relative_to(root)
+    post_declaration = next(
+        (
+            match
+            for match in _EXPORT_DECLARATION.finditer(content)
+            if match.group().split()[-1] == "POST"
+        ),
+        None,
+    )
+    if (
+        relative.name not in {"route.ts", "route.js"}
+        or not any(
+            relative.parts[index : index + 2] == ("app", "api")
+            for index in range(len(relative.parts) - 1)
+        )
+        or post_declaration is None
+    ):
+        return False
+    rest = content[post_declaration.end() :]
+    following = _EXPORT_DECLARATION.search(rest)
+    post_body = rest[: following.start()] if following else rest
+    if _CALLER_AUTH.search(post_body):
+        return False
+    for imported in _NAMED_LOCAL_IMPORT.finditer(content):
+        names = imported.group("names").split(",")
+        used = any(
+            re.search(rf"\b{re.escape(name.strip().split(' as ')[-1])}\s*\(", post_body)
+            for name in names
+            if name.strip()
+        )
+        if not used:
+            continue
+        module = imported.group("module")
+        bases = (
+            (root / module.removeprefix("@/"), root / "src" / module.removeprefix("@/"))
+            if module.startswith("@/")
+            else (source.parent / module,)
+        )
+        for base in bases:
+            for suffix in (".ts", ".tsx", ".js"):
+                helper = base.with_suffix(suffix).resolve()
+                if not helper.is_relative_to(root) or not helper.is_file():
+                    continue
+                try:
+                    helper_content = helper.read_text(encoding="utf-8")
+                except (OSError, UnicodeError):
+                    continue
+                if "127.0.0.1" in helper_content and _PRIVILEGED_STOCK_HEADER.search(
+                    helper_content
+                ):
+                    return True
+    return False
+
+
+def _has_route(root: Path, base: str) -> bool:
+    segments = base.removeprefix("/api/")
+    for prefix in (root, root / "src"):
+        app = prefix / "app/api" / segments
+        pages = prefix / "pages/api" / segments
+        if app.is_dir():
+            for entry in app.iterdir():
+                if _is_catchall(entry.name) and any(
+                    (entry / f"route{suffix}").is_file() for suffix in (".ts", ".js")
+                ):
+                    return True
+        if pages.is_dir() and any(
+            _is_catchall(entry.stem) and entry.suffix in (".ts", ".js") for entry in pages.iterdir()
+        ):
+            return True
+    return False
+
+
+def _is_catchall(name: str) -> bool:
+    return (name.startswith("[...") and name.endswith("]")) or (
+        name.startswith("[[...") and name.endswith("]]")
+    )
+
+
+def _has_rewrite(root: Path, base: str) -> bool:
+    for name in ("next.config.js", "next.config.mjs", "next.config.ts"):
+        config = root / name
+        if not config.is_file():
+            continue
+        try:
+            source = config.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+        if re.search(rf"source\s*:\s*[\"'`]{re.escape(base)}/:path\*", source):
+            return True
+    return False

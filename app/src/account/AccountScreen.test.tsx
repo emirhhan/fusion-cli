@@ -1,0 +1,110 @@
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { AccountScreen } from "./AccountScreen";
+import type { Hesap } from "./types";
+import type { AccountController } from "./useAccount";
+
+afterEach(cleanup);
+
+const KULLANICI: Hesap = {
+  kimlik: "1",
+  kullanici_adi: "kullanici",
+  eposta: "e@ornek.com",
+  avatar: "🏍️",
+  olusturuldu: 0,
+};
+const IKINCI: Hesap = {
+  kimlik: "2",
+  kullanici_adi: "ikinci",
+  eposta: "i@ornek.com",
+  avatar: "",
+  olusturuldu: 0,
+};
+
+function denetleyici(hesaplar: Hesap[], ekle: Partial<AccountController> = {}): AccountController {
+  return {
+    durum: { hesaplar, etkin: hesaplar[0]?.kimlik ?? "", kurulum_gerekli: false },
+    yukleniyor: false,
+    hata: null,
+    kayit: vi.fn(async () => null),
+    giris: vi.fn(async () => false),
+    cikis: vi.fn(async () => true),
+    kurtar: vi.fn(async () => false),
+    guncelle: vi.fn(async () => true),
+    sil: vi.fn(async () => false),
+    tazele: vi.fn(async () => undefined),
+    ...ekle,
+  };
+}
+
+describe("AccountScreen", () => {
+  test("etkin hesabın bilgilerini gösterir", () => {
+    render(<AccountScreen account={denetleyici([KULLANICI])} onClose={vi.fn()} />);
+
+    // Profil özeti açık, düzenleme formu isteğe bağlıdır.
+    expect(screen.getAllByText("kullanici").length).toBeGreaterThan(0);
+    expect(screen.getByText("e@ornek.com")).toBeTruthy();
+    fireEvent.click(screen.getByText("Profili düzenle"));
+    expect(screen.getByLabelText("Kullanıcı adı")).toHaveProperty("value", "kullanici");
+  });
+
+  test("profil değişikliği çekirdeğe iletilir", async () => {
+    const guncelle = vi.fn(async () => true);
+    render(<AccountScreen account={denetleyici([KULLANICI], { guncelle })} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("Profili düzenle"));
+    fireEvent.change(screen.getByLabelText("Kullanıcı adı"), { target: { value: "emir" } });
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+
+    expect(guncelle).toHaveBeenCalledWith(expect.objectContaining({ kullanici_adi: "emir" }));
+  });
+
+  test("avatar seçimi düzenleme bölümü kapalıyken de kaydedilir", async () => {
+    const guncelle = vi.fn(async () => true);
+    render(<AccountScreen account={denetleyici([KULLANICI], { guncelle })} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Avatarı değiştir" }));
+    fireEvent.click(screen.getByRole("button", { name: "Avatar: 🚀" }));
+    expect(guncelle).toHaveBeenCalledWith(expect.objectContaining({ avatar: "🚀" }));
+  });
+
+  test("tek hesap varken değiştirilecek hesap olmadığı söylenir", () => {
+    render(<AccountScreen account={denetleyici([KULLANICI])} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("Hesap yönetimi"));
+    expect(screen.getByText(/başka hesap yok/i)).toBeTruthy();
+  });
+
+  test("diğer hesaplar listelenir", () => {
+    render(<AccountScreen account={denetleyici([KULLANICI, IKINCI])} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("Hesap yönetimi"));
+    expect(screen.getByText("ikinci")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Bu hesaba geç" })).toBeTruthy();
+  });
+
+  /* Silme geri alınamaz. Tek tıkla silinebilen bir şey için bu onay ağır olurdu;
+     geri getirilemeyen bir şey için değil. */
+  test("silme, kullanıcı adı elle yazılana kadar kapalıdır", () => {
+    const sil = vi.fn(async () => true);
+    render(<AccountScreen account={denetleyici([KULLANICI], { sil })} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("Hesabı sil"));
+    const dugme = screen.getByRole("button", { name: /kalıcı olarak sil/i });
+    expect(dugme.hasAttribute("disabled")).toBe(true);
+
+    fireEvent.change(screen.getByLabelText(/onaylamak için/i), { target: { value: "yanlis" } });
+    expect(dugme.hasAttribute("disabled")).toBe(true);
+
+    fireEvent.change(screen.getByLabelText(/onaylamak için/i), { target: { value: "kullanici" } });
+    expect(dugme.hasAttribute("disabled")).toBe(false);
+  });
+
+  test("silmenin neyi götürdüğünü açıkça yazar", () => {
+    render(<AccountScreen account={denetleyici([KULLANICI])} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("Hesabı sil"));
+    expect(screen.getByText(/kalıcı olarak silinir/i)).toBeTruthy();
+    expect(screen.getByText(/geri alınamaz/i)).toBeTruthy();
+  });
+});

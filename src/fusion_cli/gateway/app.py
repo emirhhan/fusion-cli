@@ -1,0 +1,1474 @@
+"""Yerel gateway — OpenAI-uyumlu ASGI uygulaması.
+
+Fusion'ın router yığınını (registry + fallback + health) tek bir OpenAI-uyumlu
+`/v1/chat/completions` uç noktası olarak açar. Böylece SENİN BİLGİSAYARINDAKİ her
+araç (Cursor, Cline, hatta Claude Code) Fusion'a bağlanabilir — hiçbir uygulamayı
+bozmadan/rootlamadan. Uzak sunucu DEĞİLDİR; yalnız yerelde (127.0.0.1) çalışır.
+
+Çerçeve yok: saf ASGI. `uvicorn` ile çalışır (`gateway` ekstrası). Test için gerçek
+sunucu gerekmez — `httpx.ASGITransport` ile doğrudan çağrılır.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import json
+import os
+import random
+import re
+import shutil
+import subprocess
+import sys
+from collections.abc import Awaitable, Callable
+from dataclasses import replace as _dc_replace
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - yalnızca tip için
+    from ..config.models import WebSessionConfig
+    from ..providers.registry import ProviderDefinition
+
+from ..config.credentials import FernetSecretStore
+from ..config.live import reload_if_changed, revision
+from ..config.models import Config, McpServerConfig, McpTransport
+from ..core.compression import compress_messages, saved_chars
+from ..core.errors import ConfigError, FusionError
+from ..core.health import HealthRegistry
+from ..core.protocols import LlmProvider
+from ..core.redaction import redact
+from ..core.routing_strategy import RoutingStrategy, order_models
+from ..core.types import CompletionRequest, ModelResult, ModelSpec, StreamDone, TextChunk
+from ..core.window_mode import WindowMode
+from ..mcp_bridge.client import McpConnectionStatus
+from ..providers.factory import build_provider
+from ..providers.key_pool import KeyPoolRegistry
+from ..ui import messages
+from . import translate
+from .analytics import Analytics, RequestRecord
+from .cache import PromptCache
+from .catalog_cache import CatalogCache
+from .routing import available_models, resolve_spec
+
+#: `build_provider` imzasının gateway'in ihtiyaç duyduğu sadeleştirilmiş hâli.
+ProviderFactory = Callable[[ModelSpec], LlmProvider]
+
+#: ASGI3 imzaları — çerçeve kullanmadığımız için elle tiplenir.
+Scope = dict[str, Any]
+Receive = Callable[[], Awaitable[dict[str, Any]]]
+Send = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+class GatewayApp:
+    """OpenAI-uyumlu yerel gateway (ASGI3 uygulaması)."""
+
+    def __init__(
+        self,
+        config: Config,
+        *,
+        provider_factory: ProviderFactory | None = None,
+        health: HealthRegistry | None = None,
+        secret_store: FernetSecretStore | None = None,
+        catalog: CatalogCache | None = None,
+        compact_context: bool = False,
+    ) -> None:
+        self._config = config
+        #: Uzun geçmişi Fusion ajanının özetlemesiyle bağlam bütçesine sığdır (Kits açar).
+        self._compact_context = compact_context
+        self._config_revision = revision(config)
+        self._health = health
+        self._factory = provider_factory or self._default_factory
+        self._key_pools = _build_key_pools(config)
+        self._strategy = config.runtime.routing_strategy
+        #: round-robin/random için tur-ötesi durum (modül-global değil, örneğe bağlı).
+        self._rotation = 0
+        self._rng = random.Random()
+        #: Panelden girilen anahtarlar buraya ŞİFRELİ yazılır; ayrıca canlı ortama uygulanır.
+        #: Test için enjekte edilebilir (yoksa gerçek kullanıcı deposu kurulur).
+        self._secret_store = secret_store or _default_secret_store()
+        #: Oturum boyunca canlı kullanım telemetrisi (panelde gösterilir).
+        self._analytics = Analytics()
+        #: Tam-eşleşme prompt önbelleği (token/süre tasarrufu).
+        self._cache = PromptCache()
+        #: Panel için birleşik model kataloğu (otomatik listeleme); TTL önbellekli.
+        self._catalog = catalog or CatalogCache()
+        from ..mcp_bridge.service import McpConnectionService
+
+        self._mcp_connections = McpConnectionService()
+
+    def _refresh_config(self) -> None:
+        """HTTP istek sınırlarında panel/terminal ile paylaşılan yapılandırmayı yeniden yükle."""
+        updated, rev, changed = reload_if_changed(self._config, self._config_revision)
+        if not changed:
+            self._config_revision = rev
+            return
+        self._config = updated
+        self._config_revision = rev
+        self._key_pools = _build_key_pools(updated)
+        self._strategy = updated.runtime.routing_strategy
+
+    def _routed_spec(self, spec: ModelSpec) -> ModelSpec:
+        """Yedek zincirini seçili stratejiye göre yeniden sırala (hiçbir modeli düşürmez)."""
+        ordered = order_models(
+            spec.models,
+            strategy=self._strategy,
+            health=self._health,
+            rotation=self._rotation,
+            rng=self._rng,
+        )
+        self._rotation += 1
+        return ModelSpec(name=spec.name, model=ordered[0], fallback=ordered[1:], tags=spec.tags)
+
+    def _default_factory(self, spec: ModelSpec) -> LlmProvider:
+        from ..providers.web_registry import web_registry_for
+
+        return build_provider(
+            spec,
+            publisher=None,
+            retry_delays_s=self._config.runtime.retry_delays_s,
+            health=self._health,
+            key_pools=self._key_pools,
+            web_sessions=web_registry_for(self._config),
+        )
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            return
+        if _foreign_host(scope):
+            await _json(
+                send,
+                {"error": {"message": "Gateway yalnız yerel Host başlıklarını kabul eder."}},
+                status=421,
+            )
+            return
+        self._refresh_config()
+        method = scope["method"]
+        path = scope["path"]
+        if method not in ("GET", "HEAD") and _foreign_origin(scope):
+            await _json(send, {"error": {"message": messages.GATEWAY_FOREIGN_ORIGIN}}, status=403)
+            return
+        if method == "GET" and path in ("/", "/health"):
+            await _json(send, {"status": "ok", "service": "fusion-gateway"})
+            return
+        if method == "GET" and path == "/v1/models":
+            await self._models(send)
+            return
+        if method == "GET" and path in ("/dashboard", "/dashboard/"):
+            await _html(send, _dashboard_html())
+            return
+        if method == "GET" and path.startswith(_DASHBOARD_ASSET_PREFIX):
+            asset = read_dashboard_asset(strip_asset_version(path[len(_DASHBOARD_ASSET_PREFIX) :]))
+            if asset is None:
+                await _json(send, {"error": {"message": "bulunamadı"}}, status=404)
+                return
+            await _asset(send, *asset)
+            return
+        if method == "GET" and path == "/api/providers":
+            await _json(send, {"providers": _providers_json(self._config)})
+            return
+        if method == "GET" and path == "/api/health":
+            await _json(send, {"models": self._health_json()})
+            return
+        if method == "GET" and path == "/api/models":
+            await self._models(send)
+            return
+        if method == "GET" and path == "/api/models/catalog":
+            await self._api_catalog(scope, send)
+            return
+        if method == "GET" and path == "/api/state":
+            await self._api_state(send)
+            return
+        if method == "GET" and path == "/api/analytics":
+            await _json(send, self._analytics.snapshot())
+            return
+        if method == "GET" and path == "/api/ready":
+            await self._api_ready(send)
+            return
+        if method == "GET" and path == "/v1/route/candidates":
+            await self._api_candidates(scope, send)
+            return
+        if method == "GET" and path == "/api/config/export":
+            await self._api_export(send)
+            return
+        if method == "POST" and path == "/api/health/reset":
+            await self._api_health_reset(send)
+            return
+        if method == "POST" and path == "/api/model":
+            await self._api_set_model(receive, send)
+            return
+        if method == "POST" and path == "/api/keys":
+            await self._api_set_key(receive, send)
+            return
+        if method == "POST" and path == "/api/keys/delete":
+            await self._api_delete_key(receive, send)
+            return
+        if method == "POST" and path == "/api/routing":
+            await self._api_set_routing(receive, send)
+            return
+        if method == "POST" and path == "/api/fallback":
+            await self._api_set_fallback(receive, send)
+            return
+        if method == "POST" and path == "/api/web_sessions":
+            await self._api_add_web_session(receive, send)
+            return
+        if method == "POST" and path == "/api/web_sessions/delete":
+            await self._api_delete_web_session(receive, send)
+            return
+        if method == "POST" and path == "/api/web_sessions/validate":
+            await self._api_validate_web_session(receive, send)
+            return
+        if method == "POST" and path == "/api/web_sessions/login":
+            await self._api_login_web_session(receive, send)
+            return
+        if method == "POST" and path == "/api/web_sessions/login_state":
+            await self._api_web_login_state(receive, send)
+            return
+        if method == "POST" and path == "/api/web_sessions/eval":
+            await self._api_eval_web_session(receive, send)
+            return
+        if method == "POST" and path == "/api/mcp_servers":
+            await self._api_add_mcp_server(receive, send)
+            return
+        if method == "POST" and path == "/api/mcp_servers/delete":
+            await self._api_delete_mcp_server(receive, send)
+            return
+        if method == "POST" and path == "/api/mcp_servers/test":
+            await self._api_test_mcp_server(receive, send)
+            return
+        if method == "POST" and path == "/api/mcp_servers/login":
+            await self._api_login_mcp_server(receive, send)
+            return
+        if method == "POST" and path == "/api/mcp_servers/login_state":
+            await self._api_mcp_login_state(receive, send)
+            return
+        if method == "POST" and path == "/api/mcp_servers/logout":
+            await self._api_logout_mcp_server(receive, send)
+            return
+        if method == "POST" and path == "/v1/chat/completions":
+            await self._chat(receive, send)
+            return
+        await _json(send, {"error": {"message": "bulunamadı", "type": "not_found"}}, status=404)
+
+    # --- Panel yönetim uçları (yerel; durumu DEĞİŞTİRİR) -------------------- #
+
+    async def _api_state(self, send: Send) -> None:
+        """Panelin tek çağrıda ihtiyaç duyduğu her şey: sağlayıcılar, yönlendirme,
+        fallback zinciri, sağlık, modeller."""
+        from .. import __version__
+
+        await _json(
+            send,
+            {
+                "version": __version__,
+                "providers": _providers_json(self._config),
+                "routing": {
+                    "current": self._strategy.value,
+                    "options": [strategy.value for strategy in RoutingStrategy],
+                },
+                "fallback": list(self._config.agent.models),
+                "strict_model_selection": self._config.agent.strict,
+                "judge": list(self._config.judge.models),
+                "web_sessions": [
+                    self._web_session_json(session) for session in self._config.web_sessions
+                ],
+                "mcp_servers": [
+                    self._mcp_server_json(server) for server in self._config.mcp_servers
+                ],
+                "health": self._health_json(),
+                "models": available_models(self._config),
+                "analytics": self._analytics.snapshot(),
+                "secret_ready": self._secret_store.available,
+                "config_path": str(self._config.source) if self._config.source else None,
+                "config_revision": self._config_revision.value,
+            },
+        )
+
+    async def _api_set_key(self, receive: Receive, send: Send) -> None:
+        """Bir sağlayıcının API anahtarını panelden gir: şifreli sakla + canlı uygula."""
+        import os
+
+        from ..providers.registry import BUILTIN_PROVIDERS
+
+        body = await _read_json(receive)
+        provider_id = str(body.get("provider", ""))
+        value = str(body.get("value", "")).strip()
+        definition = next((p for p in BUILTIN_PROVIDERS if p.id == provider_id), None)
+        if definition is None or definition.auth_env is None:
+            await _json(
+                send, _error_body("bu sağlayıcı anahtar almıyor ya da tanınmıyor"), status=400
+            )
+            return
+        if not value:
+            await _json(send, _error_body("anahtar boş olamaz"), status=400)
+            return
+        persisted = False
+        if self._secret_store.available:
+            self._secret_store.set(definition.auth_env, value)
+            persisted = True
+        # Her durumda CANLI uygula: çalışan gateway hemen kullanabilsin.
+        os.environ[definition.auth_env] = value
+        await _json(send, {"ok": True, "persisted": persisted, "provider": provider_id})
+
+    async def _api_delete_key(self, receive: Receive, send: Send) -> None:
+        import os
+
+        from ..providers.registry import BUILTIN_PROVIDERS
+
+        body = await _read_json(receive)
+        provider_id = str(body.get("provider", ""))
+        definition = next((p for p in BUILTIN_PROVIDERS if p.id == provider_id), None)
+        if definition is None or definition.auth_env is None:
+            await _json(send, _error_body("tanınmayan sağlayıcı"), status=400)
+            return
+        if self._secret_store.available:
+            self._secret_store.delete(definition.auth_env)
+        os.environ.pop(definition.auth_env, None)
+        await _json(send, {"ok": True, "provider": provider_id})
+
+    async def _api_set_routing(self, receive: Receive, send: Send) -> None:
+        body = await _read_json(receive)
+        wanted = str(body.get("strategy", ""))
+        try:
+            self._strategy = RoutingStrategy(wanted)
+        except ValueError:
+            await _json(send, _error_body(f"geçersiz strateji: {wanted}"), status=400)
+            return
+        await _json(send, {"ok": True, "strategy": self._strategy.value})
+
+    async def _api_set_fallback(self, receive: Receive, send: Send) -> None:
+        """Agent rolünün yedek (fallback) zincirini panelden düzenle + kalıcılaştır."""
+        from dataclasses import replace
+
+        from ..config import writer
+        from ..core.errors import ConfigError
+
+        body = await _read_json(receive)
+        models = [str(m).strip() for m in body.get("models", []) if str(m).strip()]
+        if not models:
+            await _json(send, _error_body("en az bir model olmalı"), status=400)
+            return
+        strict_raw = body.get("strict")
+        strict = self._config.agent.strict if strict_raw is None else bool(strict_raw)
+        tags = tuple(tag for tag in self._config.agent.tags if tag.strip().lower() != "strict")
+        if strict:
+            tags = (*tags, "strict")
+        new_agent = replace(
+            self._config.agent,
+            model=models[0],
+            fallback=tuple(models[1:]),
+            tags=tags,
+        )
+        updated = replace(self._config, agent=new_agent)
+        try:
+            writer.write_model_section(updated)
+        except ConfigError as error:
+            await _json(send, _error_body(str(error)), status=500)
+            return
+        self._config = updated
+        self._config_revision = revision(updated)
+        await _json(
+            send,
+            {
+                "ok": True,
+                "saved": True,
+                "chain": list(new_agent.models),
+                "strict": new_agent.strict,
+                "config_revision": self._config_revision.value,
+            },
+        )
+
+    async def _api_add_web_session(self, receive: Receive, send: Send) -> None:
+        """Add either a custom OpenAI-compatible endpoint or a native web subscription."""
+        import os
+
+        from ..config import writer
+        from ..config.models import WebSessionConfig
+        from ..core.errors import ConfigError
+        from ..providers.web_browser import (
+            WEB_BROWSER_PROVIDERS,
+            close_browser_session,
+            normalize_account,
+            web_secret_name,
+        )
+
+        body = await _read_json(receive)
+        provider = str(body.get("provider", "custom")).strip() or "custom"
+        account = str(body.get("account", "main")).strip() or "main"
+        model = str(body.get("model", "")).strip()
+        endpoint = str(body.get("endpoint", "")).strip()
+        token = str(body.get("token", "")).strip()
+        cookie = str(body.get("cookie", "")).strip()
+        tool_support = str(body.get("tool_support", "emulated")).strip() or "emulated"
+        definition = WEB_BROWSER_PROVIDERS.get(provider)
+        window_mode = _window_mode(
+            body,
+            fallback=definition.recommended_window_mode if definition else WindowMode.HEADLESS,
+        )
+        if window_mode is None:
+            await _json(send, _error_body(_WINDOW_MODE_ERROR), status=400)
+            return
+        try:
+            timeout_s = float(body.get("timeout_s", 180.0))
+        except (TypeError, ValueError):
+            timeout_s = 180.0
+        timeout_s = max(30.0, min(timeout_s, 600.0))
+
+        if provider in WEB_BROWSER_PROVIDERS:
+            account = normalize_account(account)
+            model = f"{provider}/{account}/auto"
+            credential_ref = web_secret_name(provider, account)
+            if cookie:
+                if not self._secret_store.available:
+                    await _json(
+                        send,
+                        _error_body(
+                            "şifreli sır deposu kullanılamıyor; keyring paketini kur veya "
+                            "FUSION_SECRET_KEY ayarla"
+                        ),
+                        status=503,
+                    )
+                    return
+                try:
+                    self._secret_store.set(credential_ref, cookie)
+                except ConfigError as error:
+                    await _json(send, _error_body(str(error)), status=500)
+                    return
+            session = WebSessionConfig(
+                model=model,
+                provider=provider,
+                account=account,
+                transport="browser",
+                credential_ref=credential_ref,
+                tool_support="emulated" if tool_support != "none" else "none",
+                headless=window_mode,
+                timeout_s=timeout_s,
+                enabled=True,
+            )
+            # One active entry per provider/account; changing the model replaces it.
+            others = tuple(
+                item
+                for item in self._config.web_sessions
+                if not (item.provider == provider and item.account == account)
+                and item.model != model
+            )
+        else:
+            if not model or not endpoint:
+                await _json(send, _error_body("model adı ve endpoint zorunlu"), status=400)
+                return
+            if not endpoint.startswith(("http://", "https://")):
+                await _json(
+                    send, _error_body("endpoint http:// ya da https:// ile başlamalı"), status=400
+                )
+                return
+            auth_env = _web_auth_env(model) if token else None
+            session = WebSessionConfig(
+                model=model,
+                endpoint=endpoint,
+                provider="custom",
+                account=account,
+                transport="http",
+                auth_env=auth_env,
+                tool_support=tool_support,
+                timeout_s=timeout_s,
+            )
+            others = tuple(item for item in self._config.web_sessions if item.model != model)
+            if token and auth_env is not None:
+                if self._secret_store.available:
+                    self._secret_store.set(auth_env, token)
+                os.environ[auth_env] = token
+
+        # Ölçüm sonucu KAYIT SIRASINDA korunur. Aksi hâlde panelde "Bağlantıyı
+        # kontrol et"e basmak bile araç yeteneği ölçümünü siliyordu: oturum yeniden
+        # kaydediliyor, `tool_eval_passed` varsayılan False'a düşüyor ve model
+        # sessizce salt-okunur kipe geçiyordu. Ölçüm modelin yeteneğine dairdir;
+        # zaman aşımı ya da headless ayarını değiştirmek onu geçersiz kılmaz.
+        session = _dc_replace(session, tool_eval_passed=self._preserved_eval(session))
+        updated = _dc_replace(self._config, web_sessions=(*others, session))
+        try:
+            writer.write_web_sessions(updated)
+        except ConfigError as error:
+            await _json(send, _error_body(str(error)), status=500)
+            return
+        if provider in WEB_BROWSER_PROVIDERS:
+            await close_browser_session(provider, account)
+        self._config = updated
+        self._config_revision = revision(updated)
+        await _json(
+            send,
+            {
+                "ok": True,
+                "saved": True,
+                "model": model,
+                "provider": provider,
+                "config_revision": self._config_revision.value,
+            },
+        )
+
+    async def _api_delete_web_session(self, receive: Receive, send: Send) -> None:
+        """Remove a web provider definition and its encrypted cookie/profile."""
+        from ..config import writer
+        from ..core.errors import ConfigError
+        from ..providers.web_browser import browser_profile_dir, close_browser_session
+
+        body = await _read_json(receive)
+        model = str(body.get("model", "")).strip()
+        found = next((item for item in self._config.web_sessions if item.model == model), None)
+        if found is None:
+            await _json(send, _error_body("böyle bir web ucu yok"), status=400)
+            return
+        others = tuple(item for item in self._config.web_sessions if item.model != model)
+        updated = _dc_replace(self._config, web_sessions=others)
+        try:
+            writer.write_web_sessions(updated)
+        except ConfigError as error:
+            await _json(send, _error_body(str(error)), status=500)
+            return
+        if found.credential_ref and self._secret_store.available:
+            # Sır zaten yoksa ya da depo çözülemiyorsa oturum silme işlemi yine
+            # tamamlanmalıdır: kullanıcı bozuk bir depo yüzünden oturuma kilitlenmez.
+            with contextlib.suppress(ConfigError):
+                self._secret_store.delete(found.credential_ref)
+        if found.transport == "browser":
+            await close_browser_session(found.provider, found.account)
+            if bool(body.get("purge_profile", True)):
+                shutil.rmtree(
+                    browser_profile_dir(found.provider, found.account), ignore_errors=True
+                )
+        self._config = updated
+        self._config_revision = revision(updated)
+        await _json(send, {"ok": True, "model": model})
+
+    async def _api_validate_web_session(self, receive: Receive, send: Send) -> None:
+        """Run a real minimal completion to verify login, selectors and response parsing."""
+        from ..core.types import Message
+        from ..providers.web_registry import web_registry_for
+
+        body = await _read_json(receive)
+        model = str(body.get("model", "")).strip()
+        session = next((item for item in self._config.web_sessions if item.model == model), None)
+        if session is None:
+            await _json(send, _error_body("böyle bir web oturumu yok"), status=400)
+            return
+        registry = web_registry_for(self._config)
+        provider = registry.build(model) if registry else None
+        if provider is None:
+            await _json(send, _error_body("web sağlayıcısı kurulamadı"), status=500)
+            return
+        request = CompletionRequest(
+            messages=(Message("user", "Sadece OK yaz."),),
+            temperature=0.0,
+            max_tokens=16,
+            timeout_s=min(90.0, session.timeout_s),
+        )
+        try:
+            result = await asyncio.wait_for(
+                provider.complete(request), timeout=request.timeout_s + 5
+            )
+        except TimeoutError:
+            await _json(send, _error_body("bağlantı testi zaman aşımına uğradı"), status=504)
+            return
+        from ..providers.web_control import set_login_verified
+
+        updated = set_login_verified(self._config, session.provider, session.account, result.ok)
+        if updated is not None:
+            self._config = updated
+        status = 200 if result.ok else 502
+        await _json(
+            send,
+            {
+                "ok": result.ok,
+                "model": model,
+                "latency_ms": result.latency_ms,
+                "preview": result.text[:160] if result.ok else "",
+                "error": result.error,
+            },
+            status=status,
+        )
+
+    async def _api_login_web_session(self, receive: Receive, send: Send) -> None:
+        """Launch a dedicated headed browser profile; user performs the login explicitly."""
+        from ..providers.web_browser import (
+            WEB_BROWSER_PROVIDERS,
+            close_browser_session,
+            normalize_account,
+        )
+
+        body = await _read_json(receive)
+        provider = str(body.get("provider", "")).strip()
+        account = normalize_account(str(body.get("account", "main")).strip() or "main")
+        if provider not in WEB_BROWSER_PROVIDERS:
+            await _json(send, _error_body("tanınmayan web sağlayıcısı"), status=400)
+            return
+        await close_browser_session(provider, account)
+        try:
+            # Giriş tarayıcısı ayrı bir oturumda açılır ve BEKLENMEZ: kullanıcı
+            # pencereyi kapatana kadar yaşar. Süreç kurulumu event loop'u bloklamasın
+            # diye asyncio'nun kendi başlatıcısı kullanılır.
+            process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-m",
+                "fusion_cli.providers.web_login",
+                provider,
+                account,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError as error:
+            await _json(send, _error_body(f"giriş tarayıcısı açılamadı: {error}"), status=500)
+            return
+        await _json(
+            send,
+            {"ok": True, "pid": process.pid, "provider": provider, "account": account},
+        )
+
+    def _preserved_eval(self, session: WebSessionConfig) -> bool:
+        """Aynı sağlayıcı/hesap için daha önce geçilmiş ölçümü taşı.
+
+        Araç desteği DEĞİŞTİYSE taşınmaz: ölçüm o kipe özgüdür.
+        """
+        for item in self._config.web_sessions:
+            if (
+                item.provider == session.provider
+                and item.account == session.account
+                and item.tool_support == session.tool_support
+            ):
+                return item.tool_eval_passed
+        return False
+
+    async def _api_eval_web_session(self, receive: Receive, send: Send) -> None:
+        """Taklit araç yeteneğini ÖLÇ ve sonucu yapılandırmaya yaz.
+
+        Bu, web modelinin dosya değiştirmesine izin veren tek kapıdır. Ölçüm gerçek
+        çağrılar yapar ve kullanıcının kendi aboneliğinden harcar; bu yüzden yalnızca
+        panelden AÇIKÇA istendiğinde çalışır, arka planda kendiliğinden değil.
+        """
+        from ..config import writer
+        from ..engines.emulation_probe import probe_emulation
+        from ..tools.emulation_eval import DEFAULT_THRESHOLDS
+
+        body = await _read_json(receive)
+        model = str(body.get("model", "")).strip()
+        session = next((item for item in self._config.web_sessions if item.model == model), None)
+        if session is None:
+            await _json(send, _error_body("böyle bir web oturumu yok"), status=400)
+            return
+        try:
+            report = await probe_emulation(self._config, model)
+        except FusionError as error:
+            await _json(send, _error_body(str(error)), status=502)
+            return
+
+        score = report.score
+        passed = score.passes()
+        updated_sessions = tuple(
+            _dc_replace(item, tool_eval_passed=passed) if item.model == model else item
+            for item in self._config.web_sessions
+        )
+        updated = _dc_replace(self._config, web_sessions=updated_sessions)
+        try:
+            writer.write_web_sessions(updated)
+        except ConfigError as error:
+            await _json(send, _error_body(str(error)), status=500)
+            return
+        self._config = updated
+        await _json(
+            send,
+            {
+                "ok": True,
+                "model": model,
+                "passed": passed,
+                # Her metriğin yanında KAÇ senaryoda ölçülebildiği taşınır: payda
+                # sıfırken oran 1.0 döner ve ölçülmemiş bir metrik "%100" görünürdü.
+                "scores": {
+                    "tool_selection": score.tool_selection,
+                    "schema_validity": score.schema_validity,
+                    "argument_preservation": score.argument_preservation,
+                    "no_false_calls": score.no_false_calls,
+                },
+                "measured": {
+                    "tool_selection": score.tool_selection_measured,
+                    "schema_validity": score.schema_validity_measured,
+                    "argument_preservation": score.argument_preservation_measured,
+                    "no_false_calls": score.no_false_calls_measured,
+                },
+                # Ham kayıt teşhis içindir: "araç seçimi %0" hem "model reddetti"
+                # hem "blok arayüzde yutuldu" olabilir; ikisinin çözümü farklıdır.
+                "samples": [
+                    {
+                        "expected_tool": sample.expected_tool,
+                        "parsed_tool": sample.parsed_tool,
+                        "has_call_markers": sample.has_call_markers,
+                        "parse_errors": list(sample.parse_errors),
+                        "raw_preview": redact(sample.raw_output[:600]),
+                    }
+                    for sample in report.samples
+                ],
+                "thresholds": {
+                    "tool_selection": DEFAULT_THRESHOLDS.tool_selection,
+                    "schema_validity": DEFAULT_THRESHOLDS.schema_validity,
+                    "argument_preservation": DEFAULT_THRESHOLDS.argument_preservation,
+                    "no_false_calls": DEFAULT_THRESHOLDS.no_false_calls,
+                },
+            },
+        )
+
+    async def _api_web_login_state(self, receive: Receive, send: Send) -> None:
+        """Giriş penceresi hâlâ açık mı?
+
+        Panel bunu yoklar: kullanıcı pencereyi kapattığı anda bağlantı testi
+        KENDİLİĞİNDEN çalışır. Böylece kullanıcı elle cookie kopyalamak ya da
+        "şimdi doğrula" demek zorunda kalmaz.
+        """
+        body = await _read_json(receive)
+        try:
+            pid = int(body.get("pid", 0))
+        except (TypeError, ValueError):
+            pid = 0
+        if pid <= 0:
+            await _json(send, _error_body("geçersiz süreç kimliği"), status=400)
+            return
+        await _json(send, {"running": _process_alive(pid), "pid": pid})
+
+    def _web_session_json(self, session: WebSessionConfig) -> dict[str, Any]:
+        from ..providers.web_browser import browser_profile_dir
+        from ..providers.web_shared_browser import read_window_notice
+
+        secret_saved = False
+        if session.credential_ref and self._secret_store.available:
+            try:
+                secret_saved = bool(self._secret_store.get(session.credential_ref))
+            except Exception:
+                secret_saved = False
+        profile_exists = (
+            browser_profile_dir(session.provider, session.account).exists()
+            if session.transport == "browser"
+            else False
+        )
+        return {
+            "model": session.model,
+            "endpoint": session.endpoint,
+            "provider": session.provider,
+            "account": session.account,
+            "transport": session.transport,
+            "tool_support": session.tool_support,
+            # Panelin eski anahtarı korunur (pencere kullanıcının önünde mi?);
+            # üç kipin tamamı `window_mode` ile bildirilir.
+            "headless": WindowMode(session.headless).is_offscreen,
+            "window_mode": WindowMode(session.headless).slug,
+            # Pencere kipiyle ilgili son uyarı (ör. macOS gizleme izni yok); yoksa None.
+            "window_notice": (
+                read_window_notice(browser_profile_dir(session.provider, session.account))
+                if session.transport == "browser"
+                else None
+            ),
+            "timeout_s": session.timeout_s,
+            "enabled": session.enabled,
+            "secret_saved": secret_saved,
+            "profile_exists": profile_exists,
+            "connected": session.transport == "http"
+            or (
+                (secret_saved or profile_exists) and bool(getattr(session, "login_verified", False))
+            ),
+        }
+
+    def _mcp_server_json(self, server: McpServerConfig) -> dict[str, Any]:
+        status = self._mcp_connections.statuses.get(server.name)
+        return {
+            "name": server.name,
+            "command": server.command,
+            "args": list(server.args),
+            "transport": server.transport.value,
+            "url": server.url,
+            "scopes": list(server.scopes),
+            "client_id": server.client_id,
+            "state": status.state if status else "yapilandirildi",
+            "tool_count": status.tool_count if status else 0,
+            "message": status.message if status else None,
+        }
+
+    async def _api_add_mcp_server(self, receive: Receive, send: Send) -> None:
+        """Panelden dış bir MCP sunucusu ekle/güncelle — `fusion mcp-add`'in panel eşdeğeri."""
+        from ..config import writer
+
+        body = await _read_json(receive)
+        name = str(body.get("name", "")).strip()
+        try:
+            transport = McpTransport(str(body.get("transport", "stdio")))
+        except ValueError:
+            await _json(send, _error_body("geçersiz MCP bağlantı türü"), status=400)
+            return
+        command = str(body.get("command", "")).strip()
+        url = str(body.get("url", "")).strip()
+        args = tuple(str(item) for item in body.get("args", []) if str(item).strip())
+        if not name or (transport is McpTransport.STDIO and not command):
+            await _json(send, _error_body("ad ve komut zorunlu"), status=400)
+            return
+        if transport is McpTransport.STREAMABLE_HTTP:
+            from ..mcp_bridge.oauth import validate_remote_mcp_url
+
+            try:
+                validate_remote_mcp_url(url)
+            except ValueError as error:
+                await _json(send, _error_body(str(error)), status=400)
+                return
+        others = tuple(item for item in self._config.mcp_servers if item.name != name)
+        yeni = McpServerConfig(
+            name=name,
+            command=command,
+            args=args,
+            transport=transport,
+            url=url,
+            scopes=tuple(str(item) for item in body.get("scopes", []) if str(item).strip()),
+            client_id=str(body.get("client_id", "")).strip(),
+        )
+        updated = _dc_replace(self._config, mcp_servers=(*others, yeni))
+        try:
+            writer.write_mcp_servers(updated)
+        except ConfigError as error:
+            await _json(send, _error_body(str(error)), status=500)
+            return
+        self._config = updated
+        self._config_revision = revision(updated)
+        status = (
+            self._mcp_connections.start_login(yeni)
+            if transport is McpTransport.STREAMABLE_HTTP
+            else await self._mcp_connections.test(yeni)
+        )
+        await _json(send, {"ok": True, "name": name, **self._mcp_status_json(status)})
+
+    def _find_mcp(self, name: object) -> McpServerConfig | None:
+        wanted = str(name or "")
+        return next((item for item in self._config.mcp_servers if item.name == wanted), None)
+
+    @staticmethod
+    def _mcp_status_json(status: McpConnectionStatus) -> dict[str, Any]:
+        return {
+            "state": status.state,
+            "tool_count": status.tool_count,
+            "latency_ms": status.latency_ms,
+            "message": status.message,
+        }
+
+    async def _api_test_mcp_server(self, receive: Receive, send: Send) -> None:
+        server = self._find_mcp((await _read_json(receive)).get("name"))
+        if server is None:
+            await _json(send, _error_body("böyle bir MCP sunucusu yok"), status=400)
+            return
+        await _json(
+            send, {"ok": True, **self._mcp_status_json(await self._mcp_connections.test(server))}
+        )
+
+    async def _api_login_mcp_server(self, receive: Receive, send: Send) -> None:
+        server = self._find_mcp((await _read_json(receive)).get("name"))
+        if server is None:
+            await _json(send, _error_body("böyle bir MCP sunucusu yok"), status=400)
+            return
+        await _json(
+            send, {"ok": True, **self._mcp_status_json(self._mcp_connections.start_login(server))}
+        )
+
+    async def _api_mcp_login_state(self, receive: Receive, send: Send) -> None:
+        name = str((await _read_json(receive)).get("name", ""))
+        await _json(
+            send, {"ok": True, **self._mcp_status_json(self._mcp_connections.login_status(name))}
+        )
+
+    async def _api_logout_mcp_server(self, receive: Receive, send: Send) -> None:
+        server = self._find_mcp((await _read_json(receive)).get("name"))
+        if server is None:
+            await _json(send, _error_body("böyle bir MCP sunucusu yok"), status=400)
+            return
+        await _json(
+            send, {"ok": True, **self._mcp_status_json(await self._mcp_connections.logout(server))}
+        )
+
+    async def _api_delete_mcp_server(self, receive: Receive, send: Send) -> None:
+        from ..config import writer
+
+        body = await _read_json(receive)
+        name = str(body.get("name", "")).strip()
+        found = next((item for item in self._config.mcp_servers if item.name == name), None)
+        if found is None:
+            await _json(send, _error_body("böyle bir MCP sunucusu yok"), status=400)
+            return
+        others = tuple(item for item in self._config.mcp_servers if item.name != name)
+        updated = _dc_replace(self._config, mcp_servers=others)
+        try:
+            writer.write_mcp_servers(updated)
+        except ConfigError as error:
+            await _json(send, _error_body(str(error)), status=500)
+            return
+        self._config = updated
+        self._config_revision = revision(updated)
+        await _json(send, {"ok": True, "name": name})
+
+    async def _api_ready(self, send: Send) -> None:
+        """Gateway kullanıma hazır mı? API veya etkin yerel web oturumu var mı?"""
+        from ..config.keys import environ_snapshot
+        from ..providers.registry import BUILTIN_PROVIDERS
+
+        environ = environ_snapshot()
+        configured = [
+            provider.id
+            for provider in BUILTIN_PROVIDERS
+            if provider.implemented and provider.auth_env and provider.is_configured(environ)
+        ]
+        configured.extend(
+            session.provider for session in self._config.web_sessions if session.enabled
+        )
+        configured = list(dict.fromkeys(configured))
+        await _json(send, {"ready": bool(configured), "configured_providers": configured})
+
+    async def _api_candidates(self, scope: Scope, send: Send) -> None:
+        """Bir model/profil için çalıştırılacak aday zincirini döndür."""
+        from urllib.parse import parse_qs
+
+        params = parse_qs(scope.get("query_string", b"").decode())
+        model = params.get("model", ["auto"])[0]
+        spec = resolve_spec(self._config, model)
+        ordered = order_models(
+            spec.models,
+            strategy=self._strategy,
+            health=self._health,
+            rotation=self._rotation,
+            rng=self._rng,
+        )
+        await _json(
+            send,
+            {"model": model, "strategy": self._strategy.value, "candidates": list(ordered)},
+        )
+
+    async def _api_catalog(self, scope: Scope, send: Send) -> None:
+        """Sağlayıcılardan gerçekten erişilebilen modelleri döndür."""
+        from urllib.parse import parse_qs
+
+        params = parse_qs(scope.get("query_string", b"").decode())
+        refresh = params.get("refresh", ["0"])[0] in ("1", "true")
+        models = await asyncio.to_thread(self._catalog.get, refresh=refresh)
+        await _json(
+            send,
+            {
+                "count": len(models),
+                "models": [
+                    {
+                        "id": model.id,
+                        "provider": model.provider,
+                        "free": model.free,
+                        "context_length": model.context_length,
+                    }
+                    for model in models
+                ],
+            },
+        )
+
+    async def _api_export(self, send: Send) -> None:
+        """Aktif config.yaml içeriğini döndür."""
+        source = self._config.source
+        text = source.read_text(encoding="utf-8") if source and source.is_file() else ""
+        await _json(send, {"config": text, "path": str(source) if source else None})
+
+    async def _api_health_reset(self, send: Send) -> None:
+        if self._health is not None:
+            self._health.reset()
+        await _json(send, {"ok": True})
+
+    async def _api_set_model(self, receive: Receive, send: Send) -> None:
+        """Bir rolün (agent/judge) modelini + yedek zincirini düzenle + kaydet."""
+        from dataclasses import replace
+
+        from ..config import writer
+        from ..core.errors import ConfigError
+
+        body = await _read_json(receive)
+        role = str(body.get("role", ""))
+        models = [str(m).strip() for m in body.get("models", []) if str(m).strip()]
+        if role not in ("agent", "judge") or not models:
+            await _json(
+                send, _error_body("rol 'agent'|'judge' ve en az bir model olmalı"), status=400
+            )
+            return
+        current = self._config.agent if role == "agent" else self._config.judge
+        spec = replace(current, model=models[0], fallback=tuple(models[1:]))
+        updated = (
+            replace(self._config, agent=spec)
+            if role == "agent"
+            else replace(self._config, judge=spec)
+        )
+        try:
+            writer.write_model_section(updated)
+        except ConfigError as error:
+            await _json(send, _error_body(str(error)), status=500)
+            return
+        self._config = updated
+        self._config_revision = revision(updated)
+        await _json(
+            send,
+            {
+                "ok": True,
+                "saved": True,
+                "role": role,
+                "chain": list(spec.models),
+                "config_revision": self._config_revision.value,
+            },
+        )
+
+    def _health_json(self) -> list[dict[str, Any]]:
+        if self._health is None:
+            return []
+        return [
+            {
+                "model": model_id,
+                "score": round(entry.score, 3),
+                "phase": entry.phase.value,
+                "samples": entry.samples,
+                "avg_latency_ms": round(entry.avg_latency_ms),
+            }
+            for model_id, entry in self._health.snapshot()
+        ]
+
+    async def _models(self, send: Send) -> None:
+        data = [
+            {"id": mid, "object": "model", "owned_by": "fusion"}
+            for mid in available_models(self._config)
+        ]
+        await _json(send, {"object": "list", "data": data})
+
+    async def _chat(self, receive: Receive, send: Send) -> None:
+        try:
+            payload = await _read_json(receive)
+            request, model, stream = translate.to_request(payload, self._config.runtime)
+        except (translate.GatewayError, json.JSONDecodeError, ValueError) as error:
+            await _json(send, _error_body(str(error)), status=400)
+            return
+
+        runtime = self._config.runtime
+        # Güvenli sıkıştırma (opt-in): giden mesajları kısalt, tasarrufu say.
+        if runtime.gateway_compression:
+            original = request.messages
+            request = _dc_replace(request, messages=compress_messages(request.messages))
+            self._analytics.add_compression_saving(saved_chars(original, request.messages))
+
+        spec = self._routed_spec(resolve_spec(self._config, model))
+        if self._compact_context:
+            request = await self._compacted(request, spec)
+        route = f"{self._strategy.value}:{spec.model}"
+        if stream:
+            await self._stream(send, self._factory(spec), request, model)
+            return
+
+        # Önbellek: aynı istek daha önce geldiyse modeli hiç çağırma.
+        cached = self._cache.get(model, request) if runtime.gateway_cache else None
+        if cached is not None:
+            result, from_cache = cached, True
+        else:
+            result = await self._factory(spec).complete(request)
+            if runtime.gateway_cache:
+                self._cache.put(model, request, result)
+            from_cache = False
+        # Credential guardrail: yanıtta sızan sır/anahtar desenini maskele.
+        if runtime.gateway_mask_secrets and result.text:
+            result = _dc_replace(result, text=redact(result.text))
+        self._record(model, result, cached=from_cache)
+        usage = result.usage
+        await _json(
+            send,
+            translate.to_openai_response(result, model),
+            extra_headers=[
+                (b"x-fusion-route", route.encode()),
+                (b"x-fusion-usage", f"{usage.prompt_tokens};{usage.completion_tokens}".encode()),
+                (b"x-fusion-cache", b"HIT" if from_cache else b"MISS"),
+            ],
+        )
+
+    async def _compacted(self, request: CompletionRequest, spec: ModelSpec) -> CompletionRequest:
+        """Geçmiş modelin bağlam bütçesini aşıyorsa eski kısmı özetle (ilk tur ve son turlar
+        birebir korunur). Kits uzun sohbetin tamamını her turda gönderir; ücretsiz modellerin
+        küçük penceresinde taşıyordu. Özet üretilemezse istek DEĞİŞMEZ."""
+        from ..engines.agent import compaction
+        from ..engines.agent.context_budget import context_budget
+
+        esik = context_budget(self._config, spec).compression_chars
+        ozet = await compaction.compress(
+            list(request.messages), config=self._config, threshold_chars=esik
+        )
+        if len(ozet) == len(request.messages):
+            return request
+        return _dc_replace(request, messages=tuple(ozet))
+
+    def _record(self, requested: str, result: ModelResult, *, cached: bool = False) -> None:
+        """Bir isteği telemetriye işle (metin saklanmaz)."""
+        self._analytics.record(
+            RequestRecord(
+                requested_model=requested,
+                served_model=result.model,
+                prompt_tokens=result.usage.prompt_tokens,
+                completion_tokens=result.usage.completion_tokens,
+                latency_ms=result.latency_ms,
+                ok=result.ok,
+                cached=cached,
+            )
+        )
+
+    async def _stream(
+        self, send: Send, provider: LlmProvider, request: CompletionRequest, model: str
+    ) -> None:
+        chunk_id = f"fusion-{id(request)}"
+        await _sse_start(send)
+        finish = "stop"
+        akan_metin = False
+        async for item in provider.stream(request):
+            if isinstance(item, TextChunk) and item.text:
+                akan_metin = True
+                await _sse_data(
+                    send, translate.to_openai_chunk(item.text, model, chunk_id=chunk_id)
+                )
+            elif isinstance(item, StreamDone):
+                sonuc = item.result
+                # Akışsız düşen yedek sağlayıcı metni yalnız sonuçta verebilir.
+                if sonuc.text and not akan_metin:
+                    await _sse_data(
+                        send, translate.to_openai_chunk(sonuc.text, model, chunk_id=chunk_id)
+                    )
+                # Araç çağrıları akışın sonunda gelir; eskiden düşüyordu (ölçüldü,
+                # 8 Ekim 2026: Kits akışlı istekte boş delta + "stop" aldı).
+                if sonuc.tool_calls:
+                    await _sse_data(
+                        send,
+                        translate.tool_calls_chunk(sonuc.tool_calls, model, chunk_id=chunk_id),
+                    )
+                    finish = "tool_calls"
+                else:
+                    finish = "stop" if sonuc.is_usable else "error"
+                # Hata metni gönderilmezse istemci yalnız cevapsız bir tur görür.
+                if finish == "error":
+                    guvenli = _dc_replace(sonuc, error=redact(sonuc.error or ""))
+                    await _sse_data(send, translate.stream_error(guvenli))
+                self._record(model, sonuc)
+        await _sse_data(send, translate.final_chunk(model, chunk_id=chunk_id, finish_reason=finish))
+        await _sse_done(send)
+
+
+# --------------------------------------------------------------------------- #
+# Küçük ASGI yardımcıları (çerçeve kullanmamak için)
+# --------------------------------------------------------------------------- #
+
+
+def _default_secret_store() -> FernetSecretStore:
+    """Gerçek kullanıcı sır deposunu kur (anahtar FUSION_SECRET_KEY'den)."""
+    from ..config.keys import secret_key
+    from ..config.paths import credentials_file
+
+    return FernetSecretStore(credentials_file(), secret_key=secret_key())
+
+
+def _build_key_pools(config: Config) -> KeyPoolRegistry:
+    """Ortamdaki çoklu anahtarlardan havuz kaydı kur (cooldown circuit'inkiyle aynı)."""
+    from ..config.keys import environ_snapshot
+
+    return KeyPoolRegistry(environ_snapshot(), cooldown_s=config.runtime.circuit_cooldown_s)
+
+
+def _process_alive(pid: int) -> bool:
+    """Bir süreç hâlâ yaşıyor mu? (sinyal göndermeden yoklar)
+
+    `signal 0` süreci etkilemez, yalnızca varlığını sorar. `PermissionError`
+    süreç BAŞKASINA ait demektir — yani yaşıyordur.
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        # Platform desteklemiyorsa "bilmiyorum" yerine "bitti" demek, panelin
+        # sonsuza kadar beklemesinden iyidir: kullanıcı yine elle doğrulayabilir.
+        return False
+    return True
+
+
+def _error_body(message: str) -> dict[str, Any]:
+    return {"error": {"message": message, "type": "invalid_request_error"}}
+
+
+def _providers_json(config: Config) -> list[dict[str, Any]]:
+    """Panel metadata with truthful configuration state for API and web providers."""
+    from ..config.key_pool import collect_keys
+    from ..config.keys import environ_snapshot
+    from ..providers.registry import BUILTIN_PROVIDERS, ProviderKind
+
+    environ = environ_snapshot()
+    configured_web = {session.provider for session in config.web_sessions if session.enabled}
+    result: list[dict[str, Any]] = []
+    for provider in BUILTIN_PROVIDERS:
+        is_web = provider.kind in {ProviderKind.WEB_SESSION, ProviderKind.BROWSER_BACKED}
+        configured = provider.id in configured_web if is_web else provider.is_configured(environ)
+        result.append(
+            {
+                "id": provider.id,
+                "name": provider.name,
+                "kind": provider.kind.value,
+                "status": provider.official_status.value,
+                "risk": provider.risk_level.value,
+                "implemented": provider.implemented,
+                "configured": configured if provider.implemented else False,
+                "local": provider.kind is ProviderKind.LOCAL,
+                "category": _provider_category(provider),
+                "keys": len(collect_keys(provider.auth_env, environ)) if provider.auth_env else 0,
+            }
+        )
+    return result
+
+
+#: Panelin statik dosyalarının paket içindeki dizini.
+DASHBOARD_ASSET_DIR = "static"
+
+#: Statik dosyaların servis edildiği URL öneki.
+_DASHBOARD_ASSET_PREFIX = "/dashboard/static/"
+
+#: Servis edilen uzantılar ve content-type'ları. Listede olmayan uzantı
+#: sunulmaz — panelin varlık dizini genel amaçlı dosya sunucusu değildir.
+DASHBOARD_ASSET_TYPES = {
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".woff2": "font/woff2",
+    ".txt": "text/plain; charset=utf-8",
+}
+
+#: Panel varlıkları paketle birlikte gelir ve yalnız sürüm yükseltmesinde
+#: değişir; tarayıcının her açılışta yeniden indirmesi gereksiz.
+DASHBOARD_ASSET_CACHE = "public, max-age=3600"
+
+#: Sağlayıcı türü → panel kategorisi (basit, göz yormayan gruplar).
+_CATEGORY_BY_KIND = {
+    "local": "Yerel",
+    "web_session": "Web oturumu",
+    "browser_backed": "Web oturumu",
+    "oauth": "OAuth",
+    "cli_oauth": "OAuth",
+}
+
+
+_WINDOW_MODE_ERROR = (
+    "geçersiz pencere kipi; izin verilen: "
+    + ", ".join(mode.slug for mode in WindowMode)
+    + " (eski istemciler için headless: true/false)"
+)
+
+
+def _window_mode(body: dict[str, Any], *, fallback: WindowMode) -> WindowMode | None:
+    """İstek gövdesinden pencere kipini çöz; tanınmayan değerde None.
+
+    Yeni panel `window_mode: "visible" | "headless" | "hidden"` gönderir. Eski
+    panelin alanı (`headless: true/false`) desteklenmeye devam eder. İkisi de
+    yoksa sağlayıcının ölçülmüş önerilen kipi kullanılır (ChatGPT: gizli).
+    Tanınmayan değer sessizce varsayılana çevrilmez: kullanıcı yanlış kipte
+    çalıştığını fark etmezdi.
+    """
+    raw = body.get("window_mode", body.get("headless", fallback))
+    # `True`/`False` IntEnum değerine oturur; başka sayı (ör. 2) kabul edilmez,
+    # sayı kodu bir API sözleşmesi değildir.
+    if isinstance(raw, int) and not isinstance(raw, bool | WindowMode):
+        return None
+    try:
+        return WindowMode(raw)
+    except ValueError:
+        return None
+
+
+def _web_auth_env(model: str) -> str:
+    """Model adından güvenli bir ortam değişkeni adı türet (token bunun altında saklanır)."""
+    slug = "".join(char if char.isalnum() else "_" for char in model.upper()).strip("_")
+    return f"FUSION_WEB_{slug or 'SESSION'}"
+
+
+def _provider_category(provider: ProviderDefinition) -> str:
+    """Panel için sağlayıcı kategorisi: uygulanmamışsa 'Yakında', yoksa türüne göre."""
+    if not provider.implemented:
+        return "Yakında"
+    return _CATEGORY_BY_KIND.get(provider.kind.value, "API anahtarı")
+
+
+def _dashboard_html() -> str:
+    """Yerel panel HTML'i — paket verisi olarak yüklenir (koda gömülü değil).
+
+    Varlık adresleri SÜRÜMLE damgalanır (`panel.js?v=0.3.0a1`). Sebep ölçüldü:
+    varlıklar `max-age=3600` ile önbelleğe alınıyor ve adres sabit olduğu için
+    tarayıcı bir saat boyunca ESKİ dosyayı sunuyordu. Panelde yapılan bir düzeltme
+    kullanıcıya hiç ulaşmıyor, kullanıcı da düzeltmenin çalışmadığını sanıyordu —
+    aynı şey her sürüm yükseltmesinde de oluyordu.
+
+    Damga sürümden gelir: sürüm değişince adres değişir, tarayıcı yeniyi çeker;
+    değişmediği sürece önbellek tam verimle çalışmaya devam eder.
+    """
+    from pathlib import Path
+
+    from .. import __version__
+
+    html = (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
+    return html.replace(_DASHBOARD_ASSET_PREFIX, f"{_DASHBOARD_ASSET_PREFIX}{__version__}/")
+
+
+def strip_asset_version(name: str) -> str:
+    """`0.3.0a1/panel.js` → `panel.js`. Damgasız ve alt dizinli adresler korunur.
+
+    Damga yalnızca önbelleği kırmak içindir ve dosya adının parçası DEĞİLDİR.
+    Ayıklama KOŞULLUDUR: ilk parça yalnızca gerçekten bir sürüm damgasıysa atılır.
+    Koşulsuz atmak `fonts/inter-latin.woff2` gibi alt dizinli varlıkları bozuyordu —
+    "fonts" damga sanılıp siliniyor ve dosya 404 dönüyordu (teste takıldı).
+
+    Eski bir sekmeden gelen ESKİ damga da tanınır: damga sürüm numarası biçiminde
+    olduğu sürece atılır, böylece açık kalmış bir panel 404 almaz.
+
+    Yol güvenliği `read_dashboard_asset` içinde ayrıca doğrulanır; bu fonksiyon bir
+    güvenlik kapısı değildir ve öyle davranmaz.
+    """
+    damga, ayrac, kalan = name.partition("/")
+    if ayrac and kalan and _ASSET_VERSION_RE.fullmatch(damga):
+        return kalan
+    return name
+
+
+#: Sürüm damgası biçimi: rakamla başlar, sürüm karakterleri içerir (0.3.0a1, 1.2.3).
+#: Varlık dizin adları (`fonts`) bu kalıba UYMAZ ve bu bilinçlidir.
+_ASSET_VERSION_RE = re.compile(r"\d[\w.+-]*")
+
+
+def read_dashboard_asset(name: str) -> tuple[bytes, str] | None:
+    """Panelin statik dosyasını (içerik, content-type) olarak oku; yoksa None döner.
+
+    Ad DOĞRULANIR: yalnızca `static/` altındaki, uzantısı bilinen dosyalar
+    servis edilir. Model çıktısı veya kullanıcı girdisi değil, tarayıcı isteği
+    olsa bile yol dışarı çıkamaz — `..` içeren ya da çözümlendiğinde kökün
+    dışına düşen istek reddedilir.
+    """
+    from pathlib import Path
+
+    root = (Path(__file__).parent / DASHBOARD_ASSET_DIR).resolve()
+    try:
+        target = (root / name).resolve()
+    except (OSError, ValueError):
+        return None
+    if not target.is_relative_to(root) or not target.is_file():
+        return None
+    content_type = DASHBOARD_ASSET_TYPES.get(target.suffix)
+    if content_type is None:
+        return None
+    return target.read_bytes(), content_type
+
+
+async def _html(send: Send, body: str) -> None:
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"text/html; charset=utf-8")],
+        }
+    )
+    await send({"type": "http.response.body", "body": body.encode()})
+
+
+async def _asset(send: Send, body: bytes, content_type: str) -> None:
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", content_type.encode()),
+                (b"cache-control", DASHBOARD_ASSET_CACHE.encode()),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
+
+
+async def _read_json(receive: Receive) -> dict[str, Any]:
+    body = b""
+    while True:
+        event = await receive()
+        body += event.get("body", b"")
+        if not event.get("more_body", False):
+            break
+    if not body:
+        return {}
+    parsed = json.loads(body.decode())
+    if not isinstance(parsed, dict):
+        raise translate.GatewayError("gövde bir JSON nesnesi olmalı.")
+    return parsed
+
+
+async def _json(
+    send: Send,
+    data: dict[str, Any],
+    *,
+    status: int = 200,
+    extra_headers: list[tuple[bytes, bytes]] | None = None,
+) -> None:
+    body = json.dumps(data).encode()
+    headers = [(b"content-type", b"application/json"), *(extra_headers or [])]
+    await send({"type": "http.response.start", "status": status, "headers": headers})
+    await send({"type": "http.response.body", "body": body})
+
+
+async def _sse_start(send: Send) -> None:
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"text/event-stream"), (b"cache-control", b"no-cache")],
+        }
+    )
+
+
+async def _sse_data(send: Send, data: dict[str, Any]) -> None:
+    payload = f"data: {json.dumps(data)}\n\n".encode()
+    await send({"type": "http.response.body", "body": payload, "more_body": True})
+
+
+async def _sse_done(send: Send) -> None:
+    await send({"type": "http.response.body", "body": b"data: [DONE]\n\n", "more_body": False})
+
+
+#: Yerel sayılan ana makine adları. Panel hangisiyle açıldıysa `Origin` onu taşır.
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"})
+
+
+def _foreign_host(scope: Scope) -> bool:
+    """DNS rebinding'e karşı Host başlığının da yerel olduğunu doğrula."""
+    for key, value in scope.get("headers") or ():
+        if key.lower() != b"host":
+            continue
+        raw = value.decode("latin-1").strip().lower()
+        host = raw.split("]", 1)[0] + "]" if raw.startswith("[") else raw.split(":", 1)[0]
+        return host not in _LOCAL_HOSTS
+    # HTTP/1.1'de Host zorunludur; eksik başlık şüpheli ve gereksizdir.
+    return True
+
+
+def _foreign_origin(scope: Scope) -> bool:
+    """İstek tarayıcıdan ve YABANCI bir sayfadan mı geliyor?
+
+    Gateway kullanıcının sağlayıcı anahtarlarını taşıyan yerel bir proxy'dir ve
+    kimlik doğrulaması yoktur. `127.0.0.1`'e bağlanmak tek başına koruma DEĞİLDİR:
+    kötü niyetli bir sayfa `text/plain` gibi "basit" bir içerik tipiyle POST atarak
+    preflight'ı atlar; yanıtı okuyamaz ama YAN ETKİ gerçekleşir — kota harcanır,
+    anahtar silinir, komut çalıştıran bir MCP sunucusu eklenebilir.
+
+    `Origin` YOKSA istek serbesttir: curl, betikler ve IDE eklentileri bu başlığı
+    göndermez ve onları kırmak gateway'i kullanılamaz hale getirirdi. Başlık VARSA
+    yerel olmalıdır.
+    """
+    for key, value in scope.get("headers") or ():
+        if key.lower() != b"origin":
+            continue
+        origin = value.decode("latin-1").strip()
+        if not origin or origin.lower() == "null":
+            return True
+        from urllib.parse import urlsplit
+
+        try:
+            host = urlsplit(origin).hostname
+        except ValueError:
+            return True
+        return (host or "").lower() not in _LOCAL_HOSTS
+    return False

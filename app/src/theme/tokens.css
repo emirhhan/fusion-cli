@@ -1,0 +1,375 @@
+@import "../brand/fonts.css";
+@import "./brand.generated.css";
+
+/* Ölçülmüş açık tema değerleri:
+   geliştirme belgeleri
+
+   Marka kimliği (Fusion Core System) bu ölçümlerin ÜSTÜNE bindirilir: yapı,
+   oranlar ve yüzey hiyerarşisi referanstan gelir; renk kimliği markadan.
+   Marka renkleri yalnız burada tanımlanır; hiçbir bileşen ham kod yazmaz. */
+:root {
+  /* --- Marka paleti (Fusion Core System) ------------------------------- */
+  --brand-obsidian: #0b0a0d;
+  --brand-carbon: #14181d;
+  --brand-soft-white: #f3f5f6;
+  --brand-signal: var(--fusion-cyan);
+  /* Açık zeminde vurgu metni okunabilir koyu mavidir. */
+  --brand-signal-deep: var(--fusion-accent-deep);
+  --brand-detail-blue: var(--fusion-blue);
+  --brand-detail-cyan: var(--fusion-cyan);
+  --brand-detail-violet: var(--fusion-violet);
+  --brand-detail-mint: var(--brand-detail-cyan);
+
+  --surface-canvas: var(--fusion-canvas);
+  --surface-sidebar: var(--fusion-sidebar);
+  --surface-rail: #ededed;
+  --surface-selected: #ececec;
+  --surface-message-user: #f4f4f4;
+  /* Marka vurgusu logonun mavi/camgöbeği tonlarından gelir. */
+  --surface-accent-subtle: #edf3ff;
+  --surface-raised: #ffffff;
+  --surface-hover: #efefef;
+  --surface-overlay: rgb(0 0 0 / 32%);
+  --settings-dialog-bg: #ffffff;
+  --settings-nav-bg: #f9f9fa;
+  --settings-border: #e0e0e0;
+  --settings-text: #202020;
+  --settings-muted: #666666;
+  --settings-input-bg: #f7f7f7;
+  --settings-selected: #ededed;
+  --settings-ring: #4277cc;
+
+  /* Saf siyah yerine Obsidian: marka mürekkebi. Fark göz için küçük,
+     kimlik için belirleyici. */
+  --text-primary: var(--fusion-ink);
+  --text-secondary: var(--fusion-muted);
+  --text-inverse: #ffffff;
+  --text-danger: #b42318;
+  --text-success: #1d4ed8;
+  --text-warning: #925f00;
+
+  --border-subtle: #e9e9eb;
+  --border-strong: #c9c9cc;
+  --control-primary: #0b0a0d;
+  --focus-ring: var(--brand-detail-blue);
+
+  /* Metin seçim rengi (`::selection`): `--surface-accent-subtle` eskiden bu
+     amaçla kullanılıyordu ama o token yalnız hafif bir zemin tonu için
+     ölçülmüştü — koyu temadaki karşılığı (#1b2941) neredeyse siyah zeminden
+     (#050505) ayırt edilmiyordu. Seçim BELİRGİN olmalı; burada zaten
+     ölçülmüş, yüksek kontrastlı marka çiftleri kullanılır (aşağıdaki
+     yorumlara bkz.). */
+  --selection-bg: var(--brand-signal-deep);
+  --selection-text: var(--text-inverse);
+
+  /* Marka vurgusu logonun mavi/camgöbeği tonlarından gelir. */
+  --accent: var(--brand-signal);
+  --accent-on: var(--brand-obsidian);
+  --accent-text: var(--brand-signal-deep);
+
+  /* Eski bileşenler taşınırken korunan uyumluluk adları. */
+  --zemin: var(--surface-canvas);
+  --kenar-cubugu: var(--surface-sidebar);
+  --secili-satir: var(--surface-selected);
+  --kullanici-balonu: var(--surface-message-user);
+  --birincil-buton: var(--control-primary);
+  --ana-metin: var(--text-primary);
+  --vurgu-hapi: var(--surface-accent-subtle);
+  --sonuk-metin: var(--text-secondary);
+  --kenarlik: var(--border-subtle);
+  --tehlike: var(--text-danger);
+  --ters-metin: var(--text-inverse);
+
+  --kenar-cubugu-genislik: 260px;
+  /* En soldaki ana menü rayı; 72px'lik macOS trafik ışığı kümesini kaplar. */
+  --main-rail-width: 52px;
+  --main-rail-width-narrow: 52px;
+  --inspector-width: 420px;
+  --sidebar-rail-width: 68px;
+  /* ChatGPT okuma kolonu: 48rem. */
+  --icerik-en-fazla: 768px;
+  --header-height: 56px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --bosluk-birim: var(--space-2);
+
+  /* Kademeler bileşenlerdeki ÖLÇÜLEN kullanımdan türedi: ham pikselde 2-26px
+     arası 15 ayrı değer vardı ve aynı rol farklı ekranlarda farklı köşe
+     yuvarlaklığı taşıyordu. Aşağıdaki kademeler o kullanımların tamamını
+     karşılar; yalnız Composer'ın kapsül girdisi (26px) ekrana özgü kalır. */
+  --radius-2xs: 2px;
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+  --yaricap: var(--radius-md);
+
+  /* Inter ve JetBrains Mono yerel paketlenir; SF macOS sisteminden gelir. */
+  --font-heading: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, Inter, sans-serif;
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  /* Kademeler bileşenlerdeki ÖLÇÜLEN kullanımdan türedi: ham pikselde 9-30px
+     arası 15 ayrı değer vardı ve aynı rol farklı ekranlarda farklı boyuttaydı.
+     Aşağıdaki yedi kademe o kullanımların tamamını karşılar. */
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --line-tight: 1.3;
+  --line-body: 1.6;
+  /* Harf aralığı da roldür, süs değil: küçük punto üst etiket açılır, büyük
+     punto başlık toparlanır. */
+  --tracking-eyebrow: 0.05em;
+  --tracking-title: -0.02em;
+
+  /* Tam ekran sayfaların (Ayarlar, Kontrol Paneli) ortak içerik genişliği.
+     İkisi ayrı değer kullanıyordu; okuma ölçüsü sayfadan sayfaya değişmesin. */
+  --page-max-width: 1120px;
+
+  /* Yükselme kademeleri: hover'da öğe zeminden hafif kalkar, basılınca oturur.
+     Gölge derinliği kaliteli component hissinin parçasıdır; ham gölge yerine
+     tek kaynaktan gelir. */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 6%), 0 2px 6px rgb(0 0 0 / 6%);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 10%);
+  --shadow-overlay: 0 20px 60px rgb(0 0 0 / 18%);
+  --duration-fast: 120ms;
+  --duration-normal: 180ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --z-header: 10;
+  --z-popover: 20;
+  --z-overlay: 30;
+  --z-dialog: 40;
+  /* Bileşenlerin kullandığı ama tanımsız kalan adlar: yedek renge düşüp koyu
+     temada beyaz kutu çizmesinler (ölçüldü: görev kartı koyu temada beyazdı). */
+  --status-error: var(--text-danger);
+  --text-tertiary: var(--text-secondary);
+  --text-base: 15px;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Bildirim (toast) her zaman en üstte durur: kod tabanındaki en yüksek
+     sabit z-index bile (bağlayıcı diyaloğu 1000) bunun altında kalmalı —
+     "Fusion bir hata ile karşılaştı" bildirimi eskiden gözlem panelinin
+     (`.app-shell__inspector`, z-index calc(--z-overlay + 1) = 31) ALTINDA
+     kalıp görünmüyordu. */
+  --z-toast: 2000;
+  /* Kapatma onayı her panelin (ayarlar 80, bağlayıcı diyaloğu 1000) üstünde
+     durur. Ölçüldü (28 Eylül, Windows): ayarlar açıkken kapatma istenince onay
+     ayarların ARKASINDA kalıyor, kapatma durdurulduğu için uygulama kapanmıyordu. */
+  --z-close-confirm: 1500;
+
+  /* Ekip (alt ajan) kişilik renkleri: avatar zemini (-zemin) + sembol/vurgu
+     mürekkebi (-murekkep). Mürekkep zemin üstünde metin kontrastı ≥4.5:1
+     verecek koyulukta seçildi; renk YALNIZ kimlik içindir, durum bildirmez. */
+  --ekip-mor-zemin: #efe9ff;
+  --ekip-mor-murekkep: #5b3cc4;
+  --ekip-mavi-zemin: #e5f0ff;
+  --ekip-mavi-murekkep: #1f5fbf;
+  --ekip-pembe-zemin: var(--ekip-mor-zemin);
+  --ekip-pembe-murekkep: var(--ekip-mor-murekkep);
+  --ekip-yesil-zemin: #e5f0ff;
+  --ekip-yesil-murekkep: #1f5fbf;
+  --ekip-turuncu-zemin: var(--ekip-mavi-zemin);
+  --ekip-turuncu-murekkep: var(--ekip-mavi-murekkep);
+  --ekip-camgobegi-zemin: #e0f6f8;
+  --ekip-camgobegi-murekkep: #0d6b77;
+  --ekip-sari-zemin: var(--ekip-camgobegi-zemin);
+  --ekip-sari-murekkep: var(--ekip-camgobegi-murekkep);
+  --ekip-kirmizi-zemin: var(--ekip-mor-zemin);
+  --ekip-kirmizi-murekkep: var(--ekip-mor-murekkep);
+  --ekip-gri-zemin: #efefef;
+  --ekip-gri-murekkep: #4a4a4a;
+  /* Bileşenin kullandığı etkin kişilik rengi; `data-renk` seçicisi ezer
+     (bkz. team/TeamCards.css). Tanımsız kişilik gri görünür. */
+  --ekip-zemin: var(--ekip-gri-zemin);
+  --ekip-murekkep: var(--ekip-gri-murekkep);
+
+  /* Varsayılan: sistemin kendi başlık çubuğu var, ekstra pay gerekmez. */
+  --titlebar-inset: 0px;
+}
+
+/* Yalnız macOS'ta ve yalnız yerli ana pencerede (main.tsx) ayarlanır: pencere
+   `titleBarStyle: "Overlay"` ile açılır ve trafik ışıkları içeriğin üstüne
+   biner. Kenar çubuğu ve üst çubuk bu payı kullanarak trafik ışıklarına yer
+   açar; ayrı ve boş bir şerit ÇİZİLMEZ. */
+:root[data-fusion-titlebar-inset="true"] {
+  --titlebar-inset: 28px;
+  /* Trafik ışığı kümesinin sol kenardan kapladığı genişlik (Apple HIG'e göre
+     ölçülü): kenar çubuğu daraltıldığında üst çubuk bu kadar sola çekilmez,
+     düğmeler ışıkların altına girmez. */
+  --titlebar-safe-left: 72px;
+}
+
+:root[data-theme="dark"] {
+  /* Marka vurgusu logonun mavi/camgöbeği tonlarından gelir. */
+  --surface-canvas: var(--fusion-canvas);
+  --surface-sidebar: var(--fusion-sidebar);
+  --surface-rail: #181818;
+  --surface-selected: #2f2f2f;
+  --surface-message-user: #303030;
+  --surface-accent-subtle: #1b2941;
+  --surface-raised: #303030;
+  --surface-menu: #353535;
+  --surface-hover: #2a2a2a;
+  --surface-overlay: rgb(0 0 0 / 64%);
+  --settings-dialog-bg: #212121;
+  --settings-nav-bg: #181818;
+  --settings-border: #303030;
+  --settings-text: #ececec;
+  --settings-muted: #afafaf;
+  --settings-input-bg: #303030;
+  --settings-selected: #2f2f2f;
+  --settings-ring: #a8c6ff;
+  --text-primary: var(--fusion-ink);
+  --text-secondary: var(--fusion-muted);
+  --text-inverse: #0b0a0d;
+  --text-danger: #ff9b95;
+  --text-success: #67d9ef;
+  --text-warning: #f4c66e;
+  --border-subtle: #353535;
+  --border-strong: #565656;
+  --control-primary: #f3f5f6;
+  /* Marka vurgusu logonun mavi/camgöbeği tonlarından gelir. */
+  --focus-ring: var(--brand-detail-cyan);
+  --accent: var(--brand-signal);
+  --accent-on: var(--brand-obsidian);
+  --accent-text: var(--brand-signal);
+  /* Marka vurgusu logonun mavi/camgöbeği tonlarından gelir. */
+  --selection-bg: var(--brand-signal);
+  --selection-text: var(--text-inverse);
+
+  /* Ekip renkleri koyu temada: zemin koyulaşır, mürekkep açılır (aynı oran). */
+  --ekip-mor-zemin: #2d2546;
+  --ekip-mor-murekkep: #c7b6ff;
+  --ekip-mavi-zemin: #1d2b42;
+  --ekip-mavi-murekkep: #9cc4ff;
+  --ekip-pembe-zemin: var(--ekip-mor-zemin);
+  --ekip-pembe-murekkep: var(--ekip-mor-murekkep);
+  --ekip-yesil-zemin: #1d2b42;
+  --ekip-yesil-murekkep: #9cc4ff;
+  --ekip-turuncu-zemin: var(--ekip-mavi-zemin);
+  --ekip-turuncu-murekkep: var(--ekip-mavi-murekkep);
+  --ekip-camgobegi-zemin: #173236;
+  --ekip-camgobegi-murekkep: #8ce1ea;
+  --ekip-sari-zemin: var(--ekip-camgobegi-zemin);
+  --ekip-sari-murekkep: var(--ekip-camgobegi-murekkep);
+  --ekip-kirmizi-zemin: var(--ekip-mor-zemin);
+  --ekip-kirmizi-murekkep: var(--ekip-mor-murekkep);
+  --ekip-gri-zemin: #353535;
+  --ekip-gri-murekkep: #d6d6d6;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+* {
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body,
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+body {
+  background: var(--surface-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--line-body);
+  min-width: 320px;
+  overflow: hidden;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea,
+select {
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+::selection {
+  background: var(--selection-bg);
+  color: var(--selection-text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Başlıklarda macOS sistem SF ailesi; Apple fontları pakete gömülmez. */
+h1, h2, h3, h4 { font-family: var(--font-heading); font-optical-sizing: auto; }
+
+/* --- Kits ile aynı sakin dil ---------------------------------------------
+   Kits'in yazı tipi (sistem yazı tipi), 14 px taban boyutu ve nötr mürekkep
+   renkleri her yere uygulanır. Vurgu artık parlak mavi/camgöbeği değil; logo
+   dışındaki düğme, bağlantı ve seçim renkleri nötr mürekkeptir. Anlam taşıyan
+   durum renkleri (başarı, uyarı, tehlike) ayrı kalır. */
+:root {
+  --font-heading: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, Inter, sans-serif;
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --text-base: 14px;
+  --surface-accent-subtle: #f1f1f1;
+  --text-success: #1f7a4d;
+  --focus-ring: #505050;
+  --accent: #282828;
+  --accent-on: #ffffff;
+  --accent-text: var(--text-primary);
+  --selection-bg: #3a3a3a;
+}
+
+:root[data-theme="dark"] {
+  --surface-accent-subtle: #2a2a2a;
+  --text-success: #6fcf97;
+  --focus-ring: #cfcfcf;
+  --accent: #ececec;
+  --accent-on: #0b0a0d;
+  --accent-text: var(--text-primary);
+  --selection-bg: #5a5a5a;
+}

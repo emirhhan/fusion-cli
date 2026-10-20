@@ -1,0 +1,171 @@
+"""stdio döngüsü: satır oku, yönlendir, satır yaz.
+
+Süreç yalnız akış bitince (uygulama stdin'i kapatınca) ya da açıkça
+sonlandırılınca durur. Hiçbir bozuk mesaj süreci düşürmez.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import sys
+from collections.abc import AsyncIterator
+from pathlib import Path
+
+from ..core.remotion_browser import RemotionBrowser
+from ..engines.agent.remotion_bridge import FrameTransport
+from ..ui import messages
+from .bridges import Writer
+from .protocol import Reply, Request, decode, encode_error
+from .session import AppSession
+
+
+def _spawn_request_task(
+    session: AppSession,
+    request: Request,
+    writer: Writer,
+    tasks: set[asyncio.Task[None]],
+) -> None:
+    """İsteği arka planda işle; okuma döngüsü hemen sıradaki satıra geçsin.
+
+    `handle` burada `await` edilirse, motor onay sorduğunda döngü
+    `cevap` satırını hiç okuyamaz ve süreç kilitlenir — onu çözecek tek
+    yer bu döngüdür. Görev, biten görevlerin referans birikmemesi için
+    kümeye eklenir ve bittiğinde kümeden çıkarılır.
+    """
+    task = asyncio.ensure_future(session.handle(request))
+    tasks.add(task)
+    task.add_done_callback(lambda finished: _on_request_task_done(finished, tasks, writer))
+
+
+def _on_request_task_done(
+    task: asyncio.Task[None], tasks: set[asyncio.Task[None]], writer: Writer
+) -> None:
+    """Görevi kümeden çıkar; sessizce yutulan bir istisna varsa hata olayı yaz."""
+    tasks.discard(task)
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        writer(encode_error(f"{messages.APP_BACKGROUND_TASK_FAILED}: {error}"))
+
+
+async def serve(
+    lines: AsyncIterator[str],
+    writer: Writer,
+    *,
+    root: Path,
+    home: Path,
+    remotion_transport: FrameTransport | None = None,
+    remotion_browser: RemotionBrowser | None = None,
+    require_remotion_kit: bool = False,
+) -> None:
+    """Satır akışını oturuma bağla ve akış bitene kadar sür."""
+    session = (
+        AppSession(
+            writer,
+            root=root,
+            home=home,
+            remotion_transport=remotion_transport,
+            remotion_browser=remotion_browser,
+            require_remotion_kit=require_remotion_kit,
+        )
+        if remotion_transport is not None or remotion_browser is not None or require_remotion_kit
+        else AppSession(writer, root=root, home=home)
+    )
+    tasks: set[asyncio.Task[None]] = set()
+    try:
+        async for line in lines:
+            message = decode(line)
+            if message is None:
+                writer(encode_error(messages.APP_UNDECODABLE_LINE))
+                continue
+            if isinstance(message, Request):
+                _spawn_request_task(session, message, writer, tasks)
+                continue
+            if isinstance(message, Reply) and not session.resolve_reply(message):
+                writer(encode_error(messages.APP_UNMATCHED_REPLY_ID))
+    finally:
+        # Önce close(): çalışan turu ve bekleyen onay sorularını iptal
+        # eder. Sıra tersine çevrilirse — görevleri close()'dan önce
+        # bekleseydik — stdin zaten kapandığı için onay bekleyen bir
+        # görev asla `cevap` alamaz ve süreç asılı kalırdı. close()
+        # iptali tetikledikten sonra görevler bu iptali işleyip kendi
+        # sonuçlarını yazar; onları burada bekleyerek düzgün kapanışı
+        # garanti ederiz.
+        await session.close()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def _stdin_lines() -> AsyncIterator[str]:
+    """stdin'i bloklamadan satır satır oku."""
+    loop = asyncio.get_running_loop()
+    while True:
+        line = await loop.run_in_executor(None, sys.stdin.readline)
+        if not line:
+            return
+        yield line
+
+
+def force_utf8_stdio() -> None:
+    """Protokol akışlarını UTF-8'e sabitle.
+
+    Protokol stdio üzerinden JSON konuşur ve JSON UTF-8'dir; akışın kodlaması
+    işletim sisteminin yereline BIRAKILAMAZ.
+
+    Ölçüldü (Windows CI, beş koşu): `proje.oku` isteği 30 saniyede yanıt vermedi
+    ve stderr boş geldi. Okunan dosyanın içeriği "Fusion hazır" idi ve `ı`
+    (U+0131) cp1252'de YOK; `sys.stdout.write` `UnicodeEncodeError` fırlattı.
+    `proje.listele` geçiyordu çünkü cevabı yalnız ASCII dosya adları taşıyor.
+    Kullanıcı açısından sonucu şuydu: Windows'ta Türkçe karakter içeren bir
+    dosyayı okumak oturumu sessizce öldürüyordu.
+
+    Ortam değişkeni (PYTHONUTF8) yeterli DEĞİL: çağıran süreç kendi `env`'ini
+    verebiliyor ve protokolün doğruluğu çağıranın ortamına bağlı olamaz.
+    """
+    for stream in (sys.stdin, sys.stdout):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            # `newline` dokunulmaz: satır sonu sözleşmesi okuyucu tarafında.
+            reconfigure(encoding="utf-8", errors="strict")
+
+
+def _stdout_writer(line: str) -> None:
+    """Tek satır yaz ve hemen boşalt; uygulama olayları anında görmeli."""
+    try:
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
+    except UnicodeEncodeError:
+        # SIRA ÖNEMLİ: `UnicodeEncodeError` bir `ValueError` alt sınıfıdır ve
+        # eskiden aşağıdaki blokla birlikte yakalanıp `SystemExit(0)` veriyordu.
+        # Süreç temiz çıkmış gibi görünüyor, istek cevapsız kalıyor ve hiçbir
+        # yerde iz bırakmıyordu; beş CI koşusu bu sessizliğin arkasında arandı.
+        # Kodlama hatası GÖRÜNÜR olmalı.
+        raise
+    except (BrokenPipeError, ValueError):
+        # Kopan ya da kapanmış kanala olay biriktirmek bellek sızdırır; sessizce dur.
+        raise SystemExit(0) from None
+
+
+async def run_stdio(
+    root: Path,
+    home: Path,
+    *,
+    remotion_transport: FrameTransport | None = None,
+    remotion_browser: RemotionBrowser | None = None,
+    require_remotion_kit: bool = False,
+) -> None:
+    """Gerçek stdio üzerinde protokolü çalıştır."""
+    force_utf8_stdio()
+    if remotion_transport is None and remotion_browser is None and not require_remotion_kit:
+        await serve(_stdin_lines(), _stdout_writer, root=root, home=home)
+        return
+    await serve(
+        _stdin_lines(),
+        _stdout_writer,
+        root=root,
+        home=home,
+        remotion_transport=remotion_transport,
+        remotion_browser=remotion_browser,
+        require_remotion_kit=require_remotion_kit,
+    )

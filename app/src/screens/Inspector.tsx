@@ -1,0 +1,209 @@
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
+import {
+  clampInspectorHeight,
+  clampInspectorWidth,
+  INSPECTOR_DEFAULT_HEIGHT,
+  INSPECTOR_DEFAULT_WIDTH,
+  INSPECTOR_MAX_HEIGHT,
+  INSPECTOR_MAX_WIDTH,
+  INSPECTOR_MIN_HEIGHT,
+  INSPECTOR_MIN_WIDTH,
+} from "../state/useInspectorLayout";
+import type { IconName } from "../ui/Icon";
+import { Icon } from "../ui/Icon";
+import "./Inspector.css";
+
+type InspectorStatus = "ready" | "loading" | "error";
+/** Proje araçları ve canlı alt ajanlar için bağlamsal sekmeler. */
+export type InspectorTabId = "files" | "changes" | "terminal" | "preview" | "agents";
+
+const tabs: { id: InspectorTabId; label: string; icon: IconName }[] = [
+  { id: "agents", label: "Ajanlar", icon: "sparkle" },
+  { id: "files", label: "Dosyalar", icon: "files" },
+  { id: "changes", label: "Değişiklikler", icon: "changes" },
+  { id: "terminal", label: "Terminal", icon: "terminal" },
+  { id: "preview", label: "Önizleme", icon: "preview" },
+];
+
+interface InspectorProps {
+  activeTab?: InspectorTabId;
+  collapsed?: boolean;
+  content?: Partial<Record<InspectorTabId, ReactNode>>;
+  errorMessage?: string;
+  height?: number;
+  onActiveTabChange?: (tab: InspectorTabId) => void;
+  onCollapsedChange?: (collapsed: boolean) => void;
+  onHeightChange?: (height: number) => void;
+  onWidthChange?: (width: number) => void;
+  placement?: "right" | "bottom";
+  status?: InspectorStatus;
+  width?: number;
+}
+
+export function Inspector({
+  activeTab: controlledActiveTab,
+  collapsed = false,
+  content = {},
+  errorMessage = "Denetçi yüklenemedi",
+  height = INSPECTOR_DEFAULT_HEIGHT,
+  onActiveTabChange,
+  onCollapsedChange,
+  onHeightChange,
+  onWidthChange,
+  placement = "right",
+  status = "ready",
+  width = INSPECTOR_DEFAULT_WIDTH,
+}: InspectorProps) {
+  const [internalActiveTab, setInternalActiveTab] = useState<InspectorTabId>("files");
+  const resizeCleanup = useRef<() => void>(() => undefined);
+  const activeTab = controlledActiveTab ?? internalActiveTab;
+  const setActiveTab = (tab: InspectorTabId) => {
+    if (controlledActiveTab === undefined) setInternalActiveTab(tab);
+    onActiveTabChange?.(tab);
+  };
+  useEffect(() => () => resizeCleanup.current(), []);
+  useEffect(() => {
+    if (collapsed) resizeCleanup.current();
+  }, [collapsed]);
+  const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
+  const selectAt = (index: number) => {
+    const tab = tabs[(index + tabs.length) % tabs.length];
+    setActiveTab(tab.id);
+    if (collapsed) onCollapsedChange?.(false);
+    document.getElementById(`inspector-tab-${tab.id}`)?.focus();
+  };
+  const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      selectAt(activeIndex + 1);
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      selectAt(activeIndex - 1);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      selectAt(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      selectAt(tabs.length - 1);
+    }
+  };
+  const active = tabs[activeIndex];
+  const safeWidth = clampInspectorWidth(width);
+  const safeHeight = clampInspectorHeight(height);
+  const onResizeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    let next: number | null = null;
+    if (placement === "bottom") {
+      if (event.key === "ArrowDown") next = safeHeight - 16;
+      else if (event.key === "ArrowUp") next = safeHeight + 16;
+      else if (event.key === "Home") next = INSPECTOR_MIN_HEIGHT;
+      else if (event.key === "End") next = INSPECTOR_MAX_HEIGHT;
+    } else {
+      if (event.key === "ArrowLeft") next = safeWidth - 16;
+      else if (event.key === "ArrowRight") next = safeWidth + 16;
+      else if (event.key === "Home") next = INSPECTOR_MIN_WIDTH;
+      else if (event.key === "End") next = INSPECTOR_MAX_WIDTH;
+    }
+    if (next === null) return;
+    event.preventDefault();
+    if (placement === "bottom") onHeightChange?.(clampInspectorHeight(next));
+    else onWidthChange?.(clampInspectorWidth(next));
+  };
+  const onResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!(placement === "bottom" ? onHeightChange : onWidthChange) || event.button !== 0) return;
+    event.preventDefault();
+    resizeCleanup.current();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = safeWidth;
+    const startHeight = safeHeight;
+    const move = (nextEvent: PointerEvent) => {
+      if (placement === "bottom") onHeightChange?.(clampInspectorHeight(startHeight + startY - nextEvent.clientY));
+      else onWidthChange?.(clampInspectorWidth(startWidth + startX - nextEvent.clientX));
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      resizeCleanup.current = () => undefined;
+    };
+    resizeCleanup.current = stop;
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop, { once: true });
+    window.addEventListener("pointercancel", stop, { once: true });
+  };
+
+  return (
+    <div className="inspector" data-collapsed={collapsed} data-placement={placement}>
+      {!collapsed && (
+        <div
+          aria-label="Çalışma panelini yeniden boyutlandır"
+          aria-orientation={placement === "bottom" ? "horizontal" : "vertical"}
+          aria-valuemax={placement === "bottom" ? INSPECTOR_MAX_HEIGHT : INSPECTOR_MAX_WIDTH}
+          aria-valuemin={placement === "bottom" ? INSPECTOR_MIN_HEIGHT : INSPECTOR_MIN_WIDTH}
+          aria-valuenow={placement === "bottom" ? safeHeight : safeWidth}
+          className="inspector__resize-handle"
+          onKeyDown={onResizeKeyDown}
+          onPointerDown={onResizePointerDown}
+          role="separator"
+          tabIndex={0}
+        />
+      )}
+      <div className="inspector__topbar">
+        <div aria-label="Denetçi araçları" className="inspector__tabs" role="tablist">
+          {tabs.map((tab) => (
+            <button
+              aria-controls={!collapsed && activeTab === tab.id ? `inspector-panel-${tab.id}` : undefined}
+              aria-selected={activeTab === tab.id}
+              id={`inspector-tab-${tab.id}`}
+              key={tab.id}
+              onClick={() => {
+                setActiveTab(tab.id);
+                if (collapsed) onCollapsedChange?.(false);
+              }}
+              onKeyDown={onTabKeyDown}
+              role="tab"
+              tabIndex={activeTab === tab.id ? 0 : -1}
+              title={tab.label}
+              type="button"
+            >
+              <Icon name={tab.icon} size={17} />
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      {!collapsed && (
+        <section
+          aria-labelledby={`inspector-tab-${active.id}`}
+          className="inspector__panel"
+          id={`inspector-panel-${active.id}`}
+          role="tabpanel"
+        >
+          <div className="inspector__panel-title">
+            <Icon name={active.icon} size={18} />
+            <h2>{active.label}</h2>
+          </div>
+          {status === "loading" ? (
+            <p className="inspector__state">Yükleniyor…</p>
+          ) : status === "error" ? (
+            <p className="inspector__state inspector__state--error" role="alert">{errorMessage}</p>
+          ) : content[active.id] ? (
+            content[active.id]
+          ) : (
+            <div className="inspector__empty">
+              <p>Henüz bir proje seçilmedi.</p>
+              <span>Bir proje açtığında {active.label.toLocaleLowerCase("tr")} burada görünür.</span>
+            </div>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,452 @@
+"""Araç sözleşmeleri.
+
+Bir araç üç parçadan oluşur ve üçü tek yerde, kayıt defterinde birleşir:
+şema (modele ne söyleneceği), executor (işi yapan saf fonksiyon) ve `mutating`
+bayrağı (onay gerekip gerekmediği).
+
+Executor SAF tutulur: konsola yazmaz, kullanıcıya sormaz, modül seviyesinde durum
+tutmaz. Onay, önizleme ve gösterim aracın dışındadır. Tur bazlı durum (görev listesi
+gibi) `ToolContext` üzerinden taşınır — eski projede bu modül-global bir liste olduğu
+için alt-ajanlar ana ajanla aynı listeyi paylaşıyordu.
+
+Sonuçlar metin değil `ToolResult` döner: "bu çıktı hata mı?" sorusu string aramasıyla
+dağınık biçimde değil, tek bir bayrakla cevaplanır.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+from threading import Event
+from typing import Any, Protocol
+from uuid import uuid4
+
+from .artifacts import ArtifactStore
+from .browser_session import BrowserSession
+from .changeset import ChangeSet
+from .job_evidence import JobCompletion
+from .remotion_browser import RemotionBrowser
+from .remotion_contract import KitContractState
+from .repair_ledger import FailureEvidence
+from .tool_content import ToolContent, ToolContentType
+
+#: Modelin araca verdiği ham argümanlar. JSON'dan geldiği için tipsizdir;
+#: `tools.args` yardımcıları bunları doğrulayarak okur.
+ToolArgs = Mapping[str, object]
+
+
+class ChromeControl(Protocol):
+    """Bağlı Chrome eklentisine komut gönderen oturum arayüzü."""
+
+    async def invoke(self, operation: str, args: dict[str, Any]) -> dict[str, Any]: ...
+
+
+class ToolFamily(Enum):
+    """Bir aracın ait olduğu iş ailesi.
+
+    İki ayrı yer aynı sözlüğü kullanır: plan şemasındaki `allowed_tool_families`
+    alanı ve hızlı turun "ikinci araç ailesi devreye girdi" yükseltme sinyali.
+    Sözlük tek yerde tutulmazsa bu iki taraf sessizce ayrışır.
+    """
+
+    FILES = "files"
+    SEARCH = "search"
+    SHELL = "shell"
+    VCS = "vcs"
+    BROWSER = "browser"
+    DESKTOP = "desktop"
+    WEB = "web"
+    DELEGATION = "delegation"
+    #: MCP sunucuları ve tanımadığımız eklenti araçları.
+    EXTERNAL = "external"
+    #: Kendi başına iş üretmeyen yardımcılar: görev listesi, soru sorma, hatırlama.
+    #: Karmaşıklık kanıtı SAYILMAZ; yoksa "dosya oku + todo yaz" iki aile görünürdü.
+    META = "meta"
+
+
+_TOOL_FAMILIES: Mapping[str, ToolFamily] = {
+    "read_file": ToolFamily.FILES,
+    "view_file": ToolFamily.FILES,
+    "write_file": ToolFamily.FILES,
+    "edit_file": ToolFamily.FILES,
+    "multi_edit": ToolFamily.FILES,
+    "list_dir": ToolFamily.FILES,
+    "list_files": ToolFamily.FILES,
+    "create_file": ToolFamily.FILES,
+    "glob": ToolFamily.FILES,
+    "scaffold_web": ToolFamily.FILES,
+    "scaffold_remotion": ToolFamily.FILES,
+    "revise_remotion_scenes": ToolFamily.FILES,
+    # Arşiv açmak dosya işidir: içerik ağdan DEĞİL, diskteki arşivden gelir.
+    "extract_archive": ToolFamily.FILES,
+    "grep_search": ToolFamily.SEARCH,
+    "search_code": ToolFamily.SEARCH,
+    "search_codebase": ToolFamily.SEARCH,
+    "run_shell": ToolFamily.SHELL,
+    "render_remotion": ToolFamily.SHELL,
+    "shell": ToolFamily.SHELL,
+    "bash": ToolFamily.SHELL,
+    "execute_command": ToolFamily.SHELL,
+    "git": ToolFamily.VCS,
+    "browser_open": ToolFamily.BROWSER,
+    "chrome_page": ToolFamily.BROWSER,
+    "chrome_click": ToolFamily.BROWSER,
+    "chrome_type": ToolFamily.BROWSER,
+    "chrome_navigate": ToolFamily.BROWSER,
+    "chrome_screenshot": ToolFamily.BROWSER,
+    "chrome_action": ToolFamily.BROWSER,
+    "desktop_apps": ToolFamily.DESKTOP,
+    "desktop_windows": ToolFamily.DESKTOP,
+    "desktop_background_windows": ToolFamily.DESKTOP,
+    "desktop_background_inspect": ToolFamily.DESKTOP,
+    "desktop_background_screenshot": ToolFamily.DESKTOP,
+    "desktop_background_action": ToolFamily.DESKTOP,
+    "desktop_window_focus": ToolFamily.DESKTOP,
+    "desktop_accessibility": ToolFamily.DESKTOP,
+    "desktop_open": ToolFamily.DESKTOP,
+    "desktop_screenshot": ToolFamily.DESKTOP,
+    "desktop_click": ToolFamily.DESKTOP,
+    "desktop_type": ToolFamily.DESKTOP,
+    "desktop_key": ToolFamily.DESKTOP,
+    "desktop_scroll": ToolFamily.DESKTOP,
+    "browser_read": ToolFamily.BROWSER,
+    "browser_tabs_list": ToolFamily.BROWSER,
+    "browser_tab_select": ToolFamily.BROWSER,
+    "browser_tab_open": ToolFamily.BROWSER,
+    "browser_click": ToolFamily.BROWSER,
+    "browser_type": ToolFamily.BROWSER,
+    "browser_screenshot": ToolFamily.BROWSER,
+    "browser_mirror": ToolFamily.BROWSER,
+    "browser_close": ToolFamily.BROWSER,
+    "web_search": ToolFamily.WEB,
+    "web_fetch": ToolFamily.WEB,
+    "download_file": ToolFamily.WEB,
+    "read_url_content": ToolFamily.WEB,
+    "spawn_agent": ToolFamily.DELEGATION,
+    "spawn_agents": ToolFamily.DELEGATION,
+    "site_crawl": ToolFamily.WEB,
+    "site_design": ToolFamily.WEB,
+    # Projeyi çalıştırıp sayfayı açar ve ölçer: tarayıcı doğrulamasıyla aynı aile.
+    "start_preview": ToolFamily.BROWSER,
+    "generate_image": ToolFamily.FILES,
+    "optimize_image": ToolFamily.FILES,
+    "invoke_subagent": ToolFamily.DELEGATION,
+    "invoke_agent": ToolFamily.DELEGATION,
+    "council": ToolFamily.DELEGATION,
+    "todo_write": ToolFamily.META,
+    "ask_user": ToolFamily.META,
+    "read_session": ToolFamily.META,
+    "recent_actions": ToolFamily.META,
+    "find_skill": ToolFamily.META,
+    "read_skill": ToolFamily.META,
+    "find_agent": ToolFamily.META,
+}
+
+
+class ToolEffect(Enum):
+    """Bir aracın dünyada bıraktığı iz — onay kararının girdisi.
+
+    `mutating` "onay akışına girer mi?" sorusunu cevaplar; bu enum "ne kadar
+    sıkı sorulmalı?" sorusunu. Yerel dosya yazımı diff ile görülür ve geri
+    alınabilir; uzak sistemdeki bütçe, yayın veya silme işlemi geri alınamayabilir.
+    """
+
+    #: Yalnız yerel çalışma alanına dokunur (varsayılan).
+    LOCAL = "local"
+    #: Uzak sistemi yalnız okur.
+    REMOTE_READ = "remote_read"
+    #: Uzak sayfayla etkileşir ama kalıcı iz bırakmaz: alana yazma, sıradan tıklama,
+    #: tuş. Gönderme/satın alma ayrı bir eylemdir ve o REMOTE_WRITE'tır. Otomatik
+    #: kipte sorulmaz; Manuel kipte sorulur, plan kipinde yapılmaz.
+    REMOTE_INTERACT = "remote_interact"
+    #: Uzak sistemde değişiklik yapabilir.
+    REMOTE_WRITE = "remote_write"
+    #: Uzak sistemde geri alınamaz değişiklik yapabilir (silme, yayın, harcama).
+    REMOTE_DESTRUCTIVE = "remote_destructive"
+
+
+def tool_family(name: str) -> ToolFamily:
+    """Araç adını iş ailesine çevir.
+
+    Tanımadığımız ad yardımcı SAYILMAZ: MCP araçları `<sunucu>__<araç>` biçiminde
+    çalışma anında eklenir ve bir eklenti aracının karmaşıklık kanıtını gizlemesi,
+    hızlı turun büyüyen işi fark etmemesi demektir.
+    """
+    return _TOOL_FAMILIES.get(name, ToolFamily.EXTERNAL)
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResult:
+    """Bir araç çalıştırmasının sonucu."""
+
+    output: str
+    ok: bool = True
+    content: tuple[ToolContent, ...] = ()
+    structured: Mapping[str, object] | None = None
+    #: Çıktı bağlamı şişirdiği için diske alındıysa dosyanın yolu.
+    #:
+    #: Kırpma bilgiyi yok eder, artifact yalnızca YER DEĞİŞTİRİR: model özeti görür,
+    #: gerekirse dosyayı `read_file` ile açar. Kanıt zinciri de bu yolu kullanır.
+    artifact_path: str = ""
+    failure_evidence: tuple[FailureEvidence, ...] = ()
+    is_observation: bool = False
+    job_completion: JobCompletion | None = None
+
+    @property
+    def images(self) -> tuple[str, ...]:
+        """Sağlayıcıya aktarılabilir görselleri data URI biçiminde döndür."""
+        return tuple(
+            block.data_uri
+            for block in self.content
+            if block.type is ToolContentType.IMAGE and block.data_uri
+        )
+
+    @classmethod
+    def failure(
+        cls,
+        message: str,
+        *,
+        content: tuple[ToolContent, ...] = (),
+        structured: Mapping[str, object] | None = None,
+    ) -> ToolResult:
+        """Aracın kendi tespit ettiği, modele düzeltme şansı veren hata."""
+        return cls(output=message, ok=False, content=content, structured=structured)
+
+
+class TodoStatus(Enum):
+    """Bir görev maddesinin durumu."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+    @property
+    def icon(self) -> str:
+        return {"pending": "☐", "in_progress": "▶", "completed": "☒"}[self.value]
+
+
+@dataclass(frozen=True, slots=True)
+class TodoItem:
+    """Görev listesindeki tek madde."""
+
+    content: str
+    status: TodoStatus
+
+
+class TodoList:
+    """Tur bazlı görev listesi.
+
+    Modül-global DEĞİLDİR: her tur (ve her alt-ajan) kendi listesine sahiptir.
+    """
+
+    def __init__(self) -> None:
+        self._items: tuple[TodoItem, ...] = ()
+
+    def replace(self, items: tuple[TodoItem, ...]) -> None:
+        self._items = items
+
+    @property
+    def items(self) -> tuple[TodoItem, ...]:
+        return self._items
+
+    @property
+    def has_pending(self) -> bool:
+        """Tamamlanmamış madde var mı? (İşin yarım kalıp kalmadığı sezgiseli için.)"""
+        return self.pending_count > 0
+
+    @property
+    def pending_count(self) -> int:
+        """Tamamlanmamış madde sayısı. Devam bütçesi buna göre büyür."""
+        return sum(1 for item in self._items if item.status is not TodoStatus.COMPLETED)
+
+    def render(self) -> str:
+        return "\n".join(f"{item.status.icon} {item.content}" for item in self._items)
+
+
+class PendingWrite:
+    """`write_file` içeriğinin geçici sakladığı yer.
+
+    Model büyük içerikte sondaki küçük `path` alanını düşürüyor (beş koşuda 14 kez;
+    birinde çağrıların yarısı). İçeriği çöpe atmak 15 KB'lık dosyanın baştan
+    üretilmesi demekti. Saklanır ve model YALNIZCA yolu göndererek işi bitirir.
+
+    Yol TAHMİN EDİLMEZ: yanlış tahmin var olan bir dosyanın üzerine yazmak demektir.
+    """
+
+    def __init__(self) -> None:
+        self.content = ""
+
+    def take(self) -> str:
+        """Saklanan içeriği al ve temizle: bir kez kullanılır, sonrakine sızmaz."""
+        icerik, self.content = self.content, ""
+        return icerik
+
+
+@dataclass(frozen=True, slots=True)
+class ToolContext:
+    """Araçların çalıştığı ortam. Executor'lar dış dünyaya buradan erişir."""
+
+    #: Göreli yolların çözümleneceği kök dizin.
+    root: Path
+    job_scope: str = field(default_factory=lambda: uuid4().hex, kw_only=True)
+    #: Bu tura ait görev listesi.
+    todos: TodoList = field(default_factory=TodoList)
+    #: Agent'ın bu oturumda OLUŞTURDUĞU ya da DEĞİŞTİRDİĞİ dosyalar.
+    #:
+    #: Doğrulama kapısı yalnızca buraya bakar: kök dizini taramak, agent'ın hiç
+    #: dokunmadığı dosyalar hakkında bulgu üretirdi. Yalnızca başarılı yazma iz bırakır.
+    touched: set[Path] = field(default_factory=set)
+    #: Tarayıcı araçlarının gidebileceği YEREL adresler (`host:port`). Yalnız kullanıcının
+    #: kendi mesajında yazdığı adresler girer; sayfa içeriği ya da model buraya ekleyemez.
+    local_origins: set[str] = field(default_factory=set)
+    #: Kullanıcının mesajında ÇIKTI olarak andığı göreli dosya yolları (`output_verify`).
+    requested_outputs: set[str] = field(default_factory=set)
+    #: play_probe ile denenen oyun adresleri; kapanışta yeniden oynatılır (`game_verify`).
+    probed_games: set[str] = field(default_factory=set)
+    #: Bu isteğin türleri (ör. "oyun"): denenmemiş canvas sayfası da kapıda oynatılır.
+    task_kinds: set[str] = field(default_factory=set)
+    #: İçeriği TAM olarak okunmuş dosyalar (kırpılmadan).
+    #
+    # `write_file` dosyanın tamamını değiştirir. Model dosyayı hiç okumadıysa ya da
+    # kırpılmış okuduysa, gönderdiği "tam içerik" gerçekten tam DEĞİLDİR ve kesme
+    # noktasından sonrası sessizce yok olur. Bu küme o kararı ölçülebilir kılar.
+    fully_read: set[Path] = field(default_factory=set)
+    #: Artık hiçbir araç okumaz ya da yazmaz. Tek tüketicisi satır aralığı
+    #: düzenlemesiydi (`replace_range`, kaldırıldı); alan yalnız plan motorunun
+    #: adım bağlamı (`plan_runner._step_context`) onu açıkça sıfırladığı için
+    #: duruyor ve o satırla birlikte silinir.
+    read_revisions: dict[Path, str] = field(default_factory=dict)
+    #: `write_file` çağrısında `path` eksik kaldığında içeriğin saklandığı yer.
+    #: `ToolContext` frozen olduğu için taşıyıcı nesne kullanılır (todos ile aynı desen).
+    pending: PendingWrite = field(default_factory=lambda: PendingWrite())
+    #: Tur boyunca açık kalan tarayıcı. Etkileşimli tarayıcı araçları buraya bağlanır:
+    #: "alana yaz → gönder → açılan sayfayı oku" üç ayrı çağrıdır ve aynı sayfayı görmeli.
+    browser: BrowserSession = field(default_factory=BrowserSession)
+    #: Kullanıcının açık Chrome sekmelerine, yalnız eşleştirilen eklentiyle erişim.
+    chrome: ChromeControl | None = None
+    #: True ise dosya araçları yalnızca `root` (ve `extra_roots`) altında çalışır;
+    #: dışarı çıkan yol, `..` ile taşan yol ve dışarı sızdıran symlink reddedilir.
+    #:
+    #: Varsayılan AÇIKTIR. Opt-in bırakıldığı sürece kimse açmıyordu ve agent her
+    #: kurulumda kullanıcının tüm dosya sistemine yazabiliyordu; tüm disk hiçbir
+    #: aracın varsayılan erişim alanı olmamalıdır. Kök dışına erişim gerekiyorsa
+    #: kullanıcı bunu `--add-dir` ile AÇIKÇA verir.
+    restrict_to_root: bool = True
+    #: Bu turda değiştirilen dosyaların ilk hâlleri — geri alma (`/undo`) için.
+    #: `touched` ile aynı desende paylaşılır: alt-ajanın değişikliği de buraya girer.
+    changes: ChangeSet = field(default_factory=ChangeSet)
+    #: Kökün yanında erişime açılan ek dizinler (`--add-dir`).
+    #:
+    #: Bir kapı değil, dar bir penceredir: yalnızca burada YAZAN dizinlerin altı
+    #: açılır, kardeşleri açılmaz ve symlink ile aşılamaz (yol `resolve` edilir).
+    extra_roots: tuple[Path, ...] = ()
+    #: İptal edilen turdaki thread tabanlı araçların yürümeye devam etmesini önler.
+    cancelled: Event = field(default_factory=Event)
+    #: Büyük araç çıktılarının yazılacağı depo; `None` ise kırpma davranışı korunur.
+    artifacts: ArtifactStore | None = None
+    #: Bu turda bir okumada gösterilecek EN FAZLA satır; `None` ise varsayılan.
+    #:
+    #: SWE-agent'ın ölçümü: turda ~100 satır göstermek en iyi sonucu veriyor. Sınır
+    #: sabit değil TAŞIMAYA bağlıdır: web yolunda bağlam pahalıdır ve uzun okuma
+    #: hem gecikme hem context rot üretir; API yolunda mevcut ölçülmüş davranış
+    #: (800 satır) korunur. Model `limit` ile bu pencereyi AŞAMAZ; daraltabilir.
+    read_window: int | None = None
+    #: Paralel alt ajanın yazabileceği yollar. `None` = sınır yok (ana ajan ve tek
+    #: alt ajan). Doluysa dosya yazan araçlar bu yolların dışına yazmaz: aynı anda
+    #: koşan iki ajan aynı dosyayı ezmesin diye zamanlayıcı alanları ayrık verir.
+    write_scope: tuple[Path, ...] | None = None
+    #: Bu turda kayıt defterinde bulunan araç adları.
+    #:
+    #: Yapı denetimi buna bakar: bir biçimi zaten doğru üreten araç varken
+    #: modelin o dosyayı elle yazması engellenip araca yönlendirilir. Araç yoksa
+    #: elle yazma tek yoldur ve serbest kalır.
+    available_tools: set[str] = field(default_factory=set)
+    #: Açık kit iskele aracı sonradan kaydeder; genel Remotion projeleri opt-in kalır.
+    remotion_contract: KitContractState = field(default_factory=KitContractState)
+    #: Tarayıcı seçimi yalnız host bağımlılığıdır; araç JSON'undan alınmaz.
+    remotion_browser: RemotionBrowser | None = field(default=None, kw_only=True)
+
+
+#: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya
+#: sistemi / kabuk / ağ üzerindedir, terminale ya da kullanıcıya değil.
+#:
+#: Asenkron da olabilir: alt-ajan devri ya da çoklu-model danışma gibi araçlar doğası
+#: gereği bekler. Kayıt defteri ikisini de aynı şekilde çalıştırır, çağıran taraf farkı
+#: bilmez — bu sayede motorda "şu araç özel" diye bir dal açılmaz.
+ToolExecutor = Callable[[ToolArgs, ToolContext], ToolResult | Awaitable[ToolResult]]
+
+
+#: Çağrının argümanından etkiyi bulan eşzamansız çözücü (bkz. `Tool.effect_resolver`).
+EffectResolver = Callable[[ToolArgs, "ToolContext | None"], Awaitable["ToolEffect | None"]]
+
+
+@dataclass(frozen=True, slots=True)
+class AuthorizationScope:
+    """Adaptörün doğruladığı sır içermeyen uzak izin kapsamı."""
+
+    server: str
+    account: str
+    action: str
+    targets: tuple[str, ...]
+
+    @property
+    def is_complete(self) -> bool:
+        """Eksik kapsam oturum iznine dönüşmez."""
+        return bool(
+            self.server and self.account and self.action and self.targets and all(self.targets)
+        )
+
+
+ScopeResolver = Callable[[ToolArgs], AuthorizationScope | None]
+
+
+@dataclass(frozen=True, slots=True)
+class Tool:
+    """Şema + executor + onay bayrağı."""
+
+    name: str
+    description: str
+    #: Modele verilecek JSON Schema (OpenAI function-calling biçimi).
+    parameters: Mapping[str, object]
+    run: ToolExecutor
+    #: True ise araç dosya/sistem durumunu değiştirir ve onay akışına girer.
+    mutating: bool = False
+    #: True ise araç değiştirici olsa da sonucu ÇALIŞMA ALANININ GÜNCEL HALİNE bağlıdır
+    #: (projeyi çalıştır, derle, ölç): dosyalar değiştikten sonra aynı argümanlarla yeniden
+    #: çağrılması tekrar DEĞİLDİR. Ölçüldü (2 Ekim 2026, 8. kabul koşusu): model temayı
+    #: yazıp `start_preview`'ı yeniden çağırdı, tekrar kapısı "zaten yaptın" diye engelledi;
+    #: tema hiç etkinleşmedi ve model boş siteyi curl ile çözmeye çalıştı.
+    reruns_on_change: bool = False
+    #: False ise araç ÇALIŞIR ama modele sunulan listede görünmez.
+    #
+    # Takma adlar içindir. `view_file` ile `read_file` aynı şeydir ve ikisi de
+    # aynı açıklamayla listelenince model ayırt edilemez iki araç görür; ölçüldü:
+    # model aynı dosya için iki adı dönüşümlü kullanıp tekrar kapısına takıldı.
+    # Takma ad çağrılırsa yine çalışır — amaç hatayı önlemek, seçenek sunmak değil.
+    advertised: bool = True
+    #: Aracın etki sınıfı; onay politikası uzak ve yıkıcı işlemleri buna göre sıkılaştırır.
+    effect: ToolEffect = ToolEffect.LOCAL
+    #: Etki çağrının argümanına bağlıysa (tek araçtan onlarca yetenek çalıştıran
+    #: ağ geçitleri) çağrı bazlı çözücü; `None` dönerse `effect` geçerli kalır.
+    effect_resolver: EffectResolver | None = None
+    #: Yalnız adaptörün bildiği hesap/eylem/hedef sınırını çözer.
+    scope_resolver: ScopeResolver | None = None
+
+    def schema(self) -> dict[str, object]:
+        """Model çağrısına eklenecek function-calling şeması."""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": dict(self.parameters),
+            },
+        }
+
+
+class ToolPreviewer(Protocol):
+    """Değiştirici bir araç ÇALIŞMADAN önce ne yapacağını anlatan önizleme üretir."""
+
+    def __call__(self, args: ToolArgs, context: ToolContext) -> str | None: ...

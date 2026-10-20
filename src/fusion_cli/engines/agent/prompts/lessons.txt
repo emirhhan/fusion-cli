@@ -1,0 +1,17 @@
+Aşağıdaki agent oturumunu incele ve GELECEKTE işine yarayacak somut dersler çıkar.
+
+İki tür ders var:
+- "mistake": yapılan bir hata ya da yanlış yaklaşım (gelecekte KAÇINILMALI)
+- "success": işe yarayan, tekrar kullanılacak doğru yaklaşım
+
+Yalnızca gerçekten değerli, kısa ve uygulanabilir dersleri yaz (0-3 adet).
+Genel geçer ya da bariz şeyleri YAZMA — "dikkatli ol" gibi dersler işe yaramaz.
+Türkçe yaz.
+
+SADECE JSON dizi döndür, başka hiçbir metin yazma:
+[{"kind":"mistake","lesson":"..."},{"kind":"success","lesson":"..."}]
+
+Görev: {task}
+
+Oturum izi:
+{trace}

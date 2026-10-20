@@ -1,0 +1,318 @@
+.composer-wrap {
+  margin: 0 auto;
+  max-width: calc(var(--icerik-en-fazla) + (2 * var(--space-5)));
+  padding: var(--space-2) var(--space-5) max(16px, env(safe-area-inset-bottom));
+  width: 100%;
+}
+
+.composer {
+  background: var(--surface-canvas);
+  border: 1px solid var(--border-subtle);
+  /* Ekrana özgü kapsül köşesi: girdi kutusunun karakteristik ölçüsü ölçek
+     kademelerinden birine denk düşmüyor, yuvarlanırsa tanınır biçimi bozulur. */
+  border-radius: 28px;
+  /* ChatGPT kapsülü: çok ince çevre gölgesi + yumuşak alt gölge. */
+  box-shadow: 0 4px 12px rgb(0 0 0 / 5%), 0 0 1px rgb(0 0 0 / 30%);
+  padding: var(--space-3) var(--space-4);
+  position: relative;
+}
+
+.composer:focus-within {
+  border-color: var(--border-strong);
+}
+
+.composer textarea {
+  background: transparent;
+  border: 0;
+  /* ChatGPT/Claude kalitesi: gövdeden bağımsız, KENDİ yazı tipi/boyutu/rengi
+     açıkça verilir — eskiden hiçbiri yoktu, kutu miras kalan hangi değer
+     neyse onu alıyordu ve dolgu üstte 1px / yanlarda 4px / altta 8px gibi
+     ASİMETRİKTİ: metin üst kenara neredeyse yapışık, kayışsız duruyordu. */
+  color: var(--text-primary);
+  display: block;
+  field-sizing: content;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.6;
+  max-height: 180px;
+  min-height: 28px;
+  outline: 0;
+  padding: var(--space-2) var(--space-1);
+  resize: none;
+  width: 100%;
+}
+
+.composer textarea::placeholder {
+  color: var(--text-secondary);
+}
+
+/* Yer tutucu HER ZAMAN tek satır kalır: kutu araç çubuğundaki uzun bir model
+   adı (chip) yüzünden daraldığında bile "İstediğin bir şeyi sor" alt satıra
+   kaymaz. `:placeholder-shown` yalnız kutu BOŞKEN eşleşir; kullanıcı çok
+   satırlı bir metin yazdığında normal satır kaydırma bozulmaz. */
+.composer textarea:placeholder-shown {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer__actions,
+.composer__tools {
+  min-width: 0;
+}
+
+.composer__toolbar,
+.composer__tools {
+  align-items: center;
+  display: flex;
+}
+
+.composer__toolbar {
+  justify-content: space-between;
+}
+
+.composer__tools {
+  gap: var(--space-1);
+}
+
+.composer__mode {
+  background: var(--surface-hover);
+  border: 0;
+  border-radius: 999px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  padding: 6px 10px;
+}
+.composer__mode:hover { background: var(--surface-selected); }
+.composer__mode:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.composer__agent {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+/* Kısa mesajlar yeni sohbette ve açık konuşmada aynı tek satırlık düzende kalır.
+   `minmax(120px, 1fr)` — bağlam uyarısı + model çipi + Çalışma/Otomatik gibi
+   büzülmeyen araç kutuları aynı satırda çoksa, metin sütununun payına yalnız
+   ARTAN alan kalıyordu (`minmax(0, 1fr)` idi): dar konteynerde bu pay birkaç
+   piksele düşüyor, yazı tek harf genişliğinde alt alta diziliyor, kutu dikey
+   şişiyordu (ölçüldü: 700px konteynerde 62px'e, gerçek model adıyla daha da
+   aza düşüyordu). 120px "makul en az bir satırlık" taban — altına ARTIK
+   inmez; araçlar sığmazsa (nadiren, `@container` eşiğinin altında olur)
+   satır taşar, görünmez tek-karakter kutusundan daha iyi bir arıza biçimidir. */
+.composer[data-layout="compact"] {
+  align-items: center;
+  box-shadow: none;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 34px minmax(120px, 1fr) auto auto auto;
+  min-height: 56px;
+  padding: 5px 8px;
+}
+.composer[data-layout="compact"] textarea {
+  grid-column: 2;
+  grid-row: 1;
+  min-height: 26px;
+  padding: 2px 4px;
+}
+.composer[data-layout="compact"] .composer__toolbar,
+.composer[data-layout="compact"] .composer__tools { display: contents; }
+.composer[data-layout="compact"] .composer__tools > span { grid-column: 1; grid-row: 1; }
+.composer[data-layout="compact"] .composer__mode { grid-column: 3; grid-row: 1; }
+.composer[data-layout="compact"] .composer__approval { grid-column: 4; grid-row: 1; }
+.composer[data-layout="compact"] .composer__actions { grid-column: 5; grid-row: 1; }
+.composer[data-layout="compact"] .composer__actions > button[aria-label="Gönder"]:disabled { display: none; }
+.composer[data-layout="compact"] .composer__voice { border: 0; height: 32px; width: 32px; }
+.composer[data-layout="compact"] .composer__voice--conversation {
+  /* ChatGPT'nin sesli sohbet düğmesi: açıkta siyah, koyuda beyaz daire. */
+  background: var(--control-primary);
+  color: var(--surface-canvas);
+  height: 36px;
+  width: 36px;
+}
+
+/* Pencere genişliği DEĞİL, composer'ın GERÇEK konteyner genişliği ölçülür:
+   kenar çubuğu açıkken pencere geniş olsa bile composer dar olabilir, eski
+   `@media (max-width: 700px)` bunu göremiyordu (bkz. Shell.css
+   `.app-shell__workspace` — `conversation-workspace` adlı konteyner). Eşik
+   700'den 900'e çıkarıldı: bağlam uyarısı + model çipi + maliyet + Çalışma/
+   Otomatik aynı anda görünürken 700-900px arası konteynerde de metin sütunu
+   birkaç piksele düşüyordu (bkz. yukarı `minmax(120px, 1fr)` yorumu). */
+/* Her genişlikte yığılı düzen: metin üstte tam genişlikte, araçlar altta (Claude gibi).
+   Tek satıra sığdırma, araç düğmeleri çoğalınca metin sütununu yarıya daraltıyordu. */
+@container conversation-workspace (min-width: 0px) {
+  .composer[data-layout="compact"] {
+    display: block;
+    padding: var(--space-3) var(--space-4);
+  }
+  .composer[data-layout="compact"] .composer__toolbar,
+  .composer[data-layout="compact"] .composer__tools { display: flex; }
+  .composer[data-layout="compact"] .composer__toolbar { justify-content: space-between; }
+  /* Çok dar konteynerde (denetçi açık, ~300px) araçlar ile ses/model düğmeleri
+     üst üste biniyordu: sığmayan grup alt satıra iner, üstüne binmez. */
+  .composer__toolbar { flex-wrap: wrap; row-gap: 6px; }
+  .composer__tools { flex-wrap: wrap; max-width: 100%; min-width: auto; row-gap: 6px; }
+  .composer__actions { margin-left: auto; }
+  .composer[data-layout="compact"] textarea { width: 100%; }
+}
+
+.composer__agent {
+  margin-left: var(--space-1);
+}
+
+.composer__cost {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 620px) {
+  .composer__agent {
+    display: none;
+  }
+}
+
+.composer__palette {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  bottom: calc(100% - 4px);
+  box-shadow: 0 12px 36px rgb(0 0 0 / 14%);
+  display: grid;
+  left: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: var(--space-1);
+  position: absolute;
+  right: 0;
+  z-index: 8;
+}
+.composer__palette button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: minmax(110px, auto) minmax(0, 1fr) auto;
+  min-height: 42px;
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+}
+.composer__palette button[aria-selected="true"] { background: var(--surface-selected); }
+.composer__palette button:disabled { opacity: 0.48; }
+.composer__palette code { font: 600 var(--text-sm) var(--font-mono); }
+.composer__palette span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer__palette small { color: var(--text-secondary); }
+
+.composer__attachments { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: 0 var(--space-1) var(--space-2); }
+.composer__attachment {
+  align-items: center;
+  background: var(--surface-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  font-size: var(--text-xs);
+  gap: var(--space-2);
+  max-width: 240px;
+  padding: 5px 6px 5px 9px;
+}
+.composer__attachment > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer__attachment button { background: transparent; border: 0; color: var(--text-secondary); padding: 1px 4px; }
+.composer__attachment-error { color: var(--text-danger); font-size: var(--text-xs); margin: 0 var(--space-1) var(--space-2); }
+
+/* Konuşma düğmesi gönder düğmesinin SOLUNDA durur ve mikrofon simgesi taşır:
+   kullanıcı ona bakınca ne olduğunu anlamalı. */
+.composer__voice {
+  align-items: center; background: transparent; border: 1px solid var(--border-subtle);
+  border-radius: 50%; color: var(--text-secondary); cursor: pointer; display: flex;
+  height: 36px; justify-content: center; width: 36px;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+.composer__voice:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-on); }
+.composer__voice[data-listening="true"] { background: var(--surface-accent-subtle); border-color: var(--accent-text); color: var(--accent-text); }
+.composer__voice--conversation { background: var(--control-primary); border-color: var(--control-primary); color: var(--surface-canvas); }
+.composer__voice--conversation:hover { background: var(--text-primary); border-color: var(--text-primary); color: var(--surface-canvas); }
+.composer__voice:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) { .composer__voice { transition: none; } }
+.composer__actions { align-items: center; display: flex; gap: 8px; }
+
+/* Tur sürerken: ses düğmesiyle aynı ölçüde, açık dolgu içinde koyu kare. */
+.composer__stop {
+  align-items: center; background: var(--control-primary); border: 0; border-radius: 50%;
+  cursor: pointer; display: flex; flex: none; height: 36px; justify-content: center; width: 36px;
+  transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
+}
+.composer__stop:hover { background: var(--text-primary); }
+.composer__stop:active { transform: scale(0.94); }
+.composer__stop:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.composer__stop-square { background: var(--surface-canvas); border-radius: 3px; display: block; height: 12px; width: 12px; }
+@media (prefers-reduced-motion: reduce) { .composer__stop { transition: none; } }
+
+/* İzin modu göstergesi. Sabit metin değil, seçili modu gösterir ve tıklanınca
+   sıradakine geçer; Shift+Tab ile aynı döngü. Renk moda göre değişir ki
+   kullanıcı güvenli modda olduğunu bir bakışta görsün. */
+.composer__approval {
+  background: var(--surface-hover); border: 1px solid transparent; border-radius: var(--radius-pill);
+  color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--text-xs);
+  min-height: 28px; padding: 4px 12px;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+.composer__approval:hover { background: var(--surface-selected); color: var(--text-primary); }
+.composer__approval:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.composer__approval[data-mode="plan"] { border-color: var(--border-strong); color: var(--text-primary); }
+.composer__approval[data-mode="security"] { background: var(--surface-accent-subtle); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) { .composer__approval { transition: none; } }
+
+/* Görsel ek önizlemesi. */
+
+.composer__attachment[data-gorsel="true"] {
+  padding-left: 4px;
+}
+
+.composer__attachment-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-xs);
+  object-fit: cover;
+  display: block;
+}
+
+.composer__disclaimer {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  margin: 8px 0 0;
+  text-align: center;
+}
+/* Boş sohbette composer ortadadır; uyarı altına değil sayfa akışına aittir. */
+[data-empty-chat="true"] .composer__disclaimer { display: none; }
+
+/* Çalışan işe gönderim seçimi, yazma kutusunun kendi hizasında kalır. */
+.composer__submission { grid-column: 1 / -1; align-items: center; display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-2); min-width: 0; font-size: var(--text-xs); color: var(--text-secondary); }
+.composer__submission select { appearance: auto; background: var(--surface-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--text-primary); font: inherit; max-width: 100%; min-width: 0; padding: 5px 8px; }
+.composer__submission select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.composer__submission select:disabled { opacity: .6; }
+.composer__notice { grid-column: 1 / -1; color: var(--text-secondary); font-size: var(--text-xs); line-height: 1.45; margin: 0 0 var(--space-2); }
+
+.composer[data-layout="compact"][data-busy-submission="true"] .composer__submission { grid-row: 1; }
+.composer[data-layout="compact"][data-busy-submission="true"] textarea,
+.composer[data-layout="compact"][data-busy-submission="true"] .composer__tools > span,
+.composer[data-layout="compact"][data-busy-submission="true"] .composer__mode,
+.composer[data-layout="compact"][data-busy-submission="true"] .composer__approval,
+.composer[data-layout="compact"][data-busy-submission="true"] .composer__actions { grid-row: 2; }
+
+/* Drafts grow within the viewport; only the text scrolls, keeping tools reachable. */
+.composer-wrap, .composer { min-width: 0; }
+.composer textarea { box-sizing: border-box; max-height: min(420px, 40dvh); overflow-y: auto; overflow-wrap: anywhere; }
+.composer__toolbar { flex-shrink: 0; }
+.composer__attachments { flex-wrap: nowrap; max-width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; padding-top: 4px; }
+.composer__attachment { flex: 0 0 auto; }
+.composer__attachment[data-gorsel="true"] { position: relative; width: 120px; height: 120px; padding: 0; overflow: hidden; border-radius: var(--radius-md); }
+.composer__attachment[data-gorsel="true"] .composer__attachment-thumb { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+.composer__attachment[data-gorsel="true"] > span { position: absolute; bottom: 0; left: 0; right: 0; padding: 5px 7px; color: white; background: rgb(0 0 0 / 55%); }
+.composer__attachment[data-gorsel="true"] button { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: white; background: rgb(0 0 0 / 65%); cursor: pointer; }
+.composer__attachment button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }

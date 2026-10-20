@@ -1,0 +1,362 @@
+"""`/level` ve `/development` akışları — seç, uygula, kalıcılaştır.
+
+Komut işleyicileri ince kalsın diye akış buraya alınmıştır (RULES.md "UI ve CLI":
+bir komut fonksiyonu 40 satırı aşmaz, mantık aşağı katmana taşınır).
+
+Seçim ekranı ve katalog DIŞARIDAN geçirilir. İkisi de gerçek dünyaya bakar (terminal
+ve ağ); enjekte edilmeseler bu akışlar ancak canlı terminal ve canlı ağ ile test
+edilebilirdi.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+
+from ...config import model_select, writer
+from ...config.eligibility import eligible_profiles
+from ...config.models import Config, ProfileEligibility
+from ...core.errors import ConfigError
+from ...core.model_capability import ModelCapability, ToolSupport
+from ...core.reasoning import ReasoningEffort
+from ...providers import catalog
+from ...providers.catalog import CatalogEntry
+from ...ui import messages
+from ...ui.picker import Choice, pick
+
+#: Seçim ekranı imzası: seçenekler + başlık → seçilen değer (vazgeçilirse None).
+Picker = Callable[..., str | None]
+
+#: Serbest metin sorma imzası (özel model alias'ı için).
+TextAsker = Callable[[str], str | None]
+
+#: Katalog getirici imzası. Ağ hatasında boş demet döner, istisna fırlatmaz.
+CatalogFetcher = Callable[[], tuple[CatalogEntry, ...]]
+
+
+@dataclass(frozen=True, slots=True)
+class FlowResult:
+    """Bir akışın sonucu: yeni yapılandırma (değiştiyse) ve gösterilecek metin."""
+
+    config: Config
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class Source:
+    """`/development` altındaki bir model kaynağı."""
+
+    key: str
+    label: str
+    #: Canlı katalog getirici. `None` ise kaynak serbest metin ister (özel model).
+    fetcher: CatalogFetcher | None
+    description: str = ""
+    #: Seçim ücretlendirilir mi? Kullanıcı uyarılır.
+    paid: bool = False
+    loader: Callable[[], catalog.CatalogLoadResult] | None = None
+
+
+def sources(config: Config | None = None) -> tuple[Source, ...]:
+    """`/development` sources; configured native web sessions appear as a real source."""
+    base = (
+        Source(
+            "openrouter-free",
+            messages.DEV_SOURCE_OPENROUTER_FREE,
+            catalog.fetch_openrouter_free,
+            loader=catalog.load_openrouter_free,
+        ),
+        Source(
+            "nim-free", messages.DEV_SOURCE_NIM_FREE, catalog.fetch_nim, loader=catalog.load_nim
+        ),
+        Source(
+            "openrouter-paid",
+            messages.DEV_SOURCE_OPENROUTER_PAID,
+            catalog.fetch_openrouter_paid,
+            paid=True,
+            loader=catalog.load_openrouter_paid,
+        ),
+    )
+    web: tuple[Source, ...] = ()
+    if config is not None and any(item.enabled for item in config.web_sessions):
+        entries = tuple(
+            CatalogEntry(item.model, item.provider) for item in config.web_sessions if item.enabled
+        )
+        web = (
+            Source(
+                "web-subscriptions",
+                "Web AI abonelikleri",
+                lambda: entries,
+                description="Control Panel'de bağladığın ChatGPT/Claude/Gemini/Copilot oturumları",
+            ),
+        )
+    local: tuple[Source, ...] = ()
+    if config is not None:
+        specs = (
+            getattr(config, "agent", None),
+            getattr(config, "judge", None),
+            *getattr(config, "candidates", ()),
+            *(
+                spec
+                for tier in getattr(config, "tiers", ())
+                for spec in (tier.agent, tier.judge, *tier.candidates)
+            ),
+        )
+        local_ids = dict.fromkeys(
+            model
+            for item in specs
+            if item is not None
+            for model in item.models
+            if model.startswith(("ollama/", "ollama_chat/"))
+        )
+        local_entries = tuple(CatalogEntry(model, "ollama") for model in local_ids)
+
+        def local_models() -> tuple[CatalogEntry, ...]:
+            entries = (*local_entries, *catalog.fetch_ollama())
+            return tuple({entry.model_id: entry for entry in entries}.values())
+
+        local = (
+            Source(
+                "ollama-local",
+                "Ollama · yerel",
+                local_models,
+                description="Bu bilgisayardaki yerel modeller",
+            ),
+        )
+    return (
+        *base,
+        *web,
+        *local,
+        Source(
+            "custom",
+            messages.DEV_SOURCE_CUSTOM,
+            None,
+            description=messages.DEV_SOURCE_CUSTOM_HINT,
+        ),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# /level
+# --------------------------------------------------------------------------- #
+
+
+def level_choices(config: Config) -> tuple[Choice, ...]:
+    """`/level` seçeneği listesi (tek kaynak; seçici ve TUI modalı bunu paylaşır)."""
+    return tuple(Choice(tier.name, tier.name, tier.label) for tier in config.tiers)
+
+
+def choose_level(config: Config, *, picker: Picker = pick) -> FlowResult:
+    """Kademe seçtir, uygula ve kaydet.
+
+    Kaydetme başarısız olsa bile kademe UYGULANMIŞ kalır: kullanıcı seçimini
+    oturum boyunca kullanabilmeli, dosya izni sorunu turu engellememeli.
+    """
+    picked = picker(level_choices(config), title=messages.LEVEL_TITLE, gradient_rows=True)
+    if picked is None:
+        return FlowResult(config, messages.PICKER_CANCELLED)
+    return applied_result(model_select.apply_tier(config, picked), picked)
+
+
+#: `/mode` seçim ekranındaki "auto" seçeneğinin değeri. Kademe adı DEĞİLDİR:
+#: komut işleyicisi bunu görürse profili kademe yerine auto kipine alır.
+AUTO_CHOICE = "auto"
+
+
+def mode_choices(config: Config) -> tuple[Choice, ...]:
+    """`/mode` seçeneği listesi: auto + tanımlı kademeler (tek kaynak)."""
+    auto = Choice(AUTO_CHOICE, messages.MODE_AUTO_LABEL, messages.MODE_AUTO_HINT)
+    return (auto, *level_choices(config))
+
+
+def choose_mode(config: Config, *, picker: Picker = pick) -> str | None:
+    """Çalışma profili seçtir: auto + tanımlı kademeler.
+
+    Seçilen değeri HAM döndürür (kademe adı ya da `AUTO_CHOICE`); uygulama kararını
+    komut işleyicisi verir, çünkü `auto` bir yapılandırma değişikliği değil oturum
+    kipidir ve `FlowResult` (config değişimi) kalıbına girmez. Vazgeçilirse `None`.
+    """
+    return picker(mode_choices(config), title=messages.MODE_TITLE, gradient_rows=True)
+
+
+def effort_choices() -> tuple[Choice, ...]:
+    """`/effort` seçeneği listesi: enum'dan (tek kaynak)."""
+    return tuple(
+        Choice(
+            effort.value,
+            effort.value,
+            messages.EFFORT_HINT_AUTO if effort is ReasoningEffort.AUTO else "",
+        )
+        for effort in ReasoningEffort
+    )
+
+
+def choose_effort(*, picker: Picker = pick) -> str | None:
+    """Reasoning yoğunluğu seçtir; seçilen değeri (`ReasoningEffort.value`) döndür.
+
+    Seçenekler enum'dan gelir; ikinci bir liste tutulmaz. `auto`'ya ipucu eklenir
+    (parametre gönderilmediğini kullanıcı görsün). Vazgeçilirse `None`.
+    """
+    return picker(effort_choices(), title=messages.EFFORT_TITLE)
+
+
+def applied_result(config: Config, tier_name: str) -> FlowResult:
+    """Uygulanmış kademeyi kalıcılaştır ve sonucu anlat.
+
+    Seçim ekranından da (`choose_level`) betiklenebilir yoldan da (`/level premium`)
+    aynı fonksiyon geçer; iki yol ayrı yazılsaydı biri kaydetmeyi unutabilirdi.
+    """
+    applied = messages.LEVEL_APPLIED.format(name=tier_name, model=config.agent.model)
+    return FlowResult(config, f"{applied}\n{_persist(config)}")
+
+
+# --------------------------------------------------------------------------- #
+# /development
+# --------------------------------------------------------------------------- #
+
+
+def choose_development(
+    config: Config, *, picker: Picker = pick, ask_text: TextAsker | None = None
+) -> FlowResult:
+    """Kaynak seç → model seç → uygula ve kaydet.
+
+    Seçilen model agent, hakem ve havuzun TAMAMINA uygulanır: kullanıcı tek bir
+    model seçtiğini söylüyor, rollerden birinin eski modelde kalması sürpriz olurdu.
+    """
+    source = _choose_source(config, picker)
+    if source is None:
+        return FlowResult(config, messages.PICKER_CANCELLED)
+
+    model_id, reason = _choose_model(
+        source, picker=picker, ask_text=ask_text, eligibility=config.profile_eligibility
+    )
+    if model_id is None:
+        return FlowResult(config, reason)
+
+    return apply_development_model(config, model_id, paid=source.paid)
+
+
+def apply_development_model(config: Config, model_id: str, *, paid: bool) -> FlowResult:
+    """Seçilen modeli agent + hakem + havuzun tamamına uygula ve kalıcılaştır.
+
+    Seçim ekranı (plain REPL, prompt_toolkit), TUI modalı VE masaüstü uygulamasının
+    `/development uygula` komut tamamlaması AYNI uygulama/kaydetme yolundan geçsin
+    diye ayrıldı; dört yol ayrı yazılsaydı biri kaydetmeyi, ücret uyarısını ya da
+    doğrulamayı unutabilirdi (RULES.md: ortak davranış tek yerde).
+
+    NIM modeli STRICT (yedeksiz) uygulanmadan ÖNCE gerçek araç çağrısıyla doğrulanır.
+    Ölçüldü (27 Eylül): bu doğrulama yalnızca `choose_development` (CLI seçim ekranı)
+    içinde yapılıyordu; masaüstü uygulamasının `/development uygula …` komut
+    tamamlaması (`appserver/commands.py::_apply_development`) doğrudan bu fonksiyona
+    geliyor ve doğrulamayı hiç görmüyordu. Kullanıcı seçiciden `glm-5.3` seçtiğinde
+    (o gün NIM'de yanıt vermeyen bir model) hiçbir kontrol olmadan STRICT + yedeksiz
+    uygulanıyor, sonraki her tur boş/açıklamasız "cevap üretmedi" ile bitiyordu.
+    Doğrulama artık İKİ yolun da geçtiği TEK yerde durur.
+    """
+    if model_id.startswith("nvidia_nim/"):
+        verified, reason = catalog.probe_nim_tools(model_id)
+        if not verified:
+            return FlowResult(config, reason)
+    try:
+        updated = model_select.apply_single_model(config, model_id)
+    except ConfigError as error:
+        return FlowResult(config, str(error))
+
+    lines = [messages.DEV_APPLIED.format(model=model_id)]
+    if paid:
+        lines.append(messages.DEV_PAID_WARNING)
+    lines.append(_persist(updated))
+    return FlowResult(updated, "\n".join(lines))
+
+
+def source_choices(config: Config) -> tuple[Choice, ...]:
+    """Kaynak listesini seçim öğelerine çevir (plain REPL seçicisi ve TUI modalı ortak)."""
+    return tuple(Choice(item.key, item.label, item.description) for item in sources(config))
+
+
+def source_by_key(config: Config, key: str | None) -> Source | None:
+    """Seçilen anahtardan kaynağı bul; yoksa None."""
+    return next((item for item in sources(config) if item.key == key), None)
+
+
+def entries_to_choices(
+    entries: tuple[CatalogEntry, ...], eligibility: dict[str, ProfileEligibility]
+) -> tuple[Choice, ...]:
+    """Katalog kayıtlarını rozetli seçim öğelerine çevir (her iki seçim yolu ortak)."""
+    return tuple(
+        Choice(entry.model_id, entry.model_id, _model_label(entry, eligibility))
+        for entry in entries
+    )
+
+
+def _choose_source(config: Config, picker: Picker) -> Source | None:
+    picked = picker(source_choices(config), title=messages.DEV_SOURCE_TITLE)
+    return source_by_key(config, picked)
+
+
+def _choose_model(
+    source: Source,
+    *,
+    picker: Picker,
+    ask_text: TextAsker | None,
+    eligibility: dict[str, ProfileEligibility],
+) -> tuple[str | None, str]:
+    """Kaynağa göre modeli belirle: katalogdan seç ya da serbest metin al.
+
+    Model seçilemediğinde SEBEBİ de döner. Katalog boş kaldığında "vazgeçildi"
+    demek ağın ya da anahtarın eksik olduğunu gizler; kullanıcı komutu bozuk sanar.
+    """
+    if source.fetcher is None:
+        return _ask_custom(ask_text), messages.PICKER_CANCELLED
+    entries = source.fetcher()
+    if not entries:
+        return None, messages.DEV_EMPTY_CATALOG
+    picked = picker(
+        entries_to_choices(entries, eligibility),
+        title=messages.DEV_MODEL_TITLE.format(source=source.label),
+    )
+    return picked, messages.PICKER_CANCELLED
+
+
+def _ask_custom(ask_text: TextAsker | None) -> str | None:
+    if ask_text is None:
+        return None
+    answer = ask_text(messages.DEV_CUSTOM_PROMPT)
+    return answer.strip() if answer and answer.strip() else None
+
+
+def catalog_capability(entry: CatalogEntry) -> ModelCapability:
+    """Katalog kaydından yeteneği türet.
+
+    Katalog yalnızca bağlam penceresini VERİR; araç desteği ve reasoning
+    doğrulanmamıştır (`UNKNOWN`). Uydurulmaz: bilinen tek gerçek sinyal bağlamdır.
+    """
+    return ModelCapability(tool_support=ToolSupport.UNKNOWN, context_window=entry.context_length)
+
+
+def _model_label(entry: CatalogEntry, eligibility: dict[str, ProfileEligibility]) -> str:
+    """Seçim satırının açıklaması: bağlam + uygun olduğu profiller.
+
+    Rozet, hangi profillerin bu modeli ÖNERDİĞİNİ gösterir; kullanıcı bir modelin
+    neden bir profile uygun olmadığını (küçük bağlam) satırda görebilir.
+    """
+    parts = [_context_label(entry)]
+    profiles = eligible_profiles(catalog_capability(entry), eligibility)
+    if profiles:
+        parts.append(messages.DEV_PROFILE_BADGE.format(profiles="·".join(profiles)))
+    return "  ·  ".join(part for part in parts if part)
+
+
+def _context_label(entry: CatalogEntry) -> str:
+    """Bağlam uzunluğu seçimin en ayırt edici bilgisidir; bilinmiyorsa yazılmaz."""
+    return f"{entry.context_length:,} token".replace(",", ".") if entry.context_length else ""
+
+
+# --------------------------------------------------------------------------- #
+
+
+def _persist(config: Config) -> str:
+    """Seçimi kalıcılaştır. Yazamamak akışı bozmaz, yalnızca bildirilir."""
+    try:
+        return messages.LEVEL_SAVED.format(path=writer.write_model_section(config))
+    except ConfigError as error:
+        return messages.LEVEL_SAVE_FAILED.format(error=error)

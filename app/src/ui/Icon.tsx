@@ -1,0 +1,136 @@
+import type { ReactNode, SVGProps } from "react";
+
+export type IconName =
+  | "speaker"
+  | "thumbsUp"
+  | "thumbsDown"
+  | "download"
+  | "sparkle"
+  | "expand"
+  | "edit"
+  | "close"
+  | "arrowUp"
+  | "folder"
+  | "folderOpen"
+  | "image"
+  | "video"
+  | "attach"
+  | "changes"
+  | "chat"
+  | "chevron"
+  | "copy"
+  | "files"
+  | "help"
+  | "lessons"
+  | "new"
+  | "logout"
+  | "mic"
+  | "panel"
+  | "preview"
+  | "search"
+  | "send"
+  | "share"
+  | "settings"
+  | "user"
+  | "sidebar"
+  | "skills"
+  | "stop"
+  | "terminal"
+  | "tests"
+  | "home"
+  | "clock"
+  | "library"
+  | "play"
+  | "trash"
+  | "sun"
+  | "pulse"
+  | "branch"
+  | "shield"
+  | "flask"
+  | "scroll"
+  | "tasks"
+  | "filter"
+  | "sort";
+
+const paths: Record<IconName, ReactNode> = {
+  speaker: <><path d="M11 4 6 8H3v8h3l5 4V4Z" /><path d="M15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14" /></>,
+  thumbsUp: <><path d="M8 10v11H4V10h4ZM8 10l5-8c2 0 3 2 2 5l-1 3h5a2 2 0 0 1 2 2l-2 7a3 3 0 0 1-3 2H8" /></>,
+  thumbsDown: <><path d="M8 14V3H4v11h4ZM8 14l5 8c2 0 3-2 2-5l-1-3h5a2 2 0 0 0 2-2l-2-7a3 3 0 0 0-3-2H8" /></>,
+  sun: <><circle cx="12" cy="12" r="4" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" /></>,
+  pulse: <><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M6 14h3l2-4 3 6 2-3h2" /></>,
+  branch: <><circle cx="6" cy="5.5" r="2" /><circle cx="6" cy="18.5" r="2" /><circle cx="18" cy="18.5" r="2" /><path d="M6 7.5v9M18 16.5V10a3 3 0 0 0-3-3h-2" /><path d="m15 4-2.5 3L15 10" /></>,
+  shield: <><path d="M12 3 5 6v5.5c0 4.2 2.9 7.8 7 9 4.1-1.2 7-4.8 7-9V6l-7-3Z" /><circle cx="12" cy="11.5" r="2.4" /></>,
+  flask: <><path d="M9 3h6" /><path d="M10 3v6L5 18a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3" /><path d="M7.5 15h9" /></>,
+  scroll: <><path d="M6 4h12a2 2 0 0 1 2 2v13a1 1 0 0 1-1 1H8a2 2 0 0 1-2-2V4Z" /><path d="M6 4a2 2 0 0 0-2 2v2h2" /><path d="M10 9h6M10 13h6" /></>,
+  tasks: <><path d="M10 6h10M10 12h10M10 18h10" /><rect x="3.5" y="4.5" width="3" height="3" rx=".8" /><rect x="3.5" y="10.5" width="3" height="3" rx=".8" /><rect x="3.5" y="16.5" width="3" height="3" rx=".8" /></>,
+  filter: <><path d="M5 4v7M5 15v5M12 4v2M12 10v10M19 4v9M19 17v3" /><circle cx="5" cy="13" r="2" /><circle cx="12" cy="8" r="2" /><circle cx="19" cy="15" r="2" /></>,
+  sort: <><path d="M8 4v16M4 16l4 4 4-4" /><path d="M16 20V4M12 8l4-4 4 4" /></>,
+  play: <path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z" />,
+  trash: <><path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" /><path d="M9 7V4h6v3" /></>,
+  download: <><path d="M12 4v11" /><path d="m7 10 5 5 5-5" /><path d="M5 20h14" /></>,
+  sparkle: <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Zm6 12 .8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8L18 15Z" />,
+  expand: <><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="m21 3-7 7" /><path d="m3 21 7-7" /></>,
+  edit: <><path d="M4 20h4L19 9l-4-4L4 16v4Z" /><path d="m13.5 6.5 4 4" /></>,
+  close: <><path d="M6 6l12 12" /><path d="M18 6 6 18" /></>,
+  arrowUp: <><path d="M12 19V5" /><path d="m6 11 6-6 6 6" /></>,
+  folder: <path d="M3 7V5a2 2 0 0 1 2-2h5l3 3h6a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7h18" />,
+  /* Proje satırı açıkken kapalı klasörün yerini alır: aynı gövde, kapak
+     üstte kalkık — Finder'daki "açık klasör" göstergesiyle aynı dil. */
+  folderOpen: <path d="M3 7V5a2 2 0 0 1 2-2h5l3 3h6a2 2 0 0 1 2 2H8l-2.5 8H3V7Zm2.5 13-2.5-8h16.2a1 1 0 0 1 .97 1.24l-1.5 6A1 1 0 0 1 17.7 20H5.5Z" />,
+  image: <><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m3 17 5-5 4 4 4-6 5 7" /></>,
+  video: <><rect x="3" y="5" width="13" height="14" rx="2" /><path d="m16 10 5-3v10l-5-3" /></>,
+  attach: <path d="m20.5 11.5-8.9 8.9a5 5 0 0 1-7.1-7.1l9.6-9.6a3.5 3.5 0 0 1 5 5l-9.6 9.6a2 2 0 0 1-2.8-2.8l8.9-8.9" />,
+  changes: <><path d="M5 7h10" /><path d="m12 4 3 3-3 3" /><path d="M19 17H9" /><path d="m12 14-3 3 3 3" /></>,
+  chat: <path d="M20 12a7 7 0 0 1-7 7H8l-4 3v-4.6A7 7 0 0 1 6 5h7a7 7 0 0 1 7 7Z" />,
+  chevron: <path d="m9 18 6-6-6-6" />,
+  copy: <><rect width="13" height="13" x="8" y="8" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></>,
+  files: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v5h4" /></>,
+  help: <><circle cx="12" cy="12" r="9" /><path d="M9.8 9a2.4 2.4 0 1 1 3.5 2.1c-.8.4-1.3 1-1.3 1.9" /><path d="M12 17h.01" /></>,
+  lessons: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22.5z" /><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5a2.5 2.5 0 0 1 2.5 2.5z" /></>,
+  new: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
+  logout: <><path d="M10 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h5" /><path d="m14 8 4 4-4 4" /><path d="M8 12h10" /></>,
+  mic: <><rect x="9" y="2" width="6" height="13" rx="3" /><path d="M5 10a7 7 0 0 0 14 0M12 17v5m-4 0h8" /></>,
+  panel: <><rect width="18" height="16" x="3" y="4" rx="2" /><path d="M15 4v16" /></>,
+  preview: <><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6" /><circle cx="12" cy="12" r="2.5" /></>,
+  search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></>,
+  send: <><path d="m22 2-7 20-4-9-9-4z" /><path d="M22 2 11 13" /></>,
+  share: <><path d="M12 16V3" /><path d="m7 8 5-5 5 5" /><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" /></>,
+  settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" /></>,
+  user: <><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></>,
+  sidebar: <><rect width="18" height="16" x="3" y="4" rx="2" /><path d="M9 4v16" /></>,
+  skills: <><path d="m12 3 1.4 4.2L18 8.5l-3.5 2.7.1 4.5-3.6-2.5-3.6 2.5.1-4.5L4 8.5l4.6-1.3z" /><path d="M17 17v4" /><path d="M15 19h4" /></>,
+  stop: <rect width="10" height="10" x="7" y="7" rx="1.5" />,
+  terminal: <><path d="m5 7 4 4-4 4" /><path d="M11 17h8" /></>,
+  home: <><path d="m3 11 9-8 9 8" /><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5" /></>,
+  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+  library: <><path d="M5 4v16" /><path d="M9 4v16" /><path d="M13 4v16" /><path d="m16.5 5 3.5 14.5" /></>,
+  tests: <><path d="M9 3h6" /><path d="M10 3v5l-5 9a2.5 2.5 0 0 0 2.2 4h9.6a2.5 2.5 0 0 0 2.2-4l-5-9V3" /><path d="M8 15h8" /></>,
+};
+
+interface IconProps extends Omit<SVGProps<SVGSVGElement>, "name"> {
+  name: IconName;
+  size?: number;
+  title?: string;
+}
+
+export function Icon({ name, size = 20, title, ...props }: IconProps) {
+  return (
+    <svg
+      aria-hidden={title ? undefined : true}
+      aria-label={title}
+      fill="none"
+      height={size}
+      role={title ? "img" : undefined}
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.75"
+      viewBox="0 0 24 24"
+      width={size}
+      {...props}
+    >
+      {title && <title>{title}</title>}
+      {paths[name]}
+    </svg>
+  );
+}

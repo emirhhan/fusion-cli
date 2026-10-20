@@ -1,0 +1,247 @@
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { Conversation } from "./Conversation";
+
+afterEach(cleanup);
+
+describe("Conversation", () => {
+  it("kullanıcıyı balonda, Fusion yanıtını balonsuz makalede gösterir", () => {
+    const { container } = render(
+      <Conversation
+        mesajlar={[
+          { rol: "kullanici", metin: "Bir oyun yap" },
+          { rol: "asistan", metin: "Oyunu hazırladım." },
+        ]}
+      />,
+    );
+    expect(container.querySelector(".conversation__message--user")).toBeTruthy();
+    expect(screen.getByRole("article", { name: "Fusion yanıtı" })).toBeTruthy();
+    expect(container.querySelector(".conversation__message--assistant")?.className).not.toContain(
+      "conversation__bubble",
+    );
+    expect(screen.getByText("Siz")).toBeTruthy();
+    expect(screen.getByText("Fusion")).toBeTruthy();
+  });
+
+  it("Fusion yanıtını markdown olarak çizer; kodu kendi kartına alır", () => {
+    const { container } = render(
+      <Conversation
+        mesajlar={[{ rol: "asistan", metin: "## Kurulum\n\n```python\nprint(1)\n```" }]}
+      />,
+    );
+    expect(container.querySelector("h2")?.textContent).toBe("Kurulum");
+    expect(container.querySelector(".code-card")).not.toBeNull();
+  });
+
+  it("mesaj geçmişini canlı bölge yapmaz; işlem durumunu ayrı canlı bölgede sunar", () => {
+    const { container } = render(
+      <Conversation
+        mesajlar={[{
+          rol: "olay",
+          metin: "düşünüyor",
+          adimlar: [{ metin: "düşünüyor", ayrinti: "agent · model" }],
+        }]}
+      />,
+    );
+    expect(container.querySelector(".conversation__stream")?.hasAttribute("aria-live")).toBe(false);
+    expect(screen.getByRole("status").textContent).toBe("Çalışıyor");
+  });
+
+  it("çalışırken tek satır gösterir; kutu, ikon ve 'Çalışma' başlığı çizmez", () => {
+    const { container } = render(
+      <Conversation
+        mesajlar={[{ rol: "olay", metin: "dosya yazıyor", adimlar: [{ metin: "dosya yazıyor" }] }]}
+      />,
+    );
+    expect(screen.queryByText("Çalışma")).toBeNull();
+    expect(container.querySelector(".activity__pulse")?.textContent).toBe("Dosya yazıyor…");
+    expect(container.querySelector('[data-state="running"]')).not.toBeNull();
+    expect(container.querySelector("details")).toBeNull();
+  });
+
+  it("tur kesilince gerideki çalışan olayın sayacını ve durumunu kaldırır", () => {
+    const mesajlar = [{ rol: "olay" as const, metin: "düşünüyor", adimlar: [{ metin: "düşünüyor" }] }];
+    const { container, rerender } = render(<Conversation mesajlar={mesajlar} running />);
+    expect(container.querySelector('[data-state="running"]')).not.toBeNull();
+    rerender(<Conversation mesajlar={mesajlar} running={false} />);
+    expect(container.querySelector('[data-state="running"]')).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("");
+  });
+
+  /* Kullanıcının ölçülmüş şikayeti: basit bir soruda bile cevabın üstünde yeşil
+     tikli bir "Tamamlandı" bloğu kalıyordu. Biten iş iz BIRAKMAMALI. */
+  it("tamamlanan iş hiçbir iz bırakmaz", () => {
+    const { container } = render(
+      <Conversation
+        mesajlar={[{
+          rol: "olay",
+          metin: "görev tamamlandı",
+          adimlar: [{ metin: "görev tamamlandı", sonuc: "completed" }],
+        }]}
+      />,
+    );
+    expect(container.querySelector(".activity")).toBeNull();
+    expect(container.textContent).not.toContain("Tamamlandı");
+    expect(screen.getByRole("status").textContent).toBe("");
+  });
+
+  it("adım dökümü açıkken tamamlanan iş katlanmış özet bırakır", () => {
+    render(
+      <Conversation
+        showSteps
+        mesajlar={[{
+          rol: "olay",
+          metin: "görev tamamlandı",
+          adimlar: [
+            { metin: "düşünüyor", ayrinti: "agent · model" },
+            { metin: "araç çalıştı: write_file", ayrinti: "index.html", sonuc: "completed" },
+          ],
+        }]}
+      />,
+    );
+    const ozet = screen.getByText("2 adım · detaylar");
+    expect(ozet.closest("details")?.hasAttribute("open")).toBe(false);
+    expect(screen.getByText("index.html")).toBeTruthy();
+  });
+
+  it.each([
+    ["failed", "Tamamlanamadı"],
+    ["partial", "Kısmen tamamlandı"],
+  ] as const)("%s sonucu kaybolmaz; sebebiyle görünür kalır", (sonuc, etiket) => {
+    const { container } = render(
+      <Conversation
+        mesajlar={[{
+          rol: "olay",
+          metin: "adım düştü",
+          adimlar: [{ metin: "adım düştü", ayrinti: "agent adım bütçesi doldu", sonuc }],
+        }]}
+      />,
+    );
+    const satir = container.querySelector(`[data-state="${sonuc}"]`);
+    expect(satir?.textContent).toContain(etiket);
+    expect(satir?.textContent).toContain("agent adım bütçesi doldu");
+    expect(satir?.textContent).not.toContain("Tamamlandı");
+  });
+
+  it("başarısızlığı ekran okuyucuya duyurur, başarıyı duyurmaz", () => {
+    const { rerender } = render(
+      <Conversation
+        mesajlar={[{ rol: "olay", metin: "düştü", adimlar: [{ metin: "düştü", sonuc: "failed" }] }]}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toBe("Tamamlanamadı");
+
+    rerender(
+      <Conversation
+        mesajlar={[{ rol: "olay", metin: "bitti", adimlar: [{ metin: "bitti", sonuc: "completed" }] }]}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toBe("");
+  });
+
+  it("uzun ve satır sonlu metni güvenli metin akışında korur", () => {
+    const { container } = render(
+      <Conversation mesajlar={[{ rol: "asistan", metin: "ilk satır\nikinci satır" }]} />,
+    );
+    expect(container.querySelector(".conversation__text")?.textContent).toContain("ikinci satır");
+  });
+});
+
+describe("Conversation — gönderilen ekler", () => {
+  it("görsel eki küçük önizlemeyle gösterir", () => {
+    render(
+      <Conversation
+        mesajlar={[{
+          rol: "kullanici",
+          metin: "şunu incele",
+          ekler: [{ kind: "image", name: "ekran.png", path: "/tmp/ekran.png" }],
+        }]}
+      />,
+    );
+    // Kabuk yokken önizleme adresi üretilemez; ad yine görünür.
+    expect(screen.getByText("ekran.png")).toBeTruthy();
+  });
+
+  it("eksiz mesajda ek bölümü hiç çizilmez", () => {
+    render(<Conversation mesajlar={[{ rol: "kullanici", metin: "merhaba" }]} />);
+    expect(screen.queryByLabelText("Gönderilen ekler")).toBeNull();
+  });
+});
+
+it("görev listesi kart olarak çizilir ve ilerleme sayısını gösterir", () => {
+  render(
+    <Conversation
+      mesajlar={[
+        {
+          rol: "gorevler",
+          metin: "Görevler",
+          gorevler: [
+            { durum: "bitti", metin: "testleri çalıştır" },
+            { durum: "yapiliyor", metin: "hatayı düzelt" },
+            { durum: "bekliyor", metin: "doğrula" },
+          ],
+        },
+      ]}
+    />,
+  );
+
+  const liste = screen.getByLabelText("Görev listesi");
+  expect(within(liste).getByText("1/3")).toBeTruthy();
+  expect(within(liste).getByText("hatayı düzelt")).toBeTruthy();
+});
+
+it("başarısız kanıtı cevap metninden ayrı gösterir", () => {
+  render(<Conversation running={false} mesajlar={[{
+    id: "request:assistant", rol: "asistan", metin: "Bitti",
+    delivery: {kind: "supported", verified: false, blocking: true, falseClaim: false,
+      changed: ["ornek.py"], problems: ["Kontrol başarısız"], changedTotal: 60},
+  }]} />);
+  const card = screen.getByRole("region", {name: "Kanıt özeti"});
+  expect(within(card).getByText("Doğrulama geçmedi")).toBeTruthy();
+  expect(within(card).getByText("Kontrol başarısız")).toBeTruthy();
+  expect(within(card).getByText("60 dosyanın 1 tanesi gösteriliyor")).toBeTruthy();
+});
+
+it("geçmiş okunurken yeni yanıt için aşağı in düğmesi sunar", () => {
+  const first = {id: "first", rol: "asistan" as const, metin: "eski"};
+  const {container, rerender} = render(<Conversation mesajlar={[first]} />);
+  const scroll = container.querySelector(".conversation") as HTMLElement;
+  Object.defineProperty(scroll, "scrollHeight", {configurable: true, value: 5000});
+  Object.defineProperty(scroll, "clientHeight", {configurable: true, value: 400});
+  scroll.scrollTop = 100;
+  fireEvent.scroll(scroll);
+  rerender(<Conversation mesajlar={[first, {id: "second", rol: "asistan", metin: "yeni"}]} />);
+  expect(scroll.scrollTop).toBe(100);
+  expect(screen.getByRole("button", {name: "Yeni içeriğe git"})).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name: "Yeni içeriğe git"}));
+  expect(scroll.scrollTop).toBe(5000);
+  expect(screen.queryByRole("button", {name: "Yeni içeriğe git"})).toBeNull();
+});
+
+it("aynı son kullanıcı mesajına eski geçmiş eklenince aşağı atlamaz", () => {
+  const last = {id: "last-user", rol: "kullanici" as const, metin: "son soru"};
+  const {container, rerender} = render(<Conversation mesajlar={[last]} />);
+  const scroll = container.querySelector(".conversation") as HTMLElement;
+  Object.defineProperty(scroll, "scrollHeight", {configurable: true, value: 5000});
+  Object.defineProperty(scroll, "clientHeight", {configurable: true, value: 400});
+  scroll.scrollTop = 100;
+  fireEvent.scroll(scroll);
+  rerender(<Conversation mesajlar={[{id: "old", rol: "asistan", metin: "eski"}, last]} />);
+  expect(scroll.scrollTop).toBe(100);
+  expect(screen.queryByRole("button", {name: "Yeni içeriğe git"})).toBeNull();
+});
+
+it("gönderilmiş eki mevcut dosya açma yoluyla açar", () => {
+  const opened: string[] = [];
+  render(<Conversation onOpenFile={(path) => opened.push(path)} mesajlar={[{
+    id: "user", rol: "kullanici", metin: "incele",
+    ekler: [{kind: "file", name: "rapor.txt", path: "/project/rapor.txt"}],
+  }]} />);
+  fireEvent.click(screen.getByRole("button", {name: "rapor.txt dosyasını aç"}));
+  expect(opened).toEqual(["/project/rapor.txt"]);
+});
+
+it("alt ajan kartlarını ana sohbetin üzerinde çizmez", () => {
+ const { container } = render(<Conversation mesajlar={[{ rol: "ekip", metin: "Ekip", ajanlar: [{ id: "a", persona: "yardimci", unvan: "Araştırmacı", avatar: "yardimci", renk: "mavi", gorev: "İncele", durum: "calisiyor", adimlar: [], baslangic: 1 }] }]} />);
+ expect(container.querySelector(".team-cards")).toBeNull();
+});

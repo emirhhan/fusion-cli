@@ -1,0 +1,41 @@
+/* Açılış ekranı her zaman koyu ve düzdür: pencerenin ilk boyası (#111) ile kesintisiz birleşir. */
+.runtime-setup {
+  align-items: center;
+  background: #111111;
+  color: #ececec;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  justify-content: center;
+  min-height: 100%;
+  padding: 48px 24px;
+}
+
+/* Logo: yumuşakça belirir, sonra çok yavaş nefes alır. Yalnız opaklık animasyonu. */
+.runtime-setup__mark { animation: runtime-in 480ms ease-out both; }
+.runtime-setup[data-busy="true"] .runtime-setup__mark img { animation: runtime-breathe 2.6s ease-in-out 480ms infinite; }
+@keyframes runtime-in { from { opacity: 0; } }
+@keyframes runtime-breathe { 50% { opacity: .5; } }
+
+/* Meşgulken metin yalnız ekran okuyucuya; ekranda görünmez. */
+.runtime-setup__notice[data-visible="false"] {
+  clip: rect(0 0 0 0);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+.runtime-setup__notice[data-visible="true"] { max-width: 400px; text-align: center; width: 100%; }
+.runtime-setup h1 { font-size: var(--text-xl, 20px); font-weight: 600; letter-spacing: -.01em; line-height: 1.3; margin: 0; }
+.runtime-setup__message { color: #a3a3a3; font-size: var(--text-sm, 14px); line-height: 1.55; margin: 8px 0 22px; }
+.runtime-setup__repair { font-weight: 550; min-height: 42px; }
+.runtime-setup__details { color: #a3a3a3; font-size: var(--text-xs, 12px); line-height: 1.5; margin-top: 18px; text-align: left; }
+.runtime-setup__details summary { cursor: pointer; }
+.runtime-setup__details summary:focus-visible { outline: 2px solid var(--focus-ring, #7db4ff); outline-offset: 3px; }
+.runtime-setup__details p { margin: 8px 0 0; }
+.runtime-setup__version { color: #737373; }
+
+@media (prefers-reduced-motion: reduce) {
+  .runtime-setup__mark, .runtime-setup[data-busy="true"] .runtime-setup__mark img { animation: none; }
+}

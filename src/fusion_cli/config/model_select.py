@@ -1,0 +1,281 @@
+"""Oturum içi model değiştirme.
+
+`Config` ve `ModelSpec` frozen'dır: mutasyon yoktur, her işlem YENİ bir yapılandırma
+döndürür. Bu sayede yarım kalmış bir değişiklik oturumu bozamaz ve fonksiyonlar
+saftır — ağ, dosya ya da yan etki olmadan test edilir.
+
+Değişiklik yalnızca oturum boyunca yaşar; kalıcı olması için `config.yaml`'a yazılır.
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from typing import TYPE_CHECKING
+
+from ..core.errors import ConfigError
+from ..core.routing_strategy import RoutingStrategy, order_models
+from ..core.types import ModelSpec
+from .eligibility import capability_from_spec
+from .models import Config
+from .tool_policy import can_be_mutation_agent
+
+if TYPE_CHECKING:
+    from ..providers.capabilities import TaskRequirements
+
+
+def select_agent_spec(
+    config: Config, task_type: str, requirements: TaskRequirements | None = None
+) -> ModelSpec:
+    """Agent turunda kullanılacak modeli görev tipine göre seç.
+
+    `task_model_map` uzun süre yalnızca fusion motorunda uygulanıyordu; agent her
+    zaman `agent:` rolünü kullanıyordu. Yani haritada "code" için başka bir model
+    yazmak agent modunda hiçbir şey değiştirmiyor, yapılandırma yalan söylüyordu.
+
+    Haritada karşılık yoksa ya da yazan ad tanımlı bir aday değilse `agent:` rolüne
+    düşülür: yapılandırmadaki bir yazım hatası turu çökertmez.
+    """
+    # `/development` veya paneldeki "zorunlu model" seçimi task map'ten üstündür.
+    # Aksi halde başlıkta Gemini görünürken haritadaki eski `secilen` adayı NVIDIA
+    # çalıştırabilir; agent ve öz-denetim farklı modeller kullanır.
+    if config.agent.strict:
+        if requirements is not None:
+            from ..providers.capabilities import capabilities_for, compatibility_issues
+
+            issues = compatibility_issues(
+                capabilities_for(config.agent, config.web_sessions), requirements
+            )
+            # Araç politikasının mevcut erken-hata yolu daha açıklayıcıdır ve
+            # kullanıcıya model çağırmadan mutation'ın neden kapalı olduğunu söyler.
+            # Burada yalnız taşımanın yapısal olarak kaldıramadığı ağır işleri kes.
+            blocking = tuple(issue for issue in issues if issue != "araç desteği")
+            if blocking:
+                raise ConfigError(f"Seçilen model bu görevle uyumsuz: {', '.join(blocking)}.")
+        return config.agent
+
+    mapped = config.task_model_map.get(task_type)
+    secilen = config.candidate_by_name(str(mapped)) if mapped else None
+    if secilen is None:
+        secilen = config.agent
+    # Araç desteği olmayan (ya da yalnızca taklit) bir aday, dosya değiştiren agent
+    # OLAMAZ (master prompt §5.3). Böyle bir adaya yönlendirilmişse varsayılan `agent:`
+    # rolüne düşülür — o rol araç yetenekli olacak biçimde seçilmiştir.
+    if not can_be_mutation_agent(capability_from_spec(secilen)).ok:
+        secilen = config.agent
+    if requirements is not None:
+        from ..providers.capabilities import select_compatible_model
+
+        pool = tuple(dict.fromkeys((secilen, *config.candidates, config.agent)))
+        secilen = select_compatible_model(pool, requirements, config.web_sessions)
+    return _with_agent_fallbacks(secilen, config.agent)
+
+
+def _with_agent_fallbacks(secilen: ModelSpec, agent: ModelSpec) -> ModelSpec:
+    """Aday spec'ini `agent:` rolünün yedek zinciriyle güçlendir.
+
+    Yönlendirme BİRİNCİL modeli değiştirir; dayanıklılığı düşürmemeli. Gerçek hata:
+    `agent:` rolüne yedek zinciri yazılmıştı ama tur `task_model_map` üzerinden
+    ADAY spec'ini kullanıyor ve adayların yedeği yoktu. Model 429 alınca tur
+    bitiyordu — kullanıcı "kotam bitti" sanıyor, oysa NVIDIA NIM'de hız sınırı
+    MODEL BAŞINADIR (ölçüldü) ve zincirdeki başka bir model çalışıyor.
+
+    Sıra korunur ve tekrarlar atılır: adayın kendi yedekleri önce gelir, ardından
+    agent rolününkiler eklenir.
+    """
+    ek = tuple(model for model in agent.models if model not in secilen.models)
+    if not ek:
+        return secilen
+    return replace(secilen, fallback=(*secilen.fallback, *ek))
+
+
+def apply_tier(config: Config, name: str) -> Config:
+    """Bir kademeyi uygula: agent, hakem ve aday havuzunu BİRLİKTE değiştir.
+
+    Kademe seçmek "motorun tamamını o seviyeye al" demektir; bu yüzden agent turunu
+    yönlendiren `task_model_map` de kademenin BAŞ modeline (agent rolü) bağlanır.
+
+    Eskiden harita eski adı yeni havuzda da bulursa KORUYORDU. Bu sessiz bir hataydı:
+    `ultra` seçip sonra `premium`'a geçen kullanıcıda `nemotron-ultra` premium
+    havuzunda da bulunduğu için harita ona yapışıyordu — agent rolü `glm-5.2` (premium'un
+    baş modeli) olmasına rağmen agent turu `nemotron-ultra` çalıştırıyordu. Kullanıcı
+    premium seçip başka modelin cevap verdiğini görüyordu. Kademe artık haritayı
+    koşulsuz baş modele bağlar: seçim ekranda ne yazıyorsa tur onu çalıştırır.
+    """
+    tier = config.tier_by_name(name)
+    if tier is None:
+        known = ", ".join(item.name for item in config.tiers)
+        raise ConfigError(f"'{name}' adlı kademe yok. Tanımlı kademeler: {known}")
+    known_names = {candidate.name for candidate in tier.candidates}
+    # Baş model kademenin `agent` rolüdür; havuzda karşılığı yoksa (savunmacı)
+    # ilk adaya düşülür — `select_agent_spec` yalnızca tanımlı bir adayı bulabilir.
+    headline = tier.agent.name if tier.agent.name in known_names else tier.candidates[0].name
+    task_model_map = dict.fromkeys(config.task_model_map, headline)
+    return replace(
+        config,
+        agent=tier.agent,
+        judge=tier.judge,
+        candidates=tier.candidates,
+        task_model_map=task_model_map,
+    )
+
+
+#: `/development` ile seçilen tek modelin havuzdaki adı.
+SINGLE_MODEL_NAME = "secilen"
+
+#: Çırağın (ücretsiz API modeli) varsayılan kademesi. `defaults.yaml`'da paketin
+#: gömülü ilk kademesi budur (bkz. Faz 3, Görev 2) — kullanıcı "çırağa dön"
+#: dediğinde döneceği yer burasıdır. Ad `defaults.yaml`'daki kademe adıyla
+#: birebir eşleşir; başka bir yerde tekrar yazılmaz.
+APPRENTICE_TIER_NAME = "low"
+
+
+def reset_to_apprentice_default(config: Config) -> Config:
+    """Web kilidini kaldırıp agent'ı ücretsiz API çırağının varsayılan kademesine döndür.
+
+    Kullanıcı `/development` ile bilerek TEK bir web modeline (`tags: [strict]`)
+    kilitlenmiş olabilir; bu geçmişte yapılmış, geri dönüşü olmayan bir seçimdi
+    (bkz. Faz 3 denetim bulguları C5/C9). Bu fonksiyon o geri dönüş yoludur —
+    ama yalnızca kullanıcı onu AÇIKÇA çağırdığında (panelde düğme ya da CLI
+    komutu): hiçbir arka plan kodu kullanıcının seçimini kendiliğinden değiştirmez.
+
+    Uygulama `apply_tier` üzerinden yapılır (RULES "Genel Tasarım": aynı işi
+    yapan ikinci bir yol açılmaz); `apply_tier` agent/hakem/aday havuzunun
+    TAMAMINI kademenin taze `ModelSpec`'leriyle değiştirdiği için eski `strict`
+    etiketi de bu değişimle birlikte düşer, ayrıca kaldırmaya gerek yoktur.
+    """
+    return apply_tier(config, APPRENTICE_TIER_NAME)
+
+
+#: `/level cirak` — kullanıcının hatırlaması gereken CLI takma adı. `defaults.yaml`
+#: kademe adı `low`dur ve DEĞİŞTİRİLMEZ (tek kaynak); bu yalnızca komut satırında
+#: "ücretsiz çırak" kavramını `low` gibi soyut bir isimden daha görünür kılar.
+APPRENTICE_TIER_ALIAS = "cirak"
+
+
+def normalize_tier_name(name: str) -> str:
+    """`/level` argümanındaki çırak takma adını gerçek kademe adına çevir.
+
+    İkinci bir kademe tanımı AÇILMAZ (RULES "Genel Tasarım"): yalnızca bir isim
+    eşlemesidir, `apply_tier` hâlâ TEK kademe kaynağını (`config.tiers`) okur.
+    """
+    wanted = name.strip().lower()
+    return APPRENTICE_TIER_NAME if wanted == APPRENTICE_TIER_ALIAS else wanted
+
+
+def apply_single_model(config: Config, model_id: str) -> Config:
+    """Tek bir modeli agent, hakem ve havuzun TAMAMINA uygula.
+
+    `/development` kullanıcıya "şu modelle çalış" dedirtir; rollerden birinin eski
+    modelde kalması sürpriz olurdu. Havuz tek adaya iner: aynı modeli üç kez
+    paralel sormak fusion'a hiçbir şey katmaz, yalnızca kota yakar.
+    """
+    # `/development` açıkça TEK model seçtirir. `strict` etiketi savunmacıdır:
+    # config'te önceki/panelden kalmış bir fallback bulunsa bile kullanıcıya başka
+    # modelin sessizce cevap vermesine izin vermez. Panelden strict kapatılabilir.
+    spec = ModelSpec(name=SINGLE_MODEL_NAME, model=_validated(model_id), tags=("strict",))
+    return replace(
+        config,
+        agent=spec,
+        judge=spec,
+        candidates=(spec,),
+        # Harita yalnızca tanımlı bir adayı işaret edebilir; havuz tek adaya
+        # indiği için her görev tipi ona bağlanır.
+        task_model_map=dict.fromkeys(config.task_model_map, SINGLE_MODEL_NAME),
+    )
+
+
+def set_agent_model(config: Config, model_id: str) -> Config:
+    """Agent rolünün modelini değiştir."""
+    return replace(config, agent=config.agent.with_identity(_validated(model_id)))
+
+
+def set_judge_model(config: Config, model_id: str) -> Config:
+    """Hakem (ve sentez) rolünün modelini değiştir."""
+    return replace(config, judge=config.judge.with_identity(_validated(model_id)))
+
+
+def set_candidate_model(config: Config, key: str, model_id: str) -> Config:
+    """Bir fusion adayının modelini değiştir. `key`: aday adı ya da 1-tabanlı sıra."""
+    index = resolve_candidate(config, key)
+    candidates = list(config.candidates)
+    candidates[index] = candidates[index].with_identity(_validated(model_id))
+    return replace(config, candidates=tuple(candidates))
+
+
+def add_candidate(config: Config, name: str, model_id: str, tags: tuple[str, ...] = ()) -> Config:
+    """Havuza yeni aday ekle."""
+    if config.candidate_by_name(name) is not None:
+        raise ConfigError(f"'{name}' adlı aday zaten var.")
+    spec = ModelSpec(name=name, model=_validated(model_id), tags=tags)
+    return replace(config, candidates=(*config.candidates, spec))
+
+
+def remove_candidate(config: Config, name: str) -> Config:
+    """Havuzdan aday çıkar. Son aday çıkarılamaz — fusion en az bir modele ihtiyaç duyar."""
+    if config.candidate_by_name(name) is None:
+        raise ConfigError(f"'{name}' adlı aday yok.")
+    if len(config.candidates) <= 1:
+        raise ConfigError("En az bir aday kalmalı.")
+    remaining = tuple(item for item in config.candidates if item.name != name)
+    return replace(config, candidates=remaining)
+
+
+def resolve_candidate(config: Config, key: str) -> int:
+    """Aday adını ya da 1-tabanlı sırasını 0-tabanlı indekse çevir."""
+    wanted = key.strip()
+    if wanted.isdigit():
+        index = int(wanted) - 1
+        if not 0 <= index < len(config.candidates):
+            raise ConfigError(f"Aday sırası aralık dışı: {wanted}")
+        return index
+    for index, candidate in enumerate(config.candidates):
+        if candidate.name == wanted:
+            return index
+    known = ", ".join(item.name for item in config.candidates)
+    raise ConfigError(f"'{wanted}' adlı aday yok. Tanımlı adaylar: {known}")
+
+
+def format_models(config: Config) -> str:
+    """Etkin roller ve Control Panel'de bağlı native web modelleri."""
+    lines = [f"agent : {config.agent.model}", f"hakem : {config.judge.model}", "adaylar:"]
+    for index, candidate in enumerate(config.candidates, 1):
+        tags = f"  [{', '.join(candidate.tags)}]" if candidate.tags else ""
+        lines.append(f"  {index}. {candidate.name}: {candidate.model}{tags}")
+    web = [session for session in config.web_sessions if session.enabled]
+    if web:
+        lines.append("web sağlayıcıları:")
+        for session in web:
+            lines.append(f"  - {session.provider}/{session.account}: {session.model}")
+    return "\n".join(lines)
+
+
+def _validated(model_id: str) -> str:
+    """Model kimliği `<sağlayıcı>/<model>` biçiminde olmalıdır."""
+    cleaned = model_id.strip()
+    if "/" not in cleaned:
+        raise ConfigError(
+            f"Geçersiz model kimliği: '{cleaned}'. Biçim: <sağlayıcı>/<model> "
+            "(ör. openrouter/qwen/qwen3.8-27b:free). Liste için: fusion models --fetch"
+        )
+    return cleaned
+
+
+def escalated_spec(spec: ModelSpec, escalation: int) -> ModelSpec:
+    """Takılan adım için zinciri bir üst modele kaydır.
+
+    Ölçüldü (5 Eylül starter koşusu): başarısız görevlerde yeniden deneme sayısı
+    sıfırdı — aynı model aynı duvara çarpıyor, yedek zincir yalnız sağlayıcı
+    ARIZASINDA devreye giriyordu. Yükseltme kanıta bağlıdır: adım kaçıncı kez
+    deneniyorsa zincir o kadar kaydırılır, görev zorluğu tahmin edilmez.
+
+    `strict` rolde (ör. `/development` tek-model akışı) yükseltme YAPILMAZ:
+    kullanıcının açık model seçimi harness kararıyla ezilemez.
+    """
+    if escalation <= 0 or spec.strict or not spec.fallback:
+        return spec
+    zincir = order_models(
+        (spec.model, *spec.fallback),
+        strategy=RoutingStrategy.ESCALATE,
+        escalation=escalation,
+    )
+    return replace(spec.with_identity(zincir[0]), fallback=zincir[1:])

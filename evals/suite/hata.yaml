@@ -1,0 +1,115 @@
+# Hata teşhis seti — çalıştır, oku, kök nedeni bul, düzelt.
+#
+# 5 Eylül canlı koşusunda düşen görevlerin tamamı bu sınıftandı: model dosya
+# üretmeyi biliyor, mevcut bir hatayı okuyup köküne inmeyi beceremiyor. Bu set o
+# yeteneği izole ölçer ve 7 (runtime tanı) ile 6 (reprodüksiyon testi) maddelerinin
+# önce/sonra karşılaştırmasının tabanıdır.
+#
+# Her görevde hata GÖRÜNÜR bir belirtiyle gelir (traceback, düşen test, yanlış
+# sonuç) ve ölçüt davranışı çalıştırarak kanıtlar.
+tasks:
+  - id: sessiz-yanlis-sonucu-duzelt
+    request: >-
+      ortalama.py yanlış sonuç veriyor: test_ortalama.py çalıştırıldığında düşüyor.
+      Testi çalıştır, çıktıyı oku ve kök nedeni düzelt. Testi değiştirme.
+    setup:
+      ortalama.py: |
+        def ortalama(sayilar):
+            # Son eleman yanlışlıkla atlanıyor.
+            return sum(sayilar[:-1]) / len(sayilar)
+      test_ortalama.py: |
+        from ortalama import ortalama
+
+
+        def test_ortalama():
+            assert ortalama([2, 4, 6]) == 4.0
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: python -m pytest -q test_ortalama.py
+
+  - id: kenar-durumunda-cokme
+    request: >-
+      bol.py boş listeyle çağrıldığında çöküyor. Hatayı üret, oku ve boş listede
+      0.0 dönecek biçimde düzelt; diğer davranışlar aynı kalmalı.
+    setup:
+      bol.py: |
+        def ortalama_bol(sayilar, bolen):
+            return sum(sayilar) / len(sayilar) / bolen
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: >-
+        python -c "from bol import ortalama_bol;
+        assert ortalama_bol([2, 4], 2) == 1.5; assert ortalama_bol([], 2) == 0.0"
+
+  - id: yanlis-anahtar-traceback
+    request: >-
+      rapor.py çalıştırıldığında KeyError veriyor. Çalıştır, traceback'i oku ve
+      kök nedeni düzelt; çıktı formatı aynı kalmalı.
+    setup:
+      veri.py: |
+        KAYITLAR = [{"ad": "ada", "puan": 90}, {"ad": "linus", "puan": 80}]
+      rapor.py: |
+        from veri import KAYITLAR
+
+
+        def ozet():
+            return ", ".join(f"{kayit['isim']}:{kayit['puan']}" for kayit in KAYITLAR)
+
+
+        if __name__ == "__main__":
+            print(ozet())
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: >-
+        python -c "from rapor import ozet; assert ozet() == 'ada:90, linus:80'"
+
+  - id: iki-testten-birini-bozmadan-duzelt
+    request: >-
+      test_metin.py içindeki iki testten biri düşüyor. Düşen testi geçir ama
+      geçen testi bozma. Testleri değiştirme.
+    setup:
+      metin.py: |
+        def baslik(metin):
+            return metin.upper()
+      test_metin.py: |
+        from metin import baslik
+
+
+        def test_bosluklar_temizlenir():
+            assert baslik("  merhaba  ") == "MERHABA"
+
+
+        def test_buyuk_harfe_cevirir():
+            assert baslik("merhaba") == "MERHABA"
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: python -m pytest -q test_metin.py
+
+  - id: yanlis-sinir-degeri
+    request: >-
+      indirim.py, sınır değerinde yanlış davranıyor: test_indirim.py düşüyor.
+      Testi çalıştır, hangi durumun bozuk olduğunu bul ve düzelt.
+    setup:
+      indirim.py: |
+        def indirim_orani(tutar):
+            if tutar > 100:
+                return 0.10
+            return 0.0
+      test_indirim.py: |
+        from indirim import indirim_orani
+
+
+        def test_sinir_dahil():
+            assert indirim_orani(100) == 0.10
+
+
+        def test_altinda_indirim_yok():
+            assert indirim_orani(99) == 0.0
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: python -m pytest -q test_indirim.py

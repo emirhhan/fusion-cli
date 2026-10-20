@@ -1,0 +1,671 @@
+"""Dosya araçları: okuma, yazma, düzenleme, listeleme.
+
+Düzenleme araçlarının ortak kuralı: `old` metni dosyada BİREBİR ve BENZERSİZ
+eşleşmelidir. Belirsiz eşleşme sessizce ilk bulunana uygulanmaz — reddedilir ve
+modelden daha fazla bağlam istenir. Yanlış yere yapılan bir düzenleme, yapılmayan
+bir düzenlemeden çok daha pahalıdır.
+
+`multi_edit` ATOMİKTİR: tüm değişiklikler bellekte uygulanır, hepsi başarılıysa dosya
+tek seferde yazılır. Yarım uygulanmış dosya bırakmaz.
+
+Başarılı her düzenleme (ve var olan dosyanın üzerine yazma) modele unified diff
+döner. Ölçüldü (A2): araç yalnız "düzenlendi: yol" dönerken bir eklemede
+`urun.adet -= adet` satırı sessizce silindi ve model sildiği satırı hiç görmedi.
+Diff'te `-` satırı olarak görünen kayıp, aynı turda geri eklenebilir.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import tempfile
+from pathlib import Path
+
+from ..core.constants import (
+    FILE_MISSING_PREFIX,
+    MAX_DIR_ENTRIES,
+    MAX_READ_BYTES,
+    MAX_READ_LINES,
+    VISIBLE_DOTFILES,
+)
+from ..core.errors import PathAccessError
+from ..core.structured_files import validate_structured
+from ..core.tools import ToolArgs, ToolContext, ToolResult
+from .args import (
+    ArgumentError,
+    optional_str,
+    require_list,
+    require_positive_int,
+    require_str,
+    require_text,
+)
+from .diffing import bounded_diff
+from .files_read import read_large_text
+from .lost_definitions import lost_definitions
+from .remotion_guard import guard_remotion_write
+
+#: Bir yolun "uydurma" sayılması için en az bileşen sayısı (`/mnt/data/x`). Tek
+#: bileşenli `/api` gibi metinler çoğu kez URL yolu ya da desendir, yol değil.
+_INVENTED_MIN_PARTS = 3
+
+
+#: Kökü her makinede var olabilen ama altı başka ortama ait olan dizinler: Linux'ta
+#: `/mnt` vardır, `/mnt/data` (sanal ortam yolu) yoktur. CI'da (Ubuntu) ölçüldü.
+_SECOND_LEVEL_TOPS = frozenset({"Users", "home", "mnt", "workspace", "sandbox"})
+
+
+def invented_path_reason(raw: str, root: Path) -> str | None:
+    """Mutlak yol bu bilgisayarda hiç var olmayan bir kökten mi geliyor?
+
+    Ölçüldü (30 Eylül): model web öğretmeninin sanal ortam yolunu
+    (`/Users/mnt/data/...`) kopyaladı; komut sessizce yanlış yere gitti. Var
+    olmayan kök (`/mnt`, `/workspace`) ya da var olmayan kullanıcı dizini
+    (`/Users/mnt`, `/home/user`) uydurmadır; dosya henüz yok diye değil.
+    """
+    if os.name != "posix" or not raw.startswith("/"):
+        return None
+    parts = Path(raw).parts
+    if len(parts) < _INVENTED_MIN_PARTS:
+        return None
+    top = Path("/", parts[1])
+    if not top.exists():
+        uydurma = str(top)
+    elif parts[1] in _SECOND_LEVEL_TOPS and not Path("/", parts[1], parts[2]).exists():
+        uydurma = str(Path("/", parts[1], parts[2]))
+    else:
+        return None
+    return (
+        f"Bu yol bu bilgisayarda YOK: {raw} ({uydurma} hiç yok; başka bir ortamın yolu "
+        f"gibi görünüyor). Proje kökü: {root}. Yolları köke göreli yaz."
+    )
+
+
+def resolve_path(context: ToolContext, raw: str) -> Path:
+    """Kullanıcı/model yolunu çözümle: `~` açılır, göreli yol köke bağlanır.
+
+    `context.restrict_to_root` açıksa yol kök altında olmak zorundadır: sembolik
+    linkler çözülür (`resolve`) ve sonuç köke bağlı değilse `PathAccessError`
+    fırlatılır. Böylece `..` ile dışarı taşma ve köke sızdıran symlink engellenir.
+    """
+    path = Path(raw).expanduser()
+    uydurma = invented_path_reason(str(path), context.root)
+    if uydurma is not None:
+        raise PathAccessError(uydurma)
+    resolved = path if path.is_absolute() else context.root / path
+    if not context.restrict_to_root:
+        return resolved
+    root = context.root.resolve()
+    # İzinli alan: kök + kullanıcının `--add-dir` ile AÇIKÇA verdiği dizinler.
+    izinli = (root, *(extra.resolve() for extra in context.extra_roots))
+    # Var olmayan hedefte de doğrulama yapılabilmesi için strict=False.
+    concrete = resolved.resolve()
+    if not any(concrete == izin or izin in concrete.parents for izin in izinli):
+        raise PathAccessError(f"Kısıtlı kipte proje kökü dışına erişilemez: {raw} (kök: {root})")
+    return concrete
+
+
+def writable_path(context: ToolContext, raw: str) -> Path:
+    """Yazılacak yolu çözümle; bağlamın yazma alanı varsa dışına çıkılmaz."""
+    path = resolve_path(context, raw)
+    guard_remotion_write(context, path, raw)
+    scope = context.write_scope
+    if scope is None:
+        return path
+    concrete = path.resolve()
+    if any(concrete == izin.resolve() or izin.resolve() in concrete.parents for izin in scope):
+        return path
+    alanlar = ", ".join(str(izin) for izin in scope) or "(boş)"
+    raise PathAccessError(
+        f"Bu alt ajanın yazma alanı dışında: {raw}. İzinli alan: {alanlar}. "
+        "Başka bir dosyayı değiştirmek gerekiyorsa sonucu ana ajana bildir."
+    )
+
+
+def atomic_write(path: Path, content: str) -> None:
+    """Geçici dosyaya yaz, sonra yerine taşı.
+
+    `write_text` doğrudan hedefe yazar: süreç yazmanın ortasında ölürse kullanıcının
+    çalışan dosyası yarım kalır. `os.replace` aynı dosya sisteminde atomiktir, bu
+    yüzden geçici dosya HEDEFLE AYNI DİZİNDE açılır — /tmp başka bir bağlama noktası
+    olabilir ve taşıma atomikliğini kaybederdi (`config.writer` aynı deseni kullanır).
+
+    İzinler AYRICA ayarlanır. `mkstemp` dosyayı bilinçli olarak 0600 açar ve taşıma
+    bu izni hedefe taşır: ölçüldü, Fusion'ın dokunduğu proje dosyaları `-rw-------`
+    olurken komşuları `-rw-r--r--` kalıyordu. Kullanıcının deposunda bu görünmez bir
+    yan etkidir — git izin değişikliğini kayda geçirir ve dosya başka bir kullanıcıyla
+    çalışan bir derleme/servis tarafından okunamaz hale gelebilir.
+
+    Var olan dosyanın izni KORUNUR; yeni dosya, sürecin umask'ıyla süzülmüş normal
+    dosya iznini alır (kabuktan `touch` ile aynı sonuç).
+    """
+    handle, name = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    gecici = Path(name)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as dosya:
+            dosya.write(content)
+        gecici.chmod(_target_mode(path))
+        gecici.replace(path)
+    except BaseException:
+        gecici.unlink(missing_ok=True)
+        raise
+
+
+#: Yeni dosyalar için taban izin; umask ile süzülür (0666 & ~umask → tipik 0644).
+DEFAULT_FILE_MODE = 0o666
+
+
+def _target_mode(path: Path) -> int:
+    """Yazılacak dosyanın taşıması gereken izin biti."""
+    try:
+        return path.stat().st_mode & 0o777
+    except OSError:
+        # Yeni dosya: umask okunur ve hemen geri yazılır — okumanın başka yolu yok.
+        umask = os.umask(0)
+        os.umask(umask)
+        return DEFAULT_FILE_MODE & ~umask
+
+
+def display_path(context: ToolContext, path: Path) -> str:
+    """Yolu KULLANICIYA gösterilecek biçime çevir: kök altındaysa göreli.
+
+    Ölçüldü: hata satırı `Dosya yok: /private/var/folders/m0/4p1xq…/tmpb5c/
+    ayarlar.json. Y…` biçiminde basılıyordu. Sonuç satırının neredeyse tamamını
+    gürültülü mutlak yol yiyor, mesajın asıl açıklaması ("Yolu list_dir ile
+    doğrula…") kesiliyordu — yani kullanıcı hatanın NEDENİNİ göremiyordu.
+
+    Kök dışındaki yol mutlak kalır: orada tam yol gerçekten bilgidir, kullanıcı
+    çalışma alanının dışına çıkıldığını görmelidir.
+    """
+    for root in (context.root, context.root.resolve()):
+        # Kök İKİ biçimiyle de denenir: `resolve_path` sonucu çözümlenmiş yoldur
+        # ve macOS'ta `/var` → `/private/var` olur. Yalnızca ham köke bakmak, kök
+        # altındaki her yolu "dışarıda" sayıp mutlak bırakıyordu.
+        try:
+            relative = path.relative_to(root)
+        except ValueError:
+            continue
+        return str(relative) if relative.parts else "."
+    return str(path)
+
+
+def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
+    raw_path = require_str(args, "path")
+    try:
+        path = resolve_path(context, raw_path)
+    except PathAccessError:
+        # Offloaded tool output may live under memory_dir outside the project.
+        # This exception applies to read_file only and to an exact artifact that
+        # this session's store wrote; write/edit tools keep the root boundary.
+        candidate = Path(raw_path).expanduser()
+        if context.artifacts is None or not context.artifacts.owns(candidate):
+            raise
+        path = candidate.resolve()
+    if not path.exists():
+        # Çıkışsız hata mesajı kilitlenme üretir: model ne yapacağını bilemez ve
+        # aynı çağrıyı tekrarlar. Her engelleme yasal bir sonraki hamle göstermeli.
+        return ToolResult.failure(
+            f"{FILE_MISSING_PREFIX} {display_path(context, path)}.{_benzer_oneri(path)} "
+            "Yolu list_dir ya da glob ile doğrula; dosyanın oluşturulması gerekiyorsa "
+            "write_file kullan."
+        )
+    if path.is_dir():
+        return ToolResult.failure(f"Bu bir dizin, dosya değil: {display_path(context, path)}")
+
+    is_artifact = context.artifacts is not None and context.artifacts.owns(path)
+    if not is_artifact and path.stat().st_size > MAX_READ_BYTES:
+        window = context.read_window or MAX_READ_LINES
+        return read_large_text(
+            path,
+            display_path(context, path),
+            offset=require_positive_int(args, "offset", default=1),
+            limit=min(require_positive_int(args, "limit", default=window), window),
+            byte_limit=MAX_READ_BYTES,
+            cancelled=context.cancelled,
+        )
+    ham = path.read_bytes()
+    data = ham[:MAX_READ_BYTES]
+    kirpildi = len(ham) > MAX_READ_BYTES
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return ToolResult.failure(
+            f"Metin dosyası değil (UTF-8 çözülemedi): {display_path(context, path)}"
+        )
+
+    lines = text.splitlines()
+    if is_artifact:
+        # Tool output can contain one enormous line. Split only artifacts into
+        # bounded display segments so reading one cannot offload itself again.
+        lines = [line[i : i + 6_000] for line in lines for i in range(0, len(line), 6_000)]
+    if not lines:
+        return ToolResult("(boş dosya)")
+
+    offset = require_positive_int(args, "offset", default=1)
+    ust_sinir = context.read_window or MAX_READ_LINES
+    limit = min(require_positive_int(args, "limit", default=ust_sinir), ust_sinir)
+    if offset > len(lines):
+        return ToolResult.failure(
+            f"{display_path(context, path)} yalnızca {len(lines)} satır; offset={offset} "
+            f"dosyanın sonunu geçiyor. offset 1 ile {len(lines)} arasında olmalı."
+        )
+
+    pencere = lines[offset - 1 : offset - 1 + limit]
+    if is_artifact:
+        total = 0
+        bounded: list[str] = []
+        for line in pencere:
+            if bounded and total + len(line) > 15_000:
+                break
+            bounded.append(line)
+            total += len(line)
+        pencere = bounded
+    son = offset + len(pencere) - 1
+    numbered = "\n".join(f"{index:>5}\t{line}" for index, line in enumerate(pencere, offset))
+    kalan = len(lines) - son
+    if kirpildi or kalan > 0:
+        # Sessiz kırpma modele "dosyanın tamamını okudum" yanılgısı verir; sonra
+        # göremediği bir yeri düzenlemeye kalkar.
+        #
+        # Not SIRADAKİ ÇAĞRIYI BİREBİR YAZAR. Ölçüldü: eski not yalnızca "gerisi
+        # gösterilmedi, search_code kullan" diyordu. Model devam etmek istedi,
+        # devam etmenin bir yolu olmadığı için AYNI çağrıyı tekrarladı, birebir
+        # aynı içeriği aldı ve turu "ne yapmamı istiyorsunuz" diye bitirdi.
+        # Kullanıcının görevi ortadayken. Çıkışı olmayan sınır kilitlenme üretir.
+        numbered += f"\n\n{_devam_notu(display_path(context, path), son, kalan, kirpildi)}"
+    if not kirpildi and offset == 1 and kalan == 0:
+        context.fully_read.add(path)
+    return ToolResult(numbered)
+
+
+def _devam_notu(path: str, son: int, kalan: int, kirpildi: bool) -> str:
+    """Kırpmayı ve SIRADAKİ çağrıyı yaz."""
+    if kirpildi and kalan <= 0:
+        return (
+            f"[… dosya {MAX_READ_BYTES} bayttan büyük olduğu için KIRPILDI; gerisi "
+            "gösterilmedi. İlgili yeri bulmak için search_code kullan.]"
+        )
+    return (
+        f"[… {son}. satırda kesildi, {kalan} satır daha var. Devamı için: "
+        f'read_file {{"path": "{path}", "offset": {son + 1}}} '
+        "— aynı çağrıyı offset'siz TEKRARLAMA, aynı satırları geri alırsın.]"
+    )
+
+
+def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
+    kurtarma = _kurtarma(args, context)
+    if kurtarma is not None:
+        return kurtarma
+
+    path = writable_path(context, require_str(args, "path"))
+    if "content" in args:
+        content = require_text(args, "content")
+        context.pending.take()  # eski saklanan içerik ASLA kullanılmaz
+    else:
+        # Saklanan içerik BİR KEZ kullanılır; sonraki çağrıya sızmamalı.
+        content = context.pending.take()
+        if not content:
+            return ToolResult.failure(
+                "'content' alanı eksik ve saklanmış içerik de yok. Dosyanın tam içeriğini gönder."
+            )
+
+    if path.is_dir():
+        # Ölçüldü (2 Ekim 2026, 10. kabul koşusu): model `mkdir -p …/content-product.php`
+        # ile yanlışlıkla dizin açtı; "dosya var, önce oku" mesajı onu okumaya yolladı.
+        return ToolResult.failure(
+            f"Bu bir dizin, dosya değil: {display_path(context, path)}. Dizini kaldır "
+            "(run_shell: rmdir) ya da dosyayı başka bir adla yaz."
+        )
+    existed = path.exists()
+    # Bu turda agent'ın KENDİ oluşturduğu dosya "okunmuş" sayılır: kaybedilecek,
+    # görülmemiş bir satırı yoktur. Aksi halde iskele kurup doldurma akışı kilitlenir
+    # (`scaffold_web` dosyayı yazar, doldurma toptan yazmadır, kapı onu bloklar) ve
+    # tur ilerleme üretmeden ölür — ölçülen gerçek hata buydu.
+    kendi_olusturdu = context.changes.was_created_this_turn(path)
+    if existed and not kendi_olusturdu and path not in context.fully_read:
+        # `read_file` açıklaması zaten "değiştirmeden ÖNCE mutlaka oku" diyor; burada
+        # o kural UYGULANIR. Tam içeriğini görmediğin bir dosyayı baştan yazmak,
+        # görmediğin kısmı silmek demektir — kırpılmış okumada bu sessiz veri kaybıdır.
+        return ToolResult.failure(
+            f"Bu dosya var ve tam içeriğini okumadın: {display_path(context, path)}. "
+            "Üzerine yazmak "
+            "görmediğin satırları siler. Kısmi değişiklik için edit_file kullan; "
+            "gerçekten tamamını yenileyeceksen önce read_file ile TAMAMINI oku."
+        )
+    yapi_sorunu = validate_structured(
+        path, content, available_tools=frozenset(context.available_tools)
+    )
+    if yapi_sorunu is not None:
+        # Bozuk yapı DİSKE ULAŞMAZ. Yazıp sonra uyarmak kullanıcıyı bozuk
+        # dosyayla baş başa bırakırdı: ölçülen vakada tur "tamamlandı" derken
+        # Godot projesi hiç açılmıyordu. Reddetmek önceki iyi durumu korur ve
+        # modele düzeltme şansı verir.
+        return ToolResult.failure(f"Yapı geçersiz: {display_path(context, path)}\n{yapi_sorunu}")
+    before = _read_text_or_none(path) if existed else None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    context.changes.record(path)
+    try:
+        atomic_write(path, content)
+    except OSError as exc:
+        return ToolResult.failure(f"Yazılamadı: {display_path(context, path)} ({exc})")
+    context.touched.add(path)
+    shown = display_path(context, path)
+    if not existed:
+        return ToolResult(f"oluşturuldu: {shown} ({len(content.splitlines())} satır)")
+    if before is None:
+        # Önceki içerik metin değildi; fark gösterilemez, yalnız boyut söylenir.
+        return ToolResult(f"güncellendi: {shown} ({len(content)} karakter)")
+    header = f"güncellendi: {shown}"
+    kayip = lost_definitions(before, content)
+    if kayip:
+        header += (
+            f"\nUYARI: üzerine yazınca şu tanımlar kayboldu ama yeni içerik hâlâ kullanıyor: "
+            f"{', '.join(kayip)}. Dosyayı parça parça yazıyorsan önceki içeriği de ekle "
+            "(ya da edit_file kullan)."
+        )
+    return _change_summary(header, before, content, shown)
+
+
+def _read_text_or_none(path: Path) -> str | None:
+    """Dosyayı UTF-8 metin olarak oku; metin değilse ya da okunamıyorsa `None`."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _change_summary(header: str, before: str, after: str, shown: str) -> ToolResult:
+    """Başarılı değişikliğin sonucu: başlık + tavanla sınırlanmış unified diff.
+
+    Tavan onay önizlemesiyle aynıdır (`MAX_PREVIEW_LINES`); büyük bir yeniden
+    yazma bağlamı şişirmez, kırpıldığında kaç satırın gizlendiği yazılır.
+    """
+    diff = bounded_diff(before, after, shown)
+    if not diff:
+        return ToolResult(f"{header} (içerik aynı)")
+    return ToolResult(f"{header}\n{diff}")
+
+
+def _kurtarma(args: ToolArgs, context: ToolContext) -> ToolResult | None:
+    """`path` eksik ama içerik varsa içeriği sakla ve yalnızca yolu iste.
+
+    Beş koşuda 14 kez yaşandı: model büyük içeriği yazıp sondaki küçük `path` alanını
+    hiç üretmiyor. Eskiden içerik çöpe gidiyor ve model 15 KB'ı baştan üretiyordu.
+    Artık içerik saklanıyor; model tek satırlık bir çağrıyla işi bitiriyor.
+
+    Yol TAHMİN EDİLMEZ — yanlış tahmin var olan bir dosyanın üzerine yazmak demektir.
+    """
+    if "path" in args and str(args.get("path") or "").strip():
+        return None
+    icerik = args.get("content")
+    if not isinstance(icerik, str) or not icerik:
+        return None
+    context.pending.content = icerik
+    return ToolResult.failure(
+        f"'path' alanı eksik. İçeriğini SAKLADIM ({len(icerik)} karakter); tekrar "
+        "gönderme. Aynı aracı YALNIZCA path vererek çağır: "
+        '{"path": "dizin/dosya.uzanti"}'
+    )
+
+
+#: `edit_file` boş `old` ile çağrıldığında modele verilen yol gösterici hata.
+#:
+#: Ölçüldü (Godot koşusu): model `project.godot`'a `run/main_scene` satırını
+#: EKLEMEK için `old` alanını boş bıraktı. Fusion yalnız "boş olmamalı" dedi;
+#: model ne yapacağını bilemeyip `write_file`'a savruldu ve o da var olan dosyada
+#: engellendi — adım hiç ilerlemeden düştü. Boş `old`'u sessizce "sona ekle"
+#: saymak bir TAHMİNDİR: model pekâlâ bir yeri değiştirmek istiyor olabilir.
+#: Doğru cevap, ne yapılacağını AÇIKÇA söylemektir.
+EMPTY_OLD_MESSAGE = (
+    "'old' boş. edit_file VAR OLAN bir metni değiştirir; boş 'old' ile ekleme yapılmaz. "
+    "Eklemek için: önce read_file ile ilgili bölümü gör, sonra edit_file'ı 'old' "
+    "olarak eklemenin yapılacağı yerdeki MEVCUT satırı (benzersiz değilse birkaç "
+    "komşu satırla birlikte), 'new' olarak o satırları AYNEN + yeni satırı vererek çağır."
+)
+
+
+def _yapi_engeli(path: Path, updated: str, context: ToolContext) -> ToolResult | None:
+    """Hedefli düzenlemenin sonucu biçimi bozuyorsa engelle.
+
+    Sahip araçlara YÖNLENDİRME yapılmaz (`authoring=False`): bu bir baştan yazma
+    değil, sahip araçların yapamayacağı hedefli bir değişiklik olabilir. Ama
+    ölçülmüş biçim hasarı (silinen başlık, kayan `ext_resource`) burada da
+    diske ulaşmaz.
+    """
+    sorun = validate_structured(
+        path, updated, available_tools=frozenset(context.available_tools), authoring=False
+    )
+    if sorun is None:
+        return None
+    return ToolResult.failure(f"Yapı geçersiz: {display_path(context, path)}\n{sorun}")
+
+
+def _missing_edit_target(path: Path, context: ToolContext) -> ToolResult:
+    """Düzenlenecek dosya yok: komşu adı öner ve iki çıkışı söyle."""
+    return ToolResult.failure(
+        f"{FILE_MISSING_PREFIX} {display_path(context, path)}.{_benzer_oneri(path)} "
+        "Düzenlenecek bir dosya yok — içeriği write_file ile oluştur, ya da doğru "
+        "yolu list_dir / glob ile bul."
+    )
+
+
+def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
+    path = writable_path(context, require_str(args, "path"))
+    # Gönderilmemiş `old` ile BOŞ `old` farklı hatalardır: ilki eksik alan,
+    # ikincisi yanlış araç seçimidir ve farklı bir düzeltme gerektirir.
+    if isinstance(args.get("old"), str) and not str(args["old"]).strip():
+        return ToolResult.failure(EMPTY_OLD_MESSAGE)
+    old = require_str(args, "old")
+    new = require_text(args, "new")
+    replace_all = args.get("replace_all") is True
+
+    if not path.exists():
+        return _missing_edit_target(path, context)
+    text = path.read_text(encoding="utf-8")
+    old = _tolerate_line_numbers(text, old)
+
+    if replace_all:
+        # Tekrar eden aynı metni tek çağrıda düzeltmek için. Benzersizlik şartı
+        # olmadan çalışır ama METİN VAR OLMALIDIR: sessizce hiçbir şey yapmamak,
+        # modele "düzelttim" yanılgısı verir.
+        count = text.count(old)
+        if count == 0:
+            return ToolResult.failure(_NOT_FOUND)
+        return _apply_edit(path, text, text.replace(old, new), count, context)
+
+    problem = _match_problem(text, old, position=None)
+    if problem is not None:
+        return ToolResult.failure(problem)
+
+    return _apply_edit(path, text, text.replace(old, new, 1), 1, context)
+
+
+def _apply_edit(
+    path: Path, before: str, updated: str, count: int, context: ToolContext
+) -> ToolResult:
+    """Hedefli düzenlemeyi yapı kapısından geçir, yaz ve sonucu diff olarak döndür.
+
+    `edit_file` ve `multi_edit` TEK yoldan yazar: kapı birinde unutulursa biçim
+    hasarı oradan sızar (ölçüldü: `multi_edit` kapıyı atlıyordu).
+    """
+    engel = _yapi_engeli(path, updated, context)
+    if engel is not None:
+        return engel
+    context.changes.record(path)
+    atomic_write(path, updated)
+    context.touched.add(path)
+    shown = display_path(context, path)
+    return _change_summary(f"düzenlendi: {shown} ({count} değişiklik)", before, updated, shown)
+
+
+def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
+    path = writable_path(context, require_str(args, "path"))
+    edits = parse_edits(require_list(args, "edits"))
+
+    if not path.exists():
+        return _missing_edit_target(path, context)
+    original = path.read_text(encoding="utf-8")
+
+    working = original
+    toplam = 0
+    for position, (old, new, replace_all) in enumerate(edits, 1):
+        if replace_all:
+            count = working.count(old)
+            if count == 0:
+                # Atomiklik: tek bir düzenleme tutmazsa dosyaya HİÇ dokunulmaz.
+                return ToolResult.failure(f"{position}. düzenleme: {_NOT_FOUND}")
+            working = working.replace(old, new)
+            toplam += count
+            continue
+        problem = _match_problem(working, old, position=position)
+        if problem is not None:
+            return ToolResult.failure(problem)
+        working = working.replace(old, new, 1)
+        toplam += 1
+
+    return _apply_edit(path, original, working, toplam, context)
+
+
+def list_dir(args: ToolArgs, context: ToolContext) -> ToolResult:
+    path = resolve_path(context, optional_str(args, "path", "."))
+    if not path.exists():
+        return ToolResult.failure(f"Yol yok: {display_path(context, path)}")
+    if path.is_file():
+        return ToolResult(str(path))
+
+    entries = sorted(path.iterdir(), key=lambda entry: (entry.is_file(), entry.name.lower()))
+    visible = [
+        f"{'📁' if entry.is_dir() else '📄'} {entry.name}"
+        for entry in entries[:MAX_DIR_ENTRIES]
+        if not entry.name.startswith(".") or entry.name in VISIBLE_DOTFILES
+    ]
+    return ToolResult("\n".join(visible) if visible else "(boş dizin)")
+
+
+# --------------------------------------------------------------------------- #
+
+
+def parse_edits(raw: object) -> tuple[tuple[str, str, bool], ...]:
+    """`edits` listesini (old, new, replace_all) üçlülerine çevir; bozuksa hata ver."""
+    if not isinstance(raw, list):
+        raise ArgumentError("'edits' bir liste olmalı.")
+    edits: list[tuple[str, str, bool]] = []
+    for position, item in enumerate(raw, 1):
+        if not isinstance(item, dict):
+            raise ArgumentError(f"{position}. düzenleme bir sözlük olmalı: {{'old':…, 'new':…}}")
+        old, new = item.get("old"), item.get("new")
+        if not isinstance(old, str) or not old:
+            raise ArgumentError(f"{position}. düzenleme: 'old' boş olmayan bir metin olmalı.")
+        if not isinstance(new, str):
+            raise ArgumentError(f"{position}. düzenleme: 'new' metin olmalı.")
+        edits.append((old, new, item.get("replace_all") is True))
+    return tuple(edits)
+
+
+def _neden_eslesmedi(text: str, old: str) -> str:
+    """Eşleşme neden tutmadı? Sebebi söylemek, "bulunamadı" demekten çok daha yararlı.
+
+    Dört koşuluk kayıtta EN SIK araç hatası buydu. Muhtemel sebep bir araç tuzağı:
+    `read_file` her satıra "    12\t" biçiminde numara ekliyor ve modelin bunu
+    ayıklaması gerektiğini kimse söylemiyordu.
+    """
+    if _LINE_NUMBERED.search(old):
+        return (
+            "'old' metni satır numarası içeriyor. read_file çıktısındaki '   12\t' "
+            "önekini ve sekmeyi ayıkla; yalnızca satırın KENDİSİNİ gönder."
+        )
+    # Boşluk farkı: metin dosyada var ama girinti/boşluk düzeni tutmuyor.
+    sikistir = " ".join(old.split())
+    if sikistir and sikistir in " ".join(text.split()):
+        return (
+            "'old' metni dosyada var ama GİRİNTİ/boşluk düzeni farklı. Satırı "
+            "read_file çıktısından birebir kopyala (baştaki boşluklar dahil)."
+        )
+    return _NOT_FOUND
+
+
+#: read_file'ın eklediği satır numarası öneki: boşluklar + sayı + sekme.
+#: read_file çıktısındaki satır numarası öneki.
+#
+# Ayırıcı SEKME ya da BOŞLUK olabilir: model çıktıyı yeniden biçimlendirirken
+# sekmeyi boşluğa çeviriyor. Yalnızca sekmeye bakmak, düzenlemenin ilk denemede
+# tutmamasının en sık sebebiydi (ölçüldü: üç ardışık "'old' bulunamadı" ve tur
+# ölü kilide düştü). Yanlış-pozitif riski yok: soyma YALNIZCA sonuç dosyada
+# gerçekten eşleşiyorsa kabul edilir (bkz. `_tolerate_line_numbers`).
+_LINE_NUMBERED = re.compile(r"^[ \t]*\d+[\t ]", re.M)
+
+
+def _tolerate_line_numbers(text: str, old: str) -> str:
+    """`old` read_file çıktısından kopyalanmışsa satır numarası önekini soy.
+
+    read_file satırları `   12\tkod` biçiminde verir, edit_file ham metin bekler.
+    Model gördüğünü kopyalıyor ve düzenleme reddediliyordu. Teşhis vardı ama
+    tolerans yoktu: model doğru yeri hedeflemiş olsa bile tur yanıyordu ve
+    "yazmak başarısız" gradyanı büyüyordu.
+
+    Soyma YALNIZCA sonuç dosyada eşleşiyorsa kabul edilir; eşleşmiyorsa özgün
+    metin korunur ve mevcut teşhis mesajı devreye girer. Yanlış yere yapılan bir
+    düzenleme, yapılmayan bir düzenlemeden pahalıdır.
+    """
+    if old in text or not _LINE_NUMBERED.search(old):
+        return old
+    soyulmus = _LINE_NUMBERED.sub("", old)
+    return soyulmus if soyulmus and soyulmus in text else old
+
+
+#: Eşleşme bulunamadığında modele dönen açıklama.
+_NOT_FOUND = (
+    "'old' metni dosyada bulunamadı. Birebir eşleşmeli — önce dosyayı okuyup metni oradan kopyala."
+)
+
+
+def _match_problem(text: str, old: str, *, position: int | None) -> str | None:
+    """`old` benzersiz eşleşiyor mu? Eşleşmiyorsa modele ne yapacağını söyle."""
+    count = text.count(old)
+    if count == 1:
+        return None
+    prefix = f"{position}. düzenleme: " if position is not None else ""
+    if count == 0:
+        return f"{prefix}{_neden_eslesmedi(text, old)}"
+    return (
+        f"{prefix}'old' metni {count} kez geçiyor; benzersiz olmalı. HEPSİNİ aynı "
+        "şekilde değiştirecekseniz replace_all: true ekleyin — tek çağrıda biter. "
+        "Yalnızca birini değiştirecekseniz çevresinden birkaç satır daha ekleyerek "
+        "eşleşmeyi daraltın."
+    )
+
+
+#: "Bunu mu demek istedin?" listesinde gösterilecek en fazla ad.
+MAX_BENZER_ONERI = 3
+
+#: Bir adın benzer sayılması için gereken en düşük oran (0-1 arası).
+#
+# 0.6, `difflib`'in kendi varsayılanıdır ve yazım hatası/karakter kaybı için
+# ölçülmüş bir eşiktir. Daha düşük bir değer alakasız dosyaları önerir ve
+# "bunu mu demek istedin" sorusunu gürültüye çevirir.
+BENZERLIK_ESIGI = 0.6
+
+
+def _benzer_oneri(path: Path) -> str:
+    """Bulunamayan dosyaya en yakın komşu adları öner.
+
+    Ölçüldü (7 Eylül canlı koşusu): model `paket/init.py` okumaya çalıştı — doğru
+    ad `paket/__init__.py` idi ve alt çizgiler modelin bağlamında daha önce
+    kaybolmuştu. "Dosya yok" cevabı yönsüzdü; model üç tur boyunca `list_dir`,
+    `glob` ve tekrar okuma denedi. Komşu adı SÖYLEMEK o turları tamamen ortadan
+    kaldırır ve karakter kaybı dışındaki her yazım hatasında da işe yarar.
+
+    Öneri bir İDDİA değildir: dizin okunamazsa ya da yeterince benzer ad yoksa
+    sessizce boş döner.
+    """
+    import difflib
+
+    try:
+        adaylar = [item.name for item in path.parent.iterdir() if item.is_file()]
+    except OSError:
+        return ""
+    yakin = difflib.get_close_matches(
+        path.name, adaylar, n=MAX_BENZER_ONERI, cutoff=BENZERLIK_ESIGI
+    )
+    if not yakin:
+        return ""
+    return " Aynı dizinde benzer ad: " + ", ".join(yakin) + "."

@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Arena Reference</title>
+<style>
+html,body{margin:0;height:100%;background:#111;color:#eee;font-family:system-ui}
+body{display:grid;place-items:center}
+canvas{background:#191919;border:1px solid #333}
+</style>
+</head>
+<body>
+<canvas id="game" width="800" height="600"></canvas>
+<script>
+const canvas = document.querySelector("#game");
+const ctx = canvas.getContext("2d");
+
+let nextEnemyId = 0;
+let player;
+let enemies;
+let xpGems;
+let gameOver;
+let lastShotAt;
+
+function restart() {
+  player = {
+    x: 400,
+    y: 300,
+    hp: 100,
+    maxHp: 100,
+    level: 1,
+    xp: 0
+  };
+  enemies = [];
+  xpGems = [];
+  gameOver = false;
+  lastShotAt = 0;
+}
+
+function spawnEnemy(options = {}) {
+  const enemy = {
+    id: ++nextEnemyId,
+    x: Number(options.x ?? 100),
+    y: Number(options.y ?? 100),
+    hp: Number(options.hp ?? 100),
+    maxHp: Number(options.hp ?? 100),
+    speed: Number(options.speed ?? 0)
+  };
+  enemies.push(enemy);
+  return enemy.id;
+}
+
+function spawnXp(options = {}) {
+  xpGems.push({
+    x: Number(options.x ?? player.x),
+    y: Number(options.y ?? player.y),
+    value: Number(options.value ?? 10)
+  });
+}
+
+function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function damageEnemies(now) {
+  if (now - lastShotAt < 120 || enemies.length === 0) return;
+
+  const target = enemies
+    .map(enemy => ({enemy, d: distance(player, enemy)}))
+    .filter(item => item.d <= 220)
+    .sort((a, b) => a.d - b.d)[0];
+
+  if (!target) return;
+
+  lastShotAt = now;
+  target.enemy.hp -= 25;
+
+  if (target.enemy.hp <= 0) {
+    xpGems.push({
+      x: target.enemy.x,
+      y: target.enemy.y,
+      value: 25
+    });
+    enemies = enemies.filter(enemy => enemy.id !== target.enemy.id);
+  }
+}
+
+function damagePlayer() {
+  for (const enemy of enemies) {
+    if (distance(player, enemy) <= 18) {
+      player.hp -= 1;
+      if (player.hp <= 0) {
+        player.hp = 0;
+        gameOver = true;
+      }
+    }
+  }
+}
+
+function collectXp() {
+  const remaining = [];
+
+  for (const gem of xpGems) {
+    if (distance(player, gem) <= 20) {
+      player.xp += gem.value;
+
+      while (player.xp >= 100) {
+        player.xp -= 100;
+        player.level += 1;
+      }
+    } else {
+      remaining.push(gem);
+    }
+  }
+
+  xpGems = remaining;
+}
+
+function snapshot() {
+  return JSON.parse(JSON.stringify({
+    player,
+    enemies,
+    xpGems,
+    gameOver
+  }));
+}
+
+function update(now) {
+  if (!gameOver) {
+    damageEnemies(now);
+    damagePlayer();
+    collectXp();
+  }
+}
+
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = "#4ade80";
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, 12, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#ef4444";
+  for (const enemy of enemies) {
+    ctx.beginPath();
+    ctx.arc(enemy.x, enemy.y, 11, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = "#facc15";
+  for (const gem of xpGems) {
+    ctx.beginPath();
+    ctx.arc(gem.x, gem.y, 6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function frame(now) {
+  update(now);
+  render();
+  requestAnimationFrame(frame);
+}
+
+window.__FUSION_GAME_DEBUG__ = {
+  snapshot,
+  spawnEnemy,
+  spawnXp,
+  restart
+};
+
+restart();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

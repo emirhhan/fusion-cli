@@ -1,0 +1,818 @@
+"""Slash komut kayıt defteri.
+
+Komutlar bir SÖZLÜKTE tutulur, uzun bir `elif` zincirinde değil. Yeni komut eklemek
+bir `@command(...)` dekoratörü yazmaktır: yardım metni, takma adlar ve tamamlama
+listesi kendiliğinden güncellenir.
+
+İşleyiciler ince tutulur: durumu değiştirir ve tek satırlık bir sonuç döndürür.
+Basma işi çağırana aittir.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+
+from ...config import model_select, profile
+from ...config.eligibility import capability_from_spec
+from ...config.keys import environ_snapshot
+from ...config.models import Config
+from ...core.errors import ConfigError
+from ...core.memory import Feedback, Lesson, LessonKind, LessonSource
+from ...core.reasoning import ReasoningEffort, resolve_reasoning
+from ...engines.agent.approval import ApprovalMode
+from ...history import SessionRef, available_sources, build_digest, source_by_name
+from ...memory.seed import SEED_LESSONS, seed
+from ...providers.registry import BUILTIN_PROVIDERS, ProviderKind
+from ...tools.capabilities import Capability
+from ...tools.capabilities import search as search_capabilities
+from ...ui import messages
+from ...ui.picker import Choice, pick
+from . import macros, model_flows, profiles_flow, provider_flow, verify_flow, workspace_commands
+from .state import TASK_TYPES, Engine, Reminder, ReplState
+
+#: `/resume<kaynak>` listesinde gösterilecek en fazla oturum. `source.list`'e
+#: bu değer `limit` olarak geçirilir; böylece gereksiz oturum ayrıştırılmaz.
+RESUME_LIST_LIMIT = 50
+
+#: Bir komutun döndürdüğü kullanıcıya gösterilecek metin (boşsa bir şey basılmaz).
+CommandResult = str
+
+#: İşleyici imzası: (durum, argüman metni) → gösterilecek sonuç.
+Handler = Callable[[ReplState, str], CommandResult]
+
+
+@dataclass(frozen=True, slots=True)
+class SlashCommand:
+    """Tek bir slash komutu."""
+
+    name: str
+    summary: str
+    handler: Handler
+    aliases: tuple[str, ...] = ()
+    #: Yardım ekranında hangi başlık altında görüneceği.
+    group: str = "Genel"
+    #: Argüman aldığında yardımda gösterilecek biçim.
+    usage: str = ""
+
+    @property
+    def display(self) -> str:
+        return f"/{self.name} {self.usage}".strip()
+
+
+@dataclass(slots=True)
+class CommandRegistry:
+    """Ada ve takma ada göre komut çözen defter."""
+
+    _commands: dict[str, SlashCommand] = field(default_factory=dict)
+    _by_name: dict[str, SlashCommand] = field(default_factory=dict)
+
+    def register(self, command: SlashCommand) -> None:
+        self._by_name[command.name] = command
+        for key in (command.name, *command.aliases):
+            self._commands[key] = command
+
+    def get(self, name: str) -> SlashCommand | None:
+        return self._commands.get(name.lower())
+
+    def all(self) -> tuple[SlashCommand, ...]:
+        return tuple(self._by_name.values())
+
+    def completion_words(self) -> list[str]:
+        """Tamamlama için tüm komut ve takma adlar."""
+        return sorted(f"/{key}" for key in self._commands)
+
+
+def build_registry(home: Path | None = None) -> CommandRegistry:
+    """Yerleşik komutların tamamını içeren defter.
+
+    `home` verilirse makinede izi bulunan her geçmiş kaynağı için bir
+    `/resume<kaynak>` komutu EKLENİR. Kurulu olmayan aracın komutu hiç var olmaz:
+    tamamlamada da yardımda da görünmez.
+    """
+    registry = CommandRegistry()
+    for command in _COMMANDS:
+        registry.register(command)
+    if home is not None:
+        for source in available_sources(home):
+            registry.register(
+                SlashCommand(
+                    f"resume{source.name}",
+                    messages.CMD_RESUME.format(source=source.name),
+                    _resume(source.name),
+                    group="Geçmiş",
+                )
+            )
+    return registry
+
+
+# --------------------------------------------------------------------------- #
+# İşleyiciler
+# --------------------------------------------------------------------------- #
+
+
+def _exit(state: ReplState, argument: str) -> str:
+    # Veda mesajını kapanış basar; buradan da dönmek satırı iki kez gösterirdi.
+    state.running = False
+    return ""
+
+
+def _use_agent(state: ReplState, argument: str) -> str:
+    state.engine = Engine.AGENT
+    return messages.REPL_ENGINE_AGENT
+
+
+def _use_fusion(state: ReplState, argument: str) -> str:
+    state.engine = Engine.FUSION
+    return messages.REPL_ENGINE_FUSION
+
+
+def _set_mode(mode: ApprovalMode) -> Handler:
+    def _handler(state: ReplState, argument: str) -> str:
+        state.approval = mode
+        return messages.REPL_MODE_CHANGED.format(mode=mode.value)
+
+    return _handler
+
+
+def _reset(state: ReplState, argument: str) -> str:
+    return messages.REPL_HISTORY_CLEARED.format(count=state.reset_history())
+
+
+def _set_task_type(state: ReplState, argument: str) -> str:
+    wanted = argument.strip().lower()
+    if wanted not in TASK_TYPES:
+        return messages.RUN_UNKNOWN_TASK_TYPE.format(
+            given=argument or "(boş)", valid=", ".join(TASK_TYPES)
+        )
+    state.task_type = wanted
+    return messages.REPL_TASK_TYPE_CHANGED.format(task_type=wanted)
+
+
+def _toggle_all(state: ReplState, argument: str) -> str:
+    state.show_all_answers = not state.show_all_answers
+    return messages.REPL_SHOW_ALL.format(state=_on_off(state.show_all_answers))
+
+
+def _toggle_thinking(state: ReplState, argument: str) -> str:
+    state.show_thinking = not state.show_thinking
+    return messages.REPL_SHOW_THINKING.format(state=_on_off(state.show_thinking))
+
+
+def _toggle_synthesis(state: ReplState, argument: str) -> str:
+    current = state.config.runtime.synthesis if state.synthesis is None else state.synthesis
+    state.synthesis = not current
+    return messages.REPL_SYNTHESIS.format(state=_on_off(state.synthesis))
+
+
+def _feedback(verdict: Feedback) -> Handler:
+    def _handler(state: ReplState, argument: str) -> str:
+        result = state.last_fusion
+        if result is None or not result.winner:
+            return messages.REPL_NO_FUSION_YET
+        applied = state.memory.performance.apply_feedback(result.task_type, result.winner, verdict)
+        if not applied:
+            return messages.MEMORY_FEEDBACK_MISSING
+        return messages.MEMORY_FEEDBACK_APPLIED.format(
+            model=result.winner, verdict=verdict.value, task_type=result.task_type
+        )
+
+    return _handler
+
+
+def _learn(state: ReplState, argument: str) -> str:
+    text = argument.strip()
+    if not text:
+        return messages.REPL_LEARN_USAGE
+    lesson = Lesson(
+        text=text,
+        kind=LessonKind.SUCCESS,
+        task=messages.REPL_LEARN_TASK_LABEL,
+        source=LessonSource.MANUAL,
+    )
+    if not state.memory.lessons.add(lesson):
+        return messages.REPL_LEARN_DUPLICATE
+    return messages.REPL_LEARN_SAVED
+
+
+def parse_lesson_selection(argument: str, total: int) -> tuple[tuple[int, ...], str]:
+    """`/forget` argümanını 1-tabanlı ders numaralarına çevir. Saftır.
+
+    Kabul edilen biçimler: `3`, `3 7 9`, `3,7,9`, `2-5` ve karışımları. Sıra
+    korunur, tekrar elenir. Geçersiz ya da aralık dışı bir numara SESSİZCE
+    atlanmaz: hata metniyle döner — yanlış dersi silmek geri alınamaz.
+
+    Dönüş: (numaralar, hata). Hata doluysa numaralar boştur.
+    """
+    ham = argument.replace(",", " ").split()
+    if not ham:
+        return (), messages.REPL_FORGET_USAGE
+
+    secilen: list[int] = []
+    for parca in ham:
+        alt, ayrac, ust = parca.partition("-")
+        try:
+            araliklar = range(int(alt), int(ust) + 1) if ayrac else range(int(alt), int(alt) + 1)
+        except ValueError:
+            return (), messages.REPL_FORGET_INVALID.format(value=parca)
+        for numara in araliklar:
+            if not 1 <= numara <= total:
+                return (), messages.REPL_FORGET_OUT_OF_RANGE.format(value=numara, total=total)
+            if numara not in secilen:
+                secilen.append(numara)
+    return tuple(secilen), ""
+
+
+def _forget(state: ReplState, argument: str) -> str:
+    """`/forget <no…>` — `/lessons` tablosundaki numaralarla ders sil.
+
+    Numara `/lessons` çıktısındaki sıradır; ikisi de `lessons.all()` sırasını
+    kullanır, dolayısıyla aynı oturumda tutarlıdır.
+    """
+    lessons = state.memory.lessons.all()
+    if not lessons:
+        return messages.MEMORY_EMPTY_LESSONS
+
+    numaralar, hata = parse_lesson_selection(argument, len(lessons))
+    if hata:
+        return hata
+
+    silinen = state.memory.lessons.forget(tuple(lessons[numara - 1].text for numara in numaralar))
+    return messages.REPL_FORGET_DONE.format(count=silinen)
+
+
+def _model(state: ReplState, argument: str) -> str:
+    """`/model` — oturum içinde model değiştir.
+
+    Alt komutlar: agent <id> | judge <id> | cand <ad|no> <id> | add <ad> <id> [etiket…]
+    | rm <ad>. Argümansız çağrı etkin modelleri listeler.
+    """
+    parts = argument.split()
+    if not parts:
+        return model_select.format_models(state.config)
+    result = model_command_result(state, parts)
+    state.config = result.config
+    return result.message
+
+
+@dataclass(frozen=True, slots=True)
+class ModelCommandResult:
+    """CLI ve App aynı gerçek seçim ret/başarı sonucunu paylaşır."""
+
+    config: Config
+    message: str
+    ok: bool
+
+
+def model_command_result(state: ReplState, parts: list[str]) -> ModelCommandResult:
+    try:
+        config, message = _apply_model_command(state, parts)
+    except ConfigError as error:
+        return ModelCommandResult(state.config, str(error), False)
+    return ModelCommandResult(config, message, config is not state.config)
+
+
+def _apply_model_command(state: ReplState, parts: list[str]) -> tuple[Config, str]:
+    action, arguments = parts[0].lower(), parts[1:]
+    config = state.config
+
+    if action == "agent" and len(arguments) == 1:
+        return model_select.set_agent_model(config, arguments[0]), messages.REPL_MODEL_SET.format(
+            role="agent", model=arguments[0]
+        )
+    if action == "judge" and len(arguments) == 1:
+        return model_select.set_judge_model(config, arguments[0]), messages.REPL_MODEL_SET.format(
+            role="hakem", model=arguments[0]
+        )
+    if action == "cand" and len(arguments) == 2:
+        updated = model_select.set_candidate_model(config, arguments[0], arguments[1])
+        return updated, messages.REPL_MODEL_SET.format(
+            role=f"aday {arguments[0]}", model=arguments[1]
+        )
+    if action == "add" and len(arguments) >= 2:
+        updated = model_select.add_candidate(
+            config, arguments[0], arguments[1], tuple(arguments[2:])
+        )
+        return updated, messages.REPL_MODEL_ADDED.format(name=arguments[0], model=arguments[1])
+    if action == "rm" and len(arguments) == 1:
+        return model_select.remove_candidate(
+            config, arguments[0]
+        ), messages.REPL_MODEL_REMOVED.format(name=arguments[0])
+    return config, messages.REPL_MODEL_USAGE
+
+
+def _level(state: ReplState, argument: str) -> str:
+    """`/level` — model kademesi seç (low → premium).
+
+    Argüman verilirse seçim ekranı hiç açılmaz: `/level premium` betiklenebilir yol.
+    """
+    wanted = argument.strip().lower()
+    if not wanted:
+        result = model_flows.choose_level(state.config)
+    else:
+        wanted = model_select.normalize_tier_name(wanted)
+        try:
+            updated = model_select.apply_tier(state.config, wanted)
+        except ConfigError as error:
+            return str(error)
+        result = model_flows.applied_result(updated, wanted)
+    state.config = result.config
+    return result.message
+
+
+def _profiles(state: ReplState, argument: str) -> str:
+    """`/profiles` — profilleri gör; `/profiles edit <profil> [incompatible]` baş modeli düzenle."""
+    parts = argument.split()
+    if not parts:
+        return profiles_flow.list_profiles(state.config)
+    if parts[0].lower() != "edit" or len(parts) < 2:
+        return messages.PROFILES_EDIT_USAGE
+    tier_name = parts[1]
+    show_incompatible = len(parts) > 2 and parts[2].lower() == "incompatible"
+    result = profiles_flow.edit_profile_primary(
+        state.config, tier_name, show_incompatible=show_incompatible
+    )
+    state.config = result.config
+    return result.message
+
+
+def _mode(state: ReplState, argument: str) -> str:
+    """`/mode` — çalışma profili seç: auto · low · medium · high · max.
+
+    Kademe seçmenin PROFİL cephesidir; aynı `apply_tier` çekirdeğini kullanır (ikinci
+    yol değildir). `auto` bir kademe değil oturum kipidir: her tur görevi sınıflandırıp
+    kademeyi kendisi seçer. Argümansız çağrı seçim ekranını açar.
+    """
+    wanted = argument.strip()
+    if not wanted:
+        picked = model_flows.choose_mode(state.config)
+        if picked is None:
+            return messages.PICKER_CANCELLED
+    else:
+        picked = wanted
+    if picked.strip().casefold() == model_flows.AUTO_CHOICE:
+        state.auto_profile = True
+        return messages.MODE_AUTO_ON
+    tier_name = profile.resolve_tier_name(state.config, picked)
+    if tier_name is None:
+        known = ", ".join(item.name for item in state.config.tiers)
+        return messages.MODE_UNKNOWN.format(name=picked, known=known)
+    result = model_flows.applied_result(model_select.apply_tier(state.config, tier_name), tier_name)
+    state.config = result.config
+    # Elle profil seçmek auto kipini kapatır: kullanıcı belirli bir kademe istedi.
+    state.auto_profile = False
+    return result.message
+
+
+def _effort(state: ReplState, argument: str) -> str:
+    """`/effort` — reasoning yoğunluğu seç (mode'dan AYRI).
+
+    Yalnızca oturum boyunca yaşar (onay modu gibi; kalıcılaştırılmaz). Seçilen model
+    reasoning desteklemiyorsa değer sessizce göz ardı edilir; `xhigh`/`max` desteklenen
+    en yakına (`high`) iner ve bu kullanıcıya bildirilir.
+    """
+    wanted = argument.strip()
+    if not wanted:
+        picked = model_flows.choose_effort()
+        if picked is None:
+            return messages.PICKER_CANCELLED
+    else:
+        picked = wanted
+    try:
+        effort = ReasoningEffort(picked.strip().lower())
+    except ValueError:
+        known = ", ".join(item.value for item in ReasoningEffort)
+        return messages.EFFORT_UNKNOWN.format(name=picked, known=known)
+    state.config = replace(
+        state.config, runtime=replace(state.config.runtime, reasoning_effort=effort)
+    )
+    resolution = resolve_reasoning(effort.value, capability_from_spec(state.config.agent))
+    applied = messages.EFFORT_APPLIED.format(effort=effort.value)
+    return f"{applied}\n{resolution.reason}" if resolution.reason else applied
+
+
+def _ask_secret(prompt: str) -> str | None:
+    """Gizli girdiyi EKRANA YANSITMADAN al (getpass). TTY yoksa None döner."""
+    import getpass
+
+    try:
+        value = getpass.getpass(prompt)
+    except (EOFError, KeyboardInterrupt):
+        return None
+    return value or None
+
+
+def _providers(state: ReplState, argument: str) -> str:
+    """`/providers` — sağlayıcıları listele; `/providers add` anahtar ekleme sihirbazı."""
+    if argument.strip().lower() == "add":
+        from ...config.credentials import FernetSecretStore
+        from ...config.keys import secret_key
+        from ...config.paths import credentials_file
+
+        store = FernetSecretStore(credentials_file(), secret_key=secret_key())
+        return provider_flow.add_credential(store, ask_secret=_ask_secret)
+    environ = environ_snapshot()
+    rows = [messages.PROVIDERS_HEADER]
+    for definition in BUILTIN_PROVIDERS:
+        if not definition.implemented:
+            durum = messages.PROVIDERS_FRAMEWORK
+        elif definition.kind is ProviderKind.BROWSER_BACKED:
+            durum = (
+                messages.PROVIDERS_CONFIGURED
+                if any(
+                    session.enabled and session.provider == definition.id
+                    for session in state.config.web_sessions
+                )
+                else messages.PROVIDERS_MISSING
+            )
+        elif definition.kind is ProviderKind.LOCAL:
+            durum = messages.PROVIDERS_LOCAL
+        elif definition.is_configured(environ):
+            durum = messages.PROVIDERS_CONFIGURED
+        else:
+            durum = messages.PROVIDERS_MISSING
+        rows.append(
+            messages.PROVIDERS_ROW.format(
+                name=definition.name,
+                kind=definition.kind.value,
+                status=definition.official_status.value,
+                risk=definition.risk_level.value,
+                state=durum,
+            )
+        )
+    return "\n".join(rows)
+
+
+def _mcp(state: ReplState, argument: str) -> str:
+    """`/mcp` — dış MCP sunucularını listele/ekle/kaldır (`fusion mcp-add` eşdeğeri).
+
+    Kullanıcı sohbette "şu MCP'yi kur" dediğinde model bunu shell aracıyla
+    `fusion mcp-add` çalıştırarak da yapabilir; bu komut aynı yazım fonksiyonunu
+    (`config.writer.write_mcp_servers`) REPL içinden kullanıcıya açar — tek
+    doğruluk kaynağı korunur, iki giriş noktası vardır (RULES.md "UI ve CLI").
+    """
+    import shlex
+
+    from ...config import writer
+    from ...config.models import McpServerConfig
+
+    parcalar = argument.strip().split(maxsplit=1)
+    alt_komut = parcalar[0].lower() if parcalar else ""
+    kalan = parcalar[1] if len(parcalar) > 1 else ""
+
+    if alt_komut in ("", "list"):
+        if not state.config.mcp_servers:
+            return messages.MCP_NO_SERVERS
+        return "\n".join(
+            f"· {sunucu.name} — {sunucu.command} {' '.join(sunucu.args)}".rstrip()
+            for sunucu in state.config.mcp_servers
+        )
+
+    if alt_komut in ("remove", "del", "delete"):
+        ad = kalan.strip()
+        if not ad:
+            return messages.MCP_REMOVE_USAGE
+        if not any(sunucu.name == ad for sunucu in state.config.mcp_servers):
+            return messages.MCP_NOT_FOUND.format(name=ad)
+        kalanlar = tuple(sunucu for sunucu in state.config.mcp_servers if sunucu.name != ad)
+        guncellenmis = replace(state.config, mcp_servers=kalanlar)
+        try:
+            writer.write_mcp_servers(guncellenmis)
+        except ConfigError as error:
+            return messages.MCP_SAVE_FAILED.format(error=error)
+        state.config = guncellenmis
+        return messages.MCP_REMOVED.format(name=ad)
+
+    if alt_komut == "add":
+        try:
+            argumanlar_ham = shlex.split(kalan)
+        except ValueError:
+            return messages.MCP_ADD_USAGE
+        if len(argumanlar_ham) < 2:
+            return messages.MCP_ADD_USAGE
+        ad, komut, *argumanlar = argumanlar_ham
+        eskiler = tuple(sunucu for sunucu in state.config.mcp_servers if sunucu.name != ad)
+        yeniden_yazildi = len(eskiler) != len(state.config.mcp_servers)
+        yeni = McpServerConfig(name=ad, command=komut, args=tuple(argumanlar))
+        guncellenmis = replace(state.config, mcp_servers=(*eskiler, yeni))
+        try:
+            writer.write_mcp_servers(guncellenmis)
+        except ConfigError as error:
+            return messages.MCP_SAVE_FAILED.format(error=error)
+        state.config = guncellenmis
+        sablon = messages.MCP_REPLACED if yeniden_yazildi else messages.MCP_ADDED
+        return sablon.format(name=ad)
+
+    return messages.MCP_USAGE
+
+
+def _format_capabilities(items: tuple[Capability, ...], *, empty: str) -> str:
+    if not items:
+        return empty
+    return "\n".join(
+        f"· {item.name} [{item.source}]" + (f" — {item.description}" if item.description else "")
+        for item in items
+    )
+
+
+def _skills(state: ReplState, argument: str) -> str:
+    assert state.capabilities is not None
+    items = search_capabilities(state.capabilities.skills(), argument.strip(), limit=50)
+    return _format_capabilities(items, empty=messages.SKILLS_EMPTY)
+
+
+def _agents(state: ReplState, argument: str) -> str:
+    assert state.capabilities is not None
+    items = search_capabilities(state.capabilities.agents(), argument.strip(), limit=50)
+    return _format_capabilities(items, empty=messages.AGENTS_EMPTY)
+
+
+def resume_choices(refs: Sequence[SessionRef]) -> list[Choice]:
+    """Oturum listesini seçim satırlarına çevir.
+
+    Düz REPL bunu `_resume` içinde doğrudan `pick()`'e verir; TUI aynı listeyi
+    kendi uygulama-içi modalinde gösterir (bkz. `tui_loop._TuiSession`) — tek
+    liste kaynağı, iki sunum yüzeyi.
+    """
+    return [
+        Choice(ref.session_id, ref.title, _when(ref.updated_at)) for ref in refs[:RESUME_LIST_LIMIT]
+    ]
+
+
+def _resume(source_name: str) -> Handler:
+    """`/resume<kaynak>` işleyicisi üret. Kaynak adı kapatmada sabitlenir.
+
+    Argüman DOLUYSA (TUI'nin uygulama-içi modalından ya da betikten gelen
+    session_id) o oturum doğrudan devralınır — seçici HİÇ AÇILMAZ. Argüman
+    BOŞSA (düz konsol REPL yolu) `pick()` ile oturum seçtirilir. TUI bu ikinci
+    dalı hiç kullanmaz: nested prompt_toolkit seçicisi tam-ekranı bozar, bu
+    yüzden TUI kendi modalını açıp seçilen session_id'yi argüman olarak
+    ilk dala geçirir.
+    """
+
+    def _handler(state: ReplState, argument: str) -> str:
+        source = source_by_name(state.home, source_name)
+        if source is None:
+            return messages.HISTORY_EMPTY
+        refs = source.list(state.root, limit=RESUME_LIST_LIMIT)
+        if not refs:
+            return messages.HISTORY_EMPTY
+
+        session_id = argument.strip()
+        if not session_id:
+            chosen = pick(resume_choices(refs), title=messages.HISTORY_PICK_TITLE)
+            if chosen is None:
+                return ""
+            session_id = chosen
+
+        ref = next((candidate for candidate in refs if candidate.session_id == session_id), None)
+        if ref is None:
+            return messages.HISTORY_EMPTY
+
+        digest = build_digest(source, ref)
+        state.pending_digest = digest.text
+        line = messages.HISTORY_RESUMED.format(title=ref.title)
+        if digest.secret_count:
+            line += "\n" + messages.HISTORY_SECRETS_FOUND.format(count=digest.secret_count)
+        return line
+
+    return _handler
+
+
+def _when(epoch: float) -> str:
+    """Zaman damgasını listede gösterilecek kısa biçime çevir."""
+    from datetime import datetime
+
+    if not epoch:
+        return ""
+    return datetime.fromtimestamp(epoch).strftime("%d/%m %H:%M")
+
+
+def _health(state: ReplState, argument: str) -> str:
+    """`/health` — sağlayıcı güvenilirlik skorlarını ve circuit breaker durumunu göster."""
+    registry = state.health
+    snapshot = registry.snapshot() if registry is not None else ()
+    if not snapshot:
+        return messages.HEALTH_EMPTY
+    rows = [messages.HEALTH_HEADER]
+    for model_id, entry in snapshot:
+        phase = messages.HEALTH_PHASE.get(entry.phase.value, entry.phase.value)
+        rows.append(messages.HEALTH_ROW.format(model=model_id, score=entry.score, phase=phase))
+    return "\n".join(rows)
+
+
+def _undo(state: ReplState, argument: str) -> str:
+    """`/undo` — son agent turunun dosya değişikliklerini geri al."""
+    kayit = state.last_changes
+    if kayit is None or not kayit:
+        return messages.UNDO_NOTHING
+    beklenen = len(kayit.paths)
+    geri_alinan = kayit.restore()
+    state.last_changes = None
+    if len(geri_alinan) < beklenen:
+        return messages.UNDO_PARTIAL.format(
+            count=len(geri_alinan), failed=beklenen - len(geri_alinan)
+        )
+    yollar = "\n".join(f"  {yol}" for yol in geri_alinan)
+    return messages.UNDO_DONE.format(count=len(geri_alinan), paths=yollar)
+
+
+def _provider(state: ReplState, argument: str) -> str:
+    """`/provider` — hangi sağlayıcının kullanılacağını seç."""
+    result = provider_flow.choose_provider(state.config)
+    state.config = result.config
+    return result.message
+
+
+def _verify(state: ReplState, argument: str) -> str:
+    """`/verify` — projeden doğrulama planı çıkar, onaylat, kalıcılaştır."""
+    result = verify_flow.choose_verification(state.config, state.root)
+    state.config = result.config
+    return result.message
+
+
+def _development(state: ReplState, argument: str) -> str:
+    """`/development` — kaynak seç, sonra model seç."""
+    result = model_flows.choose_development(state.config, ask_text=_ask_line)
+    state.config = result.config
+    return result.message
+
+
+def _ask_line(prompt: str) -> str | None:
+    """Özel model alias'ı için tek satır al. Vazgeçilirse None."""
+    try:
+        return input(prompt)
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+
+def _macro(name: str) -> Handler:
+    """Makroyu çalıştırılacak göreve çevir ve durumda beklet.
+
+    Makrolar model çağırır; komut işleyicileri ise saftır ve senkrondur. Bu yüzden
+    işleyici yalnızca görevi HAZIRLAR, çalıştırmayı REPL döngüsü üstlenir.
+    """
+
+    def _handler(state: ReplState, argument: str) -> str:
+        macro = macros.get(name)
+        if macro is None:  # pragma: no cover - kayıt defteri ile senkron
+            return ""
+        if macro.argument_required and not argument.strip():
+            return messages.REPL_MACRO_NEEDS_ARGUMENT.format(name=name)
+        state.engine = Engine.AGENT
+        state.pending_task = macro.build(argument)
+        state.pending_mode = macro.mode
+        return messages.REPL_MACRO_STARTED.format(name=name)
+
+    return _handler
+
+
+def _schedule(state: ReplState, argument: str) -> str:
+    """`/schedule <saniye>` — belirtilen süre sonra hatırlatma kur.
+
+    Hatırlatma doğrudan konsola YAZMAZ: bekleyen hatırlatma listesine düşer ve
+    REPL döngüsü bir sonraki uygun anda gösterir. Eski projede ayrı bir thread
+    doğrudan yazdığı için uyarı giriş satırının ortasına biniyordu.
+    """
+    try:
+        seconds = int(argument.strip())
+    except ValueError:
+        return messages.REPL_SCHEDULE_USAGE
+    if seconds <= 0:
+        return messages.REPL_SCHEDULE_USAGE
+    state.reminders.append(Reminder(due_in_seconds=seconds, text=messages.REPL_SCHEDULE_FIRED))
+    return messages.REPL_SCHEDULE_SET.format(seconds=seconds)
+
+
+def _seed(state: ReplState, argument: str) -> str:
+    added = seed(state.memory.lessons)
+    return messages.MEMORY_SEEDED.format(count=added, total=len(SEED_LESSONS))
+
+
+def _reindex(state: ReplState, argument: str) -> str:
+    stats = state.memory.code_index.reindex()
+    return messages.MEMORY_REINDEXED.format(
+        total=stats.total,
+        added=stats.added,
+        removed=stats.removed,
+        unchanged=stats.unchanged,
+    )
+
+
+def _on_off(value: bool) -> str:
+    return messages.REPL_ON if value else messages.REPL_OFF
+
+
+# --------------------------------------------------------------------------- #
+# Kayıtlar
+# --------------------------------------------------------------------------- #
+
+_COMMANDS: tuple[SlashCommand, ...] = (
+    SlashCommand("help", messages.CMD_HELP, lambda state, argument: "", ("h", "?")),
+    SlashCommand("tips", messages.CMD_TIPS, lambda state, argument: "", group="Bilgi"),
+    SlashCommand("exit", messages.CMD_EXIT, _exit, ("quit", "q")),
+    SlashCommand("clear", messages.CMD_CLEAR, lambda state, argument: ""),
+    SlashCommand("agent", messages.CMD_AGENT, _use_agent, group="Motor"),
+    SlashCommand("fusion", messages.CMD_FUSION, _use_fusion, group="Motor"),
+    SlashCommand("auto", messages.CMD_AUTO, _set_mode(ApprovalMode.AUTO), group="Onay modu"),
+    SlashCommand(
+        "edits", messages.CMD_EDITS, _set_mode(ApprovalMode.ACCEPT_EDITS), group="Onay modu"
+    ),
+    SlashCommand(
+        "security",
+        messages.CMD_SECURITY,
+        _set_mode(ApprovalMode.SECURITY),
+        ("manual", "manuel"),
+        group="Onay modu",
+    ),
+    SlashCommand("plan", messages.CMD_PLAN, _set_mode(ApprovalMode.PLAN), group="Onay modu"),
+    SlashCommand("bypass", messages.CMD_BYPASS, _set_mode(ApprovalMode.BYPASS), group="Onay modu"),
+    SlashCommand("reset", messages.CMD_RESET, _reset, group="Agent"),
+    SlashCommand("compact", messages.CMD_COMPACT, lambda state, argument: "", group="Agent"),
+    SlashCommand("type", messages.CMD_TASK_TYPE, _set_task_type, group="Fusion", usage="<tip>"),
+    SlashCommand("all", messages.CMD_SHOW_ALL, _toggle_all, group="Fusion"),
+    SlashCommand("thinking", messages.CMD_SHOW_THINKING, _toggle_thinking, group="Agent"),
+    SlashCommand("synth", messages.CMD_SYNTHESIS, _toggle_synthesis, group="Fusion"),
+    SlashCommand("good", messages.CMD_GOOD, _feedback(Feedback.GOOD), group="Bellek"),
+    SlashCommand("bad", messages.CMD_BAD, _feedback(Feedback.BAD), group="Bellek"),
+    SlashCommand("revise", messages.CMD_REVISE, _feedback(Feedback.REVISE), group="Bellek"),
+    SlashCommand("learn", messages.CMD_LEARN, _learn, group="Bellek", usage="<kural>"),
+    SlashCommand("seed", messages.CMD_SEED, _seed, group="Bellek"),
+    SlashCommand("reindex", messages.CMD_REINDEX, _reindex, group="Bellek"),
+    SlashCommand("stats", messages.CMD_STATS, lambda state, argument: "", group="Bellek"),
+    SlashCommand("lessons", messages.CMD_LESSONS, lambda state, argument: "", group="Bellek"),
+    SlashCommand("forget", messages.CMD_FORGET, _forget, group="Bellek", usage="<no…>"),
+    SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Model"),
+    SlashCommand("model", messages.CMD_MODEL, _model, group="Model", usage="[alt-komut]"),
+    SlashCommand("mode", messages.CMD_MODE, _mode, group="Model", usage="[profil]"),
+    SlashCommand(
+        "profiles", messages.CMD_PROFILES, _profiles, group="Model", usage="[edit <profil>]"
+    ),
+    SlashCommand("effort", messages.CMD_EFFORT, _effort, group="Model", usage="[seviye]"),
+    SlashCommand("level", messages.CMD_LEVEL, _level, group="Model", usage="[kademe]"),
+    SlashCommand("provider", messages.CMD_PROVIDER, _provider, group="Model"),
+    SlashCommand("providers", messages.CMD_PROVIDERS, _providers, group="Model", usage="[add]"),
+    SlashCommand(
+        "development", messages.CMD_DEVELOPMENT, _development, group="Model", aliases=("dev",)
+    ),
+    SlashCommand("verify", messages.CMD_VERIFY, _verify, group="Agent"),
+    SlashCommand("undo", messages.CMD_UNDO, _undo, group="Agent"),
+    SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
+    SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
+    SlashCommand("mcp", messages.CMD_MCP, _mcp, group="Bilgi", usage="[add|remove] …"),
+    SlashCommand("skills", messages.CMD_SKILLS, _skills, group="Bilgi", usage="[arama]"),
+    SlashCommand("agents", messages.CMD_AGENTS, _agents, group="Bilgi", usage="[arama]"),
+    *(
+        SlashCommand(
+            name,
+            summary,
+            _macro(name),
+            group="Makro",
+            usage="<görev>" if macros.MACROS[name].argument_required else "[görev]",
+        )
+        for name, summary in (
+            ("goal", messages.CMD_GOAL),
+            ("grill-me", messages.CMD_GRILL),
+            ("bug", messages.CMD_BUG),
+            ("commit", messages.CMD_COMMIT),
+            ("review", messages.CMD_REVIEW),
+            ("browser", messages.CMD_BROWSER),
+            ("btw", messages.CMD_BTW),
+            ("plan-yurut", messages.CMD_PLAN_RUN),
+        )
+    ),
+    SlashCommand(
+        "cop",
+        messages.CMD_TRASH,
+        workspace_commands.trash,
+        group="Agent",
+        usage="[geri-al <kimlik>]",
+    ),
+    SlashCommand(
+        "trace", messages.CMD_TRACE, workspace_commands.trace, group="Bilgi", usage="[kimlik|liste]"
+    ),
+    SlashCommand(
+        "add-dir",
+        messages.CMD_ADD_DIR,
+        workspace_commands.add_dir,
+        group="Agent",
+        usage="[yol|kaldir <yol>]",
+    ),
+    SlashCommand("schedule", messages.CMD_SCHEDULE, _schedule, group="Makro", usage="<saniye>"),
+)
+
+#: Kendi çıktısını basan komutlar (tablo, panel, ekran temizleme). REPL döngüsü
+#: bunları özel olarak ele alır; işleyicileri boş metin döndürür.
+RENDERED_COMMANDS = frozenset(
+    {"help", "tips", "clear", "stats", "lessons", "models", "compact", "cost"}
+)
+
+
+def parse(line: str) -> tuple[str, str]:
+    """`/komut argüman` satırını (komut, argüman) olarak ayır."""
+    stripped = line[1:].strip()
+    if not stripped:
+        return "", ""
+    name, _, argument = stripped.partition(" ")
+    return name.lower(), argument.strip()

@@ -1,0 +1,247 @@
+import { emit as tauriEmit } from "@tauri-apps/api/event";
+import { listen as tauriListen } from "@tauri-apps/api/event";
+
+/**
+ * Konuşma penceresi ile ana pencere arasındaki köprü.
+ *
+ * Konuşulan her şey ana penceredeki AYNI sohbete yazılır. Ayrı bir "ses
+ * geçmişi" tutmak aynı konuşmayı iki yere bölerdi: kullanıcı kipi kapattığında
+ * yazışmış gibi tam dökümü görmeli.
+ *
+ * Taşıma dışarıdan verilebilir; testler gerçek pencere olmadan sınanabilsin.
+ */
+
+export const VOICE_EVENT = "fusion://ses-mesaji";
+
+export interface VoiceMessage {
+  /** Aynı sözün birden çok dinleyiciden iki kez işlenmesini engelleyen tek seferlik kimlik. */
+  id?: string;
+  /** "kullanici": konuşulan söz. "asistan": Fusion'ın sesli cevabı. */
+  kaynak: "kullanici" | "asistan";
+  metin: string;
+  /**
+   * Kullanıcı Fusion'ın sözünü kestiyse, kesildiği ana kadar SÖYLEDİĞİ metin.
+   *
+   * Bu bağlam olmadan model, yarım bıraktığı cevabı hiç bilmeden yeni bir soru
+   * almış gibi davranıyordu; kullanıcı "onu değil şunu" dediğinde neyin
+   * düzeltildiğini anlayamıyordu.
+   */
+  kesilen?: string;
+}
+
+interface Emitter {
+  emit: (event: string, payload: unknown) => Promise<void> | void;
+}
+
+interface Listener {
+  listen: (
+    event: string,
+    handler: (event: { payload: unknown }) => void,
+  ) => Promise<() => void>;
+}
+
+/** Tauri kabuğu var mı? Tarayıcıda (ve testte) olay köprüsü yoktur. */
+export function kabukVar(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+export async function emitVoiceMessage(
+  message: VoiceMessage,
+  transport: Emitter = { emit: tauriEmit },
+): Promise<void> {
+  // Boş söz gönderilmez: tanıma sessizlikte boş dize döndürebilir ve sohbete
+  // boş bir mesaj düşmesi kullanıcıyı yanıltır.
+  if (!message.metin.trim()) return;
+  if (transport.emit === tauriEmit && !kabukVar()) return;
+  await transport.emit(VOICE_EVENT, { ...message, id: message.id ?? crypto.randomUUID() });
+}
+
+export function onVoiceMessage(
+  handler: (message: VoiceMessage) => void,
+  transport: Listener = { listen: tauriListen as Listener["listen"] },
+): Promise<() => void> {
+  // Kabuk yoksa dinleme kurulamaz. Denemek, uygulama açılışında yakalanmayan
+  // bir reddedilmiş söz üretir; sessizce boş bir sökücü döndürmek doğrusudur.
+  if (transport.listen === (tauriListen as Listener["listen"]) && !kabukVar()) {
+    return Promise.resolve(() => undefined);
+  }
+  return transport.listen(VOICE_EVENT, (event) => handler(event.payload as VoiceMessage));
+}
+
+/**
+ * Ses tercihleri köprüsü.
+ *
+ * Konuşma penceresinin kendi çekirdek bağlantısı YOKTUR: pencere hafif ve tek
+ * amaçlı kalsın diye ayarlar ana pencere üzerinden uygulanır. Pencere ne
+ * istediğini söyler, ana pencere `ses.ayar`/`ses.durum` çağırır ve sonucu geri
+ * yayar. Böylece ayarın tek bir yazma yolu olur.
+ */
+
+export const VOICE_PREFS_REQUEST = "fusion://ses-ayar";
+export const VOICE_PREFS_STATE = "fusion://ses-ayar-durum";
+export const VOICE_RUNTIME_STATE = "fusion://ses-runtime-durum";
+export const VOICE_BARGE_IN = "fusion://ses-barge-in";
+
+export interface VoiceRuntimeState {
+  durum: "idle" | "listening" | "transcribing" | "thinking" | "talking" | "interrupted" | "approval" | "error";
+  metin?: string;
+}
+
+export interface VoicePrefsPayload {
+  hiz: number;
+}
+
+/** Pencereden ana pencereye: bu tercihleri uygula (null ise yalnız oku). */
+export async function requestVoicePrefs(
+  prefs: VoicePrefsPayload | null,
+  transport: Emitter = { emit: tauriEmit },
+): Promise<void> {
+  if (transport.emit === tauriEmit && !kabukVar()) return;
+  await transport.emit(VOICE_PREFS_REQUEST, prefs);
+}
+
+/** Ana pencereden pencereye: geçerli tercihler. */
+export async function publishVoicePrefs(
+  prefs: VoicePrefsPayload,
+  transport: Emitter = { emit: tauriEmit },
+): Promise<void> {
+  if (transport.emit === tauriEmit && !kabukVar()) return;
+  await transport.emit(VOICE_PREFS_STATE, prefs);
+}
+
+function dinle<T>(
+  event: string,
+  handler: (payload: T) => void,
+  transport: Listener,
+): Promise<() => void> {
+  if (transport.listen === (tauriListen as Listener["listen"]) && !kabukVar()) {
+    return Promise.resolve(() => undefined);
+  }
+  return transport.listen(event, (received) => handler(received.payload as T));
+}
+
+export function onVoicePrefsRequest(
+  handler: (prefs: VoicePrefsPayload | null) => void,
+  transport: Listener = { listen: tauriListen as Listener["listen"] },
+): Promise<() => void> {
+  return dinle(VOICE_PREFS_REQUEST, handler, transport);
+}
+
+export function onVoicePrefsState(
+  handler: (prefs: VoicePrefsPayload) => void,
+  transport: Listener = { listen: tauriListen as Listener["listen"] },
+): Promise<() => void> {
+  return dinle(VOICE_PREFS_STATE, handler, transport);
+}
+
+/** Ana sohbet ve Talk penceresi arasında TTS/STT yaşam döngüsü. */
+export async function publishVoiceRuntimeState(
+  state: VoiceRuntimeState,
+  transport: Emitter = { emit: tauriEmit },
+): Promise<void> {
+  if (transport.emit === tauriEmit && !kabukVar()) return;
+  const payload: VoiceRuntimeState = state.metin === undefined
+    ? { durum: state.durum }
+    : { durum: state.durum, metin: state.metin };
+  await transport.emit(VOICE_RUNTIME_STATE, payload);
+}
+
+export function onVoiceRuntimeState(
+  handler: (state: VoiceRuntimeState) => void,
+  transport: Listener = { listen: tauriListen as Listener["listen"] },
+): Promise<() => void> {
+  return dinle(VOICE_RUNTIME_STATE, handler, transport);
+}
+
+export async function interruptVoiceSpeech(
+  transport: Emitter = { emit: tauriEmit },
+): Promise<void> {
+  if (transport.emit === tauriEmit && !kabukVar()) return;
+  await transport.emit(VOICE_BARGE_IN, {});
+}
+
+export function onVoiceBargeIn(
+  handler: () => void,
+  transport: Listener = { listen: tauriListen as Listener["listen"] },
+): Promise<() => void> {
+  return dinle(VOICE_BARGE_IN, handler, transport);
+}
+
+/**
+ * Onay köprüsü.
+ *
+ * Konuşurken bir onay çıkarsa kullanıcı ana pencereye dönmek zorunda
+ * kalmamalı: soru panelde görünür ve cevap aynı yoldan geri döner. Onay
+ * kararı yine ÇEKİRDEĞE aittir; köprü yalnız soruyu ve cevabı taşır, kendi
+ * başına hiçbir şeyi onaylamaz.
+ */
+
+export const VOICE_ASK = "fusion://ses-onay";
+export const VOICE_ANSWER = "fusion://ses-onay-cevap";
+
+export interface VoiceQuestionContext {
+  sessionId: string;
+  questionId: string;
+}
+
+export interface VoiceAnswer extends VoiceQuestionContext {
+  answer: string;
+}
+
+export interface VoiceAsk {
+  sessionId?: string;
+  questionId?: string;
+  /** Onaylanacak aracın adı; yoksa serbest soru. */
+  arac?: string;
+  /** Soru metni ya da özet. */
+  metin: string;
+  secenekler: { deger: string; etiket: string }[];
+  /** Soru kapandıysa null yayınlanır. */
+  acik: boolean;
+}
+
+export async function publishVoiceAsk(
+  ask: VoiceAsk | null,
+  transport: Emitter = { emit: tauriEmit },
+): Promise<void> {
+  if (transport.emit === tauriEmit && !kabukVar()) return;
+  await transport.emit(VOICE_ASK, ask);
+}
+
+export function onVoiceAsk(
+  handler: (ask: VoiceAsk | null) => void,
+  transport: Listener = { listen: tauriListen as Listener["listen"] },
+): Promise<() => void> {
+  return dinle(VOICE_ASK, handler, transport);
+}
+
+export async function answerVoiceAsk(
+  answer: string,
+  transport: Emitter = { emit: tauriEmit },
+  context?: VoiceQuestionContext,
+): Promise<void> {
+  if (transport.emit === tauriEmit && !kabukVar()) return;
+  await transport.emit(VOICE_ANSWER, context ? { ...context, answer } : answer);
+}
+
+export function onVoiceAnswer(
+  handler: (answer: VoiceAnswer | string) => void,
+  transport: Listener = { listen: tauriListen as Listener["listen"] },
+): Promise<() => void> {
+  return dinle(VOICE_ANSWER, handler, transport);
+}
+
+/**
+ * Aynı söz birden çok dinleyiciden (ya da yeniden kurulan dinleyiciden) gelse bile yalnız bir kez işlensin.
+ * Döndürülen işlev kimlik ilk kez görülüyorsa `true` verir. Kimliksiz mesaj her zaman işlenir.
+ */
+export function createVoiceMessageDeduper(limit = 50): (id: string | undefined) => boolean {
+  const seen: string[] = [];
+  return (id) => {
+    if (!id) return true;
+    if (seen.includes(id)) return false;
+    seen.push(id);
+    if (seen.length > limit) seen.shift();
+    return true;
+  };
+}

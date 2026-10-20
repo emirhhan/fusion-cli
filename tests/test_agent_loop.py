@@ -1,0 +1,3120 @@
+"""Agent döngüsü — araç çağrısı, onay, refleksiyon, otomatik devam, alt-ajan."""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import replace
+
+import pytest
+
+from fusion_cli.core.events import (
+    ContextCompressed,
+    SelfReviewFinished,
+    SelfReviewStarted,
+    StatusChanged,
+    SubAgentFinished,
+    SubAgentStarted,
+    ToolExecuted,
+    ToolOutcome,
+    ToolStarted,
+    TurnBudgetExhausted,
+)
+from fusion_cli.core.tools import ToolContext
+from fusion_cli.core.types import ModelResult, ModelSpec
+from fusion_cli.engines.agent import loop as agent_loop
+from fusion_cli.engines.agent import reflexion
+from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+from fusion_cli.engines.agent.loop import (
+    AgentDeps,
+    _parse_arguments_checked,
+    run_agent,
+)
+
+from .fakes import (
+    AlwaysApprove,
+    AlwaysReject,
+    RecordingSink,
+    ScriptedAsker,
+    ScriptedProvider,
+    make_config,
+    model_result,
+    tool_call,
+)
+
+#: Otomatik-devam sezgiseli kısa ve teslimsiz cevapları "yarım" sayar. Bu sabiti
+#: kullanan testler o davranışı değil, sınadıkları asıl akışı ölçer.
+TAM_CEVAP = "Görevi tamamladım; ilgili değişiklik `src/app.py:12` satırında yapıldı ve doğrulandı."
+
+
+def _icerir(sonuc, metin):
+    return any(mesaj.content == metin for mesaj in sonuc.messages)
+
+
+class _Publisher:
+    def __init__(self, sink):
+        self._sink = sink
+
+    def publish(self, event):
+        self._sink.handle(event)
+
+
+@pytest.fixture
+def sink():
+    return RecordingSink()
+
+
+def _deps(
+    tmp_path, sink, *, mode=ApprovalMode.AUTO, prompter=None, asker=None, home=None, **config_args
+):
+    prompter = prompter or AlwaysApprove()
+    return AgentDeps(
+        config=make_config(**config_args),
+        publisher=_Publisher(sink),
+        policy=build_policy(mode, prompter),
+        tool_context=ToolContext(root=tmp_path),
+        asker=asker,
+        home=home,
+    )
+
+
+def _kur(monkeypatch, provider):
+    def _build(
+        spec,
+        *,
+        publisher=None,
+        retry_delays_s=(),
+        channel=None,
+        clock=None,
+        sleeper=None,
+        background=False,
+        health=None,
+        key_pools=None,
+        web_sessions=None,
+    ):
+        return provider
+
+    monkeypatch.setattr(agent_loop, "build_provider", _build)
+    return provider
+
+
+# --------------------------------------------------------------------------- #
+
+
+async def test_araçsiz_yanit_dogrudan_dondurulur(monkeypatch, tmp_path, sink):
+    _kur(monkeypatch, ScriptedProvider([model_result("iste cevap")]))
+
+    sonuc = await run_agent("gorev", _deps(tmp_path, sink))
+
+    assert sonuc.final_text == "iste cevap"
+    assert sonuc.tool_calls_made == 0
+
+
+async def test_model_akisi_surekli_acik_kalsa_da_cagri_suresi_sinirlanir(
+    monkeypatch, tmp_path, sink
+):
+    class NeverEndingProvider:
+        cancelled = False
+
+        async def stream(self, request):
+            from fusion_cli.core.types import TextChunk
+
+            try:
+                while True:
+                    yield TextChunk("hala düşünüyor")
+                    await asyncio.sleep(0.02)
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+
+    provider = NeverEndingProvider()
+    _kur(monkeypatch, provider)
+    deps = _deps(tmp_path, sink, runtime={"request_timeout_s": 0.08})
+
+    result = await asyncio.wait_for(run_agent("açıkla", deps), timeout=1)
+
+    assert result.ok is False
+    assert "0.08 saniyede tamamlanmadı" in result.final_text
+    assert provider.cancelled
+
+
+async def test_hicbir_sey_uretmeyen_model_bosta_kalma_sinirinda_da_aciklayici_mesaj_verir(
+    monkeypatch, tmp_path, sink
+):
+    """Ölçüldü (27 Eylül): NIM'in `glm-5.3`/`deepseek-v4.1-flash` uçları canlı koşuda
+    HİÇ parça üretmeden takıldı. `idle_timeout_s`, sohbet kipinde `request_timeout_s`'ten
+    KÜÇÜK olabilir (bkz. `chat_mode.py`); bu durumda tek bir çağrının süresi dolduğunda
+    `budget.time_stop_reason()` bunu "art arda ilerleme yok" (INACTIVITY) sayıyordu —
+    oysa henüz TEK çağrı denenmişti. `_halt` o zaman BOŞ `final_text` ile dönüyor,
+    kullanıcı hiçbir açıklama görmeden genel "cevap üretmedi" mesajına düşüyordu.
+
+    Bu test tam o senaryoyu kurar: `idle_timeout_s` (0.05s) `request_timeout_s`
+    (0.2s)'ten küçüktür ve model HİÇBİR parça üretmez. Beklenen: kullanıcıya giden
+    metin yine de bu çağrının süresini ANLATIR, boş kalmaz.
+    """
+
+    class NeverRespondingProvider:
+        async def stream(self, request):
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                raise
+            return
+            yield  # pragma: no cover - jeneratör imzasını korumak için
+
+    _kur(monkeypatch, NeverRespondingProvider())
+    deps = _deps(tmp_path, sink, runtime={"request_timeout_s": 0.2})
+    deps.budget = agent_loop._new_budget(deps.config)
+    deps.budget.total_timeout_s = 5.0
+    deps.budget.idle_timeout_s = 0.05
+
+    result = await asyncio.wait_for(run_agent("naber", deps, chat_mode=True), timeout=2)
+
+    assert result.ok is False
+    assert result.final_text.strip() != ""
+    assert "saniyede tamamlanmadı" in result.final_text
+
+
+class _SlowTricklingProvider:
+    """Parça parça ama çağrı sınırından UZUN süre yazan model."""
+
+    def __init__(self, chunks: int, gap_s: float) -> None:
+        self.chunks = chunks
+        self.gap_s = gap_s
+
+    async def stream(self, request):
+        from fusion_cli.core.types import StreamDone, TextChunk
+
+        for _ in range(self.chunks):
+            await asyncio.sleep(self.gap_s)
+            yield TextChunk("parça ")
+        yield StreamDone(model_result("uzun ama tamamlanmış cevap"))
+
+
+async def test_sadece_akil_yurutme_parcalari_ilk_yanit_suresini_uzatmaz(
+    monkeypatch, tmp_path, sink
+):
+    class ReasoningOnlyProvider:
+        cancelled = False
+
+        async def stream(self, request):
+            from fusion_cli.core.types import TextChunk
+
+            try:
+                while True:
+                    yield TextChunk("", provisional=True)
+                    await asyncio.sleep(0.02)
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+
+    provider = ReasoningOnlyProvider()
+    _kur(monkeypatch, provider)
+    deps = _deps(tmp_path, sink, runtime={"request_timeout_s": 0.08})
+    result = await asyncio.wait_for(run_agent("açıkla", deps), timeout=1)
+
+    assert result.ok is False
+    assert "0.08 saniyede tamamlanmadı" in result.final_text
+    assert provider.cancelled
+
+
+async def test_yazmaya_devam_eden_model_cagri_suresini_asinca_kesilmez(monkeypatch, tmp_path, sink):
+    """Ölçüldü (28 Eylül): büyük bir istekte model yazarken "60 saniyede
+    tamamlanmadı" ile kesildi. Sınır artık iki parça arasındaki sessizliğe uygulanır;
+    toplam süreyi yalnızca turun mutlak sınırı keser."""
+    _kur(monkeypatch, _SlowTricklingProvider(chunks=8, gap_s=0.03))
+    deps = _deps(tmp_path, sink, runtime={"request_timeout_s": 0.1})
+    deps.budget = agent_loop._new_budget(deps.config)
+    deps.budget.total_timeout_s = 5.0
+
+    result = await asyncio.wait_for(run_agent("uzun yaz", deps), timeout=2)
+
+    assert result.ok is True
+    assert result.final_text == "uzun ama tamamlanmış cevap"
+
+
+async def test_hazirlik_bosta_kalma_penceresini_yese_de_model_cagrisi_kesilmez(
+    monkeypatch, tmp_path, sink
+):
+    """Ölçüldü (28 Eylül): "devam et" turunda hazırlık boşta-kalma penceresini
+    yedi ve model çağrısı 1,7 saniyeye daraltılıp cevapsız kesildi."""
+    _kur(monkeypatch, _SlowTricklingProvider(chunks=3, gap_s=0.05))
+    deps = _deps(tmp_path, sink, runtime={"request_timeout_s": 1.0})
+    deps.budget = agent_loop._new_budget(deps.config)
+    deps.budget.total_timeout_s = 5.0
+    deps.budget.idle_timeout_s = 0.1
+    # Hazırlığın boşta-kalma penceresinin neredeyse tamamını yediği an.
+    deps.budget._last_progress_at -= 0.09
+
+    result = await asyncio.wait_for(run_agent("devam et", deps, chat_mode=True), timeout=2)
+
+    assert result.ok is True
+    assert result.final_text == "uzun ama tamamlanmış cevap"
+
+
+async def test_uzun_kesifte_web_ogretmen_plan_ve_takilmada_cagrilir(monkeypatch, tmp_path, sink):
+    """Önce plan akışı eklendi: doğrulanmış öğretmen plan ve takılmada birer kez çağrılır."""
+    from fusion_cli.config.models import WebSessionConfig
+
+    paths = [f"src/part_{index}.py" for index in range(10)]
+    (tmp_path / "src").mkdir()
+    for path in paths:
+        (tmp_path / path).write_text("x = 1\n", encoding="utf-8")
+    provider = ScriptedProvider(
+        [
+            *[model_result(tool_calls=[tool_call("read_file", path=path)]) for path in paths],
+            model_result(TAM_CEVAP),
+        ]
+    )
+    _kur(monkeypatch, provider)
+    seen = []
+
+    class TeacherProvider:
+        async def complete(self, request):
+            seen.append(request)
+            return ModelResult(
+                name="teacher",
+                model="gemini_web/main/auto",
+                text=(
+                    '{"adimlar":["Route testini yaz"],"dosyalar":[],"riskler":[],'
+                    '"yapilamayanlar":[],"dogrulama":[]}'
+                    if len(seen) == 1
+                    else "Önce route testi yaz."
+                ),
+                latency_ms=1,
+                ok=True,
+            )
+
+    monkeypatch.setattr(
+        "fusion_cli.providers.factory.build_provider",
+        lambda *_args, **_kwargs: TeacherProvider(),
+    )
+    deps = _deps(
+        tmp_path,
+        sink,
+        teacher=ModelSpec(name="teacher", model="gemini_web/main/auto"),
+        web_sessions=(
+            WebSessionConfig(
+                model="gemini_web/main/auto",
+                provider="gemini_web",
+                transport="browser",
+                enabled=True,
+                login_verified=True,
+            ),
+        ),
+        runtime={"agent_max_idle_rounds": 20, "agent_max_steps": 16},
+    )
+
+    await run_agent(
+        "Implement a coherent stock import flow with server routes and tests. "
+        "Contact owner@example.com only if needed.",
+        deps,
+        step_limit=11,
+    )
+
+    teacher_events = [
+        event
+        for event in sink.events
+        if isinstance(event, ToolExecuted) and event.name == "ask_teacher"
+    ]
+    assert len(teacher_events) == 2
+    assert deps.auto_teacher_used is True
+    assert len(seen) == 2
+    assert "Önce route testi yaz." in teacher_events[1].output
+    assert "owner@example.com" not in seen[0].messages[0].content
+
+
+async def test_ogretmen_ogudunden_sonra_okuma_dongusunu_devralip_duzenler(
+    monkeypatch, tmp_path, sink
+):
+    """Ön plan eklendiği için eski devralma akışı plan ve son denetimi de tüketir."""
+    from fusion_cli.config.models import WebSessionConfig
+
+    target = tmp_path / "src" / "app.py"
+    target.parent.mkdir()
+    target.write_text("value = 1\n", encoding="utf-8")
+    read_paths = ["src/app.py", *[f"src/part_{index}.py" for index in range(8)]]
+    for path in read_paths[1:]:
+        (tmp_path / path).write_text("value = 1\n", encoding="utf-8")
+    nim = ModelSpec("nim", "nvidia_nim/test", tags=("agent",))
+    teacher = ModelSpec("teacher", "gemini_web/main/auto")
+    session = WebSessionConfig(
+        model=teacher.model,
+        provider="gemini_web",
+        transport="browser",
+        enabled=True,
+        login_verified=True,
+        tool_support="emulated",
+        tool_eval_passed=True,
+    )
+    nim_provider = ScriptedProvider(
+        [
+            *[model_result(tool_calls=[tool_call("read_file", path=path)]) for path in read_paths],
+        ]
+    )
+    web_provider = ScriptedProvider(
+        [
+            model_result(
+                '{"adimlar":["Dosyayı düzenle"],"dosyalar":["src/app.py"],'
+                '"riskler":[],"yapilamayanlar":[],"dogrulama":[]}'
+            ),
+            model_result("İlk değişiklik: test yaz ve uygula."),
+            model_result(
+                tool_calls=[
+                    tool_call(
+                        "edit_file",
+                        path="src/app.py",
+                        old="value = 1",
+                        new="value = 2",
+                    )
+                ]
+            ),
+            model_result(
+                tool_calls=[
+                    tool_call(
+                        "todo_write",
+                        todos=[{"content": "Dosyayı düzenle", "status": "completed"}],
+                    )
+                ]
+            ),
+            model_result(TAM_CEVAP),
+            model_result('{"bulgular": []}'),
+        ]
+    )
+
+    def agent_provider(spec, **_kwargs):
+        return web_provider if spec.model == teacher.model else nim_provider
+
+    monkeypatch.setattr(agent_loop, "build_provider", agent_provider)
+    monkeypatch.setattr("fusion_cli.providers.factory.build_provider", agent_provider)
+    deps = _deps(
+        tmp_path,
+        sink,
+        agent=nim,
+        candidates=(nim,),
+        task_model_map={"general": "nim"},
+        teacher=teacher,
+        web_sessions=(session,),
+        runtime={"agent_max_steps": 15, "agent_teacher_takeover_tools": 10},
+    )
+
+    outcome = await run_agent(
+        "Implement a coherent multi-file stock import flow and verify it.",
+        deps,
+        step_limit=13,
+    )
+
+    assert target.read_text(encoding="utf-8") == "value = 2\n"
+    assert outcome.mutating_tool_calls_made == 1
+    assert deps.active_model_override is not None
+    assert deps.active_model_override.model == teacher.model
+    assert web_provider.calls == 6
+    assert any(
+        isinstance(event, StatusChanged) and "devraldı" in event.message for event in sink.events
+    )
+
+
+def test_zorunlu_model_ve_dogrulanmamis_ogretmen_gorevi_devralamaz(tmp_path, sink):
+    from fusion_cli.config.models import WebSessionConfig
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+    from fusion_cli.engines.agent.loop import _State, _teacher_takeover_spec
+
+    teacher = ModelSpec("teacher", "gemini_web/main/auto")
+    session = WebSessionConfig(
+        model=teacher.model,
+        provider="gemini_web",
+        transport="browser",
+        enabled=True,
+        login_verified=True,
+        tool_support="emulated",
+        tool_eval_passed=False,
+    )
+    state = _State(tool_calls_made=12, teacher_advice_ok=True)
+    policy = ExecutionPolicy(is_web=False, complex_task=True)
+    deps = _deps(tmp_path, sink, teacher=teacher, web_sessions=(session,))
+    assert _teacher_takeover_spec(deps, state, policy, auto_teacher=True) is None
+
+    verified = WebSessionConfig(
+        model=teacher.model,
+        provider="gemini_web",
+        transport="browser",
+        enabled=True,
+        login_verified=True,
+        tool_support="emulated",
+        tool_eval_passed=True,
+    )
+    strict = ModelSpec("chosen", "nvidia_nim/test", tags=("strict", "agent"))
+    deps = _deps(tmp_path, sink, agent=strict, teacher=teacher, web_sessions=(verified,))
+    assert _teacher_takeover_spec(deps, state, policy, auto_teacher=True) is None
+
+    deps = _deps(tmp_path, sink, teacher=teacher, web_sessions=(verified,))
+    read_only = replace(policy, allowed_tool_names=frozenset({"read_file"}))
+    assert _teacher_takeover_spec(deps, state, read_only, auto_teacher=True) is None
+    state.capability_wall = True
+    assert _teacher_takeover_spec(deps, state, policy, auto_teacher=True) is None
+
+
+async def test_arac_cagrisi_calisir_ve_sonuc_gecmise_eklenir(monkeypatch, tmp_path, sink):
+    (tmp_path / "a.txt").write_text("dosya icerigi", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="a.txt")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("oku", _deps(tmp_path, sink))
+
+    assert sonuc.final_text == TAM_CEVAP
+    assert sonuc.tool_calls_made == 1
+    arac_mesaji = next(m for m in sonuc.messages if m.role == "tool")
+    assert "dosya icerigi" in arac_mesaji.content
+    assert arac_mesaji.name == "read_file"
+
+
+async def test_arac_calistirmasi_olay_yayinlar(monkeypatch, tmp_path, sink):
+    (tmp_path / "a.txt").write_text("x", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="a.txt")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    await run_agent("oku", _deps(tmp_path, sink))
+
+    olay = next(e for e in sink.events if isinstance(e, ToolExecuted))
+    assert olay.name == "read_file" and olay.outcome is ToolOutcome.OK
+
+
+async def test_arac_baslamadan_once_toolstarted_yayinlar(monkeypatch, tmp_path, sink):
+    """Bkz. bug: araç çalışırken kullanıcı hiçbir şey görmüyordu — yalnız
+
+    `ToolExecuted` (BİTİNCE) yayınlanıyordu. `ToolStarted` artık aracın
+    ÇALIŞTIRILMASINDAN hemen önce, `ToolExecuted`den ÖNCE yayınlanır; arayüz
+    bunu "… okunuyor" gibi soluk bir durum satırı olarak gösterir.
+    """
+    (tmp_path / "a.txt").write_text("x", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="a.txt")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    await run_agent("oku", _deps(tmp_path, sink))
+
+    baslama = next(e for e in sink.events if isinstance(e, ToolStarted))
+    assert baslama.name == "read_file"
+    assert baslama.args.get("path") == "a.txt"
+    # Sıra ÖNEMLİDİR: "başladı" olayı "bitti" olayından ÖNCE gelmeli.
+    indeksler = [i for i, e in enumerate(sink.events) if isinstance(e, (ToolStarted, ToolExecuted))]
+    assert isinstance(sink.events[indeksler[0]], ToolStarted)
+    assert isinstance(sink.events[indeksler[1]], ToolExecuted)
+
+
+async def test_reddedilen_cagri_icin_toolstarted_yayinlanmaz(monkeypatch, tmp_path, sink):
+    """Onay REDDEDİLEN bir çağrı hiç çalışmadı; "… yapılıyor" demek yalan olur."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    await run_agent(
+        "yaz", _deps(tmp_path, sink, mode=ApprovalMode.SECURITY, prompter=AlwaysReject())
+    )
+
+    assert not any(isinstance(e, ToolStarted) for e in sink.events)
+
+
+async def test_reddedilen_onay_hata_sayilmaz(monkeypatch, tmp_path, sink):
+    """B3: gerçek bir insan reddi turu DURDURUR; model bir daha çağrılmaz.
+
+    Eskiden red sonrası model TEKRAR çağrılır ve başka bir yol denemesi
+    beklenirdi (script'teki ikinci `TAM_CEVAP` o zaman tüketilirdi). Artık bu
+    davranışın TAM TERSİ doğrudur: kullanıcının "hayır" dediği bir işi model
+    başka bir yoldan yapmaya çalışırsa kararı yok saymış olur (bkz.
+    `tests/test_user_denial_stops_turn.py`, B3).
+    """
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent(
+        "yaz", _deps(tmp_path, sink, mode=ApprovalMode.SECURITY, prompter=AlwaysReject())
+    )
+
+    assert not (tmp_path / "a.txt").exists()
+    # Model BİR DAHA çağrılmadı: script'teki ikinci sonuç (`TAM_CEVAP`) hiç
+    # tüketilmedi, tur reddedilen çağrının hemen ardından durdu.
+    assert provider.calls == 1
+    assert sonuc.model_calls_made == 1
+    assert sonuc.ok is True
+    arac_mesaji = next(m for m in sonuc.messages if m.role == "tool")
+    assert "reddetti" in arac_mesaji.content
+    # Kullanıcıya sorulan nihai cevap reddedilen aracı adlandırır ve nasıl
+    # devam edileceğini sorar.
+    assert "write_file" in sonuc.final_text
+    assert "nasıl devam edeyim" in sonuc.final_text.lower()
+    # Reddetme refleksiyon notu tetiklememeli.
+    assert not _icerir(sonuc, reflexion.STANDARD_NOTE)
+    olay = next(e for e in sink.events if isinstance(e, ToolExecuted))
+    assert olay.outcome is ToolOutcome.DENIED
+
+
+async def test_arac_hatasi_refleksiyon_notu_enjekte_eder(monkeypatch, tmp_path, sink):
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="yok.txt")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("oku", _deps(tmp_path, sink))
+
+    assert _icerir(sonuc, reflexion.STANDARD_NOTE)
+
+
+async def test_refleksiyon_kapatilabilir(monkeypatch, tmp_path, sink):
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="yok.txt")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("oku", _deps(tmp_path, sink, runtime={"reflexion": False}))
+
+    assert not _icerir(sonuc, reflexion.STANDARD_NOTE)
+
+
+async def test_adim_siniri_turu_sonlandirir(monkeypatch, tmp_path, sink):
+    # Her tur FARKLI bir yol okunur: çağrılar tekrar etmediği için tekrar kapısı
+    # devreye girmez ve turu gerçekten adım sınırı bitirir.
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("list_dir", path=f"alt-{index}")])
+                for index in range(20)
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("sonsuz", _deps(tmp_path, sink, runtime={"agent_max_steps": 3}))
+
+    assert sonuc.hit_step_limit
+    assert any(isinstance(e, TurnBudgetExhausted) for e in sink.events)
+
+
+async def test_model_hatasi_turu_bitirir(monkeypatch, tmp_path, sink):
+    _kur(monkeypatch, ScriptedProvider([model_result(ok=False, error="saglayici coktu")]))
+
+    sonuc = await run_agent("gorev", _deps(tmp_path, sink))
+
+    # Tanınmayan hatada ayrıntı saklanmaz; ham istisna yerine Türkçe açıklama gider.
+    assert sonuc.final_text == "Model yanıt veremedi: saglayici coktu"
+    assert sonuc.model_error == "saglayici coktu"
+
+
+async def test_plan_modunda_degistirici_arac_calismaz(monkeypatch, tmp_path, sink):
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    await run_agent("planla", _deps(tmp_path, sink, mode=ApprovalMode.PLAN), plan_mode=True)
+
+    assert not (tmp_path / "a.txt").exists()
+
+
+async def test_plan_modu_sistem_promptuna_eklenir(monkeypatch, tmp_path, sink):
+    provider = _kur(monkeypatch, ScriptedProvider([model_result("plan")]))
+
+    await run_agent("planla", _deps(tmp_path, sink), plan_mode=True)
+
+    sistem = provider.seen_messages[0][0]
+    assert "PLAN MODUNDASIN" in sistem.content
+
+
+async def test_hedef_projenin_talimat_dosyasi_sistem_promptuna_eklenir(monkeypatch, tmp_path, sink):
+    """OpenCode'un 'Custom Instructions' katmanı: proje kökündeki CLAUDE.md garantili okunur."""
+    (tmp_path / "CLAUDE.md").write_text("Bu projede daima Türkçe yorum yaz.", encoding="utf-8")
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    await run_agent("gorev", _deps(tmp_path, sink))
+
+    sistem = provider.seen_messages[0][0]
+    assert "Bu projede daima Türkçe yorum yaz." in sistem.content
+    assert "CLAUDE.md" in sistem.content
+
+
+async def test_talimat_dosyasi_yoksa_sistem_promptu_etkilenmez(monkeypatch, tmp_path, sink):
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    await run_agent("gorev", _deps(tmp_path, sink))
+
+    sistem = provider.seen_messages[0][0]
+    assert "proje_talimati" not in sistem.content
+
+
+async def test_home_verildiginde_dis_bellek_sistem_promptuna_girer(monkeypatch, tmp_path, sink):
+    """`read_all_instructions` ölü kod olmamalı: `deps.home` verildiğinde Claude'un
+    dış bellek dosyası (`~/.claude/projects/<slug>/memory/MEMORY.md`) gerçekten
+    ajan turunun ürettiği sistem metnine ulaşmalı."""
+    from fusion_cli.history.claude_source import slug_for
+
+    home = tmp_path / "ev"
+    root = tmp_path / "proje"
+    root.mkdir()
+    bellek_dizini = home / ".claude" / "projects" / slug_for(root) / "memory"
+    bellek_dizini.mkdir(parents=True)
+    (bellek_dizini / "MEMORY.md").write_text(
+        "Kullanıcı: motosiklet ekipmanı satıyor.", encoding="utf-8"
+    )
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    deps = AgentDeps(
+        config=make_config(),
+        publisher=_Publisher(sink),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=root),
+        home=home,
+    )
+    await run_agent("gorev", deps)
+
+    sistem = provider.seen_messages[0][0]
+    assert "Kullanıcı: motosiklet ekipmanı satıyor." in sistem.content
+
+
+async def test_home_yoksa_dis_bellek_okunmaz_ama_proje_talimati_calisir(
+    monkeypatch, tmp_path, sink
+):
+    (tmp_path / "CLAUDE.md").write_text("proje kurali", encoding="utf-8")
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    await run_agent("gorev", _deps(tmp_path, sink, home=None))
+
+    sistem = provider.seen_messages[0][0]
+    assert "proje kurali" in sistem.content
+    assert "<dis_bellek " not in sistem.content
+
+
+async def test_proje_talimati_dis_bellekten_once_gelir(monkeypatch, tmp_path, sink):
+    from fusion_cli.history.claude_source import slug_for
+
+    home = tmp_path / "ev"
+    root = tmp_path / "proje"
+    root.mkdir()
+    (root / "CLAUDE.md").write_text("proje kurali once gelmeli", encoding="utf-8")
+    bellek_dizini = home / ".claude" / "projects" / slug_for(root) / "memory"
+    bellek_dizini.mkdir(parents=True)
+    (bellek_dizini / "MEMORY.md").write_text("dis bellek sonra gelmeli", encoding="utf-8")
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    deps = AgentDeps(
+        config=make_config(),
+        publisher=_Publisher(sink),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=root),
+        home=home,
+    )
+    await run_agent("gorev", deps)
+
+    sistem = provider.seen_messages[0][0]
+    assert sistem.content.index("proje kurali once gelmeli") < sistem.content.index(
+        "dis bellek sonra gelmeli"
+    )
+
+
+async def test_alt_ajan_temiz_baglamla_calisir(monkeypatch, tmp_path, sink):
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("spawn_agent", task="alt gorev")]),
+                model_result("alt ajan cevabi"),  # alt-ajanin turu
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("bol", _deps(tmp_path, sink))
+
+    assert sonuc.final_text == TAM_CEVAP
+    assert any(isinstance(e, SubAgentStarted) for e in sink.events)
+    assert any(isinstance(e, SubAgentFinished) for e in sink.events)
+
+
+async def test_codex_toml_agent_talimati_alt_ajan_promptuna_gider(monkeypatch, tmp_path, sink):
+    import json
+
+    from fusion_cli.core.types import ToolCall
+    from fusion_cli.tools.capabilities import CapabilityRegistry
+
+    agents = tmp_path / ".codex" / "agents"
+    agents.mkdir(parents=True)
+    (agents / "architect.toml").write_text(
+        'name = "architect"\ndescription = "mimar"\n'
+        'developer_instructions = """\nTOML_AGENT_MARKER\n"""\n',
+        encoding="utf-8",
+    )
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=[
+                        ToolCall(
+                            id="call_invoke_agent",
+                            name="invoke_agent",
+                            arguments=json.dumps({"name": "architect", "task": "tasarla"}),
+                        )
+                    ]
+                ),
+                model_result("uzman cevabı"),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink)
+    deps.capabilities = CapabilityRegistry(tmp_path, tmp_path)
+
+    await run_agent("bol", deps)
+
+    assert any("TOML_AGENT_MARKER" in message.content for message in provider.seen_messages[1])
+
+
+async def test_alt_ajan_derinlik_siniri_asilmaz(monkeypatch, tmp_path, sink):
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("spawn_agent", task="birinci")]),
+                model_result(tool_calls=[tool_call("spawn_agent", task="ikinci")]),
+                model_result(TAM_CEVAP),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    await run_agent("bol", _deps(tmp_path, sink))
+
+    olaylar = [e for e in sink.events if isinstance(e, SubAgentStarted)]
+    assert len(olaylar) == 1  # ikinci seviye reddedildi
+
+
+async def test_ask_user_araci_yalnizca_asker_varken_sunulur(monkeypatch, tmp_path, sink):
+    provider = _kur(monkeypatch, ScriptedProvider([model_result("cevap")]))
+
+    await run_agent("gorev", _deps(tmp_path, sink))
+    araclarsiz = provider.calls
+
+    assert araclarsiz == 1
+
+
+async def test_ask_user_cevabi_modele_dondurulur(monkeypatch, tmp_path, sink):
+    asker = ScriptedAsker("mavi olsun")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("ask_user", question="hangi renk?")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("renk sec", _deps(tmp_path, sink, asker=asker))
+
+    assert asker.questions == ["hangi renk?"]
+    assert any("mavi olsun" in m.content for m in sonuc.messages if m.role == "tool")
+
+
+async def test_ask_user_onerilen_secenekleri_askere_gecirir(monkeypatch, tmp_path, sink):
+    asker = ScriptedAsker("mavi")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=[
+                        tool_call(
+                            "ask_user",
+                            question="hangi renk?",
+                            options=[
+                                {"label": "mavi", "description": "Sakin görünür."},
+                                {"label": "kırmızı", "description": "Daha canlıdır."},
+                            ],
+                            recommended="mavi",
+                        )
+                    ]
+                ),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    await run_agent("renk sec", _deps(tmp_path, sink, asker=asker))
+
+    assert [option.label for option in asker.options[0]] == ["mavi", "kırmızı"]
+    assert asker.recommended == ["mavi"]
+
+
+async def test_oz_denetim_sorun_yoksa_ikinci_tur_acmaz(monkeypatch, tmp_path, sink):
+    """Öz-denetim yalnız GERÇEK mutasyon olan turda çalışır (bkz. B2 gecikmesi)."""
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result("temiz cevap"),
+            ]
+        ),
+    )
+    monkeypatch.setattr(agent_loop.review, "review_turn", _sabit_denetim(""))
+
+    await run_agent("gorev", _deps(tmp_path, sink, runtime={"self_review": True}))
+
+    assert provider.calls == 2
+    olay = next(e for e in sink.events if isinstance(e, SelfReviewFinished))
+    assert not olay.issue_found
+
+
+async def test_oz_denetim_sorun_bulursa_duzeltici_tur_calisir(monkeypatch, tmp_path, sink):
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result("eksik cevap"),
+                model_result("duzeltilmis"),
+            ]
+        ),
+    )
+    monkeypatch.setattr(agent_loop.review, "review_turn", _sabit_denetim("testleri calistirmadin"))
+
+    sonuc = await run_agent("gorev", _deps(tmp_path, sink, runtime={"self_review": True}))
+
+    assert provider.calls == 3
+    assert sonuc.final_text.endswith("duzeltilmis")
+
+
+async def test_oz_denetim_yalniz_degisiklik_yapilan_turda_calisir(monkeypatch, tmp_path, sink):
+    """Araçsız/mutasyonsuz bir tur ("merhaba") hakem çağrısı harcamamalı (B2)."""
+    provider = _kur(monkeypatch, ScriptedProvider([model_result("merhaba")]))
+    denetim_cagrildi = False
+
+    async def _izlenen_denetim(*args, **kwargs):
+        nonlocal denetim_cagrildi
+        denetim_cagrildi = True
+        return ""
+
+    monkeypatch.setattr(agent_loop.review, "review_turn", _izlenen_denetim)
+
+    sonuc = await run_agent(
+        "Sadece 'merhaba' yaz", _deps(tmp_path, sink, runtime={"self_review": True})
+    )
+
+    assert provider.calls == 1
+    assert denetim_cagrildi is False
+    assert sonuc.final_text == "merhaba"
+
+
+async def test_mutasyondan_sonraki_arac_sozlesmesi_hatasi_oz_denetimi_atlamaz(
+    monkeypatch, tmp_path, sink
+):
+    """Yazılmış artefakt, geç bir parse hatası yüzünden denetimsiz kalmamalı."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=[tool_call("write_file", path="app.js", content="let hp = 1;")]
+                ),
+                model_result(error="TOOL_CALL_PARSE_ERROR: bozuk JSON", text="doğruluyorum"),
+                model_result(error="TOOL_CALL_PARSE_ERROR: yine bozuk JSON", text="doğruluyorum"),
+                model_result(error="TOOL_CALL_PARSE_ERROR: 3", text="doğruluyorum"),
+                model_result(error="TOOL_CALL_PARSE_ERROR: 4", text="doğruluyorum"),
+                model_result(error="TOOL_CALL_PARSE_ERROR: 5", text="doğruluyorum"),
+            ]
+        ),
+    )
+    monkeypatch.setattr(agent_loop.review, "review_turn", _sabit_denetim(""))
+
+    sonuc = await run_agent(
+        "oyun özelliği ekle",
+        _deps(tmp_path, sink, runtime={"self_review": True}),
+    )
+
+    assert sonuc.mutating_tool_calls_made == 1
+    assert sonuc.ok is False
+    assert any(isinstance(event, SelfReviewStarted) for event in sink.events)
+
+
+async def test_baglam_sikistirma_olayi_yayinlanir(monkeypatch, tmp_path, sink):
+    _kur(monkeypatch, ScriptedProvider([model_result("cevap")]))
+
+    async def _sikistir(messages, *, config, publisher=None, threshold_chars=None):
+        return messages[:1]
+
+    monkeypatch.setattr(agent_loop.compaction, "compress", _sikistir)
+
+    await run_agent("gorev", _deps(tmp_path, sink))
+
+    assert any(isinstance(e, ContextCompressed) for e in sink.events)
+
+
+# --- Argüman ayrıştırma ----------------------------------------------------- #
+
+
+def test_bozuk_json_bos_sozluk_ve_hata_dondurur():
+    arguments, hata = _parse_arguments_checked("{bozuk")
+    assert arguments == {}
+    assert hata is not None and "JSON" in hata
+
+
+def test_sozluk_olmayan_json_bos_sozluk_ve_hata_dondurur():
+    arguments, hata = _parse_arguments_checked("[1,2]")
+    assert arguments == {}
+    assert hata == "arguments bir JSON nesnesi olmalı"
+
+
+def test_bos_arguman_bos_sozluk_ve_hata_dondurur():
+    arguments, hata = _parse_arguments_checked("")
+    assert arguments == {}
+    assert hata is not None
+
+
+def test_gecerli_json_hatasiz_ayristirilir():
+    assert _parse_arguments_checked('{"path":"a.txt"}') == ({"path": "a.txt"}, None)
+
+
+def _sabit_denetim(sonuc):
+    async def _review(task, final_text, messages, *, config, publisher=None):
+        return sonuc
+
+    return _review
+
+
+# --- Etkileşimsiz ortam ------------------------------------------------------ #
+
+
+async def test_asker_yoksa_ask_user_araci_modele_sunulmaz(monkeypatch, tmp_path, sink):
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    await run_agent("gorev", _deps(tmp_path, sink, asker=None))
+
+    semalar = provider.seen_requests[0]
+    assert "ask_user" not in {s["function"]["name"] for s in semalar}
+
+
+async def test_asker_varsa_ask_user_araci_sunulur(monkeypatch, tmp_path, sink):
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    await run_agent("gorev", _deps(tmp_path, sink, asker=ScriptedAsker()))
+
+    semalar = provider.seen_requests[0]
+    ask_schema = next(s for s in semalar if s["function"]["name"] == "ask_user")
+    properties = ask_schema["function"]["parameters"]["properties"]
+    assert {"question", "options", "recommended"} <= properties.keys()
+
+
+async def test_plan_modunda_engelleme_reddetmeden_ayirt_edilir(monkeypatch, tmp_path, sink):
+    """Plan modunda kimseye sorulmaz; model bunu "kullanıcı reddetti" sanmamalı."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("planla", _deps(tmp_path, sink, mode=ApprovalMode.PLAN), plan_mode=True)
+
+    olay = next(e for e in sink.events if isinstance(e, ToolExecuted))
+    assert olay.outcome is ToolOutcome.BLOCKED
+    arac_mesaji = next(m for m in sonuc.messages if m.role == "tool")
+    assert "PLAN MODU" in arac_mesaji.content
+
+
+# --- Doğrulama kapısının geri besleme yolu ----------------------------------- #
+#
+# Bugüne kadar doğrulama sonucu YALNIZCA ders güvenini besliyordu; modele hiç
+# ulaşmıyordu. Yani kapı kırılsa bile agent bunu öğrenmiyor, çıktı değişmiyordu.
+
+
+class _SahteDogrulayici:
+    """İstenen sonucu döndüren doğrulayıcı; kaç kez çağrıldığını sayar."""
+
+    def __init__(self, sonuc):
+        self._sonuc = sonuc
+        self.calls = 0
+
+    async def verify(self):
+        self.calls += 1
+        return self._sonuc
+
+
+async def test_kapi_kirilirsa_bulgular_duzeltici_tura_gider(monkeypatch, tmp_path, sink):
+    from fusion_cli.core.verification import VerificationResult
+
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.html", content="<h1>x")]),
+                model_result(TAM_CEVAP),
+                model_result(
+                    tool_calls=[
+                        tool_call(
+                            "replace_range",
+                            path="a.html",
+                            start_line=1,
+                            end_line=1,
+                            new="<h1>ilk",
+                        )
+                    ]
+                ),
+                model_result("duzeltildi"),
+                # Kapı düzeltmeden sonra bir kez daha bakar; ikinci düzeltici tur da
+                # gerçek bir mutation üretmelidir.
+                model_result(
+                    tool_calls=[
+                        tool_call(
+                            "replace_range",
+                            path="a.html",
+                            start_line=1,
+                            end_line=1,
+                            new="<h1>ikinci",
+                        )
+                    ]
+                ),
+                model_result("duzeltildi"),
+            ]
+        ),
+    )
+    dogrulayici = _SahteDogrulayici(
+        VerificationResult(ok=False, summary="2 sorun", findings=("boş bağlantı: 18 adet",))
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = dogrulayici
+
+    sonuc = await run_agent("site yap", deps)
+
+    assert dogrulayici.calls >= 1
+    # Doğrulayıcı HER SEFERİNDE düşüyor: kapı hakkı bitince tur başarı sayılmaz
+    # ve cevap uyarıyla açılır (bkz. `_mark_unverified`). Düzeltici turun metni
+    # uyarının ardında korunur.
+    assert sonuc.final_text.endswith("duzeltildi")
+    assert "DOĞRULAMA GEÇMEDİ" in sonuc.final_text
+    gonderilen = provider.seen_messages[-1]
+    assert any("boş bağlantı: 18 adet" in mesaj.content for mesaj in gonderilen), (
+        "somut bulgu modele ulaşmalı"
+    )
+
+
+async def test_kapi_gecerse_duzeltici_tur_acilmaz(monkeypatch, tmp_path, sink):
+    from fusion_cli.core.verification import VerificationResult
+
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.html", content="<h1>x")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = _SahteDogrulayici(VerificationResult(ok=True))
+
+    await run_agent("site yap", deps)
+
+    assert provider.calls == 2
+
+
+async def test_dogrulayici_yoksa_kapi_hic_calismaz(monkeypatch, tmp_path, sink):
+    provider = _kur(monkeypatch, ScriptedProvider([model_result("cevap")]))
+
+    await run_agent("gorev", _deps(tmp_path, sink, runtime={"self_review": False}))
+
+    assert provider.calls == 1
+
+
+async def test_plan_modunda_kapi_calismaz(monkeypatch, tmp_path, sink):
+    from fusion_cli.core.verification import VerificationResult
+
+    _kur(monkeypatch, ScriptedProvider([model_result("plan")]))
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = _SahteDogrulayici(VerificationResult(ok=False, findings=("sorun",)))
+
+    await run_agent("gorev", deps, plan_mode=True)
+
+    assert deps.verifier.calls == 0
+
+
+async def test_duzeltici_turdan_sonra_kapi_bir_kez_daha_calisir(monkeypatch, tmp_path, sink):
+    """Düzeltici turun KENDİ kırdığı şey yakalanmalı.
+
+    Gerçek hata: düzeltici tur index.html'i yeniden yazarken <script> etiketini
+    düşürdü; sayfa boş kaldı ve kapı bir daha bakmadığı için bu hâliyle teslim edildi.
+    """
+    from fusion_cli.core.verification import VerificationResult
+
+    sonuclar = [
+        VerificationResult(ok=False, summary="ilk", findings=("boş bağlantı",)),
+        VerificationResult(ok=False, summary="ikinci", findings=("script etiketi düştü",)),
+        VerificationResult(ok=True),
+    ]
+
+    class _Kademeli:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            return sonuclar[min(self.calls - 1, len(sonuclar) - 1)]
+
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.html", content="<h1>")]),
+                model_result(TAM_CEVAP),
+                model_result(
+                    tool_calls=[
+                        tool_call(
+                            "replace_range",
+                            path="a.html",
+                            start_line=1,
+                            end_line=1,
+                            new="<h1>ilk",
+                        )
+                    ]
+                ),
+                model_result("ilk duzeltme"),
+                model_result(
+                    tool_calls=[
+                        tool_call(
+                            "replace_range",
+                            path="a.html",
+                            start_line=1,
+                            end_line=1,
+                            new="<h1>ikinci",
+                        )
+                    ]
+                ),
+                model_result("ikinci duzeltme"),
+            ]
+        ),
+    )
+    dogrulayici = _Kademeli()
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = dogrulayici
+
+    sonuc = await run_agent("site yap", deps)
+
+    assert dogrulayici.calls == 2, "kapı düzeltmeden sonra bir kez daha bakmalı"
+    # İkinci bakış da düştüğü için tur başarı sayılmaz; düzeltici turun metni
+    # uyarının ardında korunur (bkz. `_mark_unverified`).
+    assert sonuc.final_text.endswith("ikinci duzeltme")
+    assert sonuc.ok is False
+    assert provider.calls == 6
+
+
+async def test_kapi_bulgusuz_basarisizlikta_da_duzeltir(monkeypatch, tmp_path, sink):
+    """`ok=False` ama `findings` boşsa da düzeltici tur AÇILMALI.
+
+    Gerçek hata: koşul `not verification.findings` görünce döngüyü kırıyordu.
+    Bulgu üretmeyen bir doğrulayıcı (ör. yalnızca özet dolduran bir komut kapısı)
+    başarısız olduğunda agent düzeltmeye hiç başlamıyor, kapı yalnızca ders
+    güvenini etkileyip sessizce işlevsiz kalıyordu.
+    """
+    from fusion_cli.core.verification import VerificationResult
+
+    sonuclar = [
+        VerificationResult(ok=False, summary="komut başarısız (çıkış 1): pytest"),
+        VerificationResult(ok=True),
+    ]
+
+    class _BulgusuzKapi:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            return sonuclar[min(self.calls - 1, len(sonuclar) - 1)]
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result(TAM_CEVAP),
+                model_result(
+                    tool_calls=[
+                        tool_call(
+                            "replace_range",
+                            path="a.py",
+                            start_line=1,
+                            end_line=1,
+                            new="duzeltildi = True",
+                        )
+                    ]
+                ),
+                model_result("duzeltme yapildi"),
+            ]
+        ),
+    )
+    dogrulayici = _BulgusuzKapi()
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = dogrulayici
+
+    sonuc = await run_agent("test yaz", deps)
+
+    assert dogrulayici.calls == 2, "kapı düzeltmeden sonra bir kez daha bakmalı"
+    assert sonuc.final_text.endswith("duzeltme yapildi")
+
+
+async def test_kapi_sonsuz_dongu_yapmaz(monkeypatch, tmp_path, sink):
+    """Kapı hep kırık kalsa bile tur sınırlı sayıda düzeltme denemesiyle biter."""
+    from fusion_cli.core.verification import VerificationResult
+
+    class _HepKirik:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            return VerificationResult(ok=False, summary="x", findings=("sorun",))
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [model_result(tool_calls=[tool_call("write_file", path="a.html", content="x")])]
+            + [model_result(TAM_CEVAP) for _ in range(10)]
+        ),
+    )
+    dogrulayici = _HepKirik()
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = dogrulayici
+
+    await run_agent("site yap", deps)
+
+    assert dogrulayici.calls <= 2, f"kapı {dogrulayici.calls} kez çalıştı — sınır aşıldı"
+
+
+async def test_oz_denetim_duzeltmesi_ic_ice_kapi_turu_acmaz(monkeypatch, tmp_path, sink):
+    """Öz-denetimin düzeltici turu KENDİ kapı turlarını çalıştırmamalı.
+
+    Gerçek hata: bu tur `verify=False` almıyordu, dolayısıyla kendi içinde iki kapı
+    turu daha açıyordu. Üst sınır 2 konmuşken toplam 4 tura çıkıyor, maliyet sessizce
+    ikiye katlanıyordu.
+    """
+    from fusion_cli.core.verification import VerificationResult
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.html", content="<h1>x")]),
+                model_result(TAM_CEVAP),
+                model_result("oz denetim duzeltmesi"),
+                model_result("kapi duzeltmesi"),
+                model_result("kapi duzeltmesi 2"),
+            ]
+        ),
+    )
+    monkeypatch.setattr(agent_loop.review, "review_turn", _sabit_denetim("bir sorun var"))
+    dogrulayici = _SahteDogrulayici(VerificationResult(ok=False, findings=("sorun",)))
+    deps = _deps(tmp_path, sink, runtime={"self_review": True})
+    deps.verifier = dogrulayici
+
+    await run_agent("site yap", deps)
+
+    assert dogrulayici.calls <= 2, f"kapı {dogrulayici.calls} kez çalıştı; iç içe doğrulama var"
+
+
+async def test_bos_cevapta_bir_kez_daha_denenir(monkeypatch, tmp_path, sink):
+    """Model boş cevap verirse tur HİÇBİR İŞ YAPMADAN bitmemeli.
+
+    Ölçüldü (transkript): model `ok=true` ama metinsiz ve araçsız cevap
+    dönebiliyor. Tek modelli zincirde yedek yoktur (hedged kısa devre yapar), o
+    yüzden çare yeniden denemektir. Sınırlıdır: boş cevap ısrar ederse tur biter,
+    sonsuz döngü yok.
+    """
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(""),  # boş — yeniden denenmeli
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+
+    sonuc = await run_agent("bir sey yap", deps)
+
+    assert provider.calls == 3, "boş cevaptan sonra devam edilmeli"
+    assert (tmp_path / "a.py").exists(), "iş yapılmalı"
+    assert sonuc.final_text.endswith(TAM_CEVAP)
+
+
+async def test_israrli_bos_cevapta_sonsuz_donguye_girilmez(monkeypatch, tmp_path, sink):
+    provider = _kur(monkeypatch, ScriptedProvider([model_result("") for _ in range(10)]))
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+
+    await run_agent("bir sey yap", deps)
+
+    assert provider.calls <= 3, f"boş cevap {provider.calls} kez denendi — sınır aşıldı"
+
+
+async def test_soru_isareti_olmayan_salt_okuma_cevabi_zorlanmaz(monkeypatch, tmp_path, sink):
+    """Okuyup açıklayan meşru tur ek çağrı harcamamalı."""
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("list_dir", path=".")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    await run_agent("bu dizini açıkla", _deps(tmp_path, sink))
+
+    assert provider.calls == 2
+
+
+# --- "değişiklik yapılmadı" yüklemi ---------------------------------------- #
+
+
+async def test_salt_okuma_turu_degisiklik_yapmadi_bildirir(monkeypatch, tmp_path, sink):
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("list_dir", path=".")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("oku", _deps(tmp_path, sink))
+
+    assert sonuc.made_no_changes is True
+
+
+async def test_yazan_tur_degisiklik_yapmadi_demez(monkeypatch, tmp_path, sink):
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("yaz", _deps(tmp_path, sink))
+
+    assert sonuc.mutating_tool_calls_made > 0
+    assert sonuc.made_no_changes is False
+
+
+async def test_araçsiz_sohbet_turu_rozet_kosulunu_tetiklemez(monkeypatch, tmp_path, sink):
+    """Düz sohbette kimse değişiklik beklemiyordu; rozet gürültü olurdu."""
+    _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    sonuc = await run_agent("selam", _deps(tmp_path, sink))
+
+    assert sonuc.made_no_changes is False
+
+
+# --- düzeltme turu sahte bir kullanıcı mesajı gibi davranmaz ---------------- #
+#
+# Eski davranış: talimat "Kullanıcının görevi şuydu: …" diye görevi BAŞTAN
+# anlatıyordu. Tek konuşma geçmişi ilkesiyle (görev zaten paylaşılan geçmişte
+# duruyor) bu ikinci, SAHTE bir kullanıcı mesajı gibi davranıyordu ve model onu
+# görevin yeniden verildiği sanıp "iş henüz verilmedi, ne yapmamı istiyorsunuz"
+# diyerek turu bitirebiliyordu — birinci turda yapılmış işi de götürerek.
+
+
+def test_duzeltme_turu_gorevi_sahte_kullanici_mesajiyla_tekrarlamaz():
+    from fusion_cli.engines.agent.loop import CORRECTION_NOTE_PREFIX, _correction_task
+
+    metin = _correction_task("hiçbir dosya değişmedi")
+
+    assert metin.startswith(CORRECTION_NOTE_PREFIX)
+    assert "hiçbir dosya değişmedi" in metin
+    assert "Kullanıcının görevi şuydu" not in metin
+
+
+def test_dogrulama_duzeltmesi_de_gorevi_sahte_kullanici_mesajiyla_tekrarlamaz():
+    from fusion_cli.core.verification import VerificationResult
+    from fusion_cli.engines.agent.loop import CORRECTION_NOTE_PREFIX, _verification_correction_task
+
+    metin = _verification_correction_task(
+        VerificationResult(ok=False, summary="x", findings=("boş bağlantı",))
+    )
+
+    assert metin.startswith(CORRECTION_NOTE_PREFIX)
+    assert "boş bağlantı" in metin
+    assert "Kullanıcının görevi şuydu" not in metin
+
+
+async def test_ic_tur_nihai_cevabi_yayinlamaz(monkeypatch, tmp_path, sink):
+    """`internal=True` turlar `TurnAnswered` yayınlamaz; dış tur tek kez basar."""
+    from fusion_cli.core.events import TurnAnswered
+
+    _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    await run_agent("gorev", _deps(tmp_path, sink), internal=True)
+
+    assert not [olay for olay in sink.events if isinstance(olay, TurnAnswered)]
+
+
+async def test_cevap_tam_olarak_bir_yoldan_ulasir(monkeypatch, tmp_path, sink):
+    """Değişmez: akış ve duyuru ASLA aynı anda çalışmaz.
+
+    Gerçekten akıtan sağlayıcıda cevap zaten ekrana ulaşmıştır ve `TurnAnswered`
+    susar; akıtmayan web adaptöründe tersi olur. İkisinin birden çalıştığı gün
+    cevap iki kez basılır.
+    """
+    from fusion_cli.core.events import TurnAnswered
+
+    _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    sonuc = await run_agent("gorev", _deps(tmp_path, sink))
+
+    duyurular = [olay for olay in sink.events if isinstance(olay, TurnAnswered)]
+    assert sonuc.answer_streamed != bool(duyurular), "iki yol birden ya çalıştı ya sustu"
+
+
+# --- düzenleme döngüsünden çıkış ------------------------------------------- #
+#
+# Ölçüldü: `edit_file` beş kez üst üste "'old' metni dosyada bulunamadı" verdi.
+# Model her seferinde DAHA DAR bir pencere okuyup aynı yaklaşımı tekrarladı ve
+# turun tamamı bu döngüde yandı. Genel refleksiyon notu yetmiyor: model onu
+# "biraz daha oku" diye yorumluyor. Çıkış yolu adıyla gösterilmeli.
+
+
+async def test_tekrarlayan_basarisiz_duzenleme_cikis_yolu_gosterir(monkeypatch, tmp_path, sink):
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("edit_file", path="a.py", old="yok1", new="z")]),
+                model_result(tool_calls=[tool_call("edit_file", path="a.py", old="yok2", new="z")]),
+                model_result(tool_calls=[tool_call("edit_file", path="a.py", old="yok3", new="z")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("a.py'yi düzelt", _deps(tmp_path, sink))
+
+    notlar = [m.content for m in sonuc.messages if "[düzenleme-döngüsü]" in m.content]
+    assert notlar, "döngü kapısı hiç konuşmadı"
+    assert "multi_edit" in notlar[0] and "write_file" in notlar[0]
+
+
+async def test_okuma_hatasi_duzenleme_dongusu_sayilmaz(monkeypatch, tmp_path, sink):
+    """Yanlış dosya adı bir döngü değildir; o kapıyı tetiklememeli."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="yok1.py")]),
+                model_result(tool_calls=[tool_call("read_file", path="yok2.py")]),
+                model_result(tool_calls=[tool_call("read_file", path="yok3.py")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("oku", _deps(tmp_path, sink))
+
+    assert not [m for m in sonuc.messages if "[düzenleme-döngüsü]" in m.content]
+
+
+# --- cevap öğrenmeden ÖNCE duyurulur --------------------------------------- #
+#
+# Ölçüldü (gerçek koşu): iş bir dakikada bitti, cevap hazırdı, ama ders çıkarımı
+# bitene kadar ekrana hiçbir şey basılmadı — kullanıcı 20 dakika boş ekran gördü
+# ve turun donduğunu sandı. Öğrenme muhasebedir; kullanıcıyı bekletemez.
+
+
+async def test_cevap_ders_cikariminden_once_duyurulur(monkeypatch, tmp_path, sink):
+    from fusion_cli.core.events import LessonsLearned, TurnAnswered
+
+    sira: list[str] = []
+
+    async def _yavas_ogrenme(task, outcome, deps, **kwargs):
+        sira.append("ogrenme")
+        deps.publisher.publish(LessonsLearned(count=1))
+
+    monkeypatch.setattr(agent_loop.learning_steps, "learn", _yavas_ogrenme)
+
+    class _Kaydeden:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def handle(self, event):
+            if isinstance(event, TurnAnswered):
+                sira.append("cevap")
+            self._inner.handle(event)
+
+    class _AkitmayanSaglayici:
+        """Web adaptörü gibi: metni akıtmaz, yalnızca sonuç döndürür."""
+
+        def __init__(self, results):
+            self._results = list(results)
+            self.calls = 0
+
+        @property
+        def label(self):
+            return "akitmayan"
+
+        async def complete(self, request):
+            index = min(self.calls, len(self._results) - 1)
+            self.calls += 1
+            return self._results[index]
+
+        async def stream(self, request):
+            from fusion_cli.core.types import StreamDone
+
+            yield StreamDone(await self.complete(request))
+
+    _kur(
+        monkeypatch,
+        _AkitmayanSaglayici(
+            [
+                model_result(tool_calls=[tool_call("list_dir", path=".")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, _Kaydeden(sink))
+
+    await run_agent("gorev", deps)
+
+    assert sira, "ne cevap ne öğrenme yayınlandı"
+    assert sira[0] == "cevap", f"öğrenme cevaptan önce çalıştı: {sira}"
+
+
+async def test_asili_kalan_ders_cikarimi_turu_bekletmez(monkeypatch, tmp_path, sink):
+    """Öğrenme bir iyileştirmedir; sınırı aşarsa atlanır, tur normal biter."""
+    import asyncio as _asyncio
+
+    from fusion_cli.engines.agent import learning_steps
+
+    monkeypatch.setattr(learning_steps, "LEARN_TIMEOUT_S", 0.05)
+
+    async def _asili() -> None:
+        await _asyncio.sleep(10)
+
+    await learning_steps._bounded(_asili())  # zaman aşımı yutulur, hata fırlatmaz
+
+
+async def test_dogrulama_komutu_degisiklikten_sonra_tekrar_calisabilir(monkeypatch, tmp_path, sink):
+    """Düzeltmeden sonra testi tekrar çalıştırmak meşrudur; engellenmemeli.
+
+    Ölçüldü: model kodu düzeltti, `npm test` çalıştırmak istedi ve
+    TOOL_CALL_DUPLICATE ile engellendi — düzeltmenin işe yarayıp yaramadığını
+    doğrulayamadı.
+    """
+    (tmp_path / "a.txt").write_text("eski\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("run_shell", command="echo kontrol")]),
+                model_result(
+                    tool_calls=[tool_call("edit_file", path="a.txt", old="eski", new="yeni")]
+                ),
+                model_result(tool_calls=[tool_call("run_shell", command="echo kontrol")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("a.txt'yi düzelt ve doğrula", _deps(tmp_path, sink))
+
+    engellenen = [m for m in sonuc.messages if "TOOL_CALL_DUPLICATE" in m.content]
+    assert not engellenen, "değişiklikten sonraki doğrulama engellendi"
+
+
+async def test_degisiklik_olmadan_ayni_komut_yine_tekrar_sayilir(monkeypatch, tmp_path, sink):
+    """Çalışma alanı değişmeden ısrarla aynı komut yine tekrardır.
+
+    Sınır okuma araçlarınınkiyle aynıdır (`max_same_tool_without_change`): birkaç
+    tekrara izin verilir, ısrar engellenir.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("run_shell", command="echo x")]),
+                model_result(tool_calls=[tool_call("run_shell", command="echo x")]),
+                model_result(tool_calls=[tool_call("run_shell", command="echo x")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("çalıştır", _deps(tmp_path, sink))
+
+    assert [m for m in sonuc.messages if "TOOL_CALL_DUPLICATE" in m.content]
+
+
+async def test_dusen_duzenlemeden_sonra_yeniden_okuma_engellenmez(monkeypatch, tmp_path, sink):
+    """Toparlanmanın tek yolu yeniden okumaktır; tekrar kapısı onu kesmemeli.
+
+    Ölçüldü (canlı koşu): `edit_file` "'old' bulunamadı" dedi, model dosyayı
+    yeniden okumak istedi, TOOL_CALL_DUPLICATE ile engellendi ve tur "3 turdur
+    ilerleme yok" ile öldü. Çalışma alanı değişmemişti ama modelin BİLGİ durumu
+    değişmek zorundaydı.
+    """
+    (tmp_path / "a.txt").write_text("gerçek içerik\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="a.txt")]),
+                model_result(tool_calls=[tool_call("edit_file", path="a.txt", old="YOK", new="x")]),
+                model_result(tool_calls=[tool_call("read_file", path="a.txt")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("a.txt'yi düzelt", _deps(tmp_path, sink))
+
+    assert not [m for m in sonuc.messages if "TOOL_CALL_DUPLICATE" in m.content]
+
+
+async def test_dusen_duzenleme_ayni_duzenlemeyi_serbest_birakmaz(monkeypatch, tmp_path, sink):
+    """Değiştirici imza çağdan bağımsızdır: aynı yazma yine tekrardır."""
+    (tmp_path / "a.txt").write_text("gerçek\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("edit_file", path="a.txt", old="YOK", new="x")]),
+                model_result(tool_calls=[tool_call("edit_file", path="a.txt", old="YOK", new="x")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("düzelt", _deps(tmp_path, sink))
+
+    assert [m for m in sonuc.messages if "TOOL_CALL_DUPLICATE" in m.content]
+
+
+# --- planlı işte devam bütçesi bekleyen maddelerle büyür ------------------- #
+#
+# Sabit tek hak PLANLI işlerde yanlıştı: altı maddelik bir todo listesi yazan
+# model tek dürtü alıp turu bitiriyordu — yani plan yapmak işi bitirmeye
+# yaramıyordu. Geniş görevlerin tek turda bitmemesinin sebeplerinden biri buydu.
+
+
+def test_devam_hakki_bekleyen_madde_basina_buyur():
+    from fusion_cli.core.budget import TurnBudget
+    from fusion_cli.core.clock import SystemClock
+
+    butce = TurnBudget(
+        clock=SystemClock(),
+        max_model_calls=50,
+        max_verify_rounds=1,
+        max_empty_retries=1,
+        max_contract_repairs=1,
+        max_auto_continues=1,
+        max_idle_rounds=5,
+    )
+
+    # Bekleyen madde yokken tek hak.
+    assert butce.take_auto_continue() is True
+    assert butce.take_auto_continue() is False
+    # Üç bekleyen madde üç hak daha açar.
+    assert [butce.take_auto_continue(pending_todos=3) for _ in range(3)] == [True, True, True]
+    assert butce.take_auto_continue(pending_todos=3) is False
+
+
+def test_todo_bekleyen_sayisi_tamamlananlari_saymaz():
+    from fusion_cli.core.tools import TodoItem, TodoList, TodoStatus
+
+    liste = TodoList()
+    liste.replace(
+        (
+            TodoItem("bitti", TodoStatus.COMPLETED),
+            TodoItem("sürüyor", TodoStatus.IN_PROGRESS),
+            TodoItem("bekliyor", TodoStatus.PENDING),
+        )
+    )
+
+    assert liste.pending_count == 2
+    assert liste.has_pending is True
+
+
+async def test_degisen_dosyalar_modele_olgu_olarak_bildirilir(monkeypatch, tmp_path, sink):
+    """Model kendi işini takip edemiyor; kayıt geçmişe olgu olarak girmeli.
+
+    Ölçüldü: model üç dosya oluşturdu ve kapanışta "herhangi bir değişiklik
+    yapılmamıştır" dedi.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+                model_result(tool_calls=[tool_call("write_file", path="b.txt", content="y")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("iki dosya oluştur", _deps(tmp_path, sink))
+
+    kayitlar = [m.content for m in sonuc.messages if "[kayıt]" in m.content]
+    assert kayitlar, "değişiklik kaydı modele hiç bildirilmedi"
+    assert "a.txt" in kayitlar[-1] and "b.txt" in kayitlar[-1]
+
+
+async def test_degisiklik_yoksa_kayit_eklenmez(monkeypatch, tmp_path, sink):
+    """Salt-okuma turunda kayıt promptu şişirmemeli."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("list_dir", path=".")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("oku", _deps(tmp_path, sink))
+
+    assert not [m for m in sonuc.messages if "[kayıt]" in m.content]
+
+
+# --- doğrulama kapısı gerçekten çağrılıyor mu ------------------------------ #
+#
+# Canlı koşuda model `app/page.tsx`'e yinelenen fonksiyon tanımları ekledi, proje
+# `tsc` ile 8 hata verdi ve tur BAŞARI özetiyle kapandı. Doğrulayıcı elle
+# çağrıldığında hatayı yakalıyordu; yani sorun kapının kendisinde değil,
+# motorun onu çağırıp çağırmadığındaydı.
+
+
+class _DusenDogrulayici:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def verify(self):
+        from fusion_cli.core.verification import VerificationResult
+
+        self.calls += 1
+        return VerificationResult(ok=False, summary="derleme kırıldı", findings=("hata",))
+
+
+async def test_degisiklik_yapan_tur_dogrulamadan_gecer(monkeypatch, tmp_path, sink):
+    from fusion_cli.core.events import VerificationFailed
+
+    dogrulayici = _DusenDogrulayici()
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+                model_result(TAM_CEVAP),
+                model_result(TAM_CEVAP),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink)
+    deps.verifier = dogrulayici
+
+    await run_agent("a.txt oluştur", deps)
+
+    assert dogrulayici.calls > 0, "doğrulayıcı hiç çağrılmadı"
+    assert [e for e in sink.events if isinstance(e, VerificationFailed)]
+
+
+async def test_deterministik_dogrulama_oz_denetimden_once_calisir(monkeypatch, tmp_path, sink):
+    """Somut kapı bulgusu, model hakemi bütçeyi harcamadan önce ele alınmalı."""
+    from fusion_cli.core.events import VerificationFailed
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+                model_result(TAM_CEVAP),
+                model_result(
+                    tool_calls=[tool_call("write_file", path="a.txt", content="duzeltildi")]
+                ),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    monkeypatch.setattr(agent_loop.review, "review_turn", _sabit_denetim(""))
+    deps = _deps(tmp_path, sink, runtime={"self_review": True})
+    deps.verifier = _DusenDogrulayici()
+
+    await run_agent("a.txt oluştur", deps)
+
+    kinds = [type(event) for event in sink.events]
+    assert kinds.index(VerificationFailed) < kinds.index(SelfReviewStarted)
+
+
+async def test_verification_correction_agentin_ilk_fallback_modelini_kullanir(
+    monkeypatch, tmp_path, sink
+):
+    """Semantik olarak başarısız ana model aynı düzeltmeyi tekrar üstlenmemeli."""
+    from fusion_cli.core.types import ModelSpec
+    from fusion_cli.core.verification import VerificationResult
+
+    class _BirKezDusenDogrulayici:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            return (
+                VerificationResult(ok=False, summary="bozuk", findings=("hp azalmıyor",))
+                if self.calls == 1
+                else VerificationResult(ok=True)
+            )
+
+    main = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("write_file", path="a.js", content="broken")]),
+            model_result(TAM_CEVAP),
+        ]
+    )
+    corrector = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("write_file", path="a.js", content="fixed")]),
+            model_result(TAM_CEVAP),
+        ]
+    )
+    seen_models: list[str] = []
+
+    def _build(spec, **kwargs):
+        seen_models.append(spec.model)
+        return corrector if spec.model == "provider/corrector" else main
+
+    monkeypatch.setattr(agent_loop, "build_provider", _build)
+    deps = _deps(
+        tmp_path,
+        sink,
+        agent=ModelSpec(
+            name="main",
+            model="provider/main",
+            fallback=("provider/corrector", "provider/last-resort"),
+        ),
+        task_model_map={},
+    )
+    deps.verifier = _BirKezDusenDogrulayici()
+
+    await run_agent("a.js düzelt", deps)
+
+    assert (tmp_path / "a.js").read_text() == "fixed"
+    assert "provider/corrector" in seen_models
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_content", "expected_main_calls"),
+    [
+        ("Service temporarily overloaded", "fixed", 4),
+        ("401 Unauthorized: invalid API key", "broken", 2),
+    ],
+    ids=("geçici-hata", "kalıcı-hata"),
+)
+async def test_correction_saglayici_hatasinda_yalniz_gecici_arizayi_birincille_kurtarir(
+    monkeypatch,
+    tmp_path,
+    sink,
+    error,
+    expected_content,
+    expected_main_calls,
+):
+    """Overload bulguyu sahipsiz bırakmaz; kalıcı hatada boşuna çağrı yapılmaz."""
+    from fusion_cli.core.types import ModelSpec
+    from fusion_cli.core.verification import VerificationResult
+
+    class _BirKezDusenDogrulayici:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            return (
+                VerificationResult(ok=False, summary="bozuk", findings=("e.hp azalmıyor",))
+                if self.calls == 1
+                else VerificationResult(ok=True)
+            )
+
+    main = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("write_file", path="a.js", content="broken")]),
+            model_result(TAM_CEVAP),
+            model_result(tool_calls=[tool_call("write_file", path="a.js", content="fixed")]),
+            model_result(TAM_CEVAP),
+        ]
+    )
+    corrector = ScriptedProvider([model_result(ok=False, error=error)])
+
+    def _build(spec, **kwargs):
+        return corrector if spec.model == "provider/corrector" else main
+
+    monkeypatch.setattr(agent_loop, "build_provider", _build)
+    deps = _deps(
+        tmp_path,
+        sink,
+        agent=ModelSpec(
+            name="main",
+            model="provider/main",
+            fallback=("provider/corrector",),
+        ),
+        task_model_map={},
+    )
+    deps.verifier = _BirKezDusenDogrulayici()
+
+    await run_agent("a.js düzelt", deps)
+
+    assert main.calls == expected_main_calls
+    assert (tmp_path / "a.js").read_text(encoding="utf-8") == expected_content
+
+
+async def test_correction_yerel_arac_siniri_son_dogrulamayi_engellemez(monkeypatch, tmp_path, sink):
+    """İç turun yerel sınırı, düzeltilmiş artefaktın post-condition kapısını kapatmamalı."""
+    from fusion_cli.core.verification import VerificationResult
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    class _DosyayiDogrulayan:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            fixed = (tmp_path / "a.js").read_text(encoding="utf-8") == "fixed"
+            return (
+                VerificationResult(ok=True)
+                if fixed
+                else VerificationResult(ok=False, summary="bozuk", findings=("a.js bozuk",))
+            )
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.js", content="broken")]),
+                model_result(TAM_CEVAP),
+                model_result(tool_calls=[tool_call("write_file", path="a.js", content="fixed")]),
+                # Correction'ın yerel araç hakkını aşar; çağrı çalıştırılmamalı.
+                model_result(tool_calls=[tool_call("write_file", path="b.js", content="x")]),
+            ]
+        ),
+    )
+    dogrulayici = _DosyayiDogrulayan()
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.execution = ExecutionPolicy(
+        is_web=True,
+        max_model_calls=50,
+        max_tool_rounds=1,
+        complex_task=True,
+    )
+    deps.verifier = dogrulayici
+
+    sonuc = await run_agent("a.js düzelt", deps)
+
+    assert dogrulayici.calls == 2
+    assert (tmp_path / "a.js").read_text(encoding="utf-8") == "fixed"
+    assert not (tmp_path / "b.js").exists()
+    assert deps.budget.stop is None
+    assert "DOĞRULAMA GEÇMEDİ" not in sonuc.final_text
+
+
+async def test_duzeltilemeyen_dogrulama_basari_olarak_kapanmaz(monkeypatch, tmp_path, sink):
+    """Bildiğimiz bir bozukluğu başarı diye teslim etmek kabul edilemez.
+
+    Ölçüldü: kapı bozulmayı yakaladı, düzeltici tur açıldı, düzeltme tutmadı,
+    hak bitti — ve tur "tamamladım" diyerek kapandı. Kullanıcının projesi 8
+    derleme hatasıyla bozuk kaldı.
+    """
+    dogrulayici = _DusenDogrulayici()
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+                model_result(TAM_CEVAP),
+                model_result(TAM_CEVAP),
+                model_result(TAM_CEVAP),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink)
+    deps.verifier = dogrulayici
+
+    sonuc = await run_agent("a.txt oluştur", deps)
+
+    assert sonuc.ok is False, "doğrulama düşmüşken tur başarı sayıldı"
+    assert "DOĞRULAMA GEÇMEDİ" in sonuc.final_text
+    assert "derleme kırıldı" in sonuc.final_text
+
+
+# --- yanlış çalışma dizini --------------------------------------------------- #
+#
+# Ölçüldü: kullanıcı fusion'ı yanlış klasörde açtı ve sidebar düzeni hakkında bir
+# görev verdi. Model görevde geçen dört dosyayı da bulamadı; ardından öz-denetim
+# düzeltici turunda GÖREVİ TERK ETTİ ve kendine yeni iş uydurdu — o projenin
+# README'sini okuyup "test paketini çalıştır, hataları düzelt" diye todo listesi
+# yazdı. Kullanıcının sorduğu şeyle hiçbir ilgisi yoktu.
+
+
+async def test_dosyalarin_hicbiri_yoksa_yanlis_dizin_uyarisi_gider(monkeypatch, tmp_path, sink):
+    from fusion_cli.engines.agent import reflexion as r
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="app/globals.css")]),
+                model_result(tool_calls=[tool_call("read_file", path="components/Sidebar.tsx")]),
+                model_result(tool_calls=[tool_call("read_file", path="app/page.tsx")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("sidebar düzenini düzelt", _deps(tmp_path, sink))
+
+    notlar = [m.content for m in sonuc.messages if "[yanlış-dizin]" in m.content]
+    assert notlar, "yanlış dizin uyarısı hiç gitmedi"
+    assert "DUR" in notlar[0]
+    assert "UYDURMA" in notlar[0]
+    assert str(tmp_path) in notlar[0], "hangi dizinde olduğu yazılmalı"
+    assert r.WRONG_WORKSPACE_NOTE.split("{")[0] in notlar[0]
+
+
+async def test_tek_dosya_okunabiliyorsa_uyari_gitmez(monkeypatch, tmp_path, sink):
+    """Dizin doğru ama model yanlış ad tahmin etmiş olabilir; bu uyarı değildir."""
+    (tmp_path / "var.txt").write_text("içerik\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="yok1.css")]),
+                model_result(tool_calls=[tool_call("read_file", path="yok2.tsx")]),
+                model_result(tool_calls=[tool_call("read_file", path="var.txt")]),
+                model_result(tool_calls=[tool_call("read_file", path="yok3.tsx")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("bak", _deps(tmp_path, sink))
+
+    assert not [m for m in sonuc.messages if "[yanlış-dizin]" in m.content]
+
+
+async def test_uyari_bir_kez_verilir(monkeypatch, tmp_path, sink):
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path=f"yok{i}.tsx")])
+                for i in range(6)
+            ]
+            + [model_result(TAM_CEVAP)]
+        ),
+    )
+
+    sonuc = await run_agent("düzelt", _deps(tmp_path, sink))
+
+    assert len([m for m in sonuc.messages if "[yanlış-dizin]" in m.content]) == 1
+
+
+async def test_yanlis_dizinde_oz_denetim_turu_acilmaz(monkeypatch, tmp_path, sink):
+    """Yanlış dizinde düzeltilecek bir şey yok; düzeltici tur iş uyduruyordu."""
+    from fusion_cli.core.events import SelfReviewStarted
+
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="a.css")]),
+                model_result(tool_calls=[tool_call("read_file", path="b.tsx")]),
+                model_result(tool_calls=[tool_call("read_file", path="c.tsx")]),
+                model_result("Bu dizinde aradığın dosyalar yok; doğru projede çalıştır."),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("sidebar düzelt", _deps(tmp_path, sink, runtime={"self_review": True}))
+
+    assert sonuc.wrong_workspace is True
+    assert not [e for e in sink.events if isinstance(e, SelfReviewStarted)]
+    assert provider.calls == 4, "fazladan düzeltici tur açılmamalı"
+
+
+async def test_dogru_dizin_bulunursa_komutla_onerilir(monkeypatch, tmp_path, sink):
+    """Dizin DEĞİŞTİRİLMEZ, önerilir: kararı kullanıcı verir."""
+    yanlis = tmp_path / "yanlis"
+    yanlis.mkdir()
+    dogru = tmp_path / "dogru-proje"
+    for yol in ("app/page.tsx", "components/Sidebar.tsx", "app/globals.css"):
+        hedef = dogru / yol
+        hedef.parent.mkdir(parents=True, exist_ok=True)
+        hedef.write_text("x", encoding="utf-8")
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="app/globals.css")]),
+                model_result(tool_calls=[tool_call("read_file", path="components/Sidebar.tsx")]),
+                model_result(tool_calls=[tool_call("read_file", path="app/page.tsx")]),
+                model_result("Bu dizinde o dosyalar yok."),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("sidebar düzelt", _deps(yanlis, sink))
+
+    notlar = [m.content for m in sonuc.messages if "[yanlış-dizin]" in m.content]
+    assert notlar
+    assert str(dogru) in notlar[0], "doğru dizin önerilmedi"
+    assert "cd " in notlar[0], "çalıştırılabilir komut verilmeli"
+
+
+async def test_butce_durdurmasinda_cevap_hata_gibi_basilmaz(monkeypatch, tmp_path, sink):
+    """Sebep zaten yayınlandı; cevabı ikinci kez hata kılığında basmak çelişkilidir.
+
+    Ölçüldü: ekrana "✗ hata İş başarıyla tamamlanmıştır ve dosya güncellendi"
+    düştü — bütçe sınırı ayrıca bildirilmişken modelin başarı cümlesi hata
+    olarak gösteriliyordu.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [model_result(tool_calls=[tool_call("list_dir", path=f"a{i}")]) for i in range(6)]
+        ),
+    )
+
+    sonuc = await run_agent("gez", _deps(tmp_path, sink, runtime={"agent_max_steps": 3}))
+
+    assert sonuc.ok is False
+    assert sonuc.budget_stopped is True
+
+
+def test_tekrar_engeli_arac_yerine_argumani_degistirmeyi_soyler():
+    """Tekrar rehberliği araç-bağımsız olmalı ve argüman değiştirmeyi önermeli.
+
+    Ölçülen hata: mesaj yalnız DOSYA araçlarını sayıyordu (`write_file`,
+    `replace_range`, `read_file`). MCP aracıyla çalışan model bu listeden hiçbir
+    şey uygulayamıyordu. Gerçek Godot turunda `godot__add_node` yolu `res://`
+    ekiyle reddedildi; doğru düzeltme AYNI aracı `res://` olmadan çağırmaktı ama
+    mesaj bunu hiç önermiyordu — model başka bir aracı tekrarlayıp tıkandı.
+    """
+    from fusion_cli.engines.agent.loop import _duplicate_call_message
+
+    mesaj = _duplicate_call_message()
+
+    # Not: `casefold` Türkçe `I`yı noktalı `i` yapar; karşılaştırma metnin
+    # kendi yazımı üzerinden yapılır.
+    assert "FARKLI ARGÜMANLARLA" in mesaj, mesaj
+    assert "res://" in mesaj, "yol/biçim düzeltmesi somut örnekle anlatılmalı"
+    # Dosya araçları ÖRNEK olabilir ama tek çare olarak sunulmamalı.
+    assert "write_file" in mesaj
+    assert mesaj.startswith("TOOL_CALL_DUPLICATE")
+
+
+def test_ayni_arac_ayni_hatayi_yinelerse_fusion_uyarir():
+    """Aynı araç aynı hatayı yinelediğinde modele bunu FUSION söyler.
+
+    Ölçülen hata: `godot__add_node` üç kez "Scene file does not exist" verdi ve
+    her seferinde kendi önerisi olarak "Use create_scene to create a new scene
+    first" dedi. Sahne ZATEN vardı; öneri yanlıştı. Model itaatle `create_scene`
+    çağırıp durdu ve tur yarım bitti. Model inatçı değildi — aracın kendi
+    önerisine uyuyordu.
+
+    Tekrar kapısı burada yardım etmiyor: çağrılar birbirinin AYNISI değil
+    (araçlar dönüşümlü). Bu yüzden ölçüt çağrı imzası değil, HATA imzasıdır.
+    """
+    from fusion_cli.engines.agent.loop import _repeated_failure_note
+
+    hata = "Scene file does not exist: res://main.tscn\nPossible solutions:\n- Use create_scene"
+
+    assert _repeated_failure_note("godot__add_node", hata, 1) is None, "ilk hatada susulur"
+
+    not_ = _repeated_failure_note("godot__add_node", hata, 2)
+    assert not_ is not None
+    assert "godot__add_node" in not_
+    assert "FARKLI ARGÜMANLARLA" in not_, not_
+    assert "res://" in not_, "yol biçimi somut örnekle anlatılmalı"
+
+
+def test_ogretmen_tanimsizken_oneri_basilmaz():
+    """`teacher` yapılandırılmamışsa model elinde olmayan bir araca yönlendirilmez."""
+    from fusion_cli.engines.agent.loop import _repeated_failure_note
+
+    hata = "Scene file does not exist: res://main.tscn"
+
+    not_ = _repeated_failure_note("godot__add_node", hata, 3, teacher_available=False)
+
+    assert not_ is not None
+    assert "ask_teacher" not in not_
+
+
+def test_ogretmen_tanimliyken_esik_asilinca_onerilir():
+    """Aynı hata temel notun eşiğini de AŞARSA (bir tur daha) öğretmen önerilir."""
+    from fusion_cli.engines.agent.loop import _repeated_failure_note
+
+    hata = "Scene file does not exist: res://main.tscn"
+
+    # Temel eşikte (2) henüz öğretmen önerilmez — yalnız "farklı argüman" notu.
+    erken = _repeated_failure_note("godot__add_node", hata, 2, teacher_available=True)
+    assert erken is not None
+    assert "ask_teacher" not in erken
+
+    gec = _repeated_failure_note("godot__add_node", hata, 3, teacher_available=True)
+    assert gec is not None
+    assert "ask_teacher" in gec
+
+
+def test_uzun_okuma_dongusu_degisim_ve_ogretmen_yonlendirmesi_alir():
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+    from fusion_cli.engines.agent.loop import _exploration_note, _State
+
+    policy = ExecutionPolicy(is_web=False, complex_task=True)
+    state = _State(tool_calls_made=5)
+    note = _exploration_note(state, policy, plan_mode=False, teacher_available=True)
+
+    assert note is not None
+    assert "ilk somut değişikliği" in note
+    assert "ask_teacher" in note
+    state.exploration_pushes = 1
+    assert _exploration_note(state, policy, plan_mode=False, teacher_available=True) is None
+    state.exploration_pushes = 0
+    state.mutating_tool_calls_made = 1
+    assert _exploration_note(state, policy, plan_mode=False, teacher_available=True) is None
+    state.mutating_tool_calls_made = 0
+    assert _exploration_note(state, policy, plan_mode=True, teacher_available=True) is None
+
+
+def test_farkli_hatalar_yineleme_sayilmaz():
+    """Aynı araç FARKLI hatalar veriyorsa model ilerliyordur; uyarı verilmez."""
+    from fusion_cli.engines.agent.loop import _failure_signature
+
+    assert _failure_signature("dosya yok: a.txt") != _failure_signature("izin reddedildi")
+    # Aynı hata, değişen ayrıntı (yol) aynı imza sayılmaz: gerçekten farklı iştir.
+    assert _failure_signature("Scene file does not exist: res://a.tscn") != _failure_signature(
+        "Scene file does not exist: res://b.tscn"
+    )
+
+
+async def test_json_metni_olarak_gelen_dizi_argumani_araci_dusurmez(monkeypatch, tmp_path, sink):
+    """Ölçüldü (Godot koşusu): `todos` alanı dizi yerine o dizinin JSON metniydi.
+
+    Çağrı sözleşme hatasıyla düştü, adım bütçesinden bir hak gitti ve görev
+    ilerlemedi — oysa modelin niyeti ve içeriği doğruydu.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=(
+                        tool_call(
+                            "todo_write",
+                            todos='[{"content": "ilk iş", "status": "pending"}]',
+                        ),
+                    )
+                ),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink)
+
+    sonuc = await run_agent("görev", deps)
+
+    assert sonuc.failed_tool_calls == 0
+    assert [item.content for item in deps.tool_context.todos.items] == ["ilk iş"]
+
+
+async def test_onaylanmayan_cagri_tekrar_kapisini_kilitlemez(monkeypatch, tmp_path, sink):
+    """Ölçüldü (Godot koşusu, ORİJİNAL bulgu): oturum etkileşimsizdi, `run_shell`
+    onay ALAMADI (bugünkü karşılığı: `Decision.BLOCKED`, `ApprovalAnswer.UNAVAILABLE`)
+    ve sonraki denemede AYNI komut "bunu zaten yaptın ve o zamandan beri bir şey
+    değişmedi" diyen tekrar kapısına takıldı. Oysa komut hiç çalışmamıştı;
+    doğrulama adımı böylece hiçbir zaman kanıt üretemedi.
+
+    B3 bu senaryoyu ikiye ayırdı: `AlwaysReject` artık GERÇEK bir insan reddini
+    temsil eder ve turu tek denemeden sonra DURDURUR (bkz.
+    `test_reddedilen_onay_hata_sayilmaz`); tekrar denemeye izin veren asıl
+    "onay alınamadı" durumu `tests/test_user_denial_stops_turn.py` içinde
+    `_EtkilesimsizOnayci` ile ayrıca sınanır. Bu test artık yalnız DENIED sonrası
+    turun GERÇEKTEN durduğunu (ikinci `run_shell` denemesinin hiç yapılmadığını)
+    kilitler.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=(tool_call("run_shell", command="npm install"),)),
+                model_result(tool_calls=(tool_call("run_shell", command="npm install"),)),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, mode=ApprovalMode.SECURITY, prompter=AlwaysReject())
+
+    await run_agent("görev", deps)
+
+    sonuclar = [olay.outcome for olay in sink.events if isinstance(olay, ToolExecuted)]
+    assert sonuclar == [ToolOutcome.DENIED]
+
+
+async def test_salt_okuma_turunda_kapi_calismaz(monkeypatch, tmp_path, sink):
+    """Ölçüldü (17 Eylül denetimi): kod açıklaması istenen tura ruff/mypy uyarısı eklendi.
+
+    Tur yalnızca `read_file` çağırmıştı; kullanıcının kodunda hiçbir şey
+    değişmemişken kapı çalıştı ve "sonuç doğrulanamadı" uyarıları cevabın sonuna
+    yapıştı. Kapının sorusu "bozdum mu"dur; değiştirici çağrı yoksa soru da yoktur.
+    """
+    from fusion_cli.core.verification import VerificationResult
+
+    (tmp_path / "a.py").write_text("print(1)\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="a.py")]),
+                model_result("dosya tek satır yazdırıyor"),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = _SahteDogrulayici(
+        VerificationResult(ok=True, warnings=("doğrulama komutu bulunamadı",))
+    )
+
+    sonuc = await run_agent("bu dosya ne yapıyor", deps)
+
+    assert sonuc.mutating_tool_calls_made == 0
+    assert deps.verifier.calls == 0
+
+
+async def test_degistiren_turda_kapi_calisir(monkeypatch, tmp_path, sink):
+    """Karşı taraf: değişiklik varsa kapı atlanmaz."""
+    from fusion_cli.core.verification import VerificationResult
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x = 1\n")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = _SahteDogrulayici(VerificationResult(ok=True))
+
+    await run_agent("dosya yaz", deps)
+
+    assert deps.verifier.calls == 1
+
+
+# --- tur raporu: gerçek çıktıya bağlanır (Görev 6) -------------------------- #
+
+
+async def test_degisiklik_yoksa_rapor_eklenmez(monkeypatch, tmp_path, sink):
+    """D4: okuma turu ya da araçsız sohbet turu final metne hiçbir şey eklemez."""
+    _kur(monkeypatch, ScriptedProvider([model_result("merhaba")]))
+
+    sonuc = await run_agent(
+        "Sadece 'merhaba' yaz", _deps(tmp_path, sink, runtime={"self_review": False})
+    )
+
+    assert sonuc.final_text == "merhaba"
+
+
+async def test_degisen_dosyalar_modelin_beyanindan_degil_degisiklik_kaydindan_gelir(
+    monkeypatch, tmp_path, sink
+):
+    """A12: modelin yanlış beyanı saklanır, rapor GERÇEK kaydı listeler."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=[
+                        tool_call("write_file", path="a.py", content="a"),
+                        tool_call("write_file", path="b.py", content="b"),
+                    ]
+                ),
+                model_result("Hiçbir dosya değiştirmedim."),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent(
+        "iki dosya oluştur", _deps(tmp_path, sink, runtime={"self_review": False})
+    )
+
+    assert "a.py" in sonuc.final_text
+    assert "b.py" in sonuc.final_text
+    assert "Hiçbir dosya değiştirmedim." not in sonuc.final_text
+    assert "açıklaması gösterilmedi" in sonuc.final_text
+    assert sonuc.ok is False, "çok dosyalı uzun görev son değişiklikten sonra doğrulanmalıdır"
+
+
+async def test_son_degisiklikten_sonra_test_calismadiysa_dogrulanmadi_yazar(
+    monkeypatch, tmp_path, sink
+):
+    """A1: hiçbir doğrulama komutu çalışmadıysa rapor bunu dürüstçe söyler."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result("a.py dosyasını yazdım."),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("a.py yaz", _deps(tmp_path, sink, runtime={"self_review": False}))
+
+    assert "ÇALIŞTIRILMADI" in sonuc.final_text
+    assert sonuc.ok is True, "kanıt eksikliği turu başarısız SAYMAZ; dürüst bir uyarıdır"
+
+
+async def test_kanitsiz_test_gecti_iddiasi_turu_basarisiz_yapar(monkeypatch, tmp_path, sink):
+    """Eksik kanıt uyarıdır; kanıt yokken "testler geçti" demek ise YANLIŞ BAŞARIDIR.
+
+    Ölçüldü (1 Ekim, WordPress sohbeti): hiçbir komut çalışmadan "tamamlandı ve
+    doğrulandı" dendi ve tur başarılı sayıldı.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result("Tüm testler geçti."),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("a.py yaz", _deps(tmp_path, sink, runtime={"self_review": False}))
+
+    assert "GEÇERSİZ" in sonuc.final_text
+    assert sonuc.ok is False
+
+
+async def test_son_degisiklikten_sonra_basarisiz_test_turu_basarisiz_yapar(
+    monkeypatch, tmp_path, sink
+):
+    """`run_shell("pytest -q")` çıkış kodu 1 dönerse rapor 'başarısız' der ve ok=False olur."""
+    # Gerçek `pytest` kurulu olmayabilir/farklı çıkış kodu dönebilir; deterministik
+    # çıkış kodu için yerel bir `pytest` betiği kullanılır — `is_behavioral_command`
+    # yalnızca PROGRAM adına bakar (`./pytest` → `pytest`), gerçek pakete değil.
+    sahte_pytest = tmp_path / "pytest"
+    sahte_pytest.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    sahte_pytest.chmod(0o755)
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result(tool_calls=[tool_call("run_shell", command="./pytest -q")]),
+                model_result("Test çalıştırdım."),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent(
+        "a.py yaz ve dogrula", _deps(tmp_path, sink, runtime={"self_review": False})
+    )
+
+    assert "başarısız" in sonuc.final_text
+    assert "çıkış 1" in sonuc.final_text
+    assert sonuc.ok is False
+
+
+async def test_degisiklikten_once_calisan_test_kanit_sayilmaz(monkeypatch, tmp_path, sink):
+    """Mutasyondan ÖNCE geçen bir test o mutasyonu kanıtlamaz."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("run_shell", command='python -c "exit(0)"')]),
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result("Tamamlandı."),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent(
+        "once test sonra yaz", _deps(tmp_path, sink, runtime={"self_review": False})
+    )
+
+    assert "ÇALIŞTIRILMADI" in sonuc.final_text
+
+
+async def test_oz_denetim_duzeltmesi_tur_raporunu_ikiye_katlamaz(monkeypatch, tmp_path, sink):
+    """Ölçülen hata: kök tur ve öz-denetimin açtığı iç düzeltici tur, İKİSİ de
+    `_apply_turn_report` çalıştırdığı için aynı "✓ Doğrulandı" bloğunu ayrı ayrı
+    ekliyordu — kullanıcı aynı metni art arda iki kez görüyordu. Düzeltme
+    `internal=True` iç turlarda raporu atlar, yalnız kök tur ekler.
+    """
+    sahte_pytest = tmp_path / "pytest"
+    sahte_pytest.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    sahte_pytest.chmod(0o755)
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="stok.py", content="x")]),
+                model_result("ilk cevap"),
+                # Öz-denetim bir sorun buluyor → düzeltici (internal=True) tur açılır;
+                # o tur KENDİ mutasyonunu yapıp ARDINDAN gerçek bir doğrulama komutu
+                # çalıştırır — gerçek koşudaki "magaza/stok.py, tests/test_stok.py
+                # değişti, pytest çalıştı" şeklini birebir yansıtır.
+                model_result(
+                    tool_calls=[tool_call("write_file", path="tests/test_stok.py", content="t")]
+                ),
+                model_result(tool_calls=[tool_call("run_shell", command="./pytest -q")]),
+                model_result("duzeltildi"),
+            ]
+        ),
+    )
+    monkeypatch.setattr(agent_loop.review, "review_turn", _sabit_denetim("testi calistirmadin"))
+
+    sonuc = await run_agent("stok.py yaz", _deps(tmp_path, sink, runtime={"self_review": True}))
+
+    assert sonuc.final_text.count("✓ Doğrulandı") == 1
+    assert sonuc.final_text.endswith("duzeltildi")
+
+
+async def test_arac_varken_hazir_ret_cevabi_bir_kez_geri_cevrilir(monkeypatch, tmp_path, sink):
+    """Ölçüldü (27 Eylül): Nemotron ve Gemini tarayıcı görevinde araç kullanmadan
+    "Ben sadece bir dil modeliyim..." dedi; Fusion bunu başarılı cevap saydı."""
+    (tmp_path / "a.txt").write_text("veri", encoding="utf-8")
+    saglayici = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result("Ben sadece bir dil modeliyim ve bu isteğinize yardımcı olamıyorum."),
+                model_result(tool_calls=[tool_call("read_file", path="a.txt")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("a.txt dosyasını oku ve özetle", _deps(tmp_path, sink))
+
+    assert sonuc.final_text == TAM_CEVAP
+    assert sonuc.tool_calls_made == 1
+    notlar = [m.content for m in saglayici.seen_messages[1] if m.role == "user"]
+    assert any("araçların var" in not_ for not_ in notlar)
+
+
+async def test_ikinci_ret_zorlanmaz_durust_sonuc_basarisiz_doner(monkeypatch, tmp_path, sink):
+    ret = "I'm just a language model, so I can't help with that."
+    _kur(monkeypatch, ScriptedProvider([model_result(ret), model_result(ret)]))
+
+    sonuc = await run_agent("sayfayı oku", _deps(tmp_path, sink))
+
+    assert sonuc.ok is False
+    assert ret in sonuc.final_text
+
+
+def test_ret_kalibi_uzun_ve_gercek_cevaplari_yakalamaz():
+    from fusion_cli.core.refusal import looks_like_refusal
+
+    assert looks_like_refusal("İsteğinizi gerçekleştirebilecek şekilde programlanmadım.")
+    assert looks_like_refusal("Üzgünüm, bu konuda yardımcı olamam.")
+    # Ölçüldü (2 Ekim 2026, Gemini web "3.1 Pro"): kalıp ret her seferinde başka sözcüklerle geldi.
+    assert looks_like_refusal(
+        "Ben yalnızca metin tabanlı bir yapay zeka platformu olduğum için isteğinizi "
+        "yerine getirebilecek kabiliyete sahip değilim."
+    )
+    assert looks_like_refusal(
+        "Ben yalnızca bir dil modeli olduğum ve gerekli bilgiye ya da beceriye sahip "
+        "olmadığım için bu isteğinize yardımcı olamıyorum."
+    )
+    assert not looks_like_refusal("Bu araç yalnızca metin tabanlı dosyaları okur.")
+    assert not looks_like_refusal("Kampanya tablosu okundu: 2 kampanya, ₺2.618 harcama.")
+    assert not looks_like_refusal(
+        "Yardımcı olamıyorum dediğin kısım için: " + "rapor ayrıntısı " * 60
+    )
+
+
+async def test_arac_cagrisiyla_gelen_dusunme_taslagi_gecmise_yazilmaz(monkeypatch, tmp_path, sink):
+    (tmp_path / "a.txt").write_text("veri", encoding="utf-8")
+    saglayici = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    "Taslak cevap: tablo şöyle olacak...</think>Dosyayı okuyorum.",
+                    tool_calls=[tool_call("read_file", path="a.txt")],
+                ),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    await run_agent("a.txt dosyasını oku", _deps(tmp_path, sink))
+
+    asistan = [m for m in saglayici.seen_messages[1] if m.role == "assistant"]
+    assert asistan and asistan[-1].content == "Dosyayı okuyorum."
+
+
+async def test_yalniz_tarayici_araci_kullanan_turda_oz_denetim_calismaz(
+    monkeypatch, tmp_path, sink
+):
+    """Ölçüldü (27 Eylül): Chrome okuma turunda cevap hazırken öz-denetim fazladan
+    bir model çağrısı yapıyor, panel cevabı ancak ondan sonra görüyordu. Tarayıcıda
+    denetlenecek dosya yoktur."""
+
+    class _Kopru:
+        async def invoke(self, name, data):
+            return {"ok": True, "veri": {"url": "https://ads.google.com/aw/overview"}}
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("chrome_navigate", url="ads.google.com")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    denetim_cagrildi = False
+
+    async def _izlenen_denetim(*args, **kwargs):
+        nonlocal denetim_cagrildi
+        denetim_cagrildi = True
+        return ""
+
+    monkeypatch.setattr(agent_loop.review, "review_turn", _izlenen_denetim)
+    deps = _deps(tmp_path, sink, runtime={"self_review": True})
+    deps = replace(deps, tool_context=replace(deps.tool_context, chrome=_Kopru()))
+
+    sonuc = await run_agent("Google Ads'i aç", deps)
+
+    assert sonuc.mutating_tool_calls_made == 1
+    assert denetim_cagrildi is False
+
+
+async def test_sohbet_kipinde_de_kalip_ret_bir_kez_geri_cevrilir(monkeypatch, tmp_path, sink):
+    """Ölçüldü (25 Eylül, kullanıcı sohbeti): "Desktop'ta kaç .md var?" sorusuna
+    sohbet kipinde "Dil modeli olarak ... tasarlanmadım" dendi; okuma araçları vardı."""
+    (tmp_path / "a.md").write_text("x", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    "Dil modeli olarak size bu konuda yardımcı olmak üzere tasarlanmadım."
+                ),
+                model_result(tool_calls=[tool_call("glob", pattern="*.md")]),
+                model_result("1"),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("Kaç tane .md dosyası var?", _deps(tmp_path, sink), chat_mode=True)
+
+    assert sonuc.final_text == "1"
+    assert sonuc.tool_calls_made == 1
+
+
+async def test_ayni_hata_yinelenince_ogretmene_fusion_kendisi_danisir(monkeypatch, tmp_path, sink):
+    """Ölçüldü (2 Ekim, kabul koşusu): model aynı "Access denied" hatasını üç kez aldı;
+    öğretmen hazırdı ama otomatik danışma yalnız "karmaşık" görevde açıktı ve görev
+    "basit" sayılmıştı; model sormadı.
+    Kullanıcı: "öğretmene sor özelliği var, neden sormuyor?"
+    """
+    from fusion_cli.config.models import WebSessionConfig
+
+    hata = 'echo "Error: Database connection error (1698)" >&2; exit 1'
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("run_shell", command=f"true; {hata}")]),
+                model_result(tool_calls=[tool_call("run_shell", command=f": ; {hata}")]),
+                model_result(tool_calls=[tool_call("run_shell", command=f"echo; {hata}")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    sorular = []
+
+    class _Ogretmen:
+        async def complete(self, request):
+            sorular.append(request.messages[0].content)
+            return ModelResult(
+                name="teacher",
+                model="gemini_web/main/auto",
+                text="MySQL gerekmez; SQLite sürücüsüyle kur.",
+                latency_ms=1,
+                ok=True,
+            )
+
+    monkeypatch.setattr(
+        "fusion_cli.providers.factory.build_provider", lambda *_a, **_k: _Ogretmen()
+    )
+    deps = _deps(
+        tmp_path,
+        sink,
+        teacher=ModelSpec(name="teacher", model="gemini_web/main/auto"),
+        web_sessions=(
+            WebSessionConfig(
+                model="gemini_web/main/auto",
+                provider="gemini_web",
+                transport="browser",
+                enabled=True,
+                login_verified=True,
+            ),
+        ),
+    )
+
+    sonuc = await run_agent("veritabanını kur", deps)
+
+    assert len(sorular) == 1, "takılmada turda bir kez sorulur"
+    assert "Database connection error (1698)" in sorular[0], "soru hatanın kendisini taşır"
+    ogut = [m for m in sonuc.messages if m.role == "tool" and m.name == "ask_teacher"]
+    assert ogut and "MySQL gerekmez" in ogut[0].content
+
+
+async def test_ogretmen_kalip_retle_cevap_verirse_yedek_ogretmen_sorulur(
+    monkeypatch, tmp_path, sink
+):
+    """Ölçüldü (2 Ekim, kabul koşusu): Gemini web plan istemine iki kez "ben bir dil
+    modeliyim" dedi; girişi doğrulanmış ChatGPT web hiç denenmedi."""
+    from fusion_cli.config.models import WebSessionConfig
+    from fusion_cli.engines.agent.engine_tools import build_agent_registry
+
+    sorulan_modeller: list[str] = []
+
+    def _saglayici(spec, **_kwargs):
+        class _Ogretmen:
+            async def complete(self, request):
+                sorulan_modeller.append(spec.model)
+                metin = (
+                    "Ben bir dil modeliyim ve bunu yapmak için tasarlanmadım."
+                    if spec.model.startswith("gemini")
+                    else "Önce temayı yaz, sonra önizlemeyi başlat."
+                )
+                return ModelResult(name="t", model=spec.model, text=metin, latency_ms=1, ok=True)
+
+        return _Ogretmen()
+
+    monkeypatch.setattr("fusion_cli.providers.factory.build_provider", _saglayici)
+    oturum = {"transport": "browser", "enabled": True, "login_verified": True}
+    deps = _deps(
+        tmp_path,
+        sink,
+        teacher=ModelSpec(name="teacher", model="gemini_web/main/auto"),
+        web_sessions=(
+            WebSessionConfig(model="gemini_web/main/auto", provider="gemini_web", **oturum),
+            WebSessionConfig(model="chatgpt_web/main/auto", provider="chatgpt_web", **oturum),
+        ),
+    )
+    defter = build_agent_registry(deps, depth=0, run_agent=run_agent)
+
+    sonuc = await defter.execute(
+        "ask_teacher", {"question": "nasıl başlamalıyım?"}, deps.tool_context
+    )
+
+    assert sorulan_modeller == ["gemini_web/main/auto", "chatgpt_web/main/auto"]
+    assert sonuc.ok and "Önce temayı yaz" in sonuc.output
+
+
+async def test_kalip_ret_veren_ogretmene_bir_kez_daha_sorulur(monkeypatch, tmp_path, sink):
+    """Ölçüldü (2 Ekim, kabul koşuları): Gemini aynı plan sorusunu bir çağrıda cevapladı,
+    sonrakinde reddetti; yedek ChatGPT captcha bekliyordu ve tur öğretmensiz kaldı."""
+    from fusion_cli.config.models import WebSessionConfig
+    from fusion_cli.engines.agent.engine_tools import build_agent_registry
+
+    cevaplar = {
+        "gemini_web/main/auto": [
+            ModelResult(name="t", model="g", text="Ben bir dil modeliyim.", latency_ms=1, ok=True),
+            ModelResult(
+                name="t", model="g", text='{"adimlar": ["temayı yaz"]}', latency_ms=1, ok=True
+            ),
+        ],
+        "chatgpt_web/main/auto": [
+            ModelResult(name="t", model="c", text="", latency_ms=1, ok=False, error="captcha"),
+        ],
+    }
+    sorulan: list[str] = []
+
+    def _saglayici(spec, **_kwargs):
+        class _Ogretmen:
+            async def complete(self, request):
+                sorulan.append(spec.model)
+                return cevaplar[spec.model].pop(0)
+
+        return _Ogretmen()
+
+    monkeypatch.setattr("fusion_cli.providers.factory.build_provider", _saglayici)
+    oturum = {"transport": "browser", "enabled": True, "login_verified": True}
+    deps = _deps(
+        tmp_path,
+        sink,
+        teacher=ModelSpec(name="teacher", model="gemini_web/main/auto"),
+        web_sessions=(
+            WebSessionConfig(model="gemini_web/main/auto", provider="gemini_web", **oturum),
+            WebSessionConfig(model="chatgpt_web/main/auto", provider="chatgpt_web", **oturum),
+        ),
+    )
+    defter = build_agent_registry(deps, depth=0, run_agent=run_agent)
+
+    sonuc = await defter.execute("ask_teacher", {"question": "plan ver"}, deps.tool_context)
+
+    assert sorulan == ["gemini_web/main/auto", "chatgpt_web/main/auto", "gemini_web/main/auto"]
+    assert sonuc.ok and "temayı yaz" in sonuc.output
+
+
+async def test_ogretmen_iki_kez_reddederse_ulasilamadi_degil_reddetti_doner(
+    monkeypatch, tmp_path, sink
+):
+    from fusion_cli.config.models import WebSessionConfig
+    from fusion_cli.engines.agent.engine_tools import TEACHER_REFUSED, build_agent_registry
+
+    def _saglayici(spec, **_kwargs):
+        class _Ogretmen:
+            async def complete(self, request):
+                return ModelResult(
+                    name="t", model=spec.model, text="Ben bir dil modeliyim.", latency_ms=1, ok=True
+                )
+
+        return _Ogretmen()
+
+    monkeypatch.setattr("fusion_cli.providers.factory.build_provider", _saglayici)
+    deps = _deps(
+        tmp_path,
+        sink,
+        teacher=ModelSpec(name="teacher", model="gemini_web/main/auto"),
+        web_sessions=(
+            WebSessionConfig(
+                model="gemini_web/main/auto",
+                provider="gemini_web",
+                transport="browser",
+                enabled=True,
+                login_verified=True,
+            ),
+        ),
+    )
+    defter = build_agent_registry(deps, depth=0, run_agent=run_agent)
+
+    sonuc = await defter.execute("ask_teacher", {"question": "plan ver"}, deps.tool_context)
+
+    assert not sonuc.ok and sonuc.structured == {"teacher": TEACHER_REFUSED}
+
+
+def test_chrome_baglantisi_yokken_chrome_araclari_sunulmaz(tmp_path, sink):
+    from fusion_cli.engines.agent.engine_tools import build_agent_registry
+
+    deps = _deps(tmp_path, sink)
+    adlar = set(build_agent_registry(deps, depth=0, run_agent=run_agent).names())
+
+    assert not any(ad.startswith("chrome_") for ad in adlar)
+    assert {"site_design", "start_preview"} <= adlar
+
+
+async def test_steering_during_model_response_discards_old_tool_batch(monkeypatch, tmp_path, sink):
+    """Sonradan gelen kullanıcı kısıtı eski modelin yazma kararını geçersiz kılar."""
+    from fusion_cli.core.steering import SteeringQueue
+
+    steering = SteeringQueue()
+
+    class SteeringProvider(ScriptedProvider):
+        async def stream(self, request):
+            if not self.calls:
+                steering.push("Dosya yazma; yalnız mevcut durumu açıkla.")
+            async for item in super().stream(request):
+                yield item
+
+    provider = SteeringProvider(
+        [
+            model_result(
+                tool_calls=[tool_call("write_file", path="obsolete.txt", content="yanlış")]
+            ),
+            model_result(text="Dosyaya dokunmadan mevcut durumu açıkladım."),
+        ]
+    )
+    _kur(monkeypatch, provider)
+    deps = _deps(tmp_path, sink)
+    deps.steering = steering
+    await run_agent("Görevi değerlendir", deps)
+    assert not (tmp_path / "obsolete.txt").exists()
+    assert any("Dosya yazma" in message.content for message in provider.seen_messages[-1])
+
+
+async def test_optional_question_does_not_block_read_or_invent_mutation_permission(
+    monkeypatch, tmp_path, sink
+):
+    """Açık isteğe bağlı soru okunabilir işi sürdürür; bağlı değişiklik başlamaz."""
+    answer = asyncio.get_running_loop().create_future()
+
+    class WaitingAsker:
+        async def ask(self, question, options=(), recommended=None):
+            return await answer
+
+    (tmp_path / "readable.txt").write_text("gerçek kaynak")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=[tool_call("ask_user", question="Hangi hedef?", required=False)]
+                ),
+                model_result(tool_calls=[tool_call("read_file", path="readable.txt")]),
+                model_result(
+                    tool_calls=[tool_call("write_file", path="blocked.txt", content="varsayım")]
+                ),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, asker=WaitingAsker())
+    await run_agent("Kaynağı incele", deps, verify=False, self_review=False)
+    reads = [
+        event
+        for event in sink.events
+        if isinstance(event, ToolExecuted) and event.name == "read_file"
+    ]
+    assert reads and reads[0].outcome is ToolOutcome.OK
+    assert not (tmp_path / "blocked.txt").exists()
+    assert answer.cancelled()
+    assert not deps.questions.pending
+
+
+@pytest.mark.parametrize("channel_cancelled", [False, True])
+async def test_optional_answer_during_read_invalidates_remaining_mutation_batch(
+    monkeypatch, tmp_path, sink, channel_cancelled
+):
+    """Aynı araç listesindeki okuma sırasında cevap gelirse eski yazma başlamaz."""
+    from fusion_cli.core.tools import Tool, ToolResult
+
+    answer = asyncio.get_running_loop().create_future()
+
+    class WaitingAsker:
+        async def ask(self, question, options=(), recommended=None):
+            return await answer
+
+    async def answer_during_read(args, context):
+        if channel_cancelled:
+            answer.cancel()
+        else:
+            answer.set_result("Dosya yazma")
+        # İki sahipli soru görevinin gerçek event-loop teslimini ilerlet; süre bekleme yok.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert deps.questions.ready
+        return ToolResult("salt okuma tamamlandı")
+
+    provider = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("ask_user", question="Hedef?", required=False)]),
+            model_result(
+                tool_calls=[
+                    tool_call("answer_during_read"),
+                    tool_call("write_file", path="stale.txt", content="yanlış"),
+                ]
+            ),
+            model_result(TAM_CEVAP),
+        ]
+    )
+    _kur(monkeypatch, provider)
+    deps = _deps(tmp_path, sink, asker=WaitingAsker())
+    deps.base_registry.register(
+        Tool("answer_during_read", "", {"type": "object"}, answer_during_read)
+    )
+    await run_agent("Kaynağı incele", deps, verify=False, self_review=False)
+    assert not (tmp_path / "stale.txt").exists()
+
+
+async def test_inflight_model_call_already_consumes_shared_budget(tmp_path, sink, monkeypatch):
+    entered = asyncio.Event()
+
+    async def call(*args, **kwargs):
+        entered.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(agent_loop, "_call_with_retries", call)
+    deps = _deps(tmp_path, sink)
+    running = asyncio.create_task(run_agent("merhaba", deps, self_review=False, chat_mode=True))
+    await entered.wait()
+    try:
+        assert deps.require_budget().model_calls == 1
+    finally:
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+
+
+async def test_arac_mesaji_yalniz_basarili_gercek_olay_diffini_korur(monkeypatch, tmp_path, sink):
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="yeni\n")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    sonuc = await run_agent("dosyayı güncelle", _deps(tmp_path, sink))
+    olay = next(event for event in sink.events if isinstance(event, ToolExecuted))
+    mesaj = next(message for message in sonuc.messages if message.role == "tool")
+    assert olay.diff is not None
+    assert mesaj.tool_diff == olay.diff

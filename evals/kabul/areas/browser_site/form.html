@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="tr">
+<head><meta charset="utf-8"><title>İletişim formu</title></head>
+<body>
+<h1>İletişim formu</h1>
+<form method="post" action="/gonder">
+  <p><label>Ad <input type="text" name="ad" required></label></p>
+  <p><label>E-posta <input type="email" name="eposta" required></label></p>
+  <p><label>Konu
+    <select name="konu">
+      <option value="Satış">Satış</option>
+      <option value="Destek">Destek</option>
+      <option value="İade">İade</option>
+    </select></label></p>
+  <p><label>Mesaj <textarea name="mesaj" rows="4" required></textarea></label></p>
+  <p><button type="submit">Gönder</button></p>
+</form>
+<p><a href="/">Ana sayfa</a></p>
+</body>
+</html>

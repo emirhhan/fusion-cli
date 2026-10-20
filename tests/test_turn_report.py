@@ -1,0 +1,364 @@
+"""Tur raporu: başarı beyanı gerçek araç kaydına ve komut çıktısına bağlanır."""
+
+from __future__ import annotations
+
+from fusion_cli.core.evidence import ToolUse
+from fusion_cli.core.verification import VerificationResult
+from fusion_cli.engines.agent.turn_report import build_turn_report
+
+
+def _shell(command: str, *, exit_code: int, ok: bool | None = None) -> ToolUse:
+    return ToolUse(
+        name="run_shell",
+        ok=exit_code == 0 if ok is None else ok,
+        mutating=True,
+        arguments={"command": command},
+        output=f"(çıkış kodu {exit_code})\nçıktı",
+    )
+
+
+def _write(path: str) -> ToolUse:
+    return ToolUse(name="write_file", ok=True, mutating=True, arguments={"path": path})
+
+
+def _shell_alias(command: str, *, exit_code: int, name: str) -> ToolUse:
+    """`run_shell`'in `tools/builtin.py::_ALIASES` içindeki bir takma adıyla
+    (`shell`/`bash`/`execute_command`) yapılan çağrı — API modelleri sık sık
+    `run_shell` yerine bu adları kullanır."""
+    return ToolUse(
+        name=name,
+        ok=exit_code == 0,
+        mutating=True,
+        arguments={"command": command},
+        output=f"(çıkış kodu {exit_code})\nçıktı",
+    )
+
+
+def test_degisiklik_yoksa_rapor_eklenmez():
+    report = build_turn_report((), (), gate=None)
+
+    assert report.render() == ""
+    assert report.is_verified is None
+
+
+def test_degisen_dosyalar_modelin_beyanindan_degil_degisiklik_kaydindan_gelir():
+    report = build_turn_report(("a.py", "b.py"), (_write("a.py"), _write("b.py")), gate=None)
+
+    metin = report.render()
+    assert "a.py" in metin
+    assert "b.py" in metin
+
+
+def test_son_degisiklikten_sonra_test_calismadiysa_dogrulanmadi_yazar():
+    tool_uses = (_write("a.py"),)
+    report = build_turn_report(("a.py",), tool_uses, gate=None)
+
+    assert report.is_verified is False
+    assert "ÇALIŞTIRILMADI" in report.render()
+
+
+def test_son_degisiklikten_sonra_basarisiz_test_turu_basarisiz_yapar():
+    tool_uses = (_write("a.py"), _shell("pytest -q", exit_code=1))
+    report = build_turn_report(("a.py",), tool_uses, gate=None)
+
+    assert report.is_verified is False
+    metin = report.render()
+    assert "başarısız" in metin
+    assert "çıkış 1" in metin
+    summary = report.render_with_model_text("Görevi başarıyla tamamladım.")
+    assert "Ajanın açıklaması (doğrulanmamış):" in summary
+    assert summary.index("Doğrulama başarısız") < summary.index("Görevi başarıyla")
+
+
+def test_son_degisiklikten_sonra_basarili_test_dogrulandi_yazar():
+    tool_uses = (_write("a.py"), _shell("pytest -q", exit_code=0))
+    report = build_turn_report(("a.py",), tool_uses, gate=None)
+
+    assert report.is_verified is True
+    assert "Doğrulandı" in report.render()
+
+
+def test_npx_vitest_kosusu_gercek_dogrulama_olarak_raporlanir():
+    runs = (
+        _write("components/stok/stokApi.ts"),
+        _shell("npx vitest run components/stok", exit_code=0),
+    )
+    report = build_turn_report(("components/stok/stokApi.ts",), runs, gate=None)
+
+    assert report.is_verified is True
+    assert "Doğrulandı" in report.render()
+
+
+def test_degisiklikten_once_calisan_test_kanit_sayilmaz():
+    tool_uses = (_shell("pytest -q", exit_code=0), _write("a.py"))
+    report = build_turn_report(("a.py",), tool_uses, gate=None)
+
+    assert report.is_verified is False
+    assert "ÇALIŞTIRILMADI" in report.render()
+
+
+def test_kapi_sonucu_rapora_girer_ve_uyari_tek_yerden_uretilir():
+    gate = VerificationResult(ok=False, summary="2 sorun", findings=("boş bağlantı",))
+    report = build_turn_report(("a.html",), (_write("a.html"),), gate=gate)
+
+    metin = report.render()
+    assert metin.count("DOĞRULAMA GEÇMEDİ") == 1
+    assert "boş bağlantı" in metin
+    assert report.is_verified is False
+
+
+def test_kapi_notlari_engellemeden_rapora_eklenir():
+    gate = VerificationResult(ok=True, warnings=("erişilebilirlik eksik",))
+    tool_uses = (_write("a.html"), _shell("pytest -q", exit_code=0))
+    report = build_turn_report(("a.html",), tool_uses, gate=gate)
+
+    metin = report.render()
+    assert "erişilebilirlik eksik" in metin
+    assert "DOĞRULAMA GEÇMEDİ" not in metin
+
+
+def test_ayni_komut_birden_cok_run_shell_arasinda_yalniz_son_mutasyondan_sonrakiler_sayilir():
+    tool_uses = (
+        _write("a.py"),
+        _shell("pytest -q", exit_code=1),
+        _write("a.py"),
+        _shell("pytest -q", exit_code=0),
+    )
+    report = build_turn_report(("a.py",), tool_uses, gate=None)
+
+    assert report.is_verified is True
+
+
+def test_run_shell_kendisi_mutasyon_sayilmaz():
+    """`run_shell` onay gerektirdiği için mutating=True'dur ama dosya değiştirmez."""
+    tool_uses = (_write("a.py"), _shell("pytest -q", exit_code=0))
+    report = build_turn_report(("a.py",), tool_uses, gate=None)
+
+    # pytest çağrısı kendi kendinin "sonrası" sayılmamalı; mutasyon a.py yazımıdır.
+    assert report.command_runs[0].after_last_mutation is True
+
+
+def test_davranissal_olmayan_komut_kanit_sayilmaz():
+    tool_uses = (_write("a.py"), _shell("ls -la", exit_code=0))
+    report = build_turn_report(("a.py",), tool_uses, gate=None)
+
+    assert report.is_verified is False
+
+
+def test_kanit_eksikligi_turu_basarisiz_saymaz():
+    """Hiç test çalışmamış olmak dürüst bir uyarıdır, tur başarısızlığı değil."""
+    report = build_turn_report(("a.py",), (_write("a.py"),), gate=None)
+
+    assert report.blocks_success is False
+
+
+def test_uzun_kod_gorevinde_son_degisim_dogrulanmadan_basarili_sayilmaz():
+    runs = (
+        _write("route.ts"),
+        _shell("npx vitest run", exit_code=0),
+        _write("route.ts"),
+    )
+    report = build_turn_report(("route.ts",), runs, gate=None, require_behavioral_evidence=True)
+
+    assert report.is_verified is False
+    assert report.blocks_success is True
+    assert "ÇALIŞTIRILMADI" in report.render()
+
+    verified = build_turn_report(
+        ("route.ts",),
+        (*runs, _shell("npx vitest run", exit_code=0)),
+        gate=None,
+        require_behavioral_evidence=True,
+    )
+    assert verified.blocks_success is False
+
+
+def test_kanit_eksikken_modelin_tamamlandi_sozu_dogrulanmamis_yazar():
+    report = build_turn_report(("a.py",), (_write("a.py"),), gate=None)
+
+    result = report.render_with_model_text("Görev tamamlandı.")
+
+    assert "sonuç doğrulanmadı" in result
+    assert "Ajanın açıklaması (doğrulanmamış):" in result
+    assert result.index("doğrulanmadı") < result.index("Görev tamamlandı")
+
+
+def test_degisen_dosyalar_ve_modelin_degistirmedim_sozu_celismez():
+    report = build_turn_report(
+        ("inventory/api.py",),
+        (_write("inventory/api.py"), _shell("pytest -q", exit_code=0)),
+        gate=None,
+    )
+
+    result = report.render_with_model_text(
+        "Hiçbir dosyada değişiklik yapamadım. Kodu kendiniz ekleyin."
+    )
+
+    assert "inventory/api.py" in result
+    assert "açıklaması gösterilmedi" in result
+    assert "Kodu kendiniz ekleyin" not in result
+
+
+def test_basarisiz_komut_turu_basarisiz_sayar():
+    tool_uses = (_write("a.py"), _shell("pytest -q", exit_code=1))
+    report = build_turn_report(("a.py",), tool_uses, gate=None)
+
+    assert report.blocks_success is True
+
+
+def test_dusen_kapi_turu_basarisiz_sayar():
+    gate = VerificationResult(ok=False, summary="x", findings=("sorun",))
+    report = build_turn_report(("a.py",), (_write("a.py"),), gate=gate)
+
+    assert report.blocks_success is True
+
+
+def test_run_shell_takma_adiyla_cagrilan_python_pytest_dogrulandi_sayilir():
+    """Ölçülen hata (masaüstü uygulaması, API model): model `run_shell`'i `bash`
+    takma adıyla çağırdı, komut onaylanıp sıfır çıkış koduyla bitti — ama rapor
+    yalnız TAM `run_shell` adına baktığı için bu kanıtı hiç görmedi ve "doğrulama
+    komutu ÇALIŞTIRILMADI" dedi. `python -m pytest` gerçek bir davranış komutudur;
+    hangi takma adla çağrılırsa çağrılsın "doğrulandı" sayılmalı.
+    """
+    tool_uses = (_write("a.py"), _shell_alias("python -m pytest", exit_code=0, name="bash"))
+    report = build_turn_report(("a.py",), tool_uses, gate=None)
+
+    assert report.is_verified is True
+    assert "Doğrulandı" in report.render()
+
+
+def test_run_shell_takma_adiyla_calisan_davranissal_olmayan_komut_kanit_sayilmaz():
+    """Takma ad tanınsa bile komutun kendisi davranış KANITLAMIYORSA (ör. `ls`,
+    `cat`) rapor hâlâ "kanıt yok" demeli — takma ad tanıma, komut sınıflandırma
+    kuralını gevşetmez."""
+    tool_uses = (_write("a.py"), _shell_alias("ls -la", exit_code=0, name="shell"))
+    report = build_turn_report(("a.py",), tool_uses, gate=None)
+
+    assert report.is_verified is False
+    assert "ÇALIŞTIRILMADI" in report.render()
+
+
+def _tarayici_kaniti() -> VerificationResult:
+    from fusion_cli.core.evidence import CriterionEvidence, EvidenceStatus
+    from fusion_cli.core.execution_plan import VerificationCheckKind
+
+    return VerificationResult(
+        ok=True,
+        warnings=("index.html içinde 2 dokunma hedefi küçük",),
+        evidence=(
+            CriterionEvidence(
+                criterion_id="tarayici_sayfalari",
+                kind=VerificationCheckKind.TOOL,
+                status=EvidenceStatus.PASSED,
+                summary="5 sayfa tarayıcıda açıldı",
+            ),
+        ),
+    )
+
+
+def test_tarayicida_acilip_gecen_statik_site_dogrulanmis_sayilir():
+    """Ölçüldü (26 Eylül): Fusion 5 HTML sayfasını tarayıcıda açıp denetledi, yine de
+    'doğrulama komutu çalıştırılmadı' deyip turu başarısız saydı."""
+    yazma = ToolUse(name="write_file", mutating=True, arguments={"path": "index.html"})
+    rapor = build_turn_report(
+        ("index.html", "style.css"),
+        (yazma,),
+        _tarayici_kaniti(),
+        require_behavioral_evidence=True,
+    )
+
+    assert rapor.is_verified is True
+    assert rapor.blocks_success is False
+    assert "ÇALIŞTIRILMADI" not in rapor.render()
+    assert "tarayıcıda açıldı" in rapor.render()
+
+
+def test_model_ozetindeki_acilissiz_dusunme_rapora_sizmaz():
+    yazma = ToolUse(name="write_file", mutating=True, arguments={"path": "index.html"})
+    rapor = build_turn_report(("index.html",), (yazma,), _tarayici_kaniti())
+
+    metin = rapor.render_with_model_text("Let me provide a summary.</think>Tamamlandı.")
+
+    assert "Let me provide" not in metin
+    assert metin.endswith("Tamamlandı.")
+    assert "dokunma hedefi" in metin
+
+
+def test_calistirilmadan_engellenen_tekrar_komutu_dogrulama_kaniti_sayilmaz():
+    """Ölçüldü (29 Eylül, canlı uzun görev): model aynı `pytest` komutunu arada
+    değişiklik yapmadan ikinci kez istedi; tekrar kapısı onu çalıştırmadan
+    engelledi. Engel çıktısında çıkış kodu olmadığından rapor "çıkış None" ile
+    doğrulamayı BAŞARISIZ saydı ve gizli testleri 9/9 geçen tur ok=False bitti.
+    Çalışmayan bir çağrı kanıt değildir; önceki gerçek koşu kanıttır."""
+    engellenen = ToolUse(
+        name="run_shell",
+        ok=False,
+        mutating=True,
+        arguments={"command": "python -m pytest tests/ -v"},
+        output="TOOL_CALL_DUPLICATE: Bu çağrıyı aynı argümanlarla ZATEN yaptın.",
+    )
+    report = build_turn_report(
+        ("a.py",),
+        (_write("a.py"), _shell("python -m pytest tests/ -v", exit_code=0), engellenen),
+        gate=None,
+    )
+
+    assert report.is_verified is True
+    assert "✓ Doğrulandı" in report.render()
+
+
+def test_zaman_asimina_ugrayan_komut_yine_basarisiz_sayilir():
+    """Çalışıp bitmeyen komut kanıt değildir ama ÇALIŞMIŞTIR: başarısız kalır."""
+    zaman_asimi = ToolUse(
+        name="run_shell",
+        ok=False,
+        mutating=True,
+        arguments={"command": "python -m pytest"},
+        output="Komut 120s içinde bitmedi ve durduruldu.",
+    )
+    report = build_turn_report(("a.py",), (_write("a.py"), zaman_asimi), gate=None)
+
+    assert report.is_verified is False
+
+
+def test_komut_bulunamadi_sonrasi_ayni_testin_gecmesi_turu_dogrulanmis_sayar():
+    # Ölçüldü (18 Ekim): `pytest` 127 verdi, model `python3 -m pytest`e geçip testi geçirdi;
+    # rapor yine de "✗ Doğrulama başarısız" yazdı ve doğru iddiayı GEÇERSİZ ilan etti.
+    report = build_turn_report(
+        ("toplam.py",),
+        (
+            _write("toplam.py"),
+            _shell("pytest test_toplam.py -v", exit_code=127),
+            _shell("python3 -m pytest test_toplam.py -v", exit_code=0),
+        ),
+        gate=None,
+    )
+
+    assert report.is_verified is True
+    assert "✗" not in report.render()
+    assert "✓ Doğrulandı" in report.render()
+
+
+def test_ayni_komut_once_basarisiz_sonra_gecerse_dogrulanmis_sayilir():
+    report = build_turn_report(
+        ("a.py",),
+        (_write("a.py"), _shell("pytest -q", exit_code=1), _shell("pytest -q", exit_code=0)),
+        gate=None,
+    )
+
+    assert report.is_verified is True
+
+
+def test_farkli_komutun_gecmesi_basarisiz_testi_gizlemez():
+    report = build_turn_report(
+        ("a.py",),
+        (
+            _write("a.py"),
+            _shell("pytest -q", exit_code=1),
+            _shell("pytest tests/ok -q", exit_code=0),
+        ),
+        gate=None,
+    )
+
+    assert report.is_verified is False
+    assert "✗ Doğrulama başarısız" in report.render()

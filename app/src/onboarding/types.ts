@@ -1,0 +1,53 @@
+export type OnboardingStepId =
+  | "welcome"
+  | "runtime"
+  | "sources"
+  | "providers"
+  | "project"
+  | "guide"
+  | "complete";
+
+export interface OnboardingValue {
+  step: OnboardingStepId;
+  selectedProjectId: string | null;
+}
+
+export interface RuntimeSummary {
+  status: "checking" | "ready" | "repairable" | "error";
+  version?: string;
+}
+
+export interface DiscoveredSource {
+  kind: "claude" | "codex" | "hermes";
+  status: "found" | "not-found";
+  itemCount?: number;
+}
+
+export interface ProviderSummary {
+  id: string;
+  name: string;
+  secretConfigured: boolean;
+  status: "ready" | "configured-unverified" | "needs-setup" | "unavailable";
+}
+
+/**
+ * Agent şu an ücretsiz API çırağıyla mı çalışıyor, yoksa bir web oturumuna mı
+ * kilitli? (Faz 3, Görev 2 — C5/C9). `kontrol.durum`'un `model` alanından gelir;
+ * kaynak `providers/capabilities.py::apprentice_active`'dir, burada TEKRAR
+ * hesaplanmaz.
+ */
+export interface ApprenticeStatus {
+  active: boolean | null;
+  recommendedModel: string | null;
+}
+
+export interface SampleProject {
+  description: string;
+  id: string;
+  name: string;
+  path?: string;
+}
+
+export interface OnboardingCompletion {
+  selectedProjectId: string | null;
+}

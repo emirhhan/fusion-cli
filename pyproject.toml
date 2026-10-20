@@ -1,0 +1,193 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fusion-cli"
+dynamic = ["version"]
+description = "Ücretsiz LLM'lerle çalışan, iki motorlu, öz-öğrenen agentic CLI"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+# Bağımlılıklar alt VE üst sınırlı: büyük sürüm atlamaları kurulumu sessizce bozmasın.
+dependencies = [
+    "litellm>=1.51,<2",
+    "pyyaml>=6.0,<7",
+    # Unicode emoji properties for local speech preparation.
+    "regex>=2024.11.6,<2027",
+    "typer>=0.12,<1",
+    "rich>=13.7,<15",
+    "python-dotenv>=1.0,<2",
+    "chromadb>=0.5,<2",
+    "prompt_toolkit>=3.0,<4",
+    # Direct dependency: provider catalog, embeddings and web tools import httpx.
+    "httpx>=0.27,<1",
+    # Ortak bilgi paketinin Ed25519 imza doğrulaması için (stdlib'de Ed25519 yok).
+    # Üst sınır 46 -> 51: 50.0.1 ile tam paket (2.560 test) ve anahtar/sır testleri
+    # doğrulandı. Sınır tamamen kaldırılmıyor; bir sonraki ana sürüm yine ölçülsün.
+    "cryptography>=42,<51",
+    # API keys and web-session cookies use the OS credential vault when available.
+    "keyring>=25,<27",
+    # Ajanın ürettiği görseli tam ölçüye getirme ve srcset kopyaları (WebP/AVIF).
+    # macOS `sips` Windows'ta yok; Pillow iki platformda aynı. 11.3 AVIF yazabilen
+    # ilk sürüm; 12.3 ile WebP+AVIF doğrulandı (1 Ekim 2026).
+    "pillow>=11.3,<13",
+]
+
+[project.optional-dependencies]
+# Langfuse izleme opsiyoneldir: herkesin kurmasına gerek yok, anahtarsız zaten
+# sessizce kapalı çalışır.
+tracing = ["langfuse>=3.0,<4"]
+# Tarayıcı doğrulama kapısı opsiyoneldir: sayfayı açıp konsol hatası, yüklenemeyen
+# kaynak ve yatay taşma ölçer. Kurulmazsa kapı sessizce geçer, çevrimdışı kimlik korunur.
+# Kurulumdan sonra tarayıcı ikilisi de gerekir: `playwright install chromium`
+web = ["playwright>=1.40,<2"]
+# Yerel gateway (`fusion serve`) opsiyoneldir: yalnızca OpenAI-uyumlu /v1 uç noktasını
+# açmak isteyen kullanıcıya gerekir. Kurulmazsa `fusion serve` anlaşılır bir hata verir.
+gateway = ["uvicorn>=0.30,<1"]
+# MCP köprüsü opsiyoneldir: `fusion mcp` (sunucu) ve dış MCP sunucularına bağlanma
+# (istemci) için gerekir. Resmî Model Context Protocol SDK'sı.
+mcp = ["mcp>=1.9,<2"]
+# Masaüstü paketleyici opsiyoneldir: yalnızca bağımsız `onedir` çalışma zamanını
+# derleyecek kişiye gerekir, normal geliştirici kurulumuna zorunlu kılınmaz.
+desktop = [
+    "pyinstaller>=6.15,<7",
+]
+# Sesli yanıt motoru: EMA Lightning (Türkçe, Apache-2.0, ~34 MB ONNX). Sistem sesleri
+# Türkçe'de robotik kalıyor, Windows'ta Türkçe ses hiç yok; EMA her platformda aynı
+# modeli çalıştırır. Model dosyaları pakete GİRER (çevrimdışı, indirme yok); PyTorch
+# gerekmez: yalnız onnxruntime + sayı/tarih okuyucu. Sürüm sabit: 0.8.0 ile doğrulandı.
+voice = [
+    "onnxruntime>=1.18,<2",
+    "numpy>=1.26",
+    "normalizer-tr==0.8.0",
+]
+dev = [
+    "pytest>=8.0,<9",
+    "pytest-asyncio>=0.23,<2",
+    "ruff>=0.6,<1",
+    "mypy>=1.11,<2",
+    "types-PyYAML>=6,<7",
+    "types-regex>=2024.11.6,<2027",
+]
+
+[project.scripts]
+fusion = "fusion_cli.cli.app:main"
+fusion-cli = "fusion_cli.cli.app:main"
+
+# Sürüm TEK yerde tutulur: `fusion_cli.__version__`. Burada da yazılsaydı ikisi
+# ayrışabilirdi — nitekim ayrışmıştı.
+[tool.setuptools.dynamic]
+version = { attr = "fusion_cli.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Kodun ÇALIŞMA ANINDA okuduğu veri dosyaları. Eksik girdi, wheel'den kurulan sürümü
+# ilk komutta çökertir: prompt dosyaları import anında okunuyor. `tests/test_packaging.py`
+# bu listeyi dosya sistemine karşı doğrular.
+[tool.setuptools.package-data]
+"fusion_cli.appserver" = ["data/*.json", "data/ema/*"]
+"fusion_cli.providers" = ["data/*.json"]
+"fusion_cli.config" = ["*.yaml", "roster/*.md", "skills/*/SKILL.md", "skills/*/kit/*"]
+"fusion_cli.tools" = ["scaffold/*", "assets/*", "data/*.swift"]
+"fusion_cli.engines.agent" = ["prompts/*"]
+"fusion_cli.remote" = ["pwa/*"]
+"fusion_cli.gateway" = ["*.html", "static/*.css", "static/*.js", "static/fonts/*"]
+"fusion_cli.engines.fusion" = ["prompts/*"]
+
+# --------------------------------------------------------------------------- #
+# Kalite kapısı — tek yerde tanımlı, editör ayarına bırakılmaz.
+# --------------------------------------------------------------------------- #
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "desktop_build"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF", "ANN", "ASYNC", "PTH"]
+ignore = [
+    # RUF001-003 Latin dışı "belirsiz" karakterleri işaretler. Bu projenin metinleri
+    # bilinçli olarak Türkçedir (RULES.md "Dil"); ı/ş/ğ/ç uyarı üretmemelidir.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Testlerde tip anotasyonu zorunlu değil; okunabilirlik önce gelir.
+"tests/*" = ["ANN"]
+# Uzun görev fikstürleri ajanın üzerinde çalışacağı örnek projelerdir; kasıtlı
+# olarak sade tutulur ve kalite kuralları ajanın ÜRETTİĞİ koda uygulanmaz.
+"evals/long_tasks/*/proje/*" = ["ANN"]
+"evals/long_tasks/*/gizli/*" = ["ANN"]
+# LiteLLM tip bilgisi yayımlamıyor. `Any` YALNIZCA bu SDK sınırında kullanılır ve
+# sınırın dışına çıkmadan `ModelResult`/`StreamItem` tiplerine normalize edilir.
+"src/fusion_cli/providers/litellm_provider.py" = ["ANN401"]
+# ChromaDB de tip bilgisi yayımlamıyor. Aynı gerekçe: `Any` bu sınırda kalır,
+# dışarı `core.memory` tipleri (Lesson, Outcome, CodeMatch…) olarak çıkar.
+"src/fusion_cli/memory/store.py" = ["ANN401"]
+"src/fusion_cli/memory/lessons.py" = ["ANN401"]
+"src/fusion_cli/memory/code_index.py" = ["ANN401"]
+"src/fusion_cli/memory/embeddings.py" = ["ANN401"]
+"src/fusion_cli/memory/performance.py" = ["ANN401"]
+# prompt_toolkit da tip bilgisi yayımlamıyor; sınır bu tek dosyada.
+"src/fusion_cli/cli/repl/input.py" = ["ANN401"]
+# screen.py de prompt_toolkit Application'ıyla çalışır; `Any` bu sınırda kalır.
+"src/fusion_cli/cli/repl/screen.py" = ["ANN401"]
+# screen_spike.py aynı prompt_toolkit sınırında çalışan (kanıtlanmamış) denemedir.
+"src/fusion_cli/cli/repl/screen_spike.py" = ["ANN401"]
+# cryptography tembel yüklenir ve tip stub'ı yok; `Any` yalnızca bu sınırda kalır.
+"src/fusion_cli/knowledge/signing.py" = ["ANN401"]
+# playwright opsiyonel ekstradır ve tip stub'ı yok; Page/Browser sınırı bu dosyada kalır.
+"src/fusion_cli/engines/agent/browser_verify.py" = ["ANN401"]
+# Native web providers wrap optional Playwright objects; Any stays inside this adapter.
+"src/fusion_cli/providers/web_browser.py" = ["ANN401"]
+# Görsel üretimi aynı Playwright Page sınırında çalışır; dışarı yalnız dosya yolu çıkar.
+"src/fusion_cli/providers/web_image.py" = ["ANN401"]
+# Etkileşimli tarayıcı araçları da playwright Page/Browser sınırında çalışır; `Any`
+# bu dosyanın dışına çıkmaz, sonuçlar `ToolResult` olarak döner.
+"src/fusion_cli/tools/browser.py" = ["ANN401"]
+# Tasarım ölçümü de aynı Playwright Page sınırında çalışır; dışarı sözlük ve dosya çıkar.
+"src/fusion_cli/tools/site_design.py" = ["ANN401"]
+# Tarayıcı oturumu taşıyıcısı playwright nesnelerini tutar ama onu import ETMEZ
+# (`core` üçüncü parti tanımaz); alan tipleri bu yüzden gevşek kalır.
+"src/fusion_cli/core/browser_session.py" = ["ANN401"]
+
+[tool.mypy]
+# python_version BILINCLI olarak ayarlanmamistir: mypy calistigi yorumlayicinin
+# surumunu kullanir. 3.11'e sabitlemek, bagimliliklarin 3.12 sozdizimli stub'larini
+# (numpy) ayristirilamaz kiliyordu. 3.11 uyumlulugu CI matrisinde gercekten
+# calistirilarak dogrulaniyor; sozdizimi denetimiyle degil.
+files = ["src", "evals", "prompt_opt", "desktop_build"]
+strict = true
+warn_unreachable = true
+# Uzun görev fikstürleri ajanın üzerinde çalıştığı örnek projelerdir (bkz. ruff notu).
+exclude = ["evals/long_tasks/[^/]+/(proje|gizli)/"]
+
+[[tool.mypy.overrides]]
+# Tip bilgisi yayımlamayan kütüphaneler; sınırları providers ve memory katmanlarında.
+# langfuse ve playwright OPSİYONEL ekstralardır; kurulu olmayabilirler ve kod bunu
+# zaten ImportError ile ele alır (izleme ve tarayıcı kapısı sessizce kapanır).
+module = ["litellm.*", "chromadb.*", "prompt_toolkit.*", "langfuse.*", "playwright.*", "jsonschema.*"]
+ignore_missing_imports = true
+
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    # Gerçek vektör deposuna dokunan testler: yavaştır (gömme modeli yüklenir).
+    # Hızlı geri bildirim için: pytest -m "not slow"
+    "slow: ChromaDB kuran ve gerçek gömme yapan testler",
+]
+
+[[tool.mypy.overrides]]
+# mcp SDK'sının sunucu dekoratörleri (@server.list_tools) tiplenmemiş; bu ince köprü
+# modüllerinde ilgili katı kuralları gevşetiriz (SDK'nın kendi tip eksiği bizim değil).
+module = ["fusion_cli.mcp_bridge.server", "fusion_cli.mcp_bridge.client"]
+disallow_untyped_decorators = false
+disallow_untyped_calls = false

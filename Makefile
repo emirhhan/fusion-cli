@@ -1,0 +1,94 @@
+# Kalite kapısı — RULES.md: her faz sonunda `make check` temiz olmadan commit atılmaz.
+# Araçlar .venv varsa oradan, yoksa PATH'ten çalışır; böylece CI de aynı kapıyı kullanır.
+.PHONY: setup venv install format lint type test deadlock check clean eval eval-refactor eval-hata app-check app-visual runtime-bundle app-package
+
+VENV_BIN := $(if $(wildcard .venv/bin/python),.venv/bin/,)
+PY       := $(VENV_BIN)python
+RUFF     := $(VENV_BIN)ruff
+MYPY     := $(VENV_BIN)mypy
+PYTEST   := $(VENV_BIN)pytest
+
+# Tek adımlık kurulum: uygun Python'u bulur, .venv kurar, .env'i hazırlar.
+setup:
+	./setup.sh --dev
+
+venv:
+	./setup.sh
+
+# Geliştirici kurulumu TEK yerde tanımlıdır. Paketleme hedefleri kendi pip
+# satırlarını yazsaydı (eskiden öyleydi: `.[desktop,mcp,gateway]`), `make install`
+# ile kurulan ortam `make app-package` ile kurulandan sessizce ayrışırdı —
+# kapılar bir ortamda geçip ötekinde patlardı.
+EXTRAS := dev,desktop,mcp,gateway,voice,web
+
+install:
+	$(PY) -m pip install --quiet --upgrade pip
+	$(PY) -m pip install --quiet -e ".[$(EXTRAS)]"
+
+format:
+	$(RUFF) format src tests evals prompt_opt desktop_build
+
+lint:
+	$(RUFF) format --check src tests evals prompt_opt desktop_build
+	$(RUFF) check src tests evals prompt_opt desktop_build
+
+type:
+	$(MYPY)
+
+test:
+	$(PYTEST)
+
+# Kilitlenme ağı — kapıların ETKİLEŞİMİNİ koruyan paketler.
+#
+# Ayrı bir hedef olarak durur çünkü `test` içinde eriyip gitmemeli: bugüne kadarki
+# kilitlenmelerin hepsi tek tek doğru yazılmış kapıların birbirini engellemesinden
+# doğdu ve birim testler bu sınıfı GÖREMEZ. Bir dosya yanlışlıkla silinir ya da
+# yeniden adlandırılırsa `deadlock` hedefi "no tests ran" ile kırılır; `test`
+# hedefinde bu sessizce kaybolurdu.
+DEADLOCK_SUITES := tests/test_deadlock_property.py tests/test_gate_matrix.py \
+                   tests/test_web_build_runs.py tests/test_eval_criteria_sound.py \
+                   tests/test_measured_is_told.py
+
+deadlock:
+	$(PYTEST) $(DEADLOCK_SUITES)
+
+check: lint type test deadlock
+
+app-check:
+	cd app && npm ci && npm run check
+
+app-visual:
+	cd app && npm ci && npx playwright install chromium && npm run test:visual
+
+runtime-bundle: install
+	cd app && npm run runtime:build && npm run runtime:smoke
+
+app-package: install
+	$(PY) desktop_build/listen/build_listen.py || true
+	cd app && npm run bundle:mac
+	$(PY) desktop_build/macos/smoke_app_bundle.py app/src-tauri/target/release/bundle/macos/Fusion.app
+
+# Değerlendirme seti: başlangıç görevlerini koştur, raporu eval-report.json'a yaz.
+# GERÇEK model çağrısı yapar (ağ + anahtar gerekir). İki raporu karşılaştırmak için:
+#   $(PY) -m evals compare eski.json yeni.json
+eval:
+	$(PY) -m evals run evals/suite/starter.yaml --out eval-report.json
+
+# Alan setleri: çok dosyalı değişiklik ve hata teşhisi. Tek koşu gürültülüdür;
+# bir ayarın etkisini ölçerken `--repeat 3` ile çalıştırılır ve raporun
+# `unstable_tasks` alanına bakılır.
+eval-refactor:
+	$(PY) -m evals run evals/suite/refactor.yaml --out eval-refactor.json --repeat 3
+
+eval-hata:
+	$(PY) -m evals run evals/suite/hata.yaml --out eval-hata.json --repeat 3
+
+# Claude paritesi gerileme seti: 17 Eylül denetiminin bulgu kimliklerine bağlı
+# senaryolar. `--enforce`, kabul eşiğinin (evals/acceptance.py) altında kalan
+# koşuda sıfırdan farklı çıkış kodu döndürür — eşik yalnız raporun dipnotunda
+# yazdığı sürece koşu "yeşil" görünüp altında kalabiliyordu.
+eval-parite:
+	$(PY) -m evals run evals/suite/parite.yaml --out eval-parite.json --enforce
+
+clean:
+	rm -rf .venv .pytest_cache .ruff_cache .mypy_cache src/*.egg-info

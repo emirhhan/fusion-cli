@@ -1,0 +1,157 @@
+"""Bir turda yapılan dosya değişikliklerinin kaydı ve geri alınması.
+
+`multi_edit` kendi içinde atomiktir ama GÖREV atomik değildir: agent A dosyasını
+değiştirip B'yi oluşturduktan sonra tur bozulursa yarım bir durum kalır ve
+kullanıcı hangi dosyanın agent'a ait olduğunu bilemez.
+
+Bu modül her yazma ÖNCESİNDE dosyanın o anki hâlini saklar, böylece tur geri
+alınabilir. Git'e güvenmek yeterli değildir: proje git olmayabilir, dosyalar
+untracked olabilir ve kullanıcının kendi bekleyen değişiklikleri bulunabilir —
+`git checkout` onları da silerdi. Kayıt yalnızca AGENT'IN dokunduğu yolları taşır.
+
+Bellekte tutulur, diske yazılmaz: kapsam tek bir oturumdur ve içerik kullanıcının
+kaynak kodudur; onu geçici bir dizine kopyalamak yeni bir sızıntı yüzeyi açardı.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+@dataclass(frozen=True, slots=True)
+class Snapshot:
+    """Bir dosyanın değiştirilmeden önceki hâli."""
+
+    path: Path
+    #: Dosyanın önceki içeriği; dosya YOKTU ise None (geri alma = silme).
+    content: bytes | None
+
+    @property
+    def existed(self) -> bool:
+        return self.content is not None
+
+
+@dataclass(slots=True)
+class ChangeSet:
+    """Bir turda dokunulan dosyalar ve ilk hâlleri.
+
+    Aynı dosya birden çok kez yazılsa bile YALNIZCA İLK anlık görüntü saklanır:
+    geri alma turun başına döndürmelidir, bir önceki ara adıma değil.
+    """
+
+    _snapshots: dict[Path, Snapshot] = field(default_factory=dict)
+    #: Dışarıdan EDİNİLEN yollar; izlenir ama geri alınmaz (bkz. `record_acquired`).
+    _acquired: set[Path] = field(default_factory=set)
+
+    def record(self, path: Path) -> bool:
+        """Yazmadan önce çağrılır. Aynı yol için ikinci çağrı yok sayılır."""
+        if path in self._snapshots:
+            return True
+        try:
+            content: bytes | None = path.read_bytes()
+        except FileNotFoundError:
+            content = None
+        except OSError:
+            # İzin yüzünden okunamayan dosya geri alınamaz. Kaydetmemek, yanlış
+            # içerikle geri yazmaktan iyidir; `restore` bunu atlar.
+            return False
+        self._snapshots[path] = Snapshot(path=path, content=content)
+        return True
+
+    @property
+    def paths(self) -> tuple[Path, ...]:
+        """Bu turda dokunulan yollar, kaydedilme sırasıyla."""
+        return tuple(self._snapshots)
+
+    @property
+    def snapshots(self) -> tuple[Snapshot, ...]:
+        """İlk hâllerin salt-okunur görünümü; tur sonu denetimde diff kurulur."""
+        return tuple(self._snapshots.values())
+
+    def record_created(self, path: Path) -> None:
+        """Yalnız atomik, üzerine yazmayan oluşturma BAŞARILI olduktan sonra çağır.
+
+        Önceden kayıt almak, oluşturma yarışını başka yazıcı kazanırsa onun
+        dosyasını geri almada siler. Burada oluşturma başarısını çağıran kanıtlar.
+        """
+        self._snapshots.setdefault(path, Snapshot(path=path, content=None))
+
+    def record_acquired(self, path: Path) -> None:
+        """Dışarıdan EDİNİLEN dosyayı kaydet ama geri almaya DAHİL ETME.
+
+        İndirilen bir varlık (asset, arşiv, veri kümesi) agent'ın yazdığı kod
+        değildir: içeriğini o üretmedi, yalnız getirdi. Adım düştüğünde onu
+        silmek iki maliyet üretir — dosya yeniden indirilir (ağ, süre, kota) ve
+        o sırada sağlayıcı oran sınırına takılabilir.
+
+        Ölçüldü (13 Eylül, Godot koşusu): `download_file` Kenney'den 260 KB'lık
+        paketi indirdi, adım doğrulaması `assets/player.png` bulamayınca düştü
+        ve geri alma indirilen paketi de sildi. Sonraki deneme sıfırdan başladı
+        ve kurtarma hakkı bitti — oysa dosya diskte duruyor olsa adım yalnız
+        arşivi açmayı deneyecekti.
+
+        Dosya yine de İZLENİR (`paths`, `was_created_this_turn`): kısıtlar ve
+        raporlama onu görmeye devam eder; yalnız geri alma ona dokunmaz.
+        """
+        self._snapshots.setdefault(path, Snapshot(path=path, content=None))
+        self._acquired.add(path)
+
+    def was_created_this_turn(self, path: Path) -> bool:
+        """Bu dosyayı bu turda agent'ın KENDİSİ mi oluşturdu (öncesinde yoktu)?
+
+        Kullanıcının kodunu toptan yeniden yazmakla, dakikalar önce kendi yazdığı bir
+        iskele dosyasını doldurmak aynı risk değildir: ilkinde kaybedilecek bir şey
+        vardır, ikincisinde yoktur. Toptan-yazma kısıtı bu ayrımı yapabilmek için
+        buraya sorar.
+        """
+        snapshot = self._snapshots.get(path)
+        return snapshot is not None and not snapshot.existed
+
+    def __bool__(self) -> bool:
+        return bool(self._snapshots)
+
+    def restore(self) -> tuple[Path, ...]:
+        """Kaydedilen tüm dosyaları ilk hâline döndür; geri alınanları döndürür.
+
+        Bir dosya geri alınamazsa (silinmiş dizin, izin hatası) diğerleri yine de
+        geri alınır: yarım geri alma, hiç geri almamaktan iyidir ve hangilerinin
+        döndüğü çağırana bildirilir.
+        """
+        geri_alinan: list[Path] = []
+        for snapshot in self._snapshots.values():
+            # Edinilen dosya geri alınmaz: agent onu yazmadı, getirdi
+            # (bkz. `record_acquired`).
+            if snapshot.path in self._acquired:
+                continue
+            if _restore_one(snapshot):
+                geri_alinan.append(snapshot.path)
+        self._snapshots.clear()
+        self._acquired.clear()
+        return tuple(geri_alinan)
+
+    def commit(self) -> None:
+        """Değişiklikleri kalıcı say: kayıt boşaltılır, geri alma imkânı biter."""
+        self._snapshots.clear()
+        self._acquired.clear()
+
+    def absorb(self, other: ChangeSet) -> None:
+        """Alt işlemin kayıtlarını ilk hâli koruyarak bu tura aktar."""
+        for path, snapshot in other._snapshots.items():
+            self._snapshots.setdefault(path, snapshot)
+        self._acquired |= other._acquired
+        other._snapshots.clear()
+        other._acquired.clear()
+
+
+def _restore_one(snapshot: Snapshot) -> bool:
+    try:
+        if snapshot.content is None:
+            # Dosya turdan ÖNCE yoktu: geri alma onu silmektir.
+            snapshot.path.unlink(missing_ok=True)
+            return True
+        snapshot.path.parent.mkdir(parents=True, exist_ok=True)
+        snapshot.path.write_bytes(snapshot.content)
+    except OSError:
+        return False
+    return True

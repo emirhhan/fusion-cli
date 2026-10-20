@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+
+from fusion_cli.appserver import image_create
+from fusion_cli.config.models import WebSessionConfig
+from fusion_cli.providers import image_generation
+from fusion_cli.providers.web_browser import WebBrowserError
+from fusion_cli.providers.web_image import GeneratedImage
+
+
+def _config(tmp_path: Path, *models: str):
+    from fusion_cli.config.loader import load_config
+
+    base = load_config()
+    oturumlar = tuple(
+        WebSessionConfig(model=m, transport="browser", provider=m.split("/")[0]) for m in models
+    )
+    return replace(base, web_sessions=oturumlar)
+
+
+def test_saglayicilar_gemini_once_siralanir(tmp_path):
+    config = _config(tmp_path, "chatgpt_web/main/auto", "gemini_web/main/auto")
+
+    secenekler = image_create.image_providers(config, environ={})
+
+    assert [s["etiket"] for s in secenekler] == ["Gemini", "ChatGPT"]
+    assert [s["referans"] for s in secenekler] == [True, False]
+
+
+async def test_bos_istem_reddedilir(tmp_path):
+    sonuc = await image_create.create_image(_config(tmp_path, "gemini_web/main/auto"), {})
+    assert sonuc["ok"] is False
+
+
+async def test_uretilen_dosyalar_doner_ve_hata_okunur_kalir(tmp_path, monkeypatch):
+    config = _config(tmp_path, "gemini_web/main/auto")
+    monkeypatch.setattr(image_create, "image_output_dir", lambda: tmp_path)
+
+    async def uret(_oturum, _kimlik, istem, klasor, **_kwargs):
+        (klasor / "a.png").write_bytes(b"\x89PNG")
+        return [GeneratedImage(klasor / "a.png", 1024, 559)]
+
+    monkeypatch.setattr(image_generation, "generate_images", uret)
+    sonuc = await image_create.create_image(config, {"istem": "kırmızı kask"})
+    assert sonuc["ok"] is True
+    assert sonuc["dosyalar"][0]["genislik"] == 1024
+
+    async def engel(*_a, **_k):
+        raise WebBrowserError("authentication: Gemini insan doğrulaması (captcha) istiyor.")
+
+    monkeypatch.setattr(image_generation, "generate_images", engel)
+    sonuc = await image_create.create_image(config, {"istem": "x"})
+    assert sonuc == {"ok": False, "metin": "Gemini insan doğrulaması (captcha) istiyor."}
+
+
+@pytest.mark.parametrize("secim", ["claude_web/main"])
+async def test_bilinmeyen_saglayici(tmp_path, secim):
+    sonuc = await image_create.create_image(
+        _config(tmp_path, "gemini_web/main/auto"), {"istem": "x", "saglayici": secim}
+    )
+    assert sonuc["ok"] is False
+
+
+async def test_nim_flux_dev_orana_uygun_boyutla_uretir(tmp_path, monkeypatch):
+    config = _config(tmp_path)
+    monkeypatch.setattr(image_create, "image_output_dir", lambda: tmp_path)
+    yakalanan: dict = {}
+
+    async def uret(model, istem, klasor, *, api_key, size):
+        yakalanan.update(model=model.model, istem=istem, size=size)
+        (klasor / "a.png").write_bytes(b"\x89PNG")
+        return [GeneratedImage(klasor / "a.png", *size)]
+
+    monkeypatch.setattr(image_generation, "generate_nim_image", uret)
+    sonuc = await image_create.create_image(
+        config,
+        {"istem": "dağ", "saglayici": "nvidia_nim/black-forest-labs/flux.1-dev", "oran": "16:9"},
+        environ={"NVIDIA_NIM_API_KEY": "test"},
+    )
+    assert sonuc["ok"] is True
+    assert yakalanan["size"] == (1344, 768)
+    # Boyutu gerçekten uygulanan modelde oran istem metnine ayrıca eklenmez.
+    assert "en-boy" not in yakalanan["istem"]
+
+
+async def test_boyut_almayan_saglayiciya_oran_istemde_soylenir(tmp_path, monkeypatch):
+    config = _config(tmp_path, "gemini_web/main/auto")
+    monkeypatch.setattr(image_create, "image_output_dir", lambda: tmp_path)
+    yakalanan: dict = {}
+
+    async def uret(_oturum, _kimlik, istem, klasor, **_kwargs):
+        yakalanan["istem"] = istem
+        (klasor / "a.png").write_bytes(b"\x89PNG")
+        return [GeneratedImage(klasor / "a.png", 1024, 1024)]
+
+    monkeypatch.setattr(image_generation, "generate_images", uret)
+    sonuc = await image_create.create_image(config, {"istem": "dağ", "oran": "9:16"})
+    assert sonuc["ok"] is True
+    assert "en-boy oranı 9:16" in yakalanan["istem"]
+
+
+async def test_desteklenmeyen_oran_reddedilir(tmp_path):
+    sonuc = await image_create.create_image(
+        _config(tmp_path, "gemini_web/main/auto"), {"istem": "dağ", "oran": "7:3"}
+    )
+    assert sonuc == {"ok": False, "metin": "Desteklenmeyen en-boy oranı: 7:3"}
+
+
+def test_oran_boyutlari_flux_sinirlarinda_ve_32_katinda():
+    from fusion_cli.providers.nim_image import ASPECT_SIZES
+
+    for genislik, yukseklik in ASPECT_SIZES.values():
+        for kenar in (genislik, yukseklik):
+            assert 672 <= kenar <= 1568 and kenar % 32 == 0

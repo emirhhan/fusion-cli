@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "palette": {
+    "blue": "#3b82f6",
+    "cyan": "#22d3ee",
+    "violet": "#a78bfa",
+    "accent-deep": "#1d4ed8"
+  },
+  "light": {
+    "canvas": "#ffffff",
+    "sidebar": "#f9f9f9",
+    "ink": "#0b0a0d",
+    "muted": "#5d5d5d",
+    "dialog-surface": "#f3f6fc",
+    "dialog-border": "#cdd9ed",
+    "input-surface": "#ffffff"
+  },
+  "dark": {
+    "canvas": "#212121",
+    "sidebar": "#262626",
+    "ink": "#ececec",
+    "muted": "#afafaf",
+    "dialog-surface": "#182130",
+    "dialog-border": "#34415a",
+    "input-surface": "#111827"
+  }
+}

@@ -1,0 +1,757 @@
+"""Typer giriş noktası.
+
+Komut fonksiyonları ince tutulur: girdiyi çözer, oturumu çağırır, sonucu sunar.
+İş mantığı burada bulunmaz (RULES.md "UI ve CLI").
+
+Beklenen hatalar (`FusionError`) tek bir sınırda yakalanır ve kullanıcıya Türkçe,
+anlaşılır bir mesajla gösterilir; stack trace kullanıcıya basılmaz.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import sys
+from collections.abc import Awaitable
+from dataclasses import fields, replace
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, TypeVar
+
+import typer
+from rich.console import Console
+from rich.table import Table
+
+from .. import __version__
+from ..config.keys import detect
+from ..config.loader import load_config
+from ..config.models import Config
+from ..config.readiness import Readiness
+from ..core.errors import FusionError
+from ..core.tools import ToolContext
+from ..core.types import ModelSpec, VerdictSource
+from ..engines.agent.approval import ApprovalMode, parse_mode
+from ..ui import messages, theme
+from .app_host import AppHostDependencies
+
+if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
+    from .doctor import DoctorReport
+from ..ui.renderer import ConsoleRenderer
+from ..ui.tables import cost_summary
+from . import (
+    capability_commands,
+    knowledge_commands,
+    memory_commands,
+    paperclip_command,
+    trash_commands,
+)
+from .prompter import ConsolePrompter
+from .repl import run_repl
+from .session import Observers, build_observers, open_memory, run_agent_task, run_task
+from .setup_command import run_setup
+
+app = typer.Typer(
+    add_completion=False,
+    invoke_without_command=True,
+    help="Ücretsiz LLM'lerle çalışan agentic CLI. Argümansız çalıştırılırsa REPL açılır.",
+)
+config_app = typer.Typer(no_args_is_help=True, help="Yapılandırmayı görüntüle.")
+app.add_typer(config_app, name="config")
+app.add_typer(memory_commands.app, name="memory")
+app.add_typer(knowledge_commands.app, name="knowledge")
+app.add_typer(trash_commands.app, name="cop")
+app.add_typer(capability_commands.app, name="yetenek")
+app.command("paperclip")(paperclip_command.paperclip)
+
+console = Console()
+
+T = TypeVar("T")
+
+
+#: Yapılandırmadaki `task_model_map` ile aynı anahtarlar.
+TASK_TYPES = ("general", "code", "reasoning", "agent")
+
+
+@app.callback()
+def main_callback(
+    ctx: typer.Context,
+    add_dir: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--add-dir",
+            help="Proje kökünün YANINDA erişime açılacak dizin. Birden çok kez verilebilir.",
+        ),
+    ] = None,
+) -> None:
+    """Argümansız çağrıldığında interaktif oturumu başlat."""
+    if ctx.invoked_subcommand is not None:
+        return
+    config = load_config()
+    if not detect().any_configured and not config.web_sessions:
+        # Anahtarsız açılışta REPL'i başlatmak, kullanıcıyı her turda "hiçbir model
+        # yanıt veremedi" hatasına sürüklerdi. Eksik olan şey söylenir.
+        console.print(f"[{theme.WARN}]{messages.SETUP_NO_KEYS}[/{theme.WARN}]")
+        raise typer.Exit(1)
+    root = Path.cwd()
+    raise typer.Exit(
+        asyncio.run(
+            _with_web_cleanup(
+                run_repl(
+                    config,
+                    memory=open_memory(config, root=root),
+                    root=root,
+                    console=console,
+                    extra_roots=tuple(add_dir or ()),
+                )
+            )
+        )
+    )
+
+
+@app.command()
+def run(
+    task: str = typer.Argument(..., help="Modellere verilecek görev ya da soru."),
+    task_type: str = typer.Option(
+        "general", "--type", "-t", help=f"Görev tipi: {' | '.join(TASK_TYPES)}"
+    ),
+    show_all: bool = typer.Option(False, "--all", help="Tüm aday cevaplarını göster."),
+    no_synthesis: bool = typer.Option(
+        False, "--no-synthesis", help="Sentezi kapat; hakemin seçtiği cevabı göster."
+    ),
+    no_memory: bool = typer.Option(
+        False, "--no-memory", help="Belleği kullanma ve yazma (öğrenme kapalı)."
+    ),
+    as_json: bool = typer.Option(
+        False, "--json", help="Olayları satır satır JSON olarak yaz (betikler için)."
+    ),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="İlerleme satırlarını gizle."),
+) -> None:
+    """Görevi tüm adaylara paralel sor, hakem ve sentezle en iyi cevabı üret."""
+    if not task.strip():
+        raise typer.BadParameter(messages.RUN_EMPTY_TASK)
+    if task_type not in TASK_TYPES:
+        raise typer.BadParameter(
+            messages.RUN_UNKNOWN_TASK_TYPE.format(given=task_type, valid=", ".join(TASK_TYPES))
+        )
+
+    config = load_config()
+    renderer = ConsoleRenderer(
+        console, show_progress=not quiet, show_all_answers=show_all, show_call_details=True
+    )
+    observers = build_observers(
+        task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
+    )
+    result = asyncio.run(
+        _with_web_cleanup(
+            run_task(
+                task,
+                config,
+                sinks=observers.sinks,
+                task_type=task_type,
+                synthesis=False if no_synthesis else None,
+                memory=open_memory(config, root=Path.cwd(), enabled=not no_memory),
+            )
+        )
+    )
+    observers.finish()
+    _print_usage(observers, quiet=quiet or as_json)
+    if result.source is VerdictSource.NONE:
+        raise typer.Exit(1)
+
+
+@app.command()
+def doctor(
+    live: Annotated[
+        bool,
+        typer.Option("--live", help="Sağlayıcılara küçük gerçek çağrı yap (kota harcar)."),
+    ] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="Betikler için JSON çıktı.")] = False,
+) -> None:
+    """Kurulumu denetle: ne eksik, neden önemli, ne yapmalı."""
+    from .doctor import diagnose, to_dict
+
+    rapor = diagnose(live=live)
+    if as_json:
+        console.print_json(data=to_dict(rapor))
+    else:
+        _print_doctor(rapor)
+    # Çıkış kodu betikler içindir: kurulum kullanılamaz durumdaysa sıfır dışı.
+    raise typer.Exit(0 if rapor.readiness.state is not Readiness.NOT_READY else 1)
+
+
+def _print_doctor(report: DoctorReport) -> None:
+    """Tanıyı oku-yazılabilir biçimde bas. Sır içermez."""
+    console.print()
+    for check in report.checks:
+        isaret = "·" if check.ok is None else (theme.ICON_OK if check.ok else theme.ICON_ERROR)
+        renk = theme.DIM if check.ok is None else (theme.OK if check.ok else theme.ERROR)
+        console.print(f"[{renk}]{isaret}[/{renk}] {check.name:<28} {check.value}")
+        if check.remedy:
+            console.print(f"  [{theme.DIM}]→ {check.remedy}[/{theme.DIM}]")
+    console.print()
+    durum = report.readiness.state
+    renk = {Readiness.READY: theme.OK, Readiness.PARTIALLY_READY: theme.WARN}.get(
+        durum, theme.ERROR
+    )
+    console.print(f"[bold {renk}]{messages.DOCTOR_STATE[durum.value]}[/bold {renk}]")
+    for sebep in report.readiness.reasons:
+        console.print(f"  [{theme.DIM}]{sebep}[/{theme.DIM}]")
+
+
+@app.command()
+def update() -> None:
+    """Fusion'ı nasıl güncelleyeceğini göster."""
+    from .maintenance import current_method, update_instructions
+
+    console.print(messages.MAINT_METHOD.format(method=current_method().value))
+    console.print()
+    console.print(f"  {update_instructions()}")
+    console.print()
+
+
+@app.command()
+def uninstall(
+    purge: Annotated[
+        bool,
+        typer.Option(
+            "--purge",
+            help="Yapılandırma, anahtarlar ve belleği de sil (varsayılan: KORUNUR).",
+        ),
+    ] = False,
+) -> None:
+    """Fusion'ı nasıl kaldıracağını göster; istenirse kullanıcı verisini sil."""
+    from .maintenance import current_method, purge_user_data, uninstall_instructions
+
+    console.print(messages.MAINT_METHOD.format(method=current_method().value))
+    console.print()
+    console.print(f"  {uninstall_instructions()}")
+    console.print()
+    if not purge:
+        console.print(f"[{theme.DIM}]{messages.MAINT_DATA_KEPT}[/{theme.DIM}]")
+        return
+    silinen = purge_user_data(dry_run=False)
+    for yol in silinen:
+        console.print(f"[{theme.OK}]{theme.ICON_OK}[/{theme.OK}] {messages.MAINT_REMOVED} {yol}")
+    if not silinen:
+        console.print(f"[{theme.DIM}]{messages.MAINT_NOTHING_TO_PURGE}[/{theme.DIM}]")
+
+
+@app.command()
+def agent(
+    task: str = typer.Argument(..., help="Agent'a verilecek görev."),
+    mode: str = typer.Option(
+        "auto",
+        "--mode",
+        "-m",
+        help="Onay modu: auto (yalnız riskli işlemde sorar) | edits (düzenlemeler "
+        "sorulmaz) | security/manual (her değişikliği sor) | plan (yalnız planla) | "
+        "bypass (hiçbir şey sorma)",
+    ),
+    no_memory: bool = typer.Option(
+        False, "--no-memory", help="Belleği kullanma ve yazma (ders çıkarımı kapalı)."
+    ),
+    as_json: bool = typer.Option(
+        False, "--json", help="Olayları satır satır JSON olarak yaz (betikler için)."
+    ),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="İlerleme satırlarını gizle."),
+    add_dir: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--add-dir",
+            help="Proje kökünün YANINDA erişime açılacak dizin. Birden çok kez verilebilir.",
+        ),
+    ] = None,
+) -> None:
+    """Görevi araçlarla çalıştır: dosya oku/yaz, komut çalıştır, web'de ara."""
+    if not task.strip():
+        raise typer.BadParameter(messages.RUN_EMPTY_TASK)
+    approval = _parse_mode(mode)
+
+    config = load_config()
+    root = Path.cwd()
+    renderer = ConsoleRenderer(console, show_progress=not quiet)
+    observers = build_observers(
+        task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
+    )
+
+    outcome = asyncio.run(
+        _with_web_cleanup(
+            run_agent_task(
+                task,
+                config,
+                sinks=observers.sinks,
+                prompter_factory=lambda flush: ConsolePrompter(
+                    console,
+                    ToolContext(
+                        root=root,
+                        extra_roots=tuple(add_dir or ()),
+                        restrict_to_root=config.runtime.restrict_to_root,
+                    ),
+                    flush=flush,
+                ),
+                mode=approval,
+                root=root,
+                home=Path.home(),
+                memory=open_memory(config, root=root, enabled=not no_memory),
+                extra_roots=tuple(add_dir or ()),
+            )
+        )
+    )
+    observers.finish()
+    _print_usage(observers, quiet=quiet or as_json)
+    if not outcome.final_text.strip():
+        raise typer.Exit(1)
+
+
+async def _with_web_cleanup(coro: Awaitable[T]) -> T:
+    """İşi çalıştır, bitince tarayıcı bağlamlarını AYNI döngüde kapat.
+
+    Kapatma neden burada: Playwright nesneleri oluşturuldukları event loop'a
+    bağlıdır. Temizliği ayrı bir `asyncio.run` ile çağırmak sessizce başarısız
+    oluyordu — ölçüldü, koşu bittiği hâlde profili tutan 11 headless Chrome süreci
+    kalıyordu ve bunlar `fusion serve`'ün kapanmasını da engelliyordu.
+
+    Tur İÇİNDE kapatılmaz: REPL turlar arası sohbet sürekliliğini bu bağlamlarda
+    taşır ve tek bir `asyncio.run` içinde çalışır.
+    """
+    from ..mcp_bridge.pool import close_mcp_pool
+    from ..providers.web_browser import close_all_browser_sessions
+
+    try:
+        return await coro
+    finally:
+        # MCP bağlantıları da oturum kaynağıdır: stdio alt süreçleri (npx ...)
+        # kapanışta sahipsiz kalmamalı.
+        await close_mcp_pool()
+        await close_all_browser_sessions()
+
+
+def _parse_mode(raw: str) -> ApprovalMode:
+    try:
+        return parse_mode(raw)
+    except ValueError:
+        valid = ", ".join(item.value for item in ApprovalMode)
+        raise typer.BadParameter(messages.RUN_UNKNOWN_MODE.format(given=raw, valid=valid)) from None
+
+
+@app.command()
+def models(
+    fetch: bool = typer.Option(
+        False, "--fetch", help="Sağlayıcıların CANLI kataloğundan kullanılabilir modelleri listele."
+    ),
+) -> None:
+    """Yapılandırılmış modelleri, `--fetch` ile canlı katalogları göster."""
+    if not fetch:
+        _print_configured_models(load_config())
+        return
+    load_config()  # .env yüklenir; NIM anahtarı katalog için gerekir
+    _print_catalog()
+
+
+@app.command()
+def feedback(
+    task_type: str = typer.Argument(..., help="Görev tipi (general | code | reasoning | agent)."),
+    model: str = typer.Argument(..., help="Geri bildirim verilecek aday adı."),
+    verdict: str = typer.Argument(..., help="good | bad | revise"),
+) -> None:
+    """Bir modelin son sonucuna geri bildirim ver; bellek buna göre öğrenir."""
+    memory_commands.feedback(task_type, model, verdict)
+
+
+@app.command()
+def serve(
+    host: str = typer.Option(
+        "127.0.0.1", "--host", help="Dinlenecek yerel adres. Varsayılan yalnızca bu bilgisayar."
+    ),
+    port: int = typer.Option(8787, "--port", "-p", help="Dinlenecek port."),
+    compact_context: bool = typer.Option(
+        False,
+        "--compact-context",
+        help="Bağlam bütçesini aşan uzun geçmişi özetle (geçmişi kendisi yönetmeyen "
+        "istemciler için; Fusion Kits açar).",
+    ),
+) -> None:
+    """Yerel gateway'i çalıştır: OpenAI-uyumlu /v1 uç noktası, tüm sağlayıcılar arkada.
+
+    Böylece bu bilgisayardaki her araç (Cursor, Cline, OpenAI-uyumlu her CLI) Fusion'a
+    bağlanır — hiçbir uygulama bozulmadan/rootlanmadan. Uzak sunucu değildir; yalnız
+    yerelde çalışır. Model olarak profil adı (auto/low/medium/high/max) ya da ham model
+    kimliği verilebilir; fallback ve sağlık otomatik devrededir.
+    """
+    from ..gateway.server import serve as run_gateway
+
+    config = load_config()
+    console.print(
+        f"[bold]Fusion gateway[/bold] → http://{host}:{port}/v1\n"
+        f"[dim]panel: [/dim]http://{host}:{port}/dashboard   "
+        f"[dim](model: auto/low/medium/high/max ya da ham kimlik · Ctrl-C ile durdur)[/dim]"
+    )
+    try:
+        run_gateway(config, host=host, port=port, compact_context=compact_context)
+    except FusionError as error:
+        console.print(f"[red]{error}[/red]")
+        raise typer.Exit(code=1) from error
+
+
+@app.command()
+def mcp(
+    write: bool = typer.Option(
+        False, "--write", help="Değiştirici araçları da aç (dikkat: dışarıya yazma verir)."
+    ),
+) -> None:
+    """Fusion araçlarını bir MCP sunucusu olarak aç (stdio).
+
+    MCP destekleyen araçlar (Claude masaüstü, Cursor, Cline…) buna bağlanıp Fusion'ın
+    araçlarını (kod arama, dosya okuma…) kullanabilir. Varsayılan yalnızca salt-okunur.
+    """
+    import asyncio
+    from pathlib import Path
+
+    # DİKKAT: stdout MCP protokolüne aittir; buraya hiçbir şey BASILMAZ.
+    try:
+        from ..mcp_bridge.server import run_stdio
+    except ImportError:
+        typer.echo(messages.MCP_MISSING_DEP, err=True)
+        raise typer.Exit(code=1) from None
+    asyncio.run(run_stdio(Path.cwd(), expose_mutating=write))
+
+
+@app.command(name="chrome-host", hidden=True)
+def chrome_host() -> None:
+    """Chrome eklentisinin yerel mesajlaşma sunucusu (Chrome başlatır, elle değil)."""
+    from ..appserver.chrome_host import main as host_main
+
+    host_main()
+
+
+@app.command(name="chrome-kur")
+def chrome_kur() -> None:
+    """Fusion Browser eklentisini Chrome'a kurmaya hazırla (tek onaylı akış)."""
+    from ..appserver.chrome_install import begin_install
+
+    sonuc = begin_install()
+    if not sonuc["ok"]:
+        typer.echo(sonuc["metin"], err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"Eklenti klasörü (panoya kopyalandı): {sonuc['yol']}")
+    for sira, adim in enumerate(sonuc["adimlar"], start=1):
+        typer.echo(f"{sira}. {adim}")
+
+
+@app.command(name="web-login")
+def web_login(provider: str, account: str = "main") -> None:
+    """Web sağlayıcısı için görünür giriş tarayıcısını aç.
+
+    Paketlenmiş ikilide `python -m fusion_cli.providers.web_login` ÇALIŞMAZ:
+    `sys.executable` Fusion ikilisidir ve `-m` bayrağını tanımaz. Kaynak
+    kurulumda da kabuğun varsayılan `python`'u venv değilse modülü bulamaz.
+    Bu komut iki kurulumda da aynı pencereyi açar.
+
+    ARTIK GİZLİ DEĞİL: oturum insan doğrulaması istediğinde kullanıcıya
+    gösterilen çözüm adımı bu komutu söylüyor (`providers/web_browser.py::
+    _cozum_adimlari`). Hata metninin önerdiği ama `--help`'te görünmeyen bir
+    komut, adını hatırlamayan kullanıcı için çıkışsız bir yol demekti.
+    """
+    import asyncio
+
+    from ..providers.web_browser import open_login_browser
+
+    asyncio.run(open_login_browser(provider, account))
+
+
+@app.command(name="ema-say", hidden=True)
+def ema_say(output: str) -> None:
+    """Standart girdideki metni EMA Lightning ile seslendirip WAV'a yaz.
+
+    Paketlenmiş ikilide ses motoru süreç dışından bu alt komutla sınanabilir.
+    """
+    import sys as _sys
+    from pathlib import Path
+
+    from ..appserver.ema_synthesis import synthesize_ema
+    from ..appserver.voice import load_settings
+
+    synthesize_ema(_sys.stdin.read(), Path(output), load_settings()["hiz"])
+
+
+@app.command(name="runtime-health", hidden=True)
+def runtime_health(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Paketli masaüstü çalışma zamanının bütünlüğünü doğrula."""
+    import json
+
+    from ..runtime_health import collect_runtime_health
+
+    report = collect_runtime_health()
+    if as_json:
+        typer.echo(json.dumps(report.to_dict(), ensure_ascii=False, sort_keys=True))
+    else:
+        template = (
+            messages.RUNTIME_HEALTH_OK if report.resources_ok else messages.RUNTIME_HEALTH_BROKEN
+        )
+        typer.echo(template.format(version=report.version))
+    if not report.resources_ok:
+        raise typer.Exit(1)
+
+
+@app.command(name="app")
+def app_protocol(ctx: typer.Context) -> None:
+    """Masaüstü uygulaması için stdio protokolünü konuş.
+
+    Uygulama bu süreci kendisi doğurur ve stdin/stdout üzerinden satır satır
+    JSON konuşur. Doğrudan elle çalıştırmak için değildir.
+    """
+    import asyncio
+    from pathlib import Path
+
+    from ..accounts import activate_account, remembered_account
+    from ..appserver.server import run_stdio
+
+    # Etkin hesap YAPILANDIRMA OKUNMADAN ÖNCE seçilmelidir: `config.yaml` hesaba
+    # özel bir dizinden gelir ve oturum nesnesi kurulurken zaten yükleniyor.
+    # Hatırlanan hesap yoksa hesapsız (eski) düzen geçerli kalır.
+    hesap = remembered_account()
+    if hesap:
+        activate_account(hesap)
+
+    host = ctx.obj if isinstance(ctx.obj, AppHostDependencies) else None
+    if host is not None and (
+        host.remotion_transport is not None
+        or host.remotion_browser is not None
+        or host.require_remotion_kit
+    ):
+        asyncio.run(
+            run_stdio(
+                Path.cwd(),
+                Path.home(),
+                remotion_transport=host.remotion_transport,
+                remotion_browser=host.remotion_browser,
+                require_remotion_kit=host.require_remotion_kit,
+            )
+        )
+    else:
+        asyncio.run(run_stdio(Path.cwd(), Path.home()))
+
+
+@app.command(name="mcp-tools")
+def mcp_tools() -> None:
+    """Yapılandırılmış dış MCP sunucularının araçlarını listele (bağlanır ve keşfeder)."""
+    import asyncio
+
+    config = load_config()
+    if not config.mcp_servers:
+        console.print(messages.MCP_NO_SERVERS)
+        return
+    try:
+        from ..mcp_bridge.client import McpClient
+    except ImportError:
+        console.print(f"[red]{messages.MCP_MISSING_DEP}[/red]")
+        raise typer.Exit(code=1) from None
+
+    async def _run() -> None:
+        async with McpClient(config.mcp_servers) as client:
+            for server in config.mcp_servers:
+                tools = await client.list_tools(server.name)
+                console.print(f"[bold]{server.name}[/bold] — {len(tools)} araç:")
+                for tool in tools:
+                    console.print(
+                        f"  [{theme.ACCENT}]{tool.name}[/{theme.ACCENT}] — {tool.description}"
+                    )
+
+    asyncio.run(_run())
+
+
+@app.command(name="mcp-add")
+def mcp_add(
+    name: Annotated[str, typer.Argument(help="Sunucuya vereceğin kısa ad (ör. github).")],
+    command: Annotated[str, typer.Argument(help="Çalıştırılacak komut (ör. npx).")],
+    args: Annotated[
+        list[str] | None,
+        typer.Argument(help="Komuta verilecek argümanlar. `-` ile başlıyorsa önce -- koy."),
+    ] = None,
+) -> None:
+    """Dış bir MCP sunucusunu `config.yaml`'a ekle; kullanıcı config'i elle düzenlemez.
+
+    Agent bu komutu KENDİ dosya araçlarıyla DEĞİL, yalnızca bu CLI komutunu shell'de
+    çalıştırarak tetikler — `config.yaml` agent'ın genel yazma sınırının dışındadır
+    (güvenlik sınırı, docs/WEB_PROVIDERS.md ile aynı ilke).
+
+    Örnek: `fusion mcp-add github npx -- -y @modelcontextprotocol/server-github`
+    (argümanlar `-` ile başlıyorsa Typer'ın seçenek sanmaması için `--` şart).
+    """
+    from ..config.models import McpServerConfig
+    from ..config.writer import write_mcp_servers
+
+    config = load_config()
+    kalanlar = tuple(server for server in config.mcp_servers if server.name != name)
+    yeniden_yazildi = len(kalanlar) != len(config.mcp_servers)
+    yeni = McpServerConfig(name=name, command=command, args=tuple(args or ()))
+    guncellenmis = replace(config, mcp_servers=(*kalanlar, yeni))
+
+    path = write_mcp_servers(guncellenmis)
+    template = messages.MCP_REPLACED if yeniden_yazildi else messages.MCP_ADDED
+    console.print(template.format(name=name))
+    console.print(f"[{theme.DIM}]{path}[/{theme.DIM}]")
+
+
+@app.command()
+def setup() -> None:
+    """İlk kurulum: kullanıcı dizinine config.yaml ve .env şablonu bırak."""
+    run_setup(console)
+
+
+@app.command()
+def trace(
+    run_id: str = typer.Argument("", help="Koşu kimliği; verilmezse sonuncusu."),
+    liste: bool = typer.Option(False, "--list", "-l", help="Kayıtlı koşuları listele."),
+) -> None:
+    """Bir koşunun teşhis özetini göster: hangi kayıp sınıfı, nerede duraklandı."""
+    from ..observability.trace_store import TraceStore
+    from .trace_command import list_runs, render_trace
+
+    store = TraceStore(load_config().memory_dir / "traces")
+    if liste:
+        list_runs(store)
+        return
+    render_trace(store, run_id or None)
+
+
+@app.command()
+def stats() -> None:
+    """Model performans tablosu (`fusion memory stats` ile aynı)."""
+    memory_commands.show_stats()
+
+
+@app.command()
+def version() -> None:
+    """Sürümü yazdır."""
+    console.print(messages.VERSION.format(version=__version__))
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """Birleştirilmiş yapılandırmayı göster (varsayılanlar + kullanıcı dosyası)."""
+    config = load_config()
+    _print_config(config)
+
+
+@config_app.command("teacherless")
+def config_teacherless(
+    enabled: bool = typer.Argument(..., help="true|false — öğretmensiz kipi aç/kapat"),
+) -> None:
+    """Öğretmensiz çalış: `ask_teacher` aracı modele hiç sunulmaz."""
+    from ..config.writer import write_runtime_flag
+
+    config = load_config()
+    write_runtime_flag(config, "teacherless", enabled)
+    console.print(messages.CONFIG_TEACHERLESS_SET.format(state=_acik_kapali(enabled)))
+
+
+@config_app.command("teacher-lesson-sync")
+def config_teacher_lesson_sync(
+    enabled: bool = typer.Argument(..., help="true|false — öğretmen derslerini ders belleğine yaz"),
+) -> None:
+    """Öğretmen cevaplarından çıkan dersler ders belleğine (`recall_lessons`) de yazılsın mı?"""
+    from ..config.writer import write_runtime_flag
+
+    config = load_config()
+    write_runtime_flag(config, "teacher_lesson_sync", enabled)
+    console.print(messages.CONFIG_TEACHER_LESSON_SYNC_SET.format(state=_acik_kapali(enabled)))
+
+
+def _acik_kapali(enabled: bool) -> str:
+    return "açık" if enabled else "kapalı"
+
+
+def _print_config(config: Config) -> None:
+    source = (
+        messages.CONFIG_SOURCE_FILE.format(path=config.source)
+        if config.source is not None
+        else messages.CONFIG_SOURCE_DEFAULTS
+    )
+    console.print(f"[{theme.DIM}]{source}[/{theme.DIM}]\n")
+
+    console.print(f"[bold]{messages.CONFIG_HEADING_CANDIDATES}[/bold]")
+    for candidate in config.candidates:
+        _print_spec(candidate)
+    console.print(f"\n[bold]{messages.CONFIG_HEADING_JUDGE}[/bold]")
+    _print_spec(config.judge)
+    console.print(f"\n[bold]{messages.CONFIG_HEADING_AGENT}[/bold]")
+    _print_spec(config.agent)
+
+    console.print(f"\n[bold]{messages.CONFIG_HEADING_RUNTIME}[/bold]")
+    for field in fields(config.runtime):
+        value = getattr(config.runtime, field.name)
+        console.print(f"  [{theme.DIM}]{field.name}:[/{theme.DIM}] {value}")
+
+
+def _print_spec(spec: ModelSpec) -> None:
+    tags = f" [{theme.DIM}]({', '.join(spec.tags)})[/{theme.DIM}]" if spec.tags else ""
+    console.print(f"  {spec.name}: [{theme.ACCENT}]{spec.model}[/{theme.ACCENT}]{tags}")
+    if spec.fallback:
+        for fallback in spec.fallback:
+            console.print(f"    [{theme.DIM}]yedek: {fallback}[/{theme.DIM}]")
+    else:
+        console.print(f"    [{theme.DIM}]{messages.CONFIG_FALLBACK_NONE}[/{theme.DIM}]")
+
+
+def _print_usage(observers: Observers, *, quiet: bool) -> None:
+    """Tur sonunda token/maliyet özetini ve izleme durumunu göster."""
+    if quiet or not observers.cost.calls:
+        return
+    console.print(f"[{theme.DIM}]{cost_summary(observers.cost)}[/{theme.DIM}]")
+
+
+def _print_configured_models(config: Config) -> None:
+    table = Table(title=messages.CONFIG_HEADING_CANDIDATES)
+    table.add_column("Rol", style="bold")
+    table.add_column("Ad", style=theme.ACCENT)
+    table.add_column("Model", style=theme.DIM)
+    for candidate in config.candidates:
+        table.add_row("aday", candidate.name, candidate.model)
+    table.add_row("hakem", config.judge.name, config.judge.model)
+    table.add_row("agent", config.agent.name, config.agent.model)
+    for session in config.web_sessions:
+        if session.enabled:
+            table.add_row("web", f"{session.provider}/{session.account}", session.model)
+    console.print(table)
+
+
+def _print_catalog() -> None:
+    """Canlı katalogları listele. Ağ yoksa boş liste döner, komut çökmez."""
+    from ..providers.catalog import fetch_nim, fetch_openrouter_free
+
+    for title, entries in (
+        (messages.CATALOG_OPENROUTER, fetch_openrouter_free()),
+        (messages.CATALOG_NIM, fetch_nim()),
+    ):
+        if not entries:
+            console.print(f"[{theme.DIM}]{title}: {messages.CATALOG_EMPTY}[/{theme.DIM}]")
+            continue
+        console.print(f"\n[bold]{title}[/bold] [{theme.DIM}]({len(entries)})[/{theme.DIM}]")
+        for entry in entries:
+            suffix = (
+                f"  [{theme.DIM}]{entry.context_length:,} token[/{theme.DIM}]"
+                if entry.context_length
+                else ""
+            )
+            console.print(f"  [{theme.ACCENT}]{entry.model_id}[/{theme.ACCENT}]{suffix}")
+
+
+def main(*, host_dependencies: AppHostDependencies | None = None) -> None:
+    """Konsol giriş noktası. Beklenen hataları kullanıcıya anlaşılır biçimde gösterir."""
+    try:
+        app(obj=host_dependencies)
+    except FusionError as exc:
+        console.print(
+            f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}] {exc}"
+        )
+        sys.exit(1)
+    except KeyboardInterrupt:
+        console.print(f"[{theme.WARN}]{messages.ERROR_INTERRUPTED}[/{theme.WARN}]")
+        sys.exit(130)
+
+
+if __name__ == "__main__":  # `python -m fusion_cli.cli.app`
+    # Modül olarak çalıştırma konsol girişiyle AYNI yolu izlemeli. Bu blok yokken
+    # `python -m fusion_cli.cli.app` modülü yalnız içe aktarıyor, hiçbir komut
+    # çalıştırmadan sessizce 0 ile çıkıyordu — kurulum sarmalayıcıları bu yolu
+    # kullandığı için komut hiçbir şey yapmıyormuş gibi görünüyordu.
+    main()

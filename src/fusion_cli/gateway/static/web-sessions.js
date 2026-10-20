@@ -1,0 +1,360 @@
+/* Web oturumu akışları: kendi aboneliğine ait tarayıcı tabanlı sağlayıcılar ve
+ * kullanıcının kendi OpenAI-uyumlu ucu. Çekirdek panel panel.js'tedir.
+ */
+
+let activeWebProvider = null, activeWebModel = null;
+
+// Pencere kipleri. `hidden`: gerçek Chrome açılır ve macOS'ta ekrandan gizlenir;
+// ölçüldü (17 Eylül) — ChatGPT görünmez (headless) Chrome'da Cloudflare
+// doğrulamasına takılıyor, gizli kipte çalışıyor. macOS dışında görünmeze düşer.
+const WINDOW_MODES = {
+  visible: {label: "görünür tarayıcı", hint: "Chrome penceresi ekranında açık kalır."},
+  headless: {label: "görünmez", hint: "Pencere hiç açılmaz. Bazı siteler (ChatGPT) bu kipte doğrulamaya takılır."},
+  hidden: {label: "gizli", hint: "Gerçek Chrome açılır ama ekranından gizlenir (yalnız macOS; diğer sistemlerde görünmez kipe düşer)."},
+};
+
+// Dosyadan okunan uyarı metni HTML olarak yorumlanmasın.
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (ch) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[ch]);
+}
+
+function updateWindowModeHint() {
+  const mode = WINDOW_MODES[$("nativeWebWindowMode").value];
+  $("nativeWebWindowHint").textContent = mode ? mode.hint : "";
+}
+
+const WEB_INFO = {
+  chatgpt_web: {name:"ChatGPT Web (Plus/Pro)", windowMode:"hidden", site:"https://chatgpt.com", hint:"chatgpt.com üzerindeki oturum açmış bir isteğin tam Cookie başlığı",
+    steps:["Tarayıcıyla giriş yönteminde Fusion'ın açtığı izole Chrome penceresinde hesabına giriş yap ve pencereyi kapat.",
+           "Manuel yöntemde chatgpt.com → Geliştirici Araçları → Network bölümünde bir isteği seç; Request Headers içindeki Cookie değerinin tamamını kopyala. Cookie: önekini ekleme.",
+           "Kaydet ve bağlantıyı kontrol et. Oturum süresi dolarsa aynı işlemi yenile."]},
+  claude_web: {name:"Claude Web (Pro/Max)", site:"https://claude.ai", hint:"claude.ai Cookie başlığı (sessionKey dahil)",
+    steps:["Önerilen yöntem: Fusion'ın açtığı izole tarayıcıda claude.ai hesabına giriş yap.",
+           "Manuel yöntemde claude.ai üzerindeki bir Network isteğinin tam Cookie başlığını kopyala; yalnız sessionKey değil, istekteki tüm Cookie değeri daha dayanıklıdır.",
+           "Kaydet, ardından gerçek küçük istekle bağlantıyı doğrula."]},
+  gemini_web: {name:"Gemini Web (Google AI Pro/Ultra)", site:"https://gemini.google.com/app", hint:"Google birden çok cookie kullandığı için tarayıcıyla giriş önerilir",
+    steps:["Google oturumu birden çok alan/cookie kullandığından en güvenilir yöntem Tarayıcıyla giriş yap düğmesidir.",
+           "Açılan izole profilde Gemini'ye giriş yap, gerekli hesap doğrulamasını kendin tamamla ve pencereyi kapat.",
+           "Manuel Cookie kullanacaksan gemini.google.com isteğinin Cookie başlığının tamamını ekle."]},
+  copilot_web: {name:"Microsoft Copilot Web", site:"https://copilot.microsoft.com", hint:"Microsoft oturumu için tarayıcıyla giriş önerilir",
+    steps:["Tarayıcıyla giriş yap düğmesiyle açılan izole profilde Microsoft hesabına giriş yap.",
+           "Manuel yöntemde copilot.microsoft.com isteğinin tam Cookie başlığını ekle.",
+           "Kaydettikten sonra bağlantı testini çalıştır; giriş yönlendirmesi görülürse tarayıcı oturumunu yenile."]}
+};
+
+// Giriş penceresi yoklama aralığı ve üst sınırı.
+const LOGIN_POLL_MS = 2000;
+const LOGIN_POLL_LIMIT_MS = 15 * 60 * 1000;
+
+// Modal açılmadan önce odağın nerede olduğu saklanır; kapanınca oraya döner.
+// Aksi hâlde klavye kullanıcısı modal kapandığında sayfanın en başına düşer.
+let modalOncesiOdak = null;
+
+function openModal(id) {
+  modalOncesiOdak = document.activeElement;
+  const backdrop = $(id);
+  backdrop.classList.add("open");
+  // Odak modal'ın içine alınır: ilk etkileşimli eleman, yoksa kutunun kendisi.
+  const ilk = backdrop.querySelector("button, input, select, textarea, [tabindex]");
+  (ilk || backdrop.querySelector(".modal")).focus();
+}
+
+function closeModal(id) {
+  $(id).classList.remove("open");
+  if (modalOncesiOdak && modalOncesiOdak.isConnected) modalOncesiOdak.focus();
+  modalOncesiOdak = null;
+}
+
+function acikModal() {
+  return document.querySelector(".modal-backdrop.open");
+}
+
+// Escape en üstteki modal'ı kapatır; arka plana tıklamak da kapatır ama modal'ın
+// KENDİ içine tıklamak kapatmaz (hedef doğrudan arka plan olmalı).
+function bindModalDavranisi() {
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const acik = acikModal();
+    if (acik) { e.preventDefault(); closeModal(acik.id); }
+  });
+  document.querySelectorAll(".modal-backdrop").forEach((backdrop) => {
+    backdrop.addEventListener("mousedown", (e) => {
+      if (e.target === backdrop) closeModal(backdrop.id);
+    });
+  });
+}
+
+function openWebProvider(id, model) {
+  activeWebProvider = id; activeWebModel = model || null;
+  const info = WEB_INFO[id]; if (!info) return;
+  const remember = localStorage.getItem("fusion-web-warning-" + id) === "1";
+  if (remember) return showWebSetup(id, model);
+  $("warnProviderName").textContent = info.name;
+  $("webWarnRemember").checked = false;
+  openModal("webWarningModal");
+}
+
+function acceptWebWarning() {
+  if ($("webWarnRemember").checked) localStorage.setItem("fusion-web-warning-" + activeWebProvider, "1");
+  closeModal("webWarningModal"); showWebSetup(activeWebProvider, activeWebModel);
+}
+
+function showWebSetup(id, model) {
+  activeWebProvider = id; activeWebModel = model || null;
+  const info = WEB_INFO[id]; if (!info) return;
+  const existing = (STATE.web_sessions || []).find((w) => w.model === model || (w.provider === id && w.account === "main"));
+  const account = existing ? existing.account : "main";
+  $("webSetupTitle").textContent = info.name;
+  $("nativeWebAccount").value = account;
+  $("nativeWebCookie").value = "";
+  $("nativeWebWindowMode").value = existing && existing.window_mode ? existing.window_mode : (info.windowMode || "headless");
+  $("nativeWebWindowMode").onchange = updateWindowModeHint;
+  updateWindowModeHint();
+  const windowNotice = existing ? existing.window_notice : null;
+  $("nativeWebWindowNotice").textContent = windowNotice || "";
+  $("nativeWebWindowNotice").hidden = !windowNotice;
+  $("nativeWebTimeout").value = existing ? existing.timeout_s : 180;
+  $("webGuide").innerHTML = `<h3>Oturum bilgisi nasıl alınır?</h3><div>${info.hint}</div><ol>${info.steps.map((x) => `<li>${x}</li>`).join("")}</ol><div style="margin-top:var(--space-3);color:var(--warn-ink)">Cookie'yi bir şifre gibi koru; paylaşma ve ekran görüntüsüne alma.</div>`;
+  updateNativeModel();
+  $("nativeWebStatus").textContent = existing
+    ? (existing.connected ? "Kayıt bulundu · oturum/profil mevcut" : "Kayıt bulundu · yeniden giriş gerekli olabilir")
+    : "Henüz kaydedilmedi";
+  openModal("webSetupModal");
+}
+
+function updateNativeModel() {
+  const account = ($("nativeWebAccount").value || "main").trim().replace(/[^a-zA-Z0-9_.-]+/g, "-");
+  $("nativeWebModel").value = `${activeWebProvider}/${account || "main"}/auto`;
+}
+
+async function saveNativeWeb(showToast = true) {
+  const account = ($("nativeWebAccount").value || "main").trim();
+  const model = $("nativeWebModel").value;
+  const cookie = $("nativeWebCookie").value.trim();
+  const timeout_s = Number($("nativeWebTimeout").value || 180);
+  const window_mode = $("nativeWebWindowMode").value;
+  $("nativeWebStatus").textContent = "Kaydediliyor…";
+  try {
+    await post("/api/web_sessions", {provider: activeWebProvider, account, model, cookie, timeout_s, window_mode, tool_support: "emulated"});
+    $("nativeWebCookie").value = ""; await load();
+    $("nativeWebStatus").textContent = "Kaydedildi · Yönlendirme sekmesinde model olarak seçilebilir";
+    if (showToast) toast("Web sağlayıcısı kaydedildi");
+    return true;
+  } catch (e) { $("nativeWebStatus").textContent = e.message; toast(e.message, true); return false; }
+}
+
+async function launchWebLogin() {
+  const account = ($("nativeWebAccount").value || "main").trim();
+  // Oturum ÖNCE kaydedilir: pencere kapandığında doğrulamanın çalışabilmesi için
+  // yapılandırmada bir kayıt bulunmalı.
+  if (!(await saveNativeWeb(false))) return;
+  try {
+    const res = await post("/api/web_sessions/login", {provider: activeWebProvider, account});
+    $("nativeWebStatus").textContent = "İzole tarayıcı açıldı. Giriş yap, ardından Chrome menüsünden Çık'ı seç. Oturum otomatik sınanacak.";
+    toast("Giriş tarayıcısı açıldı");
+    if (res && res.pid) awaitLoginThenValidate(res.pid);
+  } catch (e) { $("nativeWebStatus").textContent = e.message; toast(e.message, true); }
+}
+
+// Araç yeteneği ölçümü: web modelinin dosya değiştirmesine izin veren TEK kapı.
+// Gerçek istek gönderir, bu yüzden yalnızca kullanıcı açıkça isteyince çalışır.
+async function runWebEval() {
+  if (!(await saveNativeWeb(false))) return;
+  const model = $("nativeWebModel").value;
+  $("nativeWebStatus").textContent = "Araç yeteneği ölçülüyor (5 gerçek istek, birkaç dakika sürebilir)…";
+  try {
+    const r = await post("/api/web_sessions/eval", {model});
+    // Ölçülemeyen metrik "%100" DEĞİL "ölçülmedi" yazar: payda sıfırken oran
+    // 1.0 döner ve ölçülmemiş bir şey mükemmel sanılırdı.
+    const metrik = (ad, anahtar) => {
+      const n = (r.measured || {})[anahtar];
+      if (!n) return `${ad} ölçülmedi`;
+      return `${ad} ${Math.round(r.scores[anahtar] * 100)}% (${n})`;
+    };
+    const ozet = [metrik("araç seçimi", "tool_selection"), metrik("şema", "schema_validity"),
+                  metrik("argüman", "argument_preservation"), metrik("sahte çağrı yok", "no_false_calls")].join(" · ");
+    $("nativeWebStatus").textContent = r.passed
+      ? `Geçti · dosya değiştirme izni açıldı — ${ozet}`
+      : `Geçemedi · model okuyup planlayabilir ama dosya değiştiremez — ${ozet}`;
+    renderEvalSamples(r.samples || []);
+    toast(r.passed ? "Araç yeteneği doğrulandı" : "Ölçüm eşiği geçilemedi", !r.passed);
+    await load();
+  } catch (e) { $("nativeWebStatus").textContent = e.message; toast(e.message, true); }
+}
+
+// Ölçüm düştüğünde SEBEBİ görünür olmalı: her senaryonun ham çıktısı, blok
+// işaretinin görünüp görünmediği ve ayrıştırma hataları.
+function renderEvalSamples(samples) {
+  const kutu = $("webEvalSamples");
+  if (!kutu) return;
+  if (!samples.length) { kutu.innerHTML = ""; return; }
+  kutu.innerHTML = "<h3>Ölçüm kayıtları</h3>" + samples.map((s, i) => {
+    const beklenen = s.expected_tool || "(araç beklenmiyor)";
+    const bulunan = s.parsed_tool || "—";
+    const isaret = s.has_call_markers ? "blok işareti VAR" : "blok işareti YOK";
+    const hatalar = (s.parse_errors || []).length ? `<div class="hint">ayrıştırma: ${s.parse_errors.join("; ")}</div>` : "";
+    return `<details><summary class="subtle" style="cursor:pointer">${i + 1}. beklenen ${beklenen} · bulunan ${bulunan} · ${isaret}</summary>`
+         + `${hatalar}<pre class="secret-area" style="white-space:pre-wrap;max-height:240px;overflow:auto">${
+              (s.raw_preview || "").replace(/[&<>]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;"}[c]))
+            }</pre></details>`;
+  }).join("");
+}
+
+// Giriş penceresi kapanana kadar yoklar, sonra bağlantıyı KENDİLİĞİNDEN test eder.
+// Kullanıcının elle cookie kopyalaması ya da "şimdi doğrula" demesi gerekmez.
+async function awaitLoginThenValidate(pid) {
+  const bitis = Date.now() + LOGIN_POLL_LIMIT_MS;
+  while (Date.now() < bitis) {
+    await new Promise((r) => setTimeout(r, LOGIN_POLL_MS));
+    let durum;
+    try { durum = await post("/api/web_sessions/login_state", {pid}); }
+    catch (e) { return; }                    // gateway kapandı: sessizce bırak
+    if (durum && durum.running === false) {
+      $("nativeWebStatus").textContent = "Giriş penceresi kapandı · bağlantı test ediliyor…";
+      await validateNativeWeb();
+      return;
+    }
+  }
+  $("nativeWebStatus").textContent = "Giriş penceresi hâlâ açık. Kapattıktan sonra “Bağlantıyı kontrol et”e bas.";
+}
+
+async function validateNativeWeb() {
+  const ok = await saveNativeWeb(false); if (!ok) return;
+  const model = $("nativeWebModel").value;
+  $("nativeWebStatus").textContent = "Gerçek bağlantı testi çalışıyor…";
+  try {
+    const d = await post("/api/web_sessions/validate", {model});
+    $("nativeWebStatus").textContent = `Bağlantı başarılı · ${d.latency_ms} ms · ${d.preview || "yanıt alındı"}`;
+    toast("Web AI bağlantısı başarılı");
+  } catch (e) { $("nativeWebStatus").textContent = "Bağlantı başarısız: " + e.message; toast(e.message, true); }
+}
+
+/* --------------------------------------------------------------------- */
+/* Kullanıcının kendi OpenAI-uyumlu ucu                                   */
+/* --------------------------------------------------------------------- */
+
+// Kullanıcının eklediği web ucunu kart olarak göster (endpoint + sil).
+function webSessionCard(w) {
+  const native = w.transport === "browser";
+  const status = w.connected ? `<span class="badge ok">oturum kayıtlı</span>` : `<span class="badge fw">giriş gerekli</span>`;
+  const edit = native ? `<button class="ghost" onclick="openWebProvider('${w.provider}','${w.model}')">Ayarla</button>` : "";
+  const mode = WINDOW_MODES[w.window_mode];
+  const detail = native ? `${w.provider} · ${w.account} · ${mode ? mode.label : "görünmez"}` : w.endpoint;
+  const windowNotice = native && w.window_notice ? `<div class="notice" role="status">${escapeHtml(w.window_notice)}</div>` : "";
+  return `<div class="pcard"><div class="pcard-head"><span class="name">${w.model}</span>${status}</div>
+    <div class="meta" style="margin:var(--space-2) 0 var(--space-3);word-break:break-all">${detail}</div>${windowNotice}
+    <div class="row">${edit}<button class="danger" onclick="delWebSession('${w.model}')">Sil</button></div></div>`;
+}
+
+function setWebAddOpen(acik) {
+  $("webAddCard").classList.toggle("open", acik);
+  $("webAddCard").querySelector(".pcard-head").setAttribute("aria-expanded", String(acik));
+}
+
+function toggleWebAdd() {
+  setWebAddOpen(!$("webAddCard").classList.contains("open"));
+}
+
+// Panelden kendi OpenAI-uyumlu web ucunu ekle (adım adım formdan).
+async function addWebSession() {
+  const model = $("webModel").value.trim();
+  const endpoint = $("webEndpoint").value.trim();
+  const token = $("webToken").value.trim();
+  const tool_support = $("webTools").checked ? "emulated" : "none";
+  if (!model || !endpoint) return toast("model adı ve endpoint gerekli", true);
+  try {
+    await post("/api/web_sessions", { model, endpoint, token, tool_support });
+    toast(model + " web ucu eklendi — Yönlendirme'den zincire ekle");
+    $("webModel").value = ""; $("webEndpoint").value = ""; $("webToken").value = "";
+    $("webTools").checked = false; setWebAddOpen(false);
+    await load();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function delWebSession(model) {
+  try { await post("/api/web_sessions/delete", { model }); toast(model + " kaldırıldı"); await load(); }
+  catch (e) { toast(e.message, true); }
+}
+
+// panel.js açılış sırasında çağırır; yükleme sırası davranışı belirlemesin diye
+// burada top-level DOM erişimi yapılmaz.
+function bindWebSessionForm() {
+  $("nativeWebAccount").addEventListener("input", updateNativeModel);
+  bindModalDavranisi();
+}
+
+/* --------------------------------------------------------------------- */
+/* MCP sunucuları — `fusion mcp-add`'in panel eşdeğeri                    */
+/* --------------------------------------------------------------------- */
+
+function mcpServerCard(server) {
+  const args = (server.args || []).join(" ");
+  const remote = server.transport === "streamable_http";
+  const target = remote ? server.url : `${server.command}${args ? " " + args : ""}`;
+  const state = server.state || "yapilandirildi";
+  const login = remote && state !== "bagli" ? `<button onclick="loginMcpServer('${server.name}')">Giriş yap</button>` : "";
+  const logout = remote && state === "bagli" ? `<button onclick="logoutMcpServer('${server.name}')">Çıkış yap</button>` : "";
+  return `<div class="pcard"><div class="pcard-head"><span class="name">${server.name}</span></div>
+    <div class="meta" style="margin:var(--space-2) 0;word-break:break-all">${target}</div>
+    <div class="hint">${state}${server.tool_count ? ` · ${server.tool_count} araç` : ""}</div>
+    <div class="row">${login}${logout}<button onclick="testMcpServer('${server.name}')">Test et</button><button class="danger" onclick="delMcpServer('${server.name}')">Sil</button></div></div>`;
+}
+
+// STATE her yüklendiğinde çağrılır (render() → renderMcpServers()); STATE henüz
+// yoksa (ilk yükleme tamamlanmadan) sessizce çıkar.
+function renderMcpServers() {
+  const kutu = $("mcpServers");
+  if (!kutu || !STATE) return;
+  const servers = STATE.mcp_servers || [];
+  kutu.innerHTML = servers.length
+    ? servers.map(mcpServerCard).join("")
+    : `<div class="hint">Henüz bağlı MCP sunucusu yok.</div>`;
+}
+
+function setMcpAddOpen(acik) {
+  $("mcpAddCard").classList.toggle("open", acik);
+  $("mcpAddCard").querySelector(".pcard-head").setAttribute("aria-expanded", String(acik));
+}
+
+function toggleMcpAdd() {
+  setMcpAddOpen(!$("mcpAddCard").classList.contains("open"));
+}
+
+// Argümanlar kullanıcıdan boşlukla ayrılmış tek satır alınır (`fusion mcp-add`
+// komutundaki `--` kuralına eşdeğer bir kabuk ayrıştırması gerekmez: form alanı
+// zaten tek bir metin kutusu, `-y` gibi bayraklar burada seçenek sanılmaz).
+async function addMcpServer() {
+  const name = $("mcpName").value.trim();
+  const transport = $("mcpTransport").value;
+  const command = $("mcpCommand").value.trim();
+  const args = $("mcpArgs").value.trim().split(/\s+/).filter(Boolean);
+  const url = $("mcpUrl").value.trim();
+  const scopes = $("mcpScopes").value.trim().split(/\s+/).filter(Boolean);
+  if (!name || (transport === "stdio" ? !command : !url)) return toast("ad ve bağlantı hedefi gerekli", true);
+  try {
+    await post("/api/mcp_servers", { name, transport, command, args, url, scopes });
+    toast(name + (transport === "stdio" ? " MCP sunucusu test edildi" : " için giriş penceresi açılıyor"));
+    $("mcpName").value = ""; $("mcpCommand").value = ""; $("mcpArgs").value = ""; $("mcpUrl").value = ""; $("mcpScopes").value = "";
+    await load();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function testMcpServer(name) {
+  try { await post("/api/mcp_servers/test", { name }); await load(); }
+  catch (e) { toast(e.message, true); }
+}
+
+async function loginMcpServer(name) {
+  try { await post("/api/mcp_servers/login", { name }); toast("Tarayıcı girişi bekleniyor"); setTimeout(load, 1200); }
+  catch (e) { toast(e.message, true); }
+}
+
+async function logoutMcpServer(name) {
+  try { await post("/api/mcp_servers/logout", { name }); await load(); }
+  catch (e) { toast(e.message, true); }
+}
+
+async function delMcpServer(name) {
+  try { await post("/api/mcp_servers/delete", { name }); toast(name + " kaldırıldı"); await load(); }
+  catch (e) { toast(e.message, true); }
+}

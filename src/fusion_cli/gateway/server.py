@@ -1,0 +1,55 @@
+"""Yerel gateway sunucusunu çalıştır — `fusion serve`.
+
+`uvicorn` yalnızca gateway kullanılınca gerekir (`fusion-cli[gateway]` ekstrası).
+Kurulu değilse anlaşılır bir hata verilir; ürünün geri kalanı etkilenmez.
+Sunucu YALNIZCA yerelde dinler (varsayılan 127.0.0.1) — uzak/paylaşımlı değildir.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from ..config.models import Config
+from ..core.errors import FusionError
+from ..providers.health_setup import build_health
+from .app import GatewayApp
+
+#: Varsayılan yerel adres ve port. Koda gömülü sihirli değer değil, gateway sabiti.
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8787
+
+_logger = logging.getLogger(__name__)
+
+
+def build_app(config: Config, *, compact_context: bool = False) -> GatewayApp:
+    """Oturum sağlığıyla birlikte gateway uygulamasını kur (test edilebilir)."""
+    return GatewayApp(config, health=build_health(config), compact_context=compact_context)
+
+
+def serve(
+    config: Config,
+    *,
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
+    compact_context: bool = False,
+) -> None:
+    """Gateway'i çalıştır. `uvicorn` yoksa anlaşılır hata verir."""
+    try:
+        import uvicorn
+    except ImportError as error:  # noqa: F841 — anlaşılır mesajla yeniden fırlatılır
+        raise FusionError(
+            "Gateway için 'uvicorn' gerekiyor ama kurulu değil. Kur: "
+            "pip install 'fusion-cli[gateway]'"
+        ) from None
+    if host == "0.0.0.0":
+        _logger.warning(
+            "GÜVENLİK UYARISI: Fusion gateway 0.0.0.0 üzerinde tüm ağ arayüzlerine "
+            "açılıyor. Yalnızca güvenilir bir ağda kullanın; Origin/CSRF koruması "
+            "tarayıcı kaynaklı saldırıları sınırlar ancak kimlik doğrulaması sağlamaz."
+        )
+    uvicorn.run(
+        build_app(config, compact_context=compact_context),
+        host=host,
+        port=port,
+        log_level="warning",
+    )

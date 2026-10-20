@@ -1,0 +1,58 @@
+/* Tam ekran sayfa başlığı. Değerlerin tamamı tokendan gelir: bu dosyada ham
+   piksel yoktur, böylece Ayarlar ve Kontrol Paneli aynı ölçüyü paylaşır. */
+.page-header {
+  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  justify-content: space-between;
+  margin: 0 auto;
+  max-width: var(--page-max-width);
+  width: 100%;
+}
+
+.page-header__identity {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.page-header__eyebrow {
+  color: var(--text-secondary);
+  font-size: var(--text-2xs);
+  font-weight: 650;
+  letter-spacing: var(--tracking-eyebrow);
+  line-height: var(--line-tight);
+  text-transform: uppercase;
+}
+
+.page-header__title {
+  font-size: var(--text-2xl);
+  /* Büyük punto varsayılan aralıkta dağınık duruyor; başlık optik olarak
+     toparlansın diye negatif izleme. */
+  letter-spacing: var(--tracking-title);
+  line-height: var(--line-tight);
+  margin: 0;
+}
+
+.page-header__description {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  margin: 0;
+  /* Uzun açıklama satırı göz için yorucu: ölçü satır uzunluğuyla sınırlanır. */
+  max-width: 62ch;
+  text-wrap: pretty;
+}
+
+.page-header__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+@media (max-width: 760px) {
+  .page-header__actions {
+    width: 100%;
+  }
+}

@@ -1,0 +1,41 @@
+name: Release kanıt paketi
+
+# Sürüm etiketinde SHA256SUMS, SBOM ve manifest üretir. Yayınlamaz, imzalamaz:
+# imzalama/notarization hesap sırları gerektirir ve ayrı, elle onaylı adımdır.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Terminal paketini üret ve bağımlılıkları kur
+        run: |
+          python -m pip install build -e .
+          python -m build --outdir dist
+      - name: Kanıt paketini üret
+        run: |
+          python scripts/release_manifest.py \
+            --version "${GITHUB_REF_NAME#v}" \
+            --commit "$GITHUB_SHA" \
+            --artifacts dist \
+            --out release-out
+      - name: Özetleri doğrula
+        run: cd dist && sha256sum -c ../release-out/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence
+          path: release-out/*
+          if-no-files-found: error

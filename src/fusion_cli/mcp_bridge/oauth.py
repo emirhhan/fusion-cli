@@ -1,0 +1,276 @@
+"""Streamable HTTP MCP için OAuth 2.1/PKCE tarayıcı akışı."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+import webbrowser
+from collections.abc import Callable
+from dataclasses import dataclass
+from urllib.parse import parse_qs, urlparse
+
+import httpx
+from mcp.client.auth import OAuthClientProvider
+from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
+from pydantic import AnyUrl
+
+from ..config.models import McpServerConfig
+from .oauth_flow import SerializedOAuth
+from .oauth_page import callback_page
+from .tokens import KeyringTokenStorage
+
+#: Loopback OAuth dönüşünün SABİT portu.
+#
+# Ölçülmüş engel: Facebook Login, yönlendirme adresinin uygulama ayarlarındaki
+# kayıtla BİREBİR eşleşmesini ister. Dinleyici eskiden `port=0` ile açılıyordu ve
+# adres her denemede `http://127.0.0.1:<rastgele>/oauth/callback` oluyordu; hiçbir
+# zaman eşleşemezdi, yani kullanıcının KENDİ Meta uygulamasının client_id'siyle
+# giriş yapması imkânsızdı. Dinamik kayıt (DCR) destekleyen sunucularda sabit port
+# gerekmez; orada `port=0` davranışı korunur.
+#
+# Host da `localhost`tur: Facebook yönlendirme adresinde `localhost`u kabul eder ve
+# kullanıcı panele bunu yazar. Dinleme yine yalnız loopback arayüzündedir.
+DEFAULT_CALLBACK_PORT = 8765
+
+
+def validate_remote_mcp_url(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme == "https" and parsed.netloc:
+        return
+    if parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost", "::1"}:
+        return
+    raise ValueError("Uzak MCP adresi HTTPS olmalı; düz HTTP yalnız loopback için kullanılabilir.")
+
+
+class McpLoginRequiredError(RuntimeError):
+    """Sunucu giriş istiyor ama bu bağlamda giriş penceresi açılamaz."""
+
+
+#: SDK'nın OAuth akışındaki her hatayı yığın dökümüyle yazdığı logger.
+_SDK_OAUTH_LOGGER = "mcp.client.auth.oauth2"
+
+
+class _ExpectedLoginFilter(logging.Filter):
+    """BEKLENEN "giriş gerekli" durumunun yığın dökümünü bastır.
+
+    Ölçüldü (17 Eylül): girişi yapılmamış Notion için SDK her turda
+    `logger.exception("OAuth flow error")` ile tam yığın dökümü basıyordu. Bu bir
+    hata değil, kullanıcının henüz "Bağlan" demediği bir bağlantıdır; durum zaten
+    `giris_gerekli` olarak arayüzde görünür. Diğer OAuth hataları olduğu gibi kalır.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        error = record.exc_info[1] if record.exc_info else None
+        return not isinstance(error, McpLoginRequiredError)
+
+
+def _silence_expected_login_errors() -> None:
+    """Filtreyi SDK logger'ına bir kez ekle (tekrar çağrı etkisizdir)."""
+    logger = logging.getLogger(_SDK_OAUTH_LOGGER)
+    if not any(isinstance(item, _ExpectedLoginFilter) for item in logger.filters):
+        logger.addFilter(_ExpectedLoginFilter())
+
+
+class LoopbackOAuthCallback:
+    """Tek OAuth dönüşü için yalnız loopback üzerinde yaşayan HTTP dinleyici."""
+
+    def __init__(
+        self,
+        *,
+        timeout_seconds: float = 300,
+        on_waiting: Callable[[bool], None] | None = None,
+        port: int = DEFAULT_CALLBACK_PORT,
+        interactive: bool = True,
+    ) -> None:
+        self._timeout_seconds = timeout_seconds
+        self._port = port
+        #: Tarayıcı açılabilir mi? Tur yolunda AÇILAMAZ (bkz. `open_redirect`).
+        self._interactive = interactive
+        #: Kullanıcının tarayıcıda giriş yaptığı süreyi bildirir (True: başladı,
+        #: False: bitti). Bağlantı süresi bu aralıkta işlememelidir.
+        self._on_waiting = on_waiting
+        self._server: asyncio.Server | None = None
+        self._result: asyncio.Future[tuple[str, str | None]] | None = None
+        self.redirect_uri = f"http://localhost:{port}/oauth/callback" if port else ""
+
+    async def start(self) -> None:
+        if self._server is not None:
+            return
+        loop = asyncio.get_running_loop()
+        self._result = loop.create_future()
+        try:
+            self._server = await asyncio.start_server(self._handle, "127.0.0.1", self._port)
+        except OSError as error:
+            # Sessizce başka bir porta kaymak, sağlayıcıda kayıtlı OLMAYAN bir
+            # adresle giriş denemek olurdu; kullanıcı "neden eşleşmiyor" diye
+            # bakarken hata hiç görünmezdi.
+            raise OSError(
+                f"OAuth dönüş portu {self._port} kullanılamıyor: {error}. "
+                "Portu kullanan programı kapat ya da bağlantıda başka bir port seç."
+            ) from error
+        socket = self._server.sockets[0]
+        port = int(socket.getsockname()[1])
+        host = "localhost" if self._port else "127.0.0.1"
+        self.redirect_uri = f"http://{host}:{port}/oauth/callback"
+
+    async def open_redirect(self, url: str) -> None:
+        """Yetkilendirme sayfasını aç — YALNIZ kullanıcının açık eyleminde.
+
+        Ölçüldü (11 Eylül): kullanıcı Fusion'a istek yazıp Enter'a bastığında
+        Notion'un yetkilendirme sayfası açılıyordu. `notion` OAuth'lu bir uzak MCP
+        ve her tur bağlanılıyor; token yoksa SDK buraya geliyor ve tarayıcı
+        fırlıyordu. Giriş kullanıcının AÇIK eylemidir; tur yolunda bağlantı bir
+        zenginleştirmedir ve sessizce atlanır.
+        """
+        if not self._interactive:
+            raise McpLoginRequiredError(
+                "Bu MCP sunucusu giriş istiyor. Bağlantılar ekranından 'Bağlan' de; "
+                "tur sırasında giriş penceresi açılmaz."
+            )
+        await self.start()
+        if self._on_waiting is not None:
+            self._on_waiting(True)
+        await asyncio.to_thread(webbrowser.open, url, new=1, autoraise=True)
+
+    async def wait_for_code(self) -> tuple[str, str | None]:
+        if self._result is None:
+            raise RuntimeError("OAuth callback dinleyicisi başlatılmadı.")
+        try:
+            return await asyncio.wait_for(self._result, timeout=self._timeout_seconds)
+        finally:
+            if self._on_waiting is not None:
+                self._on_waiting(False)
+            await self.close()
+
+    async def close(self) -> None:
+        if self._server is None:
+            return
+        self._server.close()
+        await self._server.wait_closed()
+        self._server = None
+
+    async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            request_line = (await reader.readline()).decode("ascii", errors="replace")
+            parts = request_line.split(" ")
+            target = parts[1] if len(parts) >= 2 else ""
+            parsed = urlparse(target)
+            query = parse_qs(parsed.query)
+            state = query.get("state", [None])[0]
+            error = query.get("error", [None])[0]
+            code = query.get("code", [None])[0]
+            if parsed.path != "/oauth/callback" or (not code and not error):
+                self._set_error(RuntimeError("Geçersiz OAuth callback isteği."))
+                status = "400 Bad Request"
+                page = callback_page(
+                    ok=False, title="Geçersiz dönüş", message="Bu adres bir giriş dönüşü değil."
+                )
+            elif error:
+                self._set_error(RuntimeError("OAuth girişi reddedildi veya iptal edildi."))
+                status = "400 Bad Request"
+                page = callback_page(
+                    ok=False,
+                    title="Bağlantı izni verilmedi",
+                    message="Giriş reddedildi ya da iptal edildi; Fusion bağlanmadı.",
+                )
+            else:
+                self._set_result((str(code), state))
+                status = "200 OK"
+                page = callback_page(
+                    ok=True,
+                    title="Bağlantı kuruldu",
+                    message="Fusion izni aldı ve hesabına bağlandı.",
+                )
+            body = page.encode()
+            headers = (
+                f"HTTP/1.1 {status}\r\n"
+                "Content-Type: text/html; charset=utf-8\r\n"
+                f"Content-Length: {len(body)}\r\n"
+                "Connection: close\r\n\r\n"
+            ).encode()
+            writer.write(headers + body)
+            await writer.drain()
+        finally:
+            writer.close()
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()
+
+    def _set_result(self, value: tuple[str, str | None]) -> None:
+        if self._result is not None and not self._result.done():
+            self._result.set_result(value)
+
+    def _set_error(self, error: Exception) -> None:
+        if self._result is not None and not self._result.done():
+            self._result.set_exception(error)
+
+
+@dataclass(slots=True)
+class OAuthBundle:
+    auth: httpx.Auth
+    callback: LoopbackOAuthCallback
+    storage: KeyringTokenStorage
+
+
+def registration_is_stale(client: OAuthClientInformationFull | None, redirect_uri: str) -> bool:
+    """Saklanan istemci kaydı, ŞU ANKİ yönlendirme adresini kapsıyor mu?
+
+    Kayıt, kaydedildiği adrese BAĞLIDIR. Ölçüldü (11 Eylül, Notion MCP): istemci
+    daha önce rastgele portlu bir adresle kaydolmuştu; port sabitlendikten sonra
+    yetkilendirme isteği yeni adresi gönderdi, sunucu kayıtlı adresi bekliyordu ve
+    `Invalid redirect_uri for OAuth client` ile reddetti. Kullanıcının bunu kendi
+    başına çözmesi mümkün değil: bayat kayıt anahtarlıkta, hata ekranda.
+
+    Bayat kayıt SAKLANMAZ; atılır ve sunucuya yeniden kaydolunur.
+    """
+    if client is None:
+        return False
+    # `redirect_uris` None olabilir: kayıt hiç adres taşımıyorsa eşleşme de yoktur.
+    kayitli = {str(item).rstrip("/") for item in (client.redirect_uris or ())}
+    return redirect_uri.rstrip("/") not in kayitli
+
+
+async def oauth_provider_for(
+    config: McpServerConfig,
+    *,
+    on_waiting: Callable[[bool], None] | None = None,
+    interactive: bool = True,
+) -> OAuthBundle:
+    """Yapılandırma için SDK OAuth sağlayıcısı ve yaşam döngüsü kaynaklarını kur."""
+    validate_remote_mcp_url(config.url)
+    if not interactive:
+        _silence_expected_login_errors()
+    callback = LoopbackOAuthCallback(on_waiting=on_waiting, interactive=interactive)
+    if not callback.redirect_uri:
+        await callback.start()
+    storage = KeyringTokenStorage(config.url)
+    metadata = OAuthClientMetadata(
+        redirect_uris=[AnyUrl(callback.redirect_uri)],
+        token_endpoint_auth_method="none",
+        scope=" ".join(config.scopes) or None,
+        client_name="Fusion Desktop",
+    )
+    from .pool import mcp_oauth_flows
+
+    lock = mcp_oauth_flows().lock_for(storage.debug_identity())
+    async with lock:
+        kayitli = await storage.get_client_info()
+        if registration_is_stale(kayitli, callback.redirect_uri):
+            await storage.clear()
+            kayitli = None
+        if config.client_id and kayitli is None:
+            await storage.set_client_info(
+                OAuthClientInformationFull(**metadata.model_dump(), client_id=config.client_id)
+            )
+
+    def fresh_provider() -> httpx.Auth:
+        return OAuthClientProvider(
+            config.url,
+            metadata,
+            storage,
+            redirect_handler=callback.open_redirect,
+            callback_handler=callback.wait_for_code,
+        )
+
+    auth = SerializedOAuth(lock, fresh_provider)
+    return OAuthBundle(auth=auth, callback=callback, storage=storage)

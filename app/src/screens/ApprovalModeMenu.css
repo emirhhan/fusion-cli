@@ -1,0 +1,64 @@
+/* İzin kipi menüsü: Claude'un izin menüsü gibi açıklamalı, rakam kısayollu.
+   Menü YUKARI açılır: composer ekranın altındadır. Konum düğmeye değil COMPOSER'a
+   göredir: dar sütunda (denetçi açıkken) düğmeden sağa açılan menü kırpılıyordu. */
+
+/* `contents`: düğme composer ızgarasının doğrudan öğesi kalır (dar düzen yerleşimi). */
+.approval-menu { display: contents; }
+
+.approval-menu__trigger {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.composer__approval[data-mode="edits"] { border-color: var(--border-strong); color: var(--text-primary); }
+.composer__approval[data-mode="bypass"] { border-color: var(--text-danger); color: var(--text-danger); font-weight: 600; }
+
+.approval-menu__list {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  bottom: calc(100% + var(--space-2));
+  box-shadow: var(--shadow-md);
+  display: grid;
+  gap: 2px;
+  inset-inline-start: 0;
+  width: min(360px, 100%);
+  padding: var(--space-1);
+  position: absolute;
+  z-index: 20;
+}
+
+.approval-menu__item {
+  align-items: center;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: var(--space-3);
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  text-align: start;
+}
+
+.approval-menu__item:hover,
+.approval-menu__item:focus-visible { background: var(--surface-hover); outline: none; }
+.approval-menu__item[aria-checked="true"] { background: var(--surface-selected); }
+
+.approval-menu__text { display: grid; gap: 2px; min-width: 0; }
+.approval-menu__text strong { font-size: var(--text-sm); font-weight: 600; }
+.approval-menu__text small { color: var(--text-secondary); font-size: var(--text-xs); }
+.approval-menu__item[data-mode="bypass"] strong { color: var(--text-danger); }
+
+.approval-menu__key {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  min-width: 1ch;
+  text-align: end;
+}
+.approval-menu__item[aria-checked="true"] .approval-menu__key { color: var(--accent-text); font-weight: 700; }

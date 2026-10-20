@@ -1,0 +1,119 @@
+"""Model uygunluğu — bir modelin hangi profillerde önerildiğini hesaplar.
+
+Yetenek UYDURULMAZ, var olan sinyallerden TÜRETİLİR:
+
+- `agent` etiketi → `NATIVE`. Fusion bu modelleri bugün agent turunda gerçek
+  (LiteLLM) araç çağrılarıyla çalıştırıyor; yani araç desteği pratikte doğrulanmış.
+- `agent` etiketi olmayan model → `UNKNOWN`. Yalnızca council adayı olarak
+  kullanılıyor, araç yolu hiç sınanmadı; "yok" değil "bilinmiyor".
+- `reasoning` etiketi → reasoning beyanı.
+- Bağlam penceresi dışarıdan (canlı katalog) gelir; etiketten türetilmez.
+
+Uygunluk kararı yalnızca BİLİNEN-kötü modeli eler (araçsız model mutation profiline
+giremez, bağlamı bilinen ve eşiğin altındaki model elenir). Bilinmeyen yetenek
+gizlenmez — çağıran taraf "uyumsuzları göster" ile yine de seçebilir.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from ..core.model_capability import CapabilityEvidence, ModelCapability, ToolSupport
+from ..core.reasoning import ReasoningEffort
+from ..core.types import ModelSpec
+from .models import ProfileEligibility
+
+#: `NATIVE` araç desteğini beyan eden etiket. Bu etiketli modeller agent turunda
+#: araçlarla çalıştırılıyor; başka bir etiket araç desteğini DOĞRULAMAZ.
+_NATIVE_TOOL_TAG = "agent"
+#: Araç desteği OLMADIĞINI açıkça beyan eden etiket (opak/web/arena modelleri).
+#: `NONE`, mutation agent olmayı yapısal olarak engeller (bkz. `tool_policy`).
+_NO_TOOL_TAG = "no-tools"
+#: Araç çağrısının taklit (emulated) edildiğini beyan eden etiket. Eval eşiğinden
+#: geçmeden mutation görevine giremez.
+_EMULATED_TOOL_TAG = "emulated-tools"
+#: Reasoning beyan eden etiket.
+_REASONING_TAG = "reasoning"
+#: Görüntü girdisi kabul ettiği CANLI ölçümle doğrulanmış modele konan etiket
+#: (bkz. `defaults.yaml` — yalnız gerçek bir görsel + gerçek bir araç çağrısı
+#: turuyla doğrulanan model bu etiketi taşır). Uydurulmuş bir "muhtemelen görür"
+#: varsayımı DEĞİLDİR; ölçülmemiş model bu etiketi almaz ve `vision=False` kalır.
+_VISION_TAG = "vision"
+
+
+def _tool_support_of(spec: ModelSpec) -> ToolSupport:
+    """Model etiketlerinden araç desteğini türet. Açık beyan örtük çıkarımı ezer:
+    `no-tools`/`emulated-tools` yazılmışsa o kazanır, yoksa `agent` → native, o da
+    yoksa doğrulanmamış (`UNKNOWN`)."""
+    if _NO_TOOL_TAG in spec.tags:
+        return ToolSupport.NONE
+    if _EMULATED_TOOL_TAG in spec.tags:
+        return ToolSupport.EMULATED
+    if _NATIVE_TOOL_TAG in spec.tags:
+        return ToolSupport.NATIVE
+    return ToolSupport.UNKNOWN
+
+
+def capability_from_spec(spec: ModelSpec, context_window: int = 0) -> ModelCapability:
+    """Model etiketlerinden ve (varsa) bağlam penceresinden yeteneği türet."""
+    return ModelCapability(
+        tool_support=_tool_support_of(spec),
+        context_window=context_window,
+        reasoning=_REASONING_TAG in spec.tags,
+        vision=_VISION_TAG in spec.tags,
+        supported_reasoning_efforts=spec.supported_reasoning_efforts,
+        reasoning_efforts_verified=spec.reasoning_efforts_verified,
+        evidence=tuple(CapabilityEvidence(capability=tag, source="declared") for tag in spec.tags),
+    )
+
+
+def effort_for_spec(spec: ModelSpec, effort: ReasoningEffort) -> str | None:
+    """İstenen yoğunluğu değiştirmeden adaptöre taşı; native destek orada doğrulanır.
+
+    Reasoning beyanı veya doğrulanmış yoğunluk kaydı olmayan modelde parametre
+    hazırlanmaz. Exact destek ve indirgeme kararı concrete sağlayıcının kanıtına
+    bağlıdır; bu katman model adına bakarak üç düzey desteği tahmin etmez.
+    """
+    capability = capability_from_spec(spec)
+    if not capability.reasoning and not capability.reasoning_efforts_verified:
+        return None
+    return None if effort is ReasoningEffort.AUTO else effort.value
+
+
+@dataclass(frozen=True, slots=True)
+class EligibilityResult:
+    """Bir modelin bir profile uygunluğu ve (uygun değilse) Türkçe gerekçe."""
+
+    ok: bool
+    reason: str = ""
+
+
+def is_eligible(capability: ModelCapability, requirement: ProfileEligibility) -> EligibilityResult:
+    """Yetenek, profil eşiklerini karşılıyor mu?
+
+    Yalnızca bilinen-kötüyü eler: araçsız (`NONE`) model mutation profiline giremez;
+    bağlamı BİLİNEN (>0) ve eşiğin altındaki model elenir. Bilinmeyen bağlam (0)
+    ya da bilinmeyen araç desteği (`UNKNOWN`) elenmez.
+    """
+    if not requirement.allow_no_tools and capability.tool_support is ToolSupport.NONE:
+        return EligibilityResult(False, "araç desteği yok (mutation profiline giremez)")
+    known_context = capability.context_window > 0
+    below_min = known_context and capability.context_window < requirement.min_context
+    if requirement.min_context > 0 and below_min:
+        return EligibilityResult(
+            False,
+            f"bağlam penceresi {capability.context_window} < gereken {requirement.min_context}",
+        )
+    return EligibilityResult(True)
+
+
+def eligible_profiles(
+    capability: ModelCapability,
+    eligibility: dict[str, ProfileEligibility],
+) -> tuple[str, ...]:
+    """Yeteneğin uygun olduğu profil adları (eşik sözlüğündeki sırayı korur)."""
+    return tuple(
+        profile
+        for profile, requirement in eligibility.items()
+        if is_eligible(capability, requirement).ok
+    )

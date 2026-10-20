@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fusion Test Planı</title>
+<style>
+  :root { --bg:#fafaf9; --card:#fff; --fg:#1c1b19; --mut:#6b6a66; --line:#e6e4df; --ok:#16794a; --bad:#c0392b; --acc:#2563eb; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151515; --card:#1f1f1f; --fg:#ececec; --mut:#9a9a9a; --line:#2e2e2e; --ok:#4ade80; --bad:#ff6b5e; --acc:#7db4ff; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 -apple-system, "Inter", system-ui, sans-serif; }
+  main { max-width: 880px; margin: 0 auto; padding: 24px 16px 96px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -.02em; }
+  .lead { color: var(--mut); margin: 0 0 18px; }
+  .bar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 10px 0 12px; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .meter { flex: 1; min-width: 180px; height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; }
+  .meter > i { display:block; height:100%; width:0; background: var(--ok); transition: width .2s; }
+  .count { font-variant-numeric: tabular-nums; color: var(--mut); font-size: 13px; }
+  button.t { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 99px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+  button.t:hover { border-color: var(--acc); }
+  h2 { font-size: 17px; margin: 28px 0 4px; display:flex; gap:8px; align-items: baseline; }
+  h2 small { color: var(--mut); font-weight: 400; font-size: 13px; }
+  .where { color: var(--mut); font-size: 13px; margin: 0 0 8px; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  li { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; }
+  li[data-s="ok"] { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+  li[data-s="bad"] { border-color: var(--bad); }
+  li[data-s="ok"] .what { color: var(--mut); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--mut) 40%, transparent); }
+  input[type=checkbox] { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--ok); }
+  .what { font-weight: 550; }
+  .exp { color: var(--mut); font-size: 13.5px; margin-top: 2px; }
+  .exp b { color: var(--fg); font-weight: 550; }
+  button.b { font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line); background: transparent; color: var(--mut); cursor: pointer; white-space: nowrap; }
+  li[data-s="bad"] button.b { background: var(--bad); border-color: var(--bad); color: #fff; }
+  .note { margin-top: 28px; padding: 12px 14px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); color: var(--mut); font-size: 13.5px; }
+  .note b { color: var(--fg); }
+  @media (max-width: 560px) { li { grid-template-columns: auto 1fr; } li button.b { grid-column: 2; justify-self: start; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Fusion Test Planı</h1>
+  <p class="lead">Baştan sona her işlev. Yaptığını işaretle; çalışmayana <b>Sorun</b> de. En altta işaretlediklerini tek tıkla kopyalayıp bana yapıştırabilirsin. İlerleme bu tarayıcıda saklanır.</p>
+  <div class="bar">
+    <div class="meter" aria-hidden="true"><i id="fill"></i></div>
+    <span class="count" id="count">0 / 0</span>
+    <button class="t" id="copy" type="button">Sorunları kopyala</button>
+    <button class="t" id="reset" type="button">Sıfırla</button>
+  </div>
+  <div id="root"></div>
+  <p class="note"><b>Sorun bildirirken:</b> kaçıncı madde, ekranda ne gördüğün (mümkünse ekran görüntüsü) ve ne beklediğin yeter. Talk'ta karaktere sağ tık → <b>Tanı bilgisi</b>'ndeki satırlar sesli sorunlarda çok işe yarar.</p>
+</main>
+<script>
+const SECTIONS = [
+ { t:"0 · Hazırlık", where:"Mac'te, Fusion dışında", items:[
+  ["Fusion'ı tamamen kapat","Menü çubuğu → Fusion → Çık. Sonra /Applications/Fusion.app'i aç.","Eski sürüm çalışmıyor, yeni sürüm açılıyor."],
+  ["Tek Fusion kopyası","Spotlight'ta (⌘+Boşluk) \"Fusion\" yaz.","/Applications'taki görünüyor (yedek-app ve Drive kopyası varsa onlar da görünebilir, normal)."],
+  ["macOS izinleri","İlk Talk/canlı ekran kullanımında çıkan pencereler.","Mikrofon, Konuşma Tanıma ve (canlı ekran için) Ekran Kaydı izinlerini ver."],
+ ]},
+ { t:"1 · Açılış ekranı", where:"Fusion'ı açtığın an", items:[
+  ["Sade açılış","Uygulamayı aç.","Düz koyu zeminde ortada yalnız logo; ekranda yazı, çubuk ya da yüzde yok. Logo hafifçe nefes alıyor."],
+  ["Geçiş","Açılış bitince.","Ana ekrana kesintisiz, titreme olmadan geçiyor."],
+ ]},
+ { t:"2 · Sohbet temelleri", where:"Home / sohbet ekranı", items:[
+  ["Mesaj gönder","Yazı kutusuna bir soru yaz, Enter.","Cevap akıyor; mesaj YALNIZ BİR KEZ gidiyor (çoğalma yok)."],
+  ["Satır atla","Shift+Enter.","Yeni satır açılıyor, mesaj gitmiyor."],
+  ["Durdur","Uzun bir görev başlat, Esc ya da durdur düğmesi.","Görev duruyor, arayüz toparlanıyor."],
+  ["Çalışırken yön ver / sıraya al","Görev sürerken başka mesaj yaz; \"Yön ver\" ve \"Sıraya al\" seçeneğini dene.","Yön ver mevcut göreve ekleniyor; Sıraya al bittikten sonra çalışıyor."],
+  ["Ek (dosya/görsel)","Ataş düğmesi ya da sürükle-bırak.","Ek çipi görünüyor, gönderince modele ulaşıyor, silinebiliyor."],
+  ["Model seçici","Yazı kutusundaki model adına tıkla.","Liste açılıyor, seçim uygulanıyor, bağlantısız modelde bağlan yönlendirmesi var."],
+  ["İzin modu","Shift+Tab ya da izin modu menüsü.","Mod döngüsü çalışıyor (Önce sor / Sormadan yap vb.)."],
+  ["Sohbet / Kod kipi","Kip düğmesi.","Kip değişiyor ve kalıcı."],
+  ["Onay kartı","Dosya yazdıracak bir görev iste.","Onay kartı çıkıyor; İzin ver / Reddet çalışıyor, bir kez / oturum seçeneği doğru."],
+  ["Soru kartı","Modelin sana soru sorduğu bir görev ver.","Kart çıkıyor, cevap gönderilince kapanıyor, çift gönderim yok."],
+  ["Yeniden dene / hata bildir","Hata veren bir turdan sonra.","Yeniden dene ve Hatayı bildir çalışıyor."],
+  ["Proje deposu uyarısı","Masaüstü gibi içinde birden çok proje olan klasörü aç.","Uyarı şeridi yazı kutusuyla aynı genişlikte ve hizada; proje çipine tıklayınca o projeye geçiyor."],
+  ["Proje seçici / yeni sohbet","Yazı kutusunun üstündeki proje adı; kenar çubuğunda Yeni sohbet.","Proje değişiyor; yeni sohbet temiz açılıyor."],
+  ["Kenar çubuğu & geçmiş","Sol menü: Geçmiş, Projeler, Sohbetler; Claude/Codex/Hermes geçmişi.","Sohbetler listeleniyor, açılıyor, silinebiliyor; dış geçmişten devam çalışıyor."],
+  ["Üst şerit rengi","Pencerenin üstü (sohbet adı yazan şerit).","Sol menüyle AYNI koyu renkte."],
+ ]},
+ { t:"3 · Komutlar: /görsel, /beceri, @mcp, @dosya", where:"Yazı kutusu", items:[
+  ["Komut paleti","Yazı kutusuna / yaz.","Komutlar, beceriler (Beceri etiketi) ve Görsel komutu listeleniyor."],
+  ["/görsel","/görsel gün batımında bir dağ evi --oran 16:9 yaz.","Sohbette ışıltılı \"Görsel oluşturuluyor… %NN\" kartı (yüzde tahminidir); sonra görsel beliriyor; altında hiçbir not yok."],
+  ["/görsel hata","Sağlayıcının reddedeceği bir istem gir.","Sohbette YALNIZ sağlayıcının red cümlesi görünüyor (180 sn beklemeden); sayfa metni, \"Flash\", \"Hatayı bildir\" yok."],
+  ["/görsel boş","Yalnız /görsel yaz.","Kullanım açıklaması çıkıyor."],
+  ["Görseli büyüt","Üretilen görsele tıkla.","Tam ekran açılıyor; Esc ya da Kapat ile kapanıyor."],
+  ["/beceri-adı","/ yazıp bir beceri seç, görev ekle.","Beceri bu tur için uygulanıyor; komutla aynı adlıysa komut çalışıyor."],
+  ["@mcp-adı","@ yaz.","MCP sunucuları dosyalardan önce, \"MCP\" etiketiyle çıkıyor; seçince @ad yazılıyor."],
+  ["@mcp ile görev","@sunucu ... bir görev gönder.","Model o sunucunun araçlarını kullanıyor."],
+  ["Beceri + MCP birlikte","/beceri @mcp bir şey iste.","İkisi de bu tur için seçiliyor."],
+  ["@dosya","@ yazıp dosya adı yaz.","Dosya önerileri çıkıyor, seçince yol giriyor."],
+  ["Diğer komutlar","/model, /mode, /effort, /plan, /goal, /review, /health, /cost, /clear, /compact…","Her biri açıklandığı gibi çalışıyor, seçici akışları (model/sağlayıcı) ekranda açılıyor."],
+ ]},
+ { t:"4 · Görsel oluştur / Video", where:"Sol menü → Görsel ve video", items:[
+  ["Görsel oluştur sayfası","Sol menü → Görsel ve video.","Sağlayıcı seçici ve istem alanı açılıyor."],
+  ["Üretim işi","Bir görsel iste.","İş ilerleme gösteriyor, bitince galeriye düşüyor."],
+  ["Galeri","Galeri sekmesi.","Görseller listeleniyor, açılıyor, İndir ve silme çalışıyor."],
+  ["Akış tuvali","Düğümlü akış (varsa).","Akış kaydedilip yüklenebiliyor ve çalıştırılabiliyor."],
+  ["Video oluştur","Video sayfası.","Sayfa açılıyor; destek yoksa açık bir mesaj veriyor."],
+ ]},
+ { t:"5 · Talk (sesli konuşma)", where:"Talk penceresini aç (mikrofon/Talk düğmesi)", items:[
+  ["Başlangıç durumu","Talk'u aç.","Mikrofon KAPALI; karakterin altında \"Konuşmak için dokun\"."],
+  ["Karaktere bas → dinle","Karaktere tıkla.","\"Dinliyorum…\" yazısı çıkıyor; ilk seferde izin pencereleri geliyor."],
+  ["Duyduğun görünüyor","\"Merhaba Fusion\" de.","Duyduğun söz karakterin altında yazıyor; sohbete BİR kez düşüyor."],
+  ["İstek bitince kapanma","İsteği söyle, bekle.","İstek gidince mikrofon kendiliğinden kapanıyor; cevap sırasında seni dinlemiyor."],
+  ["Cevap sesi (EMA)","Cevabı dinle.","Türkçe EMA sesiyle okunuyor; anlaşılır, hız uygun."],
+  ["Düşünürken Hmm","Uzun sürecek bir şey iste.","≈1,2 sn sonra \"Hmm\" sesi ve ekranda \"Hmm…\"; cevap başlayınca susuyor."],
+  ["Söz kesme","Fusion konuşurken karaktere bas.","Sözü kesiliyor, mikrofon yeniden açılmıyor."],
+  ["İkinci basış kapatır","Mikrofon açıkken karaktere tekrar bas.","Mikrofon kapanıyor ve kendiliğinden geri açılmıyor."],
+  ["Sessizlikte kapanma","Karaktere bas, 15 sn konuşma.","Mikrofon kendiliğinden kapanıyor."],
+  ["Yeni komut","Her komut için karaktere yeniden bas.","Her basış tek komut dinliyor."],
+  ["Sesli onay/soru","Onay isteyen bir görev başlat, sesle cevapla.","Onay/soru kartı sesle yanıtlanabiliyor."],
+  ["Sağ tık menüsü","Karaktere sağ tık.","Ses ayarları, Tanı bilgisi, Simge durumuna küçült, Konuşmayı kapat."],
+  ["Tanı bilgisi","Sağ tık → Tanı bilgisi.","Son adımlar (izin, tanıma başladı, duyulanlar) listeleniyor."],
+  ["Ses ayarları","Sağ tık → Ses ayarları.","Yalnız Hız kaydırıcısı ve \"Hep üstte kal\"; değişiklik uygulanıyor."],
+  ["Pencere taşıma","Karakteri sürükle.","Pencere taşınıyor; sürükleme mikrofonu açmıyor."],
+ ]},
+ { t:"6 · Ayarlar", where:"Sol alt / Ayarlar", items:[
+  ["Genel","Ayarlar → Genel: tema, geçmiş görünümü.","Tema (sistem/açık/koyu) değişiyor ve açılışta hatırlanıyor."],
+  ["Hesap","Ayarlar → Hesap.","Kayıt/giriş/çıkış/avatar işlemleri çalışıyor."],
+  ["Ses","Ayarlar → Ses.","Motor \"EMA Lightning\", yalnız Hız ayarı; robotik/model seçimi yok."],
+  ["Kişiselleştirme","Ayarlar → Kişiselleştirme.","Bellek ve talimatlar kaydediliyor, silinebiliyor."],
+  ["Modeller","Ayarlar → Modeller.","Model/kademe seçimi çalışıyor."],
+  ["Tarayıcı","Ayarlar → Tarayıcı.","Chrome bağlantısı başlat/kapat, port ve anahtar görünüyor."],
+  ["İzinler","Ayarlar → İzinler.","Kök klasör ve izin modu değişiyor."],
+  ["Güncellemeler","Ayarlar → Güncellemeler.","Kontrol düğmesi hata vermeden yanıt veriyor."],
+  ["Gelişmiş","Ayarlar → Gelişmiş.","Yerel API ucu başlat/durdur; kullanım paneli."],
+  ["Ayar araması","Ayarlar arama kutusu: \"zeka\", \"telefon\".","İlgili satıra götürüyor."],
+ ]},
+ { t:"7 · Ayarlar → Zeka", where:"Ayarlar → Zeka", items:[
+  ["Motor seçimi","Tek ajan / Fusion seç.","Seçim uygulanıyor (yalnız bu oturum için; yeniden açınca tek ajana döner)."],
+  ["Plan kipi","Tek döngü / Plan motoru.","Plan motoru açıkken görevler önce plan, sonra adım adım yürüyor; kalıcı."],
+  ["Anahtarlar","Öz-denetim, yansıma, ders çıkarma, öğretmen, doğrulamalar, playbook.","Her satırda açıklama ve maliyet yazıyor; aç/kapa kalıcı (uygulamayı kapatıp açınca aynı)."],
+  ["Görev sürerken","Görev çalışırken bir anahtarı değiştirmeyi dene.","\"Önce görevi durdur\" uyarısı veriyor."],
+ ]},
+ { t:"8 · Uzaktan erişim", where:"Ayarlar → Uzaktan Erişim", items:[
+  ["Telegram bağlama","BotFather'dan belirteç al → yapıştır → Bağlan.","\"Bağlı\" görünüyor; belirteç ekranda tekrar gösterilmiyor."],
+  ["Telegram eşleştirme","Telegram için kod oluştur → bota /pair KOD yaz → Cihazı onayla.","Cihaz listede çıkıyor; bota yazınca görev açılıyor."],
+  ["Telegram komutları","/tasks, /status, /kits, /cancel, /devices.","Doğru yanıtlar; riskli işlemde \"masaüstünde onayla\" uyarısı."],
+  ["Telegram'da sır","Bota token/parola içeren bir mesaj yaz.","Mesaj işlenmiyor, uyarı veriliyor."],
+  ["Telefon: tünel","Tailscale kur → Özel tünel → Dinlemeyi başlat → ekrandaki tailscale komutunu çalıştır → telefondan https adresini aç.","PWA açılıyor; Ana Ekrana Ekle çalışıyor."],
+  ["Telefon eşleştirme","Telefon için kod oluştur → telefonda kodu gir → Fusion'da onayla.","Telefonda görev listesi ve yeni görev kutusu çıkıyor."],
+  ["Telefondan görev","Telefondan bir görev gönder.","Masaüstünde aynı görev görünüyor, iptal edilebiliyor."],
+  ["Canlı ekran","Eşleştirirken \"Ekranı görme\"yi işaretle → telefonda İzin iste → Fusion'da onayla.","Telefonda ekran ≈saniyede 1-2 kare akıyor; Paylaşımı kes anında durduruyor; 5 dk sonra bitiyor."],
+  ["Riskli onay (step-up)","Uzak cihazdan masaüstü kontrolü/silme gerektiren görev.","Uzaktan onaylanamıyor; Fusion'daki Bekleyen onaylar'dan veriliyor."],
+  ["Cihaz iptali","Eşleşmiş cihazlar → Erişimi iptal et.","Cihaz hemen bağlanamaz oluyor."],
+  ["Yerel ağ modu","Erişim türü Yerel ağ: adres + sertifika + anahtar.","Şifresiz yerel ağ reddediliyor; sertifikayla başlıyor."],
+ ]},
+ { t:"9 · Zamanlananlar", where:"Sol menü → Zamanlananlar", items:[
+  ["Sayfa görünümü","Sayfayı aç.","Büyük başlık, Görevlerim/Şablonlar sekmeleri, ara/süz/sırala simgeleri, Yeni görev düğmesi."],
+  ["Boş durum","Hiç görev yokken.","Kronometre çizimi, \"Henüz zamanlanmış görev yok.\", İlk görevini oluştur, altında şablonlar."],
+  ["Şablondan görev","Bir şablona tıkla → Kaydet.","Form şablonla doluyor; kaydedince görev kartı çıkıyor."],
+  ["Elle görev","Yeni görev → ad, görev, ne zaman, klasör → Kaydet.","Her gün / Hafta içi / Belirli aralıkla / Bir kez seçenekleri çalışıyor."],
+  ["Kart eylemleri","Çalıştır (▶), anahtar, çöp.","Şimdi çalıştır yeni sohbet açıyor; anahtar duraklat/sürdür; sil kaldırıyor."],
+  ["Ara / süz / sırala","Araç çubuğundaki simgeler.","Arama, Etkin/Duraklatılan süzgeci ve sıralama listeyi değiştiriyor."],
+  ["Vadesi gelen görev","Birkaç dakika sonrasına bir görev kur.","Zamanı gelince Fusion açıkken çalışıyor, sohbet açılıyor."],
+ ]},
+ { t:"10 · Kits", where:"Sol menü → Kits", items:[
+  ["Kits açılıyor","Kits bölümüne gir.","\"Kits bileşeni bulunamadı\" uyarısı YOK; arayüz yükleniyor."],
+  ["Kits sohbet/doküman","Bir Kits sohbeti ya da belge oluştur.","Kaydediliyor; yeniden açınca duruyor; taslak kaybolmuyor."],
+  ["Kits sesi","Kits içinde sesli okuma/giriş (varsa).","Ses çalışıyor."],
+ ]},
+ { t:"11 · Diğer sayfalar", where:"Sol menü", items:[
+  ["Kitaplık","Sol menü → Kitaplık.","Dosyalar/görseller listeleniyor, önizleniyor, açılıyor."],
+  ["Beceriler ve Ajanlar","Sol menü → Beceriler.","Katalog listeleniyor; aç/kapat, ayrıntı, bu tur için kullan çalışıyor."],
+  ["MCP / Bağlantılar","Bağlantılar ekranı.","Sunucu ekle/kaldır, araç kataloğu, sağlayıcı girişi çalışıyor."],
+  ["Kontrol paneli","Sağlayıcılar.","API anahtarı kaydet/sil/doğrula; web oturumu açma."],
+  ["Yardım","Yardım sayfası.","Açılıyor, içerik okunuyor."],
+  ["Hesabım","Hesap sayfası.","Profil bilgisi ve çıkış çalışıyor."],
+ ]},
+ { t:"12 · Çalışma alanı panelleri", where:"Sohbetin yanındaki paneller", items:[
+  ["Dosyalar","Dosya gezgini.","Ağaç açılıyor, dosya önizleniyor/düzenlenebiliyor, taslak kaybolmuyor."],
+  ["Değişiklikler","Değişiklikler paneli.","Diff'ler görünüyor; geri alma çalışıyor."],
+  ["Testler/Git","Testler paneli.","Komut önerileri ve git durumu geliyor."],
+  ["Önizleme","Bir site/oyun yaptır.","Önizleme kartı açılıyor, sayfa çalışıyor."],
+  ["Terminal","Terminal paneli.","Komut çalışıyor, kapanınca süreç temizleniyor."],
+  ["Süreçler","Süreçler paneli.","Başlatılan süreçler listeleniyor, kesilebiliyor."],
+ ]},
+];
+
+const KEY = "fusion-test-plani-v1"; // gitleaks:allow
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { state = {}; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} };
+const root = document.getElementById("root");
+let total = 0;
+SECTIONS.forEach((s, si) => {
+  const h = document.createElement("h2"); h.innerHTML = `${s.t} <small>${s.items.length} madde</small>`; root.appendChild(h);
+  const w = document.createElement("p"); w.className = "where"; w.textContent = "Nereden: " + s.where; root.appendChild(w);
+  const ul = document.createElement("ul");
+  s.items.forEach((it, ii) => {
+    total += 1;
+    const id = `${si}.${ii}`;
+    const li = document.createElement("li"); li.dataset.id = id;
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.id = "c" + id;
+    const box = document.createElement("div");
+    const lab = document.createElement("label"); lab.htmlFor = cb.id; lab.className = "what"; lab.textContent = it[0];
+    const exp = document.createElement("div"); exp.className = "exp";
+    exp.innerHTML = `<b>Yap:</b> ${it[1]}<br><b>Beklenen:</b> ${it[2]}`;
+    box.append(lab, exp);
+    const bad = document.createElement("button"); bad.type = "button"; bad.className = "b"; bad.textContent = "Sorun";
+    const paint = () => { li.dataset.s = state[id] || ""; cb.checked = state[id] === "ok"; bad.textContent = state[id] === "bad" ? "Sorun var" : "Sorun"; update(); };
+    cb.addEventListener("change", () => { state[id] = cb.checked ? "ok" : ""; save(); paint(); });
+    bad.addEventListener("click", () => { state[id] = state[id] === "bad" ? "" : "bad"; save(); paint(); });
+    li.append(cb, box, bad); ul.appendChild(li); li._paint = paint;
+  });
+  root.appendChild(ul);
+});
+function update() {
+  const ok = Object.values(state).filter((v) => v === "ok").length;
+  const bad = Object.values(state).filter((v) => v === "bad").length;
+  document.getElementById("count").textContent = `${ok} / ${total} tamam${bad ? ` · ${bad} sorun` : ""}`;
+  document.getElementById("fill").style.width = (ok / total * 100) + "%";
+}
+document.querySelectorAll("li").forEach((li) => li._paint());
+document.getElementById("copy").addEventListener("click", async () => {
+  const lines = [];
+  SECTIONS.forEach((s, si) => s.items.forEach((it, ii) => { if (state[`${si}.${ii}`] === "bad") lines.push(`- [${s.t}] ${it[0]} — beklenen: ${it[2]}`); }));
+  const text = lines.length ? "Çalışmayanlar:\n" + lines.join("\n") : "Sorun işaretlenmedi.";
+  try { await navigator.clipboard.writeText(text); document.getElementById("copy").textContent = "Kopyalandı ✓"; } catch { prompt("Kopyala:", text); }
+  setTimeout(() => (document.getElementById("copy").textContent = "Sorunları kopyala"), 1800);
+});
+document.getElementById("reset").addEventListener("click", () => { if (confirm("Tüm işaretler silinsin mi?")) { state = {}; save(); document.querySelectorAll("li").forEach((li) => li._paint()); } });
+</script>
+</body>
+</html>

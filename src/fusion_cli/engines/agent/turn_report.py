@@ -1,0 +1,407 @@
+"""Tur raporu: başarı beyanı gerçek araç kaydına ve komut çıktısına bağlanır.
+
+Ölçülen sorun: agent "tüm testler geçti" ya da "hiçbir dosya değiştirmedim"
+diyebiliyordu ve bu cümle modelin kendi beyanıydı — gerçek değişiklik kaydına
+(`ChangeSet`) ya da gerçekten çalışan bir komuta bakılmıyordu. Bu modül modelin
+sözünü değil, turda GERÇEKTEN dokunulan dosyaları ve GERÇEKTEN çalışan kabuk
+komutlarının çıkış kodunu okur.
+
+Saf modül: ağır bağımlılık yok, yalnızca `ToolUse`/`VerificationResult`
+tiplerini, `core.tools.tool_family` sınıflandırmasını ve
+`verify_discovery.is_behavioral_command` sınıflandırıcısını tüketir.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from ...core.constants import TOOL_CALL_BLOCKED_PREFIX, TOOL_CALL_DUPLICATE_PREFIX
+from ...core.evidence import EvidenceStatus, ToolUse
+from ...core.job_evidence import JobCurrentSnapshot, JobPhase
+from ...core.tools import ToolFamily, tool_family
+from ...core.verification import VerificationResult
+from ...ui.text import strip_thinking
+from .completion_evidence import evidence_payload as evidence_payload
+from .job_delivery import JobDelivery, collect_job_deliveries
+from .verify_discovery import is_behavioral_command
+
+#: Kabuk komutu çalıştıran KANONİK araç adı — yalnız görüntüleme/dokümantasyon
+#: amaçlı. Bir çağrının kabuk aracı OLUP OLMADIĞI artık bu sabitle birebir
+#: string karşılaştırmasıyla değil `_is_shell_call` ile (bkz. aşağı) tespit
+#: edilir.
+RUN_SHELL_TOOL = "run_shell"
+
+
+def _is_shell_call(name: str) -> bool:
+    """Bu çağrı `run_shell`'in KENDİSİ ya da bir takma adı mı.
+
+    Ölçülen hata (masaüstü uygulaması, API model): model `run_shell`'i
+    `bash` takma adıyla çağırdı (bkz. `tools/builtin.py::_ALIASES`) — komut
+    onaylandı, sıfır çıkış koduyla bitti, ama rapor `use.name == "run_shell"`
+    birebir karşılaştırmasında `"bash" != "run_shell"` olduğu için bu çağrıyı
+    HİÇ GÖRMEDİ ve "doğrulama komutu çalıştırılmadı" dedi — komut gerçekten
+    çalışmışken.
+
+    Takma ad listesi burada YİNELENMEZ: `core.tools.tool_family` zaten TEK
+    KAYNAK olarak `run_shell`/`shell`/`bash`/`execute_command` adlarının
+    tümünü `ToolFamily.SHELL` altında topluyor (aynı liste onay ve araç ailesi
+    sınıflandırmasında da kullanılıyor); ikinci bir takma ad listesi açmak
+    RULES "aynı işi yapan ikinci bir yol açılmaz" ilkesini ihlal ederdi.
+    """
+    return tool_family(name) is ToolFamily.SHELL
+
+
+#: `run_shell` çıktısının başındaki çıkış kodu öneki — TEK KAYNAK (`tools/shell.py`
+#: ile aynı biçim). Üreten taraf değiştirilirse bu sabit de güncellenmelidir.
+_EXIT_CODE_PREFIX = "(çıkış kodu "
+
+_NO_CHANGE_CLAIMS = re.compile(
+    r"(?:hiçbir|herhangi bir) dosya(?:da|yı|yı\s+doğrudan)?\s+"
+    r"(?:değiştir(?:medim|emedim)|düzenle(?:medim|yemedim))"
+    r"|dosya(?:da|larda)?\s+değişiklik\s+yap(?:madım|amadım)"
+    r"|(?:no files? (?:was|were) (?:changed|modified)"
+    r"|i (?:did not|could not) (?:change|edit) files?)",
+    re.IGNORECASE,
+)
+
+
+#: Modelin "doğruladım" iddiası. Kanıt yokken bu cümleler kullanıcıya gerçek gibi
+#: gitmemeli. Ölçüldü (1 Ekim, WordPress sohbeti): hiçbir komut çalışmadan "Tema
+#: dosyaları tamamlandı ve doğrulandı ... tüm PHP dosyaları" dendi.
+_VERIFY_CLAIMS = re.compile(
+    r"doğrula(?:ndı|dım|nmıştır|ndılar)|test (?:edildi|ettim|edilmiştir)|testler(?:i)? geç"
+    r"|hatasız|sorunsuz çalış|sözdizimi (?:temiz|hatası yok|doğru)|hiçbir (?:sözdizimi )?hata yok"
+    r"|lint (?:temiz|geçti)|\bverified\b|tests? pass(?:ed|es)?|all tests|no (?:syntax )?errors",
+    re.IGNORECASE,
+)
+
+#: Kanıtsız iddia uyarısı (raporda ajanın metninin üstünde durur).
+UNVERIFIED_CLAIM_WARNING = (
+    "⚠ Ajan doğrulama yaptığını söylüyor ama bu turda hiçbir doğrulama başarıyla "
+    "çalışmadı; bu iddia GEÇERSİZ."
+)
+
+
+#: Komut çalıştırmadan söylenemeyecek SOMUT başarı iddiası (test/lint/sözdizimi).
+#: Genel "doğrulandı" dosyayı okuyarak da söylenebilir; yalnız uyarı alır. Bunlar
+#: ise kanıtsızsa yalandır ve turu başarısız yapar.
+_COMMAND_CLAIMS = re.compile(
+    r"test (?:edildi|ettim|edilmiştir)|testler(?:i)? geç|lint (?:temiz|geçti)"
+    r"|sözdizimi (?:temiz|hatası yok)|tests? pass(?:ed|es)?|all tests",
+    re.IGNORECASE,
+)
+
+
+def claims_verification(text: str) -> bool:
+    """Metin bir doğrulama/test başarısı iddia ediyor mu?"""
+    return bool(_VERIFY_CLAIMS.search(text))
+
+
+def claims_command_success(text: str) -> bool:
+    """Metin, ancak bir komut çalıştırılarak bilinebilecek bir başarı iddia ediyor mu?"""
+    return bool(_COMMAND_CLAIMS.search(text))
+
+
+@dataclass(frozen=True, slots=True)
+class CommandRun:
+    """Turda denenen tek `run_shell` çağrısının doğrulama açısından kaydı."""
+
+    command: str
+    #: Çıkış kodu okunabildiyse; okunamadıysa (zaman aşımı, ayrıştırılamayan
+    #: çıktı) `None` — bu bir başarı KANITI değildir.
+    exit_code: int | None
+    #: Bu komut, turdaki SON dosya mutasyonundan SONRA mı çalıştı?
+    #:
+    #: Sıra önemlidir: mutasyondan ÖNCE geçen bir test, o mutasyonu kanıtlamaz.
+    after_last_mutation: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TurnReport:
+    """Bir turun (ya da bir plan yürütmesinin) doğrulanabilir özeti."""
+
+    changed_paths: tuple[str, ...] = ()
+    command_runs: tuple[CommandRun, ...] = ()
+    #: Deterministik kalite kapısının (ruff/mypy/verifier) sonucu; yoksa `None`.
+    gate: VerificationResult | None = None
+    #: Çok dosyalı uzun kod görevinde son değişiklikten sonra davranış kanıtı zorunludur.
+    require_behavioral_evidence: bool = False
+    #: Model kanıt yokken doğrulama iddia etti mi? (`build_turn_report` doldurur.)
+    false_claim: bool = False
+    job_deliveries: tuple[JobDelivery, ...] = ()
+
+    @property
+    def _behavioral_evidence(self) -> tuple[CommandRun, ...]:
+        """Son mutasyondan SONRA çalışan, davranışı KANITLAYAN komutlar."""
+        return tuple(
+            run
+            for run in self.command_runs
+            if run.after_last_mutation and is_behavioral_command(run.command)
+        )
+
+    @property
+    def _unresolved_evidence(self) -> tuple[CommandRun, ...]:
+        """Kanıt komutları; AYNI komutun sonradan geçen koşusuyla aşılan başarısızlar çıkar.
+
+        Ölçüldü (18 Ekim): `pytest` "komut bulunamadı" (127) verdi, model `python3 -m pytest`
+        ile aynı testi geçirdi; rapor yine de "başarısız" yazıp doğru iddiayı GEÇERSİZ saydı.
+        Yalnız AYNI komut aşar: farklı bir komutun geçmesi başarısız testi gizlemez.
+        """
+        evidence = self._behavioral_evidence
+        return tuple(
+            run
+            for index, run in enumerate(evidence)
+            if run.exit_code == 0 or not _passed_later(run, evidence[index + 1 :])
+        )
+
+    @property
+    def is_verified(self) -> bool | None:
+        """`None` = değişiklik yok, sorulacak bir şey yok.
+
+        Değişiklik varsa: son mutasyondan sonra çalışan davranış kanıtı YOKSA
+        veya kanıtlardan biri başarısızsa `False`; hepsi başarılıysa `True`.
+        """
+        if self.gate is not None and not self.gate.ok:
+            return False
+        if any(item.problem for item in self.job_deliveries):
+            return False
+        if not self.changed_paths:
+            return None
+        evidence = self._unresolved_evidence
+        if not evidence:
+            return self._gate_passed_evidence is not None
+        return all(run.exit_code == 0 for run in evidence)
+
+    @property
+    def _gate_passed_evidence(self) -> str | None:
+        """Kapının KENDİSİNİN çalıştırıp geçtiği davranış kontrolü (ör. sayfaları
+        tarayıcıda açmak). Ölçüldü (26 Eylül): statik site 5 sayfası tarayıcıda
+        açılıp denetlendiği hâlde "doğrulama komutu çalıştırılmadı" deniyordu."""
+        gate = self.gate
+        if gate is None or not gate.ok or not gate.evidence:
+            return None
+        if any(item.status is not EvidenceStatus.PASSED for item in gate.evidence):
+            return None
+        if not any(item.behavioral for item in gate.evidence):
+            # Yalnız sözdizimi denetlendi: iş ÇALIŞTIRILIP görülmedi.
+            return None
+        return "; ".join(item.summary for item in gate.evidence)
+
+    @property
+    def _static_only_evidence(self) -> str | None:
+        """Kapı geçti ama yalnız biçim denetledi (ör. `php -l`); özeti, yoksa None."""
+        gate = self.gate
+        if gate is None or not gate.ok or not gate.evidence:
+            return None
+        if any(item.behavioral for item in gate.evidence):
+            return None
+        return "; ".join(item.summary for item in gate.evidence)
+
+    @property
+    def blocks_success(self) -> bool:
+        """Turu BAŞARISIZ ilan etmeyi gerektiren somut bir kanıt var mı.
+
+        Basit değişikliklerde eksik kanıt uyarıdır. Uzun kod görevinde son
+        değişiklikten sonra test yoksa başarı iddiası için gereken kanıt eksiktir.
+        """
+        if any(item.problem for item in self.job_deliveries):
+            return True
+        if self.gate is not None and not self.gate.ok:
+            return True
+        if self.require_behavioral_evidence and self.is_verified is False:
+            return True
+        if self.false_claim:
+            return True
+        return any(run.exit_code not in (None, 0) for run in self._behavioral_evidence)
+
+    def render(self) -> str:
+        """Türkçe, kısa bir rapor metni üret; değişiklik yoksa boş döner (D4)."""
+        if not self.changed_paths and not self.job_deliveries:
+            return ""
+        jobs = tuple(
+            (
+                f"İş {item.completion.job_id} önceki denemesi taze aynı kapsamla çözüldü."
+                if item.is_superseded
+                else item.problem
+            )
+            or f"İş {item.completion.job_id} tamamlandı "
+            f"(çıkış {item.completion.exit_code}); görsel kalite ayrıca doğrulanmalı."
+            for item in self.job_deliveries
+        )
+        blocks = [*jobs, *self._gate_blocks()]
+        if self.changed_paths:
+            blocks.append(self._evidence_block())
+        return "\n\n".join(block for block in blocks if block) + "\n\n"
+
+    def render_with_model_text(self, model_text: str) -> str:
+        """Eksik veya başarısız kanıtta modelin özeti doğrulanmış gibi görünmesin."""
+        # Düşünme, rapor eklenmeden ÖNCE ayıklanır: açılışsız `</think>` sonradan
+        # ayıklansaydı kapanıştan önceki rapor da düşünme sanılıp silinirdi.
+        model_text = strip_thinking(model_text).strip()
+        report = self.render()
+        if not report:
+            return model_text
+        if self.changed_paths and _NO_CHANGE_CLAIMS.search(model_text):
+            return (
+                report + "⚠ Ajanın dosya değişikliği beyanı araç kaydıyla çeliştiği için "
+                "açıklaması gösterilmedi."
+            )
+        if self.is_verified is False and model_text.strip():
+            uyari = f"{UNVERIFIED_CLAIM_WARNING}\n\n" if claims_verification(model_text) else ""
+            return report + uyari + "Ajanın açıklaması (doğrulanmamış):\n\n" + model_text
+        return report + model_text
+
+    def _gate_blocks(self) -> tuple[str, ...]:
+        gate = self.gate
+        if gate is None:
+            return ()
+        if not gate.ok:
+            findings = "\n".join(f"- {finding}" for finding in gate.findings[:5])
+            return (
+                "⚠ DOĞRULAMA GEÇMEDİ — yapılan değişiklikler projeyi kırıyor olabilir.\n"
+                f"{gate.summary}\n{findings}\n"
+                "Değişiklikleri gözden geçir; gerekirse `/undo` ile geri al.",
+            )
+        if gate.has_notes:
+            notes = "\n".join(
+                (
+                    *(f"- [uyarı] {finding}" for finding in gate.warnings[:5]),
+                    *(f"- [öneri] {finding}" for finding in gate.advisories[:5]),
+                )
+            )
+            return (f"⚠ Doğrulama notları — işi engellemiyor:\n{notes}",)
+        return ()
+
+    def _evidence_block(self) -> str:
+        dosyalar = ", ".join(self.changed_paths)
+        evidence = self._unresolved_evidence
+        kapi_kaniti = self._gate_passed_evidence
+        if not evidence and kapi_kaniti:
+            return f"✓ Doğrulandı: {kapi_kaniti}.\nDeğişen dosyalar: {dosyalar}"
+        bicim = self._static_only_evidence
+        if not evidence and bicim:
+            return (
+                f"ⓘ Yalnız sözdizimi denetlendi: {bicim}.\nDeğişen dosyalar: {dosyalar}\n"
+                "Site çalıştırılıp açılmadı; çalıştığı DOĞRULANMADI (start_preview ile görülür)."
+            )
+        if not evidence:
+            return (
+                f"ⓘ Değişen dosyalar: {dosyalar}\n"
+                "Son değişiklikten sonra bir doğrulama komutu ÇALIŞTIRILMADI; "
+                "sonuç doğrulanmadı."
+            )
+        basarisiz = tuple(run for run in evidence if run.exit_code != 0)
+        if basarisiz:
+            komutlar = "; ".join(f"`{run.command}` (çıkış {run.exit_code})" for run in basarisiz)
+            return f"✗ Doğrulama başarısız: {komutlar}\nDeğişen dosyalar: {dosyalar}"
+        komutlar = "; ".join(f"`{run.command}`" for run in evidence)
+        if self.gate is not None and not self.gate.ok:
+            return (
+                f"ⓘ Geçen alt kontroller: {komutlar}. Toplam doğrulama başarısız.\n"
+                f"Değişen dosyalar: {dosyalar}"
+            )
+        return f"✓ Doğrulandı: {komutlar} başarıyla çalıştı.\nDeğişen dosyalar: {dosyalar}"
+
+
+_RUNNER_PREFIX = re.compile(r"^\s*python[\d.]*\s+-m\s+")
+
+
+def _same_command(first: str, second: str) -> bool:
+    """`pytest x` ile `python3 -m pytest x` aynı komuttur (yalnız çalıştırıcı farklı)."""
+    return _RUNNER_PREFIX.sub("", first).strip() == _RUNNER_PREFIX.sub("", second).strip()
+
+
+def _passed_later(failed: CommandRun, later: tuple[CommandRun, ...]) -> bool:
+    return any(run.exit_code == 0 and _same_command(failed.command, run.command) for run in later)
+
+
+def build_turn_report(
+    changed_paths: tuple[str, ...],
+    tool_uses: tuple[ToolUse, ...],
+    gate: VerificationResult | None,
+    *,
+    require_behavioral_evidence: bool = False,
+    current_jobs: tuple[JobCurrentSnapshot, ...] = (),
+) -> TurnReport:
+    """Turda denenen araç çağrılarından ve değişiklik kaydından raporu kur."""
+    last_mutation = _last_mutation_index(tool_uses)
+    jobs = collect_job_deliveries(tool_uses, current_jobs)
+    command_runs = tuple(
+        _command_run(use, after=last_mutation is not None and index > last_mutation)
+        for index, use in enumerate(tool_uses)
+        if _is_shell_call(use.name) and not _never_ran(use) and use.job_completion is None
+    )
+    command_runs += tuple(
+        CommandRun(
+            item.completion.command,
+            item.completion.exit_code,
+            last_mutation is not None
+            and item.launch_index is not None
+            and item.launch_index > last_mutation,
+        )
+        for item in jobs
+        if item.completion.phase is JobPhase.COMPLETED and not item.is_superseded
+    )
+    return TurnReport(
+        changed_paths=changed_paths,
+        command_runs=command_runs,
+        gate=gate,
+        require_behavioral_evidence=require_behavioral_evidence,
+        job_deliveries=jobs,
+    )
+
+
+def _never_ran(use: ToolUse) -> bool:
+    """Tekrar kapısı çağrıyı ÇALIŞTIRMADAN engelledi mi?
+
+    Ölçüldü (29 Eylül, canlı uzun görev): aynı `pytest` komutunun değişikliksiz
+    ikinci isteği engellendi; engel çıktısında çıkış kodu olmadığı için rapor
+    "çıkış None" ile doğrulamayı başarısız saydı, oysa ilk koşu geçmişti.
+    Zaman aşımı gibi GERÇEKTEN çalışmış komutlar bu kapsamda değildir.
+    """
+    return use.output.startswith((TOOL_CALL_DUPLICATE_PREFIX, TOOL_CALL_BLOCKED_PREFIX))
+
+
+def _last_mutation_index(tool_uses: tuple[ToolUse, ...]) -> int | None:
+    """Son BAŞARILI dosya mutasyonunun sırası; `run_shell` mutasyon SAYILMAZ.
+
+    `run_shell` onay gerektirdiği için `mutating=True` işaretlidir ama bir dosya
+    DEĞİŞTİRDİĞİNİN kanıtı değildir (ör. `pytest -q`). Onu mutasyon sayarsak
+    doğrulama komutunun kendisi "son mutasyon" olur ve hiçbir komut ondan SONRA
+    saymaz.
+    """
+    for index in range(len(tool_uses) - 1, -1, -1):
+        use = tool_uses[index]
+        if use.mutating and use.ok and not _is_shell_call(use.name) and use.job_completion is None:
+            return index
+    return None
+
+
+def _command_run(use: ToolUse, *, after: bool) -> CommandRun:
+    return CommandRun(
+        command=_command_text(use), exit_code=_exit_code(use), after_last_mutation=after
+    )
+
+
+def _command_text(use: ToolUse) -> str:
+    value = use.arguments.get("command") if isinstance(use.arguments, dict) else None
+    return value if isinstance(value, str) else ""
+
+
+def _exit_code(use: ToolUse) -> int | None:
+    """`run_shell` çıktısındaki `(çıkış kodu N)` önekinden çıkış kodunu oku.
+
+    TEK yardımcı: çıkış kodu tespiti burada toplanır, ikinci bir ayrıştırma
+    yolu açılmaz (RULES "hata tespiti tek yardımcı fonksiyondan geçer").
+    """
+    output = use.output
+    if not output.startswith(_EXIT_CODE_PREFIX):
+        return None
+    closing = output.find(")", len(_EXIT_CODE_PREFIX))
+    if closing == -1:
+        return None
+    try:
+        return int(output[len(_EXIT_CODE_PREFIX) : closing])
+    except ValueError:
+        return None

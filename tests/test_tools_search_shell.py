@@ -1,0 +1,691 @@
+"""Keşif, kabuk ve git araçları."""
+
+from __future__ import annotations
+
+import asyncio
+import subprocess
+import threading
+from dataclasses import replace
+
+import pytest
+
+from fusion_cli.core.tools import Tool, ToolContext
+from fusion_cli.tools import build_registry
+from fusion_cli.tools import search as search_tools
+
+
+@pytest.fixture
+def context(tmp_path):
+    return ToolContext(root=tmp_path)
+
+
+@pytest.fixture
+def registry():
+    return build_registry()
+
+
+async def _calistir(registry, context, ad, **args):
+    return await registry.execute(ad, args, context)
+
+
+async def test_search_code_eslesmeleri_dosya_satir_ile_dondurur(registry, context, tmp_path):
+    (tmp_path / "a.py").write_text("def merhaba():\n    return 1\n", encoding="utf-8")
+
+    cikti = (await _calistir(registry, context, "search_code", pattern="def ")).output
+
+    assert "a.py:1:" in cikti and "def merhaba" in cikti
+
+
+async def test_search_code_gurultu_dizinlerini_atlar(registry, context, tmp_path):
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "x.js").write_text("hedef", encoding="utf-8")
+    (tmp_path / "kod.py").write_text("hedef", encoding="utf-8")
+
+    cikti = (await _calistir(registry, context, "search_code", pattern="hedef")).output
+
+    assert "kod.py" in cikti and "node_modules" not in cikti
+
+
+async def test_search_code_sistem_cache_ve_vendor_koklerini_daha_taramadan_budar(
+    registry, context, tmp_path
+):
+    noisy = tmp_path / "Library/Application Support/Google/Chrome/Cache"
+    noisy.mkdir(parents=True)
+    (noisy / "runaway.log").write_text("hedef", encoding="utf-8")
+    vendor = tmp_path / "vendor/package"
+    vendor.mkdir(parents=True)
+    (vendor / "dependency.py").write_text("hedef", encoding="utf-8")
+    (tmp_path / "project.py").write_text("hedef", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok
+    assert "project.py" in sonuc.output
+    assert "runaway.log" not in sonuc.output
+    assert "dependency.py" not in sonuc.output
+
+
+async def test_search_code_projedeki_library_kaynak_dizinini_gizlemez(registry, context, tmp_path):
+    source = tmp_path / "Library"
+    source.mkdir()
+    (source / "source.py").write_text("hedef", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok
+    assert "Library/source.py" in sonuc.output
+
+
+async def test_search_code_aday_sinirinda_kismi_sonuc_ve_daraltma_yolu_doner(
+    registry, context, tmp_path, monkeypatch
+):
+    for index in range(5):
+        (tmp_path / f"{index}.txt").write_text("hedef" if index == 0 else "başka", encoding="utf-8")
+    monkeypatch.setattr(search_tools, "MAX_SEARCH_CANDIDATES", 2)
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert not sonuc.ok
+    assert "0.txt:1: hedef" in sonuc.output
+    assert "2 dosya" in sonuc.output
+    assert "'path' alanını" in sonuc.output
+
+
+async def test_search_code_sure_sinirinda_opaque_timeout_yerine_kismi_hata_doner(
+    registry, context, tmp_path, monkeypatch
+):
+    (tmp_path / "a.txt").write_text("hedef", encoding="utf-8")
+    monkeypatch.setattr(search_tools, "SEARCH_DEADLINE_S", 0.0)
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert not sonuc.ok
+    assert "süre sınırına" in sonuc.output
+    assert "'path' alanını" in sonuc.output
+
+
+async def test_search_code_env_ve_sir_satirlarini_disari_vermez(registry, context, tmp_path):
+    (tmp_path / ".env").write_text(
+        "API_TOKEN=sk-12345678901234567890\n", encoding="utf-8"
+    )  # gitleaks:allow
+    (tmp_path / "config.py").write_text(
+        "API_TOKEN=sk-12345678901234567890\nhedef\n",
+        encoding="utf-8",  # gitleaks:allow
+    )
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef|TOKEN")
+
+    assert sonuc.ok
+    assert ".env" not in sonuc.output
+    assert "sk-12345678901234567890" not in sonuc.output
+    assert "[gizlendi]" in sonuc.output
+
+
+async def test_search_code_common_auth_files_and_json_tokens_are_excluded(
+    registry, context, tmp_path
+):
+    for name in (
+        ".npmrc",
+        ".git-credentials",
+        ".pypirc",
+        "credentials.json",
+        "credentials.yaml",
+        "token.json",
+        "config.json",
+        "config.yaml",
+        "config.yml",
+        "service-account.json",
+    ):
+        (tmp_path / name).write_text(
+            '{"access_token":"abcdefghijklmnopqrstuvwxyz123456","hedef":true}',
+            encoding="utf-8",
+        )
+    (tmp_path / "source.py").write_text("hedef\n", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok and "source.py" in sonuc.output
+    assert all(
+        name not in sonuc.output
+        for name in (
+            ".npmrc",
+            ".git-credentials",
+            ".pypirc",
+            "credentials.json",
+            "credentials.yaml",
+            "token.json",
+            "config.json",
+            "config.yaml",
+            "config.yml",
+            "service-account.json",
+        )
+    )
+    assert "abcdefghijklmnopqrstuvwxyz123456" not in sonuc.output
+
+
+async def test_search_code_yapisal_olasi_sir_dosyalarini_atlar(registry, context, tmp_path):
+    names = (
+        "auth-prod.yaml",
+        "credentials.toml",
+        "config.toml",
+        "firebase.json",
+        "token-prod.json",
+        "secrets-prod.yml",
+        "private.key",
+        "id_ecdsa",
+        "certificate.p12",
+        "server.crt",
+        "private.p12",
+    )
+    for name in names:
+        (tmp_path / name).write_text(
+            'access_token: "short-secret-value"\nhedef\n', encoding="utf-8"
+        )
+    (tmp_path / "ordinary_source.py").write_text("hedef", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok and "ordinary_source.py" in sonuc.output
+    assert all(name not in sonuc.output for name in names)
+    assert "short-secret-value" not in sonuc.output
+
+
+async def test_search_code_symlink_dosya_kok_disina_cikmaz(registry, context, tmp_path):
+    outside = tmp_path.parent / "outside-secret.txt"
+    outside.write_text("hedef dışarıda", encoding="utf-8")
+    link = tmp_path / "link.txt"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink oluşturulamıyor")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok and "outside-secret" not in sonuc.output
+
+
+async def test_search_code_acik_symlink_kokunu_kok_disina_tasmaz(registry, context, tmp_path):
+    outside = tmp_path.parent / "outside-root"
+    outside.mkdir()
+    (outside / "leak.txt").write_text("hedef", encoding="utf-8")
+    link = tmp_path / "requested-root"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink oluşturulamıyor")
+
+    sonuc = await _calistir(
+        registry, context, "search_code", path="requested-root", pattern="hedef"
+    )
+
+    assert not sonuc.ok
+    assert "dışına" in sonuc.output or "erişilemez" in sonuc.output
+
+
+async def test_glob_sonuc_sinirinda_kismi_ve_tekrar_denenebilir_hata_doner(
+    registry, context, tmp_path, monkeypatch
+):
+    for index in range(3):
+        (tmp_path / f"{index}.py").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(search_tools, "MAX_GLOB_MATCHES", 2)
+
+    sonuc = await _calistir(registry, context, "glob", pattern="*.py")
+
+    assert not sonuc.ok
+    assert "glob sonucu sınırına" in sonuc.output
+    assert "tekrar denenebilir" in sonuc.output
+
+
+async def test_search_code_buyuk_hassas_dizinlerin_buyuk_harflerini_de_atlar(
+    registry, context, tmp_path
+):
+    for directory in (
+        ".CLAUDE",
+        "Claude",
+        "CHROME",
+        "Application Support",
+        "CACHE",
+        "CACHES",
+        "VENDOR",
+    ):
+        target = tmp_path / directory
+        target.mkdir()
+        (target / "leak.txt").write_text("hedef", encoding="utf-8")
+    (tmp_path / "safe.py").write_text("hedef", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok and "safe.py" in sonuc.output
+    assert all(
+        directory not in sonuc.output
+        for directory in ("CLAUDE", "Claude", "CHROME", "CACHE", "VENDOR")
+    )
+
+
+async def test_search_code_patolojik_regexi_dosya_okumadan_reddeder(registry, context, tmp_path):
+    (tmp_path / "large.txt").write_text("a" * 100_000, encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="(a+)+$")
+
+    assert not sonuc.ok
+    assert "güvenli" in sonuc.output or "karmaşık" in sonuc.output
+
+
+async def test_search_code_buyuk_dosyayi_bounded_okuyup_kismi_sonuc_doner(
+    registry, context, tmp_path, monkeypatch
+):
+    (tmp_path / "huge.txt").write_text("başlangıç\n" + "x" * 500_000, encoding="utf-8")
+    monkeypatch.setattr(search_tools, "MAX_SEARCH_SCAN_BYTES", 1024)
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="başlangıç|yok")
+
+    assert sonuc.ok
+    assert "başlangıç" in sonuc.output
+    assert "1 dosyanın yalnız başlangıcı" in sonuc.output
+
+
+async def test_search_code_turkce_satiri_byte_sinirinda_gecerli_utf8_ile_kirpar(
+    registry, context, tmp_path, monkeypatch
+):
+    path = tmp_path / "turkce.txt"
+    path.write_text("hedef " + "ç" * 100, encoding="utf-8")
+    monkeypatch.setattr(search_tools, "MAX_SEARCH_LINE_BYTES", 17)
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef", path="turkce.txt")
+
+    assert sonuc.ok
+    assert "1 uzun satır kısaltıldı" in sonuc.output
+    rendered = sonuc.output.split("\n", 1)[0].split(": ", 1)[1]
+    assert len(rendered.encode("utf-8")) <= search_tools.MAX_SEARCH_LINE_BYTES
+    rendered.encode("utf-8").decode("utf-8")
+
+
+async def test_search_code_uzun_satirdan_sonra_diger_dosyalarda_arama_surer(
+    registry, context, tmp_path
+):
+    (tmp_path / "a-minified.js").write_text("x" * 20_000, encoding="utf-8")
+    (tmp_path / "z-source.ts").write_text("hedef\n", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok
+    assert "z-source.ts:1: hedef" in sonuc.output
+    assert "uzun satır kısaltıldı" in sonuc.output
+
+
+async def test_search_code_gercek_esleme_sirasinda_iptal_edilir_ve_sonraki_cagri_temizdir(
+    registry, context, tmp_path
+):
+    (tmp_path / "many.txt").write_text("hedef\n" + "başka\n" * 1000, encoding="utf-8")
+
+    class CancelDuringMatching(threading.Event):
+        checks = 0
+
+        def is_set(self):
+            self.checks += 1
+            if self.checks > 4:
+                self.set()
+            return super().is_set()
+
+    context = replace(context, cancelled=CancelDuringMatching())
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert not sonuc.ok and "iptal edildi" in sonuc.output
+    context = replace(context, cancelled=threading.Event())
+    (tmp_path / "next.txt").write_text("hedef\n", encoding="utf-8")
+    sonraki = await _calistir(registry, context, "search_code", pattern="hedef")
+    assert sonraki.ok and "next.txt" in sonraki.output
+
+
+async def test_iptal_edilen_sync_arac_isci_threadine_iptal_sinyali_verir(registry, context):
+    started = threading.Event()
+    stopped = threading.Event()
+
+    def cancellable_search(_args, tool_context):
+        started.set()
+        while not tool_context.cancelled.wait(0.01):
+            pass
+        stopped.set()
+        return search_tools.ToolResult("iptal edildi", ok=False)
+
+    registry.register(
+        Tool(
+            name="cancellable_search",
+            description="test",
+            parameters={"type": "object", "properties": {}},
+            run=cancellable_search,
+        )
+    )
+    task = asyncio.create_task(_calistir(registry, context, "cancellable_search"))
+    assert await asyncio.to_thread(started.wait, 1.0)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert await asyncio.to_thread(stopped.wait, 1.0)
+
+
+async def test_iptal_sinyali_sonraki_arac_cagrisini_zehirlemez(registry, context, tmp_path):
+    started = threading.Event()
+
+    def cancellable_search(_args, tool_context):
+        started.set()
+        tool_context.cancelled.wait(1.0)
+        return search_tools.ToolResult("iptal edildi", ok=False)
+
+    registry.register(
+        Tool(
+            name="cancellable_search_once",
+            description="test",
+            parameters={"type": "object", "properties": {}},
+            run=cancellable_search,
+        )
+    )
+    task = asyncio.create_task(_calistir(registry, context, "cancellable_search_once"))
+    assert await asyncio.to_thread(started.wait, 1.0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    (tmp_path / "sonraki.txt").write_text("hedef", encoding="utf-8")
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok
+    assert "sonraki.txt" in sonuc.output
+
+
+async def test_gecersiz_regex_anlasilir_hata_verir(registry, context):
+    sonuc = await _calistir(registry, context, "search_code", pattern="[bozuk")
+
+    assert not sonuc.ok and "Geçersiz regex" in sonuc.output
+
+
+async def test_eslesme_yoksa_bilgilendirir(registry, context, tmp_path):
+    (tmp_path / "a.py").write_text("bos", encoding="utf-8")
+
+    assert (await _calistir(registry, context, "search_code", pattern="yok")).output.startswith(
+        "(eşleşme yok) Aranan klasör:"
+    )
+
+
+async def test_glob_desene_uyan_dosyalari_bulur(registry, context, tmp_path):
+    (tmp_path / "a.py").write_text("x", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("x", encoding="utf-8")
+    (tmp_path / "alt").mkdir()
+    (tmp_path / "alt" / "c.py").write_text("x", encoding="utf-8")
+
+    cikti = (await _calistir(registry, context, "glob", pattern="**/*.py")).output
+
+    assert "a.py" in cikti and "c.py" in cikti and "b.txt" not in cikti
+
+
+def _dosya(kok, goreli):
+    yol = kok / goreli
+    yol.parent.mkdir(parents=True, exist_ok=True)
+    yol.write_text("x", encoding="utf-8")
+
+
+async def test_glob_cift_yildiz_sifir_ve_cok_klasoru_kapsar(registry, context, tmp_path):
+    """Ölçüldü (29 Eylül): Python 3.11'in `Path.match`'i `**`'ı tek klasör sayıyordu;
+    `**/lib/mcp/**/*.ts` ne `lib/mcp/server.ts`'i ne derin dosyaları buldu ve model
+    36 dakika aynı aramayı tekrarladı."""
+    for goreli in (
+        "lib/mcp/server.ts",
+        "lib/mcp/tools/a.ts",
+        "src/lib/mcp/tools/derin/b.ts",
+        "lib/mcp/notlar.md",
+        "lib/baska/c.ts",
+    ):
+        _dosya(tmp_path, goreli)
+
+    cikti = (await _calistir(registry, context, "glob", pattern="**/lib/mcp/**/*.ts")).output
+
+    assert "server.ts" in cikti and "a.ts" in cikti and "b.ts" in cikti
+    assert "notlar.md" not in cikti and "c.ts" not in cikti
+
+
+async def test_egik_cizgisiz_desen_her_derinlikte_dosya_adiyla_eslesir(registry, context, tmp_path):
+    _dosya(tmp_path, "a/b/c/derin.ts")
+    _dosya(tmp_path, "kok.ts")
+
+    cikti = (await _calistir(registry, context, "glob", pattern="*.ts")).output
+
+    assert "derin.ts" in cikti and "kok.ts" in cikti
+
+
+async def test_klasor_adi_aranirsa_icindeki_dosyalar_doner(registry, context, tmp_path):
+    """Model klasör bulmak için `glob("mcp")` diyor; yalnız dosya adına bakan eşleşme
+    boş dönüyordu ve model aramayı tekrarlıyordu."""
+    _dosya(tmp_path, "lib/mcp/server.ts")
+    _dosya(tmp_path, "baska/dosya.ts")
+
+    cikti = (await _calistir(registry, context, "glob", pattern="mcp")).output
+
+    assert "lib/mcp/server.ts" in cikti
+    assert "baska" not in cikti
+
+
+async def test_glob_gurultu_dizinlerini_atlar(registry, context, tmp_path):
+    (tmp_path / "__pycache__").mkdir()
+    (tmp_path / "__pycache__" / "x.py").write_text("x", encoding="utf-8")
+
+    assert (await _calistir(registry, context, "glob", pattern="**/*.py")).output.startswith(
+        "(eşleşen dosya yok) Aranan klasör:"
+    )
+
+
+async def test_run_shell_ciktiyi_ve_cikis_kodunu_dondurur(registry, context):
+    sonuc = await _calistir(registry, context, "run_shell", command="echo merhaba")
+
+    assert sonuc.ok and "merhaba" in sonuc.output and "çıkış kodu 0" in sonuc.output
+
+
+async def test_run_shell_basarisiz_komutu_isaretler(registry, context):
+    sonuc = await _calistir(registry, context, "run_shell", command="exit 3")
+
+    assert not sonuc.ok and "çıkış kodu 3" in sonuc.output
+
+
+async def test_run_shell_calisma_dizininde_calisir(registry, context, tmp_path):
+    (tmp_path / "isaret.txt").write_text("x", encoding="utf-8")
+
+    cikti = (await _calistir(registry, context, "run_shell", command="ls")).output
+
+    assert "isaret.txt" in cikti
+
+
+async def test_git_yalnizca_salt_okunur_komutlara_izin_verir(registry, context):
+    sonuc = await _calistir(registry, context, "git", subcommand="push origin main")
+
+    assert not sonuc.ok and "salt-okunur" in sonuc.output
+
+
+async def test_git_bos_alt_komut_cokertmez(registry, context):
+    # Boş/yalnızca-boşluk subcommand IndexError ile çökmemeli; anlaşılır hata dönmeli.
+    sonuc = await _calistir(registry, context, "git", subcommand="   ")
+
+    assert not sonuc.ok and "boş olmayan" in sonuc.output
+
+
+async def test_git_status_calisir(registry, context, tmp_path):
+    # Depo kurulumu bloklayan bir çağrı; olay döngüsünü tıkamaması için ayrı thread'de.
+    await asyncio.to_thread(subprocess.run, ["git", "init", "-q"], cwd=tmp_path, check=True)
+
+    sonuc = await _calistir(registry, context, "git", subcommand="status --short")
+
+    assert sonuc.ok
+
+
+async def test_bilinmeyen_arac_kullanilabilir_listeyi_gosterir(registry, context):
+    sonuc = await registry.execute("olmayan_arac", {}, context)
+
+    assert not sonuc.ok
+    assert "Bilinmeyen araç" in sonuc.output and "read_file" in sonuc.output
+
+
+async def test_executor_patlarsa_tur_dusmez(registry, context):
+    """Araç sınırı: beklenmedik bir istisna turu düşürmez, modele iletilir."""
+    from fusion_cli.core.tools import Tool
+
+    def _patla(args, ctx):
+        raise RuntimeError("beklenmedik")
+
+    registry.register(Tool(name="patlayan", description="test", parameters={}, run=_patla))
+
+    sonuc = await registry.execute("patlayan", {}, context)
+
+    assert not sonuc.ok
+    assert "beklenmedik hata" in sonuc.output and "RuntimeError" in sonuc.output
+
+
+async def test_ayni_ad_iki_kez_kaydedilemez(registry):
+    from fusion_cli.core.errors import FusionError
+    from fusion_cli.core.tools import Tool
+
+    with pytest.raises(FusionError, match="zaten kayıtlı"):
+        registry.register(
+            Tool(name="read_file", description="x", parameters={}, run=lambda a, c: None)
+        )
+
+
+async def test_takma_adlar_ayni_executoru_kullanir(registry, context, tmp_path):
+    (tmp_path / "a.txt").write_text("icerik", encoding="utf-8")
+
+    dogrudan = await registry.execute("read_file", {"path": "a.txt"}, context)
+    takma = await registry.execute("view_file", {"path": "a.txt"}, context)
+
+    assert dogrudan.output == takma.output
+
+
+async def test_semalar_izin_listesiyle_filtrelenir(registry):
+    semalar = registry.schemas(allowed={"read_file", "glob"})
+
+    adlar = {sema["function"]["name"] for sema in semalar}
+    assert adlar == {"read_file", "glob"}
+
+
+async def test_semalar_function_calling_bicimindedir(registry):
+    sema = next(s for s in registry.schemas() if s["function"]["name"] == "edit_file")
+
+    assert sema["type"] == "function"
+    assert sema["function"]["parameters"]["required"] == ["path", "old", "new"]
+
+
+# --- zaman aşımı: kısmi çıktı KAYBEDİLMEZ ---------------------------------- #
+#
+# Gerçek koşuda model `npm run start:all` çalıştırdı — üç servisi birlikte ayağa
+# kaldıran bir dev sunucusu. O komut hiç bitmez; 120 saniye beklendi ve tur iki
+# dakika kaybetti. Daha kötüsü, dönen tek şey "zaman aşımı" idi: sunucunun
+# "listening on :3000" çıktısı ATILDI. Model ne olduğunu anlamadı, komutun
+# başarısız olduğunu sandı ve tekrar denemeye yöneldi.
+
+
+async def test_zaman_asiminda_kismi_cikti_dondurulur(registry, context, monkeypatch):
+    import subprocess
+
+    from fusion_cli.tools import shell as shell_module
+
+    def _patla(*args, **kwargs):
+        raise subprocess.TimeoutExpired(
+            cmd="npm run start:all",
+            timeout=1.0,
+            output="ready - started server on 0.0.0.0:3000",
+            stderr="",
+        )
+
+    monkeypatch.setattr(shell_module, "run_foreground", _patla)
+    sonuc = await _calistir(registry, context, "run_shell", command="npm run start:all")
+
+    assert sonuc.ok is False
+    assert "0.0.0.0:3000" in sonuc.output, "kısmi çıktı kaybedildi"
+    assert "aynı komutu tekrar çalıştırma" in sonuc.output.lower()
+
+
+async def test_zaman_asiminda_cikti_yoksa_da_yol_gosterilir(registry, context, monkeypatch):
+    import subprocess
+
+    from fusion_cli.tools import shell as shell_module
+
+    def _patla(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="sleep 999", timeout=1.0)
+
+    monkeypatch.setattr(shell_module, "run_foreground", _patla)
+    sonuc = await _calistir(registry, context, "run_shell", command="sleep 999")
+
+    assert sonuc.ok is False
+    assert "çıktı üretmedi" in sonuc.output
+
+
+# --- glob: mutlak desen ham istisna fırlatıyordu --------------------------- #
+#
+# Ölçüldü (canlı koşu): model `glob("/*")` çağırdı, `Path.glob` ham
+# `NotImplementedError: Non-relative patterns are unsupported` fırlattı ve model
+# ekranda Python istisnası gördü. Ne olduğunu ne yapacağını anlayamadı; tur
+# "3 turdur ilerleme yok" ile öldü.
+
+
+async def test_mutlak_glob_deseni_anlasilir_hata_verir(registry, context):
+    sonuc = await _calistir(registry, context, "glob", pattern="/*")
+
+    assert sonuc.ok is False
+    assert "göreli" in sonuc.output.lower()
+    assert "path" in sonuc.output
+
+
+async def test_windows_mutlak_deseni_de_reddedilir(registry, context):
+    sonuc = await _calistir(registry, context, "glob", pattern="C:/**/*.py")
+
+    assert sonuc.ok is False
+
+
+async def test_goreli_desen_calismaya_devam_eder(registry, context, tmp_path):
+    (tmp_path / "a.py").write_text("x", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "glob", pattern="**/*.py")
+
+    assert sonuc.ok is True
+    assert "a.py" in sonuc.output
+
+
+async def test_glob_sonuclari_proje_kokune_goreli(registry, context, tmp_path):
+    """Mutlak yollar hem gürültü hem yanıltıcı; hata mesajlarıyla da tutarsızdı."""
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "page.tsx").write_text("x", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "glob", pattern="**/*.tsx")
+
+    assert "app/page.tsx" in sonuc.output
+    assert str(tmp_path) not in sonuc.output
+
+
+@pytest.mark.parametrize(
+    ("yol", "desen", "beklenen"),
+    [
+        ("lib/mcp/server.ts", "**/lib/mcp/**/*.ts", True),
+        ("a/lib/mcp/x/y/z.ts", "**/lib/mcp/**/*.ts", True),
+        ("lib/mcpx/a.ts", "**/lib/mcp/**/*.ts", False),
+        ("src/app.tsx", "**/*.{ts,tsx}", True),
+        ("src/app.js", "**/*.{ts,tsx}", False),
+        ("src/a1.py", "src/a?.py", True),
+        ("src/b.py", "src/[!a]*.py", True),
+        ("src/a.py", "src/[!a]*.py", False),
+        ("derin/src/a.py", "src/*.py", True),
+        ("README.md", "readme.md", False),
+    ],
+)
+def test_glob_eslestirici(yol, desen, beklenen):
+    from fusion_cli.tools.search import glob_matcher
+
+    assert glob_matcher(desen)(yol) is beklenen
+
+
+async def test_bosluklu_projede_kabuk_hatasi_tirnakli_yolu_gosterir(registry, tmp_path):
+    import shlex
+
+    root = tmp_path / "project "
+    root.mkdir()
+    result = await _calistir(registry, ToolContext(root=root), "run_shell", command="exit 1")
+    assert not result.ok
+    assert shlex.quote(str(root)) in result.output
+    assert "göreli" in result.output.lower()

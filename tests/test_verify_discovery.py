@@ -1,0 +1,355 @@
+"""Doğrulama komutlarının projeden keşfi.
+
+Keşif yalnızca dosya sistemine bakar; komutları ÇALIŞTIRMAZ. Bu yüzden testler
+gerçek proje iskeletleri kurar ve çıkan planı denetler.
+"""
+
+from __future__ import annotations
+
+from fusion_cli.engines.agent.verify_discovery import (
+    behavioral_commands,
+    discover_auto_commands,
+    discover_commands,
+    is_behavioral_command,
+    project_kinds,
+)
+
+
+def test_bos_dizinde_plan_uretilmez(tmp_path):
+    assert discover_commands(tmp_path) == ()
+
+
+def test_python_projesinde_arac_zinciri_bulunur(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nname='x'\n[dependency-groups]\ndev=['pytest','ruff','mypy']\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src").mkdir()
+
+    plan = discover_commands(tmp_path)
+
+    assert "ruff check ." in plan
+    assert "mypy src" in plan
+    assert "pytest -q" in plan
+
+
+def test_ucuz_komut_once_calisir(tmp_path):
+    """Sıra maliyete göredir: lint saniyeler, test dakikalar sürer.
+
+    Kapı ilk başarısız komutta durduğu için pahalı olanı öne almak her kırık
+    turda boşuna beklemek demektir.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        "[dependency-groups]\ndev=['pytest','ruff','mypy']\n", encoding="utf-8"
+    )
+    (tmp_path / "src").mkdir()
+
+    plan = discover_commands(tmp_path)
+
+    assert plan.index("ruff check .") < plan.index("pytest -q")
+    assert plan.index("mypy src") < plan.index("pytest -q")
+
+
+def test_src_yoksa_mypy_koke_bakar(tmp_path):
+    (tmp_path / "pyproject.toml").write_text("[tool.mypy]\nstrict=true\n", encoding="utf-8")
+
+    assert "mypy ." in discover_commands(tmp_path)
+
+
+def test_adi_gecmeyen_arac_plana_girmez(tmp_path):
+    """Kurulu olmayan aracı çalıştırmak kapıyı her turda düşürürdü."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[dependency-groups]\ndev=['pytest']\n", encoding="utf-8"
+    )
+
+    plan = discover_commands(tmp_path)
+
+    assert plan == ("pytest -q",)
+
+
+def test_node_projesinde_script_adlari_kullanilir(tmp_path):
+    (tmp_path / "package.json").write_text(
+        '{"scripts": {"lint": "eslint .", "test": "vitest run"}}', encoding="utf-8"
+    )
+
+    plan = discover_commands(tmp_path)
+
+    assert plan == ("npm run lint", "npm run test")
+
+
+def test_node_paket_yoneticisi_lock_dosyasindan_secilir(tmp_path):
+    (tmp_path / "package.json").write_text('{"scripts": {"test": "vitest"}}', encoding="utf-8")
+    (tmp_path / "pnpm-lock.yaml").write_text("", encoding="utf-8")
+
+    assert discover_commands(tmp_path) == ("pnpm run test",)
+
+
+def test_tanimsiz_script_plana_girmez(tmp_path):
+    (tmp_path / "package.json").write_text('{"scripts": {"build": "vite build"}}', encoding="utf-8")
+
+    assert discover_commands(tmp_path) == ()
+
+
+def test_bozuk_package_json_cokmeye_neden_olmaz(tmp_path):
+    """Keşif bir iyileştirmedir; okunamayan dosya turu düşürmemeli."""
+    (tmp_path / "package.json").write_text("{bozuk json", encoding="utf-8")
+
+    assert discover_commands(tmp_path) == ()
+
+
+def test_go_ve_rust_projeleri_taninir(tmp_path):
+    (tmp_path / "go.mod").write_text("module x\n", encoding="utf-8")
+
+    assert discover_commands(tmp_path) == ("go test ./...",)
+
+    (tmp_path / "go.mod").unlink()
+    (tmp_path / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
+
+    assert discover_commands(tmp_path) == ("cargo test",)
+
+
+def test_makefile_yalnizca_var_olan_hedefi_onerir(tmp_path):
+    (tmp_path / "Makefile").write_text("build:\n\techo x\ntest:\n\techo y\n", encoding="utf-8")
+
+    plan = discover_commands(tmp_path)
+
+    assert plan == ("make test",)
+
+
+def test_makefile_hedefsizse_bos_doner(tmp_path):
+    (tmp_path / "Makefile").write_text("build:\n\techo x\n", encoding="utf-8")
+
+    assert discover_commands(tmp_path) == ()
+
+
+# --- otomatik kapı: hızlı ve yalnızca "bozdum mu" -------------------------- #
+#
+# Ölçüldü: kapı opt-in olduğu için pratikte hiç kurulmuyordu. Agent bir TSX
+# dosyasının ortasına beş kapanış etiketi ekledi, dosya 12 sözdizimi hatasıyla
+# bozuldu ve tur "tamamladım" diyerek kapandı. Bozuk kod teslim edip başarı
+# iddia etmek, hiç yazmamaktan kötüdür.
+
+
+def test_otomatik_kapi_test_paketini_dislar(tmp_path):
+    """Önceden kırık bir test agent'ın HER turunu düşürürdü."""
+    from fusion_cli.engines.agent.verify_discovery import discover_auto_commands
+
+    (tmp_path / "pyproject.toml").write_text("[tool.ruff]\n[tool.mypy]\n[tool.pytest]\n")
+
+    plan = discover_auto_commands(tmp_path)
+
+    assert "ruff check ." in plan
+    assert not any("pytest" in komut for komut in plan)
+
+
+def test_otomatik_kapi_node_projesinde_build_onerir(tmp_path):
+    """TypeScript/Next'te sözdizimini ve tipleri asıl `build` denetler.
+
+    `lint` dışarıdadır ve bu ölçülmüş bir karardır: yapılandırılmamış bir projede
+    `next lint` ETKİLEŞİMLİ soru sorup çıkış 1 veriyor ve kapı bunu gerçek bir
+    kod hatası sanıp turu düşürüyordu — kullanıcının kodunda sorun yokken.
+    """
+    import json
+
+    from fusion_cli.engines.agent.verify_discovery import discover_auto_commands
+
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"dev": "next dev", "build": "next build", "lint": "next lint"}})
+    )
+
+    assert discover_auto_commands(tmp_path) == ("npm run build",)
+
+
+def test_otomatik_kapi_kanitsiz_komut_uydurmaz(tmp_path):
+    from fusion_cli.engines.agent.verify_discovery import discover_auto_commands
+
+    assert discover_auto_commands(tmp_path) == ()
+
+
+def test_kapi_yapilandirma_yoksa_kesiften_kurulur(tmp_path):
+    """`verification_commands` boşken bile komut kapısı devrede olmalı."""
+    import json
+
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.verification import build_verifier
+
+    from .fakes import make_config
+
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": {"build": "next build"}}))
+    config = make_config(runtime={"web_verification": False, "browser_verification": False})
+
+    verifier = build_verifier(config, root=tmp_path, tool_context=ToolContext(root=tmp_path))
+
+    assert verifier is not None, "keşfedilen komut kapısı kurulmadı"
+
+
+def test_otomatik_kapi_lint_onermez(tmp_path):
+    """Linter bir stil kapısıdır; "kodu bozdum mu" sorusunu cevaplamaz."""
+    import json
+
+    from fusion_cli.engines.agent.verify_discovery import discover_auto_commands
+
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": {"lint": "next lint"}}))
+
+    assert discover_auto_commands(tmp_path) == ()
+
+
+async def test_kurulu_olmayan_arac_kapiyi_dusurmez(tmp_path):
+    """Eksik araç bir KOD hatası değildir.
+
+    Ölçüldü: keşfedilen kapı `ruff check .` çalıştırdı, ruff yalnızca sanal
+    ortamda kuruluydu ve PATH'te yoktu (çıkış 127). Kapı "doğrulama geçmedi" dedi,
+    oysa kullanıcının kodunda hiçbir sorun yoktu. Eksik araç yüzünden turu
+    düşürmek kapıyı gürültüye çevirir ve gerçek hatalara olan güveni yok eder.
+    """
+    from fusion_cli.engines.agent.verification import CommandVerifier
+
+    dogrulayici = CommandVerifier(
+        ("kesinlikle-olmayan-komut-xyz",), cwd=str(tmp_path), timeout_s=10.0
+    )
+
+    assert (await dogrulayici.verify()).ok is True
+
+
+async def test_gercek_hata_hala_kapiyi_dusurur(tmp_path):
+    from fusion_cli.engines.agent.verification import CommandVerifier
+
+    dogrulayici = CommandVerifier(("sh -c 'exit 1'",), cwd=str(tmp_path), timeout_s=10.0)
+
+    assert (await dogrulayici.verify()).ok is False
+
+
+def test_godot_projesi_kendi_kapisini_getirir(tmp_path):
+    """`project.godot` varsa kapı Godot'un KENDİSİNİ çalıştırır.
+
+    Ölçülen hata: model bozuk bir `project.godot` ve `main.tscn` üretti, tur
+    "tamamlandı" dedi, kullanıcı açılmayan bir proje aldı. Elle çalıştırdığımda
+    Godot iki saniyede söyledi: `no main scene defined in the project` ve
+    `Parse Error: Unrecognized file type 'node'`. Keşif sırasında Godot
+    olmadığı için kapı hiç kurulmuyordu.
+    """
+    (tmp_path / "project.godot").write_text('[application]\nconfig/name="X"\n')
+
+    plan = discover_commands(tmp_path)
+
+    assert plan, "Godot projesinde kapı boş kalmamalı"
+    assert any("godot" in komut for komut in plan), plan
+    assert any("--headless" in komut for komut in plan), plan
+
+
+def test_godot_disi_projede_godot_komutu_onerilmez(tmp_path):
+    (tmp_path / "go.mod").write_text("module x\n")
+
+    assert not any("godot" in komut for komut in discover_commands(tmp_path))
+
+
+def test_godot_kapisi_hizli_kapida_da_bulunur(tmp_path):
+    """Otomatik kapı "bozdum mu" sorusudur; proje açılmıyorsa cevabı evettir."""
+    (tmp_path / "project.godot").write_text('[application]\nconfig/name="X"\n')
+
+    assert any("godot" in komut for komut in discover_auto_commands(tmp_path))
+
+
+def test_godot_projesinde_davranis_kapisi_yoktur(tmp_path):
+    """Godot kapısı projeyi AÇAR; oyunu oynatmaz. Davranış kanıtı sayılmaz."""
+    (tmp_path / "project.godot").write_text(
+        '[application]\nrun/main_scene="res://ana.tscn"\n', encoding="utf-8"
+    )
+    (tmp_path / "ana.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
+
+    assert discover_commands(tmp_path) == ("godot --headless --path . --quit",)
+    assert behavioral_commands(tmp_path) == ()
+
+
+def test_test_paketi_olan_python_projesi_davranis_kapisi_sunar(tmp_path):
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest]\npytest\n", encoding="utf-8")
+
+    assert behavioral_commands(tmp_path) == ("pytest -q",)
+
+
+def test_yalniz_derleyen_node_projesi_davranis_kapisi_saymaz(tmp_path):
+    """`build` kodun DERLENDİĞİNİ kanıtlar, ÇALIŞTIĞINI değil."""
+    (tmp_path / "package.json").write_text('{"scripts": {"build": "vite build"}}', encoding="utf-8")
+
+    assert behavioral_commands(tmp_path) == ()
+
+
+def test_test_scripti_olan_node_projesi_davranis_kapisi_sunar(tmp_path):
+    (tmp_path / "package.json").write_text('{"scripts": {"test": "vitest run"}}', encoding="utf-8")
+
+    assert behavioral_commands(tmp_path) == ("npm run test",)
+
+
+def test_proje_turu_isaret_dosyasindan_taninir(tmp_path):
+    """Ders taşınması için projenin TÜRÜ gerekir; komutu değil kimliği sorar."""
+    (tmp_path / "project.godot").write_text("[application]\n", encoding="utf-8")
+
+    assert project_kinds(tmp_path) == ("godot",)
+
+
+def test_birden_cok_tur_birlikte_donulur(tmp_path):
+    (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    (tmp_path / "package.json").write_text("{}", encoding="utf-8")
+
+    assert project_kinds(tmp_path) == ("node", "python")
+
+
+def test_taninmayan_dizin_bos_doner(tmp_path):
+    assert project_kinds(tmp_path) == ()
+
+
+def test_farkli_yazilmis_pytest_komutu_davranis_kaniti_sayilir():
+    """Keşfedilen komutla çalıştırılan komut birebir aynı olmak zorunda değildir.
+
+    Ölçüldü (17 Eylül denetimi): `pytest` gerçekten çalışıp dört test geçtiği hâlde
+    kanıt yalnızca `pytest -q` metniyle karşılaştırıldığı için sayılmadı.
+    """
+    assert is_behavioral_command(".venv/bin/pytest -q tests/test_agent_loop.py") is True
+    assert is_behavioral_command("go test ./...") is True
+    assert is_behavioral_command("npm test") is True
+
+
+def test_dogrudan_calisan_node_test_kosuculari_davranis_kaniti_sayilir():
+    assert is_behavioral_command("npx vitest run components/stok/__tests__/stokApi.test.ts")
+    assert is_behavioral_command("./node_modules/.bin/vitest run")
+    assert is_behavioral_command("npx jest --runInBand")
+    assert not is_behavioral_command("npx vitest --version")
+    assert not is_behavioral_command("npx tsc --noEmit")
+    assert not is_behavioral_command("npx vitest list")
+
+
+def test_kodu_calistirmayan_komut_davranis_kaniti_sayilmaz():
+    """Gevşetme düz metin aramasına indirgenmemelidir."""
+    assert is_behavioral_command("pytest --version") is False
+    assert is_behavioral_command("printf pytest") is False
+    assert is_behavioral_command("cargo build") is False
+    assert is_behavioral_command('echo "pytest') is False
+
+
+def test_cikis_kodunu_gizleyen_komut_davranis_kaniti_sayilmaz():
+    """`pytest || true` kırmızı testte de sıfır döner; başarılı çağrı kanıt değildir."""
+    assert is_behavioral_command("pytest -q || true") is False
+    assert is_behavioral_command("pytest -q | tail -5") is False
+    assert is_behavioral_command("pytest -q ; echo bitti") is False
+
+
+def test_modul_olarak_calistirilan_pytest_davranis_kaniti_sayilir():
+    assert is_behavioral_command("python -m pytest -q") is True
+    assert is_behavioral_command("python3 -m pytest tests/") is True
+    assert is_behavioral_command("python main.py") is False
+
+
+def test_dizin_degistiren_onekle_calisan_komut_davranis_kaniti_sayilir():
+    """`cd X && …` gerçek bir davranış komutunu gizlemez.
+
+    Ölçüldü: kullanıcı `cd /proje/w-api-S3 && python -m pytest tests/ -v`
+    çalıştırdı, onayladı, çıkış kodu 0'dı — ama tanıma yalnızca ilk token'a
+    (`cd`) bakıp bunu davranış komutu SAYMADI. Aynı komut `cd` öneki olmadan
+    çalışınca doğru tanınıyordu; önek işin niteliğini değiştirmez.
+    """
+    assert is_behavioral_command("cd /Users/x/w-api-S3 && python -m pytest tests/ -v") is True
+    assert is_behavioral_command("cd /Users/x/w-api-S3; python -m pytest tests/ -v") is True
+    assert is_behavioral_command("source .venv/bin/activate && pytest -q tests/") is True
+    assert is_behavioral_command("FOO=1 pytest -q") is True
+    assert is_behavioral_command("cd /Users/x/w-api-S3 && cargo build") is False
+    assert is_behavioral_command("cd /Users/x/w-api-S3 && pytest -q || true") is False

@@ -1,0 +1,537 @@
+"""ChromaDB destekli bellek — gerçek depoyla, geçici dizinde, ağsız."""
+
+from __future__ import annotations
+
+import pytest
+
+from fusion_cli.core.memory import Feedback, Lesson, LessonKind, LessonSource, Outcome
+from fusion_cli.memory.code_index import ChromaCodeIndex, format_matches
+from fusion_cli.memory.lessons import ChromaLessonMemory
+from fusion_cli.memory.performance import ChromaPerformanceMemory
+from fusion_cli.memory.seed import SEED_LESSONS, seed
+from fusion_cli.memory.store import reset_clients
+
+pytestmark = pytest.mark.slow
+
+
+@pytest.fixture(autouse=True)
+def _izole_istemci():
+    reset_clients()
+    yield
+    reset_clients()
+
+
+def _sonuc(model, *, score=0.9, latency=1000, won=True, task_type="general"):
+    return Outcome(
+        task="ornek gorev",
+        task_type=task_type,
+        model_name=model,
+        score=score,
+        latency_ms=latency,
+        tokens=100,
+        won=won,
+    )
+
+
+class _CasusClock:
+    """Enjekte edilen saatin timestamp için kullanıldığını doğrulayan sahte saat."""
+
+    def __init__(self, sabit: float) -> None:
+        self._sabit = sabit
+        self.now_cagrildi = 0
+
+    def monotonic(self) -> float:
+        return self._sabit
+
+    def now(self) -> float:
+        self.now_cagrildi += 1
+        return self._sabit
+
+
+# --- Performans belleği ------------------------------------------------------ #
+
+
+def test_performans_kaydi_enjekte_edilen_saati_kullanir(tmp_path):
+    saat = _CasusClock(1234.0)
+    bellek = ChromaPerformanceMemory(tmp_path, clock=saat)
+
+    bellek.record(_sonuc("m"))
+
+    assert saat.now_cagrildi == 1  # timestamp time.time() değil, Clock'tan geldi
+
+
+def test_ders_kaydi_enjekte_edilen_saati_kullanir(tmp_path):
+    saat = _CasusClock(1234.0)
+    bellek = ChromaLessonMemory(tmp_path, clock=saat)
+
+    assert bellek.add(Lesson(text="dosyayi once oku", kind=LessonKind.SUCCESS))
+    assert saat.now_cagrildi == 1
+
+
+def test_kayit_sonrasi_en_iyi_model_bulunur(tmp_path):
+    bellek = ChromaPerformanceMemory(tmp_path)
+    bellek.record(_sonuc("iyi", score=0.95))
+    bellek.record(_sonuc("kotu", score=0.40))
+
+    assert bellek.best_model("general") == "iyi"
+
+
+def test_gorev_tipleri_birbirini_etkilemez(tmp_path):
+    bellek = ChromaPerformanceMemory(tmp_path)
+    bellek.record(_sonuc("kodcu", score=0.95, task_type="code"))
+    bellek.record(_sonuc("genelci", score=0.95, task_type="general"))
+
+    assert bellek.best_model("code") == "kodcu"
+    assert bellek.best_model("general") == "genelci"
+
+
+def test_kayit_yoksa_en_iyi_model_yok(tmp_path):
+    assert ChromaPerformanceMemory(tmp_path).best_model("general") is None
+
+
+def test_istatistikler_puana_gore_sirali(tmp_path):
+    bellek = ChromaPerformanceMemory(tmp_path)
+    bellek.record(_sonuc("dusuk", score=0.3, won=False))
+    bellek.record(_sonuc("yuksek", score=0.9))
+
+    satirlar = bellek.stats()
+
+    assert [row.model for row in satirlar] == ["yuksek", "dusuk"]
+    assert satirlar[0].wins == 1 and satirlar[1].wins == 0
+
+
+def test_geri_bildirim_puani_dusurur(tmp_path):
+    bellek = ChromaPerformanceMemory(tmp_path)
+    bellek.record(_sonuc("model", score=0.9))
+
+    assert bellek.apply_feedback("general", "model", Feedback.BAD) == 1
+    assert bellek.stats()[0].avg_score == pytest.approx(0.8, abs=0.001)
+
+
+def test_geri_bildirim_kayit_yoksa_sifir_doner(tmp_path):
+    bellek = ChromaPerformanceMemory(tmp_path)
+
+    assert bellek.apply_feedback("general", "yok", Feedback.GOOD) == 0
+
+
+def test_puan_bir_ustune_cikamaz(tmp_path):
+    bellek = ChromaPerformanceMemory(tmp_path)
+    bellek.record(_sonuc("model", score=0.98))
+
+    bellek.apply_feedback("general", "model", Feedback.GOOD)
+
+    assert bellek.stats()[0].avg_score <= 1.0
+
+
+# --- Ders belleği ------------------------------------------------------------ #
+
+
+def test_ders_eklenir_ve_okunur(tmp_path):
+    bellek = ChromaLessonMemory(tmp_path)
+
+    assert bellek.add(Lesson(text="kor edit yapma", kind=LessonKind.MISTAKE))
+    assert bellek.count() == 1
+    assert bellek.all()[0].kind is LessonKind.MISTAKE
+
+
+def test_ayni_ders_iki_kez_eklenmez(tmp_path):
+    bellek = ChromaLessonMemory(tmp_path)
+    ders = Lesson(text="tekrar eden ders", kind=LessonKind.SUCCESS)
+
+    assert bellek.add(ders)
+    assert not bellek.add(ders)
+    assert bellek.count() == 1
+
+
+def test_bos_ders_reddedilir(tmp_path):
+    assert not ChromaLessonMemory(tmp_path).add(Lesson(text="  ", kind=LessonKind.SUCCESS))
+
+
+def test_alakali_ders_hatirlanir_alakasiz_elenir(tmp_path):
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(
+        Lesson(
+            text="Dosya duzenlemeden once mutlaka oku, kor degisiklik yapma.",
+            kind=LessonKind.SUCCESS,
+        )
+    )
+    bellek.add(
+        Lesson(text="Kedi beslemek icin gunde iki ogun yeterlidir.", kind=LessonKind.SUCCESS)
+    )
+
+    hatirlanan = bellek.recall("bir dosyayi degistirecegim, once ne yapmaliyim?")
+
+    metinler = [ders.text for ders in hatirlanan]
+    assert any("kor degisiklik" in metin for metin in metinler)
+    assert not any("Kedi" in metin for metin in metinler)
+
+
+def test_hatalar_basarilardan_once_gelir(tmp_path):
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(Lesson(text="testi degil implementasyonu duzelt", kind=LessonKind.SUCCESS))
+    bellek.add(Lesson(text="test kirilinca testi silme", kind=LessonKind.MISTAKE))
+
+    hatirlanan = bellek.recall("testler kirildi ne yapmaliyim")
+
+    assert hatirlanan[0].kind is LessonKind.MISTAKE
+
+
+def test_bos_bellekte_hatirlama_bos_doner(tmp_path):
+    assert ChromaLessonMemory(tmp_path).recall("herhangi bir gorev") == ()
+
+
+def test_seed_tekrar_calistirilabilir(tmp_path):
+    bellek = ChromaLessonMemory(tmp_path)
+
+    ilk = seed(bellek)
+    ikinci = seed(bellek)
+
+    assert ilk == len(SEED_LESSONS)
+    assert ikinci == 0
+
+
+def test_kaynak_bilgisi_korunur(tmp_path):
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(
+        Lesson(text="elle ogretilen kural", kind=LessonKind.SUCCESS, source=LessonSource.MANUAL)
+    )
+
+    assert bellek.all()[0].source is LessonSource.MANUAL
+
+
+# --- Kod indeksi ------------------------------------------------------------- #
+
+
+def test_indeks_kurulur_ve_anlamsal_arama_yapar(tmp_path):
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    (proje / "auth.py").write_text(
+        "def kullanici_dogrula(kullanici, parola):\n"
+        "    '''Kullanici kimligini dogrular ve oturum acar.'''\n"
+        "    return kullanici.parola == parola\n",
+        encoding="utf-8",
+    )
+    (proje / "rapor.py").write_text(
+        "def aylik_satis_raporu(kayitlar):\n    return sum(kayitlar)\n", encoding="utf-8"
+    )
+
+    indeks = ChromaCodeIndex(tmp_path / "bellek", proje)
+    stats = indeks.reindex()
+
+    assert stats.total == 2 and stats.added == 2
+    eslesmeler = indeks.search("kimlik dogrulama nerede yapiliyor?", limit=1)
+    assert eslesmeler and eslesmeler[0].path == "auth.py"
+
+
+def test_degismemis_repoda_yeniden_gomme_olmaz(tmp_path):
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    (proje / "a.py").write_text("x = 1\n", encoding="utf-8")
+    indeks = ChromaCodeIndex(tmp_path / "bellek", proje)
+    indeks.reindex()
+
+    ikinci = indeks.reindex()
+
+    assert ikinci.added == 0 and ikinci.removed == 0
+    assert ikinci.unchanged == ikinci.total
+
+
+def test_silinen_dosya_indeksten_cikarilir(tmp_path):
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    (proje / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (proje / "b.py").write_text("y = 2\n", encoding="utf-8")
+    indeks = ChromaCodeIndex(tmp_path / "bellek", proje)
+    indeks.reindex()
+
+    (proje / "b.py").unlink()
+    stats = indeks.reindex()
+
+    assert stats.removed == 1 and stats.total == 1
+
+
+def test_bos_indekste_arama_bos_doner(tmp_path):
+    proje = tmp_path / "proje"
+    proje.mkdir()
+
+    assert ChromaCodeIndex(tmp_path / "bellek", proje).search("herhangi bir sey") == ()
+
+
+def test_eslesmeler_modele_okunur_metne_cevrilir():
+    from fusion_cli.core.memory import CodeMatch
+
+    metin = format_matches((CodeMatch(path="a.py", start_line=1, end_line=5, snippet="kod"),))
+
+    assert "a.py:1-5" in metin and "kod" in metin
+
+
+def test_eslesme_yoksa_bilgilendirici_metin():
+    assert "eşleşme yok" in format_matches(())
+
+
+# --- Workspace izolasyonu ---------------------------------------------------- #
+
+
+def test_ders_ogrenildigi_projeye_etiketlenir(tmp_path):
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(Lesson(text="auth src/auth altında", kind=LessonKind.SUCCESS, workspace="/proje/a"))
+
+    hepsi = bellek.all()
+
+    assert hepsi[0].workspace == "/proje/a"
+
+
+def test_baska_projenin_dersi_hatirlanmaz(tmp_path):
+    """A projesinde öğrenilen 'auth src/auth altında' B projesinde yanlıştır."""
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(Lesson(text="auth modulu src/auth altinda", kind=LessonKind.SUCCESS, workspace="/a"))
+    bellek.add(Lesson(text="auth modulu lib/auth altinda", kind=LessonKind.SUCCESS, workspace="/b"))
+
+    hatirlanan = bellek.recall("auth modulu nerede", limit=5, workspace="/a")
+
+    metinler = [d.text for d in hatirlanan]
+    assert any("src/auth" in m for m in metinler)
+    assert not any("lib/auth" in m for m in metinler), "başka projenin dersi sızdı"
+
+
+def test_kapsamsiz_ders_her_projede_hatirlanir(tmp_path):
+    """Genel yordamsal dersler (hazır dersler) projeye bağlı değildir."""
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(Lesson(text="dosyayi degistirmeden once oku", kind=LessonKind.SUCCESS))
+
+    hatirlanan = bellek.recall("dosya degistirme", limit=5, workspace="/herhangi/bir/proje")
+
+    assert any("degistirmeden once oku" in d.text for d in hatirlanan)
+
+
+def test_workspace_verilmezse_hepsi_gelir(tmp_path):
+    """Eski çağrı biçimi kırılmamalı; workspace opsiyoneldir."""
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(Lesson(text="a projesi dersi", kind=LessonKind.SUCCESS, workspace="/a"))
+
+    assert bellek.recall("proje dersi", limit=5)
+
+
+def test_teknoloji_dersi_ayni_turdeki_baska_projeye_tasinir(tmp_path):
+    """Ölçüldü: 20 koşuda 38 Godot dersi öğrenildi ama yeni bir Godot klasöründe
+    HİÇBİRİ hatırlanmadı; workspace süzgeci hepsini eliyordu.
+
+    "Godot MCP'de res:// kullanma" dersi öğrenildiği KLASÖRE değil öğrenildiği
+    TEKNOLOJİYE aittir. Aradaki katman eksikti: ders ya genel ya tek projeye
+    özeldi.
+    """
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(
+        Lesson(
+            text="godot MCP araclarinda res protokol onekini kullanma",
+            kind=LessonKind.MISTAKE,
+            workspace="/eski/godot-projesi",
+            tags=("godot",),
+        )
+    )
+
+    hatirlanan = bellek.recall(
+        "godot sahnesine dugum ekle", limit=5, workspace="/yeni/oyun", tags=("godot",)
+    )
+
+    assert any("res protokol" in d.text for d in hatirlanan)
+
+
+def test_baska_teknolojinin_dersi_sizmaz(tmp_path):
+    """Etiket eşleşmiyorsa ders yine kendi projesine hapis kalır."""
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(
+        Lesson(
+            text="godot sahne dosyasini elle yazma",
+            kind=LessonKind.MISTAKE,
+            workspace="/eski/godot",
+            tags=("godot",),
+        )
+    )
+
+    hatirlanan = bellek.recall(
+        "sahne dosyasi duzenle", limit=5, workspace="/yeni/web", tags=("node",)
+    )
+
+    assert not any("godot" in d.text for d in hatirlanan)
+
+
+def test_proje_dersi_etiketsiz_kalirsa_eski_davranis_korunur(tmp_path):
+    """Etiketi olmayan eski kayıtlar hâlâ yalnız kendi projesinde hatırlanır."""
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(Lesson(text="auth modulu src/auth altinda", kind=LessonKind.SUCCESS, workspace="/a"))
+
+    assert not bellek.recall("auth nerede", limit=5, workspace="/b", tags=("python",))
+    assert bellek.recall("auth nerede", limit=5, workspace="/a", tags=("python",))
+
+
+def test_eski_dersler_workspace_turunden_etiketlenebilir(tmp_path):
+    """Etiket alanı taşınmadan önce yazılmış dersler geriye dönük etiketlenebilmeli.
+
+    Ölçüldü: bellekte 320 ders vardı, 221'i bir klasöre bağlıydı ve hiçbirinde
+    etiket yoktu. Bunlardan 51'i hâlâ diskte duran bir Godot projesine aitti;
+    etiketlenmeden yeni bir Godot projesine taşınamazlardı.
+    """
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    proje = tmp_path / "oyun"
+    proje.mkdir()
+    (proje / "project.godot").write_text("[application]\n", encoding="utf-8")
+    bellek = ChromaLessonMemory(tmp_path / "db")
+    bellek.add(
+        Lesson(
+            text="godot sahnesinde res oneki kullanma",
+            kind=LessonKind.MISTAKE,
+            workspace=str(proje),
+        )
+    )
+    bellek.add(Lesson(text="genel bir ders", kind=LessonKind.SUCCESS))
+    bellek.add(
+        Lesson(
+            text="silinmis projenin dersi",
+            kind=LessonKind.SUCCESS,
+            workspace=str(tmp_path / "olmayan"),
+        )
+    )
+
+    guncellenen = bellek.retag_from_workspace()
+
+    assert guncellenen == 1
+    etiketli = {d.text: d.tags for d in bellek.all()}
+    assert etiketli["godot sahnesinde res oneki kullanma"] == ("godot",)
+    assert etiketli["genel bir ders"] == ()
+    assert etiketli["silinmis projenin dersi"] == ()
+
+
+def test_retag_zaten_etiketli_dersi_bozmaz(tmp_path):
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    proje = tmp_path / "oyun"
+    proje.mkdir()
+    (proje / "project.godot").write_text("[application]\n", encoding="utf-8")
+    bellek = ChromaLessonMemory(tmp_path / "db")
+    bellek.add(
+        Lesson(
+            text="elle verilmis etiket",
+            kind=LessonKind.SUCCESS,
+            workspace=str(proje),
+            tags=("mcp:godot",),
+        )
+    )
+
+    assert bellek.retag_from_workspace() == 0
+    assert bellek.all()[0].tags == ("mcp:godot",)
+
+
+def test_ders_gorev_baglamiyla_birlikte_gomulur(tmp_path):
+    """`Lesson.task` açıklaması "anlamsal geri çağırmada kullanılır" diyordu ama
+    yalnız `text` gömülüyordu.
+
+    Ölçüldü: "shopify magazasinda fiyat guncelle" sorgusu, tam bu durumu anlatan
+    dersi HİÇ getirmedi — ders METNİNDE 'shopify' geçmiyor, yalnız görev
+    etiketinde geçiyordu. Belgelenen davranış uygulanmıyordu.
+    """
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    # Metinde 'shopify' YOK; yalnız görev etiketinde var.
+    bellek.add(
+        Lesson(
+            text="Once oku, tek kayitta dene, dogrula, ancak sonra topluya gec.",
+            kind=LessonKind.MISTAKE,
+            task="shopify magaza urun fiyati guncelleme",
+        )
+    )
+    for gurultu in (
+        "Kubernetes apply komutundan once namespace dogrula.",
+        "Video render uzun surer, once kisa aralik dene.",
+        "Zaman damgalari saat dilimi tasir, UTC ile karistirma.",
+        "Blender islemleri aktif secime uygulanir.",
+        "Force-push geri alinamaz ve baskalarinin isini bozar.",
+    ):
+        bellek.add(Lesson(text=gurultu, kind=LessonKind.SUCCESS, task="genel"))
+
+    hatirlanan = bellek.recall("shopify magazasinda urun fiyati guncelle", limit=3)
+
+    assert any("tek kayitta dene" in d.text for d in hatirlanan), [d.text for d in hatirlanan]
+
+
+def test_aday_havuzu_bellek_buyudukce_yeterli_kalir(tmp_path, monkeypatch):
+    """Ölçüldü: havuz `limit * 3` idi; 380 derslik bellekte 3 ders isteyince 9 aday
+    çekiliyordu.
+
+    Lexical katmanın görevi "embedding'in ıskaladığı birebir terim eşleşmesini
+    kurtarmak" ama kurtaracağı ders havuzda değilse hiçbir şey yapamaz. Havuz
+    dar kalınca ilgili ders hiç görünmüyordu.
+    """
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    for i in range(60):
+        bellek.add(Lesson(text=f"alakasiz ders numara {i}", kind=LessonKind.SUCCESS))
+    bellek.add(
+        Lesson(
+            text="stripe iadesi geri alinamaz, once test anahtariyla dene", kind=LessonKind.MISTAKE
+        )
+    )
+
+    istenen = {}
+
+    gercek_query = bellek._collection.query
+
+    def _casus(**kwargs):
+        istenen["n_results"] = kwargs.get("n_results")
+        return gercek_query(**kwargs)
+
+    monkeypatch.setattr(bellek._collection, "query", _casus)
+    hatirlanan = bellek.recall("stripe iadesi", limit=3)
+
+    assert istenen["n_results"] >= 40, "havuz bellek büyüdükçe dar kalmamalı"
+    assert any("stripe" in d.text for d in hatirlanan)
+
+
+def test_prompt_gibi_uzun_gorev_etiketi_gomulmez(tmp_path):
+    """Ölçüldü: plan adımlarında öğrenilen dersler TÜM istemi görev etiketi olarak
+    sakladı ("ANA GÖREV:\\n... PLAN ADIMI [...]").
+
+    Görev etiketi gömülmeye başlayınca bu dersler kendi istemlerine birebir
+    eşleşip aday havuzunu doldurdu ve gerçek konu derslerini geriye itti.
+    Etiket bir ETİKETTİR; prompt değildir.
+    """
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import _embed_source
+
+    prompt_gibi = Lesson(
+        text="ders metni",
+        kind=LessonKind.MISTAKE,
+        task="ANA GÖREV:\nuzun bir görev metni\n\nPLAN ADIMI [x]:\nbir şeyler yap",
+    )
+    etiket_gibi = Lesson(text="ders metni", kind=LessonKind.MISTAKE, task="godot sahne düzenleme")
+
+    assert _embed_source(prompt_gibi) == "ders metni"
+    assert _embed_source(etiket_gibi) == "godot sahne düzenleme\nders metni"

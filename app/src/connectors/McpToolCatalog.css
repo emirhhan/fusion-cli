@@ -1,0 +1,10 @@
+.mcp-tool-catalog { display: grid; gap: 12px; min-width: 0; overflow-wrap: anywhere; }
+.mcp-tool-catalog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mcp-tool-catalog h2, .mcp-tool-catalog p { margin: 0; }
+.mcp-tool-catalog p { color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.5; }
+.mcp-tool-catalog ul { margin: 0; padding: 0; list-style: none; }
+.mcp-tool-catalog > ul > li { display: grid; gap: 8px; padding: 14px 0; border-top: 1px solid var(--border-subtle); }
+.mcp-tool-catalog details { font-size: var(--text-sm); }
+.mcp-tool-catalog summary { cursor: pointer; }
+.mcp-tool-catalog details li { padding: 6px 0; }
+.mcp-tool-catalog summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }

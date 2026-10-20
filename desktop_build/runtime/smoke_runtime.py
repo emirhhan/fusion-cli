@@ -1,0 +1,250 @@
+"""Paketlenmiş ikilinin gerçekten çalıştığını doğrulayan duman testi.
+
+Model çağrısı YAPMAZ: yalnız `runtime-health --json` sözleşmesini ve
+`app` stdio protokolünün oturum durumunu (`oturum.durum`) sınar.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import platform
+import secrets
+import subprocess
+import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from pathlib import Path
+from typing import Any, cast
+
+_TIMEOUT_SANIYE = 30
+#: Süreç kimliği → stderr kuyruğu (canlı). Zaman aşımı mesajına eklenir.
+_STDERR_LOG: dict[int, list[str]] = {}
+#: Şifreli credential deposunun anahtarı boşsa oturum açılışı sistem
+#: anahtarlığına (macOS Keychain) dokunur; başsız/etkileşimsiz bir ortamda bu
+#: erişim süresiz asılı kalabilir. Duman testi gerçek sırra dokunmaz — yalnız
+#: bu tek süreç için rastgele, tek kullanımlık bir değer üretip anahtarlık
+#: yolunu devre dışı bırakır.
+_DUMMY_SECRET_ENV = {"FUSION_SECRET_KEY": secrets.token_urlsafe(32)}
+
+
+def _drain_stderr(process: subprocess.Popen[str]) -> list[str]:
+    """`stderr`'i SÜREKLİ oku ve biriktir; dönen liste canlı günlüktür.
+
+    Neden zorunlu — ölçüldü (Windows CI, run 34596348602 ve üç koşu öncesi):
+    `stderr=subprocess.PIPE` veriliyor ama hiçbir yerde OKUNMUYORDU. Windows'ta
+    boru tamponu küçüktür; paketlenmiş exe'nin import uyarıları (litellm,
+    chromadb, onnxruntime) tamponu doldurunca çocuk süreç stderr'e YAZARKEN
+    bloke oluyor ve isteğe cevap veremiyor. Belirti tam olarak gözlenene
+    uyuyordu: ilk istek geçiyor (tampon henüz dolmamış), ikincisi sonsuza kadar
+    yanıtsız kalıyor ve çocuktan hiç çıktı gelmiyor.
+
+    macOS'ta tetiklenmemesinin sebebi daha büyük tampon ve daha az uyarıdır;
+    yani bu bir Windows arızası değil, her yerde var olan bir kilitlenme riski.
+
+    Biriken satırlar hata mesajına eklenir: sessiz bir zaman aşımı yerine
+    çocuğun ne dediği görünür.
+    """
+    lines: list[str] = []
+    stderr = process.stderr
+    if stderr is None:
+        return lines
+
+    def _pump() -> None:
+        for line in stderr:
+            lines.append(line.rstrip())
+            del lines[:-40]  # kuyruk yeter; sınırsız büyümesi bellek sızdırır
+
+    threading.Thread(target=_pump, name="fusion-smoke-stderr", daemon=True).start()
+    return lines
+
+
+def _request(
+    process: subprocess.Popen[str], request_id: str, name: str, data: dict[str, object]
+) -> dict[str, Any]:
+    """İsteği yolla ve eşleşen yanıtı bekle.
+
+    Okuma zaman aşımı `select` ile DEĞİL iş parçacığıyla kurulur: `select`
+    Windows'ta yalnız soketlerde çalışır, boruda çalışmaz. Aynı kod iki
+    platformda da geçerli olsun diye taşınabilir olan seçildi.
+    """
+    assert process.stdin is not None and process.stdout is not None
+    stdout = process.stdout
+    request = {"tip": "istek", "id": request_id, "ad": name, "veri": data}
+    process.stdin.write(json.dumps(request) + "\n")
+    process.stdin.flush()
+    # Okuyucu BİLEREK `with` bloğu DEĞİL.
+    #
+    # Ölçüldü (Windows CI, run 34580249690): bir istek zaman aşımına uğradı,
+    # `AssertionError` fırlatıldı ve `with` bloğundan çıkış `shutdown(wait=True)`
+    # çağırdı; o da hâlâ `stdout.readline()` içinde bloke olan iş parçacığını join
+    # etmeye çalıştı. Çocuk süreç boruyu açık tuttuğu için readline asla dönmedi:
+    # adım 2 saat 6 dakika asılı kaldı, hata mesajı hiç görünmedi ve paket
+    # üretilmedi. Sonsuz asılma, anlaşılır bir hatadan her zaman kötüdür.
+    #
+    # Çözüm: zaman aşımında ÖNCE çocuk süreç öldürülür (böylece readline dönebilir),
+    # sonra havuz beklenmeden kapatılır.
+    reader = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fusion-smoke-read")
+    try:
+        while True:
+            try:
+                line = reader.submit(stdout.readline).result(timeout=_TIMEOUT_SANIYE)
+            except FutureTimeoutError as error:
+                process.kill()
+                kuyruk = "\n".join(_STDERR_LOG.get(id(process), [])[-12:])
+                detay = f"\nçocuk sürecin stderr kuyruğu:\n{kuyruk}" if kuyruk else ""
+                raise AssertionError(
+                    f"{name} isteği {_TIMEOUT_SANIYE} saniyede yanıt vermedi{detay}"
+                ) from error
+            assert line, f"{name} isteği yanıtsız kaldı: süreç akışı kapandı"
+            response = json.loads(line)
+            if response.get("tip") == "sonuc" and response.get("id") == request_id:
+                return cast(dict[str, Any], response.get("veri", {}))
+    finally:
+        # Bloke bir iş parçacığını beklemek asılmanın ta kendisiydi.
+        reader.shutdown(wait=False, cancel_futures=True)
+
+
+def _workspace_smoke(executable: Path, env: dict[str, str]) -> None:
+    """Paketli protokolün gerçek proje araçlarını boş HOME ile sınar."""
+    # `ignore_cleanup_errors`: Windows'ta çocuk süreç `cwd=root` tuttuğu için
+    # dizin silinemiyor ve temizlik hatası ASIL hatanın üstüne beş kat
+    # `PermissionError` yığıyordu (ölçüldü: run 34609258515 — gerçek assert
+    # neredeyse okunamaz hâle geldi). Temizlik arızası teşhisi gömmemeli.
+    with tempfile.TemporaryDirectory(
+        prefix="fusion-runtime-smoke-", ignore_cleanup_errors=True
+    ) as raw:
+        root = Path(raw) / "project-one"
+        other = Path(raw) / "project-two"
+        home = Path(raw) / "home"
+        root.mkdir()
+        other.mkdir()
+        home.mkdir()
+        # `newline="\n"` ZORUNLU: `write_text` metin kipinde yazar ve Windows
+        # `\n`'i `\r\n`'e çevirir. Ölçüldü (run 34609258515): dosya diske
+        # "Fusion hazır\r\n" olarak yazıldı, `proje.oku` onu birebir döndürdü ve
+        # `== "Fusion hazır\n"` karşılaştırması düştü. Hata üründe değil testin
+        # kurgusundaydı; beklenti platforma göre değişmemeli.
+        (root / "hello.txt").write_text("Fusion hazır\n", encoding="utf-8", newline="\n")
+        (root / "pixel.png").write_bytes(b"\x89PNG\r\n\x1a\ncontent")
+        (other / "second.txt").write_text("ikinci oturum\n", encoding="utf-8", newline="\n")
+        # Süreç `try/finally` içinde: assert düşse bile öldürülmeli. Açık kalan
+        # çocuk `cwd=root` tuttuğu için geçici dizin Windows'ta silinemiyor.
+        process = subprocess.Popen(
+            [str(executable), "app"],
+            cwd=root,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            # Windows ev dizinini HOME değil USERPROFILE belirler; ikisi de verilir.
+            env={**env, "HOME": str(home), "USERPROFILE": str(home)},
+        )
+        _STDERR_LOG[id(process)] = _drain_stderr(process)
+        listing = _request(process, "files", "proje.listele", {"yol": ""})
+        assert listing["ok"] is True and any(
+            entry["ad"] == "hello.txt" for entry in listing["girdiler"]
+        )
+        read = _request(process, "read", "proje.oku", {"yol": "hello.txt"})
+        assert read["icerik"] == "Fusion hazır\n"
+        preview = _request(process, "preview", "proje.onizle", {"yol": "pixel.png"})
+        assert preview["ok"] is True and preview["tur"] == "image"
+
+        # Uzun süren zararsız komut platforma göre değişir: Windows'ta `sleep` yoktur.
+        uzun_komut = "timeout /t 30 /nobreak" if platform.system() == "Windows" else "sleep 30"
+        started = _request(process, "start", "surec.baslat", {"komut": uzun_komut})
+        process_id = started["surec_id"]
+        processes = _request(process, "list", "surec.listele", {})
+        assert any(item["surec_id"] == process_id for item in processes["surecler"])
+        stopped = _request(process, "stop", "surec.kes", {"surec_id": process_id})
+        assert stopped["ok"] is True
+
+        switched = _request(process, "switch", "oturum.baslat", {"kok": str(other)})
+        assert switched["kok"] == str(other)
+        second = _request(process, "second", "proje.listele", {"yol": ""})
+        assert [entry["ad"] for entry in second["girdiler"]] == ["second.txt"]
+
+        capabilities = _request(process, "capabilities", "yetenek.katalog", {})
+        assert capabilities["ok"] is True
+        control = _request(process, "control", "kontrol.durum", {})
+        assert control["ok"] is True and control["gateway"]["durum"] == "kapali"
+        # Kontrol sözleşmesi sır değerlerini asla paketli süreçten dışarı çıkarmaz.
+        assert _DUMMY_SECRET_ENV["FUSION_SECRET_KEY"] not in json.dumps(control)
+
+        # Sohbet başlığı ve kalan bağlam göstergesi paketli ikilide de çalışmalı:
+        # ikisi de arayüzün her turda gösterdiği bilgi. (Ders kataloğu 12 Eylül'de
+        # arayüzden tümden kaldırıldı; buradaki eski `ders.*` kontrolü onunla
+        # birlikte düştü ve yayın hattını kırmıştı.)
+        title = _request(process, "title", "sohbet.baslik", {"metin": "merhaba, stok raporu al"})
+        assert title["ok"] is True and title["baslik"].strip()
+        status = _request(process, "status", "oturum.durum", {})
+        assert status["ok"] is True
+        gauge = status["baglam"]
+        assert gauge["sinir"] > 0 and 0 <= gauge["yuzde"] <= 100
+
+        assert process.stdin is not None
+        process.stdin.close()
+        assert process.wait(timeout=_TIMEOUT_SANIYE) == 0
+
+
+def smoke(executable: Path) -> None:
+    """Paketlenmiş ikiliyi çalıştırıp sağlık ve stdio protokolünü doğrular."""
+    env = {**os.environ, **_DUMMY_SECRET_ENV}
+    health = subprocess.run(
+        [str(executable), "runtime-health", "--json"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=_TIMEOUT_SANIYE,
+        env=env,
+    )
+    assert json.loads(health.stdout)["ok"] is True
+
+    process = subprocess.Popen(
+        [str(executable), "app"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+    # İkinci süreç de boşaltılır: aynı kilitlenme riski burada da var.
+    _STDERR_LOG[id(process)] = _drain_stderr(process)
+    response = _request(process, "smoke-1", "oturum.durum", {})
+    assert response.get("ok") is True
+    assert process.stdin is not None
+    process.stdin.close()
+    assert process.wait(timeout=_TIMEOUT_SANIYE) == 0
+    _workspace_smoke(executable, env)
+
+
+def main() -> None:
+    """CLI girişi: verilen ikili yolunu duman testinden geçirir."""
+    parser = argparse.ArgumentParser(description="Paketlenmiş Fusion ikilisini sınar.")
+    parser.add_argument(
+        "executable",
+        type=Path,
+        help="Paketlenmiş giriş noktasının yolu (Windows'ta `.exe` uzantısı eklenir)",
+    )
+    args = parser.parse_args()
+
+    # Windows'ta giriş noktası `fusion.exe`. Çağıranın (npm script, CI) uzantıyı
+    # bilmesi gerekmesin: uzantısız yol verildiyse ve karşılığı yoksa `.exe`
+    # denenir. Böylece tek bir komut satırı iki platformda da çalışır.
+    executable = args.executable
+    if not executable.exists():
+        with_exe = executable.with_name(executable.name + ".exe")
+        if with_exe.exists():
+            executable = with_exe
+
+    smoke(executable.resolve())
+    print(
+        "Duman testi geçti: sağlık, proje, süreç, oturum, katalog, kontrol, "
+        "önizleme ve ders protokolleri doğrulandı."
+    )
+
+
+if __name__ == "__main__":
+    main()

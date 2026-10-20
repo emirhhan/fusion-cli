@@ -1,0 +1,355 @@
+/* Terminalin yüksekliği SINIRLI olmak zorunda.
+ *
+ * Ölçüldü (23 Eylül, gerçek CSS zinciriyle): kök yalnız `min-height: 360px`
+ * taşıyordu ve yüksekliği içeriğe göre uzuyordu. xterm yazdıkça kutu bir satır
+ * uzuyor → ResizeObserver → `fit` bir satır fazla sayıyor → çekirdeğe resize →
+ * kabuk (zsh, SIGWINCH) prompt'u yeniden basıyor → kutu bir satır daha
+ * uzuyor. Açılıştan 8 saniye sonra 45 boyut olayı, satırlar 25→69, kutu 1079
+ * piksel (panel 712). Kullanıcının gördüğü onlarca boş prompt satırı ve
+ * "Terminal" başlığının kaybolması bu döngüydü. Kök artık paneli doldurur ve
+ * paneli AŞAMAZ.
+ *
+ * `position: relative` şart: `.terminal-tabs__probe` mutlak konumlu ve ilk
+ * kabuk boyutunu o ölçüyor. Göreli ata yokken tüm denetçiye göre konumlanıp
+ * yanlış alanı ölçüyordu (ölçüldü: 58×52 dedi, terminal 55 sütunda oturdu);
+ * kabuk yanlış sütun sayısıyla doğuyor, zsh satır başına `<` basıyordu. */
+.terminal-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+
+/* Terminali taşıyan panel, terminal varken sütun esnek kutu olur ve KAYMAZ:
+ * terminal kendi içinde kayar. Aksi hâlde panel kayar ve başlık yukarı itilir. */
+.inspector__panel:has(> .terminal-tabs) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.terminal-tabs__strip {
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  min-width: 0;
+}
+
+.terminal-tabs__list {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0 var(--space-1);
+  scrollbar-width: thin;
+}
+
+.terminal-tabs__tab {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  display: flex;
+  flex: 0 1 168px;
+  font-size: var(--text-xs);
+  gap: 6px;
+  height: 40px;
+  min-width: 96px;
+  overflow: hidden;
+  padding: 0 var(--space-2);
+  transition-duration: var(--duration-fast);
+  transition-property: background-color, border-color, color;
+  transition-timing-function: var(--ease-standard);
+}
+
+.terminal-tabs__tab > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-tabs__state {
+  color: var(--text-secondary);
+  font-size: var(--text-2xs);
+  margin-left: auto;
+}
+
+.terminal-tabs__tab:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.terminal-tabs__tab[aria-selected="true"] {
+  border-bottom-color: var(--accent-text);
+  color: var(--text-primary);
+}
+
+.terminal-tabs__dot {
+  background: var(--text-secondary);
+  border-radius: 50%;
+  flex: 0 0 7px;
+  height: 7px;
+  width: 7px;
+}
+
+.terminal-tabs__dot--calisiyor { background: var(--text-warning); }
+.terminal-tabs__dot--durduruldu { background: var(--text-secondary); }
+.terminal-tabs__dot--bitti { background: var(--text-success); }
+.terminal-tabs__dot--hata { background: var(--text-danger); }
+
+.terminal-tabs__new,
+.terminal-tabs__close,
+.terminal-tabs__actions button,
+.terminal-tabs__composer button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  display: inline-flex;
+  justify-content: center;
+  min-height: 40px;
+  min-width: 40px;
+  transition-duration: var(--duration-fast);
+  transition-property: background-color, color, transform;
+  transition-timing-function: var(--ease-standard);
+}
+
+.terminal-tabs__new:hover,
+.terminal-tabs__close:hover,
+.terminal-tabs__actions button:hover,
+.terminal-tabs__composer button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.terminal-tabs__new:active,
+.terminal-tabs__close:active,
+.terminal-tabs__actions button:active,
+.terminal-tabs__composer button:active {
+  transform: scale(0.96);
+}
+
+.terminal-tabs__composer {
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  padding: var(--space-2);
+}
+
+.terminal-tabs__composer input {
+  background: var(--surface-canvas);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font: 12px var(--font-mono);
+  min-height: 36px;
+  min-width: 0;
+  padding: 0 var(--space-3);
+}
+
+.terminal-tabs__composer button[type="submit"] {
+  background: var(--control-primary);
+  color: var(--text-inverse);
+  padding: 0 var(--space-3);
+}
+
+.terminal-tabs__composer button:disabled { opacity: 0.45; }
+
+.terminal-tabs__panel {
+  background: #0f1115;
+  border: 1px solid rgb(255 255 255 / 9%);
+  border-radius: var(--radius-md);
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-rows: auto minmax(0, 1fr);
+  margin-top: var(--space-3);
+  min-height: 280px;
+  overflow: hidden;
+}
+
+.terminal-tabs__toolbar {
+  align-items: center;
+  background: #171a20;
+  border-bottom: 1px solid rgb(255 255 255 / 9%);
+  color: #f1f3f5;
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  min-height: 48px;
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+}
+
+.terminal-tabs__toolbar > div:first-child {
+  display: grid;
+  min-width: 0;
+}
+
+.terminal-tabs__toolbar strong,
+.terminal-tabs__toolbar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-tabs__toolbar strong { font: 600 11px/1.4 var(--font-mono); }
+.terminal-tabs__toolbar > div:first-child span { color: #9ca3af; font: 10px/1.4 var(--font-mono); }
+
+.terminal-tabs__status {
+  color: #c4c9d0;
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.terminal-tabs__status--calisiyor { color: #f4c66e; }
+.terminal-tabs__status--bitti { color: var(--text-success); }
+.terminal-tabs__status--hata { color: #ff9b95; }
+
+.terminal-tabs__actions { display: flex; }
+.terminal-tabs__actions button { color: #aeb5bf; font-size: var(--text-2xs); }
+
+.terminal-tabs__output {
+  color: #e5e7eb;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3);
+}
+
+.terminal-tabs__output pre {
+  font: 11px/1.6 var(--font-mono);
+  margin: 0;
+  tab-size: 2;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.terminal-tabs__empty {
+  align-items: center;
+  color: var(--text-secondary);
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  font-size: var(--text-xs);
+  justify-content: center;
+  min-height: 260px;
+  text-align: center;
+}
+
+.terminal-tabs__empty button {
+  background: var(--control-primary);
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-inverse);
+  min-height: 40px;
+  padding: 0 var(--space-3);
+}
+
+.terminal-tabs > [role="tabpanel"] {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Yazar kuralı `display: flex`, tarayıcının `[hidden] { display: none }`
+ * kuralını ezer; bu olmadan pasif sekmelerin terminalleri de görünürdü. */
+.terminal-tabs > [role="tabpanel"][hidden],
+.xterm-session[hidden] {
+  display: none;
+}
+
+.xterm-session {
+  background: #0f1115;
+  border: 1px solid rgb(255 255 255 / 9%);
+  border-radius: var(--radius-md);
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  margin-top: var(--space-3);
+  /* `height: 100%` + `margin-top` kutuyu kenar boşluğu kadar taşırıyordu;
+     esnek doldurma ikisini birlikte hesaba katar. */
+  min-height: 0;
+  overflow: hidden;
+}
+
+.xterm-session__actions {
+  background: #171a20;
+  border-bottom: 1px solid rgb(255 255 255 / 9%);
+  display: flex;
+  justify-content: flex-end;
+  min-height: 36px;
+}
+
+.xterm-session__actions button {
+  background: transparent;
+  border: 0;
+  color: #aeb5bf;
+  font-size: var(--text-2xs);
+  padding: 0 var(--space-2);
+}
+
+.xterm-session__actions button:hover {
+  background: rgb(255 255 255 / 7%);
+  color: #f1f3f5;
+}
+
+.xterm-session__host {
+  min-height: 0;
+  overflow: hidden;
+  padding: var(--space-2);
+}
+
+.xterm-session__host .xterm { height: 100%; }
+
+.xterm-session__status {
+  background: #171a20;
+  color: #9ca3af;
+  font: 10px/1.5 var(--font-mono);
+  min-height: 20px;
+  padding: 2px var(--space-2);
+}
+
+.process-empty { color: var(--text-secondary); font-size: var(--text-xs); }
+.process-error { color: var(--text-danger); font-size: var(--text-xs); }
+
+.process-list button {
+  background: var(--control-primary);
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-inverse);
+  min-height: 32px;
+  padding: 4px var(--space-3);
+}
+
+.process-list { display: grid; gap: var(--space-2); }
+.process-list article {
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  gap: var(--space-2);
+  justify-content: space-between;
+  padding: var(--space-2) 0 var(--space-3);
+}
+.process-list article > div { display: grid; gap: 3px; }
+.process-list article > div:last-child { justify-items: end; }
+.process-list strong { font: 11px/1.4 var(--font-mono); overflow-wrap: anywhere; }
+.process-list span { color: var(--text-secondary); font-size: var(--text-2xs); }
+.process-status--calisiyor { color: var(--text-warning) !important; }
+.process-status--bitti { color: var(--text-success) !important; }
+.process-status--hata { color: var(--text-danger) !important; }
+
+/* Ölçüm kutusu: terminal paneliyle aynı alanı kaplar, görünmez.
+   `display: none` DEĞİL — ölçülemeyen bir kutu sıfır boyut döndürür ve kabuk
+   yine yanlış sayıyla doğardı. */
+.terminal-tabs__probe {
+  flex: 1;
+  min-height: 0;
+  pointer-events: none;
+  position: absolute;
+  visibility: hidden;
+  inset: var(--terminal-strip-height, 36px) 0 0 0;
+}

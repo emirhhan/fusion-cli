@@ -1,0 +1,58 @@
+# Davranışsal browser benchmarkı.
+#
+# Bu suite varsayılan starter setten AYRIDIR çünkü gerçek Chromium/Playwright ister.
+# Model acceptance kodunu görmez; görev bittikten sonra `evals.behavioral` çalışır.
+
+tasks:
+  - id: arena-survival-core-loop
+    approval: permissive
+    request: |-
+      Tarayıcıda çalışan, bağımlılığı minimum olan bir 2D arena survival oyunu yap.
+
+      Temel oynanış:
+      - Oyuncu WASD veya ok tuşlarıyla hareket etsin.
+      - Düşmanlar oyuncuya doğru gelsin.
+      - Oyuncu otomatik olarak yakındaki düşmanlara mermi atsın.
+      - Mermi düşmana vurduğunda düşmanın HP'si gerçekten azalsın.
+      - HP sıfıra inen düşman gerçekten ölsün ve XP düşürsün.
+      - Düşman oyuncuya temas ettiğinde oyuncunun HP'si gerçekten azalsın.
+      - XP toplanınca oyuncu seviye atlayabilsin.
+      - Ölüm ve yeniden başlatma akışı olsun.
+
+      Teslim en az index.html içersin ve doğrudan tarayıcıda çalışsın.
+
+      DAVRANIŞSAL TEST SÖZLEŞMESİ:
+      Normal oyun koduna bağlı, görünmez bir debug yüzeyi de ekle:
+
+        window.__FUSION_GAME_DEBUG__ = {
+          snapshot(),
+          spawnEnemy(options),
+          spawnXp(options),
+          restart()
+        }
+
+      snapshot() JSON-serileştirilebilir olarak en az şunları döndürmeli:
+        {
+          player: {x, y, hp, maxHp, level, xp},
+          enemies: [{id, x, y, hp, maxHp}],
+          xpGems: [{x, y, value}],
+          gameOver: boolean
+        }
+
+      spawnEnemy({x, y, hp, speed}) oyunun NORMAL enemy koleksiyonuna gerçek bir
+      düşman eklemeli ve benzersiz id'sini döndürmeli. Test düşmanı da normal mermi,
+      hasar, ölüm ve XP kurallarından geçmeli.
+
+      spawnXp({x, y, value}) oyunun NORMAL XP/pickup sistemine gerçek bir XP nesnesi
+      eklemeli. Oyuncunun üstüne bırakıldığında normal toplama/level-up yolu çalışmalı.
+
+      restart() oyunun normal restart akışını kullanmalı.
+
+      Bu debug yüzeyi acceptance testi içindir; ayrı/fake bir oyun state'i üretme.
+      Test hook'ları ekranda görünmek zorunda değildir.
+
+      İş bitince oyunu gerçekten çalıştır ve console hatalarını da düzelt.
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: python -m evals.behavioral arena

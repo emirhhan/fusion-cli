@@ -1,0 +1,156 @@
+"""Tüm testler için ortak izolasyon.
+
+Testler geliştiricinin KİŞİSEL yapılandırmasını okumamalı. `load_config()`
+`~/.config/fusion-cli/config.yaml` dosyasını buluyordu; testler o makinedeki
+ayara göre geçip kalıyordu.
+
+Ölçüldü (2026-07-26): kişisel config'e `provider: nvidia` yazılınca dört test
+kırıldı — kod hiç değişmemişti. Bu, testlerin yalan söylemesinin en sinsi
+biçimidir: CI'da yeşil, geliştiricide kırmızı (ya da tersi).
+"""
+
+from __future__ import annotations
+
+import gc
+import os
+import sys
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def test_yorumlayicisi_pathte(monkeypatch):
+    """Kabukta koşan test komutları (`python`, `pytest`) testi koşan ortamı bulsun.
+
+    Ölçüldü (11 Ekim, yeni Mac): genel `python`/`pytest` kurulu olmayan makinede
+    iki test "command not found" ile düştü — kod değişmemişti, eski makinede bu
+    komutlar sistem genelinde vardı. Test sonucu makinenin PATH'ine bağlı olmamalı.
+    """
+    venv_bin = str(Path(sys.executable).parent)
+    monkeypatch.setenv("PATH", venv_bin + os.pathsep + os.environ.get("PATH", ""))
+
+
+@pytest.fixture(autouse=True)
+def ortam_sizintisini_geri_al(monkeypatch):
+    """Her test aynı süreç ortamıyla başlasın ve bitsin.
+
+    Üretim kodu sırları `os.environ`'a doğrudan yazıyor (`.env` yükleme, sır
+    deposu, gateway). `monkeypatch` bunları geri almaz. Ölçüldü (30 Eylül): bir
+    testin bıraktığı `OPENROUTER_API_KEY` sonraki `load_config()`'i NIM'siz
+    budatıp `test_keys` testini yalnız tam koşuda düşürüyordu.
+
+    Geliştiricinin kabuğundaki gerçek anahtarlar da testlere girmez: aksi hâlde
+    test anahtarlı makinede geçer, CI'da düşerdi.
+    """
+    from fusion_cli.config import keys
+
+    for degisken in (keys.OPENROUTER_ENV, keys.NIM_ENV):
+        monkeypatch.delenv(degisken, raising=False)
+    onceki = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(onceki)
+
+
+@pytest.fixture
+def yazma_yasagi_kurulabilir():
+    """`chmod` ile yazma yasağı kurulabilen ortam şartı.
+
+    root dosya izinlerini yok sayar (bulut kapsayıcıları root çalışır); orada
+    "yazılamayan dosya" senaryosu kurulamaz ve test yanlış yere işaret ederdi.
+    """
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root dosya izinlerini yok sayar; yazma yasağı kurulamaz")
+
+
+@pytest.fixture(autouse=True)
+def izole_kalici_bellek():
+    """Testler arasında Chroma istemcilerinin dosya tanıtıcılarını bırak."""
+    yield
+
+    from fusion_cli.memory.store import reset_clients
+
+    reset_clients()
+    gc.collect()
+
+
+@pytest.fixture(autouse=True)
+def izole_kullanici_yapilandirmasi(monkeypatch, tmp_path):
+    """Yalnızca pakete gömülü `defaults.yaml` kullanılsın.
+
+    Ortam değişkenleriyle gelen override'lar da temizlenir: geliştiricinin
+    kabuğunda `FUSION_CONFIG` tanımlıysa testler onu okurdu.
+    """
+    from fusion_cli.config import loader
+
+    monkeypatch.setattr(loader, "user_config_candidates", tuple)
+    for degisken in ("FUSION_CONFIG", "FUSION_HOME"):
+        monkeypatch.delenv(degisken, raising=False)
+    # AppSession konuşma dökümünü kalıcı belleğe yazar. Test turları gerçek
+    # ~/.local/share/fusion-cli/memory geçmişine karışmamalıdır.
+    # Keep the persistent-memory fixture outside the workspace root. Appserver
+    # workspace tests intentionally inspect the complete project tree; placing
+    # Chroma's files below ``tmp_path`` makes that host-only test dependency
+    # look like user project content and also pollutes Git status.
+    monkeypatch.setenv(
+        "FUSION_MEMORY_DIR",
+        str(tmp_path.parent / f".{tmp_path.name}-fusion-memory"),
+    )
+    # Web profilleri ve paylaşılan Chrome kiraları kullanıcı veri dizininde durur.
+    # Havuzu kapatan bir test gerçek dizine giderse kullanıcının AÇIK Fusion
+    # Chrome'unu kapatabilirdi.
+    user_data = tmp_path.parent / f".{tmp_path.name}-fusion-data"
+    monkeypatch.setenv("XDG_DATA_HOME", str(user_data))
+    monkeypatch.setenv("LOCALAPPDATA", str(user_data))
+    # Chrome köprüsü açılınca eşleşme dosyası yapılandırma köküne yazılır ve
+    # Chrome'a yerel mesajlaşma sunucusu tanıtılır; testler gerçek dizinlere dokunmaz.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path.parent / f".{tmp_path.name}-fusion-config"))
+    monkeypatch.setenv("FUSION_NO_NATIVE_HOST", "1")
+
+
+@pytest.fixture(autouse=True)
+def izole_sistem_anahtarligi(monkeypatch):
+    """Hiçbir test gerçek sistem anahtarlığına (macOS Keychain vb.) dokunmasın.
+
+    `GatewayApp` store verilmeden kurulunca `_default_secret_store` → `secret_key`
+    → `_keyring_master_key` gerçek keychain'e gidip master key'i YAZMAYA çalışıyordu.
+    Bu, geliştiricinin login keychain'ine yan etki bırakıyor ve GUI olmayan süreçte
+    "saklanacağı anahtar zinciri bulunamadı" hatasını kullanıcının ekranına düşürüyordu.
+    Anahtarı açıkça veren testler (`FernetSecretStore(secret_key=...)`) etkilenmez.
+    """
+    from fusion_cli.config import keys
+
+    monkeypatch.setattr(keys, "_keyring_master_key", lambda: None)
+    monkeypatch.setattr(keys, "_local_master_key", lambda: None)
+    monkeypatch.delenv(keys.FUSION_SECRET_ENV, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def izole_web_aramasi(monkeypatch):
+    """Hiçbir test gerçek arama motoruna çıkmasın.
+
+    Dış platform kontrolü (`platform_check`) istekte "Instagram", "Shopify" gibi
+    bir ad geçince `web_search` çalıştırır. Bu adları içeren eski testler aksi
+    halde ağa bağımlı, yavaş ve kararsız olurdu. Aramayı sınayan testler kendi
+    sahte uç noktalarını `monkeypatch` ile verir.
+    """
+    from fusion_cli.tools import web
+
+    monkeypatch.setattr(web, "SEARCH_ENDPOINTS", (lambda _query: [],))
+
+
+@pytest.fixture(autouse=True)
+def _yerlesik_beceriler_yalitilir(tmp_path_factory, monkeypatch):
+    """Pakete gömülü beceriler keşif testlerinin beklediği listeye karışmasın.
+
+    Yerleşik beceriyi ölçen test bu yamayı kendi içinde geri alır.
+    """
+    bos = tmp_path_factory.mktemp("yerlesik-beceri-yok")
+    monkeypatch.setattr("fusion_cli.tools.capabilities.bundled_skills_dir", lambda: bos)
+
+
+@pytest.fixture(autouse=True)
+def _codex_hazir_degil(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Testler makinedeki gerçek Codex girişine bağlı olmasın: öğretmen yedeği eklenmez."""
+    monkeypatch.setattr("fusion_cli.providers.codex_cli.codex_ready", lambda: False)

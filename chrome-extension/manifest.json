@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Fusion Browser",
+  "version": "0.3.11",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlmjJHQyf4FrWteVzv7cwI7MlVml805Kw4SKtET6OAHPGvBT+YWcAueXqCBNpNvKuahQGpsxMHioLQAuKpXwf3kIiH1xcljUJ5IuBhJwkMAauYK+BGy7mJpCi4v+eZZZ9n2cgu4tmKnn8pYiflVi5uKFsxdUg6FjIIH4e4GjXRSURMMORXCaRdov0hrBWGo7cLZWoXkT1wR4ztf3DJJiezgQPqY4Hv+1B0E2R2s0hJFdlVsC0LzHMtF2dboBC7f+YtMu61FEKyk68c8vSL1UWDqgbd2ygEfJjS9NzvEK2H0wXJ+Ordc/R43w+XA9Y2Odb70/faHO80HreB/1BGXNvSQIDAQAB",
+  "description": "Fusion'ı Chrome'a bağlar: yan panelde sohbet eder, izin verdiğiniz sitelerde sayfayı okur, kaydırır ve tıklar.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "scripting",
+    "activeTab",
+    "tabs",
+    "nativeMessaging",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "action": {
+    "default_title": "Fusion",
+    "default_icon": {
+      "32": "icons/fusion-32.png"
+    }
+  },
+  "icons": {
+    "32": "icons/fusion-32.png",
+    "128": "icons/fusion-128.png"
+  }
+}

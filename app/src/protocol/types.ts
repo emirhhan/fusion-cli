@@ -1,0 +1,101 @@
+/** Tel biçimi: satır başına bir JSON nesnesi. Anahtarlar Türkçedir. */
+
+export type GelenTip = "olay" | "sonuc" | "soru";
+
+export interface GelenMesaj {
+  tip: GelenTip;
+  id?: string;
+  veri: Record<string, unknown>;
+}
+
+export interface Istek {
+  tip: "istek";
+  id: string;
+  ad: string;
+  veri: Record<string, unknown>;
+}
+
+export interface Cevap {
+  tip: "cevap";
+  id: string;
+  veri: Record<string, unknown>;
+}
+
+/** Onay ya da serbest metin sorusu. `tur` alanı hangisi olduğunu söyler. */
+export interface Soru {
+  tur: "onay" | "soru";
+  arac?: string;
+  /** Çekirdek `ad='değer'` listesi gönderir; eski istemciler sözlük bekliyordu. */
+  argumanlar?: string[] | Record<string, string>;
+  /** İzin kartının insan dilindeki tek cümlelik başlığı. */
+  baslik?: string;
+  /** Komut, dosya yolu ya da adres — olduğu gibi gösterilir. */
+  hedef?: string;
+  tehlike?: string | null;
+  /** Neden soruluyor / silme hedefi — tehlike değil, bilgi. */
+  neden?: string | null;
+  soru?: string;
+  secenekler?: { deger?: string; etiket: string; aciklama?: string }[];
+  onerilen?: string | null;
+  /** Düzenleme onaylarında "ne değişecek" önizlemesi (unified diff). */
+  diff?: string;
+}
+
+/**
+ * Kalan bağlam ölçüsü (`oturum.durum` → `baglam`).
+ *
+ * `sinir` geçmişin özetleme eşiğidir; modelin tam token penceresi değildir.
+ * Model penceresi yalnız doğrulanabilirse ayrıca bildirilir.
+ */
+export interface BaglamOlcusu {
+  kullanilan: number;
+  sinir: number;
+  yuzde: number;
+  model?: string | null;
+  model_siniri_token?: number | null;
+  son_girdi_token?: number | null;
+  son_girdi_model?: string | null;
+  son_girdi_pencere_token?: number | null;
+  son_girdi_pencere_yuzde?: number | null;
+}
+
+/**
+ * Tel üzerinden gelen değeri doğrula. Çekirdek eski sürümse alan hiç gelmez;
+ * bozuk gelirse gösterge yanlış bir sayı çizmek yerine hiç çizilmez.
+ */
+export function baglamOlcusuOku(deger: unknown): BaglamOlcusu | null {
+  if (!deger || typeof deger !== "object") return null;
+  const {
+    kullanilan, sinir, yuzde, model, model_siniri_token, son_girdi_token,
+    son_girdi_model, son_girdi_pencere_token, son_girdi_pencere_yuzde,
+  } = deger as Record<string, unknown>;
+  const sayilar = [kullanilan, sinir, yuzde];
+  if (!sayilar.every((sayi) => typeof sayi === "number" && Number.isFinite(sayi) && sayi >= 0)) {
+    return null;
+  }
+  if (model !== undefined && model !== null && typeof model !== "string") return null;
+  if (model_siniri_token !== undefined && model_siniri_token !== null && (
+    typeof model_siniri_token !== "number" || !Number.isInteger(model_siniri_token) || model_siniri_token <= 0
+  )) return null;
+  if (son_girdi_token !== undefined && son_girdi_token !== null && (
+    typeof son_girdi_token !== "number" || !Number.isInteger(son_girdi_token) || son_girdi_token < 0
+  )) return null;
+  if (son_girdi_model !== undefined && son_girdi_model !== null && typeof son_girdi_model !== "string") return null;
+  if (son_girdi_pencere_token !== undefined && son_girdi_pencere_token !== null && (
+    typeof son_girdi_pencere_token !== "number" || !Number.isInteger(son_girdi_pencere_token) || son_girdi_pencere_token <= 0
+  )) return null;
+  if (son_girdi_pencere_yuzde !== undefined && son_girdi_pencere_yuzde !== null && (
+    typeof son_girdi_pencere_yuzde !== "number" || !Number.isFinite(son_girdi_pencere_yuzde) || son_girdi_pencere_yuzde < 0 || son_girdi_pencere_yuzde > 100
+  )) return null;
+  return {
+    kullanilan: kullanilan as number,
+    sinir: sinir as number,
+    yuzde: Math.min(100, yuzde as number),
+    ...(model !== undefined ? { model: model as string | null } : {}),
+    ...(model_siniri_token !== undefined ? { model_siniri_token: model_siniri_token as number | null } : {}),
+    ...(son_girdi_token !== undefined ? { son_girdi_token: son_girdi_token as number | null } : {}),
+    ...(son_girdi_model !== undefined ? { son_girdi_model: son_girdi_model as string | null } : {}),
+    ...(son_girdi_pencere_token !== undefined ? { son_girdi_pencere_token: son_girdi_pencere_token as number | null } : {}),
+    ...(son_girdi_pencere_yuzde !== undefined ? { son_girdi_pencere_yuzde: son_girdi_pencere_yuzde as number | null } : {}),
+  };
+}

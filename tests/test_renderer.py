@@ -1,0 +1,1151 @@
+"""Render — satır bütünlüğü ve kanal ayrımı (eski "anlamsız görüntü" hatasının testi)."""
+
+from __future__ import annotations
+
+import io
+
+from rich.console import Console
+
+from fusion_cli.core.events import (
+    ApprenticeHandoff,
+    Channel,
+    ErrorOccurred,
+    ExecutionCompleted,
+    ModelCallFinished,
+    ModelCallStarted,
+    NarrationPublished,
+    NoFileChanges,
+    PlatformChecked,
+    SelfReviewFinished,
+    StatusChanged,
+    TeacherLessonRecorded,
+    TeacherLimitationFound,
+    TeacherMemoryUsed,
+    TeacherPlanPrepared,
+    TeacherTaskClassified,
+    TokenReceived,
+    TurnFinished,
+    TurnOutcome,
+)
+from fusion_cli.core.types import ModelResult, TokenUsage
+from fusion_cli.ui import messages, theme
+from fusion_cli.ui.renderer import ConsoleRenderer
+
+#: Cevabın başındaki işaret; akan metnin önüne konur.
+MARK = theme.ICON_ANSWER
+
+
+def _renderer():
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    return ConsoleRenderer(console), buffer
+
+
+def test_yarim_satir_varken_durum_satiri_metnin_ustune_binmez():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "yarim cumle"))
+    renderer.handle(StatusChanged("araç çalıştı"))
+    renderer.handle(TurnFinished())  # bekleyen durum satırını boşaltır
+
+    satirlar = buffer.getvalue().splitlines()
+    assert satirlar[0] == f"{MARK} yarim cumle"
+    assert "araç çalıştı" in satirlar[1]
+
+
+def test_ogretmen_karari_plani_ve_siniri_terminalde_gorunur():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TeacherTaskClassified(size="orta-buyuk", reasons=("dosya değişikliği",)))
+    renderer.handle(TeacherPlanPrepared(steps=2, structured=True))
+    renderer.handle(
+        TeacherLimitationFound(
+            topic="Story çıkartması",
+            reason="API desteklemiyor",
+            alternative="Bildirimle yayınla",
+        )
+    )
+    renderer.handle(TurnFinished())
+
+    output = buffer.getvalue()
+    assert "orta-büyük" in output
+    assert "2 adım" in output
+    assert "Bildirimle yayınla" in output
+
+
+def test_hafizadan_plan_ve_ders_kaydi_terminalde_gorunur():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TeacherMemoryUsed(steps=3, similarity=0.62))
+    renderer.handle(TeacherLessonRecorded(success=True, reused=False))
+    renderer.handle(TeacherLessonRecorded(success=False, reused=True))
+    renderer.handle(TurnFinished())
+
+    output = buffer.getvalue()
+    assert "Hafızadan ilerleniyor: 3 adım" in output
+    assert "Öğretmen planı hafızaya yazıldı" in output
+    assert "Hafızadaki plan tutmadı" in output
+
+
+def test_anlatim_ve_cirak_devri_terminalde_gorunur():
+    renderer, buffer = _renderer()
+
+    renderer.handle(NarrationPublished(text="İsteği şöyle anladım: modül ekleyeceğim."))
+    renderer.handle(
+        ApprenticeHandoff(
+            selected_model="chatgpt_web/main/auto",
+            apprentice_model="nvidia_nim/c",
+            teacher_model="chatgpt_web/main/auto",
+        )
+    )
+    renderer.handle(TurnFinished())
+
+    output = buffer.getvalue()
+    assert "İsteği şöyle anladım" in output
+    assert "işi nvidia_nim/c yapıyor" in output
+
+
+def test_platform_kontrolu_terminalde_gorunur():
+    renderer, buffer = _renderer()
+
+    renderer.handle(PlatformChecked(platforms=("Instagram",), method="resmi-kaynak", sources=1))
+    renderer.handle(PlatformChecked(platforms=("Shopify",), method="dogrulanamadi", sources=0))
+    renderer.handle(TurnFinished())
+
+    output = buffer.getvalue()
+    assert "Resmi kaynak kontrol edildi: Instagram (1 kaynak)" in output
+    assert "Shopify kısıtları doğrulanmadı" in output
+
+
+def test_tam_satirdan_sonra_bos_satir_eklenmez():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "tam satir\n"))
+    renderer.handle(StatusChanged("durum"))
+
+    assert buffer.getvalue().splitlines()[0] == f"{MARK} tam satir"
+
+
+def test_kanal_degisiminde_satir_kapatilir_ve_baslik_basilir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "ana akis"))
+    renderer.handle(TokenReceived(Channel.SUBAGENT, "alt akis"))
+
+    satirlar = buffer.getvalue().splitlines()
+    assert satirlar[0] == f"{MARK} ana akis"
+    assert "alt-ajan" in satirlar[1]
+    assert satirlar[2] == "alt akis"
+
+
+def test_ayni_kanalda_pespese_parcalar_birlesir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "mer"))
+    renderer.handle(TokenReceived(Channel.MAIN, "haba"))
+    renderer.handle(TurnFinished())
+
+    assert buffer.getvalue().splitlines()[0] == f"{MARK} merhaba"
+
+
+def test_model_ciktisindaki_koseli_parantez_markup_sanilmaz():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "dizi[0] ve [bold] metni\n"))
+
+    assert "dizi[0] ve [bold] metni" in buffer.getvalue()
+
+
+def test_hata_mesajindaki_markup_yorumlanmaz():
+    renderer, buffer = _renderer()
+
+    renderer.handle(ErrorOccurred("beklenmedik [token] geldi"))
+
+    assert "[token]" in buffer.getvalue()
+
+
+def test_tur_sonucu_acik_durum_ve_sure_gosterir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TurnOutcome(status="partial", elapsed_s=65.0))
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue().lower()
+    assert "görev kısmi" in cikti
+    assert "1m05s" in cikti
+
+
+def test_basarili_model_cagrisi_sure_ve_token_gosterir():
+    """Ayrıntı yalnızca fusion modunda basılır; agent'ta tur özeti yeterli."""
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    renderer = ConsoleRenderer(console, show_call_details=True)
+    result = ModelResult(
+        name="agent",
+        model="m",
+        text="x",
+        latency_ms=2900,
+        ok=True,
+        usage=TokenUsage(prompt_tokens=3, completion_tokens=7),
+    )
+
+    renderer.handle(ModelCallFinished(role="agent", result=result))
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "2.9s" in cikti and "10" in cikti
+
+
+def test_show_thinking_acikken_yapili_reasoning_alani_basilir():
+    """`ModelResult.reasoning` (litellm'in `reasoning_content`'ı) `<think>` etiketiyle
+    AYNI `--show-thinking` bayrağını ve AYNI sönük stili kullanır (Faz 5, Görev 4)."""
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    renderer = ConsoleRenderer(console, show_thinking=True)
+    result = ModelResult(
+        name="agent",
+        model="m",
+        text="cevap",
+        latency_ms=100,
+        ok=True,
+        reasoning="önce X'i dene, olmazsa Y",
+    )
+
+    renderer.handle(ModelCallFinished(role="agent", result=result))
+
+    assert "önce X'i dene, olmazsa Y" in buffer.getvalue()
+
+
+def test_show_thinking_kapaliyken_yapili_reasoning_basilmaz():
+    renderer, buffer = _renderer()
+    result = ModelResult(
+        name="agent",
+        model="m",
+        text="cevap",
+        latency_ms=100,
+        ok=True,
+        reasoning="gizli düşünme",
+    )
+
+    renderer.handle(ModelCallFinished(role="agent", result=result))
+
+    assert "gizli düşünme" not in buffer.getvalue()
+
+
+def test_reasoning_kose_parantez_icerse_bile_bozulmaz():
+    """`console.out(highlight=False)` kullanılmazsa `[...]` Rich markup sanılırdı."""
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    renderer = ConsoleRenderer(console, show_thinking=True)
+    result = ModelResult(
+        name="agent",
+        model="m",
+        text="cevap",
+        latency_ms=100,
+        ok=True,
+        reasoning="liste: [a, b, c]",
+    )
+
+    renderer.handle(ModelCallFinished(role="agent", result=result))
+
+    assert "[a, b, c]" in buffer.getvalue()
+
+
+def test_agent_modunda_adim_ayrintisi_basilmaz():
+    """Her adım için satır basmak tur özetiyle çakışıyor ve gürültü oluyor."""
+    renderer, buffer = _renderer()
+    result = ModelResult(name="agent", model="m", text="x", latency_ms=100, ok=True)
+
+    renderer.handle(ModelCallFinished(role="agent", result=result))
+
+    assert buffer.getvalue() == ""
+
+
+def test_basarisiz_cagri_moddan_bagimsiz_gosterilir():
+    """Hata her zaman görünmeli; sessizce yutulamaz."""
+    renderer, buffer = _renderer()
+    result = ModelResult(name="a", model="m", text="", latency_ms=1, ok=False, error="ag yok")
+
+    renderer.handle(ModelCallFinished(role="a", result=result))
+
+    assert "ag yok" in buffer.getvalue()
+
+
+def test_model_cagri_baslangici_basilmaz():
+    """Yedek zinciriyle birlikte model kimliği ekranı kaplıyordu."""
+    from fusion_cli.core.events import ModelCallStarted
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(ModelCallStarted(role="agent", model="a/b | c/d | e/f"))
+
+    assert buffer.getvalue() == ""
+
+
+def test_uzun_saglayici_hatasi_ozetlenir():
+    renderer, buffer = _renderer()
+    uzun = (
+        "RateLimitError: litellm.RateLimitError: OpenrouterException - "
+        '{"error":{"message":"Rate limit exceeded","code":429}} LiteLLM Retried: 1 times'
+    )
+    result = ModelResult(name="a", model="m", text="", latency_ms=1, ok=False, error=uzun)
+
+    renderer.handle(ModelCallFinished(role="a", result=result))
+
+    cikti = buffer.getvalue()
+    assert "RateLimitError" in cikti
+    assert "LiteLLM Retried" not in cikti
+    assert len(cikti) < 200
+
+
+def test_quiet_modda_durum_basilmaz_ama_metin_akar():
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    renderer = ConsoleRenderer(console, show_progress=False)
+
+    renderer.handle(StatusChanged("gizli"))
+    renderer.handle(TokenReceived(Channel.MAIN, "gorunur\n"))
+
+    cikti = buffer.getvalue()
+    assert "gizli" not in cikti
+    assert "gorunur" in cikti
+
+
+def _fusion_sonuc(**overrides):
+    from fusion_cli.core.types import FusionResult, ModelResult, VerdictSource
+
+    aday = ModelResult(name="a", model="m", text="A cevabi", latency_ms=10, ok=True)
+    defaults = {
+        "task": "t",
+        "task_type": "general",
+        "winner": "a",
+        "final_answer": "nihai cevap",
+        "source": VerdictSource.JUDGE,
+        "candidates": (aday,),
+        "reason": "a daha net anlatmis",
+        "scores": {"a": 0.9},
+        "synthesized": False,
+    }
+    defaults.update(overrides)
+    return FusionResult(**defaults)
+
+
+def test_sentez_gosterilirken_hakem_gerekcesi_basilmaz():
+    from fusion_cli.core.events import FusionCompleted
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(FusionCompleted(_fusion_sonuc(synthesized=True)))
+
+    cikti = buffer.getvalue()
+    assert "sentez" in cikti
+    # Gerekçe kazananı anlatır; sentez metninin yanında gösterilmesi yanıltıcı olur.
+    assert "a daha net anlatmis" not in cikti
+
+
+def test_sentez_yokken_hakem_gerekcesi_basilir():
+    from fusion_cli.core.events import FusionCompleted
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(FusionCompleted(_fusion_sonuc()))
+
+    cikti = buffer.getvalue()
+    assert "kazanan: a" in cikti
+    assert "a daha net anlatmis" in cikti
+
+
+def test_cevapsiz_turda_fusion_bloku_basilmaz():
+    from fusion_cli.core.events import FusionCompleted
+    from fusion_cli.core.types import VerdictSource
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(FusionCompleted(_fusion_sonuc(source=VerdictSource.NONE, final_answer="")))
+
+    assert buffer.getvalue().strip() == ""
+
+
+def test_tum_cevaplar_secenegi_aday_metinlerini_gosterir():
+    from fusion_cli.core.events import FusionCompleted
+
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    renderer = ConsoleRenderer(console, show_all_answers=True)
+
+    renderer.handle(FusionCompleted(_fusion_sonuc()))
+
+    assert "A cevabi" in buffer.getvalue()
+
+
+def test_puan_tablosu_kazanani_isaretler():
+    from fusion_cli.core.events import FusionCompleted
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(FusionCompleted(_fusion_sonuc()))
+
+    assert "0.90" in buffer.getvalue()
+
+
+# --- Düşünme metni ayıklama --------------------------------------------------- #
+
+
+def test_kapali_dusunme_blogu_gosterilmez():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "<think>uzun uzun dusunuyorum</think>Cevap: 42\n"))
+
+    cikti = buffer.getvalue()
+    assert "dusunuyorum" not in cikti
+    assert "Cevap: 42" in cikti
+
+
+def test_kapanmamis_dusunme_blogu_sizdirilmaz():
+    """Akış sürerken kapanış gelebilir; kapanmamış açılıştan sonrası tutulur."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "Basliyorum. <think>gizli olmali"))
+
+    cikti = buffer.getvalue()
+    assert "Basliyorum." in cikti
+    assert "gizli" not in cikti
+
+
+def test_dusunme_parca_parca_gelse_de_gizlenir():
+    renderer, buffer = _renderer()
+
+    for parca in ("<th", "ink>giz", "li plan</thi", "nk>Gorunur cevap\n"):
+        renderer.handle(TokenReceived(Channel.MAIN, parca))
+
+    cikti = buffer.getvalue()
+    assert "gizli plan" not in cikti
+    assert "Gorunur cevap" in cikti
+
+
+def test_dusunme_sonrasi_metin_tekrar_basilmaz():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "onsoz "))
+    renderer.handle(TokenReceived(Channel.MAIN, "<think>ara dusunce</think>"))
+    renderer.handle(TokenReceived(Channel.MAIN, "sonrasi\n"))
+
+    assert buffer.getvalue().count("onsoz") == 1
+
+
+def test_tur_bitince_tampon_temizlenir():
+    from fusion_cli.core.events import TurnFinished
+
+    renderer, buffer = _renderer()
+    renderer.handle(TokenReceived(Channel.MAIN, "ilk tur\n"))
+    renderer.handle(TurnFinished())
+    renderer.handle(TokenReceived(Channel.MAIN, "ikinci tur\n"))
+
+    satirlar = [satir for satir in buffer.getvalue().splitlines() if satir.strip()]
+    assert satirlar == [f"{MARK} ilk tur", f"{MARK} ikinci tur"]
+
+
+def test_dusunmeyle_ilgisiz_kucuktur_isareti_kaybolmaz():
+    """`<` ile biten gerçek bir cevap tur sonunda serbest bırakılmalı."""
+    from fusion_cli.core.events import TurnFinished
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "sonuc: a < b"))
+    renderer.handle(TurnFinished())
+
+    assert "a < b" in buffer.getvalue()
+
+
+def test_dusunme_blogu_olmadan_metin_aynen_akar():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "duz cevap\n"))
+
+    assert buffer.getvalue().splitlines()[0] == f"{MARK} duz cevap"
+
+
+# --- İptal (Ctrl-C / esc) temizliği -------------------------------------------- #
+
+
+def test_abort_calisma_gostergesini_durdurur():
+    """Tur kesilince canlı gösterge dönmeye devam etmemeli."""
+    renderer, _ = _renderer()
+    renderer.handle(ModelCallStarted(role="agent", model="m"))
+    assert renderer._work.running
+
+    renderer.abort()
+
+    assert not renderer._work.running
+
+
+def test_abort_yarim_akan_cevabi_korur():
+    """İptal edilse de o ana kadar akan cevap ekranda kalmalı."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "yarim cevap"))
+    renderer.abort()
+
+    assert "yarim cevap" in buffer.getvalue()
+
+
+# --- Görünür düşünme bloğu (/thinking) ---------------------------------------- #
+
+
+def _thinking_renderer():
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    return ConsoleRenderer(console, show_thinking=True), buffer
+
+
+def test_thinking_acikken_dusunme_gorunur_ve_cevaptan_ayrisir():
+    renderer, buffer = _thinking_renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "<think>plan kuruyorum</think>Cevap: 42\n"))
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "plan kuruyorum" in cikti  # gizlenmedi
+    assert "Cevap: 42" in cikti
+    assert theme.ICON_SPARKLE in cikti  # düşünme başlığı basıldı
+    # Düşünme başlığı cevabın ÖNÜNDE gelir.
+    assert cikti.index("plan kuruyorum") < cikti.index("Cevap: 42")
+
+
+def test_thinking_kapaliyken_dusunme_yine_gizli():
+    """Varsayılan kapalı: kullanıcının alıştığı sade akış korunur."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "<think>gizli</think>Cevap\n"))
+    renderer.handle(TurnFinished())
+
+    assert "gizli" not in buffer.getvalue()
+
+
+def test_thinking_parca_parca_gelse_de_sizmaz_ve_gorunur():
+    renderer, buffer = _thinking_renderer()
+
+    for parca in ("<th", "ink>ara ", "plan</thi", "nk>Son cevap\n"):
+        renderer.handle(TokenReceived(Channel.MAIN, parca))
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "ara plan" in cikti
+    assert "Son cevap" in cikti
+    # Etiket parçaları ekrana sızmamalı.
+    assert "<th" not in cikti and "</thi" not in cikti
+
+
+# --- Çalışma göstergesi ile akış çakışması ------------------------------------ #
+
+
+class _SpyIndicator:
+    """Göstergenin YARIM SATIR üstünde başlatılıp başlatılmadığını izler."""
+
+    def __init__(self, renderer):
+        self._renderer = renderer
+        self.running = False
+        self.resumed_on_open_line = False
+
+    def start(self, label, *, model=""):
+        self.running = True
+        if self._renderer._line_open:
+            self.resumed_on_open_line = True
+
+    def update(self, **kwargs):
+        return None
+
+    def pause(self):
+        return None
+
+    def resume(self):
+        if self._renderer._line_open:
+            self.resumed_on_open_line = True
+
+    def finish(self):
+        return None
+
+
+def _renderer_with_spy():
+    renderer, buffer = _renderer()
+    spy = _SpyIndicator(renderer)
+    renderer._work = spy
+    return renderer, buffer, spy
+
+
+def test_gosterge_yarim_satirin_ustunde_baslatilmaz():
+    """Regresyon: Rich Live `transient` modda durunca çizdiği satırı siler.
+
+    Satır ortasında başlatılırsa modelin cevabını silip götürüyordu — gerçek bir
+    turda cevap ekrandan kayboldu.
+    """
+    from fusion_cli.core.events import SelfReviewStarted
+
+    renderer, _, spy = _renderer_with_spy()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "yarim kalan cevap"))  # newline YOK
+    renderer.handle(SelfReviewStarted())
+
+    assert not spy.resumed_on_open_line
+
+
+def test_arac_sonrasi_gosterge_yarim_satirin_ustunde_baslatilmaz():
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
+
+    renderer, _, spy = _renderer_with_spy()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "yarim"))
+    renderer.handle(
+        ToolExecuted(name="read_file", args={"path": "a"}, outcome=ToolOutcome.OK, output="x")
+    )
+
+    assert not spy.resumed_on_open_line
+
+
+def test_model_cagrisi_gosterge_yarim_satirin_ustunde_baslatilmaz():
+    from fusion_cli.core.events import ModelCallStarted
+
+    renderer, _, spy = _renderer_with_spy()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "yarim"))
+    renderer.handle(ModelCallStarted(role="agent", model="m"))
+
+    assert not spy.resumed_on_open_line
+
+
+def test_cevap_metni_tur_boyunca_korunur():
+    """Akan cevap, gösterge ve öz-denetim olaylarından sonra da ekranda kalmalı."""
+    from fusion_cli.core.events import (
+        ModelCallStarted,
+        SelfReviewFinished,
+        SelfReviewStarted,
+        TurnFinished,
+    )
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(ModelCallStarted(role="agent", model="m"))
+    renderer.handle(TokenReceived(Channel.MAIN, "Merhaba, ben Fusion."))
+    renderer.handle(SelfReviewStarted())
+    renderer.handle(SelfReviewFinished(issue_found=False))
+    renderer.handle(TurnFinished())
+
+    assert "Merhaba, ben Fusion." in buffer.getvalue()
+
+
+# --- Kullanıcı mesajı ---------------------------------------------------------- #
+
+
+def test_kullanici_mesaji_claude_diziliminde_onekli_gosterilir():
+    """Claude Code dizilimi: gönderilen söz `> metin` biçiminde ve sönük."""
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=60, no_color=True)
+    renderer = ConsoleRenderer(console)
+
+    renderer.print_user_message("Merhaba")
+
+    satir = next(s for s in buffer.getvalue().splitlines() if "Merhaba" in s)
+    assert satir == f"{theme.ICON_USER} Merhaba"
+
+
+def test_kullanici_mesajinin_etrafinda_nefes_birakilir():
+    renderer, buffer = _renderer()
+
+    renderer.print_user_message("Merhaba")
+
+    satirlar = buffer.getvalue().splitlines()
+    assert satirlar[0].strip() == ""
+    assert satirlar[-1].strip() == ""
+
+
+def test_bant_yarim_kalan_akisin_uzerine_binmez():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "yarim cevap"))
+    renderer.print_user_message("yeni mesaj")
+
+    satirlar = [satir for satir in buffer.getvalue().splitlines() if satir.strip()]
+    assert satirlar[0] == f"{MARK} yarim cevap"
+
+
+def test_araya_giren_ciktidan_sonra_cevap_yeni_blok_olur():
+    """Düzeltici turun cevabı işaretsiz kalıp öncekinin devamı gibi görünüyordu."""
+    from fusion_cli.core.events import SelfReviewFinished
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "ilk cevap\n"))
+    renderer.handle(SelfReviewFinished(issue_found=True))
+    renderer.handle(TokenReceived(Channel.MAIN, "duzeltilmis cevap\n"))
+
+    satirlar = [satir for satir in buffer.getvalue().splitlines() if satir.strip()]
+    assert satirlar[0] == f"{MARK} ilk cevap"
+    assert satirlar[-1] == f"{MARK} duzeltilmis cevap"
+
+
+def test_kesintisiz_akis_tek_isaret_alir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "bir "))
+    renderer.handle(TokenReceived(Channel.MAIN, "iki\n"))
+
+    assert buffer.getvalue().count(MARK) == 1
+
+
+# --- Özet satırı --------------------------------------------------------------- #
+
+
+def test_ozet_son_durum_satirinin_yanina_parantezle_girer():
+    """İki ayrı satır ekranı gereksiz uzatıyordu."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(ModelCallStarted(role="nemotron", model="nemotron"))
+    renderer.handle(SelfReviewFinished(issue_found=False))
+    renderer.handle(TurnFinished())
+
+    satirlar = [satir for satir in buffer.getvalue().splitlines() if satir.strip()]
+    assert satirlar[-1].count("(") == 1
+    assert satirlar[-1].endswith(")")
+    assert "öz-denetim" in satirlar[-1]
+
+
+def test_tamamlanmayan_denetim_sorun_yok_diye_gosterilmez():
+    renderer, buffer = _renderer()
+
+    renderer.handle(SelfReviewFinished(issue_found=False, completed=False))
+    renderer.handle(TurnFinished())
+
+    assert "tamamlanamadı" in buffer.getvalue()
+    assert "sorun yok" not in buffer.getvalue()
+
+
+def test_durum_satiri_yoksa_ozet_kendi_satirinda_basilir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(ModelCallStarted(role="nemotron", model="nemotron"))
+    renderer.handle(TurnFinished())
+
+    satirlar = [satir for satir in buffer.getvalue().splitlines() if satir.strip()]
+    assert satirlar[-1].strip().startswith(theme.ICON_DONE)
+
+
+def test_bekleyen_durum_satiri_cevabin_uzerine_binmez():
+    """Geciktirme sırayı bozmamalı: durum satırı kendinden sonraki metinden önce."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(StatusChanged("araç çalıştı"))
+    renderer.handle(TokenReceived(Channel.MAIN, "cevap\n"))
+    renderer.handle(TurnFinished())
+
+    satirlar = [satir for satir in buffer.getvalue().splitlines() if satir.strip()]
+    assert "araç çalıştı" in satirlar[0]
+    assert satirlar[1] == f"{MARK} cevap"
+
+
+# --- Araç argümanlarının gösterimi ------------------------------------------ #
+
+
+def test_uzun_arguman_degeri_ozetlenir_diger_alanlar_gorunur_kalir():
+    """Büyük içerik satırı doldurup diğer alanları ekrandan silmemeli.
+
+    Gerçek bir hatanın izi: model write_file'ı content'i önce yazarak çağırdığında
+    15 KB'lık içerik kartı dolduruyor, sondaki hatalı `path` ekrana hiç ulaşmıyordu.
+    Kullanıcı hangi alanın sorunlu olduğunu göremiyordu.
+    """
+    from fusion_cli.ui.renderer import _format_args
+
+    metin = _format_args({"content": "x" * 15_000, "path": ""})
+
+    assert "path=" in metin
+    assert "x" * 100 not in metin
+
+
+def test_kisa_arguman_degerleri_oldugu_gibi_gosterilir():
+    from fusion_cli.ui.renderer import _format_args
+
+    assert _format_args({"path": "src/app.py"}) == "path=src/app.py"
+
+
+def test_uzun_deger_uzunlugunu_bildirir():
+    from fusion_cli.ui.renderer import _format_args
+
+    metin = _format_args({"content": "y" * 2_048})
+
+    assert "2048" in metin or "2.048" in metin
+
+
+# --- Araç çağrısı gösterimi -------------------------------------------------- #
+#
+# İstenen biçim: araç adı + BİRİNCİL argüman parantez içinde. Ham "anahtar=değer"
+# listesi okunmuyordu; 15 KB'lık içerik satırı doldurup diğer alanları siliyordu.
+
+
+def test_birincil_arguman_parantez_icinde_gosterilir():
+    from fusion_cli.ui.renderer import _format_call
+
+    assert _format_call("write_file", {"path": "src/app.py", "content": "x" * 900}) == (
+        "write_file(src/app.py)"
+    )
+
+
+def test_her_aracin_kendi_birincil_alani_var():
+    from fusion_cli.ui.renderer import _format_call
+
+    assert _format_call("run_shell", {"command": "pytest -q"}) == "run_shell(pytest -q)"
+    assert _format_call("search_code", {"pattern": "def x", "path": "src"}) == (
+        "search_code(def x)"
+    )
+    assert _format_call("web_search", {"query": "python asyncio"}) == ("web_search(python asyncio)")
+
+
+def test_birincil_alan_yoksa_boyut_ozetlenir():
+    """Eksik path hatasında içerik yine görünmeli — hangi çağrı olduğu anlaşılsın."""
+    from fusion_cli.ui.renderer import _format_call
+
+    metin = _format_call("write_file", {"content": "x" * 900})
+
+    assert metin.startswith("write_file(")
+    assert "900" in metin
+
+
+def test_argumansiz_cagri_sade_gosterilir():
+    from fusion_cli.ui.renderer import _format_call
+
+    assert _format_call("list_dir", {}) == "list_dir()"
+
+
+def test_uzun_deger_kisaltilir_ama_kapanis_korunur():
+    from fusion_cli.ui.renderer import _format_call
+
+    metin = _format_call("run_shell", {"command": "echo " + "a" * 300})
+
+    assert len(metin) <= 80
+    assert metin.endswith(")")
+
+
+def test_davranis_degistiren_bayrak_gosterilir():
+    """replace_all sonucu değiştirir; kullanıcı onaylarken görmeli."""
+    from fusion_cli.ui.renderer import _format_call
+
+    metin = _format_call("edit_file", {"path": "a.py", "old": "x", "new": "y", "replace_all": True})
+
+    assert "a.py" in metin and "replace_all" in metin
+
+
+def test_cok_satirli_deger_tek_satira_indirilir():
+    from fusion_cli.ui.renderer import _format_call
+
+    metin = _format_call("run_shell", {"command": "satir1\nsatir2"})
+
+    assert "\n" not in metin
+
+
+def test_cagri_ayrintisinda_rol_degil_cevaplayan_model_yazar():
+    """Regresyon: ayrıntı satırı rolü yazdığı için yedeğe düşüş görünmüyordu."""
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    renderer = ConsoleRenderer(console, show_call_details=True)
+    result = ModelResult(
+        name="glm-5.2",
+        model="nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b",
+        text="x",
+        latency_ms=100,
+        ok=True,
+    )
+
+    renderer.handle(ModelCallFinished(role="glm-5.2", result=result))
+    renderer.handle(TurnFinished())
+
+    assert "nemotron-3-ultra-550b-a55b" in buffer.getvalue()
+
+
+def test_arac_cagrisi_bullet_ve_baglayici_ile_basilir():
+    """Claude Code dizilimi: `⏺ çağrı` üstte, `⎿ sonuç` altta."""
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(
+        ToolExecuted(
+            name="read_file", args={"path": "a.py"}, outcome=ToolOutcome.OK, output="10 satır"
+        )
+    )
+
+    satirlar = [s for s in buffer.getvalue().splitlines() if s.strip()]
+    assert satirlar[0].startswith(f"{theme.ICON_BULLET} read_file(a.py)")
+    assert theme.ICON_RESULT in satirlar[1] and "10 satır" in satirlar[1]
+
+
+def test_diff_iceren_arac_ekleme_silme_ozeti_ve_blok_basar():
+    """Değiştirici araç çalıştıktan sonra yeşil/kırmızı diff bloğu görünür."""
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
+
+    renderer, buffer = _renderer()
+    diff = "\n".join(("@@ -1,2 +1,2 @@", " ayni", "-eski", "+yeni"))
+
+    renderer.handle(
+        ToolExecuted(
+            name="edit_file",
+            args={"path": "a.py"},
+            outcome=ToolOutcome.OK,
+            output="tamam",
+            diff=diff,
+        )
+    )
+
+    cikti = buffer.getvalue()
+    assert "1 ekleme, 1 silme" in cikti
+    assert "yeni" in cikti and "eski" in cikti
+    # Ham araç çıktısı diff varken değil, özet + blok gösterilir.
+    assert "tamam" not in cikti
+
+
+def test_reddedilen_degistirici_arac_diff_gostermez():
+    """Diff yalnızca OK'te taşınır; reddedilen çağrı 'oldu' izlenimi vermemeli."""
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(
+        ToolExecuted(
+            name="edit_file",
+            args={"path": "a.py"},
+            outcome=ToolOutcome.DENIED,
+            output="reddedildi",
+            diff=None,
+        )
+    )
+
+    cikti = buffer.getvalue()
+    assert "ekleme" not in cikti
+    assert any(s.startswith(theme.ICON_BULLET) for s in cikti.splitlines())
+
+
+def test_hata_hangi_modelin_kisitlandigini_soyler():
+    """NIM'de hız sınırı MODEL BAŞINADIR; 'agent · 429' hangi modeli söylemez."""
+    renderer, buffer = _renderer()
+    result = ModelResult(
+        name="agent",
+        model="nvidia_nim/z-ai/glm-5.2",
+        text="",
+        latency_ms=1,
+        ok=False,
+        error="429 rate limit",
+    )
+
+    renderer.handle(ModelCallFinished(role="agent", result=result))
+
+    assert "glm-5.2" in buffer.getvalue()
+
+
+def test_effect_workflow_sonuc_karti_branch_ve_hashleri_gosterir():
+    from fusion_cli.core.events import EffectWorkflowFinished
+
+    renderer, buffer = _renderer()
+    renderer.handle(
+        EffectWorkflowFinished(
+            workflow_id="wf-1",
+            kind="git_push",
+            status="completed",
+            ok=True,
+            title="Git push tamamlandı",
+            details={
+                "repository": "emirhhan/fusion-cli",
+                "branch": "main",
+                "commit": "abc123",
+                "push": "başarılı",
+                "local_head": "abc123",
+                "remote_head": "abc123",
+                "verification": "eşleşiyor",
+                "workflow_id": "wf-1",
+            },
+            message="Push tamamlandı ve uzak HEAD doğrulandı.",
+        )
+    )
+
+    text = buffer.getvalue()
+    assert "Git push tamamlandı" in text
+    assert "emirhhan/fusion-cli" in text
+    assert "main" in text
+    assert text.count("abc123") >= 2
+    assert "eşleşiyor" in text
+
+
+# --- "değişiklik yapılmadı" rozeti ----------------------------------------- #
+#
+# Ölçüldü (Gemini web, gerçek koşu): model iki dosya OKUDU, hiçbir şey yazmadı ve
+# "entegrasyon betiklerini hazırladım, değişen dosyalar: package.json" diyerek turu
+# bitirdi. Dosyaların hiçbiri değişmemişti. Uydurmayı dilsel olarak tanımak mümkün
+# değil, ama Fusion turun sıfır mutasyon yaptığını KESİN olarak biliyor. Rozet o
+# olguyu basar; yorum değil, sayaçtır.
+
+
+def test_degisiklik_yapilmayan_tur_rozet_basar():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "package.json güncellendi."))
+    renderer.handle(NoFileChanges())
+    renderer.handle(TurnFinished())
+
+    assert messages.NO_FILE_CHANGES in buffer.getvalue()
+
+
+def test_rozet_cevabin_ardina_basilir():
+    """Rozet cevabı bölmez: akan metin kapandıktan SONRA gelir."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "cevap metni"))
+    renderer.handle(NoFileChanges())
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert cikti.index("cevap metni") < cikti.index(messages.NO_FILE_CHANGES)
+
+
+# --- çok satırlı araç çıktısı ---------------------------------------------- #
+#
+# Ölçüldü: `read_file` sonucu tek satıra eziliyordu —
+# `⎿  1 { 2 "name": "ornek-proje", 3 "private": true, 4 "scripts": { 5 …`
+# Satır numaraları içerikle aynı görsel ağırlıkta akınca "4" bir satır numarası
+# mı yoksa JSON'un parçası mı ayırt edilemiyordu. Claude Code okuma sonucunu
+# satır satır gösterir; yapının korunması bilginin kendisidir.
+
+
+def _tool_ok(output):
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
+
+    return ToolExecuted(
+        name="read_file", args={"path": "a.json"}, outcome=ToolOutcome.OK, output=output
+    )
+
+
+def test_cok_satirli_arac_ciktisi_satir_satir_basilir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(_tool_ok('1 {\n2   "name": "x"\n3 }'))
+    renderer.handle(TurnFinished())
+
+    satirlar = [s for s in buffer.getvalue().splitlines() if s.strip()]
+    assert any('"name": "x"' in s for s in satirlar)
+    # Üç kaynak satırı tek satıra ezilmemeli.
+    assert sum(1 for s in satirlar if s.lstrip().startswith(("1", "2", "3", "⎿"))) >= 3
+
+
+def test_cok_satirli_ciktida_kalan_satir_sayisi_bildirilir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(_tool_ok("\n".join(f"{i} satır" for i in range(1, 40))))
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "satır daha" in cikti, "kırpılan satır sayısı söylenmeli"
+
+
+def test_tek_satirlik_cikti_eskisi_gibi_tek_satir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(_tool_ok("(boş dizin)"))
+    renderer.handle(TurnFinished())
+
+    assert "(boş dizin)" in buffer.getvalue()
+
+
+def test_arac_sonucu_satiri_terminal_genisligini_asmaz():
+    """Kırpma sınırı ÖNEK payını da saymalı; yoksa satır sarar ve hizalama bozulur.
+
+    `⎿` bağlayıcısı ve girinti beş görünür karakter yer kaplıyor. Sınır yalnızca
+    içeriğe uygulanınca toplam genişliği bir karakter aşıyordu.
+    """
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=60, no_color=True)
+    renderer = ConsoleRenderer(console)
+
+    renderer.handle(_tool_ok("x" * 200 + "\n" + "y" * 200))
+    renderer.handle(TurnFinished())
+
+    satirlar = [s for s in buffer.getvalue().splitlines() if s.strip()]
+    # Sarma olduğunda `⎿` tek başına kalıyor ve içerik girintisiz alt satıra
+    # düşüyordu; hizalamanın korunması sarmanın HİÇ olmamasına bağlı.
+    assert not any(satir.strip().startswith("x") for satir in satirlar), "satır sarmış"
+    for satir in satirlar[1:]:
+        assert satir.startswith(("  ⎿", "     ")), f"girinti kaybolmuş: {satir!r}"
+
+
+def test_acilis_beyani_uc_satira_kadar_basilir():
+    """Turun İLK öncüsü açılış beyanıdır; tek satıra kırpılmamalı."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(
+        TokenReceived(
+            Channel.MAIN,
+            "İsteğini iki parçaya ayırdım.\nÖnce bağlı projeleri haritalayacağım.\n"
+            "Sonra dashboard'daki eksik uçları tamamlayacağım.",
+            provisional=True,
+        )
+    )
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "İsteğini iki parçaya ayırdım." in cikti
+    assert "Sonra dashboard'daki eksik uçları tamamlayacağım." in cikti
+
+
+def test_sonraki_oncu_tek_satir_kalir():
+    """Adım duyurusu ekranı kaplamamalı."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "açılış", provisional=True))
+    renderer.handle(TokenReceived(Channel.MAIN, "bir\niki\nüç", provisional=True))
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "bir" in cikti
+    assert "üç" not in cikti
+
+
+def test_acilis_butcesi_her_turda_sifirlanir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "a\nb\nc", provisional=True))
+    renderer.handle(TurnFinished())
+    renderer.handle(TokenReceived(Channel.MAIN, "x\ny\nz", provisional=True))
+    renderer.handle(TurnFinished())
+
+    assert buffer.getvalue().count("z") >= 1, "yeni turun açılışı da geniş olmalı"
+
+
+def test_degisen_dosyalar_kanittan_basilir():
+    """Kapanış özeti modelin hafızasına değil değişiklik kümesine dayanmalı.
+
+    Ölçüldü, iki yönde birden yanılıyordu: bir koşuda dokunmadığı dosyayı
+    "güncelledim" dedi; başka bir koşuda `app/page.tsx`'e doğru düzenlemeyi
+    yaptığı hâlde "hiçbir dosya değiştirilmedi" dedi.
+    """
+    from fusion_cli.core.events import FilesChanged
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "Hiçbir dosya değiştirilmedi."))
+    renderer.handle(FilesChanged(("app/page.tsx", "lib/gate.ts")))
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "app/page.tsx" in cikti
+    assert "lib/gate.ts" in cikti
+    assert "değişen dosyalar" in cikti
+
+
+def test_plan_tamamlandiginda_kanitlanmayan_davranis_uyarisi_basilir():
+    """Uyarı terminalde de görünmeli; "tamamlandı" satırı tek başına kalmamalı."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(
+        ExecutionCompleted(
+            plan_id="p", total_steps=3, warnings=("davranış kanıtlanmadı: test yok",)
+        )
+    )
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "3 adım" in cikti
+    assert "davranış kanıtlanmadı" in cikti

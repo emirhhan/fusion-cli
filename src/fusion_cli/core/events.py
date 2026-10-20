@@ -1,0 +1,653 @@
+"""Olay sözlüğü — motor katmanının dış dünyayla tek konuşma biçimi.
+
+Eski projede motorlar doğrudan konsola yazıyordu; bu yüzden alt-ajan çıktısı ana
+ajanınkine karışıyor, ham log satırları akışın ortasına düşüyordu. Burada motorlar
+konsolu hiç tanımaz: tiplenmiş olay yayınlar, olayları tek bir veriyolu SIRAYLA
+dinleyicilere dağıtır. Çakışma yapısal olarak imkânsız hale gelir.
+
+`Channel` alanı ikinci güvenceyi verir: ana ajan, alt-ajan ve council farklı
+kanallarda akar; dinleyici her kanalı ayrı tamponlar, satırlar birbirini bölmez.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Protocol, runtime_checkable
+
+from .types import FusionResult, ModelResult
+
+
+class Channel(Enum):
+    """Metin akışının hangi konuşmaya ait olduğu."""
+
+    MAIN = "main"
+    SUBAGENT = "subagent"
+    COUNCIL = "council"
+
+
+@dataclass(frozen=True, slots=True)
+class Event:
+    """Tüm olayların kökü.
+
+    `agent_id` olayı HANGİ alt ajanın ürettiğini söyler; ana ajanın olaylarında
+    boştur. Alt ajanlar paralel koşunca adımları tek kanalda karışır; arayüz her
+    ajanın kartını bu alanla ayırır. Alan yalnız anahtar sözcükle verilir ve
+    varsayılanı boştur: mevcut olay kurucuları değişmez.
+    """
+
+    agent_id: str = field(default="", kw_only=True)
+    event_id: str | None = field(default=None, kw_only=True)
+    session_id: str | None = field(default=None, kw_only=True)
+    turn_id: str | None = field(default=None, kw_only=True)
+    schema_version: int | None = field(default=None, kw_only=True)
+
+
+@dataclass(frozen=True, slots=True)
+class StatusChanged(Event):
+    """Kullanıcıya gösterilecek kısa ilerleme bilgisi."""
+
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class ModelCallStarted(Event):
+    """Bir model çağrısı başlatıldı."""
+
+    call_id: str = field(default="", kw_only=True)
+
+    role: str
+    model: str
+    #: Arka plan işi mi? (hakem, sentez, öz-denetim, ders çıkarımı…)
+    #: Bu çağrılar kullanıcıya ilerleme satırı olarak GÖSTERİLMEZ ama muhasebeye
+    #: girer. Görünürlük ile muhasebe ayrı şeylerdir; eski projede birbirine
+    #: karıştıkları için maliyet takibi çağrı yollarını sessizce atlıyordu.
+    background: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ModelCallFinished(Event):
+    """Bir model çağrısı bitti (başarılı ya da değil)."""
+
+    call_id: str = field(default="", kw_only=True)
+    requested_model: str = field(default="", kw_only=True)
+
+    role: str
+    result: ModelResult
+    #: Arka plan işi mi? Bkz. `ModelCallStarted.background`.
+    background: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ModelFallbackActivated(Event):
+    """Birincil kullanılamadı ve sıradaki modele geçiliyor.
+
+    Bu olay olmazsa dıştaki ``EventingProvider`` yalnızca zincirin baş modelini ve
+    en son başarılı sonucu görür; aradaki hata sessiz kalır. Kullanıcı seçtiği
+    modelin neden değiştiğini görebilmelidir.
+    """
+
+    role: str
+    requested_model: str
+    fallback_model: str
+    reason: str
+    background: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class TokenReceived(Event):
+    """Akıştan metin parçası geldi.
+
+    `provisional` için bkz. `core.types.TextChunk`: nihai cevap değil, araç
+    çağrısına eşlik eden öncü beyandır.
+    """
+
+    channel: Channel
+    text: str
+    provisional: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class TurnAnswered(Event):
+    """Turun KABUL EDİLMİŞ nihai cevabı.
+
+    Cevabın ekrana ulaşması eskiden `TokenReceived` yan etkisiydi: model metin
+    ürettiği için görünüyordu, motor kabul ettiği için değil. Kapılar bir cevabı
+    reddedip modeli tekrar çağırdığında elenen cevap da basılıyor, model kendini
+    tekrarladığında aynı metin iki kez düşüyordu.
+
+    Bu olay tur başına EN FAZLA BİR KEZ yayınlanır ve yalnızca motor cevabı kabul
+    ettiğinde. Metin zaten akmışsa (gerçekten akıtan API sağlayıcıları)
+    yayınlanmaz; iki yol asla aynı anda çalışmaz.
+    """
+
+    channel: Channel
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class ErrorOccurred(Event):
+    """Kullanıcıya gösterilecek hata. `fatal` ise tur devam edemez."""
+
+    message: str
+    fatal: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CandidatesStarted(Event):
+    """Aday modeller paralel olarak çalışmaya başladı."""
+
+    names: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class JudgingStarted(Event):
+    """Hakem (ve istenmişse sentez) aşaması başladı."""
+
+    with_synthesis: bool
+
+
+@dataclass(frozen=True, slots=True)
+class FusionCompleted(Event):
+    """Fusion turu bitti; nihai cevap ve aday kayıtları hazır."""
+
+    result: FusionResult
+
+
+class ToolOutcome(Enum):
+    """Bir araç çağrısının görünür sonucu.
+
+    Reddedilme ne başarı ne hatadır; kullanıcıya da öyle gösterilmemelidir.
+    """
+
+    OK = "ok"
+    FAILED = "failed"
+    DENIED = "denied"
+    BLOCKED = "blocked"
+
+
+@dataclass(frozen=True, slots=True)
+class ToolStarted(Event):
+    """Bir araç çağrısı BAŞLIYOR (onay gerekiyorsa onaydan SONRA yayınlanır).
+
+    `ToolExecuted` yalnız araç BİTİNCE gelir; araç saniyeler sürerse (büyük bir
+    arama, uzun bir kabuk komutu) kullanıcı o süre boyunca hiçbir şey görmez.
+    Bu olay, `ToolExecuted`in tersine SESSİZCE kaybolabilir: motor bunu yayınlar
+    yayınlamaz aracı çalıştırır, ikinci bir "bitti" olayına gerek duymaz — akışta
+    zaten `ToolExecuted` onu izler.
+    """
+
+    name: str
+    args: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolExecuted(Event):
+    """Bir araç çağrısı sonuçlandı."""
+
+    name: str
+    args: Mapping[str, object]
+    outcome: ToolOutcome
+    output: str
+    #: Değiştirici dosya araçları için, çalıştırılmadan ÖNCE üretilmiş unified diff
+    #: (veya yeni dosya önizlemesi). Renderer bunu yeşil/kırmızı bir blok olarak basar.
+    #: Diff dosya değişmeden önce üretilebildiği için burada taşınır; None ise araç
+    #: değiştirici değildir ya da önizleme üretilememiştir.
+    diff: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallRepaired(Event):
+    """Model geçersiz bir araç çağrısı yazdı; sözleşme hatırlatılıp yeniden soruldu.
+
+    Onarım SESSİZ kalmamalıdır: her onarım fazladan bir model çağrısı harcar ve
+    tekrarlarsa turu bitirir. Ekranda hiçbir iz yokken arka planda üç çağrı yanmış
+    olabilir; kullanıcı turun neden uzadığını göremezse Fusion'ı yavaş sanır.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class PreviewReady(Event):
+    """Ajan projeyi yerel sunucuda çalıştırdı; kullanıcı bu adresi açabilir.
+
+    Masaüstü uygulaması bu olayla önizleme panelini adresle açar. Ölçüldü (2 Ekim):
+    önizleme paneli vardı ama ajan ona hiç adres veremiyordu; kullanıcı "nasıl
+    önizlerim" deyince kurulum rehberi okuyordu.
+    """
+
+    url: str
+    kind: str
+    root: str
+    title: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SubAgentStarted(Event):
+    """Bir alt-göreve temiz bağlamlı alt-ajan atandı.
+
+    `agent_id` (kök alan) başlatan ajandır; `sub_id` yeni ajanın kimliğidir ve
+    o ajanın bütün olaylarında `agent_id` olarak görünür. Kişilik alanları
+    arayüzdeki kartı çizer (ünvan, avatar, renk).
+    """
+
+    task: str
+    sub_id: str = ""
+    persona: str = ""
+    title: str = ""
+    avatar: str = ""
+    color: str = ""
+    #: Aynı anda başlatılan kardeş ajan sayısı (paralel grup); tek ajanda 1.
+    group_size: int = 1
+    started_at: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class SubAgentFinished(Event):
+    """Alt-ajan işini bitirdi."""
+
+    tool_calls: int
+    sub_id: str = ""
+    ok: bool = True
+    #: Kartta gösterilecek tek satırlık sonuç (ajanın cevabının başı).
+    summary: str = ""
+    elapsed_s: float = 0.0
+    status: str = ""
+    changed_paths: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SkillLoaded(Event):
+    """İçerik gerçekten modele yüklendi; uygulanmış iş kanıtı değildir."""
+
+    qualified_name: str
+    revision: str
+    mode: str = "explicit"
+    offset: int = 0
+    next_offset: int | None = None
+    reference: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CouncilConsulted(Event):
+    """Zor bir karar için çoklu-model danışması başlatıldı."""
+
+    question: str
+
+
+@dataclass(frozen=True, slots=True)
+class TeacherConsulted(Event):
+    """Web öğretmene (`ask_teacher`) danışıldı (Faz 4, Görev 1).
+
+    `council`'dan (çoklu-API-model) AYRI bir olay: öğretmen tek, özel bir web
+    oturumudur ve brief'in kırpılıp kırpılmadığı ayrıca izlenmeye değer.
+    """
+
+    question: str
+    brief_truncated: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TeacherTaskClassified(Event):
+    """Kök görevin öğretmen öncesi boyut kararı."""
+
+    size: str
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TeacherPlanPrepared(Event):
+    """Öğretmen planı çırağın görev listesine aktarıldı."""
+
+    steps: int
+    structured: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TeacherMemoryUsed(Event):
+    """Benzer görevin başarılı planı hafızadan alındı; öğretmene sorulmadı."""
+
+    steps: int
+    similarity: float
+
+
+@dataclass(frozen=True, slots=True)
+class TeacherLessonRecorded(Event):
+    """Öğretmen planının sonucu ders belleğine işlendi."""
+
+    success: bool
+    #: Hafızadan alınan plan mı güncellendi, yoksa yeni plan mı yazıldı.
+    reused: bool
+
+
+@dataclass(frozen=True, slots=True)
+class NarrationPublished(Event):
+    """Kullanıcıya adımlar arasında yazılan kısa anlatım (giriş ya da adım geçişi)."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class ApprenticeHandoff(Event):
+    """Seçili model dosya yazamadığı için iş bu tur çırak modele devredildi."""
+
+    selected_model: str
+    apprentice_model: str
+    #: Seçili web modeli bu tur öğretmen olarak danışılacak mı?
+    teacher_model: str
+
+
+@dataclass(frozen=True, slots=True)
+class PlatformChecked(Event):
+    """Dış platforma bağlı istekte resmi kaynak kontrolü yapıldı."""
+
+    platforms: tuple[str, ...]
+    #: "resmi-kaynak" (resmi dokümanda arandı) ya da "dogrulanamadi".
+    method: str
+    sources: int
+
+
+@dataclass(frozen=True, slots=True)
+class TeacherLimitationFound(Event):
+    """Dış kısıt ve uygulanabilir alternatif işe başlamadan bildirildi."""
+
+    topic: str
+    reason: str
+    alternative: str
+
+
+@dataclass(frozen=True, slots=True)
+class TierDegraded(Event):
+    """Kullanıcının açıkça seçtiği web kademesi gelmedi (Faz 4, Görev 4).
+
+    Yalnız `core.tier.expected_tier(model)` boş DEĞİLKEN (kullanıcı `/auto`
+    değil, belirli bir kademe seçtiğinde) yayınlanır. BİLGİLENDİRİR, turu
+    ASLA düşürmez (bkz. `web_browser.py:1865` civarındaki geçmiş hata: bir
+    kademe-değişim banner'ı turu yanlışlıkla iptal etmişti).
+    """
+
+    model: str
+    expected_tier: str
+    served_by: str
+
+
+@dataclass(frozen=True, slots=True)
+class SelfReviewStarted(Event):
+    """Tur sonrası öz-denetim başladı."""
+
+
+@dataclass(frozen=True, slots=True)
+class SelfReviewFinished(Event):
+    """Öz-denetim bitti. `completed=False` ise güvenilir hüküm alınamadı."""
+
+    issue_found: bool
+    completed: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationFailed(Event):
+    """Doğrulama kapısı somut ihlal buldu; düzeltici tur çalışacak."""
+
+    summary: str
+    findings: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class LessonsRecalled(Event):
+    """Göreve benzer dersler hatırlandı ve prompta eklendi."""
+
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityActivated(Event):
+    """Bir beceri otomatik eşleşti veya kullanıcı tarafından açıkça seçildi."""
+
+    kind: str
+    name: str
+    source: str
+    automatic: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class LessonsLearned(Event):
+    """Turdan yeni ders(ler) çıkarılıp belleğe yazıldı."""
+
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ContextCompressed(Event):
+    """Uzun geçmiş özetlenerek kısaltıldı."""
+
+    before: int
+    after: int
+
+
+@dataclass(frozen=True, slots=True)
+class MutationUnavailable(Event):
+    """Seçili model dosya/sistem değiştiremiyor ve tur bunu gerektiriyor olabilir.
+
+    Yetenek kapısı SESSİZ çalışmamalıdır. Değiştirici araçların şeması modele hiç
+    sunulmuyorsa model "böyle bir aracım yok" der ve bu doğrudur — ama kullanıcı
+    kısıtın nereden geldiğini ve nasıl kaldıracağını göremezse Fusion'ı arızalı
+    sanır. Ölçüldü: kullanıcı Gemini'ye arka plandaki uygulamayı kapattırmak istedi,
+    model aracı olmadığını söyledi, kısıtın sebebi hiçbir yerde görünmedi.
+
+    `blocking` True ise görev bu yetenek olmadan tamamlanamaz ve tur hiç model
+    çağrısı harcamadan bitirilmiştir.
+    """
+
+    reason: str
+    blocking: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class TurnUsageObserved(Event):
+    """Gözlenen tüketim alt sınırı; provider iç retry ölçümü eksik olabilir."""
+
+    prompt_tokens: int
+    completion_tokens: int
+    unknown_calls: int
+    total_calls: int
+
+
+@dataclass(frozen=True, slots=True)
+class TurnBudgetExhausted(Event):
+    """Tur bütçesi doldu ve tur kesildi.
+
+    Kullanıcı turun NEDEN bittiğini görmelidir. Sessizce durmak, kullanıcının aynı
+    isteği tekrar denemesine ve aynı döngüye yeniden girmesine yol açıyordu.
+
+    `reason` `core.budget.BudgetStop` değeridir; kullanıcı metnine `ui` katmanında
+    çevrilir. Sayaçlar teşhis içindir: hangi bütçenin dolduğu tek bakışta görünür.
+    """
+
+    reason: str
+    model_calls: int
+    tool_rounds: int
+    idle_rounds: int
+    elapsed_s: float
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionRouteSelected(Event):
+    """Kök görev için tek döngü ya da plan motoru seçildi."""
+
+    route: str
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionPlanCreated(Event):
+    """Doğrulanmış tipli plan yürütmeye hazır."""
+
+    plan_id: str
+    total_steps: int
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionStepStarted(Event):
+    """Planın tek bir adımı çalışmaya başladı."""
+
+    plan_id: str
+    step_id: str
+    index: int
+    total_steps: int
+    goal: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionStepVerified(Event):
+    """Plan adımının post-condition kanıtı değerlendirildi."""
+
+    plan_id: str
+    step_id: str
+    ok: bool
+    evidence: tuple[str, ...]
+    findings: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionRetryScheduled(Event):
+    """Sınıflandırılmış hata için sınırlı kurtarma turu açıldı."""
+
+    step_id: str
+    action: str
+    attempt: int
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionCheckpointSaved(Event):
+    """Workflow durumu atomik olarak kaydedildi."""
+
+    plan_id: str
+    completed_steps: int
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionPaused(Event):
+    """Workflow güvenli biçimde duraklatıldı."""
+
+    plan_id: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionCompleted(Event):
+    """Plan ve final kabul kapısı başarıyla tamamlandı."""
+
+    plan_id: str
+    total_steps: int
+    #: İşi kırmayan ama kullanıcının BİLMESİ gereken eksikler — örneğin kabul
+    #: kapısının davranışı değil yalnız biçimi kanıtlayabilmiş olması.
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class EffectWorkflowStarted(Event):
+    """Deterministik bir gerçek-etki workflow'u başladı."""
+
+    workflow_id: str
+    kind: str
+    title: str
+
+
+@dataclass(frozen=True, slots=True)
+class EffectWorkflowProgress(Event):
+    """Workflow ilerleme aşaması; doğal dil iddiası değil, runtime durumudur."""
+
+    workflow_id: str
+    stage: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class EffectWorkflowFinished(Event):
+    """Workflow deterministik post-condition sonucu ile kapandı."""
+
+    workflow_id: str
+    kind: str
+    status: str
+    ok: bool
+    title: str
+    details: Mapping[str, object]
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class FilesChanged(Event):
+    """Turda GERÇEKTEN değişen dosyalar.
+
+    Kapanış özeti bugüne kadar modelin hafızasına dayanıyordu ve iki yönde birden
+    yanılıyordu: bir koşuda dokunmadığı dosyayı "güncelledim" dedi, başka bir
+    koşuda `app/page.tsx`'e doğru düzenlemeyi yaptığı hâlde "hiçbir dosya
+    değiştirilmedi" dedi. Liste değişiklik kümesinden gelir; iddia değil kayıttır.
+    """
+
+    paths: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class NoFileChanges(Event):
+    """Tur araç çalıştırdı ama hiçbir dosya/sistem değişikliği yapmadı.
+
+    Ölçüldü (gerçek koşu): model iki dosya OKUDU, hiçbir şey yazmadı ve "entegrasyon
+    betiklerini hazırladım, değişen dosyalar: package.json" diyerek turu bitirdi.
+    Dosyaların hiçbiri değişmemişti — model okuduğu dosyada zaten var olan bir betiği
+    kendi işi gibi raporladı.
+
+    Uydurmayı metinden tanımak dile ve ifadeye bağımlıdır; ama turun sıfır mutasyon
+    yaptığı KESİN olarak bilinir. Bu olay o olguyu taşır: yorum değil, sayaç.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class FollowupsSuggested(Event):
+    """Turun kanıtından türetilen "sıradaki adım" önerileri.
+
+    Öneriler için YENİ MODEL ÇAĞRISI AÇILMAZ; hepsi `core/followups.py`'de
+    turun sayaçlarından üretilir. Kanıt yoksa bu olay HİÇ yayınlanmaz — boş bir
+    turun altına öneri basmak gürültüdür.
+    """
+
+    #: (etiket, tıklanınca gidecek görev) çiftleri.
+    items: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TurnOutcome(Event):
+    """Runtime'ın kesin tur sonucu; modelin doğal dil iddiasından bağımsızdır.
+
+    `completed`, `partial` ve `failed` değerleri UI tarafından açık bir kapanış
+    satırına çevrilir. `TurnFinished` yalnız lifecycle sinyalidir; başarı anlamına
+    gelmez ve bu yüzden ayrı tutulur.
+    """
+
+    status: str
+    elapsed_s: float
+
+
+@dataclass(frozen=True, slots=True)
+class TurnFinished(Event):
+    """Tur bitti; dinleyiciler tamponlarını boşaltabilir."""
+
+
+@runtime_checkable
+class EventSink(Protocol):
+    """Olayları tüketen taraf (terminal render'ı, JSON çıktısı, dosya log'u…).
+
+    `handle` senkrondur ve hızlı dönmelidir; veriyolu olayları sırayla dağıtır.
+    """
+
+    def handle(self, event: Event) -> None: ...
+
+
+class EventPublisher(Protocol):
+    """Olay yayınlayan taraf. Motorlar yalnızca bunu görür, veriyolunu tanımaz.
+
+    `publish` asla bloklamaz ve asla hata fırlatmaz.
+    """
+
+    def publish(self, event: Event) -> None: ...

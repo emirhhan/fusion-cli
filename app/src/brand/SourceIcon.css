@@ -1,0 +1,16 @@
+.source-icon {
+  align-items: center;
+  color: var(--text-secondary);
+  display: inline-flex;
+  flex: 0 0 auto;
+  justify-content: center;
+}
+
+.source-icon[data-source="claude"] { color: #c15f3c; }
+.source-icon[data-source="codex"] { color: var(--text-primary); }
+.source-icon[data-source="hermes"] { color: #8b6f33; }
+
+.source-icon img { display: block; object-fit: contain; }
+.source-icon .source-icon__dark { display: none; }
+:root[data-theme="dark"] .source-icon .source-icon__light { display: none; }
+:root[data-theme="dark"] .source-icon .source-icon__dark { display: block; }

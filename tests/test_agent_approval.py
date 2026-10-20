@@ -1,0 +1,384 @@
+"""Onay politikaları — üç modun davranışı."""
+
+from __future__ import annotations
+
+import pytest
+
+from fusion_cli.core.tools import Tool, ToolEffect
+from fusion_cli.engines.agent.approval import (
+    REMOTE_DESTRUCTIVE_REASON,
+    ApprovalAnswer,
+    ApprovalMode,
+    Decision,
+    build_policy,
+    build_request,
+)
+
+from .fakes import AlwaysApprove, AlwaysReject
+
+
+def _arac(ad="write_file", *, mutating=True, effect=ToolEffect.LOCAL):
+    return Tool(
+        name=ad,
+        description="",
+        parameters={},
+        run=lambda a, c: None,
+        mutating=mutating,
+        effect=effect,
+    )
+
+
+@pytest.mark.parametrize(
+    ("mod", "beklenen"),
+    [(ApprovalMode.AUTO, Decision.ALLOW), (ApprovalMode.PLAN, Decision.BLOCKED)],
+)
+async def test_zararsiz_degisiklik_modlara_gore_karara_baglanir(mod, beklenen):
+    politika = build_policy(mod, AlwaysApprove())
+
+    karar = await politika.decide(build_request(_arac(), {"path": "a.txt"}))
+
+    assert karar is beklenen
+
+
+async def test_auto_modda_yikici_komut_yine_de_sorulur():
+    politika = build_policy(ApprovalMode.AUTO, AlwaysReject())
+
+    karar = await politika.decide(
+        build_request(_arac("run_shell"), {"command": "git reset --hard"})
+    )
+
+    assert karar is Decision.DENIED
+
+
+async def test_auto_modda_proje_ici_sade_silme_cope_gittigi_icin_sorulmaz(tmp_path):
+    """Sade `rm -rf build` kalıcı silmez, Fusion çöpüne gider: sormak gereksizdir."""
+    politika = build_policy(ApprovalMode.AUTO, AlwaysReject())
+    (tmp_path / "build").mkdir()
+
+    istek = build_request(_arac("run_shell"), {"command": "rm -rf build"}, root=tmp_path)
+
+    assert istek.danger is None
+    assert "Fusion çöpüne taşınır" in (istek.note or "")
+    assert await politika.decide(istek) is Decision.ALLOW
+
+
+async def test_auto_modda_yikici_olmayan_komut_sorulmaz():
+    politika = build_policy(ApprovalMode.AUTO, AlwaysReject())
+
+    karar = await politika.decide(build_request(_arac("run_shell"), {"command": "pytest -q"}))
+
+    assert karar is Decision.ALLOW
+
+
+async def test_security_modda_her_degisiklik_sorulur():
+    politika = build_policy(ApprovalMode.SECURITY, AlwaysReject())
+
+    karar = await politika.decide(build_request(_arac(), {"path": "a.txt"}))
+
+    assert karar is Decision.DENIED
+
+
+async def test_security_modda_onay_verilirse_gecer():
+    politika = build_policy(ApprovalMode.SECURITY, AlwaysApprove())
+
+    assert await politika.decide(build_request(_arac(), {})) is Decision.ALLOW
+
+
+async def test_onay_alinamayan_oturum_reddedilmis_sayilmaz():
+    """UNAVAILABLE (kimseye sorulamadı) BLOCKED'a gider, DENIED'a değil.
+
+    B3: yalnızca gerçek bir insan reddi (`DENY`/`False`) `Decision.DENIED`
+    olmalı ve turu durdurmalı. Oturum etkileşimsiz olduğu için kimseye
+    sorulamamış olmak farklı bir sonuçtur: model başka bir yol dener, tur sürer.
+    """
+
+    class _EtkilesimsizOnayci:
+        async def confirm(self, request):
+            return ApprovalAnswer.UNAVAILABLE
+
+    politika = build_policy(ApprovalMode.SECURITY, _EtkilesimsizOnayci())
+
+    karar = await politika.decide(build_request(_arac(), {"path": "a.txt"}))
+
+    assert karar is Decision.BLOCKED
+
+
+async def test_oturum_izni_ayni_araci_tekrar_sormaz():
+    class _OturumOnayi:
+        def __init__(self):
+            self.calls = 0
+
+        async def confirm(self, request):
+            self.calls += 1
+            return ApprovalAnswer.SESSION
+
+    prompter = _OturumOnayi()
+    politika = build_policy(ApprovalMode.SECURITY, prompter)
+    request = build_request(_arac(), {"path": "a.txt"})
+
+    assert await politika.decide(request) is Decision.ALLOW
+    assert await politika.decide(request) is Decision.ALLOW
+    assert prompter.calls == 1
+
+
+async def test_yikici_istekte_oturum_izni_bir_defalik_sayilir():
+    class _OturumOnayi:
+        def __init__(self):
+            self.calls = 0
+
+        async def confirm(self, request):
+            self.calls += 1
+            return ApprovalAnswer.SESSION
+
+    prompter = _OturumOnayi()
+    politika = build_policy(ApprovalMode.AUTO, prompter)
+    request = build_request(_arac("run_shell"), {"command": "git reset --hard"})
+
+    assert await politika.decide(request) is Decision.ALLOW
+    assert await politika.decide(request) is Decision.ALLOW
+    assert prompter.calls == 2
+
+
+async def test_plan_modu_kullaniciya_hic_sormaz():
+    class _Patlayan:
+        async def confirm(self, request):
+            raise AssertionError("plan modunda soru sorulmamalı")
+
+    politika = build_policy(ApprovalMode.PLAN, _Patlayan())
+
+    assert await politika.decide(build_request(_arac(), {})) is Decision.BLOCKED
+
+
+def test_tehlike_gerekcesi_isteğe_islenir():
+    istek = build_request(_arac("run_shell"), {"command": "git push --force"})
+
+    assert istek.danger == "uzak geçmişi ezen force push"
+
+
+def test_zararsiz_istekte_tehlike_yok():
+    assert build_request(_arac("run_shell"), {"command": "ls"}).danger is None
+
+
+# --- Gözetimsiz kabuk: beyaz liste ------------------------------------------ #
+
+
+async def test_auto_kipte_taninmayan_kabuk_komutu_sorar():
+    """Kara listeye takılmayan her komutun sessizce çalışması asıl açıktı.
+
+    `node -e "...rmSync..."` hiçbir tehlike kalıbına uymaz; eskiden auto kipte
+    hiç sorulmadan çalışırdı.
+    """
+    from fusion_cli.engines.agent.approval import AutoApproval, build_request
+    from fusion_cli.tools.shell import run_shell
+
+    arac = Tool(
+        name="run_shell",
+        description="",
+        parameters={},
+        run=run_shell,
+        mutating=True,
+    )
+    args = {"command": "node -e \"require('fs').rmSync('/x')\""}
+    prompter = _SahtePrompter(cevap=False)
+
+    karar = await AutoApproval(prompter).decide(build_request(arac, args))
+
+    assert prompter.soruldu, "tanınmayan komut onaya sunulmalı"
+    assert karar is Decision.DENIED
+
+
+async def test_auto_kipte_salt_okunur_komut_sorulmaz():
+    """Her `ls` için onay istemek kullanıcıyı yorar ve onayı anlamsızlaştırır."""
+    from fusion_cli.engines.agent.approval import AutoApproval, build_request
+    from fusion_cli.tools.shell import run_shell
+
+    arac = Tool(
+        name="run_shell",
+        description="",
+        parameters={},
+        run=run_shell,
+        mutating=True,
+    )
+    prompter = _SahtePrompter(cevap=True)
+
+    karar = await AutoApproval(prompter).decide(build_request(arac, {"command": "git status"}))
+
+    assert not prompter.soruldu
+    assert karar is Decision.ALLOW
+
+
+class _SahtePrompter:
+    def __init__(self, cevap: bool) -> None:
+        self.cevap = cevap
+        self.soruldu = False
+
+    async def confirm(self, request) -> bool:
+        self.soruldu = True
+        return self.cevap
+
+
+# --- Uzak araç etki sınıfı ---------------------------------------------------- #
+
+
+class _SayanOnayci:
+    """Kaç kez sorulduğunu sayan ve sabit cevap veren sahte kullanıcı."""
+
+    def __init__(self, cevap):
+        self.cevap = cevap
+        self.soru_sayisi = 0
+
+    async def confirm(self, request):
+        self.soru_sayisi += 1
+        return self.cevap
+
+
+async def test_auto_modda_uzak_yazma_araci_sorulmadan_calismaz():
+    politika = build_policy(ApprovalMode.AUTO, AlwaysReject())
+
+    karar = await politika.decide(
+        build_request(_arac("ads__update_budget", effect=ToolEffect.REMOTE_WRITE), {})
+    )
+
+    assert karar is Decision.DENIED
+
+
+async def test_auto_modda_kapsamsiz_uzak_yazma_her_cagrida_sorulur():
+    onayci = _SayanOnayci(ApprovalAnswer.SESSION)
+    politika = build_policy(ApprovalMode.AUTO, onayci)
+    arac = _arac("godot__add_node", effect=ToolEffect.REMOTE_WRITE)
+
+    ilk = await politika.decide(build_request(arac, {"name": "a"}))
+    ikinci = await politika.decide(build_request(arac, {"name": "b"}))
+
+    assert (ilk, ikinci) == (Decision.ALLOW, Decision.ALLOW)
+    assert onayci.soru_sayisi == 2
+
+
+async def test_auto_modda_yikici_uzak_arac_her_cagride_sorulur():
+    onayci = _SayanOnayci(ApprovalAnswer.SESSION)
+    politika = build_policy(ApprovalMode.AUTO, onayci)
+    arac = _arac("wp__delete_page", effect=ToolEffect.REMOTE_DESTRUCTIVE)
+
+    await politika.decide(build_request(arac, {"id": 1}))
+    await politika.decide(build_request(arac, {"id": 2}))
+
+    assert onayci.soru_sayisi == 2
+
+
+def test_yikici_uzak_arac_istegi_gerekceyi_tasir():
+    istek = build_request(_arac("wp__delete_page", effect=ToolEffect.REMOTE_DESTRUCTIVE), {})
+
+    assert istek.danger == REMOTE_DESTRUCTIVE_REASON
+
+
+async def test_auto_modda_salt_okunur_uzak_arac_sorulmaz():
+    politika = build_policy(ApprovalMode.AUTO, AlwaysReject())
+
+    karar = await politika.decide(
+        build_request(_arac("ads__get_insights", effect=ToolEffect.REMOTE_READ), {})
+    )
+
+    assert karar is Decision.ALLOW
+
+
+async def test_manuel_kipte_salt_okunur_uzak_arac_sorulmaz_yazan_sorulur():
+    """Manuel kip Claude'daki gibi "değişiklikten önce sorar": okuma değişiklik değildir."""
+    politika = build_policy(ApprovalMode.SECURITY, AlwaysReject())
+
+    okuma = build_request(_arac("ads__get_insights", effect=ToolEffect.REMOTE_READ), {})
+    yazma = build_request(_arac("ads__set_budget", effect=ToolEffect.REMOTE_WRITE), {})
+
+    assert await politika.decide(okuma) is Decision.ALLOW
+    assert await politika.decide(yazma) is Decision.DENIED
+
+
+def test_arac_etkisi_varsayilan_olarak_yereldir():
+    arac = Tool(name="read_file", description="", parameters={}, run=lambda a, c: None)
+
+    assert arac.effect is ToolEffect.LOCAL
+
+
+async def test_ortak_onay_hafizasi_yeni_politikada_da_gecerli():
+    from fusion_cli.engines.agent.approval import ApprovalMemory
+
+    hafiza = ApprovalMemory()
+    onayci = _SayanOnayci(ApprovalAnswer.SESSION)
+    arac = _arac("godot__add_node", effect=ToolEffect.LOCAL)
+
+    for mod in (ApprovalMode.AUTO, ApprovalMode.AUTO, ApprovalMode.SECURITY):
+        karar = await build_policy(mod, onayci, hafiza).decide(build_request(arac, {}))
+        assert karar is Decision.ALLOW
+
+    assert onayci.soru_sayisi == 1
+
+
+async def test_ortak_onay_hafizasi_yikici_cagriyi_turlar_arasinda_hatirlamaz():
+    from fusion_cli.engines.agent.approval import ApprovalMemory
+
+    hafiza = ApprovalMemory()
+    onayci = _SayanOnayci(ApprovalAnswer.SESSION)
+    arac = _arac("wp__delete_page", effect=ToolEffect.REMOTE_DESTRUCTIVE)
+
+    await build_policy(ApprovalMode.AUTO, onayci, hafiza).decide(build_request(arac, {"id": 1}))
+    await build_policy(ApprovalMode.AUTO, onayci, hafiza).decide(build_request(arac, {"id": 1}))
+
+    assert onayci.soru_sayisi == 2
+
+
+# --- Çağrı bazlı etki (WordPress MCP adaptörü) ------------------------------ #
+
+
+def _uzak_arac(effect_resolver=None):
+    from fusion_cli.core.tools import Tool, ToolEffect, ToolResult
+
+    async def _run(_args, _context):
+        return ToolResult("tamam")
+
+    return Tool(
+        name="ornekmagaza__mcp-adapter-execute-ability",
+        description="",
+        parameters={},
+        run=_run,
+        mutating=True,
+        effect=ToolEffect.REMOTE_DESTRUCTIVE,
+        effect_resolver=effect_resolver,
+    )
+
+
+async def test_resolve_request_cagri_bazli_etkiyi_kullanir():
+    from fusion_cli.core.tools import ToolEffect
+    from fusion_cli.engines.agent.approval import resolve_request
+
+    async def okuma(_args, _context=None):
+        return ToolEffect.REMOTE_READ
+
+    istek = await resolve_request(_uzak_arac(okuma), {"ability_name": "woocommerce/products-query"})
+
+    assert istek.effect is ToolEffect.REMOTE_READ
+    assert istek.danger is None
+    assert istek.unattended_safe is True
+
+
+async def test_resolve_request_cozucu_yoksa_aracin_etkisini_korur():
+    from fusion_cli.core.tools import ToolEffect
+    from fusion_cli.engines.agent.approval import resolve_request
+
+    istek = await resolve_request(_uzak_arac(), {"ability_name": "x"})
+
+    assert istek.effect is ToolEffect.REMOTE_DESTRUCTIVE
+    assert istek.danger is not None
+
+
+async def test_plan_kipi_uzak_okumaya_izin_verir_yazmayi_engeller():
+    from fusion_cli.core.tools import ToolEffect
+    from fusion_cli.engines.agent.approval import Decision, PlanApproval, resolve_request
+
+    async def okuma(_args, _context=None):
+        return ToolEffect.REMOTE_READ
+
+    async def yazma(_args, _context=None):
+        return ToolEffect.REMOTE_WRITE
+
+    plan = PlanApproval()
+    assert await plan.decide(await resolve_request(_uzak_arac(okuma), {})) is Decision.ALLOW
+    assert await plan.decide(await resolve_request(_uzak_arac(yazma), {})) is Decision.BLOCKED

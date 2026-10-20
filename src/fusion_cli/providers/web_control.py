@@ -1,0 +1,580 @@
+"""Web tarayıcı sağlayıcılarının panel tarafındaki ortak işlemleri.
+
+Bu sağlayıcılar (ChatGPT, Claude, Gemini, Copilot) kullanıcının KENDİ
+aboneliğiyle çalışır ve API anahtarı kullanmaz: giriş ayrı bir tarayıcı
+penceresinde yapılır, çerez izole bir Playwright profilinde kalır ve Fusion
+çerez değerine hiç dokunmaz.
+
+Modül ASGI'den ve Tauri'den bağımsızdır: hem yerel gateway paneli hem masaüstü
+uygulaması aynı davranışı buradan alır. İki yerde ayrı ayrı yazılsaydı biri
+düzeltilirken öteki eskirdi.
+"""
+
+from __future__ import annotations
+
+import os
+import signal
+import subprocess
+import sys
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol
+
+from ..config.keys import environ_snapshot
+from ..config.models import Config, WebSessionConfig
+from ..core.types import ModelSpec
+from ..core.window_mode import WindowMode
+from .web_browser import WEB_BROWSER_PROVIDERS, browser_profile_dir, normalize_account
+from .web_shared_browser import read_window_notice
+
+if TYPE_CHECKING:  # pragma: no cover - yalnız tip denetimi
+    from ..core.protocols import LlmProvider
+
+
+class SecretReader(Protocol):
+    """Katalog için gereken EN DAR yüzey.
+
+    `get` bilerek istenmez: katalog yalnız "bu anahtar kayıtlı mı" bilgisini
+    kullanır, değerini asla okumaz. Dar protokol, sırra erişebilen bir deponun
+    buraya geçmesini gereksiz kılar.
+    """
+
+    @property
+    def available(self) -> bool: ...
+    def list_names(self) -> tuple[str, ...]: ...
+
+
+_LOGIN_PROCESSES: dict[int, subprocess.Popen[Any]] = {}
+
+
+def login_argv(provider: str, account: str) -> list[str]:
+    """Giriş tarayıcısını açacak komutu üret.
+
+    Kaynak kurulumda `python -m fusion_cli.providers.web_login` çalışır. Ama
+    PyInstaller ile paketlenmiş uygulamada `sys.executable` Fusion ikilisidir ve
+    `-m` bayrağını TANIMAZ; orada ikilinin kendi `web-login` komutu kullanılır.
+    Ayrım yapılmazsa panelden "Giriş yap" sessizce hiçbir şey açmaz.
+    """
+    if provider not in WEB_BROWSER_PROVIDERS:
+        raise ValueError(f"tanınmayan web sağlayıcısı: {provider}")
+    normalized = normalize_account(account or "main")
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "web-login", provider, "--account", normalized]
+    return [sys.executable, "-m", "fusion_cli.providers.web_login", provider, normalized]
+
+
+def start_login(provider: str, account: str) -> int:
+    """Giriş penceresini başlat ve süreç kimliğini döndür.
+
+    Süreç BEKLENMEZ: kullanıcı pencereyi kapatana kadar yaşar. Panel `pid`'i
+    yoklayarak pencerenin kapandığını anlar ve doğrulamayı kendiliğinden çalıştırır;
+    kullanıcı elle çerez kopyalamak zorunda kalmaz.
+    """
+    argv = login_argv(provider, account)
+    process = subprocess.Popen(
+        argv,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    _LOGIN_PROCESSES[process.pid] = process
+    return process.pid
+
+
+def stop_all_login_processes() -> None:
+    """Fusion'ın başlattığı giriş süreci ve Chrome çocuklarını kapat."""
+    for pid, process in tuple(_LOGIN_PROCESSES.items()):
+        try:
+            if process.poll() is not None:
+                continue
+            if sys.platform == "win32":  # pragma: no cover - süreç grubu API'si farklıdır
+                process.terminate()
+            else:
+                os.killpg(pid, signal.SIGTERM)
+        except OSError:
+            pass
+        finally:
+            _LOGIN_PROCESSES.pop(pid, None)
+
+
+def process_alive(pid: int) -> bool:
+    """Giriş penceresinin süreci hâlâ yaşıyor mu?"""
+    if pid <= 0:
+        return False
+    process = _LOGIN_PROCESSES.get(pid)
+    if process is not None:
+        # kill(pid, 0) zombi süreçleri canlı sayar. poll() çocuğu toplar.
+        return process.poll() is None
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def login_exit_code(pid: int) -> int | None:
+    """Yalnız bu uygulamanın başlattığı girişin çıkış durumunu döndür."""
+    process = _LOGIN_PROCESSES.get(pid)
+    return process.poll() if process is not None else None
+
+
+def _profile_dir(provider: str, account: str) -> Path:
+    return browser_profile_dir(provider, normalize_account(account or "main"))
+
+
+def _session_for(
+    sessions: tuple[WebSessionConfig, ...], provider: str, account: str
+) -> WebSessionConfig | None:
+    """Sağlayıcı/hesap için kayıtlı oturum. Yoksa None."""
+    hedef = normalize_account(account or "main")
+    for item in sessions:
+        if getattr(item, "provider", None) == provider and (
+            normalize_account(str(getattr(item, "account", "main"))) == hedef
+        ):
+            return item
+    return None
+
+
+def session_model(provider: str, account: str) -> str:
+    """Web oturumunun kararlı model kimliği."""
+    return f"{provider}/{normalize_account(account or 'main')}/auto"
+
+
+def register_session(
+    config: Config,
+    provider: str,
+    account: str = "main",
+    *,
+    tool_support: str = "emulated",
+) -> tuple[Config | None, dict[str, Any]]:
+    """Giriş sonrası oturumu yapılandırmaya YAZ ve etkinleştir.
+
+    Bu adım eksikti: giriş penceresi kapanıyor, profil klasörü oluşuyor ve panel
+    "bağlı" diyordu — ama `web_sessions` boş kaldığı için Fusion o sağlayıcıyı
+    model yönlendirmesinde hiç kullanamıyordu.
+
+    Geçilmiş araç ölçümü KORUNUR: ölçüm modelin yeteneğine dairdir, yeniden
+    bağlanmak onu geçersiz kılmaz. Aksi hâlde her yeniden giriş, taklit-araç
+    modelini sessizce salt-okunur kipe düşürürdü.
+    """
+    from dataclasses import replace as _replace
+
+    from ..config.models import WebSessionConfig
+    from ..config.writer import write_web_sessions
+
+    if provider not in WEB_BROWSER_PROVIDERS:
+        return None, {"ok": False, "metin": f"Tanınmayan web sağlayıcısı: {provider}"}
+    hesap = normalize_account(account or "main")
+    model = session_model(provider, hesap)
+
+    mevcut = _session_for(tuple(config.web_sessions), provider, hesap)
+    from ..config.web_evidence import web_evaluation_matches
+
+    korunan_olcum = bool(getattr(mevcut, "tool_eval_passed", False)) and (
+        getattr(mevcut, "tool_support", None) == tool_support
+        and getattr(mevcut, "transport", None) == "browser"
+        and mevcut is not None
+        and web_evaluation_matches(mevcut)
+    )
+    varsayilan = WebSessionConfig(model=model, provider=provider, account=hesap)
+    oturum = WebSessionConfig(
+        model=model,
+        provider=provider,
+        account=hesap,
+        transport="browser",
+        # Görünür Chrome girişinde gerçek profil tek kaynaktır; eski elle
+        # aktarılmış Cookie başlığı yeni oturumu her turda ezmemelidir.
+        credential_ref=None,
+        tool_support="emulated" if tool_support != "none" else "none",
+        tool_eval_passed=korunan_olcum,
+        tool_evaluated_at=getattr(mevcut, "tool_evaluated_at", None) if korunan_olcum else None,
+        tool_evaluation_scope=getattr(mevcut, "tool_evaluation_scope", "") if korunan_olcum else "",
+        tool_evaluation_adapter_revision=getattr(mevcut, "tool_evaluation_adapter_revision", "")
+        if korunan_olcum
+        else "",
+        # KULLANICI TERCİHLERİ KORUNUR. `headless` ve `timeout_s` türetilmiş durum
+        # değil, bilinçli seçimdir; oturumu yeniden kaydetmek onları sıfırlamamalı.
+        #
+        # Ölçüldü (11 Eylül): ChatGPT Cloudflare bot kontrolüne takıldığı için
+        # oturum görünür kipe alınmıştı. Kullanıcı arayüzden oturumu yeniden
+        # sınadığında bu alan taşınmadığı için tercih sessizce `true`ya döndü,
+        # görünür pencere hiç açılmadı ve aynı hata tekrar alındı — sebebi
+        # hiçbir yerde görünmüyordu.
+        # Yeni oturum sağlayıcının ÖLÇÜLMÜŞ önerilen kipiyle başlar (ChatGPT: gizli).
+        headless=getattr(
+            mevcut, "headless", WEB_BROWSER_PROVIDERS[provider].recommended_window_mode
+        ),
+        timeout_s=getattr(mevcut, "timeout_s", varsayilan.timeout_s),
+        enabled=True,
+        selected_model=getattr(mevcut, "selected_model", ""),
+    )
+    digerleri = tuple(
+        item
+        for item in config.web_sessions
+        if not (item.provider == provider and normalize_account(str(item.account)) == hesap)
+        and item.model != model
+    )
+    yeni = _replace(config, web_sessions=(*digerleri, oturum))
+    try:
+        write_web_sessions(yeni)
+    except Exception as error:  # ConfigError ve OSError türevleri
+        return None, {"ok": False, "metin": f"Oturum kaydedilemedi: {error}"}
+    yeni, yonlendirme = _route_roles_if_idle(yeni, model)
+    metin = "Oturum kaydedildi." if not yonlendirme else f"Oturum kaydedildi; {yonlendirme}"
+    return yeni, {"ok": True, "model": model, "metin": metin}
+
+
+def _route_roles_if_idle(config: Config, model: str) -> tuple[Config, str]:
+    """Çalışan başka sağlayıcı yoksa rolleri bu oturuma bağla.
+
+    Ölçüldü (7 Eylül): kullanıcı Gemini web'e giriş yapıyor, oturum yazılıyor ve
+    panel "bağlı" diyor — ama agent/hakem/aday zincirleri hâlâ API anahtarı
+    isteyen modelleri gösteriyor ve `fusion doctor` "hazır değil" diyordu. Ürünün
+    kimliği ücretsiz modellerle çalışmaktır; giriş yaptıktan sonra kullanıcının
+    yapılandırmayı elle düzeltmesi beklenemez.
+
+    Yönlendirme YALNIZCA hiçbir rol çalışmıyorken yapılır: anahtarı olan
+    kullanıcının kurduğu zincir sessizce değiştirilmez. Zincirler DEĞİŞTİRİLMEZ,
+    web modeli başa EKLENİR — kullanıcı sonradan anahtar eklerse eski modeller
+    yedek olarak yerinde kalır.
+    """
+    from dataclasses import replace as _replace
+
+    from ..config.keys import detect
+    from ..config.readiness import evaluate
+    from ..config.writer import write_model_section
+
+    anahtarlar = detect()
+    if evaluate(config, anahtarlar).agent_ok:
+        return config, ""
+
+    def onde(spec: ModelSpec) -> ModelSpec:
+        if spec.models and spec.models[0] == model:
+            return spec
+        return _replace(spec.with_identity(model), fallback=tuple(spec.models))
+
+    yonlendirilmis = _replace(
+        config,
+        agent=onde(config.agent),
+        judge=onde(config.judge),
+        candidates=tuple(onde(spec) for spec in config.candidates) or (onde(config.agent),),
+    )
+    try:
+        write_model_section(yonlendirilmis)
+    except Exception:
+        # Yönlendirme bir KOLAYLIKTIR; yazılamazsa oturum yine de kayıtlıdır.
+        return config, ""
+    return yonlendirilmis, f"roller {model} modeline bağlandı."
+
+
+def remove_session(
+    config: Config, provider: str, account: str = "main"
+) -> tuple[Config | None, dict[str, Any]]:
+    """Oturumu kaldır ve tarayıcı profilini sil.
+
+    Çıkış yapmanın karşılığı budur: profil silinmezse çerez diskte kalır ve
+    kullanıcı "çıktım" sanır. Profil silinemezse kayıt YİNE DE kaldırılır ve
+    sebep söylenir; yarım bir durumu sessizce başarı göstermek yanlış olurdu.
+    """
+    from dataclasses import replace as _replace
+    from shutil import rmtree
+
+    from ..config.writer import write_web_sessions
+
+    hesap = normalize_account(account or "main")
+    kalan = tuple(
+        item
+        for item in config.web_sessions
+        if not (item.provider == provider and normalize_account(str(item.account)) == hesap)
+    )
+    if len(kalan) == len(config.web_sessions):
+        return None, {"ok": False, "metin": "Bu sağlayıcı için kayıtlı oturum yok."}
+
+    yeni = _replace(config, web_sessions=kalan)
+    try:
+        write_web_sessions(yeni)
+    except Exception as error:
+        return None, {"ok": False, "metin": f"Oturum kaldırılamadı: {error}"}
+
+    uyari = ""
+    profil = _profile_dir(provider, hesap)
+    if profil.exists():
+        try:
+            rmtree(profil)
+        except OSError as error:
+            uyari = f" Profil klasörü silinemedi: {error}"
+    return yeni, {"ok": True, "metin": f"Oturum kapatıldı.{uyari}"}
+
+
+def _build_web_provider(config: Config, model: str) -> LlmProvider | None:
+    """Doğrulama için web sağlayıcısını kur. Kurulamıyorsa None."""
+    from .web_registry import web_registry_for
+
+    registry = web_registry_for(config)
+    return registry.build(model) if registry else None
+
+
+def set_login_verified(
+    config: Config, provider: str, account: str, verified: bool
+) -> Config | None:
+    """Gerçek sınama sonucunu yapılandırmaya yaz; yalnız metadata saklanır."""
+    from dataclasses import replace as _replace
+
+    from ..config.writer import write_web_sessions
+
+    hesap = normalize_account(account or "main")
+    found = False
+    sessions = []
+    for item in config.web_sessions:
+        matches = item.provider == provider and normalize_account(str(item.account)) == hesap
+        found = found or matches
+        sessions.append(_replace(item, login_verified=verified) if matches else item)
+    if not found:
+        return None
+    updated = _replace(config, web_sessions=tuple(sessions))
+    try:
+        write_web_sessions(updated)
+    except Exception:
+        return None
+    return updated
+
+
+async def session_model_choices(
+    config: Config, provider: str, account: str = "main"
+) -> dict[str, Any]:
+    """Hesabın gerçek web menüsünden model seçeneklerini oku."""
+    from .web_browser import discover_browser_models
+    from .web_registry import web_registry_for
+
+    session = _session_for(tuple(config.web_sessions), provider, account)
+    if session is None or not session.enabled or not session.login_verified:
+        return {"ok": False, "metin": "Önce web oturumunu bağla ve doğrula."}
+    registry = web_registry_for(config)
+    try:
+        choices = await discover_browser_models(
+            session, registry.credential_for(session) if registry else None
+        )
+    except Exception as error:
+        return {"ok": False, "metin": f"Model menüsü okunamadı: {error}"}
+    return {
+        "ok": True,
+        "secili": session.selected_model or "Otomatik",
+        "secenekler": ["Otomatik", *(item for item in choices if item.casefold() != "otomatik")],
+    }
+
+
+async def set_session_model_choice(
+    config: Config, provider: str, account: str, choice: str
+) -> tuple[Config | None, dict[str, Any]]:
+    """Yalnız hesabın canlı menüsünde bulunan seçimi kalıcı kıl."""
+    from dataclasses import replace as _replace
+
+    from ..config.writer import write_web_sessions
+
+    session = _session_for(tuple(config.web_sessions), provider, account)
+    if session is None or not session.enabled:
+        return None, {"ok": False, "metin": "Etkin web oturumu bulunamadı."}
+    selected = "" if choice == "Otomatik" else choice.strip()
+    if selected:
+        options = await session_model_choices(config, provider, account)
+        if not options.get("ok"):
+            return None, options
+        if selected not in options["secenekler"]:
+            return None, {"ok": False, "metin": "Model bu hesapta seçilebilir değil."}
+    updated = _replace(
+        config,
+        web_sessions=tuple(
+            _replace(
+                item,
+                selected_model=selected,
+                tool_eval_passed=(
+                    item.tool_eval_passed if selected == item.selected_model else False
+                ),
+            )
+            if item is session
+            else item
+            for item in config.web_sessions
+        ),
+    )
+    try:
+        write_web_sessions(updated)
+    except Exception as error:
+        return None, {"ok": False, "metin": f"Model tercihi kaydedilemedi: {error}"}
+    return updated, {"ok": True, "secili": selected or "Otomatik"}
+
+
+async def validate_session(config: Config, provider: str, account: str = "main") -> dict[str, Any]:
+    """Gerçek ve KÜÇÜK bir istek gönderip oturumun çalıştığını doğrula.
+
+    Profil klasörünün varlığı giriş yapıldığını KANITLAMAZ: pencere açılıp
+    kapatılınca da klasör oluşur. Tek kanıt, o oturumdan gerçekten cevap
+    alabilmektir. İstek kasten küçüktür; kullanıcının kendi kotasından
+    harcadığı için uzun bir sınama yapılmaz.
+    """
+    import asyncio
+
+    from ..core.types import CompletionRequest, Message
+
+    hesap = normalize_account(account or "main")
+    oturum = _session_for(tuple(config.web_sessions), provider, hesap)
+    if oturum is None:
+        return {"ok": False, "metin": "Bu sağlayıcı için kayıtlı oturum yok."}
+
+    saglayici = _build_web_provider(config, oturum.model)
+    if saglayici is None:
+        return {"ok": False, "metin": "Web sağlayıcısı kurulamadı."}
+
+    istek = CompletionRequest(
+        messages=(Message("user", "Sadece OK yaz."),),
+        temperature=0.0,
+        max_tokens=16,
+        timeout_s=min(90.0, float(getattr(oturum, "timeout_s", 180.0))),
+    )
+    try:
+        sonuc = await asyncio.wait_for(saglayici.complete(istek), timeout=istek.timeout_s + 5)
+    except TimeoutError:
+        return {"ok": False, "metin": "Bağlantı sınaması zaman aşımına uğradı."}
+    except Exception as error:
+        return {"ok": False, "metin": f"Bağlantı sınanamadı: {error}"}
+
+    if not sonuc.ok:
+        return {"ok": False, "metin": f"Oturum cevap vermedi: {sonuc.error or 'bilinmeyen hata'}"}
+    return {
+        "ok": True,
+        "gecikme_ms": sonuc.latency_ms,
+        "onizleme": sonuc.text[:160],
+        "metin": "Oturum çalışıyor.",
+    }
+
+
+def set_tool_eval_passed(
+    config: Config, provider: str, account: str, passed: bool, *, measured_at: float | None = None
+) -> Config | None:
+    """Ölçüm sonucunu yapılandırmaya yaz."""
+    from dataclasses import replace as _replace
+
+    from ..config.web_evidence import web_adapter_revision, web_evaluation_scope
+    from ..config.writer import write_web_sessions
+
+    hesap = normalize_account(account or "main")
+    found = False
+    sessions = []
+    for item in config.web_sessions:
+        matches = item.provider == provider and normalize_account(str(item.account)) == hesap
+        found = found or matches
+        sessions.append(
+            _replace(
+                item,
+                tool_eval_passed=passed,
+                tool_evaluated_at=measured_at,
+                tool_evaluation_scope=web_evaluation_scope(item),
+                tool_evaluation_adapter_revision=web_adapter_revision(),
+            )
+            if matches
+            else item
+        )
+    if not found:
+        return None
+    updated = _replace(config, web_sessions=tuple(sessions))
+    try:
+        write_web_sessions(updated)
+    except Exception:
+        return None
+    return updated
+
+
+def provider_catalog(
+    *,
+    sessions: tuple[Any, ...],
+    secret_store: SecretReader | None,
+) -> list[dict[str, Any]]:
+    """Panelde çizilecek TEK ve KISA sağlayıcı listesi.
+
+    İki ayrı bölüm (anahtarlı sağlayıcılar + web sağlayıcıları) yerine tek liste
+    verilir: kullanıcı uzun anahtar kutuları değil, "ismi yazsın, tıklayınca
+    açılsın" istedi. Satır yalnız kimlik, ad, tür ve bağlı olup olmadığını
+    taşır; anahtar ya da çerez değeri bu sınırdan HİÇBİR koşulda geçmez.
+    """
+    from .registry import BUILTIN_PROVIDERS
+
+    rows: list[dict[str, Any]] = [
+        {**card, "tur": "web", "eylem": "oturum"}
+        for card in provider_cards(sessions=sessions, secret_store=secret_store)
+    ]
+
+    stored: set[str] = set()
+    if secret_store is not None and secret_store.available:
+        try:
+            stored = set(secret_store.list_names())
+        except Exception:
+            stored = set()
+    environment = environ_snapshot()
+
+    for provider in BUILTIN_PROVIDERS:
+        if not provider.implemented or provider.auth_env is None:
+            continue
+        rows.append(
+            {
+                "id": provider.id,
+                "ad": provider.name,
+                "tur": "anahtar",
+                "eylem": "anahtar",
+                "ortam": provider.auth_env,
+                "bagli": provider.auth_env in stored
+                or bool(environment.get(provider.auth_env, "").strip()),
+            }
+        )
+    return rows
+
+
+def provider_cards(
+    *,
+    sessions: tuple[Any, ...],
+    secret_store: SecretReader | None,
+) -> list[dict[str, Any]]:
+    """Panelde çizilecek sağlayıcı kartları — yalnız METADATA.
+
+    Çerez, token ya da başka bir sır değeri bu sınırdan HİÇBİR koşulda geçmez;
+    "bağlı mı" bilgisi profil dizininin varlığından türetilir.
+    """
+    cards: list[dict[str, Any]] = []
+    for provider_id, definition in WEB_BROWSER_PROVIDERS.items():
+        matching = [item for item in sessions if getattr(item, "provider", None) == provider_id]
+        account = normalize_account(
+            str(getattr(matching[0], "account", "main")) if matching else "main"
+        )
+        session = matching[0] if matching else None
+        profil_var = _profile_dir(provider_id, account).exists()
+        cards.append(
+            {
+                "id": provider_id,
+                "ad": definition.name,
+                "adres": definition.home_url,
+                "hesap": account,
+                # Bu sağlayıcılar anahtar kullanmaz; panel anahtar kutusu ÇİZMEZ.
+                "anahtar_gerekir": False,
+                # "Bağlı" olmak için hem tarayıcı profili hem KAYITLI ve etkin bir
+                # oturum gerekir. Eskiden yalnız klasöre bakılıyordu: giriş
+                # yapmadan pencereyi kapatmak bile "bağlı" gösteriyordu ve
+                # Fusion o sağlayıcıyı yine de kullanamıyordu.
+                "bagli": profil_var
+                and bool(getattr(session, "enabled", False))
+                and bool(getattr(session, "login_verified", False)),
+                "profil_var": profil_var,
+                "model": getattr(session, "model", None),
+                "secili_model": getattr(session, "selected_model", "") or "Otomatik",
+                "arac_destegi": getattr(session, "tool_support", "none"),
+                "olcum_gecti": bool(getattr(session, "tool_eval_passed", False)),
+                "etkin": bool(getattr(session, "enabled", False)),
+                # Pencere kipi ve (varsa) son pencere uyarısı — ör. gizleme izni yok.
+                "pencere_kipi": WindowMode(
+                    getattr(session, "headless", definition.recommended_window_mode)
+                ).slug,
+                "pencere_uyarisi": read_window_notice(_profile_dir(provider_id, account)),
+            }
+        )
+    return cards
