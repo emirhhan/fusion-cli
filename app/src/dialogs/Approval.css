@@ -146,10 +146,46 @@
 
 .prompt-card__hint { color: var(--text-tertiary, var(--text-secondary)); font-size: 11px; margin: 0; }
 
-/* Kits kartlarıyla aynı yuvarlatılmış, sakin yüzey dili. */
-.prompt-card { border-radius: var(--radius-xl); box-shadow: var(--shadow-overlay); border-color: var(--border-strong); padding: 20px; gap: 12px; }
-.prompt-card__eyebrow { color: var(--accent-text); }
-.prompt-card__options { gap: 6px; }
-.prompt-card__option { border-color: var(--border-subtle); background: var(--surface-canvas); min-height: 44px; border-radius: var(--radius-md); }
-.prompt-card__option[data-recommended="true"] { background: var(--surface-accent-subtle); border-color: color-mix(in srgb, var(--accent-text) 38%, var(--border-subtle)); }
-.prompt-card__option[data-recommended="true"] .prompt-card__key { background: var(--brand-signal-deep); border-color: transparent; color: #fff; }
+/* Codex tarzı kompakt soru kartı: küçük yazı, sade satırlar, düz numaralar. */
+.prompt-card {
+  border-color: var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow-overlay);
+  gap: 6px;
+  max-height: min(46vh, 360px);
+  max-width: 560px;
+  padding: 10px 12px 8px;
+}
+.prompt-card__eyebrow { color: var(--text-secondary); font-size: 11px; font-weight: 500; letter-spacing: 0; }
+.prompt-card__title { font-size: 13px; font-weight: 600; line-height: 1.4; margin: 0 0 2px; }
+.prompt-card__reason,
+.prompt-card__danger { font-size: 12px; }
+.prompt-card__options { gap: 1px; }
+.prompt-card__option {
+  background: transparent;
+  border-color: transparent;
+  border-radius: 8px;
+  font-size: 13px;
+  gap: 8px;
+  min-height: 30px;
+  padding: 4px 8px;
+}
+.prompt-card__key {
+  background: none;
+  border: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  height: auto;
+  justify-content: flex-start;
+  width: 14px;
+}
+.prompt-card__key::after { content: "."; }
+.prompt-card__label small { font-size: 11.5px; }
+.prompt-card__option[data-recommended="true"] { background: var(--surface-hover, rgb(255 255 255 / 6%)); border-color: transparent; }
+.prompt-card__option[data-recommended="true"] .prompt-card__key { background: none; color: var(--text-primary); }
+.prompt-card__option[data-recommended="true"]::after { content: "\2713"; color: var(--text-secondary); font-size: 12px; margin-left: auto; }
+.prompt-card__badge { display: none; }
+.prompt-card__other { padding: 2px 0 0 22px; }
+.prompt-card__other input { border-radius: 8px; font-size: 13px; min-height: 30px; padding: 4px 8px; }
+.prompt-card__other button { font-size: 12px; min-height: 28px; }
+.prompt-card__hint { font-size: 10.5px; }
