@@ -16,6 +16,7 @@ from ..history.models import HistorySource, SessionRef, Turn
 from ..history.sanitize import sanitize_title, sanitize_turns
 from ..history.search import SessionMatch
 from ..history.search import search_sessions as _search_sessions
+from ..history.work_dirs import codex_work_dirs
 
 DEFAULT_LIMIT = 30
 MAX_LIMIT = 100
@@ -32,6 +33,8 @@ class PreparedResume:
     payload: dict[str, Any]
     digest: str
     messages: tuple[Message, ...]
+    #: Devralınan oturumun çalıştığı, proje kökünün dışındaki klasörler.
+    work_dirs: tuple[Path, ...] = ()
 
 
 def list_sources(home: Path) -> dict[str, Any]:
@@ -120,6 +123,9 @@ def prepare_resume(home: Path, root: Path, data: dict[str, Any]) -> PreparedResu
     if ref is None:
         return {"ok": False, "metin": "Seçilen geçmiş oturumu bulunamadı."}
     digest = build_digest(source, ref)
+    work_dirs = (
+        _outside_root(codex_work_dirs(home, ref.session_id), root) if source.name == "codex" else ()
+    )
     return PreparedResume(
         payload={
             "ok": True,
@@ -127,14 +133,46 @@ def prepare_resume(home: Path, root: Path, data: dict[str, Any]) -> PreparedResu
             "oturum_id": ref.session_id,
             "baslik": sanitize_title(ref.title),
             "sir_sayisi": digest.secret_count,
+            "klasorler": [str(path) for path in work_dirs],
+            "kok_uyusmuyor": bool(work_dirs) and not _inside_any(work_dirs, root),
         },
-        digest=digest.text,
+        digest=_with_work_dirs(digest.text, work_dirs, root),
+        work_dirs=work_dirs,
         messages=tuple(
             Message(turn.role, turn.text)
             for turn in sanitize_turns(source.read(ref.session_id, cursor=0, limit=100))
             if turn.role in {"user", "assistant"} and turn.text.strip()
         ),
     )
+
+
+def _is_inside(path: Path, root: Path) -> bool:
+    resolved = root.expanduser().resolve()
+    return path == resolved or resolved in path.parents
+
+
+def _inside_any(paths: tuple[Path, ...], root: Path) -> bool:
+    return any(_is_inside(path, root) for path in paths)
+
+
+def _outside_root(paths: tuple[Path, ...], root: Path) -> tuple[Path, ...]:
+    return tuple(path for path in paths if not _is_inside(path, root))
+
+
+def _with_work_dirs(digest: str, work_dirs: tuple[Path, ...], root: Path) -> str:
+    """Künyeye, oturumun gerçek çalışma klasörlerini ve proje kökü uyarısını ekle."""
+    if not work_dirs:
+        return digest
+    note = (
+        "çalışılan klasörler (Codex kaydından): " + ", ".join(str(path) for path in work_dirs),
+        f"şu anki proje kökü: {root}",
+        "Görev yukarıdaki klasörlerdeyse dosya araçlarını o MUTLAK yollarla kullan; "
+        "yalnız proje kökünde arama. Bu klasörlere erişim açıldı.",
+    )
+    closing = "</devralinan_oturum>"
+    if closing in digest:
+        return digest.replace(closing, "\n".join((*note, closing)), 1)
+    return "\n".join((digest, *note))
 
 
 def _source(home: Path, data: dict[str, Any]) -> HistorySource | None:

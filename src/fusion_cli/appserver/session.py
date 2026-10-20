@@ -840,6 +840,10 @@ class AppSession:
             prepared = prepare_resume(self._home, self._state.root, request.data)
             if isinstance(prepared, PreparedResume):
                 self._state.pending_digest = prepared.digest
+                # Kullanıcının kendi devralma eylemi, o oturumun klasörlerine açık izindir.
+                self._state.extra_roots = tuple(
+                    dict.fromkeys((*self._state.extra_roots, *prepared.work_dirs))
+                )
                 self._state.history = list(prepared.messages)
                 return prepared.payload
             return prepared
