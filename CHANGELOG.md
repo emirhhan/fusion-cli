@@ -3,6 +3,14 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## 0.7.17 — 2026-10-21
+
+- Codex sohbeti devralınırken oturumun çalıştığı klasörler bulunur, erişime açılır ve proje köküyle uyuşmazlık modele bildirilir.
+- Proje kökünde bulunamayan dosya Belgeler, Masaüstü ve İndirilenler'de aranır; çoklu eşleşmede kullanıcıya sorulur.
+- Dosya hiçbir yerde yoksa gizli ve bağımlılık klasörlerinde aramadan önce her onay kipinde kullanıcıya sorulur.
+- Soru kartı kompakt hale getirildi.
+- Windows'ta bellek deposu kilidi ve çok platformlu tip denetimi düzeltildi.
+
 ## 0.7.16 — 2026-10-20
 
 - Devralınan sohbetlerde devam isteği asıl görevin araç kanıtıyla değerlendirilir.

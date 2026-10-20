@@ -39,7 +39,7 @@ kart alanlarına yazma engellenir. Chrome'un kendi özel sayfaları bağlanmaz.
 
 Aşağıdaki komutlar masaüstünden bağımsız terminal sürümünü kurar.
 
-**Sürüm: 0.7.16.** Değişiklikler: [CHANGELOG.md](CHANGELOG.md).
+**Sürüm: 0.7.17.** Değişiklikler: [CHANGELOG.md](CHANGELOG.md).
 Desteklenen özellikler ve sınırlar aşağıda açıklanmıştır.
 
 ## Kurulum
