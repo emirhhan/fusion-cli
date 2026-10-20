@@ -10,8 +10,8 @@ kilit çakışmasına yol açar.
 
 from __future__ import annotations
 
-import fcntl
 import logging
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from ..core.errors import FusionError
 
@@ -103,6 +103,35 @@ def _create_client(directory: Path) -> Any:
         raise MemoryUnavailableError(f"Bellek deposu açılamadı ({directory}): {exc}") from exc
 
 
+def _try_lock(handle: IO[str]) -> bool:
+    """Kilidi bekletmeden almayı dener; başkası tutuyorsa `False` verir."""
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+def _unlock(handle: IO[str]) -> None:
+    if sys.platform == "win32":
+        import msvcrt
+
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(handle, fcntl.LOCK_UN)
+
+
 @contextmanager
 def process_lock(directory: Path, timeout_s: float = PROCESS_LOCK_TIMEOUT_S) -> Iterator[bool]:
     """Depo dizini için süreçler arası özel kilit; alınamazsa `False` verir (bekletmez)."""
@@ -110,18 +139,16 @@ def process_lock(directory: Path, timeout_s: float = PROCESS_LOCK_TIMEOUT_S) -> 
     with (directory / _LOCK_FILE).open("a") as handle:
         bitis = time.monotonic() + timeout_s
         while True:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if _try_lock(handle):
                 break
-            except BlockingIOError:
-                if time.monotonic() >= bitis:
-                    yield False
-                    return
-                time.sleep(_LOCK_POLL_S)
+            if time.monotonic() >= bitis:
+                yield False
+                return
+            time.sleep(_LOCK_POLL_S)
         try:
             yield True
         finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            _unlock(handle)
 
 
 #: Kilit alınamadığında yöntemin döndüreceği güvenli boş sonuç (bellek o çağrıda yok).
