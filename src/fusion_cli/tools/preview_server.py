@@ -135,7 +135,9 @@ async def start(
     elif kind in (PreviewKind.PHP, PreviewKind.WORDPRESS):
         if php is None:
             raise PreviewError("PHP bulunamadı. Kurmak için: `brew install php`.")
-        process = await _spawn([php, "-S", f"127.0.0.1:{port}", "-t", str(root)], root)
+        process = await _spawn(
+            [php, "-d", "display_errors=1", "-S", f"127.0.0.1:{port}", "-t", str(root)], root
+        )
         preview = RunningPreview(root, kind, f"{base}/", process=process)
     else:
         command = await _node_command(root, port)

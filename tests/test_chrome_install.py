@@ -104,8 +104,10 @@ def _cevap(kod=0, cikti=""):
     return subprocess.CompletedProcess([], kod, cikti, "")
 
 
-def test_otomatik_kurulum_izin_yoksa_ayar_panelini_acar_ve_yonlendirir(chrome_kok):
+def test_otomatik_kurulum_izin_yoksa_ayar_panelini_acar_ve_yonlendirir(chrome_kok, monkeypatch):
     from fusion_cli.appserver import chrome_autoinstall as oto
+
+    monkeypatch.setattr(oto, "_platform", lambda: "darwin")
 
     komutlar: list[list[str]] = []
 
@@ -118,8 +120,10 @@ def test_otomatik_kurulum_izin_yoksa_ayar_panelini_acar_ve_yonlendirir(chrome_ko
     assert ["open", oto.ACCESSIBILITY_PANE] in komutlar
 
 
-def test_otomatik_kurulum_arayuzu_surer_ve_profilde_dogrular(chrome_kok):
+def test_otomatik_kurulum_arayuzu_surer_ve_profilde_dogrular(chrome_kok, monkeypatch):
     from fusion_cli.appserver import chrome_autoinstall as oto
+
+    monkeypatch.setattr(oto, "_platform", lambda: "darwin")
 
     def runner(komut):
         if komut[1] == "-e":
@@ -135,8 +139,10 @@ def test_otomatik_kurulum_arayuzu_surer_ve_profilde_dogrular(chrome_kok):
     assert sonuc["asama"] == "yuklendi" and sonuc["eklenti_yuklu"] is True
 
 
-def test_arayuz_adimi_basarisizsa_elle_kuruluma_duser(chrome_kok):
+def test_arayuz_adimi_basarisizsa_elle_kuruluma_duser(chrome_kok, monkeypatch):
     from fusion_cli.appserver import chrome_autoinstall as oto
+
+    monkeypatch.setattr(oto, "_platform", lambda: "darwin")
 
     def runner(komut):
         return _cevap(0, "true" if komut[1] == "-e" else "no-switch")

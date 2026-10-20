@@ -56,6 +56,9 @@ def test_recreated_index_is_rescanned_but_unchanged_pages_do_not_scan(tmp_path, 
     assert len(asset_bridge.asset_page({}, profile)["items"]) == 1
     assert len(asset_bridge.asset_page({}, profile)["items"]) == 1
     assert len(calls) == 1
+    # Linux dosya sistemleri silinen dosyanın inode numarasını hemen yeniden verebilir;
+    # eski inode'u tutmak, yeniden oluşturulan veritabanının ayırt edilmesini sağlar.
+    (profile / "eski-inode").hardlink_to(profile / "assets.sqlite3")
     (profile / "assets.sqlite3").unlink()
     assert len(asset_bridge.asset_page({}, profile)["items"]) == 1
     assert len(calls) == 2

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import time
 
 from fusion_cli.memory import store
@@ -25,7 +24,7 @@ class _SahteKoleksiyon:
 
 def _kilidi_tut(dizin):
     tutamac = (dizin / store._LOCK_FILE).open("a")
-    fcntl.flock(tutamac, fcntl.LOCK_EX)
+    assert store._try_lock(tutamac)
     return tutamac
 
 

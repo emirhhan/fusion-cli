@@ -26,7 +26,7 @@ export function generate({ check = false, appOnly = false } = {}) {
   if (!appOnly) outputs.push(resolve(kits, "src/client/fusion-brand.generated.css"));
   for (const path of outputs) {
     if (check) {
-      if (readFileSync(path, "utf8") !== css) throw new Error("Üretilmiş marka token'ları güncel değil.");
+      if (readFileSync(path, "utf8").replace(/\r\n/g, "\n") !== css) throw new Error("Üretilmiş marka token'ları güncel değil.");
     } else writeFileSync(path, css);
   }
   if (appOnly) return;

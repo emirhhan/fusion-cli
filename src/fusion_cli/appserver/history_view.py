@@ -28,12 +28,31 @@ def _safe_value(value: object) -> object:
     return redact(value) if isinstance(value, str) else value
 
 
+#: Bundan derin iç içe argüman görünür geçmişe alınmaz. Python sürümüne göre değişen
+#: özyineleme sınırına bırakılmaz: 3.12 sınırı gevşetti ve test sürümler arası ayrıştı.
+MAX_ARGUMENT_DEPTH = 32
+
+
+def _too_deep(value: object) -> bool:
+    """İç içe derinliği özyinelemesiz ölç; sınırı aşan yapı reddedilir."""
+    pending = [(value, 1)]
+    while pending:
+        current, depth = pending.pop()
+        if depth > MAX_ARGUMENT_DEPTH:
+            return True
+        if isinstance(current, dict):
+            pending.extend((item, depth + 1) for item in current.values())
+        elif isinstance(current, list):
+            pending.extend((item, depth + 1) for item in current)
+    return False
+
+
 def _arguments(call: ToolCall | None) -> dict[str, object]:
     if call is None:
         return {}
     try:
         parsed = json.loads(call.arguments)
-        if not isinstance(parsed, dict):
+        if not isinstance(parsed, dict) or _too_deep(parsed):
             return {}
         return {
             redact(str(key)): REDACTED_MARK
