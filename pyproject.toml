@@ -186,6 +186,29 @@ markers = [
 ]
 
 [[tool.mypy.overrides]]
+# Platforma özgü dallar: mypy yalnız çalıştığı işletim sistemini görür. POSIX'e özgü
+# API'ler (killpg, getuid, flock...) Windows'ta, darwin korumalı kod Linux/Windows'ta
+# "erişilemez" görünür. Doğru davranış çalışma zamanında platform denetimleriyle ve
+# üç işletim sistemindeki CI matrisiyle doğrulanıyor.
+module = [
+    "evals.selected_probe",
+    "fusion_cli.appserver.image_job_artifacts",
+    "fusion_cli.core.process_control",
+    "fusion_cli.memory.store",
+    "fusion_cli.tools.native_desktop",
+    "fusion_cli.tools.remotion_observe",
+]
+disable_error_code = ["attr-defined"]
+
+[[tool.mypy.overrides]]
+module = [
+    "desktop_build.runtime.native_helper",
+    "fusion_cli.appserver.chrome_host",
+    "fusion_cli.tools.native_desktop",
+]
+warn_unreachable = false
+
+[[tool.mypy.overrides]]
 # mcp SDK'sının sunucu dekoratörleri (@server.list_tools) tiplenmemiş; bu ince köprü
 # modüllerinde ilgili katı kuralları gevşetiriz (SDK'nın kendi tip eksiği bizim değil).
 module = ["fusion_cli.mcp_bridge.server", "fusion_cli.mcp_bridge.client"]
