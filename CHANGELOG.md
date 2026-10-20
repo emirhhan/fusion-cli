@@ -3,6 +3,11 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## 0.7.18 — 2026-10-21
+
+- Araç çağırmadan "yapıyorum" diyen model, turu başarısız kapatmadan önce üç kez kademeli ve somut uyarıyla araca yönlendirilir.
+- Platformlar arası test ve denetim farkları giderildi.
+
 ## 0.7.17 — 2026-10-21
 
 - Codex sohbeti devralınırken oturumun çalıştığı klasörler bulunur, erişime açılır ve proje köküyle uyuşmazlık modele bildirilir.
