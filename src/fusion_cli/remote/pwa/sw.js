@@ -4,7 +4,7 @@ const SHELL = [
   "/signing.js", "/store.js", "/views-chats.js", "/views-settings.js", "/views-tasks.js", "/voice.js", "/styles.css", "/manifest.webmanifest", "/icon.svg",
   "/icon-192.png", "/icon-192.png?v=logo-20261017", "/icon-512.png", "/apple-touch-icon.png",
 ];
-const CACHE = "fusion-kabuk-v9";
+const CACHE = "fusion-kabuk-v10";
 self.addEventListener("install", (event) => {
   self.skipWaiting();
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));

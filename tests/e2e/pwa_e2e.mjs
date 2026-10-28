@@ -82,7 +82,8 @@ async function run(width, height) {
   // 7) onay: yeni görev → sohbet içinde onay kartı → onayla → yanıt
   await page.locator("#mesaj").fill("onay gerektiren iş");
   await page.getByRole("button", { name: "Gönder" }).click();
-  const card = page.locator(".approval").first();
+  // Aynı soru "Onaylar" sekmesinde de (gizli) çizilir; sohbetteki kart seçilir.
+  const card = page.locator("#sohbet .approval").first();
   await card.waitFor({ timeout: 8000 });
   await page.screenshot({ path: `${shots}/${tag}-06-onay.png` });
   await card.getByRole("button", { name: /izin ver|onayla/i }).first().click();

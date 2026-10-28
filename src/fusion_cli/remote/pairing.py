@@ -53,7 +53,10 @@ class PairingService:
         token_bytes: Callable[[int], bytes] = os.urandom,
         require_approval: Callable[[], bool] = lambda: True,
         on_paired: Callable[[Device], None] | None = None,
+        account_id: Callable[[], str] = lambda: "",
     ) -> None:
+        #: Kodla eşleşen cihaz, eşleşmeyi onaylayan masaüstündeki açık hesaba bağlanır.
+        self._account_id = account_id
         self._require_approval = require_approval
         self._on_paired = on_paired
         self._registry = registry
@@ -104,7 +107,11 @@ class PairingService:
         if pending.approved_device is not None:
             raise PairingError("Eşleştirme zaten onaylandı.")
         device = self._registry.add(
-            pending.device_name, pending.channel, pending.scopes, pending.external_id
+            pending.device_name,
+            pending.channel,
+            pending.scopes,
+            pending.external_id,
+            account_id=self._account_id(),
         )
         pending.approved_device = device
         if pending.channel != CHANNEL_SIGNED:

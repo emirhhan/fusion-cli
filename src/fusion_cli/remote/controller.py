@@ -15,8 +15,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
-from ..config.paths import user_data_dir
+from ..accounts.workspaces import PERSONAL_WORKSPACE, bind_context, local_identity
+from ..config.paths import active_account, user_data_dir
 from ..core.protocols import Clock
+from ..memory.run_store import SqliteRunStore
 from .account_login import AccountLogin
 from .asgi import RemoteApp
 from .backend import AppSessionBackend
@@ -61,11 +63,12 @@ def _expand(value: object) -> str:
     return str(Path(str(value)).expanduser()) if value else ""
 
 
-def _authenticate_account(identifier: str, password: str) -> bool:
-    """Fusion hesap deposunda kimlik + parola doğrulaması (scrypt; parola saklanmaz/loglanmaz)."""
+def _authenticate_account(identifier: str, password: str) -> str | None:
+    """Doğrulanan hesabın kimliği (scrypt; parola saklanmaz/loglanmaz); başarısızsa None."""
     from ..accounts.store import SqliteAccountStore
 
-    return SqliteAccountStore().authenticate(identifier=identifier, password=password) is not None
+    account = SqliteAccountStore().authenticate(identifier=identifier, password=password)
+    return account.account_id if account is not None else None
 
 
 def _fail(message: str) -> dict[str, Any]:
@@ -96,8 +99,10 @@ class RemoteController:
             self._clock,
             require_approval=lambda: self._require_approval,
             on_paired=self._remember_paired,
+            account_id=active_account,
         )
-        self._store = TaskStore(self._clock)
+        self._runs = SqliteRunStore(directory / "runs.sqlite3", clock=self._clock)
+        self._store = TaskStore(self._runs)
         self._backend = AppSessionBackend(session_factory, root)
         self._projects = ProjectStore(directory / "projects.json")
         run_lock = asyncio.Lock()
@@ -119,6 +124,7 @@ class RemoteController:
             store=self._store,
             backend=self._backend,
             screen_capture=MacScreenCapture(),
+            host_tenant=local_identity(active_account()).tenant_id,
         )
         self._directory = directory
         self._secrets = secrets
@@ -231,7 +237,9 @@ class RemoteController:
         return {"ok": self._registry.revoke(device_id)}
 
     async def _tasks(self, _data: dict[str, Any]) -> dict[str, Any]:
-        return {"ok": True, "gorevler": [t.view() for t in self._store.list_tasks()]}
+        # Masaüstü yalnız açık hesabın uzak görevlerini görür.
+        owner = bind_context(local_identity(active_account()), PERSONAL_WORKSPACE)
+        return {"ok": True, "gorevler": [t.view() for t in self._store.list_tasks(owner)]}
 
     async def _pending(self, _data: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "sorular": self._service.pending_questions()}
@@ -399,3 +407,4 @@ class RemoteController:
         await self._stop_server()
         await self._stop_telegram()
         await self._service.aclose()
+        self._runs.close()

@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 import pytest
 
+from fusion_cli.memory.run_store import SqliteRunStore
 from fusion_cli.remote.asgi import RemoteApp
 from fusion_cli.remote.bind import BindPolicy, BindRefusedError, validate_bind
 from fusion_cli.remote.devices import DeviceRegistry
@@ -102,7 +103,11 @@ class Rig:
             clock=self.clock,
             registry=self.registry,
             store=TaskStore(
-                self.clock, token_bytes=lambda n: bytes(next(counter) % 256 for _ in range(n))
+                SqliteRunStore(
+                    tmp_path / "runs.sqlite3",
+                    clock=self.clock,
+                    token_bytes=lambda n: bytes(next(counter) % 256 for _ in range(n)),
+                )
             ),
             backend=self.backend,
         )

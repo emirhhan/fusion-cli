@@ -19,6 +19,7 @@ from typing import Any, Protocol
 import httpx
 
 from ..core.atomic_file import atomic_replace_text
+from ..core.execution_context import ExecutionContext
 from ..core.protocols import Clock
 from .constants import (
     NOTIFICATION_SUMMARY_LIMIT,
@@ -30,7 +31,7 @@ from .pairing import PairingError, PairingService
 from .rate_limit import FailureLimiter
 from .redaction import REDACTED, notification_summary, redact_text
 from .rpc import RemoteService, RpcResult
-from .tasks import TERMINAL_STATES, TaskStore
+from .tasks import TERMINAL_STATES, TaskRecord, TaskStore, device_context
 
 HELP_TEXT = (
     "Komutlar: /projects /tasks /status /kits /kit <ad> /pause /resume /cancel /audit /devices\n"
@@ -203,7 +204,8 @@ class TelegramBridge:
             self._projects[user] = argument[:200]
             return f"Proje: {argument or '(yok)'}"
         if command == "/projects":
-            names = sorted({t.project for t in self._store.list_tasks() if t.project})
+            tasks = self._store.list_tasks(device_context(device))
+            names = sorted({t.project for t in tasks if t.project})
             return "\n".join(names) or "Henüz proje adı yok. /project <ad> ile seç."
         if command == "/tasks":
             return await self._tasks_text(device)
@@ -222,7 +224,7 @@ class TelegramBridge:
             method = "tasks.pause" if command == "/pause" else "tasks.resume"
             return self._summary(await self._service.call(device, method, {}), "Tamam")
         if command == "/cancel":
-            run_id = argument or self._latest_run()
+            run_id = argument or self._latest_run(device)
             return self._summary(
                 await self._service.call(device, "tasks.cancel", {"runId": run_id}), "İptal istendi"
             )
@@ -246,8 +248,8 @@ class TelegramBridge:
             "Görev alındı",
         )
 
-    def _latest_run(self) -> str:
-        tasks = self._store.list_tasks()
+    def _latest_run(self, device: Device) -> str:
+        tasks = self._store.list_tasks(device_context(device))
         return tasks[0].run_id if tasks else ""
 
     @staticmethod
@@ -267,7 +269,7 @@ class TelegramBridge:
         return "\n".join(rows) or "Görev yok."
 
     async def _status_text(self, device: Device, run_id: str, *, audit: bool) -> str:
-        target = run_id or self._latest_run()
+        target = run_id or self._latest_run(device)
         if audit:
             result = await self._service.call(device, "tasks.events", {"runId": target})
             if not result.ok:
@@ -285,21 +287,28 @@ class TelegramBridge:
 
     async def notify(self) -> None:
         """Düşük hacim: yalnız onay isteği ve terminal durum; kod/diff dökülmez."""
-        for task in self._store.list_tasks():
-            chat_id = self._chats.get(task.owner_device)
-            if chat_id is None:
+        for device_id, chat_id in list(self._chats.items()):
+            device = self._registry.active(device_id)
+            if device is None:
                 continue
-            seen = self._notified.get(task.run_id, 0)
-            for event in self._store.events_after(task.run_id, seen):
-                self._notified[task.run_id] = event.seq
-                if event.kind == "approval_request":
-                    await self._reply(chat_id, STEP_UP_NOTICE)
-                elif task.state in TERMINAL_STATES and event.kind in {
-                    "done",
-                    "failed",
-                    "cancelled",
-                }:
-                    await self._reply(chat_id, notification_summary(f"{task.run_id}: {event.kind}"))
+            context = device_context(device)
+            for task in self._store.list_tasks(context):
+                if task.owner_device == device_id:
+                    await self._notify_task(context, chat_id, task)
+
+    async def _notify_task(self, context: ExecutionContext, chat_id: int, task: TaskRecord) -> None:
+        seen = self._notified.get(task.run_id, 0)
+        for event in self._store.events_after(context, task.run_id, seen):
+            self._notified[task.run_id] = event.seq
+            if event.kind == "approval_request":
+                await self._reply(chat_id, STEP_UP_NOTICE)
+            elif task.state in TERMINAL_STATES and event.kind in {
+                "done",
+                "failed",
+                "cancelled",
+                "needs_reconciliation",
+            }:
+                await self._reply(chat_id, notification_summary(f"{task.run_id}: {event.kind}"))
 
     async def _reply(self, chat_id: int, text: str) -> None:
         await self._api.send_message(chat_id, text[: NOTIFICATION_SUMMARY_LIMIT * 4])

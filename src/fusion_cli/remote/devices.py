@@ -34,6 +34,9 @@ class Device:
     revoked: bool = False
     screen_trusted: bool = False
     external_id: str = ""  # Telegram kullanıcı kimliği gibi kanal-içi kimlik
+    #: Cihazın bağlı olduğu yerel hesap (tenant). Boş: hesapsız kurulum ya da hesap
+    #: bağı olmadan eşleşmiş eski cihaz; o zaman `local` tenant'ındadır (WP02).
+    account_id: str = ""
 
     @property
     def secret(self) -> bytes:
@@ -67,7 +70,15 @@ class DeviceRegistry:
         self._token_bytes = token_bytes
         self._devices: dict[str, Device] = self._load()
 
-    def add(self, name: str, channel: str, scopes: frozenset[str], external_id: str = "") -> Device:
+    def add(
+        self,
+        name: str,
+        channel: str,
+        scopes: frozenset[str],
+        external_id: str = "",
+        *,
+        account_id: str = "",
+    ) -> Device:
         device = Device(
             device_id="dev_" + self._token_bytes(9).hex(),
             name=name.strip()[:60] or "Adsız cihaz",
@@ -76,6 +87,7 @@ class DeviceRegistry:
             secret_hex=self._token_bytes(DEVICE_SECRET_BYTES).hex(),
             created_at=self._clock.now(),
             external_id=external_id,
+            account_id=account_id,
         )
         self._devices = {**self._devices, device.device_id: device}
         self._save()
@@ -145,6 +157,7 @@ class DeviceRegistry:
                     revoked=bool(item.get("revoked", False)),
                     external_id=item.get("externalId", ""),
                     screen_trusted=item.get("screenTrusted") is True,
+                    account_id=str(item.get("accountId", "")),
                 )
             except (KeyError, TypeError, ValueError):
                 continue
@@ -164,6 +177,7 @@ class DeviceRegistry:
                     "revoked": d.revoked,
                     "externalId": d.external_id,
                     "screenTrusted": d.screen_trusted,
+                    "accountId": d.account_id,
                 }
                 for d in self._devices.values()
             ]

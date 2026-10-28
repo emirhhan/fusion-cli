@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from fusion_cli.memory.run_store import SqliteRunStore
 from fusion_cli.remote.devices import CHANNEL_TELEGRAM, DeviceRegistry
 from fusion_cli.remote.pairing import PairingService
 from fusion_cli.remote.rpc import RemoteService
@@ -45,6 +46,13 @@ def update(
     }
 
 
+def _yerel_sahip():
+    """Masaüstündeki yerel sahip: hesapsız kurulumda eski cihazlar bu tenant'tadır."""
+    from fusion_cli.accounts.workspaces import PERSONAL_WORKSPACE, bind_context, local_identity
+
+    return bind_context(local_identity(""), PERSONAL_WORKSPACE)
+
+
 class Harness:
     def __init__(self, tmp_path: Path) -> None:
         self.clock = FakeClock()
@@ -54,7 +62,9 @@ class Harness:
         self.pairing = PairingService(
             self.registry, self.clock, token_bytes=lambda n: bytes(range(n))
         )
-        self.store = TaskStore(self.clock, token_bytes=token)
+        self.store = TaskStore(
+            SqliteRunStore(tmp_path / "runs.sqlite3", clock=self.clock, token_bytes=token)
+        )
         self.backend = FakeBackend()
         self.service = RemoteService(
             clock=self.clock, registry=self.registry, store=self.store, backend=self.backend
@@ -86,7 +96,7 @@ async def harness(tmp_path: Path) -> Any:
 
 async def test_eslesmemis_kullaniciya_cevap_yok_ve_gorev_acilmaz(harness: Harness) -> None:
     await harness.bridge.handle_update(update(1, "kodu sil"))
-    assert harness.api.sent == [] and harness.store.list_tasks() == []
+    assert harness.api.sent == [] and harness.store.list_tasks(_yerel_sahip()) == []
 
 
 async def test_pair_masaustu_onayi_olmadan_calismaz_sonra_calisir(harness: Harness) -> None:
@@ -94,10 +104,10 @@ async def test_pair_masaustu_onayi_olmadan_calismaz_sonra_calisir(harness: Harne
     await harness.bridge.handle_update(update(1, f"/pair {code}"))
     assert "masaüstü" in harness.api.sent[-1][1]
     await harness.bridge.handle_update(update(2, "gorev yap"))
-    assert harness.store.list_tasks() == []  # henüz onaysız
+    assert harness.store.list_tasks(_yerel_sahip()) == []  # henüz onaysız
     harness.pairing.approve(code)
     await harness.bridge.handle_update(update(3, "gorev yap"))
-    assert len(harness.store.list_tasks()) == 1
+    assert len(harness.store.list_tasks(_yerel_sahip())) == 1
 
 
 async def test_yanlis_kanal_kodu_ve_hiz_siniri(harness: Harness) -> None:
@@ -114,11 +124,11 @@ async def test_yanlis_kanal_kodu_ve_hiz_siniri(harness: Harness) -> None:
 async def test_grup_sohbeti_ve_tekrar_eden_guncelleme_yok_sayilir(harness: Harness) -> None:
     await harness.pair_user()
     await harness.bridge.handle_update(update(5, "grup işi", chat_type="group"))
-    assert harness.store.list_tasks() == []
+    assert harness.store.list_tasks(_yerel_sahip()) == []
     await harness.bridge.handle_update(update(6, "tek iş"))
     await harness.bridge.handle_update(update(6, "tek iş"))  # aynı update_id
     await asyncio.sleep(0.01)
-    assert len(harness.store.list_tasks()) == 1 and len(harness.backend.started) == 1
+    assert len(harness.store.list_tasks(_yerel_sahip())) == 1 and len(harness.backend.started) == 1
 
 
 async def test_sir_iceren_mesaj_islenmez_ve_silinmeye_calisilir(harness: Harness) -> None:
@@ -126,7 +136,7 @@ async def test_sir_iceren_mesaj_islenmez_ve_silinmeye_calisilir(harness: Harness
     await harness.bridge.handle_update(
         update(9, "token: 123456:ABCdefGHIjklMNOpqrSTUvwxYZ0123456789")
     )
-    assert harness.store.list_tasks() == []
+    assert harness.store.list_tasks(_yerel_sahip()) == []
     assert harness.api.deleted == [(42, 9)]
 
 

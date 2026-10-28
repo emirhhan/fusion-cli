@@ -20,6 +20,7 @@ from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from fusion_cli.memory.run_store import SqliteRunStore
 from fusion_cli.remote.account_login import AccountLogin
 from fusion_cli.remote.asgi import RemoteApp
 from fusion_cli.remote.devices import DeviceRegistry
@@ -272,7 +273,7 @@ async def main(port: int) -> None:
     service = RemoteService(
         clock=clock,
         registry=registry,
-        store=TaskStore(clock),
+        store=TaskStore(SqliteRunStore(tmp / "runs.sqlite3", clock=clock)),
         backend=backend,
         screen_capture=Capture(),
         mobile=mobile,
@@ -280,7 +281,7 @@ async def main(port: int) -> None:
     )
     limiter = FailureLimiter(clock)
     login = AccountLogin(
-        authenticate=lambda i, p: (i, p) == ("emir", "parola123"),
+        authenticate=lambda i, p: "hesap-emir" if (i, p) == ("emir", "parola123") else None,
         registry=registry,
         limiter=limiter,
     )

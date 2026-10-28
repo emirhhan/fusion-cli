@@ -85,3 +85,16 @@ def test_kuyruktaki_isin_iptali_hemen_cancelled(tmp_path):
     makbuz = _accept(store, "is")
 
     assert store.request_cancel(_ctx(), makbuz.run_id).status is RunStatus.CANCELLED
+
+
+def test_iptal_istenen_is_runninge_geri_donmez(tmp_path):
+    store = SqliteRunStore(tmp_path / "runs.sqlite3", clock=Saat())
+    makbuz = _accept(store, "is")
+    store.mark_dispatching(_ctx(), makbuz.run_id)
+    store.request_cancel(_ctx(), makbuz.run_id)
+
+    store.set_status(_ctx(), makbuz.run_id, RunStatus.RUNNING)
+    assert store.snapshot(_ctx(), makbuz.run_id).status is RunStatus.CANCELLING
+
+    store.set_status(_ctx(), makbuz.run_id, RunStatus.SUCCEEDED)
+    assert store.snapshot(_ctx(), makbuz.run_id).status is RunStatus.SUCCEEDED

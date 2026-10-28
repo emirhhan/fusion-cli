@@ -20,7 +20,9 @@ PASSWORD = "cok-gizli-parola-123"  # gitleaks:allow
 
 def _login_rig(rig: Rig, *, enabled: bool = True) -> None:
     login = AccountLogin(
-        authenticate=lambda identifier, password: identifier == "emir" and password == PASSWORD,
+        authenticate=lambda identifier, password: (
+            "hesap-emir" if identifier == "emir" and password == PASSWORD else None
+        ),
         registry=rig.registry,
         limiter=rig.limiter,
     )

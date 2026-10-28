@@ -34,7 +34,7 @@ class AccountLogin:
     def __init__(
         self,
         *,
-        authenticate: Callable[[str, str], bool],
+        authenticate: Callable[[str, str], str | None],
         registry: DeviceRegistry,
         limiter: FailureLimiter,
     ) -> None:
@@ -51,11 +51,15 @@ class AccountLogin:
         keys = (f"login:{client}", f"login-id:{identifier.strip().casefold()}")
         if any(self._limiter.is_locked(key) for key in keys):
             raise LoginError(429, "cok_deneme", "Çok fazla deneme; biraz bekle.")
-        ok = await asyncio.to_thread(self._authenticate, identifier.strip(), password)
-        if not ok:
+        account_id = await asyncio.to_thread(self._authenticate, identifier.strip(), password)
+        if account_id is None:
             for key in keys:
                 self._limiter.record_failure(key)
             raise LoginError(401, "kimlik_hatali", "Kullanıcı adı veya parola hatalı.")
         for key in keys:
             self._limiter.record_success(key)
-        return self._registry.add(device_name, CHANNEL_SIGNED, ACCOUNT_SCOPES)
+        # Cihaz GİRİŞ YAPILAN hesaba bağlanır: başka hesabın parolası masaüstünde açık
+        # hesabın görevlerine erişim vermez (WP02).
+        return self._registry.add(
+            device_name, CHANNEL_SIGNED, ACCOUNT_SCOPES, account_id=account_id
+        )

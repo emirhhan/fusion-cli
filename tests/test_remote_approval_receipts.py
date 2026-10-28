@@ -9,6 +9,7 @@ import pytest
 
 from fusion_cli.appserver.bridges import PendingQuestions
 from fusion_cli.appserver.session import AppSession
+from fusion_cli.memory.run_store import SqliteRunStore
 from fusion_cli.remote.approval_confirmation import ApprovalConfirmations
 from fusion_cli.remote.backend import AppSessionBackend
 from fusion_cli.remote.devices import DeviceRegistry
@@ -61,7 +62,12 @@ def make_service(tmp_path: Path) -> tuple[RemoteService, DeviceRegistry, FakeBac
     clock = FakeClock()
     registry = DeviceRegistry(tmp_path / "devices.json", clock)
     backend = FakeBackend()
-    service = RemoteService(clock=clock, registry=registry, backend=backend, store=TaskStore(clock))
+    service = RemoteService(
+        clock=clock,
+        registry=registry,
+        backend=backend,
+        store=TaskStore(SqliteRunStore(tmp_path / "runs.sqlite3", clock=clock)),
+    )
     return service, registry, backend, clock
 
 

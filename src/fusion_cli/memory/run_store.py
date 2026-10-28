@@ -190,7 +190,10 @@ class SqliteRunStore:
         with self._transaction() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = self._owned_row(connection, context, run_id, Action.EXECUTE, None)
-            if RunStatus(row["status"]) not in SETTLED_STATUSES:
+            current = RunStatus(row["status"])
+            # İptal istenmiş iş yalnız kesin bir sonuca geçer; "running"e geri dönmez.
+            reopens = current is RunStatus.CANCELLING and status not in SETTLED_STATUSES
+            if current not in SETTLED_STATUSES and not reopens:
                 self._update(connection, run_id, status, error_code, event_kind)
             return self._snapshot_row(self._require(connection, run_id))
 

@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from fusion_cli.memory.run_store import SqliteRunStore
 from fusion_cli.remote.backend import AppSessionBackend
 from fusion_cli.remote.controller import RemoteController
 from fusion_cli.remote.devices import Device, DeviceRegistry
@@ -22,6 +23,13 @@ from tests.test_remote_controller import MemorySecrets
 from tests.test_remote_service import FakeBackend, FakeClock
 
 PNG = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"x" * 32).decode()
+
+
+def _yerel_sahip():
+    """Masaüstündeki yerel sahip: hesapsız kurulumda eski cihazlar bu tenant'tadır."""
+    from fusion_cli.accounts.workspaces import PERSONAL_WORKSPACE, bind_context, local_identity
+
+    return bind_context(local_identity(""), PERSONAL_WORKSPACE)
 
 
 class Rig:
@@ -47,7 +55,7 @@ class Rig:
         self.service = RemoteService(
             clock=self.clock,
             registry=registry,
-            store=TaskStore(self.clock),
+            store=TaskStore(SqliteRunStore(tmp_path / "runs.sqlite3", clock=self.clock)),
             backend=self.backend,
             mobile=mobile,
             run_lock=lock,
@@ -266,13 +274,19 @@ async def test_akan_yanit_parcalari_birlesir_ve_ara_olaydan_once_bosalir(rig: Ri
     sink("event", {**token, "text": "haba"})
     sink("event", {**token, "text": "ÖN", "provisional": True})
     sink("event", {"olay": "ToolExecuted", "name": "run_shell", "outcome": "ok"})
-    deltas = [e.payload["text"] for e in service._store.get(run).events if e.kind == "delta"]  # type: ignore[union-attr]
+    deltas = [
+        e.payload["text"]
+        for e in service._store.events_after(_yerel_sahip(), run, 0)
+        if e.kind == "delta"
+    ]
     assert deltas == ["Mer", "haba"]  # ilk parça hemen, sonrakiler birleşik
     rig.clock.value += 1
     sink("event", {**token, "text": "!"})
-    assert [e.payload["text"] for e in service._store.get(run).events if e.kind == "delta"][
-        -1
-    ] == "!"  # type: ignore[union-attr]
+    assert [
+        e.payload["text"]
+        for e in service._store.events_after(_yerel_sahip(), run, 0)
+        if e.kind == "delta"
+    ][-1] == "!"  # type: ignore[union-attr]
     rig.backend.release.set()
 
 

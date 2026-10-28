@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from fusion_cli.memory.run_store import SqliteRunStore
 from fusion_cli.remote.controller import RemoteController
 from fusion_cli.remote.rpc import RemoteService
 from fusion_cli.remote.screen import (
@@ -42,7 +43,7 @@ def parts(tmp_path: Path) -> Any:
     service = RemoteService(
         clock=clock,
         registry=registry,
-        store=TaskStore(clock),
+        store=TaskStore(SqliteRunStore(tmp_path / "runs.sqlite3", clock=clock)),
         backend=FakeBackend(),
         screen_capture=capture,
     )
