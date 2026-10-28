@@ -113,3 +113,34 @@ def test_salt_okur_git_araci_degistirici_alt_komutu_reddeder(alt_komut, tmp_path
 
     assert not sonuc.ok
     assert "salt-okunur" in sonuc.output
+
+
+# İnceleme turu (28 Ekim): ilk düzeltmede kaçan biçimler.
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "sed -ni p f.txt",
+        "sed -nf betik.sed f.txt",
+        "sed -n -e'w out' f.txt",
+        "sed -n '\\|x|w out' f.txt",
+        "sed -n '/x/Iw out' f.txt",
+        "sed --in-pl p f.txt",
+        "sed --fi=betik f.txt",
+        "awk 'BEGIN{x=4/2; system(\"rm -rf x\"); y=1/1}'",
+        "awk --source='BEGIN{system(\"id\")}' f.txt",
+        "awk 'BEGIN{while ((\"ls\" | getline l) > 0) print l}'",
+        "git remote -v remove origin",
+        "git remote -v add kotu https://evil.example/r.git",
+        "git branch -l -vD x",
+        "git tag -l -fv x",
+    ],
+)
+def test_inceleme_turunda_bulunan_kacislar_salt_okur_sayilmaz(komut):
+    assert not is_read_only_command(komut)
+
+
+@pytest.mark.parametrize(
+    "komut", ["sed -nE 's/a+/b/gp' f.txt", "sed -e 1d -e '$d' f.txt", "sed -n '/a/,/b/p' f.txt"]
+)
+def test_mesru_sed_bicimleri_salt_okur_kalir(komut):
+    assert is_read_only_command(komut)
