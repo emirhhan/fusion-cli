@@ -263,3 +263,37 @@ async def test_workflow_child_external_executor_sees_durable_intent(tmp_path, mo
         parent.checkpoint_store.load("child-intent").effect_intents[0].phase
         is EffectPhase.RESPONDED
     )
+
+
+@pytest.mark.parametrize(
+    "gorev",
+    [
+        "web push bildirimi ekle",
+        "pushState hatasını düzelt",
+        "push notification özelliği yaz",
+        "uygulamaya push bildirim desteği ekle",
+        "history.pushState çağrısını kaldır",
+    ],
+)
+def test_push_isim_olarak_gecince_git_push_sayilmaz(gorev):
+    # E1-01: git_push deterministik commit+push akışını modeli hiç çağırmadan başlatır.
+    from fusion_cli.engines.effects.detect import required_effect_for
+
+    assert required_effect_for(gorev) != "git_push"
+
+
+@pytest.mark.parametrize(
+    "gorev",
+    [
+        "git push yap",
+        "Bu repoyu pushla",
+        "değişiklikleri push et",
+        "github'a pushla",
+        "main branch'ine pushla",
+        "push the changes to origin",
+    ],
+)
+def test_acik_push_istegi_git_push_kalir(gorev):
+    from fusion_cli.engines.effects.detect import required_effect_for
+
+    assert required_effect_for(gorev) == "git_push"

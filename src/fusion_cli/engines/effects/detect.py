@@ -65,17 +65,24 @@ _EXPLANATION_MARKERS = (
     " ornek ver",
 )
 
+# Yalın "push" isim de olabilir ("web push bildirimi", "pushState"); git_push modeli
+# hiç çağırmadan commit+push akışını başlattığı için yalnız fiil biçimleri sayılır.
+_PUSH_NOUN_GUARD = r"(?!\s*(?:bildirim|notification|servis|service|token|api)|state)"
 _GIT_PUSH_PATTERNS = (
     r"\bgit\s+push\b",
-    r"\bpush(?:la|le)?[a-zçğıöşü]*\b",
-    r"\bpush\s+et[a-zçğıöşü]*\b",
+    r"\bpush['’]?(?:la|le)[a-zçğıöşü]*\b",
+    r"\bpush\s+(?:et|yap|at)(?:ar|er|in|iniz|mek|meni|meyi|ı|i|sana|sene)?\b",
+    (
+        r"\bpush\s+(?:the\s+|my\s+|your\s+|this\s+|these\s+|all\s+)?"
+        r"(?:changes?|commits?|branch|code|repo|it|to)\b"
+    ),
     (
         r"\b(?:github|gitlab|bitbucket)[’'a-z]*.{0,80}\b"
-        r"(?:yükle|yukle|güncelle|guncelle|push)[a-zçğıöşü]*\b"
+        rf"(?:yükle|yukle|güncelle|guncelle|push{_PUSH_NOUN_GUARD})[a-zçğıöşü]*\b"
     ),
     (
         r"\b(?:repo|repository|depo)[a-zçğıöşü]*.{0,70}\b"
-        r"(?:push|güncelle|guncelle|yükle|yukle)[a-zçğıöşü]*\b"
+        rf"(?:push{_PUSH_NOUN_GUARD}|güncelle|guncelle|yükle|yukle)[a-zçğıöşü]*\b"
     ),
 )
 _GIT_COMMIT_PATTERNS = (
