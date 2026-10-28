@@ -12,6 +12,10 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Kesilmiş önizleme tam dosya olarak kaydedilemez.
 - Kod çalıştıran awk, dosya yazan sed ve dal silen git komutları salt-okur sayılmaz; `git stash drop`, `npm run deploy` ve `curl --json` sorulur.
 - Sohbetteki uzak görseller kullanıcı yükleyince istenir; güvensiz bağlantı şemaları çizilmez.
+- Telefondan hesapla giriş yapan cihaz o hesaba bağlanır; başka hesabın telefonu masaüstündeki görevleri göremez, iptal edemez, onaylarını cevaplayamaz ve görev başlatamaz.
+- Telefon görevleri kalıcıdır: bilgisayar yeniden başlayınca yarım iş "Sonuç belirsiz" görünür ve kendiliğinden tekrar çalıştırılmaz; aynı istek anahtarı farklı içerikle reddedilir; iptal "Durduruluyor" ile başlar, tur gerçekten bitince "İptal" olur.
+- `FUSION_WORKSPACE_ISOLATION=1` ile bellek, sır deposu ve tarayıcı oturumları hesaba göre ayrılır; eski ortak veri `fusion adopt-data <hesap>` ile tek bir hesaba kopyalanır.
+- Arayüz istekleri son süre ve iptal alabilir; çalışma alanı okumaları 30 sn'de zaman aşımına uğrar.
 
 ## 0.7.18 — 2026-10-21
 
