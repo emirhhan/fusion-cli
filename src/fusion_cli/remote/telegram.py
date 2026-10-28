@@ -126,6 +126,9 @@ class TelegramBridge:
         self._offsets = offsets
         self._offset = offsets.load()
         self._limiter = FailureLimiter(clock, limit=TELEGRAM_FAILED_PAIR_LIMIT)
+        #: Görevler kalıcı: köprüden ÖNCE açılmış görevlerin geçmiş olayları yeniden
+        #: bildirilmez (yeniden başlatmada eski onay/bitiş mesajları yağmasın).
+        self._started_at = clock.now()
         self._projects: dict[str, str] = {}
         self._notified: dict[str, int] = {}
         self._chats: dict[str, int] = {}
@@ -297,7 +300,9 @@ class TelegramBridge:
                     await self._notify_task(context, chat_id, task)
 
     async def _notify_task(self, context: ExecutionContext, chat_id: int, task: TaskRecord) -> None:
-        seen = self._notified.get(task.run_id, 0)
+        seen = self._notified.get(task.run_id)
+        if seen is None:
+            seen = task.last_seq if task.created_at < self._started_at else 0
         for event in self._store.events_after(context, task.run_id, seen):
             self._notified[task.run_id] = event.seq
             if event.kind == "approval_request":

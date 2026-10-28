@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -192,10 +193,14 @@ class RemoteService:
         item = await self._mobile.find_schedule(str(params.get("id", "")))
         if item is None:
             return _fail("gorev_yok", "Zamanlanan görev bulunamadı.")
+        key = str(params.get("idempotencyKey", ""))
+        # Sohbet kimliği anahtardan türer: aynı anahtarla yeniden deneme aynı içeriği
+        # üretir ve tekil makbuzu döndürür (rastgele kimlik çatışma üretiyordu).
+        chat_seed = hashlib.sha256(f"{item.get('id', '')}:{key}".encode()).hexdigest()
         request: dict[str, Any] = {
             "prompt": str(item.get("gorev", "")),
-            "chatId": "z_" + uuid.uuid4().hex[:16],
-            "idempotencyKey": str(params.get("idempotencyKey", "")),
+            "chatId": "z_" + (chat_seed[:16] if key else uuid.uuid4().hex[:16]),
+            "idempotencyKey": key,
         }
         try:
             self._mobile.root_for(item.get("kok"))

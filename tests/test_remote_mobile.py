@@ -249,6 +249,10 @@ async def test_zamanlananlar_listele_etkinlestir_ve_simdi_calistir(rig: Rig) -> 
         rig.root
     )  # bilinmeyen kök → varsayılan
     assert (await rig.call("schedules.run", {"id": "yok"})).error == "gorev_yok"
+    # Aynı anahtarla yeniden deneme yeni görev açmaz ve çatışma da vermez.
+    ilk = await rig.call("schedules.run", {"id": "z1", "idempotencyKey": "zk"})
+    tekrar = await rig.call("schedules.run", {"id": "z1", "idempotencyKey": "zk"})
+    assert tekrar.ok and tekrar.data["duplicate"] and tekrar.data["runId"] == ilk.data["runId"]
 
 
 async def test_yetkisiz_cihaz_yazan_cagrilari_yapamaz(rig: Rig) -> None:

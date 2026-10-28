@@ -55,6 +55,7 @@ def _yerel_sahip():
 
 class Harness:
     def __init__(self, tmp_path: Path) -> None:
+        self.tmp = tmp_path
         self.clock = FakeClock()
         counter = iter(range(1, 100_000))
         token = lambda n: bytes(next(counter) % 256 for _ in range(n))  # noqa: E731
@@ -165,3 +166,29 @@ async def test_kapsamsiz_kit_komutu_reddedilir(harness: Harness) -> None:
     assert "yetkisi" in harness.api.sent[-1][1]
     await harness.bridge.handle_update(update(9, "/kits"))
     assert "acik" in harness.api.sent[-1][1]
+
+
+async def test_yeniden_baslatmada_eski_bildirimler_tekrar_gonderilmez(harness: Harness) -> None:
+    """Görevler kalıcı; köprü yeniden kurulunca geçmiş onay/bitiş bildirimleri yinelenmez."""
+    harness.backend.ask = {"tur": "onay", "arac": "desktop_click", "baslik": "Tıkla", "hedef": "x"}
+    await harness.pair_user(["project.read", "agent.run"])
+    await harness.bridge.handle_update(update(7, "iş yap"))
+    await asyncio.sleep(0.05)
+    await harness.bridge.notify()
+    harness.clock.value += 60
+    yeni = TelegramBridge(
+        api=harness.api,
+        service=harness.service,
+        registry=harness.registry,
+        pairing=harness.pairing,
+        store=harness.store,
+        clock=harness.clock,
+        offsets=OffsetStore(harness.tmp / "offset2.json"),
+    )
+    yeni._chats = dict(harness.bridge._chats)
+    gonderilen = len(harness.api.sent)
+
+    await yeni.notify()
+
+    assert len(harness.api.sent) == gonderilen
+    harness.backend.release.set()

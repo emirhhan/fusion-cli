@@ -17,6 +17,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from .errors import FusionError
+
 SCHEMA_VERSION = 1
 
 #: Görev işlemleri için gereken kapsamlar (uzak `Scope` değerleriyle aynı metin).
@@ -64,15 +66,15 @@ class OperationOutcome(StrEnum):
     UNKNOWN = "unknown"
 
 
-class IdempotencyConflictError(ValueError):
+class IdempotencyConflictError(FusionError, ValueError):
     """Aynı idempotency anahtarı farklı içerikle yeniden gönderildi."""
 
 
-class RunAccessDeniedError(PermissionError):
+class RunAccessDeniedError(FusionError, PermissionError):
     """Bağlamın bu görev işlemi için kapsamı yok."""
 
 
-class RunNotFoundError(LookupError):
+class RunNotFoundError(FusionError, LookupError):
     """Görev yok ya da bu bağlama ait değil (ikisi bilerek ayırt edilmez)."""
 
 

@@ -8,6 +8,7 @@ başka workspace'e üyelik ve ekip erişimi kapalıdır.
 
 from __future__ import annotations
 
+from ..core.errors import FusionError
 from ..core.execution_context import FULL_ACCESS, PERSONAL_WORKSPACE, ExecutionContext, Identity
 
 __all__ = [
@@ -22,7 +23,7 @@ __all__ = [
 LOCAL_TENANT = "local"
 
 
-class WorkspaceAccessError(PermissionError):
+class WorkspaceAccessError(FusionError, PermissionError):
     """Kimlik bu çalışma alanının üyesi değil."""
 
 
