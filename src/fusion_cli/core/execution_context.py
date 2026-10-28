@@ -17,6 +17,8 @@ from dataclasses import dataclass, field, replace
 #: Yerel sahibin (masaüstü kullanıcısı) kendi tenant'ında her işlemi yapabilmesi.
 #: Tenant ve workspace sınırını AŞMAZ; yalnız kapsam denetimini geçer.
 FULL_ACCESS = "*"
+#: Pilotta her tenant'ın tek, sahibine ait çalışma alanı.
+PERSONAL_WORKSPACE = "kisisel"
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 

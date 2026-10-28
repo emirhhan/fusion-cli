@@ -425,6 +425,63 @@ def trust(
     console.print(f"[green]Güvenildi:[/green] {root}")
 
 
+@app.command("adopt-data")
+def adopt_data(
+    account: Annotated[
+        str,
+        typer.Argument(
+            help="Eski ortak veriyi alacak hesabın kullanıcı adı, e-postası ya da kimliği."
+        ),
+    ] = "",
+) -> None:
+    """Hesapsız düzenin ortak verisini (bellek, sırlar, tarayıcı oturumları) TEK hesaba bağla.
+
+    Hesap verilmezse yalnız envanteri gösterir. Veri kopyalanır, eski kök korunur;
+    diğer hesaplar boş başlar. Ardından FUSION_WORKSPACE_ISOLATION=1 ile her hesap
+    kendi verisini kullanır.
+    """
+    from ..accounts import SqliteAccountStore
+    from ..accounts.data_migration import MigrationError, migrate_legacy_data, migration_inventory
+
+    if not account:
+        inventory = migration_inventory()
+        table = Table("girdi", "tür", "boyut (KB)")
+        for entry in inventory.entries:
+            kind = "klasör" if entry.is_dir else "dosya"
+            table.add_row(entry.name, kind, str(max(entry.size_bytes, 0) // 1024))
+        console.print(table)
+        owner = inventory.owner or "seçilmedi"
+        console.print(f"Kaynak: {inventory.source} · sahip: {owner}")
+        return
+    wanted = account.strip().casefold()
+    match = next(
+        (
+            item
+            for item in SqliteAccountStore().list_accounts()
+            if wanted
+            in {item.account_id.casefold(), item.username.casefold(), item.email.casefold()}
+        ),
+        None,
+    )
+    if match is None:
+        console.print(f"[red]Hesap bulunamadı: {account}[/red]")
+        raise typer.Exit(code=1)
+    try:
+        result = migrate_legacy_data(match.account_id)
+    except (MigrationError, OSError) as error:
+        console.print(
+            f"[red]Taşıma tamamlanmadı: {error}[/red] Eski veri yerinde ve okunur durumda."
+        )
+        raise typer.Exit(code=1) from error
+    if result.already_done:
+        console.print(f"Eski veri zaten {match.username} hesabına bağlı: {result.target}")
+        return
+    console.print(
+        f"[green]{match.username} hesabına kopyalandı:[/green] {', '.join(result.copied) or '-'}"
+    )
+    console.print("Etkinleştirmek için: FUSION_WORKSPACE_ISOLATION=1")
+
+
 @app.command()
 def mcp(
     write: bool = typer.Option(

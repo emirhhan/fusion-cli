@@ -13,6 +13,8 @@ import re
 import sys
 from pathlib import Path
 
+from ..core.execution_context import PERSONAL_WORKSPACE, ExecutionContext, validate_identifier
+
 APP_NAME = "fusion-cli"
 
 #: Kullanıcı yapılandırmasının yolunu doğrudan belirleyen ortam değişkeni.
@@ -28,6 +30,12 @@ ENV_MEMORY_DIR = "FUSION_MEMORY_DIR"
 # hesaba özeldir. Ayrım TEK yerden yapılır — `user_config_dir` — çünkü bu
 # bilgilerin tamamı `config.yaml`'da durur ve tüm okuyucular oradan geçer.
 ENV_ACCOUNT = "FUSION_ACCOUNT"
+#: "1" ise kalıcı veri (bellek, sır deposu, tarayıcı profilleri, kayıtlar) hesaba göre
+#: ayrılır (WP02). Varsayılan KAPALI: açmadan önce eski ortak veri tek bir sahibe
+#: bağlanmalıdır (`accounts.data_migration`); aksi hâlde hesap boş başlar.
+ENV_WORKSPACE_ISOLATION = "FUSION_WORKSPACE_ISOLATION"
+#: Hesaba göre ayrılmış veri köklerinin toplandığı alt klasör.
+_TENANTS_DIR = "tenants"
 #: Hesap dizinlerinin toplandığı alt klasör adı.
 _ACCOUNTS_DIR = "accounts"
 
@@ -76,17 +84,34 @@ def user_config_dir() -> Path:
     return account_config_dir(account) if account else base_config_dir()
 
 
-def user_data_dir() -> Path:
-    """Kalıcı verinin (bellek, indeks, geçmiş) tutulduğu kullanıcı dizini.
+def workspace_isolation_enabled() -> bool:
+    return os.environ.get(ENV_WORKSPACE_ISOLATION, "").strip() == "1"
 
-    HESABA GÖRE DEĞİŞMEZ ve bu bilinçli bir karardır. Burada tarayıcı profilleri
-    duruyor ve bir Chrome profili yüzlerce megabayt olabilir; hesap başına
-    kopyalamak diski boşuna şişirir, taşımak ise kullanıcının giriş yapmış
-    oturumlarını riske atar.
-    Hesap ayrımı için gereken şey zaten `config.yaml`'dadır: hangi sağlayıcı
-    oturumunun etkin olduğunu, hangi MCP sunucularının bağlı olduğunu ve hangi
-    modelin kullanıldığını o dosya söyler ve o dosya hesaba özeldir.
+
+def tenant_data_dir(tenant_id: str) -> Path:
+    """Bir tenant'ın (pilotta: hesabın) veri kökü; kimlik yol kaçışı içeremez."""
+    return base_data_dir() / _TENANTS_DIR / validate_identifier(tenant_id, "tenant")
+
+
+def workspace_data_dir(context: ExecutionContext) -> Path:
+    """Bağlamın yetkili veri kökü: başka tenant/workspace'in kökünü asla göstermez."""
+    workspace = validate_identifier(context.workspace_id, "çalışma alanı")
+    return tenant_data_dir(context.tenant_id) / workspace
+
+
+def user_data_dir() -> Path:
+    """Kalıcı verinin (bellek, sır deposu, tarayıcı profilleri, kayıtlar) kökü.
+
+    Bayrak KAPALIYKEN hesaba göre değişmez (eski düzen). Ölçüldü (28 Ekim): bu düzende
+    bellek, `secrets.enc` ve yerel ana anahtar, tarayıcı oturumları ve gönderim
+    kayıtları bütün hesaplarda ORTAKTIR; hesap ayrımı yalnız `config.yaml`'daydı.
+    `FUSION_WORKSPACE_ISOLATION=1` ile hesabın kendi köküne geçilir; eski veri
+    oraya yalnız `accounts.data_migration` ile, seçilen TEK sahibe kopyalanır.
     """
+    account = active_account()
+    if account and workspace_isolation_enabled():
+        # Bayrak açıkken: hesabın kişisel çalışma alanı (bkz. `workspace_data_dir`).
+        return tenant_data_dir(account) / PERSONAL_WORKSPACE
     return base_data_dir()
 
 

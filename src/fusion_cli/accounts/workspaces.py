@@ -8,10 +8,16 @@ başka workspace'e üyelik ve ekip erişimi kapalıdır.
 
 from __future__ import annotations
 
-from ..core.execution_context import FULL_ACCESS, ExecutionContext, Identity
+from ..core.execution_context import FULL_ACCESS, PERSONAL_WORKSPACE, ExecutionContext, Identity
 
-#: Her tenant'ın tek, sahibine ait çalışma alanı.
-PERSONAL_WORKSPACE = "kisisel"
+__all__ = [
+    "LOCAL_TENANT",
+    "PERSONAL_WORKSPACE",
+    "WorkspaceAccessError",
+    "bind_context",
+    "device_identity",
+    "local_identity",
+]
 #: Hesapsız (eski düzen) kurulumun tenant'ı.
 LOCAL_TENANT = "local"
 
