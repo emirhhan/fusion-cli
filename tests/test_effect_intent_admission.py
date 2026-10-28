@@ -297,3 +297,18 @@ def test_acik_push_istegi_git_push_kalir(gorev):
     from fusion_cli.engines.effects.detect import required_effect_for
 
     assert required_effect_for(gorev) == "git_push"
+
+
+@pytest.mark.parametrize(
+    "gorev",
+    [
+        "github reposuna web push desteği ekle",
+        "repoya web push özelliği ekle",
+        "githubdaki projede push abonelik tablosu ekle",
+        "web push to subscribers ekle",
+    ],
+)
+def test_depo_baglaminda_bile_push_ismi_git_push_sayilmaz(gorev):
+    from fusion_cli.engines.effects.detect import required_effect_for
+
+    assert required_effect_for(gorev) != "git_push"
