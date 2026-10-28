@@ -46,6 +46,27 @@ HOST_OFFLINE_NOTICE = (
 
 Handler = Callable[[Device, dict[str, Any]], Awaitable["RpcResult"]]
 
+#: Hesaptan bağımsız yöntemler. Görev yöntemleri cihaz bağlamıyla kendi tenant'ına
+#: daraltılır; geri kalan HER yöntem (sohbet, medya, ekran, proje, kit, zamanlama)
+#: masaüstünde açık hesabın verisine dokunur ve yalnız o hesabın cihazına açıktır.
+_TENANT_NEUTRAL_METHODS = frozenset(
+    {
+        "service.status",
+        "devices.revoke",
+        "tasks.list",
+        "tasks.status",
+        "tasks.events",
+        "tasks.cancel",
+    }
+)
+_OTHER_ACCOUNT = (
+    "Bu bilgisayarda başka bir hesap açık; bu işlem yalnız o hesabın cihazlarından yapılır."
+)
+_UNBOUND_DEVICE = (
+    "Bu cihaz eşleştirildiğinde bir hesaba bağlanmadı. Masaüstünden kaldırıp açık hesapla "
+    "yeniden bağlan."
+)
+
 
 @dataclass(frozen=True, slots=True)
 class RpcResult:
@@ -82,11 +103,12 @@ class RemoteService:
         screen_capture: ScreenCapture | None = None,
         mobile: MobileApi | None = None,
         run_lock: asyncio.Lock | None = None,
-        host_tenant: str = LOCAL_TENANT,
+        host_tenant: str | Callable[[], str] = LOCAL_TENANT,
     ) -> None:
-        #: Bu bilgisayarda açık hesabın tenant'ı. Görev YALNIZ bu hesabın cihazlarından
-        #: başlatılır: yürütücü o hesabın yapılandırması ve sırlarıyla çalışır (WP02).
-        self._host_tenant = host_tenant
+        #: Bu bilgisayarda ŞU AN açık hesabın tenant'ı; her çağrıda yeniden okunur çünkü
+        #: masaüstünde hesap değişebilir. Yürütücü o hesabın yapılandırması ve sırlarıyla
+        #: çalıştığı için görev ve masaüstü verisi yalnız bu hesabın cihazlarına açıktır.
+        self._host_tenant = host_tenant if callable(host_tenant) else (lambda: host_tenant)
         self._clock = clock
         self._registry = registry
         self._store = store
@@ -108,7 +130,14 @@ class RemoteService:
         handler = self._handlers().get(method)
         if handler is None:
             return _fail("yontem_yok", f"Bilinmeyen yöntem: {method}")
+        if method not in _TENANT_NEUTRAL_METHODS and not self._is_host_account(device):
+            return _fail(
+                "baska_hesap", _UNBOUND_DEVICE if not device.account_id else _OTHER_ACCOUNT
+            )
         return await handler(device, params)
+
+    def _is_host_account(self, device: Device) -> bool:
+        return device_context(device).tenant_id == self._host_tenant()
 
     def _handlers(self) -> dict[str, Handler]:
         return {
@@ -208,12 +237,8 @@ class RemoteService:
             except MobileError as error:
                 return _fail(error.code, error.message)
         context = device_context(device)
-        if context.tenant_id != self._host_tenant:
-            return _fail(
-                "baska_hesap",
-                "Bu bilgisayarda başka bir hesap açık; görev yalnız o hesabın cihazlarından "
-                "başlatılır.",
-            )
+        if not self._is_host_account(device):
+            return _fail("baska_hesap", _OTHER_ACCOUNT)
         project = str(params.get("project", ""))[:200]
         try:
             record, is_new = self._store.create(
@@ -426,7 +451,7 @@ class RemoteService:
         cihazına soru yokmuş gibi davranılır; okuma kapsamı istenmez (eski davranış).
         """
         entry = self._questions.get(question_id)
-        if entry is None or device_context(device).tenant_id != self._host_tenant:
+        if entry is None or not self._is_host_account(device):
             return None
         return entry
 

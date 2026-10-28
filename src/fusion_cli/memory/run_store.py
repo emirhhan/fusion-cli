@@ -342,8 +342,11 @@ class SqliteRunStore:
         row = self._read(connection, run_id)
         if row is None:
             return None
-        decision = authorize(context, _resource(row), Action.READ, required_scope=SCOPE_READ)
-        return row if decision.allowed else None
+        if not authorize(context, _resource(row), Action.READ).allowed:
+            return None
+        # Okuma kapsamı olmayan cihaz da KENDİ açtığı görevi görür (izler, iptal eder).
+        own_device = bool(context.device_id) and row["device"] == context.device_id
+        return row if context.has_scope(SCOPE_READ) or own_device else None
 
     def _owned_row(
         self,

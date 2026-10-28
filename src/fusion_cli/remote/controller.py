@@ -124,7 +124,7 @@ class RemoteController:
             store=self._store,
             backend=self._backend,
             screen_capture=MacScreenCapture(),
-            host_tenant=local_identity(active_account()).tenant_id,
+            host_tenant=lambda: local_identity(active_account()).tenant_id,
         )
         self._directory = directory
         self._secrets = secrets

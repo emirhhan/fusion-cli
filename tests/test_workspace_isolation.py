@@ -99,7 +99,7 @@ async def test_baska_hesabin_telefonu_onay_sorusunu_cevaplayamaz(tmp_path):
 
     cevap = await rig.service.call(b, "approvals.respond", {"questionId": "q1", "text": "main"})
 
-    assert cevap.error == "soru_yok"
+    assert cevap.error == "baska_hesap"
     assert rig.backend.answers == []
     rig.backend.release.set()
     await asyncio.gather(*rig.service._runs)
@@ -146,4 +146,54 @@ async def test_ayni_anahtar_farkli_icerik_catisma_doner(tmp_path):
     await asyncio.sleep(0)
     assert rig.backend.started == ["raporu yaz"]
     rig.backend.release.set()
+    await asyncio.gather(*rig.service._runs)
+
+
+async def test_baska_hesabin_telefonu_masaustu_verisine_hicbir_yontemle_erisemez(tmp_path):
+    """Görev dışındaki yöntemler de (sohbet, medya, ekran, proje) masaüstündeki hesaba aittir."""
+    rig = Duzenek(tmp_path)
+    b = await rig.telefon("burak", "parola-b")
+
+    for method in ("screen.request", "screen.status", "kits.list", "kits.run", "chats.list"):
+        sonuc = await rig.service.call(b, method, {})
+        assert sonuc.error in {"baska_hesap", "yontem_yok"}, (method, sonuc)
+    for method in ("service.status", "tasks.list", "devices.revoke"):
+        assert (await rig.service.call(b, method, {})).ok, method
+
+
+async def test_masaustunde_hesap_degisince_kapi_yeni_hesabi_izler(tmp_path):
+    rig = Duzenek(tmp_path)
+    acik = {"hesap": "hesap-a"}
+    rig.service = RemoteService(
+        clock=rig.clock,
+        registry=rig.registry,
+        store=TaskStore(rig.runs),
+        backend=rig.backend,
+        host_tenant=lambda: acik["hesap"],
+    )
+    a = await rig.telefon("ayse", "parola-a")
+    b = await rig.telefon("burak", "parola-b")
+    acik["hesap"] = "hesap-b"
+
+    eski = await rig.service.call(a, "tasks.create", {"prompt": "A işi", "idempotencyKey": "1"})
+    yeni = await rig.service.call(b, "tasks.create", {"prompt": "B işi", "idempotencyKey": "1"})
+
+    assert eski.error == "baska_hesap"
+    assert yeni.ok
+    rig.backend.release.set()
+    await asyncio.gather(*rig.service._runs)
+
+
+async def test_yalniz_calistirma_yetkili_cihaz_kendi_gorevini_gorur_ve_iptal_eder(tmp_path):
+    rig = Duzenek(tmp_path)
+    cihaz = rig.registry.add(
+        "Kit", "signed", frozenset({"agent.run", "agent.cancel"}), account_id="hesap-a"
+    )
+
+    olusan = await rig.service.call(cihaz, "tasks.create", {"prompt": "iş", "idempotencyKey": "1"})
+    await asyncio.sleep(0)
+    iptal = await rig.service.call(cihaz, "tasks.cancel", {"runId": olusan.data["runId"]})
+
+    assert olusan.ok and rig.backend.started == ["iş"]
+    assert iptal.ok
     await asyncio.gather(*rig.service._runs)
