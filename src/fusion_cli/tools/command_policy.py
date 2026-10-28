@@ -21,6 +21,11 @@ import shlex
 from pathlib import Path
 
 from .command_paths import escapes_project
+from .command_semantics import (
+    awk_reads_only,
+    git_reads_only,
+    sed_reads_only,
+)
 from .inline_python import is_inert_python
 
 #: Yan etkisi olmayan, yalnızca okuyan/gösteren komutlar.
@@ -142,7 +147,7 @@ _SHELL_RUNNERS = frozenset({"bash", "sh", "zsh"})
 #: `curl`'ü okuyucu olmaktan çıkaran, veri GÖNDEREN bayraklar.
 CURL_SEND_FLAGS = frozenset(
     {"-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "-F", "--form",
-     "-T", "--upload-file", "-X", "--request", "-K", "--config"}
+     "-T", "--upload-file", "-X", "--request", "-K", "--config", "--json"}
 )  # fmt: skip
 
 #: Otomatik kipte onaysız geçen, YEREL etkili git alt komutları. Uzak depoya
@@ -164,30 +169,7 @@ _LOCAL_GIT_SUBCOMMANDS = frozenset(
     }
 )
 _GIT_DESTRUCTIVE_FLAGS = frozenset({"--hard", "--force", "-f", "--amend"})
-
-#: Onaysız geçilen git alt komutları — TEK KAYNAK.
-#:
-#: Git iki ayrı yoldan gelebilir (`git` aracı ve `run_shell`) ve ikisinde de aynı
-#: kararın verilmesi gerekir. Liste eskiden `shell.py` içinde ikinci kez yazılıydı;
-#: iki kopya zamanla ayrışıp aynı komutun bir yoldan onaysız, öteki yoldan onaylı
-#: geçmesine yol açabilirdi. `shell` bu listeyi buradan alır.
-READONLY_GIT_SUBCOMMANDS = frozenset(
-    {
-        "status",
-        "diff",
-        "log",
-        "show",
-        "branch",
-        "ls-files",
-        "blame",
-        "remote",
-        "tag",
-        "rev-parse",
-        "ls-remote",
-        "symbolic-ref",
-        "rev-list",
-    }
-)
+_STASH_DISCARDS = frozenset({"drop", "clear"})
 
 #: Komutu parçalara bölen iki karakterlik kabuk operatörleri. Zincirin HER parçası
 #: güvenli olmalı: `ls && rm -rf build` ilk parçasına bakılarak geçirilemez.
@@ -354,7 +336,7 @@ def _segment_safe(segment: str, root: Path | None = None) -> bool:
         return _pip_safe(arguments[1:] if name == "uv" else arguments)
     if name == "curl":
         sends = any(
-            argument in CURL_SEND_FLAGS or argument.startswith(("--data", "-d@"))
+            argument in CURL_SEND_FLAGS or argument.startswith(("--data", "--json", "-d"))
             for argument in arguments
         )
         # Kendi yerel sunucusunu sınamak (`curl -X POST localhost:5000/...`) dışa
@@ -375,6 +357,10 @@ def _segment_safe(segment: str, root: Path | None = None) -> bool:
         if all(argument in _VERSION_FLAGS for argument in arguments) and arguments:
             return True
         return name in _SCRIPT_RUNNERS and _script_safe(name, arguments)
+    if name == "awk":
+        return awk_reads_only(arguments)
+    if name == "sed":
+        return sed_reads_only(arguments)
     return name in READ_ONLY_COMMANDS
 
 
@@ -428,6 +414,9 @@ def _tooling_safe(name: str, arguments: list[str]) -> bool:
         return not any(argument in GLOBAL_INSTALL_FLAGS for argument in arguments)
     if name == "pnpm" and arguments[0] == "dlx":
         return True
+    if arguments[0] == "run" and len(arguments) > 1 and is_outward_script(arguments[1]):
+        # `npm run deploy`: paket betiğinin adı dışa dönük iş söylüyor (bkz. auto_policy).
+        return False
     return arguments[0] in _TOOLING_SUBCOMMANDS
 
 
@@ -465,8 +454,11 @@ def _git_safe(arguments: list[str]) -> bool:
     """Salt-okur ya da YEREL etkili git komutu mu? Push/rebase/clean/--hard sorulur."""
     if not arguments:
         return False
-    if arguments[0] in READONLY_GIT_SUBCOMMANDS:
+    if git_reads_only(arguments):
         return True
     if arguments[0] not in _LOCAL_GIT_SUBCOMMANDS:
+        return False
+    if arguments[0] == "stash" and _STASH_DISCARDS & set(arguments[1:2]):
+        # Saklanan iş başka yerde yoktur; atmak geri alınamaz.
         return False
     return not any(argument in _GIT_DESTRUCTIVE_FLAGS for argument in arguments[1:])

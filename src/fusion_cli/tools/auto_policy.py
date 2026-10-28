@@ -30,10 +30,10 @@ from .command_policy import (
     CURL_SEND_FLAGS,
     GLOBAL_INSTALL_FLAGS,
     READ_ONLY_COMMANDS,
-    READONLY_GIT_SUBCOMMANDS,
     is_outward_script,
     only_local_urls,
 )
+from .command_semantics import awk_reads_only, git_reads_only, sed_reads_only
 from .delete_preview import inline_code_danger
 
 #: Komutun önüne gelip asıl komutu değiştirmeyen sözcükler (`time`, `nohup`, `do`).
@@ -205,7 +205,7 @@ def _sends_data(name: str, arguments: list[str]) -> bool:
         sends = any(a.startswith(("--post-data", "--post-file", "--method")) for a in arguments)
     else:
         sends = any(
-            a in CURL_SEND_FLAGS or a.startswith(("--data", "-d@", "--json")) for a in arguments
+            a in CURL_SEND_FLAGS or a.startswith(("--data", "-d", "--json")) for a in arguments
         )
     return sends and not only_local_urls(arguments)
 
@@ -220,9 +220,11 @@ def _is_remote(argument: str) -> bool:
 def _reads_only(name: str, arguments: list[str]) -> bool:
     """Bu parça yalnız okuyor mu?"""
     if name == "git":
-        return bool(arguments) and arguments[0] in READONLY_GIT_SUBCOMMANDS
+        return git_reads_only(arguments)
     if name == "sed":
-        return not any(a.startswith("-i") or a == "--in-place" for a in arguments)
+        return sed_reads_only(arguments)
+    if name == "awk":
+        return awk_reads_only(arguments)
     if name == "find":
         return not any(a in {"-delete", "-exec", "-execdir", "-ok", "-fprint"} for a in arguments)
     if name == "php":

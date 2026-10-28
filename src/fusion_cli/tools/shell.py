@@ -23,7 +23,7 @@ from ..core.errors import ProcessCancelledError
 from ..core.process_control import run_foreground
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
-from .command_policy import READONLY_GIT_SUBCOMMANDS
+from .command_semantics import READONLY_GIT_SUBCOMMANDS, git_reads_only
 from .files import invented_path_reason
 from .job_delivery import prepare_outputs
 from .job_evidence import prepare_manifest
@@ -179,7 +179,7 @@ def git(args: ToolArgs, context: ToolContext) -> ToolResult:
     subcommand = require_str(args, "subcommand")
     # require_str boş/yalnızca-boşluk girdiyi zaten reddeder; parts en az bir öğe taşır.
     parts = subcommand.split()
-    if parts[0] not in READONLY_GIT_SUBCOMMANDS:
+    if not git_reads_only(parts):
         allowed = ", ".join(sorted(READONLY_GIT_SUBCOMMANDS))
         return ToolResult.failure(
             f"Yalnızca salt-okunur git komutlarına izin var ({allowed}). "
