@@ -368,6 +368,13 @@ def serve(
         help="Bağlam bütçesini aşan uzun geçmişi özetle (geçmişi kendisi yönetmeyen "
         "istemciler için; Fusion Kits açar).",
     ),
+    token: str = typer.Option(
+        "",
+        "--token",
+        envvar="FUSION_GATEWAY_TOKEN",
+        help="Bu bilgisayar dışından gelen isteklerin taşıması gereken belirteç "
+        "(Authorization: Bearer). 127.0.0.1 dışında dinlemek için zorunlu.",
+    ),
 ) -> None:
     """Yerel gateway'i çalıştır: OpenAI-uyumlu /v1 uç noktası, tüm sağlayıcılar arkada.
 
@@ -385,7 +392,13 @@ def serve(
         f"[dim](model: auto/low/medium/high/max ya da ham kimlik · Ctrl-C ile durdur)[/dim]"
     )
     try:
-        run_gateway(config, host=host, port=port, compact_context=compact_context)
+        run_gateway(
+            config,
+            host=host,
+            port=port,
+            compact_context=compact_context,
+            access_token=token or None,
+        )
     except FusionError as error:
         console.print(f"[red]{error}[/red]")
         raise typer.Exit(code=1) from error

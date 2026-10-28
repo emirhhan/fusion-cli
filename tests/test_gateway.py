@@ -32,7 +32,7 @@ def _app(reply="Merhaba, ben mock model.", ok=True):
     )
 
 
-def test_serve_0_0_0_0_guvenlik_uyarisi_verir_ve_calismaya_devam_eder(caplog, monkeypatch):
+def test_serve_0_0_0_0_belirtecle_guvenlik_uyarisi_verir_ve_calisir(caplog, monkeypatch):
     from fusion_cli.gateway import server
 
     baslatildi = False
@@ -46,12 +46,12 @@ def test_serve_0_0_0_0_guvenlik_uyarisi_verir_ve_calismaya_devam_eder(caplog, mo
     monkeypatch.setitem(sys.modules, "uvicorn", sahte_uvicorn)
 
     with caplog.at_level(logging.WARNING, logger="fusion_cli.gateway.server"):
-        server.serve(make_config(), host="0.0.0.0", port=8787)
+        server.serve(make_config(), host="0.0.0.0", port=8787, access_token="belirtec")
 
     assert baslatildi is True
     assert "0.0.0.0" in caplog.text
-    assert "tüm ağ arayüzlerine" in caplog.text
-    assert "kimlik doğrulaması sağlamaz" in caplog.text
+    assert "ağa açılıyor" in caplog.text
+    assert "yalnız belirteçle" in caplog.text
 
 
 # --- temel uçlar ----------------------------------------------------------- #

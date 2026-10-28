@@ -44,6 +44,7 @@ from ..providers.factory import build_provider
 from ..providers.key_pool import KeyPoolRegistry
 from ..ui import messages
 from . import translate
+from .access import bearer_matches, is_loopback_peer
 from .analytics import Analytics, RequestRecord
 from .cache import PromptCache
 from .catalog_cache import CatalogCache
@@ -70,8 +71,11 @@ class GatewayApp:
         secret_store: FernetSecretStore | None = None,
         catalog: CatalogCache | None = None,
         compact_context: bool = False,
+        access_token: str | None = None,
     ) -> None:
         self._config = config
+        #: Yerel olmayan bağlantıların taşıması gereken belirteç; yoksa ağ erişimi kapalı.
+        self._access_token = access_token or None
         #: Uzun geçmişi Fusion ajanının özetlemesiyle bağlam bütçesine sığdır (Kits açar).
         self._compact_context = compact_context
         self._config_revision = revision(config)
@@ -133,7 +137,14 @@ class GatewayApp:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             return
-        if _foreign_host(scope):
+        if not is_loopback_peer(scope):
+            # Host başlığını istemci yazar; ağdan gelen bağlantı yalnız belirteçle girer.
+            if not bearer_matches(scope.get("headers") or (), self._access_token):
+                await _json(
+                    send, {"error": {"message": messages.GATEWAY_REMOTE_UNAUTHORIZED}}, status=401
+                )
+                return
+        elif _foreign_host(scope):
             await _json(
                 send,
                 {"error": {"message": "Gateway yalnız yerel Host başlıklarını kabul eder."}},

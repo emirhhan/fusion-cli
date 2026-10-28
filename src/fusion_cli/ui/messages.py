@@ -779,6 +779,17 @@ GATEWAY_FOREIGN_ORIGIN = (
     "Yabancı kaynaklı istek reddedildi. Bu gateway sağlayıcı anahtarlarını taşır; "
     "yalnız yerel sayfalar ve Origin göndermeyen istemciler durum değiştirebilir."
 )
+#: Ağdan (bu bilgisayar dışından) gelen istek geçerli gateway belirteci taşımadığında.
+GATEWAY_REMOTE_UNAUTHORIZED = (
+    "Bu bilgisayar dışından gelen istek reddedildi: geçerli gateway belirteci gerekli "
+    "(Authorization: Bearer)."
+)
+#: Gateway yerel olmayan bir adrese belirteç olmadan bağlanmak istendiğinde.
+GATEWAY_NETWORK_BIND_NEEDS_TOKEN = (
+    "Gateway '{host}' adresinde ağa açılamaz: belirteç tanımlı değil. "
+    "--token verin (veya FUSION_GATEWAY_TOKEN ortam değişkenini ayarlayın) "
+    "ya da yalnız bu bilgisayar için 127.0.0.1 kullanın."
+)
 
 RUNTIME_HEALTH_OK = "Fusion runtime {version}: hazır"
 RUNTIME_HEALTH_BROKEN = "Fusion runtime {version}: bozuk"
