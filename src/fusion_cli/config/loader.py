@@ -15,6 +15,7 @@ dokunulmaz.
 from __future__ import annotations
 
 import dataclasses
+import logging
 import math
 import os
 from enum import Enum
@@ -27,6 +28,7 @@ from dotenv import dotenv_values
 
 from ..core.errors import ConfigError
 from ..core.types import ModelSpec
+from . import trust
 from .keys import ProviderPreference, apply_preference, detect, prune_config
 from .models import (
     Config,
@@ -40,13 +42,17 @@ from .models import (
 )
 from .paths import (
     ENV_CONFIG,
+    ENV_HOME,
     bundled_defaults,
     credentials_file,
     env_file_candidates,
     memory_dir,
     user_config_candidates,
+    user_config_dir,
     web_profile_dir,
 )
+
+_logger = logging.getLogger(__name__)
 
 #: Yapılandırmanın en üst düzeyinde izin verilen bölümler.
 _SECTIONS = (
@@ -152,6 +158,8 @@ def load_config(path: str | Path | None = None) -> Config:
             raise ConfigError(f"Yapılandırma dosyası bulunamadı: {source}")
         user = _read_yaml(source)
         _reject_removed(user)
+        if path is None:
+            user = _restrict_untrusted_project(user, source)
         merged = _deep_merge(defaults, _apply_renames(user))
     else:
         merged = defaults
@@ -171,6 +179,33 @@ def load_config(path: str | Path | None = None) -> Config:
         if source is None:
             raise
         raise ConfigError(f"{exc} (dosya: {source})") from exc
+
+
+def _restrict_untrusted_project(user: YamlMapping, source: Path) -> YamlMapping:
+    """Çalışma dizininden gelen config güvenilmiyorsa yürütme ayarlarını düşür.
+
+    Kullanıcı dizini, FUSION_HOME ve açıkça verilen yol kullanıcının seçimidir;
+    yalnız `./config.yaml` yedeği indirilmiş bir depodan gelebilir.
+    """
+    cwd = Path.cwd().resolve()
+    if source.resolve() != cwd / trust.PROJECT_CONFIG_NAME:
+        return user
+    home = os.environ.get(ENV_HOME)
+    if cwd == user_config_dir().resolve() or (home and Path(home).resolve() == cwd):
+        return user
+    state = trust.resolve_project_trust(cwd)
+    if state.trusted:
+        return user
+    cleaned, removed = trust.without_execution_settings(user)
+    if removed:
+        _logger.warning(
+            "Proje yapılandırması (%s) güvenilir değil (%s); şu ayarlar uygulanmadı: %s. "
+            "Güveniyorsan: fusion trust",
+            source,
+            state.reason,
+            ", ".join(removed),
+        )
+    return cleaned
 
 
 def _assemble(merged: dict[str, object], source: Path | None) -> Config:

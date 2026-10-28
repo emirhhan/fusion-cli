@@ -405,6 +405,27 @@ def serve(
 
 
 @app.command()
+def trust(
+    path: Annotated[
+        Path, typer.Argument(help="Güvenilecek proje kökü (varsayılan: bulunduğun dizin).")
+    ] = Path(),
+) -> None:
+    """Projenin config.yaml ve .fusion/tools dosyalarına şu anki hâlleriyle güven.
+
+    Güvenilmeyen projede bu dosyalar MCP süreci, doğrulama komutu veya araç
+    çalıştıramaz. Dosyalar sonradan değişirse güven kendiliğinden düşer.
+    """
+    from ..config import trust as project_trust
+
+    root = path.resolve()
+    if not root.is_dir():
+        console.print(f"[red]Dizin bulunamadı: {root}[/red]")
+        raise typer.Exit(code=1)
+    project_trust.trust_project(root)
+    console.print(f"[green]Güvenildi:[/green] {root}")
+
+
+@app.command()
 def mcp(
     write: bool = typer.Option(
         False, "--write", help="Değiştirici araçları da aç (dikkat: dışarıya yazma verir)."

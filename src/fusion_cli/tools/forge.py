@@ -12,6 +12,9 @@ Güvenlik gevşetilmez:
 - Üretilen araç `ToolContext` alır: kök dışına yazma, `restrict_to_root` kuralıyla
   kapalıdır. Araç kodunu ajan yazdı diye erişim genişlemez.
 - Aile `EXTERNAL`'dır: adım kapsamı ve onay kuralları aynen geçerlidir.
+- Yalnız Fusion'ın yazdığı (veya kullanıcının `fusion trust` ile onayladığı) içerik
+  yüklenir ve çalıştırılır. İndirilmiş bir depodaki `.fusion/tools/*.py` ya da
+  üretildikten sonra değiştirilmiş araç çalışmaz (bkz. `config/trust.py`).
 - Üretilen araç dosya SİLEMEZ, TAŞIYAMAZ ve süreç/kabuk ÇALIŞTIRAMAZ. Ölçüldü
   (1 Ekim 2026): kabuk komutları yıkıcı desen denetiminden ve çöp korumasından
   geçerken üretilen araçlar geçmiyordu; otomatik kipte `shutil.rmtree` onaysız
@@ -25,6 +28,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from ..config import trust
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .files import resolve_path
@@ -48,6 +52,7 @@ def forge_tool(args: ToolArgs, context: ToolContext) -> ToolResult:
     hedef = context.root / FORGE_DIR / f"{name}.py"
     hedef.parent.mkdir(parents=True, exist_ok=True)
     hedef.write_text(source, encoding="utf-8")
+    trust.approve_file(context.root, hedef)
     context.changes.record(hedef)
     return ToolResult(f"araç üretildi: {name} ({hedef}). Sonraki adımlarda çağırabilirsin.")
 
@@ -60,7 +65,9 @@ def load_forged_tools(root: Path) -> tuple[Tool, ...]:
     return tuple(
         _build(path)
         for path in sorted(dizin.glob("*.py"))
-        if _SAFE_NAME.match(path.stem) and _validate(_read(path)) is None
+        if _SAFE_NAME.match(path.stem)
+        and trust.is_file_trusted(root, path)
+        and _validate(_read(path)) is None
     )
 
 
@@ -121,8 +128,15 @@ def _build(path: Path) -> Tool:
 
     def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
         namespace: dict[str, Any] = {}
+        kaynak = _read(path)
+        # Yükleme ile çağrı arasında dosya değişmiş olabilir: çalıştırılan içerik
+        # onaylanan içerikle aynı olmalı ve yeniden denetlenmeli.
+        if not trust.is_file_trusted(context.root, path) or _validate(kaynak) is not None:
+            return ToolResult.failure(
+                f"{path.stem}: araç dosyası onaylandıktan sonra değişti; çalıştırılmadı."
+            )
         try:
-            exec(compile(_read(path), str(path), "exec"), namespace)
+            exec(compile(kaynak, str(path), "exec"), namespace)
             islev = namespace.get("run")
             if not callable(islev):
                 return ToolResult.failure(f"{path.stem}: `run` bulunamadı.")
