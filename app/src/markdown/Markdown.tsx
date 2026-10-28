@@ -2,6 +2,7 @@ import { assetUrl } from "../platform/assetUrl";
 import { Fragment, type ReactNode, useEffect, useState } from "react";
 import { marked, type Token, type Tokens } from "marked";
 import { CodeCard } from "./CodeCard";
+import { classifyImageSource, safeLinkHref } from "./remoteContentPolicy";
 import "./markdown.css";
 
 /**
@@ -60,9 +61,13 @@ function renderInline(token: Token, onOpenFile?: (path: string) => void): ReactN
       return /^<br\s*\/?\s*>$/i.test(token.raw.trim()) ? <br /> : token.raw;
     case "link": {
       const link = token as Tokens.Link;
+      const href = safeLinkHref(link.href);
+      const label = <InlineTokens onOpenFile={onOpenFile} tokens={link.tokens} />;
+      // İzin listesi dışındaki şema (javascript:, data:, file:) bağlantı olmaz, metin kalır.
+      if (href === null) return <span className="markdown__link-blocked">{label}</span>;
       return (
-        <a href={link.href} rel="noreferrer noopener" target="_blank">
-          <InlineTokens onOpenFile={onOpenFile} tokens={link.tokens} />
+        <a href={href} rel="noreferrer noopener" target="_blank">
+          {label}
         </a>
       );
     }
@@ -166,17 +171,9 @@ export function Markdown({ text, onOpenFile }: MarkdownProps) {
   );
 }
 
-/** Yerel (mutlak yol / file://) görseller Tauri varlık protokolüne çevrilir; uzak adresler olduğu gibi kalır. */
-const LOCAL_PATH = /^(?:file:\/\/|\/|[A-Za-z]:[\\/])/;
-
-export function imageSource(href: string): string | null {
-  if (!LOCAL_PATH.test(href)) return href;
-  const path = href.startsWith("file://") ? decodeURIComponent(href.slice(7)) : href;
-  return assetUrl(path);
-}
-
 function MarkdownImage({ alt, href }: { alt: string; href: string }) {
-  const src = imageSource(href);
+  const decision = classifyImageSource(href, assetUrl);
+  const [remoteAllowed, setRemoteAllowed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -185,8 +182,17 @@ function MarkdownImage({ alt, href }: { alt: string; href: string }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
-  if (src === null) return <span className="markdown__image-missing">🖼 {alt || "Görsel"}</span>;
   const label = alt || "Görsel";
+  if (decision.kind === "blocked") return <span className="markdown__image-missing">🖼 {label}</span>;
+  if (decision.kind === "remote" && !remoteAllowed) {
+    // Uzak görsel istek atar ve adresine gömülü veriyi dışarı taşır: kullanıcı seçer.
+    return (
+      <button className="markdown__image-remote" onClick={() => setRemoteAllowed(true)} type="button">
+        🖼 {label} — uzak görseli yükle ({decision.host})
+      </button>
+    );
+  }
+  const src = decision.src;
   return (
     <>
       <button
@@ -201,6 +207,7 @@ function MarkdownImage({ alt, href }: { alt: string; href: string }) {
           className="markdown__image"
           loading="lazy"
           onLoad={() => setLoaded(true)}
+          referrerPolicy="no-referrer"
           src={src}
         />
       </button>
@@ -212,7 +219,7 @@ function MarkdownImage({ alt, href }: { alt: string; href: string }) {
           onClick={() => setOpen(false)}
           role="dialog"
         >
-          <img alt={alt} src={src} />
+          <img alt={alt} referrerPolicy="no-referrer" src={src} />
           <button
             aria-label="Kapat"
             className="markdown__lightbox-close"

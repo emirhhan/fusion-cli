@@ -70,6 +70,18 @@
   overflow: hidden;
   padding: 0;
 }
+.markdown__image-remote {
+  background: var(--surface-subtle, transparent);
+  border: 1px dashed var(--border-strong, currentColor);
+  border-radius: var(--radius-sm);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 6px 10px;
+}
+.markdown__image-remote:hover { border-style: solid; }
+.markdown__image-remote:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.markdown__link-blocked { text-decoration: underline dotted; }
 .markdown__image-button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .markdown__image { border-radius: var(--radius-sm); max-height: 60vh; max-width: 100%; }
 /* Görsel yüklenince yumuşakça belirir (yalnız opaklık: yerleşimi oynatmaz). */
