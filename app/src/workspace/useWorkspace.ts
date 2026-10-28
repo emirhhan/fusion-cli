@@ -150,6 +150,8 @@ export function useWorkspace(client: ProtocolClient, root: string, revision = 0)
     const currentOwner = owner.current, selection = currentOwner.selection;
     const selected = state.selected;
     if (!selected || selected.tur !== "metin") throw new Error("Düzenlenebilir dosya seçilmedi.");
+    // Kesilmiş içerikle kaydetmek dosyanın gösterilmeyen kısmını siler.
+    if (selected.kesildi) throw new Error("Dosyanın yalnız bir bölümü açık; kısmi içerik kaydedilemez.");
     const result = await client.request("proje.yaz", {
       yol: selected.yol,
       icerik: content,

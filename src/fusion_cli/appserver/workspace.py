@@ -8,14 +8,26 @@ kökünün dışına çıkamaz.
 from __future__ import annotations
 
 import base64
-import difflib
 import hashlib
 import os
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from collections.abc import Iterable
 from pathlib import Path, PurePath, PurePosixPath
 from typing import Any
+
+from ..core.changeset import Snapshot
+from .workspace_journal import OWNER_AGENT, UndoEntry, WorkspaceJournal, text_diff
+
+__all__ = [
+    "UndoEntry",
+    "WorkspaceJournal",
+    "list_changes",
+    "read_entry",
+    "record_agent_changes",
+    "undo_entry",
+    "write_entry",
+]
 
 _DEFAULT_LIMIT = 100
 _MAX_LIMIT = 200
@@ -27,55 +39,6 @@ _OUTSIDE = "Proje klasörünün dışına çıkılamaz."
 
 class WorkspacePathError(ValueError):
     """Kullanıcı yolu proje sınırını ihlal etti."""
-
-
-@dataclass(frozen=True)
-class UndoEntry:
-    path: str
-    existed: bool
-    before: bytes
-    after: bytes
-    diff: str
-    added: int
-    removed: int
-
-
-class WorkspaceJournal:
-    """Bir uygulama oturumundaki doğrudan UI yazımlarının sınırlı günlüğü."""
-
-    def __init__(self, *, max_entries: int = 20, max_bytes: int = 8 * 1024 * 1024) -> None:
-        self._max_entries = max_entries
-        self._max_bytes = max_bytes
-        self._entries: list[UndoEntry] = []
-        self._bytes = 0
-
-    def record(self, entry: UndoEntry) -> None:
-        self._entries.append(entry)
-        self._bytes += len(entry.before) + len(entry.after)
-        while self._entries and (
-            len(self._entries) > self._max_entries or self._bytes > self._max_bytes
-        ):
-            removed = self._entries.pop(0)
-            self._bytes -= len(removed.before) + len(removed.after)
-
-    def latest(self) -> list[UndoEntry]:
-        by_path: dict[str, UndoEntry] = {}
-        for entry in self._entries:
-            by_path[entry.path] = entry
-        return list(by_path.values())
-
-    def pop(self, path: str) -> UndoEntry | None:
-        for index in range(len(self._entries) - 1, -1, -1):
-            entry = self._entries[index]
-            if entry.path == path:
-                self._entries.pop(index)
-                self._bytes -= len(entry.before) + len(entry.after)
-                return entry
-        return None
-
-    def clear(self) -> None:
-        self._entries.clear()
-        self._bytes = 0
 
 
 def _error(message: str) -> dict[str, Any]:
@@ -238,7 +201,9 @@ def _mime(path: Path, *, binary: bool) -> str:
     return "application/octet-stream" if binary else "text/plain"
 
 
-def read_entry(root: Path, data: dict[str, Any]) -> dict[str, Any]:
+def read_entry(
+    root: Path, data: dict[str, Any], journal: WorkspaceJournal | None = None
+) -> dict[str, Any]:
     try:
         path = _resolve_inside(root, data.get("yol", ""))
     except WorkspacePathError as error:
@@ -267,6 +232,9 @@ def read_entry(root: Path, data: dict[str, Any]) -> dict[str, Any]:
             text = sample.decode("utf-8")
         except UnicodeDecodeError:
             binary = True
+    truncated = len(raw) > max_bytes
+    if journal is not None and not truncated and not binary:
+        journal.note_full_read(_relative(root, path), digest)
     return {
         "ok": True,
         "yol": _relative(root, path),
@@ -275,7 +243,7 @@ def read_entry(root: Path, data: dict[str, Any]) -> dict[str, Any]:
         "boyut": len(raw),
         "sha256": digest,
         "icerik": None if binary else text,
-        "kesildi": len(raw) > max_bytes,
+        "kesildi": truncated,
     }
 
 
@@ -327,18 +295,6 @@ def preview_entry(root: Path, data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _diff(path: str, before: bytes, after: bytes) -> tuple[str, int, int]:
-    old = before.decode("utf-8").splitlines(keepends=True)
-    new = after.decode("utf-8").splitlines(keepends=True)
-    lines = list(
-        difflib.unified_diff(old, new, fromfile=f"a/{path}", tofile=f"b/{path}", lineterm="")
-    )
-    body = "\n".join(line.rstrip("\n") for line in lines)
-    added = sum(1 for line in lines if line.startswith("+") and not line.startswith("+++"))
-    removed = sum(1 for line in lines if line.startswith("-") and not line.startswith("---"))
-    return body, added, removed
-
-
 def _atomic_write(path: Path, content: bytes, *, mode: int | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -382,11 +338,19 @@ def write_entry(
             "kod": "STALE_FILE",
             "metin": "Dosya başka bir işlem tarafından değiştirildi. Yeniden yükleyip tekrar dene.",
         }
+    relative = _relative(root, path)
+    if path.exists() and not journal.has_full_read(relative, expected):
+        # Karma dosyanın tamamına aittir ama istemci yalnız kesilmiş önizlemeyi
+        # görmüş olabilir: o içerikle yazmak dosyanın geri kalanını siler.
+        return {
+            "ok": False,
+            "kod": "PARTIAL_READ",
+            "metin": "Dosyanın tamamı okunmadan kaydedilemez. Dosyayı yeniden açıp tekrar dene.",
+        }
     after = content.encode("utf-8")
     if before == after:
         return _error("Dosyada değişiklik yok.")
-    relative = _relative(root, path)
-    diff, added, removed = _diff(relative, before, after)
+    diff, added, removed = text_diff(relative, before, after)
     existed = path.exists()
     mode = path.stat().st_mode if existed else None
     try:
@@ -394,10 +358,12 @@ def write_entry(
     except OSError:
         return _error("Dosya yazılamadı.")
     journal.record(UndoEntry(relative, existed, before, after, diff, added, removed))
+    written_sha = hashlib.sha256(after).hexdigest()
+    journal.note_full_read(relative, written_sha)
     return {
         "ok": True,
         "yol": relative,
-        "sha256": hashlib.sha256(after).hexdigest(),
+        "sha256": written_sha,
         "diff": diff,
         "added": added,
         "removed": removed,
@@ -428,7 +394,7 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess[bytes] | None:
         return None
 
 
-def _git_changes(root: Path) -> list[dict[str, Any]] | None:
+def _git_changes(root: Path, journal: WorkspaceJournal) -> list[dict[str, Any]] | None:
     status = _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
     if status is None or status.returncode != 0:
         return None
@@ -451,7 +417,7 @@ def _git_changes(root: Path) -> list[dict[str, Any]] | None:
                 raw = target.read_bytes()
                 if len(raw) > _DEFAULT_MAX_BYTES:
                     raw = raw[:_DEFAULT_MAX_BYTES]
-                diff, _added, _removed = _diff(path, b"", raw)
+                diff, _added, _removed = text_diff(path, b"", raw)
             except (OSError, UnicodeDecodeError, WorkspacePathError):
                 diff = f"Binary veya okunamayan yeni dosya: {path}"
         else:
@@ -465,14 +431,14 @@ def _git_changes(root: Path) -> list[dict[str, Any]] | None:
                 if unstaged is not None and unstaged.returncode == 0:
                     pieces.append(unstaged.stdout.decode("utf-8", errors="replace"))
             diff = "\n".join(piece.rstrip() for piece in pieces if piece).strip()
-        changes.append(_change_payload(path, diff, can_undo=True))
+        changes.append(_change_payload(path, diff, can_undo=journal.owns(path)))
         index += 1
     return sorted(changes, key=lambda item: str(item["yol"]).casefold())
 
 
 def list_changes(root: Path, journal: WorkspaceJournal) -> dict[str, Any]:
     latest = journal.latest()
-    git_changes = _git_changes(root)
+    git_changes = _git_changes(root, journal)
     if git_changes is not None:
         return {"ok": True, "degisiklikler": git_changes}
     return {
@@ -490,24 +456,42 @@ def list_changes(root: Path, journal: WorkspaceJournal) -> dict[str, Any]:
     }
 
 
+_NOT_OWNED = {
+    "ok": False,
+    "kod": "NOT_OWNED",
+    "metin": ("Bu dosya için Fusion'ın kaydettiği bir önceki sürüm yok; dosyaya dokunulmadı."),
+}
+_CONFLICT = {
+    "ok": False,
+    "kod": "CONFLICT",
+    "metin": (
+        "Dosya Fusion'ın değişikliğinden sonra yeniden değişti; geri alma sonraki "
+        "değişikliği sileceği için yapılmadı."
+    ),
+}
+
+
 def undo_entry(root: Path, data: dict[str, Any], journal: WorkspaceJournal) -> dict[str, Any]:
+    """Fusion'ın son değişikliğini, dosya o değişiklikten sonra değişmediyse geri al."""
     try:
         path = _resolve_inside(root, data.get("yol", ""))
     except WorkspacePathError as error:
         return _error(str(error))
     relative = _relative(root, path)
-    entry = journal.pop(relative)
+    entry = journal.peek(relative)
     if entry is None:
-        return _undo_git_entry(root, path, relative)
+        return dict(_NOT_OWNED)
     try:
+        if _current_bytes(path) != (entry.after if entry.exists_after else None):
+            return dict(_CONFLICT)
         if entry.existed:
             mode = path.stat().st_mode if path.exists() else None
             _atomic_write(path, entry.before, mode=mode)
         else:
             path.unlink(missing_ok=True)
     except OSError:
-        journal.record(entry)
         return _error("Dosya geri alınamadı.")
+    journal.pop(relative)
     return {
         "ok": True,
         "yol": relative,
@@ -516,27 +500,48 @@ def undo_entry(root: Path, data: dict[str, Any], journal: WorkspaceJournal) -> d
     }
 
 
-def _undo_git_entry(root: Path, path: Path, relative: str) -> dict[str, Any]:
-    """UI dışındaki agent değişikliğini Git taban çizgisine tek dosyada döndür."""
-    if not (root / ".git").exists():
-        return _error("Bu dosya için geri alınabilir bir değişiklik yok.")
-    tracked = _git(root, "ls-files", "--error-unmatch", "--", relative)
-    if tracked is not None and tracked.returncode == 0:
-        restored = _git(root, "restore", "--source=HEAD", "--staged", "--worktree", "--", relative)
-        if restored is None or restored.returncode != 0:
-            return _error("Dosya Git sürümüne döndürülemedi.")
-    else:
-        status = _git(root, "status", "--porcelain=v1", "--", relative)
-        if status is None or not status.stdout.startswith(b"?? ") or not path.is_file():
-            return _error("Bu dosya için geri alınabilir bir değişiklik yok.")
+def record_agent_changes(
+    root: Path, journal: WorkspaceJournal, snapshots: Iterable[Snapshot]
+) -> None:
+    """Ajan turunun ilk-hâl anlık görüntülerini geri alınabilir kayıtlara çevir.
+
+    Kök dışındaki, okunamayan veya değişmemiş yollar atlanır; kaydı olmayan dosya
+    geri alınamaz, yanlış içerikle geri yazılmaz.
+    """
+    base = root.resolve()
+    for snapshot in snapshots:
         try:
-            path.unlink()
-        except OSError:
-            return _error("Yeni dosya kaldırılamadı.")
-    content = path.read_bytes() if path.exists() else b""
-    return {
-        "ok": True,
-        "yol": relative,
-        "sha256": hashlib.sha256(content).hexdigest() if content else "",
-        "metin": "Dosya Git taban sürümüne döndürüldü.",
-    }
+            inside = snapshot.path.resolve().relative_to(base).as_posix()
+            path = _resolve_inside(root, inside)
+            current = _current_bytes(path)
+        except (ValueError, WorkspacePathError, OSError):
+            continue
+        relative = _relative(root, path)
+        if current == snapshot.content:
+            continue
+        before = snapshot.content or b""
+        after = current or b""
+        try:
+            diff, added, removed = text_diff(relative, before, after)
+        except UnicodeDecodeError:
+            diff, added, removed = f"Binary dosya değişti: {relative}", 0, 0
+        journal.record(
+            UndoEntry(
+                relative,
+                snapshot.existed,
+                before,
+                after,
+                diff,
+                added,
+                removed,
+                exists_after=current is not None,
+                owner=OWNER_AGENT,
+            )
+        )
+
+
+def _current_bytes(path: Path) -> bytes | None:
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None

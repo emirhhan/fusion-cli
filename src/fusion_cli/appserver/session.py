@@ -50,6 +50,7 @@ from ..config.loader import load_config
 from ..config.model_select import select_agent_spec
 from ..config.models import Config, McpServerConfig
 from ..config.paths import credentials_file
+from ..core.changeset import ChangeSet
 from ..core.clock import SystemClock
 from ..core.concurrency import BackgroundTasks
 from ..core.events import Event, EventSink, StatusChanged
@@ -167,6 +168,7 @@ from .workspace import (
     list_entries,
     preview_entry,
     read_entry,
+    record_agent_changes,
     undo_entry,
     workspace_status,
     write_entry,
@@ -854,7 +856,7 @@ class AppSession:
         if request.name == "proje.dosya_ara":
             return search_project_files(self._file_search, self._state.root, request.data)
         if request.name == "proje.oku":
-            return read_entry(self._state.root, request.data)
+            return read_entry(self._state.root, request.data, self._workspace_journal)
         if request.name == "proje.onizle":
             return preview_entry(self._state.root, request.data)
         if request.name == "web.onizleme_dogrula":
@@ -2187,8 +2189,12 @@ class AppSession:
                 health=self._state.health,
                 journal=journal,
                 background=self._voice_background if voice_context else None,
+                changes=changes,
             )
 
+        # Ajanın her yazmadan önce aldığı anlık görüntüler; tur bitince (iptal dahil)
+        # çalışma alanı günlüğüne geçer ve UI geri alma yalnız bunlara dayanır.
+        changes = ChangeSet()
         # Tarayıcı paneli turu sekmenin konuşması değildir; günlüğe yazılmaz.
         journal = None if browser_only else self._turn_journal(task)
         # Teşhis izi: `/trace` bu turun neden düştüğünü sonradan söyleyebilsin.
@@ -2223,6 +2229,7 @@ class AppSession:
                     await await_owned_thread(journal.save, self._state.history)
             return {"ok": False, "metin": messages.APP_TURN_CANCELLED}
         finally:
+            record_agent_changes(self._state.root, self._workspace_journal, changes.snapshots)
             self._desktop_activity.clear()
             await child_runs.close()
             if self._turn is owned_turn:

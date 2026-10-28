@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Protocol
 from ..config.models import Config
 from ..config.permissions import load_allowed_commands
 from ..core.artifacts import ArtifactStore
+from ..core.changeset import ChangeSet
 from ..core.concurrency import BackgroundTasks
 from ..core.events import (
     ErrorOccurred,
@@ -160,6 +161,7 @@ async def run_agent_task(
     history: list[Message] | None = None,
     background: BackgroundTasks | None = None,
     tool_context: ToolContext | None = None,
+    changes: ChangeSet | None = None,
     chrome_bridge: ChromeControl | None = None,
     capabilities: CapabilityRegistry | None = None,
     system_prompt: str | None = None,
@@ -221,6 +223,10 @@ async def run_agent_task(
             # kaybolmaz, model gerektiğinde dosyayı açar (context rot).
             artifacts=ArtifactStore(config.memory_dir / "artifacts" / _artifact_id()),
         )
+        if changes is not None:
+            # Çağıran (masaüstü oturumu) turun ilk-hâl anlık görüntülerini geri alma
+            # günlüğüne aktarabilsin diye kümeyi kendisi verir.
+            tool_context = replace(tool_context, changes=changes)
         if conversation_id:
             tool_context = replace(
                 tool_context,

@@ -175,6 +175,8 @@ async def test_proje_yaz_sha_kapisi_diff_ve_geri_alma_saglar(tmp_path: Path):
     lines: list[str] = []
     session = AppSession(lines.append, root=tmp_path, home=tmp_path.parent / ".fusion-home")
 
+    # Yazma, dosyanın tamamının bu oturumda okunmasını gerektirir (bkz. kısmi okuma kapısı).
+    await session.handle(Request(id="read", name="proje.oku", data={"yol": "app.txt"}))
     await session.handle(
         Request(
             id="write",
@@ -243,7 +245,7 @@ async def test_proje_yaz_sembolik_bagla_kok_disina_cikamaz(tmp_path: Path):
     assert outside.read_text(encoding="utf-8") == "koru"
 
 
-async def test_degisiklikler_agentin_git_ve_yeni_dosya_degisimlerini_gosterir(tmp_path: Path):
+async def test_degisiklikler_git_degisimlerini_gosterir_ama_sahipsizi_geri_almaz(tmp_path: Path):
     """Yalnız UI günlüğü okunursa agentın gerçek dosya değişiklikleri görünmez kalır."""
     _git(tmp_path, "init", "-q")
     _git(tmp_path, "config", "user.email", "fusion@test.local")
@@ -262,10 +264,15 @@ async def test_degisiklikler_agentin_git_ve_yeni_dosya_degisimlerini_gosterir(tm
     assert "+sonra" in by_path["tracked.txt"]["diff"]
     assert "+yeni dosya" in by_path["new.txt"]["diff"]
 
+    # Bu değişiklikleri Fusion yapmadı: geri alınabilir gösterilmez ve geri alma
+    # Git taban sürümüne dönüp commit'lenmemiş işi silmez (S2-01).
+    assert not by_path["tracked.txt"]["geri_alinabilir"]
+    assert not by_path["new.txt"]["geri_alinabilir"]
+
     tracked_undo = await _request(tmp_path, "proje.geri_al", {"yol": "tracked.txt"})
     new_undo = await _request(tmp_path, "proje.geri_al", {"yol": "new.txt"})
 
-    assert tracked_undo["ok"] is True
-    assert new_undo["ok"] is True
-    assert (tmp_path / "tracked.txt").read_text(encoding="utf-8") == "önce\n"
-    assert not (tmp_path / "new.txt").exists()
+    assert tracked_undo["kod"] == "NOT_OWNED"
+    assert new_undo["kod"] == "NOT_OWNED"
+    assert (tmp_path / "tracked.txt").read_text(encoding="utf-8") == "sonra\n"
+    assert (tmp_path / "new.txt").read_text(encoding="utf-8") == "yeni dosya\n"

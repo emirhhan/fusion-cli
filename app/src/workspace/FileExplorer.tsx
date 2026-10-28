@@ -115,7 +115,7 @@ export function FileExplorer({ client, onChanged, onSelected, root, revision = 0
             <div className="file-explorer__file-head">
               <div>
                 <strong>{state.selected.yol}</strong>
-                {state.selected.tur === "metin" && editContent === null && (
+                {state.selected.tur === "metin" && !state.selected.kesildi && editContent === null && (
                   <button onClick={() => setEditContent(state.selected?.icerik ?? "")} type="button">
                     Düzenle
                   </button>
@@ -175,7 +175,7 @@ export function FileExplorer({ client, onChanged, onSelected, root, revision = 0
               </pre>
             )}
             {state.selected.kesildi && (
-              <p className="file-explorer__notice">Dosyanın yalnız ilk bölümü gösteriliyor.</p>
+              <p className="file-explorer__notice">Dosyanın yalnız ilk bölümü gösteriliyor; kısmi içerik düzenlenemez.</p>
             )}
           </>
         ) : (
