@@ -147,6 +147,9 @@ def load_config(path: str | Path | None = None) -> Config:
     # etmedi. `.env`'den gelen değer ise yalnız bir adaydır: kullanıcıların
     # `.env`'inde göreli `config.yaml` duruyor ve başka dizinde yok sayılmalı.
     from_env = None if ENV_CONFIG in _DOTENV_KEYS else os.environ.get(ENV_CONFIG)
+    # `.env` yüklenmeden ÖNCE: proje `.env`'i FUSION_CONFIG/FUSION_HOME/XDG_CONFIG_HOME
+    # ile config yolunu kendi dosyasına çevirip güven denetimini atlatamasın.
+    owned = _user_owned_configs()
     load_environment()
 
     defaults = _read_yaml(bundled_defaults())
@@ -159,7 +162,7 @@ def load_config(path: str | Path | None = None) -> Config:
         user = _read_yaml(source)
         _reject_removed(user)
         if path is None:
-            user = _restrict_untrusted_project(user, source)
+            user = _restrict_untrusted_project(user, source, owned)
         merged = _deep_merge(defaults, _apply_renames(user))
     else:
         merged = defaults
@@ -181,19 +184,38 @@ def load_config(path: str | Path | None = None) -> Config:
         raise ConfigError(f"{exc} (dosya: {source})") from exc
 
 
-def _restrict_untrusted_project(user: YamlMapping, source: Path) -> YamlMapping:
-    """Çalışma dizininden gelen config güvenilmiyorsa yürütme ayarlarını düşür.
+#: `.env`'den geldiğinde kullanıcı yapılandırma dizinini başka yere taşıyan değişkenler.
+_CONFIG_DIR_ENV = frozenset({"XDG_CONFIG_HOME", "APPDATA"})
 
-    Kullanıcı dizini, FUSION_HOME ve açıkça verilen yol kullanıcının seçimidir;
-    yalnız `./config.yaml` yedeği indirilmiş bir depodan gelebilir.
-    """
-    cwd = Path.cwd().resolve()
-    if source.resolve() != cwd / trust.PROJECT_CONFIG_NAME:
-        return user
+
+def _user_owned_configs() -> frozenset[Path]:
+    """Kullanıcının kendi seçtiği config yolları; `.env` yönlendirmesi sayılmaz."""
+    owned: list[Path] = []
+    if not _DOTENV_KEYS & _CONFIG_DIR_ENV:
+        owned.append(user_config_dir() / trust.PROJECT_CONFIG_NAME)
     home = os.environ.get(ENV_HOME)
-    if cwd == user_config_dir().resolve() or (home and Path(home).resolve() == cwd):
+    if home and ENV_HOME not in _DOTENV_KEYS:
+        owned.append(Path(home) / trust.PROJECT_CONFIG_NAME)
+    return frozenset(path.resolve() for path in owned)
+
+
+def _restrict_untrusted_project(
+    user: YamlMapping, source: Path, owned: frozenset[Path]
+) -> YamlMapping:
+    """Kullanıcıya ait olmayan config güvenilmiyorsa yürütme ayarlarını düşür.
+
+    Kullanıcı dizini, süreç ortamındaki FUSION_HOME ve açıkça verilen yol kullanıcının
+    seçimidir. `./config.yaml` yedeği yalnız `fusion trust` ile güvenilirse uygulanır;
+    proje `.env`'inin gösterdiği başka bir yol hiçbir zaman güvenilir sayılmaz.
+    """
+    resolved = source.resolve()
+    if resolved in owned:
         return user
-    state = trust.resolve_project_trust(cwd)
+    cwd = Path.cwd().resolve()
+    if resolved == cwd / trust.PROJECT_CONFIG_NAME:
+        state = trust.resolve_project_trust(cwd)
+    else:
+        state = trust.TrustState(False, trust.REASON_REDIRECTED)
     if state.trusted:
         return user
     cleaned, removed = trust.without_execution_settings(user)

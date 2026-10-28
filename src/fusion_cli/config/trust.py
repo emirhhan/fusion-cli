@@ -39,6 +39,7 @@ EXECUTION_RUNTIME_KEYS = ("verification_commands",)
 REASON_TRUSTED = "güvenildi"
 REASON_UNKNOWN = "proje için güven kaydı yok"
 REASON_CHANGED = "proje yapılandırması güven kaydından sonra değişti"
+REASON_REDIRECTED = "yapılandırma yolu proje .env dosyasıyla değiştirildi"
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,11 +81,14 @@ def without_execution_settings(
 
 def trust_project(root: Path) -> None:
     """Projenin şu anki yapılandırmasına ve üretilmiş araçlarına güven."""
-    files = {
-        _relative(root, path): digest
-        for path in sorted((root / FORGED_TOOLS_DIR).glob("*.py"))
-        if (digest := _digest(path)) is not None
-    }
+    files: dict[str, str] = {}
+    for path in sorted((root / FORGED_TOOLS_DIR).glob("*.py")):
+        # Kök dışını gösteren bağ ya da `.py` adlı klasör güvene alınmaz.
+        if path.is_symlink() or not path.is_file():
+            continue
+        digest = _digest(path)
+        if digest is not None:
+            files[_relative(root, path)] = digest
     _update(root, config_sha256=_digest(root / PROJECT_CONFIG_NAME), files=files)
 
 
@@ -102,13 +106,22 @@ def approve_file(root: Path, path: Path) -> None:
     _update(root, config_sha256=record.get("config_sha256"), files=files)
 
 
-def is_file_trusted(root: Path, path: Path) -> bool:
-    """Dosyanın içeriği güven kaydındaki karmayla birebir aynı mı?"""
+def is_file_trusted(root: Path, path: Path, content: bytes | None = None) -> bool:
+    """Dosyanın içeriği güven kaydındaki karmayla birebir aynı mı?
+
+    `content` verilirse karma diskten yeniden okunmaz, VERİLEN baytlardan hesaplanır:
+    çalıştırılacak içerikle denetlenen içerik arasında yarış kalmaz.
+    """
     record = _load().get(_key(root))
-    if record is None:
+    if record is None or path.is_symlink() or not path.is_file():
         return False
-    expected = record.get("files", {}).get(_relative(root, path))
-    return expected is not None and expected == _digest(path)
+    try:
+        expected = record.get("files", {}).get(_relative(root, path))
+        actual = hashlib.sha256(content).hexdigest() if content is not None else _digest(path)
+        return expected is not None and expected == actual
+    except (ValueError, ConfigError):
+        # Kök dışına çözülen ya da okunamayan dosya güvenilir değildir; çökme yok.
+        return False
 
 
 def _update(root: Path, *, config_sha256: str | None, files: dict[str, str]) -> None:

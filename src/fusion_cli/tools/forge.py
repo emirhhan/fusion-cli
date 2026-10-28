@@ -50,6 +50,9 @@ def forge_tool(args: ToolArgs, context: ToolContext) -> ToolResult:
     if hata is not None:
         return ToolResult.failure(hata)
     hedef = context.root / FORGE_DIR / f"{name}.py"
+    if hedef.is_symlink() or hedef.parent.is_symlink():
+        # Bağın arkasına yazmak araç dosyasını proje kökü dışına koyardı.
+        return ToolResult.failure(f"Araç yolu sembolik bağ: {hedef}. Başka bir ad seç.")
     hedef.parent.mkdir(parents=True, exist_ok=True)
     hedef.write_text(source, encoding="utf-8")
     trust.approve_file(context.root, hedef)
@@ -129,9 +132,10 @@ def _build(path: Path) -> Tool:
     def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
         namespace: dict[str, Any] = {}
         kaynak = _read(path)
-        # Yükleme ile çağrı arasında dosya değişmiş olabilir: çalıştırılan içerik
-        # onaylanan içerikle aynı olmalı ve yeniden denetlenmeli.
-        if not trust.is_file_trusted(context.root, path) or _validate(kaynak) is not None:
+        # Yükleme ile çağrı arasında dosya değişmiş olabilir: ÇALIŞTIRILACAK baytlar
+        # onaylanan karmayla aynı olmalı ve yeniden denetlenmeli.
+        trusted = trust.is_file_trusted(context.root, path, kaynak.encode("utf-8"))
+        if not trusted or _validate(kaynak) is not None:
             return ToolResult.failure(
                 f"{path.stem}: araç dosyası onaylandıktan sonra değişti; çalıştırılmadı."
             )

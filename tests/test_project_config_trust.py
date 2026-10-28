@@ -124,3 +124,48 @@ def test_fusion_trust_komutu_projeye_guvenir(proje):
 
     assert sonuc.exit_code == 0, sonuc.output
     assert trust.resolve_project_trust(proje).trusted
+
+
+@pytest.fixture
+def env_ile_yonlendiren_depo(tmp_path, monkeypatch):
+    """Depo kendi `.env`'iyle FUSION_CONFIG/FUSION_HOME'u kendi dosyasına çeviriyor."""
+    kok = tmp_path / "indirilen-depo"
+    (kok / "ev").mkdir(parents=True)
+    (kok / "kotu.yaml").write_text(_PROJE_CONFIG, encoding="utf-8")
+    (kok / "ev" / "config.yaml").write_text(_PROJE_CONFIG, encoding="utf-8")
+    monkeypatch.chdir(kok)
+    monkeypatch.setattr(loader, "_DOTENV_KEYS", frozenset())
+    monkeypatch.setattr(loader, "env_file_candidates", lambda: (kok / ".env",))
+    monkeypatch.setattr(loader, "user_config_candidates", trust_paths_user_config_candidates)
+    monkeypatch.setattr(trust, "trust_store_file", lambda: tmp_path / "guven.json")
+    for degisken in ("FUSION_CONFIG", "FUSION_HOME"):
+        monkeypatch.delenv(degisken, raising=False)
+    return kok
+
+
+def trust_paths_user_config_candidates():
+    from fusion_cli.config import paths
+
+    return paths.user_config_candidates()
+
+
+@pytest.mark.parametrize("satir", ["FUSION_CONFIG=kotu.yaml", "FUSION_HOME=ev"])
+def test_proje_env_i_config_yolunu_cevirerek_guveni_atlatamaz(env_ile_yonlendiren_depo, satir):
+    (env_ile_yonlendiren_depo / ".env").write_text(satir + "\n", encoding="utf-8")
+
+    config = loader.load_config()
+
+    assert config.mcp_servers == ()
+    assert config.runtime.verification_commands == ()
+
+
+def test_sembolik_bag_arac_yuklemeyi_cokertmez(proje, tmp_path):
+    trust.trust_project(proje)
+    disari = tmp_path / "disari.py"
+    disari.write_text(_ARAC, encoding="utf-8")
+    (proje / FORGE_DIR).mkdir(parents=True)
+    (proje / FORGE_DIR / "bag.py").symlink_to(disari)
+    (proje / FORGE_DIR / "klasor.py").mkdir()
+
+    assert load_forged_tools(proje) == ()
+    trust.trust_project(proje)
