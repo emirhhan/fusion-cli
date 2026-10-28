@@ -3,6 +3,16 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## Yayımlanmamış
+
+- "web push bildirimi", "pushState" gibi isim olarak geçen push artık modeli atlayan git push akışını başlatmaz.
+- Gateway bu bilgisayar dışından gelen isteği yalnız belirteçle kabul eder; belirteçsiz ağ bind'i başlamaz (`fusion serve --token`).
+- Güvenilmeyen projenin `config.yaml` ve `.fusion/tools` dosyaları MCP süreci, doğrulama komutu veya araç çalıştıramaz; yeni komut `fusion trust`.
+- Geri alma kullanıcının commit'lenmemiş işini silmez: yalnız Fusion'ın değişikliği geri alınır, sonradan değişen dosyada çatışma bildirilir.
+- Kesilmiş önizleme tam dosya olarak kaydedilemez.
+- Kod çalıştıran awk, dosya yazan sed ve dal silen git komutları salt-okur sayılmaz; `git stash drop`, `npm run deploy` ve `curl --json` sorulur.
+- Sohbetteki uzak görseller kullanıcı yükleyince istenir; güvensiz bağlantı şemaları çizilmez.
+
 ## 0.7.18 — 2026-10-21
 
 - Araç çağırmadan "yapıyorum" diyen model, turu başarısız kapatmadan önce üç kez kademeli ve somut uyarıyla araca yönlendirilir.
