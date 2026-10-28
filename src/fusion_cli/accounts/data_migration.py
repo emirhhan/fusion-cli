@@ -24,6 +24,7 @@ from pathlib import Path
 
 from ..config.paths import base_data_dir, tenant_data_dir
 from ..core.atomic_file import atomic_replace_text
+from ..core.errors import FusionError
 from ..core.execution_context import PERSONAL_WORKSPACE, validate_identifier
 
 #: Eski kökte sahiplik kararını tutan işaret dosyası.
@@ -32,12 +33,14 @@ OWNER_MARKER = ".legacy-owner.json"
 _TENANTS_DIR = "tenants"
 #: Açık bir Chrome profilinin kilit dosyaları.
 _BROWSER_LOCKS = ("SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile")
+#: Açık SQLite veritabanının günlükleri; tek tek kopyalamak tutarsız kopya üretir.
+_SQLITE_JOURNALS = ("-wal", "-journal")
 _PARTIAL_SUFFIX = ".tasiniyor-"
 _STATE_COPYING = "kopyalaniyor"
 _STATE_DONE = "tamamlandi"
 
 
-class MigrationError(RuntimeError):
+class MigrationError(FusionError, RuntimeError):
     """Kullanıcıya gösterilebilir taşıma engeli."""
 
 
@@ -90,6 +93,15 @@ def migrate_legacy_data(owner: str, *, source: Path | None = None) -> MigrationR
         return MigrationResult(owner, target, (), already_done=True)
     entries = _entries(root)
     _refuse_open_browser(entries)
+    _refuse_open_databases(entries)
+    resuming = claimed == owner and marker.get("state") == _STATE_COPYING
+    collisions = [entry.name for entry in entries if (target / entry.name).exists()]
+    if collisions and not resuming:
+        # Hesabın kendi verisi zaten var: üzerine yazılmaz, sessizce de atlanmaz.
+        raise MigrationError(
+            f"Hedefte zaten veri var ({', '.join(collisions)}); eski veri bağlanmadı. "
+            f"Hedefi ({target}) yedekleyip boşaltmadan taşıma yapılamaz."
+        )
     _write_marker(root, owner, _STATE_COPYING)
     target.mkdir(parents=True, exist_ok=True)
     copied: list[str] = []
@@ -136,15 +148,33 @@ def _remove(path: Path) -> None:
         path.unlink(missing_ok=True)
 
 
-def _refuse_open_browser(entries: list[Path]) -> None:
+def _walk_names(entries: list[Path]) -> list[Path]:
+    """Girdilerin altındaki bütün yollar; kırık sembolik bağlar DAHİL (rglob atlar)."""
+    found: list[Path] = []
     for entry in entries:
-        if not entry.is_dir():
+        if not entry.is_dir() or entry.is_symlink():
+            found.append(entry)
             continue
-        for lock in _BROWSER_LOCKS:
-            if any(entry.rglob(lock)):
-                raise MigrationError(
-                    "Açık bir tarayıcı profili var; Fusion tarayıcısını kapatıp tekrar dene."
-                )
+        for folder, dirs, files in os.walk(entry, followlinks=False):
+            found.extend(Path(folder) / name for name in (*dirs, *files))
+    return found
+
+
+def _refuse_open_browser(entries: list[Path]) -> None:
+    # Chrome'un `SingletonLock`'u hedefi olmayan bir sembolik bağdır.
+    if any(path.name in _BROWSER_LOCKS for path in _walk_names(entries)):
+        raise MigrationError(
+            "Açık bir tarayıcı profili var; Fusion tarayıcısını kapatıp tekrar dene."
+        )
+
+
+def _refuse_open_databases(entries: list[Path]) -> None:
+    """Boş olmayan SQLite günlüğü, veritabanının açık ya da yarım kapandığını gösterir."""
+    for path in _walk_names(entries):
+        if path.name.endswith(_SQLITE_JOURNALS) and path.is_file() and path.stat().st_size > 0:
+            raise MigrationError(
+                f"Açık bir Fusion veritabanı var ({path.name}); Fusion'ı kapatıp tekrar dene."
+            )
 
 
 def _size(path: Path) -> int:

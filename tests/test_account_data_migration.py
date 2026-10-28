@@ -155,3 +155,30 @@ def test_adopt_data_komutu_secilen_hesaba_baglar(veri, tmp_path, monkeypatch):
     assert envanter.exit_code == 0 and "memory" in envanter.output
     assert sonuc.exit_code == 0, sonuc.output
     assert (_hedef(hesap.account.account_id) / "memory" / "dersler.json").exists()
+
+
+def test_hedefte_veri_varsa_sessizce_atlamaz_reddeder(veri):
+    (_hedef("hesap-a") / "memory").mkdir(parents=True)
+    (_hedef("hesap-a") / "memory" / "hesabin-kendi.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(MigrationError, match="memory"):
+        migrate_legacy_data("hesap-a")
+
+    assert migration_inventory().owner == ""
+    assert (_hedef("hesap-a") / "memory" / "hesabin-kendi.json").exists()
+
+
+def test_chromeun_kirik_sembolik_bag_kilidi_algilanir(veri):
+    profil = veri / "web_profiles" / "chatgpt" / "main"
+    (profil / "SingletonLock").symlink_to("makine-12345")
+
+    with pytest.raises(MigrationError, match="tarayıcı"):
+        migrate_legacy_data("hesap-a")
+
+
+def test_acik_sqlite_gunlugu_varken_tasima_yapilmaz(veri):
+    (veri / "submission.sqlite3").write_bytes(b"db")
+    (veri / "submission.sqlite3-wal").write_bytes(b"bekleyen yazim")
+
+    with pytest.raises(MigrationError, match="Fusion"):
+        migrate_legacy_data("hesap-a")
