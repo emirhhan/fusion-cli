@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "run_statuses": [
+    "queued",
+    "dispatching",
+    "running",
+    "waiting_user",
+    "paused",
+    "cancelling",
+    "succeeded",
+    "failed",
+    "cancelled",
+    "needs_reconciliation"
+  ],
+  "terminal_statuses": ["succeeded", "failed", "cancelled"],
+  "operation_outcomes": ["succeeded", "failed", "denied", "blocked", "cancelled", "unknown"],
+  "event_example": {
+    "schema_version": 1,
+    "event_id": "run_abc:3",
+    "run_id": "run_abc",
+    "seq": 3,
+    "kind": "delta",
+    "at": 1730000000.5,
+    "payload": {"text": "merhaba"}
+  }
+}
