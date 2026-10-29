@@ -22,7 +22,9 @@ import type { Soru } from "./protocol/types";
 import { useProjectRegistry } from "./sessions/useProjectRegistry";
 import { createAndOpenProject, openProjectChat, ProjectOpenError } from "./sessions/projectActions";
 import { useRemoteProjectSync } from "./remote/useRemoteProjectSync";
-import { useSessions, nextSessionId, saveWorkspaceMode, storedWorkspaceMode, type WorkspaceMode } from "./sessions/useSessions";
+import { useSessions, nextSessionId, saveWorkspaceMode } from "./sessions/useSessions";
+import { usePrefsMirror } from "./platform/usePrefsMirror";
+import { useSessionModes } from "./sessions/useSessionModes";
 import type { SessionTransport } from "./sessions/types";
 import { AppHeader } from "./screens/AppHeader";
 import {
@@ -95,7 +97,6 @@ import { useDictation } from "./voice/useDictation";
 import type { PermissionBridge } from "./permissions/types";
 import { nativePermissionBridge } from "./platform/permissions";
 import { listenForFileDrops } from "./platform/drop";
-import { usePrefsMirror } from "./platform/usePrefsMirror";
 import { FeedbackDialog } from "./feedback/FeedbackDialog";
 import { ImageCreate } from "./imagecreate/ImageCreate";
 import { MainRail, type MainSection } from "./screens/MainRail";
@@ -477,7 +478,6 @@ export function SessionUygulama({
   const layout = useLayout();
   const inspectorLayout = useInspectorLayout();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [workspaceModes, setWorkspaceModes] = useState<Record<string, WorkspaceMode>>({});
   const [attachments, setAttachments] = useState<Record<string, ComposerAttachment[]>>({});
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [commandSelector, setCommandSelector] = useState<CommandSelectorPayload | null>(null);
@@ -526,7 +526,6 @@ export function SessionUygulama({
   // İzin modu arayüzde GERÇEK durumu göstermeli: eskiden "Agent · Otomatik"
   // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
   const [busySubmissionMode, setBusySubmissionMode] = useState<"steer" | "queue">("steer");
-  const [approval, setApproval] = useState<ApprovalMode>("auto");
   const [closeAsked, setCloseAsked] = useState(false);
   /** Çekirdek bağlantısı koptuğunda çekirdeğin son hata çıktısı (varsa). */
   const [cekirdekGunlugu, setCekirdekGunlugu] = useState<string | null>(null);
@@ -566,9 +565,11 @@ export function SessionUygulama({
     setCommandBusy(false); setCommandError(null);
     return () => { commandOwner.current = generation + 1; };
   }, [activeSessionId]);
-  const workspaceMode = active
-    ? workspaceModes[active.id] ?? storedWorkspaceMode(active.id) ?? "kod"
-    : "kod";
+  // İzin modu ve çalışma kipi sohbet başınadır; değişiklik çekirdek onaylayınca görünür.
+  const { approval, workspaceMode, changeApproval, changeWorkspace } = useSessionModes(
+    active ? { id: active.id, client: active.client } : null,
+    setCommandError,
+  );
   const dictation = useDictation((id, text) =>
     setDrafts((current) => ({ ...current, [id]: text })),
   );
@@ -1458,14 +1459,7 @@ export function SessionUygulama({
           onBusySubmissionModeChange={setBusySubmissionMode}
           key={active.id}
           workspaceMode={workspaceMode}
-          onWorkspaceModeChange={(mode) => {
-            void active.client.request("oturum.baslat", { kip: mode }).then((result) => {
-              if (result.ok === false) throw new Error(String(result.metin ?? "Kip değiştirilemedi."));
-              saveWorkspaceMode(active.id, mode);
-              setWorkspaceModes((current) => ({ ...current, [active.id]: mode }));
-              setCommandError(null);
-            }).catch(() => setCommandError("Sohbet kipi değiştirilemedi. Yeniden dene."));
-          }}
+          onWorkspaceModeChange={(mode) => void changeWorkspace(mode)}
           activeModel={activeModel}
           activeModelLabel={activeModelLabel}
           modelOptions={modelOptions}
@@ -1476,10 +1470,7 @@ export function SessionUygulama({
           onModelMenuOpen={() => void loadModelOptions()}
           onModelSelect={(komut) => void executeCommand(komut, false, false)}
           approval={approval}
-          onApprovalChange={(next) => {
-            setApproval(next);
-            void active.client.request("oturum.baslat", { mod: next });
-          }}
+          onApprovalChange={(next) => void changeApproval(next)}
           attachments={activeAttachments}
           attachmentError={attachmentError ?? controller.submissionRecoveryError(active.id)}
           commandError={active.stopError ?? commandError}
@@ -1631,9 +1622,9 @@ export function SessionUygulama({
                   : metin.startsWith("Evet, düzenlemeleri") ? "edits"
                   : metin.startsWith("Evet, her") ? "security" : null;
                 if (!yeniKip) return;
-                setApproval(yeniKip);
-                void active.client.request("oturum.baslat", { mod: yeniKip }).then(() => {
-                  send("Planı onaylıyorum. Şimdi bu planı adım adım uygula ve her adımdan sonra doğrula.");
+                // Mod çekirdekte değişmediyse plan "uygulanmış" sayılmaz: hata görünür, mesaj gitmez.
+                void changeApproval(yeniKip).then((degisti) => {
+                  if (degisti) send("Planı onaylıyorum. Şimdi bu planı adım adım uygula ve her adımdan sonra doğrula.");
                 });
               }}
             />
