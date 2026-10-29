@@ -9,6 +9,7 @@ function fakeStorage(initial: Record<string, string> = {}) {
     getItem: (key: string) => values.get(key) ?? null,
     setItem(key: string, value: string) { values.set(key, value); },
     removeItem(key: string) { values.delete(key); },
+    clear() { values.clear(); },
   };
 }
 const client = (degerler: Record<string, string>, ok = true) => ({
@@ -70,5 +71,64 @@ describe("arayüz tercihi yedeği", () => {
     installPrefsMirror({ request: async () => ({ ok: false, metin: "disk dolu" }) }, onError, proto as unknown as Storage);
     proto.setItem("fusion.layout", "x");
     await vi.waitFor(() => expect(onError).toHaveBeenCalledWith("disk dolu"));
+  });
+
+  // Ölçüldü (29 Ekim): yama `try { orijinal } finally { gönder }` idi; kota/SecurityError ile
+  // yazma başarısız olsa da değer çekirdeğe gidiyor, yerel ve çekirdek ayrışıyordu.
+  it("yerel yazma başarısızsa değer çekirdeğe gönderilmez; hata çağırana iletilir", () => {
+    const proto = fakeStorage();
+    proto.setItem = () => { throw new DOMException("kota", "QuotaExceededError"); };
+    const c = client({});
+    installPrefsMirror(c, vi.fn(), proto as unknown as Storage);
+    expect(() => proto.setItem("fusion.layout", "x")).toThrow("kota");
+    expect(c.request).not.toHaveBeenCalled();
+  });
+
+  it("yalnız asıl depoyu yedekler; başka depo örneğinin yazımı çekirdeğe gitmez", () => {
+    const proto = fakeStorage();
+    const asil = {};
+    const c = client({});
+    installPrefsMirror(c, vi.fn(), proto as unknown as Storage, asil);
+    proto.setItem("fusion.layout", "x");
+    expect(c.request).not.toHaveBeenCalled();
+    proto.setItem.call(asil, "fusion.layout", "y");
+    expect(c.request).toHaveBeenCalledWith("ayar.arayuz_kaydet", { anahtar: "fusion.layout", deger: "y" });
+  });
+
+  it("clear() izinli anahtarları çekirdekten de siler", () => {
+    const proto = fakeStorage({ "fusion.layout": "1", "fusion.submissions.x": "t" });
+    const c = client({});
+    installPrefsMirror(c, vi.fn(), proto as unknown as Storage);
+    (proto as unknown as Storage).clear();
+    expect(c.request).toHaveBeenCalledWith("ayar.arayuz_kaydet", { anahtar: "fusion.layout", deger: null });
+    expect(c.request).toHaveBeenCalledTimes(1);
+  });
+
+  it("hydrate: yerel yazma hatası kalan anahtarları atlatmaz ve hata fırlatmaz", async () => {
+    const storage = fakeStorage();
+    const ham = storage.setItem.bind(storage);
+    storage.setItem = (key: string, value: string) => {
+      if (key === "fusion.layout") throw new Error("kota");
+      ham(key, value);
+    };
+    const changed = await hydratePrefs(client({ "fusion.layout": "1", "fusion.theme": "dark" }), storage);
+    expect(changed).toBe(true);
+    expect(storage.getItem("fusion.theme")).toBe("dark");
+  });
+
+  it("hydrate: çekirdeğe taşıma isteği reddedilirse yakalanmamış hata doğmaz", async () => {
+    const storage = fakeStorage({ "fusion.theme": "light" });
+    const reddeden = {
+      request: vi.fn(async (name: string) => {
+        if (name === "ayar.arayuz") return { ok: true, degerler: {} };
+        throw new Error("kapandı");
+      }),
+    };
+    const yakalanmayan = vi.fn();
+    process.on("unhandledRejection", yakalanmayan);
+    await hydratePrefs(reddeden, storage);
+    await new Promise((cozumle) => setTimeout(cozumle, 20));
+    process.off("unhandledRejection", yakalanmayan);
+    expect(yakalanmayan).not.toHaveBeenCalled();
   });
 });

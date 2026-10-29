@@ -248,7 +248,7 @@ const ARAC_SONUCU: Record<string, string> = {
 function aracSonucu(outcome: unknown): string {
   if (outcome === undefined || outcome === null) return "ok";
   const ad = String(outcome).trim();
-  return ad === "ok" || Object.hasOwn(ARAC_SONUCU, ad) ? ad : "unknown";
+  return ad === "ok" || Object.prototype.hasOwnProperty.call(ARAC_SONUCU, ad) ? ad : "unknown";
 }
 
 export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
