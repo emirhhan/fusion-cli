@@ -21,6 +21,9 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Ajanın dosya düzenlemesi CRLF satır sonlarını korur.
 - Telefondan ekran izleme masaüstü onayıyla açılır; "hatırla" 7 günlük güven verir. Telefon, işlemin gerektirdiği yetki (ör. `project.write`) olmadan yazma/komut onayı veremez, yalnız reddedebilir.
 - Önizleme sunucusu, başka bir sürecin tuttuğu portu boş sanıp açılamamazlık etmez.
+- Telefon eşleştirmesinde yanıt ağda kaybolursa telefon aynı cihazı yeniden alır; sırrı hiçbir telefona ulaşmamış "hayalet" cihaz kendiliğinden iptal edilir.
+- Chrome yerel bağlantısı yalnız gerçek Fusion Browser eklentisine açılır; aynı adı taşıyan başka bir eklenti kabul edilmez.
+- Tarayıcıda tıklama/yazma sonucu gelmezse ajan "sonuç bilinmiyor" görür ve işlemi körlemesine tekrarlamaz; alana yazılan anahtar/belirteç adım günlüğünde gizlenir.
 
 ## 0.7.18 — 2026-10-21
 
