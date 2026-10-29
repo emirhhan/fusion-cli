@@ -23,7 +23,7 @@ from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import optional_str, require_str
 from .browser_guard import blocked_hint, install_request_guard
 from .browser_target import TargetError, fill_or_select, resolve
-from .files import resolve_path
+from .files import writable_path
 from .mirror import (
     MAX_ASSET_BYTES,
     MAX_ASSETS,
@@ -191,7 +191,7 @@ async def browser_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult
     if page is None:
         return ToolResult.failure(hata)
 
-    hedef = resolve_path(context, optional_str(args, "path", "ekran-goruntusu.png"))
+    hedef = writable_path(context, optional_str(args, "path", "ekran-goruntusu.png"))
     hedef.parent.mkdir(parents=True, exist_ok=True)
     tam_sayfa = args.get("full_page", True)
     try:
@@ -210,7 +210,7 @@ async def browser_mirror(args: ToolArgs, context: ToolContext) -> ToolResult:
     oturumu görür. `url` verilmezse ETKİN sayfa aynalanır — kapıyı geçtikten sonra
     "burayı indir" demenin doğal yolu budur.
     """
-    hedef = resolve_path(context, optional_str(args, "path", "ayna"))
+    hedef = writable_path(context, optional_str(args, "path", "ayna"))
     page, hata = await _sayfa(context)
     if page is None:
         return ToolResult.failure(hata)

@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import tarfile
 import zipfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
-from .files import display_path, resolve_path
+from .files import display_path, resolve_path, writable_path
 
 #: Açılan içeriğin toplam boyut sınırı (bayt). İndirme sınırının (256 MiB) iki katı
 #: tutulur: asset paketleri sıkıştırılmış gelir ve açılınca büyür, ama sınırsız
@@ -100,6 +101,16 @@ def _siniri_denetle(sayi: int, toplam: int) -> None:
         raise _ArchiveError(f"Arşiv açıldığında {MAX_EXTRACT_BYTES} bayt sınırını aşıyor.")
 
 
+def _yazma_izni(uyeler: Sequence[tuple[object, _Member]], context: ToolContext) -> None:
+    """Hiçbir üye yazılmadan ÖNCE hepsinin hedefi yazma kapısından geçer.
+
+    Hedef dizin izinli olsa da üyeler Remotion kit'i gibi korunan bir yola düşebilir;
+    yarım açılmış arşiv bırakmamak için denetim yazmadan önce yapılır.
+    """
+    for _bilgi, uye in uyeler:
+        writable_path(context, str(uye.hedef))
+
+
 def _yaz(veri: bytes, uye: _Member, context: ToolContext) -> None:
     uye.hedef.parent.mkdir(parents=True, exist_ok=True)
     uye.hedef.write_bytes(veri)
@@ -113,7 +124,9 @@ async def extract_archive(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Arşivi aç; kaç dosya ve kaç bayt yazıldığını kanıt olarak döndür."""
     arsiv_yolu = resolve_path(context, require_str(args, "path"))
     hedef_metni = str(args.get("dest") or arsiv_yolu.parent)
-    kok = resolve_path(context, hedef_metni).resolve()
+    # Yazılan yer `writable_path` kapısından geçer: alt ajanın `write_scope`'u ve
+    # Remotion kit koruyucusu `write_file` ile aynı şekilde burada da geçerlidir.
+    kok = writable_path(context, hedef_metni).resolve()
     if not arsiv_yolu.is_file():
         return ToolResult.failure(f"Arşiv bulunamadı: {display_path(context, arsiv_yolu)}")
 
@@ -123,12 +136,16 @@ async def extract_archive(args: ToolArgs, context: ToolContext) -> ToolResult:
     try:
         if zipfile.is_zipfile(arsiv_yolu):
             with zipfile.ZipFile(arsiv_yolu) as arsiv:
-                for bilgi, uye in _zip_uyeleri(arsiv, kok):
+                uyeler = _zip_uyeleri(arsiv, kok)
+                _yazma_izni(uyeler, context)
+                for bilgi, uye in uyeler:
                     _yaz(arsiv.read(bilgi), uye, context)
                     acilan.append(uye)
         elif tarfile.is_tarfile(arsiv_yolu):
             with tarfile.open(arsiv_yolu) as arsiv:
-                for tar_bilgi, uye in _tar_uyeleri(arsiv, kok):
+                tar_uyeleri = _tar_uyeleri(arsiv, kok)
+                _yazma_izni(tar_uyeleri, context)
+                for tar_bilgi, uye in tar_uyeleri:
                     akis = arsiv.extractfile(tar_bilgi)
                     if akis is None:
                         continue

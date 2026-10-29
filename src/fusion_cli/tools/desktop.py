@@ -11,7 +11,7 @@ from typing import cast
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import optional_str, require_str
-from .files import resolve_path
+from .files import writable_path
 
 SCREENSHOT_MAX_BYTES = 12_000_000
 DESKTOP_COMMAND_TIMEOUT_S = 15
@@ -118,7 +118,7 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     error = _mac_only()
     if error:
         return ToolResult.failure(error)
-    target = resolve_path(context, optional_str(args, "path", "masaustu-ekrani.png"))
+    target = writable_path(context, optional_str(args, "path", "masaustu-ekrani.png"))
     if target.suffix.lower() != ".png":
         return ToolResult.failure("Ekran görüntüsü yolu .png ile bitmeli.")
     target.parent.mkdir(parents=True, exist_ok=True)

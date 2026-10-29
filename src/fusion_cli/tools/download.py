@@ -14,7 +14,7 @@ import httpx
 from ..core.constants import MAX_DOWNLOAD_BYTES, MAX_WEB_REDIRECTS, WEB_TIMEOUT_S
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
-from .files import display_path, resolve_path
+from .files import display_path, writable_path
 from .pinned_http import AsyncPinnedTransport
 from .web import url_block_reason
 
@@ -114,7 +114,7 @@ def _tahmin_uyarisi(error: Exception) -> str:
 
 async def download_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     """İndirilen dosyanın gerçek boyutunu ve SHA-256 özetini kanıt olarak döndür."""
-    path = resolve_path(context, require_str(args, "path"))
+    path = writable_path(context, require_str(args, "path"))
     if path.exists():
         return ToolResult.failure("Hedef dosya zaten var; üzerine yazılmadı. Yeni bir yol seç.")
     url = require_str(args, "url")

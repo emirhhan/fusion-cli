@@ -20,7 +20,7 @@ from pathlib import Path
 
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import optional_str
-from .files import resolve_path
+from .files import writable_path
 
 #: Diske yazılacak iskele dosyaları. İçerikleri paket içinde durur ve test edilir.
 SCAFFOLD_FILES: tuple[str, ...] = ("tokens.css", "format.js", "index.html")
@@ -30,7 +30,7 @@ _TEMPLATES = Path(__file__).parent / "scaffold"
 
 def scaffold_web(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Hazır tasarım token'ları, biçimlendiriciler ve sayfa iskeletini diske yaz."""
-    hedef = resolve_path(context, optional_str(args, "path", "."))
+    hedef = writable_path(context, optional_str(args, "path", "."))
     hedef.mkdir(parents=True, exist_ok=True)
 
     yazilan: list[str] = []
