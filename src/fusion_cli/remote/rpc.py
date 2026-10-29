@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -50,6 +51,8 @@ Handler = Callable[[Device, dict[str, Any]], Awaitable["RpcResult"]]
 #: Hesaptan bağımsız yöntemler. Görev yöntemleri cihaz bağlamıyla kendi tenant'ına
 #: daraltılır; geri kalan HER yöntem (sohbet, medya, ekran, proje, kit, zamanlama)
 #: masaüstünde açık hesabın verisine dokunur ve yalnız o hesabın cihazına açıktır.
+_LOG = logging.getLogger(__name__)
+
 _TENANT_NEUTRAL_METHODS = frozenset(
     {
         "service.status",
@@ -641,6 +644,9 @@ class RemoteService:
             frame = await self._screen_capture.frame()
         except ScreenUnavailableError as error:
             return _fail("ekran_kullanilamaz", str(error))
+        except Exception as error:  # özel yakalayıcılar da 500'e değil ekran hatasına dönsün
+            _LOG.warning("Ekran karesi alınamadı: %s", error)
+            return _fail("ekran_kullanilamaz", "Ekran alınamadı.")
         if isinstance(sequence, int):
             self._last_frames[device.device_id] = (sequence, frame, self._clock.now())
         return RpcResult(

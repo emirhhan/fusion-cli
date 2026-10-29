@@ -6,6 +6,7 @@ Bu katman yalnız kimlik doğrular ve yönlendirir; iş mantığı `RemoteServic
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ from .rpc import RemoteService
 from .signing import SignatureVerifier, SignedRequest
 
 PWA_DIRECTORY = Path(__file__).parent / "pwa"
+_LOG = logging.getLogger(__name__)
 _JS = "text/javascript; charset=utf-8"
 _PNG = "image/png"
 _STATIC = {
@@ -218,9 +220,14 @@ class RemoteApp:
         if not isinstance(method, str):
             await self._json(send, 400, {"error": "gecersiz_istek"})
             return
-        result = await self._service.call(
-            device, method, params if isinstance(params, dict) else {}
-        )
+        try:
+            result = await self._service.call(
+                device, method, params if isinstance(params, dict) else {}
+            )
+        except Exception:  # işlenmemiş istisna bağlantıyı yarım bırakmasın; ayrıntı günlükte
+            _LOG.exception("Uzak RPC işlenemedi: %s", method)
+            await self._json(send, 500, {"error": "sunucu_hatasi"})
+            return
         await self._json(send, 200, result.view())
 
     async def _static(self, send: Any, path: str) -> None:  # noqa: ANN401

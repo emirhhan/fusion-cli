@@ -70,3 +70,5 @@ SCREEN_TRUST_SECONDS = 7 * 24 * 3600
 SCREEN_MIN_FRAME_INTERVAL_SECONDS = 0.5
 SCREEN_MAX_WIDTH = 1280
 SCREEN_JPEG_QUALITY = 60
+#: `screencapture` süreci bu sürede bitmezse öldürülür (izin penceresi/oturum kilidi).
+SCREEN_CAPTURE_TIMEOUT_SECONDS = 10

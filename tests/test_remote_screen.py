@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from pathlib import Path
 from typing import Any
@@ -206,3 +207,78 @@ async def test_gercek_yakalama_jpeg_uretir_ya_da_dogru_hata_verir() -> None:
     except ScreenUnavailableError:
         pytest.skip("Ekran Kaydı izni yok")
     assert frame[:2] == b"\xff\xd8" and 2_000 < len(frame) < 2_000_000
+
+
+def _dosya_yaz(path: Path) -> None:
+    path.write_bytes(b"png")
+
+
+class _AsilanSurec:
+    """`screencapture` takılıyor: `wait` hiç dönmez; `kill`/`wait` çağrıları kaydedilir."""
+
+    def __init__(self) -> None:
+        self.returncode: int | None = None
+        self.killed = False
+        self._release = asyncio.Event()
+
+    async def wait(self) -> int:
+        await self._release.wait()
+        return self.returncode if self.returncode is not None else -9
+
+    def kill(self) -> None:
+        self.killed = True
+        self.returncode = -9
+        self._release.set()
+
+
+async def test_screencapture_takilirsa_surec_oldurulur_ve_ekran_hatasi_olur(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fusion_cli.remote import screen as screen_module
+
+    process = _AsilanSurec()
+
+    async def fake_exec(*_args: Any, **_kwargs: Any) -> _AsilanSurec:
+        return process
+
+    monkeypatch.setattr(screen_module.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(screen_module.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(screen_module, "CAPTURE_TIMEOUT_SECONDS", 0.05)
+    with pytest.raises(ScreenUnavailableError):
+        await MacScreenCapture().frame()
+    assert process.killed
+
+
+async def test_pillow_hatasi_ekran_hatasina_cevrilir(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fusion_cli.remote import screen as screen_module
+
+    process = _AsilanSurec()
+    process.returncode = 0
+    process._release.set()
+
+    async def fake_exec(*args: Any, **_kwargs: Any) -> _AsilanSurec:
+        _dosya_yaz(Path(args[-1]))  # hedef dosya var
+        return process
+
+    def broken(_path: Path) -> bytes:
+        raise ImportError("PIL yok")
+
+    monkeypatch.setattr(screen_module.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(screen_module.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(screen_module, "_to_jpeg", broken)
+    with pytest.raises(ScreenUnavailableError):
+        await MacScreenCapture().frame()
+
+
+async def test_beklenmeyen_yakalama_hatasi_ekran_kullanilamaz_doner(parts: Any) -> None:
+    clock, service, observer, _plain, capture = parts
+
+    async def boom() -> bytes:
+        raise OSError("aygıt yok")
+
+    capture.frame = boom  # type: ignore[method-assign]
+    await service.call(observer, "screen.request", {})
+    service.screen_gate.approve(observer.device_id)
+    clock.value += 1
+    result = await service.call(observer, "screen.frame", {})
+    assert result.error == "ekran_kullanilamaz"

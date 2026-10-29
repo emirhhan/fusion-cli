@@ -359,3 +359,15 @@ def test_kayit_dosyasi_yalniz_sahibine_acik(tmp_path: Path) -> None:
     registry.add("T", "signed", frozenset({"project.read"}))
     assert (tmp_path / "d.json").stat().st_mode & 0o077 == 0
     assert len(DeviceRegistry(tmp_path / "d.json", clock).list_devices()) == 1
+
+
+async def test_rpc_isleyici_beklenmeyen_istisna_500_json_doner(rig: Rig) -> None:
+    device_id, secret = rig.pair()
+
+    async def boom(*_args: Any) -> Any:
+        raise TimeoutError("yürütücü yanıt vermedi")
+
+    rig.service.call = boom  # type: ignore[method-assign]
+    response = await rig.rpc(device_id, secret, "service.status")
+    assert response.status_code == 500
+    assert response.json() == {"error": "sunucu_hatasi"}
