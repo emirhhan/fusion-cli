@@ -17,6 +17,7 @@ Modele kalan iş dinamik bağlamadır (menü bağlantıları, sepet sayacı, ma�
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -46,10 +47,24 @@ class ThemeFiles:
     problems: tuple[str, ...] = ()
 
 
+#: Yeniden yazımda ezilecek, içeriği değişmiş dosyaların eski sürümlerinin yedeği.
+PREVIOUS_DIR = "onceki"
+#: Yalnız ilk etiketi kullanılan en çok etiket sayısı (`sneaksup.com` → `sneaksup`).
+_SHORT_HOST_LABELS = 2
+
+
 def theme_slug(source_url: str) -> str:
-    """Kaynak alan adından tema klasörü adı (ör. sneaksup-kopya)."""
-    host = (urlparse(source_url).hostname or "site").removeprefix("www.").split(".")[0]
-    return f"{_SLUG.sub('-', host.lower()).strip('-') or 'site'}-kopya"
+    """Kaynak alan adından tema klasörü adı (ör. sneaksup-kopya).
+
+    Ölçüldü (29 Ekim): yalnız ilk etiket alınınca `shop.example.com` ve
+    `shop.other.com` ikisi de `shop-kopya` oluyor, farklı siteler birbirinin temasını
+    eziyordu. İki etiketli adreslerde (`sneaksup.com`) ad aynı kalır; alt alan adı ya
+    da çok etiketli TLD (`foo.co.uk`) varsa tam alan adı kullanılır.
+    """
+    host = (urlparse(source_url).hostname or "site").removeprefix("www.").lower()
+    labels = host.split(".")
+    base = labels[0] if len(labels) <= _SHORT_HOST_LABELS else host
+    return f"{_SLUG.sub('-', base).strip('-') or 'site'}-kopya"
 
 
 def _safe(html: str) -> str:
@@ -287,6 +302,41 @@ def _responsive_problems(capture: SiteCapture, paths: tuple[str, ...]) -> tuple[
     return ()
 
 
+def _back_up_changed(folder: Path, dosyalar: Mapping[str, str]) -> tuple[str, ...]:
+    """Üzerine yazılacak, içeriği değişmiş mevcut dosyaları `onceki/` altına yedekle.
+
+    Ölçüldü (29 Ekim): dosyalar koşulsuz yazılıyordu; kullanıcının/modelin elle
+    düzeltmeleri (`style.css` "Elle düzeltmeler buraya" der) sessizce kayboluyordu.
+    Yedek adı içerik özetini taşır: aynı içerik ikinci kez yedeklenmez.
+    """
+    yedeklenen: list[str] = []
+    for ad, yeni in dosyalar.items():
+        hedef = folder / ad
+        if not hedef.is_file():
+            continue
+        try:
+            eski = hedef.read_bytes()
+        except OSError:
+            continue
+        if eski == yeni.encode("utf-8"):
+            continue
+        ozet = hashlib.sha256(eski).hexdigest()[:8]
+        yedek = folder / PREVIOUS_DIR / f"{ad}.{ozet}"
+        yedek.parent.mkdir(parents=True, exist_ok=True)
+        yedek.write_bytes(eski)
+        yedeklenen.append(ad)
+    return tuple(yedeklenen)
+
+
+def _backup_notes(yedeklenen: tuple[str, ...]) -> tuple[str, ...]:
+    if not yedeklenen:
+        return ()
+    return (
+        f"Mevcut tema dosyaları yeniden yazıldı; eski sürümler {PREVIOUS_DIR}/ altında "
+        f"yedeklendi: {', '.join(yedeklenen)}",
+    )
+
+
 def write_theme(
     capture: SiteCapture,
     themes_dir: Path,
@@ -326,6 +376,7 @@ def write_theme(
     }
 
     has_responsive = _apply_responsive(dosyalar, capture, source_url, category_slugs)
+    yedeklenen = _back_up_changed(folder, dosyalar)
     for ad, icerik in dosyalar.items():
         (folder / ad).write_text(icerik, encoding="utf-8")
     referans = folder / "referans"
@@ -338,5 +389,5 @@ def write_theme(
             encoding="utf-8",
         )
     paths = (ana.url,) if has_responsive else ()
-    problems = _responsive_problems(capture, paths)
+    problems = (*_responsive_problems(capture, paths), *_backup_notes(yedeklenen))
     return ThemeFiles(folder, tuple(sorted(dosyalar)), paths, problems)
