@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
 pub(crate) const VARSAYILAN_OTURUM: &str = "varsayilan";
@@ -73,27 +73,31 @@ fn session_launch(executable: &Path, root: &Path) -> SessionLaunch {
     }
 }
 
-/// Oturum başına stdin. Global oturum kilidinden AYRI tutulur: dolu boruda
-/// bloklanan bir yazım yalnız kendi oturumunun stdin kilidini bekletir, `list`,
-/// `stop` ve başka oturumlar donmaz (R2-02).
-type SessionStdin = Arc<Mutex<Option<ChildStdin>>>;
+/// Oturum başına sıralı yazım kuyruğu. `send` satırı kanala koyup HEMEN döner;
+/// tek bir yazıcı iş parçacığı satırları gelme sırasıyla çocuğun stdin'ine yazar.
+/// Böylece dolu boruda bloklanan yazım ne global oturum kilidini ne de komut
+/// iş parçacığını tutar (R2-02) ve çağrı sırası korunur. Gönderici düşürülünce
+/// (`stop`, süreç kapanışı) yazıcı biter ve stdin kapanır (EOF).
+type SessionStdin = mpsc::Sender<String>;
 
-fn yeni_stdin(stdin: ChildStdin) -> SessionStdin {
-    Arc::new(Mutex::new(Some(stdin)))
-}
-
-/// Stdin'i kapatır (EOF). Bir yazım kilidi tutuyorsa BEKLEMEZ: süreç zaten
-/// sonlandırılacağı için bloklanan yazım kırık boru hatasıyla döner.
-fn stdin_kapat(stdin: &SessionStdin) {
-    if let Ok(mut kilit) = stdin.try_lock() {
-        kilit.take();
-    }
+fn yazici_baslat(mut stdin: ChildStdin) -> SessionStdin {
+    let (gonderici, alici) = mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        // Yazım hatasında (kırık boru) çıkılır; alıcı düşünce sonraki `send`
+        // "oturum çalışmıyor" döner.
+        while let Ok(satir) = alici.recv() {
+            if writeln!(stdin, "{satir}").is_err() || stdin.flush().is_err() {
+                return;
+            }
+        }
+    });
+    gonderici
 }
 
 struct ManagedSession {
     snapshot: SessionSnapshot,
     child: Option<Child>,
-    stdin: SessionStdin,
+    stdin: Option<SessionStdin>,
 }
 
 type SessionMap = Arc<Mutex<HashMap<String, ManagedSession>>>;
@@ -167,7 +171,7 @@ impl SessionManager {
             ManagedSession {
                 snapshot: snapshot.clone(),
                 child: Some(child),
-                stdin: yeni_stdin(stdin),
+                stdin: Some(yazici_baslat(stdin)),
             },
         );
         drop(sessions);
@@ -194,7 +198,7 @@ impl SessionManager {
                     if !is_current_process(&session.snapshot, pid) {
                         return false;
                     }
-                    stdin_kapat(&session.stdin);
+                    session.stdin = None;
                     session.snapshot.mark_closed("süreç kapandı");
                     true
                 })
@@ -217,22 +221,20 @@ impl SessionManager {
         Ok(snapshot)
     }
 
+    /// Satırı oturumun yazım kuyruğuna koyar; bloklamaz. Yazım sonucu (kırık
+    /// boru) kuyruğa konduktan sonra oluşursa bir sonraki çağrıda "çalışmıyor" döner.
     pub(crate) fn send(&self, session_id: &str, line: String) -> Result<(), String> {
-        // Global kilit yalnız stdin tutamacını almak için tutulur; yazım kilitsiz.
-        let stdin = {
+        let gonderici = {
             let sessions = self.sessions.lock().unwrap();
             let session = sessions.get(session_id).ok_or("oturum çalışmıyor")?;
             if session.snapshot.durum != "calisiyor" {
                 return Err("oturum çalışmıyor".into());
             }
-            Arc::clone(&session.stdin)
+            session.stdin.clone().ok_or("oturum çalışmıyor")?
         };
-        let mut kilit = stdin.lock().unwrap();
-        let input = kilit.as_mut().ok_or("oturum çalışmıyor")?;
-        writeln!(input, "{line}").map_err(|error| format!("yazılamadı: {error}"))?;
-        input
-            .flush()
-            .map_err(|error| format!("boşaltılamadı: {error}"))
+        gonderici
+            .send(line)
+            .map_err(|_| "oturum çalışmıyor".to_string())
     }
 
     pub(crate) fn list(&self) -> Vec<SessionSnapshot> {
@@ -243,7 +245,7 @@ impl SessionManager {
                 .as_mut()
                 .is_some_and(|child| matches!(child.try_wait(), Ok(Some(_))));
             if exited {
-                stdin_kapat(&session.stdin);
+                session.stdin = None;
                 session.snapshot.mark_closed("süreç kapandı");
             }
         }
@@ -256,7 +258,7 @@ impl SessionManager {
         let child = {
             let mut sessions = self.sessions.lock().unwrap();
             let session = sessions.get_mut(session_id).ok_or("oturum bulunamadı")?;
-            stdin_kapat(&session.stdin);
+            session.stdin = None;
             session.snapshot.mark_closed("kullanıcı kapattı");
             session.child.take()
         };
@@ -296,7 +298,38 @@ impl SessionManager {
             ManagedSession {
                 snapshot: SessionSnapshot::running(session_id, Path::new("/test"), pid),
                 child: Some(child),
-                stdin: yeni_stdin(stdin),
+                stdin: Some(yazici_baslat(stdin)),
+            },
+        );
+        Ok(pid)
+    }
+
+    /// Aldığı satırları `kayit` dosyasına sırayla yazan bir çocuk başlatır.
+    #[cfg(test)]
+    fn start_test_child_kayitli(&self, session_id: &str, kayit: &Path) -> Result<u32, String> {
+        let mut child = Command::new(
+            std::env::current_exe().map_err(|error| format!("test ikilisi bulunamadı: {error}"))?,
+        )
+        .args([
+            "--exact",
+            "session_manager::testler::session_test_helper_kayit",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env("FUSION_TEST_KAYIT", kayit)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("test session child başlatılamadı: {error}"))?;
+        let stdin = child.stdin.take().ok_or("test session stdin alınamadı")?;
+        let pid = child.id();
+        self.sessions.lock().unwrap().insert(
+            session_id.into(),
+            ManagedSession {
+                snapshot: SessionSnapshot::running(session_id, Path::new("/test"), pid),
+                child: Some(child),
+                stdin: Some(yazici_baslat(stdin)),
             },
         );
         Ok(pid)
@@ -326,7 +359,7 @@ impl SessionManager {
             ManagedSession {
                 snapshot: SessionSnapshot::running(session_id, Path::new("/test"), pid),
                 child: Some(child),
-                stdin: yeni_stdin(stdin),
+                stdin: Some(yazici_baslat(stdin)),
             },
         );
         Ok(pid)
@@ -468,6 +501,21 @@ mod testler {
         std::io::stdin().read_to_end(&mut input).unwrap();
     }
 
+    /// Stdin satırlarını `FUSION_TEST_KAYIT` dosyasına, gelme sırasıyla yazar.
+    #[test]
+    #[ignore]
+    fn session_test_helper_kayit() {
+        use std::io::{BufRead, Write};
+        let Some(yol) = std::env::var_os("FUSION_TEST_KAYIT") else {
+            return;
+        };
+        let mut dosya = std::fs::File::create(yol).unwrap();
+        for satir in std::io::stdin().lock().lines().map_while(Result::ok) {
+            writeln!(dosya, "{satir}").unwrap();
+            dosya.flush().unwrap();
+        }
+    }
+
     #[test]
     #[ignore]
     fn session_test_helper_uyku() {
@@ -476,19 +524,26 @@ mod testler {
 
     /// Ölçüldü (30 Ekim): `send` global oturum kilidini tutarken yazıyordu; stdin'i
     /// okumayan çocuğa büyük yazım dolu boruda bloklanınca `list`/`stop` (ve onlara
-    /// bağlı tüm Tauri komutları) yazım bitene kadar donuyordu (R2-02).
+    /// bağlı tüm Tauri komutları) yazım bitene kadar donuyordu (R2-02). Sıralı
+    /// yazım kuyruğuyla `send` kuyruğa koyup anında döner.
     #[test]
-    fn bloklanan_yazim_list_ve_stopu_dondurmaz() {
+    fn bloklanan_yazim_send_list_ve_stopu_dondurmaz() {
+        use std::time::{Duration, Instant};
         let manager = SessionManager::new();
         manager.start_test_child_stdin_okumayan("tikali").unwrap();
-        let yazici = manager.clone();
-        let yazim = std::thread::spawn(move || yazici.send("tikali", "x".repeat(4 * 1024 * 1024)));
-        std::thread::sleep(std::time::Duration::from_millis(300));
+
+        let baslangic = Instant::now();
+        manager
+            .send("tikali", "x".repeat(4 * 1024 * 1024))
+            .expect("send kuyruğa koymalı");
+        manager.send("tikali", "ikinci".into()).unwrap();
+        let send_suresi = baslangic.elapsed();
+        std::thread::sleep(Duration::from_millis(300));
 
         let (bitti, bekle) = std::sync::mpsc::channel();
         let kopya = manager.clone();
         std::thread::spawn(move || {
-            let baslangic = std::time::Instant::now();
+            let baslangic = Instant::now();
             let liste = kopya.list();
             let list_suresi = baslangic.elapsed();
             let _ = kopya.stop("tikali");
@@ -496,18 +551,44 @@ mod testler {
         });
 
         let (adet, list_suresi, toplam) = bekle
-            .recv_timeout(std::time::Duration::from_secs(8))
+            .recv_timeout(Duration::from_secs(8))
             .expect("list/stop yazım yüzünden bloklandı");
         assert_eq!(adet, 1);
-        assert!(
-            list_suresi < std::time::Duration::from_secs(1),
-            "{list_suresi:?}"
-        );
-        assert!(toplam < std::time::Duration::from_secs(6), "{toplam:?}");
-        assert!(
-            yazim.join().unwrap().is_err(),
-            "çocuk ölünce yazım hata vermeli"
-        );
+        assert!(send_suresi < Duration::from_secs(1), "{send_suresi:?}");
+        assert!(list_suresi < Duration::from_secs(1), "{list_suresi:?}");
+        assert!(toplam < Duration::from_secs(6), "{toplam:?}");
+    }
+
+    /// Aynı oturuma art arda gönderilen satırlar çocuğa gönderim sırasıyla ulaşır.
+    #[test]
+    fn art_arda_gonderilen_satirlar_sirasini_korur() {
+        use std::time::{Duration, Instant};
+        const ADET: usize = 200;
+        let dizin = tempfile::tempdir().unwrap();
+        let kayit = dizin.path().join("alinan.txt");
+        let manager = SessionManager::new();
+        manager.start_test_child_kayitli("sirali", &kayit).unwrap();
+
+        for i in 0..ADET {
+            manager.send("sirali", format!("satir-{i}")).unwrap();
+        }
+        let son = Instant::now() + Duration::from_secs(10);
+        let beklenen: Vec<String> = (0..ADET).map(|i| format!("satir-{i}")).collect();
+        let mut alinan = Vec::new();
+        while Instant::now() < son {
+            alinan = std::fs::read_to_string(&kayit)
+                .unwrap_or_default()
+                .lines()
+                .map(str::to_string)
+                .collect();
+            if alinan.len() >= ADET {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        manager.stop("sirali").unwrap();
+
+        assert_eq!(alinan, beklenen);
     }
 
     #[test]

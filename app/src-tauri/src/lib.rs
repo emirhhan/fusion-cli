@@ -85,9 +85,9 @@ fn cekirdek_baslat(
         .map(|_| ())
 }
 
-/// Yazma/durdurma/kapatma gibi engelleyebilen işleri Tauri'nin komut iş
+/// Durdurma/kapatma gibi gerçekten bekleyen işleri Tauri'nin komut iş
 /// parçacığında DEĞİL, engelleyen havuzda çalıştırır (`runtime_hazirla` kalıbı):
-/// dolu bir boruya yazım ya da 2 sn'lik süreç durdurma, diğer komutları ve
+/// 2 sn'lik süreç durdurma gibi beklemeler, diğer komutları ve
 /// pencere olaylarını bekletmesin (R2-02).
 async fn engelleyen<T, F>(is: F) -> Result<T, String>
 where
@@ -99,9 +99,11 @@ where
         .map_err(|error| format!("Arka plan görevi tamamlanamadı: {error}"))?
 }
 
+/// Senkron kalır: `send` yalnız kuyruğa koyar (anlık) ve Tauri senkron komutları
+/// çağrı sırasıyla işler; satır sırası böylece korunur.
 #[tauri::command]
-async fn cekirdege_yaz(satir: String, app: tauri::AppHandle) -> Result<(), String> {
-    engelleyen(move || app.state::<SessionManager>().send(VARSAYILAN_OTURUM, satir)).await
+fn cekirdege_yaz(satir: String, sessions: tauri::State<SessionManager>) -> Result<(), String> {
+    sessions.send(VARSAYILAN_OTURUM, satir)
 }
 
 fn runtime_executable(runtime: &RuntimeManager) -> Result<PathBuf, String> {
@@ -133,12 +135,12 @@ fn cekirdek_gunlugu() -> Option<String> {
 }
 
 #[tauri::command]
-async fn oturuma_yaz(
+fn oturuma_yaz(
     oturum_id: String,
     satir: String,
-    app: tauri::AppHandle,
+    sessions: tauri::State<SessionManager>,
 ) -> Result<(), String> {
-    engelleyen(move || app.state::<SessionManager>().send(&oturum_id, satir)).await
+    sessions.send(&oturum_id, satir)
 }
 
 /// Konuşma penceresinin kimliği. Ana pencereden AYRI bir penceredir.
