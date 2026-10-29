@@ -452,7 +452,8 @@ fn shell_candidates() -> Vec<String> {
 mod tests {
     use super::{
         claim_explicit_terminal, close_terminal, event_worker, forward_output, queue_closed_once,
-        wait_for_child, ManagedTerminal, TerminalClosed, TerminalManager, TerminalMap, TerminalOutput,
+        wait_for_child, ManagedTerminal, TerminalClosed, TerminalManager, TerminalMap,
+        TerminalOutput,
     };
     use portable_pty::{
         native_pty_system, Child, ChildKiller, CommandBuilder, ExitStatus, PtySize,

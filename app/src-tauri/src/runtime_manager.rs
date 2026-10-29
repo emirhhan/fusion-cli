@@ -966,7 +966,11 @@ mod tests {
     #[test]
     fn bozuk_aktif_kayit_prepare_i_dusurmez_ve_yedeklenir() {
         let fixture = ManagerFixture::new();
-        std::fs::write(&fixture.paths.active_record, b"{\"active\": \"0.3.0a1\", \"pre").unwrap();
+        std::fs::write(
+            &fixture.paths.active_record,
+            b"{\"active\": \"0.3.0a1\", \"pre",
+        )
+        .unwrap();
 
         let ready = fixture.manager.prepare(|_| {}).unwrap();
 
@@ -988,7 +992,11 @@ mod tests {
 
         assert_eq!(ready.version, PAKET_SURUMU);
         assert_eq!(fixture.active_record().active, PAKET_SURUMU);
-        assert!(fixture.paths.root.join("active-runtime.json.corrupt").exists());
+        assert!(fixture
+            .paths
+            .root
+            .join("active-runtime.json.corrupt")
+            .exists());
     }
 
     #[test]

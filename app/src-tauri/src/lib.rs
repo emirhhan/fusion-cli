@@ -85,9 +85,23 @@ fn cekirdek_baslat(
         .map(|_| ())
 }
 
+/// Yazma/durdurma/kapatma gibi engelleyebilen işleri Tauri'nin komut iş
+/// parçacığında DEĞİL, engelleyen havuzda çalıştırır (`runtime_hazirla` kalıbı):
+/// dolu bir boruya yazım ya da 2 sn'lik süreç durdurma, diğer komutları ve
+/// pencere olaylarını bekletmesin (R2-02).
+async fn engelleyen<T, F>(is: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(is)
+        .await
+        .map_err(|error| format!("Arka plan görevi tamamlanamadı: {error}"))?
+}
+
 #[tauri::command]
-fn cekirdege_yaz(satir: String, sessions: tauri::State<SessionManager>) -> Result<(), String> {
-    sessions.send(VARSAYILAN_OTURUM, satir)
+async fn cekirdege_yaz(satir: String, app: tauri::AppHandle) -> Result<(), String> {
+    engelleyen(move || app.state::<SessionManager>().send(VARSAYILAN_OTURUM, satir)).await
 }
 
 fn runtime_executable(runtime: &RuntimeManager) -> Result<PathBuf, String> {
@@ -119,12 +133,12 @@ fn cekirdek_gunlugu() -> Option<String> {
 }
 
 #[tauri::command]
-fn oturuma_yaz(
+async fn oturuma_yaz(
     oturum_id: String,
     satir: String,
-    sessions: tauri::State<SessionManager>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
-    sessions.send(&oturum_id, satir)
+    engelleyen(move || app.state::<SessionManager>().send(&oturum_id, satir)).await
 }
 
 /// Konuşma penceresinin kimliği. Ana pencereden AYRI bir penceredir.
@@ -371,9 +385,13 @@ fn ses_penceresi_ustte(app: tauri::AppHandle, ustte: bool) -> Result<(), String>
 
 /// Kapatma onaylandı: oturumları durdur ve uygulamadan çık.
 #[tauri::command]
-fn kapatmayi_onayla(app: tauri::AppHandle) {
-    cleanup_route_from_app(ShutdownRoute::ConfirmedMainClose, &app);
-    app.exit(0);
+async fn kapatmayi_onayla(app: tauri::AppHandle) -> Result<(), String> {
+    engelleyen(move || {
+        cleanup_route_from_app(ShutdownRoute::ConfirmedMainClose, &app);
+        app.exit(0);
+        Ok(())
+    })
+    .await
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -574,8 +592,8 @@ async fn ses_penceresi_kapat(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn oturum_kapat(oturum_id: String, sessions: tauri::State<SessionManager>) -> Result<(), String> {
-    sessions.stop(&oturum_id)
+async fn oturum_kapat(oturum_id: String, app: tauri::AppHandle) -> Result<(), String> {
+    engelleyen(move || app.state::<SessionManager>().stop(&oturum_id)).await
 }
 
 #[tauri::command]
@@ -613,11 +631,8 @@ fn terminal_boyutla(
 }
 
 #[tauri::command]
-fn terminal_kapat(
-    terminal_id: String,
-    terminals: tauri::State<TerminalManager>,
-) -> Result<(), String> {
-    terminals.close(&terminal_id)
+async fn terminal_kapat(terminal_id: String, app: tauri::AppHandle) -> Result<(), String> {
+    engelleyen(move || app.state::<TerminalManager>().close(&terminal_id)).await
 }
 
 /// Arayüzün gösterebileceği güncel çalışma zamanı durumunu döner.
