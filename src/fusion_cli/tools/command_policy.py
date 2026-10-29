@@ -342,7 +342,7 @@ def _segment_safe(segment: str, root: Path | None = None) -> bool:
             and not is_outward_script(arguments[0])
         )
     if name in {"npx", "bunx"}:
-        return bool(arguments) and not any(a in _INLINE_CODE_FLAGS for a in arguments)
+        return _npx_safe(arguments)
     if name in {"pip", "pip3"} or (name == "uv" and arguments[:1] == ["pip"]):
         return _pip_safe(arguments[1:] if name == "uv" else arguments)
     if name == "curl":
@@ -370,6 +370,39 @@ def _segment_safe(segment: str, root: Path | None = None) -> bool:
     if name == "sed":
         return sed_reads_only(arguments)
     return name in READ_ONLY_COMMANDS
+
+
+#: `npx`/`bunx` ile onaysız çalışan, projenin kendi `node_modules/.bin` araçları.
+_NPX_LOCAL_TOOLS = frozenset(
+    {
+        "tsc", "vue-tsc", "tsx", "vitest", "jest", "eslint", "prettier", "biome", "stylelint",
+        "playwright", "vite", "next", "astro", "nuxt", "svelte-check", "tailwindcss", "prisma",
+        "tsup", "esbuild", "nodemon", "remotion",
+    }
+)  # fmt: skip
+#: `npx` bayrakları: uzaktan paket seçer/kurar ya da satır içi kod verir.
+_NPX_REMOTE_FLAGS = ("-y", "--yes", "-p", "--package", "-c", "--call", "-e", "--eval")
+
+
+def _npx_safe(arguments: list[str]) -> bool:
+    """`npx <araç>` projenin tanınan yerel aracını mı çalıştırıyor?
+
+    Ölçüldü (29 Ekim): `npx evil-paket` ve `bunx evil-paket` koşulsuz geçiyordu; uzaktan
+    paket indirip çalıştırmak (postinstall dahil) yerel araç çalıştırmakla aynı değildir.
+    Serbest: tanınan yerel araçlar, `create-*` iskeleleri (26 Eylül kararı) ve
+    `--no-install` (indirmeyi kapatır). Araçtan SONRAKİ bayraklar aracındır, denetlenmez.
+    """
+    tool = next((a for a in arguments if not a.startswith("-")), None)
+    if tool is None:
+        return False
+    before = arguments[: arguments.index(tool)]
+    if any(a.split("=", 1)[0] in _NPX_REMOTE_FLAGS for a in before):
+        return False
+    if any(a in {"--no-install", "--no"} for a in before):
+        return True
+    base = tool.rsplit("/", 1)[-1]
+    base = base.rsplit("@", 1)[0] if "@" in base[1:] else base
+    return base in _NPX_LOCAL_TOOLS or base.startswith("create-")
 
 
 def _godot_verify_safe(arguments: list[str]) -> bool:
@@ -411,8 +444,12 @@ def _tooling_safe(name: str, arguments: list[str]) -> bool:
     """Proje aracı onaysız geçebilir mi?
 
     Alt komut alan araçlarda (`npm`, `cargo`, `go`, `make`) yalnızca kalite/test
-    alt komutları geçer: `npm install` ağdan paket çeker, `cargo publish` yayınlar
-    ve ikisi de geri alınamaz sonuçlar doğurur.
+    alt komutları geçer; `cargo publish` yayınlar ve geri alınamaz.
+
+    KARAR (26 Eylül, kullanıcı şikâyeti "oto modda gereksiz izinler soruyor"): `npm
+    install`, `pnpm add`, `yarn add` proje İÇİNE kurar ve bilerek serbesttir (paketin
+    kurulum betiği çalışır; bu bilinen bir taviz). Global kurulum (`-g`) ve `pnpm dlx`
+    gibi uzaktan çalıştırma sorulur.
     """
     if name in _DIRECT_TOOLING:
         return True
@@ -420,8 +457,6 @@ def _tooling_safe(name: str, arguments: list[str]) -> bool:
         return name in {"npm", "pnpm", "yarn", "bun", "make"} and name != "npm"
     if name in {"npm", "pnpm", "yarn", "bun"} and arguments[0] in _JS_INSTALL_SUBCOMMANDS:
         return not any(argument in GLOBAL_INSTALL_FLAGS for argument in arguments)
-    if name == "pnpm" and arguments[0] == "dlx":
-        return True
     if arguments[0] == "run" and len(arguments) > 1 and is_outward_script(arguments[1]):
         # `npm run deploy`: paket betiğinin adı dışa dönük iş söylüyor (bkz. auto_policy).
         return False
