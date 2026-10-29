@@ -384,3 +384,37 @@ async def test_manuel_kipte_proje_ici_oturum_izni_proje_disini_kapsamaz(tmp_path
     assert await politika.decide(ici_2) is Decision.ALLOW
     assert await politika.decide(disi) is Decision.DENIED
     assert len(sayac.sorulan) == 2
+
+
+# --- A1-01: paralel araç sonuçlarının hepsi korunur -------------------------- #
+
+
+def _tur(kimlikler, boyut=5_000):
+    from fusion_cli.core.types import Message, ToolCall
+
+    cagri = Message(
+        "assistant", "", tool_calls=tuple(ToolCall(k, "read_file", "{}") for k in kimlikler)
+    )
+    sonuclar = [
+        Message("tool", f"{k}:" + "x" * boyut, tool_call_id=k, name="read_file") for k in kimlikler
+    ]
+    return [cagri, *sonuclar]
+
+
+def test_paralel_arac_sonuclarinin_hepsi_son_tur_olarak_korunur():
+    """Ölçüldü (29 Ekim): yalnız SON tek `tool` mesajı korunuyordu; paralel 3 okumanın
+    ilk 2 sonucu model onları görmeden 'temizlendi' notuna çevriliyordu."""
+    from fusion_cli.core.types import Message
+    from fusion_cli.engines.agent.history import CLEARED_TOOL_OUTPUT, clear_old_tool_outputs
+
+    mesajlar = [Message("system", "s"), Message("user", "görev")]
+    mesajlar += _tur(["eski"])
+    mesajlar += _tur(["a", "b", "c"])
+
+    sonuc = clear_old_tool_outputs(mesajlar, threshold_chars=8_000)
+
+    notu = CLEARED_TOOL_OUTPUT.format(chars=0).split("(")[0]
+    icerik = {m.tool_call_id: m.content for m in sonuc if m.role == "tool"}
+    assert notu in icerik["eski"]
+    for kimlik in ("a", "b", "c"):
+        assert icerik[kimlik].startswith(f"{kimlik}:xxxx"), f"{kimlik} sonucu temizlenmiş"

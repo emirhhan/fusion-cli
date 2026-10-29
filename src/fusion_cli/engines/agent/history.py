@@ -107,8 +107,24 @@ def clear_old_tool_outputs(
     limit = threshold_chars if threshold_chars is not None else COMPRESS_THRESHOLD_CHARS
     sonuc = list(messages)
     arac_indeksleri = [index for index, message in enumerate(sonuc) if message.role == "tool"]
+    # Korunan küme "son araç çağıran assistant mesajından SONRAKİ tüm sonuçlar"dır: model
+    # aynı turda paralel N çağrı yaptıysa N sonucun hepsini görmeden temizlenemez.
+    # Ölçüldü (29 Ekim, A1-01): eskiden yalnız SON tek `tool` mesajı korunuyor, 3
+    # paralel okumanın ilk 2 sonucu model onları görmeden notla değişiyordu.
+    son_asistan = max(
+        (
+            index
+            for index, message in enumerate(sonuc)
+            if message.role == "assistant" and message.tool_calls
+        ),
+        default=None,
+    )
+    if son_asistan is None:
+        temizlenebilir = arac_indeksleri[:-1]
+    else:
+        temizlenebilir = [index for index in arac_indeksleri if index < son_asistan]
     toplam = total_chars(sonuc)
-    for index in arac_indeksleri[:-1]:
+    for index in temizlenebilir:
         if toplam < limit:
             break
         message = sonuc[index]
