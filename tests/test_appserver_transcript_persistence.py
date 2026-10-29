@@ -196,6 +196,31 @@ async def test_degisiklik_yapan_kesik_tur_kendiliginden_surdurulur(tmp_path, mon
     assert any("otomatik devam" in satir for satir in satirlar)
 
 
+async def test_otomatik_devam_sentetik_gorevi_kullanici_mesaji_olarak_kaydetmez(
+    tmp_path, monkeypatch
+):
+    """Sekme yeniden açılınca kullanıcının yazmadığı "devam et" mesajları görünmemeli (S2-11)."""
+    from types import SimpleNamespace
+
+    sonuclar = [
+        _kesilen_sonuc(degisiklik=2),
+        SimpleNamespace(ok=True, final_text="Tüm görevler bitti.", messages=()),
+    ]
+
+    async def _calistir(*_args, **_kwargs):
+        return sonuclar.pop(0)
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", _calistir)
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    await _sekme(oturum)
+
+    await _tur(oturum, satirlar, "büyük işi yap")
+
+    kullanici = [metin for rol, metin in _kayitli(oturum, tmp_path) if rol == "user"]
+    assert kullanici == ["büyük işi yap"]
+
+
 async def test_degisiklik_yapmayan_kesik_tur_surdurulmez(tmp_path, monkeypatch):
     cagri = 0
 

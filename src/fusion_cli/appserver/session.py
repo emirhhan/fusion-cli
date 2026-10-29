@@ -2054,7 +2054,10 @@ class AppSession:
         # diske yazılmaz, adımları ve soruları yalnız panele akar (Claude in Chrome gibi).
         if not browser_only:
             if receipt is None:
-                self._transcript_store.record_user(task)
+                # Otomatik devamın sentetik "devam et" metni kullanıcı sözü değildir
+                # (makbuz yolundaki `auto_continues == 0` koşuluyla aynı kural).
+                if auto_continues == 0:
+                    self._transcript_store.record_user(task)
             elif receipt.attempt_id.endswith(":1") and auto_continues == 0:
                 self._transcript_store.record_user(
                     task, message_id=f"{receipt.key.request_id}:user"
