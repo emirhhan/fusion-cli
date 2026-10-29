@@ -92,9 +92,12 @@ async def serve(
         # iptali tetikledikten sonra görevler bu iptali işleyip kendi
         # sonuçlarını yazar; onları burada bekleyerek düzgün kapanışı
         # garanti ederiz.
-        await session.close()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            await session.close()
+        finally:
+            # close() hata verse de görevler beklenir; yoksa yarım kalan sonuçlar yazılmaz.
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def _stdin_lines() -> AsyncIterator[str]:

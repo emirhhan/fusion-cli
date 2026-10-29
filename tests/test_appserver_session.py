@@ -2023,3 +2023,42 @@ async def test_tur_surerken_kok_degistirilemez(tmp_path):
     sonuc = _sonuc(satirlar, "1")
     assert sonuc["ok"] is False and "tur" in sonuc["metin"].lower()
     assert oturum._state.root != ikinci
+
+
+async def test_close_bir_adim_hata_verse_de_kalan_kapanis_adimlari_calisir(tmp_path, monkeypatch):
+    """Terminal kapanışı başarısız olunca tarayıcı/uzak sunucu yetim kalmamalı (S2-09)."""
+    import pytest
+
+    from fusion_cli.core.errors import CleanupFailedError
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    cagrilan: list[str] = []
+
+    async def terminal_basarisiz():
+        cagrilan.append("surecler")
+        raise CleanupFailedError("terminal süreci doğrulanamadı")
+
+    async def tarayicilar():
+        cagrilan.append("tarayicilar")
+
+    class SahteUzak:
+        async def aclose(self):
+            cagrilan.append("uzak")
+
+    monkeypatch.setattr(oturum._processes, "close", terminal_basarisiz)
+    monkeypatch.setattr("fusion_cli.providers.web_browser.close_all_browser_sessions", tarayicilar)
+    monkeypatch.setattr(
+        "fusion_cli.providers.web_control.stop_all_login_processes",
+        lambda: cagrilan.append("girisler"),
+    )
+    oturum._remote = SahteUzak()
+    iptal_oncesi = oturum.pending.cancel_all
+    monkeypatch.setattr(
+        oturum.pending, "cancel_all", lambda: (cagrilan.append("bekleyen"), iptal_oncesi())[1]
+    )
+
+    with pytest.raises(CleanupFailedError):
+        await oturum.close()
+
+    assert cagrilan == ["surecler", "tarayicilar", "girisler", "uzak", "bekleyen"]

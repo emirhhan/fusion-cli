@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import inspect
 import json
 import logging
 import os
@@ -2642,19 +2643,34 @@ class AppSession:
         discard_prepared_voice()
         if images:
             await asyncio.gather(*images, return_exceptions=True)
-        if self._image_jobs is not None:
-            await self._image_jobs.close()
-        await self._submission_store.close()
+        # Adımlar bağımsız sahiplik taşır: biri hata verse de kalan kapanış sürer
+        # (yoksa tarayıcı süreçleri ve uzak sunucu yetim kalırdı). İlk hata sonda yükselir.
+        steps: list[Callable[[], Any]] = [
+            *([self._image_jobs.close] if self._image_jobs is not None else []),
+            self._submission_store.close,
+        ]
         for task in self._panel_tasks.values():
             if not task.done():
                 task.cancel()
         self._panel_tasks.clear()
-        await close_mcp_pool()
-        await self._mcp_connections.close()
-        await self._chrome.close()
-        await self._processes.close()
-        await close_all_browser_sessions()
-        stop_all_login_processes()
-        if self._remote is not None:
-            await self._remote.aclose()
-        self.pending.cancel_all()
+        steps += [
+            close_mcp_pool,
+            self._mcp_connections.close,
+            self._chrome.close,
+            self._processes.close,
+            close_all_browser_sessions,
+            stop_all_login_processes,
+            *([self._remote.aclose] if self._remote is not None else []),
+            self.pending.cancel_all,
+        ]
+        errors: list[Exception] = []
+        for step in steps:
+            try:
+                result = step()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as error:
+                logging.getLogger(__name__).error("Oturum kapanış adımı başarısız: %s", error)
+                errors.append(error)
+        if errors:
+            raise errors[0]
