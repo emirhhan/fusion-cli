@@ -38,7 +38,7 @@ async def test_bozuk_kit_kabuk_isini_baslatmaz(tmp_path, monkeypatch, background
 
 async def test_senkron_exit_sifir_sonrasi_hash_degismesi_basari_degil(tmp_path, monkeypatch):
     context = await _context(tmp_path)
-    monkeypatch.setattr(shell, "_shell_env", lambda: {})
+    monkeypatch.setattr(shell, "_shell_env", lambda _context: {})
 
     def run(*args, **kwargs):
         (tmp_path / "video/src/index.tsx").write_text("değişti")
@@ -71,7 +71,7 @@ async def test_completed_job_exit_sifir_kit_degisimini_reddeder(tmp_path, monkey
 async def test_kitsiz_ve_editable_kaynak_kabugu_engellemez(tmp_path, monkeypatch):
     context = await _context(tmp_path)
     (tmp_path / "video/src/Composition.tsx").write_text("düzenlendi")
-    monkeypatch.setattr(shell, "_shell_env", lambda: {})
+    monkeypatch.setattr(shell, "_shell_env", lambda _context: {})
     monkeypatch.setattr(
         shell.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "ok", "")
     )
@@ -116,7 +116,7 @@ async def test_editor_artigi_nokta_dosyasi_kabugu_kilitlemez(tmp_path, monkeypat
     """Ölçüldü (29 Ekim): macOS `.DS_Store` src/kit altına düşünce HER komut reddediliyordu."""
     context = await _context(tmp_path)
     (tmp_path / "video/src/kit/.DS_Store").write_bytes(b"\x00")
-    monkeypatch.setattr(shell, "_shell_env", lambda: {})
+    monkeypatch.setattr(shell, "_shell_env", lambda _context: {})
     monkeypatch.setattr(
         shell.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "ok", "")
     )
@@ -143,7 +143,7 @@ async def test_bozuk_kitte_bagimlilik_onarim_komutu_calisir(tmp_path, monkeypatc
         calls.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, "eklendi", "")
 
-    monkeypatch.setattr(shell, "_shell_env", lambda: {})
+    monkeypatch.setattr(shell, "_shell_env", lambda _context: {})
     monkeypatch.setattr(shell, "run_foreground", run)
     result = shell.run_shell({"command": command}, context)
 
@@ -185,7 +185,7 @@ async def test_onarim_komutu_kiti_daha_da_bozarsa_basari_degil(tmp_path, monkeyp
         (tmp_path / "video/src/kit/Baska.tsx").write_text("yeni")
         return subprocess.CompletedProcess(cmd, 0, "tamam", "")
 
-    monkeypatch.setattr(shell, "_shell_env", lambda: {})
+    monkeypatch.setattr(shell, "_shell_env", lambda _context: {})
     monkeypatch.setattr(shell, "run_foreground", run)
 
     assert not shell.run_shell({"command": "npm install"}, context).ok
