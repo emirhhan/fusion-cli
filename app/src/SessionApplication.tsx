@@ -105,6 +105,7 @@ import { KitsScreen } from "./kits/KitsScreen";
 import type { ScheduleDeliveryClient } from "./schedule/types";
 import { LibraryScreen } from "./library/LibraryScreen";
 import { ScheduleScreen } from "./schedule/ScheduleScreen";
+import { pickScheduleClient } from "./schedule/pickScheduleClient";
 import { useScheduleRunner } from "./schedule/useScheduleRunner";
 import type { ReportInput } from "./feedback/report";
 import { useCrashReporter } from "./feedback/useCrashReporter";
@@ -712,7 +713,7 @@ export function SessionUygulama({
   );
   const [deliveryClient, setDeliveryClient] = useState<ScheduleDeliveryClient | null>(null);
   const scheduleRunner = useScheduleRunner({
-    client: active?.client ?? null,
+    client: pickScheduleClient(active, controller.sessions),
     deliveryClient,
     create: createScheduledSession,
     send: controller.send,
