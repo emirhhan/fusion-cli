@@ -29,6 +29,17 @@ export interface CalistirSecenekleri {
   devam?: () => boolean;
 }
 
+/** Çekirdeğin "referans görsel yok/okunamıyor" cevabı; ham metne bağlı kalınmaz. */
+const REFERANS_KODLARI = new Set(["reference_invalid", "referans_yok"]);
+
+/**
+ * Ölçüldü (29 Ekim): bitmiş düğümün çıktı dosyası silinmişse düğüm "girdisi
+ * değişmedi" diye atlanıyor, alt düğüme olmayan yol gidiyor ve alt düğüm
+ * anlaşılmaz bir referans hatasıyla düşüyordu. Artık referans reddedilince
+ * üretici düğüm bayat sayılır ve akış bir kez daha planlanır: üst düğüm yeniden
+ * üretilir, aynı imzalı bağımsız dallar atlanmaya devam eder. Referans
+ * kullanıcının seçtiği görsel düğümündeyse açık hata verilir.
+ */
 export async function akisiCalistir(
   baslangic: Akis,
   istek: IstekFn,
@@ -63,7 +74,21 @@ export async function akisiCalistir(
       if (secenekler.devam?.() === false) return akis;
       const tur = await tekUretim(istek, { istem, saglayici: dugum.saglayici ?? "", islem: dugum.tur as Islem, referans, oran: dugum.oran });
       if (secenekler.devam?.() === false) return akis;
-      if (typeof tur === "string") { hata = tur; break; }
+      if ("hata" in tur) {
+        const uretici = referans && REFERANS_KODLARI.has(tur.kod) ? referansUreticisi(akis, referans) : undefined;
+        if (uretici?.tur === "gorsel") {
+          hata = "Girdi görseli diskte yok; Görsel düğümünde yeniden seç.";
+        } else if (uretici && sonuclar.length === 0) {
+          // Üst düğümün çıktısı kaybolmuş: bayat say, akışı yeniden planla.
+          const temiz = dugumGuncelle(akis, uretici.id, {
+            durum: "bos", yol: undefined, sonuclar: undefined, girdiImzasi: undefined,
+            hata: undefined,
+          });
+          bildir(temiz, []);
+          return akisiCalistir(temiz, istek, bildir, secenekler);
+        } else hata = tur.hata;
+        break;
+      }
       sonuclar.push(...tur.map((gorsel) => gorsel.yol));
       bildir(dugumGuncelle(akis, dugum.id, { sonuclar: [...sonuclar] }), tur);
     }
@@ -86,11 +111,19 @@ export async function akisiCalistir(
   return akis;
 }
 
+/** Referans yolunu çıktı olarak taşıyan düğüm (işlem ya da görsel girdisi). */
+function referansUreticisi(akis: Akis, referans: string): Dugum | undefined {
+  return akis.dugumler.find((dugum) => dugum.yol === referans || dugum.sonuclar?.includes(referans));
+}
+
+interface UretimHatasi { hata: string; kod: string }
+const GECERSIZ_MAKBUZ: UretimHatasi = { hata: "Görsel üreticisi geçersiz dosya makbuzu döndürdü.", kod: "" };
+
 /** Tek çekirdek çağrısı: üretilen görseller ya da kullanıcıya gösterilecek hata metni. */
 async function tekUretim(
   istek: IstekFn,
   veri: { istem: string; saglayici: string; islem: Islem; referans?: string; oran?: string },
-): Promise<UretilenGorsel[] | string> {
+): Promise<UretilenGorsel[] | UretimHatasi> {
   let sonuc: Record<string, unknown>;
   try {
     sonuc = await istek("gorsel.olustur", {
@@ -101,19 +134,19 @@ async function tekUretim(
       ...(veri.oran && veri.oran !== "1:1" ? { oran: veri.oran } : {}),
     });
   } catch (reason) {
-    return `Görsel üretilemedi: ${String(reason)}`;
+    return { hata: `Görsel üretilemedi: ${String(reason)}`, kod: "" };
   }
   const dosyalar = sonuc.ok === true && Array.isArray(sonuc.dosyalar)
     ? (sonuc.dosyalar as unknown[])
     : [];
-  if (!dosyalar.length) return String(sonuc.metin ?? "Görsel üretilemedi.");
+  if (!dosyalar.length) return { hata: String(sonuc.metin ?? "Görsel üretilemedi."), kod: String(sonuc.code ?? "") };
   const images: UretilenGorsel[] = [];
   for (const item of dosyalar) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) return "Görsel üreticisi geçersiz dosya makbuzu döndürdü.";
+    if (!item || typeof item !== "object" || Array.isArray(item)) return GECERSIZ_MAKBUZ;
     const dosya = item as Record<string, unknown>;
     if (typeof dosya.yol !== "string" || !dosya.yol.trim()
       || !validDimension(dosya.genislik) || !validDimension(dosya.yukseklik)) {
-      return "Görsel üreticisi geçersiz dosya makbuzu döndürdü.";
+      return GECERSIZ_MAKBUZ;
     }
     images.push({
       yol: dosya.yol,
