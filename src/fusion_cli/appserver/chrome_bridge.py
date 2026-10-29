@@ -109,6 +109,17 @@ class ChromeBridge:
             "son": self._feed_seq,
         }
 
+    def _mark_command_channel_alive(self) -> None:
+        """Bağlılık YALNIZ komut kanalından (`/poll`, `/result`) türetilir.
+
+        Yan panelin trafiği (`/events`, `/status`, `/turn`) komutları işleyen arka plan
+        belgesinin canlı olduğunu kanıtlamaz: o ölüyken panel açıksa köprü "bağlı" görünür,
+        `invoke` Chrome'u açıp eklentiyi kurma akışını atlar ve komut 30 sn sonra
+        zaman aşımına uğrardı.
+        """
+        self._connected = True
+        self._last_seen = time.monotonic()
+
     async def start(self) -> dict[str, Any]:
         # Başlatma ve kapatma sıralanır. Ölçüldü (27 Eylül): sekmeler geri yüklenirken
         # `chrome.baslat` ile `chrome.durdur` üst üste geldi; kapatma, başlatmanın
@@ -343,11 +354,10 @@ class ChromeBridge:
             body = json.loads(await reader.readexactly(length)) if length else {}
             if not isinstance(body, dict):
                 raise ValueError("JSON nesnesi bekleniyor")
-            self._connected = True
-            self._last_seen = time.monotonic()
             if method == "GET" and target == "/status":
                 result: dict[str, Any] = self.status()
             elif method == "POST" and target == "/poll":
+                self._mark_command_channel_alive()
                 try:
                     result = await asyncio.wait_for(self._queue.get(), 20)
                 except TimeoutError:
@@ -358,6 +368,7 @@ class ChromeBridge:
                     except asyncio.QueueEmpty:
                         result = {}
             elif method == "POST" and target == "/result":
+                self._mark_command_channel_alive()
                 identifier = body.get("id")
                 future = self._pending.get(identifier) if isinstance(identifier, str) else None
                 if future is None or future.done():
