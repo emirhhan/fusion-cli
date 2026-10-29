@@ -24,6 +24,7 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Telefon eşleştirmesinde yanıt ağda kaybolursa telefon aynı cihazı yeniden alır; sırrı hiçbir telefona ulaşmamış "hayalet" cihaz kendiliğinden iptal edilir.
 - Chrome yerel bağlantısı yalnız gerçek Fusion Browser eklentisine açılır; aynı adı taşıyan başka bir eklenti kabul edilmez.
 - Tarayıcıda tıklama/yazma sonucu gelmezse ajan "sonuç bilinmiyor" görür ve işlemi körlemesine tekrarlamaz; alana yazılan anahtar/belirteç adım günlüğünde gizlenir.
+- Tarayıcıda sayfa değiştikten sonra eski öğe referansı yeni sayfada başka bir öğeye tıklamaz; ajan sayfayı yeniden okumaya yönlendirilir (Fusion Browser 0.3.12).
 
 ## 0.7.18 — 2026-10-21
 
