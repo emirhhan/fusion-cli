@@ -69,6 +69,7 @@ def derive_sub_context(context: ToolContext, subtask: SubTask | None = None) -> 
         restrict_to_root=context.restrict_to_root,
         extra_roots=context.extra_roots,
         chrome=context.chrome,
+        hidden_env=context.hidden_env,
         write_scope=scope,
     )
 

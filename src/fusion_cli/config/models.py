@@ -9,6 +9,7 @@ yapılandırma hiç yüklenmez ve test kırılır.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -285,6 +286,20 @@ class McpServerConfig:
     close_timeout_s: float | None = None
     #: None tur runtime retry dizisini kullanır; boş tuple backoff istemez.
     retry_delays_s: tuple[float, ...] | None = None
+
+    @property
+    def secret_env_names(self) -> tuple[str, ...]:
+        """Bu sunucunun sır taşıyan ortam değişkeni adları (değerler config'te değildir)."""
+        return (*self.env_names, *((self.token_env,) if self.token_env else ()))
+
+
+def mcp_secret_env_names(servers: Iterable[McpServerConfig]) -> frozenset[str]:
+    """Tüm MCP sunucularının sır ortam adları.
+
+    Sırlar süreç ortamında yaşar (MCP istemcisi oradan okur); araç/terminal çocuk süreçleri
+    bunları miras almasın diye çocuk ortamından bu adlar çıkarılır.
+    """
+    return frozenset(name for server in servers for name in server.secret_env_names)
 
 
 @dataclass(frozen=True, slots=True)

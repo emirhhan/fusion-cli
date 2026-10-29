@@ -689,3 +689,15 @@ async def test_bosluklu_projede_kabuk_hatasi_tirnakli_yolu_gosterir(registry, tm
     assert not result.ok
     assert shlex.quote(str(root)) in result.output
     assert "göreli" in result.output.lower()
+
+
+async def test_run_shell_mcp_sir_adlarini_cocuk_ortamina_gecirmez(registry, context, monkeypatch):
+    """`env` çıktısı modele gider; MCP sırları bağlamdaki gizli adlarla çıkarılır (S2-10)."""
+    monkeypatch.setenv("MG_MCP_SIRRI", "gizli-deger")
+    monkeypatch.setenv("MG_DIGER", "gorunur")
+    komut = 'printf "%s|%s" "${MG_MCP_SIRRI:-yok}" "$MG_DIGER"'
+    acik = await _calistir(registry, context, "run_shell", command=komut)
+    assert "gizli-deger|gorunur" in acik.output
+    gizli = replace(context, hidden_env=frozenset({"MG_MCP_SIRRI"}))
+    sonuc = await _calistir(registry, gizli, "run_shell", command=komut)
+    assert "yok|gorunur" in sonuc.output and "gizli-deger" not in sonuc.output

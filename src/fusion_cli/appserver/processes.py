@@ -6,10 +6,12 @@ import asyncio
 import os
 import platform
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..config.keys import environ_snapshot
 from ..core.constants import PROCESS_TERMINATE_GRACE_S
 from ..core.errors import CleanupFailedError
 from ..core.owned_thread import await_owned_thread
@@ -68,9 +70,19 @@ class ManagedProcess:
 class ProcessManager:
     """Bir `AppSession`ın çocuk süreçlerini birbirinden yalıtır."""
 
-    def __init__(self, root: Path, writer: Writer, *, max_buffer: int = _MAX_BUFFER) -> None:
+    def __init__(
+        self,
+        root: Path,
+        writer: Writer,
+        *,
+        max_buffer: int = _MAX_BUFFER,
+        hidden_env: Callable[[], frozenset[str]] | None = None,
+    ) -> None:
         self.root = root.resolve()
         self._writer = writer
+        #: Çocuk ortamından çıkarılacak değişken adları (MCP sırları); çağrı anında okunur
+        #: çünkü bağlantılar oturum boyunca eklenip silinir.
+        self._hidden_env = hidden_env
         self._max_buffer = max_buffer
         self._records: dict[str, ManagedProcess] = {}
         self._counter = 0
@@ -99,6 +111,7 @@ class ProcessManager:
             process = await asyncio.create_subprocess_exec(
                 *argv,
                 cwd=cwd,
+                env=self._child_env(),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
@@ -113,6 +126,11 @@ class ProcessManager:
         record.pump = asyncio.create_task(self._pump(record))
         self._event("ProcessStatus", record, durum="calisiyor")
         return {"ok": True, **record.snapshot(self.root)}
+
+    def _child_env(self) -> dict[str, str]:
+        """Süreç ortamının kopyası; MCP sır adları çıkarılmış (`env` çıktısına sızmasın)."""
+        hidden = self._hidden_env() if self._hidden_env is not None else frozenset()
+        return {name: value for name, value in environ_snapshot().items() if name not in hidden}
 
     async def write(self, data: dict[str, Any]) -> dict[str, Any]:
         record = self._record(data)

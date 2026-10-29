@@ -48,7 +48,7 @@ from ..config.eligibility import capability_from_spec
 from ..config.keys import secret_key
 from ..config.loader import load_config
 from ..config.model_select import select_agent_spec
-from ..config.models import Config, McpServerConfig
+from ..config.models import Config, McpServerConfig, mcp_secret_env_names
 from ..config.paths import credentials_file
 from ..core.changeset import ChangeSet
 from ..core.clock import SystemClock
@@ -479,7 +479,11 @@ class AppSession:
         #: değişti; programatik istemciler hâlâ `kip: "sohbet"` gönderebilir.
         self._workspace_mode = "kod"
         self._workspace_journal = WorkspaceJournal()
-        self._processes = ProcessManager(self._state.root, writer)
+        self._processes = ProcessManager(
+            self._state.root,
+            writer,
+            hidden_env=lambda: mcp_secret_env_names(self._state.config.mcp_servers),
+        )
         #: `@` ile dosya anmanın kısa ömürlü dosya listesi önbelleği.
         self._file_search = FileSearchIndex()
         self._gateway_process_id: str | None = None

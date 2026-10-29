@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from ..config.models import Config
+from ..config.models import Config, mcp_secret_env_names
 from ..config.permissions import load_allowed_commands
 from ..core.artifacts import ArtifactStore
 from ..core.changeset import ChangeSet
@@ -222,6 +222,11 @@ async def run_agent_task(
             # Bağlamı şişiren araç çıktısı kırpılmak yerine diske alınır: bilgi
             # kaybolmaz, model gerektiğinde dosyayı açar (context rot).
             artifacts=ArtifactStore(config.memory_dir / "artifacts" / _artifact_id()),
+        )
+        # MCP sırları ortamda yaşar; araç çocuk süreçleri (run_shell) onları miras almaz.
+        tool_context = replace(
+            tool_context,
+            hidden_env=tool_context.hidden_env | mcp_secret_env_names(config.mcp_servers),
         )
         if changes is not None:
             # Çağıran (masaüstü oturumu) turun ilk-hâl anlık görüntülerini geri alma

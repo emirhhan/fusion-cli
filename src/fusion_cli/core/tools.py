@@ -367,6 +367,9 @@ class ToolContext:
     remotion_contract: KitContractState = field(default_factory=KitContractState)
     #: Tarayıcı seçimi yalnız host bağımlılığıdır; araç JSON'undan alınmaz.
     remotion_browser: RemotionBrowser | None = field(default=None, kw_only=True)
+    #: Araç çocuk süreçlerinin ortamından çıkarılacak değişken adları (MCP sırları).
+    #: Sırlar süreç ortamında yaşar; `run_shell` çıktısı (`env`) modele giderdi.
+    hidden_env: frozenset[str] = field(default=frozenset(), kw_only=True)
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya

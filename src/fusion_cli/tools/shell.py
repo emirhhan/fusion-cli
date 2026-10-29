@@ -57,7 +57,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
             outputs = prepare_outputs(args, context.root)
         except (OSError, ValueError) as error:
             return ToolResult.failure(f"İş kanıtı hazırlanamadı: {error}")
-        return start_job(command, context, _shell_env(), manifest=manifest, outputs=outputs)
+        return start_job(command, context, _shell_env(context), manifest=manifest, outputs=outputs)
     try:
         # shell=True bilinçli: kullanıcı boru/yönlendirme içeren komut yazabilmeli.
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.
@@ -66,7 +66,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
             timeout_s=SHELL_TIMEOUT_S,
             cancelled=context.cancelled,
             cwd=context.root,
-            env=_shell_env(),
+            env=_shell_env(context),
         )
     except ProcessCancelledError as error:
         return ToolResult.failure(str(error))
@@ -137,14 +137,15 @@ def _guarded_delete(command: str, context: ToolContext) -> ToolResult | None:
     return ToolResult("\n".join(lines))
 
 
-def _shell_env() -> dict[str, str]:
+def _shell_env(context: ToolContext) -> dict[str, str]:
     """Kabuk ortamı: Homebrew PATH'i ve çalışan bir WP-CLI.
 
     Ölçüldü (2 Ekim, kabul koşusu): ajanın `wp core download` komutu PHP'nin 128 MB
     sınırında çöktü ve model WordPress'i curl ile elle kurmaya saptı. Kullanıcı
-    kendi WP_CLI_PHP_ARGS'ını vermişse ona dokunulmaz.
+    kendi WP_CLI_PHP_ARGS'ını vermişse ona dokunulmaz. MCP sır adları
+    (`context.hidden_env`) çıkarılır: komut `env` yazarsa sırlar modele gitmesin.
     """
-    return php_env()
+    return {name: value for name, value in php_env().items() if name not in context.hidden_env}
 
 
 def _timeout_message(timeout: subprocess.TimeoutExpired) -> str:
