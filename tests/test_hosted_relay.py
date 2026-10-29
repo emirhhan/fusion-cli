@@ -319,3 +319,39 @@ async def test_semasi_bilinmeyen_arac_dogrulanmadan_gecer():
     result = await client.call("MetaAds", "get_campaigns", {"serbest": 1})
 
     assert result.ok is True
+
+
+async def test_kesif_semasindaki_tip_uyumsuzlugu_gecerli_cagriyi_engellemez():
+    """M1-18: keşif şeması modelin yazdığı metindir; yanlış `type` çağrıyı kesmemeli."""
+    sema = {
+        "type": "object",
+        "properties": {"hesap": {"type": "string"}, "butce": {"type": "integer"}},
+        "required": ["hesap"],
+    }
+    oturum = _Oturum(
+        _zarf({"araclar": [{"ad": "set_budget", "aciklama": "", "sema": sema}]}),
+        _zarf({"ok": True, "sonuc": {"tamam": 1}}),
+    )
+    client = HostedConnectorClient((_connector(),), ask=oturum)
+    await client.list_tools("MetaAds")
+
+    result = await client.call("MetaAds", "set_budget", {"hesap": "act_1", "butce": "12.5"})
+
+    assert result.ok is True
+
+
+async def test_kesif_semasi_saglayiciya_sade_gider_dogrulama_ham_semayla_yapilir():
+    sema = {
+        "type": "object",
+        "properties": {"p": {"$ref": "#/$defs/P"}},
+        "required": ["p"],
+        "$defs": {"P": {"type": "string", "format": "uri"}},
+        "additionalProperties": False,
+    }
+    oturum = _Oturum(_zarf({"araclar": [{"ad": "ac", "aciklama": "Aç.", "sema": sema}]}))
+    client = HostedConnectorClient((_connector(),), ask=oturum)
+
+    araclar = await client.list_tools("MetaAds")
+
+    assert araclar[0].schema["properties"]["p"] == {"type": "string"}
+    assert "$defs" not in araclar[0].schema

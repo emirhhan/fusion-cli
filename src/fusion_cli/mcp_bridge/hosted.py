@@ -33,7 +33,8 @@ from dataclasses import dataclass, field
 from ..config.models import HostedConnectorConfig
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
 from ..tools import ToolRegistry
-from ..tools.emulation import coerce_arguments, validate_arguments
+from ..tools.emulation import MESSAGE_REQUIRED_MISSING, coerce_arguments, validate_arguments
+from .schema import clean_description, simplify_schema
 
 __all__ = [
     "MESSAGE_MARKER_IN_BODY",
@@ -212,8 +213,9 @@ class HostedConnectorClient:
                 HostedTool(
                     connector=connector,
                     name=name,
-                    description=str(item.get("aciklama", "")),
-                    schema=resolved,
+                    description=clean_description(str(item.get("aciklama", ""))),
+                    # Doğrulama HAM şemayla (`_schemas`), sağlayıcıya giden kopya sade.
+                    schema=simplify_schema(resolved) if resolved else {},
                 )
             )
         return tools
@@ -275,8 +277,19 @@ class HostedConnectorClient:
         if not schema:
             return None
         errors = validate_arguments(schema, coerce_arguments(schema, args))
-        if errors:
-            return f"{connector}.{tool} argümanları şemaya uymuyor: {'; '.join(errors)}"
+        # Şema, sağlayıcı modelinin KEŞİF cevabında yazdığı metindir (halüsinasyon olabilir).
+        # Yalnız ZORUNLU ALAN eksikliği bağlayıcıdır: eksik alanı oturumdaki model tahminle
+        # doldurabilir ve bu bir reklam bütçesini yanlış değiştirebilir. Tip uyumsuzluğu
+        # ise uyarıdır: uydurma bir `type` gerçek ve geçerli çağrıyı engellememeli (M1-18).
+        missing = [error for error in errors if error.endswith(MESSAGE_REQUIRED_MISSING)]
+        soft = [error for error in errors if error not in missing]
+        if soft:
+            _LOG.warning(
+                "keşif şemasına tip uyumsuzluğu; çağrı yine de gönderiliyor",
+                extra={"baglanti": connector, "arac": tool, "hata": "; ".join(soft)[:300]},
+            )
+        if missing:
+            return f"{connector}.{tool} argümanları şemaya uymuyor: {'; '.join(missing)}"
         return None
 
     async def _exchange(

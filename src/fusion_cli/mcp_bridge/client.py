@@ -39,6 +39,7 @@ from .content import normalize_call_result
 from .failures import STATE_CONNECTED
 from .health import failure_status as failure_status
 from .lifecycle import close_failed_stack
+from .schema import clean_description, simplify_schema
 from .tool_effect import effect_from_annotations
 from .transport import open_mcp_stream
 from .trust import trusted_effect
@@ -262,8 +263,9 @@ class McpClient:
                 RemoteTool(
                     server=server,
                     name=tool.name,
-                    description=tool.description or "",
-                    schema=dict(tool.inputSchema or {}),
+                    # Sağlayıcıya giden kopya sadeleşir/temizlenir (bkz. `schema.py`).
+                    description=clean_description(tool.description or ""),
+                    schema=simplify_schema(tool.inputSchema or {}),
                     # Sahte ve eski SDK araç nesnelerinde alan olmayabilir.
                     effect=self._trusted_effect(
                         server, effect_from_annotations(getattr(tool, "annotations", None))

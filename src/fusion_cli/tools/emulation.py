@@ -24,6 +24,7 @@ from ..core.tool_emulation import (
 __all__ = [
     "CALL_CLOSE",
     "CALL_OPEN",
+    "MESSAGE_REQUIRED_MISSING",
     "EmulatedParse",
     "coerce_arguments",
     "parse_tool_calls",
@@ -33,6 +34,9 @@ __all__ = [
     "validate_arguments",
 ]
 
+
+#: `validate_arguments` zorunlu alan eksikliği hatasının sonek metni (çağıranlar ayırt edebilsin).
+MESSAGE_REQUIRED_MISSING = "zorunlu alan eksik"
 
 #: Şemadaki tipe karşılık gelen Python tipi. Yalnız yapısal tipler taşınır: bir
 #: metin alanına gelen metni "çözmek" veri kaybıdır, düzeltme değil.
@@ -116,7 +120,7 @@ def _validate(schema: Mapping[str, object], value: object, *, path: str) -> list
         if isinstance(required, Sequence) and not isinstance(required, (str, bytes)):
             for field in required:
                 if isinstance(field, str) and field not in value:
-                    errors.append(f"{path}.{field}: zorunlu alan eksik")
+                    errors.append(f"{path}.{field}: {MESSAGE_REQUIRED_MISSING}")
         properties = schema.get("properties")
         if isinstance(properties, Mapping):
             for field, field_value in value.items():
