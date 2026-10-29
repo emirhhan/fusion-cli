@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::io::{BufRead, BufReader, Read};
+use std::io::Read;
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -258,9 +258,7 @@ struct SpeechOutput {
 }
 
 fn forward_stdout(reader: impl Read, mut emit: impl FnMut(String)) {
-    for line in BufReader::new(reader).lines().map_while(Result::ok) {
-        emit(line);
-    }
+    crate::core_process::satirlari_oku(reader, &mut emit);
 }
 
 fn summarize_stderr(mut reader: impl Read) -> Option<StderrSummary> {
@@ -404,6 +402,18 @@ mod tests {
 
         assert_eq!(second.session(), first.session());
         manager.stop().expect("child temizlenmeli");
+    }
+
+    /// Ölçüldü (30 Ekim): `lines().map_while(Result::ok)` geçersiz UTF-8'de
+    /// okuyucuyu bitiriyor, sonraki tanıma çıktıları kayboluyordu (R2-05).
+    #[test]
+    fn gecersiz_utf8_satiri_sonraki_satirlari_kesmez() {
+        let input = Cursor::new(b"bir\n\xff\xfe\niki\n".to_vec());
+        let mut events = Vec::new();
+
+        forward_stdout(input, |line| events.push(line));
+
+        assert_eq!(events, vec!["bir", "\u{fffd}\u{fffd}", "iki"]);
     }
 
     #[test]

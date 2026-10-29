@@ -13,6 +13,7 @@
 //! Geliştirici Kipi bu kuralın TEK istisnasıdır ve yalnız `lib.rs`'te,
 //! açıkça istenmişse devreye girer.
 
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::time::{Duration, Instant};
@@ -73,6 +74,30 @@ pub(crate) fn validate_runtime_executable(path: &Path) -> Result<(), String> {
     }
 }
 
+/// Satır satır okur; geçersiz UTF-8 baytları `U+FFFD` ile değiştirilir ve okuma
+/// SÜRER. `BufRead::lines()` geçersiz UTF-8'de `Err` verip döngüyü bitiriyordu:
+/// tek bir bozuk bayt çekirdek çıktısını sonsuza dek susturuyordu (R2-05). Yalnız
+/// gerçek bir G/Ç hatasında ya da EOF'ta durur; satır sonu (`\n`, `\r\n`) atılır.
+pub(crate) fn satirlari_oku(okuyucu: impl Read, mut satir_isle: impl FnMut(String)) {
+    let mut okuyucu = BufReader::new(okuyucu);
+    let mut tampon = Vec::new();
+    loop {
+        tampon.clear();
+        match okuyucu.read_until(b'\n', &mut tampon) {
+            Ok(0) | Err(_) => return,
+            Ok(_) => {
+                if tampon.last() == Some(&b'\n') {
+                    tampon.pop();
+                    if tampon.last() == Some(&b'\r') {
+                        tampon.pop();
+                    }
+                }
+                satir_isle(String::from_utf8_lossy(&tampon).into_owned());
+            }
+        }
+    }
+}
+
 pub(crate) fn stop_child(mut child: Child) {
     let baslangic = Instant::now();
     loop {
@@ -125,6 +150,35 @@ mod testler {
             PathBuf::from("/Application Support/Fusion/runtime/0.3.0a1/fusion")
         );
         assert_eq!(launch.args, vec!["app"]);
+    }
+
+    /// Ölçüldü (30 Ekim): `lines()` 0xff baytında `Err` verip döngüyü bitiriyordu;
+    /// sonraki satırlar hiç iletilmiyordu (R2-05).
+    #[test]
+    fn gecersiz_utf8_sonraki_satirlari_susturmaz() {
+        let girdi: &[u8] = b"bir\n\xffbozuk\r\niki\nson";
+        let mut satirlar = Vec::new();
+        satirlari_oku(girdi, |satir| satirlar.push(satir));
+        assert_eq!(satirlar, vec!["bir", "\u{fffd}bozuk", "iki", "son"]);
+    }
+
+    #[test]
+    fn gercek_io_hatasinda_okuma_durur() {
+        struct Bozuk(u8);
+        impl Read for Bozuk {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                self.0 += 1;
+                if self.0 == 1 {
+                    buf[..3].copy_from_slice(b"a\nb");
+                    Ok(3)
+                } else {
+                    Err(std::io::Error::other("kesildi"))
+                }
+            }
+        }
+        let mut satirlar = Vec::new();
+        satirlari_oku(Bozuk(0), |satir| satirlar.push(satir));
+        assert_eq!(satirlar, vec!["a"]);
     }
 
     #[test]

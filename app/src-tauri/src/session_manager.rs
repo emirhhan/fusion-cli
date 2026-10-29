@@ -1,7 +1,7 @@
 use crate::core_process::{core_launch, stop_child, validate_runtime_executable};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -156,8 +156,7 @@ impl SessionManager {
         let sessions = Arc::clone(&self.sessions);
         let id = session_id.to_string();
         std::thread::spawn(move || {
-            for line in BufReader::new(output).lines() {
-                let Ok(line) = line else { break };
+            crate::core_process::satirlari_oku(output, |line| {
                 let _ = app.emit(
                     "oturum-satir",
                     SessionLine {
@@ -168,7 +167,7 @@ impl SessionManager {
                 if id == VARSAYILAN_OTURUM {
                     let _ = app.emit("cekirdek-satir", line);
                 }
-            }
+            });
 
             let is_current = {
                 let mut sessions = sessions.lock().unwrap();
