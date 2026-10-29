@@ -276,3 +276,62 @@ async def test_degisiklikler_git_degisimlerini_gosterir_ama_sahipsizi_geri_almaz
     assert new_undo["kod"] == "NOT_OWNED"
     assert (tmp_path / "tracked.txt").read_text(encoding="utf-8") == "sonra\n"
     assert (tmp_path / "new.txt").read_text(encoding="utf-8") == "yeni dosya\n"
+
+
+async def test_kesilen_ornekte_cok_baytli_karakter_metni_binary_yapmaz(tmp_path: Path):
+    """Sınırda bölünen UTF-8 karakter yüzünden Türkçe metin "binary" sayılmamalı (S2-02)."""
+    icerik = "ş" * 200  # her karakter 2 bayt; 201. bayt karakterin ortasına denk gelir
+    (tmp_path / "turkce.txt").write_text(icerik, encoding="utf-8")
+
+    sonuc = await _request(tmp_path, "proje.oku", {"yol": "turkce.txt", "max_bytes": 201})
+
+    assert sonuc["tur"] == "metin" and sonuc["kesildi"] is True
+    assert sonuc["icerik"] == "ş" * 100
+
+
+async def test_okuma_dosyayi_belleğe_almadan_boyutu_ve_ozeti_dogru_hesaplar(
+    tmp_path: Path, monkeypatch
+):
+    """Özet akışla hesaplanır; dosyanın tamamı `read_bytes` ile belleğe alınmaz (S2-02)."""
+    from fusion_cli.appserver import workspace
+
+    veri = b"a" * (3 * 1024 * 1024 + 7)
+    (tmp_path / "buyuk.log").write_bytes(veri)
+
+    def yasak(self):
+        raise AssertionError("read_bytes tüm dosyayı belleğe alır")
+
+    monkeypatch.setattr(workspace.Path, "read_bytes", yasak)
+    sonuc = workspace.read_entry(tmp_path, {"yol": "buyuk.log", "max_bytes": 1024})
+
+    assert sonuc["boyut"] == len(veri)
+    assert sonuc["sha256"] == hashlib.sha256(veri).hexdigest()
+    assert sonuc["kesildi"] is True and len(sonuc["icerik"]) == 1024
+
+
+async def test_degisiklikler_cok_dosyada_dosya_basina_git_diff_sayisini_sinirlar(
+    tmp_path: Path, monkeypatch
+):
+    """N+1 git diff olay döngüsünü saniyelerce tutmasın: ayrıntılı diff sayısı sınırlı (S2-03)."""
+    from types import SimpleNamespace
+
+    from fusion_cli.appserver import workspace
+
+    toplam = workspace.MAX_DETAILED_CHANGES + 50
+    cagrilar: list[tuple[str, ...]] = []
+
+    def sahte_git(_root, *args):
+        cagrilar.append(args)
+        if args[0] == "status":
+            kayitlar = b"".join(f" M dosya{i}.txt\0".encode() for i in range(toplam))
+            return SimpleNamespace(returncode=0, stdout=kayitlar)
+        return SimpleNamespace(returncode=0, stdout=b"@@ -1 +1 @@\n-a\n+b\n")
+
+    monkeypatch.setattr(workspace, "_git", sahte_git)
+    sonuc = workspace.list_changes(tmp_path, workspace.WorkspaceJournal())
+
+    assert len(sonuc["degisiklikler"]) == toplam  # liste eksiksiz
+    diff_cagrilari = [c for c in cagrilar if c[0] == "diff"]
+    assert len(diff_cagrilari) <= workspace.MAX_DETAILED_CHANGES
+    ayrintisiz = [d for d in sonuc["degisiklikler"] if not d["diff"]]
+    assert len(ayrintisiz) == 50

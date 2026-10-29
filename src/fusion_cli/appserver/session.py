@@ -861,7 +861,9 @@ class AppSession:
         if request.name == "proje.dosya_ara":
             return search_project_files(self._file_search, self._state.root, request.data)
         if request.name == "proje.oku":
-            return read_entry(self._state.root, request.data, self._workspace_journal)
+            return await await_owned_thread(
+                read_entry, self._state.root, request.data, self._workspace_journal
+            )
         if request.name == "proje.onizle":
             return preview_entry(self._state.root, request.data)
         if request.name == "web.onizleme_dogrula":
@@ -871,7 +873,8 @@ class AppSession:
         if request.name == "proje.yaz":
             return write_entry(self._state.root, request.data, self._workspace_journal)
         if request.name == "proje.degisiklikler":
-            return list_changes(self._state.root, self._workspace_journal)
+            # Senkron `git` çağrıları thread'de: olay döngüsünde koşarsa RPC ve onaylar donar.
+            return await await_owned_thread(list_changes, self._state.root, self._workspace_journal)
         if request.name == "proje.geri_al":
             return undo_entry(self._state.root, request.data, self._workspace_journal)
         if request.name == "surec.baslat":
@@ -885,7 +888,7 @@ class AppSession:
         if request.name == "proje.komut_onerileri":
             return suggested_commands(self._state.root)
         if request.name == "proje.git_durum":
-            return git_status(self._state.root)
+            return await await_owned_thread(git_status, self._state.root)
         if request.name == "yetenek.katalog":
             return catalog(
                 self._all_capabilities,

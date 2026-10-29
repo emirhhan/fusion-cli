@@ -2062,3 +2062,35 @@ async def test_close_bir_adim_hata_verse_de_kalan_kapanis_adimlari_calisir(tmp_p
         await oturum.close()
 
     assert cagrilan == ["surecler", "tarayicilar", "girisler", "uzak", "bekleyen"]
+
+
+async def test_git_ve_degisiklik_sorgulari_olay_dongusunu_bloklamaz(tmp_path, monkeypatch):
+    """Senkron `git` çağrıları thread'de koşmalı; yoksa RPC ve onaylar donar (S2-03)."""
+    import asyncio
+    import threading
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    birakma = threading.Event()
+
+    def yavas(*_args, **_kwargs):
+        birakma.wait(5)
+        return {"ok": True, "degisiklikler": [], "git": False}
+
+    monkeypatch.setattr("fusion_cli.appserver.session.list_changes", yavas)
+    monkeypatch.setattr("fusion_cli.appserver.session.git_status", yavas)
+    for sira, ad in enumerate(["proje.degisiklikler", "proje.git_durum"]):
+        birakma.clear()
+        gorev = asyncio.create_task(oturum.handle(Request(id=f"g{sira}", name=ad, data={})))
+        await asyncio.sleep(0.05)
+        assert not gorev.done()
+        dongu_canli = False
+
+        async def isaretle():
+            nonlocal dongu_canli
+            dongu_canli = True
+
+        await asyncio.wait_for(isaretle(), 1)
+        assert dongu_canli  # döngü, bekleyen git işi sürerken çalışabiliyor
+        birakma.set()
+        await asyncio.wait_for(gorev, 5)

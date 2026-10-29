@@ -8,6 +8,7 @@ kökünün dışına çıkamaz.
 from __future__ import annotations
 
 import base64
+import codecs
 import hashlib
 import os
 import subprocess
@@ -34,6 +35,12 @@ _MAX_LIMIT = 200
 _DEFAULT_MAX_BYTES = 256 * 1024
 _MAX_READ_BYTES = 2 * 1024 * 1024
 _MAX_PREVIEW_BYTES = 8 * 1024 * 1024
+#: Bu boyutun üstündeki dosyaların özeti hesaplanmaz (boş döner): yalnız örnek okunur.
+_MAX_DIGEST_BYTES = 256 * 1024 * 1024
+_DIGEST_CHUNK_BYTES = 1024 * 1024
+#: Tek `proje.degisiklikler` yanıtında ayrıntılı diff üretilen en çok dosya. Fazlası listede
+#: yer alır ama diff'siz; her dosya için git'i yeniden çalıştırmak olay döngüsünü tutardı.
+MAX_DETAILED_CHANGES = 100
 _OUTSIDE = "Proje klasörünün dışına çıkılamaz."
 
 
@@ -201,6 +208,26 @@ def _mime(path: Path, *, binary: bool) -> str:
     return "application/octet-stream" if binary else "text/plain"
 
 
+def _sample_and_digest(path: Path, max_bytes: int) -> tuple[bytes, str, int]:
+    """(örnek, sha256, boyut): dosyanın tamamı belleğe alınmadan, akışla.
+
+    `max_bytes` yalnız dilimleme içindir; 2 GB'lık bir günlük `read_bytes` ile belleğe
+    girerdi. `_MAX_DIGEST_BYTES` üstünde özet hesaplanmaz ("" döner).
+    """
+    size = path.stat().st_size
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        sample = handle.read(max_bytes)
+        if size > _MAX_DIGEST_BYTES:
+            return sample, "", size
+        hasher.update(sample)
+        total = len(sample)
+        while chunk := handle.read(_DIGEST_CHUNK_BYTES):
+            hasher.update(chunk)
+            total += len(chunk)
+    return sample, hasher.hexdigest(), total
+
+
 def read_entry(
     root: Path, data: dict[str, Any], journal: WorkspaceJournal | None = None
 ) -> dict[str, Any]:
@@ -220,19 +247,18 @@ def read_entry(
         maximum=_MAX_READ_BYTES,
     )
     try:
-        raw = path.read_bytes()
+        sample, digest, size = _sample_and_digest(path, max_bytes)
     except OSError:
         return _error("Dosya okunamadı.")
-    digest = hashlib.sha256(raw).hexdigest()
-    sample = raw[:max_bytes]
+    truncated = size > max_bytes
     binary = b"\x00" in sample
     text: str | None = None
     if not binary:
         try:
-            text = sample.decode("utf-8")
+            # Kesilmiş örnekte sondaki yarım çok baytlı karakter hata sayılmaz (final=False).
+            text = codecs.getincrementaldecoder("utf-8")().decode(sample, final=not truncated)
         except UnicodeDecodeError:
             binary = True
-    truncated = len(raw) > max_bytes
     if journal is not None and not truncated and not binary:
         journal.note_full_read(_relative(root, path), digest)
     return {
@@ -240,7 +266,7 @@ def read_entry(
         "yol": _relative(root, path),
         "tur": "binary" if binary else "metin",
         "mime": _mime(path, binary=binary),
-        "boyut": len(raw),
+        "boyut": size,
         "sha256": digest,
         "icerik": None if binary else text,
         "kesildi": truncated,
@@ -400,6 +426,7 @@ def _git_changes(root: Path, journal: WorkspaceJournal) -> list[dict[str, Any]] 
         return None
     records = [record for record in status.stdout.split(b"\0") if record]
     changes: list[dict[str, Any]] = []
+    detailed = 0
     index = 0
     while index < len(records):
         record = records[index]
@@ -411,16 +438,19 @@ def _git_changes(root: Path, journal: WorkspaceJournal) -> list[dict[str, Any]] 
         if flags[0] in {"R", "C"} and index + 1 < len(records):
             index += 1  # -z biçiminde yeniden adlandırmanın diğer yolu ayrı kayıttır.
         diff = ""
-        if flags == "??":
+        if detailed >= MAX_DETAILED_CHANGES:
+            pass  # sınır aşıldı: dosya listede kalır, diff'i için git/dosya okunmaz
+        elif flags == "??":
+            detailed += 1
             try:
                 target = _resolve_inside(root, path)
-                raw = target.read_bytes()
-                if len(raw) > _DEFAULT_MAX_BYTES:
-                    raw = raw[:_DEFAULT_MAX_BYTES]
+                with target.open("rb") as handle:
+                    raw = handle.read(_DEFAULT_MAX_BYTES)
                 diff, _added, _removed = text_diff(path, b"", raw)
             except (OSError, UnicodeDecodeError, WorkspacePathError):
                 diff = f"Binary veya okunamayan yeni dosya: {path}"
         else:
+            detailed += 1
             pieces: list[str] = []
             if flags[0] != " ":
                 staged = _git(root, "diff", "--cached", "--no-ext-diff", "--unified=3", "--", path)
