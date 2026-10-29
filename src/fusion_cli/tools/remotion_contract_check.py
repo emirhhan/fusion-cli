@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..core.remotion_contract import RegisteredKitContract
 from .remotion_bootstrap import BOOTSTRAP_ENTRY, check_bootstrap_shadow
-from .remotion_scaffold import check_kit_shadow
+from .remotion_scaffold import check_kit_shadow, is_editor_junk
 
 
 def project_root(root: Path, value: str) -> Path:
@@ -30,12 +30,30 @@ def check_packaged(root: Path, contract: RegisteredKitContract) -> None:
         check_bootstrap_shadow(root)
     if not contract.packaged_sources:
         raise ValueError("Host paket kit hash kaydı eksik.")
-    expected = {source.path for source in contract.packaged_sources} | {"src/kit/theme.ts"}
-    kit = project_root(root, "src/kit")
-    for path in kit.rglob("*"):
-        if path.is_file() and str(path.relative_to(root)) not in expected:
-            raise ValueError("Paket kitte gölgeleyici/tanımsız kaynak var.")
+    strays = stray_kit_files(root, contract)
+    if strays:
+        raise ValueError(
+            "Paket kitte gölgeleyici/tanımsız kaynak var: "
+            + ", ".join(str(path.relative_to(root)) for path in strays)
+        )
     for source in contract.packaged_sources:
         path = project_root(root, source.path)
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != source.digest:
-            raise ValueError("Paket kit kaynakları değişti/eksik; özgün kit gerekli.")
+            raise ValueError(
+                f"Paket kit kaynakları değişti/eksik; özgün kit gerekli: {source.path}"
+            )
+
+
+def stray_kit_files(root: Path, contract: RegisteredKitContract) -> tuple[Path, ...]:
+    """`src/kit` altında pakette olmayan dosyalar (editör artıkları sayılmaz)."""
+    expected = {source.path for source in contract.packaged_sources} | {"src/kit/theme.ts"}
+    kit = project_root(root, "src/kit")
+    return tuple(
+        sorted(
+            path
+            for path in kit.rglob("*")
+            if path.is_file()
+            and not is_editor_junk(path)
+            and str(path.relative_to(root)) not in expected
+        )
+    )

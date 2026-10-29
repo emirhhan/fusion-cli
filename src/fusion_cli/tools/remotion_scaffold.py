@@ -157,10 +157,26 @@ def _contract(
     )
 
 
+#: Nokta dosyası olsa bile modül çözümlemesine girebilen uzantılar.
+_CODE_SUFFIXES = frozenset({".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".css"})
+
+
+def is_editor_junk(path: Path) -> bool:
+    """`.DS_Store`, `._x`, `.swp` gibi editör/işletim sistemi artığı mı?
+
+    Ölçüldü (29 Ekim): macOS'un `src/kit` içine bıraktığı `.DS_Store` "tanımsız
+    kaynak" sayılıp bütün kabuğu kilitliyordu. Kod uzantılı nokta dosyası
+    (`.golge.ts`) ARTIK sayılmaz: içe aktarılabilir, gölgeleme olur.
+    """
+    return path.name.startswith(".") and path.suffix.casefold() not in _CODE_SUFFIXES
+
+
 def _preflight(target: Path, files: tuple[_KitFile, ...], payload: bytes) -> None:
     kit = target / "src/kit"
     expected = {file.name for file in files}
     for existing in kit.rglob("*"):
+        if is_editor_junk(existing):
+            continue
         if existing.is_file() and str(existing.relative_to(kit)) not in expected:
             raise ValueError("Paket kitte tanımsız dosya var; korunuyor, sözleşme kaydedilmez.")
     for file in files:
