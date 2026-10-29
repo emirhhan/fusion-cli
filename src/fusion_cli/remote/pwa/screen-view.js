@@ -3,7 +3,7 @@ import { createDock } from "./dock.js";
 import { createScreenStream } from "./screen-stream.js";
 
 const LABELS = {
-  idle: "Ekran paylaşılmıyor.", pending: "Ekran izleme başlatılıyor…", live: "Canlı",
+  idle: "Ekran paylaşılmıyor.", pending: "Masaüstünde onay bekleniyor…", live: "Canlı",
   paused: "Sayfa arka planda; duraklatıldı.", reconnecting: "Bağlantı koptu, yeniden deneniyor…",
   ended: "Oturum bitti. Yeniden başlatabilirsin.", stopped: "Ekran paylaşımı durduruldu; hatırlanan izin kaldırıldı.", auth: "Eşleşme geçersiz.",
 };
@@ -21,11 +21,11 @@ export function createScreenView({ rpc, onAuth, toast }) {
   const consent = h("section", { class: "screen-consent", hidden: true, "aria-label": "Ekran izleme izni" });
   const remember = h("input", { type: "checkbox" });
   remember.checked = true;
-  const confirm = h("button", { class: "btn", type: "button" }, "Onayla ve izlemeyi başlat");
+  const confirm = h("button", { class: "btn", type: "button" }, "Masaüstünden izin iste");
   const cancel = h("button", { class: "btn ghost", type: "button" }, "Vazgeç");
   consent.append(h("h3", {}, "Bilgisayar ekranını bu telefonda izle"),
-    h("p", { class: "muted small" }, "Ekrandaki içerikler bu eşleşmiş cihazda görünür. Durdur düğmesi izni de kaldırır."),
-    h("label", { class: "screen-consent__remember" }, remember, "Bu cihaz için izni hatırla"), confirm, cancel);
+    h("p", { class: "muted small" }, "İzin bilgisayarda verilir; ekrandaki içerikler bu eşleşmiş cihazda görünür. Durdur düğmesi izni de kaldırır."),
+    h("label", { class: "screen-consent__remember" }, remember, "Masaüstü onaylarsa bu cihazı 7 gün hatırla"), confirm, cancel);
   const dockRoot = h("div", {});
   stop.parentElement.after(consent, dockRoot);
   function clearFrame() { image.removeAttribute("src"); box.style.removeProperty("aspect-ratio"); box.classList.add("empty-screen"); }

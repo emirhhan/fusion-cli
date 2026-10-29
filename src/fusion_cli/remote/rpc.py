@@ -210,6 +210,16 @@ class RemoteService:
         return await self._create(device, request)
 
     @staticmethod
+    def _need_for_approval(device: Device, scope: str) -> RpcResult | None:
+        if allows(device.scopes, scope):
+            return None
+        return _fail(
+            "yetki_yok",
+            f"Bu onay için '{scope}' yetkisi gerekir; masaüstünden onaylayabilir ya da "
+            "telefonu bu yetkiyle yeniden eşleştirebilirsin.",
+        )
+
+    @staticmethod
     def _need(device: Device, scope: str) -> RpcResult | None:
         if allows(device.scopes, scope):
             return None
@@ -482,6 +492,10 @@ class RemoteService:
             or choice not in self._choices(question)
         ):
             return _fail("gecersiz_istek", "Sunulmayan onay seçeneği.")
+        if choice != "deny":
+            denied = self._need_for_approval(device, classify_question(question).required_scope)
+            if denied:
+                return denied
         token = self._confirmations.issue(
             device.device_id, run_id, question_id, str(choice), question
         )
@@ -507,6 +521,10 @@ class RemoteService:
             return None
         approval = classify_question(question)
         if device.channel == CHANNEL_SIGNED:
+            # İkinci teyit, işlemin gerektirdiği kapsamın eksikliğini KAPATMAZ (R1-01).
+            denied = self._need_for_approval(device, approval.required_scope)
+            if denied:
+                return denied
             if (approval.step_up or choice == "session") and not self._confirmations.consume(
                 params.get("confirmation"),
                 device.device_id,
@@ -578,15 +596,13 @@ class RemoteService:
         if params.get("remember") is True:
             self._remember_screen.add(device.device_id)
         state = self._screen_gate.request(device.device_id)
-        current = self._registry.active(device.device_id)
-        if state == "pending" and (
-            (current is not None and current.screen_trusted) or params.get("confirmed") is True
-        ):
-            self.approve_screen(device.device_id)
-            current = self._registry.active(device.device_id)
+        # Telefonun kendi "onayladım" beyanı (`confirmed`) yetki DEĞİLDİR: ekran yalnız
+        # masaüstü onayıyla ya da masaüstünde verilmiş süreli güvenle açılır (R1-02).
+        if state == "pending" and self._registry.has_screen_trust(device.device_id):
+            self._screen_gate.approve(device.device_id)
             state, _remaining = self._screen_gate.status(device.device_id)
         return RpcResult(
-            True, {"state": state, "remembered": bool(current and current.screen_trusted)}
+            True, {"state": state, "remembered": self._registry.has_screen_trust(device.device_id)}
         )
 
     async def _screen_status(self, device: Device, _params: dict[str, Any]) -> RpcResult:
@@ -594,13 +610,12 @@ class RemoteService:
         if denied:
             return denied
         state, remaining = self._screen_gate.status(device.device_id)
-        current = self._registry.active(device.device_id)
         return RpcResult(
             True,
             {
                 "state": state,
                 "secondsLeft": remaining,
-                "remembered": bool(current and current.screen_trusted),
+                "remembered": self._registry.has_screen_trust(device.device_id),
             },
         )
 

@@ -57,6 +57,8 @@ SCREEN_IDLE_TTL_SECONDS = 600
 SCREEN_MAX_SESSION_SECONDS = 7200
 #: Onaylanmamış isteğin bekleme süresi.
 SCREEN_REQUEST_TTL_SECONDS = 300
+#: Masaüstünde "hatırla" ile verilen ekran güveninin ömrü; dolunca yeniden masaüstü onayı.
+SCREEN_TRUST_SECONDS = 7 * 24 * 3600
 #: Kareler arası en az 0,5 sn, JPEG genişlik sınırı.
 SCREEN_MIN_FRAME_INTERVAL_SECONDS = 0.5
 SCREEN_MAX_WIDTH = 1280

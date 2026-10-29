@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ..core.atomic_file import atomic_replace_text
 from ..core.protocols import Clock
-from .constants import DEVICE_SECRET_BYTES
+from .constants import DEVICE_SECRET_BYTES, SCREEN_TRUST_SECONDS
 
 #: Bir cihazın bağlandığı kanal.
 CHANNEL_SIGNED = "signed"
@@ -37,6 +37,8 @@ class Device:
     #: Cihazın bağlı olduğu yerel hesap (tenant). Boş: hesapsız kurulum ya da hesap
     #: bağı olmadan eşleşmiş eski cihaz; o zaman `local` tenant'ındadır (WP02).
     account_id: str = ""
+    #: Ekran güveninin bittiği an (Unix saniyesi). Eski süresiz güven 0 okunur: geçersiz.
+    screen_trusted_until: float = 0.0
 
     @property
     def secret(self) -> bytes:
@@ -130,9 +132,22 @@ class DeviceRegistry:
             or "desktop.observe" not in device.scopes
         ):
             return False
-        self._devices = {**self._devices, device_id: replace(device, screen_trusted=trusted)}
+        until = self._clock.now() + SCREEN_TRUST_SECONDS if trusted else 0.0
+        self._devices = {
+            **self._devices,
+            device_id: replace(device, screen_trusted=trusted, screen_trusted_until=until),
+        }
         self._save()
         return True
+
+    def has_screen_trust(self, device_id: str) -> bool:
+        """Masaüstünde verilmiş ve süresi dolmamış ekran güveni var mı?"""
+        device = self.active(device_id)
+        return (
+            device is not None
+            and device.screen_trusted
+            and self._clock.now() < device.screen_trusted_until
+        )
 
     def list_devices(self) -> list[Device]:
         return sorted(self._devices.values(), key=lambda item: item.created_at)
@@ -158,6 +173,7 @@ class DeviceRegistry:
                     external_id=item.get("externalId", ""),
                     screen_trusted=item.get("screenTrusted") is True,
                     account_id=str(item.get("accountId", "")),
+                    screen_trusted_until=float(item.get("screenTrustedUntil", 0.0)),
                 )
             except (KeyError, TypeError, ValueError):
                 continue
@@ -178,6 +194,7 @@ class DeviceRegistry:
                     "externalId": d.external_id,
                     "screenTrusted": d.screen_trusted,
                     "accountId": d.account_id,
+                    "screenTrustedUntil": d.screen_trusted_until,
                 }
                 for d in self._devices.values()
             ]

@@ -306,6 +306,21 @@ async def main(port: int) -> None:
             )
             await send({"type": "http.response.body", "body": body})
             return
+        if scope["type"] == "http" and scope["path"] == "/__approve_screen":
+            # Masaüstündeki "izin ver" tıklamasının yerine: bekleyen ekran isteklerini onayla.
+            approved = [
+                device for device in service.screen_gate.pending() if service.approve_screen(device)
+            ]
+            body = json.dumps({"approved": approved}).encode()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"application/json")],
+                }
+            )
+            await send({"type": "http.response.body", "body": body})
+            return
         if scope["type"] == "http" and scope["path"] == "/__code":
             code, _ = pairing.begin(
                 ["project.read", "agent.run", "agent.cancel", "desktop.observe"]

@@ -107,8 +107,15 @@ async function run(width, height) {
   // 9) canlı ekran: izin ver, kare, oturum süresi dolunca yeniden bağlanma
   await page.locator('[data-tab="ekran"]').click();
   await page.locator("#ekranIste").click();
-  const confirm = page.getByText("Onayla ve izlemeyi başlat");
+  const confirm = page.getByText("Masaüstünden izin iste");
   if (await confirm.waitFor({ timeout: 4000 }).then(() => true, () => false)) await confirm.click();
+  // Telefonun kendi onayı ekranı açmaz; masaüstü onayı gelene kadar "bekleniyor" görünür.
+  await page.waitForFunction(() => /masaüstünde onay/i.test(document.getElementById("ekranDurum").textContent), null, { timeout: 8000 });
+  for (let i = 0; i < 20; i += 1) {
+    const { approved } = await (await fetch(`${base}/__approve_screen`)).json();
+    if (approved.length) break;
+    await page.waitForTimeout(250);
+  }
   await page.waitForFunction(() => document.getElementById("ekranKare").naturalWidth > 0, null, { timeout: 15000 });
   const ratio = await page.evaluate(() => { const r = document.getElementById("ekranKare").getBoundingClientRect(); return r.width / r.height; });
   assert.ok(Math.abs(ratio - 1.6) < 0.05, `en-boy oranı korunmalı (${ratio})`);
