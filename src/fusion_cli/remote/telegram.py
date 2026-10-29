@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Protocol
@@ -33,12 +34,19 @@ from .redaction import REDACTED, notification_summary, redact_text
 from .rpc import RemoteService, RpcResult
 from .tasks import TERMINAL_STATES, TaskRecord, TaskStore, device_context
 
+_LOG = logging.getLogger(__name__)
+#: Köprü hata sonrası yeniden yoklamadan önce bekler.
+RETRY_SECONDS = 3
+
 HELP_TEXT = (
     "Komutlar: /projects /tasks /status /kits /kit <ad> /pause /resume /cancel /audit /devices\n"
     "Düz mesaj yeni görev oluşturur. Riskli işlemler yalnız masaüstünde onaylanır.\n"
     "Bu sohbet uçtan uca şifreli değildir; parola/anahtar yazma."
 )
-SECRET_WARNING = "Mesajında sır gibi görünen bir içerik var; işlenmedi. Sırları sohbete yazma."
+SECRET_WARNING = (
+    "Mesajında sır gibi görünen bir içerik var (parola:/token= gibi bir kalıp); işlenmedi. "
+    "Sırları sohbete yazma; sır değilse o kalıbı çıkarıp yeniden yaz."
+)
 STEP_UP_NOTICE = "Onay gerekiyor. Bu işlem güvenlik için yalnız masaüstü Fusion'da onaylanır."
 
 
@@ -136,18 +144,33 @@ class TelegramBridge:
     async def run(
         self, stop: asyncio.Event, on_error: Callable[[str], Awaitable[None]] | None = None
     ) -> None:
-        """Dışarı bağlantıyla yokla; port açılmaz. Hata olursa kısa bekleyip sürer."""
+        """Dışarı bağlantıyla yokla; port açılmaz. Hata olursa kısa bekleyip sürer.
+
+        Yalnız `TelegramError` değil her istisna yakalanır: aksi halde beklenmeyen bir hata
+        köprü görevini sessizce bitirir (`telegramHata` boş, durum "bağlı değil") olurdu.
+        """
         while not stop.is_set():
             try:
-                await self.poll_once(TELEGRAM_POLL_TIMEOUT_SECONDS)
-            except TelegramError as error:
-                if on_error is not None:
-                    await on_error(str(error))
-                await asyncio.sleep(3)
+                await self.poll_once(TELEGRAM_POLL_TIMEOUT_SECONDS, on_error)
+            except Exception as error:  # köprü ayakta kalmalı; ayrıntı günlükte
+                await self._report(error, on_error)
+                await asyncio.sleep(RETRY_SECONDS)
 
-    async def poll_once(self, poll_seconds: int = 0) -> None:
+    @staticmethod
+    async def _report(error: Exception, on_error: Callable[[str], Awaitable[None]] | None) -> None:
+        _LOG.warning("Telegram köprüsü hatası: %s", error, exc_info=True)
+        if on_error is not None:
+            detail = str(error) if isinstance(error, TelegramError) else repr(error)
+            await on_error(redact_text(detail))
+
+    async def poll_once(
+        self, poll_seconds: int = 0, on_error: Callable[[str], Awaitable[None]] | None = None
+    ) -> None:
         for update in await self._api.get_updates(self._offset, poll_seconds):
-            await self.handle_update(update)
+            try:
+                await self.handle_update(update)
+            except Exception as error:  # zehirli güncelleme diğerlerini ve bildirimi engellemesin
+                await self._report(error, on_error)
         await self.notify()
 
     async def handle_update(self, update: dict[str, Any]) -> None:
@@ -155,7 +178,15 @@ class TelegramBridge:
         if not isinstance(update_id, int) or update_id < self._offset:
             return  # tekrar gelen güncelleme: ikinci kez çalıştırma
         self._offset = update_id + 1
-        self._offsets.save(self._offset)
+        try:
+            await self._process(update, update_id)
+        finally:
+            # İşlendikten SONRA kalıcı: süreç ortada ölürse güncelleme yeniden gelir
+            # (görev anahtarı `tg:<update_id>` olduğundan çift görev açılmaz). Hata
+            # fırlatan güncelleme de atlanır; yoksa her yoklamada aynı hataya takılırdı.
+            self._offsets.save(self._offset)
+
+    async def _process(self, update: dict[str, Any], update_id: int) -> None:
         message = update.get("message")
         if not isinstance(message, dict):
             return
@@ -163,8 +194,10 @@ class TelegramBridge:
         text = message.get("text")
         if chat.get("type") != "private" or not isinstance(text, str) or "id" not in sender:
             return  # grup/kanal/medya: yok sayılır
+        if not isinstance(chat.get("id"), int):
+            return  # bozuk güncelleme: yanıtlanacak sohbet yok
         user_id = str(sender["id"])
-        chat_id = int(chat["id"])
+        chat_id = chat["id"]
         device = self._registry.find_external(CHANNEL_TELEGRAM, user_id)
         if device is None:
             await self._pair(chat_id, user_id, sender, text)
@@ -304,16 +337,24 @@ class TelegramBridge:
         if seen is None:
             seen = task.last_seq if task.created_at < self._started_at else 0
         for event in self._store.events_after(context, task.run_id, seen):
+            text = self._notice_for(task, event.kind)
+            if text is not None:
+                # İmleç gönderimden SONRA ilerler: gönderim düşerse olay yeniden denenir.
+                await self._reply(chat_id, text)
             self._notified[task.run_id] = event.seq
-            if event.kind == "approval_request":
-                await self._reply(chat_id, STEP_UP_NOTICE)
-            elif task.state in TERMINAL_STATES and event.kind in {
-                "done",
-                "failed",
-                "cancelled",
-                "needs_reconciliation",
-            }:
-                await self._reply(chat_id, notification_summary(f"{task.run_id}: {event.kind}"))
+
+    @staticmethod
+    def _notice_for(task: TaskRecord, kind: str) -> str | None:
+        if kind == "approval_request":
+            return STEP_UP_NOTICE
+        if task.state in TERMINAL_STATES and kind in {
+            "done",
+            "failed",
+            "cancelled",
+            "needs_reconciliation",
+        }:
+            return notification_summary(f"{task.run_id}: {kind}")
+        return None
 
     async def _reply(self, chat_id: int, text: str) -> None:
         await self._api.send_message(chat_id, text[: NOTIFICATION_SUMMARY_LIMIT * 4])

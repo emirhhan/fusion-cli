@@ -192,3 +192,102 @@ async def test_yeniden_baslatmada_eski_bildirimler_tekrar_gonderilmez(harness: H
 
     assert len(harness.api.sent) == gonderilen
     harness.backend.release.set()
+
+
+class _Kopuk(FakeApi):
+    """`get_updates` sırayla verilen yanıtları/istisnaları üretir."""
+
+    def __init__(self, steps: list[Any], stop: asyncio.Event) -> None:
+        super().__init__()
+        self.steps = steps
+        self.stop = stop
+
+    async def get_updates(self, offset: int, poll_seconds: int) -> list[dict[str, Any]]:
+        if not self.steps:
+            self.stop.set()
+            return []
+        step = self.steps.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+
+async def test_run_telegram_disi_istisnada_kopmaz_hatayi_bildirir(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fusion_cli.remote import telegram as telegram_module
+
+    monkeypatch.setattr(telegram_module, "RETRY_SECONDS", 0)
+    stop = asyncio.Event()
+    harness.bridge._api = _Kopuk([KeyError("id"), []], stop)  # type: ignore[assignment]
+    errors: list[str] = []
+
+    async def on_error(message: str) -> None:
+        errors.append(message)
+
+    await asyncio.wait_for(harness.bridge.run(stop, on_error), 5)
+    assert errors and "KeyError" in errors[0]
+
+
+async def test_ofset_isleme_bittikten_sonra_kaydedilir_zehirli_guncelleme_atlanir(
+    harness: Harness, tmp_path: Path
+) -> None:
+    await harness.pair_user()
+    seen: list[int] = []
+
+    async def bozuk(_device: Any, _text: str, _update_id: int) -> str:
+        seen.append(OffsetStore(tmp_path / "offset.json").load())
+        raise KeyError("beklenmeyen")
+
+    harness.bridge._dispatch = bozuk  # type: ignore[method-assign]
+    errors: list[str] = []
+
+    async def on_error(message: str) -> None:
+        errors.append(message)
+
+    class Tek(FakeApi):
+        async def get_updates(self, offset: int, poll_seconds: int) -> list[dict[str, Any]]:
+            return [update(30, "merhaba")] if offset <= 30 else []
+
+    harness.bridge._api = Tek()  # type: ignore[assignment]
+    await harness.bridge.poll_once(0, on_error)
+    assert seen == [2]  # işleme sırasında kalıcı ofset henüz 30'u içermiyor
+    assert OffsetStore(tmp_path / "offset.json").load() == 31  # zehirli güncelleme atlandı
+    assert errors and "KeyError" in errors[0]
+
+
+async def test_bildirim_gonderimi_basarisizsa_olay_kaybolmaz(harness: Harness) -> None:
+    from fusion_cli.remote.telegram import TelegramError
+
+    harness.backend.ask = {"tur": "onay", "arac": "desktop_click", "baslik": "Tıkla", "hedef": "x"}
+    await harness.pair_user(["project.read", "agent.run"])
+    await harness.bridge.handle_update(update(7, "iş yap"))
+    await asyncio.sleep(0.05)
+    gonderilen = len(harness.api.sent)
+    gercek = harness.api.send_message
+    kalan = {"hata": 1}
+
+    async def kirilgan(chat_id: int, text: str) -> None:
+        if kalan["hata"]:
+            kalan["hata"] -= 1
+            raise TelegramError("ağ")
+        await gercek(chat_id, text)
+
+    harness.api.send_message = kirilgan  # type: ignore[method-assign]
+    with pytest.raises(TelegramError):
+        await harness.bridge.notify()
+    await harness.bridge.notify()  # ikinci deneme aynı olayı yeniden gönderir
+    assert len(harness.api.sent) > gonderilen
+    assert any("masaüstü" in text for _, text in harness.api.sent[gonderilen:])
+    harness.backend.release.set()
+
+
+async def test_parola_kelimesi_gecen_meşru_mesaj_islenir_gercek_sir_reddedilir(
+    harness: Harness,
+) -> None:
+    await harness.pair_user()
+    await harness.bridge.handle_update(update(40, "token ekle: foo"))
+    assert len(harness.store.list_tasks(_yerel_sahip())) == 1
+    await harness.bridge.handle_update(update(41, "password: hunter2"))
+    assert harness.api.deleted == [(42, 41)]  # düz anahtar=değer kalıbı sır sayılır
+    assert len(harness.store.list_tasks(_yerel_sahip())) == 1
