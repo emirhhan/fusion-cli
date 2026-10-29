@@ -9,6 +9,7 @@ açılışta vadesi geçmiş görev bir kez, gecikmeli olarak verilir.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -50,7 +51,8 @@ def schedules_path() -> Path:
     return user_data_dir() / "zamanlananlar.json"
 
 
-def _load(path: Path) -> list[dict[str, Any]]:
+def _read_records(path: Path) -> list[Any]:
+    """Dosyayı oku; dosya düzeyi bozulma (okunamaz, JSON değil, liste değil) hata verir."""
     try:
         content = path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -61,13 +63,40 @@ def _load(path: Path) -> list[dict[str, Any]]:
         raw = json.loads(content)
     except ValueError as error:
         raise ScheduleError("Zamanlama deposu bozuk; mevcut teslimler korunuyor.") from error
-    if not isinstance(raw, list) or not all(isinstance(item, dict) for item in raw):
+    if not isinstance(raw, list):
         raise ScheduleError("Zamanlama deposu liste/kayıt sözleşmesine uymuyor.")
+    return raw
+
+
+def _record_problem(item: object) -> str | None:
+    """Kaydın neden geçersiz olduğu; geçerliyse None."""
+    if not isinstance(item, dict):
+        return "Zamanlama deposu liste/kayıt sözleşmesine uymuyor."
+    try:
+        validate_deliveries(item)
+    except ValueError as error:
+        return str(error)
+    return None
+
+
+def _split_records(path: Path) -> tuple[list[dict[str, Any]], list[Any]]:
+    raw = _read_records(path)
+    good = [item for item in raw if _record_problem(item) is None]
+    return good, [item for item in raw if _record_problem(item) is not None]
+
+
+def _load(path: Path) -> list[dict[str, Any]]:
+    """Tüm kayıtlar geçerliyse döner; biri bozuksa HİÇBİR yazma yapılmaz.
+
+    Bozuk kayıt teslim bilgisi taşıyabilir; sessizce atlayıp depoyu yeniden yazmak onu
+    kalıcı olarak silerdi (bkz. `test_schedule_delivery`). Çıkış yolu `quarantine_invalid`:
+    kullanıcının açık eylemiyle bozuk kayıtlar yedeklenip ayrılır.
+    """
+    raw = _read_records(path)
     for item in raw:
-        try:
-            validate_deliveries(item)
-        except ValueError as error:
-            raise ScheduleError(str(error)) from error
+        problem = _record_problem(item)
+        if problem is not None:
+            raise ScheduleError(f"{problem} Bozuk kaydı ayırmak için 'bozuk kayıtları ayır' de.")
     return raw
 
 
@@ -176,9 +205,35 @@ def _validated(data: dict[str, Any], now: datetime) -> dict[str, Any]:
 
 @_storage_errors
 def list_schedules(path: Path | None = None) -> dict[str, Any]:
-    items = _load(path or schedules_path())
+    """Geçerli görevleri listeler; bozuk kayıt varsa sayısını da bildirir (yazma yapılmaz)."""
+    items, bad = _split_records(path or schedules_path())
     items.sort(key=lambda item: (item.get("sonraki") is None, item.get("sonraki") or 0))
-    return {"ok": True, "gorevler": items}
+    result: dict[str, Any] = {"ok": True, "gorevler": items}
+    if bad:
+        result["bozuk_kayit"] = len(bad)
+        result["metin"] = f"{len(bad)} bozuk kayıt var; çalışmaları durduruldu. Ayırmak gerekir."
+    return result
+
+
+@_storage_errors
+def quarantine_invalid(path: Path | None = None) -> dict[str, Any]:
+    """Bozuk kayıtları `<dosya>.bad-<özet>` yedeğine al, depoyu geçerli kayıtlarla yaz.
+
+    Yalnız kullanıcının açık eylemiyle çalışır. Önce yedek yazılır; yedek yazılamazsa
+    depoya dokunulmaz, yani kayıt hiçbir koşulda yedeksiz silinmez.
+    """
+    target = path or schedules_path()
+    with store_lock(target):
+        good, bad = _split_records(target)
+        if not bad:
+            return {"ok": True, "ayrilan": 0}
+        payload = json.dumps(bad, ensure_ascii=False, indent=1)
+        digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+        backup = target.with_name(f"{target.name}.bad-{digest}")
+        if not backup.exists():
+            backup.write_text(payload, encoding="utf-8")
+        _store(target, good)
+        return {"ok": True, "ayrilan": len(bad), "yedek": backup.name}
 
 
 @_storage_errors
@@ -344,6 +399,7 @@ def ack_pending_delivery(data: dict[str, Any]) -> dict[str, object]:
 #: İstek adı → işleyici. `session.py` yalnız bu tabloya bakar.
 SCHEDULE_ROUTES: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "zamanlama.liste": lambda _data: list_schedules(),
+    "zamanlama.bozuklari_ayir": lambda _data: quarantine_invalid(),
     "zamanlama.kaydet": save_schedule,
     "zamanlama.sil": delete_schedule,
     "zamanlama.etkin": set_enabled,

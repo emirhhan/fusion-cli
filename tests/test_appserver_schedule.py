@@ -165,3 +165,69 @@ def test_bozuk_depo_hata_verir_ve_gorev_siniri_uygulanir(tmp_path, monkeypatch):
     monkeypatch.setattr(schedule, "MAX_SCHEDULES", 1)
     assert _new(tmp_path, tur="gunluk", saat="11:00")["ok"] is True
     assert "En çok" in _new(tmp_path, tur="gunluk", saat="12:00")["metin"]
+
+
+def _bozuk_kayitli_depo(tmp_path):
+    """Biri geçerli, biri bozuk `teslimler` taşıyan iki kayıt (S2-12)."""
+    import json
+
+    iyi = _new(tmp_path, tur="gunluk", saat="09:00")["gorev"]
+    path = tmp_path / "z.json"
+    kayitlar = json.loads(path.read_text(encoding="utf-8"))
+    bozuk = {**kayitlar[0], "id": "bozuk-1", "teslimler": "liste-degil"}
+    path.write_text(json.dumps([*kayitlar, bozuk, "kayit-degil"]), encoding="utf-8")
+    return path, iyi
+
+
+def test_tek_bozuk_kayit_listeyi_bos_gostermez_ve_yazmalari_engeller(tmp_path):
+    path, iyi = _bozuk_kayitli_depo(tmp_path)
+    onceki = path.read_bytes()
+
+    listed = schedule.list_schedules(path)
+
+    assert listed["ok"] is True and listed["bozuk_kayit"] == 2
+    assert [item["id"] for item in listed["gorevler"]] == [iyi["id"]]
+    # Bilinçli sözleşme (test_schedule_delivery): bozuk kayıt varken hiçbir yazma yapılmaz.
+    assert schedule.claim_due(path, NOW)["ok"] is False
+    assert path.read_bytes() == onceki
+
+
+def test_bozuk_kayitlar_acik_eylemle_yedeklenip_ayrilir_sonra_gorevler_calisir(tmp_path):
+    import json
+
+    path, iyi = _bozuk_kayitli_depo(tmp_path)
+
+    sonuc = schedule.quarantine_invalid(path)
+
+    assert sonuc["ok"] is True and sonuc["ayrilan"] == 2
+    yedek = tmp_path / sonuc["yedek"]
+    yedeklenen = json.loads(yedek.read_text(encoding="utf-8"))
+    assert yedeklenen[0]["id"] == "bozuk-1" and "kayit-degil" in yedeklenen
+    assert [item["id"] for item in json.loads(path.read_text(encoding="utf-8"))] == [iyi["id"]]
+    due = schedule.claim_due(path, datetime.fromtimestamp(iyi["sonraki"] + 60, tz=TZ))
+    assert due["ok"] is True and len(due["gorevler"]) == 1
+    # Tekrar ayırmak yeni yedek üretmez.
+    assert schedule.quarantine_invalid(path) == {"ok": True, "ayrilan": 0}
+    assert len(list(tmp_path.glob("z.json.bad-*"))) == 1
+
+
+def test_yedek_yazilamazsa_depoya_dokunulmaz(tmp_path, monkeypatch):
+    path, _iyi = _bozuk_kayitli_depo(tmp_path)
+    onceki = path.read_bytes()
+    from pathlib import Path
+
+    gercek = Path.write_text
+
+    def reddet(self, *args, **kwargs):
+        if ".bad-" in self.name:
+            raise PermissionError("yedek yazılamıyor")
+        return gercek(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", reddet)
+
+    assert schedule.quarantine_invalid(path)["ok"] is False
+    assert path.read_bytes() == onceki
+
+
+def test_bozuk_ayirma_rotasi_kayitlidir():
+    assert "zamanlama.bozuklari_ayir" in schedule.SCHEDULE_ROUTES
