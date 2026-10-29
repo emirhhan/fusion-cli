@@ -13,6 +13,7 @@ const remotion = {
   useCurrentFrame: () => frame,
   useVideoConfig: () => ({width: 1920, height: 1080, fps: 30, durationInFrames: 120}),
   spring: () => 1,
+  useDelayRender: () => ({delayRender: () => 1, continueRender: () => {}, cancelRender: (error) => {throw error;}}),
   interpolate: (v, [a,b], [c,d]) => c + Math.max(0, Math.min(1, (v-a)/(b-a))) * (d-c),
   AbsoluteFill: ({children, style}) => React.createElement('div', {style: {position: 'absolute', inset: 0, display: 'flex', ...style}}, children),
 };
@@ -79,7 +80,8 @@ if (process.argv[3] === 'feature') {
       globalThis.__fusionTestFrame = ['oversize','longword','near-entrance'].includes(mode) ? 0 : 60;
       if(mode.startsWith('near-')) {globalThis.__fusionTestSpring=mode==='near-entrance'?0:1; const style=document.createElement('style');style.textContent='[data-fusion-feature-body]{height:385px}';document.head.appendChild(style);}
       if(mode==='font-delayed') Object.defineProperty(document.fonts,'ready',{value:new Promise(resolve=>{globalThis.__releaseFonts=resolve;})});
-      const cards = mode==='too-many' ? Array.from({length:4},(_,i)=>({title:'Kart '+i,body:'Açıklama'})) : [
+      const trLong = mode==='tr-long-words';
+      const cards = trLong ? [{title:'Sürdürülebilirlik',body:'Kullanılabilirlik hedefi'},{title:'Karşılaştırılabilirlik',body:'Net ölçüm'},{title:'Erişilebilirlik',body:'Somut sonuç'}] : mode==='too-many' ? Array.from({length:4},(_,i)=>({title:'Kart '+i,body:'Açıklama'})) : [
         {title:'Hız',body:mode==='oversize'?'Uzun açıklama '.repeat(90):mode==='longword'?'W'.repeat(400):'Kısa açıklama'},
         {title:'Güven',body:'Net ölçüm'}, {title:'Akış',body:'Somut sonuç'}];
       createRoot(document.getElementById('root')).render(React.createElement(FeatureScene,{title:'Fusion özellikleri',subtitle:'Birlikte çalışan üç yetenek',cards}));`, resolveDir: path.join(root,'app'), loader:'tsx'},

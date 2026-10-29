@@ -65,7 +65,7 @@ const brokenWords = (root: HTMLElement): LayoutFinding[] => {
         range.setEnd(node, (match.index ?? 0) + match[0].length);
         const lines = new Set(Array.from(range.getClientRects()).filter(rect => rect.width > 0).map(rect => Math.round(rect.top)));
         if (lines.size > 1) {
-          findings.push({family: "wordbreak", message: `${element.dataset.fusionContent ?? "İçerik"}: "${match[0]}" kelimesi satır sonunda ortadan bölünüyor; metni kısalt, kutuyu genişlet ya da yazıyı küçült.`});
+          findings.push({family: "wordbreak", message: `${element.dataset.fusionContent ?? "İçerik"}: "${match[0]}" kelimesi satır sonunda ortadan bölünüyor; metni kısalt, kutuyu genişlet ya da içeriği sahnelere böl; yazıyı küçültme.`});
           break;
         }
       }

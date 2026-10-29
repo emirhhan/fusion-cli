@@ -1,6 +1,25 @@
-import React from "react";
-import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
+import React, { useLayoutEffect, useRef, useState } from "react";
+import { interpolate, spring, useCurrentFrame, useDelayRender, useVideoConfig } from "remotion";
 import { theme } from "./theme";
+
+// Kart başlığı 52 px'tir; en uzun sözcük sığmıyorsa 2 px adımla 44 px'e (destek metni
+// tabanı) kadar küçülür. Ölçüldü (30 Ekim): uzun Türkçe sözcük ("Kullanılabilirlik")
+// 3 sütunda ortadan bölünüyor, LayoutAudit bunu kusur sayıp render'ı durduruyordu.
+// 44 px'te de sığmayan sözcük bölünür ve denetim metni kısaltmayı ister.
+const TITLE_FONT = 52;
+const TITLE_FONT_MIN = 44;
+const fitTitle = (node: HTMLElement): number => {
+  const {overflowWrap, fontSize} = node.style;
+  node.style.overflowWrap = "normal";
+  let size = TITLE_FONT;
+  for (; size > TITLE_FONT_MIN; size -= 2) {
+    node.style.fontSize = `${size}px`;
+    if (node.scrollWidth <= node.clientWidth) break;
+  }
+  node.style.overflowWrap = overflowWrap;
+  node.style.fontSize = fontSize;
+  return size;
+};
 
 // 3B açıyla dönerek gelen cam kart. index ile sırayla gelir; ışık kenarı süzülür.
 export const FeatureCard: React.FC<{ title: string; body?: string; icon?: string; index?: number; delay?: number; width?: number; bodyFontSize?: number; wrapText?: boolean }> = ({
@@ -8,6 +27,19 @@ export const FeatureCard: React.FC<{ title: string; body?: string; icon?: string
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const titleNode = useRef<HTMLDivElement>(null);
+  const [titleFont, setTitleFont] = useState(TITLE_FONT);
+  const { delayRender, continueRender } = useDelayRender();
+  useLayoutEffect(() => {
+    if (!wrapText) return;
+    const handle = delayRender("Kart başlığı sığdırılıyor");
+    let active = true;
+    const apply = () => { if (active && titleNode.current) setTitleFont(fitTitle(titleNode.current)); };
+    apply();
+    // Son font metrikleri gelince yeniden ölç; karar yarım kalmış fontla verilmesin.
+    document.fonts.ready.then(() => { apply(); continueRender(handle); });
+    return () => { active = false; continueRender(handle); };
+  }, [title, width, wrapText, delayRender, continueRender]);
   const s = spring({ frame: frame - delay - index * 6, fps, config: { damping: 15, mass: 0.7 } });
   const shine = interpolate((frame - index * 6) % 120, [0, 120], [-100, 200]);
   return (
@@ -21,7 +53,7 @@ export const FeatureCard: React.FC<{ title: string; body?: string; icon?: string
       }}>
         <div style={{ position: "absolute", inset: 0, background: `linear-gradient(110deg, transparent ${shine - 20}%, rgba(255,255,255,0.12) ${shine}%, transparent ${shine + 20}%)` }} />
         {icon && <div style={{ fontSize: 64, marginBottom: 18 }}>{icon}</div>}
-        <div style={{ fontSize: 52, fontWeight: 750, letterSpacing: -1 }}>{title}</div>
+        <div ref={titleNode} data-fusion-card-title style={{ fontSize: titleFont, fontWeight: 750, letterSpacing: -1 }}>{title}</div>
         {body && <div data-fusion-feature-body style={{ fontSize: bodyFontSize, color: theme.muted, marginTop: 14, lineHeight: 1.3 }}>{inlineCode(body)}</div>}
       </div>
     </div>

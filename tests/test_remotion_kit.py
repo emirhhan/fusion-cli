@@ -339,3 +339,48 @@ def test_logo_timeline_ilk_orta_son_kare_okunur_bagimsiz_giris_korunur():
         assert logo
         expected_scale = "1" if record["timeline"] or record["frame"] > 0 else "0"
         assert logo.group(1) == expected_scale
+
+
+async def test_uzun_turkce_sozcuk_kart_basliginda_bolunmez_ve_kapi_gecer():
+    """Z1-23: kartın `break-word` politikası ile LayoutAudit.brokenWords çelişiyordu.
+
+    Ölçüldü (30 Ekim): 3 sütunda 52 px kart başlığında "Kullanılabilirlik" satır
+    sonunda ortadan bölünüyor, `brokenWords` bunu kusur sayıp render'ı
+    `cancelRender` ile durduruyordu; SKILL ise yazı küçültmeyi yasakladığından
+    model metni kısaltma döngüsüne giriyordu. Kart başlığı artık destek metni
+    tabanına (44 px) kadar sığdırılır; yazı bölünmez, kapı geçer.
+    """
+    browser_api = pytest.importorskip("playwright.async_api")
+    html = await asyncio.to_thread(_run, "feature")
+    async with browser_api.async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        try:
+            page = await browser.new_page(viewport={"width": 1920, "height": 1080})
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            await page.route(
+                "http://feature.test/**",
+                lambda route: route.fulfill(body=html, content_type="text/html"),
+            )
+            await page.goto("http://feature.test/?mode=tr-long-words")
+            await page.wait_for_function(
+                "document.querySelector('[data-fusion-feature-ready]')", timeout=5000
+            )
+            await page.wait_for_timeout(300)
+            assert errors == []
+            sonuc = await page.evaluate(
+                """() => Array.from(document.querySelectorAll('[data-fusion-card-title]')).map(
+                  node => {
+                    const range = document.createRange();
+                    range.selectNodeContents(node);
+                    const satirlar = new Set(
+                      Array.from(range.getClientRects()).map(rect => Math.round(rect.top)));
+                    const boyut = parseFloat(getComputedStyle(node).fontSize);
+                    return {satir: satirlar.size, boyut};
+                  })"""
+            )
+            assert len(sonuc) == 3
+            assert all(item["satir"] == 1 for item in sonuc), sonuc
+            assert all(item["boyut"] >= 44 for item in sonuc), sonuc
+        finally:
+            await browser.close()
