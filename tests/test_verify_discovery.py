@@ -353,3 +353,15 @@ def test_dizin_degistiren_onekle_calisan_komut_davranis_kaniti_sayilir():
     assert is_behavioral_command("FOO=1 pytest -q") is True
     assert is_behavioral_command("cd /Users/x/w-api-S3 && cargo build") is False
     assert is_behavioral_command("cd /Users/x/w-api-S3 && pytest -q || true") is False
+
+
+def test_stderr_yonlendirmesi_davranis_kanitini_bozmaz():
+    """Ölçüldü (29 Ekim): `pytest -q 2>&1` içindeki `&` arka plan işleci sanılıp
+    kanıt reddediliyordu (A4-04). Gerçek arka plan/boru maskelemesi hâlâ reddedilir."""
+    assert is_behavioral_command("pytest -q 2>&1")
+    assert is_behavioral_command("pytest -q >&2")
+    assert is_behavioral_command("pytest -q &> /dev/null")
+    assert is_behavioral_command("cd proje && npm test 2>&1")
+    assert not is_behavioral_command("pytest -q 2>&1 | tail")
+    assert not is_behavioral_command("pytest -q 2>&1 &")
+    assert not is_behavioral_command("pytest -q &")

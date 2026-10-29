@@ -196,6 +196,20 @@ _ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _SETUP_PREFIX_COMMANDS = frozenset({"cd", "source", "."})
 
 
+#: Dosya tanıtıcı yönlendirmeleri: `2>&1`, `>&2`, `2>&-`, `&>dosya`, `&>>dosya`.
+#:
+#: `&` burada bir ARKA PLAN işleci değildir. Ölçüldü (29 Ekim): `pytest -q 2>&1`
+#: shlex'te `['pytest','-q','2>','&','1']` çıkar; `&` maskeleme işleci sanılıp
+#: komut davranış kanıtı SAYILMIYORDU (A4-04). Gerçek arka plan `cmd &` ve boru
+#: korunur: yalnız bu yönlendirme kalıpları silinir.
+_FD_REDIRECT = re.compile(r"(?<![\w&])\d*>&(?:\d+|-)(?![\w])|(?<![\w&])&>>?[ \t]*[^\s;&|]+")
+
+
+def strip_fd_redirects(command: str) -> str:
+    """`2>&1` / `&>dosya` gibi yönlendirmeleri sil; `&` arka plan işleci olarak kalır."""
+    return _FD_REDIRECT.sub(" ", command)
+
+
 def _strip_setup_prefix(tokens: tuple[str, ...]) -> tuple[str, ...]:
     """Zincirin başındaki zararsız kurulum önekini (cd/source/ortam değişkeni) at.
 
@@ -236,7 +250,7 @@ def is_behavioral_command(command: str) -> bool:
         # `punctuation_chars` ile `;`/`&`/`|` bitişik oldukları kelimeden (`S3;`
         # gibi) ayrı token olarak çıkar; düz `shlex.split` bunları harf gibi
         # yutar ve `cd yol;` önekini asla `;` token'ına dönüştürmezdi.
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+        lexer = shlex.shlex(strip_fd_redirects(command), posix=True, punctuation_chars=";&|")
         lexer.whitespace_split = True
         tokens = list(lexer)
     except ValueError:
