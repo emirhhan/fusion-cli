@@ -1,6 +1,9 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { Approval } from "./Approval";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Approval, KARAR_KORUMA_MS } from "./Approval";
+
+/** Kart açıldıktan sonra kullanıcının bilinçli tuşuna izin veren koruma süresini geçirir. */
+const korumaGec = () => vi.advanceTimersByTime(KARAR_KORUMA_MS + 1);
 
 const temel = {
   tur: "onay" as const,
@@ -16,7 +19,8 @@ const temel = {
   ],
 };
 
-afterEach(cleanup);
+beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); });
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("Approval — izin kartı", () => {
   it("insan dilinde başlığı ve hedefi olduğu gibi gösterir; ham argüman ayrıntıda kalır", () => {
@@ -43,6 +47,7 @@ describe("Approval — izin kartı", () => {
     fireEvent.click(screen.getByRole("button", { name: /Hayır/ }));
     expect(onCevap).toHaveBeenLastCalledWith({ secim: "deny" });
     view.rerender(<Approval soru={{ ...temel }} onCevap={onCevap} />);
+    korumaGec();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "2" });
     expect(onCevap).toHaveBeenLastCalledWith({ secim: "session" });
   });
@@ -115,5 +120,66 @@ describe("Approval — soru kartı (ask_user)", () => {
     expect(document.activeElement).toBe(screen.getByLabelText("Cevabın"));
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(onCevap).toHaveBeenCalledWith({ metin: "" });
+  });
+});
+
+describe("Approval — yazarken beliren kart (WP16 madde 2)", () => {
+  // Ölçüldü (29 Ekim): kart bağlanınca odağı kendine alır; kullanıcı composer'a
+  // yazarken (ör. "12" ya da basılı tutulan tuş) sonraki rakam tuşu ilk seçeneği
+  // (çoğu zaman "Evet") onay/geri alma olmadan seçiyordu.
+  it("kart yeni açıldıysa rakam tuşu karar vermez; koruma süresinden sonra verir", () => {
+    const onCevap = vi.fn();
+    render(<Approval soru={temel} onCevap={onCevap} />);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "1" });
+    expect(onCevap).not.toHaveBeenCalled();
+    korumaGec();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "1" });
+    expect(onCevap).toHaveBeenCalledWith({ secim: "once" });
+  });
+
+  it("basılı tutulan tuş (repeat) koruma bitse bile karar vermez", () => {
+    const onCevap = vi.fn();
+    render(<Approval soru={temel} onCevap={onCevap} />);
+    korumaGec();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "1", repeat: true });
+    expect(onCevap).not.toHaveBeenCalled();
+  });
+
+  it("odaktaki karta Enter basmak tek başına karar vermez", () => {
+    const onCevap = vi.fn();
+    render(<Approval soru={temel} onCevap={onCevap} />);
+    korumaGec();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Enter" });
+    expect(onCevap).not.toHaveBeenCalled();
+  });
+
+  it("tehlikeli işlemde de aynı koruma geçerlidir ve Esc reddi seçmeye devam eder", () => {
+    const onCevap = vi.fn();
+    render(<Approval soru={{ ...temel, tehlike: "dosya siler" }} onCevap={onCevap} />);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "1" });
+    expect(onCevap).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(onCevap).toHaveBeenCalledWith({ secim: "deny" });
+  });
+
+  it("kendiliğinden açılan metin kutusunda koruma süresince Enter cevabı göndermez", () => {
+    const onCevap = vi.fn();
+    render(<Approval soru={{ tur: "soru", soru: "Proje adı ne olsun?" }} onCevap={onCevap} />);
+    const kutu = screen.getByLabelText("Cevabın");
+    fireEvent.change(kutu, { target: { value: "yazarken-kalan" } });
+    const enter = fireEvent.keyDown(kutu, { key: "Enter" });
+    expect(enter).toBe(false);
+    korumaGec();
+    expect(fireEvent.keyDown(kutu, { key: "Enter" })).toBe(true);
+  });
+
+  it("seçenek varken Esc, metin kutusundayken boş cevap göndermez; yalnız kutuyu kapatır", () => {
+    const onCevap = vi.fn();
+    const soru = { tur: "soru" as const, soru: "Hangisi?", secenekler: [{ etiket: "Astro" }] };
+    render(<Approval soru={soru} onCevap={onCevap} />);
+    fireEvent.click(screen.getByRole("button", { name: /Diğer/ }));
+    fireEvent.keyDown(screen.getByLabelText("Cevabın"), { key: "Escape" });
+    expect(onCevap).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Cevabın")).toBeNull();
   });
 });

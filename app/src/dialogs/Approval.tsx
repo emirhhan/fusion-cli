@@ -3,6 +3,13 @@ import type { Soru } from "../protocol/types";
 import { DiffCard } from "../markdown/DiffCard";
 import "./Approval.css";
 
+/**
+ * Kart belirdikten sonra klavye kararlarının (rakam, metin kutusunda Enter)
+ * yok sayıldığı süre. Ölçüldü (29 Ekim): kart odağı kendine alıyordu ve kullanıcı
+ * composer'a yazarken sonraki rakam/Enter doğrudan karar sayılıyordu.
+ */
+export const KARAR_KORUMA_MS = 600;
+
 interface ApprovalProps {
   onCevap: (veri: Record<string, unknown>) => void | Promise<void>;
   soru: Soru;
@@ -65,6 +72,7 @@ function secenekler(soru: Soru): Secenek[] {
 export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: ApprovalProps) {
   const sending = useRef(false);
   const owner = useRef(soru);
+  const acilis = useRef(Date.now());
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const kartRef = useRef<HTMLElement>(null);
@@ -88,6 +96,7 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
 
   useEffect(() => {
     owner.current = soru;
+    acilis.current = Date.now();
     sending.current = false;
     setPending(false);
     setError("");
@@ -123,6 +132,8 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
   const digeriGonder = () => {
     if (digerMetin.trim()) submit({ metin: digerMetin.trim() });
   };
+  /** Kart henüz yeni mi? Yeniyse klavye "kararı" büyük olasılıkla başka yere yazılıyordu. */
+  const koruma = () => Date.now() - acilis.current < KARAR_KORUMA_MS;
   const vazgec = () => {
     if (soruMu) submit({ metin: "" });
     else if (reddet) sec(reddet);
@@ -132,13 +143,24 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
     if (sending.current) return;
     if (event.key === "Escape") {
       event.preventDefault();
+      // Metin kutusundayken Esc yazmayı bırakmaktır: seçenek varsa yalnız kutu
+      // kapanır, boş cevap modele gitmez (seçeneksiz soruda önce yazı silinir).
+      if (event.target instanceof HTMLInputElement && (liste.length > 0 || digerMetin)) {
+        if (liste.length > 0) setDigerAcik(false);
+        else setDigerMetin("");
+        return;
+      }
       vazgec();
       return;
     }
-    if (event.target instanceof HTMLInputElement) return;
+    if (event.target instanceof HTMLInputElement) {
+      if (event.key === "Enter" && (event.repeat || koruma())) event.preventDefault();
+      return;
+    }
     const sira = Number(event.key);
     if (Number.isInteger(sira) && sira >= 1) {
       event.preventDefault();
+      if (event.repeat || koruma()) return;
       if (sira <= liste.length) sec(liste[sira - 1]);
       else if (soruMu && serbestCevap && sira === liste.length + 1) setDigerAcik(true);
       return;
