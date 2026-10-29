@@ -27,11 +27,24 @@ from ..mcp_bridge.failures import (
 )
 from ..mcp_bridge.identity import connection_identity, duplicate_of
 from ..mcp_bridge.oauth import DEFAULT_CALLBACK_PORT, validate_remote_mcp_url
+from ..mcp_bridge.transport import stdio_search_path
 from ..mcp_bridge.trust import effective_trust, review_identity
 from .hosted_connectors import hosted_connector_rows
 
 #: Komutun PATH'te olup olmadığını söyleyen arama (test yerine geçebilsin diye).
 CommandFinder = Callable[[str], str | None]
+
+
+def find_stdio_command(command: str) -> str | None:
+    """Komutu stdio sunucusunun ÇALIŞTIRMADA kullanacağı PATH ile ara.
+
+    Finder'dan açılan uygulamanın PATH'i dardır (`/usr/bin:/bin`); `shutil.which` Homebrew
+    ya da `~/.local/bin` altındaki `npx`/`uvx`'i bulamayıp kullanıcıya "komut yok" derdi.
+    Aynı genişletilmiş PATH başlatmada da kullanılır (bkz. `mcp_bridge.transport`).
+    """
+    return shutil.which(command, path=stdio_search_path())
+
+
 #: Kaydetmeden önce bağlantıyı deneyen yoklama (bkz. `McpConnectionService.verify`).
 ConnectorProbe = Callable[[McpServerConfig], Awaitable[McpConnectionStatus]]
 
@@ -197,7 +210,7 @@ def _row_status(status: McpConnectionStatus | dict[str, Any] | None) -> dict[str
 
 
 def add_connector(
-    config: Config, data: object, *, find_command: CommandFinder = shutil.which
+    config: Config, data: object, *, find_command: CommandFinder = find_stdio_command
 ) -> tuple[Config | None, dict[str, Any]]:
     """`baglanti.ekle`: yeni MCP sunucusu tanımla ve kaydet.
 
@@ -218,7 +231,7 @@ async def add_connector_verified(
     data: object,
     *,
     probe: ConnectorProbe,
-    find_command: CommandFinder = shutil.which,
+    find_command: CommandFinder = find_stdio_command,
 ) -> tuple[Config | None, dict[str, Any]]:
     """`baglanti.ekle`'nin DOĞRULAYAN hâli: önce bağlan, başarılıysa kaydet.
 
@@ -246,7 +259,7 @@ async def add_connector_verified(
 
 
 def build_connector(
-    config: Config, data: object, *, find_command: CommandFinder = shutil.which
+    config: Config, data: object, *, find_command: CommandFinder = find_stdio_command
 ) -> tuple[McpServerConfig | None, dict[str, Any]]:
     """RPC girdisini doğrulanmış bir `McpServerConfig`'e çevir; yazmaz.
 

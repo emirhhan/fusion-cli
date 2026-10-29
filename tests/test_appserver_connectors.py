@@ -80,7 +80,9 @@ async def test_stdio_baglanti_sirlarini_sifreli_depo_ve_ortama_yazar(tmp_path, m
     session, _fake = _session(tmp_path)
     monkeypatch.setattr("fusion_cli.appserver.connectors.write_mcp_servers", lambda _config: None)
     # Test makinenin PATH'ine bağlı kalmasın: komut "kurulu" sayılır.
-    monkeypatch.setattr("fusion_cli.appserver.connectors.shutil.which", lambda c: f"/bin/{c}")
+    monkeypatch.setattr(
+        "fusion_cli.appserver.connectors.shutil.which", lambda c, path=None: f"/bin/{c}"
+    )
     stored: dict[str, str] = {}
 
     class _Store:
