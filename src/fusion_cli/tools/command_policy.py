@@ -177,7 +177,9 @@ _LOCAL_GIT_SUBCOMMANDS = frozenset(
         "reset",
     }
 )
-_GIT_DESTRUCTIVE_FLAGS = frozenset({"--hard", "--force", "-f", "--amend"})
+_GIT_DESTRUCTIVE_FLAGS = frozenset({"--hard", "--force", "-f", "--amend", "--discard-changes"})
+#: `git restore|checkout <yol>` bütün çalışma ağacını gösteriyorsa kaydedilmemiş iş gider.
+_WHOLE_TREE_PATHSPECS = frozenset({".", "./", ":/", ":(top)", "*"})
 _STASH_DISCARDS = frozenset({"drop", "clear"})
 
 #: Komutu parçalara bölen iki karakterlik kabuk operatörleri. Zincirin HER parçası
@@ -486,5 +488,8 @@ def _git_safe(arguments: list[str]) -> bool:
         return False
     if arguments[0] == "stash" and _STASH_DISCARDS & set(arguments[1:2]):
         # Saklanan iş başka yerde yoktur; atmak geri alınamaz.
+        return False
+    discards_tree = arguments[0] in {"restore", "checkout"} and "--staged" not in arguments
+    if discards_tree and any(argument in _WHOLE_TREE_PATHSPECS for argument in arguments[1:]):
         return False
     return not any(argument in _GIT_DESTRUCTIVE_FLAGS for argument in arguments[1:])

@@ -83,6 +83,18 @@ DANGER_RULES: tuple[DangerRule, ...] = (
     _rule(r"\bgit\s+reset\s+--hard\b", "commit'lenmemiş çalışmayı yok etme"),
     _rule(r"\bgit\s+clean\s+-[a-zA-Z]*f", "izlenmeyen dosyaları kalıcı silme"),
     _rule(r"\bgit\s+checkout\s+--\s+\.", "tüm yerel değişiklikleri geri alma"),
+    # `git restore .`, `git checkout .`, `git checkout HEAD -- .`, `git checkout -f`:
+    # çalışma ağacındaki KAYDEDİLMEMİŞ işi geri getirilemez biçimde atar (T1-04, ölçüldü
+    # 29 Ekim: danger_reason None). `restore --staged .` yalnız dizini boşaltır, atlanır.
+    _rule(
+        r"\bgit\b(?![^|;&\n]*--staged)[^|;&\n]*\b(restore|checkout)\b[^|;&\n]*"
+        r"\s(\.|\./|:/|:\(top\)|\*|'\*'|\"\*\")(?=\s|$)",
+        "tüm yerel değişiklikleri geri alma",
+    ),
+    _rule(
+        r"\bgit\b[^|;&\n]*\b(checkout|switch)\b[^|;&\n]*\s(-f|--force|--discard-changes)\b",
+        "kaydedilmemiş değişiklikleri atan dal geçişi",
+    ),
     _rule(r"\b(curl|wget)\b.*\|\s*(sudo\s+)?(ba)?sh\b", "internetten indirilen kodu çalıştırma"),
     # Process substitution ile indirilen kodu çalıştırma: bash <(curl …). Boru
     # yakalamayan bu biçim yukarıdaki desene takılmaz, ayrıca yakalanır.
