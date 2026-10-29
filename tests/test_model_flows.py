@@ -508,7 +508,9 @@ def test_tui_gelistirme_komutunu_argumansiz_engellemez():
     from fusion_cli.cli.repl.tui_loop import _would_open_picker
 
     assert _would_open_picker("development", "") is False
-    assert _would_open_picker("provider", "") is True
+    # L2-14: /provider artık modalla çözülür; yalnız `/providers add` (gizli anahtar) engellenir.
+    assert _would_open_picker("provider", "") is False
+    assert _would_open_picker("providers", "add") is True
 
 
 def test_katalog_yetenegi_baglami_tasir_araci_bilinmez():
