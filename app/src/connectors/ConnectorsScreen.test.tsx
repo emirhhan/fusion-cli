@@ -408,6 +408,20 @@ describe("ConnectorsScreen", () => {
     expect(screen.queryByText("Notion")).toBeNull();
   });
 
+  // Ölçüldü (29 Ekim, U3-35): arama yalnız öne çıkanlar HARİÇ listeyi süzüyordu; "github"
+  // aranınca banner gizlenip kartlar boş kalıyor ve "katalogda eşleşme yok" yazıyordu.
+  it("arama öne çıkan bağlantıları da bulur", async () => {
+    const client = fakeClient();
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    await waitFor(() => expect(client.request).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText("Bağlantı ara"), { target: { value: "github" } });
+
+    const kartlar = screen.getByLabelText("Uygulamalar");
+    expect(within(kartlar).getByText("GitHub")).toBeTruthy();
+    expect(screen.queryByText(/katalogda eşleşme yok/)).toBeNull();
+  });
+
   it("özel sunucu formundan stdio bağlantı ekler", async () => {
     const client = fakeClient();
     render(<ConnectorsScreen client={client} onClose={() => undefined} />);

@@ -229,7 +229,8 @@ export function ConnectorsScreen({
   const filteredCatalog = useMemo(() => {
     const q = query.trim().toLocaleLowerCase("tr");
     if (!q) return catalogConnectors;
-    return catalogConnectors.filter(
+    // Arama sırasında öne çıkan banner gizlenir; o yüzden öne çıkanlar da aranır.
+    return allConnectors.filter(
       (e) =>
         e.label.toLocaleLowerCase("tr").includes(q) ||
         e.description.toLocaleLowerCase("tr").includes(q) ||
