@@ -27,6 +27,7 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Tarayıcıda sayfa değiştikten sonra eski öğe referansı yeni sayfada başka bir öğeye tıklamaz; ajan sayfayı yeniden okumaya yönlendirilir (Fusion Browser 0.3.12).
 - Web modelinin düzgün kapattığı araç çağrısı bloğu "kapanmamış" sayılıp yeniden istenmez.
 - Masaüstü sürümü lint/tip/test kapısı geçmeden yayımlanmaz.
+- Masaüstü uygulaması sıkı içerik güvenlik politikasıyla çalışır; arayüz dosya içeriğini ağ isteğiyle okuyamaz, `.ssh`, `.aws`, tarayıcı profilleri ve `.env` gibi hassas dosyalar uygulama içi görüntülemeye kapalıdır.
 
 ## 0.7.18 — 2026-10-21
 
