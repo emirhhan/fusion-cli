@@ -26,6 +26,20 @@ const EN_AZ_PAROLA = 8;
 /** Kayıt sonrası kurtarma kodunu BİR KEZ gösteren ekran. */
 function RecoveryCode({ kod, onDevam }: { kod: string; onDevam: () => void }) {
   const [kopyalandi, setKopyalandi] = useState(false);
+  // Ölçüldü (29 Ekim, U5-29): Devam yalnız pano yazımı başarılıysa açılıyordu; pano API'si
+  // yoksa/reddedilirse düğme sonsuza dek kapalı kalıyor, kod bir daha gösterilmiyordu.
+  const [kopyaBasarisiz, setKopyaBasarisiz] = useState(false);
+  const [elleKaydedildi, setElleKaydedildi] = useState(false);
+  const kopyala = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("pano yok");
+      await navigator.clipboard.writeText(kod);
+      setKopyalandi(true);
+      setKopyaBasarisiz(false);
+    } catch {
+      setKopyaBasarisiz(true);
+    }
+  };
   return (
     <div className="account">
       <section className="account__form-col">
@@ -38,19 +52,31 @@ function RecoveryCode({ kod, onDevam }: { kod: string; onDevam: () => void }) {
           </p>
           <code className="account__recovery">{kod}</code>
           <div className="account__actions">
-            <Button
-              onClick={() => {
-                void navigator.clipboard?.writeText(kod).then(() => setKopyalandi(true));
-              }}
-              variant="secondary"
-            >
+            <Button onClick={() => void kopyala()} variant="secondary">
               {kopyalandi ? "Kopyalandı" : "Kopyala"}
             </Button>
-            <Button disabled={!kopyalandi} onClick={onDevam} variant="primary">
+            <Button disabled={!kopyalandi && !elleKaydedildi} onClick={onDevam} variant="primary">
               Kaydettim, devam et
             </Button>
           </div>
-          {!kopyalandi && <p className="account__hint">Devam edebilmek için önce kodu kopyala.</p>}
+          {kopyaBasarisiz && (
+            <>
+              <p className="account__hint" role="alert">
+                Kod panoya kopyalanamadı. Yukarıdaki kodu elle bir yere yaz, sonra aşağıyı işaretle.
+              </p>
+              <label className="account__check">
+                <input
+                  checked={elleKaydedildi}
+                  onChange={(event) => setElleKaydedildi(event.target.checked)}
+                  type="checkbox"
+                />
+                Kodu elle kaydettim
+              </label>
+            </>
+          )}
+          {!kopyalandi && !kopyaBasarisiz && (
+            <p className="account__hint">Devam edebilmek için önce kodu kopyala.</p>
+          )}
         </div>
       </section>
       <BrandPanel />
@@ -86,10 +112,11 @@ export function AccountGate({ account }: { account: AccountController }) {
   const [bilgi, setBilgi] = useState<string | null>(null);
   const [mesgul, setMesgul] = useState(false);
 
-  if (yeniKod) {
+  const gosterilecekKod = account.kurtarmaKodu ?? yeniKod;
+  if (gosterilecekKod) {
     // Kod gösterildikten sonra uygulama YENİDEN YÜKLENİR: hesabın kendi
     // yapılandırması ancak yeni bir çekirdek sürecinde okunur.
-    return <RecoveryCode kod={yeniKod} onDevam={() => window.location.reload()} />;
+    return <RecoveryCode kod={gosterilecekKod} onDevam={() => window.location.reload()} />;
   }
 
   const gonder = async (event: FormEvent) => {

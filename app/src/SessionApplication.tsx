@@ -1179,7 +1179,7 @@ export function SessionUygulama({
 
   // Fusion hesapsız açılmaz. Kapı, çekirdek bağlandıktan sonra çizilir:
   // hesap bilgisi oradan okunuyor.
-  if (active && !account.yukleniyor && account.durum && !account.durum.etkin) {
+  if (active && !account.yukleniyor && account.durum && (!account.durum.etkin || account.kurtarmaKodu)) {
     return <><AccountGate account={account} />{kapatmaOnayi}</>;
   }
 

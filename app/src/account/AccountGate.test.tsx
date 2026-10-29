@@ -11,6 +11,7 @@ function denetleyici(ekle: Partial<AccountController> = {}): AccountController {
     durum: { hesaplar: [], etkin: "", kurulum_gerekli: true },
     yukleniyor: false,
     hata: null,
+    kurtarmaKodu: null,
     kayit: vi.fn(async () => null),
     giris: vi.fn(async () => false),
     cikis: vi.fn(async () => undefined),
@@ -118,5 +119,33 @@ describe("AccountGate", () => {
     render(<AccountGate account={denetleyici({ hata: "Kullanıcı adı zaten kullanılıyor." })} />);
 
     expect(screen.getByRole("alert").textContent).toBe("Kullanıcı adı zaten kullanılıyor.");
+  });
+
+  // Ölçüldü (29 Ekim, U5-29): pano yoksa ya da yazım reddedilirse Devam sonsuza dek kapalıydı.
+  describe("kurtarma kodu ekranı pano başarısızken", () => {
+    const kodlu = () => denetleyici({ kurtarmaKodu: "ABCD-EFGH-JKMN-PQRS" });
+    afterEach(() => vi.unstubAllGlobals());
+
+    test("pano reddederse elle kaydettim onayıyla devam edilir", async () => {
+      vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn(async () => { throw new Error("izin yok"); }) } });
+      render(<AccountGate account={kodlu()} />);
+      const devam = screen.getByRole("button", { name: /kaydettim/i });
+      expect(devam.hasAttribute("disabled")).toBe(true);
+
+      fireEvent.click(screen.getByRole("button", { name: "Kopyala" }));
+      fireEvent.click(await screen.findByLabelText("Kodu elle kaydettim"));
+
+      expect(devam.hasAttribute("disabled")).toBe(false);
+    });
+
+    test("pano API'si yoksa da elle onay yolu açılır", async () => {
+      vi.stubGlobal("navigator", {});
+      render(<AccountGate account={kodlu()} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "Kopyala" }));
+      fireEvent.click(await screen.findByLabelText("Kodu elle kaydettim"));
+
+      expect(screen.getByRole("button", { name: /kaydettim/i }).hasAttribute("disabled")).toBe(false);
+    });
   });
 });
