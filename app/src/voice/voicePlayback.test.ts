@@ -37,7 +37,7 @@ it("çalma başlatılırken iptal edilen tur geç gelen oynatıcıyı kapatır",
   return {ok:true, tamamlandi:true};
  });
  const turn = createVoicePlayback({request}, "Merhaba.", publish);
- await vi.waitFor(() => expect(request).toHaveBeenCalledWith("ses.haziri_cal", {hazir_id:"owned"}));
+ await vi.waitFor(() => expect(request).toHaveBeenCalledWith("ses.haziri_cal", {hazir_id:"owned", nesil:expect.any(Number)}));
  const cancelling = turn.cancel();
  started.resolve({ok:true, tur_id:"late-player"});
  await cancelling;

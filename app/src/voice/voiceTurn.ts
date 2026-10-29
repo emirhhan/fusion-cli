@@ -132,15 +132,22 @@ export async function speakVoiceAnswerStreamed(
     let settled = false;
     let cancellation: Promise<void> | null = null;
     let currentTurnId = "";
+    // Uçuştaki `ses.konus`: iptal bunu beklemeden `currentTurnId` ile durdurursa geç dönen tur
+    // kimsenin sahipliğinde kalır ve çalmaya devam eder (ölçüldü, 29 Ekim).
+    let starting: Promise<unknown> | null = null;
 
     const startSentence = async (sentence: string): Promise<string> => {
-      const result = await client.request("ses.konus", { metin: sentence });
+      const request = client.request("ses.konus", { metin: sentence });
+      starting = request.catch(() => undefined);
+      const result = await request;
+      starting = null;
       const id = typeof result.tur_id === "string" ? result.tur_id : "";
       if (result.ok !== true || !id) {
         throw new Error(
           typeof result.metin === "string" ? result.metin : "Sesli yanıt başlatılamadı.",
         );
       }
+      currentTurnId = id;
       return id;
     };
 
@@ -185,7 +192,9 @@ export async function speakVoiceAnswerStreamed(
         if (cancellation) return cancellation;
         if (settled) return Promise.resolve();
         cancelled = true;
-        cancellation = client.request("ses.durdur", { tur_id: currentTurnId }).then(
+        cancellation = Promise.resolve(starting).then(
+          () => client.request("ses.durdur", { tur_id: currentTurnId }),
+        ).then(
           async (stopped) => {
             if (stopped.ok !== true) {
               throw new Error(

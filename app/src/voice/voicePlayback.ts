@@ -6,10 +6,21 @@ interface VoiceClient {
   request(name: string, data: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
 
+/**
+ * Konuşma NESLİ: her `createVoicePlayback` artan bir kimlik alır ve çekirdeğe bildirir.
+ * Daha yeni nesil başlayınca çekirdek eski neslin hazırlama/oynatma isteğini `eski_nesil`
+ * ile reddeder; bu tur sessizce biter. Böylece iptal ACK'i gecikse bile eski ses yeni
+ * konuşmanın oynatıcısını ezmez. (Ölçüldü, 29 Ekim: nesil kimliği hiç yoktu.)
+ */
+let lastGeneration = 0;
+
+class SupersededError extends Error {}
+
 /** Oynayan cümlenin ardından gelen tek cümle hazırlanır; iptal tüm sahipliği kapatır. */
 export function createVoicePlayback(
   client: VoiceClient, text: string, publish: (state: VoiceRuntimeState) => Promise<void>,
 ): VoiceTurnHandle {
+  const generation = ++lastGeneration;
   let cancelled = false;
   let settled = false;
   let cancellation: Promise<void> | null = null;
@@ -34,7 +45,8 @@ export function createVoicePlayback(
   const sentences = splitIntoSpeechChunks(text);
   const queue = sentences.length ? sentences : [text];
   const prepare = async (sentence: string) => {
-    const result = await client.request("ses.hazirla", { metin: sentence });
+    const result = await client.request("ses.hazirla", { metin: sentence, nesil: generation });
+    if (result.eski_nesil === true) throw new SupersededError();
     if (result.desteklenmiyor === true) return null;
     if (result.ok !== true || typeof result.hazir_id !== "string") {
       throw new Error(String(result.metin ?? "Ses hazırlanamadı."));
@@ -67,9 +79,10 @@ export function createVoicePlayback(
           return;
         }
         if (cancelled) break;
-        starting = client.request("ses.haziri_cal", { hazir_id: id });
+        starting = client.request("ses.haziri_cal", { hazir_id: id, nesil: generation });
         const started = await starting;
         starting = null;
+        if (started.eski_nesil === true) throw new SupersededError();
         if (started.ok !== true || typeof started.tur_id !== "string") {
           throw new Error(String(started.metin ?? "Hazır ses çalınamadı."));
         }
@@ -80,8 +93,11 @@ export function createVoicePlayback(
           break;
         }
         await publish({ durum: "talking", metin: text });
+        // Yayın sürerken iptal ACK'i gelmiş olabilir: kimliksiz bekleme ve gereksiz hazırlık yok.
+        const playingId = activeId;
+        if (cancelled || !playingId) break;
         if (index + 1 < queue.length) next = observed(prepare(queue[index + 1]));
-        const completed = await client.request("ses.bekle", { tur_id: activeId });
+        const completed = await client.request("ses.bekle", { tur_id: playingId });
         activeId = null;
         if (cancelled) break;
         if (completed.ok !== true || completed.tamamlandi !== true) {
@@ -90,7 +106,10 @@ export function createVoicePlayback(
       }
       if (!cancelled) await publish({ durum: "listening" });
     } catch (error) {
-      if (!cancelled) {
+      if (error instanceof SupersededError) {
+        // Yeni konuşma sahipliği aldı: durum yayını da ona aittir.
+        cancelled = true;
+      } else if (!cancelled) {
         await publish({ durum: "error", metin: error instanceof Error ? error.message : String(error) });
         throw error;
       }
