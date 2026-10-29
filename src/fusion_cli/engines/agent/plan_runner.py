@@ -50,7 +50,7 @@ from ...core.workspace import IsolatedWorkspace, isolate
 from ..workflow.model import BudgetEnvelope, BudgetLedger, WorkflowBudget
 from . import review
 from .attempts import Attempt, choose_attempt
-from .effect_checkpoint import PlanEffectRecorder
+from .effect_checkpoint import PlanEffectRecorder, settle_observed
 from .execution_policy import ExecutionPolicy
 from .plan_checkpoint import (
     artifact_changed,
@@ -506,6 +506,8 @@ class _PlanRun:
         # effects could let an unrelated local receipt certify a remote write.
         result = await verify_step(step, outcome, active_deps, self.baseline)
         self.progress()
+        if observe and result.ok and not result.unverified and settle_observed(self, step.step_id):
+            await self.save()
         if any(
             item.step_id == step.step_id and item.phase is not EffectPhase.RESPONDED
             for item in self.effect_intents.values()

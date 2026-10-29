@@ -594,3 +594,110 @@ async def test_baglam_tasmasi_esigi_kucultur_gecmisi_sikistirir_ve_yeniden_dener
     assert deps.learned_compression_chars is not None
     assert deps.learned_compression_chars < 100_000
     assert deps.condensations >= 1
+
+
+# --- A1-42: belirsiz dış etki gözlemle kapanır, bilinmeyen kimlik çökertmez -- #
+
+
+def _plan_kos(tmp_path, kimlik="eff"):
+    from dataclasses import replace
+
+    from fusion_cli.core.execution_plan import ExecutionPlan, StepStatus
+    from fusion_cli.engines.agent.plan_runner import _PlanRun
+    from fusion_cli.engines.workflow.model import BudgetLedger, WorkflowBudget
+    from tests.test_plan_repair import _deps as plan_deps
+    from tests.test_plan_runner import _step
+
+    adim = replace(_step("send"), attempts=1, status=StepStatus.RUNNING)
+    butce = WorkflowBudget(planning=2, per_step=4, recovery=2, final=2)
+    kos = _PlanRun(
+        "iş",
+        plan_deps(tmp_path),
+        None,
+        ExecutionPlan(kimlik, "iş", (adim,)),
+        butce,
+        BudgetLedger(butce),
+    )
+    return kos, adim
+
+
+def _uzak_arac():
+    from fusion_cli.core.tools import Tool, ToolEffect, ToolResult
+
+    return Tool(
+        "remote", "", {}, lambda *_: ToolResult(""), mutating=True, effect=ToolEffect.REMOTE_WRITE
+    )
+
+
+def _kapsam(*hedef):
+    from fusion_cli.core.tools import AuthorizationScope
+
+    return AuthorizationScope("server", "account", "write", hedef)
+
+
+async def test_bilinmeyen_cagri_kimligi_finish_ile_cokertmez(tmp_path):
+    from fusion_cli.engines.agent.effect_checkpoint import PlanEffectRecorder
+
+    kos, _ = _plan_kos(tmp_path)
+
+    await PlanEffectRecorder(kos, "send", 1).finish("yok", False)  # KeyError atmamalı
+
+
+async def test_bilinmeyen_adim_acik_hata_verir(tmp_path):
+    from fusion_cli.core.types import ToolCall
+    from fusion_cli.engines.agent.effect_checkpoint import EffectAdmissionError, PlanEffectRecorder
+
+    kos, _ = _plan_kos(tmp_path)
+    arac = _uzak_arac()
+
+    with pytest.raises(EffectAdmissionError):
+        await PlanEffectRecorder(kos, "olmayan", 1).prepare(
+            ToolCall("c", "remote", "{}"), arac, arac.effect, _kapsam("a")
+        )
+
+
+async def test_gozlemle_kapanan_belirsiz_etki_sonraki_yazmayi_kilitlemez(tmp_path):
+    """Ölçüldü (29 Ekim): `finish(ok=False)` kaydı AMBIGUOUS yapıyor, kapatan geçiş
+    yoktu; aynı kapsamdaki sonraki tüm yazmalar plan sonuna dek reddediliyordu."""
+    from fusion_cli.core.types import ToolCall
+    from fusion_cli.engines.agent.effect_checkpoint import (
+        EffectAdmissionError,
+        PlanEffectRecorder,
+        settle_observed,
+    )
+
+    kos, _ = _plan_kos(tmp_path)
+    kaydedici = PlanEffectRecorder(kos, "send", 1)
+    arac = _uzak_arac()
+    await kaydedici.prepare(ToolCall("ilk", "remote", "{}"), arac, arac.effect, _kapsam("a"))
+    await kaydedici.finish("ilk", False)
+    with pytest.raises(EffectAdmissionError):
+        await kaydedici.prepare(ToolCall("ikinci", "remote", "{}"), arac, arac.effect, _kapsam("a"))
+
+    assert settle_observed(kos, "send") is True
+
+    await kaydedici.prepare(ToolCall("ikinci", "remote", "{}"), arac, arac.effect, _kapsam("a"))
+
+
+async def test_kanitli_gozlem_dogrulamasi_belirsiz_etkiyi_kapatir(tmp_path, monkeypatch):
+    from fusion_cli.core.effects import EffectPhase
+    from fusion_cli.core.types import ToolCall
+    from fusion_cli.engines.agent import plan_runner
+    from fusion_cli.engines.agent.effect_checkpoint import PlanEffectRecorder
+    from fusion_cli.engines.agent.loop import AgentOutcome
+    from fusion_cli.engines.agent.step_verification import StepVerificationResult
+
+    kos, adim = _plan_kos(tmp_path, "eff2")
+    kaydedici = PlanEffectRecorder(kos, "send", 1)
+    arac = _uzak_arac()
+    await kaydedici.prepare(ToolCall("ilk", "remote", "{}"), arac, arac.effect, _kapsam("a"))
+    await kaydedici.finish("ilk", False)
+
+    async def kanitli(*args, **kwargs):
+        return StepVerificationResult(ok=True, evidence=("salt-okunur makbuz",))
+
+    monkeypatch.setattr(plan_runner, "verify_step", kanitli)
+    sonuc = await kos.verify(adim, AgentOutcome(final_text="", messages=[]), observe=True)
+
+    assert sonuc.ok
+    assert {i.phase for i in kos.effect_intents.values()} == {EffectPhase.RESPONDED}
