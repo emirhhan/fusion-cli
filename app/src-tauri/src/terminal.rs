@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Condvar, Mutex};
+use std::time::Duration;
 
 const OUTPUT_CHUNK_BYTES: usize = 8 * 1024;
 const OUTPUT_QUEUE_CAPACITY: usize = 128;
@@ -304,12 +305,33 @@ fn queue_closed_once(terminal: &ManagedTerminal, exit_code: Option<u32>) {
         .send(TerminalEvent::Closed { reason, exit_code });
 }
 
+/// Kapanış olayının doğal yoldan (okuyucu iş parçacığı) kuyruğa girmesi için
+/// beklenen en uzun süre.
+const KAPANIS_TESLIM_ZAMAN_ASIMI: Duration = Duration::from_millis(1500);
+
+/// Olayı kendimiz kuyruğa koyduktan sonra işleyicinin teslim etmesi için ek süre.
+const KAPANIS_ZORLA_TESLIM_ZAMAN_ASIMI: Duration = Duration::from_millis(500);
+
+/// Kapanış olayının teslim edilmesini sınırlı süre bekler. Okuyucu iş parçacığı
+/// pty'yi elinde tutan bir torun süreç yüzünden bitmezse olay hiç kuyruğa
+/// girmez; zaman aşımsız beklemek `close`'u (ve uygulama kapanışını) sonsuza dek
+/// kilitliyordu (R2-03). Süre dolarsa olayı biz kuyruğa koyarız; ikinci bekleme
+/// de dolarsa vazgeçilir.
 fn wait_for_close_delivery(terminal: &ManagedTerminal) {
-    let (delivered, wake) = &*terminal.close_delivered;
-    let mut delivered = delivered.lock().unwrap();
-    while !*delivered {
-        delivered = wake.wait(delivered).unwrap();
+    if bekle_teslim(terminal, KAPANIS_TESLIM_ZAMAN_ASIMI) {
+        return;
     }
+    queue_closed_once(terminal, None);
+    bekle_teslim(terminal, KAPANIS_ZORLA_TESLIM_ZAMAN_ASIMI);
+}
+
+fn bekle_teslim(terminal: &ManagedTerminal, sure: Duration) -> bool {
+    let (delivered, wake) = &*terminal.close_delivered;
+    let guard = delivered.lock().unwrap();
+    let (guard, _) = wake
+        .wait_timeout_while(guard, sure, |teslim_edildi| !*teslim_edildi)
+        .unwrap();
+    *guard
 }
 
 fn event_worker(
@@ -429,8 +451,8 @@ fn shell_candidates() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        claim_explicit_terminal, event_worker, forward_output, queue_closed_once, wait_for_child,
-        ManagedTerminal, TerminalClosed, TerminalManager, TerminalMap, TerminalOutput,
+        claim_explicit_terminal, close_terminal, event_worker, forward_output, queue_closed_once,
+        wait_for_child, ManagedTerminal, TerminalClosed, TerminalManager, TerminalMap, TerminalOutput,
     };
     use portable_pty::{
         native_pty_system, Child, ChildKiller, CommandBuilder, ExitStatus, PtySize,
@@ -663,6 +685,45 @@ mod tests {
         assert!(!manager.test_is_running("exited-still-registered"));
         manager.terminals.lock().unwrap().clear();
         terminal.child.lock().unwrap().take();
+    }
+
+    /// Ölçüldü (30 Ekim): okuyucu iş parçacığı hiç bitmezse (pty'yi elinde tutan
+    /// torun süreç) kapanış olayı kuyruğa girmiyor, `close` zaman aşımsız
+    /// Condvar'da sonsuza dek bekliyordu (R2-03).
+    #[test]
+    fn kapanis_olayi_gelmeyen_terminalde_close_zaman_asimiyla_doner() {
+        let kapanislar = Arc::new(Mutex::new(Vec::new()));
+        let kayit = Arc::clone(&kapanislar);
+        let close_delivered = Arc::new((Mutex::new(false), Condvar::new()));
+        let events = event_worker(
+            "okuyucu-takili".into(),
+            Arc::new(|_| {}),
+            Arc::new(move |kapanis| kayit.lock().unwrap().push(kapanis)),
+            Arc::clone(&close_delivered),
+        );
+        let terminal = Arc::new(ManagedTerminal {
+            master: Mutex::new(None),
+            writer: Mutex::new(None),
+            child: Mutex::new(None),
+            close_reason: Mutex::new(Some("kullanıcı kapattı".into())),
+            close_queued: AtomicBool::new(false),
+            events,
+            close_delivered,
+        });
+        let (bitti, bekle) = mpsc::channel();
+        let kopya = Arc::clone(&terminal);
+        std::thread::spawn(move || {
+            let _ = close_terminal(kopya);
+            let _ = bitti.send(());
+        });
+
+        assert!(
+            bekle.recv_timeout(Duration::from_secs(5)).is_ok(),
+            "close 5 sn içinde dönmedi"
+        );
+        let kapanislar = kapanislar.lock().unwrap();
+        assert_eq!(kapanislar.len(), 1);
+        assert_eq!(kapanislar[0].reason, "kullanıcı kapattı");
     }
 
     #[derive(Debug)]
