@@ -35,6 +35,7 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Model kimliksiz ya da aynı kimlikli birden çok araç çağrısı gönderdiğinde her çağrı çakışmayan bir kimlik alır; sonraki tur sağlayıcı tarafından reddedilmez.
 - NIM gömme modeli değiştirilince vektörler eski modelin koleksiyonuna eklenmez; her model kendi koleksiyonunu kullanır, varsayılan modelin mevcut dersleri ve kod indeksi korunur.
 - Kod indeksi parça sınırına takılınca "İndeks kısmi" uyarısı verir; dışarıda kalan dosyalar sessizce kaybolmaz.
+- Kitaplıkta yüklenemeyen dosyanın hatası, ardından gelen liste yenilemesiyle silinmez.
 - Komut iptali, kendini ayrı oturuma alan (`setsid`) ve çıktıyı açık tutan torun süreçleri de kapatır; geride çalışan süreç kalmaz.
 
 ## 0.7.18 — 2026-10-21

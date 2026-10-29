@@ -56,6 +56,34 @@ describe("LibraryScreen", () => {
     expect((screen.getByRole("button", { name: "Dosya yükle" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("yükleme hatası ardından gelen başarılı yenilemeyle silinmez", async () => {
+    // Ölçüldü (29 Ekim): `load()` başarıda hatayı temizliyordu; yüklenemeyen dosyanın
+    // hatası anında kayboluyor, kullanıcı dosyanın eklendiğini sanıyordu.
+    const { client } = fakeClient({ "kitaplik.ekle": { ok: false, metin: "Dosya çok büyük." } });
+    render(<LibraryScreen chooseFiles={async () => ["/tmp/dev.zip"]} client={client} toUrl={() => null} />);
+    await screen.findByText("rapor.md");
+    fireEvent.click(screen.getByRole("button", { name: "Dosya yükle" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Dosya çok büyük.");
+    fireEvent.change(screen.getByLabelText("Kitaplıkta ara"), { target: { value: "r" } });
+    await waitFor(() => expect(client.request).toHaveBeenLastCalledWith("kitaplik.liste", { tur: "", sorgu: "r" }));
+    expect(screen.getByRole("alert").textContent).toBe("Dosya çok büyük.");
+  });
+
+  it("yeni başarılı işlem önceki işlem hatasını kaldırır", async () => {
+    let fail = true;
+    const request = vi.fn(async (name: string) => {
+      if (name === "kitaplik.ekle") return fail ? { ok: false, metin: "Dosya çok büyük." } : { ok: true };
+      return { ok: true, dosyalar: [rapor], toplam: 1 };
+    });
+    render(<LibraryScreen chooseFiles={async () => ["/tmp/a.pdf"]} client={{ request }} toUrl={() => null} />);
+    await screen.findByText("rapor.md");
+    fireEvent.click(screen.getByRole("button", { name: "Dosya yükle" }));
+    await screen.findByRole("alert");
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Dosya yükle" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
   it("boyutu okunur birimle yazar", () => {
     expect(formatSize(512)).toBe("512 B");
     expect(formatSize(1536)).toBe("1.5 KB");
