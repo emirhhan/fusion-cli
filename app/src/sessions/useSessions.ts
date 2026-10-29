@@ -769,7 +769,18 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           questionId: question.id,
           answer: { ...data, decisionId },
         });
-        if (receipt.ok !== true) throw new Error("Soru artık cevap beklemiyor.");
+        if (receipt.ok !== true) {
+          // Çekirdek soruyu tanıyıp "bekleyen değil" dediyse (ok:false + questionId, metin yok) kart
+          // artık geçersizdir: kapat, yoksa kullanıcı sonsuz yeniden deneme döngüsüne girer.
+          // Geçersiz cevap gibi başka reddedişlerde kart kalır ve hata fırlar.
+          if (receipt.questionId === question.id && receipt.metin === undefined) {
+            dispatch({ type: "questionClosed", id, questionId: question.id });
+            dispatch({ type: "messageAdded", id, message: { rol: "asistan", hata: true,
+              metin: "Soru artık cevap beklemiyordu; kart kapatıldı." } });
+            return;
+          }
+          throw new Error("Soru artık cevap beklemiyor.");
+        }
         dispatch({ type: "questionClosed", id, questionId: question.id });
       } finally {
         answersInFlight.current.delete(question);

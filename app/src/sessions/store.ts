@@ -167,6 +167,9 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         running: action.running,
         stopping: action.running ? session.stopping : false,
         stopError: action.running ? session.stopError : null,
+        // Tur bitti: turun beklettiği sorular artık yanıtlanamaz. SoruKapandi olayı kaybolsa da
+        // kart sonsuza kadar kalmasın (U4-08).
+        ...(action.running ? {} : { question: null, questionQueue: [] }),
       }));
     case "stopRequested":
       return updateSession(state, action.id, (session) => ({ ...session, stopping: true, stopError: null }));

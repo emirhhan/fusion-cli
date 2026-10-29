@@ -772,3 +772,35 @@ describe("Başarısız oturum.baslat", () => {
     expect(result.current.activeSession?.messages.some((m) => m.metin === "yanlış sohbetin mesajı")).toBe(false);
   });
 });
+
+// U4-08 (a) — Ölçüldü (29 Ekim): çekirdek "artık beklemiyor" (ok:false + questionId) dediğinde
+// answer() fırlatıyor, kart kalıyor ve kullanıcı sonsuz yeniden deneme döngüsüne giriyordu.
+describe("Artık beklemeyen soru", () => {
+  async function soruyla() {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const id = result.current.activeSession!.id;
+    act(() => fake.emitLine({ oturum_id: id, satir: JSON.stringify({ tip: "soru", id: "q1", veri: { tur: "soru", soru: "Ad?" } }) }));
+    return { fake, result, id };
+  }
+  it("ok:false + questionId kartı kapatır ve fırlatmaz", async () => {
+    const { fake, result, id } = await soruyla();
+    let sending!: Promise<void>;
+    act(() => { sending = result.current.answer(id, { metin: "örnek" }); });
+    const request = JSON.parse(fake.sent.at(-1)!.line);
+    await act(async () => { fake.emitResult(id, request.id, { ok: false, questionId: "q1" }); await sending; });
+    expect(result.current.activeSession?.question).toBeNull();
+    expect(result.current.activeSession?.messages.some((m) => m.metin?.includes("artık cevap beklemiyordu"))).toBe(true);
+  });
+  it("geçersiz cevap hatasında (metin var) kart kalır ve hata fırlar", async () => {
+    const { fake, result, id } = await soruyla();
+    let sending!: Promise<void>;
+    act(() => { sending = result.current.answer(id, { metin: "örnek" }); });
+    const request = JSON.parse(fake.sent.at(-1)!.line);
+    const sonuc = expect(sending).rejects.toThrow();
+    await act(async () => { fake.emitResult(id, request.id, { ok: false, metin: "Soru kimliği veya cevap geçersiz." }); });
+    await sonuc;
+    expect(result.current.activeSession?.question?.id).toBe("q1");
+  });
+});

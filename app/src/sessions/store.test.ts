@@ -96,3 +96,28 @@ it("metinsiz biten ses isteğinin kimliğini sonraki görev çalışırken korur
   for (let index = 0; index < 110; index++) state = sessionReducer(state, {type: "submissionCompleted", id: "voice", requestId: String(index)});
   expect(state.sessions.voice.completedRequestIds).toHaveLength(100);
 });
+
+// U4-08 (b) — Ölçüldü (29 Ekim): tur bitince SoruKapandi olayı kaybolursa soru kartı sonsuza
+// kadar kalıyordu; yalnız crashed/cleared temizliyordu.
+describe("tur bitince bekleyen soru", () => {
+  const soru = (id: string) => ({ id, data: { tur: "soru", soru: id } as never });
+  function bekleyenli() {
+    let state = sessionReducer(initialSessionState, {
+      type: "created",
+      session: { id: "bir", title: "Bir", source: "fusion", root: "/bir", client: client() },
+    });
+    state = sessionReducer(state, { type: "runningChanged", id: "bir", running: true });
+    for (const id of ["q1", "q2"]) state = sessionReducer(state, { type: "questionChanged", id: "bir", question: soru(id) });
+    return state;
+  }
+  it("running=false soru kartını ve kuyruğunu kapatır", () => {
+    const state = sessionReducer(bekleyenli(), { type: "runningChanged", id: "bir", running: false });
+    expect(state.sessions.bir.question).toBeNull();
+    expect(state.sessions.bir.questionQueue).toEqual([]);
+  });
+  it("running=true soruya dokunmaz", () => {
+    const state = sessionReducer(bekleyenli(), { type: "runningChanged", id: "bir", running: true });
+    expect(state.sessions.bir.question?.id).toBe("q1");
+    expect(state.sessions.bir.questionQueue).toHaveLength(1);
+  });
+});
