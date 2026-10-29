@@ -64,7 +64,7 @@ def write_model_section(config: Config, path: Path | None = None) -> Path:
     yapılandırma dizininde yeni bir `config.yaml` oluşturulur.
     """
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         existing.update(
             {
@@ -82,7 +82,7 @@ def write_teacher(config: Config, path: Path | None = None) -> Path:
     """Öğretmen rolünü yaz. `config.teacher` None ise `teacher:` anahtarı silinir
     (otomatik seçime dönülür)."""
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         if config.teacher is None:
             existing.pop("teacher", None)
@@ -102,7 +102,7 @@ def write_verification_commands(
     onaylamak onları sıfırlamamalıdır.
     """
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         runtime = existing.get("runtime")
         updated = dict(runtime) if isinstance(runtime, dict) else {}
@@ -128,7 +128,7 @@ def write_theme(config: Config, theme: str, path: Path | None = None) -> Path:
     if theme not in THEME_VALUES:
         raise ValueError(f"Geçersiz tema: {theme}. Seçenekler: {', '.join(THEME_VALUES)}")
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         runtime = existing.get("runtime")
         updated = dict(runtime) if isinstance(runtime, dict) else {}
@@ -173,7 +173,7 @@ def write_runtime_flag(config: Config, key: str, value: bool, path: Path | None 
             f"Bilinmeyen runtime bayrağı: {key}. Seçenekler: {', '.join(_BOOLEAN_RUNTIME_FLAGS)}"
         )
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         runtime = existing.get("runtime")
         updated = dict(runtime) if isinstance(runtime, dict) else {}
@@ -194,7 +194,7 @@ def write_workflow_mode(config: Config, mode: str, path: Path | None = None) -> 
             f"Geçersiz plan kipi: {mode}. Seçenekler: {', '.join(WORKFLOW_MODE_VALUES)}"
         )
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         runtime = existing.get("runtime")
         updated = dict(runtime) if isinstance(runtime, dict) else {}
@@ -211,7 +211,7 @@ APPROVAL_MODE_VALUES = ("auto", "edits", "security", "plan")
 
 def _write_runtime_value(config: Config, key: str, value: str, path: Path | None) -> Path:
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         runtime = existing.get("runtime")
         updated = dict(runtime) if isinstance(runtime, dict) else {}
@@ -245,7 +245,7 @@ def write_provider(config: Config, provider: str, path: Path | None = None) -> P
     Yalnızca bu anahtar güncellenir; `runtime`ın diğer ayarları korunur.
     """
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         runtime = existing.get("runtime")
         updated = dict(runtime) if isinstance(runtime, dict) else {}
@@ -258,7 +258,7 @@ def write_provider(config: Config, provider: str, path: Path | None = None) -> P
 def write_web_sessions(config: Config, path: Path | None = None) -> Path:
     """Web sağlayıcı tanımlarını yaz; cookie/token değerlerini ASLA yazma."""
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         existing["web_sessions"] = [
             {
@@ -299,7 +299,7 @@ def write_hosted_connectors(config: Config, path: Path | None = None) -> Path:
     sağlayıcı oturumunda bağlı olduğu ve ölçümün geçip geçmediğidir.
     """
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         existing["hosted_connectors"] = [
             {
@@ -323,7 +323,7 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
     genel dosya araçlarına asla verilmez (§ güvenlik sınırı, docs/WEB_PROVIDERS.md).
     """
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         existing["mcp_servers"] = [
             {
@@ -409,12 +409,12 @@ def _spec_to_dict(spec: ModelSpec) -> dict[str, object]:
 
 
 @contextmanager
-def _config_lock(path: Path) -> Iterator[None]:
+def config_lock(path: Path) -> Iterator[None]:
     """Aynı config hedefindeki tüm read-modify-write işlemini süreçler arası kilitle."""
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.with_name(f".{path.name}.lock")
     if _fcntl is None:  # pragma: no cover - yalnız POSIX dışı güvenli fallback
-        with _fallback_config_lock(lock_path.with_suffix(f"{lock_path.suffix}.fallback")):
+        with _fallbackconfig_lock(lock_path.with_suffix(f"{lock_path.suffix}.fallback")):
             yield
         return
 
@@ -437,7 +437,7 @@ def _config_lock(path: Path) -> Iterator[None]:
 
 
 @contextmanager
-def _fallback_config_lock(lock_path: Path) -> Iterator[None]:
+def _fallbackconfig_lock(lock_path: Path) -> Iterator[None]:
     """`flock` yoksa atomik lock-file oluştur; belirsizlikte veri kaybı yerine hata ver."""
     deadline = time.monotonic() + 10.0
     descriptor: int | None = None
@@ -470,6 +470,8 @@ def _atomic_write(path: Path, data: dict[str, object]) -> None:
     try:
         with os.fdopen(handle, "w", encoding="utf-8") as stream:
             stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
         temporary.replace(path)
     except OSError as exc:
         temporary.unlink(missing_ok=True)

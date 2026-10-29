@@ -130,3 +130,59 @@ def test_wizard_yerel_saglayiciyi_sunmaz(tmp_path):
     assert "ollama" not in kimlikler
     assert "chatgpt_web" not in kimlikler
     assert "openai" in kimlikler
+
+
+# --- L2-04: atomik yazım, kilit, bozuk içerik ------------------------------ #
+
+
+def test_yazma_yarida_cokerse_eski_depo_bozulmaz(tmp_path, monkeypatch):
+    store = _store(tmp_path)
+    store.set("A", "1")
+    onceki = (tmp_path / "secrets.enc").read_bytes()
+
+    def coker(*args, **kwargs):
+        raise OSError("disk dolu")
+
+    monkeypatch.setattr("fusion_cli.config.credentials.os.fsync", coker)
+    with pytest.raises(ConfigError, match="yazılamadı"):
+        store.set("B", "2")
+
+    assert (tmp_path / "secrets.enc").read_bytes() == onceki
+    assert store.get("A") == "1"
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_yazimdan_once_bak_kopyasi_alinir(tmp_path):
+    store = _store(tmp_path)
+    store.set("A", "1")
+    ilk = (tmp_path / "secrets.enc").read_bytes()
+    store.set("B", "2")
+
+    assert (tmp_path / "secrets.enc.bak").read_bytes() == ilk
+
+
+def test_eszamanli_yazimlar_birbirini_ezmez(tmp_path):
+    import threading
+
+    isimler = [f"K{i}" for i in range(12)]
+
+    def yaz(isim):
+        _store(tmp_path).set(isim, "v")
+
+    kanallar = [threading.Thread(target=yaz, args=(isim,)) for isim in isimler]
+    for kanal in kanallar:
+        kanal.start()
+    for kanal in kanallar:
+        kanal.join()
+
+    assert set(_store(tmp_path).list_names()) == set(isimler)
+
+
+@pytest.mark.parametrize("icerik", [b"{bozuk", b"[1, 2]", b'"yazi"', b"\xff\xfe"])
+def test_cozulen_icerik_bozuksa_config_error(tmp_path, icerik):
+    store = _store(tmp_path)
+    token = store._fernet().encrypt(icerik)  # type: ignore[attr-defined]
+    (tmp_path / "secrets.enc").write_bytes(token)
+
+    with pytest.raises(ConfigError, match="bozuk"):
+        store.list_names()

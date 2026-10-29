@@ -26,10 +26,14 @@ import base64
 import contextlib
 import hashlib
 import json
+import os
+import shutil
+import tempfile
 from collections.abc import MutableMapping
 from pathlib import Path
 
 from ..core.errors import ConfigError
+from .writer import config_lock
 
 
 class FernetSecretStore:
@@ -71,22 +75,54 @@ class FernetSecretStore:
             raise ConfigError(
                 "Sır deposu çözülemedi: FUSION_SECRET_KEY değişmiş ya da dosya bozuk olabilir."
             ) from hata
-        parsed = json.loads(plain.decode())
+        # Çözülen içerik JSON sözlüğü değilse ham `JSONDecodeError`/`AttributeError`
+        # `load_config` üzerinden HER komutu çökertirdi; `ConfigError`'a çevrilir (L2-04).
+        try:
+            parsed = json.loads(plain.decode())
+        except (ValueError, UnicodeError) as hata:
+            raise ConfigError(
+                "Sır deposu içeriği bozuk (JSON okunamadı); önceki sürüm .bak dosyasındadır."
+            ) from hata
+        if not isinstance(parsed, dict):
+            raise ConfigError("Sır deposu içeriği bozuk (sözlük değil).")
         return {str(key): str(value) for key, value in parsed.items()}
 
     def _save(self, data: dict[str, str]) -> None:
+        """Atomik yaz: geçici dosya + fsync + `os.replace`; öncesinde `.bak` kopyası.
+
+        Doğrudan `write_bytes` yazma sırasında çökmede/disk dolunca dosyayı keserdi ve
+        sonraki okuma `InvalidToken` verip TÜM anahtarları kaybettirirdi (L2-04).
+        """
         token = self._fernet().encrypt(json.dumps(data).encode())  # type: ignore[attr-defined]
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_bytes(token)
-        # Windows veya kısıtlı dosya sistemlerinde şifreleme yine koruma sağlar.
-        with contextlib.suppress(OSError):
-            self._path.chmod(0o600)
+        if self._path.is_file():
+            with contextlib.suppress(OSError):
+                shutil.copy2(self._path, self._path.with_name(self._path.name + ".bak"))
+        handle, name = tempfile.mkstemp(dir=str(self._path.parent), suffix=".tmp")
+        temporary = Path(name)
+        try:
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(token)
+                stream.flush()
+                os.fsync(stream.fileno())
+            # Windows veya kısıtlı dosya sistemlerinde şifreleme yine koruma sağlar.
+            with contextlib.suppress(OSError):
+                temporary.chmod(0o600)
+            temporary.replace(self._path)
+        except OSError as hata:
+            temporary.unlink(missing_ok=True)
+            raise ConfigError(f"Sır deposu yazılamadı ({self._path}): {hata}") from hata
 
     def set(self, env_name: str, value: str) -> None:
-        """Bir ortam değişkeni sırrını şifreleyip sakla (üzerine yazar)."""
-        data = self._load()
-        data[env_name] = value
-        self._save(data)
+        """Bir ortam değişkeni sırrını şifreleyip sakla (üzerine yazar).
+
+        Oku-değiştir-yaz süreçler arası kilitlidir: CLI ile masaüstü aynı anda
+        eklerse biri ötekini ezmez.
+        """
+        with config_lock(self._path):
+            data = self._load()
+            data[env_name] = value
+            self._save(data)
 
     def get(self, env_name: str) -> str | None:
         """Sırrı çöz; yoksa None."""
@@ -94,12 +130,13 @@ class FernetSecretStore:
 
     def delete(self, env_name: str) -> bool:
         """Sırrı sil. Vardıysa True."""
-        data = self._load()
-        if env_name not in data:
-            return False
-        del data[env_name]
-        self._save(data)
-        return True
+        with config_lock(self._path):
+            data = self._load()
+            if env_name not in data:
+                return False
+            del data[env_name]
+            self._save(data)
+            return True
 
     def list_names(self) -> tuple[str, ...]:
         """Saklanan ortam değişkeni adları (DEĞERLER döndürülmez)."""
