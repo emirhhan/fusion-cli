@@ -72,3 +72,39 @@ def test_ayri_kanit_is_akisi_etikette_yayin_kaniti_uretmez():
 
     assert "push" not in tetik
     assert "workflow_dispatch" in tetik
+
+
+def test_pty_testleri_ayri_kisa_sureli_ve_sert_basarisiz_olan_isle_kosar():
+    """Q1-02: `terminal::tests::` üç platformda `--skip` ile atlanıyor, kapsama SIFIRdı.
+
+    Ölçüldü (30 Ekim): hem `desktop.yml` hem `package.json:check:ci` 13 PTY/terminal
+    testini atlıyordu. Testler artık ayrı `terminal-pty` matris işinde koşar: süre
+    sınırı kısa, `continue-on-error` yok (kırmızı kırmızı görünür). İş yayın
+    kapısı DEĞİLDİR (`release.needs` dışında): bilinen runner asılması sürüm
+    üretimini yeniden bloklamasın; karar raporda işaretlidir.
+    """
+    desktop = _yukle("desktop.yml")
+    is_ = desktop["jobs"]["terminal-pty"]
+
+    assert is_["timeout-minutes"] <= 45
+    assert is_["strategy"]["fail-fast"] is False
+    runners = set(is_["strategy"]["matrix"]["runner"])
+    assert {"macos-15", "macos-15-intel", "windows-latest"} <= runners
+    kosan = [s for s in is_["steps"] if "check:pty" in str(s.get("run", ""))]
+    assert kosan and all(0 < s["timeout-minutes"] <= 15 for s in kosan)
+    assert all("--skip" not in str(s["run"]) for s in kosan)
+    assert "continue-on-error" not in (_WORKFLOWS / "desktop.yml").read_text(encoding="utf-8")
+    assert "terminal-pty" not in desktop["jobs"]["release"]["needs"]
+
+
+def test_check_ci_atlamasi_pty_isiyle_tutarli():
+    """Atlanan şey `check:ci`de kalır ama PTY işi aynı modülü çalıştırır."""
+    import json
+
+    paket = json.loads(
+        (_WORKFLOWS.parents[1] / "app" / "package.json").read_text(encoding="utf-8")
+    )["scripts"]
+
+    assert "--skip terminal::tests::" in paket["check:ci"]
+    assert paket["check:pty"].endswith("cargo test terminal::tests::")
+    assert "--skip" not in paket["check:pty"]

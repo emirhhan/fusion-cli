@@ -33,6 +33,42 @@ jobs:
           name: fusion-terminal
           path: terminal-dist/*
           if-no-files-found: error
+  # PTY/terminal testleri (Q1-02). `check:ci` bu 13 testi atlıyor (runner'da asılıyor);
+  # eskiden kapsama SIFIRdı. Burada ayrı koşar: derleme ile çalıştırma ayrı adımlar,
+  # her birinin süre sınırı var, asılan test iş sınırını beklemeden düşer.
+  # Bu iş `release.needs` dışındadır (bilinçli karar): bilinen runner asılması
+  # sürüm üretimini yeniden bloklamasın. Kırmızı olduğunda PR/push'ta görünür;
+  # asılma kök nedeni çözülünce `release.needs`e eklenmelidir.
+  terminal-pty:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel, windows-latest]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      # tauri_build `frontendDist` (../dist) klasörünü ister; check:ci ile aynı hazırlık.
+      - name: Ön yüz bağımlılıklarını kur ve derle
+        working-directory: app
+        run: |
+          npm ci
+          npm run build
+      - name: PTY testlerini derle
+        timeout-minutes: 25
+        working-directory: app/src-tauri
+        run: cargo test --no-run
+      - name: PTY testlerini çalıştır
+        # Aynı testler yerelde ~1 sn'de biter; 10 dakika asılmayı görünür kılar.
+        timeout-minutes: 10
+        working-directory: app
+        run: npm run check:pty
   macos:
     strategy:
       fail-fast: false
@@ -91,9 +127,9 @@ jobs:
         #    runner ortamına özgü ve `wait_for_output` zaten 5 saniyeyle sınırlı,
         #    yani takılma beklemede değil PTY kurulumunda/temizliğinde.
         #
-        # Bu bir gevşemedir ve bilinçlidir: o iş zaten hiç tamamlanmadığı için
-        # bugün CI kapsaması SIFIR. Atlamak kapsama kaybettirmiyor, üç platformun
-        # güncelleme almasını sağlıyor. Kök neden ayrı görev olarak açık.
+        # Atlanan testler artık `terminal-pty` işinde (aşağıda) koşar: kısa süre
+        # sınırlı, yayın kapısı DEĞİL ama kırmızıysa görünür (Q1-02). Kök neden
+        # (runner'da PTY asılması) hâlâ açık.
         run: npm run check:ci
       - name: Native runtime ve uygulama paketini üret
         # Hiçbir adım 6 saatlik iş sınırını yakmamalı. Ölçüldü (Windows,
@@ -204,9 +240,9 @@ jobs:
         #    runner ortamına özgü ve `wait_for_output` zaten 5 saniyeyle sınırlı,
         #    yani takılma beklemede değil PTY kurulumunda/temizliğinde.
         #
-        # Bu bir gevşemedir ve bilinçlidir: o iş zaten hiç tamamlanmadığı için
-        # bugün CI kapsaması SIFIR. Atlamak kapsama kaybettirmiyor, üç platformun
-        # güncelleme almasını sağlıyor. Kök neden ayrı görev olarak açık.
+        # Atlanan testler artık `terminal-pty` işinde (aşağıda) koşar: kısa süre
+        # sınırlı, yayın kapısı DEĞİL ama kırmızıysa görünür (Q1-02). Kök neden
+        # (runner'da PTY asılması) hâlâ açık.
         run: npm run check:ci
       - name: Native runtime ve uygulama kurucusunu üret
         # Hiçbir adım 6 saatlik iş sınırını yakmamalı. Ölçüldü (Windows,
