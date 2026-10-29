@@ -140,7 +140,11 @@ class PairingService:
             return False
 
     def reject(self, code: str) -> bool:
-        return self._pending.pop(code.strip().upper(), None) is not None
+        pending = self._pending.pop(code.strip().upper(), None)
+        if pending is not None and pending.approved_device is not None:
+            # Kod onay beklemeden onaylanmış olabilir: reddedilen eşleşmenin cihazı kalmaz.
+            self._registry.revoke(pending.approved_device.device_id)
+        return pending is not None
 
     def claim(self, code: str, claim_key: str = "") -> Device | None:
         """Onaylıysa cihaz bilgisini verir; onay bekleniyorsa `None`.

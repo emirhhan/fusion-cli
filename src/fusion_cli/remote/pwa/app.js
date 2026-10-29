@@ -72,7 +72,15 @@ async function pair() {
         say(`Masaüstünde Fusion → Uzaktan Erişim’den bu cihazı onayla (${left} sn)…`);
         await new Promise((r) => setTimeout(r, PAIR_POLL_MS));
       }
-      const claimed = await postJson("/v1/pair/claim", { code, claimKey });
+      let claimed;
+      try {
+        claimed = await postJson("/v1/pair/claim", { code, claimKey });
+      } catch {
+        // Yanıt ağda kayboldu: aynı teslim anahtarıyla yeniden sorulur, aynı cihaz gelir.
+        say("Bağlantı koptu, eşleştirme yeniden deneniyor…");
+        waiting = true;
+        continue;
+      }
       if (claimed.status === 429) return say("Çok fazla deneme. Birkaç dakika bekleyip tekrar dene.", "danger");
       if (claimed.status !== 200) return say(claimed.body.message || "Eşleştirme başarısız.", "danger");
       if (claimed.body.state === "onaylandi") return await finishPairing(claimed.body);

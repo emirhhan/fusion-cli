@@ -51,10 +51,20 @@ async function run(width, height) {
   await context.setOffline(false);
   step("ağ kopması: 'ulaşılamıyor' mesajı, yeniden denenebilir");
 
-  // 4) doğru kod: otomatik onay, bağlanır
+  // 4) doğru kod: otomatik onay, bağlanır. İlk claim yanıtı ağda kaybolur (sunucu işler,
+  // telefon göremez): telefon aynı teslim anahtarıyla yeniden sorar ve aynı cihazı alır.
+  let lostOnce = false;
+  await page.route("**/v1/pair/claim", async (route) => {
+    if (lostOnce) return route.continue();
+    lostOnce = true;
+    await route.fetch();
+    await route.abort("connectionreset");
+  });
   await page.locator("#kod").fill(await newCode());
   await page.locator("#eslestirDugme").click();
   await page.locator("#uygulama").waitFor({ state: "visible", timeout: 15000 });
+  assert.equal(lostOnce, true);
+  await page.unroute("**/v1/pair/claim");
   await page.screenshot({ path: `${shots}/${tag}-03-baglandi.png` });
   step("doğru kod desktop onayı beklemeden bağlar");
 

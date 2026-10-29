@@ -107,3 +107,13 @@ def test_son_saniyede_onaylanan_kodun_teslim_suresi_kod_suresinden_bagimsiz(tmp_
     cihaz = service.claim(code, claim_key=_ANAHTAR)
 
     assert cihaz is not None and registry.active(cihaz.device_id) is not None
+
+
+def test_onaylanmis_eslesmeyi_reddetmek_cihazi_birakmaz(tmp_path):
+    service, registry, _clock, code = _kur(tmp_path)
+    cihaz = service.claim(code, claim_key=_ANAHTAR)
+    assert cihaz is not None
+
+    assert service.reject(code)
+
+    assert registry.active(cihaz.device_id) is None
