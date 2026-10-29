@@ -46,12 +46,46 @@ def godot_has_main_scene(root: Path) -> bool:
     return False
 
 
+_RES_YOLU = re.compile(r'res://(?P<yol>[^"\']+)')
+_UID_DEGERI = re.compile(r'(?P<uid>uid://[^"\'\s]+)')
+_SAHNE_UID_BASLIGI = re.compile(r'^\[gd_scene\b[^\]]*\buid="(?P<uid>uid://[^"]+)"')
+
+
 def _declared_main_scene_exists(root: Path, line: str) -> bool:
-    """`run/main_scene` satırındaki sahne dosyası diskte var mı?"""
-    eslesme = re.search(r'res://(?P<yol>[^"\']+)', line)
-    if eslesme is None:
+    """`run/main_scene` satırındaki sahne dosyası diskte var mı?
+
+    Ölçüldü (29 Ekim): Godot 4.x `run/main_scene="uid://..."` yazabilir; yalnız
+    `res://` tanıyan eşleme geçerli projeyi "ana sahne yok" diye reddediyordu.
+    uid, sahne dosyasının `[gd_scene ... uid="uid://..."]` başlığında çözülür
+    (motorun `.godot/uid_cache.bin` önbelleği kullanılmaz, editör açılmamış
+    projede yoktur).
+    """
+    eslesme = _RES_YOLU.search(line)
+    if eslesme is not None:
+        return (root / eslesme.group("yol").strip()).is_file()
+    uid = _UID_DEGERI.search(line)
+    if uid is None:
         return False
-    return (root / eslesme.group("yol").strip()).is_file()
+    return _scene_with_uid_exists(root, uid.group("uid"))
+
+
+def _scene_with_uid_exists(root: Path, uid: str) -> bool:
+    """Proje içinde başlığı bu uid'i taşıyan bir `.tscn` var mı?"""
+    for path in root.rglob("*.tscn"):
+        if any(
+            part in SKIP_DIRECTORIES or part.startswith(".")
+            for part in path.relative_to(root).parts
+        ):
+            continue
+        try:
+            with path.open(encoding="utf-8", errors="replace") as handle:
+                ilk = handle.readline()
+        except OSError:
+            continue
+        baslik = _SAHNE_UID_BASLIGI.match(ilk)
+        if baslik is not None and baslik.group("uid") == uid:
+            return True
+    return False
 
 
 def godot_needs_import(root: Path) -> bool:

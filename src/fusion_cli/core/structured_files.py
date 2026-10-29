@@ -159,15 +159,25 @@ def _godot_kaynak_denetle(content: str) -> str | None:
     return None
 
 
+#: Godot 4 editörünün `project.godot` başına bölümsüz yazdığı tek anahtar.
+_GODOT_BOLUMSUZ_ANAHTAR = re.compile(r"^config_version\s*=\s*\d+$")
+
+
 def _godot_proje_denetle(content: str) -> str | None:
     """`project.godot` — anahtarlar bir bölüm başlığından SONRA gelmeli.
 
     Ölçüldü: bölümsüz yazılan `run/main_scene` görmezden geliniyor ve Godot
     "no main scene defined in the project" diyor.
+
+    Ölçüldü (29 Ekim): Godot 4'ün kendi yazdığı dosya `config_version=5` anahtarını
+    bölüm başlığından ÖNCE taşır; bu satır hata sayılınca geçerli bir proje
+    reddediliyordu. Yalnız bu anahtar muaftır.
     """
     for satir in _anlamli_satirlar(content):
         if _BOLUM.match(satir):
             return None
+        if _GODOT_BOLUMSUZ_ANAHTAR.match(satir):
+            continue
         if "=" in satir:
             # Düzeltme TARİF EDİLMEZ, GÖSTERİLİR: ölçüldü, model tarifi okuyup
             # aynı içeriği üç kez yeniden gönderdi. Mekanik bir talimat
