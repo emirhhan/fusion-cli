@@ -123,10 +123,15 @@ def next_run(spec: dict[str, Any], after: datetime) -> float | None:
         raise ScheduleError("Bilinmeyen zamanlama türü.")
     hour, minute = _clock(spec.get("saat"))
     days = _weekdays(spec.get("gunler")) if kind == KIND_WEEKLY else frozenset(range(7))
-    candidate = after.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    # Duvar saati yerel saatte, ofset HER GÜN için ayrı hesaplanır. Ölçüldü (29 Ekim):
+    # `astimezone()` sabit ofset verir; gün eklemek ofseti korur ve yaz saatine geçilen
+    # bölgede 09:00 görevi ertesi gün yerel 10:00'da çalışıyordu.
+    local = after.astimezone().replace(tzinfo=None)
+    candidate = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
     for offset in range(8):
-        moment = candidate + timedelta(days=offset)
-        if moment > after and moment.weekday() in days:
+        wall = candidate + timedelta(days=offset)
+        moment = wall.astimezone()  # saf yerel saat → o günün gerçek ofseti
+        if moment > after and wall.weekday() in days:
             return moment.timestamp()
     raise ScheduleError("Sıradaki çalışma hesaplanamadı.")
 
