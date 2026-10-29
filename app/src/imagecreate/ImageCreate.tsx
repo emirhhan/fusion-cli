@@ -275,7 +275,7 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
           <button aria-pressed={mod === "akis"} onClick={() => setMod("akis")} aria-label="İş akışı" type="button"><span className="image-create__desktop-label">İş akışı</span><span className="image-create__mobile-only">Akış</span></button>
         </div>
       </header>
-      {persistentJobs && <ImageJobPanel state={imageJobs.state} onRecover={(jobId, cancel) => { void imageJobs.recover(jobId, cancel); }} onRetry={imageJobs.retry} onEmptyFocus={() => {
+      {persistentJobs && <ImageJobPanel state={imageJobs.state} onRecover={(jobId, cancel) => { void imageJobs.recover(jobId, cancel); }} onRetry={imageJobs.retry} onForget={(jobId) => { void imageJobs.forget(jobId); }} onEmptyFocus={() => {
         const target = section.current?.querySelector<HTMLButtonElement>('.image-create__go:not(:disabled), .image-create__run:not(:disabled)')
           ?? section.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
         target?.focus();

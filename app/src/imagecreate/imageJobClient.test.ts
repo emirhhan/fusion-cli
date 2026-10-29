@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { observeImageJob } from "./imageJobClient";
+import { cancelImageJob, observeImageJob } from "./imageJobClient";
 
 const output = { ok: true, jobId: "stable", state: "completed", dosyalar: [{ yol: "/gallery/a.png", genislik: 12, yukseklik: 7, sha256: "a".repeat(64) }] };
 const fast = { intervalMs: 0, requestTimeoutMs: 20, maxPolls: 3 };
@@ -85,4 +85,21 @@ it("iptal yanıtı doğrulanmadan durdu sonucu üretmez", async () => {
   expect(await cancelImageJob(request, "stable", fast)).toMatchObject({ state: "cancelled" });
   expect(request.mock.calls[0][0]).toBe("gorsel.is.iptal");
   expect(await cancelImageJob(vi.fn().mockRejectedValue(new Error("offline")), "stable", fast)).toMatchObject({ state: "recoveryRequired" });
+});
+
+// Ölçüldü (29 Ekim, U3-08): sunucu bilinmeyen iş için {ok:false, code:"job_not_found"} döner;
+// istemci bunu kimliksiz sayıp 1200 tur (~20 dk) boyunca "izleniyor" bırakıyor, kullanıcı
+// işin gerçekten kayıtsız olduğunu hiç öğrenemiyordu.
+describe("bilinmeyen iş", () => {
+  it("yalnız gözlemde job_not_found hemen döner ve kodu korur", async () => {
+    const request = vi.fn().mockResolvedValue({ ok: false, code: "job_not_found", metin: "Bu kapsamda görsel işi bulunamadı." });
+    const result = await observeImageJob(request, "stable", { ...fast, maxPolls: 50 });
+    expect(result).toMatchObject({ ok: false, jobId: "stable", state: "recoveryRequired", code: "job_not_found" });
+    expect(request).toHaveBeenCalledOnce();
+    expect(result.metin).toMatch(/bulunamadı/);
+  });
+  it("iptalde job_not_found kodu korunur", async () => {
+    const request = vi.fn().mockResolvedValue({ ok: false, code: "job_not_found" });
+    expect(await cancelImageJob(request, "stable", fast)).toMatchObject({ state: "recoveryRequired", code: "job_not_found" });
+  });
 });

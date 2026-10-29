@@ -2,9 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ImageJobControllerState } from "./imageJobController";
 
 const LABELS: Record<string, string> = { accepted: "Kabul edildi", running: "Üretiliyor", recoveryRequired: "Sonucu kontrol et", completed: "Tamamlandı", failed: "Üretilemedi", cancelled: "Durduruldu" };
-export function ImageJobPanel({ state, onRecover, onRetry, onEmptyFocus }: { state: ImageJobControllerState; onRecover: (jobId: string, cancel: boolean) => void; onRetry: () => void; onEmptyFocus: () => void }) {
+export function ImageJobPanel({ state, onRecover, onRetry, onForget, onEmptyFocus }: { state: ImageJobControllerState; onRecover: (jobId: string, cancel: boolean) => void; onRetry: () => void; onForget?: (jobId: string) => void; onEmptyFocus: () => void }) {
   const panel = useRef<HTMLElement>(null);
   const focused = useRef<HTMLElement | null>(null);
+  const [forgetting, setForgetting] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     const present = new Set(state.jobs.map((job) => job.jobId));
@@ -32,6 +33,9 @@ export function ImageJobPanel({ state, onRecover, onRetry, onEmptyFocus }: { sta
       <div className="image-create__job-actions">
         <button aria-label={job.busy ? "İzleniyor…" : "Durumu kontrol et"} disabled={job.busy} type="button" onClick={() => onRecover(job.jobId, false)}><span className="image-create__desktop-label">{job.busy ? "İzleniyor…" : "Durumu kontrol et"}</span><span className="image-create__mobile-only">{job.busy ? "İzleniyor…" : "Kontrol et"}</span></button>
         <button aria-label={job.stopping ? "Durduruluyor…" : "Üretimi durdur"} disabled={job.stopping} type="button" onClick={() => onRecover(job.jobId, true)}><span className="image-create__desktop-label">{job.stopping ? "Durduruluyor…" : "Üretimi durdur"}</span><span className="image-create__mobile-only">{job.stopping ? "Durduruluyor…" : "Durdur"}</span></button>
+        {job.notFound && onForget && !job.busy && (forgetting === job.jobId
+          ? <><button type="button" onClick={() => { setForgetting(null); onForget(job.jobId); }}>Evet, unut</button><button type="button" onClick={() => setForgetting(null)}>Vazgeç</button></>
+          : <button type="button" onClick={() => setForgetting(job.jobId)}>Bu işi unut</button>)}
       </div>
       <div className="image-create__job-detail image-create__mobile-only" id={`image-job-detail-${job.jobId}`}>
         <code>{job.jobId}</code><p>Durumu kontrol etmek aynı işi izler, yeni görsel üretmez. Durdurma temizliği bitene kadar iş kapanmış sayılmaz; sağlayıcıda oluşmuş kullanım geri alınmaz.</p>

@@ -58,3 +58,20 @@ it("sahibi kapanınca geç sonuç UI'ye yazılmaz ve belirsiz kimlik korunur", a
   expect(notify).toHaveBeenCalledTimes(calls);
   expect(journal.read()).toEqual(["new-job"]);
 });
+it("sunucuda bulunmayan iş yalnız bulunamadığı doğrulanınca unutulabilir", async () => {
+  const journal = new ImageJobJournal(localStorage, "scope");
+  journal.add("ghost");
+  const request = vi.fn(async (name: string) => name === "gorsel.is.liste" ? page : { ok: false, code: "job_not_found", metin: "Bu kapsamda görsel işi bulunamadı." });
+  const controller = new ImageJobController(request, journal, () => {});
+  await controller.initialize();
+  // Henüz kontrol edilmedi: sunucu sessiz olabilir, iş canlı olabilir; unutmak izinli değil.
+  await expect(controller.forget("ghost")).rejects.toThrow(/doğrulan/);
+  expect(journal.read()).toEqual(["ghost"]);
+  await controller.observe("ghost");
+  expect(controller.state.jobs[0]).toMatchObject({ jobId: "ghost", state: "recoveryRequired", notFound: true });
+  await controller.forget("ghost");
+  expect(journal.read()).toEqual([]);
+  expect(controller.state.jobs).toEqual([]);
+  // Engel kalktı: yeni üretim başlatılabilir.
+  await expect(controller.start({ istem: "yeni" })).resolves.toBeDefined();
+});

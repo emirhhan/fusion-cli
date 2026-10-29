@@ -14,7 +14,16 @@ export interface ImageJobObservation {
 const STATES = new Set(["accepted", "running", "completed", "failed", "cancelled", "recoveryRequired"]);
 const ACTIVE = new Set(["accepted", "running"]);
 
-function uncertain(jobId: string, stopped = false): Payload {
+/** Sunucunun "bu kapsamda böyle bir iş yok" kesin cevabı (image_jobs.status). */
+const notFound = (payload: Payload | undefined): boolean => payload?.ok === false && payload.code === "job_not_found";
+
+function uncertain(jobId: string, stopped = false, missing = false): Payload {
+  if (missing) {
+    return {
+      ok: false, jobId, state: "recoveryRequired", code: "job_not_found",
+      metin: "Bu kapsamda görsel işi bulunamadı. Sunucuda kaydı yoksa bu işi unutup yeni üretim başlatabilirsin.",
+    };
+  }
   return {
     ok: false, jobId, state: "recoveryRequired",
     code: stopped ? "observation_stopped" : "observation_lost",
@@ -96,11 +105,12 @@ export async function observeImageJob(request: IstekFn, jobId: string, options: 
   for (let index = 0; index < polls; index++) {
     if (options.signal?.aborted) return uncertain(jobId, true);
     if (response !== undefined) {
-      if (!valid(response, jobId)) return uncertain(jobId);
+      if (!valid(response, jobId)) return uncertain(jobId, false, notFound(response));
       options.onState?.(response);
       if (!ACTIVE.has(String(response.state))) return response;
     }
     response = await bounded(() => request("gorsel.is.durum", { jobId }), timeout, options.signal);
+    if (notFound(response)) return uncertain(jobId, false, true);
     // Son sorgunun terminal cevabı da bütçe dolmadan işlenir.
     if (response !== undefined && valid(response, jobId) && !ACTIVE.has(String(response.state))) {
       options.onState?.(response);
@@ -115,7 +125,7 @@ export async function cancelImageJob(request: IstekFn, jobId: string, options: I
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(jobId)) return uncertain(jobId);
   const response = await bounded(() => request("gorsel.is.iptal", { jobId }), options.requestTimeoutMs ?? 10000, options.signal);
   return response !== undefined && valid(response, jobId) && !ACTIVE.has(String(response.state))
-    ? response : uncertain(jobId, options.signal?.aborted);
+    ? response : uncertain(jobId, options.signal?.aborted, notFound(response));
 }
 
 export interface ImageJobSummary { jobId: string; state: string }
