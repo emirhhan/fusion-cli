@@ -28,6 +28,8 @@ from .paths import user_config_dir
 PROJECT_CONFIG_NAME = "config.yaml"
 #: Fusion'ın ürettiği araçların proje altındaki dizini (`tools/forge.py` ile aynı).
 FORGED_TOOLS_DIR = Path(".fusion") / "tools"
+#: Claude Code'un proje-yerel izin dosyası; `Bash(...)` girdileri onaysız komut sayılır (L2-02).
+PROJECT_PERMISSIONS_PATH = Path(".claude") / "settings.local.json"
 _STORE_NAME = "trusted-projects.json"
 _SCHEMA_VERSION = 1
 
@@ -65,6 +67,24 @@ def resolve_project_trust(root: Path) -> TrustState:
     return TrustState(True, REASON_TRUSTED)
 
 
+def is_permissions_trusted(root: Path) -> bool:
+    """`.claude/settings.local.json` güvenildiği andaki içerikle mi duruyor?
+
+    Dosya yoksa güvenilecek bir şey yoktur (True). Dosya varsa kayıtta onun karması
+    bulunmalı ve eşleşmelidir; `fusion trust` öncesinde yazılmış kayıtlarda alan
+    olmadığından dosya yeniden güvenilene kadar yok sayılır.
+    """
+    path = root / PROJECT_PERMISSIONS_PATH
+    try:
+        current = _digest(path)
+    except ConfigError:
+        return False
+    if current is None:
+        return True
+    record = _load().get(_key(root))
+    return record is not None and record.get("settings_sha256") == current
+
+
 def without_execution_settings(
     data: Mapping[str, object],
 ) -> tuple[dict[str, object], tuple[str, ...]]:
@@ -89,7 +109,12 @@ def trust_project(root: Path) -> None:
         digest = _digest(path)
         if digest is not None:
             files[_relative(root, path)] = digest
-    _update(root, config_sha256=_digest(root / PROJECT_CONFIG_NAME), files=files)
+    _update(
+        root,
+        config_sha256=_digest(root / PROJECT_CONFIG_NAME),
+        files=files,
+        settings_sha256=_digest(root / PROJECT_PERMISSIONS_PATH),
+    )
 
 
 def approve_file(root: Path, path: Path) -> None:
@@ -103,7 +128,12 @@ def approve_file(root: Path, path: Path) -> None:
         return
     record = _load().get(_key(root), {})
     files = {**record.get("files", {}), _relative(root, path): digest}
-    _update(root, config_sha256=record.get("config_sha256"), files=files)
+    _update(
+        root,
+        config_sha256=record.get("config_sha256"),
+        files=files,
+        settings_sha256=record.get("settings_sha256"),
+    )
 
 
 def is_file_trusted(root: Path, path: Path, content: bytes | None = None) -> bool:
@@ -124,9 +154,16 @@ def is_file_trusted(root: Path, path: Path, content: bytes | None = None) -> boo
         return False
 
 
-def _update(root: Path, *, config_sha256: str | None, files: dict[str, str]) -> None:
+def _update(
+    root: Path,
+    *,
+    config_sha256: str | None,
+    files: dict[str, str],
+    settings_sha256: str | None = None,
+) -> None:
     store = _load()
-    _save({**store, _key(root): {"config_sha256": config_sha256, "files": files}})
+    record = {"config_sha256": config_sha256, "files": files, "settings_sha256": settings_sha256}
+    _save({**store, _key(root): record})
 
 
 def _key(root: Path) -> str:

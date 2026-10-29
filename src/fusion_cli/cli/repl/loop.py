@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 from ...config import model_select, profile
 from ...config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
 from ...config.models import Config
+from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
 from ...core.events import (
     ErrorOccurred,
@@ -141,6 +142,8 @@ async def run_repl(
     if bildirim:
         console.print(bildirim)
         console.print()
+    if has_untrusted_permissions(state.root):
+        console.print(f"[{theme.WARN}]{messages.PERMISSIONS_UNTRUSTED}[/{theme.WARN}]")
     recent = history_view.render_recent(state.home, state.root)
     if recent:
         console.print(recent, highlight=False)

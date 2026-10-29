@@ -16,6 +16,7 @@ from collections.abc import Callable, Sequence
 from rich.console import Console
 
 from ...config.models import Config
+from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
 from ...core.tools import ToolContext
 from ...engines.agent.approval import ApprovalAnswer, ApprovalRequest
@@ -459,6 +460,8 @@ def _print_startup(session: _TuiSession, state: ReplState) -> None:
     bildirim = apprentice_switch_notice(state.config)
     if bildirim:
         session.tui.console.print(bildirim)
+    if has_untrusted_permissions(state.root):
+        session.tui.console.print(f"[{theme.WARN}]{messages.PERMISSIONS_UNTRUSTED}[/{theme.WARN}]")
     recent = history_view.render_recent(state.home, state.root)
     if recent:
         session.tui.console.print(recent, highlight=False)

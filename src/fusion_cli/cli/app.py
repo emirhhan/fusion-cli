@@ -410,10 +410,11 @@ def trust(
         Path, typer.Argument(help="Güvenilecek proje kökü (varsayılan: bulunduğun dizin).")
     ] = Path(),
 ) -> None:
-    """Projenin config.yaml ve .fusion/tools dosyalarına şu anki hâlleriyle güven.
+    """Projenin config.yaml, .fusion/tools ve .claude/settings.local.json dosyalarına güven.
 
-    Güvenilmeyen projede bu dosyalar MCP süreci, doğrulama komutu veya araç
-    çalıştıramaz. Dosyalar sonradan değişirse güven kendiliğinden düşer.
+    Güvenilmeyen projede bu dosyalar MCP süreci, doğrulama komutu, araç ya da
+    onaysız kabuk komutu (izin listesi) çalıştıramaz. Dosyalar sonradan değişirse
+    güven kendiliğinden düşer.
     """
     from ..config import trust as project_trust
 

@@ -16,10 +16,22 @@ from .fakes import make_config
 # --- İzin listesi -------------------------------------------------------------- #
 
 
-def _yaz(tmp_path, data):
+@pytest.fixture(autouse=True)
+def _guven_kaydi(tmp_path, monkeypatch):
+    """Güven kaydı testin tmp dizininde yaşar; gerçek kullanıcı kaydına dokunulmaz."""
+    from fusion_cli.config import trust
+
+    monkeypatch.setattr(trust, "trust_store_file", lambda: tmp_path / "guven.json")
+
+
+def _yaz(tmp_path, data, *, guven=True):
     path = tmp_path / ".claude"
     path.mkdir(exist_ok=True)
     (path / "settings.local.json").write_text(json.dumps(data), encoding="utf-8")
+    if guven:
+        from fusion_cli.config import trust
+
+        trust.trust_project(tmp_path)
 
 
 def test_bash_izinleri_okunur(tmp_path):
@@ -42,6 +54,9 @@ def test_bozuk_json_bos_liste(tmp_path):
     path = tmp_path / ".claude"
     path.mkdir()
     (path / "settings.local.json").write_text("{bozuk", encoding="utf-8")
+    from fusion_cli.config import trust
+
+    trust.trust_project(tmp_path)
 
     assert load_allowed_commands(tmp_path) == frozenset()
 
@@ -67,6 +82,56 @@ def test_yildizla_on_ek_eslesmesi():
 def test_yildizsiz_kalip_kismi_eslesmez():
     """Dar tutulur: 'rm' izni 'rm -rf /' anlamına gelmemeli."""
     assert not is_allowed("rm -rf /", frozenset({"rm"}))
+
+
+def test_guvenilmeyen_projenin_izin_listesi_yuklenmez(tmp_path):
+    """L2-02: indirilmiş depo `Bash(*)` taşısa da `fusion trust` olmadan onaysız komut yok."""
+    from fusion_cli.config.permissions import has_untrusted_permissions
+
+    _yaz(tmp_path, {"permissions": {"allow": ["Bash(*)", "Bash(curl *)"]}}, guven=False)
+
+    assert load_allowed_commands(tmp_path) == frozenset()
+    assert has_untrusted_permissions(tmp_path)
+
+
+def test_guvenden_sonra_degisen_izin_dosyasi_yeniden_guvensiz(tmp_path):
+    _yaz(tmp_path, {"permissions": {"allow": ["Bash(ls)"]}})
+    assert load_allowed_commands(tmp_path) == {"ls"}
+
+    _yaz(tmp_path, {"permissions": {"allow": ["Bash(ls)", "Bash(curl *)"]}}, guven=False)
+
+    assert load_allowed_commands(tmp_path) == frozenset()
+
+
+def test_config_guveni_eski_kayitta_izin_dosyasini_acmaz(tmp_path):
+    """Yalnız config için verilmiş eski güven kaydı izin dosyasını da güvenilir yapmaz."""
+    from fusion_cli.config import trust
+
+    trust.trust_project(tmp_path)  # izin dosyası henüz yok
+    _yaz(tmp_path, {"permissions": {"allow": ["Bash(curl *)"]}}, guven=False)
+
+    assert load_allowed_commands(tmp_path) == frozenset()
+
+
+def test_sozcuk_siniri_ve_kabuk_meta_karakteri():
+    allowed = frozenset({"git status *"})
+
+    assert is_allowed("git status", allowed)
+    assert is_allowed("git status --short", allowed)
+    assert not is_allowed("git statusfoo", allowed)
+    assert not is_allowed("git status; rm -rf ~", allowed)
+    assert not is_allowed("git status && curl x", allowed)
+    assert not is_allowed("git status | sh", allowed)
+    assert not is_allowed("git status $(id)", allowed)
+    assert not is_allowed("git status\nrm -rf ~", allowed)
+
+
+def test_eski_iki_nokta_yildiz_yazimi_eslesir():
+    allowed = frozenset({"npm run test:*"})
+
+    assert is_allowed("npm run test", allowed)
+    assert is_allowed("npm run test --watch", allowed)
+    assert not is_allowed("npm run testimony", allowed)
 
 
 # --- Onay politikası ile birlikte ---------------------------------------------- #
