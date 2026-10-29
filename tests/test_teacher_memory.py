@@ -281,3 +281,24 @@ def test_uzun_gorev_kendi_kaydedilen_planini_bulur() -> None:
 
     assert found is not None
     assert found[1] == 1.0
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        # Ölçüldü (29 Ekim): kısa görevde tek sözcük farkı Jaccard'ı tam 0,5'te tutuyordu.
+        ("shopify ürün ekle", "woocommerce ürün ekle"),
+        ("shopify ürün ekle dosya", "woocommerce ürün ekle dosya"),
+        # Uzun görevde farklı VARLIK adı (CamelCase, yol, BÜYÜK HARF) aynı iş değildir.
+        (
+            "WooCommerce için ürün listesi sayfasını düzenle ve testleri çalıştır",
+            "Shopify için ürün listesi sayfasını düzenle ve testleri çalıştır",
+        ),
+        (
+            "src/app.py içindeki add hatasını düzelt ve testleri çalıştır",
+            "src/main.py içindeki add hatasını düzelt ve testleri çalıştır",
+        ),
+    ],
+)
+def test_platformu_degisen_gorev_ayni_is_sayilmaz(first: str, second: str) -> None:
+    assert task_similarity(first, second) < MIN_TASK_SIMILARITY

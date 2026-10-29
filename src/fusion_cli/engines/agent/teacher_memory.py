@@ -66,10 +66,48 @@ def _stems(text: str) -> frozenset[str]:
     return frozenset(stems)
 
 
+#: Bu sayıdan az anlamlı kök içeren görevde Jaccard 0,5 tek sözcük farkıyla bile
+#: aşılır; bellekten plan uygulanmaz, öğretmene sorulur.
+#:
+#: Ölçüldü (29 Ekim): "shopify ürün ekle" / "woocommerce ürün ekle" → {shopi,ürün,ekle}
+#: / {wooco,ürün,ekle}: 2/4 = 0,5 ≥ eşik; yanlış platformun planı "bu planı izle"
+#: diye modele veriliyordu (A4-10).
+_MIN_TASK_STEMS = 5
+
+_IDENTIFIER_TOKEN = re.compile(r"[\w./-]+")
+
+
+def _entity_stems(text: str) -> frozenset[str]:
+    """Görevin VARLIK adı sayılan kökleri: yol/uzantı, CamelCase ve BÜYÜK HARFLİ adlar.
+
+    Platform, kütüphane ve dosya adları iş sözcüğü değil kimliktir; iki görevde farklı
+    olmaları, kalan sözcükler ne kadar örtüşürse örtüşsün aynı iş olmadıklarını gösterir.
+    """
+    entities: set[str] = set()
+    for raw in _IDENTIFIER_TOKEN.findall(text):
+        token = raw.strip("./-")
+        if len(token) < _MIN_TOKEN_CHARS:
+            continue
+        if "/" in token or "." in token:
+            entities.add(token.lower())
+        elif (token.isupper() and token.isalpha()) or any(c.isupper() for c in token[1:]):
+            entities.add(token.lower()[:_STEM_CHARS])
+    return frozenset(entities)
+
+
 def task_similarity(first: str, second: str) -> float:
-    """İki görev arasındaki kök kümesi Jaccard benzerliği (0..1)."""
+    """İki görev arasındaki kök kümesi Jaccard benzerliği (0..1).
+
+    Kısa görevlerde (`_MIN_TASK_STEMS` altı) ve iki görev arasında bir VARLIK adı
+    (yol, CamelCase, BÜYÜK HARF) farklıysa 0 döner: Jaccard tek başına yetmez.
+    Sınır: küçük harfle yazılmış düz platform adı ("shopify" / "woocommerce") uzun
+    görevde hâlâ ayırt edilemez; bunu bir sözlük olmadan çözmek yanlış negatif üretir.
+    """
     a, b = _stems(first), _stems(second)
-    if not a or not b:
+    if min(len(a), len(b)) < _MIN_TASK_STEMS:
+        return 0.0
+    entities = _entity_stems(first) | _entity_stems(second)
+    if (a ^ b) & entities:
         return 0.0
     return len(a & b) / len(a | b)
 
