@@ -226,3 +226,61 @@ async def test_kurtarma_yoksa_yeniden_deneme_sifir_kalir(tmp_path):
     execution = await executor.run(task)
 
     assert execution.retries == 0
+
+
+class _TranskriptYazanKosucu:
+    """Gerçek koşucular gibi transkripti koşu sırasında çalışma dizininde yaratır."""
+
+    def __init__(self, *, dosyalar: dict[str, str] | None = None) -> None:
+        self._dosyalar = dosyalar or {}
+
+    async def run(
+        self,
+        request: str,
+        *,
+        root: Path,
+        strict_approval: bool = False,
+        transcript: Path | None = None,
+    ) -> AgentRunObservation:
+        from evals.transcript import TranscriptRecorder
+
+        assert transcript is not None
+        kayit = TranscriptRecorder(transcript)
+        kayit.close()
+        for ad, icerik in self._dosyalar.items():
+            (root / ad).write_text(icerik, encoding="utf-8")
+        return AgentRunObservation(output_text="", model_calls=1)
+
+
+async def test_transkript_dosyasi_workspace_unchanged_olcutunu_bozmaz(tmp_path):
+    """Q1-03: kanıt dosyası (`_transkript.jsonl`) 'değişen dosya' sayılmamalı.
+
+    Ölçüldü (30 Ekim): TranscriptRecorder dosyayı koşu sırasında workspace içinde
+    yaratır; snapshot onu dışlamadığı için agent HİÇBİR şey yazmasa bile
+    workspace_unchanged ölçütü başarısız çıkıyordu (parite setinde 5 görev).
+    """
+    executor = AgentTaskExecutor(
+        _TranskriptYazanKosucu(), workspace_root=tmp_path, clock=_FakeClock(0.0, 1.0)
+    )
+    task = _task("t", SuccessCriterion(kind=CriterionKind.WORKSPACE_UNCHANGED))
+
+    execution = await executor.run(task)
+
+    assert (tmp_path / "t" / "_transkript.jsonl").exists()
+    assert execution.changed_files == frozenset()
+    assert evaluate_criterion(task.criterion, execution) is True
+
+
+async def test_gercek_dosya_yazilirsa_workspace_unchanged_yine_basarisiz(tmp_path):
+    """Dışlama yalnız kanıt dosyalarını kapsar; `_` önekli kullanıcı dosyası sayılır."""
+    executor = AgentTaskExecutor(
+        _TranskriptYazanKosucu(dosyalar={"_notlar.md": "x"}),
+        workspace_root=tmp_path,
+        clock=_FakeClock(0.0, 1.0),
+    )
+    task = _task("t", SuccessCriterion(kind=CriterionKind.WORKSPACE_UNCHANGED))
+
+    execution = await executor.run(task)
+
+    assert execution.changed_files == frozenset({"_notlar.md"})
+    assert evaluate_criterion(task.criterion, execution) is False

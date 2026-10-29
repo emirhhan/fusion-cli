@@ -34,6 +34,13 @@ from fusion_cli.core.errors import EvalError
 TRANSCRIPT_NAME = "_transkript.jsonl"
 ACCEPTANCE_STDOUT_NAME = "_acceptance.stdout.txt"
 ACCEPTANCE_STDERR_NAME = "_acceptance.stderr.txt"
+#: Harness'in kendi bıraktığı kanıt dosyaları: agent'ın işi sayılmaz.
+#:
+#: Ölçüldü (30 Ekim, Q1-03): transkript koşu sırasında çalışma dizininde
+#: yaratılıyor ve "değişen dosya" sayılıyordu; agent hiçbir şey yazmasa bile
+#: `workspace_unchanged` ölçütü (parite setinde 5 görev) başarısız çıkıyordu.
+#: Yalnız bu üç AD dışlanır; agent'ın yazdığı `_`-önekli dosyalar sayılmaya devam eder.
+_HARNESS_EVIDENCE = frozenset({TRANSCRIPT_NAME, ACCEPTANCE_STDOUT_NAME, ACCEPTANCE_STDERR_NAME})
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,6 +236,8 @@ def _snapshot(root: Path) -> dict[str, str]:
         if not path.is_file():
             continue
         relative = str(path.relative_to(root))
+        if relative in _HARNESS_EVIDENCE:
+            continue
         snapshot[relative] = _hash_file(path)
     return snapshot
 
