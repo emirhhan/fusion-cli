@@ -16,9 +16,11 @@ from typing import TYPE_CHECKING
 
 from .game_assets import ASSET_INIT, AssetUsage, read_asset_usage
 from .game_start import start_game
+from .play_canvas import CANVAS_INIT, canvas_verdict, read_canvas
+from .resource_noise import is_favicon_load_error
 
 if TYPE_CHECKING:
-    from playwright.async_api import Page
+    from playwright.async_api import ConsoleMessage, Page
 
 #: Basılı tutulan varsayılan tuşlar: ok tuşları + boşluk (çoğu arcade oyunu).
 DEFAULT_KEYS = ("ArrowRight", "ArrowUp", "ArrowLeft", "ArrowDown", "Space")
@@ -46,11 +48,6 @@ _RAF_COUNTER = """() => new Promise(done => { let n = 0; const t0 = performance.
   requestAnimationFrame(tick); })"""
 _STATE = """() => { try { return typeof window.__GAME_STATE__ === 'function'
   ? JSON.stringify(window.__GAME_STATE__()) : null; } catch (e) { return 'HATA: ' + e; } }"""
-_CANVAS_HASH = """() => { const c = [...document.querySelectorAll('canvas')]
-  .sort((a, b) => b.width * b.height - a.width * a.height)[0];
-  if (!c) return null; try { const d = c.toDataURL('image/png'); let h = 0;
-  for (let i = 0; i < d.length; i += 97) h = (h * 31 + d.charCodeAt(i)) | 0; return h; }
-  catch (e) { return null; } }"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +74,10 @@ class ProbeReport:
     restart_problems: tuple[str, ...] = ()
     #: Oyun sonu denendi mi (kapanış kapısı dener; araç varsayılanda denemez).
     ended_checked: bool = False
+    #: Canvas bağlam türü ("2d", "webgl", "other", "unknown"); canvas yoksa None.
+    canvas_kind: str | None = None
+    #: Sayfa hatası SAYILMAYAN kaynak notları (favicon 404 gibi).
+    ignored_resources: tuple[str, ...] = ()
 
     def problems(self) -> tuple[str, ...]:
         """Oyunu oynanamaz kılan ölçümler (kapı bunlarla turu kapatmaz)."""
@@ -89,7 +90,11 @@ class ProbeReport:
             self.state_before is not None
             and self.state_before == self.state_after
             and not self.effective_keys
-        ) or (self.state_before is None and self.canvas_changed is False)
+        ) or (
+            # Canvas imzası yalnız 2B bağlamda "değişmedi = etkisiz" kanıtıdır; WebGL/
+            # bilinmeyen bağlamda değişmemesi ölçüm sınırıdır, hata değil.
+            self.state_before is None and self.canvas_changed is False and self.canvas_kind == "2d"
+        )
         if tuslar_etkisiz:
             sorunlar.append("tuşlar oyunu değiştirmedi (oyuncu hareket etmiyor)")
         sorunlar.extend(self.startup_problems)
@@ -124,8 +129,15 @@ class ProbeReport:
                 satirlar.append(f"Durumu değiştiren tuşlar: {tuslar}")
         if self.canvas_changed is not None:
             satirlar.append(
-                f"Canvas tuşlarla değişti: {'evet' if self.canvas_changed else 'HAYIR'}"
+                f"Canvas ({self.canvas_kind or 'bilinmiyor'}) tuşlarla değişti: "
+                f"{'evet' if self.canvas_changed else 'HAYIR'}"
             )
+            if self.state_before is None:
+                satirlar.append(
+                    "Canvas görüntü imzası tek başına kanıt değil: kendiliğinden oynayan animasyon "
+                    "da imzayı değiştirir, WebGL'de değişmemesi de kesin değildir."
+                )
+        satirlar.extend(f"Not (sayfa hatası değil): {not_}" for not_ in self.ignored_resources)
         if self.restart_state is not None:
             satirlar.append(
                 f"R tuşundan sonra durum (oyun ortasında basıldı; R yalnız oyun sonunda "
@@ -175,16 +187,15 @@ async def probe_game(
     from .game_hud import PLAYING_LABELS, read_hud_mismatches, restart_after_end
 
     hatalar: list[str] = []
+    notlar: list[str] = []
     async with async_playwright() as oynatici:
         tarayici = await oynatici.chromium.launch()
         try:
             sayfa = await tarayici.new_page(viewport={"width": 1280, "height": 800})
             await sayfa.add_init_script(ASSET_INIT)
+            await sayfa.add_init_script(CANVAS_INIT)
             sayfa.on("pageerror", lambda hata: hatalar.append(str(hata)[:200]))
-            sayfa.on(
-                "console",
-                lambda m: hatalar.append(m.text[:200]) if m.type == "error" else None,
-            )
+            sayfa.on("console", lambda m: _note_console(m, hatalar, notlar))
             await sayfa.goto(url, timeout=NAVIGATION_TIMEOUT_MS, wait_until="load")
             await sayfa.wait_for_timeout(SETTLE_MS)
             raf = int(await sayfa.evaluate(_RAF_COUNTER))
@@ -193,10 +204,10 @@ async def probe_game(
             )
             if not baslatma.has_button:
                 await _press(sayfa, ("Enter", "Space"))
-            once, tuval_once = await sayfa.evaluate(_STATE), await sayfa.evaluate(_CANVAS_HASH)
+            once, tuval_once = await sayfa.evaluate(_STATE), await read_canvas(sayfa)
             gorsel = await _visual_problems(sayfa)
             etkili = await _press(sayfa, keys)
-            sonra, tuval_sonra = await sayfa.evaluate(_STATE), await sayfa.evaluate(_CANVAS_HASH)
+            sonra, tuval_sonra = await sayfa.evaluate(_STATE), await read_canvas(sayfa)
             varliklar = await read_asset_usage(sayfa)
             hud = await read_hud_mismatches(sayfa, _STATE, PLAYING_LABELS)
             await _press(sayfa, ("r",))
@@ -204,7 +215,7 @@ async def probe_game(
             son = await restart_after_end(sayfa, _STATE) if play_to_end else ()
         finally:
             await tarayici.close()
-    tuval = None if tuval_once is None else tuval_once != tuval_sonra
+    tuval_turu, tuval = canvas_verdict(tuval_once, tuval_sonra)
     return ProbeReport(
         tuple(hatalar),
         raf,
@@ -219,7 +230,26 @@ async def probe_game(
         hud,
         son,
         play_to_end,
+        tuval_turu,
+        tuple(dict.fromkeys(notlar)),
     )
+
+
+def _note_console(message: ConsoleMessage, errors: list[str], notes: list[str]) -> None:
+    """Konsol hatasını topla; ikon isteğinin "Failed to load resource" satırı hata değildir.
+
+    Ölçüldü (29 Ekim): tarayıcının kendi favicon isteği `response` olayı üretmez, yalnız
+    konsola düşer; bu yüzden ayrım konsol satırının konum adresine bakar. Metin adres
+    taşımaz, o yüzden gerçek kaynak hatasına adres eklenir.
+    """
+    if message.type != "error":
+        return
+    adres = message.location.get("url", "")
+    if is_favicon_load_error(message.text, adres):
+        notes.append(f"{adres.rsplit('/', 1)[-1]} bulunamadı; oyunu etkilemez")
+        return
+    ek = f" ({adres})" if message.text.startswith("Failed to load resource") and adres else ""
+    errors.append(f"{message.text}{ek}"[:200])
 
 
 async def _visual_problems(page: Page) -> tuple[str, ...]:
