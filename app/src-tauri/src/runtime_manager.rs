@@ -512,18 +512,35 @@ impl RuntimeManager {
     }
 
     /// `active-runtime.json`'ı okur; dosya yoksa `Ok(None)` döner (henüz
-    /// hiçbir sürüm etkinleştirilmemiş demektir), bozuksa tipli bir hata
-    /// döner — asla sessizce "aktif kayıt yok" gibi davranmaz.
+    /// hiçbir sürüm etkinleştirilmemiş demektir).
+    ///
+    /// Ölçüldü (30 Ekim): kesilmiş ya da UTF-8 olmayan kayıt `prepare` ve
+    /// `repair`'i kalıcı düşürüyordu (R2-01). Kayıt yalnız bir ipucudur (gerçek
+    /// sürümler diskte durur), bu yüzden bozuk kayıt `.corrupt` adıyla yedeklenip
+    /// "kayıt yok" sayılır; kurulum yeni kaydı atomik yazar. Yedekleme başarısız
+    /// olsa da devam edilir: atomik yazım dosyayı zaten değiştirecektir.
     fn read_active(&self) -> Result<Option<ActiveRecord>, RuntimeError> {
-        match std::fs::read_to_string(&self.paths.active_record) {
-            Ok(icerik) => {
-                let record =
-                    serde_json::from_str(&icerik).map_err(RuntimeError::ActiveRecordDecode)?;
-                Ok(Some(record))
+        let icerik = match std::fs::read_to_string(&self.paths.active_record) {
+            Ok(icerik) => icerik,
+            Err(hata) if hata.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(hata) if hata.kind() == std::io::ErrorKind::InvalidData => {
+                self.bozuk_kaydi_yedekle();
+                return Ok(None);
             }
-            Err(hata) if hata.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(hata) => Err(RuntimeError::Io(hata)),
+            Err(hata) => return Err(RuntimeError::Io(hata)),
+        };
+        match serde_json::from_str(&icerik) {
+            Ok(record) => Ok(Some(record)),
+            Err(_) => {
+                self.bozuk_kaydi_yedekle();
+                Ok(None)
+            }
         }
+    }
+
+    fn bozuk_kaydi_yedekle(&self) {
+        let yedek = self.paths.root.join("active-runtime.json.corrupt");
+        let _ = std::fs::rename(&self.paths.active_record, yedek);
     }
 
     /// Etkin kaydı, aynı dizindeki geçici bir dosyaya yazıp `sync_all`
@@ -941,6 +958,37 @@ mod tests {
         std::fs::write(&user_config, "keep").unwrap();
         fixture.manager.repair(|_| {}).unwrap();
         assert_eq!(std::fs::read_to_string(user_config).unwrap(), "keep");
+    }
+
+    /// Ölçüldü (30 Ekim): kesilmiş `active-runtime.json` ile `prepare` ve `repair`
+    /// `ActiveRecordDecode` ile düşüyordu; kullanıcı dosyayı elle silmeden
+    /// uygulama açılmıyor, "Onar" da aynı hatayla çıkıyordu (R2-01).
+    #[test]
+    fn bozuk_aktif_kayit_prepare_i_dusurmez_ve_yedeklenir() {
+        let fixture = ManagerFixture::new();
+        std::fs::write(&fixture.paths.active_record, b"{\"active\": \"0.3.0a1\", \"pre").unwrap();
+
+        let ready = fixture.manager.prepare(|_| {}).unwrap();
+
+        assert_eq!(ready.version, PAKET_SURUMU);
+        assert_eq!(fixture.active_record().active, PAKET_SURUMU);
+        let yedek = fixture.paths.root.join("active-runtime.json.corrupt");
+        assert_eq!(
+            std::fs::read(yedek).unwrap(),
+            b"{\"active\": \"0.3.0a1\", \"pre"
+        );
+    }
+
+    #[test]
+    fn bozuk_aktif_kayit_repair_i_dusurmez() {
+        let fixture = ManagerFixture::new();
+        std::fs::write(&fixture.paths.active_record, [0xff, 0xfe, b'{']).unwrap();
+
+        let ready = fixture.manager.repair(|_| {}).unwrap();
+
+        assert_eq!(ready.version, PAKET_SURUMU);
+        assert_eq!(fixture.active_record().active, PAKET_SURUMU);
+        assert!(fixture.paths.root.join("active-runtime.json.corrupt").exists());
     }
 
     #[test]
