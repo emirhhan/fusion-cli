@@ -747,3 +747,28 @@ describe("Makbuzsuz tur olayları", () => {
     expect(result.current.activeSession?.messages.some((m) => m.metin?.includes("makbuzu doğrulanamadı"))).toBe(false);
   });
 });
+
+// U4-03 — Ölçüldü (29 Ekim): `oturum.baslat` başarısızsa hata yutuluyor, `oturum.gecmis` yine
+// kimliksiz isteniyordu (yanlış sohbetin geçmişi) ve kip çekirdeğe bildirilmemiş kalıyordu.
+describe("Başarısız oturum.baslat", () => {
+  it.each(["ok-false", "reddedilen-istek"])("geçmiş istenmez, sekme hatayla işaretlenir (%s)", async (tur) => {
+    const fake = fakeTransport([{rol: "kullanici", metin: "yanlış sohbetin mesajı"}]);
+    const gecmisIstekleri: string[] = [];
+    const asil = fake.transport.send;
+    fake.transport.send = vi.fn(async (id: string, line: string) => {
+      const istek = JSON.parse(line) as {id: string; ad: string};
+      if (istek.ad === "oturum.gecmis") gecmisIstekleri.push(id);
+      if (istek.ad === "oturum.baslat") {
+        if (tur === "ok-false") queueMicrotask(() => fake.emitResult(id, istek.id, {ok: false, hata: "geçersiz kip"}));
+        else throw new Error("yazma kırıldı");
+        return;
+      }
+      return asil(id, line);
+    });
+    const {result} = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession?.status).toBe("crashed"));
+    expect(result.current.activeSession?.error).toContain("oturum.baslat");
+    expect(gecmisIstekleri).toEqual([]);
+    expect(result.current.activeSession?.messages.some((m) => m.metin === "yanlış sohbetin mesajı")).toBe(false);
+  });
+});

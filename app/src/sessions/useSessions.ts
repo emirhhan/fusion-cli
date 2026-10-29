@@ -208,7 +208,21 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       // sohbetleri, 19 Ekim). Kullanıcı kipi sohbet başına değiştirebilir.
       const workspaceMode = storedWorkspaceMode(id) ?? input.mode ?? "kod";
       saveWorkspaceMode(id, workspaceMode);
-      const baslatildi = client.request("oturum.baslat", { sohbet_id: id, kip: workspaceMode }).catch(() => undefined);
+      // Başarısız `oturum.baslat` ARTIK yutulmaz: kimliksiz sekme çekirdekte rastgele/başka bir
+      // konuşmaya bağlanır (geçmişi yanlış sohbetin gelir, kip bildirilmez). Ölçüldü (29 Ekim):
+      // `.catch(() => undefined)` sonrası `oturum.gecmis` yine isteniyordu. Sekme "crashed" olur,
+      // neden bağlantı kesildi bandında görünür; geçmiş istenmez.
+      const baslatildi = client.request("oturum.baslat", { sohbet_id: id, kip: workspaceMode })
+        .then((sonuc) => {
+          if (sonuc.ok === false) throw new Error(String(sonuc.hata ?? sonuc.metin ?? "çekirdek reddetti"));
+        })
+        .then(() => true, (reason: unknown) => {
+          if (publish && !requestedClose.current.has(id) && mounted.current) {
+            dispatch({ type: "crashed", id,
+              reason: `Sekme çekirdeğe tanıtılamadı (oturum.baslat): ${reason instanceof Error ? reason.message : String(reason)}` });
+          }
+          return false;
+        });
       if (publish) {
         dispatch({
           type: "created",
@@ -225,7 +239,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         // Geçmiş, sekme kimliği arka uca bildirildikten SONRA istenir: kimliksiz
         // sorulursa proje genelindeki başka bir konuşma yüklenir.
         void baslatildi
-          .then(() => client.request("oturum.gecmis", {}))
+          .then((tanitildi) => tanitildi ? client.request("oturum.gecmis", {}) : { mesajlar: null })
           .then((result) => {
             if (!Array.isArray(result.mesajlar)) return;
             const messages = historyMessages(result.mesajlar);
