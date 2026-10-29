@@ -12,6 +12,7 @@ Başlangıçta BİR KEZ yoklanır: NIM erişilemezse sessizce yerele düşülür
 
 from __future__ import annotations
 
+import hashlib
 import os
 from typing import Any
 
@@ -25,6 +26,9 @@ NIM_BATCH = 50
 
 LOCAL_PROVIDER = "local"
 NIM_PROVIDER = "nim"
+#: Eki model adı olmadan kurulan koleksiyonların modeli; bu modelin eki DEĞİŞMEZ ki
+#: mevcut dersler ve kod indeksi görünmez olmasın.
+LEGACY_NIM_MODEL = "nvidia/nv-embedqa-e5-v5"
 
 
 class NimEmbeddingFunction:
@@ -92,4 +96,18 @@ def build_embedding_function(provider: str, model: str) -> tuple[Any, str]:
         # NIM erişilemedi (ağ, kota, model adı). Yerele düşmek doğru davranıştır:
         # bellek kullanılabilir kalır, yalnızca Türkçe kalitesi biraz düşer.
         return None, ""
-    return function, NIM_PROVIDER
+    return function, collection_suffix(model)
+
+
+def collection_suffix(model: str) -> str:
+    """NIM koleksiyon eki: her gömme modeli kendi koleksiyonunu kullanır.
+
+    Ölçüldü (29 Ekim): ek yalnız sağlayıcı adıydı; model değişince yeni vektörler
+    eski modelin koleksiyonuna gidiyordu (boyut farklıysa ChromaDB hata verir, aynıysa
+    arama sessizce anlamsız sonuç döner). Eski koleksiyon silinmez; model geri
+    alınınca yeniden kullanılır.
+    """
+    if model == LEGACY_NIM_MODEL:
+        return NIM_PROVIDER
+    digest = hashlib.sha1(model.encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
+    return f"{NIM_PROVIDER}_{digest}"

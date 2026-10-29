@@ -9,6 +9,8 @@ bir eşdeğerini yazmaktan ibaret olur.
 
 from __future__ import annotations
 
+from ..core.memory import IndexStats
+
 # --- Genel ---------------------------------------------------------------- #
 APP_TAGLINE = "ücretsiz LLM füzyonu · hakem · öz-öğrenen"
 VERSION = "fusion-cli {version}"
@@ -186,6 +188,20 @@ MEMORY_RETAGGED = (
 MEMORY_REINDEXED = (
     "{total} parça indekslendi (+{added} yeni, -{removed} eski, {unchanged} değişmemiş)."
 )
+MEMORY_REINDEX_TRUNCATED = (
+    " İndeks kısmi: parça sınırına ulaşıldı, kalan dosyalar anlamsal aramada çıkmaz "
+    "(kesin metin için search_code kullan)."
+)
+
+
+def reindex_summary(stats: IndexStats) -> str:
+    """İndeksleme sonucunun tek cümlelik özeti; kısmi indeks açıkça söylenir."""
+    summary = MEMORY_REINDEXED.format(
+        total=stats.total, added=stats.added, removed=stats.removed, unchanged=stats.unchanged
+    )
+    return summary + MEMORY_REINDEX_TRUNCATED if stats.truncated else summary
+
+
 MEMORY_FEEDBACK_APPLIED = "'{model}' modeline '{verdict}' geri bildirimi işlendi ({task_type})."
 MEMORY_FEEDBACK_MISSING = "Bu görev tipi ve model için kayıt bulunamadı."
 MEMORY_LOCATION = "bellek dizini: {path}"

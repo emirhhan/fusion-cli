@@ -691,13 +691,7 @@ def _seed(state: ReplState, argument: str) -> str:
 
 
 def _reindex(state: ReplState, argument: str) -> str:
-    stats = state.memory.code_index.reindex()
-    return messages.MEMORY_REINDEXED.format(
-        total=stats.total,
-        added=stats.added,
-        removed=stats.removed,
-        unchanged=stats.unchanged,
-    )
+    return messages.reindex_summary(state.memory.code_index.reindex())
 
 
 def _on_off(value: bool) -> str:

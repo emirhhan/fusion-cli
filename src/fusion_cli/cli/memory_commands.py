@@ -77,15 +77,7 @@ def retag() -> None:
 def reindex() -> None:
     """Kod tabanını anlamsal olarak indeksle (artımlı)."""
     memory = _open()
-    stats = memory.code_index.reindex()
-    console.print(
-        messages.MEMORY_REINDEXED.format(
-            total=stats.total,
-            added=stats.added,
-            removed=stats.removed,
-            unchanged=stats.unchanged,
-        )
-    )
+    console.print(messages.reindex_summary(memory.code_index.reindex()))
 
 
 @app.command("where")

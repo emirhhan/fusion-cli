@@ -69,7 +69,10 @@ class ChromaCodeIndex:
 
     def reindex(self, limit: int = MAX_CHUNKS) -> IndexStats:
         """Yalnızca YENİ/DEĞİŞEN parçaları göm, silinenleri temizle."""
-        chunks = build_chunks(self._root, limit=limit)
+        # Tavanın bir fazlası istenir: tavana tam denk gelen depo "kısmi" sayılmasın.
+        chunks = build_chunks(self._root, limit=limit + 1)
+        truncated = len(chunks) > limit
+        chunks = chunks[:limit]
         current = {chunk.id for chunk in chunks}
         existing = set(self._collection.get(include=[]).get("ids", []))
 
@@ -81,7 +84,9 @@ class ChromaCodeIndex:
         for start in range(0, len(fresh), EMBED_BATCH):
             self._add(fresh[start : start + EMBED_BATCH])
 
-        return IndexStats(total=len(chunks), added=len(fresh), removed=len(stale))
+        return IndexStats(
+            total=len(chunks), added=len(fresh), removed=len(stale), truncated=truncated
+        )
 
     def _add(self, batch: list[Chunk]) -> None:
         if not batch:

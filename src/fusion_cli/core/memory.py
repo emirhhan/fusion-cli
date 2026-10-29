@@ -143,6 +143,8 @@ class IndexStats:
     total: int
     added: int
     removed: int
+    #: Parça tavanına takıldı: sonraki dosyalar indekste YOK, arama onları bulamaz.
+    truncated: bool = False
 
     @property
     def unchanged(self) -> int:
