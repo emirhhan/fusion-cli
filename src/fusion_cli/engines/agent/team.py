@@ -384,6 +384,27 @@ def spawn_agents_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> To
     )
 
 
+_FALSE_WORDS = frozenset({"false", "no", "hayır", "hayir", "0", "off", ""})
+
+
+def _parse_read_only(value: object) -> bool:
+    """`salt_okunur` değerini AÇIK-GÜVENLİ oku: belirsizse salt-okuma say.
+
+    Ölçüldü (29 Ekim): `is True` katı karşılaştırması `"true"`, `1`, `"evet"` gibi zayıf
+    model çıktılarını `False` sayıp görevi YAZMA YETKİLİ yapıyordu (A4-09). Alan hiç
+    verilmediyse varsayılan (yazma yetkili) korunur; açıkça yanlış denmediyse kısıtlanır.
+    """
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().casefold() not in _FALSE_WORDS
+    return True
+
+
 def _parse_subtask(args: ToolArgs) -> SubTask | str:
     task = args.get("task")
     if not isinstance(task, str) or not task.strip():
@@ -395,6 +416,6 @@ def _parse_subtask(args: ToolArgs) -> SubTask | str:
     return SubTask(
         task=task.strip(),
         persona=persona if isinstance(persona, str) else "",
-        read_only=args.get("salt_okunur") is True,
+        read_only=_parse_read_only(args.get("salt_okunur")),
         write_scope=tuple(item.strip() for item in scope if item.strip()),
     )

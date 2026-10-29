@@ -522,3 +522,16 @@ async def test_model_delegation_runs_real_child_and_serializes_live_lifecycle(
     assert finished["tool_calls"] == 1
     assert finished["summary"] == summary
     assert wire.index(started) < wire.index(child_events[0]) < wire.index(finished)
+
+
+def test_salt_okunur_zayif_model_degerleriyle_yazma_yetkisi_vermez():
+    """Ölçüldü (29 Ekim): `is True` yüzünden "true"/1/"evet" görevi yazma yetkili yapıyordu (A4-09)."""
+    from fusion_cli.engines.agent.team import _parse_subtask
+
+    for deger in (True, "true", "True", " evet ", 1, "yes", ["x"]):
+        sonuc = _parse_subtask({"task": "a", "salt_okunur": deger})
+        assert not isinstance(sonuc, str) and sonuc.read_only is True, deger
+    for deger in (None, False, "false", "hayır", 0):
+        sonuc = _parse_subtask({"task": "a", "salt_okunur": deger})
+        assert not isinstance(sonuc, str) and sonuc.read_only is False, deger
+    assert _parse_subtask({"task": "a"}).read_only is False  # type: ignore[union-attr]
