@@ -938,9 +938,13 @@ class AppSession:
         if request.name == "ses.isit":
             return await self._voice_worker(warm_voice, None)
         if request.name == "ses.hazirla":
-            return await self._voice_worker(prepare_voice, request.data.get("metin"))
+            nesil = request.data.get("nesil")  # Nesilsiz istek eski sözleşmeyle çalışır.
+            hazirla = prepare_voice if nesil is None else lambda m: prepare_voice(m, nesil)
+            return await self._voice_worker(hazirla, request.data.get("metin"))
         if request.name == "ses.haziri_cal":
-            return await self._voice_worker(play_prepared_voice, request.data.get("hazir_id"))
+            nesil = request.data.get("nesil")
+            cal = play_prepared_voice if nesil is None else lambda h: play_prepared_voice(h, nesil)
+            return await self._voice_worker(cal, request.data.get("hazir_id"))
         if request.name == "ses.haziri_sil":
             return await self._voice_worker(discard_prepared_voice, request.data.get("hazir_id"))
         if request.name == "ses.konus":

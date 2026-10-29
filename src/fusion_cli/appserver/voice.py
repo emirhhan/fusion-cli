@@ -24,7 +24,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from .prepared_voice import PreparedVoiceStore
+from .prepared_voice import PreparedVoiceStore, StaleVoiceGenerationError
 
 #: Sentezleyiciye verilecek metnin üst sınırı. Uzun cevabın tamamını okumak
 #: kullanıcıyı bekletir; arayüz gerekiyorsa parça parça gönderir.
@@ -479,7 +479,16 @@ def warm_voice(_request: object = None) -> dict[str, Any]:
     return {"ok": True, "hazir": True}
 
 
-def prepare_voice(text: object) -> dict[str, Any]:
+def _stale_generation_result() -> dict[str, Any]:
+    return {"ok": False, "eski_nesil": True, "metin": "Daha yeni bir konuşma başladı."}
+
+
+def _generation(value: object) -> int | None:
+    """İstemcinin nesil kimliği: yalnız gerçek tamsayı; bool ve diğerleri nesilsiz sayılır."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def prepare_voice(text: object, generation: object = None) -> dict[str, Any]:
     """Cümleyi çalmadan hazırla; sonraki oynatma yalnız kimlikle yapılır."""
     from .ema_synthesis import synthesize_ema
     from .voice_text import prepare_speech
@@ -491,7 +500,11 @@ def prepare_voice(text: object) -> dict[str, Any]:
         return {"ok": False, "metin": "Okunacak metin boş."}
     hiz = load_settings()["hiz"]
     try:
-        token = _prepared_store().prepare(lambda path: synthesize_ema(content, path, hiz))
+        token = _prepared_store().prepare(
+            lambda path: synthesize_ema(content, path, hiz), _generation(generation)
+        )
+    except StaleVoiceGenerationError:
+        return _stale_generation_result()
     except Exception as error:  # Yerel sentez ve dosya sistemi sınırı.
         import logging
 
@@ -502,10 +515,14 @@ def prepare_voice(text: object) -> dict[str, Any]:
     return {"ok": True, "hazir_id": token}
 
 
-def play_prepared_voice(token: object) -> dict[str, Any]:
-    """Hazırlanmış sesi bir kez mevcut oynatıcıya devret."""
-    path = _prepared_store().take(token) if isinstance(token, str) else None
+def play_prepared_voice(token: object, generation: object = None) -> dict[str, Any]:
+    """Hazırlanmış sesi bir kez mevcut oynatıcıya devret; eski nesil çalamaz."""
+    owner = _generation(generation)
+    store = _prepared_store()
+    path = store.take(token, owner) if isinstance(token, str) else None
     if path is None:
+        if store.is_stale(owner):
+            return _stale_generation_result()
         return {"ok": False, "metin": "Hazır ses bulunamadı veya zaten kullanıldı."}
     return _play_wav_file(path)
 
