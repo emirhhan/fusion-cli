@@ -287,7 +287,7 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
       </div>
       </aside>
       <div className="schedule__content">
-      <p className="schedule__hint">Görevler Fusion açıkken çalışır; her çalışma yeni bir sohbet açar.</p>
+      <p className="schedule__hint">Görevler Fusion açıkken ve en az bir sohbet açıkken çalışır; her çalışma yeni bir sohbet açar.</p>
 
       {error && !draft && <p className="schedule__error" role="alert">{error}</p>}
 
