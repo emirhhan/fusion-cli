@@ -77,3 +77,17 @@ def test_tool_support_stringi_enuma_cevrilir():
 
     assert provider is not None
     assert provider._tool_support is ToolSupport.EMULATED
+
+
+def test_http_ucu_oturum_zaman_asimini_transporta_gecirir():
+    """P1-04: HTTP yolu `session.timeout_s`'yi atlayıp 20 sn sabitine düşüyordu."""
+    sessions = (WebSessionConfig(model="uc", endpoint="http://x/v1", timeout_s=240.0),)
+    gorulen: dict = {}
+
+    def _factory(endpoint, **kwargs):
+        gorulen.update(kwargs)
+        return _fake_transport
+
+    WebSessionRegistry(sessions, environ={}).build("uc", transport_factory=_factory)
+
+    assert gorulen == {"timeout_s": 240.0}

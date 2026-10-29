@@ -105,7 +105,10 @@ class WebSessionRegistry:
                     supports_images=True,
                     clock=clock,
                 )
-            transport = transport_factory(session.endpoint)
+            # Bütçe oturumun yapılandırmasından gelir (tarayıcı yoluyla aynı kural):
+            # verilmezse 20 sn'lik HTTP sabitine düşer ve akıtmasız uçta uzun üretimler
+            # `ReadTimeout` ile düşerdi (P1-04).
+            transport = transport_factory(session.endpoint, timeout_s=session.timeout_s)
         return WebProviderAdapter(
             model=session.model,
             credential=credential,
