@@ -80,6 +80,24 @@ class ModelCallFinished(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelCallAbandoned(Event):
+    """Başlayan model çağrısı yanıt gelmeden iptal edildi (zaman aşımı, kesilen aday).
+
+    `ModelCallFinished` hiç gelmeyeceği için bu olay olmazsa çağrı muhasebede hiç
+    var olmamış sayılırdı. Oysa sağlayıcı isteği almış olabilir: token ve maliyet
+    BİLİNMİYOR — sıfır DEĞİL. Dinleyiciler bunu "ölçümü eksik çağrı" diye ayrı
+    sayar ve toplamı "alt sınır" olarak gösterir.
+    """
+
+    call_id: str = field(default="", kw_only=True)
+
+    role: str
+    model: str
+    reason: str = "iptal edildi"
+    background: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class ModelFallbackActivated(Event):
     """Birincil kullanılamadı ve sıradaki modele geçiliyor.
 

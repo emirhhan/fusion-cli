@@ -7,13 +7,18 @@ yapıldığı için bazı çağrı yolları sessizce sayıma girmiyordu; tek din
 sınıf hatayı yapısal olarak imkânsız kılar.
 
 Maliyet hesaplanmaz, yalnızca toplanır: hesap sağlayıcı sınırında yapılmıştır.
+
+İptal edilen çağrı (`ModelCallAbandoned`: zaman aşımı, kesilen yavaş aday) SIFIR
+sayılmaz: tüketimi bilinmediği için ayrı sayılır ve toplam "alt sınır" olarak
+işaretlenir (`cost_complete`). Ölçüldü (29 Ekim): bitiş olayı hiç gelmeyen çağrı
+eskiden toplamda hiç yoktu ve toplam "tam" görünüyordu.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 
-from ..core.events import Event, ModelCallFinished
+from ..core.events import Event, ModelCallAbandoned, ModelCallFinished
 from ..core.types import TokenUsage
 
 
@@ -24,13 +29,20 @@ class CostTracker:
         self._by_role: dict[str, TokenUsage] = defaultdict(TokenUsage)
         self._calls: dict[str, int] = defaultdict(int)
         self._failed_calls = 0
+        self._abandoned_calls = 0
+        self._unmeasured_calls = 0
 
     def handle(self, event: Event) -> None:
+        if isinstance(event, ModelCallAbandoned):
+            self._abandoned_calls += 1
+            return
         if not isinstance(event, ModelCallFinished):
             return
         if not event.result.ok:
             self._failed_calls += 1
             return
+        if event.result.usage.completeness != "complete":
+            self._unmeasured_calls += 1
         self._by_role[event.role] = self._by_role[event.role] + event.result.usage
         self._calls[event.role] += 1
 
@@ -50,6 +62,16 @@ class CostTracker:
     def failed_calls(self) -> int:
         return self._failed_calls
 
+    @property
+    def abandoned_calls(self) -> int:
+        """Yanıt gelmeden iptal edilen, tüketimi BİLİNMEYEN çağrı sayısı."""
+        return self._abandoned_calls
+
+    @property
+    def cost_complete(self) -> bool:
+        """Toplam gerçek tüketim mi, yoksa bilinmeyen çağrılar yüzünden alt sınır mı."""
+        return self._abandoned_calls == 0 and self._unmeasured_calls == 0
+
     def by_role(self) -> tuple[tuple[str, int, TokenUsage], ...]:
         """(rol, çağrı sayısı, kullanım) satırları — token toplamına göre azalan."""
         rows = tuple((role, self._calls[role], usage) for role, usage in self._by_role.items())
@@ -59,3 +81,5 @@ class CostTracker:
         self._by_role.clear()
         self._calls.clear()
         self._failed_calls = 0
+        self._abandoned_calls = 0
+        self._unmeasured_calls = 0

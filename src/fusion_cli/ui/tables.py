@@ -34,6 +34,9 @@ def cost_table(tracker: CostTracker) -> Table:
 def cost_summary(tracker: CostTracker) -> str:
     """Tablonun altına yazılacak tek satırlık özet."""
     total = tracker.total
-    return messages.COST_TOTAL.format(
+    line = messages.COST_TOTAL.format(
         calls=tracker.calls, tokens=f"{total.total_tokens:,}", cost=total.cost_usd
     )
+    if tracker.abandoned_calls:
+        line += messages.COST_TOTAL_UNCERTAIN.format(unknown=tracker.abandoned_calls)
+    return line

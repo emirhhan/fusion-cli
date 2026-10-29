@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..core.events import Event, ModelCallFinished
+from ..core.events import Event, ModelCallAbandoned, ModelCallFinished
 from ..core.health import CircuitPhase, HealthRegistry
 from ..core.types import TokenUsage
 
@@ -27,12 +27,18 @@ class UsageMeter:
     #: Arka plan çağrıları (hakem, sentez) DAHİLDİR: kotadan onlar da harcar.
     total: TokenUsage = field(default_factory=TokenUsage)
     calls: int = 0
+    #: Yanıt gelmeden iptal edilen çağrılar ve ölçümü eksik gelenler: tüketimleri
+    #: BİLİNMİYOR, sıfır sayılmaz (bkz. `ModelCallAbandoned`). Toplam alt sınırdır.
+    uncertain_calls: int = 0
     by_model: dict[str, TokenUsage] = field(default_factory=dict)
     last_agent_prompt_tokens: int | None = None
     last_agent_model: str | None = None
 
     def observe(self, event: Event) -> None:
         """Olay bir model çağrısının bitişiyse tüketimi topla."""
+        if isinstance(event, ModelCallAbandoned):
+            self.uncertain_calls += 1
+            return
         if not isinstance(event, ModelCallFinished):
             return
         usage = getattr(event.result, "usage", None)
@@ -41,6 +47,8 @@ class UsageMeter:
         model = str(getattr(event.result, "model", "") or "bilinmeyen")
         self.total = self.total + usage
         self.calls += 1
+        if usage.completeness != "complete":
+            self.uncertain_calls += 1
         self.by_model[model] = self.by_model.get(model, TokenUsage()) + usage
         if (
             event.role == "agent"
@@ -58,6 +66,8 @@ class UsageMeter:
             "cikti_token": self.total.completion_tokens,
             "toplam_token": self.total.total_tokens,
             "maliyet_usd": round(self.total.cost_usd, 6),
+            "belirsiz_cagri": self.uncertain_calls,
+            "maliyet_tam": self.uncertain_calls == 0,
             "modeller": [
                 {
                     "model": model,

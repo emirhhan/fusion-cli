@@ -10,12 +10,14 @@ sormaz; yalnızca sağlayıcıyı çağırır.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Callable
 from uuid import uuid4
 
 from ..core.events import (
     Channel,
     EventPublisher,
+    ModelCallAbandoned,
     ModelCallFinished,
     ModelCallStarted,
     TierDegraded,
@@ -53,25 +55,47 @@ class EventingProvider:
     async def complete(self, request: CompletionRequest) -> ModelResult:
         call_id = self._call_id_factory()
         self._publisher.publish(self._started(call_id))
-        result = await self._inner.complete(request)
+        try:
+            result = await self._inner.complete(request)
+        except asyncio.CancelledError:
+            # Zaman aşımı ya da kesilen yavaş aday: bitiş olayı hiç gelmeyecek.
+            self._publish_abandoned(call_id)
+            raise
         self._publish_finished(result, call_id)
         return result
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         call_id = self._call_id_factory()
         self._publisher.publish(self._started(call_id))
-        async for item in self._inner.stream(request):
-            if isinstance(item, TextChunk) and item.text:
-                # Boş parça yalnız canlılık işaretidir (bkz. `litellm_provider.stream`);
-                # arayüze olay olarak gitmez.
-                self._publisher.publish(
-                    TokenReceived(
-                        channel=self._channel, text=item.text, provisional=item.provisional
+        finished = False
+        try:
+            async for item in self._inner.stream(request):
+                if isinstance(item, TextChunk) and item.text:
+                    # Boş parça yalnız canlılık işaretidir (bkz. `litellm_provider.stream`);
+                    # arayüze olay olarak gitmez.
+                    self._publisher.publish(
+                        TokenReceived(
+                            channel=self._channel, text=item.text, provisional=item.provisional
+                        )
                     )
-                )
-            elif isinstance(item, StreamDone):
-                self._publish_finished(item.result, call_id)
-            yield item
+                elif isinstance(item, StreamDone):
+                    finished = True
+                    self._publish_finished(item.result, call_id)
+                yield item
+        except (asyncio.CancelledError, GeneratorExit):
+            if not finished:
+                self._publish_abandoned(call_id)
+            raise
+
+    def _publish_abandoned(self, call_id: str) -> None:
+        self._publisher.publish(
+            ModelCallAbandoned(
+                role=self._role,
+                model=self._inner.label,
+                background=self._background,
+                call_id=call_id,
+            )
+        )
 
     def _started(self, call_id: str) -> ModelCallStarted:
         return ModelCallStarted(
