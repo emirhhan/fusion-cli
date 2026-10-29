@@ -244,6 +244,11 @@ LESSON_SOURCE_TEACHER = "öğretmen"
 # --- Onay ----------------------------------------------------------------- #
 APPROVAL_TITLE = "onay gerekiyor · {tool}"
 CONFIRM_QUESTION = "  onaylıyor musun? (e/h, Enter = evet)"
+CONFIRM_QUESTION_DANGER = "  onaylıyor musun? (e/h, varsayılan = hayır)"
+PERMISSIONS_UNTRUSTED = (
+    "Bu projedeki .claude/settings.local.json izinleri yok sayıldı (proje güvenilmiyor). "
+    "Dosyayı gözden geçirdiysen: fusion trust"
+)
 DANGER_WARNING = "⚠ geri alınamaz işlem: {reason}"
 AGENT_ASKS = "agent soruyor"
 ANSWER_PROMPT = "  cevabın"

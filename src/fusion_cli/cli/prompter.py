@@ -15,6 +15,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import AbstractContextManager
 
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.text import Text
@@ -25,8 +26,9 @@ from ..engines.agent.engine_tools import QuestionOption
 from ..tools.preview import preview_change
 from ..ui import messages, theme
 
-#: Onay sayılan cevaplar. Boş cevap (doğrudan Enter) da onaydır.
-_AFFIRMATIVE = frozenset({"", "e", "evet", "y", "yes", "onayla"})
+#: Onay sayılan cevaplar. Boş cevap (doğrudan Enter) yalnız sıradan onayda onaydır;
+#: tehlikeli (geri alınamaz) işlemde varsayılan HAYIR'dır (L1-01).
+_AFFIRMATIVE = frozenset({"e", "evet", "y", "yes", "onayla"})
 
 
 class ConsolePrompter:
@@ -57,19 +59,22 @@ class ConsolePrompter:
             self._render_preview(request)
             if request.danger is not None:
                 self._console.print(
-                    f"[{theme.ERROR}]{messages.DANGER_WARNING.format(reason=request.danger)}"
+                    f"[{theme.ERROR}]{escape(messages.DANGER_WARNING.format(reason=request.danger))}"
                     f"[/{theme.ERROR}]"
                 )
             elif request.note:
-                self._console.print(f"[{theme.DIM}]{request.note}[/{theme.DIM}]")
-            answer = self._ask(messages.CONFIRM_QUESTION)
+                self._console.print(f"[{theme.DIM}]{escape(request.note)}[/{theme.DIM}]")
+            is_dangerous = request.danger is not None
+            answer = self._ask(
+                messages.CONFIRM_QUESTION_DANGER if is_dangerous else messages.CONFIRM_QUESTION
+            )
         # Boş cevap iki anlama gelir: kullanıcı Enter'a bastı (onay) ya da ortam
         # etkileşimsiz (cevap yok). İkincisi kullanıcının REDDİ değildir — kimseye
         # SORULAMADI; bunu insanın "hayır" demesiyle aynı saymak, hiç sorulmamış
         # bir kararı kullanıcıya mal ederdi (bkz. `ApprovalAnswer.UNAVAILABLE`).
         if answer is None or (not answer and not self._interactive):
             return ApprovalAnswer.UNAVAILABLE
-        return _is_affirmative(answer)
+        return _is_affirmative(answer, enter_approves=not is_dangerous)
 
     async def ask(
         self,
@@ -170,5 +175,8 @@ def _diff_style(line: str) -> str:
     return "default"
 
 
-def _is_affirmative(answer: str) -> bool:
-    return answer.strip().lower() in _AFFIRMATIVE
+def _is_affirmative(answer: str, *, enter_approves: bool = True) -> bool:
+    normalized = answer.strip().lower()
+    if not normalized:
+        return enter_approves
+    return normalized in _AFFIRMATIVE

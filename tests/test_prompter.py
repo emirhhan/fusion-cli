@@ -241,3 +241,51 @@ def test_auto_disi_mod_istemde_gorunur():
     assert "auto" not in auto  # varsayılan sade kalır
     assert "plan" in plan  # auto dışı mod görünür
     assert plan != auto  # shift-tab ekranda bir değişiklik üretir
+
+
+async def test_tehlikeli_komutta_bos_enter_onaylamaz(tmp_path, monkeypatch):
+    """L1-01: geri alınamaz işlemde Enter onay sayılmaz; soru varsayılanın hayır olduğunu söyler."""
+    from fusion_cli.cli.prompter import Prompt
+
+    prompter, _ = _prompter(tmp_path)
+    prompter._interactive = True
+    sorulan: list[str] = []
+
+    def cevap(soru, *args, **kwargs):
+        sorulan.append(soru)
+        return ""
+
+    monkeypatch.setattr(Prompt, "ask", cevap)
+    istek = build_request(_arac("run_shell"), {"command": "git reset --hard"})
+
+    assert istek.danger is not None
+    assert await prompter.confirm(istek) is False
+    assert "varsayılan = hayır" in sorulan[0]
+    assert "Enter = evet" not in sorulan[0]
+
+
+@pytest.mark.parametrize("cevap", ["e", "evet", "EVET", " y "])
+async def test_tehlikeli_komutta_acik_evet_onaylar(tmp_path, monkeypatch, cevap):
+    from fusion_cli.cli.prompter import Prompt
+
+    prompter, _ = _prompter(tmp_path)
+    prompter._interactive = True
+    monkeypatch.setattr(Prompt, "ask", lambda *a, **k: cevap)
+    istek = build_request(_arac("run_shell"), {"command": "git reset --hard"})
+
+    assert await prompter.confirm(istek) is True
+
+
+async def test_tehlike_gerekcesindeki_koseli_parantez_onayi_cokertmez(tmp_path, monkeypatch):
+    from fusion_cli.cli.prompter import Prompt
+
+    prompter, buffer = _prompter(tmp_path)
+    prompter._interactive = True
+    monkeypatch.setattr(Prompt, "ask", lambda *a, **k: "h")
+    istek = build_request(_arac("run_shell"), {"command": "git reset --hard"})
+    from dataclasses import replace
+
+    istek = replace(istek, danger="siler [/x] [bold]")
+
+    assert await prompter.confirm(istek) is False
+    assert "[/x]" in buffer.getvalue()
