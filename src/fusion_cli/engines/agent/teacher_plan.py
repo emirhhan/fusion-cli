@@ -64,10 +64,39 @@ class TeacherPlanError(ValueError):
     """Öğretmen yanıtı plan sözleşmesine uymuyor."""
 
 
+#: Türkçe harfleri ASCII'ye katlar: prompt `adimlar` ister, gerçek LLM `adımlar` yazar.
+_ASCII_FOLD = str.maketrans("ıİşŞçÇğĞöÖüÜ", "iissccggoouu")
+
+
+def _fold_key(key: str) -> str:
+    return key.strip().translate(_ASCII_FOLD).casefold()
+
+
+def _fold_keys(value: dict[str, object]) -> dict[str, object]:
+    return {_fold_key(str(key)): item for key, item in value.items()}
+
+
+def _step_text(item: object) -> object:
+    """`{"adim": "..."}` biçimindeki adım nesnesini metne çevir; diğerlerine dokunma."""
+    if isinstance(item, dict):
+        folded = _fold_keys(item)
+        for key in ("adim", "aciklama", "metin", "step"):
+            if isinstance(folded.get(key), str):
+                return folded[key]
+    return item
+
+
 def _string_items(value: object, field: str, *, required: bool = False) -> tuple[str, ...]:
-    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+    # Opsiyonel alan öğretmen tarafından atlanabilir (boş kalan alan doğal olarak yazılmaz).
+    if value is None and not required:
+        return ()
+    if not isinstance(value, list):
         raise TeacherPlanError(f"'{field}' metin dizisi olmalı.")
-    items = tuple(item.strip() for item in value if item.strip())
+    raw = [_step_text(item) for item in value] if field == "adimlar" else list(value)
+    texts = [item for item in raw if isinstance(item, str)]
+    if len(texts) != len(raw):
+        raise TeacherPlanError(f"'{field}' metin dizisi olmalı.")
+    items = tuple(item.strip() for item in texts if item.strip())
     if required and not items:
         raise TeacherPlanError(f"'{field}' en az bir madde içermeli.")
     return items
@@ -80,11 +109,14 @@ def parse_teacher_plan(answer: str) -> TeacherPlan:
     files = _string_items(document.get("dosyalar"), "dosyalar")
     risks = _string_items(document.get("riskler"), "riskler")
     verification = _string_items(document.get("dogrulama"), "dogrulama")
-    raw_unworkables = document.get("yapilamayanlar")
+    raw_unworkables = document.get("yapilamayanlar", [])
+    if raw_unworkables is None:
+        raw_unworkables = []
     if not isinstance(raw_unworkables, list):
         raise TeacherPlanError("'yapilamayanlar' dizi olmalı.")
     unworkables: list[UnworkablePart] = []
     for item in raw_unworkables:
+        item = _fold_keys(item) if isinstance(item, dict) else item
         if not isinstance(item, dict) or any(
             not isinstance(item.get(key), str) or not item[key].strip()
             for key in ("konu", "gerekce", "alternatif")
@@ -108,8 +140,10 @@ def _json_document(answer: str, marker: str) -> dict[str, object]:
             candidate, _end = decoder.raw_decode(answer[match.start() :])
         except json.JSONDecodeError:
             continue
-        if isinstance(candidate, dict) and marker in candidate:
-            return candidate
+        if isinstance(candidate, dict):
+            folded = _fold_keys(candidate)
+            if marker in folded:
+                return folded
     raise TeacherPlanError(f"Öğretmen yanıtında '{marker}' alanlı JSON bulunamadı.")
 
 

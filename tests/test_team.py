@@ -525,7 +525,7 @@ async def test_model_delegation_runs_real_child_and_serializes_live_lifecycle(
 
 
 def test_salt_okunur_zayif_model_degerleriyle_yazma_yetkisi_vermez():
-    """Ölçüldü (29 Ekim): `is True` yüzünden "true"/1/"evet" görevi yazma yetkili yapıyordu (A4-09)."""
+    """Ölçüldü (29 Ekim): `is True` yüzünden "true"/1/"evet" yazma yetkisi veriyordu (A4-09)."""
     from fusion_cli.engines.agent.team import _parse_subtask
 
     for deger in (True, "true", "True", " evet ", 1, "yes", ["x"]):
