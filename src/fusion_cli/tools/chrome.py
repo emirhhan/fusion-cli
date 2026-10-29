@@ -134,9 +134,18 @@ _RISKY_CLICK = re.compile(
     r"siparişi tamamla|siparişi onayla|onayla|kaydet|uygula|etkinleştir|devre dışı bırak|"
     r"duraklat|yorum yap|yanıtla|takip et|beğen|abone ol|kayıt ol|üye ol|hesap oluştur|"
     r"hesabı bağla|"
+    # Ölçüldü (29 Ekim): aşağıdaki yaygın kalıcı düğmeler tanınmıyordu. Ekli Türkçe
+    # biçimler ("Ödemeye geç") açıkça yazılır; sonek eşleme ("beğenme") 27 Eylül
+    # hatasını geri getirirdi.
+    r"siparişi ver|sipariş ver|ödemeye geç|ödemeyi tamamla|satın alın|bağış yap|"
+    r"izin ver|yetki ver|yetkilendir|havale yap|para çek|teklif ver|yükselt|"
+    r"aboneliği iptal et|siparişi iptal et|üyeliği iptal et|takibi bırak|"
     r"submit|send|post|publish|share|delete|remove|buy|purchase|pay|checkout|"
     r"confirm|save|apply|enable|disable|pause|follow|like|reply|comment|sign up|register|"
-    r"create (?:an )?account|connect (?:your )?account)\b",
+    r"create (?:an )?account|connect (?:your )?account|"
+    r"place (?:an? )?(?:order|bid)|order now|allow|authorize|approve|subscribe|donate|"
+    r"withdraw|transfer|upgrade|unfollow|"
+    r"cancel (?:my |your |the )?(?:subscription|order|membership|booking|reservation|plan))\b",
     re.IGNORECASE,
 )
 
@@ -189,15 +198,30 @@ async def chrome_type_effect(_args: ToolArgs, _context: ToolContext | None) -> T
     return ToolEffect.REMOTE_INTERACT
 
 
+#: Enter'ın aileleri: değiştirici ile (Meta/Ctrl+Enter) Gmail/Slack'te mesajı GÖNDERİR.
+_ENTER_KEYS = frozenset({"enter", "return", "numpadenter"})
+#: Alan dışında seçili öğeyi silen tuşlar.
+_DELETE_KEYS = frozenset({"delete", "backspace"})
+
+
+def _key_base(key: str) -> str:
+    """'Meta+Enter' → 'enter': değiştiriciler atılır, asıl tuş küçük harfle döner."""
+    return key.rsplit("+", 1)[-1].strip().lower() if key.strip() != "+" else "+"
+
+
 async def _key_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:
     """Tab/ok/Escape iz bırakmaz; Enter'ın ne yapacağı odaktaki alana bakılarak anlaşılır.
+
+    Değiştiricili Enter (Meta/Ctrl/Shift+Enter) çıplak Enter gibi, Delete/Backspace
+    ise alan dışında silme olarak değerlendirilir (T1-16).
 
     Ölçüldü (2 Ekim, kullanıcı): otomatik kipte arama kutusuna yazıp Enter'a basmak
     bile soruluyordu. Arama kutusunda Enter gezinmedir; mesaj/yorum kutusunda ya da
     "Gönder/Satın al" düğmeli formda göndermedir ve sorulur.
     """
     key = args.get("value")
-    if isinstance(key, str) and key and key != "Enter":
+    base = _key_base(key) if isinstance(key, str) and key else "enter"
+    if base not in _ENTER_KEYS and base not in _DELETE_KEYS:
         return ToolEffect.REMOTE_INTERACT
     if context is None or context.chrome is None:
         return None
@@ -206,6 +230,10 @@ async def _key_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect
     veri = result.get("veri") if result is not None and result.get("ok") else None
     if not isinstance(veri, dict):
         return None
+    if base in _DELETE_KEYS:
+        # Yazı alanında Delete/Backspace yazmadır; alan dışında seçili öğeyi (e-posta,
+        # dosya, kart) siler.
+        return ToolEffect.REMOTE_INTERACT if veri.get("editable") else None
     if veri.get("search"):
         return ToolEffect.REMOTE_INTERACT
     ipucu = f"{veri.get('name', '')} {veri.get('hint', '')} {veri.get('submit_name', '')}"
