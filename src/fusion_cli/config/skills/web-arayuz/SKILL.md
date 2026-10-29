@@ -201,7 +201,7 @@ Aşağıdaki parçalar yukarıdaki ölçekleri kullanır. Yapıyı kopyala, içe
 .header__actions { margin-left: auto; display: flex; gap: var(--space-2); }
 .icon-btn { position: relative; width: 40px; height: 40px; display: grid;
             place-items: center; border: 0; background: none; border-radius: var(--radius-md); }
-.icon-btn:hover { background: var(--gray-100); }
+.icon-btn:hover { background: var(--gray-50); }
 .badge { position: absolute; top: 2px; right: 2px; min-width: 18px; height: 18px;
          display: grid; place-items: center; font-size: 11px; border-radius: var(--radius-full);
          background: var(--accent); color: var(--white); }
@@ -243,16 +243,16 @@ açılır). Panel `position: fixed` olmazsa footer'ın altına düşer.
         border: 1px solid var(--gray-200); border-radius: var(--radius-md);
         overflow: hidden; transition: box-shadow var(--dur) var(--ease); }
 .card:hover { box-shadow: var(--shadow-md); }
-.card__media { position: relative; aspect-ratio: 1; background: var(--gray-100); }
+.card__media { position: relative; aspect-ratio: 1; background: var(--gray-200); }
 .card__media img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .card__badge { position: absolute; top: var(--space-3); left: var(--space-3);
                padding: 2px var(--space-2); border-radius: var(--radius-sm);
                background: var(--accent); color: var(--white); font-size: var(--text-xs); }
 .card__body { padding: var(--space-5); display: grid; gap: var(--space-2); }
-.card__kicker { font-size: var(--text-xs); color: var(--gray-500);
+.card__kicker { font-size: var(--text-xs); color: var(--gray-600);
                 text-transform: uppercase; letter-spacing: 0.04em; }
 .card__title { font-size: var(--text-lg); line-height: var(--leading-tight); }
-.card__price s { font-size: var(--text-sm); color: var(--gray-500); }
+.card__price s { font-size: var(--text-sm); color: var(--gray-400); }
 .card__price strong { font-size: var(--text-xl); color: var(--brand); }
 .card__actions { display: flex; gap: var(--space-2); align-items: center; }
 .card__actions .btn { flex: 1; }
@@ -418,7 +418,7 @@ Her grup AYRI bir grid öğesidir; telif satırı grid'in DIŞINDA, tam genişli
 ```
 
 ```css
-.site-footer { background: var(--navy); color: #fff; padding-block: var(--space-8) var(--space-5); }
+.site-footer { background: var(--brand-dark); color: var(--white); padding-block: var(--space-8) var(--space-5); }
 .footer__grid { display: grid; gap: var(--space-6);
                 grid-template-columns: 2fr repeat(3, 1fr); align-items: start; }
 .footer__col h4 { font-size: var(--text-base); margin-bottom: var(--space-3); }
