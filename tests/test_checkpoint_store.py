@@ -240,3 +240,49 @@ def test_checkpoint_gecersiz_kapsama_listesini_reddeder(tmp_path):
     path.write_text(json.dumps(payload), encoding="utf-8")
 
     assert store.load("plan-1") is None
+
+
+def test_okunamayan_checkpoint_kenara_alinir_ve_plan_yeniden_kaydedilir(tmp_path):
+    """Ölçüldü (29 Ekim): bozuk dosya save'i 'Checkpoint değişmiş' diye KALICI engelliyordu."""
+    directory = tmp_path / "checkpoints"
+    store = JsonCheckpointStore(directory)
+    checkpoint = _checkpoint(tmp_path)
+    store.save(checkpoint)
+    bozuk = next(directory.glob("*.json"))
+    bozuk.write_text("{bozuk", encoding="utf-8")
+
+    store.save(checkpoint)
+
+    assert store.load("plan-1") == replace(checkpoint, storage_revision=1)
+    yedek = bozuk.with_suffix(".corrupt")
+    assert yedek.read_text(encoding="utf-8") == "{bozuk"
+
+
+def test_desteklenmeyen_sema_veri_kaybetmeden_kenara_alinir(tmp_path):
+    directory = tmp_path / "checkpoints"
+    store = JsonCheckpointStore(directory)
+    checkpoint = _checkpoint(tmp_path)
+    store.save(checkpoint)
+    hedef = next(directory.glob("*.json"))
+    ham = json.loads(hedef.read_text(encoding="utf-8"))
+    ham["schema_version"] = 99
+    hedef.write_text(json.dumps(ham), encoding="utf-8")
+
+    store.save(checkpoint)
+
+    assert (
+        json.loads(hedef.with_suffix(".corrupt").read_text(encoding="utf-8"))["schema_version"]
+        == 99
+    )
+    assert store.load("plan-1") is not None
+
+
+def test_okunamayan_checkpoint_neden_loglanir(tmp_path, caplog):
+    directory = tmp_path / "checkpoints"
+    directory.mkdir()
+    (directory / "plan-1.json").write_text("{bozuk", encoding="utf-8")
+
+    with caplog.at_level("WARNING"):
+        JsonCheckpointStore(directory).load("plan-1")
+
+    assert any(getattr(kayit, "dosya", "") == "plan-1.json" for kayit in caplog.records)

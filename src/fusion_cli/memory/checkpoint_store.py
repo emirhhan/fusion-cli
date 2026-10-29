@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -27,6 +28,7 @@ from .checkpoint_effects import effects_payload, parse_effects
 from .checkpoint_evidence import budget_payload, evidence_payload, parse_budget, parse_evidence
 from .checkpoint_repair import parse_repair, repair_payload
 
+_logger = logging.getLogger(__name__)
 _SAFE_ID = re.compile(r"[^a-zA-Z0-9._-]+")
 _SUPPORTED_SCHEMAS = frozenset({1, 2, 3, 4, 5, 6})
 
@@ -258,7 +260,12 @@ class JsonCheckpointStore:
     ) -> int:
         target = self._canonical(identity)
         current = self._read_path(target) if target.exists() else None
-        if target.exists() and (current is None or self._identity(current) != identity):
+        if target.exists() and current is None:
+            # Okunamayan kayıt (bozuk JSON, desteklenmeyen şema, geçersiz alan) bu planın
+            # hem devamını hem yeniden kaydını KALICI engelliyordu (M1-43). Kenara alınır
+            # (silinmez), uyarı loglanır ve plan sıfırdan yazılır.
+            self._quarantine(target)
+        elif current is not None and self._identity(current) != identity:
             raise CheckpointConflictError("Checkpoint değişmiş veya desteklenmiyor.")
         if current is None:
             current = next(
@@ -307,8 +314,31 @@ class JsonCheckpointStore:
         try:
             raw = cast("object", json.loads(path.read_text(encoding="utf-8")))
             return _from_dict(raw)
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            # Neden okunamadığı sessizce kaybolmasın: dosya adı ve hata türü loglanır.
+            _logger.warning(
+                "checkpoint okunamadı",
+                extra={"dosya": path.name, "hata": f"{type(error).__name__}: {str(error)[:200]}"},
+            )
             return None
+
+    @staticmethod
+    def _quarantine(path: Path) -> None:
+        """Okunamayan kaydı `.corrupt` uzantısıyla kenara al (silinmez, `*.json` dışında kalır)."""
+        hedef = path.with_suffix(".corrupt")
+        sira = 1
+        while hedef.exists():
+            hedef = path.with_suffix(f".corrupt.{sira}")
+            sira += 1
+        try:
+            path.replace(hedef)
+        except OSError as error:
+            raise CheckpointConflictError(
+                f"Okunamayan checkpoint kenara alınamadı ({path.name}): {error}"
+            ) from error
+        _logger.warning(
+            "okunamayan checkpoint kenara alındı", extra={"dosya": path.name, "yedek": hedef.name}
+        )
 
     def _read_valid(self, path: Path) -> WorkflowCheckpoint | None:
         checkpoint = self._read_path(path)
