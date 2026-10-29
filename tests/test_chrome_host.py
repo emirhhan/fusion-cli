@@ -50,15 +50,18 @@ def test_eklenti_kimligi_chrome_yontemiyle_hesaplanir():
     assert chrome_host.extension_id_for_path(yol) == "eigpikpghdhbbefejciokiinjcpiegjc"
 
 
-def test_yuklu_fusion_browser_kimligi_profil_ayarlarindan_bulunur(tmp_path):
+def test_yuklu_fusion_browser_kimligi_yalniz_guvenilir_klasorden_bulunur(tmp_path):
+    """Ad kimlik kanıtı değildir (bkz. test_native_host_identity)."""
     profil = tmp_path / "Library/Application Support/Google/Chrome/Default"
     profil.mkdir(parents=True)
+    guvenilir = str(chrome_host.trusted_extension_dirs()[0])
     (profil / "Preferences").write_text(
         json.dumps(
             {
                 "extensions": {
                     "settings": {
-                        "abc": {"manifest": {"name": "Fusion Browser"}},
+                        "abc": {"manifest": {"name": "Fusion Browser"}, "path": guvenilir},
+                        "adi-ayni": {"manifest": {"name": "Fusion Browser"}, "path": "/tmp/x"},
                         "xyz": {"manifest": {"name": "Başka"}},
                     }
                 }

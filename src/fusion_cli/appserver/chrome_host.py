@@ -132,9 +132,26 @@ def chrome_user_data_dir(home: Path | None = None) -> Path:
     return kok / "Library" / "Application Support" / "Google" / "Chrome"
 
 
+def trusted_extension_dirs() -> list[Path]:
+    """Fusion'ın kendi eklenti kopyalarının bulunduğu klasörler (kaynak, paket, kullanıcı)."""
+    return [
+        Path(__file__).resolve().parents[3] / "chrome-extension",
+        Path("/Applications/Fusion.app/Contents/Resources/chrome-extension"),
+        base_config_dir() / "chrome-extension",
+    ]
+
+
 def installed_extension_ids(home: Path | None = None) -> set[str]:
-    """Chrome profillerinde "Fusion Browser" adıyla yüklü eklentilerin kimlikleri."""
+    """Chrome profillerinde GÜVENİLİR klasörlerden yüklenmiş eklentilerin kimlikleri.
+
+    Eklentinin adı ya da yolunun `/chrome-extension` ile bitmesi kimlik kanıtı DEĞİLDİR:
+    ölçüldü (29 Ekim), aynı adı taşıyan herhangi bir eklenti native host izin listesine
+    giriyordu. Gerçek eklentinin kimliğini manifest `key`'i sabitler
+    (`FIXED_EXTENSION_ID`); burada yalnız Fusion'ın kendi klasöründen yüklenen kopya
+    kabul edilir.
+    """
     kok = chrome_user_data_dir(home)
+    guvenilir = {_resolved(d) for d in trusted_extension_dirs()}
     kimlikler: set[str] = set()
     for dosya in [*kok.glob("*/Preferences"), *kok.glob("*/Secure Preferences")]:
         try:
@@ -143,23 +160,24 @@ def installed_extension_ids(home: Path | None = None) -> set[str]:
             continue
         uzantilar = ayarlar.get("extensions", {}).get("settings", {}) or {}
         for kimlik, bilgi in uzantilar.items():
-            manifest = bilgi.get("manifest") or {} if isinstance(bilgi, dict) else {}
             yol = str(bilgi.get("path", "")) if isinstance(bilgi, dict) else ""
-            if manifest.get("name") == EXTENSION_NAME or yol.endswith("/chrome-extension"):
+            if yol and _resolved(Path(yol)) in guvenilir:
                 kimlikler.add(kimlik)
     return kimlikler
 
 
+def _resolved(path: Path) -> Path:
+    try:
+        return path.expanduser().resolve()
+    except OSError:
+        return path
+
+
 def candidate_extension_ids(home: Path | None = None) -> set[str]:
-    """Kaynak ağacı, kurulu uygulama ve Chrome'da yüklü eklentilerden kimlikler."""
-    dizinler = [
-        Path(__file__).resolve().parents[3] / "chrome-extension",
-        Path("/Applications/Fusion.app/Contents/Resources/chrome-extension"),
-        base_config_dir() / "chrome-extension",
-    ]
+    """Sabit kimlik, güvenilir klasörlerin yol kimlikleri ve oradan yüklenmiş eklentiler."""
     return (
         {FIXED_EXTENSION_ID}
-        | {extension_id_for_path(d) for d in dizinler}
+        | {extension_id_for_path(d) for d in trusted_extension_dirs()}
         | installed_extension_ids(home)
     )
 
