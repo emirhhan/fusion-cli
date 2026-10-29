@@ -42,6 +42,20 @@ export const DEFAULT_DEADLINES_MS: Readonly<Record<string, number>> = {
   "proje.oku": OKUMA_SON_SURESI_MS,
   "proje.onizle": OKUMA_SON_SURESI_MS,
   "proje.degisiklikler": OKUMA_SON_SURESI_MS,
+  // Sağlayıcı paneli (U5-01): cevapsız kalan çekirdek `busy`/`mesgul` durumunu sonsuza dek
+  // kilitliyordu (tüm kartlar disabled). Giriş penceresinin KENDİSİ (kullanıcı Chrome'da
+  // giriş yapar) bu istekle değil `web.giris_durumu` yoklamasıyla beklenir; bu istekler kısadır.
+  // Ölçümü/doğrulaması gerçek model çağrısı yaptığından `web.dogrula` ve `web.arac_olc` daha uzundur.
+  "saglayici.katalog": OKUMA_SON_SURESI_MS,
+  "web.giris": 60_000,
+  "web.giris_durumu": OKUMA_SON_SURESI_MS,
+  "web.baglan": OKUMA_SON_SURESI_MS,
+  "web.cikis": OKUMA_SON_SURESI_MS,
+  "web.model_secenekleri": 60_000,
+  "web.model_sec": 60_000,
+  "web.dogrula": 120_000,
+  "web.arac_olc": 300_000,
+  "kontrol.anahtar_dogrula": 90_000,
 };
 
 interface BekleyenIstek {

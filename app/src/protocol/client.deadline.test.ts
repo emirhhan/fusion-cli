@@ -78,6 +78,24 @@ describe("ProtocolClient son süre ve iptal", () => {
     expect(turBitti).toBe(false);
   });
 
+  // U5-01 — Ölçüldü (29 Ekim): web.dogrula/web.arac_olc/web.giris ve ProviderList istekleri süresizdi;
+  // sessiz çekirdekte panel `busy` kilidinde kalıyordu.
+  it.each([
+    ["web.giris", 60_000], ["web.giris_durumu", 30_000], ["web.baglan", 30_000], ["web.cikis", 30_000],
+    ["web.dogrula", 120_000], ["web.arac_olc", 300_000], ["saglayici.katalog", 30_000],
+    ["web.model_secenekleri", 60_000], ["web.model_sec", 60_000], ["kontrol.anahtar_dogrula", 90_000],
+  ])("%s sessiz çekirdekte %i ms sonra reddedilir", async (ad, sure) => {
+    const t = sahteTasima();
+    const c = new ProtocolClient(t.gonder, t.dinle);
+    const istek = c.request(ad, {});
+    const hata = expect(istek).rejects.toBeInstanceOf(RequestTimeoutError);
+    vi.advanceTimersByTime(sure - 1);
+    await Promise.resolve();
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(1);
+    await hata;
+  });
+
   it("close bekleyen zamanlayıcıları da temizler", async () => {
     const t = sahteTasima();
     const c = new ProtocolClient(t.gonder, t.dinle);
