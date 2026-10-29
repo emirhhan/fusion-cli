@@ -157,3 +157,35 @@ async def test_sozlesme_hatali_yanit_ustel_geri_cekilmeye_girmez(monkeypatch, tm
 
     assert beklemeler == []
     assert sonuc.ok
+
+
+# --- A2-04: sözleşme hatasıyla düşen çağrı "yapılmış" sayılmaz -------------- #
+
+
+async def test_once_oku_hatasindan_sonra_ayni_yazma_tekrar_kapisina_takilmaz(
+    monkeypatch, tmp_path, sink
+):
+    """Ölçüldü (29 Ekim): web modeli var olan küçük dosyaya `write_file` -> "önce
+    oku" hatası -> okur -> AYNI `write_file` çağrısı `TOOL_CALL_DUPLICATE` ile
+    engelleniyordu (imza hata anında sayılmış, unutulmamıştı)."""
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    (tmp_path / "a.txt").write_text("eski\n", encoding="utf-8")
+    yaz = tool_call("write_file", path="a.txt", content="yeni\n")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[yaz]),
+                model_result(tool_calls=[tool_call("read_file", path="a.txt")]),
+                model_result(tool_calls=[yaz]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink)
+    deps.execution = ExecutionPolicy(is_web=True, max_tool_rounds=12, max_model_calls=16)
+
+    await run_agent("a.txt dosyasını değiştir", deps)
+
+    assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "yeni\n"

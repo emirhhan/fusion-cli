@@ -195,7 +195,7 @@ async def test_second_invalid_call_blocks_but_does_not_kill_turn(tmp_path) -> No
     assert await _run_tools((first,), messages, deps, registry, state, execution=execution)
     # Onarım hakkı artık TUR bütçesindedir; tek bir `_drive` çağrısının değil.
     assert deps.budget.contract_repairs == 1
-    assert not state.tool_contract_abort
+    assert not state.repeated_failure_abort
 
     second = ToolCall(id="2", name="run_shell", arguments="{}")
     assert await _run_tools((second,), messages, deps, registry, state, execution=execution)
@@ -203,7 +203,7 @@ async def test_second_invalid_call_blocks_but_does_not_kill_turn(tmp_path) -> No
     assert state.failed_tool_calls == 2
     assert "TOOL_CALL_INVALID" in messages[-1].content
     # ...ama tur öldürülmedi: model bir sonraki turda toparlayabilmeli.
-    assert not state.tool_contract_abort
+    assert not state.repeated_failure_abort
 
 
 @pytest.mark.asyncio
@@ -231,7 +231,7 @@ async def test_ucuncu_okuma_calistirilmaz_onbellekten_cevaplanir(tmp_path) -> No
     assert not await _run_tools((third,), messages, deps, registry, state, execution=execution)
     assert "TOOL_CALL_CACHED" in messages[-1].content
     assert "hello" in messages[-1].content
-    assert not state.tool_contract_abort
+    assert not state.repeated_failure_abort
 
 
 @pytest.mark.asyncio
@@ -252,7 +252,7 @@ async def test_second_identical_mutation_is_stopped(tmp_path) -> None:
     # söyle. İkinci kez ÇALIŞTIRILMADIĞI tek sayaçtan doğrulanır.
     assert "TOOL_CALL_DUPLICATE" in messages[-1].content
     assert state.mutating_tool_calls_made == 1
-    assert not state.tool_contract_abort
+    assert not state.repeated_failure_abort
 
 
 @pytest.mark.asyncio

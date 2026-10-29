@@ -1169,7 +1169,6 @@ class _State:
     internal: bool = False
     #: Blocking verification correction araçsız kapanamaz.
     require_local_mutation: bool = False
-    tool_contract_abort: str = ""
     repeated_failure_abort: str = ""
     failed_call_counts: dict[tuple[str, str], int] = field(default_factory=dict)
     #: Bir araç "bu iş benimle YAPILAMAZ" dedi mi? (şifre duvarı, oturum kapısı…)
@@ -1520,9 +1519,9 @@ async def _drive(
                 BudgetStop.DEADLINE,
                 deps,
             )
-        if state.tool_contract_abort or state.repeated_failure_abort:
+        if state.repeated_failure_abort:
             return _halt(
-                state.tool_contract_abort or state.repeated_failure_abort,
+                state.repeated_failure_abort,
                 messages,
                 state,
                 budget,
@@ -2974,10 +2973,21 @@ async def _run_tools(
         elif isinstance(function_schema, dict):
             contract_errors.extend(validate_arguments(function_schema, args))
 
+        state_dependent_error = False
         if not contract_errors:
-            contract_errors.extend(_targeted_edit_required(call.name, args, deps, execution, state))
+            targeted = _targeted_edit_required(call.name, args, deps, execution, state)
+            contract_errors.extend(targeted)
+            state_dependent_error = bool(targeted)
 
         if contract_errors:
+            # Durum bağımlı hata ("önce oku") model DOĞRU hamleyi yapınca çözülür ve
+            # aynı çağrı bu kez geçerli olur; çalıştırılmamış çağrı "yapılmış"
+            # sayılmamalı. Ölçüldü (29 Ekim, A2-04): imza unutulmadığı için okuma
+            # sonrası AYNI `write_file` tekrar kapısına (`duplicate_limit=1`)
+            # takılıyordu. Bozuk JSON/şema hatasında imza korunur: aynı bozuk
+            # çağrının tekrarı gerçek bir döngüdür (`seen >= 1` kuralı).
+            if state_dependent_error:
+                budget.forget_call(signature)
             # Aynı bozuk çağrı ikinci kez geldiyse onarım hakkı harcanmaz: model
             # düzeltmiyor, tekrarlıyor.
             no_more_repairs = seen >= 1 or not budget.take_contract_repair()
