@@ -97,20 +97,48 @@ async def test_kanal_modelin_metnini_dondurur(tasima):
     assert cevap == "cevap 1"
 
 
-async def test_gecmis_gonderilen_kismi_biriktirmez(tasima):
-    """Geçmiş sınırsız büyürse uzun oturumda maliyet N² olur.
+async def test_gecmis_sinirsiz_buyumez_onsoz_hep_basta(tasima):
+    """Geçmiş sınırsız büyürse uzun oturumda maliyet N² olur (`_task_reminder` taraması)."""
+    config = replace(make_config(), web_sessions=(_session(),))
+    kanal = HostedSessionChannel(config)
 
-    `_deliver_turn` yalnız gönderilmemiş kısmı yazar; gönderilmiş önek
-    KORUNMAK zorunda değildir. Ölçülen iki maliyet: sürekli büyüyen `Message`
-    listesi ve her çağrıda tüm geçmişi tarayan `_task_reminder`.
+    for index in range(60):
+        await kanal(_connector(), f"istem {index}")
+
+    from fusion_cli.providers.hosted_bridge import _MAX_MESSAGES
+
+    assert kanal.conversations[("claude_web", "main")] <= _MAX_MESSAGES + 1
+    # Önsöz HER ZAMAN ilk mesaj olmalı: havuz konuşmayı onunla eşler.
+    assert all(tur[0] == tasima.turns[0][0] for tur in tasima.turns)
+
+
+async def test_ardisik_cagrilar_gonderilmis_oneki_korur(tasima):
+    """P1-02: önek kayarsa `_deliver_turn` sohbeti sürdüremez, her çağrı yeni sekme açar.
+
+    Ölçüldü (29 Ekim): `_trim` her çağrıda ortadan kırpıyordu; 3. çağrıdan itibaren
+    `messages[:sent_count]` özeti önceki turla uyuşmuyordu. Sürdürme koşulu, havuzun
+    kullandığı koşulun aynısıdır: önceki tur mesajları yeni turun ÖNEKİDİR.
     """
     config = replace(make_config(), web_sessions=(_session(),))
     kanal = HostedSessionChannel(config)
 
-    for index in range(6):
+    for index in range(8):
         await kanal(_connector(), f"istem {index}")
 
-    # Önsöz + son alışveriş kalır; tarih sınırsız birikmez.
-    assert kanal.conversations[("claude_web", "main")] <= 4
-    # Önsöz HER ZAMAN ilk mesaj olmalı: havuz konuşmayı onunla eşler.
-    assert tasima.turns[-1][0] == tasima.turns[0][0]
+    for onceki, sonraki in zip(tasima.turns, tasima.turns[1:], strict=False):
+        assert sonraki[: len(onceki)] == onceki
+        assert len(sonraki) > len(onceki)
+
+
+async def test_tavanda_konusma_bir_kez_sifirlanir(tasima):
+    from fusion_cli.providers.hosted_bridge import _MAX_MESSAGES
+
+    config = replace(make_config(), web_sessions=(_session(),))
+    kanal = HostedSessionChannel(config)
+
+    for index in range(_MAX_MESSAGES - 1):
+        await kanal(_connector(), f"istem {index}")
+
+    uzunluklar = [len(tur) for tur in tasima.turns]
+    sifirlanma = [i for i in range(1, len(uzunluklar)) if uzunluklar[i] <= uzunluklar[i - 1]]
+    assert len(sifirlanma) == 1
