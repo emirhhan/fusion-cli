@@ -30,6 +30,7 @@ from .model import (
     missing_evidence,
     root_key,
 )
+from .scrub import scrub_output, strip_url_userinfo
 from .store import WorkflowStore
 from .tool_runner import EffectToolRunner
 
@@ -38,24 +39,37 @@ if TYPE_CHECKING:  # pragma: no cover
     from ..agent.loop import AgentDeps
 
 
+#: Sır taşıyan dosya adları. Hem izlenmeyen dosyaları atlamak hem izlenen değişikliklerde
+#: push'u durdurmak için ORTAK kullanılır (E1-04). `.env.example`/`.sample` gibi şablonlar
+#: sır değildir; push'u engellemez.
+_SECRET_FILE_PATTERNS = (
+    re.compile(r"(^|/)\.env(?!\.(?:example|sample|template|dist)$)(?:\.|$)", re.IGNORECASE),
+    re.compile(r"(^|/)(?:credentials?|secrets?)(?:/|$)", re.IGNORECASE),
+    re.compile(r"(^|/)(?:cookies?|sessions?)\.(?:json|txt|yaml|yml)$", re.IGNORECASE),
+    re.compile(
+        r"(^|/)(?:credentials?|secrets?|client_secrets?)\.(?:json|ya?ml|toml|ini|txt)$",
+        re.IGNORECASE,
+    ),
+    re.compile(r"(^|/)service[-_]?account[^/]*\.json$", re.IGNORECASE),
+    re.compile(r"\.(?:pem|key|p12|pfx|jks|keystore|ppk|gpg)$", re.IGNORECASE),
+    re.compile(r"(^|/)id_(?:rsa|dsa|ecdsa|ed25519)(?:_[^/]*)?$", re.IGNORECASE),
+    re.compile(r"(^|/)\.(?:npmrc|pypirc|netrc|pgpass|git-credentials)$", re.IGNORECASE),
+    re.compile(r"(^|/)\.(?:aws|ssh|gnupg)(?:/|$)", re.IGNORECASE),
+)
 _SKIP_UNTRACKED_PATTERNS = (
-    re.compile(r"(^|/)\.env(?:\.|$)", re.IGNORECASE),
+    *_SECRET_FILE_PATTERNS,
     re.compile(r"(^|/)\.venv(?:/|$)", re.IGNORECASE),
     re.compile(r"(^|/)node_modules(?:/|$)", re.IGNORECASE),
     re.compile(r"(^|/)__pycache__(?:/|$)", re.IGNORECASE),
     re.compile(r"(^|/)\.pytest_cache(?:/|$)", re.IGNORECASE),
     re.compile(r"(^|/)(?:build|dist)(?:/|$)", re.IGNORECASE),
     re.compile(r"(^|/)\.fusion-[^/]*(?:/|$)", re.IGNORECASE),
-    re.compile(r"(^|/)(?:browser_profiles?|credentials?|secrets?)(?:/|$)", re.IGNORECASE),
+    re.compile(r"(^|/)browser_profiles?(?:/|$)", re.IGNORECASE),
     re.compile(r"(?:^|/)fusion-.*(?:report|install|fix).*\.(?:txt|log)$", re.IGNORECASE),
     re.compile(r"\.(?:log|pyc|pyo|zip|tar|gz|7z|mov|mp4|mkv|avi|psd)$", re.IGNORECASE),
 )
 _MAX_AUTO_STAGE_FILE_BYTES = 10 * 1024 * 1024
-_SENSITIVE_TRACKED_PATTERNS = (
-    re.compile(r"(^|/)\.env(?:\.|$)", re.IGNORECASE),
-    re.compile(r"(^|/)(?:credentials?|secrets?)(?:/|$)", re.IGNORECASE),
-    re.compile(r"(^|/)(?:cookies?|sessions?)\.(?:json|txt|yaml|yml)$", re.IGNORECASE),
-)
+_SENSITIVE_TRACKED_PATTERNS = _SECRET_FILE_PATTERNS
 _NON_FAST_FORWARD_MARKERS = (
     "non-fast-forward",
     "fetch first",
@@ -259,7 +273,8 @@ class GitPushWorkflow:
         if not branch:
             self._mark_failed("Detached HEAD durumunda otomatik push yapılmaz.")
             return None
-        origin = (await self._git_output("remote get-url origin") or "").strip()
+        # Adresteki `kullanici:TOKEN@` kısmı kayda/sonuç metnine hiç girmez (E1-03).
+        origin = strip_url_userinfo((await self._git_output("remote get-url origin") or "").strip())
         if not origin:
             self._mark_failed("'origin' remote tanımlı değil.")
             return None
@@ -312,7 +327,9 @@ class GitPushWorkflow:
                 + self._short(changed.result.output)
             )
             return None
-        verified = (await self._git_output("remote get-url origin") or "").strip()
+        verified = strip_url_userinfo(
+            (await self._git_output("remote get-url origin") or "").strip()
+        )
         if _parse_remote_repository(verified) != requested:
             self._mark_failed("Origin değişikliği doğrulanamadı.")
             return None
@@ -402,6 +419,14 @@ class GitPushWorkflow:
             )
             return None
 
+        oversized = _oversized_tracked_paths(status, self.root)
+        if oversized:
+            self._mark_failed(
+                "İzlenen değişikliklerde otomatik commit sınırını (10 MiB) aşan dosyalar var; "
+                "otomatik commit durduruldu:\n- " + "\n- ".join(oversized)
+            )
+            return None
+
         has_tracked_changes = any(
             line and not line.startswith("??") for line in status.splitlines()
         )
@@ -480,7 +505,7 @@ class GitPushWorkflow:
         else:
             command = f"git push origin {shlex.quote(destination)}"
         pushed = await self.tools.execute("run_shell", {"command": command})
-        self.record.data["last_push_output"] = pushed.result.output
+        self.record.data["last_push_output"] = scrub_output(pushed.result.output)
         self.record.data["last_push_command"] = command
         self._save()
         return pushed.result.ok
@@ -674,7 +699,7 @@ class GitPushWorkflow:
 
     @staticmethod
     def _short(text: str, limit: int = 900) -> str:
-        compact = " ".join(text.split())
+        compact = scrub_output(" ".join(text.split()))
         return compact if len(compact) <= limit else compact[:limit] + "…"
 
 
@@ -719,16 +744,41 @@ def _sensitive_tracked(path: str) -> bool:
     return any(pattern.search(normalized) for pattern in _SENSITIVE_TRACKED_PATTERNS)
 
 
-def _sensitive_tracked_paths(status_porcelain: str) -> list[str]:
-    found: list[str] = []
+#: `XY yol` biçimi. run_shell çıktısı `.strip()` edildiği için İLK satırın baştaki boşluğu
+#: gider (`" M .env"` → `"M .env"`); sabit `line[3:]` dilimi o yolun ilk harfini yerdi.
+_STATUS_LINE = re.compile(r"^[ MADRCUT?!]{1,2}\s(?P<path>.+)$")
+
+
+def _tracked_status_paths(status_porcelain: str) -> list[str]:
+    """`status --porcelain` çıktısındaki izlenen (``??`` olmayan) yolların hedef adları."""
+    paths: list[str] = []
     for line in status_porcelain.splitlines():
-        if len(line) < 4 or line.startswith("??"):
+        if line.startswith("??"):
             continue
-        path = line[3:].strip()
+        match = _STATUS_LINE.match(line)
+        if match is None:
+            continue
+        path = match.group("path").strip()
         if " -> " in path:
             path = path.split(" -> ", 1)[1]
-        if _sensitive_tracked(path):
-            found.append(path)
+        paths.append(path)
+    return paths
+
+
+def _sensitive_tracked_paths(status_porcelain: str) -> list[str]:
+    return [path for path in _tracked_status_paths(status_porcelain) if _sensitive_tracked(path)]
+
+
+def _oversized_tracked_paths(status_porcelain: str, root: Path) -> list[str]:
+    """Boyutu otomatik stage sınırını aşan izlenen dosyalar (`git add -u` sınırı atlardı)."""
+    found: list[str] = []
+    for path in _tracked_status_paths(status_porcelain):
+        try:
+            candidate = (root / path.strip('"')).resolve()
+            if candidate.is_file() and candidate.stat().st_size > _MAX_AUTO_STAGE_FILE_BYTES:
+                found.append(path)
+        except OSError:
+            continue
     return found
 
 

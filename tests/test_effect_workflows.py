@@ -291,3 +291,125 @@ async def test_large_untracked_artifact_is_skipped(tmp_path):
     assert "large.bin" in result.final_text
     assert "large.bin" not in _git(local, "ls-files").stdout.splitlines()
     assert _remote_head(remote) == _local_head(local)
+
+
+# --- E1-03: origin URL'sindeki sır diske ve sonuç metnine yazılmaz ---------------------
+
+_TOKEN_URL = "https://kullanici:ghp_GizliTokenDegeri123456@github.com/ornek/depo.git"
+
+
+async def test_origin_url_userinfo_is_never_persisted_or_shown(monkeypatch, tmp_path):
+    from fusion_cli.engines.effects.git_push import GitPushWorkflow
+
+    local, _remote = _repository(tmp_path)
+    (local / "README.md").write_text("güncel\n", encoding="utf-8")
+    original = GitPushWorkflow._git_output
+
+    async def tokenli(self, subcommand):
+        # Gerçek push yerel uzak depoya gider; yalnız origin adresi sırlı görünür.
+        if subcommand == "remote get-url origin":
+            return _TOKEN_URL
+        return await original(self, subcommand)
+
+    monkeypatch.setattr(GitPushWorkflow, "_git_output", tokenli)
+    result = await maybe_run_effect_workflow(
+        "Repoyu pushla",
+        _deps(local, tmp_path / "memory", RecordingSink()),
+        build_registry(),
+    )
+
+    assert result is not None
+    assert "ghp_GizliTokenDegeri123456" not in result.final_text
+    assert "ghp_GizliTokenDegeri123456" not in repr(result.details)
+    kayitlar = list((tmp_path / "memory" / "effect-workflows").glob("*.json"))
+    assert kayitlar
+    for kayit in kayitlar:
+        assert "ghp_GizliTokenDegeri123456" not in kayit.read_text(encoding="utf-8")
+        assert "kullanici:" not in kayit.read_text(encoding="utf-8")
+
+
+def test_scrub_output_removes_userinfo_and_tokens():
+    from fusion_cli.engines.effects.scrub import scrub_output, strip_url_userinfo
+
+    assert strip_url_userinfo(_TOKEN_URL) == "https://github.com/ornek/depo.git"
+    assert strip_url_userinfo("git@github.com:o/r.git") == "git@github.com:o/r.git"
+    mesaj = f"remote: Invalid credentials for '{_TOKEN_URL}'\nfatal: failed"
+    assert "GizliTokenDegeri" not in scrub_output(mesaj)
+
+
+# --- E1-04: hassas dosya listesi anahtar/kimlik dosyalarını da kapsar -------------------
+
+
+def test_sensitive_patterns_cover_key_and_credential_files():
+    from fusion_cli.engines.effects.git_push import _sensitive_tracked
+
+    for yol in (
+        "deploy/server.pem",
+        "keys/tls.key",
+        "id_rsa",
+        ".ssh/id_ed25519",
+        "credentials.json",
+        "config/service-account.json",
+        ".npmrc",
+        ".pypirc",
+        ".aws/config",
+        "certs/ca.p12",
+        ".env",
+        ".env.local",
+    ):
+        assert _sensitive_tracked(yol), yol
+
+
+def test_sensitive_patterns_allow_env_templates_and_public_keys():
+    from fusion_cli.engines.effects.git_push import _sensitive_tracked
+
+    for yol in (".env.example", "app/.env.sample", "id_rsa.pub", "src/keyboard.py", "README.md"):
+        assert not _sensitive_tracked(yol), yol
+
+
+async def test_untracked_key_files_are_not_staged_but_env_example_is(tmp_path):
+    local, _remote = _repository(tmp_path)
+    (local / "server.pem").write_text("-----BEGIN PRIVATE KEY-----\n", encoding="utf-8")
+    (local / "credentials.json").write_text("{}\n", encoding="utf-8")
+    (local / ".env.example").write_text("ANAHTAR=\n", encoding="utf-8")
+
+    result = await maybe_run_effect_workflow(
+        "Repoyu pushla",
+        _deps(local, tmp_path / "memory", RecordingSink()),
+        build_registry(),
+    )
+
+    assert result is not None and result.ok
+    izlenen = _git(local, "ls-files").stdout.splitlines()
+    assert "server.pem" not in izlenen
+    assert "credentials.json" not in izlenen
+    assert ".env.example" in izlenen
+
+
+async def test_oversized_tracked_file_stops_auto_commit(tmp_path):
+    local, _remote = _repository(tmp_path)
+    (local / "buyuk.bin").write_bytes(b"x")
+    _git(local, "add", "buyuk.bin")
+    _git(local, "commit", "-m", "buyuk")
+    (local / "buyuk.bin").write_bytes(b"x" * (10 * 1024 * 1024 + 1))
+    onceki = _git(local, "rev-parse", "HEAD").stdout.strip()
+
+    result = await maybe_run_effect_workflow(
+        "Repoyu pushla",
+        _deps(local, tmp_path / "memory", RecordingSink()),
+        build_registry(),
+    )
+
+    assert result is not None and not result.ok
+    assert "buyuk.bin" in result.final_text
+    assert _git(local, "rev-parse", "HEAD").stdout.strip() == onceki
+
+
+def test_status_paths_survive_stripped_first_line():
+    """run_shell çıktısı strip edilir: ilk satırdaki boşluk gider, yol bozulmamalı."""
+    from fusion_cli.engines.effects.git_push import _sensitive_tracked_paths
+
+    assert _sensitive_tracked_paths("M .env\n M src/a.py\nR  eski -> yeni.pem") == [
+        ".env",
+        "yeni.pem",
+    ]
