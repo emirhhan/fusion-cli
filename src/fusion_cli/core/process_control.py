@@ -38,11 +38,102 @@ def terminate_process_tree(pid: int, *, force: bool) -> None:
             if result.returncode:
                 raise CleanupFailedError("Süreç ağacı Windows tarafından durdurulamadı.")
         else:
+            # Kaçanlar ÖNCE ve hemen SIGKILL ile: kabuk ölünce init'e geçerler, ebeveyn
+            # zinciri kopar ve ikinci (zorlayıcı) turda bir daha bulunamazlar.
+            escaped = _escaped_descendants(pid) if _group_alive(pid) else []
+            for child in escaped:
+                _signal_quietly(child, signal.SIGKILL)
             os.killpg(pid, signal.SIGKILL if force else signal.SIGTERM)
+            _await_exit(escaped)
     except ProcessLookupError:
+        return
+    except PermissionError:
+        # macOS, yalnız zombilerden oluşan grup için EPERM döndürür. Çıkış burada
+        # varsayılmaz; `ensure_process_group_exit` grubu ayrıca doğrular.
+        if os.name == "nt":
+            raise CleanupFailedError("Süreç ağacı temizlenemedi (PermissionError).") from None
         return
     except (OSError, subprocess.SubprocessError) as error:
         raise CleanupFailedError(f"Süreç ağacı temizlenemedi ({type(error).__name__}).") from None
+
+
+def _escaped_descendants(pid: int) -> list[int]:
+    """`setsid` ile gruptan çıkmış torunlar: `killpg` onlara ulaşmaz.
+
+    Ölçüldü (29 Ekim): gruptan kaçan torun stdout borusunu açık tuttuğu için iptal
+    `CleanupFailedError` ile bitiyor, torun yaşamaya devam ediyordu. Ebeveyn zinciri
+    yalnız kabuk yaşarken okunabilir; çift fork ile init'e geçmiş süreç bulunamaz.
+    """
+    try:
+        listing = subprocess.run(
+            ["ps", "-A", "-o", "pid=", "-o", "ppid=", "-o", "pgid="],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=PROCESS_CONTROL_TIMEOUT_S,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    children: dict[int, list[tuple[int, int]]] = {}
+    for line in listing.splitlines():
+        fields = line.split()
+        if len(fields) == 3 and all(field.isdigit() for field in fields):
+            child, parent, group = map(int, fields)
+            children.setdefault(parent, []).append((child, group))
+    escaped: list[int] = []
+    stack = [pid]
+    while stack:
+        for child, group in children.get(stack.pop(), []):
+            stack.append(child)
+            if group != pid:
+                escaped.append(child)
+    return escaped
+
+
+def _group_alive(pid: int) -> bool:
+    """Grup hâlâ var mı? Yoksa `pid` geri dönüştürülmüş olabilir; çocukları bizim değildir."""
+    try:
+        os.killpg(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # macOS: yalnız zombilerden oluşan grup
+    return True
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    state = subprocess.run(
+        ["ps", "-o", "stat=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=PROCESS_CONTROL_TIMEOUT_S,
+    ).stdout.strip()
+    return bool(state) and not state.startswith("Z")
+
+
+def _await_exit(pids: list[int]) -> None:
+    """Kaçan torunların gerçekten çıktığını doğrula; çıkmadıysa başarı bildirme."""
+    deadline = time.monotonic() + PROCESS_TERMINATE_GRACE_S
+    remaining = [pid for pid in pids if _alive(pid)]
+    while remaining:
+        if time.monotonic() >= deadline:
+            raise CleanupFailedError("Süreç grubundan ayrılmış bir alt süreç durdurulamadı.")
+        time.sleep(PROCESS_POLL_S / 10)
+        remaining = [pid for pid in remaining if _alive(pid)]
+
+
+def _signal_quietly(pid: int, sig: signal.Signals) -> None:
+    try:
+        os.kill(pid, sig)
+    except (ProcessLookupError, PermissionError):
+        return
 
 
 def _group_exists(pid: int) -> bool:
