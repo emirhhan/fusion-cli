@@ -68,8 +68,8 @@ def write_model_section(config: Config, path: Path | None = None) -> Path:
         existing = _read_existing(target)
         existing.update(
             {
-                "agent": _spec_to_dict(config.agent),
-                "judge": _spec_to_dict(config.judge),
+                "agent": _spec_to_dict(config.agent, keep_empty=True),
+                "judge": _spec_to_dict(config.judge, keep_empty=True),
                 "candidates": [_spec_to_dict(spec) for spec in config.candidates],
                 "task_model_map": dict(config.task_model_map),
             }
@@ -87,7 +87,7 @@ def write_teacher(config: Config, path: Path | None = None) -> Path:
         if config.teacher is None:
             existing.pop("teacher", None)
         else:
-            existing["teacher"] = _spec_to_dict(config.teacher)
+            existing["teacher"] = _spec_to_dict(config.teacher, keep_empty=True)
         _atomic_write(target, existing)
     return target
 
@@ -275,6 +275,11 @@ def write_web_sessions(config: Config, path: Path | None = None) -> Path:
                     # Ölçüm sonucu KALICI olmalı: gateway yeniden başladığında model
                     # yeniden ölçülmeden mutation iznini kaybetmemeli.
                     "tool_eval_passed": session.tool_eval_passed,
+                    # Ölçümün KİMLİĞİ de yazılır: kapsam boş dönerse `web_evaluation_matches`
+                    # kaydı "legacy" sayıp doğrulamayı atlardı (L2-11).
+                    "tool_evaluated_at": session.tool_evaluated_at,
+                    "tool_evaluation_scope": session.tool_evaluation_scope,
+                    "tool_evaluation_adapter_revision": session.tool_evaluation_adapter_revision,
                     "login_verified": session.login_verified,
                     # Kip metne/boolean'a normalize edilerek yazılır: eski iki kip
                     # boolean kalır, yalnız `hidden` metin olarak yazılır.
@@ -387,11 +392,24 @@ def _read_existing(path: Path) -> dict[str, object]:
     return raw
 
 
-def _spec_to_dict(spec: ModelSpec) -> dict[str, object]:
+#: `keep_empty=True` iken boş olsa da yazılan liste alanları ve bayrak.
+_SPEC_KEPT_FIELDS = (
+    "tags",
+    "fallback",
+    "supported_reasoning_efforts",
+    "reasoning_efforts_verified",
+)
+
+
+def _spec_to_dict(spec: ModelSpec, *, keep_empty: bool = False) -> dict[str, object]:
     """`ModelSpec`'i YAML'a yazılabilir sözlüğe çevir.
 
     Boş alanlar (etiketsiz model, yedeksiz model) yazılmaz: dosyada `tags: []`
-    satırları gürültüden başka bir şey değildir.
+    satırları gürültüden başka bir şey değildir. İSTİSNA `keep_empty=True`: `agent`/
+    `judge`/`teacher` bölümleri yüklemede `defaults.yaml` ile DERİN birleşir; yazılmayan
+    boş `fallback` varsayılan yedek zincirini geri getirirdi ("tek model, yedek yok"
+    seçimi sonraki açılışta eski zincirle çalışırdı — L2-09). Aday listesi tamamen
+    değiştiği için orada boşlar yazılmaz.
 
     Ölçüt "boş mu" DEĞİL "tanımsız mı": sayısal bir alanda `0` geçerli ve anlamlı
     bir değer olabilir. Doğruluk/yanlışlık ölçütü kullanılsaydı sessizce atılır,
@@ -401,10 +419,13 @@ def _spec_to_dict(spec: ModelSpec) -> dict[str, object]:
     return {
         key: (list(value) if isinstance(value, tuple) else value)
         for key, value in data.items()
-        if value is not None
-        and value != ()
-        and value != ""
-        and not (key == "reasoning_efforts_verified" and value is False)
+        if (keep_empty and key in _SPEC_KEPT_FIELDS)
+        or (
+            value is not None
+            and value != ()
+            and value != ""
+            and not (key == "reasoning_efforts_verified" and value is False)
+        )
     }
 
 

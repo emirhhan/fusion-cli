@@ -272,3 +272,69 @@ def test_http_mcp_kaydi_token_yazmadan_geri_okunur(tmp_path):
     assert load_config(hedef).mcp_servers == (sunucu,)
     assert "access_token" not in metin
     assert "refresh_token" not in metin
+
+
+def test_yedeksiz_secim_varsayilan_yedek_zincirini_geri_getirmez(tmp_path):
+    """L2-09: `/development` tek-model seçimi yedeksizdir; yeniden yüklemede
+    defaults.yaml'ın `agent.fallback` listesi geri dönmemeli."""
+    hedef = tmp_path / "config.yaml"
+    taban = load_config()
+    secim = replace(
+        taban.agent,
+        name="secilen",
+        model="nvidia_nim/x/tek-model",
+        tags=("strict",),
+        fallback=(),
+        supported_reasoning_efforts=(),
+        reasoning_efforts_verified=False,
+    )
+    hakem = replace(taban.judge, model="nvidia_nim/x/tek-model", fallback=())
+
+    write_model_section(replace(taban, agent=secim, judge=hakem), hedef)
+    geri = load_config(hedef)
+
+    assert geri.agent.fallback == ()
+    assert geri.judge.fallback == ()
+    assert geri.agent.model == "nvidia_nim/x/tek-model"
+
+
+def test_adaylar_bos_alanlari_yazmaya_devam_eder(tmp_path):
+    hedef = tmp_path / "config.yaml"
+
+    write_model_section(apply_tier(load_config(), "low"), hedef)
+
+    yazilan = yaml.safe_load(hedef.read_text(encoding="utf-8"))
+    assert all(deger for aday in yazilan["candidates"] for deger in aday.values())
+
+
+def test_web_oturumu_olcum_kimligi_yazilip_geri_okunur(tmp_path):
+    """L2-11: kapsam/adaptör sürümü yazılmazsa yeniden yazım doğrulamayı atlatıyordu."""
+    from fusion_cli.config.models import WebSessionConfig
+    from fusion_cli.config.web_evidence import (
+        web_adapter_revision,
+        web_evaluation_matches,
+        web_evaluation_scope,
+    )
+    from fusion_cli.config.writer import write_web_sessions
+
+    hedef = tmp_path / "config.yaml"
+    oturum = WebSessionConfig(
+        model="chatgpt_web/main/auto", provider="chatgpt_web", account="main", tool_support="native"
+    )
+    oturum = replace(
+        oturum,
+        tool_eval_passed=True,
+        tool_evaluated_at=1234.5,
+        tool_evaluation_scope=web_evaluation_scope(oturum),
+        tool_evaluation_adapter_revision=web_adapter_revision(),
+    )
+
+    write_web_sessions(replace(load_config(), web_sessions=(oturum,)), hedef)
+    yazilan = yaml.safe_load(hedef.read_text(encoding="utf-8"))["web_sessions"][0]
+    geri = next(s for s in load_config(hedef).web_sessions if s.provider == "chatgpt_web")
+
+    assert yazilan["tool_evaluated_at"] == 1234.5
+    assert yazilan["tool_evaluation_scope"] == oturum.tool_evaluation_scope
+    assert yazilan["tool_evaluation_adapter_revision"] == web_adapter_revision()
+    assert geri.tool_evaluation_scope == oturum.tool_evaluation_scope
+    assert web_evaluation_matches(geri)
