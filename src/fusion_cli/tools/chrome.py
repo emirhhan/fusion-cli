@@ -17,6 +17,13 @@ from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
 from .args import require_str
 from .web import browser_block_reason
 
+#: Sayfayı değiştirmeyen eklenti komutları; zaman aşımında yalnız okuma başarısız olmuştur.
+_READ_ONLY_OPERATIONS = frozenset(
+    {"find", "snapshot", "assets", "tabs", "text_page", "describe", "wait", "screenshot"}
+)
+#: Eylem komutunun sonucu gelmediğinde döndürülen metnin başı (izlenebilir ve test edilebilir).
+UNKNOWN_OUTCOME_PREFIX = "SONUÇ BİLİNMİYOR:"
+
 
 async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolResult:
     if context.chrome is None:
@@ -25,7 +32,17 @@ async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolRe
         )
     try:
         result = await context.chrome.invoke(name, data)
-    except (ConnectionError, TimeoutError) as exc:
+    except TimeoutError as exc:
+        if name in _READ_ONLY_OPERATIONS:
+            return ToolResult.failure(str(exc))
+        # Komut eklentiye ulaştı ama sonucu gelmedi: sayfada çalışmış OLABİLİR. "Olmadı"
+        # demek modeli aynı tıklamayı/gönderimi tekrarlamaya iter (iki kez sepete ekleme).
+        return ToolResult.failure(
+            f"{UNKNOWN_OUTCOME_PREFIX} '{name}' komutu tarayıcıya gönderildi ama sonucu "
+            "gelmedi; sayfada etkisi olmuş olabilir. Aynı işlemi tekrar etmeden önce "
+            "chrome_page ile sayfayı yeniden oku ve işlemin olup olmadığını kontrol et."
+        )
+    except ConnectionError as exc:
         return ToolResult.failure(str(exc))
     if not result.get("ok"):
         return ToolResult.failure(str(result.get("hata") or "Chrome komutu başarısız."))

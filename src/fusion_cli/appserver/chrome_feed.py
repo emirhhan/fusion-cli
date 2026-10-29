@@ -13,6 +13,8 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit
 
+from ..core.redaction import redact
+
 #: Adım metnindeki alıntıların üst sınırı; panel dar bir sütundur.
 MAX_QUOTE = 60
 #: Başarısız adımın gösterilen hata özeti.
@@ -159,7 +161,8 @@ def step_text(name: str, args: Mapping[str, Any], output: str = "") -> str:
         clicked = _output_field(output, "name")
         return f"“{_quote(clicked)}” tıklandı" if clicked else "Öğeye tıklandı"
     if name == "chrome_type":
-        return f"“{_quote(args.get('text'))}” yazıldı"
+        # Alana yazılan anahtar/belirteç adım günlüğüne düz metin olarak düşmez.
+        return f"“{_quote(redact(str(args.get('text') or '')))}” yazıldı"
     if name == "chrome_action":
         return _action_text(args)
     return "Tarayıcıda işlem yapıldı"
