@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from ...config.models import Config
+from ...core.errors import FusionError
 from ...core.events import (
     CouncilConsulted,
     EventPublisher,
@@ -46,6 +47,7 @@ from .history_tools import recent_actions_tool
 from .image_tools import generate_image_tool
 from .image_view import DEFAULT_QUESTION, describe_image
 from .preview_tools import preview_tool
+from .secret_paths import is_secret_path
 from .team import (
     MAX_AGENT_DEPTH,
     SubTask,
@@ -358,12 +360,21 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
         touched_paths = sorted(
             display_path(context, yol) for yol in (context.touched | context.fully_read)
         )
+        kesitler = _teacher_excerpts(context)
+        if kesitler:
+            # Dosya içeriği makineyi terk ediyor: kullanıcı HANGİ dosyaların gittiğini görmeli.
+            deps.publisher.publish(
+                StatusChanged(
+                    "Öğretmene şu dosyaların içeriği gönderiliyor: "
+                    + ", ".join(yol for yol, _ in kesitler)
+                )
+            )
         brief = compile_brief(
             durum=durum,
             denenenler=denenenler,
             question=question,
             touched_paths=touched_paths,
-            code_excerpts=_teacher_excerpts(context),
+            code_excerpts=kesitler,
             # İç akışın (`teacher_flow`) plan isteği; şemada yoktur, model veremez.
             frame=PLAN_FRAME if args.get("bicim") == "plan" else TEACHER_FRAME,
         )
@@ -474,7 +485,18 @@ def _teacher_images(raw: object, context: ToolContext) -> tuple[str, ...] | Tool
     for oge in raw:
         if not isinstance(oge, str):
             return ToolResult.failure("'gorseller' yalnız dosya yolu içermeli.")
-        yol = resolve_path(context, oge)
+        try:
+            yol = resolve_path(context, oge)
+        except FusionError as err:
+            return ToolResult.failure(str(err))
+        # `resolve_path` kısıtsız kipte kök dışına izin verir; üçüncü tarafa giden
+        # görsel için bu yetmez. Ölçüldü (29 Ekim, A1-18): model diskteki herhangi
+        # bir png/jpg'yi (ör. `~/Pictures/...`) öğretmene gönderebiliyordu.
+        if not _inside_allowed_roots(context, yol) or is_secret_path(yol):
+            return ToolResult.failure(
+                f"Görsel proje dışında ya da gizli bilgi taşıyabilecek bir yerde: {oge}. "
+                "Öğretmene yalnız proje içindeki görseller gönderilir."
+            )
         tur = _IMAGE_TYPES.get(yol.suffix.lower())
         if tur is None or not yol.is_file():
             return ToolResult.failure(f"Görsel bulunamadı ya da türü desteklenmiyor: {oge}")
@@ -1060,14 +1082,33 @@ def _history_page_output(page: _HistoryPage) -> str:
 
 #: Öğretmene kesit olarak gönderilen en fazla dosya sayısı; düzenlenenler önce gelir.
 _TEACHER_EXCERPT_FILES = 4
+#: Bir kesit için dosyadan okunan en fazla karakter (dosyanın tamamı belleğe alınmaz).
+_TEACHER_EXCERPT_CHARS = 60_000
+
+
+def _inside_allowed_roots(context: ToolContext, path: Path) -> bool:
+    """Yol proje kökünde ya da `--add-dir` ile AÇIKÇA verilen dizinlerde mi?"""
+    try:
+        concrete = path.resolve()
+        izinli = (context.root.resolve(), *(extra.resolve() for extra in context.extra_roots))
+    except OSError:
+        return False
+    return any(concrete == izin or izin in concrete.parents for izin in izinli)
 
 
 def _teacher_excerpts(context: ToolContext) -> list[tuple[str, str]]:
     """Öğretmene gidecek kod kesitleri: önce düzenlenen, sonra tam okunan dosyalar.
 
     Web öğretmeni dosyalara erişemez; yalnız yol listesi göndermek onu kodu
-    görmeden tahmin yürütmeye zorluyordu. Gizli bilgi taşıyabilecek dosyalar
-    (`.env*`) hiç okunmaz, diğerlerindeki anahtar biçimli değerler maskelenir.
+    görmeden tahmin yürütmeye zorluyordu. Üçüncü tarafa giden içerik şu kurallarla
+    sınırlanır (A1-18, ölçüldü 29 Ekim: eskiden yalnız `.env*` adı atlanıyordu, boyut
+    ve konum denetimi yoktu):
+
+    - sır dosyası adı/konumu (`id_rsa`, `*.pem`, `credentials.json`, `secrets.enc`,
+      `.npmrc`, `terraform.tfstate`, `.ssh/` altı…) hiç okunmaz — bkz. `secret_paths`;
+    - proje kökü (ve `--add-dir`) DIŞINDaki dosya gönderilmez;
+    - dosyadan en çok `_TEACHER_EXCERPT_CHARS` karakter okunur;
+    - kalan anahtar biçimli değerler `redact()` ile maskelenir.
     """
     from ...core.redaction import redact
 
@@ -1076,10 +1117,11 @@ def _teacher_excerpts(context: ToolContext) -> list[tuple[str, str]]:
     for yol in sirali:
         if len(kesitler) >= _TEACHER_EXCERPT_FILES:
             break
-        if yol.name.startswith(".env") or not yol.is_file():
+        if is_secret_path(yol) or not yol.is_file() or not _inside_allowed_roots(context, yol):
             continue
         try:
-            icerik = yol.read_text(encoding="utf-8")
+            with yol.open(encoding="utf-8") as dosya:
+                icerik = dosya.read(_TEACHER_EXCERPT_CHARS)
         except (OSError, UnicodeDecodeError):
             continue
         kesitler.append((display_path(context, yol), redact(icerik)))
