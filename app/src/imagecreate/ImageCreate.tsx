@@ -9,7 +9,7 @@ import { errorMessage, operationResult } from "../protocol/result";
 import { Icon } from "../ui/Icon";
 import { assetUrl } from "../platform/assetUrl";
 import { saveImageAs } from "../platform/dialog";
-import { akisSorunlari, atalar, baslangicAkisi, DUGUM_ETIKETI, ORANLAR, dugumGuncelle, kaydedilebilir, sonrakiDugumEkle, type Akis, type DugumTuru, type Islem } from "./akis";
+import { akisSorunlari, atalar, baslangicAkisi, calismaSonucunuIsle, DUGUM_ETIKETI, ORANLAR, dugumGuncelle, kaydedilebilir, sonrakiDugumEkle, type Akis, type DugumTuru, type Islem } from "./akis";
 import { akisiCalistir, type UretilenGorsel } from "./akisCalistir";
 import { AkisTuvali, type SaglayiciSecenegi } from "./AkisTuvali";
 import "./ImageCreate.css";
@@ -153,7 +153,8 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
         : istek;
       const son = await akisiCalistir(calisacakAkis, productionRequest, (guncel, yeni) => {
         if (!owns()) return;
-        guncelle(guncel);
+        // Çalışma anlık görüntüsü kullanıcının yeni taslağını ezmesin.
+        guncelle((onceki) => calismaSonucunuIsle(onceki, guncel));
         if (yeni.length) setGaleri((onceki) => [...yeni, ...onceki]);
       }, { ...(mod === "basit" ? { hedef: "uret-1" } : dalHedefi ? { hedef: dalHedefi } : {}), devam: owns });
       if (!owns()) return;

@@ -185,6 +185,34 @@ export function dugumGuncelle(akis: Akis, id: string, degisim: Partial<Dugum>): 
   return { ...akis, dugumler: akis.dugumler.map((dugum) => (dugum.id === id ? { ...dugum, ...degisim } : dugum)) };
 }
 
+/**
+ * Çalıştırıcının ürettiği durumu KULLANICININ GÜNCEL akışına işler.
+ *
+ * Çalıştırma, başladığı andaki değişmez anlık görüntü üzerinde yürür; kullanıcı
+ * bu sırada istem, sağlayıcı ya da bağlantıyı değiştirmiş olabilir. Sonuç akışın
+ * tamamıyla değiştirilirse yeni taslak silinir. Burada yalnız işlem düğümlerinin
+ * çalışma durumu (durum, hata, yol, sonuçlar, girdi imzası) güncel akışa taşınır;
+ * silinmiş düğümler yeniden eklenmez.
+ *
+ * Ölçüldü (29 Ekim): üretim sürerken yazılan yeni istem, sonuç geldiğinde eski
+ * anlık görüntü ile ezilip siliniyordu (ImageCreate.taslak.test.tsx).
+ */
+export function calismaSonucunuIsle(guncel: Akis, calisan: Akis): Akis {
+  const sonuclar = new Map(calisan.dugumler.filter((dugum) => islemMi(dugum.tur)).map((dugum) => [dugum.id, dugum]));
+  return {
+    ...guncel,
+    dugumler: guncel.dugumler.map((dugum) => {
+      const sonuc = sonuclar.get(dugum.id);
+      if (!sonuc || sonuc.tur !== dugum.tur) return dugum;
+      return {
+        ...dugum,
+        durum: sonuc.durum, hata: sonuc.hata, yol: sonuc.yol,
+        sonuclar: sonuc.sonuclar, girdiImzasi: sonuc.girdiImzasi,
+      };
+    }),
+  };
+}
+
 /** Düğümü ve ona bağlı bağlantıları kaldırılmış YENİ akış. */
 export function dugumSil(akis: Akis, id: string): Akis {
   return {

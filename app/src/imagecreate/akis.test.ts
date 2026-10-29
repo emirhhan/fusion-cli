@@ -4,6 +4,7 @@ import {
   baglanabilir,
   baslangicAkisi,
   calismaSirasi,
+  calismaSonucunuIsle,
   dugumGuncelle,
   dugumSil,
   girdiler,
@@ -256,5 +257,19 @@ it("eksikler tek makbuzda tamamlanırsa fazladan üretim çağırmaz", async () 
   expect(retries).toBe(1);
   expect(completed.dugumler.find((node) => node.id === "u")).toMatchObject({
     durum: "bitti", sonuclar: ["/g/ilk.png", "/g/ikinci.png", "/g/ucuncu.png"],
+  });
+});
+
+describe("calismaSonucunuIsle", () => {
+  it("yalnız işlem düğümünün çalışma durumunu taşır; kullanıcının yeni taslağı ve silinen düğüm korunur", () => {
+    const calisan = baslangicAkisi("p");
+    const bitmis = dugumGuncelle(dugumGuncelle(calisan, "uret-1", { durum: "bitti", yol: "/g/a.png", sonuclar: ["/g/a.png"], girdiImzasi: "x" }),
+      "metin-1", { istem: "eski" });
+    // Kullanıcı bu sırada metni değiştirdi, sağlayıcıyı değiştirdi ve çıktı düğümünü sildi.
+    const guncel = dugumSil(dugumGuncelle(dugumGuncelle(calisan, "metin-1", { istem: "yeni taslak" }), "uret-1", { saglayici: "q" }), "cikti-1");
+    const sonuc = calismaSonucunuIsle(guncel, bitmis);
+    expect(sonuc.dugumler.find((d) => d.id === "metin-1")?.istem).toBe("yeni taslak");
+    expect(sonuc.dugumler.find((d) => d.id === "uret-1")).toMatchObject({ saglayici: "q", durum: "bitti", yol: "/g/a.png", girdiImzasi: "x" });
+    expect(sonuc.dugumler.some((d) => d.id === "cikti-1")).toBe(false);
   });
 });
