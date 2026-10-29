@@ -14,36 +14,53 @@ export function Instructions({ client }: { client: ProtocolClient }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // Ölçüldü (29 Ekim, U2-36): okuma başarısızken metin boş kalıyordu ve Kaydet, mevcut
+  // talimatın üzerine boş/yeni metni yazabiliyordu. Yüklenmeden düzenleme/kaydetme kapalı.
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
-    const veri = (await client.request("ayar.talimat", {})) as {
-      ok?: boolean;
-      metin?: string;
-      sinir?: number;
-    };
-    if (!veri?.ok) return;
-    setText(veri.metin ?? "");
-    if (typeof veri.sinir === "number") setLimit(veri.sinir);
-    setDirty(false);
+    try {
+      const veri = (await client.request("ayar.talimat", {})) as {
+        ok?: boolean;
+        metin?: string;
+        sinir?: number;
+      };
+      if (!veri?.ok) {
+        setNotice(veri?.metin ?? "Talimat okunamadı.");
+        return;
+      }
+      setText(veri.metin ?? "");
+      if (typeof veri.sinir === "number") setLimit(veri.sinir);
+      setDirty(false);
+      setLoaded(true);
+      setNotice(null);
+    } catch {
+      setNotice("Talimat okunamadı.");
+    }
   }, [client]);
 
   useEffect(() => {
-    void load().catch(() => setNotice("Talimat okunamadı."));
+    void load();
   }, [load]);
 
   const save = async () => {
     setBusy(true);
-    const sonuc = (await client.request("ayar.talimat_kaydet", { metin: text })) as {
-      ok?: boolean;
-      metin?: string;
-    };
-    setBusy(false);
-    if (!sonuc?.ok) {
-      setNotice(sonuc?.metin ?? "Talimat kaydedilemedi.");
-      return;
+    try {
+      const sonuc = (await client.request("ayar.talimat_kaydet", { metin: text })) as {
+        ok?: boolean;
+        metin?: string;
+      };
+      if (!sonuc?.ok) {
+        setNotice(sonuc?.metin ?? "Talimat kaydedilemedi.");
+        return;
+      }
+      setDirty(false);
+      setNotice("Talimat kaydedildi.");
+    } catch {
+      setNotice("Talimat kaydedilemedi.");
+    } finally {
+      setBusy(false);
     }
-    setDirty(false);
-    setNotice("Talimat kaydedildi.");
   };
 
   return (
@@ -64,14 +81,20 @@ export function Instructions({ client }: { client: ProtocolClient }) {
           setDirty(true);
           setNotice(null);
         }}
+        disabled={!loaded}
         placeholder="Örnek: Cevapları kısa tut, kod örneklerinde yorumları Türkçe yaz."
         rows={5}
         value={text}
       />
       <div className="settings__actions">
-        <button disabled={busy || !dirty} onClick={() => void save()} type="button">
+        <button disabled={busy || !dirty || !loaded} onClick={() => void save()} type="button">
           Kaydet
         </button>
+        {!loaded && (
+          <button onClick={() => void load()} type="button">
+            Yeniden oku
+          </button>
+        )}
         <small>
           {text.length}/{limit}
         </small>
