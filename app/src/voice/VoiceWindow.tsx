@@ -216,6 +216,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   const kesilenCevap = useRef<string | null>(null);
   const bargeInEvents = useRef<RecognitionPayload[]>([]);
   const replayRecognitionEvent = useRef<((event: PendingRecognitionEvent) => void) | null>(null);
+  /** TTS iptali doğrulanamadığında (hata durumu ya da `interruptSpeech` reddi) tamponu atıp dinlemeyi geri getirir. */
+  const bargeInBasarisiz = useRef<(() => void) | null>(null);
   const finalizedSession = useRef<number | null>(null);
   const finalizedSegment = useRef(0);
   const latestRecognitionSegment = useRef(0);
@@ -482,7 +484,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         // `talking` evresinde `transcript`, Fusion'ın seslendirdiği metindir.
         kesilenCevap.current = machineRef.current.transcript?.trim() || null;
         bargeInEvents.current.push(payload);
-        void runtime.interruptSpeech();
+        // Reddedilen iptal durum olayı üretmez; kilit sonsuza kalmasın.
+        void runtime.interruptSpeech().catch(() => bargeInBasarisiz.current?.());
         return;
       }
       if (bargeInPending.current) {
@@ -715,6 +718,26 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   }, [finishRequest, acknowledgeListening, machine.finalRevision, machine.finalText, machine.finalizedSegment, machine.session, runtime, wakeEnabled]);
 
   useEffect(() => {
+    bargeInBasarisiz.current = () => {
+      if (!bargeInPending.current) return;
+      // Tampon BİLEREK atılır: TTS iptali doğrulanmadan yakalanan ses
+      // Fusion'ın kendi sesini içerebilir ve onu kullanıcının sözü sanmak
+      // daha kötüdür. Kullanıcı tekrar konuşunca taze tur kabul edilir.
+      bargeInPending.current = false;
+      bargeInEvents.current = [];
+      kesilenCevap.current = null;
+      recognitionIntent.current += 1;
+      startingIntent.current = null;
+      pendingRecognitionEvents.current = [];
+      expectedRecognitionEnd.current = activeSession.current || null;
+      activeSession.current = 0;
+      setRecognitionOwned(false);
+      void queueRecognition(() => runtime.stopRecognition())
+        // Bayat tampon atıldıktan sonra dinleme GERİ GELMELİ; sürekli
+        // dinlemede kullanıcının basacağı bir tuş yok.
+        .then(() => dinlemeyiSurdur())
+        .catch(() => undefined);
+    };
     const remove = runtime.onRuntimeState((incoming) => {
       if (incoming.durum === "error") {
         answering.current = null;
@@ -737,6 +760,18 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         return;
       }
       if (incoming.durum === "listening" || incoming.durum === "idle") {
+        // Ölçüldü (29 Ekim, U2-01): iptal onayı (`interrupted`) gelmeden TTS doğal biterse bayrak
+        // açık kalır ve sonraki tüm tanıma olayları yutulurdu. Cevap kesilmeden bittiği için
+        // `kesilen` bağlamı yanlış olur; tamponlanan söz kullanıcının sözüdür, yeniden oynatılır.
+        const bekleyen = bargeInPending.current ? bargeInEvents.current : null;
+        bargeInPending.current = false;
+        bargeInEvents.current = [];
+        if (bekleyen) {
+          kesilenCevap.current = null;
+          setTimeout(() => bekleyen.forEach((payload) => {
+            replayRecognitionEvent.current?.({ type: "output", payload });
+          }), 0);
+        }
         if (awakeUntil.current > 0) awakeUntil.current = Date.now() + 30_000;
         lastActivity.current = Date.now();
         const shouldResume = machineRef.current.autoListen
@@ -744,30 +779,12 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         dispatch({ type: "ASSISTANT_FINISHED" });
         if (shouldResume && activeSession.current === 0) void startListening();
       } else if (incoming.durum === "error") {
-        if (bargeInPending.current) {
-          // Tampon BİLEREK atılır: TTS iptali doğrulanmadan yakalanan ses
-          // Fusion'ın kendi sesini içerebilir ve onu kullanıcının sözü sanmak
-          // daha kötüdür. Kullanıcı tekrar konuşunca taze tur kabul edilir.
-          bargeInPending.current = false;
-          bargeInEvents.current = [];
-          kesilenCevap.current = null;
-          recognitionIntent.current += 1;
-          startingIntent.current = null;
-          pendingRecognitionEvents.current = [];
-          expectedRecognitionEnd.current = activeSession.current || null;
-          activeSession.current = 0;
-          setRecognitionOwned(false);
-          void queueRecognition(() => runtime.stopRecognition())
-            // Bayat tampon atıldıktan sonra dinleme GERİ GELMELİ; sürekli
-            // dinlemede kullanıcının basacağı bir tuş yok.
-            .then(() => dinlemeyiSurdur())
-            .catch(() => undefined);
-        }
+        bargeInBasarisiz.current?.();
         dispatch({ type: "FAILED", text: incoming.metin ?? "Sesli yanıt tamamlanamadı." });
       }
     });
     return () => { void remove.then((unlisten) => unlisten()).catch(() => undefined); };
-  }, [queueRecognition, runtime, startListening]);
+  }, [dinlemeyiSurdur, queueRecognition, runtime, startListening]);
 
   useEffect(() => {
     document.body.style.background = "transparent";

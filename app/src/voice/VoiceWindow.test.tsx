@@ -269,6 +269,58 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
     }));
   });
 
+  // Ölçüldü (29 Ekim, U2-01): TTS, iptal onayı gelmeden doğal bitince `listening` gelir;
+  // bayrak sıfırlanmadığı için sonraki TÜM tanıma olayları tamponlanıp yutuluyordu.
+  it("TTS iptal onayından önce doğal biterse barge-in kilidi açılır ve söz işlenir", async () => {
+    const fake = fakeRuntime();
+    render(<VoiceWindow continuous wakeEnabled={false} runtime={fake.runtime} />);
+    await startTalk();
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+
+    fake.runtimeState({ durum: "talking", metin: "Kısa yanıt" });
+    await screen.findByText("Konuşuyorum");
+    fake.recognition({ tur: "ses-basladi", metin: "", guven: null, speech_ms: 80 });
+    fake.recognition({ tur: "kismi", metin: "araya girdim", guven: 0.92, speech_ms: 520 });
+    await waitFor(() => expect(fake.runtime.interruptSpeech).toHaveBeenCalledOnce());
+
+    // `interrupted` hiç gelmez; TTS kendiliğinden biter.
+    fake.runtimeState({ durum: "listening" });
+    // Tamponlanan "araya girdim" sözü kullanıcının sözüdür: kilit açılınca işlenir.
+    await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ kaynak: "kullanici", metin: "araya girdim" }),
+    ), { timeout: 3_000 });
+    expect(fake.runtime.emitMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kesilen: expect.anything() }),
+    );
+  });
+
+  it("interruptSpeech reddedilirse barge-in kilidi açılır ve dinleme sürer", async () => {
+    const fake = fakeRuntime();
+    vi.mocked(fake.runtime.interruptSpeech).mockRejectedValueOnce(new Error("köprü koptu"));
+    render(<VoiceWindow continuous wakeEnabled={false} runtime={fake.runtime} />);
+    await startTalk();
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+
+    fake.runtimeState({ durum: "talking", metin: "Uzun yanit" });
+    await screen.findByText("Konuşuyorum");
+    fake.recognition({ tur: "ses-basladi", metin: "", guven: null, speech_ms: 80 });
+    fake.recognition({ tur: "kismi", metin: "araya girdim", guven: 0.92, speech_ms: 520 });
+    await waitFor(() => expect(fake.runtime.interruptSpeech).toHaveBeenCalledOnce());
+
+    // Çalışma zamanı hiçbir durum bildirmez; kilit yine de açılmalı.
+    await waitFor(() => expect(fake.runtime.stopRecognition).toHaveBeenCalled());
+    fake.recognitionEnded(null, 1);
+    await waitFor(
+      () => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2),
+      { timeout: 3_000 },
+    );
+    fake.recognition({ tur: "ses-basladi", metin: "", guven: null, speech_ms: 80 }, 2);
+    fake.recognition({ tur: "son", metin: "taze soz", guven: 0.94, speech_ms: 520 }, 2);
+    await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ metin: "taze soz" }),
+    ));
+  });
+
   it("TTS iptali basarisizsa eski tamponu atar ve taze retry konusmasini kabul eder", async () => {
     const fake = fakeRuntime();
     render(<VoiceWindow continuous wakeEnabled={false} runtime={fake.runtime} />);
