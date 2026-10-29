@@ -24,6 +24,13 @@ function uncertain(jobId: string, stopped = false): Payload {
   };
 }
 
+/**
+ * Kabul kaydı OLUŞMADAN verilen kesin retler (geçersiz parametre, referans
+ * doğrulanamadı, oturum kapalı). Ölçüldü (29 Ekim): bunlar iş kimliği taşımadığı
+ * için "kayıp iş" sayılıp arayüzü kalıcı toparlanma durumunda bırakıyordu.
+ */
+const KABUL_ONCESI_RETLER = new Set(["invalid_request", "reference_invalid", "unavailable", "session_closed"]);
+
 function valid(payload: Payload, jobId: string): boolean {
   if (payload.jobId !== jobId || typeof payload.state !== "string" || !STATES.has(payload.state)) return false;
   if (ACTIVE.has(payload.state)) return payload.ok === true;
@@ -80,6 +87,12 @@ export async function observeImageJob(request: IstekFn, jobId: string, options: 
   if (options.signal?.aborted) return uncertain(jobId, true);
   let response = options.start === undefined ? undefined
     : await bounded(() => request("gorsel.is.baslat", { ...options.start, requestId: jobId }), timeout, options.signal);
+  if (response !== undefined && response.ok === false && response.jobId === undefined
+    && typeof response.code === "string" && KABUL_ONCESI_RETLER.has(response.code)) {
+    const rejected = { ...response, jobId, state: "failed" };
+    options.onState?.(rejected);
+    return rejected;
+  }
   for (let index = 0; index < polls; index++) {
     if (options.signal?.aborted) return uncertain(jobId, true);
     if (response !== undefined) {

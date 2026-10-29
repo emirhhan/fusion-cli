@@ -85,7 +85,11 @@ async def test_galeri_disindaki_dosya_referans_olamaz(galeri, tmp_path_factory) 
         environ={},
     )
 
-    assert sonuc == {"ok": False, "metin": "Referans görsel galeride bulunamadı."}
+    assert sonuc == {
+        "ok": False,
+        "code": "reference_invalid",
+        "metin": "Referans görsel galeride bulunamadı.",
+    }
 
 
 async def test_nim_referans_almaz(galeri) -> None:

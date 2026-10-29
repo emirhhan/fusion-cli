@@ -2518,7 +2518,7 @@ class AppSession:
             except ImageJobConflictError:
                 return {
                     "ok": False,
-                    "code": "invalid_request",
+                    "code": "reference_invalid",
                     "metin": "Referans görsel doğrulanamadı.",
                 }
             fingerprint_data["referansSha256"] = hashlib.sha256(reference.data).hexdigest()

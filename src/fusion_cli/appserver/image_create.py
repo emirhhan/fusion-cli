@@ -83,7 +83,8 @@ async def create_image(
     try:
         referans = _reference(data)
     except ValueError as error:
-        return {"ok": False, "metin": str(error)}
+        # Kod, arayüzün "üst düğümün çıktısı kayboldu"yu metne bakmadan anlaması içindir.
+        return {"ok": False, "code": "reference_invalid", "metin": str(error)}
     if islem in _REFERANS_GEREKEN and referans is None:
         return {"ok": False, "metin": "Bu işlem için bir görsel girdisi bağla."}
     secenekler = image_providers(config, environ=environ)

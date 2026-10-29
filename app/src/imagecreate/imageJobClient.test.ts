@@ -31,6 +31,18 @@ describe("kalıcı görsel işi gözlemcisi", () => {
     expect(result).toMatchObject({ ok: false, jobId: "stable", state: "recoveryRequired" });
     expect(request.mock.calls.every(([name]) => name === "gorsel.is.durum")).toBe(true);
   });
+  it("kabul öncesi kesin ret iş kaydı oluşturmaz; kayıp iş gibi toparlanmaya düşmez", async () => {
+    const ret = { ok: false, code: "invalid_request", metin: "Referans görsel doğrulanamadı." };
+    const request = vi.fn().mockResolvedValue(ret);
+    const result = await observeImageJob(request, "stable", { ...fast, start: { referans: "/gallery/silindi.png" } });
+    expect(result).toMatchObject({ ok: false, jobId: "stable", state: "failed", code: "invalid_request", metin: ret.metin });
+    // Hiç iş kabul edilmediği için durum sorgusu yapılmaz.
+    expect(request.mock.calls.map(([name]) => name)).toEqual(["gorsel.is.baslat"]);
+  });
+  it("depo hatası gibi belirsiz ret toparlanma gerektirmeye devam eder", async () => {
+    const request = vi.fn().mockResolvedValue({ ok: false, code: "storage_failed", metin: "x" });
+    expect(await observeImageJob(request, "stable", { ...fast, start: {} })).toMatchObject({ state: "recoveryRequired" });
+  });
   it("iptal edilen gözlem uzak işi iptal etmiş gibi göstermez", async () => {
     const controller = new AbortController();
     const request = vi.fn(() => new Promise<Record<string, unknown>>(() => {}));
