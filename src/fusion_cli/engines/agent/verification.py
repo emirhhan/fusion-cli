@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from dataclasses import replace
 from pathlib import Path
 
 from ...config.models import Config
@@ -27,7 +28,13 @@ from ...core.evidence import (
     CriterionEvidence,
     EvidenceStatus,
 )
+from ...core.errors import CleanupFailedError
 from ...core.execution_plan import VerificationCheckKind
+from ...core.process_control import (
+    process_group_options,
+    terminate_async_process_tree,
+    wait_for_shell_exit,
+)
 from ...core.remotion_contract import KitContractState
 from ...core.repair_ledger import FailureEvidence
 from ...core.tools import ToolContext
@@ -347,6 +354,9 @@ class WebVerifier:
 # tutulsaydı prompt'a ilerleme noktalarından başka bir şey girmezdi.
 _OUTPUT_TAIL_LINES = 200
 
+#: Süreç grubu öldükten sonra borudaki kalan çıktıyı okumak için tanınan azami süre.
+_OKUYUCU_BOSALTMA_S = 2.0
+
 #: Bulguya girecek en fazla karakter. Uzun tek satırlar (minified çıktı, uzun yol
 # listeleri) satır sayısı sınırını delebilir; prompt bütçesi bunu kaldırmaz.
 _OUTPUT_MAX_CHARS = 8_000
@@ -398,12 +408,31 @@ class CommandVerifier:
         return VerificationResult(ok=True, warnings=tuple(warnings), evidence=tuple(evidence))
 
     async def _run(self, command: str) -> VerificationResult:
+        uyarilar: list[str] = []
+        sonuc = await self._calistir(command, uyarilar)
+        if not uyarilar:
+            return sonuc
+        return replace(sonuc, warnings=(*sonuc.warnings, *uyarilar))
+
+    @staticmethod
+    async def _okuyucuyu_bitir(okuyucu: asyncio.Future[None]) -> None:
+        """Süreç grubu öldükten sonra borudaki kalan çıktıyı KISA süreyle boşalt."""
+        try:
+            await asyncio.wait_for(asyncio.shield(okuyucu), timeout=_OKUYUCU_BOSALTMA_S)
+        except (TimeoutError, asyncio.CancelledError):
+            pass
+        finally:
+            okuyucu.cancel()
+
+    async def _calistir(self, command: str, uyarilar: list[str]) -> VerificationResult:
         try:
             process = await asyncio.create_subprocess_shell(
                 command,
                 cwd=self._cwd,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
+                **process_group_options(),
             )
         except OSError as exc:
             detay = f"komut başlatılamadı: {command} ({exc})"
@@ -440,13 +469,24 @@ class CommandVerifier:
                 tampon.extend(parca)
 
         okuyucu = asyncio.ensure_future(_biriktir())
+        zaman_asimi = False
         try:
-            await asyncio.wait_for(process.wait(), timeout=self._timeout_s)
-            await okuyucu
+            await asyncio.wait_for(wait_for_shell_exit(process), timeout=self._timeout_s)
         except TimeoutError:
-            process.kill()
-            await process.wait()
-            okuyucu.cancel()
+            zaman_asimi = True
+        finally:
+            # Her çıkış yolunda (normal, zaman aşımı, iptal) grup öldürülür: kabuk
+            # çıksa bile arka plan çocuğu borunun ucunu tuttuğu için okuyucu EOF
+            # görmez. Ölçüldü (29 Ekim): `sleep 300 & echo bitti` kapıyı sınırsız
+            # bekletiyordu; `process.kill()` yalnız kabuğu öldürüp torunu bırakıyordu.
+            try:
+                await terminate_async_process_tree(process)
+            except CleanupFailedError as exc:
+                uyari = f"süreç ağacı temizliği doğrulanamadı: {command} ({exc})"
+                logger.warning(uyari)
+                uyarilar.append(uyari)
+            await self._okuyucuyu_bitir(okuyucu)
+        if zaman_asimi:
             detay = f"{TIMEOUT_FINDING_PREFIX} ({self._timeout_s}s): {command}"
             onceki = _tail(bytes(tampon)).strip()
             if onceki:

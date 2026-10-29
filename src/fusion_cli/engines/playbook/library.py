@@ -8,9 +8,18 @@ eski kayıtlardan çıkan tekrarlayan tamir akışlarıyla büyür.
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
+from ...core.errors import CleanupFailedError
+from ...core.process_control import (
+    process_group_options,
+    terminate_async_process_tree,
+    wait_for_shell_exit,
+)
 from .model import Playbook, PlaybookStep
+
+logger = logging.getLogger(__name__)
 
 #: Çekirdek kütüphane. Sıra önceliktir: ilk eşleşen playbook seçilir.
 #: Kalite/test komutlarının hangi tetikleyicilerle eşleştiği.
@@ -77,14 +86,22 @@ class ShellStepRunner:
             process = await asyncio.create_subprocess_shell(
                 command,
                 cwd=self._cwd,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
+                **process_group_options(),
             )
         except OSError:
             return 1
+        # Her çıkış yolunda (normal, zaman aşımı, iptal) süreç GRUBU temizlenir.
+        # Ölçüldü (29 Ekim): `process.kill()` yalnız kabuğu öldürüyordu; `npm test`
+        # altındaki torunlar yetim kalıyordu (E1-27).
         try:
-            return await asyncio.wait_for(process.wait(), timeout=self._timeout_s)
+            return await asyncio.wait_for(wait_for_shell_exit(process), timeout=self._timeout_s)
         except TimeoutError:
-            process.kill()
-            await process.wait()
             return 1
+        finally:
+            try:
+                await terminate_async_process_tree(process)
+            except CleanupFailedError:
+                logger.warning("playbook adımının süreç ağacı temizlenemedi: %s", command)

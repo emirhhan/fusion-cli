@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import os
 import platform
 import signal
@@ -238,3 +240,37 @@ def run_foreground(
         if not cleanup_started:
             _drain(process, force=True)
         raise
+
+
+async def terminate_async_process_tree(process: asyncio.subprocess.Process) -> None:
+    """`asyncio` kabuk sürecinin SAHİP OLUNAN grubunu ve kaçak torunları öldür.
+
+    `process_group_options()` ile başlatılmış sürece uygulanır. `process.kill()` yalnız
+    kabuğu öldürür; `npm → node → tsc` zinciri ve açık port/dosya kilidi yetim kalırdı.
+    Engelleyici `ps`/`killpg` çağrıları iş parçacığında koşar (olay döngüsünü dondurmaz)
+    ve `shield` altındadır: temizlik sırasında gelen iptal temizliği yarıda bırakmaz.
+    """
+    pid = process.pid
+
+    def _temizle() -> None:
+        try:
+            terminate_process_tree(pid, force=True)
+        finally:
+            ensure_process_group_exit(pid)
+
+    await asyncio.shield(asyncio.to_thread(_temizle))
+    if process.returncode is None:
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(process.wait(), timeout=PROCESS_TERMINATE_GRACE_S)
+
+
+async def wait_for_shell_exit(process: asyncio.subprocess.Process) -> int:
+    """Kabuğun ÇIKIŞINI bekle; çıktı borularının kapanmasını beklemez.
+
+    `Process.wait()` boru uçları kapanana dek döner: arka plana süreç doğuran komut
+    (`dev server &`) boruyu açık tutunca kabuk çıksa da sonsuza dek takılır (ölçüldü,
+    29 Ekim). `returncode` ise kabuk çıkar çıkmaz dolar; bu yüzden yoklanır.
+    """
+    while process.returncode is None:
+        await asyncio.sleep(PROCESS_POLL_S / 10)
+    return process.returncode
