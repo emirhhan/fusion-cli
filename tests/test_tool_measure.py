@@ -168,3 +168,41 @@ async def test_hesap_verilmezse_ana_hesap_olculur(monkeypatch, hesap):
     await tool_measure.measure_tool_support(_config(), "chatgpt_web", hesap)
 
     assert gorulen == ["chatgpt_web/main/auto"]
+
+
+async def test_olcum_sonrasi_oturumluk_secimler_ezilmez_yalniz_web_oturumlari_yenilenir(
+    tmp_path, monkeypatch
+):
+    """Disk yenilemesi `/model` ile seçilmiş ama yazılmamış modeli geri almamalı (S2-04)."""
+    import json
+    from dataclasses import replace
+
+    from fusion_cli.appserver import session as session_module
+    from fusion_cli.appserver import tool_measure
+    from fusion_cli.appserver.protocol import Request
+    from fusion_cli.appserver.session import AppSession
+
+    satirlar: list[str] = []
+    oturum = AppSession(satirlar.append, root=tmp_path, home=tmp_path / "ev")
+    secili = replace(
+        oturum._state.config, agent=replace(oturum._state.config.agent, model="oturumluk/model")
+    )
+    oturum._state.config = secili
+    diskteki = replace(secili, agent=replace(secili.agent, model="diskteki/eski-model"))
+    yeni_oturumlar = (object(),)
+    diskteki = replace(diskteki, web_sessions=yeni_oturumlar)
+
+    async def olc(*_args, **_kwargs):
+        return {"ok": True, "gecti": True, "metin": "geçti"}
+
+    monkeypatch.setattr(tool_measure, "measure_tool_support", olc)
+    monkeypatch.setattr(session_module, "load_config", lambda *_args, **_kwargs: diskteki)
+
+    await oturum.handle(Request(id="o", name="web.arac_olc", data={"saglayici": "gemini_web"}))
+
+    sonuc = next(
+        json.loads(s)["veri"] for s in reversed(satirlar) if json.loads(s).get("id") == "o"
+    )
+    assert sonuc["ok"] is True
+    assert oturum._state.config.agent.model == "oturumluk/model"
+    assert oturum._state.config.web_sessions is yeni_oturumlar

@@ -1122,9 +1122,14 @@ class AppSession:
                 str(request.data.get("saglayici", "")),
                 str(request.data.get("hesap", "main")),
             )
-            # Ölçüm yapılandırmayı değiştirdi; oturum eski hâli taşımasın.
+            # Ölçüm yalnız web oturumlarını değiştirdi: yalnız onlar diskten alınır. Tüm
+            # yapılandırmayı yeniden okumak `/model` ile seçilmiş, yazılmamış model ve
+            # kademeyi sessizce geri alırdı (bkz. `_refresh_teacher`).
             if olcum.get("ok"):
-                self._state.config = load_config()
+                self._state.config = replace(
+                    self._state.config,
+                    web_sessions=load_config(self._state.config.source).web_sessions,
+                )
             return olcum
         if request.name == "web.dogrula":
             sonuc = await verify_web_session(
