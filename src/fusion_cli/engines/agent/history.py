@@ -43,12 +43,28 @@ COMPRESS_THRESHOLD_CHARS = 177_000
 KEEP_RECENT_MESSAGES = 20
 #: Oturum izinde tek bir mesajdan alınacak en fazla karakter.
 TRACE_MESSAGE_CHARS = 300
+#: Başarısız araç sonucuna tanınan pay çarpanı: hata ayrıntısı (neyin neden düştüğü)
+#: izin en değerli parçasıdır.
+TRACE_ERROR_FACTOR = 2
+#: Önceki bir ÖZET mesajının izde taşınacağı üst sınır. Özet zaten sıkıştırılmıştır;
+#: 300 karaktere kesmek ardışık sıkıştırmalarda ilk özeti silerdi (A1-02).
+TRACE_SUMMARY_CHARS = 10_000
+#: Sıkıştırmanın eklediği özet mesajlarının başlıkları (tur arası / tur içi).
+CONVERSATION_SUMMARY_PREFIX = "[önceki konuşmanın özeti]"
+STEPS_SUMMARY_PREFIX = "[önceki adımların özeti]"
 #: Oturum izinin toplam uzunluğu.
 TRACE_TOTAL_CHARS = 3_000
 
 
 #: Web oturumları için sıkıştırma eşiği (30.000 karakterlik web prompt bütçesinin altında).
 WEB_COMPRESS_THRESHOLD_CHARS = 24_000
+
+
+def is_summary_message(message: Message) -> bool:
+    """Mesaj, sıkıştırmanın eklediği bir özet mi? (kullanıcı görevi DEĞİLDİR)"""
+    return message.role == "user" and message.content.lstrip().startswith(
+        (CONVERSATION_SUMMARY_PREFIX, STEPS_SUMMARY_PREFIX)
+    )
 
 
 def total_chars(messages: Sequence[Message]) -> int:
@@ -282,14 +298,31 @@ def transcript(
     return "\n".join([ELISION_NOTE, *tutulan])
 
 
+def _sample(text: str, limit: int) -> str:
+    """`limit`'i aşan metinde baştan VE sondan örnekle (ortası atlanır).
+
+    Araç çıktısında başlık/komut başta, sonuç/hata satırı sonda olur; yalnız baştan
+    kesmek ikincisini her zaman siliyordu.
+    """
+    if len(text) <= limit:
+        return text
+    bas = (limit * 2) // 3
+    son = limit - bas
+    return f"{text[:bas]} […] {text[-son:]}"
+
+
 def _describe(message: Message, message_chars: int = TRACE_MESSAGE_CHARS) -> list[str]:
     excerpt = message.content[:message_chars]
     if message.role == "user" and message.content:
+        if is_summary_message(message):
+            # Önceki özet KESİLMEZ: ardışık sıkıştırmada özetin özeti ilk özeti silerdi.
+            return [f"[kullanıcı] {message.content[:TRACE_SUMMARY_CHARS]}"]
         return [f"[kullanıcı] {excerpt}"]
     if message.role == "tool":
         # Başarı bilgisi mesajın kendisinde taşınır; metinden tahmin edilmez.
         flag = " ⟵ HATA" if message.ok is False else ""
-        return [f"[sonuç {message.name or ''}{flag}] {excerpt}"]
+        pay = message_chars * TRACE_ERROR_FACTOR if message.ok is False else message_chars
+        return [f"[sonuç {message.name or ''}{flag}] {_sample(message.content, pay)}"]
     if message.role == "assistant":
         # Argüman kesme payı mesaj payıyla birlikte büyür: sabit 200 karakter,
         # denetçiye `write_file`'ın yalnızca yolunu gösterip ne yazdığını gizliyordu.

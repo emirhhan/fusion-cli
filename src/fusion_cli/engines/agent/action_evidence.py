@@ -12,6 +12,7 @@ from collections.abc import Sequence
 
 from ...core.types import Message
 from ..effects.detect import required_effect_for
+from .history import is_summary_message
 
 _CONTINUATION = re.compile(
     r"(?:tamam(?:dır)?[ ,]*)?(?:kaldığın yerden |kaldigin yerden )?devam et"
@@ -72,7 +73,8 @@ def task_effect(task: str, history: Sequence[Message] = ()) -> str | None:
     if not _CONTINUATION.fullmatch(task.strip()):
         return None
     for message in reversed(history):
-        if message.role != "user" or message.harness_note:
+        # Özet mesajı da görev değildir (eski kayıtlarda `harness_note` olmayabilir).
+        if message.role != "user" or message.harness_note or is_summary_message(message):
             continue
         if _CONTINUATION.fullmatch(message.content.strip()):
             continue

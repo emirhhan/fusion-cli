@@ -418,3 +418,106 @@ def test_paralel_arac_sonuclarinin_hepsi_son_tur_olarak_korunur():
     assert notu in icerik["eski"]
     for kimlik in ("a", "b", "c"):
         assert icerik[kimlik].startswith(f"{kimlik}:xxxx"), f"{kimlik} sonucu temizlenmiş"
+
+
+# --- A1-03 / A1-02: özet mesajı görev sanılmaz, iz özeti kesmez -------------- #
+
+_DOLGU_METIN = "dolgu " * 200
+
+
+def _uzun_oturum():
+    from fusion_cli.core.types import Message
+
+    mesajlar = [Message("system", "kimlik"), Message("user", "ilk görev")]
+    for index in range(30):
+        mesajlar += [Message("user", f"adım {index}"), Message("assistant", _DOLGU_METIN)]
+    return mesajlar
+
+
+async def test_turlar_arasi_ozet_harness_notu_olarak_eklenir(monkeypatch):
+    """Ölçüldü (29 Ekim): `compress` özeti harness_note OLMADAN ekliyordu; 'devam et'
+    deyince `task_effect` özet metnini 'en son gerçek görev' sanıyordu."""
+    from fusion_cli.engines.agent import compaction
+
+    async def ozetle(trace, config, publisher):
+        return "Kullanıcı commit ve push istedi."
+
+    monkeypatch.setattr(compaction, "_summarize", ozetle)
+
+    sonuc = await compaction.compress(_uzun_oturum(), config=make_config(), threshold_chars=20_000)
+
+    ozet = next(m for m in sonuc if m.content.startswith("[önceki konuşmanın özeti]"))
+    assert ozet.harness_note
+
+
+def test_devam_et_ozet_metnini_gorev_sanmaz():
+    from fusion_cli.core.types import Message
+    from fusion_cli.engines.agent.action_evidence import task_effect
+
+    gecmis = [
+        Message("user", "README.md dosyasını güncelle"),
+        Message("assistant", "tamam"),
+        # Eski kayıtlarda özet harness_note OLMADAN saklanmış olabilir.
+        Message(
+            "user",
+            "[önceki konuşmanın özeti]\nKullanıcı sonunda commit ve push yapılmasını istedi.",
+        ),
+    ]
+
+    assert task_effect("devam et", gecmis) == task_effect("README.md dosyasını güncelle")
+    assert task_effect("devam et", gecmis) != "git_push"
+
+
+async def test_ardisik_tur_ici_sikistirmada_kurallar_kaybolmaz(monkeypatch):
+    """Tur içi özet harness_note olduğundan kural bloğu ikinci sıkıştırmada düşüyordu."""
+    from fusion_cli.core.types import Message
+    from fusion_cli.engines.agent import compaction
+
+    async def ozetle(trace, config, publisher):
+        return "özet"
+
+    monkeypatch.setattr(compaction, "_summarize", ozetle)
+    mesajlar = [Message("system", "kimlik"), Message("user", "ilk görev")]
+    for index in range(30):
+        kural = " main dalına asla push etme" if index == 3 else ""
+        mesajlar += [Message("user", f"adım {index}.{kural}"), Message("assistant", _DOLGU_METIN)]
+
+    ilk = await compaction.compact_in_turn(mesajlar, config=make_config(), threshold_chars=20_000)
+    for index in range(30):
+        ilk += [Message("user", f"yeni {index}"), Message("assistant", _DOLGU_METIN)]
+    ikinci = await compaction.compact_in_turn(ilk, config=make_config(), threshold_chars=20_000)
+
+    assert "main dalına asla push etme" in "\n".join(m.content for m in ikinci)
+
+
+def test_iz_onceki_ozet_mesajini_kesmez():
+    from fusion_cli.core.types import Message
+    from fusion_cli.engines.agent import history
+
+    uzun_ozet = "[önceki konuşmanın özeti]\n" + "ÖNEMLİ_AYRINTI " * 300
+    iz = history.transcript([Message("user", uzun_ozet)], limit=60_000)
+
+    assert iz.count("ÖNEMLİ_AYRINTI") == 300
+
+
+def test_iz_arac_sonucunun_basini_ve_sonunu_hata_icin_daha_fazlasini_tutar():
+    from fusion_cli.core.types import Message
+    from fusion_cli.engines.agent import history
+
+    govde = "BAŞ" + "o" * 5_000 + "SON"
+    basarili = history.transcript([Message("tool", govde, name="run_shell", ok=True)], limit=60_000)
+    hata = history.transcript([Message("tool", govde, name="run_shell", ok=False)], limit=60_000)
+
+    assert "BAŞ" in basarili and "SON" in basarili
+    assert len(hata) > len(basarili)
+
+
+def test_sikistirma_izinde_mesaj_payi_mesaj_sayisina_gore_olceklenir():
+    from fusion_cli.core.types import Message
+    from fusion_cli.engines.agent import compaction
+
+    az = [Message("user", "x")] * 10
+    cok = [Message("user", "x")] * 400
+
+    assert compaction.trace_message_chars(az) > compaction.trace_message_chars(cok)
+    assert compaction.trace_message_chars(cok) >= 300

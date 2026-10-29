@@ -28,6 +28,9 @@ SUMMARY_MAX_TOKENS = 2_000
 #: Eskiden 6.000 karakterdi. Eşik 177.000 karaktere çıkınca özetleyici, attığı geçmişin
 #: ancak %3'ünü görüyor olurdu — özet yalnızca gördüğü kadarını temsil eder.
 TRACE_CHARS = 60_000
+#: İz içinde bir mesaja tanınan pay aralığı (karakter).
+TRACE_MESSAGE_MIN_CHARS = history.TRACE_MESSAGE_CHARS
+TRACE_MESSAGE_MAX_CHARS = 2_000
 #: Özetlenen aralıktan birebir taşınan kullanıcı kurallarının üst sınırı.
 RULES_MAX_CHARS = 2_000
 #: Özete eklenen kural bloğunun başlığı; art arda sıkıştırmada blok yeniden taşınır.
@@ -41,6 +44,17 @@ _RULE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def trace_message_chars(old: list[Message]) -> int:
+    """Mesaj başına iz payı: toplam bütçeyi mesaj sayısına böl, aralığa sıkıştır.
+
+    Sabit 300 karakter, 177 K karakterlik geçmişi 60 K'lık ize ~300 karakter/mesaj
+    sadakatiyle indiriyordu; az mesajlı ama büyük çıktılı geçmişte bütçe boşa kalıyordu
+    (A1-02, ölçüldü 29 Ekim).
+    """
+    pay = TRACE_CHARS // max(1, len(old))
+    return max(TRACE_MESSAGE_MIN_CHARS, min(TRACE_MESSAGE_MAX_CHARS, pay))
 
 
 async def compress(
@@ -67,7 +81,7 @@ async def compress(
     anchor, old, recent = messages[:anchor_len], messages[anchor_len:cut], messages[cut:]
     if not old:
         return messages
-    trace = history.transcript(old, limit=TRACE_CHARS)
+    trace = history.transcript(old, limit=TRACE_CHARS, message_chars=trace_message_chars(old))
     if not trace.strip():
         return messages
 
@@ -75,7 +89,10 @@ async def compress(
     if not summary:
         return messages
     summary = _with_user_rules(summary, old)
-    return [*anchor, Message("user", f"[önceki konuşmanın özeti]\n{summary}"), *recent]
+    # `harness_note`: bu bir kullanıcı görevi DEĞİL. Eksikken "devam et" sonrası
+    # `task_effect` özet metnini en son gerçek görev sanıyordu (A1-03).
+    ozet = Message("user", f"{history.CONVERSATION_SUMMARY_PREFIX}\n{summary}", harness_note=True)
+    return [*anchor, ozet, *recent]
 
 
 async def compact_in_turn(
@@ -102,14 +119,14 @@ async def compact_in_turn(
     if cut <= anchor_len:
         return temiz
     anchor, old, recent = temiz[:anchor_len], temiz[anchor_len:cut], temiz[cut:]
-    trace = history.transcript(old, limit=TRACE_CHARS)
+    trace = history.transcript(old, limit=TRACE_CHARS, message_chars=trace_message_chars(old))
     if not trace.strip():
         return temiz
     summary = await _summarize(trace, config, publisher)
     if not summary:
         return temiz
     summary = _with_user_rules(summary, old)
-    ozet = Message("user", f"[önceki adımların özeti]\n{summary}", harness_note=True)
+    ozet = Message("user", f"{history.STEPS_SUMMARY_PREFIX}\n{summary}", harness_note=True)
     return [*anchor, ozet, *recent]
 
 
@@ -129,8 +146,10 @@ def _user_rules(messages: list[Message]) -> list[str]:
     found: list[str] = []
     total = 0
     for message in messages:
-        # Harness notları ("pes etme" vb.) kullanıcının kuralı değildir.
-        if message.role != "user" or message.harness_note:
+        # Harness notları ("pes etme" vb.) kullanıcının kuralı değildir. İstisna: önceki
+        # sıkıştırmanın özeti (artık `harness_note`) taşıdığı kural bloğuyla birlikte
+        # yeniden taşınır; yoksa ikinci sıkıştırmada kurallar düşerdi.
+        if message.role != "user" or (message.harness_note and RULES_HEADER not in message.content):
             continue
         for sentence in _rule_sentences(message.content):
             if sentence in found or total + len(sentence) > RULES_MAX_CHARS:
