@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from ..config.eligibility import capability_from_spec
 from ..config.models import Config, WebSessionConfig
 from ..config.web_evidence import web_evaluation_matches
+from ..core.constants import WEB_IMAGE_UPLOAD_PROVIDERS
 from ..core.errors import ConfigError
 from ..core.model_capability import ToolSupport
 from ..core.types import ModelSpec
@@ -49,7 +50,7 @@ def capabilities_for(
         return ProviderCapabilities(
             tools=emulated,
             native_tools=False,
-            images=not browser,
+            images=not browser or session.provider in WEB_IMAGE_UPLOAD_PROVIDERS,
             web=True,
             long_running=not browser,
             exclusive_session=browser,

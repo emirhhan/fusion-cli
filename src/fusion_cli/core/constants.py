@@ -82,6 +82,10 @@ GIT_TIMEOUT_S = 30.0
 #: sohbet turu sayfa yükleme + yazma + tam streaming üretim içerir ve buraya sığmaz;
 #: onun bütçesi `WebSessionConfig.timeout_s` alanından gelir.
 WEB_TIMEOUT_S = 20.0
+
+#: Tarayıcı oturumunda görsel yükleme yolu OLAN web sağlayıcıları (yalnız Gemini'de ölçüldü).
+#: `supports_images`, yetenek profili ve `_attach_images` aynı kümeye bakar (P1-06).
+WEB_IMAGE_UPLOAD_PROVIDERS = frozenset({"gemini_web"})
 #: Bir aracın "istenen iş bu araçla YAPILAMAZ" dediği çıktının öneki.
 #:
 #: Şifre duvarı, oturum kapısı ya da bot doğrulaması gibi durumlarda araç teknik

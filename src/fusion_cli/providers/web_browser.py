@@ -38,7 +38,7 @@ from typing import Any
 
 from ..config.models import WebSessionConfig
 from ..config.paths import web_profile_dir
-from ..core.constants import MIN_BROWSER_TURN_S
+from ..core.constants import MIN_BROWSER_TURN_S, WEB_IMAGE_UPLOAD_PROVIDERS
 from ..core.redaction import redact
 from ..core.refusal import looks_like_refusal
 from ..core.tool_emulation import TOOL_INSTRUCTIONS_LEAD
@@ -2097,8 +2097,7 @@ async def _send_turn(
     before = await _response_snapshot(page, definition.response_selectors)
     composer_metni = await _prepare_prompt_for_composer(page, definition, prompt)
     eklenen = await _attach_images(page, definition, images)
-    if eklenen:
-        composer_metni += f"\n\n[{eklenen} görsel ekte; cevabını görsellere bakarak ver.]"
+    composer_metni += image_upload_notice(eklenen, len(images))
     await _fill_editor(input_locator, composer_metni)
     send = await _first_visible(page, definition.send_selectors, timeout_ms=2_000)
     if send is not None:
@@ -2214,6 +2213,19 @@ def _data_uri_bytes(uri: str) -> tuple[bytes, str] | None:
         return None
 
 
+def image_upload_notice(attached: int, requested: int) -> str:
+    """Görsel yükleme sonucunu modele söyleyen not; yüklenemeyen görsel sessiz düşmez."""
+    notice = ""
+    if attached:
+        notice += f"\n\n[{attached} görsel ekte; cevabını görsellere bakarak ver.]"
+    if requested > attached:
+        notice += (
+            f"\n\n[{requested - attached} görsel yüklenemedi; o görseller İNCELENMEDİ, "
+            "görmüş gibi cevap verme.]"
+        )
+    return notice
+
+
 async def _attach_images(
     page: Any, definition: BrowserProviderDefinition, images: tuple[str, ...]
 ) -> int:
@@ -2222,7 +2234,7 @@ async def _attach_images(
     Eskiden görseller sessizce düşüyordu; görsel okuyamayan ana model için öğretmen
     "göz" olamıyordu. Yükleme isteğe bağlıdır: arıza turu düşürmez, sayı 0 döner.
     """
-    if not images or definition.id != "gemini_web":
+    if not images or definition.id not in WEB_IMAGE_UPLOAD_PROVIDERS:
         return 0
     eklenen = 0
     for uri in images:

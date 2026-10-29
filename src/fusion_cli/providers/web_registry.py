@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from ..config.credentials import FernetSecretStore
 from ..config.models import WebSessionConfig
 from ..config.paths import credentials_file
+from ..core.constants import WEB_IMAGE_UPLOAD_PROVIDERS
 from ..core.model_capability import ToolSupport
 from ..core.protocols import Clock, LlmProvider
 from ..core.types import Message
@@ -114,7 +115,10 @@ class WebSessionRegistry:
             credential=credential,
             transport=transport,
             tool_support=_TOOL_SUPPORT.get(session.tool_support, ToolSupport.NONE),
-            supports_images=session.transport != "browser",
+            # Tarayıcıda görsel yalnız yükleme yolu olan sağlayıcıda taşınır (Gemini);
+            # aksi hâlde adaptör görseli önceden düşürür ve `_attach_images` ölü kalırdı.
+            supports_images=session.transport != "browser"
+            or session.provider in WEB_IMAGE_UPLOAD_PROVIDERS,
             clock=clock,
         )
 
