@@ -21,10 +21,10 @@ from ...core.evidence import EvidenceStatus, ToolUse
 from ...core.job_evidence import JobCurrentSnapshot, JobPhase
 from ...core.tools import ToolFamily, tool_family
 from ...core.verification import VerificationResult
-from ...tools.auto_policy import is_read_only_command
 from ...ui.text import strip_thinking
 from .completion_evidence import evidence_payload as evidence_payload
 from .job_delivery import JobDelivery, collect_job_deliveries
+from .shell_mutation import shell_may_change_files
 from .verify_discovery import is_behavioral_command
 
 #: Kabuk komutu çalıştıran KANONİK araç adı — yalnız görüntüleme/dokümantasyon
@@ -379,36 +379,11 @@ def _last_mutation_index(tool_uses: tuple[ToolUse, ...]) -> int | None:
         if not use.mutating or use.job_completion is not None:
             continue
         if _is_shell_call(use.name):
-            if not _never_ran(use) and _shell_may_change_files(_command_text(use)):
+            if not _never_ran(use) and shell_may_change_files(_command_text(use)):
                 return index
         elif use.ok:
             return index
     return None
-
-
-#: Çalışma ağacındaki dosyaları değiştirmeyen, yalnız Git geçmişine/uzağa yazan alt komutlar.
-_GIT_HISTORY_ONLY = frozenset(
-    {"add", "commit", "push", "fetch", "tag", "log", "status", "diff", "show"}
-)
-#: Dosyaya yazan yönlendirme; `/dev/null`'a ve tanımlayıcıya (`2>&1`) yönlendirme sayılmaz.
-_FILE_REDIRECT = re.compile(r">(?!&)")
-_NULL_REDIRECT = re.compile(r"\d?>>?\s*/dev/null|\d?>&\d")
-
-
-def _shell_may_change_files(command: str) -> bool:
-    """Kabuk komutu çalışma alanındaki dosyaları değiştirebilir mi? Emin değilsek evet."""
-    if not command.strip() or is_read_only_command(command):
-        return False
-    words = command.split()
-    if words[:1] == ["git"] and len(words) > 1 and words[1] in _GIT_HISTORY_ONLY:
-        return False
-    # Doğrulama komutu (test, derleme) mutasyon sayılmaz; çıktısını dosyaya yazan sayılır.
-    # `pytest -q 2>&1 | tail` kanıt değildir (çıkış kodu maskelenir) ama dosya da
-    # değiştirmez: sınıflandırma yönlendirmesiz ilk komuta bakar.
-    plain = _NULL_REDIRECT.sub(" ", command)
-    if _FILE_REDIRECT.search(plain) is not None:
-        return True
-    return not is_behavioral_command(plain.split("|", 1)[0])
 
 
 def _command_run(use: ToolUse, *, after: bool) -> CommandRun:

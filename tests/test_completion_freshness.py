@@ -76,3 +76,50 @@ def test_ciktisi_yonlendirilen_test_komutu_mutasyon_sayilmaz(test_komutu):
     uses = (_EDIT, _shell("pytest -q"), _shell(test_komutu))
 
     assert build_turn_report(("app.py",), uses, None).is_verified is True
+
+
+# İnceleme turu (29 Ekim): zincirler parça parça; statik denetim ve derleme kanıtı bozmaz.
+@pytest.mark.parametrize(
+    "degistiren",
+    [
+        "pytest && sed -i '' s/a/b/ app.py",
+        "git add . && rm app.py",
+        "git commit -m x; rm -rf src",
+        "git push && git checkout .",
+        "pytest -q\nsed -i '' s/a/b/ app.py",
+        "ruff check --fix .",
+        "npx eslint --fix .",
+        "cat a.txt | tee app.py",
+    ],
+)
+def test_zincirin_herhangi_bir_parcasi_degistiriyorsa_mutasyondur(degistiren):
+    uses = (_EDIT, _shell("pytest -q"), _shell(degistiren))
+
+    assert build_turn_report(("app.py",), uses, None).is_verified is False
+
+
+@pytest.mark.parametrize(
+    "zararsiz",
+    [
+        "npm run build",
+        "make",
+        "cargo check",
+        "tsc --noEmit",
+        "npx eslint .",
+        "ruff check .",
+        "python -m mypy src",
+        "python3 -m py_compile app.py",
+        "uv run pytest -q",
+        "git -C repo status",
+        "git stash list",
+        "pytest -q; echo $?",
+        "pytest &>/dev/null",
+        'pytest -k "a>b"',
+        "pytest 2>&1 | tee test.log",
+        "curl -s http://localhost:3000",
+    ],
+)
+def test_statik_denetim_derleme_ve_okuma_kaniti_bozmaz(zararsiz):
+    uses = (_EDIT, _shell("pytest -q"), _shell(zararsiz))
+
+    assert build_turn_report(("app.py",), uses, None).is_verified is True
