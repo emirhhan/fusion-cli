@@ -24,15 +24,17 @@ import contextlib
 import hashlib
 import json
 import re
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
+import httpx
+
+from ..core.constants import MAX_WEB_REDIRECTS
 from ..core.tools import ChromeControl
+from .pinned_http import PinnedTransport
 
 PROBE_SOURCE = Path(__file__).parent / "assets" / "design_probe.js"
 #: Ölçüm ve indirilen varlıkların varsayılan klasörü (proje kökünde).
@@ -71,6 +73,7 @@ _HIDE_CONSENT = (
     "el.getBoundingClientRect().top > innerHeight * 0.4) el.style.display = 'none'; } }"
 )
 _CART = re.compile(r"sepet|cart|basket|\bbag\b|alışveriş çantası", re.IGNORECASE)
+_ASSET_TIMEOUT_S = 30
 _USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Fusion site_design"
 
 
@@ -372,21 +375,41 @@ async def _fetch_all(urls: list[str], folder: Path, limit: int) -> dict[str, str
 
 
 def _fetch(url: str, folder: Path, limit: int) -> str | None:
-    request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    """Sayfanın gösterdiği varlığı indir; her adım (yönlendirmeler dahil) genel adrese gider.
+
+    Ölçüldü (29 Ekim incelemesi): adresler ölçülen sayfadan gelir ve yalnız `http`
+    önekiyle süzülüyordu; `urlopen` yönlendirmeyi denetimsiz izliyordu. Düşman bir sayfa
+    `<img src=http://169.254.169.254/...>` yazarak bulut metadata yanıtını diske,
+    ajanın okuyabileceği yere kaydettirebilirdi.
+    """
+    data = bytearray()
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            data = response.read(limit + 1)
-            kind = response.headers.get_content_type()
-    except (urllib.error.URLError, OSError, ValueError):
+        with (
+            httpx.Client(
+                follow_redirects=True,
+                max_redirects=MAX_WEB_REDIRECTS,
+                timeout=_ASSET_TIMEOUT_S,
+                transport=PinnedTransport(),
+                headers={"User-Agent": _USER_AGENT},
+            ) as client,
+            client.stream("GET", url) as response,
+        ):
+            response.raise_for_status()
+            kind = response.headers.get("content-type", "").partition(";")[0].strip()
+            for chunk in response.iter_bytes():
+                data.extend(chunk)
+                if len(data) > limit:
+                    return None
+    except (httpx.HTTPError, ValueError):
         return None
-    if len(data) > limit or not data:
+    if not data:
         return None
     name = Path(urlparse(url).path).name or "dosya"
     stem = re.sub(r"[^A-Za-z0-9._-]", "-", Path(name).stem)[:60] or "dosya"
     suffix = Path(name).suffix.lower() or _suffix_for(kind)
     digest = hashlib.sha1(url.encode()).hexdigest()[:8]
     target = folder / f"{stem}-{digest}{suffix}"
-    target.write_bytes(data)
+    target.write_bytes(bytes(data))
     return target.name
 
 

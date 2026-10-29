@@ -28,6 +28,7 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Web modelinin düzgün kapattığı araç çağrısı bloğu "kapanmamış" sayılıp yeniden istenmez.
 - Masaüstü sürümü lint/tip/test kapısı geçmeden yayımlanmaz.
 - Masaüstü uygulaması sıkı içerik güvenlik politikasıyla çalışır; arayüz dosya içeriğini ağ isteğiyle okuyamaz, `.ssh`, `.aws`, tarayıcı profilleri ve `.env` gibi hassas dosyalar uygulama içi görüntülemeye kapalıdır.
+- Web sayfası okuma, site tarama ve dosya indirme denetlenen adrese bağlanır: alan adı denetimden sonra iç ağa çözülse de (DNS rebinding) istek gitmez; Tailscale/CGNAT (`100.64.0.0/10`) ve IPv6'ya gömülü iç adresler de engellenir.
 
 ## 0.7.18 — 2026-10-21
 

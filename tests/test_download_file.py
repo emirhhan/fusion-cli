@@ -8,15 +8,13 @@ import pytest
 
 from fusion_cli.core.errors import PathAccessError
 from fusion_cli.core.tools import ToolContext, ToolFamily, tool_family
-from fusion_cli.tools import build_registry, download
+from fusion_cli.tools import build_registry, download, pinned_http
 
 
 def _network(monkeypatch, handler):
-    client = httpx.AsyncClient
+    # Sahte ağ, korumalı taşımanın İÇİNE takılır: adres denetimi gerçek kalır.
     monkeypatch.setattr(
-        download.httpx,
-        "AsyncClient",
-        lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs),
+        pinned_http, "direct_async_transport", lambda _host: httpx.MockTransport(handler)
     )
 
 

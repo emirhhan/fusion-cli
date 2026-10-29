@@ -11,7 +11,6 @@ sonuna çevrilir, HTML varlıkları çözülür. Model ham etiket kalabalığı 
 from __future__ import annotations
 
 import html as html_module
-import ipaddress
 import re
 import socket
 import xml.etree.ElementTree as ET
@@ -30,8 +29,10 @@ from ..core.constants import (
     WEB_TIMEOUT_S,
     truncate_notice,
 )
+from ..core.network_address import is_public_ip
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
+from .pinned_http import PinnedTransport
 
 _USER_AGENT = "Mozilla/5.0 (fusion-cli)"
 
@@ -134,8 +135,11 @@ def fetch_following_redirects(url: str) -> tuple[str, str, str]:
     yeni bir doğrulamadan (`url_block_reason`) geçirilir.
     """
     current = url
-    # follow_redirects=False: yönlendirmeyi httpx değil biz yönetiriz.
-    with httpx.Client(follow_redirects=False, timeout=WEB_TIMEOUT_S) as client:
+    # follow_redirects=False: yönlendirmeyi httpx değil biz yönetiriz. Taşıma
+    # denetlenen IP'ye bağlanır (DNS rebinding; bkz. `pinned_http`).
+    with httpx.Client(
+        follow_redirects=False, timeout=WEB_TIMEOUT_S, transport=PinnedTransport()
+    ) as client:
         for _ in range(MAX_WEB_REDIRECTS + 1):
             response = client.get(current, headers={"User-Agent": _USER_AGENT})
             if not response.is_redirect:
@@ -308,19 +312,8 @@ def browser_block_reason(url: str, allowed_local: Collection[str] = ()) -> str |
 
 
 def _is_blocked_ip(address: str) -> bool:
-    """Bu IP özel/loopback/link-local/rezerve mi? (metadata IP'si dâhil)"""
-    try:
-        ip = ipaddress.ip_address(address)
-    except ValueError:
-        return True  # Çözülemeyen bir şeyi güvenli varsaymayız.
-    return (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local  # 169.254.0.0/16 — bulut metadata ucu buradadır
-        or ip.is_multicast
-        or ip.is_reserved
-        or ip.is_unspecified
-    )
+    """Bu IP genel internette değil mi? (metadata, CGNAT/Tailscale ve gömülü IPv4 dâhil)"""
+    return not is_public_ip(address)
 
 
 def _normalize_url(url: str) -> str:

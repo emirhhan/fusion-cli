@@ -15,13 +15,17 @@ from ..core.constants import MAX_DOWNLOAD_BYTES, MAX_WEB_REDIRECTS, WEB_TIMEOUT_
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .files import display_path, resolve_path
+from .pinned_http import AsyncPinnedTransport
 from .web import url_block_reason
 
 
 async def _download_bytes(url: str, context: ToolContext) -> bytes:
     """Her hedefi denetle; sıkıştırılmış yanıtın açılan baytlarını da sınırla."""
     current = url
-    async with httpx.AsyncClient(follow_redirects=False, timeout=WEB_TIMEOUT_S) as client:
+    # Taşıma denetlenen IP'ye bağlanır (DNS rebinding; bkz. `pinned_http`).
+    async with httpx.AsyncClient(
+        follow_redirects=False, timeout=WEB_TIMEOUT_S, transport=AsyncPinnedTransport()
+    ) as client:
         for _ in range(MAX_WEB_REDIRECTS + 1):
             reason = await asyncio.to_thread(url_block_reason, current)
             if reason:
