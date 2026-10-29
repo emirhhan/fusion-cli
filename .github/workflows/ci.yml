@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Masaüstü sürümü (`desktop.yml` → `release`) bu kapıyı yeniden kullanır: testler
+  # kırmızıyken etiket atılsa da Release oluşmasın.
+  workflow_call:
 
 jobs:
   check:
