@@ -458,4 +458,18 @@ describe("Composer — @ ile MCP seçimi", () => {
     expect(onSend).not.toHaveBeenCalled();
     expect(textbox.value).toBe("@github ");
   });
+
+  // Ölçüldü (29 Ekim): `kontrol.durum` okunamayınca activeModel "" kalıyor ve seçici
+  // `onModelSelect && activeModel` yüzünden tamamen kayboluyordu; kullanıcı
+  // bozuk modelden başka modele geçemiyordu.
+  it("etkin model okunamasa da model seçici görünür ve açılabilir kalır", () => {
+    const onModelSelect = vi.fn();
+    const modelOptions = [{ deger: "/model agent a/b", etiket: "Model B" }];
+    const { rerender } = render(<Composer activeModel="" modelOptions={modelOptions} onModelSelect={onModelSelect} onSend={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Model: (seçilmedi|Model seç)/ }));
+    fireEvent.click(screen.getByRole("option", { name: /Model B/ }));
+    expect(onModelSelect).toHaveBeenCalledWith("/model agent a/b");
+    rerender(<Composer activeModel="" modelOptions={modelOptions} onModelSelect={onModelSelect} onSend={vi.fn()} running />);
+    expect(screen.getByRole("button", { name: /Model: (seçilmedi|Model seç)/ })).toBeTruthy();
+  });
 });

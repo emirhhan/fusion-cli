@@ -438,7 +438,7 @@ export function Composer({
           </div>
           {running ? (
             <span className="composer__actions">
-              {onModelSelect && activeModel && <ModelPicker active={activeModel} activeLabel={activeModelLabel ? `${activeModelLabel} · sonraki tur` : `${shortModelName(activeModel)} · sonraki tur`} options={modelOptions} busy={modelsBusy} pending={modelSelectionPending} error={modelsError} onOpen={onModelMenuOpen} onRetry={onModelMenuOpen} onConnect={onModelConnect} onSelect={onModelSelect} />}
+              {onModelSelect && <ModelPicker active={activeModel} activeLabel={activeModelLabel ? `${activeModelLabel} · sonraki tur` : `${shortModelName(activeModel)} · sonraki tur`} options={modelOptions} busy={modelsBusy} pending={modelSelectionPending} error={modelsError} onOpen={onModelMenuOpen} onRetry={onModelMenuOpen} onConnect={onModelConnect} onSelect={onModelSelect} />}
               <ContextGauge olcu={context} onCompact={() => onSend("/compact")} />
               {maliyetRozetMetni(costUsd) && (
                 <span className="composer__cost">{maliyetRozetMetni(costUsd)}</span>
@@ -478,7 +478,7 @@ export function Composer({
                   <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeWidth="2" viewBox="0 0 24 24" width="18"><path d="M3 10v4M7 6v12M11 3v18M15 7v10M19 5v14M23 10v4" /></svg>
                 </button>
               )}
-              {onModelSelect && activeModel && (
+              {onModelSelect && (
                 <ModelPicker
                   active={activeModel}
                   activeLabel={activeModelLabel}
