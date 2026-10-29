@@ -14,6 +14,7 @@ import sys
 from collections.abc import Callable, Sequence
 
 from rich.console import Console
+from rich.markup import escape
 
 from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
@@ -26,9 +27,19 @@ from ...ui import banner, messages, theme
 from ...ui.picker import Choice
 from ...ui.renderer import ConsoleRenderer
 from ..session import run_agent_task, run_task
-from . import help_view, history_view, macros, model_flows
+from . import (
+    help_view,
+    history_view,
+    macros,
+    model_flows,
+    profiles_flow,
+    provider_flow,
+    verify_flow,
+)
 from .commands import RENDERED_COMMANDS, RESUME_LIST_LIMIT, build_registry, parse, resume_choices
-from .state import Engine, ReplState
+from .loop import apply_auto_profile
+from .partial_turn import PartialTurn
+from .state import Engine, Reminder, ReplState
 from .transcript_store import TranscriptStore
 from .tui import FusionTui
 from .work_line import WorkLineSink
@@ -46,14 +57,19 @@ _IN_APP_CHOICE: dict[str, tuple[Callable[[Config], Sequence[Choice]], str]] = {
 
 
 def _preview(request: ApprovalRequest) -> str:
-    """Onay önizlemesi: araç(argümanlar) + varsa tehlike gerekçesi."""
+    """Onay önizlemesi: araç(argümanlar) + varsa tehlike gerekçesi.
+
+    Araç adı, argümanlar (komut metni, dosya içeriği) ve gerekçe Rich işaretinden
+    KAÇIRILIR: argümandaki `[/x]` onay akışını çökertir, `[foo]` biçimli parça ise
+    sessizce yutulur ve kullanıcı çalışacak komuttan farklı bir metni onaylardı (L2-05).
+    """
     pairs = ", ".join(f"{key}={value!r}" for key, value in request.args.items())
-    body = f"{request.tool.name}({pairs})"
+    body = escape(f"{request.tool.name}({pairs})")
     head = f"[{theme.DIM}]{messages.TUI_CONFIRM_PREVIEW}[/{theme.DIM}] {body}"
     if request.danger:
-        return f"{head}\n[{theme.ERROR}]{request.danger}[/{theme.ERROR}]"
+        return f"{head}\n[{theme.ERROR}]{escape(request.danger)}[/{theme.ERROR}]"
     if request.note:
-        return f"{head}\n[{theme.DIM}]{request.note}[/{theme.DIM}]"
+        return f"{head}\n[{theme.DIM}]{escape(request.note)}[/{theme.DIM}]"
     return head
 
 
@@ -82,7 +98,13 @@ class TuiPrompter:
         previous_work = self._tui.work_source
         self._tui.set_work_source(lambda: messages.TUI_CONFIRM_HINT)
         try:
-            choices = [Choice("once", messages.TUI_APPROVAL_ONCE, messages.TUI_APPROVAL_ONCE_DESC)]
+            deny = Choice("deny", messages.TUI_APPROVAL_DENY, messages.TUI_APPROVAL_DENY_DESC)
+            # Tehlikeli (geri alınamaz) istekte ilk/öntanımlı seçenek RED'dir: art arda
+            # basılan Enter işlemi onaylamasın (L1-01).
+            choices = [deny] if request.danger else []
+            choices.append(
+                Choice("once", messages.TUI_APPROVAL_ONCE, messages.TUI_APPROVAL_ONCE_DESC)
+            )
             if request.can_remember:
                 choices.append(
                     Choice(
@@ -91,9 +113,8 @@ class TuiPrompter:
                         request.remembered_scope_description or messages.TUI_APPROVAL_SESSION_DESC,
                     )
                 )
-            choices.append(
-                Choice("deny", messages.TUI_APPROVAL_DENY, messages.TUI_APPROVAL_DENY_DESC)
-            )
+            if not request.danger:
+                choices.append(deny)
             answer = await self._tui.await_choice(messages.TUI_APPROVAL_TITLE, choices)
             if answer == "once":
                 return ApprovalAnswer.ONCE
@@ -113,7 +134,7 @@ class TuiPrompter:
         recommended: str | None = None,
     ) -> str:
         await _maybe_drain(self._drain)
-        self._tui.console.print(f"[{theme.ACCENT}]{question}[/{theme.ACCENT}]")
+        self._tui.console.print(f"[{theme.ACCENT}]{escape(question)}[/{theme.ACCENT}]")
         self._tui.sync_conversation()
         if options:
             choices = [
@@ -141,19 +162,25 @@ def _option_description(option: QuestionOption, recommended: str | None) -> str:
 
 
 def _would_open_picker(name: str, argument: str) -> bool:
-    """Bu çağrı nested bir prompt_toolkit seçicisi/metin istemi açar mı? (TUI'de guard'lanır.)"""
+    """Bu çağrı nested bir prompt_toolkit seçicisi/metin istemi açar mı? (TUI'de guard'lanır.)
+
+    `/provider`, `/verify` ve `/profiles edit` uygulama-içi modalla çözülür (`_picker_flow`);
+    argümansız `/model` yalnız listeler, seçici açmaz (L2-14).
+    """
     arg = argument.strip().lower()
-    if name == "provider":
-        return True  # argümandan bağımsız her zaman gizli anahtar istemi açar
     if name == "development":
         # Argümansız çağrı uygulama-içi modalda çözülür; argümanlı eski yol
         # nested picker riski taşır ve guard tarafından engellenir.
         return bool(arg)
-    if name == "model" and not arg:
-        return True  # argümansız katalog seçicisi açar
-    if name == "profiles" and arg.startswith("edit"):
-        return True  # baş model seçicisi açar
     return name == "providers" and arg.startswith("add")  # gizli anahtar istemi açar
+
+
+def _profile_edit_target(argument: str) -> tuple[str, bool] | None:
+    """`/profiles edit <profil> [incompatible]` → (profil, uyumsuzları göster); değilse None."""
+    parts = argument.split()
+    if len(parts) < 2 or parts[0].lower() != "edit":
+        return None
+    return parts[1], len(parts) > 2 and parts[2].lower() == "incompatible"
 
 
 async def _maybe_drain(drain: object) -> None:
@@ -208,7 +235,9 @@ class _TuiSession:
         if self._busy:
             # Tur çalışıyor: düşürme, kuyruğa al ve kullanıcıya kısaca bildir.
             self._queue.append(line)
-            self._echo(f"[{theme.DIM}]{messages.TUI_QUEUED.format(line=line)}[/{theme.DIM}]")
+            self._echo(
+                f"[{theme.DIM}]{escape(messages.TUI_QUEUED.format(line=line))}[/{theme.DIM}]"
+            )
             return
         self._task = asyncio.ensure_future(self._handle(line))
 
@@ -236,8 +265,29 @@ class _TuiSession:
         self._out.print(renderable)
         self._tui.sync_conversation()
 
+    def _refresh_config(self) -> None:
+        """Turdan önce kontrol paneli değişikliklerini al (satır-içi yolla aynı, L2-06)."""
+        if self._state.refresh_config():
+            self._sync_status()
+            self._echo(
+                f"[{theme.DIM}]Kontrol paneli ayarları yüklendi · "
+                f"{escape(self._state.config.agent.model)} · "
+                f"config {self._state.config_revision.value}[/{theme.DIM}]"
+            )
+
+    def _arm_reminders(self) -> None:
+        """`/schedule` ile kurulan hatırlatmaları arka plana al; süresi dolunca göster."""
+        for reminder in self._state.reminders:
+            self._background.spawn(self._remind(reminder))
+        self._state.reminders.clear()
+
+    async def _remind(self, reminder: Reminder) -> None:
+        await asyncio.sleep(reminder.due_in_seconds)
+        self._echo(f"[{theme.WARN}]{escape(reminder.text)}[/{theme.WARN}]")
+
     async def _handle(self, line: str) -> None:
         try:
+            self._refresh_config()
             self._transcript_store.record_user(line)
             ConsoleRenderer(self._out).print_user_message(line)
             self._tui.sync_conversation()
@@ -295,6 +345,29 @@ class _TuiSession:
             if resolved is None:
                 return
             argument = resolved
+        elif command.name == "provider":
+            await self._apply_flow(
+                lambda picker: provider_flow.choose_provider(self._state.config, picker=picker)
+            )
+            return
+        elif command.name == "verify":
+            await self._apply_flow(
+                lambda picker: verify_flow.choose_verification(
+                    self._state.config, self._state.root, picker=picker
+                )
+            )
+            return
+        elif command.name == "profiles" and _profile_edit_target(argument) is not None:
+            tier_name, show_incompatible = _profile_edit_target(argument) or ("", False)
+            await self._apply_flow(
+                lambda picker: profiles_flow.edit_profile_primary(
+                    self._state.config,
+                    tier_name,
+                    picker=picker,
+                    show_incompatible=show_incompatible,
+                )
+            )
+            return
         elif _would_open_picker(command.name, argument):
             # Nested picker açacak komutlar TUI'yi bozuyordu; bu görünümde argümanla kullanılır.
             self._echo(
@@ -303,13 +376,39 @@ class _TuiSession:
             return
         result = command.handler(self._state, argument)
         if result:
-            self._echo(f"[{theme.DIM}]{result}[/{theme.DIM}]")
+            self._echo(f"[{theme.DIM}]{escape(result)}[/{theme.DIM}]")
+        self._arm_reminders()
         self._sync_status()
         if not self._state.running:
             return
         pending, mode = self._state.take_pending()
         if pending:
             await self._turn(pending, mode=mode)
+
+    async def _apply_flow(
+        self, flow: Callable[[model_flows.Picker], model_flows.FlowResult]
+    ) -> None:
+        """Seçici alan bir akışı uygulama-içi modalla sür ve sonucunu uygula.
+
+        Akışlar eşzamanlı bir `picker` bekler (nested prompt_toolkit TUI'yi bozardı).
+        İlk geçişte seçenekler yakalanır, modalda seçtirilir, ikinci geçişte seçilen
+        değer hazır bir seçici olarak verilir. Seçici hiç çağrılmazsa (zaten kurulu,
+        bulunamadı…) ilk geçişin sonucu doğrudan kullanılır.
+        """
+        captured: list[tuple[Sequence[Choice], str]] = []
+
+        def probe(choices: Sequence[Choice], *, title: str = "", **_: object) -> str | None:
+            captured.append((choices, title))
+            return None
+
+        result = flow(probe)
+        if captured:
+            choices, title = captured[0]
+            selected = await self._tui.await_choice(title, list(choices))
+            result = flow(lambda *_a, **_k: selected)
+        self._state.config = result.config
+        self._echo(f"[{theme.DIM}]{escape(result.message)}[/{theme.DIM}]")
+        self._sync_status()
 
     async def _resolve_resume_argument(self, command_name: str) -> str | None:
         """`/resume<kaynak>` için uygulama-içi seçim (nested picker YERİNE).
@@ -353,7 +452,8 @@ class _TuiSession:
             self._tui.sync_conversation()
             model_id: str | None = (await self._tui.await_text()).strip() or None
         else:
-            entries = source.fetcher()
+            # Ağdan katalog senkron bir çağrıdır; TUI döngüsünü dondurmasın (L2-13).
+            entries = await asyncio.to_thread(source.fetcher)
             if not entries:
                 self._echo(f"[{theme.DIM}]{messages.DEV_EMPTY_CATALOG}[/{theme.DIM}]")
                 return
@@ -366,9 +466,11 @@ class _TuiSession:
             self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
             return
 
-        result = model_flows.apply_development_model(config, model_id, paid=source.paid)
+        result = await asyncio.to_thread(
+            model_flows.apply_development_model, config, model_id, paid=source.paid
+        )
         self._state.config = result.config
-        self._echo(f"[{theme.DIM}]{result.message}[/{theme.DIM}]")
+        self._echo(f"[{theme.DIM}]{escape(result.message)}[/{theme.DIM}]")
         self._sync_status()
 
     async def _turn(self, line: str, *, mode: macros.Mode = macros.Mode.NONE) -> None:
@@ -379,6 +481,8 @@ class _TuiSession:
         adım sınırı (100) sessizce düşüyordu. Düz konsol yüzeyi (`loop.py`)
         üçünü de geçiyordu; iki yüzey ayrışmıştı.
         """
+        # `/mode auto` açıksa kademe bu görev için seçilir (satır-içi yolla aynı, L2-06).
+        apply_auto_profile(line, self._state, self._out)
         work = WorkLineSink(interrupt_hint=messages.WORK_INTERRUPT_ESC)
         # Satırı TUI çeker (her spinner karesinde), sink itmez: süre böyle akar.
         self._tui.set_work_source(work.render)
@@ -410,6 +514,10 @@ class _TuiSession:
                     extra_roots=self._state.extra_roots,
                     restrict_to_root=self._state.config.runtime.restrict_to_root,
                 )
+                # Değişiklik kümesi tur boyunca yerinde dolar; tur kesilse ya da hatayla
+                # bitse de `/undo` yarım yazılmış dosyaları geri alabilsin (L2-12).
+                self._state.last_changes = tool_context.changes
+                partial = PartialTurn()
                 # Digest TEK SEFERLİK okunur; bu yüzden yalnız onu gerçekten
                 # kullanan agent dalında tüketilir. Kip promptuyla aynı metinde
                 # birleşir (`loop.py` ile aynı sıra).
@@ -418,30 +526,39 @@ class _TuiSession:
                     for part in (macros.mode_prompt(mode), self._state.take_pending_digest())
                     if part
                 )
-                outcome = await run_agent_task(
-                    line,
-                    self._state.config,
-                    remotion_transport=self._state.remotion_transport,
-                    remotion_browser=self._state.remotion_browser,
-                    sinks=sinks,
-                    prompter_factory=self._prompter_factory,
-                    mode=self._state.approval,
-                    task_type=self._state.task_type,
-                    root=self._state.root,
-                    home=self._state.home,
-                    extra_system=turn_extra_system,
-                    interactive=True,
-                    conversation_id=self._state.conversation_id,
-                    memory=self._state.memory,
-                    history=self._state.history,
-                    background=self._background,
-                    tool_context=tool_context,
-                    approval_memory=self._state.approval_memory,
-                    step_limit=macros.mode_step_limit(mode),
-                    workflow=macros.mode_workflow(mode),
-                )
+                try:
+                    outcome = await run_agent_task(
+                        line,
+                        self._state.config,
+                        remotion_transport=self._state.remotion_transport,
+                        remotion_browser=self._state.remotion_browser,
+                        sinks=sinks,
+                        prompter_factory=self._prompter_factory,
+                        mode=self._state.approval,
+                        task_type=self._state.task_type,
+                        root=self._state.root,
+                        home=self._state.home,
+                        extra_system=turn_extra_system,
+                        interactive=True,
+                        conversation_id=self._state.conversation_id,
+                        memory=self._state.memory,
+                        history=self._state.history,
+                        health=self._state.health,
+                        capabilities=self._state.capabilities,
+                        journal=partial,
+                        background=self._background,
+                        tool_context=tool_context,
+                        approval_memory=self._state.approval_memory,
+                        step_limit=macros.mode_step_limit(mode),
+                        workflow=macros.mode_workflow(mode),
+                    )
+                except (asyncio.CancelledError, Exception):
+                    # İptal/hata: o turun araç sonuçları geçmişten düşmesin (L2-12).
+                    self._state.history = partial.history_after_interruption(
+                        previous=self._state.history, task=line, root=self._state.root
+                    )
+                    raise
                 self._state.history = outcome.messages
-                self._state.last_changes = tool_context.changes
         finally:
             renderer.abort()
             self._tui.clear_work()

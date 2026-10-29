@@ -101,7 +101,8 @@ async def test_prompter_yikici_istekte_oturum_secimi_sunmaz():
     )
     await asyncio.sleep(0)
 
-    assert [choice.value for choice in tui._choices] == ["once", "deny"]
+    # Tehlikede öntanımlı (ilk) seçenek RED'dir (L1-01).
+    assert [choice.value for choice in tui._choices] == ["deny", "once"]
     tui._resolve("deny")
     assert await task is ApprovalAnswer.DENY
 
@@ -212,35 +213,54 @@ async def test_agent_fusion_komutu_motoru_degistirir(tmp_path):
 
 
 async def test_argumansiz_secici_komut_yonlendirir(tmp_path):
-    """TUI çalışırken iç içe seçici açılmaz; argümansız /model yönlendirme basar."""
+    """TUI çalışırken iç içe seçici açılmaz; argümansız /mode, uygulama-içi modal açar."""
     session = _TuiSession(_state(tmp_path))
 
-    await session._command("/model")
-
-    assert "argüman ister" in session.tui.transcript
+    gorev = asyncio.ensure_future(session._command("/mode"))
+    await asyncio.sleep(0)
+    assert session.tui._mode == "choice"
+    session.tui._resolve(None)
+    await gorev
 
 
 def test_would_open_picker_nested_secici_komutlarini_yakalar():
     from fusion_cli.cli.repl.tui_loop import _would_open_picker
 
-    assert _would_open_picker("provider", "")
     assert _would_open_picker("development", "x")
-    assert _would_open_picker("model", "")  # argümansız katalog
-    assert not _would_open_picker("model", "premium")  # argümanla uygular
-    assert _would_open_picker("profiles", "edit code")
+    # L2-14: argümansız /model yalnız listeler; /provider, /verify, /profiles edit modalla çözülür.
+    assert not _would_open_picker("model", "")
+    assert not _would_open_picker("provider", "")
+    assert not _would_open_picker("verify", "")
+    assert not _would_open_picker("profiles", "edit code")
     assert _would_open_picker("providers", "add")
     # mode/level/effort uygulama-içi modalla çözülür; guard'lanmaz.
     assert not _would_open_picker("mode", "")
     assert not _would_open_picker("level", "")
 
 
-async def test_provider_komutu_gorunumu_bozmaz(tmp_path):
-    """/provider nested seçici açacaktı; TUI'de yönlendirme basar, görünüm bozulmaz."""
+async def test_provider_komutu_uygulama_ici_modalla_cozulur(tmp_path):
+    """L2-14: /provider artık engellenmez; TUI modalı açılır, esc vazgeçmektir."""
     session = _TuiSession(_state(tmp_path))
 
-    await session._command("/provider")
+    gorev = asyncio.ensure_future(session._command("/provider"))
+    await asyncio.sleep(0)
+    assert session.tui._mode == "choice"
+    session.tui._resolve(None)
+    await gorev
 
-    assert "argüman ister" in session.tui.transcript
+    assert "argüman ister" not in session.tui.transcript
+    assert "seçim yapılmadı" in session.tui.transcript
+
+
+async def test_model_argumansiz_listeyi_gosterir(tmp_path):
+    """L2-14: argümansız /model seçici açmaz; etkin modeller listelenir."""
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+
+    await session._command("/model")
+
+    assert "argüman ister" not in session.tui.transcript
+    assert "agent :" in session.tui.transcript
 
 
 async def test_mode_komutu_uygulama_ici_secimle_uygulanir(tmp_path):

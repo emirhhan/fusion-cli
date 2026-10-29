@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import signal
+import sys
 from collections.abc import Awaitable, Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -59,6 +61,7 @@ from . import help_view, history_view, macros
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, parse
 from .input import ReplInput
 from .macros import Mode
+from .partial_turn import PartialTurn
 from .state import Engine, Reminder, ReplState
 
 #: Komut geçmişinin saklandığı dosya adı.
@@ -81,6 +84,11 @@ def apprentice_switch_notice(config: Config) -> str | None:
     return messages.APPRENTICE_SWITCH_NOTICE.format(model=config.agent.model, onerilen=onerilen)
 
 
+def is_interactive_terminal() -> bool:
+    """stdin ve stdout ikisi de terminal mi? (TUI yalnız o zaman kurulur.)"""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
 async def run_repl(
     config: Config,
     *,
@@ -92,28 +100,13 @@ async def run_repl(
     remotion_browser: RemotionBrowser | None = None,
 ) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür."""
-    import os
-
     # Varsayılan: Ink-benzeri tek yol TUI (Claude Code modeli). Eski satır-içi mod yalnızca
     # acil yedek olarak FUSION_INLINE=1 ile açılır; TUI kararlılığı doğrulanınca kaldırılacak
-    # (bkz. docs/BACKLOG.md).
-    if os.environ.get("FUSION_INLINE") != "1":
-        from .tui_loop import run_tui_repl
-
-        state = ReplState(
-            config=config,
-            memory=memory,
-            root=root,
-            home=Path.home(),
-            extra_roots=extra_roots,
-            remotion_transport=remotion_transport,
-            remotion_browser=remotion_browser,
-            health=build_health(config),
-        )
-        return await run_tui_repl(state, console)
-
-    state = ReplState(
-        config=config,
+    # (bkz. docs/BACKLOG.md). Borulu/CI kullanımı (`echo /help | fusion`) tam-ekran
+    # uygulamaya düşmemeli: stdin ya da stdout terminal değilse satır-içi yola geçilir.
+    # Kayıtlı motor ve izin modu (`runtime.engine`/`approval_mode`) iki yolda da uygulanır.
+    state = ReplState.from_runtime_config(
+        config,
         memory=memory,
         root=root,
         home=Path.home(),
@@ -122,6 +115,11 @@ async def run_repl(
         remotion_browser=remotion_browser,
         health=build_health(config),
     )
+    if os.environ.get("FUSION_INLINE") != "1" and is_interactive_terminal():
+        from .tui_loop import run_tui_repl
+
+        return await run_tui_repl(state, console)
+
     # Ev dizini GEÇİLİR: dinamik `/resume<kaynak>` komutları ancak böyle kaydolur.
     # Argümansız çağrı bu yüzeyi sessizce komutsuz bırakıyordu.
     registry = build_registry(state.home)
@@ -295,7 +293,7 @@ async def _run_command(
 # --------------------------------------------------------------------------- #
 
 
-def _apply_auto_profile(line: str, state: ReplState, console: Console) -> None:
+def apply_auto_profile(line: str, state: ReplState, console: Console) -> None:
     """`/mode auto` açıksa görevi sınıflandırıp kademeyi bu tur için seç.
 
     Karar açıklanabilir olsun diye gerekçe basılır (master prompt §7.2). Profilin
@@ -325,7 +323,7 @@ async def _run_turn(
     mode: Mode = Mode.NONE,
 ) -> None:
     """Bir mesajı aktif motora gönder. Ctrl-C turu keser, REPL'den çıkmaz."""
-    _apply_auto_profile(line, state, console)
+    apply_auto_profile(line, state, console)
     task = asyncio.ensure_future(_dispatch(line, state, console, background, mode))
     with _cancel_on_interrupt(task):
         try:
@@ -459,6 +457,7 @@ async def _agent_turn(
             restrict_to_root=state.config.runtime.restrict_to_root,
             remotion_browser=state.remotion_browser,
         )
+        partial = PartialTurn()
         prompter = ConsolePrompter(
             console,
             tool_context,
@@ -500,7 +499,12 @@ async def _agent_turn(
                 conversation_id=state.conversation_id,
             ),
             conversation_id=state.conversation_id,
+            # İptal/hata halinde o turun araç sonuçları geçmişten düşmesin (L2-12).
+            journal=partial,
         )
+        # Değişiklik kümesi tur boyunca yerinde dolar; kesilen turdaki yarım
+        # yazılmış dosyalar da `/undo` ile geri alınabilsin.
+        state.last_changes = tool_context.changes
         try:
             turn_extra_system = "\n\n".join(
                 part for part in (macros.mode_prompt(mode), state.take_pending_digest()) if part
@@ -516,8 +520,6 @@ async def _agent_turn(
                 step_limit=macros.mode_step_limit(mode),
                 workflow=macros.mode_workflow(mode),
             )
-            # Turun değişiklik kaydı `/undo` için saklanır; bir sonraki tur onu ezer.
-            state.last_changes = tool_context.changes
             # Boş cevap yalnızca tur temiz bittiyse hatadır; bkz. `cli/session.py`.
             if not outcome.final_text.strip() and outcome.ok:
                 bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER))
@@ -539,6 +541,11 @@ async def _agent_turn(
                     FollowupsSuggested(tuple((item.label, item.prompt) for item in oneriler))
                 )
             bus.publish(TurnFinished())
+        except (asyncio.CancelledError, Exception):
+            state.history = partial.history_after_interruption(
+                previous=state.history, task=line, root=state.root
+            )
+            raise
         finally:
             # İptal/hata halinde TurnFinished yayınlanmaz; canlı gösterge yine de durmalı.
             renderer.abort()

@@ -14,7 +14,7 @@ from rich.console import Console
 
 from fusion_cli.cli.repl import model_flows
 from fusion_cli.cli.repl.commands import build_registry, parse
-from fusion_cli.cli.repl.loop import _apply_auto_profile
+from fusion_cli.cli.repl.loop import apply_auto_profile
 from fusion_cli.cli.repl.state import ReplState
 from fusion_cli.config.loader import load_config
 from fusion_cli.memory.factory import null_memory
@@ -85,7 +85,7 @@ def test_bos_mode_secim_ekranindan_auto_secmek(state, monkeypatch):
 def test_auto_uygulamasi_gorevden_kademe_secer(state):
     state.auto_profile = True
     console = Console(file=io.StringIO(), force_terminal=False)
-    _apply_auto_profile("Tüm mimariyi yeniden tasarla", state, console)
+    apply_auto_profile("Tüm mimariyi yeniden tasarla", state, console)
     # "max" → premium kademesine çözülür.
     assert state.config.agent == state.config.tier_by_name("premium").agent
 
@@ -94,7 +94,7 @@ def test_auto_uygulamasi_gerekce_basar(state):
     state.auto_profile = True
     tampon = io.StringIO()
     console = Console(file=tampon, force_terminal=False)
-    _apply_auto_profile("Dağıtık cache bug'ını çöz", state, console)
+    apply_auto_profile("Dağıtık cache bug'ını çöz", state, console)
     cikti = tampon.getvalue()
     assert "auto profil" in cikti
     assert "high" in cikti
@@ -103,7 +103,7 @@ def test_auto_uygulamasi_gerekce_basar(state):
 def test_auto_kapaliyken_yapilandirma_degismez(state):
     onceki = state.config.agent
     console = Console(file=io.StringIO(), force_terminal=False)
-    _apply_auto_profile("Tüm mimariyi yeniden tasarla", state, console)
+    apply_auto_profile("Tüm mimariyi yeniden tasarla", state, console)
     assert state.config.agent == onceki
 
 
