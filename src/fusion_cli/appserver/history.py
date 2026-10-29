@@ -6,6 +6,7 @@ Sunum ayrıntısı içermez. Kaynak adaptörlerini ortak HistorySource sözleşm
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,12 @@ from ..history.work_dirs import codex_work_dirs
 DEFAULT_LIMIT = 30
 MAX_LIMIT = 100
 MAX_CURSOR = 10_000
+
+#: Devralmada modele verilen mesaj sayısı (oturumun SONU), tarama sayfa boyu ve
+#: `turn_count`'tan geriye bakılan pencere.
+RESUME_MESSAGE_LIMIT = 100
+RESUME_PAGE_SIZE = 200
+RESUME_TAIL_WINDOW = 400
 
 #: Arama sonucu tek sayfada döner; seçici bunu ayrıca sayfalamaz.
 SEARCH_LIMIT = 30
@@ -138,12 +145,37 @@ def prepare_resume(home: Path, root: Path, data: dict[str, Any]) -> PreparedResu
         },
         digest=_with_work_dirs(digest.text, work_dirs, root),
         work_dirs=work_dirs,
-        messages=tuple(
-            Message(turn.role, turn.text)
-            for turn in sanitize_turns(source.read(ref.session_id, cursor=0, limit=100))
-            if turn.role in {"user", "assistant"} and turn.text.strip()
-        ),
+        messages=_tail_messages(source, ref),
     )
+
+
+def _tail_messages(source: HistorySource, ref: SessionRef) -> tuple[Message, ...]:
+    """Devralınan oturumun SON `RESUME_MESSAGE_LIMIT` mesajı (güncel durum sondadır).
+
+    İlk sayfayı almak uzun oturumda modele başı gösterip sonu atardı. `turn_count`
+    yalnız başlangıç noktasını seçmek içindir; kaynak ile uyuşmazsa (az mesaj dönerse)
+    baştan taranır, böylece sonuç her durumda gerçek son kesittir.
+    """
+    start = max(0, ref.turn_count - RESUME_TAIL_WINDOW) if ref.turn_count > 0 else 0
+    tail = _collect_tail(source, ref.session_id, start)
+    if len(tail) < RESUME_MESSAGE_LIMIT and start > 0:
+        tail = _collect_tail(source, ref.session_id, 0)
+    return tuple(tail)
+
+
+def _collect_tail(source: HistorySource, session_id: str, cursor: int) -> deque[Message]:
+    tail: deque[Message] = deque(maxlen=RESUME_MESSAGE_LIMIT)
+    while True:
+        page = source.read(session_id, cursor=cursor, limit=RESUME_PAGE_SIZE)
+        if not page:
+            break
+        for turn in sanitize_turns(page):
+            if turn.role in {"user", "assistant"} and turn.text.strip():
+                tail.append(Message(turn.role, turn.text))
+        cursor += len(page)
+        if len(page) < RESUME_PAGE_SIZE:
+            break
+    return tail
 
 
 def _is_inside(path: Path, root: Path) -> bool:
@@ -170,9 +202,14 @@ def _with_work_dirs(digest: str, work_dirs: tuple[Path, ...], root: Path) -> str
         "yalnız proje kökünde arama. Bu klasörlere erişim açıldı.",
     )
     closing = "</devralinan_oturum>"
-    if closing in digest:
-        return digest.replace(closing, "\n".join((*note, closing)), 1)
-    return "\n".join((digest, *note))
+    if closing not in digest:
+        return "\n".join((digest, *note))
+    # Gerçek kapanış etiketi künyenin SON satırıdır. Oturum metni sahte bir kapanış
+    # etiketi taşırsa o, güvenilir bloğu erken bitirip notu dışarıda bırakmasın diye
+    # kaçırılır (içerik silinmez).
+    body, _, tail = digest.rpartition(closing)
+    body = body.replace(closing, "&lt;/devralinan_oturum&gt;")
+    return "\n".join((body.rstrip("\n"), *note, closing)) + tail
 
 
 def _source(home: Path, data: dict[str, Any]) -> HistorySource | None:

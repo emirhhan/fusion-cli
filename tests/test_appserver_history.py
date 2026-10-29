@@ -237,3 +237,33 @@ async def test_gecmis_ara_kurulu_olmayan_kaynakta_hata_dondurur(tmp_path, monkey
     await session.handle(Request("a4", "gecmis.ara", {"kaynak": "yok", "sorgu": "oyun"}))
 
     assert _result(lines, "a4")["ok"] is False
+
+
+@dataclass
+class _UzunOturumKaynagi(_FakeSource):
+    """250 turluk oturum: devralınan mesajlar BAŞ değil SON turlar olmalı (S1-04)."""
+
+    def list(self, root=None, limit=None):
+        del root, limit
+        return (SessionRef("claude", "uzun", "Uzun", 5.0, turn_count=250, size_bytes=9),)
+
+    def read(self, session_id, cursor=0, limit=50):
+        assert session_id == "uzun"
+        turns = tuple(
+            Turn("user" if i % 2 == 0 else "assistant", f"tur-{i}", float(i)) for i in range(250)
+        )
+        return turns[cursor : cursor + limit]
+
+
+async def test_gecmis_surdur_uzun_oturumda_son_turlari_yukler(tmp_path, monkeypatch):
+    _patch_source(monkeypatch, _UzunOturumKaynagi())
+    lines: list[str] = []
+    session = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
+
+    await session.handle(Request("r", "gecmis.surdur", {"kaynak": "claude", "oturum_id": "uzun"}))
+
+    assert _result(lines, "r")["ok"] is True
+    metinler = [mesaj.content for mesaj in session._state.history]
+    assert metinler[-1] == "tur-249"
+    assert metinler[0] == "tur-150"  # son 100 tur; ilk 100 değil
+    assert len(metinler) == 100
