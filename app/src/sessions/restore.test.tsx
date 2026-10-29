@@ -143,3 +143,42 @@ it("saklı sohbeti açmak etkinlik zamanını değiştirmez", async () => {
   expect(result.current.state.sessions["eski-c"].updatedAt).toBe(1000);
   expect(JSON.parse(localStorage.getItem(SESSION_VIEW_KEY)!).sessions.find((item: { id: string }) => item.id === "eski-c").updatedAt).toBe(1000);
 });
+
+// U4-09 — Ölçüldü (29 Ekim): bağlanamayan kayıtlı sekme sessizce düşüyor, kısmi görünüm
+// localStorage'a yazılarak kalan sekmelerin kaydı KALICI olarak siliniyordu.
+describe("kayıtlı sekme açılamazsa", () => {
+  const kayitli = () => (JSON.parse(localStorage.getItem(SESSION_VIEW_KEY)!).sessions as { id: string; title: string }[]);
+
+  it("kayıtta korunur ve kullanıcıya gösterilir", async () => {
+    persist([
+      { id: "sohbet-a", title: "Oyun", root: "/proje" },
+      { id: "sohbet-b", title: "Fatura", root: "/proje" },
+      { id: "sohbet-c", title: "Rapor", root: "/proje" },
+    ], "sohbet-c");
+    const fake = fakeTransport();
+    const asil = fake.transport.create;
+    fake.transport.create = vi.fn(async (id, root) => {
+      if (id === "sohbet-b") throw new Error("çekirdek açılamadı");
+      return asil(id, root);
+    });
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.sessions.map((item) => item.id)).toEqual(["sohbet-a", "sohbet-c"]));
+    await waitFor(() => expect(result.current.activeSession?.messages.some((m) => m.hata && m.metin.includes("Fatura"))).toBe(true));
+    expect(kayitli().map((s) => s.id).sort()).toEqual(["sohbet-a", "sohbet-b", "sohbet-c"]);
+    expect(kayitli().find((s) => s.id === "sohbet-b")?.title).toBe("Fatura");
+  });
+
+  it("hiçbiri açılmazsa bağlantı hatası görünür, kayıt değişmez", async () => {
+    persist([
+      { id: "sohbet-a", title: "Oyun", root: "/proje" },
+      { id: "sohbet-b", title: "Fatura", root: "/proje" },
+    ], "sohbet-a");
+    const once = localStorage.getItem(SESSION_VIEW_KEY);
+    const fake = fakeTransport();
+    fake.transport.create = vi.fn(async () => { throw new Error("çekirdek yok"); });
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.state.connectionError).toContain("Oyun"));
+    expect(result.current.state.connectionError).toContain("çekirdek yok");
+    expect(localStorage.getItem(SESSION_VIEW_KEY)).toBe(once);
+  });
+});

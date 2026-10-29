@@ -8,7 +8,7 @@ import { listen } from "@tauri-apps/api/event";
 import { ProtocolClient } from "../protocol/client";
 import { baglamOlcusuOku, type BaglamOlcusu, type Soru } from "../protocol/types";
 import { initialSessionState, sessionReducer } from "./store";
-import { loadSessionView, saveSessionView } from "./persistence";
+import { loadSessionView, saveSessionView, type PersistedSessionMetadata } from "./persistence";
 import { isProjectRoot, projectName } from "./projectRoots";
 import { DEFAULT_TITLE } from "./title";
 import type {
@@ -113,6 +113,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const persistedView = useRef(
     typeof window === "undefined" ? null : loadSessionView(() => window.localStorage),
   );
+  const unrestored = useRef<PersistedSessionMetadata[]>([]);
   const answerDecisions = useRef(new WeakMap<object, string>());
   const answersInFlight = useRef(new WeakSet<object>());
   const admissions = useRef(new Map<string, (receipt: SubmissionReceipt) => void>());
@@ -327,14 +328,35 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       await create(persistedView.current ? {} : { id: DEFAULT_SESSION_ID, mode: "kod" });
       return;
     }
+    // Başarısız sekme sessizce düşmez: kayıtta KORUNUR (bir sonraki açılışta yeniden denenir)
+    // ve kullanıcıya gösterilir. Ölçüldü (29 Ekim): hata yutuluyor, ardından kısmi görünüm
+    // localStorage'ı ezerek kalan sekmelerin kaydını KALICI siliyordu.
+    unrestored.current = [];
+    const failures: { session: PersistedSessionMetadata; reason: string }[] = [];
+    const opened: string[] = [];
     for (const session of restorable) {
-      await connect({
-        id: session.id,
-        title: session.title,
-        source: session.source,
-        root: session.root,
-        updatedAt: session.updatedAt,
-      }).catch(() => undefined);
+      try {
+        const connection = await connect({
+          id: session.id,
+          title: session.title,
+          source: session.source,
+          root: session.root,
+          updatedAt: session.updatedAt,
+        });
+        opened.push(connection.id);
+      } catch (reason) {
+        failures.push({ session, reason: reason instanceof Error ? reason.message : String(reason) });
+      }
+    }
+    unrestored.current = failures.map((failure) => failure.session);
+    if (failures.length > 0) {
+      const detail = failures.map(({ session, reason }) => `"${session.title}" (${reason})`).join(", ");
+      if (opened.length === 0) {
+        dispatch({ type: "connectionFailed", reason: `Kayıtlı sekmeler açılamadı: ${detail}` });
+        return;
+      }
+      dispatch({ type: "messageAdded", id: opened[opened.length - 1], message: { rol: "asistan", hata: true,
+        metin: `${failures.length} kayıtlı sekme açılamadı: ${detail}. Kayıtları korundu; sonraki açılışta yeniden denenecek.` } });
     }
     const activeId = persistedView.current?.activeId;
     if (activeId && restorable.some((session) => session.id === activeId)) {
@@ -439,7 +461,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     if (typeof window === "undefined") return;
     // İlk yüklemede kayıtları koru; başarılı silme sonrası boş görünümü de sakla.
     if (state.order.length === 0 && deletedIds.current.size === 0) return;
-    saveSessionView(() => window.localStorage, state);
+    saveSessionView(() => window.localStorage, state, Date.now(), unrestored.current);
   }, [state]);
 
   const send = useCallback(
