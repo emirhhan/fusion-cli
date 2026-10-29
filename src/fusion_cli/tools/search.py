@@ -59,16 +59,27 @@ _SECRET_FILE_STEM_RE = re.compile(
     r"(?:$|[._-])",
     re.IGNORECASE,
 )
+#: Kaynak kod/doküman uzantıları: `auth.py`, `token.ts`, `use-auth.ts`, `settings.py`
+#: gizli DEĞİL kaynaktır. Ölçüldü (29 Ekim): ad kalıbı bunları da atlıyor, `glob`
+#: da aynı süzgeçle boş dönüyor, model "dosya yok" sanıp yeniden yazıyordu.
+_SOURCE_EXTENSIONS = frozenset(
+    {
+        ".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".php", ".go", ".rs",
+        ".java", ".kt", ".swift", ".rb", ".cs", ".c", ".h", ".cpp", ".hpp", ".vue", ".svelte",
+        ".md", ".mdx", ".css", ".scss", ".html", ".sh", ".sql", ".gd", ".lua", ".dart",
+    }
+)  # fmt: skip
 _SECRET_FILE_EXTENSIONS = frozenset({".pem", ".key", ".p12", ".pfx", ".der", ".crt", ".cer"})
+#: Kimlik deposu klasörleri: aranan kökün atası, kendisi ya da altında olsa da KAPALIDIR.
+_CREDENTIAL_STORE_DIRECTORIES = frozenset({".aws", ".azure", ".gnupg", ".ssh"})
+#: Kökün KENDİSİ bunlardan biriyse (örn. `search_code path=~/.config`) kapalıdır; ama proje
+#: yolunun atası olmaları sorun değildir (`~/.config/x/proje`, `~/claude/proje`).
+_PROFILE_DIRECTORIES = frozenset({".claude", ".config"})
 _SECRET_DIRECTORY_NAMES = frozenset(
     {
-        ".aws",
-        ".azure",
-        ".claude",
+        *_CREDENTIAL_STORE_DIRECTORIES,
+        *_PROFILE_DIRECTORIES,
         "claude",
-        ".config",
-        ".gnupg",
-        ".ssh",
         "chrome",
         "application support",
         "cache",
@@ -89,6 +100,7 @@ class _SearchScan:
     stopped: str | None = None
     truncated_files: int = 0
     oversized_lines: int = 0
+    skipped_secret_files: int = 0
 
     def should_stop(self) -> bool:
         if self.context.cancelled.is_set():
@@ -117,6 +129,12 @@ def _empty_note(message: str, root: Path) -> str:
 def _bounded_result(lines: list[str], scan: _SearchScan, empty: str) -> ToolResult:
     if scan.stopped is None:
         output = "\n".join(lines) if lines else empty
+        if scan.skipped_secret_files:
+            output += (
+                f"\n\n{scan.skipped_secret_files} dosya kimlik/yapılandırma adı taşıdığı için "
+                "içeriği aranmadı (ortam değişkeni, anahtar, sır ve ayar dosyaları). Biri "
+                "gerekiyorsa yolunu bilerek read_file ile aç."
+            )
         if scan.truncated_files or scan.oversized_lines:
             limits = []
             if scan.truncated_files:
@@ -262,7 +280,7 @@ def glob_files(args: ToolArgs, context: ToolContext) -> ToolResult:
     matches: list[str] = []
     scan = _SearchScan(context=context, started=time.monotonic())
     matcher = glob_matcher(pattern)
-    for path in _searchable_files(root, scan):
+    for path in _searchable_files(root, scan, include_secret_names=True):
         relative = path.relative_to(root) if root.is_dir() else Path(path.name)
         if not matcher(relative.as_posix()):
             continue
@@ -276,12 +294,20 @@ def glob_files(args: ToolArgs, context: ToolContext) -> ToolResult:
 # --------------------------------------------------------------------------- #
 
 
-def _is_skipped(path: Path) -> bool:
-    return (
-        any(_is_skipped_directory_name(part) for part in path.parts)
-        or _is_secret_file(path)
-        or path.is_symlink()
-    )
+def _is_skipped(path: Path, anchor: Path) -> bool:
+    """Dosya aramadan hariç mi? Kural köke GÖRELİ bileşenlere bakar.
+
+    Ölçüldü (29 Ekim): MUTLAK yolun tüm bileşenlerine bakılıyordu; proje `~/claude/proje`
+    ya da `~/.config/x/proje` altındaysa HER dosya sessizce atlanıyordu. Kökün
+    atalarında yalnız kimlik deposu klasörleri (.ssh, .aws, .azure, .gnupg) engeller.
+    """
+    if path.is_symlink():
+        return True
+    if any(part.casefold() in _CREDENTIAL_STORE_DIRECTORIES for part in anchor.parts):
+        return True
+    if anchor.name.casefold() in _PROFILE_DIRECTORIES:
+        return True
+    return any(_is_skipped_directory_name(part) for part in path.relative_to(anchor).parts[:-1])
 
 
 def _is_skipped_directory_name(name: str) -> bool:
@@ -289,17 +315,23 @@ def _is_skipped_directory_name(name: str) -> bool:
 
 
 def _is_secret_file(path: Path) -> bool:
-    """Arama çıktısına olası kimlik bilgisi dosyalarını hiç sokma."""
+    """Arama çıktısına olası kimlik bilgisi dosyalarını hiç sokma.
+
+    Kaynak kod uzantılı dosyalar (`auth.py`, `use-auth.ts`, `settings.py`) ad kalıbına
+    takılmaz; çıktıdaki sır değerlerini ayrıca `redact` maskeler.
+    """
     name = path.name.casefold()
+    if name == ".env" or name.startswith(".env.") or name in _SECRET_FILE_NAMES:
+        return True
+    if path.suffix.casefold() in _SECRET_FILE_EXTENSIONS:
+        return True
+    if path.suffix.casefold() in _SOURCE_EXTENSIONS:
+        return False
     return (
-        name == ".env"
-        or name.startswith(".env.")
-        or name in _SECRET_FILE_NAMES
-        or name == "settings"
+        name == "settings"
         or name.startswith("settings.")
         or name.startswith("settings-")
         or _SECRET_FILE_STEM_RE.search(path.name) is not None
-        or path.suffix.casefold() in _SECRET_FILE_EXTENSIONS
     )
 
 
@@ -311,7 +343,12 @@ def _truncate_utf8(text: str, max_bytes: int) -> str:
     return encoded[:max_bytes].decode("utf-8", errors="ignore")
 
 
-def _searchable_files(root: Path, scan: _SearchScan) -> Iterator[Path]:
+def _searchable_files(
+    root: Path, scan: _SearchScan, *, include_secret_names: bool = False
+) -> Iterator[Path]:
+    """Aranabilir dosyalar. `include_secret_names` yalnız ADLARIN listelenmesi içindir
+    (glob): içerik okunmaz, bu yüzden gizli olabilecek dosyanın adı da görünür."""
+    anchor = root.parent if root.is_file() else root
     if root.is_file():
         candidates: Iterator[Path] = iter((root,))
     else:
@@ -329,7 +366,10 @@ def _searchable_files(root: Path, scan: _SearchScan) -> Iterator[Path]:
         if scan.should_stop():
             return
         scan.candidates += 1
-        if _is_skipped(path):
+        if _is_skipped(path, anchor):
+            continue
+        if _is_secret_file(path) and not include_secret_names:
+            scan.skipped_secret_files += 1
             continue
         try:
             if path.stat().st_size > MAX_SEARCHABLE_FILE_BYTES:
