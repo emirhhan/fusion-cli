@@ -111,11 +111,19 @@ def needs_wordpress_setup(root: Path) -> bool:
 
 
 def free_port() -> int:
-    """Tercih edilen aralıkta boş port; hepsi doluysa işletim sisteminin verdiği."""
+    """Tercih edilen aralıkta boş port; hepsi doluysa işletim sisteminin verdiği.
+
+    Boşluk BIND ederek sınanır: bağlanma denemesinin reddedilmesi portun boş olduğunu
+    kanıtlamaz (ölçüldü: macOS sharingd 8770'i IPv6'da tutarken IPv4 bağlantısı
+    reddediliyor, sunucu ise bind'de "Address already in use" ile düşüyordu).
+    """
     for port in range(PREVIEW_PORT_START, PREVIEW_PORT_START + PREVIEW_PORT_SPAN):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            if sock.connect_ex(("127.0.0.1", port)) != 0:
-                return port
+            try:
+                sock.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+            return port
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
