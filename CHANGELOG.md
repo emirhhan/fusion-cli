@@ -16,6 +16,11 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Telefon görevleri kalıcıdır: bilgisayar yeniden başlayınca yarım iş "Sonuç belirsiz" görünür ve kendiliğinden tekrar çalıştırılmaz; aynı istek anahtarı farklı içerikle reddedilir; iptal "Durduruluyor" ile başlar, tur gerçekten bitince "İptal" olur.
 - `FUSION_WORKSPACE_ISOLATION=1` ile bellek, sır deposu ve tarayıcı oturumları hesaba göre ayrılır; eski ortak veri `fusion adopt-data <hesap>` ile tek bir hesaba kopyalanır.
 - Arayüz istekleri son süre ve iptal alabilir; çalışma alanı okumaları 30 sn'de zaman aşımına uğrar.
+- Test geçtikten sonra kabukla yapılan dosya değişikliği (`sed -i`, `> dosya`, `cp`) eski başarıyı geçersiz kılar; görev yeniden doğrulama bekler.
+- Uzun oturumda bağlam özetlenirken kullanıcının koyduğu kurallar ("asla main'e push etme") özete birebir taşınır.
+- Ajanın dosya düzenlemesi CRLF satır sonlarını korur.
+- Telefondan ekran izleme masaüstü onayıyla açılır; "hatırla" 7 günlük güven verir. Telefon, işlemin gerektirdiği yetki (ör. `project.write`) olmadan yazma/komut onayı veremez, yalnız reddedebilir.
+- Önizleme sunucusu, başka bir sürecin tuttuğu portu boş sanıp açılamamazlık etmez.
 
 ## 0.7.18 — 2026-10-21
 
