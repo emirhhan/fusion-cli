@@ -49,3 +49,20 @@ export function yankiMi(duyulan: string, konusulan: string | null): boolean {
   const ortak = duyulanKelimeler.filter((kelime) => konusulanKume.has(kelime)).length;
   return ortak / duyulanKelimeler.length >= ESIK;
 }
+
+/**
+ * Açık bir onay sorusu varken duyulan söz, Fusion'ın o an okuduğu metnin yankısı olabilir mi?
+ *
+ * `yankiMi` tek kelimeyi bilerek ayıklamaz (söz kesmeyi korur). Ama onay cevabı çoğu zaman
+ * tek kelimedir ("evet") ve Fusion soruyu okurken aynı kelimeyi söyleyebilir: hoparlörden
+ * mikrofona sızan "evet" onay sayılmamalıdır. Ölçüldü (29 Ekim): tek kelimelik sızıntı onaya gidiyordu.
+ * Duyulan her kelime okunan metinde geçiyorsa yankı varsayılır (fail-closed); okunan
+ * metinde geçmeyen bir cevap kullanıcıdan sayılır.
+ */
+export function cevapYankisiMi(duyulan: string, konusulan: string | null): boolean {
+  if (!konusulan) return false;
+  const duyulanKelimeler = kelimeler(duyulan);
+  if (duyulanKelimeler.length === 0) return false;
+  const konusulanKume = new Set(kelimeler(konusulan));
+  return duyulanKelimeler.every((kelime) => konusulanKume.has(kelime));
+}

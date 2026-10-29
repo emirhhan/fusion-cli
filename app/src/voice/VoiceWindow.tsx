@@ -18,7 +18,7 @@ import {
   type VoiceRuntimeState,
 } from "./bridge";
 import { acknowledgeWake, cancelThinkingCue, routeWakeSpeech, speakThinkingCue, speechFailureText } from "./wake";
-import { yankiMi } from "./echo";
+import { cevapYankisiMi, yankiMi } from "./echo";
 import { cuesEnabled, playCue } from "./cues";
 import { VoiceMode } from "./VoiceMode";
 import {
@@ -101,6 +101,9 @@ const OTURUM_KONTROL_ARALIGI_MS = 2_000;
 /** Düşünme bu kadar sürerse "Hmm" denir, sürerse aralıklarla tekrarlanır. */
 const DUSUNME_IPUCU_GECIKME_MS = 1_200;
 const DUSUNME_IPUCU_TEKRAR_MS = 7_000;
+
+/** Açık onay sorusu bu süreden sonra sesle cevaplanamaz; eski soruya geç gelen "evet" işlem onaylamaz. */
+const ONAY_SORUSU_OMRU_MS = 120_000;
 
 /** Geri çekilmenin tavanı; kullanıcı sonsuza kadar sessiz kalmamalı. */
 const YENIDEN_BASLATMA_TAVANI_MS = 8_000;
@@ -198,6 +201,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   const machineRef = useRef(machine);
   const askRef = useRef(ask);
   const answering = useRef<VoiceAsk | null>(null);
+  /** Açık sorunun pencereye ulaştığı an; sesli cevabın ömrü buradan sayılır. */
+  const askOpenedAt = useRef(0);
   const [answerPending, setAnswerPending] = useState(false);
   const spokenQuestion = useRef<{ session: number; segment: number; question: VoiceAsk | null } | null>(null);
   const sentRevision = useRef(0);
@@ -231,6 +236,16 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
 
   const sendAnswer = useCallback((answer: string, question: VoiceAsk | null) => {
     if (!question || answering.current === question || askRef.current !== question) return;
+    // Cevap yalnız kimliği belli ve taze soruya gider; aksi halde çekirdek zaten yok sayardı,
+    // kullanıcı ise "cevap gitti" sanırdı.
+    if (!question.sessionId || !question.questionId) {
+      dispatch({ type: "FAILED", text: "Bu soru sesle cevaplanamaz. Karttan seç." });
+      return;
+    }
+    if (Date.now() - askOpenedAt.current > ONAY_SORUSU_OMRU_MS) {
+      dispatch({ type: "FAILED", text: "Soru çok eskidi. Karttan seç." });
+      return;
+    }
     answering.current = question;
     setAnswerPending(true);
     void runtime.answerAsk(answer, question).catch(() => {
@@ -371,6 +386,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         && current.questionId === open.questionId) return;
       clearPartialFinalTimer();
       askRef.current = open;
+      askOpenedAt.current = Date.now();
       answering.current = null;
       setAnswerPending(false);
       setAsk(open);
@@ -439,7 +455,9 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       if (
         (line.tur === "kismi" || line.tur === "son")
         && machineRef.current.phase === "talking"
-        && yankiMi(line.metin, machineRef.current.transcript)
+        && (yankiMi(line.metin, machineRef.current.transcript)
+          || (askRef.current !== null
+            && cevapYankisiMi(line.metin, `${machineRef.current.transcript ?? ""} ${askRef.current.metin}`)))
       ) {
         return;
       }

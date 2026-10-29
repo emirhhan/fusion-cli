@@ -25,6 +25,8 @@ async function startTalk() {
 
 const ASK: VoiceAsk = {
   acik: true,
+  sessionId: "offline",
+  questionId: "q1",
   arac: "write_file",
   metin: "Dosya yazılsın mı?",
   secenekler: [
@@ -846,4 +848,56 @@ it("sohbet açıkken salt ses veya hmm asistanı kesmez", async()=>{
  expect(fake.runtime.interruptSpeech).not.toHaveBeenCalled();
  act(()=>fake.recognition({tur:"kismi",metin:"bir dakika",segment:2}));
  await waitFor(()=>expect(fake.runtime.interruptSpeech).toHaveBeenCalledOnce());
+});
+
+describe("VoiceWindow — sesli onay güvenliği (WP14 madde 2)", () => {
+  async function openAsk(fake: ReturnType<typeof fakeRuntime>, ask: VoiceAsk = ASK) {
+    render(<VoiceWindow continuous wakeEnabled={false} runtime={fake.runtime} />);
+    await startTalk();
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+    act(() => fake.ask(ask));
+    await screen.findByRole("group", { name: "Onay" });
+  }
+
+  it("Fusion soruyu okurken mikrofona sızan tek kelimelik 'evet' onay sayılmaz", async () => {
+    const fake = fakeRuntime();
+    await openAsk(fake);
+    act(() => fake.runtimeState({ durum: "talking", metin: "Dosya yazılsın mı? Evet ya da hayır de." }));
+    await screen.findByText("Konuşuyorum");
+    act(() => fake.recognition({ tur: "ses-basladi", metin: "", guven: null, speech_ms: 80 }));
+    act(() => fake.recognition({ tur: "kismi", metin: "evet", guven: 0.9, speech_ms: 300 }));
+    act(() => fake.recognition({ tur: "son", metin: "evet", guven: 0.9, speech_ms: 300 }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fake.runtime.answerAsk).not.toHaveBeenCalled();
+    expect(fake.runtime.interruptSpeech).not.toHaveBeenCalled();
+  });
+
+  it("Fusion konuşurken, okunan metinde geçmeyen cevap kullanıcıdan sayılır", async () => {
+    const fake = fakeRuntime();
+    await openAsk(fake);
+    act(() => fake.runtimeState({ durum: "talking", metin: "Dosya yazılsın mı?" }));
+    await screen.findByText("Konuşuyorum");
+    act(() => fake.recognition({ tur: "kismi", metin: "onayla", guven: 0.9, speech_ms: 300 }));
+    await waitFor(() => expect(fake.runtime.interruptSpeech).toHaveBeenCalled());
+  });
+
+  it("kimliksiz soru sesle onaylanmaz ve kullanıcıya söylenir", async () => {
+    const fake = fakeRuntime();
+    await openAsk(fake, { ...ASK, sessionId: undefined, questionId: undefined });
+    act(() => fake.recognition({ tur: "son", metin: "onayla", guven: 0.9, speech_ms: 300 }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(fake.runtime.answerAsk).not.toHaveBeenCalled();
+  });
+
+  it("süresi geçmiş soru sesle onaylanmaz", async () => {
+    const fake = fakeRuntime();
+    const now = vi.spyOn(Date, "now");
+    now.mockReturnValue(1_000_000);
+    await openAsk(fake);
+    now.mockReturnValue(1_000_000 + 10 * 60_000);
+    act(() => fake.recognition({ tur: "son", metin: "onayla", guven: 0.9, speech_ms: 300 }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(fake.runtime.answerAsk).not.toHaveBeenCalled();
+    now.mockRestore();
+  });
 });
