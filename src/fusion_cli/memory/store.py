@@ -43,8 +43,18 @@ _LOCK_POLL_S = 0.05
 #: kilit altında bile çağrı ChromaDB'nin Rust/sqlx iş parçacıklarında süresiz bekledi.
 #: Normal sorgu/ekleme yerelde <1 sn; gömme modeli ilk yüklenirken birkaç sn.
 CALL_TIMEOUT_S = 30.0
-#: Bu süreçte takıldığı görülen depolar: bir daha denenmez (iş parçacığı birikmesin).
-_disabled: set[Path] = set()
+#: Yazma çağrılarının (add/update/upsert) üst sınırı. Yazma, gömme modelini çalıştırır:
+#: ilk kullanımda ONNX modeli indirilir (ağ) ve 200'lük toplu `add` CPU'da kolayca
+#: 30 sn'yi aşar. Ölçüldü (29 Ekim): okuma sınırı yazmaya da uygulanınca yavaş tek bir
+#: `reindex` partisi ders/performans belleğini de kapatıyordu (M1-30).
+WRITE_CALL_TIMEOUT_S = 180.0
+#: Çağrısı takılan KOLEKSİYONUN yeniden denenmeden önce kapalı kalacağı süre. Dizin
+#: değil koleksiyon bazlıdır: kod indeksi takılınca ders belleği çalışmaya devam eder.
+DISABLE_COOLDOWN_S = 300.0
+#: Yazma yöntemleri: başarı bayrağı (`bool`) döndürür, çağıran yalan "eklendi" demesin.
+_WRITE_METHODS = frozenset({"add", "update", "upsert", "delete"})
+#: Bu süreçte takıldığı görülen koleksiyonlar → yeniden deneme zamanı (`time.monotonic`).
+_disabled: dict[tuple[Path, str], float] = {}
 _LOCK_FILE = ".fusion-chroma.lock"
 _logger = logging.getLogger(__name__)
 
@@ -163,23 +173,32 @@ _EMPTY_RESULTS: dict[str, Callable[[], object]] = {
 class GuardedCollection:
     """ChromaDB koleksiyonu; her çağrı süreçler arası kilit altında çalışır.
 
-    Kilit süresinde alınamazsa çağrı YAPILMAZ: okuma boş sonuç, yazma hiçbir şey
-    döner ve uyarı loglanır. Bellek bir iyileştirmedir; turu dondurmamalıdır.
+    Kilit süresinde alınamazsa çağrı YAPILMAZ: okuma boş sonuç döner, uyarı loglanır.
+    Bellek bir iyileştirmedir; turu dondurmamalıdır ve düşürmemelidir.
+
+    Yazma yöntemleri (`add`, `update`, `upsert`, `delete`) BAŞARI BAYRAĞI döndürür:
+    yazılamadıysa (kilit, zaman aşımı, Chroma hatası) `False`. Ölçüldü (29 Ekim):
+    önceden sessizce `None` dönüyordu; `reindex` ve ders `add` yazılmamış kaydı
+    "eklendi" sayıyordu (M1-31). Chroma'nın kendi istisnaları (boyut uyuşmazlığı,
+    sqlite, ONNX indirme) da burada yakalanır ve loglanır (M1-32).
     """
 
     def __init__(self, collection: Any, directory: Path) -> None:
         self._collection = collection
         self._directory = directory
+        self._key = (directory, str(getattr(collection, "name", "") or ""))
 
     def __getattr__(self, name: str) -> Any:
         hedef = getattr(self._collection, name)
         if not callable(hedef):
             return hedef
+        yazma = name in _WRITE_METHODS
 
         def _kilitli(*args: Any, **kwargs: Any) -> Any:
             bos = _EMPTY_RESULTS.get(name)
-            if self._directory in _disabled:
-                return bos() if bos is not None else None
+            basarisiz: Any = False if yazma else (bos() if bos is not None else None)
+            if self._is_disabled():
+                return basarisiz
 
             def _calistir() -> tuple[bool, Any]:
                 with process_lock(self._directory, PROCESS_LOCK_TIMEOUT_S) as alindi:
@@ -187,24 +206,45 @@ class GuardedCollection:
 
             havuz = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fusion-memory-call")
             gelecek = havuz.submit(_calistir)
+            sinir = WRITE_CALL_TIMEOUT_S if yazma else CALL_TIMEOUT_S
             try:
-                tamam, sonuc = gelecek.result(timeout=CALL_TIMEOUT_S)
+                tamam, sonuc = gelecek.result(timeout=sinir)
             except FutureTimeoutError:
-                # Çağrı ChromaDB'nin içinde takıldı: beklemeyi bırak, bu süreçte bu depoyu
-                # kapat ki takılan iş parçacıkları birikmesin.
-                _disabled.add(self._directory)
+                # Çağrı ChromaDB'nin içinde takıldı: beklemeyi bırak, bu koleksiyonu bir
+                # süre kapat ki takılan iş parçacıkları birikmesin; süre dolunca yeniden dene.
+                _disabled[self._key] = time.monotonic() + DISABLE_COOLDOWN_S
                 tamam, sonuc = False, None
                 _logger.warning(
-                    "bellek çağrısı süre aştı; bu süreçte bellek kapatıldı",
-                    extra={"islem": name, "dizin": str(self._directory)},
+                    "bellek çağrısı süre aştı; koleksiyon geçici olarak kapatıldı",
+                    extra={"islem": name, "koleksiyon": self._key[1], "sn": DISABLE_COOLDOWN_S},
+                )
+            except Exception as exc:  # noqa: BLE001 — bellek turu düşürmez; sınır katmanı, loglanır
+                tamam, sonuc = False, None
+                _logger.warning(
+                    "bellek çağrısı başarısız; çağrı atlandı",
+                    extra={
+                        "islem": name,
+                        "koleksiyon": self._key[1],
+                        "hata": f"{type(exc).__name__}: {str(exc)[:200]}",
+                    },
                 )
             finally:
                 havuz.shutdown(wait=False)
-            if tamam:
-                return sonuc
-            return bos() if bos is not None else None
+            if not tamam:
+                return basarisiz
+            return True if yazma else sonuc
 
         return _kilitli
+
+    def _is_disabled(self) -> bool:
+        """Koleksiyon geçici kapalı mı? Bekleme süresi dolduysa kapanış kalkar."""
+        deadline = _disabled.get(self._key)
+        if deadline is None:
+            return False
+        if time.monotonic() >= deadline:
+            _disabled.pop(self._key, None)
+            return False
+        return True
 
 
 def get_collection(directory: Path, name: str, *, embedding_function: Any = None) -> Any:

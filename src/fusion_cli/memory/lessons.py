@@ -62,12 +62,14 @@ class ChromaLessonMemory:
         with _write_lock:
             if self._exists(text):
                 return False
-            self._collection.add(
-                ids=[uuid.uuid4().hex],
-                documents=[_embed_source(lesson)],
-                metadatas=[_to_metadata(lesson, self._clock.now())],
+            # Yazılamadıysa (kilit, zaman aşımı, Chroma hatası) "eklendi" denmez (M1-31).
+            return bool(
+                self._collection.add(
+                    ids=[uuid.uuid4().hex],
+                    documents=[_embed_source(lesson)],
+                    metadatas=[_to_metadata(lesson, self._clock.now())],
+                )
             )
-            return True
 
     def recall(
         self,
@@ -137,12 +139,12 @@ class ChromaLessonMemory:
                 if mevcut.text.strip().lower() not in wanted:
                     continue
                 lesson = reinforced(mevcut, success=success)
-                self._collection.update(
+                yazildi = self._collection.update(
                     ids=[row_id],
                     documents=[document],
                     metadatas=[_to_metadata(lesson, self._clock.now())],
                 )
-                updated += 1
+                updated += 1 if yazildi else 0
             return updated
 
     def retag_from_workspace(self) -> int:
@@ -174,12 +176,12 @@ class ChromaLessonMemory:
                 etiketler = project_kinds(kok)
                 if not etiketler:
                     continue
-                self._collection.update(
+                yazildi = self._collection.update(
                     ids=[row_id],
                     documents=[document],
                     metadatas=[_to_metadata(replace(lesson, tags=etiketler), self._clock.now())],
                 )
-                updated += 1
+                updated += 1 if yazildi else 0
             return updated
 
     def forget(self, texts: tuple[str, ...]) -> int:
@@ -199,8 +201,7 @@ class ChromaLessonMemory:
             ]
             if not silinecek:
                 return 0
-            self._collection.delete(ids=silinecek)
-            return len(silinecek)
+            return len(silinecek) if self._collection.delete(ids=silinecek) else 0
 
     def all(self) -> tuple[Lesson, ...]:
         rows = self._collection.get()

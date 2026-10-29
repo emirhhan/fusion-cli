@@ -83,10 +83,10 @@ class ChromaPerformanceMemory:
         updated = dict(metadatas[newest])
         updated["score"] = _clamp(float(updated["score"]) + feedback.delta)
         updated["feedback"] = feedback.value
-        self._collection.update(
+        yazildi = self._collection.update(
             ids=[ids[newest]], documents=[documents[newest]], metadatas=[updated]
         )
-        return 1
+        return 1 if yazildi else 0
 
     def stats(self) -> tuple[ModelStats, ...]:
         metadatas = self._collection.get().get("metadatas") or []

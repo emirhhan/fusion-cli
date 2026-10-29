@@ -79,25 +79,38 @@ class ChromaCodeIndex:
         stale = list(existing - current)
         fresh = [chunk for chunk in chunks if chunk.id not in existing]
 
-        if stale:
-            self._collection.delete(ids=stale)
+        # Yalnız GERÇEKTEN yazılan partiler/silmeler sayılır; yazılamayan parti
+        # `failed`e girer ve sonuç özeti bunu söyler (M1-31).
+        removed = len(stale) if stale and self._collection.delete(ids=stale) else 0
+        added = 0
+        failed = 0
         for start in range(0, len(fresh), EMBED_BATCH):
-            self._add(fresh[start : start + EMBED_BATCH])
+            batch = fresh[start : start + EMBED_BATCH]
+            if self._add(batch):
+                added += len(batch)
+            else:
+                failed += len(batch)
 
         return IndexStats(
-            total=len(chunks), added=len(fresh), removed=len(stale), truncated=truncated
+            total=len(chunks),
+            added=added,
+            removed=removed,
+            truncated=truncated,
+            failed=failed + (len(stale) - removed),
         )
 
-    def _add(self, batch: list[Chunk]) -> None:
+    def _add(self, batch: list[Chunk]) -> bool:
         if not batch:
-            return
-        self._collection.add(
-            ids=[chunk.id for chunk in batch],
-            documents=[chunk.text for chunk in batch],
-            metadatas=[
-                {"path": chunk.path, "start": chunk.start_line, "end": chunk.end_line}
-                for chunk in batch
-            ],
+            return True
+        return bool(
+            self._collection.add(
+                ids=[chunk.id for chunk in batch],
+                documents=[chunk.text for chunk in batch],
+                metadatas=[
+                    {"path": chunk.path, "start": chunk.start_line, "end": chunk.end_line}
+                    for chunk in batch
+                ],
+            )
         )
 
 

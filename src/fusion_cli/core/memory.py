@@ -145,10 +145,13 @@ class IndexStats:
     removed: int
     #: Parça tavanına takıldı: sonraki dosyalar indekste YOK, arama onları bulamaz.
     truncated: bool = False
+    #: Yazılamayan parça sayısı (bellek kilidi, zaman aşımı ya da depo hatası). 0 değilse
+    #: indeks EKSİKTİR; `added`/`removed` yalnız gerçekten yazılanları sayar.
+    failed: int = 0
 
     @property
     def unchanged(self) -> int:
-        return self.total - self.added
+        return max(self.total - self.added - self.failed, 0)
 
 
 class PerformanceMemory(Protocol):

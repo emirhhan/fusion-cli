@@ -194,11 +194,22 @@ MEMORY_REINDEX_TRUNCATED = (
 )
 
 
+MEMORY_REINDEX_FAILED = (
+    " {failed} parça YAZILAMADI (bellek kilidi, zaman aşımı ya da depo hatası): indeks eksik; "
+    "birkaç dakika sonra /reindex ile yeniden dene."
+)
+
+
 def reindex_summary(stats: IndexStats) -> str:
-    """İndeksleme sonucunun tek cümlelik özeti; kısmi indeks açıkça söylenir."""
+    """İndeksleme sonucunun tek cümlelik özeti; kısmi/eksik indeks açıkça söylenir."""
     summary = MEMORY_REINDEXED.format(
-        total=stats.total, added=stats.added, removed=stats.removed, unchanged=stats.unchanged
+        total=stats.total,
+        added=stats.added,
+        removed=stats.removed,
+        unchanged=stats.unchanged,
     )
+    if stats.failed:
+        summary += MEMORY_REINDEX_FAILED.format(failed=stats.failed)
     return summary + MEMORY_REINDEX_TRUNCATED if stats.truncated else summary
 
 
