@@ -716,3 +716,34 @@ it("RPC kanıtını tek correlated final mesajına bağlar", async () => {
   act(() => fake.emitResult("varsayilan", request.id, {ok: false, metin: "Kısmi", kanit}));
   expect(result.current.activeSession!.messages.filter((message) => message.rol === "asistan")).toHaveLength(1);
 });
+
+// U4-04 — Ölçüldü (29 Ekim): makbuz kabul edilmezse tur boyunca bütün olaylar sessizce düşüyor,
+// kullanıcı turu donmuş sanıyordu.
+describe("Makbuzsuz tur olayları", () => {
+  async function turBaslat() {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+    act(() => { result.current.send("varsayilan", "iş"); });
+    await waitFor(() => expect(fake.sent.length).toBeGreaterThan(0));
+    const gonderimId = String(JSON.parse(fake.sent[0].line).veri.gonderim_id);
+    const olay = (veri: Record<string, unknown>) => act(() => fake.emitLine({
+      oturum_id: "varsayilan", satir: JSON.stringify({tip: "olay", veri})}));
+    return {fake, result, gonderimId, olay};
+  }
+
+  it("bilinmeyen durumlu makbuz uyarı üretir, sonraki tur olayları yine gösterilir", async () => {
+    const {result, gonderimId, olay} = await turBaslat();
+    olay({olay: "GonderimMakbuzu", gonderim_id: gonderimId, oturum_id: "varsayilan", tur_id: `${gonderimId}:1`, durum: "gelecek_durum"});
+    expect(result.current.activeSession?.messages.some((m) => m.hata && m.metin.includes("makbuzu doğrulanamadı"))).toBe(true);
+    olay({olay: "TokenReceived", text: "merhaba dünya", event_id: `${gonderimId}:1:1`, session_id: "varsayilan",
+      turn_id: `${gonderimId}:1`, schema_version: 1});
+    expect(result.current.activeSession?.messages.some((m) => m.metin.includes("merhaba dünya"))).toBe(true);
+  });
+
+  it("eski isteğin makbuzu uyarı üretmez", async () => {
+    const {result, olay} = await turBaslat();
+    olay({olay: "GonderimMakbuzu", gonderim_id: "eski-istek", oturum_id: "varsayilan", tur_id: "eski-istek:1", durum: "completed"});
+    expect(result.current.activeSession?.messages.some((m) => m.metin?.includes("makbuzu doğrulanamadı"))).toBe(false);
+  });
+});

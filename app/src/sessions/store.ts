@@ -1,3 +1,4 @@
+import { isOwnTurnId } from "./submission";
 import { closeUnfinishedAgents } from "../team/ekipOlaylari";
 import { migrateMessageIds } from "./messageIdentity";
 import type { ProtocolClient } from "../protocol/client";
@@ -135,7 +136,15 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       if (typeof sessionId === "string" && sessionId !== action.id) return state;
       const receipt = action.event.olay === "GonderimMakbuzu";
       if (receipt && (action.event.gonderim_id !== current.requestId || (current.expectedTurnId && turnId !== current.expectedTurnId))) return state;
-      if (turnId && !receipt && current.requestId && (!current.turnId || turnId !== current.turnId)) return state;
+      // turnId makbuzdan öğrenilir; makbuz kabul edilmezse/gelmezse bu isteğin kendi
+      // `<gonderim_id>:<n>` biçimli ilk olayı da öğretir (çekirdek turu böyle adlandırır,
+      // bkz. `memory/submission_store.py`). Başka isteğin ya da beklenen attempt dışındaki
+      // olay düşer. Ölçüldü (29 Ekim): eskiden tur boyunca BÜTÜN olaylar düşüyordu.
+      if (turnId && !receipt && current.requestId) {
+        const learnable = !current.turnId && isOwnTurnId(current.requestId, turnId)
+          && (!current.expectedTurnId || turnId === current.expectedTurnId);
+        if (!learnable && turnId !== current.turnId) return state;
+      }
       if (turnId && current.turnId && turnId !== current.turnId) return state;
       const suffix = eventId?.split(":").slice(-1)[0];
       const sequence = action.event.schema_version === 1 && turnId && suffix && /^\d+$/.test(suffix) ? Number(suffix) : undefined;

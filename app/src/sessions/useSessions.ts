@@ -1,7 +1,7 @@
 import { historyMessages } from "./history";
 import { deleteSubmissions, moveSubmissions, loadSubmissions, saveSubmission, updateSubmission } from "./submissionPersistence";
 import { decodeDeliveryEvidence } from "../protocol/deliveryEvidence";
-import { normalizeSubmissionReceipt, type SubmissionReceipt } from "./submission";
+import { nextAttemptTurnId, normalizeSubmissionReceipt, type SubmissionReceipt } from "./submission";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -165,9 +165,16 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       client.onEvent((event) => {
         if (event.olay === "GonderimMakbuzu" && typeof event.gonderim_id === "string") {
           const normalized = normalizeSubmissionReceipt(event);
-          if (!normalized || normalized.sessionId !== id || attempts.current.get(id) !== normalized.requestId) return;
+          // Geçerli isteğin makbuzu kabul edilemezse sessiz kalma: tur sürüyor olabilir
+          // ve olayları makbuzsuz da gelir (bkz. store.ts). Eski isteğin makbuzu sessiz düşer.
+          const current = attempts.current.get(id) === event.gonderim_id;
           const expectedTurn = expectedTurns.current.get(id);
-          if (expectedTurn && normalized.turnId !== expectedTurn) return;
+          if (!normalized || normalized.sessionId !== id || attempts.current.get(id) !== normalized.requestId
+            || (expectedTurn && normalized.turnId !== expectedTurn)) {
+            if (current) dispatch({type: "messageAdded", id, message: {rol: "asistan", hata: true,
+              metin: "Gönderim makbuzu doğrulanamadı; tur çalışıyor olabilir, akış olayları gelmeye devam ederse gösterilir."}});
+            return;
+          }
           admissions.current.get(event.gonderim_id)?.({ requestId: event.gonderim_id, sessionId: id,
             turnId: typeof event.tur_id === "string" ? event.tur_id : null,
             state: String(event.durum), error: typeof event.hata_kodu === "string" ? event.hata_kodu : null });
@@ -524,7 +531,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     let expectedTurnId: string | undefined;
     try {
       const previous = loadSubmissions(id).find((entry) => entry.requestId === requestId)?.turnId;
-      if (isRetry && previous) expectedTurnId = `${requestId}:${Number(previous.split(":").slice(-1)[0]) + 1}`;
+      if (isRetry) expectedTurnId = nextAttemptTurnId(requestId, previous);
     } catch { /* Gönderim snapshot'ı send sınırında doğrulandı. */ }
     if (expectedTurnId) expectedTurns.current.set(id, expectedTurnId);
     else expectedTurns.current.delete(id);

@@ -108,3 +108,28 @@ it.each([undefined, "yeni:2"])("ilk makbuz öncesi eski token/final yeni attempt
   expect(current.sessions.bir.turnId).toBe(expectedTurnId ?? "yeni:1");
   expect(current.sessions.bir.eventSequence).toBeUndefined();
 });
+
+// U4-04 — Ölçüldü (29 Ekim): makbuz kabul edilmezse (bilinmeyen durum, eşleşmeyen tur, hiç
+// gelmeyen makbuz) turnId hiç öğrenilmiyor ve o turun BÜTÜN olayları sessizce düşüyordu.
+describe("makbuzsuz tur", () => {
+  const start = (expectedTurnId?: string) =>
+    sessionReducer(session(), { type: "submissionStarted", id: "bir", requestId: "yeni", expectedTurnId });
+  const olay = (turn_id: string) => ({ ...token, turn_id, event_id: `${turn_id}:1`, session_id: "bir" });
+
+  it("makbuz gelmese de bu isteğin ilk turn_id'li olayı turnId'yi öğretir ve gösterilir", () => {
+    const next = sessionReducer(start(), { type: "eventReceived", id: "bir", event: olay("yeni:1") });
+    expect(next.sessions.bir.turnId).toBe("yeni:1");
+    expect(next.sessions.bir.messages.some((m) => m.metin === "merhaba")).toBe(true);
+  });
+  it("başka isteğin ya da sayısal olmayan sonekli turu öğretmez", () => {
+    const current = start();
+    for (const turn of ["eski:1", "yeni:x", "yeni2:1", "yeni:"]) {
+      expect(sessionReducer(current, { type: "eventReceived", id: "bir", event: olay(turn) })).toBe(current);
+    }
+  });
+  it("beklenen attempt farklıysa öğrenmez", () => {
+    const current = start("yeni:2");
+    expect(sessionReducer(current, { type: "eventReceived", id: "bir", event: olay("yeni:1") })).toBe(current);
+    expect(sessionReducer(current, { type: "eventReceived", id: "bir", event: olay("yeni:2") }).sessions.bir.turnId).toBe("yeni:2");
+  });
+});
