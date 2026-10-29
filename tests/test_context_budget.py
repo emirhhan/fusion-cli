@@ -19,7 +19,9 @@ def test_bilinen_dar_modelin_esigi_duser(tmp_path, monkeypatch) -> None:
     )
 
     assert budget.window_tokens == 32_000
-    assert budget.compression_chars == 29_712
+    # 32.000 - min(8.192 + 10.000, 16.000) = 16.000 kullanılabilir; yarısı × 3 karakter.
+    # Sistem+araç payı 4.000'den 10.000'e çıktı (ölçüm: A1-04, 29 Ekim).
+    assert budget.compression_chars == 24_000
 
 
 def test_bilinmeyen_modelin_penceresi_uydurulmaz(tmp_path, monkeypatch) -> None:

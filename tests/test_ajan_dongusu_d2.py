@@ -521,3 +521,76 @@ def test_sikistirma_izinde_mesaj_payi_mesaj_sayisina_gore_olceklenir():
 
     assert compaction.trace_message_chars(az) > compaction.trace_message_chars(cok)
     assert compaction.trace_message_chars(cok) >= 300
+
+
+# --- A1-04: bağlam penceresi hatasından eşik öğrenilir ---------------------- #
+
+
+def test_baglam_tasmasi_hatasi_taniniir_ve_pencere_hatadan_okunur():
+    from fusion_cli.engines.agent.context_budget import (
+        chars_for_window,
+        is_context_overflow,
+        learned_threshold_chars,
+    )
+
+    hata = "ContextWindowExceededError: maximum context length is 8192 tokens, you requested 12000"
+
+    assert is_context_overflow(hata)
+    assert not is_context_overflow("rate limit exceeded")
+    ogrenilen = learned_threshold_chars(hata, history_chars=120_000)
+    assert ogrenilen == max(4_000, chars_for_window(8_192))
+    assert ogrenilen < 120_000
+
+
+def test_pencere_hatada_yoksa_gecmisin_yarisi_alinir():
+    from fusion_cli.engines.agent.context_budget import learned_threshold_chars
+
+    assert learned_threshold_chars("prompt is too long", history_chars=100_000) == 50_000
+
+
+def test_sistem_ve_arac_payi_olculen_sema_boyutunu_karsilar():
+    """Ölçüldü (29 Ekim): 48 yerleşik araç şeması 17.221 karakter + ~10 bin karakter
+    sistem istemi ≈ 9 bin token; eski 4.000 token payı bunun yarısından azdı."""
+    import json
+
+    from fusion_cli.engines.agent.context_budget import SYSTEM_AND_TOOLS_RESERVE_TOKENS
+    from fusion_cli.tools import build_registry
+
+    sema_token = len(json.dumps(build_registry().schemas(), ensure_ascii=False)) // 3
+    assert sema_token + 3_000 <= SYSTEM_AND_TOOLS_RESERVE_TOKENS
+
+
+async def test_baglam_tasmasi_esigi_kucultur_gecmisi_sikistirir_ve_yeniden_dener(
+    monkeypatch, tmp_path, sink
+):
+    from fusion_cli.core.types import Message
+    from fusion_cli.engines.agent import compaction
+
+    async def ozetle(trace, config, publisher):
+        return "özet"
+
+    monkeypatch.setattr(compaction, "_summarize", ozetle)
+    gecmis = [Message("system", "kimlik"), Message("user", "ilk görev")]
+    for index in range(30):
+        gecmis += [Message("user", f"adım {index}"), Message("assistant", "d" * 2_000)]
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    "",
+                    ok=False,
+                    error="ContextWindowExceededError: maximum context length is 8192 tokens",
+                ),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink)
+
+    sonuc = await run_agent("devam et", deps, history=gecmis)
+
+    assert sonuc.ok
+    assert deps.learned_compression_chars is not None
+    assert deps.learned_compression_chars < 100_000
+    assert deps.condensations >= 1

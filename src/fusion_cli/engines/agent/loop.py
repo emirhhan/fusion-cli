@@ -397,6 +397,9 @@ class AgentDeps:
     channel: Channel = Channel.MAIN
     #: Bu turda kaç kez bağlam özetlendi; plan yürütücüsü checkpoint'e taşır.
     condensations: int = 0
+    #: Sağlayıcının "bağlam penceresi aşıldı" hatasından öğrenilen sıkıştırma eşiği
+    #: (karakter). Yapılandırılmış eşikten küçükse o kullanılır (A1-04).
+    learned_compression_chars: int | None = None
     #: Kullanıcının koşan işe ilettiği yönergeler; her alt turdan önce boşaltılır.
     questions: PendingUserQuestions = field(default_factory=PendingUserQuestions)
     child_runs: ChildRuns = field(default_factory=ChildRuns)
@@ -1149,6 +1152,8 @@ class _State:
     answer_before_nudge: str = ""
     #: Sıkıştırmaya rağmen bağlamın eşikte kaldığı ardışık çağrı sayısı.
     compaction_thrash: int = 0
+    #: Bu turda bağlam taşması hatasından kaç kez eşik öğrenildi?
+    overflow_relearns: int = 0
     #: Turda "ilerleme yok" uyarısı verildi mi? Böyle turdan ders çıkarılmaz.
     stalled: bool = False
     #: (araç, sonuç özeti) → farklı argümanlarla aynı sonucu kaç kez verdi.
@@ -1348,6 +1353,29 @@ async def _drive(
                 state,
                 ok=False,
             )
+        if (
+            not result.ok
+            and state.overflow_relearns < MAX_OVERFLOW_RELEARNS
+            and _is_context_overflow(result.error)
+        ):
+            # Pencere bilinmeyen modelde sıkıştırma hiç tetiklenmeden 400 geliyordu.
+            # Hata penceresini söylüyorsa ondan, söylemiyorsa geçmişin yarısından
+            # öğrenilir; eşik küçülür, geçmiş sıkıştırılır ve çağrı yeniden denenir.
+            from .context_budget import learned_threshold_chars
+
+            state.overflow_relearns += 1
+            learned = learned_threshold_chars(result.error, total_chars(messages))
+            deps.learned_compression_chars = (
+                learned
+                if deps.learned_compression_chars is None
+                else min(deps.learned_compression_chars, learned)
+            )
+            deps.publisher.publish(
+                StatusChanged(
+                    "Model bağlam sınırını aştı; geçmiş daha sıkı özetlenip çağrı yeniden deneniyor"
+                )
+            )
+            continue
         if not result.ok:
             failed = _outcome(_model_failure_message(result.error), messages, state, ok=False)
             failed.model_error = result.error
@@ -3728,6 +3756,20 @@ def _verification_correction_deps(deps: AgentDeps) -> AgentDeps:
 # döngüye girmez. Üç, geçici bir büyük okumayı (sonraki turda temizlenir) tolere
 # eder ama kalıcı taşmayı sonsuz özet döngüsüne çevirmez.
 MAX_COMPACTION_THRASH = 3
+#: Bir turda bağlam taşması hatasından en fazla kaç kez eşik öğrenilip yeniden denenir.
+MAX_OVERFLOW_RELEARNS = 2
+
+
+def _effective_threshold(configured: int, deps: AgentDeps) -> int:
+    """Yapılandırılmış eşik ile hatadan öğrenilen eşiğin küçüğü."""
+    learned = deps.learned_compression_chars
+    return configured if learned is None else min(configured, learned)
+
+
+def _is_context_overflow(error: str | None) -> bool:
+    from .context_budget import is_context_overflow
+
+    return is_context_overflow(error)
 
 
 async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: _State) -> bool:
@@ -3739,7 +3781,7 @@ async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: 
     selected = select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements)
     from .context_budget import context_budget
 
-    threshold = context_budget(deps.config, selected).compression_chars
+    threshold = _effective_threshold(context_budget(deps.config, selected).compression_chars, deps)
     if not needs_compression(messages, threshold_chars=threshold):
         state.compaction_thrash = 0
         return True
@@ -3764,7 +3806,7 @@ async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Mess
     selected = select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements)
     from .context_budget import context_budget
 
-    threshold = context_budget(deps.config, selected).compression_chars
+    threshold = _effective_threshold(context_budget(deps.config, selected).compression_chars, deps)
     compressed = await compaction.compress(
         messages, config=deps.config, publisher=deps.publisher, threshold_chars=threshold
     )
