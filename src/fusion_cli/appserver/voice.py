@@ -605,6 +605,21 @@ def stop(turn_id: object = None) -> dict[str, Any]:
     return {"ok": True, "durduruldu": bool(targets), "tur_id": identifier}
 
 
+def _player_available(system: str, *, ema: bool) -> bool:
+    """Seçili yolun çalıcısı gerçekten var mı? Hedefe ulaşmayan adaptör hazır sayılmaz.
+
+    Ölçüldü (29 Ekim): `status()` yalnız platform adına bakıyordu; `say`/`afplay`/`powershell`
+    yokken ya da Linux'ta EMA kuruluyken (çalıcı powershell'dir) "kullanilabilir" True dönüyor,
+    kullanıcı ilk konuşmada hata alıyordu. Yedek yol (bas-konuş) bu durumda açık kalır.
+    """
+    name = system.casefold()
+    if name == "darwin":
+        return shutil.which("afplay" if ema else "say") is not None
+    if name == "windows":
+        return shutil.which("powershell") is not None
+    return False
+
+
 def status() -> dict[str, Any]:
     """`ses.durum`: hangi motor, hangi ses ve gerçekten uygulanabilir bir öneri var mı?
 
@@ -616,7 +631,7 @@ def status() -> dict[str, Any]:
     system_voice = best_voice(records)
     ayar = load_settings()
     ema_available = ema_ready()
-    supported = ema_available or platform.system().casefold() in ("darwin", "windows")
+    supported = _player_available(platform.system(), ema=ema_available)
 
     if ema_available:
         # EMA devredeyken sistem sesi önerisi anlamsızdır.

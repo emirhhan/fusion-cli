@@ -142,3 +142,28 @@ def test_discard_yavas_olmayan_yolda_hizli(tmp_path):
     started = time.monotonic()
     store.discard(token)
     assert time.monotonic() - started < 0.5
+
+
+@pytest.mark.parametrize(
+    ("system", "ema", "present", "expected"),
+    [
+        ("Darwin", False, {"say"}, True),
+        ("Darwin", False, set(), False),
+        ("Darwin", True, {"afplay"}, True),
+        ("Darwin", True, {"say"}, False),
+        ("Windows", True, {"powershell"}, True),
+        ("Windows", True, set(), False),
+        ("Linux", True, {"powershell", "afplay", "say"}, False),
+    ],
+)
+def test_oynatici_yoksa_ses_hazir_gosterilmez(monkeypatch, system, ema, present, expected):
+    """Ölçüldü (29 Ekim): `status()` yalnız platform adına bakıyordu; `say`/`afplay`/`powershell`
+    yokken (ya da Linux'ta EMA varken, oynatıcı powershell'dir) 'kullanilabilir' True dönüyordu."""
+    monkeypatch.setattr(voice.platform, "system", lambda: system)
+    monkeypatch.setattr(voice, "ema_ready", lambda: ema)
+    monkeypatch.setattr(
+        voice.shutil, "which", lambda name: f"/bin/{name}" if name in present else None
+    )
+    monkeypatch.setattr(voice, "installed_voice_records", lambda: (("Yelda", "tr_TR", "Yelda"),))
+    monkeypatch.setattr(voice, "best_voice", lambda records: "Yelda")
+    assert voice.status()["kullanilabilir"] is expected
