@@ -529,3 +529,33 @@ def test_tunnel_commands_are_dangerous(komut):
 )
 def test_non_tunnel_commands_are_not_flagged_as_tunnel(komut):
     assert danger_reason("run_shell", {"command": komut}) != TUNEL
+
+
+# --- T2-05: uzun seçenekli rm kalıcı silmeyi sessizce geçiremez --------------- #
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "rm --recursive --force dir",
+        "rm --force --recursive dir",
+        "rm --recursive dir",
+        "rm --force -r dir",
+        "rm -v --recursive dir",
+        "rm --force ./*",
+        "rm --no-preserve-root -r /",
+        "rm --no-preserve-root /",
+        "shred -u onemli.db",
+        "unlink onemli.db",
+        "rimraf dist",
+        "npx rimraf dist",
+    ],
+)
+def test_uzun_secenekli_ve_alternatif_silme_yakalanir(komut):
+    """Ölçüldü (29 Ekim): `rm --recursive --force dir` için danger_reason None dönüyordu."""
+    assert is_dangerous("run_shell", {"command": komut}), komut
+
+
+@pytest.mark.parametrize("komut", ["rm --force orders.db", "rm -f orders.db", "rm dosya.txt"])
+def test_tek_dosya_silme_hala_sorulmaz(komut):
+    assert not is_dangerous("run_shell", {"command": komut}), komut

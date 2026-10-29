@@ -156,3 +156,18 @@ def test_kip_adlari_ve_takma_adlar():
     assert parse_mode("bypass") is ApprovalMode.BYPASS
     with pytest.raises(ValueError):
         parse_mode("hepsi")
+
+
+# --- T2-05: satır içi kodla silme otomatik kipte de sorulur -------------------- #
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "perl -e 'unlink glob \"*\"'",
+        "ruby -e 'File.delete(\"a\")'",
+        "ruby -e 'FileUtils.rm_rf(\"x\")'",
+    ],
+)
+def test_satir_ici_kodla_silme_otomatik_kipte_sorulur(tmp_path, komut):
+    assert auto_risk(komut, tmp_path) is not None, komut

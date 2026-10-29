@@ -58,6 +58,13 @@ def _proje(ev: Path, ad: str = "sneaksup-wp") -> Path:
         ("rm -rf */build", None),
         ("rm -rf $HOME/x", None),
         ("rm --no-preserve-root /", None),
+        # T2-05: uzun seçenekler sade sayılır ve çöpe taşınır; kök korumasını kapatan değil.
+        ("rm --recursive --force build", ("build",)),
+        ("rm --force --recursive --verbose a b", ("a", "b")),
+        ("rm -I -r dist", ("dist",)),
+        ("rm --interactive=never -r dist", ("dist",)),
+        ("rm --recursive --no-preserve-root /", None),
+        ("rm --bilinmeyen dist", None),
         ("echo rm -rf x", None),
     ],
 )

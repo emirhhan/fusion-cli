@@ -102,8 +102,9 @@ _SCRIPT_RUNNERS = frozenset(
 _SCRIPT_DELETE = re.compile(
     r"shutil\.(rmtree|move)|os\.(remove|unlink|rmdir|removedirs|rename|replace)\b|"
     r"\.unlink\(|\.rmdir\(|\.(?:rm|rmSync|unlinkSync|rmdirSync|rename|renameSync)\s*\(|"
-    r"\brimraf\b|\brm\s+-[a-zA-Z]*[rRf]|\bfind\b.*-delete|\bunlink\s*\(|\brmdir\s*\(|"
-    r"\bsend2trash\b"
+    r"\brimraf\b|\brm\s+(?:-\S*\s+)*(?:-[a-zA-Z]*[rRf]|--(?:recursive|force))|"
+    r"\bfind\b.*-delete|\bunlink\b|\brmdir\s*\(|\bsend2trash\b|"
+    r"\bFile\.delete\b|\bFileUtils\.rm"
 )
 #: Okunacak en fazla betik boyutu; daha büyüğü denetlenemez, yine sorulur.
 _SCRIPT_MAX_BYTES = 512 * 1024

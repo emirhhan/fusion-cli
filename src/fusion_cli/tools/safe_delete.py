@@ -33,7 +33,7 @@ from ..core.errors import FusionError
 
 #: Kök komutu `rm` olan, özyinelemeli silme içeren ama sade olmayan komutlar.
 _RECURSIVE_DELETE = re.compile(
-    r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR]|\bfind\b.*\s-delete\b|\bfind\b.*-exec\s+rm\b|"
+    r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR]|\brm\b[^;&|\n]*\s--recursive\b|\bfind\b.*\s-delete\b|\bfind\b.*-exec\s+rm\b|"
     r"\bxargs\b.*\brm\b|\brmtree\b|\bgit\s+clean\s+-[a-zA-Z]*[fdx]"
 )
 #: Sade komutta bulunmaması gereken kabuk işleçleri. Joker (`*?[]`) burada YOK:
@@ -42,7 +42,13 @@ _SHELL_META = re.compile(r"[;&|<>`$()\n{}]")
 #: Kabuğun genişleteceği joker karakterleri.
 _GLOB_CHARS = frozenset("*?[")
 #: `rm`'in kabul edilen seçenek harfleri.
-_RM_FLAGS = frozenset("rRfvid")
+_RM_FLAGS = frozenset("rRfvidIx")
+#: `rm`'in kabul edilen uzun seçenekleri (T2-05). `--no-preserve-root` YOK: kök
+#: korumasını kapatan silme sade sayılmaz, çöpe gitmez ve her kipte sorulur.
+_RM_LONG_FLAGS = frozenset(
+    {"--recursive", "--force", "--verbose", "--dir", "--one-file-system", "--preserve-root",
+     "--interactive"}
+)  # fmt: skip
 #: Ev dizini altında hiçbir zaman silinmeyen standart klasörler.
 _PROTECTED_HOME_DIRS = (
     "Desktop", "Documents", "Downloads", "Library", "Pictures", "Movies", "Music",
@@ -88,6 +94,9 @@ def simple_rm_targets(command: str) -> tuple[str, ...] | None:
     for part in parts[1:]:
         if not options_done and part == "--":
             options_done = True
+        elif not options_done and part.startswith("--"):
+            if part.split("=", 1)[0] not in _RM_LONG_FLAGS:
+                return None
         elif not options_done and part.startswith("-") and len(part) > 1:
             if not set(part[1:]) <= _RM_FLAGS:
                 return None

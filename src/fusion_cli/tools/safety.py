@@ -39,6 +39,8 @@ def _dot_path(name: str) -> str:
 _RECURSIVE_DELETE = "özyinelemeli/zorlamalı dosya silme"
 _RECURSIVE_ONLY = "özyinelemeli dosya silme"
 _WILDCARD_DELETE = "joker ile zorlamalı silme"
+_NO_PRESERVE_ROOT = "kök koruması kapatılmış silme (--no-preserve-root)"
+_UNTRASHED_DELETE = "çöpe gitmeyen kalıcı silme"
 
 #: Sade `rm` komutunda görüldüğünde YIKICI sayılmayan gerekçeler: o komut kalıcı
 #: silmez, Fusion çöpüne taşınır (`safe_delete`) ve geri alınabilir.
@@ -53,6 +55,15 @@ DANGER_RULES: tuple[DangerRule, ...] = (
     _rule(r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*f[a-zA-Z]*\s+[^;&|]*[*?]", _RECURSIVE_DELETE),
     _rule(r"\brm\s+-[a-zA-Z]*r", _RECURSIVE_ONLY),
     _rule(r"\brm\s+-[a-zA-Z]*f\s+.*\*", _WILDCARD_DELETE),
+    # Uzun seçenek biçimi (T2-05): `rm --recursive --force dir`, `rm --force -r dir`.
+    # Yukarıdaki desenler tek tireli kümeyle BAŞLAR; ikinci tire onları atlatıyordu
+    # (ölçüldü, 29 Ekim: danger_reason None, simple_rm_targets None → ne onay ne çöp).
+    _rule(r"\brm\b[^;&|\n]*\s(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(?=\s|$)", _RECURSIVE_DELETE),
+    _rule(r"\brm\b[^;&|\n]*\s--force\b[^;&|\n]*[*?]", _RECURSIVE_DELETE),
+    # Bu bayrak sade `rm` sayılmaz (çöpe gitmez): TRASHABLE kümesinde değildir.
+    _rule(r"\brm\b[^;&|\n]*--no-preserve-root\b", _NO_PRESERVE_ROOT),
+    # `rm`'in çöpe taşınan sade biçimini dolanan başka silme araçları.
+    _rule(r"\b(unlink|shred|rimraf)\b", _UNTRASHED_DELETE),
     _rule(r":\(\)\s*\{.*\|.*&\s*\}", "fork bomb"),
     _rule(r"\bmkfs\b", "dosya sistemi biçimlendirme"),
     _rule(r"\bdd\s+if=", "ham disk yazma"),
