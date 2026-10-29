@@ -313,10 +313,10 @@ class ToolContext:
     # kırpılmış okuduysa, gönderdiği "tam içerik" gerçekten tam DEĞİLDİR ve kesme
     # noktasından sonrası sessizce yok olur. Bu küme o kararı ölçülebilir kılar.
     fully_read: set[Path] = field(default_factory=set)
-    #: Artık hiçbir araç okumaz ya da yazmaz. Tek tüketicisi satır aralığı
-    #: düzenlemesiydi (`replace_range`, kaldırıldı); alan yalnız plan motorunun
-    #: adım bağlamı (`plan_runner._step_context`) onu açıkça sıfırladığı için
-    #: duruyor ve o satırla birlikte silinir.
+    #: Tam okunan dosyanın okuma anındaki imzası (`mtime_ns:boyut`). `write_file`,
+    #: okumadan sonra DIŞARIDAN değişmiş dosyanın üzerine yazmayı bununla reddeder;
+    #: agent'ın kendi yazması imzayı tazeler. Adım bağlamları (`replace`) aynı sözlüğü
+    #: paylaşır.
     read_revisions: dict[Path, str] = field(default_factory=dict)
     #: `write_file` çağrısında `path` eksik kaldığında içeriğin saklandığı yer.
     #: `ToolContext` frozen olduğu için taşıyıcı nesne kullanılır (todos ile aynı desen).

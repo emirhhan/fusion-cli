@@ -294,7 +294,36 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         numbered += f"\n\n{_devam_notu(display_path(context, path), son, kalan, kirpildi)}"
     if not kirpildi and offset == 1 and kalan == 0:
         context.fully_read.add(path)
+        _remember_revision(context, path)
     return ToolResult(numbered)
+
+
+def _revision_of(path: Path) -> str | None:
+    """Dosyanın o anki imzası (mtime_ns:boyut); okunamıyorsa None."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return f"{stat.st_mtime_ns}:{stat.st_size}"
+
+
+def _remember_revision(context: ToolContext, path: Path) -> None:
+    """Tam okunmuş dosyanın imzasını sakla (agent'ın kendi yazması da imzayı tazeler)."""
+    if path not in context.fully_read:
+        return
+    revision = _revision_of(path)
+    if revision is not None:
+        context.read_revisions[path] = revision
+
+
+def _read_is_stale(context: ToolContext, path: Path) -> bool:
+    """Dosya, tam okunduktan SONRA dışarıdan değişti mi?
+
+    İmza kaydı yoksa (başka yoldan `fully_read`'e girmiş) doğrulanamaz ve bayat
+    SAYILMAZ; kapı yalnız ölçebildiği değişikliği reddeder.
+    """
+    kayit = context.read_revisions.get(path)
+    return kayit is not None and kayit != _revision_of(path)
 
 
 def _devam_notu(path: str, son: int, kalan: int, kirpildi: bool) -> str:
@@ -341,6 +370,15 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     # (`scaffold_web` dosyayı yazar, doldurma toptan yazmadır, kapı onu bloklar) ve
     # tur ilerleme üretmeden ölür — ölçülen gerçek hata buydu.
     kendi_olusturdu = context.changes.was_created_this_turn(path)
+    if existed and not kendi_olusturdu and _read_is_stale(context, path):
+        # Ölçüldü (29 Ekim): okuma yalnız yol kümesiydi; kullanıcı editörde ya da
+        # `run_shell` (formatter, kod üretici) dosyayı değiştirse de eski okumaya
+        # dayanıp tamamı ezilebiliyor, araya giren değişiklik kayboluyordu.
+        return ToolResult.failure(
+            f"Bu dosya okuduktan sonra değişti: {display_path(context, path)}. Eski "
+            "okumana dayanıp üzerine yazmak araya giren değişikliği siler. Önce "
+            "read_file ile güncel halini TAMAMEN oku; kısmi değişiklik için edit_file kullan."
+        )
     if existed and not kendi_olusturdu and path not in context.fully_read:
         # `read_file` açıklaması zaten "değiştirmeden ÖNCE mutlaka oku" diyor; burada
         # o kural UYGULANIR. Tam içeriğini görmediğin bir dosyayı baştan yazmak,
@@ -367,6 +405,7 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         atomic_write(path, content)
     except OSError as exc:
         return ToolResult.failure(f"Yazılamadı: {display_path(context, path)} ({exc})")
+    _remember_revision(context, path)
     context.touched.add(path)
     shown = display_path(context, path)
     if not existed:
@@ -513,6 +552,7 @@ def _apply_edit(
         return engel
     context.changes.record(path)
     atomic_write(path, updated)
+    _remember_revision(context, path)
     context.touched.add(path)
     shown = display_path(context, path)
     return _change_summary(f"düzenlendi: {shown} ({count} değişiklik)", before, updated, shown)
