@@ -64,6 +64,11 @@ async function deliverPending(
           task_id: receipt.taskId,
         });
       }
+    } catch {
+      // Ölçüldü (29 Ekim): tek teslimin istisnası döngüyü bitiriyor ve hep aynı
+      // kayıt sırada başta kaldığı için arkasındaki teslimleri sonsuza dek
+      // bekletiyordu. Ack'siz kayıt çekirdekte kalır; sonraki yoklamada tekrar
+      // denenir, sıradaki teslim bu turda ilerler.
     } finally {
       inFlight.delete(delivery.occurrence_id);
     }
