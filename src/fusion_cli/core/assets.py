@@ -436,7 +436,8 @@ def _project_text(root: Path) -> str:
         # Yalnız kökten göreli parçalar: üst dizin adları (build, .worktrees,
         # Application Support) projeyi görünmez kılmamalı (C1-04).
         if any(
-            part in SKIP_DIRECTORIES or part.startswith(".") for part in path.relative_to(root).parts
+            part in SKIP_DIRECTORIES or part.startswith(".")
+            for part in path.relative_to(root).parts
         ):
             continue
         try:
