@@ -46,8 +46,12 @@ function secenekler(soru: Soru): Secenek[] {
       reddet: false,
     }));
   }
-  const ilkOlumlu = (soru.secenekler ?? []).find((secenek) => secenek.deger !== "deny")?.deger;
-  return (soru.secenekler ?? []).map((secenek) => ({
+  // Seçenek gelmediyse kart kilitli kalmasın: çekirdeğin bilinen değerleriyle yerleşik çift.
+  const gelen = soru.secenekler?.length
+    ? soru.secenekler
+    : [{ deger: "once", etiket: "İzin ver" }, { deger: "deny", etiket: "Reddet" }];
+  const ilkOlumlu = gelen.find((secenek) => secenek.deger !== "deny")?.deger;
+  return gelen.map((secenek) => ({
     cevap: { secim: secenek.deger },
     etiket: secenek.etiket,
     aciklama: secenek.aciklama,

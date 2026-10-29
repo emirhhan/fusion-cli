@@ -182,4 +182,14 @@ describe("Approval — yazarken beliren kart (WP16 madde 2)", () => {
     expect(onCevap).not.toHaveBeenCalled();
     expect(screen.queryByLabelText("Cevabın")).toBeNull();
   });
+
+  // Ölçüldü (29 Ekim): `tur:"onay"` seçeneksiz gelirse kartta düğme yoktu, Esc de
+  // bir şey yapmıyordu; tur yalnız Durdur ile kurtuluyordu.
+  it("seçeneksiz gelen onay kartı yerleşik İzin ver / Reddet düğmeleri üretir", () => {
+    const onCevap = vi.fn();
+    render(<Approval soru={{ tur: "onay", arac: "run_shell", baslik: "Çalışsın mı?" }} onCevap={onCevap} />);
+    expect(screen.getByRole("button", { name: /İzin ver/ })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(onCevap).toHaveBeenCalledWith({ secim: "deny" });
+  });
 });
