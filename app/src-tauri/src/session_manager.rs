@@ -148,7 +148,9 @@ impl SessionManager {
         }
 
         let launch = session_launch(executable, &root);
-        let mut child = crate::core_process::pencere_acmadan(&mut Command::new(&launch.executable))
+        let mut komut = Command::new(&launch.executable);
+        crate::core_process::kendi_grubunda(&mut komut);
+        let mut child = crate::core_process::pencere_acmadan(&mut komut)
             .args(&launch.args)
             .current_dir(&launch.current_dir)
             .stdin(Stdio::piped())
