@@ -6,6 +6,7 @@ Eski turlar tek bir özet notuna indirilir, son turlar birebir korunur. Özet
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from ...config.models import Config
@@ -27,6 +28,19 @@ SUMMARY_MAX_TOKENS = 2_000
 #: Eskiden 6.000 karakterdi. Eşik 177.000 karaktere çıkınca özetleyici, attığı geçmişin
 #: ancak %3'ünü görüyor olurdu — özet yalnızca gördüğü kadarını temsil eder.
 TRACE_CHARS = 60_000
+#: Özetlenen aralıktan birebir taşınan kullanıcı kurallarının üst sınırı.
+RULES_MAX_CHARS = 2_000
+#: Özete eklenen kural bloğunun başlığı; art arda sıkıştırmada blok yeniden taşınır.
+RULES_HEADER = "[kullanıcının koyduğu kurallar — birebir]"
+
+#: Kullanıcının kalıcı kural koyduğunu gösteren ifadeler (yasak, sınır, süreklilik).
+_RULE_PATTERN = re.compile(
+    r"\b(?:asla|sakın|hiçbir zaman|her zaman|bundan sonra|mutlaka|yasak|izin verme|"
+    r"sadece|yalnızca|yapma|etme|dokunma|değiştirme|silme|kullanma|kurma|yükleme|"
+    r"gönderme|pushlama|commitleme|never|always|only|don't|do not)\b",
+    re.IGNORECASE,
+)
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
 async def compress(
@@ -60,6 +74,7 @@ async def compress(
     summary = await _summarize(trace, config, publisher)
     if not summary:
         return messages
+    summary = _with_user_rules(summary, old)
     return [*anchor, Message("user", f"[önceki konuşmanın özeti]\n{summary}"), *recent]
 
 
@@ -93,8 +108,47 @@ async def compact_in_turn(
     summary = await _summarize(trace, config, publisher)
     if not summary:
         return temiz
+    summary = _with_user_rules(summary, old)
     ozet = Message("user", f"[önceki adımların özeti]\n{summary}", harness_note=True)
     return [*anchor, ozet, *recent]
+
+
+def _with_user_rules(summary: str, old: list[Message]) -> str:
+    """Özetlenen aralıktaki kullanıcı kurallarını özete BİREBİR ekle.
+
+    Kuralın kalıcılığı özetleyici modelin özenine bırakılmaz: zayıf bir özetleyici
+    "main'e asla push etme" cümlesini düşürürse ajan yasağı unutur.
+    """
+    rules = _user_rules(old)
+    if not rules:
+        return summary
+    return f"{summary}\n\n{RULES_HEADER}\n" + "\n".join(f"- {rule}" for rule in rules)
+
+
+def _user_rules(messages: list[Message]) -> list[str]:
+    found: list[str] = []
+    total = 0
+    for message in messages:
+        if message.role != "user":
+            continue
+        for sentence in _rule_sentences(message.content):
+            if sentence in found or total + len(sentence) > RULES_MAX_CHARS:
+                continue
+            found.append(sentence)
+            total += len(sentence)
+    return found
+
+
+def _rule_sentences(content: str) -> list[str]:
+    if RULES_HEADER in content:
+        # Önceki özetin kural bloğu: maddeler olduğu gibi yeniden taşınır.
+        block = content.split(RULES_HEADER, 1)[1]
+        return [line[2:].strip() for line in block.splitlines() if line.startswith("- ")]
+    return [
+        sentence.strip()
+        for sentence in _SENTENCE_END.split(content)
+        if sentence.strip() and _RULE_PATTERN.search(sentence)
+    ]
 
 
 def _summary_cut(messages: list[Message], anchor_len: int) -> int:
