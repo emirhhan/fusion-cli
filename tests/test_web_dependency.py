@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent.verification import WebVerifier
+from fusion_cli.engines.agent.web_dependency import missing_local_dependencies
 
 
 async def _verify(tmp_path, html, name="index.html"):
@@ -147,3 +148,21 @@ async def test_base_kodlanmis_ve_duz_ust_dizin_sirasi(tmp_path):
     assert not (await _verify(tmp_path, markup)).ok
     (tmp_path / "app.js").write_text("void 0")
     assert (await _verify(tmp_path, markup)).ok
+
+
+def test_sablon_sozdizimli_kaynaklar_dosya_yok_bulgusu_uretmez(tmp_path):
+    """Ölçüldü (29 Ekim): Jinja/CRA/PHP şablon kaynakları gerçek yol sanılıp BLOCKING
+    üretiyordu (A4-12). Gerçek eksik dosya yine yakalanır."""
+    belge = tmp_path / "index.html"
+    html = (
+        "<script src=\"{{ url_for('static', filename='app.js') }}\"></script>"
+        '<script src="%PUBLIC_URL%/x.js"></script>'
+        '<link rel="stylesheet" href="{% static \'a.css\' %}">'
+        '<script src="<?php echo $base ?>/a.js"></script>'
+        '<script src="${base}/a.js"></script>'
+        '<script src="eksik.js"></script>'
+    )
+
+    bulgular = missing_local_dependencies(html, document=belge, root=tmp_path)
+
+    assert len(bulgular) == 1 and "eksik.js" in bulgular[0]
