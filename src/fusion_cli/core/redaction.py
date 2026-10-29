@@ -6,7 +6,8 @@ Desenler tek yerde tanımlıdır ve testle kilitlenir; koda dağıtılmaz.
 
 Ölçüldü (29 Ekim): `ghp_`/`gho_`/`github_pat_` belirteçleri, `Authorization: Basic`
 değeri, `localhost`/IP/`ssh://` adreslerindeki URL parolası, boşluklu tırnaklı değerler
-(`password: "iki kelime"`) ve imzalı adres sorgusu sızıyordu; `tests/test_diagnostic_redaction.py`
+(`password: "iki kelime"`) ve imzalı adres sorgusu sızıyordu; ayrıca `sk_live_`/`rk_test_`,
+JWT (`eyJ….eyJ….imza`) ve base64 (`+/=`) içeren `Bearer` değeri maskelenmiyordu (C1-03); `tests/test_diagnostic_redaction.py`
 bunları sentetik fixture ile kilitler.
 
 Amaç sıfır yanlış-negatif değil (bu imkânsız) — sık ve yüksek riskli biçimleri
@@ -35,7 +36,8 @@ _SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
     ),
     # Bearer'ı generic Authorization alanından önce maskele; kısa test değerleri
     # de dahil olmak üzere değerin kendisi hiçbir ara aşamada görünür kalmasın.
-    re.compile(r"\bBearer\s+[A-Za-z0-9._-]+\b", re.IGNORECASE),
+    # Değer base64 de olabilir (`+`, `/`, `=` dolgusu): bunlar da değerin parçasıdır.
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/-]+=*", re.IGNORECASE),
     # Authorization: Basic <base64> — kimlik bilgisi şeması kelimesinden sonra gelir;
     # genel desen yalnız "Basic"i yakalayıp base64 kısmını açıkta bırakırdı.
     re.compile(
@@ -64,6 +66,10 @@ _SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
     # GitHub: klasik `ghp_…` (alt çizgili) ve ince ayarlı `github_pat_…` belirteçleri.
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"),
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"),
+    # Stripe vb. `sk_live_…`/`sk_test_…`/`rk_live_…`/`pk_…` (alt çizgili; `sk-` deseni görmez).
+    re.compile(r"\b[spr]k_(?:live|test)_[A-Za-z0-9]{10,}"),
+    # JWT: üç base64url parça, ilk ikisi `eyJ` ile başlar.
+    re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]+"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),  # AWS erişim anahtarı
     # İmzalı adreslerin sorgu sırları (önceden imzalı bulut bağlantıları).
     re.compile(r"(?<=[?&])(?:sig|signature|x-amz-signature|key|code)=[^&\s\"']+", re.IGNORECASE),
@@ -113,6 +119,9 @@ def redact(text: str) -> str:
             "credential",
             "private",
             "sk-",
+            "k_live_",
+            "k_test_",
+            "eyj",
             "gh",
             "xox",
             "akia",

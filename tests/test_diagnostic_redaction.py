@@ -51,6 +51,14 @@ SENTETIK_SIRLAR = [
     ("aws", "AKIASENTINEL12345678", "SENTINEL"),
     ("slack", "xoxb-1234567890-SENTINELslack", "SENTINELslack"),
     ("url-imza", "https://cdn.example.com/a?sig=SENTINELSIG&x=1", "SENTINELSIG"),
+    ("stripe-canli", "odeme sk_live_SENTINEL0123456789abcdef kullan", "SENTINEL0123456789"),
+    ("stripe-test", "rk_test_SENTINEL0123456789abcdef", "SENTINEL0123456789"),
+    (
+        "jwt",
+        "oturum eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJTRU5USU5FTCJ9.SENTINELsig0123456789 bitti",
+        "SENTINELsig0123456789",
+    ),
+    ("bearer-base64", "Authorization: Bearer SENTINEL+abc/def==", "abc/def=="),
 ]
 
 
