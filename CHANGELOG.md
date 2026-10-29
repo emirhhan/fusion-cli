@@ -32,6 +32,7 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Finder'dan açılan uygulamada Homebrew'la kurulu `npx`/`uvx` MCP sunucuları bulunur; "kurulu değil" hatası verilmez.
 - MCP sunucusunun "çok fazla istek" (429) ve "zaman aşımı" (408) yanıtları geçici sayılır; bağlantı oturum boyunca kapatılmaz.
 - Web sayfası okuma, site tarama ve dosya indirme denetlenen adrese bağlanır: alan adı denetimden sonra iç ağa çözülse de (DNS rebinding) istek gitmez; Tailscale/CGNAT (`100.64.0.0/10`) ve IPv6'ya gömülü iç adresler de engellenir.
+- Model kimliksiz ya da aynı kimlikli birden çok araç çağrısı gönderdiğinde her çağrı çakışmayan bir kimlik alır; sonraki tur sağlayıcı tarafından reddedilmez.
 - Komut iptali, kendini ayrı oturuma alan (`setsid`) ve çıktıyı açık tutan torun süreçleri de kapatır; geride çalışan süreç kalmaz.
 
 ## 0.7.18 — 2026-10-21

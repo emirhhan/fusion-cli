@@ -379,14 +379,39 @@ def _response_tool_calls(response: Any) -> tuple[ToolCall, ...]:
     calls: list[ToolCall] = []
     for item in raw:
         try:
-            call_id = str(item.id)
+            raw_id = item.id
             name = str(item.function.name)
             arguments = str(item.function.arguments or "{}")
         except AttributeError:
             continue
         name, arguments = _unwrap_emulation_leak(name, arguments)
-        calls.append(ToolCall(id=call_id, name=name, arguments=arguments))
-    return tuple(calls)
+        calls.append(ToolCall(id=str(raw_id or "").strip(), name=name, arguments=arguments))
+    return _with_unique_ids(calls)
+
+
+def _with_unique_ids(calls: list[ToolCall]) -> tuple[ToolCall, ...]:
+    """Kimliği eksik çağrıya, yanıttaki hiçbir kimlikle çakışmayan host kimliği ver.
+
+    Ölçüldü (29 Ekim): `str(None)` "None" üretiyordu; kimliksiz iki çağrının sonucu
+    geçmişe aynı `tool_call_id` ile yazılıyor, sağlayıcı sonraki turu reddediyordu.
+    """
+    used = {call.id for call in calls if call.id}
+    kept: set[str] = set()
+    unique: list[ToolCall] = []
+    for index, call in enumerate(calls):
+        # Yinelenen kimlikte ilk çağrı kimliğini korur; sonrakiler eksik sayılır.
+        if call.id and call.id not in kept:
+            kept.add(call.id)
+            unique.append(call)
+            continue
+        candidate = f"fusion_call_{index}"
+        suffix = 0
+        while candidate in used:
+            suffix += 1
+            candidate = f"fusion_call_{index}_{suffix}"
+        used.add(candidate)
+        unique.append(replace(call, id=candidate))
+    return tuple(unique)
 
 
 def _unwrap_emulation_leak(name: str, arguments: str) -> tuple[str, str]:

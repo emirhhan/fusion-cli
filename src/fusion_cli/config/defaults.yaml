@@ -81,6 +81,8 @@ runtime:
   # Sağlayıcı KÜTÜPHANESİ içi yeniden deneme (LiteLLM). Düşük tutulur: asıl yeniden
   # deneme aşağıdaki `retry_delays_s` ile bizim kontrolümüzde yapılır, çünkü
   # kütüphanenin gecikmesi ayarlanamıyor ve kalıcı hatayı geçiciden ayırt etmiyor.
+  # Ölçüldü (29 Ekim, sürekli 429/503 dönen yerel sunucu): 0 → 1 istek; 2 → 5 istek.
+  # Değer aşağıdaki iki katmanla ÇARPILIR: 2 yapmak model başına 15 HTTP isteği demektir.
   max_retries: 0
   # Geçici arızada AYNI modelin yeniden denenmesinden önce beklenecek süreler.
   # Liste uzunluğu deneme sayısını TANIMLAR: iki gecikme → toplam üç deneme.
