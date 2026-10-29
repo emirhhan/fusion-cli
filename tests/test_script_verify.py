@@ -96,3 +96,51 @@ async def test_kendi_betikleri_yol_icermiyorsa_gecer(tmp_path):
     _proje(kok, {"dev": "next dev", "build": "next build"})
 
     assert (await ScriptPathVerifier(kok).verify()).ok is True
+
+
+async def test_cok_cd_li_betikte_her_cd_kendi_dizininde_denetlenir(tmp_path):
+    """Ölçüldü (29 Ekim): ilk `cd`'nin `rest`'i satır sonuna dek uzanıyor, `cd ../api`
+    sonrası `npm run start:dev` `web/` içinde aranıp yanlış bulgu veriyordu (A4-13)."""
+    kok = tmp_path / "ana"
+    (kok / "web").mkdir(parents=True)
+    (kok / "api").mkdir()
+    (kok / "web" / "package.json").write_text('{"scripts": {"build": "x"}}', encoding="utf-8")
+    (kok / "api" / "package.json").write_text('{"scripts": {"start:dev": "x"}}', encoding="utf-8")
+    _proje(kok, {"hepsi": "cd web && npm run build && cd ../api && npm run start:dev"})
+
+    sonuc = await ScriptPathVerifier(kok).verify()
+
+    assert sonuc.ok is True, sonuc.findings
+
+
+async def test_cok_cd_li_betikte_gercek_eksik_hala_yakalanir(tmp_path):
+    kok = tmp_path / "ana"
+    (kok / "web").mkdir(parents=True)
+    (kok / "api").mkdir()
+    (kok / "web" / "package.json").write_text('{"scripts": {"build": "x"}}', encoding="utf-8")
+    (kok / "api" / "package.json").write_text('{"scripts": {"start": "x"}}', encoding="utf-8")
+    _proje(kok, {"hepsi": "cd web && npm run build && cd ../api && npm run start:dev"})
+
+    sonuc = await ScriptPathVerifier(kok).verify()
+
+    assert sonuc.ok is False
+    assert "api" in sonuc.findings[0] and "start:dev" in sonuc.findings[0]
+
+
+async def test_npm_alt_komutlari_betik_adi_sayilmaz(tmp_path):
+    kok = tmp_path / "ana"
+    (kok / "web").mkdir(parents=True)
+    (kok / "web" / "package.json").write_text('{"scripts": {"dev": "x"}}', encoding="utf-8")
+    _proje(
+        kok,
+        {
+            "a": "cd web && npm i && npm audit && npm exec tsc && npm update",
+            "b": "cd web && npm run-script dev",
+            "c": "cd web && npm run-script yok",
+        },
+    )
+
+    sonuc = await ScriptPathVerifier(kok).verify()
+
+    assert len(sonuc.findings) == 1, sonuc.findings
+    assert "'c'" in sonuc.findings[0] and "yok" in sonuc.findings[0]
