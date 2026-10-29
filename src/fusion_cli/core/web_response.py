@@ -66,5 +66,15 @@ def classify_response(text: str, *, truncated: bool, has_tool_calls: bool) -> Re
 def _acik_blok(text: str) -> bool:
     """Açılıp kapanmamış bir sözleşme bloğu var mı?"""
     return any(
-        text.count(acik) > text.count(kapali) for acik, kapali in _ACIK_KAPALI if acik in text
+        _acilis_sayisi(text, acik, kapali) > text.count(kapali) for acik, kapali in _ACIK_KAPALI
     )
+
+
+def _acilis_sayisi(text: str, acik: str, kapali: str) -> int:
+    """Açılış işareti sayısı; kapanış açılışla başlıyorsa (`X` / `X_END`) kapanışlar düşülür.
+
+    Ölçüldü (28 Ekim): `FUSION_TOOL_CALL` sayımı `FUSION_TOOL_CALL_END`'i de sayıyordu ve
+    düzgün kapanmış blok "kapanmamış" sınıflanıyordu.
+    """
+    sayi = text.count(acik)
+    return sayi - text.count(kapali) if kapali.startswith(acik) else sayi
