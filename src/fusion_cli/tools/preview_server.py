@@ -22,6 +22,7 @@ import atexit
 import contextlib
 import functools
 import http.server
+import io
 import json
 import os
 import signal
@@ -29,10 +30,12 @@ import socket
 import sys
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from typing import BinaryIO
 
 from .wordpress_setup import has_core, is_wordpress_project, php_env
 
@@ -45,6 +48,11 @@ NPM_INSTALL_TIMEOUT_S = 300.0
 #: Sabit aralık kullanıcıya hep benzer adres verir (8000/3000 genelde başka işte).
 PREVIEW_PORT_START = 8770
 PREVIEW_PORT_SPAN = 30
+#: Önizleme sunucusunun cevap verdiği Host başlıkları (port hariç). Başka bir ad,
+#: DNS yeniden bağlama ile yerel sunucuya erişmeye çalışan bir sayfanın işaretidir.
+LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "[::1]"})
+#: `php -S`'e yönlendirici olarak verilen betik (paket verisi; kuralları aşağıdakiyle aynı).
+PHP_ROUTER = Path(__file__).parent / "assets" / "preview_router.php"
 
 
 class PreviewKind(StrEnum):
@@ -76,6 +84,23 @@ class RunningPreview:
 
 
 _RUNNING: dict[Path, RunningPreview] = {}
+
+
+def request_block_reason(path: str, host_header: str | None) -> str | None:
+    """Önizleme sunucusunun reddedeceği istek için Türkçe gerekçe; geçerliyse None.
+
+    İki kural: Host yerel değilse (DNS yeniden bağlama) ve yol bileşenlerinden biri
+    nokta ile başlıyorsa (`.fusion/onizleme-giris.txt`, `.env`, `.git/`) reddedilir.
+    `assets/preview_router.php` aynı kuralı `php -S` için uygular; ikisi birlikte değişir.
+    """
+    host = (host_header or "").lower()
+    host = host.split("]")[0] + "]" if host.startswith("[") else host.split(":")[0]
+    if host not in LOCAL_HOSTS:
+        return f"yerel olmayan Host başlığı ({host_header or 'yok'})"
+    decoded = urllib.parse.unquote(urllib.parse.urlsplit(path).path).replace("\\", "/")
+    if any(part.startswith(".") for part in decoded.split("/")):
+        return "nokta ile başlayan yol (gizli dosya)"
+    return None
 
 
 def detect_kind(root: Path) -> PreviewKind | None:
@@ -144,8 +169,11 @@ async def start(
         if php is None:
             raise PreviewError("PHP bulunamadı. Kurmak için: `brew install php`.")
         process = await _spawn(
-            [php, "-d", "display_errors=1", "-S", f"127.0.0.1:{port}", "-t", str(root)], root
-        )
+            [
+                php, "-d", "display_errors=1", "-S", f"127.0.0.1:{port}", "-t", str(root),
+                str(PHP_ROUTER),
+            ], root
+        )  # fmt: skip
         preview = RunningPreview(root, kind, f"{base}/", process=process)
     else:
         command = await _node_command(root, port)
@@ -211,6 +239,13 @@ def _static_server(root: Path, port: int) -> http.server.ThreadingHTTPServer:
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def send_head(self) -> io.BytesIO | BinaryIO | None:
+        reason = request_block_reason(self.path, self.headers.get("Host"))
+        if reason is not None:
+            self.send_error(403, "Forbidden", explain=reason)
+            return None
+        return super().send_head()
+
     def log_message(self, format: str, *args: object) -> None:
         del format, args
 

@@ -228,13 +228,26 @@ async def _install_core(wp_cli: str, root: Path, url: str) -> Path:
         "--admin_user=admin", f"--admin_password={password}",
         "--admin_email=admin@example.com", "--skip-email",
     )  # fmt: skip
+    return write_credentials(root, url, password)
+
+
+def write_credentials(root: Path, url: str, password: str) -> Path:
+    """Yönetici giriş dosyasını YALNIZ sahibine açık oluştur.
+
+    Ölçüldü (29 Ekim): dosya önce umask'ın izniyle (0644) yazılıp sonra `chmod 0600`
+    yapılıyordu; arada kalan pencerede başka bir yerel kullanıcı okuyabilirdi. İzin
+    artık `os.open` ile açılışta verilir.
+    """
     path = root / CREDENTIALS_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    metin = (
         f"Yerel önizleme yönetici girişi\nAdres: {url}/wp-admin\nKullanıcı: admin\n"
-        f"Parola: {password}\n",
-        encoding="utf-8",
+        f"Parola: {password}\n"
     )
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as dosya:
+        dosya.write(metin)
+    # Dosya zaten varsa `os.open` izni değiştirmez; eski geniş izni de kapat.
     path.chmod(0o600)
     return path
 
