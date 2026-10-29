@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -307,16 +308,19 @@ class WebVerifier:
     async def _verify_markup(self) -> VerificationResult:
         files: dict[str, str] = {}
         dependency_findings: list[str] = []
+        root = self._context.root
 
         for path in self._context.touched:
             if path.suffix.lower() not in WEB_SUFFIXES:
                 continue
             try:
                 content = path.read_text(encoding="utf-8")
-                files[path.name] = content
+                # Anahtar köke göreli YOL: aynı adlı `a/index.html` ve `b/index.html`
+                # birbirini ezmesin (A4-08; eskiden `path.name`).
+                files[_web_key(path, root)] = content
                 if path.suffix.lower() in (".html", ".htm"):
                     dependency_findings.extend(
-                        missing_local_dependencies(content, document=path, root=self._context.root)
+                        missing_local_dependencies(content, document=path, root=root)
                     )
             except OSError:
                 continue
@@ -324,7 +328,9 @@ class WebVerifier:
         if not files:
             return VerificationResult(ok=True)
 
-        blocking, warnings, advisories = inspect_web_output_by_severity(files)
+        blocking, warnings, advisories = inspect_web_output_by_severity(
+            files, context=_project_web_files(root, exclude=frozenset(files))
+        )
         blocking = (*blocking, *dependency_findings)
         if self._javascript_checker is not None:
             syntax_result = await JavaScriptSyntaxVerifier(
@@ -586,6 +592,76 @@ class CommandVerifier:
                 ),
             ),
         )
+
+
+#: Proje bağlamı okunurken gezilmeyen dizinler (bağımlılık, derleme çıktısı, VCS).
+_CONTEXT_SKIP_DIRS = frozenset(
+    {
+        "node_modules",
+        ".git",
+        "dist",
+        "build",
+        "out",
+        ".next",
+        ".nuxt",
+        ".venv",
+        "venv",
+        "__pycache__",
+        "target",
+        "vendor",
+        ".cache",
+        "coverage",
+    }
+)
+#: Bağlam taramasının üst sınırları: dev bir kök (ev dizini gibi) kapıyı yavaşlatmasın.
+_CONTEXT_MAX_FILES = 300
+_CONTEXT_MAX_VISITED = 5000
+_CONTEXT_MAX_BYTES = 512_000
+
+
+def _web_key(path: Path, root: Path) -> str:
+    """Web dosyasının anahtarı: köke göreli POSIX yol (kök dışındaysa tam yol)."""
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except (ValueError, OSError):
+        return path.as_posix()
+
+
+def _project_web_files(root: Path, *, exclude: frozenset[str]) -> dict[str, str]:
+    """Dokunulmayan yerel web dosyalarını dizinden oku (dosyalar-arası kurallar için).
+
+    Ölçüldü (29 Ekim): kapı yalnız dokunulanları gördüğü için çok sayfalı sitede
+    `app.js`'i bağlayan dokunulmamış `index.html` ve ortak CSS yok sayılıyor, yanlış
+    BLOCKING çıkıyordu (A4-07). Sınırlıdır; okunamayan dosya atlanır.
+    """
+    bulunan: dict[str, str] = {}
+    ziyaret = 0
+    try:
+        for klasor, alt_klasorler, adlar in os.walk(root):
+            alt_klasorler[:] = [
+                ad
+                for ad in alt_klasorler
+                if ad not in _CONTEXT_SKIP_DIRS and not ad.startswith(".")
+            ]
+            for ad in adlar:
+                ziyaret += 1
+                if ziyaret > _CONTEXT_MAX_VISITED or len(bulunan) >= _CONTEXT_MAX_FILES:
+                    return bulunan
+                yol = Path(klasor) / ad
+                if yol.suffix.lower() not in WEB_SUFFIXES:
+                    continue
+                anahtar = _web_key(yol, root)
+                if anahtar in exclude:
+                    continue
+                try:
+                    if yol.stat().st_size > _CONTEXT_MAX_BYTES:
+                        continue
+                    bulunan[anahtar] = yol.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+    except OSError:
+        return bulunan
+    return bulunan
 
 
 #: Kabuk "komut bulunamadı" için bu çıkış kodunu verir (POSIX sözleşmesi).
