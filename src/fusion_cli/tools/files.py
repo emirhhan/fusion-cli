@@ -138,17 +138,35 @@ def atomic_write(path: Path, content: str) -> None:
 
     Var olan dosyanın izni KORUNUR; yeni dosya, sürecin umask'ıyla süzülmüş normal
     dosya iznini alır (kabuktan `touch` ile aynı sonuç).
+
+    Var olan dosyanın SATIR SONU biçimi de korunur. Araçlar metni evrensel satır
+    sonuyla (`\n`) okur ve model `\n` ile yazar; ölçüldü (29 Ekim), CRLF bir dosyada
+    tek kelimelik düzenleme bütün dosyayı LF'ye çeviriyordu. Yeni dosya eskisi gibi
+    yazılır.
     """
+    newline = _existing_newline(path)
+    if newline == "\r\n":
+        content = content.replace("\r\n", "\n")
     handle, name = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     gecici = Path(name)
     try:
-        with os.fdopen(handle, "w", encoding="utf-8") as dosya:
+        with os.fdopen(handle, "w", encoding="utf-8", newline=newline) as dosya:
             dosya.write(content)
         gecici.chmod(_target_mode(path))
         gecici.replace(path)
     except BaseException:
         gecici.unlink(missing_ok=True)
         raise
+
+
+def _existing_newline(path: Path) -> str | None:
+    """Var olan dosyanın baskın satır sonu: "\r\n", "" (olduğu gibi) ya da yeni dosyada None."""
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    crlf = raw.count(b"\r\n")
+    return "\r\n" if crlf and crlf >= raw.count(b"\n") - crlf else ""
 
 
 #: Yeni dosyalar için taban izin; umask ile süzülür (0666 & ~umask → tipik 0644).
