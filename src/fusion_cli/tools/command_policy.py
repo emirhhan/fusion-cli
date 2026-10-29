@@ -150,6 +150,15 @@ CURL_SEND_FLAGS = frozenset(
      "-T", "--upload-file", "-X", "--request", "-K", "--config", "--json"}
 )  # fmt: skip
 
+#: Uzun curl bayraklarının veri gönderen ön ekleri (`--data-raw`, `--form=f=@x`, `--request=POST`).
+_CURL_SEND_LONG_PREFIXES = (
+    "--data", "--json", "--form", "--upload", "--request", "--config", "--post",
+)  # fmt: skip
+#: Kısa curl bayrakları: veri/yükleme/yöntem/yapılandırma gönderenler ve ardındaki
+#: kümeyi DEĞER olarak yutanlar (`-ofile`, `-Hx:y`, `-uad:parola`).
+_CURL_SEND_SHORT = frozenset("dFTXK")
+_CURL_VALUE_SHORT = frozenset("oAbcCDeEHmPrtuUwxyYzQ") | _CURL_SEND_SHORT
+
 #: Otomatik kipte onaysız geçen, YEREL etkili git alt komutları. Uzak depoya
 #: yazan (`push`), geçmişi yeniden yazan (`rebase`) ve kaydedilmemiş işi silen
 #: (`reset --hard`, `clean`) komutlar burada yoktur.
@@ -335,10 +344,7 @@ def _segment_safe(segment: str, root: Path | None = None) -> bool:
     if name in {"pip", "pip3"} or (name == "uv" and arguments[:1] == ["pip"]):
         return _pip_safe(arguments[1:] if name == "uv" else arguments)
     if name == "curl":
-        sends = any(
-            argument in CURL_SEND_FLAGS or argument.startswith(("--data", "--json", "-d"))
-            for argument in arguments
-        )
+        sends = curl_sends_data(arguments)
         # Kendi yerel sunucusunu sınamak (`curl -X POST localhost:5000/...`) dışa
         # veri göndermek değildir; Claude'un otomatik kipi de bunu sormaz.
         return not sends or only_local_urls(arguments)
@@ -421,6 +427,26 @@ def _tooling_safe(name: str, arguments: list[str]) -> bool:
 
 
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1"})
+
+
+def curl_sends_data(arguments: list[str]) -> bool:
+    """curl çağrısı veri/dosya yolluyor ya da yöntem/yapılandırma dayatıyor mu?
+
+    Ölçüldü (29 Ekim): yalnız TAM `-d`/`-F`/`-T`/`-X` eşleşmesi görülüyordu; `-Tdosya`,
+    `-sd@f`, `-sfd x`, `-XPOST`, `--form=f=@x` sorulmadan geçiyordu. Kısa bayrak
+    kümesi soldan sağa okunur; değer alan bayraktan sonrası o bayrağın değeridir.
+    """
+    for argument in arguments:
+        if argument in CURL_SEND_FLAGS or argument.startswith(_CURL_SEND_LONG_PREFIXES):
+            return True
+        if argument.startswith("--") or not argument.startswith("-") or len(argument) < 2:
+            continue
+        for char in argument[1:]:
+            if char in _CURL_SEND_SHORT:
+                return True
+            if char in _CURL_VALUE_SHORT:
+                break
+    return False
 
 
 def only_local_urls(arguments: list[str]) -> bool:

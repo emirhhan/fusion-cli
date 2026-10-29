@@ -27,9 +27,9 @@ from pathlib import Path
 
 from .command_paths import escapes_project
 from .command_policy import (
-    CURL_SEND_FLAGS,
     GLOBAL_INSTALL_FLAGS,
     READ_ONLY_COMMANDS,
+    curl_sends_data,
     is_outward_script,
     only_local_urls,
 )
@@ -281,11 +281,12 @@ def _outward_run(arguments: list[str]) -> bool:
 
 def _sends_data(name: str, arguments: list[str]) -> bool:
     if name == "wget":
-        sends = any(a.startswith(("--post-data", "--post-file", "--method")) for a in arguments)
-    else:
         sends = any(
-            a in CURL_SEND_FLAGS or a.startswith(("--data", "-d", "--json")) for a in arguments
+            a.startswith(("--post-data", "--post-file", "--method", "--body-data", "--body-file"))
+            for a in arguments
         )
+    else:
+        sends = curl_sends_data(arguments)
     return sends and not only_local_urls(arguments)
 
 
