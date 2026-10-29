@@ -19,6 +19,7 @@ yapmak için değil. Sade `rm` yıkıcı sayılmaz — çöpe gider ve geri alı
 from __future__ import annotations
 
 import json
+from collections.abc import Collection
 from dataclasses import dataclass
 from enum import Enum
 from hashlib import sha256
@@ -40,6 +41,7 @@ from ...tools.command_policy import is_unattended_safe
 from ...tools.delete_preview import delete_caution, describe_delete, script_danger
 from ...tools.safe_delete import simple_rm_targets
 from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
+from ...tools.script_chain import script_chain_risk
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
 REMOTE_DESTRUCTIVE_REASON = (
@@ -329,7 +331,8 @@ async def resolve_request(
     Çözücü `None` dönerse ya da yoksa aracın kendi etkisi geçerlidir.
     """
     effect = await tool.effect_resolver(args, context) if tool.effect_resolver is not None else None
-    return build_request(tool, args, allowed_commands, effect=effect, root=root)
+    touched = context.touched if context is not None else ()
+    return build_request(tool, args, allowed_commands, effect=effect, root=root, touched=touched)
 
 
 def build_request(
@@ -339,6 +342,7 @@ def build_request(
     *,
     effect: ToolEffect | None = None,
     root: Path | None = None,
+    touched: Collection[Path] = (),
 ) -> ApprovalRequest:
     """Onay isteğini kur; yıkıcılık, risk ve izin listesi kontrolü burada yapılır.
 
@@ -352,7 +356,7 @@ def build_request(
     # kabuk komutunu kaçırır ve onun güvenlik/izin-listesi denetimini atlardı.
     effect = effect or tool.effect
     if tool_family(tool.name) is ToolFamily.SHELL and isinstance(command, str):
-        return _shell_request(tool, args, command, allowed_commands, effect, root)
+        return _shell_request(tool, args, command, allowed_commands, effect, root, touched)
     danger = danger_reason(tool.name, args)
     if danger is None and effect is ToolEffect.REMOTE_DESTRUCTIVE:
         danger = REMOTE_DESTRUCTIVE_REASON
@@ -377,6 +381,7 @@ def _shell_request(
     allowed_commands: frozenset[str],
     effect: ToolEffect,
     root: Path | None,
+    touched: Collection[Path] = (),
 ) -> ApprovalRequest:
     """Kabuk komutunun onay isteği: kart komutu değil SONUCU göstermeli."""
     danger = danger_reason(tool.name, args)
@@ -389,7 +394,8 @@ def _shell_request(
         danger = script_danger(command, root, home)
     caution = delete_caution(command, root, home) if root is not None else None
     target = describe_delete(command, root, home) if root is not None else ""
-    risk = caution or auto_risk(command, root)
+    chain = script_chain_risk(command, root, touched)
+    risk = caution or auto_risk(command, root) or chain
     if danger is not None and target:
         danger = f"{danger}. {target}"
     note = ". ".join(part for part in (risk, target) if part) or None
@@ -398,7 +404,8 @@ def _shell_request(
         args=args,
         danger=danger,
         pre_allowed=is_allowed(command, allowed_commands),
-        unattended_safe=(trashed and caution is None) or is_unattended_safe(command, root),
+        unattended_safe=(trashed and caution is None)
+        or (chain is None and is_unattended_safe(command, root)),
         effect=effect,
         risk=risk,
         read_only=is_read_only_command(command),

@@ -169,6 +169,20 @@ def _risk(command: str, root: Path | None, depth: int) -> str | None:
     return None
 
 
+def command_words(command: str) -> list[list[str]]:
+    """Komutun her parçası için sözcükler (`_segments` + `_words`); boş parçalar atılır."""
+    return [parts for segment in _segments(command) if (parts := _words(segment))]
+
+
+def written_files(command: str) -> list[str]:
+    """Komutun dosyaya YAZDIĞI adlar: yönlendirme hedefleri ve `tee` argümanları."""
+    targets = list(_REDIRECT.findall(_unquoted(command)))
+    for parts in command_words(command):
+        if parts[0] == "tee":
+            targets.extend(a for a in parts[1:] if not a.startswith("-"))
+    return targets
+
+
 def is_read_only_command(command: str) -> bool:
     """Komut YALNIZ okuyor mu? (Plan ve Manuel kipte sorulmadan çalışır.)
 
