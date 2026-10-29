@@ -33,14 +33,72 @@
       }
     ],
     "security": {
-      "csp": "frame-src 'self' blob: data: http://localhost:* http://127.0.0.1:* http://[::1]:*",
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' asset: http://asset.localhost data: blob: https:",
+        "media-src": "'self' asset: http://asset.localhost data: blob:",
+        "font-src": "'self' data:",
+        "connect-src": "ipc: http://ipc.localhost",
+        "frame-src": "'self' blob: data: http://localhost:* http://127.0.0.1:* http://[::1]:*",
+        "worker-src": "'self' blob:",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "form-action": "'none'"
+      },
       "assetProtocol": {
         "enable": true,
-        "scope": [
-          "$HOME/**",
-          "$HOME/.local/share/fusion-cli/gallery/**",
-          "$LOCALDATA/fusion-cli/gallery/**"
-        ]
+        "scope": {
+          "allow": [
+            "$HOME/**",
+            "$HOME/.local/share/fusion-cli/gallery/**",
+            "$LOCALDATA/fusion-cli/gallery/**"
+          ],
+          "deny": [
+            "$HOME/.ssh/**",
+            "$HOME/.gnupg/**",
+            "$HOME/.aws/**",
+            "$HOME/.azure/**",
+            "$HOME/.kube/**",
+            "$HOME/.docker/**",
+            "$HOME/.config/gcloud/**",
+            "$HOME/.netrc",
+            "$HOME/.npmrc",
+            "$HOME/.pypirc",
+            "$HOME/.git-credentials",
+            "$HOME/.codex/**",
+            "$HOME/.claude/**",
+            "$HOME/Library/Keychains/**",
+            "$HOME/Library/Cookies/**",
+            "$HOME/Library/Application Support/Google/Chrome/**",
+            "$HOME/Library/Application Support/Chromium/**",
+            "$HOME/Library/Application Support/Firefox/**",
+            "$HOME/.local/share/fusion-cli/vault/**",
+            "$HOME/.local/share/fusion-cli/web_profiles/**",
+            "$HOME/**/secrets.enc",
+            "$HOME/**/.env",
+            "$HOME/**/.env.*",
+            "$HOME/**/*.pem",
+            "$HOME/**/*.key",
+            "$HOME/**/id_rsa*",
+            "$HOME/**/id_ed25519*"
+          ]
+        }
+      },
+      "devCsp": {
+        "default-src": "'self'",
+        "script-src": "'self' 'unsafe-inline' http://localhost:1420",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' asset: http://asset.localhost data: blob: https:",
+        "media-src": "'self' asset: http://asset.localhost data: blob:",
+        "font-src": "'self' data:",
+        "connect-src": "ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420",
+        "frame-src": "'self' blob: data: http://localhost:* http://127.0.0.1:* http://[::1]:*",
+        "worker-src": "'self' blob:",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "form-action": "'none'"
       }
     }
   },
