@@ -39,6 +39,13 @@ MEDIA_MAX_BYTES = 4 * 1024 * 1024
 DELTA_FLUSH_SECONDS = 0.25
 #: Görev başına tutulan olay sayısı üst sınırı.
 MAX_EVENTS_PER_TASK = 5_000
+#: Oturum yürütücüsüne giden tek seferlik istekler (sohbet listesi, model, zamanlama): yanıt süresi.
+BACKEND_CALL_TIMEOUT_SECONDS = 60
+#: `handle` döndükten sonra sonuç satırının gelmesi için tanınan ek süre (satır kaybı koruması).
+BACKEND_RESULT_GRACE_SECONDS = 5
+#: Tek uzak görevin (tur) en uzun süresi; aşılırsa tur kesilir ve görev başarısız olur.
+#: Sonsuz bekleyen tek tur `run_lock`'u tutup sonraki tüm görevleri kuyrukta bırakırdı.
+BACKEND_TURN_TIMEOUT_SECONDS = 6 * 3600
 #: Bildirim özeti uzunluğu: kod/özel içerik sohbet kanalına dökülmesin.
 NOTIFICATION_SUMMARY_LIMIT = 280
 
