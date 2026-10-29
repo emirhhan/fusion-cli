@@ -79,3 +79,40 @@ def test_openrouter_ve_nim_anahtar_bicimleri_maskelenir():
 )
 def test_redact_fast_path_cannot_skip_known_secret_patterns(secret):
     assert redact(secret) == REDACTED_MARK
+
+
+def test_akis_gizleyicisi_parca_sinirindaki_sirri_yakalar():
+    from fusion_cli.core.redaction import StreamRedactor
+
+    gizleyici = StreamRedactor()
+    cikti = [gizleyici.feed("a ghp_SENTINEL01234"), gizleyici.feed("56789ABCDEFGHIJKLMNOP b\n")]
+    cikti.append(gizleyici.flush())
+
+    assert "SENTINEL" not in "".join(cikti)
+    assert "".join(cikti).startswith("a ")
+
+
+def test_akis_gizleyicisi_kapanmamis_pem_blogunu_bitene_dek_tutar():
+    from fusion_cli.core.redaction import StreamRedactor
+
+    gizleyici = StreamRedactor()
+    parcalar = [
+        gizleyici.feed("anahtar:\n-----BEGIN PRIVATE KEY-----\nSENTINELBODY1\n"),
+        gizleyici.feed("SENTINELBODY2\n-----END PRIVATE KEY-----\nbitti\n"),
+        gizleyici.flush(),
+    ]
+
+    toplam = "".join(parcalar)
+    assert "SENTINELBODY" not in toplam
+    assert "bitti" in toplam
+    assert "SENTINELBODY" not in parcalar[0]
+
+
+def test_akis_gizleyicisi_sirsiz_metni_aynen_birlestirir():
+    from fusion_cli.core.redaction import StreamRedactor
+
+    gizleyici = StreamRedactor()
+    parcalar = ["merhaba ", "dünya\n", "ikinci ", "satır"]
+    toplam = "".join(gizleyici.feed(p) for p in parcalar) + gizleyici.flush()
+
+    assert toplam == "merhaba dünya\nikinci satır"

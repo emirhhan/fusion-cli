@@ -138,3 +138,46 @@ def redact(text: str) -> str:
     for pattern in _SENSITIVE_PATTERNS:
         redacted = pattern.sub(REDACTED_MARK, redacted)
     return redacted
+
+
+#: Akış gizleyicisinin bir satır tamamlanmadan tutabileceği en çok karakter. Çok uzun
+#: satır (ör. minify edilmiş çıktı) sonsuza dek tutulmasın; aşılınca son boşlukta kesilir.
+STREAM_HOLD_LIMIT = 512
+#: Kapanmamış PEM bloğu için tutma sınırı (tam özel anahtar birkaç KB'tır).
+STREAM_PEM_HOLD_LIMIT = 16_384
+_PEM_BEGIN = "-----BEGIN"
+_PEM_END = "-----END"
+
+
+class StreamRedactor:
+    """Parça parça gelen metni `redact` ile maskeler; parça sınırına denk gelen sırrı da yakalar.
+
+    Ölçüldü (29 Ekim): gateway akışlı yolda `redact` hiç uygulanmıyordu; her parçayı ayrı
+    maskelemek de bölünmüş sırrı (`ghp_` | `abc…`) kaçırır. Bu sınıf son SATIR SONUNA kadar olan
+    kısmı verir, yarım satırı bir sonraki parçayla birleştirmek için tutar (kapanmamış PEM
+    bloğunu bitene dek). Sırlar boşluksuz belirteçlerdir; satır sınırı onları asla bölmez.
+    `flush()` akış bitince kalanı verir.
+    """
+
+    def __init__(self) -> None:
+        self._pending = ""
+
+    def feed(self, text: str) -> str:
+        """Yeni parçayı ekle; maskelenmiş, güvenle gösterilebilir kısmı döndür."""
+        self._pending += text
+        cut = self._pending.rfind("\n") + 1
+        pem = self._pending.rfind(_PEM_BEGIN)
+        if pem != -1 and self._pending.find(_PEM_END, pem) == -1:
+            # Kapanmamış PEM bloğu: bitene (ya da tutma sınırına) dek hiçbir şey çıkmaz.
+            cut = min(cut, pem) if len(self._pending) - pem <= STREAM_PEM_HOLD_LIMIT else cut
+        if cut == 0 and len(self._pending) > STREAM_HOLD_LIMIT:
+            cut = max(self._pending.rfind(" "), self._pending.rfind("\t")) + 1
+        if cut <= 0:
+            return ""
+        ready, self._pending = self._pending[:cut], self._pending[cut:]
+        return redact(ready)
+
+    def flush(self) -> str:
+        """Akış bitti: tutulan kalanı maskeleyip ver."""
+        ready, self._pending = self._pending, ""
+        return redact(ready)

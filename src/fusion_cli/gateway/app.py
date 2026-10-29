@@ -35,7 +35,7 @@ from ..core.compression import compress_messages, saved_chars
 from ..core.errors import ConfigError, FusionError
 from ..core.health import HealthRegistry
 from ..core.protocols import LlmProvider
-from ..core.redaction import redact
+from ..core.redaction import StreamRedactor, redact
 from ..core.routing_strategy import RoutingStrategy, order_models
 from ..core.types import CompletionRequest, ModelResult, ModelSpec, StreamDone, TextChunk
 from ..core.window_mode import WindowMode
@@ -1127,18 +1127,29 @@ class GatewayApp:
         await _sse_start(send)
         finish = "stop"
         akan_metin = False
+        # Credential guardrail akışlı yolda da geçerli (E1-05): parça sınırındaki sır için
+        # satır sonuna kadar tutan gizleyici; kapalıysa metin olduğu gibi akar.
+        maske = StreamRedactor() if self._config.runtime.gateway_mask_secrets else None
         async for item in provider.stream(request):
             if isinstance(item, TextChunk) and item.text:
                 akan_metin = True
-                await _sse_data(
-                    send, translate.to_openai_chunk(item.text, model, chunk_id=chunk_id)
-                )
+                guvenli_metin = maske.feed(item.text) if maske is not None else item.text
+                if guvenli_metin:
+                    await _sse_data(
+                        send, translate.to_openai_chunk(guvenli_metin, model, chunk_id=chunk_id)
+                    )
             elif isinstance(item, StreamDone):
                 sonuc = item.result
+                kalan = maske.flush() if maske is not None else ""
+                if kalan:
+                    await _sse_data(
+                        send, translate.to_openai_chunk(kalan, model, chunk_id=chunk_id)
+                    )
                 # Akışsız düşen yedek sağlayıcı metni yalnız sonuçta verebilir.
                 if sonuc.text and not akan_metin:
+                    metin = redact(sonuc.text) if maske is not None else sonuc.text
                     await _sse_data(
-                        send, translate.to_openai_chunk(sonuc.text, model, chunk_id=chunk_id)
+                        send, translate.to_openai_chunk(metin, model, chunk_id=chunk_id)
                     )
                 # Araç çağrıları akışın sonunda gelir; eskiden düşüyordu (ölçüldü,
                 # 8 Ekim 2026: Kits akışlı istekte boş delta + "stop" aldı).
@@ -1155,6 +1166,10 @@ class GatewayApp:
                     guvenli = _dc_replace(sonuc, error=redact(sonuc.error or ""))
                     await _sse_data(send, translate.stream_error(guvenli))
                 self._record(model, sonuc)
+        # StreamDone gelmeden biten akışta tutulan kalan da maskelenip iletilir.
+        artik = maske.flush() if maske is not None else ""
+        if artik:
+            await _sse_data(send, translate.to_openai_chunk(artik, model, chunk_id=chunk_id))
         await _sse_data(send, translate.final_chunk(model, chunk_id=chunk_id, finish_reason=finish))
         await _sse_done(send)
 

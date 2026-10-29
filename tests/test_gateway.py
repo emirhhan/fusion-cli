@@ -796,3 +796,54 @@ async def test_chat_stream_model_hatasini_istemciye_iletir():
     ]
     hatalar = [parca["error"]["message"] for parca in parcalar if "error" in parca]
     assert hatalar and "400: geçersiz sıra" in hatalar[0]
+
+
+# --- akışlı yolda sır maskeleme (E1-05) ------------------------------------ #
+
+_SENTETIK_TOKEN = "ghp_SENTINEL0123456789ABCDEFGHIJKLMNOP"  # gitleaks:allow
+
+
+async def _akis_metni(parcalar, *, mask: bool = True) -> str:
+    from dataclasses import replace
+
+    config = make_config()
+    config = replace(config, runtime=replace(config.runtime, gateway_mask_secrets=mask))
+    app = GatewayApp(config, provider_factory=lambda spec: FakeProvider("mock", chunks=parcalar))
+    async with _client(app) as client:
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={"model": "auto", "messages": [{"role": "user", "content": "x"}], "stream": True},
+        )
+    govde = [
+        json.loads(satir[6:]) for satir in resp.text.splitlines() if satir.startswith("data: {")
+    ]
+    return "".join(parca["choices"][0]["delta"].get("content") or "" for parca in govde)
+
+
+async def test_akisli_yanit_sirri_maskeler():
+    """Ölçüldü (29 Ekim): `stream:true` istemci sır maskesini atlıyordu."""
+    metin = await _akis_metni((f"anahtar: {_SENTETIK_TOKEN}\n", "devam\n"))
+
+    assert "SENTINEL0123456789" not in metin
+    assert "devam" in metin
+
+
+async def test_akisli_yanit_parca_sinirindaki_sirri_da_maskeler():
+    metin = await _akis_metni(("tok ghp_SENTINEL01234", "56789ABCDEFGHIJKLMNOP bitti\n"))
+
+    assert "SENTINEL0123456789" not in metin
+    assert "SENTINEL01234" not in metin
+    assert "bitti" in metin
+
+
+async def test_akisli_yanit_satir_sonsuz_kuyrugu_da_maskeler():
+    metin = await _akis_metni(("son satir ", _SENTETIK_TOKEN))
+
+    assert "SENTINEL0123456789" not in metin
+    assert "son satir" in metin
+
+
+async def test_maskeleme_kapaliysa_akis_degismez():
+    metin = await _akis_metni((f"x {_SENTETIK_TOKEN}",), mask=False)
+
+    assert _SENTETIK_TOKEN in metin
