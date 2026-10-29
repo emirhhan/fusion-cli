@@ -54,3 +54,32 @@ def test_salt_okuma_ve_sohbet_etkilenmez(gorev, beklenen):
 )
 def test_isim_olarak_gecen_fiil_kokleri_degisiklik_sayilmaz(gorev):
     assert required_effect_for(gorev) != MUTASYON
+
+
+# --- E1-07: isim olan sözcükler olumsuzlama sayılmaz -------------------------------------
+
+
+@pytest.mark.parametrize(
+    "gorev",
+    [
+        "Arama kutusu ekle",
+        "yükleme ekranı oluştur",
+        "araştırma sayfası yaz",
+        "Hero bölümüne arama kutusu ekle, edit_file kullan",
+        "a.py dosyası oluştur ama silme lütfen",
+    ],
+)
+def test_isim_olarak_gecen_sozcuk_mutasyon_kapisini_kapatmaz(gorev):
+    from fusion_cli.engines.effects.detect import required_effect_for
+
+    assert required_effect_for(gorev) is not None
+
+
+@pytest.mark.parametrize(
+    "gorev",
+    ["dosyayı silme", "a.py dosyası oluşturma", "Dosya oluşturma lütfen", "lütfen yapma"],
+)
+def test_fiil_kipindeki_olumsuz_emir_mutasyon_istemez(gorev):
+    from fusion_cli.engines.effects.detect import required_effect_for
+
+    assert required_effect_for(gorev) is None

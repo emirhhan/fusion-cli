@@ -14,12 +14,20 @@ _EXPLICIT_NO_TOOL_MARKERS = (
     "arac cagirma",
 )
 
+#: Yalnız olumsuz emir olan sözcükler: cümlecikte nerede geçerse geçsin olumsuzlama sayılır.
 _NEGATED_ACTION_WORDS = (
     "kullanma",
     "çalıştırma",
     "calistirma",
     "yapma",
     "etme",
+    "istemiyorum",
+)
+#: Hem olumsuz emir hem İSİM olan sözcükler ("arama kutusu", "yükleme ekranı", "araştırma
+#: sayfası"). Bunlar yalnız cümleciğin SONUNDA (fiil kipi: "dosyayı silme", "oluşturma lütfen")
+#: olumsuzlama sayılır; ardından isim geliyorsa görev olumlu kalır ve mutasyon kanıt kapısı
+#: kurulur (E1-07). Ölçüldü (29 Ekim): "Arama kutusu ekle" eskiden tamamen atılıyordu.
+_AMBIGUOUS_NEGATED_WORDS = (
     "oluşturma",
     "olusturma",
     "değiştirme",
@@ -32,8 +40,8 @@ _NEGATED_ACTION_WORDS = (
     "arama",
     "araştırma",
     "arastirma",
-    "istemiyorum",
 )
+_CLAUSE_FINAL_POLITE = r"(?:\s+(?:lütfen|lutfen|sakın|sakin|asla))?\s*$"
 #: Cümle sınırı. Nokta YALNIZCA boşluk ya da satır sonu geliyorsa sınır sayılır.
 #
 # Ölçüldü: eski desen her noktayı bölüyordu ve `app/page.tsx` → "app/page tsx"
@@ -448,6 +456,15 @@ def extract_branch_reference(task: str) -> str | None:
     return None
 
 
+def _is_negated_clause(clause: str) -> bool:
+    lowered = clause.casefold()
+    if any(re.search(rf"\b{word}\b", lowered) for word in _NEGATED_ACTION_WORDS):
+        return True
+    return any(
+        re.search(rf"\b{word}{_CLAUSE_FINAL_POLITE}", lowered) for word in _AMBIGUOUS_NEGATED_WORDS
+    )
+
+
 def _positive_action_clauses(text: str) -> str:
     """Olumlu cümlecikleri koru, açık olumsuz talimatları at.
 
@@ -461,8 +478,7 @@ def _positive_action_clauses(text: str) -> str:
         for clause in clauses
         # Tam sözcük aranır: alt dize araması "website yapmanı istiyorum" isteğini
         # "yapma" sanıp atıyordu (ölçüldü, 2 Ekim).
-        if not any(re.search(rf"\b{word}\b", clause) for word in _NEGATED_ACTION_WORDS)
-        and not _EN_NEGATED_MUTATION.search(clause)
+        if not _is_negated_clause(clause) and not _EN_NEGATED_MUTATION.search(clause)
     ]
     return " ".join(positive)
 
