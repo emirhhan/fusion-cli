@@ -12,6 +12,7 @@ yeniden başlasa da iş izlenebilir.
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 import signal
@@ -37,7 +38,7 @@ from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_positive_int, require_str
 from .job_delivery import observe_delivery, save_delivery
 from .job_evidence import JobEvidenceManifest, completed_evidence, save_manifest
-from .job_owner import save_owner, verified_owner
+from .job_owner import process_identity, save_owner, verified_owner
 from .remotion_shell_guard import check_shell_result
 
 #: İş dosyalarının proje köküne göre yeri.
@@ -47,6 +48,8 @@ _JOB_ID = re.compile(r"^[a-f0-9]{8}$")
 _TERMINATED_EXIT = 128 + signal.SIGTERM
 #: Bekleme döngüsünün yoklama aralığı (saniye).
 _POLL_S = PROCESS_POLL_S
+#: Sarmalayıcının hâlâ yaşadığının yoklanma aralığı (saniye); `ps` her turda çağrılmaz.
+_LIVENESS_CHECK_S = 1.0
 
 
 def _jobs_dir(context: ToolContext) -> Path:
@@ -94,9 +97,15 @@ def start_job(
         )
     )
     token = "fusion-job-" + uuid.uuid4().hex
+    # Komut düz metin gömülmez, kendi dosyasından (`<kimlik>.cmd`) çalıştırılır.
+    # Ölçüldü (29 Ekim): `( komut )` içine gömülen `npm test # not` kapanış
+    # parantezini yorum satırına alıyor, dengesiz tırnak sarmalayıcıyı sözdizimi
+    # hatasıyla düşürüyordu; `.exit` hiç yazılmıyor, iş sonsuza dek SÜRÜYOR görünüyordu.
+    komut_dosyasi = klasor / f"{kimlik}.cmd"
     sarmal = (
         f": {token}; "
-        f"( {command} ) > {shlex.quote(str(gunluk))} 2>&1; fusion_job_code=$?; "
+        f"( sh {shlex.quote(str(komut_dosyasi))} ) > {shlex.quote(str(gunluk))} 2>&1; "
+        "fusion_job_code=$?; "
         f'{observer} "$fusion_job_code" >> {shlex.quote(str(gunluk))} 2>&1; '
         f'echo "$fusion_job_code" > {shlex.quote(str(cikis))}'
     )
@@ -142,6 +151,29 @@ def _read_exit(klasor: Path, kimlik: str) -> int | None:
     return int(metin) if metin.lstrip("-").isdigit() else None
 
 
+def _wrapper_gone(klasor: Path, kimlik: str) -> bool:
+    """İşin sarmalayıcı kabuğu artık yok mu? Doğrulanamıyorsa False (sürüyor say).
+
+    Sahiplik kaydı (`.owner.json` + `.pid`) süreç başlangıç kimliğini taşır: PID
+    başka bir sürece geçmişse de, süreç yoksa da kimlik doğrulanamaz.
+    """
+    try:
+        owner = json.loads((klasor / f"{kimlik}.owner.json").read_text(encoding="utf-8"))
+        pid = int((klasor / f"{kimlik}.pid").read_text(encoding="utf-8"))
+        token = owner["token"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    if not isinstance(token, str) or not token:
+        return False
+    try:
+        process_identity(pid, token)
+    except ValueError:
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return False
+
+
 def _tail(klasor: Path, kimlik: str) -> str:
     try:
         metin = (klasor / f"{kimlik}.log").read_text(encoding="utf-8", errors="replace")
@@ -176,10 +208,26 @@ def job_status(args: ToolArgs, context: ToolContext) -> ToolResult:
     bekle = min(require_positive_int(args, "wait_s", default=1), int(JOB_MAX_WAIT_S))
     bitis = time.monotonic() + bekle
     kod = _read_exit(klasor, kimlik)
+    sonraki_yoklama = time.monotonic() + _LIVENESS_CHECK_S
+    olu = False
     while kod is None and time.monotonic() < bitis and not context.cancelled.is_set():
         time.sleep(_POLL_S)
         kod = _read_exit(klasor, kimlik)
+        if kod is None and time.monotonic() >= sonraki_yoklama:
+            olu = _wrapper_gone(klasor, kimlik)
+            if olu:
+                kod = _read_exit(klasor, kimlik)  # son anda yazılmış olabilir
+                break
+            sonraki_yoklama = time.monotonic() + _LIVENESS_CHECK_S
     cikti = _tail(klasor, kimlik)
+    if kod is None and (olu or _wrapper_gone(klasor, kimlik)):
+        kod = _read_exit(klasor, kimlik)
+        if kod is None:
+            return ToolResult.failure(
+                f"İş {kimlik} SONLANDI ama çıkış kodu bilinmiyor: sarmalayıcı süreç yok "
+                "(öldürüldü ya da makine yeniden başladı), `.exit` yazılmadı. İşi "
+                f"yeniden başlat.\n[son çıktı]\n{cikti}"
+            )
     try:
         delivery = observe_delivery(klasor, context.root, kimlik, kod)
     except (OSError, ValueError) as error:
