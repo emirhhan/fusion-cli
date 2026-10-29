@@ -92,16 +92,66 @@ _SCRATCH_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/", "/dev/null")
 #: Yönlendirme hedefi: `> x`, `>> x`, `2> x`, `&> x` (`>&1` değil).
 _REDIRECT = re.compile(r"(?<![<>])(?:\d|&)?>{1,2}(?!&)\s*([^\s;&|<>()]+)")
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+#: Başka bir komutu kendi adına çalıştıran kabuklar (`sh -c '…'`) ve sarmalayıcılar.
+_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
+_SHELL_C_FLAGS = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")
+#: Sarmalayıcı → değer alan seçenekleri ve atlanacak konumsal sayısı (`timeout 30 …`).
+_WRAPPERS: dict[str, tuple[frozenset[str], int]] = {
+    "timeout": (frozenset({"-s", "-k", "--signal", "--kill-after"}), 1),
+    "nice": (frozenset({"-n", "--adjustment"}), 0),
+    "caffeinate": (frozenset({"-t", "-w"}), 0),
+    "watch": (frozenset({"-n", "--interval"}), 0),
+}
+#: Önek sözcüklerin değer alan seçenekleri (`env -u AD komut`, `xargs -n 1 komut`).
+_PREFIX_VALUE_FLAGS = {
+    "env": frozenset({"-u", "-C", "-S", "-P", "--unset", "--chdir"}),
+    "xargs": frozenset({"-n", "-I", "-L", "-P", "-s", "-d", "-E", "-a", "-J"}),
+}
+#: İç içe komutun en fazla derinliği; aşılırsa belirsiz sayılıp sorulur.
+_MAX_NESTING = 4
+#: Çıktıyı kabuğa/yorumlayıcıya boşaltan boru: `curl … | sh`, `| python3`, `| sudo bash`.
+#: Betik dosyası ya da `-c '…'` alan yorumlayıcı bu desene girmez.
+_PIPE_TO_INTERPRETER = re.compile(
+    r"\|\s*(?:(?:sudo|env)\s+)*(?:sh|bash|zsh|dash|ksh|python[\d.]*|node|perl|ruby|php)"
+    r"(?:\s+-[\w-]*)*\s*(?=$|[;&|)\n])"
+)
+#: Çift tırnak içinde bile çalışan komut ikamesi: `"$(git push)"`, `"`git push`"`.
+_SUBSTITUTION = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+#: Satır içi kodun komut çalıştırdığını ya da ağa bağlandığını gösteren izler.
+_INLINE_OUTWARD = re.compile(
+    r"\bsubprocess\b|\bos\.(?:system|popen|exec\w*|spawn\w*)|\bpty\b|\bsocket\b|"
+    r"\burllib\b|\brequests\b|\bhttp\.client\b|\bhttpx\b|\baiohttp\b|\bsmtplib\b|"
+    r"\bftplib\b|\bchild_process\b|\bexecSync\b|\bspawnSync\b|\bfetch\s*\(|"
+    r"\bXMLHttpRequest\b|\baxios\b|\bsystem\s*\(|\bpopen\b|\bexec\s*[(\"']"
+)
+_INTERPRETERS = frozenset({"node", "deno", "perl", "ruby", "php"})
 _HOME_VAR = re.compile(r"\$\{?(HOME|USER)\b")
 
 
 def auto_risk(command: str, root: Path | None) -> str | None:
-    """Otomatik kipte bu komut SORULMALI mı? Gerekçe ya da None (sormadan çalışır)."""
+    """Otomatik kipte bu komut SORULMALI mı? Gerekçe ya da None (sormadan çalışır).
+
+    İç içe komut (`sh -c '…'`, `eval`, `timeout 5 …`, `"$(…)"`) özyinelemeli çözülür:
+    ölçüldü (29 Ekim), eskiden `sh -c 'git push'` içteki komuta hiç bakılmadan geçiyordu.
+    """
+    return _risk(command, root, 0)
+
+
+def _risk(command: str, root: Path | None, depth: int) -> str | None:
     if not command.strip():
         return None
-    for target in _REDIRECT.findall(_unquoted(command)):
+    if depth > _MAX_NESTING:
+        return "iç içe çok katmanlı komut (içeriği denetlenemiyor)"
+    unquoted = _unquoted(command)
+    for target in _REDIRECT.findall(unquoted):
         if _outside(target, root):
             return f"proje dışına yazıyor ({target})"
+    if _PIPE_TO_INTERPRETER.search(unquoted):
+        return "çıktıyı kabuğa/yorumlayıcıya boşaltıyor (… | sh) — içeriği denetlenemiyor"
+    for match in _SUBSTITUTION.finditer(re.sub(r"'[^']*'", "''", command)):
+        reason = _risk(match.group(1) or match.group(2) or "", root, depth + 1)
+        if reason is not None:
+            return reason
     away = False
     for segment in _segments(command):
         parts = _words(segment)
@@ -111,7 +161,7 @@ def auto_risk(command: str, root: Path | None) -> str | None:
         if name == "cd":
             away = bool(arguments) and _outside(arguments[0], root)
             continue
-        reason = _segment_risk(name, arguments, segment, root)
+        reason = _segment_risk(name, arguments, segment, root, depth)
         if reason is None and away and not _reads_only(name, arguments):
             reason = "proje dışındaki bir klasörde değişiklik yapıyor"
         if reason is not None:
@@ -135,8 +185,10 @@ def is_read_only_command(command: str) -> bool:
     return True
 
 
-def _segment_risk(name: str, arguments: list[str], segment: str, root: Path | None) -> str | None:
-    """Tek bir komut parçasının riski (sıra: yetki, sistem, dışarı, yol)."""
+def _segment_risk(
+    name: str, arguments: list[str], segment: str, root: Path | None, depth: int = 0
+) -> str | None:
+    """Tek bir komut parçasının riski (sıra: yetki, sistem, dışarı, iç içe, yol)."""
     sub = next((a for a in arguments if not a.startswith("-")), "")
     if name in {"sudo", "doas", "su"}:
         return "yönetici yetkisi (sudo) istiyor"
@@ -147,6 +199,11 @@ def _segment_risk(name: str, arguments: list[str], segment: str, root: Path | No
     reason = _install_risk(name, arguments, sub) or _outward_risk(name, arguments, sub)
     if reason is not None:
         return reason
+    if name.startswith("$"):
+        return "komut adı bir değişkenden geliyor (ne çalışacağı bilinmiyor)"
+    nested = _nested_command(name, arguments)
+    if nested is not None:
+        return _risk(nested, root, depth + 1)
     if name == "killall":
         return "uygulamaları ada göre kapatıyor"
     if _DB_DROP.search(segment):
@@ -155,11 +212,33 @@ def _segment_risk(name: str, arguments: list[str], segment: str, root: Path | No
     tehlike = inline_code_danger(code) if code is not None else None
     if tehlike is not None:
         return tehlike
+    inline_runner = name.startswith("python") or name in _INTERPRETERS
+    if code is not None and inline_runner and _INLINE_OUTWARD.search(code):
+        return "satır içi kod komut çalıştırıyor ya da ağa bağlanıyor"
     if not _reads_only(name, arguments) and any(
         _outside(target, root) for target in _write_targets(name, arguments)
     ):
         return "proje dışındaki bir yolu değiştiriyor"
     return None
+
+
+def _nested_command(name: str, arguments: list[str]) -> str | None:
+    """Komutun kendi adına çalıştırdığı iç komut: `sh -c '…'`, `eval …`, `timeout 5 …`."""
+    if name in _SHELLS:
+        for index, argument in enumerate(arguments[:-1]):
+            if _SHELL_C_FLAGS.match(argument):
+                return arguments[index + 1]
+        return None
+    if name == "eval":
+        return " ".join(arguments)
+    wrapper = _WRAPPERS.get(name)
+    if wrapper is None:
+        return None
+    value_flags, skip = wrapper
+    rest = list(arguments)
+    while rest and rest[0].startswith("-"):
+        rest = rest[2:] if rest[0] in value_flags else rest[1:]
+    return " ".join(shlex.quote(part) for part in rest[skip:]) or None
 
 
 def _install_risk(name: str, arguments: list[str], sub: str) -> str | None:
@@ -267,9 +346,22 @@ def _words(segment: str) -> list[str]:
     except ValueError:
         parts = segment.split()
     while len(parts) > 1 and (parts[0] in _PREFIX_WORDS or _ENV_ASSIGN.match(parts[0])):
-        parts = parts[1:]
+        prefix, parts = parts[0], parts[1:]
+        parts = _drop_options(prefix, parts)
     if parts[:1] == ["xargs"]:
-        parts = [a for a in parts[1:] if not a.startswith("-")]
+        parts = _drop_options("xargs", parts[1:])
+    return parts
+
+
+def _drop_options(prefix: str, parts: list[str]) -> list[str]:
+    """Önek sözcüğün seçeneklerini (ve değerlerini) at: `env -u AD komut` → `komut`.
+
+    Ölçüldü (29 Ekim): `env -i git push` ve `xargs -n 1 git push` seçenek/değer asıl
+    komut sanıldığı için riskli komut görülmüyordu.
+    """
+    value_flags = _PREFIX_VALUE_FLAGS.get(prefix, frozenset())
+    while parts and parts[0].startswith("-") and len(parts[0]) > 1:
+        parts = parts[2:] if parts[0] in value_flags else parts[1:]
     return parts
 
 
@@ -281,7 +373,17 @@ def _segments(command: str) -> list[str]:
     pieces: list[str] = []
     current: list[str] = []
     quote = ""
+    escaped = False
     for char in command.replace("$(", "("):
+        if escaped:
+            # `\"` ve `\;` düz karakterdir: tırnak açmaz, komutu bölmez.
+            current.append(char)
+            escaped = False
+            continue
+        if char == "\\" and quote != "'":
+            current.append(char)
+            escaped = True
+            continue
         if quote:
             quote = "" if char == quote else quote
         elif char in "'\"":
@@ -295,6 +397,14 @@ def _segments(command: str) -> list[str]:
     return [piece.strip() for piece in pieces if piece.strip()]
 
 
+_QUOTED_OR_ESCAPED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"|\\.", re.DOTALL)
+
+
 def _unquoted(command: str) -> str:
-    """Tırnak içini boşaltılmış komut: `grep ">" a` içindeki `>` yönlendirme değildir."""
-    return re.sub(r"'[^']*'|\"[^\"]*\"", "''", command)
+    """Tırnak içini boşaltılmış komut: `grep ">" a` içindeki `>` yönlendirme değildir.
+
+    Ters eğik çizgiyle kaçırılmış karakter (tırnak, `>`) düz harftir; tırnak açmaz.
+    """
+    return _QUOTED_OR_ESCAPED.sub(
+        lambda match: "_" if match.group(0).startswith("\\") else "''", command
+    )
