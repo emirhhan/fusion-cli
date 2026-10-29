@@ -58,6 +58,13 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Geçerli Godot 4 `project.godot` (config_version, uid ana sahne) reddedilmez; bozuk Remotion kiti kabuğu kilitlemez; favicon 404'ü ve WebGL canvas yanlış hata üretmez; Remotion videosu gerçek dosya, süre ve çözünürlük kanıtıyla doğrulanır, videoya sabit "Fusion" adı eklenmez.
 - Zamanlanmış görevde tek teslim hatası sıradakileri durdurmaz; etkin sohbet kapansa da açık başka oturum üzerinden alınır.
 - Zaman aşımıyla iptal edilen model çağrıları maliyet özetinde "en az" diye işaretlenir, sıfır sayılmaz.
+- Masaüstü kabuğu: bozuk `active-runtime.json` açılışı ve "Onar"ı engellemez (`.corrupt` olarak yedeklenir); çekirdek ya da ses çıktısındaki geçersiz bayt sonraki satırları susturmaz; takılan terminali kapatmak ve yoğun yazım uygulamayı dondurmaz; çekirdek durdurulurken alt süreçleri de sonlanır (macOS/Linux).
+- Çekirdek makbuzu gelmese ya da reddedilse de tur çıktısı görünür; açılışta bağlanamayan kayıtlı sekmeler silinmez, uyarıyla gösterilir; dosya okuma hatası dosya ağacını gizlemez; artık cevap beklemeyen soru kartı kapanır.
+- Sesli konuşmada araya girildikten sonra mikrofon sağır kalmaz; Esc menüyü kapatırken ya da turu durdururken sağ paneli kapatmaz; talimat kaydı hataları görünür, okunamayan talimatın üzerine yazılamaz.
+- Hesap kurtarma kodu her koşulda gösterilir, pano çalışmasa da devam edilebilir; bağlantı araması GitHub, Notion ve Shopify'ı bulur; beceri listesi tek bozuk öğede boşalmaz; sunucuda kaybolan görsel işi panelden unutulabilir.
+- Bellek bir koleksiyon takılınca tamamen kapanmaz, yazılamayan kayıt "eklendi" denmez; akışlı gateway yanıtlarında ve uzak olaylarda sırlar maskelenir; MCP araç hata mesajları modele iletilir; Gemini tarayıcı oturumunda görseller eklenir.
+- Sistem istemlerindeki dil ve ilerleme anlatımı çelişkileri giderildi; plan şeması tek geçerli örnek ve `c1`/`c2` kimlikleriyle zayıf modellerde daha az reddedilir; Remotion kart başlıkları uzun Türkçe sözcüklerde bölünmez.
+- Sürüm Release'i yüklenen bütün dosyalar için SHA256SUMS, SBOM ve manifest içerir; terminal (PTY) testleri CI'da ayrı işte koşar.
 
 ## 0.7.18 — 2026-10-21
 
