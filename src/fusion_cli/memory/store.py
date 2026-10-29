@@ -218,7 +218,8 @@ class GuardedCollection:
                     "bellek çağrısı süre aştı; koleksiyon geçici olarak kapatıldı",
                     extra={"islem": name, "koleksiyon": self._key[1], "sn": DISABLE_COOLDOWN_S},
                 )
-            except Exception as exc:  # noqa: BLE001 — bellek turu düşürmez; sınır katmanı, loglanır
+            except Exception as exc:
+                # Sınır katmanı: bellek turu düşürmez; hata türü ve kısa mesaj loglanır.
                 tamam, sonuc = False, None
                 _logger.warning(
                     "bellek çağrısı başarısız; çağrı atlandı",
