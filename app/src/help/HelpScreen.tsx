@@ -23,7 +23,7 @@ interface Kisayol {
 const KISAYOLLAR: Kisayol[] = [
   { tus: "Enter", ne: "Görevi gönder" },
   { tus: "Shift + Enter", ne: "Alt satıra geç" },
-  { tus: "Shift + Tab", ne: "İzin modunu değiştir (Otomatik / Yalnız plan / Güvenli)" },
+  { tus: "Shift + Tab", ne: "İzin modunu değiştir (Otomatik / Manuel / Düzenlemeleri kabul et / Plan)" },
   { tus: "/", ne: "Komut paletini aç" },
   { tus: "Esc", ne: "Açık menüyü ya da seçiciyi kapat" },
 ];
@@ -51,9 +51,10 @@ const SORULAR: Soru[] = [
   {
     baslik: "İzin modları ne işe yarıyor?",
     cevap:
-      "Otomatik: Fusion kendi ilerler, yıkıcı işlemde sorar. Yalnız plan: hiçbir şeyi " +
-      "değiştirmez. Güvenli mod: her değiştirici işlem için ayrı ayrı onay ister. " +
-      "Görev kutusunun altından ya da Shift+Tab ile değiştirilir.",
+      "Otomatik: Fusion kendi ilerler, yalnız riskli işlemde sorar. Manuel: okuma dışındaki her " +
+      "işlem için onay ister. Düzenlemeleri kabul et: dosya düzenlemelerini sormadan uygular, " +
+      "komutları sorar. Plan: hiçbir şeyi değiştirmez. İzinleri atla: hiçbir şey sormaz, yalnız " +
+      "menüden seçilir. Görev kutusunun altından ya da Shift+Tab ile değiştirilir.",
   },
   {
     baslik: "Sağlayıcıya giriş yaparken tarayıcı açılıyor, normal mi?",

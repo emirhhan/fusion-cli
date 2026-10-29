@@ -80,9 +80,10 @@ export const GUIDE_TOPICS: readonly GuideTopic[] = [
     where: "Yazı kutusunun altındaki mod düğmesi; Ayarlar → İzinler.",
     image: "onay", imageAlt: "Fusion bir dosyayı değiştirmeden önce onay istiyor",
     steps: [
-      "Kutunun altındaki mod düğmesinden ya da Shift + Tab ile modu değiştir: Otomatik, Yalnız plan, Güvenli.",
-      "Güvenli modda her değiştirici işlem için bir onay penceresi çıkar; \"Bir kez izin ver\" ya da \"Reddet\" seç.",
-      "Yalnız plan modunda Fusion hiçbir şeyi değiştirmez, sadece plan çıkarır.",
+      "Kutunun altındaki mod düğmesinden ya da Shift + Tab ile modu değiştir: Otomatik, Manuel, Düzenlemeleri kabul et, Plan. Shift + Tab bu dört mod arasında döner.",
+      "Manuel modda okuma dışındaki her işlem için bir onay penceresi çıkar; \"Bir kez izin ver\" ya da \"Reddet\" seç. Düzenlemeleri kabul et modunda dosya düzenlemeleri sorulmadan uygulanır, komutlar sorulur.",
+      "Plan modunda Fusion hiçbir şeyi değiştirmez, sadece plan çıkarır.",
+      "İzinleri atla modu hiçbir şey sormaz; yanlışlıkla açılmasın diye Shift + Tab döngüsünde yoktur, yalnız mod menüsünden seçilir.",
     ],
     settingsSection: "izinler", inOnboarding: true,
   },

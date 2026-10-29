@@ -1,6 +1,7 @@
 import { readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, it } from "vitest";
+import { APPROVAL_MODES } from "../screens/ApprovalModeMenu";
 import { GUIDE_GROUPS, GUIDE_TOPICS, ONBOARDING_TOPICS, guideImageUrl } from "./topics";
 
 const GUIDE_DIR = resolve(__dirname, "../../public/guide");
@@ -36,4 +37,13 @@ it("Chrome konusu tek tık ve bir kerelik Erişilebilirlik iznini anlatır", () 
   const text = chrome.steps.join(" ");
   expect(text).toContain("Eklentiyi kur");
   expect(text).toContain("Erişilebilirlik");
+});
+
+// Ölçüldü (29 Ekim, U6-28): izin konusu üç mod (Otomatik/Yalnız plan/Güvenli) anlatıyordu;
+// menüde beş mod var ve adları farklı ("Manuel", "Plan", "Düzenlemeleri kabul et", "İzinleri atla").
+it("izin konusu menüdeki bütün modları menüdeki adlarıyla anlatır", () => {
+  const izin = GUIDE_TOPICS.find((topic) => topic.id === "izin")!;
+  const metin = izin.steps.join(" ");
+  for (const mod of APPROVAL_MODES) expect(metin, mod.label).toContain(mod.label);
+  expect(metin).not.toContain("Güvenli modda");
 });
