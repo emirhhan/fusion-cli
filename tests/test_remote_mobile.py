@@ -269,6 +269,26 @@ async def test_yetkisiz_cihaz_yazan_cagrilari_yapamaz(rig: Rig) -> None:
     assert (await rig.call("projects.list", who=rig.readonly)).ok
 
 
+async def test_akan_delta_bolunmus_sirri_parca_parca_yazmaz(rig: Rig) -> None:
+    """R1-05: sır iki parçaya bölünse de olay kaydındaki hiçbir delta sır içermez."""
+    service = rig.service
+    run = (await rig.call("tasks.create", {"prompt": "x"})).data["runId"]
+    sink = service._sink_for(run)
+    token = {"olay": "TokenReceived", "provisional": False}
+    sink("event", {**token, "text": "anahtar ghp_SENTINEL01234"})
+    rig.clock.value += 1
+    sink("event", {**token, "text": "56789ABCDEFGHIJKLMNOP bitti\n"})
+    sink("event", {"olay": "ToolExecuted", "name": "run_shell", "outcome": "ok"})
+    deltas = [
+        e.payload["text"]
+        for e in service._store.events_after(_yerel_sahip(), run, 0)
+        if e.kind == "delta"
+    ]
+    assert deltas and all("SENTINEL" not in parca for parca in deltas)
+    assert "bitti" in "".join(deltas)
+    rig.backend.release.set()
+
+
 async def test_akan_yanit_parcalari_birlesir_ve_ara_olaydan_once_bosalir(rig: Rig) -> None:
     service = rig.service
     run = (await rig.call("tasks.create", {"prompt": "x"})).data["runId"]
@@ -283,14 +303,16 @@ async def test_akan_yanit_parcalari_birlesir_ve_ara_olaydan_once_bosalir(rig: Ri
         for e in service._store.events_after(_yerel_sahip(), run, 0)
         if e.kind == "delta"
     ]
-    assert deltas == ["Mer", "haba"]  # ilk parça hemen, sonrakiler birleşik
+    # Yarım belirteç ("Mer") bölünmüş sır sızmasın diye bir sonraki parçayı bekler (R1-05):
+    # ikisi birleşip ara olaydan önce BİR delta olarak boşalır.
+    assert deltas == ["Merhaba"]
     rig.clock.value += 1
-    sink("event", {**token, "text": "!"})
+    sink("event", {**token, "text": "!\n"})
     assert [
         e.payload["text"]
         for e in service._store.events_after(_yerel_sahip(), run, 0)
         if e.kind == "delta"
-    ][-1] == "!"  # type: ignore[union-attr]
+    ][-1] == "!\n"  # type: ignore[union-attr]
     rig.backend.release.set()
 
 

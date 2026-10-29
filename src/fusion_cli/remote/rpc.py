@@ -25,7 +25,7 @@ from .backend import EventSink, TaskBackend
 from .constants import DELTA_FLUSH_SECONDS, RPC_VERSION
 from .devices import CHANNEL_SIGNED, Device, DeviceRegistry
 from .mobile import MobileApi, MobileError
-from .redaction import notification_summary
+from .redaction import notification_summary, split_flushable
 from .scopes import Scope, allows
 from .screen import ScreenCapture, ScreenShareGate, ScreenUnavailableError
 from .tasks import (
@@ -334,8 +334,11 @@ class RemoteService:
         pending += text
         if self._clock.now() - last >= DELTA_FLUSH_SECONDS:
             self._deltas.pop(run_id, None)
-            self._store.append(run_id, "delta", {"text": pending})
-            self._deltas[run_id] = ("", self._clock.now())
+            # Yarım belirteç bir sonraki parçaya kalır: bölünmüş sır parça parça sızmasın.
+            ready, tail = split_flushable(pending)
+            if ready:
+                self._store.append(run_id, "delta", {"text": ready})
+            self._deltas[run_id] = (tail, self._clock.now())
         else:
             self._deltas[run_id] = (pending, last)
 
