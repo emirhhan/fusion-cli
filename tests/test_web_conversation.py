@@ -790,3 +790,26 @@ async def test_gorunmez_kipte_pencere_acilamazsa_beklenmez(pool, monkeypatch):
     with pytest.raises(web_browser.WebBrowserAuthError):
         await transport(WebSessionCredential(), (Message("user", "yap"),), "m")
     assert beklendi["n"] == 0
+
+
+async def test_oturum_zaman_asimi_yanit_beklemeye_gecirilir(pool, monkeypatch):
+    """P1-03: `limit_s` geçirilmezse 180 sn varsayılanı sahte seçici hatası üretirdi.
+
+    Ölçüldü (29 Ekim): `_deliver_turn` çağrısı `limit_s` taşımıyordu; `timeout_s=600`
+    iken bile yanıt beklemesi 180 sn'de düşüyor, tur yeni sohbette ikinci kez gönderiliyordu.
+    """
+    from dataclasses import replace
+
+    gorulen: list[float] = []
+
+    async def _send(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+        gorulen.append(limit_s)
+        return "tamam"
+
+    monkeypatch.setattr(web_browser, "_send_turn", _send)
+    uzun = replace(_session(), timeout_s=600.0)
+    transport = build_browser_transport(uzun, pool=pool)
+
+    await transport(WebSessionCredential(), _messages(2), uzun.model)
+
+    assert gorulen and gorulen[0] > 500.0

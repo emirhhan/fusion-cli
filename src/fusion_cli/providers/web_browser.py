@@ -1548,8 +1548,19 @@ def build_browser_transport(
                 if remaining <= 0:
                     break
                 try:
+                    # `limit_s` çağrı başına geçirilir: geçirilmezse 180 sn varsayılanı
+                    # devreye girer, `timeout_s` > 180 iken sahte "seçici hatası" üretir ve
+                    # AYNI istem yeni sohbetle ikinci kez gönderilirdi (P1-03).
                     return await asyncio.wait_for(
-                        _deliver_turn(manager, session, definition, context, messages, trace_dir),
+                        _deliver_turn(
+                            manager,
+                            session,
+                            definition,
+                            context,
+                            messages,
+                            trace_dir,
+                            limit_s=max(1.0, remaining),
+                        ),
                         timeout=max(1.0, remaining),
                     )
                 except WebBrowserSelectorError as error:
