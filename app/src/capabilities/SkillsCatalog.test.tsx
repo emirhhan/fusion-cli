@@ -21,6 +21,26 @@ function client() {
   } as unknown as ProtocolClient;
 }
 
+describe("SkillsCatalog bozuk öğe", () => {
+  // Ölçüldü (29 Ekim, U6-04): etkin alanı boolean olmayan TEK öğe bütün listeyi boşaltıyordu.
+  it("bozuk öğeyi atlar, geçerli olanları gösterir ve atlananı bildirir", async () => {
+    const bozuk = {
+      request: vi.fn(async () => ({
+        ok: true,
+        beceriler: [
+          { ad: "saglam", aciklama: "", kaynak: "claude", tur: "beceri", etkin: true, izinler: [] },
+          { ad: "bozuk", aciklama: "", kaynak: "claude", tur: "beceri", etkin: "evet", izinler: [] },
+          null,
+        ],
+      })),
+    } as unknown as ProtocolClient;
+    render(<SkillsCatalog client={bozuk} onClose={() => undefined} />);
+    expect(await screen.findByText("saglam")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("2 katalog öğesi");
+  });
+});
+
 describe("SkillsCatalog", () => {
   it("kaynakları, izinleri ve birleşik Claude/Codex etiketini gösterir", async () => {
     render(<SkillsCatalog client={client()} onClose={() => undefined} />);

@@ -34,10 +34,27 @@ function itemFrom(raw: unknown, fallbackKind: CapabilityKind): CatalogItem {
   };
 }
 
-function decode(payload: Record<string, unknown>): CatalogItem[] {
+/**
+ * Ölçüldü (29 Ekim, U6-04): tek bozuk öğe `throw` edip bütün kataloğu düşürüyordu.
+ * Geçerli öğeler gösterilir, atlanan bozuk öğe sayısı döner.
+ */
+function decode(payload: Record<string, unknown>): { items: CatalogItem[]; skipped: number } {
   if (payload.ok !== true) throw new Error(String(payload.metin ?? "Katalog alınamadı."));
   const groups: [string, CapabilityKind][] = [["beceriler", "beceri"], ["ajanlar", "ajan"], ["talimatlar", "talimat"], ["mcp", "mcp"]];
-  return groups.flatMap(([key, kind]) => Array.isArray(payload[key]) ? payload[key].map((raw) => itemFrom(raw, kind)) : []);
+  const items: CatalogItem[] = [];
+  let skipped = 0;
+  for (const [key, kind] of groups) {
+    const raws = payload[key];
+    if (!Array.isArray(raws)) continue;
+    for (const raw of raws) {
+      try {
+        items.push(itemFrom(raw, kind));
+      } catch {
+        skipped += 1;
+      }
+    }
+  }
+  return { items, skipped };
 }
 
 /** "claude+codex" → "Claude · Codex". Köşeli parantezli ham kaynak adı teknik duruyordu. */
@@ -67,11 +84,15 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
   const [detail, setDetail] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [skipped, setSkipped] = useState(0);
 
   useEffect(() => {
     let active = true;
     void client.request("yetenek.katalog", {}).then((payload) => {
-      if (active) setItems(decode(payload));
+      if (!active) return;
+      const decoded = decode(payload);
+      setItems(decoded.items);
+      setSkipped(decoded.skipped);
     }).catch((reason) => active && setError(String(reason)));
     return () => { active = false; };
   }, [client]);
@@ -141,6 +162,7 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
         </div>
       </div>
       {error && <p className="skills-catalog__error" role="alert">{error}</p>}
+      {skipped > 0 && <p className="skills-catalog__error" role="status">{skipped} katalog öğesi bozuk olduğu için atlandı.</p>}
       <div className="skills-catalog__layout">
         <section aria-label="Yetenek kataloğu" className="skills-catalog__list">
           {filtered.length === 0 && <p className="skills-catalog__empty">Eşleşen öğe yok.</p>}
