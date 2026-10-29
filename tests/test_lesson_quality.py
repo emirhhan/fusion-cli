@@ -401,3 +401,37 @@ def test_kucuk_alaka_farki_guveni_ezmez():
     secilen = select_lessons((genel, isabetli), limit=4)
 
     assert secilen[0].text == "genel", "kıl payı fark bandı değiştirmemeli"
+
+
+# --------------------------------------------------------------------------- #
+# Eşik altı dersin yeniden deneme penceresi (M1-39)
+# --------------------------------------------------------------------------- #
+
+
+def test_esik_alti_ders_bekleme_suresinden_once_enjekte_edilmez():
+    from fusion_cli.memory.lesson_scoring import LESSON_REVIVE_AFTER_S
+
+    lesson = _lesson("zayif modelin sustugu ders", confidence=0.2)
+
+    assert not is_injectable(lesson)
+    assert not is_injectable(lesson, idle_s=LESSON_REVIVE_AFTER_S - 1)
+
+
+def test_esik_alti_ders_bekleme_suresi_dolunca_yeniden_denenir():
+    """Ölçüldü (29 Ekim): eşik altı ders bir daha asla ödüllenmiyordu, kalıcı ölüydü."""
+    from fusion_cli.memory.lesson_scoring import LESSON_REVIVE_AFTER_S
+
+    lesson = _lesson("zayif modelin sustugu ders", confidence=0.2)
+
+    assert is_injectable(lesson, idle_s=LESSON_REVIVE_AFTER_S)
+
+
+def test_secim_bekleme_suresi_dolan_esik_alti_dersi_adaya_alir():
+    from fusion_cli.memory.lesson_ranking import Candidate, select_lessons
+    from fusion_cli.memory.lesson_scoring import LESSON_REVIVE_AFTER_S
+
+    lesson = _lesson("ikinci sans", confidence=0.2)
+
+    assert select_lessons((Candidate(lesson=lesson, distance=0.1),), limit=3) == ()
+    taze = Candidate(lesson=lesson, distance=0.1, idle_s=LESSON_REVIVE_AFTER_S)
+    assert select_lessons((taze,), limit=3) == (lesson,)

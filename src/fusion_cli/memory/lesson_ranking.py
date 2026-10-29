@@ -43,6 +43,8 @@ class Candidate:
     lexical: float = 0.0
     #: Embedding ve lexical sıralarının RRF birleşimi (yüksek = iyi).
     fused: float = 0.0
+    #: Dersin güveninin en son kaç saniye önce güncellendiği (eşik altı yeniden deneme için).
+    idle_s: float = 0.0
 
 
 def select_lessons(
@@ -63,7 +65,7 @@ def select_lessons(
         candidate
         for candidate in candidates
         if _is_relevant(candidate, max_distance)
-        and is_injectable(candidate.lesson)
+        and is_injectable(candidate.lesson, idle_s=candidate.idle_s)
         and _scope_matches(candidate.lesson.scope, scope)
     ]
     relevant.sort(key=_rank_key)

@@ -193,3 +193,46 @@ def test_reindex_ozeti_yazilamayan_parcayi_soyler():
 
     assert "3 parça YAZILAMADI" in ozet
     assert "+2 yeni" in ozet
+
+
+class _SabitSaat:
+    def __init__(self, simdi: float) -> None:
+        self._simdi = simdi
+
+    def monotonic(self) -> float:
+        return self._simdi
+
+    def now(self) -> float:
+        return self._simdi
+
+
+class _ZayifDersKoleksiyonu(_Koleksiyon):
+    def __init__(self, zaman_damgasi: float) -> None:
+        super().__init__("dersler")
+        self._zaman = zaman_damgasi
+        self.eklenen = ["d1"]
+
+    def query(self, query_texts, n_results=1):
+        meta = {"text": "sessiz kalan ders", "kind": "success", "confidence": 0.2}
+        meta["timestamp"] = self._zaman
+        return {
+            "ids": [["d1"]],
+            "documents": [["sessiz kalan ders"]],
+            "metadatas": [[meta]],
+            "distances": [[0.1]],
+        }
+
+
+@pytest.mark.parametrize(("yas_gun", "beklenen"), [(1, 0), (8, 1)])
+def test_recall_esik_alti_dersi_yalniz_bekleme_suresinden_sonra_getirir(
+    tmp_path, monkeypatch, yas_gun, beklenen
+):
+    """M1-39: kalıcı 'ölü' ders yok; 7 gün sonra bir tur daha şans alır."""
+    simdi = 10_000_000.0
+    koleksiyon = _ZayifDersKoleksiyonu(simdi - yas_gun * 86400)
+    monkeypatch.setattr(
+        lessons, "get_collection", lambda *a, **k: store.GuardedCollection(koleksiyon, tmp_path)
+    )
+    bellek = lessons.ChromaLessonMemory(tmp_path, clock=_SabitSaat(simdi))
+
+    assert len(bellek.recall("sessiz kalan ders")) == beklenen

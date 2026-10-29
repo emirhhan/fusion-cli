@@ -96,11 +96,13 @@ class ChromaLessonMemory:
 
         lexical = bm25_scores(task, list(documents))
         fused = reciprocal_rank_fusion(distances, lexical)
+        simdi = self._clock.now()
         candidates = tuple(
             replace(
                 Candidate(lesson=_to_lesson(document, metadata), distance=distance),
                 lexical=lexical_score,
                 fused=fused_score,
+                idle_s=_idle_seconds(metadata, simdi),
             )
             for document, metadata, distance, lexical_score, fused_score in zip(
                 documents, metadatas, distances, lexical, fused, strict=False
@@ -299,6 +301,14 @@ def _to_lesson(document: str, metadata: dict[str, Any]) -> Lesson:
         workspace=str(metadata.get("workspace", "")),
         tags=tuple(t for t in str(metadata.get("tags", "")).split(",") if t),
     )
+
+
+def _idle_seconds(metadata: dict[str, Any], now: float) -> float:
+    """Güvenin son güncellenmesinden geçen süre; zaman damgası yoksa 0 (yeniden deneme yok)."""
+    try:
+        return max(0.0, now - float(metadata["timestamp"]))
+    except (KeyError, TypeError, ValueError):
+        return 0.0
 
 
 def _enum(enum_type: Any, raw: object, fallback: Any) -> Any:
