@@ -57,6 +57,13 @@ CLAUDE_TOOL_MAP: dict[str, frozenset[str]] = {
     "task": frozenset({"spawn_agent"}),
 }
 
+#: `tools:` anahtarı VAR ama hiçbir araç çözülemedi (`tools:` boş, `[]`): kısıt YOK değil,
+#: HİÇ ARAÇ YOK demektir. Boş tuple "alan hiç yazılmamış" (tam yetki) anlamına gelir; ikisi
+#: karışırsa salt-okur sanılan ajan `run_shell` yetkisiyle çalışır (T1-13).
+NO_TOOLS: tuple[str, ...] = ("-",)
+#: Codex `sandbox_mode = "read-only"` ajanının Fusion karşılığı olan salt-okur araç seti.
+_READ_ONLY_TOOLS: tuple[str, ...] = ("Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch")
+
 #: Kişilik alanları: frontmatter anahtarı → `Capability` alanı. Türkçe ve İngilizce
 #: yazım ikisi de kabul edilir; kullanıcı kendi ajanını hangisiyle yazarsa.
 _PERSONA_KEYS: dict[str, str] = {
@@ -120,13 +127,21 @@ def parse_frontmatter(text: str) -> dict[str, object]:
         return {}
 
     fields: dict[str, object] = {}
-    for line in stripped[3:end].splitlines():
-        key, separator, value = line.partition(":")
+    lines = stripped[3:end].splitlines()
+    index = 0
+    while index < len(lines):
+        key, separator, value = lines[index].partition(":")
+        index += 1
         if not separator:
             continue
         name = key.strip().lower()
         if name == "tools":
-            fields["tools"] = _parse_tools(value.strip())
+            # `tools:` + alt satırlarda `- Read` blok listesi YAML'ın olağan yazımıdır.
+            items = list(_parse_tools(value.strip()))
+            while not value.strip() and index < len(lines) and _is_list_item(lines[index]):
+                items.append(_list_item(lines[index]))
+                index += 1
+            fields["tools"] = tuple(item for item in items if item) or NO_TOOLS
         elif name in ("name", "description"):
             fields[name] = value.strip().strip("'\"")
         elif name in _PERSONA_KEYS:
@@ -136,6 +151,8 @@ def parse_frontmatter(text: str) -> dict[str, object]:
 
 def map_tools(claude_tools: tuple[str, ...]) -> set[str] | None:
     """Claude araç adlarını Fusion adlarına çevir. `*` ya da boş → None (tam set)."""
+    if claude_tools == NO_TOOLS:
+        return set()
     if not claude_tools or claude_tools == ("*",):
         return None
     allowed: set[str] = set()
@@ -292,8 +309,21 @@ def _toml_capability(path: Path, source: str) -> Capability | None:
         description=str(data.get("description") or ""),
         path=path,
         source=source,
-        tools=(),
+        tools=_toml_tools(data),
     )
+
+
+def _toml_tools(data: dict[str, object]) -> tuple[str, ...]:
+    """TOML ajanının araç kısıtı: `tools` listesi, yoksa `sandbox_mode = "read-only"`.
+
+    Eskiden hiç okunmuyordu: Codex'te salt-okur tanımlı ajan Fusion'da tam yetkiliydi.
+    """
+    tools = data.get("tools")
+    if isinstance(tools, list):
+        return tuple(str(item).strip() for item in tools if str(item).strip()) or NO_TOOLS
+    if isinstance(tools, str):
+        return _parse_tools(tools.strip()) or NO_TOOLS
+    return _READ_ONLY_TOOLS if data.get("sandbox_mode") == "read-only" else ()
 
 
 def _to_capability(path: Path, source: str, *, fallback: str) -> Capability:
@@ -316,6 +346,16 @@ def _read_head(path: Path, limit: int = _HEAD_CHARS) -> str:
         return path.read_text(encoding="utf-8")[:limit]
     except OSError:
         return ""
+
+
+def _is_list_item(line: str) -> bool:
+    return line.lstrip().startswith("-") and not line.lstrip().startswith("---")
+
+
+def _list_item(line: str) -> str:
+    """`  - 'Read'   # açıklama` → `Read`."""
+    body = line.lstrip()[1:].split(" #", 1)[0]
+    return body.strip().strip("'\"")
 
 
 def _parse_tools(value: str) -> tuple[str, ...]:
