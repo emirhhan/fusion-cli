@@ -24,11 +24,11 @@ from pathlib import Path
 from ...config.models import Config
 from ...core.constants import SHELL_TIMEOUT_S
 from ...core.diagnosis import diagnose
+from ...core.errors import CleanupFailedError
 from ...core.evidence import (
     CriterionEvidence,
     EvidenceStatus,
 )
-from ...core.errors import CleanupFailedError
 from ...core.execution_plan import VerificationCheckKind
 from ...core.process_control import (
     process_group_options,

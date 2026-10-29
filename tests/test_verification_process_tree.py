@@ -41,11 +41,16 @@ async def _olmesini_bekle(pid: int, saniye: float = 5.0) -> bool:
     return not _yasiyor(pid)
 
 
+def _oku(dosya: Path) -> str:
+    return dosya.read_text().strip() if dosya.exists() else ""
+
+
 async def _pid_oku(dosya: Path) -> int:
     bitis = time.monotonic() + 5
     while time.monotonic() < bitis:
-        if dosya.exists() and dosya.read_text().strip():
-            return int(dosya.read_text())
+        metin = await asyncio.to_thread(_oku, dosya)
+        if metin:
+            return int(metin)
         await asyncio.sleep(0.05)
     raise AssertionError("torun başlamadı")
 

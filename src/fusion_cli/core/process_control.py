@@ -271,6 +271,6 @@ async def wait_for_shell_exit(process: asyncio.subprocess.Process) -> int:
     (`dev server &`) boruyu açık tutunca kabuk çıksa da sonsuza dek takılır (ölçüldü,
     29 Ekim). `returncode` ise kabuk çıkar çıkmaz dolar; bu yüzden yoklanır.
     """
-    while process.returncode is None:
+    while process.returncode is None:  # noqa: ASYNC110 - Process.wait() boru kapanmasına bağlı
         await asyncio.sleep(PROCESS_POLL_S / 10)
     return process.returncode
