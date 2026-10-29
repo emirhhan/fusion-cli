@@ -21,6 +21,7 @@ from typing import Any
 from ..core.constants import MAX_OUTPUT_CHARS, truncate_notice
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import optional_str, require_str
+from .browser_guard import blocked_hint, install_request_guard
 from .browser_target import TargetError, fill_or_select, resolve
 from .files import resolve_path
 from .mirror import (
@@ -70,7 +71,9 @@ async def browser_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
     except Exception as exc:
-        return ToolResult.failure(f"Sayfa açılamadı: {url} ({type(exc).__name__}: {exc})")
+        return ToolResult.failure(
+            f"Sayfa açılamadı: {url} ({type(exc).__name__}: {exc}){blocked_hint(exc)}"
+        )
     return await _sayfa_ozeti(page, "açıldı")
 
 
@@ -171,7 +174,9 @@ async def browser_tab_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     except Exception as exc:
         if new_page is not None:
             await new_page.close()
-        return ToolResult.failure(f"Sekme açılamadı ({type(exc).__name__}: {exc})")
+        return ToolResult.failure(
+            f"Sekme açılamadı ({type(exc).__name__}: {exc}){blocked_hint(exc)}"
+        )
     context.browser.page = new_page
     return await _sayfa_ozeti(new_page, "sekme açıldı")
 
@@ -323,6 +328,9 @@ async def _sayfa(context: ToolContext, *, baslatma: bool = True) -> tuple[Any, s
         oturum.playwright = await async_playwright().start()
         oturum.browser = await oturum.playwright.chromium.launch(headless=True)
         oturum.context = await oturum.browser.new_context()
+        # Yönlendirme, alt kaynak ve yeni sekme istekleri de `browser_block_reason`
+        # kapısından geçer; yalnız ilk adresi denetlemek yetmezdi (T1-07).
+        await install_request_guard(oturum.context, context.local_origins)
         oturum.page = await oturum.context.new_page()
     except Exception as exc:
         await oturum.close()
