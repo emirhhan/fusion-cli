@@ -73,6 +73,10 @@ class _SahteLocator:
     def first(self) -> _SahteLocator:
         return self
 
+    def locator(self, _selector: str) -> _SahteLocator:
+        """`locator("visible=true")` zincirleme: sahte sayfada görünürlük hep doğru."""
+        return self
+
     async def wait_for(self, **_: object) -> None:
         if not self._page.hedef_bulunur:
             raise TimeoutError(f"{self._selector} bulunamadı")
@@ -345,7 +349,8 @@ async def test_belirsiz_secici_hicbir_seye_yazmaz_ve_adaylari_listeler(tmp_path)
     )
 
     assert not sonuc.ok and page.yazilan == []
-    assert "2 görünür öğeye uyuyor" in sonuc.output and "input#1" in sonuc.output
+    # Sahte sayfa her seçiciye 2 öğe saydığından adaylar sıralı biçimle (`>> nth=K`) verilir.
+    assert "2 görünür öğeye uyuyor" in sonuc.output and "input >> nth=1" in sonuc.output
 
 
 async def test_secim_kutusuna_yazmak_secenegi_secer(tmp_path):

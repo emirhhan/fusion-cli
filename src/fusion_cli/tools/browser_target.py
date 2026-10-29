@@ -73,14 +73,35 @@ _DESCRIBE_JS = """(e) => {
 }""".replace("MAX_LABEL", str(MAX_LABEL_CHARS))
 
 
-async def _visible(locator: Any) -> list[Any]:  # noqa: ANN401 - Playwright tipi opsiyonel
+async def _visible(locator: Any) -> list[tuple[int, Any]]:  # noqa: ANN401 - Playwright tipi opsiyonel
+    """Görünür eşleşmeler ve her birinin seçicideki SIRASI (DOM sırası, gizliler dâhil)."""
     sayi = int(await locator.count())
     gorunur = []
     for sira in range(sayi):
         oge = locator.nth(sira)
         if await oge.is_visible():
-            gorunur.append(oge)
+            gorunur.append((sira, oge))
     return gorunur
+
+
+async def _unique_selector(
+    page: Any,  # noqa: ANN401 - Playwright tipi opsiyonel
+    onerilen: str,
+    cozulmus: str,
+    sira: int,
+) -> str:
+    """Modelin yazacağı seçici TEK öğeye uymalı; uymuyorsa özgün seçiciye sıra ekle.
+
+    Ölçüldü (29 Ekim): `input[name="plan"]` iki radyo için de aynı seçiciyi üretiyor, model
+    onu yazınca yine belirsizlik alıp döngüye giriyordu. Tekil değilse `seçici >> nth=K`
+    verilir; K, özgün seçicinin DOM sırasıdır.
+    """
+    try:
+        if int(await page.locator(onerilen).count()) == 1:
+            return onerilen
+    except Exception:  # sınır: üretilen seçici geçersizse sıralı biçime düş
+        pass
+    return f"{cozulmus} >> nth={sira}"
 
 
 async def resolve(page: Any, selector: str, timeout_ms: int) -> Target:  # noqa: ANN401
@@ -88,7 +109,8 @@ async def resolve(page: Any, selector: str, timeout_ms: int) -> Target:  # noqa:
     cozulmus = normalize_selector(selector)
     locator = page.locator(cozulmus)
     try:
-        await locator.first.wait_for(state="visible", timeout=timeout_ms)
+        # İlk eşleşme gizli olabilir (ör. mobil menü kopyası); GÖRÜNÜR ilkini bekle.
+        await locator.locator("visible=true").first.wait_for(state="visible", timeout=timeout_ms)
     except Exception as exc:
         raise TargetError(
             f"Öğe bulunamadı: {selector} ({type(exc).__name__}). browser_read ile sayfanın "
@@ -97,16 +119,20 @@ async def resolve(page: Any, selector: str, timeout_ms: int) -> Target:  # noqa:
     adaylar = await _visible(locator)
     if not adaylar:
         raise TargetError(f"Öğe görünür değil: {selector}.")
-    tanimlar = [await aday.evaluate(_DESCRIBE_JS) for aday in adaylar[:MAX_CANDIDATES]]
+    tanimlar = [await aday.evaluate(_DESCRIBE_JS) for _sira, aday in adaylar[:MAX_CANDIDATES]]
     if len(adaylar) > 1:
-        liste = "; ".join(str(tanim["selector"]) for tanim in tanimlar)
+        secimler = [
+            await _unique_selector(page, str(tanim["selector"]), cozulmus, sira)
+            for tanim, (sira, _aday) in zip(tanimlar, adaylar, strict=False)
+        ]
+        liste = "; ".join(secimler)
         fazla = f" (+{len(adaylar) - MAX_CANDIDATES} daha)" if len(adaylar) > MAX_CANDIDATES else ""
         raise TargetError(
             f"Seçici '{selector}' {len(adaylar)} görünür öğeye uyuyor; hangisini kastettiğin "
             f"belirsiz, işlem YAPILMADI. Adaylar: {liste}{fazla}. Bunlardan birini seçici "
             "olarak kullan."
         )
-    return Target(adaylar[0], str(tanimlar[0]["selector"]), str(tanimlar[0]["tag"]))
+    return Target(adaylar[0][1], str(tanimlar[0]["selector"]), str(tanimlar[0]["tag"]))
 
 
 async def fill_or_select(target: Target, text: str) -> str:
