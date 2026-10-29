@@ -98,7 +98,7 @@ export function createScreenView({ rpc, onAuth, toast }) {
         const initial = await rpc("screen.status");
         if (!opened || token !== generation) return;
         if (initial.ok && initial.data?.state === "pending" && !initial.data?.remembered) {
-          setState({ state: "idle", message: "Ekran izlemeyi başlatmak için bu telefonda onay ver." });
+          setState({ state: "idle", message: "Ekranı izlemek için masaüstünden izin iste; izin bilgisayarda verilir." });
           return;
         }
         await stream.start({ request: false });
