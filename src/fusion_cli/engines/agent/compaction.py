@@ -129,7 +129,8 @@ def _user_rules(messages: list[Message]) -> list[str]:
     found: list[str] = []
     total = 0
     for message in messages:
-        if message.role != "user":
+        # Harness notları ("pes etme" vb.) kullanıcının kuralı değildir.
+        if message.role != "user" or message.harness_note:
             continue
         for sentence in _rule_sentences(message.content):
             if sentence in found or total + len(sentence) > RULES_MAX_CHARS:
@@ -147,7 +148,10 @@ def _rule_sentences(content: str) -> list[str]:
     return [
         sentence.strip()
         for sentence in _SENTENCE_END.split(content)
-        if sentence.strip() and _RULE_PATTERN.search(sentence)
+        # Soru cümlesi ("hep mi bozuluyor?") kural koymaz.
+        if sentence.strip()
+        and not sentence.strip().endswith("?")
+        and _RULE_PATTERN.search(sentence)
     ]
 
 

@@ -142,7 +142,7 @@ export function createChat({ rpc, root, ctx, onBack, onChange, toast }) {
       run = { ...run, state: result.data?.state ?? run.state };
       for (const [, q] of pendingFromEvents(events)) {
         if (!answered.has(q.questionId) && !list.querySelector(`[data-question="${CSS.escape(String(q.questionId))}"]`)) {
-          typing.before(approvalCard(q, rpc, () => { onChange(); poll(); }));
+          typing.before(approvalCard(q, rpc, () => { onChange(); poll(); }, ctx.scopes));
         }
       }
       typing.hidden = !["queued", "running"].includes(run.state);

@@ -593,8 +593,11 @@ class RemoteService:
             return denied
         if device.channel != CHANNEL_SIGNED:
             return _fail("yetki_yok", "Ekran yalnız imzalı telefondan istenebilir.")
+        # "Hatırla" tercihi her istekte yeniden alınır; eski istek sonraki onaya taşınmaz.
         if params.get("remember") is True:
             self._remember_screen.add(device.device_id)
+        else:
+            self._remember_screen.discard(device.device_id)
         state = self._screen_gate.request(device.device_id)
         # Telefonun kendi "onayladım" beyanı (`confirmed`) yetki DEĞİLDİR: ekran yalnız
         # masaüstü onayıyla ya da masaüstünde verilmiş süreli güvenle açılır (R1-02).

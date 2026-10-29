@@ -238,7 +238,7 @@ async function renderApprovals() {
     const events = await rpc("tasks.events", { runId: task.runId });
     for (const [, question] of pendingFromEvents(events.data?.events ?? [])) {
       const existing = [...box.querySelectorAll("[data-question]")].find((node) => node.dataset.question === question.questionId);
-      cards.push(existing?.closest(".approval-wrap") || h("div", { class: "approval-wrap" }, h("div", { class: "muted small" }, task.summary), approvalCard(question, rpc, refresh)));
+      cards.push(existing?.closest(".approval-wrap") || h("div", { class: "approval-wrap" }, h("div", { class: "muted small" }, task.summary), approvalCard(question, rpc, refresh, ctx.scopes)));
     }
   }
   if (cards.length !== box.children.length || cards.some((card, index) => card !== box.children[index])) {

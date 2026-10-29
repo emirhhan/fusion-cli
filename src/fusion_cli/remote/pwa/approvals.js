@@ -17,7 +17,9 @@ export function pendingFromEvents(events) {
   return pending;
 }
 
-export function approvalCard(question, rpc, after) {
+// `scopes`: cihazın eşleşme kapsamları. Onayın gerektirdiği kapsam yoksa sunucu yalnız
+// reddi kabul eder; kart boşuna onay düğmesi göstermez, masaüstüne yönlendirir.
+export function approvalCard(question, rpc, after, scopes = null) {
   const error = h("p", { class: "approval-error danger", role: "alert", hidden: true });
   const receipt = h("p", { class: "muted small", role: "status", hidden: true });
   const actions = h("div", { class: "approval-actions" });
@@ -76,8 +78,13 @@ export function approvalCard(question, rpc, after) {
   }
   const labels = { once: "Bir kez izin ver", session: "Bu oturumda izin ver", deny: "Reddet" };
   const offered = (question.options?.length ? question.options : ["once", "deny"]).map((item) => typeof item === "string" ? item : item.deger);
+  const allowed = !question.requiredScope || !Array.isArray(scopes) || scopes.includes(question.requiredScope);
+  if (!allowed) {
+    card.insertBefore(h("p", { class: "muted small approval-desktop-only" },
+      `Bu onayı bu telefondan veremezsin ('${question.requiredScope}' yetkisi yok). Bilgisayardan onayla ya da burada reddet.`), actions);
+  }
   for (const choice of offered) {
-    if (!labels[choice]) continue;
+    if (!labels[choice] || (!allowed && choice !== "deny")) continue;
     actions.append(h("button", { class: `btn ${choice === "deny" ? "ghost" : ""}`, type: "button", onclick: () => answer(choice) }, labels[choice]));
   }
   return card;

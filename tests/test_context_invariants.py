@@ -72,3 +72,15 @@ async def test_art_arda_sikistirmada_kural_kaybolmaz(unutkan_ozetleyici):
     metin = "\n".join(m.content for m in ikinci)
     assert "main dalına asla push etme" in metin
     assert metin.count(compaction.RULES_HEADER) == 1
+
+
+async def test_harness_notu_ve_soru_kural_sayilmaz(unutkan_ozetleyici):
+    mesajlar = _oturum()
+    mesajlar.insert(3, Message("user", "Pes etme, asla yarıda bırakma.", harness_note=True))
+    mesajlar.insert(4, Message("user", "Bu hep mi bozuluyor? Sadece merak ettim"))
+
+    sonuc = await compaction.compress(mesajlar, config=make_config(), threshold_chars=20_000)
+
+    ozet = next(m.content for m in sonuc if "özeti]" in m.content)
+    assert "Pes etme" not in ozet
+    assert "hep mi bozuluyor?" not in ozet

@@ -53,3 +53,14 @@ async def test_durdur_guveni_hemen_kaldirir(tmp_path: Path) -> None:
 
     assert not registry.has_screen_trust(phone.device_id)
     assert (await service.call(phone, "screen.request", {})).data["state"] == "pending"
+
+
+async def test_eski_hatirla_istegi_sonraki_onaya_tasinmaz(tmp_path: Path) -> None:
+    service, registry, _backend, _clock = make_service(tmp_path)
+    phone = registry.add("Tel", "signed", frozenset({"desktop.observe"}))
+    await service.call(phone, "screen.request", {"remember": True})
+    await service.call(phone, "screen.request", {})
+
+    service.approve_screen(phone.device_id)
+
+    assert not registry.has_screen_trust(phone.device_id)
