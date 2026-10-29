@@ -129,15 +129,22 @@ def _require_strings(data: dict[str, object], field: str) -> tuple[str, ...]:
     return tuple(value)
 
 
-def _parse_retry_safety(data: dict[str, object]) -> RetrySafety:
+def _parse_retry_safety(data: dict[str, object], phase: PlanPhase) -> RetrySafety:
     """Eksik politika ilk yürütmeyi engellemez; otomatik yinelemeye izin vermez.
 
     Boş veya tanınmayan etki etiketi salt-okunurluk kanıtı değildir: adımın
     araçları yine değişiklik yapabilir. Bu yüzden güvenliği modelin etki
     metninden çıkarmayız. Açıkça verilmiş geçersiz değerler reddedilir.
+
+    Tek istisna YAPISAL olandır: KEŞİF fazındaki adım salt-okunur açılır
+    (`plan_context.step_deps`: değiştirici araçlar kapalı, `allow_mutation=False`);
+    yan etkisi olamayan adımın yeniden denenmesi her zaman güvenlidir. Ölçüldü
+    (29 Ekim, A3-01): alanı unutan zayıf model planında keşif adımları da ilk
+    doğrulama hatasında duraklıyor, yeniden deneme/replan/final onarımı hiç
+    devreye girmiyordu.
     """
     if "retry_safety" not in data:
-        return RetrySafety.NEVER
+        return RetrySafety.SAFE if phase is PlanPhase.DISCOVERY else RetrySafety.NEVER
     value = data["retry_safety"]
     if not isinstance(value, str):
         raise PlanParseError("Eksik veya geçersiz plan alanı: retry_safety")
@@ -255,7 +262,6 @@ def _parse_step(value: object, index: int) -> PlanStep:
     allowed_tool_families = _require_strings(data, "allowed_tool_families")
     success_criteria = _require_strings(data, "success_criteria")
     verification_hint = _require_string(data, "verification_hint")
-    retry_safety = _parse_retry_safety(data)
     phase_value = data.get("phase", PlanPhase.EXECUTION.value)
     if not isinstance(phase_value, str):
         raise PlanParseError("Eksik veya geçersiz plan alanı: phase")
@@ -263,6 +269,7 @@ def _parse_step(value: object, index: int) -> PlanStep:
         phase = PlanPhase(phase_value)
     except ValueError as exc:
         raise PlanParseError(f"Geçersiz phase değeri: {phase_value}") from exc
+    retry_safety = _parse_retry_safety(data, phase)
 
     revision = data.get("revision", 0)
     if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:

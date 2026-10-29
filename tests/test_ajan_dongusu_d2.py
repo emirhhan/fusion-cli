@@ -798,3 +798,33 @@ async def test_read_session_sinir_disi_limit_sessizce_varsayilana_donmez(tmp_pat
 
     # Kıstırılmış üst sınır (+1: devam var mı bakışı); eskiden varsayılan 20 olurdu.
     assert istenen == [_READ_SESSION_MAX_LIMIT + 1]
+
+
+# --- A3-01: eksik retry_safety, yan etkisiz keşif adımını kilitlemez ----------- #
+
+
+def _adim_json(**degisiklik):
+    import json
+
+    adim = {
+        "step_id": "kesif",
+        "goal": "kodu incele",
+        "depends_on": [],
+        "expected_effects": [],
+        "allowed_tool_families": ["files"],
+        "success_criteria": ["dosyalar bulundu"],
+        "verification_hint": "yol listesi",
+    }
+    adim.update(degisiklik)
+    return json.dumps({"plan_id": "p", "task": "iş", "schema_version": 2, "steps": [adim]})
+
+
+def test_eksik_retry_safety_kesif_adimini_guvenli_acar_yurutme_adimini_degil():
+    from fusion_cli.core.execution_plan import RetrySafety
+    from fusion_cli.engines.agent.plan_parser import parse_execution_plan
+
+    kesif = parse_execution_plan(_adim_json(phase="discovery"))
+    yurutme = parse_execution_plan(_adim_json())
+
+    assert kesif.steps[0].retry_safety is RetrySafety.SAFE
+    assert yurutme.steps[0].retry_safety is RetrySafety.NEVER
