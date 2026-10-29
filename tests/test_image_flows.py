@@ -113,9 +113,12 @@ def test_galeri_dizini_masaustu_varlik_iznine_acikca_eklidir() -> None:
     )
     scope = conf["app"]["security"]["assetProtocol"]["scope"]
 
-    assert "$HOME/.local/share/fusion-cli/gallery/**" in scope
-    assert "$LOCALDATA/fusion-cli/gallery/**" in scope
-    assert not any(".ssh" in item or item == "$HOME/.*/**" for item in scope)
+    # R2-04'ten beri kapsam izin/yasak sözlüğüdür (bkz. test_packaged_security_manifest).
+    allow, deny = scope["allow"], scope["deny"]
+    assert "$HOME/.local/share/fusion-cli/gallery/**" in allow
+    assert "$LOCALDATA/fusion-cli/gallery/**" in allow
+    assert not any(".ssh" in item or item == "$HOME/.*/**" for item in allow)
+    assert "$HOME/.ssh/**" in deny
 
 
 def test_eski_revision_akis_duzenlemesini_ezemez(tmp_path):
