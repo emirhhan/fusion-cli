@@ -26,6 +26,7 @@ from ...core.events import (
     ExecutionStepVerified,
     SelfReviewFinished,
     SelfReviewStarted,
+    StatusChanged,
 )
 from ...core.evidence import EvidenceStatus
 from ...core.execution_plan import (
@@ -68,6 +69,7 @@ from .plan_context import (
     workflow_budget,
     workspace_block,
 )
+from .plan_followup import is_followup
 from .plan_generation import RunAgent, generate_plan
 from .plan_phase_repair import repair_discovery_phase
 from .progress import progress_fingerprint
@@ -1319,6 +1321,15 @@ async def run_execution_plan(
                 str(deps.tool_context.root.resolve()), deps.conversation_id
             )
         )
+    if checkpoint is not None and not is_followup(task, checkpoint.plan.task):
+        # Alakasız yeni istek duraklamış eski planı CANLANDIRMAZ (A3-03, ölçüldü
+        # 29 Ekim): eski plan "son yönlendirme" olarak yeni isteği taşıyıp yürütülüyordu.
+        deps.publisher.publish(
+            StatusChanged(
+                "Duraklamış eski plan bu istekle ilgili görünmüyor; yeni plan hazırlanıyor"
+            )
+        )
+        checkpoint = None
     current = plan or (checkpoint.plan if checkpoint else None)
     execution_task = task
     if checkpoint is not None and task != checkpoint.plan.task:
@@ -1352,11 +1363,15 @@ async def run_execution_plan(
         run.planning_calls = generated.calls
         allowed = run.charge(BudgetEnvelope.PLANNING, generated.calls)
         if not allowed or generated.plan is None:
-            return run.outcome(
+            failed = run.outcome(
                 f"Plan üretilemedi: {generated.error or 'Planlama bütçesi tükendi.'}",
                 ok=False,
                 budget_stopped=not allowed or limits.planning == 0,
             )
+            # Yalnız BİÇİM yüzünden üretilemediyse (kota/kimlik/bütçe değil) çağıran
+            # düz döngüye düşebilir.
+            failed.plan_unavailable = generated.parse_failed and allowed
+            return failed
         # Modelin görev özetini kullanıcı isteğinin yerine kalıcılaştırma.
         current = replace(generated.plan, task=task)
         run.uncovered = generated.missing or uncovered

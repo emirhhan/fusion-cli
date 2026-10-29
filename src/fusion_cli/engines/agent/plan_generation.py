@@ -45,6 +45,9 @@ class PlanGeneration:
     #: Plan yine çalıştırılır ama eksik SESSİZ kalmaz: kullanıcıya "tamamlandı"
     #: denirken istediği şeyin planlanmadığını bilmesi gerekir.
     missing: tuple[str, ...] = ()
+    #: Plan yalnız ÇIKTI BİÇİMİ yüzünden üretilemedi (model çalıştı ama JSON bozuk).
+    #: Kota/kimlik/bütçe hatasından farklıdır: bunda düz döngüye düşmek işe yarar (A3-10).
+    parse_failed: bool = False
 
 
 async def generate_plan(
@@ -77,6 +80,7 @@ async def generate_plan(
     error = "Planlama bütçesi tükendi."
     son_plan: ExecutionPlan | None = None
     son_eksikler: tuple[str, ...] = ()
+    parse_failures = 0
     # Mevcut plan sözleşmesi tek biçim onarımına izin verir.
     for _ in range(2):
         if calls >= limit:
@@ -100,6 +104,7 @@ async def generate_plan(
         try:
             plan = parse_execution_plan(outcome.final_text)
         except PlanParseError as exc:
+            parse_failures += 1
             error = str(exc)
             # Onarım isteği HATAYI ÖNE ALIR. Eskiden önce bütün şema, sonra
             # hata geliyordu ve model uzun şablonu yeniden okuyup aynı planı
@@ -126,4 +131,4 @@ async def generate_plan(
         son_eksikler = tuple(teslimat.name for teslimat in eksikler)
     if son_plan is not None:
         return PlanGeneration(son_plan, calls, missing=son_eksikler)
-    return PlanGeneration(None, calls, error)
+    return PlanGeneration(None, calls, error, parse_failed=parse_failures > 0)

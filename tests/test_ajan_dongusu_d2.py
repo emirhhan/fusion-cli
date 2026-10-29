@@ -899,3 +899,104 @@ def test_turkce_ekli_istekler_hala_taninir():
     adlar = {t.name for t in missing_deliverables("oyuna assetler ve UI'ı ekle", plan)}
 
     assert adlar == {"dış varlık (asset) edinimi", "kullanıcı arayüzü (UI)"}
+
+
+# --- A3-03: alakasız yeni istek duraklamış eski planı canlandırmaz ------------- #
+
+
+def test_devam_ve_yonlendirme_mesajlari_eski_plana_baglanir():
+    from fusion_cli.engines.agent.plan_followup import is_followup
+
+    onceki = "oyuna düşman ekle ve ana menüyü yap"
+
+    assert is_followup("devam et", onceki)
+    assert is_followup("tamam, kaldığın yerden devam et lütfen", onceki)
+    assert is_followup("mavi olsun", onceki)  # kısa yönlendirme
+    assert is_followup("düşman sayısını artır ve menü rengini değiştir", onceki)
+
+
+def test_alakasiz_uzun_istek_eski_plana_baglanmaz():
+    from fusion_cli.engines.agent.plan_followup import is_followup
+
+    onceki = "oyuna düşman ekle ve ana menüyü yap"
+
+    assert not is_followup(
+        "yarın için Ankara raporunu hazırla ve müşteriye e-posta taslağı yaz", onceki
+    )
+
+
+async def test_alakasiz_istek_duraklamis_plani_yeniden_baslatmaz(tmp_path, monkeypatch):
+    from fusion_cli.core.checkpoint import WorkflowCheckpoint
+    from fusion_cli.engines.agent import plan_runner
+    from fusion_cli.engines.agent.plan_generation import PlanGeneration
+    from fusion_cli.memory.checkpoint_store import JsonCheckpointStore
+    from tests.test_plan_resume import _Deps, _duraklamis_plan
+
+    deps = _Deps(ToolContext(root=tmp_path), JsonCheckpointStore(tmp_path / ".cp"))
+    deps.checkpoint_store.save(
+        WorkflowCheckpoint(
+            plan=_duraklamis_plan(),
+            root=str(deps.tool_context.root.resolve()),
+            conversation_id=deps.conversation_id,
+            completed_step_ids=(),
+            updated_at=1.0,
+        )
+    )
+    uretilen: list[str] = []
+
+    async def sahte_uret(task, deps, run_agent, limit, **kwargs):
+        uretilen.append(task)
+        return PlanGeneration(None, 1, "x")
+
+    async def ajan(*args, **kwargs):
+        raise AssertionError("eski plan çalıştırılmamalı")
+
+    monkeypatch.setattr(plan_runner, "generate_plan", sahte_uret)
+
+    alakasiz = "yarın için Ankara raporunu hazırla ve müşteriye e-posta taslağı yaz"
+    await plan_runner.run_execution_plan(alakasiz, deps, ajan)
+    assert uretilen == [alakasiz]
+
+    uretilen.clear()
+    from fusion_cli.core.verification import VerificationResult  # noqa: F401
+
+    async def ajan_calisir(task, agent_deps, **kwargs):
+        from fusion_cli.engines.agent.loop import AgentOutcome
+
+        (agent_deps.tool_context.root / "result.txt").write_text("ok", encoding="utf-8")
+        return AgentOutcome(final_text="tamam", messages=[], mutating_tool_calls_made=1)
+
+    devam = await plan_runner.run_execution_plan("devam et", deps, ajan_calisir)
+    assert uretilen == []  # eski plan sürdürüldü, yeni plan üretilmedi
+    assert devam.ok
+
+
+# --- A3-10: plan üretilemezse düz döngüye bildirilen geri düşüş --------------- #
+
+
+async def test_bozuk_plan_ciktisi_iki_kez_gelirse_gorev_duz_donguyle_surer(
+    monkeypatch, tmp_path, sink
+):
+    """Ölçüldü (29 Ekim): 'Plan üretilemedi' ile görev tamamen düşüyordu."""
+    from fusion_cli.core.events import StatusChanged
+    from fusion_cli.core.execution_mode import ExecutionMode
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result("Bozuk plan değil ama JSON da değil"),
+                model_result("yine bozuk"),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"workflow_mode": ExecutionMode.ALWAYS})
+
+    sonuc = await run_agent("Bu projenin mimarisini anlat", deps)
+
+    assert sonuc.ok
+    assert sonuc.final_text.endswith(TAM_CEVAP)
+    assert any(
+        isinstance(e, StatusChanged) and "doğrudan sürdürülüyor" in e.message for e in sink.events
+    )

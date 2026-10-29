@@ -356,6 +356,9 @@ class AgentOutcome:
     #: Tur model hatasıyla bittiyse HAM hata metni. Kullanıcıya dostça mesaj gider;
     #: hatanın kalıcı mı geçici mi olduğu kararı bu ham metinden verilir.
     model_error: str | None = None
+    #: Plan motoru plan ÜRETEMEDİ (bozuk JSON, iki deneme) ve hiçbir adım çalışmadı:
+    #: çağıran düz ajan döngüsüne düşebilir (A3-10).
+    plan_unavailable: bool = False
     #: Kapanışta zaten hesaplanan rapor; yokluğu doğrulama kanıtı uydurmaz.
     completion_report: TurnReport | None = None
 
@@ -854,8 +857,15 @@ async def _run_agent(
             planned = await run_execution_plan(
                 task, deps, run_agent, conversation=messages, self_review=self_review
             )
-            settle_teacher_plan(task, planned, deps, verification=None)
-            return planned
+            if not (planned.plan_unavailable and budget.stop is None):
+                settle_teacher_plan(task, planned, deps, verification=None)
+                return planned
+            # Plan çıktısı iki kez bozuk geldi: kullanıcı HİÇ iş görmemeli. Ölçüldü
+            # (29 Ekim, A3-10): "Plan üretilemedi" ile görev tamamen düşüyordu.
+            # Sessiz değil, bildirilen geri düşüş: düz ajan döngüsü sürdürür.
+            deps.publisher.publish(
+                StatusChanged("Plan üretilemedi; görev planlamadan, doğrudan sürdürülüyor")
+            )
 
     outcome = await _drive(
         messages,
