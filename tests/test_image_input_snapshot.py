@@ -83,3 +83,31 @@ async def test_baslangic_sonrasi_degisen_istek_calisan_isi_etkilemez(
     finally:
         serbest.set()
         await session.close()
+
+
+@pytest.mark.parametrize("secim", ["nvidia_nim/yok-model", "acik_ai/main", "gemini_web/baska"])
+async def test_desteklenmeyen_model_secimi_uretmeden_acik_hata_verir(tmp_path, monkeypatch, secim):
+    """Ölçüldü (29 Ekim): bilinmeyen model sessizce başka sağlayıcıya düşmüyor."""
+    monkeypatch.setattr(image_create, "image_output_dir", lambda: tmp_path)
+    sonuc = await image_create.create_image(
+        _config("gemini_web/main/auto"), {"istem": "x", "saglayici": secim}, environ={}
+    )
+    assert sonuc["ok"] is False and "dosyalar" not in sonuc
+
+
+@pytest.mark.parametrize("kesim", [0.5, 0.9])
+def test_yarim_yazilmis_gorsel_son_cikti_sayilmaz(tmp_path, kesim) -> None:
+    """Kesik PNG tam çözümlemede reddedilir; iş başarı makbuzu yazılamaz."""
+    from PIL import Image
+
+    from fusion_cli.appserver.image_job_artifacts import collect_outputs
+    from fusion_cli.core.image_jobs import ImageJobConflictError
+
+    tam = tmp_path / "tam.png"
+    Image.effect_noise((64, 64), 80).convert("RGB").save(tam)
+    veri = tam.read_bytes()
+    kesik = tmp_path / "kesik.png"
+    kesik.write_bytes(veri[: int(len(veri) * kesim)])
+    assert collect_outputs({"ok": True, "dosyalar": [{"yol": str(tam)}]}, tmp_path)
+    with pytest.raises(ImageJobConflictError):
+        collect_outputs({"ok": True, "dosyalar": [{"yol": str(kesik)}]}, tmp_path)
