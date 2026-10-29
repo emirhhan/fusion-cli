@@ -6,6 +6,7 @@ import os
 import sys
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, TextIO
 
 import httpx
@@ -14,8 +15,13 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
 from ..config.models import McpServerConfig, McpTransport
+from .egress import guarded_client_factory
 
 _SECRET_ARGUMENT_PREFIX = "__FUSION_SECRET__:"
+
+#: GUI'den açılan uygulamanın PATH'inde olmayan yaygın kurulum yerleri.
+_SYSTEM_TOOL_DIRS = ("/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin")
+_HOME_TOOL_DIRS = (".local/bin", ".cargo/bin", ".bun/bin", ".volta/bin")
 
 
 def resolve_stdio_args(
@@ -77,6 +83,20 @@ def resolve_bearer_headers(
     return {"Authorization": f"Bearer {value}"}
 
 
+def stdio_search_path(environ: Mapping[str, str] | None = None, *, home: Path | None = None) -> str:
+    """Stdio sunucusunun PATH'i: mevcut sıra korunur, eksik kurulum yerleri sona eklenir.
+
+    Ölçüldü: Finder'dan açılan uygulamanın çekirdeği `/usr/bin:/bin:/usr/sbin:/sbin`
+    ile başlar; Homebrew'daki `npx`/`uvx` bulunamaz ve kullanıcıya kurulu olan
+    programı "kur" denirdi. Sona eklemek, kabuktan gelen PATH'in önceliğini bozmaz.
+    """
+    source = os.environ if environ is None else environ
+    base = home or Path.home()
+    parts = [part for part in source.get("PATH", "").split(os.pathsep) if part]
+    extra = [*_SYSTEM_TOOL_DIRS, *(str(base / sub) for sub in _HOME_TOOL_DIRS)]
+    return os.pathsep.join(dict.fromkeys([*parts, *extra]))
+
+
 @asynccontextmanager
 async def open_mcp_stream(
     config: McpServerConfig,
@@ -96,8 +116,8 @@ async def open_mcp_stream(
         params = StdioServerParameters(
             command=config.command,
             args=resolve_stdio_args(config),
-            # Boş sözlük yerine None: SDK varsayılan ortamı kendisi kurar.
-            env=resolve_stdio_env(config) or None,
+            # SDK güvenli varsayılan ortamı (HOME, USER…) bununla birleştirir.
+            env={"PATH": stdio_search_path(), **resolve_stdio_env(config)},
         )
         async with stdio_client(params, errlog=errlog or sys.stderr) as streams:
             yield streams
@@ -106,6 +126,12 @@ async def open_mcp_stream(
     if not config.url:
         raise ValueError("HTTP MCP bağlantısı için URL gerekli")
     headers = resolve_bearer_headers(config)
-    async with streamablehttp_client(config.url, headers=headers, auth=auth) as streams:
+    # OAuth keşfi dahil her istek korumalı istemciden geçer (bkz. `egress.py`).
+    async with streamablehttp_client(
+        config.url,
+        headers=headers,
+        auth=auth,
+        httpx_client_factory=guarded_client_factory(config.url),
+    ) as streams:
         read, write, _session_id = streams
         yield read, write

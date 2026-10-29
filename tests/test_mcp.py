@@ -102,7 +102,9 @@ async def test_stdio_akisi_ortam_degiskenlerini_sunucu_surecine_verir(monkeypatc
     async with transport.open_mcp_stream(config) as akislar:
         assert akislar == ("okuma", "yazma")
 
-    assert yakalanan["env"] == {"BRAVE_API_KEY": "anahtar"}
+    # Kayıtlı adlar + PATH (bkz. test_mcp_stdio_path); Fusion'ın geri kalan ortamı aktarılmaz.
+    assert set(yakalanan["env"]) == {"BRAVE_API_KEY", "PATH"}
+    assert yakalanan["env"]["BRAVE_API_KEY"] == "anahtar"
 
 
 # --- sunucu (birim) -------------------------------------------------------- #
