@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import unicodedata
 from functools import lru_cache
 from importlib.resources import files
+
+_LOG = logging.getLogger(__name__)
 
 
 def _normalize(text: str) -> str:
@@ -19,12 +22,23 @@ def _normalize(text: str) -> str:
 
 @lru_cache(maxsize=1)
 def _replies() -> tuple[frozenset[str], dict[str, str]]:
-    catalog = json.loads(files(__package__).joinpath("data/voice-intents.json").read_text())
-    return frozenset(_normalize(alias) for alias in catalog["aliases"]), {
-        _normalize(phrase): intent["reply"]
-        for intent in catalog["intents"]
-        for phrase in intent["phrases"]
-    }
+    """Katalog yüklenemezse boş katalog (önbelleğe alınır, bir kez günlüklenir).
+
+    Kodlama AÇIK verilir: Windows'ta varsayılan cp1252 Türkçe JSON'u bozar ya da patlatır.
+    Hata `_run_turn`'e sızarsa her sesli tur genel yakalayıcıya düşer; boş katalog
+    turu modele bırakır.
+    """
+    try:
+        raw = files(__package__).joinpath("data/voice-intents.json").read_text(encoding="utf-8")
+        catalog = json.loads(raw)
+        return frozenset(_normalize(alias) for alias in catalog["aliases"]), {
+            _normalize(phrase): intent["reply"]
+            for intent in catalog["intents"]
+            for phrase in intent["phrases"]
+        }
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        _LOG.warning("Ses niyet kataloğu yüklenemedi; sesli turlar modele gidecek: %s", error)
+        return frozenset(), {}
 
 
 def local_voice_reply(text: str) -> str | None:

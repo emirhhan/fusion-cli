@@ -138,3 +138,57 @@ async def test_direct_speech_does_not_block_event_loop_while_local_model_busy(
     finally:
         release.set()
         await app.close()
+
+
+class _SahteKaynak:
+    """Kodlama verilmezse Windows cp1252 gibi davranıp Türkçe JSON'da patlayan kaynak."""
+
+    def __init__(self, gercek) -> None:
+        self._gercek = gercek
+
+    def joinpath(self, *parts):
+        return _SahteKaynak(self._gercek.joinpath(*parts))
+
+    def read_text(self, encoding=None, errors=None):
+        if encoding is None:
+            raise UnicodeDecodeError("cp1252", b"\x81", 0, 1, "kodlama verilmedi")
+        return self._gercek.read_text(encoding=encoding, errors=errors)
+
+
+def test_katalog_kodlamasi_acik_utf8_okunur(monkeypatch):
+    from fusion_cli.appserver import voice_intents
+
+    voice_intents._replies.cache_clear()
+    monkeypatch.setattr(voice_intents, "files", lambda _paket: _SahteKaynak(_GERCEK_PAKET()))
+    try:
+        assert voice_intents.local_voice_reply("Merhaba Füzyon!")
+    finally:
+        voice_intents._replies.cache_clear()
+
+
+def test_katalog_okunamazsa_yerel_yanit_yok_hata_dusmez(monkeypatch, caplog):
+    from fusion_cli.appserver import voice_intents
+
+    class Bozuk:
+        def joinpath(self, *_parts):
+            return self
+
+        def read_text(self, **_kwargs):
+            raise OSError("dosya yok")
+
+    voice_intents._replies.cache_clear()
+    monkeypatch.setattr(voice_intents, "files", lambda _paket: Bozuk())
+    try:
+        with caplog.at_level("WARNING"):
+            assert voice_intents.local_voice_reply("Merhaba") is None
+            assert voice_intents.local_voice_reply("Selam") is None
+            assert voice_intents.local_voice_replies() == ()
+        assert len([r for r in caplog.records if "ses niyet" in r.getMessage().lower()]) == 1
+    finally:
+        voice_intents._replies.cache_clear()
+
+
+def _GERCEK_PAKET():  # noqa: N802 - testte yalnız gerçek kaynağı bir kez almak için
+    from importlib.resources import files
+
+    return files("fusion_cli.appserver")
