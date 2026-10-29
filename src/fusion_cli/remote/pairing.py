@@ -8,6 +8,7 @@ Kod yanlış denemeleri sınırlanır; onaylanmamış kod sır vermez.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import os
 from collections.abc import Callable
@@ -40,6 +41,9 @@ class _Pending:
     approved_device: Device | None = None
     claim_expires_at: float = 0.0
     failures: int = field(default=0)
+    #: Telefonun koda bağladığı teslim anahtarının karması; boşsa eski tek-sefer teslim.
+    claim_key_hash: str = ""
+    claimed: bool = False
 
 
 class PairingService:
@@ -76,7 +80,13 @@ class PairingService:
         return code, expires
 
     def submit(
-        self, code: str, device_name: str, external_id: str = "", channel: str | None = None
+        self,
+        code: str,
+        device_name: str,
+        external_id: str = "",
+        channel: str | None = None,
+        *,
+        claim_key: str = "",
     ) -> frozenset[str]:
         """Cihaz kodu girer; masaüstü onayı bekler. Kapsamlar cihaza gösterilir.
 
@@ -92,6 +102,7 @@ class PairingService:
         pending.submitted = True
         pending.device_name = device_name
         pending.external_id = external_id
+        pending.claim_key_hash = _digest(claim_key) if claim_key else ""
         # Kodu masaüstünde kullanıcının KENDİSİ üretti (2 dk, hız sınırlı): imzalı (PWA) kanalda
         # doğru kod eşleştirmeyi onaylar. Telegram kanalı ve "onay iste" ayarı eskisi gibi kalır.
         if pending.channel == CHANNEL_SIGNED and not self._require_approval():
@@ -131,15 +142,33 @@ class PairingService:
     def reject(self, code: str) -> bool:
         return self._pending.pop(code.strip().upper(), None) is not None
 
-    def claim(self, code: str) -> Device | None:
-        """Onaylıysa cihaz bilgisini TEK SEFER verir; onay bekleniyorsa `None`."""
+    def claim(self, code: str, claim_key: str = "") -> Device | None:
+        """Onaylıysa cihaz bilgisini verir; onay bekleniyorsa `None`.
+
+        Teslim anahtarıyla gönderilmiş kodda `claim` teslim süresi boyunca TEKRARLANABİLİR
+        (yanıt ağda kaybolduysa telefon aynı cihazı yeniden alır); anahtarı bilmeyen alamaz.
+        Anahtarsız eski istemciye cihaz tek sefer verilir.
+        """
         self._purge()
         pending = self._lookup(code)
         if pending.approved_device is None:
             return None
-        device = pending.approved_device
-        self._pending.pop(pending.code, None)
-        return device
+        if pending.claim_key_hash:
+            if not claim_key or not hmac.compare_digest(_digest(claim_key), pending.claim_key_hash):
+                raise PairingError("Kod geçersiz veya süresi doldu.")
+        elif pending.claimed:
+            raise PairingError("Kod geçersiz veya süresi doldu.")
+        pending.claimed = True
+        return pending.approved_device
+
+    def acknowledge(self, device_id: str) -> None:
+        """Cihazın ilk imzalı isteği: sır telefona ulaştı, bekleyen teslim kapanır."""
+        for code, pending in list(self._pending.items()):
+            if (
+                pending.approved_device is not None
+                and pending.approved_device.device_id == device_id
+            ):
+                self._pending.pop(code, None)
 
     def _lookup(self, code: str) -> _Pending:
         normalized = code.strip().upper()
@@ -153,13 +182,22 @@ class PairingService:
         expired = [
             code
             for code, pending in self._pending.items()
-            if now > pending.expires_at
-            or (pending.approved_device is not None and now > pending.claim_expires_at)
+            # Onaylanmış eşleştirmede kodun süresi değil TESLİM süresi geçerlidir:
+            # kod son saniyede onaylansa da telefon sırrını alabilmeli.
+            if now > (pending.claim_expires_at if pending.approved_device else pending.expires_at)
         ]
         for code in expired:
-            self._pending.pop(code, None)
+            pending = self._pending.pop(code, None)
+            if pending is not None and pending.approved_device is not None:
+                # Teslim süresi doldu ve cihaz hiç imzalı istek yapmadı: sırrı hiçbir
+                # telefona ulaşmamış hayalet kayıt kalmasın.
+                self._registry.revoke(pending.approved_device.device_id)
 
     def _new_code(self) -> str:
         alphabet = PAIRING_CODE_ALPHABET
         raw = self._token_bytes(PAIRING_CODE_LENGTH)
         return "".join(alphabet[byte % len(alphabet)] for byte in raw)
+
+
+def _digest(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()

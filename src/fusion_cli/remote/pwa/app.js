@@ -57,7 +57,9 @@ async function pair() {
   button.disabled = true;
   say("Kod gönderiliyor…");
   try {
-    const submitted = await postJson("/v1/pair/submit", { code, deviceName: $("cihazAdi").value });
+    // Teslim anahtarı: sırrı getiren yanıt kaybolursa aynı cihaz yeniden alınır (hayalet kayıt olmaz).
+    const claimKey = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+    const submitted = await postJson("/v1/pair/submit", { code, deviceName: $("cihazAdi").value, claimKey });
     if (submitted.status === 429) return say("Çok fazla deneme. Birkaç dakika bekleyip tekrar dene.", "danger");
     if (submitted.status !== 200) return say(submitted.body.message || "Kod kabul edilmedi.", "danger");
     // Kod doğruysa masaüstü onayı gerekmeyebilir: sunucu "onaylandi" der ve cihaz hemen alınır.
@@ -70,7 +72,7 @@ async function pair() {
         say(`Masaüstünde Fusion → Uzaktan Erişim’den bu cihazı onayla (${left} sn)…`);
         await new Promise((r) => setTimeout(r, PAIR_POLL_MS));
       }
-      const claimed = await postJson("/v1/pair/claim", { code });
+      const claimed = await postJson("/v1/pair/claim", { code, claimKey });
       if (claimed.status === 429) return say("Çok fazla deneme. Birkaç dakika bekleyip tekrar dene.", "danger");
       if (claimed.status !== 200) return say(claimed.body.message || "Eşleştirme başarısız.", "danger");
       if (claimed.body.state === "onaylandi") return await finishPairing(claimed.body);

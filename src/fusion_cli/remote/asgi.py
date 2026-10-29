@@ -121,6 +121,7 @@ class RemoteApp:
                 str(payload.get("code", "")),
                 str(payload.get("deviceName", "")),
                 channel=CHANNEL_SIGNED,
+                claim_key=str(payload.get("claimKey", ""))[:128],
             )
         except PairingError as error:
             self._limiter.record_failure(f"pair:{client}")
@@ -139,7 +140,9 @@ class RemoteApp:
             return
         payload = _parse(body)
         try:
-            device = self._pairing.claim(str(payload.get("code", "")))
+            device = self._pairing.claim(
+                str(payload.get("code", "")), str(payload.get("claimKey", ""))[:128]
+            )
         except PairingError as error:
             self._limiter.record_failure(f"pair:{client}")
             await self._json(send, 400, {"error": "eslestirme", "message": str(error)})
@@ -208,6 +211,8 @@ class RemoteApp:
             await self._json(send, 401, {"error": "kimlik_dogrulanamadi", "reason": reason})
             return
         self._limiter.record_success(key)
+        # İlk imzalı istek, eşleştirme sırrının telefona ulaştığının kanıtıdır.
+        self._pairing.acknowledge(device.device_id)
         request = _parse(body)
         method, params = request.get("method"), request.get("params")
         if not isinstance(method, str):
