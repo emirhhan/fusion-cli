@@ -120,8 +120,11 @@ export function Shell({
   useEffect(() => {
     if (!inspectorOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && onInspectorClose) {
-        onInspectorClose();
+      // Ölçüldü (29 Ekim, U1-01): her Escape (menü kapatma, Composer'da tur durdurma dahil)
+      // denetçiyi de kapatıyordu. Esc yalnız örtü (modal) denetçiyi kapatır ve yalnız başka
+      // bir bileşen tuşu tüketmediyse (`preventDefault`) çalışır.
+      if (event.key === "Escape") {
+        if (inspectorModal && !event.defaultPrevented) onInspectorClose?.();
         return;
       }
       if (!inspectorModal || event.key !== "Tab") return;

@@ -83,7 +83,8 @@ describe("ModelPicker", () => {
     render(<ModelPicker active="a" onSelect={vi.fn()} options={SECENEKLER} />);
     fireEvent.click(screen.getByRole("button", { name: /Model:/ }));
 
-    fireEvent.keyDown(document, { key: "Escape" });
+    // Tüketilen Esc (preventDefault) Shell'in denetçi kapatmasını tetiklemez (U1-01).
+    expect(fireEvent.keyDown(document, { key: "Escape" })).toBe(false);
 
     expect(screen.queryByRole("listbox")).toBeNull();
   });

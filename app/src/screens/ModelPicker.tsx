@@ -92,7 +92,7 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
       if (!kutu.current?.contains(event.target as Node)) setOpen(false);
     };
     const kacisTusu = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { setOpen(false); trigger.current?.focus(); }
+      if (event.key === "Escape") { event.preventDefault(); setOpen(false); trigger.current?.focus(); }
     };
     document.addEventListener("mousedown", disariTikla);
     document.addEventListener("keydown", kacisTusu);

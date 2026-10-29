@@ -72,7 +72,7 @@ export function ContextGauge({ olcu, onCompact }: ContextGaugeProps) {
       if (!kutu.current?.contains(event.target as Node)) setAcik(false);
     };
     const kacisTusu = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setAcik(false);
+      if (event.key === "Escape") { event.preventDefault(); setAcik(false); }
     };
     document.addEventListener("mousedown", disariTikla);
     document.addEventListener("keydown", kacisTusu);
