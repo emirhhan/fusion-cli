@@ -1376,6 +1376,9 @@ class AppSession:
         seçebilmesi içindir — önceden yalnız AUTO'ya çivili başlıyordu.
         """
         root_value = data.get("kok")
+        new_root, root_error = self._validated_root(root_value)
+        if root_error is not None:
+            return root_error
         capability_roots_changed = False
         # Sohbet kimliği kökten ÖNCE okunur: kök de değişiyorsa transcript yeniden
         # bağlanırken doğru kimliğe bağlanmalı, yoksa sekme bir tur boyunca proje
@@ -1386,9 +1389,15 @@ class AppSession:
             yeni_kimlik = sohbet_value.strip()
             conversation_changed = yeni_kimlik != self._conversation_id
             self._conversation_id = yeni_kimlik
-        if isinstance(root_value, str) and root_value:
-            self._root = Path(root_value)
+        if new_root is not None:
+            root_changed = new_root.resolve() != self._root.resolve()
+            self._root = new_root
             self._state.root = self._root
+            if root_changed:
+                # Başka bir projenin dizin izinleri ve "bu oturumda hep izin ver" kararları
+                # yeni projeye taşınmaz.
+                self._state.extra_roots = ()
+                self._state.approval_memory.revoke()
             self._workspace_journal.clear()
             self._processes.update_root(self._root)
             # Önbellek kökle anahtarlı, ama eski kökün girdisi bellekte
@@ -1419,6 +1428,25 @@ class AppSession:
         if engine_error is not None:
             return engine_error
         return self._status()
+
+    def _validated_root(self, value: object) -> tuple[Path | None, dict[str, Any] | None]:
+        """`oturum.baslat{kok}`: mutlak, var olan bir dizin; tur sürerken değişmez.
+
+        Doğrulanmayan kök sonraki dosya/git/terminal işlerini göreli ya da yanlış dizine
+        bağlardı; tur sürerken kök değişince çalışan araçlar yeni kökte devam ederdi.
+        """
+        if not isinstance(value, str) or not value:
+            return None, None
+        candidate = Path(value).expanduser()
+        if not candidate.is_absolute() or not candidate.is_dir():
+            return None, {"ok": False, "metin": f"Proje kökü geçerli bir klasör değil: {value}"}
+        try:
+            changed = candidate.resolve() != self._root.resolve()
+        except OSError:
+            changed = True
+        if changed and self._turn is not None and not self._turn.done():
+            return None, {"ok": False, "metin": "Tur sürerken proje kökü değiştirilemez."}
+        return candidate, None
 
     def _apply_mode(self, value: str | None) -> dict[str, Any] | None:
         if not isinstance(value, str) or not value:

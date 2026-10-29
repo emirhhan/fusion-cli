@@ -1958,3 +1958,68 @@ async def test_gallery_and_library_asset_identity_roundtrip_is_profile_scoped(
     finally:
         await session.close()
         await other.close()
+
+
+async def test_oturum_baslat_gecersiz_kok_reddedilir_ve_durum_degismez(tmp_path):
+    """Var olmayan, dosya olan ya da göreli kök sessizce atanmamalı (S2-08)."""
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    kok_once = oturum._state.root
+    dosya = tmp_path / "dosya.txt"
+    dosya.write_text("x", encoding="utf-8")
+
+    for sira, kok in enumerate([str(tmp_path / "yok"), str(dosya), "goreli/klasor"]):
+        kimlik = f"k{sira}"
+        await oturum.handle(
+            Request(id=kimlik, name="oturum.baslat", data={"kok": kok, "sohbet_id": "yeni-sekme"})
+        )
+        assert _sonuc(satirlar, kimlik)["ok"] is False
+        assert oturum._state.root == kok_once
+        assert oturum._conversation_id != "yeni-sekme"  # yarım uygulama yok
+
+
+async def test_kok_degisince_ek_klasor_izinleri_ve_onay_hafizasi_sifirlanir(tmp_path):
+    """Bir projede verilen dizin izni sonraki projeye taşınmamalı (S2-08)."""
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    ikinci = tmp_path / "ikinci"
+    ikinci.mkdir()
+    oturum._state.extra_roots = (tmp_path / "baska-oturumun-klasoru",)
+    revoked: list[bool] = []
+    gercek = oturum._state.approval_memory.revoke
+    oturum._state.approval_memory.revoke = lambda: (revoked.append(True), gercek())[1]
+
+    await oturum.handle(Request(id="1", name="oturum.baslat", data={"kok": str(ikinci)}))
+
+    assert _sonuc(satirlar, "1")["ok"] is True
+    assert oturum._state.extra_roots == ()
+    assert revoked
+
+
+async def test_ayni_kok_tekrar_gonderilince_ek_izinler_korunur(tmp_path):
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    oturum._state.extra_roots = (tmp_path / "izinli",)
+
+    await oturum.handle(Request(id="1", name="oturum.baslat", data={"kok": str(tmp_path)}))
+
+    assert _sonuc(satirlar, "1")["ok"] is True
+    assert oturum._state.extra_roots == (tmp_path / "izinli",)
+
+
+async def test_tur_surerken_kok_degistirilemez(tmp_path):
+    import asyncio
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    ikinci = tmp_path / "ikinci"
+    ikinci.mkdir()
+    oturum._turn = asyncio.get_running_loop().create_future()  # çalışan tur
+    try:
+        await oturum.handle(Request(id="1", name="oturum.baslat", data={"kok": str(ikinci)}))
+    finally:
+        oturum._turn = None
+
+    sonuc = _sonuc(satirlar, "1")
+    assert sonuc["ok"] is False and "tur" in sonuc["metin"].lower()
+    assert oturum._state.root != ikinci
