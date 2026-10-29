@@ -7,8 +7,8 @@ Desenler tek yerde tanımlıdır ve testle kilitlenir; koda dağıtılmaz.
 Ölçüldü (29 Ekim): `ghp_`/`gho_`/`github_pat_` belirteçleri, `Authorization: Basic`
 değeri, `localhost`/IP/`ssh://` adreslerindeki URL parolası, boşluklu tırnaklı değerler
 (`password: "iki kelime"`) ve imzalı adres sorgusu sızıyordu; ayrıca `sk_live_`/`rk_test_`,
-JWT (`eyJ….eyJ….imza`) ve base64 (`+/=`) içeren `Bearer` değeri maskelenmiyordu (C1-03); `tests/test_diagnostic_redaction.py`
-bunları sentetik fixture ile kilitler.
+JWT (`eyJ….eyJ….imza`) ve base64 (`+/=`) içeren `Bearer` değeri maskelenmiyordu (C1-03);
+`tests/test_diagnostic_redaction.py` bunları sentetik fixture ile kilitler.
 
 Amaç sıfır yanlış-negatif değil (bu imkânsız) — sık ve yüksek riskli biçimleri
 (API anahtarı, token, özel anahtar, e-posta) yakalayıp belleği temiz tutmaktır.
