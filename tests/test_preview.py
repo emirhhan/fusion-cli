@@ -496,6 +496,27 @@ def test_php_hatasinin_mesaji_dosyasi_ve_satiri_bildirilir():
     assert page_error_lines("<p>her şey yolunda</p>") == ()
 
 
+def test_php_uyari_ve_bildirimleri_yakalanir_normal_metin_uyari_sayilmaz():
+    """Ölçüldü (29 Ekim): desen `<b>Warning</b>:` içeriyordu ama arama etiketler SİLİNDİKTEN
+    sonra yapılıyordu; display_errors=1 çıktısı hiçbir kalıpla eşleşmiyordu."""
+    from fusion_cli.tools.preview_probe import page_error_lines
+
+    govde = (
+        "<br />\n<b>Warning</b>:  Undefined variable $urun in <b>/site/header.php</b> on line "
+        "<b>7</b><br />\n<b>Notice</b>:  Undefined index: id in <b>/site/a.php</b> on line "
+        "<b>9</b><br />\n<b>Deprecated</b>:  Function x() is deprecated in <b>/site/b.php</b> "
+        "on line <b>3</b><br />\n<p>Sayfa içeriği burada.</p>"
+    )
+    satirlar = page_error_lines(govde)
+
+    assert len(satirlar) == 3
+    assert (
+        satirlar[0].startswith("Warning: Undefined variable $urun") and "header.php" in satirlar[0]
+    )
+    assert satirlar[1].startswith("Notice:") and satirlar[2].startswith("Deprecated:")
+    assert page_error_lines("<p>Warning: bu ürün sıcak olabilir.</p>") == ()
+
+
 async def test_ana_sayfada_soylenen_bulgu_alt_sayfada_tekrarlanmaz(monkeypatch):
     """Ölçüldü (17. kabul koşusu): ortak üst bilgideki kırık menü bağlantıları mağaza ve
     sepet sayfasında yeniden yazıldı; asıl sayfa sorunları gürültüde kayboldu."""

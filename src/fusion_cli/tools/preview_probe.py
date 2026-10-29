@@ -41,7 +41,11 @@ SCREENSHOT_HEIGHT = 800
 
 #: PHP ve WordPress'in sayfaya bastığı hata kalıpları.
 _PAGE_ERRORS = re.compile(
-    r"Fatal error|Parse error|Uncaught (?:Error|Exception)|<b>Warning</b>:|"
+    r"Fatal error|Parse error|Uncaught (?:Error|Exception)|"
+    # Aramadan ÖNCE etiketler silindiği için `<b>Warning</b>:` hiç eşleşemezdi (ölçüldü,
+    # 29 Ekim). Düz metin "Warning: bu ürün sıcak" yanlış alarm olmasın diye PHP'nin
+    # "... on line N" kuyruğu şart koşulur.
+    r"\b(?:Warning|Notice|Deprecated):\s[^\n]*?\bon line \d+|"
     r"There has been a critical error|Error establishing a database connection|"
     r"kritik bir hata|veritabanı bağlantısı kurulurken hata",
     re.IGNORECASE,
