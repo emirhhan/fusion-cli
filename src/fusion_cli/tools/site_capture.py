@@ -23,13 +23,18 @@ import mimetypes
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 from urllib.parse import urljoin, urlparse
+
+import httpx
 
 if TYPE_CHECKING:
     from playwright.async_api import Browser, Page
 
+from ..core.constants import MAX_WEB_REDIRECTS
+from .browser_guard import install_request_guard
 from .mirror import MAX_ASSET_BYTES, asset_local_path, is_mirrorable
+from .pinned_http import AsyncPinnedTransport, BlockedAddressError
 from .site_clicks import CLICK_STATE_CSS, capture_click_states
 from .site_hover import capture_hover_panels, hover_css
 from .site_responsive import CapturedTransition, CapturedVariant, captured_variants, verify_variants
@@ -51,6 +56,10 @@ DOWNLOAD_CONCURRENCY = 8
 #: Video dosyaları (hero videosu) için ayrı boyut sınırı.
 MAX_VIDEO_BYTES = 30 * 1024 * 1024
 _VIDEO_SUFFIXES = (".mp4", ".webm")
+#: Çapraz kökenli stil dosyası için gövde sınırı (CSS metindir; büyükse şüphelidir).
+MAX_CSS_BYTES = 5 * 1024 * 1024
+#: Varlık indirmede kullanılan tarayıcı benzeri kimlik (bazı CDN'ler boş kimliği reddeder).
+_ASSET_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Fusion site_capture"
 #: CSS `url(...)` başvuruları (data: ve # hariç).
 _CSS_URL = re.compile(r"url\(\s*(['\"]?)(?!data:|#)([^'\")]+)\1\s*\)")
 #: HTML içindeki src / srcset / poster / satır içi stil adresleri.
@@ -163,6 +172,10 @@ async def _capture_one(
 
     async def capture(width: int, height: int) -> CapturedVariant:
         context = await browser.new_context(viewport={"width": width, "height": height})
+        # Yakalanan sayfanın yönlendirmesi/alt kaynağı iç ağa gidemez (T1-07 ile aynı kapı).
+        # Yerel dosya (file://) yakalamaları ağa çıkmaz; kapı yalnız http(s) için kurulur.
+        if url.startswith(("http://", "https://")):
+            await install_request_guard(context, ())
         try:
             page = await context.new_page()
             await page.goto(url, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS)
@@ -226,19 +239,64 @@ async def _capture_one(
     return page_result, primary.css, blocked
 
 
-async def _blocked_css(browser: Browser, hrefs: list[str], problems: list[str]) -> list[str]:
+class _Fetched(NamedTuple):
+    """Genel bir adresten indirilen varlık: durum, gövde (sınırı aşarsa boş), içerik türü."""
+
+    ok: bool
+    status: int
+    body: bytes
+    content_type: str
+
+
+async def _fetch_public(client: httpx.AsyncClient, url: str, limit: int) -> _Fetched:
+    """Varlığı indir; HER adım (yönlendirmeler dâhil) denetlenen genel IP'ye gider.
+
+    Ölçüldü (29 Ekim): yakalanan HTML/CSS'te geçen herhangi bir adres Playwright
+    `request.get` ile (yönlendirme izleyerek, adres denetimsiz) indirilip proje
+    klasörüne yazılıyordu; `<img src="http://127.0.0.1:…">` ya da bulut metadata
+    adresi diske, modelin okuyabileceği dosyaya dönüşebilirdi. `site_design` ile
+    aynı IP sabitlemeli taşıma kullanılır; iç ağ adresi `BlockedAddressError` verir.
+    """
+    govde = bytearray()
+    async with client.stream("GET", url) as yanit:
+        tur = yanit.headers.get("content-type", "")
+        if not yanit.is_success:
+            return _Fetched(False, yanit.status_code, b"", tur)
+        async for parca in yanit.aiter_bytes():
+            govde.extend(parca)
+            if len(govde) > limit:
+                return _Fetched(True, yanit.status_code, b"", tur)
+    return _Fetched(True, yanit.status_code, bytes(govde), tur)
+
+
+def _public_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        follow_redirects=True,
+        max_redirects=MAX_WEB_REDIRECTS,
+        timeout=NAVIGATION_TIMEOUT_MS / 1000,
+        transport=AsyncPinnedTransport(),
+        headers={"User-Agent": _ASSET_USER_AGENT},
+    )
+
+
+async def _blocked_css(hrefs: list[str], problems: list[str]) -> list[str]:
     """Çapraz kökenli (CSSOM'dan okunamayan) stil dosyalarını indir."""
-    istek = await browser.new_context()
     metinler = []
-    try:
+    async with _public_client() as istemci:
         for href in dict.fromkeys(hrefs):
-            yanit = await istek.request.get(href, timeout=NAVIGATION_TIMEOUT_MS)
-            if yanit.ok:
-                metinler.append(absolutize_css(await yanit.text(), href))
+            try:
+                alinan = await _fetch_public(istemci, href, MAX_CSS_BYTES)
+            except BlockedAddressError:
+                problems.append(f"stil dosyası iç ağ adresi olduğu için indirilmedi: {href}")
+                continue
+            except httpx.HTTPError as hata:
+                problems.append(f"stil dosyası indirilemedi ({type(hata).__name__}): {href}")
+                continue
+            if alinan.ok:
+                metin = alinan.body.decode("utf-8", errors="replace")
+                metinler.append(absolutize_css(metin, href))
             else:
-                problems.append(f"stil dosyası indirilemedi ({yanit.status}): {href}")
-    finally:
-        await istek.close()
+                problems.append(f"stil dosyası indirilemedi ({alinan.status}): {href}")
     return metinler
 
 
@@ -259,38 +317,34 @@ def _wanted(url: str) -> bool:
     return is_mirrorable(url) or "/image" in yol or yol.endswith(_VIDEO_SUFFIXES)
 
 
-async def _download(
-    browser: Browser, urls: list[str], folder: Path, problems: list[str]
-) -> dict[str, str]:
+async def _download(urls: list[str], folder: Path, problems: list[str]) -> dict[str, str]:
     """Varlıkları paralel indir; uzak adres → yerel yol (folder'a göre) eşlemesi döner."""
     istenen = list(dict.fromkeys(u for u in urls if _wanted(u)))
     if len(istenen) > CAPTURE_MAX_ASSETS:
         problems.append(f"{len(istenen)} varlıktan ilk {CAPTURE_MAX_ASSETS} tanesi indirildi")
-    from playwright.async_api import Error as PlaywrightError  # tembel: opsiyonel ekstra
-
-    istek = await browser.new_context()
     sinir = asyncio.Semaphore(DOWNLOAD_CONCURRENCY)
     eslesme: dict[str, str] = {}
+    engellenen: list[str] = []
 
     async def _bir(url: str) -> None:
-        async with sinir:
-            try:
-                # HTML özniteliğindeki adres kaçışlı (`&amp;`); istek gerçek adresle,
-                # eşleme ise sayfada geçen biçimle yapılır ki yerine konabilsin.
-                yanit = await istek.request.get(
-                    html_lib.unescape(url), timeout=NAVIGATION_TIMEOUT_MS
-                )
-                govde = await yanit.body() if yanit.ok else b""
-                tur = yanit.headers.get("content-type", "")
-            except PlaywrightError:
-                # Tek varlığın ağ hatası yakalamayı düşürmez; eksik görsel denetimde görünür.
-                return
         tavan = (
             MAX_VIDEO_BYTES
             if urlparse(url).path.lower().endswith(_VIDEO_SUFFIXES)
             else MAX_ASSET_BYTES
         )
-        if not govde or len(govde) > tavan:
+        async with sinir:
+            try:
+                # HTML özniteliğindeki adres kaçışlı (`&amp;`); istek gerçek adresle,
+                # eşleme ise sayfada geçen biçimle yapılır ki yerine konabilsin.
+                alinan = await _fetch_public(istemci, html_lib.unescape(url), tavan)
+            except BlockedAddressError:
+                engellenen.append(url)
+                return
+            except httpx.HTTPError:
+                # Tek varlığın ağ hatası yakalamayı düşürmez; eksik görsel denetimde görünür.
+                return
+        govde, tur = alinan.body, alinan.content_type
+        if not alinan.ok or not govde:
             return
         yerel = _with_suffix(asset_local_path(url), tur)
         hedef = folder / yerel
@@ -298,10 +352,12 @@ async def _download(
         await asyncio.to_thread(hedef.write_bytes, govde)
         eslesme[url] = yerel
 
-    try:
+    async with _public_client() as istemci:
         await asyncio.gather(*(_bir(url) for url in istenen[:CAPTURE_MAX_ASSETS]))
-    finally:
-        await istek.close()
+    if engellenen:
+        problems.append(
+            f"{len(engellenen)} varlık iç ağ adresi olduğu için indirilmedi (ilki: {engellenen[0]})"
+        )
     return eslesme
 
 
@@ -400,13 +456,13 @@ async def capture_site(urls: list[str], folder: Path) -> SiteCapture:
                 sayfalar.append(sayfa)
                 css_parcalari.append(absolutize_css(css, url))
                 engelli.extend(blocked)
-            css_parcalari = [*await _blocked_css(browser, engelli, problems), *css_parcalari]
+            css_parcalari = [*await _blocked_css(engelli, problems), *css_parcalari]
             css = "\n".join(dict.fromkeys(css_parcalari))
             # Sıra önceliktir (MAX_ASSETS sınırı): önce sayfada GÖRÜNEN görseller, sonra
             # CSS başvuruları. Ölçüldü: sneaksup CSS'i 900+ yazı tipi/ikon varyantı
             # anıyordu ve ilk 400 hakkı bunlara gidip ürün görselleri inmiyordu.
             adresler = capture_asset_urls(tuple(sayfalar), css, urls[0])
-            varliklar = await _download(browser, adresler, folder, problems)
+            varliklar = await _download(adresler, folder, problems)
         finally:
             await browser.close()
     return SiteCapture(tuple(sayfalar), css, varliklar, tuple(problems))
