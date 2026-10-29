@@ -40,6 +40,24 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Günlük ve haftalık zamanlanmış görevler yaz saati geçişinde yerel saatinde kalır (önceden geçişten sonraki gün bir saat kayıyordu).
 - Görsel işlerinin yerel kaydında tek bir bozuk kayıt artık sohbetteki bütün bekleyen işleri ve yeni üretimi kilitlemez; bozuk kayıt karantinaya alınır.
 - Komut iptali, kendini ayrı oturuma alan (`setsid`) ve çıktıyı açık tutan torun süreçleri de kapatır; geride çalışan süreç kalmaz.
+- Güvenlik: `rm --recursive --force`, `sh -c 'git push'`, `eval`, `curl | zsh`, `git restore .`, `git checkout .` ve uzaktan `npx`/`pnpm dlx` paketleri artık onaysız çalışmaz; agent'ın yazdığı betik riskli içerik taşıyorsa çalıştırılmadan önce sorulur.
+- Güvenlik: tarayıcı araçları yönlendirme ve alt kaynak isteklerinde de iç ağ adreslerini engeller; dosya yazan araçlar alt ajan yazma alanını aşamaz; önizleme sunucusu gizli dosyaları ve yabancı Host'u reddeder.
+- Güvenlik: tehlikeli işlemlerde boş Enter onaylamaz; güvenilmeyen projenin `.claude/settings.local.json` izinleri `fusion trust` olmadan uygulanmaz (eski güven kayıtları için yeniden `fusion trust` gerekir).
+- Güvenlik: git push sırlı origin adreslerini ve anahtar dosyalarını kayda/commit'e almaz; dış bellek dosyaları maskelenir; sır deposu atomik yazılır.
+- Güvenlik: web öğretmenine sır dosyaları ve proje dışı dosyalar gönderilmez, gönderilenler gösterilir; proje dışına dosya yazma otomatik kipte sorulur.
+- Güvenlik: MCP sırları terminal ve `run_shell` çocuklarına geçmez; hata raporu ve denetim günlüğü GitHub belirteçlerini, Basic kimliği ve adreslerdeki parolaları da gizler.
+- Onay kartı yazarken beliriyorsa ilk 600 ms'deki rakam/Enter karar vermez; Escape yalnız en üst pencereyi kapatır; seçeneksiz onay kartı kilitli kalmaz.
+- İzin modu sohbet başına tutulur; çekirdek reddederse eski mod ve hata görünür. Zaman aşımı, iptal ve bilinmeyen araç sonuçları başarılı görünmez.
+- Doğrulama kapısı son düzeltmeyi de ölçer; modelin art arda boş yanıtı başarı sayılmaz; paralel araç sonuçları bağlam temizliğinde korunur.
+- Doğrulama komutu zaman aşımında, iptalde ve arka plan çocuğu varken takılmaz; torun süreçler de kapatılır. `git add && git commit`, `cd x && git commit` ve `pytest 2>&1` kanıt sayılır.
+- Uzak görevler takılı kalmaz: zaman aşımı ve kök/model hatası görevi başarısız yapar; Telegram köprüsü beklenmeyen hatada kopmaz.
+- Büyük dosya okuma ve git sorguları arayüzü dondurmaz; proje kökü doğrulanır, kök değişince ek klasör izinleri sıfırlanır.
+- Esc ile kesilen turun geçmişi ve `/undo` kaydı korunur; borulu kullanımda TUI açılmaz.
+- Talk: kesilen konuşmanın eski sesi yeni konuşmayı ezmez; sesli onay Fusion'ın kendi sesinden gelen yankıya, kimliksiz ve 2 dakikadan eski sorulara karşı korunur.
+- Görsel üretimi sürerken yazılan yeni istem silinmez; akışta dosyası silinmiş üst düğüm yeniden üretilir, eksik referans arayüzü kilitlemez.
+- Geçerli Godot 4 `project.godot` (config_version, uid ana sahne) reddedilmez; bozuk Remotion kiti kabuğu kilitlemez; favicon 404'ü ve WebGL canvas yanlış hata üretmez; Remotion videosu gerçek dosya, süre ve çözünürlük kanıtıyla doğrulanır, videoya sabit "Fusion" adı eklenmez.
+- Zamanlanmış görevde tek teslim hatası sıradakileri durdurmaz; etkin sohbet kapansa da açık başka oturum üzerinden alınır.
+- Zaman aşımıyla iptal edilen model çağrıları maliyet özetinde "en az" diye işaretlenir, sıfır sayılmaz.
 
 ## 0.7.18 — 2026-10-21
 
