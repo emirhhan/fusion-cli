@@ -41,7 +41,7 @@ from ...core.verification import (
     without_unverifiable_command_warnings,
 )
 from .reproduction import evaluate_reproduction
-from .verify_discovery import behavioral_commands, is_behavioral_command
+from .verify_discovery import behavioral_commands, is_behavioral_command, strip_fd_redirects
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
@@ -84,18 +84,72 @@ def _tool_command(use: object) -> str:
     return ""
 
 
+def _unquoted_newlines_as_separators(command: str) -> str | None:
+    """Tırnak DIŞINDAKİ satır sonlarını `;` yap; heredoc varsa `None` (çözümlenemez)."""
+    out: list[str] = []
+    quote = ""
+    escaped = False
+    for index, char in enumerate(command):
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote:
+            quote = "" if char == quote else quote
+        elif char in "'\"":
+            quote = char
+        elif command.startswith("<<", index):
+            return None
+        elif char == "\n":
+            char = ";"
+        out.append(char)
+    return "".join(out)
+
+
 def _contains_git_action(command: str, action: str) -> bool:
-    """Kabuk segmentinde gerçek ve dry-run olmayan `git <action>` çağrısı var mı."""
-    if "\n" in command:
+    """Zincirin SONUCUNU belirleyen bir segmentte gerçek, dry-run olmayan `git <action>` var mı.
+
+    Ölçüldü (29 Ekim): `&`/`&&`/`;` görülen her komut reddediliyordu; modelin yazdığı
+    `git add -A && git commit -m x`, `cd repo && git commit` ve `git commit … 2>&1`
+    gerçek commit olsa da `git_commit` kanıtı sayılmıyordu (A4-03).
+
+    Kural: `2>&1`/`&>` yönlendirmeleri ayıklanır; `|`, `||` ve arka plan `&` çıkış
+    kodunu maskelediği için reddedilir; `;` ile ayrılmış zincirde yalnız SON grup
+    sayılır (önceki grubun kodu sonuca yansımaz); son grup `&&` ile bölünür ve
+    herhangi bir segment `git <action>` ise (kendi dry-run bayrağı yoksa) kabul edilir
+    — `&&` zincirinin başarısı her segmentin başarısıdır.
+    """
+    duz = _unquoted_newlines_as_separators(command)
+    if duz is None:
         return False
     try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+        lexer = shlex.shlex(strip_fd_redirects(duz), posix=True, punctuation_chars=";&|")
         lexer.whitespace_split = True
         tokens = list(lexer)
     except ValueError:
         return False
-    if any(token in {";", "&", "&&", "|", "||"} for token in tokens):
+    if any(token in {"&", "|", "||"} for token in tokens):
         return False
+    groups = [group for group in _split_tokens(tokens, ";") if group]
+    if not groups:
+        return False
+    last_group = groups[-1]
+    return any(
+        _segment_has_git_action(segment, action) for segment in _split_tokens(last_group, "&&")
+    )
+
+
+def _split_tokens(tokens: list[str], separator: str) -> list[list[str]]:
+    groups: list[list[str]] = [[]]
+    for token in tokens:
+        if token == separator:
+            groups.append([])
+        else:
+            groups[-1].append(token)
+    return groups
+
+
+def _segment_has_git_action(tokens: list[str], action: str) -> bool:
     long_dry_run = any(token.startswith("--dry-run") for token in tokens)
     push_short_dry_run = action == "push" and any(
         token.startswith("-") and not token.startswith("--") and "n" in token[1:]

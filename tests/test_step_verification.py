@@ -885,3 +885,37 @@ async def test_degisiklik_yapilan_kosuda_komutsuz_proje_uyarisi_korunur(tmp_path
     sonuc = await verify_plan_acceptance(_tamamlanmis_plan(_file_step("main.py")), deps)
 
     assert UNPROVEN_BEHAVIOR_WARNING in sonuc.warnings
+
+
+def test_zincirli_ve_yonlendirmeli_git_commit_kanit_sayilir():
+    """Ölçüldü (29 Ekim): `&&`/`;`/`&` token'ı görülünce `False` dönüyordu; modelin
+    yazdığı `git add -A && git commit -m x` gerçek commit olsa da kanıt sayılmıyordu."""
+    from fusion_cli.engines.agent.step_verification import _contains_git_action
+
+    for command in (
+        "git add -A && git commit -m x",
+        "cd repo && git commit -m x",
+        "git commit -m x 2>&1",
+        "git add . && git commit -m 'a b' 2>&1",
+        "git add -A; git commit -m x",
+        'git commit -m "başlık\n\ngövde"',
+        "git add -A\ngit commit -m x",
+        "git commit -m x &> /dev/null",
+    ):
+        assert _contains_git_action(command, "commit"), command
+
+
+def test_maskelenen_ya_da_sonu_belirsiz_git_commit_kanit_degildir():
+    from fusion_cli.engines.agent.step_verification import _contains_git_action
+
+    for command in (
+        "git commit -m x || true",
+        "git commit -m x | tail",
+        "git commit -m x &",
+        "git commit -m x; echo bitti",  # son komutun kodu commit'i gizler
+        "git commit --dry-run -m x && echo ok",
+        "git add -A && git commit --dry-run",
+        "cat <<EOF\ngit commit\nEOF",
+        "echo 'git commit' && ls",
+    ):
+        assert not _contains_git_action(command, "commit"), command
