@@ -64,6 +64,11 @@ NO_TOOLS: tuple[str, ...] = ("-",)
 #: Codex `sandbox_mode = "read-only"` ajanının Fusion karşılığı olan salt-okur araç seti.
 _READ_ONLY_TOOLS: tuple[str, ...] = ("Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch")
 
+#: Üçüncü tarafın doldurduğu kökler: oradaki sembolik bağ kök DIŞINA (`~/.ssh/id_rsa`)
+#: çıkıyorsa içerik sızdırma yolu olur (T1-15). Kullanıcının kendi kökleri (`~/.claude`,
+#: proje) dotfile yöneticilerinin bağlarını kullanabilir ve denetlenmez.
+_UNTRUSTED_SOURCES = frozenset({"kurulu", "claude-plugin"})
+
 #: Kişilik alanları: frontmatter anahtarı → `Capability` alanı. Türkçe ve İngilizce
 #: yazım ikisi de kabul edilir; kullanıcı kendi ajanını hangisiyle yazarsa.
 _PERSONA_KEYS: dict[str, str] = {
@@ -224,6 +229,14 @@ class CapabilityRegistry:
     def get_skill(self, name: str) -> Capability | None:
         return _select(self.skills(), name)
 
+    def candidates(self, name: str) -> tuple[str, ...]:
+        """Bu ada sahip skill'lerin nitelikli adları (`ad@kaynak:kimlik`).
+
+        `get_skill(ad)` farklı içerikli birden çok kaynakta None döner (kaynak seçimi
+        bilinçlidir); çağıran modele "yok" demek yerine bu adayları sunabilir.
+        """
+        return tuple(item.qualified_name for item in self.skills() if item.name == name)
+
     def get_agent(self, name: str) -> Capability | None:
         return _select(self.agents(), name, bundled_override=True)
 
@@ -262,6 +275,8 @@ class CapabilityRegistry:
             if not root.exists():
                 continue
             for path in sorted(root.rglob("SKILL.md")):
+                if not _trusted_path(path, root, source):
+                    continue
                 capability = _to_capability(path, source, fallback=path.parent.name)
                 # İlk bulunan İÇERİĞİ verir: tüm Claude/proje kökleri dış kaynaklardan
                 # önce gelir. Sonrakiler yalnız kaynak etiketine eklenir.
@@ -273,15 +288,31 @@ class CapabilityRegistry:
         for root, source in self._agent_roots():
             if not root.exists():
                 continue
+            # Kurulu repoda `agents/` klasörünün kendisi de bağ olabilir: sınır repo kökü.
+            bound = root.parent if source == "kurulu" else root
             for path in sorted(root.glob("*.md")):
+                if not _trusted_path(path, bound, source):
+                    continue
                 capability = _to_capability(path, source, fallback=path.stem)
                 _merge(found, capability)
             # Codex agent'ları TOML tutar; aynı kökte iki biçim yan yana olabilir.
             for path in sorted(root.glob("*.toml")):
+                if not _trusted_path(path, bound, source):
+                    continue
                 toml_capability = _toml_capability(path, source)
                 if toml_capability is not None:
                     _merge(found, toml_capability)
         return tuple(found.values())
+
+
+def _trusted_path(path: Path, bound: Path, source: str) -> bool:
+    """Üçüncü taraf kökündeki dosya, `bound` dışına çıkan bir sembolik bağ DEĞİL mi?"""
+    if source not in _UNTRUSTED_SOURCES or not path.is_symlink():
+        return True
+    try:
+        return path.resolve().is_relative_to(bound.resolve())
+    except OSError:
+        return False
 
 
 def _installed_folders() -> tuple[Path, ...]:

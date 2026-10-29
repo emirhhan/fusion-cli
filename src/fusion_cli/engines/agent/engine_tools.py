@@ -810,6 +810,13 @@ def _read_skill_tool(
         name = str(args.get("name", ""))
         skill = library.get_skill(name)
         if skill is None:
+            adaylar = library.candidates(name)
+            if adaylar:
+                # Aynı ad farklı içerikli birden çok kaynakta: "yok" demek modeli yanıltır.
+                return ToolResult.failure(
+                    f"'{name}' birden çok kaynakta var; birini nitelikli adıyla çağır: "
+                    + ", ".join(adaylar)
+                )
             return ToolResult.failure(f"'{name}' adlı skill yok. find_skill ile ara.")
         offset = args.get("offset", 0)
         if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
