@@ -279,3 +279,108 @@ def test_ogretmen_gorseli_kok_disindan_alinmaz(tmp_path):
     assert isinstance(_teacher_images(["../ozel.png"], context), ToolResult)
     icerde = _teacher_images(["ekran.png"], context)
     assert isinstance(icerde, tuple) and len(icerde) == 1
+
+
+# --- A1-06: dosya yazma izni yola bağlanır, proje dışı auto'da sorulur ------- #
+
+
+def _yazma_araci(ad="write_file"):
+    from fusion_cli.core.tools import Tool, ToolEffect
+
+    return Tool(
+        name=ad,
+        description="",
+        parameters={},
+        run=lambda a, c: None,
+        mutating=True,
+        effect=ToolEffect.LOCAL,
+    )
+
+
+class _Sayac:
+    """Kaç kez soruldu; verilen cevapları sırayla döner."""
+
+    def __init__(self, *cevaplar):
+        self.cevaplar = list(cevaplar)
+        self.sorulan: list[str] = []
+
+    async def confirm(self, request):
+        self.sorulan.append(str(request.args.get("path")))
+        return self.cevaplar.pop(0)
+
+
+async def test_auto_modda_proje_disina_yazma_sorulur_proje_ici_sorulmaz(tmp_path):
+    from fusion_cli.engines.agent.approval import (
+        ApprovalAnswer,
+        ApprovalMode,
+        Decision,
+        build_policy,
+        build_request,
+    )
+
+    sayac = _Sayac(ApprovalAnswer.DENY)
+    politika = build_policy(ApprovalMode.AUTO, sayac)
+    proje = tmp_path / "proje"
+    proje.mkdir()
+
+    ici = build_request(_yazma_araci(), {"path": "src/a.py"}, root=proje)
+    disi = build_request(_yazma_araci(), {"path": str(tmp_path / ".zshrc")}, root=proje)
+
+    assert await politika.decide(ici) is Decision.ALLOW
+    assert sayac.sorulan == []
+    assert await politika.decide(disi) is Decision.DENIED
+    assert len(sayac.sorulan) == 1
+    assert "proje dışına" in (disi.risk or "")
+
+
+async def test_oturum_izni_proje_disi_baska_yola_gecmez(tmp_path):
+    from fusion_cli.engines.agent.approval import (
+        ApprovalAnswer,
+        ApprovalMemory,
+        ApprovalMode,
+        Decision,
+        build_policy,
+        build_request,
+    )
+
+    sayac = _Sayac(ApprovalAnswer.SESSION, ApprovalAnswer.DENY)
+    politika = build_policy(ApprovalMode.AUTO, sayac, ApprovalMemory())
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    diger = tmp_path / "diger"
+    diger.mkdir()
+
+    ilk = build_request(_yazma_araci(), {"path": str(diger / "a.txt")}, root=proje)
+    ayni_dizin = build_request(_yazma_araci(), {"path": str(diger / "b.txt")}, root=proje)
+    baska_dizin = build_request(_yazma_araci(), {"path": str(tmp_path / ".zshrc")}, root=proje)
+
+    assert await politika.decide(ilk) is Decision.ALLOW  # "oturum boyunca"
+    assert await politika.decide(ayni_dizin) is Decision.ALLOW  # aynı dizin: sorulmaz
+    assert len(sayac.sorulan) == 1
+    assert await politika.decide(baska_dizin) is Decision.DENIED  # başka dizin: sorulur
+    assert len(sayac.sorulan) == 2
+
+
+async def test_manuel_kipte_proje_ici_oturum_izni_proje_disini_kapsamaz(tmp_path):
+    from fusion_cli.engines.agent.approval import (
+        ApprovalAnswer,
+        ApprovalMemory,
+        ApprovalMode,
+        Decision,
+        build_policy,
+        build_request,
+    )
+
+    sayac = _Sayac(ApprovalAnswer.SESSION, ApprovalAnswer.DENY)
+    politika = build_policy(ApprovalMode.SECURITY, sayac, ApprovalMemory())
+    proje = tmp_path / "proje"
+    proje.mkdir()
+
+    ici = build_request(_yazma_araci(), {"path": "a.py"}, root=proje)
+    ici_2 = build_request(_yazma_araci(), {"path": "b.py"}, root=proje)
+    disi = build_request(_yazma_araci(), {"path": str(tmp_path / ".zshrc")}, root=proje)
+
+    assert await politika.decide(ici) is Decision.ALLOW
+    assert await politika.decide(ici_2) is Decision.ALLOW
+    assert await politika.decide(disi) is Decision.DENIED
+    assert len(sayac.sorulan) == 2

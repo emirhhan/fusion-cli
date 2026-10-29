@@ -52,6 +52,9 @@ REMOTE_DESTRUCTIVE_REASON = (
 #: Uzak sistemde değişiklik yapan aracın otomatik kipte sorulma gerekçesi.
 REMOTE_WRITE_REASON = "uzak sistemde değişiklik yapıyor"
 
+#: Hedef yolu `path` argümanında taşıyan yerel dosya yazma araçları (A1-06).
+_PATH_WRITE_TOOLS = frozenset({"write_file", "edit_file", "multi_edit", "create_file"})
+
 #: Gözetimsiz ("Düzenlemeleri kabul et" kipinde sormadan) çalışabilecek etki sınıfları.
 _UNATTENDED_EFFECTS = frozenset(
     {ToolEffect.LOCAL, ToolEffect.REMOTE_READ, ToolEffect.REMOTE_INTERACT}
@@ -154,6 +157,11 @@ class ApprovalRequest:
     #: Onay kartında gösterilecek ek bilgi (silme hedefi, sorulma nedeni).
     note: str | None = None
     authorization_scope: AuthorizationScope | None = None
+    #: Dosya yazma aracı proje (ve `--add-dir`) DIŞINA yazıyorsa hedefin dizini.
+    #:
+    #: Oturum izni bu dizine bağlanır: proje içi `write_file` izni `~/.zshrc`'yi
+    #: kapsamaz (A1-06).
+    outside_dir: str | None = None
 
     @property
     def can_remember(self) -> bool:
@@ -332,7 +340,16 @@ async def resolve_request(
     """
     effect = await tool.effect_resolver(args, context) if tool.effect_resolver is not None else None
     touched = context.touched if context is not None else ()
-    return build_request(tool, args, allowed_commands, effect=effect, root=root, touched=touched)
+    extra_roots = tuple(context.extra_roots) if context is not None else ()
+    return build_request(
+        tool,
+        args,
+        allowed_commands,
+        effect=effect,
+        root=root,
+        touched=touched,
+        extra_roots=extra_roots,
+    )
 
 
 def build_request(
@@ -343,6 +360,7 @@ def build_request(
     effect: ToolEffect | None = None,
     root: Path | None = None,
     touched: Collection[Path] = (),
+    extra_roots: tuple[Path, ...] = (),
 ) -> ApprovalRequest:
     """Onay isteğini kur; yıkıcılık, risk ve izin listesi kontrolü burada yapılır.
 
@@ -361,17 +379,48 @@ def build_request(
     if danger is None and effect is ToolEffect.REMOTE_DESTRUCTIVE:
         danger = REMOTE_DESTRUCTIVE_REASON
     risk = None if effect in _UNATTENDED_EFFECTS else REMOTE_WRITE_REASON
+    unattended_safe = effect in _UNATTENDED_EFFECTS
+    # Yerel dosya aracı proje DIŞINA yazıyorsa risklidir (modül belgesi: "proje dışı
+    # sorulur"). Eskiden bu yalnız kabukta uygulanıyordu; `write_file ~/.zshrc`
+    # auto kipte sorulmuyor, "oturum boyunca" izni de araç adına bağlı olduğundan
+    # sonraki her yolu kapsıyordu. Ölçüldü (29 Ekim, A1-06).
+    outside_dir = _outside_write_dir(tool, args, root, extra_roots) if risk is None else None
+    if outside_dir is not None:
+        risk = f"proje dışına yazıyor ({args.get('path')})"
+        unattended_safe = False
     return ApprovalRequest(
         tool=tool,
         args=args,
         danger=danger,
-        unattended_safe=effect in _UNATTENDED_EFFECTS,
+        unattended_safe=unattended_safe,
         effect=effect,
         risk=risk,
         read_only=effect is ToolEffect.REMOTE_READ,
         note=risk,
         authorization_scope=tool.scope_resolver(args) if tool.scope_resolver is not None else None,
+        outside_dir=outside_dir,
     )
+
+
+def _outside_write_dir(
+    tool: Tool, args: ToolArgs, root: Path | None, extra_roots: tuple[Path, ...]
+) -> str | None:
+    """Dosya yazma aracının hedefi kök (+ `--add-dir`) dışındaysa hedefin dizini."""
+    raw = args.get("path")
+    if root is None or tool.name not in _PATH_WRITE_TOOLS or not isinstance(raw, str):
+        return None
+    if not raw.strip():
+        return None
+    try:
+        path = Path(raw).expanduser()
+        target = (path if path.is_absolute() else root / path).resolve()
+        allowed = (root.resolve(), *(extra.resolve() for extra in extra_roots))
+    except (OSError, RuntimeError, ValueError):
+        # Çözümlenemeyen yol güvenli tarafta DIŞARIDA sayılır.
+        return str(raw)
+    if any(target == base or base in target.parents for base in allowed):
+        return None
+    return str(target.parent)
 
 
 def _shell_request(
@@ -440,7 +489,7 @@ async def _ask_and_remember(
 
 
 def _scope(request: ApprovalRequest) -> str | None:
-    """Oturum izninin dar kapsamı: araç ya da aynı shell komutu.
+    """Oturum izninin dar kapsamı: araç, aynı shell komutu ya da dışarıdaki dizin.
 
     Kabuk ailesi TEK KAYNAKTAN (`core.tools.tool_family`) tanınır ve kapsam
     anahtarı her zaman kanonik `run_shell:` öneki ile üretilir: aksi hâlde
@@ -450,6 +499,9 @@ def _scope(request: ApprovalRequest) -> str | None:
     """
     if tool_family(request.tool.name) is ToolFamily.SHELL:
         return f"run_shell:{str(request.args.get('command', '')).strip()}"
+    if request.outside_dir is not None:
+        # Proje DIŞINA yazan dosya aracı: izin yalnız bu dizine verilir.
+        return f"{request.tool.name}:{request.outside_dir}"
     if request.effect is not ToolEffect.LOCAL:
         # Adaptör doğrulanmış kapsam sağlamıyorsa uzak izin yalnız bu çağrı içindir.
         scope = request.authorization_scope
