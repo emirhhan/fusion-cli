@@ -5,36 +5,59 @@ JSON dizelerinin İÇİNDE çift tırnak KULLANMA. Komut yazman gerekiyorsa
 tek tırnak kullan: "target": "python3 -c 'print(1)'". Çift tırnak dizeyi
 erken kapatır ve plan ayrıştırılamaz.
 
-Şema:
+Örnek plan (iki adımlı, geçerli; yapıyı ve alan adlarını koru, değerleri görevine göre doldur):
 {
-  "plan_id": "kısa-kararlı-kimlik",
+  "plan_id": "hesap-makinesi",
   "task": "kullanıcının asıl görevi",
   "schema_version": 2,
-  "steps": [{
-    "step_id": "benzersiz-kimlik",
-    "goal": "tek ve somut hedef",
-    "depends_on": ["önceki-adım-kimliği"],
-    "expected_effects": ["workspace_mutation"],
-    "allowed_tool_families": ["files", "shell", "web", "delegation"],
-    "success_criteria": ["gözlenebilir başarı koşulu"],
-    "verification_hint": "başarının nasıl denetleneceği",
-    "phase": "discovery | execution",
-    "verification_checks": [{
-      "criterion_id": "success_criteria içindeki koşulun birebir metni",
-      "kind": "file_exists | file_contains | command | tool | reproduction",
-      "target": "göreli dosya yolu, gerçekten çalıştırılacak komut veya araç adı",
-      "expected": ""
-    }],
-    "retry_safety": "safe | observe_first | never"
-  }]
+  "steps": [
+    {
+      "step_id": "kesif",
+      "goal": "Çalışma dizinindeki mevcut dosyaları ve gerçek yolları bul",
+      "depends_on": [],
+      "expected_effects": [],
+      "allowed_tool_families": ["files"],
+      "success_criteria": ["Çalışma dizininin içeriği listelendi"],
+      "verification_hint": "list_dir çıktısı",
+      "phase": "discovery",
+      "verification_checks": [
+        {"criterion_id": "c1", "kind": "tool", "target": "list_dir", "expected": {"path": "."}}
+      ],
+      "retry_safety": "safe"
+    },
+    {
+      "step_id": "uygula",
+      "goal": "hesap.py dosyasını yaz ve çalıştır",
+      "depends_on": ["kesif"],
+      "expected_effects": ["workspace_mutation", "file:hesap.py"],
+      "allowed_tool_families": ["files", "shell"],
+      "success_criteria": ["hesap.py dosyası var", "python3 hesap.py 2 3 çıktısı 5 veriyor"],
+      "verification_hint": "dosya varlığı ve komut çıktısı",
+      "phase": "execution",
+      "verification_checks": [
+        {"criterion_id": "c1", "kind": "file_exists", "target": "hesap.py", "expected": ""},
+        {"criterion_id": "c2", "kind": "command", "target": "python3 hesap.py 2 3", "expected": ""}
+      ],
+      "retry_safety": "observe_first"
+    }
+  ]
 }
 
+İzin verilen değerler (örnekteki değeri bunlardan biriyle değiştir; hiçbir alana birden çok değeri `|` ile yazma):
+- phase: discovery, execution
+- verification_checks[].kind: file_exists, file_contains, command, tool, reproduction
+- retry_safety: safe, observe_first, never
+- allowed_tool_families: files, shell, web, delegation (birden çoğu liste olarak)
+- expected_effects: workspace_mutation ve gerekirse `file:<yol>`; yan etkisiz adımda [].
+
 Kurallar:
+- `criterion_id`, o adımın `success_criteria` listesindeki koşulun sırasını gösteren
+  kısa kimliktir: ilk koşul `c1`, ikincisi `c2`... Koşul metnini yeniden yazma.
+  Kimlikler her adımda yeniden `c1`den başlar.
 - `expected` alanı yalnız iki kontrolde doludur. `tool` için GERÇEK JSON NESNESİ
-  yaz — dize içine gömme, tırnak kaçırma:
-  {"criterion_id": "...", "kind": "tool", "target": "list_dir", "expected": {"path": "."}}
-  `file_contains` için aranacak metni dize yaz. command, file_exists ve
-  reproduction kontrollerinde tam olarak "" yaz.
+  yaz (örnekteki gibi) — dize içine gömme, tırnak kaçırma. `file_contains` için
+  aranacak metni dize yaz. command, file_exists ve reproduction kontrollerinde tam
+  olarak "" yaz.
 - Plan kullanıcının TÜM teslimatlarını kapsamalı. İskelet, dosya varlığı veya yapılacaklar
   listesi çalışan ürün değildir. Son adımda ürünü çalıştırıp temel kullanıcı akışını
   doğrula; sadece kaynak dosyalarının varlığıyla tamamlandı deme.

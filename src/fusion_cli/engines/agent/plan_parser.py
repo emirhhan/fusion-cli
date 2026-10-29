@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 from pathlib import Path
 from typing import cast
 
@@ -189,7 +190,40 @@ def _drop_invented_asset_files(effects: tuple[str, ...]) -> tuple[str, ...]:
     )
 
 
-def _parse_checks(data: dict[str, object], index: int) -> tuple[VerificationCheck, ...]:
+_KISA_KIMLIK = re.compile(r"c(\d+)", re.IGNORECASE)
+
+
+def _kosul_anahtari(metin: str) -> str:
+    """Koşul metnini boşluk, büyük/küçük harf ve sondaki noktalamadan arındır."""
+    return " ".join(metin.casefold().split()).rstrip(" .;:!,")
+
+
+def _resolve_criterion_id(raw: str, criteria: tuple[str, ...]) -> str:
+    """`criterion_id`'yi `success_criteria` içindeki koşula bağla.
+
+    Ölçüldü (30 Ekim, Z1-05): kimlik koşulun BİREBİR metni olmak zorundaydı;
+    küçük model metni yeniden yazarken noktalama ya da boşluk değiştirince
+    kontrol hiçbir koşula bağlanmıyor ve tüm plan reddediliyordu. Sıra:
+    birebir metin, sonra kısa kimlik (`c1` = ilk koşul), sonra TEK bir koşula
+    uyan normalleştirilmiş metin. Belirsiz ya da aralık dışı değer olduğu gibi
+    bırakılır; doğrulayıcı onu `bilinmeyen başarı koşulu` diye reddeder.
+    """
+    if raw in criteria:
+        return raw
+    kisa = _KISA_KIMLIK.fullmatch(raw.strip())
+    if kisa is not None:
+        sira = int(kisa.group(1))
+        if 1 <= sira <= len(criteria):
+            return criteria[sira - 1]
+        return raw
+    anahtar = _kosul_anahtari(raw)
+    adaylar = [item for item in criteria if _kosul_anahtari(item) == anahtar]
+    return adaylar[0] if len(adaylar) == 1 else raw
+
+
+def _parse_checks(
+    data: dict[str, object], index: int, criteria: tuple[str, ...] = ()
+) -> tuple[VerificationCheck, ...]:
     """İsteğe bağlı tipli kontrolleri ayrıştır; eski planlar boş listeyle yaşar."""
     raw_checks = data.get("verification_checks", [])
     if not isinstance(raw_checks, list):
@@ -232,7 +266,9 @@ def _parse_checks(data: dict[str, object], index: int) -> tuple[VerificationChec
             )
         checks.append(
             VerificationCheck(
-                criterion_id=_require_string(check_data, "criterion_id"),
+                criterion_id=_resolve_criterion_id(
+                    _require_string(check_data, "criterion_id"), criteria
+                ),
                 kind=kind,
                 target=_require_string(check_data, "target"),
                 expected=expected,
@@ -285,7 +321,7 @@ def _parse_step(value: object, index: int) -> PlanStep:
         verification_hint=verification_hint,
         retry_safety=retry_safety,
         status=StepStatus.PENDING,
-        verification_checks=_parse_checks(data, index),
+        verification_checks=_parse_checks(data, index, success_criteria),
         phase=phase,
         revision=revision,
     )
