@@ -224,6 +224,11 @@ MAX_VERIFY_ROUNDS = 2
 #: Boş cevapta kaç kez daha denenir. Sınırsız denemek kotayı ve zamanı tüketir;
 #: hiç denememek turu iş yapmadan bitirir (ölçüldü).
 MAX_EMPTY_RETRIES = 2
+#: Boş yanıt hakkı bitince kullanıcıya giden açıklama (metin boşsa).
+EMPTY_RESPONSES_ANSWER = (
+    "Model üst üste boş yanıt verdi; bu tur sonlandırıldı ve iş tamamlanmış sayılmaz. "
+    "Farklı bir model seçip yeniden deneyebilirsin."
+)
 #: Bozuk araç çağrısı için TÜM tur boyunca tanınan onarım hakkı.
 #
 # Eskiden 1'di ve 12 turluk işler için ölçülmüştü. Turlar 22 tura çıkınca bu hak
@@ -863,6 +868,7 @@ async def _run_agent(
     )
 
     verification = None
+    fix_unverified = False
     # Doğrulama turu hakkı da tur genelidir: iç içe bir düzeltme kendi kapı bütçesini
     # açamaz (`verify=False` ile zaten kapatılıyor, bütçe bunu ikinci kez garanti eder).
     while verify and budget.stop is None and budget.take_verify_round():
@@ -871,6 +877,7 @@ async def _run_agent(
         # Koşul eskiden `not verification.findings` de arıyordu; yalnızca özet
         # dolduran bir kapı (komut doğrulayıcısı) başarısız olduğunda agent
         # düzeltmeye hiç başlamıyordu.
+        fix_unverified = False
         if verification is None or verification.ok:
             break
         # Somut bir verifier bulgusu correction için yeni ve eyleme geçirilebilir
@@ -882,6 +889,15 @@ async def _run_agent(
             verification = replace(verification, findings=(*verification.findings, repair_note))
         budget.record_progress()
         outcome = await _fix_findings(verification, outcome, deps)
+        fix_unverified = True
+
+    # Kapı bütçesi "doğrula+düzelt" çiftini değil yalnız doğrulamayı sayar; son
+    # düzeltmenin sonucu bu yüzden hiç ölçülmüyor, `verification` bayat BAŞARISIZ
+    # sonucu taşıyordu. Ölçüldü (29 Ekim, A2-01): iki başarısız doğrulama + işe
+    # yarayan ikinci düzeltme `ok=False` bitiyordu. Düzeltme turu açmadan, yalnız
+    # salt-doğrulama yapılır; sonuç artık gerçeği taşır (iyiye de kötüye de).
+    if fix_unverified and budget.stop is None:
+        verification = await _verify(outcome, deps, plan_mode=plan_mode, depth=depth)
 
     if depth == 0 and not internal and not plan_mode and not chat_mode and budget.stop is None:
         teacher_findings = await review_teacher_changes(task, outcome, deps, registry)
@@ -1342,9 +1358,18 @@ async def _drive(
             if budget.take_empty_retry():
                 messages.append(reflexion.empty_response_note())
                 continue
-            budget.halt(BudgetStop.EMPTY_RESPONSES)
-            _publish_budget_stop(deps, budget, state)
-            return _outcome(final_text, messages, state)
+            # Ölçüldü (29 Ekim, A2-02): eskiden elle `_outcome(...)` çağrılıyor,
+            # `ok=True`, `budget_stopped=False` ve çoğu zaman BOŞ metinle bitiyordu;
+            # ders çıkarımı bu turdan başarı öğrenebiliyordu. Her halt yolu gibi
+            # `_halt` kullanılır ve boş metin açıklamayla doldurulur.
+            return _halt(
+                final_text.strip() or EMPTY_RESPONSES_ANSWER,
+                messages,
+                state,
+                budget,
+                BudgetStop.EMPTY_RESPONSES,
+                deps,
+            )
 
         if deps.questions.ready:
             continue
@@ -2050,8 +2075,20 @@ async def _call_with_retries(
                 )
             )
             continue
+        # Boş (`ok` ama kullanılamaz) ve `TOOL_CALL_*` sözleşme hatalı yanıt aynen
+        # tekrar göndermekle düzelmez; `_drive` yansıtıcı notla yeniden ister.
+        # Ölçüldü (29 Ekim, A2-03): bu yanıtlar not eklenmeden üstel geri çekilmeyle
+        # 10 kereye kadar (~5-6 dk) aynen yeniden gönderiliyordu.
+        deterministic_bad = result is not None and (
+            _is_tool_contract_error(result.error) or (result.ok and not result.is_usable)
+        )
         retryable = not state.call_streamed and (
-            result is None or (not result.is_usable and not is_permanent_error(result.error))
+            result is None
+            or (
+                not result.is_usable
+                and not deterministic_bad
+                and not is_permanent_error(result.error)
+            )
         )
         out_of_time = budget.time_stop_reason() is not None
         max_retries = deps.config.runtime.model_retry_attempts

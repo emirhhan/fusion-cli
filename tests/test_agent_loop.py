@@ -1247,11 +1247,12 @@ async def test_duzeltici_turdan_sonra_kapi_bir_kez_daha_calisir(monkeypatch, tmp
 
     sonuc = await run_agent("site yap", deps)
 
-    assert dogrulayici.calls == 2, "kapı düzeltmeden sonra bir kez daha bakmalı"
-    # İkinci bakış da düştüğü için tur başarı sayılmaz; düzeltici turun metni
-    # uyarının ardında korunur (bkz. `_mark_unverified`).
+    # Ölçüldü (29 Ekim, A2-01): kapı bütçesi 2 doğrulama turudur; ikinci düzeltmenin
+    # sonucu eskiden hiç ölçülmüyor, bayat başarısız sonuç turu `ok=False` yapıyordu.
+    # Artık düzeltme turu AÇMADAN bir salt-doğrulama daha yapılır (3. bakış).
+    assert dogrulayici.calls == 3, "son düzeltmeden sonra salt-doğrulama yapılmalı"
     assert sonuc.final_text.endswith("ikinci duzeltme")
-    assert sonuc.ok is False
+    assert sonuc.ok is True
     assert provider.calls == 6
 
 
@@ -1334,7 +1335,8 @@ async def test_kapi_sonsuz_dongu_yapmaz(monkeypatch, tmp_path, sink):
 
     await run_agent("site yap", deps)
 
-    assert dogrulayici.calls <= 2, f"kapı {dogrulayici.calls} kez çalıştı — sınır aşıldı"
+    # 2 doğrula+düzelt turu + son düzeltmeyi ölçen tek salt-doğrulama (A2-01).
+    assert dogrulayici.calls <= 3, f"kapı {dogrulayici.calls} kez çalıştı — sınır aşıldı"
 
 
 async def test_oz_denetim_duzeltmesi_ic_ice_kapi_turu_acmaz(monkeypatch, tmp_path, sink):
@@ -1365,7 +1367,8 @@ async def test_oz_denetim_duzeltmesi_ic_ice_kapi_turu_acmaz(monkeypatch, tmp_pat
 
     await run_agent("site yap", deps)
 
-    assert dogrulayici.calls <= 2, f"kapı {dogrulayici.calls} kez çalıştı; iç içe doğrulama var"
+    # İç içe tur kapı açsaydı 4+ olurdu; 3 = 2 tur + son düzeltmeyi ölçen salt-doğrulama.
+    assert dogrulayici.calls <= 3, f"kapı {dogrulayici.calls} kez çalıştı; iç içe doğrulama var"
 
 
 async def test_bos_cevapta_bir_kez_daha_denenir(monkeypatch, tmp_path, sink):
