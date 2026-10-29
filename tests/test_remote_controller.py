@@ -142,3 +142,16 @@ async def test_tunel_ve_loopback_gercekten_dinler_ve_durdurulur(controller: Any)
     assert (await controller.dispatch("uzak.durum", {}))["dinliyor"] is True
     await controller.dispatch("uzak.durdur", {})
     assert (await controller.dispatch("uzak.durum", {}))["dinliyor"] is False
+
+
+async def test_port_doluysa_baslatma_hata_doner_ve_dongu_dusmez(controller: Any) -> None:
+    import socket
+
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen(1)
+        port = busy.getsockname()[1]
+        started = await controller.dispatch("uzak.baslat", {"port": port})
+        assert started["ok"] is False and str(port) in started["metin"]
+        status = await controller.dispatch("uzak.durum", {})
+        assert status["dinliyor"] is False and status["adres"] == ""

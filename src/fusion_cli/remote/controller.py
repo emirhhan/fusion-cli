@@ -23,7 +23,7 @@ from .account_login import AccountLogin
 from .asgi import RemoteApp
 from .backend import AppSessionBackend
 from .bind import BindPolicy, BindRefusedError, private_addresses, validate_bind
-from .constants import DEFAULT_REMOTE_HOST, DEFAULT_REMOTE_PORT
+from .constants import DEFAULT_REMOTE_HOST, DEFAULT_REMOTE_PORT, HTTP_START_TIMEOUT_SECONDS
 from .devices import CHANNEL_SIGNED, CHANNEL_TELEGRAM, Device, DeviceRegistry
 from .mobile import MobileApi
 from .navigation import NavigationHost
@@ -39,6 +39,10 @@ from .telegram import HttpTelegramApi, OffsetStore, TelegramBridge
 from .uploads import MediaReader, UploadStore
 
 TELEGRAM_TOKEN_NAME = "FUSION_TELEGRAM_BOT_TOKEN"
+
+
+class _ServerStartError(RuntimeError):
+    """uvicorn dinlemeye başlayamadan çıktı (çoğunlukla port kullanımda)."""
 
 
 class TokenStore(Protocol):
@@ -340,11 +344,39 @@ class RemoteController:
             ssl_keyfile=key_path or None,
         )
         self._server = uvicorn.Server(config)
-        self._server_task = asyncio.create_task(self._server.serve())
+        self._server_task = asyncio.create_task(self._serve_guarded(self._server))
+        failure = await self._wait_started(self._server, self._server_task)
+        if failure is not None:
+            self._server, self._server_task = None, None
+            return _fail(f"Uzak erişim {host}:{port} üzerinde başlatılamadı: {failure}")
         scheme = "https" if data.get("sertifika") else "http"
         self._address = f"{scheme}://{host}:{port}"
         self._port = port
         return {"ok": True, "adres": self._address}
+
+    async def _serve_guarded(self, server: Any) -> None:  # noqa: ANN401
+        """`serve()` bind hatasında `sys.exit(1)` atar; SystemExit görevden olay döngüsüne
+        yayılıp sidecar'ı düşürmesin diye burada yakalanır."""
+        try:
+            await server.serve()
+        except SystemExit as error:
+            raise _ServerStartError(f"çıkış kodu {error.code}") from None
+
+    async def _wait_started(self, server: Any, task: asyncio.Task[None]) -> str | None:  # noqa: ANN401
+        """Sunucu dinlemeye başlayana dek bekle; başlayamazsa nedeni döner.
+
+        Adres `ok:true` ile hemen dönerse port doluyken kullanıcı hatayı hiç görmezdi.
+        """
+        deadline = asyncio.get_running_loop().time() + HTTP_START_TIMEOUT_SECONDS
+        while not server.started:
+            if task.done():
+                error = task.exception() if not task.cancelled() else None
+                return f"port kullanımda olabilir ({error})" if error else "sunucu kapandı"
+            if asyncio.get_running_loop().time() > deadline:
+                server.should_exit = True
+                return "zaman aşımı"
+            await asyncio.sleep(0.02)
+        return None
 
     async def _stop_http(self, _data: dict[str, Any]) -> dict[str, Any]:
         await self._stop_server()

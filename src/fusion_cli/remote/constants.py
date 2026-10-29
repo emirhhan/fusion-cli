@@ -53,6 +53,9 @@ NOTIFICATION_SUMMARY_LIMIT = 280
 TELEGRAM_POLL_TIMEOUT_SECONDS = 25
 TELEGRAM_FAILED_PAIR_LIMIT = 5
 
+#: HTTP sunucusunun soketi bağlayıp dinlemeye başlaması için beklenen en uzun süre.
+HTTP_START_TIMEOUT_SECONDS = 5
+
 #: Varsayılan dinleme adresi: internete açık bind varsayılan değildir.
 DEFAULT_REMOTE_HOST = "127.0.0.1"
 DEFAULT_REMOTE_PORT = 8791
