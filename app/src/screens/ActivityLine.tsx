@@ -83,7 +83,7 @@ function StepList({ adimlar }: { adimlar: OlayAdimi[] }) {
 }
 
 /** Araç adımının durumu için küçük işaret. */
-const DURUM_ISARETI: Record<string, string> = { ok: "✓", failed: "✗", denied: "—", blocked: "—" };
+const DURUM_ISARETI: Record<string, string> = { ok: "✓", failed: "✗", denied: "—", blocked: "—", timeout: "✗", cancelled: "—", unknown: "?" };
 
 /** Adımın açılınca gösterdiği kanıt: diff, komut ve çıktı. Akışta görünmez. */
 function StepDetail({ adim }: { adim: OlayAdimi }) {
@@ -142,7 +142,7 @@ export function ToolTrail({ adimlar }: { adimlar: OlayAdimi[] }) {
 /** Biten işin özeti: "3 komut çalıştırıldı, 4 dosya okundu ›" — tıklayınca açılır. */
 function ToolSummary({ adimlar }: { adimlar: OlayAdimi[] }) {
   const baslik = adimOzeti(adimlar) || adimlar[adimlar.length - 1].metin;
-  const hata = adimlar.some((adim) => adim.durum === "failed");
+  const hata = adimlar.some((adim) => adim.durum === "failed" || adim.durum === "timeout" || adim.durum === "unknown");
   const names = adimlar.map((step) => step.arac ?? "");
   const icon: IconName = names.some((name) => ["write_file", "edit_file", "multi_edit"].includes(name)) ? "edit"
     : names.some((name) => ["run_shell", "git"].includes(name)) ? "terminal"

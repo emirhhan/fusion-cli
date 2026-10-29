@@ -148,6 +148,23 @@ describe("olayAdimi", () => {
   });
 
   it.each([
+    ["timeout", "araç zaman aşımına uğradı: write_file"],
+    ["cancelled", "araç iptal edildi: write_file"],
+    ["error", "araç sonucu doğrulanamadı: write_file"],
+    ["unknown", "araç sonucu doğrulanamadı: write_file"],
+    ["skipped", "araç sonucu doğrulanamadı: write_file"],
+    ["", "araç sonucu doğrulanamadı: write_file"],
+  ] as const)("%s sonuçlu araç çağrısı başarı etiketi almaz", (outcome, metin) => {
+    // Ölçüldü (29 Ekim): `ARAC_SONUCU[durumAdi] ?? ARAC_SONUCU.ok` bilinmeyen sonucu
+    // "araç çalıştı"ya çeviriyordu; zaman aşımı/iptal başarı gibi görünüyordu.
+    const adim = olayAdimi({ olay: "ToolExecuted", name: "write_file", outcome, args: {}, diff: "+x" });
+    expect(adim?.metin).toBe(metin);
+    expect(adim?.metin).not.toContain("çalıştı");
+    expect(adim?.diff).toBeUndefined();
+    expect(adim?.durum).not.toBe("ok");
+  });
+
+  it.each([
     ["completed", "görev tamamlandı"],
     ["partial", "görev kısmi kaldı"],
     ["failed", "görev başarısız"],

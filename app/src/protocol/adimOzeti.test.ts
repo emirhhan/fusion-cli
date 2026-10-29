@@ -19,6 +19,17 @@ describe("adimOzeti", () => {
     expect(adimOzeti([{ metin: "", arac: "read_file", durum: "ok", ayrinti: "Makefile" }])).toBe("Makefile okundu");
   });
 
+  test("başarısız, zaman aşımlı ya da doğrulanamayan adım başarı cümlesine girmez", () => {
+    // Ölçüldü (29 Ekim): sonucu ne olursa olsun her yazma "dosya düzenlendi" sayılıyordu.
+    const ozet = adimOzeti([
+      { metin: "", arac: "write_file", durum: "ok", ayrinti: "a.py" },
+      { metin: "", arac: "write_file", durum: "timeout", ayrinti: "b.py" },
+      { metin: "", arac: "run_shell", durum: "cancelled" },
+      { metin: "", arac: "edit_file", durum: "unknown" },
+    ]);
+    expect(ozet).toBe("A.py düzenlendi, 3 araç çağrısı tamamlanamadı");
+  });
+
   test("tarayıcı ve masaüstü araçları önekten tanınır", () => {
     expect(adimOzeti([
       { metin: "", arac: "chrome_click" },

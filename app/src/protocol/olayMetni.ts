@@ -234,7 +234,22 @@ const ARAC_SONUCU: Record<string, string> = {
   failed: "araç başarısız",
   denied: "araç reddedildi",
   blocked: "araç engellendi",
+  timeout: "araç zaman aşımına uğradı",
+  cancelled: "araç iptal edildi",
+  unknown: "araç sonucu doğrulanamadı",
 };
+
+/**
+ * `outcome` alanını normalleştirir. Alan HİÇ yoksa eski çekirdek demektir ve
+ * "ok" sayılır (geriye uyum); var ama tanınmıyorsa ("error", "skipped", boş…)
+ * başarı varsayılmaz: "unknown". Ölçüldü (29 Ekim): yedek yol `ARAC_SONUCU.ok`
+ * olduğundan zaman aşımı/iptal "araç çalıştı" görünüyordu.
+ */
+function aracSonucu(outcome: unknown): string {
+  if (outcome === undefined || outcome === null) return "ok";
+  const ad = String(outcome).trim();
+  return ad === "ok" || Object.hasOwn(ARAC_SONUCU, ad) ? ad : "unknown";
+}
 
 export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
   const olay = String(veri.olay ?? "");
@@ -253,11 +268,11 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
     }
     case "ToolExecuted": {
       const { ayrinti, kaynak } = aracAyrintisi(veri.args);
-      const durumAdi = String(veri.outcome ?? "ok");
+      const durumAdi = aracSonucu(veri.outcome);
       // Diff YALNIZ başarılı çağrıda taşınır. Engellenen ya da düşen bir
       // yazmanın diff'ini göstermek, yapılmamış bir değişikliği yapılmış gibi
       // sunardı — bu, `ARAC_SONUCU` ayrımının zaten kapattığı tuzağın aynısı.
-      const diff = veri.outcome === "ok" && typeof veri.diff === "string" && veri.diff
+      const diff = durumAdi === "ok" && typeof veri.diff === "string" && veri.diff
         ? veri.diff
         : undefined;
       // Dosya açma (`onOpenFile`) TAM yola muhtaçtır; `ayrinti` satırda
@@ -270,7 +285,7 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
       // insan-okunur varsayılan metin üretilir (bkz. `aracVarsayilanMetni`).
       const metin = durumAdi === "ok"
         ? aracVarsayilanMetni(ad, veri.args)
-        : `${ARAC_SONUCU[durumAdi] ?? ARAC_SONUCU.ok}: ${ad}`;
+        : `${ARAC_SONUCU[durumAdi]}: ${ad}`;
       const hamCikti = typeof veri.output === "string" ? veri.output.trim() : "";
       const komut = metinAl(rawArgs, "command", "komut");
       return {
