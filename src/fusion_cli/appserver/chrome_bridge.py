@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
 import secrets
 import sys
 import time
@@ -28,6 +29,10 @@ from .chrome_host import (
 )
 
 MAX_REQUEST_BYTES = 4_194_304
+#: Eklenti çıktısındaki öğe referansları (`"ref": "e12"`).
+_REF_IN_OUTPUT = re.compile(r'"ref":\s*"(e\d+)"')
+#: Hatırlanan ref→belge eşlemesinin üst sınırı (uzun oturumda bellek büyümesin).
+_MAX_REF_DOCS = 5_000
 COMMAND_TIMEOUT_SECONDS = 30
 CONNECTION_STALE_SECONDS = 35
 #: `/events` uzun yoklamasının bekleme süresi; `/poll` ile aynı: bağlantı canlı sayılır.
@@ -80,6 +85,9 @@ class ChromeBridge:
         self._feed_changed = asyncio.Event()
         #: Son `describe` sonuçları (ref → öğe adı); izin kartı adı gösterir.
         self._element_names: dict[str, str] = {}
+        #: Ref → onu üreten belgenin kimliği. Eklenti ref'leri belge başına sıfırdan sayar;
+        #: komut ref'in kendi belgesiyle gider ki sayfa değiştiyse eklenti reddetsin (WP09).
+        self._ref_docs: dict[str, str] = {}
         self._lifecycle = asyncio.Lock()
         self._announcer: asyncio.Task[None] | None = None
         #: Eklenti bağlı değilken Chrome'u açan işlev (testte değiştirilir).
@@ -231,6 +239,7 @@ class ChromeBridge:
         identifier = secrets.token_urlsafe(12)
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[identifier] = future
+        args = self._with_ref_doc(args)
         await self._queue.put({"id": identifier, "islem": operation, "veri": args})
         try:
             result = await asyncio.wait_for(future, COMMAND_TIMEOUT_SECONDS)
@@ -238,7 +247,29 @@ class ChromeBridge:
             self._pending.pop(identifier, None)
         if operation == "describe":
             self._remember_element(args, result)
+        self._remember_ref_docs(result)
         return result
+
+    def _with_ref_doc(self, args: dict[str, Any]) -> dict[str, Any]:
+        ref = args.get("ref")
+        if isinstance(ref, str) and ref in self._ref_docs and "doc" not in args:
+            return {**args, "doc": self._ref_docs[ref]}
+        return args
+
+    def _remember_ref_docs(self, result: dict[str, Any]) -> None:
+        veri = result.get("veri")
+        if (
+            not result.get("ok")
+            or not isinstance(veri, dict)
+            or not isinstance(veri.get("doc"), str)
+        ):
+            return
+        doc = veri["doc"]
+        for ref in _REF_IN_OUTPUT.findall(json.dumps(veri, ensure_ascii=False)):
+            self._ref_docs.pop(ref, None)  # Yeniden ekleme: en yeni kayıt sona geçer.
+            self._ref_docs[ref] = doc
+        while len(self._ref_docs) > _MAX_REF_DOCS:
+            self._ref_docs.pop(next(iter(self._ref_docs)))
 
     async def _connect_browser(self) -> None:
         """Eklenti bağlı değil: Chrome'u aç ve eklentinin bağlanmasını bekle.

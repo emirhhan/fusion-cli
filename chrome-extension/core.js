@@ -36,6 +36,13 @@ export function pageAction(operation, args) {
     el.getAttribute("mattooltip") || iconName(el) || el.getAttribute("name") || "")
     .replace(/\s+/g, " ").trim().slice(0, 120);
   const refs = globalThis.__fusionRefs || (globalThis.__fusionRefs = []);
+  // Ref'ler (`e0`, `e1`…) her BELGEDE sıfırdan sayılır: sayfa değişince eski `e0` yeni
+  // sayfada başka bir öğeye denk gelir. Her belge kendi kimliğini taşır; komut başka
+  // belgenin kimliğiyle gelirse öğe aranmadan reddedilir.
+  const docId = globalThis.__fusionDoc ||
+    (globalThis.__fusionDoc = Math.random().toString(36).slice(2, 10) + Date.now().toString(36));
+  const STALE_REF = "Bu öğe referansı önceki sayfaya ait (sayfa değişti). chrome_page ile yeniden oku ve güncel ref kullan.";
+  const checkDoc = () => { if (args.doc && args.doc !== docId) throw new Error(STALE_REF); };
   const refOf = (el) => {
     let index = refs.indexOf(el);
     if (index === -1) { refs.push(el); index = refs.length - 1; }
@@ -76,6 +83,7 @@ export function pageAction(operation, args) {
     return item;
   };
   const refElement = (ref) => {
+    checkDoc();
     const match = /^e(\d+)$/.exec(ref || "");
     const element = match ? refs[Number(match[1])] : null;
     if (!element || !element.isConnected || !safe(element)) {
@@ -106,6 +114,7 @@ export function pageAction(operation, args) {
     }
   };
   const target = () => {
+    checkDoc();
     const match = /^e(\d+)$/.exec(args.ref || "");
     const element = match ? refs[Number(match[1])] : null;
     if (!element || !element.isConnected || !safe(element)) {
@@ -159,6 +168,7 @@ export function pageAction(operation, args) {
       text: visibleText(),
       elements: all.slice(0, MAX_ELEMENTS).map(describe),
       truncated: all.length > MAX_ELEMENTS,
+      doc: docId,
     };
   }
   if (operation === "find") {
@@ -173,7 +183,7 @@ export function pageAction(operation, args) {
       // En içteki eşleşme: "div > span > button" zincirinde düğmeyi döndür.
       .filter((el, _, list) => !list.some((other) => other !== el && el.contains(other)))
       .slice(0, 20);
-    const result = { query, matches: hits.map(describe) };
+    const result = { query, matches: hits.map(describe), doc: docId };
     if (!hits.length) {
       result.ipucu = "Eşleşme yok. Sayfada ne olduğunu görmek için chrome_page'i query olmadan çağır; " +
         "sayfadaki gerçek yazıyı ara ya da adresi biliyorsan doğrudan git.";

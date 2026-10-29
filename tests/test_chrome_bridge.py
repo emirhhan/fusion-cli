@@ -377,3 +377,44 @@ async def test_eklenti_kuruluysa_kurulum_baslatilmaz_ve_acik_hata_verilir(monkey
         await bridge.invoke("snapshot", {})
     assert cagri == []
     await bridge.close()
+
+
+async def test_ref_onu_ureten_belgenin_kimligiyle_gonderilir() -> None:
+    """WP09: eski sayfa ref'i kendi belge kimliğiyle gider; eklenti yeni sayfada reddeder."""
+    bridge = ChromeBridge()
+    state = await bridge.start()
+    address = f"http://127.0.0.1:{state['port']}"
+    headers = {"Origin": ORIGIN, "Authorization": f"Bearer {state['anahtar']}"}
+
+    async def cevapla(client, veri):
+        command = (await client.post(f"{address}/poll", headers=headers, json={})).json()
+        await client.post(
+            f"{address}/result",
+            headers=headers,
+            json={"id": command["id"], "ok": True, "veri": veri},
+        )
+        return command
+
+    async with httpx.AsyncClient(trust_env=False) as client:
+        await client.get(f"{address}/status", headers=headers)
+        task = asyncio.create_task(bridge.invoke("snapshot", {}))
+        await cevapla(client, {"doc": "belge-a", "elements": [{"ref": "e0", "name": "Sil"}]})
+        await task
+        task = asyncio.create_task(bridge.invoke("find", {"query": "abone"}))
+        await cevapla(client, {"doc": "belge-b", "matches": [{"ref": "e3", "name": "Abone"}]})
+        await task
+
+        eski = asyncio.create_task(bridge.invoke("click", {"ref": "e0"}))
+        eski_komut = await cevapla(client, {})
+        await eski
+        yeni = asyncio.create_task(bridge.invoke("click", {"ref": "e3"}))
+        yeni_komut = await cevapla(client, {})
+        await yeni
+        bilinmeyen = asyncio.create_task(bridge.invoke("click", {"ref": "e99"}))
+        bilinmeyen_komut = await cevapla(client, {})
+        await bilinmeyen
+
+    assert eski_komut["veri"] == {"ref": "e0", "doc": "belge-a"}
+    assert yeni_komut["veri"] == {"ref": "e3", "doc": "belge-b"}
+    assert bilinmeyen_komut["veri"] == {"ref": "e99"}
+    await bridge.close()
