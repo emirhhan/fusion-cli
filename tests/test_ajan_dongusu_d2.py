@@ -828,3 +828,74 @@ def test_eksik_retry_safety_kesif_adimini_guvenli_acar_yurutme_adimini_degil():
 
     assert kesif.steps[0].retry_safety is RetrySafety.SAFE
     assert yurutme.steps[0].retry_safety is RetrySafety.NEVER
+
+
+# --- A3-02: kapsama kapısı sözcük sınırı ve görev türü kapısı kullanır --------- #
+
+
+def _kapsam_plani(*hedefler):
+    from fusion_cli.core.execution_plan import ExecutionPlan, PlanStep, RetrySafety
+
+    adimlar = tuple(
+        PlanStep(
+            step_id=f"s{i}",
+            goal=hedef,
+            depends_on=(),
+            expected_effects=("file:a.py",),
+            allowed_tool_families=("files",),
+            success_criteria=("tamam",),
+            verification_hint="",
+            retry_safety=RetrySafety.SAFE,
+        )
+        for i, hedef in enumerate(hedefler)
+    )
+    return ExecutionPlan(plan_id="p", task="t", steps=adimlar)
+
+
+def test_test_senaryolari_istegi_hikaye_teslimati_zorunlu_kilmaz():
+    """Ölçüldü (29 Ekim): 'test senaryoları yaz' -> hikâye/ara sahne zorunlu sanılıyor,
+    onarım turu harcanıyor ve plan bulunamazsa iş PAUSE ediyordu."""
+    from fusion_cli.engines.agent.plan_coverage import missing_deliverables
+
+    plan = _kapsam_plani("Birim testlerini yaz")
+
+    assert missing_deliverables("login için test senaryoları yaz", plan) == ()
+
+
+def test_ui_isareti_build_required_quiz_icinde_eslesmez():
+    from fusion_cli.engines.agent.plan_coverage import missing_deliverables
+
+    plan = _kapsam_plani("Kodu yaz")
+    gorev = "build ve required alanlarını quiz modülü için düzelt"
+
+    assert missing_deliverables(gorev, plan) == ()
+
+
+def test_plan_tarafinda_build_gercek_ui_eksigini_gizlemez():
+    from fusion_cli.engines.agent.plan_coverage import missing_deliverables
+
+    plan = _kapsam_plani("Projeyi build et ve required paketleri kur")
+
+    eksikler = missing_deliverables("kaliteli bir UI olan bir oyun yap", plan)
+
+    assert "kullanıcı arayüzü (UI)" in [t.name for t in eksikler]
+
+
+def test_oyun_olmayan_islerde_dusman_ve_hikaye_aranmaz_oyunda_aranir():
+    from fusion_cli.engines.agent.plan_coverage import missing_deliverables
+
+    plan = _kapsam_plani("Kodu yaz")
+
+    assert missing_deliverables("enemy sınıfını refactor et, hikaye modülünü sil", plan) == ()
+    oyun = missing_deliverables("hikaye ve enemy olan bir oyun yap", plan)
+    assert {t.name for t in oyun} == {"düşman ve dövüş", "hikâye / ara sahne"}
+
+
+def test_turkce_ekli_istekler_hala_taninir():
+    from fusion_cli.engines.agent.plan_coverage import missing_deliverables
+
+    plan = _kapsam_plani("Kodu yaz")
+
+    adlar = {t.name for t in missing_deliverables("oyuna assetler ve UI'ı ekle", plan)}
+
+    assert adlar == {"dış varlık (asset) edinimi", "kullanıcı arayüzü (UI)"}
