@@ -200,11 +200,14 @@ def _locate_by_name(file_name: str, root: Path) -> str | None:
     except OSError:
         return None
     for aday in adaylar:
-        if any(part in SKIP_DIRECTORIES or part.startswith(".") for part in aday.parts):
-            continue
         try:
+            # Süzgeç yalnız KÖKTEN GÖRELİ parçalara bakar: kökün üst dizinleri
+            # (`/…/build/oyun`, `~/.worktrees/oyun`) projenin gürültüsü değildir.
+            goreli = aday.relative_to(root)
+            if any(part in SKIP_DIRECTORIES or part.startswith(".") for part in goreli.parts):
+                continue
             if aday.is_file():
-                return aday.relative_to(root).as_posix()
+                return goreli.as_posix()
         except (OSError, ValueError):
             continue
     return None
@@ -430,7 +433,11 @@ def _project_text(root: Path) -> str:
         # önbellekleri projenin kodu değildir ve içlerindeki JSON, kullanım
         # kanıtı sayılamaz — testte `.cp/` altındaki checkpoint dosyaları kapıyı
         # yanlış tarafa düşürdü.
-        if any(part in SKIP_DIRECTORIES or part.startswith(".") for part in path.parts):
+        # Yalnız kökten göreli parçalar: üst dizin adları (build, .worktrees,
+        # Application Support) projeyi görünmez kılmamalı (C1-04).
+        if any(
+            part in SKIP_DIRECTORIES or part.startswith(".") for part in path.relative_to(root).parts
+        ):
             continue
         try:
             parcalar.append(path.read_text(encoding="utf-8", errors="replace"))
