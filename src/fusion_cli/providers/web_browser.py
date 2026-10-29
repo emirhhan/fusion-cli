@@ -94,15 +94,114 @@ _ROLE_HEADER_LINE = re.compile(rf"^[ \t]*#{{0,6}}[ \t]*{re.escape(ROLE_PREFIX)}.
 # Ölçüt dar: satırın TAMAMI bir alan adı olmalı (boşluk yok, cümle noktalaması
 # yok). "Detaylar için example.com adresine bak" cümlesi korunur.
 _CITATION_LINE = re.compile(
-    r"^[ \t]*(?:https?://)?[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(?:/\S*)?"
+    r"^[ \t]*(?:https?://)?[a-z0-9][a-z0-9.-]*\.(?P<tld>[a-z]{2,})(?:/\S*)?"
     r"(?:[ \t]*[-–—][ \t]*[^\n]{0,60})?[ \t]*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
+#: Alan adı uzantısı gibi görünen ama DOSYA uzantısı olan sonlar.
+#
+# Ölçüldü (29 Ekim): `README.md`, `main.py`, `docker-compose.yml`, `app.py - ana giriş` gibi
+# tek başına satırlar alan adı sayılıp siliniyordu; model bunları bir `write_file`
+# içeriğinde (dosya ağacı, `.gitignore`, MANIFEST) yazınca içerik sessizce bozuluyordu.
+# `.md`, `.py`, `.sh`, `.rs`, `.pl`, `.cc`… aynı zamanda ülke alan adı uzantılarıdır; bu yüzden
+# alan adı olup olmadığına değil, bilinen DOSYA uzantısı olup olmadığına bakılır.
+_FILE_EXTENSIONS = frozenset(
+    [
+        "md",
+        "py",
+        "sh",
+        "rs",
+        "pl",
+        "cc",
+        "js",
+        "jsx",
+        "ts",
+        "tsx",
+        "mjs",
+        "cjs",
+        "json",
+        "jsonc",
+        "yml",
+        "yaml",
+        "toml",
+        "ini",
+        "cfg",
+        "conf",
+        "txt",
+        "csv",
+        "tsv",
+        "xml",
+        "html",
+        "htm",
+        "css",
+        "scss",
+        "sass",
+        "less",
+        "php",
+        "java",
+        "kt",
+        "kts",
+        "swift",
+        "cpp",
+        "hpp",
+        "cs",
+        "lock",
+        "log",
+        "sql",
+        "env",
+        "gd",
+        "tscn",
+        "tres",
+        "gdshader",
+        "svg",
+        "png",
+        "jpg",
+        "jpeg",
+        "gif",
+        "webp",
+        "pdf",
+        "zip",
+        "tar",
+        "gz",
+        "rst",
+        "tex",
+        "bat",
+        "ps1",
+        "gradle",
+        "mod",
+        "sum",
+        "ipynb",
+        "vue",
+        "svelte",
+        "dart",
+        "lua",
+        "ex",
+        "exs",
+        "erl",
+        "hs",
+        "ml",
+        "scala",
+        "jl",
+        "nim",
+        "zig",
+        "bash",
+        "zsh",
+        "fish",
+        "rb",
+        "go",
+    ]
+)
+
+
+def _drop_citation(match: re.Match[str]) -> str:
+    """Atıf çipi satırını sil; dosya adı satırını olduğu gibi bırak."""
+    return match.group(0) if match.group("tld").casefold() in _FILE_EXTENSIONS else ""
+
 
 def strip_page_noise(answer: str) -> str:
     """Sayfadan sızan atıf/kaynak satırlarını cevaptan ayıkla."""
-    return _clean_text(_CITATION_LINE.sub("", answer))
+    return _clean_text(_CITATION_LINE.sub(_drop_citation, answer))
 
 
 def strip_role_headers(answer: str) -> str:
