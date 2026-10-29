@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ISSUE_URL_LIMIT, buildIssueUrl, redact, reportBody } from "./report";
+import { ISSUE_URL_LIMIT, buildIssueUrl, redact, reportBody, supportBundle } from "./report";
 
 const ortam = { surum: "0.4.6", platform: "macOS arm64" };
 
@@ -76,6 +76,21 @@ describe("destek raporu sır sınırları", () => {
     ['https://example.com/a?unknown=SENTINEL_QUERY_VALUE', 'SENTINEL_QUERY_VALUE'],
     ['https%3A%2F%2Fexample.com%2Fa%3Ftoken%3DSENTINEL_ENCODED', 'SENTINEL_ENCODED'],
     ['progress 100% https%3A%2F%2Fexample.com%2Fa%3Funknown%3DSENTINEL_ENCODED_MIXED', 'SENTINEL_ENCODED_MIXED'],
+    // WP20 madde 1: sentetik sağlayıcı sırları.
+    ['anahtar sk-proj-SENTINEL1234567890abcdef kullan', 'SENTINEL1234567890abcdef'],
+    ['tok ghp_SENTINEL0123456789ABCDEFGHIJKLMNOP', 'SENTINEL0123456789'],
+    ['github_pat_11SENTINEL0abcdefghijkl_ABCDEFGHIJKLMNOPQRSTUV', 'SENTINEL0abcdefghijkl'],
+    ['Authorization: Bearer SENTINEL.bearer-123_xyz', 'SENTINEL.bearer-123_xyz'],
+    ['Authorization: Basic U0VOVElORUw6cGFzcw==', 'U0VOVElORUw6cGFzcw'],
+    ['postgres://admin:SENTINELPW@db.internal:5432/x', 'SENTINELPW'],
+    ['ssh://git:SENTINELPW@host/r', 'SENTINELPW'],
+    ['redis://:SENTINELPW@10.0.0.5:6379/0', 'SENTINELPW'],
+    ['NVIDIA_NIM_API_KEY=nvapi-SENTINELNIMKEY12345', 'SENTINELNIMKEY12345'],
+    ['export NVIDIA_NIM_API_KEY=SENTINELshort', 'SENTINELshort'],
+    ["OPENAI_API_KEY='SENTINEL SPACED'", 'SPACED'],
+    ['AKIASENTINEL12345678', 'SENTINEL'],
+    ['xoxb-1234567890-SENTINELslack', 'SENTINELslack'],
+    ['-----BEGIN OPENSSH PRIVATE KEY-----\nSENTINEL_OPENSSH\n-----END OPENSSH PRIVATE KEY-----', 'SENTINEL_OPENSSH'],
   ])("önizleme ve issue adresi %s içindeki sırrı taşımaz", (source, sentinel) => {
     const input = { tur: 'hata' as const, mesaj: source, ayrinti: source };
     expect(reportBody(input, ortam)).not.toContain(sentinel);
@@ -85,5 +100,15 @@ describe("destek raporu sır sınırları", () => {
     const body = reportBody({ tur: 'hata', mesaj: 'Hata' }, { surum: 'access_token=SENTINEL_ENV', platform: 'macOS' }, 'password=SENTINEL_OVERRIDE');
     expect(body).not.toContain('SENTINEL_ENV');
     expect(body).not.toContain('SENTINEL_OVERRIDE');
+  });
+});
+
+describe("destek paketi (indirilen dosya) sır sınırları", () => {
+  it("indirilen paket önizlemedeki gövdeyle aynı ve sır taşımaz", () => {
+    const girdi = { tur: 'hata' as const, mesaj: 'NVIDIA_NIM_API_KEY=nvapi-SENTINELNIMKEY12345', ayrinti: 'git clone https://u:SENTINELPW@git.local/r\nAuthorization: Bearer SENTINELBEARER12345' };
+    const paket = supportBundle(girdi, ortam);
+    for (const sir of ['SENTINELNIMKEY12345', 'SENTINELPW', 'SENTINELBEARER12345']) expect(paket).not.toContain(sir);
+    // Kullanıcının önizlemede gördüğü metin dosyanın içeriğiyle birebir aynı: gizli bir ek alan yok.
+    expect(JSON.parse(paket).report).toBe(reportBody(girdi, ortam));
   });
 });

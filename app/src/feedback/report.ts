@@ -57,11 +57,18 @@ const GIZLI_KALIPLAR: ReadonlyArray<readonly [RegExp, string]> = [
   [/\/(?:Users|home)\/[^/\s"'`]+/g, "~"],
   [/C:\\Users\\[^\\\s"'`]+/gi, "~"],
   [/Bearer\s+[A-Za-z0-9._~+/=-]+/g, `Bearer ${GIZLENDI}`],
+  // Authorization: Basic <base64> — genel desen yalnız "Authorization"ı yutup kimlik bilgisini açıkta bırakırdı.
+  [/\b(?:proxy-)?authorization\s*[:=]\s*["']?basic\s+[A-Za-z0-9+/_-]+=*/gi, GIZLENDI],
   [/(?:["']?)[A-Za-z0-9_.-]*(?:api[_-]?key|access[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|client[_-]?secret|credential|token|secret|password|passwd|authorization|private[_-]?key)[A-Za-z0-9_.-]*(?:["']?)\s*[:=]\s*(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s,}]+)/gi, GIZLENDI],
   // Sağlayıcı anahtarları: OpenAI/Anthropic (sk-…), NVIDIA (nvapi-…), Google (AIza…), GitHub (gh*_…).
   [/\b(?:sk|nvapi|gsk|xai)-[A-Za-z0-9_-]{12,}/g, GIZLENDI],
   [/\bAIza[0-9A-Za-z_-]{20,}/g, GIZLENDI],
   [/\bgh[pousr]_[A-Za-z0-9]{20,}/g, GIZLENDI],
+  [/\bgithub_pat_[A-Za-z0-9_]{20,}/g, GIZLENDI],
+  [/\bAKIA[0-9A-Z]{16}\b/g, GIZLENDI],
+  [/\bxox[baprs]-[A-Za-z0-9-]{10,}/g, GIZLENDI],
+  // http dışı şemalarda da (ssh://, postgres://, redis://) şema://kullanıcı:parola@host parolası sırdır.
+  [/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]*:[^\s/@]+@/gi, `$1${GIZLENDI}@`],
   [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[e-posta]"],
 ];
 
