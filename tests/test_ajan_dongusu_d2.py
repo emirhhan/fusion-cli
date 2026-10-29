@@ -751,3 +751,50 @@ def test_utf8_olmayan_tema_dosyalari_dogrulayiciyi_cokertmez(tmp_path):
 
     assert theme_root(sayfa) == tema
     assert missing_theme_references(sayfa, tmp_path) == []
+
+
+# --- A1-23: read_session olay döngüsünü bloklamaz, sınır dışı değer kıstırılır - #
+
+
+async def test_read_session_kaynagi_olay_dongusu_disinda_okur(tmp_path, monkeypatch):
+    """Ölçüldü (29 Ekim): `source.read` (disk G/Ç) async `_run` içinde EŞZAMANLI
+    çağrılıyor, olay döngüsünü bloklıyordu."""
+    import threading
+
+    from fusion_cli.engines.agent.engine_tools import build_history_tool
+    from fusion_cli.history import models
+
+    okuyan: list[int] = []
+
+    class _Kaynak:
+        def read(self, session_id, *, cursor, limit):
+            okuyan.append(threading.get_ident())
+            return (models.Turn(role="user", text="merhaba"),)
+
+    monkeypatch.setattr("fusion_cli.history.source_by_name", lambda home, name: _Kaynak())
+    arac = build_history_tool(tmp_path)
+
+    sonuc = await arac.run({"source": "x", "session_id": "s"}, ToolContext(root=tmp_path))
+
+    assert sonuc.ok
+    assert okuyan and okuyan[0] != threading.get_ident()
+
+
+async def test_read_session_sinir_disi_limit_sessizce_varsayilana_donmez(tmp_path, monkeypatch):
+    from fusion_cli.engines.agent.engine_tools import _READ_SESSION_MAX_LIMIT, build_history_tool
+    from fusion_cli.history import models
+
+    istenen: list[int] = []
+
+    class _Kaynak:
+        def read(self, session_id, *, cursor, limit):
+            istenen.append(limit)
+            return tuple(models.Turn(role="user", text=f"m{i}") for i in range(limit))
+
+    monkeypatch.setattr("fusion_cli.history.source_by_name", lambda home, name: _Kaynak())
+    arac = build_history_tool(tmp_path)
+
+    await arac.run({"source": "x", "session_id": "s", "limit": 500}, ToolContext(root=tmp_path))
+
+    # Kıstırılmış üst sınır (+1: devam var mı bakışı); eskiden varsayılan 20 olurdu.
+    assert istenen == [_READ_SESSION_MAX_LIMIT + 1]

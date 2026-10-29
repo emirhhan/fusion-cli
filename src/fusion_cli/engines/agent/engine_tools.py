@@ -10,6 +10,7 @@ kayıt defterine bir kayıt eklemektir; ister dosya okusun, ister başka bir aja
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -990,16 +991,19 @@ def build_history_tool(home: Path) -> Tool:
             maximum=_READ_SESSION_MAX_LIMIT,
         )
         text_cursor = _bounded_int(args.get("text_cursor"), default=0, minimum=0)
-        turns = sanitize_turns(
-            source.read(
-                session_id,
-                cursor=cursor,
-                limit=limit + 1,
-            )
+        # Kaynak okuması disk G/Ç'dir (medyan oturum 1,3 MB): olay döngüsünü bloklamamak
+        # için iş parçacığında yapılır (A1-23). `sanitize_turns` tur sayısını DEĞİŞTİRMEZ
+        # (1:1 maskeleme), bu yüzden `cursor` kaynak konumuyla tutarlı kalır; ikinci
+        # gereksiz geçiş kaldırıldı.
+        raw_turns = await asyncio.to_thread(
+            source.read,
+            session_id,
+            cursor=cursor,
+            limit=limit + 1,
         )
+        turns = sanitize_turns(raw_turns)
         if not turns:
             return ToolResult.failure(messages.READ_SESSION_EMPTY.format(session_id=session_id))
-        turns = sanitize_turns(turns)
         if text_cursor > len(turns[0].text):
             return ToolResult.failure(
                 messages.READ_SESSION_INVALID_TEXT_CURSOR.format(cursor=text_cursor)
@@ -1032,11 +1036,16 @@ def _bounded_int(
     minimum: int,
     maximum: int | None = None,
 ) -> int:
-    """Modelden gelen tamsayıyı güvenli aralığa daralt; bozuksa varsayılanı kullan."""
-    if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+    """Modelden gelen tamsayıyı güvenli aralığa KISTIR; sayı değilse varsayılanı kullan.
+
+    Aralık dışı değer varsayılana çevrilmez: `limit=500` sessizce 20 olurdu (A1-23).
+    """
+    if not isinstance(value, int) or isinstance(value, bool):
         return default
+    if value < minimum:
+        return minimum
     if maximum is not None and value > maximum:
-        return default
+        return maximum
     return value
 
 
