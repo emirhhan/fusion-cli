@@ -33,6 +33,7 @@ from ..core.constants import MCP_NETWORK_TIMEOUT_S
 from ..core.tools import EffectResolver, Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
 from ..tools import ToolRegistry
 from .ability_effects import ABILITY_INFO, EXECUTE_ABILITY, ability_gateway_resolver
+from .call_errors import describe_call_error
 from .cancellation import RequestTracker, notify_cancel
 from .content import normalize_call_result
 from .failures import STATE_CONNECTED
@@ -383,7 +384,7 @@ class McpClient:
                     "MCP aracı başarısız", extra={"sunucu": server, "hata": type(error).__name__}
                 )
                 return ToolResult.failure(
-                    f"MCP aracı hatası ({server}.{tool}): {type(error).__name__}"
+                    f"MCP aracı hatası ({server}.{tool}): {describe_call_error(error)}"
                 )
             if not result.ok and not result.output:
                 # Modele DÜZELTME şansı veren hata: metin olduğu gibi taşınır,
