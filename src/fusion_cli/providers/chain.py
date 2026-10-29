@@ -44,7 +44,7 @@ from ..core.types import (
     is_permanent_error,
     is_unavailable_error,
 )
-from .stream_opening import first_meaningful
+from .stream_opening import is_liveness_chunk, is_provisional
 
 T = TypeVar("T")
 
@@ -107,8 +107,17 @@ class FallbackProvider:
             if index and failures:
                 self._publish_fallback(provider.label, failures[-1])
             stream = provider.stream(request)
+            first: StreamItem | None = None
             try:
-                first = await self._bounded(index, first_meaningful(stream), request)
+                async with self._opening_deadline(index, request):
+                    first = await anext(stream, None)
+                    while is_provisional(first):
+                        # Boş canlılık parçası atılmaz: üst katman modelin çalıştığını
+                        # görmeli (P1-05). Süre sınırı bu parçalarla UZAMAZ.
+                        if is_liveness_chunk(first):
+                            assert first is not None
+                            yield first
+                        first = await anext(stream, None)
             except TimeoutError:
                 # Takılan model yedeğin süresini yemesin: sıradakine geç.
                 failures.append(self._timed_out(provider, request))
@@ -141,6 +150,11 @@ class FallbackProvider:
         if index >= len(self._providers) - 1:
             return await work
         return await asyncio.wait_for(work, request.timeout_s)
+
+    def _opening_deadline(self, index: int, request: CompletionRequest) -> asyncio.Timeout:
+        """Akışın ilk anlamlı çıktısı için `_bounded` ile AYNI süre kuralı (son model sınırsız)."""
+        last = index >= len(self._providers) - 1
+        return asyncio.timeout(None if last else request.timeout_s)
 
     def _timed_out(self, provider: LlmProvider, request: CompletionRequest) -> ModelResult:
         return ModelResult(

@@ -35,7 +35,7 @@ from ..core.types import (
     StreamItem,
     is_permanent_error,
 )
-from .stream_opening import first_meaningful
+from .stream_opening import is_liveness_chunk, is_provisional
 
 
 class RetryingProvider:
@@ -77,7 +77,13 @@ class RetryingProvider:
         # olsun ver". Deneme sayısı yine gecikme listesinden türer, ayrı sayaç yok.
         for delay in (*self._delays_s, None):
             stream = self._inner.stream(request)
-            first = await first_meaningful(stream)
+            first = await anext(stream, None)
+            while is_provisional(first):
+                # Boş canlılık parçası atılmaz: üst katman modelin çalıştığını görmeli (P1-05).
+                if is_liveness_chunk(first):
+                    assert first is not None
+                    yield first
+                first = await anext(stream, None)
             # Metin akmadan gelen sonuç: hata da olabilir, araç çağrısından ibaret
             # başarılı bir cevap da. Ayrımı `_should_retry` yapar.
             erken = _opening_result(first, self._inner.label)
