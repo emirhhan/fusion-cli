@@ -101,12 +101,16 @@ export function FileExplorer({ client, onChanged, onSelected, root, revision = 0
       <div aria-label="Proje dosyaları" className="file-explorer__tree" role="tree">
         {state.loading && Object.keys(state.directories).length === 0 ? (
           <p className="file-explorer__state">Dosyalar yükleniyor…</p>
-        ) : state.error ? (
+        ) : state.error && !state.directories[""] ? (
           <p className="file-explorer__state file-explorer__state--error" role="alert">{state.error}</p>
         ) : (state.directories[""]?.length ?? 0) === 0 ? (
           <p className="file-explorer__state">Bu proje klasörü boş.</p>
         ) : (
-          renderEntries("", 0)
+          <>
+            {/* Dizin hatası ağacı GİZLEMEZ: kullanıcı başka dosya/klasör seçebilmeli. */}
+            {state.error && <p className="file-explorer__state file-explorer__state--error" role="alert">{state.error}</p>}
+            {renderEntries("", 0)}
+          </>
         )}
       </div>
       <div className="file-explorer__viewer">
@@ -178,6 +182,8 @@ export function FileExplorer({ client, onChanged, onSelected, root, revision = 0
               <p className="file-explorer__notice">Dosyanın yalnız ilk bölümü gösteriliyor; kısmi içerik düzenlenemez.</p>
             )}
           </>
+        ) : state.selectedError ? (
+          <p className="file-explorer__state file-explorer__state--error" role="alert">{state.selectedError}</p>
         ) : (
           <p className="file-explorer__state">İçeriğini görmek için bir dosya seç.</p>
         )}

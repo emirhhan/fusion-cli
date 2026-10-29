@@ -133,3 +133,42 @@ it('dosya revizyonu açık klasörü ve kaydedilmemiş editörü koruyarak liste
   expect((screen.getByLabelText('Dosya içeriği') as HTMLTextAreaElement).value).toBe('Unsaved edit');
   expect(screen.getByRole('treeitem', { name: 'src' }).getAttribute('aria-expanded')).toBe('true');
 });
+
+// U4-02 — Ölçüldü (29 Ekim): tek bir dosya okuma hatası `state.error` set edip ağacın TAMAMINI
+// hata satırıyla değiştiriyordu; kullanıcı başka dosya seçemiyordu.
+it("dosya okuma hatası ağacı gizlemez, hatayı görüntüleyicide gösterir", async () => {
+  const client = workspaceClient((name, data) => {
+    if (name === "proje.durum") return { ok: true };
+    if (name === "proje.oku") {
+      return data.yol === "kotu.bin"
+        ? { ok: false, metin: "Dosya çok büyük." }
+        : { ok: true, yol: "iyi.txt", tur: "metin", mime: "text/plain", boyut: 3, sha256: "x", icerik: "iyi", kesildi: false };
+    }
+    return { ok: true, girdiler: [
+      { ad: "kotu.bin", yol: "kotu.bin", tur: "dosya", boyut: 1, degistirilme: 1 },
+      { ad: "iyi.txt", yol: "iyi.txt", tur: "dosya", boyut: 3, degistirilme: 1 },
+    ] };
+  });
+  render(<FileExplorer client={client} root="/proje" />);
+  fireEvent.click(await screen.findByRole("treeitem", { name: "kotu.bin" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("Dosya çok büyük.");
+  expect(screen.getByRole("treeitem", { name: "iyi.txt" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("treeitem", { name: "iyi.txt" }));
+  expect(await screen.findByText("iyi")).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("klasör açma hatası ağacı gizlemez", async () => {
+  const client = workspaceClient((name, data) => {
+    if (name === "proje.durum") return { ok: true };
+    if (data.yol === "") return { ok: true, girdiler: [
+      { ad: "src", yol: "src", tur: "klasor", boyut: 0, degistirilme: 0 },
+      { ad: "a.txt", yol: "a.txt", tur: "dosya", boyut: 1, degistirilme: 1 },
+    ] };
+    return { ok: false, metin: "İzin yok." };
+  });
+  render(<FileExplorer client={client} root="/proje" />);
+  fireEvent.click(await screen.findByRole("treeitem", { name: "src" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("İzin yok.");
+  expect(screen.getByRole("treeitem", { name: "a.txt" })).toBeTruthy();
+});

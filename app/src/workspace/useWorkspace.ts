@@ -8,6 +8,7 @@ const initialState: WorkspaceState = {
   selected: null,
   loading: true,
   error: null,
+  selectedError: null,
 };
 
 function messageFrom(payload: Record<string, unknown>, fallback: string): string {
@@ -136,13 +137,19 @@ export function useWorkspace(client: ProtocolClient, root: string, revision = 0)
 
   const selectFile = useCallback(async (path: string) => {
     const current = owner.current, sequence = ++current.selection;
-    setState((current) => ({ ...current, loading: true, error: null }));
+    setState((current) => ({ ...current, loading: true, error: null, selectedError: null }));
     try {
       const result = await client.request("proje.oku", { yol: path });
       if (owner.current !== current || !current.active || current.selection !== sequence) return;
-      setState((current) => ({ ...current, selected: fileFrom(result), loading: false }));
+      // fileFrom updater İÇİNDE çağrılırsa geçersiz/ok:false cevap render sırasında fırlar ve
+      // bileşen çöker (ölçüldü 29 Ekim: boş ekran); try/catch'e girmesi için dışarıda çözülür.
+      const file = fileFrom(result);
+      setState((current) => ({ ...current, selected: file, selectedError: null, loading: false }));
     } catch (reason) {
-      if (owner.current === current && current.active && current.selection === sequence) setState((value) => ({ ...value, error: String(reason), loading: false }));
+      // Tek dosyanın okuma hatası ağacı etkilemez (U4-02); eski dosya da yanıltmasın diye bırakılır.
+      if (owner.current === current && current.active && current.selection === sequence) {
+        setState((value) => ({ ...value, selected: null, selectedError: String(reason), loading: false }));
+      }
     }
   }, [client]);
 
