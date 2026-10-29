@@ -38,6 +38,7 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Kitaplıkta yüklenemeyen dosyanın hatası, ardından gelen liste yenilemesiyle silinmez.
 - Telefonun ekran izleme ekranındaki eski "bu telefonda onay ver" metni düzeltildi; izin masaüstünden istenir.
 - Günlük ve haftalık zamanlanmış görevler yaz saati geçişinde yerel saatinde kalır (önceden geçişten sonraki gün bir saat kayıyordu).
+- Görsel işlerinin yerel kaydında tek bir bozuk kayıt artık sohbetteki bütün bekleyen işleri ve yeni üretimi kilitlemez; bozuk kayıt karantinaya alınır.
 - Komut iptali, kendini ayrı oturuma alan (`setsid`) ve çıktıyı açık tutan torun süreçleri de kapatır; geride çalışan süreç kalmaz.
 
 ## 0.7.18 — 2026-10-21

@@ -24,6 +24,25 @@ it("bozuk veya gelecek kayıtları sessizce atlayıp yeni üretime izin vermez",
   localStorage.setItem(key, JSON.stringify({ version: 2, jobId: "job-a" }));
   expect(() => journal.read()).toThrow(/doğrulanamadı/);
 });
+it("tek bozuk kaydı karantinaya alır, sağlam işleri açar ve yeni üretime izin verir", () => {
+  const journal = new ImageJobJournal(localStorage, "scope");
+  journal.add("job-a"); journal.add("job-b");
+  const keyA = [...Array(localStorage.length).keys()].map((i) => localStorage.key(i)!).find((k) => k.endsWith("job-a"))!;
+  localStorage.setItem(keyA, "{bozuk");
+  expect(journal.read()).toEqual(["job-b"]);
+  expect(localStorage.getItem(keyA)).toBeNull();
+  const quarantined = [...Array(localStorage.length).keys()].map((i) => localStorage.key(i)!).filter((k) => k.startsWith("fusion:image-jobs-quarantine:"));
+  expect(quarantined).toHaveLength(1);
+  expect(localStorage.getItem(quarantined[0])).toBe("{bozuk");
+  journal.add("job-c");
+  expect(journal.read()).toEqual(["job-b", "job-c"]);
+});
+it("kimliği anahtarıyla uyuşmayan kayıt da karantinaya alınır", () => {
+  const journal = new ImageJobJournal(localStorage, "scope");
+  journal.add("job-a");
+  localStorage.setItem(localStorage.key(0)!, JSON.stringify({ version: 1, jobId: "job-z" }));
+  expect(journal.read()).toEqual([]);
+});
 it("kayıt yazılamıyorsa üretim için kimlik oluşturulmuş sayılmaz", () => {
   const storage = { length: 0, key: () => null, getItem: () => null, setItem: () => { throw new Error("quota"); }, removeItem: () => {} };
   expect(() => new ImageJobJournal(storage, "scope").add("job-a")).toThrow(/kaydedilemedi/);
