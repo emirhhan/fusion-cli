@@ -17,6 +17,7 @@ olmasa da (ör. tarayıcıdan kazınan web modelleri) çalışır.
 from __future__ import annotations
 
 import base64
+import re
 from pathlib import Path
 
 from ...config.models import Config
@@ -53,6 +54,9 @@ VISION_MAX_TOKENS = 200
 VISION_TIMEOUT_S = 60.0
 
 
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
+
+
 def collapse_repeats(text: str) -> str:
     """Aynı cümlenin tekrarlarını ayıkla.
 
@@ -62,16 +66,20 @@ def collapse_repeats(text: str) -> str:
     """
     gorulen: set[str] = set()
     tutulan: list[str] = []
-    for parca in text.replace("\n", " ").split("."):
+    # Cümle sınırı yalnız noktalama + BOŞLUKTUR (`(?<=[.!?])\s+`). Eskiden metin her
+    # "." karakterinde bölünüp ". " ile birleştiriliyordu: "player.png" -> "player. png",
+    # "v1.2", "3.5", "example.com" bozuluyordu (A2-08, ölçüldü 29 Ekim). Bu çıktı
+    # agent'ın "karakter mi ikon mu" kararının tek kanıtıdır.
+    for parca in _SENTENCE_BOUNDARY.split(text.replace("\n", " ")):
         cumle = parca.strip()
         if not cumle:
             continue
-        anahtar = cumle.casefold()
+        anahtar = cumle.rstrip(".!?").strip().casefold()
         if anahtar in gorulen:
             continue
         gorulen.add(anahtar)
         tutulan.append(cumle)
-    return ". ".join(tutulan) + ("." if tutulan else "")
+    return " ".join(tutulan)
 
 
 def load_image_data_uri(path: Path) -> tuple[str, str | None]:

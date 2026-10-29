@@ -69,7 +69,9 @@ def read_project_instructions(root: Path) -> str:
         try:
             if not path.is_file():
                 continue
-            content = path.read_text(encoding="utf-8").strip()
+            # UTF-8 olmayan (ör. Windows-1254) dosya `UnicodeDecodeError` ile turu
+            # başında çökertiyordu (A3-04); bozuk baytlar yer tutucuya çevrilir.
+            content = path.read_text(encoding="utf-8", errors="replace").strip()
         except OSError:
             continue
         if not content:
@@ -110,8 +112,8 @@ def _linked_rules(root: Path, content: str, *, skip: Path) -> list[str]:
             continue
         gorulen.add(yol)
         try:
-            metin = yol.read_text(encoding="utf-8").strip()
-        except (OSError, UnicodeDecodeError):
+            metin = yol.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
             continue
         if not metin:
             continue

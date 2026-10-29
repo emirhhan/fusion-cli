@@ -701,3 +701,53 @@ async def test_kanitli_gozlem_dogrulamasi_belirsiz_etkiyi_kapatir(tmp_path, monk
 
     assert sonuc.ok
     assert {i.phase for i in kos.effect_intents.values()} == {EffectPhase.RESPONDED}
+
+
+# --- A2-08: view_image açıklamasında nokta içeren belirteçler bozulmaz ------- #
+
+
+def test_gorsel_aciklamasinda_dosya_adi_surum_ve_alan_adi_bozulmaz():
+    from fusion_cli.engines.agent.image_view import collapse_repeats
+
+    metin = "player.png bir ikon. Sürüm v1.2, oran 3.5. example.com logosu."
+
+    sonuc = collapse_repeats(metin)
+
+    assert "player.png" in sonuc
+    assert "v1.2" in sonuc
+    assert "3.5" in sonuc
+    assert "example.com" in sonuc
+
+
+def test_gorsel_aciklamasinda_tam_cumle_tekrari_hala_ayiklanir():
+    from fusion_cli.engines.agent.image_view import collapse_repeats
+
+    metin = "Bir logo. Oyunda kullanılabilir. Oyunda kullanılabilir. Oyunda kullanılabilir!"
+
+    assert collapse_repeats(metin).count("Oyunda kullanılabilir") == 1
+
+
+# --- A3-04 / A3-05: UTF-8 olmayan dosya doğrulayıcıyı/talimat okumayı çökertmez - #
+
+
+def test_utf8_olmayan_talimat_dosyasi_turu_cokertmez(tmp_path):
+    from fusion_cli.engines.agent.project_instructions import read_project_instructions
+
+    (tmp_path / "CLAUDE.md").write_bytes("Kural: testleri calistir, ğüşiöç".encode("cp1254"))
+
+    sonuc = read_project_instructions(tmp_path)  # UnicodeDecodeError atmamalı
+
+    assert "Kural: testleri calistir" in sonuc
+
+
+def test_utf8_olmayan_tema_dosyalari_dogrulayiciyi_cokertmez(tmp_path):
+    from fusion_cli.engines.agent.php_verify import missing_theme_references, theme_root
+
+    tema = tmp_path / "tema"
+    tema.mkdir()
+    (tema / "style.css").write_bytes("/* Theme Name: Çiçek Teması */".encode("cp1254"))
+    sayfa = tema / "page.php"
+    sayfa.write_bytes("<?php // şğüıö ?>".encode("cp1254"))
+
+    assert theme_root(sayfa) == tema
+    assert missing_theme_references(sayfa, tmp_path) == []

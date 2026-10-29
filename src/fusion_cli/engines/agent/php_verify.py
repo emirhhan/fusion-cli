@@ -137,7 +137,11 @@ def theme_root(path: Path) -> Path | None:
     for folder in path.parents:
         style = folder / "style.css"
         try:
-            if style.is_file() and "Theme Name:" in style.read_text(encoding="utf-8")[:2000]:
+            # UTF-8 olmayan style.css doğrulayıcıyı çökertmemeli (A3-05).
+            if (
+                style.is_file()
+                and "Theme Name:" in style.read_text(encoding="utf-8", errors="replace")[:2000]
+            ):
                 return folder
         except OSError:
             continue
@@ -168,7 +172,7 @@ def missing_theme_references(path: Path, root: Path) -> list[str]:
     if theme is None:
         return []
     try:
-        source = path.read_text(encoding="utf-8")
+        source = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
     source = _strip_comments(source)
