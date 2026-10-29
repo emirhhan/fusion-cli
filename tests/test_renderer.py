@@ -1149,3 +1149,30 @@ def test_plan_tamamlandiginda_kanitlanmayan_davranis_uyarisi_basilir():
     cikti = buffer.getvalue()
     assert "3 adım" in cikti
     assert "davranış kanıtlanmadı" in cikti
+
+
+def test_tam_cevaptaki_acilissiz_think_kapanisi_ekrana_basilmaz():
+    """L1-02: `TurnAnswered` tam metindir; açılışı olmayan `</think>` düşünme sayılmalı."""
+    from fusion_cli.core.events import TurnAnswered
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(TurnAnswered(Channel.MAIN, "Let me provide a summary.</think>Tamamlandı"))
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "Tamamlandı" in cikti
+    assert "</think>" not in cikti
+    assert "Let me provide a summary" not in cikti
+
+
+def test_akan_cevapta_acik_think_blogu_yine_gizlenir():
+    """Akış yolu değişmedi: kapanmamış `<think>` sonrası geri tutulur."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "<think>düşünüyor"))
+    renderer.handle(TokenReceived(Channel.MAIN, "</think>Cevap"))
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "Cevap" in cikti and "düşünüyor" not in cikti

@@ -147,7 +147,10 @@ class ConsoleRenderer:
             else:
                 self._write_stream(event.channel, event.text)
         elif isinstance(event, TurnAnswered):
-            self._write_stream(event.channel, event.text)
+            # Tam, akışsız metin: kapanışı beklenen bir akış değildir. `streaming=False`
+            # ile ayıklanır ki açılışı olmayan `</think>` (gemini_web) düşünme sayılsın
+            # ve etiketiyle birlikte ekrana basılmasın (L1-02).
+            self._write_stream(event.channel, event.text, complete=True)
         elif isinstance(event, StatusChanged):
             self._status(event.message)
         elif isinstance(event, ModelCallStarted):
@@ -490,16 +493,16 @@ class ConsoleRenderer:
                 satirlar.append(satir)
         return satirlar
 
-    def _write_stream(self, channel: Channel, text: str) -> None:
+    def _write_stream(self, channel: Channel, text: str, *, complete: bool = False) -> None:
         if not text:
             return
         # Bekleyen durum satırı cevabın ÖNÜNE basılmalı; sıra bozulmamalı.
         self._flush_status()
         self._raw[channel] = self._raw.get(channel, "") + text
         if self._show_thinking:
-            self._pump_thinking(channel, streaming=True)
+            self._pump_thinking(channel, streaming=not complete)
             return
-        visible = strip_thinking(self._raw[channel], streaming=True)
+        visible = strip_thinking(self._raw[channel], streaming=not complete)
         shown = self._shown.get(channel, 0)
         if len(visible) <= shown:
             return  # gelen parça tamamen düşünme metniydi; basılacak bir şey yok
