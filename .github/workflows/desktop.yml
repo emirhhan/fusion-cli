@@ -261,6 +261,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      # release_manifest.py, known-gaps.json ve kilit dosyaları (uv.lock, package-lock,
+      # Cargo.lock) depodan gelir.
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: actions/download-artifact@v4
         with:
           path: indirilenler
@@ -291,10 +297,25 @@ jobs:
           pathlib.Path('dagitim/latest.json').write_text(json.dumps(merged, indent=2))
           PY
           ls -lh dagitim
+      - name: Kanıt paketi (SHA256SUMS, SBOM, manifest)
+        # Q1-05: kanıt YAYINLANAN dosyalar için üretilir. Eskiden ayrı iş akışı
+        # yalnız wheel/sdist'i özetliyordu; DMG/EXE/güncelleme paketi hiç
+        # girmiyordu. `dagitim/` Release'e yüklenen klasörün kendisidir; özetler
+        # yükleme öncesi yeniden doğrulanır. Kanıt dosyaları `kanit/`te kalır ki
+        # kendi özetlerini içermesin.
+        run: |
+          python scripts/release_manifest.py \
+            --version "${GITHUB_REF_NAME#v}" \
+            --commit "$GITHUB_SHA" \
+            --artifacts dagitim \
+            --out kanit
+          (cd dagitim && sha256sum -c ../kanit/SHA256SUMS)
       - name: Release oluştur ve dosyaları yükle
         uses: softprops/action-gh-release@v2
         with:
-          files: dagitim/*
+          files: |
+            dagitim/*
+            kanit/*
           generate_release_notes: true
           make_latest: true
           body: |

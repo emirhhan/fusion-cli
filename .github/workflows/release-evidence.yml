@@ -1,10 +1,11 @@
-name: Release kanıt paketi
+name: Python paketi kanıt denemesi (elle)
 
-# Sürüm etiketinde SHA256SUMS, SBOM ve manifest üretir. Yayınlamaz, imzalamaz:
-# imzalama/notarization hesap sırları gerektirir ve ayrı, elle onaylı adımdır.
+# YAYIN KANITI DEĞİLDİR. Bu iş akışı yalnız `python -m build` çıktısını (wheel/sdist)
+# özetler; DMG/EXE/güncelleme paketlerini kapsamaz. Sürüm etiketinin gerçek kanıtı
+# (SHA256SUMS, SBOM, release-manifest.json) `desktop.yml` içindeki `release`
+# işinde, Release'e yüklenen dosyalar için üretilir (Q1-05). Etikette çalışması
+# yanıltıcı, kısmi bir kanıt bırakıyordu; bu yüzden yalnız elle tetiklenir.
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:

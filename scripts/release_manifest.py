@@ -80,7 +80,29 @@ def _cargo_components(lock: Path) -> list[dict[str, str]]:
     ]
 
 
-def _python_components() -> list[dict[str, str]]:
+def _uv_lock_components(lock: Path) -> list[dict[str, str]]:
+    """`uv.lock` içindeki kilitli Python paketleri (projenin kendisi hariç)."""
+    data = tomllib.loads(lock.read_text(encoding="utf-8"))
+    return sorted(
+        (
+            {"name": item["name"], "version": item["version"], "ecosystem": "pypi"}
+            for item in data.get("package", [])
+            if "version" in item and not {"editable", "virtual"} & set(item.get("source", {}))
+        ),
+        key=lambda item: item["name"].lower(),
+    )
+
+
+def _python_components(root: Path) -> list[dict[str, str]]:
+    """Python bileşenleri: kilit dosyası varsa ondan, yoksa kurulu paketlerden.
+
+    Ölçüldü (30 Ekim, Q1-05): yalnız `importlib.metadata.distributions()` vardı;
+    bu, kilit dosyasını değil CI runner'ında o an kurulu her şeyi (build, pip,
+    setuptools...) listeliyordu. Kilit dosyası yoksa eski davranış yedek kalır.
+    """
+    lock = root / "uv.lock"
+    if lock.is_file():
+        return _uv_lock_components(lock)
     return sorted(
         (
             {"name": dist.metadata["Name"], "version": dist.version, "ecosystem": "pypi"}
@@ -94,7 +116,7 @@ def _python_components() -> list[dict[str, str]]:
 def build_sbom(version: str, root: Path = ROOT) -> dict[str, Any]:
     """CycloneDX 1.5 SBOM: Python, npm ve Cargo bağımlılıkları."""
     found = (
-        _python_components()
+        _python_components(root)
         + _npm_components(root / "app" / "package-lock.json")
         + _cargo_components(root / "app" / "src-tauri" / "Cargo.lock")
     )

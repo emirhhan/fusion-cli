@@ -60,3 +60,24 @@ def test_bilinen_eksikler_gecersizse_reddedilir(tmp_path: Path) -> None:
     bad.write_text('{"gaps": "metin"}')
     with pytest.raises(SystemExit):
         module.load_known_gaps(bad)
+
+
+def test_sbom_python_bilesenleri_kilit_dosyasindan_gelir(tmp_path: Path) -> None:
+    """Q1-05: SBOM runner'da o an kurulu her paketi (pip, build...) listeliyordu.
+
+    Ölçüldü (30 Ekim): `importlib.metadata.distributions()` kilit dosyasını değil
+    CI ortamını yansıtır. Artık `uv.lock` okunur; projenin kendisi hariç tutulur.
+    """
+    (tmp_path / "uv.lock").write_text(
+        "version = 1\n\n"
+        '[[package]]\nname = "kilitli-paket"\nversion = "1.0.0"\n'
+        'source = { registry = "https://pypi.org/simple" }\n\n'
+        '[[package]]\nname = "fusion-cli"\nversion = "0.1.0"\n'
+        'source = { editable = "." }\n',
+        encoding="utf-8",
+    )
+
+    sbom = module.build_sbom("9.9.9", root=tmp_path)
+
+    purls = {item["purl"] for item in sbom["components"]}
+    assert purls == {"pkg:pypi/kilitli-paket@1.0.0"}

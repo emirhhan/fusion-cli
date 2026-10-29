@@ -38,3 +38,37 @@ def test_surum_isi_kalite_kapisina_baglidir():
 
     assert kapi in jobs["release"]["needs"]
     assert {"macos", "windows", "terminal"} <= set(jobs["release"]["needs"])
+
+
+def _adimlar(is_adi: str, dosya: str = "desktop.yml") -> list[dict]:
+    return _yukle(dosya)["jobs"][is_adi]["steps"]
+
+
+def test_release_kaniti_yayinlanan_ikilileri_kapsar():
+    """Q1-05: SHA256SUMS yalnız wheel/sdist içindi; DMG/EXE hiç girmiyordu.
+
+    Ölçüldü (30 Ekim): `release-evidence.yml` yalnız `python -m build` çıktısını
+    özetliyor ve artifact Release'e eklenmiyordu; SECURITY.md'nin "her etiket
+    SHA256SUMS ile gelir" iddiası ikililer için yanlıştı. Kanıt artık Release
+    işinde, yayınlanacak `dagitim/` klasörünün kendisi için üretilir.
+    """
+    adimlar = _adimlar("release")
+    manifest = next(s for s in adimlar if "release_manifest.py" in str(s.get("run", "")))
+    komut = str(manifest["run"])
+
+    assert "--artifacts dagitim" in komut
+    assert "sha256sum -c" in komut
+    indeks = adimlar.index(manifest)
+    yayin = next(s for s in adimlar if "action-gh-release" in str(s.get("uses", "")))
+    assert indeks < adimlar.index(yayin)
+    assert "kanit/*" in str(yayin["with"]["files"])
+    # release_manifest.py ve kilit dosyaları depodan gelir.
+    assert any("actions/checkout" in str(s.get("uses", "")) for s in adimlar[:indeks])
+
+
+def test_ayri_kanit_is_akisi_etikette_yayin_kaniti_uretmez():
+    """Tag'de yalnız wheel özetleyen ikinci iş akışı yanıltıcı kanıt bırakıyordu."""
+    tetik = _yukle("release-evidence.yml")["on"]
+
+    assert "push" not in tetik
+    assert "workflow_dispatch" in tetik
