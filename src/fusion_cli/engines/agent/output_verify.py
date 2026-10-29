@@ -15,10 +15,19 @@ from __future__ import annotations
 import asyncio
 import re
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 
 from ...core.tools import ToolContext
 from ...core.verification import VerificationResult
+from ...tools.remotion_bootstrap import VIDEO_FPS, VIDEO_HEIGHT, VIDEO_WIDTH
+from ...tools.video_evidence import (
+    ExpectedVideo,
+    VideoUnreadableError,
+    decode_errors,
+    mismatches,
+    read_video_facts,
+)
 
 #: Ters tırnak içindeki göreli, uzantılı yol (adres ve mutlak yol değil).
 _PATH = re.compile(r"`(?P<path>(?![a-z]+://)(?!/)[\w.\-/]+\.[A-Za-z0-9]{1,5})`")
@@ -69,19 +78,83 @@ class OutputPathVerifier:
             return VerificationResult(ok=True)
         root = self._context.root
         bulgular: list[str] = []
+        uyarilar: list[str] = []
+        kanitlar: list[str] = []
         for yol in sorted(self._context.requested_outputs):
             path = root / yol
             if not path.exists():
                 bulgular.append(_finding(root, yol))
             elif path.suffix.lower() in _VIDEO_SUFFIXES:
-                bulgular.extend(await _video_findings(path, yol))
+                kanit = await _video_evidence(path, yol, self._expected_video())
+                bulgular.extend(kanit.findings)
+                uyarilar.extend(kanit.warnings)
+                kanitlar.extend(kanit.proofs)
+                if not kanit.findings:
+                    bulgular.extend(await _video_findings(path, yol))
         if not bulgular:
-            return VerificationResult(ok=True)
+            return VerificationResult(
+                ok=True, summary="; ".join(kanitlar), warnings=tuple(uyarilar)
+            )
         return VerificationResult(
             ok=False,
             summary=f"istenen çıktıda {len(bulgular)} sorun",
             findings=tuple(bulgular),
+            warnings=tuple(uyarilar),
         )
+
+    def _expected_video(self) -> ExpectedVideo | None:
+        """Host Remotion planı kayıtlıysa videonun süre/çözünürlük/kare hızı beklentisi."""
+        contract = self._context.remotion_contract.registered
+        if contract is None or not contract.scenes:
+            return None
+        frames = sum(scene.duration for scene in contract.scenes)
+        return ExpectedVideo(VIDEO_WIDTH, VIDEO_HEIGHT, float(VIDEO_FPS), frames / VIDEO_FPS)
+
+
+@dataclass(frozen=True, slots=True)
+class _VideoEvidence:
+    findings: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+    proofs: tuple[str, ...] = ()
+
+
+async def _video_evidence(path: Path, yol: str, expected: ExpectedVideo | None) -> _VideoEvidence:
+    """Gerçek dosya kanıtı: boyut > 0, ffprobe ile süre/çözünürlük, tam çözme, plan uyumu.
+
+    Ölçüldü (29 Ekim): yalnız yolun varlığına bakılıyordu; ffprobe/ffmpeg yoksa ölçüm
+    sessizce atlanıyordu. Artık araç yoksa `not_measured` uyarısı çıkar.
+    """
+    try:
+        facts = await read_video_facts(path)
+    except VideoUnreadableError as error:
+        return _VideoEvidence(
+            findings=(
+                f"VİDEO GEÇERSİZ: `{yol}` oynatılabilir bir video değil ({error}). "
+                "Render'ın bittiğini job_status ile doğrula, dosyayı yeniden üret.",
+            )
+        )
+    if facts is None:
+        return _VideoEvidence(
+            warnings=(
+                f"VİDEO ÖLÇÜLEMEDİ (not_measured): `{yol}` var ama ffprobe/ffmpeg kurulu "
+                "olmadığı için süre, çözünürlük ve oynatılabilirlik doğrulanmadı.",
+            )
+        )
+    bozuk = await decode_errors(path)
+    if bozuk:
+        return _VideoEvidence(
+            findings=(f"VİDEO ÇÖZÜLEMİYOR: `{yol}` kareleri çözülürken ffmpeg hata verdi: {bozuk}",)
+        )
+    farklar = mismatches(facts, expected) if expected is not None else []
+    if farklar:
+        return _VideoEvidence(
+            findings=(
+                f"VİDEO PLANA UYMUYOR: `{yol}` " + "; ".join(farklar) + ". Kayıtlı kit planı "
+                "1920x1080/30'dur; sahne sürelerini ve render komutunu kontrol edip yeniden "
+                "render et.",
+            )
+        )
+    return _VideoEvidence(proofs=(f"video kanıtı `{yol}`: {facts.summary()}",))
 
 
 def _finding(root: Path, yol: str) -> str:

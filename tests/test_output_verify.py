@@ -10,7 +10,23 @@ from __future__ import annotations
 from pathlib import Path
 
 from fusion_cli.core.tools import ToolContext
+from fusion_cli.engines.agent import output_verify
 from fusion_cli.engines.agent.output_verify import OutputPathVerifier, requested_outputs_in
+from fusion_cli.tools.video_evidence import VideoFacts
+
+
+def _video_olcumu_sahte(monkeypatch) -> None:
+    """Bu testler yol/siyahlık mantığını sınar; gerçek video kanıtı creative sözleşme testinde."""
+
+    async def facts(path):
+        return VideoFacts(1, 10.0, 1920, 1080, 30.0)
+
+    async def decode(path):
+        return ""
+
+    monkeypatch.setattr(output_verify, "read_video_facts", facts)
+    monkeypatch.setattr(output_verify, "decode_errors", decode)
+
 
 REMOTION = "Remotion ile 10 saniyelik bir video üret. Videoyu `out/video.mp4` olarak render et."
 
@@ -40,7 +56,8 @@ async def test_istenen_yerde_yoksa_ve_baska_yerde_uretildiyse_soylenir(tmp_path:
     assert "video/out/video.mp4" in sonuc.findings[0]
 
 
-async def test_istenen_yerde_varsa_gecer(tmp_path: Path):
+async def test_istenen_yerde_varsa_gecer(tmp_path: Path, monkeypatch):
+    _video_olcumu_sahte(monkeypatch)
     (tmp_path / "out").mkdir()
     (tmp_path / "out" / "video.mp4").write_bytes(b"x")
     context = ToolContext(root=tmp_path)
@@ -68,8 +85,7 @@ def test_ffmpeg_siyah_bolum_ciktisi_okunur():
 
 
 async def test_istenen_video_uzun_sure_siyahsa_soylenir(tmp_path, monkeypatch):
-    from fusion_cli.engines.agent import output_verify
-
+    _video_olcumu_sahte(monkeypatch)
     (tmp_path / "out").mkdir()
     (tmp_path / "out" / "video.mp4").write_bytes(b"x")
     context = ToolContext(root=tmp_path)

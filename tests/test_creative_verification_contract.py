@@ -11,11 +11,21 @@ from __future__ import annotations
 import asyncio
 import functools
 import http.server
+import shutil
+import subprocess
 import threading
 
 import pytest
 
 from fusion_cli.config.paths import bundled_skills_dir
+from fusion_cli.core.remotion_contract import (
+    KitScenePlan,
+    KitVerificationPlan,
+    RegisteredKitContract,
+)
+from fusion_cli.core.tools import ToolContext
+from fusion_cli.engines.agent import output_verify
+from fusion_cli.engines.agent.output_verify import OutputPathVerifier
 from fusion_cli.tools.play_probe import ProbeReport, probe_game
 from fusion_cli.tools.preview_probe import probe
 from fusion_cli.tools.resource_noise import is_favicon_load_error, is_favicon_url
@@ -166,7 +176,8 @@ def test_webgl_oyununda_tus_etkisi_olculur_ve_yanlis_alarm_yok(sunucu):
 def test_remotion_becerisi_kullanici_videosuna_sabit_marka_adi_koymaz():
     kaynak = (bundled_skills_dir() / "remotion-video" / "SKILL.md").read_text(encoding="utf-8")
 
-    assert "ürün adı 'Fusion'" not in kaynak
+    assert 'ürün adı "Fusion"' not in kaynak
+    assert '"Fusion" asla ekleme' in kaynak
 
 
 _SAYFA = (
@@ -190,3 +201,105 @@ def test_onizleme_sondasi_favicon_404unu_ayirir(sunucu, yol, beklenen_sorun):
 
     sorunlu = bool(sonuc.console_errors or sonuc.failed_resources)
     assert sorunlu is beklenen_sorun
+
+
+# --- Remotion videosu: gerçek dosya, süre, çözünürlük, çözülebilirlik --------- #
+
+_FFMPEG_VAR = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
+ffmpeg_gerekli = pytest.mark.skipif(not _FFMPEG_VAR, reason="ffmpeg/ffprobe kurulu değil")
+
+
+def _klip(yol, *, boyut="1920x1080", sure=3, fps=30):
+    """Hareketli, gerçek bir H.264 klip (siyah/donuk bölüm içermez)."""
+    subprocess.run(
+        [
+            "ffmpeg", "-v", "error", "-y", "-f", "lavfi",
+            "-i", f"testsrc2=size={boyut}:rate={fps}:duration={sure}",
+            "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "ultrafast", str(yol),
+        ],
+        check=True,
+    )  # fmt: skip
+
+
+def _baglam(kok, *, kare=90, sozlesme=True):
+    baglam = ToolContext(root=kok)
+    baglam.requested_outputs.add("out/video.mp4")
+    baglam.touched.add(kok / "src.tsx")
+    if sozlesme:
+        plan = KitVerificationPlan("src/index.tsx", "Video", ("src",), 10.0, ())
+        baglam.remotion_contract.register(
+            RegisteredKitContract(plan, (KitScenePlan("a", "custom", kare),), ())
+        )
+    return baglam
+
+
+@ffmpeg_gerekli
+async def test_plana_uyan_gercek_video_kanit_ozeti_tasir(tmp_path):
+    (tmp_path / "out").mkdir()
+    _klip(tmp_path / "out/video.mp4")
+
+    sonuc = await OutputPathVerifier(_baglam(tmp_path)).verify()
+
+    assert sonuc.ok and sonuc.warnings == ()
+    assert "1920x1080" in sonuc.summary and "3.0 sn" in sonuc.summary
+
+
+@ffmpeg_gerekli
+async def test_yanlis_cozunurluk_planla_uyusmuyor_sayilir(tmp_path):
+    (tmp_path / "out").mkdir()
+    _klip(tmp_path / "out/video.mp4", boyut="1280x720")
+
+    sonuc = await OutputPathVerifier(_baglam(tmp_path)).verify()
+
+    assert not sonuc.ok and "PLANA UYMUYOR" in sonuc.findings[0]
+    assert "1280x720" in sonuc.findings[0]
+
+
+@ffmpeg_gerekli
+async def test_yanlis_sure_planla_uyusmuyor_sayilir(tmp_path):
+    (tmp_path / "out").mkdir()
+    _klip(tmp_path / "out/video.mp4", sure=2)
+
+    sonuc = await OutputPathVerifier(_baglam(tmp_path)).verify()
+
+    assert not sonuc.ok and "süre" in sonuc.findings[0]
+
+
+@pytest.mark.parametrize("icerik", [b"", b"x", b"bu bir video degil" * 50])
+async def test_video_olmayan_dosya_mp4_adiyla_gecmez(tmp_path, icerik):
+    if not _FFMPEG_VAR and icerik:
+        pytest.skip("ffprobe kurulu değil")
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out/video.mp4").write_bytes(icerik)
+
+    sonuc = await OutputPathVerifier(_baglam(tmp_path, sozlesme=False)).verify()
+
+    assert not sonuc.ok and "VİDEO GEÇERSİZ" in sonuc.findings[0]
+
+
+@ffmpeg_gerekli
+async def test_kesilmis_video_cozulemiyor_sayilir(tmp_path):
+    (tmp_path / "out").mkdir()
+    hedef = tmp_path / "out/video.mp4"
+    _klip(hedef)
+    veri = hedef.read_bytes()
+    # moov atom sonda değilse baştan bozulmuş sayılır; ortadan kesip sonuna çöp ekle.
+    hedef.write_bytes(veri[: len(veri) // 2] + b"\x00" * 64)
+
+    sonuc = await OutputPathVerifier(_baglam(tmp_path, sozlesme=False)).verify()
+
+    assert not sonuc.ok
+
+
+async def test_ffprobe_yoksa_sessiz_gecmez_not_measured_uyarisi_verir(tmp_path, monkeypatch):
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out/video.mp4").write_bytes(b"x" * 100)
+    from fusion_cli.tools import video_evidence
+
+    monkeypatch.setattr(video_evidence.shutil, "which", lambda ad: None)
+    monkeypatch.setattr(output_verify.shutil, "which", lambda ad: None)
+
+    sonuc = await OutputPathVerifier(_baglam(tmp_path, sozlesme=False)).verify()
+
+    assert sonuc.ok
+    assert any("not_measured" in uyari for uyari in sonuc.warnings)
