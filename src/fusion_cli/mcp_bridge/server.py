@@ -59,6 +59,10 @@ def build_server(root: Path, *, expose_mutating: bool = False) -> Server:
         if name not in exposed:
             return [mcp_types.TextContent(type="text", text=f"Araç sunulmuyor: {name}")]
         result = await registry.execute(name, arguments or {}, context)
+        if not result.ok:
+            # SDK, işleyiciden çıkan istisnayı `isError=True` sonucuna çevirir; düz
+            # metin dönmek dış istemciye hatayı başarı gibi gösterirdi.
+            raise RuntimeError(result.output or f"Araç başarısız: {name}")
         return [mcp_types.TextContent(type="text", text=result.output)]
 
     return server

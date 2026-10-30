@@ -666,3 +666,24 @@ async def test_ardisik_zaman_asimlari_istemciyi_takili_isaretler_basari_sifirlar
 
     sonuc = await client.call("takili", "t", {})
     assert sonuc.ok and client.is_stalled is False
+
+
+async def test_fusion_mcp_sunucusu_arac_hatasini_iserror_ile_dondurur(tmp_path):
+    """Ölçüldü (30 Ekim): `result.ok=False` düz metin dönüyordu; dış istemci hatayı
+    başarı sanıyordu (tam olarak `client.py`'nin kendi ödediği hata sınıfı, M1-25).
+    Süreç içi çağrılır: alt-süreç testi ortamı sınırlı olduğundan worktree kodunu görmez."""
+    import mcp.types as mcp_types
+
+    server = build_server(tmp_path)
+    handler = server.request_handlers[mcp_types.CallToolRequest]
+    request = mcp_types.CallToolRequest(
+        method="tools/call",
+        params=mcp_types.CallToolRequestParams(
+            name="read_file", arguments={"path": "yok-boyle-dosya.txt"}
+        ),
+    )
+
+    sonuc = (await handler(request)).root
+
+    assert sonuc.isError is True
+    assert sonuc.content and sonuc.content[0].text
