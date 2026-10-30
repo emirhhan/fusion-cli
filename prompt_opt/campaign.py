@@ -142,7 +142,18 @@ async def run_round(
     if problem:
         return _finish(setup, replace(scores, detail=problem))
 
-    proposal = Proposal(
+    proposal = _build_proposal(setup, candidate_text, scores, found.selection.reason)
+    store.save(proposal)
+    done = replace(
+        scores, outcome=OUTCOME_PROPOSED, detail=found.selection.reason, proposal=proposal
+    )
+    return _finish(setup, done)
+
+
+def _build_proposal(
+    setup: RoundSetup, candidate_text: str, scores: RoundResult, reason: str
+) -> Proposal:
+    return Proposal(
         id=proposal_id(setup.prompt, candidate_text),
         prompt=setup.prompt,
         created=setup.timestamp(setup.now()),
@@ -152,17 +163,12 @@ async def run_round(
         base_text=setup.base_text,
         candidate_text=candidate_text,
         addition=addition_of(setup.base_text, candidate_text),
-        opt_base=opt_base,
-        opt_candidate=winner_report.task_success_rate,
-        heldout_base=heldout_base.task_success_rate,
-        heldout_candidate=heldout_candidate.task_success_rate,
-        reason=found.selection.reason,
+        opt_base=scores.opt_base,
+        opt_candidate=scores.opt_candidate or 0.0,
+        heldout_base=scores.heldout_base or 0.0,
+        heldout_candidate=scores.heldout_candidate or 0.0,
+        reason=reason,
     )
-    store.save(proposal)
-    done = replace(
-        scores, outcome=OUTCOME_PROPOSED, detail=found.selection.reason, proposal=proposal
-    )
-    return _finish(setup, done)
 
 
 def _heldout_problem(base: RunReport, candidate: RunReport) -> str:
