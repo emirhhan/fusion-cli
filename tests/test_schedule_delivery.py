@@ -215,3 +215,31 @@ def test_invalid_utf8_outbox_is_preserved_with_honest_error(tmp_path, monkeypatc
         now,
     )["ok"]
     assert path.read_bytes() == content
+
+
+def test_ackli_teslimler_budanir_onaysizlar_korunur():
+    """Ölçüldü (30 Ekim, S2-24): ack'lenen teslim kaydı hiç silinmiyordu (her biri ≤ 8 KB
+    görev metni); günlük görev yılda 365 kayıt biriktiriyordu."""
+    from dataclasses import asdict
+
+    from fusion_cli.appserver.schedule_delivery import (
+        DELIVERY_FIELD,
+        MAX_ACKNOWLEDGED_DELIVERIES,
+        ScheduleDelivery,
+        add_delivery,
+    )
+
+    eskiler = [
+        asdict(ScheduleDelivery(f"o{n}", "s1", float(n), "B", "gorev", "/k", task_id=f"t{n}"))
+        for n in range(MAX_ACKNOWLEDGED_DELIVERIES + 5)
+    ]
+    bekleyen = asdict(ScheduleDelivery("bekleyen", "s1", 0.5, "B", "gorev", "/k"))
+    item = {"id": "s1", "baslik": "B", "gorev": "gorev", "kok": "/k", DELIVERY_FIELD: [bekleyen, *eskiler]}
+
+    sonuc = add_delivery(item, 999.0)
+
+    kayitlar = sonuc[DELIVERY_FIELD]
+    assert sum(1 for k in kayitlar if k["task_id"]) == MAX_ACKNOWLEDGED_DELIVERIES
+    assert any(k["occurrence_id"] == "bekleyen" for k in kayitlar)  # onaysız korunur
+    assert not any(k["occurrence_id"] == "o0" for k in kayitlar)  # en eski ack'li düştü
+    assert any(k["due_at"] == 999.0 for k in kayitlar)  # yeni vade eklendi
