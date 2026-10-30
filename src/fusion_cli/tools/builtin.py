@@ -630,4 +630,18 @@ _ALIASES = {
     "execute_command": "run_shell",
     "list_files": "list_dir",
     "create_file": "write_file",
+    # Claude Code / Cursor / Windsurf alışkanlıkları (büyük harf `Read` registry'de
+    # `read`'e normalleştirilir; argüman anahtarları `arg_aliases` ile eşlenir).
+    "read": "read_file",
+    "view": "read_file",
+    "write": "write_file",
+    "edit": "edit_file",
+    "str_replace": "edit_file",
+    "ls": "list_dir",
+    "grep": "search_code",
+    "search": "search_code",
+    "fetch": "web_fetch",
+    "run_command": "run_shell",
+    "run_terminal_cmd": "run_shell",
+    "terminal": "run_shell",
 }

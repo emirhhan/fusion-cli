@@ -8,6 +8,7 @@ yerine `view_file` çağırmayı tercih eder ve bu bir hataya dönüşmemelidir.
 from __future__ import annotations
 
 import inspect
+import time
 from collections.abc import Iterable, Iterator
 from dataclasses import replace
 from threading import Event
@@ -17,8 +18,12 @@ from ..core.constants import MAX_OUTPUT_CHARS
 from ..core.errors import CleanupFailedError, FusionError, PathAccessError
 from ..core.owned_thread import await_cancellable_thread
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolExecutor, ToolResult
+from .arg_aliases import adapt_arguments, normalize_name
 from .args import ArgumentError
 from .injection import flag_injection
+
+#: `_CancellationEvent.wait` üst olayı bu aralıkla yoklar.
+_WAIT_SLICE_S = 0.05
 
 
 class _CancellationEvent(Event):
@@ -30,6 +35,20 @@ class _CancellationEvent(Event):
 
     def is_set(self) -> bool:
         return super().is_set() or self._parent.is_set()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        """`threading.Event.wait` kendi iç bayrağına bakar; üst iptali de gözle.
+
+        Ölçüldü (30 Ekim): `cancelled.wait(5)` ile uyuyan araç, üst iptal gelse bile
+        süre dolana kadar uyanmıyordu (yalnız `is_set()` geçersiz kılınmıştı).
+        """
+        bitis = None if timeout is None else time.monotonic() + timeout
+        while not self.is_set():
+            kalan = _WAIT_SLICE_S if bitis is None else min(_WAIT_SLICE_S, bitis - time.monotonic())
+            if kalan <= 0:
+                return False
+            super().wait(kalan)
+        return True
 
 
 def _run_sync(run: ToolExecutor, args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -87,6 +106,21 @@ class ToolRegistry:
     def get(self, name: str) -> Tool | None:
         return self._tools.get(name)
 
+    def resolve(self, name: str) -> Tool | None:
+        """Ada göre ara; bulunamazsa büyük/küçük harf, tire ve CamelCase farkını yok say."""
+        tool = self._tools.get(name)
+        if tool is not None:
+            return tool
+        wanted = normalize_name(name)
+        for candidate_name, candidate in self._tools.items():
+            if normalize_name(candidate_name) == wanted:
+                return candidate
+        return None
+
+    def advertised_names(self) -> tuple[str, ...]:
+        """Modele sunulan (gizli takma ad olmayan) araç adları."""
+        return tuple(name for name, tool in self._tools.items() if tool.advertised)
+
     def names(self) -> tuple[str, ...]:
         return tuple(self._tools)
 
@@ -113,13 +147,17 @@ class ToolRegistry:
         `asyncio.to_thread` ile ayrı bir iş parçacığında çalıştırılır: event
         loop bloklanmaz, arka plan işleri (ders çıkarımı, model ısıtma) stall olmaz.
         """
-        tool = self.get(name)
+        tool = self.resolve(name)
         if tool is None:
+            # Yalnız SUNULAN adlar: gizli takma adları dökmek bağlamı şişirir ve modele
+            # gizli adları öğretir (ölçüldü, 30 Ekim).
             return ToolResult.failure(
-                f"Bilinmeyen araç: {name}. Kullanılabilir araçlar: {', '.join(self.names())}"
+                f"Bilinmeyen araç: {name}. Kullanılabilir araçlar: "
+                f"{', '.join(self.advertised_names())}"
             )
+        args = adapt_arguments(tool, args)
         try:
-            if inspect.iscoroutinefunction(tool.run):
+            if _is_async(tool.run):
                 outcome = tool.run(args, context)
                 return _finish(await outcome, name, context)  # coroutine ToolResult döndürür
             # Senkron executor: bloklamaması için thread'e alınır.
@@ -147,6 +185,13 @@ class ToolRegistry:
 
     def __len__(self) -> int:
         return len(self._tools)
+
+
+def _is_async(run: ToolExecutor) -> bool:
+    """`async def` işlevi ya da `async def __call__` taşıyan nesne mi?"""
+    return inspect.iscoroutinefunction(run) or inspect.iscoroutinefunction(
+        getattr(run, "__call__", None)  # noqa: B004 - çağrılabilir nesnenin yöntemi aranıyor
+    )
 
 
 def _finish(result: ToolResult, name: str, context: ToolContext) -> ToolResult:
