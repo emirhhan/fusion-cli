@@ -1223,6 +1223,11 @@ def conversation_digest(messages: Sequence[Message]) -> str:
 #: istekte birkaç saniyede yeniden açılır (sohbet yeni başlar, geçmiş yeniden gider).
 IDLE_RELEASE_S = 300.0
 
+#: Komşu modele geçiş bu kadar süre hatırlanır, sonra seçili modele dönülür (P1-30).
+MODEL_FALLBACK_TTL_S = 30 * 60.0
+#: Kalıp ret, komşu modele KALICI geçmeden önce bu kadar kez gözlenmeli (P1-30).
+MODEL_FALLBACK_CONFIRMATIONS = 2
+
 
 class BrowserSessionPool:
     """Paylaşılan Chrome'a açılan süreç-yerel bağlantılar; sağlayıcı/hesap başına bir tane.
@@ -1231,8 +1236,14 @@ class BrowserSessionPool:
     havuz yalnız bu sürecin CDP bağlantısını, bağlamını ve sohbet sayfalarını tutar.
     """
 
-    def __init__(self, *, idle_release_s: float | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        idle_release_s: float | None = None,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._idle_release_s = IDLE_RELEASE_S if idle_release_s is None else idle_release_s
+        self._clock = clock
         self._idle_timers: dict[tuple[str, str], asyncio.TimerHandle] = {}
         #: Bırakma görevleri: asyncio görevlere ZAYIF referans tutar, referanssız görev
         #: bitmeden toplanabilir.
@@ -1253,8 +1264,10 @@ class BrowserSessionPool:
         self._conversations: dict[tuple[str, str, str], ConversationState] = {}
         #: Hesap başına yeni-sohbet hız kovası (bkz. `ConversationPacer`).
         self._pacers: dict[tuple[str, str], ConversationPacer] = {}
-        #: (sağlayıcı, hesap, seçili model) → kalıp ret sonrası geçilen çalışan model.
-        self._model_fallbacks: dict[tuple[str, str, str], str] = {}
+        #: (sağlayıcı, hesap, seçili model) → (geçilen çalışan model, geçerlilik sonu).
+        self._model_fallbacks: dict[tuple[str, str, str], tuple[str, float]] = {}
+        #: (sağlayıcı, hesap, seçili model) → komşunun çalıştığı doğrulanmış ret sayısı.
+        self._fallback_confirmations: dict[tuple[str, str, str], int] = {}
         #: Süre sınırında cevap vermeyen (sağlayıcı, hesap, seçili model) üçlüleri.
         self._timed_out_choices: set[tuple[str, str, str]] = set()
         self._guard = asyncio.Lock()
@@ -1299,14 +1312,42 @@ class BrowserSessionPool:
         return self._locks.setdefault((provider, account), asyncio.Lock())
 
     def model_choice(self, session: WebSessionConfig) -> str:
-        """Bu süreçte kullanılacak model: kalıp ret sonrası geçilen yedek ya da seçili olan."""
+        """Bu süreçte kullanılacak model: hatırlanan (süresi dolmamış) yedek ya da seçili olan."""
         key = (session.provider, session.account, session.selected_model)
-        return self._model_fallbacks.get(key, session.selected_model)
+        remembered = self._model_fallbacks.get(key)
+        if remembered is None:
+            return session.selected_model
+        choice, expires_at = remembered
+        if self._clock() < expires_at:
+            return choice
+        del self._model_fallbacks[key]
+        return session.selected_model
 
     def remember_model_choice(self, session: WebSessionConfig, choice: str) -> None:
         key = (session.provider, session.account, session.selected_model)
-        self._model_fallbacks[key] = choice
+        self._model_fallbacks[key] = (choice, self._clock() + MODEL_FALLBACK_TTL_S)
+        self._fallback_confirmations.pop(key, None)
         self._timed_out_choices.discard(key)
+
+    def confirm_fallback(self, session: WebSessionConfig, candidate: str) -> bool:
+        """Komşunun kalıp reddi aştığını say; yeterince doğrulandıysa hatırla (P1-30).
+
+        Tek seferlik bir ret ya da geçici sağlayıcı hatası kullanıcının seçtiği modeli
+        süreç boyu bypass etmesin diye `MODEL_FALLBACK_CONFIRMATIONS` gözlem gerekir.
+        """
+        key = (session.provider, session.account, session.selected_model)
+        count = self._fallback_confirmations.get(key, 0) + 1
+        if count < MODEL_FALLBACK_CONFIRMATIONS:
+            self._fallback_confirmations[key] = count
+            return False
+        self.remember_model_choice(session, candidate)
+        return True
+
+    def forget_fallback_candidate(self, session: WebSessionConfig) -> None:
+        """Seçili model reddetmeden cevap verdi: bekleyen ret gözlemleri sıfırlanır."""
+        self._fallback_confirmations.pop(
+            (session.provider, session.account, session.selected_model), None
+        )
 
     def note_choice_timed_out(self, session: WebSessionConfig) -> None:
         """Seçili model süre sınırında cevap vermedi; sıradaki denemede komşusu denenir."""
@@ -1681,9 +1722,10 @@ async def _retry_with_adjacent_model(
     sonra "Ben yalnızca bir dil modeliyim…" cevabı geldi; aynı soru "3.6 Flash" ile
     25 sn'de doğru cevaplandı. Öğretmen bu yüzden hiçbir plan veremiyordu.
 
-    Geçiş bu süreç boyunca hatırlanır (`remember_model_choice`): her yeni sohbette aynı
-    reddi dakikalarca beklemek yerine doğrudan çalışan modele gidilir. Dönen kademe
-    üst katmana `served_by` olarak ulaşır; kullanıcı seçtiği modelden sapmayı görür.
+    Geçiş, ret İKİ KEZ doğrulanınca hatırlanır ve `MODEL_FALLBACK_TTL_S` sonra unutulur
+    (`confirm_fallback`, P1-30): her yeni sohbette aynı reddi dakikalarca beklemek yerine
+    doğrudan çalışan modele gidilir, ama tek seferlik bir ret seçimi kalıcı değiştirmez.
+    Dönen kademe üst katmana `served_by` olarak ulaşır; kullanıcı seçtiği modelden sapmayı görür.
     """
     try:
         komsu = await switch_to_adjacent_model(page, definition, choice)
@@ -1704,7 +1746,7 @@ async def _retry_with_adjacent_model(
         with contextlib.suppress(WebBrowserError):
             await ensure_model_choice(page, definition, choice)
         return answer, choice
-    manager.remember_model_choice(session, komsu)
+    manager.confirm_fallback(session, komsu)
     return answer, komsu
 
 
@@ -1849,6 +1891,8 @@ async def _deliver_turn(
         answer, choice = await _retry_with_adjacent_model(
             manager, session, definition, state.page, prompt, answer, choice, limit_s
         )
+    elif choice == session.selected_model:
+        manager.forget_fallback_candidate(session)
 
     # Çerçeve, cevaba sızmadan burada kesilir: aşağıdaki katmanların hiçbiri
     # taşıma biçimini tanımak zorunda değildir.

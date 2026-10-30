@@ -621,16 +621,50 @@ async def test_secili_model_kalip_ret_verirse_komsu_modelle_yeniden_sorulur(pool
     assert kayit["gonderim"] == ["3.1 Pro", "3.6 Flash"]
 
 
-async def test_kalip_ret_sonrasi_yeni_sohbet_dogrudan_calisan_modelle_acilir(pool, monkeypatch):
+# P1-30 — Ölçüldü (30 Ekim): komşu model tek bir retten sonra süreç boyu (sınırsız) hatırlanıyordu;
+# tek seferlik bir ret ya da geçici sağlayıcı hatası kullanıcının seçtiği modeli kalıcı olarak
+# bypass ediyordu. Artık ret iki kez doğrulanınca hatırlanır ve 30 dakikada unutulur.
+async def test_kalip_ret_iki_kez_dogrulaninca_yeni_sohbet_dogrudan_calisan_modelle_acilir(
+    pool, monkeypatch
+):
     kayit = _kalip_ret_ortami(monkeypatch, {"3.1 Pro": _RET, "3.6 Flash": "cevap"})
     transport = build_browser_transport(_secili("3.1 Pro"), pool=pool)
+
     await transport(WebSessionCredential(), (Message("user", "ilk soru"),), "m")
+    assert pool.model_choice(_secili("3.1 Pro")) == "3.1 Pro"  # tek ret: henüz hatırlanmaz
+    kayit["gonderim"].clear()
+    await transport(WebSessionCredential(), (Message("user", "ikinci soru"),), "m")
+    assert kayit["gonderim"] == ["3.1 Pro", "3.6 Flash"]  # ret ikinci kez doğrulandı
+    assert pool.model_choice(_secili("3.1 Pro")) == "3.6 Flash"
     kayit["gonderim"].clear()
 
-    await transport(WebSessionCredential(), (Message("user", "başka soru"),), "m")
+    await transport(WebSessionCredential(), (Message("user", "üçüncü soru"),), "m")
 
-    # İkinci sohbet reddi yeniden beklemez: doğrudan çalışan modelle gönderilir.
+    # Üçüncü sohbet reddi yeniden beklemez: doğrudan çalışan modelle gönderilir.
     assert kayit["gonderim"] == ["3.6 Flash"]
+
+
+async def test_hatirlanan_komsu_model_30_dakika_sonra_unutulur(monkeypatch):
+    class Saat:
+        value = 100.0
+
+    manager = BrowserSessionPool(clock=lambda: Saat.value)
+    oturum = _secili("3.1 Pro")
+
+    manager.remember_model_choice(oturum, "3.6 Flash")
+    assert manager.model_choice(oturum) == "3.6 Flash"
+    Saat.value += web_browser.MODEL_FALLBACK_TTL_S - 1
+    assert manager.model_choice(oturum) == "3.6 Flash"
+    Saat.value += 2
+    assert manager.model_choice(oturum) == "3.1 Pro"
+
+
+async def test_tek_seferlik_ret_sayaci_basarili_secili_modelle_sifirlanir(pool, monkeypatch):
+    oturum = _secili("3.1 Pro")
+    assert pool.confirm_fallback(oturum, "3.6 Flash") is False
+    pool.forget_fallback_candidate(oturum)  # seçili model bu kez cevap verdi
+    assert pool.confirm_fallback(oturum, "3.6 Flash") is False
+    assert pool.confirm_fallback(oturum, "3.6 Flash") is True
 
 
 async def test_komsu_model_de_reddederse_ret_oldugu_gibi_doner(pool, monkeypatch):
@@ -677,7 +711,7 @@ async def test_sure_asan_secili_modelden_sonraki_deneme_komsu_modelle_yapilir(po
     cevap = await transport(WebSessionCredential(), (Message("user", "plan ver"),), "m")
 
     assert cevap.text == "plan" and cevap.tier == "Flash"
-    assert pool.model_choice(oturum) == "3.6 Flash"
+    assert pool.model_choice(oturum) == "3.6 Flash"  # süre aşımı: hemen hatırlanır (TTL'li)
 
 
 async def test_sure_asan_yeni_sohbetin_sayfasi_acik_birakilmaz(pool, monkeypatch):
