@@ -16,7 +16,8 @@ SAYFA = (
     '<div id="banner" style="position:fixed;bottom:0">Çerez tercihleri: kabul et</div>'
     '<div id="tabs" role="tablist" style="position:fixed;bottom:40px">'
     '<a href="/a">Ana sayfa</a><a href="/b">Çerez politikası</a></div>'
-    f'<div id="chat" style="position:fixed;right:0;top:0">Destek: {"uzun sohbet " * 120} cookie</div>'
+    '<div id="chat" style="position:fixed;right:0;top:0">'
+    f"Destek: {'uzun sohbet ' * 120} cookie</div>"
     "</body></html>"
 )
 
@@ -33,7 +34,7 @@ async def test_yalniz_gercek_cerez_bandi_cikarilir() -> None:
                 sonuc = await page.evaluate(SCRIPT.read_text(encoding="utf-8"))
             finally:
                 await browser.close()
-    except Exception as error:  # noqa: BLE001 - tarayıcı yoksa test atlanır
+    except Exception as error:  # tarayıcı yoksa test atlanır
         pytest.skip(f"Chromium çalıştırılamadı: {error}")
     govde = sonuc["main"]
     assert 'id="banner"' not in govde
