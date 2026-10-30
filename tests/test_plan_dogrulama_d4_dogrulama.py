@@ -654,3 +654,27 @@ async def test_denetim_istemi_iz_icindeki_yer_tutucuyu_yeniden_doldurmaz(monkeyp
 
     assert "görev {final}" in istemler[0]
     assert "iz {task}" in istemler[0]
+
+
+# --- A4-55 / A4-58 -------------------------------------------------------------------- #
+
+
+def test_brief_kirpma_notu_gercek_siniri_soyler():
+    from fusion_cli.engines.agent.teacher_brief import compile_brief
+
+    brief = compile_brief(
+        durum="d" * 5000, denenenler="", question="soru?", char_budget=1000, frame=""
+    )
+
+    assert brief.truncated
+    assert "1.000 karakter" in brief.text
+    assert "25.000" not in brief.text
+    assert len(brief.text) <= 1000
+
+
+def test_gecici_hata_yalin_502_sayisina_takilmaz():
+    from fusion_cli.engines.agent.transient import is_transient_failure
+
+    assert not is_transient_failure("dosya.py satır 503'te sözdizimi hatası, fiyat 504 TL")
+    assert is_transient_failure("HTTP 503 Service Unavailable")
+    assert is_transient_failure("status code 502")
