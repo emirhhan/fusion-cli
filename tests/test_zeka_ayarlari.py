@@ -91,3 +91,15 @@ def test_bilinmeyen_anahtar_ve_bool_olmayan_deger_reddedilir(tmp_path):
     assert intelligence.apply(state, {"anahtar": "lessons", "deger": "evet"})["ok"] is False
     assert intelligence.apply(state, "bozuk")["ok"] is False
     assert not hedef.exists()  # reddedilen istek dosyaya hiçbir şey yazmaz
+
+
+def test_motor_kaydi_basarisizsa_bellekteki_motor_degismez(tmp_path, monkeypatch):
+    """Ölçüldü (30 Ekim, S1-41): motor önce atanıyor, kalıcı yazma sonra deneniyordu; yazma
+    hata verince `ok: False` dönerken bellekteki motor yeni değerde kalıyordu."""
+    state, _ = make_state(tmp_path)
+    monkeypatch.setattr(intelligence, "persist_engine", lambda _config, _engine: "yazılamadı")
+
+    sonuc = intelligence.apply(state, {"anahtar": "motor", "deger": "fusion"})
+
+    assert sonuc["ok"] is False
+    assert state.engine is Engine.AGENT

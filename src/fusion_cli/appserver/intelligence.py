@@ -153,7 +153,7 @@ def status(state: ReplState) -> dict[str, Any]:
         "motorlar": [{"deger": value, "etiket": label} for value, label in ENGINE_LABELS.items()],
         "planKipi": config.runtime.workflow_mode.value,
         "planKipleri": [
-            {"deger": value, "etiket": WORKFLOW_LABELS[value]} for value in WORKFLOW_MODE_VALUES
+            {"deger": value, "etiket": WORKFLOW_LABELS.get(value, value)} for value in WORKFLOW_MODE_VALUES
         ],
         "ogretmenTanimli": config.teacher is not None,
         "bayraklar": [
@@ -197,13 +197,16 @@ def apply(state: ReplState, data: object) -> dict[str, Any]:
 
 def _apply_engine(state: ReplState, value: object) -> dict[str, Any]:
     try:
-        state.engine = Engine(str(value))
+        engine = Engine(str(value))
     except ValueError:
         valid = ", ".join(ENGINE_LABELS)
         return {"ok": False, "metin": f"Geçersiz motor: {value}. Seçenekler: {valid}"}
-    error = persist_engine(state.config, state.engine.value)
+    # Önce kalıcı yaz, sonra ata: ölçüldü (30 Ekim) eski sıra motoru önce değiştiriyor, yazma
+    # hata verince `ok: False` dönerken bellekteki motor yeni değerde KALIYORDU.
+    error = persist_engine(state.config, engine.value)
     if error is not None:
         return {"ok": False, "metin": error}
+    state.engine = engine
     return status(state)
 
 
