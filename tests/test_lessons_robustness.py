@@ -116,3 +116,25 @@ def test_bozuk_confidence_metadata_tum_recall_i_dusurmez(tmp_path):
     sonuc = bellek.recall("sağlam ders", limit=4)
 
     assert "başka ders sağlam" in [ders.text for ders in sonuc]
+
+
+def test_tohum_metni_guncellenince_eski_surum_bellekte_kalmaz(tmp_path, monkeypatch):
+    """Ölçüldü (30 Ekim): `seed()` kesin metinle tekilleştirir; tohum yeniden yazılınca
+    eski sürüm bellekte KALIYOR, yenisi ayrıca ekleniyor (iki çelişkili ders, M1-50).
+    Kullanıcının/öğrenmenin dersine (kaynak SEED değil) dokunulmaz."""
+    from fusion_cli.memory import seed as seed_module
+
+    bellek, _ = _bellek(tmp_path)
+    eski = Lesson(text="eski tohum", kind=LessonKind.MISTAKE, source=LessonSource.SEED)
+    kullanici = Lesson(text="kullanıcı dersi", kind=LessonKind.MISTAKE, source=LessonSource.MANUAL)
+    yeni = Lesson(text="yeni tohum", kind=LessonKind.MISTAKE, source=LessonSource.SEED)
+    monkeypatch.setattr(seed_module, "SEED_LESSONS", (eski,))
+    seed_module.seed(bellek)
+    bellek.add(kullanici)
+
+    monkeypatch.setattr(seed_module, "SEED_LESSONS", (yeni,))
+    eklenen = seed_module.seed(bellek)
+
+    metinler = {ders.text for ders in bellek.all()}
+    assert eklenen == 1
+    assert metinler == {"yeni tohum", "kullanıcı dersi"}

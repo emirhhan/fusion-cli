@@ -1169,5 +1169,19 @@ SEED_LESSONS: tuple[Lesson, ...] = MEASURED_LESSONS + WRITTEN_LESSONS
 
 
 def seed(memory: LessonMemory) -> int:
-    """Küratörlü dersleri belleğe ekle (tekilleştirmeli). Eklenen YENİ ders sayısını döner."""
-    return sum(1 for lesson in SEED_LESSONS if memory.add(lesson))
+    """Küratörlü dersleri belleğe ekle (tekilleştirmeli). Eklenen YENİ ders sayısını döner.
+
+    Ölçüldü (30 Ekim): tohum metni güncellenince eski sürüm bellekte kalıyor, yenisi
+    ayrıca ekleniyordu (iki çelişkili ders). Artık güncel listede OLMAYAN `SEED`
+    kaynaklı dersler silinir; öğrenilen/elle öğretilen derslere dokunulmaz.
+    """
+    added = sum(1 for lesson in SEED_LESSONS if memory.add(lesson))
+    current = {lesson.text.strip().lower() for lesson in SEED_LESSONS}
+    obsolete = tuple(
+        lesson.text
+        for lesson in memory.all()
+        if lesson.source is LessonSource.SEED and lesson.text.strip().lower() not in current
+    )
+    if obsolete:
+        memory.forget(obsolete)
+    return added
