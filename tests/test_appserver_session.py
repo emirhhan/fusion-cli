@@ -1654,6 +1654,36 @@ async def test_panel_ayarlari_modeli_komutla_degistirir_ve_kipi_ayarlar(tmp_path
     assert not (await oturum._chrome_settings({"mod": "herkes"}))["ok"]
 
 
+async def test_panel_bypass_kipi_ek_onay_ister(tmp_path, monkeypatch):
+    """R1-32 — Ölçüldü (30 Ekim): panelden tek `mod=bypass` isteği, hiçbir şey sorulmayan kipi
+    onaysız açıyordu (masaüstü arayüzü bunu zaten onaylatıyor). Panel onayı `bypass_onay`
+    ile açıkça taşımadıkça kip değişmez; bypass'tan çıkmak onay istemez."""
+    from fusion_cli.appserver import session as oturum_modulu
+
+    oturum = _session(tmp_path, [])
+
+    async def sahte_katalog(_config, *, workspace_mode):
+        return {"ok": True, "modeller": []}
+
+    monkeypatch.setattr(oturum_modulu, "list_selectable_models", sahte_katalog)
+    onceki = oturum._state.approval
+
+    reddedilen = await oturum._chrome_settings({"mod": "bypass"})
+    assert reddedilen["ok"] is False and reddedilen["onay_gerekli"] == "bypass"
+    assert oturum._state.approval is onceki
+
+    # Onay bayrağı yalnız `True` ise geçerlidir ("true" metni, 1 vb. sayılmaz).
+    assert (await oturum._chrome_settings({"mod": "bypass", "bypass_onay": "true"}))["ok"] is False
+    assert oturum._state.approval is onceki
+
+    onaylanan = await oturum._chrome_settings({"mod": "bypass", "bypass_onay": True})
+    assert onaylanan["ok"] and onaylanan["mod"] == "bypass"
+
+    # Bypass'tan güvenli kipe dönüş ve zaten bypass iken yeniden gönderim onay istemez.
+    assert (await oturum._chrome_settings({"mod": "bypass"}))["ok"] is True
+    assert (await oturum._chrome_settings({"mod": "security"}))["mod"] == "security"
+
+
 async def test_panel_konusmasi_uygulamanin_sohbetine_karismaz(tmp_path, monkeypatch):
     """Kullanıcı isteği (28 Eylül): tarayıcı paneli konuşmaları kendi geçmişinde kalsın,
     uygulamada görünmesin."""

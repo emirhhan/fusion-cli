@@ -278,10 +278,12 @@ async def test_panel_ayar_ucu_yalniz_izinli_alanlari_iletir() -> None:
     headers = {"Origin": ORIGIN, "Authorization": f"Bearer {state['anahtar']}"}
     async with httpx.AsyncClient(trust_env=False) as client:
         cevap = await client.post(
-            f"{address}/settings", headers=headers, json={"mod": "auto", "kotu": "x"}
+            f"{address}/settings",
+            headers=headers,
+            json={"mod": "bypass", "bypass_onay": True, "kotu": "x"},
         )
     assert cevap.json() == {"ok": True, "mod": "auto"}
-    assert gelen == [{"mod": "auto"}]
+    assert gelen == [{"mod": "bypass", "bypass_onay": True}]
     await bridge.close()
 
 

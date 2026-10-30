@@ -434,7 +434,9 @@ class ChromeBridge:
                 result = self._answer(body)
             elif method == "POST" and target == "/settings" and self._on_settings is not None:
                 allowed = {
-                    key: body[key] for key in ("model", "kaynak", "mod", "yeni") if key in body
+                    key: body[key]
+                    for key in ("model", "kaynak", "mod", "yeni", "bypass_onay")
+                    if key in body
                 }
                 result = await self._on_settings(allowed)
             elif method == "POST" and target == "/disconnect":

@@ -604,6 +604,18 @@ class AppSession:
             self._chrome_history = []
         mode = data.get("mod")
         if mode is not None:
+            # Hiçbir şey sorulmayan kip tek istekle açılmaz: panel kullanıcıya sorup onayı
+            # `bypass_onay: true` ile taşır (masaüstü arayüzündeki "İzinleri atla" onayıyla aynı).
+            if (
+                mode == ApprovalMode.BYPASS.value
+                and self._state.approval is not ApprovalMode.BYPASS
+                and data.get("bypass_onay") is not True
+            ):
+                return {
+                    "ok": False,
+                    "onay_gerekli": ApprovalMode.BYPASS.value,
+                    "metin": messages.CHROME_BYPASS_CONFIRM_REQUIRED,
+                }
             error = self._apply_mode(mode if isinstance(mode, str) else "")
             if error is not None:
                 return error

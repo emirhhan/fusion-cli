@@ -493,6 +493,10 @@ APP_NO_RUNNING_TURN = "Çalışan tur yok."
 #: Bir olay JSON'a çevrilemediğinde (bkz. `serialize.py::_plain`) sessizce
 #: kaybolmak yerine uygulamaya bildirilir; olay adı ekli, alan değeri değil.
 APP_EVENT_SERIALIZE_FAILED = "Olay iletilemedi (serileştirilemedi): {olay}"
+#: Panelden `mod=bypass` onaysız gelirse: kip değişmez, panel kullanıcıya sorup yeniden dener.
+CHROME_BYPASS_CONFIRM_REQUIRED = (
+    '"İzinleri atla" hiçbir şey sormaz; açmak için panelde onay gerekir.'
+)
 #: Cevapsız onay süresi dolunca reddedilir; kullanıcıya hangi aracın neden reddedildiği söylenir.
 APPROVAL_TIMED_OUT = (
     "{arac} için onay {dakika} dakika cevapsız kaldı; güvenli varsayılanla reddedildi."

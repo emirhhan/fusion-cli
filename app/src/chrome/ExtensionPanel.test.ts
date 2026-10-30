@@ -217,6 +217,26 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     await waitFor(() => expect(calls.some((c) => c.path === "/settings" && c.body.mod === "security")).toBe(true));
   });
 
+  // R1-32 — Ölçüldü (30 Ekim): panel "İzinleri atla"yı tek `mod=bypass` isteğiyle, sormadan açıyordu.
+  it("İzinleri atla kipi onaylanmadan açılmaz; onayla birlikte bypass_onay gider", async () => {
+    autoConnected();
+    await loadPanel();
+    const kip = $("mode") as HTMLSelectElement;
+    await waitFor(() => expect(($("model") as HTMLSelectElement).options.length).toBe(2));
+    const onay = vi.spyOn(window, "confirm").mockReturnValue(false);
+    kip.value = "bypass";
+    fireEvent.change(kip);
+    await waitFor(() => expect(onay).toHaveBeenCalledTimes(1));
+    expect(calls.some((c) => c.path === "/settings" && c.body.mod === "bypass")).toBe(false);
+    await waitFor(() => expect(kip.value).toBe("auto"));
+
+    onay.mockReturnValue(true);
+    kip.value = "bypass";
+    fireEvent.change(kip);
+    await waitFor(() => expect(calls.some((c) => c.body.mod === "bypass")).toBe(true));
+    expect(calls.find((c) => c.body.mod === "bypass")?.body).toEqual({ mod: "bypass", bypass_onay: true });
+  });
+
   it("model metnindeki HTML'i çalıştırmaz, düz metin gösterir", async () => {
     turnResult = Promise.resolve({ ok: true, metin: "<img src=x onerror=alert(1)> merhaba" });
     autoConnected();

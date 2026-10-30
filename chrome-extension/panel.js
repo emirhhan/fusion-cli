@@ -384,8 +384,15 @@ $("prompt").addEventListener("keydown", (event) => {
 document.querySelectorAll(".suggestion").forEach((button) =>
   button.addEventListener("click", guard(() => sendPrompt(button.dataset.prompt))));
 $("cancel").addEventListener("click", guard(cancel));
+const BYPASS_CONFIRM_TEXT =
+  "\"İzinleri atla\" kipinde Fusion gönderme, silme ve satın alma dahil hiçbir şey sormaz. " +
+  "Açılsın mı?";
 $("mode").addEventListener("change", guard(async () => {
-  await loadSettings({ mod: $("mode").value });
+  const mod = $("mode").value;
+  if (mod !== "bypass") return loadSettings({ mod });
+  // Sormadan çalışan kip yanlışlıkla açılmasın: onay verilmezse seçim eski kipe döner.
+  if (window.confirm(BYPASS_CONFIRM_TEXT)) return loadSettings({ mod, bypass_onay: true });
+  return loadSettings();
 }));
 $("model").addEventListener("change", guard(async () => {
   const [kaynak, model] = $("model").value.split("|");
