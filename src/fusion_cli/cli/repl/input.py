@@ -67,6 +67,8 @@ class ReplInput:
         self.roots = roots
         #: Durum çubuğunda gösterilen bağlam. REPL her değişiklikte günceller.
         self.context: str = ""
+        #: Kullanıcı betiğinin ürettiği durum satırı (P-069); doluysa bağlamın yerine geçer.
+        self.custom_status: str = ""
         self._session: Any = None
         self._fold_paste = True
         #: Katlanan yapıştırmaların yer tutucu → tam metin eşlemesi. Her satır
@@ -148,13 +150,19 @@ class ReplInput:
         from prompt_toolkit.formatted_text import HTML
 
         color = theme.MODE_COLORS.get(self.mode.value, theme.DIM)
+        context = self.custom_status or self.context
         parts = [
             f"<style fg='{color}'>{STATUS_MARK} {self.mode.value}</style>",
-            f"<style fg='{theme.DIM}'>{self.context}</style>" if self.context else "",
+            f"<style fg='{theme.DIM}'>{_escape_html(context)}</style>" if context else "",
             f"<style fg='{theme.DIM}'>{messages.REPL_ON_OFF_HINT}</style>",
         ]
         separator = f"<style fg='{theme.DIM}'> · </style>"
         return HTML(" " + separator.join(part for part in parts if part))
+
+
+def _escape_html(text: str) -> str:
+    """Betik çıktısı prompt_toolkit HTML'ine ham girmesin."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def toolbar_enabled() -> bool:

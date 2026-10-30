@@ -986,3 +986,15 @@ SEARCH_NOT_FOUND = "'{text}' konuşmada bulunamadı."
 SEARCH_FOUND = (
     "'{text}' {count} satırda geçiyor; son eşleşmeye kaydırıldı (End ile canlı akışa dön)."
 )
+
+# --- /statusline (P-069) --------------------------------------------------- #
+CMD_STATUSLINE = "durum satırı betiği: /statusline <komut> · /statusline kapat (stdin JSON alır)"
+STATUSLINE_CURRENT = (
+    "Durum satırı betiği: {command}\n"
+    "Betik stdin'den JSON alır, bastığı ilk satır durum çubuğunda görünür (1 sn sınırı). "
+    "Alanlar: {fields}.\n"
+    "Örnek: /statusline jq -r '.model.id + \" · %\" + (.context_window.percent|tostring)'"
+)
+STATUSLINE_SET = "Durum satırı betiği kaydedildi: {command} — bir sonraki turdan itibaren."
+STATUSLINE_SET_UNSAVED = "Durum satırı betiği dosyaya yazılamadı: {error}"
+STATUSLINE_CLEARED = "Durum satırı betiği kaldırıldı; yerleşik çubuk kullanılıyor."

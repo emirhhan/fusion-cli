@@ -19,6 +19,7 @@ import io
 import logging
 import shutil
 from collections.abc import Callable
+from html import escape as html_escape
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.completion import Completer
@@ -69,13 +70,15 @@ _WHEEL_AS_ARROWS_OFF = "\x1b[?1007l\x1b[?1l"
 _CHROME_ROWS = 6
 
 
-def format_status(mode: str, engine: str, context: str = "") -> str:
+def format_status(mode: str, engine: str, context: str = "", custom: str = "") -> str:
     """Girdinin ALTINDAKİ durum satırının HTML'i: mod + motor + bağlam sayacı + ipuçları.
 
     `context` bağlam sayacıdır (`status_view.context_label`, P-027); boşsa yazılmaz.
+    `custom` kullanıcı betiğinin ürettiği satırdır (P-069): doluysa sayacın yerine geçer.
     """
     color = theme.MODE_COLORS.get(mode, theme.DIM)
-    extra = f" · {context}" if context else ""
+    shown = html_escape(custom) if custom else context
+    extra = f" · {shown}" if shown else ""
     return (
         f"<style fg='{color}'>{theme.ICON_STATUS} {mode}</style>"
         f"<style fg='{theme.DIM}'> · {engine}{extra} · {messages.TUI_STATUS_HINT}</style>"
@@ -137,6 +140,7 @@ class FusionTui:
         self._status_mode = "auto"
         self._status_engine = "agent"
         self._status_context = ""
+        self._status_custom = ""
         self._mode = "idle"
         self._answer: asyncio.Future[object] | None = None
         # Uygulama-içi seçim modalı durumu (nested picker YOK): /mode, /level, /effort.
@@ -319,15 +323,16 @@ class FusionTui:
             self._spinner_frame += 1
             self._invalidate()
 
-    def set_status(self, mode: str, engine: str, context: str = "") -> None:
+    def set_status(self, mode: str, engine: str, context: str = "", custom: str = "") -> None:
         self._status_mode = mode
         self._status_engine = engine
         self._status_context = context
+        self._status_custom = custom
         self._refresh_status()
 
     def _refresh_status(self) -> None:
         self._status_html = format_status(
-            self._status_mode, self._status_engine, self._status_context
+            self._status_mode, self._status_engine, self._status_context, self._status_custom
         )
         if self._scroll > 0 and self._unread_lines:
             self._status_html += (

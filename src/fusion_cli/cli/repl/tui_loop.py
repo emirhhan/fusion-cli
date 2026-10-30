@@ -37,6 +37,7 @@ from . import (
     prefixes,
     profiles_flow,
     provider_flow,
+    status_line,
     status_view,
     verify_flow,
     view_commands,
@@ -238,6 +239,7 @@ class _TuiSession:
         )
         self._out = self._tui.console
         self._prompter_factory = lambda drain: TuiPrompter(self._tui, drain)
+        self._custom_status = ""
         self._sync_status()
 
     @property
@@ -287,7 +289,13 @@ class _TuiSession:
             self._state.approval.value,
             self._state.engine.value,
             status_view.context_label(self._state),
+            self._custom_status,
         )
+
+    async def _refresh_custom_status(self) -> None:
+        """Kullanıcı betiği (P-069) tur sonunda bir kez çalışır; sonucu durum satırına gider."""
+        self._custom_status = await status_line.status_line_text(self._state)
+        self._sync_status()
 
     def _echo(self, renderable: object) -> None:
         """Konuşmaya bir şey yaz ve ekranı tazele."""
@@ -341,6 +349,7 @@ class _TuiSession:
                 for mention_note in apply_mentions(line, self._state):
                     self._echo(f"[{theme.DIM}]{escape(mention_note)}[/{theme.DIM}]")
                 await self._turn(line)
+                await self._refresh_custom_status()
         except asyncio.CancelledError:
             self._echo(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
             # Kullanıcı durdurmak istedi: kuyruktaki sıradaki iş HEMEN başlamaz (L2-24).

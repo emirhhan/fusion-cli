@@ -38,6 +38,7 @@ from . import (
     output_style_command,
     profiles_flow,
     provider_flow,
+    status_line,
     verify_flow,
     view_commands,
     workspace_commands,
@@ -858,6 +859,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         view_commands.search_command,
         group="Görünüm",
         usage="<metin>",
+    ),
+    SlashCommand(
+        "statusline",
+        messages.CMD_STATUSLINE,
+        status_line.statusline_command,
+        group="Görünüm",
+        usage="[komut|kapat]",
     ),
 )
 

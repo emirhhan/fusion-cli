@@ -61,7 +61,7 @@ from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
 from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
-from . import help_view, history_view, macros, prefixes, view_commands
+from . import help_view, history_view, macros, prefixes, status_line, view_commands
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
 from .input import ReplInput
 from .macros import Mode
@@ -307,6 +307,8 @@ async def _handle(
         console.print(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
     await _run_turn(line, state, console, background)
     _sync_status_bar(reader, state, background)
+    # Kullanıcı betiği (P-069) tur sonunda bir kez çalışır; yerleşik satırın yerine geçer.
+    reader.custom_status = await status_line.status_line_text(state)
 
 
 def apply_mentions(line: str, state: ReplState) -> tuple[str, ...]:
