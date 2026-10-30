@@ -301,6 +301,7 @@ def _build_runtime(raw: object) -> RuntimeConfig:
         "compact_tools_window_tokens",
         "compact_external_tools",
         "tool_output_window",
+        "repo_map_chars",
     ):
         if getattr(runtime, name) < 0:
             raise ConfigError(f"runtime.{name}: negatif olamaz.")

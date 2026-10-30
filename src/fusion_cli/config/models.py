@@ -295,6 +295,11 @@ class RuntimeConfig:
     #: dersi eşiğin altına indirir; yani zehirli bir ders ilk başarısızlıkta devre dışı kalır
     #: (MINJA bellek zehirlemesine karşı ucuz bir hız sınırı). TAHMİN: canlı ölçümle güncellenecek.
     external_lesson_confidence: float = 0.5
+    #: Kök turda sistem bağlamına giren depo haritasının bütçesi (karakter; ~3 karakter/token).
+    #: 0 = harita kapalı. 3000 ≈ 1k token: Aider'ın repo-map bütçesiyle aynı ölçek; eski 1500
+    #: değeri bu deponun haritasında yalnız ~10 dosyaya yetiyordu. Küçük pencereli modelde
+    #: harita pencerenin %3'ünü aşmaz (bkz. `engines/agent/repo_context.effective_budget`).
+    repo_map_chars: int = 3000
 
 
 @dataclass(frozen=True, slots=True)

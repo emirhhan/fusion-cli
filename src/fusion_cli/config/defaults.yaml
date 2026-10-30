@@ -284,6 +284,10 @@ runtime:
   # Eşik 0.35'in üstünde ama normal dersten (1.0) düşük; yalnız dış içeriksiz BAŞARILI bir
   # turda doğrulanınca normal güvene çıkabilir. TAHMİN: canlı ölçümle güncellenecek.
   external_lesson_confidence: 0.5
+  # Kök turda sistem bağlamına giren depo haritasının bütçesi (karakter). 0 = kapalı.
+  # 3000 ≈ 1k token (Aider repo-map ölçeği). Harita içe aktarma grafıyla sıralanır, test
+  # dosyaları geriye atılır; küçük pencereli modelde pencerenin %3'ünü aşmaz.
+  repo_map_chars: 3000
   # `ask_teacher` aracı modele hiç sunulmaz (`config.teacher` tanımlı olsa bile).
   # `council` bundan etkilenmez — ayrı, çoklu-API-model bir araçtır (Faz 4, Görev 3).
   teacherless: false

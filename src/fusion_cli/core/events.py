@@ -529,6 +529,30 @@ class ToolSurfaceOffered(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class RepoMapBuilt(Event):
+    """Kök turda depo haritası üretildi (ölçüm izi, yol haritası 8. adım).
+
+    `chars` üretilen metin, `budget_chars` etkin bütçe, `candidates` haritaya uygun dosya,
+    `files` gerçekten okunan, `symbols`/`shown` bulunan/gösterilen tanım, `edges` çözülen
+    içe aktarma kenarı, `elapsed_ms` süre. `partial` dosya/karakter tavanı ya da zaman
+    sınırı yüzünden kısmi (`time_limited` kısmiliğin sebebi zaman sınırı mı), `cached` çözümleme
+    önbellekten mi geldi.
+    """
+
+    chars: int
+    budget_chars: int
+    candidates: int
+    files: int
+    symbols: int
+    shown: int
+    edges: int
+    elapsed_ms: int
+    partial: bool = False
+    time_limited: bool = False
+    cached: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class ToolProfileExpanded(Event):
     """Model profil dışı bir aracı adıyla çağırdı: yüzey bu tur için bir kez genişletildi."""
 

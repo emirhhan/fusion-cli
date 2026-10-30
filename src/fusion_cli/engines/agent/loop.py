@@ -27,7 +27,7 @@ import re
 import sys
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 from ...config.eligibility import effort_for_spec
@@ -56,6 +56,7 @@ from ...core.events import (
     GateEscalationFinished,
     MutationUnavailable,
     NarrationPublished,
+    RepoMapBuilt,
     SelfReviewFinished,
     SelfReviewStarted,
     SkillLoaded,
@@ -189,7 +190,7 @@ from .playbook_stage import maybe_run_playbook
 from .project_instructions import read_all_instructions
 from .questions import PendingUserQuestions
 from .repair_flow import record_failure_evidence
-from .repo_context import repo_map_block
+from .repo_context import map_budget_for, repo_map_with_stats
 from .self_knowledge import GUIDE, knowledge_block
 from .tamper_check import collect_test_tampering
 from .teacher_flow import (
@@ -685,7 +686,7 @@ async def _run_agent(
     proje_ve_dis_bellek = read_all_instructions(deps.tool_context.root, deps.home)
     # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Kod kipinde
     # kök turda eklenir; sohbet kipi çalışma dizinini taramaz.
-    harita = repo_map_block(deps.tool_context.root) if depth == 0 and not chat_mode else ""
+    harita = _repo_map_for_turn(deps) if depth == 0 and not chat_mode else ""
     teacher_hint = (
         "Karmaşık çok dosyalı görevde kendi incelemenden sonra bir mimari risk veya "
         "doğrulama belirsizliği kalırsa `ask_teacher` ile tek somut soru sor. "
@@ -2646,6 +2647,14 @@ def _looks_like_wrong_workspace(state: _State) -> bool:
     if state.warned_wrong_workspace or state.successful_file_reads > 0:
         return False
     return len(state.missing_paths) >= MAX_MISSING_READS
+
+
+def _repo_map_for_turn(deps: AgentDeps) -> str:
+    """Kök tur için harita bloğu; bütçe ayardan, ölçüm izi `RepoMapBuilt` olarak yayınlanır."""
+    harita = repo_map_with_stats(deps.tool_context.root, budget_chars=map_budget_for(deps.config))
+    if harita.stats is not None:
+        deps.publisher.publish(RepoMapBuilt(**asdict(harita.stats)))
+    return harita.text
 
 
 def _record_changes(messages: list[Message], deps: AgentDeps, state: _State) -> None:
