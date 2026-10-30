@@ -536,9 +536,6 @@ def mcp(
     MCP destekleyen araçlar (Claude masaüstü, Cursor, Cline…) buna bağlanıp Fusion'ın
     araçlarını (kod arama, dosya okuma…) kullanabilir. Varsayılan yalnızca salt-okunur.
     """
-    import asyncio
-    from pathlib import Path
-
     # DİKKAT: stdout MCP protokolüne aittir; buraya hiçbir şey BASILMAZ.
     try:
         from ..mcp_bridge.server import run_stdio
@@ -584,8 +581,6 @@ def web_login(provider: str, account: str = "main") -> None:
     _cozum_adimlari`). Hata metninin önerdiği ama `--help`'te görünmeyen bir
     komut, adını hatırlamayan kullanıcı için çıkışsız bir yol demekti.
     """
-    import asyncio
-
     from ..providers.web_browser import open_login_browser
 
     asyncio.run(open_login_browser(provider, account))
@@ -597,13 +592,10 @@ def ema_say(output: str) -> None:
 
     Paketlenmiş ikilide ses motoru süreç dışından bu alt komutla sınanabilir.
     """
-    import sys as _sys
-    from pathlib import Path
-
     from ..appserver.ema_synthesis import synthesize_ema
     from ..appserver.voice import load_settings
 
-    synthesize_ema(_sys.stdin.read(), Path(output), load_settings()["hiz"])
+    synthesize_ema(sys.stdin.read(), Path(output), load_settings()["hiz"])
 
 
 @app.command(name="runtime-health", hidden=True)
@@ -632,9 +624,6 @@ def app_protocol(ctx: typer.Context) -> None:
     Uygulama bu süreci kendisi doğurur ve stdin/stdout üzerinden satır satır
     JSON konuşur. Doğrudan elle çalıştırmak için değildir.
     """
-    import asyncio
-    from pathlib import Path
-
     from ..accounts import activate_account, remembered_account
     from ..appserver.server import run_stdio
 
@@ -667,8 +656,6 @@ def app_protocol(ctx: typer.Context) -> None:
 @app.command(name="mcp-tools")
 def mcp_tools() -> None:
     """Yapılandırılmış dış MCP sunucularının araçlarını listele (bağlanır ve keşfeder)."""
-    import asyncio
-
     config = load_config()
     if not config.mcp_servers:
         console.print(messages.MCP_NO_SERVERS)
