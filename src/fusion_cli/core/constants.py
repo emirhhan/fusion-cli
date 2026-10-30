@@ -282,6 +282,13 @@ PROCESS_TERMINATE_GRACE_S = 1.5
 PROCESS_CONTROL_TIMEOUT_S = 10.0
 #: Arka plan job durumunun mevcut yoklama aralığı; foreground iptali de bunu kullanır.
 PROCESS_POLL_S = 1.0
+#: Ön plan komutunun her akışı (stdout/stderr) için bellekte tutulan baş VE son kesit
+#: (bayt). Aradaki atılır ve sayılır; çıktı sınırsız büyüse de bellek sınırlı kalır.
+SHELL_CAPTURE_CHARS = 100_000
+#: İptal sonrası sahipli iş parçacığının bitmesi için en çok beklenen süre (saniye).
+#: Meşru temizlik (TERM→KILL turları dahil) bunun altında biter; aşılırsa iş parçacığı
+#: "sahipsiz kaldı" olarak bildirilir ve iptal tamamlanır.
+OWNED_THREAD_CANCEL_GRACE_S = PROCESS_TERMINATE_GRACE_S * 8
 
 
 #: Cevap makbuzlarının yeniden teslim penceresi; 256 adet SHA-256+kimlik kaydı.
