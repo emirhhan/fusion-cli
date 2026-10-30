@@ -141,6 +141,11 @@ export function ChromeBrowser({ client }: { client: ProtocolClient }) {
         </div>
       )}
       <p className="settings__hint">Kurulum bittikten sonra Fusion açıkken eklenti kendiliğinden bağlanır; port ve anahtar yalnız elle bağlanmak için gerekir. Oturumlarınıza ve çerezlerinize dokunulmaz.</p>
+      <ul className="settings__hint" aria-label="Eklentinin yapabildikleri">
+        <li>Sayfa konsolu ve ağ istekleri okunur (hata ayıklama izni istenmez; panelden kapatılabilir).</li>
+        <li>Ekran kaydı GIF olarak projenin <code>.fusion/kayitlar</code> klasörüne yazılır.</li>
+        <li>Kısayollar: <kbd>Ctrl/⌘+Shift+F</kbd> paneli açar, <kbd>Ctrl/⌘+Shift+.</kbd> görevi durdurur; kayıtlı görevler <code>/ad</code> ile çağrılır.</li>
+      </ul>
       {extensionPath && <p className="settings__hint">Paketli eklenti klasörü: <code>{extensionPath}</code></p>}
       {(error || pollError) && <p className="settings__inline-error" role="alert">{error || pollError}</p>}
     </article>

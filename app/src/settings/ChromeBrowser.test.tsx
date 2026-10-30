@@ -99,3 +99,14 @@ it("yoklama hatası sonraki başarılı yoklamada kalkar; yoklamalar üst üste 
     resolveSlow?.({ ok: true, calisiyor: true, bagli: false, port: 1234, anahtar: "gizli-anahtar" });
   } finally { vi.useRealTimers(); }
 });
+
+it("eklentinin geliştirici yeteneklerini (konsol/ağ, GIF kaydı, kısayollar) kullanıcıya söyler", async () => {
+  const client = {
+    request: vi.fn(async () => ({ ok: true, calisiyor: false, bagli: false, port: null, anahtar: null })),
+  } as unknown as ProtocolClient;
+  render(<ChromeBrowser client={client} />);
+  const list = await screen.findByRole("list", { name: "Eklentinin yapabildikleri" });
+  expect(list.textContent).toContain("konsolu ve ağ istekleri");
+  expect(list.textContent).toContain(".fusion/kayitlar");
+  expect(list.textContent).toContain("Shift+F");
+});
