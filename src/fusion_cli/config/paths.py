@@ -160,6 +160,12 @@ def memory_dir() -> Path:
     return user_data_dir() / "memory"
 
 
+def loop_dir() -> Path:
+    """Kendini geliştirme döngüsünün kullanıcıya özel verisi (taslaklar, kullanıcı kümeleri,
+    öneriler, istem sürümleri, ölçüm izi). Gerçek konuşmadan türer; makineden çıkmaz."""
+    return user_data_dir() / "dongu"
+
+
 def bundled_roster_dir() -> Path:
     """Pakete gömülü yerleşik ajan ekibi (kişilik dosyaları)."""
     return Path(__file__).resolve().parent / "roster"

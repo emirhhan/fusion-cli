@@ -73,6 +73,39 @@ def load_transcript_messages(
     return messages[-_MAX_HISTORY_MESSAGES:]
 
 
+def read_workspace_events(base_dir: Path, root: Path) -> list[dict[str, object]]:
+    """Workspace'in olay günlüğünü dosya sırasıyla oku; silinmiş sohbetlerin kayıtları ATLANIR.
+
+    Kendini geliştirme hattı (`fusion eval taslak-uret`) bunu okur. Çoğu olay kaydı
+    `session_id` taşımaz (`handle` olayın boş alanını yazar); bu yüzden silinmiş bir
+    sohbetin kimliksiz olayları, sohbetin kimlikli kayıtlarındaki işarete bakılarak
+    atlanır — aksi halde bir sonraki görünür sohbete yapışırdı.
+    """
+    path = (
+        base_dir.expanduser().resolve() / "transcripts" / _workspace_digest(root) / "events.jsonl"
+    )
+    deleted = _deleted_conversations(path.parent)
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    records: list[dict[str, object]] = []
+    skipping = False
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(event, dict):
+            continue
+        session = event.get("session_id")
+        if isinstance(session, str):
+            skipping = _conversation_digest(session) in deleted
+        if not skipping:
+            records.append(event)
+    return records
+
+
 def _upsert_message(messages: list[Message], message: Message) -> None:
     """Aynı gönderimin final düzeltmesi geçmişte ikinci mesaj oluşturmaz."""
     if message.message_id:
