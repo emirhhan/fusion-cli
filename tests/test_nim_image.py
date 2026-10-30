@@ -128,3 +128,51 @@ async def test_kayit_iscisi_bitmeden_iptal_tamamlandi_sayilmaz(tmp_path, monkeyp
             with pytest.raises(asyncio.CancelledError):
                 await task
             assert await asyncio.to_thread(finished.wait, 2)
+
+
+async def test_govdesi_json_olmayan_200_yaniti_nim_hatasi_olur(tmp_path) -> None:
+    """Ölçüldü (30 Ekim): `response.json()` `ValueError`u ham fırlıyor, kullanıcıya
+    anlamsız mesaj gidiyordu (P1-47)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>bakım</html>")
+
+    async with _client(handler) as client:
+        with pytest.raises(NimImageError, match="geçerli bir yanıt"):
+            await generate_nim_image(
+                NIM_IMAGE_MODELS[0], "kask", tmp_path, api_key="test-anahtari", client=client
+            )
+
+
+def test_image_choices_acik_ve_dogrulanmis_web_oturumlarini_listeler() -> None:
+    """Ölçüldü (30 Ekim): süzme yalnız `provider in IMAGE_SELECTORS`; kapalı ya da
+    doğrulanmamış oturum arayüzde seçilebilir görünüp üretimde oturum hatası veriyordu
+    (P1-48)."""
+    from dataclasses import replace
+
+    from fusion_cli.config.models import WebSessionConfig
+    from fusion_cli.providers.image_generation import image_choices
+
+    from .fakes import make_config
+
+    def oturum(account: str, **extra: object) -> WebSessionConfig:
+        return WebSessionConfig(
+            model=f"gemini_web/{account}/auto",
+            provider="gemini_web",
+            account=account,
+            transport="browser",
+            **extra,  # type: ignore[arg-type]
+        )
+
+    config = replace(
+        make_config(),
+        web_sessions=(
+            oturum("tamam", enabled=True, login_verified=True),
+            oturum("kapali", enabled=False, login_verified=True),
+            oturum("dogrulanmamis", enabled=True, login_verified=False),
+        ),
+    )
+
+    degerler = {choice.value for choice in image_choices(config, environ={})}
+
+    assert degerler == {"gemini_web/tamam"}

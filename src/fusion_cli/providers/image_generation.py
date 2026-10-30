@@ -66,7 +66,12 @@ def image_choices(
     # görsel üretimi o zaman yalnız anahtara bakar, araç kurulumu düşmez.
     web_sessions = getattr(config, "web_sessions", ())
     sessions = sorted(
-        (s for s in web_sessions if s.provider in IMAGE_SELECTORS),
+        # Kapalı ya da girişi doğrulanmamış oturum seçilebilir görünüp üretimde hata verirdi.
+        (
+            s
+            for s in web_sessions
+            if s.provider in IMAGE_SELECTORS and s.enabled and s.login_verified
+        ),
         key=lambda s: _WEB_PREFERENCE.index(s.provider),
     )
     choices = [
