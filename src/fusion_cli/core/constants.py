@@ -293,3 +293,9 @@ QUESTION_RECEIPT_HISTORY_LIMIT = 256
 #: "OnayZamanAsimi" olayı yayılır; kullanıcı yokken tur ve turu tutan kilit sonsuza dek açık
 #: kalmaz. Yalnız onay içindir; açık uçlu sorular süreyle reddedilmez.
 APPROVAL_UNANSWERED_TIMEOUT_S = 30 * 60.0
+
+#: Fusion'ın kendi ürettiği iz, artifact ve tamamlanmış checkpoint dosyalarının saklama süresi
+#: (saniye). Süre dolunca açılışta silinir; kullanıcı dosyalarına ve denetim günlüğüne dokunulmaz.
+LOCAL_STATE_RETENTION_S = 30 * 86_400.0
+#: Saklama temizliğinin en sık çalışma aralığı (saniye); damga dosyasıyla sınırlanır.
+LOCAL_STATE_PURGE_INTERVAL_S = 86_400.0

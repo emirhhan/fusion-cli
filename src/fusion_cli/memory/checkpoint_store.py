@@ -357,6 +357,44 @@ class JsonCheckpointStore:
         except OSError:
             return ()
 
+    def purge_completed(self, *, cutoff: float) -> int:
+        """`cutoff`tan eski TAMAMLANMIŞ checkpoint'leri sil; silinen sayıyı döndür (M1-44).
+
+        Çalışan, duraklatılmış ve başarısız planlar (devam ettirilebilir) ile okunamayan
+        kayıtlar korunur. Önce dosya değişme zamanına bakılır: yalnız eski adaylar okunur.
+        Kayıt, yazanla yarışmamak için `save` ile aynı kiralama altında silinir.
+        """
+        removed = 0
+        for path in self._paths():
+            try:
+                if path.is_symlink() or path.stat().st_mtime >= cutoff:
+                    continue
+            except OSError:
+                continue
+            checkpoint = self._read_valid(path)
+            if (
+                checkpoint is None
+                or checkpoint.plan.status is not PlanStatus.COMPLETED
+                or checkpoint.updated_at >= cutoff
+            ):
+                continue
+            removed += self._remove_locked(path, checkpoint)
+        return removed
+
+    def _remove_locked(self, path: Path, checkpoint: WorkflowCheckpoint) -> int:
+        lock = self._canonical(self._identity(checkpoint)).with_suffix(".lock")
+        lease = FileLease(lock)
+        try:
+            if not lease.try_acquire():
+                return 0  # başka işlem yazıyor; sonraki açılışta yeniden denenir
+            path.unlink(missing_ok=True)
+            lock.unlink(missing_ok=True)
+            return 1
+        except OSError:
+            return 0
+        finally:
+            lease.close()
+
     def find_resumable(self, root: str, conversation_id: str) -> WorkflowCheckpoint | None:
         scope = (str(Path(root).resolve()), conversation_id)
         if self._scope is not None and scope != self._scope:

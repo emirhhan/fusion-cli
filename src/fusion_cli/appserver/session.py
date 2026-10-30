@@ -26,6 +26,7 @@ import re
 import shlex
 import sys
 import tempfile
+import time
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from functools import partial
@@ -72,6 +73,7 @@ from ..engines.agent.context_budget import context_budget
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
 from ..engines.agent.remotion_bridge import FrameTransport
 from ..engines.agent.turn_report import evidence_payload
+from ..engines.retention import purge_local_state_daily
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
 from ..memory.turn_journal import FileTurnJournal
@@ -418,6 +420,12 @@ def _title_payload(message: object) -> dict[str, Any]:
     return {"ok": True, "baslik": conversation_title(message)}
 
 
+def _log_purge_failure(task: asyncio.Future[Any]) -> None:
+    """Arka plan temizliğinin hatası yutulmaz ama turu da bozmaz."""
+    if not task.cancelled() and task.exception() is not None:
+        logging.getLogger(__name__).warning("Yerel durum temizliği başarısız: %s", task.exception())
+
+
 class AppSession:
     """Uygulamanın sürdüğü tek oturum."""
 
@@ -481,6 +489,9 @@ class AppSession:
         self._depo_cache: tuple[Path, list[str]] | None = None
         #: İptal edilen turun kapanması bekleniyor mu?
         self._iptal_bekliyor = False
+        #: Saklama temizliği bu süreçte çalıştı mı (bkz. `_purge_old_local_state`).
+        self._local_state_purged = False
+        self._local_state_purge_task: asyncio.Future[Any] | None = None
         self._state.history = load_transcript_messages(config.memory_dir, root)
         # YAZMA kimliği asla rastgele olmaz. Ölçüldü (kullanıcının diski, 7 Eylül):
         # kimliksiz açılan depo her seferinde `session-<zaman>-<rastgele>` üretti ve
@@ -640,6 +651,21 @@ class AppSession:
             "modeller": catalog.get("modeller", []),
             **self._take_persist_warning(),
         }
+
+    def _start_local_state_purge(self, memory_dir: Path) -> None:
+        """30 günden eski iz/artifact/tamamlanmış checkpoint'leri süreç başına BİR kez temizle.
+
+        Arka planda çalışır (turun ilk `await`ini ertelemez: tur kaydı ondan önce yapılmalı) ve
+        günde bir damga dosyasıyla da sınırlıdır; hata turu engellemez (L1-30, M1-44).
+        """
+        if self._local_state_purged:
+            return
+        self._local_state_purged = True
+        task = asyncio.ensure_future(
+            asyncio.to_thread(purge_local_state_daily, memory_dir, now=time.time())
+        )
+        self._local_state_purge_task = task
+        task.add_done_callback(_log_purge_failure)
 
     def _question_closed(self, question_id: str) -> None:
         """Her terminal soru sonucu tüm bağlı yüzeylerde aynı kartı kapatır."""
@@ -2341,6 +2367,7 @@ class AppSession:
         changes = ChangeSet()
         # Tarayıcı paneli turu sekmenin konuşması değildir; günlüğe yazılmaz.
         journal = None if browser_only else self._turn_journal(task)
+        self._start_local_state_purge(config.memory_dir)
         # Teşhis izi: `/trace` bu turun neden düştüğünü sonradan söyleyebilsin.
         trace = None if browser_only else open_trace(config.memory_dir / "traces")
         trace_sinks: tuple[EventSink, ...] = (trace,) if trace is not None else ()

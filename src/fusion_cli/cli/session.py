@@ -61,6 +61,7 @@ from ..engines.agent.remotion_bridge import FrameTransport
 from ..engines.agent.turn_evidence import evidence_from_turn
 from ..engines.agent.verification import build_verifier
 from ..engines.fusion import run_fusion
+from ..engines.retention import purge_local_state_daily
 from ..memory.checkpoint_store import JsonCheckpointStore
 from ..memory.factory import Memory, build_memory, null_memory
 from ..observability.audit import AuditSink
@@ -209,6 +210,8 @@ async def run_agent_task(
         # kök odur, `root` değil (göreli yol raporu kayıyordu; L1-31).
         audit_root = tool_context.root if tool_context is not None else (root or Path.cwd())
         bus.subscribe(AuditSink(config.memory_dir / "audit", conversation_id, root=audit_root))
+        # 30 günden eski iz/artifact/tamamlanmış checkpoint (günde en çok bir kez; L1-30, M1-44).
+        purge_local_state_daily(config.memory_dir, now=time.time())
 
         # Prompter veriyolunu tanır: terminali devralmadan önce bekleyen olayları
         # boşaltır, böylece onay paneli akan çıktının ortasına düşmez.

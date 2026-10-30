@@ -1654,6 +1654,34 @@ async def test_panel_ayarlari_modeli_komutla_degistirir_ve_kipi_ayarlar(tmp_path
     assert not (await oturum._chrome_settings({"mod": "herkes"}))["ok"]
 
 
+async def test_ilk_tur_30_gunden_eski_izleri_bir_kez_temizler(tmp_path):
+    """L1-30 — Ölçüldü (30 Ekim): iz dosyaları hiç silinmiyordu. Temizlik süreç başına bir kez
+    (ve günde bir damgayla) çalışır; taze iz ve Fusion dışı dosyalar kalır."""
+    import os
+    import time
+
+    oturum = _session(tmp_path, [])
+    memory = oturum._state.config.memory_dir
+    traces = memory / "traces"
+    traces.mkdir(parents=True, exist_ok=True)
+    eski, taze = traces / "eski.jsonl", traces / "taze.jsonl"
+    for yol, gun in ((eski, 45), (taze, 1)):
+        yol.write_text("{}\n", encoding="utf-8")
+        damga = time.time() - gun * 86_400
+        os.utime(yol, (damga, damga))
+
+    oturum._start_local_state_purge(memory)
+    await oturum._local_state_purge_task
+
+    assert not eski.exists() and taze.exists()
+    sonra = traces / "sonra.jsonl"
+    sonra.write_text("{}\n", encoding="utf-8")
+    os.utime(sonra, (0, 0))
+    oturum._start_local_state_purge(memory)  # aynı süreçte ikinci kez çalışmaz
+    await oturum._local_state_purge_task
+    assert sonra.exists()
+
+
 async def test_panel_bypass_kipi_ek_onay_ister(tmp_path, monkeypatch):
     """R1-32 — Ölçüldü (30 Ekim): panelden tek `mod=bypass` isteği, hiçbir şey sorulmayan kipi
     onaysız açıyordu (masaüstü arayüzü bunu zaten onaylatıyor). Panel onayı `bypass_onay`
