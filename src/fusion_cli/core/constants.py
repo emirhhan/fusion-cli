@@ -61,6 +61,8 @@ MAX_CHECKPOINT_OUTPUT_CHARS = 8_000
 
 #: Kabuk komutu için zaman aşımı (saniye).
 SHELL_TIMEOUT_S = 120.0
+#: `cp`/`mv`/`>` ile ezilecek dosyanın geri alma için bellekte tutulacağı en büyük boyut.
+SHELL_BACKUP_MAX_BYTES = 20 * 1024 * 1024
 #: Arka plan işinin durumunu sorarken tek çağrıda beklenebilecek en uzun süre (saniye).
 #: Remotion render'ı ve npm install dakikalar sürer; modelin her 2 sn'de bir sormasını
 #: değil tek çağrıda beklemesini isteriz. Üst sınır, NIM'in 600 sn'lik istek

@@ -127,6 +127,8 @@ _GODOT_VERIFY_FLAGS = frozenset(
 #: aynı işi `write_file` aracı zaten sormadan yapıyor. Proje dışına çıkan yol
 #: `escapes_project` ile önce elenir; `rm -rf` gibi yıkıcı kalıplar
 #: `safety.danger_reason` ile ayrıca sorulur.
+#: Ezilen/taşınan mevcut dosya sorulmaz ama `run_shell` çalışmadan önce
+#: `changes.record` ile yedekler (T1-18, bkz. `shell_overwrite`).
 _WORKSPACE_MUTATORS = frozenset({"mkdir", "touch", "cp", "mv", "rm", "ln", "rmdir"})
 
 #: Kod biçimlendiriciler: yalnız proje dosyalarını yeniden yazar.

@@ -36,6 +36,7 @@ from .remotion_shell_guard import (
     repair_hint,
 )
 from .safe_delete import DeleteRefusedError, move_to_trash, simple_rm_targets
+from .shell_overwrite import backup_paths
 from .wordpress_setup import php_env
 
 __all__ = ["READONLY_GIT_SUBCOMMANDS", "git", "run_shell"]
@@ -52,6 +53,10 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     deleted = _guarded_delete(command, context)
     if deleted is not None:
         return check_shell_result(context, deleted, baseline=integrity_error)
+    # Ezilecek/taşınacak mevcut proje dosyaları çalışmadan ÖNCE geri alma kaydına
+    # girer (T1-18); `write_file` ile aynı güvence, soru sormadan.
+    for path in backup_paths(command, context.root):
+        context.changes.record(path)
     if args.get("background") is True:
         try:
             manifest = prepare_manifest(args, context.root)
