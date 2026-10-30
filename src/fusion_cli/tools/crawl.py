@@ -135,7 +135,7 @@ def _walk(
     delay: float,
     context: ToolContext,
 ) -> tuple[list[PageInfo], list[str]]:
-    host = urlparse(start).netloc
+    hosts = {_bare_host(urlparse(start).netloc)}
     queue: deque[tuple[str, int]] = deque([(start, 0)])
     seen = {start}
     pages: list[PageInfo] = []
@@ -154,13 +154,16 @@ def _walk(
             continue
         if "html" not in content_type.lower():
             continue
+        # Yönlendirme sonrası adres (`example.com` -> `www.example.com`) aynı siteyi sayılır;
+        # sabit başlangıç host'u taramayı tek sayfada bırakıyordu (ölçüldü, 30 Ekim).
+        hosts.add(_bare_host(urlparse(final_url).netloc))
         page = parse_page(final_url, body)
         pages.append(page)
         if depth >= max_depth:
             continue
         for link in page.links:
             clean = urldefrag(link)[0]
-            if _same_site(clean, host) and clean not in seen and not _is_asset(clean):
+            if _same_site(clean, hosts) and clean not in seen and not _is_asset(clean):
                 seen.add(clean)
                 queue.append((clean, depth + 1))
     return pages, skipped
@@ -177,6 +180,14 @@ def _robots(start: str) -> urllib.robotparser.RobotFileParser | None:
     robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
     try:
         _content_type, body, _final = fetch_following_redirects(robots_url)
+    except httpx.HTTPStatusError as error:
+        # RFC 9309: 4xx = robots.txt yok, kısıt yok; 5xx = sunucu bozuk, TAMAMEN YASAK varsay.
+        status = getattr(error.response, "status_code", 0)
+        if status >= 500:
+            blocked = urllib.robotparser.RobotFileParser()
+            blocked.parse(["User-agent: *", "Disallow: /"])
+            return blocked
+        return None
     except (httpx.HTTPError, BlockedRedirectError):
         return None
     parser = urllib.robotparser.RobotFileParser()
@@ -214,9 +225,15 @@ def _normalize(url: str) -> str:
     return url if url.startswith(("http://", "https://")) else f"https://{url}"
 
 
-def _same_site(url: str, host: str) -> bool:
+def _bare_host(netloc: str) -> str:
+    """`www.` öneki olmadan, küçük harfli alan adı (www ve çıplak alan adı eşdeğerdir)."""
+    host = netloc.lower()
+    return host.removeprefix("www.")
+
+
+def _same_site(url: str, hosts: set[str]) -> bool:
     parsed = urlparse(url)
-    return parsed.scheme in ("http", "https") and parsed.netloc == host
+    return parsed.scheme in ("http", "https") and _bare_host(parsed.netloc) in hosts
 
 
 def _is_asset(url: str) -> bool:
