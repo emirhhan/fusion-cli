@@ -384,3 +384,15 @@ async def test_uzun_turkce_sozcuk_kart_basliginda_bolunmez_ve_kapi_gecer():
             assert all(item["boyut"] >= 44 for item in sonuc), sonuc
         finally:
             await browser.close()
+
+
+def test_kit_indeksi_inline_kod_yardimcisini_disa_acar() -> None:
+    """Ölçüldü (30 Ekim): `inlineCode` FeatureCard içinde kullanılıyor ama dışa açık değildi;
+    özel sahnede kod etiketi isteyen model işlevi kopyalıyordu."""
+    from pathlib import Path
+
+    indeks = (
+        Path(__file__).resolve().parents[1]
+        / "src/fusion_cli/config/skills/remotion-video/kit/index.ts"
+    )
+    assert "inlineCode" in indeks.read_text(encoding="utf-8")
