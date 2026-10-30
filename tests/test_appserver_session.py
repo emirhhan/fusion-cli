@@ -205,6 +205,50 @@ async def test_nim_secimi_arac_dogrulamasindan_gecer(tmp_path, monkeypatch):
     assert "nvidia_nim/z-ai/glm-5.3" in accepted["metin"]
 
 
+async def test_kapanis_takili_nim_dogrulamasini_kisa_bekler(tmp_path, monkeypatch):
+    """S2-22 — Ölçüldü (30 Ekim): `close()` model seçim görevlerini sonuna dek bekliyordu;
+    NIM araç doğrulaması 90 sn'ye kadar sürebildiğinden kapanış (ve süreç çıkışı: executor
+    thread'i dahil) bu kadar gecikiyordu. Bekleme sınırlıdır ve doğrulama daemon thread'dedir."""
+    import threading
+    import time
+
+    from fusion_cli.appserver import session as oturum_modulu
+    from fusion_cli.cli.repl import model_flows
+
+    started, release = threading.Event(), threading.Event()
+    seen: list[bool] = []
+
+    def asili_probe(_model):
+        seen.append(threading.current_thread().daemon)
+        started.set()
+        release.wait(10)
+        return True, ""
+
+    monkeypatch.setattr(model_flows.catalog, "probe_nim_tools", asili_probe)
+    monkeypatch.setattr(oturum_modulu, "MODEL_SELECTION_CLOSE_WAIT_S", 0.2)
+    oturum = _session(tmp_path, [])
+    secim = asyncio.create_task(
+        oturum._run_command(
+            {"ad": "development", "arguman": "uygula nim-free nvidia_nim/z-ai/glm-5.3"}
+        )
+    )
+    for _ in range(100):
+        if started.is_set():
+            break
+        await asyncio.sleep(0.01)
+    assert started.is_set()
+
+    baslangic = time.monotonic()
+    await oturum.close()
+    gecen = time.monotonic() - baslangic
+    release.set()
+    secim.cancel()
+    await asyncio.gather(secim, return_exceptions=True)
+
+    assert gecen < 3.0, gecen
+    assert seen == [True]
+
+
 async def test_bilinmeyen_istek_hata_sonucu_doner(tmp_path):
     satirlar: list[str] = []
     oturum = _session(tmp_path, satirlar)

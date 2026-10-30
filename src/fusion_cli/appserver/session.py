@@ -56,6 +56,7 @@ from ..config.paths import credentials_file
 from ..core.changeset import ChangeSet
 from ..core.clock import SystemClock
 from ..core.concurrency import BackgroundTasks
+from ..core.constants import MODEL_SELECTION_CLOSE_WAIT_S
 from ..core.events import Event, EventSink, StatusChanged
 from ..core.owned_thread import await_owned_thread
 from ..core.reasoning import ReasoningEffort, resolve_reasoning
@@ -121,6 +122,7 @@ from .control import (
     web_provider_cards,
 )
 from .conversation_title import conversation_title
+from .daemon_thread import run_in_daemon_thread
 from .desktop_activity import DesktopActivity
 from .desktop_dock import DesktopDock
 from .desktop_routes import DESKTOP_ROUTES, dispatch_desktop
@@ -1950,13 +1952,16 @@ class AppSession:
             if self._closed:
                 return {"ok": False, "metin": "Oturum kapandı; model seçimi uygulanmadı."}
             previous_model = self._state.config.agent.model
-            result = await asyncio.to_thread(
-                run_command,
-                self._registry,
-                self._state,
-                name,
-                argument,
-                secret_store=self._secret_store,
+            # Daemon thread: NIM araç doğrulaması 90 sn sürebilir ve kapanışta beklenmemeli (S2-22).
+            result = await run_in_daemon_thread(
+                partial(
+                    run_command,
+                    self._registry,
+                    self._state,
+                    name,
+                    argument,
+                    secret_store=self._secret_store,
+                )
             )
             if result.get("ok") is True:
                 effort = self._state.config.runtime.reasoning_effort.value
@@ -2745,6 +2750,10 @@ class AppSession:
                 image.cancel()
         selections = tuple(self._model_selection_tasks)
         if selections:
+            # Takılı NIM doğrulamasını (90 sn'ye kadar) kapanışta uzun bekleme (S2-22).
+            _done, pending = await asyncio.wait(selections, timeout=MODEL_SELECTION_CLOSE_WAIT_S)
+            for stuck in pending:
+                stuck.cancel()
             await asyncio.gather(*selections, return_exceptions=True)
         admissions = tuple(self._admission_tasks)
         for admission in admissions:
