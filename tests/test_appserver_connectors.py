@@ -266,3 +266,13 @@ def test_liste_ve_detay_argumana_gomulu_anahtari_gostermez(tmp_path):
     assert "sk-gizli-deger-1234567890" not in " ".join(satir["argumanlar"])
     assert "sk-gizli-deger-1234567890" not in ayrinti["icerik"]
     assert satir["argumanlar"][0] == "sunucu"
+
+
+def test_kapsamlar_liste_gelirse_bozulmaz_ve_bozuk_durum_sayisi_listeyi_dusurmez():
+    """Ölçüldü (30 Ekim, S1-50): liste `str(list).split()` ile bozuk kapsam üretiyor;
+    `int("x")` durum satırını düşürüyordu."""
+    from fusion_cli.appserver.connectors import _count, _scopes
+
+    assert _scopes(["read", "write"]) == ("read", "write")
+    assert _scopes("read write") == ("read", "write")
+    assert _count("x") == 0 and _count(None) == 0 and _count("7") == 7

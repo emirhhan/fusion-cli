@@ -204,11 +204,29 @@ def _row_status(status: McpConnectionStatus | dict[str, Any] | None) -> dict[str
     if isinstance(status, dict):
         return {
             "durum": str(status.get("durum", "yapilandirildi")),
-            "arac_sayisi": int(status.get("arac_sayisi", 0)),
-            "gecikme_ms": int(status.get("gecikme_ms", 0)),
+            "arac_sayisi": _count(status.get("arac_sayisi")),
+            "gecikme_ms": _count(status.get("gecikme_ms")),
             "mesaj": status.get("mesaj"),
         }
     return {"durum": "yapilandirildi", "arac_sayisi": 0, "gecikme_ms": 0, "mesaj": None}
+
+
+def _count(value: object) -> int:
+    """Durum satırındaki sayı alanı; bozuk değer satırı (ve listeyi) düşürmez."""
+    try:
+        return int(value)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        return 0
+
+
+def _scopes(raw: object) -> tuple[str, ...]:
+    """OAuth kapsamları: boşlukla ayrılmış metin ya da metin listesi.
+
+    Ölçüldü (30 Ekim): liste gelirse `str(list).split()` `"['a',"` gibi bozuk kapsamlar üretiyordu.
+    """
+    if isinstance(raw, (list, tuple)):
+        return tuple(str(item).strip() for item in raw if str(item).strip())
+    return tuple(str(raw or "").split())
 
 
 def add_connector(
@@ -330,7 +348,7 @@ def _remote_server(
         name=ad,
         transport=transport,
         url=url,
-        scopes=tuple(str(data.get("kapsamlar", "")).split()),
+        scopes=_scopes(data.get("kapsamlar", "")),
         client_id=str(data.get("client_id", "")).strip(),
         token_env=token_env,
         env_names=(token_env,) if token_env else (),
