@@ -17,6 +17,22 @@ describe("redact", () => {
     expect(temiz).toContain("[gizlendi]");
   });
 
+  it("alt çizgili sağlayıcı anahtarlarını, JWT ve OAuth belirteçlerini gizler (U6-21)", () => {
+    // Ölçüldü (30 Ekim): `sk_live_`, `gsk_`, `hf_`, `ya29.` ve çıplak JWT olduğu gibi rapora giriyordu.
+    for (const gizli of [
+      "sk_live_abcdefghijklmnop1234", "rk_test_abcdefghijklmnop1234", "gsk_abcdefghijklmnop1234",
+      "hf_abcdefghijklmnopqrstuvwxyz1234", "ya29.a0AfH6SMBabcdefghijklmnopq",
+      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.abcdefghijk",
+    ]) {
+      const temiz = redact(`hata: ${gizli} bitti`);
+      expect(temiz, gizli).toBe("hata: [gizlendi] bitti");
+    }
+  });
+
+  it("/root ve başka sürücülerdeki kullanıcı klasörünü de ~ yapar (U6-21)", () => {
+    expect(redact("/root/proje/a.py ve D:\\Users\\ali\\b.txt")).toBe("~/proje/a.py ve ~\\b.txt");
+  });
+
   it("e-posta adresini gizler", () => {
     expect(redact("hesap ali@ornek.com bulunamadı")).toBe("hesap [e-posta] bulunamadı");
   });

@@ -48,10 +48,10 @@ export async function saveImageAs(defaultName: string): Promise<string | null> {
 /** Kits ekrana bakmak istediğinde her seferinde kullanıcıya yerel pencereyle sorar. */
 export async function askComputerAccess(reason: string): Promise<boolean> {
   const { ask } = await import("@tauri-apps/plugin-dialog");
-  const neden = reason.trim() ? `\n\nNedeni: ${reason.trim()}` : "";
+  const neden = reason.trim() ? `\n\nKits'in belirttiği neden (Fusion doğrulamaz): ${reason.trim()}` : "";
   return ask(
     "Kits ekranının bir görüntüsünü ve öndeki pencerenin öğelerini okumak istiyor. " +
-      "Tıklama ya da yazma yapamaz; yalnız bakar." + neden,
+      "Tıklama ya da yazma yapamaz; yalnız bakar. Ekrandaki anahtar ve parola benzeri metinler gizlenir." + neden,
     { title: "Kits bilgisayarına bakmak istiyor", kind: "warning", okLabel: "İzin ver", cancelLabel: "Reddet" },
   );
 }

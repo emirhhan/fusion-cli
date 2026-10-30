@@ -49,4 +49,19 @@ describe("LocalComputerHost", () => {
     expect(f.confirm).not.toHaveBeenCalled();
     expect(f.frame.postMessage).not.toHaveBeenCalled();
   });
+
+  it("ekran metnindeki anahtar ve parolaları Kits'e göndermez, düz metni korur (U6-18)", async () => {
+    // Ölçüldü (30 Ekim): erişilebilirlik ağacındaki sırlar ayıklanmadan iframe'e gidiyordu.
+    const f = fixture(true);
+    f.request.mockResolvedValueOnce({
+      ok: true, status: "observed", snapshot_id: "s:2",
+      text: "Terminal: export OPENAI_API_KEY=sk-proj-abcdefghijklmnop12\nFinder: /Users/ali/rapor.md ali@ornek.com",
+    } as never);
+    f.send({ type: "fusion-computer-request", nonce: "n4", reason: "bak" });
+    await vi.waitFor(() => expect(f.frame.postMessage).toHaveBeenCalled());
+    const text = String(f.frame.postMessage.mock.calls[0][0].text);
+    expect(text).not.toContain("sk-proj");
+    expect(text).toContain("[gizlendi]");
+    expect(text).toContain("/Users/ali/rapor.md ali@ornek.com");
+  });
 });

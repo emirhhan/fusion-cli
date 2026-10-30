@@ -51,17 +51,21 @@ export function supportBundle(input: ReportInput, env: ReportEnvironment): strin
 
 const GIZLENDI = "[gizlendi]";
 
-const GIZLI_KALIPLAR: ReadonlyArray<readonly [RegExp, string]> = [
+/** Kimlik bilgisi/anahtar kalıpları; kişisel yol ve e-posta kalıpları ayrıdır (`KISISEL_KALIPLAR`). */
+const SIR_KALIPLARI: ReadonlyArray<readonly [RegExp, string]> = [
   [/-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----[\s\S]*?(?:-----END \1-----|$)/gi, GIZLENDI],
-  // macOS/Linux kullanıcı klasörü: kullanıcı adı rapora girmez.
-  [/\/(?:Users|home)\/[^/\s"'`]+/g, "~"],
-  [/C:\\Users\\[^\\\s"'`]+/gi, "~"],
   [/Bearer\s+[A-Za-z0-9._~+/=-]+/g, `Bearer ${GIZLENDI}`],
   // Authorization: Basic <base64> — genel desen yalnız "Authorization"ı yutup kimlik bilgisini açıkta bırakırdı.
   [/\b(?:proxy-)?authorization\s*[:=]\s*["']?basic\s+[A-Za-z0-9+/_-]+=*/gi, GIZLENDI],
   [/(?:["']?)[A-Za-z0-9_.-]*(?:api[_-]?key|access[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|client[_-]?secret|credential|token|secret|password|passwd|authorization|private[_-]?key)[A-Za-z0-9_.-]*(?:["']?)\s*[:=]\s*(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s,}]+)/gi, GIZLENDI],
   // Sağlayıcı anahtarları: OpenAI/Anthropic (sk-…), NVIDIA (nvapi-…), Google (AIza…), GitHub (gh*_…).
   [/\b(?:sk|nvapi|gsk|xai)-[A-Za-z0-9_-]{12,}/g, GIZLENDI],
+  // Alt çizgili biçimler: Stripe (sk_live_…), Groq (gsk_…), Hugging Face (hf_…), Google OAuth (ya29.…).
+  [/\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{12,}/g, GIZLENDI],
+  [/\b(?:gsk|hf)_[A-Za-z0-9]{20,}/g, GIZLENDI],
+  [/\bya29\.[A-Za-z0-9_-]{20,}/g, GIZLENDI],
+  // Çıplak JWT: üç base64url parçası, ilki `eyJ` ile başlar.
+  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, GIZLENDI],
   [/\bAIza[0-9A-Za-z_-]{20,}/g, GIZLENDI],
   [/\bgh[pousr]_[A-Za-z0-9]{20,}/g, GIZLENDI],
   [/\bgithub_pat_[A-Za-z0-9_]{20,}/g, GIZLENDI],
@@ -69,6 +73,13 @@ const GIZLI_KALIPLAR: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bxox[baprs]-[A-Za-z0-9-]{10,}/g, GIZLENDI],
   // http dışı şemalarda da (ssh://, postgres://, redis://) şema://kullanıcı:parola@host parolası sırdır.
   [/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]*:[^\s/@]+@/gi, `$1${GIZLENDI}@`],
+];
+
+const KISISEL_KALIPLAR: ReadonlyArray<readonly [RegExp, string]> = [
+  // macOS/Linux kullanıcı klasörü: kullanıcı adı rapora girmez.
+  [/\/(?:Users|home)\/[^/\s"'`]+/g, "~"],
+  [/\/root(?=\/|\s|$)/g, "~"],
+  [/\b[A-Z]:\\Users\\[^\\\s"'`]+/gi, "~"],
   [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[e-posta]"],
 ];
 
@@ -90,7 +101,15 @@ export function redact(text: string): string {
       return url.toString();
     } catch { return GIZLENDI; }
   });
-  return GIZLI_KALIPLAR.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), urls);
+  return [...SIR_KALIPLARI, ...KISISEL_KALIPLAR].reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), urls);
+}
+
+/**
+ * Yalnız anahtar/parola/belirteç kalıplarını gizler; yol, e-posta ve adres sorgusuna dokunmaz.
+ * Ekran içeriği gibi başka kişiye giden ama anlamı korunması gereken metinler için.
+ */
+export function redactSecrets(text: string): string {
+  return SIR_KALIPLARI.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), text);
 }
 
 function titleFor({ tur, mesaj }: ReportInput): string {
