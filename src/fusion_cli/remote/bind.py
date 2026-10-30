@@ -6,7 +6,6 @@ import ipaddress
 import socket
 from dataclasses import dataclass
 
-
 #: Tailscale/CGNAT adres bloğu (RFC 6598): internetten yönlendirilemez ama Python
 #: `is_private` saymaz. Ölçüldü (30 Ekim, Python 3.11): `100.64.0.1.is_private == False`.
 _SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")

@@ -328,6 +328,8 @@ async def test_pwa_dosyalari_guvenlik_basliklariyla_sunulur(rig: Rig) -> None:
     response = await rig.client.get("/")
     assert response.status_code == 200
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    # R1-20: ek önizlemeleri URL.createObjectURL (blob:) ile gösterilir; img-src bunu içermeli.
+    assert "img-src 'self' data: blob:" in response.headers["content-security-policy"]
     assert response.headers["x-content-type-options"] == "nosniff"
 
 
@@ -344,7 +346,7 @@ def test_bind_politikasi() -> None:
 
 
 def test_bind_tailscale_cgnat_adresi_ozel_tunelle_kabul_edilir() -> None:
-    """R1-27. Ölçüldü (30 Ekim): 100.64.0.0/10 `is_private` değil; Tailscale IP'si reddediliyordu."""
+    """R1-27. Ölçüldü (30 Ekim): 100.64.0.0/10 `is_private` değil; Tailscale reddediliyordu."""
     policy = BindPolicy(allow_lan=True, trusted_tunnel=True)
     validate_bind("100.101.102.103", policy)
     with pytest.raises(BindRefusedError):
@@ -381,3 +383,58 @@ async def test_rpc_isleyici_beklenmeyen_istisna_500_json_doner(rig: Rig) -> None
     response = await rig.rpc(device_id, secret, "service.status")
     assert response.status_code == 500
     assert response.json() == {"error": "sunucu_hatasi"}
+
+
+async def _wrong_pair(rig: Rig, *, forwarded: str | None) -> int:
+    headers = {"x-forwarded-for": forwarded} if forwarded else {}
+    response = await rig.client.post(
+        "/v1/pair/submit", json={"code": "YANLIS12", "deviceName": "T"}, headers=headers
+    )
+    return response.status_code
+
+
+async def test_tunel_arkasinda_kilit_istemci_ip_sine_gore_ayrilir(rig: Rig) -> None:
+    """R1-11. Ölçüldü (30 Ekim): proxy arkasında `client` hep 127.0.0.1; bir saldırganın 5 hatası
+    herkesin eşleştirmesini 15 dk kilitliyordu. Güvenilir (loopback) eşten gelen
+    X-Forwarded-For'un SON girdisi istemci kimliği olur."""
+    for _ in range(5):
+        assert await _wrong_pair(rig, forwarded="203.0.113.9") == 400
+    assert await _wrong_pair(rig, forwarded="203.0.113.9") == 429  # saldırgan kilitli
+    assert await _wrong_pair(rig, forwarded="198.51.100.4") == 400  # başka istemci etkilenmez
+    assert await _wrong_pair(rig, forwarded=None) == 400  # başlıksız yerel çağrı da değil
+    # Zincirde sahte ilk girdi sayılmaz: proxy'nin eklediği son girdi esastır.
+    assert await _wrong_pair(rig, forwarded="1.1.1.1, 203.0.113.9") == 429
+
+
+async def test_yavas_govde_zaman_asimiyla_kesilir_ve_yasam_dongusu_yanitlanir(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R1-36. Ölçüldü (30 Ekim): gövde okumada zaman aşımı yok, lifespan iletisi yanıtsızdı."""
+    monkeypatch.setattr("fusion_cli.remote.asgi.BODY_READ_TIMEOUT_SECONDS", 0.05)
+    sent: list[dict[str, Any]] = []
+
+    async def never() -> dict[str, Any]:
+        await asyncio.sleep(5)
+        return {}
+
+    async def send(message: dict[str, Any]) -> None:
+        sent.append(message)
+
+    scope = {"type": "http", "method": "POST", "path": "/v1/rpc", "client": ("127.0.0.1", 1)}
+    await rig.app(scope, never, send)
+    assert sent[0]["status"] == 408
+
+    messages = iter([{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}])
+    lifespan_sent: list[dict[str, Any]] = []
+
+    async def receive() -> dict[str, Any]:
+        return next(messages)
+
+    async def collect(message: dict[str, Any]) -> None:
+        lifespan_sent.append(message)
+
+    await rig.app({"type": "lifespan"}, receive, collect)
+    assert [m["type"] for m in lifespan_sent] == [
+        "lifespan.startup.complete",
+        "lifespan.shutdown.complete",
+    ]

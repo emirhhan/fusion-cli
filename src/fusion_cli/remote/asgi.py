@@ -5,13 +5,15 @@ Bu katman yalnız kimlik doğrular ve yönlendirir; iş mantığı `RemoteServic
 
 from __future__ import annotations
 
+import asyncio
+import ipaddress
 import json
 import logging
 from pathlib import Path
 from typing import Any
 
 from .account_login import AccountLogin, LoginError
-from .constants import MAX_BODY_BYTES, RPC_VERSION
+from .constants import BODY_READ_TIMEOUT_SECONDS, MAX_BODY_BYTES, RPC_VERSION
 from .devices import CHANNEL_SIGNED, DeviceRegistry
 from .pairing import PairingError, PairingService
 from .rate_limit import FailureLimiter
@@ -59,7 +61,7 @@ _SECURITY_HEADERS = [
     (b"cache-control", b"no-store"),
     (
         b"content-security-policy",
-        b"default-src 'self'; connect-src 'self'; img-src 'self' data:; "
+        b"default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; "
         b"style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'",
     ),
 ]
@@ -86,17 +88,27 @@ class RemoteApp:
         self._limiter = limiter
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:  # noqa: ANN401
+        if scope["type"] == "lifespan":
+            await _lifespan(receive, send)
+            return
         if scope["type"] != "http":
+            # websocket vb. desteklenmez: sessizce dönmek uvicorn'da uyarı üretiyordu (R1-36).
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1008})
             return
         method, path = scope["method"], scope["path"]
-        client = (scope.get("client") or ("?", 0))[0]
+        client = _client_identity(scope)
         if method == "GET" and path in _STATIC:
             await self._static(send, path)
             return
         if method != "POST":
             await self._json(send, 405, {"error": "yontem_izinsiz"})
             return
-        body = await _read_body(receive)
+        try:
+            body = await asyncio.wait_for(_read_body(receive), BODY_READ_TIMEOUT_SECONDS)
+        except TimeoutError:
+            await self._json(send, 408, {"error": "govde_zaman_asimi"})
+            return
         if body is None:
             await self._json(send, 413, {"error": "govde_buyuk"})
             return
@@ -248,6 +260,41 @@ class RemoteApp:
         headers = [(b"content-type", content_type.encode()), *_SECURITY_HEADERS]
         await send({"type": "http.response.start", "status": status, "headers": headers})
         await send({"type": "http.response.body", "body": body})
+
+
+async def _lifespan(receive: Any, send: Any) -> None:  # noqa: ANN401
+    """Uvicorn yaşam döngüsü iletilerine yanıt verir; başlatma/kapatma işi yoktur."""
+    while True:
+        message = await receive()
+        if message["type"] == "lifespan.startup":
+            await send({"type": "lifespan.startup.complete"})
+        elif message["type"] == "lifespan.shutdown":
+            await send({"type": "lifespan.shutdown.complete"})
+            return
+
+
+def _client_identity(scope: dict[str, Any]) -> str:
+    """Hız sınırı için istemci kimliği.
+
+    Güvenilir tünel/Tailscale proxy'si (`tailscale serve`) loopback'ten bağlanır; eş adresi
+    hep 127.0.0.1 olunca bütün dünya aynı kilit anahtarını paylaşır (R1-11). Eş loopback ise
+    proxy'nin eklediği `X-Forwarded-For` zincirinin SON girdisi kullanılır (ilk girdi
+    istemci tarafından sahtelenebilir). Loopback olmayan eşte başlık yok sayılır.
+    """
+    peer = str((scope.get("client") or ("?", 0))[0])
+    try:
+        if not ipaddress.ip_address(peer).is_loopback:
+            return peer
+    except ValueError:
+        return peer
+    for name, value in scope.get("headers", []):
+        if name.lower() == b"x-forwarded-for":
+            last = value.decode("latin-1").split(",")[-1].strip()
+            try:
+                return str(ipaddress.ip_address(last))
+            except ValueError:
+                return peer
+    return peer
 
 
 async def _read_body(receive: Any) -> bytes | None:  # noqa: ANN401

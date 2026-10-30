@@ -29,6 +29,9 @@ DEVICE_SECRET_BYTES = 32
 #: İstek gövdesi üst sınırı; bellek şişirme saldırısına karşı.
 #: 1 MiB: telefondan küçültülmüş görsel/dosya eki (base64 ile ~%33 şişer) tek istekte sığsın.
 MAX_BODY_BYTES = 1024 * 1024
+#: İstek gövdesinin tamamının gelmesi için tanınan süre; yavaş-gövde (slowloris) bağlantıları
+#: sonsuza dek açık kalıp işçileri tutmasın.
+BODY_READ_TIMEOUT_SECONDS = 15
 #: Yüklenen ek üst sınırı (çözülmüş bayt); gövde sınırının altında kalır.
 MAX_UPLOAD_BYTES = 700 * 1024
 #: Yüklenen eklerin saklanma süresi; eski ekler yeni yüklemede temizlenir.
