@@ -66,10 +66,17 @@ DANGER_RULES: tuple[DangerRule, ...] = (
     _rule(r"\b(unlink|shred|rimraf)\b", _UNTRASHED_DELETE),
     _rule(r":\(\)\s*\{.*\|.*&\s*\}", "fork bomb"),
     _rule(r"\bmkfs\b", "dosya sistemi biçimlendirme"),
-    _rule(r"\bdd\s+if=", "ham disk yazma"),
+    _rule(r"\bdd\s+if=|\bdd\b[^;&|\n]*\bof=", "ham disk yazma"),
     _rule(r">\s*/dev/sd", "ham diske yönlendirme"),
-    _rule(r"\b(shutdown|reboot|halt)\b", "sistemi kapatma/yeniden başlatma"),
-    _rule(r"\bchmod\s+-R\s+000\b", "özyinelemeli yetki sıfırlama"),
+    # KOMUT KONUMUNDA: satır/zincir başı ya da `sudo` sonrası. Eskiden her yerde aranıyordu;
+    # `git commit -m "fix reboot loop"`, `npm run shutdown`, `grep halt` gereksiz soruluyordu
+    # (ölçüldü, 30 Ekim).
+    _rule(
+        r"(?m)(^|[;&|(]\s*|\bsudo\s+)(shutdown|reboot|halt)\b",
+        "sistemi kapatma/yeniden başlatma",
+    ),
+    _rule(r"\bchmod\s+-R\s+(000|777)\b", "özyinelemeli yetki sıfırlama/herkese açma"),
+    _rule(r"\bchown\s+-[a-zA-Z]*R", "özyinelemeli sahiplik değiştirme"),
     # `git -C yol push`, birleşik bayrak (`-uf`) ve `+dal` refspec'i de force push'tur.
     _rule(
         r"\bgit\b[^|;&\n]*\bpush\b[^|;&\n]*\s(--force\b|--force-with-lease\b|"
@@ -95,15 +102,45 @@ DANGER_RULES: tuple[DangerRule, ...] = (
         r"\bgit\b[^|;&\n]*\b(checkout|switch)\b[^|;&\n]*\s(-f|--force|--discard-changes)\b",
         "kaydedilmemiş değişiklikleri atan dal geçişi",
     ),
-    _rule(r"\b(curl|wget)\b.*\|\s*(sudo\s+)?(ba)?sh\b", "internetten indirilen kodu çalıştırma"),
+    _rule(
+        r"\b(curl|wget)\b.*\|\s*(sudo\s+)?((ba|z|da|k)?sh|python[\d.]*|node|perl|ruby|php)\b",
+        "internetten indirilen kodu çalıştırma",
+    ),
+    # `eval "$(curl …)"` ve `sh -c "$(curl …)"`: boru olmadan aynı etki.
+    _rule(
+        r"\b(eval|(ba|z|da|k)?sh\s+-c)\b[^;&|\n]*\$\(\s*(curl|wget)\b",
+        "internetten indirilen kodu çalıştırma",
+    ),
     # Process substitution ile indirilen kodu çalıştırma: bash <(curl …). Boru
     # yakalamayan bu biçim yukarıdaki desene takılmaz, ayrıca yakalanır.
     _rule(r"<\s*\(\s*(curl|wget)\b", "internetten indirilen kodu çalıştırma"),
     # base64/açık kodu çözüp kabuğa boşaltma: echo … | base64 -d | sh.
     _rule(r"\bbase64\b.*(-d|--decode)\b.*\|\s*(ba)?sh\b", "kodlanmış kodu çözüp çalıştırma"),
     _rule(r"\bsudo\b", "yükseltilmiş yetkiyle çalıştırma"),
-    _rule(r"\bkill\s+-9\b", "süreci zorla sonlandırma"),
-    _rule(r"\bpkill\b", "ada göre süreç sonlandırma"),
+    _rule(r"\bkill\s+-(9|KILL|SIGKILL)\b", "süreci zorla sonlandırma"),
+    _rule(r"\b(pkill|killall)\b", "ada göre süreç sonlandırma"),
+    _rule(r"\bdocker\s+(system|volume|image|container|builder)\s+prune\b", "docker verisini silme"),
+    _rule(r"\bwp\s+(db\s+(reset|drop)|site\s+empty)\b", "WordPress veritabanını/sitesini boşaltma"),
+    _rule(
+        r"(?i)\b(drop\s+(table|database|schema)|truncate\s+table)\b",
+        "veritabanı tablosunu/veritabanını silme",
+    ),
+    _rule(r"\bgit\s+branch\s+(-[a-zA-Z]*D[a-zA-Z]*|--delete\s+--force)\b", "dalı zorla silme"),
+    _rule(r"\bgit\s+stash\s+(drop|clear)\b", "saklanan değişiklikleri silme"),
+    _rule(r"\bgit\s+rebase\b", "commit geçmişini yeniden yazma"),
+    # `osascript` ile tuş/UI otomasyonu: play_probe başlığına göre gerçekte 239 kez yaşandı.
+    _rule(
+        r"\bosascript\b[^;&|\n]*(keystroke|key\s+code|System\s+Events|\bclick\b)",
+        "osascript ile tuş/arayüz otomasyonu",
+    ),
+    _rule(
+        r"\blaunchctl\s+(load|unload|bootout|bootstrap|remove|kickstart|enable|disable)\b",
+        "sistem hizmetlerini değiştirme (launchctl)",
+    ),
+    _rule(r"\bdefaults\s+(write|delete)\b", "macOS tercihlerini değiştirme"),
+    _rule(r"\bdiskutil\s+(erase|partition|reformat|secureErase|zeroDisk)", "disk silme/bölümleme"),
+    # Komutsuz yönlendirme (`: > dosya`, `> dosya`) dosyayı SIFIRLAR; `echo x > dosya` değildir.
+    _rule(r"(?m)(^|[;&|]\s*)(:\s*)?>(?!>)\s*[^\s>&|;]", "dosya içeriğini sıfırlama"),
     _rule(r"\b(npm|pip|pip3|yarn|pnpm)\s+.*(uninstall|remove)\b", "paket kaldırma"),
     # find ile toplu silme/komut çalıştırma: -delete ya da -exec rm.
     _rule(r"\bfind\b.*-delete\b", "find ile toplu dosya silme"),
