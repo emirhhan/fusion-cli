@@ -99,3 +99,38 @@ def test_suresi_dolan_yetim_klasor_temizlenir(alan):
     _sil(dosya, proje, ev, cop)
 
     assert not yetim.exists()
+
+
+def test_job_gunlugu_kuyrugu_tum_dosyayi_okumaz(tmp_path, monkeypatch):
+    """T2-19: her `job_status` tüm .log'u `read_text` ile belleğe alıyordu."""
+    from pathlib import Path as _Path
+
+    from fusion_cli.tools import jobs
+
+    log = tmp_path / "j1.log"
+    log.write_text("a" * 500_000 + "SON-SATIR-ğüş\n", encoding="utf-8")
+    okunan: list[int] = []
+    gercek_read_text = _Path.read_text
+
+    def _izle(self, *a, **k):
+        if self == log:
+            raise AssertionError("tüm dosya read_text ile okundu")
+        return gercek_read_text(self, *a, **k)
+
+    monkeypatch.setattr(_Path, "read_text", _izle)
+
+    cikti = jobs._tail(tmp_path, "j1")
+
+    assert cikti.endswith("SON-SATIR-ğüş\n")
+    assert len(cikti) < jobs.JOB_LOG_TAIL_CHARS + 200
+    assert "atlandı" in cikti
+    del okunan
+
+
+def test_job_gunlugu_kisa_ise_oldugu_gibi(tmp_path):
+    from fusion_cli.tools import jobs
+
+    (tmp_path / "j2.log").write_text("merhaba\n", encoding="utf-8")
+
+    assert jobs._tail(tmp_path, "j2") == "merhaba\n"
+    assert jobs._tail(tmp_path, "yok") == ""

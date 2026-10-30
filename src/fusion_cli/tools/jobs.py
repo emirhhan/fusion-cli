@@ -13,6 +13,7 @@ yeniden başlasa da iş izlenebilir.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import signal
@@ -175,15 +176,27 @@ def _wrapper_gone(klasor: Path, kimlik: str) -> bool:
 
 
 def _tail(klasor: Path, kimlik: str) -> str:
+    """Günlüğün SON `JOB_LOG_TAIL_CHARS` karakteri; dosyanın sonuna `seek` ile okunur.
+
+    Eskiden `read_text` tüm günlüğü okuyup kesiyordu: sonsuz çıktı üreten bir iş
+    (dev sunucusu, döngü) GB'lara çıkınca her `job_status` yoklaması bellek ve süre
+    patlatıyordu (ölçüldü, 30 Ekim). UTF-8'de bir karakter en çok 4 bayttır.
+    """
+    yol = klasor / f"{kimlik}.log"
     try:
-        metin = (klasor / f"{kimlik}.log").read_text(encoding="utf-8", errors="replace")
+        with yol.open("rb") as dosya:
+            boyut = dosya.seek(0, os.SEEK_END)
+            okunacak = min(boyut, JOB_LOG_TAIL_CHARS * 4)
+            dosya.seek(boyut - okunacak)
+            ham = dosya.read(okunacak)
     except OSError:
         return ""
-    if len(metin) <= JOB_LOG_TAIL_CHARS:
+    metin = ham.decode("utf-8", errors="replace")
+    if boyut == okunacak and len(metin) <= JOB_LOG_TAIL_CHARS:
         return metin
-    return (
-        f"[… ilk {len(metin) - JOB_LOG_TAIL_CHARS} karakter atlandı]\n{metin[-JOB_LOG_TAIL_CHARS:]}"
-    )
+    kuyruk = metin[-JOB_LOG_TAIL_CHARS:]
+    atlanan = boyut - len(kuyruk.encode("utf-8"))
+    return f"[… ilk ~{atlanan} karakter atlandı]\n{kuyruk}"
 
 
 def _job_id(args: ToolArgs, context: ToolContext) -> tuple[str, Path] | ToolResult:
