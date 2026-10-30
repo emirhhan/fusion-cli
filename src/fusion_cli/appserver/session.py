@@ -1158,7 +1158,7 @@ class AppSession:
         if request.name == "komut.calistir":
             return await self._run_command(request.data)
         if request.name == "komut.secenekler":
-            return self._command_options(request.data)
+            return await self._command_options(request.data)
         if request.name == "model.roller":
             from .model_roles import role_state
 
@@ -1887,11 +1887,23 @@ class AppSession:
                 "Model seçimi tamamlanamadı.", exc_info=task.exception()
             )
 
-    def _command_options(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Sıradaki seçici/metin adımını döndür; yoksa `ok: False`."""
+    async def _command_options(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Sıradaki seçici/metin adımını döndür; yoksa `ok: False`.
+
+        Model katalog kaynakları (OpenRouter/NIM/Ollama) ağdan okur. Ölçüldü (30 Ekim):
+        `command_choices` olay döngüsünde doğrudan çalışıyor, ağ süresince tüm stdio
+        döngüsünü donduruyordu ve istisnası `handle` sınırına sızıyordu; artık ayrı
+        thread'de koşar, hata genel komut hatasına çevrilir.
+        """
         name = str(data.get("ad", ""))
         argument = str(data.get("arguman", ""))
-        payload = command_choices(self._state, name, argument)
+        try:
+            payload = await asyncio.to_thread(command_choices, self._state, name, argument)
+        except Exception as error:  # katalog/ağ hatası: oturum ve döngü ayakta kalır
+            logging.getLogger(__name__).error(
+                "Komut seçenekleri üretilemedi (%s): %s", name, type(error).__name__
+            )
+            return {"ok": False, "metin": messages.APP_COMMAND_FAILED}
         if payload is None:
             return {"ok": False, "metin": messages.APP_COMMAND_UNKNOWN}
         return {"ok": True, "secici": payload}

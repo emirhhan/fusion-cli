@@ -2094,3 +2094,46 @@ async def test_git_ve_degisiklik_sorgulari_olay_dongusunu_bloklamaz(tmp_path, mo
         assert dongu_canli  # döngü, bekleyen git işi sürerken çalışabiliyor
         birakma.set()
         await asyncio.wait_for(gorev, 5)
+
+
+async def test_komut_secenekleri_olay_dongusunu_bloklamaz(tmp_path, monkeypatch) -> None:
+    """Ölçüldü (30 Ekim, S1-22): `command_choices` (model kataloğu: ağ) olay döngüsünde
+    doğrudan çalışıyor, süresince tüm stdio döngüsü donuyordu."""
+    import time
+
+    from fusion_cli.appserver import session as modul
+
+    def yavas(_state, _ad, _arguman):
+        time.sleep(0.4)
+        return None
+
+    monkeypatch.setattr(modul, "command_choices", yavas)
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    vuruslar: list[float] = []
+
+    async def kalp() -> None:
+        for _ in range(8):
+            vuruslar.append(time.monotonic())
+            await asyncio.sleep(0.05)
+
+    await asyncio.gather(
+        kalp(), oturum.handle(Request("1", "komut.secenekler", {"ad": "model", "arguman": ""}))
+    )
+
+    assert max(b - a for a, b in zip(vuruslar, vuruslar[1:], strict=False)) < 0.2
+
+
+async def test_komut_secenekleri_hatasi_genel_hataya_donusur(tmp_path, monkeypatch) -> None:
+    from fusion_cli.appserver import session as modul
+
+    def bozuk(_state, _ad, _arguman):
+        raise OSError("ag")
+
+    monkeypatch.setattr(modul, "command_choices", bozuk)
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(Request("1", "komut.secenekler", {"ad": "model", "arguman": ""}))
+
+    assert _sonuc(satirlar, "1") == {"ok": False, "metin": messages.APP_COMMAND_FAILED}

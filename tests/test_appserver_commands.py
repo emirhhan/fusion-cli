@@ -322,3 +322,18 @@ def test_secim_uretici_hatasi_guvenli_sonuca_cevrilir(
     result = run_command(build_registry(), state, "development", "kaynak openrouter-free")
     assert result == {"ok": False, "metin": messages.APP_COMMAND_FAILED}
     assert "AG-AYRINTISI" not in result["metin"]
+
+
+def test_komut_hatasi_gunluge_yazilir(state, caplog) -> None:
+    """Ölçüldü (30 Ekim, S1-21): `except Exception` hiçbir iz bırakmıyordu."""
+    registry = build_registry()
+
+    def bozuk(_state, _arg):
+        raise ConnectionError("ag yok")
+
+    registry.register(SlashCommand("bozuk-komut", "Test", bozuk))
+    with caplog.at_level("ERROR"):
+        sonuc = run_command(registry, state, "bozuk-komut", "")
+
+    assert sonuc == {"ok": False, "metin": messages.APP_COMMAND_FAILED}
+    assert "bozuk-komut" in caplog.text and "ConnectionError" in caplog.text

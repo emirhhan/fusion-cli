@@ -26,6 +26,7 @@ reddedilir; `list_commands` bunları `destekleniyor: False` ile işaretler.
 from __future__ import annotations
 
 import io
+import logging
 from collections.abc import Callable, Sequence
 from typing import Any, Literal, TypedDict
 
@@ -38,6 +39,8 @@ from ..config.credentials import FernetSecretStore
 from ..core.constants import MAX_OUTPUT_CHARS
 from ..providers.registry import BUILTIN_PROVIDERS, ProviderDefinition
 from ..ui import messages
+
+_LOG = logging.getLogger(__name__)
 from ..ui.picker import Choice
 
 
@@ -177,7 +180,10 @@ def run_command(
         if special is not None:
             return special
         return {"ok": True, "metin": command.handler(state, argument)}
-    except Exception:  # araç sınırı: süreç ve hassas hata ayrıntıları korunur
+    except Exception as error:  # araç sınırı: süreç ve hassas hata ayrıntıları korunur
+        # Kullanıcıya genel mesaj; neden günlükte (yalnız tür adı — ayrıntı sır taşıyabilir).
+        # Ölçüldü (30 Ekim): hiç loglanmıyordu, ağ/config/katalog hatası iz bırakmıyordu.
+        _LOG.error("Komut çalıştırılamadı (%s): %s", canonical, type(error).__name__)
         return _error(messages.APP_COMMAND_FAILED)
 
 
