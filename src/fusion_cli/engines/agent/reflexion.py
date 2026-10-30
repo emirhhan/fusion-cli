@@ -238,6 +238,21 @@ def unverified_action_message(effect: str | None) -> str:
     )
 
 
+def unverified_action_reply(effect: str | None, reply: str) -> str:
+    """Kanıtsız iddia uyarısını ÖNE koy, modelin cevabını SİLME (A2-22).
+
+    Ölçüldü (30 Ekim): kapı cevabı tamamen sabit bir mesajla değiştiriyordu; bir
+    komutu/akışı AÇIKLAYAN meşru cevap ("git push yapınca ... olur") yanlış-pozitifle
+    kayboluyordu. Uyarı başta kalır (kullanıcı önce onu görür), cevap "doğrulanmadı"
+    etiketiyle altında korunur; geçmişe de aynı metin gider, iddia olgu gibi taşınmaz.
+    """
+    warning = unverified_action_message(effect)
+    kept = reply.strip()
+    if not kept:
+        return warning
+    return f"{warning}\n\nModelin cevabı (kanıtsız, doğrulanmadı):\n{kept}"
+
+
 def tool_contract_repair_note(detail: str) -> Message:
     """Modele bozuk çağrıyı düzeltmesi için TEK ve kesin bir şans ver.
 

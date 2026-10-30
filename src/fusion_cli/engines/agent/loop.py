@@ -1456,16 +1456,11 @@ async def _drive(
                         else reflexion.unsupported_claim_note()
                     )
                     continue
-                # Sohbet/gözlem kipi yazmaya açılmaz; kanıtsız iddia teslim edilmez.
-                messages[-1] = Message(
-                    "assistant", reflexion.unverified_action_message(unsupported_claim)
-                )
-                return _outcome(
-                    reflexion.unverified_action_message(unsupported_claim),
-                    messages,
-                    state,
-                    ok=False,
-                )
+                # Sohbet/gözlem kipi yazmaya açılmaz; kanıtsız iddia olgu olarak teslim
+                # edilmez ama cevap da silinmez: uyarı başa eklenir (A2-22).
+                reply = reflexion.unverified_action_reply(unsupported_claim, final_text)
+                messages[-1] = Message("assistant", reply)
+                return _outcome(reply, messages, state, ok=False)
             refusal_note = _refusal_note(
                 final_text,
                 state,

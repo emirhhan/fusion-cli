@@ -25,13 +25,20 @@ def deps_for(tmp_path, model):
     return deps
 
 
+def _uyari_basta_cevap_korunur(metin: str) -> None:
+    """A2-22: uyarı BAŞTA, modelin cevabı silinmeden ve 'doğrulanmadı' etiketiyle altta."""
+    assert metin.startswith("İşlem tamamlanmadı")
+    assert "doğrulanmadı" in metin
+    assert LIE in metin
+
+
 @pytest.mark.parametrize("model", MODELS)
 async def test_calismaya_baslama_aracsiz_basari_sayilmaz(tmp_path, monkeypatch, model):
     provider = ScriptedProvider([model_result(LIE)] * 4)
     install_provider(monkeypatch, provider)
     result = await run_agent(TASK, deps_for(tmp_path, model))
     assert not result.ok
-    assert LIE not in result.final_text
+    _uyari_basta_cevap_korunur(result.final_text)
     assert result.tool_calls_made == 0
 
 
@@ -42,7 +49,7 @@ async def test_siniflandirilmayan_istekte_yalan_islem_iddiasi_da_engellenir(
     install_provider(monkeypatch, ScriptedProvider([model_result(LIE)] * 4))
     result = await run_agent("bir el at", deps_for(tmp_path, model))
     assert not result.ok
-    assert LIE not in result.final_text
+    _uyari_basta_cevap_korunur(result.final_text)
 
 
 @pytest.mark.parametrize("model", MODELS)
@@ -106,7 +113,7 @@ async def test_sohbet_yalan_mutasyonu_duzeltmek_icin_yazmaya_acilmaz(tmp_path, m
     install_provider(monkeypatch, ScriptedProvider([model_result(LIE)] * 4))
     result = await run_agent("bir el at", deps_for(tmp_path, "openai/test"), chat_mode=True)
     assert not result.ok
-    assert LIE not in result.final_text
+    _uyari_basta_cevap_korunur(result.final_text)
     assert result.mutating_tool_calls_made == 0
 
 
@@ -147,7 +154,8 @@ async def test_ingilizce_kanitsiz_basari_da_engellenir(tmp_path, monkeypatch):
     install_provider(monkeypatch, ScriptedProvider([model_result(lie)] * 4))
     result = await run_agent("bir el at", deps_for(tmp_path, "openai/test"))
     assert not result.ok
-    assert lie not in result.final_text
+    assert result.final_text.startswith("İşlem tamamlanmadı")
+    assert lie in result.final_text and "doğrulanmadı" in result.final_text
 
 
 async def test_siniflanmayan_istekte_iddia_yeni_is_emrine_donusmez(tmp_path, monkeypatch):
