@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import "./SkillsCatalog.css";
 
@@ -85,6 +85,8 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
   const [notice, setNotice] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [skipped, setSkipped] = useState(0);
+  // Son açılan öğe kazanır: yavaş gelen eski ayrıntı/bildirim yeni seçimi ezmesin.
+  const openRequest = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -110,13 +112,15 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
   const digerleri = filtered.filter((item) => !(item.etkin && item.tur !== "talimat"));
 
   const open = (item: CatalogItem) => {
+    const requestId = ++openRequest.current;
     setSelected(item);
     setDetail("");
     setNotice("");
     void client.request("yetenek.detay", { tur: item.tur, ad: item.kimlik }).then((payload) => {
+      if (requestId !== openRequest.current) return;
       if (payload.ok !== true || typeof payload.icerik !== "string") throw new Error(String(payload.metin ?? "Ayrıntı alınamadı."));
       setDetail(payload.icerik);
-    }).catch((reason) => setError(String(reason)));
+    }).catch((reason) => { if (requestId === openRequest.current) setError(String(reason)); });
   };
 
   const toggle = (item: CatalogItem) => {
@@ -129,9 +133,11 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
   };
 
   const queueNext = (item: CatalogItem) => {
+    const requestId = openRequest.current;
     void client.request("yetenek.kullan", { tur: item.tur, ad: item.kimlik }).then((payload) => {
       if (payload.ok !== true) throw new Error(String(payload.metin ?? "Yetenek seçilemedi."));
-      setNotice(`${item.ad}, sonraki görev için hazır.`);
+      // Yanıt gelene dek başka öğe açıldıysa bildirim yeni öğenin paneline karışmasın.
+      if (requestId === openRequest.current) setNotice(`${item.ad}, sonraki görev için hazır.`);
     }).catch((reason) => setError(String(reason)));
   };
 

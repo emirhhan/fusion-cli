@@ -68,3 +68,28 @@ describe("SkillsCatalog", () => {
     await waitFor(() => expect(fake.request).toHaveBeenCalledWith("yetenek.etkinlik", { tur: "beceri", ad: "frontend-design", etkin: false }));
   });
 });
+
+describe("SkillsCatalog yarış", () => {
+  // Ölçüldü (30 Ekim, U6-05): ilk isteğin içeriği ikinciden sonra gelirse ikinci seçilen öğenin
+  // panelinde birincinin ayrıntısı görünüyordu.
+  it("yavaş gelen eski ayrıntı, sonradan seçilen öğenin ayrıntısını ezmez", async () => {
+    const bekleyen: Record<string, (deger: Record<string, unknown>) => void> = {};
+    const base = client();
+    const yarisli = {
+      request: vi.fn((name: string, data: Record<string, unknown>) => {
+        if (name === "yetenek.detay") return new Promise<Record<string, unknown>>((coz) => { bekleyen[String(data.ad)] = coz; });
+        return (base as unknown as { request: (n: string, d: Record<string, unknown>) => Promise<Record<string, unknown>> }).request(name, data);
+      }),
+    } as unknown as ProtocolClient;
+    render(<SkillsCatalog client={yarisli} onClose={() => undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "frontend-design ayrıntılarını aç" }));
+    fireEvent.click(screen.getByRole("button", { name: "reviewer ayrıntılarını aç" }));
+    await waitFor(() => expect(Object.keys(bekleyen).length).toBe(2));
+    bekleyen.reviewer({ ok: true, icerik: "REVIEWER ayrıntısı" });
+    await screen.findByText("REVIEWER ayrıntısı");
+    bekleyen["frontend-design"]({ ok: true, icerik: "FRONTEND ayrıntısı" });
+    await new Promise((coz) => setTimeout(coz, 20));
+    expect(screen.queryByText("FRONTEND ayrıntısı")).toBeNull();
+    expect(screen.getByText("REVIEWER ayrıntısı")).toBeTruthy();
+  });
+});
