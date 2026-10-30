@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import itertools
 import json
 import subprocess
 import sys
@@ -2121,7 +2122,7 @@ async def test_komut_secenekleri_olay_dongusunu_bloklamaz(tmp_path, monkeypatch)
         kalp(), oturum.handle(Request("1", "komut.secenekler", {"ad": "model", "arguman": ""}))
     )
 
-    assert max(b - a for a, b in zip(vuruslar, vuruslar[1:], strict=False)) < 0.2
+    assert max(b - a for a, b in itertools.pairwise(vuruslar)) < 0.2
 
 
 async def test_komut_secenekleri_hatasi_genel_hataya_donusur(tmp_path, monkeypatch) -> None:

@@ -60,7 +60,11 @@ _NORMALIZER_POLICY = "fallback"
 _LOG = logging.getLogger(__name__)
 #: Normalizer çökerse rakamlar tek tek okunur (alfabede rakam yok; yoksa boşluğa dönüp düşerdi).
 _DIGIT_WORDS = dict(
-    zip("0123456789", "sıfır bir iki üç dört beş altı yedi sekiz dokuz".split(), strict=True)
+    zip(
+        "0123456789",
+        ["sıfır", "bir", "iki", "üç", "dört", "beş", "altı", "yedi", "sekiz", "dokuz"],
+        strict=True,
+    )
 )
 
 
