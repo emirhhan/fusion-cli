@@ -82,6 +82,11 @@ def verified_owner(folder: Path, job_id: str, context: ToolContext) -> int:
         or not isinstance(value.get("identity"), str)
     ):
         raise ValueError("İş başka oturuma ait veya başlangıç kimliği belirsiz; durdurulmadı.")
-    if process_identity(pid, value["token"]) != value["identity"]:
+    try:
+        identity = process_identity(pid, value["token"])
+    except (OSError, subprocess.SubprocessError):
+        # `ps` zaman aşımı/izin hatası ham istisna olarak `job_status`'u düşürmesin.
+        raise ValueError("İşin süreç kimliği okunamadı; durdurulmadı.") from None
+    if identity != value["identity"]:
         raise ValueError("İşin süreç başlangıcı değişmiş; eski PID durdurulmadı.")
     return pid
