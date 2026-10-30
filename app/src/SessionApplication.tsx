@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
 import { useKapatmaNabzi } from "./dialogs/closeHeartbeat";
+import { osBildirimiGonder } from "./notifications/osNotice";
 import { ShareDialog } from "./dialogs/ShareDialog";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
 import { NewTaskDialog } from "./dialogs/NewTaskDialog";
@@ -734,11 +735,16 @@ export function SessionUygulama({
     create: createScheduledSession,
     send: controller.send,
     sessions: controller.state.sessions,
-    onNeedsApproval: ({ task, sessionId, tool }) => setScheduleNotice({
-      sessionId,
-      baslik: "Zamanlanmış görev onay bekliyor",
-      metin: `"${task.baslik}" görevi "${tool}" için onay istiyor. Sen onaylayana kadar bekler; onaylamazsan ilerlemez.`,
-    }),
+    onNeedsApproval: ({ task, sessionId, tool }) => {
+      const baslik = "Zamanlanmış görev onay bekliyor";
+      setScheduleNotice({
+        sessionId,
+        baslik,
+        metin: `"${task.baslik}" görevi "${tool}" için onay istiyor. Sen onaylayana kadar bekler; onaylamazsan ilerlemez.`,
+      });
+      // Kullanıcı başka uygulamadaysa şerit görünmez: işletim sistemi bildirimi de gider (U5-57).
+      void osBildirimiGonder(baslik, `"${task.baslik}" görevi "${tool}" için onay bekliyor.`);
+    },
     onBlocked: (task, reason) => setScheduleNotice({
       sessionId: null,
       baslik: "Zamanlanmış görev başlatılmadı",
