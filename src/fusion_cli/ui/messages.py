@@ -583,6 +583,9 @@ PROFILES_EDIT_USAGE = "kullanım: /profiles  ·  /profiles edit <profil> [incomp
 MCP_MISSING_DEP = "MCP için resmî SDK gerekli ama kurulu değil. Kur: pip install 'fusion-cli[mcp]'"
 MCP_TOOLS_LOADED = "{count} dış MCP aracı bağlandı"
 MCP_CONNECT_FAILED = "MCP sunucusuna bağlanılamadı: {error} — dış araçlar olmadan devam ediliyor"
+MCP_TOOLS_TIMEOUT = (
+    "MCP sunucularına {seconds:.0f} sn içinde bağlanılamadı; komut, args ve ağı kontrol et."
+)
 MCP_NO_SERVERS = "Yapılandırılmış MCP sunucusu yok. Eklemek için: /mcp add <ad> <komut> [argüman…]"
 MCP_ADDED = "'{name}' MCP sunucusu eklendi. Etkinleşmesi için Fusion'ı yeniden başlat."
 MCP_REPLACED = "'{name}' adlı sunucu zaten vardı, yeni komutla güncellendi."

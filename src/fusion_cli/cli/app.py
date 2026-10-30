@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Coroutine
 from dataclasses import fields, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, TypeVar
+from typing import TYPE_CHECKING, Annotated, Any, TypeVar
 
 import typer
 from rich.console import Console
@@ -70,6 +71,8 @@ console = Console()
 #: (satır satır JSON) ve `run --json | jq` stdout'u protokol için kullanır; oraya düşen düz
 #: metin istemcide ayrıştırma hatasıdır (L1-11).
 error_console = Console(stderr=True)
+#: `fusion mcp-tools` sunuculara bağlanıp araç keşfederken en fazla bekleyeceği süre (sn).
+MCP_TOOLS_TIMEOUT_S = 60.0
 
 T = TypeVar("T")
 
@@ -150,7 +153,7 @@ def run(
     observers = build_observers(
         task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
     )
-    result = asyncio.run(
+    result = _run_observed(
         with_web_cleanup(
             run_task(
                 task,
@@ -160,7 +163,9 @@ def run(
                 synthesis=False if no_synthesis else None,
                 memory=open_memory(config, root=Path.cwd(), enabled=not no_memory),
             )
-        )
+        ),
+        renderer,
+        observers,
     )
     observers.finish()
     _print_usage(observers, quiet=quiet or as_json)
@@ -311,7 +316,7 @@ def agent(
         task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
     )
 
-    outcome = asyncio.run(
+    outcome = _run_observed(
         with_web_cleanup(
             run_agent_task(
                 task,
@@ -332,12 +337,33 @@ def agent(
                 memory=open_memory(config, root=root, enabled=not no_memory),
                 extra_roots=tuple(add_dir or ()),
             )
-        )
+        ),
+        renderer,
+        observers,
     )
     observers.finish()
     _print_usage(observers, quiet=quiet or as_json)
-    if not outcome.final_text.strip():
+    # Çıkış kodu `outcome.ok`a bakar (paperclip ile aynı kural): Ölçüldü (30 Ekim) yalnız
+    # boş metin 1 yapıyordu; hata mesajı/bütçe durdurması/hız sınırı dolu metinle 0 dönüyor,
+    # betikler başarısızlığı yakalayamıyordu (L1-46).
+    if not outcome.final_text.strip() or not outcome.ok:
         raise typer.Exit(1)
+
+
+def _run_observed(
+    coro: Coroutine[Any, Any, T], renderer: ConsoleRenderer, observers: Observers
+) -> T:
+    """Koşuyu çalıştır; hata/Ctrl-C ile KESİLİRSE göstergeyi ve izi yine kapat.
+
+    `TurnFinished` yayınlanmadan çıkış `Live` göstergesini açık, iz dosyasını kapanmamış
+    bırakıyordu (L1-28). Normal bitişte `abort` etkisizdir; istisna aynen yeniden fırlatılır.
+    """
+    try:
+        return asyncio.run(coro)
+    except BaseException:
+        renderer.abort()
+        observers.finish()
+        raise
 
 
 def _parse_mode(raw: str) -> ApprovalMode:
@@ -664,7 +690,16 @@ def mcp_tools() -> None:
                         f"{escape(tool.description or '')}"
                     )
 
-    asyncio.run(_run())
+    try:
+        asyncio.run(asyncio.wait_for(_run(), timeout=MCP_TOOLS_TIMEOUT_S))
+    except FusionError:
+        raise
+    except TimeoutError as error:
+        # Bağlanamayan sunucu komutu sonsuza dek bekletmesin ve çıplak traceback vermesin
+        # (L1-26).
+        raise FusionError(messages.MCP_TOOLS_TIMEOUT.format(seconds=MCP_TOOLS_TIMEOUT_S)) from error
+    except Exception as error:
+        raise FusionError(messages.MCP_CONNECT_FAILED.format(error=error)) from error
 
 
 @app.command(name="mcp-add")

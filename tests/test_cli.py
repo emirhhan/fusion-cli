@@ -288,3 +288,76 @@ def test_karsilama_terminal_degilse_kontrol_dizisi_yazmaz():
     banner.print_welcome(console, banner.SessionInfo(**_ornek_oturum()), clear=True)
 
     assert "\x1b" not in tampon.getvalue()
+
+
+# --- Dalga 4: agent çıkış kodu, kesilen koşuda temizlik, mcp-tools zaman aşımı (L1-26/28/46) --- #
+
+
+def _agent_calistir(monkeypatch, sonuc):
+    async def _sahte(*args, **kwargs):
+        return sonuc
+
+    monkeypatch.setattr(app_module, "run_agent_task", _sahte)
+    return runner.invoke(app_module.app, ["agent", "gorev", "--no-memory", "--quiet"])
+
+
+def test_agent_basarisiz_ama_metin_dolu_sonuc_sifirdan_farkli_doner(monkeypatch):
+    from types import SimpleNamespace
+
+    sonuc = SimpleNamespace(final_text="bütçe doldu, yarım kaldı", ok=False)
+
+    assert _agent_calistir(monkeypatch, sonuc).exit_code == 1
+
+
+def test_agent_basarili_sonuc_sifir_doner(monkeypatch):
+    from types import SimpleNamespace
+
+    assert _agent_calistir(monkeypatch, SimpleNamespace(final_text="tamam", ok=True)).exit_code == 0
+
+
+def test_agent_hata_firlatinca_gosterge_ve_iz_kapatilir(monkeypatch):
+    kapanis = []
+
+    async def _patlat(*args, **kwargs):
+        raise RuntimeError("motor çöktü")
+
+    monkeypatch.setattr(app_module, "run_agent_task", _patlat)
+    monkeypatch.setattr(
+        app_module.ConsoleRenderer, "abort", lambda self: kapanis.append("abort"), raising=True
+    )
+    monkeypatch.setattr(
+        app_module.Observers, "finish", lambda self: kapanis.append("finish"), raising=True
+    )
+
+    sonuc = runner.invoke(app_module.app, ["agent", "gorev", "--no-memory"])
+
+    assert sonuc.exit_code != 0
+    assert kapanis == ["abort", "finish"]
+
+
+def test_mcp_tools_baglanamayan_sunucuda_zaman_asimi_fusion_hatasi_verir(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    import pytest
+
+    from fusion_cli.core.errors import FusionError
+
+    class _Asili:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            await asyncio.sleep(30)
+
+        async def __aexit__(self, *args):
+            return None
+
+    monkeypatch.setattr("fusion_cli.mcp_bridge.client.McpClient", _Asili)
+    monkeypatch.setattr(
+        app_module, "load_config", lambda: SimpleNamespace(mcp_servers=(SimpleNamespace(name="x"),))
+    )
+    monkeypatch.setattr(app_module, "MCP_TOOLS_TIMEOUT_S", 0.05)
+
+    with pytest.raises(FusionError, match="bağlanılamadı"):
+        app_module.mcp_tools()
