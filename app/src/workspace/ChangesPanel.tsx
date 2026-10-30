@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import "./ChangesPanel.css";
 
@@ -39,16 +39,26 @@ export function ChangesPanel({ client, onChanged, revision }: ChangesPanelProps)
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [confirmPath, setConfirmPath] = useState<string | null>(null);
+  //: Geri alma hatası listeyi SİLMEZ; diğer dosyalara erişim sürer ve yeniden denenebilir (U4-45).
+  const [actionError, setActionError] = useState<string | null>(null);
+  const sequence = useRef(0);
+  const loaded = useRef(false);
 
   const refresh = useCallback(async () => {
-    setLoading(true);
+    // Yalnız ilk yüklemede "yükleniyor" gösterilir; sonraki yenilemeler listeyi sökmez (açık onay
+    // ve kaydırma korunur). Geç gelen eski yanıt yenisini ezmez.
+    const mine = ++sequence.current;
+    if (!loaded.current) setLoading(true);
     try {
-      setChanges(decode(await client.request("proje.degisiklikler", {})));
+      const next = decode(await client.request("proje.degisiklikler", {}));
+      if (mine !== sequence.current) return;
+      setChanges(next);
       setError(null);
+      loaded.current = true;
     } catch (reason) {
-      setError(String(reason));
+      if (mine === sequence.current) setError(String(reason));
     } finally {
-      setLoading(false);
+      if (mine === sequence.current) setLoading(false);
     }
   }, [client]);
 
@@ -62,6 +72,7 @@ export function ChangesPanel({ client, onChanged, revision }: ChangesPanelProps)
 
   return (
     <div className="changes-panel">
+      {actionError && <p className="changes-panel__state changes-panel__state--error" role="alert">{actionError}</p>}
       {changes.map((change) => (
         <article className="changes-panel__item" key={change.yol}>
           <header>
@@ -81,12 +92,13 @@ export function ChangesPanel({ client, onChanged, revision }: ChangesPanelProps)
               <button onClick={() => setConfirmPath(null)} type="button">Vazgeç</button>
               <button
                 onClick={() => {
+                  setActionError(null);
                   void client.request("proje.geri_al", { yol: change.yol }).then((result) => {
                     if (result.ok !== true) throw new Error(String(result.metin ?? "Geri alınamadı."));
                     setConfirmPath(null);
                     onChanged?.();
                     return refresh();
-                  }).catch((reason) => setError(String(reason)));
+                  }).catch((reason) => setActionError(reason instanceof Error ? reason.message : String(reason)));
                 }}
                 type="button"
               >

@@ -40,16 +40,21 @@ export function TestsPanel({ client, processes, revision = 0 }: { client: Protoc
     setCommands([]);
     setGit(null);
     setError(null);
-    void Promise.all([
-      client.request("proje.komut_onerileri", {}),
-      client.request("proje.git_durum", {}),
-    ]).then(([commandPayload, gitPayload]) => {
+    // Git yok/bozuk depo öneri komutlarını gizlemez: iki okuma bağımsızdır (U4-49).
+    void Promise.allSettled([
+      client.request("proje.komut_onerileri", {}).then(commandsFrom),
+      client.request("proje.git_durum", {}).then(gitFrom),
+    ]).then(([commandResult, gitResult]) => {
       if (!active) return;
-      setCommands(commandsFrom(commandPayload));
-      setGit(gitFrom(gitPayload));
-      setError(null);
+      if (commandResult.status === "rejected") {
+        setError(String(commandResult.reason));
+      } else {
+        setCommands(commandResult.value);
+        setError(null);
+      }
+      if (gitResult.status === "fulfilled") setGit(gitResult.value);
       setLoading(false);
-    }).catch((reason) => { if (active) { setError(String(reason)); setLoading(false); } });
+    });
     return () => { active = false; };
   }, [client, revision]);
 

@@ -40,3 +40,14 @@ it('dosya güncellenirken kullanıcının açık Web sekmesi korunur', async () 
   await waitFor(() => expect(client.request).toHaveBeenCalledTimes(2));
   expect(screen.getByRole('tab', { name: 'Web' }).getAttribute('aria-selected')).toBe('true');
 });
+
+// Ölçüldü (30 Ekim): git_durum hatası öneri komutlarını da gizliyordu (U4-49).
+it('git durumu okunamasa da öneri komutları görünür (U4-49)', async () => {
+  const request = vi.fn(async (name: string) => name === 'proje.komut_onerileri'
+    ? { ok: true, komutlar: [{ tur: 'test', ad: 'Test', komut: 'npm test' }] }
+    : { ok: false });
+  const client = { request } as unknown as ProtocolClient;
+  render(<TestsPanel client={client} processes={{ busy: false, processes: [] } as unknown as ProcessController} revision={0} />);
+  await screen.findByText('npm test');
+  expect(screen.queryByRole('alert')).toBeNull();
+});
