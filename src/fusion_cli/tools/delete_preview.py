@@ -77,12 +77,16 @@ def _size_text(path: Path) -> str:
         return _human_bytes(path.stat().st_size)
     count = 0
     total = 0
-    for item in path.rglob("*"):
-        count += 1
-        if count > PREVIEW_MAX_ENTRIES:
-            return f"{PREVIEW_MAX_ENTRIES:,}+ öğe".replace(",", ".")
-        if item.is_file() and not item.is_symlink():
-            total += item.stat().st_size
+    try:
+        for item in path.rglob("*"):
+            count += 1
+            if count > PREVIEW_MAX_ENTRIES:
+                return f"{PREVIEW_MAX_ENTRIES:,}+ öğe".replace(",", ".")
+            if item.is_file() and not item.is_symlink():
+                total += item.stat().st_size
+    except OSError:
+        # İzin hatası onay kartını düşürmesin: o ana kadar sayılanı "en az" diye göster.
+        return f"en az {count} öğe, {_human_bytes(total)} (bazı alt klasörlere erişilemedi)"
     return f"{count} öğe, {_human_bytes(total)}"
 
 
@@ -101,7 +105,9 @@ _SCRIPT_RUNNERS = frozenset(
 )
 _SCRIPT_DELETE = re.compile(
     r"shutil\.(rmtree|move)|os\.(remove|unlink|rmdir|removedirs|rename|replace)\b|"
-    r"\.unlink\(|\.rmdir\(|\.(?:rm|rmSync|unlinkSync|rmdirSync|rename|renameSync)\s*\(|"
+    r"\.unlink\(|\.rmdir\(|\.(?:rm|rmSync|unlinkSync|rmdirSync|renameSync)\s*\(|"
+    r"\.rename\s*\((?!\s*(?:columns|index|mapper|inplace|axis|level|errors|copy)\s*=)|"
+    r"\bsubprocess\.\w+\(\s*\[\s*['\"]rm['\"]|\bFileUtils\.rm_rf\b|\bRemove-Item\b|"
     r"\brimraf\b|\brm\s+(?:-\S*\s+)*(?:-[a-zA-Z]*[rRf]|--(?:recursive|force))|"
     r"\bfind\b.*-delete|\bunlink\b|\brmdir\s*\(|\bsend2trash\b|"
     r"\bFile\.delete\b|\bFileUtils\.rm"
@@ -178,6 +184,12 @@ def _script_path(command: str, root: Path) -> Path | None:
     except ValueError:
         return None
     runners = {name.rstrip("0123456789.") for name in _SCRIPT_RUNNERS}
+    if parts and parts[0].startswith("./"):
+        # `./clean.sh`: `command_policy` bunu sormadan geçirir, içeriği burada taranır.
+        return (root / parts[0]).resolve()
+    if len(parts) >= 2 and parts[0] == "make":
+        makefile = root / "Makefile"
+        return makefile.resolve() if makefile.is_file() else None
     if len(parts) < 2 or parts[0].rsplit("/", 1)[-1].rstrip("0123456789.") not in runners:
         return None
     script = next((part for part in parts[1:] if not part.startswith("-")), None)

@@ -225,3 +225,67 @@ def test_denetim_gunlugu_her_arac_sonucunu_ekler_ve_sirri_maskeler(tmp_path):
     assert ilk["arac"] == "run_shell" and ilk["ajan"] == "kodcu-1"
     assert "rm -rf x" in ilk["argumanlar"]
     assert sir not in satirlar[0]
+
+
+# --- Dalga 4 (T1-50) -----------------------------------------------------------------
+
+
+def test_dogrudan_betik_cagrisi_taranir(tmp_path):
+    """`./clean.sh` command_policy tarafından sormadan geçiyor ama içeriği taranmıyordu."""
+    from fusion_cli.tools.delete_preview import _script_path
+
+    betik = tmp_path / "clean.sh"
+    betik.write_text("rm -rf ~/Desktop/eski\n", encoding="utf-8")
+
+    assert _script_path("./clean.sh", tmp_path) == betik.resolve()
+    assert _script_path("./clean.sh --dry", tmp_path) == betik.resolve()
+
+
+def test_make_hedefi_makefile_i_tarar(tmp_path):
+    from fusion_cli.tools.delete_preview import _script_path
+
+    (tmp_path / "Makefile").write_text("clean:\n\trm -rf build\n", encoding="utf-8")
+
+    assert _script_path("make clean", tmp_path) == (tmp_path / "Makefile").resolve()
+
+
+def test_make_olmayan_komut_betik_sayilmaz(tmp_path):
+    from fusion_cli.tools.delete_preview import _script_path
+
+    assert _script_path("ls ./clean.sh", tmp_path) is None
+    assert _script_path("make clean", tmp_path) is None  # Makefile yok
+
+
+@pytest.mark.parametrize(
+    "kod",
+    [
+        'subprocess.run(["rm", "-rf", x])',
+        "FileUtils.rm_rf('tmp')",
+        "Remove-Item -Recurse -Force build",
+    ],
+)
+def test_ek_silme_kaliplari_yakalanir(kod):
+    from fusion_cli.tools.delete_preview import _SCRIPT_DELETE
+
+    assert _SCRIPT_DELETE.search(kod)
+
+
+@pytest.mark.parametrize(
+    "kod", ["df = df.rename(columns={'a': 'b'})", "df.rename(index=str)", "df.rename(inplace=True)"]
+)
+def test_pandas_rename_yanlis_pozitif_vermez(kod):
+    from fusion_cli.tools.delete_preview import _SCRIPT_DELETE
+
+    assert _SCRIPT_DELETE.search(kod) is None
+
+
+def test_izin_hatasi_boyut_hesabini_dusurmez(tmp_path, monkeypatch):
+    from fusion_cli.tools import delete_preview
+
+    def _izin_yok(self, *a, **k):
+        raise PermissionError("izin yok")
+
+    monkeypatch.setattr(delete_preview.Path, "rglob", _izin_yok)
+    (tmp_path / "klasor").mkdir()
+
+    assert isinstance(delete_preview._size_text(tmp_path / "klasor"), str)
