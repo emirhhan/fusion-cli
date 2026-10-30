@@ -225,6 +225,10 @@ class RuntimeConfig:
     #: Ajan bir dosyayı değiştirince o dosya için çalışacak kullanıcı komutları
     #: (`{path}` yerine dosya yolu). Boş = kanca yok (varsayılan davranış).
     post_edit_commands: tuple[str, ...] = ()
+    #: Öğretmenle (web sohbet) tek bir soru-cevap için en fazla bekleme. Genel API
+    #: zaman aşımından (`request_timeout_s`) AYRIDIR: web LLM düşünme süresi uzun
+    #: olabilir ama bir tur dakikalarca öğretmeni bekleyemez (A4-31).
+    teacher_timeout_s: float = 300.0
 
 
 @dataclass(frozen=True, slots=True)

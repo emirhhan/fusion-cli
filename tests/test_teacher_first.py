@@ -119,7 +119,7 @@ async def test_dogrulanmamis_oturumda_cirak_tek_basina_ilerler(monkeypatch, tmp_
 
 async def test_ogretmen_zaman_asiminda_cirak_beklemeden_ilerler(monkeypatch, tmp_path) -> None:
     deps, _sink, teacher, apprentice = _setup(monkeypatch, tmp_path)
-    deps.config = replace(deps.config, runtime=replace(deps.config.runtime, request_timeout_s=0.02))
+    deps.config = replace(deps.config, runtime=replace(deps.config.runtime, teacher_timeout_s=0.02))
 
     async def _slow_complete(_request):
         await asyncio.sleep(1)

@@ -137,40 +137,71 @@ _UNWORKABLE_CAVEAT = (
 )
 
 
+#: Bir soruda öğretmene en fazla bu kadar deneme yapılır (ilk deneme + 1 yeniden deneme).
+#: İKİ ardışık başarısızlık öğretmeni o tur için kapatır; tek bir CAPTCHA, geçici ağ
+#: hatası ya da bir kez yavaş cevap kalıcı kapanma sebebi DEĞİLDİR (A4-31).
+_TEACHER_MAX_ATTEMPTS = 2
+
+
 async def _ask(
     registry: ToolRegistry, deps: AgentDeps, *, question: str, durum: str, bicim: str = ""
 ) -> str | None:
-    deps.teacher_lesson_sync_deferred = True
-    try:
-        async with asyncio.timeout(deps.config.runtime.request_timeout_s):
-            result = await registry.execute(
-                "ask_teacher",
-                {"question": question, "durum": durum, "bicim": bicim},
-                deps.tool_context,
+    """Öğretmene tek soru sor; geçici hatada BİR kez yeniden dene.
+
+    Ölçüldü (30 Ekim, A4-31): tek bir zaman aşımı ya da `ok=False` hemen
+    `teacher_unavailable_notified` bayrağını kurup öğretmeni kapatıyordu. Bekleme de
+    genel API zaman aşımına (`request_timeout_s`) bağlıydı; artık ayrı bir
+    `teacher_timeout_s` var.
+    """
+    runtime = deps.config.runtime
+    timeout_s = getattr(runtime, "teacher_timeout_s", runtime.request_timeout_s)
+    for attempt in range(1, _TEACHER_MAX_ATTEMPTS + 1):
+        last = attempt == _TEACHER_MAX_ATTEMPTS
+        deps.teacher_lesson_sync_deferred = True
+        try:
+            async with asyncio.timeout(timeout_s):
+                result = await registry.execute(
+                    "ask_teacher",
+                    {"question": question, "durum": durum, "bicim": bicim},
+                    deps.tool_context,
+                )
+        except TimeoutError:
+            if last:
+                _notify_unavailable(
+                    deps, "Öğretmen yanıtı zaman aşımına uğradı; tek başıma ilerliyorum."
+                )
+                return None
+            deps.publisher.publish(
+                StatusChanged(
+                    message="Öğretmen yanıtı zaman aşımına uğradı; bir kez daha deniyorum."
+                )
             )
-    except TimeoutError:
-        _notify_unavailable(deps, "Öğretmen yanıtı zaman aşımına uğradı; tek başıma ilerliyorum.")
-        return None
-    finally:
-        deps.teacher_lesson_sync_deferred = False
-    deps.publisher.publish(
-        ToolExecuted(
-            name="ask_teacher",
-            args={"question": question},
-            outcome=ToolOutcome.OK if result.ok else ToolOutcome.FAILED,
-            output=redact(result.output),
+            continue
+        finally:
+            deps.teacher_lesson_sync_deferred = False
+        deps.publisher.publish(
+            ToolExecuted(
+                name="ask_teacher",
+                args={"question": question},
+                outcome=ToolOutcome.OK if result.ok else ToolOutcome.FAILED,
+                output=redact(result.output),
+            )
         )
-    )
-    if not result.ok:
+        if result.ok:
+            return result.output
         if (result.structured or {}).get("teacher") == "refused":
             # Oturum ayakta, yalnız bu soru cevaplanmadı: öğretmen tur boyunca kapatılmaz.
             deps.publisher.publish(
                 StatusChanged(message="Öğretmen bu soruyu yanıtlamadı; plan olmadan ilerliyorum.")
             )
             return None
-        _notify_unavailable(deps, "Öğretmene ulaşılamadı; tek başıma ilerliyorum.")
-        return None
-    return result.output
+        if last:
+            _notify_unavailable(deps, "Öğretmene ulaşılamadı; tek başıma ilerliyorum.")
+            return None
+        deps.publisher.publish(
+            StatusChanged(message="Öğretmene ulaşılamadı; bir kez daha deniyorum.")
+        )
+    return None
 
 
 async def prepare_teacher_plan(

@@ -317,6 +317,10 @@ runtime:
   # Paralel deneme ek çağrı hakkı; 0 = kapalı (opt-in).
   workflow_attempt_calls: 0
   workflow_final_verification_calls: 2
+  # Öğretmene (web sohbet) tek soru için en fazla bekleme (sn). Genel API zaman
+  # aşımından ayrıdır; ilk başarısızlıkta bir kez yeniden denenir, iki ardışık
+  # başarısızlıktan sonra öğretmen o tur için kapatılır.
+  teacher_timeout_s: 300
 
 # ---------------------------------------------------------------------------
 # Fusion havuzu: aynı görev bu modellere PARALEL sorulur, hakem en iyisini seçer,

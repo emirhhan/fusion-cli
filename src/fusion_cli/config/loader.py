@@ -285,7 +285,7 @@ def _build_runtime(raw: object) -> RuntimeConfig:
     if runtime.workflow_attempt_calls < 0:
         raise ConfigError("runtime.workflow_attempt_calls: negatif olamaz.")
     # Aralık dışı değerler eskiden sessizce geçiyordu (negatif zaman aşımı, α > 1…; L2-19).
-    for name in ("request_timeout_s", "judge_timeout_s", "circuit_cooldown_s"):
+    for name in ("request_timeout_s", "judge_timeout_s", "circuit_cooldown_s", "teacher_timeout_s"):
         if getattr(runtime, name) <= 0:
             raise ConfigError(f"runtime.{name}: sıfırdan büyük olmalı.")
     for name in ("max_retries", "circuit_failure_threshold"):
