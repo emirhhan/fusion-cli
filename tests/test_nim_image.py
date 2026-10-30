@@ -144,10 +144,9 @@ async def test_govdesi_json_olmayan_200_yaniti_nim_hatasi_olur(tmp_path) -> None
             )
 
 
-def test_image_choices_acik_ve_dogrulanmis_web_oturumlarini_listeler() -> None:
-    """Ölçüldü (30 Ekim): süzme yalnız `provider in IMAGE_SELECTORS`; kapalı ya da
-    doğrulanmamış oturum arayüzde seçilebilir görünüp üretimde oturum hatası veriyordu
-    (P1-48)."""
+def test_image_choices_kapali_web_oturumunu_listelemez() -> None:
+    """Ölçüldü (30 Ekim): süzme yalnız `provider in IMAGE_SELECTORS`; kapalı oturum
+    arayüzde seçilebilir görünüp üretimde hata veriyordu (P1-48)."""
     from dataclasses import replace
 
     from fusion_cli.config.models import WebSessionConfig
@@ -166,13 +165,9 @@ def test_image_choices_acik_ve_dogrulanmis_web_oturumlarini_listeler() -> None:
 
     config = replace(
         make_config(),
-        web_sessions=(
-            oturum("tamam", enabled=True, login_verified=True),
-            oturum("kapali", enabled=False, login_verified=True),
-            oturum("dogrulanmamis", enabled=True, login_verified=False),
-        ),
+        web_sessions=(oturum("acik", enabled=True), oturum("kapali", enabled=False)),
     )
 
     degerler = {choice.value for choice in image_choices(config, environ={})}
 
-    assert degerler == {"gemini_web/tamam"}
+    assert degerler == {"gemini_web/acik"}
