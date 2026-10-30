@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ..core.image_jobs import IMAGE_JOB_REQUEST_PREFIX, ImageJobConflictError, ImageJobRecord
 from ..core.owned_thread import await_owned_thread
+from ..core.redaction import redact
 from ..core.submission import SubmissionKey, SubmissionReceipt, SubmissionState
 from ..memory.image_job_store import ImageJobStore
 from .image_job_artifacts import collect_outputs, outputs_current
@@ -18,6 +19,10 @@ _TERMINAL = frozenset(
     {SubmissionState.COMPLETED, SubmissionState.FAILED, SubmissionState.CANCELLED}
 )
 _LOG = logging.getLogger(__name__)
+#: Sağlayıcı çağrısının üst süresi (sn); takılan istek işi sonsuza dek `running` bırakmasın.
+RENDER_TIMEOUT_SECONDS = 900.0
+#: Günlüğe yazılan sağlayıcı mesajının üst uzunluğu.
+_LOG_DETAIL_CHARS = 300
 _MESSAGES = {
     "provider_failed": "Sağlayıcı görsel üretemedi. Bağlantı ve kota durumunu kontrol et.",
     "storage_failed": (
@@ -33,7 +38,14 @@ _MESSAGES = {
 class ImageJobService:
     """İstem veya sır saklamaz; her kabul ve worker'ın tek yaşam döngüsü sahibi."""
 
-    def __init__(self, store: ImageJobStore, directory: Path) -> None:
+    def __init__(
+        self,
+        store: ImageJobStore,
+        directory: Path,
+        *,
+        render_timeout: float = RENDER_TIMEOUT_SECONDS,
+    ) -> None:
+        self._render_timeout = render_timeout
         self._store = store
         self._directory = directory
         self._closed = False
@@ -124,10 +136,15 @@ class ImageJobService:
                 await self._save_failure(receipt, "cancelled")
                 return
             phase = "rendering"
-            result = await render()
+            async with asyncio.timeout(self._render_timeout):
+                result = await render()
             if key in self._cancel_requested:
                 raise asyncio.CancelledError
             if result.get("ok") is not True:
+                # Ölçüldü (30 Ekim): sağlayıcının anlamlı metni (kota, kimlik, istem reddi)
+                # hiçbir yere yazılmadan atılıyordu; sır-temiz kısaltılmış hâli günlüğe girer.
+                detail = redact(str(result.get("metin", "")))[:_LOG_DETAIL_CHARS]
+                _LOG.error("Görsel sağlayıcısı üretemedi: %s", detail)
                 await self._save_failure(receipt, "provider_failed")
                 return
             phase = "validating"
@@ -139,7 +156,8 @@ class ImageJobService:
         except asyncio.CancelledError:
             await self._save_failure(receipt, "cancelled")
             raise
-        except Exception:
+        except Exception as error:
+            _LOG.error("Görsel işi %s aşamasında düştü: %s", phase, type(error).__name__)
             await self._save_failure(
                 receipt, "provider_failed" if phase == "rendering" else "storage_failed"
             )

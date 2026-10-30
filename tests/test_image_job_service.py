@@ -305,3 +305,39 @@ async def test_provider_rejected_result_is_not_reported_as_storage_failure(tmp_p
     finally:
         await service.close()
         await store.close()
+
+
+async def test_image_job_takilan_saglayici_zaman_asiminda_basarisiz_olur(tmp_path):
+    """Ölçüldü (30 Ekim, S1-34): `render()` için üst süre yoktu; takılan istek işi sonsuza dek
+    `running` bırakıyordu."""
+    store = ImageJobStore(tmp_path / "jobs.sqlite3")
+    service = ImageJobService(store, tmp_path, render_timeout=0.2)
+
+    async def render():
+        await asyncio.Event().wait()
+
+    try:
+        await service.start(_key(tmp_path), "a" * 64, render)
+        sonuc = await _terminal(service, _key(tmp_path))
+        assert sonuc["state"] == "failed" and sonuc["code"] == "provider_failed"
+    finally:
+        await service.close()
+        await store.close()
+
+
+async def test_image_job_saglayici_hatasi_gunluge_yazilir(tmp_path, caplog):
+    """Ölçüldü (30 Ekim, S1-33): sağlayıcının anlamlı hata metni hiçbir yere yazılmıyordu."""
+    store = ImageJobStore(tmp_path / "jobs.sqlite3")
+    service = ImageJobService(store, tmp_path)
+
+    async def render():
+        return {"ok": False, "metin": "Kota doldu (429)"}
+
+    try:
+        with caplog.at_level("ERROR"):
+            await service.start(_key(tmp_path), "a" * 64, render)
+            await _terminal(service, _key(tmp_path))
+        assert "Kota doldu (429)" in caplog.text
+    finally:
+        await service.close()
+        await store.close()
