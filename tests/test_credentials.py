@@ -186,3 +186,34 @@ def test_cozulen_icerik_bozuksa_config_error(tmp_path, icerik):
 
     with pytest.raises(ConfigError, match="bozuk"):
         store.list_names()
+
+
+def test_wizard_on_saved_ile_anahtar_ayni_oturumda_etkin_olur(tmp_path):
+    """Ölçüldü (30 Ekim): eklenen anahtar 'sonraki oturumda' etkindi; aynı oturumda model
+    çağıran kullanıcı kimlik doğrulama hatası alıyordu (L2-25)."""
+    store = _store(tmp_path)
+    uygulanan: list[tuple[str, str]] = []
+
+    mesaj = provider_flow.add_credential(
+        store,
+        picker=_pick("openai"),
+        ask_secret=lambda prompt: "sk-canli",
+        on_saved=lambda ad, deger: uygulanan.append((ad, deger)),
+    )
+
+    assert uygulanan == [("OPENAI_API_KEY", "sk-canli")]
+    assert "bu oturumda da etkin" in mesaj
+    assert "sk-canli" not in mesaj
+
+
+def test_wizard_vazgecilirse_on_saved_cagrilmaz(tmp_path):
+    cagrildi = []
+
+    provider_flow.add_credential(
+        _store(tmp_path),
+        picker=_pick("openai"),
+        ask_secret=lambda prompt: "",
+        on_saved=lambda ad, deger: cagrildi.append(ad),
+    )
+
+    assert cagrildi == []

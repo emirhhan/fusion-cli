@@ -407,11 +407,13 @@ def _providers(state: ReplState, argument: str) -> str:
     """`/providers` — sağlayıcıları listele; `/providers add` anahtar ekleme sihirbazı."""
     if argument.strip().lower() == "add":
         from ...config.credentials import FernetSecretStore
-        from ...config.keys import secret_key
+        from ...config.keys import secret_key, set_environ_value
         from ...config.paths import credentials_file
 
         store = FernetSecretStore(credentials_file(), secret_key=secret_key())
-        return provider_flow.add_credential(store, ask_secret=_ask_secret)
+        return provider_flow.add_credential(
+            store, ask_secret=_ask_secret, on_saved=set_environ_value
+        )
     environ = environ_snapshot()
     rows = [messages.PROVIDERS_HEADER]
     for definition in BUILTIN_PROVIDERS:

@@ -143,6 +143,15 @@ def environ_snapshot() -> dict[str, str]:
     return dict(os.environ)
 
 
+def set_environ_value(name: str, value: str) -> None:
+    """Çalışan sürecin ortamına bir değer yaz (ortam yazımı config katmanındadır, RULES).
+
+    `/providers add` ile eklenen anahtarın AYNI oturumda etkili olması için kullanılır;
+    sağlayıcılar anahtarı çağrı anında ortamdan okur.
+    """
+    os.environ[name] = value
+
+
 def detect(environ: dict[str, str] | None = None) -> ProviderKeys:
     """Ortamdan kurulu sağlayıcıları oku.
 

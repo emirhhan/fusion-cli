@@ -599,6 +599,7 @@ PROVIDERS_FRAMEWORK = "framework (adaptör yok)"
 CRED_TITLE = "Hangi sağlayıcının anahtarı eklensin?"
 CRED_PROMPT = "{name} anahtarını yapıştır (ekranda görünmez): "
 CRED_SAVED = "{name} anahtarı şifreli olarak kaydedildi ({env}). Sonraki oturumda etkin."
+CRED_SAVED_LIVE = "{name} anahtarı şifreli olarak kaydedildi ({env}) ve bu oturumda da etkin."
 CRED_NO_KEY = (
     "Şifreli sır deposu kapalı: önce FUSION_SECRET_KEY ortam değişkenini ayarla. "
     "Alternatif olarak anahtarı doğrudan .env dosyana yazabilirsin."
