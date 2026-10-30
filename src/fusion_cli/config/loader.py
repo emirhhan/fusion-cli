@@ -300,6 +300,7 @@ def _build_runtime(raw: object) -> RuntimeConfig:
         "circuit_failure_threshold",
         "compact_tools_window_tokens",
         "compact_external_tools",
+        "tool_output_window",
     ):
         if getattr(runtime, name) < 0:
             raise ConfigError(f"runtime.{name}: negatif olamaz.")

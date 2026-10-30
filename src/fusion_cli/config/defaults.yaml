@@ -130,6 +130,12 @@ runtime:
   # görev bağlamını boğar. 0 = pencereye bakma. Mevcut kullanıcının açık ayarı ezilmez.
   compact_tools_window_tokens: 32768
   compact_external_tools: 12
+  # Kayan pencere maskeleme (yol haritası 3. adım): modele giden görünümde son N araç
+  # sonucu (+ son assistant mesajındaki tüm paralel sonuçlar) tam kalır, eskileri kısa
+  # yer tutucuya iner; kalıcı geçmiş değişmez. 0 = kapalı. 8: SWE-agent ~5, JetBrains
+  # (arXiv 2508.21433) 10 gözlem; hata çıktıları, 400 karakterden kısa sonuçlar, kullanıcı
+  # soruları ve kural dosyaları hiç maskelenmez.
+  tool_output_window: 8
   max_parallel_agents: 4
   # Ajan bir dosyayı değiştirince çalışacak komutlar; `{path}` dosya yoluyla değişir.
   # Örnek: ["npx prettier --write {path}"]. Boş liste = kanca yok.

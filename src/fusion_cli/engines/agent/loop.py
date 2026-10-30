@@ -61,6 +61,7 @@ from ...core.events import (
     ToolCallRepaired,
     ToolExecuted,
     ToolOutcome,
+    ToolOutputsMasked,
     ToolStarted,
     TurnAnswered,
     TurnBudgetExhausted,
@@ -134,6 +135,7 @@ from .execution_policy import (
     ExecutionPolicy,
     policy_for,
     refresh_mutation_policy,
+    uses_web_context,
 )
 from .execution_route import ExecutionRoute, choose_execution_route
 from .expertise import expertise_hint, is_desktop_task, is_game_task, is_remotion_task
@@ -174,6 +176,7 @@ from .loop_contract import (
 from .loop_contract import (
     _verification_correction_task as _verification_correction_task,
 )
+from .masking import MaskLedger, MaskView, mask_view
 from .narration import intro_paragraph, todo_transitions
 from .output_verify import requested_outputs_in
 from .plan_runner import run_execution_plan
@@ -405,6 +408,9 @@ class AgentDeps:
     #: Sağlayıcının "bağlam penceresi aşıldı" hatasından öğrenilen sıkıştırma eşiği
     #: (karakter). Yapılandırılmış eşikten küçükse o kullanılır (A1-04).
     learned_compression_chars: int | None = None
+    #: Kayan pencere maskeleme defteri (bkz. `masking`): bir kez maskelenen sonuç eski
+    #: haline dönmez, önek kararlı kalır. Tur başına kurulur.
+    mask_ledger: MaskLedger = field(default_factory=MaskLedger)
     #: Kullanıcının koşan işe ilettiği yönergeler; her alt turdan önce boşaltılır.
     questions: PendingUserQuestions = field(default_factory=PendingUserQuestions)
     child_runs: ChildRuns = field(default_factory=ChildRuns)
@@ -2253,8 +2259,18 @@ async def _call_model(
         if offer_tools
         else ()
     )
+    gorunum = _masked_view(messages, deps, spec)
+    if gorunum.masked:
+        deps.publisher.publish(
+            ToolOutputsMasked(
+                masked=gorunum.masked,
+                newly_masked=gorunum.newly_masked,
+                saved_chars=gorunum.saved_chars,
+                window=runtime.tool_output_window,
+            )
+        )
     request = CompletionRequest(
-        messages=tuple(messages),
+        messages=tuple(gorunum.messages),
         temperature=runtime.temperature,
         max_tokens=runtime.max_tokens * state.max_tokens_scale,
         timeout_s=timeout_s or runtime.request_timeout_s,
@@ -3865,6 +3881,21 @@ def _is_context_overflow(error: str | None) -> bool:
     return is_context_overflow(error)
 
 
+def _masked_view(
+    messages: list[Message], deps: AgentDeps, spec: ModelSpec, *, commit: bool = True
+) -> MaskView:
+    """Modele gidecek görünüm: eski araç sonuçları yer tutucuya iner, kalıcı kayıt değişmez.
+
+    Web (tarayıcı sohbeti) zincirinde kapalıdır: `_deliver_turn` sohbeti ancak gönderilmiş
+    önek DEĞİŞMEMİŞSE sürdürür; maskeleme öneki değiştirir ve her seferinde yeni sohbet
+    açtırırdı. Orada eşik sıkıştırması (24.000) zaten düşük.
+    """
+    window = deps.config.runtime.tool_output_window
+    if window <= 0 or uses_web_context(deps.config, spec):
+        return MaskView(messages)
+    return mask_view(messages, window, deps.mask_ledger, commit=commit)
+
+
 async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: _State) -> bool:
     """Model çağrısından ÖNCE bağlamı eşiğin altına indir; taşma kalıcıysa False.
 
@@ -3875,19 +3906,24 @@ async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: 
     from .context_budget import context_budget
 
     threshold = _effective_threshold(context_budget(deps.config, selected).compression_chars, deps)
-    if not needs_compression(messages, threshold_chars=threshold):
+    # Eşik, modelin GERÇEKTE göreceği (maskeli) görünüme göre ölçülür: maskeleme zaten
+    # küçülttüyse geçmişi özetleyip bilgi kaybetmek gereksiz.
+    gorunur = _masked_view(messages, deps, selected, commit=False).messages
+    if not needs_compression(gorunur, threshold_chars=threshold):
         state.compaction_thrash = 0
         return True
     before = len(messages)
-    before_chars = total_chars(messages)
+    before_chars = total_chars(gorunur)
     compacted = await compaction.compact_in_turn(
         messages, config=deps.config, publisher=deps.publisher, threshold_chars=threshold
     )
-    if total_chars(compacted) < before_chars:
+    if total_chars(_masked_view(compacted, deps, selected, commit=False).messages) < before_chars:
         messages[:] = compacted
         deps.publisher.publish(ContextCompressed(before=before, after=len(compacted)))
         deps.condensations += 1
-    if needs_compression(messages, threshold_chars=threshold):
+    if needs_compression(
+        _masked_view(messages, deps, selected, commit=False).messages, threshold_chars=threshold
+    ):
         state.compaction_thrash += 1
         return state.compaction_thrash < MAX_COMPACTION_THRASH
     state.compaction_thrash = 0

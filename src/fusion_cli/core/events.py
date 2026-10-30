@@ -443,6 +443,23 @@ class ContextCompressed(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class ToolOutputsMasked(Event):
+    """Model çağrısına giden görünümde eski araç sonuçları yer tutucuya indirildi.
+
+    Kalıcı geçmiş DEĞİŞMEZ; yalnız modele gönderilen kopya küçülür. Her model
+    çağrısında (maskeleme açık ve en az bir sonuç maskeliyse) yayınlanır ki önce/sonra
+    karşılaştırılabilsin: `masked` görünümdeki toplam maskeli sonuç, `newly_masked` bu
+    çağrıda yeni maskelenenler (önek kayması), `saved_chars` kazanılan karakter,
+    `window` ayardaki pencere.
+    """
+
+    masked: int
+    newly_masked: int
+    saved_chars: int
+    window: int
+
+
+@dataclass(frozen=True, slots=True)
 class MutationUnavailable(Event):
     """Seçili model dosya/sistem değiştiremiyor ve tur bunu gerektiriyor olabilir.
 

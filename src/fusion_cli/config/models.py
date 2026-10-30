@@ -241,6 +241,13 @@ class RuntimeConfig:
     #: Sıkı yüzeyli modele sunulacak EN FAZLA MCP/eklenti aracı sayısı (M1-12); registry
     #: sırasıyla ilk N. 0 = sınır yok.
     compact_external_tools: int = 12
+    #: Kayan pencere maskeleme: modele giden görünümde yalnız son N araç sonucu (ve son
+    #: assistant mesajından sonraki TÜM paralel sonuçlar) tam kalır; daha eskileri kısa
+    #: bir yer tutucuya iner (araç adı, argüman özeti, durum, varsa artifact yolu).
+    #: Kalıcı geçmişe dokunulmaz, eşik beklenmez. 0 = kapalı. 8: SWE-agent son ~5
+    #: gözlemi, JetBrains (arXiv 2508.21433) 10 gözlemlik pencereyi iyi buldu; paralel
+    #: çağrılar ve toplu kayma payı (N/2) ayrıca tam kaldığından 8 ikisinin ortasıdır.
+    tool_output_window: int = 8
 
 
 @dataclass(frozen=True, slots=True)
