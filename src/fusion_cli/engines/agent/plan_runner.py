@@ -54,6 +54,7 @@ from . import review
 from .attempts import Attempt, choose_attempt
 from .effect_checkpoint import PlanEffectRecorder, settle_observed
 from .execution_policy import ExecutionPolicy
+from .gate_cache import GateCache, GateScope
 from .plan_checkpoint import (
     artifact_changed,
     capture_evidence,
@@ -234,6 +235,9 @@ class _PlanRun:
     #: Alt turu kendi zarfını AŞAN adım (A3-13): iş geri alınmaz, doğrulanır ve ardından
     #: "ek bütçe" için duraklatılır. `execute` yazar, `run_step` okur.
     overran_step: str = ""
+    #: Mutasyonsuz adımda değişmemiş çalışma alanı için geçen kapı sonucunu yeniden
+    #: kullanır (A4-16). Final kabul kapısı bunu ASLA kullanmaz.
+    gate_cache: GateCache = field(default_factory=GateCache, repr=False)
     _save_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     planning_calls: int = 0
     final_calls: int = 0
@@ -531,7 +535,13 @@ class _PlanRun:
         active_deps = deps or self.deps
         # Observation must retain every expected effect. Dropping non-file
         # effects could let an unrelated local receipt certify a remote write.
-        result = await verify_step(step, outcome, active_deps, self.baseline)
+        result = await verify_step(
+            step,
+            outcome,
+            active_deps,
+            self.baseline,
+            gate=GateScope(self.gate_cache, frozenset(self.deps.tool_context.touched)),
+        )
         self.progress()
         if observe and result.ok and not result.unverified and settle_observed(self, step.step_id):
             await self.save()

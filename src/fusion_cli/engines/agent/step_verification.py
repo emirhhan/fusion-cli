@@ -43,6 +43,7 @@ from ...core.verification import (
     VerificationResult,
     without_unverifiable_command_warnings,
 )
+from .gate_cache import GateScope, step_mutates, workspace_key
 from .reproduction import evaluate_reproduction
 from .verify_discovery import behavioral_commands, is_behavioral_command, strip_fd_redirects
 
@@ -640,13 +641,46 @@ def _behavioral_runs(outcome: AgentOutcome) -> tuple[CriterionEvidence, ...]:
     return tuple(runs.values())
 
 
+async def _gate_result(
+    step: PlanStep,
+    outcome: AgentOutcome,
+    deps: AgentDeps,
+    gate: GateScope | None,
+) -> VerificationResult | None:
+    """Proje kapısını koş; mutasyonsuz ve değişmemiş adımda önceki geçen sonucu yeniden kullan."""
+    if deps.verifier is None:
+        return None
+    reusable = (
+        gate is not None
+        and not step_mutates(step)
+        and outcome.mutating_tool_calls_made == 0
+        and outcome.ok
+    )
+    key = ""
+    if gate is not None:
+        key = workspace_key({*gate.outer_touched, *deps.tool_context.touched})
+        if reusable:
+            cached = gate.cache.lookup(key)
+            if cached is not None:
+                return cached
+    result = await deps.verifier.verify()
+    if gate is not None:
+        gate.cache.store(key, result)
+    return result
+
+
 async def verify_step(
     step: PlanStep,
     outcome: AgentOutcome,
     deps: AgentDeps,
     baseline: tuple[str, ...] = (),
+    gate: GateScope | None = None,
 ) -> StepVerificationResult:
     """Agent sonucunu, beklenen etkileri ve proje kapısını birlikte doğrula.
+
+    `gate` verilirse ve adım çalışma alanını DEĞİŞTİRMEDİYSE, değişmemiş parmak izli
+    son GEÇEN kapı sonucu yeniden kullanılır (bkz. `gate_cache`). Verilmezse kapı her
+    zaman tam koşar; final kabul kapısı bu yolu hiç kullanmaz.
 
     `baseline`, plan BAŞLAMADAN önce proje kapısının verdiği bulgulardır. Onlar
     adımın suçu değildir ve adımı düşürmez.
@@ -660,7 +694,7 @@ async def verify_step(
     evidence: list[str] = []
     findings: list[str] = []
 
-    verification = await deps.verifier.verify() if deps.verifier is not None else None
+    verification = await _gate_result(step, outcome, deps, gate)
 
     if not outcome.ok:
         findings.append("agent adımı başarısız sonuçlandırdı")
