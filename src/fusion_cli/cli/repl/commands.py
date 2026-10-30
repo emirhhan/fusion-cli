@@ -30,7 +30,15 @@ from ...tools.capabilities import Capability
 from ...tools.capabilities import search as search_capabilities
 from ...ui import messages
 from ...ui.picker import Choice, pick
-from . import macros, model_flows, profiles_flow, provider_flow, verify_flow, workspace_commands
+from . import (
+    export_commands,
+    macros,
+    model_flows,
+    profiles_flow,
+    provider_flow,
+    verify_flow,
+    workspace_commands,
+)
 from .state import TASK_TYPES, Engine, Reminder, ReplState
 
 #: `/resume<kaynak>` listesinde gösterilecek en fazla oturum. `source.list`'e
@@ -807,6 +815,16 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         usage="[yol|kaldir <yol>]",
     ),
     SlashCommand("schedule", messages.CMD_SCHEDULE, _schedule, group="Makro", usage="<saniye>"),
+    SlashCommand(
+        "export",
+        messages.CMD_EXPORT,
+        export_commands.export_transcript,
+        group="Agent",
+        usage="[yol] [json] [pano]",
+    ),
+    SlashCommand(
+        "copy", messages.CMD_COPY, export_commands.copy_answer, group="Agent", usage="[N]"
+    ),
 )
 
 #: Kendi çıktısını basan komutlar (tablo, panel, ekran temizleme). REPL döngüsü

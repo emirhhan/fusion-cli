@@ -54,3 +54,27 @@ it("satır içi onClose yeni kimlikle gelse de odağı geri çekmez (U4-51)", ()
   view.rerender(<ShareDialog messages={[]} onClose={() => undefined} title="A" />);
   expect(document.activeElement).toBe(kopyala);
 });
+
+describe("ShareDialog çekirdek dışa aktarımı (P-028)", () => {
+  it("onExport verilince biçim seçici görünür, metin çekirdekten gelir ve JSON'a geçilebilir", async () => {
+    const onExport = vi.fn(async (format: "markdown" | "json") => ({
+      metin: format === "json" ? '{"mesajlar": []}' : "# Çekirdek\n\n## Fusion\n\nYanıt",
+      dosya_adi: format === "json" ? "fusion-sohbet.json" : "fusion-sohbet.md",
+    }));
+    render(<ShareDialog messages={[{ rol: "asistan", metin: "Yanıt" }]} onClose={vi.fn()} onExport={onExport} title="Sohbet" />);
+    const alan = await screen.findByLabelText("Paylaşılacak sohbet metni") as HTMLTextAreaElement;
+    await vi.waitFor(() => expect(alan.value).toContain("# Çekirdek"));
+    fireEvent.click(screen.getByLabelText("JSON"));
+    await vi.waitFor(() => expect(alan.value).toContain('"mesajlar"'));
+    expect(onExport).toHaveBeenLastCalledWith("json");
+    expect(screen.getByRole("button", { name: "Dosyaya kaydet" })).toBeTruthy();
+  });
+
+  it("çekirdek dışa aktarımı düşerse yerel metne düşer ve uyarır", async () => {
+    const onExport = vi.fn(async () => { throw new Error("yok"); });
+    render(<ShareDialog messages={[{ rol: "asistan", metin: "Yanıt" }]} onClose={vi.fn()} onExport={onExport} title="Sohbet" />);
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    const alan = screen.getByLabelText("Paylaşılacak sohbet metni") as HTMLTextAreaElement;
+    expect(alan.value).toBe("# Sohbet\n\n## Fusion\n\nYanıt");
+  });
+});

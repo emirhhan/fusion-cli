@@ -901,3 +901,19 @@ CONTEXT_TOTAL = "Toplam"
 CONTEXT_TOTAL_VALUE = "~{tokens} / {limit} tok · %{percent} · {count} mesaj"
 CONTEXT_WINDOW = "Model penceresi"
 CONTEXT_EMPTY = "Geçmiş boş: ilk mesajla birlikte sistem istemi ve araç tanımları eklenir."
+
+# --- /export ve /copy (P-028) ---------------------------------------------- #
+CMD_EXPORT = "konuşmayı Markdown/JSON dosyasına ya da panoya aktar: /export [yol] [json] [pano]"
+CMD_COPY = "son asistan cevabını panoya kopyala: /copy [N] (sondan N.)"
+EXPORT_DEFAULT_TITLE = "Fusion sohbeti"
+EXPORT_EMPTY = "Aktarılacak konuşma yok: önce bir mesaj gönder."
+EXPORT_WRITTEN = "Konuşma yazıldı: {path} ({chars} karakter). Sırlar maskelendi."
+EXPORT_COPIED = "Konuşma panoya kopyalandı ({chars} karakter). Sırlar maskelendi."
+EXPORT_OUTSIDE_ROOT = (
+    "Proje kökü dışına yazılmaz: {path}. Kök: {root} — köke göreli bir yol ver ya da /add-dir ile aç."
+)
+EXPORT_WRITE_FAILED = "Dosya yazılamadı ({path}): {error}"
+COPY_USAGE = "Kullanım: /copy [N] — N sondan kaçıncı cevap (varsayılan 1)."
+COPY_NOTHING = "Kopyalanacak asistan cevabı yok."
+COPY_DONE = "Son cevap panoya kopyalandı ({chars} karakter)."
+CLIPBOARD_FAILED = "Panoya yazılamadı: {error}"

@@ -416,6 +416,20 @@ class _MeteredSink:
 FALLBACK_CONVERSATION_ID = "varsayilan"
 
 
+def export_payload(history: list[Message], data: dict[str, Any]) -> dict[str, Any]:
+    """`sohbet.disa_aktar {bicim: markdown|json, baslik}` → maskeli dışa aktarım metni."""
+    from ..core.transcript_export import default_export_name, export_json, export_markdown
+
+    bicim = str(data.get("bicim") or "markdown").lower()
+    if bicim not in ("markdown", "json"):
+        return {"ok": False, "metin": "Biçim 'markdown' ya da 'json' olmalı."}
+    baslik = data.get("baslik")
+    title = baslik.strip() if isinstance(baslik, str) and baslik.strip() else "Fusion sohbeti"
+    as_json = bicim == "json"
+    text = export_json(history, title=title) if as_json else export_markdown(history, title=title)
+    return {"ok": True, "metin": text, "dosya_adi": default_export_name(as_json=as_json)}
+
+
 def _title_payload(message: object) -> dict[str, Any]:
     """`sohbet.baslik`: ilk mesajdan başlık. Model çağrılmaz (bkz. `conversation_title`)."""
     if not isinstance(message, str):
@@ -890,6 +904,9 @@ class AppSession:
             return self._list_conversations()
         if request.name == "sohbet.baslik":
             return _title_payload(request.data.get("metin"))
+        if request.name == "sohbet.disa_aktar":
+            # P-028: masaüstü ShareDialog ile REPL /export aynı üreticiyi kullanır.
+            return export_payload(list(self._state.history), request.data)
         if request.name == "kademe.listele":
             return list_tiers(self._state.config)
         if request.name == "kademe.sec":

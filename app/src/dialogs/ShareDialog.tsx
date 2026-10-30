@@ -24,21 +24,51 @@ export function shareableTranscript(title: string, messages: Mesaj[]): string {
   return [`# ${baslik || "Fusion sohbeti"}`, ...lines].join("\n\n");
 }
 
-export function ShareDialog({ title, messages, onClose }: {
+/** Çekirdekten tam dışa aktarım (`sohbet.disa_aktar`): araç çağrıları katlanmış, sırlar maskeli (P-028). */
+export type ExportFormat = "markdown" | "json";
+export type ExportFetcher = (format: ExportFormat) => Promise<{ metin: string; dosya_adi?: string }>;
+
+export function downloadText(text: string, fileName: string, mime: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+export function ShareDialog({ title, messages, onClose, onExport }: {
   title: string;
   messages: Mesaj[];
   onClose: () => void;
+  /** Verilirse biçim seçici ve "Dosyaya kaydet" görünür; metin çekirdekten gelir. */
+  onExport?: ExportFetcher;
 }) {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [format, setFormat] = useState<ExportFormat>("markdown");
+  const [exported, setExported] = useState<{ metin: string; dosya_adi?: string } | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   // Satır içi onClose her render'da efekti yeniden kurup odağı kapat düğmesine çekiyordu (U4-51).
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
-  const transcript = shareableTranscript(title, messages);
+  const fallback = shareableTranscript(title, messages);
+  const transcript = exported?.metin ?? fallback;
 
-  // Sohbet değiştiyse "Kopyalandı" bayatlar (U4-21).
+  // Sohbet ya da biçim değiştiyse "Kopyalandı" bayatlar (U4-21).
   useEffect(() => { setCopied(false); }, [transcript]);
+
+  // Çekirdek dışa aktarımı: biçim ya da sohbet değişince yeniden alınır; hata olursa yerel metne düşülür.
+  useEffect(() => {
+    if (!onExport) return;
+    let alive = true;
+    onExport(format)
+      .then((result) => { if (alive) { setExported(result); setError(null); } })
+      .catch(() => { if (alive) { setExported(null); setError("Tam dışa aktarım alınamadı; yalnız mesaj metinleri gösteriliyor."); } });
+    return () => { alive = false; };
+  }, [onExport, format, messages]);
 
   useEffect(() => {
     const previous = document.activeElement;
@@ -61,6 +91,15 @@ export function ShareDialog({ title, messages, onClose }: {
     }
   };
 
+  const save = () => {
+    const name = exported?.dosya_adi ?? `fusion-sohbet.${format === "json" ? "json" : "md"}`;
+    try {
+      downloadText(transcript, name, format === "json" ? "application/json" : "text/markdown");
+    } catch {
+      setError("Dosya kaydedilemedi. Metni kopyalayıp elle kaydedebilirsin.");
+    }
+  };
+
   return (
     <div className="share-dialog__backdrop" role="presentation">
       <section aria-labelledby="share-dialog-title" aria-modal="true" className="share-dialog" role="dialog">
@@ -68,10 +107,23 @@ export function ShareDialog({ title, messages, onClose }: {
           <h2 id="share-dialog-title">Sohbeti paylaş</h2>
           <button aria-label="Paylaşımı kapat" onClick={onClose} ref={closeRef} type="button">×</button>
         </header>
-        <p>Yalnız mesaj metinleri kopyalanır; ek dosyalar ve işlem kayıtları eklenmez. Mesajların içinde yazan dosya yollarını paylaşmadan önce kontrol et.</p>
+        <p>Yalnız mesaj metinleri kopyalanır; ek dosyalar eklenmez, araç çağrıları katlanmış ve kırpılmış gelir, sırlar maskelenir. Mesajların içinde yazan dosya yollarını paylaşmadan önce kontrol et.</p>
+        {onExport && (
+          <div className="share-dialog__formats" role="radiogroup" aria-label="Dışa aktarım biçimi">
+            {(["markdown", "json"] as const).map((item) => (
+              <label key={item}>
+                <input checked={format === item} name="share-format" onChange={() => setFormat(item)} type="radio" value={item} />
+                {item === "markdown" ? "Markdown" : "JSON"}
+              </label>
+            ))}
+          </div>
+        )}
         <textarea aria-label="Paylaşılacak sohbet metni" readOnly value={transcript} />
         {error && <p role="alert">{error}</p>}
-        <footer><button onClick={() => void copy()} type="button">{copied ? "Kopyalandı" : "Metni kopyala"}</button></footer>
+        <footer>
+          {onExport && <button className="share-dialog__secondary" onClick={save} type="button">Dosyaya kaydet</button>}
+          <button onClick={() => void copy()} type="button">{copied ? "Kopyalandı" : "Metni kopyala"}</button>
+        </footer>
       </section>
     </div>
   );

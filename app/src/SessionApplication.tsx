@@ -1710,6 +1710,11 @@ export function SessionUygulama({
             <ShareDialog
               messages={active.messages}
               onClose={() => setShareOpen(false)}
+              onExport={activeClient ? (bicim) => activeClient.request("sohbet.disa_aktar", { bicim, baslik: active.title }).then((sonuc) => {
+                const result = sonuc as { ok?: boolean; metin?: string; dosya_adi?: string };
+                if (!result.ok || typeof result.metin !== "string") throw new Error("Dışa aktarım alınamadı.");
+                return { metin: result.metin, dosya_adi: result.dosya_adi };
+              }) : undefined}
               title={active.title}
             />
           )}
