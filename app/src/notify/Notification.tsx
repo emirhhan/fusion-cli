@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import "./notification.css";
 
 /**
@@ -22,16 +22,22 @@ export interface NotificationProps {
 }
 
 export function Notification({ baslik, metin, eylem, onDismiss }: NotificationProps) {
+  const kart = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const kacis = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onDismiss();
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // Odak başka bir kontroldeyse (menü, seçici, girdi) Esc onundur; kartı yalnız odak
+      // boşta (gövde) ya da kartın içindeyken kapatır.
+      const hedef = event.target;
+      const bosta = hedef === document || hedef === document.body || hedef === document.documentElement;
+      if (bosta || (hedef instanceof Node && kart.current?.contains(hedef))) onDismiss();
     };
     document.addEventListener("keydown", kacis);
     return () => document.removeEventListener("keydown", kacis);
   }, [onDismiss]);
 
   return (
-    <div aria-live="assertive" className="notification" role="alert">
+    <div aria-live="assertive" className="notification" ref={kart} role="alert">
       <div className="notification__body">
         <strong>{baslik}</strong>
         <p>{metin}</p>
