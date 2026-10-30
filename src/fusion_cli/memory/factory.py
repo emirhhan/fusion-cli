@@ -67,7 +67,9 @@ def build_memory(config: Config, *, root: Path) -> Memory:
 def build_performance_memory(config: Config) -> Memory:
     """Yalnız performans tablosunu açan ucuz bellek (`fusion stats` / `memory stats`).
 
-    Model performans tablosu gömme kullanmaz. Buna rağmen tam kurulumdan geçmek,
+    Performans tablosu gömme SAĞLAYICISI (NIM) kullanmaz; yazma yolu Chroma'nın
+    varsayılan yerel modelini kullanır (koleksiyona gömme fonksiyonu verilmez). Buna
+    rağmen tam kurulumdan geçmek,
     NIM sağlayıcısında `build_embedding_function` içindeki yoklama isteği yüzünden
     kullanıcıyı ağa ve kotaya bağımlı kılıyordu: tabloyu görmek için ödenmemesi
     gereken bir bedel. Ders ve kod dizini bu yolda hiç açılmaz; null kalır.

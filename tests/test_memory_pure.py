@@ -241,3 +241,38 @@ def test_proje_gurultu_adli_ust_dizindeyse_dosyalar_atlanmaz(tmp_path):
     (kok / "kod.py").write_text("kod", encoding="utf-8")
 
     assert {p.name for p in iter_source_files(kok)} == {"kod.py"}
+
+
+def test_performans_kaydi_gorev_metnindeki_sirri_saklamaz():
+    """Ölçüldü (30 Ekim): `documents=[outcome.task]` kullanıcı görevini maskelemeden
+    saklıyor ve Chroma gömüyordu (M1-42). Sır içeren görev düz metin kalmamalı."""
+    from fusion_cli.core.memory import Outcome
+    from fusion_cli.memory.performance import ChromaPerformanceMemory
+
+    eklenen: dict[str, object] = {}
+
+    class _Koleksiyon:
+        def add(self, ids, documents, metadatas):
+            eklenen["documents"] = documents
+            return True
+
+    bellek = ChromaPerformanceMemory.__new__(ChromaPerformanceMemory)
+    bellek._collection = _Koleksiyon()
+    from fusion_cli.core.clock import SystemClock
+
+    bellek._clock = SystemClock()
+    sir = "sk-or-v1-" + "a" * 48
+
+    bellek.record(
+        Outcome(
+            task=f"deploy et, anahtar: {sir}",
+            task_type="general",
+            model_name="m",
+            score=0.5,
+            latency_ms=1,
+            tokens=1,
+            won=True,
+        )
+    )
+
+    assert sir not in str(eklenen["documents"])
