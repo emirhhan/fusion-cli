@@ -30,3 +30,18 @@ def test_runtime_health_json_sozlesmesi_stdoutu_kirletmez():
         "resources_ok": True,
         "version": __version__,
     }
+
+
+def test_cevrimdisi_tokenizer_indirme_hatasi_denetimi_cokertmez(monkeypatch):
+    """Ölçüldü (30 Ekim): BPE önbellekte yokken ağ hatası (OSError) yakalanmıyordu (E1-40)."""
+    import tiktoken
+
+    from fusion_cli import runtime_health
+
+    def _ag_yok(name):
+        raise ConnectionError("ağ yok")
+
+    monkeypatch.setattr(tiktoken, "get_encoding", _ag_yok)
+
+    assert runtime_health._tokenizer_plugins_ok() is False
+    assert runtime_health.collect_runtime_health().resources_ok is False
