@@ -13,6 +13,7 @@ promptuna geri enjekte edilir. Zamanla aynı hataları tekrarlamaz.
 
 from __future__ import annotations
 
+import re
 import threading
 import uuid
 from dataclasses import replace
@@ -54,22 +55,31 @@ class ChromaLessonMemory:
         # koyulur ki farklı boyutlu kayıtlar aynı koleksiyonda karışmasın.
         name = f"{COLLECTION}_{suffix}" if suffix else COLLECTION
         self._collection = get_collection(directory, name, embedding_function=embedding_function)
+        #: (kayıt sayısı, normalize ders metinleri): tekilleştirme için. Her `add`
+        #: bütün dersleri çekiyordu (`seed()` ≈185 tam tarama). Kayıt sayısı değişince
+        #: (başka sekme/süreç yazdı) yeniden yüklenir.
+        self._known: tuple[int, set[str]] | None = None
 
     def add(self, lesson: Lesson) -> bool:
         text = lesson.text.strip()
         if not text:
             return False
         with _write_lock:
-            if self._exists(text):
+            known = self._known_texts()
+            normalized = text.lower()
+            if normalized in known:
                 return False
             # Yazılamadıysa (kilit, zaman aşımı, Chroma hatası) "eklendi" denmez (M1-31).
-            return bool(
+            added = bool(
                 self._collection.add(
                     ids=[uuid.uuid4().hex],
                     documents=[_embed_source(lesson)],
                     metadatas=[_to_metadata(lesson, self._clock.now())],
                 )
             )
+            if added and self._known is not None:
+                self._known = (self._known[0] + 1, {*known, normalized})
+            return added
 
     def recall(
         self,
@@ -87,6 +97,23 @@ class ChromaLessonMemory:
         # Geniş çek, sonra hibrit skorla ele: embedding'in ıskaladığı birebir terim
         # eşleşmesini lexical katman kurtarsın diye aday havuzunu bilerek geniş tutuyoruz.
         havuz = min(max(limit * CANDIDATE_MULTIPLIER, MIN_CANDIDATE_POOL), total)
+        selected = self._recall_from_pool(task, havuz, limit, scope, workspace, tags)
+        if workspace is not None and len(selected) < limit and havuz < total:
+            # Workspace süzgeci havuz çekildikten SONRA uygulanır: başka projelerin
+            # çok sayıda dersi geçerli projeninkini 40'lık havuzdan itmiş olabilir.
+            # Yetersiz kalınca havuz tüm belleğe genişletilir (bellek yüzlerle sınırlı).
+            selected = self._recall_from_pool(task, total, limit, scope, workspace, tags)
+        return selected
+
+    def _recall_from_pool(
+        self,
+        task: str,
+        havuz: int,
+        limit: int,
+        scope: str | None,
+        workspace: str | None,
+        tags: tuple[str, ...],
+    ) -> tuple[Lesson, ...]:
         result = self._collection.query(query_texts=[task], n_results=havuz)
         documents = (result.get("documents") or [[]])[0]
         metadatas = (result.get("metadatas") or [[]])[0]
@@ -203,6 +230,7 @@ class ChromaLessonMemory:
             ]
             if not silinecek:
                 return 0
+            self._known = None
             return len(silinecek) if self._collection.delete(ids=silinecek) else 0
 
     def all(self) -> tuple[Lesson, ...]:
@@ -219,16 +247,19 @@ class ChromaLessonMemory:
     def count(self) -> int:
         return int(self._collection.count())
 
-    def _exists(self, text: str) -> bool:
+    def _known_texts(self) -> set[str]:
         """Kaba tekilleştirme: aynı ders defalarca birikmesin."""
-        normalized = text.strip().lower()
-        rows = self._collection.get()
-        documents = rows.get("documents") or []
-        metadatas = rows.get("metadatas") or []
-        return any(
-            _to_lesson(document, metadata).text.strip().lower() == normalized
-            for document, metadata in zip(documents, metadatas, strict=False)
-        )
+        count = self.count()
+        if self._known is None or self._known[0] != count:
+            rows = self._collection.get()
+            documents = rows.get("documents") or []
+            metadatas = rows.get("metadatas") or []
+            texts = {
+                _to_lesson(document, metadata).text.strip().lower()
+                for document, metadata in zip(documents, metadatas, strict=False)
+            }
+            self._known = (count, texts)
+        return self._known[1]
 
 
 def _embed_source(lesson: Lesson) -> str:
@@ -293,14 +324,24 @@ def _to_lesson(document: str, metadata: dict[str, Any]) -> Lesson:
         kind=_enum(LessonKind, metadata.get("kind"), LessonKind.SUCCESS),
         task=str(metadata.get("task", "")),
         source=_enum(LessonSource, metadata.get("source"), LessonSource.LEARNED),
-        confidence=float(metadata.get("confidence", DEFAULT_LESSON_CONFIDENCE)),
-        success_count=int(metadata.get("success_count", 0)),
-        failure_count=int(metadata.get("failure_count", 0)),
+        confidence=_number(float, metadata.get("confidence"), DEFAULT_LESSON_CONFIDENCE),
+        success_count=_number(int, metadata.get("success_count"), 0),
+        failure_count=_number(int, metadata.get("failure_count"), 0),
         scope=str(metadata.get("scope", "")),
         trigger=str(metadata.get("trigger", "")),
         workspace=str(metadata.get("workspace", "")),
         tags=tuple(t for t in str(metadata.get("tags", "")).split(",") if t),
     )
+
+
+def _number(kind: Any, raw: object, fallback: Any) -> Any:
+    """Bozuk sayısal metadata tek kaydı değil bütün `recall`ı düşürürdü."""
+    if raw is None:
+        return fallback
+    try:
+        return kind(raw)
+    except (TypeError, ValueError):
+        return fallback
 
 
 def _idle_seconds(metadata: dict[str, Any], now: float) -> float:
@@ -344,7 +385,20 @@ def as_prompt_block(lessons: tuple[Lesson, ...]) -> str:
     if not lessons:
         return ""
     lines = [
-        f"- [{'KAÇIN' if lesson.kind is LessonKind.MISTAKE else 'UYGULA'}] {lesson.text}"
+        f"- [{'KAÇIN' if lesson.kind is LessonKind.MISTAKE else 'UYGULA'}] "
+        f"{_prompt_safe(lesson.text)}"
         for lesson in lessons
     ]
     return f"<dersler>\n{_LESSON_PREAMBLE}\n" + "\n".join(lines) + "\n</dersler>"
+
+
+_BLOCK_TAG = re.compile(r"</?\s*dersler\s*>", re.IGNORECASE)
+
+
+def _prompt_safe(text: str) -> str:
+    """Ders metni blok yapısını bozamaz: etiketi kapatamaz, yeni madde satırı açamaz.
+
+    Dersler agent'ın kendi gözlemidir ve web/araç çıktısı kaynaklı enjeksiyon kalıcı
+    hâle gelebilir; uyarı metni tek savunma olmamalı (M1-41).
+    """
+    return " ".join(_BLOCK_TAG.sub("", text).split())
