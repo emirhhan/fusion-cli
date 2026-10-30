@@ -17,6 +17,7 @@ from . import (
     desktop,
     desktop_background,
     desktop_inspect,
+    desktop_mouse,
     desktop_screen,
     download,
     files,
@@ -51,6 +52,7 @@ _CHROME_ACTIONS = (
 
 _STRING: SchemaFragment = {"type": "string"}
 _INTEGER: SchemaFragment = {"type": "integer"}
+_NUMBER: SchemaFragment = {"type": "number"}
 
 
 def build_registry() -> ToolRegistry:
@@ -208,10 +210,33 @@ _TOOLS: tuple[Tool, ...] = (
         mutating=True,
     ),
     Tool(
+        name="desktop_mouse",
+        description=(
+            "macOS fare eylemi; x,y son desktop_screenshot görüntüsünün pikselidir. action: "
+            "click|right_click|double_click|triple_click|middle_click|hover|down|up|drag "
+            "(drag için to_x,to_y). button left|right|middle, modifiers 'cmd+shift'."
+        ),
+        parameters=_schema(
+            {
+                "action": {**_STRING, "enum": list(desktop_mouse.MOUSE_ACTIONS)},
+                "x": _NUMBER,
+                "y": _NUMBER,
+                "to_x": _NUMBER,
+                "to_y": _NUMBER,
+                "button": {**_STRING, "enum": list(desktop_mouse.BUTTONS)},
+                "modifiers": _STRING,
+            },
+            ["action", "x", "y"],
+        ),
+        run=desktop_mouse.desktop_mouse,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    ),
+    Tool(
         name="desktop_click",
-        description="macOS ekranında x/y noktasına tıkla.",
-        parameters=_schema({"x": _INTEGER, "y": _INTEGER}, ["x", "y"]),
-        run=desktop.desktop_click,
+        description="macOS ekranında x/y noktasına sol tıkla (x,y son ekran görüntüsünün pikseli).",
+        parameters=_schema({"x": _NUMBER, "y": _NUMBER}, ["x", "y"]),
+        run=desktop_mouse.desktop_click,
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,
     ),
@@ -252,9 +277,14 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="desktop_scroll",
-        description="macOS penceresini kaydır; pozitif yukarıdır.",
-        parameters=_schema({"lines": _INTEGER}, ["lines"]),
-        run=desktop.desktop_scroll,
+        description=(
+            "macOS'ta kaydır: lines dikey (pozitif yukarı), delta_x yatay (pozitif sola); "
+            "x,y verilirse imleç önce oraya gider (son ekran görüntüsünün pikseli)."
+        ),
+        parameters=_schema(
+            {"lines": _INTEGER, "delta_x": _INTEGER, "x": _NUMBER, "y": _NUMBER}, []
+        ),
+        run=desktop_mouse.desktop_scroll,
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,
     ),

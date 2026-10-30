@@ -13,7 +13,7 @@ from fusion_cli.tools.builtin import build_registry
 def test_macos_disinda_acik_hata_doner(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(desktop.sys, "platform", "linux")
 
-    result = desktop.desktop_click({"x": 1, "y": 2}, ToolContext(root=tmp_path))
+    result = desktop.desktop_type({"text": "a"}, ToolContext(root=tmp_path))
 
     assert not result.ok
     assert "macOS" in result.output
@@ -36,42 +36,6 @@ def test_uygulama_adi_kabuga_girmeden_acilir(tmp_path, monkeypatch) -> None:
     assert calls == [["open", "-a", name]]
 
 
-def test_erisilebilirlik_izni_yokken_tiklama_yapilmaz(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(desktop.sys, "platform", "darwin")
-    monkeypatch.setattr(desktop, "_framework", lambda: object())
-    monkeypatch.setattr(desktop, "_trusted", lambda framework: False)
-    calls: list[tuple[int, int]] = []
-    monkeypatch.setattr(desktop, "_post_mouse_click", lambda framework, x, y: calls.append((x, y)))
-
-    result = desktop.desktop_click({"x": 50, "y": 40}, ToolContext(root=tmp_path))
-
-    assert not result.ok
-    assert "Erişilebilirlik" in result.output
-    assert calls == []
-
-
-def test_tiklama_koordinatlari_dogrulanir(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(desktop.sys, "platform", "darwin")
-    for x in (True, -1, "3"):
-        assert not desktop.desktop_click({"x": x, "y": 2}, ToolContext(root=tmp_path)).ok
-
-
-def test_izinli_tiklama_kuvars_olayina_gider(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(desktop.sys, "platform", "darwin")
-    framework = object()
-    monkeypatch.setattr(desktop, "_framework", lambda: framework)
-    monkeypatch.setattr(desktop, "_trusted", lambda loaded: True)
-    calls: list[tuple[object, int, int]] = []
-    monkeypatch.setattr(
-        desktop, "_post_mouse_click", lambda loaded, x, y: calls.append((loaded, x, y))
-    )
-
-    result = desktop.desktop_click({"x": 50, "y": 40}, ToolContext(root=tmp_path))
-
-    assert result.ok
-    assert calls == [(framework, 50, 40)]
-
-
 def test_metin_sonucta_sizdirilmaz(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(desktop.sys, "platform", "darwin")
     monkeypatch.setattr(desktop, "_framework", lambda: object())
@@ -86,38 +50,31 @@ def test_metin_sonucta_sizdirilmaz(tmp_path, monkeypatch) -> None:
     assert "özel metin" not in result.output
 
 
-def test_tus_ve_kaydirma_izinli_oturuma_gider(tmp_path, monkeypatch) -> None:
+def test_tus_izinli_oturuma_gider(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(desktop.sys, "platform", "darwin")
     framework = object()
     monkeypatch.setattr(desktop, "_framework", lambda: framework)
     monkeypatch.setattr(desktop, "_trusted", lambda loaded: True)
     keys: list[tuple[int, bool, bool]] = []
-    scrolls: list[int] = []
     monkeypatch.setattr(
         desktop,
         "_post_key",
         lambda loaded, code, *, command, shift: keys.append((code, command, shift)),
     )
-    monkeypatch.setattr(desktop, "_post_scroll", lambda loaded, lines: scrolls.append(lines))
-    context = ToolContext(root=tmp_path)
 
-    assert desktop.desktop_key({"key": "a", "command": True}, context).ok
-    assert desktop.desktop_scroll({"lines": -3}, context).ok
+    assert desktop.desktop_key({"key": "a", "command": True}, ToolContext(root=tmp_path)).ok
     assert keys == [(0, True, False)]
-    assert scrolls == [-3]
 
 
-def test_bilinmeyen_tus_ve_asiri_kaydirma_reddedilir(tmp_path, monkeypatch) -> None:
+def test_bilinmeyen_tus_reddedilir(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(desktop.sys, "platform", "darwin")
-    context = ToolContext(root=tmp_path)
 
-    assert not desktop.desktop_key({"key": "cmd+rm"}, context).ok
-    assert not desktop.desktop_scroll({"lines": 101}, context).ok
+    assert not desktop.desktop_key({"key": "cmd+rm"}, ToolContext(root=tmp_path)).ok
 
 
 def test_masaustu_eylemleri_onay_akisini_atlamaz() -> None:
     registry = build_registry()
-    for name in ("desktop_click", "desktop_type", "desktop_key", "desktop_scroll"):
+    for name in ("desktop_click", "desktop_mouse", "desktop_type", "desktop_key", "desktop_scroll"):
         tool = registry.get(name)
         assert tool is not None and tool.mutating
         assert not build_request(tool, {}).unattended_safe

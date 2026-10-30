@@ -55,10 +55,6 @@ def resolve_key(name: str) -> int | None:
 ACCESSIBILITY_ERROR = MESSAGES[ACCESSIBILITY]
 
 
-class _Point(ctypes.Structure):
-    _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
-
-
 def _mac_only() -> str | None:
     return (
         None
@@ -125,45 +121,6 @@ def desktop_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     if result.returncode:
         return ToolResult.failure(f"Uygulama açılamadı: {result.stderr.strip()}")
     return ToolResult(f"Uygulama açıldı: {name}")
-
-
-def _post_mouse_click(framework: ctypes.CDLL, x: int, y: int) -> None:
-    framework.CGEventCreateMouseEvent.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_uint32,
-        _Point,
-        ctypes.c_uint32,
-    ]
-    framework.CGEventCreateMouseEvent.restype = ctypes.c_void_p
-    framework.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
-    framework.CFRelease.argtypes = [ctypes.c_void_p]
-    for event_type in (1, 2):  # kCGEventLeftMouseDown / kCGEventLeftMouseUp
-        event = framework.CGEventCreateMouseEvent(None, event_type, _Point(x, y), 0)
-        if not event:
-            raise RuntimeError("Fare olayı oluşturulamadı")
-        try:
-            framework.CGEventPost(0, event)  # kCGHIDEventTap
-        finally:
-            framework.CFRelease(event)
-
-
-def desktop_click(args: ToolArgs, context: ToolContext) -> ToolResult:
-    """Ekran koordinatına sol tık gönder."""
-    del context
-    error = _mac_only()
-    if error:
-        return ToolResult.failure(error)
-    x, y = args.get("x"), args.get("y")
-    if any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in (x, y)):
-        return ToolResult.failure("x ve y sıfırdan büyük veya eşit tam sayı olmalı.")
-    try:
-        framework = _framework()
-        if not _trusted(framework):
-            return permission_failure(ACCESSIBILITY)
-        _post_mouse_click(framework, cast(int, x), cast(int, y))
-    except (OSError, RuntimeError) as exc:
-        return ToolResult.failure(f"Fare tıklaması gönderilemedi: {exc}")
-    return ToolResult(f"Tıklandı: ({x}, {y})")
 
 
 def _post_text(framework: ctypes.CDLL, value: str) -> None:
@@ -323,40 +280,3 @@ def desktop_key(args: ToolArgs, context: ToolContext) -> ToolResult:
     label = ", ".join(chord.label() for chord in chords)
     suffix = f" (×{repeat})" if repeat > 1 else ""
     return ToolResult(f"Tuş gönderildi: {label}{suffix}")
-
-
-def _post_scroll(framework: ctypes.CDLL, lines: int) -> None:
-    framework.CGEventCreateScrollWheelEvent.restype = ctypes.c_void_p
-    framework.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
-    framework.CFRelease.argtypes = [ctypes.c_void_p]
-    event = framework.CGEventCreateScrollWheelEvent(None, 1, 1, lines)
-    if not event:
-        raise RuntimeError("Kaydırma olayı oluşturulamadı")
-    try:
-        framework.CGEventPost(0, event)
-    finally:
-        framework.CFRelease(event)
-
-
-def desktop_scroll(args: ToolArgs, context: ToolContext) -> ToolResult:
-    """Odaklı pencerede dikey kaydır; pozitif yukarı, negatif aşağıdır."""
-    del context
-    error = _mac_only()
-    if error:
-        return ToolResult.failure(error)
-    lines = args.get("lines")
-    if (
-        not isinstance(lines, int)
-        or isinstance(lines, bool)
-        or lines == 0
-        or abs(lines) > DESKTOP_SCROLL_MAX_LINES
-    ):
-        return ToolResult.failure("lines -100 ile 100 arasında sıfır olmayan tam sayı olmalı.")
-    try:
-        framework = _framework()
-        if not _trusted(framework):
-            return permission_failure(ACCESSIBILITY)
-        _post_scroll(framework, lines)
-    except (OSError, RuntimeError) as exc:
-        return ToolResult.failure(f"Kaydırma gönderilemedi: {exc}")
-    return ToolResult(f"{abs(lines)} satır {'yukarı' if lines > 0 else 'aşağı'} kaydırıldı.")

@@ -46,7 +46,8 @@ class DesktopFrame:
         )
 
     def contains_pixel(self, x: float, y: float) -> bool:
-        return 0 <= x < self.image_width and 0 <= y < self.image_height
+        """Kenar dahil: model sık sık tam kenar değerini (ör. 1568) verir."""
+        return 0 <= x <= self.image_width and 0 <= y <= self.image_height
 
     def describe(self) -> str:
         """Modele giden tek satırlık çerçeve bilgisi."""
