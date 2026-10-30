@@ -333,3 +333,14 @@ def test_title_falls_back_to_date_and_size(tmp_path) -> None:
     assert "2023-11-14" in ref.title
     assert f"{path.stat().st_size} bayt" in ref.title
     assert ref.title != "s1"
+
+
+def test_slug_bosluk_nokta_ve_alt_cizgiyi_de_tireye_cevirir():
+    """Ölçüldü (30 Ekim): yalnız '/' çevriliyordu; 'Application Support' klasörü eşleşmiyordu."""
+    from pathlib import Path
+
+    assert slug_for(Path("/Users/x/Library/Application Support/Claude")) == (
+        "-Users-x-Library-Application-Support-Claude"
+    )
+    assert slug_for(Path("/Users/x/.worktrees/my_proj")) == "-Users-x--worktrees-my-proj"
+    assert slug_for(Path("/Users/x/01-Projeler/fusion-cli")) == "-Users-x-01-Projeler-fusion-cli"

@@ -1,8 +1,8 @@
 """Claude Code oturum geçmişi okuyucusu.
 
 Claude her oturumu `~/.claude/projects/<slug>/<oturum>.jsonl` altında, satır başına
-bir JSON kaydı olarak tutar. Slug, çalışma dizini yolundaki `/` karakterlerinin
-`-` ile değiştirilmiş halidir.
+bir JSON kaydı olarak tutar. Slug, çalışma dizini yolundaki harf-rakam olmayan
+karakterlerin `-` ile değiştirilmiş halidir.
 
 İki tuzak vardır ve ikisi de gerçek veriden ölçüldü:
 
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import builtins
 import json
+import re
 from collections.abc import Generator
 from pathlib import Path
 
@@ -29,8 +30,15 @@ _NOISE_PREFIXES = ("<local-command-caveat>", "<command-name>", "<command-message
 
 
 def slug_for(root: Path) -> str:
-    """Çalışma dizinini Claude'un proje dizini adına çevir."""
-    return str(root).replace("/", "-")
+    """Çalışma dizinini Claude'un proje dizini adına çevir.
+
+    Claude Code yolun harf-rakam OLMAYAN her karakterini `-` yapar. Ölçüldü (30 Ekim):
+    `~/.claude/projects` altında `…/Library/Application Support/…` dizini
+    `-Users-…-Library-Application-Support-…` adıyla duruyor; eski kural yalnız `/`
+    çevirdiği için boşluklu, noktalı ve alt çizgili klasörler eşleşmiyor, oturum listesi
+    boş dönüyordu (E1-32).
+    """
+    return re.sub(r"[^A-Za-z0-9]", "-", str(root))
 
 
 def _text_of(message: object) -> str:
