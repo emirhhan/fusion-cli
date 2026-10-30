@@ -43,6 +43,32 @@ impl RuntimePaths {
                 .join("Fusion")
                 .join("runtime")
         };
+        Self::from_root(root)
+    }
+
+    /// Üretim girişi: Windows'ta kök gerçek `%LOCALAPPDATA%`dan alınır. `home\AppData\Local`
+    /// varsayımı OneDrive/yeniden yönlendirilmiş profil ve özel `LOCALAPPDATA` kurulumlarında
+    /// Tauri'nin `local_data_dir()`'ından (Kits bunu kullanır) farklı bir yere işaret ediyordu
+    /// (Q1-12). Test ve kurulum kodları ortamdan bağımsız kalsın diye `for_home` saf kalır.
+    pub fn for_current_user(home: &Path) -> Self {
+        Self::for_home_with_local(home, std::env::var_os("LOCALAPPDATA").as_deref())
+    }
+
+    /// `for_home` + isteğe bağlı gerçek yerel veri dizini (yalnız Windows'ta etkilidir).
+    pub fn for_home_with_local(home: &Path, local_app_data: Option<&std::ffi::OsStr>) -> Self {
+        if cfg!(windows) {
+            if let Some(local) = local_app_data
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+            {
+                let root = local.join("Fusion").join("runtime");
+                return Self::from_root(root);
+            }
+        }
+        Self::for_home(home)
+    }
+
+    fn from_root(root: PathBuf) -> Self {
         Self {
             active_record: root.join("active-runtime.json"),
             lock_file: root.join("runtime.lock"),
@@ -91,6 +117,36 @@ mod tests {
         );
         assert_eq!(paths.active_record, paths.root.join("active-runtime.json"));
         assert_eq!(paths.lock_file, paths.root.join("runtime.lock"));
+    }
+
+    /// Ölçüldü (30 Ekim): Windows kökü hep `home\AppData\Local` idi; yeniden yönlendirilmiş
+    /// `%LOCALAPPDATA%` ile Kits (`local_data_dir`) ve çalışma zamanı ayrı yerlere yazıyordu.
+    #[cfg(windows)]
+    #[test]
+    fn windows_gercek_localappdata_kullanir() {
+        let paths = RuntimePaths::for_home_with_local(
+            Path::new("C:\\Users\\ada"),
+            Some(std::ffi::OsStr::new("D:\\Yerel")),
+        );
+        assert_eq!(paths.root, PathBuf::from("D:\\Yerel\\Fusion\\runtime"));
+        let yedek = RuntimePaths::for_home_with_local(Path::new("C:\\Users\\ada"), None);
+        assert_eq!(
+            yedek.root,
+            PathBuf::from("C:\\Users\\ada\\AppData\\Local\\Fusion\\runtime")
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn macos_localappdata_degiskenini_yok_sayar() {
+        let paths = RuntimePaths::for_home_with_local(
+            Path::new("/Users/ada"),
+            Some(std::ffi::OsStr::new("/baska")),
+        );
+        assert_eq!(
+            paths.root,
+            RuntimePaths::for_home(Path::new("/Users/ada")).root
+        );
     }
 
     #[test]

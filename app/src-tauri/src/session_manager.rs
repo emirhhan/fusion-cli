@@ -48,7 +48,7 @@ impl SessionSnapshot {
 /// kapanış NEDENİNİ döner. `stop` kullanıcı kapatmasını önce işaretlediyse o neden korunur;
 /// eskiden hep "süreç kapandı" yayılıp bilerek kapatma ile çökme ayırt edilemiyordu (R2-18).
 fn close_if_current(sessions: &SessionMap, id: &str, pid: u32) -> Option<String> {
-    let mut sessions = lock_tolerant(&sessions);
+    let mut sessions = lock_tolerant(sessions);
     let session = sessions.get_mut(id)?;
     if !is_current_process(&session.snapshot, pid) {
         return None;
@@ -476,7 +476,7 @@ pub(crate) fn son_cekirdek_gunlugu(sinir: usize, oturum_id: Option<&str>) -> Opt
 /// `…/Fusion/logs`: çalışma zamanı kökünün (`…/Fusion/runtime`) kardeşi.
 pub(crate) fn gunluk_dizini() -> Option<PathBuf> {
     let home = varsayilan_kok().ok()?;
-    let runtime = crate::runtime_paths::RuntimePaths::for_home(&home).root;
+    let runtime = crate::runtime_paths::RuntimePaths::for_current_user(&home).root;
     Some(runtime.parent()?.join("logs"))
 }
 

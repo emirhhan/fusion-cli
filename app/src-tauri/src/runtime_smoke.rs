@@ -46,7 +46,7 @@ pub fn run_from_bundle() -> Result<(), String> {
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .ok_or("Temiz kullanıcı HOME dizini verilmedi")?;
-    let paths = RuntimePaths::for_home(&home);
+    let paths = RuntimePaths::for_current_user(&home);
     let manager = RuntimeManager::new(
         RuntimeResources {
             manifest_path: runtime_dir.join("runtime-manifest.json"),

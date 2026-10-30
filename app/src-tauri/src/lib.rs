@@ -754,7 +754,7 @@ pub fn run() {
             ));
             let resources = RuntimeResources::from_app(app.handle())?;
             let ev_dizini = app.path().home_dir()?;
-            let paths = RuntimePaths::for_home(&ev_dizini);
+            let paths = RuntimePaths::for_current_user(&ev_dizini);
             let manager = RuntimeManager::new(
                 resources,
                 paths,
