@@ -124,3 +124,25 @@ def test_gercek_dosya_basliklari_hala_atlanir():
     sonuc = render_diff(_sql_diff())
 
     assert "a/x.sql" not in sonuc.body.plain and "b/x.sql" not in sonuc.body.plain
+
+
+def test_secici_ust_simge_girisi_cokmez():
+    """`"²".isdigit()` True ama `int("²")` ValueError veriyordu (L1-41)."""
+    from fusion_cli.ui.picker import Choice, resolve_plain
+
+    secenekler = [Choice("a", "A", "")]
+
+    assert resolve_plain(secenekler, "²") is None
+    assert resolve_plain(secenekler, "1") == "a"
+
+
+def test_durdurulan_tur_ozeti_gorev_listesini_sinirlar():
+    from fusion_cli.core.tools import TodoItem, TodoStatus
+    from fusion_cli.ui.turn_stop import turn_stopped_summary
+
+    gorevler = [TodoItem(content=f"görev {i}", status=TodoStatus.PENDING) for i in range(200)]
+
+    ozet = turn_stopped_summary("model_calls", gorevler)
+
+    assert "görev 0" in ozet and "görev 199" not in ozet
+    assert "+188 görev daha" in ozet

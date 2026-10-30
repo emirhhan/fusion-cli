@@ -11,6 +11,9 @@ from collections.abc import Sequence
 from ..core.tools import TodoItem, TodoStatus
 from . import messages
 
+#: Özet satırlarında tek tek yazılacak en fazla görev (kalanı "+M görev daha").
+_TODOS_LISTED = 12
+
 
 def turn_stopped_summary(reason: str | None, todos: Sequence[TodoItem]) -> str:
     """Yarım kalan turun sebebini, görev ilerlemesini ve nasıl sürdürüleceğini yaz."""
@@ -19,6 +22,8 @@ def turn_stopped_summary(reason: str | None, todos: Sequence[TodoItem]) -> str:
     if todos:
         tamam = sum(1 for item in todos if item.status is TodoStatus.COMPLETED)
         satirlar.append(messages.APP_TURN_STOPPED_TODOS.format(done=tamam, total=len(todos)))
-        satirlar.extend(f"{item.status.icon} {item.content}" for item in todos)
+        satirlar.extend(f"{item.status.icon} {item.content}" for item in todos[:_TODOS_LISTED])
+        if len(todos) > _TODOS_LISTED:
+            satirlar.append(messages.APP_TURN_STOPPED_MORE.format(count=len(todos) - _TODOS_LISTED))
     satirlar.append(messages.APP_TURN_STOPPED_HINT)
     return "\n".join(satirlar)

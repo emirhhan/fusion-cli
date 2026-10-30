@@ -1246,3 +1246,36 @@ def test_onay_icin_askiya_alirken_yarim_satir_kapanir():
 
     with renderer.suspended():
         assert renderer._line_open is False
+
+
+def test_cok_dosya_degisen_tur_tek_satiri_taşırmaz():
+    from fusion_cli.core.events import FilesChanged
+
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    renderer = ConsoleRenderer(console)
+
+    renderer.handle(FilesChanged(paths=tuple(f"src/d{i}.py" for i in range(300))))
+
+    cikti = buffer.getvalue()
+    assert "src/d0.py" in cikti and "src/d299.py" not in cikti
+    assert "+292 dosya daha" in cikti
+
+
+def test_bilinmeyen_arac_sonucu_turu_dusurmez():
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
+
+    renderer = ConsoleRenderer(Console(file=io.StringIO(), force_terminal=False, no_color=True))
+    renderer._OUTCOME_COLORS = {}  # yeni bir ToolOutcome üyesi eklenmiş gibi
+
+    renderer._tool_executed(
+        ToolExecuted(name="read_file", args={"path": "a"}, outcome=ToolOutcome.OK, output="x")
+    )
+
+
+def test_tum_onay_kipleri_renklidir_ve_bypass_en_belirgindir():
+    from fusion_cli.ui.banner import mode_color
+
+    assert mode_color("bypass") != theme.DIM
+    assert mode_color("edits") != theme.DIM
+    assert "bold" in mode_color("bypass")

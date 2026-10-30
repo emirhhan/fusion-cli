@@ -272,3 +272,19 @@ def test_yalniz_yerel_model_kullanan_repl_e_girebilir(monkeypatch):
 
     assert cagrildi == [1]
     assert sonuc.exit_code == 0
+
+
+def test_karsilama_terminal_degilse_kontrol_dizisi_yazmaz():
+    """Boruya/dosyaya yönlendirilen çıktıya `ESC [ 3 J` bulaşmamalı (L1-39)."""
+    import io
+
+    from rich.console import Console
+
+    from fusion_cli.ui import banner
+
+    tampon = io.StringIO()
+    console = Console(file=tampon, width=80, force_terminal=False)
+
+    banner.print_welcome(console, banner.SessionInfo(**_ornek_oturum()), clear=True)
+
+    assert "\x1b" not in tampon.getvalue()

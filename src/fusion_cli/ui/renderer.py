@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import textwrap
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from typing import ClassVar
 
 from rich.console import Console
@@ -345,7 +345,7 @@ class ConsoleRenderer:
             self._close_line()
             self._console.print(
                 f"[{theme.DIM}]{theme.ICON_STATUS} "
-                f"{escape(messages.FILES_CHANGED.format(paths=', '.join(event.paths)))}"
+                f"{escape(messages.FILES_CHANGED.format(paths=_join_capped(event.paths)))}"
                 f"[/{theme.DIM}]"
             )
         elif isinstance(event, NoFileChanges):
@@ -810,7 +810,8 @@ class ConsoleRenderer:
     def _tool_executed(self, event: ToolExecuted) -> None:
         """Araç çağrısını Claude Code diziliminde bas: `⏺ çağrı` + `⎿ sonuç`/diff."""
         self._end_block()
-        color = self._OUTCOME_COLORS[event.outcome]
+        # Bilinmeyen sonuç (yeni `ToolOutcome` üyesi) KeyError ile turu düşürmez (L1-37).
+        color = self._OUTCOME_COLORS.get(event.outcome, theme.DIM)
         cagri = _format_call(event.name, event.args)
         # highlight=False: Rich'in `ad(arg)`'ı Python çağrısı sanıp magentaya boyaması
         # engellenir; Claude Code araç adını düz/kalın gösterir, repr rengiyle değil.
@@ -895,6 +896,9 @@ _RESULT_PREFIX = 5
 # ile sayılır — kırpıldığı SÖYLENİR, sessizce yutulmaz.
 _RESULT_LINES = 8
 
+#: `FilesChanged` satırında tek tek yazılacak en fazla dosya.
+_FILES_LISTED = 8
+
 #: Bu uzunluğu aşan argüman değeri ham gösterilmez, yerine boyutu yazılır.
 _ARG_VALUE_LIMIT = 48
 
@@ -972,6 +976,16 @@ def _format_call(name: str, args: Mapping[str, object]) -> str:
         return tek_satir
     # Kısaltırken kapanış parantezi KORUNUR: yarım kalan çağrı okunmuyor.
     return tek_satir[: _CALL_LIMIT - 2] + "…)"
+
+
+def _join_capped(paths: Sequence[str], limit: int = _FILES_LISTED) -> str:
+    """Yolları virgülle birleştir; `limit`ten fazlası `+M dosya daha` olur (L1-38).
+
+    Yüzlerce dosya değiştiren tur tek satırda ekranı taşırıyordu.
+    """
+    if len(paths) <= limit:
+        return ", ".join(paths)
+    return f"{', '.join(paths[:limit])} {messages.FILES_MORE.format(count=len(paths) - limit)}"
 
 
 def _middle_shorten(text: str, limit: int) -> str:

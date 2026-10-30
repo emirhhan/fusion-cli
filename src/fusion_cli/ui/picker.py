@@ -145,7 +145,8 @@ def resolve_plain(choices: Sequence[Choice], answer: str) -> str | None:
     wanted = answer.strip().lower()
     if not wanted:
         return None
-    if wanted.isdigit():
+    # `"²".isdigit()` True ama `int("²")` ValueError verir: yalnız ASCII ondalık (L1-41).
+    if wanted.isascii() and wanted.isdecimal():
         index = int(wanted) - 1
         return choices[index].value if 0 <= index < len(choices) else None
     for choice in choices:

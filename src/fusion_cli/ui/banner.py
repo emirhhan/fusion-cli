@@ -96,8 +96,10 @@ def print_welcome(
         # çıktısını görür — bir uygulamaya girilmiş hissi vermez. `ESC [ 3 J` geçmişi de
         # temizler. Yalnızca ilk karşılamada yapılır; sonraki yeniden çizimlerde oturumun
         # kendi geçmişi korunmalıdır.
-        console.file.write(_CLEAR_SCROLLBACK)
-        console.file.flush()
+        # Terminal DEĞİLSE (boru/dosya) kontrol karakteri yazılmaz: çıktıya `\x1b[3J` bulaşırdı.
+        if console.is_terminal:
+            console.file.write(_CLEAR_SCROLLBACK)
+            console.file.flush()
 
     blocks: list[RenderableType] = [Text(), *_logo_blocks(console.width), _welcome_panel(info)]
     for block in blocks:
@@ -148,7 +150,15 @@ def print_status(
 
 def mode_color(mode: str) -> str:
     """Onay modunun rengi — riskli mod göze çarpsın."""
-    return {"auto": theme.OK, "plan": theme.WARN, "security": theme.ERROR}.get(mode, theme.DIM)
+    # Beş kipin hepsi renklidir: Ölçüldü (30 Ekim) `bypass` (hiçbir şey sorma) ve `edits`
+    # soluk gri görünüyordu — en riskli kip en sönük renkti (L1-24).
+    return {
+        "auto": theme.OK,
+        "edits": theme.WARN,
+        "plan": theme.WARN,
+        "security": theme.ERROR,
+        "bypass": f"bold {theme.ERROR}",
+    }.get(mode, theme.DIM)
 
 
 def pick_tip(seed: str) -> str:

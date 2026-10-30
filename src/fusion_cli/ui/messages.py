@@ -118,6 +118,7 @@ FOLLOWUPS_TITLE = "sıradaki adım önerileri:"
 NO_FILE_CHANGES = "bu turda hiçbir dosya değiştirilmedi · yalnızca okuma yapıldı"
 #: Turda gerçekten değişen dosyalar. Modelin iddiası değil, değişiklik kümesi.
 FILES_CHANGED = "değişen dosyalar: {paths}"
+FILES_MORE = "(+{count} dosya daha)"
 #: Seçili model dosya/sistem değiştiremiyor. Kısıt SESSİZ kalmamalı: model
 #: "böyle bir aracım yok" der ve haklıdır, ama kullanıcı sebebi göremezse
 #: Fusion'ı arızalı sanır.
@@ -402,7 +403,7 @@ TIPS_SECTIONS = (
     (
         "Güvenlik ve geri alma",
         (
-            ("shift-tab", "onay modunu döndür: auto → plan → security"),
+            ("shift-tab", "onay modunu döndür: auto → security → edits → plan"),
             ("plan modu", "önce planı gör, onaylayınca uygulansın — büyük değişikliklerde"),
             ("/undo", "son turun dosya değişikliklerini geri al"),
             ("--add-dir", "proje dışına erişim gerekiyorsa açıkça ver"),
@@ -494,6 +495,7 @@ APP_TURN_STOP_REASONS = {
 #: bitti; kullanıcı neyin yapıldığını, neyin kaldığını ve neden durduğunu göremedi.
 APP_TURN_STOPPED_HEAD = "İş yarıda kaldı: {reason}."
 APP_TURN_STOPPED_TODOS = "Görevler: {done}/{total} tamamlandı."
+APP_TURN_STOPPED_MORE = "… (+{count} görev daha)"
 APP_TURN_STOPPED_HINT = 'Kaldığı yerden sürdürmek için "devam et" yaz.'
 #: Uzun iş bütçeyle kesilince kullanıcı beklemeden sürdürülürken gösterilir.
 APP_TURN_AUTO_CONTINUE = "Kaldığı yerden otomatik devam ediliyor ({n}/{total})"
