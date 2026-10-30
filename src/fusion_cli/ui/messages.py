@@ -793,7 +793,7 @@ SETUP_ASK_NIM = (
     "  Ayrı bir ücretsiz kotadan çalışır: https://build.nvidia.com/\n"
     "  Anahtar: "
 )
-SETUP_CANCELLED = "kurulum iptal edildi; hiçbir dosya değiştirilmedi"
+SETUP_CANCELLED = "kurulum iptal edildi; anahtar kaydedilmedi (yapılandırma şablonu oluşmuş olabilir)"
 SETUP_WRITE_FAILED = "anahtarlar yazılamadı: {path}"
 SETUP_KEY_REQUIRED = "En az BİR anahtar gerekli; ikisi de boşken hiçbir model çağrılamaz."
 SETUP_KEYS_SAVED = "anahtarlar kaydedildi: {path}"

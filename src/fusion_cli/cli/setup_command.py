@@ -11,12 +11,15 @@ silmesi kabul edilemez; mevcut dosya varsa yalnızca bildirilir.
 from __future__ import annotations
 
 import getpass
+import os
 import sys
 from collections.abc import Callable
 from contextlib import suppress
+from enum import Enum
 from pathlib import Path
 
 from rich.console import Console
+from rich.markup import escape
 
 from ..config.keys import detect
 from ..config.loader import load_environment
@@ -87,10 +90,15 @@ def run_setup(console: Console, *, ask: Asker | None = None) -> None:
     load_environment()
     zaten_var = detect().any_configured
     if sorucu is not None and not zaten_var and not (directory / ".env").exists():
-        _ask_keys(console, directory / ".env", sorucu)
-        anahtar_alindi = True
+        sonuc = _ask_keys(console, directory / ".env", sorucu)
+        if sonuc is _KeyOutcome.CANCELLED:
+            # Ölçüldü (30 Ekim): iptal/yazma hatasında bile `anahtar_alindi = True`
+            # atanıyor, "Sırada: fusion yaz" gösteriliyordu (anahtar yokken). İptal
+            # kurulumu burada bitirir: ders tohumlama ve sonraki adımlar atlanır.
+            return
+        anahtar_alindi = sonuc is _KeyOutcome.SAVED
     else:
-        _create(console, directory / ".env", ENV_TEMPLATE)
+        _create(console, directory / ".env", ENV_TEMPLATE, private=True)
 
     _seed_lessons(console)
     _offer_path_setup(console, interaktif=ask is None and sys.stdin.isatty() and not anahtar_alindi)
@@ -113,7 +121,15 @@ def run_setup(console: Console, *, ask: Asker | None = None) -> None:
     console.print(f"[{theme.DIM}]  varsayılanlar:{bundled_defaults()}[/{theme.DIM}]")
 
 
-def _ask_keys(console: Console, path: Path, ask: Asker) -> None:
+class _KeyOutcome(Enum):
+    """`_ask_keys` sonucu: anahtar kaydedildi mi, yazılamadı mı, kullanıcı vazgeçti mi."""
+
+    SAVED = "saved"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+def _ask_keys(console: Console, path: Path, ask: Asker) -> _KeyOutcome:
     """Anahtarları sor ve `.env` olarak yaz.
 
     EN AZ BİR anahtar gerekir; hangisi olduğu fark etmez. Ölçüldü: readiness
@@ -137,7 +153,7 @@ def _ask_keys(console: Console, path: Path, ask: Asker) -> None:
             # Ctrl+C kurulumu İPTAL eder. Eskiden boş cevap sayılıp tekrar
             # soruluyordu; kullanıcı kurulumdan çıkamıyordu.
             console.print(f"[{theme.DIM}]{messages.SETUP_CANCELLED}[/{theme.DIM}]")
-            return
+            return _KeyOutcome.CANCELLED
         if not (openrouter or nim):
             console.print(f"[{theme.WARN}]{messages.SETUP_KEY_REQUIRED}[/{theme.WARN}]")
 
@@ -151,14 +167,15 @@ def _ask_keys(console: Console, path: Path, ask: Asker) -> None:
         console.print(
             f"[{theme.ERROR}]{messages.SETUP_WRITE_FAILED.format(path=path)}[/{theme.ERROR}]"
         )
-        console.print(f"[{theme.DIM}]{hata}[/{theme.DIM}]")
-        return
+        console.print(f"[{theme.DIM}]{escape(str(hata))}[/{theme.DIM}]")
+        return _KeyOutcome.FAILED
     # İzinler daraltılır: anahtar dosyasını başka kullanıcılar okuyabilmemeli.
     with suppress(OSError):
         path.chmod(0o600)
     console.print(
         f"[{theme.OK}]{theme.ICON_OK}[/{theme.OK}] {messages.SETUP_KEYS_SAVED.format(path=path)}"
     )
+    return _KeyOutcome.SAVED
 
 
 class _CancelledError(Exception):
@@ -228,8 +245,6 @@ def _offer_path_setup(console: Console, *, interaktif: bool) -> None:
 
 def _shell_config() -> Path:
     """Kullanıcının kabuğuna karşılık gelen yapılandırma dosyası."""
-    import os
-
     kabuk = Path(os.environ.get("SHELL", "sh")).name
     return {
         "zsh": Path.home() / ".zshrc",
@@ -264,11 +279,26 @@ def _seed_lessons(console: Console) -> None:
     )
 
 
-def _create(console: Console, path: Path, content: str) -> None:
+def _create(console: Console, path: Path, content: str, *, private: bool = False) -> None:
+    """Dosyayı oluştur. `private` iken izin ilk andan 0o600 olur (anahtar dosyası).
+
+    Ölçüldü (30 Ekim): `.env` şablonu varsayılan umask ile (0o644) oluşuyordu;
+    kullanıcı anahtarlarını sonradan elle yazınca dosya grup/dünya okunabilir kalıyordu.
+    """
     if path.exists():
         console.print(f"[{theme.DIM}]{messages.SETUP_EXISTS.format(path=path)}[/{theme.DIM}]")
         return
-    path.write_text(content, encoding="utf-8")
+    if private:
+        _write_private(path, content)
+    else:
+        path.write_text(content, encoding="utf-8")
     console.print(
         f"[{theme.OK}]{theme.ICON_OK}[/{theme.OK}] {messages.SETUP_CREATED.format(path=path)}"
     )
+
+
+def _write_private(path: Path, content: str) -> None:
+    """Dosyayı YALNIZ sahibine açık oluştur (izin açılış anında 0o600, sonradan değil)."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(content)
