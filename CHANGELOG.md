@@ -107,6 +107,10 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - `<thinking>`/`<reasoning>` düşünme etiketleri gizlenir, kapanışsız etiketten sonraki cevap kaybolmaz; Godot kapısı `GODOT_BIN` ve uygulama paketinden de çalışır; site kopyalama telif/izin uyarısı verir.
 - `edit_file`/`multi_edit` eski metin dosyada satır sonu boşluğu, girinti ya da CRLF farkıyla duruyorsa, tek ve belirsiz olmayan eşleşmede düzenlemeyi uygular ve bunu modele bildirir; onay kartı gerçek farkı gösterir (`runtime.edit_fuzzy_match`). JS/TS/PHP dosyası kaydedilince sözdizimi hatası aynı turda bildirilir (`runtime.post_edit_syntax_check`).
 - Eski araç sonuçları eşik beklenmeden modele kısa yer tutucu olarak gider, son 8 sonuç ve hatalar tam kalır, geçmiş kaydı değişmez; yer tutucudaki okuma yeniden istenince tekrar kapısı engellemez (`runtime.tool_output_window`, 0 = kapalı). Küçük modellerde bağlam sıkıştırması pencerenin %20'sinde başlar (`runtime.weak_model_compaction_ratio`).
+- Zayıf/küçük modele görev türüne göre (soru, kod, web, medya, masaüstü) daha küçük bir araç listesi gösterilir (soru görevinde 37 yerine 12 araç); liste konuşma boyunca yalnız genişler, gizli araç çağrılırsa o tur açılır (`runtime.weak_model_tool_profiles`). Her model çağrısında sunulan araç sayısı ve şema boyutu iz kaydına yazılır.
+- Ajan var olan bir testi zayıflatırsa (skip/xfail ekleme, assert ya da test silme, CI/test komutunu değiştirme) rapor "şüpheli test değişikliği" uyarısı verir ve "testler geçti" kanıtı tek başına doğrulama sayılmaz (`runtime.test_tamper_check`); test ya da şartname hatalı görünüyorsa ajan durup bildirir.
+- Web, tarayıcı, MCP ya da klonlanan site okunan turdan çıkan dersler düşük güvenle "dış kaynaklı" kaydedilir ve dış içeriksiz başarılı bir turda doğrulanana kadar güven kazanmaz (`runtime.external_lesson_confidence`).
+- Doğrulama iki düzeltmeden sonra da başarısızsa ve yapılandırmada daha güçlü bir model varsa (varsayılan kurulumda Nemotron 3 Ultra) o modelle tek bir ek düzeltme turu yapılır; durum satırı ve rapor notu görünür (`runtime.escalate_on_gate_failure`, `runtime.escalation_model`).
 
 ## 0.7.18 — 2026-10-21
 
