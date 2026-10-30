@@ -156,3 +156,15 @@ class TestArayuzTercihleri:
     def test_dosya_json_ve_utf8(self):
         ui_prefs.save({"anahtar": "fusion.ad", "deger": "Mağaza"})
         assert json.loads(self.yol.read_text(encoding="utf-8"))["fusion.ad"] == "Mağaza"
+
+
+def test_arayuz_tercihi_sabit_tmp_dosyasi_birakmaz_ve_yarisamaz(tmp_path, monkeypatch):
+    """Ölçüldü (30 Ekim, S2-49): sabit `ui-prefs.tmp` adı iki süreçte yarışıyordu."""
+    prefs = tmp_path / "ui-prefs.json"
+    monkeypatch.setattr(ui_prefs, "prefs_path", lambda: prefs)
+    (tmp_path / "ui-prefs.tmp").write_text("baska surecin yarim yazisi", encoding="utf-8")
+
+    assert ui_prefs.save({"anahtar": "fusion.layout", "deger": "{}"})["ok"] is True
+
+    assert (tmp_path / "ui-prefs.tmp").read_text(encoding="utf-8") == "baska surecin yarim yazisi"
+    assert ui_prefs.load()["degerler"] == {"fusion.layout": "{}"}
