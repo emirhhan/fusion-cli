@@ -89,3 +89,25 @@ async def test_ax_eylemi_tam_pencere_ve_basvuruya_baglanir() -> None:
     await dock.action(target, request)
     assert native.calls == [("action", {**target, "request": request})]
     assert not (await dock.action(target, {"action": "global_click"}))["ok"]
+
+
+class BozukNative:
+    async def invoke(self, operation: str, target: dict[str, object]) -> dict[str, object]:
+        raise TimeoutError("swift")
+
+
+async def test_yerel_sonda_zaman_asimi_istisna_sizdirmaz() -> None:
+    """Ölçüldü (30 Ekim, S1-44): yerel sondanın `TimeoutError`'u yalnız Chrome dalında
+    yakalanıyordu; list/focus/snapshot/inspect/action RPC sınırına sızdırıyordu."""
+    dock = DesktopDock(native=BozukNative())
+    hedef: dict[str, object] = {"kind": "window", "id": 1, "pid": 20}
+
+    liste = await dock.list()
+    assert liste["ok"] is False and liste["native_error"]
+    for sonuc in (
+        await dock.focus(hedef),
+        await dock.snapshot(hedef),
+        await dock.inspect(hedef),
+        await dock.action(hedef, {"action": "press"}),
+    ):
+        assert sonuc["ok"] is False
