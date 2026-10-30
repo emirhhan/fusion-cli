@@ -369,26 +369,42 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   }, [connect, create]);
 
   const refreshStored = useCallback(async () => {
-    // Liste AÇIK sekmeden istenir: çekirdek kendi kökündeki sohbetleri bilir.
-    const entry = clients.current.entries().next().value;
-    if (!entry) return;
-    const [clientId, client] = entry;
-    const result = await client.request("sohbet.listele", {}).catch(() => null);
-    if (!result || !Array.isArray(result.sohbetler)) return;
-    const rows: StoredConversation[] = result.sohbetler.flatMap((item) => {
-      if (!item || typeof item !== "object") return [];
-      const row = item as Record<string, unknown>;
-      if (typeof row.sohbet_id !== "string" || typeof row.baslik !== "string") return [];
-      if (deletedIds.current.has(row.sohbet_id)) return [];
-      return [{
-        id: row.sohbet_id,
-        root: typeof row.kok === "string" ? row.kok : clientRoots.current.get(clientId) ?? "",
-        title: row.baslik,
-        updatedAt: typeof row.guncelleme === "number" ? row.guncelleme : 0,
-        messageCount: typeof row.mesaj_sayisi === "number" ? row.mesaj_sayisi : 0,
-      }];
-    });
-    setStored(rows);
+    // Çekirdek yalnız KENDİ kökündeki sohbetleri bilir: her farklı proje kökü için bir açık
+    // sekmeden liste istenir ve birleştirilir. Ölçüldü (30 Ekim): yalnız ilk sekmenin projesi
+    // soruluyordu, birden çok proje açıkken diğerlerinin saklı sohbetleri listede yoktu (U4-39).
+    const kaynaklar = new Map<string, [string, ProtocolClient]>();
+    for (const [clientId, client] of clients.current) {
+      const kok = clientRoots.current.get(clientId) ?? "";
+      if (!kaynaklar.has(kok)) kaynaklar.set(kok, [clientId, client]);
+    }
+    if (kaynaklar.size === 0) return;
+    const yanitlar = await Promise.all([...kaynaklar.values()].map(async ([clientId, client]) => ({
+      clientId,
+      result: await client.request("sohbet.listele", {}).catch(() => null),
+    })));
+    const gorulen = new Set<string>();
+    const rows: StoredConversation[] = [];
+    let basarili = false;
+    for (const { clientId, result } of yanitlar) {
+      if (!result || !Array.isArray(result.sohbetler)) continue;
+      basarili = true;
+      for (const item of result.sohbetler) {
+        if (!item || typeof item !== "object") continue;
+        const row = item as Record<string, unknown>;
+        if (typeof row.sohbet_id !== "string" || typeof row.baslik !== "string") continue;
+        if (deletedIds.current.has(row.sohbet_id) || gorulen.has(row.sohbet_id)) continue;
+        gorulen.add(row.sohbet_id);
+        rows.push({
+          id: row.sohbet_id,
+          root: typeof row.kok === "string" ? row.kok : clientRoots.current.get(clientId) ?? "",
+          title: row.baslik,
+          updatedAt: typeof row.guncelleme === "number" ? row.guncelleme : 0,
+          messageCount: typeof row.mesaj_sayisi === "number" ? row.mesaj_sayisi : 0,
+        });
+      }
+    }
+    // Hiçbir proje yanıt vermediyse önceki liste korunur (boş listeyle ezilmez).
+    if (basarili) setStored(rows);
   }, []);
 
   const openStored = useCallback(
@@ -697,14 +713,22 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       if (!session || !trimmed.startsWith("/") || session.status !== "ready") {
         return { ok: false, metin: "Komut çalıştırılamadı." };
       }
-      const [name, ...parts] = trimmed.slice(1).split(/\s+/);
+      // Argüman, komut adından sonraki metindir; ardışık boşluk/satırsonu olduğu gibi korunur (U4-40).
+      const bosluk = trimmed.search(/\s/);
+      const name = bosluk === -1 ? trimmed.slice(1) : trimmed.slice(1, bosluk);
+      const argumanMetni = bosluk === -1 ? "" : trimmed.slice(bosluk).trim();
       if (recordInput) {
         dispatch({ type: "messageAdded", id, message: { rol: "kullanici", metin: trimmed } });
       }
-      const result = await session.client.request("komut.calistir", {
-        ad: name,
-        arguman: parts.join(" "),
-      });
+      let result: Record<string, unknown>;
+      try {
+        result = await session.client.request("komut.calistir", { ad: name, arguman: argumanMetni });
+      } catch (reason) {
+        // Reddedilen istek çağırana fırlamaz: komut sonucu olarak hata mesajı gösterilir (U4-40).
+        const metin = `Komut çalıştırılamadı: ${reason instanceof Error ? reason.message : String(reason)}`;
+        if (recordOutput) dispatch({ type: "messageAdded", id, message: { rol: "asistan", hata: true, metin } });
+        return { ok: false, metin };
+      }
       // `/compact`, `/clear` geçmişi; `/model` web eşiğini değiştirebilir.
       olcuyuTazele(id, session.client, dispatch);
       const text = typeof result.metin === "string" ? result.metin : "";

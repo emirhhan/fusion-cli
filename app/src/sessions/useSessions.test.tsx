@@ -856,3 +856,30 @@ describe("useSessions oturum yaşam döngüsü (30 Ekim)", () => {
     expect(hatalar).toHaveLength(1);
   });
 });
+
+it("saklı sohbetler her açık proje kökünden istenir (U4-39)", async () => {
+  const fake = fakeTransport();
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+  await act(async () => { await result.current.create({ id: "a", root: "/Projects/a" }); });
+  await act(async () => { await result.current.create({ id: "b", root: "/Projects/b" }); });
+  vi.mocked(fake.transport.send).mockClear();
+  await act(async () => { await result.current.refreshStored(); });
+  const listeleme = vi.mocked(fake.transport.send).mock.calls
+    .filter(([, line]) => JSON.parse(line).ad === "sohbet.listele").map(([id]) => id);
+  expect(new Set(listeleme).size).toBe(3);
+});
+
+it("reddedilen komut isteği çağırana fırlamaz, hata mesajı gösterilir; argüman biçimi korunur (U4-40)", async () => {
+  const fake = fakeTransport();
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+  let command!: Promise<Record<string, unknown>>;
+  act(() => { command = result.current.runCommand("varsayilan", "/btw  satır bir\nsatır   iki"); });
+  await waitFor(() => expect(fake.sent).toHaveLength(1));
+  const request = JSON.parse(fake.sent[0].line);
+  expect(request.veri).toEqual({ ad: "btw", arguman: "satır bir\nsatır   iki" });
+  await act(async () => { await result.current.close("varsayilan"); });
+  await act(async () => { await expect(command).resolves.toMatchObject({ ok: false }); });
+  expect(result.current.state.sessions.varsayilan.messages.at(-1)).toMatchObject({ hata: true });
+});
