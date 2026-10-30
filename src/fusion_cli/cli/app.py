@@ -10,6 +10,8 @@ anlaşılır bir mesajla gösterilir; stack trace kullanıcıya basılmaz.
 from __future__ import annotations
 
 import asyncio
+import logging
+import logging.handlers
 import sys
 from collections.abc import Coroutine
 from dataclasses import fields, replace
@@ -25,6 +27,7 @@ from .. import __version__
 from ..config.keys import detect
 from ..config.loader import load_config
 from ..config.models import Config
+from ..config.paths import user_data_dir
 from ..config.readiness import Readiness, evaluate
 from ..core.errors import FusionError
 from ..core.tools import ToolContext
@@ -874,8 +877,36 @@ def _print_catalog() -> None:
             console.print(f"  [{theme.ACCENT}]{escape(entry.model_id)}[/{theme.ACCENT}]{suffix}")
 
 
+def configure_file_logging() -> None:
+    """Paket uyarılarını kullanıcı veri dizinindeki `logs/fusion.log`'a yönlendir.
+
+    Ölçüldü (30 Ekim, gerçek kullanım denemesi): `fusion_cli` günlüğüne işleyici bağlı
+    olmadığı için Python'un son çare işleyicisi `logger.warning` satırlarını ham hâliyle
+    terminale basıyordu ("model secenegi tiklanamadi: … Locator.click: Timeout …").
+    Kullanıcıya görünen bilgi olaylarla gelir; ayrıntı dosyaya gider. Dosya açılamazsa
+    sessiz bir işleyici bağlanır: uyarı yine terminale sızmaz. Tekrar çağrı çoğaltmaz.
+    """
+    kok = logging.getLogger("fusion_cli")
+    if any(getattr(handler, "_fusion_dosya", False) for handler in kok.handlers):
+        return
+    handler: logging.Handler
+    try:
+        klasor = user_data_dir() / "logs"
+        klasor.mkdir(parents=True, exist_ok=True)
+        handler = logging.handlers.RotatingFileHandler(
+            klasor / "fusion.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+        )
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    except OSError:
+        handler = logging.NullHandler()
+    handler.setLevel(logging.WARNING)
+    setattr(handler, "_fusion_dosya", True)  # noqa: B010 - işaret, işleyici sınıfında yok
+    kok.addHandler(handler)
+
+
 def main(*, host_dependencies: AppHostDependencies | None = None) -> None:
     """Konsol giriş noktası. Beklenen hataları kullanıcıya anlaşılır biçimde gösterir."""
+    configure_file_logging()
     try:
         app(obj=host_dependencies)
     except FusionError as exc:

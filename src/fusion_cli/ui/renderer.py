@@ -137,6 +137,9 @@ class ConsoleRenderer:
         self._pending_status: str | None = None
         #: Bu turda açılış beyanı basıldı mı? İLK öncü daha geniş yer alır.
         self._turn_opened = False
+        #: Bu turda gösterilen yedek geçişleri (istenen, yedek). Ölçüldü (30 Ekim): açık
+        #: devrede her model çağrısı aynı "yedek devrede" satırını basıyordu (turda 12 kez).
+        self._fallbacks_shown: set[tuple[str, str]] = set()
         #: Koşan alt ajanların kimliği → kişilik ünvanı (bitiş satırında ad için).
         self._sub_titles: dict[str, str] = {}
 
@@ -181,7 +184,9 @@ class ConsoleRenderer:
             if not event.background and (self._show_call_details or not event.result.ok):
                 self._model_finished(event)
         elif isinstance(event, ModelFallbackActivated):
-            if not event.background:
+            gecis = (event.requested_model, event.fallback_model)
+            if not event.background and gecis not in self._fallbacks_shown:
+                self._fallbacks_shown.add(gecis)
                 self._work.update(model=format_model(event.fallback_model))
                 self._warn(
                     messages.MODEL_FALLBACK.format(
@@ -375,6 +380,7 @@ class ConsoleRenderer:
             self._close_line()
             self._active_channel = None
             self._turn_opened = False
+            self._fallbacks_shown.clear()
             self._finish_work()
         elif isinstance(event, TurnOutcome):
             self._turn_outcome(event)
@@ -436,6 +442,7 @@ class ConsoleRenderer:
         # turun açılış beyanı 4 yerine 1 satıra kırpılıyordu (L1-22).
         self._pending_status = None
         self._turn_opened = False
+        self._fallbacks_shown.clear()
 
     @contextlib.contextmanager
     def suspended(self) -> Iterator[None]:
