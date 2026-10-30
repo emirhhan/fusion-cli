@@ -298,18 +298,18 @@ def _yaml_denetle(content: str) -> str | None:
     class _Yukleyici(yaml.SafeLoader):
         """Bilinmeyen etiketleri (`!Ref`, `!Sub`, `!vault`) değeriyle tolere eder."""
 
-    def _etiketsiz(loader, _sonek, dugum):  # type: ignore[no-untyped-def]
+    def _etiketsiz(loader: yaml.SafeLoader, _sonek: str, dugum: yaml.Node) -> object:
         if isinstance(dugum, yaml.ScalarNode):
             return loader.construct_scalar(dugum)
         if isinstance(dugum, yaml.SequenceNode):
             return loader.construct_sequence(dugum, deep=True)
-        return loader.construct_mapping(dugum, deep=True)
+        return loader.construct_mapping(dugum, deep=True)  # type: ignore[arg-type]
 
     _Yukleyici.add_multi_constructor("!", _etiketsiz)
     try:
         # Çok belgeli YAML (`---`: k8s manifestleri) geçerlidir; tek belge varsayımı
         # doğru dosyayı reddediyordu. Ölçüldü (30 Ekim).
-        list(yaml.load_all(content, Loader=_Yukleyici))  # noqa: S506 - SafeLoader türevi
+        list(yaml.load_all(content, Loader=_Yukleyici))
     except yaml.YAMLError as hata:
         return f"YAML geçersiz: {str(hata).splitlines()[0]}"
     return None
