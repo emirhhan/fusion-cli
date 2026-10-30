@@ -40,21 +40,34 @@ COMPACT_HIDDEN_PREFIXES = ("desktop_", "chrome_")
 DESKTOP_TASK_KIND = "masaustu"
 
 
+def is_weak_model(config: Config, spec: ModelSpec, window_tokens: int | None) -> bool:
+    """Küçük/zayıf model mi? `compact` etiketi ya da bilinen pencere eşiği aşmıyor.
+
+    Hem sıkı araç yüzeyi hem zayıf modelde erken sıkıştırma (`context_budget`) bu
+    TEK tanımı kullanır. Pencere, çağıran tarafından verilir: `context_budget` bu
+    modülü de çağırdığı için burada yeniden hesaplanamaz (döngüsel bağımlılık).
+    """
+    if any(tag.strip().lower() == COMPACT_TAG for tag in spec.tags):
+        return True
+    threshold = config.runtime.compact_tools_window_tokens
+    if threshold <= 0:
+        return False
+    return window_tokens is not None and window_tokens <= threshold
+
+
 def uses_compact_surface(config: Config, spec: ModelSpec, *, mutation_ok: bool) -> bool:
     """Bu model sıkı araç yüzeyi mi almalı?"""
     if not mutation_ok:
         return True
     if any(tag.strip().lower() == COMPACT_TAG for tag in spec.tags):
         return True
-    threshold = config.runtime.compact_tools_window_tokens
-    if threshold <= 0:
+    if config.runtime.compact_tools_window_tokens <= 0:
         return False
     # Tembel içe aktarma: `context_budget` modülü `execution_policy`'yi, o da bu modülü
     # içe aktarır (döngüsel bağımlılık).
     from .context_budget import context_budget
 
-    window = context_budget(config, spec).window_tokens
-    return window is not None and window <= threshold
+    return is_weak_model(config, spec, context_budget(config, spec).window_tokens)
 
 
 def narrow_to_compact_surface(

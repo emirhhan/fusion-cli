@@ -136,6 +136,10 @@ runtime:
   # (arXiv 2508.21433) 10 gözlem; hata çıktıları, 400 karakterden kısa sonuçlar, kullanıcı
   # soruları ve kural dosyaları hiç maskelenmez.
   tool_output_window: 8
+  # Zayıf/küçük modelde (compact etiketi ya da pencere <= compact_tools_window_tokens)
+  # sıkıştırma eşiği = pencere tokeni x bu oran x 3 karakter. 0 = kapalı. 0.2 TAHMİNDİR;
+  # canlı ölçümle güncellenecek.
+  weak_model_compaction_ratio: 0.2
   max_parallel_agents: 4
   # Ajan bir dosyayı değiştirince çalışacak komutlar; `{path}` dosya yoluyla değişir.
   # Örnek: ["npx prettier --write {path}"]. Boş liste = kanca yok.

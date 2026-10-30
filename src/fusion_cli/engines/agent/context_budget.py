@@ -10,6 +10,7 @@ from ...core.types import ModelSpec
 from ...providers.context_window import input_window_tokens
 from .execution_policy import uses_web_context
 from .history import COMPRESS_THRESHOLD_CHARS, WEB_COMPRESS_THRESHOLD_CHARS
+from .tool_surface import is_weak_model
 
 # Tarihsel 177.000 karakter eşiğinin hesabı: 131.072 token pencereden
 # çıktı ve sistem/araç payı çıktıktan sonra geçmişe yaklaşık yarısı ayrılır.
@@ -21,6 +22,9 @@ OUTPUT_RESERVE_TOKENS = 8_192
 SYSTEM_AND_TOOLS_RESERVE_TOKENS = 10_000
 CHARS_PER_TOKEN_ESTIMATE = 3
 HISTORY_SHARE = 0.5
+#: Pencere bilinmeyen zayıf model için başvuru penceresi: `COMPRESS_THRESHOLD_CHARS`'ın
+#: hesaplandığı en dar bilinen pencere (131.072 token).
+REFERENCE_WINDOW_TOKENS = 131_072
 #: Öğrenilen eşiğin altına inilmeyecek taban (karakter).
 LEARNED_FLOOR_CHARS = 4_000
 
@@ -50,10 +54,29 @@ class ContextBudget:
     compression_chars: int
     window_tokens: int | None
     model: str
+    #: Zayıf/küçük model için eşik pencere oranıyla düşürüldü mü? (gözlem için)
+    weak: bool = False
 
 
 def context_budget(config: Config, spec: ModelSpec) -> ContextBudget:
     """Yedek zincirin en dar bilinen penceresini kullan; bilinmeyeni gizleme."""
+    base = _base_budget(config, spec)
+    ratio = config.runtime.weak_model_compaction_ratio
+    if ratio <= 0 or uses_web_context(config, spec):
+        return base
+    if not is_weak_model(config, spec, base.window_tokens):
+        return base
+    # Zayıf model nominal penceresinin ancak bir kısmında güvenilir kalır: geçmiş eşiği
+    # genel formülden (pencerenin ~%25-50'si) DAHA erken, pencerenin `ratio` kadarında
+    # tetiklenir. Pencere bilinmiyorsa başvuru penceresi kullanılır. Eşik yalnız düşer.
+    window = base.window_tokens or REFERENCE_WINDOW_TOKENS
+    weak_chars = max(LEARNED_FLOOR_CHARS, round(window * ratio * CHARS_PER_TOKEN_ESTIMATE))
+    return ContextBudget(
+        min(base.compression_chars, weak_chars), base.window_tokens, base.model, weak=True
+    )
+
+
+def _base_budget(config: Config, spec: ModelSpec) -> ContextBudget:
     if uses_web_context(config, spec):
         return ContextBudget(WEB_COMPRESS_THRESHOLD_CHARS, None, spec.model)
     models = (spec.model,) if spec.strict else spec.models

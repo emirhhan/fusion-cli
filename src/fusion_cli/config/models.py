@@ -248,6 +248,11 @@ class RuntimeConfig:
     #: gözlemi, JetBrains (arXiv 2508.21433) 10 gözlemlik pencereyi iyi buldu; paralel
     #: çağrılar ve toplu kayma payı (N/2) ayrıca tam kaldığından 8 ikisinin ortasıdır.
     tool_output_window: int = 8
+    #: Zayıf/küçük model (`compact` etiketi ya da pencere <= `compact_tools_window_tokens`)
+    #: için sıkıştırma eşiği, pencerenin bu oranı kadar karakterdir (token x 3). 0 = kapalı
+    #: (eşik yalnız genel formülden gelir). 0.2: TAHMİN, canlı ölçümle güncellenecek;
+    #: küçük modeller nominal pencerenin ancak bir kısmında güvenilir kalır (context rot).
+    weak_model_compaction_ratio: float = 0.2
 
 
 @dataclass(frozen=True, slots=True)

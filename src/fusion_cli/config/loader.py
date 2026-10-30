@@ -304,6 +304,8 @@ def _build_runtime(raw: object) -> RuntimeConfig:
     ):
         if getattr(runtime, name) < 0:
             raise ConfigError(f"runtime.{name}: negatif olamaz.")
+    if not 0.0 <= runtime.weak_model_compaction_ratio <= 1.0:
+        raise ConfigError("runtime.weak_model_compaction_ratio: 0 ile 1 arasında olmalı.")
     if not 0.0 <= runtime.reliability_alpha <= 1.0:
         raise ConfigError("runtime.reliability_alpha: 0 ile 1 arasında olmalı.")
     if runtime.shell_sandbox not in SHELL_SANDBOX_MODES:
