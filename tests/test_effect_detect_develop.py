@@ -83,3 +83,33 @@ def test_fiil_kipindeki_olumsuz_emir_mutasyon_istemez(gorev):
     from fusion_cli.engines.effects.detect import required_effect_for
 
     assert required_effect_for(gorev) is None
+
+
+# --- Dalga 4: büyük harfli Türkçe girdi kalıpları bozmaz (E1-12) ----------------- #
+
+
+def test_buyuk_harfli_turkce_gorev_mutasyon_sayilir():
+    """Ölçüldü (30 Ekim): 'DOSYAYI SİL' → `İ`.lower() iki karakter olduğundan None dönüyordu."""
+    from fusion_cli.engines.effects.detect import required_effect_for
+    from fusion_cli.engines.effects.model import EffectKind  # noqa: F401
+
+    assert required_effect_for("DOSYAYI SİL") == required_effect_for("dosyayı sil")
+    assert required_effect_for("DÜZELT İNDEX.HTML") == required_effect_for("düzelt index.html")
+    assert required_effect_for("DOSYAYI SİL") is not None
+
+
+def test_buyuk_harfli_ingilizce_gorev_bozulmaz():
+    from fusion_cli.engines.effects.detect import required_effect_for
+
+    assert required_effect_for("FIX THE BUG IN app.py") == required_effect_for(
+        "fix the bug in app.py"
+    )
+
+
+def test_ortak_kucultme_dotted_i_yi_tek_karaktere_indirir():
+    from fusion_cli.core.text_fold import lower_tr_aware
+
+    assert lower_tr_aware("SİL") == "sil"
+    assert lower_tr_aware("İSTEK") == "istek"
+    assert lower_tr_aware("INDEX") == "index"
+    assert lower_tr_aware("kız") == "kız"

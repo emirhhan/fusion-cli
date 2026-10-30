@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from ...core.text_fold import lower_tr_aware
 from .model import CONTRACTS, EffectContract, EffectKind
 
 _EXPLICIT_NO_TOOL_MARKERS = (
@@ -308,7 +309,7 @@ _IMPERATIVE = (
 
 def is_history_question(text: str) -> bool:
     """Mesaj ajanın geçmiş işini SORUYOR mu (iş istemiyor mu)?"""
-    lowered = " ".join(text.lower().split())
+    lowered = " ".join(lower_tr_aware(text).split())
     past = re.search(_PAST_SECOND_PERSON, lowered) or re.search(_EVIDENTIAL_QUESTION, lowered)
     if past is None or re.search(_QUESTION_SIGNAL, lowered) is None:
         return False
@@ -378,7 +379,7 @@ _BRANCH_PATTERNS = (
 
 
 def explicitly_disallows_tools(task: str) -> bool:
-    lowered = task.lower()
+    lowered = lower_tr_aware(task)
     return any(marker in lowered for marker in _EXPLICIT_NO_TOOL_MARKERS)
 
 
@@ -386,7 +387,7 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
     """İstek gerçek bir araç etkisi istiyorsa kararlı effect kimliğini döndür."""
 
     del kind  # Eski çağrı imzasıyla uyumluluk; karar tamamen metinden çıkarılır.
-    lowered = " ".join(task.lower().split())
+    lowered = " ".join(lower_tr_aware(task).split())
     lowered = _positive_action_clauses(lowered)
     if not lowered:
         return None
@@ -448,7 +449,7 @@ def extract_branch_reference(task: str) -> str | None:
             branch = match.group("branch").strip(" .,:;\"'")
             if is_valid_branch_reference(branch):
                 return branch
-    lowered = task.lower()
+    lowered = lower_tr_aware(task)
     if re.search(r"\bmain(?:\s+dal(?:ına|ine)?|\s+branch(?:'ine|ine)?)\b", lowered):
         return "main"
     if re.search(r"\bmaster(?:\s+dal(?:ına|ine)?|\s+branch(?:'ine|ine)?)\b", lowered):
@@ -457,7 +458,7 @@ def extract_branch_reference(task: str) -> str | None:
 
 
 def _is_negated_clause(clause: str) -> bool:
-    lowered = clause.casefold()
+    lowered = lower_tr_aware(clause)
     if any(re.search(rf"\b{word}\b", lowered) for word in _NEGATED_ACTION_WORDS):
         return True
     return any(

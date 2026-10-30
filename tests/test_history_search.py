@@ -172,3 +172,11 @@ def test_listelenemeyen_kaynak_bos_sonuc_verir():
 def test_gecersiz_limit_reddedilir(gecersiz):
     with pytest.raises(ValueError):
         search_sessions(_FakeSource(), "oyun", limit=gecersiz)
+
+
+def test_buyuk_harfli_ascii_sorgu_kucuk_harfli_metni_bulur():
+    """Ölçüldü (30 Ekim): 'INDEX' sorgusu `ındex` olup 'index' metnini bulamıyordu (E1-31)."""
+    source = _FakeSource(icerik={"s1": (Turn("user", "index.html dosyasını düzelt", 1.0),)})
+
+    assert search_sessions(source, "INDEX").matches
+    assert search_sessions(source, "Index.HTML").matches
