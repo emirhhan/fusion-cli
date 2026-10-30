@@ -1208,3 +1208,22 @@ def test_undo_kismi_basarisizlikta_geri_alinamayan_dosyalari_adlandirir(state, t
 
     assert "1 dosya geri alınamadı" in mesaj
     assert "kotu.py" in mesaj
+
+
+def test_mcp_listesi_arguman_icindeki_tokeni_gostermez(state):
+    """Ölçüldü (30 Ekim): `/mcp` argümanları olduğu gibi basıyor, transcript'e gidiyordu (L2-28)."""
+    from dataclasses import replace
+
+    from fusion_cli.cli.repl.commands import build_registry
+    from fusion_cli.config.models import McpServerConfig
+
+    gizli = "ghp_" + "a1B2c3D4e5F6g7H8i9J0" * 2
+    sunucu = McpServerConfig(name="gh", command="npx", args=("-y", "srv", f"--token={gizli}"))
+    state.config = replace(state.config, mcp_servers=(sunucu,))
+    komut = build_registry().get("mcp")
+    assert komut is not None
+
+    cikti = komut.handler(state, "")
+
+    assert gizli not in cikti
+    assert "gh" in cikti and "npx" in cikti

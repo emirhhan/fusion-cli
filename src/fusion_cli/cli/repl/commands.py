@@ -21,6 +21,7 @@ from ...config.models import Config
 from ...core.errors import ConfigError
 from ...core.memory import Feedback, Lesson, LessonKind, LessonSource
 from ...core.reasoning import ReasoningEffort, resolve_reasoning
+from ...core.redaction import redact
 from ...engines.agent.approval import ApprovalMode
 from ...history import SessionRef, available_sources, build_digest, source_by_name
 from ...memory.seed import SEED_LESSONS, seed
@@ -466,8 +467,10 @@ def _mcp(state: ReplState, argument: str) -> str:
     if alt_komut in ("", "list"):
         if not state.config.mcp_servers:
             return messages.MCP_NO_SERVERS
+        # Argümanlarda gömülü token olabilir (`--token=…`): listeye ve transcript'e MASKELİ
+        # girer (L2-28).
         return "\n".join(
-            f"· {sunucu.name} — {sunucu.command} {' '.join(sunucu.args)}".rstrip()
+            redact(f"· {sunucu.name} — {sunucu.command} {' '.join(sunucu.args)}".rstrip())
             for sunucu in state.config.mcp_servers
         )
 
