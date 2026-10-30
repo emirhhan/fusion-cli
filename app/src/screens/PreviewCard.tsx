@@ -1,4 +1,5 @@
 import "./PreviewCard.css";
+import { httpAdresiMi } from "./safeUrl";
 
 const KIND_LABEL: Record<string, string> = {
   wordpress: "WordPress",
@@ -8,6 +9,8 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 async function openInBrowser(url: string): Promise<void> {
+  // Adres ajan çıktısından gelir: http(s) dışındaki şema ne opener'a ne window.open'a gider (U1-39).
+  if (!httpAdresiMi(url)) return;
   try {
     const { openUrl } = await import("@tauri-apps/plugin-opener");
     await openUrl(url);

@@ -3,6 +3,7 @@ import { parseDiff } from "../markdown/DiffCard";
 import { adimOzeti, sureMetni, tokenMetni } from "../protocol/adimOzeti";
 import type { OlayAdimi, OlaySonucu } from "../protocol/olayMetni";
 import { Icon, type IconName } from "../ui/Icon";
+import { httpAdresiMi } from "./safeUrl";
 
 /**
  * Çalışma göstergesi — tek satır, iş bitince kaybolur.
@@ -70,7 +71,10 @@ function StepList({ adimlar }: { adimlar: OlayAdimi[] }) {
             {adim.altAjan && <span className="activity__step-badge">alt ajan</span>}
             <span className="activity__step-title">{adim.metin}</span>
             {adim.kaynak ? (
-              <a href={adim.kaynak} rel="noreferrer noopener" target="_blank">{adim.kaynak}</a>
+              // Kaynak araç/web çıktısından gelir: yalnız http(s) bağlantı olur, gerisi düz metin (U1-38).
+              httpAdresiMi(adim.kaynak)
+                ? <a href={adim.kaynak} rel="noreferrer noopener" target="_blank">{adim.kaynak}</a>
+                : <span className="activity__step-detail">{adim.kaynak}</span>
             ) : (
               adim.ayrinti && <span className="activity__step-detail">{adim.ayrinti}</span>
             )}
@@ -84,6 +88,11 @@ function StepList({ adimlar }: { adimlar: OlayAdimi[] }) {
 
 /** Araç adımının durumu için küçük işaret. */
 const DURUM_ISARETI: Record<string, string> = { ok: "✓", failed: "✗", denied: "—", blocked: "—", timeout: "✗", cancelled: "—", unknown: "?" };
+/** Glifi görmeyen kullanıcı için sonucun sözlü karşılığı (U1-31). */
+const DURUM_ADI: Record<string, string> = {
+  ok: "başarılı", failed: "başarısız", denied: "reddedildi", blocked: "engellendi",
+  timeout: "zaman aşımı", cancelled: "iptal edildi", unknown: "sonuç belirsiz",
+};
 
 /** Adımın açılınca gösterdiği kanıt: diff, komut ve çıktı. Akışta görünmez. */
 function StepDetail({ adim }: { adim: OlayAdimi }) {
@@ -114,7 +123,7 @@ export function ToolTrail({ adimlar }: { adimlar: OlayAdimi[] }) {
     <ol className="activity__trail">
       {adimlar.map((adim, index) => {
         const isaret = adim.durum && (
-          <span aria-hidden="true" className="activity__trail-mark">{DURUM_ISARETI[adim.durum] ?? ""}</span>
+          <span aria-label={DURUM_ADI[adim.durum]} className="activity__trail-mark" role="img">{DURUM_ISARETI[adim.durum] ?? ""}</span>
         );
         return (
           <li data-state={adim.durum ?? (adim.kalici ? "ok" : "running")} key={index}>
@@ -181,7 +190,9 @@ export function ActivityLine({
   const araclar = adimlar.filter((adim) => adim.arac || adim.kalici);
 
   if (running) {
-    const bitenler = sonuncu?.basladi ? araclar.slice(0, -1) : araclar;
+    // Yalnız canlı satırın kendisi olan son ARAÇ adımı izden düşer; sonuncu bir "düşünüyor"
+    // adımıysa araçlar listesinde değildir ve biten bir araç yanlışlıkla düşmemeli (U1-30).
+    const bitenler = sonuncu?.basladi && araclar[araclar.length - 1] === sonuncu ? araclar.slice(0, -1) : araclar;
     // Biten araç zaten izde durur; canlı satır onu tekrar etmez, modelin sıradaki
     // adımı düşündüğünü söyler.
     const canli = sonuncu && (sonuncu.basladi || !sonuncu.arac) ? sonuncu.metin : "Düşünüyor";
