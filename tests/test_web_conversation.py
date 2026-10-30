@@ -813,3 +813,36 @@ async def test_oturum_zaman_asimi_yanit_beklemeye_gecirilir(pool, monkeypatch):
     await transport(WebSessionCredential(), _messages(2), uzun.model)
 
     assert gorulen and gorulen[0] > 500.0
+
+
+async def test_kademe_uyusmazligi_sohbeti_birakir_ayni_mesaj_ayni_sohbete_tekrar_yazilmaz(
+    pool, log, monkeypatch
+):
+    """Ölçüldü (30 Ekim): cevap alınmış, mesaj sağlayıcıda; kademe uyuşmazlığı hatası
+    durumu ilerletmeden fırlıyordu. Yeniden denemede sohbet 'devam edilebilir' kalıp
+    aynı mesaj AYNI sohbete ikinci kez yazılıyordu (P1-29)."""
+    transport = build_browser_transport(_session(), pool=pool)
+    credential = WebSessionCredential()
+    await transport(credential, _messages(2), "chatgpt_web/main/auto")
+
+    async def _secim(manager, session, definition, page):
+        return "Pro"
+
+    async def _kademe(page, definition):
+        return "Flash"
+
+    monkeypatch.setattr(web_browser, "_apply_model_choice", _secim)
+    monkeypatch.setattr(web_browser, "observed_tier", _kademe)
+    monkeypatch.setattr(web_browser, "_model_choice_matches_observed", lambda choice, tier: False)
+
+    with pytest.raises(web_browser.WebBrowserError):
+        await transport(credential, _messages(4), "chatgpt_web/main/auto")
+    gonderilen_once = [entry for entry in log if entry[0] == "send"]
+
+    monkeypatch.setattr(web_browser, "_model_choice_matches_observed", lambda choice, tier: True)
+    await transport(credential, _messages(4), "chatgpt_web/main/auto")
+    sonraki = [entry for entry in log if entry[0] == "send"][len(gonderilen_once) :]
+
+    # Eski sohbete DEVAM istemi (yalnız yeni 2 mesaj) değil, temiz sohbette tam geçmiş.
+    assert pool.fake_context.pages_created == 2
+    assert len(sonraki) == 1 and "mesaj-0" in sonraki[0][1]

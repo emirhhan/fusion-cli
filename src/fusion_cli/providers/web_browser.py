@@ -1847,6 +1847,13 @@ async def _deliver_turn(
 
     kademe = await observed_tier(state.page, definition)
     if choice and kademe and not _model_choice_matches_observed(choice, kademe):
+        # Mesaj sağlayıcıda ve cevap alındı: durumu eski bırakıp fırlatmak, yeniden
+        # denemede aynı mesajı AYNI sohbete ikinci kez yazdırırdı (ölçüldü 30 Ekim).
+        # Kirlenmiş sohbet bırakılır; sonraki deneme temiz sohbette başlar.
+        if resumable:
+            await manager.drop_conversation(session.provider, session.account, root)
+        else:
+            manager.discard_page(state.page)
         raise WebBrowserError(
             f"{definition.name} seçili modelden farklı bir kademeye geçti: {kademe}"
         )
