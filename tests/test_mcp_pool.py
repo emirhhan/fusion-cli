@@ -26,6 +26,7 @@ class _FakeClient:
     enter_tasks: ClassVar[list[object]] = []
     exit_tasks: ClassVar[list[object]] = []
     results: ClassVar[dict[str, McpConnectionStatus]] = {}
+    is_stalled = False
 
     def __init__(self, configs, **_kwargs) -> None:
         self.configs = tuple(configs)
@@ -469,3 +470,19 @@ def test_havuz_kilidi_farkli_olay_dongusunden_cekismeyle_kullanilabilir():
 
     asyncio.run(cekisme())
     asyncio.run(cekisme())
+
+
+async def test_ardisik_zaman_asimlarindan_sonra_oturum_yeniden_baglanir(fake_client):
+    """Ölçüldü (30 Ekim): çağrı zaman aşımında durum 'degraded' olup oturum havuzda
+    kalıyordu (`_is_alive` yalnız görev bitti mi bakar); takılı süreç sonraki çağrıları
+    da düşürüyordu ve otomatik toparlama yoktu (M1-13)."""
+    havuz = McpToolPool()
+    try:
+        (client,) = await havuz.clients_for(_configs("takili"))
+        client.is_stalled = True
+        (yeni,) = await havuz.clients_for(_configs("takili"))
+    finally:
+        await havuz.aclose()
+
+    assert yeni is not client
+    assert fake_client.opened == ["takili", "takili"]

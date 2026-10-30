@@ -58,6 +58,10 @@ _ToolRun = Callable[[ToolArgs, ToolContext], Awaitable[ToolResult]]
 #: npm'in E404 bloğu ~600 bayttır; kuyruğun birkaç katı yeter, tüm dosya okunmaz.
 _STDERR_TAIL_BYTES = 4096
 
+#: Art arda bu kadar çağrı zaman aşımına uğrarsa oturum "takılı" sayılır ve havuz
+#: bir sonraki turda yeniden bağlanır (bkz. `McpClient.is_stalled`).
+STALLED_AFTER_TIMEOUTS = 3
+
 
 class McpNotConnectedError(RuntimeError):
     """İstenen MCP sunucusuna bağlantı yok: araç listelenemez, çağrılamaz.
@@ -95,6 +99,14 @@ class McpClient:
         self._stacks: dict[str, AsyncExitStack] = {}
         self._sessions: dict[str, ClientSession] = {}
         self._statuses: dict[str, McpConnectionStatus] = {}
+        #: Sunucu başına ARDIŞIK çağrı zaman aşımı sayısı; başarı sıfırlar.
+        self._timeouts: dict[str, int] = {}
+
+    @property
+    def is_stalled(self) -> bool:
+        """Bir sunucu art arda zaman aşımına uğradı mı? Takılı süreç yeni çağrıları da
+        düşürür; havuz bu istemciyi bırakıp yeniden bağlanmalı (ölçüldü 30 Ekim)."""
+        return any(count >= STALLED_AFTER_TIMEOUTS for count in self._timeouts.values())
 
     def _trusted_effect(self, server: str, effect: ToolEffect | None) -> ToolEffect | None:
         """Statik ve dinamik araç iddiaları aynı kaynak güven kapısından geçer."""
@@ -296,6 +308,7 @@ class McpClient:
                 async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
                     result = await session.call_tool(name, args)
                     normalized = normalize_call_result(result)
+                    self._timeouts.pop(server, None)
                     current = self._statuses.get(server)
                     if current is not None:
                         self._statuses[server] = replace(
@@ -306,7 +319,9 @@ class McpClient:
                             observed_at=time.monotonic(),
                         )
                     return normalized
-            except (asyncio.CancelledError, TimeoutError):
+            except (asyncio.CancelledError, TimeoutError) as error:
+                if isinstance(error, TimeoutError):
+                    self._timeouts[server] = self._timeouts.get(server, 0) + 1
                 self._statuses[server] = McpConnectionStatus(
                     server,
                     "degraded",

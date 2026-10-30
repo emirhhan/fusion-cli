@@ -634,3 +634,35 @@ def _trusted_client(server: str) -> McpClient:
     identity = review_identity(config)
     assert identity is not None
     return McpClient((replace(config, trust=McpTrust.TRUSTED, reviewed_source=identity),))
+
+
+class _TakiliOturum:
+    """`call_tool` hiç dönmez: takılı bir stdio süreci gibi."""
+
+    def __init__(self) -> None:
+        self.cagri = 0
+
+    async def call_tool(self, name, args):
+        del name, args
+        self.cagri += 1
+        if self.cagri > 3:
+            return CallToolResult(content=[TextContent(type="text", text="ok")])
+        await __import__("asyncio").sleep(30)
+
+    async def send_notification(self, *_a, **_k):
+        return None
+
+
+async def test_ardisik_zaman_asimlari_istemciyi_takili_isaretler_basari_sifirlar():
+    config = McpServerConfig(name="takili", command="x", call_timeout_s=0.05, close_timeout_s=0.05)
+    client = McpClient((config,))
+    client._sessions["takili"] = _TakiliOturum()
+
+    for _ in range(3):
+        assert client.is_stalled is False
+        with pytest.raises(TimeoutError):
+            await client.call("takili", "t", {})
+    assert client.is_stalled is True
+
+    sonuc = await client.call("takili", "t", {})
+    assert sonuc.ok and client.is_stalled is False

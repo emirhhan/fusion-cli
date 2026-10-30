@@ -186,6 +186,8 @@ class McpToolPool:
     def _is_alive(entry: _Entry, loop: asyncio.AbstractEventLoop) -> bool:
         if entry.loop is not loop or entry.client is None or entry.error is not None:
             return False
+        if entry.client.is_stalled:
+            return False
         return entry.task is not None and not entry.task.done()
 
     async def _open(self, config: McpServerConfig, loop: asyncio.AbstractEventLoop) -> None:
