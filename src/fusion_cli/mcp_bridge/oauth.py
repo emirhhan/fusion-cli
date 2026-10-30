@@ -50,6 +50,10 @@ class McpLoginRequiredError(RuntimeError):
     """Sunucu giriş istiyor ama bu bağlamda giriş penceresi açılamaz."""
 
 
+class McpBrowserOpenError(RuntimeError):
+    """Giriş sayfası açılamadı (başsız/yapılandırılmamış tarayıcı); adres mesajdadır."""
+
+
 #: SDK'nın OAuth akışındaki her hatayı yığın dökümüyle yazdığı logger.
 _SDK_OAUTH_LOGGER = "mcp.client.auth.oauth2"
 
@@ -94,6 +98,8 @@ class LoopbackOAuthCallback:
         #: False: bitti). Bağlantı süresi bu aralıkta işlememelidir.
         self._on_waiting = on_waiting
         self._server: asyncio.Server | None = None
+        #: Yetkilendirme adresindeki `state`; dönüşte eşleşmeyen istek yok sayılır.
+        self._expected_state: str | None = None
         self._result: asyncio.Future[tuple[str, str | None]] | None = None
         self.redirect_uri = f"http://localhost:{port}/oauth/callback" if port else ""
 
@@ -132,9 +138,18 @@ class LoopbackOAuthCallback:
                 "tur sırasında giriş penceresi açılmaz."
             )
         await self.start()
+        self._expected_state = parse_qs(urlparse(url).query).get("state", [None])[0]
+        # Ölçüldü (30 Ekim): dönüş değeri yok sayılıyordu; tarayıcı açılamayınca
+        # bağlantı süresi askıya alınıp 300 sn boşuna beklenir, adres görünmezdi.
+        opened = await asyncio.to_thread(webbrowser.open, url, new=1, autoraise=True)
+        if not opened:
+            await self.close()
+            logging.getLogger(__name__).warning("OAuth giriş sayfası açılamadı: %s", url)
+            raise McpBrowserOpenError(
+                "Tarayıcı açılamadı. Giriş adresini elle aç ve 'Bağlan'ı yeniden dene: " + url
+            )
         if self._on_waiting is not None:
             self._on_waiting(True)
-        await asyncio.to_thread(webbrowser.open, url, new=1, autoraise=True)
 
     async def wait_for_code(self) -> tuple[str, str | None]:
         if self._result is None:
@@ -164,10 +179,16 @@ class LoopbackOAuthCallback:
             error = query.get("error", [None])[0]
             code = query.get("code", [None])[0]
             if parsed.path != "/oauth/callback" or (not code and not error):
-                self._set_error(RuntimeError("Geçersiz OAuth callback isteği."))
-                status = "400 Bad Request"
+                # Ölçüldü (30 Ekim): her yabancı istek (başka sekme, ön-yükleyici, kötü
+                # niyetli `fetch`) akışı düşürüyordu; sabit port tahmin edilebilir.
+                status = "404 Not Found"
                 page = callback_page(
                     ok=False, title="Geçersiz dönüş", message="Bu adres bir giriş dönüşü değil."
+                )
+            elif self._expected_state is not None and state != self._expected_state:
+                status = "400 Bad Request"
+                page = callback_page(
+                    ok=False, title="Geçersiz dönüş", message="Bu dönüş bu girişe ait değil."
                 )
             elif error:
                 self._set_error(RuntimeError("OAuth girişi reddedildi veya iptal edildi."))
@@ -215,7 +236,9 @@ class OAuthBundle:
     storage: KeyringTokenStorage
 
 
-def registration_is_stale(client: OAuthClientInformationFull | None, redirect_uri: str) -> bool:
+def registration_is_stale(
+    client: OAuthClientInformationFull | None, redirect_uri: str, client_id: str = ""
+) -> bool:
     """Saklanan istemci kaydı, ŞU ANKİ yönlendirme adresini kapsıyor mu?
 
     Kayıt, kaydedildiği adrese BAĞLIDIR. Ölçüldü (11 Eylül, Notion MCP): istemci
@@ -224,10 +247,15 @@ def registration_is_stale(client: OAuthClientInformationFull | None, redirect_ur
     `Invalid redirect_uri for OAuth client` ile reddetti. Kullanıcının bunu kendi
     başına çözmesi mümkün değil: bayat kayıt anahtarlıkta, hata ekranda.
 
+    Ayarlardaki `client_id` değiştiyse de kayıt bayattır (30 Ekim: eski kimlik
+    kullanılmaya devam ediyordu). Ayarda `client_id` yoksa sunucunun verdiği korunur.
+
     Bayat kayıt SAKLANMAZ; atılır ve sunucuya yeniden kaydolunur.
     """
     if client is None:
         return False
+    if client_id and client.client_id != client_id:
+        return True
     # `redirect_uris` None olabilir: kayıt hiç adres taşımıyorsa eşleşme de yoktur.
     kayitli = {str(item).rstrip("/") for item in (client.redirect_uris or ())}
     return redirect_uri.rstrip("/") not in kayitli
@@ -258,7 +286,7 @@ async def oauth_provider_for(
     lock = mcp_oauth_flows().lock_for(storage.debug_identity())
     async with lock:
         kayitli = await storage.get_client_info()
-        if registration_is_stale(kayitli, callback.redirect_uri):
+        if registration_is_stale(kayitli, callback.redirect_uri, config.client_id):
             await storage.clear()
             kayitli = None
         if config.client_id and kayitli is None:

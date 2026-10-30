@@ -47,3 +47,15 @@ def test_birden_cok_adresten_biri_esleserse_korunur():
 
 def test_kayit_yoksa_bayatlik_sorusu_sorulmaz():
     assert registration_is_stale(None, "http://localhost:8765/oauth/callback") is False
+
+
+def test_ayarlardaki_client_id_degisince_eski_kayit_bayat_sayilir():
+    """Ölçüldü (30 Ekim): yalnız yönlendirme adresine bakılıyordu; kullanıcı ayarlarda
+    `client_id`'yi değiştirse bile anahtarlıktaki eski kimlik kullanılmaya devam ediyordu."""
+    adres = "http://localhost:8765/oauth/callback"
+    kayit = _client(adres)
+
+    assert registration_is_stale(kayit, adres, client_id="yeni-id") is True
+    assert registration_is_stale(kayit, adres, client_id="kayitli-id") is False
+    # Ayarda client_id yoksa (dinamik kayıt) sunucunun verdiği kimlik korunur.
+    assert registration_is_stale(kayit, adres, client_id="") is False

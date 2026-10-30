@@ -78,7 +78,9 @@ async def test_etkilesimsiz_kipte_tarayici_acilmaz(monkeypatch):
 async def test_acik_giris_eyleminde_tarayici_acilir(monkeypatch):
     """Kullanıcı 'Bağlan' dediğinde davranış değişmemeli."""
     acilan: list[str] = []
-    monkeypatch.setattr(oauth_module.webbrowser, "open", lambda url, **_k: acilan.append(url))
+    monkeypatch.setattr(
+        oauth_module.webbrowser, "open", lambda url, **_k: acilan.append(url) or True
+    )
 
     callback = oauth_module.LoopbackOAuthCallback(timeout_seconds=1, port=0)
     await callback.start()

@@ -29,7 +29,7 @@ from mcp.shared.exceptions import McpError
 
 from ..config.models import McpServerConfig, McpTransport
 from .egress import EgressBlockedError
-from .oauth import McpLoginRequiredError
+from .oauth import McpBrowserOpenError, McpLoginRequiredError
 from .tokens import McpTokenStorageError
 from .types import McpConfigError
 
@@ -280,6 +280,8 @@ def _classify_leaf(
             "Bu bağlantı giriş istiyor. Bağlantılar ekranında 'Bağlan'a bas; giriş "
             "yapılana kadar turlarda atlanır.",
         )
+    if isinstance(leaf, McpBrowserOpenError):
+        return McpFailure(McpFailureKind.LOGIN_REQUIRED, str(leaf))
     if isinstance(leaf, OAuthRegistrationError):
         return McpFailure(
             McpFailureKind.REGISTRATION_REJECTED,
