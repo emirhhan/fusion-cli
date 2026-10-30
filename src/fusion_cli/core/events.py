@@ -261,6 +261,9 @@ class SubAgentStarted(Event):
     #: Aynı anda başlatılan kardeş ajan sayısı (paralel grup); tek ajanda 1.
     group_size: int = 1
     started_at: float = 0.0
+    #: Yeni ajanın ağaçtaki derinliği (ana ajanın doğrudan çocuğu 1). Üst ajan `agent_id`
+    #: alanındadır; arayüz ağacı bu ikisiyle çizer (P-035).
+    depth: int = 1
 
 
 @dataclass(frozen=True, slots=True)

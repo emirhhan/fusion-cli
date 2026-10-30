@@ -13,6 +13,9 @@ if TYPE_CHECKING:
 class ChildRuns:
     def __init__(self) -> None:
         self._tasks: dict[str, asyncio.Task[AgentOutcome]] = {}
+        #: Bu kök turda (tüm derinlikler) başlatılan alt ajan sayısı; nesne alt ajanlara
+        #: aynen devredilir, bu yüzden sayaç turun toplam bütçesidir (P-035).
+        self.started_total = 0
 
     def start(
         self,
@@ -23,6 +26,7 @@ class ChildRuns:
             raise ValueError("Alt ajan kimliği zaten kullanımda.")
         task = asyncio.create_task(work())
         self._tasks[identifier] = task
+        self.started_total += 1
         return task
 
     def detach(self, identifier: str, task: asyncio.Task[AgentOutcome]) -> None:

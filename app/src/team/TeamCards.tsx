@@ -31,7 +31,7 @@ function canliSatir(kart: AjanKarti): string {
   return son.ayrinti && son.basladi ? `${son.metin} · ${son.ayrinti}` : son.metin;
 }
 
-function AgentCard({ kart, canli, onCancel }: { kart: AjanKarti; canli: boolean; onCancel?: (id: string) => Promise<void> }) {
+function AgentCard({ kart, canli, onCancel, cocuklar }: { kart: AjanKarti; canli: boolean; onCancel?: (id: string) => Promise<void>; cocuklar?: Map<string, AjanKarti[]> }) {
   const pending = useRef(false);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState("");
@@ -63,12 +63,14 @@ function AgentCard({ kart, canli, onCancel }: { kart: AjanKarti; canli: boolean;
   const saniye = useElapsedSeconds(calisiyor, kart.baslangic);
   const izler = kart.adimlar.filter((adim) => adim.arac || adim.kalici);
   const sure = calisiyor ? saniye : kart.sureSn;
+  const altAjanlar = cocuklar?.get(kart.id) ?? [];
   return (
     <article
       aria-label={`${kart.unvan}: ${kart.gorev}`}
       className="agent-card"
       data-renk={ajanRengi(kart.renk)}
       data-state={durum}
+      data-depth={kart.derinlik ?? 1}
     >
       <header className="agent-card__head">
         <AgentAvatar ad={kart.unvan} avatar={kart.avatar} calisiyor={calisiyor} renk={kart.renk} />
@@ -98,8 +100,31 @@ function AgentCard({ kart, canli, onCancel }: { kart: AjanKarti; canli: boolean;
           <ToolTrail adimlar={izler} />
         </details>
       )}
+      {altAjanlar.length > 0 && (
+        <div aria-label={`${kart.unvan} alt ajanları`} className="agent-card__children" role="group">
+          {altAjanlar.map((cocuk) => <AgentCard canli={canli} cocuklar={cocuklar} kart={cocuk} key={cocuk.id} onCancel={onCancel} />)}
+        </div>
+      )}
     </article>
   );
+}
+
+/**
+ * Ağaç: `ust` alanı listede bulunan bir karta işaret ediyorsa o kart üstünün altında
+ * çizilir (P-035). Üstü listede olmayan kart kök sayılır; hiçbir kart kaybolmaz.
+ */
+export function ajanAgaci(ajanlar: AjanKarti[]): { kokler: AjanKarti[]; cocuklar: Map<string, AjanKarti[]> } {
+  const kimlikler = new Set(ajanlar.map((kart) => kart.id));
+  const cocuklar = new Map<string, AjanKarti[]>();
+  const kokler: AjanKarti[] = [];
+  for (const kart of ajanlar) {
+    if (kart.ust && kimlikler.has(kart.ust) && kart.ust !== kart.id) {
+      cocuklar.set(kart.ust, [...(cocuklar.get(kart.ust) ?? []), kart]);
+    } else {
+      kokler.push(kart);
+    }
+  }
+  return { kokler, cocuklar };
 }
 
 export interface TeamCardsProps {
@@ -111,12 +136,13 @@ export interface TeamCardsProps {
 
 export function TeamCards({ ajanlar, canli, onCancel }: TeamCardsProps) {
   if (ajanlar.length === 0) return null;
-  const etiket = ajanlar.length > 1 ? `${ajanlar.length} ajan aynı anda çalışıyor` : "Alt ajan";
+  const { kokler, cocuklar } = ajanAgaci(ajanlar);
+  const etiket = kokler.length > 1 ? `${kokler.length} ajan aynı anda çalışıyor` : "Alt ajan";
   return (
-    <section aria-label={etiket} className="team-cards" data-count={ajanlar.length}>
-      {ajanlar.length > 1 && <h3 className="team-cards__label">{etiket}</h3>}
+    <section aria-label={etiket} className="team-cards" data-count={kokler.length}>
+      {kokler.length > 1 && <h3 className="team-cards__label">{etiket}</h3>}
       <div className="team-cards__grid">
-        {ajanlar.map((kart) => <AgentCard canli={canli} kart={kart} key={kart.id} onCancel={onCancel} />)}
+        {kokler.map((kart) => <AgentCard canli={canli} cocuklar={cocuklar} kart={kart} key={kart.id} onCancel={onCancel} />)}
       </div>
     </section>
   );

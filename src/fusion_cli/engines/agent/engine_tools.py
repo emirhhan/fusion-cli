@@ -53,8 +53,9 @@ from .image_view import DEFAULT_QUESTION, describe_image
 from .preview_tools import preview_tool
 from .secret_paths import is_secret_path
 from .team import (
-    MAX_AGENT_DEPTH,
+    DEPTH_LIMIT_MESSAGE,
     SubTask,
+    depth_limit_reached,
     run_subagent,
     spawn_agent_tool,
     spawn_agents_tool,
@@ -973,8 +974,8 @@ def _invoke_agent_tool(
             return ToolResult.failure("'name' ve 'task' alanları dolu olmalı.")
         if library.get_agent(name) is None:
             return ToolResult.failure(f"'{name}' adlı agent yok. find_agent ile ara.")
-        if depth >= MAX_AGENT_DEPTH:
-            return ToolResult.failure("Alt-ajan derinlik sınırına ulaşıldı; görevi kendin yap.")
+        if depth_limit_reached(deps, depth):
+            return ToolResult.failure(DEPTH_LIMIT_MESSAGE)
         # Uzmanın kendi talimatı sistem promptuna eklenir; kısıtladığı araç seti
         # varsa yalnızca onlar sunulur (bkz. `team.resolve_persona`).
         run = await run_subagent(

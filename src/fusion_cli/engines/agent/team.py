@@ -33,12 +33,54 @@ from .team_scope import schedule_waves as schedule_waves
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
 
-#: Alt ajan derinliği: alt ajan başka alt ajan başlatamaz. Ölçülmüş bir sınırdır
-#: (bkz. `engine_tools.MAX_AGENT_DEPTH` tarihçesi); iç içe ajanlar bağlamı ve hız
-#: kotasını katlayarak tüketir.
+#: Alt ajan derinliğinin YEDEK tavanı: yapılandırma okunamazsa alt ajan başka alt ajan
+#: başlatamaz. Asıl değer `runtime.max_agent_depth` (P-035; Claude Code 3 derinliğe izin
+#: verir); iç içe ajanlar bağlamı ve hız kotasını katlayarak tüketir, bu yüzden her
+#: derinlik adım bütçesini yarılar (`child_step_limit`).
 MAX_AGENT_DEPTH = 1
 #: Kartta gösterilecek sonuç satırının en fazla karakteri.
 SUMMARY_CHARS = 160
+#: Derinlik ne olursa olsun bir alt ajana bırakılan en az model çağrısı.
+MIN_CHILD_STEPS = 8
+
+DEPTH_LIMIT_MESSAGE = "Alt-ajan derinlik sınırına ulaşıldı; bu görevi kendin yap."
+SUBAGENT_BUDGET_MESSAGE = (
+    "Bu turda alt ajan bütçesi doldu ({limit} alt ajan başlatıldı); kalan işi kendin yap."
+)
+
+
+def max_agent_depth(deps: AgentDeps) -> int:
+    """Yapılandırılmış derinlik tavanı; eski yapılandırmada yedek sabit."""
+    return max(1, int(getattr(deps.config.runtime, "max_agent_depth", MAX_AGENT_DEPTH)))
+
+
+def depth_limit_reached(deps: AgentDeps, depth: int) -> bool:
+    """`depth` derinliğindeki ajan yeni bir alt ajan açamaz mı?"""
+    return depth >= max_agent_depth(deps)
+
+
+def subagent_budget_exhausted(deps: AgentDeps) -> str | None:
+    """Kök turun toplam alt ajan bütçesi dolduysa modele dönecek mesaj, değilse None."""
+    limit = int(getattr(deps.config.runtime, "max_subagents_per_turn", 0) or 0)
+    started = getattr(deps.child_runs, "started_total", 0)
+    if limit > 0 and started >= limit:
+        return SUBAGENT_BUDGET_MESSAGE.format(limit=limit)
+    return None
+
+
+def child_step_limit(deps: AgentDeps, depth: int, requested: int | None = None) -> int | None:
+    """Derinliğe göre azalan adım bütçesi: her kat öncekinin yarısı.
+
+    `requested` (kişiliğin `max_turns` alanı) daha darsa o geçerlidir. Derinlik 0'ın
+    çocuğu tam bütçeyi alır; daha içteki ajanlar bağlamı katlamasın diye yarılanır.
+    """
+    halved: int | None = None
+    base = deps.config.runtime.agent_max_steps
+    if depth >= 1 and base:
+        halved = max(MIN_CHILD_STEPS, base >> depth)
+    candidates = [limit for limit in (halved, requested) if limit is not None and limit > 0]
+    return min(candidates) if candidates else None
+
 
 RunAgent = Callable[..., Awaitable["AgentOutcome"]]
 
@@ -152,6 +194,7 @@ async def run_subagent(
             color=persona.color,
             group_size=group_size,
             started_at=(deps.budget.clock if deps.budget is not None else SystemClock()).now(),
+            depth=depth + 1,
         )
     )
     started = time.monotonic()
@@ -164,6 +207,11 @@ async def run_subagent(
         if persona_error:
             text = f"Üye yüklenemedi ({persona_error})."
             return SubRun(sub_id, persona, text, False, 0)
+        budget_message = subagent_budget_exhausted(deps)
+        if budget_message is not None:
+            text = budget_message
+            status = "budget"
+            return SubRun(sub_id, persona, text, False, 0, status=status)
         context = derive_sub_context(deps.tool_context, subtask)
         owned = deps.child_runs.start(
             sub_id, lambda: _run_child(deps, subtask, persona, sub_id, depth, run_agent, context)
@@ -261,6 +309,7 @@ async def _run_child(
             self_review=False,
             extra_system=_member_brief(persona, subtask),
             allowed_tools=_allowed_tools(deps, persona, subtask),
+            step_limit=child_step_limit(deps, depth),
         )
     finally:
         try:
@@ -334,8 +383,8 @@ def spawn_agent_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> Too
         subtask = _parse_subtask(args)
         if isinstance(subtask, str):
             return ToolResult.failure(subtask)
-        if depth >= MAX_AGENT_DEPTH:
-            return ToolResult.failure("Alt-ajan derinlik sınırına ulaşıldı; bu görevi kendin yap.")
+        if depth_limit_reached(deps, depth):
+            return ToolResult.failure(DEPTH_LIMIT_MESSAGE)
         run = await run_subagent(deps, subtask, depth=depth, run_agent=run_agent)
         return ToolResult(_cap_report(run.text))
 
@@ -360,8 +409,8 @@ def spawn_agents_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> To
         raw = args.get("gorevler")
         if not isinstance(raw, list) or not raw:
             return ToolResult.failure("'gorevler' boş olmayan bir liste olmalı.")
-        if depth >= MAX_AGENT_DEPTH:
-            return ToolResult.failure("Alt-ajan derinlik sınırına ulaşıldı; görevleri kendin yap.")
+        if depth_limit_reached(deps, depth):
+            return ToolResult.failure(DEPTH_LIMIT_MESSAGE)
         subtasks: list[SubTask] = []
         for index, item in enumerate(raw):
             parsed = _parse_subtask(item if isinstance(item, dict) else {})

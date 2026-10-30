@@ -220,8 +220,17 @@ class RuntimeConfig:
     rate_pace_max_wait_s: float = 3.0
     #: `spawn_agents` ile aynı anda koşabilecek alt ajan sayısı. Asıl hız sınırını
     #: paylaşılan defter korur; bu tavan bağlamı ve kullanıcının takip edebileceği
-    #: kart sayısını sınırlar.
-    max_parallel_agents: int = 4
+    #: kart sayısını sınırlar. 8: Claude Code 20, dynamic workflows 16 eşzamanlı
+    #: çalıştırır; ücretsiz model kotası paylaşılan kova ile korunduğundan 4'ün yarım
+    #: bıraktığı paralel araştırma+kodlama dalgaları için ikiye katlandı (P-035).
+    max_parallel_agents: int = 8
+    #: Alt ajanın alt ajan başlatabileceği en büyük derinlik: 1 = yalnız ana ajan
+    #: başlatır (eski davranış), 2 = alt ajan bir kat daha açabilir, 3 = Claude Code'un
+    #: sınırı. Her derinlik bağlamı ve adım bütçesini yarılar (bkz. `team.child_step_limit`).
+    max_agent_depth: int = 2
+    #: Bir kök turda (tüm derinlikler toplam) başlatılabilecek alt ajan sayısı; dolunca
+    #: `spawn_agent` "bütçe doldu" döner. Sonsuz ajan ağacı kotayı tüketmesin.
+    max_subagents_per_turn: int = 20
     #: Ajan bir dosyayı değiştirince o dosya için çalışacak kullanıcı komutları
     #: (`{path}` yerine dosya yolu). Boş = kanca yok (varsayılan davranış).
     post_edit_commands: tuple[str, ...] = ()

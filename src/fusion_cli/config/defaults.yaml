@@ -145,7 +145,14 @@ runtime:
   # sıkıştırma eşiği = pencere tokeni x bu oran x 3 karakter. 0 = kapalı. 0.2 TAHMİNDİR;
   # canlı ölçümle güncellenecek.
   weak_model_compaction_ratio: 0.2
-  max_parallel_agents: 4
+  # 8 (P-035): Claude Code 20, dynamic workflows 16 eşzamanlı; kota ortak kovayla korunur.
+  max_parallel_agents: 8
+  # Alt ajan ağacının derinliği: 1 = yalnız ana ajan başlatır, 2 = alt ajan bir kat daha
+  # açabilir, 3 = Claude Code sınırı. Her derinlik adım bütçesini yarılar.
+  max_agent_depth: 2
+  # Bir kök turda toplam başlatılabilecek alt ajan (tüm derinlikler). Dolunca spawn
+  # "bütçe doldu" döner.
+  max_subagents_per_turn: 20
   # Ajan bir dosyayı değiştirince çalışacak komutlar; `{path}` dosya yoluyla değişir.
   # Örnek: ["npx prettier --write {path}"]. Boş liste = kanca yok.
   post_edit_commands: []

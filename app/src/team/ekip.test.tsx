@@ -184,3 +184,34 @@ it("başlangıçtan önce gelen terminal sonuç sonraki başlangıçta korunur",
   expect(cards[0].gorev).toBe("araştır");
   expect(cards[0].baslangic).toBe(123000);
 });
+
+describe("alt ajan ağacı (P-035)", () => {
+  it("alt ajanın açtığı ajan üstünün kartı altında çizilir, ayrı mesaj açmaz", () => {
+    const mesajlar = akit([
+      { ...BASLA_TASARIMCI, group_size: 1, depth: 1 },
+      {
+        olay: "SubAgentStarted",
+        task: "ikon paletini araştır",
+        sub_id: "arastirmaci-9",
+        persona: "arastirmaci",
+        title: "Araştırmacı",
+        avatar: "arastirmaci",
+        color: "turuncu",
+        group_size: 1,
+        depth: 2,
+        agent_id: "tasarimci-1",
+      },
+    ]);
+
+    expect(mesajlar.filter((mesaj) => mesaj.rol === "ekip")).toHaveLength(1);
+    const kartlar = mesajlar[0].ajanlar ?? [];
+    expect(kartlar.map((kart) => kart.id)).toEqual(["tasarimci-1", "arastirmaci-9"]);
+    expect(kartlar[1].ust).toBe("tasarimci-1");
+    expect(kartlar[1].derinlik).toBe(2);
+
+    render(<TeamCards ajanlar={kartlar} canli />);
+    const grup = screen.getByRole("group", { name: "Arayüz Tasarımcısı alt ajanları" });
+    expect(grup.querySelector("[data-depth='2']")).not.toBeNull();
+    expect(screen.getByLabelText("Alt ajan")).toBeTruthy();
+  });
+});

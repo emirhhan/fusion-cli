@@ -208,7 +208,8 @@ async def test_spawn_agents_alt_ajanda_derinlik_sinirina_takilir(tmp_path):
     async def _hic(*_args, **_kwargs):
         raise AssertionError("çağrılmamalı")
 
-    arac = spawn_agents_tool(deps, depth=1, run_agent=_hic)
+    # Varsayılan `max_agent_depth` 2: derinlik 2'deki ajan yeni ajan açamaz (P-035).
+    arac = spawn_agents_tool(deps, depth=2, run_agent=_hic)
     sonuc = await arac.run({"gorevler": [{"task": "a"}]}, deps.tool_context)
 
     assert "derinlik" in sonuc.output
@@ -556,3 +557,56 @@ async def test_alt_ajanlar_web_sohbeti_icin_ayri_conversation_id_alir(tmp_path):
 
     assert len(set(gorulen)) == 2
     assert all(kimlik.startswith("oturum-1/") for kimlik in gorulen)
+
+
+# --- Derinlik, bütçe ve ağaç (P-035) ------------------------------------------- #
+
+
+async def test_derinlik_tavani_yapilandirmadan_okunur(tmp_path):
+    """Ölçüldü (31 Ekim): `MAX_AGENT_DEPTH = 1` sabitti; alt ajan alt ajan açamazdı."""
+    sink = RecordingSink()
+    deps = _deps(tmp_path, sink, max_agent_depth=3)
+
+    async def _sahte_ajan(task, sub_deps, **kwargs):
+        return SimpleNamespace(final_text=f"{task} bitti", ok=True, tool_calls_made=0)
+
+    arac = spawn_agents_tool(deps, depth=1, run_agent=_sahte_ajan)
+    sonuc = await arac.run({"gorevler": [{"task": "a", "salt_okunur": True}]}, deps.tool_context)
+
+    assert "derinlik" not in sonuc.output and "a bitti" in sonuc.output
+    basladi = [olay for olay in sink.events if isinstance(olay, SubAgentStarted)]
+    assert basladi and basladi[0].depth == 2
+
+    kapali = spawn_agents_tool(deps, depth=3, run_agent=_sahte_ajan)
+    sonuc = await kapali.run({"gorevler": [{"task": "b"}]}, deps.tool_context)
+    assert "derinlik" in sonuc.output
+
+
+async def test_tur_basina_alt_ajan_butcesi_dolunca_spawn_reddedilir(tmp_path):
+    sink = RecordingSink()
+    deps = _deps(tmp_path, sink, max_subagents_per_turn=2)
+    kosan: list[str] = []
+
+    async def _sahte_ajan(task, sub_deps, **kwargs):
+        kosan.append(task)
+        return SimpleNamespace(final_text="ok", ok=True, tool_calls_made=0)
+
+    sonuclar = await run_team(
+        deps, [SubTask(f"g{i}", read_only=True) for i in range(3)], depth=0, run_agent=_sahte_ajan
+    )
+
+    assert kosan == ["g0", "g1"]
+    assert sonuclar[2].status == "budget" and "bütçesi doldu" in sonuclar[2].text
+
+
+def test_cocuk_adim_butcesi_derinlikle_yarilanir(tmp_path):
+    from fusion_cli.engines.agent.team import MIN_CHILD_STEPS, child_step_limit
+
+    deps = _deps(tmp_path, RecordingSink(), agent_max_steps=64)
+
+    assert child_step_limit(deps, 0) is None
+    assert child_step_limit(deps, 1) == 32
+    assert child_step_limit(deps, 2) == 16
+    assert child_step_limit(deps, 10) == MIN_CHILD_STEPS
+    # Kişiliğin `max_turns` alanı daha darsa o geçerlidir.
+    assert child_step_limit(deps, 1, requested=5) == 5
