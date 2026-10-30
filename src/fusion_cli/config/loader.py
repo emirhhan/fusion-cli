@@ -121,8 +121,11 @@ def _apply_stored_secrets() -> None:
     if not store.available:
         return
     try:
+        # Eski (SHA-256) dosya ilk açılışta scrypt biçimine taşınır; başarısızlık açılışı
+        # engellemez, eski dosya okunmaya devam eder (L2-27).
+        store.upgrade_format()
         store.apply_to_environ(os.environ)
-    except ConfigError:
+    except (ConfigError, OSError):
         # Bozuk dosya / yanlış anahtar: sır uygulanamaz ama uygulama açılmaya devam eder.
         return
 

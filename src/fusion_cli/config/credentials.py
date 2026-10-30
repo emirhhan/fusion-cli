@@ -11,8 +11,12 @@ sağlayıcı kimliğine değil. Böylece bu modül `providers` katmanını impor
 
 Güvenlik modeli:
 - Ana anahtar config.keys tarafından çözülür: ortam değişkeni önceliklidir;
-  macOS'ta kullanıcıya özel yerel dosya, diğer sistemlerde sistem anahtarlığı kullanılır.
-  Yerel dosya yöntemi aynı kullanıcıya karşı Keychain erişim denetimi sağlamaz.
+  macOS'ta önce Keychain, olmazsa kullanıcıya özel yerel dosya; diğer sistemlerde
+  sistem anahtarlığı kullanılır. Yerel dosya yöntemi aynı kullanıcıya karşı Keychain
+  erişim denetimi sağlamaz.
+- Dosya biçimi `FSV2` + 16 bayt tuz + Fernet belirteci: şifreleme anahtarı ana anahtardan
+  scrypt ile türetilir (L2-27). Eski biçim (tuzsuz tek tur SHA-256, çıplak Fernet
+  belirteci) okunur; ilk yazımda ya da `upgrade_format` ile yeni biçime geçilir.
 - Anahtar yoksa depo `available=False`; yazma/okuma anlaşılır hata verir, uygulama
   çökmez, uygulama saklanan sır olmadan tam çalışır.
 - Değerler ne log'a ne prompt'a ne tool sonucuna girer; yalnızca şifreli dosyada.
@@ -24,8 +28,10 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import functools
 import hashlib
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -34,6 +40,38 @@ from pathlib import Path
 
 from ..core.errors import ConfigError
 from .writer import config_lock
+
+_logger = logging.getLogger(__name__)
+
+#: Yeni dosya biçiminin başlığı; eski biçim Fernet belirteci olduğundan `gAAAA` ile başlar.
+_V2_MAGIC = b"FSV2"
+_SALT_BYTES = 16
+_HEADER_BYTES = len(_V2_MAGIC) + _SALT_BYTES
+#: scrypt maliyeti: 2**15 * 128 * 8 = 32 MiB bellek, bu makinede ≈60 ms (ölçüldü, 30 Ekim).
+_SCRYPT_N = 2**15
+_SCRYPT_R = 8
+_SCRYPT_P = 1
+_SCRYPT_MAXMEM = 2**26
+
+
+def _scrypt_available() -> bool:
+    """Bazı Python/OpenSSL derlemelerinde `hashlib.scrypt` yoktur."""
+    return hasattr(hashlib, "scrypt")
+
+
+@functools.lru_cache(maxsize=8)
+def _scrypt_fernet_key(secret: str, salt: bytes) -> bytes:
+    """Ana anahtardan scrypt ile Fernet anahtarı türet (önbellekli: depo her yenilemede açılır)."""
+    raw = hashlib.scrypt(
+        secret.encode(),
+        salt=salt,
+        n=_SCRYPT_N,
+        r=_SCRYPT_R,
+        p=_SCRYPT_P,
+        dklen=32,
+        maxmem=_SCRYPT_MAXMEM,
+    )
+    return base64.urlsafe_b64encode(raw)
 
 
 class FernetSecretStore:
@@ -48,7 +86,8 @@ class FernetSecretStore:
         """Ana anahtar var mı? Yoksa depo kullanılamaz."""
         return self._secret_key is not None
 
-    def _fernet(self) -> object:
+    def _fernet(self, salt: bytes | None = None) -> object:
+        """`salt` verilirse scrypt (yeni biçim), verilmezse eski tuzsuz SHA-256 türetmesi."""
         if self._secret_key is None:
             raise ConfigError(
                 "Şifreli sır deposu için FUSION_SECRET_KEY ortam değişkeni gerekli. "
@@ -57,20 +96,34 @@ class FernetSecretStore:
         from cryptography.fernet import Fernet
 
         # Kullanıcı ham Fernet anahtarı üretmek zorunda kalmasın: herhangi bir metinden
-        # SHA-256 ile 32 baytlık anahtar türetilir.
-        derived = base64.urlsafe_b64encode(hashlib.sha256(self._secret_key.encode()).digest())
-        return Fernet(derived)
+        # 32 baytlık anahtar türetilir. Eski dosyalar tuzsuz SHA-256 ile yazılmıştı.
+        if salt is None:
+            return Fernet(
+                base64.urlsafe_b64encode(hashlib.sha256(self._secret_key.encode()).digest())
+            )
+        return Fernet(_scrypt_fernet_key(self._secret_key, salt))
 
-    def _load(self) -> dict[str, str]:
+    def _read(self) -> tuple[dict[str, str], bytes | None]:
+        """Dosyayı çöz; `(veri, tuz)` döndür. Tuz yeni biçimde dolu, eski/boş dosyada None."""
         if not self._path.is_file():
-            return {}
+            return {}, None
         token = self._path.read_bytes()
         if not token:
-            return {}
+            return {}, None
         from cryptography.fernet import InvalidToken
 
+        salt: bytes | None = None
+        if token.startswith(_V2_MAGIC):
+            if len(token) <= _HEADER_BYTES:
+                raise ConfigError("Sır deposu içeriği bozuk (başlık eksik).")
+            if not _scrypt_available():
+                raise ConfigError(
+                    "Sır deposu scrypt ile yazılmış ama bu Python derlemesinde hashlib.scrypt yok."
+                )
+            salt = token[len(_V2_MAGIC) : _HEADER_BYTES]
+            token = token[_HEADER_BYTES:]
         try:
-            plain = self._fernet().decrypt(token)  # type: ignore[attr-defined]
+            plain = self._fernet(salt).decrypt(token)  # type: ignore[attr-defined]
         except InvalidToken as hata:
             raise ConfigError(
                 "Sır deposu çözülemedi: FUSION_SECRET_KEY değişmiş ya da dosya bozuk olabilir."
@@ -85,15 +138,24 @@ class FernetSecretStore:
             ) from hata
         if not isinstance(parsed, dict):
             raise ConfigError("Sır deposu içeriği bozuk (sözlük değil).")
-        return {str(key): str(value) for key, value in parsed.items()}
+        return {str(key): str(value) for key, value in parsed.items()}, salt
 
-    def _save(self, data: dict[str, str]) -> None:
+    def _load(self) -> dict[str, str]:
+        return self._read()[0]
+
+    def _save(self, data: dict[str, str], *, salt: bytes | None = None) -> None:
         """Atomik yaz: geçici dosya + fsync + `os.replace`; öncesinde `.bak` kopyası.
 
         Doğrudan `write_bytes` yazma sırasında çökmede/disk dolunca dosyayı keserdi ve
         sonraki okuma `InvalidToken` verip TÜM anahtarları kaybettirirdi (L2-04).
         """
-        token = self._fernet().encrypt(json.dumps(data).encode())  # type: ignore[attr-defined]
+        payload = json.dumps(data).encode()
+        if _scrypt_available():
+            # Mevcut tuz korunur (önbellek isabeti, tek türetme); yeni dosyada rastgele üretilir.
+            salt = salt or os.urandom(_SALT_BYTES)
+            token = _V2_MAGIC + salt + self._fernet(salt).encrypt(payload)  # type: ignore[attr-defined]
+        else:
+            token = self._fernet().encrypt(payload)  # type: ignore[attr-defined]
         self._path.parent.mkdir(parents=True, exist_ok=True)
         if self._path.is_file():
             with contextlib.suppress(OSError):
@@ -120,9 +182,9 @@ class FernetSecretStore:
         eklerse biri ötekini ezmez.
         """
         with config_lock(self._path):
-            data = self._load()
+            data, salt = self._read()
             data[env_name] = value
-            self._save(data)
+            self._save(data, salt=salt)
 
     def get(self, env_name: str) -> str | None:
         """Sırrı çöz; yoksa None."""
@@ -131,11 +193,49 @@ class FernetSecretStore:
     def delete(self, env_name: str) -> bool:
         """Sırrı sil. Vardıysa True."""
         with config_lock(self._path):
-            data = self._load()
+            data, salt = self._read()
             if env_name not in data:
                 return False
             del data[env_name]
-            self._save(data)
+            self._save(data, salt=salt)
+            return True
+
+    def upgrade_format(self) -> bool:
+        """Eski (tuzsuz SHA-256) dosyayı scrypt biçimine taşı; taşındıysa True.
+
+        Yedekli ve idempotenttir: eski bayt dizisi `<ad>.v1` olarak bir kez saklanır
+        (varsa dokunulmaz), yeni dosya yazılıp YENİDEN çözülerek doğrulanır, doğrulanamazsa
+        eski dosya geri konur. Anahtar yok/yanlış/dosya bozuk ya da zaten yeni biçimdeyse
+        hiçbir şey değişmez.
+        """
+        if not self.available or not _scrypt_available() or not self._path.is_file():
+            return False
+        # Kilitsiz ön kontrol: her yenilemede çağrılır, çoğu zaman iş yoktur.
+        with contextlib.suppress(OSError), self._path.open("rb") as stream:
+            if stream.read(len(_V2_MAGIC)) in (_V2_MAGIC, b""):
+                return False
+        with config_lock(self._path):
+            if not self._path.is_file():
+                return False
+            eski = self._path.read_bytes()
+            if not eski or eski.startswith(_V2_MAGIC):
+                return False
+            try:
+                data, _ = self._read()
+            except ConfigError:
+                return False
+            yedek = self._path.with_name(self._path.name + ".v1")
+            try:
+                if not yedek.exists():
+                    shutil.copy2(self._path, yedek)
+                self._save(data)
+                if self._read()[0] != data:
+                    raise ConfigError("doğrulanamadı")
+            except (OSError, ConfigError):
+                with contextlib.suppress(OSError):
+                    self._path.write_bytes(eski)
+                _logger.warning("Sır deposu yeni biçime taşınamadı; eski dosya korunuyor.")
+                return False
             return True
 
     def list_names(self) -> tuple[str, ...]:
