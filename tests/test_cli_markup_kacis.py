@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
 from rich.console import Console
 
@@ -69,14 +70,14 @@ def test_iz_ozeti_bulgu_ve_hedefte_cokmez(monkeypatch):
     assert "bulgu [/y]" in cikti and "durdu [/x]" in cikti and "ozet [/z]" in cikti
 
 
-def test_cop_tablosu_yolu_isaretsiz_basar(monkeypatch, tmp_path):
+def test_cop_tablosu_yolu_isaretsiz_basar(monkeypatch):
     konsol, tampon = _konsol()
     monkeypatch.setattr(trash_commands, "console", konsol)
 
     class _Girdi:
         id = "k1"
         deleted_at = 0.0
-        original = tmp_path / "a[/x]b"
+        original = Path("/t/a[/x]b")  # kısa yol: uzun tmp_path tabloda satır kırıp aramayı bozar
 
     monkeypatch.setattr(trash_commands, "list_trash", lambda _dizin: [_Girdi()])
 
