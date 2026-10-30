@@ -1010,10 +1010,12 @@ def test_sozluk_olmayan_json_bos_sozluk_ve_hata_dondurur():
     assert hata == "arguments bir JSON nesnesi olmalı"
 
 
-def test_bos_arguman_bos_sozluk_ve_hata_dondurur():
+def test_bos_arguman_bos_sozluk_dondurur_zorunlu_alani_semaya_birakir():
+    """A2-07: parametresiz araçta bazı sağlayıcılar "" yollar; eksik zorunlu alan
+    sözleşme doğrulamasında (`validate_arguments`) yine yakalanır."""
     arguments, hata = _parse_arguments_checked("")
     assert arguments == {}
-    assert hata is not None
+    assert hata is None
 
 
 def test_gecerli_json_hatasiz_ayristirilir():
