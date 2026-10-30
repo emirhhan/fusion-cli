@@ -67,6 +67,20 @@ class Engine(Enum):
 TASK_TYPES = ("general", "code", "reasoning", "agent")
 
 
+@dataclass(frozen=True, slots=True)
+class PendingExtras:
+    """`/beceri` komutunun sıradaki tura taşıdığı ekler (bkz. `ReplState.take_pending_extras`)."""
+
+    context: str = ""
+    tools: frozenset[str] | None = None
+
+    def merged_tools(self, base: set[str] | None) -> set[str] | None:
+        """Yüzeyin kendi kısıtıyla kesişim; ikisi de yoksa None (kısıt yok)."""
+        if self.tools is None:
+            return base
+        return set(self.tools) if base is None else set(self.tools) & base
+
+
 @dataclass(slots=True)
 class ReplState:
     """Oturumun tüm değişken durumu."""
@@ -131,6 +145,10 @@ class ReplState:
     pending_task: str = ""
     #: Bekleyen görevin davranış kipi (hedef, mülakat…).
     pending_mode: Mode = Mode.NONE
+    #: `/beceri` ile hazırlanan ve sıradaki turun sistem bağlamına eklenecek beceri gövdesi.
+    pending_context: str = ""
+    #: `allowed-tools` kısıtı: sıradaki turda sunulacak Fusion araç adları; None = kısıt yok.
+    pending_tools: frozenset[str] | None = None
 
     @classmethod
     def from_runtime_config(cls, config: Config, **kwargs: object) -> ReplState:
@@ -156,6 +174,12 @@ class ReplState:
         task, mode = self.pending_task, self.pending_mode
         self.pending_task, self.pending_mode = "", Mode.NONE
         return task, mode
+
+    def take_pending_extras(self) -> PendingExtras:
+        """Beceri bağlamı ve araç kısıtını BİR KEZ al; sonraki turlara sızmasın."""
+        extras = PendingExtras(self.pending_context, self.pending_tools)
+        self.pending_context, self.pending_tools = "", None
+        return extras
 
     #: `.claude/settings.local.json` içindeki onaysız komutlar.
     allowed_commands: frozenset[str] = frozenset()

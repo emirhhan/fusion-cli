@@ -116,7 +116,7 @@ import { useScheduleRunner } from "./schedule/useScheduleRunner";
 import { useSchedulerCore } from "./schedule/useSchedulerCore";
 import type { ReportInput } from "./feedback/report";
 import { useCrashReporter } from "./feedback/useCrashReporter";
-import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput } from "./screens/capabilityInput";
+import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput, skillPrefixToSlash } from "./screens/capabilityInput";
 import { attachmentsFromDroppedFiles, isFolderCommand, startsWithFilePath } from "./slashRouting";
 import { readStorage, writeStorage } from "./platform/storage";
 
@@ -1339,7 +1339,9 @@ export function SessionUygulama({
     commands: commands.map((command) => command.ad),
   });
   const skillFrom = (task: string) => parseCapabilityInput(task, capabilityNames()).skill;
-  const send = (task: string) => {
+  const send = (rawTask: string) => {
+    // `$beceri` (Codex yazımı) bilinen bir beceri/komutsa slash yoluna çevrilir (P-052).
+    const task = skillPrefixToSlash(rawTask, [...skillNames, ...commands.map((command) => command.ad)]);
     const resumeSource = task.match(/^\/resume(claude|codex|hermes)$/i)?.[1]?.toLocaleLowerCase("tr") as "claude" | "codex" | "hermes" | undefined;
     if (resumeSource && history.sources.some((source) => source.ad === resumeSource)) {
       setHistoryOpen(true);

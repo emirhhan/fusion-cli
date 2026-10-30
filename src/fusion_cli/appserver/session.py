@@ -477,7 +477,7 @@ class AppSession:
         self._steering: SteeringQueue | None = None
         self._steering_turn: str | None = None
         self._steering_requests: set[str] = set()
-        self._registry = build_registry(home)
+        self._registry = build_registry(home, skills=lambda: self._state.capabilities)
         self._state = ReplState.from_runtime_config(
             config,
             memory=build_memory(config, root=root),
@@ -2465,6 +2465,8 @@ class AppSession:
         capability_context = self._take_capability_context()
         selected_skill, self._taken_skill = self._taken_skill, None
         inherited_context = self._state.take_pending_digest()
+        # `/beceri` slash komutunun hazırladığı gövde ve araç kısıtı (P-019).
+        pending_extras = self._state.take_pending_extras()
         turn_mode, self._next_turn_mode = self._next_turn_mode, macros.Mode.NONE
 
         # Kullanıcının kalıcı talimatı da bağlama girer. Sistem istemi
@@ -2488,6 +2490,7 @@ class AppSession:
                     macros.mode_prompt(turn_mode),
                     inherited_context,
                     capability_context,
+                    pending_extras.context,
                     attachment_context,
                     voice_context.prompt() if voice_context else "",
                     instruction_block(),
@@ -2510,7 +2513,7 @@ class AppSession:
                 home=self._state.home,
                 history=history,
                 chrome_bridge=self._chrome,
-                allowed_tools=(
+                allowed_tools=pending_extras.merged_tools(
                     (CHROME_CODE_TURN_TOOLS if self._workspace_mode == "kod" else CHROME_TURN_TOOLS)
                     if browser_only
                     else None

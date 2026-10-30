@@ -52,6 +52,7 @@ from .commands import (
 )
 from .loop import apply_auto_profile
 from .partial_turn import PartialTurn
+from .skill_commands import skill_prefix_to_slash
 from .state import Engine, Reminder, ReplState
 from .transcript_store import TranscriptStore, list_conversations
 from .tui import FusionTui
@@ -228,7 +229,7 @@ class _TuiSession:
 
     def __init__(self, state: ReplState) -> None:
         self._state = state
-        self._registry = build_registry(state.home)
+        self._registry = build_registry(state.home, skills=lambda: state.capabilities)
         self._task: asyncio.Task[None] | None = None
         # Tur çalışırken gönderilen satırlar SESSİZCE DÜŞMEZ; kuyruğa alınır ve tur
         # bitince sırayla işlenir (kullanıcının alıştığı davranış — Claude da kuyruklar).
@@ -337,6 +338,7 @@ class _TuiSession:
             self._transcript_store.record_user(line)
             ConsoleRenderer(self._out).print_user_message(line)
             self._tui.sync_conversation()
+            line = skill_prefix_to_slash(line, self._registry.is_dynamic)
             if is_command_line(line):
                 await self._command(line)
             else:
@@ -656,8 +658,9 @@ class _TuiSession:
                 # kullanan agent dalında tüketilir. Kip promptuyla aynı metinde
                 # birleşir (`loop.py` ile aynı sıra).
                 digest = self._state.take_pending_digest()
+                extras = self._state.take_pending_extras()
                 turn_extra_system = "\n\n".join(
-                    part for part in (macros.mode_prompt(mode), digest) if part
+                    part for part in (macros.mode_prompt(mode), digest, extras.context) if part
                 )
                 try:
                     outcome = await run_agent_task(
@@ -684,6 +687,7 @@ class _TuiSession:
                         approval_memory=self._state.approval_memory,
                         step_limit=macros.mode_step_limit(mode),
                         workflow=macros.mode_workflow(mode),
+                        allowed_tools=extras.merged_tools(None),
                     )
                 except (asyncio.CancelledError, Exception):
                     # İptal/hata: o turun araç sonuçları geçmişten düşmesin (L2-12).

@@ -68,6 +68,7 @@ from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_com
 from .input import ReplInput
 from .macros import Mode
 from .partial_turn import PartialTurn
+from .skill_commands import skill_prefix_to_slash
 from .state import Engine, Reminder, ReplState
 
 #: Komut geçmişinin saklandığı dosya adı.
@@ -161,7 +162,7 @@ async def _run_surface(
 
     # Ev dizini GEÇİLİR: dinamik `/resume<kaynak>` komutları ancak böyle kaydolur.
     # Argümansız çağrı bu yüzeyi sessizce komutsuz bırakıyordu.
-    registry = build_registry(state.home)
+    registry = build_registry(state.home, skills=lambda: state.capabilities)
     reader = ReplInput(
         config.memory_dir / HISTORY_FILE, registry.completion_words(), mode=state.approval
     )
@@ -310,6 +311,8 @@ async def _handle(
         banner.print_welcome(console, session_info(state), pad=False)
         state.welcome_padded = False
     ConsoleRenderer(console).print_user_message(line)
+    # Codex yazımı `$beceri` de slash ile aynı yola gider (P-052).
+    line = skill_prefix_to_slash(line, registry.is_dynamic)
     if is_command_line(line):
         await _run_command(line, state, registry, reader, console)
         # Makrolar görev HAZIRLAR, çalıştırmaz: komut işleyicileri saf ve senkron
@@ -432,6 +435,7 @@ async def _drive_agent(
     extra_system: str,
     step_limit: int | None,
     workflow: bool = False,
+    allowed_tools: set[str] | None = None,
 ) -> AgentOutcome:
     """Agent turunu çalıştır; MCP sunucuları tanımlıysa dış araçları da bağla.
 
@@ -444,6 +448,7 @@ async def _drive_agent(
         "extra_system": extra_system,
         "step_limit": step_limit,
         "workflow": workflow,
+        "allowed_tools": allowed_tools,
     }
     if not state.config.mcp_servers and not state.config.hosted_connectors:
         return await run_agent(line, deps, **kwargs)
@@ -590,8 +595,11 @@ async def _agent_turn(
         # yazılmış dosyalar da `/undo` ile geri alınabilsin.
         state.last_changes = tool_context.changes
         try:
+            extras = state.take_pending_extras()
             turn_extra_system = "\n\n".join(
-                part for part in (macros.mode_prompt(mode), state.take_pending_digest()) if part
+                part
+                for part in (macros.mode_prompt(mode), state.take_pending_digest(), extras.context)
+                if part
             )
             outcome = await _drive_agent(
                 run_agent,
@@ -603,6 +611,7 @@ async def _agent_turn(
                 extra_system=turn_extra_system,
                 step_limit=macros.mode_step_limit(mode),
                 workflow=macros.mode_workflow(mode),
+                allowed_tools=extras.merged_tools(None),
             )
             # Boş cevap yalnızca tur temiz bittiyse hatadır; bkz. `cli/session.py`.
             if not outcome.final_text.strip() and outcome.ok:

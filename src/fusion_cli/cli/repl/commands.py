@@ -26,7 +26,7 @@ from ...engines.agent.approval import ApprovalMode
 from ...history import SessionRef, available_sources, build_digest, source_by_name
 from ...memory.seed import SEED_LESSONS, seed
 from ...providers.registry import BUILTIN_PROVIDERS, ProviderKind
-from ...tools.capabilities import Capability
+from ...tools.capabilities import Capability, CapabilityRegistry
 from ...tools.capabilities import search as search_capabilities
 from ...ui import messages
 from ...ui.picker import Choice, pick
@@ -73,35 +73,69 @@ class SlashCommand:
         return f"/{self.name} {self.usage}".strip()
 
 
+#: Yerleşik olmayan komutları (beceriler) her çağrıda üreten sağlayıcı.
+DynamicCommands = Callable[[], tuple[SlashCommand, ...]]
+
+
 @dataclass(slots=True)
 class CommandRegistry:
-    """Ada ve takma ada göre komut çözen defter."""
+    """Ada ve takma ada göre komut çözen defter.
+
+    `dynamic` sağlayıcı (bkz. `skill_commands.skill_slash_commands`) her sorguda yeniden
+    üretilir: beceri kataloğu yenilenince (`/skills reload`) defter de yenilenmiş olur.
+    Yerleşik komut dinamik olanı her zaman gölgeler.
+    """
 
     _commands: dict[str, SlashCommand] = field(default_factory=dict)
     _by_name: dict[str, SlashCommand] = field(default_factory=dict)
+    _dynamic: DynamicCommands | None = None
 
     def register(self, command: SlashCommand) -> None:
         self._by_name[command.name] = command
         for key in (command.name, *command.aliases):
             self._commands[key] = command
 
+    def set_dynamic(self, provider: DynamicCommands | None) -> None:
+        self._dynamic = provider
+
+    def _dynamic_commands(self) -> tuple[SlashCommand, ...]:
+        if self._dynamic is None:
+            return ()
+        return tuple(c for c in self._dynamic() if c.name.lower() not in self._commands)
+
     def get(self, name: str) -> SlashCommand | None:
-        return self._commands.get(name.lower())
+        wanted = name.lower()
+        builtin = self._commands.get(wanted)
+        if builtin is not None:
+            return builtin
+        return next((c for c in self._dynamic_commands() if c.name.lower() == wanted), None)
+
+    def is_dynamic(self, name: str) -> bool:
+        """Ad bir beceri/komut dosyasına mı çözülüyor (yerleşik değil)?"""
+        return name.lower() not in self._commands and self.get(name) is not None
 
     def all(self) -> tuple[SlashCommand, ...]:
-        return tuple(self._by_name.values())
+        return (*self._by_name.values(), *self._dynamic_commands())
 
     def completion_words(self) -> list[str]:
         """Tamamlama için tüm komut ve takma adlar."""
-        return sorted(f"/{key}" for key in self._commands)
+        words = {f"/{key}" for key in self._commands}
+        words.update(f"/{c.name}" for c in self._dynamic_commands())
+        return sorted(words)
 
 
-def build_registry(home: Path | None = None) -> CommandRegistry:
+def build_registry(
+    home: Path | None = None,
+    *,
+    skills: Callable[[], CapabilityRegistry | None] | None = None,
+) -> CommandRegistry:
     """Yerleşik komutların tamamını içeren defter.
 
     `home` verilirse makinede izi bulunan her geçmiş kaynağı için bir
     `/resume<kaynak>` komutu EKLENİR. Kurulu olmayan aracın komutu hiç var olmaz:
-    tamamlamada da yardımda da görünmez.
+    tamamlamada da yardımda da görünmez. `skills` verilirse keşfedilen her beceri/komut
+    dosyası `/ad` olarak "Beceri" grubunda sunulur (P-019); sağlayıcı tembel çağrılır ki
+    katalog yenilenince defter de yenilensin.
     """
     registry = CommandRegistry()
     for command in _COMMANDS:
@@ -116,6 +150,12 @@ def build_registry(home: Path | None = None) -> CommandRegistry:
                     group="Geçmiş",
                 )
             )
+    if skills is not None:
+        from .skill_commands import skill_slash_commands
+
+        registry.set_dynamic(
+            lambda: tuple(c for c in skill_slash_commands(skills()) if isinstance(c, SlashCommand))
+        )
     return registry
 
 

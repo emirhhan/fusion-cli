@@ -557,6 +557,16 @@ REPL_MODEL_SET = "{role} modeli → {model}"
 REPL_MODEL_ADDED = "aday eklendi: {name} ({model})"
 REPL_MODEL_REMOVED = "aday çıkarıldı: {name}"
 REPL_MACRO_STARTED = "{name} çalıştırılıyor…"
+#: `/beceri` komutları (P-019).
+REPL_SKILL_STARTED = "{name} becerisi sıradaki tur için hazırlandı."
+REPL_SKILL_MISSING = "'{name}' becerisi artık bulunamıyor; /skills reload ile kataloğu yenile."
+REPL_SKILL_FORK_NOTE = (
+    "context: fork — bu beceri Fusion'da ana turda çalışır (alt ajan devri henüz yok)."
+)
+REPL_SKILL_MODEL_NOTE = (
+    "model/effort alanı okundu ama bu turda uygulanmadı; /model ve /effort ile seç."
+)
+CMD_SKILL_DEFAULT = "{kind} dosyası (açıklama yok)"
 REPL_SCHEDULE_SET = "hatırlatma kuruldu: {seconds} saniye sonra"
 REPL_SCHEDULE_USAGE = "Kullanım: /schedule <saniye>  (ör. /schedule 300)"
 REPL_SCHEDULE_FIRED = "⏰ hatırlatma zamanı geldi"

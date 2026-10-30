@@ -51,3 +51,34 @@ dosyayı bağlama alır (Claude Code sözdizimi).
   kuralları (kapsamıyla) listeler; `yetenek.detay {tur: "talimat", ad}` yalnız bu listedeki
   dosyayı okur.
 - `runtime.instruction_merge: false` kuralları da kapatır.
+
+## Beceri ve komutları slash ile çağırma: `/<beceri> argüman`
+
+Keşfedilen her `SKILL.md` becerisi ve `.claude/commands/**/*.md` komut dosyası terminalde,
+TUI'de ve masaüstü yazı kutusunda **Beceri** grubunda bir slash komutu olur
+(`/help` ve `komut.listele` listeler; yerleşik bir komutla ad çakışırsa yerleşik kazanır).
+
+- `/rapor ekim` → `SKILL.md` gövdesi `$ARGUMENTS` ile şablonlanıp `<beceri>` bloğu olarak
+  sıradaki turun sistem bağlamına girer; kullanıcı mesajı `ekim` (argüman yoksa
+  "`rapor` becerisini bu görev için uygula.").
+- `.claude/commands/git/commit.md` → `/git:commit <bağlam>`: şablonlanan gövde doğrudan görev
+  metnidir. Komut kökleri: `~/.claude/commands`, `~/.fusion/commands`, projede
+  `.claude/commands`, `.fusion/commands`.
+- Codex yazımı `$rapor ekim` de aynı yola gider (`@beceri` dosya anmasıyla çakıştığı için
+  desteklenmez).
+- Şablon değişkenleri: `$ARGUMENTS`, `$ARGUMENTS[0]`, `$1 $2 …`, `${FUSION_SKILL_DIR}`
+  (`${CLAUDE_SKILL_DIR}`), `${FUSION_PROJECT_DIR}`, `${FUSION_SESSION_ID}`; `\$` kaçışı. Yer
+  tutucu yoksa argüman `ARGÜMANLAR:` satırı olarak sona eklenir.
+
+### SKILL.md frontmatter alanları
+
+| Alan (İngilizce / Türkçe) | Fusion'da etkisi |
+|---|---|
+| `description`, `when_to_use` | Arama, beceri dizini ve `/help` satırı |
+| `argument-hint` / `arguman-ipucu` | `/help` ve tamamlamada `/ad [ipucu]` |
+| `allowed-tools` / `izinli-araclar` | O turda yalnız bu araçlar sunulur (`Bash(git *)` deseninin araç adı eşlenir, komut deseni uygulanmaz; not düşer) |
+| `disable-model-invocation` / `model-cagirmasin` | Beceri dizinine ve `find_skill` sonucuna girmez; yalnız `/ad` ile |
+| `user-invocable: false` | Slash komutu olarak sunulmaz (yalnız model `read_skill` ile) |
+| `context: fork` | Okunur; şimdilik ana turda çalışır, not düşer |
+| `model`, `effort` | Okunur; bu turda uygulanmaz (`/model`, `/effort` ile seç), not düşer |
+| Gövdede `` !`cmd` `` | Komut çıktısı yüklenmeden önce yerleştirilir: yalnız `~/.claude`, `~/.codex`, `~/.hermes`, yerleşik köklerden ya da `fusion trust` ile güvenilen projeden ve `auto`/`edits`/`bypass` kipinde; çıktı 2.000 karakter, sırlar maskeli, 10 sn |

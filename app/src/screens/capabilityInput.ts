@@ -1,7 +1,9 @@
 /**
  * Yazı kutusundaki `/beceri` ve `@mcp` girdilerini çözer.
  *
- * - `/ad` yalnız satırın BAŞINDA ve yalnız o ad bir komut değilse bir beceridir (komut kazanır).
+ * - `/ad` (ya da Codex yazımı `$ad`) yalnız satırın BAŞINDA ve yalnız o ad bir komut değilse bir
+ *   beceridir (komut kazanır). Çekirdek beceri dosyalarını "Beceri" grubunda komut olarak da
+ *   listeler (P-019); o durumda komut yolu kazanır ve `/beceri` çekirdekte çalışır.
  * - `@ad` metnin herhangi bir yerinde, kelime başında (boşluk ya da `([{,;` sonrası; dosya
  *   anmasıyla `anmayiBul` aynı sınırı kullanır, U1-21), bilinen ve etkin bir MCP sunucusuysa
  *   o MCP'yi bu tur için seçer. Dosya anmaları (`@src/app.ts`) MCP adı olmadıkça etkilenmez.
@@ -24,7 +26,7 @@ const fold = (value: string) => value.toLocaleLowerCase("tr");
 
 export function parseCapabilityInput(text: string, names: CapabilityNames): CapabilityInput {
   let skill: CapabilityInput["skill"] = null;
-  const slash = /^\/([^\s/]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+  const slash = /^[/$]([^\s/$]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
   if (slash) {
     const wanted = fold(slash[1]);
     const isCommand = names.commands.some((command) => fold(command) === wanted);
@@ -58,4 +60,12 @@ export function parseImageRequest(text: string): { prompt: string; aspect: strin
   const prompt = (option ? rest.slice(0, option.index) + rest.slice(option.index + option[0].length) : rest)
     .replace(/\s+/g, " ").trim();
   return { prompt, aspect };
+}
+
+/** Codex yazımı `$beceri …` bilinen bir beceri/komutsa `/beceri …` olarak gönderilir. */
+export function skillPrefixToSlash(text: string, known: readonly string[]): string {
+  const match = /^\$([^\s/$]+)/.exec(text);
+  if (!match) return text;
+  const wanted = fold(match[1]);
+  return known.some((name) => fold(name) === wanted) ? "/" + text.slice(1) : text;
 }
