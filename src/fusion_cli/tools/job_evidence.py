@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,6 +53,31 @@ def _reject_secret_path(original: Path, resolved: Path) -> None:
         raise ValueError("Kaynak kapsamı sır dosyası veya sır dizini içeremez.")
 
 
+_SKIPPED_DIRS = frozenset({"node_modules", ".git", ".venv"})
+
+
+def _scope_candidates(path: Path) -> Iterator[Path]:
+    """Kapsamdaki dosyalar; `node_modules/.git/.venv` GEZİLMEDEN atlanır.
+
+    Eskiden `rglob("*")` her dosyayı üretiyor, `resolve()` ve sır denetimi atlama kararından
+    ÖNCE çalışıyordu: kapsam proje kökü olunca yüz binlerce sistem çağrısı, atlanan
+    klasördeki bir `.env` bile işi iptal ediyordu (ölçüldü, 30 Ekim).
+    """
+    if not path.is_dir():
+        yield path
+        return
+    for folder, dirs, names in os.walk(path):
+        dirs[:] = sorted(name for name in dirs if name not in _SKIPPED_DIRS)
+        for name in sorted(names):
+            yield Path(folder) / name
+
+
+def _file_digest(path: Path) -> str:
+    """SHA-256'yı akıtarak hesapla (video/ses kaynakları belleğe alınmaz)."""
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 def prepare_manifest(args: ToolArgs, root: Path) -> JobEvidenceManifest | None:
     """İlgili açık dosya/dizin kapsamını süreç başlamadan özetle."""
     check = args.get("failure_check")
@@ -68,15 +95,9 @@ def prepare_manifest(args: ToolArgs, root: Path) -> JobEvidenceManifest | None:
         _reject_secret_path(original_path, path)
         if not path.is_relative_to(root.resolve()) or path.name.startswith(".env"):
             raise ValueError("Kaynak kapsamı proje içinde olmalı; sır dosyaları kullanılamaz.")
-        candidates = path.rglob("*") if path.is_dir() else (path,)
-        for candidate in candidates:
+        for candidate in _scope_candidates(path):
             resolved = candidate.resolve()
             _reject_secret_path(candidate, resolved)
-            if any(
-                part in {"node_modules", ".git", ".venv"}
-                for part in candidate.relative_to(root.resolve()).parts
-            ):
-                continue
             if not resolved.is_relative_to(root.resolve()):
                 raise ValueError("Kaynak bağlantısı proje dışına çıkamaz.")
             if candidate.is_file() and candidate.suffix in _SOURCE_SUFFIXES:
@@ -86,7 +107,7 @@ def prepare_manifest(args: ToolArgs, root: Path) -> JobEvidenceManifest | None:
     sources = tuple(
         SourceFingerprint(
             path.relative_to(root.resolve()).as_posix(),
-            hashlib.sha256(path.read_bytes()).hexdigest(),
+            _file_digest(path),
         )
         for path in sorted(files)
     )

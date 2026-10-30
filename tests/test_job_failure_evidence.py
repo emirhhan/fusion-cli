@@ -121,3 +121,39 @@ def test_directory_symlink_to_secret_is_rejected_before_read(tmp_path, monkeypat
     monkeypatch.setattr(Path, "read_bytes", read)
     with pytest.raises(ValueError, match="sır"):
         prepare_manifest({"failure_check": "layout", "failure_sources": ["src"]}, tmp_path)
+
+
+# --- Dalga 4 (T1-59) -------------------------------------------------------------
+
+
+def test_node_modules_icindeki_env_dosyasi_manifesti_dusurmez(tmp_path) -> None:
+    """Atlanan klasördeki `.env` önce kontrol edilip tüm işi iptal ediyordu."""
+    from fusion_cli.tools.job_evidence import prepare_manifest
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.tsx").write_text("kod")
+    (tmp_path / "src" / "node_modules" / "paket").mkdir(parents=True)
+    (tmp_path / "src" / "node_modules" / "paket" / ".env.json").write_text("sir")
+    (tmp_path / "src" / "node_modules" / "paket" / "b.js").write_text("x")
+
+    manifest = prepare_manifest({"failure_check": "k", "failure_sources": ["src"]}, tmp_path)
+
+    assert [s.path for s in manifest.sources] == ["src/a.tsx"]
+
+
+def test_kaynak_ozeti_dosyayi_akitarak_hashler(tmp_path, monkeypatch) -> None:
+    """`.mp4/.wav` gibi büyük kaynaklar `read_bytes()` ile tamamen belleğe alınmasın."""
+    from pathlib import Path
+
+    from fusion_cli.tools.job_evidence import prepare_manifest
+
+    (tmp_path / "a.mp4").write_bytes(b"x" * 1000)
+
+    def read(path):
+        raise AssertionError("tüm dosya belleğe okundu")
+
+    monkeypatch.setattr(Path, "read_bytes", read)
+
+    manifest = prepare_manifest({"failure_check": "k", "failure_sources": ["a.mp4"]}, tmp_path)
+
+    assert manifest.sources[0].path == "a.mp4"
