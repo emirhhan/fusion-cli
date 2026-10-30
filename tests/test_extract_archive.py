@@ -155,3 +155,89 @@ def test_arac_modele_sunulur():
     }
 
     assert "extract_archive" in adlar
+
+
+# --- Dalga 4 (T1-32) ---------------------------------------------------------
+
+
+async def test_macos_artiklari_acilmaz_ve_sinirdan_dusmez(tmp_path):
+    """`__MACOSX/` ve `._*` kaynak dosya değildir; 5000 üye sınırını da yemesin."""
+    _zip_yaz(
+        tmp_path / "paket.zip",
+        {"a.png": b"x", "__MACOSX/._a.png": b"m", "klasor/._b.png": b"m", "klasor/b.png": b"y"},
+    )
+    context = ToolContext(root=tmp_path)
+
+    sonuc = await archive.extract_archive({"path": "paket.zip", "dest": "out"}, context)
+
+    assert sonuc.ok
+    assert "Dosya: 2" in sonuc.output
+    assert not (tmp_path / "out/__MACOSX").exists()
+    assert not (tmp_path / "out/klasor/._b.png").exists()
+
+
+async def test_sifreli_zip_istisna_degil_hata_doner(tmp_path):
+    """Şifreli ZIP `RuntimeError` fırlatıyordu; yakalama listesinde yoktu."""
+    yol = tmp_path / "sifreli.zip"
+    _zip_yaz(yol, {"a.txt": b"gizli"})
+    ham = bytearray(yol.read_bytes())
+    # Yerel başlık ve merkezi dizindeki genel amaçlı bayrağın bit 0'ını (şifreli) aç.
+    for imza in (b"PK\x03\x04", b"PK\x01\x02"):
+        konum = ham.find(imza)
+        sapma = 6 if imza == b"PK\x03\x04" else 8
+        ham[konum + sapma] |= 1
+    yol.write_bytes(bytes(ham))
+    context = ToolContext(root=tmp_path)
+
+    sonuc = await archive.extract_archive({"path": "sifreli.zip", "dest": "out"}, context)
+
+    assert not sonuc.ok and "Arşiv açılamadı" in sonuc.output
+
+
+async def test_kesik_tar_gz_istisna_degil_hata_doner(tmp_path):
+    yol = tmp_path / "kesik.tar.gz"
+    with tarfile.open(yol, "w:gz") as arsiv:
+        veri = tmp_path / "buyuk.bin"
+        veri.write_bytes(bytes(range(256)) * 4096)
+        arsiv.add(veri, arcname="buyuk.bin")
+    yol.write_bytes(yol.read_bytes()[:-400])
+    context = ToolContext(root=tmp_path)
+
+    sonuc = await archive.extract_archive({"path": "kesik.tar.gz", "dest": "out"}, context)
+
+    assert not sonuc.ok and "Arşiv açılamadı" in sonuc.output
+
+
+async def test_ezilen_dosya_geri_alinabilir(tmp_path):
+    """Var olan dosyanın üstüne açma geri alma kaydı olmadan veri kaybıydı."""
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out/a.txt").write_bytes(b"eski")
+    _zip_yaz(tmp_path / "paket.zip", {"a.txt": b"yeni"})
+    context = ToolContext(root=tmp_path)
+
+    sonuc = await archive.extract_archive({"path": "paket.zip", "dest": "out"}, context)
+    assert sonuc.ok and (tmp_path / "out/a.txt").read_bytes() == b"yeni"
+    context.changes.restore()
+
+    assert (tmp_path / "out/a.txt").read_bytes() == b"eski"
+
+
+async def test_yazim_ortasinda_hata_yeni_acilanlari_temizler(tmp_path, monkeypatch):
+    """Kısmi açılım diskte kalmasın: bu çağrıda OLUŞAN dosyalar silinir."""
+    _zip_yaz(tmp_path / "paket.zip", {"a.txt": b"1", "b.txt": b"2"})
+    context = ToolContext(root=tmp_path)
+    gercek = archive._yaz
+    sayac = {"n": 0}
+
+    def _bozuk(*args, **kwargs):
+        sayac["n"] += 1
+        if sayac["n"] == 2:
+            raise OSError("disk dolu")
+        return gercek(*args, **kwargs)
+
+    monkeypatch.setattr(archive, "_yaz", _bozuk)
+
+    sonuc = await archive.extract_archive({"path": "paket.zip", "dest": "out"}, context)
+
+    assert not sonuc.ok
+    assert not (tmp_path / "out/a.txt").exists()

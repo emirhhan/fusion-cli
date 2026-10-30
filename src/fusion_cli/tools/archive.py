@@ -14,11 +14,14 @@ sıkıştırılmış bir arşiv diski doldurur. Bu denetimleri kabuk komutu yapa
 
 from __future__ import annotations
 
+import shutil
 import tarfile
 import zipfile
+import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import IO
 
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
@@ -47,6 +50,16 @@ class _ArchiveError(ValueError):
     """Arşiv güvenli biçimde açılamıyor."""
 
 
+def _macos_artigi_mi(ad: str) -> bool:
+    """`__MACOSX/` klasörü ve `._*` kaynak çatalı dosyaları gerçek içerik değildir.
+
+    Ölçüldü (30 Ekim): macOS'ta hazırlanan her ZIP'te bunlar açılıyor, dosya ve
+    5000 üye sınırını yiyor, proje ağacını `._foo.png` çöpüyle dolduruyordu.
+    """
+    parcalar = ad.replace("\\", "/").split("/")
+    return "__MACOSX" in parcalar or parcalar[-1].startswith("._")
+
+
 def _dogrula(ad: str, boyut: int, kok: Path, *, baglanti_mi: bool) -> _Member:
     """Üyeyi denetle ve proje içindeki hedef yolunu döndür."""
     if baglanti_mi:
@@ -67,6 +80,8 @@ def _zip_uyeleri(arsiv: zipfile.ZipFile, kok: Path) -> list[tuple[zipfile.ZipInf
     uyeler: list[tuple[zipfile.ZipInfo, _Member]] = []
     toplam = 0
     for bilgi in arsiv.infolist():
+        if _macos_artigi_mi(bilgi.filename):
+            continue
         # Üst 16 bit Unix kipidir; 0xA000 sembolik bağlantıdır.
         baglanti = (bilgi.external_attr >> 16) & 0xF000 == 0xA000
         uye = _dogrula(bilgi.filename, bilgi.file_size, kok, baglanti_mi=baglanti)
@@ -82,7 +97,7 @@ def _tar_uyeleri(arsiv: tarfile.TarFile, kok: Path) -> list[tuple[tarfile.TarInf
     uyeler: list[tuple[tarfile.TarInfo, _Member]] = []
     toplam = 0
     for bilgi in arsiv.getmembers():
-        if bilgi.isdir():
+        if bilgi.isdir() or _macos_artigi_mi(bilgi.name):
             continue
         if not (bilgi.isfile() or bilgi.islnk() or bilgi.issym()):
             # Aygıt dosyası, FIFO: bir asset paketinde işi yoktur.
@@ -111,13 +126,31 @@ def _yazma_izni(uyeler: Sequence[tuple[object, _Member]], context: ToolContext) 
         writable_path(context, str(uye.hedef))
 
 
-def _yaz(veri: bytes, uye: _Member, context: ToolContext) -> None:
+def _yaz(akis: IO[bytes], uye: _Member, context: ToolContext, yeni: list[Path]) -> None:
+    """Üyeyi parça parça yaz (tek üye 512 MiB'ı belleğe almaz).
+
+    Var olan dosyanın üstüne yazılıyorsa ÖNCE geri alma kaydı alınır (ölçüldü,
+    30 Ekim: arşiv açma sessizce eziyor, içerik hiçbir yerde kalmıyordu). Yeni
+    oluşan dosya `yeni` listesine girer; yarıda hata olursa hepsi silinir.
+    """
     uye.hedef.parent.mkdir(parents=True, exist_ok=True)
-    uye.hedef.write_bytes(veri)
+    if uye.hedef.exists():
+        context.changes.record(uye.hedef)
+    else:
+        yeni.append(uye.hedef)
+    with uye.hedef.open("wb") as hedef:
+        shutil.copyfileobj(akis, hedef)
     # EDİNİM: içerik arşivden geldi, agent yazmadı. Adım düşse bile silinmez;
     # yeniden indirip açmak ağ, süre ve sağlayıcı kotası harcar.
-    context.changes.record_acquired(uye.hedef)
+    if uye.hedef in yeni:
+        context.changes.record_acquired(uye.hedef)
     context.touched.add(uye.hedef)
+
+
+def _kismi_temizle(yeni: list[Path]) -> None:
+    """Yarım kalan açılımın bu çağrıda OLUŞTURDUĞU dosyaları sil (var olanlara dokunma)."""
+    for yol in yeni:
+        yol.unlink(missing_ok=True)
 
 
 async def extract_archive(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -133,13 +166,15 @@ async def extract_archive(args: ToolArgs, context: ToolContext) -> ToolResult:
     kok.mkdir(parents=True, exist_ok=True)
     # Tek liste: iki arşiv türü aynı özeti üretir, rapor kodu iki kez yazılmaz.
     acilan: list[_Member] = []
+    yeni: list[Path] = []
     try:
         if zipfile.is_zipfile(arsiv_yolu):
             with zipfile.ZipFile(arsiv_yolu) as arsiv:
                 uyeler = _zip_uyeleri(arsiv, kok)
                 _yazma_izni(uyeler, context)
                 for bilgi, uye in uyeler:
-                    _yaz(arsiv.read(bilgi), uye, context)
+                    with arsiv.open(bilgi) as akis:
+                        _yaz(akis, uye, context, yeni)
                     acilan.append(uye)
         elif tarfile.is_tarfile(arsiv_yolu):
             with tarfile.open(arsiv_yolu) as arsiv:
@@ -149,15 +184,28 @@ async def extract_archive(args: ToolArgs, context: ToolContext) -> ToolResult:
                     akis = arsiv.extractfile(tar_bilgi)
                     if akis is None:
                         continue
-                    _yaz(akis.read(), uye, context)
+                    _yaz(akis, uye, context, yeni)
                     acilan.append(uye)
         else:
             return ToolResult.failure(
                 "Bu dosya ZIP ya da TAR arşivi değil. Tek dosya indirdiysen açmaya gerek yok."
             )
     except _ArchiveError as hata:
+        _kismi_temizle(yeni)
         return ToolResult.failure(str(hata))
-    except (OSError, zipfile.BadZipFile, tarfile.TarError) as hata:
+    except (
+        OSError,
+        zipfile.BadZipFile,
+        zipfile.LargeZipFile,
+        tarfile.TarError,
+        # Şifreli ZIP `RuntimeError`, bilinmeyen sıkıştırma `NotImplementedError`, kesik
+        # `.tar.gz` `EOFError`/`zlib.error` fırlatır; hepsi modele okunur hata olmalı.
+        RuntimeError,
+        NotImplementedError,
+        EOFError,
+        zlib.error,
+    ) as hata:
+        _kismi_temizle(yeni)
         return ToolResult.failure(f"Arşiv açılamadı: {hata}")
 
     if not acilan:
