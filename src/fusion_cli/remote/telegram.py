@@ -70,6 +70,9 @@ class HttpTelegramApi:
         self._token = token
         self._client = client or httpx.AsyncClient(timeout=TELEGRAM_POLL_TIMEOUT_SECONDS + 10)
 
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
     async def _call(self, method: str, payload: dict[str, Any]) -> Any:  # noqa: ANN401
         try:
             response = await self._client.post(f"{self._base}/{method}", json=payload)

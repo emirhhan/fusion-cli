@@ -18,7 +18,7 @@ from fusion_cli.remote.mobile import MobileApi
 from fusion_cli.remote.projects import ProjectStore
 from fusion_cli.remote.rpc import RemoteService
 from fusion_cli.remote.tasks import TaskStore
-from fusion_cli.remote.uploads import MediaReader, UploadStore
+from fusion_cli.remote.uploads import MediaReader, UploadError, UploadStore
 from tests.test_remote_controller import MemorySecrets
 from tests.test_remote_service import FakeBackend, FakeClock
 
@@ -374,3 +374,19 @@ async def test_masaustu_proje_kaydini_telefona_esitler(tmp_path: Path) -> None:
     assert listed["projects"][0]["name"] == "Site" and listed["projects"][0]["hasFolder"] is True
     assert listed["chatProjects"] == {"c1": "p1"}
     await controller.aclose()
+
+
+def test_yuklenen_ek_sunucu_yeniden_baslasa_da_cozulur(tmp_path: Path) -> None:
+    """R1-26. Ölçüldü (30 Ekim): ek kimlikleri yalnız bellek sözlüğündeydi; masaüstü
+    yeniden başlayınca yüklenen ek 'Ek bulunamadı' oluyordu."""
+    clock = FakeClock()
+    first = UploadStore(tmp_path / "uploads", clock)
+    info = first.put("not.txt", "file", base64.b64encode(b"merhaba").decode())
+    second = UploadStore(tmp_path / "uploads", clock)  # yeniden başlatma
+    resolved = second.resolve([info["uploadId"]])
+    assert resolved[0]["name"] == "not.txt" and resolved[0]["kind"] == "file"
+    assert Path(resolved[0]["path"]).read_bytes() == b"merhaba"
+    with pytest.raises(UploadError):
+        second.resolve(["../../etc/passwd"])  # kimlik yalnız 32 hex olabilir
+    with pytest.raises(UploadError):
+        second.resolve(["0" * 32])

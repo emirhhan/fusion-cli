@@ -17,6 +17,7 @@ from typing import Any, Protocol
 
 from ..accounts.workspaces import PERSONAL_WORKSPACE, bind_context, local_identity
 from ..config.paths import active_account, user_data_dir
+from ..core.atomic_file import atomic_replace_text
 from ..core.protocols import Clock
 from ..memory.run_store import SqliteRunStore
 from .account_login import AccountLogin
@@ -60,6 +61,10 @@ class WallClock:
 
     def monotonic(self) -> float:
         return time.monotonic()
+
+
+#: Sunucunun kendiliğinden durması için tanınan süre; sonra zorla kapatılır.
+SERVER_STOP_TIMEOUT_SECONDS = 5
 
 
 def _expand(value: object) -> str:
@@ -135,6 +140,7 @@ class RemoteController:
         self._server: Any = None
         self._server_task: asyncio.Task[None] | None = None
         self._telegram_task: asyncio.Task[None] | None = None
+        self._telegram_api: HttpTelegramApi | None = None
         self._telegram_stop = asyncio.Event()
         self._telegram_error = ""
         self._address = ""
@@ -201,9 +207,8 @@ class RemoteController:
         if not isinstance(data.get("onayIste"), bool):
             return _fail("Ayar değeri geçersiz.")
         self._require_approval = data["onayIste"]
-        self._settings_path.parent.mkdir(parents=True, exist_ok=True)
-        self._settings_path.write_text(
-            json.dumps({"requireApproval": self._require_approval}), encoding="utf-8"
+        atomic_replace_text(
+            self._settings_path, json.dumps({"requireApproval": self._require_approval})
         )
         return {"ok": True, "onayIste": self._require_approval}
 
@@ -386,8 +391,18 @@ class RemoteController:
         if self._server is not None:
             self._server.should_exit = True
         if self._server_task is not None:
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await asyncio.wait_for(self._server_task, timeout=5)
+            # `wait` görevi iptal ETMEZ; wait_for iptal edip bitmesini beklerdi, inatçıda takılırdı.
+            done, _pending = await asyncio.wait(
+                {self._server_task}, timeout=SERVER_STOP_TIMEOUT_SECONDS
+            )
+            if not done:
+                # Nazik durma olmadı (açık bağlantılar): zorla kapat, yoksa port bağlı kalır.
+                if self._server is not None:
+                    self._server.force_exit = True
+                self._server_task.cancel()
+                await asyncio.wait({self._server_task}, timeout=SERVER_STOP_TIMEOUT_SECONDS)
+            elif not self._server_task.cancelled():
+                self._server_task.exception()  # görevin kendi hatası okunur (uyarı çıkmasın)
         self._server, self._server_task, self._address = None, None, ""
 
     async def _telegram_connect(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -401,8 +416,9 @@ class RemoteController:
             return _fail("Telegram bot belirteci gerekli.")
         await self._stop_telegram()
         self._telegram_stop = asyncio.Event()
+        self._telegram_api = HttpTelegramApi(stored)
         bridge = TelegramBridge(
-            api=HttpTelegramApi(stored),
+            api=self._telegram_api,
             service=self._service,
             registry=self._registry,
             pairing=self._pairing,
@@ -434,6 +450,10 @@ class RemoteController:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._telegram_task
         self._telegram_task = None
+        if self._telegram_api is not None:
+            with contextlib.suppress(Exception):
+                await self._telegram_api.aclose()  # httpx istemcisi sızmasın
+            self._telegram_api = None
 
     async def aclose(self) -> None:
         await self._stop_server()

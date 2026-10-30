@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -155,3 +156,48 @@ async def test_port_doluysa_baslatma_hata_doner_ve_dongu_dusmez(controller: Any)
         assert started["ok"] is False and str(port) in started["metin"]
         status = await controller.dispatch("uzak.durum", {})
         assert status["dinliyor"] is False and status["adres"] == ""
+
+
+async def test_durmayan_sunucu_zorla_kapatilir_ve_gorev_bitirilir(
+    controller: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R1-28. Ölçüldü (30 Ekim): 5 sn'de durmayan sunucu görev sürerken durum 'durdu' sayılıyor,
+    port hâlâ bağlı kalabiliyordu; artık force_exit istenir ve görev iptal edilir."""
+    import asyncio
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("fusion_cli.remote.controller.SERVER_STOP_TIMEOUT_SECONDS", 0.05)
+    server = SimpleNamespace(should_exit=False, force_exit=False)
+
+    async def stubborn() -> None:
+        while True:
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                if server.force_exit:
+                    raise
+
+    task = asyncio.create_task(stubborn())
+    controller._server, controller._server_task = server, task
+    await controller.dispatch("uzak.durdur", {})
+    assert server.should_exit and server.force_exit
+    assert task.done()
+
+
+async def test_telegram_http_istemcisi_kesilince_kapatilir(controller: Any) -> None:
+    import httpx
+
+    from fusion_cli.remote.telegram import HttpTelegramApi
+
+    client = httpx.AsyncClient()
+    controller._telegram_api = HttpTelegramApi("123:abc", client)
+    await controller._stop_telegram()
+    assert client.is_closed and controller._telegram_api is None
+
+
+async def test_ayar_dosyasi_atomik_yazilir(controller: Any) -> None:
+    result = await controller.dispatch("uzak.ayar", {"onayIste": True})
+    assert result["ok"] is True
+    path = controller._settings_path
+    assert json.loads(path.read_text(encoding="utf-8")) == {"requireApproval": True}
+    assert [p.name for p in path.parent.iterdir() if p.name.endswith(".tmp")] == []

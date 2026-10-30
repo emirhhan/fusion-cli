@@ -23,6 +23,9 @@ IMAGE_TYPES = {
 _DENIED_PARTS = frozenset({".ssh", ".gnupg", ".aws", ".kube", ".config"})
 
 
+_UPLOAD_ID = re.compile(r"[0-9a-f]{32}")
+
+
 class UploadError(ValueError):
     """Kullanıcıya gösterilebilir yükleme/okuma hatası."""
 
@@ -74,11 +77,24 @@ class UploadStore:
         """Kimliklerden `tur.calistir` ek kayıtları; bilinmeyen kimlik hata verir."""
         resolved: list[dict[str, str]] = []
         for ident in list(upload_ids)[:8]:
-            item = self._items.get(str(ident))
+            item = self._items.get(str(ident)) or self._from_disk(str(ident))
             if item is None or not Path(item["path"]).is_file():
                 raise UploadError("Ek bulunamadı; yeniden ekle.")
             resolved.append(dict(item))
         return resolved
+
+    def _from_disk(self, ident: str) -> dict[str, str] | None:
+        """Yeniden başlatmadan sonra: dosya adı `<kimlik>-<ad>` olduğundan kayıt diskten kurulur."""
+        if not _UPLOAD_ID.fullmatch(ident):
+            return None  # yalnız 32 onaltılık kimlik; yol/joker karakter geçmez
+        for file in self._directory.glob(f"{ident}-*"):
+            if file.is_file():
+                name = file.name[len(ident) + 1 :]
+                kind = "image" if Path(name).suffix.casefold() in IMAGE_TYPES else "file"
+                item = {"path": str(file), "name": name, "kind": kind}
+                self._items[ident] = item
+                return item
+        return None
 
     def _cleanup(self) -> None:
         cutoff = self._clock.now() - UPLOAD_RETENTION_SECONDS
