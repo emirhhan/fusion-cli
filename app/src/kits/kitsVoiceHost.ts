@@ -15,6 +15,8 @@ const ACTIONS = ["hello", "listen", "stop-listening", "speak", "stop-speaking"] 
 type Action = (typeof ACTIONS)[number];
 /** Tek seferde seslendirilecek metnin üst sınırı (Kits cümle cümle gönderir). */
 export const SPEAK_TEXT_LIMIT = 2_000;
+/** `ses.bekle` yanıtı için üst sınır: çekirdek yanıt vermezse Kits "konuşuyor"da takılı kalmasın. */
+export const SPEAK_WAIT_LIMIT_MS = 180_000;
 
 interface MessageHost {
   addEventListener(type: "message", listener: (event: MessageEvent) => void): void;
@@ -30,7 +32,10 @@ export class KitsVoiceHost {
   private closed = false;
   private session: number | null = null;
   private unlisten: (() => void)[] = [];
-  private speechTurn: string | null = null;
+  /** Aynı anda süren seslendirme turları (art arda `speak` biri ötekini sahipsiz bırakmasın). */
+  private readonly speechTurns = new Set<string>();
+  /** Dinleme başlat/durdur işlemleri sırayla çalışır; eşzamanlı iki `listen` oturum sızdırmasın. */
+  private listenQueue: Promise<void> = Promise.resolve();
   constructor(
     private readonly host: MessageHost,
     private readonly frame: FrameWindow,
@@ -46,8 +51,15 @@ export class KitsVoiceHost {
     if (this.closed) return;
     this.closed = true;
     this.host.removeEventListener("message", this.receive);
-    void this.stopListening();
-    void this.stopSpeaking();
+    // Kapanışta hata gösterecek yer yok; yine de yutulan hata yakalanmamış söz reddi olmasın.
+    void this.enqueueListen(() => this.stopListening()).catch(() => undefined);
+    void this.stopSpeaking().catch(() => undefined);
+  }
+
+  private enqueueListen(task: () => Promise<void>): Promise<void> {
+    const run = this.listenQueue.then(task);
+    this.listenQueue = run.catch(() => undefined);
+    return run;
   }
 
   private post(message: Record<string, unknown>) {
@@ -81,8 +93,8 @@ export class KitsVoiceHost {
 
   private async handle(action: Action, text: string) {
     if (action === "hello") return;
-    if (action === "listen") return this.startListening();
-    if (action === "stop-listening") return this.stopListening();
+    if (action === "listen") return this.enqueueListen(() => this.startListening());
+    if (action === "stop-listening") return this.enqueueListen(() => this.stopListening());
     if (action === "speak") return this.speak(text);
     return this.stopSpeaking();
   }
@@ -131,17 +143,25 @@ export class KitsVoiceHost {
     if (started.ok !== true || !turn) {
       throw new Error(typeof started.metin === "string" ? started.metin : "Fusion sesli yanıtı başlatamadı.");
     }
-    this.speechTurn = turn;
+    this.speechTurns.add(turn);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Seslendirme zaman aşımına uğradı.")), SPEAK_WAIT_LIMIT_MS);
+    });
     try {
-      await this.request("ses.bekle", { tur_id: turn });
+      await Promise.race([this.request("ses.bekle", { tur_id: turn }), timeout]);
+    } catch (error) {
+      if (this.speechTurns.has(turn)) await this.request("ses.durdur", { tur_id: turn }).catch(() => undefined);
+      throw error;
     } finally {
-      if (this.speechTurn === turn) this.speechTurn = null;
+      clearTimeout(timer);
+      this.speechTurns.delete(turn);
     }
   }
 
   private async stopSpeaking() {
-    const turn = this.speechTurn;
-    this.speechTurn = null;
-    if (turn) await this.request("ses.durdur", { tur_id: turn }).catch(() => undefined);
+    const turns = [...this.speechTurns];
+    this.speechTurns.clear();
+    await Promise.all(turns.map((turn) => this.request("ses.durdur", { tur_id: turn }).catch(() => undefined)));
   }
 }
