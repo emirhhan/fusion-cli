@@ -385,3 +385,65 @@ def test_turkish_search_normalizes_diacritics_and_bounded_suffixes(tmp_path):
     assert search((skill,), "olusturmak") == (skill,)
     assert search((skill,), "görsel") == (skill,)
     assert search((skill,), "ve in er") == ()
+
+
+# --- Dalga 4 (T1-47, T1-48) ----------------------------------------------------------------
+
+
+def test_frontmatter_blok_skaler_aciklamayi_birlestirir():
+    """`description: >` ve `|` yalnız ilk satırı (`>`) olarak kalıyor, arama bozuluyordu."""
+    from fusion_cli.tools.capabilities import parse_frontmatter
+
+    metin = (
+        "---\nname: video\ndescription: >\n  Remotion ile video\n  uretir ve izler.\n"
+        "tools: Read\n---\ngövde"
+    )
+
+    alanlar = parse_frontmatter(metin)
+
+    assert alanlar["description"] == "Remotion ile video uretir ve izler."
+    assert alanlar["name"] == "video"
+    assert alanlar["tools"] == ("Read",)
+
+
+def test_frontmatter_literal_blok_satir_sonlarini_korur():
+    from fusion_cli.tools.capabilities import parse_frontmatter
+
+    alanlar = parse_frontmatter("---\nname: a\ndescription: |\n  bir\n  iki\n---\n")
+
+    assert alanlar["description"] == "bir\niki"
+
+
+def test_uzun_frontmatter_bitis_isareti_kacmaz(tmp_path):
+    from fusion_cli.tools.capabilities import _read_head, parse_frontmatter
+
+    yol = tmp_path / "SKILL.md"
+    yol.write_text(
+        "---\nname: uzun\ndescription: " + "a" * 5_000 + "\n---\ngövde", encoding="utf-8"
+    )
+
+    assert parse_frontmatter(_read_head(yol)).get("name") == "uzun"
+
+
+def test_arama_durak_sozcukleri_ve_tekrarlari_saymaz():
+    """`the`, `to`, `create`, `code` hemen her açıklamada geçer; skor ayırt edici olmalı."""
+    from fusion_cli.tools.capabilities import Capability, search_scored
+
+    def _kap(ad, aciklama):
+        return Capability(ad, aciklama, Path("/x") / ad, "claude")
+
+    genel = _kap("genel", "create the code to build the thing for the user")
+    ozel = _kap("remotion-video", "render remotion video compositions")
+
+    sonuc = search_scored((genel, ozel), "create the code to render remotion video")
+
+    assert sonuc[0][0].name == "remotion-video"
+    assert all(item.name != "genel" for item, _ in sonuc)
+
+
+def test_yalniz_durak_sozcuklu_sorgu_bos_donmez():
+    from fusion_cli.tools.capabilities import Capability, search_scored
+
+    kap = Capability("a", "the code", Path("/x/a"), "claude")
+
+    assert search_scored((kap,), "the code")  # tümü durak sözcük: eski davranışa düş

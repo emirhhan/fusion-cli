@@ -17,6 +17,7 @@ Tarama oturumda bir kez yapılır ve önbelleklenir.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import tomllib
 from dataclasses import dataclass
@@ -79,9 +80,16 @@ _PERSONA_KEYS: dict[str, str] = {
     "color": "color",
 }
 
-#: Bir skill talimatından modele verilecek en fazla karakter.
-#: Frontmatter ararken dosyanın başından okunacak karakter.
-_HEAD_CHARS = 4_000
+#: Frontmatter ararken dosyanın başından okunacak karakter. 4000 iken uzun açıklamalı
+#: skill'lerde bitiş işareti görülmüyor, `{}` dönüp ad dizin adına düşüyordu (ölçüldü, 30 Ekim).
+_HEAD_CHARS = 16_000
+_BLOCK_SCALARS = frozenset({">", "|", ">-", "|-", ">+", "|+"})
+
+
+@functools.lru_cache(maxsize=4096)
+def _path_identity(path: str) -> str:
+    """Yolun kararlı kısa özeti; `resolve()`+SHA-256 her filtre/seçimde tekrarlanmasın."""
+    return hashlib.sha256(str(Path(path).resolve()).encode()).hexdigest()[:12]
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,8 +114,7 @@ class Capability:
     @property
     def qualified_name(self) -> str:
         """İçerik değişse de aynı kaynağı seçen kararlı katalog kimliği."""
-        identity = hashlib.sha256(str(self.path.resolve()).encode()).hexdigest()[:12]
-        return f"{self.name}@{self.source}:{identity}"
+        return f"{self.name}@{self.source}:{_path_identity(str(self.path))}"
 
     @property
     def revision(self) -> str:
@@ -148,7 +155,19 @@ def parse_frontmatter(text: str) -> dict[str, object]:
                 index += 1
             fields["tools"] = tuple(item for item in items if item) or NO_TOOLS
         elif name in ("name", "description"):
-            fields[name] = value.strip().strip("'\"")
+            text = value.strip()
+            if text in _BLOCK_SCALARS:
+                # YAML blok skaleri: girintili satırlar değerdir (`>` birleştirir, `|` korur).
+                block: list[str] = []
+                while index < len(lines) and (
+                    not lines[index].strip() or lines[index][:1] in " \t"
+                ):
+                    block.append(lines[index].strip())
+                    index += 1
+                joiner = " " if text.startswith(">") else "\n"
+                fields[name] = joiner.join(part for part in block if part).strip()
+            else:
+                fields[name] = text.strip("'\"")
         elif name in _PERSONA_KEYS:
             fields[_PERSONA_KEYS[name]] = value.strip().strip("'\"")
     return fields

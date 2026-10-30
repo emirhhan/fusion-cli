@@ -10,13 +10,33 @@ if TYPE_CHECKING:
     from .capabilities import Capability
 
 
+#: Hemen her açıklamada geçen sözcükler: skoru ayırt edici olmaktan çıkarır. Normalleştirilmiş
+#: (küçük harf, diakritiksiz) biçimde tutulur.
+_STOPWORDS = frozenset(
+    {
+        "the", "a", "an", "to", "for", "of", "and", "or", "in", "on", "with", "is", "are", "be",
+        "my", "me", "it", "this", "that", "from", "by", "as", "at", "use", "using", "create",
+        "build", "make", "code", "new", "i", "you", "can", "will", "when", "how",
+        "ve", "ile", "bir", "bu", "icin", "de", "da", "mi", "mu", "ya", "yap", "olustur", "kur",
+        "bana", "benim", "gibi", "daha", "cok", "en",
+    }
+)  # fmt: skip
+
+
+def _query_terms(query: str) -> list[str]:
+    """Sorgu terimleri: durak sözcükler ve tekrarlar atılır (hepsi durak ise hepsi korunur)."""
+    terms = _search_terms(query)
+    meaningful = [term for term in dict.fromkeys(terms) if term not in _STOPWORDS]
+    return meaningful or list(dict.fromkeys(terms))
+
+
 def search(items: tuple[Capability, ...], query: str, limit: int = 6) -> tuple[Capability, ...]:
     """Ad ve açıklama üzerinde kelime örtüşmesine göre ara.
 
     Basit ve öngörülebilir: hiç eşleşmeyenler elenir, en çok örtüşen öne gelir.
     Boş sorgu ilk `limit` girdiyi döndürür.
     """
-    terms = _search_terms(query)
+    terms = _query_terms(query)
     if not terms:
         return items[:limit]
     return tuple(item for item, _ in search_scored(items, query, limit=limit))
@@ -31,7 +51,7 @@ def search_scored(
     örtüşme aramada gösterilebilir ama sistem promptuna 2.500 karakter uzmanlık
     metni koymayı haklı çıkarmaz.
     """
-    terms = _search_terms(query)
+    terms = _query_terms(query)
     if not terms:
         return tuple((item, 0) for item in items[:limit])
     scored = [(item, _score(item, terms)) for item in items]
