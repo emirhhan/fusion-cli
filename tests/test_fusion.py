@@ -274,3 +274,57 @@ def test_fusion_istek_effort_yoksa_none():
 
     istek = _request("gorev", make_config(), max_tokens=16)
     assert istek.reasoning_effort is None
+
+
+# --- Dalga 4: hakem/sentez fırlatırsa tur düşmez (E1-23) ---------------------------- #
+
+
+async def test_hakem_istisna_firlatirsa_tur_dusmez_sentez_yine_gelir(monkeypatch, publisher):
+    """Ölçüldü (30 Ekim): `gather` return_exceptions'sız; hakem sağlayıcı kurulumu (eksik anahtar)
+    `FusionError` fırlatınca bütün Fusion turu düşüyordu."""
+    from fusion_cli.core.errors import ProviderError
+
+    _patch(
+        monkeypatch,
+        {
+            "a": FakeProvider("a", chunks=("A",)),
+            "b": FakeProvider("b", chunks=("B",)),
+            "c": FakeProvider("c", chunks=("C",)),
+        },
+    )
+
+    async def _patlayan_hakem(task, answers, config, publisher, *, health=None):
+        raise ProviderError("hakem anahtarı yok")
+
+    monkeypatch.setattr(fusion_engine, "_judge", _patlayan_hakem)
+    monkeypatch.setattr(fusion_engine, "_synthesize", _sabit_sentez("SENTEZ"))
+
+    result = await run_fusion("gorev", make_config(), publisher=publisher)
+
+    assert result.source is VerdictSource.FALLBACK
+    assert result.final_answer == "SENTEZ"
+
+
+async def test_sentez_istisna_firlatirsa_hakem_kazanani_doner(monkeypatch, publisher):
+    from fusion_cli.core.errors import ProviderError
+
+    _patch(
+        monkeypatch,
+        {
+            "a": FakeProvider("a", chunks=("A cevabi",)),
+            "b": FakeProvider("b", chunks=("B cevabi",)),
+            "c": FakeProvider("c", chunks=("C cevabi",)),
+            "hakem": _hakem("b", {"a": 0.5, "b": 0.9}),
+        },
+    )
+
+    async def _patlayan_sentez(task, answers, config, publisher, verdict=None, *, health=None):
+        raise ProviderError("sentez coktu")
+
+    monkeypatch.setattr(fusion_engine, "_synthesize", _patlayan_sentez)
+
+    result = await run_fusion("gorev", make_config(), publisher=publisher)
+
+    assert result.winner == "b"
+    assert result.final_answer == "B cevabi"
+    assert not result.synthesized
