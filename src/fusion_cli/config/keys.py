@@ -23,6 +23,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 
 from ..core.types import ModelSpec
+from .key_pool import collect_keys
 from .models import Config
 
 _logger = logging.getLogger(__name__)
@@ -150,9 +151,12 @@ def detect(environ: dict[str, str] | None = None) -> ProviderKeys:
     olmayan kullanıcıda kurulumu tamamlanmış gibi davranırdı.
     """
     source = environ if environ is not None else dict(os.environ)
+    # Çok hesaplı kurulumlar (`X_2`, virgüllü liste) anahtar havuzuyla AYNI kuralla
+    # sayılır; yalnız temel değişkene bakmak `X` boş ama `X_2` dolu iken sağlayıcıyı
+    # "kurulu değil" sayıp zinciri yanlış buduyordu (L2-21).
     return ProviderKeys(
-        openrouter=bool(source.get(OPENROUTER_ENV, "").strip()),
-        nim=bool(source.get(NIM_ENV, "").strip()),
+        openrouter=bool(collect_keys(OPENROUTER_ENV, source)),
+        nim=bool(collect_keys(NIM_ENV, source)),
     )
 
 

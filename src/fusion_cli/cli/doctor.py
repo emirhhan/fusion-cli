@@ -18,6 +18,8 @@ Yalnızca "başarısız" demek kullanıcıyı ileri götürmez.
 
 from __future__ import annotations
 
+import importlib.util
+import os
 import platform
 import sys
 from collections.abc import Awaitable, Callable
@@ -41,6 +43,8 @@ from ..engines.capability_probe import probe_from_samples
 #: Anahtarın kendisi yerine yazılan değer. Tanı çıktısı paylaşılır.
 KEY_PRESENT = "ayarlı"
 KEY_MISSING = "yok"
+#: `--live` sondasında aynı sağlayıcıya aynı anda gidebilecek en fazla istek.
+LIVE_PER_PROVIDER = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,14 +148,23 @@ def _paths() -> list[Check]:
 
 def _keys(keys: ProviderKeys) -> list[Check]:
     """Anahtarların VARLIĞI. Değerleri hiçbir koşulda yazılmaz."""
+    # EN AZ BİR anahtar yeterlidir (readiness yalnız NIM ile de READY der; `setup_command`
+    # aynı kuralı uygular). OpenRouter yokken NIM varsa kırmızı ✗ göstermek tanıyı
+    # çelişkili yapıyordu: ölçüldü, doctor ✗ + "Kurulum hazır" + `ok:false` (L1-14).
+    openrouter_ok: bool | None = True if keys.openrouter else (None if keys.nim else False)
     return [
         Check(
             OPENROUTER_ENV,
             KEY_PRESENT if keys.openrouter else KEY_MISSING,
-            ok=keys.openrouter,
+            ok=openrouter_ok,
             remedy=""
             if keys.openrouter
-            else "https://openrouter.ai/keys adresinden ücretsiz al, `fusion setup` ile gir.",
+            else (
+                "Opsiyonel: NVIDIA NIM anahtarı tek başına yeterli. "
+                "https://openrouter.ai/keys ayrı bir ücretsiz kotadır."
+                if keys.nim
+                else "https://openrouter.ai/keys adresinden ücretsiz al, `fusion setup` ile gir."
+            ),
         ),
         Check(
             NIM_ENV,
@@ -227,12 +240,9 @@ def _path_check() -> Check:
 
 def _optional() -> list[Check]:
     """Opsiyonel ekstralar. Yokluğu HATA değildir; kapının sessizce geçtiğini söyler."""
-    try:
-        import playwright  # noqa: F401
-
-        kurulu = True
-    except ImportError:
-        kurulu = False
+    # `find_spec`: paketi İÇE AKTARMADAN varlığını sorar (yavaş ve yan etkili `import`
+    # tanı için gereksiz; L1-17).
+    kurulu = importlib.util.find_spec("playwright") is not None
     return [
         Check(
             "Playwright (tarayıcı kapısı)",
@@ -266,8 +276,35 @@ def _live(config: Config) -> list[Check]:
     )
     health_path = user_data_dir() / health_cache.HEALTH_CACHE_FILENAME
 
+    # Aynı sağlayıcıya eş zamanlı istek sayısı sınırlı: ücretsiz kotalı sağlayıcıda
+    # hepsini birden göndermek 429 üretir ve sağlık önbelleğine YANLIŞ "kapalı"
+    # yazardı (L1-18).
+    kapilar: dict[str, asyncio.Semaphore] = {}
+
+    def _kapi(model: str) -> asyncio.Semaphore:
+        return kapilar.setdefault(model.split("/", 1)[0], asyncio.Semaphore(LIVE_PER_PROVIDER))
+
     async def _dene(model: str) -> Check:
+        async with _kapi(model):
+            return await _dene_kapili(model)
+
+    async def _native(model: str) -> Check:
+        async with _kapi(model):
+            return await probe_native_capability(
+                model, LiteLlmProvider(model, role="doctor"), istek
+            )
+
+    async def _dene_kapili(model: str) -> Check:
         sonuc = await LiteLlmProvider(model, role="doctor").complete(istek)
+        if sonuc.is_rate_limited:
+            # Kota/hız sınırı geçicidir: sağlık önbelleğine "kapalı" YAZILMAZ (seçici
+            # modeli bir sonraki `--live`a kadar kalıcı çalışmıyor sanardı; L1-18).
+            return Check(
+                f"canlı: {model}",
+                f"kotada: {_short(sonuc.error)}",
+                ok=None,
+                remedy="Geçici kota/hız sınırı; sağlık kaydı değişmedi. Biraz sonra tekrar dene.",
+            )
         detail = "" if sonuc.ok else _short(sonuc.error)
         health_cache.record(health_path, model, ok=sonuc.ok, detail=detail)
         return Check(
@@ -289,12 +326,7 @@ def _live(config: Config) -> list[Check]:
 
     async def _hepsi() -> list[Check]:
         health = list(await asyncio.gather(*[_dene(model) for model in modeller]))
-        native = await asyncio.gather(
-            *[
-                probe_native_capability(model, LiteLlmProvider(model, role="doctor"), istek)
-                for model in modeller
-            ]
-        )
+        native = await asyncio.gather(*[_native(model) for model in modeller])
         return [*health, *native]
 
     return asyncio.run(_hepsi())
@@ -376,16 +408,15 @@ def _short(error: str | None) -> str:
 
 
 def _writable(path: Path) -> bool:
-    """Dizin oluşturulabilir/yazılabilir mi? Var olmayan dizin sorun değildir."""
-    hedef = path if path.exists() else path.parent
-    try:
-        hedef.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        return False
-    deneme = hedef / ".fusion-yazma-denemesi"
-    try:
-        deneme.touch()
-        deneme.unlink()
-    except OSError:
-        return False
-    return True
+    """Dizin yazılabilir mi? Var olmayan dizin için en yakın VAR OLAN üst dizine bakılır.
+
+    Tanı SALT OKUNURDUR: Ölçüldü (30 Ekim) eski sürüm `mkdir(parents=True)` ile dizin
+    ve `.fusion-yazma-denemesi` dosyası OLUŞTURUYORDU; iki eşzamanlı `doctor` aynı
+    deneme dosyasında çakışabiliyordu (L1-16). Artık yalnız `os.access` sorulur.
+    """
+    hedef = path
+    while not hedef.exists():
+        if hedef.parent == hedef:
+            return False
+        hedef = hedef.parent
+    return hedef.is_dir() and os.access(hedef, os.W_OK | os.X_OK)

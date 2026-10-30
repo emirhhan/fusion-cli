@@ -173,7 +173,11 @@ def doctor(
     ] = False,
     as_json: Annotated[bool, typer.Option("--json", help="Betikler için JSON çıktı.")] = False,
 ) -> None:
-    """Kurulumu denetle: ne eksik, neden önemli, ne yapmalı."""
+    """Kurulumu denetle: ne eksik, neden önemli, ne yapmalı.
+
+    Çıkış kodu 1 YALNIZ kurulum kullanılamazsa (agent rolü çalışmıyor); PATH ya da yazılamayan
+    dizin gibi diğer sorunlar için betikler `--json` çıktısındaki `ok` alanına bakmalı.
+    """
     from .doctor import diagnose, to_dict
 
     rapor = diagnose(live=live)

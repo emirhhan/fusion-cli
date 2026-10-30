@@ -159,3 +159,24 @@ def test_taninmayan_saglayici_tercihten_etkilenmez():
     secilmis = apply_preference(ozel, ProviderPreference.NVIDIA)
 
     assert secilmis.agent.models == ("ollama/qwen2.5-coder:7b",)
+
+
+# --- Dalga 4: numaralı/virgüllü anahtarlar kurulu sayılır (L2-21) ---------------- #
+
+
+def test_numarali_ek_anahtar_tek_basina_saglayiciyi_kurulu_sayar():
+    """Ölçüldü (30 Ekim): `OPENROUTER_API_KEY` boş, `_2` dolu iken sağlayıcı 'kurulu değil'
+    sayılıp zincir yanlış budanıyordu; oysa anahtar havuzu `_2`'yi kullanır."""
+    from fusion_cli.config.keys import detect
+
+    anahtarlar = detect({"OPENROUTER_API_KEY": "", "OPENROUTER_API_KEY_2": "sk-2"})
+
+    assert anahtarlar.openrouter is True
+    assert anahtarlar.nim is False
+
+
+def test_virgullu_anahtar_listesi_kurulu_sayilir_ama_bos_virgul_sayilmaz():
+    from fusion_cli.config.keys import detect
+
+    assert detect({"NVIDIA_NIM_API_KEY": "a,b"}).nim is True
+    assert detect({"NVIDIA_NIM_API_KEY": " , "}).nim is False
