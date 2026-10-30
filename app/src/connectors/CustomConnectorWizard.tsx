@@ -69,6 +69,8 @@ export interface CustomConnectorWizardProps {
   mesgul: boolean;
   /** `hosted` seçilince okunur; `null` ise henüz yükleniyor. */
   saglayicilar: HostedProvider[] | null;
+  /** Sağlayıcı listesi OKUNAMADIYSA nedeni; "bağlı sağlayıcı yok" ile karıştırılmasın (U3-41). */
+  saglayiciHatasi?: string | null;
   /** OAuth dönüş adresi; kendi Client ID'sini kullanan için gerekli. */
   oauthDonusAdresi: string;
   onChange: (deger: WizardValue) => void;
@@ -84,6 +86,7 @@ export function CustomConnectorWizard({
   onChange,
   onSubmit,
   saglayicilar,
+  saglayiciHatasi = null,
 }: CustomConnectorWizardProps) {
   const [adim, setAdim] = useState<1 | 2>(1);
   const set = (parca: Partial<WizardValue>) => onChange({ ...deger, ...parca });
@@ -174,6 +177,7 @@ export function CustomConnectorWizard({
             <input
               id="ozel-token"
               onChange={(event) => set({ token: event.target.value })}
+              autoComplete="off"
               placeholder="Varsa OAuth atlanır; giriş penceresi açılmaz"
               type="password"
               value={deger.token}
@@ -212,7 +216,9 @@ export function CustomConnectorWizard({
               type="url"
               value={deger.url}
             />
-            {saglayicilar === null ? (
+            {saglayiciHatasi ? (
+              <p className="wizard__warn" role="alert">Sağlayıcı listesi okunamadı: {saglayiciHatasi}</p>
+            ) : saglayicilar === null ? (
               <p className="wizard__note">Sağlayıcılar okunuyor…</p>
             ) : hazirSaglayici ? (
               <fieldset className="wizard__providers">

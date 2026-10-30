@@ -4,7 +4,7 @@ import { closeUnfinishedAgents } from "./team/ekipOlaylari";
 import { AgentPanel, agentCardsForMessages } from "./team/AgentPanel";
 import type { TeamCardsProps } from "./team/TeamCards";
 import { operationResult, errorMessage, type CommandResult } from "./protocol/result";
-import { submissionAccepted } from "./sessions/submission";
+import { submissionAccepted, type SubmissionResult } from "./sessions/submission";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
@@ -111,6 +111,8 @@ import { useScheduleRunner } from "./schedule/useScheduleRunner";
 import type { ReportInput } from "./feedback/report";
 import { useCrashReporter } from "./feedback/useCrashReporter";
 import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput } from "./screens/capabilityInput";
+import { attachmentsFromDroppedFiles, isFolderCommand, startsWithFilePath } from "./slashRouting";
+import { readStorage, writeStorage } from "./platform/storage";
 
 /** Sohbetin içinden çalışma klasörünü değiştiren komut. */
 const FOLDER_COMMAND = {
@@ -120,6 +122,13 @@ const FOLDER_COMMAND = {
   grup: "Çalışma alanı",
   kullanim: "/klasor",
 };
+
+const LAST_ROOT_KEY = "fusion.last-project-root";
+/** Webview deposu güvenilmez olabilir (özel pencere, kota): okuma hatası "kayıt yok" sayılır (U3-32). */
+function readLastRoot(): string | undefined {
+  const sonuc = readStorage(() => localStorage, LAST_ROOT_KEY);
+  return sonuc.ok ? sonuc.value ?? undefined : undefined;
+}
 
 function attachmentFromPath(path: string): ComposerAttachment {
   return {
@@ -243,7 +252,9 @@ export function useAppTheme(client?: TemaIstemcisi) {
           saveThemePreference(tema);
         }
       } catch {
-        // Yapılandırma okunamazsa önbellekteki tercihle devam edilir.
+        // Yapılandırma okunamazsa önbellekteki tercihle devam edilir; bayrak açılır ki
+        // sonraki istemci (yeniden bağlanma) bir kez daha denesin (U3-33).
+        if (!iptal) yapilandirmaOkundu.current = false;
       }
     })();
     return () => {
@@ -482,6 +493,8 @@ export function SessionUygulama({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [commandSelector, setCommandSelector] = useState<CommandSelectorPayload | null>(null);
   const [controlRevision, setControlRevision] = useState(0);
+  /** Beceri/MCP kataloğu değişmiş olabilir; slash menüsü listeleri yeniden okunur. */
+  const [capabilityRevision, setCapabilityRevision] = useState(0);
   const [commandBusy, setCommandBusy] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commands, setCommands] = useState<ComposerCommand[]>([]);
@@ -799,11 +812,15 @@ export function SessionUygulama({
   useEffect(() => {
     if (!activeClient || !activeSessionId) return;
     let alive = true;
-    void Promise.all([
+    // `Promise.all` birinin reddinde TÜM slash menüsünü (yerel komutlar dahil) boşaltıyor ve beceri/MCP
+    // listesini eski oturumdan bayat bırakıyordu; her yarı bağımsız bozulur (U3-27).
+    void Promise.allSettled([
       activeClient.request("komut.listele", {}),
       activeClient.request("yetenek.katalog", {}),
-    ]).then(([commandPayload, capabilityPayload]) => {
+    ]).then(([commandResult, capabilityResult]) => {
       if (!alive) return;
+      const commandPayload: Record<string, unknown> = commandResult.status === "fulfilled" ? commandResult.value : {};
+      const capabilityPayload: Record<string, unknown> = capabilityResult.status === "fulfilled" ? capabilityResult.value : {};
       const listed = Array.isArray(commandPayload.komutlar) ? commandPayload.komutlar : [];
       const commandRows: ComposerCommand[] = listed.flatMap((raw) => {
         if (!raw || typeof raw !== "object") return [];
@@ -862,7 +879,17 @@ export function SessionUygulama({
       setCommands([...commandRows, ...imageRow, ...skillRows, ...mcpRows]);
     }).catch(() => { if (alive) setCommands([]); });
     return () => { alive = false; };
-  }, [activeClient, activeSessionId]);
+  }, [activeClient, activeSessionId, capabilityRevision]);
+
+  // Bağlantılar / Beceriler ekranından dönünce `@mcp` ve `/beceri` listeleri tazelenir (U3-27).
+  const oncekiSayfa = useRef(page);
+  useEffect(() => {
+    const onceki = oncekiSayfa.current;
+    oncekiSayfa.current = page;
+    if (onceki !== page && (onceki === "skills" || onceki === "connectors" || onceki === "control")) {
+      setCapabilityRevision((current) => current + 1);
+    }
+  }, [page]);
 
   // Kapatma isteği Rust'ta durdurulur ve karar burada sorulur.
   useEffect(() => {
@@ -1092,7 +1119,7 @@ export function SessionUygulama({
   const kapatmaOnayi = closeAsked ? (
     <CloseConfirm
       onCancel={() => setCloseAsked(false)}
-      onConfirm={() => void invoke("kapatmayi_onayla")}
+      onConfirm={() => void invoke("kapatmayi_onayla").catch((reason: unknown) => setNewTaskError(`Uygulama kapatılamadı: ${errorMessage(reason)}`))}
       running={active?.running}
     />
   ) : null;
@@ -1126,7 +1153,7 @@ export function SessionUygulama({
   }
   const chooseProjectFolder = async () => {
     if (!(await permissions.ensure("workspace"))) return null;
-    const root = await selectFolder(localStorage.getItem("fusion.last-project-root") ?? undefined);
+    const root = await selectFolder(readLastRoot());
     return root && root !== "/" ? root : null;
   };
   const recordRoots = new Set(projects.registry.projects.flatMap((record) => record.root ? [record.root] : []));
@@ -1262,11 +1289,11 @@ export function SessionUygulama({
     if (resumeSource && history.sources.some((source) => source.ad === resumeSource)) {
       setHistoryOpen(true);
       void history.openSource(resumeSource);
-    } else if (task.trim().toLocaleLowerCase("tr") === `/${FOLDER_COMMAND.ad}`) {
+    } else if (isFolderCommand(task, FOLDER_COMMAND.ad)) {
       // Klasör değiştirme UYGULAMA tarafı iştir: çekirdeğin kökü açılışta
       // belirlenir, bu yüzden komutu çekirdeğe göndermek anlamsız olurdu.
       void requestTaskFolder();
-    } else if (task.startsWith("/") && !isImageCommand(task) && !skillFrom(task)) void executeCommand(task);
+    } else if (task.startsWith("/") && !startsWithFilePath(task) && !isImageCommand(task) && !skillFrom(task)) void executeCommand(task);
     else {
       if (active.running && busySubmissionMode === "steer" && !active.stopping && !active.stopError) {
         if (activeAttachments.length) {
@@ -1290,7 +1317,12 @@ export function SessionUygulama({
         ? Promise.resolve()
         : Promise.all(selections.map(([tur, ad]) => activeClient.request("yetenek.kullan", { tur, ad })))
             .then(() => undefined);
-      return prepare.then(() => controller.submit(active.id, taskText, snapshot)).then((receipt) => {
+      // Yetenek hazırlığı reddedilirse işlenmemiş söz reddi kalmaz; hata gösterilir, taslak korunur (U3-34).
+      const prepared = prepare.then(() => true, (reason: unknown) => {
+        setCommandError(`Yetenek hazırlanamadı: ${errorMessage(reason)}`);
+        return false;
+      });
+      return prepared.then<SubmissionResult>((ok) => ok ? controller.submit(active.id, taskText, snapshot) : false).then((receipt) => {
         if (submissionAccepted(receipt)) {
           setAttachments((current) => current[active.id] === snapshot || current[active.id] === undefined
             ? { ...current, [active.id]: [] } : current);
@@ -1414,7 +1446,7 @@ export function SessionUygulama({
     setNewTaskBusy(true);
     setNewTaskError(null);
     try {
-      const storedRoot = localStorage.getItem("fusion.last-project-root") ?? undefined;
+      const storedRoot = readLastRoot();
       const root = await selectFolder(storedRoot === "/" ? undefined : storedRoot);
       if (!root) {
         setNewTaskOpen(false);
@@ -1425,7 +1457,8 @@ export function SessionUygulama({
         return;
       }
       await controller.create({ root, mode: "kod" });
-      localStorage.setItem("fusion.last-project-root", root);
+      // Depo yazılamazsa klasör yine açıldı; "Klasör açılamadı" demek yanıltıcı olurdu (U3-32).
+      writeStorage(() => localStorage, LAST_ROOT_KEY, root);
       setPage("chat");
       setNewTaskOpen(false);
     } catch (reason) {
@@ -1497,16 +1530,17 @@ export function SessionUygulama({
           }}
           onDropFiles={(files) => {
             setAttachmentError(null);
-            const additions = files.flatMap((file): ComposerAttachment[] => {
-              const localPath = (file as File & { path?: string }).path || file.webkitRelativePath || file.name;
-              if (!localPath.trim()) return [];
-              return [{ kind: file.type.startsWith("image/") ? "image" : "file", name: file.name, path: localPath }];
-            });
-            if (files.length > 0 && additions.length === 0) {
-              setAttachmentError("Sürüklenen öğelerde geçerli bir dosya yolu bulunamadı.");
+            const { additions, unresolved } = attachmentsFromDroppedFiles(files, attachments[active.id] ?? []);
+            if (files.length > 0 && additions.length === 0 && unresolved > 0) {
+              setAttachmentError("Sürüklenen öğelerde geçerli bir dosya yolu bulunamadı. Dosyayı Ekle düğmesiyle seç.");
               return;
             }
-            setAttachments((current) => ({ ...current, [active.id]: [...(current[active.id] ?? []), ...additions] }));
+            if (unresolved > 0) setAttachmentError(`${unresolved} öğenin yolu çözülemedi; Ekle düğmesiyle seçebilirsin.`);
+            setAttachments((current) => ({
+              ...current,
+              [active.id]: [...(current[active.id] ?? []), ...additions]
+                .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index),
+            }));
           }}
           onSend={send}
           onVoice={() => void openVoiceWindow()}

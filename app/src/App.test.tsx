@@ -769,3 +769,71 @@ it("tek istemcili uygulamada da alt ajanlar sağ panelden izlenir", async () => 
  fireEvent.click(screen.getByRole("tab", { name: "Ajanlar" }));
  expect(screen.getByRole("button", { name: /Kaynak uzmanı/ })).toBeTruthy();
 });
+
+describe("SessionUygulama — dalga 4 (U3-25, U3-26, U3-27, U3-32)", () => {
+  it("mutlak yolla başlayan normal istem komut olarak değil görev olarak gider (U3-25)", async () => {
+    const fake = composerTransport({ "gecmis.kaynaklar": { ok: true, kaynaklar: [] } });
+    render(<SessionUygulama transport={fake.transport} />);
+    const textbox = await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "/Users/ben/app.py neden çöküyor?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Gönder" }));
+    await waitFor(() => expect(fake.requests.some((request) =>
+      request.ad === "tur.calistir" && request.veri.gorev === "/Users/ben/app.py neden çöküyor?")).toBe(true));
+    expect(fake.requests.some((request) => request.ad === "komut.calistir")).toBe(false);
+  });
+
+  it("yolu çözülemeyen tarayıcı bırakması çıplak dosya adıyla eklenmez (U3-26)", async () => {
+    const fake = composerTransport({ "gecmis.kaynaklar": { ok: true, kaynaklar: [] } });
+    const { container } = render(<SessionUygulama transport={fake.transport} />);
+    await screen.findByRole("textbox", { name: "Mesaj" });
+    const dosya = new File(["x"], "gizli.txt");
+    fireEvent.drop(container.querySelector(".composer")!, { dataTransfer: { files: [dosya] } });
+    expect(await screen.findByText(/geçerli bir dosya yolu bulunamadı/i)).toBeTruthy();
+    expect(screen.queryByText("gizli.txt")).toBeNull();
+  });
+
+  it("yetenek.katalog reddedilse de yerel ve komut listesi boşalmaz (U3-27)", async () => {
+    const fake = composerTransport({
+      "gecmis.kaynaklar": { ok: true, kaynaklar: [] },
+      "komut.listele": { ok: true, komutlar: [{ ad: "model", aciklama: "Modeli değiştir", grup: "Komut" }] },
+    });
+    const send = fake.transport.send as ReturnType<typeof vi.fn>;
+    const asil = send.getMockImplementation()!;
+    send.mockImplementation(async (id: string, line: string) => {
+      const istek = JSON.parse(line) as { ad: string; id: string };
+      if (istek.ad === "yetenek.katalog") throw new Error("katalog kapalı");
+      return asil(id, line);
+    });
+    render(<SessionUygulama transport={fake.transport} />);
+    const textbox = await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "/mod" } });
+    expect(await screen.findByRole("option", { name: /model.*Modeli değiştir/i })).toBeTruthy();
+  });
+
+  it("klasör komutu için depo okunamasa/yazılamasa bile seçici çalışır ve klasör açılır (U3-32)", async () => {
+    const fake = composerTransport({ "gecmis.kaynaklar": { ok: true, kaynaklar: [] } });
+    const gercekGet = Storage.prototype.getItem, gercekSet = Storage.prototype.setItem;
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, key: string) {
+      if (key === "fusion.last-project-root") throw new DOMException("engelli", "SecurityError");
+      return gercekGet.call(this, key);
+    });
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === "fusion.last-project-root") throw new DOMException("dolu", "QuotaExceededError");
+      return gercekSet.call(this, key, value);
+    });
+    try {
+      const selectFolder = vi.fn(async () => "/Users/test/proje");
+      const permissionBridge: PermissionBridge = { request: vi.fn(async () => "granted"), openSettings: vi.fn() };
+      render(<SessionUygulama permissionBridge={permissionBridge} selectFolder={selectFolder} transport={fake.transport} />);
+      const alan = await screen.findByRole("textbox", { name: "Mesaj" });
+      fireEvent.change(alan, { target: { value: "/klasor" } });
+      fireEvent.keyDown(alan, { key: "Enter" });
+      fireEvent.keyDown(alan, { key: "Enter" });
+      const devam = await screen.findByRole("button", { name: "Devam et" }).catch(() => null);
+      if (devam) fireEvent.click(devam);
+      await waitFor(() => expect(selectFolder).toHaveBeenCalled());
+      await waitFor(() => expect(vi.mocked(fake.transport.create).mock.calls.at(-1)?.[1]).toBe("/Users/test/proje"));
+      expect(screen.queryByText(/Klasör açılamadı/)).toBeNull();
+    } finally { getItem.mockRestore(); setItem.mockRestore(); }
+  });
+});

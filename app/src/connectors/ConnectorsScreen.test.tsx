@@ -620,3 +620,96 @@ it('bağlı sunucunun araç düğmesi yalnız o kaynağın kataloğunu açar', a
   await within(dialog).findByText('Bu sunucu araç bildirmedi.');
   expect(client.request).toHaveBeenCalledWith('baglanti.araclar', { ad: 'one' });
 });
+
+describe("ConnectorsScreen — dalga 4 (U3-36..U3-42, U3-44)", () => {
+  it("hata durumundaki yerel bağlantıda Bağlan sessiz kalmaz, yeniden sınar (U3-36)", async () => {
+    const client = fakeClient([{ ad: "fetch", durum: "hata", komut: "uvx", argumanlar: ["mcp-server-fetch"], tasima: "stdio" }]);
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    const kart = (await screen.findByText("Fetch")).closest("li") as HTMLElement;
+    fireEvent.click(within(kart).getByRole("button", { name: "Yeniden dene" }));
+    await waitFor(() => expect(client.request).toHaveBeenCalledWith("baglanti.dogrula", { ad: "fetch" }));
+  });
+
+  it("iki bağlantıya art arda basınca birincinin sonucu atılmaz (U3-37)", async () => {
+    let bitirIlk: ((value: Record<string, unknown>) => void) | null = null;
+    const client = fakeClient();
+    client.request.mockImplementation(async (name: string, data: { ad?: string }) => {
+      if (name === "baglanti.listele") return { ok: true, sunucular: [] };
+      if (name === "baglanti.ekle" && data.ad === "fetch") return new Promise((resolve) => { bitirIlk = resolve; });
+      return { ok: true, metin: "tamam" };
+    });
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    const al = async (ad: string) => ((await screen.findByText(ad)).closest("li") as HTMLElement);
+    fireEvent.click(within(await al("Fetch")).getByRole("button", { name: "Bağlan" }));
+    fireEvent.click(within(await al("Sıralı Düşünme")).getByRole("button", { name: "Bağlan" }));
+    await waitFor(() => expect(client.request).toHaveBeenCalledWith("baglanti.ekle", expect.objectContaining({ ad: "sequential-thinking" })));
+    // İlk eylem sonradan biter: sonucu (bildirim) yine de yansır.
+    await act(async () => { bitirIlk?.({ ok: true, metin: "Fetch eklendi" }); });
+    expect(await screen.findByText(/Fetch eklendi/)).toBeTruthy();
+  });
+
+  it("istek reddedilince gerçek neden gösterilir (U3-38)", async () => {
+    const client = fakeClient();
+    client.request.mockImplementation(async (name: string) => {
+      if (name === "baglanti.listele") return { ok: true, sunucular: [] };
+      throw new Error("npx kurulu değil");
+    });
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    const kart = (await screen.findByText("Fetch")).closest("li") as HTMLElement;
+    fireEvent.click(within(kart).getByRole("button", { name: "Bağlan" }));
+    expect((await screen.findByRole("status")).textContent).toContain("npx kurulu değil");
+  });
+
+  it("giriş bekleyen uzak bağlantıda Vazgeç çıkışı çağırır (U3-39)", async () => {
+    const client = fakeClient([{ ad: "linear", durum: "giris_bekleniyor", tasima: "streamable_http", url: "https://mcp.linear.app/mcp" }]);
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Bağlı/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Vazgeç" }));
+    await waitFor(() => expect(client.request).toHaveBeenCalledWith("baglanti.cikis", { ad: "linear" }));
+  });
+
+  it("giriş bekleme yoklaması 1,2 sn'de sabit kalmaz, aralık uzar (U3-39)", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = fakeClient([{ ad: "linear", durum: "giris_bekleniyor", tasima: "streamable_http" }]);
+      render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      const listeler = () => client.request.mock.calls.filter(([n]: [string]) => n === "baglanti.listele").length;
+      const ilk = listeler();
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      // Sabit 1,2 sn aralıkla ~50 çağrı olurdu; geri çekilmeyle çok daha az.
+      expect(listeler() - ilk).toBeLessThan(15);
+      expect(listeler() - ilk).toBeGreaterThan(3);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("sağlayıcı listesi okunamazsa 'bağlı değilsin' denmez, hata gösterilir (U3-41)", async () => {
+    const client = fakeClient();
+    client.request.mockImplementation(async (name: string) => {
+      if (name === "baglanti.listele") return { ok: true, sunucular: [] };
+      if (name === "baglanti.saglayicilar") throw new Error("RPC yok");
+      return { ok: true };
+    });
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
+    const dialog = screen.getByRole("dialog", { name: "Özel MCP sunucusu ekle" });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Sağlayıcı|Barındırmalı|hosted/i }));
+    expect((await within(dialog).findByText(/Sağlayıcı listesi okunamadı: RPC yok/)).textContent).toContain("RPC yok");
+    expect(within(dialog).queryByText(/Hiçbir web sağlayıcısına bağlı değilsin/)).toBeNull();
+  });
+
+  it("özel bağlantı kapatılınca erişim token'ı bellekte kalmaz (U3-42)", async () => {
+    render(<ConnectorsScreen client={fakeClient()} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
+    let dialog = screen.getByRole("dialog", { name: "Özel MCP sunucusu ekle" });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Uzak MCP/ }));
+    const token = within(dialog).getByLabelText("Erişim token'ı") as HTMLInputElement;
+    expect(token.autocomplete).toBe("off");
+    fireEvent.change(token, { target: { value: "gizli-token" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Vazgeç" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
+    dialog = screen.getByRole("dialog", { name: "Özel MCP sunucusu ekle" });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Uzak MCP/ }));
+    expect((within(dialog).getByLabelText("Erişim token'ı") as HTMLInputElement).value).toBe("");
+  });
+});

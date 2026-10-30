@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
+import { errorMessage } from "../protocol/result";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
 import { ConnectorIcon } from "./ConnectorIcon";
@@ -75,6 +76,12 @@ interface HostedResult {
   saglayici: string;
 }
 
+const YOKLAMA_TABANI_MS = 1200;
+const YOKLAMA_TAVANI_MS = 10_000;
+
+/** Katalogdaki bağlantı bu durumlarda "Bağlan" yeniden sınama anlamına gelir (U3-36). */
+const YENIDEN_DENENEBILIR = new Set(["hata", "kapali", "zaman_asimi"]);
+
 const CUSTOM_EMPTY = {
   ad: "",
   client_id: "",
@@ -93,8 +100,9 @@ export function ConnectorsScreen({
   client: ProtocolClient;
   onClose: () => void;
 }) {
-  const owner = useRef({ client, alive: true, load: 0, action: 0 });
-  if (owner.current.client !== client) owner.current = { client, alive: true, load: 0, action: 0 };
+  // Eylem sırası ANAHTAR BAŞINA tutulur: tek bir sayaç, ikinci eylem başlayınca birincinin sonucunu atıyordu (U3-37).
+  const owner = useRef({ client, alive: true, load: 0, actions: new Map<string, number>() });
+  if (owner.current.client !== client) owner.current = { client, alive: true, load: 0, actions: new Map<string, number>() };
   const [storedRows, setRows] = useState<ConnectorRow[]>([]);
   const [rowsClient, setRowsClient] = useState(client);
   const rows = rowsClient === client ? storedRows : [];
@@ -105,8 +113,8 @@ export function ConnectorsScreen({
   }, [client]);
   const [tab, setTab] = useState<TabId>("kesfet");
   const [query, setQuery] = useState("");
-  const [busyEntry, setBusyEntry] = useState<{ owner: typeof owner.current; key: string | null } | null>(null);
-  const busy = busyEntry?.owner === owner.current ? busyEntry.key : null;
+  const [busyEntry, setBusyEntry] = useState<{ owner: typeof owner.current; keys: ReadonlySet<string> } | null>(null);
+  const busyKeys: ReadonlySet<string> = busyEntry?.owner === owner.current ? busyEntry.keys : new Set<string>();
   const [notice, setNotice] = useState<string | null>(null);
   const [showCustom, setShowCustom] = useState(false);
   const [catalog, setCatalog] = useState<{ client: ProtocolClient; server: string } | null>(null);
@@ -115,6 +123,7 @@ export function ConnectorsScreen({
   // Sağlayıcı-barındırmalı bağlantı: araçlar Fusion'da değil, kullanıcının zaten
   // giriş yaptığı web sağlayıcısının connector ekranında yaşar.
   const [providers, setProviders] = useState<HostedProvider[] | null>(null);
+  const [providersError, setProvidersError] = useState<string | null>(null);
   // OAuth dönüş adresi sunucudan gelir: port sabittir ama arayüz onu
   // TEKRARLAMAZ — iki yerde yazılan bir sabit zamanla ayrışır.
   const [oauthReturn, setOauthReturn] = useState("");
@@ -124,12 +133,14 @@ export function ConnectorsScreen({
     try {
       const result = (await client.request("baglanti.listele", {})) as RpcResult;
       if (owner.current !== current || !current.alive || sequence !== current.load) return;
-      if (result?.ok !== true) throw new Error("Bağlantılar okunamadı.");
+      if (result?.ok !== true) throw new Error(result?.metin || "Sunucudan geçersiz yanıt geldi.");
       setRows(result.sunucular ?? []);
       setRowsClient(client);
       setOauthReturn(result.oauth_donus_adresi ?? "");
-    } catch {
-      if (owner.current === current && current.alive && sequence === current.load) setNotice("Bağlantılar okunamadı. Yeniden deneyebilirsin.");
+    } catch (error) {
+      if (owner.current === current && current.alive && sequence === current.load) {
+        setNotice(`Bağlantılar okunamadı. Yeniden deneyebilirsin. Neden: ${errorMessage(error)}`);
+      }
     }
   }, [client]);
 
@@ -139,32 +150,54 @@ export function ConnectorsScreen({
 
   // Giriş bekleyen bağlantı varsa durumu kısa aralıkla tazele (OAuth tamamlanınca
   // ekran kendiliğinden "Bağlı"ya döner).
+  // Yoklama aralığı her turda uzar ve üst sınırda kalır; sınırsız 1,2 sn yoklama yok (U3-39).
+  const bekleyenVar = rows.some((row) => row.durum === "giris_bekleniyor" || row.durum === "backoff");
   useEffect(() => {
-    if (!rows.some((row) => row.durum === "giris_bekleniyor" || row.durum === "backoff")) return;
-    const timer = window.setInterval(() => void load(), 1200);
-    return () => window.clearInterval(timer);
-  }, [load, rows]);
+    if (!bekleyenVar) return;
+    let tur = 0;
+    let timer: number | undefined;
+    const planla = () => {
+      timer = window.setTimeout(() => {
+        void load();
+        tur += 1;
+        planla();
+      }, Math.min(YOKLAMA_TABANI_MS * 1.5 ** tur, YOKLAMA_TAVANI_MS));
+    };
+    planla();
+    return () => window.clearTimeout(timer);
+  }, [bekleyenVar, load]);
 
   // Tür "hosted" seçilince sağlayıcılar okunur. Liste veriden gelir: hangi
   // sağlayıcının hazır olduğunu arayüz TAHMİN ETMEZ.
   useEffect(() => {
-    if (custom.tasima !== "hosted" || providers !== null) return;
+    // Hosted dışına çıkılınca liste atılır: Kontrol Paneli'nde giriş yapıldıktan sonra yeniden
+    // seçildiğinde bayat liste göstermesin (U3-41).
+    if (custom.tasima !== "hosted") {
+      if (providers !== null) setProviders(null);
+      if (providersError !== null) setProvidersError(null);
+      return;
+    }
+    if (providers !== null || providersError !== null) return;
     let iptal = false;
     void (async () => {
       try {
         const result = (await client.request("baglanti.saglayicilar", {})) as {
           ok?: boolean;
+          metin?: string;
           saglayicilar?: HostedProvider[];
         };
-        if (!iptal && result?.ok) setProviders(result.saglayicilar ?? []);
-      } catch {
-        if (!iptal) setProviders([]);
+        if (iptal) return;
+        if (result?.ok) setProviders(result.saglayicilar ?? []);
+        else setProvidersError(result?.metin || "Sunucudan geçersiz yanıt geldi.");
+      } catch (error) {
+        // Okuma hatası "hiçbir sağlayıcıya bağlı değilsin" demek değildir.
+        if (!iptal) setProvidersError(errorMessage(error));
       }
     })();
     return () => {
       iptal = true;
     };
-  }, [client, custom.tasima, providers]);
+  }, [client, custom.tasima, providers, providersError]);
 
   // İlk hazır sağlayıcı kendiliğinden seçilir: tek seçenek varken kullanıcıyı
   // ayrıca tıklatmak gereksiz bir adımdır.
@@ -176,9 +209,16 @@ export function ConnectorsScreen({
 
   const run = useCallback(
     async (name: string, data: Record<string, unknown>, key: string) => {
-      const current = owner.current, sequence = ++current.action;
-      const isCurrent = () => owner.current === current && current.alive && sequence === current.action;
-      setBusyEntry({ owner: current, key });
+      const current = owner.current;
+      const sequence = (current.actions.get(key) ?? 0) + 1;
+      current.actions.set(key, sequence);
+      const isCurrent = () => owner.current === current && current.alive && current.actions.get(key) === sequence;
+      const mark = (add: boolean) => setBusyEntry((previous) => {
+        const keys = new Set(previous?.owner === current ? previous.keys : []);
+        if (add) keys.add(key); else keys.delete(key);
+        return { owner: current, keys };
+      });
+      mark(true);
       setNotice(null);
       try {
         const result = (await client.request(name, data)) as RpcResult;
@@ -186,11 +226,12 @@ export function ConnectorsScreen({
         setNotice(result?.metin ?? result?.mesaj ?? null);
         await load();
         return isCurrent() ? result : null;
-      } catch {
-        if (isCurrent()) setNotice("Bağlantı işlemi tamamlanamadı.");
+      } catch (error) {
+        // Gerçek neden (npx/uvx yok, ağ, RPC yok) kullanıcıya gösterilir (U3-38).
+        if (isCurrent()) setNotice(`Bağlantı işlemi tamamlanamadı. Neden: ${errorMessage(error)}`);
         return null;
       } finally {
-        if (isCurrent()) setBusyEntry({ owner: current, key: null });
+        if (current.alive && current.actions.get(key) === sequence) mark(false);
       }
     },
     [client, load],
@@ -212,6 +253,11 @@ export function ConnectorsScreen({
           return;
         }
         await run("baglanti.ekle", addPayloadFor(entry), `add:${entry.id}`);
+        return;
+      }
+      // Hata/kapalı/zaman aşımındaki yerel bağlantı: "Bağlan" yeniden sınar; eskiden sessizdi (U3-36).
+      if (entry.transport === "stdio" && YENIDEN_DENENEBILIR.has(existing.durum ?? "yapilandirildi")) {
+        await run("baglanti.dogrula", { ad: entry.id }, `add:${entry.id}`);
         return;
       }
       // "Giriş gerekli" durumu backend'den gelir; katalog OAuth işaretlemese bile
@@ -247,8 +293,8 @@ export function ConnectorsScreen({
   // uzun süren bir istek (sağlayıcı panelini açmak, kullanıcı pencereyi
   // kapatana kadar sürer) boyunca hiçbir düğmeye basılamıyor ve ekran donmuş
   // görünüyordu. İstekler birbirinden bağımsız; birlikte kilitlemek gereksiz.
-  const mesgul = (key: string) => busy === key;
-  const eklemeMesgul = busy?.startsWith("add:") ?? false;
+  const mesgul = (key: string) => busyKeys.has(key);
+  const eklemeMesgul = [...busyKeys].some((key) => key.startsWith("add:"));
 
   /**
    * Barındırmalı bağlantıyı ekle ve KULLANICIYI İŞİN İÇİNDEN ÇIKAR.
@@ -281,6 +327,9 @@ export function ConnectorsScreen({
     // bir düğmeye basması gereken bir adım değil.
     await run("baglanti.saglayici_dogrula", { ad: result.ad }, "dogrula:hosted");
   };
+
+  // Kapatınca form sıfırlanır: erişim token'ı bellekte kalıp bir sonraki açılışta önceden doldurulmasın (U3-42).
+  const closeCustom = () => { setShowCustom(false); setCustom(CUSTOM_EMPTY); };
 
   const submitCustom = async () => {
     if (custom.tasima === "hosted") {
@@ -364,14 +413,15 @@ export function ConnectorsScreen({
 
       {catalog?.client === client && <McpToolCatalog client={client} server={catalog.server} onClose={() => setCatalog(null)} />}
       {showCustom && (
-        <ConnectorDialog label="Özel MCP sunucusu ekle" onClose={() => setShowCustom(false)}>
+        <ConnectorDialog label="Özel MCP sunucusu ekle" onClose={closeCustom}>
           <CustomConnectorWizard
             deger={custom}
             mesgul={eklemeMesgul}
             oauthDonusAdresi={oauthReturn}
-            onCancel={() => setShowCustom(false)}
+            onCancel={closeCustom}
             onChange={setCustom}
             onSubmit={() => void submitCustom()}
+            saglayiciHatasi={providersError}
             saglayicilar={providers}
           />
           {notice && <p role="status">{notice}</p>}
@@ -461,7 +511,7 @@ export function ConnectorsScreen({
                     onClick={() => void connectCatalog(entry)}
                     type="button"
                   >
-                    {connected ? "Bağlı" : entry.setup?.length ? "Kur" : "Bağlan"}
+                    {connected ? "Bağlı" : entry.setup?.length && !row ? "Kur" : row && YENIDEN_DENENEBILIR.has(row.durum ?? "") ? "Yeniden dene" : "Bağlan"}
                   </button>
                 </li>
               );
@@ -534,6 +584,15 @@ export function ConnectorsScreen({
                             : row.durum === "giris_gerekli"
                               ? "Bağlan"
                               : "Giriş yap"}
+                        </button>
+                      )}
+                      {remote && pending && (
+                        <button
+                          disabled={mesgul(`logout:${row.ad}`)}
+                          onClick={() => void run("baglanti.cikis", { ad: row.ad }, `logout:${row.ad}`)}
+                          type="button"
+                        >
+                          Vazgeç
                         </button>
                       )}
                       <button
