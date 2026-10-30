@@ -32,7 +32,11 @@ _PYTEST_KONUM = re.compile(r"^(?P<path>[^\s:]+\.py):(?P<line>\d+): (?P<msg>.+)$"
 _PYTEST_OZET = re.compile(r"^FAILED (?P<test>\S+) - (?P<msg>.+)$", re.MULTILINE)
 
 #: node/tsc: `/proje/app.js:12` ardından `SyntaxError: ...`
-_NODE_KONUM = re.compile(r"^(?P<path>[^\s:]+\.(?:js|mjs|cjs|ts|tsx)):(?P<line>\d+)", re.MULTILINE)
+#: Satır YALNIZ `yol:satır` olmalı: `grep -n` (`a.js:12:metin`) ya da derleyici/linter
+#: (`a.ts:12:5 - error`) çıktısı çalışma zamanı hatası tanısı üretmesin. Ölçüldü (30 Ekim).
+_NODE_KONUM = re.compile(
+    r"^(?P<path>[^\s:]+\.(?:js|mjs|cjs|ts|tsx)):(?P<line>\d+)[ \t]*$", re.MULTILINE
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,9 +114,12 @@ def _node(output: str) -> Diagnosis | None:
     if konum is None:
         return None
     belirti = _PY_BELIRTI.search(output)
+    if belirti is None:
+        # Hata satırı olmayan "yol:satır" tanı değildir: yanlış tanı, tanı olmamasından kötüdür.
+        return None
     return Diagnosis(
         path=konum.group("path"),
         line=int(konum.group("line")),
-        symptom=belirti.group("msg").strip() if belirti else "çalışma zamanı hatası",
+        symptom=belirti.group("msg").strip(),
         quote=konum.group(0),
     )
