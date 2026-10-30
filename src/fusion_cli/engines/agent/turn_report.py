@@ -16,7 +16,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from ...core.constants import TOOL_CALL_BLOCKED_PREFIX, TOOL_CALL_DUPLICATE_PREFIX
+from ...core.constants import (
+    EXIT_CODE_PREFIX,
+    TOOL_CALL_BLOCKED_PREFIX,
+    TOOL_CALL_DUPLICATE_PREFIX,
+)
 from ...core.evidence import EvidenceStatus, ToolUse
 from ...core.job_evidence import JobCurrentSnapshot, JobPhase
 from ...core.tools import ToolFamily, tool_family
@@ -53,9 +57,7 @@ def _is_shell_call(name: str) -> bool:
     return tool_family(name) is ToolFamily.SHELL
 
 
-#: `run_shell` çıktısının başındaki çıkış kodu öneki — TEK KAYNAK (`tools/shell.py`
-#: ile aynı biçim). Üreten taraf değiştirilirse bu sabit de güncellenmelidir.
-_EXIT_CODE_PREFIX = "(çıkış kodu "
+_EXIT_CODE_PREFIX = EXIT_CODE_PREFIX
 
 _NO_CHANGE_CLAIMS = re.compile(
     r"(?:hiçbir|herhangi bir) dosya(?:da|yı|yı\s+doğrudan)?\s+"
@@ -65,6 +67,30 @@ _NO_CHANGE_CLAIMS = re.compile(
     r"|i (?:did not|could not) (?:change|edit) files?)",
     re.IGNORECASE,
 )
+
+
+#: İddianın kapsamını daraltan sözcükler: "src/ dışında değişiklik yapmadım" tüm değişikliği
+#: inkâr etmez (A4-27), açıklama gizlenmemeli.
+_CLAIM_SCOPE_AFTER = re.compile(r"dışında|hariç|outside|except|other than", re.IGNORECASE)
+_CLAIM_SCOPE_BEFORE = re.compile(r"(\w+)\s+$")
+_GLOBAL_QUALIFIERS = frozenset({"hiçbir", "herhangi", "bir", "no"})
+
+
+def _claims_no_change(text: str) -> bool:
+    """Metin TÜM dosyalarda değişiklik yok diyor mu (kapsamlı iddia sayılmaz).
+
+    Ölçüldü (29 Ekim, A4-27): "config dosyasında değişiklik yapmadım" gibi kapsamlı bir
+    cümle eşleşince modelin bütün açıklaması kullanıcıdan saklanıyordu.
+    """
+    for eslesme in _NO_CHANGE_CLAIMS.finditer(text):
+        sonra = text[eslesme.end() : eslesme.end() + 40]
+        if _CLAIM_SCOPE_AFTER.search(sonra):
+            continue
+        onceki = _CLAIM_SCOPE_BEFORE.search(text[max(0, eslesme.start() - 40) : eslesme.start()])
+        if onceki is not None and onceki.group(1).casefold() not in _GLOBAL_QUALIFIERS:
+            continue
+        return True
+    return False
 
 
 #: Modelin "doğruladım" iddiası. Kanıt yokken bu cümleler kullanıcıya gerçek gibi
@@ -214,7 +240,11 @@ class TurnReport:
             return True
         if self.false_claim:
             return True
-        return any(run.exit_code not in (None, 0) for run in self._behavioral_evidence)
+        # Çıkış kodu okunamayan (zaman aşımı) davranış komutu da başarı iddiasını engeller:
+        # `None` bir başarı kanıtı değildir (A4-26).
+        return any(run.exit_code not in (None, 0) for run in self._behavioral_evidence) or any(
+            run.exit_code is None for run in self._unresolved_evidence
+        )
 
     def render(self) -> str:
         """Türkçe, kısa bir rapor metni üret; değişiklik yoksa boş döner (D4)."""
@@ -243,7 +273,7 @@ class TurnReport:
         report = self.render()
         if not report:
             return model_text
-        if self.changed_paths and _NO_CHANGE_CLAIMS.search(model_text):
+        if self.changed_paths and _claims_no_change(model_text):
             return (
                 report + "⚠ Ajanın dosya değişikliği beyanı araç kaydıyla çeliştiği için "
                 "açıklaması gösterilmedi."
@@ -294,7 +324,9 @@ class TurnReport:
             )
         basarisiz = tuple(run for run in evidence if run.exit_code != 0)
         if basarisiz:
-            komutlar = "; ".join(f"`{run.command}` (çıkış {run.exit_code})" for run in basarisiz)
+            komutlar = "; ".join(
+                f"`{run.command}` ({_exit_text(run.exit_code)})" for run in basarisiz
+            )
             return f"✗ Doğrulama başarısız: {komutlar}\nDeğişen dosyalar: {dosyalar}"
         komutlar = "; ".join(f"`{run.command}`" for run in evidence)
         if self.gate is not None and not self.gate.ok:
@@ -303,6 +335,10 @@ class TurnReport:
                 f"Değişen dosyalar: {dosyalar}"
             )
         return f"✓ Doğrulandı: {komutlar} başarıyla çalıştı.\nDeğişen dosyalar: {dosyalar}"
+
+
+def _exit_text(code: int | None) -> str:
+    return f"çıkış {code}" if code is not None else "çıkış kodu okunamadı / zaman aşımı"
 
 
 _RUNNER_PREFIX = re.compile(r"^\s*python[\d.]*\s+-m\s+")

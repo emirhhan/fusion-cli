@@ -247,3 +247,55 @@ def test_bun_metin_kilit_dosyasi_taninir(tmp_path):
     (tmp_path / "bun.lock").write_text("", encoding="utf-8")
 
     assert discover_commands(tmp_path) == ("bun run test",)
+
+
+# --- A4-26 / A4-27 / A4-65: tur raporu ----------------------------------------------- #
+
+
+def _yaz(yol):
+    from fusion_cli.core.evidence import ToolUse
+
+    return ToolUse(name="write_file", arguments={"path": yol}, ok=True, output="ok", mutating=True)
+
+
+def _kabuk(komut, cikti):
+    from fusion_cli.core.evidence import ToolUse
+
+    return ToolUse(
+        name="run_shell", arguments={"command": komut}, ok=True, output=cikti, mutating=True
+    )
+
+
+def test_cikis_kodu_okunamayan_komut_raporda_none_yazmaz_ve_basari_iddiasini_engeller():
+    from fusion_cli.engines.agent.turn_report import build_turn_report
+
+    rapor = build_turn_report(
+        ("a.py",), (_yaz("a.py"), _kabuk("pytest -q", "zaman aşımı, çıktı kesildi")), gate=None
+    )
+
+    metin = rapor.render()
+    assert "çıkış None" not in metin
+    assert "zaman aşımı" in metin
+    assert rapor.blocks_success is True
+
+
+def test_kapsamli_degistirmedim_cumlesi_aciklamayi_gizlemez():
+    from fusion_cli.engines.agent.turn_report import build_turn_report
+
+    rapor = build_turn_report(
+        ("a.py",), (_yaz("a.py"), _kabuk("pytest -q", "(çıkış kodu 0)\nok")), gate=None
+    )
+
+    metin = rapor.render_with_model_text(
+        "src/ dışındaki dosyalarda değişiklik yapmadım; yalnız a.py'yi düzenledim."
+    )
+    assert "yalnız a.py'yi düzenledim" in metin
+    tum = rapor.render_with_model_text("Hiçbir dosya değiştirmedim.")
+    assert "açıklaması gösterilmedi" in tum
+
+
+def test_cikis_kodu_oneki_uretici_ve_okuyucuda_ayni_sabittir():
+    from fusion_cli.core.constants import EXIT_CODE_PREFIX
+    from fusion_cli.engines.agent import turn_report
+
+    assert turn_report._EXIT_CODE_PREFIX == EXIT_CODE_PREFIX

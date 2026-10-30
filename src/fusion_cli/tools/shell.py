@@ -14,6 +14,7 @@ from pathlib import Path
 
 from ..config.paths import trash_dir
 from ..core.constants import (
+    EXIT_CODE_PREFIX,
     GIT_TIMEOUT_S,
     MAX_OUTPUT_CHARS,
     SHELL_TIMEOUT_S,
@@ -76,7 +77,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(f"Komut çalıştırılamadı: {exc}")
 
     body = _combine(process.stdout, process.stderr)
-    text = f"(çıkış kodu {process.returncode})\n{body}".strip()
+    text = f"{EXIT_CODE_PREFIX}{process.returncode})\n{body}".strip()
     if process.returncode != 0 and any(char.isspace() for char in str(context.root)):
         text += (
             "\nFUSION_NOT: Komut zaten seçili proje dizininde çalışır. "
