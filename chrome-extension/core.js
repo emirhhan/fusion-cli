@@ -1065,6 +1065,8 @@ export async function execute(command) {
   }
   if (command.islem === "tab_select") {
     const tab = await chrome.tabs.get(Number(veri.id));
+    // chrome:// ya da url'si okunamayan sekmede `new URL(undefined)` anlamsız "Invalid URL" atardı.
+    if (!/^https?:/.test(tab.url || "")) throw new Error("Yalnız http(s) sekmeleri seçilebilir.");
     const origin = new URL(tab.url).origin;
     await ensurePermission(origin, "Bu sekmenin sitesi için izin yok.");
     await setSelected(tab);

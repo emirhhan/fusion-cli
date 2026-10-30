@@ -13,11 +13,13 @@ const THREAD_KEY = "fusionThread";
 const MAX_MESSAGES = 60;
 /** Akış koparsa yeniden deneme aralığı. */
 const RETRY_MS = 2000;
+const MAX_RETRY_MS = 60_000;
 
 // Elle eşleştirme bağlantısı; otomatik bağlantı arka plandaki belgede yaşar.
 let manual = null;
 let polling = false;
 let listening = false;
+let listenFailures = 0;
 /** Bu panelin kendi gönderdiği ve cevabını beklediği tur var mı? */
 let inflight = false;
 let thread = { mesajlar: [], seq: null, soru: null };
@@ -195,6 +197,7 @@ async function listen() {
     }
     while (await connection()) {
       const result = await request("/events", { after: thread.seq });
+      listenFailures = 0; // bağlantı döndü: bekleme ve hata metni sıfırlanır
       let next = thread;
       for (const item of result.olaylar || []) {
         thread = next;
@@ -203,8 +206,12 @@ async function listen() {
       await saveThread({ ...next, seq: result.son ?? next.seq });
     }
   } catch (cause) {
-    error(`Fusion bağlantısı koptu: ${cause.message || cause}`);
-    await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
+    // Kopuk bağlantıda her 2 sn'de hata yazıp sonsuz denemek yerine üstel bekleme (en çok 1 dk);
+    // hata metni yalnız ilk kopuşta yazılır.
+    if (listenFailures === 0) error(`Fusion bağlantısı koptu: ${cause.message || cause}`);
+    const wait = Math.min(RETRY_MS * 2 ** listenFailures, MAX_RETRY_MS);
+    listenFailures += 1;
+    await new Promise((resolve) => setTimeout(resolve, wait));
   } finally {
     listening = false;
   }
