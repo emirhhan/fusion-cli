@@ -71,3 +71,41 @@ def test_hic_arac_cagrilmadiysa_kanit_yok():
 )
 def test_diger_etkiler_degismedi(effect, kayit, beklenen):
     assert _tool_evidence_satisfied(_politika(effect), _butce(kayit)) is beklenen
+
+
+def _kanit(butce, ad, args, degistiren=False):
+    butce.successful_tool_evidence.append((ad, args, degistiren))
+    return butce
+
+
+@pytest.mark.parametrize(
+    ("ad", "args"),
+    [
+        ("bash", {"command": "cat README.md"}),
+        ("run_shell", {"command": "ls -la src"}),
+        ("list_files", {}),
+    ],
+)
+def test_kabukla_ya_da_aileyle_okuma_calisma_alani_okuma_kaniti_sayilir(ad, args):
+    """A2-21: sabit araç listesi `bash cat` ile okuyan modeli kanıtsız sayıyordu."""
+    assert _tool_evidence_satisfied(_politika("workspace_read"), _kanit(_butce(), ad, args))
+
+
+def test_yazan_arac_okuma_kaniti_sayilmaz():
+    assert not _tool_evidence_satisfied(
+        _politika("workspace_read"), _kanit(_butce(), "write_file", {}, degistiren=True)
+    )
+
+
+def test_degistirici_kabuk_komutu_okuma_kaniti_sayilmaz():
+    assert not _tool_evidence_satisfied(
+        _politika("workspace_read"),
+        _kanit(_butce(), "bash", {"command": "rm -rf build"}, degistiren=True),
+    )
+
+
+def test_site_crawl_web_arama_kaniti_sayilir_indirme_sayilmaz():
+    assert _tool_evidence_satisfied(_politika("web_lookup"), _kanit(_butce(), "site_crawl", {}))
+    assert not _tool_evidence_satisfied(
+        _politika("web_lookup"), _kanit(_butce(), "download_file", {}, degistiren=True)
+    )

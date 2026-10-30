@@ -1844,6 +1844,20 @@ def _outcome(
     )
 
 
+_WORKSPACE_READ_TOOLS = frozenset(
+    {
+        "read_file",
+        "view_file",
+        "list_dir",
+        "search_code",
+        "grep_search",
+        "search_codebase",
+        "glob",
+        "git",
+    }
+)
+
+
 def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> bool:
     """Gerçek eylem isteği başarılı bir araç sonucu ile kanıtlandı mı?
 
@@ -1872,8 +1886,11 @@ def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> 
     if effect == "workspace_mutation":
         return any(mutating for _, _, mutating in evidence)
     if effect == "web_lookup":
+        # Araç AİLESİNDEN okunur (A2-21): sabit üç ad `site_crawl`/`site_design`
+        # gibi arama araçlarını kanıt saymıyordu. İndirme arama değildir.
         return any(
-            name in {"web_search", "web_fetch", "read_url_content"} for name, _, _ in evidence
+            tool_family(name) is ToolFamily.WEB and name != "download_file"
+            for name, _, _ in evidence
         )
     if effect.startswith("file:"):
         # Dosya teslim eden adımın kanıtı DEĞİŞTİREN bir araçtır.
@@ -1886,19 +1903,19 @@ def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> 
         # yapılmadı; adım doğrulamada düştü ve kurtarma hakkı boşa gitti.
         return any(mutating for _, _, mutating in evidence)
     if effect == "workspace_read":
+        # Ölçüldü (30 Ekim, A2-21): 8 adlık sabit liste `bash cat`/`ls` ile okuyan
+        # ya da `grep_search`/`search_codebase` dışı arama ailesini kanıt saymıyor,
+        # kanıt kapısı boşuna yeniden istem yapıp turu `ok=False` bitiriyordu.
         return any(
-            name
-            in {
-                "read_file",
-                "view_file",
-                "list_dir",
-                "search_code",
-                "grep_search",
-                "search_codebase",
-                "glob",
-                "git",
-            }
-            for name, _, _ in evidence
+            name in _WORKSPACE_READ_TOOLS
+            or (
+                not mutating
+                and (
+                    tool_family(name) in {ToolFamily.FILES, ToolFamily.SEARCH, ToolFamily.VCS}
+                    or _reads_only(name, args)
+                )
+            )
+            for name, args, mutating in evidence
         )
     return bool(evidence)
 
