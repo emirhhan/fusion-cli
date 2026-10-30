@@ -9,6 +9,8 @@ bir davranış düzeltmesidir.
 
 from __future__ import annotations
 
+import shlex
+
 from ...core.tool_emulation import PAYLOAD_EXAMPLE, PAYLOAD_RULES, render_call
 from ...core.types import Message
 
@@ -94,13 +96,14 @@ WRONG_WORKSPACE_NOTE = (
 _WORKSPACE_SUGGESTION = (
     "\nAradığın dosyalar şu dizinde duruyor: {path}\n"
     "Kullanıcıya bu komutu ver ve orada tekrar denemesini söyle:\n"
-    '  cd "{path}" && fusion'
+    "  cd {path} && fusion"
 )
 
 
 def wrong_workspace_note(root: str, suggestion: str = "") -> Message:
     """Yanlış çalışma dizini hipotezini modele bildir ve durmasını iste."""
-    oneri = _WORKSPACE_SUGGESTION.format(path=suggestion) if suggestion else ""
+    # Dizin adındaki `"`, `$`, `` ` `` kullanıcı komutu kopyalayınca yorumlanmasın (A3-25).
+    oneri = _WORKSPACE_SUGGESTION.format(path=shlex.quote(suggestion)) if suggestion else ""
     return Message("user", WRONG_WORKSPACE_NOTE.format(root=root, oneri=oneri), harness_note=True)
 
 
@@ -268,6 +271,8 @@ def verification_action_required_note() -> Message:
         "kullan. Mutlaka bir DEĞİŞTİRİCİ aracı gerçekten çağır. "
         "run_shell ile yalnız doğrulamayı tekrar etmek çözüm değildir. Araç çağrısını "
         "düz metin JSON veya kod bloğu olarak yazma; gerçekten çalıştır.",
+        # Her diğer not fabrikası gibi harness notu: kullanıcı sözü sayılmaz (A3-24).
+        harness_note=True,
     )
 
 

@@ -58,3 +58,36 @@ def test_yonetici_giris_dosyasi_gitignore_a_eklenir(tmp_path):
     ignore = (tmp_path / ".fusion" / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert ignore == [CREDENTIALS_FILE.name]
     assert yol.is_file()
+
+
+# --- A3-24 / A3-25 / A3-26: reflexion notları ve isteğe bağlı sorular ------------ #
+
+
+def test_dogrulama_eylem_notu_harness_notudur():
+    from fusion_cli.engines.agent import reflexion
+
+    assert reflexion.verification_action_required_note().harness_note is True
+
+
+def test_dizin_onerisindeki_ozel_karakterler_kabukta_yorumlanmaz():
+    from fusion_cli.engines.agent import reflexion
+
+    not_ = reflexion.wrong_workspace_note("/x", '/tmp/a"b$(rm -rf ~)').content
+
+    assert "cd '/tmp/a\"b$(rm -rf ~)' && fusion" in not_
+
+
+async def test_bosluk_yalniz_cevap_atlanmis_sayilir():
+    import asyncio
+
+    from fusion_cli.engines.agent.questions import PendingUserQuestions, QuestionState
+
+    async def cevap() -> str:
+        return "   "
+
+    sorular = PendingUserQuestions()
+    sorular.start(cevap())
+    await asyncio.sleep(0.01)
+
+    assert sorular.drain()[0].state is QuestionState.SKIPPED
+    await sorular.close()

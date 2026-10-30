@@ -55,10 +55,14 @@ class PendingUserQuestions:
                 raise
             return QuestionResult(identifier, QuestionState.UNAVAILABLE)
         except Exception:
-            logging.getLogger(__name__).error("İsteğe bağlı sorunun cevabı alınamadı.")
+            logging.getLogger(__name__).error(
+                "İsteğe bağlı sorunun cevabı alınamadı.", exc_info=True
+            )
             return QuestionResult(identifier, QuestionState.UNAVAILABLE)
         return QuestionResult(
-            identifier, QuestionState.ANSWERED if text else QuestionState.SKIPPED, text
+            identifier,
+            QuestionState.ANSWERED if text.strip() else QuestionState.SKIPPED,
+            text,
         )
 
     @property
