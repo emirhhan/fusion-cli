@@ -39,10 +39,11 @@ from ..ui.renderer import ConsoleRenderer
 from ..ui.tables import cost_summary
 from . import (
     capability_commands,
-    dongu_commands,
+    eval_commands,
     knowledge_commands,
     memory_commands,
     paperclip_command,
+    prompt_opt_commands,
     trash_commands,
 )
 from .cleanup import with_web_cleanup
@@ -65,8 +66,8 @@ app.add_typer(memory_commands.app, name="memory")
 app.add_typer(knowledge_commands.app, name="knowledge")
 app.add_typer(trash_commands.app, name="cop")
 app.add_typer(capability_commands.app, name="yetenek")
-app.add_typer(dongu_commands.eval_app, name="eval")
-app.add_typer(dongu_commands.prompt_opt_app, name="prompt-opt")
+app.add_typer(eval_commands.eval_app, name="eval")
+app.add_typer(prompt_opt_commands.prompt_opt_app, name="prompt-opt")
 app.command("paperclip")(paperclip_command.paperclip)
 
 console = Console()

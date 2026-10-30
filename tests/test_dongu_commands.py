@@ -17,7 +17,7 @@ from prompt_opt.proposals import ProposalStore
 from prompt_opt.targets import TARGETS, PromptTarget, get_target
 from typer.testing import CliRunner
 
-from fusion_cli.cli import dongu_commands
+from fusion_cli.cli import dongu_ortak, prompt_opt_commands
 from fusion_cli.cli.app import app
 from fusion_cli.cli.repl.transcript_store import TranscriptStore
 from fusion_cli.config.loader import load_config
@@ -169,8 +169,10 @@ def sahte_dongu(monkeypatch, tmp_path):
         TARGETS, "system", PromptTarget("system", istem, gercek.module, gercek.attribute)
     )
     saglayici = _SahteEkSaglayici()
-    monkeypatch.setattr(dongu_commands, "_snippet_provider", lambda config: saglayici)
-    monkeypatch.setattr(dongu_commands, "_executor_factory", lambda config, target: _SahteYurutucu)
+    monkeypatch.setattr(prompt_opt_commands, "_snippet_provider", lambda config: saglayici)
+    monkeypatch.setattr(
+        prompt_opt_commands, "_executor_factory", lambda config, target: _SahteYurutucu
+    )
     return istem, saglayici
 
 
@@ -245,10 +247,10 @@ def test_kota_hatasi_olcum_durdu_koduyla_cikar(sahte_dongu, monkeypatch):
             raise RateLimitedError("günlük kota doldu")
 
     monkeypatch.setattr(
-        dongu_commands, "_executor_factory", lambda config, target: lambda metin: _Kotali()
+        prompt_opt_commands, "_executor_factory", lambda config, target: lambda metin: _Kotali()
     )
     sonuc = runner.invoke(app, ["prompt-opt", "calistir", "--kume", "a", "--ayri", "b"])
-    assert sonuc.exit_code == dongu_commands.EXIT_MEASUREMENT_STOPPED
+    assert sonuc.exit_code == dongu_ortak.EXIT_MEASUREMENT_STOPPED
     assert "ÖLÇÜM DURDURULDU" in sonuc.output.replace("\n", " ")
 
 
