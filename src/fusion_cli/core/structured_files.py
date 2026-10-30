@@ -46,12 +46,90 @@ def _json_denetle(content: str) -> str | None:
     return None
 
 
+def _jsonc_temizle(content: str) -> str:
+    """JSONC'den yorumları ve nesne/dizi sonundaki fazla virgülü at (dize içi korunur)."""
+    cikti: list[str] = []
+    i, n = 0, len(content)
+    dizi = False
+    while i < n:
+        c = content[i]
+        if dizi:
+            cikti.append(c)
+            if c == "\\" and i + 1 < n:
+                cikti.append(content[i + 1])
+                i += 1
+            elif c == '"':
+                dizi = False
+        elif c == '"':
+            dizi = True
+            cikti.append(c)
+        elif content.startswith("//", i):
+            while i < n and content[i] != "\n":
+                i += 1
+            continue
+        elif content.startswith("/*", i):
+            son = content.find("*/", i + 2)
+            i = n if son < 0 else son + 2
+            continue
+        else:
+            cikti.append(c)
+        i += 1
+    return re.sub(r",(\s*[}\]])", r"\1", "".join(cikti))
+
+
+def _jsonc_denetle(content: str) -> str | None:
+    try:
+        json.loads(_jsonc_temizle(content))
+    except ValueError as hata:
+        return f"Geçersiz JSON: {hata}"
+    return None
+
+
+def _jsonc_mi(path: Path) -> bool:
+    """`tsconfig.json`, `.vscode/*.json`, `devcontainer.json` yorum ve sondaki virgül kabul eder.
+
+    Ölçüldü (30 Ekim): bunlar JSONC'dir ve yaygındır; kesin `json.loads` doğru yazılmış
+    dosyayı reddedip modeli yorumları silmeye itiyordu.
+    """
+    ad = path.name.casefold()
+    return (
+        ad.startswith(("tsconfig", "jsconfig"))
+        or ad in {"devcontainer.json", ".devcontainer.json"}
+        or ".vscode" in {parca.casefold() for parca in path.parts[:-1]}
+    )
+
+
 def _toml_denetle(content: str) -> str | None:
     try:
         tomllib.loads(content)
     except (ValueError, tomllib.TOMLDecodeError) as hata:
         return f"Geçersiz TOML: {hata}"
     return None
+
+
+def _dize_disi_satirlar(content: str) -> list[str]:
+    """`_anlamli_satirlar`, ama çok satırlı tırnaklı değerin İÇİNDE kalan satırlar atılır.
+
+    `.tscn` içinde gömülü GDScript `source_code = "…"` tek bir çok satırlı dizedir; içindeki
+    `[1, 2]` gibi bir satır bölüm başlığı sanılıp geçerli sahneyi reddettiriyordu.
+    Ölçüldü (30 Ekim).
+    """
+    satirlar: list[str] = []
+    dizide = False
+    for ham in content.splitlines():
+        if not dizide:
+            temiz = ham.strip()
+            if temiz and not ham.lstrip().startswith((";", "#")):
+                satirlar.append(temiz)
+        kacis = False
+        for karakter in ham:
+            if kacis:
+                kacis = False
+            elif karakter == "\\":
+                kacis = True
+            elif karakter == '"':
+                dizide = not dizide
+    return satirlar
 
 
 def _dengesiz_tirnak(content: str) -> bool:
@@ -118,7 +196,7 @@ def _godot_kaynak_denetle(content: str) -> str | None:
             "Godot'un dosyayı hiç yükleyememesine yol açar: `Parse Error`. "
             "Gömülü GDScript bloğunu kapatan tırnağı kontrol et."
         )
-    satirlar = _anlamli_satirlar(content)
+    satirlar = _dize_disi_satirlar(content)
     if not satirlar:
         return "Godot kaynak dosyası boş olamaz; `[gd_scene format=3]` ile başlamalı."
     ilk = _BOLUM.match(satirlar[0])
@@ -216,8 +294,22 @@ def _yaml_denetle(content: str) -> str | None:
         import yaml
     except ImportError:
         return None
+
+    class _Yukleyici(yaml.SafeLoader):
+        """Bilinmeyen etiketleri (`!Ref`, `!Sub`, `!vault`) değeriyle tolere eder."""
+
+    def _etiketsiz(loader, _sonek, dugum):  # type: ignore[no-untyped-def]
+        if isinstance(dugum, yaml.ScalarNode):
+            return loader.construct_scalar(dugum)
+        if isinstance(dugum, yaml.SequenceNode):
+            return loader.construct_sequence(dugum, deep=True)
+        return loader.construct_mapping(dugum, deep=True)
+
+    _Yukleyici.add_multi_constructor("!", _etiketsiz)
     try:
-        yaml.safe_load(content)
+        # Çok belgeli YAML (`---`: k8s manifestleri) geçerlidir; tek belge varsayımı
+        # doğru dosyayı reddediyordu. Ölçüldü (30 Ekim).
+        list(yaml.load_all(content, Loader=_Yukleyici))  # noqa: S506 - SafeLoader türevi
     except yaml.YAMLError as hata:
         return f"YAML geçersiz: {str(hata).splitlines()[0]}"
     return None
@@ -350,4 +442,6 @@ def validate_structured(
     if yonlendirme is not None:
         return yonlendirme
     denetleyici = _ADA_GORE.get(path.name) or _DENETLEYICILER.get(path.suffix.casefold())
+    if denetleyici is _json_denetle and _jsonc_mi(path):
+        denetleyici = _jsonc_denetle
     return denetleyici(content) if denetleyici else None
