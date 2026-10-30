@@ -75,3 +75,19 @@ def test_adim_zarfinin_harcamasi_kendi_kapsaminda_okunur():
 
     assert ledger.used(BudgetEnvelope.PER_STEP, scope="adim-1") == 2
     assert ledger.used(BudgetEnvelope.PER_STEP, scope="adim-2") == 0
+
+
+def test_taninmayan_zarf_geri_yuklemeyi_cokertmez():
+    """Ölçüldü (30 Ekim): başka sürümün bilinmeyen zarfı ValueError atıyordu (E1-29)."""
+    from fusion_cli.core.checkpoint import WorkflowBudgetUsage
+
+    ledger = BudgetLedger(WorkflowBudget(planning=5, per_step=5, recovery=5, final=5))
+
+    ledger.restore(
+        (
+            WorkflowBudgetUsage(envelope="gelecek_zarf", scope="", calls=3),
+            WorkflowBudgetUsage(envelope="planning", scope="", calls=2),
+        )
+    )
+
+    assert ledger.used(BudgetEnvelope.PLANNING) == 2

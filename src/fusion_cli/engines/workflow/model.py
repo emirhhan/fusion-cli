@@ -139,8 +139,13 @@ class BudgetLedger:
         for item in usage:
             if item.calls < 0:
                 raise ValueError("Workflow çağrı harcaması negatif olamaz.")
-            key = self._key(BudgetEnvelope(item.envelope), item.scope)
-            self._used[key] = item.calls
+            try:
+                envelope = BudgetEnvelope(item.envelope)
+            except ValueError:
+                # Tanınmayan zarf (başka sürümün checkpoint'i): bütün geri yüklemeyi
+                # çökertmek yerine o kayıt atlanır, kalanı yüklenir (E1-29).
+                continue
+            self._used[self._key(envelope, item.scope)] = item.calls
 
 
 @dataclass(frozen=True, slots=True)
