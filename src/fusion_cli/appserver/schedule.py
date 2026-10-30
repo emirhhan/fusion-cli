@@ -28,6 +28,7 @@ from .schedule_delivery import (
     store_lock,
     validate_deliveries,
 )
+from .schedule_lease import LEASE_TTL_S, acquire_lease, release_lease
 
 KIND_ONCE = "bir_kez"
 KIND_DAILY = "gunluk"
@@ -425,6 +426,31 @@ def ack_pending_delivery(data: dict[str, Any]) -> dict[str, object]:
     return {"ok": accepted}
 
 
+def acquire_scheduler_lease(data: dict[str, Any]) -> dict[str, Any]:
+    """`zamanlama.sahiplik`: vade yoklamasının sahibi olmayı iste ya da kirayı yenile."""
+    owner, duration = data.get("sahip"), data.get("sure_s")
+    if not isinstance(owner, str):
+        return {"ok": False, "metin": "Zamanlayıcı sahibi gerekli."}
+    ttl = (
+        duration if isinstance(duration, (int, float)) and not isinstance(duration, bool) else None
+    )
+    try:
+        return acquire_lease(owner, schedules_path(), ttl=float(ttl or LEASE_TTL_S))
+    except OSError as error:
+        return {"ok": False, "metin": str(error)}
+
+
+def release_scheduler_lease(data: dict[str, Any]) -> dict[str, Any]:
+    """`zamanlama.sahiplik_birak`: uygulama kapanırken kirayı hemen bırak."""
+    owner = data.get("sahip")
+    if not isinstance(owner, str):
+        return {"ok": False, "metin": "Zamanlayıcı sahibi gerekli."}
+    try:
+        return release_lease(owner, schedules_path())
+    except OSError as error:
+        return {"ok": False, "metin": str(error)}
+
+
 #: İstek adı → işleyici. `session.py` yalnız bu tabloya bakar.
 SCHEDULE_ROUTES: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "zamanlama.liste": lambda _data: list_schedules(),
@@ -436,4 +462,6 @@ SCHEDULE_ROUTES: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "zamanlama.simdi": run_now,
     "zamanlama.teslim_bekleyenler": lambda _data: list_pending_deliveries(),
     "zamanlama.teslim_onayla": ack_pending_delivery,
+    "zamanlama.sahiplik": acquire_scheduler_lease,
+    "zamanlama.sahiplik_birak": release_scheduler_lease,
 }
