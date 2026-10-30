@@ -59,7 +59,8 @@ def _integer(value: object, *, default: int, minimum: int, maximum: int) -> int:
         return default
     try:
         parsed = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # `float('inf')` → OverflowError; ham hata metni UI'ya gitmesin (ölçüldü 30 Ekim).
         return default
     return max(minimum, min(parsed, maximum))
 
@@ -321,6 +322,11 @@ def preview_entry(root: Path, data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+#: Yeni dosyanın varsayılan izni. `mkstemp` 0600 oluşturur; yeni dosya bu hâlde kalırsa
+#: aynı grubun/servisin (ör. yerel sunucu) okuyamadığı dosyalar doğardı (ölçüldü 30 Ekim).
+_NEW_FILE_MODE = 0o644
+
+
 def _atomic_write(path: Path, content: bytes, *, mode: int | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -330,8 +336,7 @@ def _atomic_write(path: Path, content: bytes, *, mode: int | None = None) -> Non
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
-        if mode is not None:
-            temporary.chmod(mode)
+        temporary.chmod(_NEW_FILE_MODE if mode is None else mode)
         temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)

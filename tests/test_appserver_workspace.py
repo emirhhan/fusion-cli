@@ -335,3 +335,19 @@ async def test_degisiklikler_cok_dosyada_dosya_basina_git_diff_sayisini_sinirlar
     assert len(diff_cagrilari) <= workspace.MAX_DETAILED_CHANGES
     ayrintisiz = [d for d in sonuc["degisiklikler"] if not d["diff"]]
     assert len(ayrintisiz) == 50
+
+
+async def test_proje_yaz_yeni_dosya_0600_kalmaz_ve_sonsuz_limit_ham_hata_vermez(tmp_path: Path):
+    """Ölçüldü (30 Ekim, S2-38, S2-39): `mkstemp` yeni dosyayı 0600 bırakıyordu;
+    `_integer(inf)` OverflowError ile ham hata metni sızdırıyordu."""
+    import stat
+    import sys
+
+    from fusion_cli.appserver.workspace import _integer
+
+    assert _integer(float("inf"), default=7, minimum=1, maximum=10) == 7
+
+    yeni = await _request(tmp_path, "proje.yaz", {"yol": "yeni.txt", "icerik": "x", "expected_sha256": ""})
+    assert yeni["ok"] is True
+    if sys.platform != "win32":
+        assert stat.S_IMODE((tmp_path / "yeni.txt").stat().st_mode) == 0o644
