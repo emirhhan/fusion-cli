@@ -1194,3 +1194,55 @@ def test_akan_cevapta_acik_think_blogu_yine_gizlenir():
 
     cikti = buffer.getvalue()
     assert "Cevap" in cikti and "düşünüyor" not in cikti
+
+
+# --- Dalga 4: --quiet uyarıyı yutmaz, iptal tur durumunu sıfırlar, onay satırı kapatır --- #
+
+
+def _sessiz_renderer():
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    return ConsoleRenderer(console, show_progress=False), buffer
+
+
+def test_quiet_modda_salt_okunur_uyarisi_gorunur():
+    """Ölçüldü (30 Ekim): `--quiet` MutationUnavailable'ı yutuyordu; kullanıcı salt-okunur
+    turu başarılı sanıyordu (L1-23)."""
+    from fusion_cli.core.events import ExecutionCompleted, MutationUnavailable
+
+    renderer, buffer = _sessiz_renderer()
+
+    renderer.handle(MutationUnavailable(reason="model araç çağıramıyor", blocking=False))
+    renderer.handle(ExecutionCompleted(plan_id="p", total_steps=1, warnings=("kanıtlanmadı",)))
+    renderer.handle(StatusChanged("sıradan ilerleme"))
+
+    cikti = buffer.getvalue()
+    assert "model araç çağıramıyor" in cikti
+    assert "kanıtlanmadı" in cikti
+    assert "sıradan ilerleme" not in cikti
+
+
+def test_abort_bekleyen_durum_satirini_ve_tur_acilisini_sifirlar():
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    renderer = ConsoleRenderer(console)
+    renderer.handle(StatusChanged("iptal edilen turun durumu"))
+    renderer._turn_opened = True
+
+    renderer.abort()
+    renderer.handle(TokenReceived(Channel.MAIN, "yeni tur cevabı\n"))
+    renderer.handle(TurnFinished())
+
+    assert "iptal edilen turun durumu" not in buffer.getvalue()
+    assert renderer._turn_opened is False
+
+
+def test_onay_icin_askiya_alirken_yarim_satir_kapanir():
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    renderer = ConsoleRenderer(console)
+    renderer.handle(TokenReceived(Channel.MAIN, "yarım satır"))
+    assert renderer._line_open is True
+
+    with renderer.suspended():
+        assert renderer._line_open is False

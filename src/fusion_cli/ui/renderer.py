@@ -181,7 +181,7 @@ class ConsoleRenderer:
         elif isinstance(event, ModelFallbackActivated):
             if not event.background:
                 self._work.update(model=format_model(event.fallback_model))
-                self._status(
+                self._warn(
                     messages.MODEL_FALLBACK.format(
                         requested=format_model(event.requested_model),
                         fallback=format_model(event.fallback_model),
@@ -190,7 +190,7 @@ class ConsoleRenderer:
                 )
         elif isinstance(event, TierDegraded):
             # Yalnız BİLGİLENDİRİR — turu ASLA düşürmez (bkz. olayın docstring'i).
-            self._status(
+            self._warn(
                 messages.TIER_DEGRADED.format(
                     expected=event.expected_tier,
                     served=event.served_by,
@@ -233,13 +233,13 @@ class ConsoleRenderer:
         elif isinstance(event, ExecutionCheckpointSaved):
             self._status(f"Checkpoint kaydedildi: {event.completed_steps} adım tamam")
         elif isinstance(event, ExecutionPaused):
-            self._status(f"Workflow duraklatıldı: {event.reason}")
+            self._warn(f"Workflow duraklatıldı: {event.reason}")
         elif isinstance(event, ExecutionCompleted):
             self._status(f"Plan tamamlandı: {event.total_steps} adım doğrulandı")
             # Kanıtlanmayan şey SESSİZ kalmaz: "tamamlandı" satırı tek başına
             # kullanıcıya işin kanıtlandığını düşündürür.
             for uyari in event.warnings:
-                self._status(f"UYARI: {uyari}")
+                self._warn(f"UYARI: {uyari}")
         elif isinstance(event, ToolExecuted):
             self._tool_executed(event)
             self._resume_work(messages.WORK_THINKING)
@@ -331,11 +331,11 @@ class ConsoleRenderer:
         elif isinstance(event, LessonsLearned):
             self._status(messages.AGENT_LESSONS_LEARNED.format(count=event.count))
         elif isinstance(event, ContextCompressed):
-            self._status(
+            self._warn(
                 messages.AGENT_CONTEXT_COMPRESSED.format(before=event.before, after=event.after)
             )
         elif isinstance(event, MutationUnavailable):
-            self._status(messages.AGENT_MUTATION_UNAVAILABLE.format(reason=event.reason))
+            self._warn(messages.AGENT_MUTATION_UNAVAILABLE.format(reason=event.reason))
         elif isinstance(event, TurnBudgetExhausted):
             self._error(_budget_reason(event))
         elif isinstance(event, ErrorOccurred):
@@ -418,6 +418,11 @@ class ConsoleRenderer:
         # Live'ı durdurur; iptal edilmiş turda süre/token özeti anlamlı değil, yok sayılır.
         self._work.finish()
         self._active_channel = None
+        # Tur durumu SIFIRLANIR (`TurnFinished` gelmedi): bekleyen durum satırı sonraki
+        # turun ilk çıktısında yanlış bağlamda basılıyor, `_turn_opened` açık kalırsa o
+        # turun açılış beyanı 4 yerine 1 satıra kırpılıyordu (L1-22).
+        self._pending_status = None
+        self._turn_opened = False
 
     @contextlib.contextmanager
     def suspended(self) -> Iterator[None]:
@@ -427,7 +432,10 @@ class ConsoleRenderer:
         yenileme iş parçacığı bu sırada durmazsa cevap istemini ve kullanıcının
         yazdığını sürekli siler. Bittiğinde gösterge kaldığı yerden sürer.
         """
-        self._work.pause()
+        # Yarım model satırı (`_line_open`) KAPATILIR: onay paneli aynı satıra basılıyor ve
+        # `Live` yeniden başlarken satırı siliyordu (L1-22). `_close_line` göstergeyi de
+        # duraklatır.
+        self._close_line()
         try:
             yield
         finally:
@@ -647,6 +655,22 @@ class ConsoleRenderer:
             return
         self._end_block()
         self._pending_status = message
+
+    def _warn(self, message: str) -> None:
+        """Sonucun yorumunu değiştiren UYARI: `--quiet` bile bunu yutmaz.
+
+        Ölçüldü (30 Ekim): `show_progress=False` iken `_status` hiçbir şey basmıyor;
+        "model dosya değiştiremez", yedeğe düşüş, bağlam sıkıştırma ve "kanıtlanmadı"
+        uyarıları kayboluyor, kullanıcı salt-okunur bir turu "başarılı" sanıyordu
+        (L1-23). İlerleme gürültüsü sessizleşir, uyarı sessizleşmez.
+        """
+        if self._show_progress:
+            self._status(message)
+            return
+        self._flush_streams()
+        self._close_line()
+        self._end_block()
+        self._console.print(f"[{theme.WARN}]{theme.ICON_STATUS} {escape(message)}[/{theme.WARN}]")
 
     def _flush_status(self, detail: str = "") -> None:
         """Bekleyen durum satırını bas. `detail` verilirse sonuna parantezle ekle."""
