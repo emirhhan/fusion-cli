@@ -3,6 +3,7 @@ import { ProviderLogo, type ProviderId } from "../../brand/ProviderLogo";
 import { Button } from "../../ui/Button";
 import type { ProtocolClient } from "../../protocol/client";
 import { errorMessage } from "../../protocol/result";
+import { approveModel, isModelApproved } from "../../screens/modelApprovals";
 import "./RoleModels.css";
 
 /**
@@ -49,6 +50,8 @@ export function RoleModels({ client }: { client: ProtocolClient }) {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [verifying, setVerifying] = useState<string | null>(null);
+  // Hazır olmayan (hazir:false) model satır içi onayla seçilir (U2-49).
+  const [confirming, setConfirming] = useState<{ role: RoleId; row: Option } | null>(null);
   // Bölüm kapanınca captcha doğrulama döngüsü durur (U2-48): sökülmüş bileşene `setNotice` yazılmaz,
   // `web.baglan`/`web.dogrula` çağrılmaz.
   const mounted = useRef(true);
@@ -113,7 +116,15 @@ export function RoleModels({ client }: { client: ProtocolClient }) {
   const markModel = (id: RoleId) => id === "candidates" ? roles.candidates[0] ?? "" : (roles[id] || "");
   const isSelected = (id: RoleId, model: string) => id === "candidates" ? roles.candidates.includes(model) : roles[id] === model;
 
-  const pick = (id: RoleId, model: string) => {
+  const pick = (id: RoleId, model: string, confirmed = false) => {
+    const row = options.find((item) => item.model === model);
+    const approvalKey = `role-models:${model}`;
+    if (row && !row.hazir && !confirmed && !isSelected(id, model) && !isModelApproved(approvalKey)) {
+      setConfirming({ role: id, row });
+      return;
+    }
+    if (confirmed) approveModel(approvalKey);
+    setConfirming(null);
     if (id === "candidates") {
       const next = roles.candidates.includes(model) ? roles.candidates.filter((item) => item !== model) : [...roles.candidates, model];
       if (next.length > 0) void assign("candidates", next);
@@ -160,8 +171,20 @@ export function RoleModels({ client }: { client: ProtocolClient }) {
         <div className="rm__picker" role="region" aria-label={`${active.baslik} için model seç`}>
           <div className="rm__picker-head">
             <div><h4>{active.baslik}</h4><p>{active.aciklama}</p></div>
-            <button aria-label="Kapat" className="rm__x" onClick={() => setOpen(null)} type="button">×</button>
+            <button aria-label="Kapat" className="rm__x" onClick={() => { setConfirming(null); setOpen(null); }} type="button">×</button>
           </div>
+          {confirming && confirming.role === active.id && (
+            <div className="rm__confirm" role="alertdialog" aria-label={`${confirming.row.etiket} seçimini onayla`}>
+              <p>
+                <b>{confirming.row.etiket}</b> şu an hazır değil{confirming.row.not ? ` (${confirming.row.not})` : ""}.
+                Yine de seçersen bu rol yanıt veremeyebilir.
+              </p>
+              <div className="rm__confirm-actions">
+                <Button variant="secondary" autoFocus onClick={() => setConfirming(null)}>Vazgeç</Button>
+                <Button variant="secondary" onClick={() => pick(confirming.role, confirming.row.model, true)}>Bu model şu an hazır değil, yine de seç</Button>
+              </div>
+            </div>
+          )}
           <ul className="rm__models">
             {active.id === "teacher" && (
               <li>

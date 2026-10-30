@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Icon } from "../ui/Icon";
+import { approveModel, isModelApproved } from "./modelApprovals";
 import "./ModelPicker.css";
 
 /**
@@ -58,6 +59,8 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
   const trigger = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const [highlight, setHighlight] = useState(0);
+  // Araç desteği doğrulanmamış modeller satır içi onayla seçilir (U1-45).
+  const [confirming, setConfirming] = useState<ModelOption | null>(null);
   const kutu = useRef<HTMLDivElement>(null);
   const groupLabels: Record<string, string> = {
     low: "Basit ve hızlı görevler",
@@ -108,18 +111,26 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
     if (open) { setOpen(false); return; }
     setQuery("");
     setHighlight(0);
+    setConfirming(null);
     setOpen(true);
     onOpen?.();
   };
 
-  const choose = (option: ModelOption) => {
+  const choose = (option: ModelOption, confirmed = false) => {
     if (pending) return;
+    const approvalKey = `model-picker:${option.deger}`;
+    if (option.toolSupport === "unknown" && !confirmed && !isModelApproved(approvalKey)) {
+      setConfirming(option);
+      return;
+    }
+    if (confirmed) approveModel(approvalKey);
+    setConfirming(null);
     setOpen(false);
     trigger.current?.focus();
     onSelect(option.deger);
   };
   const keyboard = (event: React.KeyboardEvent) => {
-    if (!visible.length || pending || busy) return;
+    if (!visible.length || pending || busy || confirming) return;
     let next = highlight;
     if (event.key === "ArrowDown") next = Math.min(highlight + 1, visible.length - 1);
     else if (event.key === "ArrowUp") next = Math.max(highlight - 1, 0);
@@ -174,7 +185,17 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
           {!busy && options.length > 0 && visible.length === 0 && (
             <p className="model-picker__state">Aramayla eşleşen etkin model yok.</p>
           )}
-          <div id={listId} role="listbox" aria-label="Model listesi">
+          {confirming && (
+            <div className="model-picker__confirm" role="alertdialog" aria-label={`${confirming.etiket} seçimini onayla`}>
+              <p><strong>{confirming.etiket}</strong> için araç desteği doğrulanmadı. Dosya ve komut araçları çalışmayabilir.</p>
+              <div className="model-picker__confirm-actions">
+                <button autoFocus type="button" onClick={() => setConfirming(null)}>Vazgeç</button>
+                <button type="button" onClick={() => choose(confirming, true)}>Yine de seç</button>
+              </div>
+              <small>Seçersen bu oturumda tekrar sorulmaz.</small>
+            </div>
+          )}
+          <div id={listId} role="listbox" aria-label="Model listesi" hidden={confirming !== null}>
           {!busy && groups.map(([group, entries]) => (
             <div className="model-picker__group" key={group} role="group" aria-labelledby={`${listId}-group-${group}`}>
               <p id={`${listId}-group-${group}`} className="model-picker__group-title">{groupLabels[group] ?? group}</p>
