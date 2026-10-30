@@ -1,4 +1,4 @@
-"""İptalde sahipli iş parçacığı beklemesi sınırlıdır; asılan iş "sahipsiz kaldı" olarak bildirilir (C1-15).
+"""İptalde sahipli iş parçacığı beklemesi sınırlıdır; asılan iş "sahipsiz kaldı" sayılır (C1-15).
 
 Ölçüldü (30 Ekim): iptal döngüsü `CancelledError`'ı yutup iş parçacığı bitene dek bekliyordu;
 asılan bir iş parçacığında (ağ okuması, kilit) "durdur" hiç tamamlanmıyordu.

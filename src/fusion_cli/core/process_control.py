@@ -14,8 +14,14 @@ from pathlib import Path
 from threading import Event
 from typing import Any
 
+from .bounded_capture import BoundedCapture
 from .clock import SystemClock
-from .constants import PROCESS_CONTROL_TIMEOUT_S, PROCESS_POLL_S, PROCESS_TERMINATE_GRACE_S
+from .constants import (
+    PROCESS_CONTROL_TIMEOUT_S,
+    PROCESS_POLL_S,
+    PROCESS_TERMINATE_GRACE_S,
+    SHELL_CAPTURE_CHARS,
+)
 from .errors import CleanupFailedError, ProcessCancelledError
 from .protocols import Clock
 
@@ -162,20 +168,33 @@ def _group_exists(pid: int) -> bool:
             ) from None
 
 
-def _drain(process: subprocess.Popen[str], *, force: bool) -> tuple[str, str]:
+def _drain(
+    process: subprocess.Popen[bytes],
+    captures: tuple[BoundedCapture, BoundedCapture],
+    *,
+    force: bool,
+) -> tuple[str, str]:
+    """Süreç ağacını durdur; kabuğun çıkışını ve boruların kapanmasını doğrula."""
     terminate_process_tree(process.pid, force=force)
-    try:
-        output = process.communicate(timeout=PROCESS_TERMINATE_GRACE_S)
-    except subprocess.TimeoutExpired:
+    if not _await_closed(process, captures):
         terminate_process_tree(process.pid, force=True)
-        try:
-            output = process.communicate(timeout=PROCESS_TERMINATE_GRACE_S)
-        except subprocess.TimeoutExpired:
+        if not _await_closed(process, captures):
             raise CleanupFailedError(
                 "Süreç çıkışı veya çıktı borularının kapanması doğrulanamadı."
             ) from None
     ensure_process_group_exit(process.pid)
-    return output
+    return captures[0].text(), captures[1].text()
+
+
+def _await_closed(
+    process: subprocess.Popen[bytes], captures: tuple[BoundedCapture, BoundedCapture]
+) -> bool:
+    """Kabuk çıktı mı ve iki boru EOF'a ulaştı mı (her biri en çok bir bekleme payı)?"""
+    try:
+        process.wait(timeout=PROCESS_TERMINATE_GRACE_S)
+    except subprocess.TimeoutExpired:
+        return False
+    return all(capture.wait_eof(PROCESS_TERMINATE_GRACE_S) for capture in captures)
 
 
 def ensure_process_group_exit(pid: int, *, graceful: bool = False) -> None:
@@ -210,6 +229,11 @@ def run_foreground(
 
     `argv_prefix` doluysa (ör. `sandbox-exec ...`) komut `/bin/sh -c` ile onun altında çalışır;
     `shell=True` ile aynı kabuktur.
+
+    Çıktı bellekte SINIRLIDIR (`SHELL_CAPTURE_CHARS`: akış başına baş + son kesit, C1-16).
+    Kabuk normal çıkınca borular `PROCESS_TERMINATE_GRACE_S` içinde kapanmazsa (boruyu tutan
+    `cmd &` çocuğu) o ana kadarki çıktıyla DÖNÜLÜR; çocuğa dokunulmaz ve yaşamaya devam eder,
+    çıktısı atılarak boşaltılır. Zaman aşımı ve iptal yolları grubu eskisi gibi öldürür.
     """
     if cancelled.is_set():
         raise ProcessCancelledError("Komut başlamadan iptal edildi.")
@@ -220,31 +244,39 @@ def run_foreground(
         shell=not argv_prefix,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
         cwd=cwd,
         env=env,
         **process_group_options(),
+    )
+    assert process.stdout is not None and process.stderr is not None
+    captures = (
+        BoundedCapture(process.stdout, limit=SHELL_CAPTURE_CHARS),
+        BoundedCapture(process.stderr, limit=SHELL_CAPTURE_CHARS),
     )
     cleanup_started = False
     try:
         while True:
             if cancelled.is_set():
                 cleanup_started = True
-                _drain(process, force=False)
+                _drain(process, captures, force=False)
                 raise ProcessCancelledError("Komut ve sahip olunan çocuk süreçler durduruldu.")
             remaining = deadline - timing.monotonic()
             if remaining <= 0:
                 cleanup_started = True
-                stdout, stderr = _drain(process, force=True)
+                stdout, stderr = _drain(process, captures, force=True)
                 raise subprocess.TimeoutExpired(command, timeout_s, output=stdout, stderr=stderr)
             try:
-                stdout, stderr = process.communicate(timeout=min(PROCESS_POLL_S, remaining))
-                return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+                process.wait(timeout=min(PROCESS_POLL_S, remaining))
             except subprocess.TimeoutExpired:
                 continue
+            for capture in captures:
+                capture.wait_eof(PROCESS_TERMINATE_GRACE_S)
+            return subprocess.CompletedProcess(
+                command, process.returncode, captures[0].text(), captures[1].text()
+            )
     except BaseException:
         if not cleanup_started:
-            _drain(process, force=True)
+            _drain(process, captures, force=True)
         raise
 
 
