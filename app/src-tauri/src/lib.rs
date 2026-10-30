@@ -203,18 +203,34 @@ fn voice_window_lifecycle_plan(lifecycle: VoiceWindowLifecycle) -> VoiceWindowLi
     }
 }
 
+/// Sonlu sayıyı sınırlar; NaN/∞ alt sınıra düşer (`f64::clamp` NaN'ı korurdu, R2-24).
+fn finite_clamp(value: f64, min: f64, max: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(min, max)
+    } else {
+        min
+    }
+}
+
 fn voice_geometry_plan(geometry: &VoiceWindowGeometry) -> VoiceGeometryPlan {
-    let position = geometry.x.zip(geometry.y);
+    let position = geometry
+        .x
+        .zip(geometry.y)
+        .filter(|(x, y)| x.is_finite() && y.is_finite());
     if geometry.wide {
         VoiceGeometryPlan {
             position,
             size: (
-                geometry
-                    .normal_width
-                    .clamp(SES_NORMAL_MIN_BOYUT.0, SES_NORMAL_MAX_BOYUT.0),
-                geometry
-                    .normal_height
-                    .clamp(SES_NORMAL_MIN_BOYUT.1, SES_NORMAL_MAX_BOYUT.1),
+                finite_clamp(
+                    geometry.normal_width,
+                    SES_NORMAL_MIN_BOYUT.0,
+                    SES_NORMAL_MAX_BOYUT.0,
+                ),
+                finite_clamp(
+                    geometry.normal_height,
+                    SES_NORMAL_MIN_BOYUT.1,
+                    SES_NORMAL_MAX_BOYUT.1,
+                ),
             ),
             min_size: Some(SES_NORMAL_MIN_BOYUT),
             max_size: Some(SES_NORMAL_MAX_BOYUT),
@@ -299,6 +315,8 @@ fn apply_voice_geometry(
 #[tauri::command]
 async fn ses_penceresi_ac(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(mevcut) = app.get_webview_window(SES_PENCERESI) {
+        // Simge durumundaki pencere `show()` ile geri gelmez; önce açılır (R2-24).
+        mevcut.unminimize().map_err(|e| e.to_string())?;
         mevcut.show().map_err(|e| e.to_string())?;
         mevcut.set_focus().map_err(|e| e.to_string())?;
     } else {
@@ -578,11 +596,15 @@ async fn ses_penceresi_kapat(app: tauri::AppHandle) -> Result<(), String> {
     if plan.stop_recognition {
         cleanup_route_from_app(ShutdownRoute::TalkClose, &app);
     }
-    if plan.close_voice {
-        if let Some(ses) = app.get_webview_window(SES_PENCERESI) {
-            ses.close().map_err(|error| error.to_string())?;
-        }
-    }
+    // Konuşma penceresi kapanmasa bile ana pencere geri getirilir; yoksa kullanıcı simge
+    // durumunda kalırdı (R2-24). Kapatma hatası en sonda bildirilir.
+    let close_error = if plan.close_voice {
+        app.get_webview_window(SES_PENCERESI)
+            .and_then(|ses| ses.close().err())
+            .map(|error| error.to_string())
+    } else {
+        None
+    };
     if plan.restore_main {
         if let Some(ana) = app.get_webview_window("main") {
             ana.unminimize().map_err(|error| error.to_string())?;
@@ -590,7 +612,7 @@ async fn ses_penceresi_kapat(app: tauri::AppHandle) -> Result<(), String> {
             ana.set_focus().map_err(|error| error.to_string())?;
         }
     }
-    Ok(())
+    close_error.map_or(Ok(()), Err)
 }
 
 #[tauri::command]
@@ -878,6 +900,22 @@ mod voice_geometry_tests {
         assert_eq!(plan.position, Some((120.0, 80.0)));
         assert_eq!(plan.size, (520.0, 420.0));
         assert_eq!(plan.on_top, Some(false));
+    }
+
+    /// Ölçüldü (30 Ekim): `f64::clamp` NaN'ı korur; bozuk geometri NaN boyutu pencereye iletiyordu.
+    #[test]
+    fn non_finite_geometry_falls_back_to_safe_values() {
+        let plan = voice_geometry_plan(&VoiceWindowGeometry {
+            x: Some(f64::NAN),
+            y: Some(10.0),
+            normal_width: f64::NAN,
+            normal_height: f64::INFINITY,
+            wide: true,
+            on_top: true,
+        });
+
+        assert_eq!(plan.position, None);
+        assert_eq!(plan.size, SES_NORMAL_MIN_BOYUT);
     }
 
     #[test]
