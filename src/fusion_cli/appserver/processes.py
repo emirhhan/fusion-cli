@@ -197,9 +197,7 @@ class ProcessManager:
         """
         if not task.cancelled() and task.exception() is not None:
             _LOG.error("Süreç çıktı pompası hatayla bitti: %s", type(task.exception()).__name__)
-        finished = [
-            item for item in self._records.values() if item.status not in _ACTIVE_STATUSES
-        ]
+        finished = [item for item in self._records.values() if item.status not in _ACTIVE_STATUSES]
         finished.sort(key=lambda item: item.started_at)
         for old in finished[: max(0, len(finished) - self._max_finished)]:
             self._records.pop(old.process_id, None)

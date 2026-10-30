@@ -551,7 +551,7 @@ class AppSession:
             logging.getLogger(__name__).error(
                 "İstek işlenemedi (%s): %s", request.name, type(error).__name__
             )
-            data = {"ok": False, "metin": redact(str(error))}
+            data = {"ok": False, "metin": redact(str(error)[:2_000])}
         self._writer(encode_result(request.id, data))
 
     def _remote_controller(self) -> RemoteController:
@@ -2094,7 +2094,9 @@ class AppSession:
             # İptal durumu ekran metninin eşitliğinden değil açık işaretten çıkarılır (metin
             # değişirse/yerelleştirilirse yanlış durum yazılırdı; ölçüldü 30 Ekim).
             was_cancelled = result.pop("_cancelled", False) is True
-            state = "completed" if result.get("ok") else ("cancelled" if was_cancelled else "failed")
+            state = (
+                "completed" if result.get("ok") else ("cancelled" if was_cancelled else "failed")
+            )
             is_retry_safe = result.pop("_retry_safe", False) is True
             terminal = await self._submission_store.finish(
                 receipt,

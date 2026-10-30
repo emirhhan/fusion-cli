@@ -116,3 +116,22 @@ def test_akis_gizleyicisi_sirsiz_metni_aynen_birlestirir():
     toplam = "".join(gizleyici.feed(p) for p in parcalar) + gizleyici.flush()
 
     assert toplam == "merhaba dünya\nikinci satır"
+
+
+def test_uzun_bosluksuz_govde_redaksiyonu_karesel_yavaslatmaz():
+    """Ölçüldü (30 Ekim): anahtar=değer deseninin sınırsız önek/soneki uzun boşluksuz gövdede
+    karesel çalışıyordu (3 200 karakter 1,3 sn; 50 000 karakter dakikalar). Önek/sonek 64 ile
+    sınırlandı; sır yine maskelenir."""
+    import time
+
+    from fusion_cli.core.redaction import redact
+
+    metin = (
+        "Authorization: Bearer abcdef1234567890xyz\n" + "x" * 50_000 + " ANTHROPIC_API_KEY=sk-gizli"
+    )
+    baslangic = time.monotonic()
+
+    sonuc = redact(metin)
+
+    assert time.monotonic() - baslangic < 5
+    assert "abcdef1234567890xyz" not in sonuc and "sk-gizli" not in sonuc

@@ -234,7 +234,13 @@ def test_ackli_teslimler_budanir_onaysizlar_korunur():
         for n in range(MAX_ACKNOWLEDGED_DELIVERIES + 5)
     ]
     bekleyen = asdict(ScheduleDelivery("bekleyen", "s1", 0.5, "B", "gorev", "/k"))
-    item = {"id": "s1", "baslik": "B", "gorev": "gorev", "kok": "/k", DELIVERY_FIELD: [bekleyen, *eskiler]}
+    item = {
+        "id": "s1",
+        "baslik": "B",
+        "gorev": "gorev",
+        "kok": "/k",
+        DELIVERY_FIELD: [bekleyen, *eskiler],
+    }
 
     sonuc = add_delivery(item, 999.0)
 

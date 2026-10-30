@@ -260,7 +260,9 @@ def list_flows(directory: Path | None = None) -> dict[str, Any]:
         # tüm akış listesi düşüyordu.
         if not isinstance(content, dict):
             continue
-        items.append({"id": path.stem, "ad": _text(content.get("ad", ""), _MAX_NAME) or "Adsız akış"})
+        items.append(
+            {"id": path.stem, "ad": _text(content.get("ad", ""), _MAX_NAME) or "Adsız akış"}
+        )
     return {"ok": True, "akislar": items}
 
 

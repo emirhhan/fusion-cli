@@ -49,11 +49,13 @@ _SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
         re.IGNORECASE,
     ),
     # Generic env/JSON auth keys, including vendor-prefixed names such as
-    # ANTHROPIC_API_KEY and nested JSON config fields.
+    # ANTHROPIC_API_KEY and nested JSON config fields. Önek/sonek {0,64} ile SINIRLI: sınırsız
+    # `*` uzun boşluksuz gövdede (base64, minify çıktı) karesel çalışıyordu (ölçüldü 30 Ekim:
+    # 3 200 karakter 1,3 sn; 50 000 karakter dakikalar).
     re.compile(
-        r'((?:["\']?)[A-Za-z0-9_.-]*(?:api[_-]?key|access[_-]?token|refresh[_-]?token|'
+        r'((?:["\']?)[A-Za-z0-9_.-]{0,64}(?:api[_-]?key|access[_-]?token|refresh[_-]?token|'
         r"id[_-]?token|auth[_-]?token|client[_-]?secret|credential|token|secret|password)"
-        r'[A-Za-z0-9_.-]*(?:["\']?)\s*[:=]\s*)' + _VALUE,
+        r'[A-Za-z0-9_.-]{0,64}(?:["\']?)\s*[:=]\s*)' + _VALUE,
         re.IGNORECASE,
     ),
     # Common JSON auth/config fields. Keep the key, replace only the value so

@@ -63,7 +63,9 @@ def test_url_kimlik_bilgisi_durum_satirina_girmez() -> None:
 
 
 def test_kabuk_komutundaki_sir_maskelenir() -> None:
-    metin = progress_text("run_shell", {"command": "curl -H 'Authorization: Bearer abcdef1234567890xyz' x"})
+    metin = progress_text(
+        "run_shell", {"command": "curl -H 'Authorization: Bearer abcdef1234567890xyz' x"}
+    )
 
     assert "abcdef1234567890xyz" not in metin
 

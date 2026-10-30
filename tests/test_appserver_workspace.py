@@ -347,7 +347,9 @@ async def test_proje_yaz_yeni_dosya_0600_kalmaz_ve_sonsuz_limit_ham_hata_vermez(
 
     assert _integer(float("inf"), default=7, minimum=1, maximum=10) == 7
 
-    yeni = await _request(tmp_path, "proje.yaz", {"yol": "yeni.txt", "icerik": "x", "expected_sha256": ""})
+    yeni = await _request(
+        tmp_path, "proje.yaz", {"yol": "yeni.txt", "icerik": "x", "expected_sha256": ""}
+    )
     assert yeni["ok"] is True
     if sys.platform != "win32":
         assert stat.S_IMODE((tmp_path / "yeni.txt").stat().st_mode) == 0o644

@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
+from ..core.redaction import redact
 from .local_computer import LocalComputer
+
+#: Erişilebilirlik metninin UI'ya dönen üst sınırı (karakter).
+MAX_TEXT_CHARS = 50_000
 
 LOCAL_COMPUTER_ROUTES = {"bilgisayar.durum": "status", "bilgisayar.snapshot": "snapshot"}
 
@@ -51,7 +55,9 @@ async def dispatch_local_computer(
         "session_id": result.host.session_id,
         "snapshot_id": result.snapshot_id,
         "images": [image for entry in result.results for image in entry.images],
-        "text": "\n".join(entry.output for entry in result.results),
+        # Ekranda görünen parola/token UI'ya ve modele ham gitmesin; boyut da sınırlanır
+        # (ölçüldü 30 Ekim: ikisi de yoktu).
+        "text": redact("\n".join(entry.output for entry in result.results)[:MAX_TEXT_CHARS]),
     }
     if result.status == "unavailable":
         payload["metin"] = "Yerel bilgisayar sondası doğrulanamadı."

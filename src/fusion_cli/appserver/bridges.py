@@ -250,11 +250,12 @@ def _preview_value(value: object) -> str:
     Ölçüldü (30 Ekim): `write_file(content=<2 MB>)` tüm içeriği onay isteğine ve
     Chrome akışına basıyordu; `history_view` aynı değeri `redact` ediyordu, burası etmiyordu.
     """
-    text = redact(repr(value))
-    if len(text) <= APPROVAL_ARG_PREVIEW_MAX_CHARS:
-        return text
-    hidden = len(text) - APPROVAL_ARG_PREVIEW_MAX_CHARS
-    return f"{text[:APPROVAL_ARG_PREVIEW_MAX_CHARS]}… {hidden} karakter daha"
+    raw = repr(value)
+    # Önce kes, sonra maskele: `redact` çok uzun, boşluksuz bir gövdede (base64) çok yavaşlıyor.
+    if len(raw) <= APPROVAL_ARG_PREVIEW_MAX_CHARS:
+        return redact(raw)
+    hidden = len(raw) - APPROVAL_ARG_PREVIEW_MAX_CHARS
+    return f"{redact(raw[:APPROVAL_ARG_PREVIEW_MAX_CHARS])}… {hidden} karakter daha"
 
 
 def _approval_options(request: ApprovalRequest) -> list[dict[str, str]]:

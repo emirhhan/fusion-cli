@@ -153,7 +153,8 @@ def status(state: ReplState) -> dict[str, Any]:
         "motorlar": [{"deger": value, "etiket": label} for value, label in ENGINE_LABELS.items()],
         "planKipi": config.runtime.workflow_mode.value,
         "planKipleri": [
-            {"deger": value, "etiket": WORKFLOW_LABELS.get(value, value)} for value in WORKFLOW_MODE_VALUES
+            {"deger": value, "etiket": WORKFLOW_LABELS.get(value, value)}
+            for value in WORKFLOW_MODE_VALUES
         ],
         "ogretmenTanimli": config.teacher is not None,
         "bayraklar": [
