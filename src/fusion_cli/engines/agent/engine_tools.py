@@ -14,6 +14,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic as _monotonic
 from typing import TYPE_CHECKING, Protocol
 
 from ...config.models import Config
@@ -61,6 +62,8 @@ from .web_tools import web_work_tools
 #: Asıl öğretmen cevap vermezse denenecek en fazla yedek öğretmen. Her deneme bir web
 #: oturumunda 30-120 sn sürebilir (ölçüldü, 29 Eylül); birden fazlası turu boğar.
 TEACHER_FALLBACKS = 1
+#: Öğretmen zincirinin toplam süre payı: `request_timeout_s` çarpanı (A1-20).
+TEACHER_TOTAL_BUDGET_FACTOR = 2.0
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
     from .loop import AgentDeps, AgentOutcome
@@ -177,6 +180,11 @@ def teacher_candidates(config: Config, teacher: ModelSpec) -> list[ModelSpec]:
     """Asıl öğretmen ve ardından girişi doğrulanmış diğer tarayıcı oturumları."""
     adaylar = [teacher]
     for session in config.web_sessions:
+        # Ölçüldü (30 Ekim, A1-20): sabit adı "en fazla 1 yedek" der ama sınır
+        # `TEACHER_FALLBACKS + 2` idi; üç web oturumu varsa Codex payı kesilirdi.
+        # Web yedekleri sabitle sınırlanır; Codex (kullanıcı açtıysa) ayrı pay.
+        if len(adaylar) > TEACHER_FALLBACKS:
+            break
         if (
             session.model != teacher.model
             and session.transport == "browser"
@@ -193,7 +201,7 @@ def teacher_candidates(config: Config, teacher: ModelSpec) -> list[ModelSpec]:
         and codex_ready()
     ):
         adaylar.append(ModelSpec(name="ogretmen-codex", model=f"{PREFIX}default"))
-    return adaylar[: TEACHER_FALLBACKS + 2]
+    return adaylar
 
 
 def _without(registry: ToolRegistry, names: frozenset[str]) -> ToolRegistry:
@@ -400,6 +408,14 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
             # Ulaşılamayan öğretmen turu bozmamalı: bu turda bir daha sorulmaz ve
             # model kendi bilgisi ve araçlarıyla işi sürdürür.
             deps.teacher_calls_used = TURN_LIMIT
+            # Modele "kullanıcıya söyleme" denir ama kullanıcı çırak-only'ye düşüldüğünü
+            # bilmeli (A1-21): captcha/oturum süresi dolması sessiz kalite kaybıdır.
+            deps.publisher.publish(
+                StatusChanged(
+                    f"Öğretmen devre dışı: {hata or 'bilinmeyen hata'}. "
+                    "Bu tur kendi bilgisiyle sürecek; oturumu Ayarlar'dan kontrol et."
+                )
+            )
             return ToolResult.failure(
                 f"Öğretmene ulaşılamadı: {hata or 'bilinmeyen hata'}\n\n"
                 "ÖĞRETMEN OLMADAN DEVAM ET: Bu turda öğretmene tekrar sorma. İşi kendi "
@@ -548,7 +564,13 @@ async def _consult_candidates(
 
     result: ModelResult | None = None
     reddeden: ModelSpec | None = None
+    # Toplam süre sınırı (A1-20): her aday bir web turu (30-120 sn); zincir ve kalıp
+    # ret yeniden sorusu birlikte turu dakikalarca bloklamasın. Süre dolunca yeni
+    # aday BAŞLATILMAZ (süren çağrı kesilmez).
+    bitis = _monotonic() + TEACHER_TOTAL_BUDGET_FACTOR * max(runtime.request_timeout_s, 1.0)
     for aday in teacher_candidates(deps.config, teacher):
+        if result is not None and _monotonic() >= bitis:
+            break
         if result is not None:
             deps.publisher.publish(
                 StatusChanged(f"Öğretmen cevap vermedi; yedek öğretmen deneniyor ({aday.model})")
@@ -560,6 +582,8 @@ async def _consult_candidates(
             reddeden = aday
     if reddeden is None:
         return result, False
+    if _monotonic() >= bitis:
+        return result, True
     deps.publisher.publish(StatusChanged("Öğretmen soruyu geri çevirdi; bir kez daha soruluyor"))
     return await _sor(reddeden), True
 
