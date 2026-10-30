@@ -130,6 +130,11 @@ runtime:
   # görev bağlamını boğar. 0 = pencereye bakma. Mevcut kullanıcının açık ayarı ezilmez.
   compact_tools_window_tokens: 32768
   compact_external_tools: 12
+  # Sıkı yüzeyli (zayıf) modele görev türüne göre sabit araç alt kümesi (yol haritası 4.
+  # adım): soru/okuma, kod, web, oyun/medya, masaüstü. Tür konuşmanın isteklerinden gelir,
+  # yalnız genişler; profil dışı araç çağrılırsa yüzey tur için bir kez genişler. false =
+  # bugünkü sıkı yüzey. Güçlü model etkilenmez.
+  weak_model_tool_profiles: true
   # Kayan pencere maskeleme (yol haritası 3. adım): modele giden görünümde son N araç
   # sonucu (+ son assistant mesajındaki tüm paralel sonuçlar) tam kalır, eskileri kısa
   # yer tutucuya iner; kalıcı geçmiş değişmez. 0 = kapalı. 8: SWE-agent ~5, JetBrains

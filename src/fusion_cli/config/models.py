@@ -241,6 +241,11 @@ class RuntimeConfig:
     #: Sıkı yüzeyli modele sunulacak EN FAZLA MCP/eklenti aracı sayısı (M1-12); registry
     #: sırasıyla ilk N. 0 = sınır yok.
     compact_external_tools: int = 12
+    #: Sıkı yüzeyli (zayıf) modele görev türüne göre SABİT araç alt kümesi (yol haritası
+    #: 4. adım): soru/okuma, kod düzenleme, web, oyun/medya, masaüstü. Tür, konuşmanın
+    #: istekleriyle belirlenir ve yalnız genişler. False = bugünkü sıkı yüzey. Güçlü modele
+    #: etkisi yoktur.
+    weak_model_tool_profiles: bool = True
     #: Kayan pencere maskeleme: modele giden görünümde yalnız son N araç sonucu (ve son
     #: assistant mesajından sonraki TÜM paralel sonuçlar) tam kalır; daha eskileri kısa
     #: bir yer tutucuya iner (araç adı, argüman özeti, durum, varsa artifact yolu).

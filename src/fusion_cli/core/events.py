@@ -491,6 +491,32 @@ class ToolOutputsMasked(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class ToolSurfaceOffered(Event):
+    """Bir model çağrısına gerçekte sunulan araç yüzeyi (ölçüm izi, yol haritası 4. adım).
+
+    `count` sunulan şema sayısı, `schema_chars` şemaların JSON karakter boyu, `registered`
+    kayıt defterindeki SUNULABİLİR (takma ad olmayan) araç sayısı. `compact` sıkı yüzey
+    (zayıf model) açık mı, `profile` görev profili (`+` ile birleşik; boş = profil yok),
+    `widened` bu turda profil dışı çağrı yüzünden yüzey genişletildi mi.
+    """
+
+    count: int
+    schema_chars: int
+    registered: int
+    compact: bool
+    profile: str = ""
+    widened: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ToolProfileExpanded(Event):
+    """Model profil dışı bir aracı adıyla çağırdı: yüzey bu tur için bir kez genişletildi."""
+
+    tool: str
+    profile: str
+
+
+@dataclass(frozen=True, slots=True)
 class MutationUnavailable(Event):
     """Seçili model dosya/sistem değiştiremiyor ve tur bunu gerektiriyor olabilir.
 

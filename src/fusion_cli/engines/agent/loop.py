@@ -64,7 +64,9 @@ from ...core.events import (
     ToolExecuted,
     ToolOutcome,
     ToolOutputsMasked,
+    ToolProfileExpanded,
     ToolStarted,
+    ToolSurfaceOffered,
     TurnAnswered,
     TurnBudgetExhausted,
     TurnUsageObserved,
@@ -196,7 +198,8 @@ from .teacher_flow import (
     teacher_is_ready,
 )
 from .teacher_plan import TeacherPlan, UnworkablePart
-from .tool_surface import narrow_to_compact_surface
+from .tool_profiles import WIDENED_KIND, hidden_tools
+from .tool_surface import measure_surface, narrow_to_compact_surface
 from .transient import MAX_TOOL_TRANSIENT_RETRIES, is_transient_failure
 from .turn_hints import design_hint, identity_hint, preview_hint, scope_hint, store_hint
 from .turn_report import TurnReport, build_turn_report, claims_command_success
@@ -607,7 +610,9 @@ async def _run_agent(
         # İstenen çıktılar YALNIZ bu isteğe aittir; önceki isteğin yolları taşınmaz.
         deps.tool_context.requested_outputs.clear()
         deps.tool_context.requested_outputs.update(requested_outputs_in(task))
-        deps.tool_context.task_kinds.difference_update({"oyun", "remotion", "masaustu"})
+        deps.tool_context.task_kinds.difference_update(
+            {"oyun", "remotion", "masaustu", WIDENED_KIND}
+        )
         if is_game_task(task):
             deps.tool_context.task_kinds.add("oyun")
         if is_remotion_task(task):
@@ -2253,6 +2258,50 @@ def _model_failure_message(error: str | None) -> str:
     )
 
 
+def _publish_surface(
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    execution: ExecutionPolicy,
+    offered_tools: tuple[dict[str, object], ...],
+) -> None:
+    """Modele gerçekten giden araç yüzeyini ölçüm izi olarak yayınla (güçlü modelde de)."""
+    size = measure_surface(offered_tools)
+    deps.publisher.publish(
+        ToolSurfaceOffered(
+            count=size.count,
+            schema_chars=size.chars,
+            registered=len(registry.advertised_names()),
+            compact=execution.compact_tool_surface,
+            profile="+".join(execution.tool_profiles),
+            widened=WIDENED_KIND in deps.tool_context.task_kinds,
+        )
+    )
+
+
+def _widen_profile_for(
+    call_name: str, deps: AgentDeps, registry: ToolRegistry, execution: ExecutionPolicy
+) -> None:
+    """Profil dışı yerleşik araç adıyla çağrıldıysa yüzeyi bu tur için BİR KEZ genişlet.
+
+    Çağrı reddedilmez (bkz. `tool_profiles`): yanlış sınıflanmış istek sessizce
+    yapılamaz hale gelmesin. Sonraki model çağrısı sıkı yüzeyin tamamını sunar.
+    """
+    if not execution.tool_profiles:
+        return
+    kinds = deps.tool_context.task_kinds
+    if (
+        WIDENED_KIND in kinds
+        or registry.get(call_name) is None
+        or registry.is_remote(call_name)
+        or call_name not in hidden_tools(execution.tool_profiles)
+    ):
+        return
+    kinds.add(WIDENED_KIND)
+    deps.publisher.publish(
+        ToolProfileExpanded(tool=call_name, profile="+".join(execution.tool_profiles))
+    )
+
+
 async def _call_model(
     messages: list[Message],
     deps: AgentDeps,
@@ -2276,6 +2325,8 @@ async def _call_model(
         if offer_tools
         else ()
     )
+    if offered_tools:
+        _publish_surface(deps, registry, execution, offered_tools)
     gorunum = _masked_view(messages, deps, spec)
     if gorunum.masked:
         deps.publisher.publish(
@@ -2450,6 +2501,7 @@ def _permitted(
             max_external_tools=execution.max_external_tools,
             task_kinds=task_kinds,
             explicit=allowed_tools,
+            profiles=execution.tool_profiles,
         )
     if not execution.allow_mutation:
         names = {
@@ -3494,6 +3546,7 @@ async def _execute(
         return ToolResult.failure(
             f"Araç bu adımın izin verilen kapsamında değil. Bu adımda kullanılabilir: {allowed}"
         ), ToolOutcome.BLOCKED
+    _widen_profile_for(call.name, deps, registry, execution)
     if deps.steering is not None and deps.steering.pending:
         return ToolResult.failure(
             "Yeni kullanıcı talimatı bekliyor; eski araç başlatılmadı."

@@ -20,15 +20,22 @@ Sıkı yüzeyde:
 - MCP/eklenti araçları `runtime.compact_external_tools` ile sınırlanır (kayıt sırasıyla ilk N).
 
 Karar tur başında verilir (`policy_for`) ve `ExecutionPolicy`'de taşınır.
+
+Görev türüne göre SABİT alt küme (`runtime.weak_model_tool_profiles`) bunun üstüne biner;
+bkz. `tool_profiles`. `measure_surface` modele giden gerçek şema sayısını ve boyutunu
+ölçer (iz olayı `ToolSurfaceOffered`).
 """
 
 from __future__ import annotations
 
-from collections.abc import Collection
+import json
+from collections.abc import Collection, Sequence
+from dataclasses import dataclass
 
 from ...config.models import Config
 from ...core.types import ModelSpec
 from ...tools.registry import ToolRegistry
+from .tool_profiles import WIDENED_KIND, hidden_tools
 
 #: `ModelSpec.tags` içinde sıkı yüzeyi zorlayan etiket.
 COMPACT_TAG = "compact"
@@ -77,17 +84,40 @@ def narrow_to_compact_surface(
     max_external_tools: int | None,
     task_kinds: Collection[str],
     explicit: Collection[str] | None,
+    profiles: Sequence[str] = (),
 ) -> set[str]:
-    """Sıkı yüzeyde sunulacak araç adlarını daralt (saf: girdiyi değiştirmez)."""
+    """Sıkı yüzeyde sunulacak araç adlarını daralt (saf: girdiyi değiştirmez).
+
+    `profiles` görev profilleridir (`tool_profiles`); profil gizlemesi yalnız yerleşik
+    araçlara uygulanır ve `WIDENED_KIND` işareti varsa atlanır.
+    """
     requested = set(explicit or ())
     hide_desktop = DESKTOP_TASK_KIND not in task_kinds
+    profile_hidden = hidden_tools(profiles) if WIDENED_KIND not in task_kinds else frozenset()
     kept = {
         name
         for name in names
-        if name in requested or not (hide_desktop and name.startswith(COMPACT_HIDDEN_PREFIXES))
+        if name in requested
+        or not (
+            (hide_desktop and name.startswith(COMPACT_HIDDEN_PREFIXES))
+            or (name in profile_hidden and not registry.is_remote(name))
+        )
     }
     if not max_external_tools:
         return kept
     external = [name for name in registry.names() if name in kept and registry.is_remote(name)]
     over_limit = {name for name in external[max_external_tools:] if name not in requested}
     return kept - over_limit
+
+
+@dataclass(frozen=True, slots=True)
+class SurfaceSize:
+    """Modele giden araç yüzeyinin ölçüsü."""
+
+    count: int
+    chars: int
+
+
+def measure_surface(schemas: Sequence[object]) -> SurfaceSize:
+    """Şema sayısı ve JSON karakter boyu (`ToolSurfaceOffered` olayının kaynağı)."""
+    return SurfaceSize(len(schemas), len(json.dumps(list(schemas), ensure_ascii=False)))

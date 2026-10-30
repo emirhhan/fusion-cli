@@ -21,6 +21,7 @@ from ...config.tool_policy import mutation_policy_for_model
 from ...core.text_fold import fold_tr
 from ...core.types import Message, ModelSpec
 from .action_evidence import task_effect
+from .tool_profiles import conversation_tool_profiles
 from .tool_surface import uses_compact_surface
 
 _WEB_PROVIDER_IDS = frozenset(
@@ -105,6 +106,8 @@ class ExecutionPolicy:
     compact_tool_surface: bool = False
     #: Sıkı yüzeyde sunulacak en fazla MCP/eklenti aracı; `None` = sınır yok.
     max_external_tools: int | None = None
+    #: Sıkı yüzeyde görev türüne göre sabit alt küme (bkz. `tool_profiles`); boş = profil yok.
+    tool_profiles: tuple[str, ...] = ()
 
 
 def policy_for(
@@ -131,6 +134,11 @@ def policy_for(
 
     compact = uses_compact_surface(config, spec, mutation_ok=mutation.ok)
     max_external_tools = (config.runtime.compact_external_tools or None) if compact else None
+    profiles = (
+        conversation_tool_profiles(task, history)
+        if compact and getattr(config.runtime, "weak_model_tool_profiles", False)
+        else ()
+    )
 
     if not is_web_model(config, spec.model):
         # API/local sağlayıcılarda hard-cap yok; fakat açık operasyonlarda kanıtsız
@@ -147,6 +155,7 @@ def policy_for(
             complex_task=complex_task,
             compact_tool_surface=compact,
             max_external_tools=max_external_tools,
+            tool_profiles=profiles,
         )
 
     simple_chat = _is_genuine_simple_chat(task, required_effect)
@@ -177,6 +186,7 @@ def policy_for(
         max_evidence_reprompts=0 if explicit_no_tools else 3,
         compact_tool_surface=compact,
         max_external_tools=max_external_tools,
+        tool_profiles=profiles,
     )
 
 
