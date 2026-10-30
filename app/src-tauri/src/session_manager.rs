@@ -4,8 +4,15 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex, MutexGuard, PoisonError};
 use tauri::{AppHandle, Emitter};
+
+/// Kilidi zehirlenmeye (başka iş parçacığı kilit tutarken panik) rağmen alır. Eskiden
+/// `lock().unwrap()` tek bir panikten sonra TÜM oturum komutlarını zincirleme panikletiyordu
+/// (Q1-22, R2-25). Harita her işlemde tutarlı bırakıldığından veri kullanılabilirdir.
+fn lock_tolerant<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 pub(crate) const VARSAYILAN_OTURUM: &str = "varsayilan";
 
@@ -41,7 +48,7 @@ impl SessionSnapshot {
 /// kapanış NEDENİNİ döner. `stop` kullanıcı kapatmasını önce işaretlediyse o neden korunur;
 /// eskiden hep "süreç kapandı" yayılıp bilerek kapatma ile çökme ayırt edilemiyordu (R2-18).
 fn close_if_current(sessions: &SessionMap, id: &str, pid: u32) -> Option<String> {
-    let mut sessions = sessions.lock().unwrap();
+    let mut sessions = lock_tolerant(&sessions);
     let session = sessions.get_mut(id)?;
     if !is_current_process(&session.snapshot, pid) {
         return None;
@@ -153,7 +160,7 @@ impl SessionManager {
         }
         validate_runtime_executable(executable)?;
 
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = lock_tolerant(&self.sessions);
         if let Some(existing) = sessions.get_mut(session_id) {
             let child_running = existing
                 .child
@@ -234,7 +241,7 @@ impl SessionManager {
     /// boru) kuyruğa konduktan sonra oluşursa bir sonraki çağrıda "çalışmıyor" döner.
     pub(crate) fn send(&self, session_id: &str, line: String) -> Result<(), String> {
         let gonderici = {
-            let sessions = self.sessions.lock().unwrap();
+            let sessions = lock_tolerant(&self.sessions);
             let session = sessions.get(session_id).ok_or("oturum çalışmıyor")?;
             if session.snapshot.durum != "calisiyor" {
                 return Err("oturum çalışmıyor".into());
@@ -247,7 +254,7 @@ impl SessionManager {
     }
 
     pub(crate) fn list(&self) -> Vec<SessionSnapshot> {
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = lock_tolerant(&self.sessions);
         for session in sessions.values_mut() {
             let exited = session
                 .child
@@ -265,7 +272,7 @@ impl SessionManager {
 
     pub(crate) fn stop(&self, session_id: &str) -> Result<(), String> {
         let child = {
-            let mut sessions = self.sessions.lock().unwrap();
+            let mut sessions = lock_tolerant(&self.sessions);
             let session = sessions.get_mut(session_id).ok_or("oturum bulunamadı")?;
             session.stdin = None;
             session.snapshot.mark_closed("kullanıcı kapattı");
@@ -278,7 +285,7 @@ impl SessionManager {
     }
 
     pub(crate) fn stop_all(&self) {
-        let ids: Vec<_> = self.sessions.lock().unwrap().keys().cloned().collect();
+        let ids: Vec<_> = lock_tolerant(&self.sessions).keys().cloned().collect();
         for id in ids {
             let _ = self.stop(&id);
         }
@@ -302,7 +309,7 @@ impl SessionManager {
         .map_err(|error| format!("test session child başlatılamadı: {error}"))?;
         let stdin = child.stdin.take().ok_or("test session stdin alınamadı")?;
         let pid = child.id();
-        self.sessions.lock().unwrap().insert(
+        lock_tolerant(&self.sessions).insert(
             session_id.into(),
             ManagedSession {
                 snapshot: SessionSnapshot::running(session_id, Path::new("/test"), pid),
@@ -333,7 +340,7 @@ impl SessionManager {
         .map_err(|error| format!("test session child başlatılamadı: {error}"))?;
         let stdin = child.stdin.take().ok_or("test session stdin alınamadı")?;
         let pid = child.id();
-        self.sessions.lock().unwrap().insert(
+        lock_tolerant(&self.sessions).insert(
             session_id.into(),
             ManagedSession {
                 snapshot: SessionSnapshot::running(session_id, Path::new("/test"), pid),
@@ -363,7 +370,7 @@ impl SessionManager {
         .map_err(|error| format!("test session child başlatılamadı: {error}"))?;
         let stdin = child.stdin.take().ok_or("test session stdin alınamadı")?;
         let pid = child.id();
-        self.sessions.lock().unwrap().insert(
+        lock_tolerant(&self.sessions).insert(
             session_id.into(),
             ManagedSession {
                 snapshot: SessionSnapshot::running(session_id, Path::new("/test"), pid),
@@ -647,6 +654,21 @@ mod testler {
     }
 
     /// Ölçüldü (30 Ekim): `a/b` ve `a_b` aynı `core-a_b.log` dosyasına düşüp birbirini eziyordu (R2-19).
+    /// Ölçüldü (30 Ekim): kilit zehirlenince list/send/stop `unwrap` ile paniğe düşüyordu.
+    #[test]
+    fn zehirlenmis_kilit_oturum_yonetimini_dusurmez() {
+        let manager = SessionManager::new();
+        let sessions = Arc::clone(&manager.sessions);
+        let _ = std::thread::spawn(move || {
+            let _guard = sessions.lock().unwrap();
+            panic!("kilit tutarken panik");
+        })
+        .join();
+        assert!(manager.sessions.is_poisoned());
+        assert!(manager.list().is_empty());
+        assert!(manager.stop("yok").is_err());
+    }
+
     #[test]
     fn farkli_oturum_kimlikleri_ayni_gunluk_dosyasina_dusmez() {
         assert_ne!(gunluk_dosya_adi("a/b"), gunluk_dosya_adi("a_b"));

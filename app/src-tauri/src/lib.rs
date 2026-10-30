@@ -481,7 +481,10 @@ impl<'a> AppCleanupOwners<'a> {
 
     fn record(&self, step: CleanupStep) {
         if let Some(order) = self.order {
-            order.lock().expect("cleanup order kilidi").push(step);
+            order
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(step);
         }
     }
 

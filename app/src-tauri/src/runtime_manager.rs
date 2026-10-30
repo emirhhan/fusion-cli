@@ -17,7 +17,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -499,7 +499,12 @@ impl RuntimeManager {
     /// Arayüzün gösterebileceği güncel durumu döner; ağ çağrısı yapmaz,
     /// yalnızca en son `prepare`/`repair` sonucunu yansıtır.
     pub fn status(&self) -> RuntimeStatus {
-        match self.hazir.lock().unwrap().clone() {
+        match self
+            .hazir
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+        {
             Some(ready) => RuntimeStatus::ready(ready),
             None => RuntimeStatus::eksik(),
         }
@@ -509,14 +514,14 @@ impl RuntimeManager {
     pub fn executable(&self) -> Result<PathBuf, RuntimeError> {
         self.hazir
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .clone()
             .map(|ready| ready.executable)
             .ok_or(RuntimeError::NoHealthyRuntime)
     }
 
     fn remember(&self, ready: RuntimeReady) {
-        *self.hazir.lock().unwrap() = Some(ready);
+        *self.hazir.lock().unwrap_or_else(PoisonError::into_inner) = Some(ready);
     }
 
     /// Kurulum başarısız olunca aktif kayıttaki sürümleri (önce mevcut
