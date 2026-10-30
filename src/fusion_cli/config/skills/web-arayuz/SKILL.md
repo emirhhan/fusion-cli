@@ -227,7 +227,7 @@ açılır). Panel `position: fixed` olmazsa footer'ın altına düşer.
   <div class="card__body">
     <p class="card__kicker">Kategori</p>
     <h3 class="card__title">Ürün adı</h3>
-    <p class="card__price"><s>19.999 TL</s> <strong>14.999 TL</strong></p>
+    <p class="card__price"><span class="price__old">19.999 TL</span> <span class="price__now">14.999 TL</span></p>
     <div class="card__actions">
       <button class="btn btn--primary">Sepete Ekle</button>
       <button class="icon-btn" aria-label="Favorilere ekle">
@@ -252,8 +252,6 @@ açılır). Panel `position: fixed` olmazsa footer'ın altına düşer.
 .card__kicker { font-size: var(--text-xs); color: var(--gray-600);
                 text-transform: uppercase; letter-spacing: 0.04em; }
 .card__title { font-size: var(--text-lg); line-height: var(--leading-tight); }
-.card__price s { font-size: var(--text-sm); color: var(--gray-400); }
-.card__price strong { font-size: var(--text-xl); color: var(--brand); }
 .card__actions { display: flex; gap: var(--space-2); align-items: center; }
 .card__actions .btn { flex: 1; }
 ```

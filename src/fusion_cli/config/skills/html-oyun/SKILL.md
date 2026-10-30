@@ -5,6 +5,13 @@ description: HTML5 canvas oyununu üret ve gerçek oynanabilirliğini doğrula.
 
 # HTML5 oyun — oynanabilir iskelet
 
+## Yazım sırası (tek turda hepsini yazma)
+
+Çıktı bütçesi sınırlıdır; her aşamadan sonra çalıştır, sonra sonrakine geç:
+1. Aşama 1 — oynanabilir çekirdek, TEK dosya: aşağıdaki 1–5, 7 ve 9. maddeler (şekillerle).
+2. Aşama 2 — varlıklar: 8. madde; her sprite ayrı küçük `assets/*.svg` dosyası.
+3. Aşama 3 — dalga sistemi: 6. madde ve zorluk eğrisi.
+
 ## Zorunlu parçalar
 
 1. Tek responsive canvas; DPR ile boyutlandır, `setTransform(dpr,0,0,dpr,0,0)`
@@ -35,7 +42,8 @@ description: HTML5 canvas oyununu üret ve gerçek oynanabilirliğini doğrula.
 7. Zorluk artar (düşman hızı/sayısı zamanla), çarpışma kutuları net.
 8. Varlıklar: sprite'ları `assets/` altında SVG üret: oyuncu/düşman/boss/güçlendirme/
    mermi/patlama/zemin, tutarlı palet ve stil. `new Image()` ile hepsini yükle, `Promise.all` bitmeden
-   oyunu başlatma. Varlık anahtarını TEK kayıttan çöz; aktör `chaser`, kayıt
+   oyunu başlatma. `file://` altında SVG çizilmiş canvastan `getImageData`/`toDataURL` okuma:
+   canvas kirlenir ve hata verir. Varlık anahtarını TEK kayıttan çöz; aktör `chaser`, kayıt
    `enemy_chaser` ise açık eşleme kullan. Yanlış anahtarı şekle sessiz düşürerek gizleme.
    Dosya yüklenememesi ile kayıt/eşleme hatasını ayır ve düzelt.
 9. Doğrulama kancası: `window.__GAME_STATE__ = () => ({ durum, skor, can, oyuncu: {x, y} })`.
