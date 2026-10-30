@@ -23,6 +23,7 @@ Modül saftır: yapılandırma okumaz, olay yayınlamaz, saati `Clock` üzerinde
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -225,9 +226,6 @@ class TurnBudget:
         self.usage.reserve(self.model_calls)
         return True
 
-    def record_model_call(self) -> None:
-        self.model_calls += 1
-
     @property
     def model_calls_exhausted(self) -> bool:
         return self.max_model_calls is not None and self.model_calls >= self.max_model_calls
@@ -372,8 +370,14 @@ class TurnBudget:
         """
         aranan = {str(path) for path in paths}
         aranan |= {path.name for path in paths}
+        # Ölçüldü (30 Ekim): düz alt-dize testi `a.py` için `data.py`/`meta.py` imzalarını,
+        # tek karakterli ad için hemen her imzayı da siliyordu. Ad bir dosya adı
+        # sınırında (başında/sonunda ad karakteri olmadan) geçmeli.
+        desenler = [
+            re.compile(rf"(?<![\w.-]){re.escape(parca)}(?![\w-])") for parca in aranan if parca
+        ]
         for imza in [i for i in self.seen_calls if i in self.mutating_signatures]:
-            if any(parca and parca in imza[1] for parca in aranan):
+            if any(desen.search(imza[1]) for desen in desenler):
                 self.seen_calls.pop(imza, None)
                 self.failed_signatures.discard(imza)
 

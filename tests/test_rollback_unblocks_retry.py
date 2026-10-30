@@ -87,3 +87,27 @@ def test_gercek_geri_alma_yollari_dosya_adiyla_eslesir(tmp_path: Path):
     butce.forget_calls_touching((tmp_path / "alt" / "dizin" / "kod.py",))
 
     assert butce.count_call(imza) == 0
+
+
+def test_benzer_adli_baska_dosyanin_cagrisi_unutulmaz(tmp_path: Path):
+    """`a.py` geri alınınca `data.py`/`meta.py` yazmalarının tekrar koruması kalır (C1-29)."""
+    butce = _butce()
+    baska = _yazma(butce, "src/data.py")
+    butce.count_call(baska)
+    hedef = _yazma(butce, "src/a.py")
+    butce.count_call(hedef)
+
+    butce.forget_calls_touching((tmp_path / "src" / "a.py",))
+
+    assert butce.count_call(hedef) == 0
+    assert butce.count_call(baska) == 1, "ilgisiz dosyanın tekrar koruması silindi"
+
+
+def test_tek_karakterli_dosya_adi_her_imzayi_eslemez(tmp_path: Path):
+    butce = _butce()
+    baska = _yazma(butce, "src/index.py")
+    butce.count_call(baska)
+
+    butce.forget_calls_touching((tmp_path / "x",))
+
+    assert butce.count_call(baska) == 1
