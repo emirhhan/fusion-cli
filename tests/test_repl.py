@@ -1177,3 +1177,34 @@ async def test_isitma_web_oturum_kaydini_gecirir(tmp_path: Path, monkeypatch) ->
     await repl_loop._warm_up(state)
 
     assert "web_sessions" in gorulen, "ısıtma web oturum kaydını hiç geçirmiyor"
+
+
+def test_undo_kismi_basarisizlikta_geri_alinamayan_dosyalari_adlandirir(state, tmp_path):
+    """Ölçüldü (30 Ekim): kısmi geri almada yalnız sayı yazılıyordu, kayıt da siliniyordu;
+    kullanıcı hangi dosyayı elle düzelteceğini bilemiyordu (L2-30)."""
+    import shutil
+
+    from fusion_cli.cli.repl.commands import build_registry
+    from fusion_cli.core.changeset import ChangeSet
+
+    iyi = tmp_path / "iyi.py"
+    iyi.write_text("eski\n", encoding="utf-8")
+    kotu_dizin = tmp_path / "kaybolacak"
+    kotu_dizin.mkdir()
+    kotu = kotu_dizin / "kotu.py"
+    kotu.write_text("eski\n", encoding="utf-8")
+    kayit = ChangeSet()
+    kayit.record(iyi)
+    kayit.record(kotu)
+    iyi.write_text("agent\n", encoding="utf-8")
+    kotu.write_text("agent\n", encoding="utf-8")
+    shutil.rmtree(kotu_dizin)
+    kotu_dizin.write_text("artık dizin değil", encoding="utf-8")
+    state.last_changes = kayit
+
+    komut = build_registry().get("undo")
+    assert komut is not None
+    mesaj = komut.handler(state, "")
+
+    assert "1 dosya geri alınamadı" in mesaj
+    assert "kotu.py" in mesaj
