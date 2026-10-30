@@ -56,3 +56,37 @@ async def test_dongu_dosya_yazinca_kancayi_calistirir(tmp_path, monkeypatch):
     assert "a.txt" in (tmp_path / "kanca.log").read_text(encoding="utf-8")
     arac_mesaji = next(m for m in saglayici.seen_messages[1] if m.role == "tool")
     assert "DÜZENLEME KANCASI BAŞARISIZ" in arac_mesaji.content
+
+
+async def test_dosyayi_yeniden_yazan_kanca_modele_bildirilir(tmp_path):
+    """A1-40: biçimlendirici içeriği değiştirince sonraki edit_file eşleşmezdi."""
+    hedef = tmp_path / "a.txt"
+    hedef.write_text("x=1", encoding="utf-8")
+
+    sonuc = await run_post_edit_hooks(("printf 'x = 1\\n' > {path}",), hedef, tmp_path)
+
+    assert sonuc is not None and "YENİDEN YAZDI" in sonuc and "read_file" in sonuc
+
+
+async def test_zaman_asiminda_kancanin_cocuk_sureci_de_olur(tmp_path, monkeypatch):
+    import os
+
+    from fusion_cli.engines.agent import edit_hooks
+
+    monkeypatch.setattr(edit_hooks, "SHELL_TIMEOUT_S", 0.5)
+    isaret = tmp_path / "cocuk.pid"
+    komut = f"sleep 300 & echo $! > {isaret}; wait"
+
+    sonuc = await run_post_edit_hooks((komut,), tmp_path / "a", tmp_path)
+
+    assert sonuc is not None and "bitmedi" in sonuc
+    cocuk = int(isaret.read_text().strip())
+    import asyncio
+
+    await asyncio.sleep(0.2)
+    try:
+        os.kill(cocuk, 0)
+    except ProcessLookupError:
+        return
+    os.kill(cocuk, 9)
+    raise AssertionError("kancanın çocuk süreci yetim kaldı")
