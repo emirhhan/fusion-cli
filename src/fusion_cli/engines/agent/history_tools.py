@@ -56,13 +56,21 @@ def recent_actions_tool(memory_dir: Path, conversation_id: str) -> Tool:
     )
 
 
+#: Tek araç çıktısında listelenecek en fazla çöp girdisi.
+MAX_TRASH_LINES = 30
+
+
 def _trash_lines() -> list[str]:
     limit = datetime.datetime.now().timestamp() - TRASH_WINDOW_DAYS * 86_400
     entries = [entry for entry in list_trash(trash_dir()) if entry.deleted_at >= limit]
     if not entries:
         return [f"Fusion çöpü (son {TRASH_WINDOW_DAYS} gün): boş."]
     lines = [f"Fusion çöpü (son {TRASH_WINDOW_DAYS} gün, `fusion cop geri-al <kimlik>`):"]
-    for entry in entries:
+    # Yüzlerce girdi araç çıktısını şişirirdi (A1-48): en yeniler gösterilir.
+    entries = sorted(entries, key=lambda entry: entry.deleted_at, reverse=True)
+    for entry in entries[:MAX_TRASH_LINES]:
         zaman = datetime.datetime.fromtimestamp(entry.deleted_at).strftime("%d.%m %H:%M")
         lines.append(f"- {entry.id} {zaman} {entry.original}")
+    if len(entries) > MAX_TRASH_LINES:
+        lines.append(f"… ve {len(entries) - MAX_TRASH_LINES} girdi daha (`fusion cop liste`).")
     return lines
