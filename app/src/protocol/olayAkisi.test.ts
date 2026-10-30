@@ -275,3 +275,39 @@ describe("olayEkle — tur token sayacı", () => {
  expect(result[0].bitisZamani).toBe(10);expect(result[2].bitisZamani).toBe(20000);
  vi.useRealTimers();
  });
+
+// Ölçüldü (30 Ekim): todo_write'ın ToolExecuted'ı gorevListesi'nde tüketilip ToolStarted adımı
+// "başladı" kalıyordu; arka plan ModelCallStarted akan balonu siliyordu; yeni tur eski turların
+// görev kartlarını da siliyordu (U5-05, U5-10, U5-13).
+describe("olay akışı kenar durumları (30 Ekim)", () => {
+  it("todo_write bitince başlayan adım kapanır, 'başladı' kalmaz (U5-05)", () => {
+    let mesajlar = olayEkle([], { olay: "ToolStarted", name: "todo_write", args: {}, metin: "görev listesi güncelleniyor" });
+    mesajlar = olayEkle(mesajlar, { olay: "ToolExecuted", name: "todo_write", outcome: "ok", output: "▶ Oku\n☐ Yaz" });
+
+    const blok = mesajlar.find((mesaj) => mesaj.rol === "olay");
+    expect(blok?.adimlar?.some((adim) => adim.basladi)).toBe(false);
+    expect(blok?.adimlar?.[0].durum).toBe("ok");
+  });
+
+  it("arka plan model çağrısı ana modelin akan metnini silmez (U5-10)", () => {
+    let mesajlar = olayEkle([], { olay: "TokenReceived", channel: "main", text: "Yazıyorum" });
+    mesajlar = olayEkle(mesajlar, { olay: "ModelCallStarted", background: true, role: "judge", model: "m" });
+
+    expect(mesajlar).toHaveLength(1);
+    expect(mesajlar[0]).toMatchObject({ rol: "asistan", akan: true, metin: "Yazıyorum" });
+  });
+
+  it("yeni görev listesi yalnız bu turun eski kartını yeniler, önceki turunkini silmez (U5-13)", () => {
+    const eskiTur: Mesaj[] = [
+      { rol: "kullanici", metin: "ilk" },
+      { rol: "gorevler", metin: "Görevler", gorevler: [{ durum: "bitti", metin: "Eski plan" }] },
+      { rol: "kullanici", metin: "ikinci" },
+    ];
+    const mesajlar = olayEkle(eskiTur, { olay: "ToolExecuted", name: "todo_write", outcome: "ok", output: "☐ Yeni plan" });
+
+    const kartlar = mesajlar.filter((mesaj) => mesaj.rol === "gorevler");
+    expect(kartlar).toHaveLength(2);
+    expect(kartlar[0].gorevler?.[0].metin).toBe("Eski plan");
+    expect(kartlar[1].gorevler?.[0].metin).toBe("Yeni plan");
+  });
+});

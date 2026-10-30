@@ -129,6 +129,9 @@ const GOREV_DURUMU: Record<string, GorevMaddesi["durum"]> = {
 function gorevListesi(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
   if (event.olay !== "ToolExecuted" || event.name !== "todo_write") return null;
   if (event.outcome !== undefined && event.outcome !== "ok") return null;
+  // `ToolStarted` bu aracın adımını açmıştı; olay burada tüketildiği için `adimiEkle` onu hiç
+  // kapatamaz ve satır sonsuza dek "sürüyor" kalırdı (U5-05). Başlayan adım burada bitirilir.
+  const bitmis = baslayanGorevAdiminiBitir(messages);
   const cikti = typeof event.output === "string" ? event.output : "";
   const gorevler: GorevMaddesi[] = [];
   for (const satir of cikti.split("\n")) {
@@ -138,9 +141,26 @@ function gorevListesi(messages: Mesaj[], event: Record<string, unknown>): Mesaj[
     const metin = kirpik.slice(1).trim();
     if (metin) gorevler.push({ durum, metin });
   }
-  if (gorevler.length === 0) return messages;
-  const eskisiz = messages.filter((mesaj) => mesaj.rol !== "gorevler");
+  if (gorevler.length === 0) return bitmis;
+  // Yalnız BU turun kartı yenilenir; önceki turların planı sohbet geçmişinde kalır (U5-13).
+  let sinir = -1;
+  bitmis.forEach((mesaj, indeks) => { if (mesaj.rol === "kullanici") sinir = indeks; });
+  const eskisiz = bitmis.filter((mesaj, indeks) => !(mesaj.rol === "gorevler" && indeks > sinir));
   return [...eskisiz, { rol: "gorevler", metin: "Görevler", gorevler }];
+}
+
+/** Son çalışma bloğundaki hâlâ "başladı" durumundaki `todo_write` adımını biten adıma çevirir. */
+function baslayanGorevAdiminiBitir(messages: Mesaj[]): Mesaj[] {
+  const indeks = sonBlokIndeksi(messages);
+  const blok = indeks >= 0 ? messages[indeks] : undefined;
+  if (blok?.rol !== "olay" || !blok.adimlar?.some((adim) => adim.basladi && adim.arac === "todo_write")) return messages;
+  const guncel = [...messages];
+  guncel[indeks] = {
+    ...blok,
+    adimlar: blok.adimlar.map((adim) =>
+      adim.basladi && adim.arac === "todo_write" ? { ...adim, basladi: false, durum: "ok" } : adim),
+  };
+  return guncel;
 }
 
 /**
@@ -169,6 +189,8 @@ function akanCevap(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] |
     return [...messages, { rol: "asistan", metin: parca, akan: true }];
   }
   if (olay === "ModelCallStarted" || olay === "TurnFinished" || olay === "TurnAnswered") {
+    // Arka plan çağrısı (hakem, öz-denetim, ders çıkarımı) ana modelin akan metnini silmez (U5-10).
+    if (olay === "ModelCallStarted" && event.background === true) return null;
     // Yeni çağrı yeni metin demektir; biten tur ise nihai cevaba yerini bırakır.
     const temiz = messages.filter((mesaj) => !(mesaj.rol === "asistan" && mesaj.akan));
     if (olay !== "ModelCallStarted") {
