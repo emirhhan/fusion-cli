@@ -20,6 +20,8 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
+import signal
 import socket
 import time
 import urllib.error
@@ -74,6 +76,20 @@ DEV_SERVER_READY_S = 45.0
 DEV_SERVER_PORT_BASE = 47_300
 
 
+#: Ölçüm yapılamadığında bildirilen uyarının başı (engelleyici DEĞİL, ama sessiz de değil).
+NOT_MEASURED_PREFIX = "TARAYICI ÖLÇÜLEMEDİ (not_measured):"
+
+
+def _not_measured(reason: str) -> VerificationResult:
+    """Tarayıcı ölçümü yapılamadı: tur düşmez ama rapor 'doğrulandı' demez.
+
+    Ölçüldü (30 Ekim, A1-09): Playwright yokken ya da `page.goto` zaman aşımına
+    uğradığında (sayfa HİÇ açılmıyor) kapı hata yutup `ok=True` ve boş sonuç
+    dönüyordu; rapor "ölçülemedi" hiç demiyordu. Artık uyarı taşır.
+    """
+    return VerificationResult(ok=True, warnings=(f"{NOT_MEASURED_PREFIX} {reason}",))
+
+
 def touches_layout(paths: Sequence[Path]) -> bool:
     """Değişen dosyalar sayfanın düzenini etkileyebilir mi?
 
@@ -98,6 +114,32 @@ def dev_server_command(package_json: object) -> list[str] | None:
     return ["npm", "run", "dev"]
 
 
+def _signal_group(surec: asyncio.subprocess.Process, sinyal: int) -> None:
+    """Sinyali tüm süreç grubuna gönder (yoksa yalnız sürece)."""
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        if os.name == "posix":
+            os.killpg(surec.pid, sinyal)
+        elif sinyal == signal.SIGTERM:
+            surec.terminate()
+        else:
+            surec.kill()
+
+
+async def _stop_server(surec: asyncio.subprocess.Process) -> None:
+    """Dev sunucusunu ve altındaki çocukları kapat; 10 sn'de inmezse SIGKILL.
+
+    Ölçüldü (30 Ekim, A1-10): `terminate()` yalnız `npm`e gidiyordu, altındaki
+    node/next/vite yetim kalıp port ve CPU tutabiliyordu; zaman aşımında `kill()` yoktu.
+    """
+    _signal_group(surec, signal.SIGTERM)
+    try:
+        await asyncio.wait_for(surec.wait(), timeout=10)
+    except TimeoutError:
+        _signal_group(surec, signal.SIGKILL if os.name == "posix" else signal.SIGTERM)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(surec.wait(), timeout=5)
+
+
 def _free_port() -> int:
     """Boş bir port bul. Sabit port kullanıcının kendi sunucusuyla çakışırdı."""
     with socket.socket() as s:
@@ -105,8 +147,11 @@ def _free_port() -> int:
         return int(s.getsockname()[1])
 
 
-async def _wait_until_serving(adres: str) -> bool:
-    """Sunucu cevap verene kadar bekle; süre dolarsa False.
+async def _wait_until_serving(adres: str, surec: asyncio.subprocess.Process | None = None) -> bool:
+    """Sunucu cevap verene kadar bekle; süre dolarsa ya da süreç ölürse False.
+
+    Süreç erken ölmüşse (`node_modules` yok → `npm run dev` anında düşer) 45 sn
+    boşuna beklenmez (A1-10).
 
     Sağlık ölçütü HTTP cevabının GELMESİDİR, durum kodu değil: dev sunucuları
     derleme hatasında da sayfa döndürür ve o sayfayı ölçmek anlamlıdır — ölçtüğümüz
@@ -114,6 +159,8 @@ async def _wait_until_serving(adres: str) -> bool:
     """
     bitis = time.monotonic() + DEV_SERVER_READY_S
     while time.monotonic() < bitis:
+        if surec is not None and surec.returncode is not None:
+            return False
         try:
             await asyncio.to_thread(urllib.request.urlopen, adres, None, 3)
             return True
@@ -373,15 +420,20 @@ class BrowserVerifier:
         if not pages:
             return await self._verify_dev_server()
         if not _playwright_available():
-            return VerificationResult(ok=True)
+            return _not_measured(
+                "Playwright kurulu değil; sayfanın konsol hataları, taşma ve düzeni doğrulanmadı."
+            )
 
         try:
             observations = await self._observe(pages)
         except Exception as exc:
-            # Tarayıcı ikilisi indirilmemiş, sandbox izin vermemiş, uç çökmüş olabilir.
-            # Doğrulama bir iyileştirmedir; turu düşürmesi kabul edilemez.
+            # Tarayıcı ikilisi indirilmemiş, sandbox izin vermemiş, uç çökmüş ya da sayfa
+            # zaman aşımına uğramış olabilir. Doğrulama bir iyileştirmedir; turu düşürmesi
+            # kabul edilemez ama ölçülemediği SÖYLENİR.
             _logger.debug("tarayıcı doğrulaması atlandı: %s", exc)
-            return VerificationResult(ok=True)
+            return _not_measured(
+                f"sayfalar açılıp ölçülemedi ({type(exc).__name__}); düzen doğrulanmadı."
+            )
 
         return browser_verification_result(observations, source="tarayıcıda")
 
@@ -411,15 +463,17 @@ class BrowserVerifier:
         # Tarayıcı en SONDA yoklanır: ölçülecek bir şey olmadığı anlaşıldığında
         # Playwright'ı hiç içeri almamak bu kapının kuralı.
         if not _playwright_available():
-            return VerificationResult(ok=True)
+            return _not_measured("Playwright kurulu değil; çalışan sayfanın düzeni doğrulanmadı.")
 
         try:
             observations = await self._observe_dev_server(root, komut)
         except Exception as exc:
             _logger.debug("dev sunucusu doğrulaması atlandı: %s", exc)
-            return VerificationResult(ok=True)
+            return _not_measured(
+                f"dev sunucusundaki sayfa ölçülemedi ({type(exc).__name__}); düzen doğrulanmadı."
+            )
         if observations is None:
-            return VerificationResult(ok=True)
+            return _not_measured("dev sunucusu zamanında ayağa kalkmadı; düzen doğrulanmadı.")
 
         return browser_verification_result(
             observations,
@@ -440,10 +494,13 @@ class BrowserVerifier:
             cwd=str(root),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
+            # Kendi süreç grubu: `npm run dev` altındaki node/next/vite çocukları da
+            # kapatılabilsin (A1-10). Windows'ta grup ayrımı yok.
+            start_new_session=os.name == "posix",
         )
         adres = f"http://127.0.0.1:{port}/"
         try:
-            if not await _wait_until_serving(adres):
+            if not await _wait_until_serving(adres, surec):
                 return None
             async with async_playwright() as driver:
                 browser = await driver.chromium.launch()
@@ -453,10 +510,7 @@ class BrowserVerifier:
                     await browser.close()
         finally:
             # Sunucu HER YOLDA kapatılır: doğrulama kapısı arkasında süreç bırakamaz.
-            with contextlib.suppress(ProcessLookupError):
-                surec.terminate()
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(surec.wait(), timeout=10)
+            await _stop_server(surec)
 
     async def observe_urls(self, urls: Sequence[str]) -> list[PageObservation]:
         """Çalışan sitedeki adresleri aç ve ölç; ilk adres ana sayfa (referans) olmalı.
@@ -577,7 +631,11 @@ def _as_triples(rows: object) -> tuple[tuple[str, int, int], ...]:
     for row in rows:
         if isinstance(row, list) and len(row) == 3:
             secici, birinci, ikinci = row
-            triples.append((str(secici), int(birinci), int(ikinci)))
+            # `None`/NaN/inf tek satırı atar; tüm gözlemi düşürmez (A1-09b).
+            try:
+                triples.append((str(secici), int(birinci), int(ikinci)))
+            except (TypeError, ValueError, OverflowError):
+                continue
     return tuple(triples)
 
 
