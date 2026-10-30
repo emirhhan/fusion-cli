@@ -35,3 +35,24 @@ def test_bulten_tesekkur_penceresi_siparis_tamam_sayilmaz():
     assert not shop_flow._ORDER_DONE.search("Thank you for subscribing to our newsletter!")
     assert shop_flow._ORDER_DONE.search("Thank you. Your order has been received.")
     assert shop_flow._ORDER_DONE.search("https://x/checkout/order-received/12/")
+
+
+# --- T2-35: woo_theme PHP enjeksiyonu ----------------------------------------
+
+from fusion_cli.tools.woo_theme import wire_store_links  # noqa: E402
+
+
+def test_kotu_niyetli_kategori_slugi_php_enjekte_edemez():
+    """`'` içeren slug PHP tek tırnaklı dizeyi kapatıp kod enjekte edebilirdi."""
+    html = '<a href="/yeni-urunler">Yeni</a>'
+
+    cikti = wire_store_links(html, ("x' ); system('id'); //", "motor-kasklari"))
+
+    assert "system(" not in cikti
+    assert "'id'" not in cikti
+
+
+def test_gecerli_kategori_slugi_baglanir():
+    cikti = wire_store_links('<a href="/kasklar">K</a>', ("kasklar",))
+
+    assert "?product_cat=kasklar" in cikti
