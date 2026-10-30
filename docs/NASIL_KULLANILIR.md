@@ -296,6 +296,72 @@ Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtı
 
 ---
 
+## 15) REPL önekleri, durum, dışa aktarma ve görünüm (Claude Code paritesi)
+
+### Önekler: `!`, `@`, `#`
+
+| Yaz | Ne olur |
+|-----|---------|
+| `! git status` | Komut **doğrudan** çalışır (model çağrılmaz). Çıktı ekrana basılır ve bir sonraki mesajın bağlamına "kullanıcının çalıştırdığı kabuk çıktısı" olarak girer. Plan kipinde çalışmaz. Silmeler yine çöpe gider, ezilen dosya `/undo` kaydına girer. |
+| `@src/app.py şu fonksiyonu incele` | Anılan dosya (ya da dizin listesi) bağlama eklenir; mesaj olduğu gibi gider. En çok 8 dosya, dosya başına 20 bin karakter. Tab ile yol tamamlama: `@src/mo<Tab>`. |
+| `# testleri her zaman pytest ile çalıştır` | Kalıcı bellek notu (`/learn` ile aynı depo). `/lessons` ile gör, `/forget` ile sil. |
+
+`@sunucu:kaynak` (MCP kaynağı) biçimi tanınır ama henüz okunmaz; sunucunun aracını sohbette iste.
+
+### Durum ve bağlam
+
+- `/status` — sürüm, motor, izin kipi, model/kademe, düşünme, çıktı stili, dizin(ler), MCP sunucuları, hesap, sohbet kimliği, yapılandırma dosyası.
+- `/context` — bağlam penceresi kırılımı: sistem istemi / özet / kullanıcı / asistan / araç sonuçları (tahmini token ve yüzde), sıkıştırma eşiği ve model penceresi.
+- Durum çubuğunda `bağlam %12 · ~3k tok` sayacı her tur sonunda güncellenir (satır-içi kipte `FUSION_TOOLBAR=1` ile görünür).
+
+### Dışa aktarma ve pano
+
+- `/export` → proje kökünde `fusion-sohbet-<tarih>.md`; `/export notlar/sohbet.md`, `/export json`, `/export pano`. Sistem istemi dışarıda, araç çağrıları katlanmış ve kırpılmış, sırlar maskeli. Proje kökü dışına yazılmaz.
+- `/copy` → son asistan cevabı panoya; `/copy 2` sondan ikinci. (pbcopy / wl-copy / xclip / xsel / clip)
+- Masaüstü: Sohbeti paylaş penceresinde Markdown/JSON seçimi ve "Dosyaya kaydet" (RPC `sohbet.disa_aktar {bicim, baslik}`).
+
+### Ayarlar: `/config` ve `fusion config`
+
+```
+/config                       # tüm ayarlar (yol · değer · tip)
+/config runtime.web           # süzgeç
+/config runtime.max_tokens    # tek değer
+/config runtime.max_tokens=8192   # oturuma uygula + config.yaml'a yaz
+fusion config list [süzgeç] · fusion config get <yol> · fusion config set <yol> <değer>
+fusion -c runtime.max_tokens=8192 -c runtime.lessons=false   # yalnız bu oturum
+fusion --profile high                                        # yalnız bu oturum kademe
+```
+Erişilebilen bölümler `runtime.*` ve `embedding.*`; tip dataclass alanından doğrulanır (boolean: true/false/açık/kapalı, liste: `a,b,c`, `null` anahtarı siler). Model rolleri için `/model`, `/level`, `/mode`.
+
+### Çıktı stili: `/output-style`
+
+`varsayilan` · `ozlu` · `aciklayici` · `ogretici`. Özel stil: `~/.fusion/cikti-stilleri/<ad>.md` ya da `~/.claude/output-styles/<ad>.md` (proje içinde `.fusion/cikti-stilleri`, `.claude/output-styles`); frontmatter `name`/`description`, gövde talimat. Stil sistem istemine kodlama talimatlarından sonra eklenir; `runtime.output_style` ile kalıcı.
+
+### Durum satırı betiği: `/statusline`
+
+```
+/statusline jq -r '.model.id + " · %" + (.context_window.percent|tostring)'
+/statusline kapat
+```
+Betik her tur sonunda stdin'den JSON alır (`model`, `workspace`, `cost`, `context_window`, `session`, `version`), bastığı ilk satır durum çubuğunda gösterilir; 1 sn sınırı, hata olursa yerleşik çubuk. Ayar: `runtime.status_line_command`.
+
+### Görünüm: `/theme`, `/tui`, `/search`
+
+- `/theme` → `koyu` · `acik` · `ansi` · `daltonizm`; anında uygulanır, `runtime.terminal_theme` ile kalıcı. Masaüstü teması ayrıdır (Ayarlar › Genel).
+- `/tui inline` / `/tui fullscreen` → `runtime.tui`; yeni `fusion` açılışında geçerli (`FUSION_INLINE=1` ile aynı).
+- `/search <metin>` → tam ekran konuşmasında son eşleşmeye kaydırır; `End` canlı akışa döner.
+
+### Tuş bağları ve vim: `/keybindings`, `/vim`
+
+`/keybindings` dosya yolunu gösterir (yoksa örnek dosyayı yazar): `~/.fusion/keybindings.json`
+```json
+{ "giris": { "s-tab": "kip_dongusu", "c-v": "yapistirma_katla" },
+  "tui":   { "c-q": null, "c-g": "kes", "f2": "komut:status" } }
+```
+Eylemler — `giris`: `kip_dongusu`, `yapistirma_katla`; `tui`: `cik`, `kes`, `kip_dongusu`, `sayfa_yukari`, `sayfa_asagi`, `en_bas`, `en_son`, `kaydir_yukari`, `kaydir_asagi`; her ikisinde `komut:<ad>`; `null` kaldırır. Yapısal tuşlar (Enter, Tab, oklar) bağlanamaz. Dosya kaydedilince yeniden başlatmadan uygulanır. `/vim` NORMAL/INSERT düzenleme kipini açar (`runtime.vim_mode`).
+
+---
+
 ## Komut kopya kâğıdı
 
 | Yaz | Ne yapar |
@@ -312,6 +378,12 @@ Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtı
 | `/providers` · `/providers add` | Sağlayıcıları gör / anahtar ekle |
 | `/health` | Model sağlığı / devre durumu |
 | `/help` | Tüm komutlar |
+| `! cmd` · `@dosya` · `# not` | Kabuk · dosya anma · bellek notu |
+| `/status` · `/context` | Oturum durumu · bağlam kırılımı |
+| `/export` · `/copy` | Konuşmayı dosyaya/panoya · son cevabı panoya |
+| `/config yol=değer` | Ayar değiştir (`fusion config get/set/list`) |
+| `/output-style` · `/theme` · `/tui` | Çıktı stili · terminal teması · görünüm |
+| `/statusline` · `/keybindings` · `/vim` | Durum satırı betiği · tuş bağları · vim |
 | `fusion serve` | Yerel santral + panel |
 | `fusion mcp` | Araçları MCP ile dışa aç |
 | `fusion mcp-tools` | Dış MCP araçlarını listele |
