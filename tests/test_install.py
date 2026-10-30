@@ -125,7 +125,7 @@ def test_windowsta_powershell_komutu_verilir():
     )
 
     assert ipucu is not None
-    assert "setx" in ipucu.lower() or "$env:Path" in ipucu
+    assert "SetEnvironmentVariable" in ipucu  # setx değil (E1-34)
 
 
 def test_path_karsilastirmasi_windowsta_buyuk_kucuk_harf_duyarsizdir():
@@ -355,3 +355,71 @@ def test_uninstall_purge_yes_ile_onaysiz_siler(tmp_path, monkeypatch):
 
     assert sonuc.exit_code == 0
     assert not config_dir.exists() and not memory.exists()
+
+
+_YEREL_BIN = PurePosixPath("/home/x/.local/bin")
+
+# --- Dalga 4: PATH ekleme / yöntem tespiti / Windows önerisi (E1-34/35/36) --------- #
+
+
+def test_yontem_tespiti_ust_klasordeki_venv_adina_kanmaz():
+    """Ölçüldü (30 Ekim): '/Users/x/venv/bin/python3' ve ayrı geçen uv/tools VENV/UV sayılıyordu."""
+    assert detect_method(PurePosixPath("/usr/local/uv/lib/tools/py/bin/python")) is (
+        InstallMethod.UNKNOWN
+    )
+    assert detect_method(PurePosixPath("/Users/x/venv/projem/bin/python")) is InstallMethod.UNKNOWN
+    assert detect_method(PurePosixPath("/Users/x/venv/bin/python")) is InstallMethod.VENV
+
+
+def test_windows_onerisi_setx_kullanmaz_yalniz_kullanici_path_ine_ekler():
+    ipucu = path_hint(
+        bin_dir=PureWindowsPath(r"C:\Users\x\Scripts"),
+        path_value=r"C:\Windows",
+        shell="",
+        windows=True,
+    )
+
+    assert ipucu is not None
+    assert "setx" not in ipucu.lower()
+    assert 'GetEnvironmentVariable("Path", "User")' in ipucu
+    assert r"C:\Users\x\Scripts" in ipucu
+
+
+def test_yorum_satirindaki_dizin_zaten_ekli_sayilmaz(tmp_path):
+    from fusion_cli.install import ensure_on_path
+
+    rc = tmp_path / ".zshrc"
+    rc.write_text('# export PATH="/home/x/.local/bin:$PATH"\n', encoding="utf-8")
+
+    sonuc = ensure_on_path(
+        bin_dir=PurePosixPath("/home/x/.local/bin"), config_file=rc, approved=True
+    )
+
+    assert sonuc.changed is True
+    assert rc.read_text(encoding="utf-8").count("/home/x/.local/bin") == 2
+
+
+def test_daha_uzun_yolun_oneki_zaten_ekli_sayilmaz(tmp_path):
+    from fusion_cli.install import ensure_on_path
+
+    rc = tmp_path / ".zshrc"
+    rc.write_text('export PATH="/home/x/.local/bin2:$PATH"\n', encoding="utf-8")
+
+    sonuc = ensure_on_path(
+        bin_dir=PurePosixPath("/home/x/.local/bin"), config_file=rc, approved=True
+    )
+
+    assert sonuc.changed is True
+
+
+def test_aktif_satirdaki_tam_dizin_tekrar_eklenmez(tmp_path):
+    from fusion_cli.install import ensure_on_path
+
+    rc = tmp_path / ".zshrc"
+    rc.write_text('export PATH="/home/x/.local/bin:$PATH"\n', encoding="utf-8")
+
+    sonuc = ensure_on_path(
+        bin_dir=PurePosixPath("/home/x/.local/bin"), config_file=rc, approved=True
+    )
+
+    assert sonuc.changed is False

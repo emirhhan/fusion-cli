@@ -22,6 +22,12 @@ _SHELLS: dict[str, tuple[str, str]] = {
 }
 
 
+# Windows önerisi neden `setx PATH "$env:Path;…"` DEĞİL: `$env:Path` makine + kullanıcı
+# PATH'inin BİRLEŞİMİDİR; `setx` bunu kullanıcı PATH'ine yazar (sistem girdilerini çoğaltır) ve
+# 1024 karakterde KESER, yani kullanıcının PATH'ini bozabilir (E1-34). Yalnız kullanıcı
+# değerine ekleme güvenlidir.
+
+
 def path_hint(*, bin_dir: PurePath, path_value: str, shell: str, windows: bool) -> str | None:
     """Bin dizini PATH'te değilse ne yapılacağını anlatan metin; içindeyse None.
 
@@ -40,8 +46,10 @@ def path_hint(*, bin_dir: PurePath, path_value: str, shell: str, windows: bool) 
 
     if windows:
         return (
-            f"`fusion` komutu PATH'te değil. Bu dizini kalıcı olarak ekle:\n"
-            f'    setx PATH "$env:Path;{hedef}"\n'
+            f"`fusion` komutu PATH'te değil. Bu dizini kalıcı olarak ekle (yalnız KULLANICI "
+            f"PATH'ine):\n"
+            f'    [Environment]::SetEnvironmentVariable("Path", '
+            f'[Environment]::GetEnvironmentVariable("Path", "User") + ";{hedef}", "User")\n'
             f"Sonra PowerShell'i yeniden başlat."
         )
 

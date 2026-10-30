@@ -25,13 +25,16 @@ class InstallMethod(Enum):
 
 
 #: Yol parçasından yönteme eşleme. Sıra önemlidir: `uv` ve `pipx` daha spesifiktir
-#: ve `venv`den ÖNCE denenir (ikisinin içinde de bir sanal ortam vardır).
+#: ve `venv`den ÖNCE denenir (ikisinin içinde de bir sanal ortam vardır). Parçalar
+#: BİTİŞİK ve SIRALI aranır: `…/uv/tools/…`, `…/pipx/venvs/…`.
 _MARKERS: tuple[tuple[tuple[str, ...], InstallMethod], ...] = (
     (("uv", "tools"), InstallMethod.UV),
     (("pipx", "venvs"), InstallMethod.PIPX),
-    ((".venv",), InstallMethod.VENV),
-    (("venv",), InstallMethod.VENV),
 )
+
+#: Sanal ortam dizin adları. Yorumlayıcı `<ad>/bin/python` (Windows: `<ad>/Scripts/python.exe`)
+#: biçiminde olmalı; üst klasörlerden birinin adı `venv` olması yetmez.
+_VENV_NAMES = frozenset({".venv", "venv"})
 
 
 def detect_method(executable: PurePath) -> InstallMethod:
@@ -39,12 +42,24 @@ def detect_method(executable: PurePath) -> InstallMethod:
 
     Yol parçaları küçük harfe indirilerek karşılaştırılır: Windows yolları
     büyük/küçük harf duyarsızdır ve `AppData\\Roaming\\uv` de `uv` sayılmalıdır.
+
+    Ölçüldü (30 Ekim): eski eşleme parçaları kümeye atıp "herhangi bir yerde var mı"
+    diye soruyordu; `/Users/x/venv/…` ya da `uv` ve `tools` ayrı yerlerde geçen herhangi
+    bir yol yanlış yönteme düşüyordu (E1-36).
     """
-    parcalar = {part.lower() for part in executable.parts}
+    parcalar = [part.lower() for part in executable.parts]
     for isaretler, yontem in _MARKERS:
-        if all(isaret in parcalar for isaret in isaretler):
+        if _contains_run(parcalar, isaretler):
             return yontem
+    if len(parcalar) >= 3 and parcalar[-3] in _VENV_NAMES:
+        return InstallMethod.VENV
     return InstallMethod.UNKNOWN
+
+
+def _contains_run(parcalar: list[str], dizi: tuple[str, ...]) -> bool:
+    """`dizi` parçaları `parcalar` içinde ARDIŞIK ve aynı sırada geçiyor mu?"""
+    uzunluk = len(dizi)
+    return any(tuple(parcalar[i : i + uzunluk]) == dizi for i in range(len(parcalar) - uzunluk + 1))
 
 
 def update_command(method: InstallMethod) -> str:
@@ -52,7 +67,7 @@ def update_command(method: InstallMethod) -> str:
     return {
         InstallMethod.UV: f"uv tool upgrade {PACKAGE}",
         InstallMethod.PIPX: f"pipx upgrade {PACKAGE}",
-        InstallMethod.VENV: "git pull && ./setup.sh",
+        InstallMethod.VENV: "Fusion deposunun dizininde: git pull && ./setup.sh",
         InstallMethod.UNKNOWN: _bilinmiyor("güncellemek"),
     }[method]
 
