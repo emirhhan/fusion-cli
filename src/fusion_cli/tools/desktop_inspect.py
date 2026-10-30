@@ -58,6 +58,9 @@ end tell
 """
 
 
+_MAX_OUTPUT_CHARS = 12_000
+
+
 def _run(script: str, *values: str) -> ToolResult:
     error = _mac_only()
     if error:
@@ -73,11 +76,24 @@ def _run(script: str, *values: str) -> ToolResult:
             timeout=DESKTOP_COMMAND_TIMEOUT_S,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired:
+        return ToolResult.failure(
+            f"Pencere erişimi {DESKTOP_COMMAND_TIMEOUT_S} sn içinde bitmedi (büyük pencerelerde "
+            "AppleScript `entire contents` dakikalar sürer). Daha hızlı ve kısmi sonuç veren "
+            "desktop_background_windows + desktop_background_inspect araçlarını kullan."
+        )
+    except OSError as exc:
         return ToolResult.failure(f"Pencere erişimi başarısız: {exc}")
     if result.returncode:
         return ToolResult.failure(f"Pencere erişimi başarısız: {result.stderr.strip()}")
-    return ToolResult(result.stdout[:12_000].strip() or "Öğe bulunamadı.")
+    cikti = result.stdout.strip()
+    if len(cikti) > _MAX_OUTPUT_CHARS:
+        return ToolResult(
+            cikti[:_MAX_OUTPUT_CHARS]
+            + f"\n[KIRPILDI: {len(cikti) - _MAX_OUTPUT_CHARS} karakter daha var. Tam ağaç için "
+            "desktop_background_inspect kullan.]"
+        )
+    return ToolResult(cikti or "Öğe bulunamadı.")
 
 
 def desktop_windows(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -90,7 +106,8 @@ def desktop_window_focus(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Uygulama ve varsa pencere adına göre pencereyi öne getir."""
     del context
     app = require_str(args, "app")
-    window = args.get("window", "")
+    window = args.get("window")
+    window = "" if window is None else window  # `null` gönderen model "metin olmalı" hatası almasın
     if not isinstance(window, str):
         return ToolResult.failure("window metin olmalı.")
     result = _run(FOCUS_SCRIPT, app, window)

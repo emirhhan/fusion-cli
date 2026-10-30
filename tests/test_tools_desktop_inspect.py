@@ -47,3 +47,62 @@ def test_pencere_adi_kabuga_girmeden_ayri_arguman_olur(tmp_path, monkeypatch) ->
     assert {"desktop_windows", "desktop_window_focus", "desktop_accessibility"} <= set(
         build_registry().names()
     )
+
+
+# --- Dalga 4 (T1-44) -----------------------------------------------------------------
+
+
+def _fake_run_factory(stdout="", returncode=0, hata=None):
+    import subprocess
+
+    def _run(command, **kwargs):
+        if hata is not None:
+            raise hata
+        return subprocess.CompletedProcess(command, returncode, stdout, "")
+
+    return _run
+
+
+def test_cikti_kirpilirsa_not_eklenir(monkeypatch):
+    from fusion_cli.tools import desktop_inspect
+
+    monkeypatch.setattr(desktop_inspect, "_mac_only", lambda: None)
+    monkeypatch.setattr(desktop_inspect, "_framework", lambda: object())
+    monkeypatch.setattr(desktop_inspect, "_trusted", lambda f: True)
+    monkeypatch.setattr(desktop_inspect.subprocess, "run", _fake_run_factory("x" * 15_000))
+
+    sonuc = desktop_inspect._run("script")
+
+    assert sonuc.ok and "KIRPILDI" in sonuc.output and "desktop_background_inspect" in sonuc.output
+
+
+def test_zaman_asimi_yonlendirici_mesaj_verir(monkeypatch):
+    import subprocess
+
+    from fusion_cli.tools import desktop_inspect
+
+    monkeypatch.setattr(desktop_inspect, "_mac_only", lambda: None)
+    monkeypatch.setattr(desktop_inspect, "_framework", lambda: object())
+    monkeypatch.setattr(desktop_inspect, "_trusted", lambda f: True)
+    monkeypatch.setattr(
+        desktop_inspect.subprocess,
+        "run",
+        _fake_run_factory(hata=subprocess.TimeoutExpired("osascript", 15)),
+    )
+
+    sonuc = desktop_inspect._run("script")
+
+    assert not sonuc.ok and "desktop_background_inspect" in sonuc.output
+
+
+def test_pencere_null_kabul_edilir(monkeypatch):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools import desktop_inspect
+
+    monkeypatch.setattr(desktop_inspect, "_run", lambda *a: desktop_inspect.ToolResult("ok"))
+
+    sonuc = desktop_inspect.desktop_window_focus(
+        {"app": "Safari", "window": None}, ToolContext(root=".")
+    )
+
+    assert sonuc.ok
