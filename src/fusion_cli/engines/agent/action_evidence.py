@@ -33,7 +33,13 @@ _MUTATION_CLAIM = re.compile(
     r"guncelle(?:dim|dik|yecegim|yorum)|oluştur(?:dum|duk|acağım|uyorum)|"
     r"olustur(?:dum|duk|acagim|uyorum)|değiştir(?:dim|dik|eceğim|iyorum)|"
     r"degistir(?:dim|dik|ecegim|iyorum)|kaydet(?:tim|tik|eceğim|iyorum)|"
-    r"sil(?:dim|dik|eceğim|iyorum))\b|"
+    r"sil(?:dim|dik|eceğim|iyorum)|"
+    # Ölçüldü (30 Ekim, A1-30): bu fiiller yakalanmıyor, "dosyayı taşıdım" gibi kanıtsız
+    # beyanlar geçiyordu. `yazdım` bilerek YOK: sohbette kod örneği verirken çok yaygın.
+    r"taşı(?:dım|dık)|tasi(?:dim|dik)|kaldır(?:dım|dık)|kaldir(?:dim|dik)|"
+    r"yeniden adlandır(?:dım|dık)|yeniden adlandir(?:dim|dik)|"
+    r"uygula(?:dım|dık)|"
+    r"refactor ettim)\b|"
     r"\b(?:dosya\w*|kod\w*|font\w*|katman\w*|ayar\w*|file\w*)\b[^.!?\n]{0,100}"
     r"\b(?:eklendi|düzeltildi|duzeltildi|güncellendi|guncellendi|oluşturuldu|"
     r"olusturuldu|değiştirildi|degistirildi|kaydedildi|silindi)\b|"
