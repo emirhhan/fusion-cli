@@ -130,6 +130,61 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   ```
 - Yıkıcı bir komutta (`rm -rf` gibi) Fusion zaten durup sana sorar.
 
+### İzin kuralları (allow / ask / deny) — Claude Code ile aynı dosyalar
+
+Fusion, Claude Code'un `permissions` listelerini okur ve yazar; iki araçta tek liste:
+
+| Katman | Dosya | Ne zaman okunur |
+|---|---|---|
+| Fusion (kullanıcı) | `~/.config/fusion-cli/permissions.json` | her zaman |
+| Claude (kullanıcı) | `~/.claude/settings.json` | her zaman |
+| Proje | `<proje>/.claude/settings.json` | yalnız `fusion trust` sonrası |
+| Proje (yerel) | `<proje>/.claude/settings.local.json` | yalnız `fusion trust` sonrası (Fusion'ın kendi yazdığı dosya otomatik güvenilir) |
+
+Kalıplar: `Bash(npm run *)`, `Read(~/.ssh/**)`, `Edit(/src/**)` (`/` proje kökü, `//` disk kökü,
+`~` ev), `WebFetch(domain:example.com)`, `Skill(deploy *)`, `Agent(arastirmaci)`,
+`mcp__sunucu__arac`, ya da doğrudan bir Fusion aracı (`desktop_click`). Karar sırası sabittir:
+**deny → yıkıcı komut → ask → allow → çalışma modu**. `deny` "İzinleri atla" modunda da
+geçerlidir; `ask` Otomatik modda bile sordurur. Kabuk zincirleri (`a && b`) parça parça
+değerlendirilir: bir parça yasaksa tamamı yasak, hepsi izinliyse sorulmaz.
+
+```
+/permissions                              # listele
+/permissions add allow Bash(npm test *)   # projeye yaz
+/permissions add deny Read(~/.ssh/**) --user
+/permissions remove allow Bash(npm test *)
+fusion permissions add ask "Bash(git push *)"   # terminalden, aynı iş
+```
+
+Masaüstünde **Ayarlar › İzinler › İzin kuralları** tablosu aynı dosyaları gösterir; ekle/sil.
+
+### Onay kartında "bir daha sorma" ve ret gerekçesi
+
+- Onay kartındaki **Evet, bir daha sorma (kalıcı)** seçeneği en dar kuralı yazar
+  (`Bash(git status *)`, `Edit(/src/alt/**)`) ve sonraki oturumlarda da sorulmaz. Yıkıcı
+  işlemlerde bu seçenek çıkmaz. Terminalde `k` tuşu.
+- Reddederken **Not ekle** (masaüstünde Tab, terminalde `h <gerekçe>`) yazdığın gerekçe
+  modele araç sonucu olarak gider; tur durmaz, model yolunu gerekçeye göre değiştirir.
+  Notsuz ret ise turu durdurur ve "nasıl devam edeyim?" diye sorar.
+
+### Korumalı yollar ve klasör dışı
+
+- `.git/`, `.claude/`, `.fusion/tools/`, `.codex/`, `.cursor/rules/`, `.github/workflows/`
+  altına yazan her çağrı (dosya aracı ya da kabuk komutu) **her modda** sorulur ve oturum
+  iznine dönüşmez; okumak serbesttir.
+- `runtime.block_reads_outside_root` / `runtime.block_writes_outside_root` (Ayarlar › İzinler ›
+  Proje klasörü anahtarları): açıkken proje klasörü (+ `--add-dir`) dışını okumak / dışına
+  yazmak sorulmadan engellenir; modele dizinin `--add-dir` ile açılabileceği söylenir.
+  `restrict_to_root` ikisini birden kapatır.
+
+### Proje güveni masaüstünde
+
+İndirilmiş bir proje kendi `config.yaml`'ı (MCP sunucuları, doğrulama komutları),
+`.claude/settings*.json` izin listeleri ya da `.fusion/tools` araçlarıyla geliyorsa sohbetin
+üstünde **"Bu klasördeki dosyalara güveniyor musun?"** şeridi çıkar ve neyin devre dışı
+kaldığını sayar. **Evet, güven** = `fusion trust`; Ayarlar › İzinler › Proje klasörü'nden güven
+kaldırılabilir. Dosyalar sonradan değişirse güven kendiliğinden düşer.
+
 ---
 
 ## 8) Fusion öğrensin → `/good` ve `/bad`
@@ -308,6 +363,8 @@ Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtı
 | `/plan` | Önce planla, değiştirme |
 | `/undo` | Son değişikliği geri al |
 | `/verify` | Test/lint çalıştır |
+| `/permissions` · `fusion permissions` | İzin kurallarını (allow/ask/deny) listele, ekle, sil |
+| `fusion trust` | Projenin config/izin/araç dosyalarına güven |
 | `/good` · `/bad` | Fusion'a geri bildirim |
 | `/providers` · `/providers add` | Sağlayıcıları gör / anahtar ekle |
 | `/health` | Model sağlığı / devre durumu |
