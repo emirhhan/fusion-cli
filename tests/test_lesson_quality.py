@@ -435,3 +435,61 @@ def test_secim_bekleme_suresi_dolan_esik_alti_dersi_adaya_alir():
     assert select_lessons((Candidate(lesson=lesson, distance=0.1),), limit=3) == ()
     taze = Candidate(lesson=lesson, distance=0.1, idle_s=LESSON_REVIVE_AFTER_S)
     assert select_lessons((taze,), limit=3) == (lesson,)
+
+
+# --------------------------------------------------------------------------- #
+# Çelişen eski dersin güveni düşer (A2-11)
+# --------------------------------------------------------------------------- #
+
+
+def test_celisen_eski_ders_dusurulecekler_arasinda():
+    eski = _lesson("multi_edit araci kullan")
+    ilgisiz = _lesson("testi calistirmadan once bagimliliklari kur")
+
+    assert learning.contradicted_texts(
+        (_lesson("multi_edit araci kullanma"),), (eski, ilgisiz)
+    ) == (eski.text,)
+
+
+def test_celisme_yoksa_hicbir_ders_dusurulmez():
+    assert learning.contradicted_texts((_lesson("farkli bir konu hakkinda ders"),), ()) == ()
+
+
+async def test_ogrenme_adimi_celisen_eski_dersin_guvenini_dusurur(monkeypatch):
+    from types import SimpleNamespace
+
+    from fusion_cli.engines.agent import learning_steps
+
+    eski = _lesson("multi_edit araci kullan")
+    yeni = _lesson("multi_edit araci kullanma")
+    reinforce_cagrilari: list[tuple[tuple[str, ...], bool]] = []
+
+    class _Bellek:
+        def all(self):
+            return (eski,)
+
+        def add(self, ders):
+            return True
+
+        def reinforce(self, texts, *, success):
+            reinforce_cagrilari.append((texts, success))
+            return len(texts)
+
+    async def cikar(*args, **kwargs):
+        return (yeni,)
+
+    monkeypatch.setattr(learning, "extract_lessons", cikar)
+    deps = SimpleNamespace(
+        lessons=_Bellek(),
+        config=None,
+        publisher=SimpleNamespace(publish=lambda event: None),
+        tool_context=None,
+        mcp_servers=(),
+    )
+    monkeypatch.setattr(learning_steps, "lesson_tags", lambda deps: ())
+
+    await learning_steps._extract_and_store(
+        "gorev", [Message("tool", "ok", tool_call_id="1")], deps
+    )
+
+    assert reinforce_cagrilari == [((eski.text,), False)]

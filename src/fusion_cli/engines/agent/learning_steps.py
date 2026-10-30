@@ -205,13 +205,18 @@ async def _extract_and_store(task: str, messages: list[Message], deps: AgentDeps
     )
     # Yazım kapısı: yalnızca ölçülebilir kanıtı olan, sır içermeyen, mevcut derslerle
     # çakışmayan adaylar belleğe girer. Bellek çöple/zehirle dolmasın.
+    existing = deps.lessons.all()
     screened = learning.screen_lessons(
         lessons,
-        deps.lessons.all(),
+        existing,
         has_evidence=learning.has_measurable_evidence(messages),
     )
     # Ders görev-türü kapsamı olmadan (genel) saklanır: tür artık hesaplanmıyor.
     # Proje ve teknoloji süzgeci `workspace` ve `tags` ile zaten korunuyor.
     stored = learning.store_lessons(screened, deps.lessons)
+    # Yeni dersle çelişen ESKİ dersin güveni düşer (A2-11); yan yana iki zıt kural
+    # geri çağrılmasın.
+    if stored:
+        deps.lessons.reinforce(learning.contradicted_texts(screened, existing), success=False)
     if stored:
         deps.publisher.publish(LessonsLearned(count=stored))

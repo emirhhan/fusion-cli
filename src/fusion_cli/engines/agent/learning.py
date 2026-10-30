@@ -211,6 +211,23 @@ def screen_lessons(
     return tuple(accepted)
 
 
+def contradicted_texts(
+    accepted: tuple[Lesson, ...], existing: tuple[Lesson, ...]
+) -> tuple[str, ...]:
+    """Kabul edilen yeni derslerle ÇELİŞEN eski dersler (güveni düşürülecekler).
+
+    Ölçüldü (30 Ekim, A2-11): `screen_lesson` çelişkiyi işaretliyor ama sonuç hiçbir
+    yerde kullanılmıyordu; "X'i kullan" ile "X'i kullanma" yan yana saklanıp ikisi de
+    geri çağrılıyordu. Yeni ders ölçülebilir kanıtla kapıdan geçtiği için eskisi silinmez,
+    yalnız güveni düşer (`reinforce(success=False)`); gerçekten yanlışsa eşik altına
+    iner, doğruysa sonraki başarılı turlarla toparlanır.
+    """
+    texts = [
+        old.text for old in existing if any(contradicts(new.text, old.text) for new in accepted)
+    ]
+    return tuple(dict.fromkeys(texts))
+
+
 def is_near_duplicate(
     text: str, existing_texts: tuple[str, ...], threshold: float = DEDUP_JACCARD_THRESHOLD
 ) -> bool:
