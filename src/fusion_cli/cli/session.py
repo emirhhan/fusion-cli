@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from ..config.models import Config, mcp_secret_env_names
+from ..config.permission_rules import load_permission_rules
 from ..config.permissions import load_allowed_commands
 from ..core.artifacts import ArtifactStore
 from ..core.changeset import ChangeSet
@@ -229,6 +230,8 @@ async def run_agent_task(
             chrome=chrome_bridge,
             extra_roots=extra_roots,
             restrict_to_root=config.runtime.restrict_to_root,
+            block_reads_outside_root=config.runtime.block_reads_outside_root,
+            block_writes_outside_root=config.runtime.block_writes_outside_root,
             # Bağlamı şişiren araç çıktısı kırpılmak yerine diske alınır: bilgi
             # kaybolmaz, model gerektiğinde dosyayı açar (context rot).
             artifacts=ArtifactStore(config.memory_dir / "artifacts" / _artifact_id()),
@@ -286,6 +289,11 @@ async def run_agent_task(
             or (CapabilityRegistry(home, tool_context.root) if home is not None else None),
             home=home,
             allowed_commands=load_allowed_commands(tool_context.root),
+            permission_rules=load_permission_rules(
+                tool_context.root,
+                block_reads_outside_root=config.runtime.block_reads_outside_root,
+                block_writes_outside_root=config.runtime.block_writes_outside_root,
+            ),
             verifier=build_verifier(
                 config,
                 root=tool_context.root,

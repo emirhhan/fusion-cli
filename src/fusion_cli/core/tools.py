@@ -378,6 +378,12 @@ class ToolContext:
     #: `edit_file`/`multi_edit` tam eşleşme bulamayınca boşluk/girinti/CRLF farkını tolere eden
     #: tek-ve-belirsiz-olmayan yedek yolu dener (bkz. `tools.esnek_eslesme`).
     edit_fuzzy_match: bool = field(default=True, kw_only=True)
+    #: Kök (+ `extra_roots`) DIŞINI okuma / DIŞINA yazma tamamen kapalı mı? (P-002)
+    #:
+    #: `restrict_to_root` ikisini birden kapatır; bunlar tek yönü kapatır. Açıkken
+    #: dosya araçları `PathAccessError` verir ve modele `--add-dir` ile açılabileceği söylenir.
+    block_reads_outside_root: bool = field(default=False, kw_only=True)
+    block_writes_outside_root: bool = field(default=False, kw_only=True)
     #: Dosya yazıldıktan sonra JS/TS/PHP sözdizimi hızlı kontrolü (bkz. `tools.sozdizimi_kontrol`).
     post_edit_syntax_check: bool = field(default=True, kw_only=True)
     #: `run_shell` öncesi/sonrası proje kökünün parmak izi alınır; dosya değişmediyse komut

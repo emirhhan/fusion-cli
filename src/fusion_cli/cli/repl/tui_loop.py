@@ -12,6 +12,7 @@ import asyncio
 import logging
 import sys
 from collections.abc import Callable, Sequence
+from pathlib import Path
 
 from rich.console import Console
 from rich.markup import escape
@@ -95,9 +96,13 @@ class _PumpSink:
 class TuiPrompter:
     """Motor onay/soru çağrılarını `FusionTui` modaline köprüler."""
 
-    def __init__(self, tui: FusionTui, drain: object) -> None:
+    def __init__(self, tui: FusionTui, drain: object, root: Path | None = None) -> None:
         self._tui = tui
         self._drain = drain
+        self._root = root
+
+    def _state_root(self) -> Path | None:
+        return self._root
 
     async def confirm(self, request: ApprovalRequest) -> ApprovalAnswer:
         await _maybe_drain(self._drain)
@@ -121,6 +126,18 @@ class TuiPrompter:
                         request.remembered_scope_description or messages.TUI_APPROVAL_SESSION_DESC,
                     )
                 )
+            if request.can_persist:
+                from ...engines.agent.permission_persist import rule_for_request
+
+                choices.append(
+                    Choice(
+                        "always",
+                        messages.TUI_APPROVAL_ALWAYS,
+                        messages.TUI_APPROVAL_ALWAYS_DESC.format(
+                            rule=rule_for_request(request, self._state_root()).pattern
+                        ),
+                    )
+                )
             if not request.danger:
                 choices.append(deny)
             answer = await self._tui.await_choice(messages.TUI_APPROVAL_TITLE, choices)
@@ -128,6 +145,8 @@ class TuiPrompter:
                 return ApprovalAnswer.ONCE
             if answer == "session" and request.can_remember:
                 return ApprovalAnswer.SESSION
+            if answer == "always" and request.can_persist:
+                return ApprovalAnswer.ALWAYS
             return ApprovalAnswer.DENY
         finally:
             if previous_work is None:
@@ -229,7 +248,7 @@ class _TuiSession:
             on_transcript_change=None,
         )
         self._out = self._tui.console
-        self._prompter_factory = lambda drain: TuiPrompter(self._tui, drain)
+        self._prompter_factory = lambda drain: TuiPrompter(self._tui, drain, self._state.root)
         self._sync_status()
 
     @property
@@ -549,6 +568,8 @@ class _TuiSession:
                     root=self._state.root,
                     extra_roots=self._state.extra_roots,
                     restrict_to_root=self._state.config.runtime.restrict_to_root,
+                    block_reads_outside_root=self._state.config.runtime.block_reads_outside_root,
+                    block_writes_outside_root=self._state.config.runtime.block_writes_outside_root,
                 )
                 # Değişiklik kümesi tur boyunca yerinde dolar; tur kesilse ya da hatayla
                 # bitse de `/undo` yarım yazılmış dosyaları geri alabilsin (L2-12).

@@ -186,6 +186,10 @@ runtime:
   # Dosya araçları proje kökü dışına çıkabilsin mi? false = kısıt yok (kullanıcı her
   # projede çalışabilir). true yaparsan kök (+ --add-dir) dışına erişim reddedilir.
   restrict_to_root: false
+  # Tek yönlü sınır (P-002): true ise kök (+ --add-dir) dışını okuma / dışına yazma
+  # tamamen kapalıdır; onay sorulmaz, modele "--add-dir ile açılır" denir.
+  block_reads_outside_root: false
+  block_writes_outside_root: false
   # Tur başına çıktı bütçesi.
   #
   # DİKKAT: reasoning modellerinde düşünme token'ları da BU bütçeden yenir.

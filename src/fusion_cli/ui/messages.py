@@ -331,6 +331,15 @@ TUI_APPROVAL_SESSION = "Evet, bu oturumda bunu tekrar sorma"
 TUI_APPROVAL_SESSION_DESC = "Aynı araç veya komut bu oturumda tekrar sorulmaz."
 TUI_APPROVAL_DENY = "Hayır, başka bir yol dene"
 TUI_APPROVAL_DENY_DESC = "Araç çalıştırılmaz; agent güvenli başka bir yol arar."
+#: Kalıcı izin kuralı seçeneği (P-003): `{rule}` yazılacak kural, `{path}` dosya.
+TUI_APPROVAL_ALWAYS = "Evet, bir daha sorma (kalıcı)"
+TUI_APPROVAL_ALWAYS_DESC = "{rule} kuralı izin listesine yazılır ve her oturumda geçerli olur."
+#: Onay kartında eşleşen izin kuralı bilgisi.
+APPROVAL_RULE_NOTE = "izin kuralı: {rule}"
+#: Kalıcı kural yazıldı / yazılamadı bildirimi (`ApprovalMemory.notices`).
+PERMISSION_RULE_SAVED = "İzin kuralı kaydedildi: {summary}"
+#: Terminalde ret gerekçesi ipucu (P-013): `h gerekçe` yazılır, gerekçe modele gider.
+CONFIRM_NOTE_HINT = "  (h <gerekçe>: ret nedenini modele ilet · k: kalıcı izin, bir daha sorma)"
 #: Tam-ekran/TUI'de argümansız seçici komutu çağrılınca gösterilen yönlendirme.
 TUI_PICKER_NEEDS_ARG = "/{name} bu görünümde argüman ister. Örnek: /level high. Ayrıntı: /help."
 
@@ -709,6 +718,19 @@ CMD_EDITS = "düzenlemeleri kabul et: dosya düzenlemeleri sorulmaz, komutlar so
 CMD_PLAN = "plan: değişiklik yapma, yalnız oku ve planla"
 CMD_SECURITY = "manuel: okuma dışındaki her işlemi tek tek sor"
 CMD_BYPASS = "izinleri atla: hiçbir şey sorma (silinen yine çöpe gider)"
+CMD_PERMISSIONS = "izin kurallarını listele/ekle/sil (allow · ask · deny)"
+PERMISSIONS_EMPTY = "İzin kuralı yok. Ekle: /permissions add allow Bash(npm test *)"
+PERMISSIONS_USAGE = (
+    "Kullanım: /permissions [list] · /permissions add <allow|ask|deny> <Araç(kalıp)> "
+    "[--user] · /permissions remove <allow|ask|deny> <Araç(kalıp)>"
+)
+PERMISSIONS_BAD_DECISION = "Karar allow, ask ya da deny olmalı: {given}"
+PERMISSIONS_BAD_PATTERN = "Kalıp `Araç` ya da `Araç(belirteç)` biçiminde olmalı: {given}"
+PERMISSIONS_ADDED = "İzin kuralı eklendi: {rule} [{decision}] → {path}"
+PERMISSIONS_EXISTS = "Bu kural zaten var: {rule} [{decision}]"
+PERMISSIONS_REMOVED = "İzin kuralı silindi: {rule} [{decision}] ({path})"
+PERMISSIONS_NOT_FOUND = "Kural bulunamadı: {rule} [{decision}]"
+PERMISSIONS_UNTRUSTED_LAYERS = "Güvenilmediği için yok sayılan katmanlar: {layers} (fusion trust)"
 CMD_RESET = "agent sohbet geçmişini temizle"
 CMD_COMPACT = "uzun geçmişi özetleyerek kısalt"
 CMD_TASK_TYPE = "fusion görev tipi (general | code | reasoning | agent)"

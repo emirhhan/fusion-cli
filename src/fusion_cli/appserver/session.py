@@ -2519,7 +2519,10 @@ class AppSession:
         kanit = evidence_payload(getattr(outcome, "completion_report", None))
         if kanit is not None:
             cevap["kanit"] = kanit
-        return cevap
+        # Onay kartındaki "bir daha sorma" kuralı yazıldı/yazılamadı bildirimi (P-003).
+        for notice in self._state.approval_memory.take_notices():
+            self._note_persist_warning(messages.PERMISSION_RULE_SAVED.format(summary=notice))
+        return {**cevap, **self._take_persist_warning()}
 
     def _refresh_capabilities(self) -> None:
         self._state.capabilities = CapabilityRegistry(

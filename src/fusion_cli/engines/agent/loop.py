@@ -33,6 +33,7 @@ from pathlib import Path
 from ...config.eligibility import effort_for_spec
 from ...config.model_select import escalated_spec, select_agent_spec
 from ...config.models import Config
+from ...config.permission_rules import PermissionRuleSet
 from ...config.tool_policy import mutation_policy_for_model
 from ...core.budget import BudgetStop, TurnBudget
 from ...core.checkpoint import CheckpointStore
@@ -133,7 +134,7 @@ from ..effects.runner import maybe_run_effect_workflow
 from . import compaction, denial, gate_escalation, learning_steps, liveness, reflexion, review
 from .action_evidence import claimed_effects
 from .apprentice_handoff import apprentice_spec, teacher_for_turn
-from .approval import ApprovalPolicy, Decision, resolve_request
+from .approval import ApprovalPolicy, ApprovalRequest, Decision, Denial, resolve_request
 from .change_digest import change_digest
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
@@ -293,7 +294,9 @@ _DECISION_OUTCOMES = {
 }
 
 
-def _decision_message(decision: Decision, *, plan_mode: bool) -> str:
+def _decision_message(
+    decision: Decision, *, plan_mode: bool, request: ApprovalRequest | None = None
+) -> str:
     """Reddedilen/engellenen çağrı için modele dönecek metni seç.
 
     `Decision.BLOCKED` İKİ ayrı sebepten gelebilir ve ikisinin metni FARKLI
@@ -306,6 +309,9 @@ def _decision_message(decision: Decision, *, plan_mode: bool) -> str:
     """
     if decision is Decision.DENIED:
         return denial.DENIED_TOOL_RESULT
+    if request is not None and request.pre_denied is not None:
+        # İzin kuralı / kök-dışı engel (P-001, P-002): plan kipinden de önce gelir.
+        return denial.RULE_DENIED_TOOL_RESULT.format(reason=request.pre_denied)
     if plan_mode:
         return BLOCKED_MESSAGE
     return denial.APPROVAL_UNAVAILABLE_MESSAGE
@@ -421,6 +427,9 @@ class AgentDeps:
     home: Path | None = None
     #: Kullanıcının `.claude/settings.local.json` içinde onaysız izin verdiği komutlar.
     allowed_commands: frozenset[str] = frozenset()
+    #: Tüm katmanlardan okunmuş izin kuralları (allow/ask/deny) ve kök-dışı engeller (P-001).
+    #: `None` = kural yok (eski çağıranlar); `getattr(deps, "permission_rules", None)` ile okunur.
+    permission_rules: PermissionRuleSet | None = None
     #: Verilirse ders çıkarımı turu BEKLETMEDEN arka planda çalışır (REPL için).
     #: Verilmezse tur içinde beklenir (tek seferlik CLI için doğru davranış).
     background: BackgroundTasks | None = None
@@ -3674,19 +3683,28 @@ async def _execute(
             deps.allowed_commands,
             root=deps.tool_context.root,
             context=deps.tool_context,
+            rules=getattr(deps, "permission_rules", None),
         )
-        decision = await policy.decide(request)
+        verdict = await policy.decide(request)
         if deps.mutation_blocked_by_pending_input() or (
             deps.approval_revision is not None and deps.approval_revision() != revision
         ):
             return ToolResult.failure(
                 "Onay kapsamı değişti; eski işlem başlatılmadı."
             ), ToolOutcome.BLOCKED
+        if isinstance(verdict, Denial):
+            # Gerekçeli ret (P-013): tur DURMAZ; model gerekçeyi okur ve yolunu değiştirir.
+            # Sonuç BLOCKED sınıfındadır: refleksiyon tetiklenmez, bütçe durdurulmaz.
+            return (
+                ToolResult.failure(denial.DENIED_WITH_NOTE_RESULT.format(note=verdict.note)),
+                ToolOutcome.BLOCKED,
+            )
+        decision = verdict
         if decision is not Decision.ALLOW:
             # Engelleme (BLOCKED) HATA DEĞİLDİR: refleksiyon tetiklenmemeli, model
             # yalnızca farklı bir yol denemeli. Reddetme (DENIED) ise artık farklı
             # bir sınıftır: turu durdurur (bkz. `_run_tools`, `_drive`).
-            message = _decision_message(decision, plan_mode=plan_mode)
+            message = _decision_message(decision, plan_mode=plan_mode, request=request)
             return ToolResult.failure(message), _DECISION_OUTCOMES[decision]
 
     # Onay SORULACAKSA (değiştirici araç) buraya ancak onaydan SONRA gelinir;

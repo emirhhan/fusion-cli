@@ -207,6 +207,11 @@ class RuntimeConfig:
     #: Varsayılan KAPALI: kullanıcı kök dışındaki projelerde/dosyalarda da çalışabilsin.
     #: `true` yapıldığında kök dışına erişim `PathAccessError` ile reddedilir.
     restrict_to_root: bool = False
+    #: Tek yönlü kök sınırı (P-002, Claude `permissions.blockReadsOutsideWorkingDirectories`
+    #: / `blockWritesOutsideWorkingDirectories`): açıkken dosya araçları kök (+ `--add-dir`)
+    #: dışını OKUYAMAZ / dışına YAZAMAZ ve onay bile sorulmaz. Varsayılan kapalı.
+    block_reads_outside_root: bool = False
+    block_writes_outside_root: bool = False
     #: Agent turunda geçici model hatasında (429, 5xx, zaman aşımı) yeniden deneme
     #: sayısı; beklemeler üstel artar. 0 = yeniden deneme yok. Varsayılan 4: 429'da
     #: yedeğe beklemeden geçilir (bkz. `loop.MAX_TRANSIENT_RETRIES`, Z1-35).

@@ -13,12 +13,14 @@ from uuid import uuid4
 
 from ...config.live import ConfigRevision, reload_checked, revision
 from ...config.models import Config
+from ...config.permission_rules import PermissionRuleSet, load_permission_rules
 from ...config.permissions import load_allowed_commands
 from ...core.changeset import ChangeSet
 from ...core.health import HealthRegistry
 from ...core.remotion_browser import RemotionBrowser
 from ...core.types import FusionResult, Message
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
+from ...engines.agent.permission_persist import remember_always
 from ...engines.agent.remotion_bridge import FrameTransport
 from ...memory.factory import Memory
 from ...observability.cost import CostTracker
@@ -167,8 +169,23 @@ class ReplState:
             self.capabilities = CapabilityRegistry(self.home, self.root)
         if not self.allowed_commands:
             self.allowed_commands = load_allowed_commands(self.root)
+        # Onay kartındaki "bir daha sorma" kalıcı kurala dönüşür (P-003); kök çağrı anında
+        # okunur, böylece proje değişince yeni projeye yazılır.
+        self.approval_memory.rule_writer = lambda request: remember_always(self.root, request)
         self.config_revision = revision(self.config)
         self.config_baseline = self.config
+
+    def permission_rules(self) -> PermissionRuleSet:
+        """İzin kuralları her turda dosyadan taze okunur (P-001).
+
+        `/permissions add` ve onay kartındaki "bir daha sorma" sonraki turda etkili olur;
+        dosyalar küçük, okuma ucuzdur.
+        """
+        return load_permission_rules(
+            self.root,
+            block_reads_outside_root=self.config.runtime.block_reads_outside_root,
+            block_writes_outside_root=self.config.runtime.block_writes_outside_root,
+        )
 
     def refresh_config(self) -> bool:
         """Bir sonraki turdan önce kontrol paneli yapılandırma değişikliklerini uygula.

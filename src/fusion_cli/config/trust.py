@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from ..core.errors import ConfigError
 from .paths import user_config_dir
 
@@ -30,6 +32,13 @@ PROJECT_CONFIG_NAME = "config.yaml"
 FORGED_TOOLS_DIR = Path(".fusion") / "tools"
 #: Claude Code'un proje-yerel izin dosyası; `Bash(...)` girdileri onaysız komut sayılır (L2-02).
 PROJECT_PERMISSIONS_PATH = Path(".claude") / "settings.local.json"
+#: Claude Code'un paylaşılan proje ayarı (P-001): izin kuralları yalnız güvenilince okunur.
+PROJECT_SETTINGS_PATH = Path(".claude") / "settings.json"
+#: Güven kaydındaki karma alanları (dosya → anahtar).
+_DIGEST_KEYS: dict[Path, str] = {
+    PROJECT_PERMISSIONS_PATH: "settings_sha256",
+    PROJECT_SETTINGS_PATH: "project_settings_sha256",
+}
 _STORE_NAME = "trusted-projects.json"
 _SCHEMA_VERSION = 1
 
@@ -74,15 +83,92 @@ def is_permissions_trusted(root: Path) -> bool:
     bulunmalı ve eşleşmelidir; `fusion trust` öncesinde yazılmış kayıtlarda alan
     olmadığından dosya yeniden güvenilene kadar yok sayılır.
     """
-    path = root / PROJECT_PERMISSIONS_PATH
+    return _is_digest_trusted(root, PROJECT_PERMISSIONS_PATH)
+
+
+def is_project_settings_trusted(root: Path) -> bool:
+    """`.claude/settings.json` güvenildiği andaki içerikle mi duruyor? (P-001)
+
+    Eski kayıtlarda alan yoktur: dosya yeniden `fusion trust` ile güvenilene dek yok sayılır.
+    """
+    return _is_digest_trusted(root, PROJECT_SETTINGS_PATH)
+
+
+def _is_digest_trusted(root: Path, relative: Path) -> bool:
     try:
-        current = _digest(path)
+        current = _digest(root / relative)
     except ConfigError:
         return False
     if current is None:
         return True
     record = _load().get(_key(root))
-    return record is not None and record.get("settings_sha256") == current
+    return record is not None and record.get(_DIGEST_KEYS[relative]) == current
+
+
+def record_permissions_digest(root: Path) -> None:
+    """Fusion'ın BİZZAT yazdığı `.claude/settings.local.json`'ın karmasını tazele (P-003).
+
+    Yalnız izin dosyası alanı değişir; config ve araç karmaları olduğu gibi kalır. Kayıt
+    yoksa yalnız bu alanla açılır: config güveni bundan ÇIKARILMAZ (bkz. `approve_file`).
+    """
+    record = _load().get(_key(root), {})
+    _update(
+        root,
+        config_sha256=record.get("config_sha256"),
+        files=dict(record.get("files", {})),
+        settings_sha256=_digest(root / PROJECT_PERMISSIONS_PATH),
+        project_settings_sha256=record.get("project_settings_sha256"),
+    )
+
+
+def untrust_project(root: Path) -> bool:
+    """Projenin güven kaydını sil; kayıt yoksa `False` (P-012)."""
+    store = _load()
+    if store.pop(_key(root), None) is None:
+        return False
+    _save(store)
+    return True
+
+
+@dataclass(frozen=True, slots=True)
+class TrustReport:
+    """Masaüstü güven kartı için durum + güvenilmeyince DÜŞÜRÜLEN bölümler (P-012)."""
+
+    state: TrustState
+    #: Proje config'inden düşürülen bölümler (`mcp_servers`, `runtime.verification_commands`…).
+    dropped_sections: tuple[str, ...]
+    #: Güvenilmediği için yok sayılan izin dosyaları (köke göreli).
+    ignored_files: tuple[str, ...]
+    #: Yüklenmeyen üretilmiş araç sayısı (`.fusion/tools/*.py`).
+    forged_tools: int
+
+
+def trust_report(root: Path) -> TrustReport:
+    """Projenin güven durumu ve güvenilmezse nelerin devre dışı kaldığı."""
+    state = resolve_project_trust(root)
+    dropped: tuple[str, ...] = ()
+    config_path = root / PROJECT_CONFIG_NAME
+    if config_path.is_file():
+        try:
+            data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, yaml.YAMLError):
+            data = None
+        if isinstance(data, Mapping):
+            _, dropped = without_execution_settings(data)
+    ignored = tuple(
+        relative.as_posix()
+        for relative in (PROJECT_SETTINGS_PATH, PROJECT_PERMISSIONS_PATH)
+        if (root / relative).is_file() and not _is_digest_trusted(root, relative)
+    )
+    tools = sum(
+        1
+        for path in (root / FORGED_TOOLS_DIR).glob("*.py")
+        if path.is_file() and not path.is_symlink()
+    )
+    if state.trusted:
+        dropped = ()
+        tools = 0
+    return TrustReport(state, dropped, ignored, tools)
 
 
 def without_execution_settings(
@@ -114,6 +200,7 @@ def trust_project(root: Path) -> None:
         config_sha256=_digest(root / PROJECT_CONFIG_NAME),
         files=files,
         settings_sha256=_digest(root / PROJECT_PERMISSIONS_PATH),
+        project_settings_sha256=_digest(root / PROJECT_SETTINGS_PATH),
     )
 
 
@@ -133,6 +220,7 @@ def approve_file(root: Path, path: Path) -> None:
         config_sha256=record.get("config_sha256"),
         files=files,
         settings_sha256=record.get("settings_sha256"),
+        project_settings_sha256=record.get("project_settings_sha256"),
     )
 
 
@@ -160,9 +248,15 @@ def _update(
     config_sha256: str | None,
     files: dict[str, str],
     settings_sha256: str | None = None,
+    project_settings_sha256: str | None = None,
 ) -> None:
     store = _load()
-    record = {"config_sha256": config_sha256, "files": files, "settings_sha256": settings_sha256}
+    record = {
+        "config_sha256": config_sha256,
+        "files": files,
+        "settings_sha256": settings_sha256,
+        "project_settings_sha256": project_settings_sha256,
+    }
     _save({**store, _key(root): record})
 
 

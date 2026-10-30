@@ -155,6 +155,9 @@ _BOOLEAN_RUNTIME_FLAGS = (
     "playbooks",
     "verified_synthesis",
     "synthesis",
+    # Kök-dışı engel anahtarları (P-002); Ayarlar › İzinler ve `fusion permissions` yazar.
+    "block_reads_outside_root",
+    "block_writes_outside_root",
 )
 
 #: `workflow_mode` için kabul edilen değerler (bkz. `core.execution_mode.ExecutionMode`).

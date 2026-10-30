@@ -497,6 +497,8 @@ async def _agent_turn(
             root=state.root,
             extra_roots=state.extra_roots,
             restrict_to_root=state.config.runtime.restrict_to_root,
+            block_reads_outside_root=state.config.runtime.block_reads_outside_root,
+            block_writes_outside_root=state.config.runtime.block_writes_outside_root,
             remotion_browser=state.remotion_browser,
         )
         partial = PartialTurn()
@@ -522,6 +524,7 @@ async def _agent_turn(
             capabilities=state.capabilities,
             home=state.home,
             allowed_commands=state.allowed_commands,
+            permission_rules=state.permission_rules(),
             background=background,
             verifier=build_verifier(
                 state.config,
@@ -584,6 +587,11 @@ async def _agent_turn(
                     FollowupsSuggested(tuple((item.label, item.prompt) for item in oneriler))
                 )
             bus.publish(TurnFinished())
+            for notice in state.approval_memory.take_notices():
+                console.print(
+                    f"[{theme.INFO}]{escape(messages.PERMISSION_RULE_SAVED.format(summary=notice))}"
+                    f"[/{theme.INFO}]"
+                )
         except (asyncio.CancelledError, Exception):
             state.history = partial.history_after_interruption(
                 previous=state.history, task=line, root=state.root
