@@ -12,6 +12,8 @@ ENDPOINTS = {
     "openai": "https://api.openai.com/v1/models",
     "anthropic": "https://api.anthropic.com/v1/models",
     "gemini": "https://generativelanguage.googleapis.com/v1beta/models",
+    # Ürünün ana ücretsiz sağlayıcısı: kayıt defteri kimliği `nvidia_nim`.
+    "nvidia_nim": "https://integrate.api.nvidia.com/v1/models",
 }
 
 

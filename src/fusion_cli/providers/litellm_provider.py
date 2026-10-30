@@ -182,9 +182,11 @@ class LiteLlmProvider:
             kwargs.setdefault("keep_alive", "60m")
             # Qwen'in önerdiği örnekleme (düşünmesiz mod); düşük sıcaklıkta tekrar
             # döngüsüne girmesini cezayla kırar.
-            kwargs.setdefault("top_k", 20)
-            kwargs.setdefault("top_p", 0.8)
-            kwargs.setdefault("repeat_penalty", 1.1)
+            # Yalnız Qwen ailesine: Llama/Gemma/DeepSeek için ölçülmedi (30 Ekim).
+            if "qwen" in self._model.lower():
+                kwargs.setdefault("top_k", 20)
+                kwargs.setdefault("top_p", 0.8)
+                kwargs.setdefault("repeat_penalty", 1.1)
         if stream:
             kwargs["stream"] = True
             kwargs["stream_options"] = {"include_usage": True}

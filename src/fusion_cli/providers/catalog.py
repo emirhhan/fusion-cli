@@ -18,6 +18,7 @@ from dataclasses import dataclass
 
 import httpx
 
+from ..config.keys import environ_snapshot
 from ..core.constants import WEB_TIMEOUT_S
 from ..core.types import ToolCall
 
@@ -180,7 +181,20 @@ def _valid_sum_call(call: object) -> bool:
         arguments = json.loads(function.get("arguments", ""))
     except (TypeError, ValueError):
         return False
-    return isinstance(arguments, dict) and arguments.get("a") == 2 and arguments.get("b") == 3
+    if not isinstance(arguments, dict):
+        return False
+    # Bazı modeller sayıyı "2" diye metin döndürür; araç yine çağrılabilirdir.
+    return _as_number(arguments.get("a")) == 2 and _as_number(arguments.get("b")) == 3
+
+
+def _as_number(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value.strip())
+    return None
 
 
 def _as_int(value: object) -> int:
@@ -202,11 +216,33 @@ def _is_free(item: dict[str, object]) -> bool:
     )
 
 
+def ollama_base_url() -> str:
+    """Ollama taban adresi: `OLLAMA_API_BASE` (LiteLLM'in okuduğu), yoksa `OLLAMA_HOST`.
+
+    Katalog sabit 127.0.0.1:11434'e bakıyor, LiteLLM ise `OLLAMA_API_BASE`'i okuyordu;
+    Ollama başka portta/uzak makinedeyse liste boş görünüyordu (ölçüldü 30 Ekim).
+    """
+    environ = environ_snapshot()
+    base = environ.get("OLLAMA_API_BASE", "").strip()
+    if base:
+        return base.rstrip("/")
+    host = environ.get("OLLAMA_HOST", "").strip()
+    if not host:
+        return _OLLAMA_DEFAULT_BASE
+    if "://" not in host:
+        host = f"http://{host}"
+    # `OLLAMA_HOST=0.0.0.0:11500` DİNLEME adresidir; bağlanılacak adres loopback'tir.
+    return host.replace("//0.0.0.0", "//127.0.0.1").rstrip("/")
+
+
+_OLLAMA_DEFAULT_BASE = "http://127.0.0.1:11434"
+
+
 def fetch_ollama(timeout_s: float = 0.75) -> tuple[CatalogEntry, ...]:
     """Discover optional local models without cloud keys or proxy credentials."""
     try:
         with httpx.Client(timeout=timeout_s, trust_env=False) as client:
-            response = client.get("http://127.0.0.1:11434/api/tags")
+            response = client.get(f"{ollama_base_url()}/api/tags")
             response.raise_for_status()
             payload = response.json()
     except (httpx.HTTPError, ValueError):

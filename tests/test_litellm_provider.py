@@ -460,3 +460,14 @@ async def test_gecerli_argumanli_length_yaniti_korunur(monkeypatch):
     sonuc = await _saglayici().complete(request())
 
     assert sonuc.ok and sonuc.truncated and sonuc.tool_calls[0].name == "write_file"
+
+
+def test_qwen_ornekleme_ayari_baska_ollama_ailelerine_uygulanmaz():
+    """Ölçüldü (30 Ekim): `top_k=20, top_p=0.8, repeat_penalty=1.1` 'Qwen'in önerdiği'
+    diye yorumlanıp her `ollama*/` modeline (Llama, Gemma, DeepSeek) veriliyordu (P1-19)."""
+    qwen = LiteLlmProvider("ollama_chat/qwen3:8b", role="agent")
+    llama = LiteLlmProvider("ollama_chat/llama3.1:8b", role="agent")
+
+    assert qwen._call_kwargs(request(), stream=False)["top_k"] == 20
+    assert "top_k" not in llama._call_kwargs(request(), stream=False)
+    assert llama._call_kwargs(request(), stream=False)["num_ctx"]  # bağlam yine verilir

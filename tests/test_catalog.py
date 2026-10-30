@@ -221,3 +221,34 @@ def test_ucretli_listede_ag_hatasi_bos_doner(monkeypatch):
     _sahte_yanit(monkeypatch, {}, hata=httpx.ConnectError("yok"))
 
     assert catalog.fetch_openrouter_paid() == ()
+
+
+def test_ollama_adresi_ortamdan_okunur(monkeypatch):
+    """Ölçüldü (30 Ekim): `fetch_ollama` 127.0.0.1:11434'e sabitti; LiteLLM ise
+    `OLLAMA_API_BASE`'i okuyordu → başka portta/uzak makinede katalog boş görünüyordu
+    (P1-21)."""
+    from fusion_cli.providers.catalog import ollama_base_url
+
+    monkeypatch.delenv("OLLAMA_API_BASE", raising=False)
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    assert ollama_base_url() == "http://127.0.0.1:11434"
+
+    monkeypatch.setenv("OLLAMA_HOST", "0.0.0.0:11500")
+    assert ollama_base_url() == "http://127.0.0.1:11500"  # bağlanma adresi 0.0.0.0 değildir
+
+    monkeypatch.setenv("OLLAMA_HOST", "gpu-kutusu:11434")
+    assert ollama_base_url() == "http://gpu-kutusu:11434"
+
+    monkeypatch.setenv("OLLAMA_API_BASE", "http://yerel:9999/")
+    assert ollama_base_url() == "http://yerel:9999"
+
+
+def test_nim_sonda_cagrisi_sayilari_metin_dondurse_de_gecerli_sayar():
+    """`2`/`3` yerine "2"/"3" döndüren model gerçekte araç çağırabiliyordur (P1-23)."""
+    from fusion_cli.providers.catalog import _valid_sum_call
+
+    cagri = {"function": {"name": "sum", "arguments": '{"a": "2", "b": "3"}'}}
+    yanlis = {"function": {"name": "sum", "arguments": '{"a": 2, "b": 4}'}}
+
+    assert _valid_sum_call(cagri) is True
+    assert _valid_sum_call(yanlis) is False

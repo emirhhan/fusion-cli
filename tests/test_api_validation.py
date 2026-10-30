@@ -29,3 +29,19 @@ async def test_yonlendirme_takip_edilip_anahtar_baska_sunucuya_gonderilmez():
         ),
     )
     assert not result.ok
+
+
+async def test_nim_anahtari_models_ucuyla_dogrulanir():
+    """Ölçüldü (30 Ekim): ürünün ana ücretsiz sağlayıcısı NIM için 'otomatik sınama yok'
+    deniyordu; hatalı anahtar ilk model çağrısında 401 olarak bulunuyordu (P1-24)."""
+
+    def handle(request):
+        assert request.url.host == "integrate.api.nvidia.com"
+        assert request.headers["authorization"] == "Bearer nvapi-test"
+        return httpx.Response(200, json={"data": []})
+
+    sonuc = await validate_api_key(
+        "nvidia_nim", "nvapi-test", transport=httpx.MockTransport(handle)
+    )
+
+    assert sonuc.ok
