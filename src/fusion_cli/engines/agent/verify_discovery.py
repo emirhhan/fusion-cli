@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import tomllib
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path, PurePosixPath
@@ -30,6 +31,8 @@ _NODE_LOCKS = (
     ("pnpm-lock.yaml", "pnpm"),
     ("yarn.lock", "yarn"),
     ("bun.lockb", "bun"),
+    # Bun ≥ 1.2 metin kilit dosyası (A4-23).
+    ("bun.lock", "bun"),
     ("package-lock.json", "npm"),
 )
 
@@ -93,9 +96,18 @@ def discover_auto_commands(root: Path, *, domains: DomainRegistry | None = None)
     Yalnızca projede KANITI olan komutlar önerilir (var olan script, tanımlı
     hedef); uydurulmuş bir komut kapıyı her turda düşürürdü.
     """
-    return discover_commands(
+    plan = discover_commands(
         root, node_scripts=_AUTO_NODE_SCRIPTS, include_tests=False, domains=domains
     )
+    if plan:
+        return plan
+    # Rust/Go'da tek komut test olduğu için süzülünce kapı BOŞ kalıyordu (A4-22): derleme
+    # denetimi "bozdum mu" sorusunu testsiz cevaplar.
+    if (root / "Cargo.toml").exists():
+        return ("cargo check",)
+    if (root / "go.mod").exists():
+        return ("go vet ./...",)
+    return ()
 
 
 def discover_commands(
@@ -135,7 +147,7 @@ def discover_commands(
 
 
 #: Test çalıştıran komutlar — otomatik kapıda atlanır.
-_TEST_MARKERS = ("pytest", "cargo test", "go test", "run test")
+_TEST_MARKERS = ("pytest", "cargo test", "go test", "run test", "make test")
 
 
 def _is_test_command(command: str) -> bool:
@@ -171,7 +183,28 @@ _BEHAVIORAL_RUNNERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("pnpm", ("run", "test")),
     ("bun", ("test",)),
     ("bun", ("run", "test")),
+    # Sarmalayıcılar ve diğer ekosistemlerin koşucuları (A4-23: "davranış kanıtlanmadı"
+    # uyarısı gerçek testlerde de çıkıyordu).
+    ("uv", ("run", "pytest")),
+    ("poetry", ("run", "pytest")),
+    ("python", ("unittest",)),
+    ("python3", ("unittest",)),
+    ("tox", ()),
+    ("nox", ()),
+    ("npx", ("playwright", "test")),
+    ("playwright", ("test",)),
+    ("deno", ("test",)),
+    ("mvn", ("test",)),
+    ("gradle", ("test",)),
+    ("gradlew", ("test",)),
+    ("dotnet", ("test",)),
+    ("rspec", ()),
+    ("bundle", ("exec", "rspec")),
+    ("phpunit", ()),
 )
+
+#: `npm run test:unit` gibi `test:` önekli betikler de testtir.
+_NODE_RUNNERS = frozenset({"npm", "yarn", "pnpm", "bun"})
 
 #: Koşucuyu çağırsa da tek satır test çalıştırmayan sorgu bayrakları.
 _QUERY_FLAGS = frozenset({"--version", "-V", "--help", "-h", "--collect-only", "--co"})
@@ -262,7 +295,15 @@ def is_behavioral_command(command: str) -> bool:
     ):
         return False
     program = PurePosixPath(tokens[0]).name
-    arguments = [token for token in tokens[1:] if not token.startswith("-")]
+    # `+nightly` (rustup araç zinciri seçici) alt komut değildir.
+    arguments = [token for token in tokens[1:] if not token.startswith(("-", "+"))]
+    if (
+        program in _NODE_RUNNERS
+        and arguments[:1] == ["run"]
+        and len(arguments) > 1
+        and arguments[1].startswith("test:")
+    ):
+        return True
     return any(
         program == name and arguments[: len(subcommands)] == list(subcommands)
         for name, subcommands in _BEHAVIORAL_RUNNERS
@@ -287,17 +328,62 @@ def behavioral_commands(root: Path, *, domains: DomainRegistry | None = None) ->
     )
 
 
+def _declared(metin: str, ad: str) -> bool:
+    """`pyproject.toml` aracı gerçekten TANIMLIYOR mu (`[tool.<ad>]` ya da bağımlılık).
+
+    Düz alt dize testi yorumda geçen ya da `ruff-lsp` gibi başka paketin adına takılıyordu
+    (A4-21). Ayrıştırma başarısızsa eski alt dize davranışına dönülür.
+    """
+    try:
+        veri = tomllib.loads(metin)
+    except tomllib.TOMLDecodeError:
+        return ad in metin
+    adlar: set[str] = set(veri.get("tool", {}))
+
+    def topla(deger: object) -> None:
+        if isinstance(deger, str):
+            eslesme = re.match(r"[A-Za-z0-9_.-]+", deger.strip())
+            if eslesme:
+                adlar.add(eslesme.group(0).lower().replace("_", "-"))
+        elif isinstance(deger, dict):
+            for anahtar, alt in deger.items():
+                adlar.add(str(anahtar).lower().replace("_", "-"))
+                topla(alt)
+        elif isinstance(deger, list):
+            for alt in deger:
+                topla(alt)
+
+    for bolum in (
+        veri.get("project"),
+        veri.get("dependency-groups"),
+        veri.get("tool", {}).get("poetry"),
+    ):
+        topla(bolum)
+    return ad in adlar
+
+
+def _tool(root: Path, ad: str) -> str:
+    """Araç yalnız projenin sanal ortamında kuruluysa onun yolunu kullan.
+
+    Ölçüldü (29 Ekim, A4-21): `ruff`/`mypy` yalnız `.venv` içindeyken PATH'te bulunmuyor,
+    kapı 127 verip "doğrulanamadı" diyordu; Python kapısı pratikte işlevsizdi.
+    """
+    yol = root / ".venv" / "bin" / ad
+    return f".venv/bin/{ad}" if yol.is_file() else ad
+
+
 def _python(root: Path) -> tuple[str, ...]:
     metin = _read(root / "pyproject.toml")
     if metin is None:
         return ()
     plan: list[str] = []
-    if "ruff" in metin:
-        plan.append("ruff check .")
-    if "mypy" in metin:
-        plan.append("mypy src" if (root / "src").is_dir() else "mypy .")
-    if "pytest" in metin:
-        plan.append("pytest -q")
+    if _declared(metin, "ruff"):
+        plan.append(f"{_tool(root, 'ruff')} check .")
+    if _declared(metin, "mypy"):
+        hedef = "src" if (root / "src").is_dir() else "."
+        plan.append(f"{_tool(root, 'mypy')} {hedef}")
+    if _declared(metin, "pytest"):
+        plan.append(f"{_tool(root, 'pytest')} -q")
     return tuple(plan)
 
 

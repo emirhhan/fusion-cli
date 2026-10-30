@@ -172,3 +172,78 @@ async def test_tarayici_denetimi_atlanirsa_neden_uyaridadir(tmp_path, monkeypatc
 
     assert sonuc_ is not None
     assert "atlandı" in sonuc_.warnings[0]
+
+
+# --- A4-21 / A4-22 / A4-23: doğrulama komutu keşfi --------------------------------- #
+
+
+def test_arac_yalniz_yorumda_ya_da_baska_paketin_adinda_geciyorsa_tanimli_sayilmaz(tmp_path):
+    from fusion_cli.engines.agent.verify_discovery import discover_commands
+
+    (tmp_path / "pyproject.toml").write_text(
+        "# ruff sonra eklenecek\n[project]\nname='x'\ndependencies=['ruff-lsp']\n",
+        encoding="utf-8",
+    )
+
+    assert discover_commands(tmp_path) == ()
+
+
+def test_arac_yalniz_venvde_kuruluysa_venv_yolu_kullanilir(tmp_path):
+    from fusion_cli.engines.agent.verify_discovery import discover_commands
+
+    (tmp_path / "pyproject.toml").write_text("[tool.ruff]\nline-length=100\n", encoding="utf-8")
+    (tmp_path / ".venv" / "bin").mkdir(parents=True)
+    (tmp_path / ".venv" / "bin" / "ruff").write_text("", encoding="utf-8")
+
+    assert discover_commands(tmp_path) == (".venv/bin/ruff check .",)
+
+
+def test_rust_ve_go_otomatik_kapisi_bos_kalmaz(tmp_path):
+    from fusion_cli.engines.agent.verify_discovery import discover_auto_commands
+
+    (tmp_path / "Cargo.toml").write_text("[package]\n", encoding="utf-8")
+    assert discover_auto_commands(tmp_path) == ("cargo check",)
+    (tmp_path / "Cargo.toml").unlink()
+    (tmp_path / "go.mod").write_text("module x\n", encoding="utf-8")
+    assert discover_auto_commands(tmp_path) == ("go vet ./...",)
+
+
+def test_make_test_otomatik_kapidan_dislanir(tmp_path):
+    from fusion_cli.engines.agent.verify_discovery import discover_auto_commands
+
+    (tmp_path / "Makefile").write_text("test:\n\tpytest\n", encoding="utf-8")
+
+    assert discover_auto_commands(tmp_path) == ()
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "uv run pytest -q",
+        "poetry run pytest tests/",
+        "python -m unittest discover",
+        "tox",
+        "npx playwright test",
+        "deno test",
+        "mvn test",
+        "./gradlew test",
+        "dotnet test",
+        "bundle exec rspec",
+        "phpunit",
+        "cargo +nightly test",
+        "npm run test:unit",
+    ],
+)
+def test_yaygin_test_kosuculari_davranis_kaniti_sayilir(komut):
+    from fusion_cli.engines.agent.verify_discovery import is_behavioral_command
+
+    assert is_behavioral_command(komut)
+
+
+def test_bun_metin_kilit_dosyasi_taninir(tmp_path):
+    from fusion_cli.engines.agent.verify_discovery import discover_commands
+
+    (tmp_path / "package.json").write_text('{"scripts": {"test": "x"}}', encoding="utf-8")
+    (tmp_path / "bun.lock").write_text("", encoding="utf-8")
+
+    assert discover_commands(tmp_path) == ("bun run test",)
