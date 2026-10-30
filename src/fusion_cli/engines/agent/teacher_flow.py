@@ -195,6 +195,12 @@ async def _ask(
                 StatusChanged(message="Öğretmen bu soruyu yanıtlamadı; plan olmadan ilerliyorum.")
             )
             return None
+        if (result.structured or {}).get("teacher") == "session_error":
+            # Web oturumu/arayüzü kullanılamıyor: aynı turda ikinci deneme zaten çağrı
+            # sınırına çarpar ve "bir kez daha deniyorum" boş bir söz olurdu (30 Ekim).
+            # Kullanıcıya "Öğretmen devre dışı" satırı araçta zaten gösterildi.
+            deps.teacher_unavailable_notified = True
+            return None
         if last:
             _notify_unavailable(deps, "Öğretmene ulaşılamadı; tek başıma ilerliyorum.")
             return None

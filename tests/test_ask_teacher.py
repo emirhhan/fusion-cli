@@ -384,3 +384,39 @@ async def test_ogretmene_ulasilamazsa_anlasilir_hata_doner(tmp_path, monkeypatch
 
     assert sonuc.ok is False
     assert "oturum kilitli" in sonuc.output
+
+
+async def test_web_oturum_hatasi_ham_surucu_gunlugu_gostermez_ve_tekrar_edilmez(
+    tmp_path, monkeypatch
+):
+    """Ölçüldü (30 Ekim): "Öğretmen devre dışı" satırı onlarca satır Playwright günlüğüydü."""
+    ham = (
+        "web oturumu hatası: Locator.click: Timeout 5000ms exceeded.\n"
+        'Call log:\n  - waiting for locator("[role=menu]")\n    - element is not enabled\n'
+    )
+
+    class _OturumHatali:
+        @property
+        def label(self):
+            return "sahte-oturum"
+
+        async def complete(self, request):
+            del request
+            return ModelResult(
+                name="ogretmen", model="sahte/ogretmen", text="", latency_ms=1, ok=False, error=ham
+            )
+
+    _ogretmen(monkeypatch, _OturumHatali())
+    yayinci = _Publisher()
+    deps = _deps(
+        tmp_path, publisher=yayinci, teacher=ModelSpec(name="ogretmen", model="sahte/ogretmen")
+    )
+
+    sonuc = await _registry(deps).execute("ask_teacher", {"question": "soru"}, deps.tool_context)
+
+    assert sonuc.ok is False
+    assert "Call log" not in sonuc.output
+    assert (sonuc.structured or {}).get("teacher") == "session_error"
+    notlar = [e.message for e in yayinci.events if hasattr(e, "message")]
+    assert any("Öğretmen devre dışı" in n for n in notlar)
+    assert not any("Call log" in n or "\n" in n for n in notlar)

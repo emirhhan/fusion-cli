@@ -26,9 +26,10 @@ from ...core.events import (
     StatusChanged,
     TeacherConsulted,
 )
+from ...core.redaction import strip_driver_log
 from ...core.refusal import looks_like_refusal
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
-from ...core.types import CompletionRequest, ModelResult, ModelSpec
+from ...core.types import CompletionRequest, ModelResult, ModelSpec, is_web_session_error
 from ...memory.code_index import format_matches
 from ...memory.lessons import as_prompt_block
 from ...tools.capabilities import (
@@ -420,7 +421,8 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
         if result is None or not result.ok or not result.text:
             if refused:
                 return _teacher_refused()
-            hata = result.error if result is not None else None
+            # Ham sürücü günlüğü (Playwright "Call log") ne ekrana ne modele gider (30 Ekim).
+            hata = strip_driver_log(result.error) if result is not None and result.error else None
             # Ulaşılamayan öğretmen turu bozmamalı: bu turda bir daha sorulmaz ve
             # model kendi bilgisi ve araçlarıyla işi sürdürür.
             deps.teacher_calls_used = TURN_LIMIT
@@ -436,7 +438,10 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
                 f"Öğretmene ulaşılamadı: {hata or 'bilinmeyen hata'}\n\n"
                 "ÖĞRETMEN OLMADAN DEVAM ET: Bu turda öğretmene tekrar sorma. İşi kendi "
                 "bilginle ve araçlarınla (dosya okuma/arama, web araştırması, komutlar) "
-                "sürdür; durma, kullanıcıya öğretmeni açmasını da söyleme."
+                "sürdür; durma, kullanıcıya öğretmeni açmasını da söyleme.",
+                # Oturum/arayüz arızası aynı turda tekrar sorulunca düzelmez; çağıran
+                # (`teacher_flow._ask`) ikinci deneme yapmaz.
+                structured={"teacher": "session_error"} if is_web_session_error(hata) else None,
             )
         if looks_like_refusal(result.text):
             return _teacher_refused()

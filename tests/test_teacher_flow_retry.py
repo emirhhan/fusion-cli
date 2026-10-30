@@ -96,3 +96,24 @@ async def test_reddedilen_soru_tekrarlanmaz_ve_kapatmaz(tmp_path):
     assert await _ask(kayit, deps, question="q", durum="d") is None
     assert kayit.cagri == 1
     assert deps.teacher_unavailable_notified is False
+
+
+async def test_web_oturum_hatasinda_ikinci_deneme_yapilmaz_ve_fazladan_mesaj_basilmaz(tmp_path):
+    """Ölçüldü (30 Ekim): "bir kez daha deniyorum" sonrası çağrı sınırı hatası geliyordu."""
+    deps = _deps(tmp_path)
+    kayit = _Kayit(
+        [
+            ToolResult.failure(
+                "Öğretmene ulaşılamadı: web oturumu hatası: tıklanamadı",
+                structured={"teacher": "session_error"},
+            ),
+            ToolResult("hiç sorulmamalıydı"),
+        ]
+    )
+
+    assert await _ask(kayit, deps, question="q", durum="d") is None
+
+    assert kayit.cagri == 1
+    assert deps.teacher_unavailable_notified is True
+    mesajlar = [e.message for e in deps.publisher.events if isinstance(e, StatusChanged)]
+    assert not any("bir kez daha" in m for m in mesajlar)
