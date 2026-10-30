@@ -34,16 +34,12 @@ from rich.console import Console
 
 from ...ui import messages, theme
 from ...ui.picker import Choice
+from .input import FOLD_PASTE_CHARS, FOLD_PASTE_LINES
 
 _logger = logging.getLogger(__name__)
 
 #: Girdi kutusunun içindeki istem işareti (Claude Code `> `).
 PROMPT = "> "
-#: Yapıştırma bu satır/karakter sayısını aşarsa tek satırlık yer tutucuya katlanır.
-#: Uzun yapıştırma tek-satır girdiyi şişirir ve gönderilene kadar okunmaz kalır; katlanınca
-#: girdi tek satır kalır, tam metin gönderimde geri açılır. (Eski satır-içi modun davranışı.)
-FOLD_PASTE_LINES = 10
-FOLD_PASTE_CHARS = 600
 #: Ok/PageUp ile bir seferde kaç satır kaydırılacağı.
 _SCROLL_STEP = 3
 _SCROLL_PAGE = 12
@@ -71,19 +67,10 @@ _WHEEL_AS_ARROWS_OFF = "\x1b[?1007l\x1b[?1l"
 #: konuşma alanının kaç satır göstereceğini hesaplamak için.
 _CHROME_ROWS = 6
 
-#: Onay modunun durum satırındaki rengi — riskli mod göze çarpsın.
-_MODE_COLORS = {
-    "auto": theme.OK,
-    "edits": theme.OK,
-    "plan": theme.WARN,
-    "security": theme.ERROR,
-    "bypass": theme.ERROR,
-}
-
 
 def format_status(mode: str, engine: str) -> str:
     """Girdinin ALTINDAKİ durum satırının HTML'i: mod + motor + kısayol ipuçları."""
-    color = _MODE_COLORS.get(mode, theme.DIM)
+    color = theme.MODE_COLORS.get(mode, theme.DIM)
     return (
         f"<style fg='{color}'>{theme.ICON_STATUS} {mode}</style>"
         f"<style fg='{theme.DIM}'> · {engine} · {messages.TUI_STATUS_HINT}</style>"

@@ -50,15 +50,6 @@ PROMPT_SYMBOL = "❯"
 #: Durum çubuğunda modun önüne konan işaret.
 STATUS_MARK = "⏵"
 
-#: Onay modunun durum çubuğundaki rengi — riskli mod göze çarpsın.
-_MODE_COLORS = {
-    "auto": theme.OK,
-    "edits": theme.OK,
-    "plan": theme.WARN,
-    "security": theme.ERROR,
-    "bypass": theme.ERROR,
-}
-
 
 class ReplInput:
     """Komut geçmişi, tamamlama ve shift-tab ile mod döngüsü sunan giriş."""
@@ -147,7 +138,7 @@ class ReplInput:
         """
         from prompt_toolkit.formatted_text import HTML
 
-        color = _MODE_COLORS.get(self.mode.value, theme.DIM)
+        color = theme.MODE_COLORS.get(self.mode.value, theme.DIM)
         parts = [
             f"<style fg='{color}'>{STATUS_MARK} {self.mode.value}</style>",
             f"<style fg='{theme.DIM}'>{self.context}</style>" if self.context else "",
@@ -262,5 +253,5 @@ def prompt_fragments(mode: Any) -> str:
     value = getattr(mode, "value", "")
     if value == "auto" or not value:
         return symbol
-    color = _MODE_COLORS.get(value, theme.DIM)
+    color = theme.MODE_COLORS.get(value, theme.DIM)
     return f"<style fg='{color}'>{value}</style> {symbol}"

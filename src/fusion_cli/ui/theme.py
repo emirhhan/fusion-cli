@@ -31,6 +31,16 @@ def blend(start: str, end: str, ratio: float) -> str:
     return "#" + "".join(f"{value:02X}" for value in channels)
 
 
+#: Onay modunun rengi (durum çubuğu, banner, TUI): riskli mod göze çarpsın. Üç yüzey eskiden
+#: ayrı kopyalar tutuyordu ve ayrışmıştı (L1-24, L2-33).
+MODE_COLORS = {
+    "auto": OK,
+    "edits": WARN,
+    "plan": WARN,
+    "security": ERROR,
+    "bypass": ERROR,
+}
+
 ICON_OK = "✓"
 ICON_ERROR = "✗"
 ICON_DONE = "✦"

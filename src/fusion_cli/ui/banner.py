@@ -149,16 +149,13 @@ def print_status(
 
 
 def mode_color(mode: str) -> str:
-    """Onay modunun rengi — riskli mod göze çarpsın."""
-    # Beş kipin hepsi renklidir: Ölçüldü (30 Ekim) `bypass` (hiçbir şey sorma) ve `edits`
-    # soluk gri görünüyordu — en riskli kip en sönük renkti (L1-24).
-    return {
-        "auto": theme.OK,
-        "edits": theme.WARN,
-        "plan": theme.WARN,
-        "security": theme.ERROR,
-        "bypass": f"bold {theme.ERROR}",
-    }.get(mode, theme.DIM)
+    """Onay modunun rengi — riskli mod göze çarpsın (`theme.MODE_COLORS`).
+
+    Ölçüldü (30 Ekim): `bypass` (hiçbir şey sorma) ve `edits` soluk gri görünüyordu; en riskli
+    kip en sönük renkti (L1-24). `bypass` ayrıca kalın yazılır.
+    """
+    renk = theme.MODE_COLORS.get(mode, theme.DIM)
+    return f"bold {renk}" if mode == "bypass" else renk
 
 
 def pick_tip(seed: str) -> str:
