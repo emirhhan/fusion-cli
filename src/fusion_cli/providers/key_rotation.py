@@ -70,6 +70,7 @@ class KeyRotatingProvider:
             stream = inner.stream(request)
             first = await anext(stream, None)
             if first is None:
+                await _close(stream)  # eski akış açık kalıp bağlantı sızdırmasın
                 continue
             if isinstance(first, StreamDone) and is_rate_limit_error(first.result.error):
                 self._pool.mark_rate_limited(key)

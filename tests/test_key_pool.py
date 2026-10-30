@@ -129,3 +129,52 @@ async def test_iyi_anahtar_hemen_doner():
     rot = KeyRotatingProvider(lambda key: _KeyProvider(key, bad_keys=set()), pool, label="m")
     result = await rot.complete(request())
     assert result.ok is True
+
+
+async def test_bos_acilan_akis_siradaki_anahtara_gecmeden_kapatilir():
+    """Ölçüldü (30 Ekim): ilk öğe `None` olunca `continue` eski akışı kapatmıyordu
+    (bağlantı sızıntısı, P1-50)."""
+    from fusion_cli.core.types import StreamDone, TextChunk
+
+    kapanan: list[str] = []
+
+    class _BosAkis:
+        def __init__(self, key: str) -> None:
+            self.key = key
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+        async def aclose(self) -> None:
+            kapanan.append(self.key)
+
+    class _Saglayici:
+        label = "m"
+
+        def __init__(self, key: str) -> None:
+            self.key = key
+
+        def stream(self, req):
+            if self.key == "bos":
+                return _BosAkis(self.key)
+
+            async def _uret():
+                from fusion_cli.core.types import ModelResult
+
+                yield TextChunk("tamam")
+                yield StreamDone(
+                    ModelResult(name="m", model="m", text="tamam", latency_ms=1, ok=True)
+                )
+
+            return _uret()
+
+    pool = KeyPool(("bos", "iyi"), cooldown_s=60.0, clock=_Clock())
+    rot = KeyRotatingProvider(lambda key: _Saglayici(key), pool, label="m")
+
+    ogeler = [item async for item in rot.stream(request())]
+
+    assert any(isinstance(item, TextChunk) for item in ogeler)
+    assert kapanan == ["bos"]
