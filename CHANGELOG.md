@@ -105,6 +105,8 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Model seçimi yapısal istekle yapılır; API anahtarı komut metnine katılmaz, `/providers add` ile yazılan anahtar sohbet kaydında gizlenir; görsel "İndir" var olan dosyanın üzerine yalnız kayıt penceresinde onaylanınca yazar; Ayarlar'a "Kurulumu yeniden aç" eklendi.
 - Küçük bağlamlı modelde masaüstü/Chrome araçları gizlenir; MCP sunucusuna `allowed_tools` ve `max_tools` eklendi; araç sonuçlarındaki sahte araç çağrısı işaretleri çalıştırılmaz; ana ve alt ajan web oturumunda birbirinin sohbetini düşürmez; panelde her web hesabı ayrı kart.
 - `<thinking>`/`<reasoning>` düşünme etiketleri gizlenir, kapanışsız etiketten sonraki cevap kaybolmaz; Godot kapısı `GODOT_BIN` ve uygulama paketinden de çalışır; site kopyalama telif/izin uyarısı verir.
+- `edit_file`/`multi_edit` eski metin dosyada satır sonu boşluğu, girinti ya da CRLF farkıyla duruyorsa, tek ve belirsiz olmayan eşleşmede düzenlemeyi uygular ve bunu modele bildirir; onay kartı gerçek farkı gösterir (`runtime.edit_fuzzy_match`). JS/TS/PHP dosyası kaydedilince sözdizimi hatası aynı turda bildirilir (`runtime.post_edit_syntax_check`).
+- Eski araç sonuçları eşik beklenmeden modele kısa yer tutucu olarak gider, son 8 sonuç ve hatalar tam kalır, geçmiş kaydı değişmez; yer tutucudaki okuma yeniden istenince tekrar kapısı engellemez (`runtime.tool_output_window`, 0 = kapalı). Küçük modellerde bağlam sıkıştırması pencerenin %20'sinde başlar (`runtime.weak_model_compaction_ratio`).
 
 ## 0.7.18 — 2026-10-21
 
