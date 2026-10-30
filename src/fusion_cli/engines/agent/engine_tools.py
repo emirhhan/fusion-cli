@@ -223,7 +223,11 @@ def _clone(registry: ToolRegistry, *, chrome: bool = True) -> ToolRegistry:
     for tool in registry:
         if not chrome and tool.name.startswith("chrome_"):
             continue
-        clone.register(tool)
+        if registry.is_remote(tool.name):
+            # Uzak araç işareti kopyada da kalmalı: sıkı araç yüzeyi (T1-63/M1-12) sayar.
+            clone.register_or_replace(tool)
+        else:
+            clone.register(tool)
     return clone
 
 

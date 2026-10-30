@@ -70,6 +70,8 @@ class ToolRegistry:
 
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
+        #: `register_or_replace` ile gelen (uzak/eklenti) araç adları; sıkı yüzeyde sayılır.
+        self._remote: set[str] = set()
 
     def register(self, tool: Tool) -> None:
         if tool.name in self._tools:
@@ -87,6 +89,11 @@ class ToolRegistry:
         şemayı geçirmektir.
         """
         self._tools[tool.name] = tool
+        self._remote.add(tool.name)
+
+    def is_remote(self, name: str) -> bool:
+        """Araç uzak (MCP/eklenti) kaynaklı mı — `register_or_replace` ile mi geldi?"""
+        return name in self._remote
 
     def register_alias(self, alias: str, target: str) -> None:
         """Var olan bir aracı ikinci bir adla da aç (aynı executor, aynı şema)."""

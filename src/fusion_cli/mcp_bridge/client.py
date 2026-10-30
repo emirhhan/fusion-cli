@@ -41,6 +41,7 @@ from .health import failure_status as failure_status
 from .lifecycle import close_failed_stack
 from .schema import clean_description, simplify_schema
 from .tool_effect import effect_from_annotations
+from .tool_limits import select_remote_tools
 from .tool_name import fusion_tool_name
 from .transport import open_mcp_stream
 from .trust import tools_digest, trusted_effect
@@ -292,7 +293,7 @@ class McpClient:
                 "MCP araç tanımları incelemeden sonra değişti; güven düştü",
                 extra={"sunucu": server},
             )
-        return [
+        remote_tools = [
             RemoteTool(
                 server=server,
                 name=tool.name,
@@ -307,6 +308,7 @@ class McpClient:
             )
             for tool in discovered
         ]
+        return select_remote_tools(config, remote_tools)
 
     async def call(self, server: str, name: str, args: dict[str, object]) -> ToolResult:
         """Uzak aracı çağır; bütün içeriği ve hata durumunu kanonik sonuca dönüştür.

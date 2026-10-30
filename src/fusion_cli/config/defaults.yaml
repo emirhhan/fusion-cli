@@ -122,6 +122,14 @@ runtime:
   # canlı ölçümle güncellenecek): bir ajan ücretsiz modelde dakikada ~6-10 çağrı
   # yapar; 4 ajan NIM'in model başı 40/dk sınırına yaklaşır. Aşanı ortak kova
   # yavaşlatır.
+  # Küçük/zayıf model için sıkı araç yüzeyi (T1-63, M1-12). Bilinen girdi penceresi bu
+  # değerin altında kalan model, istek masaüstü işi değilse `desktop_*` ve `chrome_*`
+  # araçlarını görmez; MCP/eklenti araçları da `compact_external_tools` ile sınırlanır.
+  # 32768: Fusion'ın sistem istemi + yerleşik araç şemaları ~16k token tutar (bkz.
+  # providers/context_window.py); bunun iki katı altındaki pencerede 40+ şema taşımak
+  # görev bağlamını boğar. 0 = pencereye bakma. Mevcut kullanıcının açık ayarı ezilmez.
+  compact_tools_window_tokens: 32768
+  compact_external_tools: 12
   max_parallel_agents: 4
   # Ajan bir dosyayı değiştirince çalışacak komutlar; `{path}` dosya yoluyla değişir.
   # Örnek: ["npx prettier --write {path}"]. Boş liste = kanca yok.

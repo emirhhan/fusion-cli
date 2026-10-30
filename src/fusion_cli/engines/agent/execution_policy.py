@@ -21,6 +21,7 @@ from ...config.tool_policy import mutation_policy_for_model
 from ...core.text_fold import fold_tr
 from ...core.types import Message, ModelSpec
 from .action_evidence import task_effect
+from .tool_surface import uses_compact_surface
 
 _WEB_PROVIDER_IDS = frozenset(
     {"chatgpt_web", "claude_web", "gemini_web", "copilot_web", "perplexity_web"}
@@ -100,6 +101,10 @@ class ExecutionPolicy:
     escalation: int = 0
     #: Kurtarma gözlemi sınıflandırma kaynaklı değişiklik zorlaması almamalı.
     observe_only: bool = False
+    #: Küçük/zayıf model için sıkı araç yüzeyi (bkz. `tool_surface`, T1-63/M1-12).
+    compact_tool_surface: bool = False
+    #: Sıkı yüzeyde sunulacak en fazla MCP/eklenti aracı; `None` = sınır yok.
+    max_external_tools: int | None = None
 
 
 def policy_for(
@@ -124,6 +129,9 @@ def policy_for(
     # model seçmek güvenlik kapısını atlamak anlamına gelemez.
     mutation = mutation_policy_for_model(config, spec.model)
 
+    compact = uses_compact_surface(config, spec, mutation_ok=mutation.ok)
+    max_external_tools = (config.runtime.compact_external_tools or None) if compact else None
+
     if not is_web_model(config, spec.model):
         # API/local sağlayıcılarda hard-cap yok; fakat açık operasyonlarda kanıtsız
         # başarıya bütün sağlayıcılarda izin verilmez.
@@ -137,6 +145,8 @@ def policy_for(
             required_effect=required_effect,
             max_evidence_reprompts=0 if explicit_no_tools else 3,
             complex_task=complex_task,
+            compact_tool_surface=compact,
+            max_external_tools=max_external_tools,
         )
 
     simple_chat = _is_genuine_simple_chat(task, required_effect)
@@ -165,6 +175,8 @@ def policy_for(
         requires_tool_evidence=requires_evidence,
         required_effect=required_effect,
         max_evidence_reprompts=0 if explicit_no_tools else 3,
+        compact_tool_surface=compact,
+        max_external_tools=max_external_tools,
     )
 
 

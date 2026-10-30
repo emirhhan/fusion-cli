@@ -232,6 +232,15 @@ class RuntimeConfig:
     #: `run_shell` işletim sistemi sandbox'ı: "off" (varsayılan) | "write_root" (macOS'ta
     #: `sandbox-exec` ile yazmayı proje kökü + geçici dizinlerle sınırlar; Q1-16).
     shell_sandbox: str = "off"
+    #: Küçük/zayıf model için SIKI araç yüzeyi eşiği (T1-63): bilinen girdi penceresi
+    #: (token) bu değere eşit ya da küçükse model masaüstü (`desktop_*`) ve Chrome
+    #: (`chrome_*`) araçlarını, istek masaüstü işi değilse, hiç görmez. 41+ şemanın
+    #: tamamı küçük bağlamda hem araç seçimini bozar hem bağlamı yer. 0 = pencereye
+    #: bakma (yalnız `compact` etiketi ve doğrulanmamış taklit araç modeli sıkı yüzey alır).
+    compact_tools_window_tokens: int = 32768
+    #: Sıkı yüzeyli modele sunulacak EN FAZLA MCP/eklenti aracı sayısı (M1-12); registry
+    #: sırasıyla ilk N. 0 = sınır yok.
+    compact_external_tools: int = 12
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,6 +306,14 @@ class McpServerConfig:
     close_timeout_s: float | None = None
     #: None tur runtime retry dizisini kullanır; boş tuple backoff istemez.
     retry_delays_s: tuple[float, ...] | None = None
+    #: Yalnız bu uzak araç adları kayıt defterine girer (uzak ad, `<sunucu>__` öneksiz).
+    #: Boş = sunucunun bütün araçları. WordPress 63, GitHub 90+ araç sunar; kullanıcı
+    #: işine yarayanları seçer (M1-12). Güven özeti (`reviewed_tools`) TÜM tanımlar üzerinden
+    #: hesaplanır: izin listesi güvenin kapsamını daraltmaz.
+    allowed_tools: tuple[str, ...] = ()
+    #: İzin listesinden sonra sunucu başına en fazla bu kadar araç kaydedilir (sunucunun
+    #: verdiği sırayla ilk N; fazlası günlüğe yazılır). `None` = sınır yok.
+    max_tools: int | None = None
 
     @property
     def secret_env_names(self) -> tuple[str, ...]:

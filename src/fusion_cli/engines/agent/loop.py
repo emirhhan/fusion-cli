@@ -191,6 +191,7 @@ from .teacher_flow import (
     teacher_is_ready,
 )
 from .teacher_plan import TeacherPlan, UnworkablePart
+from .tool_surface import narrow_to_compact_surface
 from .transient import MAX_TOOL_TRANSIENT_RETRIES, is_transient_failure
 from .turn_hints import design_hint, identity_hint, preview_hint, scope_hint, store_hint
 from .turn_report import TurnReport, build_turn_report, claims_command_success
@@ -2409,6 +2410,14 @@ def _permitted(
         or SCOPED_TOOLS[name] in task_kinds
         or (allowed_tools is not None and name in allowed_tools)
     }
+    if execution.compact_tool_surface:
+        names = narrow_to_compact_surface(
+            names,
+            registry,
+            max_external_tools=execution.max_external_tools,
+            task_kinds=task_kinds,
+            explicit=allowed_tools,
+        )
     if not execution.allow_mutation:
         names = {
             name

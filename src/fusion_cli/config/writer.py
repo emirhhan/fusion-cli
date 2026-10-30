@@ -353,6 +353,8 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
                     "retry_delays_s": list(server.retry_delays_s)
                     if server.retry_delays_s is not None
                     else None,
+                    "allowed_tools": list(server.allowed_tools),
+                    "max_tools": server.max_tools,
                 }.items()
                 if value is not None
                 and (value != [] or key == "retry_delays_s")

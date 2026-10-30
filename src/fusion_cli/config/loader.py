@@ -295,7 +295,12 @@ def _build_runtime(raw: object) -> RuntimeConfig:
     for name in ("request_timeout_s", "judge_timeout_s", "circuit_cooldown_s", "teacher_timeout_s"):
         if getattr(runtime, name) <= 0:
             raise ConfigError(f"runtime.{name}: sıfırdan büyük olmalı.")
-    for name in ("max_retries", "circuit_failure_threshold"):
+    for name in (
+        "max_retries",
+        "circuit_failure_threshold",
+        "compact_tools_window_tokens",
+        "compact_external_tools",
+    ):
         if getattr(runtime, name) < 0:
             raise ConfigError(f"runtime.{name}: negatif olamaz.")
     if not 0.0 <= runtime.reliability_alpha <= 1.0:
@@ -386,6 +391,10 @@ def _build_mcp_servers(raw: object) -> tuple[McpServerConfig, ...]:
                 raise ConfigError("MCP ağ süre sınırları pozitif ve sonlu olmalı.")
         if any(not math.isfinite(delay) or delay <= 0 for delay in server.retry_delays_s or ()):
             raise ConfigError("MCP yeniden deneme aralıkları pozitif ve sonlu olmalı.")
+        if server.max_tools is not None and server.max_tools < 1:
+            raise ConfigError(
+                f"MCP '{server.name}': max_tools en az 1 olmalı (sınırsız için boş bırak)."
+            )
     return servers
 
 
