@@ -30,6 +30,10 @@ export function filterRows(rows, filter) {
 }
 
 export function renderChats(ctx, root, { open, onProjectCreate }) {
+  // Yeni proje formunun durumu ctx'te yaşar: liste yoklamayla yeniden kurulurken kullanıcının
+  // yazdığı ad ve formun açık/kapalı hali kaybolmaz (ölçüldü, 30 Ekim).
+  const draft = (ctx.projectDraft ||= { open: false, value: "" });
+  const hadFocus = document.activeElement?.dataset?.draft === "project-name" && root.contains(document.activeElement);
   const chips = h("div", { class: "chips scroll", role: "tablist", "aria-label": "Proje süzgeci" });
   const chip = (id, label) => h("button", {
     class: `chip-btn ${ctx.filter === id ? "on" : ""}`, type: "button", role: "tab",
@@ -37,14 +41,16 @@ export function renderChats(ctx, root, { open, onProjectCreate }) {
     onclick: () => { ctx.filter = id; renderChats(ctx, root, { open, onProjectCreate }); },
   }, label);
   chips.append(chip("all", "Tümü"), chip("none", "Projesiz"), ...ctx.projects.map((p) => chip(p.id, p.name)));
-  const nameInput = h("input", { type: "text", maxlength: "80", placeholder: "Yeni proje adı", "aria-label": "Yeni proje adı" });
-  const form = h("form", { class: "inline-form", hidden: true },
+  const nameInput = h("input", { type: "text", maxlength: "80", placeholder: "Yeni proje adı", "aria-label": "Yeni proje adı", "data-draft": "project-name" });
+  nameInput.value = draft.value;
+  nameInput.addEventListener("input", () => { draft.value = nameInput.value; });
+  const form = h("form", { class: "inline-form", hidden: !draft.open },
     nameInput, h("button", { class: "btn small", type: "submit" }, "Ekle"));
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (await onProjectCreate(nameInput.value)) { nameInput.value = ""; form.hidden = true; }
+    if (await onProjectCreate(nameInput.value)) { nameInput.value = ""; draft.value = ""; draft.open = false; form.hidden = true; }
   });
-  const add = h("button", { class: "chip-btn", type: "button", "aria-label": "Proje ekle", onclick: () => { form.hidden = !form.hidden; nameInput.focus(); } }, icon("folder"), " +");
+  const add = h("button", { class: "chip-btn", type: "button", "aria-label": "Proje ekle", onclick: () => { draft.open = !draft.open; form.hidden = !draft.open; nameInput.focus(); } }, icon("folder"), " +");
   chips.append(add);
 
   const rows = filterRows(chatRows(ctx), ctx.filter);
@@ -58,4 +64,5 @@ export function renderChats(ctx, root, { open, onProjectCreate }) {
       h("span", { class: "row-time muted" }, row.updatedAt ? timeAgo(row.updatedAt) : ""));
   });
   root.replaceChildren(chips, form, ...(items.length ? items : [h("p", { class: "empty" }, "Bu görünümde sohbet yok. Sağ üstteki + ile başla.")]));
+  if (hadFocus) { nameInput.focus(); nameInput.setSelectionRange(nameInput.value.length, nameInput.value.length); }
 }

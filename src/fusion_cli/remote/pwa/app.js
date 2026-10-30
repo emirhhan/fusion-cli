@@ -244,8 +244,12 @@ function render() {
 async function renderApprovals() {
   const box = $("liste-onaylar");
   const cards = [];
-  for (const task of ctx.tasks.filter((t) => t.state === "waiting_approval")) {
-    const events = await rpc("tasks.events", { runId: task.runId });
+  // Görev başına olay sorguları aynı anda başlar (RPC kuyruğu yine sırayla gönderir); art arda
+  // beklemek N görevde N tur gecikme ekliyordu.
+  const waiting = ctx.tasks.filter((t) => t.state === "waiting_approval");
+  const eventLists = await Promise.all(waiting.map((task) => rpc("tasks.events", { runId: task.runId })));
+  for (const [index, task] of waiting.entries()) {
+    const events = eventLists[index];
     for (const [, question] of pendingFromEvents(events.data?.events ?? [])) {
       const existing = [...box.querySelectorAll("[data-question]")].find((node) => node.dataset.question === question.questionId);
       cards.push(existing?.closest(".approval-wrap") || h("div", { class: "approval-wrap" }, h("div", { class: "muted small" }, task.summary), approvalCard(question, rpc, refresh, ctx.scopes)));

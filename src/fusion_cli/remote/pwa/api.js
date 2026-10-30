@@ -4,12 +4,18 @@ export const REQUEST_TIMEOUT_MS = 20000;
 // İmza geçerliyken gelen bu 401'ler geçicidir: yeni sıra/saat/nonce ile bir kez daha denenir.
 const RETRYABLE = new Set(["sira_eski", "nonce_tekrar"]);
 
+function unreadableMessage(status) {
+  return status >= 500 ? `Bilgisayar yanıt vermiyor (HTTP ${status}).` : `Bilgisayardan beklenmeyen yanıt geldi (HTTP ${status}).`;
+}
+
 export async function postJson(path, payload) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch(path, { method: "POST", body: JSON.stringify(payload), signal: controller.signal });
-    return { status: response.status, body: await response.json() };
+    // Proxy/HTML (502, 404…) yanıtı JSON değildir: ağ hatası gibi görünmesin, durum koduyla anlatılsın.
+    const body = await response.json().catch(() => ({ message: unreadableMessage(response.status) }));
+    return { status: response.status, body };
   } finally {
     clearTimeout(timer);
   }
@@ -64,7 +70,7 @@ export function createApi(device, { fetchImpl = fetch, now = Date.now } = {}) {
     }
     if (response.status === 429) throw new Error("Çok fazla deneme; biraz bekle.");
     if (response.status >= 500) throw new Error("Bilgisayar yanıt vermiyor.");
-    return response.json();
+    return response.json().catch(() => { throw new Error(unreadableMessage(response.status)); });
   }
 
   function pump() {

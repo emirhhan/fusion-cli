@@ -72,5 +72,16 @@ for (const reason of ["cihaz_iptal", "imza_gecersiz", "zaman_asimi", "sira_eski"
   await Promise.all([first, ...pending]);
   out.priority = calls;
 }
+// JSON olmayan (HTML/proxy) yanıtlar: yanlış "ulaşılamıyor" yerine durum koduyla açıklanır.
+{
+  const { postJson } = await import(pathToFileURL(`${dir}/api.js`).href);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("<html>Bad Gateway</html>", { status: 502 });
+  const post = await postJson("/v1/pair/submit", {});
+  globalThis.fetch = realFetch;
+  const html404 = async () => new Response("<html>yok</html>", { status: 404 });
+  const rpcError = await createApi(device, { fetchImpl: html404 })("service.status").catch((e) => e.message);
+  out.nonJson = { status: post.status, message: post.body.message, rpcError };
+}
 console.log(JSON.stringify(out));
 process.exit(0);

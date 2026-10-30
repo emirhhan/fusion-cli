@@ -1,6 +1,6 @@
 // Canlı ekran akışı senaryoları; tests/test_remote_pwa_screen_stream.py çalıştırır.
 import { pathToFileURL } from "node:url";
-const { createScreenStream, BACKOFF_START_MS, BACKOFF_MAX_MS } = await import(pathToFileURL(process.argv[2]).href);
+const { createScreenStream, BACKOFF_START_MS, BACKOFF_MAX_MS, MAX_FRAME_ERRORS } = await import(pathToFileURL(process.argv[2]).href);
 
 const FRAME = { ok: true, data: { jpegBase64: "AA==", seq: 1 } };
 const NOAPPROVAL = { ok: false, error: "ekran_onay_yok", message: "yok" };
@@ -100,5 +100,21 @@ const resumed = r.calls.includes("screen.request");
 r = await run({ "screen.status": [NONE], "screen.frame": [FRAME] }, { startOptions: { request: false } });
 out.reload = { resumedAsked: resumed, idleAsked: r.calls.includes("screen.request"), idleStates: r.states.map((s) => s.state) };
 
+// 7) kalıcı kare hatası: sınırsız yeniden deneme yerine sayaçla durur
+{
+  const BAD = { ok: false, error: "yakalama_hatasi", message: "Ekran alınamadı." };
+  let frameCalls = 0;
+  const states7 = [];
+  const s7 = createScreenStream({
+    rpc: async (m) => { if (m === "screen.status") return ACTIVE; frameCalls += 1; return BAD; },
+    onFrame: () => {}, onState: (s) => states7.push(s), sleep: () => new Promise((r) => setTimeout(r, 1)),
+  });
+  await s7.start();
+  await new Promise((x) => setTimeout(x, 100));
+  const callsAtStop = frameCalls;
+  await new Promise((x) => setTimeout(x, 50));
+  s7.detach();
+  out.persistentError = { frameCalls: callsAtStop, stoppedGrowing: frameCalls === callsAtStop, last: states7[states7.length - 1], max: MAX_FRAME_ERRORS };
+}
 console.log(JSON.stringify(out));
 process.exit(0);
