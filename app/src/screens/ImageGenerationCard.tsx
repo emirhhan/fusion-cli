@@ -56,7 +56,8 @@ export function ImageGenerationCard({ prompt, aspect = "1:1" }: ImageGenerationC
         <div className="image-generation__label">
           <span aria-hidden="true" className="image-generation__spark">✦</span>
           <strong>Görsel oluşturuluyor…</strong>
-          <b className="image-generation__percent">%{percent}</b>
+          {/* Yüzde bir tahmindir ve 400 ms'de bir değişir: ekran okuyucuya okunmaz, fareyle "tahmini" olduğu söylenir (U1-24, U1-25). */}
+          <b aria-hidden="true" className="image-generation__percent" title="Tahmini ilerleme">%{percent}</b>
         </div>
         <div
           aria-label="Tahmini ilerleme"

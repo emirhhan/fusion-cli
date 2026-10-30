@@ -75,3 +75,10 @@ describe("Conversation — /görsel çalışırken kart", () => {
     expect(screen.queryByRole("status", { name: "Görsel oluşturuluyor" })).toBeNull();
   });
 });
+
+it("yüzde ekran okuyucudan gizlenir ve tahmini olduğunu title ile söyler (U1-24, U1-25)", () => {
+  render(<ImageGenerationCard prompt="kuş" />);
+  const yuzde = screen.getByText("%0");
+  expect(yuzde.getAttribute("aria-hidden")).toBe("true");
+  expect(yuzde.getAttribute("title")).toBe("Tahmini ilerleme");
+});
