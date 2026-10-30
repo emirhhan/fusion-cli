@@ -675,3 +675,37 @@ async def test_panel_sayfasi_cerceveleme_basliklariyla_sunulur(tmp_path):
     assert yanit.headers["x-frame-options"] == "DENY"
     assert "frame-ancestors 'none'" in yanit.headers["content-security-policy"]
     assert yanit.headers["x-content-type-options"] == "nosniff"
+
+
+def test_bos_katalog_sonucu_ttl_boyunca_onbelleklenmez():
+    """Ölçüldü (30 Ekim): geçici ağ hatasındaki boş liste TTL (300 sn) boyunca saklanıyordu."""
+    from fusion_cli.gateway.catalog_cache import EMPTY_RETRY_S, CatalogCache, CatalogModel
+
+    cevaplar = [(), (CatalogModel("openrouter/a:free", "openrouter", True, 8000),)]
+    cagri = {"n": 0}
+    simdi = {"t": 0.0}
+
+    def _agg():
+        cagri["n"] += 1
+        return cevaplar[min(cagri["n"] - 1, 1)]
+
+    cache = CatalogCache(aggregator=_agg, ttl_s=300.0, clock=lambda: simdi["t"])
+    assert cache.get() == ()
+
+    simdi["t"] = EMPTY_RETRY_S + 1  # TTL dolmadan, kısa yeniden deneme süresi sonrası
+    assert [m.id for m in cache.get()] == ["openrouter/a:free"]
+    assert cagri["n"] == 2
+
+
+def test_bos_sonuc_eldeki_dolu_listeyi_silmez():
+    from fusion_cli.gateway.catalog_cache import CatalogCache, CatalogModel
+
+    dolu = (CatalogModel("m1", "openrouter", True, 1),)
+    sirali = iter([dolu, ()])
+    simdi = {"t": 0.0}
+    cache = CatalogCache(aggregator=lambda: next(sirali), ttl_s=10.0, clock=lambda: simdi["t"])
+    assert cache.get() == dolu
+
+    simdi["t"] = 11.0  # TTL doldu, yeniden çekim boş döner (ağ hatası)
+
+    assert cache.get() == dolu

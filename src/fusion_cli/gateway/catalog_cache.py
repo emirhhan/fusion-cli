@@ -20,6 +20,9 @@ from ..core.constants import CATALOG_CACHE_TTL_S
 from ..providers import catalog
 from ..providers.catalog import CatalogEntry
 
+#: Boş (başarısız) katalog sonrası yeniden deneme aralığı (sn); TTL'den çok daha kısa.
+EMPTY_RETRY_S = 15.0
+
 #: Bir katalog kaynağı: modelleri getiren fonksiyon.
 CatalogFetcher = Callable[[], tuple[CatalogEntry, ...]]
 #: (ücretsiz-mi, fetcher) çiftlerinden oluşan kaynak listesi.
@@ -86,6 +89,13 @@ class CatalogCache:
         now = self._clock()
         expired = self._fetched_at is None or (now - self._fetched_at) > self._ttl
         if refresh or expired:
-            self._models = self._aggregate()
-            self._fetched_at = now
+            models = self._aggregate()
+            if models:
+                self._models = models
+                self._fetched_at = now
+            else:
+                # Boş sonuç çoğunlukla GEÇİCİ ağ hatasıdır. Ölçüldü (30 Ekim): boş liste
+                # TTL boyunca önbelleğe alınıyor, panel model listesi o süre boş kalıyordu
+                # (E1-21). Eski liste korunur ve kısa süre sonra yeniden denenir.
+                self._fetched_at = now - self._ttl + EMPTY_RETRY_S
         return self._models
