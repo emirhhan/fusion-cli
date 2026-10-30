@@ -213,6 +213,9 @@ class ToolExecuted(Event):
     #: Diff dosya değişmeden önce üretilebildiği için burada taşınır; None ise araç
     #: değiştirici değildir ya da önizleme üretilememiştir.
     diff: str | None = None
+    #: `run_shell` için proje kökü parmak izi sonucu: "değişmedi" | "N dosya değişti: ..." |
+    #: "ölçülemedi: neden". Boş = ölçüm denenmedi (salt-okunur komut, ayar kapalı).
+    workspace: str = ""
 
 
 @dataclass(frozen=True, slots=True)

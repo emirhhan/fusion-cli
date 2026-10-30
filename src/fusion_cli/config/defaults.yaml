@@ -373,6 +373,11 @@ runtime:
   # Dosya yazıldıktan sonra JS/TS/PHP hızlı sözdizimi kontrolü (node --check, tsc varsa, php -l).
   # Hata dosyayı geri almaz; sonuca "sözdizimi hatası: satır N: ..." eklenir.
   post_edit_syntax_check: true
+  # run_shell öncesi/sonrası proje kökünün hafif parmak izi (boyut+mtime; .git, node_modules,
+  # .venv, __pycache__, dist, build, .fusion atlanır; 20.000 dosya/300 ms sınırı). Komut dosya
+  # değiştirmediyse mutasyon sayılmaz ve önceki testin kanıtı bayatlamaz. Proje kökü dışına
+  # yazma görünmez. false = tanınmayan komut her zaman "dosya değiştirmiş olabilir" sayılır.
+  shell_workspace_fingerprint: true
   # Kapı iki düzeltme turundan sonra hâlâ kırmızıysa TEK ek düzeltme turu, yapılandırmada
   # tanımlı bir ÜST modelle koşar (sinyal yalnız gerçek kapı sonucu; kullanıcıya durum
   # satırı + GateEscalated/GateEscalationFinished olayı gider). Üst model yoksa etkisizdir.

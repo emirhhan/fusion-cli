@@ -10,6 +10,7 @@ from ..core.constants import MAX_CHECKPOINT_OUTPUT_CHARS
 from ..core.evidence import CriterionEvidence, EvidenceStatus, ToolUse
 from ..core.execution_plan import VerificationCheckKind
 from ..core.redaction import redact
+from ..core.workspace_fingerprint import WorkspaceEffect
 
 
 def _safe_text(value: object) -> str:
@@ -24,14 +25,40 @@ def _safe_arguments(arguments: object) -> dict[str, object]:
     return {str(key): _safe_text(value) for key, value in arguments.items()}
 
 
+#: Checkpoint'e yazılacak en çok değişen-dosya adı (kanıt tazeliğini boş/dolu bilgisi belirler).
+_MAX_CHECKPOINT_CHANGED = 50
+
+
 def _tool_payload(use: ToolUse) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "name": use.name,
         "ok": use.ok,
         "mutating": use.mutating,
         "arguments": _safe_arguments(use.arguments),
         "output": _safe_text(use.output),
     }
+    effect = use.workspace_effect
+    if effect is not None:
+        payload["workspace_changed"] = (
+            None
+            if effect.changed is None
+            else [_safe_text(path) for path in effect.changed[:_MAX_CHECKPOINT_CHANGED]]
+        )
+        payload["workspace_reason"] = _safe_text(effect.reason)
+    return payload
+
+
+def _effect(item: dict[str, object]) -> WorkspaceEffect | None:
+    """Eski kayıtta alan yoksa ölçüm UYDURULMAZ (temkinli sınıflandırma geçerli kalır)."""
+    if "workspace_changed" not in item:
+        return None
+    changed = item["workspace_changed"]
+    reason = _text(item, "workspace_reason")
+    if changed is None:
+        return WorkspaceEffect(None, reason)
+    if not isinstance(changed, list) or not all(isinstance(path, str) for path in changed):
+        raise ValueError("geçersiz checkpoint çalışma alanı etkisi")
+    return WorkspaceEffect(tuple(changed), reason)
 
 
 def _criterion_payload(evidence: CriterionEvidence) -> dict[str, object]:
@@ -101,7 +128,14 @@ def _tool(item: dict[str, object]) -> ToolUse:
     ok, mutating = item.get("ok"), item.get("mutating")
     if not isinstance(ok, bool) or not isinstance(mutating, bool):
         raise ValueError("geçersiz checkpoint araç sonucu")
-    return ToolUse(_text(item, "name"), ok, mutating, arguments, _text(item, "output"))
+    return ToolUse(
+        _text(item, "name"),
+        ok,
+        mutating,
+        arguments,
+        _text(item, "output"),
+        workspace_effect=_effect(item),
+    )
 
 
 def parse_evidence(raw: object) -> tuple[StepCheckpointEvidence, ...]:

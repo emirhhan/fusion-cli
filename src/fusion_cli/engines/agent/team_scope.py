@@ -73,6 +73,7 @@ def derive_sub_context(context: ToolContext, subtask: SubTask | None = None) -> 
         shell_sandbox=context.shell_sandbox,
         edit_fuzzy_match=context.edit_fuzzy_match,
         post_edit_syntax_check=context.post_edit_syntax_check,
+        shell_fingerprint=context.shell_fingerprint,
         write_scope=scope,
     )
 

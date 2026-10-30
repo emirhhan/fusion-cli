@@ -268,6 +268,12 @@ class RuntimeConfig:
     #: sözdizimi kontrolü; hata varsa dosya yine yazılır, sonuca "sözdizimi hatası: satır N"
     #: eklenir. Denetleyici yoksa sessizce atlanır. Python zaten yazmadan önce engellenir.
     post_edit_syntax_check: bool = True
+    #: `run_shell` öncesi ve sonrası proje kökünün hafif parmak izi (boyut + mtime) alınır:
+    #: komut dosya DEĞİŞTİRMEDİYSE mutasyon sayılmaz, önceki testin kanıtı bayatlamaz.
+    #: Ölçüldü (30 Ekim): tanınmayan `python3 -m paket.cli listele` temkinli olarak mutasyon
+    #: sayılıp geçen testi eskitiyordu. Proje kökü DIŞINA yazan komut görünmez; sınır
+    #: aşılır (20.000 dosya / 300 ms), komut arka plandaysa ya da kapalıysa eski temkinli davranış.
+    shell_workspace_fingerprint: bool = True
     #: Doğrulama kapısı iki düzeltme turundan sonra HÂLÂ kırmızıysa, kullanıcının
     #: yapılandırmasında tanımlı BİR üst model varsa TEK bir ek düzeltme turu o modelle
     #: koşar (bkz. `engines/agent/gate_escalation.py`). Sinyal yalnız gerçek kapı

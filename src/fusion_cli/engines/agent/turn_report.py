@@ -112,6 +112,25 @@ UNVERIFIED_CLAIM_WARNING = (
 )
 
 
+def stale_claim_warning(shell_command: str, changed: tuple[str, ...] | None) -> str:
+    """Kanıt YALNIZ bayatladığında (test daha önce geçmişti) iddia uyarısı.
+
+    Ölçüldü (30 Ekim, y3): testler geçmişti, sonra tanınmayan bir kabuk komutu mutasyon
+    sayıldı; rapor "hiçbir doğrulama başarıyla çalışmadı; bu iddia GEÇERSİZ" yazdı.
+    Bu yanlış ve sert: doğrulama çalışmıştı, yalnız son değişiklikten ÖNCE.
+    """
+    if not shell_command:
+        return (
+            "⚠ Ajanın doğrulama beyanı güncel değil: testler daha önce geçmişti ama sonra "
+            "dosyalar yeniden değişti; doğrulama yeniden çalıştırılmalı."
+        )
+    etki = "dosyaları değiştirdi" if changed else "dosyaları değiştirmiş olabilir"
+    return (
+        f"⚠ Ajanın doğrulama beyanı güncel değil: testler daha önce geçmişti ama sonra "
+        f"`{shell_command}` çalıştı ve {etki}; doğrulama yeniden çalıştırılmalı."
+    )
+
+
 #: Komut çalıştırmadan söylenemeyecek SOMUT başarı iddiası (test/lint/sözdizimi).
 #: Genel "doğrulandı" dosyayı okuyarak da söylenebilir; yalnız uyarı alır. Bunlar
 #: ise kanıtsızsa yalandır ve turu başarısız yapar.
@@ -169,6 +188,9 @@ class TurnReport:
     #: Turdaki SON dosya mutasyonu bir kabuk komutuysa onun metni. "Komut çalıştırılmadı"
     #: raporu bunu söyler: kabuk komutu dosya değiştirmiş SAYILDIĞI için önceki test eskidir.
     last_shell_mutation: str = ""
+    #: O kabuk komutunun parmak izinde ÖLÇÜLEN değişen dosyaları; `None` = ölçülemedi
+    #: ("değiştirmiş olabilir" varsayımı).
+    last_shell_changes: tuple[str, ...] | None = None
 
     @property
     def _behavioral_evidence(self) -> tuple[CommandRun, ...]:
@@ -298,9 +320,25 @@ class TurnReport:
                 "açıklaması gösterilmedi."
             )
         if self.is_verified is False and model_text.strip():
-            uyari = f"{UNVERIFIED_CLAIM_WARNING}\n\n" if claims_verification(model_text) else ""
+            uyari = f"{self._claim_warning()}\n\n" if claims_verification(model_text) else ""
             return report + uyari + "Ajanın açıklaması (doğrulanmamış):\n\n" + model_text
         return report + model_text
+
+    def _claim_warning(self) -> str:
+        """Kanıt hiç yoksa sert uyarı; yalnız bayatladıysa (önceden geçmişti) doğru olanı."""
+        if self._passed_before_last_mutation and not self._unresolved_evidence:
+            return stale_claim_warning(self.last_shell_mutation, self.last_shell_changes)
+        return UNVERIFIED_CLAIM_WARNING
+
+    @property
+    def _passed_before_last_mutation(self) -> bool:
+        """Son mutasyondan ÖNCE geçen bir davranış kanıtı var mı (bayat ama gerçek)?"""
+        return any(
+            run.exit_code == 0
+            and is_behavioral_command(run.command)
+            and not run.after_last_mutation
+            for run in self.command_runs
+        )
 
     def _gate_blocks(self) -> tuple[str, ...]:
         gate = self.gate
@@ -373,17 +411,21 @@ class TurnReport:
         mutasyon sayıldı; rapor yalnız "komut çalıştırılmadı" diyordu ve kullanıcı
         testin koştuğunu bilmiyordu.
         """
-        if not self.last_shell_mutation or not any(
-            run.exit_code == 0
-            and is_behavioral_command(run.command)
-            and not run.after_last_mutation
-            for run in self.command_runs
-        ):
+        if not self.last_shell_mutation or not self._passed_before_last_mutation:
             return ""
+        if self.last_shell_changes:
+            degisen = ", ".join(self.last_shell_changes[:_STALE_NAMED_FILES])
+            return (
+                f"\nTest bundan önce geçmişti ama sonra `{self.last_shell_mutation}` çalıştı ve "
+                f"dosyaları değiştirdi ({degisen}); testi yeniden çalıştır."
+            )
         return (
             f"\nTest bundan önce geçmişti ama sonra `{self.last_shell_mutation}` çalıştı; "
             "kabuk komutu dosya değiştirmiş olabileceği için testi yeniden çalıştır."
         )
+
+
+_STALE_NAMED_FILES = 3
 
 
 def _exit_text(code: int | None) -> str:
@@ -414,11 +456,18 @@ def build_turn_report(
 ) -> TurnReport:
     """Turda denenen araç çağrılarından ve değişiklik kaydından raporu kur."""
     last_mutation = _last_mutation_index(tool_uses)
-    last_shell = (
-        _command_text(tool_uses[last_mutation])
+    last_shell_use = (
+        tool_uses[last_mutation]
         if last_mutation is not None and _is_shell_call(tool_uses[last_mutation].name)
-        else ""
+        else None
     )
+    last_shell = _command_text(last_shell_use) if last_shell_use is not None else ""
+    last_shell_changes = (
+        last_shell_use.workspace_effect.changed
+        if last_shell_use is not None and last_shell_use.workspace_effect is not None
+        else None
+    )
+    changed_paths = _with_shell_changes(changed_paths, tool_uses)
     jobs = collect_job_deliveries(tool_uses, current_jobs)
     command_runs = tuple(
         _command_run(use, after=last_mutation is not None and index > last_mutation)
@@ -445,7 +494,28 @@ def build_turn_report(
         test_tamper=test_tamper,
         change_lines=change_lines,
         last_shell_mutation=last_shell,
+        last_shell_changes=last_shell_changes,
     )
+
+
+def _with_shell_changes(
+    changed_paths: tuple[str, ...], tool_uses: tuple[ToolUse, ...]
+) -> tuple[str, ...]:
+    """Dosya araçlarının kaydına, kabuk komutlarının parmak izinde ÖLÇÜLEN değişikliklerini ekle.
+
+    Yalnız turda zaten bir dosya değişikliği varsa: kabuk tek başına çalıştırılan bir betik
+    (veri üretimi vb.) kullanıcıya yeni bir "doğrulanmadı" rapor yüzeyi açmaz.
+    """
+    if not changed_paths:
+        return changed_paths
+    extra = [
+        path
+        for use in tool_uses
+        if _is_shell_call(use.name) and use.workspace_effect is not None
+        for path in use.workspace_effect.changed or ()
+        if path not in changed_paths
+    ]
+    return (*changed_paths, *dict.fromkeys(extra))
 
 
 def _never_ran(use: ToolUse) -> bool:
@@ -468,17 +538,36 @@ def _last_mutation_index(tool_uses: tuple[ToolUse, ...]) -> int | None:
     yandan dosya DEĞİŞTİREBİLEN kabuk komutu (`sed -i`, `> dosya`, `cp`, `npm
     install`) mutasyondur: ölçüldü (29 Ekim), test geçtikten sonra `sed -i` kodu
     değiştirdi ve eski test başarısı kanıt sayıldı.
+
+    Tanınmayan program (`python3 -m paket.cli listele`) komut metninden ayırt edilemez;
+    bu yüzden temkinli mutasyon sayılır. AMA çalışma alanı parmak izi (bkz.
+    `core.workspace_fingerprint`) komutun hiçbir dosyayı değiştirmediğini ÖLÇTÜYSE mutasyon
+    sayılmaz. Ölçüm yalnız gevşetir; ölçülemediyse (`None`) eski davranış korunur.
+    Ölçüldü (30 Ekim, y3): dosya yazmayan `listele` testin kanıtını bayatlatıyordu.
     """
     for index in range(len(tool_uses) - 1, -1, -1):
         use = tool_uses[index]
         if not use.mutating or use.job_completion is not None:
             continue
         if _is_shell_call(use.name):
-            if not _never_ran(use) and shell_may_change_files(_command_text(use)):
+            if (
+                not _never_ran(use)
+                and shell_may_change_files(_command_text(use))
+                and not _measured_unchanged(use)
+            ):
                 return index
         elif use.ok:
             return index
     return None
+
+
+def _measured_unchanged(use: ToolUse) -> bool:
+    """Komut proje kökünde GERÇEKTEN hiçbir dosyayı değiştirmedi mi (parmak izi aynı)?
+
+    Ölçüm yalnız temkinli sınıflandırmayı GEVŞETİR: ölçülemeyen (`None`) komut eski
+    davranışta kalır. Proje kökü DIŞINA yazma parmak izinde görünmez.
+    """
+    return use.workspace_effect is not None and use.workspace_effect.is_unchanged
 
 
 def _command_run(use: ToolUse, *, after: bool) -> CommandRun:

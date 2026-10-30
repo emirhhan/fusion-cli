@@ -241,6 +241,7 @@ async def run_agent_task(
             shell_sandbox=config.runtime.shell_sandbox,
             edit_fuzzy_match=config.runtime.edit_fuzzy_match,
             post_edit_syntax_check=config.runtime.post_edit_syntax_check,
+            shell_fingerprint=config.runtime.shell_workspace_fingerprint,
         )
         if changes is not None:
             # Çağıran (masaüstü oturumu) turun ilk-hâl anlık görüntülerini geri alma

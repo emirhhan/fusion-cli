@@ -50,6 +50,9 @@ def _fields(event: Event) -> dict[str, object]:
     for name in ("event_id", "session_id", "turn_id", "schema_version"):
         if fields.get(name) is None:
             fields.pop(name, None)
+    # Parmak izi yalnız ölçülen `run_shell` olayında vardır; diğerlerinde satır biçimi değişmez.
+    if fields.get("workspace") == "":
+        fields.pop("workspace")
     return fields
 
 

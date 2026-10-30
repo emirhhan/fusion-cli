@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from .job_evidence import JobCompletion
+from .workspace_fingerprint import WorkspaceEffect
 
 if TYPE_CHECKING:
     from .execution_plan import VerificationCheckKind
@@ -50,3 +51,6 @@ class ToolUse:
     arguments: Mapping[str, object] = field(default_factory=dict)
     output: str = ""
     job_completion: JobCompletion | None = None
+    #: `run_shell` için proje kökünde ÖLÇÜLEN etki (bkz. `core.workspace_fingerprint`).
+    #: `None` = ölçülmedi: komut metnine bakan temkinli sınıflandırma geçerlidir.
+    workspace_effect: WorkspaceEffect | None = None

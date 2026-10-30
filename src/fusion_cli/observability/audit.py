@@ -103,6 +103,8 @@ class AuditSink:
             "sonuc": event.outcome.value,
             "cikti": redact(event.output[:AUDIT_OUTPUT_CHARS]),
         }
+        if event.workspace:
+            record["calisma_alani"] = event.workspace
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             if self._path.exists() and self._path.stat().st_size > AUDIT_MAX_BYTES:

@@ -111,6 +111,7 @@ from ...core.types import (
 )
 from ...core.verification import VerificationResult, Verifier
 from ...core.web_response import classify_response
+from ...core.workspace_fingerprint import WorkspaceEffect
 from ...providers.capabilities import (
     TaskRequirements,
     capabilities_for,
@@ -1880,6 +1881,7 @@ def _note_tool_use(
     output: str = "",
     job_completion: JobCompletion | None = None,
     is_observation: bool = False,
+    workspace_effect: WorkspaceEffect | None = None,
 ) -> None:
     """Denenen araç çağrısını sırayla kaydet (adım ve tur kanıtı)."""
     state.tool_uses.append(
@@ -1890,6 +1892,7 @@ def _note_tool_use(
             arguments=arguments or {},
             output=output,
             job_completion=job_completion,
+            workspace_effect=workspace_effect,
         )
     )
 
@@ -3443,6 +3446,7 @@ async def _run_tools(
             output=result.output,
             job_completion=result.job_completion,
             is_observation=result.is_observation,
+            workspace_effect=result.workspace_effect,
         )
         if outcome in (ToolOutcome.DENIED, ToolOutcome.BLOCKED):
             # Onay verilmeyen ya da yetenek kapısına takılan çağrı HİÇ ÇALIŞMADI.
@@ -3545,6 +3549,7 @@ async def _run_tools(
                 outcome=outcome,
                 output=result.output,
                 diff=diff,
+                workspace=result.workspace_effect.label if result.workspace_effect else "",
             )
         )
         govde = result.output

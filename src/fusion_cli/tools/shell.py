@@ -25,7 +25,15 @@ from ..core.errors import ProcessCancelledError
 from ..core.process_control import run_foreground
 from ..core.shell_sandbox import SandboxPlan, plan_shell_sandbox
 from ..core.tools import ToolArgs, ToolContext, ToolResult
+from ..core.workspace_fingerprint import (
+    Fingerprint,
+    WorkspaceEffect,
+    launches_background_process,
+    measure_effect,
+    take_fingerprint,
+)
 from .args import require_str
+from .auto_policy import is_read_only_command
 from .command_semantics import READONLY_GIT_SUBCOMMANDS, git_reads_only
 from .files import invented_path_reason
 from .job_delivery import prepare_outputs
@@ -101,6 +109,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
             return replace(started, output=f"{started.output}\nFUSION_NOT: {plan.notice}")
         return started
     plan = shell_sandbox_plan(context)
+    before, skipped = _fingerprint_before(command, context)
     try:
         # shell=True bilinçli: kullanıcı boru/yönlendirme içeren komut yazabilmeli.
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.
@@ -128,9 +137,35 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
             "Göreli yol kullanın; tam yol gerekiyorsa boşlukları koruyun: "
             f"{shlex.quote(str(context.root))}"
         )
+    effect = skipped
+    if effect is None and _measures(command, context):
+        effect = measure_effect(before, context.root)
     return check_shell_result(
-        context, ToolResult(text, ok=process.returncode == 0), baseline=integrity_error
+        context,
+        ToolResult(text, ok=process.returncode == 0, workspace_effect=effect),
+        baseline=integrity_error,
     )
+
+
+def _measures(command: str, context: ToolContext) -> bool:
+    """Bu komut için çalışma alanı etkisi ölçülür mü (ayar açık, komut salt-okunur değil)?"""
+    return getattr(context, "shell_fingerprint", True) and not is_read_only_command(command)
+
+
+def _fingerprint_before(
+    command: str, context: ToolContext
+) -> tuple[Fingerprint | None, WorkspaceEffect | None]:
+    """Komuttan ÖNCE parmak izi; ölçülemeyecekse (arka plan süreci) hazır sonuç da döner.
+
+    Ölçüldü (30 Ekim): tanınmayan program temkinli olarak mutasyon sayılıyordu. Arka plana
+    atılan süreç komut bittikten sonra da yazabileceğinden "önce/sonra" ona güvenilmez;
+    eski temkinli davranış korunur.
+    """
+    if not _measures(command, context):
+        return None, None
+    if launches_background_process(command):
+        return None, WorkspaceEffect(None, "arka plan süreci")
+    return take_fingerprint(context.root), None
 
 
 #: Argümanında çoğu kez desen/URL yolu taşıyan komutlar; yol denetimi yapılmaz.

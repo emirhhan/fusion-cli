@@ -31,6 +31,7 @@ from .remotion_browser import RemotionBrowser
 from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
 from .tool_content import ToolContent, ToolContentType
+from .workspace_fingerprint import WorkspaceEffect
 
 #: Modelin araca verdiği ham argümanlar. JSON'dan geldiği için tipsizdir;
 #: `tools.args` yardımcıları bunları doğrulayarak okur.
@@ -193,6 +194,8 @@ class ToolResult:
     failure_evidence: tuple[FailureEvidence, ...] = ()
     is_observation: bool = False
     job_completion: JobCompletion | None = None
+    #: `run_shell`: komutun proje kökündeki ölçülen etkisi; `None` = ölçülmedi.
+    workspace_effect: WorkspaceEffect | None = None
 
     @property
     def images(self) -> tuple[str, ...]:
@@ -377,6 +380,9 @@ class ToolContext:
     edit_fuzzy_match: bool = field(default=True, kw_only=True)
     #: Dosya yazıldıktan sonra JS/TS/PHP sözdizimi hızlı kontrolü (bkz. `tools.sozdizimi_kontrol`).
     post_edit_syntax_check: bool = field(default=True, kw_only=True)
+    #: `run_shell` öncesi/sonrası proje kökünün parmak izi alınır; dosya değişmediyse komut
+    #: mutasyon sayılmaz (bkz. `core.workspace_fingerprint`). Kapalıysa temkinli sınıflandırma.
+    shell_fingerprint: bool = field(default=True, kw_only=True)
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya
