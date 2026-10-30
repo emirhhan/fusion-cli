@@ -29,3 +29,30 @@ def test_harness_notu_kullanici_mesaji_sayilir() -> None:
 
 def test_normal_metin_degismez() -> None:
     assert strip_harness_leaks("Normal cevap.\n\n- madde") == "Normal cevap.\n\n- madde"
+
+
+def test_kesik_arac_cagrisi_govdesi_kullaniciya_kalmaz() -> None:
+    """Kapanış işareti hiç gelmeyen blok: gövde JSON'u görünür kalmamalı (C1-35)."""
+    metin = (
+        'Dosyayı yazıyorum.\n\nFUSION_TOOL_CALL\n{"name":"write_file","arguments":{"path":"a.py"'
+    )
+    sonuc = strip_harness_leaks(metin)
+    assert sonuc == "Dosyayı yazıyorum."
+
+
+def test_payload_ve_eski_bicim_bloklari_ayiklanir() -> None:
+    """FUSION_PAYLOAD ve eski <tool_call> blokları da sızmaz (C1-35)."""
+    metin = (
+        "Başlıyorum.\n\n"
+        'FUSION_PAYLOAD id="p1"\n```python\nprint(1)\n```\nFUSION_PAYLOAD_END\n\n'
+        '<tool_call>{"name":"x","arguments":{}}</tool_call>\n\nBitti.'
+    )
+    sonuc = strip_harness_leaks(metin)
+    assert "FUSION_PAYLOAD" not in sonuc and "print(1)" not in sonuc
+    assert "<tool_call>" not in sonuc
+    assert "Başlıyorum." in sonuc and "Bitti." in sonuc
+
+
+def test_kesik_payload_blogu_sona_kadar_kesilir() -> None:
+    sonuc = strip_harness_leaks('Not.\n\nFUSION_PAYLOAD id="p1"\n```py\nprint(1)')
+    assert sonuc == "Not."
