@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ..core.errors import PathAccessError
 from ..core.tools import ToolArgs, ToolContext
-from .args import ArgumentError
+from .args import ArgumentError, is_truthy
 from .diffing import clip_lines, unified_diff
 from .files import parse_edits, resolve_path
 
@@ -88,7 +88,7 @@ def _preview_edit(args: ToolArgs, context: ToolContext) -> str:
         raise ArgumentError("'old' ve 'new' metin olmalı.")
     # Önizleme uygulanacak değişikliğin AYNISINI göstermelidir: toplu değiştirmeyi
     # tek eşleşme gibi göstermek, kullanıcıya yanlış şeyi onaylatır.
-    limit = -1 if args.get("replace_all") is True else 1
+    limit = -1 if is_truthy(args.get("replace_all")) else 1
     new_text = old_text.replace(search, replacement, limit)
     return (
         unified_diff(old_text, new_text, display_path(path, context))

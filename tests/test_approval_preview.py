@@ -120,3 +120,20 @@ def test_kucuk_dosyada_normal_diff_surer():
     sonuc = diffing.bounded_diff("a\nb\n", "a\nc\n", "x.txt")
 
     assert "-b" in sonuc and "+c" in sonuc
+
+
+# --- Dalga 4 (T2-38) -----------------------------------------------------------------------
+
+
+def test_onizleme_replace_all_metin_true_ile_gercek_aracla_ayni(tmp_path):
+    """edit_file `replace_all: "true"` kabul eder; önizleme de aynısını göstermeli."""
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools.preview import _preview_edit
+
+    (tmp_path / "a.txt").write_text("x x x\n", encoding="utf-8")
+    onizleme = _preview_edit(
+        {"path": "a.txt", "old": "x", "new": "y", "replace_all": "true"},
+        ToolContext(root=tmp_path),
+    )
+
+    assert onizleme.count("+y y y") == 1
