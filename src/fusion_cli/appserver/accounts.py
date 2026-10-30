@@ -11,6 +11,7 @@ ortam değişkeni taşımak gerekmez.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from ..accounts import (
@@ -25,7 +26,9 @@ from ..accounts import (
     remove_account_files,
     store_avatar_image,
 )
+from ..accounts.throttle import AttemptThrottle
 from ..core.accounts import Account
+from ..core.clock import SystemClock
 
 __all__ = ["AccountService"]
 
@@ -44,8 +47,34 @@ def _row(account: Account) -> dict[str, Any]:
 class AccountService:
     """Hesap uçlarının tek yeri. Depo enjekte edilebilir: testte gerçek dosya yok."""
 
-    def __init__(self, store: SqliteAccountStore | None = None) -> None:
+    def __init__(
+        self,
+        store: SqliteAccountStore | None = None,
+        *,
+        throttle: AttemptThrottle | None = None,
+    ) -> None:
         self._store = store or SqliteAccountStore()
+        #: Parola/kurtarma kodu tahminini yavaşlatır: giriş, silme ve kurtarma ortak sayaç
+        #: kullanır (hesap başına artan bekleme; kalıcı kilit yok).
+        self._throttle = throttle or AttemptThrottle(SystemClock())
+
+    def _attempt_key(self, identifier: str) -> str:
+        """Hesap kimliği; hesap yoksa normalleştirilmiş girdi (varlık sızmasın diye aynı sınır)."""
+        resolved = self._store.resolve_account_id(identifier)
+        return f"id:{resolved}" if resolved else f"ad:{identifier.strip().casefold()}"
+
+    def _throttled(self, key: str) -> dict[str, Any] | None:
+        """Bekleme sürüyorsa kullanıcıya gösterilecek yanıt; yoksa None."""
+        wait = self._throttle.retry_after(key)
+        if wait <= 0:
+            return None
+        seconds = math.ceil(wait)
+        shown = f"{seconds} saniye" if seconds < 120 else f"{math.ceil(seconds / 60)} dakika"
+        return {
+            "ok": False,
+            "metin": f"Çok fazla hatalı deneme. {shown} sonra tekrar dene.",
+            "bekleme_sn": seconds,
+        }
 
     def status(self) -> dict[str, Any]:
         """`hesap.durum`: kimlerin olduğu ve şu an kimin açık olduğu."""
@@ -93,13 +122,18 @@ class AccountService:
         """`hesap.giris`: kullanıcı adı ya da e-posta + parola."""
         if not isinstance(data, dict):
             return {"ok": False, "metin": "Geçersiz giriş isteği."}
+        key = self._attempt_key(str(data.get("kimlik", "")))
+        if (bekle := self._throttled(key)) is not None:
+            return bekle
         hesap = self._store.authenticate(
             identifier=str(data.get("kimlik", "")), password=str(data.get("parola", ""))
         )
         if hesap is None:
+            self._throttle.record_failure(key)
             # Hangisinin yanlış olduğu SÖYLENMEZ: var olan kullanıcı adlarını
             # deneme yanılmayla bulmayı kolaylaştırırdı.
             return {"ok": False, "metin": "Kullanıcı adı, e-posta veya parola hatalı."}
+        self._throttle.record_success(key)
         self._activate(hesap.account_id)
         return {"ok": True, "hesap": _row(hesap)}
 
@@ -113,6 +147,9 @@ class AccountService:
         """`hesap.kurtar`: kurtarma koduyla yeni parola belirle."""
         if not isinstance(data, dict):
             return {"ok": False, "metin": "Geçersiz kurtarma isteği."}
+        key = self._attempt_key(str(data.get("kimlik", "")))
+        if (bekle := self._throttled(key)) is not None:
+            return bekle
         try:
             degisti = self._store.reset_password(
                 identifier=str(data.get("kimlik", "")),
@@ -120,9 +157,12 @@ class AccountService:
                 new_password=str(data.get("yeni_parola", "")),
             )
         except AccountError as error:
+            # Kısa yeni parola kod tahmini değildir: sayaca yazılmaz.
             return {"ok": False, "metin": str(error)}
         if not degisti:
+            self._throttle.record_failure(key)
             return {"ok": False, "metin": "Kurtarma kodu bu hesapla eşleşmiyor."}
+        self._throttle.record_success(key)
         return {"ok": True}
 
     def update(self, data: object) -> dict[str, Any]:
@@ -180,11 +220,16 @@ class AccountService:
                 "ok": False,
                 "metin": "Hesabı silmek için parolanı ya da kurtarma kodunu gir.",
             }
+        key = f"id:{kimlik}"  # giriş ve kurtarmayla aynı hesap sayacı (`_attempt_key`)
+        if (bekle := self._throttled(key)) is not None:
+            return bekle
         dogru = (parola and self._store.verify_password(kimlik, parola)) or (
             kod.strip() and self._store.verify_recovery_code(kimlik, kod)
         )
         if not dogru:
+            self._throttle.record_failure(key)
             return {"ok": False, "metin": "Parola veya kurtarma kodu hatalı; hesap silinmedi."}
+        self._throttle.record_success(key)
         if not self._store.delete(kimlik):
             return {"ok": False, "metin": "Hesap bulunamadı."}
         kalanlar = remove_account_files(kimlik)

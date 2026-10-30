@@ -169,6 +169,12 @@ class SqliteAccountStore:
             raise AccountError(f"{alan} zaten kullanılıyor.") from error
         return AccountCreation(account=hesap, recovery_code=kod)
 
+    def resolve_account_id(self, identifier: str) -> str | None:
+        """Kullanıcı adı/e-postadan hesap kimliği (parola doğrulamaz); yoksa None."""
+        with self._connect() as connection:
+            row = self._find(connection, identifier)
+        return str(row["id"]) if row is not None else None
+
     def authenticate(self, *, identifier: str, password: str) -> Account | None:
         """Kullanıcı adı ya da e-posta + parola ile giriş."""
         with self._connect() as connection:
