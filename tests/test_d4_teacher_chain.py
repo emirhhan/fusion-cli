@@ -1,4 +1,4 @@
-"""Öğretmen zinciri: aday sayısı sabitle uyumlu, ulaşılamayınca kullanıcı bilgilenir (A1-20, A1-21)."""
+"""Öğretmen zinciri: aday sayısı sabitle uyumlu, çöküş görünür (A1-20, A1-21)."""
 
 from __future__ import annotations
 
