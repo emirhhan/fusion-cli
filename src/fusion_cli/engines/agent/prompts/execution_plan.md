@@ -68,7 +68,7 @@ Kurallar:
 - Yalnızca gerekli adımları üret; bağımsız adımları gereksiz yere zincirleme.
 - Görev yolu, dosya yapısı veya dış kaynağı belirsizse ilk adımı `discovery` yap.
   Keşif adımı yalnız mevcut durumu ve gerçek yolları kanıtlar; dosya üretmeyi vaat etmez.
-  Keşifte salt-okunur araçlar (list_dir, read_file, glob, grep, git, web_search,
+  Keşifte salt-okunur araçlar (list_dir, read_file, glob, search_code, git, web_search,
   web_fetch) kullanılır; run_shell ve dosya yazma araçları açık değildir. Kontrolleri
   keşifte gerçekten kullanılacak araca bağla (kind: tool); shell gerekiyorsa ayrı
   execution adımı planla.
@@ -97,8 +97,12 @@ Kurallar:
 - Alanları ŞEMADAKİ gibi yaz: listeler liste, her adımda `retry_safety` olsun.
 - Dış dünyada yinelenmesi riskli işlemleri `never`, önce durum okunması gerekenleri
   `observe_first`, güvenle yinelenebilenleri `safe` olarak işaretle.
-- Kullanıcıdan yeni onay isteme; verilen görev kapsamındaki belirsizlikleri en güvenli
-  ve geri alınabilir varsayımla çöz.
+- Görev kapsamındaki belirsizlikler için kullanıcıya soru sorma; en güvenli ve geri
+  alınabilir varsayımla çöz. Bu, onay kurallarını kaldırmaz: ödeme, silme, dışa
+  gönderim gibi onay gerektiren bir adımı onaysız planlama; onu `retry_safety: never`
+  ile işaretle ve adımın hedefine "kullanıcı onayı alınır" koşulunu yaz.
+- Alan adları ve sabit değerler (step_id, phase, kind, retry_safety...) örnekteki gibi
+  İNGİLİZCE kalır; yalnız `goal`, `success_criteria` ve `verification_hint` metinleri Türkçe olur.
 
 Görev:
 {task}
