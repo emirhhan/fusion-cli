@@ -21,6 +21,9 @@ export function createChat({ rpc, root, ctx, onBack, onChange, toast }) {
   let polling = null;
   let attachments = [];
   const answered = new Set();
+  let sending = false;
+  // Dokunmatik cihazda Enter satır sonudur; gönderim düğmeyle yapılır (kazara gönderim olmasın).
+  const coarsePointer = () => Boolean(window.matchMedia?.("(pointer: coarse)").matches);
 
   const list = h("div", { class: "msgs", role: "log", "aria-live": "polite" });
   const typing = h("div", { class: "bubble assistant typing", hidden: true }, h("span"), h("span"), h("span"));
@@ -49,7 +52,19 @@ export function createChat({ rpc, root, ctx, onBack, onChange, toast }) {
       if (state === "error") toast(detail === "not-allowed" ? "Mikrofon izni verilmedi." : "Ses tanıma hatası.");
     },
   });
-  if (dictation) { mic.hidden = false; mic.addEventListener("click", () => dictation.toggle()); }
+  if (dictation) {
+    mic.hidden = false;
+    mic.addEventListener("click", () => {
+      // Ses Fusion'dan değil tarayıcının tanıma hizmetinden (Google/Apple) geçer; bir kez söylenir.
+      try {
+        if (!sessionStorage.getItem("fusion.voiceNotice")) {
+          sessionStorage.setItem("fusion.voiceNotice", "1");
+          toast("Ses, tarayıcının tanıma hizmetine (Google/Apple) gönderilir.");
+        }
+      } catch { /* özel gezinme: uyarı yine de yukarıda gösterilmiş sayılır */ }
+      dictation.toggle();
+    });
+  }
 
   back.addEventListener("click", () => { close(); onBack(); });
   attach.addEventListener("click", () => fileInput.click());
@@ -57,7 +72,7 @@ export function createChat({ rpc, root, ctx, onBack, onChange, toast }) {
   send.addEventListener("click", () => (running() ? stop() : submit()));
   input.addEventListener("input", grow);
   input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey && !running()) { event.preventDefault(); submit(); }
+    if (event.key === "Enter" && !event.shiftKey && !running() && !coarsePointer()) { event.preventDefault(); submit(); }
   });
   projectSelect.addEventListener("change", async () => {
     const result = await rpc("chats.assign", { chatId: chat.chatId, projectId: projectSelect.value || null });
@@ -140,7 +155,10 @@ export function createChat({ rpc, root, ctx, onBack, onChange, toast }) {
       const events = result.data?.events ?? [];
       for (const event of events) { apply(event); afterSeq = Math.max(afterSeq, event.seq); }
       run = { ...run, state: result.data?.state ?? run.state };
-      for (const [, q] of pendingFromEvents(events)) {
+      // Bekleyen onaylar sunucudan da gelir: olay günlüğü eski approval_request'i attıysa görünür kalır.
+      const waiting = pendingFromEvents(events);
+      for (const q of result.data?.pending ?? []) waiting.set(q.questionId, q);
+      for (const [, q] of waiting) {
         if (!answered.has(q.questionId) && !list.querySelector(`[data-question="${CSS.escape(String(q.questionId))}"]`)) {
           typing.before(approvalCard(q, rpc, () => { onChange(); poll(); }, ctx.scopes));
         }
@@ -148,7 +166,8 @@ export function createChat({ rpc, root, ctx, onBack, onChange, toast }) {
       typing.hidden = !["queued", "running"].includes(run.state);
       syncButton();
       if (events.length) scrollEnd();
-      if (running()) timer = setTimeout(poll, POLL_MS);
+      const more = Boolean(result.data?.hasMore); // sayfalanmış yanıt: kalanı hemen al
+      if (more || running()) timer = setTimeout(poll, more ? 0 : POLL_MS);
       else onChange();
     } catch (error) {
       if (!open || chat?.token !== token) return;
@@ -177,26 +196,35 @@ export function createChat({ rpc, root, ctx, onBack, onChange, toast }) {
 
   async function submit() {
     const text = input.value.trim();
-    if (!text && attachments.length === 0) return;
-    const sending = attachments;
-    input.value = ""; grow(); attachments = []; renderChips();
-    const ids = [];
-    for (const item of sending) {
-      const up = await rpc("uploads.put", { name: item.name, kind: item.kind, dataBase64: item.dataBase64 });
-      if (!up.ok) return bubble("error", up.message || "Ek yüklenemedi.");
-      ids.push(up.data.uploadId);
+    if (sending || (!text && attachments.length === 0)) return;
+    sending = true;
+    const files = attachments;
+    try {
+      const ids = [];
+      for (const item of files) {
+        const up = await rpc("uploads.put", { name: item.name, kind: item.kind, dataBase64: item.dataBase64 });
+        if (!up.ok) return void bubble("error", up.message || "Ek yüklenemedi.");
+        ids.push(up.data.uploadId);
+      }
+      const result = await rpc("tasks.create", {
+        prompt: text || "Ekleri incele.",
+        chatId: chat.chatId, projectId: chat.projectId || undefined, root: chat.root || undefined,
+        tier: ctx.tier || undefined, attachments: ids, idempotencyKey: crypto.randomUUID(),
+      });
+      if (!result.ok) return void bubble("error", result.message || "Gönderilemedi.");
+      // Metin ve ekler yalnız başarıdan sonra temizlenir; hatada kutuda kalır (R1-21).
+      input.value = ""; grow(); attachments = []; renderChips();
+      bubble("user", [text, ...files.map((a) => h("div", { class: "att-note" }, a.preview ? h("img", { src: a.preview, alt: "" }) : `📎 ${a.name}`))]);
+      scrollEnd();
+      run = result.data; afterSeq = 0; stream = null; typing.hidden = false; syncButton();
+      onChange();
+      void poll();
+    } catch (error) {
+      if (error.auth) { open = false; return onChange(true); }
+      bubble("error", error.message || "Gönderilemedi; bağlantını kontrol et.");
+    } finally {
+      sending = false;
     }
-    bubble("user", [text, ...sending.map((a) => h("div", { class: "att-note" }, a.preview ? h("img", { src: a.preview, alt: "" }) : `📎 ${a.name}`))]);
-    scrollEnd();
-    const result = await rpc("tasks.create", {
-      prompt: text || "Ekleri incele.",
-      chatId: chat.chatId, projectId: chat.projectId || undefined, root: chat.root || undefined,
-      tier: ctx.tier || undefined, attachments: ids, idempotencyKey: crypto.randomUUID(),
-    });
-    if (!result.ok) return bubble("error", result.message || "Gönderilemedi.");
-    run = result.data; afterSeq = 0; stream = null; typing.hidden = false; syncButton();
-    onChange();
-    void poll();
   }
 
   async function stop() {

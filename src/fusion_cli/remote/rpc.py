@@ -22,7 +22,12 @@ from ..core.task_protocol import IdempotencyConflictError, args_digest
 from .approval_confirmation import ApprovalConfirmations
 from .approvals import classify_question, is_approval
 from .backend import EventSink, TaskBackend
-from .constants import APPROVAL_TIMEOUT_SECONDS, DELTA_FLUSH_SECONDS, RPC_VERSION
+from .constants import (
+    APPROVAL_TIMEOUT_SECONDS,
+    DELTA_FLUSH_SECONDS,
+    EVENTS_PAGE_LIMIT,
+    RPC_VERSION,
+)
 from .devices import CHANNEL_SIGNED, Device, DeviceRegistry
 from .mobile import MobileApi, MobileError
 from .redaction import notification_summary, split_flushable
@@ -354,6 +359,10 @@ class RemoteService:
         self._questions[question_id] = (run_id, payload)
         self._arm_question_timer(question_id)
         self._store.set_state(run_id, STATE_WAITING_APPROVAL)
+        self._store.append(run_id, "approval_request", self._question_view(question_id, payload))
+
+    @staticmethod
+    def _question_view(question_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         view: dict[str, Any] = {
             "questionId": question_id,
             "title": payload.get("baslik", ""),
@@ -370,7 +379,7 @@ class RemoteService:
             approval = classify_question(payload)
             view["stepUp"] = approval.step_up
             view["requiredScope"] = approval.required_scope
-        self._store.append(run_id, "approval_request", view)
+        return view
 
     def _arm_question_timer(self, question_id: str) -> None:
         try:
@@ -446,8 +455,22 @@ class RemoteService:
         after = params.get("afterSeq", 0)
         after_seq = after if isinstance(after, int) and after >= 0 else 0
         events = self._store.events_after(context, run_id, after_seq)
+        page = events[:EVENTS_PAGE_LIMIT]
+        # Bekleyen sorular olay günlüğünden BAĞIMSIZ döner: günlük sınırı eski
+        # approval_request olayını atsa da onay telefonda görünür kalır.
+        pending = [
+            self._question_view(question_id, question)
+            for question_id, (owner, question) in self._questions.items()
+            if owner == run_id
+        ]
         return RpcResult(
-            True, {"events": [event.view() for event in events], "state": record.state}
+            True,
+            {
+                "events": [event.view() for event in page],
+                "state": record.state,
+                "hasMore": len(events) > len(page),
+                "pending": pending,
+            },
         )
 
     async def _cancel(self, device: Device, params: dict[str, Any]) -> RpcResult:

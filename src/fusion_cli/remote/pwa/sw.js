@@ -4,10 +4,11 @@ const SHELL = [
   "/signing.js", "/store.js", "/views-chats.js", "/views-settings.js", "/views-tasks.js", "/voice.js", "/styles.css", "/manifest.webmanifest", "/icon.svg",
   "/icon-192.png", "/icon-192.png?v=logo-20261017", "/icon-512.png", "/apple-touch-icon.png",
 ];
-const CACHE = "fusion-kabuk-v15";
+const CACHE = "fusion-kabuk-v16";
 self.addEventListener("install", (event) => {
   self.skipWaiting();
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
+  // addAll tek bir 404'te bütün kurulumu düşürürdü: dosyalar tek tek eklenir, eksik olan atlanır (R1-34).
+  event.waitUntil(caches.open(CACHE).then((cache) => Promise.allSettled(SHELL.map((url) => cache.add(url)))));
 });
 self.addEventListener("activate", (event) => {
   event.waitUntil(

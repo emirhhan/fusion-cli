@@ -496,3 +496,39 @@ async def test_yuksek_yetkili_kodla_eslestirme_onay_ayari_kapaliyken_de_elle_ona
     plain, _ = pairing.begin(None)
     pairing.submit(plain, "Telefon", channel="signed")
     assert pairing.is_approved(plain)  # varsayılan kapsamlar eskisi gibi kendiliğinden
+
+
+async def test_olaylar_sayfalanir_ve_bekleyen_onay_olay_atilsa_da_gorunur(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R1-23. Ölçüldü (30 Ekim): afterSeq=0 ile tüm olaylar (5000'e dek) tek yanıttı; eski
+    approval_request olayı atılırsa bekleyen onay telefonda görünmüyordu."""
+    monkeypatch.setattr("fusion_cli.remote.rpc.EVENTS_PAGE_LIMIT", 3)
+    rig.backend.ask = {"tur": "onay", "arac": "run_shell", "baslik": "Komut", "hedef": "ls"}
+    device_id, secret = rig.pair(["project.read", "agent.run"])
+    created = (await rig.rpc(device_id, secret, "tasks.create", {"prompt": "yap"})).json()["data"]
+    await asyncio.sleep(0.02)
+    for index in range(6):
+        rig.service._store.append(created["runId"], "delta", {"text": str(index)})
+    first = (
+        await rig.rpc(device_id, secret, "tasks.events", {"runId": created["runId"]})
+    ).json()["data"]
+    assert len(first["events"]) == 3 and first["hasMore"] is True
+    assert [q["questionId"] for q in first["pending"]] == ["q1"]
+    after = first["events"][-1]["seq"]
+    rest: list[dict[str, Any]] = []
+    while True:
+        page = (
+            await rig.rpc(
+                device_id, secret, "tasks.events", {"runId": created["runId"], "afterSeq": after}
+            )
+        ).json()["data"]
+        rest += page["events"]
+        if not page["hasMore"]:
+            break
+        after = page["events"][-1]["seq"]
+    assert [e["seq"] for e in first["events"] + rest] == sorted(
+        e["seq"] for e in first["events"] + rest
+    )
+    assert len(first["events"] + rest) >= 8
+    rig.backend.release.set()
