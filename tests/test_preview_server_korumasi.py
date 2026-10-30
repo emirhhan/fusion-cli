@@ -162,3 +162,42 @@ async def test_mevcut_sitede_tum_eklentiler_kullanici_izni_olmadan_etkinlestiril
 
     await wordpress_setup._plugins("wp", tmp_path, [], [], fresh=True)
     assert ("plugin", "activate", "--all") in cagrilar
+
+
+async def test_wp_zaman_asiminda_ve_iptalde_surec_oldurulup_beklenir(tmp_path, monkeypatch):
+    import asyncio
+
+    from fusion_cli.tools import wordpress_setup
+
+    olaylar: list[str] = []
+
+    class _Surec:
+        returncode = None
+
+        async def communicate(self):
+            await asyncio.sleep(30)
+
+        def kill(self):
+            olaylar.append("kill")
+
+        async def wait(self):
+            olaylar.append("wait")
+
+    async def _olustur(*a, **k):
+        return _Surec()
+
+    monkeypatch.setattr(wordpress_setup.asyncio, "create_subprocess_exec", _olustur)
+    monkeypatch.setattr(wordpress_setup, "WP_STEP_TIMEOUT_S", 0.05)
+
+    with pytest.raises(wordpress_setup.WordPressSetupError):
+        await wordpress_setup.run_wp("wp", tmp_path, "core", "version")
+    assert olaylar == ["kill", "wait"]
+
+    olaylar.clear()
+    monkeypatch.setattr(wordpress_setup, "WP_STEP_TIMEOUT_S", 30)
+    gorev = asyncio.create_task(wordpress_setup.run_wp("wp", tmp_path, "core", "version"))
+    await asyncio.sleep(0.05)
+    gorev.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await gorev
+    assert olaylar == ["kill", "wait"]

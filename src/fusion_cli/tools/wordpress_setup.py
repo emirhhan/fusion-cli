@@ -327,8 +327,14 @@ async def run_wp(wp_cli: str, root: Path, *args: str) -> tuple[int, str]:
     )
     try:
         raw, _ = await asyncio.wait_for(process.communicate(), timeout=WP_STEP_TIMEOUT_S)
+    except asyncio.CancelledError:
+        # Görev iptali `wp` sürecini öksüz bırakmasın (ölçüldü, 30 Ekim); zombi kalmasın.
+        process.kill()
+        await asyncio.shield(process.wait())
+        raise
     except TimeoutError as exc:
         process.kill()
+        await process.wait()  # zombi bırakma
         # Ölçüldü (3 Ekim 2026, 12. kabul koşusu): model Wordfence/Autoptimize gibi ağır
         # eklentiler kurunca SQLite'lı sitede her `wp` komutu asılı kaldı; model nedenini
         # bilmeden aynı komutları yineledi. `--skip-plugins` WP-CLI'nin kaçış kapısıdır.
