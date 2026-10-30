@@ -846,3 +846,29 @@ async def test_kademe_uyusmazligi_sohbeti_birakir_ayni_mesaj_ayni_sohbete_tekrar
     # Eski sohbete DEVAM istemi (yalnız yeni 2 mesaj) değil, temiz sohbette tam geçmiş.
     assert pool.fake_context.pages_created == 2
     assert len(sonraki) == 1 and "mesaj-0" in sonraki[0][1]
+
+
+async def test_iptal_edilen_tur_sohbet_durumunu_bayat_birakmaz(pool, log, monkeypatch):
+    """Ölçüldü (30 Ekim): dış `wait_for` (zincir/adaptör) iptali transport'a `CancelledError`
+    olarak gelir; temizlik yalnız kendi `TimeoutError` yolunda çalışıyordu. Mesaj sağlayıcıya
+    gitmiş, `sent_count/last_answer` bayat kalmıştı → sonraki tur aynı mesajı tekrar yazardı
+    (P1-28)."""
+    transport = build_browser_transport(_session(), pool=pool)
+    credential = WebSessionCredential()
+    mesajlar = _messages(2)
+    await transport(credential, mesajlar, "chatgpt_web/main/auto")
+    kok = conversation_digest(mesajlar[:1])
+    assert pool.conversation("chatgpt_web", "main", kok) is not None
+
+    async def _asili(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(web_browser, "_send_turn", _asili)
+    gorev = asyncio.create_task(transport(credential, _messages(4), "chatgpt_web/main/auto"))
+    await asyncio.sleep(0.05)
+
+    gorev.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await gorev
+
+    assert pool.conversation("chatgpt_web", "main", kok) is None

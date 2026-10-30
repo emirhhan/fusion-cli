@@ -1585,6 +1585,15 @@ def build_browser_transport(
                         await asyncio.sleep(0.75)
                         continue
                     raise
+                except asyncio.CancelledError:
+                    # Dış `wait_for` (zincir/adaptör) ya da kullanıcı iptali: mesaj
+                    # sağlayıcıya gitmiş olabilir ama `sent_count/last_answer` ilerlemedi.
+                    # Bayat sohbet bırakılır, yoksa sonraki tur aynı mesajı tekrar yazar.
+                    await manager.drop_conversation(
+                        session.provider, session.account, conversation_digest(messages[:1])
+                    )
+                    await manager.flush_closed()
+                    raise
                 except TimeoutError as error:
                     await manager.drop_conversation(
                         session.provider, session.account, conversation_digest(messages[:1])
