@@ -1279,3 +1279,35 @@ def test_tum_onay_kipleri_renklidir_ve_bypass_en_belirgindir():
     assert mode_color("bypass") != theme.DIM
     assert mode_color("edits") != theme.DIM
     assert "bold" in mode_color("bypass")
+
+
+# --- Boş anlatım (⏺ ) basılmaz (30 Ekim) -------------------------------------------- #
+
+
+def test_yalniz_bosluktan_olusan_akis_bos_madde_isareti_basmaz():
+    """Ölçüldü (30 Ekim): model yalnız "\\n" yayınlayınca ekrana boş `⏺ ` satırı düşüyordu."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "\n\n"))
+    renderer.handle(TurnFinished())
+
+    assert MARK not in buffer.getvalue()
+
+
+def test_bosluk_la_baslayan_akis_gercek_metinde_isaretle_baslar():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "\n"))
+    renderer.handle(TokenReceived(Channel.MAIN, "merhaba"))
+    renderer.handle(TurnFinished())
+
+    assert buffer.getvalue().splitlines()[0] == f"{MARK} merhaba"
+
+
+def test_show_thinking_acikken_bos_akis_madde_isareti_basmaz():
+    renderer, buffer = _thinking_renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "\n\n"))
+    renderer.handle(TurnFinished())
+
+    assert MARK not in buffer.getvalue()

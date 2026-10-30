@@ -515,12 +515,18 @@ class ConsoleRenderer:
         if len(visible) <= shown:
             return  # gelen parça tamamen düşünme metniydi; basılacak bir şey yok
 
+        fresh = visible[shown:]
         if channel is not self._active_channel:
+            # Blok başındaki boşluk basılmaz: yalnız "\n" gelen akış ekrana boş bir
+            # `⏺ ` bırakıyordu (ölçüldü, 30 Ekim). Boşluk "gösterildi" sayılır; gerçek
+            # metin gelince işaret onunla birlikte açılır.
+            fresh = fresh.lstrip()
+            if not fresh:
+                self._shown[channel] = len(visible)
+                return
             self._close_line()
             self._channel_header(channel)
             self._active_channel = channel
-
-        fresh = visible[shown:]
         # `out` ham yazar: model çıktısındaki köşeli parantezler Rich markup'ı
         # sanılıp yorumlanmaz, çıktı bozulmaz.
         self._console.out(fresh, end="", highlight=False)
@@ -601,6 +607,9 @@ class ConsoleRenderer:
     def _emit_visible(self, channel: Channel, fresh: str) -> None:
         """Görünür cevabı normal stille bas (madde işareti / kanal başlığıyla)."""
         if channel is not self._active_channel:
+            fresh = fresh.lstrip()  # blok başındaki boşluk boş `⏺ ` basar (bkz. `_write_stream`)
+            if not fresh:
+                return
             self._close_line()
             self._channel_header(channel)
             self._active_channel = channel
