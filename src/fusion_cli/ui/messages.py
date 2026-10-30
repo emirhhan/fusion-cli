@@ -12,7 +12,6 @@ from __future__ import annotations
 from ..core.memory import IndexStats
 
 # --- Genel ---------------------------------------------------------------- #
-APP_TAGLINE = "ücretsiz LLM füzyonu · hakem · öz-öğrenen"
 VERSION = "fusion-cli {version}"
 
 # --- Durum ---------------------------------------------------------------- #
@@ -63,7 +62,6 @@ CONFIG_TEACHER_LESSON_SYNC_SET = "öğretmen → ders belleği eşitleme: {state
 
 # --- Fusion --------------------------------------------------------------- #
 FUSION_CANDIDATES = "{count} model düşünüyor · {names}"
-FUSION_JUDGING = "hakem…"
 FUSION_JUDGING_AND_SYNTHESIZING = "hakem + sentez…"
 
 FUSION_WINNER = "kazanan: {winner}"
@@ -178,7 +176,6 @@ AGENT_LESSONS_LEARNED = "{count} yeni ders belleğe kazındı"
 
 # --- Bellek --------------------------------------------------------------- #
 MEMORY_UNAVAILABLE = "bellek kullanılamıyor, öğrenme kapalı: {reason}"
-MEMORY_DISABLED = "bellek kapalı (--no-memory)"
 MEMORY_EMPTY_STATS = "Henüz performans kaydı yok. Önce birkaç `fusion run` çalıştır."
 MEMORY_EMPTY_LESSONS = "Henüz ders yok. `fusion memory seed` ile başlangıç derslerini yükle."
 MEMORY_SEEDED = "{count} yeni küratörlü ders yüklendi ({total} tanenin içinden)."
@@ -362,12 +359,6 @@ WELCOME_ABOUT_TEXT = (
 )
 
 WELCOME_START_TITLE = "Başlarken"
-WELCOME_START_ITEMS = (
-    ("mesaj yaz", "aktif motora gönderir"),
-    ("/help", "tüm komutlar"),
-    ("/agent · /fusion", "motor değiştir"),
-    ("shift-tab", "onay modunu döndür"),
-)
 
 # --- /tips: verimli kullanım rehberi --------------------------------------- #
 #
@@ -430,12 +421,6 @@ TIPS_SECTIONS = (
 CMD_TIPS = "Fusion'ı verimli kullanmayı öğren"
 
 WELCOME_ABILITY_TITLE = "Neler yapabilir"
-WELCOME_ABILITY_ITEMS = (
-    ("araçlar", "dosya, kabuk, web, görev listesi"),
-    ("fusion", "3 model + hakem + sentez"),
-    ("bellek", "öğrendiğini benzer görevde hatırlar"),
-    ("güvenlik", "diff önizlemesi, yıkıcı komutta onay"),
-)
 REPL_UNKNOWN_COMMAND = "bilinmeyen komut: /{name} — komut listesi için /help"
 #: Uygulama protokolünde ham komut/argüman ya da istisna ayrıntısı tekrarlanmaz.
 APP_COMMAND_UNKNOWN = "Bilinmeyen komut."
@@ -466,13 +451,13 @@ APP_TURN_INTERRUPTED = (
 #: Görev metninin bildirimde gösterilecek en fazla karakteri.
 APP_TURN_INTERRUPTED_TASK_CHARS = 120
 
+CMD_TRASH = "Fusion'ın sildiklerini listele ya da geri al"
+CMD_TRACE = "Son koşunun teşhis özeti: nerede ve neden düştü"
+CMD_ADD_DIR = "Proje kökünün yanında başka bir klasöre de erişim aç"
 #: Tur yarım bittiğinde ve model hiçbir metin üretmediğinde gösterilir.
 #:
 #: Ölçülen hata: araçlar tıkandığında protokol `{"ok": false, "metin": ""}`
 #: döndürüyordu; kullanıcı hiçbir açıklama olmadan "görev başarısız" görüyordu.
-CMD_TRASH = "Fusion'ın sildiklerini listele ya da geri al"
-CMD_TRACE = "Son koşunun teşhis özeti: nerede ve neden düştü"
-CMD_ADD_DIR = "Proje kökünün yanında başka bir klasöre de erişim aç"
 APP_TURN_NO_ANSWER = (
     "Tur tamamlanamadı ve model bir cevap üretmedi. "
     "Araç çıktılarını Denetçi panelinden inceleyip görevi daraltarak yeniden dene."
@@ -530,8 +515,6 @@ REPL_BACKGROUND_WAIT = "arka plandaki öğrenme tamamlanıyor…"
 REPL_HELP_TITLE = "Komutlar"
 #: Grubu olmayan komutların `/help`'te toplandığı başlık.
 HELP_GROUP_OTHER = "Genel"
-REPL_STATUS_BAR = "{engine} · {approval} · {task_type} · {model}"
-REPL_TAGLINE = "ücretsiz LLM füzyonu · araçlar · öz-öğrenen bellek"
 REPL_MODEL_SET = "{role} modeli → {model}"
 REPL_MODEL_ADDED = "aday eklendi: {name} ({model})"
 REPL_MODEL_REMOVED = "aday çıkarıldı: {name}"
@@ -821,11 +804,9 @@ SETUP_LESSONS_SEEDED = "{count} hazır ders belleğe yüklendi — eğitilmiş b
 SETUP_LESSONS_SKIPPED = (
     "hazır dersler yüklenemedi ({reason}); `fusion memory seed` ile deneyebilirsin"
 )
-SETUP_DONE = "Kurulum tamam. Herhangi bir proje dizininde `fusion` yaz."
 SETUP_NO_KEYS = (
     "API anahtarı bulunamadı. `fusion setup` çalıştır ya da .env dosyana OPENROUTER_API_KEY yaz."
 )
-SETUP_ACTIVE_PROVIDERS = "kurulu sağlayıcılar: {names}"
 
 #: Gateway, tarayıcıdan gelen yabancı kaynaklı durum değiştiren isteği reddettiğinde.
 GATEWAY_FOREIGN_ORIGIN = (

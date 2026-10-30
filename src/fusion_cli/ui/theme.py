@@ -14,9 +14,6 @@ WARN = "#D29922"
 ERROR = "#F85149"
 INFO = "#58A6FF"
 
-#: Kullanıcı mesajı bandının zemini — koyu temada hafifçe ayrışır.
-SURFACE = "#1B1F27"
-
 
 def blend(start: str, end: str, ratio: float) -> str:
     """İki `#RRGGBB` rengi arasında doğrusal geçiş; `ratio` 0..1.
@@ -36,7 +33,6 @@ def blend(start: str, end: str, ratio: float) -> str:
 
 ICON_OK = "✓"
 ICON_ERROR = "✗"
-ICON_DENIED = "⊘"
 ICON_DONE = "✦"
 #: Karşılama kutusunun başındaki yıldız (Claude Code `✻`). Ürün imzasının yanında durur.
 ICON_SPARKLE = "✻"

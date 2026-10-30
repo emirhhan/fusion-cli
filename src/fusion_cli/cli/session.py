@@ -200,9 +200,10 @@ async def run_agent_task(
         for sink in sinks:
             bus.subscribe(sink)
         # Her araç sonucu kalıcı denetim günlüğüne de yazılır (silinmez).
-        bus.subscribe(
-            AuditSink(config.memory_dir / "audit", conversation_id, root=root or Path.cwd())
-        )
+        # Denetim kökü ARAÇ kökü ile aynı olmalı: çağıran `tool_context` verdiyse gerçek
+        # kök odur, `root` değil (göreli yol raporu kayıyordu; L1-31).
+        audit_root = tool_context.root if tool_context is not None else (root or Path.cwd())
+        bus.subscribe(AuditSink(config.memory_dir / "audit", conversation_id, root=audit_root))
 
         # Prompter veriyolunu tanır: terminali devralmadan önce bekleyen olayları
         # boşaltır, böylece onay paneli akan çıktının ortasına düşmez.
