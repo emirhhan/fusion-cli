@@ -178,6 +178,12 @@ def _chrome_action(args: Mapping[str, object]) -> str:
         return "chrome ile tuşa basılıyor"
     if action == "screenshot":
         return "chrome ile ekran görüntüsü alınıyor"
+    if action == "console":
+        return "chrome konsolu okunuyor"
+    if action == "network":
+        return "chrome ağ istekleri okunuyor"
+    if action == "record":
+        return "chrome ekran kaydı alınıyor"
     return "chrome ile sayfa etkileşimi yapılıyor"
 
 

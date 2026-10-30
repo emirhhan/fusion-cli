@@ -45,7 +45,7 @@ _CHROME_ACTIONS = (
     "scroll", "wait", "key", "select", "tabs", "open", "tab", "close", "screenshot",
     "click_at", "double_click", "right_click", "triple_click", "drag", "wheel",
     "type_focused", "check", "resize", "zoom", "hover", "text", "back", "forward", "reload",
-    "upload", "assets",
+    "upload", "assets", "console", "network", "record", "shortcuts", "shortcut", "window", "group",
 )  # fmt: skip
 
 _STRING: SchemaFragment = {"type": "string"}
@@ -115,19 +115,32 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="chrome_page",
-        description="Chrome sekmesini oku; query ile öğe bul.",
-        parameters=_schema({"query": _STRING}, []),
+        description=(
+            "Chrome sekmesini oku; query ile öğe bul ('kaydet düğmesi'). tree=all|interactive "
+            "erişilebilirlik ağacı (depth, ref alt ağaç)."
+        ),
+        parameters=_schema(
+            {
+                "query": _STRING,
+                "tree": {**_STRING, "enum": ["all", "interactive"]},
+                "ref": _STRING,
+                "depth": _INTEGER,
+            },
+            [],
+        ),
         run=chrome.chrome_page,
     ),
     Tool(
         name="chrome_action",
         description=(
-            "Chrome eylemi. value: scroll=down:600 · wait=metin · key=Enter · open=URL · "
-            "tab/close=sekme id · click_at/double_click/right_click/triple_click=ref ya da x,y "
-            "(ekran görüntüsü pikseli) · drag=ref+hedef(ref|x,y) · wheel=dx,dy · "
+            "Chrome eylemi. value: scroll=down:600 · wait=metin|network_idle · key=Enter · "
+            "open=URL · tab/close=sekme id · click_at/double_click/right_click/triple_click=ref "
+            "ya da x,y (ekran görüntüsü pikseli) · drag=ref+hedef(ref|x,y) · wheel=dx,dy · "
             "resize=1280,800 · zoom=x1,y1,x2,y2 (kırpık görüntü; tıklama TAM ekran x,y ile) · "
             "upload=yol,yol · type_focused=metin · check=ref+true|false · select=ref+metin · "
-            "hover=ref. Değersiz: tabs screenshot back forward reload text assets."
+            "hover=ref · console=errors|errors:desen|desen · network=url deseni|id:N (gövde) · "
+            "record=start|stop (GIF) · shortcut=ad · window=URL · group=id,id:başlık. "
+            "Değersiz: tabs screenshot back forward reload text assets shortcuts."
         ),
         parameters=_schema(
             {

@@ -14,13 +14,20 @@ from typing import Any
 from ..core.constants import MAX_UPLOAD_BYTES
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
+from . import chrome_inspect, chrome_record
 from .args import require_str
+from .chrome_inspect import MONITOR_LIMIT, NETWORK_IDLE_VALUES
 from .web import browser_block_reason
+
+__all__ = ["MONITOR_LIMIT", "NETWORK_IDLE_VALUES"]
 
 #: Sayfayı değiştirmeyen eklenti komutları; zaman aşımında yalnız okuma başarısız olmuştur.
 _READ_ONLY_OPERATIONS = frozenset(
-    {"find", "snapshot", "assets", "tabs", "text_page", "describe", "wait", "screenshot"}
-)
+    {
+        "find", "snapshot", "assets", "tabs", "text_page", "describe", "wait", "screenshot",
+        "tree", "console", "network", "shortcuts", "shortcut_run",
+    }
+)  # fmt: skip
 #: Eylem komutunun sonucu gelmediğinde döndürülen metnin başı (izlenebilir ve test edilebilir).
 UNKNOWN_OUTCOME_PREFIX = "SONUÇ BİLİNMİYOR:"
 
@@ -53,10 +60,18 @@ async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolRe
 
 
 async def chrome_page(args: ToolArgs, context: ToolContext) -> ToolResult:
-    """Bağlı sekmeyi oku; `query` verilirse metne/etikete göre öğe bul (ref al)."""
+    """Bağlı sekmeyi oku; `query` ile öğe bul (ref al); `tree` ile erişilebilirlik ağacı.
+
+    `tree=all|interactive` Claude'un read_page'i gibi girintili rol/ad/durum ağacı verir;
+    `depth` seviye sınırı, `ref` yalnız o öğenin alt ağacı (P-043).
+    """
     query = args.get("query")
     if isinstance(query, str) and query.strip():
         return await _call(context, "find", {"query": query.strip()})
+    if args.get("tree"):
+        return chrome_inspect.format_tree(
+            await _call(context, "tree", chrome_inspect.tree_args(args))
+        )
     return await _call(context, "snapshot", {})
 
 
@@ -117,11 +132,13 @@ _READ_ACTIONS = frozenset(
     {
         "scroll", "wait", "tabs", "open", "tab", "screenshot",
         "back", "forward", "reload", "hover", "text", "assets", "wheel", "zoom",
+        "console", "network", "record", "shortcuts", "shortcut", "window",
     }
 )  # fmt: skip
 #: Sayfayla etkileşen ama kalıcı iz bırakmayan işlemler: otomatik kipte sorulmaz.
 #: Seçim kutusu değeri yalnız formu değiştirir; gönderme ayrı bir tıklama/Enter'dır.
-_INTERACT_ACTIONS = frozenset({"select", "check", "type_focused", "resize"})
+#: Sekme gruplama kullanıcının sekme düzenini değiştirir ama veri kaybettirmez.
+_INTERACT_ACTIONS = frozenset({"select", "check", "type_focused", "resize", "group"})
 
 #: Enter'ın mesaj/yorum GÖNDERDİĞİ alanlar (ad, yer tutucu ya da form düğmesi).
 _MESSAGE_FIELD = re.compile(r"\b(?:mesaj|message|sohbet|chat|dm)\b", re.IGNORECASE)
@@ -323,8 +340,26 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
         return await _zoom(value, context)
     if action == "wait":
         if not isinstance(value, str) or not value.strip():
-            return ToolResult.failure("wait için 'value' alanına beklenecek metni yaz.")
+            return ToolResult.failure(
+                "wait için 'value' alanına beklenecek metni ya da 'network_idle' yaz."
+            )
+        if value.strip().lower() in NETWORK_IDLE_VALUES:
+            return await _call(context, "wait", {"network_idle": True, "timeout_ms": 20_000})
         return await _call(context, "wait", {"text": value, "timeout_ms": 20_000})
+    if action == "console":
+        return await chrome_inspect.read_console(value, context, _call)
+    if action == "network":
+        return await chrome_inspect.read_network(value, context, _call)
+    if action == "record":
+        return await _record(value, context)
+    if action == "shortcuts":
+        return await _call(context, "shortcuts", {})
+    if action == "shortcut":
+        return await chrome_inspect.run_shortcut(value, context, _call)
+    if action == "window":
+        return await chrome_inspect.open_window(value, context, _call)
+    if action == "group":
+        return await chrome_inspect.group_tabs(value, context, _call)
     if action == "key":
         data["key"] = value if isinstance(value, str) and value else "Enter"
         return with_action_check(await _call(context, "key", data))
@@ -390,12 +425,23 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
     return ToolResult.failure(
         "action: scroll, wait, key, select, tabs, open, tab, screenshot, back, forward, "
         "reload, close, hover, text, click_at, double_click, right_click, triple_click, drag, "
-        "wheel, type_focused, check, resize, zoom, upload ya da assets olmalı."
+        "wheel, type_focused, check, resize, zoom, upload, assets, console, network, record, "
+        "shortcuts, shortcut, window ya da group olmalı."
     )
 
 
 #: Tıklama türleri: `click_at`/ref ile birlikte eklentiye `kind` olarak gider.
 _CLICK_KINDS = {"double_click": "double", "right_click": "right", "triple_click": "triple"}
+
+
+async def _record(value: object, context: ToolContext) -> ToolResult:
+    """`record start|stop`: kareler eklentide toplanır, GIF `chrome_record` ile yazılır."""
+    op = value.strip().lower() if isinstance(value, str) else ""
+    if op == "start":
+        return await chrome_record.start_recording(context)
+    if op == "stop":
+        return await chrome_record.stop_recording(context)
+    return ToolResult.failure("record için 'value' alanına start ya da stop yaz.")
 
 
 def _delta(value: object) -> tuple[float, float] | None:

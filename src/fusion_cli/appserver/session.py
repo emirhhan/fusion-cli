@@ -212,7 +212,13 @@ CHROME_NOTE = (
     "Kullanıcı bir siteden component alıp projeye uygulamanı isterse önce sayfayı Chrome "
     "eklentisiyle incele, sonra çalışma alanındaki dosyaları okuyup düzenle ve sonucu "
     "doğrula. Uygulama yolunda somut bir belirsizlik veya tekrarlanan hata varsa "
-    "ask_teacher ile tek net soru sor; yanıtı değerlendirip işe devam et."
+    "ask_teacher ile tek net soru sor; yanıtı değerlendirip işe devam et. "
+    # P-042/P-043/P-044: geliştirici araçları. Model bunları bilmezse hata ayıklama
+    # isteğinde ekran görüntüsüyle tahmin yürütür.
+    "Sayfa hatası ya da istek sorunu araştırırken chrome_action console (errors) ve network "
+    "(url deseni; id:N ile gövde) kullan; sayfanın yapısı için chrome_page tree=interactive, "
+    "yükleme bitmesi için chrome_action wait 'network_idle'. Kullanıcı kayıt/GIF isterse "
+    "chrome_action record start … stop."
 )
 
 CHROME_TURN_TOOLS = {

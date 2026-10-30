@@ -119,6 +119,23 @@
         <ul id="sites" class="sites"></ul>
         <p id="sites-empty" class="sheet__text">Henüz izin verdiğin site yok.</p>
       </div>
+      <div class="sheet__group">
+        <h3>Konsol ve ağ</h3>
+        <label class="sheet__check"><input id="monitor-toggle" type="checkbox" checked /> Konsol ve ağ isteklerini izle</label>
+        <p class="sheet__text">Yalnız izinli sitelerde, sayfanın içinde tutulur ve Fusion sorduğunda okunur. Başlıklar (çerez, yetki) kaydedilmez.</p>
+      </div>
+      <div class="sheet__group">
+        <h3>Kısayollar</h3>
+        <p class="sheet__text">Sık verdiğin görevi adla kaydet; yazarken <code>/ad</code> ile çağır. Fusion da bu listeyi görür.</p>
+        <ul id="shortcuts" class="sites"></ul>
+        <p id="shortcuts-empty" class="sheet__text">Henüz kısayol yok.</p>
+        <form id="shortcut-form" class="field-stack">
+          <label for="shortcut-name">Ad <input id="shortcut-name" autocomplete="off" maxlength="40" placeholder="ör. ozet" /></label>
+          <label for="shortcut-text">Görev <textarea id="shortcut-text" rows="2" maxlength="2000" placeholder="Bu sayfayı kısaca özetle."></textarea></label>
+          <button id="shortcut-save" class="secondary" type="submit">Kısayolu kaydet</button>
+        </form>
+        <p class="sheet__text">Klavye: <kbd>Ctrl/⌘+Shift+F</kbd> paneli açar, <kbd>Ctrl/⌘+Shift+.</kbd> süren görevi durdurur (chrome://extensions/shortcuts sayfasından değiştirilir).</p>
+      </div>
       <button id="disconnect" class="quiet" type="button">Bağlantıyı kes</button>
     </dialog>
 
