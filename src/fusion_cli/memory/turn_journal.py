@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import math
+import time
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,9 @@ from ..core.types import Message, ToolCall
 
 _LOG = logging.getLogger(__name__)
 _SCHEMA = 1
+#: Günlük kilidi için bekleme: en çok `_LOCK_ATTEMPTS * _LOCK_RETRY_S` ≈ 0,6 sn.
+_LOCK_ATTEMPTS = 12
+_LOCK_RETRY_S = 0.05
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +85,13 @@ class FileTurnJournal:
             or saved_at < 0
         ):
             return None
-        messages = tuple(message for item in items if (message := _message_from(item)) is not None)
+        parsed = tuple(_message_from(item) for item in items)
+        if any(message is None for message in parsed):
+            # Okunamayan bir mesajı sessizce süzmek `assistant tool_calls` / `tool`
+            # çiftini bozar (sağlayıcılar yetim `tool` mesajında 400 verir).
+            _LOG.warning("tur günlüğünde okunamayan mesaj var; günlük yok sayıldı")
+            return None
+        messages = tuple(message for message in parsed if message is not None)
         return JournalEntry(
             task=str(raw.get("gorev", "")),
             messages=messages,
@@ -113,7 +123,7 @@ class FileTurnJournal:
     def _transaction(self) -> Iterator[bool]:
         lease = FileLease(self._path.with_suffix(self._path.suffix + ".lock"))
         try:
-            owned = lease.try_acquire()
+            owned = self._acquire(lease)
             if not owned:
                 _LOG.warning("tur günlüğü başka yazıcı tarafından kullanılıyor")
         except OSError as error:
@@ -123,6 +133,20 @@ class FileTurnJournal:
             yield owned
         finally:
             lease.close()
+
+    @staticmethod
+    def _acquire(lease: FileLease) -> bool:
+        """Kilidi kısa süre bekleyerek al.
+
+        Tek denemeyle vazgeçmek `clear()`ı sessizce atlıyordu: biten iş günlükte
+        kalıp sonraki sekme açılışında 'yarıda kaldı' diye geri yükleniyordu.
+        """
+        for attempt in range(_LOCK_ATTEMPTS):
+            if lease.try_acquire():
+                return True
+            if attempt + 1 < _LOCK_ATTEMPTS:
+                time.sleep(_LOCK_RETRY_S)
+        return False
 
     def _write_payload(self, task: str, messages: Sequence[Message], *, notified: bool) -> None:
         payload = {
@@ -144,7 +168,7 @@ def _message_to(message: Message) -> dict[str, object]:
         "rol": message.role,
         "icerik": redact(message.content),
         "araclar": [
-            {"id": call.id, "ad": call.name, "arguman": redact(call.arguments)}
+            {"id": call.id, "ad": call.name, "arguman": _redact_arguments(call.arguments)}
             for call in message.tool_calls
         ],
         "arac_id": message.tool_call_id,
@@ -153,6 +177,30 @@ def _message_to(message: Message) -> dict[str, object]:
         "tool_diff": redact(message.tool_diff) if message.tool_diff is not None else None,
         "harness": message.harness_note,
     }
+
+
+def _redact_arguments(raw: str) -> str:
+    """Araç argümanındaki sırları JSON'u BOZMADAN maskele.
+
+    Düz `redact`, `{"api_key": "sk-…"}` biçimini `{[gizlendi], …}` yapıyordu
+    (geçersiz JSON). JSON ise yapı korunur, yalnız sır taşıyan değer değişir.
+    """
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return redact(raw)
+    return json.dumps(_scrub(data), ensure_ascii=False)
+
+
+def _scrub(value: object, key: str = "") -> object:
+    if isinstance(value, dict):
+        return {name: _scrub(item, str(name)) for name, item in value.items()}
+    if isinstance(value, list):
+        return [_scrub(item, key) for item in value]
+    if isinstance(value, str):
+        probe = f"{key}: {value}" if key else value
+        return value if redact(probe) == probe else "[gizlendi]"
+    return value
 
 
 def _message_from(item: object) -> Message | None:

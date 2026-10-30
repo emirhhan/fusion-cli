@@ -408,3 +408,63 @@ def test_gunluk_diffi_maskeli_korur_ve_eski_kayitla_uyumludur(tmp_path):
     legacy = gunluk.load()
     assert legacy is not None
     assert legacy.messages[0].tool_diff is None
+
+
+# --- 30 Ekim ayıklaması (M1-47, M1-48) ------------------------------------- #
+
+
+def test_arac_argumani_maskelense_de_gecerli_json_kalir(tmp_path):
+    """Ölçüldü (30 Ekim): `redact('{"api_key": "sk-…", "x": 1}')` = `{[gizlendi], "x": 1}`
+    (geçersiz JSON); geri yüklenen araç çağrısı sağlayıcıda 400 verebilirdi."""
+    sir = "sk-or-v1-" + "a" * 48
+    gunluk = FileTurnJournal(tmp_path / "j.json", task="t")
+    arguman = json.dumps({"api_key": sir, "path": "a.txt", "n": 3})
+
+    gunluk.save(
+        [
+            Message("user", "yaz"),
+            Message("assistant", "", tool_calls=(ToolCall("c1", "write_file", arguman),)),
+            Message("tool", "ok", tool_call_id="c1", name="write_file", ok=True),
+        ]
+    )
+    kayit = gunluk.load()
+
+    assert kayit is not None
+    geri = json.loads(kayit.messages[1].tool_calls[0].arguments)
+    assert geri["path"] == "a.txt" and geri["n"] == 3
+    assert sir not in (tmp_path / "j.json").read_text(encoding="utf-8")
+
+
+def test_okunamayan_mesaj_gunlugun_tamamini_gecersiz_kilar(tmp_path):
+    """Sessizce süzülen bozuk mesaj `assistant tool_calls` / `tool` çiftini bozar,
+    sağlayıcılar yetim `tool` mesajında 400 verir."""
+    yol = tmp_path / "j.json"
+    gunluk = FileTurnJournal(yol, task="t")
+    gunluk.save(_konusma())
+    veri = json.loads(yol.read_text(encoding="utf-8"))
+    veri["mesajlar"][1] = {"rol": 5}
+    yol.write_text(json.dumps(veri), encoding="utf-8")
+
+    assert gunluk.load() is None
+
+
+def test_kilit_kisa_sure_baska_yazarda_ise_temizleme_atlanmaz(tmp_path):
+    """Ölçüldü (30 Ekim): kilit alınamazsa `clear()` sessizce atlanıyor; biten iş bir
+    sonraki sekme açılışında 'yarıda kaldı' diye geri yükleniyordu."""
+    import threading
+    import time
+
+    from fusion_cli.core.file_lease import FileLease
+
+    yol = tmp_path / "j.json"
+    gunluk = FileTurnJournal(yol, task="t")
+    gunluk.save(_konusma())
+    baska = FileLease(yol.with_suffix(".json.lock"))
+    assert baska.try_acquire()
+    threading.Timer(0.15, baska.close).start()
+
+    baslangic = time.monotonic()
+    gunluk.clear()
+
+    assert gunluk.load() is None
+    assert time.monotonic() - baslangic < 2.0
