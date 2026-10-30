@@ -207,14 +207,20 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="desktop_key",
-        description="macOS'a özel tuş veya Command kısayolu gönder.",
+        description=(
+            "macOS'a tuş ya da kısayol dizgisi gönder: 'cmd+shift+4', 'cmd+l enter' (boşlukla "
+            "sıra), repeat=tekrar, hold_ms=basılı tutma. Chrome key ile aynı sözdizimi."
+        ),
         parameters=_schema(
             {
                 "key": {
                     **_STRING,
-                    "description": "enter, esc, delete, tab, space, ok tuşları, "
-                    "home/end/pageup/pagedown, f1-f12, a-z, 0-9",
+                    "description": "Akor dizisi: enter, esc, tab, space, ok tuşları, home/end/"
+                    "pageup/pagedown, f1-f20, a-z, 0-9, noktalama; değiştiriciler cmd/ctrl/alt/"
+                    "shift ('+' ile), akorlar boşlukla ayrılır.",
                 },
+                "repeat": {**_INTEGER, "description": "Dizinin tekrar sayısı (1-50)."},
+                "hold_ms": {**_INTEGER, "description": "Her tuşu basılı tutma süresi (0-5000 ms)."},
                 "command": {"type": "boolean"},
                 "shift": {"type": "boolean"},
                 "option": {"type": "boolean"},

@@ -15,6 +15,7 @@ from ..core.constants import MAX_UPLOAD_BYTES
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
 from .args import require_str
+from .key_spec import key_base
 from .web import browser_block_reason
 
 #: Sayfayı değiştirmeyen eklenti komutları; zaman aşımında yalnız okuma başarısız olmuştur.
@@ -208,8 +209,8 @@ _DELETE_KEYS = frozenset({"delete", "backspace"})
 
 
 def _key_base(key: str) -> str:
-    """'Meta+Enter' → 'enter': değiştiriciler atılır, asıl tuş küçük harfle döner."""
-    return key.rsplit("+", 1)[-1].strip().lower() if key.strip() != "+" else "+"
+    """'Meta+Enter' → 'enter': masaüstüyle ortak ayrıştırıcı (`tools.key_spec`)."""
+    return key_base(key)
 
 
 async def _key_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:

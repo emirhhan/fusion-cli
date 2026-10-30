@@ -230,3 +230,58 @@ def test_buyuk_ekran_goruntusu_otomatik_kucultulur(tmp_path, monkeypatch) -> Non
 
     assert sonuc.ok, sonuc.output
     assert komutlar == ["screencapture", "sips"]
+
+
+# --- Parite P-032: tuş dizgisi, tekrar, basılı tutma ------------------------------------
+
+
+def _izinli(monkeypatch) -> list[dict]:
+    monkeypatch.setattr(desktop.sys, "platform", "darwin")
+    monkeypatch.setattr(desktop, "_framework", lambda: object())
+    monkeypatch.setattr(desktop, "_trusted", lambda loaded: True)
+    alinan: list[dict] = []
+    monkeypatch.setattr(
+        desktop, "_post_key", lambda loaded, code, **bayrak: alinan.append({"code": code, **bayrak})
+    )
+    return alinan
+
+
+def test_tus_dizgisi_sirayla_gonderilir(tmp_path, monkeypatch) -> None:
+    """Ölçüldü (31 Ekim): `desktop_key` tek tuş alıyordu; 'cmd+shift+4 enter' reddediliyordu."""
+    alinan = _izinli(monkeypatch)
+
+    sonuc = desktop.desktop_key({"key": "cmd+shift+4 enter"}, ToolContext(root=tmp_path))
+
+    assert sonuc.ok, sonuc.output
+    assert [(k["code"], k["command"], k["shift"]) for k in alinan] == [
+        (21, True, True),
+        (36, False, False),
+    ]
+
+
+def test_tekrar_sayisi_ve_basili_tutma(tmp_path, monkeypatch) -> None:
+    alinan = _izinli(monkeypatch)
+
+    sonuc = desktop.desktop_key(
+        {"key": "down", "repeat": 3, "hold_ms": 250}, ToolContext(root=tmp_path)
+    )
+
+    assert sonuc.ok
+    assert len(alinan) == 3 and all(k["hold_ms"] == 250 for k in alinan)
+
+
+def test_eski_boolean_bayraklar_dizgiyle_birlesir(tmp_path, monkeypatch) -> None:
+    alinan = _izinli(monkeypatch)
+
+    assert desktop.desktop_key({"key": "shift+tab", "command": True}, ToolContext(root=tmp_path)).ok
+    assert alinan[0]["command"] is True and alinan[0]["shift"] is True
+
+
+def test_asiri_tekrar_ve_tutma_reddedilir(tmp_path, monkeypatch) -> None:
+    _izinli(monkeypatch)
+    context = ToolContext(root=tmp_path)
+
+    assert not desktop.desktop_key({"key": "a", "repeat": 0}, context).ok
+    assert not desktop.desktop_key({"key": "a", "repeat": 999}, context).ok
+    assert not desktop.desktop_key({"key": "a", "hold_ms": 99_999}, context).ok
+    assert not desktop.desktop_key({"key": "cmd+"}, context).ok
