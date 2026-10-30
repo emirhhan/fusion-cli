@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import itertools
+import logging
 import re
 import threading
 import unicodedata
@@ -56,6 +57,9 @@ _TYPOGRAPHY = str.maketrans(
 _UNSAFE = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f؜‎‏‪-‮⁦-⁩]")
 _BLOCK_BYTES = 8 * 1024
 _NORMALIZER_POLICY = "fallback"
+_LOG = logging.getLogger(__name__)
+#: Normalizer çökerse rakamlar tek tek okunur (alfabede rakam yok; yoksa boşluğa dönüp düşerdi).
+_DIGIT_WORDS = dict(zip("0123456789", "sıfır bir iki üç dört beş altı yedi sekiz dokuz".split()))
 
 
 class EmaUnavailableError(RuntimeError):
@@ -106,8 +110,13 @@ class TurkishFrontend:
                     text, ambiguity_policy=_NORMALIZER_POLICY
                 ).normalized_text
             )
-        except Exception:
-            return text
+        except Exception as error:
+            # Ölçüldü (30 Ekim): hata sessizce yutulup ham metin dönüyor, `_alphabet` rakamları
+            # (vocab dışı) boşluğa çevirdiği için "2025'te 3 kişi" → "te kişi" okunuyordu.
+            _LOG.warning(
+                "Sayı/tarih okuyucu başarısız (%s); rakamlar tek tek okunur.", type(error).__name__
+            )
+            return re.sub(r"\d", lambda match: f" {_DIGIT_WORDS[match.group()]} ", text)
 
     def _alphabet(self, text: str) -> str:
         text = text.translate(_TYPOGRAPHY).replace("İ", "i").replace("I", "ı").lower()
@@ -299,7 +308,12 @@ def _short_wav(text: str, speed: float, stamp: int) -> bytes:
 
 def synthesize_ema(text: str, output: Path, speed: float) -> None:
     """Metni WAV'a yaz. Model yüklemesi ilk çağrıda, sonrası sıcak."""
-    stamp = (DATA_DIRECTORY / "sound.onnx").stat().st_mtime_ns
+    try:
+        stamp = (DATA_DIRECTORY / "sound.onnx").stat().st_mtime_ns
+    except OSError as error:
+        # Eksik model `FileNotFoundError` olarak sızıyor, modülün gösterilebilir
+        # `EmaUnavailableError` sözleşmesini atlıyordu.
+        raise EmaUnavailableError("Ses modeli dosyaları eksik; uygulamayı yeniden kur.") from error
     if len(text) <= SHORT_REPLY_CHARS:
         data = _short_wav(text, speed, stamp)
     else:

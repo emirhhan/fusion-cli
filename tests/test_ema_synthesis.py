@@ -105,3 +105,26 @@ def test_ema_say_komutu_wav_uretir(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     ema_say(str(tmp_path / "say.wav"))
     with wave.open(str(tmp_path / "say.wav")) as stream:
         assert stream.getnframes() > 10_000
+
+
+def test_model_eksikse_sentez_gosterilebilir_hata_verir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ölçüldü (30 Ekim, S1-31): eksik `sound.onnx` ham `FileNotFoundError` olarak sızıyordu."""
+    monkeypatch.setattr(ema, "DATA_DIRECTORY", tmp_path)
+    with pytest.raises(ema.EmaUnavailableError):
+        ema.synthesize_ema("Merhaba", tmp_path / "a.wav", 1.0)
+
+
+def test_normalizer_cokerse_rakamlar_dusmez_tek_tek_okunur() -> None:
+    """Ölçüldü (30 Ekim, S1-31): normalizer hatası yutuluyor, rakamlar boşluğa dönüp
+    düşüyordu ("3 kişi" → "kişi")."""
+    frontend = ema.TurkishFrontend(tuple("abcçdefgğhıijklmnoöprsştuüvyz "))
+
+    class Bozuk:
+        def normalize(self, *_args: object, **_kwargs: object) -> object:
+            raise RuntimeError("çöktü")
+
+    frontend._normalizer = Bozuk()  # type: ignore[assignment]
+
+    assert frontend("3 kişi") == "üç kişi"
