@@ -216,3 +216,31 @@ async def test_multitransition_provenance_is_source_verified_but_not_theme_trans
     result = await check_capture_provenance(tmp_path, theme.folder)
     assert result.source_status == "verified_source_transition"
     assert not result.has_responsive_transfer
+
+
+# --- Dalga 4 (T1-52) ------------------------------------------------------------
+
+
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.mark.parametrize(
+    "adres",
+    [
+        "https://magaza.example/odeme/",
+        "https://magaza.example/siparis-alindi/123/",
+        "https://magaza.example/hesabim/siparisler/",
+        "https://magaza.example/my-account/",
+        "https://magaza.example/checkout/order-pay/9/?key=wc_order_x",
+    ],
+)
+def test_kisiye_ozel_rotalar_turkce_slug_dahil_gizlenir(adres):
+    from fusion_cli.tools.capture_provenance import _public_path
+
+    assert _public_path(adres) == "/[redacted]"
+
+
+def test_genel_sayfa_yolu_korunur():
+    from fusion_cli.tools.capture_provenance import _public_path
+
+    assert _public_path("https://magaza.example/kategori/kasklar/?x=1") == "/kategori/kasklar/"
