@@ -352,6 +352,15 @@ runtime:
   # Dosya yazıldıktan sonra JS/TS/PHP hızlı sözdizimi kontrolü (node --check, tsc varsa, php -l).
   # Hata dosyayı geri almaz; sonuca "sözdizimi hatası: satır N: ..." eklenir.
   post_edit_syntax_check: true
+  # Kapı iki düzeltme turundan sonra hâlâ kırmızıysa TEK ek düzeltme turu, yapılandırmada
+  # tanımlı bir ÜST modelle koşar (sinyal yalnız gerçek kapı sonucu; kullanıcıya durum
+  # satırı + GateEscalated/GateEscalationFinished olayı gider). Üst model yoksa etkisizdir.
+  # Üst model ücretli sağlayıcıdan gelmez: otomatik seçim yalnız seçili modelin kendi yedek
+  # zincirindeki (ücretsiz) bir üst kademeyi alır; çağrı hız sınırı kapısından geçer.
+  escalate_on_gate_failure: true
+  # Boş = kademe merdiveninden otomatik. Dolu (`nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b`
+  # gibi) = kullanıcının açık seçimi; sağlayıcı kurulu/izinli olmalı, web oturumu olamaz.
+  escalation_model: ""
 
 # ---------------------------------------------------------------------------
 # Fusion havuzu: aynı görev bu modellere PARALEL sorulur, hakem en iyisini seçer,

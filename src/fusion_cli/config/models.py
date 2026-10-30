@@ -263,6 +263,18 @@ class RuntimeConfig:
     #: sözdizimi kontrolü; hata varsa dosya yine yazılır, sonuca "sözdizimi hatası: satır N"
     #: eklenir. Denetleyici yoksa sessizce atlanır. Python zaten yazmadan önce engellenir.
     post_edit_syntax_check: bool = True
+    #: Doğrulama kapısı iki düzeltme turundan sonra HÂLÂ kırmızıysa, kullanıcının
+    #: yapılandırmasında tanımlı BİR üst model varsa TEK bir ek düzeltme turu o modelle
+    #: koşar (bkz. `engines/agent/gate_escalation.py`). Sinyal yalnız gerçek kapı
+    #: sonucudur. Üst model tanımlı değilse (ya da seçilen model `strict` ise) hiçbir
+    #: şey yapılmaz. Varsayılan AÇIK: ek tur yalnız zaten başarısız bir turda ve en çok
+    #: bir kez koşar; ücretli sağlayıcı çağırmaz, hız sınırı kapısından geçer.
+    escalate_on_gate_failure: bool = True
+    #: Yükseltmede kullanılacak model (`<sağlayıcı>/<model>`). Boş = kademe merdiveninden
+    #: otomatik seç: seçili modelin kendi yedek zincirinde bulunan, merdivende ondan
+    #: sonra gelen kademenin baş modeli. Doluysa kullanıcının açık tanımıdır; yine de
+    #: araç yetenekli olmalı ve web/Codex oturumu olmamalıdır.
+    escalation_model: str = ""
 
 
 @dataclass(frozen=True, slots=True)

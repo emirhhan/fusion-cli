@@ -52,6 +52,8 @@ from ...core.events import (
     ContextCompressed,
     EventPublisher,
     ExecutionRouteSelected,
+    GateEscalated,
+    GateEscalationFinished,
     MutationUnavailable,
     NarrationPublished,
     SelfReviewFinished,
@@ -121,7 +123,7 @@ from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking
 from ..effects.model import EffectKind
 from ..effects.runner import maybe_run_effect_workflow
-from . import compaction, denial, learning_steps, liveness, reflexion, review
+from . import compaction, denial, gate_escalation, learning_steps, liveness, reflexion, review
 from .action_evidence import claimed_effects
 from .apprentice_handoff import apprentice_spec, teacher_for_turn
 from .approval import ApprovalPolicy, Decision, resolve_request
@@ -892,6 +894,7 @@ async def _run_agent(
 
     verification = None
     fix_unverified = False
+    fix_rounds = 0
     # Doğrulama turu hakkı da tur genelidir: iç içe bir düzeltme kendi kapı bütçesini
     # açamaz (`verify=False` ile zaten kapatılıyor, bütçe bunu ikinci kez garanti eder).
     while verify and budget.stop is None and budget.take_verify_round():
@@ -913,6 +916,7 @@ async def _run_agent(
         budget.record_progress()
         outcome = await _fix_findings(verification, outcome, deps)
         fix_unverified = True
+        fix_rounds += 1
 
     # Kapı bütçesi "doğrula+düzelt" çiftini değil yalnız doğrulamayı sayar; son
     # düzeltmenin sonucu bu yüzden hiç ölçülmüyor, `verification` bayat BAŞARISIZ
@@ -921,6 +925,19 @@ async def _run_agent(
     # salt-doğrulama yapılır; sonuç artık gerçeği taşır (iyiye de kötüye de).
     if fix_unverified and budget.stop is None:
         verification = await _verify(outcome, deps, plan_mode=plan_mode, depth=depth)
+
+    # İki düzeltmeden sonra kapı HÂLÂ kırmızıysa (gerçek kapı sonucu) ve yapılandırmada
+    # üst model tanımlıysa tek ek tur o modelle koşar; yoksa bu çağrı hiçbir şey yapmaz.
+    if (
+        fix_unverified
+        and fix_rounds >= budget.max_verify_rounds
+        and verification is not None
+        and not verification.ok
+        and budget.stop is None
+    ):
+        outcome, verification = await _escalate_after_gate(
+            outcome, verification, deps, fix_rounds=fix_rounds, plan_mode=plan_mode, depth=depth
+        )
 
     if depth == 0 and not internal and not plan_mode and not chat_mode and budget.stop is None:
         teacher_findings = await review_teacher_changes(task, outcome, deps, registry)
@@ -3752,19 +3769,26 @@ async def _verify(
 
 
 async def _fix_findings(
-    verification: VerificationResult, outcome: AgentOutcome, deps: AgentDeps
+    verification: VerificationResult,
+    outcome: AgentOutcome,
+    deps: AgentDeps,
+    *,
+    escalation_deps: AgentDeps | None = None,
 ) -> AgentOutcome:
     """Somut bulguları modele düzeltme talimatı olarak ver ve TEK düzeltici tur aç.
 
     Model çağrısı EKLEMEZ (talimat deterministik üretilir) ama düzeltici turun kendisi
     bir tur maliyetindedir. Öz-denetimdeki disiplinin aynısı: ikinci bir kapı turu yok,
     sonsuz düzeltme döngüsü yok.
+
+    `escalation_deps` verilirse tur ÜST modelle koşar (bkz. `gate_escalation`) ve
+    başarısız olursa zayıf modelle yeniden denenmez: ek tur tek bir turdur.
     """
     deps.publisher.publish(
         VerificationFailed(summary=verification.summary, findings=verification.findings)
     )
     correction_task = _verification_correction_task(verification)
-    correction_deps = _verification_correction_deps(deps)
+    correction_deps = escalation_deps or _verification_correction_deps(deps)
     correction = await _run_verification_correction_attempt(
         correction_task,
         correction_deps,
@@ -3772,7 +3796,8 @@ async def _fix_findings(
     )
     _sync_turn_counters(correction_deps, deps)
     if (
-        correction_deps is not deps
+        escalation_deps is None
+        and correction_deps is not deps
         and not correction.ok
         and deps.budget is not None
         and deps.budget.stop is None
@@ -3794,6 +3819,71 @@ async def _fix_findings(
     correction.failed_tool_calls += outcome.failed_tool_calls
     correction.model_calls_made += outcome.model_calls_made
     return correction
+
+
+async def _escalate_after_gate(
+    outcome: AgentOutcome,
+    verification: VerificationResult,
+    deps: AgentDeps,
+    *,
+    fix_rounds: int,
+    plan_mode: bool,
+    depth: int,
+) -> tuple[AgentOutcome, VerificationResult | None]:
+    """Kapı kırmızı kalınca TEK ek düzeltme turunu üst modelle koş ve kapıyı yeniden ölç.
+
+    Üst model tanımlı değilse (`gate_escalation.prepare` → `None`) girdiyi aynen döndürür.
+    Tur sayısı sabittir: bu çağrı en çok bir kez yapılır ve kendi içinde döngü yoktur.
+    Sonuç kullanıcıya durum satırı + olay + tur metnindeki rapor satırı olarak gider.
+    """
+    escalation = gate_escalation.prepare(deps)
+    if escalation is None:
+        return outcome, verification
+    budget = deps.require_budget()
+    model = escalation.target.spec.model
+    deps.publisher.publish(
+        StatusChanged(gate_escalation.STATUS_ESCALATING.format(rounds=fix_rounds, model=model))
+    )
+    deps.publisher.publish(
+        GateEscalated(
+            failed_rounds=fix_rounds,
+            from_model=escalation.from_model,
+            to_model=model,
+            source=escalation.target.source.value,
+            findings=len(verification.findings),
+        )
+    )
+    repair_note = observe_verifier_failures(verification, budget)
+    if repair_note:
+        verification = replace(verification, findings=(*verification.findings, repair_note))
+    budget.record_progress()
+    outcome = await _fix_findings(verification, outcome, deps, escalation_deps=escalation.deps)
+    measured = await _verify(outcome, deps, plan_mode=plan_mode, depth=depth)
+    gate_ok = measured is not None and measured.ok
+    deps.publisher.publish(
+        GateEscalationFinished(
+            model=model,
+            gate_ok=gate_ok,
+            findings=len(measured.findings) if measured is not None else 0,
+            measured=measured is not None,
+        )
+    )
+    deps.publisher.publish(
+        StatusChanged(
+            (gate_escalation.STATUS_GREEN if gate_ok else gate_escalation.STATUS_RED).format(
+                model=model
+            )
+        )
+    )
+    report = (
+        gate_escalation.REPORT_UNMEASURED
+        if measured is None
+        else gate_escalation.REPORT_GREEN
+        if gate_ok
+        else gate_escalation.REPORT_RED
+    )
+    outcome.final_text += report.format(rounds=fix_rounds, model=model)
+    return outcome, measured if measured is not None else verification
 
 
 async def _run_verification_correction_attempt(

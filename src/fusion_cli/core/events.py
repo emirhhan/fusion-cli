@@ -411,6 +411,37 @@ class VerificationFailed(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class GateEscalated(Event):
+    """Kapı iki düzeltmeden sonra da kırmızı; TEK ek tur üst modelle çalışacak.
+
+    Ölçüm izidir: `from_model` düzeltmeleri yapan, `to_model` yükseltilen model;
+    `source` üst modelin kaynağı (`ayar` = `runtime.escalation_model`, `kademe` =
+    merdiven); `failed_rounds` kapının kaç düzeltmeden sonra hâlâ kırmızı olduğu.
+    """
+
+    failed_rounds: int
+    from_model: str
+    to_model: str
+    source: str
+    findings: int
+
+
+@dataclass(frozen=True, slots=True)
+class GateEscalationFinished(Event):
+    """Üst modelli ek tur bitti ve kapı yeniden ölçüldü.
+
+    `gate_ok` GERÇEK kapı sonucudur (modelin beyanı değil): `True` yeşil, `False`
+    kırmızı. `measured=False` ise kapı ölçülemedi (tur bütçesi doldu) ve `gate_ok`
+    kırmızı sayılır.
+    """
+
+    model: str
+    gate_ok: bool
+    findings: int
+    measured: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class LessonsRecalled(Event):
     """Göreve benzer dersler hatırlandı ve prompta eklendi."""
 

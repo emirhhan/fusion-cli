@@ -9,15 +9,18 @@ Değişiklik yalnızca oturum boyunca yaşar; kalıcı olması için `config.yam
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from ..core.constants import WEB_PROVIDER_SUFFIX
 from ..core.errors import ConfigError
 from ..core.routing_strategy import RoutingStrategy, order_models
 from ..core.types import ModelSpec
 from .eligibility import capability_from_spec
+from .keys import NIM_PREFIX, OPENROUTER_PREFIX
 from .models import Config
-from .tool_policy import can_be_mutation_agent
+from .tool_policy import can_be_mutation_agent, mutation_policy_for_model
 
 if TYPE_CHECKING:
     from ..providers.capabilities import TaskRequirements
@@ -279,3 +282,135 @@ def escalated_spec(spec: ModelSpec, escalation: int) -> ModelSpec:
         escalation=escalation,
     )
     return replace(spec.with_identity(zincir[0]), fallback=zincir[1:])
+
+
+class EscalationSource(StrEnum):
+    """Üst modelin nereden geldiği (ölçüm izinde ve kullanıcı satırında görünür)."""
+
+    #: `runtime.escalation_model` — kullanıcının açık tanımı.
+    SETTING = "ayar"
+    #: Kademe merdiveni — seçili modelin yedek zincirindeki daha üst kademenin baş modeli.
+    TIER = "kademe"
+
+
+@dataclass(frozen=True, slots=True)
+class EscalationTarget:
+    """Doğrulama kapısı başarısız olunca tek ek tur için seçilen üst model."""
+
+    spec: ModelSpec
+    source: EscalationSource
+    #: Kaynak kademe adı; `SETTING` için boş.
+    tier: str = ""
+
+
+#: Ücretsiz sayılan sağlayıcıda ücretli model kimliğini ayıran son ek (OpenRouter).
+_FREE_SUFFIX = ":free"
+#: Yükseltme ASLA web/abonelik oturumuna ya da Codex'e gitmez: araç döngüsü yok.
+_NON_API_PREFIXES = ("codex_cli/",)
+
+
+def _provider_of(model_id: str) -> str:
+    return model_id.split("/", 1)[0]
+
+
+def _base_model(model_id: str) -> str:
+    """Sağlayıcı önekini ve `:free` ekini atan model kimliği (aynı modelin kopyaları eşit)."""
+    tail = model_id.split("/", 1)[-1]
+    return tail.removesuffix(_FREE_SUFFIX)
+
+
+def _is_paid_openrouter(model_id: str) -> bool:
+    return model_id.startswith(OPENROUTER_PREFIX) and not model_id.endswith(_FREE_SUFFIX)
+
+
+def _is_api_model(config: Config, model_id: str) -> bool:
+    """Web/Codex değil ve dosya değiştiren agent olabilen bir API modeli mi?"""
+    if _provider_of(model_id).endswith(WEB_PROVIDER_SUFFIX) or model_id.startswith(
+        _NON_API_PREFIXES
+    ):
+        return False
+    if any(session.model == model_id for session in config.web_sessions):
+        return False
+    return mutation_policy_for_model(config, model_id).ok
+
+
+def _same_family_copies(chain: tuple[str, ...], target: str) -> tuple[str, ...]:
+    """Zincirde hedefle AYNI modelin başka sağlayıcıdaki kopyaları (hedef hariç).
+
+    Yükseltilen tur yalnız hedefin kendi kopyalarına düşebilir; aksi halde sağlayıcı
+    arızasında sessizce yükseltmeden ÖNCEKİ zayıf modele geri dönülürdü.
+    """
+    return tuple(
+        model for model in chain if model != target and _base_model(model) == _base_model(target)
+    )
+
+
+def _tier_target(config: Config, current: ModelSpec) -> EscalationTarget | None:
+    """Merdivende seçili kademeden SONRA gelen, yedek zincirde tanımlı kademenin baş modeli.
+
+    Merdiven sırası bilerek tek ölçüt DEĞİLDİR (`medium` kademesi `low`dan küçük bir
+    modeldir): aday ayrıca kullanıcının seçili modelinin kendi yedek zincirinde yazılı
+    olmalıdır. Zincir zaten sağlayıcı tercihine ve kurulu anahtarlara göre budanmış
+    olduğundan yeni bir sağlayıcıya çıkılmaz. Ücretli OpenRouter modeli otomatik seçilmez.
+    """
+    start = next(
+        (
+            index
+            for index, tier in enumerate(config.tiers)
+            if tier.agent.model in (current.model, config.agent.model)
+        ),
+        None,
+    )
+    if start is None:
+        return None
+    for tier in config.tiers[start + 1 :]:
+        candidate = tier.agent.model
+        if (
+            candidate not in current.models
+            or _base_model(candidate) == _base_model(current.model)
+            or _is_paid_openrouter(candidate)
+            or not _is_api_model(config, candidate)
+        ):
+            continue
+        spec = ModelSpec(
+            name=f"{tier.agent.name}-yukseltme",
+            model=candidate,
+            tags=tier.agent.tags,
+            fallback=_same_family_copies(current.models, candidate),
+        )
+        return EscalationTarget(spec, EscalationSource.TIER, tier.name)
+    return None
+
+
+def _setting_target(config: Config, current: ModelSpec) -> EscalationTarget | None:
+    """`runtime.escalation_model`: kullanıcının açık tanımı, yine de güvenlik süzgecinden geçer.
+
+    Yönettiğimiz iki sağlayıcıdan (NIM, OpenRouter) biriyse seçili modelin zincirinde
+    kullanılan sağlayıcı ailesinde olmalıdır: sağlayıcı tercihi/anahtar budaması
+    (`keys.prune_config`) aksi halde ters çevrilirdi. Tanınmayan önekler (ollama,
+    kendi uç noktası) kullanıcının bilerek yazdığı varsayılarak geçer.
+    """
+    model = config.runtime.escalation_model.strip()
+    if not model:
+        return None
+    managed = {NIM_PREFIX.rstrip("/"), OPENROUTER_PREFIX.rstrip("/")}
+    provider = _provider_of(model)
+    if provider in managed and provider not in {_provider_of(m) for m in current.models}:
+        return None
+    if _base_model(model) == _base_model(current.model) or not _is_api_model(config, model):
+        return None
+    spec = ModelSpec(name="yukseltme", model=model, tags=("escalation",))
+    return EscalationTarget(spec, EscalationSource.SETTING)
+
+
+def escalation_target(config: Config, current: ModelSpec) -> EscalationTarget | None:
+    """Kapı başarısızlığında tek ek tur için üst modeli seç; yoksa `None` (hiçbir şey yapma).
+
+    Sıra: önce `runtime.escalation_model` (açık tanım), yoksa kademe merdiveni. `None`
+    döner: özellik kapalıysa, seçilen model `strict` ise (kullanıcının açık model
+    seçimi harness kararıyla ezilemez; bkz. `escalated_spec`), tanımlı üst model yoksa
+    ya da aday web/Codex/araçsız/aynı model ise. Saf fonksiyondur: ağ ve dosya bilmez.
+    """
+    if not config.runtime.escalate_on_gate_failure or current.strict:
+        return None
+    return _setting_target(config, current) or _tier_target(config, current)
