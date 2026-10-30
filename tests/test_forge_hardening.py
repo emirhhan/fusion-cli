@@ -143,3 +143,73 @@ def test_aracin_open_cagrisi_gizli_dosyayi_okuyamaz(tmp_path):
 
     assert not sonuc.ok
     assert "parola" not in sonuc.output
+
+
+# --- Dalga 4 (T1-11, T1-12) --------------------------------------------------
+
+
+def test_yerlesik_arac_adi_reddedilir(tmp_path):
+    """T1-12: `read_file.py` üretmek yerleşik aracın üzerine yazmaz ama yanıltırdı."""
+    sonuc = _forge(tmp_path, "def run(args):\n    return 'x'\n", ad="read_file")
+
+    assert not sonuc.ok and "yerleşik" in sonuc.output
+    assert not (tmp_path / ".fusion/tools/read_file.py").exists()
+
+
+def test_ezilen_arac_geri_alinabilir(tmp_path):
+    """T1-12: kayıt yazmadan ÖNCE alınmalı; var olan araç ezilirse eski içerik dönebilsin."""
+    context = ToolContext(root=tmp_path)
+    forge_tool({"name": "deneme", "source": "def run(args):\n    return 'eski'\n"}, context)
+    context.changes.commit()
+    forge_tool({"name": "deneme", "source": "def run(args):\n    return 'yeni'\n"}, context)
+
+    context.changes.restore()
+
+    assert "eski" in (tmp_path / ".fusion/tools/deneme.py").read_text(encoding="utf-8")
+
+
+def test_sema_ve_aciklama_modul_belgesinden_gelir(tmp_path):
+    """T1-11: şema boştu; model aracı hangi argümanlarla çağıracağını bilemiyordu."""
+    kaynak = (
+        '"""Dizindeki dosyaları say."""\n'
+        'SCHEMA = {"type": "object", "properties": {"uzanti": {"type": "string"}},'
+        ' "required": ["uzanti"]}\n'
+        "def run(args):\n    return args['uzanti']\n"
+    )
+    assert _forge(tmp_path, kaynak, ad="say").ok
+
+    (arac,) = load_forged_tools(tmp_path)
+
+    assert "Dizindeki dosyaları say" in arac.description
+    assert arac.parameters["properties"] == {"uzanti": {"type": "string"}}
+    assert arac.parameters["required"] == ["uzanti"]
+
+
+def test_sema_yoksa_bos_nesne_kalir(tmp_path):
+    assert _forge(tmp_path, "def run(args):\n    return 'x'\n", ad="bos").ok
+
+    (arac,) = load_forged_tools(tmp_path)
+
+    assert arac.parameters == {"type": "object", "properties": {}}
+
+
+def test_gecersiz_sema_aracı_dusurmez(tmp_path):
+    kaynak = "SCHEMA = [1, 2]\ndef run(args):\n    return 'x'\n"
+    assert _forge(tmp_path, kaynak, ad="bozuk").ok
+
+    (arac,) = load_forged_tools(tmp_path)
+
+    assert arac.parameters == {"type": "object", "properties": {}}
+
+
+def test_buyuk_cikti_kirpilir(tmp_path):
+    from fusion_cli.core.constants import MAX_OUTPUT_CHARS
+
+    assert _forge(tmp_path, "def run(args):\n    return 'x' * 500000\n", ad="dev").ok
+    (arac,) = load_forged_tools(tmp_path)
+
+    sonuc = arac.run({}, ToolContext(root=tmp_path))
+
+    assert sonuc.ok
+    assert len(sonuc.output) < MAX_OUTPUT_CHARS + 500
+    assert "kırpıldı" in sonuc.output

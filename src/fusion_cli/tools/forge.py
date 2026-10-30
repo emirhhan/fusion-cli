@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import IO, Any
 
 from ..config import trust
+from ..core.constants import MAX_OUTPUT_CHARS
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .files import resolve_path, writable_path
@@ -54,15 +55,30 @@ def forge_tool(args: ToolArgs, context: ToolContext) -> ToolResult:
     hata = _validate(source)
     if hata is not None:
         return ToolResult.failure(hata)
+    if name in _builtin_names(context):
+        # `load_forged_tools` çakışan adı zaten atlar (yerleşik araç korunur); ama
+        # sessizce "araç üretildi" demek modeli yanıltıp var olmayan aracı bekletirdi.
+        return ToolResult.failure(
+            f"'{name}' bir yerleşik araç adı; farklı bir ad seç (ör. {name}_ozel)."
+        )
     hedef = context.root / FORGE_DIR / f"{name}.py"
     if hedef.is_symlink() or hedef.parent.is_symlink():
         # Bağın arkasına yazmak araç dosyasını proje kökü dışına koyardı.
         return ToolResult.failure(f"Araç yolu sembolik bağ: {hedef}. Başka bir ad seç.")
     hedef.parent.mkdir(parents=True, exist_ok=True)
+    # Geri alma kaydı YAZMADAN ÖNCE (diğer dosya araçlarıyla aynı sıra): var olan aracı
+    # ezince eski içerik ancak böyle geri gelir.
+    context.changes.record(hedef)
     hedef.write_text(source, encoding="utf-8")
     trust.approve_file(context.root, hedef)
-    context.changes.record(hedef)
     return ToolResult(f"araç üretildi: {name} ({hedef}). Sonraki adımlarda çağırabilirsin.")
+
+
+def _builtin_names(context: ToolContext) -> frozenset[str]:
+    """Yerleşik + bu oturumda sunulan araç adları (üretilen araç bunlarla çakışamaz)."""
+    from . import build_registry  # tembel: `tools/__init__` bu modülü içe aktarır
+
+    return frozenset(build_registry().names()) | frozenset(context.available_tools)
 
 
 def load_forged_tools(root: Path) -> tuple[Tool, ...]:
@@ -244,6 +260,44 @@ def _builtins_for(context: ToolContext) -> dict[str, Any]:
     return {**vars(builtins), "open": guarded_open}
 
 
+def _clip(text: str) -> str:
+    """Çıktıyı `MAX_OUTPUT_CHARS` ile sınırla (üretilen araç sınırsız metin döndürebilir)."""
+    if len(text) <= MAX_OUTPUT_CHARS:
+        return text
+    return text[:MAX_OUTPUT_CHARS] + f"\n[… {len(text) - MAX_OUTPUT_CHARS} karakter kırpıldı]"
+
+
+_EMPTY_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}}
+
+
+def _contract(source: str, filename: str) -> tuple[str, dict[str, Any]]:
+    """Modül belgesinden açıklama, modül düzeyi `SCHEMA` sabitinden parametre şeması.
+
+    Ölçüldü (30 Ekim): şema hep boştu ve açıklama sabitti; model kaynağı görmeden
+    aracı hangi argümanlarla çağıracağını bilemiyordu. `SCHEMA` yalnız `literal_eval`
+    ile okunur (kod çalıştırılmaz); bozuk/geçersizse boş şemaya düşülür.
+    """
+    fallback = f"Koşu içinde üretilmiş araç ({filename})."
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return fallback, dict(_EMPTY_SCHEMA)
+    doc = (ast.get_docstring(tree) or "").strip()
+    description = doc.splitlines()[0][:300] if doc else fallback
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "SCHEMA" for t in node.targets
+        ):
+            try:
+                value = ast.literal_eval(node.value)
+            except (ValueError, SyntaxError):
+                break
+            if isinstance(value, dict) and isinstance(value.get("properties"), dict):
+                return description, {"type": "object", **value}
+            break
+    return description, dict(_EMPTY_SCHEMA)
+
+
 def _build(path: Path) -> Tool:
     """Kaynağı yükleyip `Tool` sözleşmesine sar."""
 
@@ -267,14 +321,15 @@ def _build(path: Path) -> Tool:
             for anahtar in ("path", "yol"):
                 if isinstance(args.get(anahtar), str):
                     resolve_path(context, str(args[anahtar]))
-            return ToolResult(str(islev(dict(args))))
+            return ToolResult(_clip(str(islev(dict(args)))))
         except Exception as hata:  # araç sınırı: hata modele okunur biçimde döner
             return ToolResult.failure(f"{path.stem} çalışırken hata: {type(hata).__name__}: {hata}")
 
+    description, parameters = _contract(_read(path), path.name)
     return Tool(
         name=path.stem,
-        description=f"Koşu içinde üretilmiş araç ({path.name}).",
-        parameters={"type": "object", "properties": {}},
+        description=description,
+        parameters=parameters,
         run=_run,
         mutating=True,
     )
