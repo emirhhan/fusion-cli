@@ -19,6 +19,7 @@ Araç desteği:
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
 
@@ -88,6 +89,23 @@ class WebTurnContext:
 WebTransport = Callable[..., Awaitable[WebTurn]]
 
 
+def _accepts_context(transport: WebTransport) -> bool:
+    """Taşıma `context` anahtar sözcüğünü (ya da `**kwargs`) kabul ediyor mu?
+
+    Bağlamdan habersiz 3 argümanlı taşımalar (eski/özel taşıma, test sahtesi) bağlam
+    verilmeden çağrılır: yeni bir isteğe bağlı alan onları kırmamalı.
+    """
+    try:
+        parameters = inspect.signature(transport).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        item.kind is inspect.Parameter.VAR_KEYWORD
+        or (item.name == "context" and item.kind is not inspect.Parameter.POSITIONAL_ONLY)
+        for item in parameters
+    )
+
+
 class WebProviderAdapter:
     """Oturum tabanlı bir kaynağı `LlmProvider` gibi gösteren adaptör."""
 
@@ -104,6 +122,7 @@ class WebProviderAdapter:
         self._model = model
         self._credential = credential
         self._transport = transport
+        self._transport_takes_context = _accepts_context(transport)
         self._tool_support = tool_support
         self._supports_images = supports_images
         self._clock = clock or SystemClock()
@@ -153,7 +172,7 @@ class WebProviderAdapter:
             conversation_id=request.conversation_id,
             answer_contract=request.answer_contract if request.tools else "",
         )
-        if context.is_empty:
+        if context.is_empty or not self._transport_takes_context:
             return self._transport(self._credential, messages, self._model)
         return self._transport(self._credential, messages, self._model, context=context)
 

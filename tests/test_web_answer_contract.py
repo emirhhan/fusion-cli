@@ -147,3 +147,34 @@ async def test_motor_istege_conversation_id_ve_sozlesmeyi_koyar(tmp_path, monkey
     assert "ask_user" not in adlar and "todo_write" in adlar
     assert "ask_user" not in istek.answer_contract
     assert "İLK iş todo_write ile" in istek.answer_contract
+
+
+async def test_baglamdan_habersiz_uc_argumanli_tasima_kirilmaz():
+    """Eski/özel taşıma ve test sahteleri `context` kabul etmez: bağlam verilmeden çağrılır."""
+    cagrilar: list[int] = []
+
+    async def eski_tasima(credential, messages, model):
+        cagrilar.append(len(messages))
+        return WebTurn("tamam")
+
+    adaptor = WebProviderAdapter(
+        model="m",
+        credential=WebSessionCredential(),
+        transport=eski_tasima,
+        tool_support=ToolSupport.NONE,
+    )
+    sema = ({"type": "function", "function": {"name": "todo_write"}},)
+
+    sonuc = await adaptor.complete(
+        CompletionRequest(
+            messages=(Message("user", "a"),),
+            temperature=0.0,
+            max_tokens=8,
+            timeout_s=5.0,
+            conversation_id="x",
+            answer_contract="S",
+            tools=sema,
+        )
+    )
+
+    assert sonuc.ok and cagrilar == [1]
