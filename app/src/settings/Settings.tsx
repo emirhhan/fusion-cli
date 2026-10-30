@@ -13,7 +13,7 @@ import { VoicePreferences } from "./VoicePreferences";
 import { General, readHistoryOpen, HISTORY_KEY } from "./sections/General";
 import { Models, type ModelState } from "./sections/Models";
 import { RoleModels } from "./sections/RoleModels";
-import { Permissions } from "./sections/Permissions";
+import { Permissions, type TrustInfo } from "./sections/Permissions";
 import { Advanced } from "./sections/Advanced";
 import { ChromeBrowser } from "./ChromeBrowser";
 import { RemoteAccess } from "./RemoteAccess";
@@ -55,7 +55,13 @@ const KONTROL_BOLUMLERI = new Set<BolumId>(["modeller", "izinler", "gelismis"]);
 
 interface ControlSnapshot {
   gateway?: { adres?: string; durum?: string };
-  izin?: { mod?: string; kokle_sinirli?: boolean };
+  izin?: {
+    mod?: string;
+    kokle_sinirli?: boolean;
+    kok_disi_okuma_engeli?: boolean;
+    kok_disi_yazma_engeli?: boolean;
+    guven?: TrustInfo;
+  };
   kok?: string;
   model?: ModelState;
   saglayicilar?: { id: string; kurulu?: boolean }[];
@@ -330,12 +336,15 @@ export function Settings({
 
           {bolum === "izinler" && (
             <Permissions
+              client={client}
+              guven={control?.izin?.guven ?? null}
               kok={control?.kok ?? ""}
               kokleSinirli={control?.izin?.kokle_sinirli !== false}
               mod={control?.izin?.mod ?? "auto"}
               pending={modeBusy || !control}
               onChangeRoot={onChangeRoot}
               onSelectMode={onRunCommand ? selectMode : undefined}
+              onTrustChange={() => void load()}
             />
           )}
 
