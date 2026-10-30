@@ -116,3 +116,24 @@ def test_oran_boyutlari_flux_sinirlarinda_ve_32_katinda():
     for genislik, yukseklik in ASPECT_SIZES.values():
         for kenar in (genislik, yukseklik):
             assert 672 <= kenar <= 1568 and kenar % 32 == 0
+
+
+async def test_kunye_yazilamazsa_gorsel_yine_doner(tmp_path, monkeypatch):
+    """Ölçüldü (30 Ekim, S1-37): `write_sidecar` OSError verince istisna `create_image`'den
+    sızıyor; görsel diskte ve kotadan düşmüş olduğu hâlde kullanıcı hata alıyordu."""
+    config = _config(tmp_path, "gemini_web/main/auto")
+    monkeypatch.setattr(image_create, "image_output_dir", lambda: tmp_path)
+
+    async def uret(_oturum, _kimlik, istem, klasor, **_kwargs):
+        (klasor / "a.png").write_bytes(b"\x89PNG")
+        return [GeneratedImage(klasor / "a.png", 1024, 559)]
+
+    def yazamaz(*_a, **_k):
+        raise OSError("disk dolu")
+
+    monkeypatch.setattr(image_generation, "generate_images", uret)
+    monkeypatch.setattr(image_create, "write_sidecar", yazamaz)
+
+    sonuc = await image_create.create_image(config, {"istem": "kırmızı kask"})
+
+    assert sonuc["ok"] is True and sonuc["dosyalar"][0]["genislik"] == 1024

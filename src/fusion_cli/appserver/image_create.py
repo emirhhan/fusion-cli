@@ -14,6 +14,7 @@ seçtiği yere kopyalar (`gorsel.kaydet`).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,8 @@ from ..providers.image_generation import (
 )
 from ..providers.nim_image import ASPECT_SIZES, nim_model_from_choice
 from .image_flows import gallery_dir, write_sidecar
+
+_LOG = logging.getLogger(__name__)
 
 #: İşlem → modele giden istem kalıbı. Web modelleri gerçek bir "büyütme"
 #: aracı sunmaz; büyütme, referans görselin aynı içerikle yüksek çözünürlükte
@@ -123,7 +126,12 @@ async def create_image(
 
 def _result(sonuc: GenerationResult, istem: str) -> dict[str, Any]:
     for gorsel in sonuc.images:
-        write_sidecar(gorsel.path, prompt=istem, provider=sonuc.label)
+        # Künye yazılamasa da görsel diskte ve kotadan düşmüş durumda; hata verip görseli
+        # kullanıcıdan saklamak yerine yalnız günlüğe yaz (ölçüldü 30 Ekim: istisna sızıyordu).
+        try:
+            write_sidecar(gorsel.path, prompt=istem, provider=sonuc.label)
+        except OSError as error:
+            _LOG.warning("Görsel künyesi yazılamadı (%s).", type(error).__name__)
     return {
         "ok": True,
         "saglayici": sonuc.label,
