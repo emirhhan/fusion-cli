@@ -343,6 +343,16 @@ def test_bind_politikasi() -> None:
     validate_bind("192.168.1.10", BindPolicy(allow_lan=True, tls_enabled=True))
 
 
+def test_bind_tailscale_cgnat_adresi_ozel_tunelle_kabul_edilir() -> None:
+    """R1-27. Ölçüldü (30 Ekim): 100.64.0.0/10 `is_private` değil; Tailscale IP'si reddediliyordu."""
+    policy = BindPolicy(allow_lan=True, trusted_tunnel=True)
+    validate_bind("100.101.102.103", policy)
+    with pytest.raises(BindRefusedError):
+        validate_bind("100.101.102.103", BindPolicy())  # izin ve şifreli kanal yine şart
+    with pytest.raises(BindRefusedError):
+        validate_bind("100.128.0.1", policy)  # blok dışı: internete açık
+
+
 def test_kapsam_dogrulama_ve_sir_gizleme() -> None:
     with pytest.raises(ValueError):
         parse_scopes(["yok.boyle"])

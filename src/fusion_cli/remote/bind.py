@@ -7,6 +7,11 @@ import socket
 from dataclasses import dataclass
 
 
+#: Tailscale/CGNAT adres bloğu (RFC 6598): internetten yönlendirilemez ama Python
+#: `is_private` saymaz. Ölçüldü (30 Ekim, Python 3.11): `100.64.0.1.is_private == False`.
+_SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
+
+
 class BindRefusedError(ValueError):
     """Güvensiz dinleme adresi reddedildi; mesaj kullanıcıya gösterilebilir."""
 
@@ -30,10 +35,10 @@ def validate_bind(host: str, policy: BindPolicy) -> None:
         raise BindRefusedError(f"Geçersiz dinleme adresi: {host}") from error
     if address.is_loopback:
         return
-    if address.is_unspecified or not (address.is_private or address.is_link_local):
+    if address.is_unspecified or not (_is_private_network(address) or address.is_link_local):
         raise BindRefusedError(
             "İnternete açık veya tüm arayüzleri dinleyen adres reddedildi; "
-            "yerel ağ özel adresi ya da 127.0.0.1 kullan."
+            "yerel ağ özel adresi, Tailscale (100.64.0.0/10) adresi ya da 127.0.0.1 kullan."
         )
     if not policy.allow_lan:
         raise BindRefusedError("Yerel ağ dinlemesi için açıkça izin vermelisin.")
@@ -41,6 +46,13 @@ def validate_bind(host: str, policy: BindPolicy) -> None:
         raise BindRefusedError(
             "Yerel ağda şifresiz dinleme yok: TLS sertifikası ya da güvenilir özel tünel gerekir."
         )
+
+
+def _is_private_network(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Özel ağ ya da paylaşılan (Tailscale) adres alanı mı?"""
+    if address.is_private:
+        return True
+    return isinstance(address, ipaddress.IPv4Address) and address in _SHARED_ADDRESS_SPACE
 
 
 def private_addresses() -> list[str]:
@@ -62,6 +74,6 @@ def private_addresses() -> list[str]:
     return sorted(
         address
         for address in found
-        if ipaddress.ip_address(address).is_private
+        if _is_private_network(ipaddress.ip_address(address))
         and not ipaddress.ip_address(address).is_loopback
     )
