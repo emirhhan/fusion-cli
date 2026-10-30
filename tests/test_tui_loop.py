@@ -564,3 +564,34 @@ async def test_ctrl_c_calisan_turu_once_iptal_eder(tmp_path):
     assert session._task.cancelled() or session._task.cancelling() > 0
     assert session._queue == []
     assert session._state.running is False
+
+
+async def test_prompter_ask_bos_cevap_modele_bos_metin_olarak_gitmez():
+    """Ölçüldü (30 Ekim): Esc boş string döndürüyor, model aynı soruyu tekrar soruyordu (L2-23)."""
+    from fusion_cli.ui import messages
+
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(prompter.ask("hangi dosya?"))
+    await asyncio.sleep(0)
+    tui._resolve("")
+
+    assert await task == messages.ASK_DECLINED
+
+
+async def test_prompter_ask_secici_esc_vazgecildi_der_etkilesimsiz_demez():
+    from fusion_cli.ui import messages
+
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(
+        prompter.ask("hangisi?", options=(QuestionOption(label="a", description=""),))
+    )
+    await asyncio.sleep(0)
+    tui._resolve(None)  # Esc
+
+    sonuc = await task
+    assert sonuc == messages.ASK_DECLINED
+    assert sonuc != messages.NO_ANSWER_AVAILABLE

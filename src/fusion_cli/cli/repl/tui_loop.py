@@ -156,10 +156,14 @@ class TuiPrompter:
             choices.append(Choice("__other__", messages.ASK_OTHER, messages.ASK_OTHER_DESC))
             selected = await self._tui.await_choice(question, choices)
             if selected is None:
-                return messages.NO_ANSWER_AVAILABLE
+                # Esc: kullanıcı KASITLI vazgeçti, ortam etkileşimli (L1-19).
+                return messages.ASK_DECLINED
             if selected != "__other__":
                 return selected
-        return await self._tui.await_text()
+        answer = await self._tui.await_text()
+        # Esc ya da boş Enter boş metin döndürürdü; model boş yanıt alıp aynı soruyu
+        # tekrar soruyordu (L2-23).
+        return answer if answer.strip() else messages.ASK_DECLINED
 
 
 def _option_description(option: QuestionOption, recommended: str | None) -> str:
