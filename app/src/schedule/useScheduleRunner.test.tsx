@@ -81,3 +81,79 @@ describe("useScheduleRunner teslim döngüsü", () => {
     expect(acked(client)).toEqual([second.occurrence_id]);
   });
 });
+
+describe("useScheduleRunner gözetimsiz tur güvenliği (U5-57)", () => {
+  const TASK = {
+    baslik: "Rapor", etkin: true, gorev: "stok raporu", id: "t1", kok: "/proje",
+    son_calisma: null, sonraki: null, tur: "gunluk" as const, saat: "09:00",
+  };
+  function sessionClient(mod: string, durumOk = true) {
+    return {
+      request: vi.fn(async (name: string) => {
+        if (name === "oturum.durum") return durumOk ? { ok: true, mod } : { ok: false };
+        return { ok: true };
+      }),
+    };
+  }
+  type Props = Parameters<typeof useScheduleRunner>[0];
+  async function flush() {
+    await act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
+  }
+  function setup(sessionClientValue: ReturnType<typeof sessionClient>, extra: Partial<Props> = {}) {
+    const send = vi.fn(() => true);
+    const onNeedsApproval = vi.fn();
+    const onBlocked = vi.fn();
+    const initial: Props["sessions"] = { s1: { status: "ready", client: sessionClientValue } };
+    const view = renderHook((props: Props["sessions"]) =>
+      useScheduleRunner({ client: null, create: async () => "s1", send, sessions: props, onNeedsApproval, onBlocked, ...extra }),
+    { initialProps: initial });
+    return { view, send, onNeedsApproval, onBlocked, initial };
+  }
+
+  it("bypass oturumu yalnız bu oturum için auto'ya çekilir (kalıcı yazılmaz), sonra görev gönderilir", async () => {
+    const client = sessionClient("bypass");
+    const { view, send } = setup(client);
+    await act(async () => { await view.result.current.runNow(TASK); });
+    view.rerender({ s1: { status: "ready", client } });
+    await flush();
+    expect(client.request).toHaveBeenCalledWith("oturum.baslat", { mod: "auto", mod_kalici: false });
+    expect(send).toHaveBeenCalledWith("s1", "stok raporu");
+    const order = [...client.request.mock.calls.map(([name]) => name)];
+    expect(order).toEqual(["oturum.durum", "oturum.baslat"]);
+  });
+
+  it("bypass olmayan oturumda mod değiştirilmez", async () => {
+    const client = sessionClient("security");
+    const { view, send } = setup(client);
+    await act(async () => { await view.result.current.runNow(TASK); });
+    view.rerender({ s1: { status: "ready", client } });
+    await flush();
+    expect(client.request).not.toHaveBeenCalledWith("oturum.baslat", expect.anything());
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("izin modu okunamazsa görev GÖNDERİLMEZ ve kullanıcı bilgilendirilir", async () => {
+    const client = sessionClient("bypass", false);
+    const { view, send, onBlocked } = setup(client);
+    await act(async () => { await view.result.current.runNow(TASK); });
+    view.rerender({ s1: { status: "ready", client } });
+    await flush();
+    expect(send).not.toHaveBeenCalled();
+    expect(onBlocked).toHaveBeenCalledWith(TASK, expect.stringContaining("izin modu"));
+  });
+
+  it("başlayan tur onay isteyen araçta askıda kalır ve her soru için bir kez bildirilir", async () => {
+    const client = sessionClient("auto");
+    const { view, onNeedsApproval } = setup(client);
+    await act(async () => { await view.result.current.runNow(TASK); });
+    view.rerender({ s1: { status: "ready", client } });
+    await flush();
+    const soru = { id: "q1", data: { arac: "run_shell", baslik: "Komut çalıştırılsın mı?" } };
+    view.rerender({ s1: { status: "ready", client, running: true, question: soru } });
+    view.rerender({ s1: { status: "ready", client, running: true, question: soru } });
+    expect(onNeedsApproval).toHaveBeenCalledTimes(1);
+    expect(onNeedsApproval).toHaveBeenCalledWith({ task: TASK, sessionId: "s1", tool: "Komut çalıştırılsın mı?" });
+    view.rerender({ s1: { status: "ready", client, running: true, question: { id: "q2", data: { arac: "write_file" } } } });
+    expect(onNeedsApproval).toHaveBeenCalledTimes(2);
+  });
+});

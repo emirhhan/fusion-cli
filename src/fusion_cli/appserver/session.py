@@ -1453,7 +1453,9 @@ class AppSession:
             self._disabled_agents.clear()
             self._disabled_mcp.clear()
             self._refresh_capabilities()
-        mode_error = self._apply_mode(data.get("mod"))
+        # `mod_kalici: false` = bu oturuma özgü geçici mod (zamanlanmış görev, U5-57): kullanıcının
+        # kalıcı varsayılan izin modu config'e yazılıp değiştirilmez.
+        mode_error = self._apply_mode(data.get("mod"), persist=data.get("mod_kalici") is not False)
         if mode_error is not None:
             return mode_error
         calisma_error = self._apply_workspace_mode(data.get("kip"))
@@ -1483,7 +1485,7 @@ class AppSession:
             return None, {"ok": False, "metin": "Tur sürerken proje kökü değiştirilemez."}
         return candidate, None
 
-    def _apply_mode(self, value: str | None) -> dict[str, Any] | None:
+    def _apply_mode(self, value: str | None, *, persist: bool = True) -> dict[str, Any] | None:
         if not isinstance(value, str) or not value:
             return None
         try:
@@ -1497,7 +1499,8 @@ class AppSession:
         if mode is not self._state.approval:
             self._state.approval_memory.revoke()
         self._state.approval = mode
-        self._note_persist_warning(persist_approval(self._state.config, mode))
+        if persist:
+            self._note_persist_warning(persist_approval(self._state.config, mode))
         return None
 
     def _note_persist_warning(self, warning: str | None) -> None:

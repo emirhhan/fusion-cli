@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   SCHEDULE_POLL_MS,
   isScheduleDelivery,
@@ -11,6 +11,18 @@ export { SCHEDULE_POLL_MS } from "./types";
 
 interface RunnerSession {
   status: string;
+  running?: boolean;
+  client?: { request(name: string, data: Record<string, unknown>): Promise<Record<string, unknown>> };
+  /** Onay/soru bekleyen kart; zamanlanmış tur bunda askıda bekler. */
+  question?: { id: string; data: { arac?: string; baslik?: string; soru?: string } } | null;
+}
+
+/** Zamanlanmış tur onay gerektiren bir araca takıldı: kullanıcı yokken ilerlemez, bildirilir (U5-57). */
+export interface ScheduleApprovalNotice {
+  task: ScheduledTask;
+  sessionId: string;
+  /** Onay isteyen aracın adı ya da kısa başlığı. */
+  tool: string;
 }
 
 interface ScheduleRunnerInput {
@@ -24,6 +36,15 @@ interface ScheduleRunnerInput {
   sessions: Record<string, RunnerSession | undefined>;
   deliveryClient?: ScheduleDeliveryClient | null;
   onStarted?: (task: ScheduledTask) => void;
+  onNeedsApproval?: (notice: ScheduleApprovalNotice) => void;
+  /** Görev güvenli biçimde başlatılamadı (izin modu doğrulanamadı); gönderilmedi. */
+  onBlocked?: (task: ScheduledTask, reason: string) => void;
+}
+
+interface Watched {
+  task: ScheduledTask;
+  notified: Set<string>;
+  sawRunning: boolean;
 }
 
 interface Pending {
@@ -112,6 +133,20 @@ function startDeliveryPolling(
   };
 }
 
+/**
+ * Gözetimsiz tur "İzinleri atla" ile çalışmamalı: hiçbir şey sormaz, kullanıcı yokken
+ * onay gerektiren iş sessizce yapılırdı. Yeni oturum kullanıcının kalıcı modunu devralır;
+ * bypass ise YALNIZ bu oturum için "auto"ya çekilir (`mod_kalici:false`: kullanıcının
+ * varsayılanı config'e yazılıp bozulmaz). Mod okunamazsa güvenli tarafta kalınır (U5-57).
+ */
+async function ensureUnattendedSafe(client: NonNullable<RunnerSession["client"]>): Promise<void> {
+  const state = await client.request("oturum.durum", {});
+  if (state.ok === false) throw new Error("izin modu okunamadı");
+  if (state.mod !== "bypass") return;
+  const changed = await client.request("oturum.baslat", { mod: "auto", mod_kalici: false });
+  if (changed.ok === false) throw new Error("izin modu değiştirilemedi");
+}
+
 /** Otomatik vadeler kalıcı Kits kuyruğuna teslim edilir; manuel yol sohbet açar. */
 export function useScheduleRunner({
   client,
@@ -119,11 +154,18 @@ export function useScheduleRunner({
   send,
   sessions,
   onStarted,
+  onNeedsApproval,
+  onBlocked,
   deliveryClient,
 }: ScheduleRunnerInput) {
   const pending = useRef<Pending[]>([]);
   const createRef = useRef(create);
   createRef.current = create;
+  const guards = useRef(new Map<string, "checking" | "ok">());
+  const watched = useRef(new Map<string, Watched>());
+  const [guardTick, setGuardTick] = useState(0);
+  const callbacks = useRef({ onNeedsApproval, onBlocked });
+  callbacks.current = { onNeedsApproval, onBlocked };
 
   const polling = useRef(false);
   const inFlight = useRef(new Set<string>());
@@ -138,18 +180,59 @@ export function useScheduleRunner({
   }, [client, deliveryClient]);
 
   useEffect(() => {
+    // Başlayan zamanlanmış turlar: onay isteyen araçta tur askıda bekler, kullanıcı bilgilendirilir.
+    for (const [sessionId, watch] of watched.current) {
+      const session = sessions[sessionId];
+      if (!session || session.status === "crashed" || session.status === "closed") {
+        watched.current.delete(sessionId);
+        continue;
+      }
+      if (session.running) watch.sawRunning = true;
+      const question = session.question;
+      if (question && !watch.notified.has(question.id)) {
+        watch.notified.add(question.id);
+        const data = question.data;
+        callbacks.current.onNeedsApproval?.({
+          task: watch.task,
+          sessionId,
+          tool: data.baslik ?? data.arac ?? data.soru ?? "bir işlem",
+        });
+      } else if (!question && watch.sawRunning && !session.running) {
+        watched.current.delete(sessionId);
+      }
+    }
     if (pending.current.length === 0) return;
     pending.current = pending.current.filter(({ sessionId, task }) => {
       // Oturum kurulamadı ya da kullanıcı kapattı: bekleyen görev çok sonra, oturum başka bir nedenle
       // hazır olursa geç gönderilmesin (U5-54).
-      const durum = sessions[sessionId]?.status;
+      const session = sessions[sessionId];
+      const durum = session?.status;
       if (durum === "crashed" || durum === "closed") return false;
       if (durum !== "ready") return true;
+      const guard = guards.current.get(sessionId);
+      if (guard !== "ok") {
+        if (guard === undefined) {
+          guards.current.set(sessionId, "checking");
+          const sessionClient = session?.client;
+          const check = sessionClient ? ensureUnattendedSafe(sessionClient) : Promise.reject(new Error("oturum istemcisi yok"));
+          void check.then(
+            () => { guards.current.set(sessionId, "ok"); setGuardTick((tick) => tick + 1); },
+            (reason: unknown) => {
+              guards.current.delete(sessionId);
+              pending.current = pending.current.filter((entry) => entry.sessionId !== sessionId);
+              callbacks.current.onBlocked?.(task, reason instanceof Error ? reason.message : String(reason));
+            },
+          );
+        }
+        return true;
+      }
       if (!send(sessionId, task.gorev)) return true;
+      guards.current.delete(sessionId);
+      watched.current.set(sessionId, { task, notified: new Set(), sawRunning: false });
       onStarted?.(task);
       return false;
     });
-  }, [onStarted, send, sessions]);
+  }, [onStarted, send, sessions, guardTick]);
 
   return {
     /** "Şimdi çalıştır": görevi takvimi beklemeden aynı yoldan başlatır. */

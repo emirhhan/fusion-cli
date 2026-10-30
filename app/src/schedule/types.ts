@@ -47,6 +47,8 @@ export interface ScheduledTask {
   saat?: string;
   son_calisma: number | null;
   son_gecikmeli?: boolean;
+  /** Çekirdek görevi neden durdurdu (ör. tehlikeli kök); yoksa tanımsız. */
+  durdurma_nedeni?: string;
   sonraki: number | null;
   tur: ScheduleKind;
   zaman?: number;

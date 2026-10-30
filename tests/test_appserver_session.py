@@ -2162,6 +2162,32 @@ async def test_oturum_baslat_kalici_yazma_hatasini_uyari_olarak_tasir(tmp_path, 
     assert "uyari" not in _sonuc(satirlar, "2")
 
 
+async def test_oturum_baslat_gecici_mod_kalici_yazmaz(tmp_path, monkeypatch):
+    """U5-57: zamanlanmış görev oturumunu bypass'tan çıkarırken kullanıcının kalıcı varsayılan
+    izin modu config'e yazılmaz (`mod_kalici: false`); varsayılan davranış değişmez."""
+    from fusion_cli.appserver import session as modul
+
+    yazilan: list[str] = []
+    monkeypatch.setattr(modul, "persist_approval", lambda _c, mod: yazilan.append(mod.value))
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(
+        Request(id="1", name="oturum.baslat", data={"mod": "bypass", "mod_kalici": False})
+    )
+    assert _sonuc(satirlar, "1")["mod"] == "bypass"
+    assert yazilan == []
+
+    await oturum.handle(
+        Request(id="2", name="oturum.baslat", data={"mod": "auto", "mod_kalici": False})
+    )
+    assert _sonuc(satirlar, "2")["mod"] == "auto"
+    assert yazilan == []
+
+    await oturum.handle(Request(id="3", name="oturum.baslat", data={"mod": "plan"}))
+    assert yazilan == ["plan"]
+
+
 async def test_model_rol_ata_kabul_kilidini_paylasir(tmp_path):
     """Ölçüldü (30 Ekim, S2-14): `model.rol_ata` kilitli RPC kümesinde değildi; `await` sırasında
     başka bir RPC'nin config değişikliğini eziyordu (kayıp güncelleme)."""

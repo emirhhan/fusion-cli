@@ -323,7 +323,7 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
       </div>
       </aside>
       <div className="schedule__content">
-      <p className="schedule__hint">Görevler Fusion açıkken ve en az bir sohbet açıkken çalışır; her çalışma yeni bir sohbet açar.</p>
+      <p className="schedule__hint">Görevler Fusion açıkken ve en az bir sohbet açıkken çalışır; her çalışma yeni bir sohbet açar. Onay isteyen bir işlemde görev askıda bekler ve sana bildirilir; zamanlanmış görevler "İzinleri atla" kipinde çalışmaz. Kök dizin ya da ev klasörü seçilemez.</p>
 
       {error && !draft && <p className="schedule__error" role="alert">{error}</p>}
 
@@ -359,6 +359,7 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
                 </p>
                 <p className="schedule__meta" title={task.kok}>
                   <Icon name="folder" size={12} /> <span>{folderName(task.kok)}</span>
+                  {task.durdurma_nedeni ? <> · <strong role="note">Durduruldu: {task.durdurma_nedeni}</strong></> : null}
                   {task.son_calisma ? <> · Son çalışma {formatMoment(task.son_calisma)}{task.son_gecikmeli ? " (gecikmeli: Fusion kapalıydı)" : ""}</> : null}
                 </p>
               </div>

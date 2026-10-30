@@ -705,12 +705,24 @@ export function SessionUygulama({
     [controller],
   );
   const [deliveryClient, setDeliveryClient] = useState<ScheduleDeliveryClient | null>(null);
+  // Zamanlanmış tur onay isteyen araçta askıda bekler; kullanıcı yoksa sessizce ilerlemez, bildirilir (U5-57).
+  const [scheduleNotice, setScheduleNotice] = useState<{ sessionId: string | null; baslik: string; metin: string } | null>(null);
   const scheduleRunner = useScheduleRunner({
     client: pickScheduleClient(active, controller.sessions),
     deliveryClient,
     create: createScheduledSession,
     send: controller.send,
     sessions: controller.state.sessions,
+    onNeedsApproval: ({ task, sessionId, tool }) => setScheduleNotice({
+      sessionId,
+      baslik: "Zamanlanmış görev onay bekliyor",
+      metin: `"${task.baslik}" görevi "${tool}" için onay istiyor. Sen onaylayana kadar bekler; onaylamazsan ilerlemez.`,
+    }),
+    onBlocked: (task, reason) => setScheduleNotice({
+      sessionId: null,
+      baslik: "Zamanlanmış görev başlatılmadı",
+      metin: `"${task.baslik}" güvenli biçimde başlatılamadı (${reason}). Görev gönderilmedi; yeniden dene.`,
+    }),
   });
   const selectMainSection = (section: MainSection) => {
     if (section === "scheduled" || section === "library" || section === "kits") {
@@ -1574,6 +1586,21 @@ export function SessionUygulama({
               baslik="Konuşma devralındı"
               metin={`${gizliDegerSayisi} hassas değer fark edildi. Fusion bunları ekranda göstermedi; uygun olduğunda ilgili anahtarları yenilemeniz iyi olur.`}
               onDismiss={() => setGizliDegerSayisi(0)}
+            />
+          )}
+          {scheduleNotice && (
+            <Notification
+              baslik={scheduleNotice.baslik}
+              metin={scheduleNotice.metin}
+              eylem={scheduleNotice.sessionId ? {
+                etiket: "Sohbeti aç",
+                onSelect: () => {
+                  const sessionId = scheduleNotice.sessionId;
+                  setScheduleNotice(null);
+                  if (sessionId) { controller.select(sessionId); setPage("chat"); }
+                },
+              } : undefined}
+              onDismiss={() => setScheduleNotice(null)}
             />
           )}
           {dogrulamaUyarisi && (

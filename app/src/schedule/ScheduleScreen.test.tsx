@@ -91,6 +91,26 @@ describe("ScheduleScreen", () => {
   });
 });
 
+describe("ScheduleScreen — gözetimsiz çalışma güvenliği (U5-57, S2-25)", () => {
+  it("çekirdeğin durdurduğu görevde nedeni gösterir ve askıda bekleme kuralını açıklar", async () => {
+    const durdurulan = { ...gorev, etkin: false, durdurma_nedeni: "Zamanlanmış görev kök dizinde ya da ev klasöründe çalışamaz; bir proje klasörü seç." };
+    const { client } = fakeClient([durdurulan]);
+    render(<ScheduleScreen client={client} defaultRoot="/proje" onRunNow={vi.fn()} />);
+    expect(await screen.findByText(/Durduruldu: Zamanlanmış görev kök dizinde/)).toBeTruthy();
+    expect(screen.getByText(/askıda bekler ve sana bildirilir/)).toBeTruthy();
+  });
+
+  it("çekirdek kök dizin seçimini reddederse mesaj formda gösterilir", async () => {
+    const request = vi.fn(async (name: string) =>
+      name === "zamanlama.liste" ? { ok: true, gorevler: [] } : { ok: false, metin: "Zamanlanmış görev kök dizinde ya da ev klasöründe çalışamaz; bir proje klasörü seç." });
+    render(<ScheduleScreen client={{ request }} defaultRoot="/" onRunNow={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Yeni görev" }));
+    fireEvent.change(screen.getByLabelText("Görev"), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("proje klasörü seç");
+  });
+});
+
 describe("ScheduleScreen — Claude düzeni", () => {
   it("kartta istem özeti, sıklık, sıradaki zaman ve klasör görünür; anahtar açıktır", async () => {
     const { client } = fakeClient();
@@ -215,10 +235,15 @@ describe("useScheduleRunner", () => {
   });
   it("Şimdi çalıştır eski native sohbet yolunu korur", async () => {
     const create = vi.fn(async () => "s1"); const send = vi.fn(() => true); const started = vi.fn();
-    const { result, rerender } = renderHook(({ sessions }) => useScheduleRunner({ client: null, create, send, sessions, onStarted: started }), { initialProps: { sessions: {} as Record<string, { status: string }> } });
+    const sessionClient = { request: vi.fn(async (name: string) => name === "oturum.durum" ? { ok: true, mod: "auto" } : { ok: true }) };
+    type Sessions = Record<string, { status: string; client?: typeof sessionClient }>;
+    const { result, rerender } = renderHook(({ sessions }) => useScheduleRunner({ client: null, create, send, sessions, onStarted: started }), { initialProps: { sessions: {} as Sessions } });
     await act(async () => { await result.current.runNow(gorev); });
-    expect(create).toHaveBeenCalledWith({ mode: "kod", root: "/proje", title: "Sabah raporu" }); expect(send).not.toHaveBeenCalled(); rerender({ sessions: { s1: { status: "ready" } } });
-    expect(send).toHaveBeenCalledWith("s1", gorev.gorev); expect(started).toHaveBeenCalledWith(gorev);
+    expect(create).toHaveBeenCalledWith({ mode: "kod", root: "/proje", title: "Sabah raporu" }); expect(send).not.toHaveBeenCalled();
+    // Gözetimsiz tur önce izin modunu doğrular (U5-57); bypass değilse görev gönderilir.
+    rerender({ sessions: { s1: { status: "ready", client: sessionClient } } });
+    await waitFor(() => expect(send).toHaveBeenCalledWith("s1", gorev.gorev));
+    expect(started).toHaveBeenCalledWith(gorev);
   });
   it("bekleyen makbuz sırasında paralel poll ve aynı occurrence çoğalmaz", async () => {
     vi.useFakeTimers(); let resolve!: (value: typeof receipt | null) => void;
