@@ -34,7 +34,7 @@ from ..core.types import (
     TokenUsage,
     ToolCall,
 )
-from .context_window import OLLAMA_NUM_CTX
+from .context_window import ollama_num_ctx
 
 #: NVIDIA NIM anahtarı varken taban adres verilmemişse kullanılacak varsayılan uç.
 NIM_DEFAULT_API_BASE = "https://integrate.api.nvidia.com/v1"
@@ -175,7 +175,7 @@ class LiteLlmProvider:
             # araç şemaları tek başına bunu aşıyor; Ollama en eski mesajları, yani
             # SİSTEM İSTEMİNİ, sessizce kesiyordu. Model araç sözleşmesini görmeden
             # tekrar döngüsüne giriyor ve görevleri hiç bitiremiyordu.
-            kwargs["num_ctx"] = OLLAMA_NUM_CTX
+            kwargs["num_ctx"] = ollama_num_ctx(self._model)
             # Ollama boştaki modeli 5 dakikada boşaltır; ~16k token'lık sistem istemi
             # yeniden işlenince ilk yanıt ~4 dakika sürüyor (18 Ekim izinde 228 sn;
             # önbellekli turlar ~20 sn). Model yüklü kalsın.
