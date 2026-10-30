@@ -65,6 +65,33 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Bellek bir koleksiyon takılınca tamamen kapanmaz, yazılamayan kayıt "eklendi" denmez; akışlı gateway yanıtlarında ve uzak olaylarda sırlar maskelenir; MCP araç hata mesajları modele iletilir; Gemini tarayıcı oturumunda görseller eklenir.
 - Sistem istemlerindeki dil ve ilerleme anlatımı çelişkileri giderildi; plan şeması tek geçerli örnek ve `c1`/`c2` kimlikleriyle zayıf modellerde daha az reddedilir; Remotion kart başlıkları uzun Türkçe sözcüklerde bölünmez.
 - Sürüm Release'i yüklenen bütün dosyalar için SHA256SUMS, SBOM ve manifest içerir; terminal (PTY) testleri CI'da ayrı işte koşar.
+- Görev kutusu: sohbet kipinde Shift+Tab izin modunu değiştirmez; gönderim sırasında yazılan metin korunur, reddedilen gönderim hata gösterir; panodan görsel ek olarak eklenir; açık `@` listesi Esc ile önce kendini kapatır; "/Users/x/main.py incele" gibi yolla başlayan mesaj komut sayılmaz.
+- Sohbet arayüzü: sabit sohbetler proje taşınınca kaybolmaz; bozuk proje tercihi ya da tema okuma hatası boş pencere bırakmaz ("yeniden yükle" ekranı); araç/kaynak/önizleme adresleri yalnız http(s) açılır; kritik bağlam doluluğu ayrı renkte; iş sürerken bağlam kartından `/compact` gönderilmez.
+- Terminal sekmeleri başka sekmeye geçince kapanmaz; kabuk ve araç çıktısındaki API anahtarı/Authorization değerleri maskelenir; kayıtlı API anahtarı yalnız göz düğmesiyle görünür.
+- Sohbet açılırken geç gelen geçmiş ve iptal edilen turun yarım yanıtı kaybolmaz; saklı sohbetler tüm açık projelerden listelenir; 200'den fazla dosyalı klasörler tam listelenir.
+- Zamanlama: günsüz haftalık, geçmiş tarihli ve çok kısa aralıklı görevler reddedilir; silme onay ister.
+- Talk: tek komut modunda düşünme ipucu çalar, yanıt gelmezse 90 sn sonra hata gösterir, kalıcı tanıma hatasında mikrofon döngüye girmez; sesli "evet" onay kartındaki "İzin ver"i onaylar; eski macOS WebView'lerinde modül kırılmaz.
+- Ayarlar: Esc kaydedilmemiş talimatı silmez, arama Ses/İzin/Model bölümlerini bulur, port 1-65535 doğrulanır, "İzinleri atla" onay ister, Chrome eşleştirme anahtarı varsayılan gizli; çalışan görev varken uygulama güncellemesi kurulamaz.
+- Görsel oluştur: sayfa değişince istem korunur, üretimde Durdur düğmesi var, bozuk kayıtlı akış arayüzü çökertmez; Bağlantılar'da "Yeniden dene", hata nedeni ve "Vazgeç" var.
+- Onay kartı `multi_edit` ve silme düzenlemelerinde de fark gösterir; uzun/sırlı argümanlar kısaltılıp maskelenir; ayar kaydı diske yazılamazsa uyarı döner.
+- Chrome eklentisi: kapalı eklenti "yüklendi" sayılmaz, kesilen kopyalama mevcut eklentiyi bozmaz, tuş vuruşları yalnız Chrome öndeyken gönderilir; kod kipindeki panel görevi kod araması yapabilir.
+- Uzun boşluksuz metinde sır maskeleme artık dakikalarca sürmez; hata raporu Stripe, Groq, Hugging Face, Google OAuth ve JWT anahtarlarını da gizler; Langfuse'e giden veriler sırlardan arındırılır.
+- Ajan: büyük harfli Türkçe istekler ("İNCELE", "SİL") doğru tanınır; zayıf modellerin tip kaymaları (`"true"`, `"1920"`, boş/çitli JSON argüman) ve Claude/Cursor/Windsurf araç adları araçları düşürmez; `council` tur başına 3 çağrıyla sınırlı.
+- Öğretmen ulaşılamayınca "Öğretmen devre dışı" bildirimi gelir; öğretmene kimlik dosyalarının (`.env.local`, `id_rsa`, `*.pem`) adı ve farkı gitmez; depo talimatı etiketi kapatılıp sahte talimat eklenemez.
+- Doğrulama: çöken tek kapı tüm doğrulamayı düşürmez, atlanan tarayıcı/PHP/görsel denetimi uyarıda görünür; Playwright yoksa "ölçülemedi" denir; keşif `.venv` araçlarını, `cargo check`/`go vet`'i ve uv/poetry/tox/npm `test:*` koşucularını kullanır; zaman aşımına uğrayan komut başarı iddiasını engeller.
+- Plan ayrıştırıcı "bağımlılık yok" için `""`/`null`/`"yok"` yazan planı düşürmez; plan modunda ödeme ve silme adımları onaysız planlanamaz.
+- Dosya araçları FIFO/aygıtta kilitlenmez; `list_dir` kırpmayı bildirir; görsel dönüşümü saydamlığı korur; arşiv açma şifreli/kesik arşivde çökmez; `tsconfig.json`, yorumlu JSON ve çok belgeli YAML yazımı reddedilmez; büyük dosyada fark özeti verilir.
+- Komut politikası: `grep -r x .*`, `tail -f`, `top`, `git rebase`, `DROP TABLE` ve `osascript` tuş otomasyonu sorulur; `npm --version` ve `git commit -m "fix reboot"` sorulmaz.
+- `web_fetch` ikili içeriği metne çevirmez, `web_search` boş sonucu hata sayar; önizleme sunucusu çökünce 45 sn beklemez, hata çıktısını gösterir; site kopyalamada "199,90 TL" fiyatları ve Türkçe kategori adresleri desteklenir.
+- MCP: uzak araç adları sağlayıcı kuralına uydurulur; giriş akışı yabancı istekte düşmez, tarayıcı açılamazsa adres gösterilir; takılı oturum 3 zaman aşımından sonra yeniden bağlanır; listedeki gömülü anahtarlar maskelenir.
+- Sağlayıcılar: kesik araç argümanı ve çöken akış sessizce kaybolmaz; anahtarsız sağlayıcı ve girişsiz Codex yedek zincirinden ayıklanır, Codex iptalde süreci öldürür; web sağlayıcıda iptal sonrası mesaj iki kez yazılmaz; Ollama adresi `OLLAMA_HOST`'tan okunur.
+- Bellek: kod indeksi sırları maskeler ve `build/` adlı üst klasörde boş kalmaz; Türkçe İ/I aramada eşleşir; ders metni istem bloğunu bozamaz; tur günlüğü argümanları geçerli JSON bırakarak maskeler.
+- Uzak erişim: Tailscale adresine doğrudan bağlanılabilir; cevaplanmayan onay 30 dakika sonra reddedilir; yüksek yetkili kapsamla eşleştirme her zaman masaüstü onayı ister; telefonda gönderim hatasında metin kaybolmaz.
+- Masaüstü kabuğu: gömülü terminal giriş kabuğu olarak açılır (Homebrew/nvm araçları görünür); Kits kapanışta donmaz, gizliyken yoklama yapmaz; Windows çalışma zamanı `%LOCALAPPDATA%`'ya uyar; çalışma zamanı kurulumu zaman aşımlı.
+- CLI: uzun yol ve komutlar araç kartında ortadan kısaltılır; `fusion uninstall --purge` onay ister (`--yes`); `--quiet` önemli uyarıları yutmaz; `fusion agent` başarısızlıkta sıfırdan farklı çıkış kodu verir; hata satırları stderr'e yazılır; `/providers add` anahtarı aynı oturumda etkin olur.
+- Hesaplar: kurtarma kodu 80 bit oldu (eski kodlar çalışır), giriş ve sıfırlamada hesabın varlığı süre farkından anlaşılmaz; avatar yeniden seçimi mevcut avatarı silmez.
+- Gateway paneli iframe'e gömülemez; kaydedilmemiş zincir/hakem değişikliği otomatik yenilemede silinmez; web oturumu kartı model ve sağlayıcı adlarını kaçışlar; "Araç yeteneğini ölç" kota harcadığı için onay ister.
+- Kitaplıkta arama gecikmeli ve son istek kazanır; Woo aktarımı kök dışı görseli kopyalamaz, fiyatsız ürünü taslak bırakır; web iskelesi `style.css` ve `script.js` taslaklarını yazar; Claude geçmişi boşluklu/noktalı klasör adlarında da bulunur.
 
 ## 0.7.18 — 2026-10-21
 
