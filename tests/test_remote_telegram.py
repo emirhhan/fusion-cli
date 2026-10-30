@@ -291,3 +291,10 @@ async def test_parola_kelimesi_gecen_meşru_mesaj_islenir_gercek_sir_reddedilir(
     await harness.bridge.handle_update(update(41, "password: hunter2"))
     assert harness.api.deleted == [(42, 41)]  # düz anahtar=değer kalıbı sır sayılır
     assert len(harness.store.list_tasks(_yerel_sahip())) == 1
+
+
+def test_yardim_metni_desteklenmeyen_duraklatmayi_sunmaz() -> None:
+    """R1-18. Ölçüldü (30 Ekim): yardım /pause /resume sunuyor, ikisi 'desteklenmiyor' dönüyordu."""
+    from fusion_cli.remote.telegram import HELP_TEXT
+
+    assert "/pause" not in HELP_TEXT and "/resume" not in HELP_TEXT

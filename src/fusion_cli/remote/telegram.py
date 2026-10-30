@@ -38,8 +38,10 @@ _LOG = logging.getLogger(__name__)
 #: Köprü hata sonrası yeniden yoklamadan önce bekler.
 RETRY_SECONDS = 3
 
+# /pause ve /resume yardımda ANILMAZ: oturum duraklatma sözleşmesi yok, komutlar dürüstçe
+# "desteklenmiyor" döner (R1-18). Yürütücü destek ekleyince buraya geri eklenir.
 HELP_TEXT = (
-    "Komutlar: /projects /tasks /status /kits /kit <ad> /pause /resume /cancel /audit /devices\n"
+    "Komutlar: /projects /tasks /status /kits /kit <ad> /cancel /audit /devices\n"
     "Düz mesaj yeni görev oluşturur. Riskli işlemler yalnız masaüstünde onaylanır.\n"
     "Bu sohbet uçtan uca şifreli değildir; parola/anahtar yazma."
 )
