@@ -10,6 +10,8 @@ ama farklı amaçlar taşır — biri denetim, biri geri-çağrılabilir bellek.
 
 from __future__ import annotations
 
+import re
+
 from ...core.memory import Lesson, LessonKind, LessonMemory, LessonSource
 
 #: Bir ders metninde olumsuzlama/yasaklama işareti. Kaba bir sezgi: iki ders
@@ -19,7 +21,13 @@ from ...core.memory import Lesson, LessonKind, LessonMemory, LessonSource
 #: pozitif/negatif üretebilir — ama sessizce çelişen iki dersi aynı anda
 #: belleğe koymaktan daha güvenlidir. Belirsizlikte YAZILIR: ders belleğini
 #: agresif biçimde kısırlaştırmaz.
-_CATISMA_ISARETLERI = ("değil", "yapma", "kullanma", "etme", "asla", "sakın", "olmaz", "yanlış")
+#
+#: Alt dize eşlemesi `yapma` ⊂ `yapmak`, `etme` ⊂ `gözetme` gibi sözcüklerde yanlış tetikliyordu
+#: ve uzun cevapların hemen hepsi "olumsuzlamalı" görünüyordu (A4-35): sözcük sınırı aranır.
+_CATISMA_ISARETLERI = re.compile(
+    r"(?<!\w)(?:değil|(?:yap|kullan|et)(?:ma|mayın|meyin)|asla|sakın|olmaz|yanlış)(?!\w)",
+    re.IGNORECASE,
+)
 
 #: Ders metni olarak saklanacak öğretmen cevabının üst sınırı. Ders belleği kısa,
 #: yordamsal dersler için tasarlanmıştır (bkz. `memory/lessons.py`); öğretmenin
@@ -50,6 +58,6 @@ def sync_teacher_lesson(memory: LessonMemory, *, question: str, answer: str) -> 
 
 
 def _olasi_catisma(yeni: str, mevcut: str) -> bool:
-    yeni_isaretli = any(k in yeni.lower() for k in _CATISMA_ISARETLERI)
-    mevcut_isaretli = any(k in mevcut.lower() for k in _CATISMA_ISARETLERI)
+    yeni_isaretli = _CATISMA_ISARETLERI.search(yeni) is not None
+    mevcut_isaretli = _CATISMA_ISARETLERI.search(mevcut) is not None
     return yeni_isaretli != mevcut_isaretli

@@ -341,10 +341,7 @@ def settle_teacher_plan(
     if fresh is None:
         return
     changed = len(deps.tool_context.changes.paths)
-    if verification is None:
-        gate = "çalışmadı"
-    else:
-        gate = "geçti" if verification.ok else "başarısız"
+    gate = "çalışmadı" if verification is None else ("geçti" if verification.ok else "başarısız")
     if record_plan_outcome(
         deps.lessons,
         task=task,

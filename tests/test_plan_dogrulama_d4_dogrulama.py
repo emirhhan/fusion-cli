@@ -345,3 +345,57 @@ def test_test_komutu_deseni_latest_ve_contest_e_takilmaz():
     assert _TEST_COMMAND.search("npm test")
     assert not _TEST_COMMAND.search("git checkout latest")
     assert not _TEST_COMMAND.search("cat contest.txt")
+
+
+# --- A4-35 / A4-36 / A4-37: öğretmen ders, bütçe ve günlük ---------------------------- #
+
+
+def test_ders_celiski_sezgisi_sozcuk_sinirina_bakar():
+    from fusion_cli.engines.agent.teacher_lessons import _olasi_catisma
+
+    # "yapmak" / "gözetmek" olumsuzlama değildir: iki ders aynı yönde.
+    assert not _olasi_catisma("Testleri yapmak için pytest kullan", "Önce testleri yazmak gerekir")
+    assert _olasi_catisma("Bu klasörde write_file kullanma", "write_file ile yaz")
+    assert _olasi_catisma("Asla sudo çalıştırma", "sudo ile kur")
+
+
+def test_butce_dosyasi_yazilamazsa_arac_cokmez(tmp_path):
+    from fusion_cli.engines.agent.teacher_budget import check_and_spend
+
+    # `.fusion` yerine DOSYA koy: mkdir/yazma OSError verir.
+    (tmp_path / ".fusion").write_text("dosya", encoding="utf-8")
+
+    kontrol = check_and_spend(tmp_path, now=1000.0)
+
+    assert kontrol.allowed is True
+
+
+def test_butce_sayaci_atomik_yazilir_ve_gecici_dosya_birakmaz(tmp_path):
+    from fusion_cli.engines.agent.teacher_budget import BUDGET_PATH, check_and_spend
+
+    check_and_spend(tmp_path, now=1000.0)
+    check_and_spend(tmp_path, now=1001.0)
+
+    klasor = (tmp_path / BUDGET_PATH).parent
+    assert sorted(p.name for p in klasor.iterdir()) == ["ogretmen-butce.json"]
+
+
+def test_ogretmen_gunlugu_ekleme_kipinde_maskeler_ve_bozuk_utf8de_cokmez(tmp_path):
+    from fusion_cli.engines.agent.teacher_notebook import NOTEBOOK_PATH, append_entry
+
+    yol = tmp_path / NOTEBOOK_PATH
+    yol.parent.mkdir(parents=True)
+    yol.write_bytes("# Öğretmen günlüğü\n".encode() + b"\xff\xfe bozuk bayt\n")
+
+    append_entry(
+        tmp_path,
+        timestamp="t1",
+        question="soru",
+        answer="anahtar ghp_" + "a" * 36,
+        lesson_written=False,
+    )
+
+    metin = yol.read_text(encoding="utf-8", errors="replace")
+    assert "bozuk bayt" in metin
+    assert "ghp_" + "a" * 36 not in metin
+    assert "## t1" in metin

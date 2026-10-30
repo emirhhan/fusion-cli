@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ...core.redaction import redact
+
 #: `.fusion/tools` (`forge.py`) ile aynı kökte, aynı yazım biçiminde.
 NOTEBOOK_PATH = ".fusion/ogretmen.md"
 
@@ -34,19 +36,20 @@ def append_entry(
     """Bir öğretmen danışmasını günlüğe ekle; dosyanın yolunu döndür."""
     hedef = root / NOTEBOOK_PATH
     hedef.parent.mkdir(parents=True, exist_ok=True)
-    mevcut = hedef.read_text(encoding="utf-8") if hedef.exists() else _HEADER
-    hedef.write_text(
-        mevcut
-        + _format_entry(
-            timestamp=timestamp,
-            question=question,
-            durum=durum,
-            answer=answer,
-            lesson_written=lesson_written,
-            lesson_skip_reason=lesson_skip_reason,
-        ),
-        encoding="utf-8",
+    # Soru/durum/cevap kod parçası ve sır taşıyabilir; `.fusion/` git'e eklenirse sızmasın
+    # (A4-37). Ekleme kipi: her çağrıda tüm dosyayı okuyup yeniden yazmak O(n)'di, bozuk
+    # UTF-8'de çöküyordu ve eşzamanlı eklemede kayıp veriyordu.
+    giris = _format_entry(
+        timestamp=timestamp,
+        question=redact(question),
+        durum=redact(durum),
+        answer=redact(answer),
+        lesson_written=lesson_written,
+        lesson_skip_reason=lesson_skip_reason,
     )
+    yeni = not hedef.exists()
+    with hedef.open("a", encoding="utf-8", errors="replace") as dosya:
+        dosya.write((_HEADER if yeni else "") + giris)
     return hedef
 
 

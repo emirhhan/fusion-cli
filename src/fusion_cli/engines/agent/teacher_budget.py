@@ -26,7 +26,10 @@ seçildi).
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -88,7 +91,21 @@ def _oku(hedef: Path) -> tuple[float, int] | None:
 
 
 def _yaz(hedef: Path, pencere_baslangic: float, sayac: int) -> None:
-    hedef.parent.mkdir(parents=True, exist_ok=True)
-    hedef.write_text(
-        json.dumps({"pencere_baslangic": pencere_baslangic, "sayac": sayac}), encoding="utf-8"
-    )
+    """Sayacı geçici dosyaya yazıp `os.replace` ile yerine koy (yarım yazma bozuk JSON bırakmaz).
+
+    Salt-okunur çalışma alanı ya da dolu disk `ask_teacher`'ı bütçe kontrolünde çökertmesin
+    (A4-36): yazılamayan sayaç yalnız o pencerede eksik sayılır; bütçe güvenlik sınırı değil,
+    ihtiyatlı bir üst sınırdır (bkz. `check_and_spend`).
+    """
+    gecici = hedef.with_name(f"{hedef.name}.{os.getpid()}.tmp")
+    try:
+        hedef.parent.mkdir(parents=True, exist_ok=True)
+        gecici.write_text(
+            json.dumps({"pencere_baslangic": pencere_baslangic, "sayac": sayac}),
+            encoding="utf-8",
+        )
+        gecici.replace(hedef)
+    except OSError:
+        logging.getLogger(__name__).warning("Öğretmen bütçe sayacı yazılamadı", exc_info=True)
+        with contextlib.suppress(OSError):
+            gecici.unlink(missing_ok=True)
