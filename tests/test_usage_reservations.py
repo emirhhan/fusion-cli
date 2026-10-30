@@ -201,3 +201,33 @@ def test_ozet_satiri_iptal_edilen_cagriyi_alt_sinir_olarak_gosterir() -> None:
     assert "+1 çağrının tüketimi bilinmiyor" in cost_summary(izleyici)
     izleyici.reset()
     assert izleyici.abandoned_calls == 0
+
+
+class _Patlayan:
+    """Sonuç yerine istisna fırlatan sağlayıcı (sözleşme dışı ama olabilir)."""
+
+    label = "patlayan/model"
+
+    async def complete(self, request: CompletionRequest) -> ModelResult:
+        raise RuntimeError("beklenmedik")
+
+    async def stream(self, request: CompletionRequest):
+        raise RuntimeError("beklenmedik")
+        yield  # pragma: no cover
+
+
+async def test_beklenmedik_istisna_da_bitis_ya_da_iptal_olayiyla_kapanir() -> None:
+    """Ölçüldü (30 Ekim): yalnız CancelledError/GeneratorExit kapanış yayınlıyordu; sağlayıcı
+    istisna fırlatırsa `ModelCallStarted` açık kalıyor, arayüz 'çalışıyor'da takılıyordu
+    (P1-11)."""
+    yayin = _Yayin()
+    saglayici = EventingProvider(_Patlayan(), publisher=yayin, role="agent")
+
+    with pytest.raises(RuntimeError):
+        await saglayici.complete(_istek())
+    with pytest.raises(RuntimeError):
+        async for _ in saglayici.stream(_istek()):
+            pass
+
+    assert len([e for e in yayin.events if isinstance(e, ModelCallStarted)]) == 2
+    assert len([e for e in yayin.events if isinstance(e, ModelCallAbandoned)]) == 2

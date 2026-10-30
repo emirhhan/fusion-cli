@@ -57,8 +57,9 @@ class EventingProvider:
         self._publisher.publish(self._started(call_id))
         try:
             result = await self._inner.complete(request)
-        except asyncio.CancelledError:
-            # Zaman aşımı ya da kesilen yavaş aday: bitiş olayı hiç gelmeyecek.
+        except (asyncio.CancelledError, Exception):
+            # Zaman aşımı, kesilen yavaş aday ya da sözleşme dışı istisna: bitiş olayı
+            # hiç gelmeyecek; açık kalan "çalışıyor" durumu kapatılır (P1-11).
             self._publish_abandoned(call_id)
             raise
         self._publish_finished(result, call_id)
@@ -82,7 +83,7 @@ class EventingProvider:
                     finished = True
                     self._publish_finished(item.result, call_id)
                 yield item
-        except (asyncio.CancelledError, GeneratorExit):
+        except (asyncio.CancelledError, GeneratorExit, Exception):
             if not finished:
                 self._publish_abandoned(call_id)
             raise
