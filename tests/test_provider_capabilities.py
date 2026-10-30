@@ -89,3 +89,24 @@ def test_browser_profili_tek_oturumludur_ve_zorunlu_yetenek_fallbackta_dusmez():
         )
         == capable
     )
+
+
+def test_web_oneki_kumesi_kayit_defterinden_turetilir():
+    """Ölçüldü (30 Ekim): web önekleri `capabilities.py`'de elle yazılmış ikinci kopyaydı;
+    yeni web sağlayıcı eklenince unutulurdu (P1-26)."""
+    from fusion_cli.providers.capabilities import WEB_PROVIDER_IDS
+    from fusion_cli.providers.registry import BUILTIN_PROVIDERS, ProviderKind
+
+    beklenen = {p.id for p in BUILTIN_PROVIDERS if p.kind is ProviderKind.BROWSER_BACKED}
+
+    assert beklenen == WEB_PROVIDER_IDS
+    assert {"chatgpt_web", "claude_web", "gemini_web", "copilot_web"} <= WEB_PROVIDER_IDS
+
+
+def test_buyuk_i_ile_baslayan_turkce_gorev_internet_gereksinimini_yakalar():
+    """`"İnternet".casefold()` = 'i̇nternet' (birleşik nokta) → 'internet' ile eşleşmiyordu
+    (P1-25)."""
+    from fusion_cli.providers.capabilities import infer_task_requirements
+
+    assert infer_task_requirements("İnternet'ten fiyatları bul").tools is True
+    assert infer_task_requirements("İNTERNET araştırması").tools is True

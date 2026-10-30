@@ -12,6 +12,12 @@ from ..core.errors import ConfigError
 from ..core.model_capability import ToolSupport
 from ..core.types import ModelSpec
 from .codex_cli import is_codex_model
+from .registry import BUILTIN_PROVIDERS, ProviderKind
+
+#: Tarayıcı destekli web sağlayıcılar: kayıt defterinden türetilir (elle ikinci kopya yok).
+WEB_PROVIDER_IDS = frozenset(
+    provider.id for provider in BUILTIN_PROVIDERS if provider.kind is ProviderKind.BROWSER_BACKED
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,12 +68,7 @@ def capabilities_for(
             else "unverified",
             last_evaluated_at=session.tool_evaluated_at or 0.0,
         )
-    if spec.model.split("/", 1)[0] in {
-        "chatgpt_web",
-        "claude_web",
-        "gemini_web",
-        "copilot_web",
-    }:
+    if spec.model.split("/", 1)[0] in WEB_PROVIDER_IDS:
         return ProviderCapabilities(
             tools=True,
             native_tools=False,
@@ -169,7 +170,8 @@ def infer_task_requirements(
     aynı araçları çağırabilir. PNG üretmek de modele resim girdisi göndermek değildir.
     Açık taşıma gereksinimleri gerektiğinde TaskRequirements ile ayrıca verilir.
     """
-    lowered = task.casefold()
+    # `casefold` Türkçe `İ`yi birleşik noktalı 'i̇' yapar ("İnternet" ≠ "internet").
+    lowered = task.replace("İ", "i").replace("I", "i").casefold()
     web = any(word in lowered for word in ("internet", "webden", "web'den", "asset topla"))
     mutation_words = (
         "oluştur",
