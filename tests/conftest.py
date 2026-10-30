@@ -154,3 +154,16 @@ def _yerlesik_beceriler_yalitilir(tmp_path_factory, monkeypatch):
 def _codex_hazir_degil(monkeypatch: pytest.MonkeyPatch) -> None:
     """Testler makinedeki gerçek Codex girişine bağlı olmasın: öğretmen yedeği eklenmez."""
     monkeypatch.setattr("fusion_cli.providers.codex_cli.codex_ready", lambda: False)
+
+
+@pytest.fixture(autouse=True)
+def godot_kesfi_makineden_bagimsiz(monkeypatch):
+    """Kapı komutları makinede kurulu Godot'a bağlı olmasın (E1-10).
+
+    `GODOT_BIN` temizlenir ve uygulama paketi aranmaz; keşfi sınayan testler
+    `monkeypatch` ile kendi ortamını kurar.
+    """
+    from fusion_cli.engines.agent.domain_adapters import godot
+
+    monkeypatch.delenv("GODOT_BIN", raising=False)
+    monkeypatch.setattr(godot, "GODOT_APP_BUNDLES", ())

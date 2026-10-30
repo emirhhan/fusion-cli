@@ -692,7 +692,7 @@ def _reported_failure(
     """
     lowered = output.casefold()
     for entry in failure_markers:
-        if not re.search(rf"\b{re.escape(entry.tool)}\b", command):
+        if not re.search(rf"\b{re.escape(entry.tool)}\b", command, re.IGNORECASE):
             continue
         for marker in entry.markers:
             if marker in lowered:
