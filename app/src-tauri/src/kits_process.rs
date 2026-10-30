@@ -5,10 +5,11 @@
 //! iframe ile gömer. Bu modül yalnız süreç sahipliğini taşır: Kits'in kendi
 //! owner token'ı, veritabanı ve `.env` ayarı Kits'e aittir, buradan okunmaz.
 
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -32,6 +33,10 @@ pub struct KitsStatus {
 }
 
 const KITS_LOG_FILE: &str = "kits.log";
+/// Hazırlık makbuzu için okunan günlük kuyruğu.
+const READY_LOG_TAIL: u64 = 256 * 1024;
+/// `node --version` yoklamasının en uzun süresi; takılan bir aday tüm başlatmayı bloklamasın.
+const NODE_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct Running {
     child: Child,
@@ -41,6 +46,11 @@ struct Running {
 #[derive(Default)]
 pub struct KitsManager {
     running: Mutex<Option<Running>>,
+    /// Başlatıcıları sıraya dizer; `running` kilidi bekleme boyunca TUTULMAZ, yoksa uygulama
+    /// kapanırken `stop()` 30+ sn bloke olurdu (R2-07).
+    start_gate: Mutex<()>,
+    /// `stop()` çağrıldı: bekleyen başlatma vazgeçer, hazır olan çocuk yetim bırakılmaz.
+    stopping: AtomicBool,
 }
 
 impl KitsManager {
@@ -56,17 +66,26 @@ impl KitsManager {
         resource_dir: Option<&Path>,
         core: &Path,
     ) -> Result<KitsStatus, String> {
-        let mut slot = self
-            .running
+        let _gate = self
+            .start_gate
             .lock()
-            .map_err(|_| "Kits süreç kilidi alınamadı.".to_string())?;
-        if let Some(running) = slot.as_mut() {
-            if matches!(running.child.try_wait(), Ok(None)) {
-                return Ok(KitsStatus {
-                    url: running.url.clone(),
-                });
+            .map_err(|_| "Kits başlatma kilidi alınamadı.".to_string())?;
+        {
+            let mut slot = self
+                .running
+                .lock()
+                .map_err(|_| "Kits süreç kilidi alınamadı.".to_string())?;
+            if let Some(running) = slot.as_mut() {
+                if matches!(running.child.try_wait(), Ok(None)) {
+                    return Ok(KitsStatus {
+                        url: running.url.clone(),
+                    });
+                }
+                *slot = None;
             }
-            *slot = None;
+        }
+        if self.stopping.load(Ordering::SeqCst) {
+            return Err("Uygulama kapanıyor; Kits başlatılmadı.".to_string());
         }
         let kits_dir = find_kits_dir(&kits_dir_candidates(data_dir, resource_dir))?;
         let node = find_node(&node_candidates(home, resource_dir))?;
@@ -118,12 +137,23 @@ impl KitsManager {
             READY_TIMEOUT,
             &data_dir.join(KITS_LOG_FILE),
             &nonce,
+            &self.stopping,
         ) {
             let _ = child.kill();
             let _ = child.wait();
             return Err(error);
         }
         let url = format!("http://127.0.0.1:{port}");
+        let mut slot = self
+            .running
+            .lock()
+            .map_err(|_| "Kits süreç kilidi alınamadı.".to_string())?;
+        if self.stopping.load(Ordering::SeqCst) {
+            // Hazır olurken uygulama kapanmaya başladı: çocuk yetim kalmasın.
+            drop(slot);
+            terminate_gracefully(&mut child);
+            return Err("Uygulama kapanıyor; Kits durduruldu.".to_string());
+        }
         *slot = Some(Running {
             child,
             url: url.clone(),
@@ -134,6 +164,7 @@ impl KitsManager {
     /// Uygulama kapanırken çağrılır. Kits SIGTERM'de kendi çocuklarını kapatır;
     /// süre dolarsa zorla sonlandırılır.
     pub fn stop(&self) {
+        self.stopping.store(true, Ordering::SeqCst);
         let Ok(mut slot) = self.running.lock() else {
             return;
         };
@@ -158,9 +189,11 @@ fn log_sink(data_dir: &Path) -> Stdio {
 fn terminate_gracefully(child: &mut Child) {
     #[cfg(unix)]
     {
-        let _ = Command::new("kill")
-            .args(["-TERM", &child.id().to_string()])
-            .status();
+        // PATH'e bağlı `kill` komutu yerine doğrudan sistem çağrısı (GUI'de PATH minimaldir).
+        if let Ok(pid) = i32::try_from(child.id()) {
+            // SAFETY: `pid` bu işlemin kendi çocuğunun kimliğidir; sinyal göndermek bellek güvenliğini etkilemez.
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+        }
         let deadline = Instant::now() + crate::core_process::DURDURMA_ZAMAN_ASIMI;
         while Instant::now() < deadline {
             if !matches!(child.try_wait(), Ok(None)) {
@@ -192,17 +225,30 @@ fn ready_receipt_matches(line: &str, nonce: &str, pid: u32, port: u16) -> bool {
 }
 
 fn readiness_logged(log: &Path, nonce: &str, pid: u32, port: u16) -> Result<bool, String> {
-    let file = match std::fs::File::open(log) {
+    let mut file = match std::fs::File::open(log) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(_) => return Err("Kits başlangıç kaydı açılamadı.".to_string()),
     };
+    // Kits açılışta çok yazarsa (npm uyarıları, hata ayıklama) dosya 256 KB'ı aşabilir; bu
+    // hata sayılmaz: yalnız SON 256 KB okunur (R2-08). Kesilen ilk yarım satır atılır.
+    let length = file
+        .metadata()
+        .map_err(|_| "Kits başlangıç kaydı okunamadı.".to_string())?
+        .len();
+    let start = length.saturating_sub(READY_LOG_TAIL);
+    file.seek(SeekFrom::Start(start))
+        .map_err(|_| "Kits başlangıç kaydı okunamadı.".to_string())?;
     let mut bytes = Vec::new();
-    file.take(256 * 1024 + 1)
+    file.take(READY_LOG_TAIL)
         .read_to_end(&mut bytes)
         .map_err(|_| "Kits başlangıç kaydı okunamadı.".to_string())?;
-    if bytes.len() > 256 * 1024 {
-        return Err("Kits başlangıç kaydı boyut sınırını aştı.".to_string());
+    if start > 0 {
+        let first_line = bytes
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(bytes.len(), |index| index + 1);
+        bytes.drain(..first_line);
     }
     // Yazılmakta olan son satır veya yarım UTF-8 sağlıklı çocuğu düşürmez.
     Ok(bytes.split_inclusive(|byte| *byte == b'\n').any(|line| {
@@ -218,10 +264,14 @@ fn wait_ready_owned(
     timeout: Duration,
     log: &Path,
     nonce: &str,
+    abort: &AtomicBool,
 ) -> Result<(), String> {
     let address = SocketAddr::from(([127, 0, 0, 1], port));
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
+        if abort.load(Ordering::SeqCst) {
+            return Err("Uygulama kapanıyor; Kits beklemesi bırakıldı.".to_string());
+        }
         match child.try_wait() {
             Ok(Some(status)) => return Err(format!("Fusion Kits başlatılamadı ({status}). Yeniden dene; sorun sürerse Fusion uygulama paketini güncelle.")),
             Err(_) => return Err("Kits süreç durumu okunamadı.".to_string()),
@@ -253,11 +303,22 @@ fn free_port() -> Result<u16, String> {
         .map_err(|error| format!("Kits için boş port bulunamadı: {error}"))
 }
 
+/// Geliştirici ortam değişkeni geçersiz kılmaları YALNIZ hata ayıklama derlemesinde etkindir
+/// (R2-10): yayında ortam değişkeniyle keyfi Node/JS çalıştırılamaz; çekirdekteki
+/// "paketlenmiş olandan başka çalıştırma" ilkesiyle aynı çizgi.
+fn developer_override(name: &str) -> Option<std::ffi::OsString> {
+    if cfg!(debug_assertions) {
+        std::env::var_os(name)
+    } else {
+        None
+    }
+}
+
 /// Aranan sıra: açık ayar → uygulamayla gelen paket → uygulama verisine kurulmuş
 /// kopya (`<veri>/app`) → geliştirici düzeni (depo yanındaki `fusion-kits`).
 fn kits_dir_candidates(data_dir: &Path, resource_dir: Option<&Path>) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
-    if let Some(explicit) = std::env::var_os("FUSION_KITS_DIR") {
+    if let Some(explicit) = developer_override("FUSION_KITS_DIR") {
         candidates.push(PathBuf::from(explicit));
     }
     // Uygulamayla birlikte gelen paket, elle kurulan kopyadan önce gelir: sürümü
@@ -286,7 +347,7 @@ fn find_kits_dir(candidates: &[PathBuf]) -> Result<PathBuf, String> {
 
 fn node_candidates(home: &Path, resource_dir: Option<&Path>) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
-    if let Some(explicit) = std::env::var_os("FUSION_KITS_NODE") {
+    if let Some(explicit) = developer_override("FUSION_KITS_NODE") {
         candidates.push(PathBuf::from(explicit));
     }
     // Uygulamayla birlikte gelen Node: kullanıcının makinesinde Node kurulu olmayabilir.
@@ -332,11 +393,34 @@ fn find_node(candidates: &[PathBuf]) -> Result<PathBuf, String> {
 }
 
 fn node_major(node: &Path) -> Option<u32> {
-    let output = crate::core_process::pencere_acmadan(Command::new(node).arg("--version"))
+    node_major_within(node, NODE_PROBE_TIMEOUT)
+}
+
+fn node_major_within(node: &Path, timeout: Duration) -> Option<u32> {
+    let mut child = crate::core_process::pencere_acmadan(Command::new(node).arg("--version"))
         .stdin(Stdio::null())
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
         .ok()?;
-    parse_node_major(&String::from_utf8_lossy(&output.stdout))
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            _ => {
+                // Takılan aday: öldür ve atla (R2-07).
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    let mut output = String::new();
+    child.stdout.take()?.read_to_string(&mut output).ok()?;
+    parse_node_major(&output)
 }
 
 fn parse_node_major(version: &str) -> Option<u32> {
@@ -412,6 +496,7 @@ mod tests {
             Duration::from_secs(10),
             &temp.path().join("kits.log"),
             "test-nonce",
+            &AtomicBool::new(false),
         )
         .unwrap_err();
         let _ = child.wait();
@@ -465,6 +550,7 @@ mod tests {
             Duration::from_millis(300),
             &log,
             "test-nonce",
+            &AtomicBool::new(false),
         );
         let _ = child.kill();
         let _ = child.wait();
@@ -484,5 +570,87 @@ mod tests {
         data.push(10);
         std::fs::write(&log, data).unwrap();
         assert_eq!(readiness_logged(&log, "test", 123, 4411), Ok(true));
+    }
+
+    #[test]
+    fn buyuk_gunluk_hazir_sureci_dusurmez_makbuz_kuyrukta_bulunur() {
+        // Ölçüldü (30 Ekim): 256 KB'ı aşan günlük 'boyut sınırını aştı' hatasıyla başlatmayı iptal ediyordu.
+        let temp = tempfile::tempdir().unwrap();
+        let log = temp.path().join("kits.log");
+        let mut data = vec![b'x'; 600 * 1024];
+        data.push(b'\n');
+        data.extend_from_slice(br#"{"fusion_kits_ready":1,"nonce":"test","pid":123,"port":4411}"#);
+        data.push(b'\n');
+        std::fs::write(&log, &data).unwrap();
+        assert_eq!(readiness_logged(&log, "test", 123, 4411), Ok(true));
+        assert_eq!(readiness_logged(&log, "baska", 123, 4411), Ok(false));
+    }
+
+    #[test]
+    fn kesilen_ilk_satir_kuyruk_okumasinda_atilir() {
+        let temp = tempfile::tempdir().unwrap();
+        let log = temp.path().join("kits.log");
+        // Makbuzun yarısı kuyruk sınırının dışında kalır: yarım satır makbuz sayılmaz.
+        let mut data = br#"{"fusion_kits_ready":1,"nonce":"test","pid":123,"port":4411}"#.to_vec();
+        data.push(b'\n');
+        data.extend(std::iter::repeat_n(b'y', 300 * 1024));
+        data.push(b'\n');
+        std::fs::write(&log, &data).unwrap();
+        assert_eq!(readiness_logged(&log, "test", 123, 4411), Ok(false));
+    }
+
+    #[test]
+    fn kapanis_istenince_hazirlik_beklemesi_hemen_birakilir() {
+        let temp = tempfile::tempdir().unwrap();
+        let log = temp.path().join("kits.log");
+        std::fs::write(&log, b"").unwrap();
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "kits_process::tests::hazirlik_cocuk_bekleyici",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let baslangic = Instant::now();
+        let sonuc = wait_ready_owned(
+            &mut child,
+            free_port().unwrap(),
+            Duration::from_secs(30),
+            &log,
+            "test-nonce",
+            &AtomicBool::new(true),
+        );
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(sonuc.unwrap_err().contains("kapanıyor"));
+        assert!(baslangic.elapsed() < Duration::from_secs(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn takilan_node_adayi_zaman_asiminda_atlanir() {
+        // Ölçüldü (30 Ekim): `node --version` zaman aşımsızdı; takılan aday başlatmayı bloklardı.
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let betik = temp.path().join("node");
+        std::fs::write(&betik, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        std::fs::set_permissions(&betik, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let baslangic = Instant::now();
+        assert_eq!(node_major_within(&betik, Duration::from_millis(300)), None);
+        assert!(baslangic.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn durdurma_baslatmadan_once_istenmisse_baslatma_reddedilir() {
+        let yonetici = KitsManager::new();
+        yonetici.stop();
+        let temp = tempfile::tempdir().unwrap();
+        let hata = yonetici
+            .ensure_started(temp.path(), temp.path(), None, Path::new("/yok"))
+            .unwrap_err();
+        assert!(hata.contains("kapanıyor"));
     }
 }
