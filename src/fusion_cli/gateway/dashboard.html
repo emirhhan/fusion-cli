@@ -65,7 +65,7 @@
             <h1 id="pageTitle">Genel</h1>
             <div class="sub" id="pageSub">Panele genel bakış</div>
           </div>
-          <div class="topbar-right"><span class="status-pill">yerel · çalışıyor</span></div>
+          <div class="topbar-right"><span class="status-pill" id="statusPill" role="status">yerel · çalışıyor</span></div>
         </div>
         <div class="content" aria-busy="true">
           <!-- GENEL -->
@@ -168,7 +168,7 @@
             <h2>Yönlendirme stratejisi</h2>
             <div class="card">
               <div class="row">
-                <select id="strategy" class="grow"></select>
+                <select id="strategy" class="grow" onchange="markRoutingDirty()"></select>
                 <button onclick="busyClick(event, saveRouting)">Kaydet</button>
               </div>
               <div class="hint" style="margin-bottom:0">priority = ölçülmüş sıra (varsayılan). free_first = ücretsizler önce. headroom = en sağlıklı önce. round_robin/random = dağıt.</div>
@@ -193,7 +193,7 @@
             <div class="hint">İstek başarısız olursa bu modeller SIRAYLA denenir. Sırayı değiştir, ekle/çıkar, "Zinciri Kaydet"e bas.</div>
             <div class="card">
               <label class="checkline" style="margin-bottom:var(--space-3)">
-                <input type="checkbox" id="strictModel" />
+                <input type="checkbox" id="strictModel" onchange="markChainDirty()" />
                 Seçili baş modeli zorunlu kullan; başarısızsa başka modele sessizce geçme
               </label>
               <div class="hint">Açıkken fallback zinciri config'te korunur fakat bu agent rolünde çalıştırılmaz. Web AI'ı gerçekten test ederken açık tut.</div>

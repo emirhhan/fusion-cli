@@ -245,6 +245,7 @@ input[type="checkbox"] { cursor: pointer; }
   border-radius: var(--radius-pill);
   padding: var(--space-1) var(--space-3);
 }
+.status-pill.off { color: var(--warn-ink); background: var(--warn-tint); }
 .status-pill::before {
   content: "";
   width: 6px;
@@ -253,6 +254,7 @@ input[type="checkbox"] { cursor: pointer; }
   background: currentColor;
   box-shadow: 0 0 0 3px var(--ok-tint);
 }
+.status-pill.off::before { box-shadow: 0 0 0 3px var(--warn-tint); }
 
 /* ----------------------------------------------------------------------- */
 /* Kategori çipleri                                                         */

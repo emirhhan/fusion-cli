@@ -10,6 +10,13 @@ const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const jsArg = (v) => esc(JSON.stringify(String(v ?? "")));
 let STATE = null, chain = [], judge = [];
+// Kaydedilmemiş düzenleme bayrakları. Ölçüldü (30 Ekim): her 5 sn'lik canlı tazeleme
+// `render()` ile zinciri/hakemi/stratejiyi sunucudan yeniden atıyor, kullanıcı "Kaydet"e
+// basmadan başka sekmeye geçince düzenleme sessizce siliniyordu. Kirli iken `render()` ezmez;
+// ilgili kaydet başarılı olunca bayrak düşer.
+let chainDirty = false, judgeDirty = false, routingDirty = false;
+function markChainDirty() { chainDirty = true; }
+function markRoutingDirty() { routingDirty = true; }
 
 // Durumun kendiliğinden tazelendiği sekmeler: yalnız canlı veri gösterenler.
 const LIVE_TABS = ["genel", "analitik", "saglik"];
@@ -32,11 +39,14 @@ function bindNav() {
   });
 }
 
+// Üst üste gelen bildirimlerde eski zamanlayıcı yenisini erken kapatmasın.
+let toastTimer = null;
 function toast(msg, err) {
   const el = $("toast");
   el.textContent = msg;
   el.className = "toast show" + (err ? " err" : "");
-  setTimeout(() => el.className = "toast" + (err ? " err" : ""), 2200);
+  if (toastTimer !== null) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastTimer = null; el.className = "toast" + (err ? " err" : ""); }, 2200);
 }
 
 /* --------------------------------------------------------------------- */
@@ -79,7 +89,7 @@ function busyClick(event, work) {
 async function post(url, body) {
   const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error((d.error && d.error.message) || "hata");
+  if (!r.ok) throw new Error((d.error && d.error.message) || `hata (HTTP ${r.status})`);
   return d;
 }
 
@@ -213,23 +223,23 @@ function renderChain() {
     || emptyState("Yedek zinciri boş",
          "Aşağıdan bir model ekle; ilk sıradaki baş model olur.");
 }
-function moveChain(i, d) { const j = i + d; if (j < 0 || j >= chain.length) return; [chain[i], chain[j]] = [chain[j], chain[i]]; renderChain(); }
-function rmChain(i) { chain.splice(i, 1); renderChain(); }
-function addChain() { const v = $("newModel").value.trim(); if (v) { chain.push(v); $("newModel").value = ""; renderChain(); } }
-function setHead() { const v = $("agentHead").value.trim(); if (!v) return; chain = [v, ...chain.filter((m) => m !== v)]; $("agentHead").value = ""; renderChain(); toast("baş model ayarlandı — 'Zinciri Kaydet'e bas"); }
+function moveChain(i, d) { const j = i + d; if (j < 0 || j >= chain.length) return; [chain[i], chain[j]] = [chain[j], chain[i]]; chainDirty = true; renderChain(); }
+function rmChain(i) { chain.splice(i, 1); chainDirty = true; renderChain(); }
+function addChain() { const v = $("newModel").value.trim(); if (v) { chain.push(v); chainDirty = true; $("newModel").value = ""; renderChain(); } }
+function setHead() { const v = $("agentHead").value.trim(); if (!v) return; chain = [v, ...chain.filter((m) => m !== v)]; chainDirty = true; $("agentHead").value = ""; renderChain(); toast("baş model ayarlandı — 'Zinciri Kaydet'e bas"); }
 
 function renderJudge() {
   $("judge").innerHTML = judge.map((m, i) => chainRow(m, i, "Judge")).join("")
     || emptyState("Hakem modeli seçilmedi",
          "Fusion motoru adayları karşılaştırmak için bir hakem modeli kullanır.");
 }
-function moveJudge(i, d) { const j = i + d; if (j < 0 || j >= judge.length) return; [judge[i], judge[j]] = [judge[j], judge[i]]; renderJudge(); }
-function rmJudge(i) { judge.splice(i, 1); renderJudge(); }
-function addJudge() { const v = $("newJudge").value.trim(); if (v) { judge.push(v); $("newJudge").value = ""; renderJudge(); } }
+function moveJudge(i, d) { const j = i + d; if (j < 0 || j >= judge.length) return; [judge[i], judge[j]] = [judge[j], judge[i]]; judgeDirty = true; renderJudge(); }
+function rmJudge(i) { judge.splice(i, 1); judgeDirty = true; renderJudge(); }
+function addJudge() { const v = $("newJudge").value.trim(); if (v) { judge.push(v); judgeDirty = true; $("newJudge").value = ""; renderJudge(); } }
 
-async function saveJudge() { try { const d = await post("/api/model", { role: "judge", models: judge }); toast(d.saved ? "hakem kaydedildi" : "uygulandı (yazılamadı)"); await load(); } catch (e) { toast(e.message, true); } }
-async function saveRouting() { try { const d = await post("/api/routing", { strategy: $("strategy").value }); toast("yönlendirme: " + d.strategy); await load(); } catch (e) { toast(e.message, true); } }
-async function saveFallback() { try { const d = await post("/api/fallback", { models: chain, strict: $("strictModel").checked }); toast(d.saved ? "zincir kaydedildi" : "uygulandı (dosyaya yazılamadı)"); await load(); } catch (e) { toast(e.message, true); } }
+async function saveJudge() { try { const d = await post("/api/model", { role: "judge", models: judge }); judgeDirty = false; toast(d.saved ? "hakem kaydedildi" : "uygulandı (yazılamadı)"); await load(); } catch (e) { toast(e.message, true); } }
+async function saveRouting() { try { const d = await post("/api/routing", { strategy: $("strategy").value }); routingDirty = false; toast("yönlendirme: " + d.strategy); await load(); } catch (e) { toast(e.message, true); } }
+async function saveFallback() { try { const d = await post("/api/fallback", { models: chain, strict: $("strictModel").checked }); chainDirty = false; toast(d.saved ? "zincir kaydedildi" : "uygulandı (dosyaya yazılamadı)"); await load(); } catch (e) { toast(e.message, true); } }
 async function resetHealth() { try { await post("/api/health/reset", {}); toast("sağlık sıfırlandı"); await load(); } catch (e) { toast(e.message, true); } }
 
 /* --------------------------------------------------------------------- */
@@ -290,7 +300,10 @@ async function loadCatalog(refresh, el) {
     const d = await fetch("/api/models/catalog" + (refresh ? "?refresh=1" : "")).then((r) => r.json());
     catalog = d.models || []; renderCatalog();
     if (refresh) toast(catalog.length + " model bulundu");
-  } catch (e) { /* katalog bir iyileştirmedir; sessizce geç */ }
+  } catch (e) {
+    // Katalog bir iyileştirmedir; açılışta sessiz geçilir, kullanıcı yenilemeyi kendisi istediyse söylenir.
+    if (refresh) toast("model listesi alınamadı: " + e.message, true);
+  }
 }
 
 async function sendChat() {
@@ -301,6 +314,10 @@ async function sendChat() {
       body: JSON.stringify({ model, messages: [{ role: "user", content: msg }] }) });
     const d = await r.json();
     const route = r.headers.get("x-fusion-route") || "";
+    if (!r.ok) {
+      $("chatOut").textContent = "hata: " + ((d.error && d.error.message) || `HTTP ${r.status}`);
+      return;
+    }
     $("chatOut").textContent = (d.choices && d.choices[0] && d.choices[0].message.content) || JSON.stringify(d, null, 2);
     $("chatMeta").textContent = (d.model ? "model: " + d.model : "") + (route ? " · " + route : "");
   } catch (e) { $("chatOut").textContent = "hata: " + e.message; }
@@ -327,11 +344,15 @@ function render() {
   renderProviders();  // kategori + arama filtresiyle grupla
   renderMcpServers();
 
-  const sel = $("strategy");
-  sel.innerHTML = s.routing.options.map((o) => `<option ${o === s.routing.current ? "selected" : ""}>${esc(o)}</option>`).join("");
-  chain = s.fallback.slice(); renderChain();
-  $("strictModel").checked = Boolean(s.strict_model_selection);
-  judge = (s.judge || []).slice(); renderJudge();
+  if (!routingDirty) {
+    const sel = $("strategy");
+    sel.innerHTML = s.routing.options.map((o) => `<option ${o === s.routing.current ? "selected" : ""}>${esc(o)}</option>`).join("");
+  }
+  if (!chainDirty) {
+    chain = s.fallback.slice(); renderChain();
+    $("strictModel").checked = Boolean(s.strict_model_selection);
+  }
+  if (!judgeDirty) { judge = (s.judge || []).slice(); renderJudge(); }
 
   const hm = s.health;
   $("health").innerHTML = hm.map((m) => `<tr><td class="model">${esc(m.model)}</td>
@@ -375,12 +396,25 @@ function ilkYuklemeBitti() {
   document.querySelector(".content").setAttribute("aria-busy", "false");
 }
 
+// Üst bardaki bağlantı rozeti: sunucuya ulaşılamıyorsa "çalışıyor" demeye devam etmez.
+const PILL_ONLINE = "yerel · çalışıyor";
+const PILL_OFFLINE = "bağlantı yok · veri eski olabilir";
+function setStatusPill(online) {
+  const pill = $("statusPill");
+  pill.textContent = online ? PILL_ONLINE : PILL_OFFLINE;
+  pill.className = "status-pill" + (online ? "" : " off");
+}
+
 async function load() {
   try {
     STATE = await fetch("/api/state").then((r) => r.json());
     render();
     ilkYuklemeBitti();
-  } catch (e) { /* sunucu kapalı */ }
+    setStatusPill(true);
+  } catch (e) {
+    // Sunucu kapandı: ekrandaki eski veriyi "güncel" gibi göstermeyiz.
+    setStatusPill(false);
+  }
 }
 
 function isLiveTabActive() {
