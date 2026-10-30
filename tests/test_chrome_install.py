@@ -168,3 +168,70 @@ def test_autoinstall_applescript_derleniyor(tmp_path):
         check=False,
     )
     assert cevap.returncode == 0, cevap.stderr
+
+
+def test_kopyalama_yarida_kesilirse_calisan_eklenti_klasoru_bozulmaz(
+    tmp_path, monkeypatch, chrome_kok
+):
+    """Ölçüldü (30 Ekim, S1-19): `rmtree` sonra `copytree` sırası; kopyalama kesilince
+    Chrome'da yüklü paketlenmemiş eklentinin klasörü yok oluyordu."""
+    monkeypatch.setattr(chrome_install, "base_config_dir", lambda: tmp_path / "cfg")
+    hedef = tmp_path / "cfg" / "chrome-extension"
+    hedef.mkdir(parents=True)
+    (hedef / "manifest.json").write_text("{}", encoding="utf-8")
+
+    def bozuk_kopya(*_args, **_kwargs):
+        raise OSError("disk dolu")
+
+    monkeypatch.setattr(chrome_install.shutil, "copytree", bozuk_kopya)
+
+    with pytest.raises(OSError):
+        chrome_install.stage_extension()
+
+    assert (hedef / "manifest.json").is_file()
+    assert not (tmp_path / "cfg" / "chrome-extension.yeni").exists()
+
+
+def test_basarisiz_pano_komutu_kurulumu_basarili_saymaz(tmp_path, monkeypatch, chrome_kok):
+    """Ölçüldü (30 Ekim, S1-20): `_run` çıkış kodunu yok sayıyordu; `pbcopy` hata verse de
+    `begin_install` `ok: True` dönüyordu."""
+    monkeypatch.setattr(chrome_install, "base_config_dir", lambda: tmp_path / "cfg")
+    monkeypatch.setattr(chrome_install, "install_native_host", lambda ids, home=None: [])
+    monkeypatch.setattr(chrome_install.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        chrome_install.subprocess,
+        "run",
+        lambda komut, **_k: (_ for _ in ()).throw(subprocess.CalledProcessError(1, komut)),
+    )
+
+    sonuc = chrome_install.begin_install()
+
+    assert sonuc["ok"] is False
+    assert "pbcopy" in sonuc["metin"]
+
+
+def test_yuklu_ama_devre_disi_eklenti_yuklendi_sayilmaz(chrome_kok, monkeypatch):
+    """Ölçüldü (30 Ekim, S1-18): `eklenti_yuklu` etkinliğe bakmıyordu; kapalı eklenti için
+    arayüze 'yuklendi' dönüyordu ve köprü hiç bağlanmıyordu."""
+    from fusion_cli.appserver import chrome_autoinstall as oto
+
+    monkeypatch.setattr(oto, "_platform", lambda: "darwin")
+    _profil(chrome_kok, chrome_host.FIXED_EXTENSION_ID, state=0, disable_reasons=1)
+
+    sonuc = oto.auto_install(runner=lambda komut: _cevap(0, "true"))
+
+    assert sonuc["ok"] is False
+    assert sonuc["asama"] == "elle"
+    assert sonuc["eklenti_etkin"] is False
+
+
+def test_applescript_tus_vuruslarindan_once_chrome_onde_mi_diye_bakar():
+    """S1-17: yol ve Enter yalnız Chrome öndeyken gönderilir; sekme başlıkları tanı
+    dosyasına yazılmaz. (Betiği çalıştırmak UI sürümüne bağlı; sözleşme metinle kilitlenir.)"""
+    from fusion_cli.appserver.chrome_autoinstall import _APPLESCRIPT, _manual_message
+
+    oncesi = _APPLESCRIPT.split("keystroke extPath")[0]
+    assert oncesi.count("chromeIsFront()") >= 2
+    assert _APPLESCRIPT.count("focus-lost") == 3
+    assert "AXRadioButton" in _APPLESCRIPT
+    assert "başka uygulamaya" in _manual_message("focus-lost")

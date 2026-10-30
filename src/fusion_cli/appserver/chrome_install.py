@@ -60,9 +60,22 @@ def stage_extension() -> Path:
     if kaynak is None:
         raise FileNotFoundError("Fusion Browser eklenti klasörü bulunamadı.")
     hedef = stable_extension_dir()
+    # Önce yan klasöre kopyala, sonra yer değiştir: kopyalama yarıda kesilirse (disk dolu,
+    # izin) Chrome'un yüklü paketlenmemiş eklentisinin klasörü bozulmaz. Ölçüldü (30 Ekim):
+    # eski sıra `rmtree` + `copytree` idi; kesintide klasör yok oluyordu.
+    yeni = hedef.with_name(f"{hedef.name}.yeni")
+    eski = hedef.with_name(f"{hedef.name}.eski")
+    for artik in (yeni, eski):
+        shutil.rmtree(artik, ignore_errors=True)
+    try:
+        shutil.copytree(kaynak, yeni, ignore=_IGNORED)
+    except OSError:
+        shutil.rmtree(yeni, ignore_errors=True)
+        raise
     if hedef.exists():
-        shutil.rmtree(hedef)
-    shutil.copytree(kaynak, hedef, ignore=_IGNORED)
+        hedef.rename(eski)
+    yeni.rename(hedef)
+    shutil.rmtree(eski, ignore_errors=True)
     return hedef
 
 
@@ -94,11 +107,16 @@ def extension_state(home: Path | None = None) -> dict[str, Any]:
 
 
 def _run(command: list[str], stdin: str | None = None) -> None:
+    """Komutu çalıştır; sıfır olmayan çıkış `CalledProcessError` olur.
+
+    Ölçüldü (30 Ekim): çıkış kodu yok sayılıyordu; `pbcopy`/`open` başarısız olsa bile
+    `begin_install` `ok: True` dönüyor, kullanıcı panoda yol olmadığını anlamıyordu.
+    """
     subprocess.run(
         command,
         input=stdin,
         text=True,
-        check=False,
+        check=True,
         timeout=15,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -144,7 +162,11 @@ def begin_install(runner: Runner = _run, home: Path | None = None) -> dict[str, 
         try:
             runner(command, stdin)
         except (OSError, subprocess.SubprocessError):
-            return {"ok": False, "metin": "Chrome açılamadı; Chrome kurulu mu?"}
+            return {
+                "ok": False,
+                "metin": f"Chrome açılamadı ya da yol panoya alınamadı ({command[0]}); "
+                "Chrome kurulu mu?",
+            }
     return {"ok": True, "yol": str(klasor), "adimlar": install_steps(), **install_status(home)}
 
 

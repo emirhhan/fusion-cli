@@ -438,3 +438,90 @@ async def test_panel_trafigi_komut_kanalini_bagli_saymaz_poll_sayar() -> None:
         await bridge.close()
         poll.cancel()
         await asyncio.gather(poll, return_exceptions=True)
+
+
+async def test_paralel_invoke_chrome_i_bir_kez_acar(monkeypatch) -> None:
+    """Ölçüldü (30 Ekim, S1-15): bağlı değilken eşzamanlı iki `invoke` Chrome'u iki kez
+    açıyordu (kilit yoktu)."""
+    from fusion_cli.appserver import chrome_bridge as modul
+
+    monkeypatch.setattr(modul, "COMMAND_TIMEOUT_SECONDS", 0.3)
+    acilis: list[str] = []
+    bridge = ChromeBridge()
+    await bridge.start()
+
+    async def chrome_ac() -> None:
+        acilis.append("açıldı")
+        await asyncio.sleep(0.05)
+        bridge._mark_command_channel_alive()
+
+    bridge._launch_browser = chrome_ac
+    sonuclar = await asyncio.gather(
+        bridge.invoke("snapshot", {}), bridge.invoke("snapshot", {}), return_exceptions=True
+    )
+    assert all(isinstance(sonuc, TimeoutError) for sonuc in sonuclar)
+    assert acilis == ["açıldı"]
+    await bridge.close()
+
+
+async def test_islenemeyen_istek_500_doner_baglanti_sessiz_kapanmaz() -> None:
+    """Ölçüldü (30 Ekim, S1-14): `on_turn` KeyError fırlatınca yanıt yazılmadan bağlantı
+    kapanıyordu; durum satırı da 401/404 için hep 'OK' idi."""
+
+    async def bozuk(_prompt: str) -> dict:
+        raise KeyError("x")
+
+    bridge = ChromeBridge(on_turn=bozuk)
+    state = await bridge.start()
+    address = f"http://127.0.0.1:{state['port']}"
+    headers = {"Origin": ORIGIN, "Authorization": f"Bearer {state['anahtar']}"}
+    async with httpx.AsyncClient(trust_env=False) as client:
+        yanit = await client.post(f"{address}/turn", headers=headers, json={"prompt": "merhaba"})
+        assert yanit.status_code == 500
+        assert yanit.json()["hata"]
+        yetkisiz = await client.get(f"{address}/status")
+        assert yetkisiz.status_code == 401 and yetkisiz.reason_phrase == "Unauthorized"
+    await bridge.close()
+
+
+async def test_yavas_govde_zaman_asimina_ugrar(monkeypatch) -> None:
+    """Ölçüldü (30 Ekim, S1-14): `readexactly` zaman aşımsızdı; anahtarı bilen ama gövdeyi
+    göndermeyen bağlantı sonsuza dek açık kalırdı."""
+    from fusion_cli.appserver import chrome_bridge as modul
+
+    monkeypatch.setattr(modul, "BODY_READ_TIMEOUT_SECONDS", 0.2)
+    bridge = ChromeBridge()
+    state = await bridge.start()
+    reader, writer = await asyncio.open_connection("127.0.0.1", state["port"])
+    writer.write(
+        (
+            "POST /events HTTP/1.1\r\nHost: x\r\nContent-Length: 50\r\n"
+            f"Authorization: Bearer {state['anahtar']}\r\n\r\n{{"
+        ).encode()
+    )
+    await writer.drain()
+    yanit = await asyncio.wait_for(reader.read(), 3)
+    assert yanit.startswith(b"HTTP/1.1 400")
+    writer.close()
+    await bridge.close()
+
+
+async def test_baska_thread_ten_publish_uzun_yoklamayi_hemen_uyandirir(monkeypatch) -> None:
+    """Ölçüldü (30 Ekim, S1-16): `asyncio.Event.set` thread-güvenli değil; başka thread'den
+    yayınlanan öğe bekleyen `/events` yoklamasını zaman aşımına kadar uyandırmıyordu."""
+    import threading
+    import time
+
+    from fusion_cli.appserver import chrome_bridge as modul
+
+    monkeypatch.setattr(modul, "EVENTS_WAIT_SECONDS", 3)
+    bridge = ChromeBridge()
+    await bridge.start()
+    threading.Timer(0.1, bridge.publish, args=({"tur": "adim"},)).start()
+
+    baslangic = time.monotonic()
+    sonuc = await bridge._events(0)
+
+    assert time.monotonic() - baslangic < 1.5
+    assert [oge["tur"] for oge in sonuc["olaylar"]] == ["adim"]
+    await bridge.close()

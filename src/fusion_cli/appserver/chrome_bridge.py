@@ -11,9 +11,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import re
 import secrets
 import sys
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -28,7 +30,23 @@ from .chrome_host import (
     write_bridge_state,
 )
 
+_LOG = logging.getLogger(__name__)
+
 MAX_REQUEST_BYTES = 4_194_304
+#: İstek gövdesinin okunması için bekleme (başlık 5 sn; token doğrulanmış yavaş gövde
+#: bağlantıyı sonsuza dek tutmasın).
+BODY_READ_TIMEOUT_SECONDS = 10
+#: HTTP durum satırı için açıklamalar (hepsine "OK" yazmak 401/404'ü yanıltıcı yapıyordu).
+_REASONS = {
+    200: "OK",
+    204: "No Content",
+    400: "Bad Request",
+    401: "Unauthorized",
+    403: "Forbidden",
+    404: "Not Found",
+    413: "Payload Too Large",
+    500: "Internal Server Error",
+}
 #: Eklenti çıktısındaki öğe referansları (`"ref": "e12"`).
 _REF_IN_OUTPUT = re.compile(r'"ref":\s*"(e\d+)"')
 #: Hatırlanan ref→belge eşlemesinin üst sınırı (uzun oturumda bellek büyümesin).
@@ -89,6 +107,11 @@ class ChromeBridge:
         #: komut ref'in kendi belgesiyle gider ki sayfa değiştiyse eklenti reddetsin (WP09).
         self._ref_docs: dict[str, str] = {}
         self._lifecycle = asyncio.Lock()
+        #: Eşzamanlı `invoke`'ların tek bir Chrome açma/kurulum akışı paylaşması için.
+        self._connect_lock = asyncio.Lock()
+        #: `publish`'in başka iş parçacığından güvenle çağrılabilmesi için olay döngüsü.
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread = 0
         self._announcer: asyncio.Task[None] | None = None
         #: Eklenti bağlı değilken Chrome'u açan işlev (testte değiştirilir).
         self._launch_browser: Callable[[], Awaitable[None]] = _open_chrome
@@ -125,6 +148,8 @@ class ChromeBridge:
         # `chrome.baslat` ile `chrome.durdur` üst üste geldi; kapatma, başlatmanın
         # `await`ünde anahtarı silip durum dosyasına BOŞ anahtar yazdırdı.
         async with self._lifecycle:
+            self._loop = asyncio.get_running_loop()
+            self._loop_thread = threading.get_ident()
             if self._server is None:
                 server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
                 self._server = server
@@ -180,7 +205,18 @@ class ChromeBridge:
         self._feed_changed.set()
 
     def publish(self, item: dict[str, Any]) -> None:
-        """Panel akışına öğe ekle ve bekleyen uzun yoklamaları uyandır."""
+        """Panel akışına öğe ekle ve bekleyen uzun yoklamaları uyandır.
+
+        Başka bir iş parçacığından çağrılırsa (motorun yazıcısı thread'deyse)
+        `asyncio.Event.set` thread-güvenli olmadığından olay döngüsüne devredilir.
+        """
+        loop = self._loop
+        if loop is not None and threading.get_ident() != self._loop_thread and not loop.is_closed():
+            loop.call_soon_threadsafe(self._publish_now, item)
+            return
+        self._publish_now(item)
+
+    def _publish_now(self, item: dict[str, Any]) -> None:
         self._feed_seq += 1
         self._feed.append({"seq": self._feed_seq, **item})
         del self._feed[:-FEED_LIMIT]
@@ -246,7 +282,11 @@ class ChromeBridge:
                 "Chrome eklentisi bağlı değil. Ayarlar > Tarayıcı bölümünden bağla."
             )
         if not self.status()["bagli"]:
-            await self._connect_browser()
+            # Tek uçuşlu bağlanma: paralel araç çağrıları Chrome'u / kılavuzlu kurulumu
+            # birer kez değil, her biri ayrı ayrı başlatıyordu.
+            async with self._connect_lock:
+                if not self.status()["bagli"]:
+                    await self._connect_browser()
         identifier = secrets.token_urlsafe(12)
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[identifier] = future
@@ -351,7 +391,12 @@ class ChromeBridge:
             if length < 0 or length > MAX_REQUEST_BYTES:
                 await self._reply(writer, 413, {"hata": "İstek çok büyük."}, origin)
                 return
-            body = json.loads(await reader.readexactly(length)) if length else {}
+            raw_body = (
+                await asyncio.wait_for(reader.readexactly(length), BODY_READ_TIMEOUT_SECONDS)
+                if length
+                else b""
+            )
+            body = json.loads(raw_body) if raw_body else {}
             if not isinstance(body, dict):
                 raise ValueError("JSON nesnesi bekleniyor")
             if method == "GET" and target == "/status":
@@ -402,9 +447,16 @@ class ChromeBridge:
             await self._reply(writer, 200, result, origin)
         except (ValueError, asyncio.IncompleteReadError, asyncio.LimitOverrunError, TimeoutError):
             await self._reply(writer, 400, {"hata": "Geçersiz istek."})
+        except Exception as error:  # istek sınırı: köprü tek hatalı istekle düşmemeli
+            # Ölçüldü (30 Ekim): `on_turn`/`on_settings` içinden çıkan başka istisna yanıt
+            # yazılmadan bağlantıyı kapatıyordu; panel "koptu" görür, sunucuda iz kalmazdı.
+            _LOG.error("Chrome köprüsü isteği işlenemedi: %s", type(error).__name__)
+            with contextlib.suppress(OSError):
+                await self._reply(writer, 500, {"hata": "Köprü isteği işleyemedi."})
         finally:
             writer.close()
-            await writer.wait_closed()
+            with contextlib.suppress(OSError):
+                await writer.wait_closed()
 
     @staticmethod
     async def _reply(
@@ -412,7 +464,7 @@ class ChromeBridge:
     ) -> None:
         payload = json.dumps(body, ensure_ascii=False).encode()
         headers = [
-            f"HTTP/1.1 {status} OK",
+            f"HTTP/1.1 {status} {_REASONS.get(status, 'OK')}",
             "Content-Type: application/json; charset=utf-8",
             f"Content-Length: {len(payload)}",
             "Connection: close",
