@@ -168,4 +168,31 @@ describe("XtermSession", () => {
 
     expect(session.resize).not.toHaveBeenCalled();
   });
+
+  // Ölçüldü (30 Ekim): yazma/pano hataları işlenmemiş reddedilmeydi, kapalı terminal girişi IPC'ye gidiyordu (U4-24).
+  it("yazma hatası durum çubuğuna düşer, kapanmış terminale giriş gönderilmez (U4-24)", async () => {
+    const value = setup();
+    vi.mocked(value.session.write).mockRejectedValueOnce(new Error("terminal yok"));
+    const view = render(<XtermSession active adapter={value.adapter} session={value.session} />);
+    value.data("a");
+    await waitFor(() => expect(view.getByRole("status").textContent).toContain("terminal yok"));
+
+    const kapali = setup();
+    render(<XtermSession active adapter={kapali.adapter} closed={{ reason: "bitti", exitCode: 0 }} session={kapali.session} />);
+    kapali.data("b");
+    expect(kapali.session.write).not.toHaveBeenCalled();
+  });
+
+  it("pano izni reddedilirse kopyala/yapıştır hata gösterir, fırlatmaz (U4-24)", async () => {
+    const value = setup();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { readText: vi.fn(async () => { throw new Error("izin yok"); }), writeText: vi.fn(async () => { throw new Error("izin yok"); }) },
+    });
+    const view = render(<XtermSession active adapter={value.adapter} session={value.session} />);
+    fireEvent.click(view.getByRole("button", { name: "Seçimi kopyala" }));
+    await waitFor(() => expect(view.getByRole("status").textContent).toContain("kopyalanamadı"));
+    fireEvent.click(view.getByRole("button", { name: "Panodan yapıştır" }));
+    await waitFor(() => expect(view.getByRole("status").textContent).toContain("yapıştırılamadı"));
+  });
 });

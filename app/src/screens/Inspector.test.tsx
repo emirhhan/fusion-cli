@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Inspector } from "./Inspector";
@@ -104,5 +105,23 @@ describe("Inspector", () => {
     render(<Inspector activeTab="files" />);
     expect(screen.getByRole("tab", { name: "Dosyalar" }).getAttribute("aria-controls")).toBe("inspector-panel-files");
     expect(screen.getByRole("tab", { name: "Terminal" }).hasAttribute("aria-controls")).toBe(false);
+  });
+
+  // Ölçüldü (30 Ekim): içerik yalnız etkin sekme için çiziliyordu; terminal sekmesinden çıkmak
+  // bileşeni söküp tüm terminal oturumlarını kapatıyordu (U4-30).
+  it("terminal içeriği başka sekmeye geçilince sökülmez, yalnız gizlenir (U4-30)", () => {
+    let kurulum = 0;
+    function Terminal() {
+      useEffect(() => { kurulum += 1; }, []);
+      return <p>terminal içeriği</p>;
+    }
+    const content = { terminal: <Terminal />, files: <p>dosyalar</p> };
+    const view = render(<Inspector activeTab="terminal" content={content} />);
+    expect(screen.getByText("terminal içeriği").closest("[hidden]")).toBeNull();
+    view.rerender(<Inspector activeTab="files" content={content} />);
+    expect(screen.getByText("dosyalar")).toBeTruthy();
+    expect(screen.getByText("terminal içeriği", { selector: "p" }).closest("[hidden]")).not.toBeNull();
+    view.rerender(<Inspector activeTab="terminal" content={content} />);
+    expect(kurulum).toBe(1);
   });
 });

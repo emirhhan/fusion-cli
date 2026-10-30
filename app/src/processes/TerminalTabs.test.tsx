@@ -115,6 +115,19 @@ describe("TerminalTabs", () => {
     expect(tab.querySelector(".terminal-tabs__dot--hata")).not.toBeNull();
   });
 
+  // Ölçüldü (30 Ekim): aria-label durum metnini eziyordu; ekran okuyucu terminalin bittiğini duymuyordu (U4-50).
+  it("kapanan terminalin erişilebilir adı durumunu da taşır, panel sekmeye bağlıdır (U4-50)", async () => {
+    const value = runtime();
+    render(<TerminalTabs cwd="/repo" runtime={value} />);
+    fireEvent.click(screen.getByRole("button", { name: "Yeni terminal" }));
+    await screen.findByRole("tab", { name: "Terminal 1" });
+
+    value.sessions[0].emitClosed({ reason: "süreç kapandı", exitCode: 1 });
+
+    expect(await screen.findByRole("tab", { name: "Terminal 1, Hata (1)" })).toBeTruthy();
+    expect(screen.getByRole("tabpanel", { hidden: true }).getAttribute("aria-labelledby")).toBe("terminal-tab-terminal-1");
+  });
+
   it("kullanıcı kapatmasını nötr durduruldu durumu olarak gösterir", async () => {
     const value = runtime();
     render(<TerminalTabs cwd="/repo" runtime={value} />);

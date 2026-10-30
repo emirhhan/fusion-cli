@@ -201,13 +201,19 @@ export function Inspector({
             <p className="inspector__state">Yükleniyor…</p>
           ) : status === "error" ? (
             <p className="inspector__state inspector__state--error" role="alert">{errorMessage}</p>
-          ) : content[active.id] ? (
+          ) : active.id === "terminal" && content.terminal ? null : content[active.id] ? (
             content[active.id]
           ) : (
             <div className="inspector__empty">
               <p>Henüz bir proje seçilmedi.</p>
               <span>Bir proje açtığında {active.label.toLocaleLowerCase("tr")} burada görünür.</span>
             </div>
+          )}
+          {/* Terminal sekmesi başka sekmeye geçilince SÖKÜLMEZ, yalnız gizlenir: söküm tüm terminal
+              oturumlarını kapatıp uzun süren işleri (dev sunucusu, build) öldürüyordu (U4-30).
+              Panel daraltılırsa (bölüm hiç çizilmez) yine kapanır. */}
+          {status === "ready" && content.terminal && (
+            <div className="inspector__keep-alive" hidden={active.id !== "terminal"}>{content.terminal}</div>
           )}
         </section>
       )}
