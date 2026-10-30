@@ -18,10 +18,19 @@ from __future__ import annotations
 
 import re
 
+#: Açık önizleme istekleri.
 _PREVIEW = re.compile(
-    r"önizle|onizle|önizleme|görüntüle|goruntule|\bgöster\b|\bgoster\b|görmek ist|"
-    r"nasıl (?:aç|çalıştır|gör)|\bçalıştır\b|ayağa kaldır|localhost|"
-    r"\bpreview\b|\bshow me\b|\brun it\b|\bopen it\b",
+    r"önizle|onizle|önizleme|görüntüle|goruntule|görmek ist|"
+    r"nasıl (?:aç|çalıştır|gör)|ayağa kaldır|localhost|"
+    r"\bpreview\b|\bshow me\b",
+    re.IGNORECASE,
+)
+#: "göster" / "çalıştır" tek başına belirsizdir ("kodu göster", "testleri çalıştır"): ancak
+#: istek bir web/arayüz işinden söz ediyorsa önizleme sayılır (A4-42).
+_PREVIEW_WEAK = re.compile(r"\bgöster\b|\bgoster\b|\bçalıştır\b|\brun it\b|\bopen it\b", re.I)
+_WEB_CONTEXT = re.compile(
+    r"\bsite|sayfa|\bweb|arayüz|arayuz|\bui\b|html|tasarım|tasarim|uygulama|ekran|landing|"
+    r"\btema|wordpress|woocommerce|\bpage\b|\bapp\b|\bsite\b|dashboard|panel",
     re.IGNORECASE,
 )
 PREVIEW_NOTE = (
@@ -86,7 +95,11 @@ def identity_hint(model: str) -> str | None:
 
 
 def preview_hint(task: str, *, available: bool) -> str | None:
-    if not available or _PREVIEW.search(task) is None:
+    if not available:
+        return None
+    if _PREVIEW.search(task) is None and not (
+        _PREVIEW_WEAK.search(task) and _WEB_CONTEXT.search(task)
+    ):
         return None
     return PREVIEW_NOTE
 

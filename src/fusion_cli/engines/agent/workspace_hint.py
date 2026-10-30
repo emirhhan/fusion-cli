@@ -24,6 +24,10 @@ MAX_CANDIDATES = 60
 MIN_MATCHES = 2
 
 
+#: Aday olamayacak bağımlılık/derleme klasörleri.
+_SKIP_DIRS = frozenset({"node_modules", "__pycache__", "venv", "dist", "build", "target"})
+
+
 def find_workspace_for(paths: tuple[str, ...], root: Path) -> Path | None:
     """Verilen göreli yolların hepsinin bulunduğu komşu dizini ara.
 
@@ -46,13 +50,18 @@ def _candidates(root: Path) -> list[Path]:
     kardeşin (`projeler`) çocuğuydu. Yalnızca kardeşlere bakan bir tarama onu
     bulamıyordu.
     """
-    adaylar: list[Path] = []
-    for kardes in _dirs(root.parent):
-        if kardes != root:
-            adaylar.append(kardes)
-        adaylar.extend(torun for torun in _dirs(kardes) if torun != root)
+    # ÖNCE bütün kardeşler, sonra çocukları: ilk birkaç kardeşin çocukları kotayı doldurup
+    # alfabetik sonraki kardeşleri (doğru proje olabilir) hiç taratmıyordu (A4-49).
+    kardesler = [
+        kardes for kardes in _dirs(root.parent) if kardes != root and kardes.name not in _SKIP_DIRS
+    ]
+    adaylar: list[Path] = kardesler[:MAX_CANDIDATES]
+    for kardes in kardesler:
         if len(adaylar) >= MAX_CANDIDATES:
             break
+        adaylar.extend(
+            torun for torun in _dirs(kardes) if torun != root and torun.name not in _SKIP_DIRS
+        )
     return adaylar[:MAX_CANDIDATES]
 
 

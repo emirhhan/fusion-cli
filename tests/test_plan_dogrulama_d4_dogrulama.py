@@ -473,3 +473,37 @@ def test_uye_raporu_baglami_sisirmez():
     assert len(cap_report(uzun)) < MEMBER_REPORT_CHARS + 100
     assert "kırpıldı" in cap_report(uzun)
     assert cap_report("kısa") == "kısa"
+
+
+# --- A4-42 / A4-43 / A4-49 ------------------------------------------------------------ #
+
+
+def test_belirsiz_goster_calistir_istekleri_web_baglami_olmadan_onizleme_sayilmaz():
+    from fusion_cli.engines.agent.turn_hints import PREVIEW_NOTE, preview_hint
+
+    assert preview_hint("kodu göster", available=True) is None
+    assert preview_hint("testleri çalıştır", available=True) is None
+    assert preview_hint("siteyi göster", available=True) == PREVIEW_NOTE
+    assert preview_hint("sayfayı çalıştır", available=True) == PREVIEW_NOTE
+
+
+def test_webkit_keyframes_ve_sekmeli_gecis_yakalanir():
+    from fusion_cli.engines.agent.web_motion import layout_animations
+
+    assert layout_animations(".a{transition:\twidth 1s}")
+    assert layout_animations("@-webkit-keyframes k{from{left:0}to{left:9px}}")
+    assert layout_animations(".a{transition: opacity 1s}") == []
+
+
+def test_aday_toplama_once_butun_kardesleri_sonra_cocuklari_alar(tmp_path):
+    from fusion_cli.engines.agent.workspace_hint import MAX_CANDIDATES, _candidates
+
+    kok = tmp_path / "burasi"
+    kok.mkdir()
+    for i in range(MAX_CANDIDATES - 5):
+        (tmp_path / f"a{i:03}" / "cocuk").mkdir(parents=True)
+    (tmp_path / "zzz-dogru-proje").mkdir()
+
+    adaylar = [p.name for p in _candidates(kok)]
+
+    assert "zzz-dogru-proje" in adaylar

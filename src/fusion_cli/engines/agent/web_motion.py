@@ -14,7 +14,9 @@ _LAYOUT_PROPERTIES = frozenset(
     }
 )  # fmt: skip
 _TRANSITION_DECL = re.compile(r"transition(?:-property)?\s*:\s*([^;}]+)", re.IGNORECASE)
-_KEYFRAMES = re.compile(r"@keyframes\s+([\w-]+)\s*\{((?:[^{}]*\{[^{}]*\})*)[^{}]*\}", re.IGNORECASE)
+_KEYFRAMES = re.compile(
+    r"@(?:-webkit-)?keyframes\s+([\w-]+)\s*\{((?:[^{}]*\{[^{}]*\})*)[^{}]*\}", re.IGNORECASE
+)
 _KEYFRAME_PROP = re.compile(r"([\w-]+)\s*:", re.IGNORECASE)
 
 
@@ -30,7 +32,8 @@ def layout_animations(css: str) -> list[str]:
     bulunan: list[str] = []
     for eslesme in _TRANSITION_DECL.finditer(css):
         for parca in eslesme.group(1).split(","):
-            ad = parca.strip().split(" ", 1)[0].lower()
+            # Sekme/satır sonu ayracı da olabilir: `split(" ")` kırılgandı (A4-43).
+            ad = (parca.split() or [""])[0].lower()
             if ad in _LAYOUT_PROPERTIES:
                 bulunan.append(f"transition: {ad}")
     for eslesme in _KEYFRAMES.finditer(css):
