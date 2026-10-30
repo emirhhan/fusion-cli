@@ -63,6 +63,7 @@ from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
 from ..rule_notices import print_rule_notices
 from . import help_view, history_view, macros
+from . import help_view, history_view, macros, session_resume
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
 from .input import ReplInput
 from .macros import Mode
@@ -105,8 +106,13 @@ async def run_repl(
     extra_roots: tuple[Path, ...] = (),
     remotion_transport: FrameTransport | None = None,
     remotion_browser: RemotionBrowser | None = None,
+    resume: session_resume.ResumeTarget | None = None,
 ) -> int:
-    """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür."""
+    """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür.
+
+    `resume` verilirse (`--continue/--resume/--name`) oturum o sohbetin kimliğine ve
+    geçmişine bağlı açılır; verilmezse her açılış yeni bir sohbettir.
+    """
     # Varsayılan: Ink-benzeri tek yol TUI (Claude Code modeli). Eski satır-içi mod yalnızca
     # acil yedek olarak FUSION_INLINE=1 ile açılır; TUI kararlılığı doğrulanınca kaldırılacak
     # (bkz. docs/BACKLOG.md). Borulu/CI kullanımı (`echo /help | fusion`) tam-ekran
@@ -122,10 +128,12 @@ async def run_repl(
         remotion_browser=remotion_browser,
         health=build_health(config),
     )
+    if resume is not None:
+        session_resume.apply_target(state, resume)
     if os.environ.get("FUSION_INLINE") != "1" and is_interactive_terminal():
         from .tui_loop import run_tui_repl
 
-        return await run_tui_repl(state, console)
+        return await run_tui_repl(state, console, resume=resume)
 
     # Ev dizini GEÇİLİR: dinamik `/resume<kaynak>` komutları ancak böyle kaydolur.
     # Argümansız çağrı bu yüzeyi sessizce komutsuz bırakıyordu.
@@ -143,6 +151,8 @@ async def run_repl(
         background.spawn(_warm_up(state))
 
     banner.print_welcome(console, session_info(state))
+    if resume is not None:
+        console.print(f"[{theme.DIM}]{session_resume.launch_notice(resume)}[/{theme.DIM}]")
     bildirim = apprentice_switch_notice(state.config)
     if bildirim:
         console.print(bildirim)

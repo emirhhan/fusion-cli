@@ -76,6 +76,8 @@ class ReplState:
     home: Path
     #: Transcript ve checkpoint aynı sohbet sahibini kullanır; yeni REPL ayrı kapsamdır.
     conversation_id: str = field(default_factory=lambda: f"session-{uuid4().hex}", kw_only=True)
+    #: Kullanıcının sohbete verdiği ad (`--name`, `/rename`); yoksa boş.
+    conversation_name: str = field(default="", kw_only=True)
     #: Proje kökünün YANINDA erişime açılan dizinler (`--add-dir`).
     #
     # Tek-atış `fusion agent` bunu destekliyordu ama interaktif oturum

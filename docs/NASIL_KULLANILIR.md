@@ -217,6 +217,28 @@ kaldırılabilir. Dosyalar sonradan değişirse güven kendiliğinden düşer.
 
 ---
 
+## 7a) Kaldığın sohbete dönmek → `--continue`, `--resume`, `/resume`
+
+Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
+
+| Yaz | Ne yapar |
+|-----|----------|
+| `fusion --continue` (`-c`) | Bu projedeki SON sohbeti geçmişiyle açar |
+| `fusion --resume <kimlik\|ad>` (`-r`) | Kimliği, adı ya da kimlik önekiyle seçtiğin sohbeti açar |
+| `fusion --resume <ad> --fork-session` | Seçilen sohbetin KOPYASINI yeni kimlikle açar; özgün sohbet değişmez |
+| `fusion --name "Ödeme akışı"` (`-n`) | Yeni (ya da sürdürülen) sohbete ad verir |
+| `/resume` | Bu projedeki sohbet listesini açar; `/resume <kimlik\|ad>` doğrudan geçer |
+| `/rename <ad>` | Açık sohbete ad verir (`--resume <ad>` ile bulunur) |
+| `/branch [ad]` | Buraya kadarki konuşmayı yeni bir sohbete kopyalar ve oradan sürer |
+
+- Bulunamayan sohbet için Fusion sessizce yeni sohbet AÇMAZ; hata verir ve çıkar.
+- `/resumeclaude`, `/resumecodex` başka araçların geçmişini yalnız künye olarak devralır;
+  `/resume` ise Fusion'ın kendi konuşmasını olduğu gibi model bağlamına yükler.
+- Masaüstü: sohbet listesi (`sohbet.listele`) ve "buradan devam et" (`sohbet.dallan`) aynı
+  depoyu kullanır; `sohbet.adlandir` ile verilen ad terminalde de görünür.
+
+---
+
 ## 8) Fusion öğrensin → `/good` ve `/bad`
 
 Fusion motorunda bir cevaptan memnunsan `/good`, değilsen `/bad` yaz. Fusion bunu
@@ -392,6 +414,8 @@ Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtı
 | `/model` | Model değiştir |
 | `/plan` | Önce planla, değiştirme |
 | `/undo` | Son değişikliği geri al |
+| `fusion -c` · `/resume` | Kaldığın sohbete dön |
+| `/rename <ad>` · `/branch` | Sohbete ad ver · dallandır |
 | `/verify` | Test/lint çalıştır |
 | `/permissions` · `fusion permissions` | İzin kurallarını (allow/ask/deny) listele, ekle, sil |
 | `fusion trust` | Projenin config/izin/araç dosyalarına güven |

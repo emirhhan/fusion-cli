@@ -53,6 +53,7 @@ from .cleanup import with_web_cleanup
 from .prompter import ConsolePrompter
 from .repl import run_repl
 from .rule_notices import attach_rule_writer, print_rule_notices
+from .repl import run_repl, session_resume
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
 from .setup_command import run_setup
 
@@ -99,6 +100,27 @@ def main_callback(
             help="Proje kökünün YANINDA erişime açılacak dizin. Birden çok kez verilebilir.",
         ),
     ] = None,
+    continue_last: Annotated[
+        bool,
+        typer.Option("--continue", "-c", help="Bu projedeki son Fusion sohbetini sürdür."),
+    ] = False,
+    resume: Annotated[
+        str,
+        typer.Option(
+            "--resume", "-r", help="Kimliği, adı ya da kimlik öneki verilen sohbeti sürdür."
+        ),
+    ] = "",
+    fork_session: Annotated[
+        bool,
+        typer.Option(
+            "--fork-session",
+            help="Sürdürülen sohbeti kopyalayıp yeni kimlikle aç; özgün sohbet değişmez.",
+        ),
+    ] = False,
+    name: Annotated[
+        str,
+        typer.Option("--name", "-n", help="Sohbete ad ver (/resume listesinde ve --resume <ad>)."),
+    ] = "",
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
     if ctx.invoked_subcommand is not None:
@@ -113,6 +135,18 @@ def main_callback(
         console.print(f"[{theme.WARN}]{messages.SETUP_NO_KEYS}[/{theme.WARN}]")
         raise typer.Exit(1)
     root = Path.cwd()
+    try:
+        target = session_resume.resolve_launch(
+            config.memory_dir,
+            root,
+            continue_last=continue_last,
+            resume=resume,
+            fork=fork_session,
+            name=name,
+        )
+    except FusionError as error:
+        error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(1) from None
     raise typer.Exit(
         asyncio.run(
             with_web_cleanup(
@@ -122,6 +156,7 @@ def main_callback(
                     root=root,
                     console=console,
                     extra_roots=tuple(add_dir or ()),
+                    resume=target,
                 )
             )
         )

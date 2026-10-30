@@ -36,6 +36,9 @@ from . import (
     permissions_command,
     profiles_flow,
     provider_flow,
+    profiles_flow,
+    provider_flow,
+    session_resume,
     verify_flow,
     workspace_commands,
 )
@@ -821,6 +824,19 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         usage="[yol|kaldir <yol>]",
     ),
     SlashCommand("schedule", messages.CMD_SCHEDULE, _schedule, group="Makro", usage="<saniye>"),
+    SlashCommand(
+        "resume",
+        messages.CMD_RESUME_OWN,
+        session_resume.resume_command,
+        group="Geçmiş",
+        usage="[kimlik|ad]",
+    ),
+    SlashCommand(
+        "rename", messages.CMD_RENAME, session_resume.rename_command, group="Geçmiş", usage="<ad>"
+    ),
+    SlashCommand(
+        "branch", messages.CMD_BRANCH, session_resume.branch_command, group="Geçmiş", usage="[ad]"
+    ),
 )
 
 #: Kendi çıktısını basan komutlar (tablo, panel, ekran temizleme). REPL döngüsü

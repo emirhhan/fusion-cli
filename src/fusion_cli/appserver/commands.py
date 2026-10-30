@@ -90,8 +90,10 @@ PickerCall = Callable[..., str | None]
 #: Bu ÖN EKLE başlayan komutlar terminal dışında hiç köprülenmedi: dinamik
 #: `/resume<kaynak>` ailesi argümansız çağrıldığında düz REPL `pick()` açar
 #: (bkz. `cli/repl/commands.py::_resume`). Appserver'da terminal yok; bu yüzden
-#: bunlar `run_command`'a hiç girmeden açıkça reddedilir.
-_UNSUPPORTED_INTERACTIVE_PREFIXES = ("resume",)
+#: bunlar `run_command`'a hiç girmeden açıkça reddedilir. Fusion'ın kendi `/resume`
+#: ve `/branch` komutları da burada kalır: masaüstünün sekme modeli bunları kendi
+#: istekleriyle (`sohbet.listele`, `sohbet.dallan`) yapar; slash yolu sekmeyi şaşırtırdı.
+_UNSUPPORTED_INTERACTIVE_PREFIXES = ("resume", "branch")
 
 
 def _is_unsupported_interactive(name: str) -> bool:

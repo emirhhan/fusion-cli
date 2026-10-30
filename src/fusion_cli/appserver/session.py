@@ -889,6 +889,8 @@ class AppSession:
             return await self._move_conversation(request.data)
         if request.name == "sohbet.listele":
             return self._list_conversations()
+        if request.name == "sohbet.adlandir":
+            return await self._rename_conversation(request.data)
         if request.name == "sohbet.baslik":
             return _title_payload(request.data.get("metin"))
         if request.name == "kademe.listele":
@@ -1403,13 +1405,38 @@ class AppSession:
                     "kok": str(self._root.expanduser().resolve()),
                     # Diskte ilk mesajın ilk satırı durur; liste de sekmeyle
                     # AYNI sezgiselle adlandırılır, ikisi ayrışmasın.
-                    "baslik": conversation_title(ref.title) or ref.title,
+                    # Kullanıcının verdiği ad (`sohbet.adlandir`, CLI `/rename`) başlığı ezer.
+                    "baslik": ref.name or conversation_title(ref.title) or ref.title,
+                    "ad": ref.name,
                     "guncelleme": ref.updated_at,
                     "mesaj_sayisi": ref.message_count,
                 }
                 for ref in list_conversations(self._state.config.memory_dir, self._root)
             ],
         }
+
+    async def _rename_conversation(self, data: dict[str, Any]) -> dict[str, Any]:
+        """`sohbet.adlandir {sohbet_id?, ad}`: sohbete kalıcı ad ver; CLI `/rename` ile aynı kayıt.
+
+        Ad transcript'e olay olarak yazılır; `sohbet.listele` ve `fusion --resume <ad>`
+        aynı adı görür. Kimlik verilmezse açık sekmenin sohbeti adlandırılır.
+        """
+        name = data.get("ad")
+        if not isinstance(name, str) or not name.strip():
+            return {"ok": False, "metin": messages.SESSION_RENAME_USAGE}
+        conversation_value = data.get("sohbet_id")
+        conversation_id = (
+            conversation_value.strip()
+            if isinstance(conversation_value, str) and conversation_value.strip()
+            else self._conversation_id or FALLBACK_CONVERSATION_ID
+        )
+        store = TranscriptStore(
+            self._state.config.memory_dir, self._root, conversation_id=conversation_id
+        )
+        await asyncio.to_thread(store.record_name, name.strip())
+        if conversation_id == self._state.conversation_id:
+            self._state.conversation_name = name.strip()
+        return {"ok": True, "sohbet_id": conversation_id, "ad": name.strip()}
 
     def _rebind_transcript(self) -> None:
         """Transcript deposunu güncel kök ve konuşma kimliğine bağla.
@@ -1423,6 +1450,9 @@ class AppSession:
         self._transcript_store = TranscriptStore(
             self._state.config.memory_dir, self._root, conversation_id=self._conversation_id
         )
+        # Slash komutları (`/rename`) ve tur checkpoint'leri sekmenin kimliğini görsün;
+        # yoksa `ReplState` açılışta ürettiği rastgele kimlikte kalırdı.
+        self._state.conversation_id = self._transcript_store.session_id
         self._restore_interrupted_turn()
 
     def _turn_journal(self, task: str) -> FileTurnJournal:

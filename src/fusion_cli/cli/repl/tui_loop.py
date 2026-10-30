@@ -37,6 +37,7 @@ from . import (
     model_flows,
     profiles_flow,
     provider_flow,
+    session_resume,
     verify_flow,
 )
 from .commands import (
@@ -50,7 +51,7 @@ from .commands import (
 from .loop import apply_auto_profile
 from .partial_turn import PartialTurn
 from .state import Engine, Reminder, ReplState
-from .transcript_store import TranscriptStore
+from .transcript_store import TranscriptStore, list_conversations
 from .tui import FusionTui
 from .work_line import WorkLineSink
 
@@ -388,6 +389,12 @@ class _TuiSession:
             # bozardı; uygulama-içi modalla sürülür. Argüman verilse bile modal açılır.
             await self._run_development()
             return
+        elif command.name == "resume" and not argument.strip():
+            # Fusion'ın kendi sohbetleri: aynı modal deseni, liste transcript deposundan.
+            resolved = await self._resolve_own_resume()
+            if resolved is None:
+                return
+            argument = resolved
         elif command.name.startswith("resume") and not argument.strip():
             # `/resume<kaynak>` argümansız çağrıldığında düz REPL `pick()` açardı —
             # nested prompt_toolkit seçicisi burada da TUI'yi bozardı. Bunun yerine
@@ -431,6 +438,7 @@ class _TuiSession:
         result = command.handler(self._state, argument)
         if result:
             self._echo(f"[{theme.DIM}]{escape(result)}[/{theme.DIM}]")
+        self._sync_conversation_binding()
         self._arm_reminders()
         self._sync_status()
         if not self._state.running:
@@ -463,6 +471,32 @@ class _TuiSession:
         self._state.config = result.config
         self._echo(f"[{theme.DIM}]{escape(result.message)}[/{theme.DIM}]")
         self._sync_status()
+
+    def _sync_conversation_binding(self) -> None:
+        """Komut sohbet kimliğini (`/resume`, `/branch`) ya da kökü (`/worktree`) değiştirdiyse
+        transcript deposunu yeniden bağla; yoksa yeni turlar eski sohbete yazılırdı."""
+        store = self._transcript_store
+        if store.session_id == self._state.conversation_id and store.root == self._state.root:
+            return
+        self._transcript_store = TranscriptStore(
+            self._state.config.memory_dir,
+            self._state.root,
+            conversation_id=self._state.conversation_id,
+        )
+
+    async def _resolve_own_resume(self) -> str | None:
+        """`/resume` (Fusion sohbetleri) için uygulama-içi seçim; vazgeçilirse `None`."""
+        refs = list_conversations(self._state.config.memory_dir, self._state.root)
+        if not refs:
+            self._echo(f"[{theme.DIM}]{messages.SESSION_LIST_EMPTY}[/{theme.DIM}]")
+            return None
+        selected = await self._tui.await_choice(
+            messages.SESSION_PICK_TITLE, session_resume.resume_choices(refs)
+        )
+        if selected is None:
+            self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+            return None
+        return selected
 
     async def _resolve_resume_argument(self, command_name: str) -> str | None:
         """`/resume<kaynak>` için uygulama-içi seçim (nested picker YERİNE).
@@ -627,7 +661,9 @@ class _TuiSession:
             self._tui.sync_conversation()
 
 
-def _print_startup(session: _TuiSession, state: ReplState) -> None:
+def _print_startup(
+    session: _TuiSession, state: ReplState, resume: session_resume.ResumeTarget | None = None
+) -> None:
     """Açılış kutusunu ve varsa son oturum listesini konuşma alanına yaz.
 
     Liste boşsa (kayıtlı oturum yoksa) hiçbir şey basılmaz — düz konsol
@@ -636,6 +672,10 @@ def _print_startup(session: _TuiSession, state: ReplState) -> None:
     from .loop import apprentice_switch_notice, session_info
 
     banner.print_welcome(session.tui.console, session_info(state), clear=False, pad=False)
+    if resume is not None:
+        session.tui.console.print(
+            f"[{theme.DIM}]{escape(session_resume.launch_notice(resume))}[/{theme.DIM}]"
+        )
     bildirim = apprentice_switch_notice(state.config)
     if bildirim:
         session.tui.console.print(bildirim)
@@ -647,11 +687,13 @@ def _print_startup(session: _TuiSession, state: ReplState) -> None:
     session.tui.sync_conversation()
 
 
-async def run_tui_repl(state: ReplState, console: Console) -> int:
+async def run_tui_repl(
+    state: ReplState, console: Console, *, resume: session_resume.ResumeTarget | None = None
+) -> int:
     """Ink-benzeri tek yol REPL'i çalıştır. Çıkış kodunu döndürür."""
     session = _TuiSession(state)
     # Açılış kutusu konuşma alanına yazılır (tam-ekranda üstte durur).
-    _print_startup(session, state)
+    _print_startup(session, state, resume)
 
     # TUI isolation: ana terminal scrollback + ekranı temizle. macOS Terminal.app
     # ED 3'ü (`\x1b[3J`) desteklemez ve bunu sessizce yok sayar; oradaki asıl

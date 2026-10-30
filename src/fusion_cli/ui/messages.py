@@ -803,6 +803,27 @@ HISTORY_SECRETS_FOUND = (
     "⚠ Bu oturumda {count} anahtar/token göründü. Bunları değiştirmeni öneririm."
 )
 HISTORY_RECENT_TITLE = "son oturumlar"
+
+#: Fusion'ın KENDİ sohbetlerini sürdürme (`--continue/--resume`, `/resume`, `/rename`, `/branch`).
+CMD_RESUME_OWN = "Fusion sohbetini sürdür (argümansız: bu projedeki sohbet listesi)"
+CMD_RENAME = "açık sohbete ad ver; --resume <ad> ve /resume listesinde görünür"
+CMD_BRANCH = "sohbeti dallandır: buraya kadarki konuşmayı yeni bir sohbete kopyala"
+SESSION_PICK_TITLE = "Hangi sohbet sürdürülsün?"
+SESSION_LIST_EMPTY = "Bu projede sürdürülecek Fusion sohbeti yok."
+SESSION_NONE_TO_CONTINUE = "Bu projede sürdürülecek sohbet yok; `fusion` ile yeni sohbet aç."
+SESSION_NOT_FOUND = "Sohbet bulunamadı: {query} (kimlik, ad ya da kimlik öneki; liste için /resume)"
+SESSION_ALREADY_ACTIVE = "Bu sohbet zaten açık."
+SESSION_RESUMED = "Sürdürülüyor: {title} ({count} mesaj)"
+SESSION_FORKED = "Kopya açıldı: {title} ({count} mesaj); özgün sohbet değişmez."
+SESSION_NAMED_NEW = "Yeni sohbet: {name}"
+SESSION_RENAME_USAGE = "Kullanım: /rename <ad>"
+SESSION_RENAMED = "Sohbet adı: {name}"
+SESSION_BRANCH_EMPTY = "Dallandırılacak konuşma yok; önce bir mesaj gönder."
+SESSION_BRANCHED = (
+    "Dallandırıldı: {count} mesaj yeni sohbete kopyalandı{name}; özgün sohbet değişmedi."
+)
+SESSION_COPY_FAILED = "Sohbet kopyalanamadı: {reason}"
+SESSION_CHOICE_DETAIL = "{when} · {count} mesaj"
 RECALL_LESSONS_EMPTY_QUERY = "'query' boş olamaz: aradığın konuyu, hatayı ya da teknolojiyi yaz."
 RECALL_LESSONS_NONE = "(bu sorguya uyan öğrenilmiş ders yok)"
 READ_SESSION_INVALID_ARGUMENTS = "'source' ve 'session_id' metin olmalı."
