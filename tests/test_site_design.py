@@ -312,3 +312,24 @@ async def test_karta_ozgu_siniflar_gruplamayi_bozmaz_ve_tek_sutun_olculur():
 
     assert len(olcum["products"]) == 6
     assert olcum["health"]["columns"] == 1 and olcum["health"]["singleColumn"] is True
+
+
+# --- Dalga 4 (T2-23) -------------------------------------------------------------------
+
+
+def test_eksik_anahtarli_olcum_ozet_uretimini_dusurmez():
+    """Eski probe/eklenti anahtar eksik bırakınca KeyError tüm ölçüm sonucunu kaybettiriyordu."""
+    from fusion_cli.tools.site_design import DesignReport, _section_lines, summarize
+
+    rapor = DesignReport()
+    sayfa = {
+        "sections": [{"headings": [{"text": "Başlık"}], "buttons": ["Al"]}, {}],
+        "buttons": [{"text": "Satın al şimdi", "background": "rgb(1, 2, 3)"}],
+    }
+
+    satirlar = _section_lines(sayfa, rapor, "tasarim", "ana")
+
+    assert len(satirlar) == 3
+    assert "Başlık" in satirlar[1]
+    rapor.pages.append(sayfa)
+    assert "BUTON" in summarize(rapor, "tasarim")

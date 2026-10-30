@@ -253,7 +253,11 @@ def _image_queue(report: DesignReport) -> list[str]:
         for section in page.get("sections", []):
             video = section.get("video") or {}
             sectional.extend(
-                [section.get("backgroundImage", ""), video.get("poster", ""), *section["images"]]
+                [
+                    section.get("backgroundImage", ""),
+                    video.get("poster", ""),
+                    *section.get("images", []),
+                ]
             )
     products = [item["image"] for page in report.pages for item in page.get("products", [])]
     galleries = [
@@ -488,13 +492,15 @@ def summarize(report: DesignReport, folder_label: str) -> str:
     filled = [
         b
         for b in home.get("buttons", [])
-        if b["background"] not in ("rgba(0, 0, 0, 0)", "transparent") and len(b.get("text", "")) > 3
+        if b.get("background", "") not in ("", "rgba(0, 0, 0, 0)", "transparent")
+        and len(b.get("text", "")) > 3
     ]
     if filled:
         b = filled[0]
         lines.append(
-            f"BUTON: zemin {b['background']}, yazı {b['color']}, köşe {b['radius']}, "
-            f"dolgu {b['padding']}, örnek '{b.get('text', '')}'"
+            f"BUTON: zemin {b.get('background', '?')}, yazı {b.get('color', '?')}, "
+            f"köşe {b.get('radius', '?')}, dolgu {b.get('padding', '?')}, "
+            f"örnek '{b.get('text', '')}'"
         )
     if home.get("prices"):
         fiyat = home["prices"][0]
@@ -588,7 +594,8 @@ def _section_lines(
 
     lines = [f"BÖLÜMLER ({name}, yukarıdan aşağı — bu sırayla kur):"]
     for index, section in enumerate(sections, start=1):
-        parts = [f"{_SECTION_NAMES.get(section['kind'], section['kind'])} {section['height']}px"]
+        kind = str(section.get("kind", "bölüm"))
+        parts = [f"{_SECTION_NAMES.get(kind, kind)} {section.get('height', '?')}px"]
         video = section.get("video") or {}
         media = [
             path
@@ -606,16 +613,17 @@ def _section_lines(
             parts.append("medya " + ", ".join(dict.fromkeys(media)))
         if section.get("headings"):
             heading = section["headings"][0]
-            font = heading["font"]
+            font = heading.get("font") or {}
+            family = str(font.get("family", "?")).split(",")[0]
             parts.append(
-                f"başlık '{heading['text']}' ({font['family'].split(',')[0]} "
-                f"{font['size']}/{font['weight']} {font['color']})"
+                f"başlık '{heading.get('text', '')}' ({family} "
+                f"{font.get('size', '?')}/{font.get('weight', '?')} {font.get('color', '?')})"
             )
         if section.get("buttons"):
             parts.append("düğme " + ", ".join(f"'{text}'" for text in section["buttons"][:3]))
         if section.get("items"):
             parts.append(f"{section['items']} fiyatlı öğe")
-        if section["background"] not in ("rgba(0, 0, 0, 0)", "transparent"):
+        if section.get("background", "") not in ("", "rgba(0, 0, 0, 0)", "transparent"):
             parts.append(f"zemin {section['background']}")
         lines.append(f"  {index}. " + " | ".join(parts))
     return lines
