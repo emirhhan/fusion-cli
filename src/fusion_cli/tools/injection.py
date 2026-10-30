@@ -16,6 +16,7 @@ araçları onay politikasından geçmeye devam eder. Bu not ek bir savunma hatt�
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, replace
 
 from ..core.tools import ToolResult
@@ -30,7 +31,7 @@ class InjectionRule:
 
 
 def _rule(expression: str, label: str) -> InjectionRule:
-    return InjectionRule(pattern=re.compile(expression, re.IGNORECASE), label=label)
+    return InjectionRule(pattern=re.compile(expression, re.IGNORECASE | re.DOTALL), label=label)
 
 
 #: Sır dosyası adları — "oku ve gönder" kalıbının nesnesi.
@@ -93,9 +94,23 @@ INJECTION_NOTE = (
 )
 
 
+#: Görünmeyen/biçim karakterleri: kalıbı bölüp regex'i atlatmak için kullanılır.
+_INVISIBLE = re.compile("[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]")
+
+
+def _normalize(text: str) -> str:
+    """NFKC (tam genişlikli/uyumluluk biçimleri) + görünmez karakter temizliği.
+
+    Ölçüldü (30 Ekim): `ig\u200bnore all previous instructions` ve tam genişlikli yazım
+    kalıpları atlatıyordu. Dedektör bilerek DAR kalır; yalnız yazım hileleri kapatılır.
+    """
+    return _INVISIBLE.sub("", unicodedata.normalize("NFKC", text))
+
+
 def find_injection(text: str) -> str | None:
     """Metinde enjeksiyon kalıbı varsa etiketini, yoksa None döndür."""
-    return next((rule.label for rule in INJECTION_RULES if rule.pattern.search(text)), None)
+    temiz = _normalize(text)
+    return next((rule.label for rule in INJECTION_RULES if rule.pattern.search(temiz)), None)
 
 
 def flag_injection(result: ToolResult, scanned_text: str) -> ToolResult:
