@@ -47,7 +47,7 @@ KANIT_UZUNLUGU = 200
 TASLAK_KIMLIK = re.compile(r"tk-[0-9a-f]{10}")
 
 _TR = str.maketrans("İIıŞşĞğÜüÖöÇç", "iiissgguuoocc")
-#: Düzeltme kalıpları ASCII'ye indirgenmiş metinde aranır (`_sadelestir`).
+#: Düzeltme kalıpları ASCII'ye indirgenmiş metinde aranır (`sadelestir`).
 _DUZELTME = re.compile(
     r"^(?:hayir|yanlis|olmadi|olmamis|bu degil|boyle degil|istedigim bu degil|"
     r"nope|wrong|that'?s (?:not|wrong)|not what i)\b|"
@@ -191,7 +191,7 @@ def _oturum_taslaklari(
     return bulunan
 
 
-def _sadelestir(metin: str) -> str:
+def sadelestir(metin: str) -> str:
     """Türkçe harfleri ASCII'ye indirip küçült; kalıp eşleşmesi tek biçime bakar."""
 
     return " ".join(metin.translate(_TR).lower().split())
@@ -211,7 +211,7 @@ def _duzeltme_deseni(metin: str) -> TaslakKaynagi | None:
 
     if len(metin.strip()) < _MIN_DUZELTME:
         return None
-    sade = _sadelestir(metin)
+    sade = sadelestir(metin)
     if _GERI_ALMA.search(sade):
         return TaslakKaynagi.GERI_ALMA
     if _DUZELTME.search(sade):
@@ -222,11 +222,11 @@ def _duzeltme_deseni(metin: str) -> TaslakKaynagi | None:
 def _tekrar_edilen(turlar: list[_Tur], sira: int) -> _Tur | None:
     """Bu mesaj, yakın geçmişteki bir isteğin tekrarıysa İLK gönderimin turunu döndür."""
 
-    metin = _sadelestir(turlar[sira].metin)
+    metin = sadelestir(turlar[sira].metin)
     if len(metin) < MIN_ISTEK:
         return None
     for onceki in turlar[max(0, sira - TEKRAR_PENCERESI) : sira]:
-        gecmis = _sadelestir(onceki.metin)
+        gecmis = sadelestir(onceki.metin)
         if len(gecmis) < MIN_ISTEK:
             continue
         if difflib.SequenceMatcher(None, gecmis, metin).ratio() >= TEKRAR_BENZERLIGI:
@@ -277,7 +277,7 @@ def _uret(
 def taslak_kimligi(istek: str) -> str:
     """Maskelenmiş isteğin kararlı kimliği: aynı istek tekrar üretilince aynı id çıkar."""
 
-    ozet = hashlib.sha256(_sadelestir(istek).encode()).hexdigest()[:10]
+    ozet = hashlib.sha256(sadelestir(istek).encode()).hexdigest()[:10]
     return f"tk-{ozet}"
 
 

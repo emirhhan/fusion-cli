@@ -5,6 +5,10 @@ GEPA/DSPy ruhunda ama OFFLINE: planner/critic/localizer promptları Faz 0 eval s
 ONLINE optimizasyon YOKTUR — bu paket ürünün çalışma zamanına dahil değildir, bir
 araçtır (`evals` gibi).
 
+Kendini geliştirme döngüsü (eval taslakları → öneri → onaylı uygulama) bu paketin
+`campaign`/`apply` modülleridir; komutları `fusion prompt-opt ...` altındadır. Öneri turu
+istem dosyasını DEĞİŞTİRMEZ; yalnız kullanıcının `uygula` komutu yazar.
+
 Güvenlik ilkesi: yeni sürüm ancak eski sürüme göre REGRESYON YOKSA ve ölçülebilir
 iyileşme varsa yayımlanır; her yayım sürümlenir ve geri alınabilir.
 """

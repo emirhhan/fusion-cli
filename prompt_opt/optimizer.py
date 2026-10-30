@@ -10,6 +10,7 @@ regresyonsuz en iyi adayı seç → yalnızca iyileşme varsa yeni sürümü yay
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from evals.metrics import RunReport
@@ -34,6 +35,62 @@ class PromptEvaluator(Protocol):
     async def evaluate(self, prompt_text: str) -> RunReport: ...
 
 
+@dataclass(frozen=True, slots=True)
+class SearchResult:
+    """Arama sonucu: temel, ölçülen adaylar ve seçim. Hiçbir şey yayımlanmamıştır."""
+
+    baseline: Candidate
+    candidates: tuple[Candidate, ...]
+    selection: Selection
+
+    @property
+    def winner_report(self) -> RunReport | None:
+        """Seçilen adayın raporu; iyileşme yoksa `None`."""
+        if not self.selection.improved:
+            return None
+        return next(
+            (c.report for c in self.candidates if c.variant.text == self.selection.winner.text),
+            None,
+        )
+
+
+async def search(
+    name: str,
+    base_text: str,
+    *,
+    generator: VariantGenerator,
+    evaluator: PromptEvaluator,
+    base_version: int = 0,
+    baseline_report: RunReport | None = None,
+    variant_count: int = DEFAULT_VARIANT_COUNT,
+    min_improvement: float = DEFAULT_MIN_IMPROVEMENT,
+) -> SearchResult:
+    """Temeli ve adayları ölç, regresyonsuz en iyisini seç. YAYIMLAMAZ.
+
+    `baseline_report` verilirse temel yeniden ölçülmez: çağıran temelin başarısız
+    görevlerini adaylara ipucu yapmak için onu zaten ölçmüş olabilir (model çağrısı pahalı).
+    """
+
+    baseline = Candidate(
+        variant=PromptVariant(name=name, text=base_text, version=base_version),
+        report=baseline_report
+        if baseline_report is not None
+        else await evaluator.evaluate(base_text),
+    )
+    texts = await generator.generate(base_text, variant_count)
+    candidates = tuple(
+        [
+            Candidate(
+                variant=PromptVariant(name=name, text=text),
+                report=await evaluator.evaluate(text),
+            )
+            for text in texts
+        ]
+    )
+    selection = select_winner(baseline, candidates, min_improvement=min_improvement)
+    return SearchResult(baseline=baseline, candidates=candidates, selection=selection)
+
+
 async def optimize(
     name: str,
     base_text: str,
@@ -47,25 +104,16 @@ async def optimize(
     """Promptu offline optimize et. İyileşme varsa yeni sürümü yayımlar."""
 
     current = store.current(name)
-    base_version = current.version if current is not None else 0
-    baseline = Candidate(
-        variant=PromptVariant(name=name, text=base_text, version=base_version),
-        report=await evaluator.evaluate(base_text),
+    result = await search(
+        name,
+        base_text,
+        generator=generator,
+        evaluator=evaluator,
+        base_version=current.version if current is not None else 0,
+        variant_count=variant_count,
+        min_improvement=min_improvement,
     )
-
-    texts = await generator.generate(base_text, variant_count)
-    candidates = tuple(
-        [
-            Candidate(
-                variant=PromptVariant(name=name, text=text),
-                report=await evaluator.evaluate(text),
-            )
-            for text in texts
-        ]
-    )
-
-    selection = select_winner(baseline, candidates, min_improvement=min_improvement)
-    if selection.improved:
-        published = store.publish(name, selection.winner.text)
-        return Selection(winner=published, improved=True, reason=selection.reason)
-    return selection
+    if result.selection.improved:
+        published = store.publish(name, result.selection.winner.text)
+        return Selection(winner=published, improved=True, reason=result.selection.reason)
+    return result.selection
