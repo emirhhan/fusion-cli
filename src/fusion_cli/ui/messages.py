@@ -939,3 +939,15 @@ MENTION_RESOURCE_UNSUPPORTED = (
     "sunucunun aracını sohbette iste."
 )
 MEMORY_NOTE_SAVED = "Not kalıcı belleğe kaydedildi (/lessons ile gör, /forget ile sil)."
+
+# --- /config ve fusion config get/set/list (P-029) ------------------------- #
+CMD_CONFIG = "ayarları gör/değiştir: /config [filtre] · /config <yol> · /config <yol>=<değer>"
+CONFIG_LIST_HEADER = "Ayarlar (yol · değer · tip):"
+CONFIG_LIST_HINT = (
+    "Değiştirmek için: /config <yol>=<değer> (kalıcı). Model rolleri için /model, /level, /mode."
+)
+CONFIG_LIST_EMPTY = "'{filter}' ile eşleşen ayar yok."
+CONFIG_GET = "{path} = {value}"
+CONFIG_SET_DONE = "{path} = {value} — yazıldı: {file}"
+CONFIG_OVERRIDE_APPLIED = "Oturumluk ayar: {path} = {value}"
+CONFIG_PROFILE_APPLIED = "Oturumluk kademe: {tier}"

@@ -31,6 +31,7 @@ from ...tools.capabilities import search as search_capabilities
 from ...ui import messages
 from ...ui.picker import Choice, pick
 from . import (
+    config_command,
     export_commands,
     macros,
     model_flows,
@@ -772,6 +773,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("verify", messages.CMD_VERIFY, _verify, group="Agent"),
     SlashCommand("undo", messages.CMD_UNDO, _undo, group="Agent"),
     SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
+    SlashCommand(
+        "config",
+        messages.CMD_CONFIG,
+        config_command.config_command,
+        group="Bilgi",
+        usage="[filtre|yol|yol=değer]",
+    ),
     SlashCommand("status", messages.CMD_STATUS, lambda state, argument: "", group="Bilgi"),
     SlashCommand("context", messages.CMD_CONTEXT, lambda state, argument: "", group="Bilgi"),
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),

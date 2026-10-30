@@ -292,6 +292,17 @@ runtime:
   # (kök hariç) AGENTS.md/CLAUDE.md talimatı bir kez, kısa biçimde bağlama eklenir.
   # İz: NestedInstructionsLoaded olayı. False = yalnız kök talimatı.
   nested_instructions: true
+  # Çıktı stili (P-068): varsayilan | ozlu | aciklayici | ogretici | <özel dosya adı>.
+  # Özel stiller: ~/.fusion/cikti-stilleri/<ad>.md ve .claude/output-styles/<ad>.md.
+  output_style: varsayilan
+  # Durum satırı betiği (P-069): boş = yerleşik durum çubuğu. Komut stdin'den JSON alır.
+  status_line_command: ""
+  # Terminal renk teması (P-070): koyu | acik | ansi | daltonizm. Masaüstü `theme`'den ayrı.
+  terminal_theme: koyu
+  # REPL görünümü (P-070): fullscreen | inline. Yeni oturumda uygulanır.
+  tui: fullscreen
+  # Vim düzenleme kipi (P-067).
+  vim_mode: false
   # `ask_teacher` aracı modele hiç sunulmaz (`config.teacher` tanımlı olsa bile).
   # `council` bundan etkilenmez — ayrı, çoklu-API-model bir araçtır (Faz 4, Görev 3).
   teacherless: false

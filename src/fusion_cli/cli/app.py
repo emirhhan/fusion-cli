@@ -29,7 +29,7 @@ from ..config.loader import load_config
 from ..config.models import Config
 from ..config.paths import user_data_dir
 from ..config.readiness import Readiness, evaluate
-from ..core.errors import FusionError
+from ..core.errors import ConfigError, FusionError
 from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
 from ..engines.agent.approval import ApprovalMode, parse_mode
@@ -98,11 +98,31 @@ def main_callback(
             help="Proje kökünün YANINDA erişime açılacak dizin. Birden çok kez verilebilir.",
         ),
     ] = None,
+    config_set: Annotated[
+        list[str] | None,
+        typer.Option(
+            "-c",
+            "--set",
+            help="Oturumluk ayar: bölüm.alan=değer (ör. -c runtime.max_tokens=8192); dosyaya yazmaz.",
+        ),
+    ] = None,
+    profile_name: Annotated[
+        str | None,
+        typer.Option(
+            "--profile", help="Oturumluk model kademesi (low, medium, high, ultra, premium)."
+        ),
+    ] = None,
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
     if ctx.invoked_subcommand is not None:
         return
     config = load_config()
+    # `-c` ve `--profile` (P-029): yalnız bu oturum; kullanıcı dosyasına yazılmaz.
+    try:
+        config = _apply_session_overrides(config, tuple(config_set or ()), profile_name)
+    except ConfigError as error:
+        error_console.print(f"[{theme.ERROR}]{error}[/{theme.ERROR}]")
+        raise typer.Exit(2) from None
     # Kapı `evaluate` ile: yalnız Ollama/yerel uç ya da başka sağlayıcıyla çalışan kullanıcı,
     # OpenRouter/NIM anahtarı yok diye REPL'e hiç girememeliydi (L1-13). Anahtarsız VARSAYILAN
     # kurulumda agent rolü kullanılamaz, `NOT_READY` olur ve eski davranış korunur.
@@ -757,6 +777,25 @@ def stats() -> None:
     memory_commands.show_stats()
 
 
+def _apply_session_overrides(config: Config, pairs: tuple[str, ...], tier: str | None) -> Config:
+    """`-c yol=değer` çiftlerini ve `--profile` kademesini yüklenmiş yapılandırmaya uygula."""
+    from ..config import model_select
+    from ..config.settings_access import apply_overrides, read_setting
+
+    config = apply_overrides(config, pairs)
+    for pair in pairs:
+        path = pair.partition("=")[0].strip()
+        satir = messages.CONFIG_OVERRIDE_APPLIED.format(path=path, value=read_setting(config, path))
+        console.print(f"[{theme.DIM}]{satir}[/{theme.DIM}]")
+    if tier:
+        wanted = model_select.normalize_tier_name(tier.strip().lower())
+        config = model_select.apply_tier(config, wanted)
+        console.print(
+            f"[{theme.DIM}]{messages.CONFIG_PROFILE_APPLIED.format(tier=wanted)}[/{theme.DIM}]"
+        )
+    return config
+
+
 @app.command()
 def version() -> None:
     """Sürümü yazdır."""
@@ -768,6 +807,40 @@ def config_show() -> None:
     """Birleştirilmiş yapılandırmayı göster (varsayılanlar + kullanıcı dosyası)."""
     config = load_config()
     _print_config(config)
+
+
+@config_app.command("get")
+def config_get(path: str = typer.Argument(..., help="bölüm.alan — ör. runtime.max_tokens")) -> None:
+    """Tek bir ayarın etkin değerini yazdır (P-029)."""
+    from ..config.settings_access import read_setting
+
+    console.print(read_setting(load_config(), path), highlight=False)
+
+
+@config_app.command("set")
+def config_set_value(
+    path: str = typer.Argument(..., help="bölüm.alan — ör. runtime.max_tokens"),
+    value: str = typer.Argument(..., help="Yeni değer (boolean: true/false, liste: a,b,c)"),
+) -> None:
+    """Ayarı doğrulayıp kullanıcı config.yaml'ına yaz; diğer ayarlar korunur (P-029)."""
+    from ..config.settings_access import read_setting, write_setting
+
+    updated, target = write_setting(load_config(), path, value)
+    console.print(
+        messages.CONFIG_SET_DONE.format(path=path, value=read_setting(updated, path), file=target),
+        highlight=False,
+    )
+
+
+@config_app.command("list")
+def config_list(
+    filter_text: str = typer.Argument("", help="Yol üzerinde alt dizi süzgeci (ör. runtime.web)"),
+) -> None:
+    """Nokta yoluyla erişilebilen ayarları değer ve tipiyle listele (P-029)."""
+    from ..config.settings_access import list_settings
+
+    for row in list_settings(load_config(), filter_text):
+        console.print(f"{row.path} = {row.value}  ({row.kind})", highlight=False)
 
 
 @config_app.command("teacherless")
