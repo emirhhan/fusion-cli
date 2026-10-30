@@ -21,8 +21,12 @@ from dataclasses import dataclass
 
 from ..core.constants import WEB_PROVIDER_SUFFIX
 
-THINK_OPEN = "<think>"
-THINK_CLOSE = "</think>"
+#: Düşünme bloğunu sarmalayan etiket adları (L1-03). Zayıf/farklı modeller `<think>`
+#: yerine `<thinking>`, `<thought>` ya da `<reasoning>` yazar; büyük/küçük harf fark etmez.
+THINK_TAG_NAMES = ("thinking", "think", "thought", "reasoning")
+_TAG_ALTERNATION = "|".join(THINK_TAG_NAMES)
+_OPEN_TAG = re.compile(rf"<({_TAG_ALTERNATION})>", re.IGNORECASE)
+_CLOSE_TAG = re.compile(rf"</({_TAG_ALTERNATION})>", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,44 +41,65 @@ def segment(text: str, *, streaming: bool = False) -> list[Segment]:
     """Metni SIRAYLA görünür ve düşünme parçalarına ayır (tek gramer kaynağı).
 
     Hem gizleme (`strip_thinking`) hem gösterme (görünür thinking bloğu) bu tek
-    ayrıştırmadan beslenir; `<think>`/`</think>` grameri iki ayrı yerde tekrar edilmez.
+    ayrıştırmadan beslenir; etiket grameri iki ayrı yerde tekrar edilmez.
 
     `streaming=True` iken sondaki, bir etiketin yarısı olabilecek parça geri tutulur:
     ne `<th` ekrana sızar ne de `</thi`. Akış bitince `streaming=False` ile çağır;
     geri tutulan varsa serbest bırakılır.
+
+    Kapanışsız açılış (L1-03): tamamlanmış metinde, açılıştan ÖNCE görünür cevap metni
+    varsa model cevabın içinde etiketi sözcük olarak yazmıştır (kod örneği, açıklama);
+    kalan metin cevabın parçasıdır ve atılmaz. Metin doğrudan kapanışsız bir açılışla
+    başlıyorsa bu kesilmiş düşünmedir (token sınırı) ve gizli kalır. Akış sürerken
+    karar verilemez, sonrası tutulur.
     """
     segments: list[Segment] = []
     index = 0
     total = len(text)
-    in_thinking = False
+    open_name: str | None = None
     # Açılışı olmayan kapanış: bazı modeller `<think>` yazmadan düşünür ve yalnız
     # `</think>` ile bitirir. Ölçüldü (26 Eylül, gemini_web): "The blog site is
     # complete… Let me provide a summary.</think>Tamamlandı…" kullanıcıya
     # olduğu gibi gösteriliyordu. Kapanıştan önceki her şey düşünmedir.
     # Akış sırasında karar verilemez (kapanış henüz gelmemiş olabilir); yalnız
     # tamamlanmış metinde uygulanır.
-    first_close = text.find(THINK_CLOSE)
-    first_open = text.find(THINK_OPEN)
-    if not streaming and first_close != -1 and (first_open == -1 or first_close < first_open):
-        _append(segments, True, text[:first_close])
-        index = first_close + len(THINK_CLOSE)
+    first_close = _CLOSE_TAG.search(text)
+    first_open = _OPEN_TAG.search(text)
+    if (
+        not streaming
+        and first_close is not None
+        and (first_open is None or first_close.start() < first_open.start())
+    ):
+        _append(segments, True, text[: first_close.start()])
+        index = first_close.end()
     while index < total:
-        tag = THINK_CLOSE if in_thinking else THINK_OPEN
-        found = text.find(tag, index)
-        if found != -1:
-            _append(segments, in_thinking, text[index:found])
-            index = found + len(tag)
-            in_thinking = not in_thinking
+        if open_name is None:
+            found = _OPEN_TAG.search(text, index)
+        else:
+            found = re.compile(rf"</{open_name}>", re.IGNORECASE).search(text, index)
+        if found is not None:
+            _append(segments, open_name is not None, text[index : found.start()])
+            index = found.end()
+            open_name = found.group(1) if open_name is None else None
             continue
         rest = text[index:]
         if streaming:
             # Aradığımız etiketin yarısı sonda kalmış olabilir (`<th`, `</thi`); geri tut.
-            pending = _pending_tag_length(rest, tag)
+            pending = _pending_tag_length(rest, open_name)
             if pending:
                 rest = rest[:-pending]
-        _append(segments, in_thinking, rest)
+        elif open_name is not None and _has_visible_text(segments):
+            # Kapanışsız açılış, öncesinde görünür cevap varsa etiket sözcüktür; metni sakla.
+            _append(segments, False, text[index - len(open_name) - 2 : index] + rest)
+            break
+        _append(segments, open_name is not None, rest)
         break
     return segments
+
+
+def _has_visible_text(segments: list[Segment]) -> bool:
+    """Şimdiye dek ayrılan parçalar arasında görünür (düşünme olmayan) metin var mı?"""
+    return any(not part.is_thinking and part.text.strip() for part in segments)
 
 
 def strip_thinking(text: str, *, streaming: bool = False) -> str:
@@ -88,12 +113,25 @@ def _append(segments: list[Segment], is_thinking: bool, text: str) -> None:
         segments.append(Segment(is_thinking=is_thinking, text=text))
 
 
-def _pending_tag_length(text: str, tag: str) -> int:
-    """Metnin sonundaki, `tag` etiketinin başlangıcı olabilecek parçanın uzunluğu."""
-    for length in range(min(len(tag) - 1, len(text)), 0, -1):
-        if text.endswith(tag[:length]):
-            return length
-    return 0
+def _pending_tag_length(text: str, open_name: str | None) -> int:
+    """Metnin sonundaki, aranan etiketin başlangıcı olabilecek parçanın uzunluğu.
+
+    Düşünme dışındayken tüm açılış etiketleri (`<think>`, `<thinking>`…), içindeyken
+    açık olanın kapanışı aranır; büyük/küçük harf duyarsızdır.
+    """
+    tags = (
+        [f"<{name}>" for name in THINK_TAG_NAMES]
+        if open_name is None
+        else [f"</{open_name.lower()}>"]
+    )
+    lowered = text.lower()
+    longest = 0
+    for tag in tags:
+        for length in range(min(len(tag) - 1, len(text)), 0, -1):
+            if lowered.endswith(tag[:length]):
+                longest = max(longest, length)
+                break
+    return longest
 
 
 #: Bu sürenin altındaki ölçümler milisaniye olarak gösterilir.
