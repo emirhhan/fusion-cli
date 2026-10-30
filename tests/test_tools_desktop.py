@@ -138,3 +138,95 @@ def test_masaustu_eylemleri_onay_akisini_atlamaz() -> None:
         tool = registry.get(name)
         assert tool is not None and tool.mutating
         assert not build_request(tool, {}).unattended_safe
+
+
+# --- Dalga 4 (T1-43) -----------------------------------------------------------------
+
+
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.mark.parametrize(
+    ("ad", "kod"),
+    [
+        ("return", 36),
+        ("esc", 53),
+        ("delete", 51),
+        ("home", 115),
+        ("end", 119),
+        ("pageup", 116),
+        ("pagedown", 121),
+        ("f1", 122),
+        ("f12", 111),
+        ("l", 37),
+        ("t", 17),
+        ("r", 15),
+        ("n", 45),
+        ("1", 18),
+        ("0", 29),
+    ],
+)
+def test_genisletilmis_tus_adlari_cozulur(ad, kod):
+    assert desktop.resolve_key(ad) == kod
+
+
+def test_bilinmeyen_tus_none_doner():
+    assert desktop.resolve_key("cmd+rm") is None
+
+
+def test_option_ve_control_bayraklari_iletilir(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(desktop.sys, "platform", "darwin")
+    monkeypatch.setattr(desktop, "_framework", lambda: object())
+    monkeypatch.setattr(desktop, "_trusted", lambda loaded: True)
+    alinan: list[dict] = []
+    monkeypatch.setattr(
+        desktop, "_post_key", lambda loaded, code, **bayrak: alinan.append({"code": code, **bayrak})
+    )
+
+    sonuc = desktop.desktop_key({"key": "left", "option": True}, ToolContext(root=tmp_path))
+
+    assert sonuc.ok and alinan[0]["option"] is True and alinan[0]["code"] == 123
+
+
+def test_varsayilan_ekran_goruntusu_yolu_depoya_karismaz(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(desktop.sys, "platform", "darwin")
+    yazilan: list[str] = []
+
+    def fake_run(command, **kwargs):
+        yol = command[-1]
+        yazilan.append(yol)
+        from pathlib import Path
+
+        Path(yol).write_bytes(b"\x89PNG\r\n\x1a\n")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(desktop.subprocess, "run", fake_run)
+
+    desktop.desktop_screenshot({}, ToolContext(root=tmp_path))
+
+    assert ".fusion/tmp" in yazilan[0]
+
+
+def test_buyuk_ekran_goruntusu_otomatik_kucultulur(tmp_path, monkeypatch) -> None:
+    """Hata "daha küçük çözünürlük kullan" diyordu ama çözünürlük parametresi yoktu."""
+    from pathlib import Path
+
+    monkeypatch.setattr(desktop.sys, "platform", "darwin")
+    monkeypatch.setattr(desktop, "SCREENSHOT_MAX_BYTES", 1_000)
+    komutlar: list[str] = []
+
+    def fake_run(command, **kwargs):
+        komutlar.append(command[0])
+        hedef = Path(command[-1])
+        if command[0] == "screencapture":
+            hedef.write_bytes(b"x" * 5_000)
+        else:  # sips ile küçültme
+            hedef.write_bytes(b"\x89PNG\r\n\x1a\n")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(desktop.subprocess, "run", fake_run)
+
+    sonuc = desktop.desktop_screenshot({"path": "s.png"}, ToolContext(root=tmp_path))
+
+    assert sonuc.ok, sonuc.output
+    assert komutlar == ["screencapture", "sips"]

@@ -212,7 +212,17 @@ _TOOLS: tuple[Tool, ...] = (
         name="desktop_key",
         description="macOS'a özel tuş veya Command kısayolu gönder.",
         parameters=_schema(
-            {"key": _STRING, "command": {"type": "boolean"}, "shift": {"type": "boolean"}},
+            {
+                "key": {
+                    **_STRING,
+                    "description": "enter, esc, delete, tab, space, ok tuşları, "
+                    "home/end/pageup/pagedown, f1-f12, a-z, 0-9",
+                },
+                "command": {"type": "boolean"},
+                "shift": {"type": "boolean"},
+                "option": {"type": "boolean"},
+                "control": {"type": "boolean"},
+            },
             ["key"],
         ),
         run=desktop.desktop_key,
