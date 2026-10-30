@@ -422,6 +422,57 @@ def _make(root: Path) -> tuple[str, ...]:
     return tuple(f"make {ad}" for ad in _MAKE_TARGETS if ad in tanimli)
 
 
+#: Kapsam taramasında tanınan ekosistemler (`make` hariç: Makefile çoğu projede
+#: sarmalayıcıdır, ayrı bir ekosistem değildir).
+_COVERAGE_ECOSYSTEMS: tuple[tuple[str, Callable[[Path], tuple[str, ...]]], ...] = (
+    ("python", _python),
+    # `build` de doğrulama sayılır: otomatik kapı TS/Next projesini onunla denetler.
+    ("node", partial(_node, scripts=(*_NODE_SCRIPTS, "build"))),
+    ("rust", _rust),
+    ("go", _go),
+)
+
+#: Alt klasör taramasında atlanan bağımlılık/üretim dizinleri.
+_COVERAGE_SKIP_DIRS = frozenset(
+    {"node_modules", "venv", "vendor", "dist", "build", "target", "site-packages", "__pycache__"}
+)
+
+#: Raporda en çok kaç kapsam dışı ekosistem sayılır.
+_COVERAGE_REPORT_LIMIT = 5
+
+
+def uncovered_ecosystems(root: Path, *, domains: DomainRegistry | None = None) -> tuple[str, ...]:
+    """Otomatik kapının DOĞRULAMADIĞI ekosistemleri adlandır (A4-66).
+
+    Keşif kökte tek ekosistem seçer ("ilk dolu kazanır"). Ölçüldü (30 Ekim): bu depo
+    `pyproject.toml` + `app/` (Tauri/React) olduğu için `app/` altındaki TypeScript
+    derlemesi ve tipi hiç denetlenmiyor, ama kullanıcı bunu hiçbir yerde görmüyordu.
+
+    Kökte seçilenin dışında kalan ekosistemler ve bir alt klasördeki (ör. `app/`)
+    doğrulanabilir projeler `"app/ (node)"` biçiminde döner. Yalnız dosya sistemine
+    bakar, komut çalıştırmaz.
+    """
+    registry = domains if domains is not None else default_domain_registry()
+    root_hits = [label for label, discover in _COVERAGE_ECOSYSTEMS if discover(root)]
+    # Alan kapısı (Godot vb.) node'dan sonra ve rust'tan önce seçilir (bkz. `discover_commands`).
+    if registry.gate_commands(root):
+        root_hits.insert(min(len(root_hits), 2 if "node" in root_hits else 1), "alan")
+    rapor = [f"{label} (kök)" for label in root_hits[1:]]
+    try:
+        children = sorted(path for path in root.iterdir() if path.is_dir())
+    except OSError:
+        children = []
+    for child in children:
+        if child.name.startswith(".") or child.name in _COVERAGE_SKIP_DIRS:
+            continue
+        rapor.extend(
+            f"{child.name}/ ({label})"
+            for label, discover in _COVERAGE_ECOSYSTEMS
+            if discover(child)
+        )
+    return tuple(rapor[:_COVERAGE_REPORT_LIMIT])
+
+
 def _read(path: Path) -> str | None:
     """Dosyayı oku; yoksa ya da okunamıyorsa None."""
     try:

@@ -49,6 +49,7 @@ from ...core.verification import (
 )
 from ...tools.remotion_observe import observe_frame
 from .browser_verify import BrowserVerifier
+from .coverage_verify import EcosystemCoverageVerifier
 from .domain_adapters.contract import ToolFailureMarkers
 from .domain_adapters.defaults import default_domain_registry
 from .domain_adapters.registry import DomainRegistry
@@ -169,9 +170,12 @@ def build_verifier(
     # Keşif komut UYDURMAZ: yalnızca projede kanıtı olanı önerir (var olan script,
     # tanımlı hedef) ve test paketini dışarıda bırakır — sorulan soru "kodu bozdum
     # mu", "tüm testler geçiyor mu" değil.
-    commands = config.runtime.verification_commands or discover_auto_commands(
-        root, domains=registry
-    )
+    configured = config.runtime.verification_commands
+    commands = configured or discover_auto_commands(root, domains=registry)
+    if commands and not configured:
+        # Keşif tek ekosistem seçer; seçilmeyen (ör. `app/` TypeScript) denetimsiz kalır.
+        # Kullanıcı komutları kendisi yazdıysa kapsamı o belirlemiştir; uyarılmaz (A4-66).
+        verifiers.append(EcosystemCoverageVerifier(root, domains=registry))
     if commands:
         verifiers.append(
             CommandVerifier(
