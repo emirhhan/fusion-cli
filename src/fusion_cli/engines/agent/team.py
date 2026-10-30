@@ -16,10 +16,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ...core.clock import SystemClock
+from ...core.errors import PathAccessError
 from ...core.events import Channel, Event, EventPublisher, SubAgentFinished, SubAgentStarted
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...tools.capabilities import CapabilityRegistry, load_agent_prompt, map_tools
 from .team_policy import allowed_tools as _allowed_tools
+from .team_policy import cap_report as _cap_report
 from .team_policy import child_execution as _child_execution
 from .team_policy import member_brief as _member_brief
 from .team_policy import summary as _summary
@@ -186,6 +188,10 @@ async def run_subagent(
         current = asyncio.current_task()
         if current is not None and current.cancelling():
             raise
+    except PathAccessError as error:
+        # Yazma alanı kök dışı/izinsiz: mesaj Fusion'ın kendi yol denetiminden gelir (sır
+        # taşımaz) ve modelin düzeltebileceği bilgidir (A4-39).
+        text = f"Alt ajan başlatılamadı: {error}"
     except Exception as error:
         # Ham hata metni credential veya dış araç içeriği taşıyabilir.
         text = f"Alt ajan tamamlanamadı ({type(error).__name__})."
@@ -259,6 +265,9 @@ async def _run_child(
             await sub_deps.questions.close()
         finally:
             deps.tool_context.touched.update(sub_deps.tool_context.touched)
+            # Alt ajanın `play_probe` ile sınadığı oyun parent kapanışında yeniden oynanmasın
+            # (A4-41): kanıt da parent'a döner.
+            deps.tool_context.probed_games.update(sub_deps.tool_context.probed_games)
 
 
 async def run_team(
@@ -326,7 +335,7 @@ def spawn_agent_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> Too
         if depth >= MAX_AGENT_DEPTH:
             return ToolResult.failure("Alt-ajan derinlik sınırına ulaşıldı; bu görevi kendin yap.")
         run = await run_subagent(deps, subtask, depth=depth, run_agent=run_agent)
-        return ToolResult(run.text)
+        return ToolResult(_cap_report(run.text))
 
     return Tool(
         name="spawn_agent",
@@ -357,7 +366,11 @@ def spawn_agents_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> To
             if isinstance(parsed, str):
                 return ToolResult.failure(f"gorevler[{index}]: {parsed}")
             subtasks.append(parsed)
-        runs = await run_team(deps, subtasks, depth=depth, run_agent=run_agent)
+        try:
+            runs = await run_team(deps, subtasks, depth=depth, run_agent=run_agent)
+        except PathAccessError as error:
+            # Geçersiz `yazma_alani` ham istisna olarak değil modelin düzeltebileceği sonuç (A4-39).
+            return ToolResult.failure(f"Yazma alanı geçersiz: {error}")
         return ToolResult(_team_report(runs))
 
     return Tool(

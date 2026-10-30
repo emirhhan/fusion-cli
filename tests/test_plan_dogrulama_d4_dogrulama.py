@@ -431,3 +431,45 @@ def test_gorev_kokleri_buyuk_noktali_i_yi_bolmez():
     from fusion_cli.engines.agent.teacher_memory import _stems
 
     assert _stems("İstanbul şubesi raporu") == _stems("istanbul şubesi raporu")
+
+
+# --- A4-39 / A4-40 / A4-41: ekip (team) --------------------------------------------- #
+
+
+async def test_gecersiz_yazma_alani_modele_duzeltilebilir_hata_olarak_doner(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+    from fusion_cli.engines.agent.loop import AgentDeps
+    from fusion_cli.engines.agent.team import spawn_agents_tool
+    from fusion_cli.tools.capabilities import CapabilityRegistry
+    from tests.agent_harness import Publisher
+    from tests.fakes import AlwaysApprove, RecordingSink, make_config
+
+    deps = AgentDeps(
+        config=make_config(),
+        publisher=Publisher(RecordingSink()),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=tmp_path, write_scope=(tmp_path / "izinli",)),
+        capabilities=CapabilityRegistry(tmp_path / "ev", tmp_path),
+    )
+
+    async def ajan(*_a, **_k):
+        raise AssertionError("alan geçersizken ajan başlamamalı")
+
+    arac = spawn_agents_tool(deps, depth=0, run_agent=ajan)
+    sonuc = await arac.run(
+        {"gorevler": [{"task": "a", "yazma_alani": ["baska/dosya.txt"]}]}, deps.tool_context
+    )
+
+    assert sonuc.ok is False
+    assert "yazma alanı" in sonuc.output.lower()
+
+
+def test_uye_raporu_baglami_sisirmez():
+    from fusion_cli.engines.agent.team_policy import MEMBER_REPORT_CHARS, cap_report
+
+    uzun = "x" * (MEMBER_REPORT_CHARS * 3)
+
+    assert len(cap_report(uzun)) < MEMBER_REPORT_CHARS + 100
+    assert "kırpıldı" in cap_report(uzun)
+    assert cap_report("kısa") == "kısa"

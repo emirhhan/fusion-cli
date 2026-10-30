@@ -56,10 +56,22 @@ def member_brief(persona: Persona, subtask: SubTask) -> str:
     return "\n\n".join(parts)
 
 
+#: Bir üyenin ana bağlama dönen raporunun üst sınırı: `max_parallel_agents` uzun rapor
+#: birleşince bağlam şişiyordu (A4-40).
+MEMBER_REPORT_CHARS = 6_000
+
+
+def cap_report(text: str, limit: int = MEMBER_REPORT_CHARS) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "\n[… rapor kırpıldı; ayrıntı için değişen dosyalara bak.]"
+
+
 def team_report(runs: Sequence[SubRun]) -> str:
     """Ana ajana dönen birleşik rapor: her üyenin sonucu kendi başlığıyla."""
     return "\n\n".join(
-        f"## {run.persona.title} ({run.sub_id}) — {'tamam' if run.ok else 'yarım'}\n{run.text}"
+        f"## {run.persona.title} ({run.sub_id}) — {'tamam' if run.ok else 'yarım'}\n"
+        f"{cap_report(run.text)}"
         for run in runs
     )
 
