@@ -11,6 +11,7 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from ..config.loader import load_config
 from ..knowledge import KnowledgeManifest, read_manifest, status, sync
@@ -60,7 +61,7 @@ def knowledge_sync(
     if not report.ok:
         console.print(f"[{theme.ERROR}]{_MSG_SYNC_FAIL}[/{theme.ERROR}]")
         for problem in report.problems:
-            console.print(f"[{theme.WARN}]  - {problem}[/{theme.WARN}]")
+            console.print(f"[{theme.WARN}]  - {escape(problem)}[/{theme.WARN}]")
         raise typer.Exit(1)
     console.print(_MSG_SYNC_OK.format(added=report.added, updated=report.updated))
 
@@ -70,7 +71,9 @@ def knowledge_sync(
 
 def _read_or_exit(package: Path) -> KnowledgeManifest:
     if not package.exists():
-        console.print(f"[{theme.ERROR}]{_MSG_NO_PACKAGE.format(path=package)}[/{theme.ERROR}]")
+        console.print(
+            f"[{theme.ERROR}]{escape(_MSG_NO_PACKAGE.format(path=package))}[/{theme.ERROR}]"
+        )
         raise typer.Exit(1)
     return read_manifest(package)
 

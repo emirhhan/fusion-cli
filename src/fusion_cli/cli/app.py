@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Annotated, TypeVar
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from .. import __version__
@@ -183,9 +184,9 @@ def _print_doctor(report: DoctorReport) -> None:
     for check in report.checks:
         isaret = "·" if check.ok is None else (theme.ICON_OK if check.ok else theme.ICON_ERROR)
         renk = theme.DIM if check.ok is None else (theme.OK if check.ok else theme.ERROR)
-        console.print(f"[{renk}]{isaret}[/{renk}] {check.name:<28} {check.value}")
+        console.print(f"[{renk}]{isaret}[/{renk}] {check.name:<28} {escape(check.value)}")
         if check.remedy:
-            console.print(f"  [{theme.DIM}]→ {check.remedy}[/{theme.DIM}]")
+            console.print(f"  [{theme.DIM}]→ {escape(check.remedy)}[/{theme.DIM}]")
     console.print()
     durum = report.readiness.state
     renk = {Readiness.READY: theme.OK, Readiness.PARTIALLY_READY: theme.WARN}.get(
@@ -193,7 +194,7 @@ def _print_doctor(report: DoctorReport) -> None:
     )
     console.print(f"[bold {renk}]{messages.DOCTOR_STATE[durum.value]}[/bold {renk}]")
     for sebep in report.readiness.reasons:
-        console.print(f"  [{theme.DIM}]{sebep}[/{theme.DIM}]")
+        console.print(f"  [{theme.DIM}]{escape(sebep)}[/{theme.DIM}]")
 
 
 @app.command()
@@ -400,7 +401,7 @@ def serve(
             access_token=token or None,
         )
     except FusionError as error:
-        console.print(f"[red]{error}[/red]")
+        console.print(f"[red]{escape(str(error))}[/red]")
         raise typer.Exit(code=1) from error
 
 
@@ -641,10 +642,11 @@ def mcp_tools() -> None:
         async with McpClient(config.mcp_servers) as client:
             for server in config.mcp_servers:
                 tools = await client.list_tools(server.name)
-                console.print(f"[bold]{server.name}[/bold] — {len(tools)} araç:")
+                console.print(f"[bold]{escape(server.name)}[/bold] — {len(tools)} araç:")
                 for tool in tools:
                     console.print(
-                        f"  [{theme.ACCENT}]{tool.name}[/{theme.ACCENT}] — {tool.description}"
+                        f"  [{theme.ACCENT}]{escape(tool.name)}[/{theme.ACCENT}] — "
+                        f"{escape(tool.description or '')}"
                     )
 
     asyncio.run(_run())
@@ -775,11 +777,13 @@ def _print_config(config: Config) -> None:
 
 
 def _print_spec(spec: ModelSpec) -> None:
-    tags = f" [{theme.DIM}]({', '.join(spec.tags)})[/{theme.DIM}]" if spec.tags else ""
-    console.print(f"  {spec.name}: [{theme.ACCENT}]{spec.model}[/{theme.ACCENT}]{tags}")
+    tags = f" [{theme.DIM}]({escape(', '.join(spec.tags))})[/{theme.DIM}]" if spec.tags else ""
+    console.print(
+        f"  {escape(spec.name)}: [{theme.ACCENT}]{escape(spec.model)}[/{theme.ACCENT}]{tags}"
+    )
     if spec.fallback:
         for fallback in spec.fallback:
-            console.print(f"    [{theme.DIM}]yedek: {fallback}[/{theme.DIM}]")
+            console.print(f"    [{theme.DIM}]yedek: {escape(fallback)}[/{theme.DIM}]")
     else:
         console.print(f"    [{theme.DIM}]{messages.CONFIG_FALLBACK_NONE}[/{theme.DIM}]")
 
@@ -797,12 +801,14 @@ def _print_configured_models(config: Config) -> None:
     table.add_column("Ad", style=theme.ACCENT)
     table.add_column("Model", style=theme.DIM)
     for candidate in config.candidates:
-        table.add_row("aday", candidate.name, candidate.model)
-    table.add_row("hakem", config.judge.name, config.judge.model)
-    table.add_row("agent", config.agent.name, config.agent.model)
+        table.add_row("aday", escape(candidate.name), escape(candidate.model))
+    table.add_row("hakem", escape(config.judge.name), escape(config.judge.model))
+    table.add_row("agent", escape(config.agent.name), escape(config.agent.model))
     for session in config.web_sessions:
         if session.enabled:
-            table.add_row("web", f"{session.provider}/{session.account}", session.model)
+            table.add_row(
+                "web", escape(f"{session.provider}/{session.account}"), escape(session.model)
+            )
     console.print(table)
 
 
@@ -824,7 +830,7 @@ def _print_catalog() -> None:
                 if entry.context_length
                 else ""
             )
-            console.print(f"  [{theme.ACCENT}]{entry.model_id}[/{theme.ACCENT}]{suffix}")
+            console.print(f"  [{theme.ACCENT}]{escape(entry.model_id)}[/{theme.ACCENT}]{suffix}")
 
 
 def main(*, host_dependencies: AppHostDependencies | None = None) -> None:
@@ -833,7 +839,8 @@ def main(*, host_dependencies: AppHostDependencies | None = None) -> None:
         app(obj=host_dependencies)
     except FusionError as exc:
         console.print(
-            f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}] {exc}"
+            f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}] "
+            f"{escape(str(exc))}"
         )
         sys.exit(1)
     except KeyboardInterrupt:
