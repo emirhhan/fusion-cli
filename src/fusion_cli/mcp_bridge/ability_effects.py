@@ -42,19 +42,24 @@ def effect_from_ability_meta(info: Mapping[str, object] | None) -> ToolEffect | 
 
 def ability_gateway_resolver(info: AbilityInfo) -> EffectResolver:
     """`ability_name` argümanına göre etkiyi bulan, önbellekli çözücü."""
-    cache: dict[str, ToolEffect | None] = {}
+    cache: dict[str, ToolEffect] = {}
 
     async def resolve(args: ToolArgs, _context: ToolContext | None = None) -> ToolEffect | None:
         name = args.get("ability_name")
         if not isinstance(name, str) or not name.strip():
             return None
-        if name not in cache:
-            try:
-                cache[name] = effect_from_ability_meta(await info(name))
-            except Exception:
-                # Ağ/sunucu hatası: karar aracın kendi etkisine kalır ve bir
-                # sonraki çağrıda yeniden denenir (hata önbelleğe alınmaz).
-                return None
-        return cache[name]
+        if name in cache:
+            return cache[name]
+        try:
+            effect = effect_from_ability_meta(await info(name))
+        except Exception:
+            # Ağ/sunucu hatası: karar aracın kendi etkisine kalır ve bir
+            # sonraki çağrıda yeniden denenir (hata önbelleğe alınmaz).
+            return None
+        if effect is not None:
+            # Bilgi alınamayan (None) sonuç da saklanmaz: geçici hata yeteneği
+            # sonsuza dek en sıkı etkide bırakırdı.
+            cache[name] = effect
+        return effect
 
     return resolve
