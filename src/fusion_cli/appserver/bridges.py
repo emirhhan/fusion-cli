@@ -18,6 +18,7 @@ from uuid import uuid4
 
 from ..core.constants import QUESTION_RECEIPT_HISTORY_LIMIT
 from ..core.events import Event
+from ..core.redaction import redact
 from ..core.submission import SubmissionReceipt
 from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
 from ..engines.agent.engine_tools import QuestionOption
@@ -26,6 +27,9 @@ from .approval_preview import onizleme_diffi
 from .approval_summary import approval_summary
 from .protocol import encode_error, encode_event, encode_question
 from .serialize import event_to_dict
+
+#: Onay kartında tek argüman değerinin en çok karakteri; kalanı "… N karakter daha".
+APPROVAL_ARG_PREVIEW_MAX_CHARS = 2_000
 
 #: Tek satır yazan taraf. Testte listeye, üretimde stdout'a yazar.
 Writer = Callable[[str], None]
@@ -48,9 +52,10 @@ class ProtocolSink:
     def handle(self, event: Event) -> None:
         """Olayı tek bir protokol satırı olarak ilet.
 
-        `event_to_dict` desteklenmeyen bir alan tipinde `TypeError` fırlatabilir
-        (bkz. `serialize.py::_plain`). `EventBus._dispatch` bu istisnayı yakalayıp
-        kimsenin okumadığı `failures` listesine yazar — olay sessizce kaybolurdu.
+        `event_to_dict` desteklenmeyen bir alan tipinde `TypeError`, `encode_event`
+        dairesel yapıda `ValueError` fırlatabilir (bkz. `serialize.py::_plain`).
+        `EventBus._dispatch` bu istisnayı yakalayıp kimsenin okumadığı
+        `failures` listesine yazar — olay sessizce kaybolurdu.
         Burada yakalanıp `ProtocolError` olayına çevrilir: uygulama en azından
         BİR olayın iletilemediğini görür.
         """
@@ -64,7 +69,9 @@ class ProtocolSink:
                     schema_version=1,
                 )
             self._writer(encode_event(payload))
-        except TypeError:
+        except (TypeError, ValueError):
+            # `ValueError`: dairesel yapı / kodlanamayan değer (`json.dumps`). Yazar tarafı
+            # kopmuşsa (`BrokenPipeError`) `server._stdout_writer` süreci zaten sonlandırır.
             self._writer(
                 encode_error(messages.APP_EVENT_SERIALIZE_FAILED.format(olay=type(event).__name__))
             )
@@ -234,7 +241,20 @@ def _preview_args(request: ApprovalRequest) -> list[str]:
     Değerler terminaldeki gibi `repr()` ile taşınır — JSON'a çevrilemeyen bir tip
     (Path, dataclass, …) gelse bile tel bozulmaz.
     """
-    return [f"{name}={value!r}" for name, value in sorted(request.args.items())]
+    return [f"{name}={_preview_value(value)}" for name, value in sorted(request.args.items())]
+
+
+def _preview_value(value: object) -> str:
+    """Tek argüman değerinin onay kartı gösterimi: sırlar maskeli, uzunluk sınırlı.
+
+    Ölçüldü (30 Ekim): `write_file(content=<2 MB>)` tüm içeriği onay isteğine ve
+    Chrome akışına basıyordu; `history_view` aynı değeri `redact` ediyordu, burası etmiyordu.
+    """
+    text = redact(repr(value))
+    if len(text) <= APPROVAL_ARG_PREVIEW_MAX_CHARS:
+        return text
+    hidden = len(text) - APPROVAL_ARG_PREVIEW_MAX_CHARS
+    return f"{text[:APPROVAL_ARG_PREVIEW_MAX_CHARS]}… {hidden} karakter daha"
 
 
 def _approval_options(request: ApprovalRequest) -> list[dict[str, str]]:

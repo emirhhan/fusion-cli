@@ -270,3 +270,42 @@ async def test_answer_receipt_history_is_bounded_and_cleared_on_stop() -> None:
     assert pending.answer(*identifiers[-1])
     pending.cancel_all()
     assert not pending.answer(*identifiers[-1])
+
+
+def test_dairesel_yapi_valueerror_olay_kaybolmaz(monkeypatch) -> None:
+    """Ölçüldü (30 Ekim, S1-10): `encode_event` `ValueError` (dairesel yapı) fırlatınca
+    yalnız `TypeError` yakalandığından olay `EventBus.failures`'a gömülüp kayboluyordu."""
+    from fusion_cli.appserver import bridges
+
+    def bozuk(_payload: dict) -> str:
+        raise ValueError("Circular reference detected")
+
+    monkeypatch.setattr(bridges, "encode_event", bozuk)
+    satirlar: list[str] = []
+
+    ProtocolSink(satirlar.append).handle(TurnOutcome(status="completed", elapsed_s=1.0))
+
+    yuk = json.loads(satirlar[0])
+    assert yuk["veri"]["olay"] == "ProtocolError"
+
+
+async def test_onay_argumani_uzunluk_sinirli_ve_maskelidir() -> None:
+    """Ölçüldü (30 Ekim, S1-12): 2 MB `content` olduğu gibi kartın telinde taşınıyordu."""
+    satirlar: list[str] = []
+    pending = PendingQuestions()
+    prompter = ProtocolPrompter(satirlar.append, pending)
+
+    gorev = asyncio.ensure_future(
+        prompter.confirm(
+            _request(args={"content": "a" * 100_000, "env": "Bearer abcdef1234567890xyz"})
+        )
+    )
+    await asyncio.sleep(0)
+
+    yuk = json.loads(satirlar[0])
+    assert len(satirlar[0]) < 10_000
+    assert any("karakter daha" in arguman for arguman in yuk["veri"]["argumanlar"])
+    assert "abcdef1234567890xyz" not in satirlar[0]
+
+    pending.resolve(yuk["id"], {"secim": "deny"})
+    await gorev

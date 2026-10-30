@@ -48,3 +48,50 @@ def test_okunamayan_dosya_turu_kesmez(tmp_path: Path) -> None:
     hedef.write_bytes(b"\x00\xff\x00")
 
     assert onizleme_diffi("write_file", {"path": "ikili.bin", "content": "metin"}, tmp_path) == ""
+
+
+def test_multi_edit_edits_listesi_diff_uretir(tmp_path: Path) -> None:
+    """Ölçüldü (30 Ekim, S1-13): gerçek `multi_edit` şeması `edits` listesidir;
+    önizleme üst düzey `old_string` aradığı için kart diffsiz çıkıyordu."""
+    (tmp_path / "a.py").write_text("bir\niki\nüç\n", encoding="utf-8")
+    args = {"path": "a.py", "edits": [{"old": "bir", "new": "BİR"}, {"old": "üç", "new": ""}]}
+
+    diff = onizleme_diffi("multi_edit", args, tmp_path)
+
+    assert "+BİR" in diff
+    assert "-üç" in diff
+
+
+def test_replace_all_onizlemede_tum_eslesmeleri_gosterir(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("x\nx\n", encoding="utf-8")
+
+    diff = onizleme_diffi(
+        "edit_file", {"path": "a.py", "old": "x", "new": "y", "replace_all": True}, tmp_path
+    )
+
+    assert diff.count("+y") == 2
+
+
+def test_bos_yeni_metin_silmeyi_diff_olarak_gosterir(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("bir\niki\n", encoding="utf-8")
+
+    diff = onizleme_diffi("edit_file", {"path": "a.py", "old": "iki\n", "new": ""}, tmp_path)
+
+    assert "-iki" in diff
+
+
+def test_kok_disindaki_dosya_onizlenmez(tmp_path: Path) -> None:
+    """Kısıtlı kipte araç kök dışına yazmayı reddeder; önizleme de içeriği okumaz."""
+    kok = tmp_path / "kok"
+    kok.mkdir()
+    dis = tmp_path / "gizli.txt"
+    dis.write_text("sır\n", encoding="utf-8")
+
+    assert onizleme_diffi("write_file", {"path": str(dis), "content": "x\n"}, kok) == ""
+    assert onizleme_diffi("write_file", {"path": "../gizli.txt", "content": "x\n"}, kok) == ""
+
+
+def test_cok_buyuk_dosya_onizlenmez(tmp_path: Path) -> None:
+    (tmp_path / "buyuk.txt").write_text("a" * (2 * 1024 * 1024), encoding="utf-8")
+
+    assert onizleme_diffi("write_file", {"path": "buyuk.txt", "content": "b"}, tmp_path) == ""
