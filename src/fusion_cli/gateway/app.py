@@ -346,6 +346,10 @@ class GatewayApp:
             persisted = True
         # Her durumda CANLI uygula: çalışan gateway hemen kullanabilsin.
         os.environ[definition.auth_env] = value
+        # Anahtar havuzları başlangıçtaki ortam görüntüsünden kurulur: yeniden kurulmazsa
+        # panelden girilen anahtar yeniden başlatmaya ya da config değişikliğine kadar
+        # havuza girmiyordu (E1-17).
+        self._key_pools = _build_key_pools(self._config)
         await _json(send, {"ok": True, "persisted": persisted, "provider": provider_id})
 
     async def _api_delete_key(self, receive: Receive, send: Send) -> None:
@@ -362,6 +366,7 @@ class GatewayApp:
         if self._secret_store.available:
             self._secret_store.delete(definition.auth_env)
         os.environ.pop(definition.auth_env, None)
+        self._key_pools = _build_key_pools(self._config)
         await _json(send, {"ok": True, "provider": provider_id})
 
     async def _api_set_routing(self, receive: Receive, send: Send) -> None:

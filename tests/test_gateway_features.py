@@ -709,3 +709,21 @@ def test_bos_sonuc_eldeki_dolu_listeyi_silmez():
     simdi["t"] = 11.0  # TTL doldu, yeniden çekim boş döner (ağ hatası)
 
     assert cache.get() == dolu
+
+
+async def test_panelden_girilen_anahtar_havuza_hemen_girer(tmp_path, monkeypatch):
+    """Ölçüldü (30 Ekim): havuzlar başlangıç ortam görüntüsünden kuruluyordu; yeni anahtar
+    yeniden başlatmaya kadar havuza girmiyordu (E1-17)."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    app = _app(tmp_path)
+    assert app._key_pools.for_env("OPENROUTER_API_KEY").size == 0
+
+    async with _client(app) as client:
+        yanit = await client.post("/api/keys", json={"provider": "openrouter", "value": "sk-yeni"})
+    assert yanit.status_code == 200
+
+    assert app._key_pools.for_env("OPENROUTER_API_KEY").size == 1
+
+    async with _client(app) as client:
+        await client.post("/api/keys/delete", json={"provider": "openrouter"})
+    assert app._key_pools.for_env("OPENROUTER_API_KEY").size == 0
