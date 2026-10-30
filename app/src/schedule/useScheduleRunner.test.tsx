@@ -157,3 +157,60 @@ describe("useScheduleRunner gözetimsiz tur güvenliği (U5-57)", () => {
     expect(onNeedsApproval).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("useScheduleRunner yoklama sahipliği", () => {
+  function leasedCore(lease: Record<string, unknown>, items: ScheduleDelivery[] = [delivery("a")]) {
+    return {
+      request: vi.fn(async (name: string) => {
+        if (name === "zamanlama.sahiplik") return lease;
+        if (name === "zamanlama.teslim_bekleyenler") return { ok: true, teslimler: items };
+        return { ok: true };
+      }),
+    };
+  }
+  const names = (client: ReturnType<typeof leasedCore>) => client.request.mock.calls.map(([name]) => name);
+
+  it("kira başka örnekteyse vade alınmaz ve teslim yapılmaz", async () => {
+    const client = leasedCore({ ok: true, sahip: false, bekle_s: 40 });
+    const deliver = vi.fn(async (item: ScheduleDelivery) => queued(item));
+    await runOnePoll(client, deliver);
+
+    expect(names(client)).toEqual(["zamanlama.sahiplik"]);
+    expect(deliver).not.toHaveBeenCalled();
+  });
+
+  it("kira alınınca yoklama sürer; sahip kimliği ve süre gönderilir", async () => {
+    const client = leasedCore({ ok: true, sahip: true, bitis: 1 });
+    const deliver = vi.fn(async (item: ScheduleDelivery) => queued(item));
+    await runOnePoll(client, deliver);
+
+    expect(names(client)).toEqual([
+      "zamanlama.sahiplik",
+      "zamanlama.vadesi_gelenler",
+      "zamanlama.teslim_bekleyenler",
+      "zamanlama.teslim_onayla",
+    ]);
+    const [, veri] = client.request.mock.calls[0];
+    expect(typeof veri.sahip).toBe("string");
+    expect((veri.sahip as string).length).toBeGreaterThan(8);
+    expect(veri.sure_s).toBe(75);
+    expect(deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it("kira isteği bilinmeyen (eski çekirdek) ise yoklama eskisi gibi sürer", async () => {
+    const client = leasedCore({ ok: false, metin: "Bilinmeyen istek: zamanlama.sahiplik" });
+    const deliver = vi.fn(async (item: ScheduleDelivery) => queued(item));
+    await runOnePoll(client, deliver);
+
+    expect(deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it("sayfa kapanırken kira bırakılır", async () => {
+    const client = leasedCore({ ok: true, sahip: true, bitis: 1 }, []);
+    await runOnePoll(client, async (item) => queued(item));
+
+    window.dispatchEvent(new Event("pagehide"));
+
+    expect(names(client)).toContain("zamanlama.sahiplik_birak");
+  });
+});

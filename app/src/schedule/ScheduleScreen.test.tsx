@@ -252,7 +252,9 @@ describe("useScheduleRunner", () => {
     const client = { request }; const deliveryClient = { deliver };
     renderHook(() => useScheduleRunner({ client, deliveryClient, create: async () => "s1", send: () => true, sessions: {} }));
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
-    expect(deliver).toHaveBeenCalledOnce(); expect(request).toHaveBeenCalledTimes(2);
+    expect(deliver).toHaveBeenCalledOnce();
+    // Sahiplik kirası (`zamanlama.sahiplik`) sayılmaz: vade alma + bekleyen listesi = 2 istek.
+    expect(request.mock.calls.filter(([name]) => name !== "zamanlama.sahiplik")).toHaveLength(2);
     await act(async () => { resolve(receipt); });
     expect(deliver).toHaveBeenCalledOnce(); expect(request).toHaveBeenCalledWith("zamanlama.teslim_onayla", { occurrence_id: occurrence.occurrence_id, task_id: receipt.taskId });
   });

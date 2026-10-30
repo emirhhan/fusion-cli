@@ -7,7 +7,11 @@ import {
   type ScheduledTask,
   type ScheduleDeliveryClient,
 } from "./types";
+import { schedulerOwnerId } from "./schedulerOwner";
 export { SCHEDULE_POLL_MS } from "./types";
+
+/** Kira, yoklama aralığının 2,5 katı: bir yoklama kaçsa da sahip kalır, çökerse çabuk devredilir. */
+const LEASE_SECONDS = (SCHEDULE_POLL_MS * 2.5) / 1000;
 
 interface RunnerSession {
   status: string;
@@ -54,6 +58,17 @@ interface Pending {
 
 /** Aynı geçersiz kayıt her yoklamada günlüğü doldurmasın. */
 const gecersizBildirilen = new Set<string>();
+
+/**
+ * Yoklamayı aynı anda tek uygulama örneği yapar: aynı bekleyen teslimi iki örnek birlikte
+ * Kits'e gönderirdi. Yalnız açık "başkasında" yanıtı yoklamayı atlatır; eski çekirdek
+ * (bilinmeyen istek) ya da okunamayan yanıt eskisi gibi sürer, çünkü teslimler ack'e kadar
+ * çekirdekte kalır ve Kits aynı vadeyi tek kez kuyruğa alır.
+ */
+async function holdsPollingLease(client: ScheduleClient): Promise<boolean> {
+  const result = await client.request("zamanlama.sahiplik", { sahip: schedulerOwnerId(), sure_s: LEASE_SECONDS });
+  return !(result.ok === true && result.sahip === false);
+}
 
 async function deliverPending(
   client: ScheduleClient,
@@ -118,6 +133,7 @@ function startDeliveryPolling(
     if (polling.current) return;
     polling.current = true;
     try {
+      if (!(await holdsPollingLease(client))) return;
       await deliverPending(client, deliveryClient, inFlight, () => active);
     } catch {
       // Makbuz veya ack yoksa çekirdeğin kalıcı teslim kaydı sonraki yoklamada kalır.
@@ -127,9 +143,14 @@ function startDeliveryPolling(
   };
   void poll();
   const timer = window.setInterval(() => void poll(), SCHEDULE_POLL_MS);
+  // Uygulama kapanırken kira hemen bırakılır; yoksa yeniden açılış süre dolana kadar bekler.
+  // İstemci değişiminde BIRAKILMAZ: iki çekirdek arasında sıra garantisi yok, kira kaçabilir.
+  const release = () => void client.request("zamanlama.sahiplik_birak", { sahip: schedulerOwnerId() }).catch(() => undefined);
+  window.addEventListener("pagehide", release);
   return () => {
     active = false;
     window.clearInterval(timer);
+    window.removeEventListener("pagehide", release);
   };
 }
 
