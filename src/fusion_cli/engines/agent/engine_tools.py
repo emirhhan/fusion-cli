@@ -63,6 +63,8 @@ from .web_tools import web_work_tools
 #: Asıl öğretmen cevap vermezse denenecek en fazla yedek öğretmen. Her deneme bir web
 #: oturumunda 30-120 sn sürebilir (ölçüldü, 29 Eylül); birden fazlası turu boğar.
 TEACHER_FALLBACKS = 1
+#: Bir turda en fazla kaç `council` çağrısı (pahalı: çok model + hakem + sentez).
+COUNCIL_TURN_LIMIT = 3
 #: Öğretmen zincirinin toplam süre payı: `request_timeout_s` çarpanı (A1-20).
 TEACHER_TOTAL_BUDGET_FACTOR = 2.0
 
@@ -236,6 +238,15 @@ def _council_tool(deps: AgentDeps) -> Tool:
         if not isinstance(question, str) or not question.strip():
             return ToolResult.failure("'question' alanı boş olmayan bir metin olmalı.")
 
+        # Ölçüldü (30 Ekim, A1-25): `ask_teacher` tur ve saat bütçesine bağlıydı,
+        # çok modelli + hakemli `council` hiçbir sınıra değil; zayıf model her adımda
+        # çağırıp ücretsiz kotayı ve süreyi yakabilirdi.
+        if deps.council_calls_used >= COUNCIL_TURN_LIMIT:
+            return ToolResult.failure(
+                f"Bu turda council çağrı sınırına ulaşıldı ({COUNCIL_TURN_LIMIT}). "
+                "Elindeki bilgi ve araçlarla devam et."
+            )
+        deps.council_calls_used += 1
         deps.publisher.publish(CouncilConsulted(question=question))
         result = await run_fusion(
             question,

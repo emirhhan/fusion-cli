@@ -429,6 +429,8 @@ class AgentDeps:
     auto_teacher_used: bool = False
     #: İlk plan, takılma ve son denetim aynı tur bütçesini paylaşır.
     teacher_calls_used: int = 0
+    #: `council` (çok model + hakem + sentez) çağrıları da tur başına sınırlıdır (A1-25).
+    council_calls_used: int = 0
     #: Öğretmen yok/bütçe dolu bildirimi bu turda bir kez gösterilir.
     teacher_unavailable_notified: bool = False
     #: Otomatik öğretmen çağrısı sürerken cevap anında ders olarak yazılmaz.

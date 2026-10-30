@@ -89,3 +89,28 @@ async def test_toplam_sure_dolunca_yeni_aday_denenmez(tmp_path, monkeypatch):
     await _registry(deps).execute("ask_teacher", {"question": "s"}, deps.tool_context)
 
     assert len(sorulan) == 1
+
+
+async def test_council_tur_basina_sinirli(tmp_path, monkeypatch):
+    cagri: list[str] = []
+
+    class _Sonuc:
+        final_answer = "cevap"
+        winner = "m"
+
+    async def _sahte(question, config, **kwargs):
+        del config, kwargs
+        cagri.append(question)
+        return _Sonuc()
+
+    monkeypatch.setattr("fusion_cli.engines.fusion.run_fusion", _sahte)
+    deps = _deps(tmp_path)
+    kayit = _registry(deps)
+
+    sonuclar = [
+        await kayit.execute("council", {"question": f"s{i}"}, deps.tool_context)
+        for i in range(engine_tools.COUNCIL_TURN_LIMIT + 2)
+    ]
+
+    assert [s.ok for s in sonuclar] == [True] * engine_tools.COUNCIL_TURN_LIMIT + [False, False]
+    assert len(cagri) == engine_tools.COUNCIL_TURN_LIMIT
