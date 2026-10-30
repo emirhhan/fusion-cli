@@ -31,9 +31,11 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from ..config.models import HostedConnectorConfig
+from ..core.constants import MAX_OUTPUT_CHARS, truncate_notice
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
 from ..tools import ToolRegistry
 from ..tools.emulation import MESSAGE_REQUIRED_MISSING, coerce_arguments, validate_arguments
+from .call_errors import describe_call_error
 from .schema import clean_description, simplify_schema
 from .tool_name import fusion_tool_name
 
@@ -243,7 +245,12 @@ class HostedConnectorClient:
             )
         except HostedRelayError as error:
             # Görünür hata: modele düzeltme şansı verir, sessizce başarı saymaz.
-            return ToolResult.failure(f"{connector}.{tool} sonucu okunamadı: {error}")
+            # Ölçüldü (30 Ekim): uyarı yalnız "zarf yok" mesajındaydı; gövdede işaret
+            # kalan ya da JSON olmayan zarfta da iş uzakta yapılmış olabilir.
+            return ToolResult.failure(
+                f"{connector}.{tool} sonucu okunamadı: {error}. İşlem uzakta yapılmış "
+                "olabilir; durumu doğrulamadan tekrarlama."
+            )
         if not isinstance(payload, Mapping):
             return ToolResult.failure(f"{connector}.{tool}: cevap JSON nesnesi değil")
         if payload.get("ok") is False:
@@ -257,7 +264,11 @@ class HostedConnectorClient:
             return ToolResult.failure(f"{connector}.{tool}: {MESSAGE_MISSING_RESULT}")
         sonuc = payload["sonuc"]
         structured = sonuc if isinstance(sonuc, Mapping) else {"sonuc": sonuc}
-        return ToolResult(output=json.dumps(sonuc, ensure_ascii=False), structured=dict(structured))
+        # Büyük rapor/kampanya listesi bağlama olduğu gibi girmez (`MAX_OUTPUT_CHARS`).
+        output = truncate_notice(
+            json.dumps(sonuc, ensure_ascii=False), MAX_OUTPUT_CHARS, ne="connector sonucu"
+        )
+        return ToolResult(output=output, structured=dict(structured))
 
     def _precheck(self, connector: str, tool: str, args: Mapping[str, object]) -> str | None:
         """Çağrı oturuma gitmeden önce adı ve argümanları doğrula; hata metni döndür.
@@ -360,7 +371,16 @@ class HostedConnectorClient:
             del context
             try:
                 return await self.call(connector, tool, dict(args))
+            except TimeoutError:
+                return ToolResult.failure(
+                    f"Bağlantı aracı zaman aşımına uğradı ({connector}.{tool}). Uzak işlemin "
+                    "sonucu belirsiz; tekrarlamadan önce durumu gözle."
+                )
             except Exception as error:
-                return ToolResult.failure(f"Bağlantı aracı hatası ({connector}.{tool}): {error}")
+                # Kanal istisnası yol/URL/çerez ipucu taşıyabilir: yalnız tür adı
+                # (bkz. `client.py` ve `call_errors.py`).
+                return ToolResult.failure(
+                    f"Bağlantı aracı hatası ({connector}.{tool}): {describe_call_error(error)}"
+                )
 
         return _run
