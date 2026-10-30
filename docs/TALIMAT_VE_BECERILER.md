@@ -82,3 +82,17 @@ TUI'de ve masaüstü yazı kutusunda **Beceri** grubunda bir slash komutu olur
 | `context: fork` | Okunur; şimdilik ana turda çalışır, not düşer |
 | `model`, `effort` | Okunur; bu turda uygulanmaz (`/model`, `/effort` ile seç), not düşer |
 | Gövdede `` !`cmd` `` | Komut çıktısı yüklenmeden önce yerleştirilir: yalnız `~/.claude`, `~/.codex`, `~/.hermes`, yerleşik köklerden ya da `fusion trust` ile güvenilen projeden ve `auto`/`edits`/`bypass` kipinde; çıktı 2.000 karakter, sırlar maskeli, 10 sn |
+
+## Beceri dizini (`runtime.skill_index_chars`)
+
+Kök turda sistem bağlamına **BECERİ DİZİNİ** bloğu girer: beceri başına `ad — açıklama`
+(ilk 150 karakter), keşif sırasıyla (kullanıcı kökleri → proje → Codex/Hermes → kurulu →
+yerleşik). Model uygun beceriyi aramadan tanır ve `read_skill('<ad>')` ile gövdeyi yükler;
+gövde hiçbir zaman önden basılmaz (progressive disclosure).
+
+- Bütçe `runtime.skill_index_chars` (4.000 karakter); küçük pencereli modelde pencerenin
+  %2'si. Sığmayan beceriler için `[…+N beceri daha; find_skill ile ara]` notu düşer.
+- `disable-model-invocation: true` olan beceriler dizinde ve `find_skill` sonucunda
+  görünmez; yalnız `/ad` ile çağrılır.
+- `skill_index_chars: 0` dizini kapatır (eski davranış: yalnız `find_skill`).
+- Dizin her turda yeniden kurulur; bağlam sıkıştırması konuşmayı özetler, dizini düşürmez.

@@ -211,6 +211,7 @@ from .questions import PendingUserQuestions
 from .repair_flow import record_failure_evidence
 from .repo_context import map_budget_for, repo_map_with_stats
 from .self_knowledge import GUIDE, knowledge_block
+from .skill_index import index_budget_for, skill_index_block
 from .tamper_check import collect_test_tampering
 from .teacher_flow import (
     prepare_teacher_plan,
@@ -726,6 +727,12 @@ async def _run_agent(
     # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Kod kipinde
     # kök turda eklenir; sohbet kipi çalışma dizinini taramaz.
     harita = _repo_map_for_turn(deps) if depth == 0 and not chat_mode else ""
+    # Beceri dizini (P-018): ad + kısa açıklama, bütçeli; gövde yalnız read_skill ile gelir.
+    beceri_dizini = (
+        skill_index_block(deps.capabilities, index_budget_for(deps.config))
+        if depth == 0 and not internal
+        else ""
+    )
     teacher_hint = (
         "Karmaşık çok dosyalı görevde kendi incelemenden sonra bir mimari risk veya "
         "doğrulama belirsizliği kalırsa `ask_teacher` ile tek somut soru sor. "
@@ -771,6 +778,7 @@ async def _run_agent(
             for part in (
                 proje_ve_dis_bellek,
                 harita,
+                beceri_dizini,
                 teacher_hint,
                 netlestirme,
                 identity_hint(deps.config.agent.model),

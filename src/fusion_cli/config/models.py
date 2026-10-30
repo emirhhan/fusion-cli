@@ -323,6 +323,11 @@ class RuntimeConfig:
     instruction_merge: bool = True
     #: Bütün talimat katmanlarının toplam bütçesi (karakter). Aşılırsa kırpma metne not düşer.
     instruction_max_chars: int = 32_000
+    #: Kök turda sistem bağlamına giren beceri dizininin bütçesi (karakter): beceri başına
+    #: `ad — açıklama` satırı; model uygun beceriyi aramadan tanır (Claude Code'un progressive
+    #: disclosure davranışı). 0 = dizin kapalı (yalnız find_skill). Küçük pencereli modelde
+    #: pencerenin %2'sini aşmaz.
+    skill_index_chars: int = 4_000
 
 
 @dataclass(frozen=True, slots=True)

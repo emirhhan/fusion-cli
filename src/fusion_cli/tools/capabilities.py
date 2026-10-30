@@ -9,8 +9,10 @@ kendi ekosistemini kurmak yerine var olanı okur.
 - **Frontmatter elle ayrıştırılır.** İhtiyaç duyulan alan üçtür (`name`, `description`,
   `tools`); tam bir YAML ayrıştırıcı bağımlılığı bunun için gereksizdir ve bozuk
   frontmatter'ın tüm keşfi düşürmesini istemeyiz.
-- **Liste modele BASILMAZ.** Kütüphane yüzlerce girdi içerebilir; hepsini prompta
-  koymak bağlamı boşa harcar. Model `find_skill`/`find_agent` ile ARAR.
+- **Gövde modele BASILMAZ, dizin basılır.** Kütüphane yüzlerce girdi içerebilir; gövdeleri
+  prompta koymak bağlamı boşa harcar. Kök turda yalnız `ad — açıklama` dizini bütçeli girer
+  (`engines/agent/skill_index.py`, P-018); model gövdeyi `read_skill` ile, listede olmayanı
+  `find_skill` ile alır.
 
 Tarama oturumda bir kez yapılır ve önbelleklenir.
 """

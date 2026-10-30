@@ -303,6 +303,7 @@ def _build_runtime(raw: object) -> RuntimeConfig:
         "tool_output_window",
         "repo_map_chars",
         "instruction_max_chars",
+        "skill_index_chars",
     ):
         if getattr(runtime, name) < 0:
             raise ConfigError(f"runtime.{name}: negatif olamaz.")
