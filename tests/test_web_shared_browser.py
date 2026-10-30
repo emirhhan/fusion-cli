@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -310,3 +312,121 @@ async def test_gizli_olmayan_kipte_yeni_sekme_pencereye_dokunmaz(tmp_path, kip):
     await shared.reassert_window(headless=kip)
 
     assert chrome.hidden == []
+
+
+# P1-42 — Ölçüldü (30 Ekim): `endpoint_alive` `/json/version` 200 dönen HERHANGİ bir sunucuyu
+# "bizim Chrome" sayıyordu. Ölü Chrome'un eski portu başka bir debug Chrome'a geçtiyse Fusion
+# yanlış tarayıcıya (başka profilin oturumlarına) bağlanırdı. Chrome, profil dizinindeki
+# `DevToolsActivePort` ikinci satırına örneğe özgü rastgele WS yolunu yazar; canlı uç
+# noktanın `webSocketDebuggerUrl` yolu bununla eşleşmeli.
+def _version_transport(ws_url: str, status: int = 200):
+    import httpx
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/json/version"
+        return httpx.Response(
+            status, json={"Browser": "Chrome/153", "webSocketDebuggerUrl": ws_url}
+        )
+
+    return httpx.MockTransport(handler)
+
+
+def test_port_dosyasinin_ikinci_satiri_tarayici_yolu_olarak_okunur(tmp_path):
+    from fusion_cli.providers.web_shared_browser import read_browser_path
+
+    (tmp_path / DEVTOOLS_PORT_FILE).write_text("41234\n/devtools/browser/abc-123\n")
+
+    assert read_browser_path(tmp_path) == "/devtools/browser/abc-123"
+
+
+@pytest.mark.parametrize("icerik", ["41234\n", "41234\n/baska/yol\n", "", "41234\n\n"])
+def test_tarayici_yolu_yoksa_ya_da_beklenmedikse_none(tmp_path, icerik):
+    from fusion_cli.providers.web_shared_browser import read_browser_path
+
+    (tmp_path / DEVTOOLS_PORT_FILE).write_text(icerik)
+
+    assert read_browser_path(tmp_path) is None
+
+
+async def test_uc_nokta_kimligi_ws_yolu_eslesince_dogrulanir():
+    from fusion_cli.providers.web_shared_browser import endpoint_matches_browser
+
+    transport = _version_transport("ws://127.0.0.1:41234/devtools/browser/abc-123")
+
+    assert await endpoint_matches_browser(
+        "http://127.0.0.1:41234", "/devtools/browser/abc-123", transport=transport
+    )
+
+
+async def test_baska_chromein_ws_yolu_dogrulanmaz():
+    from fusion_cli.providers.web_shared_browser import endpoint_matches_browser
+
+    transport = _version_transport("ws://127.0.0.1:41234/devtools/browser/BASKA")
+
+    assert not await endpoint_matches_browser(
+        "http://127.0.0.1:41234", "/devtools/browser/abc-123", transport=transport
+    )
+
+
+async def test_cdp_olmayan_sunucu_dogrulanmaz():
+    import httpx
+
+    from fusion_cli.providers.web_shared_browser import endpoint_matches_browser
+
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, text="<html>merhaba</html>")
+    )
+
+    assert not await endpoint_matches_browser(
+        "http://127.0.0.1:41234", "/devtools/browser/abc-123", transport=transport
+    )
+
+
+async def test_kimligi_dogrulanamayan_uc_nokta_kullanilmaz_chrome_yeniden_baslatilir(tmp_path):
+    """Port canlı ama başka bir Chrome'a ait: bağlanma, kendi Chrome'unu aç."""
+    chrome = _FakeChrome()
+    sorulan: list[tuple[str, str]] = []
+    (tmp_path / DEVTOOLS_PORT_FILE).write_text("41234\n/devtools/browser/eski\n")
+    chrome.alive = True  # port başka bir Chrome tarafından yanıtlanıyor
+
+    hooks = chrome.hooks()
+
+    async def kimlik(endpoint: str, yol: str) -> bool:
+        sorulan.append((endpoint, yol))
+        # Yeni açılan Chrome kendi (farklı) yolunu yazar ve doğrulanır; eskisi yabancıdır.
+        return yol != "/devtools/browser/eski"
+
+    hooks = dataclasses.replace(hooks, verify_identity=kimlik)
+
+    await SharedProfileBrowser(tmp_path, hooks, owner_pid=os.getpid()).acquire(
+        headless=True, timeout_s=2
+    )
+
+    assert sorulan[0] == ("http://127.0.0.1:41234", "/devtools/browser/eski")
+    assert chrome.launches == 1, "yabancı uç noktaya bağlanmak yerine yeni Chrome açılmalı"
+
+
+async def test_kimlik_dogrulanirsa_calisan_chrome_kullanilir(tmp_path):
+    chrome = _FakeChrome()
+    await _browser(tmp_path, chrome, os.getpid()).acquire(headless=True, timeout_s=2)
+
+    async def kimlik(_endpoint: str, _yol: str) -> bool:
+        return True
+
+    hooks = dataclasses.replace(chrome.hooks(), verify_identity=kimlik)
+    await SharedProfileBrowser(tmp_path, hooks, owner_pid=os.getppid()).acquire(
+        headless=True, timeout_s=2
+    )
+
+    assert chrome.launches == 1
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX dosya izinleri")
+async def test_profil_dizini_yalniz_sahibine_acilir(tmp_path):
+    profil = tmp_path / "profil"
+    profil.mkdir(mode=0o755)
+    chrome = _FakeChrome()
+
+    await _browser(profil, chrome, os.getpid()).acquire(headless=True, timeout_s=2)
+
+    assert (profil.stat().st_mode & 0o077) == 0

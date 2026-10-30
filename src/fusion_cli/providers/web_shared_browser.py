@@ -26,6 +26,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
@@ -77,6 +78,10 @@ class SharedBrowserHooks:
     is_alive: Callable[[str], Awaitable[bool]]
     #: Uç noktadaki Chrome'u düzgünce kapat.
     close: Callable[[str], Awaitable[None]]
+    #: Canlı uç nokta BU profilin Chrome'u mu? `(uç nokta, DevToolsActivePort'taki tarayıcı
+    #: yolu)` alır. Verilmezse yalnız canlılık denetlenir (testler); gerçek kurulum
+    #: `endpoint_matches_browser` verir (P1-42).
+    verify_identity: Callable[[str, str], Awaitable[bool]] | None = None
     #: Açık pencereyi kullanıcının ekranından gizle (yalnız `WindowMode.HIDDEN`).
     #: Varsayılanı gerçek macOS uygulamasıdır; testler sahtesini verir. Başarısızlık
     #: turu düşürmez, sonuç nesnesiyle bildirilir.
@@ -123,6 +128,25 @@ def read_endpoint(profile: Path) -> str | None:
     return f"http://127.0.0.1:{port}" if port > 0 else None
 
 
+#: `DevToolsActivePort` ikinci satırının başlangıcı: Chrome oraya örneğe özgü tarayıcı
+#: WebSocket yolunu (`/devtools/browser/<uuid>`) yazar.
+_BROWSER_PATH_PREFIX = "/devtools/browser/"
+
+
+def read_browser_path(profile: Path) -> str | None:
+    """Port dosyasındaki tarayıcı WS yolunu oku; yoksa/beklenmedikse None."""
+    try:
+        lines = (profile / DEVTOOLS_PORT_FILE).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    path = lines[1].strip() if len(lines) > 1 else ""
+    return (
+        path
+        if path.startswith(_BROWSER_PATH_PREFIX) and len(path) > len(_BROWSER_PATH_PREFIX)
+        else None
+    )
+
+
 def _pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -154,6 +178,7 @@ class SharedProfileBrowser:
         mode = resolve_window_mode(requested, can_hide=self._hooks.can_hide_window)
         deadline = time.monotonic() + timeout_s
         self._profile.mkdir(parents=True, exist_ok=True)
+        _restrict_profile_dir(self._profile)
         async with self._locked(deadline):
             endpoint = await self._running_endpoint()
             if endpoint is None:
@@ -209,9 +234,23 @@ class SharedProfileBrowser:
 
     async def _running_endpoint(self) -> str | None:
         endpoint = read_endpoint(self._profile)
-        if endpoint is not None and await self._hooks.is_alive(endpoint):
-            return endpoint
-        return None
+        if endpoint is None or not await self._hooks.is_alive(endpoint):
+            return None
+        browser_path = read_browser_path(self._profile)
+        verify = self._hooks.verify_identity
+        if (
+            verify is not None
+            and browser_path is not None
+            and not await verify(endpoint, browser_path)
+        ):
+            # Port canlı ama bu profilin Chrome'u değil (port başkasına geçmiş): oraya
+            # bağlanmak başka profilin oturumlarını sürmek demek (P1-42).
+            _logger.warning(
+                "CDP uç noktası bu profilin Chrome'u değil; yeniden başlatılıyor (profil=%s)",
+                self._profile,
+            )
+            return None
+        return endpoint
 
     async def _settle_window(self, *, requested: WindowMode, mode: WindowMode) -> None:
         """Pencereyi kipine oturt ve kullanıcıya gösterilecek uyarıyı güncelle.
@@ -349,6 +388,46 @@ async def endpoint_alive(endpoint: str) -> bool:
     except httpx.HTTPError:
         return False
     return response.status_code == 200
+
+
+async def endpoint_matches_browser(
+    endpoint: str,
+    browser_path: str,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> bool:
+    """Canlı uç noktanın tarayıcı WS yolu, profilin port dosyasındakiyle aynı mı?
+
+    Yol, Chrome başlarken örneğe özgü rastgele üretilir ve profilin kendi dizinine
+    yazılır: yalnız o profili açan Chrome aynı yolu sunar. `/json/version` 200 dönen
+    herhangi bir sunucu bunu taklit edemez. (`Browser.getVersion` aynı kimliği vermez:
+    ürün/sürüm döndürür, profil yolunu değil; üstelik WebSocket istemcisi gerektirir.)
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=ENDPOINT_PROBE_TIMEOUT_S, transport=transport
+        ) as client:
+            response = await client.get(f"{endpoint}/json/version")
+        body = response.json()
+    except (httpx.HTTPError, ValueError):
+        return False
+    if response.status_code != 200 or not isinstance(body, dict):
+        return False
+    ws_url = body.get("webSocketDebuggerUrl")
+    return isinstance(ws_url, str) and urlparse(ws_url).path == browser_path
+
+
+def _restrict_profile_dir(profile: Path) -> None:
+    """Profil dizinini yalnız sahibine aç: oturum çerezleri ve port dosyası burada durur.
+
+    POSIX dışında ya da izin verilmediğinde sessizce geçilir (turu düşürmez).
+    """
+    if sys.platform == "win32":  # pragma: no cover - Windows'ta chmod anlamsız
+        return
+    try:
+        profile.chmod(0o700)
+    except OSError:
+        _logger.debug("profil dizini izni daraltılamadı: %s", profile)
 
 
 def chrome_launch_arguments(

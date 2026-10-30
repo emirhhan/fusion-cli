@@ -52,6 +52,7 @@ from .web_shared_browser import (
     SharedProfileBrowser,
     chrome_launch_arguments,
     endpoint_alive,
+    endpoint_matches_browser,
 )
 
 _logger = logging.getLogger(__name__)
@@ -1093,6 +1094,7 @@ def _shared_profile_browser(playwright: Any | None, profile: Path) -> SharedProf
             launch=launch,
             is_alive=endpoint_alive,
             close=close,
+            verify_identity=endpoint_matches_browser,
         ),
         owner_pid=os.getpid(),
     )
