@@ -284,3 +284,33 @@ async def test_gercek_dosya_yazilirsa_workspace_unchanged_yine_basarisiz(tmp_pat
 
     assert execution.changed_files == frozenset({"_notlar.md"})
     assert evaluate_criterion(task.criterion, execution) is False
+
+
+async def test_dogrulama_zaman_asimi_ve_calistirilamama_beklenen_kodla_eslesmez(
+    tmp_path, monkeypatch
+):
+    """Q1-18. Ölçüldü (30 Ekim): ikisi de `1` dönüyor, `expected_exit_code=1` görevi yanlışlıkla
+    geçiyor ve altyapı arızası ajan başarısızlığından ayırt edilemiyordu."""
+    import asyncio
+
+    from evals import executor as executor_module
+
+    monkeypatch.setattr(executor_module, "SHELL_TIMEOUT_S", 0.2)
+    task = _task(
+        "t",
+        SuccessCriterion(kind=CriterionKind.EXIT_CODE, expected_exit_code=1, command="sleep 5"),
+    )
+    runner = _FakeRunner()
+    executor = AgentTaskExecutor(runner, workspace_root=tmp_path, clock=_FakeClock(0.0, 1.0))
+    execution = await executor.run(task)
+    assert execution.exit_code == executor_module.EXIT_VERIFICATION_TIMEOUT
+    assert evaluate_criterion(task.criterion, execution) is False
+
+    async def bozuk(*_args, **_kwargs):
+        raise OSError("kabuk yok")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_shell", bozuk)
+    executor = AgentTaskExecutor(runner, workspace_root=tmp_path, clock=_FakeClock(0.0, 1.0))
+    execution = await executor.run(task)
+    assert execution.exit_code == executor_module.EXIT_VERIFICATION_UNAVAILABLE
+    assert evaluate_criterion(task.criterion, execution) is False

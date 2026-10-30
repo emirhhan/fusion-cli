@@ -32,6 +32,11 @@ from fusion_cli.core.errors import EvalError
 #: Her koşunun çalışma dizinine bırakılan transkript dosyası. Çalışma dizini
 #: koşu başına silinip yeniden kurulduğu için son koşunun transkripti kalır.
 TRANSCRIPT_NAME = "_transkript.jsonl"
+#: Doğrulama komutu ÇALIŞTIRILAMADI/zaman aşımına uğradı: gerçek bir çıkış kodu değildir. Eskiden
+#: ikisi de `1` dönüyor, altyapı arızası "ajan başarısız" sayılıyor ve `expected_exit_code=1`
+#: bekleyen görev yanlışlıkla geçiyordu (Q1-18). Negatif sentinel hiçbir beklenenle eşleşmez.
+EXIT_VERIFICATION_TIMEOUT = -1
+EXIT_VERIFICATION_UNAVAILABLE = -2
 ACCEPTANCE_STDOUT_NAME = "_acceptance.stdout.txt"
 ACCEPTANCE_STDERR_NAME = "_acceptance.stderr.txt"
 #: Harness'in kendi bıraktığı kanıt dosyaları: agent'ın işi sayılmaz.
@@ -169,14 +174,14 @@ class AgentTaskExecutor:
                 stderr=asyncio.subprocess.PIPE,
             )
         except OSError:
-            return 1
+            return EXIT_VERIFICATION_UNAVAILABLE
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=SHELL_TIMEOUT_S)
         except TimeoutError:
             process.kill()
             stdout, stderr = await process.communicate()
             _write_acceptance_evidence(workspace, stdout, stderr)
-            return 1
+            return EXIT_VERIFICATION_TIMEOUT
         _write_acceptance_evidence(workspace, stdout, stderr)
         return process.returncode
 
