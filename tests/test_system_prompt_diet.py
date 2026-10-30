@@ -25,10 +25,13 @@ def test_system_prompt_context_butcesini_asmaz():
     5.900'den 6.000'e (30 Ekim): sistem geneli kurulumda onay, "güvenlik kuralları ısrarla
     aşılamaz" ve sahte-entegrasyon kuralının üç ayrı açık maddeye bölünmesi (Z1-13, Z1-17,
     Z1-72); tekrarlayan ilerleme satırı kuralları tek maddede birleştirildi.
+
+    6.000'den 6.100'e (30 Ekim, yol haritası 5): ImpossibleBench'te "test hatalıysa değiştirme,
+    dur ve bildir" talimatı bir modelde test kurcalama oranını %93'ten %1'e indirdi; tek cümle.
     """
     text = prompt()
 
-    assert len(text) <= 6_000
+    assert len(text) <= 6_100
 
 
 def test_system_prompt_kritik_calisma_ilkelerini_korur():

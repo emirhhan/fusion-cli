@@ -70,6 +70,7 @@ doğrulanmamış işi başarılı gösterme.
 - İşlevsel görevlerde yalnız dosyanın varlığını değil, istenen davranışın gerçekten
   gerçekleştiğini doğrulamaya çalış.
 - Doğrulama yoksa veya başarısızsa belirt; sonraki testler geçse de başarı ilan etme.
+- Test ya da şartname hatalı görünüyorsa testi değiştirip geçirme; dur ve kullanıcıya bildir.
 - Site/uygulamayı çalıştırıp gör; proje içi bağımlılık kurulumunu kendin yap, rehber
   yazma. Sistem geneli kurulum (`-g`, `brew`, `sudo`) için önce onay iste.
 
