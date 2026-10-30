@@ -6,7 +6,7 @@ import base64
 import binascii
 import re
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from ..core.protocols import Clock
@@ -107,10 +107,21 @@ class UploadStore:
 
 
 class MediaReader:
-    """Telefona görsel verir: yalnız izinli köklerin altındaki görsel dosyalar, boyut sınırlı."""
+    """Telefona görsel verir: yalnız izinli köklerin altındaki görsel dosyalar, boyut sınırlı.
 
-    def __init__(self, roots: Iterable[Path]) -> None:
+    `roots` sabit köklerdir (Fusion'ın ürettiği klasörler); `dynamic_roots` her okumada yeniden
+    sorulur (masaüstünde sonradan eklenen proje kökleri için).
+    """
+
+    def __init__(
+        self, roots: Iterable[Path], dynamic_roots: Callable[[], Iterable[Path]] | None = None
+    ) -> None:
         self._roots = [root.expanduser().resolve() for root in roots]
+        self._dynamic_roots = dynamic_roots
+
+    def _allowed_roots(self) -> list[Path]:
+        extra = self._dynamic_roots() if self._dynamic_roots is not None else ()
+        return [*self._roots, *(root.expanduser().resolve() for root in extra)]
 
     def read(self, path: str) -> tuple[str, bytes]:
         candidate = Path(path).expanduser()
@@ -120,7 +131,7 @@ class MediaReader:
         media_type = IMAGE_TYPES.get(resolved.suffix.casefold())
         if media_type is None:
             raise UploadError("Yalnız görsel dosyalar gösterilir.")
-        if not any(resolved.is_relative_to(root) for root in self._roots):
+        if not any(resolved.is_relative_to(root) for root in self._allowed_roots()):
             raise UploadError("Bu görsel uzaktan açılamaz.")
         if _DENIED_PARTS & set(resolved.parts):
             raise UploadError("Bu görsel uzaktan açılamaz.")

@@ -137,6 +137,11 @@ def credentials_file() -> Path:
     return user_data_dir() / "secrets.enc"
 
 
+def gallery_dir() -> Path:
+    """Fusion'ın ürettiği görsellerin klasörü (uygulama içi galeri)."""
+    return user_data_dir() / "gallery"
+
+
 def capabilities_dir() -> Path:
     """`fusion yetenek kur` ile kurulan repoların yeri (skill/ajan keşfine dahil)."""
     return user_data_dir() / "yetenekler"

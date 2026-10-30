@@ -16,6 +16,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from ..config.paths import gallery_dir as gallery_dir
 from ..config.paths import user_data_dir
 from ..core.atomic_file import AtomicCommitUncertainError, atomic_replace_text
 from ..core.file_lease import FileLease
@@ -45,10 +46,6 @@ _INPUT_KINDS = {
     "duzenle": frozenset({"metin", "gorsel"}),
     "cikti": frozenset({"gorsel"}),
 }
-
-
-def gallery_dir() -> Path:
-    return user_data_dir() / "gallery"
 
 
 def flows_dir() -> Path:

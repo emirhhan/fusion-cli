@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from ..accounts.workspaces import PERSONAL_WORKSPACE, bind_context, local_identity
-from ..config.paths import active_account, user_data_dir
+from ..config.paths import active_account, gallery_dir
 from ..core.atomic_file import atomic_replace_text
 from ..core.protocols import Clock
 from ..memory.run_store import SqliteRunStore
@@ -113,13 +113,18 @@ class RemoteController:
         self._runs = SqliteRunStore(directory / "runs.sqlite3", clock=self._clock)
         self._store = TaskStore(self._runs)
         self._backend = AppSessionBackend(session_factory, root)
-        self._projects = ProjectStore(directory / "projects.json")
+        projects = self._projects = ProjectStore(directory / "projects.json")
         run_lock = asyncio.Lock()
         mobile = MobileApi(
             backend=self._backend,
             projects=self._projects,
             uploads=UploadStore(directory / "uploads", self._clock),
-            media=MediaReader([home, user_data_dir(), root, directory / "uploads"]),
+            # Kullanıcının ev dizini DEĞİL: yalnız Fusion'ın ürettiği klasörler (galeri, telefon
+            # yüklemeleri), çalışma kökü ve masaüstünün bildirdiği proje kökleri.
+            media=MediaReader(
+                [gallery_dir(), root, directory / "uploads"],
+                dynamic_roots=lambda: [Path(item) for item in projects.known_roots()],
+            ),
             clock=self._clock,
             default_root=root,
             session_lock=run_lock,
