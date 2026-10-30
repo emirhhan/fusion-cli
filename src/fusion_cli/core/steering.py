@@ -48,8 +48,8 @@ class SteeringQueue:
         Boşaltma tek seferliktir: aynı yönergeyi her turda yeniden göndermek,
         kullanıcının bir kez söylediğini sonsuz tekrar eden bir talimata çevirirdi.
         """
-        notlar = tuple(
-            Message("user", f"{_PREFIX} {text}", harness_note=True) for text in self._pending
-        )
-        self._pending.clear()
-        return notlar
+        # Önce listeyi atomik takasla, sonra dolaş: dolaşma ile clear() arasında başka
+        # iş parçacığından gelen push eskiden sessizce siliniyordu.
+        # Ölçüldü (30 Ekim): dolaşma bittikten sonra gelen yönerge drain ile kayboluyordu.
+        bekleyen, self._pending = self._pending, []
+        return tuple(Message("user", f"{_PREFIX} {text}", harness_note=True) for text in bekleyen)
