@@ -16,6 +16,8 @@ const UNKNOWN_STATES: PermissionStates = {
   microphone: "unknown",
   speech: "unknown",
   keychain: "unknown",
+  accessibility: "unknown",
+  screenRecording: "unknown",
 };
 
 function readExplanationSeen(storage: Pick<Storage, "getItem"> | undefined): ExplanationSeen {

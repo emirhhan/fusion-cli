@@ -98,7 +98,7 @@ import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dia
 import { PermissionPrompt } from "./permissions/PermissionPrompt";
 import { usePermissions } from "./permissions/usePermissions";
 import { useDictation } from "./voice/useDictation";
-import type { PermissionBridge } from "./permissions/types";
+import { desktopPermissionKind, hasSettingsLink, type PermissionBridge } from "./permissions/types";
 import { nativePermissionBridge } from "./platform/permissions";
 import { listenForFileDrops } from "./platform/drop";
 import { FeedbackDialog } from "./feedback/FeedbackDialog";
@@ -573,6 +573,17 @@ export function SessionUygulama({
     void manualVoiceTurn.current?.cancel().catch(() => undefined);
   }, [activeSessionId]);
   usePrefsMirror(activeClient);
+  // Bir masaüstü aracı izin yüzünden düşünce çekirdek `MasaustuIzinGerekli` yollar; izin kartı
+  // açılır ve sistem istemi (Erişilebilirlik / Ekran Kaydı) Fusion.app adına tetiklenir (P-005).
+  const ensurePermission = permissions.ensure;
+  useEffect(() => {
+    if (!activeClient) return;
+    return activeClient.onEvent((event) => {
+      if (event.olay !== "MasaustuIzinGerekli") return;
+      const kind = desktopPermissionKind(event.tur);
+      if (kind) void ensurePermission(kind);
+    });
+  }, [activeClient, ensurePermission]);
   const requestKitsHost = useCallback((name: string, data: Record<string, unknown>) => {
     if (!activeClient || !activeSessionId) return Promise.reject(new Error("Fusion oturumu yok."));
     return activeClient.request(name, data) as Promise<Record<string, unknown>>;
@@ -1787,7 +1798,7 @@ export function SessionUygulama({
           />
           {permissions.activeKind && (
             <PermissionPrompt
-              canOpenSettings={permissions.activeKind === "microphone" || permissions.activeKind === "speech"}
+              canOpenSettings={hasSettingsLink(permissions.activeKind)}
               error={permissions.error}
               isRequesting={permissions.isRequesting}
               kind={permissions.activeKind}

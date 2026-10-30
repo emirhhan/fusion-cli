@@ -13,6 +13,7 @@ import { VoicePreferences } from "./VoicePreferences";
 import { General, readHistoryOpen, HISTORY_KEY } from "./sections/General";
 import { Models, type ModelState } from "./sections/Models";
 import { RoleModels } from "./sections/RoleModels";
+import { ComputerUse } from "../permissions/ComputerUse";
 import { Permissions } from "./sections/Permissions";
 import { Advanced } from "./sections/Advanced";
 import { ChromeBrowser } from "./ChromeBrowser";
@@ -338,6 +339,7 @@ export function Settings({
               onSelectMode={onRunCommand ? selectMode : undefined}
             />
           )}
+          {bolum === "izinler" && <ComputerUse client={client} />}
 
           {bolum === "zeka" && <Intelligence client={client} />}
 

@@ -126,6 +126,11 @@ from .conversation_title import conversation_title
 from .daemon_thread import run_in_daemon_thread
 from .desktop_activity import DesktopActivity
 from .desktop_dock import DesktopDock
+from .desktop_permission_routes import (
+    DESKTOP_PERMISSION_ROUTES,
+    DesktopPermissionWatch,
+    dispatch_desktop_permission,
+)
 from .desktop_routes import DESKTOP_ROUTES, dispatch_desktop
 from .file_search import FileSearchIndex, search_project_files
 from .history import (
@@ -547,6 +552,9 @@ class AppSession:
         )
         self._desktop_dock = DesktopDock(chrome=self._chrome)
         self._desktop_activity = DesktopActivity()
+        self._desktop_permissions = DesktopPermissionWatch(
+            lambda payload: self._writer(encode_event(payload))
+        )
         from ..mcp_bridge.service import McpConnectionService
 
         self._mcp_connections = McpConnectionService()
@@ -832,6 +840,9 @@ class AppSession:
             return add_upload(request.data)
         if request.name == "kitaplik.kaldir":
             return remove_entry(request.data)
+        if request.name in DESKTOP_PERMISSION_ROUTES:
+            # Sistem istemi bloklayıcıdır (TCC penceresi); olay döngüsü dışında.
+            return await asyncio.to_thread(dispatch_desktop_permission, request.name, request.data)
         if request.name in DESKTOP_ROUTES:
             return await dispatch_desktop(
                 self._desktop_dock, self._desktop_activity, request.name, request.data
@@ -2350,7 +2361,7 @@ class AppSession:
                 remotion_browser=self._state.remotion_browser,
                 require_remotion_kit=self._require_remotion_kit,
                 deadline=deadline,
-                sinks=(sink, self._desktop_activity, *trace_sinks),
+                sinks=(sink, self._desktop_activity, self._desktop_permissions, *trace_sinks),
                 prompter_factory=lambda _drain: prompter,
                 mode=self._state.approval,
                 root=self._state.root,

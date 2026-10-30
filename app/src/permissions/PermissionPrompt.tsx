@@ -33,6 +33,14 @@ const COPY: Record<PermissionKind, { title: string; explanation: string }> = {
     title: "Anahtarlık erişimi",
     explanation: "Sağlayıcı anahtarınızı güvenle kaydedebilmek için Anahtarlık erişimi gerekir.",
   },
+  accessibility: {
+    title: "Erişilebilirlik erişimi",
+    explanation: "Fusion'ın bilgisayarınızda tıklayıp yazabilmesi ve kaydırabilmesi için Erişilebilirlik izni gerekir. Sistem penceresinde Fusion'ı açın.",
+  },
+  screenRecording: {
+    title: "Ekran Kaydı erişimi",
+    explanation: "Fusion'ın ekranınızı görebilmesi (ekran görüntüsü) için Ekran Kaydı izni gerekir. İzin verdikten sonra Fusion'ı yeniden açmanız gerekebilir.",
+  },
 };
 
 export function PermissionPrompt({ canOpenSettings, error, isRequesting = false, kind, phase, onContinue, onContinueToNext, onDismiss, onRetry, onOpenSettings }: PermissionPromptProps) {
