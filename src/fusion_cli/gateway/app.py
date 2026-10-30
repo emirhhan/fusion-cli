@@ -1068,13 +1068,16 @@ class GatewayApp:
             return
 
         # Önbellek: aynı istek daha önce geldiyse modeli hiç çağırma.
-        cached = self._cache.get(model, request) if runtime.gateway_cache else None
+        # Anahtar istemcinin yazdığı ham ad (`auto`) DEĞİL, çözülmüş model zinciridir:
+        # yapılandırma/yedek zinciri değişince eski cevap dönmesin (E1-13).
+        cache_model = f"{model}->{'|'.join(spec.models)}"
+        cached = self._cache.get(cache_model, request) if runtime.gateway_cache else None
         if cached is not None:
             result, from_cache = cached, True
         else:
             result = await self._factory(spec).complete(request)
             if runtime.gateway_cache:
-                self._cache.put(model, request, result)
+                self._cache.put(cache_model, request, result)
             from_cache = False
         # Credential guardrail: yanıtta sızan sır/anahtar desenini maskele.
         if runtime.gateway_mask_secrets and result.text:

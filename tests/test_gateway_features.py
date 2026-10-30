@@ -576,3 +576,49 @@ async def test_arac_destegi_degisirse_olcum_tasinmaz(tmp_path):
 
     oturum = next(s for s in app._config.web_sessions if s.account == "test")
     assert oturum.tool_eval_passed is False
+
+
+# --- Dalga 4: önbellek anahtarı araçları ve çözülmüş modeli kapsar (E1-13) ---------- #
+
+
+def _sonuc(metin="cevap"):
+    from fusion_cli.core.types import ModelResult
+
+    return ModelResult(name="m", model="m", text=metin, latency_ms=1, ok=True)
+
+
+def test_cache_farkli_arac_listesi_ayni_cevabi_dondurmez():
+    """Ölçüldü (30 Ekim): aynı mesajlarla farklı `tools` eski düz metin cevabı alıyordu."""
+    cache = PromptCache()
+    araclar = ({"type": "function", "function": {"name": "oku"}},)
+    duz = _dc_replace(request(), tools=())
+    arac_var = _dc_replace(request(), tools=araclar)
+
+    cache.put("auto", duz, _sonuc())
+
+    assert cache.get("auto", arac_var) is None
+    assert cache.get("auto", duz) is not None
+
+
+def test_cache_bos_icerikli_farkli_arac_sonuclari_cakismaz():
+    from fusion_cli.core.types import ToolCall
+
+    cache = PromptCache()
+    ilk = _dc_replace(
+        request(),
+        messages=(
+            Message("assistant", "", tool_calls=(ToolCall("1", "oku", "{}"),)),
+            Message("tool", "tamam", tool_call_id="1", name="oku"),
+        ),
+    )
+    ikinci = _dc_replace(
+        request(),
+        messages=(
+            Message("assistant", "", tool_calls=(ToolCall("2", "yaz", "{}"),)),
+            Message("tool", "tamam", tool_call_id="2", name="yaz"),
+        ),
+    )
+
+    cache.put("auto", ilk, _sonuc())
+
+    assert cache.get("auto", ikinci) is None

@@ -1,7 +1,7 @@
 """Prompt önbelleği — aynı istek tekrar gelirse modeli çağırmadan yanıt ver.
 
-Tam-eşleşme (model + mesajlar + sıcaklık + max_tokens) LRU önbellek. Token ve süre
-tasarrufu sağlar; tekrar eden isteklerde (araçların aynı bağlamı ikinci kez sorması,
+Tam-eşleşme (çözülmüş model + mesajlar + araçlar + sıcaklık + max_tokens) LRU önbellek.
+Token ve süre tasarrufu sağlar; tekrar eden isteklerde (araçların aynı bağlamı ikinci kez sorması,
 yeniden denemeler) anında yanıt döner. Yalnızca gateway'i etkiler.
 
 Araç çağrısı içeren ya da boş yanıtlar ÖNBELLEĞE ALINMAZ: onlar bağlama bağlıdır ve
@@ -25,16 +25,33 @@ class PromptCache:
         self._max = max_size
 
     def _key(self, model: str, request: CompletionRequest) -> str:
+        # Anahtar ARAÇLARI da kapsar. Ölçüldü (30 Ekim): `tools`, mesajlardaki
+        # `tool_calls`/`tool_call_id`/`name` ve görseller anahtarda yoktu; aynı mesajlarla
+        # farklı araç listesi gönderen istemci eski düz metin cevabı alıyor, boş içerikli
+        # araç çağrılı mesajlar çakışıyordu (E1-13).
         payload = json.dumps(
             {
                 "model": model,
-                "messages": [(m.role, m.content) for m in request.messages],
+                "messages": [
+                    (
+                        m.role,
+                        m.content,
+                        m.name,
+                        m.tool_call_id,
+                        [(c.id, c.name, c.arguments) for c in m.tool_calls],
+                        m.images,
+                    )
+                    for m in request.messages
+                ],
+                "tools": request.tools,
                 "temperature": request.temperature,
                 "max_tokens": request.max_tokens,
                 "reasoning_effort": request.reasoning_effort,
+                "disable_thinking": request.disable_thinking,
             },
             sort_keys=True,
             ensure_ascii=False,
+            default=str,
         )
         return hashlib.sha256(payload.encode()).hexdigest()
 
