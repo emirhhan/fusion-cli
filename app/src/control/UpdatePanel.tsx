@@ -3,6 +3,10 @@ import { useEffect, useState } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
+const reasonText = (reason: unknown): string => (reason instanceof Error ? reason.message : String(reason));
+/** İmza/doğrulama hatası ağ hatasından ayrı söylenir: kullanıcı kurulumun GÜVENLİK nedeniyle durduğunu bilmeli. */
+const isSignatureError = (text: string): boolean => /signature|imza|verif|doğrula/i.test(text);
+
 export function UpdatePanel() {
   const [update, setUpdate] = useState<Update | null>(null);
   const [busy, setBusy] = useState(false);
@@ -17,8 +21,8 @@ export function UpdatePanel() {
       const next = await check({ timeout: 15000 });
       setUpdate(next);
       setMessage(next ? `${next.version} sürümü hazır.` : "En güncel sürümü kullanıyorsun.");
-    } catch {
-      setMessage("Güncelleme sunucusuna ulaşılamadı veya henüz bir sürüm yayımlanmadı. Tekrar deneyebilirsin.");
+    } catch (reason) {
+      setMessage(`Güncelleme sunucusuna ulaşılamadı veya henüz bir sürüm yayımlanmadı (${reasonText(reason)}). Tekrar deneyebilirsin.`);
     } finally {
       setBusy(false);
     }
@@ -38,10 +42,20 @@ export function UpdatePanel() {
         }
         if (event.event === "Finished") setMessage("İmza doğrulanıyor ve güncelleme kuruluyor…");
       });
+    } catch (reason) {
+      const text = reasonText(reason);
+      setMessage(isSignatureError(text)
+        ? "Güncelleme tamamlanamadı: imza doğrulanamadığı için kurulum yapılmadı."
+        : `Güncelleme tamamlanamadı (${text}). Bağlantını ve uygulama klasörüne yazma iznini kontrol edip tekrar dene.`);
+      setBusy(false);
+      return;
+    }
+    // Kurulum bitti; yeniden başlatma ayrı hata verebilir ve "tamamlanamadı" demek yanlış olur.
+    try {
       setMessage("Kuruldu. Fusion yeniden başlatılıyor…");
       await relaunch();
     } catch {
-      setMessage("Güncelleme tamamlanamadı. Bağlantını ve uygulama klasörüne yazma iznini kontrol edip tekrar dene.");
+      setMessage("Güncelleme kuruldu ama Fusion yeniden başlatılamadı. Uygulamayı kapatıp elle yeniden aç.");
       setBusy(false);
     }
   };

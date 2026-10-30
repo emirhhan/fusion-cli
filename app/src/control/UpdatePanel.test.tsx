@@ -32,3 +32,22 @@ it("başarılı kurulumdan sonra yeniden başlatır", async () => {
   fireEvent.click(await screen.findByText("İndir, kur ve yeniden başlat"));
   await waitFor(() => expect(mocks.relaunch).toHaveBeenCalledOnce());
 });
+
+// Ölçüldü (30 Ekim): imza hatası ağ hatasından ayırt edilemiyor, relaunch hatası "tamamlanamadı" diyordu (U5-43).
+it("imza hatası kurulumun güvenlik nedeniyle yapılmadığını söyler", async () => {
+  mocks.check.mockResolvedValue({ version: "1.0.0", close: vi.fn().mockResolvedValue(undefined), downloadAndInstall: vi.fn().mockRejectedValue(new Error("signature verification failed")) });
+  render(<UpdatePanel />);
+  fireEvent.click(screen.getByText("Güncellemeleri kontrol et"));
+  fireEvent.click(await screen.findByText("İndir, kur ve yeniden başlat"));
+  await screen.findByText(/imza doğrulanamadığı için kurulum yapılmadı/);
+});
+
+it("kurulum başarılı ama yeniden başlatma düşerse kurulduğu söylenir", async () => {
+  mocks.check.mockResolvedValue({ version: "1.0.0", close: vi.fn().mockResolvedValue(undefined), downloadAndInstall: vi.fn().mockResolvedValue(undefined) });
+  mocks.relaunch.mockRejectedValue(new Error("izin yok"));
+  render(<UpdatePanel />);
+  fireEvent.click(screen.getByText("Güncellemeleri kontrol et"));
+  fireEvent.click(await screen.findByText("İndir, kur ve yeniden başlat"));
+  await screen.findByText(/kuruldu ama Fusion yeniden başlatılamadı/);
+  expect(screen.queryByText(/Güncelleme tamamlanamadı/)).toBeNull();
+});

@@ -15,13 +15,15 @@ import { useEffect, useState } from "react";
 
 /** Kontrol için tanınan süre (ms). Açılışı geciktirmeyecek kadar kısa. */
 const TIMEOUT_MS = 15_000;
+/** Uzun süre açık kalan uygulama yeni sürümü görsün diye periyodik yeniden kontrol (U5-44). */
+export const YENIDEN_KONTROL_MS = 6 * 60 * 60 * 1000;
 
 export function useUpdateAvailable(): string | null {
   const [surum, setSurum] = useState<string | null>(null);
 
   useEffect(() => {
     let gecerli = true;
-    void (async () => {
+    const kontrolEt = async () => {
       try {
         const { isTauri } = await import("@tauri-apps/api/core");
         if (!isTauri()) return;
@@ -33,9 +35,12 @@ export function useUpdateAvailable(): string | null {
       } catch {
         // Sessiz: kullanıcı bu işi istemedi, başarısızlığını da duymamalı.
       }
-    })();
+    };
+    void kontrolEt();
+    const zamanlayici = window.setInterval(() => void kontrolEt(), YENIDEN_KONTROL_MS);
     return () => {
       gecerli = false;
+      window.clearInterval(zamanlayici);
     };
   }, []);
 
