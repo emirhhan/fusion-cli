@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
@@ -619,7 +620,12 @@ class _PlanRun:
                 return None
             secilen = next(item for item in adaylar if item[0].name == kazanan.name)
             terfi_kaydi = ChangeSet()
-            degisenler = secilen[1].apply(changes=terfi_kaydi)
+            try:
+                degisenler = secilen[1].apply(changes=terfi_kaydi)
+            except BaseException:
+                # Yarıda kalan uygulama asıl projede kısmi dosya bırakmasın (A3-18).
+                terfi_kaydi.restore()
+                raise
             uygulanan = {self.deps.tool_context.root / goreli for goreli in degisenler}
             self.deps.tool_context.touched.update(uygulanan)
             tamam = replace(step, status=StepStatus.COMPLETED, attempts=step.attempts + 1)
@@ -1407,9 +1413,17 @@ async def run_execution_plan(
     # Godot projesi kuran plan "no main scene defined" ile her adımda düştü. Bir
     # kez çalışır (kapı pahalıdır); final kabul yine TAM temizlik ister.
     if deps.verifier is not None:
-        baseline = await deps.verifier.verify()
-        if not baseline.ok:
-            run.baseline = baseline.findings or ((baseline.summary,) if baseline.summary else ())
+        try:
+            baseline = await deps.verifier.verify()
+        except Exception as error:
+            # Ölçüldü (29 Ekim, A3-42): çöken bir kapı betiği planı başlamadan düşürüyordu.
+            # Temel ölçüm yardımcıdır; yoksa plan yine yürür (adım kapıları ayrıca çalışır).
+            logging.getLogger(__name__).warning("Plan temel ölçümü çöktü: %r", error)
+        else:
+            if not baseline.ok:
+                run.baseline = baseline.findings or (
+                    (baseline.summary,) if baseline.summary else ()
+                )
     run.progress()
     return await run.run()
 

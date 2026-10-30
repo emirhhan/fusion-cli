@@ -227,3 +227,103 @@ def test_siniflandirma_gercek_gecici_hatayi_yine_taniyor():
         classify_failure(cikti, StepVerificationResult(ok=True)).category
         is FailureCategory.TRANSIENT
     )
+
+
+# --- A3-16: komut kontrolü kabuksuz adıma taşınmaz ------------------------------ #
+
+
+def test_komut_kontrolu_kabuksuz_yurutme_adimina_tasinmaz():
+    """Ölçüldü (29 Ekim): kabuksuz hedefte komut kontrolü ölçülemeyip adımı düşürüyordu."""
+    from fusion_cli.core.execution_plan import (
+        ExecutionPlan,
+        PlanPhase,
+        PlanStep,
+        RetrySafety,
+        VerificationCheck,
+        VerificationCheckKind,
+    )
+    from fusion_cli.engines.agent.plan_phase_repair import repair_discovery_phase
+
+    kontrol = VerificationCheck("surum", VerificationCheckKind.COMMAND, "godot --version")
+
+    def adim(step_id, phase, families, depends_on=(), checks=()):
+        return PlanStep(
+            step_id=step_id,
+            goal=step_id,
+            depends_on=depends_on,
+            expected_effects=(),
+            allowed_tool_families=families,
+            success_criteria=("surum",),
+            verification_hint="",
+            retry_safety=RetrySafety.SAFE,
+            phase=phase,
+            verification_checks=checks,
+        )
+
+    kesif = adim("kesif", PlanPhase.DISCOVERY, ("files",), checks=(kontrol,))
+    yazim = adim("yaz", PlanPhase.EXECUTION, ("files",), depends_on=("kesif",))
+    kabuklu = adim("kur", PlanPhase.EXECUTION, ("files", "shell"), depends_on=("kesif",))
+
+    assert repair_discovery_phase(ExecutionPlan("p", "t", (kesif, yazim)), kesif) is None
+    onarilmis = repair_discovery_phase(ExecutionPlan("p", "t", (kesif, yazim, kabuklu)), kesif)
+    assert onarilmis is not None
+    assert onarilmis.steps[2].verification_checks == (kontrol,)
+    assert onarilmis.steps[1].verification_checks == ()
+
+
+# --- A3-17: klasör hedefi her devamda "değişti" sayılmaz ------------------------ #
+
+
+def test_klasor_hedefi_ozeti_kararli_ve_degisince_farkli(tmp_path):
+    from fusion_cli.engines.agent.plan_checkpoint import _digest
+
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "a.png").write_bytes(b"x")
+
+    ilk = _digest(tmp_path, "assets")
+    assert ilk
+    assert _digest(tmp_path, "assets") == ilk
+    (tmp_path / "assets" / "b.png").write_bytes(b"yy")
+    assert _digest(tmp_path, "assets") != ilk
+    assert _digest(tmp_path, "yok") == ""
+
+
+# --- A3-42: çöken temel ölçüm planı başlamadan düşürmez ------------------------- #
+
+
+async def test_temel_olcum_cokerse_plan_yine_yurur(tmp_path):
+    from fusion_cli.core.execution_plan import ExecutionPlan, PlanStep, RetrySafety
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.core.verification import VerificationResult
+    from fusion_cli.engines.agent.loop import AgentOutcome
+    from fusion_cli.engines.agent.plan_runner import run_execution_plan
+    from tests.test_plan_runner import _FakeDeps
+
+    adim = PlanStep(
+        step_id="a",
+        goal="a işini yap",
+        depends_on=(),
+        expected_effects=(),
+        allowed_tool_families=("files",),
+        success_criteria=("a kanıtlandı",),
+        verification_hint="",
+        retry_safety=RetrySafety.SAFE,
+    )
+
+    class Dogrulayici:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("kapı betiği çöktü")
+            return VerificationResult(ok=True)
+
+    async def ajan(task, deps, **kwargs):
+        return AgentOutcome(final_text="tamam", messages=[], model_calls_made=1)
+
+    deps = _FakeDeps(ToolContext(root=tmp_path), verifier=Dogrulayici())
+    sonuc = await run_execution_plan("iş", deps, ajan, plan=ExecutionPlan("p", "iş", (adim,)))
+
+    assert sonuc.ok is True

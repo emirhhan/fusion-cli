@@ -64,12 +64,32 @@ def invalidate(plan: ExecutionPlan, roots: set[str]) -> ExecutionPlan:
     )
 
 
+_DIGEST_CHUNK = 1 << 20
+
+
 def _digest(root: Path, name: str) -> str:
+    """Dosyanın içerik, klasörün dosya listesi (ad+boyut) özeti; okunamıyorsa boş.
+
+    Ölçüldü (29 Ekim, A3-17): klasör hedefi (`file:assets/`) `read_bytes` ile OSError verip
+    boş özet üretiyor, `artifact_changed` bunu "değişti" sayıp adımı her devamda yeniden
+    koşturuyordu. Büyük ikililer de tamamen belleğe okunuyordu; artık 1 MiB parçalarla.
+    """
     path = (root / name).resolve()
     if not path.is_relative_to(root.resolve()):
         return ""
+    digest = hashlib.sha256()
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        if path.is_dir():
+            for item in sorted(path.rglob("*")):
+                if item.is_file():
+                    digest.update(
+                        f"{item.relative_to(path).as_posix()}:{item.stat().st_size}\n".encode()
+                    )
+            return digest.hexdigest()
+        with path.open("rb") as handle:
+            while chunk := handle.read(_DIGEST_CHUNK):
+                digest.update(chunk)
+        return digest.hexdigest()
     except OSError:
         return ""
 
