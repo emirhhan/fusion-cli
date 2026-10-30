@@ -34,3 +34,24 @@ def test_surum_okunamazsa_arac_yine_kurulu_sayilir() -> None:
     sonuc = detect_dev_tools(find_command=lambda ad: f"/x/{ad}", read_version=lambda y, b: None)
 
     assert all(s["kurulu"] and s["surum"] is None for s in sonuc["araclar"])  # type: ignore[union-attr]
+
+
+def test_clt_yokken_usr_bin_koprusu_kurulu_sayilmaz_ve_calistirilmaz(monkeypatch) -> None:
+    """Ölçüldü (30 Ekim, S1-30): `/usr/bin/git` köprüsü bulunup `--version` ile çalıştırılıyordu;
+    Command Line Tools yoksa bu sistem kurulum penceresini açar."""
+    from fusion_cli.appserver import dev_tools
+
+    monkeypatch.setattr(dev_tools.sys, "platform", "darwin")
+    monkeypatch.setattr(dev_tools.shutil, "which", lambda command, path=None: f"/usr/bin/{command}")
+    monkeypatch.setattr(dev_tools, "_command_line_tools_installed", lambda: False)
+    calistirilan: list[str] = []
+
+    sonuc = dev_tools.detect_dev_tools(
+        read_version=lambda yol, bayrak: calistirilan.append(yol) or "x"
+    )
+
+    assert calistirilan == []
+    assert all(satir["kurulu"] is False for satir in sonuc["araclar"])  # type: ignore[index]
+
+    monkeypatch.setattr(dev_tools, "_command_line_tools_installed", lambda: True)
+    assert dev_tools._find("git") == "/usr/bin/git"

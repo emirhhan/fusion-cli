@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -59,9 +60,41 @@ _TOOLS = (
 )
 
 
+#: macOS'ta Command Line Tools yokken `/usr/bin/git` ve `/usr/bin/python3` gerçek ikili değil,
+#: kabuk köprüsüdür; çalıştırmak "xcode-select yükle" iletişim kutusunu açar.
+_MACOS_STUB_DIR = "/usr/bin/"
+
+
+def _command_line_tools_installed() -> bool:
+    try:
+        done = subprocess.run(
+            ["xcode-select", "-p"],
+            capture_output=True,
+            timeout=_VERSION_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0
+
+
+def _is_macos_stub(path: str) -> bool:
+    """Bu yol, Command Line Tools kurulu olmayan macOS'taki kabuk köprüsü mü?
+
+    Ölçüldü (30 Ekim): `/usr/bin` taranıp `git --version` çalıştırılıyordu; CLT yoksa bu,
+    kullanıcı hiçbir şey istemeden sistem kurulum penceresini açardı.
+    """
+    return (
+        sys.platform == "darwin"
+        and path.startswith(_MACOS_STUB_DIR)
+        and not _command_line_tools_installed()
+    )
+
+
 def _find(command: str) -> str | None:
     search = os.pathsep.join([os.environ.get("PATH", ""), *_EXTRA_DIRS])
-    return shutil.which(command, path=search)
+    path = shutil.which(command, path=search)
+    return None if path is not None and _is_macos_stub(path) else path
 
 
 def _read_version(path: str, flag: str) -> str | None:
