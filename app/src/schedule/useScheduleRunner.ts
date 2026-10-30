@@ -31,6 +31,9 @@ interface Pending {
   task: ScheduledTask;
 }
 
+/** Aynı geçersiz kayıt her yoklamada günlüğü doldurmasın. */
+const gecersizBildirilen = new Set<string>();
+
 async function deliverPending(
   client: ScheduleClient,
   deliveryClient: ScheduleDeliveryClient | null | undefined,
@@ -47,6 +50,15 @@ async function deliverPending(
   )
     return;
   const seen = new Set<string>();
+  // Biçimi geçersiz teslim her yoklamada yeniden gelir ve sessizce atlanırdı; en az bir kez günlüğe yazılır (U5-53).
+  for (const raw of result.teslimler) {
+    if (isScheduleDelivery(raw)) continue;
+    const kimlik = String((raw as { occurrence_id?: unknown } | null)?.occurrence_id ?? "?");
+    if (!gecersizBildirilen.has(kimlik)) {
+      gecersizBildirilen.add(kimlik);
+      console.warn(`Zamanlama teslimi geçersiz biçimde, atlandı: ${kimlik}`);
+    }
+  }
   for (const delivery of result.teslimler.filter(isScheduleDelivery)) {
     if (!active()) break;
     if (
@@ -128,7 +140,11 @@ export function useScheduleRunner({
   useEffect(() => {
     if (pending.current.length === 0) return;
     pending.current = pending.current.filter(({ sessionId, task }) => {
-      if (sessions[sessionId]?.status !== "ready") return true;
+      // Oturum kurulamadı ya da kullanıcı kapattı: bekleyen görev çok sonra, oturum başka bir nedenle
+      // hazır olursa geç gönderilmesin (U5-54).
+      const durum = sessions[sessionId]?.status;
+      if (durum === "crashed" || durum === "closed") return false;
+      if (durum !== "ready") return true;
       if (!send(sessionId, task.gorev)) return true;
       onStarted?.(task);
       return false;

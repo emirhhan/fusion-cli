@@ -56,14 +56,42 @@ function emptyDraft(root: string): Draft {
 }
 
 /** Taslağı çekirdeğin beklediği alanlara çevir; eksik zamanı Türkçe hata olarak döndür. */
-export function draftPayload(draft: Draft): Record<string, unknown> | string {
+/** Aralıklı görevin en kısa süresi (dakika); form alanındaki `min` ile aynı. */
+const EN_AZ_ARALIK_DAKIKA = 15;
+
+export function draftPayload(draft: Draft, now: number = Date.now()): Record<string, unknown> | string {
   const base = { baslik: draft.baslik, gorev: draft.gorev, kok: draft.kok, tur: draft.tur };
   if (draft.tur === "gunluk") return { ...base, saat: draft.saat };
-  if (draft.tur === "haftalik") return { ...base, saat: draft.saat, gunler: draft.gunler };
-  if (draft.tur === "aralik") return { ...base, dakika: Number.parseInt(draft.dakika, 10) };
+  if (draft.tur === "haftalik") {
+    // Gün seçilmeden kaydedilen haftalık görev hiç çalışmazdı (U5-56).
+    if (draft.gunler.length === 0) return "Haftalık görev için en az bir gün seç.";
+    return { ...base, saat: draft.saat, gunler: draft.gunler };
+  }
+  if (draft.tur === "aralik") {
+    const dakika = Number.parseInt(draft.dakika, 10);
+    if (!Number.isFinite(dakika) || dakika < EN_AZ_ARALIK_DAKIKA) return `Aralık en az ${EN_AZ_ARALIK_DAKIKA} dakika olmalı.`;
+    return { ...base, dakika };
+  }
   const moment = new Date(`${draft.tarih}T${draft.saat}`).getTime();
   if (!draft.tarih || Number.isNaN(moment)) return "Tek seferlik görev için tarih ve saat seç.";
+  if (moment <= now) return "Tek seferlik görevin zamanı geçmişte; ileri bir tarih seç.";
   return { ...base, zaman: Math.floor(moment / 1000) };
+}
+
+/** Çekirdek yanıtındaki bozuk görev kaydı kartı çökertmesin: temel alanlar doğrulanır (U5-56). */
+function geçerliGörevler(raw: unknown[]): ScheduledTask[] {
+  return raw.flatMap((item): ScheduledTask[] => {
+    if (!item || typeof item !== "object") return [];
+    const task = item as Record<string, unknown>;
+    if (typeof task.id !== "string" || typeof task.gorev !== "string" || typeof task.kok !== "string") return [];
+    return [{
+      ...(task as unknown as ScheduledTask),
+      baslik: typeof task.baslik === "string" ? task.baslik : "",
+      etkin: task.etkin === true,
+      sonraki: typeof task.sonraki === "number" ? task.sonraki : null,
+      son_calisma: typeof task.son_calisma === "number" ? task.son_calisma : null,
+    }];
+  });
 }
 
 export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirectory, onRunNow, visible = true }: ScheduleScreenProps) {
@@ -75,7 +103,7 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
     if (!client) return;
     try {
       const result = await client.request("zamanlama.liste", {});
-      if (result.ok && Array.isArray(result.gorevler)) setTasks(result.gorevler as ScheduledTask[]);
+      if (result.ok && Array.isArray(result.gorevler)) setTasks(geçerliGörevler(result.gorevler));
     } catch {
       setError("Zamanlananlar okunamadı. Yeniden dene.");
     }
@@ -113,8 +141,16 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
   };
 
   const runNow = async (task: ScheduledTask) => {
-    if (await call("zamanlama.simdi", { id: task.id }, "Görev başlatılamadı.")) await onRunNow(task);
+    if (!await call("zamanlama.simdi", { id: task.id }, "Görev başlatılamadı.")) return;
+    try {
+      await onRunNow(task);
+    } catch (reason) {
+      // Çekirdekte "çalıştı" kaydı var ama sohbet açılamadı: sessiz kalmaz, yakalanmamış reddedilme olmaz (U5-54).
+      setError(`Görev kaydedildi ama sohbet açılamadı: ${reason instanceof Error ? reason.message : String(reason)}`);
+    }
   };
+  //: Silme iki adımlıdır; geri alma yok (U5-55).
+  const [silinecek, setSilinecek] = useState<string | null>(null);
 
   const update = (patch: Partial<Draft>) => setDraft((current) => (current ? { ...current, ...patch } : current));
   const toggleDay = (day: number) =>
@@ -142,7 +178,7 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
     });
     const byNext = (task: ScheduledTask) => task.sonraki ?? Number.POSITIVE_INFINITY;
     return [...list].sort((left, right) => {
-      if (sort === "name") return left.baslik.localeCompare(right.baslik, "tr");
+      if (sort === "name") return (left.baslik ?? "").localeCompare(right.baslik ?? "", "tr");
       if (sort === "last") return (right.son_calisma ?? 0) - (left.son_calisma ?? 0);
       // Etkin görevler önde (en yakın zaman en üstte); duraklatılanlar sonda.
       if (isActive(left) !== isActive(right)) return isActive(left) ? -1 : 1;
@@ -343,15 +379,28 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
                     <span />
                   </button>
                 )}
-                <button
-                  aria-label={`${task.baslik} görevini sil`}
-                  className="schedule__icon-button schedule__icon-button--danger"
-                  onClick={() => void call("zamanlama.sil", { id: task.id }, "Görev silinemedi.")}
-                  title="Sil"
-                  type="button"
-                >
-                  <Icon name="trash" size={15} />
-                </button>
+                {silinecek === task.id ? (
+                  <span aria-label="Silme onayı" className="schedule__confirm" role="group">
+                    <button onClick={() => setSilinecek(null)} type="button">Vazgeç</button>
+                    <button
+                      className="schedule__icon-button--danger"
+                      onClick={() => { setSilinecek(null); void call("zamanlama.sil", { id: task.id }, "Görev silinemedi."); }}
+                      type="button"
+                    >
+                      Silmeyi onayla
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    aria-label={`${task.baslik} görevini sil`}
+                    className="schedule__icon-button schedule__icon-button--danger"
+                    onClick={() => setSilinecek(task.id)}
+                    title="Sil"
+                    type="button"
+                  >
+                    <Icon name="trash" size={15} />
+                  </button>
+                )}
               </div>
             </li>
           ))}
@@ -361,7 +410,8 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
       </div>
 
       {draft && (
-        <div className="schedule__overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setDraft(null); }}>
+        <div className="schedule__overlay">
+          {/* Kaplamaya tıklamak yazılmış taslağı sorusuz silmez; Esc ve Vazgeç kalır (U5-58). */}
           <div aria-label="Yeni zamanlanmış görev" aria-modal="true" className="schedule__dialog" role="dialog">
             <form aria-label="Yeni zamanlanmış görev" className="schedule__form" onSubmit={(event) => void submit(event)}>
               <h2>Yeni zamanlanmış görev</h2>

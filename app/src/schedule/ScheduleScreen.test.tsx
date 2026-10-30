@@ -44,8 +44,8 @@ describe("draftPayload", () => {
 
   it("tek seferlikte tarih yoksa hata, varsa epoch saniye verir", () => {
     expect(draftPayload({ ...taslak, tur: "bir_kez" })).toBe("Tek seferlik görev için tarih ve saat seç.");
-    const payload = draftPayload({ ...taslak, tur: "bir_kez", tarih: "2026-10-07" }) as Record<string, unknown>;
-    expect(payload.zaman).toBe(Math.floor(new Date("2026-10-07T08:15").getTime() / 1000));
+    const payload = draftPayload({ ...taslak, tur: "bir_kez", tarih: "2099-10-07" }) as Record<string, unknown>;
+    expect(payload.zaman).toBe(Math.floor(new Date("2099-10-07T08:15").getTime() / 1000));
   });
 });
 
@@ -60,6 +60,8 @@ describe("ScheduleScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Şimdi çalıştır" }));
     await waitFor(() => expect(onRunNow).toHaveBeenCalledWith(gorev));
     fireEvent.click(screen.getByRole("button", { name: "Sabah raporu görevini sil" }));
+    expect(request).not.toHaveBeenCalledWith("zamanlama.sil", { id: "a1" });
+    fireEvent.click(screen.getByRole("button", { name: "Silmeyi onayla" }));
     await waitFor(() => expect(request).toHaveBeenCalledWith("zamanlama.sil", { id: "a1" }));
   });
 
@@ -269,4 +271,58 @@ it("görev menüsündeki bağlantı gerçek görev kartına odaklanır", async (
  fireEvent.click(link);
  await waitFor(() => expect(document.activeElement).toBe(card));
  expect(scroll).toHaveBeenCalledWith({ block: "nearest" });
+});
+
+// Ölçüldü (30 Ekim): haftalık görev günsüz, geçmiş tarihli bir kez, 5 dakikalık aralık kabul ediliyordu;
+// silme tek tıktı; runNow hatası yakalanmıyor; bozuk görev kaydı kartı çökertiyordu (U5-54..56, U5-58).
+describe("zamanlama doğrulama ve dayanıklılık (30 Ekim)", () => {
+  const taslak = { baslik: "", dakika: "30", gorev: "iş", gunler: [1], kok: "/p", saat: "08:15", tarih: "", tur: "gunluk" as const };
+
+  it("günsüz haftalık, geçmiş tarihli bir kez ve kısa aralık reddedilir", () => {
+    expect(draftPayload({ ...taslak, tur: "haftalik", gunler: [] })).toBe("Haftalık görev için en az bir gün seç.");
+    expect(draftPayload({ ...taslak, tur: "bir_kez", tarih: "2020-01-01" })).toBe("Tek seferlik görevin zamanı geçmişte; ileri bir tarih seç.");
+    expect(draftPayload({ ...taslak, tur: "aralik", dakika: "5" })).toBe("Aralık en az 15 dakika olmalı.");
+  });
+
+  it("Şimdi çalıştır sonrası sohbet açma hatası görünür, yakalanmamış reddedilme olmaz", async () => {
+    const { client } = fakeClient();
+    const onRunNow = vi.fn(async () => { throw new Error("oturum kurulamadı"); });
+    render(<ScheduleScreen client={client} defaultRoot="/proje" onRunNow={onRunNow} />);
+    await screen.findByText("Sabah raporu", { selector: ".schedule__title" });
+    fireEvent.click(screen.getByRole("button", { name: "Şimdi çalıştır" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("oturum kurulamadı");
+  });
+
+  it("bozuk görev kaydı listeyi çökertmez", async () => {
+    const request = vi.fn(async () => ({ ok: true, gorevler: [{ id: 5 }, null, { id: "a1", gorev: "iş", kok: "/p", tur: "gunluk", etkin: true }] }));
+    render(<ScheduleScreen client={{ request }} defaultRoot="/proje" onRunNow={vi.fn()} />);
+    expect(await screen.findByLabelText("Zamanlanmış görevler")).toBeTruthy();
+    expect(document.querySelectorAll("#scheduled-task-a1")).toHaveLength(1);
+  });
+
+  it("yazılmış taslak arka plana tıklayınca silinmez", async () => {
+    const { client } = fakeClient();
+    render(<ScheduleScreen client={client} defaultRoot="/proje" onRunNow={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Yeni görev/ }));
+    fireEvent.change(screen.getByLabelText("Görev"), { target: { value: "yarım kalan" } });
+    fireEvent.mouseDown(document.querySelector(".schedule__overlay")!);
+    expect((screen.getByLabelText("Görev") as HTMLTextAreaElement).value).toBe("yarım kalan");
+  });
+});
+
+
+it("oturumu çöken/kapanan bekleyen görev sonradan gönderilmez; geçersiz teslim günlüğe yazılır (U5-53, U5-54)", async () => {
+  const gorev = { id: "a1", baslik: "Sabah raporu", gorev: "Rapor", kok: "/proje", tur: "gunluk" as const, etkin: true, son_calisma: null, sonraki: null };
+  const create = vi.fn(async () => "s1"); const send = vi.fn(() => true);
+  const { result, rerender } = renderHook(({ sessions }) => useScheduleRunner({ client: null, create, send, sessions }), { initialProps: { sessions: {} as Record<string, { status: string }> } });
+  await act(async () => { await result.current.runNow(gorev); });
+  rerender({ sessions: { s1: { status: "crashed" } } });
+  rerender({ sessions: { s1: { status: "ready" } } });
+  expect(send).not.toHaveBeenCalled();
+
+  const uyari = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const request = vi.fn(async (name: string) => name === "zamanlama.teslim_bekleyenler" ? { ok: true, teslimler: [{ occurrence_id: "kisa", task: "x" }] } : { ok: true });
+  renderHook(() => useScheduleRunner({ client: { request }, create, send, sessions: {}, deliveryClient: { deliver: async () => null } }));
+  await waitFor(() => expect(uyari).toHaveBeenCalled());
+  uyari.mockRestore();
 });
