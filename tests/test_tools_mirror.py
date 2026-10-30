@@ -169,3 +169,25 @@ def test_ozet_sinira_dayanildigini_bildirir(tmp_path: Path):
 
 def test_ozet_sinira_dayanilmadiysa_uyarmaz(tmp_path: Path):
     assert "UYARI" not in mirror_summary(tmp_path, (), 0, False)
+
+
+# --- Dalga 4 (T2-33) ---------------------------------------------------------
+
+
+def test_baska_hostun_ayni_yolu_bozulmaz():
+    """Düz str.replace `https://cdn2.example/app.js`'i `https://cdn2.exampleassets/…` yapıyordu."""
+    asset = MirroredAsset(url="https://cdn.test/app.js", local="assets/app-1.js")
+    html = '<script src="/app.js"></script><script src="https://cdn2.example/app.js"></script>'
+
+    sonuc = rewrite_links(html, (asset,))
+
+    assert 'src="assets/app-1.js"' in sonuc
+    assert 'src="https://cdn2.example/app.js"' in sonuc
+
+
+def test_http_ile_yazilmis_ayni_adres_kirik_birakilmaz():
+    asset = MirroredAsset(url="https://cdn.test/a.css", local="assets/a-1.css")
+
+    sonuc = rewrite_links('<link href="http://cdn.test/a.css">', (asset,))
+
+    assert "http:assets" not in sonuc

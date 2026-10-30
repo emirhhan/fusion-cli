@@ -99,6 +99,10 @@ def is_mirrorable(url: str, content_type: str = "") -> bool:
     }
 
 
+#: Adres sonu: devamında dosya adı karakteri ya da `.uzantı` olmamalı (`/a.css` ≠ `/a.css.map`).
+_URL_END = r"(?![\w\-]|\.\w)"
+
+
 def rewrite_links(html: str, assets: tuple[MirroredAsset, ...]) -> str:
     """HTML/CSS içindeki uzak adresleri yerel yollarla değiştir. Saf fonksiyon.
 
@@ -112,9 +116,17 @@ def rewrite_links(html: str, assets: tuple[MirroredAsset, ...]) -> str:
     for asset in sorted(assets, key=lambda item: len(item.url), reverse=True):
         parsed = urlparse(asset.url)
         yol = parsed.path + (f"?{parsed.query}" if parsed.query else "")
-        for bicim in (asset.url, f"//{parsed.netloc}{yol}", yol):
-            if bicim:
-                sonuc = sonuc.replace(bicim, asset.local)
+        sonuc = sonuc.replace(asset.url, asset.local)
+        if not parsed.netloc or not yol:
+            continue
+        host = re.escape(parsed.netloc)
+        # Aynı adresin http/https ve şemasız yazılışları. Düz `str.replace` yerine sınırlı
+        # desen: başka host'taki aynı yol (`https://cdn2.example/app.js`) ve `http://cdn/x`
+        # içindeki `//cdn/x` artık BOZULMAZ (ölçüldü, 30 Ekim).
+        sonuc = re.sub(rf"https?://{host}{re.escape(yol)}{_URL_END}", asset.local, sonuc)
+        sonuc = re.sub(rf"(?<![\w:/.\-])//{host}{re.escape(yol)}{_URL_END}", asset.local, sonuc)
+        # Köke göreli yol: öncesinde host/yol karakteri olmamalı (başka host'un yolu değil).
+        sonuc = re.sub(rf"(?<![\w:/.\-]){re.escape(yol)}{_URL_END}", asset.local, sonuc)
     return sonuc
 
 
