@@ -16,6 +16,7 @@ from collections.abc import Callable, Sequence
 from rich.console import Console
 from rich.markup import escape
 
+from ...config import keybindings
 from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
@@ -285,12 +286,18 @@ class _TuiSession:
         return self._task is not None and not self._task.done()
 
     def _sync_status(self) -> None:
+        vim = bool(getattr(self._state.config.runtime, "vim_mode", False))
+        self._tui.set_vim(vim)
         self._tui.set_status(
             self._state.approval.value,
             self._state.engine.value,
             status_view.context_label(self._state),
             self._custom_status,
+            vim=vim,
         )
+        # Tuş dosyası değiştiyse yeniden başlatmadan uygula (P-067).
+        if keybindings.has_changed(self._tui.keymap):
+            self._tui.rebind(keybindings.load_keymap(self._tui.keymap.path))
 
     async def _refresh_custom_status(self) -> None:
         """Kullanıcı betiği (P-069) tur sonunda bir kez çalışır; sonucu durum satırına gider."""

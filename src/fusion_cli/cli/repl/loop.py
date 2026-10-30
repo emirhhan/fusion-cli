@@ -149,6 +149,7 @@ async def run_repl(
     if os.environ.get("FUSION_WARMUP", "0").strip().lower() in {"1", "true", "yes", "on"}:
         background.spawn(_warm_up(state))
 
+    reader.vim_mode = bool(getattr(state.config.runtime, "vim_mode", False))
     banner.print_welcome(console, session_info(state))
     bildirim = apprentice_switch_notice(state.config)
     if bildirim:
@@ -352,6 +353,7 @@ async def _run_command(
 
     result = command.handler(state, argument)
     reader.mode = state.approval
+    reader.vim_mode = bool(getattr(state.config.runtime, "vim_mode", False))
     _sync_status_bar(reader, state)
     if result:
         console.print(f"[{theme.DIM}]{result}[/{theme.DIM}]")

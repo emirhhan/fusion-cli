@@ -998,3 +998,15 @@ STATUSLINE_CURRENT = (
 STATUSLINE_SET = "Durum satırı betiği kaydedildi: {command} — bir sonraki turdan itibaren."
 STATUSLINE_SET_UNSAVED = "Durum satırı betiği dosyaya yazılamadı: {error}"
 STATUSLINE_CLEARED = "Durum satırı betiği kaldırıldı; yerleşik çubuk kullanılıyor."
+
+# --- /keybindings ve /vim (P-067) ------------------------------------------ #
+CMD_KEYBINDINGS = "tuş bağlarını göster; dosya keybindings.json (yeniden başlatmadan uygulanır)"
+CMD_VIM = "vim düzenleme kipi aç/kapa (NORMAL/INSERT); kalıcı"
+KEYBINDINGS_HEADER = "Tuş bağları — dosya: {path}"
+KEYBINDINGS_HINT = (
+    "Düzenle ve kaydet: bağlam → {{tuş: eylem}}; eylem 'komut:<ad>' bir slash komutu gönderir, "
+    "null varsayılan bağı kaldırır. Yapısal tuşlar (Enter, Tab, oklar) bağlanamaz."
+)
+VIM_USAGE = "Kullanım: /vim [on|off]"
+VIM_SET = "Vim kipi {state}. Esc ile NORMAL, i ile INSERT kipine geçilir."
+VIM_SET_UNSAVED = "Vim kipi bu oturum için {state}; dosyaya yazılamadı: {error}"

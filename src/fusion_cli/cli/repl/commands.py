@@ -33,6 +33,7 @@ from ...ui.picker import Choice, pick
 from . import (
     config_command,
     export_commands,
+    keybinding_commands,
     macros,
     model_flows,
     output_style_command,
@@ -866,6 +867,15 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         status_line.statusline_command,
         group="Görünüm",
         usage="[komut|kapat]",
+    ),
+    SlashCommand(
+        "keybindings",
+        messages.CMD_KEYBINDINGS,
+        keybinding_commands.keybindings_command,
+        group="Görünüm",
+    ),
+    SlashCommand(
+        "vim", messages.CMD_VIM, keybinding_commands.vim_command, group="Görünüm", usage="[on|off]"
     ),
 )
 

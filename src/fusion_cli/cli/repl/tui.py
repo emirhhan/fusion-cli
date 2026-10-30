@@ -25,7 +25,7 @@ from prompt_toolkit.application import Application
 from prompt_toolkit.completion import Completer
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import ANSI, HTML, StyleAndTextTuples
-from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding import DynamicKeyBindings, KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import ConditionalContainer, HSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
@@ -34,6 +34,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import Frame, TextArea
 from rich.console import Console
 
+from ...config.keybindings import COMMAND_PREFIX, CONTEXT_TUI, KeyMap, load_keymap
 from ...ui import messages, theme
 from ...ui.picker import Choice
 from .input import FOLD_PASTE_CHARS, FOLD_PASTE_LINES
@@ -70,15 +71,20 @@ _WHEEL_AS_ARROWS_OFF = "\x1b[?1007l\x1b[?1l"
 _CHROME_ROWS = 6
 
 
-def format_status(mode: str, engine: str, context: str = "", custom: str = "") -> str:
+def format_status(
+    mode: str, engine: str, context: str = "", custom: str = "", *, vim: bool = False
+) -> str:
     """Girdinin ALTINDAKİ durum satırının HTML'i: mod + motor + bağlam sayacı + ipuçları.
 
     `context` bağlam sayacıdır (`status_view.context_label`, P-027); boşsa yazılmaz.
     `custom` kullanıcı betiğinin ürettiği satırdır (P-069): doluysa sayacın yerine geçer.
+    `vim` açıkken kısa `vim` etiketi eklenir (P-067).
     """
     color = theme.MODE_COLORS.get(mode, theme.DIM)
     shown = html_escape(custom) if custom else context
     extra = f" · {shown}" if shown else ""
+    if vim:
+        extra += " · vim"
     return (
         f"<style fg='{color}'>{theme.ICON_STATUS} {mode}</style>"
         f"<style fg='{theme.DIM}'> · {engine}{extra} · {messages.TUI_STATUS_HINT}</style>"
@@ -124,6 +130,7 @@ class FusionTui:
         initial_transcript: str = "",
         on_transcript_change: Callable[[str], None] | None = None,
         completer: Completer | None = None,
+        keymap: KeyMap | None = None,
     ) -> None:
         self._on_submit = on_submit
         self._on_interrupt = on_interrupt
@@ -141,6 +148,10 @@ class FusionTui:
         self._status_engine = "agent"
         self._status_context = ""
         self._status_custom = ""
+        self._status_vim = False
+        #: Tuş tablosu (P-067); `rebind` dosya değişince yeniler.
+        self._keymap = keymap or load_keymap()
+        self._kb = self._bindings()
         self._mode = "idle"
         self._answer: asyncio.Future[object] | None = None
         # Uygulama-içi seçim modalı durumu (nested picker YOK): /mode, /level, /effort.
@@ -196,7 +207,8 @@ class FusionTui:
         )
         self.application: Application[None] = Application(
             layout=Layout(root, focused_element=self._input),
-            key_bindings=self._bindings(),
+            # Bağlar tablodan üretilir; `DynamicKeyBindings` her tuşta güncel tabloyu okur.
+            key_bindings=DynamicKeyBindings(lambda: self._kb),
             style=_style(),
             full_screen=True,
             # Fare izleme KAPALI. Açıkken prompt_toolkit terminale
@@ -323,16 +335,39 @@ class FusionTui:
             self._spinner_frame += 1
             self._invalidate()
 
-    def set_status(self, mode: str, engine: str, context: str = "", custom: str = "") -> None:
+    def set_status(
+        self, mode: str, engine: str, context: str = "", custom: str = "", *, vim: bool = False
+    ) -> None:
         self._status_mode = mode
         self._status_engine = engine
         self._status_context = context
         self._status_custom = custom
+        self._status_vim = vim
         self._refresh_status()
+
+    def set_vim(self, enabled: bool) -> None:
+        """Vim düzenleme kipini aç/kapa (P-067); durum satırı etiketi `set_status` ile gelir."""
+        from prompt_toolkit.enums import EditingMode
+
+        self.application.editing_mode = EditingMode.VI if enabled else EditingMode.EMACS
+
+    @property
+    def keymap(self) -> KeyMap:
+        return self._keymap
+
+    def rebind(self, keymap: KeyMap) -> None:
+        """Tuş tablosunu yenile (dosya değişti); çalışan uygulama yeniden kurulmaz."""
+        self._keymap = keymap
+        self._kb = self._bindings()
+        self._invalidate()
 
     def _refresh_status(self) -> None:
         self._status_html = format_status(
-            self._status_mode, self._status_engine, self._status_context, self._status_custom
+            self._status_mode,
+            self._status_engine,
+            self._status_context,
+            self._status_custom,
+            vim=self._status_vim,
         )
         if self._scroll > 0 and self._unread_lines:
             self._status_html += (
@@ -496,6 +531,7 @@ class FusionTui:
         self._refresh_status()
 
     def _bindings(self) -> KeyBindings:
+        """Tuş bağları: yapısal olanlar sabit, eylemler tablodan (P-067)."""
         from prompt_toolkit.keys import Keys
 
         kb = KeyBindings()
@@ -512,20 +548,6 @@ class FusionTui:
             # Uzun/çok-satırlı yapıştırma girdiye AKMAZ: katlanıp yer tutucuya iner,
             # tam metin gönderimde geri açılır. Tek-satır girdi kısa kalır.
             self._fold_paste(getattr(event, "data", ""))
-
-        @kb.add("c-q")
-        @kb.add("c-c")
-        def _exit(_event: object) -> None:
-            # Kullanıcı isteği: Ctrl-C fusion'dan ÇIKAR (turu kesmek için esc var).
-            self._on_exit()
-
-        @kb.add("escape", eager=True)
-        def _interrupt(_event: object) -> None:
-            self._cancel_or_interrupt()
-
-        @kb.add("s-tab")
-        def _cycle(_event: object) -> None:
-            self._on_cycle_mode()
 
         # Seçim kipinde Enter'ın AÇIK bağlaması olmak zorunda.
         #
@@ -566,14 +588,7 @@ class FusionTui:
         def _down(_event: object) -> None:
             self._move_choice(1) if self._mode == "choice" else self._scroll_by(-_SCROLL_STEP)
 
-        @kb.add("pageup", filter=scrollable, eager=True)
-        def _pgup(_event: object) -> None:
-            self._scroll_by(_SCROLL_PAGE)
-
-        @kb.add("pagedown", filter=scrollable, eager=True)
-        def _pgdn(_event: object) -> None:
-            self._scroll_by(-_SCROLL_PAGE)
-
+        # Tekerlek dizileri (`\x1b[62~`/`\x1b[63~`) fare kipinden BAĞIMSIZ ayrıştırılır.
         @kb.add(Keys.ScrollUp, filter=scrollable, eager=True)
         def _mouse_up(_event: object) -> None:
             self._scroll_by(_SCROLL_STEP)
@@ -582,35 +597,56 @@ class FusionTui:
         def _mouse_down(_event: object) -> None:
             self._scroll_by(-_SCROLL_STEP)
 
-        @kb.add("home", filter=scrollable, eager=True)
-        @kb.add("c-home", filter=scrollable, eager=True)
-        def _home(_event: object) -> None:
-            self._scroll_home()
-
-        @kb.add("end", filter=scrollable, eager=True)
-        @kb.add("c-end", filter=scrollable, eager=True)
-        def _end(_event: object) -> None:
-            self._scroll_end()
-
-        # Ok tuşu tek başına GEÇMİŞ için ayrılmıştır (kullanıcı bunu istedi) ve
-        # tekerlek de ok üretebildiği için (bkz. `_WHEEL_AS_ARROWS_ON`) ikisi
-        # çakışıyordu. Kaydırmanın çakışmayan, her kipte çalışan karşılığı:
-        @kb.add("s-up", filter=scrollable, eager=True)
-        @kb.add("c-u", filter=scrollable, eager=True)
-        def _scroll_up(_event: object) -> None:
-            self._scroll_by(_SCROLL_STEP)
-
-        @kb.add("s-down", filter=scrollable, eager=True)
-        @kb.add("c-d", filter=scrollable, eager=True)
-        def _scroll_down(_event: object) -> None:
-            self._scroll_by(-_SCROLL_STEP)
-
-        @kb.add("c-r", filter=idle, eager=True)
-        def _history(_event: object) -> None:
-            # Ctrl-R: en eski transcript noktasına hızlı geçiş; End ile canlı akışa dönülür.
-            self._scroll_home()
+        # Yeniden bağlanabilir eylemler (varsayılanlar `config/keybindings.py`'de). Escape
+        # yalnız `kes` içindir ve her kipte çalışır; kaydırma eylemleri modal dışında;
+        # `c-r` tarihsel olarak en başa gider (End ile canlı akışa dönülür).
+        actions: dict[str, tuple[Callable[[], None], Condition | None]] = {
+            "cik": (self._on_exit, None),
+            "kes": (self._cancel_or_interrupt, None),
+            "kip_dongusu": (self._on_cycle_mode, None),
+            "sayfa_yukari": (lambda: self._scroll_by(_SCROLL_PAGE), scrollable),
+            "sayfa_asagi": (lambda: self._scroll_by(-_SCROLL_PAGE), scrollable),
+            "en_bas": (self._scroll_home, scrollable),
+            "en_son": (self._scroll_end, scrollable),
+            "kaydir_yukari": (lambda: self._scroll_by(_SCROLL_STEP), scrollable),
+            "kaydir_asagi": (lambda: self._scroll_by(-_SCROLL_STEP), scrollable),
+        }
+        for key, action in self._keymap.bindings(CONTEXT_TUI).items():
+            if action.startswith(COMMAND_PREFIX):
+                command = action[len(COMMAND_PREFIX) :].strip().lstrip("/")
+                handler: Callable[[], None] = self._command_sender(command)
+                condition: Condition | None = idle
+            elif action in actions:
+                handler, condition = actions[action]
+            else:
+                continue
+            try:
+                self._add_action(kb, key, handler, condition)
+            except ValueError:
+                # Bilinmeyen tuş adı: `/keybindings` uyarır, öteki bağlar çalışmaya devam eder.
+                continue
 
         return kb
+
+    def _command_sender(self, command: str) -> Callable[[], None]:
+        """`komut:<ad>` bağı: tuşa basınca `/ad` gönderilir (döngü değişkeni kapanmaz)."""
+
+        def _send() -> None:
+            self._on_submit(f"/{command}")
+
+        return _send
+
+    @staticmethod
+    def _add_action(
+        kb: KeyBindings, key: str, handler: Callable[[], None], condition: Condition | None
+    ) -> None:
+        def _run(_event: object) -> None:
+            handler()
+
+        if condition is None:
+            kb.add(key, eager=True)(_run)
+        else:
+            kb.add(key, filter=condition, eager=True)(_run)
 
     def _cancel_or_interrupt(self) -> None:
         if self._mode == "ask":
