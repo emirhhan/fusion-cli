@@ -25,6 +25,7 @@ from .asgi import RemoteApp
 from .backend import AppSessionBackend
 from .bind import BindPolicy, BindRefusedError, private_addresses, validate_bind
 from .constants import DEFAULT_REMOTE_HOST, DEFAULT_REMOTE_PORT, HTTP_START_TIMEOUT_SECONDS
+from .data_dir import migrate_legacy, remote_data_dir
 from .devices import CHANNEL_SIGNED, CHANNEL_TELEGRAM, Device, DeviceRegistry
 from .mobile import MobileApi
 from .navigation import NavigationHost
@@ -96,8 +97,12 @@ class RemoteController:
         session_factory: Callable[[Callable[[str], None]], Any],
         clock: Clock | None = None,
         navigation: NavigationHost | None = None,
+        data_dir: Path | None = None,
     ) -> None:
-        directory = home / "remote"
+        # Eşleşme verisi Fusion veri dizininde durur (`~/remote` ev dizinini kirletiyordu);
+        # eski konumdan ilk açılışta otomatik, doğrulanarak taşınır.
+        directory = data_dir if data_dir is not None else remote_data_dir()
+        migrate_legacy(home / "remote", directory)
         self._clock = clock or WallClock()
         self._registry = DeviceRegistry(directory / "devices.json", self._clock)
         self._settings_path = directory / "settings.json"

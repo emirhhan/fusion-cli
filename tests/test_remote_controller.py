@@ -220,6 +220,7 @@ async def media_rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         secrets=MemorySecrets(),
         session_factory=lambda writer: object(),
         clock=FakeClock(),
+        data_dir=data / "remote",
     )
     yield instance, tmp_path
     await instance.aclose()
@@ -233,7 +234,7 @@ def _png(path: Path) -> Path:
 
 @pytest.mark.parametrize(
     "relative",
-    ["proje/ekran.png", "veri/gallery/g.png", "ev/remote/uploads/abc-ek.png"],
+    ["proje/ekran.png", "veri/gallery/g.png", "veri/remote/uploads/abc-ek.png"],
 )
 async def test_telefon_fusionin_urettigi_ve_proje_gorsellerini_gorur(
     media_rig: Any, relative: str
