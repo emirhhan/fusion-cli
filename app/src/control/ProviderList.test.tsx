@@ -218,18 +218,67 @@ it("bekleyen anahtar kaydı sırasında alan ve sağlayıcı seçimi kilitlidir"
   expect(input.value).toBe("SYNTHETIC_PENDING_KEY"); // kaydedilen anahtar alanda kalır
 });
 
+// Ölçüldü (30 Ekim): kart açılır açılmaz kasadaki TAM anahtar webview belleğine iniyordu (U5-37); liste her
+// yenilendiğinde yeniden indirilip yazılmakta olan değeri eziyordu (U5-38); sondaki boşluk anahtarı bozuyordu (U5-39).
+describe("kayıtlı anahtar gizliliği (30 Ekim)", () => {
+  function nvidia(goster: () => Record<string, unknown>) {
+    return vi.fn(async (name: string) => {
+      if (name === "saglayici.katalog") return { ok: true, saglayicilar: [{ id: "nvidia_nim", ad: "NVIDIA NIM", bagli: true, eylem: "anahtar", tur: "anahtar", ortam: "NVIDIA_API_KEY" }] };
+      if (name === "kontrol.anahtar_goster") return goster();
+      return { ok: true };
+    });
+  }
 
-it("kayıtlı anahtar açılışta kasadan okunur ve göz düğmesiyle görünür", async () => {
-  const request = vi.fn(async (name: string) => {
-    if (name === "saglayici.katalog") return { ok: true, saglayicilar: [{ id: "nvidia_nim", ad: "NVIDIA NIM", bagli: true, eylem: "anahtar", tur: "anahtar", ortam: "NVIDIA_API_KEY" }] };
-    if (name === "kontrol.anahtar_goster") return { ok: true, deger: "nvapi-KAYITLI" };
-    return { ok: true };
+  it("kart açılınca anahtar istenmez; göz düğmesine basınca kasadan okunur ve görünür", async () => {
+    const request = nvidia(() => ({ ok: true, deger: "nvapi-KAYITLI" }));
+    render(<ProviderList client={{ request } as unknown as ProtocolClient} />);
+    fireEvent.click(await screen.findByRole("button", { name: /NVIDIA NIM/ }));
+    const input = (await screen.findByLabelText("API anahtarı")) as HTMLInputElement;
+    expect(input.value).toBe("");
+    expect(request.mock.calls.map(([ad]) => ad)).not.toContain("kontrol.anahtar_goster");
+    fireEvent.click(screen.getByRole("button", { name: "Anahtarı göster" }));
+    await waitFor(() => expect(input.value).toBe("nvapi-KAYITLI"));
+    expect(input.type).toBe("text");
   });
-  render(<ProviderList client={{ request } as unknown as ProtocolClient} />);
-  fireEvent.click(await screen.findByRole("button", { name: /NVIDIA NIM/ }));
-  const input = (await screen.findByLabelText("API anahtarı")) as HTMLInputElement;
-  await waitFor(() => expect(input.value).toBe("nvapi-KAYITLI"));
-  expect(input.type).toBe("password");
-  fireEvent.click(screen.getByRole("button", { name: "Anahtarı göster" }));
-  expect(input.type).toBe("text");
+
+  it("kullanıcı yazarken göz düğmesi yazılan değerin üzerine yazmaz", async () => {
+    const request = nvidia(() => ({ ok: true, deger: "nvapi-KAYITLI" }));
+    render(<ProviderList client={{ request } as unknown as ProtocolClient} />);
+    fireEvent.click(await screen.findByRole("button", { name: /NVIDIA NIM/ }));
+    const input = (await screen.findByLabelText("API anahtarı")) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "yeni-anahtar" } });
+    fireEvent.click(screen.getByRole("button", { name: "Anahtarı göster" }));
+    await Promise.resolve();
+    expect(input.value).toBe("yeni-anahtar");
+  });
+
+  it("kaydedilen anahtar kırpılarak gönderilir (U5-39)", async () => {
+    const request = vi.fn(async (name: string) => name === "saglayici.katalog"
+      ? { ok: true, saglayicilar: [{ id: "openai", ad: "OpenAI", bagli: false, eylem: "anahtar", tur: "anahtar", ortam: "OPENAI_API_KEY" }] }
+      : { ok: true });
+    render(<ProviderList client={{ request } as unknown as ProtocolClient} />);
+    fireEvent.click(await screen.findByRole("button", { name: /OpenAI/ }));
+    fireEvent.change(await screen.findByLabelText("API anahtarı"), { target: { value: "  sk-abc123\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet", exact: true }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("kontrol.anahtar_kaydet", { saglayici: "openai", deger: "sk-abc123" }));
+  });
+});
+
+// Ölçüldü (30 Ekim): liste her yenilendiğinde web model menüsü yeniden okunuyordu (U5-38).
+it("liste yenilense de web model menüsü yeniden okunmaz (U5-38)", async () => {
+  const taban = client();
+  // Gerçek çekirdek her yanıtta yeni nesneler döndürür; aynı dizi referansı yeniden render tetiklemez.
+  const fake = { request: vi.fn(async (name: string, data: Record<string, unknown>) => name === "saglayici.katalog"
+    ? { ok: true, saglayicilar: SATIRLAR.map((satir) => ({ ...satir })) }
+    : taban.request(name, data)) } as unknown as ProtocolClient;
+  render(<ProviderList client={fake} initialProviderId="gemini_web" />);
+  await screen.findByRole("button", { name: "Bağlantıyı sına" });
+  await waitFor(() => expect(fake.request).toHaveBeenCalledWith("web.model_secenekleri", expect.anything()));
+  const menuIstegi = () => vi.mocked(fake.request).mock.calls.filter(([ad]) => ad === "web.model_secenekleri").length;
+  const once = menuIstegi();
+  const katalogOnce = vi.mocked(fake.request).mock.calls.filter(([ad]) => ad === "saglayici.katalog").length;
+  fireEvent.click(screen.getByRole("button", { name: "Araç desteğini ölç" }));
+  await waitFor(() => expect(vi.mocked(fake.request).mock.calls.filter(([ad]) => ad === "saglayici.katalog").length).toBe(katalogOnce + 1));
+  await waitFor(() => expect((screen.getByRole("button", { name: "Bağlantıyı sına" }) as HTMLButtonElement).disabled).toBe(false));
+  expect(menuIstegi()).toBe(once);
 });

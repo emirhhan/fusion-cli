@@ -68,9 +68,11 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
   const run = async (operation: () => Promise<void>) => {
     try {
       await operation();
-    } catch {
+    } catch (reason) {
       setBusy(null);
-      setNotice("İşlem tamamlanamadı. Bağlantını kontrol edip tekrar dene.");
+      // Gerçek neden ("Çekirdek bağlantısı kapatıldı." gibi) kaybolmasın (U5-41).
+      const neden = reason instanceof Error && reason.message ? ` (${reason.message})` : "";
+      setNotice(`İşlem tamamlanamadı${neden}. Bağlantını kontrol edip tekrar dene.`);
     }
   };
 
@@ -110,35 +112,50 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
     return rows.filter((row) => row.ad.toLocaleLowerCase("tr").includes(q));
   }, [query, rows]);
 
+  const openRow = rows.find((item) => item.id === open);
+  const keyedOpenId = openRow?.tur === "anahtar" ? openRow.id : null;
+  const keyedOpenBound = openRow?.tur === "anahtar" && openRow.bagli;
+  // Kart açılınca kasadaki değer webview'e İNDİRİLMEZ (U5-37); yalnız kullanıcı göz düğmesine
+  // basınca istenir. Liste her yenilendiğinde (kaydet, ölç…) de yeniden istenip kullanıcının
+  // yazmakta olduğu değerin üzerine yazılmaz (U5-38): efekt yalnız açılan kart değişince çalışır.
   useEffect(() => {
-    const row = rows.find((item) => item.id === open);
     setReveal(false);
-    if (!row || row.tur !== "anahtar" || !row.bagli) { setSecret(""); setStored(""); return; }
-    let alive = true;
-    void client.request("kontrol.anahtar_goster", { saglayici: row.id }).then((result) => {
-      if (!alive) return;
-      const value = result.ok && typeof result.deger === "string" ? result.deger : "";
-      setStored(value);
-      setSecret(value);
-    }).catch(() => undefined);
-    return () => { alive = false; };
-  }, [client, open, rows]);
+    setSecret("");
+    setStored("");
+  }, [keyedOpenId]);
 
+  const toggleReveal = () => {
+    if (reveal) { setReveal(false); return; }
+    setReveal(true);
+    if (!openRow || !keyedOpenBound || stored || secret) return;
+    const id = openRow.id;
+    void client.request("kontrol.anahtar_goster", { saglayici: id }).then((result) => {
+      const value = result.ok && typeof result.deger === "string" ? result.deger : "";
+      if (!value) return;
+      // Bu arada kullanıcı yazdıysa ya da kart değiştiyse üzerine yazılmaz.
+      setSecret((current) => (current === "" ? value : current));
+      setStored((current) => current || value);
+    }).catch(() => setNotice("Kayıtlı anahtar okunamadı."));
+  };
+
+  // Web model menüsü yalnız açılan kart ya da bağlantı durumu değişince okunur; liste yenilenmesi
+  // (model seçimi, ölçüm) menüyü yeniden okutup seçimi kilitlemesin (U5-38).
+  const webOpenId = openRow?.tur === "web" && openRow.bagli ? openRow.id : null;
+  const webOpenAccount = openRow?.hesap ?? "main";
   useEffect(() => {
-    const row = rows.find((item) => item.id === open);
-    if (!row?.bagli || row.tur !== "web") return;
+    if (!webOpenId) return;
     let alive = true;
-    setModelLoading(row.id);
+    setModelLoading(webOpenId);
     setModelError(null);
     void client.request("web.model_secenekleri", {
-      saglayici: row.id,
-      hesap: row.hesap ?? "main",
+      saglayici: webOpenId,
+      hesap: webOpenAccount,
     }).then((result) => {
       if (!alive) return;
       if (result.ok && Array.isArray(result.secenekler)) {
         setModelChoices((current) => ({
           ...current,
-          [row.id]: (result.secenekler as unknown[]).filter(
+          [webOpenId]: (result.secenekler as unknown[]).filter(
             (value): value is string => typeof value === "string",
           ),
         }));
@@ -151,8 +168,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
       if (alive) setModelLoading(null);
     });
     return () => { alive = false; };
-  // Yalnız açılan kart veya bağlantı değişince canlı menü yeniden okunur.
-  }, [client, open, rows]);
+  }, [client, webOpenId, webOpenAccount]);
 
   const selectWebModel = async (row: ProviderRow, choice: string) => {
     setBusy(row.id);
@@ -280,7 +296,8 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
 
   const saveKey = async (row: ProviderRow) => {
     if (!secret.trim()) return;
-    const submitted = secret;
+    // Yapıştırmadan gelen baştaki/sondaki boşluk ve satırsonu anahtarı bozup 401'e yol açıyordu (U5-39).
+    const submitted = secret.trim();
     setBusy(row.id);
     const sonuc = (await client.request("kontrol.anahtar_kaydet", {
       saglayici: row.id,
@@ -292,6 +309,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
       return;
     }
     setStored(submitted);
+    setSecret(submitted);
     setNotice(`${row.ad} anahtarı kaydedildi.`);
     await load();
     onChanged();
@@ -317,7 +335,15 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
 
   const toggle = (row: ProviderRow) => {
     if (dirty) { setNotice("Kaydedilmemiş anahtar var. Önce Kaydet'e bas veya alanı temizle."); return; }
-    setOpen((current) => (current === row.id ? null : row.id));
+    // Bildirim kartlar arasında ortaktır: kart değişince önceki sağlayıcının mesajı yanlış yerde kalmasın (U5-41).
+    setNotice(null);
+    const kapaniyor = open === row.id;
+    setOpen(kapaniyor ? null : row.id);
+    // Ayrıntı paneli kartın yanında değil grubun sonunda: açılınca odak oraya, kapanınca karta döner (U5-42).
+    window.requestAnimationFrame(() => {
+      if (kapaniyor) document.getElementById(`pv-card-${row.id}`)?.focus();
+      else document.getElementById(`pv-detail-${row.id}`)?.focus();
+    });
   };
 
   const stateText = (row: ProviderRow) => row.tur === "anahtar"
@@ -325,7 +351,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
     : row.bagli ? (row.olcum_gecti ? "bağlı · dosya yazabilir" : "bağlı · yalnız okur") : "bağlı değil";
 
   const detail = (row: ProviderRow) => (
-    <div className="pv-detail" key={`detail-${row.id}`} role="region" aria-label={`${row.ad} ayrıntıları`}>
+    <div className="pv-detail" id={`pv-detail-${row.id}`} key={`detail-${row.id}`} role="region" aria-label={`${row.ad} ayrıntıları`} tabIndex={-1}>
       <div className="pv-detail__head">
         <span className="pv-mark pv-mark--lg">
           {row.tur === "web" ? <ProviderLogo id={row.id as ProviderId} size={22} /> : <span aria-hidden="true">{row.ad.slice(0, 1)}</span>}
@@ -402,7 +428,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
               id={`key-${row.id}`}
               disabled={busy !== null}
               onChange={(event) => setSecret(event.target.value)}
-              placeholder={row.ortam ?? ""}
+              placeholder={row.bagli ? "Kayıtlı anahtar · görmek için gözü kullan" : (row.ortam ?? "")}
               spellCheck={false}
               type={reveal ? "text" : "password"}
               value={secret}
@@ -411,7 +437,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
               aria-label={reveal ? "Anahtarı gizle" : "Anahtarı göster"}
               aria-pressed={reveal}
               className="pv-eye"
-              onClick={() => setReveal((value) => !value)}
+              onClick={toggleReveal}
               title={reveal ? "Gizle" : "Göster"}
               type="button"
             >
@@ -469,8 +495,10 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
               {grup.map((row) => (
                 <li key={row.id}>
                   <button
+                    aria-controls={open === row.id ? `pv-detail-${row.id}` : undefined}
                     aria-expanded={open === row.id}
                     className="pv-card"
+                    id={`pv-card-${row.id}`}
                     data-bagli={row.bagli}
                     disabled={busy !== null}
                     onClick={() => toggle(row)}
