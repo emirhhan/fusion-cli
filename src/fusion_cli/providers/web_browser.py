@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -2103,9 +2104,15 @@ _GEMINI_UPLOAD_OPTION = _SELECTORS.gemini_upload_option
 #: (105.032 karakterlik gerçek dosya, aynı oturum): 3 sn yeterliydi, modelin
 #: dosyayı GERÇEKTEN okuduğu aynı canlı turda doğrulandı.
 _UPLOAD_SETTLE_MS = 3_000
+#: Uzun istemin yüklendiği ekin adı. Ölçüldü (30 Ekim): `tmpXXXX.txt` adı ve "Dosyayı oku"
+#: cümlesi Gemini'ye proje dosyası gibi göründü; model `read_file(tmp….txt)` ile var
+#: olmayan dosyayı tek turda 15 kez aradı. Sabit, kendini anlatan ad ve açık not bunu keser.
+UPLOAD_FILE_NAME = "fusion-gorev-metni.txt"
+
 _UPLOAD_NOTICE = (
-    "Görev metni {chars} karakter olduğu için mesaj kutusuna sığmıyor; tam metin "
-    "ekli dosyada. Dosyayı oku, göreve ondan devam et."
+    "Görev metni {chars} karakter olduğu için mesaj kutusuna sığmıyor; tam metin bu "
+    f"mesaja ekli `{UPLOAD_FILE_NAME}` ekinde. Bu ek bir proje dosyası değil: read_file "
+    "ya da başka bir araçla açmaya çalışma, eki doğrudan oku ve göreve ondan devam et."
 )
 
 
@@ -2234,18 +2241,17 @@ async def _attach_images(
 
 async def _try_gemini_file_upload(page: Any, content: str) -> bool:
     """İçeriği Gemini web'e dosya olarak yükle; başarılıysa `True`."""
-    gecici_yol: str | None = None
+    gecici_dizin: str | None = None
     try:
-        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as tmp:
-            tmp.write(content)
-            gecici_yol = tmp.name
-        return await gemini_attach_file(page, gecici_yol)
+        gecici_dizin = tempfile.mkdtemp(prefix="fusion-ek-")
+        yol = Path(gecici_dizin) / UPLOAD_FILE_NAME
+        yol.write_text(content, encoding="utf-8")
+        return await gemini_attach_file(page, str(yol))
     except OSError:
         return False
     finally:
-        if gecici_yol is not None:
-            with contextlib.suppress(OSError):
-                Path(gecici_yol).unlink()  # noqa: ASYNC240 - küçük geçici dosya, engellemez
+        if gecici_dizin is not None:
+            shutil.rmtree(gecici_dizin, ignore_errors=True)
 
 
 async def _editor_icerigi(locator: Any) -> str | None:

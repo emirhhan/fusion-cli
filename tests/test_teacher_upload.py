@@ -163,3 +163,23 @@ async def test_yukleme_sirasinda_istisna_sessizce_kirpmaya_duser(monkeypatch):
     sonuc = await _prepare_prompt_for_composer(_TamAkisSayfasi(dosya_girisleri=[]), _GEMINI, prompt)
 
     assert sonuc == trim_to_prompt_budget(prompt)
+
+
+async def test_yuklenen_ek_proje_dosyasi_sanilmayacak_sabit_adla_gider(monkeypatch):
+    """Ölçüldü (30 Ekim, gerçek koşu): ek `tmpXXXX.txt` adıyla gidiyor ve bildirim
+    "Dosyayı oku" diyordu; Gemini bunu araç çağrısı sanıp `read_file(tmp4_oq18ia.txt)`
+    ile var olmayan dosyayı tek turda 15 kez aradı ve tur 20 dakikada bitmedi."""
+    import fusion_cli.providers.web_browser as browser
+
+    tetikleyici = _TiklanabilirEleman()
+    secenek = _TiklanabilirEleman()
+    monkeypatch.setattr(browser, "_first_visible", AsyncMock(side_effect=[tetikleyici, secenek]))
+    giris = _SahteDosyaGirisi()
+    sayfa = _TamAkisSayfasi(dosya_girisleri=[giris])
+    prompt = "GERÇEKÇİ_İÇERİK " * 3_000
+
+    sonuc = await _prepare_prompt_for_composer(sayfa, _GEMINI, prompt)
+
+    assert Path(giris.yuklenen_yollar[-1]).name == browser.UPLOAD_FILE_NAME
+    assert browser.UPLOAD_FILE_NAME in sonuc
+    assert "read_file" in sonuc and "proje dosyası değil" in sonuc.lower()
