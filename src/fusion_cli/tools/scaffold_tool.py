@@ -23,7 +23,15 @@ from .args import optional_str
 from .files import writable_path
 
 #: Diske yazılacak iskele dosyaları. İçerikleri paket içinde durur ve test edilir.
-SCAFFOLD_FILES: tuple[str, ...] = ("tokens.css", "format.js", "index.html")
+#: `style.css` ve `script.js` yorum satırlı boş taslaktır: `index.html` bunlara bağlanır, model
+#: yazmayı unutursa sayfa 404 yerine boş taslağı yükler (SKILL'in "en sık düşen" hatası).
+SCAFFOLD_FILES: tuple[str, ...] = (
+    "tokens.css",
+    "format.js",
+    "style.css",
+    "script.js",
+    "index.html",
+)
 
 _TEMPLATES = Path(__file__).parent / "scaffold"
 

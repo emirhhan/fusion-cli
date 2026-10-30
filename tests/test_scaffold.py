@@ -226,3 +226,18 @@ def test_placeholder_gorsel_etiketi_xml_kacisli_gecerli_svg_uretir():
         assert kok.tag.endswith("svg")
     assert "Ürün &amp; &lt;Co&gt;" in unquote(json.loads(cikti)[0])
     assert 'viewBox="0 0 400 400"' in unquote(json.loads(cikti)[0])
+
+
+def test_index_html_in_yerel_baglantilari_iskelede_vardir(tmp_path):
+    """Ölçüldü (30 Ekim): index.html style.css/script.js'e bağlıydı ama iskele bunları yazmıyordu;
+    model yazmayı unutunca sayfa 404 alıyordu."""
+    import re
+
+    context = ToolContext(root=tmp_path)
+    scaffold_web({"path": "."}, context)
+
+    html = (tmp_path / "index.html").read_text(encoding="utf-8")
+    yerel = re.findall(r'(?:href|src)="([^"#:]+\.(?:css|js))"', html)
+    assert {"tokens.css", "format.js", "style.css", "script.js"} <= set(yerel)
+    for ad in yerel:
+        assert (tmp_path / ad).is_file(), f"{ad} iskelede yok"
