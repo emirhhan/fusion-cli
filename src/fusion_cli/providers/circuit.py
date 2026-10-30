@@ -25,6 +25,7 @@ from ..core.types import (
     StreamItem,
     TextChunk,
     is_authentication_error,
+    is_web_session_error,
 )
 
 #: Devre açıkken dönen sonucun hata metni. `FallbackProvider` bunu görüp sıradakine geçer.
@@ -66,6 +67,7 @@ class CircuitBreakingProvider:
             latency_ms=result.latency_ms,
             rate_limited=result.is_rate_limited,
             auth_blocked=is_authentication_error(result.error),
+            session_error=is_web_session_error(result.error),
         )
         return result
 
@@ -86,6 +88,7 @@ class CircuitBreakingProvider:
                     latency_ms=item.result.latency_ms,
                     rate_limited=item.result.is_rate_limited,
                     auth_blocked=is_authentication_error(item.result.error),
+                    session_error=is_web_session_error(item.result.error),
                 )
                 recorded = True
             yield item

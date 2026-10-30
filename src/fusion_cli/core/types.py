@@ -308,6 +308,33 @@ _PERMANENT_MARKERS = (
 )
 
 
+#: Web oturumu adaptörünün her hata sonucuna koyduğu önek (`providers.web_session`).
+WEB_SESSION_ERROR_PREFIX = "web oturumu hatası:"
+
+#: Önek taşısa da oturumun KENDİSİ bozuk olmayan, beklemekle geçebilen web hataları.
+#
+# Yavaş yanıt (süre aşımı) ve sağlayıcının "geçici hata" sayfası aynı modelle yeniden
+# denenince geçer; komşu modele geçiş de bu yeniden denemeye dayanır
+# (`providers.web_browser._apply_model_choice`). Kalıcı sayılırlarsa o yol kapanırdı.
+_WEB_TRANSIENT_MARKERS = ("saniyede tamamlanmadı", "geçici bir hata bildirdi")
+
+
+def is_web_session_error(detail: str | None) -> bool:
+    """Web oturumunun arayüzü/oturumu kullanılamıyor mu? (tıklanamayan menü, kapalı oturum…)
+
+    Bu sınıf yeniden denemekle düzelmez ve her denemede tarayıcıyı yeniden meşgul
+    eder. Ölçüldü (30 Ekim): pasif model seçeneğine tıklama zaman aşımı geçici sanıldı;
+    bir turda dokuz kez önce Gemini yeniden denendi, sonra yedeğe düşüldü. Devre kesici
+    bu hatada ilk seferde açılır; yeniden deneme katmanı beklemez.
+    """
+    if not detail:
+        return False
+    lowered = detail.lower()
+    if WEB_SESSION_ERROR_PREFIX not in lowered:
+        return False
+    return not any(marker in lowered for marker in _WEB_TRANSIENT_MARKERS)
+
+
 def is_permanent_error(detail: str | None) -> bool:
     """Hata beklemekle geçmeyecek türden mi? (olmayan model, geçersiz anahtar, günlük kota)
 
@@ -320,7 +347,7 @@ def is_permanent_error(detail: str | None) -> bool:
     """
     if not detail:
         return False
-    if is_daily_quota_error(detail):
+    if is_daily_quota_error(detail) or is_web_session_error(detail):
         return True
     lowered = detail.lower()
     return _has_marker(lowered, _PERMANENT_MARKERS)

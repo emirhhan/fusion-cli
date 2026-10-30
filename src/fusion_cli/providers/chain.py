@@ -44,6 +44,7 @@ from ..core.types import (
     is_permanent_error,
     is_unavailable_error,
 )
+from .circuit import CIRCUIT_OPEN_ERROR
 from .stream_opening import is_liveness_chunk, is_provisional
 
 T = TypeVar("T")
@@ -70,6 +71,10 @@ class FallbackProvider:
         #: Kullanıcı modeli açıkça seçtiyse (strict) zincir YALNIZCA model hiç
         #: cevap veremediğinde ilerler; kötü cevap yedeğe geçiş sebebi değildir.
         self._only_when_unavailable = only_when_unavailable
+        #: Yedeğe geçişi duyurulan (model, yedek) çiftleri: aynı geçişin "devre açık"
+        #: tekrarı bu zincirde bir kez duyurulur. Ölçüldü (30 Ekim): açık devre her model
+        #: çağrısında aynı satırı basıyor, ekranı ve asıl iş çıktısını boğuyordu.
+        self._announced_open: set[tuple[str, str]] = set()
 
     @property
     def label(self) -> str:
@@ -171,6 +176,10 @@ class FallbackProvider:
     def _publish_fallback(self, fallback_model: str, failure: ModelResult) -> None:
         if self._publisher is None:
             return
+        key = (failure.model, fallback_model)
+        if failure.error == CIRCUIT_OPEN_ERROR and key in self._announced_open:
+            return
+        self._announced_open.add(key)
         self._publisher.publish(
             ModelFallbackActivated(
                 role=self._role,

@@ -44,6 +44,13 @@ class CircuitPhase(Enum):
 RATE_LIMIT_BASE_MULTIPLIER = 3.0
 RATE_LIMIT_MAX_MULTIPLIER = 8
 
+#: Web oturumu hatasından sonra modelin yeniden yoklanmadığı en kısa süre (sn).
+#
+# Oturum/arayüz arızası (pasif model menüsü, kapanan oturum) saniyeler içinde düzelmez;
+# 60 sn'lik sıradan soğumayla dönmek her yoklamada tarayıcıyı boş yere meşgul eder.
+# Birkaç dakika sonra tek bir yarı-açık deneme yapılır (ölçüldü, 30 Ekim).
+SESSION_ERROR_MIN_COOLDOWN_S = 180.0
+
 
 class ModelHealth:
     """Tek bir modelin devre durumu + güvenilirlik skoru.
@@ -71,6 +78,8 @@ class ModelHealth:
         self._rate_limit_streak = 0
         #: Oturum/doğrulama hatası sağlık kaydı sıfırlanana kadar kalıcıdır.
         self._auth_blocked = False
+        #: Son başarısızlık web oturumu hatasıydı: soğuma en az `SESSION_ERROR_MIN_COOLDOWN_S`.
+        self._session_error = False
         self._opened_at = 0.0
         #: Yarı-açıkta uçuştaki deneme çağrısının başlangıcı; None = deneme yok.
         self._probe_started_at: float | None = None
@@ -128,6 +137,8 @@ class ModelHealth:
         katlanarak ilerler ama ÜST SINIRI vardır: sınırsız bekleme, sağlayıcı
         toparlansa bile modeli oturum boyunca dışlardı.
         """
+        if self._session_error:
+            return max(self._cooldown_s, SESSION_ERROR_MIN_COOLDOWN_S)
         if not self._rate_limit_streak:
             return self._cooldown_s
         carpan = min(2 ** (self._rate_limit_streak - 1), RATE_LIMIT_MAX_MULTIPLIER)
@@ -140,6 +151,7 @@ class ModelHealth:
         latency_ms: int = 0,
         rate_limited: bool = False,
         auth_blocked: bool = False,
+        session_error: bool = False,
     ) -> None:
         """Bir çağrının sonucunu işle: skoru + gecikmeyi güncelle, devreyi aç/kapat."""
         self._probe_started_at = None
@@ -147,6 +159,7 @@ class ModelHealth:
         self._samples += 1
         if ok:
             self._auth_blocked = False
+            self._session_error = False
             if latency_ms > 0:
                 # Yalnızca başarılı çağrının gecikmesi ölçülür; ilk ölçüm doğrudan alınır.
                 prev = self._avg_latency_ms or float(latency_ms)
@@ -160,6 +173,13 @@ class ModelHealth:
         self._consecutive_failures += 1
         if auth_blocked:
             self._auth_blocked = True
+            self._phase = CircuitPhase.OPEN
+            self._opened_at = self._clock.monotonic()
+            return
+        self._session_error = session_error
+        if session_error:
+            # Eşik BEKLENMEZ: oturum/arayüz arızası aynı çağrıda tekrar denenince
+            # düzelmez; üç çağrı boyunca tarayıcıyı ve tur bütçesini yakmanın anlamı yok.
             self._phase = CircuitPhase.OPEN
             self._opened_at = self._clock.monotonic()
             return
