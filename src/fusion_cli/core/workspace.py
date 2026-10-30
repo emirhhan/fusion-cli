@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import shutil
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from hashlib import sha256
@@ -94,7 +94,7 @@ def isolate(root: Path, *, name: str) -> Iterator[IsolatedWorkspace]:
     """Proje için izole bir çalışma alanı aç ve çıkışta temizle."""
     parent = Path(tempfile.mkdtemp(prefix=f"fusion-deneme-{name}-"))
     hedef = parent / "alan"
-    shutil.copytree(root, hedef, symlinks=True, ignore=shutil.ignore_patterns(*_SKIP))
+    shutil.copytree(root, hedef, symlinks=True, ignore=_kopya_disi(root))
     baseline = {
         path.relative_to(hedef): _digest(path)
         for path in hedef.rglob("*")
@@ -105,6 +105,31 @@ def isolate(root: Path, *, name: str) -> Iterator[IsolatedWorkspace]:
         yield alan
     finally:
         shutil.rmtree(parent, ignore_errors=True)
+
+
+def _kopya_disi(root: Path) -> Callable[[str, list[str]], set[str]]:
+    """Kopyada atlanacaklar: `_SKIP` dizinleri + kökün DIŞINA çıkan sembolik bağlar.
+
+    Bağ kopyada bağ olarak kalırsa aday onun içinden yazarak ASIL (kök dışı) dosyayı
+    değiştirir ve "seçim yapılmadan asıl projeye dokunulmaz" sözleşmesi bozulur.
+    Ölçüldü (30 Ekim): `symlinks=True` mutlak/dışa giden bağları aynen taşıyordu.
+    Yalnız kök İÇİNE giden GÖRELİ bağlar korunur (kopyanın kendi içinde çözülür).
+    """
+    kok = root.resolve()
+    adlar = shutil.ignore_patterns(*_SKIP)
+
+    def ignore(dizin: str, isimler: list[str]) -> set[str]:
+        atlanan = set(adlar(dizin, isimler))
+        for isim in isimler:
+            yol = Path(dizin) / isim
+            if not yol.is_symlink() or isim in atlanan:
+                continue
+            hedef = yol.readlink()
+            if hedef.is_absolute() or not (yol.parent / hedef).resolve().is_relative_to(kok):
+                atlanan.add(isim)
+        return atlanan
+
+    return ignore
 
 
 def _skipped(relative: Path) -> bool:

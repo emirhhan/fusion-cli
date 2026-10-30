@@ -123,3 +123,25 @@ def test_alan_kapaninca_temizlenir(tmp_path):
         yol = alan.root
 
     assert not yol.exists()
+
+
+def test_kok_disina_giden_sembolik_baglar_kopyalanmaz(tmp_path):
+    """Adayın bağ üzerinden asıl (kök dışı) dosyayı değiştirmesi mümkün olmamalı (C1-28)."""
+    dis = tmp_path / "dis"
+    dis.mkdir()
+    (dis / "gizli.txt").write_text("asıl\n", encoding="utf-8")
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    (proje / "kod.py").write_text("x = 1\n", encoding="utf-8")
+    (proje / "mutlak").symlink_to(dis)
+    (proje / "goreli_disari").symlink_to("../dis")
+    (proje / "ic_hedef").symlink_to("kod.py")
+
+    with isolate(proje, name="bag") as alan:
+        assert not (alan.root / "mutlak").exists() and not (alan.root / "mutlak").is_symlink()
+        assert not (alan.root / "goreli_disari").is_symlink()
+        # kök içi göreli bağ korunur
+        assert (alan.root / "ic_hedef").is_symlink()
+        assert (alan.root / "ic_hedef").read_text(encoding="utf-8") == "x = 1\n"
+
+    assert (dis / "gizli.txt").read_text(encoding="utf-8") == "asıl\n"
