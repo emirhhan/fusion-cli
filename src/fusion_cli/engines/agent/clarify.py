@@ -23,12 +23,13 @@ from pathlib import Path
 MAX_UNDERSPECIFIED_CHARS = 200
 
 _BUILD = re.compile(
-    r"\b(?:yap|oluştur|olustur|kur|geliştir|gelistir|hazırla|hazirla|tasarla|"
-    r"build|create|make)\w*",
+    # `kur` yalnız fiil kökü olarak ("kur", "kurmak", "kuralım"); "kurallar" değil (A1-31).
+    r"\b(?:yap|oluştur|olustur|kur(?![a-zçğıöşü]*(?:all|ul[ua]|um|ucu))|geliştir|gelistir|"
+    r"hazırla|hazirla|tasarla|build|create|make)\w*",
     re.IGNORECASE,
 )
 _PROJECT = re.compile(
-    r"(?:uygulama|app\b|site|proje|panel|dashboard|bot\w*|oyun|api\b|sistem|platform|"
+    r"\b(?:uygulama|app\b|site|proje|panel|dashboard|bot\w*|oyun|api\b|sistem|platform|"
     r"mağaza|magaza|e-?ticaret)",
     re.IGNORECASE,
 )
