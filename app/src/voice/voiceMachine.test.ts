@@ -106,11 +106,40 @@ it("aynı metinli güvenilir partial düşük puanlı son sonuçla kaybolmaz", (
  const partial = voiceMachine(initial, { type: "RECOGNITION", session: 1, event: recognition("kismi", "Merhaba füzyon", .8, 600, 1) });
  const final = voiceMachine(partial, { type: "RECOGNITION", session: 1, event: recognition("son", "Merhaba füzyon", .1, 20, 1) });
  expect(final.finalText).toBe("Merhaba füzyon");
- expect(final.phase).toBe("listening");
+ // Yerel cevaplı söz de istek olarak gider ve mikrofon kapanır: "Dinliyorum…" yanlış olurdu (U2-04).
+ expect(final.phase).toBe("thinking");
 });
 it("farklı final metnini partial ile değiştirip eylemi tersine çevirmez", () => {
  const initial = voiceMachine(initialVoiceMachine, { type: "START_LISTENING", session: 1 });
  const partial = voiceMachine(initial, { type: "RECOGNITION", session: 1, event: recognition("kismi", "dosyayı sil", .8, 600, 1) });
  const final = voiceMachine(partial, { type: "RECOGNITION", session: 1, event: recognition("son", "dosyayı silme", .1, 600, 1) });
  expect(final.finalText).toBeNull();
+});
+
+describe("onay fazı TTS olaylarıyla ezilmez (U2-07)", () => {
+  const withAsk = () => {
+    const listening = voiceMachine(initialVoiceMachine, { type: "START_LISTENING", session: 1 });
+    return voiceMachine(listening, { type: "ASK_OPENED" });
+  };
+
+  it("soru açıkken konuşma başlayıp bitse de faz approval kalır", () => {
+    const talking = voiceMachine(withAsk(), { type: "ASSISTANT_STARTED", text: "Dosya yazılsın mı?" });
+    expect(talking.phase).toBe("approval");
+    expect(talking.speaking).toBe(true);
+    expect(talking.transcript).toBe("Dosya yazılsın mı?");
+    const finished = voiceMachine(talking, { type: "ASSISTANT_FINISHED" });
+    expect(finished.phase).toBe("approval");
+    expect(finished.speaking).toBe(false);
+  });
+
+  it("soru kapanınca TTS çoktan bittiyse talking'e değil dinlemeye döner", () => {
+    const talking = voiceMachine(withAsk(), { type: "ASSISTANT_STARTED", text: "Dosya yazılsın mı?" });
+    const finished = voiceMachine(talking, { type: "ASSISTANT_FINISHED" });
+    expect(voiceMachine(finished, { type: "ASK_CLOSED" }).phase).toBe("listening");
+  });
+
+  it("soru kapandığında TTS sürüyorsa faz talking olur", () => {
+    const talking = voiceMachine(withAsk(), { type: "ASSISTANT_STARTED", text: "Dosya yazılsın mı?" });
+    expect(voiceMachine(talking, { type: "ASK_CLOSED" }).phase).toBe("talking");
+  });
 });

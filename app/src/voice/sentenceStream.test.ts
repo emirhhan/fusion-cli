@@ -52,3 +52,21 @@ describe("splitIntoSentences", () => {
 it("kısa bir konuşma yanıtını tek ses parçasında tutar", () => {
  expect(splitIntoSpeechChunks("Merhaba. Nasıl yardımcı olayım?")).toEqual(["Merhaba. Nasıl yardımcı olayım?"]);
 });
+
+describe("splitIntoSentences — eski WebView uyumu (U2-24)", () => {
+  it("geriye bakışlı düzenli ifade kullanmaz (WKWebView 16.4 öncesi modülü yükleyemez)", async () => {
+    const source = (await import("./sentenceStream.ts?raw")).default as string;
+    const code = source
+      .split("\n").filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join("\n");
+    expect(code).not.toContain("(?<=");
+    expect(code).not.toContain("(?<!");
+  });
+
+  it("noktalama sonrası çoklu boşluk ve satır sonunda aynı sonucu verir", () => {
+    expect(splitIntoSentences("Birinci cümle.  İkinci cümle!\nÜçüncü cümle?")).toEqual([
+      "Birinci cümle.", "İkinci cümle!", "Üçüncü cümle?",
+    ]);
+    expect(splitIntoSentences("Sürüm 3.5 hazır mı? Evet.")).toEqual(["Sürüm 3.5 hazır mı?", "Evet."]);
+    expect(splitIntoSentences("Bitmeyen cümle devam ediyor")).toEqual(["Bitmeyen cümle devam ediyor"]);
+  });
+});

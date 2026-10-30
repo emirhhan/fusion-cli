@@ -42,6 +42,8 @@ export function playCue(cue: Cue): void {
   const ctx = audioContext();
   if (!ctx) return;
   try {
+    // Askıdaki bağlam (otomatik oynatma kuralı) sessiz kalmasın; `playHum` da aynısını yapar (U2-31).
+    if (ctx.state === "suspended") void ctx.resume();
     let offset = 0;
     for (const [freq, duration, gainValue] of CUES[cue]) {
       const osc = ctx.createOscillator();

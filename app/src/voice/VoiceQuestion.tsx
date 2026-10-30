@@ -10,6 +10,8 @@ export function VoiceQuestion({ ask, onAnswer, answerPending = false, onExpand }
   return <div aria-label="Onay" className="voice-ask" role="group" onKeyDown={(event) => {
     if (event.key === "Escape" && expanded) { event.preventDefault(); event.stopPropagation(); setExpanded(false); summary.current?.focus(); }
   }}>
+    {/* Kart belirdiğinde ekran okuyucuya duyurulur (U2-29). */}
+    <span className="voice-panel__sr" role="alert">{`Onay bekleniyor. ${paragraph || "Bir karar bekleniyor."}`}</span>
     <button aria-controls={expanded ? detailId : undefined} aria-expanded={expanded} aria-label={expanded ? "Soru ayrıntısını kapat" : "Sorunun tamamını oku"} className="voice-ask__summary" ref={summary} type="button" onClick={() => {
       setExpanded(!expanded); if (!expanded) onExpand?.();
     }}><span className="voice-ask__text">{paragraph || "Bir kararın bekleniyor."}</span><small>{expanded ? "Ayrıntıyı kapat" : "Tamamını oku"}</small></button>

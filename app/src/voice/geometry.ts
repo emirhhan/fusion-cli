@@ -21,7 +21,9 @@ export function readVoiceGeometry(storage: Storage): VoiceWindowGeometry {
     return {
       normalHeight: finite(raw.normalHeight, DEFAULT_VOICE_GEOMETRY.normalHeight),
       normalWidth: finite(raw.normalWidth, DEFAULT_VOICE_GEOMETRY.normalWidth),
-      onTop: true,
+      // "Hep üstte kal" tercihi kalıcıdır (U2-21); yalnız `wide` hâlâ sabit: Talk tek (mini) yerleşimdir
+      // ve eski sürümlerden kalan `wide:true` kullanıcıyı çıkış olmayan bir yerleşime hapsederdi.
+      onTop: typeof raw.onTop === "boolean" ? raw.onTop : DEFAULT_VOICE_GEOMETRY.onTop,
       wide: false,
       x: typeof raw.x === "number" && Number.isFinite(raw.x) ? raw.x : null,
       y: typeof raw.y === "number" && Number.isFinite(raw.y) ? raw.y : null,
@@ -32,7 +34,8 @@ export function readVoiceGeometry(storage: Storage): VoiceWindowGeometry {
 }
 
 export function saveVoiceGeometry(storage: Storage, geometry: VoiceWindowGeometry): void {
-  storage.setItem(VOICE_GEOMETRY_KEY, JSON.stringify(geometry));
+  // Özel pencerede/kotada `setItem` fırlatabilir; pencere taşıma olayında bu yakalanmamış kalmamalı (U2-22).
+  try { storage.setItem(VOICE_GEOMETRY_KEY, JSON.stringify(geometry)); } catch { /* konum hatırlanmaz; Talk çalışır */ }
 }
 
 export function mergeVoiceSnapshot(

@@ -29,3 +29,18 @@ describe("Talk pencere hafızası", () => {
     expect(mini).toMatchObject({ normalHeight: 620, normalWidth: 470, x: 140, y: 90 });
   });
 });
+
+describe("Talk pencere hafızası — dalga 4", () => {
+  it("'Hep üstte kal' kapatılınca yeniden açıldığında da kapalı kalır (U2-21)", () => {
+    saveVoiceGeometry(localStorage, { ...readVoiceGeometry(localStorage), onTop: false });
+    expect(readVoiceGeometry(localStorage).onTop).toBe(false);
+    // `wide` hâlâ sabit: eski sürümden kalan değer kullanıcıyı geniş yerleşime hapsetmez.
+    localStorage.setItem(VOICE_GEOMETRY_KEY, JSON.stringify({ onTop: true, wide: true }));
+    expect(readVoiceGeometry(localStorage)).toMatchObject({ onTop: true, wide: false });
+  });
+
+  it("kota dolu/özel pencere `setItem` fırlatsa da kayıt yakalanır (U2-22)", () => {
+    const storage = { setItem: () => { throw new DOMException("dolu", "QuotaExceededError"); } } as unknown as Storage;
+    expect(() => saveVoiceGeometry(storage, readVoiceGeometry(localStorage))).not.toThrow();
+  });
+});

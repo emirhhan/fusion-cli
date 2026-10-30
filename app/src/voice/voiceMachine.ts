@@ -1,4 +1,3 @@
-import { localVoiceReply } from "./localVoice";
 export type RecognitionEvent = {
   tur: "hazir" | "ses-basladi" | "kismi" | "son" | "ses-bitti" | "hata";
   metin: string;
@@ -33,6 +32,11 @@ export interface VoiceMachineState {
   phase: VoicePhase;
   phaseBeforeAsk: VoicePhase | null;
   session: number;
+  /**
+   * Fusion şu an konuşuyor mu? Faz onay (`approval`) gibi başka bir yüzeye geçse de TTS sürebilir;
+   * yankı süzgeci ve söz kesme kararı fazdan değil bu bayraktan okur.
+   */
+  speaking: boolean;
   transcript: string;
 }
 
@@ -107,6 +111,7 @@ export const initialVoiceMachine: VoiceMachineState = {
   phase: "idle",
   phaseBeforeAsk: null,
   session: 0,
+  speaking: false,
   transcript: "",
 };
 
@@ -122,7 +127,8 @@ function accept(state: VoiceMachineState, text: string, segment: number): VoiceM
     finalText: text,
     lastFinal: text,
     partial: "",
-    phase: localVoiceReply(text) ? "listening" : "thinking",
+    // Yerel cevaplı söz de istek olarak gönderilir ve mikrofon kapanır; "Dinliyorum…" göstermek yanlıştı (U2-04).
+    phase: "thinking",
     transcript: text,
   };
 }
@@ -144,6 +150,8 @@ export function voiceMachine(state: VoiceMachineState, event: VoiceMachineEvent)
         partial: "",
         phase: "calibrating",
         session: event.session ?? state.session + 1,
+        // Yeni dinleme oturumu başladı: önceki TTS sahipliği bitmiş sayılır (iptal durumu hiç gelmese de).
+        speaking: false,
         transcript: "",
       };
     case "RECOGNITION": {
@@ -209,19 +217,26 @@ export function voiceMachine(state: VoiceMachineState, event: VoiceMachineEvent)
       return decision === "accept" ? accept(state, state.candidate.metin, state.candidate.segment) : state;
     }
     case "ASSISTANT_STARTED":
-      return { ...state, candidate: null, error: null, partial: "", phase: "talking", transcript: event.text?.trim() || state.transcript };
-    case "ASSISTANT_FINISHED":
-      return { ...state, lastFinal: null, phase: state.autoListen ? "listening" : "idle" };
+      // Onay sorusu açıkken TTS olayları fazı ezmez (U2-07): yalnız soru kapanınca dönülecek faz güncellenir.
+      if (state.phase === "approval") {
+        return { ...state, candidate: null, error: null, partial: "", phaseBeforeAsk: "talking", speaking: true, transcript: event.text?.trim() || state.transcript };
+      }
+      return { ...state, candidate: null, error: null, partial: "", phase: "talking", speaking: true, transcript: event.text?.trim() || state.transcript };
+    case "ASSISTANT_FINISHED": {
+      const sonra: VoicePhase = state.autoListen ? "listening" : "idle";
+      if (state.phase === "approval") return { ...state, lastFinal: null, phaseBeforeAsk: sonra, speaking: false };
+      return { ...state, lastFinal: null, phase: sonra, speaking: false };
+    }
     case "ASK_OPENED":
       return state.phase === "approval" ? state : { ...state, phase: "approval", phaseBeforeAsk: state.phase };
     case "ASK_CLOSED":
       return state.phase !== "approval" ? state : { ...state, phase: state.phaseBeforeAsk ?? (state.autoListen ? "listening" : "idle"), phaseBeforeAsk: null };
     case "FAILED":
-      return { ...state, candidate: null, error: event.text, partial: "", phase: "error" };
+      return { ...state, candidate: null, error: event.text, partial: "", phase: "error", speaking: false };
     case "REQUEST_SENT":
       // İstek gönderildi: mikrofon kapalı; cevap bitince dinlemeye DÖNÜLMEZ.
       return { ...state, autoListen: false };
     case "STOPPED":
-      return { ...state, autoListen: false, candidate: null, lastFinal: null, partial: "", phase: "idle" };
+      return { ...state, autoListen: false, candidate: null, lastFinal: null, partial: "", phase: "idle", speaking: false };
   }
 }

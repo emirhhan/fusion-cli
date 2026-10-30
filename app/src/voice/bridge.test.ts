@@ -87,3 +87,28 @@ describe("createVoiceMessageDeduper", () => {
     expect(first("c")).toBe(false);
   });
 });
+
+describe("normalizeVoiceAsk (U2-20)", () => {
+  it("eksik/null seçenekleri boş listeye düşürür, geçersiz seçenekleri atar", async () => {
+    const { normalizeVoiceAsk } = await import("./bridge");
+    expect(normalizeVoiceAsk({ acik: true, metin: "Soru" })).toEqual({ acik: true, metin: "Soru", secenekler: [] });
+    expect(normalizeVoiceAsk({ acik: true, metin: "Soru", secenekler: null })?.secenekler).toEqual([]);
+    expect(normalizeVoiceAsk({ acik: true, metin: "S", secenekler: [{ deger: "evet", etiket: "Onayla" }, null, { deger: 3 }] })?.secenekler)
+      .toEqual([{ deger: "evet", etiket: "Onayla" }]);
+  });
+
+  it("nesne olmayan yükü 'soru yok' sayar", async () => {
+    const { normalizeVoiceAsk } = await import("./bridge");
+    expect(normalizeVoiceAsk(null)).toBeNull();
+    expect(normalizeVoiceAsk("bozuk")).toBeNull();
+  });
+
+  it("onVoiceAsk bozuk yükte işleyiciye güvenli değer verir", async () => {
+    const { onVoiceAsk } = await import("./bridge");
+    const handler = vi.fn();
+    let received: ((event: { payload: unknown }) => void) | undefined;
+    await onVoiceAsk(handler, { listen: async (_event: string, cb: (event: { payload: unknown }) => void) => { received = cb; return () => undefined; } } as never);
+    received?.({ payload: { acik: true, metin: "Soru" } });
+    expect(handler).toHaveBeenCalledWith({ acik: true, metin: "Soru", secenekler: [] });
+  });
+});

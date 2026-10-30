@@ -208,11 +208,35 @@ export async function publishVoiceAsk(
   await transport.emit(VOICE_ASK, ask);
 }
 
+/**
+ * Köprüden gelen soru yükünü doğrular (U2-20): `secenekler` eksik/null ise boş listeye düşer, geçersiz
+ * seçenekler atılır; nesne olmayan yük `null` (soru yok) sayılır. Böylece bozuk bir olay `matchSpokenAnswer`
+ * ya da `VoiceQuestion` içinde `TypeError` fırlatıp Talk'ı dondurmaz.
+ */
+export function normalizeVoiceAsk(raw: unknown): VoiceAsk | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Partial<VoiceAsk> & { secenekler?: unknown };
+  const secenekler = Array.isArray(value.secenekler)
+    ? value.secenekler.filter((option): option is { deger: string; etiket: string } =>
+      !!option && typeof option === "object"
+      && typeof (option as { deger?: unknown }).deger === "string"
+      && typeof (option as { etiket?: unknown }).etiket === "string")
+    : [];
+  return {
+    ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
+    ...(typeof value.questionId === "string" ? { questionId: value.questionId } : {}),
+    ...(typeof value.arac === "string" ? { arac: value.arac } : {}),
+    metin: typeof value.metin === "string" ? value.metin : "",
+    secenekler,
+    acik: value.acik === true,
+  };
+}
+
 export function onVoiceAsk(
   handler: (ask: VoiceAsk | null) => void,
   transport: Listener = { listen: tauriListen as Listener["listen"] },
 ): Promise<() => void> {
-  return dinle(VOICE_ASK, handler, transport);
+  return dinle<unknown>(VOICE_ASK, (payload) => handler(normalizeVoiceAsk(payload)), transport);
 }
 
 export async function answerVoiceAsk(

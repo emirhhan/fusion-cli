@@ -59,3 +59,27 @@ it("başlatma sürerken gelen metni korur ve iptal edilen geç başlangıcı din
   expect(result.current.listening).toBe(false);
   expect(stop).toHaveBeenCalledTimes(1);
 });
+
+it("stop sonra hemen yeni start: geç dönen eski başlatma yeni oturumu durdurmaz (U2-23)", async () => {
+  const resolvers: ((session: number) => void)[] = [];
+  const stop = vi.fn(async () => undefined);
+  const runtime: DictationRuntime = {
+    onLine: async () => () => undefined,
+    onEnded: async () => () => undefined,
+    start: () => new Promise<number>((resolve) => { resolvers.push(resolve); }),
+    stop,
+  };
+  const { result } = renderHook(() => useDictation(vi.fn(), runtime));
+  let first: Promise<void> | undefined;
+  let second: Promise<void> | undefined;
+  await act(async () => { first = result.current.start("chat-1", ""); await Promise.resolve(); await Promise.resolve(); });
+  await act(async () => { await result.current.stop(); });
+  expect(stop).toHaveBeenCalledTimes(1);
+  await act(async () => { second = result.current.start("chat-1", ""); await Promise.resolve(); await Promise.resolve(); });
+  expect(resolvers).toHaveLength(2);
+  await act(async () => { resolvers[0](1); await first; });
+  // Eski çalıştırma yeni başlatmanın yerel tanıyıcısını öldürmemeli.
+  expect(stop).toHaveBeenCalledTimes(1);
+  await act(async () => { resolvers[1](2); await second; });
+  expect(result.current.listening).toBe(true);
+});

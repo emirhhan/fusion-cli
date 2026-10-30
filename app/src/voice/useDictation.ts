@@ -89,7 +89,9 @@ export function useDictation(
       if (generation.current !== run) {
         removeLine();
         removeEnded();
-        await runtime.stop();
+        // Bu çalıştırma başlatma beklerken iptal edildi. Arada yeni bir `start` başladıysa (stop → hemen
+        // start) yerel tanıyıcı artık ona aittir; durdurmak onun oturumunu öldürürdü (U2-23).
+        if (!starting.current && !active.current) await runtime.stop();
         return;
       }
       active.current = { conversationId, session, base };

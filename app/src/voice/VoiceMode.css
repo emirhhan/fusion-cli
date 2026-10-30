@@ -321,7 +321,8 @@ body[data-talk-surface="true"],
   background: transparent;
   border: 0;
   border-radius: 7px;
-  color: var(--text-primary);
+  /* Zemin tema fark etmeksizin koyu (#303030); metin de sabit açık renk olmalı (U2-28). */
+  color: #f2f3f4;
   font: inherit;
   font-size: 12px;
   min-height: 34px;

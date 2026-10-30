@@ -14,6 +14,18 @@ interface VoiceClient {
  */
 let lastGeneration = 0;
 
+/** Çekirdek bir sentez/çalma isteğine bu sürede yanıt vermezse Talk "Konuşuyorum"da sonsuza kadar kalmaz (U2-26). */
+const SES_ISTEGI_ZAMAN_ASIMI_MS = 60_000;
+/** Bitişi bekleme: sabit pay + metin uzunluğuna göre (cömert) konuşma süresi. */
+const SES_BEKLE_TABAN_MS = 60_000;
+const SES_BEKLE_KARAKTER_MS = 150;
+
+function sureAsimiyla<T>(promise: Promise<T>, ms: number, mesaj: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(mesaj)), ms); });
+  return Promise.race([promise, expiry]).finally(() => clearTimeout(timer));
+}
+
 class SupersededError extends Error {}
 
 /** Oynayan cümlenin ardından gelen tek cümle hazırlanır; iptal tüm sahipliği kapatır. */
@@ -45,7 +57,8 @@ export function createVoicePlayback(
   const sentences = splitIntoSpeechChunks(text);
   const queue = sentences.length ? sentences : [text];
   const prepare = async (sentence: string) => {
-    const result = await client.request("ses.hazirla", { metin: sentence, nesil: generation });
+    const result = await sureAsimiyla(client.request("ses.hazirla", { metin: sentence, nesil: generation }),
+      SES_ISTEGI_ZAMAN_ASIMI_MS, "Ses hizmeti yanıt vermedi.");
     if (result.eski_nesil === true) throw new SupersededError();
     if (result.desteklenmiyor === true) return null;
     if (result.ok !== true || typeof result.hazir_id !== "string") {
@@ -54,11 +67,17 @@ export function createVoicePlayback(
     prepared.add(result.hazir_id);
     return result.hazir_id;
   };
+  // Her hazır ses ayrı silinir: biri başarısız olunca kalanlar çekirdekte sızmaz, iptal "error" yerine
+  // "interrupted" olarak biter (U2-25). Silinemeyen kimlik günlüğe yazılır.
   const cleanup = async () => {
-    for (const id of prepared) {
-      const result = await client.request("ses.haziri_sil", { hazir_id: id });
-      if (result.ok !== true) throw new Error("Hazır ses temizlenemedi.");
-      prepared.delete(id);
+    for (const id of [...prepared]) {
+      try {
+        const result = await client.request("ses.haziri_sil", { hazir_id: id });
+        if (result.ok !== true) throw new Error("Hazır ses temizlenemedi.");
+        prepared.delete(id);
+      } catch (error) {
+        console.warn("Hazır ses temizlenemedi", id, error);
+      }
     }
   };
   let next: Promise<string | null> | null = prepare(queue[0]);
@@ -79,7 +98,8 @@ export function createVoicePlayback(
           return;
         }
         if (cancelled) break;
-        starting = client.request("ses.haziri_cal", { hazir_id: id, nesil: generation });
+        starting = sureAsimiyla(client.request("ses.haziri_cal", { hazir_id: id, nesil: generation }),
+          SES_ISTEGI_ZAMAN_ASIMI_MS, "Ses hizmeti yanıt vermedi.");
         const started = await starting;
         starting = null;
         if (started.eski_nesil === true) throw new SupersededError();
@@ -97,7 +117,8 @@ export function createVoicePlayback(
         const playingId = activeId;
         if (cancelled || !playingId) break;
         if (index + 1 < queue.length) next = observed(prepare(queue[index + 1]));
-        const completed = await client.request("ses.bekle", { tur_id: playingId });
+        const completed = await sureAsimiyla(client.request("ses.bekle", { tur_id: playingId }),
+          SES_BEKLE_TABAN_MS + text.length * SES_BEKLE_KARAKTER_MS, "Sesli yanıt zamanında bitmedi.");
         activeId = null;
         if (cancelled) break;
         if (completed.ok !== true || completed.tamamlandi !== true) {

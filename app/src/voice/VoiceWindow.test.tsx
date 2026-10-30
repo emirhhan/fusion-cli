@@ -915,7 +915,6 @@ describe("VoiceWindow — sesli onay güvenliği (WP14 madde 2)", () => {
     const fake = fakeRuntime();
     await openAsk(fake);
     act(() => fake.runtimeState({ durum: "talking", metin: "Dosya yazılsın mı? Evet ya da hayır de." }));
-    await screen.findByText("Konuşuyorum");
     act(() => fake.recognition({ tur: "ses-basladi", metin: "", guven: null, speech_ms: 80 }));
     act(() => fake.recognition({ tur: "kismi", metin: "evet", guven: 0.9, speech_ms: 300 }));
     act(() => fake.recognition({ tur: "son", metin: "evet", guven: 0.9, speech_ms: 300 }));
@@ -928,7 +927,6 @@ describe("VoiceWindow — sesli onay güvenliği (WP14 madde 2)", () => {
     const fake = fakeRuntime();
     await openAsk(fake);
     act(() => fake.runtimeState({ durum: "talking", metin: "Dosya yazılsın mı?" }));
-    await screen.findByText("Konuşuyorum");
     act(() => fake.recognition({ tur: "kismi", metin: "onayla", guven: 0.9, speech_ms: 300 }));
     await waitFor(() => expect(fake.runtime.interruptSpeech).toHaveBeenCalled());
   });
@@ -951,5 +949,128 @@ describe("VoiceWindow — sesli onay güvenliği (WP14 madde 2)", () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(fake.runtime.answerAsk).not.toHaveBeenCalled();
     now.mockRestore();
+  });
+});
+
+describe("VoiceWindow — dalga 4 ekran düzeltmeleri (U2)", () => {
+  it("tek komut modunda da düşünme ipucu çalar (U2-03)", async () => {
+    const hum = vi.spyOn(cues, "playHum").mockImplementation(() => undefined);
+    const stop = vi.spyOn(cues, "stopHum").mockImplementation(() => undefined);
+    try {
+      const fake = fakeRuntime();
+      // `continuous` yok: istek gidince oturum kapanır; ipucu yine de çalmalı.
+      render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
+      await startTalk();
+      await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+      act(() => fake.recognition({ tur: "son", metin: "bu uzun bir iş olsun" }));
+      await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledOnce());
+      await waitFor(() => expect(hum).toHaveBeenCalledOnce(), { timeout: 3000 });
+    } finally { hum.mockRestore(); stop.mockRestore(); }
+  });
+
+  it("yanıt hiç gelmezse düşünme fazı zaman aşımıyla hata gösterir (U2-05)", async () => {
+    const hum = vi.spyOn(cues, "playHum").mockImplementation(() => undefined);
+    try {
+      const fake = fakeRuntime();
+      render(<VoiceWindow thinkingTimeoutMs={120} wakeEnabled={false} runtime={fake.runtime} />);
+      await startTalk();
+      await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+      act(() => fake.recognition({ tur: "son", metin: "bu uzun bir iş olsun" }));
+      expect((await screen.findByRole("alert")).textContent).toContain("Yanıt gelmedi");
+    } finally { hum.mockRestore(); }
+  });
+
+  it("söz ana pencereye iletilemezse hata gösterilir (U2-06)", async () => {
+    const fake = fakeRuntime();
+    vi.mocked(fake.runtime.emitMessage).mockRejectedValueOnce(new Error("köprü koptu"));
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
+    await startTalk();
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+    act(() => fake.recognition({ tur: "son", metin: "projeyi aç" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("iletilemedi");
+  });
+
+  it("tanıma başlatılamazsa oturum açık görünmez, tek tıkla yeniden denenir (U2-08)", async () => {
+    const fake = fakeRuntime();
+    vi.mocked(fake.runtime.startRecognition).mockRejectedValueOnce(new Error("yardımcı yok"));
+    render(<VoiceWindow wakeEnabled={false} runtime={fake.runtime} />);
+    await startTalk();
+    expect((await screen.findByRole("alert")).textContent).toContain("başlatılamadı");
+    // Karakter "Mikrofon kapalı" der; bir sonraki tık oturumu KAPATMAZ, yeniden başlatır.
+    fireEvent.click(await screen.findByRole("button", { name: /Mikrofon kapalı/ }));
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2));
+  });
+
+  it("art arda verimsiz oturumlarda tanıma bırakılır, mikrofon sonsuz açılıp kapanmaz (U2-09)", async () => {
+    const fake = fakeRuntime();
+    vi.mocked(fake.runtime.startRecognition).mockImplementation(async () => undefined);
+    render(<VoiceWindow continuous restartBaseMs={1} wakeEnabled={false} runtime={fake.runtime} />);
+    await startTalk();
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+    for (let session = 1; session <= 5; session += 1) {
+      await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(session));
+      fake.recognitionEnded("Ağ yok", session);
+    }
+    expect((await screen.findByRole("alert")).textContent).toContain("Konuşma tanıma çalışmıyor");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(5);
+  });
+
+  it("düşük güvenli final 'beklenmedik kapandı' hatası göstermez (U2-11)", async () => {
+    const fake = fakeRuntime();
+    render(<VoiceWindow continuous wakeEnabled={false} runtime={fake.runtime} />);
+    await startTalk();
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+    fake.recognition({ tur: "son", metin: "belirsiz", guven: 0.1, speech_ms: 420 });
+    await waitFor(() => expect(screen.getByRole("region", { name: "Fusion Talk" }).getAttribute("data-state")).toBe("interrupted"));
+    fake.recognitionEnded(null, 1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("konuşma başlarken uyanıklık tazelenir; yavaş modelde ad demeden söz kesilir (U2-13)", async () => {
+    const fake = fakeRuntime();
+    const now = vi.spyOn(Date, "now");
+    now.mockReturnValue(1_000_000);
+    try {
+      render(<VoiceWindow continuous runtime={fake.runtime} />);
+      await startTalk();
+      await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+      act(() => fake.recognition({ tur: "son", metin: "Fusion projeyi aç" }));
+      await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledOnce());
+      // Düşünme + sentez 30 sn'yi aştı; Fusion şimdi konuşmaya başlıyor.
+      now.mockReturnValue(1_000_000 + 45_000);
+      act(() => fake.runtimeState({ durum: "talking", metin: "Uzun yanıt" }));
+      act(() => fake.recognition({ tur: "ses-basladi", metin: "", guven: null, speech_ms: 80, segment: 2 }));
+      act(() => fake.recognition({ tur: "kismi", metin: "bir dakika dur lütfen", segment: 2 }));
+      await waitFor(() => expect(fake.runtime.interruptSpeech).toHaveBeenCalledOnce());
+    } finally { now.mockRestore(); }
+  });
+
+  it("uyandırma 'Hm'i çalınamazsa konuşma adayını silen hata kartı çıkmaz (U2-16)", async () => {
+    const speak = vi.fn((utterance: { onerror?: () => void }) => utterance.onerror?.());
+    vi.stubGlobal("speechSynthesis", { speak });
+    vi.stubGlobal("SpeechSynthesisUtterance", class { text: string; onerror?: () => void; constructor(text: string) { this.text = text; } });
+    try {
+      const fake = fakeRuntime();
+      render(<VoiceWindow continuous runtime={fake.runtime} />);
+      await startTalk();
+      await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+      act(() => fake.recognition({ tur: "son", metin: "Fusion" }));
+      await waitFor(() => expect(speak).toHaveBeenCalledOnce());
+      expect(screen.queryByRole("alert")).toBeNull();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("StrictMode'da efekt iki kez kurulsa da beklenmedik çıkış sonrası dinleme toparlanır (U2-18)", async () => {
+    const { StrictMode } = await import("react");
+    const fake = fakeRuntime();
+    render(<StrictMode><VoiceWindow continuous restartBaseMs={1} wakeEnabled={false} runtime={fake.runtime} /></StrictMode>);
+    await startTalk();
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalled());
+    const before = vi.mocked(fake.runtime.startRecognition).mock.calls.length;
+    const session = before;
+    fake.recognitionEnded("Yardımcı beklenmedik kapandı", session);
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(before + 1), { timeout: 3_000 });
   });
 });

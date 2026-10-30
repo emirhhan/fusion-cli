@@ -45,3 +45,33 @@ it("çalma başlatılırken iptal edilen tur geç gelen oynatıcıyı kapatır",
  expect(request.mock.calls.filter(([name]) => name === "ses.durdur")).toHaveLength(1);
  expect(publish).not.toHaveBeenCalledWith(expect.objectContaining({durum:"talking"}));
 });
+
+describe("voicePlayback — dalga 4 (U2-25, U2-26)", () => {
+ it("bir hazır sesin silinememesi kalanları sızdırmaz ve iptali 'error' yapmaz (U2-25)", async () => {
+  const publish = vi.fn(async () => {});
+  const request = vi.fn(async (name: string) => {
+   if (name === "ses.hazirla") return { ok: true, hazir_id: `h${request.mock.calls.filter(([n]) => n === "ses.hazirla").length}` };
+   if (name === "ses.haziri_sil") return { ok: false };
+   return { ok: true };
+  });
+  const turn = createVoicePlayback({ request }, "Merhaba.", publish);
+  const cancel = turn.cancel();
+  await expect(cancel).resolves.toBeUndefined();
+  await expect(turn.finished).resolves.toBeUndefined();
+  expect(publish).toHaveBeenCalledWith({ durum: "interrupted" });
+  expect(publish).not.toHaveBeenCalledWith(expect.objectContaining({ durum: "error" }));
+ });
+
+ it("çekirdek hazırlama isteğine yanıt vermezse süre aşımıyla hata yayınlar (U2-26)", async () => {
+  vi.useFakeTimers();
+  try {
+   const publish = vi.fn(async () => {});
+   const request = vi.fn((name: string) => name === "ses.hazirla" ? new Promise<Record<string, unknown>>(() => undefined) : Promise.resolve({ ok: true }));
+   const turn = createVoicePlayback({ request }, "Merhaba.", publish);
+   const outcome = turn.finished.then(() => "bitti", (error: Error) => error.message);
+   await vi.advanceTimersByTimeAsync(61_000);
+   await expect(outcome).resolves.toBe("Ses hizmeti yanıt vermedi.");
+   expect(publish).toHaveBeenCalledWith({ durum: "error", metin: "Ses hizmeti yanıt vermedi." });
+  } finally { vi.useRealTimers(); }
+ });
+});
