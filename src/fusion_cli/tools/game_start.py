@@ -11,8 +11,8 @@ if TYPE_CHECKING:
 
 BUTTON_SELECTOR = "button, [role=button], a, input[type=button]"
 _FIND_START = """() => {
-  const matches = /ba[sş]la|start|play|oyna/i;
-  const restart = /yeniden|tekrar|restart/i;
+  const matches = /\\b(ba[sş]la|start|play(?!list)|oyna)/i;
+  const restart = /yeniden|tekrar|restart|again|replay|retry/i;
   const shown = el => { const r = el.getBoundingClientRect();
     if (!r.width || !r.height) return false;
     for (let e=el;e;e=e.parentElement) {const s=getComputedStyle(e);
@@ -30,8 +30,10 @@ _MARK_MENU = """(index) => {
   const button=[...document.querySelectorAll(
     'button, [role=button], a, input[type=button]')][index];
   let menu=null;
+  // En YAKIN konumlu ata (menü katmanı); canvas içeren kap oyunun kendisidir, menü sayılmaz.
   for (let e=button;e&&e!==document.body;e=e.parentElement) {
-    const p=getComputedStyle(e).position; if (p==='fixed'||p==='absolute') menu=e; }
+    const p=getComputedStyle(e).position;
+    if ((p==='fixed'||p==='absolute') && !e.querySelector('canvas')) { menu=e; break; } }
   if (menu) menu.setAttribute('data-fusion-start-menu','');
   return menu !== null;
 }"""

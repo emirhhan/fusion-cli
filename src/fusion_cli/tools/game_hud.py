@@ -8,6 +8,7 @@ oyun sonu hiç denenmediği için kusur kapıdan geçti, kabulde yakalandı.
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
 from typing import TYPE_CHECKING, Any
@@ -21,8 +22,11 @@ _HUD_NUMBERS = """() => [...document.querySelectorAll('body *')].filter((el) => 
   const s = getComputedStyle(el); return r.width > 0 && r.height > 0 &&
     s.visibility !== 'hidden' && parseFloat(s.opacity) > 0.05; })
   .map((el) => (el.textContent || '').trim()).filter((t) => t.length <= 40)"""
+#: Sayı: `1250`, `1.250` / `12,500` (binlik ayraçlı). Eskiden `1.250` için yalnız `1` okunuyor,
+#: durumdaki `1250` ile uyuşmayınca sahte "HUD güncellenmiyor" kusuru çıkıyordu.
 _HUD_PATTERN = re.compile(
-    r"\b(can|canlar|lives|life|hp|skor|score|puan)\b\s*[:=]?\s*(-?\d+)", re.IGNORECASE
+    r"\b(can|canlar|lives|life|hp|skor|score|puan)\b\s*[:=]?\s*(-?\d{1,3}(?:[.,]\d{3})+|-?\d+)",
+    re.IGNORECASE,
 )
 #: HUD etiketi → `__GAME_STATE__` içinde aranacak anahtarlar.
 _STATE_KEYS = {
@@ -47,7 +51,22 @@ HUD_RECHECK_MS = 300
 END_WAIT_MS = 45_000
 END_POLL_MS = 500
 RESTART_SETTLE_MS = 700
-_END_STATE = re.compile(r"over|bitti|bit\b|son\b|dead|lost|kaybet", re.IGNORECASE)
+#: Oyunun bittiğini söyleyen durum SÖZCÜKLERİ. Eskiden alt dize aranıyordu: `overworld`, `hover`,
+#: `cover`, `orbit`, `habit` "oyun bitti" sayılıp R tuşu hemen basılıyordu (ölçüldü, 30 Ekim).
+_END_WORDS = frozenset(
+    {"over", "gameover", "bitti", "bit", "son", "dead", "lost", "ended", "finished"}
+)
+_STATE_WORD = re.compile(r"[A-ZÇĞİÖŞÜ]?[a-zçğıöşü]+|[A-ZÇĞİÖŞÜ]+(?![a-zçğıöşü])")
+
+
+def _is_end_state(value: str) -> bool:
+    words = [w.lower() for w in _STATE_WORD.findall(value)]
+    if any(word in _END_WORDS or word.startswith("kaybet") for word in words):
+        return True
+    # `game over` / `game_over` / `gameOver` bitişik de yazılabilir: art arda iki sözcük.
+    return any(a == "game" and b == "over" for a, b in itertools.pairwise(words))
+
+
 _RESTART_BUTTON = re.compile(r"yeniden|restart|tekrar|again|replay|baştan|retry", re.IGNORECASE)
 
 
@@ -56,13 +75,16 @@ def hud_numbers(texts: list[str]) -> dict[str, int]:
     sayilar: dict[str, int] = {}
     for yazi in texts:
         for eslesme in _HUD_PATTERN.finditer(yazi):
-            sayilar.setdefault(_LABELS[eslesme.group(1).lower()], int(eslesme.group(2)))
+            sayilar.setdefault(
+                _LABELS[eslesme.group(1).lower()], int(re.sub(r"[.,]", "", eslesme.group(2)))
+            )
     return sayilar
 
 
 def _state_number(state: dict[str, Any], label: str) -> int | None:
+    lowered = {str(key).lower(): value for key, value in state.items()}
     for anahtar in _STATE_KEYS[label]:
-        deger = state.get(anahtar)
+        deger = lowered.get(anahtar)
         if isinstance(deger, bool):
             continue
         if isinstance(deger, (int, float)):
@@ -125,7 +147,7 @@ def _ended(state_json: str | None) -> bool:
     if not isinstance(durum, dict):
         return False
     deger = durum.get("durum", durum.get("state", durum.get("mode")))
-    return isinstance(deger, str) and bool(_END_STATE.search(deger))
+    return isinstance(deger, str) and _is_end_state(deger)
 
 
 async def restart_after_end(page: Page, state_script: str) -> tuple[str, ...]:
