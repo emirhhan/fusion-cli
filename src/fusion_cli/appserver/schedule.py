@@ -3,8 +3,12 @@
 Çekirdek yalnız depoyu ve "sıradaki çalışma" hesabını taşır. Görevi çalıştıran
 masaüstü uygulamasıdır: vadesi gelenleri `zamanlama.vadesi_gelenler` ile ALIR
 (alınan görevin sıradaki zamanı aynı yazımda ilerler; aynı görev iki kez verilmez)
-ve her biri için yeni bir sohbet açar. Uygulama kapalıyken görev çalışmaz;
-açılışta vadesi geçmiş görev bir kez, gecikmeli olarak verilir.
+ve her biri için yeni bir sohbet açar ya da Kits kuyruğuna teslim eder.
+
+Uygulama açıkken yoklama sohbet açık olmasa da sürer: hazır sohbet yoksa arayüz
+`zamanlayici` kimlikli görünmez bir çekirdek oturumu açar (`app/src/schedule/schedulerCore.ts`).
+Yoklamayı aynı anda tek uygulama örneği yürütür (`zamanlama.sahiplik`, bkz. `schedule_lease`).
+Uygulama kapalıyken görev çalışmaz; açılışta vadesi geçmiş görev bir kez, gecikmeli olarak verilir.
 """
 
 from __future__ import annotations
