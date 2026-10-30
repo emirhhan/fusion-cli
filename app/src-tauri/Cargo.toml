@@ -13,7 +13,8 @@ default-run = "fusion-desktop"
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "app_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Yalnız masaüstü hedefi var; staticlib/cdylib (mobil şablonundan kalma) üç kat bağlama maliyeti getiriyordu (R2-28).
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
