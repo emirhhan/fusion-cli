@@ -16,9 +16,13 @@ Tasarım kararları ve gerekçeleri:
 from __future__ import annotations
 
 import asyncio
+import threading
 from types import TracebackType
 
 from ..core.events import Event, EventSink
+
+#: `failures` listesinde tutulan en son hata sayısı.
+_MAX_FAILURES = 200
 
 
 class EventBus:
@@ -34,6 +38,10 @@ class EventBus:
         self._consumer: asyncio.Task[None] | None = None
         self.failures: list[str] = []
         self._closed = False
+        #: Tüketicinin döngüsü ve iş parçacığı: araçlar `asyncio.to_thread` içinden olay
+        #: yayınlayabilir; `Queue.put_nowait` iş parçacığı güvenli değildir.
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread: int | None = None
 
     def subscribe(self, sink: EventSink) -> None:
         """Dinleyici ekle. Olaylar eklenme sırasına göre iletilir."""
@@ -45,11 +53,21 @@ class EventBus:
             # Oturumun sahip olduğu öğrenme işi turdan sonra da olay üretebilir.
             # Aynı dinleyiciler muhasebe/denetimi sürdürür; sahipsiz kuyruk açılmaz.
             self._dispatch(event)
+        elif (
+            self._loop is not None
+            and self._loop_thread != threading.get_ident()
+            and not self._loop.is_closed()
+        ):
+            # Başka iş parçacığından gelen olay döngüye güvenle devredilir. Ölçüldü (30 Ekim):
+            # doğrudan put_nowait tüketiciyi uyandırmayabilir / kuyruğu bozabilir.
+            self._loop.call_soon_threadsafe(self._queue.put_nowait, event)
         else:
             self._queue.put_nowait(event)
 
     async def __aenter__(self) -> EventBus:
         self._closed = False
+        self._loop = asyncio.get_running_loop()
+        self._loop_thread = threading.get_ident()
         self._consumer = asyncio.create_task(self._consume())
         return self
 
@@ -91,3 +109,5 @@ class EventBus:
             # hatası turu düşüremez. Hata yutulmaz, `failures` üzerinden görünür.
             except Exception as exc:
                 self.failures.append(f"{type(sink).__name__}: {type(exc).__name__}: {exc}")
+                # Üst sınırsız büyümesin (kırık boru her olayda bir kayıt ekleyebilir).
+                del self.failures[:-_MAX_FAILURES]

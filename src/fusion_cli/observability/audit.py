@@ -26,7 +26,34 @@ _LOG = logging.getLogger(__name__)
 AUDIT_MAX_BYTES = 5 * 1024 * 1024
 #: Kayda girecek araç çıktısının başı (karakter).
 AUDIT_OUTPUT_CHARS = 400
+#: Kayda girecek TEK bir argüman değerinin başı (karakter). `write_file` içeriği gibi
+#: yüzlerce KB'lık değerler günlüğü doldurmasın ve kullanıcı kaynağını kopyalamasın.
+AUDIT_ARG_CHARS = 300
+#: Döndürmede tutulan yedek sayısı (`.jsonl.1` en yeni).
+AUDIT_BACKUPS = 3
 _SAFE_ID = re.compile(r"[^a-zA-Z0-9._-]+")
+
+
+def _short_args(args: object) -> object:
+    """Uzun metin değerlerini kısalt; yol/komut gibi kısa alanlar aynen kalır."""
+    if isinstance(args, str):
+        if len(args) <= AUDIT_ARG_CHARS:
+            return args
+        return f"{args[:AUDIT_ARG_CHARS]}…[+{len(args) - AUDIT_ARG_CHARS} karakter]"
+    if isinstance(args, dict):
+        return {key: _short_args(value) for key, value in args.items()}
+    if isinstance(args, (list, tuple)):
+        return [_short_args(value) for value in args]
+    return args
+
+
+def _rotate(path: Path) -> None:
+    """`.1` → `.2` → … kaydır; en eskisi düşer. Eskiden tek yedek üzerine yazılıyordu."""
+    for numara in range(AUDIT_BACKUPS, 1, -1):
+        eski = path.with_suffix(f".jsonl.{numara - 1}")
+        if eski.exists():
+            eski.replace(path.with_suffix(f".jsonl.{numara}"))
+    path.replace(path.with_suffix(".jsonl.1"))
 
 
 def audit_path(directory: Path, conversation_id: str) -> Path:
@@ -70,14 +97,16 @@ class AuditSink:
             "kok": self._root,
             "ajan": event.agent_id or "ana",
             "arac": event.name,
-            "argumanlar": redact(json.dumps(event.args, ensure_ascii=False, default=str)),
+            "argumanlar": redact(
+                json.dumps(_short_args(dict(event.args)), ensure_ascii=False, default=str)
+            ),
             "sonuc": event.outcome.value,
             "cikti": redact(event.output[:AUDIT_OUTPUT_CHARS]),
         }
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             if self._path.exists() and self._path.stat().st_size > AUDIT_MAX_BYTES:
-                self._path.replace(self._path.with_suffix(".jsonl.1"))
+                _rotate(self._path)
             with self._path.open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps(record, ensure_ascii=False) + "\n")
         except OSError as error:

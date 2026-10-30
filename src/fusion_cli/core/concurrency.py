@@ -150,3 +150,4 @@ class BackgroundTasks:
         error = task.exception()
         if error is not None:
             self.failures.append(f"{type(error).__name__}: {error}")
+            del self.failures[:-200]  # üst sınırsız büyümesin
