@@ -76,6 +76,10 @@ def add_dir(state: ReplState, argument: str) -> str:
     kok = state.root.expanduser().resolve()
     if hedef == kok or kok in hedef.parents:
         return "Bu klasör zaten proje kökünün içinde."
+    if hedef in kok.parents:
+        # Proje kökünün ÜST dizini (`~/Desktop`) yalnız disk kökü ve ev dizini engellenince
+        # geçiyordu; bu, tek komutla kardeş projelerin hepsine erişim açardı (L2-32).
+        return "Proje kökünün üst klasörü eklenemez; yalnız ihtiyaç duyduğun klasörü seç."
     if hedef in (Path(hedef.anchor), Path.home().resolve()):
         return "Diskin ya da ev dizininin tamamı eklenemez; bir proje klasörü seç."
     if hedef in state.extra_roots:

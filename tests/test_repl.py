@@ -1227,3 +1227,34 @@ def test_mcp_listesi_arguman_icindeki_tokeni_gostermez(state):
 
     assert gizli not in cikti
     assert "gh" in cikti and "npx" in cikti
+
+
+def test_add_dir_proje_kokunun_ust_klasorunu_reddeder(tmp_path):
+    """Ölçüldü (30 Ekim): ev dizini ve disk kökü dışında her üst klasör (`~/Desktop`) kabul
+    ediliyor, kardeş projelerin hepsine erişim açılıyordu (L2-32)."""
+    from fusion_cli.cli.repl.workspace_commands import add_dir
+
+    ust = tmp_path / "Desktop"
+    kok = ust / "proje"
+    kok.mkdir(parents=True)
+    state = ReplState(config=make_config(), memory=null_memory(), root=kok, home=tmp_path)
+
+    mesaj = add_dir(state, str(ust))
+
+    assert "üst klasörü eklenemez" in mesaj
+    assert state.extra_roots == ()
+
+
+def test_add_dir_kardes_klasoru_kabul_eder(tmp_path):
+    from fusion_cli.cli.repl.workspace_commands import add_dir
+
+    ust = tmp_path / "Desktop"
+    kok = ust / "proje"
+    kardes = ust / "diger"
+    kok.mkdir(parents=True)
+    kardes.mkdir()
+    state = ReplState(config=make_config(), memory=null_memory(), root=kok, home=tmp_path)
+
+    add_dir(state, str(kardes))
+
+    assert state.extra_roots == (kardes.resolve(),)
