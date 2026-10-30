@@ -89,3 +89,25 @@ def test_celiskili_plan_ayristirmada_da_durur():
 
     with pytest.raises(PlanParseError, match=re.escape("scripts/game_manager.gd")):
         parse_execution_plan(ham)
+
+
+@pytest.mark.parametrize(
+    "beklenen, hedef",
+    [
+        ("scripts/a.gd", "./scripts/a.gd"),
+        ("./scripts/a.gd", "scripts/a.gd"),
+        ("scripts/a.gd", "scripts//a.gd"),
+        ("scripts\\a.gd", "scripts/a.gd"),
+        ("scripts/x/../a.gd", "scripts/a.gd"),
+    ],
+)
+def test_ayni_yolun_farkli_yazimi_celiski_sayilmaz(beklenen, hedef):
+    """`./a.py`, `a//b`, `\\` ve `..` aynı dosyayı gösterir (C1-33)."""
+    adim = _adim(
+        (f"file:{beklenen}",),
+        VerificationCheck(
+            _step("adim").success_criteria[0], VerificationCheckKind.FILE_EXISTS, hedef
+        ),
+    )
+
+    assert validate_plan(_plan(adim)).ok

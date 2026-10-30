@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import posixpath
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -146,6 +147,19 @@ def _declared_files(step: PlanStep) -> tuple[str, ...]:
     )
 
 
+def _same_path(left: str, right: str) -> bool:
+    """İki yazım aynı göreli yolu mu gösteriyor (`./a`, `a//b`, `\\`, `..` normalize)?
+
+    Ölçüldü (30 Ekim): düz `strip()` karşılaştırması `./a.py` ile `a.py`yi çelişki
+    sayıyor, düzeltmesini planlayıcıya (zayıf LLM) bırakıyordu.
+    """
+
+    def normal(value: str) -> str:
+        return posixpath.normpath(value.strip().replace("\\", "/"))
+
+    return normal(left) == normal(right)
+
+
 def _target_conflicts(step: PlanStep, check: VerificationCheck) -> tuple[str, ...]:
     """Adımın vaat ettiği yol ile ölçülen yol çelişiyor mu.
 
@@ -160,7 +174,7 @@ def _target_conflicts(step: PlanStep, check: VerificationCheck) -> tuple[str, ..
     if check.kind not in _FILE_CHECKS:
         return ()
     declared = _declared_files(step)
-    if not declared or check.target.strip() in declared:
+    if not declared or any(_same_path(check.target, path) for path in declared):
         return ()
     return (
         f"Plan adımı '{step.step_id}' iki farklı dosya yolu iddia ediyor: "
