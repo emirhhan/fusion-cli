@@ -494,7 +494,9 @@ export function Composer({
           {running ? (
             <span className="composer__actions">
               {onModelSelect && <ModelPicker active={activeModel} activeLabel={activeModelLabel ? `${activeModelLabel} · sonraki tur` : `${shortModelName(activeModel)} · sonraki tur`} options={modelOptions} busy={modelsBusy} pending={modelSelectionPending} error={modelsError} onOpen={onModelMenuOpen} onRetry={onModelMenuOpen} onConnect={onModelConnect} onSelect={onModelSelect} />}
-              <ContextGauge olcu={context} onCompact={() => onSend("/compact")} />
+              {/* Çalışırken "Bağlamı sıkıştır" sunulmaz: onSend çalışan tura talimat/sıra olarak gider
+                  ve /compact komut yerine modele metin olarak iletilebilirdi (U1-11). */}
+              <ContextGauge olcu={context} />
               {maliyetRozetMetni(costUsd) && (
                 <span className="composer__cost">{maliyetRozetMetni(costUsd)}</span>
               )}

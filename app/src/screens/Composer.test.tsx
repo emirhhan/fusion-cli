@@ -602,3 +602,13 @@ describe("Composer — P2/P3 ayıklama turu (dalga 4)", () => {
     expect(screen.getByText("@App.tsx")).toBeTruthy();
   });
 });
+
+it("iş sürerken bağlam kartında /compact düğmesi sunulmaz, boştayken sunulur (U1-11)", () => {
+  const context = { kullanilan: 20000, sinir: 24000, yuzde: 83 };
+  const { rerender } = render(<Composer context={context} onSend={vi.fn()} running />);
+  fireEvent.click(screen.getByRole("meter"));
+  expect(screen.queryByRole("button", { name: /Bağlamı sıkıştır/ })).toBeNull();
+  rerender(<Composer context={context} onSend={vi.fn()} />);
+  fireEvent.click(screen.getByRole("meter"));
+  expect(screen.getByRole("button", { name: /Bağlamı sıkıştır/ })).toBeTruthy();
+});
