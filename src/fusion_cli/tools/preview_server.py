@@ -28,6 +28,7 @@ import os
 import signal
 import socket
 import sys
+import tempfile
 import threading
 import urllib.error
 import urllib.parse
@@ -72,6 +73,8 @@ class RunningPreview:
     kind: PreviewKind
     url: str
     process: asyncio.subprocess.Process | None = None
+    #: Sürecin stdout/stderr günlüğü; hata mesajına kuyruğu eklenir.
+    log_path: Path | None = None
     httpd: http.server.ThreadingHTTPServer | None = None
     #: Son yoklamanın özeti (doğrulama kapısı okur).
     last_probe: dict[str, object] = field(default_factory=dict)
@@ -168,23 +171,18 @@ async def start(
     elif kind in (PreviewKind.PHP, PreviewKind.WORDPRESS):
         if php is None:
             raise PreviewError("PHP bulunamadı. Kurmak için: `brew install php`.")
-        process = await _spawn(
-            [
-                php, "-d", "display_errors=1", "-S", f"127.0.0.1:{port}", "-t", str(root),
-                str(PHP_ROUTER),
-            ], root
-        )  # fmt: skip
-        preview = RunningPreview(root, kind, f"{base}/", process=process)
+        command = [
+            php, "-d", "display_errors=1", "-S", f"127.0.0.1:{port}", "-t", str(root),
+            str(PHP_ROUTER),
+        ]  # fmt: skip
+        process, log_path = await _spawn_logged(command, root)
+        preview = RunningPreview(root, kind, f"{base}/", process=process, log_path=log_path)
     else:
         command = await _node_command(root, port)
-        process = await _spawn(command, root, extra_env={"PORT": str(port)})
-        preview = RunningPreview(root, kind, f"{base}/", process=process)
-    if not await wait_until_serving(preview.url):
-        stop(preview)
-        raise PreviewError(
-            f"Sunucu {SERVER_READY_S:.0f} sn içinde yanıt vermedi ({kind.value}). "
-            "Kabukta aynı komutu çalıştırıp hatasına bak."
-        )
+        process, log_path = await _spawn_logged(command, root, extra_env={"PORT": str(port)})
+        preview = RunningPreview(root, kind, f"{base}/", process=process, log_path=log_path)
+    if not await wait_until_serving(preview.url, process=preview.process):
+        raise PreviewError(_failure_message(preview, command))
     _RUNNING[root] = preview
     return preview
 
@@ -201,6 +199,8 @@ def stop(preview: RunningPreview) -> None:
             else:
                 os.killpg(preview.process.pid, signal.SIGTERM)
     _RUNNING.pop(preview.root, None)
+    if preview.log_path is not None:
+        preview.log_path.unlink(missing_ok=True)
 
 
 @atexit.register
@@ -210,10 +210,52 @@ def stop_all() -> None:
         stop(preview)
 
 
-async def wait_until_serving(url: str, timeout_s: float = SERVER_READY_S) -> bool:
+def _log_tail(path: Path | None, chars: int = 1_500) -> str:
+    if path is None:
+        return ""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")[-chars:].strip()
+    except OSError:
+        return ""
+
+
+def _failure_message(preview: RunningPreview, command: list[str]) -> str:
+    """Sunucu ayağa kalkmadı: süreç öldüyse çıkış kodunu, komutu ve çıktı kuyruğunu göster.
+
+    Eskiden süreç hemen ölse bile 45 sn beklenip "kabukta aynı komutu çalıştır" deniyordu;
+    komut satırı (port, ortam) ve hata çıktısı modele verilmiyordu (ölçüldü, 30 Ekim).
+    """
+    process = preview.process
+    tail = _log_tail(preview.log_path)
+    stop(preview)
+    kind = preview.kind.value
+    if process is not None and process.returncode is not None:
+        head = f"Sunucu süreci hemen kapandı (çıkış kodu {process.returncode}, {kind})."
+    else:
+        head = f"Sunucu {SERVER_READY_S:.0f} sn içinde yanıt vermedi ({kind})."
+    detail = f"\nKomut: {' '.join(command)}"
+    if tail:
+        detail += f"\n[sürecin son çıktısı]\n{tail}"
+    hint = (
+        "\nBetik `--port`'u yok sayıyor olabilir (CRA, düz node/Express): PORT ortam "
+        "değişkenini okuyacak şekilde ayarla."
+        if preview.kind not in (PreviewKind.STATIC, PreviewKind.PHP, PreviewKind.WORDPRESS)
+        else ""
+    )
+    return head + detail + hint
+
+
+async def wait_until_serving(
+    url: str,
+    timeout_s: float = SERVER_READY_S,
+    *,
+    process: asyncio.subprocess.Process | None = None,
+) -> bool:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout_s
     while loop.time() < deadline:
+        if process is not None and process.returncode is not None:
+            return False  # süreç öldü: beklemek boşuna
         if await asyncio.to_thread(_responds, url):
             return True
         await asyncio.sleep(0.5)
@@ -250,16 +292,34 @@ class _QuietHandler(http.server.SimpleHTTPRequestHandler):
         del format, args
 
 
-async def _spawn(
+async def _spawn_logged(
     command: list[str], root: Path, extra_env: dict[str, str] | None = None
+) -> tuple[asyncio.subprocess.Process, Path]:
+    """Süreci başlat; stdout/stderr geçici bir günlüğe gider (hata anında kuyruğu okunur)."""
+    handle, name = tempfile.mkstemp(prefix="fusion-preview-", suffix=".log")
+    log_path = Path(name)
+    try:
+        with os.fdopen(handle, "wb") as log:
+            process = await _spawn(command, root, extra_env, output=log)
+    except BaseException:
+        log_path.unlink(missing_ok=True)  # noqa: ASYNC240 - tek küçük unlink, hata yolunda
+        raise
+    return process, log_path
+
+
+async def _spawn(
+    command: list[str],
+    root: Path,
+    extra_env: dict[str, str] | None = None,
+    output: BinaryIO | None = None,
 ) -> asyncio.subprocess.Process:
     env = {**php_env(), **(extra_env or {})}
     return await asyncio.create_subprocess_exec(
         *command,
         cwd=str(root),
         env=env,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
+        stdout=output if output is not None else asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.STDOUT if output is not None else asyncio.subprocess.DEVNULL,
         # Kendi süreç grubu: npm'in başlattığı alt süreçler de birlikte kapanır.
         start_new_session=sys.platform != "win32",
     )
