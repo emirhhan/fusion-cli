@@ -111,3 +111,21 @@ async def test_kesilen_isler_iptal_edilir_arkada_calismaya_devam_etmez():
     )
 
     assert calisti == ["iptal"]
+
+
+async def test_patlayan_aday_toplanmis_sonuclari_kaybettirmez():
+    """Bir aday istisna fırlatırsa diğerlerinin başarılı sonucu korunur (C1-14)."""
+
+    async def patlayan():
+        await asyncio.sleep(0.01)
+        raise RuntimeError("aday patladı")
+
+    sonuclar = await gather_with_cutoff(
+        [_isi("a", 0.0), patlayan, _isi("c", 0.05)],
+        is_success=_BASARILI,
+        enough_success=2,
+        grace_s=0.5,
+        hard_cap_s=5.0,
+    )
+
+    assert {sonuc[0] for sonuc in sonuclar} == {"a", "c"}

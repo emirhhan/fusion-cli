@@ -19,10 +19,13 @@ Zamanı dolduran işler iptal edilir; toplanan sonuçlar bitiş SIRASIYLA döner
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable, Coroutine, Sequence
 from typing import TypeVar
 
 T = TypeVar("T")
+
+_log = logging.getLogger(__name__)
 
 
 async def gather_with_cutoff(
@@ -61,6 +64,13 @@ async def gather_with_cutoff(
                 break  # grace ya da mutlak üst sınır doldu
 
             for task in done:
+                # Protokol "fırlatmaz" der ama bug/iptal olabilir: tek adayın istisnası
+                # toplanmış başarılı sonuçları kaybettirmemeli. Ölçüldü (30 Ekim):
+                # task.result() döngüyü koparıp finally ile diğerlerini iptal ediyordu.
+                if task.cancelled() or task.exception() is not None:
+                    neden = "iptal" if task.cancelled() else repr(task.exception())
+                    _log.warning("paralel aday sonuç vermedi: %s", neden)
+                    continue
                 result = task.result()
                 results.append(result)
                 if on_result is not None:
