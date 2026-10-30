@@ -434,6 +434,49 @@ def agent(
         raise typer.Exit(1)
 
 
+@app.command()
+def init(
+    fmt: str = typer.Option(
+        "agents", "--format", "-f", help="Üretilecek dosya: agents (AGENTS.md) | claude (CLAUDE.md)"
+    ),
+    mode: str = typer.Option("edits", "--mode", "-m", help="Onay modu (varsayılan: edits)."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="İlerleme satırlarını gizle."),
+) -> None:
+    """Depoyu inceleyip kök talimat dosyasını (AGENTS.md / CLAUDE.md) üret — /init ile aynı."""
+    from ..engines.agent.instruction_audit import init_task
+
+    config = load_config()
+    root = Path.cwd()
+    task = init_task(root, Path.home(), fmt=fmt)
+    renderer = ConsoleRenderer(console, show_progress=not quiet)
+    observers = build_observers(
+        task, renderer=renderer, as_json=False, trace_dir=config.memory_dir / "traces"
+    )
+    outcome = _run_observed(
+        with_web_cleanup(
+            run_agent_task(
+                task,
+                config,
+                sinks=observers.sinks,
+                prompter_factory=lambda flush: ConsolePrompter(
+                    console,
+                    ToolContext(root=root, restrict_to_root=config.runtime.restrict_to_root),
+                    flush=flush,
+                ),
+                mode=_parse_mode(mode),
+                root=root,
+                home=Path.home(),
+                memory=open_memory(config, root=root),
+            )
+        ),
+        renderer,
+        observers,
+    )
+    observers.finish()
+    if not outcome.ok:
+        raise typer.Exit(1)
+
+
 def _run_observed(
     coro: Coroutine[Any, Any, T], renderer: ConsoleRenderer, observers: Observers
 ) -> T:

@@ -78,3 +78,16 @@ it("katman yoksa /init ipucu gösterir", async () => {
   await screen.findByLabelText("Kalıcı talimat");
   expect(screen.getByText(/\/init/).textContent).toContain("/init");
 });
+
+// P-021: önerilen düzeltmeler listelenir; "Talimat oluştur" /init komutunu çalıştırır.
+it("önerileri listeler ve Talimat oluştur /init gönderir", async () => {
+  const client = istemci(async () => ({
+    ok: true, metin: "", sinir: 4000, katmanlar: [],
+    oneriler: ["Proje talimat dosyası yok: `/init` ile AGENTS.md oluştur."],
+  }));
+  const calistir = vi.fn();
+  render(<Instructions client={client} onRunCommand={calistir} />);
+  expect((await screen.findByLabelText("Talimat önerileri")).textContent).toContain("AGENTS.md");
+  fireEvent.click(screen.getByRole("button", { name: "Talimat oluştur (/init)" }));
+  expect(calistir).toHaveBeenCalledWith("/init");
+});

@@ -41,7 +41,7 @@ function decodeLayers(raw: unknown): InstructionLayer[] {
  * orada durur ve kullanıcıya açılırsa ürün kendi kurallarından edilebilir.
  * Buraya yazılan metin ek bir blok olarak her tura girer.
  */
-export function Instructions({ client }: { client: ProtocolClient }) {
+export function Instructions({ client, onRunCommand }: { client: ProtocolClient; onRunCommand?: (command: string) => void }) {
   const [text, setText] = useState("");
   const [limit, setLimit] = useState(4000);
   const [notice, setNotice] = useState<string | null>(null);
@@ -53,6 +53,8 @@ export function Instructions({ client }: { client: ProtocolClient }) {
   // Tur başında bağlama giren talimat katmanları (~/.claude/CLAUDE.md, CLAUDE.md, kurallar…).
   const [layers, setLayers] = useState<InstructionLayer[]>([]);
   const [layerNotes, setLayerNotes] = useState<string[]>([]);
+  // `/doctor prompt` önerileri (P-021): kırpma, şüpheli satır, eksik doğrulama bölümü.
+  const [suggestions, setSuggestions] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -62,6 +64,7 @@ export function Instructions({ client }: { client: ProtocolClient }) {
         sinir?: number;
         katmanlar?: unknown;
         notlar?: unknown;
+        oneriler?: unknown;
       };
       if (!veri?.ok) {
         setNotice(veri?.metin ?? "Talimat okunamadı.");
@@ -70,6 +73,7 @@ export function Instructions({ client }: { client: ProtocolClient }) {
       setText(veri.metin ?? "");
       setLayers(decodeLayers(veri.katmanlar));
       setLayerNotes(Array.isArray(veri.notlar) ? veri.notlar.filter((n): n is string => typeof n === "string") : []);
+      setSuggestions(Array.isArray(veri.oneriler) ? veri.oneriler.filter((n): n is string => typeof n === "string") : []);
       if (typeof veri.sinir === "number") setLimit(veri.sinir);
       setDirty(false);
       setLoaded(true);
@@ -160,6 +164,17 @@ export function Instructions({ client }: { client: ProtocolClient }) {
         </ul>
       )}
       {layerNotes.map((note) => <p className="settings__hint" key={note} role="note">{note}</p>)}
+      {suggestions.length > 0 && (
+        <ul aria-label="Talimat önerileri" className="settings__list">
+          {suggestions.map((item) => <li key={item}><strong>→ {item}</strong></li>)}
+        </ul>
+      )}
+      {onRunCommand && (
+        <div className="settings__actions">
+          <button onClick={() => onRunCommand("/init")} type="button">Talimat oluştur (/init)</button>
+          <button onClick={() => onRunCommand("/doctor prompt")} type="button">Talimatı denetle</button>
+        </div>
+      )}
     </article>
   );
 }

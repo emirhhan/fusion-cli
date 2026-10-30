@@ -330,7 +330,7 @@ export function Settings({
 
           {bolum === "ses" && <VoicePreferences client={client} />}
 
-          {bolum === "kisisellestirme" && <><MemoryPanel client={client} /><Instructions client={client} /></>}
+          {bolum === "kisisellestirme" && <><MemoryPanel client={client} /><Instructions client={client} onRunCommand={onRunCommand ? (command) => { void onRunCommand(command); } : undefined} /></>}
 
           {bolum === "tarayici" && <ChromeBrowser client={client} />}
 

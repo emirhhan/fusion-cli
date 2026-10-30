@@ -60,6 +60,14 @@ def get_instructions(root: Path | None = None, home: Path | None = None) -> dict
     ]
     sonuc["notlar"] = list(yuk.notes)
     sonuc["toplam_karakter"] = sum(item.chars for item in yuk.files)
+    # `/doctor prompt` ile aynı öneriler (P-021): arayüz Kişiselleştirme ekranında gösterir.
+    from ..engines.agent.instruction_audit import audit_instructions
+
+    denetim = audit_instructions(root, home)
+    sonuc["oneriler"] = list(denetim.suggestions)
+    sonuc["supheli"] = [
+        {"kaynak": s.source, "satir": s.line_no, "metin": s.text} for s in denetim.suspicious
+    ]
     return sonuc
 
 

@@ -788,6 +788,12 @@ CMD_VERIFY = "doğrulama kapısını projeden keşfet ve aç"
 CMD_MODE = "çalışma profili seç: auto · low · medium · high · max"
 CMD_EFFORT = "reasoning yoğunluğu: auto · low · medium · high · xhigh · max"
 CMD_HEALTH = "sağlayıcı sağlığı: güvenilirlik skoru ve circuit breaker durumu"
+CMD_DOCTOR = "talimat denetimi: yüklenen dosyalar, kırpma, şüpheli satırlar (prompt)"
+CMD_INIT = "proje talimat dosyası üret: AGENTS.md (varsayılan) ya da CLAUDE.md"
+REPL_INIT_STARTED = "{target} için talimat üretme görevi hazırlandı; model depoyu inceleyecek."
+REPL_DOCTOR_SETUP_HINT = (
+    "Kurulum tanısı (anahtarlar, modeller, PATH) için terminalde: fusion doctor"
+)
 CMD_PROVIDERS = "tanınan sağlayıcılar: tür, resmiyet, risk ve kurulu mu"
 CMD_MCP = "dış MCP sunucularını listele/ekle/kaldır: /mcp add <ad> <komut> [argüman…]"
 CMD_SKILLS = (

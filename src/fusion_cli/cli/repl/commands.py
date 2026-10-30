@@ -677,6 +677,43 @@ def _when(epoch: float) -> str:
     return datetime.fromtimestamp(epoch).strftime("%d/%m %H:%M")
 
 
+def _init(state: ReplState, argument: str) -> str:
+    """`/init [agents|claude]` — proje talimat dosyasını (AGENTS.md/CLAUDE.md) modele yazdır.
+
+    Görev depodan ölçülen olgularla kurulur (bkz. `instruction_audit.init_task`); çalıştırma
+    makrolarla aynı: REPL döngüsü bekleyen görevi sıradaki turda başlatır.
+    """
+    from ...engines.agent.instruction_audit import DEFAULT_INIT_FORMAT, INIT_TARGETS, init_task
+
+    fmt = argument.strip().lower() or DEFAULT_INIT_FORMAT
+    target = INIT_TARGETS.get(fmt, INIT_TARGETS[DEFAULT_INIT_FORMAT])
+    state.engine = Engine.AGENT
+    state.pending_task = init_task(state.root, state.home, fmt=fmt)
+    state.pending_mode = Mode.NONE
+    return messages.REPL_INIT_STARTED.format(target=target)
+
+
+def _doctor(state: ReplState, argument: str) -> str:
+    """`/doctor prompt` — tur başında yüklenen talimatları denetle (uzunluk, kırpma, şüpheli satır).
+
+    Argümansız `/doctor` da aynı denetimi yapar ve kurulum tanısı için `fusion doctor`u hatırlatır.
+    """
+    from ...engines.agent.instruction_audit import audit_instructions, render_audit
+
+    runtime = state.config.runtime
+    rapor = render_audit(
+        audit_instructions(
+            state.root,
+            state.home,
+            merge=getattr(runtime, "instruction_merge", True),
+            max_chars=getattr(runtime, "instruction_max_chars", 32_000),
+        )
+    )
+    if argument.strip().lower() in ("prompt", "talimat"):
+        return rapor
+    return f"{rapor}\n{messages.REPL_DOCTOR_SETUP_HINT}"
+
+
 def _health(state: ReplState, argument: str) -> str:
     """`/health` — sağlayıcı güvenilirlik skorlarını ve circuit breaker durumunu göster."""
     registry = state.health
@@ -871,6 +908,8 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
     SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
+    SlashCommand("doctor", messages.CMD_DOCTOR, _doctor, group="Bilgi", usage="[prompt]"),
+    SlashCommand("init", messages.CMD_INIT, _init, group="Makro", usage="[agents|claude]"),
     SlashCommand("mcp", messages.CMD_MCP, _mcp, group="Bilgi", usage="[add|remove] …"),
     SlashCommand("skills", messages.CMD_SKILLS, _skills, group="Bilgi", usage="[arama]"),
     SlashCommand(

@@ -114,3 +114,20 @@ proje `.claude/skills`, `.fusion/skills`, `.agents/skills`; `~/.codex/skills`, `
 | `/skills doctor`, `/skill-doctor` · masaüstü **Teşhis** · `yetenek.teshis` | Eksik `description`, ön maddesiz dosya, aynı adın birden çok kaynakta farklı içerikle bulunması (kazanan/gölgelenen), tek sayfaya sığmayan gövde, ev dizini dışına çıkan sembolik bağ. |
 | `/skills new <ad>` · `/agents new <ad>` | Modele `.claude/skills/<ad>/SKILL.md` ya da `.claude/agents/<ad>.md` yazdırır; önce `ask_user` ile kapsam ve araç kısıtını sorar, mevcut dosyanın üzerine yazmaz. |
 | `capabilities.disabled: [ad, ad@kaynak:kimlik]` (config.yaml) | Her oturumda kapalı tutulan beceri/ajanlar; masaüstündeki oturumluk kapatmayla birleşir. |
+
+## `/init` ve `/doctor prompt`
+
+- `/init [agents|claude]` (REPL, TUI, masaüstü komut paleti) ve terminalde `fusion init
+  [--format agents|claude] [--mode edits]`: Fusion depodan ölçtüğü olguları (proje türü,
+  keşfedilen lint/test komutları, mevcut talimat dosyaları) göreve koyar; model depoyu inceleyip
+  `AGENTS.md` (varsayılan) ya da `CLAUDE.md` yazar — bölümler: Proje, Kurulum ve çalıştırma,
+  Doğrulama, Kod kuralları, Dikkat; 3.000 karakter sınırı, uzun kurallar `@docs/…md` ile.
+  Dosya zaten varsa üzerine yazmaz; eksik bölümleri `ask_user` ile sorar.
+- `/doctor prompt` (argümansız `/doctor` da aynı rapor + `fusion doctor` hatırlatması):
+  yüklenen katmanlar ve karakterleri, kırpılan miktar, kök dışı import notları, depo
+  talimatında izin/onay/sır kurallarına dokunan şüpheli satırlar (Fusion bunları uygulamaz;
+  dosyanın kaynağını gözden geçir), öneriler (talimat yoksa `/init`, bütçenin %70'i dolduysa
+  kısalt, doğrulama komutu yoksa `## Doğrulama` bölümü).
+- Masaüstü **Ayarlar › Kişiselleştirme › Kalıcı talimat**: öneriler listelenir; **Talimat
+  oluştur (/init)** ve **Talimatı denetle** düğmeleri aynı komutları çalıştırır
+  (`ayar.talimat` → `oneriler`, `supheli`).
