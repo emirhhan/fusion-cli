@@ -41,6 +41,7 @@ if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
 from ..ui.renderer import ConsoleRenderer
 from ..ui.tables import cost_summary
 from . import (
+    browser_commands,
     capability_commands,
     eval_commands,
     knowledge_commands,
@@ -71,6 +72,7 @@ app.add_typer(trash_commands.app, name="cop")
 app.add_typer(capability_commands.app, name="yetenek")
 app.add_typer(eval_commands.eval_app, name="eval")
 app.add_typer(prompt_opt_commands.prompt_opt_app, name="prompt-opt")
+app.add_typer(browser_commands.app, name="browser")
 app.command("paperclip")(paperclip_command.paperclip)
 
 console = Console()

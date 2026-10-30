@@ -72,7 +72,21 @@ def start_login(provider: str, account: str) -> int:
     yoklayarak pencerenin kapandığını anlar ve doğrulamayı kendiliğinden çalıştırır;
     kullanıcı elle çerez kopyalamak zorunda kalmaz.
     """
-    argv = login_argv(provider, account)
+    return _spawn_login(login_argv(provider, account))
+
+
+def start_browser_profile_login(name: str, url: str) -> int:
+    """Tarayıcı profili (P-023) için görünür giriş penceresini başlat; pid döndür.
+
+    Web sağlayıcı girişiyle aynı süreç takibi (`process_alive`, `login_exit_code`):
+    masaüstü paneli pencerenin kapandığını aynı yoklamayla anlar.
+    """
+    from .profile_login import login_argv as profile_login_argv
+
+    return _spawn_login(profile_login_argv(name, url))
+
+
+def _spawn_login(argv: list[str]) -> int:
     process = subprocess.Popen(
         argv,
         stdout=subprocess.DEVNULL,

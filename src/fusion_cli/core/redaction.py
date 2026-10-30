@@ -85,6 +85,9 @@ _SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
     ),
     # e-posta adresi (kişisel veri)
     re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
+    # `Cookie:` / `Set-Cookie:` başlığının değeri oturum sırrıdır (P-023): içe aktarılan
+    # çerez tarayıcıdan hata metnine ya da transkripte dönerse satırın tamamı gizlenir.
+    re.compile(r"\b(?:set-)?cookie\s*:\s*[^\r\n]+", re.IGNORECASE),
 )
 
 
@@ -132,6 +135,7 @@ def redact(text: str) -> str:
             "sig",
             "key",
             "github",
+            "cookie",
         )
     ):
         return text

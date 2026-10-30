@@ -32,6 +32,7 @@ from ..core.types import ModelSpec
 from . import trust
 from .keys import ProviderPreference, apply_preference, detect, prune_config
 from .models import (
+    BrowserConfig,
     Config,
     EmbeddingConfig,
     HostedConnectorConfig,
@@ -71,6 +72,7 @@ _SECTIONS = (
     "hosted_connectors",
     "mcp_servers",
     "web_sessions",
+    "browser",
 )
 
 # PEP 695 sözdizimi yerine TypeVar: paket Python 3.11'i de destekler.
@@ -263,6 +265,8 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         mcp_servers=_build_mcp_servers(merged.get("mcp_servers")),
         hosted_connectors=_build_hosted_connectors(merged.get("hosted_connectors")),
         web_sessions=web_sessions,
+        # Eski kullanıcı dosyasında `browser:` yoksa gömülü varsayılanlar geçerlidir.
+        browser=_build(BrowserConfig, merged.get("browser") or {}, "browser"),
     )
 
 

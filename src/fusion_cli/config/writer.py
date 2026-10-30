@@ -204,6 +204,36 @@ def write_workflow_mode(config: Config, mode: str, path: Path | None = None) -> 
     return target
 
 
+#: `browser:` bölümünde kalıcı yazılabilen anahtarlar (bkz. `BrowserConfig`, P-023).
+BROWSER_SETTING_KEYS = ("default_profile", "headless", "profiles_enabled")
+
+
+def write_browser_setting(
+    config: Config, key: str, value: str | bool, path: Path | None = None
+) -> Path:
+    """Tek bir `browser:` ayarını yaz; diğer ayarlar KORUNUR.
+
+    `default_profile` metin, diğer ikisi boolean alır; tip uyuşmazlığı burada reddedilir
+    ki yüklemede `ConfigError` ile bütün yapılandırma düşmesin.
+    """
+    if key not in BROWSER_SETTING_KEYS:
+        raise ValueError(
+            f"Bilinmeyen tarayıcı ayarı: {key}. Seçenekler: {', '.join(BROWSER_SETTING_KEYS)}"
+        )
+    expects_text = key == "default_profile"
+    if expects_text != isinstance(value, str):
+        raise ValueError(f"browser.{key} için {'metin' if expects_text else 'boolean'} bekleniyor.")
+    target = path or _target_path(config)
+    with config_lock(target):
+        existing = _read_existing(target)
+        section = existing.get("browser")
+        updated = dict(section) if isinstance(section, dict) else {}
+        updated[key] = value
+        existing["browser"] = updated
+        _atomic_write(target, existing)
+    return target
+
+
 #: Kalıcı yazılabilen motor ve izin modu değerleri (`bypass` yok: bkz. `RuntimeConfig`).
 ENGINE_VALUES = ("agent", "fusion")
 APPROVAL_MODE_VALUES = ("auto", "edits", "security", "plan")

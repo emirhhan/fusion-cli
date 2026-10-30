@@ -867,3 +867,17 @@ mcp_servers: []
 #       tool_support: emulated
 # Boş liste = web sağlayıcı yok (varsayılan).
 web_sessions: []
+
+# Ajan tarayıcısı (`browser_*` araçları) — kullanıcı oturumu profilleri (P-023).
+# Profiller `fusion browser import-cookies|import-chrome|login` ile ya da masaüstünde
+# Ayarlar › Web oturumları'ndan kurulur; çerezler şifreli durur, listelerde yalnız alan
+# adı ve sayı görünür.
+browser:
+  # false: `browser_open` hiçbir profil yüklemez (eski, çerezsiz davranış).
+  profiles_enabled: true
+  # Açılışta kendiliğinden yüklenecek profil adı; boş = çerezsiz. Araç çağrısındaki
+  # `profile` argümanı bunu ezer.
+  default_profile: ""
+  # true: tarayıcı penceresi görünmez. false: pencere görünür açılır (giriş/CAPTCHA
+  # gibi insan müdahalesi gereken işler için).
+  headless: true

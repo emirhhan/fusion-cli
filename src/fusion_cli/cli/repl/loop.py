@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 
 from ...config import model_select, profile
 from ...config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
+from ...config.browser_profiles import browser_session_from
 from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
@@ -498,6 +499,7 @@ async def _agent_turn(
             extra_roots=state.extra_roots,
             restrict_to_root=state.config.runtime.restrict_to_root,
             remotion_browser=state.remotion_browser,
+            browser=browser_session_from(state.config),
         )
         partial = PartialTurn()
         prompter = ConsolePrompter(

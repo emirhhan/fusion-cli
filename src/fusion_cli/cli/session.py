@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from ..config.browser_profiles import browser_session_from
 from ..config.models import Config, mcp_secret_env_names
 from ..config.permissions import load_allowed_commands
 from ..core.artifacts import ArtifactStore
@@ -229,6 +230,7 @@ async def run_agent_task(
             chrome=chrome_bridge,
             extra_roots=extra_roots,
             restrict_to_root=config.runtime.restrict_to_root,
+            browser=browser_session_from(config),
             # Bağlamı şişiren araç çıktısı kırpılmak yerine diske alınır: bilgi
             # kaybolmaz, model gerektiğinde dosyayı açar (context rot).
             artifacts=ArtifactStore(config.memory_dir / "artifacts" / _artifact_id()),

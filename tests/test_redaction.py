@@ -135,3 +135,15 @@ def test_uzun_bosluksuz_govde_redaksiyonu_karesel_yavaslatmaz():
 
     assert time.monotonic() - baslangic < 5
     assert "abcdef1234567890xyz" not in sonuc and "sk-gizli" not in sonuc
+
+
+def test_redact_cookie_basligini_maskeler():
+    """P-023: içe aktarılan çerez hata metnine ya da transkripte dönerse değeri gizlenir."""
+    cikti = redact(
+        "istek başlığı\nCookie: sid=GIZLI-9f8e7d; pref=tr\nSet-Cookie: a=b; Path=/\nsonraki satır"
+    )
+
+    assert "GIZLI-9f8e7d" not in cikti
+    assert "a=b" not in cikti
+    assert "sonraki satır" in cikti
+    assert "istek başlığı" in cikti

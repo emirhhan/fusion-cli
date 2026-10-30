@@ -30,6 +30,10 @@ class PathAccessError(FusionError):
     """Kısıtlı kipte proje kökü dışına çıkan bir dosya yoluna erişilmek istendi."""
 
 
+class BrowserProfileError(FusionError):
+    """Tarayıcı profili / çerez içe aktarma başarısız: dosya bozuk, profil yok, çözülemedi."""
+
+
 class WorkspaceConflictError(FusionError):
     """İzole aday çalışırken asıl proje aynı dosyada değişti."""
 

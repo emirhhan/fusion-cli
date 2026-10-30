@@ -16,6 +16,7 @@ from collections.abc import Callable, Sequence
 from rich.console import Console
 from rich.markup import escape
 
+from ...config.browser_profiles import browser_session_from
 from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
@@ -549,6 +550,7 @@ class _TuiSession:
                     root=self._state.root,
                     extra_roots=self._state.extra_roots,
                     restrict_to_root=self._state.config.runtime.restrict_to_root,
+                    browser=browser_session_from(self._state.config),
                 )
                 # Değişiklik kümesi tur boyunca yerinde dolar; tur kesilse ya da hatayla
                 # bitse de `/undo` yarım yazılmış dosyaları geri alabilsin (L2-12).

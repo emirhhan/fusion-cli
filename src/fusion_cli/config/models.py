@@ -314,6 +314,19 @@ class RuntimeConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class BrowserConfig:
+    """Ajan tarayıcısının (`browser_*`) profil ve pencere davranışı (P-023)."""
+
+    #: Kapalıysa `browser_open` hiçbir profil yüklemez ve `profile` argümanını reddeder;
+    #: `fusion browser` komutları yine çalışır (içe aktarma, listeleme).
+    profiles_enabled: bool = True
+    #: Açılışta kendiliğinden yüklenecek profil adı; boşsa çerezsiz (eski davranış).
+    default_profile: str = ""
+    #: Tarayıcı penceresi görünmez (true) ya da görünür (false) açılır.
+    headless: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class EmbeddingConfig:
     """Anlamsal arama için gömme sağlayıcısı."""
 
@@ -558,6 +571,8 @@ class Config:
     web_sessions: tuple[WebSessionConfig, ...] = ()
     #: Web sağlayıcısının connector ekranından bağlanmış uzak MCP sunucuları.
     hosted_connectors: tuple[HostedConnectorConfig, ...] = ()
+    #: Ajan tarayıcısı profil/pencere ayarları; eski yapılandırmada yoksa varsayılanlar.
+    browser: BrowserConfig = field(default_factory=BrowserConfig)
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""

@@ -542,10 +542,25 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="browser_open",
-        description="URL'yi tarayıcıda aç ve oku; girişli/JS sayfası için. Oturum tur boyunca "
-        "açık kalır. Yerel adres yalnız kullanıcının yazdığı ya da önizlemenin "
-        "http://localhost:PORT sunucusuysa açılır; diğer özel ağ adresleri engellenir.",
-        parameters=_schema({"url": {**_STRING, "description": "Açılacak adres"}}, ["url"]),
+        # Metin kısa tutulur: web öykünme promptu bütçesi (tests/test_tool_emulation_diet.py).
+        description="URL'yi tarayıcıda aç ve oku; oturum tur boyunca açık kalır. Yerel adres "
+        "yalnız kullanıcının yazdığı ya da önizlemenin localhost:PORT'uysa açılır; diğer özel "
+        "ağ engellenir.",
+        parameters=_schema(
+            {
+                "url": {**_STRING, "description": "Açılacak adres"},
+                "profile": {
+                    **_STRING,
+                    "description": "Kullanıcının kurduğu tarayıcı profili adı (girişli oturum); "
+                    "yalnız kullanıcı isterse. Boş: çerezsiz.",
+                },
+                "headed": {
+                    "type": "boolean",
+                    "description": "true ise pencere görünür açılır (giriş/CAPTCHA için).",
+                },
+            },
+            ["url"],
+        ),
         run=browser.browser_open,
     ),
     Tool(

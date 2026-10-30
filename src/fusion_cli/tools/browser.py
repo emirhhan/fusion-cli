@@ -17,11 +17,16 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import weakref
+from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from ..config.browser_profiles import BrowserProfileStore, default_browser_profile_store
 from ..core.browser_session import BrowserSession
 from ..core.constants import MAX_OUTPUT_CHARS, truncate_notice
+from ..core.cookie_files import cookies_from_storage_state
+from ..core.errors import BrowserProfileError
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import is_truthy, optional_str, require_str
 from .browser_guard import blocked_hint, install_request_guard
@@ -77,7 +82,11 @@ def _full_page(args: ToolArgs) -> bool:
 
 
 async def browser_open(args: ToolArgs, context: ToolContext) -> ToolResult:
-    """Bir adresi aç (oturum yoksa başlat) ve sayfanın görünür metnini döndür."""
+    """Bir adresi aç (oturum yoksa başlat) ve sayfanın görünür metnini döndür.
+
+    `profile` (P-023): `fusion browser` ile kurulan kullanıcı oturumu profili; çerezleri
+    yalnız onaylı alan adlarında yüklenir. `headed`: pencere görünür açılır.
+    """
     url = _normalize_url(require_str(args, "url"))
     # SSRF doğrulaması `web_fetch` ile AYNI kapıdan geçer: tarayıcı olması adresi
     # güvenli yapmaz, tersine yerel ağa erişim için daha güçlü bir araçtır.
@@ -85,7 +94,9 @@ async def browser_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     if reason is not None:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
 
-    page, hata = await _sayfa(context)
+    profile = optional_str(args, "profile", "").strip()
+    headed = is_truthy(args.get("headed"))
+    page, hata = await _sayfa(context, profile=profile, headed=headed)
     if page is None:
         return ToolResult.failure(hata)
     try:
@@ -94,7 +105,7 @@ async def browser_open(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(
             f"Sayfa açılamadı: {url} ({type(exc).__name__}: {exc}){blocked_hint(exc)}"
         )
-    return await _sayfa_ozeti(page, "açıldı")
+    return _with_profile_note(await _sayfa_ozeti(page, "açıldı"), context.browser)
 
 
 async def browser_type(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -330,27 +341,62 @@ async def browser_close(args: ToolArgs, context: ToolContext) -> ToolResult:
 _START_LOCKS: weakref.WeakKeyDictionary[BrowserSession, asyncio.Lock] = weakref.WeakKeyDictionary()
 
 
-async def _sayfa(context: ToolContext, *, baslatma: bool = True) -> tuple[Any, str]:
+async def _sayfa(
+    context: ToolContext, *, baslatma: bool = True, profile: str = "", headed: bool = False
+) -> tuple[Any, str]:
     """Etkin sayfayı getir; yoksa (ve izin varsa) oturumu başlat.
 
-    Dönüş: (sayfa, hata). Sayfa `None` ise hata doludur.
+    Dönüş: (sayfa, hata). Sayfa `None` ise hata doludur. Açık oturum başka profille
+    sürüyorsa yeniden başlatılmaz: iki profilin çerezleri aynı bağlamda karışmasın.
     """
     oturum = context.browser
     if _is_open(oturum):
+        if profile and profile != oturum.active_profile:
+            return None, (
+                f"Tarayıcı zaten '{oturum.active_profile or 'profilsiz'}' oturumuyla açık; "
+                f"'{profile}' profili için önce browser_close çağır."
+            )
         return oturum.page, ""
     if not baslatma:
         return None, "Açık bir sayfa yok — önce browser_open ile bir adres aç."
     async with _START_LOCKS.setdefault(oturum, asyncio.Lock()):
         if _is_open(oturum):  # kilidi beklerken başka çağrı başlatmış olabilir
             return oturum.page, ""
-        return await _oturumu_baslat(context)
+        return await _oturumu_baslat(context, profile=profile, headed=headed)
 
 
 def _is_open(oturum: BrowserSession) -> bool:
     return bool(oturum.is_open)
 
 
-async def _oturumu_baslat(context: ToolContext) -> tuple[Any, str]:
+def _profile_state(
+    oturum: BrowserSession, profile: str, store: BrowserProfileStore
+) -> tuple[dict[str, object] | None, str]:
+    """Yüklenecek profilin `storage_state`'ini getir; (durum, hata) döndür.
+
+    Araç argümanı yapılandırmadaki varsayılanı ezer. Profiller kapalıysa (`browser.
+    profiles_enabled: false`) açık istek bile reddedilir — ayar, ajanın kullanıcı
+    oturumuna hiç dokunamayacağının güvencesidir.
+    """
+    name = profile or oturum.profile_name
+    if not name:
+        return None, ""
+    if not oturum.profiles_enabled:
+        return None, (
+            "Tarayıcı profilleri kapalı (browser.profiles_enabled: false); "
+            "çerezsiz devam etmek için profile argümanını kaldır."
+        )
+    try:
+        state = store.storage_state(name)
+    except BrowserProfileError as error:
+        return None, f"Tarayıcı profili yüklenemedi: {error}"
+    oturum.active_profile = name
+    return state, ""
+
+
+async def _oturumu_baslat(
+    context: ToolContext, *, profile: str = "", headed: bool = False
+) -> tuple[Any, str]:
     oturum = context.browser
 
     try:
@@ -359,10 +405,19 @@ async def _oturumu_baslat(context: ToolContext) -> tuple[Any, str]:
     except ImportError:
         return None, _KURULUM_TALIMATI
 
+    store = default_browser_profile_store()
+    state, hata = _profile_state(oturum, profile, store)
+    if hata:
+        return None, hata
+    headless = oturum.headless and not headed
     try:
         oturum.playwright = await async_playwright().start()
-        oturum.browser = await oturum.playwright.chromium.launch(headless=True)
-        oturum.context = await oturum.browser.new_context()
+        oturum.browser = await oturum.playwright.chromium.launch(headless=headless)
+        oturum.context = (
+            await oturum.browser.new_context(storage_state=state)
+            if state is not None
+            else await oturum.browser.new_context()
+        )
         # Yönlendirme, alt kaynak ve yeni sekme istekleri de `browser_block_reason`
         # kapısından geçer; yalnız ilk adresi denetlemek yetmezdi (T1-07).
         await install_request_guard(oturum.context, context.local_origins)
@@ -373,7 +428,24 @@ async def _oturumu_baslat(context: ToolContext) -> tuple[Any, str]:
             f"Tarayıcı başlatılamadı ({type(exc).__name__}: {exc}). "
             "Tarayıcı ikilisi eksikse: playwright install chromium"
         )
+    if state is not None:
+        # Kapanışta tazelenen oturum geri yazılır; hata core'da loglanır, kapanışı kesmez.
+        oturum.state_saver = _state_saver(store, oturum.active_profile)
     return oturum.page, ""
+
+
+def _state_saver(store: BrowserProfileStore, name: str) -> Callable[[dict[str, Any]], None]:
+    def _save(state: dict[str, Any]) -> None:
+        store.update_cookies(name, cookies_from_storage_state(state))
+
+    return _save
+
+
+def _with_profile_note(result: ToolResult, oturum: BrowserSession) -> ToolResult:
+    """Hangi profille açıldığı sonucun ilk satırında yazsın; çerez değeri asla yazılmaz."""
+    if not result.ok or not oturum.active_profile:
+        return result
+    return replace(result, output=f"profil: {oturum.active_profile}\n{result.output}")
 
 
 async def _sayfa_ozeti(page: Any, eylem: str) -> ToolResult:
