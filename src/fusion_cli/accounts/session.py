@@ -11,7 +11,9 @@ dosya silinir.
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -31,6 +33,17 @@ __all__ = [
 #: da oturum jetonu içermez, çünkü doğrulama zaten yerel veritabanındadır.
 _POINTER = "active-account"
 
+#: Geçerli hesap kimliği (uuid4 hex ve yerel adlar). Yol ayracı, `..` ve boş değer
+#: yapılandırma dizininin dışına çıkaramaz / tüm yapılandırmayı silemez.
+_ACCOUNT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
+
+
+def _check_account_id(account_id: str) -> str:
+    if not _ACCOUNT_ID.fullmatch(account_id):
+        raise ValueError("Geçersiz hesap kimliği.")
+    return account_id
+
+
 #: İlk hesaba devredilen, hesaba özel yapılandırma dosyaları.
 #
 # Yalnız KÜÇÜK ve hesaba ait dosyalar kopyalanır. Tarayıcı profilleri ve bellek
@@ -46,6 +59,8 @@ def activate_account(account_id: str) -> None:
     açılıyordu; ikinci hesap açan kullanıcı, var olmayan bir dizine yazmaya
     çalışan bir çekirdekle karşılaşırdı.
     """
+    if account_id:
+        _check_account_id(account_id)
     os.environ[ENV_ACCOUNT] = account_id
     if account_id:
         account_config_dir(account_id).mkdir(parents=True, exist_ok=True)
@@ -62,9 +77,14 @@ def _pointer_path() -> Path:
 
 def remember_account(account_id: str) -> None:
     """Seçimi kalıcılaştır: uygulama yeniden açıldığında parola sorulmaz."""
+    _check_account_id(account_id)
     yol = _pointer_path()
     yol.parent.mkdir(parents=True, exist_ok=True)
-    yol.write_text(account_id, encoding="utf-8")
+    # Atomik ve yalnız sahibine açık (0600): yarım yazılmış ya da başkasınca okunan işaretçi olmaz.
+    gecici = yol.with_name(f".{_POINTER}.tmp")
+    gecici.write_text(account_id, encoding="utf-8")
+    gecici.chmod(0o600)
+    gecici.replace(yol)
 
 
 def forget_remembered_account() -> None:
@@ -79,9 +99,11 @@ def remembered_account() -> str:
     giriş yapar, bu uygulamayı açılmaz yapmaktan iyidir.
     """
     try:
-        return _pointer_path().read_text(encoding="utf-8").strip()
+        kimlik = _pointer_path().read_text(encoding="utf-8").strip()
     except OSError:
         return ""
+    # Elle yazılmış ya da bozuk işaretçi (`../x`) doğrulanmadan etkinleştirilmesin.
+    return kimlik if _ACCOUNT_ID.fullmatch(kimlik) else ""
 
 
 def adopt_legacy_config(account_id: str) -> tuple[str, ...]:
@@ -108,11 +130,23 @@ def adopt_legacy_config(account_id: str) -> tuple[str, ...]:
     return tuple(kopyalanan)
 
 
-def remove_account_files(account_id: str) -> None:
+def remove_account_files(account_id: str) -> tuple[str, ...]:
     """Hesabın yapılandırma dizinini tamamen sil.
 
     Hesap silindiğinde ona ait ayarların kalması, silmenin anlamını boşa
     çıkarırdı. Silme yalnız HESAP DİZİNİNİ kapsar; paylaşılan veri dizinine
     (tarayıcı profilleri, bellek) dokunulmaz — orası başka hesaplara da aittir.
     """
-    shutil.rmtree(account_config_dir(account_id), ignore_errors=True)
+    _check_account_id(account_id)
+    dizin = account_config_dir(account_id)
+    # `ignore_errors=True` silinemeyen dosyayı (ör. sır içeren `.env`) sessizce bırakıyordu:
+    # silmeden sonra kalanı say ve çağırana bildir.
+    shutil.rmtree(dizin, ignore_errors=True)
+    kalanlar = [str(yol) for yol in dizin.rglob("*")] if dizin.exists() else []
+    if dizin.exists() and not kalanlar:
+        kalanlar = [str(dizin)]
+    if kalanlar:
+        logging.getLogger(__name__).warning(
+            "Hesap dosyaları tam silinemedi: %d öğe kaldı", len(kalanlar)
+        )
+    return tuple(kalanlar)

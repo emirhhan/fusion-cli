@@ -168,9 +168,14 @@ class AccountService:
         kimlik = str(data.get("kimlik", "")).strip()
         if not self._store.delete(kimlik):
             return {"ok": False, "metin": "Hesap bulunamadı."}
-        remove_account_files(kimlik)
+        kalanlar = remove_account_files(kimlik)
         if remembered_account() == kimlik:
             self.logout()
+        if kalanlar:
+            return {
+                "ok": True,
+                "uyari": f"{len(kalanlar)} dosya silinemedi; hesap klasörünü elle sil.",
+            }
         return {"ok": True}
 
     def _activate(self, account_id: str) -> None:
