@@ -11,6 +11,7 @@ yeniden indeksleme neredeyse anlıktır.
 from __future__ import annotations
 
 import hashlib
+import os
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -84,17 +85,22 @@ class Chunk:
 
 def iter_source_files(root: Path) -> Iterator[Path]:
     """İndekslenecek kaynak dosyaları üret; gürültü dizinleri atlanır."""
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or _is_skipped(path):
-            continue
-        if path.suffix.lower() not in SOURCE_SUFFIXES:
-            continue
-        try:
-            if path.stat().st_size > MAX_FILE_BYTES:
+    # `os.walk` gürültü dizinine HİÇ girmez (eskiden `rglob` önce hepsini geziyor,
+    # atlamayı sonra yapıyordu: büyük repoda her `reindex` yavaştı). Süzme yalnız
+    # kökün ALTINDAKİ dizin adlarına bakar: proje `~/work/build/app` gibi gürültü
+    # adlı bir ata dizindeyse eskiden bütün dosyalar atlanıyor, indeks boş kalıyordu.
+    for current, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(name for name in dirnames if name not in SKIP_DIRECTORIES)
+        for filename in sorted(filenames):
+            path = Path(current) / filename
+            if path.suffix.lower() not in SOURCE_SUFFIXES or not path.is_file():
                 continue
-        except OSError:
-            continue
-        yield path
+            try:
+                if path.stat().st_size > MAX_FILE_BYTES:
+                    continue
+            except OSError:
+                continue
+            yield path
 
 
 def chunk_file(path: Path, root: Path) -> list[Chunk]:
@@ -128,10 +134,6 @@ def build_chunks(root: Path, limit: int = MAX_CHUNKS) -> list[Chunk]:
             if len(chunks) >= limit:
                 return chunks
     return chunks
-
-
-def _is_skipped(path: Path) -> bool:
-    return any(part in SKIP_DIRECTORIES for part in path.parts)
 
 
 def _relative(path: Path, root: Path) -> str:

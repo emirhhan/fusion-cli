@@ -229,3 +229,15 @@ def test_ders_blogu_ustunluk_sinirini_yazar():
 def test_bos_ders_listesinde_uyari_da_basilmaz():
     """Ders yokken boş bir uyarı bloğu prompt bütçesi harcamamalı."""
     assert as_prompt_block(()) == ""
+
+
+def test_proje_gurultu_adli_ust_dizindeyse_dosyalar_atlanmaz(tmp_path):
+    """Ölçüldü (30 Ekim): `_is_skipped` mutlak yolun TÜM üst dizinlerine bakıyordu;
+    proje `~/work/build/app` ya da `/tmp/…/dist/proj` altındaysa indeks boş kalıyordu
+    (M1-35). Yalnız kökün ALTINDAKİ dizin adları sayılmalı."""
+    kok = tmp_path / "build" / "dist" / "proje"
+    (kok / "node_modules").mkdir(parents=True)
+    (kok / "node_modules" / "x.js").write_text("kod", encoding="utf-8")
+    (kok / "kod.py").write_text("kod", encoding="utf-8")
+
+    assert {p.name for p in iter_source_files(kok)} == {"kod.py"}

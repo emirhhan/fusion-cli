@@ -135,3 +135,12 @@ def test_yuksek_fuzyon_skoru_one_siralanir():
     yuksek = Candidate(_lesson("yüksek"), distance=0.2, fused=0.05)
     secilen = select_lessons((dusuk, yuksek), limit=4)
     assert secilen[0].text == "yüksek"
+
+
+def test_tokenize_turkce_buyuk_i_ve_noktasiz_i_ayni_terimdir():
+    """Ölçüldü (30 Ekim): `"İstanbul".lower()` = 'i' + birleşik nokta (U+0307); regex sınıfı
+    U+0307'yi ayırıcı sayıp "İstanbul" → ['stanbul'], "İNDİR" → ['ndir'] yapıyordu.
+    `I`→`ı` yüzünden "ISPARTA" ≠ "ısparta"/"isparta" (M1-37)."""
+    assert tokenize("İstanbul") == ["istanbul"]
+    assert tokenize("İNDİR") == ["indir"]
+    assert tokenize("ISPARTA") == tokenize("ısparta") == tokenize("isparta") == ["isparta"]

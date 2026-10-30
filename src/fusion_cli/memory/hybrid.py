@@ -44,7 +44,11 @@ _MIN_TOKEN_LENGTH = 2
 def tokenize(text: str) -> list[str]:
     """Metni küçük harfli, alfasayısal token listesine ayırır (Türkçe harfler dahil)."""
 
-    words = re.split(r"[^0-9a-zçğıöşü]+", text.lower())
+    # Türkçe büyük harf: `"İ".lower()` birleşik noktalı 'i' (U+0307) üretip token'ı
+    # ikiye bölüyordu ("İstanbul" → "stanbul"); `I` de 'ı' olup "ISPARTA"yı "isparta"dan
+    # ayırıyordu. İki yönde de 'i'ye katla (noktalı/noktasız i arama için aynı sayılır).
+    folded = text.replace("İ", "i").replace("I", "i").lower().replace("ı", "i")
+    words = re.split(r"[^0-9a-zçğöşü]+", folded)
     return [word for word in words if len(word) >= _MIN_TOKEN_LENGTH]
 
 
