@@ -698,3 +698,14 @@ async def test_zarf_asiminda_dogru_is_geri_alinmaz_dogrulanip_duraklatilir(tmp_p
     assert len(cagrilan) == 1
     olaylar = [o for o in deps.publisher.events if isinstance(o, ExecutionStepVerified)]
     assert olaylar and olaylar[0].ok is True
+
+
+async def test_adim_baslangic_olayi_adim_zarfini_tasir(tmp_path):
+    """A3-40: adım zarfı politikanın üstüne çıkabilir; kullanıcı görebilmeli."""
+    plan = ExecutionPlan(plan_id="p", task="iş", steps=(_step("inspect"),))
+    deps = _FakeDeps(ToolContext(root=tmp_path), config=_dar_zarf_ayari(7))
+
+    await run_execution_plan("iş", deps, _FakeAgent([]), plan=plan)
+
+    basladi = [o for o in deps.publisher.events if isinstance(o, ExecutionStepStarted)]
+    assert basladi and basladi[0].model_call_limit == 7

@@ -513,6 +513,10 @@ class ExecutionStepStarted(Event):
     index: int
     total_steps: int
     goal: str
+    #: Bu adımın alt turuna tanınan model çağrısı zarfı; 0 = bilinmiyor.
+    #: Adım zarfı politika/tur sınırının ÜSTÜNE çıkabilir (A3-40); arayüz bunu
+    #: göstererek maliyet sürprizini önler.
+    model_call_limit: int = field(default=0, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)

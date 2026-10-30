@@ -702,6 +702,12 @@ class _PlanRun:
                 ),
                 total_steps=len(self.current.steps),
                 goal=step.goal,
+                model_call_limit=self.remaining(
+                    BudgetEnvelope.RECOVERY
+                    if step.step_id in self.repair_ids or step.attempts > 0
+                    else BudgetEnvelope.PER_STEP,
+                    step.step_id,
+                ),
             )
         )
         if (
