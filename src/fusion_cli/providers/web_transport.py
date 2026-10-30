@@ -110,10 +110,19 @@ def _error_message(response: httpx.Response) -> str:
 
 
 def _extract_text(response: httpx.Response) -> str:
-    """OpenAI-uyumlu yanıttan cevap metnini al; biçim beklenmedikse ham metne düş."""
+    """OpenAI-uyumlu yanıttan cevap metnini al; biçim beklenmedikse HATA fırlat.
+
+    Ham gövdeyi model metni saymak, 200 ile dönen hata JSON'unu ya da HTML giriş
+    sayfasını `ok=True` cevap yapardı (ölçüldü 30 Ekim). Adaptör istisnayı `ok=False`
+    sonuca çevirir.
+    """
     try:
         body = response.json()
         content = body["choices"][0]["message"]["content"]
     except (ValueError, KeyError, IndexError, TypeError):
-        return response.text
+        detail = _error_message(response)
+        raise ValueError(
+            f"Uç beklenen OpenAI-uyumlu biçimde yanıt vermedi (HTTP {response.status_code}): "
+            f"{detail}"
+        ) from None
     return str(content)

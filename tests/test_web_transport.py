@@ -135,3 +135,21 @@ async def test_hata_kodunda_anlasilir_istisna_firlatir():
     with pytest.raises(Exception) as err:
         await transport(WebSessionCredential(token="x"), (Message("user", "s"),), "m")
     assert "401" in str(err.value)
+
+
+async def test_beklenmedik_govde_model_cevabi_sayilmaz():
+    """Ölçüldü (30 Ekim): HTTP 200 ile gelen hata JSON'u / HTML giriş sayfası
+    `KeyError` yakalanıp `response.text` olarak MODEL METNİ döndürülüyordu; emulated
+    araç modunda bozuk metin araç ayrıştırıcısına gidiyordu (P1-36)."""
+    for govde in (
+        httpx.Response(200, json={"error": {"message": "oturum süresi doldu"}}),
+        httpx.Response(200, text="<html><body>Giriş yap</body></html>"),
+        httpx.Response(200, json={"choices": []}),
+    ):
+        transport = build_http_transport(
+            "https://uc.example/v1/chat/completions",
+            http_transport=httpx.MockTransport(lambda _request, g=govde: g),
+        )
+
+        with pytest.raises(ValueError, match="beklenen"):
+            await transport(WebSessionCredential(), (Message("user", "x"),), "m")
