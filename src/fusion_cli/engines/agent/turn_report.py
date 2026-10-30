@@ -29,6 +29,7 @@ from ...ui.text import strip_thinking
 from .completion_evidence import evidence_payload as evidence_payload
 from .job_delivery import JobDelivery, collect_job_deliveries
 from .shell_mutation import shell_may_change_files
+from .tamper_check import TamperFinding, has_weakening, render_findings
 from .verify_discovery import is_behavioral_command
 
 #: Kabuk komutu çalıştıran KANONİK araç adı — yalnız görüntüleme/dokümantasyon
@@ -157,6 +158,9 @@ class TurnReport:
     #: Model kanıt yokken doğrulama iddia etti mi? (`build_turn_report` doldurur.)
     false_claim: bool = False
     job_deliveries: tuple[JobDelivery, ...] = ()
+    #: Turda var olan teste/CI'a dokunuş (bkz. `tamper_check.py`). Zayıflatan bulgu varken
+    #: geçen komut tek başına doğrulama sayılmaz; yalnız dokunuş ise uyarıdır.
+    test_tamper: tuple[TamperFinding, ...] = ()
 
     @property
     def _behavioral_evidence(self) -> tuple[CommandRun, ...]:
@@ -192,6 +196,10 @@ class TurnReport:
         if self.gate is not None and not self.gate.ok:
             return False
         if any(item.problem for item in self.job_deliveries):
+            return False
+        # Test/CI zayıflatıldıysa geçen test kanıt değildir: ajan sınavı kendi yazmış olabilir.
+        # (Kabuk `rm tests/x.py` gibi izlenmeyen değişiklikte `changed_paths` boş olabilir.)
+        if has_weakening(self.test_tamper):
             return False
         if not self.changed_paths:
             return None
@@ -248,7 +256,7 @@ class TurnReport:
 
     def render(self) -> str:
         """Türkçe, kısa bir rapor metni üret; değişiklik yoksa boş döner (D4)."""
-        if not self.changed_paths and not self.job_deliveries:
+        if not self.changed_paths and not self.job_deliveries and not self.test_tamper:
             return ""
         jobs = tuple(
             (
@@ -263,6 +271,7 @@ class TurnReport:
         blocks = [*jobs, *self._gate_blocks()]
         if self.changed_paths:
             blocks.append(self._evidence_block())
+        blocks.append(render_findings(self.test_tamper))
         return "\n\n".join(block for block in blocks if block) + "\n\n"
 
     def render_with_model_text(self, model_text: str) -> str:
@@ -305,6 +314,16 @@ class TurnReport:
         return ()
 
     def _evidence_block(self) -> str:
+        block = self._evidence_block_text()
+        if has_weakening(self.test_tamper) and block.startswith("✓ Doğrulandı"):
+            return block.replace(
+                "✓ Doğrulandı",
+                "ⓘ Komutlar geçti ama doğrulanmış SAYILMAZ (şüpheli test değişikliği)",
+                1,
+            )
+        return block
+
+    def _evidence_block_text(self) -> str:
         dosyalar = ", ".join(self.changed_paths)
         evidence = self._unresolved_evidence
         kapi_kaniti = self._gate_passed_evidence
@@ -360,6 +379,7 @@ def build_turn_report(
     *,
     require_behavioral_evidence: bool = False,
     current_jobs: tuple[JobCurrentSnapshot, ...] = (),
+    test_tamper: tuple[TamperFinding, ...] = (),
 ) -> TurnReport:
     """Turda denenen araç çağrılarından ve değişiklik kaydından raporu kur."""
     last_mutation = _last_mutation_index(tool_uses)
@@ -386,6 +406,7 @@ def build_turn_report(
         gate=gate,
         require_behavioral_evidence=require_behavioral_evidence,
         job_deliveries=jobs,
+        test_tamper=test_tamper,
     )
 
 

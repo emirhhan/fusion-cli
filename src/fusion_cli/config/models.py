@@ -280,6 +280,21 @@ class RuntimeConfig:
     #: sonra gelen kademenin baş modeli. Doluysa kullanıcının açık tanımıdır; yine de
     #: araç yetenekli olmalı ve web/Codex oturumu olmamalıdır.
     escalation_model: str = ""
+    #: Tur sonunda ajanın test/CI dosyalarına dokunuşu denetlenir (`tamper_check.py`): var olan
+    #: testte skip/xfail/.only eklenmesi, assert ya da test silinmesi, test dosyasının silinmesi,
+    #: CI iş akışı / pytest yapılandırması / `test` betiği değişikliği "şüpheli" işaretlenir ve
+    #: "testler geçti" kanıtı tek başına başarı sayılmaz. ENGELLEMEZ, yalnız işaretler ve uyarır.
+    #: Varsayılan AÇIK: ImpossibleBench ajanların geçemediği testi değiştirerek "başarı"
+    #: gösterdiğini ölçtü; denetim dosya içeriğini bir kez okur, maliyeti ihmal edilebilir.
+    test_tamper_check: bool = True
+    #: Ders çıkarılan turda dış içerik (web/tarayıcı/MCP/klonlanan site) okunduysa çıkan dersin
+    #: başlangıç güveni (0..1) ve "doğrulanmamış dış kaynaklı" etiketi. Güven eşiği
+    #: (`LESSON_CONFIDENCE_FLOOR` 0.35) üstünde kalmalı ki ders geri çağrılıp sınanabilsin; ama
+    #: normal derse (1.0) göre düşüktür ve dış içerik okunan başarılı turda artmaz: yalnız
+    #: dış içeriksiz başarılı bir tur dersi doğrular. 0.5: tek başarısız tur (-0.20 → 0.30)
+    #: dersi eşiğin altına indirir; yani zehirli bir ders ilk başarısızlıkta devre dışı kalır
+    #: (MINJA bellek zehirlemesine karşı ucuz bir hız sınırı). TAHMİN: canlı ölçümle güncellenecek.
+    external_lesson_confidence: float = 0.5
 
 
 @dataclass(frozen=True, slots=True)

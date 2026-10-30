@@ -309,6 +309,8 @@ def _build_runtime(raw: object) -> RuntimeConfig:
             "runtime.escalation_model: <sağlayıcı>/<model> biçiminde olmalı "
             f"(gelen: {runtime.escalation_model!r}); boş bırakılırsa kademeden otomatik seçilir."
         )
+    if not 0.0 <= runtime.external_lesson_confidence <= 1.0:
+        raise ConfigError("runtime.external_lesson_confidence: 0 ile 1 arasında olmalı.")
     if not 0.0 <= runtime.weak_model_compaction_ratio <= 1.0:
         raise ConfigError("runtime.weak_model_compaction_ratio: 0 ile 1 arasında olmalı.")
     if not 0.0 <= runtime.reliability_alpha <= 1.0:

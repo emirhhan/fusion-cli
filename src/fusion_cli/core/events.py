@@ -460,9 +460,29 @@ class CapabilityActivated(Event):
 
 @dataclass(frozen=True, slots=True)
 class LessonsLearned(Event):
-    """Turdan yeni ders(ler) çıkarılıp belleğe yazıldı."""
+    """Turdan yeni ders(ler) çıkarılıp belleğe yazıldı.
+
+    `external`: yazılanlardan kaçı dış içerik (web/tarayıcı/MCP/klonlanan site) okunan
+    turdan çıktığı için düşük güvenle "dış kaynaklı" etiketlendi (ölçüm izi).
+    """
 
     count: int
+    external: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class TamperSuspected(Event):
+    """Turda ajan var olan bir testi/test komutunu değiştirdi ya da zayıflattı.
+
+    Engelleme değil ölçüm izidir: `count` toplam bulgu, `weakening` bunlardan kanıtı
+    düşürenler (skip/assert/test silme, CI değişikliği), `kinds` bulgu türleri
+    (`tamper_check.TamperKind` değerleri), `paths` etkilenen yollar (en fazla 10).
+    """
+
+    count: int
+    weakening: int
+    kinds: tuple[str, ...] = ()
+    paths: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

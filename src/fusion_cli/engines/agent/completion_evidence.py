@@ -24,7 +24,7 @@ def evidence_payload(report: TurnReport | None) -> dict[str, object] | None:
     problems = [item.problem for item in report.job_deliveries if item.problem]
     if report.gate is not None and not report.gate.ok:
         problems.extend(report.gate.findings)
-    return {
+    payload: dict[str, object] = {
         "schema_version": 1,
         "dogrulandi": report.is_verified,
         "engelliyor": report.blocks_success,
@@ -36,3 +36,12 @@ def evidence_payload(report: TurnReport | None) -> dict[str, object] | None:
         "sorun_sayisi": len(problems),
         "sorunlar_kisaltildi": len(problems) > EVIDENCE_MAX_PROBLEMS,
     }
+    if report.test_tamper:
+        # Yalnız bulgu varken eklenir: şemayı bekleyen istemciler için eklemeli alan.
+        payload["supheli_test_degisikligi"] = {
+            "adet": len(report.test_tamper),
+            "zayiflatan": sum(1 for item in report.test_tamper if item.weakens),
+            "turler": sorted({item.kind.value for item in report.test_tamper}),
+            "yollar": [item.path for item in report.test_tamper[:EVIDENCE_MAX_PATHS]],
+        }
+    return payload

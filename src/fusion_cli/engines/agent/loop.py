@@ -191,6 +191,7 @@ from .questions import PendingUserQuestions
 from .repair_flow import record_failure_evidence
 from .repo_context import repo_map_block
 from .self_knowledge import GUIDE, knowledge_block
+from .tamper_check import collect_test_tampering
 from .teacher_flow import (
     prepare_teacher_plan,
     review_teacher_changes,
@@ -1036,6 +1037,7 @@ async def _run_agent(
             deps,
             gate=verification,
             current_jobs=current_jobs,
+            task=task,
             require_behavioral_evidence=(
                 verify and execution.complex_task and len(deps.tool_context.changes.paths) > 1
             ),
@@ -1083,6 +1085,7 @@ def _apply_turn_report(
     gate: VerificationResult | None,
     current_jobs: tuple[JobCurrentSnapshot, ...] = (),
     require_behavioral_evidence: bool = False,
+    task: str = "",
 ) -> None:
     """Turun raporunu MODELİN BEYANINDAN değil gerçek kayıttan kur ve ekle.
 
@@ -1103,12 +1106,14 @@ def _apply_turn_report(
     changed_paths = tuple(
         display_path(deps.tool_context, path) for path in deps.tool_context.changes.paths
     )
+    tamper = collect_test_tampering(deps, outcome.tool_uses, task)
     report = build_turn_report(
         changed_paths,
         outcome.tool_uses,
         gate,
         current_jobs=current_jobs,
         require_behavioral_evidence=require_behavioral_evidence,
+        test_tamper=tamper,
     )
     if report.is_verified is False and claims_command_success(outcome.final_text):
         # Kanıtsız "testler geçti" yanlış başarıdır: tur başarılı sayılmaz, ders

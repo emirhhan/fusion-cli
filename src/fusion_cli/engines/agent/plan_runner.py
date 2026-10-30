@@ -78,6 +78,7 @@ from .progress import progress_fingerprint
 from .recovery import can_repair_local_inventory, choose_recovery, classify_failure
 from .replan import merge_replanned_plan
 from .step_verification import StepVerificationResult, verify_plan_acceptance, verify_step
+from .tamper_check import collect_test_tampering
 from .turn_report import TurnReport, build_turn_report
 
 if TYPE_CHECKING:
@@ -372,7 +373,13 @@ class _PlanRun:
             for path in self.deps.tool_context.changes.paths
         )
         tool_uses = tuple(use for item in self.outcomes for use in item.tool_uses)
-        return build_turn_report(changed_paths, tool_uses, gate=None, current_jobs=current_jobs)
+        return build_turn_report(
+            changed_paths,
+            tool_uses,
+            gate=None,
+            current_jobs=current_jobs,
+            test_tamper=collect_test_tampering(self.deps, tool_uses, self.task),
+        )
 
     def outcome(
         self,

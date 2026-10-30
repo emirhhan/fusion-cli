@@ -276,6 +276,14 @@ runtime:
   # Her görevden ders çıkarılır ve benzer görevlerde sistem promptunda hatırlatılır.
   # Öz-gelişimin çekirdeği; bir model çağrısı ekler.
   lessons: true
+  # Tur sonunda ajanın test/CI dosyalarına dokunuşu denetlenir: var olan teste skip/xfail/.only
+  # eklemek, assert/test/test dosyası silmek, CI iş akışı ya da test komutunu değiştirmek
+  # "şüpheli" işaretlenir ve "testler geçti" kanıtı tek başına başarı sayılmaz. Engellemez.
+  test_tamper_check: true
+  # Dış içerik (web, tarayıcı, MCP, klonlanan site) okunan turdan çıkan dersin başlangıç güveni.
+  # Eşik 0.35'in üstünde ama normal dersten (1.0) düşük; yalnız dış içeriksiz BAŞARILI bir
+  # turda doğrulanınca normal güvene çıkabilir. TAHMİN: canlı ölçümle güncellenecek.
+  external_lesson_confidence: 0.5
   # `ask_teacher` aracı modele hiç sunulmaz (`config.teacher` tanımlı olsa bile).
   # `council` bundan etkilenmez — ayrı, çoklu-API-model bir araçtır (Faz 4, Görev 3).
   teacherless: false
