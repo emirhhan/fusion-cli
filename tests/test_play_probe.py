@@ -52,7 +52,7 @@ def test_ozet_degismeyen_durumu_ve_eksik_kancayi_soyler():
 
     assert "TUŞLAR DURUMU DEĞİŞTİRMEDİ" in donuk.summary() and "HAYIR" in donuk.summary()
     assert "__GAME_STATE__ yok" in kancasiz.summary()
-    assert "döngü çalışmıyor" in kancasiz.summary()
+    assert "kilitli olabilir" in kancasiz.summary()
 
 
 def test_gercek_oyunda_tuslar_durumu_degistirir_r_sifirlar(tmp_path):
