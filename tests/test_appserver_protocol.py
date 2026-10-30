@@ -75,3 +75,15 @@ def test_satir_sonlari_kacisla_tasinir():
     satir = encode_event({"olay": "X", "metin": "bir\niki"})
     assert satir.count("\n") == 0
     assert json.loads(satir)["veri"]["metin"] == "bir\niki"
+
+
+def test_tek_basina_vekil_karakter_satiri_kodlanabilir_kalir():
+    """Ölçüldü (30 Ekim, S2-18): lone surrogate UTF-8'e kodlanamadığından stdout
+    `UnicodeEncodeError` veriyor, isteğe sonuç yazılmıyor, UI sonsuza dek bekliyordu."""
+    from fusion_cli.appserver.protocol import encode_result
+
+    satir = encode_result("1", {"metin": "bozuk \ud800 çıktı"})
+
+    satir.encode("utf-8")  # fırlatmamalı
+    assert json.loads(satir)["veri"]["metin"] == "bozuk \ud800 çıktı"
+    assert "çıktı" in encode_result("2", {"metin": "çıktı"})  # normal metin kaçışsız kalır

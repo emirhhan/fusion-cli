@@ -2176,3 +2176,22 @@ async def test_model_rol_ata_kabul_kilidini_paylasir(tmp_path):
         assert not gorev.done()
     await asyncio.wait_for(gorev, 5)
     assert _sonuc(satirlar, "1")["ok"] is False
+
+
+async def test_istek_hatasi_maskelenir_ve_gunluge_yazilir(tmp_path, monkeypatch, caplog):
+    """Ölçüldü (30 Ekim, S2-17): `handle` ham `str(error)` döndürüyordu (token parçası/yol
+    UI'ya gidebilir) ve hiçbir iz bırakmıyordu."""
+
+    async def bozuk(_istek):
+        raise RuntimeError("Authorization: Bearer abcdef1234567890xyz reddedildi")
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    monkeypatch.setattr(oturum, "_dispatch", bozuk)
+
+    with caplog.at_level("ERROR"):
+        await oturum.handle(Request("1", "durum", {}))
+
+    sonuc = _sonuc(satirlar, "1")
+    assert sonuc["ok"] is False and "abcdef1234567890xyz" not in sonuc["metin"]
+    assert "RuntimeError" in caplog.text and "abcdef1234567890xyz" not in caplog.text

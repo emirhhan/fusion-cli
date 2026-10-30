@@ -57,6 +57,7 @@ from ..core.concurrency import BackgroundTasks
 from ..core.events import Event, EventSink, StatusChanged
 from ..core.owned_thread import await_owned_thread
 from ..core.reasoning import ReasoningEffort, resolve_reasoning
+from ..core.redaction import redact
 from ..core.remotion_browser import RemotionBrowser
 from ..core.skill_context import SkillSelection
 from ..core.steering import SteeringQueue
@@ -540,7 +541,12 @@ class AppSession:
         try:
             data = await self._dispatch(request)
         except Exception as error:  # istek sınırı: süreç çökmemeli
-            data = {"ok": False, "metin": str(error)}
+            # Ham istisna metni dosya yolu/URL/token parçası taşıyabilir: maskelenip gösterilir,
+            # tür ve istek adı günlüğe yazılır (ölçüldü 30 Ekim: ne maske ne iz vardı).
+            logging.getLogger(__name__).error(
+                "İstek işlenemedi (%s): %s", request.name, type(error).__name__
+            )
+            data = {"ok": False, "metin": redact(str(error))}
         self._writer(encode_result(request.id, data))
 
     def _remote_controller(self) -> RemoteController:
