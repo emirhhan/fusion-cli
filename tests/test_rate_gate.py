@@ -265,3 +265,71 @@ def test_defter_dizini_yoksa_da_ilk_kullanimda_kurulur(tmp_path):
     yol.unlink()  # dosya sonradan silinirse defter yeniden kurulur
     defter.cool("k2", 9_999_999_999.0)
     assert defter.cooled_until("k2") == 9_999_999_999.0
+
+
+class _Sirali:
+    """Sırayla verilen sonuçları döndüren tek modelli sağlayıcı; çağrıları sayar."""
+
+    label = "nvidia_nim/model"
+
+    def __init__(self, *sonuclar: ModelResult) -> None:
+        self._sonuclar = list(sonuclar)
+        self.cagri_sayisi = 0
+
+    async def complete(self, request: CompletionRequest) -> ModelResult:
+        self.cagri_sayisi += 1
+        return self._sonuclar[min(self.cagri_sayisi - 1, len(self._sonuclar) - 1)]
+
+    async def stream(self, request: CompletionRequest):
+        yield StreamDone(await self.complete(request))
+
+
+def _sonuc(*, ok: bool, error: str | None = None) -> ModelResult:
+    return ModelResult(
+        name="r", model="nvidia_nim/model", text="tamam" if ok else "", latency_ms=1, ok=ok,
+        error=error,
+    )  # fmt: skip
+
+
+async def test_kapi_soguma_blogu_kalan_sureyi_retry_after_olarak_tasir(tmp_path):
+    clock = _Clock()
+    ledger = _ledger(tmp_path, clock)
+    ledger.cool("nvidia_nim/model", clock.now() + 42.0)
+    kapi = _gate(FakeProvider("nvidia_nim/model", chunks=("x",)), ledger, clock)
+
+    result = await kapi.complete(_REQUEST)
+
+    assert result.is_rate_limited
+    assert result.retry_after_s == 42.0
+
+
+async def test_kapi_yedeksiz_modelde_retry_soguma_bitene_kadar_bekler_sonra_dener(tmp_path):
+    """P1-07. Ölçüldü (30 Ekim): retry kapının DIŞINDA; ilk 429 sonrası 1,5/4 sn'lik
+    gecikmeler 60 sn'lik soğumanın içinde kalıyor, kapı her seferinde anında "soğumada"
+    döndürüyor ve hiç gerçek yeniden deneme yapılmıyordu."""
+    from fusion_cli.providers.retrying import RetryingProvider
+
+    clock = _Clock()
+    ledger = _ledger(tmp_path, clock)
+    sleeper = _Sleeper(clock)
+    model = _Sirali(
+        _sonuc(ok=False, error="RateLimitError: 429"),
+        _sonuc(ok=True),
+    )
+    kapi = RateGatedProvider(
+        model,
+        ledger=ledger,
+        key="nvidia_nim/model",
+        per_minute=None,
+        pace_max_wait_s=3.0,
+        cooldown_s=60.0,
+        clock=clock,
+        sleeper=sleeper,
+    )
+    retry = RetryingProvider(kapi, delays_s=(1.5, 4.0), sleeper=sleeper)
+
+    result = await retry.complete(_REQUEST)
+
+    assert result.ok
+    assert model.cagri_sayisi == 2  # gerçek ikinci çağrı yapıldı
+    assert sleeper.slept == [60.0]  # max(1,5; kalan soğuma)

@@ -380,6 +380,10 @@ class ModelResult:
     requested_effort: str | None = None
     applied_effort: str | None = None
     effort_reason: str = ""
+    #: Hız sınırı sonucunda çağrının YENİDEN denenebileceği en erken süre (sn).
+    #: Hız kapısı paylaşılan soğumayı bu alanla bildirir; yeniden deneme katmanı
+    #: kısa sabit gecikme yerine en az bu kadar bekler (P1-07). Bilinmiyorsa `None`.
+    retry_after_s: float | None = None
 
     @property
     def is_rate_limited(self) -> bool:

@@ -85,6 +85,11 @@ GIT_TIMEOUT_S = 30.0
 #: onun bütçesi `WebSessionConfig.timeout_s` alanından gelir.
 WEB_TIMEOUT_S = 20.0
 
+#: Hız sınırı sonrası yeniden denemede `retry_after_s` ile en fazla bu kadar beklenir.
+#: Paylaşılan soğuma bundan uzunsa bekleme sınırlanır; ardından kapı yine kapalıysa
+#: sonuç olduğu gibi üst katmana (agent turunun kendi bekleme/yedek mantığına) döner.
+RETRY_AFTER_MAX_WAIT_S = 120.0
+
 #: Tarayıcı oturumunda görsel yükleme yolu OLAN web sağlayıcıları (yalnız Gemini'de ölçüldü).
 #: `supports_images`, yetenek profili ve `_attach_images` aynı kümeye bakar (P1-06).
 WEB_IMAGE_UPLOAD_PROVIDERS = frozenset({"gemini_web"})

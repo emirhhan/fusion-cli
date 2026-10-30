@@ -11,6 +11,11 @@ Davranış:
 - Kalıcı hatada (olmayan model, geçersiz anahtar, günlük kota) hiç beklenmez.
 - Hız sınırında (429), zincirde bu modelden sonra bir yedek varsa beklenmez; iş
   yedekle hemen sürer. Yedeksiz modelde aşağıdaki "aynı model" gerekçesi geçerlidir.
+- Sonuç `retry_after_s` taşıyorsa (hız kapısının paylaşılan soğuması) bekleme
+  `max(gecikme, retry_after_s)` olur: kapı soğuma bitene dek her denemeyi anında
+  reddedeceği için daha kısa bekleme gecikmeleri boşa tüketirdi (P1-07; ölçüldü
+  30 Ekim: 1,5 + 4 sn gecikme 60 sn'lik soğumanın içinde kalıyor, gerçek yeniden
+  deneme hiç yapılmıyordu).
 
 Neden aynı model: sağlayıcının hız sınırı MODEL BAŞINADIR (NVIDIA NIM'de ölçüldü)
 ve 60 saniyede 40 isteğe izin verir. Dakikalık sınıra takılan bir çağrı, kısa bir
@@ -27,6 +32,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Sequence
 
 from ..core.clock import SystemSleeper
+from ..core.constants import RETRY_AFTER_MAX_WAIT_S
 from ..core.protocols import LlmProvider, Sleeper
 from ..core.types import (
     CompletionRequest,
@@ -68,7 +74,7 @@ class RetryingProvider:
         for delay in self._delays_s:
             if not self._should_retry(result):
                 return result
-            await self._sleeper.sleep(delay)
+            await self._sleeper.sleep(_wait_s(delay, result))
             result = await self._inner.complete(request)
         return result
 
@@ -99,7 +105,7 @@ class RetryingProvider:
             if delay is None or not self._should_retry(erken):
                 yield StreamDone(erken)
                 return
-            await self._sleeper.sleep(delay)
+            await self._sleeper.sleep(_wait_s(delay, erken))
 
     # ----------------------------------------------------------------------- #
 
@@ -117,6 +123,13 @@ class RetryingProvider:
             # gecikme ve maliyet harcar (ölçüldü 30 Ekim). Kurtarma üst katmanda.
             return False
         return not result.is_usable and not is_permanent_error(result.error)
+
+
+def _wait_s(delay_s: float, result: ModelResult) -> float:
+    """Gecikme ile sonucun bildirdiği `retry_after_s`'in büyüğü (üst sınırlı)."""
+    if result.retry_after_s is None:
+        return delay_s
+    return max(delay_s, min(result.retry_after_s, RETRY_AFTER_MAX_WAIT_S))
 
 
 def _opening_result(first: StreamItem | None, label: str) -> ModelResult | None:
