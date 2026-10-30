@@ -46,3 +46,11 @@ describe("ShareDialog", () => {
     expect(await screen.findByRole("button", { name: "Metni kopyala" })).toBeTruthy();
   });
 });
+
+it("satır içi onClose yeni kimlikle gelse de odağı geri çekmez (U4-51)", () => {
+  const view = render(<ShareDialog messages={[]} onClose={() => undefined} title="A" />);
+  const kopyala = screen.getByRole("button", { name: "Metni kopyala" });
+  kopyala.focus();
+  view.rerender(<ShareDialog messages={[]} onClose={() => undefined} title="A" />);
+  expect(document.activeElement).toBe(kopyala);
+});

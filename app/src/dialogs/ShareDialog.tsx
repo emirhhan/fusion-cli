@@ -32,6 +32,9 @@ export function ShareDialog({ title, messages, onClose }: {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  // Satır içi onClose her render'da efekti yeniden kurup odağı kapat düğmesine çekiyordu (U4-51).
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   const transcript = shareableTranscript(title, messages);
 
   // Sohbet değiştiyse "Kopyalandı" bayatlar (U4-21).
@@ -40,13 +43,13 @@ export function ShareDialog({ title, messages, onClose }: {
   useEffect(() => {
     const previous = document.activeElement;
     closeRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onCloseRef.current(); };
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
     };
-  }, [onClose]);
+  }, []);
 
   const copy = async () => {
     try {
