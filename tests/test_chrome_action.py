@@ -417,7 +417,6 @@ def test_chrome_action_semasi_enum_ve_deger_aciklamasi_tasir():
     properties = tool.parameters["properties"]
 
     assert "click_at" in properties["action"]["enum"] and "zoom" in properties["action"]["enum"]
-    assert "description" in properties["value"]
     for ipucu in ("down:600", "x,y", "x1,y1,x2,y2", "1280,800"):
         assert ipucu in tool.description
 

@@ -119,7 +119,7 @@ def test_arac_aciklamasi_yerel_sunucu_gercegini_soyler():
     aciklama = build_registry().get("browser_open").description
 
     assert "localhost engellenir" not in aciklama
-    assert "yerel" in aciklama
+    assert "Yerel adres" in aciklama
 
 
 @pytest.mark.parametrize(

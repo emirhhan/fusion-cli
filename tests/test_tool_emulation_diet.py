@@ -19,7 +19,10 @@ def rendered() -> str:
 #: araçları (+1.300) ise yalnız Remotion isteğinde sunulur (`SCOPED_TOOLS`).
 # 18 Ekim 2026: chrome_action'a double_click/right_click/drag/wheel (+44 karakter) eklendi;
 # arka plan masaüstü araçları ise yalnız masaüstü isteğinde sunulur (`SCOPED_TOOLS`).
-PROMPT_BUDGET = 10_760
+# 30 Ekim 2026 (T1-40): chrome_action şeması eylem `enum`'u ve her eylem için `value` anlamını
+# taşır (+~600 karakter). Zayıf modeller bu bilgiyi yalnız başarısızlık mesajlarından öğreniyor ve
+# her model aynı deneme-yanılma turlarını yaşıyordu; tek seferlik bütçe artışı turdan tasarruf eder.
+PROMPT_BUDGET = 11_400
 
 
 def test_emulated_tool_prompt_budgeti():

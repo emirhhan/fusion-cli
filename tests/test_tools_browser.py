@@ -102,6 +102,10 @@ class _SahteLocator:
     async def is_visible(self) -> bool:
         return True
 
+    async def evaluate_all(self, script: str) -> list[bool]:
+        """Görünürlük tek çağrıda ölçülür (browser_target._visible)."""
+        return [True] * self._page.adet
+
     async def evaluate(self, script: str) -> object:
         if "options" in script:
             return self._page.secenekler

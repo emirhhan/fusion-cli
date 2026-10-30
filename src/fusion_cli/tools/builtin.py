@@ -122,21 +122,18 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="chrome_action",
         description=(
-            "Chrome sekmesinde eylem. value eyleme göre: scroll=down:600|up:300 · wait=beklenecek "
-            "metin · key=Enter|Escape|Meta+a · select=ref+seçenek metni · open=URL · "
-            "tab/close=sekme kimliği · click_at/double_click/right_click/triple_click=ref YA DA "
-            "value=x,y (ekran görüntüsündeki piksel) · hover=ref · drag=ref(kaynak)+value "
-            "(hedef ref ya da x,y) · wheel=dx,dy · resize=1280,800 · zoom=x1,y1,x2,y2 "
-            "(ekran görüntüsü bölgesi; dönen görüntü büyütülmüş KIRPIKTIR, tıklamak için "
-            "TAM ekran görüntüsündeki koordinatı kullan) · upload=dosya yolları (virgülle) · "
-            "type_focused=yazılacak metin · check=ref+true|false. "
-            "Değersiz: tabs, screenshot, back, forward, reload, text, assets."
+            "Chrome eylemi. value: scroll=down:600 · wait=metin · key=Enter · open=URL · "
+            "tab/close=sekme id · click_at/double_click/right_click/triple_click=ref ya da x,y "
+            "(ekran görüntüsü pikseli) · drag=ref+hedef(ref|x,y) · wheel=dx,dy · "
+            "resize=1280,800 · zoom=x1,y1,x2,y2 (kırpık görüntü; tıklama TAM ekran x,y ile) · "
+            "upload=yol,yol · type_focused=metin · check=ref+true|false · select=ref+metin · "
+            "hover=ref. Değersiz: tabs screenshot back forward reload text assets."
         ),
         parameters=_schema(
             {
                 "action": {**_STRING, "enum": list(_CHROME_ACTIONS)},
-                "ref": {**_STRING, "description": "chrome_page'in verdiği öğe başvurusu"},
-                "value": {**_STRING, "description": "Eyleme göre değer (açıklamaya bak)"},
+                "ref": _STRING,
+                "value": _STRING,
             },
             ["action"],
         ),
@@ -546,9 +543,8 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="browser_open",
         description="URL'yi tarayıcıda aç ve oku; girişli/JS sayfası için. Oturum tur boyunca "
-        "açık kalır. Yerel adres YALNIZ kullanıcının mesajında yazdığı ya da önizlemeyle açılan "
-        "http://localhost:PORT sunucusu ise açılır (şemasız localhost:3000 http alır); diğer "
-        "yerel/özel ağ adresleri engellenir.",
+        "açık kalır. Yerel adres yalnız kullanıcının yazdığı ya da önizlemenin "
+        "http://localhost:PORT sunucusuysa açılır; diğer özel ağ adresleri engellenir.",
         parameters=_schema({"url": {**_STRING, "description": "Açılacak adres"}}, ["url"]),
         run=browser.browser_open,
     ),
