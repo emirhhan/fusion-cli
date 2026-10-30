@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+import re
 import shlex
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -174,7 +177,9 @@ def _git_subcommand(tokens: list[str]) -> str:
     options_with_value = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
     while index < len(tokens) and tokens[index].startswith("-"):
         option = tokens[index].split("=", 1)[0]
-        index += 2 if option in options_with_value and "=" not in tokens[index - 1] else 1
+        # Değer aynı token'da (`--git-dir=.git`) ise tek token atlanır; ayrı ise (`-C x`) iki.
+        # Eskiden ÖNCEKİ token'a bakılıyordu; `git --git-dir=.git commit` atlanıyordu (A4-14).
+        index += 2 if option in options_with_value and "=" not in tokens[index] else 1
     return tokens[index].casefold() if index < len(tokens) else ""
 
 
@@ -205,11 +210,13 @@ def _successful_tool_evidence(outcome: AgentOutcome, effect: str) -> CriterionEv
 def _legacy_file_check(step: PlanStep, criterion: str) -> VerificationCheck | None:
     """Eski planlardaki açık dosya-varlığı koşulunu güvenle dönüştür."""
     lowered = criterion.casefold()
-    existence_words = ("bulun", "mevcut", "oluştur", "exists", "var")
+    # "var" alt dizesi `varsayılan`, `evaluate` ile de eşleşiyordu (A4-53): tam sözcük aranır.
+    kelimeler = set(re.findall(r"\w+", lowered))
+    existence_words = ("bulun", "mevcut", "oluştur", "exists")
     file_words = ("dosya", "file")
-    if not any(word in lowered for word in existence_words) or not any(
-        word in lowered for word in file_words
-    ):
+    if not (
+        any(word in lowered for word in existence_words) or kelimeler & {"var", "vardır"}
+    ) or not any(word in lowered for word in file_words):
         return None
     paths = tuple(
         effect.removeprefix("file:").strip()
@@ -225,13 +232,33 @@ def _legacy_file_check(step: PlanStep, criterion: str) -> VerificationCheck | No
     )
 
 
+_RUNNER_PREFIX = re.compile(r"^python[\d.]*\s+-m\s+")
+
+
+def _command_key(command: str) -> str:
+    """Komutu boşluk ve `python -m` çalıştırıcı farkından arındır (`pytest -q` ≠ `pytest -q x/`)."""
+    return _RUNNER_PREFIX.sub("", " ".join(command.split()))
+
+
+def _same_tool(used: str, planned: str) -> bool:
+    """Araç adı aynı ya da aynı tanınan ailenin takma adı (`bash` ≈ `run_shell`)."""
+    if used == planned:
+        return True
+    family = tool_family(planned)
+    return family is not ToolFamily.EXTERNAL and tool_family(used) is family
+
+
 def _command_evidence(
     command: str,
     outcome: AgentOutcome,
     verification: VerificationResult | None,
 ) -> CriterionEvidence | None:
     for use in outcome.tool_uses:
-        if use.ok and tool_family(use.name) is ToolFamily.SHELL and _tool_command(use) == command:
+        if (
+            use.ok
+            and tool_family(use.name) is ToolFamily.SHELL
+            and _command_key(_tool_command(use)) == _command_key(command)
+        ):
             return CriterionEvidence(
                 criterion_id=command,
                 kind=VerificationCheckKind.COMMAND,
@@ -281,7 +308,8 @@ def _evaluate_check(
             command=check.target,
         )
 
-    expected_arguments = _expected_tool_arguments(check.expected)
+    # Boş `expected` "argüman şartı yok" demektir; zayıf planlayıcılar böyle bırakır (A4-18).
+    expected_arguments = _expected_tool_arguments(check.expected or "{}")
     if expected_arguments is None:
         return CriterionEvidence(
             check.criterion_id,
@@ -289,7 +317,9 @@ def _evaluate_check(
             EvidenceStatus.UNVERIFIED,
             "araç kontrolünde beklenen argümanlar geçerli JSON nesnesi değil",
         )
-    succeeded = tuple(use for use in outcome.tool_uses if use.name == check.target and use.ok)
+    succeeded = tuple(
+        use for use in outcome.tool_uses if _same_tool(use.name, check.target) and use.ok
+    )
     for use in succeeded:
         if _arguments_match(use.arguments, expected_arguments, root=root):
             return CriterionEvidence(
@@ -463,7 +493,18 @@ def evaluate_file_check(
             f"dosya içeriği okunamadı: {exc}",
             artifact=check.target,
         )
-    status = EvidenceStatus.PASSED if check.expected in content else EvidenceStatus.FAILED
+    # Boşluk farkı (girinti, satır sonu) içerik uyuşmazlığı sayılmaz (A4-19).
+    found = check.expected in content or " ".join(check.expected.split()) in " ".join(
+        content.split()
+    )
+    if found:
+        status = EvidenceStatus.PASSED
+    elif step_mutates:
+        status = EvidenceStatus.FAILED
+    else:
+        # Mutasyon vaadi olmayan keşif adımı, kodu görmeden yazılmış metnin tutmamasından
+        # sorumlu tutulmaz (eksik dosyadaki aynı ilke).
+        status = EvidenceStatus.UNVERIFIED
     return CriterionEvidence(
         check.criterion_id,
         check.kind,
@@ -551,11 +592,24 @@ def new_findings(current: tuple[str, ...], baseline: tuple[str, ...]) -> tuple[s
     return tuple(item for item in current if _finding_key(item) not in onceden)
 
 
+_VOLATILE_FINDING = re.compile(
+    r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?Z?"
+    r"|\b\d+(?:\.\d+)?\s?(?:ms|sec|seconds|saniye|s)\b"
+    r"|\bpid[ =:]*\d+"
+    r"|/(?:private/)?(?:var/folders|tmp)/\S+"
+    r"|\b[0-9a-f]{12,}\b",
+    re.IGNORECASE,
+)
+
+
 def _finding_key(finding: str) -> str:
     """Bulgunun kimliği: zaman aşımında komut satırı, diğerlerinde metnin tamamı."""
     if finding.startswith(TIMEOUT_FINDING_PREFIX):
         return finding.splitlines()[0].strip()
-    return finding
+    # Her koşuda değişen gürültü (zaman damgası, süre, PID, geçici yol, uzun onaltılık
+    # kimlik) önceden kırık kapıyı "yeni kırılma" yapmasın (A4-17); satır numarası ve
+    # hata metni korunur, yeni hata hâlâ yeni sayılır.
+    return _VOLATILE_FINDING.sub("#", finding)
 
 
 def _behavioral_runs(outcome: AgentOutcome) -> tuple[CriterionEvidence, ...]:
@@ -743,14 +797,41 @@ def _stale_step_effects(plan: ExecutionPlan, root: Path) -> tuple[str, ...]:
     return tuple(findings)
 
 
+#: Manifest aranırken girilmeyen klasörler (bağımlılık, derleme, sürüm kontrolü).
+_MANIFEST_SKIP_DIRS = frozenset(
+    {"node_modules", ".git", "dist", "build", ".venv", "venv", "__pycache__", "target"}
+)
+
+
+def _manifests(root: Path) -> list[Path]:
+    """Kökteki `.json` dosyaları; bağımlılık/derleme klasörlerine girmez (A4-15)."""
+    bulunan: list[Path] = []
+    for folder, dirs, files in os.walk(root):
+        dirs[:] = sorted(name for name in dirs if name not in _MANIFEST_SKIP_DIRS)
+        bulunan.extend(Path(folder) / name for name in sorted(files) if name.endswith(".json"))
+    return bulunan
+
+
 def _unused_assets(root: Path) -> tuple[str, ...]:
     """Projedeki her manifest için kullanılmayan varlıkları topla."""
     bulgular: list[str] = []
-    for manifest in sorted(root.rglob("*.json")):
+    for manifest in _manifests(root):
         if not is_asset_inventory(manifest):
             continue
         bulgular.extend(unused_manifest_assets(manifest, root))
     return tuple(bulgular)
+
+
+def _cross_file_conflicts(root: Path) -> tuple[str, ...]:
+    """Çapraz dosya denetimleri (disk taraması; `to_thread` ile çağrılır)."""
+    return (
+        *scene_script_conflicts(root),
+        *runtime_script_conflicts(root),
+        *promised_key_conflicts(root),
+        *missing_node_references(root),
+        *broken_resource_paths(root),
+        *scripts_without_base(root),
+    )
 
 
 async def verify_plan_acceptance(
@@ -777,14 +858,7 @@ async def verify_plan_acceptance(
     # yakalar; çapraz denetim motor çalışmadan önce söyler.
     # Üç çapraz denetim de SESSİZ hata sınıfını hedefler: motor sıfır çıkışla
     # açılır, kapı geçer, kullanıcı oyunu açar ve hiçbir şey çalışmaz.
-    catismalar = (
-        scene_script_conflicts(deps.tool_context.root)
-        + runtime_script_conflicts(deps.tool_context.root)
-        + promised_key_conflicts(deps.tool_context.root)
-        + missing_node_references(deps.tool_context.root)
-        + broken_resource_paths(deps.tool_context.root)
-        + scripts_without_base(deps.tool_context.root)
-    )
+    catismalar = await asyncio.to_thread(_cross_file_conflicts, deps.tool_context.root)
     if catismalar:
         return VerificationResult(ok=False, summary=catismalar[0], findings=catismalar)
 
@@ -792,7 +866,8 @@ async def verify_plan_acceptance(
     # Platformer indirildi, 252 dosya açıldı, manifest doğru yazıldı ve plan
     # "tamamlandı" dedi — ama sahnede tek sprite yoktu, oyun HealthBar ve
     # Label'lardan oluşuyordu. Kullanıcının isteği tam bu sonucu dışlıyordu.
-    kullanilmayan = _unused_assets(deps.tool_context.root)
+    # Disk taraması olay döngüsünü bloklamasın (A4-15).
+    kullanilmayan = await asyncio.to_thread(_unused_assets, deps.tool_context.root)
     if kullanilmayan:
         ozet = (
             f"{UNUSED_ASSETS_PREFIX} "
@@ -805,7 +880,11 @@ async def verify_plan_acceptance(
     result = (
         await deps.verifier.verify()
         if deps.verifier is not None
-        else VerificationResult(ok=True, summary="tüm plan adımları doğrulandı")
+        else VerificationResult(
+            ok=True,
+            # Hiçbir şey ölçülmedi: "doğrulandı" demek yanıltıcıdır (A4-54).
+            summary="plan adımları tamamlandı; doğrulayıcı kapalı, proje kapısı ölçülmedi",
+        )
     )
     result = replace(result, evidence=(*evidence, *result.evidence))
     if not result.ok:
