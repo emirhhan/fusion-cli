@@ -13,6 +13,7 @@ kaydı tutmadan (`--ephemeral`) çalışır; çalışma alanına dokunamaz.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import shutil
 import tempfile
@@ -62,7 +63,13 @@ def _render_prompt(request: CompletionRequest) -> str:
         if message.role == "system":
             parts.append(f"[SİSTEM]\n{message.content}")
         elif message.role == "assistant":
-            parts.append(f"[ASİSTAN]\n{message.content}")
+            calls = "".join(f"\n[araç çağrısı {c.name}] {c.arguments}" for c in message.tool_calls)
+            parts.append(f"[ASİSTAN]\n{message.content}{calls}")
+        elif message.role == "tool":
+            # Araç sonucu düz kullanıcı metniyle karışmasın.
+            parts.append(
+                f"[ARAÇ SONUCU {message.name or ''}]\n{message.content}".replace(" ]", "]")
+            )
         else:
             parts.append(message.content)
     return "\n\n".join(parts)
@@ -81,6 +88,16 @@ def _friendly_error(stderr: str) -> str:
 def _last_line(text: str) -> str:
     lines = [line for line in text.splitlines() if line.strip()]
     return lines[-1][:300] if lines else ""
+
+
+async def _terminate(proc: asyncio.subprocess.Process | None) -> None:
+    """Süreci öldür ve BEKLE (zombi bırakma). İptal sırasında da bitmesi için kalkanlı."""
+    if proc is None:
+        return
+    with contextlib.suppress(ProcessLookupError):
+        proc.kill()
+    with contextlib.suppress(Exception):
+        await asyncio.shield(proc.wait())
 
 
 class CodexCliProvider:
@@ -129,6 +146,7 @@ class CodexCliProvider:
             if self._codex_model:
                 cmd += ["-m", self._codex_model]
             cmd.append("-")
+            proc = None
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *cmd,
@@ -142,8 +160,13 @@ class CodexCliProvider:
                     timeout=request.timeout_s,
                 )
             except TimeoutError:
-                proc.kill()
+                await _terminate(proc)
                 return _fail(f"codex {request.timeout_s:.0f} sn içinde cevap vermedi (zaman aşımı)")
+            except asyncio.CancelledError:
+                # Kullanıcı turu durdurdu: süreç çalışmaya devam edip abonelik kotasını
+                # harcamasın (ölçüldü 30 Ekim).
+                await _terminate(proc)
+                raise
             except OSError as exc:
                 return _fail(f"codex başlatılamadı: {exc}")
             text = out.read_text().strip() if out.is_file() else ""

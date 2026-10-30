@@ -11,6 +11,7 @@ from ..core.constants import WEB_IMAGE_UPLOAD_PROVIDERS
 from ..core.errors import ConfigError
 from ..core.model_capability import ToolSupport
 from ..core.types import ModelSpec
+from .codex_cli import is_codex_model
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +76,18 @@ def capabilities_for(
             long_running=False,
             exclusive_session=True,
             evaluation_state="legacy",
+        )
+    if is_codex_model(spec.model):
+        # `codex exec` araç şemalarını ve görselleri iletmez (yalnız metin); bilinmeyen
+        # yetenek 'araç var' sayılırsa görev araçsız bir modele giderdi.
+        return ProviderCapabilities(
+            tools=False,
+            native_tools=False,
+            images=False,
+            web=False,
+            long_running=True,
+            exclusive_session=False,
+            evaluation_state="declared",
         )
     capability = capability_from_spec(spec)
     explicitly_unsupported = capability.tool_support is ToolSupport.NONE
