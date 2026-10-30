@@ -67,6 +67,12 @@ def is_summary_message(message: Message) -> bool:
     )
 
 
+#: Bir görselin bağlama kabaca katkısı (karakter eşdeğeri). Data URI'nin ham uzunluğu
+#: (MB'larca) değil, görsel modelin harcadığı token'a yakın bir tahmin: ekran
+#: görüntüsü yüklü turlarda eşik gerçekte aşılırken sıkıştırma tetiklenmiyordu (A1-44).
+IMAGE_CHARS_ESTIMATE = 4_000
+
+
 def total_chars(messages: Sequence[Message]) -> int:
     """Geçmişin kabaca büyüklüğü: içerik ARTI araç çağrısı argümanları.
 
@@ -76,7 +82,9 @@ def total_chars(messages: Sequence[Message]) -> int:
     ~514 bin; sıkıştırma hiç tetiklenmedi ve istem 185 bin token'a çıktı.
     """
     return sum(
-        len(message.content) + sum(len(call.arguments) for call in message.tool_calls)
+        len(message.content)
+        + sum(len(call.arguments) for call in message.tool_calls)
+        + IMAGE_CHARS_ESTIMATE * len(message.images)
         for message in messages
     )
 

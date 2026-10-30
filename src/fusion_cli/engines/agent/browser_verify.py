@@ -71,10 +71,6 @@ LAYOUT_SUFFIXES = frozenset({".css", ".scss", ".sass", ".less", ".tsx", ".jsx", 
 # kapı turu bekletmemelidir.
 DEV_SERVER_READY_S = 45.0
 
-#: Dev sunucusu için denenecek port aralığının başı. Kullanıcının kendi sunucusuyla
-#: çakışmamak için yaygın portlardan (3000, 5173, 8080) uzak seçilir.
-DEV_SERVER_PORT_BASE = 47_300
-
 
 #: Ölçüm yapılamadığında bildirilen uyarının başı (engelleyici DEĞİL, ama sessiz de değil).
 NOT_MEASURED_PREFIX = "TARAYICI ÖLÇÜLEMEDİ (not_measured):"

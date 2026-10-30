@@ -56,7 +56,8 @@ SKIPPED_TOOL_RESULT = (
 #: söylemek tek başına yeterli değildir; bu satır uydurmayı da ayrıca yasaklar.
 APPROVAL_UNAVAILABLE_MESSAGE = (
     "Bu işlem için onay alınamadı — oturum etkileşimsiz olduğu için kimseye "
-    "sorulamadı. Onay GEREKTİRMEYEN bir yol dene (dosya araçları onay istemez); "
+    "sorulamadı. Onay GEREKTİRMEYEN bir yol dene (yalnız salt okuyan araçlar — dosya "
+    "okuma, arama, listeleme — onay istemez; dosya yazmak Manuel kipte sorulur); "
     "mümkün değilse bu adımı neden atladığını açıkça yaz. Bu adımın getireceği "
     "veriyi (dosya içeriği, sayı, açıklama…) ASLA ezberden ya da tahminle üretip "
     "teslim ettiğin dosyaya/cevaba yazma — adımı atladığını söylemek yeterli "
