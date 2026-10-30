@@ -399,3 +399,35 @@ def test_ogretmen_gunlugu_ekleme_kipinde_maskeler_ve_bozuk_utf8de_cokmez(tmp_pat
     assert "bozuk bayt" in metin
     assert "ghp_" + "a" * 36 not in metin
     assert "## t1" in metin
+
+
+async def test_hafiza_plan_aramasi_olay_dongusunu_bloklamaz(monkeypatch):
+    import threading
+
+    from fusion_cli.engines.agent import teacher_flow
+
+    ana_is_parcacigi = threading.get_ident()
+    calisan: list[int] = []
+
+    def bul(*args, **kwargs):
+        calisan.append(threading.get_ident())
+
+    monkeypatch.setattr(teacher_flow, "find_reusable_plan", bul)
+    monkeypatch.setattr(
+        "fusion_cli.engines.agent.learning_steps._workspace", lambda deps: "w", raising=True
+    )
+    monkeypatch.setattr(
+        "fusion_cli.engines.agent.learning_steps.lesson_tags", lambda deps: (), raising=True
+    )
+    deps = SimpleNamespace(
+        lessons=object(), config=SimpleNamespace(runtime=SimpleNamespace(lessons=True))
+    )
+
+    assert await teacher_flow._apply_remembered_plan("görev", [], deps) is False
+    assert calisan and calisan[0] != ana_is_parcacigi
+
+
+def test_gorev_kokleri_buyuk_noktali_i_yi_bolmez():
+    from fusion_cli.engines.agent.teacher_memory import _stems
+
+    assert _stems("İstanbul şubesi raporu") == _stems("istanbul şubesi raporu")

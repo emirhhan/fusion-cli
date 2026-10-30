@@ -57,7 +57,7 @@ _STEP_LINE = re.compile(r"^(\d+)\. (.+)$", re.MULTILINE)
 def _stems(text: str) -> frozenset[str]:
     """Görevi yol/dosya adlarını bozmadan kök kümesine çevir."""
     stems: set[str] = set()
-    for token in re.findall(r"[\w./-]+", text.lower()):
+    for token in re.findall(r"[\w./-]+", text.replace("İ", "i").lower()):
         token = token.strip("./-")
         if len(token) < _MIN_TOKEN_CHARS or token in _STOPWORDS:
             continue

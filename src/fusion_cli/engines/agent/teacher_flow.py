@@ -181,7 +181,7 @@ async def prepare_teacher_plan(
     deps.publisher.publish(TeacherTaskClassified(size=decision.size, reasons=decision.reasons))
     if decision.size == "basit":
         return
-    if _apply_remembered_plan(task, messages, deps):
+    if await _apply_remembered_plan(task, messages, deps):
         return
     if not teacher_is_ready(deps, registry):
         _notify_unavailable(deps, "Bağlı öğretmen yok; tek başıma ilerliyorum.")
@@ -279,7 +279,7 @@ def _lessons_enabled(deps: AgentDeps) -> bool:
     return deps.lessons is not None and deps.config.runtime.lessons
 
 
-def _apply_remembered_plan(task: str, messages: list[Message], deps: AgentDeps) -> bool:
+async def _apply_remembered_plan(task: str, messages: list[Message], deps: AgentDeps) -> bool:
     """Benzer görevin başarılı planı varsa öğretmene sormadan onu uygula."""
     if not _lessons_enabled(deps):
         return False
@@ -287,8 +287,9 @@ def _apply_remembered_plan(task: str, messages: list[Message], deps: AgentDeps) 
 
     if deps.lessons is None:  # `python -O` altında assert kalkardı
         return False
-    found = find_reusable_plan(
-        deps.lessons, task, workspace=_workspace(deps), tags=lesson_tags(deps)
+    # Chroma/embedding araması ilk çağrıda model yükleyebilir: olay döngüsünü bloklamasın (A4-38).
+    found = await asyncio.to_thread(
+        find_reusable_plan, deps.lessons, task, workspace=_workspace(deps), tags=lesson_tags(deps)
     )
     if found is None:
         return False
