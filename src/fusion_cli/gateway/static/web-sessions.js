@@ -45,6 +45,7 @@ const WEB_INFO = {
 // Giriş penceresi yoklama aralığı ve üst sınırı.
 const LOGIN_POLL_MS = 2000;
 const LOGIN_POLL_LIMIT_MS = 15 * 60 * 1000;
+const LOGIN_POLL_MAX_ERRORS = 3;
 
 // Modal açılmadan önce odağın nerede olduğu saklanır; kapanınca oraya döner.
 // Aksi hâlde klavye kullanıcısı modal kapandığında sayfanın en başına düşer.
@@ -102,6 +103,8 @@ function acceptWebWarning() {
 function showWebSetup(id, model) {
   activeWebProvider = id; activeWebModel = model || null;
   const info = WEB_INFO[id]; if (!info) return;
+  // İlk durum yüklemesi bitmeden açılırsa `STATE.web_sessions` TypeError verirdi.
+  if (!STATE) { toast("Panel verisi henüz yüklenmedi; birkaç saniye sonra yeniden dene.", true); return; }
   const existing = (STATE.web_sessions || []).find((w) => w.model === model || (w.provider === id && w.account === "main"));
   const account = existing ? existing.account : "main";
   $("webSetupTitle").textContent = info.name;
@@ -158,7 +161,12 @@ async function launchWebLogin() {
 
 // Araç yeteneği ölçümü: web modelinin dosya değiştirmesine izin veren TEK kapı.
 // Gerçek istek gönderir, bu yüzden yalnızca kullanıcı açıkça isteyince çalışır.
+const EVAL_CONFIRM = "Bu ölçüm 5 gerçek istek gönderir ve web aboneliğinin kotasından harcar (birkaç dakika sürer). "
+  + "Ölçüm geçerse model dosya değiştirebilir. Devam edilsin mi?";
+
 async function runWebEval() {
+  // Kota harcayan ve yetki açan işlem: tek tıkla başlamaz.
+  if (!confirm(EVAL_CONFIRM)) return;
   if (!(await saveNativeWeb(false))) return;
   const model = $("nativeWebModel").value;
   $("nativeWebStatus").textContent = "Araç yeteneği ölçülüyor (5 gerçek istek, birkaç dakika sürebilir)…";
@@ -169,7 +177,9 @@ async function runWebEval() {
     const metrik = (ad, anahtar) => {
       const n = (r.measured || {})[anahtar];
       if (!n) return `${ad} ölçülmedi`;
-      return `${ad} ${Math.round(r.scores[anahtar] * 100)}% (${n})`;
+      const esik = (r.thresholds || {})[anahtar];
+      const esikMetni = typeof esik === "number" ? `, eşik ${Math.round(esik * 100)}%` : "";
+      return `${ad} ${Math.round(r.scores[anahtar] * 100)}% (${n} senaryo${esikMetni})`;
     };
     const ozet = [metrik("araç seçimi", "tool_selection"), metrik("şema", "schema_validity"),
                   metrik("argüman", "argument_preservation"), metrik("sahte çağrı yok", "no_false_calls")].join(" · ");
@@ -204,11 +214,18 @@ function renderEvalSamples(samples) {
 // Kullanıcının elle cookie kopyalaması ya da "şimdi doğrula" demesi gerekmez.
 async function awaitLoginThenValidate(pid) {
   const bitis = Date.now() + LOGIN_POLL_LIMIT_MS;
+  let ardisikHata = 0;
   while (Date.now() < bitis) {
     await new Promise((r) => setTimeout(r, LOGIN_POLL_MS));
     let durum;
-    try { durum = await post("/api/web_sessions/login_state", {pid}); }
-    catch (e) { return; }                    // gateway kapandı: sessizce bırak
+    try { durum = await post("/api/web_sessions/login_state", {pid}); ardisikHata = 0; }
+    catch (e) {
+      // Tek bir geçici hata yoklamayı bitirmez; üst üste hatada kullanıcıya söylenir.
+      if (++ardisikHata < LOGIN_POLL_MAX_ERRORS) continue;
+      $("nativeWebStatus").textContent = "Giriş penceresi izlenemiyor (gateway'e ulaşılamıyor). "
+        + "Pencereyi kapattıktan sonra “Bağlantıyı kontrol et”e bas.";
+      return;
+    }
     if (durum && durum.running === false) {
       $("nativeWebStatus").textContent = "Giriş penceresi kapandı · bağlantı test ediliyor…";
       await validateNativeWeb();

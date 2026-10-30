@@ -92,7 +92,7 @@
             <h2>Bu panel ne yapar</h2>
             <div class="card">
               <div class="hint" style="margin-bottom:0">Bu panelden API anahtarı girebilir, yedek (fallback) zincirini düzenleyebilir,
-                yönlendirme stratejisini değiştirebilir ve modelleri test edebilirsin. Uzak sunucu yok — her şey burada, sende kalır.</div>
+                yönlendirme stratejisini değiştirebilir ve modelleri test edebilirsin. Panel ve ayarların bu bilgisayarda çalışır, Fusion'ın ayrı bir sunucusu yoktur; ancak modele giden istekler seçtiğin sağlayıcıya (OpenAI, OpenRouter, NVIDIA NIM…) gider.</div>
             </div>
           </div>
 
@@ -115,7 +115,7 @@
               </button>
               <div class="web-add-body" id="webAddBody">
                 <div class="steps">
-                  <div class="step"><span class="step-n">1</span><span>Kendi kurduğun ya da erişim yetkin olan <b>OpenAI-uyumlu</b> bir uç kullan (OpenWebUI, LibreChat, LM Studio sunucusu, kurumsal uç…). Ticari web arayüzü (ChatGPT/Gemini web) desteklenmez.</span></div>
+                  <div class="step"><span class="step-n">1</span><span>Kendi kurduğun ya da erişim yetkin olan <b>OpenAI-uyumlu</b> bir uç kullan (OpenWebUI, LibreChat, LM Studio sunucusu, kurumsal uç…). ChatGPT/Gemini web gibi ticari arayüzler bu bölümden eklenmez; onlar sağlayıcı listesindeki “Tarayıcıyla giriş” kartlarından kendi aboneliğinle bağlanır.</span></div>
                   <div class="step"><span class="step-n">2</span><span><b>Endpoint</b>: ucun sohbet adresi — çoğunlukla <code>.../v1/chat/completions</code> ile biter. Uygulamanın "API" ya da "Bağlantı" ayarlarında yazar.</span></div>
                   <div class="step"><span class="step-n">3</span><span><b>Token</b> (varsa): ucun ayarlarındaki API anahtarı / bearer token. Yerel kurulumlar çoğu zaman token istemez — boş bırak.</span></div>
                   <div class="step"><span class="step-n">4</span><span>Kaydet. Sonra <b>Yönlendirme</b> sekmesinden bu modeli zincire ekle; artık bir model gibi kullanılır.</span></div>
