@@ -906,3 +906,59 @@ async def test_iptal_edilen_tur_sohbet_durumunu_bayat_birakmaz(pool, log, monkey
         await gorev
 
     assert pool.conversation("chatgpt_web", "main", kok) is None
+
+
+def _istek(mesajlar: tuple[Message, ...], conversation_id: str = "", contract: str = ""):
+    from fusion_cli.core.types import CompletionRequest
+
+    return CompletionRequest(
+        messages=mesajlar,
+        temperature=0.0,
+        max_tokens=16,
+        timeout_s=30.0,
+        conversation_id=conversation_id,
+        answer_contract=contract,
+    )
+
+
+def _adaptor(pool):
+    from fusion_cli.core.model_capability import ToolSupport
+    from fusion_cli.providers.web_session import WebProviderAdapter
+
+    return WebProviderAdapter(
+        model="chatgpt_web/main/auto",
+        credential=WebSessionCredential(),
+        transport=build_browser_transport(_session(), pool=pool),
+        tool_support=ToolSupport.NONE,
+    )
+
+
+async def test_ayni_sistem_istemli_iki_is_conversation_id_ile_ayri_sohbet_tutar(pool, log):
+    """P1-31. Ölçüldü (30 Ekim): kök yalnız ilk mesajın özetiydi; aynı sistem istemli
+    ana ajan ve alt ajan birbirinin sohbetini düşürüp her geçişte yeni sohbet açıyordu.
+    Her işin `conversation_id`'si kendi sohbetini ve kendi devamını korur."""
+    adaptor = _adaptor(pool)
+    sistem = Message("system", "ortak sistem istemi")
+
+    async def tur(kimlik: str, *gorev: str):
+        mesajlar = (sistem, *(Message("user", metin) for metin in gorev))
+        return await adaptor.complete(_istek(mesajlar, kimlik))
+
+    await tur("ana", "ana-1")
+    await tur("alt", "alt-1")
+    await tur("ana", "ana-1", "ana-2")
+    await tur("alt", "alt-1", "alt-2")
+
+    assert pool.fake_context.pages_created == 2, "ikisi de kendi sohbetinde devam etmeli"
+    gonderilen = [entry[1] for entry in log if entry[0] == "send"]
+    assert "ana-1" not in gonderilen[2], "devam turu geçmişi yeniden göndermez"
+    assert "alt-1" not in gonderilen[3]
+
+
+async def test_conversation_id_yoksa_eski_kok_korunur(pool, log):
+    adaptor = _adaptor(pool)
+    mesajlar = _messages(2)
+
+    await adaptor.complete(_istek(mesajlar))
+
+    assert pool.conversation("chatgpt_web", "main", conversation_digest(mesajlar[:1])) is not None

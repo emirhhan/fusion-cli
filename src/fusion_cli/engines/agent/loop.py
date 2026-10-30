@@ -195,6 +195,7 @@ from .transient import MAX_TOOL_TRANSIENT_RETRIES, is_transient_failure
 from .turn_hints import design_hint, identity_hint, preview_hint, scope_hint, store_hint
 from .turn_report import TurnReport, build_turn_report, claims_command_success
 from .verifier_repair import observe_verifier_failures
+from .web_contract import render_answer_contract, tool_names
 from .workspace_hint import find_workspace_for
 
 _PROMPTS = Path(__file__).parent / "prompts"
@@ -2242,25 +2243,30 @@ async def _call_model(
     """Modeli akıtarak çağır; metin parçaları olay olarak yayınlanır."""
     runtime = deps.config.runtime
     spec = live_fallbacks(_active_spec(deps, execution), deps.config)
+    offered_tools = (
+        tuple(
+            registry.schemas(
+                _permitted(allowed_tools, registry, execution, deps.tool_context.task_kinds)
+            )
+        )
+        if offer_tools
+        else ()
+    )
     request = CompletionRequest(
         messages=tuple(messages),
         temperature=runtime.temperature,
         max_tokens=runtime.max_tokens * state.max_tokens_scale,
         timeout_s=timeout_s or runtime.request_timeout_s,
         max_retries=runtime.max_retries,
-        tools=(
-            tuple(
-                registry.schemas(
-                    _permitted(allowed_tools, registry, execution, deps.tool_context.task_kinds)
-                )
-            )
-            if offer_tools
-            else ()
-        ),
+        tools=offered_tools,
         reasoning_effort=effort_for_spec(
             spec, ReasoningEffort.LOW if state.reasoning_relief else runtime.reasoning_effort
         ),
         disable_thinking=state.reasoning_relief,
+        conversation_id=deps.conversation_id,
+        answer_contract=render_answer_contract(
+            tool_names(offered_tools), has_todos=bool(deps.tool_context.todos.items)
+        ),
     )
     provider = build_provider(
         spec,

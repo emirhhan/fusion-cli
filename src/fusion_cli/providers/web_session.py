@@ -61,9 +61,31 @@ class WebTurn:
     tier: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class WebTurnContext:
+    """Üst katmanın taşımaya bildirdiği tur bağlamı (isteğe bağlı).
+
+    - `conversation_id`: durumlu taşımanın sohbet anahtarına katılan iş kimliği (P1-31).
+    - `answer_contract`: her araç turunda tekrarlanacak sözleşme metni; motor üretir,
+      taşıma yalnız biçimlendirir (P1-33).
+
+    Alanların hepsi boşsa taşıma bu bağlamı hiç görmez: adaptör eski 3 argümanlı
+    çağrı biçimini kullanır (bağlamdan habersiz taşıma/test sahteleri kırılmasın).
+    """
+
+    conversation_id: str = ""
+    answer_contract: str = ""
+
+    @property
+    def is_empty(self) -> bool:
+        return not (self.conversation_id or self.answer_contract)
+
+
 #: Gerçek I/O'yu yapan enjekte edilebilir transport: kimlik + mesajlar + model → tur.
 #: Sahte (mock) ya da kullanıcının yetkili uca yazdığı gerçek transport olabilir.
-WebTransport = Callable[[WebSessionCredential, tuple[Message, ...], str], Awaitable[WebTurn]]
+#: Bağlam-bilen taşıma ek olarak `context: WebTurnContext` anahtar sözcüğünü kabul eder;
+#: adaptör onu YALNIZ boş değilse geçirir. `...` bu yüzden: iki biçim de geçerlidir.
+WebTransport = Callable[..., Awaitable[WebTurn]]
 
 
 class WebProviderAdapter:
@@ -95,7 +117,7 @@ class WebProviderAdapter:
         start = self._clock.monotonic()
         try:
             raw = await asyncio.wait_for(
-                self._transport(self._credential, messages, self._model),
+                self._call_transport(request, messages),
                 timeout=request.timeout_s,
             )
         except TimeoutError:
@@ -122,6 +144,18 @@ class WebProviderAdapter:
             )
         latency = int((self._clock.monotonic() - start) * 1000)
         return self._to_result(raw.text, latency, served_by=raw.tier)
+
+    def _call_transport(
+        self, request: CompletionRequest, messages: tuple[Message, ...]
+    ) -> Awaitable[WebTurn]:
+        """Taşımayı çağır; tur bağlamı yalnız doluysa geçirilir."""
+        context = WebTurnContext(
+            conversation_id=request.conversation_id,
+            answer_contract=request.answer_contract if request.tools else "",
+        )
+        if context.is_empty:
+            return self._transport(self._credential, messages, self._model)
+        return self._transport(self._credential, messages, self._model, context=context)
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         # Oturum tabanlı uçlar çoğu zaman akıtılamaz: tek seferde alınır, sonra parça

@@ -242,6 +242,8 @@ async def _run_child(
         capabilities=deps.capabilities,
         health=deps.health,
         channel=Channel.SUBAGENT,
+        # Aynı sistem istemli paralel alt ajanlar web taşımasında ayrı sohbet tutsun (P1-31).
+        conversation_id="/".join(part for part in (deps.conversation_id, sub_id) if part),
         budget=deps.budget,
         deadline=deps.deadline,
         child_runs=deps.child_runs,

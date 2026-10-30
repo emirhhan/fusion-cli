@@ -18,7 +18,7 @@ import httpx
 
 from ..core.constants import WEB_TIMEOUT_S
 from ..core.types import Message
-from .web_session import WebSessionCredential, WebTransport, WebTurn
+from .web_session import WebSessionCredential, WebTransport, WebTurn, WebTurnContext
 
 
 def build_http_transport(
@@ -40,8 +40,13 @@ def build_http_transport(
     """
 
     async def _transport(
-        credential: WebSessionCredential, messages: tuple[Message, ...], model: str
+        credential: WebSessionCredential,
+        messages: tuple[Message, ...],
+        model: str,
+        context: WebTurnContext | None = None,
     ) -> WebTurn:
+        # Durumsuz HTTP ucunda sohbet anahtarı ve sözleşme çerçevesi yoktur: bağlam yok sayılır.
+        del context
         headers = _headers(credential)
         payload = {
             "model": model,

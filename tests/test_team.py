@@ -535,3 +535,24 @@ def test_salt_okunur_zayif_model_degerleriyle_yazma_yetkisi_vermez():
         sonuc = _parse_subtask({"task": "a", "salt_okunur": deger})
         assert not isinstance(sonuc, str) and sonuc.read_only is False, deger
     assert _parse_subtask({"task": "a"}).read_only is False  # type: ignore[union-attr]
+
+
+async def test_alt_ajanlar_web_sohbeti_icin_ayri_conversation_id_alir(tmp_path):
+    """P1-31: aynı sistem istemli paralel alt ajanlar tek sohbeti çekiştirmesin."""
+    sink = RecordingSink()
+    deps = replace(_deps(tmp_path, sink), conversation_id="oturum-1")
+    gorulen: list[str] = []
+
+    async def _sahte_ajan(task, sub_deps, **kwargs):
+        gorulen.append(sub_deps.conversation_id)
+        return SimpleNamespace(final_text="ok", ok=True, tool_calls_made=0)
+
+    await run_team(
+        deps,
+        [SubTask("a", read_only=True), SubTask("b", read_only=True)],
+        depth=0,
+        run_agent=_sahte_ajan,
+    )
+
+    assert len(set(gorulen)) == 2
+    assert all(kimlik.startswith("oturum-1/") for kimlik in gorulen)

@@ -45,7 +45,7 @@ from ..core.tool_emulation import TOOL_INSTRUCTIONS_LEAD
 from ..core.types import Message, ToolCall
 from ..core.window_mode import WindowMode
 from .web_markdown import html_to_markdown
-from .web_session import WebSessionCredential, WebTransport, WebTurn
+from .web_session import WebSessionCredential, WebTransport, WebTurn, WebTurnContext
 from .web_shared_browser import (
     SharedBrowserError,
     SharedBrowserHooks,
@@ -769,6 +769,7 @@ def format_browser_prompt(
     continuation: bool = False,
     full_history: Sequence[Message] | None = None,
     trim: bool = True,
+    answer_contract: str = "",
 ) -> str:
     """Kanonik Fusion mesajlarını tarayıcıya gönderilecek metne dök.
 
@@ -800,6 +801,9 @@ def format_browser_prompt(
     biçimindeydi — bu bir araç ÇAĞRISINA benziyor ve model onu taklit ediyordu.
     Tanımlayıcı bilgi korunur ama çağrı biçiminde değil.
 
+    `answer_contract` motorun ürettiği nihai cevap sözleşmesidir (P1-33); boşsa hiçbir
+    sözleşme metni eklenmez.
+
     `trim=False` verilirse (Faz 4, Görev 2) sonuç KIRPILMADAN döner — çağıran
     taraf (`_send_turn`) `page`'e erişebildiği için taşan promptu göndermeden
     önce ÖNCE dosya yüklemeyi dener, olmazsa YİNE bu modüldeki
@@ -811,7 +815,7 @@ def format_browser_prompt(
     # ölçüldü — hatırlatma bloğu boş kalıyor ya da harness notunu gösteriyordu.
     gecmis = full_history if full_history is not None else messages
     if continuation:
-        govde = _format_continuation(messages, gecmis)
+        govde = _format_continuation(messages, gecmis, answer_contract)
         return trim_to_prompt_budget(govde) if trim else govde
     if not _offers_tools(messages):
         govde = _format_plain(messages)
@@ -838,9 +842,12 @@ def format_browser_prompt(
     # Talimat her iki kipte de tekrarlanır: web arayüzleri uzun sohbetlerde ilk
     # mesajdaki kuralları zayıflatır ve model biçimi bırakmaya başlar.
     rendered.append(
-        f"### {ROLE_PREFIX}TALİMAT\nYukarıdaki araç sonuçları SENİN önceki çağrılarının cevabıdır; "
-        "aynı çağrıları tekrar etme. Sonuçları kullanarak bir SONRAKİ adımı at: "
-        f"ya yeni bir araç çağır ya da işi bitirip nihai cevabı ver.\n{_ANSWER_CONTRACT}"
+        _with_contract(
+            f"### {ROLE_PREFIX}TALİMAT\nYukarıdaki araç sonuçları SENİN önceki çağrılarının "
+            "cevabıdır; aynı çağrıları tekrar etme. Sonuçları kullanarak bir SONRAKİ adımı "
+            "at: ya yeni bir araç çağır ya da işi bitirip nihai cevabı ver.",
+            answer_contract,
+        )
     )
     rendered.append(_task_reminder(messages))
     govde = "\n\n".join(part for part in rendered if part)
@@ -907,35 +914,29 @@ def _task_reminder(messages: Sequence[Message]) -> str:
     return f"### {ROLE_PREFIX}GÖREV (yapılacak iş budur)\n{gorev}"
 
 
-#: Her iki kipte de tekrarlanan nihai cevap sözleşmesi.
+#: Nihai cevap sözleşmesinin METNİ burada TUTULMAZ (P1-33): hangi araçların sunulduğunu
+#: ve planın durumunu bilen motor üretir (`engines/agent/web_contract.py`) ve
+#: `CompletionRequest.answer_contract` ile gönderir. Taşıma yalnız yerleştirir.
+#: Eskiden burada sabit metin vardı; plan modunda ya da `todo_write`/`ask_user`
+#: sunulmayan kümede modele var olmayan aracı çağırmasını söylüyor, her devam turunda
+#: "İLK iş todo_write ile plan yaz" cümlesini tekrarlıyordu.
+
+
+#: Çerçeve notu TAŞIMANIN kendi biçimine aittir (başlıkları o üretir), politika değildir.
 #:
 #: `### FUSION//…` başlıkları ÇERÇEVEDİR, içerik değil; model onları taklit edip
 #: kendini "sıradaki adımı sor" rolünde görüyordu. Kuralın ayıklama (bkz.
 #: `strip_role_headers`) ile birlikte durmasının sebebi, ayıklamanın belirtiyi
 #: temizlemesi ama nedenini ortadan kaldırmamasıdır.
-#:
-#: Nihai cevabın ŞEKLİ de burada söylenir: sistem promptundaki aynı kural, 3500
-#: karakterlik araç çıktılarının ardında kalıp zayıflıyordu.
-_ANSWER_CONTRACT = (
-    "Görev geniş ya da çok adımlıysa İLK iş todo_write ile 3-7 maddelik somut bir "
-    "plan yazmaktır; her madde tek bir dosyada tek bir değişiklik olsun. Sonra "
-    "maddeleri sırayla bitir ve her birini biter bitmez işaretle; liste bitmeden "
-    "turu kapatma.\n"
-    "İlk yanıtında, ilk araç çağrının yanında 2-3 cümlelik bir AÇILIŞ yaz: isteği "
-    "nasıl anladığın, hangi adımları izleyeceğin, ilk adımın ne olduğu. Sonraki "
-    "çağrılarda tek satırlık kısa öncü yeter.\n"
+_FRAME_NOTE = (
     f"`{ROLE_PREFIX}` ile başlayan başlıkları KENDİ cevabında tekrarlama; onlar "
-    "çerçevedir, senin rolün değildir.\n"
-    "Kullanıcı görevini zaten verdi: ne yapacağını ona tekrar sorma. Gerçekten "
-    "kullanıcının kararı olan bir seçim varsa ask_user aracını çağır; düzyazıyla "
-    "soru sorup turu bitirme.\n"
-    "İş bittiğinde nihai cevabında şunlar bulunur: ne yaptığın, hangi dosyaların "
-    "değiştiği ve kullanıcının ne kontrol etmesi gerektiği. Bunu birkaç cümlede "
-    "topla; adım adım günlük dökme.\n"
-    "YALNIZCA bu turda gerçekten çağırdığın araçlarla değiştirdiğin dosyaları say. "
-    "Okuduğun bir dosyada ZATEN var olan bir şeyi kendi işin gibi raporlama. "
-    "Hiçbir şey değiştirmediysen bunu açıkça söyle — yapılmamış işi yapılmış gösterme."
+    "çerçevedir, senin rolün değildir."
 )
+
+
+def _with_contract(text: str, answer_contract: str) -> str:
+    """Talimat metnine çerçeve notunu ve (varsa) motorun verdiği sözleşmeyi ekle."""
+    return "\n".join(part for part in (text, _FRAME_NOTE, answer_contract) if part)
 
 
 def _tool_result_label(message: Message, calls_by_id: Mapping[str, ToolCall]) -> str:
@@ -977,16 +978,18 @@ CONTINUATION_LEAD = (
     f"### {ROLE_PREFIX}SIRADAKİ ADIM\n"
     "Aşağıdaki araç sonuçları SENİN önceki çağrılarının cevabıdır — bu çağrıları "
     "ZATEN yaptın, tekrarlama. Sonuçları kullanarak bir sonraki adımı at: gereken "
-    f"değişikliği yapan aracı çağır ya da iş bittiyse nihai cevabı ver.\n{_ANSWER_CONTRACT}"
+    "değişikliği yapan aracı çağır ya da iş bittiyse nihai cevabı ver."
 )
 
 
 def _format_continuation(
-    messages: Sequence[Message], full_history: Sequence[Message] | None = None
+    messages: Sequence[Message],
+    full_history: Sequence[Message] | None = None,
+    answer_contract: str = "",
 ) -> str:
     """Açık sohbete gönderilecek metin: talimat başta, asistan turu yok."""
     calls_by_id = {call.id: call for message in messages for call in message.tool_calls}
-    parcalar = [CONTINUATION_LEAD]
+    parcalar = [_with_contract(CONTINUATION_LEAD, answer_contract)]
     for message in messages:
         if message.role == "assistant":
             continue
@@ -1211,6 +1214,18 @@ def conversation_digest(messages: Sequence[Message]) -> str:
         digest.update(message.content.encode("utf-8", errors="replace"))
         digest.update(b"\x01")
     return digest.hexdigest()
+
+
+def conversation_root(messages: Sequence[Message], conversation_id: str = "") -> str:
+    """Açık sohbetin havuzdaki anahtarı: iş kimliği + İLK mesajın özeti.
+
+    Yalnız ilk mesajın (sistem istemi) özeti kök olunca, aynı sistem istemini kullanan
+    ana ajan, alt ajan ve konsey adayları AYNI sohbeti çekiştiriyordu: her geçişte
+    önek uyuşmaz, sohbet düşer, yeni sohbet açılır ve geçmişin tamamı yeniden yazılırdı
+    (P1-31). `conversation_id` boşsa anahtar eskisiyle birebir aynıdır.
+    """
+    digest = conversation_digest(messages[:1])
+    return f"{conversation_id}:{digest}" if conversation_id else digest
 
 
 #: Web oturumu bu kadar süre kullanılmazsa bu sürecin tarayıcı kirası bırakılır.
@@ -1577,20 +1592,26 @@ def build_browser_transport(
     manager = pool or _POOL
 
     async def _transport(
-        credential: WebSessionCredential, messages: tuple[Message, ...], model: str
+        credential: WebSessionCredential,
+        messages: tuple[Message, ...],
+        model: str,
+        context: WebTurnContext | None = None,
     ) -> WebTurn:
         del model  # Model kimliği oturumu bulur; seçili web kipi aşağıda uygulanır.
         try:
-            return await _locked_transport(credential, messages)
+            return await _locked_transport(credential, messages, context or WebTurnContext())
         finally:
             manager.schedule_idle_release(session.provider, session.account)
 
     async def _locked_transport(
-        credential: WebSessionCredential, messages: tuple[Message, ...]
+        credential: WebSessionCredential,
+        messages: tuple[Message, ...],
+        turn: WebTurnContext,
     ) -> WebTurn:
+        root = conversation_root(messages, turn.conversation_id)
         lock = manager.lock_for(session.provider, session.account)
         async with lock:
-            context = await manager.context_for(session, credential)
+            browser_context = await manager.context_for(session, credential)
             limit = browser_turn_budget(session, override_s=timeout_s)
             deadline = time.monotonic() + limit
             last_selector_error: WebBrowserSelectorError | None = None
@@ -1608,10 +1629,11 @@ def build_browser_transport(
                             manager,
                             session,
                             definition,
-                            context,
+                            browser_context,
                             messages,
                             trace_dir,
                             limit_s=max(1.0, remaining),
+                            turn=turn,
                         ),
                         timeout=max(1.0, remaining),
                     )
@@ -1619,9 +1641,7 @@ def build_browser_transport(
                     last_selector_error = error
                     # Sohbet bilinmeyen bir duruma düştü: bırak, ikinci deneme
                     # sıfırdan başlasın. Aynı hesap, aynı profil — gizli yedek yok.
-                    await manager.drop_conversation(
-                        session.provider, session.account, conversation_digest(messages[:1])
-                    )
+                    await manager.drop_conversation(session.provider, session.account, root)
                     if attempt == 0:
                         await asyncio.sleep(0.75)
                         continue
@@ -1630,15 +1650,11 @@ def build_browser_transport(
                     # Dış `wait_for` (zincir/adaptör) ya da kullanıcı iptali: mesaj
                     # sağlayıcıya gitmiş olabilir ama `sent_count/last_answer` ilerlemedi.
                     # Bayat sohbet bırakılır, yoksa sonraki tur aynı mesajı tekrar yazar.
-                    await manager.drop_conversation(
-                        session.provider, session.account, conversation_digest(messages[:1])
-                    )
+                    await manager.drop_conversation(session.provider, session.account, root)
                     await manager.flush_closed()
                     raise
                 except TimeoutError as error:
-                    await manager.drop_conversation(
-                        session.provider, session.account, conversation_digest(messages[:1])
-                    )
+                    await manager.drop_conversation(session.provider, session.account, root)
                     manager.note_choice_timed_out(session)
                     await manager.flush_closed()
                     raise WebBrowserError(
@@ -1825,6 +1841,7 @@ async def _deliver_turn(
     messages: tuple[Message, ...],
     trace_dir: Path | None = None,
     limit_s: float = DEFAULT_RESPONSE_WAIT_S,
+    turn: WebTurnContext | None = None,
 ) -> WebTurn:
     """Turu AÇIK sohbete ilet; sohbet yoksa ya da kopmuşsa yeniden kur.
 
@@ -1832,10 +1849,11 @@ async def _deliver_turn(
     gönderilen önek DEĞİŞMEMİŞ olmalı. İkincisi olmadan, bağlam sıkıştırıldığında ya da
     yeni bir oturum başladığında model bambaşka bir konuşmanın ortasında cevap verirdi.
     """
-    # Konuşma kökü: İLK mesajın özeti. Ana agent turu hep aynı sistem promptuyla
-    # başlar; ders çıkarımı gibi yardımcı çağrılar başka bir kökle gelir ve kendi
-    # sohbetlerini alır. Böylece yardımcı bir çağrı ana sohbeti DÜŞÜRMEZ.
-    root = conversation_digest(messages[:1])
+    # Konuşma kökü: iş kimliği + İLK mesajın özeti. Ders çıkarımı gibi yardımcı çağrılar
+    # başka bir ilk mesajla gelir ve kendi sohbetlerini alır; aynı sistem istemli
+    # paralel işler (alt ajan, konsey) de kendi `conversation_id`'leriyle ayrılır.
+    turn = turn or WebTurnContext()
+    root = conversation_root(messages, turn.conversation_id)
     state = manager.conversation(session.provider, session.account, root)
     resumable = (
         state is not None
@@ -1852,7 +1870,11 @@ async def _deliver_turn(
         # `trim=False`: kırpma-ya-da-yükleme kararı `_send_turn`'e taşındı, çünkü
         # yalnız o `page`'e erişebilir (bkz. Faz 4, Görev 2).
         prompt = format_browser_prompt(
-            messages[state.sent_count :], continuation=True, full_history=messages, trim=False
+            messages[state.sent_count :],
+            continuation=True,
+            full_history=messages,
+            trim=False,
+            answer_contract=turn.answer_contract,
         )
         answer = await _send_turn(
             state.page,
@@ -1876,7 +1898,9 @@ async def _deliver_turn(
                 page, definition, session, limit_s, _open_ready_conversation
             )
             choice = await _apply_model_choice(manager, session, definition, page)
-            prompt = format_browser_prompt(messages, trim=False)
+            prompt = format_browser_prompt(
+                messages, trim=False, answer_contract=turn.answer_contract
+            )
             answer = await _send_turn(
                 page, definition, prompt, limit_s=limit_s, images=pending_images(messages)
             )
