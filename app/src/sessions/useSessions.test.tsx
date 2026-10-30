@@ -804,3 +804,55 @@ describe("Artık beklemeyen soru", () => {
     expect(result.current.activeSession?.question?.id).toBe("q1");
   });
 });
+
+// Ölçüldü (30 Ekim): create beklenirken kapanan görünüm çekirdek oturumunu kapatmıyordu (U4-31);
+// çökme sonrası kuyruktaki görev ölü istemciye gidiyordu (U4-32); sıradan başlayan görev kayıtta
+// "queued" kalıp yeniden açılışta ikinci kez çalışıyordu (U4-34).
+describe("useSessions oturum yaşam döngüsü (30 Ekim)", () => {
+  it("create bitmeden görünüm kapanırsa çekirdek oturumu kapatılır (U4-31)", async () => {
+    const fake = fakeTransport();
+    let bitir: (() => void) | null = null;
+    const gercek = fake.transport.create;
+    fake.transport.create = vi.fn((id, root) => new Promise((cozumle) => {
+      bitir = () => cozumle(gercek(id, root));
+    }));
+    const { unmount } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(fake.transport.create).toHaveBeenCalled());
+    unmount();
+    await act(async () => { bitir?.(); await Promise.resolve(); });
+    await waitFor(() => expect(fake.transport.close).toHaveBeenCalledWith("varsayilan"));
+  });
+
+  it("sıradan başlayan görev kayıtta 'queued' kalmaz (U4-34)", async () => {
+    const { loadSubmissions } = await import("./submissionPersistence");
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+    act(() => {
+      result.current.send("varsayilan", "birinci");
+      result.current.send("varsayilan", "ikinci");
+    });
+    expect(loadSubmissions("varsayilan").find((e) => e.task === "ikinci")?.state).toBe("queued");
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    act(() => fake.emitResult("varsayilan", JSON.parse(fake.sent[0].line).id, { ok: true }));
+    await waitFor(() => expect(fake.sent).toHaveLength(2));
+    expect(loadSubmissions("varsayilan").find((e) => e.task === "ikinci")?.state).toBe("pending");
+  });
+
+  it("çekirdek çökünce kuyruktaki görev ölü istemciye gönderilmez (U4-32)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+    act(() => {
+      result.current.send("varsayilan", "birinci");
+      result.current.send("varsayilan", "ikinci");
+    });
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    await act(async () => { fake.emitClosed({ oturum_id: "varsayilan", neden: "çöktü" }); });
+    await waitFor(() => expect(result.current.state.sessions.varsayilan.status).toBe("crashed"));
+    expect(fake.sent).toHaveLength(1);
+    // Yalnız uçuştaki ilk istek hata alır; kuyruktaki ikinci görev ölü istemciye hiç denenmez.
+    const hatalar = result.current.state.sessions.varsayilan.messages.filter((m) => m.hata && m.metin.startsWith("Hata:"));
+    expect(hatalar).toHaveLength(1);
+  });
+});

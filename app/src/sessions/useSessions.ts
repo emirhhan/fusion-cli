@@ -152,7 +152,11 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       }
 
       const snapshot = await transport.create(id, input.root);
-      if (!mounted.current) throw new Error("Oturum görünümü kapandı.");
+      if (!mounted.current) {
+        // Görünüm create beklenirken kapandı: çekirdek oturumu yetim kalmasın (U4-31).
+        await transport.close(id).catch(() => undefined);
+        throw new Error("Oturum görünümü kapandı.");
+      }
       const client = new ProtocolClient(
         (line) => {
           void transport.send(id, line).catch((reason) => {
@@ -574,6 +578,16 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     dispatch({ type: "submissionStarted", id, requestId, expectedTurnId });
     const session = oturumlarRef.current[id];
     if (!session || session.status !== "ready") return;
+    // Çekirdek kapandı ama `crashed` henüz render edilmedi: istemci haritasından düşmüş olan
+    // ölü istemciye gönderip her kuyruk öğesi için hata mesajı üretme (U4-32).
+    if (clients.current.get(id) !== session.client) return;
+    // Sıradan başlayan görev artık "queued" değil: makbuz gelmeden kapanırsa bir sonraki açılışta
+    // OTOMATİK ikinci kez çalışmasın (U4-34); taslak olarak kullanıcıya sorulur.
+    try {
+      if (loadSubmissions(id).some((entry) => entry.requestId === requestId && entry.state === "queued")) {
+        updateSubmission(id, requestId, "pending");
+      }
+    } catch { /* Saklama kullanılamıyorsa gönderim yine de sürer; makbuz yolu hatayı bildirir. */ }
     runningRequests.current.add(id);
     dispatch({ type: "runningChanged", id, running: true });
     void session.client
