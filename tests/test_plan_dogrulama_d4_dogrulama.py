@@ -299,3 +299,49 @@ def test_cikis_kodu_oneki_uretici_ve_okuyucuda_ayni_sabittir():
     from fusion_cli.engines.agent import turn_report
 
     assert turn_report._EXIT_CODE_PREFIX == EXIT_CODE_PREFIX
+
+
+# --- A4-29 ... A4-33, A4-56: öğretmen akışı ------------------------------------------- #
+
+
+def test_ogretmene_giden_kok_listesi_olasi_kimlik_dosyalarini_icermez(tmp_path):
+    from fusion_cli.engines.agent.teacher_flow import _project_context
+
+    for ad in (".env.local", "id_rsa", "anahtar.pem", "credentials.json", "app.py"):
+        (tmp_path / ad).write_text("x", encoding="utf-8")
+
+    baglam = _project_context(tmp_path, "görev")
+
+    assert "app.py" in baglam
+    for ad in (".env.local", "id_rsa", "anahtar.pem", "credentials.json"):
+        assert ad not in baglam
+
+
+def test_ogretmene_giden_fark_sir_dosyalarini_ve_buyuk_dosyalari_atlar(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent import teacher_flow
+
+    baglam = ToolContext(root=tmp_path)
+    sir = tmp_path / ".env.production"
+    kod = tmp_path / "a.py"
+    buyuk = tmp_path / "b.py"
+    for yol, icerik in ((sir, "A=1\n"), (kod, "x = 1\n"), (buyuk, "y" * (600 * 1024))):
+        baglam.changes.record_created(yol)
+        yol.write_text(icerik, encoding="utf-8")
+    deps = SimpleNamespace(tool_context=baglam)
+
+    ozet = teacher_flow._diff_summary(deps)
+
+    assert "a.py" in ozet
+    assert ".env.production" not in ozet
+    assert "b.py" not in ozet
+
+
+def test_test_komutu_deseni_latest_ve_contest_e_takilmaz():
+    from fusion_cli.engines.agent.teacher_flow import _TEST_COMMAND
+
+    assert _TEST_COMMAND.search("pytest -q")
+    assert _TEST_COMMAND.search("npm run build")
+    assert _TEST_COMMAND.search("npm test")
+    assert not _TEST_COMMAND.search("git checkout latest")
+    assert not _TEST_COMMAND.search("cat contest.txt")

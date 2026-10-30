@@ -18,10 +18,12 @@ from ...core.events import (
     ToolOutcome,
 )
 from ...core.redaction import redact
+from ...core.tools import ToolFamily, tool_family
 from ...core.types import Message
 from ...tools.diffing import bounded_diff
 from ...tools.files import display_path
 from ...tools.planning import todo_write
+from ...tools.search import is_secret_file
 from .repo_context import repo_map_block
 from .teacher_brief import BRIEF_CHAR_BUDGET
 from .teacher_memory import find_reusable_plan, plan_steps_from_lesson, record_plan_outcome
@@ -44,14 +46,24 @@ _MANIFEST_BUDGET = BRIEF_CHAR_BUDGET // 8
 _RELATED_FILE_BUDGET = 4096
 
 
+def _read_head(path: Path, limit: int) -> str:
+    """Dosyanın yalnız ilk `limit` baytını oku (tamamı belleğe alınmaz; A4-29)."""
+    with path.open("rb") as handle:
+        return handle.read(limit).decode("utf-8", errors="ignore")
+
+
 def _project_context(root: Path, task: str) -> str:
     """Kök yapıyı ve değer içermeyen, sınırlı manifest anahtarlarını derle."""
-    entries = sorted(path.name for path in root.iterdir() if path.name != ".env")
+    # Olası kimlik dosyalarının (`.env.local`, `id_rsa`, `*.pem`, `credentials.json`) ADI da
+    # üçüncü taraf öğretmene gitmez (A4-29).
+    entries = sorted(
+        path.name for path in root.iterdir() if not (path.is_file() and is_secret_file(path))
+    )
     pieces = ["Kök dizin: " + ", ".join(entries), repo_map_block(root)]
     for name in _MANIFESTS:
         path = root / name
         if path.is_file() and not path.is_symlink():
-            snippet = path.read_bytes()[:_MANIFEST_BUDGET].decode("utf-8", errors="ignore")
+            snippet = _read_head(path, _MANIFEST_BUDGET)
             if name == "package.json":
                 keys = re.findall(r'^\s*"([^"\n]+)"\s*:', snippet, re.MULTILINE)
             else:
@@ -64,7 +76,7 @@ def _project_context(root: Path, task: str) -> str:
     for name in referenced:
         path = (root / name).resolve()
         if path.is_relative_to(root.resolve()) and path.is_file():
-            snippet = path.read_bytes()[:_RELATED_FILE_BUDGET].decode("utf-8", errors="ignore")
+            snippet = _read_head(path, _RELATED_FILE_BUDGET)
             definitions = re.findall(
                 r"^\s*(?:async\s+def|def|class|function|export\s+(?:function|class|const))\s+([A-Za-z_][\w]*)",
                 snippet,
@@ -111,6 +123,18 @@ def _notify_unavailable(deps: AgentDeps, message: str) -> None:
         return
     deps.teacher_unavailable_notified = True
     deps.publisher.publish(StatusChanged(message=message))
+
+
+#: Öğretmen cevabının modele eklenen en çok uzunluğu: 20k karakterlik düzyazı küçük bağlamlı
+#: modelde bağlamı yiyordu (A4-32).
+_TEACHER_NOTE_CHARS = 6_000
+
+#: Öğretmenin "yapılamıyor" dediği konular KANITSIZ görüştür (A4-33): çırak kendi araçlarıyla
+#: yapılabildiğini görürse denemelidir; yanlış bir kısıt yapılabilir işi kapatmasın.
+_UNWORKABLE_CAVEAT = (
+    "\n\nNot: 'yapılamıyor' denen konular öğretmenin GÖRÜŞÜDÜR, doğrulanmadı. Kendi "
+    "araçlarınla yapılabildiğini gösteren kanıt bulursan dene ve sonucu raporla."
+)
 
 
 async def _ask(
@@ -201,7 +225,7 @@ async def prepare_teacher_plan(
             messages.append(
                 Message(
                     "user",
-                    f"FUSION_NOT: Öğretmen plan notu:\n{redact(answer)}",
+                    f"FUSION_NOT: Öğretmen plan notu:\n{redact(answer)[:_TEACHER_NOTE_CHARS]}",
                     harness_note=True,
                 )
             )
@@ -226,7 +250,9 @@ async def prepare_teacher_plan(
     messages.append(
         Message(
             "user",
-            "FUSION_NOT: Öğretmen planı (uygula ve doğrula):\n" + redact(plan.raw),
+            "FUSION_NOT: Öğretmen planı (uygula ve doğrula):\n"
+            + redact(plan.raw)[:_TEACHER_NOTE_CHARS]
+            + _UNWORKABLE_CAVEAT * bool(plan.unworkables),
             harness_note=True,
         )
     )
@@ -259,7 +285,8 @@ def _apply_remembered_plan(task: str, messages: list[Message], deps: AgentDeps) 
         return False
     from .learning_steps import _workspace, lesson_tags
 
-    assert deps.lessons is not None
+    if deps.lessons is None:  # `python -O` altında assert kalkardı
+        return False
     found = find_reusable_plan(
         deps.lessons, task, workspace=_workspace(deps), tags=lesson_tags(deps)
     )
@@ -302,7 +329,8 @@ def settle_teacher_plan(
     deps.reused_teacher_lesson = deps.pending_teacher_plan = None
     if not _lessons_enabled(deps) or (reused is None and fresh is None):
         return
-    assert deps.lessons is not None
+    if deps.lessons is None:
+        return
     success = resolve_turn_success(
         outcome_ok=outcome.ok, hit_step_limit=outcome.hit_step_limit, verification=verification
     )
@@ -310,9 +338,13 @@ def settle_teacher_plan(
         if deps.lessons.reinforce((reused.text,), success=success):
             deps.publisher.publish(TeacherLessonRecorded(success=success, reused=True))
         return
-    assert fresh is not None
+    if fresh is None:
+        return
     changed = len(deps.tool_context.changes.paths)
-    gate = "geçti" if verification is not None and verification.ok else "çalışmadı"
+    if verification is None:
+        gate = "çalışmadı"
+    else:
+        gate = "geçti" if verification.ok else "başarısız"
     if record_plan_outcome(
         deps.lessons,
         task=task,
@@ -325,13 +357,24 @@ def settle_teacher_plan(
         deps.publisher.publish(TeacherLessonRecorded(success=True, reused=False))
 
 
+#: Öğretmene gönderilen fark için dosya başına en çok bayt.
+_DIFF_FILE_MAX_BYTES = 512 * 1024
+
+
 def _diff_summary(deps: AgentDeps) -> str:
     """Yalnız bu turun değişikliklerinden sınırlı ve maskelenmiş farklar üret."""
     summaries: list[str] = []
     for snapshot in deps.tool_context.changes.snapshots:
+        # Olası kimlik/sır dosyalarının farkı üçüncü taraf öğretmene gitmez; desen maskeleme
+        # yetmez (A4-30). Çok büyük dosya da sınırsız okunmaz.
+        if is_secret_file(snapshot.path):
+            continue
         try:
-            current = snapshot.path.read_bytes()
+            with snapshot.path.open("rb") as handle:
+                current = handle.read(_DIFF_FILE_MAX_BYTES + 1)
         except OSError:
+            continue
+        if len(current) > _DIFF_FILE_MAX_BYTES:
             continue
         if b"\x00" in current or (snapshot.content is not None and b"\x00" in snapshot.content):
             continue
@@ -343,6 +386,9 @@ def _diff_summary(deps: AgentDeps) -> str:
             summaries.append(redact(diff))
     return "\n\n".join(summaries)
 
+
+#: Test/derleme komutu: `latest`, `contest` gibi sözcüklerin içindeki "test" eşleşmesin (A4-56).
+_TEST_COMMAND = re.compile(r"(?<![A-Za-z])(?:py)?test|(?<![A-Za-z])build")
 
 #: Denetime giden görev metni sınırı: öğretmen brief bütçesinin (25k) küçük bir
 #: kesri; gereksinim listeli uzun görevler (ölçülen örnek ~900 karakter) sığar.
@@ -366,10 +412,8 @@ async def review_teacher_changes(
     tests = [
         redact(use.output)
         for use in outcome.tool_uses
-        if use.name in {"run_shell", "bash", "shell"}
-        and any(
-            word in str(use.arguments.get("command", "")) for word in ("test", "pytest", "build")
-        )
+        if tool_family(use.name) is ToolFamily.SHELL
+        and _TEST_COMMAND.search(str(use.arguments.get("command", "")))
     ]
     durum = "Görev ve gereksinimler:\n" + redact(task)[:_REVIEW_TASK_CHARS]
     durum += "\n\nDeğişiklik farkı:\n" + await asyncio.to_thread(_diff_summary, deps)

@@ -335,6 +335,10 @@ def _is_secret_file(path: Path) -> bool:
     )
 
 
+#: Dışarıdan (öğretmen gibi üçüncü taraf modellere gidecek içerik seçilirken) kullanılan ad.
+is_secret_file = _is_secret_file
+
+
 def _truncate_utf8(text: str, max_bytes: int) -> str:
     """UTF-8 çıktıyı byte sınırında, geçerli karakter sınırında kes."""
     encoded = text.encode("utf-8")
