@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 import re
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
@@ -63,11 +63,27 @@ _PREPARE = """(pattern) => {
 }"""
 
 
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def is_local_store_url(url: str) -> bool:
+    """Adres bu makinedeki (loopback) önizleme sunucusunu mu gösteriyor?"""
+    parsed = urlparse(url)
+    return parsed.scheme in {"http", "https"} and (parsed.hostname or "") in _LOCAL_HOSTS
+
+
 async def cart_flow_problem(product_url: str, cart_url: str | None) -> str | None:
     """Ürünü sepete eklemeyi dene; çalışmıyorsa nedeniyle birlikte sorun metni döndür.
 
-    Tarayıcı açılamazsa `RuntimeError` yükselir (çağıran sessizce geçebilir).
+    Akış sahte e-posta/telefonla SİPARİŞ VERİR; bu yüzden yalnız yerel (loopback) önizleme
+    adresinde çalışır. Ölçüldü (30 Ekim): model canlı site adresi verirse gerçek mağazaya
+    sahte sipariş/müşteri kaydı düşebilirdi.
+
+    Tarayıcı açılamazsa ya da adres yerel değilse `RuntimeError` yükselir (çağıran sessizce
+    geçebilir).
     """
+    if not is_local_store_url(product_url) or (cart_url and not is_local_store_url(cart_url)):
+        raise RuntimeError("sipariş denemesi yalnız yerel önizleme adresinde yapılır")
     from playwright.async_api import async_playwright
 
     async with async_playwright() as driver:
@@ -194,7 +210,10 @@ _PLACE_ORDER = (
     "#place_order, .wc-block-components-checkout-place-order-button, "
     "form.checkout button[type=submit]"
 )
-_ORDER_DONE = re.compile(r"order-received|siparis-alindi|sipariş(iniz)? alındı|thank you", re.I)
+# Çıplak "thank you" bülten teşekkür penceresinde de geçer (yanlış başarı); sipariş cümlesi aranır.
+_ORDER_DONE = re.compile(
+    r"order-received|siparis-alindi|sipariş(iniz)? alındı|thank you\.? your order", re.I
+)
 _ERRORS = (
     ".woocommerce-error, .woocommerce-NoticeGroup-checkout, "
     ".wc-block-components-notice-banner.is-error"
