@@ -493,6 +493,10 @@ APP_NO_RUNNING_TURN = "Çalışan tur yok."
 #: Bir olay JSON'a çevrilemediğinde (bkz. `serialize.py::_plain`) sessizce
 #: kaybolmak yerine uygulamaya bildirilir; olay adı ekli, alan değeri değil.
 APP_EVENT_SERIALIZE_FAILED = "Olay iletilemedi (serileştirilemedi): {olay}"
+#: Cevapsız onay süresi dolunca reddedilir; kullanıcıya hangi aracın neden reddedildiği söylenir.
+APPROVAL_TIMED_OUT = (
+    "{arac} için onay {dakika} dakika cevapsız kaldı; güvenli varsayılanla reddedildi."
+)
 #: Bir süreç bir oturum, bir oturumda aynı anda bir tur — ikinci `tur.calistir`
 #: mevcut turu sessizce üzerine yazmak yerine reddedilir; kullanıcı önce
 #: `tur.kes` ile mevcut turu durdurmalı ya da bitmesini beklemeli.

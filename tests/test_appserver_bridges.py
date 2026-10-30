@@ -309,3 +309,54 @@ async def test_onay_argumani_uzunluk_sinirli_ve_maskelidir() -> None:
 
     pending.resolve(yuk["id"], {"secim": "deny"})
     await gorev
+
+
+# S1-11 — Ölçüldü (30 Ekim): cevapsız onay `await future` ile SONSUZA dek bekliyordu;
+# uygulama açık ama kullanıcı yokken tur (ve turu tutan kilit) hiç bitmiyordu.
+async def test_cevapsiz_onay_zaman_asiminda_reddedilir_ve_olay_yayilir() -> None:
+    satirlar: list[str] = []
+    kapananlar: list[str] = []
+    pending = PendingQuestions()
+    prompter = ProtocolPrompter(
+        satirlar.append, pending, on_closed=kapananlar.append, approval_timeout_s=0.05
+    )
+
+    cevap = await prompter.confirm(_request())
+
+    assert cevap is ApprovalAnswer.DENY
+    soru_id = json.loads(satirlar[0])["id"]
+    assert kapananlar == [soru_id]
+    olay = json.loads(satirlar[-1])
+    assert olay["tip"] == "olay"
+    assert olay["veri"]["olay"] == "OnayZamanAsimi"
+    assert olay["veri"]["id"] == soru_id
+    assert olay["veri"]["arac"] == "write_file"
+    # Geç gelen cevap artık hiçbir soruyla eşleşmez; araç ikinci kez sorulmaz.
+    assert pending.resolve(soru_id, {"secim": "once"}) is False
+
+
+async def test_zaman_asimi_serbest_metin_sorusuna_uygulanmaz() -> None:
+    """Zaman aşımı yalnız ONAY içindir; kullanıcıya açık uçlu soru süreyle reddedilmez."""
+    satirlar: list[str] = []
+    pending = PendingQuestions()
+    prompter = ProtocolPrompter(satirlar.append, pending, approval_timeout_s=0.05)
+
+    gorev = asyncio.ensure_future(prompter.ask("hangi dil?"))
+    await asyncio.sleep(0.15)
+    assert not gorev.done()
+    pending.resolve(json.loads(satirlar[0])["id"], {"metin": "python"})
+
+    assert await gorev == "python"
+
+
+async def test_zamaninda_gelen_onay_zaman_asimina_takilmaz() -> None:
+    satirlar: list[str] = []
+    pending = PendingQuestions()
+    prompter = ProtocolPrompter(satirlar.append, pending, approval_timeout_s=5.0)
+
+    gorev = asyncio.ensure_future(prompter.confirm(_request()))
+    await asyncio.sleep(0)
+    pending.resolve(json.loads(satirlar[0])["id"], {"secim": "once"})
+
+    assert await gorev is ApprovalAnswer.ONCE
+    assert all(json.loads(s)["veri"].get("olay") != "OnayZamanAsimi" for s in satirlar)

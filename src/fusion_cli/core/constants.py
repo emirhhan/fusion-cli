@@ -288,3 +288,8 @@ PROCESS_POLL_S = 1.0
 #: Yalnız ACK tutulur, izin veya yanıt metni değil. Eski kayıt atılınca tekrar
 #: reddedilir; araç ikinci kez çalıştırılmaz. Bellek oturum süresiyle büyümez.
 QUESTION_RECEIPT_HISTORY_LIMIT = 256
+
+#: Cevapsız onay kartının en uzun bekleme süresi (saniye). Süre dolunca onay REDDEDİLİR ve
+#: "OnayZamanAsimi" olayı yayılır; kullanıcı yokken tur ve turu tutan kilit sonsuza dek açık
+#: kalmaz. Yalnız onay içindir; açık uçlu sorular süreyle reddedilmez.
+APPROVAL_UNANSWERED_TIMEOUT_S = 30 * 60.0

@@ -16,7 +16,7 @@ from itertools import count
 from pathlib import Path
 from uuid import uuid4
 
-from ..core.constants import QUESTION_RECEIPT_HISTORY_LIMIT
+from ..core.constants import APPROVAL_UNANSWERED_TIMEOUT_S, QUESTION_RECEIPT_HISTORY_LIMIT
 from ..core.events import Event
 from ..core.redaction import redact
 from ..core.submission import SubmissionReceipt
@@ -147,8 +147,10 @@ class ProtocolPrompter:
         element_name: Callable[[object], str | None] | None = None,
         namespace: str = "",
         on_closed: Callable[[str], None] | None = None,
+        approval_timeout_s: float = APPROVAL_UNANSWERED_TIMEOUT_S,
     ) -> None:
         self._writer = writer
+        self._approval_timeout_s = approval_timeout_s
         self._pending = pending
         self._namespace = namespace
         self._on_closed = on_closed
@@ -164,22 +166,21 @@ class ProtocolPrompter:
             self._element_name(request.args.get("ref")) if self._element_name is not None else None
         )
         baslik, hedef = approval_summary(request.tool.name, request.args, element=element or "")
-        data = await self._ask_wire(
-            {
-                "tur": "onay",
-                "arac": request.tool.name,
-                "baslik": baslik,
-                "hedef": hedef,
-                "argumanlar": _preview_args(request),
-                "tehlike": request.danger,
-                # Neden soruluyor / silme hedefi (tehlike değil, bilgi).
-                "neden": None if request.danger else request.note,
-                # Kullanıcı "ne değişecek" sorusunu argümanlardan değil diff'ten
-                # okumalı (bkz. `approval_preview`).
-                "diff": self._onizleme(request),
-                "secenekler": _approval_options(request),
-            }
-        )
+        payload: dict[str, object] = {
+            "tur": "onay",
+            "arac": request.tool.name,
+            "baslik": baslik,
+            "hedef": hedef,
+            "argumanlar": _preview_args(request),
+            "tehlike": request.danger,
+            # Neden soruluyor / silme hedefi (tehlike değil, bilgi).
+            "neden": None if request.danger else request.note,
+            # Kullanıcı "ne değişecek" sorusunu argümanlardan değil diff'ten
+            # okumalı (bkz. `approval_preview`).
+            "diff": self._onizleme(request),
+            "secenekler": _approval_options(request),
+        }
+        data = await self._ask_approval(payload, request)
         choice = data.get("secim")
         if choice == "once":
             return ApprovalAnswer.ONCE
@@ -216,9 +217,44 @@ class ProtocolPrompter:
         answer = data.get("metin")
         return answer if isinstance(answer, str) else ""
 
-    async def _ask_wire(self, payload: dict[str, object]) -> dict[str, object]:
+    async def _ask_approval(
+        self, payload: dict[str, object], request: ApprovalRequest
+    ) -> dict[str, object]:
+        """Onayı sor; süre dolana dek cevap gelmezse boş cevap (= RED) döndür ve olay yay.
+
+        Ölçüldü (30 Ekim): zaman aşımı yoktu; kullanıcı yokken tur ve turu tutan kilit sonsuza
+        dek açık kalıyordu. İptal `_ask_wire`'ın `finally`'sine ulaşır: bekleyen kayıt
+        silinir, `SoruKapandi` yayılır, geç gelen cevap hiçbir soruyla eşleşmez.
+        """
+        asked: list[str] = []
+        try:
+            # `asyncio.timeout` aynı görevde çalışır (`wait_for` gibi ikinci görev açmaz): soru
+            # tele, çağıran ilk `await`te yazılmış olur.
+            async with asyncio.timeout(self._approval_timeout_s):
+                return await self._ask_wire(payload, on_asked=asked.append)
+        except TimeoutError:
+            self._writer(
+                encode_event(
+                    {
+                        "olay": "OnayZamanAsimi",
+                        "id": asked[0] if asked else "",
+                        "arac": request.tool.name,
+                        "sure_s": self._approval_timeout_s,
+                        "mesaj": messages.APPROVAL_TIMED_OUT.format(
+                            arac=request.tool.name, dakika=round(self._approval_timeout_s / 60)
+                        ),
+                    }
+                )
+            )
+            return {}
+
+    async def _ask_wire(
+        self, payload: dict[str, object], on_asked: Callable[[str], None] | None = None
+    ) -> dict[str, object]:
         """Soruyu ilet, eş kimlikli cevabı bekle; kapanışta boş cevap döndür."""
         identifier, future = self._pending.new_question(self._namespace)
+        if on_asked is not None:
+            on_asked(identifier)
         try:
             self._writer(encode_question(identifier, payload))
             return await future
