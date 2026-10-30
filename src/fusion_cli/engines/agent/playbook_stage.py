@@ -95,6 +95,11 @@ _STAGE_PROMPTS: dict[Stage, str] = {
 }
 
 
+#: Aşama notunun sonraki aşamaya taşınan en çok uzunluğu. 500 karakter uzun planı PATCH
+#: aşamasına kesik taşıyordu (A3-28).
+_STAGE_NOTE_CHARS = 2_000
+
+
 class _AgentStageExecutor:
     """Her workflow aşamasını, odaklı bir alt-turla (run_agent) çalıştıran köprü."""
 
@@ -108,9 +113,11 @@ class _AgentStageExecutor:
         # depth=1: üstteki workflow/playbook/öz-denetim dalları yeniden tetiklenmesin.
         outcome = await self._run_agent(prompt, self._deps, depth=1, self_review=False)
         ok = outcome.ok and not outcome.hit_step_limit
-        # Model çağrısı ~ araç turu + son cevap turu. Bütçe kapısını besleyen tahmin.
+        # Bütçe kapısı GERÇEK model çağrısıyla beslenir; sayaç yoksa (0) araç turu + son
+        # cevap turu tahmini kullanılır (A3-28: tahmin bütçeyi yanlış ölçüyordu).
+        calls = outcome.model_calls_made or outcome.tool_calls_made + 1
         return StageOutcome(
-            ok=ok, model_calls=outcome.tool_calls_made + 1, note=outcome.final_text.strip()[:500]
+            ok=ok, model_calls=calls, note=outcome.final_text.strip()[:_STAGE_NOTE_CHARS]
         )
 
 
