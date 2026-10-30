@@ -254,13 +254,15 @@ async function validateNativeWeb() {
 function webSessionCard(w) {
   const native = w.transport === "browser";
   const status = w.connected ? `<span class="badge ok">oturum kayıtlı</span>` : `<span class="badge fw">giriş gerekli</span>`;
-  const edit = native ? `<button class="ghost" onclick="openWebProvider('${w.provider}','${w.model}')">Ayarla</button>` : "";
+  // Ad/uç değerleri yapılandırmadan gelir: HTML'e kaçışlı, inline JS'e JSON dizgisi olarak girer.
+  const jsArg = (value) => escapeHtml(JSON.stringify(String(value ?? "")));
+  const edit = native ? `<button class="ghost" onclick="openWebProvider(${jsArg(w.provider)},${jsArg(w.model)})">Ayarla</button>` : "";
   const mode = WINDOW_MODES[w.window_mode];
   const detail = native ? `${w.provider} · ${w.account} · ${mode ? mode.label : "görünmez"}` : w.endpoint;
   const windowNotice = native && w.window_notice ? `<div class="notice" role="status">${escapeHtml(w.window_notice)}</div>` : "";
-  return `<div class="pcard"><div class="pcard-head"><span class="name">${w.model}</span>${status}</div>
-    <div class="meta" style="margin:var(--space-2) 0 var(--space-3);word-break:break-all">${detail}</div>${windowNotice}
-    <div class="row">${edit}<button class="danger" onclick="delWebSession('${w.model}')">Sil</button></div></div>`;
+  return `<div class="pcard"><div class="pcard-head"><span class="name">${escapeHtml(w.model)}</span>${status}</div>
+    <div class="meta" style="margin:var(--space-2) 0 var(--space-3);word-break:break-all">${escapeHtml(detail ?? "")}</div>${windowNotice}
+    <div class="row">${edit}<button class="danger" onclick="delWebSession(${jsArg(w.model)})">Sil</button></div></div>`;
 }
 
 function setWebAddOpen(acik) {

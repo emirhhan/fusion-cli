@@ -88,3 +88,22 @@ def test_durum_yuklenmeden_kurulum_penceresi_acilirsa_cokmez() -> None:
         """
     )
     assert sonuc is False
+
+
+def test_web_oturum_karti_model_ve_saglayici_adini_kacislar():
+    """Ölçüldü (30 Ekim): `webSessionCard` model/sağlayıcı/hesap/uç adını HTML'e ve inline
+    `onclick` dizgisine kaçışsız basıyordu; `'` içeren model adı JS'i, `<img onerror>` HTML'i
+    kırıyordu (yerel panelde kendi yapılandırmasından XSS)."""
+    html = calistir(
+        """
+        const kotu = "x');alert(1);('<img src=x onerror=alert(2)>";
+        const tarayici = webSessionCard({ transport: 'browser', provider: kotu, model: kotu,
+          account: '<b>hesap</b>', window_mode: 'yok', connected: true });
+        const uc = webSessionCard({ transport: 'http', model: 'm', endpoint: '<script>e</script>' });
+        return tarayici + uc;
+        """
+    )
+    assert isinstance(html, str)
+    assert "<img" not in html and "<b>" not in html and "<script>" not in html
+    assert "');alert(1)" not in html
+    assert "&lt;img src=x onerror=alert(2)&gt;" in html
