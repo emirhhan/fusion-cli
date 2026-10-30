@@ -1,5 +1,5 @@
 import { submissionAccepted, type SubmissionResult } from "../sessions/submission";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { anmayiBul, anmayiDegistir } from "./dosyaAnmasi";
 import { Button } from "../ui/Button";
 import { MicIcon } from "../voice/MicIcon";
@@ -24,7 +24,8 @@ import type { WorkspaceMode } from "../sessions/useSessions";
  */
 /** Yolun son parçası. Liste dar; kullanıcı önce dosya adını arar. */
 function dosyaAdi(yol: string): string {
-  const parcalar = yol.split("/");
+  // Windows yolları da `\` ile ayrılır (U1-19).
+  const parcalar = yol.split(/[\\/]/);
   return parcalar[parcalar.length - 1] || yol;
 }
 
@@ -170,11 +171,19 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   /** Kullanıcı Esc ile listeyi kapattı mı? Sorgu değişince kendiliğinden sıfırlanır. */
   const [mentionDismissed, setMentionDismissed] = useState(false);
+  /** Gönderim reddedilirse/özel durum atarsa kullanıcıya gösterilen yerel hata (U1-05). */
+  const [sendError, setSendError] = useState<string | null>(null);
+  /** Desteklenmeyen komuta Enter basıldığında gösterilen ipucu (U1-06). */
+  const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pendingSubmission = useRef(false);
   const draft = value ?? internalValue;
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  // Üst bileşen `onFileQuery` kimliğini her render'da değiştirebilir; efekt buna
+  // bağlanırsa aynı sorgu yeniden istenir ve Esc ile kapatılan liste yeniden açılır.
+  const onFileQueryRef = useRef(onFileQuery);
+  onFileQueryRef.current = onFileQuery;
   const compactLayout = attachments.length === 0 && !attachmentError && !dictationError
     && !draft.includes("\n") && draft.length < COMPACT_MESSAGE_CHARACTER_LIMIT;
   useLayoutEffect(() => {
@@ -207,6 +216,8 @@ export function Composer({
       ]
     : [];
   const mentionOpen = mention !== null && !mentionDismissed && mentionItems.length > 0;
+  // Öneriler eşzamansız gelip kısalabilir; eski indeks listenin dışına taşmasın.
+  const mentionIndex = Math.min(activeMention, Math.max(mentionItems.length - 1, 0));
   const filteredCommands = useMemo(() => {
     if (!draft.startsWith("/") || draft.includes("\n")) return [];
     const query = draft.slice(1).trim().toLocaleLowerCase("tr");
@@ -215,20 +226,23 @@ export function Composer({
     ).slice(0, 8);
   }, [commands, draft]);
   const paletteOpen = filteredCommands.length > 0;
+  const commandIndex = Math.min(activeCommand, Math.max(filteredCommands.length - 1, 0));
   const mentionQuery = mention?.sorgu ?? null;
   useEffect(() => {
     // Anma kapalıyken sorgu gönderilmez: kapanır kapanmaz istek akışı da durur.
     if (mentionQuery === null) return;
-    onFileQuery?.(mentionQuery);
+    onFileQueryRef.current?.(mentionQuery);
     setActiveMention(0);
     // Sorgu değiştiyse kullanıcı yazmaya devam ediyor demektir: Esc ile
     // kapatılmış liste yeniden açılmalı.
     setMentionDismissed(false);
-  }, [mentionQuery, onFileQuery]);
+  }, [mentionQuery]);
   const setDraft = (next: string, nextCaret?: number) => {
     if (value === undefined) setInternalValue(next);
     onValueChange?.(next);
     setActiveCommand(0);
+    setSendError(null);
+    setCommandNotice(null);
     setCaret(nextCaret ?? next.length);
   };
   /** Seçilen yolu anmanın yerine koy ve imleci yolun ardına taşı. */
@@ -250,22 +264,42 @@ export function Composer({
     if (!task || pendingSubmission.current) return;
     const snapshot = draft;
     pendingSubmission.current = true;
+    const fail = () => {
+      pendingSubmission.current = false;
+      setSendError("Mesaj gönderilemedi. Yeniden dene.");
+    };
     const accept = (result: SubmissionResult) => {
-      if (submissionAccepted(result) && draftRef.current === snapshot) setDraft("");
+      if (submissionAccepted(result)) {
+        // Gönderim beklenirken yazılan ek karakterler korunur; yalnız gönderilen
+        // kısım silinir. Aksi hâlde eski metin kutuda kalır ve çift gönderilir (U1-04).
+        const current = draftRef.current;
+        if (current === snapshot) setDraft("");
+        else if (current.startsWith(snapshot)) setDraft(current.slice(snapshot.length).replace(/^\s+/, ""));
+      }
       pendingSubmission.current = false;
     };
     try {
       const result = onSend(task);
-      if (result instanceof Promise) result.then(accept, () => { pendingSubmission.current = false; });
+      if (result instanceof Promise) result.then(accept, fail);
       else accept(result);
     } catch {
-      pendingSubmission.current = false;
+      fail();
     }
   };
   /** Sıradaki izin modu (Shift+Tab). "İzinleri atla" döngüde yoktur. */
   const nextApproval = (): ApprovalMode => nextApprovalMode(approval);
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // IME adayını onaylayan Enter ve composition sırasında basılan diğer
+    // kısayollar (aday penceresini kapatan Esc dahil), Fusion komutu, turu
+    // durdurma veya izin modu eylemi değildir (U1-12).
+    if (event.nativeEvent.isComposing) return;
+    // Açık anma listesi Esc'i önce kendi kapatmak için tüketir (U1-13).
+    if (mentionOpen && event.key === "Escape") {
+      event.preventDefault();
+      setMentionDismissed(true);
+      return;
+    }
     // Esc çalışan turu durdurur (Claude'daki davranış). Boş kutuda da çalışır;
     // kullanıcı durdurmak için fareye uzanmak zorunda kalmamalı.
     if (event.key === "Escape" && running && !stopping) {
@@ -273,24 +307,19 @@ export function Composer({
       onStop();
       return;
     }
-    // IME adayını onaylayan Enter ve composition sırasında basılan diğer
-    // kısayollar, Fusion komutu veya izin modu eylemi değildir.
-    if (event.nativeEvent.isComposing) return;
     // Shift+Tab İZİN MODUNU döndürür — terminaldeki davranışın aynısı.
     // Sohbet/Kod ayrımı ayrı düğmelerdedir; ikisini aynı tuşa bindirmek
     // kullanıcının beklediği terminal alışkanlığını bozuyordu.
-    if (event.key === "Tab" && event.shiftKey && onApprovalChange) {
+    // Sohbet kipinde izin menüsü çizilmez: mod görünmeden değişmesin, Shift+Tab
+    // de normal ters odak hareketini korusun (U1-03).
+    const izinModuGorunur = !(workspaceMode === "sohbet" && onWorkspaceModeChange);
+    if (event.key === "Tab" && event.shiftKey && onApprovalChange && izinModuGorunur) {
       event.preventDefault();
       onApprovalChange(nextApproval());
       return;
     }
     // Anma paleti açıkken ok/Enter/Esc ONA aittir; komut paleti `/` ile
     // başlar ve ikisi aynı anda açılamaz, ama sıra yine de belirli olmalı.
-    if (mentionOpen && event.key === "Escape") {
-      event.preventDefault();
-      setMentionDismissed(true);
-      return;
-    }
     if (mentionOpen && event.key === "ArrowDown") {
       event.preventDefault();
       setActiveMention((current) => (current + 1) % mentionItems.length);
@@ -303,7 +332,7 @@ export function Composer({
     }
     if (mentionOpen && (event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
       event.preventDefault();
-      const secili = mentionItems[activeMention];
+      const secili = mentionItems[mentionIndex];
       if (secili) chooseMention(secili.deger);
       return;
     }
@@ -327,24 +356,39 @@ export function Composer({
         send();
         return;
       }
-      if (exactCommands.length > 0) return;
-      const selected = filteredCommands[activeCommand];
+      if (exactCommands.length > 0) {
+        setCommandNotice(`/${exactCommands[0].ad} komutu uygulamada henüz desteklenmiyor.`);
+        return;
+      }
+      const selected = filteredCommands[commandIndex];
       if (selected && draft.trim() !== `/${selected.ad}`) {
-        setDraft(`/${selected.ad}`);
+        if (selected.destekleniyor) setDraft(`/${selected.ad}`);
+        else setCommandNotice(`/${selected.ad} komutu uygulamada henüz desteklenmiyor.`);
         return;
       }
       send();
     }
   };
+  /** Yalnız dosya sürüklemeleri bu kutunun işi; metin bırakmayı textarea kendisi ele alır (U1-09). */
+  const dosyaSurukleniyor = (event: DragEvent<HTMLDivElement>) =>
+    [...(event.dataTransfer?.types ?? [])].includes("Files") || (event.dataTransfer?.files?.length ?? 0) > 0;
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!dosyaSurukleniyor(event)) return;
     event.preventDefault();
     const files = [...event.dataTransfer.files];
     if (files.length) onDropFiles(files);
   };
+  /** Panodaki görsel/dosya (ekran görüntüsü) ek olarak eklenir; düz metin yapıştırma etkilenmez (U1-10). */
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = [...(event.clipboardData?.files ?? [])];
+    if (files.length === 0) return;
+    event.preventDefault();
+    onDropFiles(files);
+  };
 
   return (
     <div className="composer-wrap">
-      <div className="composer" data-busy-submission={running && !!onBusySubmissionModeChange ? "true" : undefined} data-layout={compactLayout ? "compact" : "expanded"} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+      <div className="composer" data-busy-submission={running && !!onBusySubmissionModeChange ? "true" : undefined} data-layout={compactLayout ? "compact" : "expanded"} onDragOver={(event) => { if (dosyaSurukleniyor(event)) event.preventDefault(); }} onDrop={handleDrop}>
         {running && onBusySubmissionModeChange && <label className="composer__submission">
           <span>Bu mesaj</span>
           <select aria-label="Çalışan işe mesaj" value={busySubmissionMode} disabled={stopping || busySubmissionDisabled}
@@ -355,12 +399,13 @@ export function Composer({
         </label>}
         {stopping && <p className="composer__notice" role="status">İşlem durduruluyor; açık işlemler kapatılıyor.</p>}
         {paletteOpen && (
-          <div aria-label="Komut önerileri" className="composer__palette" role="listbox">
+          <div aria-label="Komut önerileri" className="composer__palette" id="composer-komut-listesi" role="listbox">
             {filteredCommands.map((command, index) => (
               <button
                 aria-label={`${command.ad} — ${command.aciklama}`}
-                aria-selected={index === activeCommand}
+                aria-selected={index === commandIndex}
                 disabled={!command.destekleniyor}
+                id={`composer-komut-${index}`}
                 key={`${command.grup}:${command.ad}`}
                 onClick={() => setDraft(`/${command.ad}`)}
                 role="option"
@@ -375,11 +420,12 @@ export function Composer({
           </div>
         )}
         {mentionOpen && (
-          <div aria-label="Anma önerileri" className="composer__palette" role="listbox">
+          <div aria-label="Anma önerileri" className="composer__palette" id="composer-anma-listesi" role="listbox">
             {mentionItems.map((oge, index) => (
               <button
                 aria-label={oge.tur === "mcp" ? `MCP ${oge.deger}` : oge.deger}
-                aria-selected={index === activeMention}
+                aria-selected={index === mentionIndex}
+                id={`composer-anma-${index}`}
                 key={`${oge.tur}:${oge.deger}`}
                 onClick={() => chooseMention(oge.deger)}
                 role="option"
@@ -402,13 +448,22 @@ export function Composer({
             ))}
           </div>
         )}
-        {[attachmentError, dictationError, commandError].map((error, index) => error && <p key={index} aria-live="polite" className="composer__attachment-error">{error}</p>)}
+        {[attachmentError, dictationError, commandError, commandNotice, sendError].map((error, index) => error && <p key={index} className="composer__attachment-error" role="alert">{error}</p>)}
         <textarea
           aria-label="Mesaj"
+          {...(paletteOpen || mentionOpen
+            ? {
+                "aria-activedescendant": paletteOpen ? `composer-komut-${commandIndex}` : `composer-anma-${mentionIndex}`,
+                "aria-autocomplete": "list" as const,
+                "aria-controls": paletteOpen ? "composer-komut-listesi" : "composer-anma-listesi",
+                "aria-haspopup": "listbox" as const,
+              }
+            : {})}
           onChange={(event) => setDraft(event.target.value, event.target.selectionStart)}
           onClick={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={onKeyDown}
           onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
+          onPaste={handlePaste}
           placeholder="İstediğin bir şeyi sor"
           ref={textareaRef}
           rows={1}

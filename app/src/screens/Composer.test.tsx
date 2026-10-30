@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Composer, maliyetRozetMetni } from "./Composer";
 
@@ -471,5 +471,134 @@ describe("Composer — @ ile MCP seçimi", () => {
     expect(onModelSelect).toHaveBeenCalledWith("/model agent a/b");
     rerender(<Composer activeModel="" modelOptions={modelOptions} onModelSelect={onModelSelect} onSend={vi.fn()} running />);
     expect(screen.getByRole("button", { name: /Model: (seçilmedi|Model seç)/ })).toBeTruthy();
+  });
+});
+
+describe("Composer — P2/P3 ayıklama turu (dalga 4)", () => {
+  it("sohbet kipinde Shift+Tab izin modunu sessizce değiştirmez (U1-03)", () => {
+    const onApprovalChange = vi.fn();
+    render(<Composer workspaceMode="sohbet" onWorkspaceModeChange={vi.fn()} onApprovalChange={onApprovalChange} onSend={vi.fn()} />);
+    const textbox = screen.getByRole("textbox", { name: "Mesaj" });
+    expect(fireEvent.keyDown(textbox, { key: "Tab", shiftKey: true })).toBe(true);
+    expect(onApprovalChange).not.toHaveBeenCalled();
+  });
+
+  it("çalışma kipinde Shift+Tab izin modunu döndürmeyi sürdürür (U1-03)", () => {
+    const onApprovalChange = vi.fn();
+    render(<Composer workspaceMode="kod" onWorkspaceModeChange={vi.fn()} onApprovalChange={onApprovalChange} onSend={vi.fn()} />);
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Mesaj" }), { key: "Tab", shiftKey: true });
+    expect(onApprovalChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("gönderim beklenirken eklenen karakter korunur, gönderilen kısım silinir (U1-04)", async () => {
+    let accept!: (value: unknown) => void;
+    render(<Composer onSend={() => new Promise((resolve) => { accept = resolve; })} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    fireEvent.change(textbox, { target: { value: "ilk görev" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    fireEvent.change(textbox, { target: { value: "ilk görevX" } });
+    await act(async () => { accept({ requestId: "i", sessionId: "o", turnId: null, state: "accepted", error: null }); });
+    expect(textbox).toHaveProperty("value", "X");
+  });
+
+  it("reddedilen gönderim hata gösterir ve kilidi açar (U1-05)", async () => {
+    const onSend = vi.fn().mockRejectedValueOnce(new Error("ağ")).mockReturnValue(undefined);
+    render(<Composer onSend={onSend} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    fireEvent.change(textbox, { target: { value: "dene" } });
+    await act(async () => { fireEvent.keyDown(textbox, { key: "Enter" }); });
+    expect(screen.getByRole("alert").textContent).toContain("gönderilemedi");
+    expect(textbox).toHaveProperty("value", "dene");
+    await act(async () => { fireEvent.keyDown(textbox, { key: "Enter" }); });
+    expect(onSend).toHaveBeenCalledTimes(2);
+  });
+
+  it("desteklenmeyen komutta Enter sessiz kalmaz ve modele ham komut gitmez (U1-06)", () => {
+    const onSend = vi.fn();
+    const commands = [{ ad: "denemecmd", aciklama: "x", grup: "g", kullanim: "/denemecmd", destekleniyor: false }];
+    render(<Composer commands={commands} onSend={onSend} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    fireEvent.change(textbox, { target: { value: "/denemecmd" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("desteklenmiyor");
+  });
+
+  it("palette Enter desteklenmeyen seçeneği kutuya yazmaz (U1-06)", () => {
+    const commands = [{ ad: "denemecmd", aciklama: "x", grup: "g", kullanim: "/denemecmd", destekleniyor: false }];
+    render(<Composer commands={commands} onSend={vi.fn()} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    fireEvent.change(textbox, { target: { value: "/dene" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    expect(textbox).toHaveProperty("value", "/dene");
+  });
+
+  it("onFileQuery kimliği değişse de Esc ile kapatılan anma listesi yeniden açılmaz (U1-08)", () => {
+    const sorgu = vi.fn();
+    const oneriler = [{ yol: "src/a.ts" }];
+    const { rerender } = render(<Composer onFileQuery={sorgu} fileSuggestions={oneriler} onSend={vi.fn()} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    fireEvent.change(textbox, { target: { value: "@a", selectionStart: 2 } });
+    expect(screen.getByRole("listbox", { name: "Anma önerileri" })).toBeTruthy();
+    fireEvent.keyDown(textbox, { key: "Escape" });
+    expect(screen.queryByRole("listbox", { name: "Anma önerileri" })).toBeNull();
+    rerender(<Composer onFileQuery={(q) => sorgu(q)} fileSuggestions={oneriler} onSend={vi.fn()} />);
+    expect(screen.queryByRole("listbox", { name: "Anma önerileri" })).toBeNull();
+    expect(sorgu).toHaveBeenCalledTimes(1);
+  });
+
+  it("metin sürüklemesi iptal edilmez, dosya sürüklemesi edilir (U1-09)", () => {
+    const onDropFiles = vi.fn();
+    const { container } = render(<Composer onDropFiles={onDropFiles} onSend={vi.fn()} />);
+    const kutu = container.querySelector(".composer")!;
+    expect(fireEvent.drop(kutu, { dataTransfer: { types: ["text/plain"], files: [] } })).toBe(true);
+    expect(onDropFiles).not.toHaveBeenCalled();
+    expect(fireEvent.drop(kutu, { dataTransfer: { types: ["Files"], files: [new File(["x"], "a.txt")] } })).toBe(false);
+    expect(onDropFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it("panodaki görsel ek olarak eklenir, düz metin yapıştırma etkilenmez (U1-10)", () => {
+    const onDropFiles = vi.fn();
+    render(<Composer onDropFiles={onDropFiles} onSend={vi.fn()} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    expect(fireEvent.paste(textbox, { clipboardData: { files: [] } })).toBe(true);
+    const gorsel = new File(["x"], "ekran.png", { type: "image/png" });
+    expect(fireEvent.paste(textbox, { clipboardData: { files: [gorsel] } })).toBe(false);
+    expect(onDropFiles).toHaveBeenCalledWith([gorsel]);
+  });
+
+  it("IME kurulumundaki Esc çalışan turu durdurmaz (U1-12)", () => {
+    const onStop = vi.fn();
+    render(<Composer running onStop={onStop} onSend={vi.fn()} />);
+    fireEvent.keyDown(screen.getByLabelText("Mesaj"), { key: "Escape", isComposing: true });
+    expect(onStop).not.toHaveBeenCalled();
+  });
+
+  it("anma listesi açıkken Esc turu değil listeyi kapatır (U1-13)", () => {
+    const onStop = vi.fn();
+    render(<Composer running onStop={onStop} onFileQuery={vi.fn()} fileSuggestions={[{ yol: "a.ts" }]} onSend={vi.fn()} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    fireEvent.change(textbox, { target: { value: "@a", selectionStart: 2 } });
+    fireEvent.keyDown(textbox, { key: "Escape" });
+    expect(onStop).not.toHaveBeenCalled();
+    fireEvent.keyDown(textbox, { key: "Escape" });
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("açık palet textarea ile aria-controls/activedescendant üzerinden ilişkilidir (U1-14)", () => {
+    const commands = [{ ad: "compact", aciklama: "x", grup: "g", kullanim: "/compact", destekleniyor: true }];
+    render(<Composer commands={commands} onSend={vi.fn()} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    expect(textbox.hasAttribute("aria-controls")).toBe(false);
+    fireEvent.change(textbox, { target: { value: "/c" } });
+    const liste = screen.getByRole("listbox", { name: "Komut önerileri" });
+    expect(textbox.getAttribute("aria-controls")).toBe(liste.id);
+    expect(document.getElementById(textbox.getAttribute("aria-activedescendant")!)?.getAttribute("role")).toBe("option");
+  });
+
+  it("Windows yolunda dosya adı ters eğik çizgiden bölünür (U1-19)", () => {
+    render(<Composer onFileQuery={vi.fn()} fileSuggestions={[{ yol: "src\\ui\\App.tsx" }]} onSend={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Mesaj"), { target: { value: "@A", selectionStart: 2 } });
+    expect(screen.getByText("@App.tsx")).toBeTruthy();
   });
 });
