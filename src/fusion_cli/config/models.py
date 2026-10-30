@@ -331,6 +331,15 @@ class RuntimeConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class CapabilitiesConfig:
+    """Beceri/ajan kataloğu tercihleri (P-051)."""
+
+    #: Kalıcı olarak kapatılan beceri/ajan adları (düz ad ya da `ad@kaynak:kimlik`). Masaüstü
+    #: kataloğundaki oturumluk kapatmadan farklı: her oturumda uygulanır.
+    disabled: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class EmbeddingConfig:
     """Anlamsal arama için gömme sağlayıcısı."""
 
@@ -575,6 +584,8 @@ class Config:
     web_sessions: tuple[WebSessionConfig, ...] = ()
     #: Web sağlayıcısının connector ekranından bağlanmış uzak MCP sunucuları.
     hosted_connectors: tuple[HostedConnectorConfig, ...] = ()
+    #: Beceri/ajan kataloğu tercihleri.
+    capabilities: CapabilitiesConfig = field(default_factory=CapabilitiesConfig)
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""

@@ -27,6 +27,7 @@ from pathlib import Path
 
 from ..config.paths import bundled_roster_dir, bundled_skills_dir, capabilities_dir
 from .capability_merge import merge_capability as _merge
+from .capability_roots import agent_roots, roots_signature, skill_roots
 from .capability_search import search as search
 from .capability_search import search_scored as search_scored
 from .frontmatter import NO_TOOLS as NO_TOOLS
@@ -165,7 +166,14 @@ def load_agent_prompt(path: Path) -> str:
 
 
 class CapabilityRegistry:
-    """Skill ve agent keşfi. Tarama oturumda bir kez yapılır."""
+    """Skill ve agent keşfi.
+
+    Tarama tembeldir ve önbelleklenir; kök dizinlerin mtime imzası değişince (yeni beceri
+    klasörü eklendi/silindi) kendiliğinden yenilenir, `invalidate()` içerik değişikliği için
+    elle yeniler (`/skills reload`, `yetenek.yenile`; P-051). `extra_roots` (`--add-dir`)
+    köklerinin `.claude/skills`, `.agents/skills`, `.fusion/skills` ve `.claude/agents`
+    dizinleri "ek-kok" etiketiyle taranır (P-052).
+    """
 
     def __init__(
         self,
@@ -174,15 +182,46 @@ class CapabilityRegistry:
         *,
         disabled_skills: frozenset[str] = frozenset(),
         disabled_agents: frozenset[str] = frozenset(),
+        extra_roots: tuple[Path, ...] = (),
     ) -> None:
         self._home = home
         self._root = root
         self._disabled_skills = disabled_skills
         self._disabled_agents = disabled_agents
+        self._extra_roots = extra_roots
         self._skills: tuple[Capability, ...] | None = None
         self._agents: tuple[Capability, ...] | None = None
+        self._signature: tuple[tuple[str, int], ...] | None = None
+
+    def with_extra_roots(self, extra_roots: tuple[Path, ...]) -> CapabilityRegistry:
+        """Aynı kapatma listeleriyle, ek kökleri değişmiş yeni bir defter."""
+        return CapabilityRegistry(
+            self._home,
+            self._root,
+            disabled_skills=self._disabled_skills,
+            disabled_agents=self._disabled_agents,
+            extra_roots=extra_roots,
+        )
+
+    def invalidate(self) -> None:
+        """Önbelleği boşalt; bir sonraki erişim diski yeniden tarar."""
+        self._skills = None
+        self._agents = None
+        self._signature = None
+
+    def _refresh_if_changed(self) -> None:
+        """Kök dizinlerden biri eklendi/silindi/değişti mi? Değiştiyse önbelleği düşür."""
+        signature = self._current_signature()
+        if self._signature is not None and signature != self._signature:
+            self._skills = None
+            self._agents = None
+        self._signature = signature
+
+    def _current_signature(self) -> tuple[tuple[str, int], ...]:
+        return roots_signature(self._skill_roots(), self._agent_roots(), self._home, self._root)
 
     def skills(self) -> tuple[Capability, ...]:
+        self._refresh_if_changed()
         if self._skills is None:
             self._skills = tuple(
                 item
@@ -193,6 +232,7 @@ class CapabilityRegistry:
         return self._skills
 
     def agents(self) -> tuple[Capability, ...]:
+        self._refresh_if_changed()
         if self._agents is None:
             self._agents = tuple(
                 item
@@ -219,30 +259,22 @@ class CapabilityRegistry:
     # ----------------------------------------------------------------------- #
 
     def _skill_roots(self) -> tuple[tuple[Path, str], ...]:
-        # Sıra ÖNCELİKTİR: aynı adlı skill'de ilk bulunan kazanır (bkz. _discover_skills).
-        # Claude önce gelir çünkü kullanıcının birincil kütüphanesi odur; Codex ve
-        # Hermes aynı SKILL.md biçimini kullandığı için ayrıştırıcı değişmez.
-        return (
-            (self._home / ".claude" / "skills", "claude"),
-            (self._home / ".claude" / "plugins", "claude-plugin"),
-            (self._root / ".claude" / "skills", "proje"),
-            (self._root / ".fusion" / "skills", "proje"),
-            (self._home / ".codex" / "skills", "codex"),
-            (self._home / ".hermes" / "skills", "hermes"),
-            # `fusion yetenek kur` ile kurulan repolar (ör. stickman-video-director).
-            (capabilities_dir(), "kurulu"),
-            # Yerleşik beceriler EN SONDA: kullanıcı aynı adla kendi becerisini yazarsa o kazanır.
-            (bundled_skills_dir(), "fusion"),
+        # Yerleşik/kurulu kökler burada çözülür: testler bu modülün adlarını yamalar.
+        return skill_roots(
+            self._home,
+            self._root,
+            self._extra_roots,
+            installed=capabilities_dir(),
+            bundled=bundled_skills_dir(),
         )
 
     def _agent_roots(self) -> tuple[tuple[Path, str], ...]:
-        return (
-            (self._home / ".claude" / "agents", "claude"),
-            (self._root / ".claude" / "agents", "proje"),
-            (self._home / ".codex" / "agents", "codex"),
-            *((folder / "agents", "kurulu") for folder in _installed_folders()),
-            # Yerleşik ekip EN SONDA: kullanıcı aynı adla kendi ajanını yazarsa o kazanır.
-            (bundled_roster_dir(), "fusion"),
+        return agent_roots(
+            self._home,
+            self._root,
+            self._extra_roots,
+            installed=capabilities_dir(),
+            bundled=bundled_roster_dir(),
         )
 
     def _discover_skills(self) -> tuple[Capability, ...]:
@@ -296,13 +328,6 @@ def _trusted_path(path: Path, bound: Path, source: str) -> bool:
         return path.resolve().is_relative_to(bound.resolve())
     except OSError:
         return False
-
-
-def _installed_folders() -> tuple[Path, ...]:
-    root = capabilities_dir()
-    if not root.is_dir():
-        return ()
-    return tuple(sorted(child for child in root.iterdir() if child.is_dir()))
 
 
 def _toml_capability(path: Path, source: str) -> Capability | None:

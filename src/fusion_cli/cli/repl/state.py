@@ -175,6 +175,11 @@ class ReplState:
         self.pending_task, self.pending_mode = "", Mode.NONE
         return task, mode
 
+    def refresh_capability_roots(self) -> None:
+        """`/add-dir` sonrası beceri kataloğunu ek köklerle yeniden kur (P-052)."""
+        if self.capabilities is not None:
+            self.capabilities = self.capabilities.with_extra_roots(self.extra_roots)
+
     def take_pending_extras(self) -> PendingExtras:
         """Beceri bağlamı ve araç kısıtını BİR KEZ al; sonraki turlara sızmasın."""
         extras = PendingExtras(self.pending_context, self.pending_tools)
@@ -199,7 +204,15 @@ class ReplState:
 
     def __post_init__(self) -> None:
         if self.capabilities is None:
-            self.capabilities = CapabilityRegistry(self.home, self.root)
+            # `capabilities.disabled` kalıcı kapatma listesi her oturumda uygulanır (P-051).
+            disabled = frozenset(getattr(self.config.capabilities, "disabled", ()))
+            self.capabilities = CapabilityRegistry(
+                self.home,
+                self.root,
+                disabled_skills=disabled,
+                disabled_agents=disabled,
+                extra_roots=self.extra_roots,
+            )
         if not self.allowed_commands:
             self.allowed_commands = load_allowed_commands(self.root)
         # Onay kartındaki "bir daha sorma" kalıcı kurala dönüşür (P-003); kök çağrı anında

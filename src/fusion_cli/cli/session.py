@@ -292,7 +292,11 @@ async def run_agent_task(
             code_index=store.code_index if store.enabled else None,
             lessons=store.lessons,
             capabilities=capabilities
-            or (CapabilityRegistry(home, tool_context.root) if home is not None else None),
+            or (
+                CapabilityRegistry(home, tool_context.root, extra_roots=tool_context.extra_roots)
+                if home is not None
+                else None
+            ),
             home=home,
             allowed_commands=load_allowed_commands(tool_context.root),
             permission_rules=load_permission_rules(

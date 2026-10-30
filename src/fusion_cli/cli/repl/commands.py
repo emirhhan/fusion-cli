@@ -42,6 +42,8 @@ from . import (
     workspace_commands,
     worktrees,
 )
+from . import macros, model_flows, profiles_flow, provider_flow, verify_flow, workspace_commands
+from .macros import Mode
 from .state import TASK_TYPES, Engine, Reminder, ReplState
 
 #: `/resume<kaynak>` listesinde gösterilecek en fazla oturum. `source.list`'e
@@ -573,15 +575,45 @@ def _format_capabilities(items: tuple[Capability, ...], *, empty: str) -> str:
 
 
 def _skills(state: ReplState, argument: str) -> str:
+    """`/skills [arama]` listeler; `reload` yeniden tarar; `doctor` teşhis; `new <ad>` üretir."""
     assert state.capabilities is not None
+    eylem, _, kalan = argument.strip().partition(" ")
+    if eylem in ("reload", "yenile"):
+        state.capabilities.invalidate()
+        return messages.SKILLS_RELOADED.format(
+            skills=len(state.capabilities.skills()), agents=len(state.capabilities.agents())
+        )
+    if eylem in ("doctor", "teshis", "teşhis"):
+        from ...tools.capability_doctor import diagnose, render_report
+
+        return render_report(
+            diagnose(state.capabilities),
+            skills=len(state.capabilities.skills()),
+            agents=len(state.capabilities.agents()),
+        )
+    if eylem in ("new", "yeni"):
+        return _prepare_authoring(state, macros.SKILL_NEW_TASK, kalan)
     items = search_capabilities(state.capabilities.skills(), argument.strip(), limit=50)
     return _format_capabilities(items, empty=messages.SKILLS_EMPTY)
 
 
 def _agents(state: ReplState, argument: str) -> str:
+    """`/agents [arama]` listeler; `new <ad>` yeni uzman ajan dosyası ürettirir."""
     assert state.capabilities is not None
+    eylem, _, kalan = argument.strip().partition(" ")
+    if eylem in ("new", "yeni"):
+        return _prepare_authoring(state, macros.AGENT_NEW_TASK, kalan)
     items = search_capabilities(state.capabilities.agents(), argument.strip(), limit=50)
     return _format_capabilities(items, empty=messages.AGENTS_EMPTY)
+
+
+def _prepare_authoring(state: ReplState, template: str, name: str) -> str:
+    """Beceri/ajan üretme görevini sıradaki tur için hazırla (makrolarla aynı sözleşme)."""
+    ad = name.strip() or "<ad>"
+    state.engine = Engine.AGENT
+    state.pending_task = template.format(name=ad)
+    state.pending_mode = Mode.NONE
+    return messages.CAPABILITY_AUTHORING_STARTED.format(name=ad)
 
 
 def resume_choices(refs: Sequence[SessionRef]) -> list[Choice]:
@@ -841,6 +873,12 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
     SlashCommand("mcp", messages.CMD_MCP, _mcp, group="Bilgi", usage="[add|remove] …"),
     SlashCommand("skills", messages.CMD_SKILLS, _skills, group="Bilgi", usage="[arama]"),
+    SlashCommand(
+        "skill-doctor",
+        messages.CMD_SKILL_DOCTOR,
+        lambda state, argument: _skills(state, "doctor"),
+        group="Bilgi",
+    ),
     SlashCommand("agents", messages.CMD_AGENTS, _agents, group="Bilgi", usage="[arama]"),
     *(
         SlashCommand(

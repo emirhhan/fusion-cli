@@ -96,3 +96,21 @@ gövde hiçbir zaman önden basılmaz (progressive disclosure).
   görünmez; yalnız `/ad` ile çağrılır.
 - `skill_index_chars: 0` dizini kapatır (eski davranış: yalnız `find_skill`).
 - Dizin her turda yeniden kurulur; bağlam sıkıştırması konuşmayı özetler, dizini düşürmez.
+
+## Beceri keşif kökleri
+
+Öncelik sırasıyla (aynı adda ilk bulunan kazanır): `~/.claude/skills`, `~/.claude/plugins`,
+proje `.claude/skills`, `.fusion/skills`, `.agents/skills`; `~/.codex/skills`, `~/.agents/skills`
+(Codex/ChatGPT açık standardı); `~/.hermes/skills`; `--add-dir` / `/add-dir` ile açılan her kökün
+`.claude/skills`, `.agents/skills`, `.fusion/skills` ve `.claude/agents` dizinleri ("ek-kok");
+`fusion yetenek kur` repoları; yerleşik beceriler en sonda. Komut dosyaları için
+`~/.claude/commands`, `~/.fusion/commands`, proje `.claude/commands`, `.fusion/commands`.
+
+## Katalog yaşam döngüsü
+
+| Yüzey | Ne yapar |
+|---|---|
+| `/skills reload` (`yenile`) · masaüstü **Yenile** · `yetenek.yenile` | Kataloğu diskten yeniden tarar. Yeni klasör eklenip silindiğinde kök dizinin mtime'ı değiştiği için bir sonraki turda **kendiliğinden** yenilenir; var olan bir SKILL.md'nin içeriği değiştiyse `reload` gerekir. |
+| `/skills doctor`, `/skill-doctor` · masaüstü **Teşhis** · `yetenek.teshis` | Eksik `description`, ön maddesiz dosya, aynı adın birden çok kaynakta farklı içerikle bulunması (kazanan/gölgelenen), tek sayfaya sığmayan gövde, ev dizini dışına çıkan sembolik bağ. |
+| `/skills new <ad>` · `/agents new <ad>` | Modele `.claude/skills/<ad>/SKILL.md` ya da `.claude/agents/<ad>.md` yazdırır; önce `ask_user` ile kapsam ve araç kısıtını sorar, mevcut dosyanın üzerine yazmaz. |
+| `capabilities.disabled: [ad, ad@kaynak:kimlik]` (config.yaml) | Her oturumda kapalı tutulan beceri/ajanlar; masaüstündeki oturumluk kapatmayla birleşir. |

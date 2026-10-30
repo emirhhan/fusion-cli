@@ -924,6 +924,7 @@ class AppSession:
                 self._state.extra_roots = tuple(
                     dict.fromkeys((*self._state.extra_roots, *prepared.work_dirs))
                 )
+                self._refresh_capabilities()
                 self._state.history = list(prepared.messages)
                 return prepared.payload
             return prepared
@@ -984,6 +985,10 @@ class AppSession:
             return self._set_capability_enabled(request.data)
         if request.name == "yetenek.kullan":
             return self._select_capability(request.data)
+        if request.name == "yetenek.yenile":
+            return self._reload_capabilities()
+        if request.name == "yetenek.teshis":
+            return self._diagnose_capabilities()
         if request.name == "kontrol.durum":
             return self._control_status()
         if request.name.startswith("izin.") or request.name.startswith("proje.guven_"):
@@ -2692,12 +2697,50 @@ class AppSession:
         return {**cevap, **self._take_persist_warning()}
 
     def _refresh_capabilities(self) -> None:
+        # Kalıcı `capabilities.disabled` + oturumluk kapatmalar birlikte; ek kökler (P-051/052).
+        kalici = frozenset(getattr(self._state.config.capabilities, "disabled", ()))
         self._state.capabilities = CapabilityRegistry(
             self._state.home,
             self._state.root,
-            disabled_skills=frozenset(self._disabled_skills),
-            disabled_agents=frozenset(self._disabled_agents),
+            disabled_skills=frozenset(self._disabled_skills) | kalici,
+            disabled_agents=frozenset(self._disabled_agents) | kalici,
+            extra_roots=self._state.extra_roots,
         )
+        self._all_capabilities = self._all_capabilities.with_extra_roots(self._state.extra_roots)
+
+    def _reload_capabilities(self) -> dict[str, Any]:
+        """`yetenek.yenile`: kataloğu diskten yeniden tara."""
+        self._all_capabilities.invalidate()
+        self._refresh_capabilities()
+        return {
+            "ok": True,
+            "beceri": len(self._all_capabilities.skills()),
+            "ajan": len(self._all_capabilities.agents()),
+        }
+
+    def _diagnose_capabilities(self) -> dict[str, Any]:
+        """`yetenek.teshis`: eksik açıklama, kopya ad, uzun gövde gibi bulgular."""
+        from ..tools.capability_doctor import diagnose, render_report
+
+        bulgular = diagnose(self._all_capabilities)
+        return {
+            "ok": True,
+            "bulgular": [
+                {
+                    "tur": b.kind,
+                    "ad": b.name,
+                    "onem": b.severity,
+                    "ayrinti": b.detail,
+                    "yol": b.path,
+                }
+                for b in bulgular
+            ],
+            "metin": render_report(
+                bulgular,
+                skills=len(self._all_capabilities.skills()),
+                agents=len(self._all_capabilities.agents()),
+            ),
+        }
 
     def _known_capability(self, kind: str, name: str) -> bool:
         if kind == "beceri":

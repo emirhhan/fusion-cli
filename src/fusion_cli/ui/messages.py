@@ -790,8 +790,15 @@ CMD_EFFORT = "reasoning yoğunluğu: auto · low · medium · high · xhigh · m
 CMD_HEALTH = "sağlayıcı sağlığı: güvenilirlik skoru ve circuit breaker durumu"
 CMD_PROVIDERS = "tanınan sağlayıcılar: tür, resmiyet, risk ve kurulu mu"
 CMD_MCP = "dış MCP sunucularını listele/ekle/kaldır: /mcp add <ad> <komut> [argüman…]"
-CMD_SKILLS = "keşfedilen skill'leri listele veya ara"
-CMD_AGENTS = "keşfedilen uzman agent'ları listele veya ara"
+CMD_SKILLS = (
+    "becerileri listele/ara; reload yeniden tarar, doctor teşhis eder, new <ad> yeni beceri yazar"
+)
+CMD_SKILL_DOCTOR = "beceri kataloğunu denetle: eksik açıklama, kopya ad, uzun gövde"
+CMD_AGENTS = "uzman ajanları listele/ara; new <ad> yeni ajan dosyası yazar"
+SKILLS_RELOADED = "Katalog yeniden tarandı: {skills} beceri, {agents} ajan."
+CAPABILITY_AUTHORING_STARTED = (
+    "{name} için üretim görevi hazırlandı; model önce birkaç soru soracak."
+)
 SKILLS_EMPTY = "Eşleşen skill bulunamadı."
 AGENTS_EMPTY = "Eşleşen uzman agent bulunamadı."
 CMD_LEVEL = "model kademesi seç: low (cirak) · medium · high · ultra · premium"
