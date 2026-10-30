@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ProtocolClient } from "../protocol/client";
 import { useHistory } from "./useHistory";
 
@@ -208,5 +208,61 @@ describe("useHistory", () => {
 
     expect(result.current.searchQuery).toBe("");
     expect(result.current.searchResults).toEqual([]);
+  });
+});
+
+/** İstekleri elle çözülen sahte istemci: yanıt sırasını testin belirlemesi için. */
+function manuelIstemci() {
+  const bekleyen: Array<{ ad: string; veri: Record<string, unknown>; coz: (deger: Record<string, unknown>) => void }> = [];
+  const request = vi.fn((ad: string, veri: Record<string, unknown>) => {
+    if (ad === "gecmis.kaynaklar") return Promise.resolve({ ok: true, kaynaklar: [{ ad: "claude" }, { ad: "codex" }] });
+    return new Promise<Record<string, unknown>>((coz) => bekleyen.push({ ad, veri, coz }));
+  });
+  return { client: { request } as unknown as ProtocolClient, bekleyen };
+}
+
+const oturum = (kaynak: string, id: string) => ({ kaynak, oturum_id: id, baslik: id, guncellendi: 1, tur_sayisi: 1, boyut: 1 });
+
+describe("useHistory bayat yanıtlar", () => {
+  // Ölçüldü (30 Ekim, U6-06): eşzamansız yanıtlarda bayatlık denetimi yoktu; yavaş eski yanıt
+  // yeni kaynağın/konuşmanın durumunu eziyordu.
+  it("hızlı iki kaynak geçişinde yavaş eski oturum listesi yenisini ezmez", async () => {
+    const { client, bekleyen } = manuelIstemci();
+    const { result } = renderHook(() => useHistory(client));
+    await waitFor(() => expect(result.current.sources).toHaveLength(2));
+    act(() => { void result.current.openSource("claude"); });
+    act(() => { void result.current.openSource("codex"); });
+    expect(bekleyen).toHaveLength(2);
+    await act(async () => bekleyen[1].coz({ ok: true, oturumlar: [oturum("codex", "x1")], next_cursor: null }));
+    await act(async () => bekleyen[0].coz({ ok: true, oturumlar: [oturum("claude", "c1")], next_cursor: null }));
+    expect(result.current.source).toBe("codex");
+    expect(result.current.sessions.map((s) => s.oturum_id)).toEqual(["x1"]);
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("kaynak değişince eski kaynağın arama sonuçları yeni listeye yazılmaz", async () => {
+    const { client, bekleyen } = manuelIstemci();
+    const { result } = renderHook(() => useHistory(client));
+    await waitFor(() => expect(result.current.sources).toHaveLength(2));
+    act(() => { void result.current.openSource("claude"); });
+    await act(async () => bekleyen[0].coz({ ok: true, oturumlar: [oturum("claude", "c1")], next_cursor: null }));
+    act(() => { void result.current.searchSessions("loop"); });
+    act(() => { void result.current.openSource("codex"); });
+    await act(async () => bekleyen[2].coz({ ok: true, oturumlar: [oturum("codex", "x1")], next_cursor: null }));
+    await act(async () => bekleyen[1].coz({ ok: true, oturumlar: [{ ...oturum("claude", "eski"), baslikta: false, parca: "loop" }] }));
+    expect(result.current.searchResults).toEqual([]);
+    expect(result.current.searching).toBe(false);
+  });
+
+  it("hızlı iki konuşma seçiminde yavaş eski önizleme yenisinin dökümünü ezmez", async () => {
+    const { client, bekleyen } = manuelIstemci();
+    const { result } = renderHook(() => useHistory(client));
+    await waitFor(() => expect(result.current.sources).toHaveLength(2));
+    act(() => { void result.current.selectSession(oturum("claude", "a") as never); });
+    act(() => { void result.current.selectSession(oturum("claude", "b") as never); });
+    await act(async () => bekleyen[1].coz({ ok: true, turlar: [{ rol: "user", metin: "B-turu", zaman: 1 }], next_cursor: null }));
+    await act(async () => bekleyen[0].coz({ ok: true, turlar: [{ rol: "user", metin: "A-turu", zaman: 1 }], next_cursor: null }));
+    expect(result.current.selected?.oturum_id).toBe("b");
+    expect(result.current.turns.map((t) => t.metin)).toEqual(["B-turu"]);
   });
 });
