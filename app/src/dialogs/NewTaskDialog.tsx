@@ -79,13 +79,13 @@ export function NewTaskDialog({
           <p>Serbestçe sohbet et veya bilgisayarındaki bir klasörde çalış.</p>
         </header>
         <div className="new-task-dialog__choices">
-          <button aria-label="Sohbet başlat" disabled={busy} onClick={onChat} type="button">
+          <button aria-describedby="new-task-chat-desc" aria-labelledby="new-task-chat-title" disabled={busy} onClick={onChat} type="button">
             <Icon name="new" size={20} />
-            <span><strong>Sohbet başlat</strong><small>Dosya sistemine odaklanmadan tek yapay zekâyla konuş.</small></span>
+            <span><strong id="new-task-chat-title">Sohbet başlat</strong><small id="new-task-chat-desc">Dosya sistemine odaklanmadan tek yapay zekâyla konuş.</small></span>
           </button>
-          <button aria-label="Klasörde kod görevi" disabled={busy} onClick={onFolder} type="button">
+          <button aria-describedby="new-task-folder-desc" aria-labelledby="new-task-folder-title" disabled={busy} onClick={onFolder} type="button">
             <Icon name="files" size={20} />
-            <span><strong>Klasörde kod görevi</strong><small>Masaüstü veya bilgisayarındaki herhangi bir proje klasörünü aç.</small></span>
+            <span><strong id="new-task-folder-title">Klasörde kod görevi</strong><small id="new-task-folder-desc">Masaüstü veya bilgisayarındaki herhangi bir proje klasörünü aç.</small></span>
           </button>
         </div>
         {error && <p aria-live="polite" className="new-task-dialog__error">{error}</p>}

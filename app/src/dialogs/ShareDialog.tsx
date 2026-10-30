@@ -2,14 +2,26 @@ import { useEffect, useRef, useState } from "react";
 import type { Mesaj } from "../screens/Conversation";
 import "./ShareDialog.css";
 
-/** Dışarı aktarılan metin yalnız kullanıcı ve nihai yanıtları içerir. */
+/**
+ * Mesaj metnindeki satır başı başlık işaretleri kaçırılır: gövdede yazılan `## Siz` satırı
+ * rol başlığını taklit edip aktarımı sahteleyemesin (U4-21).
+ */
+function escapeHeadings(text: string): string {
+  return text.replace(/^(\s{0,3})(#{1,6})(?=\s)/gm, "$1\\$2");
+}
+
+/**
+ * Dışarı aktarılan metin yalnız kullanıcı ve nihai yanıtları içerir. Hata mesajları (iç yol ve
+ * ayrıntı taşıyabilir) ve ara anlatımlar dahil edilmez; başlık tek satıra indirilir.
+ */
 export function shareableTranscript(title: string, messages: Mesaj[]): string {
   const lines = messages.flatMap((message) => {
     if (message.rol !== "kullanici" && message.rol !== "asistan") return [];
-    if (message.akan || !message.metin.trim()) return [];
-    return [`## ${message.rol === "kullanici" ? "Siz" : "Fusion"}\n\n${message.metin.trim()}`];
+    if (message.akan || message.hata || message.ara || !message.metin.trim()) return [];
+    return [`## ${message.rol === "kullanici" ? "Siz" : "Fusion"}\n\n${escapeHeadings(message.metin.trim())}`];
   });
-  return [`# ${title.trim() || "Fusion sohbeti"}`, ...lines].join("\n\n");
+  const baslik = title.replace(/\s+/g, " ").trim();
+  return [`# ${baslik || "Fusion sohbeti"}`, ...lines].join("\n\n");
 }
 
 export function ShareDialog({ title, messages, onClose }: {
@@ -22,11 +34,18 @@ export function ShareDialog({ title, messages, onClose }: {
   const closeRef = useRef<HTMLButtonElement>(null);
   const transcript = shareableTranscript(title, messages);
 
+  // Sohbet değiştiyse "Kopyalandı" bayatlar (U4-21).
+  useEffect(() => { setCopied(false); }, [transcript]);
+
   useEffect(() => {
+    const previous = document.activeElement;
     closeRef.current?.focus();
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
   }, [onClose]);
 
   const copy = async () => {
