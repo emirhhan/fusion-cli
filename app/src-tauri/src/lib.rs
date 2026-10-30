@@ -143,6 +143,18 @@ fn oturuma_yaz(
     sessions.send(&oturum_id, satir)
 }
 
+/// İkinci başlatma girişiminde (Dock/Finder'dan yeniden açma, ikinci kısayol) mevcut ana pencereyi
+/// öne getirir (R2-22). Simge durumundaki (konuşma kipinde küçültülmüş) pencere de geri açılır.
+/// İkinci bir kopya çekirdek sürecini, sır deposunu ve terminalleri ikiye katlardı.
+fn ana_pencereyi_one_getir<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    let Some(ana) = app.get_webview_window("main") else {
+        return;
+    };
+    let _ = ana.unminimize();
+    let _ = ana.show();
+    let _ = ana.set_focus();
+}
+
 /// Konuşma penceresinin kimliği. Ana pencereden AYRI bir penceredir.
 const SES_PENCERESI: &str = "ses";
 const SES_NORMAL_BOYUT: (f64, f64) = (380.0, 460.0);
@@ -754,6 +766,12 @@ pub fn run() {
     }
 
     let app = tauri::Builder::default()
+        // Tek örnek eklentisi DİĞER eklentilerden ÖNCE kaydedilmelidir (eklenti belgesi): ikinci
+        // süreç ana pencereyi öne getirip kendi kendine çıkar, hiçbir yönetici (çekirdek, terminal)
+        // başlatmaz.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            ana_pencereyi_one_getir(app);
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
