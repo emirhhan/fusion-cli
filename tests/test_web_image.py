@@ -156,3 +156,69 @@ async def test_zaman_asiminda_sayfa_metni_dokulmez(tmp_path, monkeypatch):
             Page(), Definition(), ("img",), tmp_path, 0.05, prompt="kedi"
         )
     assert str(hata.value) == "Gemini Web görseli 0 sn içinde üretemedi."
+
+
+class _Yanit:
+    ok = True
+
+    async def body(self) -> bytes:
+        return image_bytes("PNG")
+
+
+class _Istek:
+    def __init__(self) -> None:
+        self.istenen: list[str] = []
+
+    async def get(self, url: str):
+        self.istenen.append(url)
+        return _Yanit()
+
+
+class _Baglam:
+    def __init__(self) -> None:
+        self.request = _Istek()
+
+
+async def test_tuval_capraz_kaynakta_basarisizsa_baglam_istegiyle_bayt_indirilir(
+    tmp_path, monkeypatch
+):
+    """Ölçüldü (30 Ekim): `canvas.toDataURL` CORS izinsiz (farklı CDN) görselde 'tainted
+    canvas' SecurityError verir; ChatGPT görselleri farklı alan adından gelir (P1-34)."""
+    from fusion_cli.providers import web_image
+
+    class Page:
+        context = _Baglam()
+
+        async def evaluate(self, script, _arguments):
+            if script == web_image._FIND_IMAGES_JS:
+                return [{"src": "https://cdn.baska.example/a.png"}]
+            return [{"src": "https://cdn.baska.example/a.png", "b64": "", "w": 1, "h": 1}]
+
+    monkeypatch.setattr(web_image, "_POLL_S", 0)
+    monkeypatch.setattr(web_image, "IMAGE_SETTLE_S", 0)
+
+    images = await web_image._wait_and_extract(Page(), None, ("img",), tmp_path, 2)
+
+    assert len(images) == 1 and images[0].path.read_bytes().startswith(b"\x89PNG")
+    assert Page.context.request.istenen == ["https://cdn.baska.example/a.png"]
+
+
+async def test_sayfa_betigi_hatasi_ham_playwright_hatasi_olarak_kullaniciya_gitmez(
+    tmp_path, monkeypatch
+):
+    import pytest
+
+    from fusion_cli.providers import web_image
+    from fusion_cli.providers.web_browser import WebBrowserError
+
+    class Page:
+        async def evaluate(self, script, _arguments):
+            if script == web_image._FIND_IMAGES_JS:
+                return [{"src": "blob:x"}]
+            raise RuntimeError("Execution context was destroyed")
+
+    monkeypatch.setattr(web_image, "_POLL_S", 0)
+    monkeypatch.setattr(web_image, "IMAGE_SETTLE_S", 0)
+
+    with pytest.raises(WebBrowserError, match="görsel"):
+        await web_image._wait_and_extract(Page(), None, ("img",), tmp_path, 2)

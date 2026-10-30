@@ -14,6 +14,7 @@ doğrulamasındaydı; canlı ÖLÇÜLMEDİ.
 from __future__ import annotations
 
 import asyncio
+import base64
 import re
 import time
 from collections.abc import Sequence
@@ -177,11 +178,16 @@ _EXTRACT_JS = """(args) => {
     for (const img of document.querySelectorAll(sel)) {
       if (seen.has(img) || img.naturalWidth < minEdge || img.naturalHeight < minEdge) continue;
       seen.add(img);
-      const c = document.createElement('canvas');
-      c.width = img.naturalWidth; c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
-      out.push({ w: img.naturalWidth, h: img.naturalHeight,
-                 b64: c.toDataURL('image/png').split(',')[1] });
+      let b64 = '';
+      try {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        b64 = c.toDataURL('image/png').split(',')[1];
+      } catch (e) {
+        // Çapraz kaynaklı görselde tuval 'tainted' olur; bayt indirme Python tarafında.
+      }
+      out.push({ w: img.naturalWidth, h: img.naturalHeight, src: img.currentSrc, b64 });
     }
   }
   return out;
@@ -234,6 +240,29 @@ async def generate_images(
             manager.schedule_idle_release(session.provider, session.account)
 
 
+async def _fill_missing_bytes(
+    page: Any, payloads: Sequence[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Tuvalden alınamayan (çapraz kaynak) görselleri bağlam isteğiyle indir.
+
+    Bağlam isteği sayfanın çerezleriyle gider ve sayfa CORS kuralına tabi değildir.
+    """
+    sonuc: list[dict[str, Any]] = []
+    for payload in payloads:
+        if payload.get("b64") or not payload.get("src"):
+            sonuc.append(payload)
+            continue
+        try:
+            yanit = await page.context.request.get(str(payload["src"]))
+            if yanit.ok:
+                veri = await yanit.body()
+                sonuc.append({**payload, "b64": base64.b64encode(veri).decode()})
+        except Exception:
+            # Tek görsel indirilemedi; diğerleri sürer.
+            continue
+    return sonuc
+
+
 async def _wait_and_extract(
     page: Any,
     definition: BrowserProviderDefinition,
@@ -256,7 +285,12 @@ async def _wait_and_extract(
             if red:
                 # Sağlayıcı reddetti: 180 sn beklemeden, cümlesiyle birlikte bildir.
                 raise WebBrowserError(red)
-        bulunan = await page.evaluate(_FIND_IMAGES_JS, [list(selectors), MIN_IMAGE_EDGE])
+        try:
+            bulunan = await page.evaluate(_FIND_IMAGES_JS, [list(selectors), MIN_IMAGE_EDGE])
+        except Exception:
+            # Sayfa yenileniyor/gezintide olabilir: bu yoklama atlanır, süre dolarsa
+            # aşağıdaki açık hata verilir (ham Playwright hatası kullanıcıya gitmez).
+            continue
         kaynaklar = sorted(str(item.get("src", "")) for item in bulunan)
         if not kaynaklar:
             continue
@@ -264,11 +298,15 @@ async def _wait_and_extract(
             onceki, ilk_gorulen = kaynaklar, time.monotonic()
             continue
         if ilk_gorulen is not None and time.monotonic() - ilk_gorulen >= IMAGE_SETTLE_S:
-            kayitlar = await await_owned_thread(
-                save_images,
-                await page.evaluate(_EXTRACT_JS, [list(selectors), MIN_IMAGE_EDGE]),
-                out_dir,
-            )
+            try:
+                payloads = await page.evaluate(_EXTRACT_JS, [list(selectors), MIN_IMAGE_EDGE])
+            except Exception as error:
+                raise WebBrowserError(
+                    f"{definition.name if definition else 'Web'} görseli sayfadan alınamadı "
+                    f"({type(error).__name__})."
+                ) from error
+            payloads = await _fill_missing_bytes(page, payloads)
+            kayitlar = await await_owned_thread(save_images, payloads, out_dir)
             if kayitlar:
                 return kayitlar
     await _raise_if_blocked_early(page, definition)
