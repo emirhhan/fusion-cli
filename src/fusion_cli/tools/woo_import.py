@@ -23,6 +23,8 @@ class ImportResult:
     skipped: int
     without_image: int
     error: str = ""
+    #: Fiyatı sayısal olmadığı için taslak bırakılan ürün sayısı (yayına girmez).
+    without_price: int = 0
 
 
 def parse_import_output(output: str) -> ImportResult:
@@ -38,6 +40,7 @@ def parse_import_output(output: str) -> ImportResult:
                 skipped=int(veri.get("atlanan", 0)),
                 without_image=int(veri.get("gorselsiz", 0)),
                 error=str(veri.get("hata", "")),
+                without_price=int(veri.get("fiyatsiz", 0)),
             )
     return ImportResult(0, 0, 0, error=output[-400:] or "betik çıktı vermedi")
 
@@ -49,5 +52,7 @@ async def import_products(root: Path, catalog: Path, wp_cli: str) -> ImportResul
     )
     sonuc = parse_import_output(output)
     if code != 0 and not sonuc.error:
-        return ImportResult(sonuc.added, sonuc.skipped, sonuc.without_image, output[-400:])
+        return ImportResult(
+            sonuc.added, sonuc.skipped, sonuc.without_image, output[-400:], sonuc.without_price
+        )
     return sonuc

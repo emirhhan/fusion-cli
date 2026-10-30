@@ -345,6 +345,11 @@ async def _install(
     steps.append(
         f"Ürün aktarıldı: {aktarim.added} eklendi, {aktarim.skipped} atlandı, "
         f"{aktarim.without_image} görselsiz."
+        + (
+            f" {aktarim.without_price} ürün fiyatsız olduğu için taslak bırakıldı."
+            if aktarim.without_price
+            else ""
+        )
     )
     for slug, etiket in (labels or {}).items():
         await run_wp(
