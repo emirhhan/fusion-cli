@@ -284,6 +284,9 @@ class McpServerConfig:
     token_env: str = ""
     trust: McpTrust = McpTrust.UNREVIEWED
     reviewed_source: str = ""
+    #: İncelendiği andaki araç tanımlarının özeti (`mcp_bridge.trust.tools_digest`). Boşsa araç
+    #: tanımı denetlenmez (eski kayıtlar); doluysa tanım değişince güven düşer, yeniden onay ister.
+    reviewed_tools: str = ""
     #: Verilmezse istemcinin mevcut ağ bütçesi kullanılır; ayrı sayı uydurulmaz.
     connect_timeout_s: float | None = None
     list_timeout_s: float | None = None

@@ -160,7 +160,7 @@ def list_connectors(
                 "ortam_degiskenleri": list(server.env_names),
                 # Yalnız token'ın VAR olduğu bildirilir; değer hiçbir yanıta girmez.
                 "token_var": bool(server.token_env),
-                "guven": effective_trust(server).value,
+                "guven": effective_trust(server, _observed_tools(statuses, server.name)).value,
                 "inceleme_kimligi": review_identity(server),
                 **_row_status((statuses or {}).get(server.name)),
                 **_duplicate_fields(duplicates.get(server.name)),
@@ -171,6 +171,15 @@ def list_connectors(
         # "bağlantı"dır, farkı `tasima` alanı taşır.
         + hosted_connector_rows(config),
     }
+
+
+def _observed_tools(
+    statuses: Mapping[str, McpConnectionStatus | dict[str, Any]] | None, name: str
+) -> str | None:
+    """Sunucudan son keşfedilen araç özeti; keşif yoksa `None` (yalnız kaynak denetlenir)."""
+    status = (statuses or {}).get(name)
+    digest = status.tools_digest if isinstance(status, McpConnectionStatus) else ""
+    return digest or None
 
 
 def _duplicate_fields(original: str | None) -> dict[str, Any]:
@@ -390,7 +399,16 @@ def review_connector(config: Config, data: object) -> tuple[Config | None, dict[
             "ok": False,
             "metin": "Kaynak değişti veya incelenebilir sürüm taşımıyor. Listeyi yenile.",
         }
-    reviewed = replace(server, trust=McpTrust(decision), reviewed_source=fingerprint or "")
+    # Araç özeti yalnız güvenilir kararında ve arayüzün/oturumun okuduğu katalogdan gelirse
+    # kaydedilir; yoksa (sunucuya ulaşılamadı, geri çekme) boş kalır ve araç tanımı denetlenmez.
+    tools = data.get("arac_ozeti")
+    pinned_tools = tools if decision == "trusted" and isinstance(tools, str) else ""
+    reviewed = replace(
+        server,
+        trust=McpTrust(decision),
+        reviewed_source=fingerprint or "",
+        reviewed_tools=pinned_tools,
+    )
     updated = replace(
         config,
         mcp_servers=tuple(

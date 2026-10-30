@@ -345,6 +345,7 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
                     "token_env": server.token_env,
                     "trust": server.trust.value,
                     "reviewed_source": server.reviewed_source,
+                    "reviewed_tools": server.reviewed_tools,
                     "connect_timeout_s": server.connect_timeout_s,
                     "list_timeout_s": server.list_timeout_s,
                     "call_timeout_s": server.call_timeout_s,

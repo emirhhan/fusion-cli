@@ -42,3 +42,5 @@ class McpConnectionStatus:
     #: Monotonik gözlem anı; sıfır eski/bilinmeyen gözlem demektir.
     observed_at: float = field(default=0.0, compare=False)
     retry_after_s: float | None = field(default=None, compare=False)
+    #: Sunucudan en son keşfedilen araç tanımlarının özeti (`trust.tools_digest`); keşif yoksa boş.
+    tools_digest: str = field(default="", compare=False)

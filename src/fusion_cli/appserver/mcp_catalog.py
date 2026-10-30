@@ -96,3 +96,26 @@ async def list_tool_catalog(
         # Sunucunun ham istisnası URL/token veya özel parametre taşıyabilir: yalnız tür loglanır.
         _LOG.error("MCP araç kataloğu okunamadı (%s): %s", server.name, type(error).__name__)
         return {"ok": False, "metin": "Araç kataloğu okunamadı. Bağlantıyı yeniden test et."}
+
+
+async def pin_tools_digest(
+    server: McpServerConfig,
+    *,
+    timeout: float = CATALOG_TIMEOUT_SECONDS,  # noqa: ASYNC109
+) -> str:
+    """Güven kararı anındaki araç tanımı özeti; sunucuya ulaşılamazsa boş metin (M1-16).
+
+    Boş özet "araç tanımı denetlenmez" demektir: ulaşılamayan sunucu yüzünden güven kararı
+    engellenmez, yalnız bu ek koruma o inceleme için devreye girmez.
+    """
+    try:
+        async with asyncio.timeout(timeout):
+            async with McpClient((server,), interactive=False) as client:
+                status = client.statuses.get(server.name)
+                if status is None or status.state != "bagli":
+                    return ""
+                await client.list_tools(server.name)
+                return client.tool_digest(server.name)
+    except Exception as error:
+        _LOG.warning("MCP araç özeti alınamadı (%s): %s", server.name, type(error).__name__)
+        return ""

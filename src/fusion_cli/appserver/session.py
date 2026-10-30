@@ -147,7 +147,7 @@ from .instructions import get_instructions, instruction_block, save_instructions
 from .library import LibrarySink, add_upload, remove_entry
 from .local_computer import LocalComputer, native_local_computer
 from .local_computer_routes import LOCAL_COMPUTER_ROUTES, dispatch_local_computer
-from .mcp_catalog import list_tool_catalog
+from .mcp_catalog import list_tool_catalog, pin_tools_digest
 from .model_catalog import list_selectable_models
 from .personal_memory import PersonalMemory
 from .processes import ProcessManager
@@ -1052,6 +1052,12 @@ class AppSession:
         if request.name == "ayar.talimat_kaydet":
             return save_instructions(request.data.get("metin"))
         if request.name == "baglanti.guven":
+            # Güvenilir kararında araç tanımı özeti ağdan okunur; tur denetiminden ÖNCE, böylece
+            # beklerken başlayan bir tur güven sınırını değiştirmeden yakalanır.
+            review = dict(request.data)
+            pinned = self._connector(review.get("ad")) if review.get("guven") == "trusted" else None
+            if pinned is not None:
+                review["arac_ozeti"] = await pin_tools_digest(pinned)
             if (self._turn is not None and not self._turn.done()) or (
                 self._submission_task is not None and not self._submission_task.done()
             ):
@@ -1059,7 +1065,7 @@ class AppSession:
                     "ok": False,
                     "metin": "Güven sınırını değiştirmeden önce çalışan görevi durdur.",
                 }
-            updated, result = review_connector(self._state.config, request.data)
+            updated, result = review_connector(self._state.config, review)
             if updated is not None:
                 self._update_connector_config(updated)
             return result

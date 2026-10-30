@@ -24,7 +24,7 @@ import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import replace
-from typing import Literal, TextIO, cast
+from typing import Any, Literal, TextIO, cast
 
 from mcp import ClientSession
 
@@ -43,7 +43,7 @@ from .schema import clean_description, simplify_schema
 from .tool_effect import effect_from_annotations
 from .tool_name import fusion_tool_name
 from .transport import open_mcp_stream
-from .trust import trusted_effect
+from .trust import tools_digest, trusted_effect
 from .types import McpConnectionStatus as McpConnectionStatus
 from .types import RemoteTool as RemoteTool
 
@@ -101,6 +101,8 @@ class McpClient:
         self._statuses: dict[str, McpConnectionStatus] = {}
         #: Sunucu başına ARDIŞIK çağrı zaman aşımı sayısı; başarı sıfırlar.
         self._timeouts: dict[str, int] = {}
+        #: Sunucu başına son keşfedilen araç tanımı özeti; güven kaydıyla karşılaştırılır (M1-16).
+        self._tool_digests: dict[str, str] = {}
 
     @property
     def is_stalled(self) -> bool:
@@ -108,12 +110,16 @@ class McpClient:
         düşürür; havuz bu istemciyi bırakıp yeniden bağlanmalı (ölçüldü 30 Ekim)."""
         return any(count >= STALLED_AFTER_TIMEOUTS for count in self._timeouts.values())
 
+    def tool_digest(self, server: str) -> str:
+        """Sunucudan en son keşfedilen araç tanımı özeti; keşif yoksa boş."""
+        return self._tool_digests.get(server, "")
+
     def _trusted_effect(self, server: str, effect: ToolEffect | None) -> ToolEffect | None:
         """Statik ve dinamik araç iddiaları aynı kaynak güven kapısından geçer."""
         config = next((config for config in self._configs if config.name == server), None)
         if config is None:
             return ToolEffect.REMOTE_WRITE if effect is ToolEffect.REMOTE_READ else effect
-        return trusted_effect(config, effect)
+        return trusted_effect(config, effect, self._tool_digests.get(server))
 
     def _server_timeout(
         self, server: str, budget: Literal["list_timeout_s", "call_timeout_s", "close_timeout_s"]
@@ -264,7 +270,7 @@ class McpClient:
 
     async def _list_tools(self, server: str) -> list[RemoteTool]:
         """Bir sunucunun araçlarını keşfet."""
-        remote: list[RemoteTool] = []
+        discovered: list[Any] = []
         cursor: str | None = None
         seen: set[str] = set()
         while True:
@@ -272,26 +278,35 @@ class McpClient:
                 result = await self._session(server).list_tools()
             else:
                 result = await self._session(server).list_tools(cursor)
-            remote.extend(
-                RemoteTool(
-                    server=server,
-                    name=tool.name,
-                    # Sağlayıcıya giden kopya sadeleşir/temizlenir (bkz. `schema.py`).
-                    description=clean_description(tool.description or ""),
-                    schema=simplify_schema(tool.inputSchema or {}),
-                    # Sahte ve eski SDK araç nesnelerinde alan olmayabilir.
-                    effect=self._trusted_effect(
-                        server, effect_from_annotations(getattr(tool, "annotations", None))
-                    )
-                    or ToolEffect.REMOTE_WRITE,
-                )
-                for tool in result.tools
-            )
+            discovered.extend(result.tools)
             next_cursor = getattr(result, "nextCursor", None)
             if not next_cursor or next_cursor in seen:
-                return remote
+                break
             seen.add(next_cursor)
             cursor = next_cursor
+        # Özet, etkiler hesaplanmadan ÖNCE kaydedilir: değişen tanım okuma muafiyeti alamaz.
+        digest = self._tool_digests[server] = tools_digest(discovered)
+        config = next((item for item in self._configs if item.name == server), None)
+        if config is not None and config.reviewed_tools and digest != config.reviewed_tools:
+            _LOG.warning(
+                "MCP araç tanımları incelemeden sonra değişti; güven düştü",
+                extra={"sunucu": server},
+            )
+        return [
+            RemoteTool(
+                server=server,
+                name=tool.name,
+                # Sağlayıcıya giden kopya sadeleşir/temizlenir (bkz. `schema.py`).
+                description=clean_description(tool.description or ""),
+                schema=simplify_schema(tool.inputSchema or {}),
+                # Sahte ve eski SDK araç nesnelerinde alan olmayabilir.
+                effect=self._trusted_effect(
+                    server, effect_from_annotations(getattr(tool, "annotations", None))
+                )
+                or ToolEffect.REMOTE_WRITE,
+            )
+            for tool in discovered
+        ]
 
     async def call(self, server: str, name: str, args: dict[str, object]) -> ToolResult:
         """Uzak aracı çağır; bütün içeriği ve hata durumunu kanonik sonuca dönüştür.
@@ -350,7 +365,11 @@ class McpClient:
                 continue
             current = self._statuses.get(server)
             if current is not None:
-                self._statuses[server] = replace(current, tool_count=len(tools))
+                self._statuses[server] = replace(
+                    current,
+                    tool_count=len(tools),
+                    tools_digest=self._tool_digests.get(server, ""),
+                )
             resolver = self._ability_resolver(server, {remote.name for remote in tools})
             for remote in tools:
                 fusion_name = fusion_tool_name(server, remote.name)
