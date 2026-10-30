@@ -102,3 +102,40 @@ describe("AvatarPicker", () => {
     expect(onSelect).toHaveBeenCalledWith("");
   });
 });
+
+// Ölçüldü (30 Ekim): menü Escape/dış tıklamayla kapanmıyor, tetikleyicide aria-expanded yok, yükleme hatası
+// işlenmemiş reddedilmeydi (U5-34).
+describe("AvatarPicker erişilebilirlik ve hata (30 Ekim)", () => {
+  const props = { avatar: "", kullaniciAdi: "kullanici", onSelect: vi.fn(), onUpload: vi.fn(async () => null) };
+
+  test("tetikleyici durumu bildirir, Escape menüyü kapatıp odağı geri verir", () => {
+    render(<AvatarPicker {...props} />);
+    const tetikleyici = screen.getByRole("button", { name: "Avatarı değiştir" });
+    expect(tetikleyici.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(tetikleyici);
+    expect(tetikleyici.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(tetikleyici);
+  });
+
+  test("dışarı tıklayınca menü kapanır", () => {
+    render(<AvatarPicker {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Avatarı değiştir" }));
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  test("yükleme hatası kullanıcıya gösterilir", async () => {
+    render(<AvatarPicker {...props} onUpload={vi.fn(async () => { throw new Error("kopyalanamadı"); })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Avatarı değiştir" }));
+    fireEvent.click(screen.getByRole("button", { name: "Görsel yükle" }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+  });
+
+  test("yükleme işleyicisi verilmezse 'Görsel yükle' düğmesi çizilmez", () => {
+    render(<AvatarPicker avatar="" kullaniciAdi="k" onSelect={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Avatarı değiştir" }));
+    expect(screen.queryByRole("button", { name: "Görsel yükle" })).toBeNull();
+  });
+});

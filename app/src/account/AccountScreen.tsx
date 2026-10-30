@@ -3,7 +3,7 @@ import type { ProtocolClient } from "../protocol/client";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
 import { AvatarPicker, AvatarView } from "./AvatarPicker";
-import type { Hesap } from "./types";
+import { GIRIS_ONERISI_ANAHTARI, type Hesap } from "./types";
 import type { AccountController } from "./useAccount";
 import "./account.css";
 
@@ -88,7 +88,7 @@ export function AccountScreen({
                 else setTaslak((current) => current ? { ...current, avatar: previousAvatar } : current);
               });
             }}
-            onUpload={onPickAvatarFile ?? (async () => null)}
+            onUpload={onPickAvatarFile}
           />
         </div>
         <h2>{etkin.kullanici_adi}</h2>
@@ -153,7 +153,10 @@ export function AccountScreen({
                 {/* Geçiş çıkıştan geçer: her hesabın kendi yapılandırması var ve
                     o ancak yeni bir çekirdek sürecinde okunur. */}
                 <Button
-                  onClick={() => void account.cikis().then((tamam) => { if (tamam) window.location.reload(); })}
+                  onClick={() => {
+                    try { sessionStorage.setItem(GIRIS_ONERISI_ANAHTARI, item.eposta || item.kullanici_adi); } catch { /* öneri isteğe bağlı */ }
+                    void account.cikis().then((tamam) => { if (tamam) window.location.reload(); });
+                  }}
                   variant="secondary"
                 >
                   Bu hesaba geç

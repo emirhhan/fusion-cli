@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui/Button";
 import { assetUrl } from "../platform/assetUrl";
 import { hesapBasHarfleri } from "./types";
@@ -31,8 +31,8 @@ export interface AvatarPickerProps {
   kullaniciAdi: string;
   /** Seçim yapıldığında çağrılır: emoji ya da kopyalanmış dosyanın yolu. */
   onSelect: (avatar: string) => void;
-  /** Dosya seçtirip hesabın dizinine kopyalar; kaydedilen yolu döndürür. */
-  onUpload: () => Promise<string | null>;
+  /** Dosya seçtirip hesabın dizinine kopyalar; kaydedilen yolu döndürür. Verilmezse yükleme düğmesi çizilmez. */
+  onUpload?: () => Promise<string | null>;
 }
 
 /** Avatarın kendisi — görsel, emoji ya da baş harfler. */
@@ -47,11 +47,36 @@ export function AvatarView({ avatar, kullaniciAdi }: { avatar: string; kullanici
 export function AvatarPicker({ avatar, kullaniciAdi, onSelect, onUpload }: AvatarPickerProps) {
   const [acik, setAcik] = useState(false);
   const [mesgul, setMesgul] = useState(false);
+  const [yuklemeHatasi, setYuklemeHatasi] = useState<string | null>(null);
+  const kapsayici = useRef<HTMLDivElement>(null);
+  const tetikleyici = useRef<HTMLButtonElement>(null);
+
+  // Menü Escape ve dışarı tıklamayla kapanır; Escape odağı tetikleyiciye döndürür (U5-34).
+  useEffect(() => {
+    if (!acik) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setAcik(false);
+      tetikleyici.current?.focus();
+    };
+    const onPointer = (event: MouseEvent) => {
+      if (event.target instanceof Node && !kapsayici.current?.contains(event.target)) setAcik(false);
+    };
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointer);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointer);
+    };
+  }, [acik]);
 
   return (
-    <div className="account-avatar">
+    <div className="account-avatar" ref={kapsayici}>
       <button
+        aria-expanded={acik}
+        aria-haspopup="dialog"
         aria-label="Avatarı değiştir"
+        ref={tetikleyici}
         className="account-screen__avatar account-avatar__trigger"
         onClick={() => setAcik((current) => !current)}
         type="button"
@@ -80,23 +105,29 @@ export function AvatarPicker({ avatar, kullaniciAdi, onSelect, onUpload }: Avata
             ))}
           </div>
           <div className="account-avatar__foot">
-            <Button
-              loading={mesgul}
-              onClick={() => {
-                setMesgul(true);
-                void onUpload()
-                  .then((yol) => {
-                    if (yol) {
-                      onSelect(yol);
-                      setAcik(false);
-                    }
-                  })
-                  .finally(() => setMesgul(false));
-              }}
-              variant="secondary"
-            >
-              Görsel yükle
-            </Button>
+            {onUpload && (
+              <Button
+                loading={mesgul}
+                onClick={() => {
+                  setMesgul(true);
+                  setYuklemeHatasi(null);
+                  // Kopyalama hatası işlenmemiş reddedilme olmaz, kullanıcıya gösterilir (U5-34).
+                  void onUpload()
+                    .then((yol) => {
+                      if (yol) {
+                        onSelect(yol);
+                        setAcik(false);
+                      }
+                    })
+                    .catch(() => setYuklemeHatasi("Görsel yüklenemedi. Başka bir dosya dene."))
+                    .finally(() => setMesgul(false));
+                }}
+                variant="secondary"
+              >
+                Görsel yükle
+              </Button>
+            )}
+            {yuklemeHatasi && <p className="account__error" role="alert">{yuklemeHatasi}</p>}
             {avatar && (
               <button
                 className="account__link"

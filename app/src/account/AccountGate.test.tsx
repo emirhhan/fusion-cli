@@ -149,3 +149,39 @@ describe("AccountGate", () => {
     });
   });
 });
+
+// Ölçüldü (30 Ekim): "Beni Hatırla" hiçbir yere iletilmeyen ölü kutuydu (U5-31); kip değişince eski hata görünüyor,
+// parola alanlarında autocomplete yoktu (U5-35); emoji baş harf yarım vekil çifti üretiyordu (U5-36); "Bu hesaba geç"
+// seçilen kimliği taşımıyordu (U5-32).
+describe("AccountGate (30 Ekim)", () => {
+  const giris = { durum: { hesaplar: [{ kimlik: "1", kullanici_adi: "k", eposta: "e@o.com", avatar: "", olusturuldu: 0 }], etkin: "", kurulum_gerekli: false } };
+
+  test("var olmayan 'Beni Hatırla' vaadi yoktur", () => {
+    render(<AccountGate account={denetleyici(giris)} />);
+    expect(screen.queryByText(/beni hatırla/i)).toBeNull();
+  });
+
+  test("parola yöneticisi için autocomplete nitelikleri vardır", () => {
+    render(<AccountGate account={denetleyici(giris)} />);
+    expect(screen.getByLabelText("Şifreniz").getAttribute("autocomplete")).toBe("current-password");
+    expect(screen.getByLabelText(/E-posta adresiniz veya/).getAttribute("autocomplete")).toBe("username");
+  });
+
+  test("kip değişince eski kipin hatası görünmez", () => {
+    render(<AccountGate account={denetleyici({ ...giris, hata: "Giriş yapılamadı." })} />);
+    expect(screen.getByRole("alert").textContent).toBe("Giriş yapılamadı.");
+    fireEvent.click(screen.getByRole("button", { name: /şifremi unuttum/i }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  test("hesap değiştirirken önerilen kimlik giriş alanına gelir", () => {
+    sessionStorage.setItem("fusion.hesap.giris-onerisi", "ikinci@o.com");
+    render(<AccountGate account={denetleyici(giris)} />);
+    expect((screen.getByLabelText(/E-posta adresiniz veya/) as HTMLInputElement).value).toBe("ikinci@o.com");
+    expect(sessionStorage.getItem("fusion.hesap.giris-onerisi")).toBeNull();
+  });
+
+  test("emoji ile başlayan ad yarım vekil çifti üretmez", () => {
+    expect(hesapBasHarfleri({ kullanici_adi: "🏍️ Moto" })).toBe("🏍M");
+  });
+});

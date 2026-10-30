@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Button } from "../ui/Button";
 import { Logo } from "../brand/Logo";
+import { GIRIS_ONERISI_ANAHTARI } from "./types";
 import type { AccountController } from "./useAccount";
 import "./account.css";
 
@@ -102,15 +103,30 @@ function BrandPanel() {
 export function AccountGate({ account }: { account: AccountController }) {
   const kurulum = account.durum?.kurulum_gerekli ?? false;
   const [kip, setKip] = useState<Kip>(kurulum ? "kayit" : "giris");
-  const [kimlik, setKimlik] = useState("");
+  // "Bu hesaba geç" çıkıştan sonra seçilen hesabın kimliğini giriş alanına önerir (U5-32).
+  const [kimlik, setKimlik] = useState(() => {
+    try {
+      const onerilen = sessionStorage.getItem(GIRIS_ONERISI_ANAHTARI);
+      if (onerilen) sessionStorage.removeItem(GIRIS_ONERISI_ANAHTARI);
+      return onerilen ?? "";
+    } catch {
+      return "";
+    }
+  });
+  //: Kip değişince eski kipin hatası yeni kipte görünmesin (U5-35).
+  const [gizlenenHata, setGizlenenHata] = useState<string | null>(null);
   const [parola, setParola] = useState("");
   const [kullaniciAdi, setKullaniciAdi] = useState("");
   const [eposta, setEposta] = useState("");
   const [kurtarmaKodu, setKurtarmaKodu] = useState("");
-  const [beniHatirla, setBeniHatirla] = useState(true);
   const [yeniKod, setYeniKod] = useState<string | null>(null);
   const [bilgi, setBilgi] = useState<string | null>(null);
   const [mesgul, setMesgul] = useState(false);
+
+  const degistirKip = (sonraki: Kip) => {
+    setGizlenenHata(account.hata);
+    setKip(sonraki);
+  };
 
   const gosterilecekKod = account.kurtarmaKodu ?? yeniKod;
   if (gosterilecekKod) {
@@ -169,6 +185,7 @@ export function AccountGate({ account }: { account: AccountController }) {
               <label htmlFor="hesap-ad">Kullanıcı adınız</label>
               <input
                 autoFocus
+                autoComplete="username"
                 id="hesap-ad"
                 onChange={(event) => setKullaniciAdi(event.target.value)}
                 placeholder="Kullanıcı adınız"
@@ -177,6 +194,7 @@ export function AccountGate({ account }: { account: AccountController }) {
               />
               <label htmlFor="hesap-eposta">E-posta adresiniz</label>
               <input
+                autoComplete="email"
                 id="hesap-eposta"
                 onChange={(event) => setEposta(event.target.value)}
                 placeholder="E-posta adresiniz"
@@ -189,6 +207,7 @@ export function AccountGate({ account }: { account: AccountController }) {
             <>
               <label htmlFor="hesap-kimlik">E-posta adresiniz veya kullanıcı adınız</label>
               <input
+                autoComplete="username"
                 autoFocus
                 id="hesap-kimlik"
                 onChange={(event) => setKimlik(event.target.value)}
@@ -203,6 +222,7 @@ export function AccountGate({ account }: { account: AccountController }) {
             <>
               <label htmlFor="hesap-kod">Kurtarma kodunuz</label>
               <input
+                autoComplete="off"
                 id="hesap-kod"
                 onChange={(event) => setKurtarmaKodu(event.target.value)}
                 placeholder="XXXX-XXXX-XXXX-XXXX"
@@ -214,6 +234,7 @@ export function AccountGate({ account }: { account: AccountController }) {
 
           <label htmlFor="hesap-parola">{kip === "kurtarma" ? "Yeni şifreniz" : "Şifreniz"}</label>
           <input
+            autoComplete={kip === "giris" ? "current-password" : "new-password"}
             id="hesap-parola"
             minLength={kip === "giris" ? undefined : EN_AZ_PAROLA}
             onChange={(event) => setParola(event.target.value)}
@@ -225,16 +246,7 @@ export function AccountGate({ account }: { account: AccountController }) {
 
           {kip === "giris" ? (
             <div className="account__row">
-              <label className="account__check" htmlFor="hesap-hatirla">
-                <input
-                  checked={beniHatirla}
-                  id="hesap-hatirla"
-                  onChange={(event) => setBeniHatirla(event.target.checked)}
-                  type="checkbox"
-                />
-                <span>Beni Hatırla</span>
-              </label>
-              <button className="account__link" onClick={() => setKip("kurtarma")} type="button">
+              <button className="account__link" onClick={() => degistirKip("kurtarma")} type="button">
                 Şifremi Unuttum ?
               </button>
             </div>
@@ -242,7 +254,7 @@ export function AccountGate({ account }: { account: AccountController }) {
             <p className="account__hint">En az {EN_AZ_PAROLA} karakter.</p>
           )}
 
-          {account.hata && (
+          {account.hata && account.hata !== gizlenenHata && (
             <p className="account__error" role="alert">
               {account.hata}
             </p>
@@ -264,7 +276,7 @@ export function AccountGate({ account }: { account: AccountController }) {
               ) : (
                 <>
                   Zaten hesabın var mı?{" "}
-                  <button className="account__link" onClick={() => setKip("giris")} type="button">
+                  <button className="account__link" onClick={() => degistirKip("giris")} type="button">
                     Giriş Yap
                   </button>
                 </>
@@ -272,7 +284,7 @@ export function AccountGate({ account }: { account: AccountController }) {
             ) : (
               <>
                 Henüz üye değil misiniz?{" "}
-                <button className="account__link" onClick={() => setKip("kayit")} type="button">
+                <button className="account__link" onClick={() => degistirKip("kayit")} type="button">
                   Kayıt Ol
                 </button>
               </>
