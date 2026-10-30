@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ...core.text_fold import fold_tr
 from .classify import TaskKind, classify_task
 
 #: Profil merdiveni, en düşükten en yükseğe. İndeks karmaşıklık skorudur.
@@ -83,7 +84,7 @@ class AutoChoice:
 def auto_profile(task_text: str) -> AutoChoice:
     """İstek metnine göre bir execution profili seç ve gerekçesini üret."""
     kind = classify_task(task_text)
-    text = task_text.casefold()
+    text = fold_tr(task_text)
 
     base = 0 if kind in _BASE_LOW else 1
     matched_escalation = tuple(signal for signal in _ESCALATION_SIGNALS if signal in text)

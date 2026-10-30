@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 
+from ...core.text_fold import fold_tr
+
 
 class TaskKind(Enum):
     """Bir isteğin kaba görev türü. Ders kapsamı (scope) olarak kullanılır."""
@@ -284,10 +286,10 @@ _HEAD_INTENT_RULES: dict[TaskKind, tuple[re.Pattern[str], int]] = {
 def _classification_scores(request: str) -> tuple[tuple[TaskKind, int], ...]:
     """Bütün prompt + ağırlaştırılmış ilk bölüm için deterministik skorlar."""
 
-    lowered = request.lower()
+    lowered = fold_tr(request)
     tokens = set(re.split(r"[^0-9a-zçğıöşü]+", lowered))
 
-    head = request[:_PRIMARY_HEAD_CHARS].lower()
+    head = fold_tr(request[:_PRIMARY_HEAD_CHARS])
     head_tokens = set(re.split(r"[^0-9a-zçğıöşü]+", head))
 
     scores: list[tuple[TaskKind, int]] = []
@@ -317,7 +319,7 @@ def classify_task_details(request: str) -> TaskClassification:
     görünür ama primary'yi kolayca ele geçiremez.
     """
 
-    lowered = request.lower()
+    lowered = fold_tr(request)
 
     # "yap" tek başına mutation niyetini kanıtlamaz. Kullanıcının ne yapılacağını
     # belirtmediği bu tip kısa emirlerde FEATURE seçmek ask_user akışını gereksiz

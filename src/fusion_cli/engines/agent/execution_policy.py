@@ -18,6 +18,7 @@ from dataclasses import dataclass, replace
 
 from ...config.models import Config
 from ...config.tool_policy import mutation_policy_for_model
+from ...core.text_fold import fold_tr
 from ...core.types import Message, ModelSpec
 from .action_evidence import task_effect
 
@@ -112,7 +113,7 @@ def policy_for(
     şemalarının yanlışlıkla kapatılmasını önler.
     """
 
-    lowered = task.lower()
+    lowered = fold_tr(task)
     explicit_no_tools = _explicit_no_tools(lowered)
     # Kullanıcı “araç kullanma” dese bile gerçek bir dış etki talebi ortadan
     # kalkmaz. Araçlar kapalı tutulur ama iş yapılmış gibi raporlanamaz.
@@ -213,7 +214,7 @@ def _is_genuine_simple_chat(task: str, required_effect: str | None) -> bool:
 
     if required_effect is not None:
         return False
-    lowered = " ".join(task.lower().split()).strip(" .!?…")
+    lowered = " ".join(fold_tr(task).split()).strip(" .!?…")
     if len(lowered) > 260:
         return False
     if re.fullmatch(
