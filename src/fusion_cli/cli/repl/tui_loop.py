@@ -39,6 +39,7 @@ from . import (
     provider_flow,
     status_view,
     verify_flow,
+    view_commands,
 )
 from .commands import (
     RENDERED_COMMANDS,
@@ -387,6 +388,28 @@ class _TuiSession:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return
             argument = selected
+        elif command.name == "theme" and not argument.strip():
+            selected = await self._tui.await_choice(
+                messages.THEME_TITLE, view_commands.theme_choices(self._state)
+            )
+            if selected is None:
+                self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+                return
+            argument = selected
+        elif command.name == "search":
+            # Arama yalnız tam ekranda anlamlı (P-070): konuşma tamponu buradadır.
+            needle = argument.strip()
+            if not needle:
+                self._echo(f"[{theme.DIM}]{messages.SEARCH_USAGE}[/{theme.DIM}]")
+                return
+            count = self._tui.scroll_to_match(needle)
+            text = (
+                messages.SEARCH_FOUND.format(text=needle, count=count)
+                if count
+                else messages.SEARCH_NOT_FOUND.format(text=needle)
+            )
+            self._echo(f"[{theme.DIM}]{escape(text)}[/{theme.DIM}]")
+            return
         elif command.name == "output-style" and not argument.strip():
             # Çıktı stili (P-068): uygulama-içi modalla seç, seçileni argüman yap.
             selected = await self._tui.await_choice(
@@ -442,6 +465,8 @@ class _TuiSession:
             )
             return
         result = command.handler(self._state, argument)
+        if command.name == "theme":
+            self._tui.refresh_style()
         if result:
             self._echo(f"[{theme.DIM}]{escape(result)}[/{theme.DIM}]")
         self._arm_reminders()

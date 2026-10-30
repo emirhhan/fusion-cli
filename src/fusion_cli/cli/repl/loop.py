@@ -61,7 +61,7 @@ from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
 from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
-from . import help_view, history_view, macros, prefixes
+from . import help_view, history_view, macros, prefixes, view_commands
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
 from .input import ReplInput
 from .macros import Mode
@@ -121,7 +121,12 @@ async def run_repl(
         remotion_browser=remotion_browser,
         health=build_health(config),
     )
-    if os.environ.get("FUSION_INLINE") != "1" and is_interactive_terminal():
+    # Terminal paleti oturum başında (P-070): tüm yüzeyler `theme.X`'i çağrı anında okur.
+    view_commands.apply_theme_setting(state)
+    inline_requested = (
+        os.environ.get("FUSION_INLINE") == "1" or getattr(config.runtime, "tui", "") == "inline"
+    )
+    if not inline_requested and is_interactive_terminal():
         from .tui_loop import run_tui_repl
 
         return await run_tui_repl(state, console)

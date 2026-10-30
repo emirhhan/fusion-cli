@@ -335,6 +335,23 @@ class FusionTui:
             )
         self._invalidate()
 
+    def refresh_style(self) -> None:
+        """`/theme` sonrası renkleri yeniden kur (P-070): stil ve durum satırı yeniden üretilir."""
+        self.application.style = _style()
+        self._refresh_status()
+
+    def scroll_to_match(self, text: str) -> int:
+        """Konuşmada `text` geçen son satıra kaydır; eşleşen satır sayısını döndür (P-070)."""
+        needle = text.casefold()
+        lines = self._conversation.splitlines()
+        matches = [index for index, line in enumerate(lines) if needle in line.casefold()]
+        if not matches:
+            return 0
+        # Eşleşen satır görünür alanın ALT kenarına gelir: altında kalan satırlar gizlenir.
+        self._scroll = max(0, len(lines) - matches[-1] - 1)
+        self._refresh_status()
+        return len(matches)
+
     def request_exit(self) -> None:
         self._stop_spinner()
         if self.application.is_running:

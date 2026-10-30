@@ -964,3 +964,25 @@ OUTPUT_STYLE_CURRENT = " (etkin)"
 OUTPUT_STYLE_UNKNOWN = "Bilinmeyen çıktı stili: {name}. Bilinenler: {known}"
 OUTPUT_STYLE_SET = "Çıktı stili: {name} — sonraki turdan itibaren geçerli, kalıcı yazıldı."
 OUTPUT_STYLE_SET_UNSAVED = "Çıktı stili bu oturum için {name}; dosyaya yazılamadı: {error}"
+
+# --- /theme, /tui, /search (P-070) ----------------------------------------- #
+CMD_THEME = "terminal teması: koyu · acik · ansi · daltonizm (anında uygulanır, kalıcı)"
+CMD_TUI = "REPL görünümü: /tui fullscreen|inline (yeni oturumda geçerli)"
+CMD_SEARCH = "tam ekran konuşmasında metin ara ve son eşleşmeye kaydır"
+THEME_TITLE = "Terminal teması"
+THEME_HEADER = "Temalar (etkin: {current}):"
+THEME_HINT = "Seçmek için: /theme <ad>. Masaüstü teması Ayarlar › Genel'den değişir."
+THEME_SET = "Tema: {name} — uygulandı ve kalıcı yazıldı."
+THEME_SET_UNSAVED = "Tema bu oturum için {name}; dosyaya yazılamadı: {error}"
+TUI_MODE_CURRENT = "REPL görünümü: {mode}. Seçenekler: {options}. Yeni oturumda geçerli olur."
+TUI_MODE_UNKNOWN = "Bilinmeyen görünüm: {name}. Seçenekler: {options}"
+TUI_MODE_SET = "REPL görünümü {mode} olarak kaydedildi; bir sonraki `fusion` açılışında geçerli."
+TUI_MODE_SET_UNSAVED = "Görünüm {mode} dosyaya yazılamadı: {error}"
+SEARCH_USAGE = "Kullanım: /search <metin>"
+SEARCH_ONLY_TUI = (
+    "Arama yalnız tam ekran görünümünde çalışır; satır-içi kipte terminalin kendi aramasını kullan."
+)
+SEARCH_NOT_FOUND = "'{text}' konuşmada bulunamadı."
+SEARCH_FOUND = (
+    "'{text}' {count} satırda geçiyor; son eşleşmeye kaydırıldı (End ile canlı akışa dön)."
+)

@@ -39,6 +39,7 @@ from . import (
     profiles_flow,
     provider_flow,
     verify_flow,
+    view_commands,
     workspace_commands,
 )
 from .state import TASK_TYPES, Engine, Reminder, ReplState
@@ -840,6 +841,23 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
     SlashCommand(
         "copy", messages.CMD_COPY, export_commands.copy_answer, group="Agent", usage="[N]"
+    ),
+    SlashCommand(
+        "theme", messages.CMD_THEME, view_commands.theme_command, group="Görünüm", usage="[ad]"
+    ),
+    SlashCommand(
+        "tui",
+        messages.CMD_TUI,
+        view_commands.tui_command,
+        group="Görünüm",
+        usage="[fullscreen|inline]",
+    ),
+    SlashCommand(
+        "search",
+        messages.CMD_SEARCH,
+        view_commands.search_command,
+        group="Görünüm",
+        usage="<metin>",
     ),
 )
 
