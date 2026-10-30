@@ -331,9 +331,9 @@ class ConsoleRenderer:
         elif isinstance(event, LessonsLearned):
             self._status(messages.AGENT_LESSONS_LEARNED.format(count=event.count))
         elif isinstance(event, ContextCompressed):
-            self._warn(
-                messages.AGENT_CONTEXT_COMPRESSED.format(before=event.before, after=event.after)
-            )
+            satir = _compression_line(event)
+            if satir:
+                self._warn(satir)
         elif isinstance(event, MutationUnavailable):
             self._warn(messages.AGENT_MUTATION_UNAVAILABLE.format(reason=event.reason))
         elif isinstance(event, TurnBudgetExhausted):
@@ -1040,6 +1040,26 @@ def _shorten(text: str, limit: int) -> str:
     """Uzun metni tek satıra sığdır. Araç kartı ekranı taşırmamalıdır."""
     flat = " ".join(text.split())
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
+
+
+def _compression_line(event: ContextCompressed) -> str:
+    """Bağlam kısaltma satırı; ekrana taşınacak bir kazanç yoksa boş.
+
+    Ölçüldü (30 Ekim): "bağlam sıkıştırıldı (18 → 18 mesaj)" mesaj sayısı aynıyken
+    anlamsızdı ve her model çağrısında basılıyordu. Kazanılan karakter varsa o, yoksa
+    yalnız mesaj sayısı gerçekten düştüyse eski satır gösterilir.
+    """
+    if event.saved_chars > 0:
+        bin_esigi = 1000
+        miktar = (
+            f"{round(event.saved_chars / bin_esigi)} bin"
+            if event.saved_chars >= bin_esigi
+            else str(event.saved_chars)
+        )
+        return messages.AGENT_CONTEXT_TRIMMED.format(amount=miktar)
+    if event.after < event.before:
+        return messages.AGENT_CONTEXT_COMPRESSED.format(before=event.before, after=event.after)
+    return ""
 
 
 def _budget_reason(event: TurnBudgetExhausted) -> str:

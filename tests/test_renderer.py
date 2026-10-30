@@ -9,6 +9,7 @@ from rich.console import Console
 from fusion_cli.core.events import (
     ApprenticeHandoff,
     Channel,
+    ContextCompressed,
     ErrorOccurred,
     ExecutionCompleted,
     ModelCallFinished,
@@ -1311,3 +1312,35 @@ def test_show_thinking_acikken_bos_akis_madde_isareti_basmaz():
     renderer.handle(TurnFinished())
 
     assert MARK not in buffer.getvalue()
+
+
+# --- Bağlam kısaltma satırı (30 Ekim) ------------------------------------------------ #
+
+
+def test_baglam_kisaltma_kazanilan_karakteri_gosterir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(ContextCompressed(before=18, after=18, saved_chars=12_400))
+    renderer.handle(TurnFinished())
+
+    assert "bağlam kısaltıldı: −12 bin karakter" in buffer.getvalue()
+    assert "18 → 18" not in buffer.getvalue()
+
+
+def test_baglam_kisaltma_mesaj_sayisi_ayniysa_ve_kazanc_yoksa_basilmaz():
+    """Ölçüldü (30 Ekim): "(18 → 18 mesaj)" satırı anlamsızdı ve sık basılıyordu."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(ContextCompressed(before=18, after=18))
+    renderer.handle(TurnFinished())
+
+    assert "bağlam" not in buffer.getvalue()
+
+
+def test_baglam_kisaltma_kazanc_olculmediyse_mesaj_dususu_gosterilir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(ContextCompressed(before=40, after=23))
+    renderer.handle(TurnFinished())
+
+    assert "40 → 23 mesaj" in buffer.getvalue()

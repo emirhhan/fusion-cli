@@ -487,10 +487,16 @@ class TamperSuspected(Event):
 
 @dataclass(frozen=True, slots=True)
 class ContextCompressed(Event):
-    """Uzun geçmiş özetlenerek kısaltıldı."""
+    """Uzun geçmiş özetlenerek kısaltıldı.
+
+    `saved_chars` modelin göreceği görünümde kazanılan karakter (0 = ölçülmedi).
+    Mesaj sayısı aynı kalabilir (eski araç çıktıları kısalır); ekranda anlamlı olan
+    kazanılan karakterdir.
+    """
 
     before: int
     after: int
+    saved_chars: int = 0
 
 
 @dataclass(frozen=True, slots=True)

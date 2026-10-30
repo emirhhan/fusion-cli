@@ -105,6 +105,7 @@ AGENT_SELF_REVIEW_CLEAN = "öz-denetim · sorun yok"
 AGENT_SELF_REVIEW_UNAVAILABLE = "öz-denetim · tamamlanamadı; sonuç denetlenmedi"
 AGENT_SELF_REVIEW_ISSUE = "öz-denetim · sorun bulundu, düzeltiliyor"
 AGENT_CONTEXT_COMPRESSED = "bağlam sıkıştırıldı ({before} → {after} mesaj)"
+AGENT_CONTEXT_TRIMMED = "bağlam kısaltıldı: −{amount} karakter"
 AGENT_EMPTY_ANSWER = "(model boş yanıt verdi)"
 #: Model geçersiz bir araç çağrısı yazdı ve sözleşme hatırlatılarak yeniden soruldu.
 #: Onarım sessiz kalırsa kullanıcı turun neden uzadığını göremez.

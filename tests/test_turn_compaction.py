@@ -181,7 +181,10 @@ async def test_uzun_turda_baglam_tur_bitmeden_sikistirilir(monkeypatch, tmp_path
         system_prompt="Dosyaları araçlarla incele ve sonucu özetle.",
     )
 
-    assert any(isinstance(e, ContextCompressed) for e in sink.events)
+    olaylar = [e for e in sink.events if isinstance(e, ContextCompressed)]
+    assert olaylar
+    # Ekrana taşınacak anlamlı değer kazanılan karakterdir (mesaj sayısı aynı kalabilir).
+    assert all(e.saved_chars > 0 for e in olaylar)
     # Sekiz okumanın toplamı (24.000 karakter) geçmişte birikmez.
     assert history.total_chars(sonuc.messages) < 8 * 3_000
     assert sonuc.final_text.startswith("Tüm dosyalar okundu")

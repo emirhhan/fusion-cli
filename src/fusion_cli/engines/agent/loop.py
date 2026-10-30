@@ -4128,9 +4128,14 @@ async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: 
     compacted = await compaction.compact_in_turn(
         messages, config=deps.config, publisher=deps.publisher, threshold_chars=threshold
     )
-    if total_chars(_masked_view(compacted, deps, selected, commit=False).messages) < before_chars:
+    after_chars = total_chars(_masked_view(compacted, deps, selected, commit=False).messages)
+    if after_chars < before_chars:
         messages[:] = compacted
-        deps.publisher.publish(ContextCompressed(before=before, after=len(compacted)))
+        deps.publisher.publish(
+            ContextCompressed(
+                before=before, after=len(compacted), saved_chars=before_chars - after_chars
+            )
+        )
         deps.condensations += 1
     if needs_compression(
         _masked_view(messages, deps, selected, commit=False).messages, threshold_chars=threshold
@@ -4151,7 +4156,13 @@ async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Mess
         messages, config=deps.config, publisher=deps.publisher, threshold_chars=threshold
     )
     if len(compressed) < before:
-        deps.publisher.publish(ContextCompressed(before=before, after=len(compressed)))
+        deps.publisher.publish(
+            ContextCompressed(
+                before=before,
+                after=len(compressed),
+                saved_chars=max(0, total_chars(messages) - total_chars(compressed)),
+            )
+        )
         deps.condensations += 1
     return compressed
 
