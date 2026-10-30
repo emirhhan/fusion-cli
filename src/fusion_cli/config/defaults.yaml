@@ -404,7 +404,8 @@ vision:
 # araç çağrıldığında `ConfigError` ile anlaşılır bir mesaj döner.
 
 # Görev tipine göre kullanılacak model. Yalnızca yukarıda tanımlı bir aday adı yazılabilir;
-# tanınmayan ad sessizce `agent:` rolüne düşer.
+# tanınmayan ad yapılandırma yüklenirken `ConfigError` verir (config/loader.py `_build_task_map`),
+# sessizce başka modele düşmez.
 #
 # Bu harita İKİ motoru birden yönlendirir:
 #   fusion — bu adayı havuzun başına alır (hakem yine hepsini görür),
