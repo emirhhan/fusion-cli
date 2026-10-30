@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+import difflib
 import json
 import re
 
@@ -39,11 +41,52 @@ def _parse_arguments_checked(raw: str) -> tuple[dict[str, object], str | None]:
         # onarım döngüsüne giriyordu (18 Ekim 2026, web_search).
         ilk = _first_json_object(raw) if isinstance(raw, str) else None
         if ilk is None:
+            ilk = _lenient_arguments(raw) if isinstance(raw, str) else None
+        if ilk is None:
             return {}, f"arguments geçerli JSON olmalı ({error})"
         return ilk, None
+    if isinstance(parsed, str):
+        # Çift kodlanmış: `"{\"a\": 1}"` (A2-07) — bir kez aç.
+        ic, hata = _parse_arguments_checked(parsed) if parsed.strip() else ({}, None)
+        return ic, hata
     if not isinstance(parsed, dict):
         return {}, "arguments bir JSON nesnesi olmalı"
     return parsed, None
+
+
+_CODE_FENCE = re.compile(r"^```[a-zA-Z]*\s*(.*?)\s*```$", re.DOTALL)
+_TRAILING_COMMA = re.compile(r",(\s*[}\]])")
+
+
+def _lenient_arguments(raw: str) -> dict[str, object] | None:
+    """Zayıf modellerin yaygın biçim kaymalarını kurtar; kurtarılamazsa None.
+
+    Ölçüldü (30 Ekim, A2-07): boş metin (parametresiz araç), kod çiti içinde JSON,
+    sondaki virgül ve tek tırnaklı sözlük "geçerli JSON olmalı" hatasıyla
+    reddediliyor ve tur başına 4 onarım hakkından birini yakıyordu. Yalnız sonucu
+    bir SÖZLÜK olan dönüşümler kabul edilir.
+    """
+    metin = raw.strip()
+    if not metin:
+        return {}
+    cit = _CODE_FENCE.match(metin)
+    if cit is not None:
+        metin = cit.group(1).strip()
+    adaylar = [metin, _TRAILING_COMMA.sub(r"\1", metin)]
+    for aday in adaylar:
+        try:
+            deger = json.loads(aday)
+        except ValueError:
+            continue
+        if isinstance(deger, dict):
+            return deger
+    if metin.startswith("{"):
+        try:
+            deger = ast.literal_eval(metin)
+        except (ValueError, SyntaxError, MemoryError, RecursionError):
+            return None
+        return deger if isinstance(deger, dict) else None
+    return None
 
 
 def _first_json_object(raw: str) -> dict[str, object] | None:
@@ -149,9 +192,19 @@ def _suggested_tool_schema(
     """
     if registry is None:
         return None
+    if registry.get(name) is None:
+        # Bilinmeyen araç: hata metni TÜM kayıt adlarını sayar ve "en son anılan"
+        # seçmek listedeki rastgele son aracı (çoğu kez bir MCP aracı) örnek
+        # gösterirdi (A2-05). Yalnız yazım yakınlığı olan tek ad önerilir.
+        yakin = difflib.get_close_matches(name, registry.names(), n=1, cutoff=0.6)
+        if not yakin:
+            return None
+        tool = registry.get(yakin[0])
+        schema = tool.schema().get("function") if tool is not None else None
+        return schema if isinstance(schema, dict) else None
     metin = " ".join(errors)
     sirali = sorted(
-        ((metin.rfind(aday), aday) for aday in registry.names() if aday != name),
+        ((_last_word_position(metin, aday), aday) for aday in registry.names() if aday != name),
         reverse=True,
     )
     for konum, aday in sirali:
@@ -164,6 +217,14 @@ def _suggested_tool_schema(
         if isinstance(schema, dict):
             return schema
     return None
+
+
+def _last_word_position(text: str, word: str) -> int:
+    """`word`ün SÖZCÜK olarak son geçtiği konum; "digit" içindeki "git" sayılmaz (A2-06)."""
+    konumlar = [
+        eslesme.start() for eslesme in re.finditer(rf"(?<!\w){re.escape(word)}(?!\w)", text)
+    ]
+    return konumlar[-1] if konumlar else -1
 
 
 def _tool_contract_abort_message(detail: str) -> str:
