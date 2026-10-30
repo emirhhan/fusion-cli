@@ -227,7 +227,9 @@ CHROME_CODE_TURN_TOOLS = CHROME_TURN_TOOLS | {
     "edit_file",
     "multi_edit",
     "list_dir",
-    "grep",
+    # Gerçek araç adı `search_code`dir (`tools/builtin.py`); eski "grep" adında araç yok, bu yüzden
+    # kod kipindeki panel turu kod araması yapamıyordu (ölçüldü 30 Ekim).
+    "search_code",
     "glob",
     "run_shell",
     "ask_teacher",

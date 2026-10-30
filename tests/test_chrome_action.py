@@ -396,3 +396,11 @@ class _EkranKopru2(_Kopru):
             gorsel = base64.b64encode(buf.getvalue()).decode()
             return {"ok": True, "veri": {"image": f"data:image/jpeg;base64,{gorsel}", "width": 400}}
         return {"ok": True, "veri": {}}
+
+
+def test_kod_kipi_panel_turu_gercek_arama_aracini_icerir():
+    """Ölçüldü (30 Ekim, S2-53): listede araç olmayan "grep" vardı, `search_code` yoktu."""
+    from fusion_cli.appserver.session import CHROME_CODE_TURN_TOOLS
+
+    assert "search_code" in CHROME_CODE_TURN_TOOLS
+    assert "grep" not in CHROME_CODE_TURN_TOOLS

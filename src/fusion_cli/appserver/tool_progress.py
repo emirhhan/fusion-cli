@@ -17,6 +17,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from urllib.parse import urlsplit
 
+from ..core.redaction import redact
+
 #: Argümandan alınan metinlerin üst sınırı; durum satırı tek satırda kalmalı.
 _MAX_QUOTE = 60
 
@@ -44,7 +46,16 @@ def _host(url: str | None) -> str:
         parsed = urlsplit(url if "://" in url else f"https://{url}")
     except ValueError:
         return url
-    return parsed.netloc or url
+    # `netloc` kullanıcı:parola@ içerebilir; durum satırına (ve olay günlüğüne) yalnız
+    # makine adı ve port yazılır (ölçüldü 30 Ekim).
+    host = parsed.hostname
+    if not host:
+        return url
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    return f"{host}:{port}" if port else host
 
 
 def _path_metni(args: Mapping[str, object]) -> str:
@@ -89,7 +100,7 @@ def _run_shell(args: Mapping[str, object]) -> str:
     komut = _text(args, "command", "komut")
     if not komut:
         return "kabuk komutu çalıştırılıyor"
-    return f"kabuk komutu {_quote(komut)} çalıştırılıyor"
+    return f"kabuk komutu {_quote(redact(komut))} çalıştırılıyor"
 
 
 def _todo_write(_args: Mapping[str, object]) -> str:
@@ -251,8 +262,13 @@ def progress_text(name: str, args: Mapping[str, object]) -> str:
     de anlaşılır bir varsayılana düşer: ham İngilizce araç adını kullanıcıya
     hiç göstermemek yerine, en azından "ne yapıldığı" belli bir cümle kurar.
     """
+    # Zayıf modelden bozuk çağrı gelebilir (`args` str/list/None): olay yayını düşmemeli.
+    guvenli_args: Mapping[str, object] = args if isinstance(args, Mapping) else {}
     olustur = _METINLER.get(name)
     if olustur is not None:
-        return olustur(args)
+        try:
+            return olustur(guvenli_args)
+        except (TypeError, ValueError, AttributeError):
+            pass
     okunabilir_ad = name.replace("_", " ").strip() or "araç"
     return f"{okunabilir_ad} çalıştırılıyor"

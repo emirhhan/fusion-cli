@@ -52,3 +52,23 @@ def test_bos_argumanlarda_bile_dusmez() -> None:
     for ad in ("read_file", "web_search", "run_shell", "git", "glob", "list_dir"):
         assert isinstance(progress_text(ad, {}), str)
         assert progress_text(ad, {})
+
+
+def test_url_kimlik_bilgisi_durum_satirina_girmez() -> None:
+    """Ölçüldü (30 Ekim, S2-31): `netloc` kullanıcı:parola@ ile birlikte UI'ya yazılıyordu."""
+    metin = progress_text("web_fetch", {"url": "https://kullanici:parola@ornek.com:8443/x"})
+
+    assert "parola" not in metin and "kullanici" not in metin
+    assert metin == "ornek.com:8443 getiriliyor"
+
+
+def test_kabuk_komutundaki_sir_maskelenir() -> None:
+    metin = progress_text("run_shell", {"command": "curl -H 'Authorization: Bearer abcdef1234567890xyz' x"})
+
+    assert "abcdef1234567890xyz" not in metin
+
+
+def test_bozuk_arguman_tipi_durum_metnini_dusurmez() -> None:
+    """Ölçüldü (30 Ekim, S2-31): `args` dict değilse `.get` AttributeError ile olay yayını düşerdi."""
+    assert progress_text("read_file", None) == "dosya okunuyor"  # type: ignore[arg-type]
+    assert progress_text("run_shell", "ls") == "kabuk komutu çalıştırılıyor"  # type: ignore[arg-type]
