@@ -6,6 +6,8 @@ listesini ezmez. Ayrıca "iş yarım mı kaldı?" sezgiseli bu listeyi okur.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from ..core.tools import TodoItem, TodoStatus, ToolArgs, ToolContext, ToolResult
 from .args import ArgumentError, require_list
 
@@ -80,7 +82,7 @@ def _status(raw: object) -> TodoStatus:
     return _lookup_status(raw) or TodoStatus.PENDING
 
 
-def _unknown_statuses(raw: list[object]) -> list[str]:
+def _unknown_statuses(raw: Sequence[object]) -> list[str]:
     return [
         entry["status"]
         for entry in raw

@@ -71,7 +71,7 @@ async def _download_bytes(url: str, context: ToolContext) -> bytearray:
     raise ValueError(f"En fazla {MAX_WEB_REDIRECTS} yönlendirme aşıldı.")
 
 
-def _save_new(path: Path, content: bytes, context: ToolContext) -> None:
+def _save_new(path: Path, content: bytes | bytearray, context: ToolContext) -> None:
     """Tamamlanan dosyayı atomik yayınla; mevcut dosyanın üzerine yazma."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary: Path | None = None

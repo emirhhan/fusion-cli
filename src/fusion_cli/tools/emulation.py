@@ -156,7 +156,11 @@ _TYPE_CHECKS: Mapping[str, Callable[[object], bool]] = {
 
 def _matches_type(kinds: Sequence[object], value: object) -> bool:
     """`type` bir liste ise (`["string", "null"]`) değer biriyle uyuşmalı; bilinmeyen tip geçer."""
-    return any(_TYPE_CHECKS.get(str(kind), lambda _v: True)(value) for kind in kinds)
+    for kind in kinds:
+        check = _TYPE_CHECKS.get(str(kind))
+        if check is None or check(value):  # bilinmeyen tip geçer
+            return True
+    return False
 
 
 def _validate_combinators(schema: Mapping[str, object], value: object, path: str) -> list[str]:

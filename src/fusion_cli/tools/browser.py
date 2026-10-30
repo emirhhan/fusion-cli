@@ -336,14 +336,18 @@ async def _sayfa(context: ToolContext, *, baslatma: bool = True) -> tuple[Any, s
     Dönüş: (sayfa, hata). Sayfa `None` ise hata doludur.
     """
     oturum = context.browser
-    if oturum.is_open:
+    if _is_open(oturum):
         return oturum.page, ""
     if not baslatma:
         return None, "Açık bir sayfa yok — önce browser_open ile bir adres aç."
     async with _START_LOCKS.setdefault(oturum, asyncio.Lock()):
-        if oturum.is_open:  # kilidi beklerken başka çağrı başlatmış olabilir
+        if _is_open(oturum):  # kilidi beklerken başka çağrı başlatmış olabilir
             return oturum.page, ""
         return await _oturumu_baslat(context)
+
+
+def _is_open(oturum: BrowserSession) -> bool:
+    return bool(oturum.is_open)
 
 
 async def _oturumu_baslat(context: ToolContext) -> tuple[Any, str]:

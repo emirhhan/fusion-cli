@@ -62,6 +62,6 @@ def adapt_arguments(tool: Tool, args: ToolArgs) -> ToolArgs:
         if key in properties:
             continue
         target = ARGUMENT_ALIASES.get(normalize_name(key))
-        if target in properties and target not in adapted:
+        if target is not None and target in properties and target not in adapted:
             adapted[target] = adapted.pop(key)
     return adapted

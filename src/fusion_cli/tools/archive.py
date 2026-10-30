@@ -181,10 +181,10 @@ async def extract_archive(args: ToolArgs, context: ToolContext) -> ToolResult:
                 tar_uyeleri = _tar_uyeleri(arsiv, kok)
                 _yazma_izni(tar_uyeleri, context)
                 for tar_bilgi, uye in tar_uyeleri:
-                    akis = arsiv.extractfile(tar_bilgi)
-                    if akis is None:
+                    tar_akis = arsiv.extractfile(tar_bilgi)
+                    if tar_akis is None:
                         continue
-                    _yaz(akis, uye, context, yeni)
+                    _yaz(tar_akis, uye, context, yeni)
                     acilan.append(uye)
         else:
             return ToolResult.failure(

@@ -208,6 +208,10 @@ def _save(
     )
 
 
+def _record(context: ToolContext, path: Path) -> None:
+    context.changes.record(path)
+
+
 def _olcu(value: object) -> int | None:
     """Ölçü argümanı: `800`, `"800"`, `800.0` kabul; bool/sıfır/negatif/ayrıştırılamaz → None."""
     if isinstance(value, bool) or not isinstance(value, int | float | str):
@@ -246,7 +250,7 @@ def optimize_image(args: ToolArgs, context: ToolContext) -> ToolResult:
         else:
             main = _convert(source, target)
         variants = srcset_variants(
-            target, suffix=target.suffix, before_write=lambda yol: context.changes.record(yol)
+            target, suffix=target.suffix, before_write=lambda yol: _record(context, yol)
         )
     except ImageOpsError as error:
         return ToolResult.failure(f"Görsel işlenemedi: {error}")

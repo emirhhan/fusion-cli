@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import inspect
 import time
-from collections.abc import Iterable, Iterator
+from collections.abc import Awaitable, Iterable, Iterator
 from dataclasses import replace
 from threading import Event
+from typing import cast
 
 from ..core.artifacts import offload_output
 from ..core.constants import MAX_OUTPUT_CHARS
@@ -158,7 +159,7 @@ class ToolRegistry:
         args = adapt_arguments(tool, args)
         try:
             if _is_async(tool.run):
-                outcome = tool.run(args, context)
+                outcome = cast("Awaitable[ToolResult]", tool.run(args, context))
                 return _finish(await outcome, name, context)  # coroutine ToolResult döndürür
             # Senkron executor: bloklamaması için thread'e alınır.
             # İptal belirteci çağrıya özeldir. Oturum bağlamındaki aynı Event'i

@@ -300,8 +300,9 @@ def desktop_key(args: ToolArgs, context: ToolContext) -> ToolResult:
             f"Desteklenmeyen tuş: {key}. Örnekler: enter/return, esc, delete, tab, space, ok "
             "tuşları, home/end/pageup/pagedown, f1-f12, a-z, 0-9."
         )
-    flags = {name: args.get(name, False) for name in ("command", "shift", "option", "control")}
-    if not all(isinstance(value, bool) for value in flags.values()):
+    raw_flags = {name: args.get(name, False) for name in ("command", "shift", "option", "control")}
+    flags = {name: value for name, value in raw_flags.items() if isinstance(value, bool)}
+    if len(flags) != len(raw_flags):
         return ToolResult.failure("command, shift, option ve control doğru/yanlış olmalı.")
     try:
         framework = _framework()
