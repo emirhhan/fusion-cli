@@ -18,8 +18,34 @@ from .contract import DomainAdapter
 _MAIN_SCENE = re.compile(r"^\s*run/main_scene\s*=\s*\S")
 _SECTION = re.compile(r"^\s*\[")
 
-#: Godot'un içe aktarma gerektiren görsel/ses uzantıları.
-_GODOT_IMPORTED_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".ogg", ".wav", ".mp3"})
+#: Godot'un içe aktarma gerektiren görsel/ses/3B/yazı tipi uzantıları.
+#
+# Ölçüldü (30 Ekim): küme yalnız 2B görsel ve sesi kapsıyordu; Meshy→Blender→Godot
+# zincirinin `.glb/.gltf/.obj/.fbx` varlıkları, `.svg`, yazı tipleri ve HDR/EXR dokular
+# `.import`suz kalınca `load()` çalışma anında düşüyor ama içe aktarma hiç tetiklenmiyordu.
+_GODOT_IMPORTED_SUFFIXES = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".bmp",
+        ".tga",
+        ".svg",
+        ".exr",
+        ".hdr",
+        ".ogg",
+        ".wav",
+        ".mp3",
+        ".glb",
+        ".gltf",
+        ".obj",
+        ".fbx",
+        ".dae",
+        ".ttf",
+        ".otf",
+    }
+)
 
 
 def godot_has_main_scene(root: Path) -> bool:
@@ -100,20 +126,17 @@ def godot_needs_import(root: Path) -> bool:
     yüklüyordu ve motor `No loader found for resource:
     res://assets/Tiles/Default/tile_0000.png` bastı — üstelik çıkış kodu 0'dı.
     """
-    # Ölçüldü (29 Ekim, A1-15): `rglob("*")` `.git`/`node_modules` ağacını önce
-    # dolaşıp süzgeci sonra uyguluyordu; süzgeç ayrıca mutlak yolun ATALARINA da
-    # bakıyordu (proje `…/build/oyun` altındaysa hiçbir dosya görülmez, içe aktarma
-    # hazırlığı hiç çalışmazdı). Artık gürültü dizinleri budanır, yalnız kökten
-    # göreli adlara bakılır.
+    # `os.walk` ile BUDAMA: `node_modules`/`.git`/`.godot` ağacına hiç girilmez (eskiden
+    # `rglob("*")` hepsini gezip sonra süzüyordu; her kapı çağrısında tekrarlanırdı).
+    # Süzgeç kökten GÖRELİ olduğundan `~/.projects/oyun` gibi gizli üst dizin projeyi
+    # görünmez kılmaz (C1-04 ile aynı ilke).
     for dizin, alt_dizinler, dosyalar in os.walk(root):
         alt_dizinler[:] = [
             ad for ad in alt_dizinler if ad not in SKIP_DIRECTORIES and not ad.startswith(".")
         ]
         for ad in dosyalar:
             yol = Path(dizin) / ad
-            if yol.suffix.casefold() not in _GODOT_IMPORTED_SUFFIXES:
-                continue
-            if ad.startswith("."):
+            if yol.suffix.casefold() not in _GODOT_IMPORTED_SUFFIXES or ad.startswith("."):
                 continue
             if not yol.with_suffix(yol.suffix + ".import").exists():
                 return True
