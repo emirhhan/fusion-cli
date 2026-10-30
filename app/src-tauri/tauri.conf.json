@@ -51,8 +51,10 @@
         "enable": true,
         "scope": {
           "allow": [
-            "$HOME/**",
             "$HOME/.local/share/fusion-cli/gallery/**",
+            "$HOME/.local/share/fusion-cli/library/yuklenenler/**",
+            "$HOME/.config/fusion-cli/accounts/*/avatar.*",
+            "$HOME/remote/uploads/**",
             "$LOCALDATA/fusion-cli/gallery/**"
           ],
           "deny": [

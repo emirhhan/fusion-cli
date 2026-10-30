@@ -5,7 +5,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard, PoisonError};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Kilidi zehirlenmeye (başka iş parçacığı kilit tutarken panik) rağmen alır. Eskiden
 /// `lock().unwrap()` tek bir panikten sonra TÜM oturum komutlarını zincirleme panikletiyordu
@@ -159,6 +159,7 @@ impl SessionManager {
             return Err(format!("çalışma dizini bulunamadı: {}", root.display()));
         }
         validate_runtime_executable(executable)?;
+        varlik_kapsamina_ekle(&app, &root);
 
         let mut sessions = lock_tolerant(&self.sessions);
         if let Some(existing) = sessions.get_mut(session_id) {
@@ -480,6 +481,29 @@ pub(crate) fn gunluk_dizini() -> Option<PathBuf> {
     Some(runtime.parent()?.join("logs"))
 }
 
+/// Oturumun çalışma kökünü `asset://` kapsamına eklenecek kök olarak verir (Q1-08).
+///
+/// Ölçüldü (30 Ekim): kapsam `$HOME/**` idi; yasak listesinde olmayan her yerel görsel
+/// arayüzde açılabiliyordu. Statik kapsam artık yalnız Fusion'ın ürettiği klasörleri içerir;
+/// proje görselleri, oturumun çalışma kökü açılınca bu fonksiyonla eklenir. Ev dizininin
+/// kendisi (proje seçilmemiş oturum) ve dosya sistemi kökü EKLENMEZ: yoksa tüm kısıtlama
+/// geri gevşerdi.
+fn varlik_kapsami_koku(root: &Path, home: Option<&Path>) -> Option<PathBuf> {
+    if root.parent().is_none() || home.is_some_and(|ev| ev == root) {
+        return None;
+    }
+    Some(root.to_path_buf())
+}
+
+fn varlik_kapsamina_ekle(app: &AppHandle, root: &Path) {
+    let home = varsayilan_kok().ok();
+    let Some(kok) = varlik_kapsami_koku(root, home.as_deref()) else {
+        return;
+    };
+    // Eklenemezse oturum yine açılır; yalnız o projenin görselleri önizlenemez.
+    let _ = app.asset_protocol_scope().allow_directory(&kok, true);
+}
+
 fn varsayilan_kok() -> Result<PathBuf, String> {
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
@@ -529,6 +553,26 @@ mod testler {
     use super::*;
     use std::io::Read;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn varlik_kapsami_proje_kokunu_ekler_ev_dizinini_eklemez() {
+        let ev = Path::new("/Users/ornek");
+        assert_eq!(
+            varlik_kapsami_koku(Path::new("/Users/ornek/proje"), Some(ev)),
+            Some(PathBuf::from("/Users/ornek/proje"))
+        );
+        // Harici disk gibi ev dizini dışındaki projeler de eklenir.
+        assert_eq!(
+            varlik_kapsami_koku(Path::new("/Volumes/Disk/proje"), Some(ev)),
+            Some(PathBuf::from("/Volumes/Disk/proje"))
+        );
+        assert_eq!(varlik_kapsami_koku(ev, Some(ev)), None);
+        assert_eq!(varlik_kapsami_koku(Path::new("/"), Some(ev)), None);
+        assert_eq!(
+            varlik_kapsami_koku(Path::new("/tmp/p"), None),
+            Some(PathBuf::from("/tmp/p"))
+        );
+    }
 
     #[test]
     #[ignore]

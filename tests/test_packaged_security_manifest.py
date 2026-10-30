@@ -41,3 +41,32 @@ def test_hassas_klasorler_asset_kapsamindan_yasaktir(yasak):
     scope = _security()["assetProtocol"]["scope"]
 
     assert yasak in scope["deny"]
+
+
+# Q1-08 — Ölçüldü (30 Ekim): kapsamın `$HOME/**` izni, yasak listesinde olmayan her yerel görseli
+# (Masaüstü, Belgeler, Fotoğraflar…) `asset://` üzerinden açıyordu. Statik izinler yalnız
+# Fusion'ın ürettiği klasörlerdir; proje kökleri çalışma anında `session_manager.rs` ile eklenir.
+_GENIS_IZINLER = {"$HOME/**", "$HOME/*", "$HOME", "$HOME/", "/**", "**", "$LOCALDATA/**"}
+
+
+def test_asset_kapsami_butun_ev_dizinine_acik_degildir():
+    allow = _security()["assetProtocol"]["scope"]["allow"]
+
+    assert not _GENIS_IZINLER & set(allow), allow
+    izinli_onekler = ("$HOME/.local/share/fusion-cli/", "$HOME/.config/fusion-cli/")
+    izinli_onekler += ("$HOME/remote/uploads/", "$LOCALDATA/fusion-cli/gallery/")
+    assert all(item.startswith(izinli_onekler) for item in allow), allow
+
+
+@pytest.mark.parametrize(
+    "gerekli",
+    [
+        "$HOME/.local/share/fusion-cli/gallery/**",
+        "$HOME/.local/share/fusion-cli/library/yuklenenler/**",
+        "$HOME/remote/uploads/**",
+        "$HOME/.config/fusion-cli/accounts/*/avatar.*",
+        "$LOCALDATA/fusion-cli/gallery/**",
+    ],
+)
+def test_fusionin_urettigi_klasorler_asset_kapsaminda_kalir(gerekli):
+    assert gerekli in _security()["assetProtocol"]["scope"]["allow"]
