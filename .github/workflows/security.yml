@@ -1,0 +1,68 @@
+name: Security
+
+# Sır taraması her push/PR'da; bağımlılık denetimi haftalık ve elle (yeni açıklar kodumuz
+# değişmese de çıkar, PR'ı kırmızıya boyamasın diye denetimler zamanlanmış işlerdir).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Kural dosyası depodaki `.gitleaks.toml` (sentetik test sırları için dar izin listesi).
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  python-audit:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Kilit dosyasındaki sürümler denetlenir (derlemede çözülen sürüm değil, uv.lock).
+      - name: pip-audit
+        run: |
+          python -m pip install uv pip-audit
+          uv export --frozen --no-hashes --format requirements-txt -o requirements-audit.txt
+          pip-audit --requirement requirements-audit.txt --no-deps --disable-pip
+
+  npm-audit:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: npm audit (yalnız üretim bağımlılıkları)
+        working-directory: app
+        run: npm audit --omit=dev --audit-level=high
+
+  cargo-audit:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: app/src-tauri
