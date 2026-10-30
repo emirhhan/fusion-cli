@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { sureMetni } from "../protocol/adimOzeti";
 import { ToolTrail, useElapsedSeconds } from "../screens/ActivityLine";
 import { AgentAvatar, ajanRengi } from "./AgentAvatar";
@@ -13,6 +13,9 @@ import "./TeamCards.css";
  * akışı kaplamaz; "adımlar" açılınca görünür. Paralel başlayan ajanlar aynı
  * grupta yan yana durur, dar ekranda alt alta iner.
  */
+
+/** İptal kabul edildi ama ajan bitiş olayı gelmezse düğmenin yeniden denemeye açılma süresi. */
+export const CANCEL_RETRY_MS = 8_000;
 
 const DURUM_METNI: Record<AjanKarti["durum"], string> = {
   calisiyor: "çalışıyor",
@@ -44,6 +47,15 @@ function AgentCard({ kart, canli, onCancel }: { kart: AjanKarti; canli: boolean;
     });
   };
   const calisiyor = kart.durum === "calisiyor" && canli;
+  useEffect(() => {
+    if (!cancelling) return;
+    const timer = window.setTimeout(() => {
+      pending.current = false;
+      setCancelling(false);
+      setError("Ajan hâlâ çalışıyor. Yeniden durdurmayı deneyebilirsin.");
+    }, CANCEL_RETRY_MS);
+    return () => window.clearTimeout(timer);
+  }, [cancelling]);
   // Tur bitti ama ajan bitiş olayı gelmedi (iptal, kopan bağlantı): yarım sayılır.
   const durum: AjanKarti["durum"] = calisiyor
     ? "calisiyor"

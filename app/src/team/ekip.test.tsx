@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { olayEkle } from "../protocol/olayAkisi";
 import type { Mesaj } from "../screens/Conversation";
-import { TeamCards } from "./TeamCards";
+import { CANCEL_RETRY_MS, TeamCards } from "./TeamCards";
 
 afterEach(cleanup);
 
@@ -153,6 +153,24 @@ it("tek ajan iptalini bir kez gönderir ve terminal olaya kadar bekler", async (
   await act(async () => view.rerender(<TeamCards ajanlar={finished} canli onCancel={onCancel} />));
   expect(screen.getByText("iptal edildi")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Durduruluyor…" })).toBeNull();
+});
+
+it("iptal kabul edilip ajan durmazsa düğme süre sonunda yeniden denemeye açılır (U6-26)", async () => {
+  // Ölçüldü (30 Ekim): başarılı ama etkisiz iptalde düğme sonsuza dek 'Durduruluyor…' kalıyordu.
+  vi.useFakeTimers();
+  try {
+    const cards = akit([BASLA_TASARIMCI])[0].ajanlar!;
+    const onCancel = vi.fn(async () => undefined);
+    render(<TeamCards ajanlar={cards} canli onCancel={onCancel} />);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Ajanı durdur" })); });
+    expect(screen.getByRole("button", { name: "Durduruluyor…" })).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(CANCEL_RETRY_MS + 10); });
+    expect(screen.getByRole("alert").textContent).toContain("hâlâ çalışıyor");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Ajanı durdur" })); });
+    expect(onCancel).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("başlangıçtan önce gelen terminal sonuç sonraki başlangıçta korunur", () => {
