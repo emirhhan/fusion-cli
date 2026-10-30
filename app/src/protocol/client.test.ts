@@ -114,4 +114,53 @@ describe("ProtocolClient", () => {
 
     await expect(c.request("oturum.durum", {})).rejects.toThrow();
   });
+
+  // Ölçüldü (30 Ekim): dinleyicisiz gelen soru düşüyor, bir dinleyicinin hatası kardeşlerini
+  // atlatıyor, taşıma hatasında bekleyen kayıt kalıyor, sayı kimlik eşleşmiyordu (U5-02..04).
+  it("dinleyici yokken gelen soru düşmez, ilk dinleyiciye teslim edilir (U5-02)", () => {
+    const t = sahteTasima();
+    const c = new ProtocolClient(t.gonder, t.dinle);
+
+    t.al(JSON.stringify({ tip: "soru", id: "7", veri: { tur: "onay" } }));
+    const gelen: string[] = [];
+    c.onQuestion((id) => gelen.push(id));
+
+    expect(gelen).toEqual(["7"]);
+  });
+
+  it("bir olay dinleyicisinin hatası sonrakileri atlatmaz ve fırlamaz (U5-03)", () => {
+    const t = sahteTasima();
+    const c = new ProtocolClient(t.gonder, t.dinle);
+    const gorulen: unknown[] = [];
+    c.onEvent(() => {
+      throw new TypeError("beklenmeyen olay biçimi");
+    });
+    c.onEvent((e) => gorulen.push(e));
+
+    expect(() => t.al(JSON.stringify({ tip: "olay", veri: { olay: "X" } }))).not.toThrow();
+    expect(gorulen).toEqual([{ olay: "X" }]);
+  });
+
+  it("gönderme fırlatırsa istek reddedilir ve bekleyen kayıt kalmaz (U5-04a)", async () => {
+    const c = new ProtocolClient(
+      () => {
+        throw new Error("taşıma kapalı");
+      },
+      () => undefined,
+    );
+
+    await expect(c.request("oturum.durum", {}, { timeoutMs: 60_000 })).rejects.toThrow("taşıma kapalı");
+    expect((c as unknown as { bekleyen: Map<string, unknown> }).bekleyen.size).toBe(0);
+  });
+
+  it("sayı olarak gelen sonuç kimliği isteği çözer (U5-04b)", async () => {
+    const t = sahteTasima();
+    const c = new ProtocolClient(t.gonder, t.dinle);
+
+    const bekleyen = c.request("oturum.durum", {});
+    const { id } = JSON.parse(t.yazilan[0]);
+    t.al(JSON.stringify({ tip: "sonuc", id: Number(id), veri: { ok: true } }));
+
+    await expect(bekleyen).resolves.toEqual({ ok: true });
+  });
 });

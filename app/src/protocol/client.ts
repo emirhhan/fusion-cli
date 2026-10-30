@@ -62,6 +62,9 @@ export const DEFAULT_DEADLINES_MS: Readonly<Record<string, number>> = {
   "kontrol.durum": OKUMA_SON_SURESI_MS,
 };
 
+/** Dinleyicisiz istemcide biriken soru sayısı sınırı; aşan soru düşer (bellek koruması). */
+const BEKLEYEN_SORU_SINIRI = 32;
+
 interface BekleyenIstek {
   cozumle: Cozucu;
   reddet: Reddeden;
@@ -85,6 +88,8 @@ export class ProtocolClient {
   private bekleyen = new Map<string, BekleyenIstek>();
   private olayDinleyicileri: ((veri: Record<string, unknown>) => void)[] = [];
   private soruDinleyicileri: ((id: string, veri: Record<string, unknown>) => void)[] = [];
+  /** Dinleyici yokken gelen sorular; ilk `onQuestion` aboneliğinde sırayla teslim edilir. */
+  private bekleyenSorular: { id: string; veri: Record<string, unknown> }[] = [];
   private kapandi = false;
 
   constructor(
@@ -129,7 +134,12 @@ export class ProtocolClient {
         options.signal?.removeEventListener("abort", iptal);
       };
       this.bekleyen.set(id, { cozumle, reddet, temizle });
-      this.gonder(JSON.stringify(istek));
+      try {
+        this.gonder(JSON.stringify(istek));
+      } catch (hata) {
+        // Taşıma kapalıysa kayıt asılı kalmasın: zamanlayıcı ve bekleyen girdisi temizlenir.
+        bitir(hata instanceof Error ? hata : new Error(String(hata)));
+      }
     });
   }
 
@@ -147,6 +157,10 @@ export class ProtocolClient {
 
   onQuestion(f: (id: string, veri: Record<string, unknown>) => void): () => void {
     this.soruDinleyicileri.push(f);
+    // Dinleyiciden önce gelen sorular düşmez (U5-02): çekirdek cevap beklemeye devam eder.
+    const birikmis = this.bekleyenSorular;
+    this.bekleyenSorular = [];
+    for (const { id, veri } of birikmis) this.dinleyiciyiCagir(f, id, veri);
     return () => {
       this.soruDinleyicileri = this.soruDinleyicileri.filter((listener) => listener !== f);
     };
@@ -168,6 +182,16 @@ export class ProtocolClient {
     this.bekleyen.clear();
     this.olayDinleyicileri = [];
     this.soruDinleyicileri = [];
+    this.bekleyenSorular = [];
+  }
+
+  /** Tek dinleyicinin hatası kardeşlerini ve taşıma katmanını düşürmez (U5-03). */
+  private dinleyiciyiCagir<A extends unknown[]>(f: (...args: A) => void, ...args: A): void {
+    try {
+      f(...args);
+    } catch (hata) {
+      console.error("Protokol dinleyicisi hata verdi:", hata);
+    }
   }
 
   private satirAlindi(satir: string): void {
@@ -180,17 +204,25 @@ export class ProtocolClient {
     }
     if (!mesaj || typeof mesaj !== "object") return;
     if (mesaj.tip === "olay") {
-      this.olayDinleyicileri.forEach((f) => f(mesaj.veri ?? {}));
+      const veri = mesaj.veri ?? {};
+      for (const f of [...this.olayDinleyicileri]) this.dinleyiciyiCagir(f, veri);
       return;
     }
-    if (mesaj.tip === "soru" && mesaj.id) {
-      this.soruDinleyicileri.forEach((f) => f(mesaj.id as string, mesaj.veri ?? {}));
+    // Çekirdek kimliği sayı olarak yazarsa da eşleşsin (U5-04); boş kimlik geçersizdir.
+    const kimlik = mesaj.id === undefined || mesaj.id === null || mesaj.id === "" ? null : String(mesaj.id);
+    if (mesaj.tip === "soru" && kimlik) {
+      const veri = mesaj.veri ?? {};
+      if (this.soruDinleyicileri.length === 0) {
+        if (this.bekleyenSorular.length < BEKLEYEN_SORU_SINIRI) this.bekleyenSorular.push({ id: kimlik, veri });
+        return;
+      }
+      for (const f of [...this.soruDinleyicileri]) this.dinleyiciyiCagir(f, kimlik, veri);
       return;
     }
-    if (mesaj.tip === "sonuc" && mesaj.id) {
-      const beklenen = this.bekleyen.get(mesaj.id);
+    if (mesaj.tip === "sonuc" && kimlik) {
+      const beklenen = this.bekleyen.get(kimlik);
       if (!beklenen) return; // Eşleşmeyen kimlik yok sayılır.
-      this.bekleyen.delete(mesaj.id);
+      this.bekleyen.delete(kimlik);
       beklenen.temizle();
       beklenen.cozumle(mesaj.veri ?? {});
     }
