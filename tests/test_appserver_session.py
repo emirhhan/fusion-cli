@@ -2195,3 +2195,37 @@ async def test_istek_hatasi_maskelenir_ve_gunluge_yazilir(tmp_path, monkeypatch,
     sonuc = _sonuc(satirlar, "1")
     assert sonuc["ok"] is False and "abcdef1234567890xyz" not in sonuc["metin"]
     assert "RuntimeError" in caplog.text and "abcdef1234567890xyz" not in caplog.text
+
+
+async def test_gorsel_ekleri_olay_dongusunun_disinda_okunur(tmp_path, monkeypatch):
+    """Ölçüldü (30 Ekim, S2-21): `_attachment_images` (8 × 5 MiB okuma + base64) olay
+    döngüsünde senkron çalışıyordu."""
+    import threading
+
+    from fusion_cli.appserver import session as modul
+
+    thread_adlari: list[str] = []
+
+    def okuyucu(_ekler):
+        thread_adlari.append(threading.current_thread().name)
+        return ()
+
+    async def sahte_tur(*_a, **_k):
+        return SimpleNamespace(ok=True, final_text="bitti", messages=[])
+
+    monkeypatch.setattr(modul, "_attachment_images", okuyucu)
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", sahte_tur)
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    resim = tmp_path / "a.png"
+    resim.write_bytes(b"\x89PNG")
+
+    await oturum.handle(
+        Request(
+            "1",
+            "tur.calistir",
+            {"gorev": "bak", "ekler": [{"kind": "image", "path": str(resim), "name": "a.png"}]},
+        )
+    )
+
+    assert thread_adlari and thread_adlari[0] != threading.main_thread().name

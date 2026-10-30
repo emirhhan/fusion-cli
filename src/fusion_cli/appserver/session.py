@@ -271,6 +271,9 @@ def _attachment_images(value: object) -> tuple[str, ...]:
     model bile resmi hiç görmüyordu. Okunamayan, çok büyük ya da tanınmayan
     türdeki dosyalar sessizce atlanır — yol bilgisi metin bağlamında zaten
     kalır ve model gerektiğinde dosyayı araçla okuyabilir.
+
+    `read_bytes` + base64 (≈ 53 MB'a kadar) senkron diskte çalışır: çağıranlar bunu
+    `asyncio.to_thread` ile çağırır, olay döngüsü bloklanmaz (ölçüldü 30 Ekim).
     """
     if not isinstance(value, list):
         return ()
@@ -1215,7 +1218,7 @@ class AppSession:
             return await self._run_turn(
                 str(request.data.get("gorev", "")),
                 attachment_context,
-                _attachment_images(request.data.get("ekler")),
+                await asyncio.to_thread(_attachment_images, request.data.get("ekler")),
                 voice_context=voice_context,
                 deadline=deadline,
             )
@@ -2015,7 +2018,7 @@ class AppSession:
                         claim.receipt,
                         task,
                         attachment_context,
-                        _attachment_images(request.data.get("ekler")),
+                        await asyncio.to_thread(_attachment_images, request.data.get("ekler")),
                         voice_context,
                         deadline,
                         self._state.config,
