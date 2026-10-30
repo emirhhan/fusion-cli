@@ -30,6 +30,8 @@ from mcp.shared.exceptions import McpError
 from ..config.models import McpServerConfig, McpTransport
 from .egress import EgressBlockedError
 from .oauth import McpLoginRequiredError
+from .tokens import McpTokenStorageError
+from .types import McpConfigError
 
 __all__ = [
     "STATE_CONNECTED",
@@ -309,10 +311,20 @@ def _classify_leaf(
         )
     if isinstance(leaf, FileNotFoundError) and config.transport is McpTransport.STDIO:
         return missing_command_failure(config.command)
-    if isinstance(leaf, ValueError):
+    if isinstance(leaf, McpConfigError):
         # `transport.resolve_*` eksik sır/komut için zaten Türkçe ve eyleme
         # dönüştürülebilir mesaj üretir; değer İÇERMEZ, yalnız değişken adı taşır.
+        # Düz `ValueError` BİLEREK yakalanmaz: `JSONDecodeError`/`ValidationError`
+        # sunucunun bozuk yanıtıdır (geçici) ve ham metni sunucu verisi taşır.
         return McpFailure(McpFailureKind.CONFIGURATION, str(leaf))
+    if isinstance(leaf, McpTokenStorageError):
+        # Anahtarlık bozuk/erişilemez: yeniden denemek aynı sonucu verir, çözüm
+        # kullanıcının "Bağlan"ıdır (hata metni değer taşımaz, yalnız sınıf adı).
+        return McpFailure(
+            McpFailureKind.LOGIN_REQUIRED,
+            f"{leaf} Bağlantılar ekranında 'Bağlan'a bas; anahtarlık sorunu sürerse "
+            "bağlantıyı Kaldır ve yeniden ekle.",
+        )
     if isinstance(leaf, TimeoutError):
         return McpFailure(
             McpFailureKind.TIMEOUT,

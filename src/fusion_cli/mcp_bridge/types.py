@@ -7,6 +7,16 @@ from dataclasses import dataclass, field
 from ..core.tools import ToolEffect
 
 
+class McpConfigError(ValueError):
+    """Bağlantı YAPILANDIRMASI eksik/hatalı (eksik sır, komut, adres).
+
+    `ValueError` kalır (eski çağıranlar yakalar) ama sınıflayıcı yalnız bunu
+    "yapılandırma" sayar: sunucunun bozuk JSON yanıtı (`JSONDecodeError`,
+    `ValidationError`) da `ValueError`dır ve kalıcı parklanmamalıdır. Mesaj değer
+    İÇERMEZ, yalnız değişken adı taşır.
+    """
+
+
 @dataclass(slots=True)
 class RemoteTool:
     """Uzak bir MCP aracının Fusion'a taşınan tanımı."""

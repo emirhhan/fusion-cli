@@ -19,6 +19,7 @@ from ..config.models import McpServerConfig
 from .oauth_flow import SerializedOAuth
 from .oauth_page import callback_page
 from .tokens import KeyringTokenStorage
+from .types import McpConfigError
 
 #: Loopback OAuth dönüşünün SABİT portu.
 #
@@ -40,7 +41,9 @@ def validate_remote_mcp_url(url: str) -> None:
         return
     if parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost", "::1"}:
         return
-    raise ValueError("Uzak MCP adresi HTTPS olmalı; düz HTTP yalnız loopback için kullanılabilir.")
+    raise McpConfigError(
+        "Uzak MCP adresi HTTPS olmalı; düz HTTP yalnız loopback için kullanılabilir."
+    )
 
 
 class McpLoginRequiredError(RuntimeError):

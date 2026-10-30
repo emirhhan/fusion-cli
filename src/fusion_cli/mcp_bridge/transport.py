@@ -16,6 +16,7 @@ from mcp.client.streamable_http import streamablehttp_client
 
 from ..config.models import McpServerConfig, McpTransport
 from .egress import guarded_client_factory
+from .types import McpConfigError
 
 _SECRET_ARGUMENT_PREFIX = "__FUSION_SECRET__:"
 
@@ -37,10 +38,10 @@ def resolve_stdio_args(
             continue
         name = argument.removeprefix(_SECRET_ARGUMENT_PREFIX)
         if name not in allowed:
-            raise ValueError(f"MCP gizli argümanı yapılandırılmamış: {name}")
+            raise McpConfigError(f"MCP gizli argümanı yapılandırılmamış: {name}")
         value = source.get(name, "")
         if not value:
-            raise ValueError(f"MCP gizli argümanı bulunamadı: {name}")
+            raise McpConfigError(f"MCP gizli argümanı bulunamadı: {name}")
         resolved.append(value)
     return resolved
 
@@ -59,7 +60,7 @@ def resolve_stdio_env(
     source = os.environ if environ is None else environ
     missing_names = [name for name in config.env_names if not source.get(name)]
     if missing_names:
-        raise ValueError(f"MCP ortam değişkeni bulunamadı: {', '.join(missing_names)}")
+        raise McpConfigError(f"MCP ortam değişkeni bulunamadı: {', '.join(missing_names)}")
     return {name: source[name] for name in config.env_names}
 
 
@@ -76,7 +77,7 @@ def resolve_bearer_headers(
     source = os.environ if environ is None else environ
     value = source.get(config.token_env, "").strip()
     if not value:
-        raise ValueError(
+        raise McpConfigError(
             f"MCP erişim token'ı bulunamadı: {config.token_env}. "
             "Bağlantıyı yeniden ekleyip token'ı gir."
         )
@@ -112,7 +113,7 @@ async def open_mcp_stream(
     """
     if config.transport is McpTransport.STDIO:
         if not config.command:
-            raise ValueError("stdio MCP bağlantısı için komut gerekli")
+            raise McpConfigError("stdio MCP bağlantısı için komut gerekli")
         params = StdioServerParameters(
             command=config.command,
             args=resolve_stdio_args(config),
@@ -124,7 +125,7 @@ async def open_mcp_stream(
         return
 
     if not config.url:
-        raise ValueError("HTTP MCP bağlantısı için URL gerekli")
+        raise McpConfigError("HTTP MCP bağlantısı için URL gerekli")
     headers = resolve_bearer_headers(config)
     # OAuth keşfi dahil her istek korumalı istemciden geçer (bkz. `egress.py`).
     async with streamablehttp_client(
