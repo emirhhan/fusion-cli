@@ -450,3 +450,22 @@ async def test_barindirmali_kesif_turlar_arasi_tekrarlanmaz(monkeypatch):
     assert ilk == ikinci == ("MetaAds__get_campaigns",)
     assert len(sorular) == 1, "ikinci turda keşif turu harcanmamalı"
     assert ikinci_defter.get("MetaAds__get_campaigns") is not None
+
+
+def test_havuz_kilidi_farkli_olay_dongusunden_cekismeyle_kullanilabilir():
+    """Ölçüldü (30 Ekim): modül import'unda kurulan tek `asyncio.Lock` ilk çekişmeli
+    kullanımda o döngüye bağlanıyor, başka döngüden çekişmeli kullanım
+    `RuntimeError: ... bound to a different event loop` veriyordu (M1-22)."""
+    import asyncio
+
+    pool = McpToolPool()
+
+    async def cekisme() -> None:
+        async def tut() -> None:
+            async with pool._lock:
+                await asyncio.sleep(0.01)
+
+        await asyncio.gather(tut(), tut())
+
+    asyncio.run(cekisme())
+    asyncio.run(cekisme())

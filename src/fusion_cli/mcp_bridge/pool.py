@@ -13,6 +13,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from weakref import WeakKeyDictionary
 
 from ..config.models import Config, McpServerConfig
 from ..config.paths import base_data_dir
@@ -71,7 +72,12 @@ class McpToolPool:
         self._parked: dict[str, _Parked] = {}
         #: Kopyası bildirilmiş bağlantı adları: uyarı oturumda BİR KEZ yazılır.
         self._reported_duplicates: set[str] = set()
-        self._lock = asyncio.Lock()
+        #: Kilit olay döngüsü başına: `asyncio.Lock` ilk çekişmeli kullanımda o döngüye
+        #: bağlanır, başka döngüden kullanım `RuntimeError` verirdi (masaüstünde birden
+        #: çok döngü/iş parçacığı olabilir). Girdiler zaten döngüye bağlıdır (`_Entry.loop`).
+        self._locks: WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = (
+            WeakKeyDictionary()
+        )
         #: Kapanması istenmiş ama henüz bitmemiş gözetmen görevleri.
         #
         # İptal edilen bir `clients_for` çağrısı girdiyi `self._entries`'e ASLA
@@ -79,6 +85,14 @@ class McpToolPool:
         # stdio alt süreci oturumdan sağ çıkar.
         self._draining: set[asyncio.Task[None]] = set()
         self._draining_deadlines: dict[asyncio.Task[None], float] = {}
+
+    @property
+    def _lock(self) -> asyncio.Lock:
+        loop = asyncio.get_running_loop()
+        lock = self._locks.get(loop)
+        if lock is None:
+            lock = self._locks[loop] = asyncio.Lock()
+        return lock
 
     @property
     def is_empty(self) -> bool:
