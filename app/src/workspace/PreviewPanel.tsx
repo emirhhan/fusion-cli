@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import "./PreviewPanel.css";
 
@@ -27,9 +27,14 @@ function decode(payload: Record<string, unknown>): PreviewAsset {
   return payload as unknown as PreviewAsset;
 }
 
-function textFromBase64(value: string): string {
-  const bytes = Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
+/** Geçersiz base64 render sırasında fırlayıp paneli çökertmesin; `null` = çözülemedi (U4-46). */
+function textFromBase64(value: string): string | null {
+  try {
+    const bytes = Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return null;
+  }
 }
 
 function bytesFromBase64(value: string): Uint8Array<ArrayBuffer> {
@@ -82,6 +87,11 @@ export function PreviewPanel({
   const modeRefs = useRef<Record<PreviewMode, HTMLButtonElement | null>>({ file: null, web: null });
   const validationRun = useRef(0);
   const localUrl = historyIndex >= 0 ? history[historyIndex] ?? null : null;
+  // Büyük metin/HTML varlığı her render'da (adres kutusundaki her tuşta) yeniden çözülmesin.
+  const assetText = useMemo(
+    () => (asset && (asset.tur === "html" || asset.tur === "text") ? textFromBase64(asset.base64) : null),
+    [asset],
+  );
 
   useEffect(() => {
     let active = true;
@@ -308,8 +318,11 @@ export function PreviewPanel({
               {asset.tur === "audio" && objectUrl && <audio controls src={objectUrl}>Ses önizlemesi desteklenmiyor.</audio>}
               {asset.tur === "video" && objectUrl && <video controls src={objectUrl}>Video önizlemesi desteklenmiyor.</video>}
               {asset.tur === "pdf" && objectUrl && <iframe className="preview-panel__frame" sandbox="" src={objectUrl} title={`${asset.yol} PDF önizlemesi`} />}
-              {asset.tur === "html" && <iframe className="preview-panel__frame" sandbox="" srcDoc={textFromBase64(asset.base64)} title={`${asset.yol} HTML önizlemesi`} />}
-              {asset.tur === "text" && <pre>{textFromBase64(asset.base64)}</pre>}
+              {(asset.tur === "html" || asset.tur === "text") && assetText === null && (
+                <p className="preview-panel__error" role="alert">Dosya içeriği çözülemedi.</p>
+              )}
+              {asset.tur === "html" && assetText !== null && <iframe className="preview-panel__frame" sandbox="" srcDoc={assetText} title={`${asset.yol} HTML önizlemesi`} />}
+              {asset.tur === "text" && assetText !== null && <pre>{assetText}</pre>}
             </div>
           ) : !assetError ? (
             <div className="preview-panel__empty">

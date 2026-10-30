@@ -51,3 +51,10 @@ it('git durumu okunamasa da öneri komutları görünür (U4-49)', async () => {
   await screen.findByText('npm test');
   expect(screen.queryByRole('alert')).toBeNull();
 });
+
+// Ölçüldü (30 Ekim): geçersiz base64 render sırasında atob'u fırlatıp paneli çökertiyordu (U4-46).
+it('geçersiz base64 metin varlığı paneli çökertmez, hata gösterir (U4-46)', async () => {
+  const client = { request: vi.fn(async () => ({ ok: true, yol: 'a.txt', tur: 'text', mime: 'text/plain', boyut: 1, base64: '***geçersiz***' })) } as unknown as ProtocolClient;
+  render(<PreviewPanel client={client} selectedPath="a.txt" revision={0} />);
+  expect(await screen.findByText('Dosya içeriği çözülemedi.')).toBeTruthy();
+});
