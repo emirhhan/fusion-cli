@@ -160,6 +160,7 @@ WORK_INTERRUPT = "durdurmak için Ctrl-C"
 WORK_INTERRUPT_ESC = "durdurmak için esc"
 #: Tur çalışırken gönderilen satır kuyruğa alınınca gösterilen bildirim.
 TUI_QUEUED = "sıraya alındı: {line}"
+TUI_QUEUE_DROPPED = "tur durdurulduğu için sıradaki {count} mesaj düşürüldü; gerekirse yeniden yaz"
 WORK_THINKING = "hazırlanıyor…"
 #: Görünür düşünme bloğunun başlığı (Claude Code "✻ Thinking…"). `/thinking` açıkken basılır.
 THINKING_HEADER = "düşünüyor…"

@@ -78,7 +78,7 @@ def test_normal_metindeki_kapanis_etiketi_yoksa_metin_korunur():
 
 
 def test_kacisli_tirnak_iceren_json_aciklamasi_erken_kesilmez():
-    """Ölçüldü (30 Ekim): `"message": "model \\"x\\" kotada"` ilk kaçışlı tırnakta kesiliyordu (L1-42)."""
+    """Ölçüldü (30 Ekim): kaçışlı tırnaklı "message" ilk `\\"` işaretinde kesiliyordu (L1-42)."""
     from fusion_cli.ui.text import summarize_error
 
     ham = 'RateLimitError: {"error": {"message": "model \\"x\\" kotada", "code": 429}}'

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from fusion_cli.cli.repl.state import Engine, ReplState
 from fusion_cli.cli.repl.tui import FusionTui
@@ -470,3 +471,96 @@ async def test_kipsiz_turda_varsayilan_butce_korunur(tmp_path, monkeypatch) -> N
 
     assert calls[0]["step_limit"] is None
     assert calls[0]["extra_system"] == ""
+
+
+# --- Dalga 4: yol mesajı, iptalde kuyruk, hata ayrıntısı, künye, Ctrl-C (L2-16, L2-24) --- #
+
+
+def test_yolla_baslayan_mesaj_komut_sayilmaz():
+    """Ölçüldü (30 Ekim): '/Users/x/proje/main.py dosyasını incele' bilinmeyen komut oluyordu."""
+    from fusion_cli.cli.repl.commands import is_command_line
+
+    assert is_command_line("/help")
+    assert is_command_line("/mode auto")
+    assert is_command_line("/olmayan komut")  # bilinmeyen komut hatası korunur
+    assert not is_command_line("/Users/x/proje/main.py dosyasını incele")
+    assert not is_command_line("/tmp/a.txt")
+    assert not is_command_line("merhaba")
+
+
+async def test_yolla_baslayan_mesaj_tura_gider_komuta_degil(tmp_path, monkeypatch):
+    session = _TuiSession(_state(tmp_path))
+    gelen: list[str] = []
+
+    async def _tur(line, **kwargs):
+        gelen.append(line)
+
+    monkeypatch.setattr(session, "_turn", _tur)
+
+    await session._handle("/Users/x/proje/main.py dosyasını incele")
+
+    assert gelen == ["/Users/x/proje/main.py dosyasını incele"]
+    assert "bilinmeyen komut" not in session.tui.transcript.lower()
+
+
+async def test_tur_durdurulunca_kuyruktaki_mesaj_baslamaz(tmp_path, monkeypatch):
+    session = _TuiSession(_state(tmp_path))
+    session._queue = ["sıradaki iş"]
+
+    async def _iptal(line, **kwargs):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(session, "_turn", _iptal)
+
+    await session._handle("uzun iş")
+
+    assert session._queue == []
+    assert session._task is None
+    assert "düşürüldü" in session.tui.transcript
+
+
+async def test_beklenmeyen_hata_sebebini_kullaniciya_gosterir(tmp_path, monkeypatch):
+    session = _TuiSession(_state(tmp_path))
+
+    async def _patla(line, **kwargs):
+        raise RuntimeError("kota tükendi")
+
+    monkeypatch.setattr(session, "_turn", _patla)
+
+    await session._handle("iş")
+
+    assert "kota tükendi" in session.tui.transcript
+
+
+async def test_basarisiz_turda_devralma_kunyesi_kaybolmaz(tmp_path, monkeypatch):
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+
+    async def _patla(task, config, **kwargs):
+        raise RuntimeError("motor çöktü")
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _patla)
+    state.pending_digest = "devralınan oturum künyesi"
+
+    with contextlib.suppress(RuntimeError):
+        await session._turn("görev")
+
+    assert state.pending_digest == "devralınan oturum künyesi"
+
+
+async def test_ctrl_c_calisan_turu_once_iptal_eder(tmp_path):
+    session = _TuiSession(_state(tmp_path))
+
+    async def _bekle() -> None:
+        await asyncio.sleep(30)
+
+    session._task = asyncio.ensure_future(_bekle())
+    session._queue = ["x"]
+    await asyncio.sleep(0)
+
+    session._exit()
+    await asyncio.sleep(0)
+
+    assert session._task.cancelled() or session._task.cancelling() > 0
+    assert session._queue == []
+    assert session._state.running is False

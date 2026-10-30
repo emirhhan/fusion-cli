@@ -26,6 +26,7 @@ from ...history import source_by_name
 from ...ui import banner, messages, theme
 from ...ui.picker import Choice
 from ...ui.renderer import ConsoleRenderer
+from ...ui.text import summarize_error
 from ..session import run_agent_task, run_task
 from . import (
     help_view,
@@ -36,7 +37,14 @@ from . import (
     provider_flow,
     verify_flow,
 )
-from .commands import RENDERED_COMMANDS, RESUME_LIST_LIMIT, build_registry, parse, resume_choices
+from .commands import (
+    RENDERED_COMMANDS,
+    RESUME_LIST_LIMIT,
+    build_registry,
+    is_command_line,
+    parse,
+    resume_choices,
+)
 from .loop import apply_auto_profile
 from .partial_turn import PartialTurn
 from .state import Engine, Reminder, ReplState
@@ -247,6 +255,11 @@ class _TuiSession:
 
     def _exit(self) -> None:
         self._state.running = False
+        # Çalışan tur uygulamayla birlikte KABA iptal edilmesin: önce görev iptal edilir,
+        # alt süreçler (shell, MCP) kendi temizliğini yapabilsin (L2-24).
+        if self._busy and self._task is not None:
+            self._task.cancel()
+        self._queue.clear()
         self._tui.request_exit()
 
     def _cycle(self) -> None:
@@ -291,15 +304,28 @@ class _TuiSession:
             self._transcript_store.record_user(line)
             ConsoleRenderer(self._out).print_user_message(line)
             self._tui.sync_conversation()
-            if line.startswith("/"):
+            if is_command_line(line):
                 await self._command(line)
             else:
                 await self._turn(line)
         except asyncio.CancelledError:
             self._echo(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
-        except Exception:
+            # Kullanıcı durdurmak istedi: kuyruktaki sıradaki iş HEMEN başlamaz (L2-24).
+            # Ölçüldü (30 Ekim): `finally` kuyruğu çalıştırıyor, Esc'e basan kullanıcının
+            # durdurmak istediği yerde bir sonraki mesaj başlıyordu. Düşen satırlar söylenir.
+            if self._queue:
+                dusen = len(self._queue)
+                self._queue.clear()
+                self._echo(
+                    f"[{theme.DIM}]{messages.TUI_QUEUE_DROPPED.format(count=dusen)}[/{theme.DIM}]"
+                )
+        except Exception as error:
             _logger.exception("TUI turu beklenmeyen hatayla bitti")
-            self._echo(f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}]")
+            # Ayrıntı kullanıcıya da gösterilir: yalnız "hata" yazmak sebebi saklıyordu (L2-24).
+            self._echo(
+                f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}] "
+                f"{escape(summarize_error(str(error) or type(error).__name__))}"
+            )
         finally:
             self._tui.clear_work()
             self._sync_status()
@@ -521,10 +547,9 @@ class _TuiSession:
                 # Digest TEK SEFERLİK okunur; bu yüzden yalnız onu gerçekten
                 # kullanan agent dalında tüketilir. Kip promptuyla aynı metinde
                 # birleşir (`loop.py` ile aynı sıra).
+                digest = self._state.take_pending_digest()
                 turn_extra_system = "\n\n".join(
-                    part
-                    for part in (macros.mode_prompt(mode), self._state.take_pending_digest())
-                    if part
+                    part for part in (macros.mode_prompt(mode), digest) if part
                 )
                 try:
                     outcome = await run_agent_task(
@@ -557,6 +582,10 @@ class _TuiSession:
                     self._state.history = partial.history_after_interruption(
                         previous=self._state.history, task=line, root=self._state.root
                     )
+                    # Tüketilen devralma künyesi tur başarısızsa KAYBOLMAZ: bir sonraki
+                    # tur yeniden alır (L2-24).
+                    if digest and not self._state.pending_digest:
+                        self._state.pending_digest = digest
                     raise
                 self._state.history = outcome.messages
         finally:

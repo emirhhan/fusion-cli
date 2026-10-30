@@ -58,7 +58,7 @@ from ...ui import banner, messages, theme
 from ...ui.renderer import ConsoleRenderer
 from ..prompter import ConsolePrompter
 from . import help_view, history_view, macros
-from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, parse
+from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
 from .input import ReplInput
 from .macros import Mode
 from .partial_turn import PartialTurn
@@ -235,7 +235,7 @@ async def _handle(
         banner.print_welcome(console, session_info(state), pad=False)
         state.welcome_padded = False
     ConsoleRenderer(console).print_user_message(line)
-    if line.startswith("/"):
+    if is_command_line(line):
         await _run_command(line, state, registry, reader, console)
         # Makrolar görev HAZIRLAR, çalıştırmaz: komut işleyicileri saf ve senkron
         # kalsın diye çalıştırma buraya bırakılmıştır.

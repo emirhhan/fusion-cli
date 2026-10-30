@@ -803,6 +803,19 @@ RENDERED_COMMANDS = frozenset(
 )
 
 
+def is_command_line(line: str) -> bool:
+    """`/` ile başlayan satır KOMUT mu, yoksa yol ile başlayan sıradan mesaj mı?
+
+    Ölçüldü (30 Ekim): `/` ile başlayan her satır komut sayılıyordu; "/Users/x/proje/main.py
+    dosyasını incele" "bilinmeyen komut" hatası verip gönderilemiyordu (L2-16). Komut adı
+    düz bir sözcüktür; ilk sözcükte bir `/` daha varsa bu bir yoldur ve mesaj olarak gider.
+    """
+    if not line.startswith("/"):
+        return False
+    ilk = line.split(maxsplit=1)[0]
+    return "/" not in ilk[1:]
+
+
 def parse(line: str) -> tuple[str, str]:
     """`/komut argüman` satırını (komut, argüman) olarak ayır."""
     stripped = line[1:].strip()
