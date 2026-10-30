@@ -353,3 +353,46 @@ def test_delivery_json_atomik_yazilir(tmp_path, monkeypatch) -> None:
     job_delivery.save_delivery(tmp_path, "j9", "echo", None, ())
 
     assert cagrilar == ["j9.delivery.json"]
+
+
+def test_oldurulmus_surmekte_gorunen_isi_ayni_kapsamdaki_basarili_retry_kapatir() -> None:
+    """A2-37: hiç COMPLETED görülmeyen eski iş, taze başarılı retry ile çözülür."""
+    launch_outputs = (ArtifactReceipt("out.mp4", "old", None),)
+    new = use(JobPhase.COMPLETED, 0, (ArtifactReceipt("out.mp4", "old", "new"),), job="two")
+    report = build_turn_report(
+        (),
+        (
+            use(JobPhase.STARTED, outputs=launch_outputs),
+            use(JobPhase.RUNNING, outputs=launch_outputs),
+            use(JobPhase.STARTED, outputs=launch_outputs, job="two"),
+            new,
+        ),
+        None,
+    )
+    assert not report.blocks_success
+
+
+def test_surmekte_gorunen_is_farkli_komutlu_basarili_isle_kapanmaz() -> None:
+    other = JobCompletion("other", "baska komut", JobPhase.COMPLETED, 0)
+    report = build_turn_report(
+        (),
+        (use(JobPhase.STARTED), ToolUse("run_shell", job_completion=other)),
+        None,
+    )
+    assert report.blocks_success
+
+
+def test_surmekte_gorunen_is_oncesinde_biten_retry_ile_kapanmaz() -> None:
+    """Retry eski işten SONRA başlamalı; sıralama bozuksa kapanmaz."""
+    launch_outputs = (ArtifactReceipt("out.mp4", "old", None),)
+    new = use(JobPhase.COMPLETED, 0, (ArtifactReceipt("out.mp4", "old", "new"),), job="two")
+    report = build_turn_report(
+        (),
+        (
+            use(JobPhase.STARTED, outputs=launch_outputs, job="two"),
+            new,
+            use(JobPhase.STARTED, outputs=launch_outputs),
+        ),
+        None,
+    )
+    assert report.blocks_success
