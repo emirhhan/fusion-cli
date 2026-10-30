@@ -71,7 +71,11 @@ class SiteVerifier:
         if kind is PreviewKind.WORDPRESS and not _runnable_wordpress(root):
             return VerificationResult(ok=True, warnings=(NOT_RUNNABLE_NOTE,))
         if self._php is None:
-            return VerificationResult(ok=True)
+            # PHP yok: site hiç açılıp ölçülemedi; bu "doğrulandı" gibi görünmemeli (A4-25).
+            return VerificationResult(
+                ok=True,
+                warnings=("PHP kurulu değil: site açılıp ölçülemedi, sayfa sağlığı DOĞRULANAMADI",),
+            )
         return await self._temporary(root, kind)
 
     async def _temporary(self, root: Path, kind: PreviewKind) -> VerificationResult:
@@ -103,8 +107,15 @@ class SiteVerifier:
         adresler = [sonuc.url, *pick_audit_pages(sonuc.url, acilan)]
         try:
             gozlemler = await BrowserVerifier(self._context).observe_urls(adresler)
-        except Exception:  # sınır: Playwright yok, tarayıcı açılamadı, sayfa çöktü
-            return None
+        except Exception as error:  # sınır: Playwright yok, tarayıcı açılamadı, sayfa çöktü
+            # Sessiz atlama "tarayıcıyla ölçüldü" izlenimi verirdi (A4-25): neden uyarıda.
+            return VerificationResult(
+                ok=True,
+                warnings=(
+                    f"tarayıcı denetimi atlandı ({type(error).__name__}): yerleşim ve görsel "
+                    "yüklemeleri DOĞRULANAMADI",
+                ),
+            )
         return browser_verification_result(gozlemler, source="çalışan sitede")
 
 

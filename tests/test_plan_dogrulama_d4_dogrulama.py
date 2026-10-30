@@ -130,3 +130,45 @@ def test_manifest_taramasi_node_modules_a_girmez(tmp_path):
     adlar = [p.name for p in sv._manifests(tmp_path)]
 
     assert adlar == ["ASSETS.json"]
+
+
+# --- A4-24 / A4-25: kapı çöküşü ve sessiz atlama -------------------------------------- #
+
+
+async def test_tek_kapinin_cokusu_butun_dogrulamayi_dusurmez():
+    from fusion_cli.core.verification import VerificationResult
+    from fusion_cli.engines.agent.verification import CompositeVerifier
+
+    class Cokuyor:
+        async def verify(self):
+            raise RuntimeError("playwright patladı")
+
+    class Temiz:
+        async def verify(self):
+            return VerificationResult(ok=False, summary="lint", findings=("lint kırık",))
+
+    sonuc = await CompositeVerifier((Cokuyor(), Temiz())).verify()
+
+    assert sonuc.ok is False
+    assert sonuc.findings == ("lint kırık",)
+    assert any("Cokuyor" in uyari and "DOĞRULANAMADI" in uyari for uyari in sonuc.warnings)
+
+
+async def test_tarayici_denetimi_atlanirsa_neden_uyaridadir(tmp_path, monkeypatch):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent import site_verify
+
+    class Bozuk:
+        def __init__(self, context):
+            pass
+
+        async def observe_urls(self, adresler):
+            raise RuntimeError("chromium yok")
+
+    monkeypatch.setattr(site_verify, "BrowserVerifier", Bozuk)
+    sonuc = SimpleNamespace(status=200, url="http://x/", links=())
+
+    sonuc_ = await site_verify.SiteVerifier(ToolContext(root=tmp_path), None)._browser_audit(sonuc)
+
+    assert sonuc_ is not None
+    assert "atlandı" in sonuc_.warnings[0]

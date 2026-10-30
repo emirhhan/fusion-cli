@@ -242,7 +242,17 @@ class CompositeVerifier:
         failed = False
 
         for verifier in self._verifiers:
-            result = await verifier.verify()
+            try:
+                result = await verifier.verify()
+            except Exception as error:  # sınır: tek kapının çöküşü tüm doğrulamayı düşürmesin
+                # Çöken kapı "geçti" DEĞİL "doğrulanamadı"dır: uyarı olur, diğer kapılar sürer
+                # (A4-24; iptal BaseException olarak yayılır).
+                logger.warning("Doğrulama kapısı çöktü: %s", type(verifier).__name__, exc_info=True)
+                warnings.append(
+                    f"doğrulama kapısı çöktü ({type(verifier).__name__}: {error}); "
+                    "bu kapının sonucu DOĞRULANAMADI"
+                )
+                continue
 
             warnings.extend(result.warnings)
             advisories.extend(result.advisories)
