@@ -14,6 +14,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from ..core.atomic_file import atomic_replace_text
+
 PROJECT_NAME_MAX = 80
 
 
@@ -43,11 +45,10 @@ class ProjectStore:
             self.replace(raw.get("projects"), raw.get("chats"), persist=False)
 
     def _save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        temp = self._path.with_suffix(".tmp")
-        temp.write_text(json.dumps({"projects": self._projects, "chats": self._chats}), "utf-8")
-        temp.chmod(0o600)
-        temp.replace(self._path)
+        # mkstemp dosyayı 0600 açar (eskiden write_text + chmod kısa süre varsayılan izindeydi).
+        atomic_replace_text(
+            self._path, json.dumps({"projects": self._projects, "chats": self._chats})
+        )
 
     def replace(self, projects: object, chats: object, *, persist: bool = True) -> None:
         """Masaüstü kaydını olduğu gibi al; bozuk kayıtlar atılır, geri kalan korunur."""

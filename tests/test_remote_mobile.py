@@ -390,3 +390,11 @@ def test_yuklenen_ek_sunucu_yeniden_baslasa_da_cozulur(tmp_path: Path) -> None:
         second.resolve(["../../etc/passwd"])  # kimlik yalnız 32 hex olabilir
     with pytest.raises(UploadError):
         second.resolve(["0" * 32])
+
+
+def test_proje_kaydi_ilk_andan_itibaren_yalniz_sahibine_acik(tmp_path: Path) -> None:
+    """R1-14: kayıt 0600 mkstemp ile yazılır; geçici .tmp dosyası kalmaz."""
+    store = ProjectStore(tmp_path / "projects.json")
+    store.create("Deneme", 1.0)
+    assert (tmp_path / "projects.json").stat().st_mode & 0o077 == 0
+    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")] == []
