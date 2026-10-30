@@ -19,9 +19,11 @@ import hashlib
 import importlib
 import json
 import os
+import shlex
 import stat
 import struct
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, BinaryIO
 
@@ -40,9 +42,18 @@ def write_bridge_state(port: int, token: str, pid: int | None = None) -> None:
     yol = bridge_state_file()
     yol.parent.mkdir(parents=True, exist_ok=True)
     veri = json.dumps({"port": port, "anahtar": token, "pid": pid or os.getpid()})
-    fd = os.open(yol, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, stat.S_IRUSR | stat.S_IWUSR)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(veri)
+    # Atomik yayım: okuyan (host/başka çekirdek) `O_TRUNC` anında boş/yarım dosya görüp "köprü
+    # çalışmıyor" sanmasın; `mkstemp` 0600 oluşturur, `replace` mevcut dosyanın izni gevşekse
+    # de onu sıkılaştırır (ölçüldü 30 Ekim: izin yalnız oluşturmada uygulanıyordu).
+    fd, geciciad = tempfile.mkstemp(prefix=f".{yol.name}.", dir=yol.parent)
+    gecici = Path(geciciad)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(veri)
+        os.chmod(gecici, stat.S_IRUSR | stat.S_IWUSR)
+        gecici.replace(yol)
+    finally:
+        gecici.unlink(missing_ok=True)
 
 
 def clear_bridge_state(pid: int | None = None) -> None:
@@ -75,7 +86,11 @@ def _read_message(stream: BinaryIO) -> dict[str, Any] | None:
     (uzunluk,) = struct.unpack("<I", baslik)
     if uzunluk > _MAX_MESSAGE:
         return None
-    veri = json.loads(stream.read(uzunluk) or b"{}")
+    try:
+        veri = json.loads(stream.read(uzunluk) or b"{}")
+    except ValueError:
+        # Bozuk/kısa okunan gövde süreci traceback ile çökertmesin (Chrome'a boş yanıt).
+        return None
     return veri if isinstance(veri, dict) else {}
 
 
@@ -226,7 +241,7 @@ def _write_native_host(extension_ids: set[str], home: Path) -> list[Path]:
     """macOS'ta başlatıcı betiği ve her Chrome dizinine bildirim dosyasını yaz."""
     betik = base_config_dir() / "chrome-host.sh"
     betik.parent.mkdir(parents=True, exist_ok=True)
-    komut = " ".join(f"'{parca}'" for parca in _host_command())
+    komut = " ".join(shlex.quote(parca) for parca in _host_command())
     betik.write_text(f"#!/bin/sh\nexec {komut}\n", encoding="utf-8")
     betik.chmod(0o755)
     bildirim = _manifest_body(betik, extension_ids)

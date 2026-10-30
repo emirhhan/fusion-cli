@@ -76,3 +76,27 @@ def test_bilinmeyen_istek_reddedilir():
     cikti = io.BytesIO()
     chrome_host.serve(_ileti({"type": "başka"}), cikti)
     assert _cevap(cikti)["ok"] is False
+
+
+def test_bozuk_json_govdesi_sureci_cokertmez():
+    """Ölçüldü (30 Ekim, S1-53): geçersiz JSON `ValueError` ile host sürecini çökertiyordu."""
+    govde = b"{bozuk"
+    akis = io.BytesIO(struct.pack("<I", len(govde)) + govde)
+    cikti = io.BytesIO()
+
+    chrome_host.serve(akis, cikti)
+
+    assert cikti.getvalue() == b""
+
+
+def test_mevcut_gevsek_izinli_durum_dosyasi_yeniden_yazilirken_sikilasir():
+    """Ölçüldü (30 Ekim, S1-53): `os.open` modu yalnız oluşturmada uygulanıyordu."""
+    yol = chrome_host.bridge_state_file()
+    yol.parent.mkdir(parents=True, exist_ok=True)
+    yol.write_text("{}", encoding="utf-8")
+    yol.chmod(0o644)
+
+    chrome_host.write_bridge_state(1234, "gizli")
+
+    assert oct(yol.stat().st_mode & 0o777) == "0o600"
+    assert json.loads(yol.read_text(encoding="utf-8"))["port"] == 1234
