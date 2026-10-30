@@ -6,15 +6,20 @@ Eski turlar tek bir özet notuna indirilir, son turlar birebir korunur. Özet
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 
 from ...config.models import Config
+from ...core.errors import ConfigError, ProviderError
 from ...core.events import EventPublisher
 from ...core.types import CompletionRequest, Message
 from ...providers.factory import build_provider
+from ...providers.web_browser import WebBrowserError
 from ...providers.web_registry import web_registry_for
 from . import history
+
+_LOG = logging.getLogger(__name__)
 
 _PROMPT = (Path(__file__).parent / "prompts" / "compress.txt").read_text(encoding="utf-8")
 
@@ -198,12 +203,19 @@ async def _summarize(trace: str, config: Config, publisher: EventPublisher | Non
         max_retries=config.runtime.max_retries,
     )
     # Arka plan işi: gösterilmez ama muhasebeye girer.
-    provider = build_provider(
-        config.judge,
-        publisher=publisher,
-        retry_delays_s=config.runtime.retry_delays_s,
-        background=True,
-        web_sessions=web_registry_for(config),
-    )
-    result = await provider.complete(request)
+    # Ölçüldü (30 Ekim, A1-34): sağlayıcı kurulamaz (judge tanımsız) ya da çağrı
+    # istisna fırlatırsa sıkıştırma turu düşürüyordu; docstring "özet üretilemezse
+    # geçmiş değişmez" der. İstisna da "özet yok" sayılır.
+    try:
+        provider = build_provider(
+            config.judge,
+            publisher=publisher,
+            retry_delays_s=config.runtime.retry_delays_s,
+            background=True,
+            web_sessions=web_registry_for(config),
+        )
+        result = await provider.complete(request)
+    except (ConfigError, ProviderError, WebBrowserError, OSError) as error:
+        _LOG.warning("Bağlam özeti üretilemedi: %s", error)
+        return ""
     return result.text.strip() if result.ok else ""
