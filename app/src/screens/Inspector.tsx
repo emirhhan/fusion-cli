@@ -130,7 +130,11 @@ export function Inspector({
       if (placement === "bottom") onHeightChange?.(clampInspectorHeight(startHeight + startY - nextEvent.clientY));
       else onWidthChange?.(clampInspectorWidth(startWidth + startX - nextEvent.clientX));
     };
+    // Sürükleme boyunca kabuktaki sütun geçişini kapat (CSS1-01).
+    const kabuk = event.currentTarget.closest<HTMLElement>(".app-shell");
+    kabuk?.setAttribute("data-resizing", "true");
     const stop = () => {
+      kabuk?.removeAttribute("data-resizing");
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
       window.removeEventListener("pointercancel", stop);

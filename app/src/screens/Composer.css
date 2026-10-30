@@ -19,6 +19,10 @@
 
 .composer:focus-within {
   border-color: var(--border-strong);
+  /* textarea kendi halkasını kapattığı için odak göstergesi kapsüle verilir; kenar rengi farkı
+     tek başına 3:1 non-text kontrastını karşılamıyordu (CSS1-17). */
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 
 .composer textarea {
@@ -34,7 +38,6 @@
   font-family: var(--font-sans);
   font-size: var(--text-base);
   line-height: 1.6;
-  max-height: 180px;
   min-height: 28px;
   outline: 0;
   padding: var(--space-2) var(--space-1);

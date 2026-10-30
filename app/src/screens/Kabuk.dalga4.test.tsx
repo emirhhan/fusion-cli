@@ -67,3 +67,14 @@ describe("kabuk — dalga 4 P2/P3", () => {
     expect(kutu.scrollTop).toBe(500);
   });
 });
+
+describe("kabuk — sürükleme sırasında geçiş (CSS1-01)", () => {
+  it("sürükleme boyunca .app-shell[data-resizing] vardır, bırakınca kalkar", () => {
+    const { container } = render(<div className="app-shell"><Inspector onWidthChange={vi.fn()} /></div>);
+    const kabuk = container.querySelector(".app-shell")!;
+    fireEvent.pointerDown(screen.getByRole("separator"), { button: 0, pointerId: 1, clientX: 100 });
+    expect(kabuk.getAttribute("data-resizing")).toBe("true");
+    fireEvent.pointerUp(window);
+    expect(kabuk.hasAttribute("data-resizing")).toBe(false);
+  });
+});

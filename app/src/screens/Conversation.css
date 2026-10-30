@@ -160,7 +160,8 @@
    sıkılaştırmasının (8px) üstüne biniyordu: ardışık araç adımları arasında
    ~60-80px boşluk kalıyordu (ölçüldü). Temel kural (üstte, `var(--space-4)`)
    zaten aynı işi token'la yapıyor; ikinci bir yol açılmaz (RULES). */
-.conversation__message--user { padding-left: 72px; }
+/* Dar konteynerde 72 px boşluk balonu daraltıyordu (CSS1-24). */
+.conversation__message--user { padding-left: min(72px, 14%); }
 .conversation__bubble {
   background: var(--surface-message-user);
   border-radius: 18px;
@@ -338,9 +339,11 @@
 
 .conversation__tasks li {
   display: grid;
-  grid-template-columns: 18px 1fr;
+  grid-template-columns: 18px minmax(0, 1fr);
   align-items: baseline;
   gap: 6px;
+  /* Uzun bölünemez görev metni (dosya yolu, URL) sütunu kabın dışına itmesin (CSS1-07). */
+  overflow-wrap: anywhere;
 }
 
 .conversation__tasks li[data-durum="bitti"] {
@@ -408,7 +411,7 @@
   word-break: break-word;
 }
 
-.delivery-card { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border, #2d3748); border-radius: 10px; font-size: 0.85rem; }
+.delivery-card { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border-subtle); border-radius: 10px; font-size: 0.85rem; }
 .delivery-card p, .delivery-card ul { margin: 8px 0 0; }
 .delivery-card code { overflow-wrap: anywhere; }
 

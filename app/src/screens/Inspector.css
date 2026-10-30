@@ -6,13 +6,17 @@
   position: relative;
 }
 
+/* Tutamak denetçi kabının İÇİNDE durur ve kap `overflow: hidden` olduğundan dışarı taşan kısım
+   kırpılıyordu (yakalama alanı yarıya iniyordu). Bu yüzden kabın kenarına yaslanır (CSS1-02);
+   `touch-action: none` dokunmatik sürüklemenin kaydırma sayılmasını önler. */
 .inspector__resize-handle {
   bottom: 0;
   cursor: col-resize;
-  left: -5px;
+  left: 0;
   position: absolute;
   top: 0;
-  width: 10px;
+  touch-action: none;
+  width: 8px;
   z-index: 3;
 }
 
@@ -20,7 +24,7 @@
   background: transparent;
   bottom: 0;
   content: "";
-  left: 4px;
+  left: 0;
   position: absolute;
   top: 0;
   transition: background-color var(--duration-fast) var(--ease-standard);
@@ -35,10 +39,10 @@
 .inspector[data-placement="bottom"] .inspector__resize-handle {
   bottom: auto;
   cursor: row-resize;
-  height: 10px;
+  height: 8px;
   left: 0;
   right: 0;
-  top: -5px;
+  top: 0;
   width: auto;
 }
 
@@ -47,7 +51,7 @@
   height: 2px;
   left: 0;
   right: 0;
-  top: 4px;
+  top: 0;
   width: auto;
 }
 

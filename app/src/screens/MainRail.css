@@ -76,7 +76,7 @@
 .main-rail__account .sidebar__profile-trigger { display: flex; justify-content: center; min-height: 40px; padding: 4px 0; }
 .main-rail__account .sidebar__profile-trigger > .sidebar__profile-copy,
 .main-rail__account .sidebar__profile-status { display: none; }
-.main-rail__account .sidebar__profile-menu { position: absolute; bottom: 0; left: calc(100% + 8px); max-height: calc(100vh - 24px); }
+.main-rail__account .sidebar__profile-menu { position: absolute; bottom: 0; left: calc(100% + 8px); max-height: calc(100dvh - 56px); }
 .main-rail__account .sidebar__avatar { color: var(--surface-canvas); }
 .main-rail__account .sidebar__update { width: 40px; min-width: 0; padding: 8px; }
 .main-rail__account .sidebar__update .sidebar__label { display: none; }

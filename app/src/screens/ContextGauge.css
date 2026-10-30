@@ -20,9 +20,14 @@
   outline-offset: 2px;
 }
 
-.context-gauge[data-seviye="uyari"],
-.context-gauge[data-seviye="kritik"] {
+.context-gauge[data-seviye="uyari"] {
   color: var(--text-warning);
+}
+
+/* Kritik seviye uyarıdan ayrışır: özetleme/kesilme öncesi sinyal yalnız aynı turuncuya
+   bırakılırsa kaçırılıyordu (CSS1-09). */
+.context-gauge[data-seviye="kritik"] {
+  color: var(--text-danger);
 }
 
 .context-gauge__ring {
@@ -47,7 +52,8 @@
 }
 
 @media (max-width: 620px) {
-  .context-gauge__label {
+  .context-gauge[data-seviye="normal"] .context-gauge__label,
+  .context-gauge[data-seviye="uyari"] .context-gauge__label {
     display: none;
   }
 }

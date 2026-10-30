@@ -102,8 +102,9 @@
 }
 
 @media (max-width: 720px) {
-  .app-header__project,
-  .app-header__status {
+  /* Bağlantı durumu dar pencerede de görünür: yalnız "bağlantı kesildi" uyarısı çizilir ve
+     gizlenirse kullanıcı kopuk olduğunu anlamıyordu (CSS1-20). */
+  .app-header__project {
     display: none;
   }
 }
