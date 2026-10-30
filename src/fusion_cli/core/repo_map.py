@@ -33,15 +33,55 @@ from pathlib import Path
 from .project_files import project_files
 
 #: Dosya uzantısı → tanım deseni. Yeni dil eklemek buraya bir satır eklemektir.
+#: JS/TS ailesi: function/class/interface/enum/type ve `const f = (...) =>` okları.
+#: Düz `const SAYI = 5` tanım sayılmaz (gürültü). İki ad grubu var; `lastgroup` ile okunur.
+_JS_ADI = r"[A-Za-z_$][\w$]*"
+_JS_TANIM = re.compile(
+    rf"^(?:export\s+(?:default\s+)?)?(?:declare\s+)?"
+    rf"(?:(?:async\s+)?(?:function\*?|class|interface|enum|type|abstract\s+class)\s+(?P<ad>{_JS_ADI})"
+    rf"|(?:const|let)\s+(?P<ok>{_JS_ADI})(?=\s*(?::[^=\n]+)?=\s*(?:async\s*)?"
+    rf"(?:\([^)\n]*\)|{_JS_ADI})\s*(?::[^=\n]+)?=>))",
+    re.MULTILINE,
+)
+_ADI = r"(?P<ad>[A-Za-z_]\w*)"
+
+#: Dosya uzantısı → tanım deseni. Yeni dil eklemek buraya bir satır eklemektir.
 _DEFINITIONS: dict[str, re.Pattern[str]] = {
     ".py": re.compile(r"^(?:async\s+)?(?:def|class)\s+(?P<ad>[A-Za-z_]\w*)", re.MULTILINE),
-    ".js": re.compile(r"^(?:export\s+)?(?:async\s+)?function\s+(?P<ad>[A-Za-z_]\w*)", re.MULTILINE),
-    ".ts": re.compile(
-        r"^(?:export\s+)?(?:async\s+)?(?:function|class)\s+(?P<ad>[A-Za-z_]\w*)", re.MULTILINE
-    ),
+    ".js": _JS_TANIM,
+    ".mjs": _JS_TANIM,
+    ".cjs": _JS_TANIM,
+    ".jsx": _JS_TANIM,
+    ".ts": _JS_TANIM,
+    ".tsx": _JS_TANIM,
     ".gd": re.compile(r"^func\s+(?P<ad>[A-Za-z_]\w*)", re.MULTILINE),
     ".rs": re.compile(r"^(?:pub\s+)?fn\s+(?P<ad>[A-Za-z_]\w*)", re.MULTILINE),
     ".go": re.compile(r"^func\s+(?:\([^)]*\)\s*)?(?P<ad>[A-Za-z_]\w*)", re.MULTILINE),
+    ".php": re.compile(
+        rf"^[ \t]*(?:(?:abstract|final)\s+)?(?:function|class|interface|trait)\s+&?{_ADI}",
+        re.MULTILINE,
+    ),
+    ".java": re.compile(
+        rf"^[ \t]*(?:(?:public|protected|private|static|final|abstract)\s+)*"
+        rf"(?:class|interface|enum|record)\s+{_ADI}",
+        re.MULTILINE,
+    ),
+    ".cs": re.compile(
+        rf"^[ \t]*(?:(?:public|internal|private|protected|static|sealed|abstract|partial)\s+)*"
+        rf"(?:class|interface|struct|enum|record)\s+{_ADI}",
+        re.MULTILINE,
+    ),
+    ".kt": re.compile(
+        rf"^[ \t]*(?:(?:public|private|internal|data|sealed|open|abstract|suspend)\s+)*"
+        rf"(?:fun|class|object|interface)\s+{_ADI}",
+        re.MULTILINE,
+    ),
+    ".swift": re.compile(
+        rf"^[ \t]*(?:(?:public|private|internal|final|open)\s+)*"
+        rf"(?:func|class|struct|enum|protocol)\s+{_ADI}",
+        re.MULTILINE,
+    ),
+    ".rb": re.compile(rf"^[ \t]*(?:def|class|module)\s+(?:self\.)?{_ADI}", re.MULTILINE),
 }
 
 #: Tek bir dosyadan alınacak en fazla tanım: bir dev modül haritanın tamamını yemesin.
@@ -154,7 +194,7 @@ def _analyze(root: Path, yollar: list[Path]) -> tuple[list[tuple[str, str]], boo
         metinler.append(kaynak)
         goreli = str(path.relative_to(root))
         for eslesme in list(_DEFINITIONS[path.suffix].finditer(kaynak))[:_MAX_PER_FILE]:
-            tanimlar.append((goreli, eslesme.group("ad")))
+            tanimlar.append((goreli, eslesme.group(eslesme.lastgroup or "ad")))
     if not tanimlar:
         return [], asildi
 
