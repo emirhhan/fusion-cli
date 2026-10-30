@@ -50,7 +50,7 @@ export function RuntimeSetup({ state, progress, message, version, onRepair }: Ru
         {(repairable || failed) && (
           <details className="runtime-setup__details">
             <summary>Ayrıntılar</summary>
-            <p>{message}</p>
+            {/* İleti yukarıda zaten görünür; burada tekrarlanmaz (U1-66). */}
             {version && <p className="runtime-setup__version">Sürüm {version}</p>}
           </details>
         )}

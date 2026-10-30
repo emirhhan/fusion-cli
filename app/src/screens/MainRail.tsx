@@ -38,7 +38,6 @@ export function MainRail({ active, onSelect, accountHostRef }: MainRailProps) {
       {MAIN_SECTIONS.map((item) => (
         <button
           aria-label={item.label}
-          aria-describedby={`rail-tooltip-${item.id}`}
           data-tooltip-hidden={dismissed || undefined}
           aria-current={item.id === active ? "page" : undefined}
           className="main-rail__item"
@@ -49,7 +48,8 @@ export function MainRail({ active, onSelect, accountHostRef }: MainRailProps) {
           type="button"
         >
           <Icon name={item.icon} size={22} />
-          <span className="main-rail__label" id={`rail-tooltip-${item.id}`} role="tooltip">{item.label}</span>
+          {/* Etiket aria-label ile aynı metin: ekran okuyucuya ikinci kez okunmasın (U1-65). */}
+          <span aria-hidden="true" className="main-rail__label" id={`rail-tooltip-${item.id}`} role="tooltip">{item.label}</span>
         </button>
       ))}
       <div className="main-rail__account" ref={accountHostRef} />

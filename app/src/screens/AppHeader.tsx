@@ -1,6 +1,9 @@
 import { Button } from "../ui/Button";
 import "./AppHeader.css";
 
+/** Üst bileşen ile başlık arasındaki tek sözleşme metni; iki yerde ayrı yazılınca biri değişince uyarı kayboluyordu (U1-61). */
+export const BAGLANTI_KESILDI_DURUMU = "Bağlantı kesildi";
+
 interface AppHeaderProps {
   canNavigateBack?: boolean;
   canNavigateForward?: boolean;
@@ -72,7 +75,7 @@ export function AppHeader({
         {projectName && <span className="app-header__project">{projectName}</span>}
       </div>
       <div className="app-header__actions">
-        {status === "Bağlantı kesildi" && <span className="app-header__status" role="alert">{status}</span>}
+        {status === BAGLANTI_KESILDI_DURUMU && <span className="app-header__status" role="alert">{status}</span>}
         {onShare && <Button aria-label="Sohbeti paylaş" icon="share" iconOnly onClick={onShare} />}
         {/* Tema değiştirici başlıktan KALDIRILDI: tema bir tercihtir ve yeri
             Ayarlar'dır. Ana ekranda durması hem gereksiz yer kaplıyor hem

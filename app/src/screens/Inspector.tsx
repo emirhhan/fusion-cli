@@ -94,7 +94,8 @@ export function Inspector({
       selectAt(tabs.length - 1);
     }
   };
-  const active = tabs[activeIndex];
+  // Saklı/eski bir sekme kimliği (kaldırılmış sekme) gelirse panel düşmez, ilk sekmeye döner (U1-62).
+  const active = tabs[activeIndex] ?? tabs[0];
   const safeWidth = clampInspectorWidth(width);
   const safeHeight = clampInspectorHeight(height);
   const onResizeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -118,6 +119,8 @@ export function Inspector({
   const onResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!(placement === "bottom" ? onHeightChange : onWidthChange) || event.button !== 0) return;
     event.preventDefault();
+    // İmleç önizleme iframe'inin üstüne girse de olaylar bu tutamaca gelmeye devam eder (U1-63).
+    try { event.currentTarget.setPointerCapture?.(event.pointerId); } catch { /* yakalama desteklenmiyor */ }
     resizeCleanup.current();
     const startX = event.clientX;
     const startY = event.clientY;
@@ -159,8 +162,8 @@ export function Inspector({
         <div aria-label="Denetçi araçları" className="inspector__tabs" role="tablist">
           {tabs.map((tab) => (
             <button
-              aria-controls={!collapsed && activeTab === tab.id ? `inspector-panel-${tab.id}` : undefined}
-              aria-selected={activeTab === tab.id}
+              aria-controls={!collapsed && active.id === tab.id ? `inspector-panel-${tab.id}` : undefined}
+              aria-selected={active.id === tab.id}
               id={`inspector-tab-${tab.id}`}
               key={tab.id}
               onClick={() => {
@@ -169,7 +172,7 @@ export function Inspector({
               }}
               onKeyDown={onTabKeyDown}
               role="tab"
-              tabIndex={activeTab === tab.id ? 0 : -1}
+              tabIndex={active.id === tab.id ? 0 : -1}
               title={tab.label}
               type="button"
             >

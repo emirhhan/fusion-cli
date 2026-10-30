@@ -26,7 +26,7 @@ import { useSessions, nextSessionId, saveWorkspaceMode } from "./sessions/useSes
 import { usePrefsMirror } from "./platform/usePrefsMirror";
 import { useSessionModes } from "./sessions/useSessionModes";
 import type { SessionTransport } from "./sessions/types";
-import { AppHeader } from "./screens/AppHeader";
+import { AppHeader, BAGLANTI_KESILDI_DURUMU } from "./screens/AppHeader";
 import {
   Composer,
   type ApprovalMode,
@@ -1406,7 +1406,7 @@ export function SessionUygulama({
         )
         : conversationContent;
   const status = active.status === "crashed"
-    ? "Bağlantı kesildi"
+    ? BAGLANTI_KESILDI_DURUMU
     : active.running
       ? "Çalışıyor"
       : "Hazır";

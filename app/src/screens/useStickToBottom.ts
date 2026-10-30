@@ -52,9 +52,12 @@ export function useStickToBottom<T>(
     // birçok güncelleme gelir; yumuşak kaydırma hedefin gerisinde kalır ve
     // animasyonun ortasında `onScroll` kullanıcıyı "yukarıda" sanıp sabitlemeyi
     // bırakırdı.
+    let kaydirildiMi = false;
     if (typeof kutu.scrollTo === "function") {
-      kutu.scrollTo({ top: kutu.scrollHeight, behavior: "instant" });
-    } else {
+      // Eski WebKit `behavior: "instant"` değerini bilmeyip TypeError atabilir (U1-69).
+      try { kutu.scrollTo({ top: kutu.scrollHeight, behavior: "instant" }); kaydirildiMi = true; } catch { /* aşağıda doğrudan konum yazılır */ }
+    }
+    if (!kaydirildiMi) {
       // `scrollTo` olmayan ortam (eski WebView, jsdom): doğrudan konum yaz.
       kutu.scrollTop = kutu.scrollHeight;
     }
