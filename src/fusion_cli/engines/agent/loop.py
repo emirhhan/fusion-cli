@@ -3772,6 +3772,19 @@ MAX_COMPACTION_THRASH = 3
 MAX_OVERFLOW_RELEARNS = 2
 
 
+def _context_spec(deps: AgentDeps) -> ModelSpec:
+    """Sıkıştırma eşiğinin hesaplanacağı model: çağrıyı GERÇEKTEN yapacak olan.
+
+    Ölçüldü (30 Ekim, A2-15): eşik her zaman birincil modelden hesaplanıyordu; çırağa,
+    öğretmene devirde ya da yükseltmede çağrı başka pencereli modelle yapılıyordu.
+    """
+    if deps.execution is not None:
+        return _active_spec(deps, deps.execution)
+    return deps.active_model_override or select_agent_spec(
+        deps.config, deps.task_type, requirements=deps.task_requirements
+    )
+
+
 def _effective_threshold(configured: int, deps: AgentDeps) -> int:
     """Yapılandırılmış eşik ile hatadan öğrenilen eşiğin küçüğü."""
     learned = deps.learned_compression_chars
@@ -3790,7 +3803,7 @@ async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: 
     Eskiden sıkıştırma yalnız tur BİTTİKTEN sonra yapılıyordu: uzun tek bir turda
     geçmiş sınırsız büyüyor, sonunda modelin penceresi taşıyordu (ölçüldü, 28 Eylül).
     """
-    selected = select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements)
+    selected = _context_spec(deps)
     from .context_budget import context_budget
 
     threshold = _effective_threshold(context_budget(deps.config, selected).compression_chars, deps)
@@ -3815,7 +3828,7 @@ async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: 
 
 async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Message]:
     before = len(messages)
-    selected = select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements)
+    selected = _context_spec(deps)
     from .context_budget import context_budget
 
     threshold = _effective_threshold(context_budget(deps.config, selected).compression_chars, deps)
