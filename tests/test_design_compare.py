@@ -154,3 +154,32 @@ def test_kaynaksiz_yerlesim_sagligi_tek_sutun_ve_stilsiz_formu_soyler():
         }
     }
     assert design_compare.health_findings(saglikli) == []
+
+
+# --- Dalga 4 (T1-64) --------------------------------------------------------------------
+
+
+def test_eksik_anahtarli_bolum_olcumu_karsilastirmayi_dusurmez():
+    from fusion_cli.tools.design_compare import compare
+
+    referans = {"sections": [{"height": 400}, {"kind": "hero", "height": 600}]}
+    yapilan = {"sections": [{"kind": "hero"}]}
+
+    assert isinstance(compare(referans, yapilan), list)
+
+
+def test_kirpilan_farklar_sayisiyla_bildirilir():
+    from fusion_cli.tools import design_compare
+
+    fark = [f"fark {i}" for i in range(design_compare.MAX_DIFFERENCES + 5)]
+    import pytest
+
+    mp = pytest.MonkeyPatch()
+    try:
+        mp.setattr(design_compare, "_header", lambda r, b: fark)
+        sonuc = design_compare.compare({}, {})
+    finally:
+        mp.undo()
+
+    assert len(sonuc) == design_compare.MAX_DIFFERENCES + 1
+    assert "+5 fark daha" in sonuc[-1]

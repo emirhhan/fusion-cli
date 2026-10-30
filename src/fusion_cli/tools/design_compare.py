@@ -91,7 +91,12 @@ def compare(reference: dict[str, Any], built: dict[str, Any]) -> list[str]:
         *_products(reference, built),
         *_product_page(reference, built),
     ]
-    return differences[:MAX_DIFFERENCES]
+    if len(differences) <= MAX_DIFFERENCES:
+        return differences
+    # Sessiz kırpma bölüm farklarını (listenin sonu) görünmez kılıyordu: kaç fark atlandığı
+    # söylenir (ölçüldü, 30 Ekim).
+    gizli = len(differences) - MAX_DIFFERENCES
+    return [*differences[:MAX_DIFFERENCES], f"+{gizli} fark daha var (önem sırasında sonda)."]
 
 
 def _invisible_text(built: dict[str, Any]) -> list[str]:
@@ -161,13 +166,14 @@ def _sections(reference: dict[str, Any], built: dict[str, Any]) -> list[str]:
     ÜSTÜNE biniyorsa ayrı bölüm sayılmaz, yapılan sayfada sayılır — ölçüldü: sıra
     numarasıyla eşleştirme bu yüzden on bölümün onunu da "farklı" gösterdi.
     """
-    wanted = [s for s in reference.get("sections", []) if s["kind"] not in _CHROME][:MAX_SECTIONS]
-    actual = [s for s in built.get("sections", []) if s["kind"] not in _CHROME]
+    wanted = [s for s in reference.get("sections", []) if s.get("kind") not in _CHROME]
+    wanted = wanted[:MAX_SECTIONS]
+    actual = [s for s in built.get("sections", []) if s.get("kind") not in _CHROME]
     if not wanted:
         return []
     matcher = SequenceMatcher(
-        a=[section["kind"] for section in wanted],
-        b=[section["kind"] for section in actual],
+        a=[section.get("kind", "?") for section in wanted],
+        b=[section.get("kind", "?") for section in actual],
         autojunk=False,
     )
     found: list[str] = []
@@ -185,10 +191,13 @@ def _sections(reference: dict[str, Any], built: dict[str, Any]) -> list[str]:
         return found
     order = [
         "BÖLÜM SIRASI: kaynak: "
-        + " → ".join(_KIND_NAMES.get(s["kind"], s["kind"]) for s in wanted)
+        + " → ".join(_KIND_NAMES.get(s.get("kind", ""), s.get("kind", "?")) for s in wanted)
         + "; sayfan: "
         + (
-            " → ".join(_KIND_NAMES.get(s["kind"], s["kind"]) for s in actual[:MAX_SECTIONS])
+            " → ".join(
+                _KIND_NAMES.get(s.get("kind", ""), s.get("kind", "?"))
+                for s in actual[:MAX_SECTIONS]
+            )
             or "boş"
         )
         + "."
@@ -201,7 +210,7 @@ def _sections(reference: dict[str, Any], built: dict[str, Any]) -> list[str]:
 
 
 def _section_pair(position: int, wanted: dict[str, Any], actual: dict[str, Any]) -> list[str]:
-    name = _KIND_NAMES.get(wanted["kind"], wanted["kind"])
+    name = _KIND_NAMES.get(wanted.get("kind", ""), wanted.get("kind", "?"))
     found: list[str] = []
     if _has_media(wanted) and not _has_media(actual):
         medya = "video" if wanted.get("video") else "görsel"
@@ -211,8 +220,8 @@ def _section_pair(position: int, wanted: dict[str, Any], actual: dict[str, Any])
         )
     if _differs(wanted.get("height"), actual.get("height")):
         found.append(
-            f"BÖLÜM {position} ({name}): yükseklik kaynakta {wanted['height']}px, "
-            f"sayfanda {actual['height']}px."
+            f"BÖLÜM {position} ({name}): yükseklik kaynakta {wanted.get('height')}px, "
+            f"sayfanda {actual.get('height')}px."
         )
     return found
 
@@ -264,7 +273,8 @@ def _product_page(reference: dict[str, Any], built: dict[str, Any]) -> list[str]
 
 
 def _describe(section: dict[str, Any]) -> str:
-    parts = [f"{_KIND_NAMES.get(section['kind'], section['kind'])} ({section['height']}px"]
+    kind = section.get("kind", "?")
+    parts = [f"{_KIND_NAMES.get(kind, kind)} ({section.get('height', '?')}px"]
     if section.get("video"):
         parts.append(", video")
     elif _has_media(section):
