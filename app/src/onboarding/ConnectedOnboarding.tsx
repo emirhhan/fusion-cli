@@ -10,15 +10,27 @@ import { clearProgress, persistProgress, restoreProgress } from "./persistence";
 import type { ApprenticeStatus, DiscoveredSource, ProviderSummary, SampleProject, OnboardingValue } from "./types";
 
 interface ControlSummary { providers: ProviderSummary[]; apprentice: ApprenticeStatus }
-function controlSummary(control: Record<string, unknown>): ControlSummary {
+/** Sağlayıcı satırları: Ayarlar'daki liste ile AYNI kaynak, `saglayici.katalog` (`bagli`) — web sağlayıcıları
+ * dahil. Katalog okunamazsa `kontrol.durum`daki anahtarlı sağlayıcı listesine (`kurulu`) düşülür (U5-46). */
+function providerRows(control: Record<string, unknown>, catalog: Record<string, unknown> | null): ProviderSummary[] {
+  if (catalog?.ok === true && Array.isArray(catalog.saglayicilar)) {
+    return catalog.saglayicilar.map((raw) => {
+      const row = raw as Record<string, unknown>;
+      return { id: String(row.id ?? ""), name: String(row.ad ?? row.id ?? "Sağlayıcı"), secretConfigured: row.bagli === true,
+        status: row.bagli === true ? "configured-unverified" : "needs-setup" };
+    });
+  }
   const rows = Array.isArray(control.saglayicilar) ? control.saglayicilar : [];
+  return rows.map((raw) => {
+    const row = raw as Record<string, unknown>;
+    return { id: String(row.id ?? ""), name: String(row.ad ?? row.id ?? "Sağlayıcı"), secretConfigured: row.kurulu === true,
+      status: row.kurulu === true ? "configured-unverified" : "needs-setup" };
+  });
+}
+function controlSummary(control: Record<string, unknown>, catalog: Record<string, unknown> | null = null): ControlSummary {
   const model = (control.model ?? {}) as Record<string, unknown>;
   return {
-    providers: rows.map((raw) => {
-      const row = raw as Record<string, unknown>;
-      return { id: String(row.id ?? ""), name: String(row.ad ?? row.id ?? "Sağlayıcı"), secretConfigured: row.kurulu === true,
-        status: row.kurulu === true ? "configured-unverified" : "needs-setup" };
-    }),
+    providers: providerRows(control, catalog),
     apprentice: { active: typeof model.cirak_aktif === "boolean" ? model.cirak_aktif : null,
       recommendedModel: typeof model.onerilen_cirak === "string" ? model.onerilen_cirak : null },
   };
@@ -58,8 +70,13 @@ export function ConnectedOnboarding({ client, projects, runtimeVersion, onFinish
       const payload = await client.request("kontrol.durum", {});
       if (generation !== owner.current || sequence !== controlRequest.current) return;
       const result = operationResult(payload, "Kontrol durumu okunamadı.", true);
-      if (result.ok) setLastControl(controlSummary(payload));
-      setControl(result.ok ? { status: "ready", value: controlSummary(payload) } : { status: "error", message: result.message });
+      let catalog: Record<string, unknown> | null = null;
+      if (result.ok) {
+        try { catalog = await client.request("saglayici.katalog", {}); } catch { catalog = null; }
+        if (generation !== owner.current || sequence !== controlRequest.current) return;
+      }
+      if (result.ok) setLastControl(controlSummary(payload, catalog));
+      setControl(result.ok ? { status: "ready", value: controlSummary(payload, catalog) } : { status: "error", message: result.message });
     } catch (reason) { if (generation === owner.current && sequence === controlRequest.current) setControl({ status: "error", message: errorMessage(reason) }); }
   }, [client]);
   useEffect(() => {

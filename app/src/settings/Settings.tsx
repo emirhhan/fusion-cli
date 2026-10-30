@@ -73,6 +73,8 @@ interface SettingsProps {
   onRunCommand?: (command: string) => void | CommandResult | Promise<void | CommandResult>;
   /** Etkin oturumda tur sürüyor mu? Sürüyorsa uygulama güncellemesi kurulamaz (yeniden başlatma turu keser). */
   turnRunning?: boolean;
+  /** Kurulum sihirbazını yeniden açar; verilmezse "Kurulum" kartı gösterilmez. */
+  onReopenSetup?: () => void;
 }
 
 export function Settings({
@@ -81,6 +83,7 @@ export function Settings({
   onChangeRoot,
   onClose,
   onOpenAccount,
+  onReopenSetup,
   onRunCommand,
   onThemeChange,
   themePreference,
@@ -289,6 +292,7 @@ export function Settings({
             <General
               historyOpen={historyOpen}
               onHistoryChange={changeHistory}
+              onReopenSetup={onReopenSetup}
               onThemeChange={onThemeChange}
               themePreference={themePreference}
             />

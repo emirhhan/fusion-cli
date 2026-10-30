@@ -364,7 +364,7 @@ export function Onboarding({
           </div>
           <div className="onboarding__actions">
             {value.step === "project" && <Button onClick={() => onComplete({ selectedProjectId: null })} variant="secondary">Proje seçmeden devam et</Button>}
-            {value.step !== "complete" && <Button onClick={() => onSkip(value)} variant="ghost">Şimdilik atla</Button>}
+            {value.step !== "complete" && <Button onClick={() => onSkip(value)} title="Kurulumu Ayarlar → Genel bölümünden yeniden açabilirsin." variant="ghost">Şimdilik atla</Button>}
             {value.step === "complete" ? (
               <Button
                 onClick={() => onComplete({ selectedProjectId: value.selectedProjectId })}

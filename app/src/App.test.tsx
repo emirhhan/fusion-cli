@@ -841,3 +841,16 @@ describe("SessionUygulama — dalga 4 (U3-25, U3-26, U3-27, U3-32)", () => {
     } finally { getItem.mockRestore(); setItem.mockRestore(); }
   });
 });
+
+it("Ayarlar > Kurulumu yeniden aç, atlanmış sihirbazı baştan gösterir (U5-47)", async () => {
+  const fake = composerTransport();
+  render(<SessionUygulama transport={fake.transport} />);
+  await screen.findByRole("heading", { name: "Yeni görev" });
+  fireEvent.click(screen.getByRole("button", { name: "Hesap menüsü" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Ayarlar" }));
+  await screen.findByRole("heading", { name: "Ayarlar" });
+  fireEvent.click(await screen.findByRole("button", { name: "Kurulumu yeniden aç" }));
+  expect(await screen.findByRole("heading", { name: "Fusion'a hoş geldiniz" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Şimdilik atla" }));
+  await screen.findByRole("heading", { name: "Yeni görev" });
+});

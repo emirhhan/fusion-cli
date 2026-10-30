@@ -89,6 +89,7 @@ import { AccountGate } from "./account/AccountGate";
 import { AccountScreen } from "./account/AccountScreen";
 import { useAccount } from "./account/useAccount";
 import { ConnectedOnboarding } from "./onboarding/ConnectedOnboarding";
+import { clearProgress } from "./onboarding/persistence";
 import type { SampleProject } from "./onboarding";
 import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
 import { PermissionPrompt } from "./permissions/PermissionPrompt";
@@ -1423,6 +1424,7 @@ export function SessionUygulama({
             onChangeRoot={() => void requestTaskFolder()}
             onClose={() => setPage("chat")}
             onOpenAccount={() => setPage("account")}
+            onReopenSetup={() => { clearProgress(); setPage("chat"); setShowOnboarding(true); }}
             onRunCommand={(command) => executeCommand(command, false)}
             onThemeChange={changeTheme}
             themePreference={themePreference}

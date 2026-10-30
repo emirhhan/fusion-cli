@@ -62,11 +62,34 @@ describe("Bağımsız onboarding otoriteleri", () => {
     expect(screen.queryByText("1 öğe")).toBeNull();
   });
   it("eksik apprentice boolean ve yalnız yapılandırılmış anahtarı doğrulanmış saymaz", async () => {
-    draw(async () => ({ ok: true, model: {}, saglayicilar: [{ id: "openai", ad: "OpenAI", kurulu: true }] }));
+    draw(async (name) => name === "saglayici.katalog"
+      ? { ok: true, saglayicilar: [{ id: "openai", ad: "OpenAI", bagli: true, tur: "anahtar", eylem: "anahtar" }] }
+      : { ok: true, model: {}, saglayicilar: [{ id: "openai", ad: "OpenAI", kurulu: true }] });
     navigate(3);
     await screen.findByText("OpenAI");
     expect(screen.queryByText("Etkin")).toBeNull();
     expect(screen.queryByText("Hazır")).toBeNull();
+    expect(screen.getByText(/Yapılandırıldı.*doğrulanmadı/i)).toBeTruthy();
+  });
+  it("sağlayıcı durumu Ayarlar'daki katalogla aynı kaynaktan gelir: web sağlayıcısı dahil, bagli kurulu'yu ezer (U5-46)", async () => {
+    draw(async (name) => name === "saglayici.katalog"
+      ? { ok: true, saglayicilar: [
+        { id: "gemini_web", ad: "Gemini Web", bagli: true, tur: "web", eylem: "oturum" },
+        { id: "openai", ad: "OpenAI", bagli: false, tur: "anahtar", eylem: "anahtar" },
+      ] }
+      : { ok: true, model: {}, saglayicilar: [{ id: "openai", ad: "OpenAI", kurulu: true }] });
+    navigate(3);
+    await screen.findByText("Gemini Web");
+    expect(screen.getAllByText(/Yapılandırıldı.*doğrulanmadı/i)).toHaveLength(1);
+    expect(screen.getByText("Kurulum gerekli")).toBeTruthy();
+  });
+  it("katalog okunamazsa kontrol.durum listesine düşer (U5-46)", async () => {
+    draw(async (name) => {
+      if (name === "saglayici.katalog") throw new Error("katalog yok");
+      return { ok: true, model: {}, saglayicilar: [{ id: "openai", ad: "OpenAI", kurulu: true }] };
+    });
+    navigate(3);
+    await screen.findByText("OpenAI");
     expect(screen.getByText(/Yapılandırıldı.*doğrulanmadı/i)).toBeTruthy();
   });
   it("fulfilled başarısız history nedenini boş keşif yerine sunar", async () => {

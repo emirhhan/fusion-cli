@@ -27,11 +27,14 @@ export function readHistoryOpen(): boolean {
 export function General({
   historyOpen,
   onHistoryChange,
+  onReopenSetup,
   onThemeChange,
   themePreference,
 }: {
   historyOpen: boolean;
   onHistoryChange: (open: boolean) => void;
+  /** Kurulum sihirbazını baştan açar ("Şimdilik atla"dan dönüş yolu, U5-47). */
+  onReopenSetup?: () => void;
   onThemeChange: (preference: ThemePreference) => void;
   themePreference: ThemePreference;
 }) {
@@ -101,6 +104,17 @@ export function General({
           Geniş bir terminal ya da uzun bir diff, alt yerleşimde daha rahat okunur.
         </p>
       </article>
+
+      {onReopenSetup && (
+        <article className="settings__card">
+          <h3>Kurulum</h3>
+          <p className="settings__hint">
+            Karşılama sihirbazını atladıysan ya da sağlayıcı, geçmiş ve proje adımlarını yeniden görmek istiyorsan baştan aç.
+            Sohbetlerin ve ayarların değişmez.
+          </p>
+          <button onClick={onReopenSetup} type="button">Kurulumu yeniden aç</button>
+        </article>
+      )}
     </>
   );
 }

@@ -503,3 +503,17 @@ describe("Settings — dalga 4 bölümleri (U2-48, U2-50, U2-51)", () => {
     } finally { vi.useRealTimers(); }
   });
 });
+
+describe("Settings — kurulumu yeniden aç (U5-47)", () => {
+  it("Genel bölümünde 'Kurulumu yeniden aç' düğmesi geri çağrıyı tetikler", () => {
+    const reopen = vi.fn();
+    ciz({ onReopenSetup: reopen });
+    fireEvent.click(screen.getByRole("button", { name: "Kurulumu yeniden aç" }));
+    expect(reopen).toHaveBeenCalledTimes(1);
+  });
+
+  it("geri çağrı verilmezse kurulum kartı gösterilmez", () => {
+    ciz();
+    expect(screen.queryByRole("button", { name: "Kurulumu yeniden aç" })).toBeNull();
+  });
+});
