@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -169,7 +170,6 @@ def test_bozuk_depo_hata_verir_ve_gorev_siniri_uygulanir(tmp_path, monkeypatch):
 
 def _bozuk_kayitli_depo(tmp_path):
     """Biri geçerli, biri bozuk `teslimler` taşıyan iki kayıt (S2-12)."""
-    import json
 
     iyi = _new(tmp_path, tur="gunluk", saat="09:00")["gorev"]
     path = tmp_path / "z.json"
@@ -193,7 +193,6 @@ def test_tek_bozuk_kayit_listeyi_bos_gostermez_ve_yazmalari_engeller(tmp_path):
 
 
 def test_bozuk_kayitlar_acik_eylemle_yedeklenip_ayrilir_sonra_gorevler_calisir(tmp_path):
-    import json
 
     path, iyi = _bozuk_kayitli_depo(tmp_path)
 
@@ -231,3 +230,69 @@ def test_yedek_yazilamazsa_depoya_dokunulmaz(tmp_path, monkeypatch):
 
 def test_bozuk_ayirma_rotasi_kayitlidir():
     assert "zamanlama.bozuklari_ayir" in schedule.SCHEDULE_ROUTES
+
+
+@pytest.mark.parametrize("kok", ["/", "~", "~/"])
+def test_kok_dizin_ve_ev_klasoru_reddedilir(tmp_path, monkeypatch, kok):
+    """S2-25: gözetimsiz görev `/` ya da ev klasöründe çalışmaz."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    sonuc = schedule.save_schedule(
+        {"gorev": "Her şeyi tara", "kok": kok, "tur": "gunluk", "saat": "09:00"},
+        tmp_path / "z.json",
+        NOW,
+    )
+
+    assert sonuc["ok"] is False
+    assert "proje klasörü" in sonuc["metin"]
+    assert not (tmp_path / "z.json").exists()
+
+
+def test_ev_klasorunun_altindaki_proje_kabul_edilir(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    proje = tmp_path / "proje"
+    proje.mkdir()
+
+    sonuc = schedule.save_schedule(
+        {"gorev": "Rapor", "kok": str(proje), "tur": "gunluk", "saat": "09:00"},
+        tmp_path / "z.json",
+        NOW,
+    )
+
+    assert sonuc["ok"] is True
+
+
+def test_eski_kayittaki_tehlikeli_kok_vadesi_gelince_verilmez_ve_durdurulur(tmp_path, monkeypatch):
+    """Doğrulamadan önce kaydedilmiş `/` kökü, vadesi gelince de çalışmamalı."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    yol = tmp_path / "z.json"
+    guvenli = _new(tmp_path, kok=str(proje), tur="gunluk", saat="11:00")["gorev"]
+
+    kayitlar = json.loads(yol.read_text(encoding="utf-8"))
+    kayitlar.append({**guvenli, "id": "eski", "kok": "/", "baslik": "eski kök"})
+    yol.write_text(json.dumps(kayitlar), encoding="utf-8")
+
+    verilen = schedule.claim_due(yol, datetime(2026, 10, 5, 12, 0, tzinfo=TZ))
+
+    assert [g["id"] for g in verilen["gorevler"]] == [guvenli["id"]]
+    liste = {g["id"]: g for g in schedule.list_schedules(yol)["gorevler"]}
+    assert liste["eski"]["etkin"] is False
+    assert "proje klasörü" in liste["eski"]["durdurma_nedeni"]
+
+
+def test_simdi_calistir_tehlikeli_kokte_reddedilir(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    yol = tmp_path / "z.json"
+    guvenli = _new(tmp_path, kok=str(proje), tur="gunluk", saat="11:00")["gorev"]
+    kayitlar = json.loads(yol.read_text(encoding="utf-8"))
+    kayitlar.append({**guvenli, "id": "eski", "kok": "/"})
+    yol.write_text(json.dumps(kayitlar), encoding="utf-8")
+
+    sonuc = schedule.run_now({"id": "eski"}, yol, NOW)
+
+    assert sonuc["ok"] is False
+    assert "proje klasörü" in sonuc["metin"]

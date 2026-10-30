@@ -133,6 +133,25 @@ def _clock(value: object) -> tuple[int, int]:
     raise ScheduleError("Saat SS:DD biçiminde olmalı (ör. 09:00).")
 
 
+def _root_problem(root: object) -> str | None:
+    """Gözetimsiz görev için kabul edilmeyen kök: dosya sistemi kökü ya da ev klasörü.
+
+    Zamanlanmış görev kullanıcı başında olmadan çalışır; `/` ya da `~` kökü ona tüm
+    makineyi/ev klasörünü okuma-yazma alanı yapar (S2-25). Proje klasörü seçilmeli.
+    Ölçüldü (30 Ekim): doğrulama yalnız `is_dir()` bakıyordu; ikisi de geçiyordu.
+    """
+    if not isinstance(root, str) or not root.strip():
+        return None
+    try:
+        path = Path(root).expanduser().resolve()
+        home = Path.home().resolve()
+    except (OSError, RuntimeError):
+        return None
+    if path == path.parent or path == home:
+        return "Zamanlanmış görev kök dizinde ya da ev klasöründe çalışamaz; bir proje klasörü seç."
+    return None
+
+
 def next_run(spec: dict[str, Any], after: datetime) -> float | None:
     """`after` anından SONRAKİ ilk çalışma (epoch saniye); bitmiş tek seferlikte None."""
     kind = spec.get("tur")
@@ -182,6 +201,8 @@ def _validated(data: dict[str, Any], now: datetime) -> dict[str, Any]:
         raise ScheduleError("Görev metni boş olamaz.")
     if not isinstance(root, str) or not Path(root).expanduser().is_dir():
         raise ScheduleError("Görevin çalışacağı klasör bulunamadı.")
+    if (problem := _root_problem(root)) is not None:
+        raise ScheduleError(problem)
     kind = data.get("tur")
     if kind not in KINDS:
         raise ScheduleError("Bilinmeyen zamanlama türü.")
@@ -340,15 +361,21 @@ def claim_due(path: Path | None = None, now: datetime | None = None) -> dict[str
     with store_lock(target):
         items = _load(target)
         due: list[dict[str, Any]] = []
+        changed = False
         for index, item in enumerate(items):
             upcoming = item.get("sonraki")
             if not item.get("etkin") or not isinstance(upcoming, (int, float)) or upcoming > stamp:
+                continue
+            if (problem := _root_problem(item.get("kok"))) is not None:
+                # Doğrulamadan önce kaydedilmiş tehlikeli kök: teslim edilmez, görev durdurulur.
+                items[index] = {**item, "etkin": False, "durdurma_nedeni": problem}
+                changed = True
                 continue
             item = add_delivery(item, float(upcoming))
             advanced = _advance(item, moment, late=stamp - upcoming > LATE_AFTER_S)
             items[index] = advanced
             due.append(advanced)
-        if due:
+        if due or changed:
             _store(target, items)
         return {"ok": True, "gorevler": due}
 
@@ -364,6 +391,8 @@ def run_now(
         items = _load(target)
         for index, item in enumerate(items):
             if item.get("id") == data.get("id"):
+                if (problem := _root_problem(item.get("kok"))) is not None:
+                    return {"ok": False, "metin": problem}
                 started = {**item, "son_calisma": moment.timestamp(), "son_gecikmeli": False}
                 items[index] = started
                 _store(target, items)
