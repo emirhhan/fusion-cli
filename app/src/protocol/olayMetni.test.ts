@@ -235,3 +235,25 @@ it.each(["future-success-v9", undefined, 42])("bilinmeyen terminal sonucu başar
     metin: "görev sonucu doğrulanamadı", sonuc: "unknown",
   });
 });
+
+describe("olayAdimi (30 Ekim)", () => {
+  // Ölçüldü (30 Ekim): komut ve araç çıktısı ham basılıyordu; eksik alanlar "adım 0/0" üretiyordu (U5-16, U5-15).
+  it("kabuk komutu ve çıktısındaki sırlar maskelenir (U5-16)", () => {
+    const adim = olayAdimi({
+      olay: "ToolExecuted", name: "run_shell", outcome: "ok",
+      args: { command: "curl -H 'Authorization: Bearer abcdefghijkl123' https://x" },
+      output: "OPENAI_API_KEY=sk-proj-abcdefghijklmnop",
+    });
+    const tumu = JSON.stringify(adim);
+    expect(tumu).not.toContain("abcdefghijkl123");
+    expect(tumu).not.toContain("sk-proj-abcdefghijklmnop");
+    expect(adim?.komut).toContain("[gizlendi]");
+  });
+
+  it("eksik alanlı olaylar anlamsız metin üretmez (U5-15)", () => {
+    expect(olayAdimi({ olay: "ExecutionStepStarted" })?.metin).toBe("adım başladı");
+    expect(olayAdimi({ olay: "ModelFallbackActivated" })?.ayrinti).not.toBe(" → ");
+    expect(olayAdimi({ olay: "TeacherLimitationFound", topic: "Ses" })?.ayrinti).toBeUndefined();
+    expect(olayAdimi({ olay: "ExecutionStepVerified", ok: true, evidence: [{ a: 1 }, "test geçti"] })?.ayrinti).toBe("test geçti");
+  });
+});

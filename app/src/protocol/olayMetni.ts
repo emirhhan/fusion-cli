@@ -10,6 +10,8 @@
  * olduğunu gizliyordu.
  */
 
+import { sirlariMaskele } from "./sirMaskesi";
+
 export type OlaySonucu = "completed" | "partial" | "failed" | "unknown";
 
 export interface OlayAdimi {
@@ -83,7 +85,8 @@ function aracAyrintisi(args: unknown): { ayrinti?: string; kaynak?: string } {
   const path = typeof row.path === "string" ? row.path : undefined;
   const command = typeof row.command === "string" ? row.command : undefined;
   const query = typeof row.query === "string" ? row.query : undefined;
-  return { ayrinti: url ?? (path ? kisaYol(path) : undefined) ?? command ?? query, kaynak: url };
+  // Komut satırı sır taşıyabilir (`curl -H "Authorization: …"`): ekrana maskelenmiş çıkar (U5-16).
+  return { ayrinti: url ?? (path ? kisaYol(path) : undefined) ?? (command ? sirlariMaskele(command) : undefined) ?? query, kaynak: url };
 }
 
 /** Alıntılanan metnin üst sınırı; durum satırı tek satırda kalmalı. */
@@ -148,7 +151,7 @@ const ARAC_VARSAYILAN_METNI: Record<string, (args: Record<string, unknown>) => s
   },
   run_shell: (args) => {
     const komut = metinAl(args, "command", "komut");
-    return komut ? `kabuk komutu ${tirnakla(komut)} çalıştırılıyor` : "kabuk komutu çalıştırılıyor";
+    return komut ? `kabuk komutu ${tirnakla(sirlariMaskele(komut))} çalıştırılıyor` : "kabuk komutu çalıştırılıyor";
   },
   todo_write: () => "görev listesi güncelleniyor",
   web_search: (args) => {
@@ -286,8 +289,11 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
       const metin = durumAdi === "ok"
         ? aracVarsayilanMetni(ad, veri.args)
         : `${ARAC_SONUCU[durumAdi]}: ${ad}`;
-      const hamCikti = typeof veri.output === "string" ? veri.output.trim() : "";
-      const komut = metinAl(rawArgs, "command", "komut");
+      // Araç çıktısı (`env`, `cat .env`…) ve komut satırı sır taşıyabilir; ham haliyle ne ekrana
+      // ne sohbet kaydına gider (U5-16).
+      const hamCikti = typeof veri.output === "string" ? sirlariMaskele(veri.output.trim()) : "";
+      const hamKomut = metinAl(rawArgs, "command", "komut");
+      const komut = hamKomut ? sirlariMaskele(hamKomut) : undefined;
       return {
         metin, ayrinti, kaynak, diff, yol: diff ? (hamYol ?? ayrinti) : undefined,
         arac: ad, durum: durumAdi,
@@ -348,7 +354,7 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
       };
     }
     case "ModelFallbackActivated": {
-      const gecis = `${String(veri.requested_model ?? "")} → ${String(veri.fallback_model ?? "")}`;
+      const gecis = `${String(veri.requested_model || "istenen model")} → ${String(veri.fallback_model || "yedek model")}`;
       const neden = String(veri.reason ?? "");
       // Seçilen web oturumu insan doğrulaması istediği için yedeğe geçildiyse
       // sebep saklanmaz: arayüz bunu görüp "Giriş penceresini aç" kartını açar.
@@ -413,7 +419,10 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
     case "TeacherLimitationFound":
       return {
         metin: `${String(veri.topic ?? "İş")} yapılamıyor`,
-        ayrinti: `${String(veri.reason ?? "")}. Alternatif: ${String(veri.alternative ?? "")}`,
+        ayrinti: [
+          veri.reason ? `${String(veri.reason)}.` : "",
+          veri.alternative ? `Alternatif: ${String(veri.alternative)}` : "",
+        ].filter(Boolean).join(" ") || undefined,
         kalici: true,
       };
     case "ExecutionPromoted":
@@ -426,17 +435,21 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
         metin: `plan hazır: ${Number(veri.total_steps ?? 0)} adım`,
         ayrinti: typeof veri.plan_id === "string" ? veri.plan_id : undefined,
       };
-    case "ExecutionStepStarted":
+    case "ExecutionStepStarted": {
+      const sira = Number(veri.index);
+      const toplam = Number(veri.total_steps);
       return {
-        metin: `adım ${Number(veri.index ?? 0)}/${Number(veri.total_steps ?? 0)} başladı`,
+        metin: Number.isFinite(sira) && Number.isFinite(toplam) && toplam > 0 ? `adım ${sira}/${toplam} başladı` : "adım başladı",
         ayrinti: typeof veri.goal === "string" ? veri.goal : undefined,
       };
+    }
     case "ExecutionStepVerified": {
       const ok = veri.ok === true;
       const details = ok ? veri.evidence : veri.findings;
       return {
         metin: `${String(veri.step_id ?? "adım")} ${ok ? "doğrulandı" : "doğrulanamadı"}`,
-        ayrinti: Array.isArray(details) ? details.join(" · ") : undefined,
+        // Nesne öğeler "[object Object]" yazmasın: yalnız metin öğeler birleştirilir.
+        ayrinti: Array.isArray(details) ? details.filter((item) => typeof item === "string").join(" · ") || undefined : undefined,
       };
     }
     case "ExecutionRetryScheduled":
