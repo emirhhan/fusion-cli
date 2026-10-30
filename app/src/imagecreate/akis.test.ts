@@ -273,3 +273,40 @@ describe("calismaSonucunuIsle", () => {
     expect(sonuc.dugumler.some((d) => d.id === "cikti-1")).toBe(false);
   });
 });
+
+import { akisiDogrula, dosyaAdi, duzenlemeImzasi } from "./akis";
+
+describe("dalga 4 (U3-06, U3-10, U3-11)", () => {
+  it("dosyaAdi hem POSIX hem Windows yolunu böler", () => {
+    expect(dosyaAdi("/veri/galeri/a.png")).toBe("a.png");
+    expect(dosyaAdi("C:\\Users\\ben\\galeri\\b.png")).toBe("b.png");
+    expect(dosyaAdi("c.png")).toBe("c.png");
+  });
+
+  it("akisiDogrula bozuk kayıtları reddeder, geçerliyi temizleyip döndürür", () => {
+    expect(akisiDogrula(null)).toBeNull();
+    expect(akisiDogrula({ ad: "x" })).toBeNull();
+    expect(akisiDogrula({ dugumler: [{ id: "a", tur: "bilinmeyen" }], baglantilar: [] })).toBeNull();
+    expect(akisiDogrula({ dugumler: [{ id: "a", tur: "metin" }, { id: "a", tur: "metin" }], baglantilar: [] })).toBeNull();
+    expect(akisiDogrula({ dugumler: [{ id: "a", tur: "metin" }], baglantilar: [{ kaynak: "a", hedef: "yok" }] })).toBeNull();
+    const dogru = akisiDogrula({ ad: "ok", dugumler: [{ id: "a", tur: "metin", istem: "x" }], baglantilar: [] });
+    expect(dogru).toMatchObject({ ad: "ok", dugumler: [{ id: "a", tur: "metin", x: 0, y: 0 }] });
+  });
+
+  it("duzenlemeImzasi çalışma sonuçlarını ve konumu saymaz, istemi sayar", () => {
+    const a = zincir();
+    const calismis = dugumGuncelle(dugumGuncelle(a, "u", { durum: "bitti", yol: "/g/1.png", sonuclar: ["/g/1.png"] }), "m", { x: 99, y: 5 });
+    expect(duzenlemeImzasi(calismis)).toBe(duzenlemeImzasi(a));
+    expect(duzenlemeImzasi(dugumGuncelle(a, "m", { istem: "mavi" }))).not.toBe(duzenlemeImzasi(a));
+  });
+
+  it("akisSorunlari listede olmayan ya da referans alamayan sağlayıcıyı bildirir", () => {
+    const akis = zincir();
+    const liste = [{ deger: "nim/flux", referans: false }, { deger: "gemini_web/main", referans: true }];
+    expect(akisSorunlari(akis, liste)).toEqual([]);
+    expect(akisSorunlari(akis, [liste[1]])).toEqual([expect.stringContaining("artık bağlı değil")]);
+    expect(akisSorunlari(akis, [liste[0]])).toEqual(expect.arrayContaining([expect.stringContaining("artık bağlı değil")]));
+    const referanssiz = dugumGuncelle(akis, "v", { saglayici: "nim/flux" });
+    expect(akisSorunlari(referanssiz, liste)).toEqual([expect.stringContaining("referans görsel alamıyor")]);
+  });
+});

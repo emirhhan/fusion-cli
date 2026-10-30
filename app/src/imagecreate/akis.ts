@@ -131,7 +131,9 @@ export function girdiler(akis: Akis, dugumId: string): { metin?: Dugum; gorsel?:
 }
 
 /** Akışı çalıştırmadan önce bulunan sorunlar; boş dizi çalıştırılabilir demektir. */
-export function akisSorunlari(akis: Akis): string[] {
+export function akisSorunlari(
+  akis: Akis, saglayicilar?: readonly { deger: string; referans: boolean }[],
+): string[] {
   const sorunlar: string[] = [];
   try { calismaSirasi(akis); } catch (error) {
     return [error instanceof Error ? error.message : "Akış doğrulanamadı."];
@@ -147,6 +149,14 @@ export function akisSorunlari(akis: Akis): string[] {
     if (dugum.tur === "metin" && !dugum.istem?.trim()) sorunlar.push("Metin düğümü boş.");
     if (dugum.tur === "gorsel" && !dugum.yol) sorunlar.push("Görsel düğümüne bir görsel seç.");
     if (islemMi(dugum.tur) && !dugum.saglayici) sorunlar.push(`${ad} düğümü için sağlayıcı seç.`);
+    // Seçili sağlayıcı artık listede yoksa ya da referans görseli desteklemiyorsa çekirdeğe boşuna gitmez (U3-06).
+    if (saglayicilar && islemMi(dugum.tur) && dugum.saglayici) {
+      const secili = saglayicilar.find((item) => item.deger === dugum.saglayici);
+      if (!secili) sorunlar.push(`${ad} düğümünün sağlayıcısı artık bağlı değil; yeniden seç.`);
+      else if (referansGerekir(akis, dugum) && !secili.referans) {
+        sorunlar.push(`${ad} düğümünün sağlayıcısı referans görsel alamıyor; referans destekleyen bir sağlayıcı seç.`);
+      }
+    }
   }
   return [...new Set(sorunlar)];
 }
@@ -285,6 +295,68 @@ export function sonrakiDugumEkle(
     akis: { ...akis, dugumler: [...akis.dugumler, yeni], baglantilar: [...akis.baglantilar, { kaynak: kaynakId, hedef: id }] },
     id,
   };
+}
+
+/** Yolun son bileşeni; Windows (`C:\\...`) ve POSIX ayracını birlikte tanır (U3-11). */
+export function dosyaAdi(yol: string): string {
+  return yol.split(/[\\/]/).pop() || yol;
+}
+
+/**
+ * Kayıtlı akış yükünü doğrular (U3-10): eksik/bozuk `dugumler`, bilinmeyen `tur` ya da var olmayan
+ * düğüme giden bağlantı arayüzü çökertmesin. Geçersizse `null`; geçerliyse temiz bir kopya döner.
+ */
+export function akisiDogrula(ham: unknown): Akis | null {
+  if (!ham || typeof ham !== "object" || Array.isArray(ham)) return null;
+  const veri = ham as Record<string, unknown>;
+  if (!Array.isArray(veri.dugumler) || !Array.isArray(veri.baglantilar)) return null;
+  const turler = Object.keys(GIRDI_KURALI);
+  const dugumler: Dugum[] = [];
+  for (const item of veri.dugumler) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const dugum = item as Record<string, unknown>;
+    if (typeof dugum.id !== "string" || !dugum.id || typeof dugum.tur !== "string" || !turler.includes(dugum.tur)) return null;
+    dugumler.push({
+      ...(dugum as unknown as Dugum),
+      x: typeof dugum.x === "number" && Number.isFinite(dugum.x) ? dugum.x : 0,
+      y: typeof dugum.y === "number" && Number.isFinite(dugum.y) ? dugum.y : 0,
+    });
+  }
+  const kimlikler = new Set(dugumler.map((dugum) => dugum.id));
+  if (kimlikler.size !== dugumler.length) return null;
+  const baglantilar: Baglanti[] = [];
+  for (const item of veri.baglantilar) {
+    if (!item || typeof item !== "object") return null;
+    const { kaynak, hedef } = item as Record<string, unknown>;
+    if (typeof kaynak !== "string" || typeof hedef !== "string" || !kimlikler.has(kaynak) || !kimlikler.has(hedef)) return null;
+    baglantilar.push({ kaynak, hedef });
+  }
+  return {
+    ...(typeof veri.id === "string" ? { id: veri.id } : {}),
+    ...(Number.isSafeInteger(veri.revision) ? { revision: veri.revision as number } : {}),
+    ad: typeof veri.ad === "string" ? veri.ad : "Yeni akış",
+    dugumler,
+    baglantilar,
+  };
+}
+
+/**
+ * Kullanıcı düzenlemelerinin imzası: ad, düğüm içeriği ve bağlantılar. Çalışma sonuçları (durum, yol,
+ * sonuçlar), konum ve sağlayıcı seçimi (açılışta otomatik doldurulur) dışarıda; "kaydedilmemiş düzenleme var mı?"
+ * sorusu yalnız kullanıcının yazdığı içeriği sayar (U3-10).
+ */
+export function duzenlemeImzasi(akis: Akis): string {
+  return JSON.stringify([
+    akis.ad,
+    akis.dugumler.map((dugum) => [dugum.id, dugum.tur, dugum.istem ?? "", dugum.tur === "gorsel" ? dugum.yol ?? "" : "", dugum.adet ?? 1, dugum.oran ?? "1:1"]),
+    akis.baglantilar.map((baglanti) => [baglanti.kaynak, baglanti.hedef]),
+  ]);
+}
+
+/** Bu işlem referans görsel gerektiriyor mu? Üret yalnız görsel bağlıysa gerektirir. */
+export function referansGerekir(akis: Akis, dugum: Dugum): boolean {
+  if (dugum.tur === "uret") return girdiler(akis, dugum.id).gorsel !== undefined;
+  return islemMi(dugum.tur);
 }
 
 /** Seçilebilen en-boy oranları; çekirdekteki `ASPECT_SIZES` ile aynı küme. */

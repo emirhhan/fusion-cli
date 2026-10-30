@@ -1,13 +1,15 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   baglanabilir,
   ciktiTuru,
   DUGUM_ETIKETI,
   dugumGuncelle,
+  dosyaAdi,
   dugumSil,
   girdiler,
   islemMi,
   MAX_ADET,
+  referansGerekir,
   type Akis,
   type Dugum,
 } from "./akis";
@@ -44,12 +46,6 @@ function sinirla(olcek: number): number {
   return Math.min(MAX_OLCEK, Math.max(MIN_OLCEK, Math.round(olcek * 100) / 100));
 }
 
-/** Bu işlem referans görsel gerektiriyor mu? Üret yalnız görsel bağlıysa gerektirir. */
-function referansGerekir(akis: Akis, dugum: Dugum): boolean {
-  if (dugum.tur === "uret") return girdiler(akis, dugum.id).gorsel !== undefined;
-  return islemMi(dugum.tur);
-}
-
 function bezierYolu(x1: number, y1: number, x2: number, y2: number): string {
   const orta = Math.max(40, Math.abs(x2 - x1) / 2);
   return `M ${x1} ${y1} C ${x1 + orta} ${y1}, ${x2 - orta} ${y2}, ${x2} ${y2}`;
@@ -82,6 +78,10 @@ function DugumGovdesi({ akis, dugum, props }: { akis: Akis; dugum: Dugum; props:
             value={dugum.saglayici ?? ""}
           >
             <option value="">Sağlayıcı seç</option>
+            {/* Seçili değer listede yoksa select boş görünüp durum eski değeri taşımasın (U3-06). */}
+            {dugum.saglayici && !uygun.some((secenek) => secenek.deger === dugum.saglayici) && (
+              <option disabled value={dugum.saglayici}>{dugum.saglayici} (kullanılamıyor)</option>
+            )}
             {uygun.map((secenek) => <option key={secenek.deger} value={secenek.deger}>{secenek.etiket}</option>)}
           </select>
           {dugum.tur !== "buyut" && (
@@ -137,7 +137,7 @@ function DugumGovdesi({ akis, dugum, props }: { akis: Akis; dugum: Dugum; props:
       ) : (
         adres && <img alt={`${DUGUM_ETIKETI[dugum.tur]} sonucu`} className="akis-dugum__onizleme" src={adres} />
       )}
-      {onizleme && !adres && varyasyonlar.length <= 1 && <p className="akis-dugum__yol">{onizleme.split("/").pop()}</p>}
+      {onizleme && !adres && varyasyonlar.length <= 1 && <p className="akis-dugum__yol">{dosyaAdi(onizleme)}</p>}
       {dugum.tur === "cikti" && onizleme && (
         <button onClick={() => props.onIndir(onizleme)} type="button">İndir</button>
       )}
@@ -204,11 +204,24 @@ export function AkisTuvali(props: AkisTuvaliProps) {
     }
     hareket.current = null;
   };
-  const tekerlek = (event: ReactWheelEvent<HTMLDivElement>) => {
-    // Yalnız Ctrl/⌘ ile yakınlaştırılır; düz tekerlek sayfanın normal kaydırmasıdır.
-    if (!event.ctrlKey && !event.metaKey) return;
-    event.preventDefault();
-    setGorunum({ ...gorunum, olcek: sinirla(gorunum.olcek - Math.sign(event.deltaY) * OLCEK_ADIMI) });
+  // React `wheel`'ı pasif bağlar ve `preventDefault` etkisiz kalır: Ctrl/⌘+tekerlek tuvalle birlikte tüm
+  // sayfayı da yakınlaştırırdı. Dinleyici pasif olmayan olarak doğrudan elemana bağlanır (U3-13).
+  useEffect(() => {
+    const eleman = kutu.current;
+    if (!eleman) return;
+    const tekerlek = (event: WheelEvent) => {
+      // Yalnız Ctrl/⌘ ile yakınlaştırılır; düz tekerlek sayfanın normal kaydırmasıdır.
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      setGorunum((onceki) => ({ ...onceki, olcek: sinirla(onceki.olcek - Math.sign(event.deltaY) * OLCEK_ADIMI) }));
+    };
+    eleman.addEventListener("wheel", tekerlek, { passive: false });
+    return () => eleman.removeEventListener("wheel", tekerlek);
+  }, []);
+  /** İşaretçi iptal olursa (dokunma kaydırması, odak kaybı) yarım kalan sürükleme/bağlantı temizlenir (U3-14). */
+  const tuvalIptal = () => {
+    hareket.current = null;
+    setCekilen(null);
   };
 
   const cekilenKaynak = cekilen ? akis.dugumler.find((dugum) => dugum.id === cekilen.kaynak) : undefined;
@@ -221,7 +234,8 @@ export function AkisTuvali(props: AkisTuvaliProps) {
       onPointerDown={tuvalBasla}
       onPointerMove={tuvalHareket}
       onPointerUp={tuvalBitir}
-      onWheel={tekerlek}
+      onLostPointerCapture={tuvalIptal}
+      onPointerCancel={tuvalIptal}
       ref={kutu}
       role="region"
     >

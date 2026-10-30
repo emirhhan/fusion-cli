@@ -9,8 +9,9 @@ import { errorMessage, operationResult } from "../protocol/result";
 import { Icon } from "../ui/Icon";
 import { assetUrl } from "../platform/assetUrl";
 import { saveImageAs } from "../platform/dialog";
-import { akisSorunlari, atalar, baslangicAkisi, calismaSonucunuIsle, DUGUM_ETIKETI, ORANLAR, dugumGuncelle, kaydedilebilir, sonrakiDugumEkle, type Akis, type DugumTuru, type Islem } from "./akis";
+import { akisiDogrula, akisSorunlari, atalar, baslangicAkisi, calismaSonucunuIsle, DUGUM_ETIKETI, ORANLAR, dosyaAdi, dugumGuncelle, duzenlemeImzasi, islemMi, kaydedilebilir, sonrakiDugumEkle, type Akis, type DugumTuru, type Islem } from "./akis";
 import { akisiCalistir, type UretilenGorsel } from "./akisCalistir";
+import { taslagiOku, taslagiYaz } from "./taslakDeposu";
 import { AkisTuvali, type SaglayiciSecenegi } from "./AkisTuvali";
 import "./ImageCreate.css";
 
@@ -35,8 +36,11 @@ export interface ImageCreateProps {
 const EKLENEBILIR: DugumTuru[] = ["metin", "gorsel", "uret", "varyasyon", "buyut", "duzenle", "cikti"];
 
 function secenekleriOku(sonuc: Record<string, unknown>): SaglayiciSecenegi[] {
-  const ham = Array.isArray(sonuc.secenekler) ? (sonuc.secenekler as Record<string, unknown>[]) : [];
-  return ham.map((item) => ({ deger: String(item.deger), etiket: String(item.etiket), referans: item.referans === true }));
+  const ham = Array.isArray(sonuc.secenekler) ? (sonuc.secenekler as unknown[]) : [];
+  // Bozuk (null/nesne olmayan) öğe tüm listeyi düşürmesin (U3-22).
+  return ham
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item))
+    .map((item) => ({ deger: String(item.deger), etiket: String(item.etiket), referans: item.referans === true }));
 }
 
 /**
@@ -50,15 +54,26 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
   const [jobCapability, setJobCapability] = useState<{ client: ImageClient | null; enabled: boolean } | null>(null);
   const persistentJobs = jobCapability?.client === client && jobCapability.enabled;
   const [secenekler, setSecenekler] = useState<SaglayiciSecenegi[]>([]);
-  const [akis, setAkis] = useState<Akis>(() => baslangicAkisi());
-  const [basitAkis, setBasitAkis] = useState<Akis>(() => baslangicAkisi());
+  // Sayfa değişince bileşen sökülür; istem ve akış taslağı oturum kapsamında yukarıda tutulur (U3-05).
+  // Kapsamsız (istemcisiz/önizleme) kullanımda taslak saklanmaz.
+  const taslakAnahtari = jobScope;
+  const [akis, setAkis] = useState<Akis>(() => (taslakAnahtari ? taslagiOku(taslakAnahtari)?.akis : undefined) ?? baslangicAkisi());
+  const [basitAkis, setBasitAkis] = useState<Akis>(() => (taslakAnahtari ? taslagiOku(taslakAnahtari)?.basitAkis : undefined) ?? baslangicAkisi());
   const [galeri, setGaleri] = useState<UretilenGorsel[]>([]);
   const [kayitlilar, setKayitlilar] = useState<KayitliAkis[]>([]);
   const [calisiyor, setCalisiyor] = useState(false);
   const [bilgi, setBilgi] = useState<string | null>(null);
   const [secimIcin, setSecimIcin] = useState<string | null>(null);
-  const [mod, setMod] = useState<"basit" | "akis">("basit");
+  const [mod, setMod] = useState<"basit" | "akis">(() => (taslakAnahtari ? taslagiOku(taslakAnahtari)?.mod : undefined) ?? "basit");
   const [hedef, setHedef] = useState<string | null>(null);
+  useEffect(() => { if (taslakAnahtari) taslagiYaz(taslakAnahtari, { akis, basitAkis, mod }); }, [akis, basitAkis, mod, taslakAnahtari]);
+  // Hedef düğüm silinirse "dal çalıştır" kipi sessizce yanıltıcı kalmasın (U3-09).
+  useEffect(() => {
+    if (hedef && !akis.dugumler.some((dugum) => dugum.id === hedef)) setHedef(null);
+  }, [akis, hedef]);
+  /** Kaydedilmemiş düzenleme uyarısı için son kaydedilen/yüklenen akışın imzası (U3-10). */
+  const temelImza = useRef(duzenlemeImzasi(akis));
+  const [onayBekleyen, setOnayBekleyen] = useState<{ tur: "yeni" } | { tur: "yukle"; id: string } | null>(null);
   /** Büyük görüntüleyicide açık görselin galerideki sırası. */
   const [acik, setAcik] = useState<number | null>(null);
   const acikGorsel = acik !== null ? galeri[acik] : undefined;
@@ -74,7 +89,8 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
     if (result.ok === true && result.state === "completed" && Array.isArray(result.dosyalar)) {
       const restored = (result.dosyalar as Record<string, unknown>[]).map((file) => ({
         yol: String(file.yol), genislik: Number(file.genislik), yukseklik: Number(file.yukseklik),
-        istem: "Toparlanan görsel", saglayici: String(result.saglayici ?? ""),
+        // Kurtarılan işin istemi bilinmez; yer tutucu istem kutusuna kopyalanmasın (U3-02).
+        istem: "", toparlanan: true, saglayici: String(result.saglayici ?? ""),
       }));
       setGaleri((current) => [...restored.filter((file) => !current.some((old) => old.yol === file.yol)), ...current]);
       setBilgi("İşin güncel çıktısı doğrulandı; görseller galeride.");
@@ -120,18 +136,34 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
   }, [client]);
   const discovery = useImageDiscovery(client, applyDiscovery);
 
+  // Sağlayıcı listesi değişince (oturum/istemci değişimi, bağlantı kopması) listede olmayan değerler
+  // temizlenir; aksi halde select boş görünür ama durum eski değeri çekirdeğe yollardı (U3-06).
+  useEffect(() => {
+    if (!secenekler.length) return;
+    const gecerli = new Set(secenekler.map((item) => item.deger));
+    const duzelt = (onceki: Akis): Akis => {
+      if (!onceki.dugumler.some((dugum) => islemMi(dugum.tur) && dugum.saglayici && !gecerli.has(dugum.saglayici))) return onceki;
+      return { ...onceki, dugumler: onceki.dugumler.map((dugum) => islemMi(dugum.tur) && dugum.saglayici && !gecerli.has(dugum.saglayici)
+        ? { ...dugum, saglayici: dugum.tur === "uret" ? secenekler[0].deger : "" } : dugum) };
+    };
+    setAkis(duzelt); setBasitAkis(duzelt);
+  }, [secenekler]);
+
   const dugumEkle = (tur: DugumTuru) => {
-    const sira = akis.dugumler.length;
-    const id = `${tur}-${Date.now().toString(36)}`;
-    const saglayici = tur === "uret" ? secenekler[0]?.deger : secenekler.find((item) => item.referans)?.deger;
-    setAkis({
-      ...akis,
-      dugumler: [...akis.dugumler, { id, tur, x: 40 + (sira % 4) * 240, y: 260 + Math.floor(sira / 4) * 40, saglayici }],
+    const saglayici = !islemMi(tur) ? undefined : tur === "uret" ? secenekler[0]?.deger : secenekler.find((item) => item.referans)?.deger;
+    // Kapanıştaki `akis` bayat kalabilir; durum güncellemesi önceki akıştan türetilir (U3-16).
+    setAkis((onceki) => {
+      const sira = onceki.dugumler.length;
+      const id = `${tur}-${Date.now().toString(36)}-${sira}`;
+      return { ...onceki, dugumler: [...onceki.dugumler, { id, tur, x: 40 + (sira % 4) * 240, y: 260 + Math.floor(sira / 4) * 40, saglayici }] };
     });
   };
 
   const calistir = async (dalHedefi: string | null = null) => {
-    if (runGuard.current || !client || imageJobs.blocked || discovery.states.providers.status !== "ready") return;
+    if (runGuard.current || !client) return;
+    // Sessizce dönmek yerine nedenini söyle (U3-03).
+    if (imageJobs.blocked) { setBilgi("Bekleyen bir görsel işi var; önce onun bitmesini bekle ya da işi durdur."); return; }
+    if (discovery.states.providers.status !== "ready") { setBilgi("Sağlayıcılar henüz yüklenmedi; birkaç saniye sonra yeniden dene."); return; }
     const calisacakAkis = mod === "basit" ? basitAkis : akis;
     const guncelle = mod === "basit" ? setBasitAkis : setAkis;
     const kapsam = dalHedefi ? new Set([...atalar(calisacakAkis, dalHedefi), dalHedefi]) : null;
@@ -140,7 +172,7 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
       dugumler: calisacakAkis.dugumler.filter((dugum) => kapsam.has(dugum.id)),
       baglantilar: calisacakAkis.baglantilar.filter((baglanti) => kapsam.has(baglanti.kaynak) && kapsam.has(baglanti.hedef)),
     } : calisacakAkis;
-    const sorunlar = akisSorunlari(dogrulanacak);
+    const sorunlar = akisSorunlari(dogrulanacak, secenekler);
     if (sorunlar.length) { setBilgi(sorunlar[0]); return; }
     const token = Symbol(), generation = owner.current;
     runGuard.current = token;
@@ -155,7 +187,7 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
         if (!owns()) return;
         // Çalışma anlık görüntüsü kullanıcının yeni taslağını ezmesin.
         guncelle((onceki) => calismaSonucunuIsle(onceki, guncel));
-        if (yeni.length) setGaleri((onceki) => [...yeni, ...onceki]);
+        if (yeni.length) setGaleri((onceki) => [...yeni.filter((gorsel) => !onceki.some((eski) => eski.yol === gorsel.yol)), ...onceki]);
       }, { ...(mod === "basit" ? { hedef: "uret-1" } : dalHedefi ? { hedef: dalHedefi } : {}), devam: owns });
       if (!owns()) return;
       const hata = son.dugumler.find((dugum) => (dugum.durum === "hata" || dugum.durum === "kismi") && (!kapsam || kapsam.has(dugum.id)));
@@ -167,6 +199,15 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
     } finally {
       if (owns()) { runGuard.current = null; setCalisiyor(false); }
     }
+  };
+
+  /** Üretim sürerken kullanıcı bekleyişi bırakabilir (U3-07): iş yolunda iş iptal edilir, eski yolda UI serbest kalır. */
+  const durdur = () => {
+    const is = imageJobs.state.jobs[0];
+    if (persistentJobs && is) { void imageJobs.recover(is.jobId, true); return; }
+    runGuard.current = null;
+    setCalisiyor(false);
+    setBilgi("Bekleme bırakıldı. Çekirdek üretimi sürüyorsa sonuç bu ekrana düşmeyebilir; galeriyi yenile.");
   };
 
   const kaydiDogrula = async (id: string, generation: number) => {
@@ -198,6 +239,7 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
       const id = String(payload.id);
       const revision = Number.isSafeInteger(payload.revision) && Number(payload.revision) > 0 ? Number(payload.revision) : undefined;
       if (currentFlow.current === before && snapshot === before) setAkis((previous) => ({ ...previous, id, revision }));
+      if (snapshot === currentFlow.current || duzenlemeImzasi(snapshot) === duzenlemeImzasi(currentFlow.current)) temelImza.current = duzenlemeImzasi(snapshot);
       setKayitlilar((previous) => [{ id, ad: snapshot.ad }, ...previous.filter((item) => item.id !== id)]);
       if (!result.ok) { setFlowError({ message: result.message, retry: () => void kaydiDogrula(id, generation) }); return; }
       setBilgi("Akış kaydedildi.");
@@ -214,16 +256,30 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
       const result = operationResult(payload, "Akış açılamadı.");
       if (!result.ok || !payload.akis || typeof payload.akis !== "object") { setFlowError({ message: result.ok ? "Akış verisi geçersiz." : result.message, retry: () => void yukle(id, original) }); return; }
       if (currentFlow.current !== original) { setBilgi("Akış yüklendi; yeni düzenlemeler korunuyor. Açmak için akışı yeniden seç."); return; }
-      setAkis(payload.akis as Akis); setHedef(null);
+      const dogru = akisiDogrula(payload.akis);
+      if (!dogru) { setFlowError({ message: "Kayıtlı akış verisi geçersiz ya da bozuk; açılamadı.", retry: () => void yukle(id, original) }); return; }
+      setAkis(dogru); setHedef(null);
+      temelImza.current = duzenlemeImzasi(dogru);
     } catch (reason) { if (generation === owner.current) setFlowError({ message: errorMessage(reason), retry: () => void yukle(id, original) }); }
     finally { if (generation === owner.current) { loadGuard.current = false; setLoadPending(false); } }
   };
 
+  const yeniAkis = () => {
+    const taze = baslangicAkisi(secenekler[0]?.deger);
+    setAkis(taze); setHedef(null);
+    temelImza.current = duzenlemeImzasi(taze);
+  };
+
   const indir = async (yol: string) => {
-    const hedef = await chooseSavePath(yol.split("/").pop() ?? "gorsel.png");
-    if (!hedef) return;
-    const sonuc = await istek("gorsel.kaydet", { yol, hedef }).catch((reason) => ({ ok: false, metin: String(reason) }) as Record<string, unknown>);
-    setBilgi(sonuc.ok === true ? `Kaydedildi: ${hedef}` : String(sonuc.metin ?? "Kaydedilemedi."));
+    try {
+      const hedef = await chooseSavePath(dosyaAdi(yol) || "gorsel.png");
+      if (!hedef) return;
+      const sonuc = await istek("gorsel.kaydet", { yol, hedef }).catch((reason) => ({ ok: false, metin: errorMessage(reason) }) as Record<string, unknown>);
+      setBilgi(sonuc.ok === true ? `Kaydedildi: ${hedef}` : String(sonuc.metin ?? "Kaydedilemedi."));
+    } catch (reason) {
+      // Kayıt penceresi reddedilirse işlenmemiş söz reddi kalmaz; kullanıcı nedenini görür (U3-12).
+      setBilgi(`Kaydedilemedi: ${errorMessage(reason)}`);
+    }
   };
 
   const galeridenSec = (yol: string) => {
@@ -289,11 +345,18 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
       {mod === "akis" && <>
       <div aria-label="Akış araçları" className="image-create__toolbar" role="toolbar">
         <input aria-label="Akış adı" onChange={(event) => setAkis({ ...akis, ad: event.target.value })} value={akis.ad} />
-        <select disabled={loadPending} aria-label="Kayıtlı akışlar" onChange={(event) => void yukle(event.target.value)} value="">
+        <select disabled={loadPending} aria-label="Kayıtlı akışlar" onChange={(event) => {
+          const id = event.target.value;
+          if (id && duzenlemeImzasi(akis) !== temelImza.current) setOnayBekleyen({ tur: "yukle", id });
+          else void yukle(id);
+        }} value="">
           <option value="">Kayıtlı akışlar</option>
           {kayitlilar.map((item) => <option key={item.id} value={item.id}>{item.ad}</option>)}
         </select>
-        <button disabled={calisiyor} onClick={() => { setAkis(baslangicAkisi(secenekler[0]?.deger)); setHedef(null); }} type="button">Yeni</button>
+        <button disabled={calisiyor} onClick={() => {
+          if (duzenlemeImzasi(akis) !== temelImza.current) { setOnayBekleyen({ tur: "yeni" }); return; }
+          yeniAkis();
+        }} type="button">Yeni</button>
         <button disabled={calisiyor || !client || savePending} onClick={() => void kaydet()} type="button">Kaydet</button>
         <button className="image-create__run" disabled={calisiyor || !client || imageJobs.blocked || discovery.states.providers.status !== "ready"} onClick={() => void calistir(hedef)} type="button">
           {calisiyor ? "Çalışıyor…" : "Çalıştır"}
@@ -301,6 +364,13 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
         {hedef && <button disabled={calisiyor || !client || imageJobs.blocked || discovery.states.providers.status !== "ready"} onClick={() => void calistir()} type="button">Tüm akışı çalıştır</button>}
       </div>
       </>}
+      {onayBekleyen && (
+        <p role="alert">
+          Kaydedilmemiş düzenlemeler silinecek. Devam edilsin mi?{" "}
+          <button onClick={() => { const bekleyen = onayBekleyen; setOnayBekleyen(null); if (bekleyen.tur === "yeni") yeniAkis(); else void yukle(bekleyen.id); }} type="button">Sil ve devam et</button>{" "}
+          <button onClick={() => setOnayBekleyen(null)} type="button">Vazgeç</button>
+        </p>
+      )}
       {discovery.states.providers.status === "ready" && !secenekler.length && client && (
         <p className="image-create__error" role="alert">Görsel üretebilen bağlı sağlayıcı yok. Ayarlar → Sağlayıcılar'dan NVIDIA NIM anahtarı ekle ya da Gemini web'e bağlan.</p>
       )}
@@ -337,8 +407,8 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
               const adres = toUrl(gorsel.yol);
               return (
                 <li className="image-create__tile" key={gorsel.yol}>
-                  <button aria-label={`${gorsel.istem || "Görsel"} büyük aç`} className="image-create__open" onClick={() => setAcik(sira)} type="button">
-                    {adres ? <img alt={gorsel.istem || "Üretilen görsel"} loading="lazy" src={adres} /> : <div className="image-create__noimg">{gorsel.yol.split("/").pop()}</div>}
+                  <button aria-label={`${gorsel.istem || (gorsel.toparlanan ? "Toparlanan görsel" : "Görsel")} büyük aç`} className="image-create__open" onClick={() => setAcik(sira)} type="button">
+                    {adres ? <img alt={gorsel.istem || (gorsel.toparlanan ? "Toparlanan görsel" : "Üretilen görsel")} loading="lazy" src={adres} /> : <div className="image-create__noimg">{dosyaAdi(gorsel.yol)}</div>}
                   </button>
                   <div className="image-create__overlay">
                     <p>{gorsel.istem}</p>
@@ -357,9 +427,14 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
             aria-label="Nasıl bir görsel istiyorsun?"
             onChange={(event) => setBasitAkis(dugumGuncelle(basitAkis, "metin-1", { istem: event.target.value }))}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              // WebKit'te IME onayı veren Enter'da `compositionend` keydown'dan önce gelir ve
+              // `isComposing` false olur; `keyCode 229` o durumu yakalar (U3-04).
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) {
                 event.preventDefault();
-                if (!calisiyor && client && basitIstem.trim()) void calistir();
+                if (calisiyor) { setBilgi("Üretim sürüyor; bitmesini bekle ya da Durdur'a bas."); return; }
+                if (!client) { setBilgi("Çekirdek bağlı değil."); return; }
+                if (!basitIstem.trim()) { setBilgi("Önce nasıl bir görsel istediğini yaz."); return; }
+                void calistir();
               }
             }}
             placeholder="Görselini tarif et…"
@@ -388,6 +463,7 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
                 );
               })}
             </div>
+            {calisiyor && <button className="image-create__stop" onClick={durdur} type="button">Durdur</button>}
             <button aria-label="Görsel oluştur" className="image-create__go" disabled={calisiyor || !client || imageJobs.blocked || discovery.states.providers.status !== "ready"} onClick={() => void calistir()} title={calisiyor ? "Üretiliyor…" : "Görsel oluştur"} type="button">
               {calisiyor ? <span className="image-create__spinner" /> : <Icon name="arrowUp" size={18} />}
             </button>
@@ -407,12 +483,12 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
           </div>
           <aside className="image-create__viewer-side">
             <h2>İstem</h2>
-            <p>{acikGorsel.istem || "İstem kaydı yok."}</p>
+            <p>{acikGorsel.istem || (acikGorsel.toparlanan ? "Kurtarılan işten geldi; istem kaydı yok." : "İstem kaydı yok.")}</p>
             <dl>
               <dt>Model</dt><dd>{acikGorsel.saglayici || "—"}</dd>
               {acikGorsel.genislik > 0 && <><dt>Boyut</dt><dd>{acikGorsel.genislik}×{acikGorsel.yukseklik}</dd></>}
             </dl>
-            <button className="image-create__reuse" onClick={() => { setBasitAkis(dugumGuncelle(basitAkis, "metin-1", { istem: acikGorsel.istem })); setMod("basit"); setAcik(null); }} type="button">İstemi yeniden kullan</button>
+            {acikGorsel.istem && <button className="image-create__reuse" onClick={() => { setBasitAkis(dugumGuncelle(basitAkis, "metin-1", { istem: acikGorsel.istem })); setMod("basit"); setAcik(null); }} type="button">İstemi yeniden kullan</button>}
             <div className="image-create__acts image-create__acts--side">{eylemler(acikGorsel.yol)}</div>
             <ImageReview image={acikGorsel} images={galeri} scope={jobScope ?? "legacy-local"} comparison={comparisonImage?.yol ?? ""} onCompare={other => setComparison({ source: acikGorsel.yol, other })} drafts={noteDrafts.current} />
           </aside>

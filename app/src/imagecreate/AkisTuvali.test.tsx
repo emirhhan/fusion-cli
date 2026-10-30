@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Akis } from "./akis";
 import { AkisTuvali } from "./AkisTuvali";
@@ -89,5 +89,38 @@ describe("AkisTuvali — Flora benzeri etkileşim", () => {
     const onChange = ciz(akis());
     fireEvent.change(screen.getByLabelText("Üret varyasyon sayısı"), { target: { value: "3" } });
     expect((onChange.mock.calls.at(-1)?.[0] as Akis).dugumler[1].adet).toBe(3);
+  });
+});
+
+describe("AkisTuvali — dalga 4 (U3-06, U3-13, U3-14)", () => {
+  it("Ctrl+tekerlek pasif olmayan dinleyiciyle yakınlaştırır ve sayfa varsayılanını engeller", () => {
+    ciz(akis());
+    const tuval = screen.getByRole("region", { name: "Görsel iş akışı tuvali" });
+    const olay = new WheelEvent("wheel", { ctrlKey: true, deltaY: -100, cancelable: true, bubbles: true });
+    act(() => { tuval.dispatchEvent(olay); });
+    expect(olay.defaultPrevented).toBe(true);
+    expect(screen.getByRole("button", { name: "Görünümü sıfırla" }).textContent).toBe("110%");
+    const duz = new WheelEvent("wheel", { deltaY: -100, cancelable: true, bubbles: true });
+    act(() => { tuval.dispatchEvent(duz); });
+    expect(duz.defaultPrevented).toBe(false);
+  });
+
+  it("işaretçi iptal olunca yarım kalan düğüm sürüklemesi sonraki harekette sürmez", () => {
+    const onChange = ciz(akis());
+    const tuval = screen.getByRole("region", { name: "Görsel iş akışı tuvali" });
+    const baslik = document.querySelector('[data-dugum-id="m"] header') as HTMLElement;
+    fireEvent.pointerDown(baslik, { clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(tuval, { clientX: 40, clientY: 40 });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    fireEvent.pointerCancel(tuval);
+    fireEvent.pointerMove(tuval, { clientX: 90, clientY: 90 });
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("seçili sağlayıcı artık seçenekte yoksa select boş görünmez, kullanılamıyor diye işaretlenir", () => {
+    ciz({ ...akis(), dugumler: [...akis().dugumler.slice(0, 1), { id: "u", tur: "uret", x: 300, y: 0, saglayici: "eski/sağlayıcı" }] });
+    const secim = screen.getByLabelText("Üret sağlayıcısı") as HTMLSelectElement;
+    expect(secim.value).toBe("eski/sağlayıcı");
+    expect(screen.getByRole("option", { name: "eski/sağlayıcı (kullanılamıyor)" })).toBeTruthy();
   });
 });

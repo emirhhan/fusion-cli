@@ -1,3 +1,4 @@
+import { errorMessage } from "../protocol/result";
 import { atalar, calismaSirasi, dugumGuncelle, girdiler, MAX_ADET, type Akis, type Dugum, type Islem } from "./akis";
 
 export interface UretilenGorsel {
@@ -6,6 +7,8 @@ export interface UretilenGorsel {
   yukseklik: number;
   istem: string;
   saglayici: string;
+  /** Kurtarılan işten gelen görsel: istem bilinmez (U3-02). */
+  toparlanan?: boolean;
 }
 
 export type IstekFn = (name: string, data: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -134,7 +137,7 @@ async function tekUretim(
       ...(veri.oran && veri.oran !== "1:1" ? { oran: veri.oran } : {}),
     });
   } catch (reason) {
-    return { hata: `Görsel üretilemedi: ${String(reason)}`, kod: "" };
+    return { hata: `Görsel üretilemedi: ${errorMessage(reason)}`, kod: "" };
   }
   const dosyalar = sonuc.ok === true && Array.isArray(sonuc.dosyalar)
     ? (sonuc.dosyalar as unknown[])

@@ -194,7 +194,16 @@
 .image-create__tile:hover .image-create__overlay,
 .image-create__tile:focus-within .image-create__overlay { opacity: 1; }
 .image-create__overlay p { -webkit-box-orient: vertical; -webkit-line-clamp: 2; display: -webkit-box; font-size: 13px; line-height: 1.35; margin: 0; overflow: hidden; }
-.image-create__acts { display: flex; flex-wrap: wrap; gap: 6px; pointer-events: auto; }
+/* Eylem düğmeleri görünmezken (opacity 0) dokunmayı yutmasın; yalnız üzerine gelince/odakta etkin (U3-15). */
+.image-create__acts { display: flex; flex-wrap: wrap; gap: 6px; pointer-events: none; }
+.image-create__tile:hover .image-create__acts,
+.image-create__tile:focus-within .image-create__acts,
+.image-create__acts--side { pointer-events: auto; }
+/* Üzerine gelme olmayan (dokunmatik) cihazlarda eylem çubuğu hep görünür. */
+@media (hover: none) {
+  .image-create__overlay { opacity: 1; }
+  .image-create__tile .image-create__acts { pointer-events: auto; }
+}
 .image-create__act {
   align-items: center; backdrop-filter: blur(8px); background: rgb(255 255 255 / 18%); border: 0; border-radius: 50%;
   color: #fff; cursor: pointer; display: inline-flex; height: 32px; justify-content: center; padding: 0; width: 32px;

@@ -75,3 +75,17 @@ describe("bitmiş düğümün çıktı dosyası diskten silinmişse", () => {
     expect(son.dugumler.find((d) => d.id === "b")?.hata).toMatch(/diskte|galeride|yeniden seç/i);
   });
 });
+
+it("istek reddedilince hata metni 'Error:' öneki taşımaz (U3-19)", async () => {
+  const hatali = async () => { throw new Error("Önce bekleyen görsel işlerinin bitmesi gerekir."); };
+  const sonuc = await akisiCalistir({
+    ad: "x",
+    dugumler: [
+      { id: "m", tur: "metin", x: 0, y: 0, istem: "kask" },
+      { id: "u", tur: "uret", x: 0, y: 0, saglayici: "p" },
+    ],
+    baglantilar: [{ kaynak: "m", hedef: "u" }],
+  }, hatali, () => undefined);
+  const hata = sonuc.dugumler.find((dugum) => dugum.id === "u")?.hata ?? "";
+  expect(hata).toBe("Görsel üretilemedi: Önce bekleyen görsel işlerinin bitmesi gerekir.");
+});
