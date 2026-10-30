@@ -22,7 +22,9 @@ export function projectName(root: string): string {
 const HOME_PARENTS = new Set(["users", "home"]);
 
 export function isProjectRoot(root: string): boolean {
-  const bolumler = parts(root.trim());
+  let bolumler = parts(root.trim());
+  // Windows sürücü harfi ("C:") yolun seviyesi değildir: `C:\Users\ad` ev dizinidir (U4-57).
+  if (bolumler.length > 0 && /^[A-Za-z]:$/.test(bolumler[0])) bolumler = bolumler.slice(1);
   if (bolumler.length === 0) return false;
   // "C:\" tek parçadır ve sürücü köküdür.
   if (bolumler.length === 1) return false;

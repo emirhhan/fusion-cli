@@ -935,10 +935,12 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       const name = projectName(session.root);
       roots.set(session.root, { name, root: session.root, updatedAt: session.updatedAt });
     }
-    const now = Date.now();
+    // Açık projenin zamanı oturumun gerçek son etkinliğidir; hepsine `now` yazmak açık projeler
+    // arasındaki sırayı belirsiz bırakıyordu (U4-59).
     sessions.forEach((session) => {
       const name = projectName(session.root);
-      roots.set(session.root, { name, root: session.root, updatedAt: now });
+      const onceki = roots.get(session.root)?.updatedAt ?? 0;
+      roots.set(session.root, { name, root: session.root, updatedAt: Math.max(onceki, session.updatedAt ?? 0) });
     });
     return [...roots.values()]
       .filter((project) => isProjectRoot(project.root))
