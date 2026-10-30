@@ -26,7 +26,7 @@ class CostTracker:
     """Oturum boyunca token ve maliyet biriktiren dinleyici."""
 
     def __init__(self) -> None:
-        self._by_role: dict[str, TokenUsage] = defaultdict(TokenUsage)
+        self._by_role: dict[str, TokenUsage] = {}
         self._calls: dict[str, int] = defaultdict(int)
         self._failed_calls = 0
         self._abandoned_calls = 0
@@ -43,14 +43,21 @@ class CostTracker:
             return
         if event.result.usage.completeness != "complete":
             self._unmeasured_calls += 1
-        self._by_role[event.role] = self._by_role[event.role] + event.result.usage
+        # Birim eleman `TokenUsage()` ölçüm bayraklarını VE'ler: ilk kullanım doğrudan
+        # alınır. Ölçüldü (30 Ekim): tüm çağrılar ölçülmüş olsa da toplam "unknown" çıkıyordu.
+        onceki = self._by_role.get(event.role)
+        usage = event.result.usage
+        self._by_role[event.role] = usage if onceki is None else onceki + usage
         self._calls[event.role] += 1
 
     @property
     def total(self) -> TokenUsage:
         """Tüm rollerin toplamı."""
-        combined = TokenUsage()
-        for usage in self._by_role.values():
+        usages = list(self._by_role.values())
+        if not usages:
+            return TokenUsage()
+        combined = usages[0]
+        for usage in usages[1:]:
             combined = combined + usage
         return combined
 
