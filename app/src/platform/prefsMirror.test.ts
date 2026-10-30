@@ -58,7 +58,8 @@ describe("arayüz tercihi yedeği", () => {
     proto.setItem("fusion.submissions.y", "taslak");
     proto.removeItem("fusion.layout");
     expect(c.request).toHaveBeenCalledWith("ayar.arayuz_kaydet", { anahtar: "fusion.layout", deger: "x" });
-    expect(c.request).toHaveBeenCalledWith("ayar.arayuz_kaydet", { anahtar: "fusion.layout", deger: null });
+    // Aynı anahtarın ikinci yazımı ilk istek sürerken birleştirilir ve bitince gider (U6-09).
+    await vi.waitFor(() => expect(c.request).toHaveBeenCalledWith("ayar.arayuz_kaydet", { anahtar: "fusion.layout", deger: null }));
     expect(c.request).toHaveBeenCalledTimes(2);
     restore();
     proto.setItem("fusion.layout", "z");
@@ -130,5 +131,26 @@ describe("arayüz tercihi yedeği", () => {
     await new Promise((cozumle) => setTimeout(cozumle, 20));
     process.off("unhandledRejection", yakalanmayan);
     expect(yakalanmayan).not.toHaveBeenCalled();
+  });
+});
+
+describe("arayüz tercihi yedeği — yazım birleştirme (U6-09)", () => {
+  it("sürükleme gibi art arda yazımlarda yalnız ilk ve son değer gönderilir", async () => {
+    const proto = fakeStorage();
+    const c = client({});
+    installPrefsMirror(c, vi.fn(), proto as unknown as Storage);
+    for (let genislik = 300; genislik < 340; genislik += 1) proto.setItem("fusion.inspector.layout.v1", String(genislik));
+    await vi.waitFor(() => expect(c.request).toHaveBeenCalledTimes(2));
+    expect(c.request).toHaveBeenNthCalledWith(1, "ayar.arayuz_kaydet", { anahtar: "fusion.inspector.layout.v1", deger: "300" });
+    expect(c.request).toHaveBeenNthCalledWith(2, "ayar.arayuz_kaydet", { anahtar: "fusion.inspector.layout.v1", deger: "339" });
+  });
+
+  it("farklı anahtarlar birbirini beklemez", () => {
+    const proto = fakeStorage();
+    const c = client({});
+    installPrefsMirror(c, vi.fn(), proto as unknown as Storage);
+    proto.setItem("fusion.layout", "a");
+    proto.setItem("fusion.theme", "dark");
+    expect(c.request).toHaveBeenCalledTimes(2);
   });
 });

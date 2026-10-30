@@ -84,7 +84,7 @@
   /* En soldaki ana menü rayı; 72px'lik macOS trafik ışığı kümesini kaplar. */
   --main-rail-width: 52px;
   --main-rail-width-narrow: 52px;
-  --inspector-width: 420px;
+  --inspector-width: 360px; /* useInspectorLayout.INSPECTOR_DEFAULT_WIDTH ile aynı (U6-36) */
   --sidebar-rail-width: 68px;
   /* ChatGPT okuma kolonu: 48rem. */
   --icerik-en-fazla: 768px;

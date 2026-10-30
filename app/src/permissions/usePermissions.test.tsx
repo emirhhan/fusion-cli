@@ -252,3 +252,30 @@ describe("usePermissions", () => {
     expect(result.current.activeKind).toBeNull();
   });
 });
+
+describe("usePermissions — dalga 4", () => {
+  it("açıklama kaydı yazılamasa da izin isteği ilerler ve hook çökmez (U6-12)", async () => {
+    const storage = { getItem: () => null, setItem: () => { throw new DOMException("quota", "QuotaExceededError"); } } as unknown as Storage;
+    const bridge = { request: vi.fn().mockResolvedValue("granted"), openSettings: vi.fn() };
+    const { result } = renderHook(() => usePermissions(bridge, storage));
+    let granted!: Promise<boolean>;
+    act(() => { granted = result.current.ensure("microphone"); });
+    await act(async () => { await result.current.continue(); });
+    await expect(granted).resolves.toBe(true);
+    expect(bridge.request).toHaveBeenCalledWith("microphone");
+  });
+
+  it("iptal edilmiş istekten sonra gelen 'granted' durumu önbelleğe yazılır (U6-13)", async () => {
+    let finish!: (state: "granted") => void;
+    const bridge = { request: vi.fn(() => new Promise<"granted">((resolve) => { finish = resolve; })), openSettings: vi.fn() };
+    const storage = { getItem: () => JSON.stringify({ microphone: true }), setItem: vi.fn() } as unknown as Storage;
+    const { result } = renderHook(() => usePermissions(bridge, storage));
+    let first!: Promise<boolean>;
+    act(() => { first = result.current.ensure("microphone"); });
+    act(() => { result.current.dismiss(); });
+    await expect(first).resolves.toBe(false);
+    await act(async () => { finish("granted"); });
+    await expect(result.current.ensure("microphone")).resolves.toBe(true);
+    expect(bridge.request).toHaveBeenCalledTimes(1);
+  });
+});

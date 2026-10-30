@@ -8,6 +8,7 @@ import "./theme/tokens.css";
 import "./brand/brand.css";
 import "./App.css";
 import { applyTheme, readThemePreference } from "./theme/theme";
+import { RenderErrorBoundary } from "./ui/RenderErrorBoundary";
 
 applyTheme(readThemePreference());
 const nativeMainWindow = "__TAURI_INTERNALS__" in window && !isVoiceWindow();
@@ -22,6 +23,8 @@ if (nativeMainWindow && isMacOS()) document.documentElement.dataset.fusionTitleb
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    {isVoiceWindow() ? <VoiceWindow /> : <App />}
+    <RenderErrorBoundary>
+      {isVoiceWindow() ? <VoiceWindow /> : <App />}
+    </RenderErrorBoundary>
   </React.StrictMode>,
 );

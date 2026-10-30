@@ -93,11 +93,23 @@ export function installPrefsMirror(
   const originalSet = proto.setItem;
   const originalRemove = proto.removeItem;
   const originalClear = proto.clear;
+  // Aynı anahtar için istek sürerken gelen yazımlar birleştirilir: panel genişliği sürüklenirken
+  // her fare hareketi ayrı bir RPC açıyordu (U6-09). İlk yazım hemen gider, sürerken gelenlerin
+  // yalnız SONUNCUSU bitişte gönderilir; zamanlayıcı yok, son değer asla kaybolmaz.
+  const suren = new Map<string, { bekleyen?: { deger: string | null } }>();
   const send = (key: string, value: string | null) => {
     if (!isMirroredKey(key)) return;
+    const durum = suren.get(key);
+    if (durum) { durum.bekleyen = { deger: value }; return; }
+    suren.set(key, {});
     void client.request("ayar.arayuz_kaydet", { anahtar: key, deger: value })
       .then((result) => { if (result.ok !== true) onError(String(result.metin ?? "Tercih kaydedilemedi.")); })
-      .catch((reason: unknown) => onError(`Tercih kaydedilemedi: ${String(reason)}`));
+      .catch((reason: unknown) => onError(`Tercih kaydedilemedi: ${String(reason)}`))
+      .finally(() => {
+        const bekleyen = suren.get(key)?.bekleyen;
+        suren.delete(key);
+        if (bekleyen) send(key, bekleyen.deger);
+      });
   };
   const izlenen = (depo: unknown) => kaynak === undefined || depo === kaynak;
   proto.setItem = function patchedSet(this: Storage, key: string, value: string) {
