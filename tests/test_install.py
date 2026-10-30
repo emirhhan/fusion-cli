@@ -295,3 +295,63 @@ def test_yazilamayan_dosyada_patlamaz(tmp_path, yazma_yasagi_kurulabilir):
     assert sonuc.changed is False
     assert sonuc.error, "başarısızlık sebebi bildirilmeli"
     rc.chmod(0o600)
+
+
+# --- Dalga 4: purge onayı ve başarısız silme raporu (L1-10) ------------------- #
+
+
+def _purge_ortami(tmp_path, monkeypatch):
+    from fusion_cli.cli import maintenance
+
+    config_dir = tmp_path / "config"
+    memory = tmp_path / "memory"
+    for yol in (config_dir, memory):
+        yol.mkdir()
+        (yol / "dosya").write_text("veri", encoding="utf-8")
+    monkeypatch.setattr(maintenance, "user_config_dir", lambda: config_dir)
+    monkeypatch.setattr(maintenance, "memory_dir", lambda: memory)
+    return maintenance, config_dir, memory
+
+
+def test_purge_silinemeyen_dizini_raporlar_sessiz_gecmez(tmp_path, monkeypatch):
+    maintenance, config_dir, memory = _purge_ortami(tmp_path, monkeypatch)
+    gercek = maintenance.shutil.rmtree
+
+    def _bellegi_silme(yol, *a, **k):
+        if yol == memory:
+            raise PermissionError("izin yok")
+        return gercek(yol, *a, **k)
+
+    monkeypatch.setattr(maintenance.shutil, "rmtree", _bellegi_silme)
+
+    sonuc = maintenance.purge_user_data_report(dry_run=False)
+
+    assert sonuc.removed == (config_dir,)
+    assert [yol for yol, _ in sonuc.failed] == [memory]
+    assert "izin yok" in sonuc.failed[0][1]
+
+
+def test_uninstall_purge_onay_vermeyince_hicbir_sey_silmez(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from fusion_cli.cli.app import app
+
+    _, config_dir, memory = _purge_ortami(tmp_path, monkeypatch)
+
+    sonuc = CliRunner().invoke(app, ["uninstall", "--purge"], input="n\n")
+
+    assert sonuc.exit_code == 1
+    assert (config_dir / "dosya").exists() and (memory / "dosya").exists()
+
+
+def test_uninstall_purge_yes_ile_onaysiz_siler(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from fusion_cli.cli.app import app
+
+    _, config_dir, memory = _purge_ortami(tmp_path, monkeypatch)
+
+    sonuc = CliRunner().invoke(app, ["uninstall", "--purge", "--yes"])
+
+    assert sonuc.exit_code == 0
+    assert not config_dir.exists() and not memory.exists()

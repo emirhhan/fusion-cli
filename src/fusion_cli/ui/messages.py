@@ -773,6 +773,12 @@ MAINT_DATA_KEPT = (
 )
 MAINT_REMOVED = "silindi:"
 MAINT_NOTHING_TO_PURGE = "silinecek kullanıcı verisi yok."
+MAINT_PURGE_CONFIRM = (
+    "Bu dizinler KALICI olarak silinecek (çöpe taşınmaz; API anahtarları ve öğrenilen "
+    "dersler dahil). Devam edilsin mi?"
+)
+MAINT_PURGE_ABORTED = "silme iptal edildi; hiçbir şey silinmedi."
+MAINT_PURGE_FAILED = "silinemedi: {path} ({reason})"
 
 # --- PATH kurulumu --------------------------------------------------------- #
 PATH_MISSING = "`fusion` komutu PATH'te değil ({bin_dir} eksik)."

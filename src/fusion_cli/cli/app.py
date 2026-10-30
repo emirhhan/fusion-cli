@@ -217,9 +217,17 @@ def uninstall(
             help="Yapılandırma, anahtarlar ve belleği de sil (varsayılan: KORUNUR).",
         ),
     ] = False,
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="--purge için onay sorma (betikler).")
+    ] = False,
 ) -> None:
     """Fusion'ı nasıl kaldıracağını göster; istenirse kullanıcı verisini sil."""
-    from .maintenance import current_method, purge_user_data, uninstall_instructions
+    from .maintenance import (
+        current_method,
+        purge_targets,
+        purge_user_data_report,
+        uninstall_instructions,
+    )
 
     console.print(messages.MAINT_METHOD.format(method=current_method().value))
     console.print()
@@ -228,11 +236,27 @@ def uninstall(
     if not purge:
         console.print(f"[{theme.DIM}]{messages.MAINT_DATA_KEPT}[/{theme.DIM}]")
         return
-    silinen = purge_user_data(dry_run=False)
-    for yol in silinen:
-        console.print(f"[{theme.OK}]{theme.ICON_OK}[/{theme.OK}] {messages.MAINT_REMOVED} {yol}")
-    if not silinen:
+    hedefler = purge_targets()
+    if not hedefler:
         console.print(f"[{theme.DIM}]{messages.MAINT_NOTHING_TO_PURGE}[/{theme.DIM}]")
+        return
+    # Kalıcı silme onaysız yapılmaz: Ölçüldü (30 Ekim) `--purge` tek başına anahtarları
+    # ve belleği soru sormadan `rmtree` ediyordu (L1-10).
+    for yol in hedefler:
+        console.print(f"  {escape(str(yol))}")
+    if not yes and not typer.confirm(messages.MAINT_PURGE_CONFIRM, default=False):
+        console.print(f"[{theme.DIM}]{messages.MAINT_PURGE_ABORTED}[/{theme.DIM}]")
+        raise typer.Exit(1)
+    sonuc = purge_user_data_report(dry_run=False)
+    for yol in sonuc.removed:
+        console.print(
+            f"[{theme.OK}]{theme.ICON_OK}[/{theme.OK}] {messages.MAINT_REMOVED} {escape(str(yol))}"
+        )
+    for yol, sebep in sonuc.failed:
+        hata = messages.MAINT_PURGE_FAILED.format(path=yol, reason=sebep)
+        console.print(f"[{theme.ERROR}]{theme.ICON_ERROR} {escape(hata)}[/{theme.ERROR}]")
+    if sonuc.failed:
+        raise typer.Exit(1)
 
 
 @app.command()
