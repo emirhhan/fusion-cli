@@ -125,3 +125,53 @@ def test_minimum_ve_min_items():
     assert validate_arguments(sema, {"n": 0, "l": []}) != ()
     assert len(validate_arguments(sema, {"n": 0, "l": []})) == 2
     assert validate_arguments(sema, {"n": 1, "l": [1]}) == ()
+
+
+# --- T1-54: emulation_eval ---------------------------------------------------
+
+from fusion_cli.tools.emulation_eval import EvalCase, score_emulation  # noqa: E402
+
+_OKU_SEMA = {
+    "parameters": {
+        "type": "object",
+        "properties": {"path": {"type": "string"}},
+        "required": ["path"],
+    }
+}
+
+
+def _cagri(argumanlar: str) -> str:
+    return f'<tool_call>{{"name":"read_file","arguments":{argumanlar}}}</tool_call>'
+
+
+def test_ayristirilamayan_cagri_sema_ve_arguman_metriklerini_dusurur():
+    """Hiç çağrı üretemeyen model şema/argüman metrikinde 1.0 alıyordu."""
+    durumlar = [
+        EvalCase("üzgünüm", "read_file", expected_arguments={"path": "a"}, schema=_OKU_SEMA)
+        for _ in range(3)
+    ]
+
+    puan = score_emulation(durumlar)
+
+    assert puan.schema_validity == 0.0 and puan.argument_preservation == 0.0
+    assert puan.schema_validity_measured == 3
+    assert not puan.passes()
+
+
+def test_bozuk_arguman_json_i_istisna_atmaz():
+    durum = EvalCase(
+        _cagri('{"path": "a"'), "read_file", expected_arguments={"path": "a"}, schema=_OKU_SEMA
+    )
+
+    puan = score_emulation([durum] * 3)  # bozuk JSON: çağrı ayrıştırılamaz ya da arg bozuk
+
+    assert not puan.passes()
+
+
+def test_olcum_yoksa_ya_da_cok_azsa_gecmez():
+    """0 ölçümde 1.0 "geçti" sayılmamalı; 2 senaryoda %100 da anlamsız (`min_cases`)."""
+    assert not score_emulation([]).passes()
+    iki = [EvalCase(_cagri('{"path": "a"}'), "read_file", schema=_OKU_SEMA)] * 2
+    assert not score_emulation(iki).passes()
+    uc = [EvalCase(_cagri('{"path": "a"}'), "read_file", schema=_OKU_SEMA)] * 3
+    assert score_emulation(uc).passes()

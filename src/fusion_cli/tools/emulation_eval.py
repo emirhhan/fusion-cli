@@ -39,6 +39,9 @@ class Thresholds:
     schema_validity: float = 0.98
     argument_preservation: float = 0.98
     no_false_calls: float = 0.99
+    #: Geçmek için en az kaç senaryo ÖLÇÜLMÜŞ olmalı. Ölçüm yokken ya da bir-iki
+    #: senaryoda "%100" anlamsızdır (ölçüldü, 30 Ekim: 0 ölçümde 1.0 "geçti" sayılıyordu).
+    min_cases: int = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +51,9 @@ class EmulationEvalScore:
     Sayaçlar rapor için zorunludur: payda sıfırken oran 1.0 döner ("uygulanamadı"
     cezalandırılmaz) ama bu ekranda "%100" olarak görünür ve ölçülmemiş bir şey
     mükemmel sanılır. Ölçüldü — Gemini hiçbir senaryoda ayrıştırılabilir çağrı
-    üretmedi; şema ve argüman metrikleri hiç uygulanamadığı hâlde %100 raporlandı.
+    üretmedi; şema ve argüman metrikleri %100 raporlandı. Şimdi çağrı üretilemeyen
+    senaryo bu metriklerde BAŞARISIZLIKTIR (payda şemalı/beklenen argümanlı senaryo
+    sayısıdır); sayaç 0 yalnız senaryoda şema/beklenen argüman hiç tanımlı değilse kalır.
     """
 
     tool_selection: float
@@ -64,6 +69,9 @@ class EmulationEvalScore:
     def passes(self, thresholds: Thresholds | None = None) -> bool:
         """Tüm metrikler eşiği geçiyor mu? Eşik verilmezse §5.3 varsayılanları."""
         thresholds = thresholds or DEFAULT_THRESHOLDS
+        olculen = self.tool_selection_measured + self.no_false_calls_measured
+        if olculen < thresholds.min_cases:
+            return False
         return (
             self.tool_selection >= thresholds.tool_selection
             and self.schema_validity >= thresholds.schema_validity
@@ -79,6 +87,15 @@ DEFAULT_THRESHOLDS = Thresholds()
 def _ratio(basari: int, toplam: int) -> float:
     """Uygulanabilir senaryo yoksa 1.0 (mükemmel): olmayan bir şeyde ceza olmaz."""
     return 1.0 if toplam == 0 else basari / toplam
+
+
+def _load_arguments(raw: str) -> dict[str, object] | None:
+    """Çağrı argümanlarını ayrıştır; bozuk JSON/nesne olmayan değer -> None (başarısızlık)."""
+    try:
+        value = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
 
 
 def score_emulation(cases: Sequence[EvalCase]) -> EmulationEvalScore:
@@ -102,18 +119,24 @@ def score_emulation(cases: Sequence[EvalCase]) -> EmulationEvalScore:
         dogru_arac = ilk is not None and ilk.name == case.expected_tool
         secim_basari += 1 if dogru_arac else 0
 
-        if ilk is not None and case.schema is not None:
-            sema_toplam += 1
-            hatalar = validate_arguments(case.schema, json.loads(ilk.arguments))
-            sema_basari += 1 if not hatalar else 0
+        # Çağrı hiç ayrıştırılamadıysa şema/argüman metrikleri 1.0 DEĞİL başarısızlıktır
+        # (eskiden yalnız `tool_selection` düşüyor, ayrıntı raporu yanıltıyordu). Bozuk
+        # argüman JSON'u da istisna değil başarısızlıktır: ölçülmek istenen tam olarak budur.
+        gercek = _load_arguments(ilk.arguments) if ilk is not None else None
 
-        if ilk is not None and case.expected_arguments is not None:
+        if case.schema is not None:
+            sema_toplam += 1
+            if gercek is not None:
+                sema_basari += 0 if validate_arguments(case.schema, gercek) else 1
+
+        if case.expected_arguments is not None:
             arg_toplam += 1
+            if gercek is None:
+                continue
             # Beklenen her argüman AYNEN korunmalı; şemada geçerli ek isteğe bağlı
             # argüman (ör. `search_code`'a `path: "."`) korunumu bozmaz. Birebir eşitlik
             # istemek geçerli ve doğru çağrıları (Gemini, 18 Ekim 2026: pattern doğru,
             # path ek) başarısız sayıp dosya yazma iznini sebepsiz kapatıyordu.
-            gercek = json.loads(ilk.arguments)
             arg_basari += (
                 1
                 if all(

@@ -162,14 +162,14 @@ async def test_ham_cikti_teshis_icin_saklanir():
     assert "erişimim yok" in ilk.raw_output
 
 
-async def test_olculemeyen_metrik_sayaci_sifir_kalir():
-    """Payda sıfırken oran 1.0 döner; sayaç bunun ölçülmediğini söyler."""
+async def test_ayristirilamayan_cagri_sema_metrigini_dusurur():
+    """Hiç çağrı üretemeyen model şema/argüman metriğinde 1.0 ALMAZ (T1-54, 30 Ekim)."""
     ciktilar = ["düz metin"] * 5
 
     rapor = await probe_emulation(_config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar)))
 
-    assert rapor.score.schema_validity == 1.0
-    assert rapor.score.schema_validity_measured == 0
+    assert rapor.score.schema_validity == 0.0
+    assert rapor.score.schema_validity_measured > 0
     assert rapor.score.tool_selection_measured == 4
     assert not rapor.score.passes()
 
