@@ -2138,3 +2138,25 @@ async def test_komut_secenekleri_hatasi_genel_hataya_donusur(tmp_path, monkeypat
     await oturum.handle(Request("1", "komut.secenekler", {"ad": "model", "arguman": ""}))
 
     assert _sonuc(satirlar, "1") == {"ok": False, "metin": messages.APP_COMMAND_FAILED}
+
+
+async def test_oturum_baslat_kalici_yazma_hatasini_uyari_olarak_tasir(tmp_path, monkeypatch):
+    """Ölçüldü (30 Ekim, S2-13): `persist_*` hata metnini döndürüyor, çağrı yeri yok sayıyordu;
+    kayıt başarısızken kullanıcı 'kaydedildi' sanıyordu."""
+    from fusion_cli.appserver import session as modul
+
+    monkeypatch.setattr(modul, "persist_approval", lambda _c, _m: "İzin modu kaydedilemedi")
+    monkeypatch.setattr(modul, "persist_engine", lambda _c, _e: "Motor seçimi kaydedilemedi")
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(
+        Request(id="1", name="oturum.baslat", data={"mod": "plan", "motor": "agent"})
+    )
+    sonuc = _sonuc(satirlar, "1")
+
+    assert sonuc["ok"] is True
+    assert "İzin modu kaydedilemedi" in sonuc["uyari"] and "Motor seçimi" in sonuc["uyari"]
+
+    await oturum.handle(Request(id="2", name="oturum.baslat", data={}))
+    assert "uyari" not in _sonuc(satirlar, "2")

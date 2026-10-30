@@ -527,6 +527,8 @@ class AppSession:
         #: Pencere kullanıcı kapatana kadar yaşar; RPC onu beklemez.
         self._panel_tasks: dict[str, asyncio.Task[None]] = {}
         self._voice_background = BackgroundTasks()
+        #: Kalıcı yazması başarısız olan ayarların kullanıcıya gösterilecek uyarısı.
+        self._persist_warnings: list[str] = []
         self._turn: asyncio.Task[Any] | None = None
         self._turn_settled = asyncio.Event()
         self._turn_settled.set()
@@ -601,6 +603,7 @@ class AppSession:
             "model": self._state.config.agent.model,
             "mod": self._state.approval.value,
             "modeller": catalog.get("modeller", []),
+            **self._take_persist_warning(),
         }
 
     def _question_closed(self, question_id: str) -> None:
@@ -1431,7 +1434,7 @@ class AppSession:
         engine_error = self._apply_engine(data.get("motor"))
         if engine_error is not None:
             return engine_error
-        return self._status()
+        return {**self._status(), **self._take_persist_warning()}
 
     def _validated_root(self, value: object) -> tuple[Path | None, dict[str, Any] | None]:
         """`oturum.baslat{kok}`: mutlak, var olan bir dizin; tur sürerken değişmez.
@@ -1457,17 +1460,30 @@ class AppSession:
             return None
         try:
             mode = parse_mode(value)
-            if mode is not self._state.approval:
-                self._state.approval_memory.revoke()
-            self._state.approval = mode
-            persist_approval(self._state.config, mode)
         except ValueError:
             valid = ", ".join(mode.value for mode in ApprovalMode)
             return {
                 "ok": False,
                 "metin": messages.RUN_UNKNOWN_MODE.format(given=value, valid=valid),
             }
+        if mode is not self._state.approval:
+            self._state.approval_memory.revoke()
+        self._state.approval = mode
+        self._note_persist_warning(persist_approval(self._state.config, mode))
         return None
+
+    def _note_persist_warning(self, warning: str | None) -> None:
+        """Kalıcı yazma uyarısını sonraki yanıta taşımak üzere sakla.
+
+        Ölçüldü (30 Ekim): `persist_*` hata METNİ döndürüyor ama üç çağrı yeri onu yok sayıyordu;
+        kayıt başarısızken kullanıcı "kaydedildi" sanıyor, yeniden açılışta seçim kayboluyordu.
+        """
+        if warning:
+            self._persist_warnings.append(warning)
+
+    def _take_persist_warning(self) -> dict[str, str]:
+        warnings, self._persist_warnings = self._persist_warnings, []
+        return {"uyari": " ".join(warnings)} if warnings else {}
 
     def _change_web_session(
         self,
@@ -1655,14 +1671,15 @@ class AppSession:
         if not isinstance(value, str) or not value:
             return None
         try:
-            self._state.engine = Engine(value)
-            persist_engine(self._state.config, self._state.engine.value)
+            engine = Engine(value)
         except ValueError:
             valid = ", ".join(engine.value for engine in Engine)
             return {
                 "ok": False,
                 "metin": messages.RUN_UNKNOWN_ENGINE.format(given=value, valid=valid),
             }
+        self._state.engine = engine
+        self._note_persist_warning(persist_engine(self._state.config, engine.value))
         return None
 
     def _status(self) -> dict[str, Any]:
@@ -1823,7 +1840,8 @@ class AppSession:
             )
         if self._state.approval is not previous_approval:
             self._state.approval_memory.revoke()
-            persist_approval(self._state.config, self._state.approval)
+            self._note_persist_warning(persist_approval(self._state.config, self._state.approval))
+            result = {**result, **self._take_persist_warning()}
         # Makrolar görevi yalnız HAZIRLAR (bkz. `cli/repl/commands.py::_macro`).
         # Terminal döngüsü hazırlanan görevi hemen çalıştırıyordu; masaüstünde bu
         # adım yoktu ve `/goal` "çalıştırılıyor…" deyip hiçbir tur başlatmıyordu.
