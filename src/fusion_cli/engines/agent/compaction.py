@@ -6,6 +6,7 @@ Eski turlar tek bir özet notuna indirilir, son turlar birebir korunur. Özet
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from pathlib import Path
@@ -23,6 +24,15 @@ _LOG = logging.getLogger(__name__)
 
 _PROMPT = (Path(__file__).parent / "prompts" / "compress.txt").read_text(encoding="utf-8")
 
+#: Özet çağrısının DIŞ süre sınırı (saniye).
+#:
+#: Ölçüldü (30 Ekim, gerçek kullanım): iş bitmiş, cevap basılmıştı; tur sonu bağlam
+#: özeti web modeline gitti ve model hiç dönmedi. İstek zaman aşımı (`request_timeout_s`,
+#: 600 sn) web taşımasında her zaman uygulanmıyor ve uygulansa bile on dakikadır; tur
+#: 20 dakika boyunca tek satır çıktı basmadan asılı kaldı. Özet bir iyileştirmedir
+#: (üretilemezse geçmiş değişmez), kullanıcının bitmiş turunu bekletemez. Öğrenmenin
+#: sınırıyla (`learning_steps.LEARN_TIMEOUT_S`) aynı büyüklük.
+SUMMARY_TIMEOUT_S = 120.0
 #: Özet için ayrılan token bütçesi.
 #:
 #: Sıkıştırma eşiği yükseldiği için özetlenen geçmiş de büyüdü; 600 token artık atılan
@@ -194,6 +204,11 @@ def _summary_cut(messages: list[Message], anchor_len: int) -> int:
     return 0
 
 
+def summary_timeout_s(config: Config) -> float:
+    """Özet çağrısı için bekleme sınırı: istek zaman aşımından uzun olamaz."""
+    return min(config.runtime.request_timeout_s, SUMMARY_TIMEOUT_S)
+
+
 async def _summarize(trace: str, config: Config, publisher: EventPublisher | None) -> str:
     request = CompletionRequest(
         messages=(Message("user", _PROMPT.replace("{trace}", trace)),),
@@ -214,7 +229,12 @@ async def _summarize(trace: str, config: Config, publisher: EventPublisher | Non
             background=True,
             web_sessions=web_registry_for(config),
         )
-        result = await provider.complete(request)
+        async with asyncio.timeout(summary_timeout_s(config)):
+            result = await provider.complete(request)
+    except TimeoutError:
+        # Web taşıması sağlayıcı zaman aşımını her zaman uygulamıyor; geçmiş değişmez.
+        _LOG.info("Bağlam özeti %.0f saniyede gelmedi, atlandı", summary_timeout_s(config))
+        return ""
     except (ConfigError, ProviderError, WebBrowserError, OSError) as error:
         _LOG.warning("Bağlam özeti üretilemedi: %s", error)
         return ""
