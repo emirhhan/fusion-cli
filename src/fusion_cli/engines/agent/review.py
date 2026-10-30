@@ -11,6 +11,8 @@ Denetim başarısız olursa (zaman aşımı, bozuk yanıt) düzeltme atlanır; b
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 from pathlib import Path
 
 from ...config.models import Config
@@ -44,14 +46,34 @@ TRACE_MESSAGE_CHARS = 16_000
 FINAL_TEXT_CHARS = 4_000
 
 
+#: "TAMAM" ile başlayıp aslında itiraz taşıyan cevaplar ("TAMAM DEĞİL", "Tamam, ama X eksik").
+_CLEAN_WITH_OBJECTION = re.compile(
+    r"değil|\bama\b|fakat|ancak|\beksik\b|hata var|sorun var", re.IGNORECASE
+)
+#: Temiz karar anlamına gelen serbest ifadeler: bunlar düzeltme talimatı DEĞİLDİR.
+_CLEAN_PHRASES = re.compile(
+    r"^\W*(?:sorun yok|bir sorun (?:bulamad|yok)|sorun bulunamad|hiçbir sorun)", re.IGNORECASE
+)
+
+
 def parse_feedback(text: str) -> str:
-    """Denetçi çıktısını düzeltme talimatına çevir; sorun yoksa boş metin."""
+    """Denetçi çıktısını düzeltme talimatına çevir; sorun yoksa boş metin.
+
+    Ölçüldü (29 Ekim, A4-50): `startswith("TAMAM")` "TAMAM DEĞİL: …" ve "Tamam, ama X
+    eksik" cevaplarını temiz sayıp gerçek bir sorunu yutuyordu; "Sorun yok" ise sahte bir
+    düzeltme turu açıyordu.
+    """
     verdict = (text or "").strip()
     if not verdict or len(verdict) < MIN_INSTRUCTION_CHARS:
         return ""
     if verdict.upper().startswith(CLEAN_VERDICT):
+        return "" if _CLEAN_WITH_OBJECTION.search(verdict[:120]) is None else verdict
+    if _CLEAN_PHRASES.match(verdict):
         return ""
     return verdict
+
+
+_PLACEHOLDER = re.compile(r"\{(task|trace|final)\}")
 
 
 async def review_turn(
@@ -67,11 +89,10 @@ async def review_turn(
     if not trace.strip() and not final_text.strip():
         return None
 
-    prompt = (
-        _PROMPT.replace("{task}", task)
-        .replace("{trace}", trace)
-        .replace("{final}", final_text[:FINAL_TEXT_CHARS])
-    )
+    # TEK geçişte doldur: ardışık `.replace` görev/iz içindeki `{final}` gibi metni sonraki
+    # yer tutucu sanıp izi bozuyordu (A4-51).
+    values = {"task": task, "trace": trace, "final": final_text[:FINAL_TEXT_CHARS]}
+    prompt = _PLACEHOLDER.sub(lambda match: values[match.group(1)], _PROMPT)
     try:
         result = await asyncio.wait_for(
             _ask(prompt, config, publisher), timeout=config.runtime.judge_timeout_s + 2.0
@@ -79,6 +100,9 @@ async def review_turn(
     except TimeoutError:
         # Web taşıması istek zaman aşımını her zaman uygulamıyor. Öz-denetim
         # kullanıcının tamamlanmış görevini dakikalarca bekletemez.
+        return None
+    except Exception:  # sınır: sağlayıcı kurulamadı/çöktü; denetim bir iyileştirmedir (A4-52)
+        logging.getLogger(__name__).warning("Öz-denetim yapılamadı", exc_info=True)
         return None
     if not result.ok or result.truncated:
         # Yarım kalmış talimat, hiç talimattan KÖTÜDÜR: agent eksik bir cümleye göre

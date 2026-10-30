@@ -611,3 +611,46 @@ async def test_gorsel_denetim_atlanirsa_uyari_verir(tmp_path, monkeypatch):
 
     assert sonuc.ok is True
     assert "atlandı" in sonuc.warnings[0]
+
+
+# --- A4-50 / A4-51 / A4-52: review ----------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("cevap", "temiz"),
+    [
+        ("TAMAM", True),
+        ("TAMAM, her şey yolunda.", True),
+        ("TAMAM. Hata yok, eksiksiz.", True),
+        ("TAMAM DEĞİL: testler hiç çalıştırılmadı", False),
+        ("Tamam, ama sepet rotası eksik", False),
+        ("Sorun yok, görev eksiksiz.", True),
+        ("Bir sorun bulamadım.", True),
+        ("write_file ile index.html yazılmadı; dosyayı oluştur", False),
+    ],
+)
+def test_denetci_karari_itirazli_tamami_temiz_saymaz(cevap, temiz):
+    from fusion_cli.engines.agent import review
+
+    assert (review.parse_feedback(cevap) == "") is temiz
+
+
+async def test_denetim_istemi_iz_icindeki_yer_tutucuyu_yeniden_doldurmaz(monkeypatch):
+    from fusion_cli.core.types import Message, ModelResult
+    from fusion_cli.engines.agent import review
+
+    istemler: list[str] = []
+
+    async def sor(prompt, config, publisher):
+        istemler.append(prompt)
+        return ModelResult(text="TAMAM", ok=True)
+
+    monkeypatch.setattr(review, "_ask", sor)
+    config = SimpleNamespace(runtime=SimpleNamespace(judge_timeout_s=5.0))
+
+    await review.review_turn(
+        "görev {final}", "SON-METIN", [Message("user", "iz {task}")], config=config
+    )
+
+    assert "görev {final}" in istemler[0]
+    assert "iz {task}" in istemler[0]
