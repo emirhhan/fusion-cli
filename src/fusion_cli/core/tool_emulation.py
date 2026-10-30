@@ -51,6 +51,65 @@ LEGACY_CALL_OPEN = "<tool_call>"
 LEGACY_CALL_CLOSE = "</tool_call>"
 LEGACY_PAYLOAD_CLOSE = "</tool_payload>"
 
+#: Sıfır genişlikli boşluk: işaretin ortasına konunca ayrıştırıcı eşleştirmez, göz ayırt etmez.
+ZWSP = "\u200b"
+
+#: Araç SONUCU içeriğinde kaçışlanan protokol işaretleri (C1-45). Uzun olan önce gelir.
+_MARKER_PATTERN = re.compile(
+    rf"{re.escape(CALL_CLOSE)}|{re.escape(CALL_OPEN)}|{re.escape(PAYLOAD_CLOSE)}|"
+    rf"{re.escape(PAYLOAD_OPEN)}|{re.escape(PAYLOAD_SENTINEL)}|"
+    rf"{re.escape(LEGACY_CALL_CLOSE)}|{re.escape(LEGACY_CALL_OPEN)}|"
+    rf"{re.escape(LEGACY_PAYLOAD_CLOSE)}|<tool_payload"
+)
+_ESCAPED_MARKER_PATTERN = re.compile(
+    "|".join(
+        re.escape(token[0] + ZWSP + token[1:])
+        for token in (
+            CALL_CLOSE,
+            CALL_OPEN,
+            PAYLOAD_CLOSE,
+            PAYLOAD_OPEN,
+            PAYLOAD_SENTINEL,
+            LEGACY_CALL_CLOSE,
+            LEGACY_CALL_OPEN,
+            LEGACY_PAYLOAD_CLOSE,
+            "<tool_payload",
+        )
+    )
+)
+
+
+def escape_tool_markers(text: str) -> str:
+    """Protokol işaretlerinin ilk harfinden sonra ZWSP koy (C1-45).
+
+    Araç SONUCU (web sayfası, dosya, komut çıktısı) modele giderken bu işlemden geçer:
+    içinde `FUSION_TOOL_CALL` bloğu varsa model onu yanıtına yansıtsa bile ayrıştırıcı
+    çağrı saymaz. İşaret yoksa metin DEĞİŞMEZ; işlem idempotenttir.
+    """
+    return _MARKER_PATTERN.sub(lambda match: match.group(0)[0] + ZWSP + match.group(0)[1:], text)
+
+
+def unescape_tool_markers(text: str) -> str:
+    """`escape_tool_markers` işleminin tersi (yalnız protokol işaretlerindeki ZWSP'yi kaldırır)."""
+    return _ESCAPED_MARKER_PATTERN.sub(lambda match: match.group(0).replace(ZWSP, ""), text)
+
+
+def _unescape_value(value: object) -> object:
+    """Çözümlenmiş argümanlardaki kaçışlı işaretleri geri aç.
+
+    Model, kaçışlı işaret taşıyan bir dosyayı düzenlerken `old_string`'i kopyalar;
+    ZWSP kalsaydı eşleşme tutmazdı. Argümanlar yeniden AYRIŞTIRILMAZ, bu yüzden
+    geri açmak güvenlidir.
+    """
+    if isinstance(value, str):
+        return unescape_tool_markers(value)
+    if isinstance(value, dict):
+        return {key: _unescape_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_unescape_value(item) for item in value]
+    return value
+
+
 # Sınırlayıcılar satır başına SABİTLENMEZ: model çoğu zaman "Şunu yapıyorum."
 # dedikten sonra bloğu aynı satırda açıyor ve katı bir çapa bunu kaçırırdı.
 # İşaretler benzersiz büyük harfli dizeler olduğu için çapaya gerek de yok.
@@ -606,6 +665,44 @@ def _payload_matches(text: str) -> list[re.Match[str]]:
     return sorted(matches, key=lambda match: match.start())
 
 
+_FENCE_LINE = re.compile(r"^[ \t]{0,3}```", re.MULTILINE)
+
+
+def _fenced_ranges(text: str) -> list[tuple[int, int]]:
+    """Kapanışı OLAN ``` çitlerinin kapsadığı [başlangıç, bitiş) aralıkları.
+
+    Kapanmayan çit sayılmaz: yarıda kalmış bir çit, ardından gelen gerçek çağrıyı
+    "alıntı" yapmamalı. Payload blokları çağrıdan önce metinden çıkarıldığı için kendi
+    çitleri buraya girmez.
+    """
+    ranges: list[tuple[int, int]] = []
+    opened: int | None = None
+    for match in _FENCE_LINE.finditer(text):
+        if opened is None:
+            opened = match.start()
+        else:
+            ranges.append((opened, match.start()))
+            opened = None
+    return ranges
+
+
+def _split_by_origin(
+    text: str, matches: list[re.Match[str]]
+) -> tuple[list[re.Match[str]], list[re.Match[str]]]:
+    """Çağrı bloklarını (gerçek, alıntı) diye ayır (C1-45).
+
+    Bir çit ÇEVRELEYEN blok (açılış işareti çit içinde) örnek/alıntıdır; model protokolü
+    açıklarken ya da okuduğu enjekte bloğu yansıtırken yazar. Kanonik çağrıda çit
+    bloğun İÇİNDEDİR, dışında değildir. Çit dışında HİÇ blok yoksa ayırt edilemez
+    (web geri okuması model bloğunu tek `<pre>` içinde çizmiş olabilir): hepsi çağrı sayılır.
+    """
+    ranges = _fenced_ranges(text)
+    quoted = [m for m in matches if any(low < m.start() < high for low, high in ranges)]
+    if not quoted or len(quoted) == len(matches):
+        return matches, []
+    return [m for m in matches if m not in quoted], quoted
+
+
 def _call_matches(text: str) -> list[re.Match[str]]:
     """Kanonik ve eski biçimdeki çağrı bloklarını metindeki SIRAYLA döndür."""
     matches = [*_BLOCK.finditer(text), *_LEGACY_BLOCK.finditer(text)]
@@ -679,6 +776,20 @@ def _normalize_call_keys(obj: dict[str, object]) -> dict[str, object]:
     return duzeltilmis
 
 
+def _cut_spans(text: str, matches: list[re.Match[str]]) -> str:
+    """Eşleşmelerin kapsadığı aralıkları `_BLOCK_GAP` ile değiştir (örtüşenler birleşir)."""
+    pieces: list[str] = []
+    cursor = 0
+    for match in sorted(matches, key=lambda item: item.start()):
+        if match.start() < cursor:
+            continue
+        pieces.append(text[cursor : match.start()])
+        pieces.append(_BLOCK_GAP)
+        cursor = match.end()
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
 def parse_tool_calls(text: str) -> EmulatedParse:
     """Kanonik çağrıları çıkar ve ham payload referanslarını çöz."""
     calls: list[ToolCall] = []
@@ -722,7 +833,10 @@ def parse_tool_calls(text: str) -> EmulatedParse:
     ):
         errors.append("kapanmamış veya geçersiz payload bloğu")
 
-    for index, match in enumerate(_call_matches(without_payloads)):
+    live_matches, quoted_matches = _split_by_origin(
+        without_payloads, _call_matches(without_payloads)
+    )
+    for index, match in enumerate(live_matches):
         raw = strip_call_fence(match.group("body").strip())
         obj = _loads_tolerant(raw)
         if obj is None:
@@ -753,7 +867,7 @@ def parse_tool_calls(text: str) -> EmulatedParse:
         except _PayloadResolutionError as error:
             errors.append(str(error))
             continue
-        resolved = _apply_fence_strip(resolved)
+        resolved = _unescape_value(_apply_fence_strip(resolved))
         calls.append(
             ToolCall(
                 id=f"emu-{run_tag}-{index}",
@@ -781,9 +895,17 @@ def parse_tool_calls(text: str) -> EmulatedParse:
         for payload_id in artan:
             errors.append(f"payload kullanılmadı: {payload_id}")
 
-    outside = _LEGACY_BLOCK.sub(_BLOCK_GAP, _BLOCK.sub(_BLOCK_GAP, without_payloads))
+    if quoted_matches:
+        # Alıntı bloklar düz metin olarak KALIR; yalnız gerçek çağrılar ayıklanır. İşaret
+        # denetimi alıntıları da dışarıda bırakır: örnek, "eşleşmeyen işaret" hatası olmasın.
+        outside = _cut_spans(without_payloads, live_matches)
+        unmatched_check = _cut_spans(without_payloads, [*live_matches, *quoted_matches])
+    else:
+        outside = _LEGACY_BLOCK.sub(_BLOCK_GAP, _BLOCK.sub(_BLOCK_GAP, without_payloads))
+        unmatched_check = outside
     outside = _EXTRA_GAPS.sub("\n\n", outside)
-    if any(marker in outside for marker in (CALL_OPEN, CALL_CLOSE, LEGACY_CALL_OPEN)):
+    unmatched_check = _EXTRA_GAPS.sub("\n\n", unmatched_check)
+    if any(marker in unmatched_check for marker in (CALL_OPEN, CALL_CLOSE, LEGACY_CALL_OPEN)):
         errors.append("kapanmamış veya eşleşmeyen araç çağrısı sınır işareti")
 
     return EmulatedParse(

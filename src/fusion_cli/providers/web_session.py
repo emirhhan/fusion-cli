@@ -20,12 +20,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from ..core.clock import SystemClock
 from ..core.model_capability import ToolSupport
 from ..core.protocols import Clock
-from ..core.tool_emulation import parse_tool_calls, render_tool_instructions
+from ..core.tool_emulation import escape_tool_markers, parse_tool_calls, render_tool_instructions
 from ..core.types import (
     CompletionRequest,
     Message,
@@ -197,6 +197,10 @@ class WebProviderAdapter:
     def _prepared_messages(self, request: CompletionRequest) -> tuple[Message, ...]:
         """Emulated araç desteğinde araç talimatlarını sistem mesajına ekle."""
         messages = tuple(self._prepare_images(message) for message in request.messages)
+        if self._tool_support is ToolSupport.EMULATED:
+            # Araç SONUCU dış içeriktir (sayfa, dosya, komut çıktısı): içindeki çağrı
+            # işaretleri modelin yanıtına yansıyıp çağrı sayılmasın (C1-45).
+            messages = tuple(self._escape_tool_result(message) for message in messages)
         if self._tool_support is not ToolSupport.EMULATED or not request.tools:
             return messages
         # Web yolunda çağrı METİNDEN üretilir: şema ne kadar şişkinse model o kadar
@@ -204,6 +208,13 @@ class WebProviderAdapter:
         # opsiyonel alanlar araç açıklamasında zaten anlatılıyor.
         instructions = render_tool_instructions(request.tools, compact=True)
         return (Message("system", instructions), *messages)
+
+    @staticmethod
+    def _escape_tool_result(message: Message) -> Message:
+        """Araç sonucu mesajındaki protokol işaretlerini ZWSP ile kaçışla."""
+        if message.role != "tool":
+            return message
+        return replace(message, content=escape_tool_markers(message.content))
 
     def _prepare_images(self, message: Message) -> Message:
         """Native görsel taşımayan web yolunda kaybı açık bir gözleme dönüştür."""
