@@ -103,7 +103,7 @@ def main_callback(
         typer.Option(
             "-c",
             "--set",
-            help="Oturumluk ayar: bölüm.alan=değer (ör. -c runtime.max_tokens=8192); dosyaya yazmaz.",
+            help="Oturumluk ayar bölüm.alan=değer (ör. runtime.max_tokens=8192); dosyaya yazmaz.",
         ),
     ] = None,
     profile_name: Annotated[
