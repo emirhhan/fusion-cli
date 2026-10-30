@@ -52,6 +52,9 @@ from .setup_command import run_setup
 app = typer.Typer(
     add_completion=False,
     invoke_without_command=True,
+    # Beklenmeyen istisnada zengin traceback YEREL DEĞİŞKENLERİ basmaz: `session.py`
+    # yerelleri arasında config, ortam görüntüsü ve anahtar içeren yapılar var (L1-12).
+    pretty_exceptions_show_locals=False,
     help="Ücretsiz LLM'lerle çalışan agentic CLI. Argümansız çalıştırılırsa REPL açılır.",
 )
 config_app = typer.Typer(no_args_is_help=True, help="Yapılandırmayı görüntüle.")
@@ -63,6 +66,10 @@ app.add_typer(capability_commands.app, name="yetenek")
 app.command("paperclip")(paperclip_command.paperclip)
 
 console = Console()
+#: Hata satırları stdout'a DEĞİL stderr'e gider. `fusion mcp` (MCP protokolü), `fusion app`
+#: (satır satır JSON) ve `run --json | jq` stdout'u protokol için kullanır; oraya düşen düz
+#: metin istemcide ayrıştırma hatasıdır (L1-11).
+error_console = Console(stderr=True)
 
 T = TypeVar("T")
 
@@ -839,13 +846,13 @@ def main(*, host_dependencies: AppHostDependencies | None = None) -> None:
     try:
         app(obj=host_dependencies)
     except FusionError as exc:
-        console.print(
+        error_console.print(
             f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}] "
             f"{escape(str(exc))}"
         )
         sys.exit(1)
     except KeyboardInterrupt:
-        console.print(f"[{theme.WARN}]{messages.ERROR_INTERRUPTED}[/{theme.WARN}]")
+        error_console.print(f"[{theme.WARN}]{messages.ERROR_INTERRUPTED}[/{theme.WARN}]")
         sys.exit(130)
 
 

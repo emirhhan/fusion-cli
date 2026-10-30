@@ -194,3 +194,34 @@ def test_modul_olarak_calistirilinca_komut_isler():
 
     assert sonuc.returncode == 0, sonuc.stderr
     assert "fusion-cli" in sonuc.stdout
+
+
+# --- Dalga 4: hata çıktısı stderr'e gider, traceback yerelleri basmaz (L1-11, L1-12) --- #
+
+
+def test_beklenen_hata_stdout_yerine_stderr_e_yazilir(monkeypatch, capsys):
+    """Ölçüldü (30 Ekim): `main()` FusionError'ı stdout'a basıyordu; `fusion mcp` ve
+    `fusion app` protokol akışına düz metin karışıyordu."""
+    import pytest
+
+    from fusion_cli.cli import app as cli_app
+    from fusion_cli.core.errors import FusionError
+
+    def _patlat(**kwargs):
+        raise FusionError("protokol dışı bozuk [/x]")
+
+    monkeypatch.setattr(cli_app, "app", _patlat)
+
+    with pytest.raises(SystemExit) as cikis:
+        cli_app.main()
+
+    yakalanan = capsys.readouterr()
+    assert cikis.value.code == 1
+    assert yakalanan.out == ""
+    assert "protokol dışı bozuk [/x]" in yakalanan.err
+
+
+def test_typer_beklenmeyen_hatada_yerel_degiskenleri_gostermez():
+    from fusion_cli.cli.app import app
+
+    assert app.pretty_exceptions_show_locals is False
