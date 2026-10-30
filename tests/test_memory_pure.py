@@ -276,3 +276,30 @@ def test_performans_kaydi_gorev_metnindeki_sirri_saklamaz():
     )
 
     assert sir not in str(eklenen["documents"])
+
+
+# M1-49 — Ölçüldü (30 Ekim): `_MEASURED` içindeki 51 ders genel mühendislik kuralı (ECC kural
+# kopyaları: %80 kapsam, <50 satır, TDD…) olduğu hâlde TAM güvenle (1.0) tohumlanıyordu; Fusion'ın
+# kendi koşularından ölçülmüş araç disipliniyle aynı ağırlıktaydı.
+def test_genel_muhendislik_dersleri_dusuk_guvenle_tohumlanir():
+    from fusion_cli.memory.seed import UNMEASURED_CONFIDENCE
+
+    by_task = {}
+    for lesson in SEED_LESSONS:
+        by_task.setdefault(lesson.task, []).append(lesson)
+    for task in ("test yazma", "fonksiyon boyutu", "react hook kuralları", "ci/cd", "planlama"):
+        assert all(item.confidence == UNMEASURED_CONFIDENCE for item in by_task[task]), task
+
+
+def test_olculmus_arac_disiplini_tam_guvende_kalir():
+    ornekler = {
+        "dosya düzenleme",
+        "büyük dosya yazma",
+        "araç hatası tekrarı",
+        "tehlikeli komutlar",
+        "verimli keşif",
+    }
+    by_task = {lesson.task: lesson for lesson in SEED_LESSONS if lesson.task in ornekler}
+
+    assert set(by_task) == ornekler
+    assert all(lesson.confidence == 1.0 for lesson in by_task.values())

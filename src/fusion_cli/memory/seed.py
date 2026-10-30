@@ -223,6 +223,25 @@ _MEASURED: tuple[tuple[str, LessonKind, str], ...] = (
         "run_shell ya da arama çok uzun çıktı üretecekse daralt (head, grep, --oneline, -n). "
         "Binlerce satırı bağlama boca etme.",
     ),
+)
+
+
+#: Ölçülmeden, bilinen araç/servis davranışından YAZILMIŞ dersler.
+#:
+#: Görmeden yazmak yasak değil ama ölçülmüş dersle AYNI ağırlıkta olamaz. Düşük
+#: güvenle başlarlar: doğruysa gerçek kullanım `reinforce` ile yukarı çeker,
+#: yanlışsa aşağı iter ve eşiğin altına düşünce artık enjekte edilmez. Böylece
+#: yanlış bir yazılı ders kalıcı zarar vermez.
+#:
+#: MCP sunucularına ait yordamsal dersler buraya girer; `tags` alanı hangi
+#: teknoloji/sunucu için geçerli olduğunu söyler (bkz. `lesson_tags`).
+UNMEASURED_CONFIDENCE = 0.6
+
+#: Genel mühendislik tavsiyesi (ECC kural kopyaları: kapsam, fonksiyon boyutu, TDD, framework
+#: kalıpları…). Fusion'ın kendi koşularından ÖLÇÜLMEDİ; ölçülmüş araç disipliniyle aynı
+#: ağırlıkta olamaz. Düşük güvenle başlarlar: gerçek kullanım `reinforce` ile yukarı çeker,
+#: işe yaramayan ders eşiğin altına düşüp enjekte edilmez (M1-49).
+_GENERAL: tuple[tuple[str, LessonKind, str], ...] = (
     # --- Frontend: mimari ------------------------------------------------
     (
         "website oluşturma",
@@ -559,18 +578,6 @@ _MEASURED: tuple[tuple[str, LessonKind, str], ...] = (
         "isim/hata yönetimi). Hardcode edilmiş sır ya da debug print bırakma.",
     ),
 )
-
-
-#: Ölçülmeden, bilinen araç/servis davranışından YAZILMIŞ dersler.
-#:
-#: Görmeden yazmak yasak değil ama ölçülmüş dersle AYNI ağırlıkta olamaz. Düşük
-#: güvenle başlarlar: doğruysa gerçek kullanım `reinforce` ile yukarı çeker,
-#: yanlışsa aşağı iter ve eşiğin altına düşünce artık enjekte edilmez. Böylece
-#: yanlış bir yazılı ders kalıcı zarar vermez.
-#:
-#: MCP sunucularına ait yordamsal dersler buraya girer; `tags` alanı hangi
-#: teknoloji/sunucu için geçerli olduğunu söyler (bkz. `lesson_tags`).
-UNMEASURED_CONFIDENCE = 0.6
 
 _WRITTEN: tuple[tuple[str, LessonKind, str, tuple[str, ...]], ...] = (
     # --- Her MCP sunucusu için geçerli disiplin ---------------------------- #
@@ -1165,7 +1172,39 @@ WRITTEN_LESSONS: tuple[Lesson, ...] = tuple(
     for task, kind, text, tags in _WRITTEN
 )
 
-SEED_LESSONS: tuple[Lesson, ...] = MEASURED_LESSONS + WRITTEN_LESSONS
+GENERAL_LESSONS: tuple[Lesson, ...] = tuple(
+    Lesson(
+        text=text,
+        kind=kind,
+        task=task,
+        source=LessonSource.SEED,
+        confidence=UNMEASURED_CONFIDENCE,
+    )
+    for task, kind, text in _GENERAL
+)
+
+SEED_LESSONS: tuple[Lesson, ...] = MEASURED_LESSONS + GENERAL_LESSONS + WRITTEN_LESSONS
+
+
+def _resettle_seed_confidence(memory: LessonMemory) -> int:
+    """Tohum güveni düşürüldüyse, hiç kullanılmamış eski kaydı yeni güvene çek (M1-49).
+
+    `memory.add` kesin metinle tekilleştirir; güven değişince eski kayıt eski güvenle
+    kalırdı. Pekiştirme/ceza görmüş ders (kullanım kanıtı) olduğu gibi bırakılır. Silinen
+    dersler `seed`in `add` döngüsünde yeni güvenle yeniden eklenir; yeniden eklenenlerin
+    sayısı döner (yeni ders sayılmaz).
+    """
+    wanted = {lesson.text: lesson.confidence for lesson in SEED_LESSONS}
+    stale = tuple(
+        lesson.text
+        for lesson in memory.all()
+        if lesson.source is LessonSource.SEED
+        and lesson.text in wanted
+        and lesson.confidence != wanted[lesson.text]
+        and lesson.success_count == 0
+        and lesson.failure_count == 0
+    )
+    return memory.forget(stale) if stale else 0
 
 
 def seed(memory: LessonMemory) -> int:
@@ -1175,7 +1214,8 @@ def seed(memory: LessonMemory) -> int:
     ayrıca ekleniyordu (iki çelişkili ders). Artık güncel listede OLMAYAN `SEED`
     kaynaklı dersler silinir; öğrenilen/elle öğretilen derslere dokunulmaz.
     """
-    added = sum(1 for lesson in SEED_LESSONS if memory.add(lesson))
+    resettled = _resettle_seed_confidence(memory)
+    added = sum(1 for lesson in SEED_LESSONS if memory.add(lesson)) - resettled
     current = {lesson.text.strip().lower() for lesson in SEED_LESSONS}
     obsolete = tuple(
         lesson.text

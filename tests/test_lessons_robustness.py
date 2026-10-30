@@ -8,6 +8,7 @@ ekleme için tüm dersleri çekiyor), M1-41 (`</dersler>` bloğu kapatıyor), M1
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from fusion_cli.core.memory import Lesson, LessonKind, LessonSource
@@ -138,3 +139,30 @@ def test_tohum_metni_guncellenince_eski_surum_bellekte_kalmaz(tmp_path, monkeypa
     metinler = {ders.text for ders in bellek.all()}
     assert eklenen == 1
     assert metinler == {"yeni tohum", "kullanıcı dersi"}
+
+
+def test_tohum_guveni_dusurulunce_dokunulmamis_eski_kayit_yeni_guvene_cekilir(
+    tmp_path, monkeypatch
+):
+    """M1-49 — Ölçüldü (30 Ekim): genel mühendislik dersleri tam güvenle (1.0) tohumlanmıştı; tohum
+    güveni düşürülse bile mevcut kullanıcının belleğindeki kayıt `add` tekilleştirmesi yüzünden
+    1.0'da kalıyordu. Hiç pekiştirilmemiş/cezalandırılmamış kayıt yeni güvene çekilir; kullanımla
+    değişmiş kayıt ve yeni eklenen sayısı etkilenmez."""
+    from fusion_cli.memory import seed as seed_module
+
+    bellek, _ = _bellek(tmp_path)
+    tam = Lesson(text="genel ders bir", kind=LessonKind.SUCCESS, source=LessonSource.SEED)
+    kullanilan = Lesson(
+        text="genel ders iki", kind=LessonKind.SUCCESS, source=LessonSource.SEED, success_count=3
+    )
+    monkeypatch.setattr(seed_module, "SEED_LESSONS", (tam, kullanilan))
+    seed_module.seed(bellek)
+
+    dusuk = [replace(ders, confidence=0.6) for ders in (tam, kullanilan)]
+    monkeypatch.setattr(seed_module, "SEED_LESSONS", tuple(dusuk))
+    eklenen = seed_module.seed(bellek)
+
+    guven = {ders.text: ders.confidence for ders in bellek.all()}
+    assert eklenen == 0
+    assert guven["genel ders bir"] == 0.6
+    assert guven["genel ders iki"] == 1.0  # kullanımla değişmiş kayıt: dokunulmaz
