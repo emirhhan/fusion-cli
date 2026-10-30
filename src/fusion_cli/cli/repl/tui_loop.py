@@ -33,6 +33,7 @@ from . import (
     history_view,
     macros,
     model_flows,
+    prefixes,
     profiles_flow,
     provider_flow,
     status_view,
@@ -46,7 +47,8 @@ from .commands import (
     parse,
     resume_choices,
 )
-from .loop import apply_auto_profile
+from .completion import ReplCompleter
+from .loop import apply_auto_profile, apply_mentions, run_shell_prefix_line
 from .partial_turn import PartialTurn
 from .state import Engine, Reminder, ReplState
 from .transcript_store import TranscriptStore
@@ -228,6 +230,9 @@ class _TuiSession:
             on_cycle_mode=self._cycle,
             initial_transcript="",  # TUI isolation: yalnız mevcut oturum
             on_transcript_change=None,
+            completer=ReplCompleter(
+                self._registry.completion_words(), (state.root, *state.extra_roots)
+            ),
         )
         self._out = self._tui.console
         self._prompter_factory = lambda drain: TuiPrompter(self._tui, drain)
@@ -319,9 +324,20 @@ class _TuiSession:
             self._transcript_store.record_user(line)
             ConsoleRenderer(self._out).print_user_message(line)
             self._tui.sync_conversation()
-            if is_command_line(line):
+            # Önekler (P-022): satır-içi yolla aynı fonksiyonlar (`loop.py`).
+            if (shell := prefixes.shell_command(line)) is not None:
+                await run_shell_prefix_line(shell, self._state, self._out)
+                self._tui.sync_conversation()
+            elif (note := prefixes.memory_note(line)) is not None:
+                self._echo(
+                    f"[{theme.DIM}]{escape(prefixes.add_memory_note(self._state, note))}"
+                    f"[/{theme.DIM}]"
+                )
+            elif is_command_line(line):
                 await self._command(line)
             else:
+                for mention_note in apply_mentions(line, self._state):
+                    self._echo(f"[{theme.DIM}]{escape(mention_note)}[/{theme.DIM}]")
                 await self._turn(line)
         except asyncio.CancelledError:
             self._echo(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")

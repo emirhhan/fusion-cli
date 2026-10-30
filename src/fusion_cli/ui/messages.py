@@ -910,10 +910,32 @@ EXPORT_EMPTY = "Aktarılacak konuşma yok: önce bir mesaj gönder."
 EXPORT_WRITTEN = "Konuşma yazıldı: {path} ({chars} karakter). Sırlar maskelendi."
 EXPORT_COPIED = "Konuşma panoya kopyalandı ({chars} karakter). Sırlar maskelendi."
 EXPORT_OUTSIDE_ROOT = (
-    "Proje kökü dışına yazılmaz: {path}. Kök: {root} — köke göreli bir yol ver ya da /add-dir ile aç."
+    "Proje kökü dışına yazılmaz: {path}. Kök: {root} — "
+    "köke göreli bir yol ver ya da /add-dir ile aç."
 )
 EXPORT_WRITE_FAILED = "Dosya yazılamadı ({path}): {error}"
 COPY_USAGE = "Kullanım: /copy [N] — N sondan kaçıncı cevap (varsayılan 1)."
 COPY_NOTHING = "Kopyalanacak asistan cevabı yok."
 COPY_DONE = "Son cevap panoya kopyalandı ({chars} karakter)."
 CLIPBOARD_FAILED = "Panoya yazılamadı: {error}"
+
+# --- REPL önekleri: ! kabuk, @dosya, # not (P-022) ------------------------- #
+SHELL_PREFIX_PLAN = "Plan kipinde kabuk komutu çalıştırılmaz: /auto ya da /edits ile kipi değiştir."
+SHELL_PREFIX_RUNNING = "$ {command}"
+SHELL_PREFIX_BLOCK = (
+    "[Kullanıcının kendi çalıştırdığı kabuk komutu — bağlam için, yeniden çalıştırma]\n"
+    "$ {command}\n[{status}]\n{output}"
+)
+SHELL_PREFIX_CONTEXT_NOTE = "Çıktı bir sonraki mesajın bağlamına eklendi."
+MENTION_FILE_BLOCK = "[Kullanıcının andığı dosya: {path}]{note}\n```\n{text}\n```"
+MENTION_DIR_BLOCK = "[Kullanıcının andığı dizin: {path}]\n{listing}"
+MENTION_TRUNCATED = " (ilk {limit} karakter)"
+MENTION_ADDED = "@{path} bağlama eklendi"
+MENTION_UNREADABLE = "@{raw} okunamadı: {error}"
+MENTION_NOT_FILE = "dosya ya da dizin değil"
+MENTION_TOO_MANY = "Tek mesajda en fazla {limit} dosya anması işlenir; fazlası atlandı."
+MENTION_RESOURCE_UNSUPPORTED = (
+    "@{raw}: MCP kaynak anması henüz desteklenmiyor (köprüde resources/read yok); "
+    "sunucunun aracını sohbette iste."
+)
+MEMORY_NOTE_SAVED = "Not kalıcı belleğe kaydedildi (/lessons ile gör, /forget ile sil)."

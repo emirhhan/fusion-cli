@@ -156,11 +156,16 @@ class ReplState:
     #: Devralınan oturumun künyesi. Bir sonraki turda sistem bağlamına eklenir.
     pending_digest: str | None = None
 
+    #: `!` kabuk çıktısı ve `@dosya` içerikleri (P-022): bir sonraki turun sistem
+    #: bağlamına girer, sonra temizlenir. Devralma künyesiyle aynı yoldan taşınır.
+    pending_context: list[str] = field(default_factory=list)
+
     def take_pending_digest(self) -> str:
-        """Devralma künyesini bir kez al ve sonraki turlardan temizle."""
-        digest = self.pending_digest or ""
+        """Devralma künyesi + bekleyen bağlam bloklarını bir kez al; sonraki turlardan temizle."""
+        parts = [self.pending_digest or "", *self.pending_context]
         self.pending_digest = None
-        return digest
+        self.pending_context = []
+        return "\n\n".join(part for part in parts if part)
 
     def __post_init__(self) -> None:
         if self.capabilities is None:

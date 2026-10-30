@@ -54,8 +54,17 @@ STATUS_MARK = "⏵"
 class ReplInput:
     """Komut geçmişi, tamamlama ve shift-tab ile mod döngüsü sunan giriş."""
 
-    def __init__(self, history_path: Path, words: list[str], *, mode: ApprovalMode) -> None:
+    def __init__(
+        self,
+        history_path: Path,
+        words: list[str],
+        *,
+        mode: ApprovalMode,
+        roots: tuple[Path, ...] = (),
+    ) -> None:
         self.mode = mode
+        #: `@yol` tamamlamasının gezineceği kökler (proje kökü + `--add-dir`).
+        self.roots = roots
         #: Durum çubuğunda gösterilen bağlam. REPL her değişiklikte günceller.
         self.context: str = ""
         self._session: Any = None
@@ -65,7 +74,7 @@ class ReplInput:
         self._pastes: dict[str, str] = {}
         self._paste_seq = 0
         if sys.stdin.isatty():
-            self._session = _build_session(self, history_path, words)
+            self._session = _build_session(self, history_path, words, roots)
 
     @property
     def interactive(self) -> bool:
@@ -164,14 +173,17 @@ def toolbar_enabled() -> bool:
     return os.environ.get("FUSION_TOOLBAR", "") == "1"
 
 
-def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> Any:
+def _build_session(
+    owner: ReplInput, history_path: Path, words: list[str], roots: tuple[Path, ...] = ()
+) -> Any:
     """prompt_toolkit oturumunu kur. Kurulamazsa None → düz girişe düşülür."""
     try:
         from prompt_toolkit import PromptSession
-        from prompt_toolkit.completion import WordCompleter
         from prompt_toolkit.history import FileHistory
         from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.keys import Keys
+
+        from .completion import ReplCompleter
 
         history_path.parent.mkdir(parents=True, exist_ok=True)
         bindings = KeyBindings()
@@ -194,7 +206,8 @@ def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> An
 
         return PromptSession(
             history=FileHistory(str(history_path)),
-            completer=WordCompleter(words, sentence=True),
+            # `/komut` ve `@yol` tamamlama tek tamamlayıcıda (P-022).
+            completer=ReplCompleter(words, roots),
             # Alt bilgi çubuğu VARSAYILAN OLARAK KAPALI: tam genişlikte olduğu için
             # terminal daraldığında sarıyor ve resize'da istem kopyası bırakıyordu.
             # Mod bilgisi istemin kendisine taşındı. FUSION_TOOLBAR=1 geri getirir.

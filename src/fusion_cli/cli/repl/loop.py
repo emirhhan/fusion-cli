@@ -61,7 +61,7 @@ from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
 from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
-from . import help_view, history_view, macros
+from . import help_view, history_view, macros, prefixes
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
 from .input import ReplInput
 from .macros import Mode
@@ -130,7 +130,10 @@ async def run_repl(
     # Argümansız çağrı bu yüzeyi sessizce komutsuz bırakıyordu.
     registry = build_registry(state.home)
     reader = ReplInput(
-        config.memory_dir / HISTORY_FILE, registry.completion_words(), mode=state.approval
+        config.memory_dir / HISTORY_FILE,
+        registry.completion_words(),
+        mode=state.approval,
+        roots=(state.root, *state.extra_roots),
     )
     background = BackgroundTasks()
 
@@ -275,6 +278,14 @@ async def _handle(
         banner.print_welcome(console, session_info(state), pad=False)
         state.welcome_padded = False
     ConsoleRenderer(console).print_user_message(line)
+    # Önekler (P-022): `!` kabuk ve `#` not model çağırmaz; `@dosya` bağlama eklenir.
+    if (shell := prefixes.shell_command(line)) is not None:
+        await run_shell_prefix_line(shell, state, console)
+        _sync_status_bar(reader, state, background)
+        return
+    if (note := prefixes.memory_note(line)) is not None:
+        console.print(f"[{theme.DIM}]{escape(prefixes.add_memory_note(state, note))}[/{theme.DIM}]")
+        return
     if is_command_line(line):
         await _run_command(line, state, registry, reader, console)
         # Makrolar görev HAZIRLAR, çalıştırmaz: komut işleyicileri saf ve senkron
@@ -287,8 +298,34 @@ async def _handle(
             # istemde sayaç GÜNCEL görünsün (bkz. `_sync_status_bar`).
             _sync_status_bar(reader, state, background)
         return
+    for note in apply_mentions(line, state):
+        console.print(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
     await _run_turn(line, state, console, background)
     _sync_status_bar(reader, state, background)
+
+
+def apply_mentions(line: str, state: ReplState) -> tuple[str, ...]:
+    """`@dosya` anmalarını çöz, blokları bekleyen bağlama ekle; kullanıcı notlarını döndür."""
+    result = prefixes.expand_mentions(line, state)
+    state.pending_context.extend(result.blocks)
+    return result.notes
+
+
+async def run_shell_prefix_line(command: str, state: ReplState, console: Console) -> None:
+    """`! komut` satırını çalıştır ve çıktıyı bas; iki REPL yüzeyi bunu paylaşır."""
+    console.print(
+        f"[{theme.ACCENT}]{escape(messages.SHELL_PREFIX_RUNNING.format(command=command))}"
+        f"[/{theme.ACCENT}]",
+        highlight=False,
+    )
+    result = await prefixes.run_shell_prefix(state, command)
+    for note in result.notes:
+        console.print(f"[{theme.WARN}]{escape(note)}[/{theme.WARN}]")
+    if result.output:
+        color = theme.DIM if result.ok else theme.ERROR
+        console.print(f"[{color}]{escape(result.output)}[/{color}]", highlight=False)
+    if result.context_block:
+        console.print(f"[{theme.DIM}]{messages.SHELL_PREFIX_CONTEXT_NOTE}[/{theme.DIM}]")
 
 
 async def _run_command(

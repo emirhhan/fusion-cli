@@ -21,6 +21,7 @@ import shutil
 from collections.abc import Callable
 
 from prompt_toolkit.application import Application
+from prompt_toolkit.completion import Completer
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import ANSI, HTML, StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
@@ -119,6 +120,7 @@ class FusionTui:
         on_cycle_mode: Callable[[], None],
         initial_transcript: str = "",
         on_transcript_change: Callable[[str], None] | None = None,
+        completer: Completer | None = None,
     ) -> None:
         self._on_submit = on_submit
         self._on_interrupt = on_interrupt
@@ -163,6 +165,9 @@ class FusionTui:
             wrap_lines=False,
             prompt=[("class:prompt", PROMPT)],
             accept_handler=self._accept,
+            # Tab ile `/komut` ve `@yol` tamamlama (P-022); yazarken menü açılmaz.
+            completer=completer,
+            complete_while_typing=False,
         )
         conversation = Window(
             FormattedTextControl(self._conversation_fragments),
