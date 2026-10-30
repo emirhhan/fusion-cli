@@ -106,3 +106,17 @@ def _saglayici(config, deger):
     from dataclasses import replace
 
     return replace(config, runtime=replace(config.runtime, provider=deger))
+
+
+async def test_hicbir_kademeyle_eslesmeyen_model_icin_etkin_kademe_bos_doner(tmp_path):
+    """Ölçüldü (30 Ekim, S2-47): eşleşme yokken ilk kademe 'etkin' raporlanıyordu."""
+    from dataclasses import replace
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    ozel = replace(oturum._state.config.agent, model="ozel/elle-secilmis-model")
+    oturum._state.config = replace(oturum._state.config, agent=ozel)
+
+    await oturum.handle(Request("1", "kademe.listele", {}))
+
+    assert _sonuc(satirlar, "1")["etkin"] == ""

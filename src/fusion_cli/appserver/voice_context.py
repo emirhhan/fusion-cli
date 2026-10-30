@@ -9,6 +9,8 @@ VOICE_RESPONSE_NOTE = (
     "Sesli konuşma: Türkçe, doğal ve doğrudan cevap ver. "
     "Kullanıcı ayrıntı istemedikçe kısa tut; önce sorusunu yanıtla."
 )
+#: Kesilen sözün prompta girecek üst sınırı (sınırsızdı, ölçüldü 30 Ekim).
+MAX_INTERRUPTED_CHARS = 2_000
 VOICE_METADATA_ERROR = "Sesli konuşma bağlamı geçersiz. Konuşmayı yeniden başlat."
 
 
@@ -38,4 +40,4 @@ def parse_voice_context(value: object) -> VoiceTurnContext | None:
     interrupted = value.get("kesilen", "")
     if not isinstance(interrupted, str):
         raise ValueError(VOICE_METADATA_ERROR)
-    return VoiceTurnContext(interrupted=interrupted)
+    return VoiceTurnContext(interrupted=interrupted[:MAX_INTERRUPTED_CHARS])

@@ -672,3 +672,12 @@ def test_windows_calma_komutu_yoldaki_kesme_isaretini_kacirir(tmp_path, monkeypa
     voice._play_wav_file(dosya)
 
     assert "O''Brien" in gorulen[0][-1]
+
+
+def test_kesilen_soz_prompta_sinirli_girer() -> None:
+    """Ölçüldü (30 Ekim, S2-46): `kesilen` metin uzunluğu sınırsızdı."""
+    from fusion_cli.appserver.voice_context import MAX_INTERRUPTED_CHARS, parse_voice_context
+
+    baglam = parse_voice_context({"kesilen": "a" * 50_000})
+
+    assert baglam is not None and len(baglam.interrupted) == MAX_INTERRUPTED_CHARS
