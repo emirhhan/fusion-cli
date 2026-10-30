@@ -40,6 +40,14 @@ def _schema(properties: dict[str, SchemaFragment], required: list[str]) -> Schem
     return {"type": "object", "properties": properties, "required": required}
 
 
+#: `chrome_action` eylem adları (şemadaki `enum`).
+_CHROME_ACTIONS = (
+    "scroll", "wait", "key", "select", "tabs", "open", "tab", "close", "screenshot",
+    "click_at", "double_click", "right_click", "triple_click", "drag", "wheel",
+    "type_focused", "check", "resize", "zoom", "hover", "text", "back", "forward", "reload",
+    "upload", "assets",
+)  # fmt: skip
+
 _STRING: SchemaFragment = {"type": "string"}
 _INTEGER: SchemaFragment = {"type": "integer"}
 
@@ -113,8 +121,25 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="chrome_action",
-        description="scroll|wait|key|select|tabs|open|tab|close|screenshot|click_at|double_click|right_click|triple_click|drag|wheel|type_focused|check|resize|zoom|hover|text|back|forward|reload|upload|assets",
-        parameters=_schema({"action": _STRING, "ref": _STRING, "value": _STRING}, ["action"]),
+        description=(
+            "Chrome sekmesinde eylem. value eyleme göre: scroll=down:600|up:300 · wait=beklenecek "
+            "metin · key=Enter|Escape|Meta+a · select=ref+seçenek metni · open=URL · "
+            "tab/close=sekme kimliği · click_at/double_click/right_click/triple_click=ref YA DA "
+            "value=x,y (ekran görüntüsündeki piksel) · hover=ref · drag=ref(kaynak)+value "
+            "(hedef ref ya da x,y) · wheel=dx,dy · resize=1280,800 · zoom=x1,y1,x2,y2 "
+            "(ekran görüntüsü bölgesi; dönen görüntü büyütülmüş KIRPIKTIR, tıklamak için "
+            "TAM ekran görüntüsündeki koordinatı kullan) · upload=dosya yolları (virgülle) · "
+            "type_focused=yazılacak metin · check=ref+true|false. "
+            "Değersiz: tabs, screenshot, back, forward, reload, text, assets."
+        ),
+        parameters=_schema(
+            {
+                "action": {**_STRING, "enum": list(_CHROME_ACTIONS)},
+                "ref": {**_STRING, "description": "chrome_page'in verdiği öğe başvurusu"},
+                "value": {**_STRING, "description": "Eyleme göre değer (açıklamaya bak)"},
+            },
+            ["action"],
+        ),
         run=chrome.chrome_action,
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,

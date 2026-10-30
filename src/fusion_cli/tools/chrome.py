@@ -44,6 +44,9 @@ async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolRe
         )
     except ConnectionError as exc:
         return ToolResult.failure(str(exc))
+    except (ValueError, RuntimeError, OSError) as exc:
+        # Köprüden ham `JSONDecodeError`/`RuntimeError` çıkmasın (ölçüldü, 30 Ekim).
+        return ToolResult.failure(f"Chrome köprüsü hatası: {type(exc).__name__}: {exc}")
     if not result.get("ok"):
         return ToolResult.failure(str(result.get("hata") or "Chrome komutu başarısız."))
     return ToolResult(json.dumps(result.get("veri", {}), ensure_ascii=False))
@@ -428,6 +431,10 @@ async def _zoom(value: object, context: ToolContext) -> ToolResult:
 
     raw = base64.b64decode(shot.content[0].data)
     with Image.open(io.BytesIO(raw)) as image:
+        if x1 >= image.width or y1 >= image.height:
+            return ToolResult.failure(
+                f"zoom bölgesi görüntünün dışında: görüntü {image.width}x{image.height} piksel."
+            )
         crop = image.crop((x1, y1, min(x2, image.width), min(y2, image.height)))
         crop = crop.resize((crop.width * 2, crop.height * 2), Image.Resampling.LANCZOS).convert(
             "RGB"
@@ -436,7 +443,9 @@ async def _zoom(value: object, context: ToolContext) -> ToolResult:
         crop.save(out, format="JPEG", quality=85)
     encoded = base64.b64encode(out.getvalue()).decode("ascii")
     return ToolResult(
-        f"Ekran görüntüsünün {x1},{y1}-{x2},{y2} bölgesi (2x büyütüldü).",
+        f"Ekran görüntüsünün {x1},{y1}-{x2},{y2} bölgesi (2x büyütüldü). Bu görüntü KIRPIKTIR: "
+        "tıklamak için bu görüntüdeki değil, TAM ekran görüntüsündeki x,y koordinatını kullan "
+        f"(kırpığın sol üstü tam görüntüde {x1},{y1}).",
         content=(ToolContent.image("image/jpeg", encoded),),
     )
 

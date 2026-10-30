@@ -404,3 +404,58 @@ def test_kod_kipi_panel_turu_gercek_arama_aracini_icerir():
 
     assert "search_code" in CHROME_CODE_TURN_TOOLS
     assert "grep" not in CHROME_CODE_TURN_TOOLS
+
+
+# --- Dalga 4 (T1-40) ---------------------------------------------------------------
+
+
+def test_chrome_action_semasi_enum_ve_deger_aciklamasi_tasir():
+    """Şema yalnız eylem adı listesiydi; value'nun her eylem için anlamı hata mesajlarındaydı."""
+    from fusion_cli.tools import build_registry
+
+    tool = build_registry().get("chrome_action")
+    properties = tool.parameters["properties"]
+
+    assert "click_at" in properties["action"]["enum"] and "zoom" in properties["action"]["enum"]
+    assert "description" in properties["value"]
+    for ipucu in ("down:600", "x,y", "x1,y1,x2,y2", "1280,800"):
+        assert ipucu in tool.description
+
+
+async def test_zoom_sonucu_tiklama_koordinatinin_tam_goruntuye_gore_oldugunu_soyler(monkeypatch):
+    import base64
+    import io
+
+    from PIL import Image
+
+    from fusion_cli.core.tool_content import ToolContent
+    from fusion_cli.core.tools import ToolContext, ToolResult
+    from fusion_cli.tools import chrome
+
+    buf = io.BytesIO()
+    Image.new("RGB", (200, 100), "red").save(buf, format="PNG")
+    veri = base64.b64encode(buf.getvalue()).decode("ascii")
+
+    async def _shot(args, context):
+        return ToolResult("ok", content=(ToolContent.image("image/png", veri),))
+
+    monkeypatch.setattr(chrome, "chrome_screenshot", _shot)
+
+    sonuc = await chrome._zoom("10,10,60,40", ToolContext(root="."))
+    assert sonuc.ok and "KIRPIK" in sonuc.output and "TAM ekran" in sonuc.output
+
+    disinda = await chrome._zoom("500,10,600,40", ToolContext(root="."))
+    assert not disinda.ok and "dışında" in disinda.output
+
+
+async def test_kopru_json_hatasi_ham_istisna_olarak_cikmaz():
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools import chrome
+
+    class _Bozuk:
+        async def invoke(self, name, data):
+            raise ValueError("bozuk yanıt")
+
+    sonuc = await chrome._call(ToolContext(root=".", chrome=_Bozuk()), "scroll", {})
+
+    assert not sonuc.ok and "köprüsü hatası" in sonuc.output
