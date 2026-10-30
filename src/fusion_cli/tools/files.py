@@ -56,6 +56,13 @@ _INVENTED_MIN_PARTS = 3
 #: `/mnt` vardır, `/mnt/data` (sanal ortam yolu) yoktur. CI'da (Ubuntu) ölçüldü.
 _SECOND_LEVEL_TOPS = frozenset({"Users", "home", "mnt", "workspace", "sandbox"})
 
+#: Başka bir ortamın (web öğretmeni sanal ortamı, kapsayıcı) kökleri. Var olmayan HER kökü
+#: uydurma saymak `node betik.js /api/users` ya da `mkdir -p /srv/yeni` gibi URL yolu / henüz
+#: oluşturulacak dizinleri de engelliyordu (ölçüldü, 30 Ekim); yalnız bilinen yabancı kökler.
+_SANDBOX_TOPS = frozenset(
+    {"mnt", "workspace", "sandbox", "home", "Users", "outputs", "workdir", "app", "data"}
+)
+
 
 def invented_path_reason(raw: str, root: Path) -> str | None:
     """Mutlak yol bu bilgisayarda hiç var olmayan bir kökten mi geliyor?
@@ -71,7 +78,7 @@ def invented_path_reason(raw: str, root: Path) -> str | None:
     if len(parts) < _INVENTED_MIN_PARTS:
         return None
     top = Path("/", parts[1])
-    if not top.exists():
+    if not top.exists() and parts[1] in _SANDBOX_TOPS:
         uydurma = str(top)
     elif parts[1] in _SECOND_LEVEL_TOPS and not Path("/", parts[1], parts[2]).exists():
         uydurma = str(Path("/", parts[1], parts[2]))

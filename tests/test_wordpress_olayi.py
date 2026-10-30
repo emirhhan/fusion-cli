@@ -402,3 +402,12 @@ async def test_olay_otomatik_kip_sorar_onaylanan_silme_cope_gider_ve_geri_alinir
         restore(tmp_path / "cop", girdi.id)
     assert (masaustu / "01-Projeler/projeler/GATE HOLDING/dosya.txt").exists()
     assert (masaustu / "sneaksup-wp/dosya.txt").exists()
+
+
+def test_url_yolu_ve_yeni_dizin_uydurma_yol_sayilmaz(tmp_path):
+    """`node betik.js /api/users` ve `mkdir -p /srv/yeni` yanlış pozitif veriyordu."""
+    from fusion_cli.tools.files import invented_path_reason
+
+    assert invented_path_reason("/api/users/list", tmp_path) is None
+    assert invented_path_reason("/srv/yeni/dizin", tmp_path) is None
+    assert invented_path_reason("/mnt/data/tema/style.css", tmp_path) is not None
