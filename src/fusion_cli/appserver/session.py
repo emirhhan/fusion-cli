@@ -303,6 +303,17 @@ def _attachment_images(value: object) -> tuple[str, ...]:
     return tuple(uriler)
 
 
+async def _attachment_images_async(value: object) -> tuple[str, ...]:
+    """Ek yoksa thread'e geçmeden `()` döner; varsa diski olay döngüsü dışında okur.
+
+    Ek olmayan yaygın durumda ek bir `await` noktası açmak, turun başlangıcını geciktirip
+    hemen ardından gelen `tur.kes`in turu bulamamasına yol açıyordu.
+    """
+    if not isinstance(value, list) or not value:
+        return ()
+    return await asyncio.to_thread(_attachment_images, value)
+
+
 def _attachment_context(value: object) -> tuple[str, str | None]:
     """Eklerin yalnız güvenli metadata'sını tur bağlamına dönüştürür.
 
@@ -1221,7 +1232,7 @@ class AppSession:
             direct = await self._run_turn(
                 str(request.data.get("gorev", "")),
                 attachment_context,
-                await asyncio.to_thread(_attachment_images, request.data.get("ekler")),
+                await _attachment_images_async(request.data.get("ekler")),
                 voice_context=voice_context,
                 deadline=deadline,
             )
@@ -2039,7 +2050,7 @@ class AppSession:
                         claim.receipt,
                         task,
                         attachment_context,
-                        await asyncio.to_thread(_attachment_images, request.data.get("ekler")),
+                        await _attachment_images_async(request.data.get("ekler")),
                         voice_context,
                         deadline,
                         self._state.config,
