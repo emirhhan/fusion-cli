@@ -284,3 +284,117 @@ def test_duvar_isareti_sayfanin_derinlerinde_aranmaz():
     """Uzun bir makalede geçen 'sign in to continue' cümlesi duvar değildir."""
     uzun = "içerik " * 3000 + "sign in to continue"
     assert access_wall_notice(uzun) == ""
+
+
+# --- Dalga 4 (T2-14, T2-15, T2-16) -------------------------------------------
+
+import httpx  # noqa: E402
+
+from fusion_cli.tools import web as _web  # noqa: E402
+
+
+def test_menudeki_oturum_ac_baglantisi_duvar_sayilmaz():
+    """T2-14: normal e-ticaret sayfasının üst bilgisindeki "Oturum açın" duvar değildir."""
+    sayfa = "Oturum açın / Üye ol\n" + "Ürün açıklaması. " * 400
+
+    assert _web.access_wall_notice(sayfa) == ""
+
+
+def test_kisa_oturum_ac_sayfasi_duvar_sayilir():
+    assert _web.access_wall_notice("Devam etmek için oturum açın.") != ""
+
+
+def test_guclu_isaret_uzun_sayfada_da_duvardir():
+    sayfa = "Checking your browser before accessing example.com. " + "x " * 3000
+
+    assert _web.access_wall_notice(sayfa) != ""
+
+
+def test_ddg_lite_tek_tirnak_ve_ters_oznitelik_sirasi():
+    """T2-16a: işaretleme tek tırnak/ters sıra olabilir; regex çift tırnak+href önce bekliyordu."""
+    html = (
+        "<a rel='nofollow' class='result-link' href='https://a.com'>Baslik A</a>"
+        '<a href="https://b.com" class="result-link">Baslik B</a>'
+    )
+
+    assert _web.parse_anchor_results(html, "result-link") == [
+        "• Baslik A\n  https://a.com",
+        "• Baslik B\n  https://b.com",
+    ]
+
+
+def test_ddg_html_sinif_siralari():
+    html = "<a class='result__a foo' href='https://a.com'>A</a>"
+
+    assert _web.parse_anchor_results(html, "result__a") == ["• A\n  https://a.com"]
+
+
+def test_bos_arama_sonucu_basari_degil_hata(monkeypatch):
+    """T2-16b: "(sonuç bulunamadı)" başarı olarak dönünce model "internette yok" sanıyordu."""
+    monkeypatch.setattr(_web, "SEARCH_ENDPOINTS", (lambda _q: [],))
+
+    sonuc = _web.web_search({"query": "xyz"}, ToolContext(root="."))
+
+    assert not sonuc.ok
+    assert "internette yok olduğu anlamına GELMEZ" in sonuc.output
+
+
+def test_bing_alakasiz_sonuc_elenir(monkeypatch):
+    """T2-16c: q= yok sayılıp alakasız akış dönen Bing sonuçları başarı diye sunulmasın."""
+    xml = (
+        "<rss><channel>"
+        "<item><title>Astana'da nereye gidilir</title><link>https://gezi.example/a</link></item>"
+        "</channel></rss>"
+    )
+
+    class _Yanit:
+        text = xml
+
+        def raise_for_status(self):
+            return None
+
+    class _Istemci:
+        def __init__(self, **_k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def get(self, *_a, **_k):
+            return _Yanit()
+
+    monkeypatch.setattr(_web.httpx, "Client", _Istemci)
+
+    assert _web._search_bing_rss("python asyncio semaphore") == []
+    assert _web._search_bing_rss("astana gezi") != []
+
+
+def test_web_fetch_ikili_icerigi_metne_cevirmez(monkeypatch):
+    """T2-15: PDF/görsel `response.text` ile çöp metne çevrilip başarı gibi dönüyordu."""
+
+    def _fake(url):
+        return "application/pdf", "", url
+
+    monkeypatch.setattr(_web, "fetch_following_redirects", _fake)
+    monkeypatch.setattr(_web, "url_block_reason", lambda _u: None)
+
+    sonuc = _web.web_fetch({"url": "https://a.com/x.pdf"}, ToolContext(root="."))
+
+    assert not sonuc.ok and "download_file" in sonuc.output
+
+
+def test_fetch_govde_bayt_siniri_asilmaz(monkeypatch):
+    monkeypatch.setattr(_web, "MAX_FETCH_BYTES", 100)
+    monkeypatch.setattr(_web, "url_block_reason", lambda _u: None)
+
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=b"a" * 10_000)
+
+    monkeypatch.setattr(_web, "PinnedTransport", lambda: httpx.MockTransport(handler), raising=True)
+
+    _ct, govde, _url = _web.fetch_following_redirects("https://a.com/")
+
+    assert len(govde) <= 100

@@ -36,6 +36,23 @@ from .pinned_http import PinnedTransport
 
 _USER_AGENT = "Mozilla/5.0 (fusion-cli)"
 
+#: `web_fetch` gövde üst sınırı (bayt). Sınırsız `client.get` çok büyük dosya/akış
+#: adreslerinde bellek ve süre tüketirdi (ölçüldü, 30 Ekim); metin zaten
+#: `MAX_OUTPUT_CHARS`'a kırpılıyor, 5 MiB sayfa metni için fazlasıyla yeter.
+MAX_FETCH_BYTES = 5 * 1024 * 1024
+
+#: Metne çevrilemeyen içerik türleri: çöp metin yerine açık hata (`download_file` yolu).
+_BINARY_TYPE_PREFIXES = ("image/", "audio/", "video/", "font/")
+_BINARY_TYPES = frozenset(
+    {"application/pdf", "application/zip", "application/octet-stream", "application/gzip"}
+)
+
+
+def _is_binary_type(content_type: str) -> bool:
+    kind = content_type.split(";", 1)[0].strip().lower()
+    return kind.startswith(_BINARY_TYPE_PREFIXES) or kind in _BINARY_TYPES
+
+
 #: `web_fetch`'in izin verdiği tek şemalar. `file://`, `gopher://` vb. reddedilir.
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
@@ -47,7 +64,6 @@ _INLINE_SPACE = re.compile(r"[ \t]+")
 _EXTRA_BLANK_LINES = re.compile(r"\n\s*\n\s*\n+")
 
 _DDG_RESULT = re.compile(r'(?is)<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>')
-_DDG_LITE_RESULT = re.compile(r'(?is)<a[^>]+href="([^"]+)"[^>]*class="result-link"[^>]*>(.*?)</a>')
 
 
 def web_fetch(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -63,6 +79,12 @@ def web_fetch(args: ToolArgs, context: ToolContext) -> ToolResult:
     except BlockedRedirectError as exc:
         return ToolResult.failure(f"Yönlendirme engellendi: {exc}")
 
+    if _is_binary_type(content_type):
+        return ToolResult.failure(
+            f"{content_type.split(';', 1)[0]} ikili içerik, metne çevrilemez: {final_url}. "
+            "Dosyayı projeye indirmek için download_file kullan (PDF/ZIP için sonra "
+            "extract_archive ya da uygun araç)."
+        )
     text = page_text(body, final_url) if _looks_like_html(content_type, body) else body
     govde = truncate_notice(text, MAX_OUTPUT_CHARS, ne="sayfa metni") or "(boş içerik)"
     duvar = access_wall_notice(text)
@@ -81,10 +103,18 @@ _ACCESS_WALL_MARKERS: tuple[str, ...] = (
     "checking your browser",
     "verify you are human",
     "i'm not a robot",
+)
+
+#: Sıradan sayfaların üst bilgisinde/menüsünde de geçen ifadeler ("Oturum açın / Üye ol").
+#: Yalnız görünür metin KISA ise (gerçek bir giriş duvarı) duvar sayılır; uzun bir
+#: e-ticaret sayfasında model gereksiz tarayıcı akışına sokulurdu (ölçüldü, 30 Ekim).
+_WEAK_WALL_MARKERS: tuple[str, ...] = (
     "log in to continue",
     "sign in to continue",
     "oturum açın",
+    "giriş yapın",
 )
+_WEAK_WALL_MAX_CHARS = 1_500
 
 
 def access_wall_notice(text: str) -> str:
@@ -100,7 +130,11 @@ def access_wall_notice(text: str) -> str:
     kurallarını atlayıp araç sonucuna tepki verdiğidir.
     """
     dusuk = text[:4000].lower()
-    if not any(isaret in dusuk for isaret in _ACCESS_WALL_MARKERS):
+    guclu = any(isaret in dusuk for isaret in _ACCESS_WALL_MARKERS)
+    zayif = len(text.strip()) < _WEAK_WALL_MAX_CHARS and any(
+        isaret in dusuk for isaret in _WEAK_WALL_MARKERS
+    )
+    if not (guclu or zayif):
         return ""
     return (
         f"{CAPABILITY_WALL_PREFIX} bu adres istenen içeriği DEĞİL, bir şifre/oturum/bot "
@@ -141,16 +175,32 @@ def fetch_following_redirects(url: str) -> tuple[str, str, str]:
         follow_redirects=False, timeout=WEB_TIMEOUT_S, transport=PinnedTransport()
     ) as client:
         for _ in range(MAX_WEB_REDIRECTS + 1):
-            response = client.get(current, headers={"User-Agent": _USER_AGENT})
-            if not response.is_redirect:
-                response.raise_for_status()
-                return response.headers.get("content-type", ""), response.text, str(response.url)
-            location = response.headers.get("location", "")
+            with client.stream("GET", current, headers={"User-Agent": _USER_AGENT}) as response:
+                if not response.is_redirect:
+                    response.raise_for_status()
+                    content_type = response.headers.get("content-type", "")
+                    if _is_binary_type(content_type):
+                        # Gövde HİÇ okunmaz: ikili içerik metne çevrilmeyecek.
+                        return content_type, "", str(response.url)
+                    return content_type, _read_capped(response), str(response.url)
+                location = response.headers.get("location", "")
             current = urljoin(current, location)
             reason = url_block_reason(current)
             if reason is not None:
                 raise BlockedRedirectError(reason)
         raise BlockedRedirectError(f"en fazla {MAX_WEB_REDIRECTS} yönlendirme aşıldı")
+
+
+def _read_capped(response: httpx.Response) -> str:
+    """Gövdeyi `MAX_FETCH_BYTES` ile sınırlı oku ve yanıtın kodlamasıyla çöz."""
+    parts: list[bytes] = []
+    total = 0
+    for chunk in response.iter_bytes():
+        parts.append(chunk[: MAX_FETCH_BYTES - total])
+        total += len(chunk)
+        if total >= MAX_FETCH_BYTES:
+            break
+    return b"".join(parts).decode(response.encoding or "utf-8", errors="replace")
 
 
 def web_search(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -168,7 +218,13 @@ def web_search(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     if failures:
         return ToolResult.failure(f"Arama başarısız (denenen: {'; '.join(failures)})")
-    return ToolResult("(sonuç bulunamadı)")
+    # Boş sonuç BAŞARI değildir: arama uçlarının biçimi bozulmuş olabilir. "Bulunamadı"
+    # demek modelin "internette yok" sanmasına yol açıyordu (ölçüldü, 30 Ekim).
+    return ToolResult.failure(
+        "Arama uçları sonuç vermedi. Bu, konunun internette yok olduğu anlamına GELMEZ: "
+        "sorguyu daha kısa/farklı sözcüklerle yeniden dene ya da web_fetch ile doğrudan "
+        "bir kaynak adresini aç."
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -227,6 +283,57 @@ def clean_result_url(href: str) -> str:
     if href.startswith("//"):
         return f"https:{href}"
     return href
+
+
+class _ClassAnchors(HTMLParser):
+    """Belirli sınıfı taşıyan `<a>` etiketlerinin (href, metin) çiftleri.
+
+    Düzenli ifade çift tırnağı ve `class`/`href` sırasını varsayıyordu; DuckDuckGo
+    Lite gerçekte tek tırnak ve farklı sıra kullanabilir. HTML ayrıştırıcısı ikisinden
+    de bağımsızdır.
+    """
+
+    def __init__(self, css_class: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self._css_class = css_class
+        self.found: list[tuple[str, str]] = []
+        self._href = ""
+        self._text: list[str] = []
+        self._open = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a":
+            return
+        values = dict(attrs)
+        if self._css_class in (values.get("class") or "").split() and values.get("href"):
+            self._open, self._href, self._text = True, values["href"] or "", []
+
+    def handle_data(self, data: str) -> None:
+        if self._open:
+            self._text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "a" and self._open:
+            self.found.append((self._href, "".join(self._text)))
+            self._open = False
+
+
+def parse_anchor_results(html: str, css_class: str) -> list[str]:
+    """`css_class` taşıyan bağlantılardan "• başlık\n  url" satırları çıkar."""
+    parser = _ClassAnchors(css_class)
+    parser.feed(html)
+    results: list[str] = []
+    seen: set[str] = set()
+    for href, raw_title in parser.found:
+        url = clean_result_url(href)
+        title = strip_html(raw_title)
+        if not title or not url.startswith("http") or url in seen:
+            continue
+        seen.add(url)
+        results.append(f"• {title}\n  {url}")
+        if len(results) >= MAX_WEB_RESULTS:
+            break
+    return results
 
 
 def parse_results(html: str, pattern: re.Pattern[str]) -> list[str]:
@@ -324,11 +431,11 @@ def _looks_like_html(content_type: str, body: str) -> bool:
     return "html" in content_type.lower() or "<html" in body[:2000].lower()
 
 
-def _post_search(url: str, query: str, pattern: re.Pattern[str]) -> list[str]:
+def _post_search(url: str, query: str, css_class: str) -> list[str]:
     with httpx.Client(follow_redirects=True, timeout=WEB_TIMEOUT_S) as client:
         response = client.post(url, data={"q": query}, headers={"User-Agent": _USER_AGENT})
         response.raise_for_status()
-        return parse_results(response.text, pattern)
+        return parse_anchor_results(response.text, css_class)
 
 
 def parse_bing_rss(xml_text: str) -> list[str]:
@@ -354,6 +461,14 @@ def parse_bing_rss(xml_text: str) -> list[str]:
     return results
 
 
+def _relevant_to_query(results: list[str], query: str) -> list[str]:
+    """Sorgudaki 3+ harfli sözcüklerden en az birini içermeyen sonuçları ele."""
+    words = [w for w in re.findall(r"\w+", query.lower()) if len(w) >= 3]
+    if not words:
+        return results
+    return [r for r in results if any(w in r.lower() for w in words)]
+
+
 def _search_bing_rss(query: str) -> list[str]:
     """Bing'in herkese açık RSS sonuç biçimini kazımasız bir yedek olarak ara.
 
@@ -365,15 +480,17 @@ def _search_bing_rss(query: str) -> list[str]:
     with httpx.Client(follow_redirects=True, timeout=WEB_TIMEOUT_S) as client:
         response = client.get(url, headers={"User-Agent": _USER_AGENT})
         response.raise_for_status()
-    return parse_bing_rss(response.text)
+    # Ölçüldü (24 Ağustos canlı deneme): uç `q=`'yu yok sayıp konuma göre alakasız akış
+    # döndürebiliyor. Sorgudan en az bir anlamlı sözcüğü başlıkta/adreste taşımayan sonuç atılır.
+    return _relevant_to_query(parse_bing_rss(response.text), query)
 
 
 def _search_html(query: str) -> list[str]:
-    return _post_search("https://html.duckduckgo.com/html/", query, _DDG_RESULT)
+    return _post_search("https://html.duckduckgo.com/html/", query, "result__a")
 
 
 def _search_lite(query: str) -> list[str]:
-    return _post_search("https://lite.duckduckgo.com/lite/", query, _DDG_LITE_RESULT)
+    return _post_search("https://lite.duckduckgo.com/lite/", query, "result-link")
 
 
 #: Testlerin uç değiştirmeden kazıma mantığını sınayabilmesi için açık liste.
