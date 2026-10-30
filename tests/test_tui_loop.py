@@ -88,7 +88,8 @@ async def test_prompter_tehlikesiz_istekte_oturum_secimi_sunar():
     await asyncio.sleep(0)
 
     assert tui._mode == "choice"
-    assert [choice.value for choice in tui._choices] == ["once", "session", "deny"]
+    # P-003: tehlikesiz yerel istekte "bir daha sorma" (always) kalıcı kuralı da sunulur.
+    assert [choice.value for choice in tui._choices] == ["once", "session", "always", "deny"]
     tui._resolve("session")
     assert await task is ApprovalAnswer.SESSION
 
