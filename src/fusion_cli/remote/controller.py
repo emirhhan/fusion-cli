@@ -24,7 +24,13 @@ from .account_login import AccountLogin
 from .asgi import RemoteApp
 from .backend import AppSessionBackend
 from .bind import BindPolicy, BindRefusedError, private_addresses, validate_bind
-from .constants import DEFAULT_REMOTE_HOST, DEFAULT_REMOTE_PORT, HTTP_START_TIMEOUT_SECONDS
+from .constants import (
+    APPROVAL_TRUST_DEFAULT_HOURS,
+    APPROVAL_TRUST_MAX_HOURS,
+    DEFAULT_REMOTE_HOST,
+    DEFAULT_REMOTE_PORT,
+    HTTP_START_TIMEOUT_SECONDS,
+)
 from .data_dir import migrate_legacy, remote_data_dir
 from .devices import CHANNEL_SIGNED, CHANNEL_TELEGRAM, Device, DeviceRegistry
 from .mobile import MobileApi
@@ -106,7 +112,10 @@ class RemoteController:
         self._clock = clock or WallClock()
         self._registry = DeviceRegistry(directory / "devices.json", self._clock)
         self._settings_path = directory / "settings.json"
-        self._require_approval = self._load_require_approval()
+        settings = self._load_settings()
+        self._require_approval = settings.get("requireApproval") is True
+        #: Uzaktan onay için cihaz başına süreli yetki zorunlu mu (P-040; varsayılan kapalı).
+        self._require_approval_trust = settings.get("requireApprovalTrust") is True
         self._last_paired: dict[str, Any] | None = None
         self._pairing = PairingService(
             self._registry,
@@ -144,6 +153,7 @@ class RemoteController:
             backend=self._backend,
             screen_capture=MacScreenCapture(),
             host_tenant=lambda: local_identity(active_account()).tenant_id,
+            require_approval_trust=lambda: self._require_approval_trust,
         )
         self._directory = directory
         self._secrets = secrets
@@ -177,6 +187,7 @@ class RemoteController:
             "uzak.ekran_onizleme": self._screen_preview,
             "uzak.projeler_esitle": self._projects_sync,
             "uzak.ayar": self._set_setting,
+            "uzak.onay_yetkisi": self._approval_trust,
         }
         handler = handlers.get(name)
         if handler is None:
@@ -194,16 +205,29 @@ class RemoteController:
             "port": self._port,
             "agAdresleri": private_addresses(),
             "onayIste": self._require_approval,
+            "onayYetkisiIste": self._require_approval_trust,
+            "onayYetkisiVarsayilanSaat": APPROVAL_TRUST_DEFAULT_HOURS,
             "sonEslesen": self._last_paired,
         }
 
-    def _load_require_approval(self) -> bool:
-        """Kodla eşleştirmede masaüstü onayı iste (varsayılan kapalı)."""
+    def _load_settings(self) -> dict[str, Any]:
+        """Kalıcı ayarlar (`requireApproval`, `requireApprovalTrust`); hepsi varsayılan kapalı."""
         try:
             raw = json.loads(self._settings_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return False
-        return isinstance(raw, dict) and raw.get("requireApproval") is True
+            return {}
+        return raw if isinstance(raw, dict) else {}
+
+    def _save_settings(self) -> None:
+        atomic_replace_text(
+            self._settings_path,
+            json.dumps(
+                {
+                    "requireApproval": self._require_approval,
+                    "requireApprovalTrust": self._require_approval_trust,
+                }
+            ),
+        )
 
     def _remember_paired(self, device: Device) -> None:
         """Masaüstü arayüzü bunu durum yoklamasında görüp "bağlandı" bildirimi gösterir."""
@@ -214,27 +238,58 @@ class RemoteController:
         }
 
     async def _set_setting(self, data: dict[str, Any]) -> dict[str, Any]:
-        if not isinstance(data.get("onayIste"), bool):
+        """`onayIste` ve/veya `onayYetkisiIste`; en az biri bool olmalı."""
+        flags = {key: data.get(key) for key in ("onayIste", "onayYetkisiIste")}
+        if not any(isinstance(value, bool) for value in flags.values()) or any(
+            value is not None and not isinstance(value, bool) for value in flags.values()
+        ):
             return _fail("Ayar değeri geçersiz.")
-        self._require_approval = data["onayIste"]
-        atomic_replace_text(
-            self._settings_path, json.dumps({"requireApproval": self._require_approval})
-        )
-        return {"ok": True, "onayIste": self._require_approval}
+        if isinstance(flags["onayIste"], bool):
+            self._require_approval = flags["onayIste"]
+        if isinstance(flags["onayYetkisiIste"], bool):
+            self._require_approval_trust = flags["onayYetkisiIste"]
+        self._save_settings()
+        return {
+            "ok": True,
+            "onayIste": self._require_approval,
+            "onayYetkisiIste": self._require_approval_trust,
+        }
+
+    @staticmethod
+    def _parse_hours(raw: object) -> float | None:
+        """Onay yetkisi saati: 0 (kaldır) ile tavan arası sayı; aksi `None`."""
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            return None
+        return float(raw) if 0 <= raw <= APPROVAL_TRUST_MAX_HOURS else None
+
+    async def _approval_trust(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Cihaza süreli uzaktan onay yetkisi ver (`saat` 0 → kaldır) (P-040)."""
+        hours = self._parse_hours(data.get("saat", APPROVAL_TRUST_DEFAULT_HOURS))
+        if hours is None:
+            return _fail(f"Onay yetkisi süresi 0–{APPROVAL_TRUST_MAX_HOURS} saat arasında olmalı.")
+        device_id = str(data.get("cihazId", ""))
+        if not self._registry.set_approval_trust(device_id, hours):
+            return _fail("Cihaz bulunamadı ya da iptal edilmiş.")
+        device = self._registry.get(device_id)
+        return {"ok": True, "cihaz": device.public_view() if device is not None else {}}
 
     async def _pair_begin(self, data: dict[str, Any]) -> dict[str, Any]:
         try:
             scopes = parse_scopes(data.get("kapsamlar"))
         except ValueError as error:
             return _fail(str(error))
+        hours = self._parse_hours(data.get("onaySaat", 0))
+        if hours is None:
+            return _fail(f"Onay yetkisi süresi 0–{APPROVAL_TRUST_MAX_HOURS} saat arasında olmalı.")
         channel = CHANNEL_TELEGRAM if data.get("kanal") == "telegram" else CHANNEL_SIGNED
-        code, expires = self._pairing.begin(scopes, channel=channel)
+        code, expires = self._pairing.begin(scopes, channel=channel, approval_hours=hours)
         return {
             "ok": True,
             "kod": code,
             "bitis": expires,
             "kapsamlar": sorted(scopes),
             "yuksekYetki": sorted(scopes & ELEVATED_SCOPES),
+            "onaySaat": hours,
         }
 
     async def _pair_approve(self, data: dict[str, Any]) -> dict[str, Any]:

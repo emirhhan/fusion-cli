@@ -160,7 +160,7 @@ export function createChat({ rpc, root, ctx, onBack, onChange, toast }) {
       for (const q of result.data?.pending ?? []) waiting.set(q.questionId, q);
       for (const [, q] of waiting) {
         if (!answered.has(q.questionId) && !list.querySelector(`[data-question="${CSS.escape(String(q.questionId))}"]`)) {
-          typing.before(approvalCard(q, rpc, () => { onChange(); poll(); }, ctx.scopes));
+          typing.before(approvalCard(q, rpc, () => { onChange(); poll(); }, ctx.scopes, ctx.approvalAuthority));
         }
       }
       typing.hidden = !["queued", "running"].includes(run.state);

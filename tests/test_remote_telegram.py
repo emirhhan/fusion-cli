@@ -19,17 +19,24 @@ from tests.test_remote_service import FakeBackend, FakeClock
 
 class FakeApi:
     def __init__(self) -> None:
-        self.sent: list[tuple[int, str]] = []
+        #: (sohbet, metin, düğmeler) — düğmeler P-040 ile geldi; eski testler ilk ikisini okur.
+        self.sent: list[tuple[int, str, tuple[tuple[str, str], ...]]] = []
         self.deleted: list[tuple[int, int]] = []
+        self.callbacks: list[tuple[str, str]] = []
 
     async def get_updates(self, offset: int, poll_seconds: int) -> list[dict[str, Any]]:
         return []
 
-    async def send_message(self, chat_id: int, text: str) -> None:
-        self.sent.append((chat_id, text))
+    async def send_message(
+        self, chat_id: int, text: str, buttons: tuple[tuple[str, str], ...] = ()
+    ) -> None:
+        self.sent.append((chat_id, text, buttons))
 
     async def delete_message(self, chat_id: int, message_id: int) -> None:
         self.deleted.append((chat_id, message_id))
+
+    async def answer_callback(self, callback_id: str, text: str) -> None:
+        self.callbacks.append((callback_id, text))
 
 
 def update(
@@ -156,7 +163,7 @@ async def test_onay_bildirimi_dugmesiz_ve_step_up_metni(harness: Harness) -> Non
     await harness.bridge.handle_update(update(7, "iş yap"))
     await asyncio.sleep(0.05)
     await harness.bridge.notify()
-    assert any("masaüstü" in text for _, text in harness.api.sent)
+    assert any("masaüstü" in text for _, text, _buttons in harness.api.sent)
     harness.backend.release.set()
 
 
@@ -267,18 +274,18 @@ async def test_bildirim_gonderimi_basarisizsa_olay_kaybolmaz(harness: Harness) -
     gercek = harness.api.send_message
     kalan = {"hata": 1}
 
-    async def kirilgan(chat_id: int, text: str) -> None:
+    async def kirilgan(chat_id: int, text: str, buttons: tuple[tuple[str, str], ...] = ()) -> None:
         if kalan["hata"]:
             kalan["hata"] -= 1
             raise TelegramError("ağ")
-        await gercek(chat_id, text)
+        await gercek(chat_id, text, buttons)
 
     harness.api.send_message = kirilgan  # type: ignore[method-assign]
     with pytest.raises(TelegramError):
         await harness.bridge.notify()
     await harness.bridge.notify()  # ikinci deneme aynı olayı yeniden gönderir
     assert len(harness.api.sent) > gonderilen
-    assert any("masaüstü" in text for _, text in harness.api.sent[gonderilen:])
+    assert any("masaüstü" in text for _, text, _buttons in harness.api.sent[gonderilen:])
     harness.backend.release.set()
 
 

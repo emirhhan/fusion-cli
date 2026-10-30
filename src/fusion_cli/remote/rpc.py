@@ -113,7 +113,12 @@ class RemoteService:
         mobile: MobileApi | None = None,
         run_lock: asyncio.Lock | None = None,
         host_tenant: str | Callable[[], str] = LOCAL_TENANT,
+        require_approval_trust: Callable[[], bool] = lambda: False,
     ) -> None:
+        #: Açıkken uzaktan ONAY (red değil) yalnız masaüstünün süreli yetki verdiği cihazdan
+        #: kabul edilir (P-040; Claude Code "Trusted Devices"). Varsayılan kapalı: eski
+        #: kurulumlarda telefon kapsam + ikinci teyit kuralıyla onaylamaya devam eder.
+        self._require_approval_trust = require_approval_trust
         #: Bu bilgisayarda ŞU AN açık hesabın tenant'ı; her çağrıda yeniden okunur çünkü
         #: masaüstünde hesap değişebilir. Yürütücü o hesabın yapılandırması ve sırlarıyla
         #: çalıştığı için görev ve masaüstü verisi yalnız bu hesabın cihazlarına açıktır.
@@ -244,7 +249,28 @@ class RemoteService:
                 "activeRun": self._active_run,
                 "scopes": sorted(device.scopes),
                 "notice": HOST_OFFLINE_NOTICE,
+                "approvalAuthority": self.approval_authority(device.device_id),
             },
+        )
+
+    def approval_authority(self, device_id: str) -> dict[str, Any]:
+        """Cihazın uzaktan onay durumu: yetki zorunlu mu, kaç saniye kaldı (P-040)."""
+        remaining = self._registry.approval_trust_remaining(device_id)
+        return {
+            "required": self._require_approval_trust(),
+            "secondsLeft": int(remaining),
+            "canApprove": not self._require_approval_trust() or remaining > 0,
+        }
+
+    def _approval_trust_refusal(self, device: Device) -> RpcResult | None:
+        if not self._require_approval_trust() or self._registry.has_approval_trust(
+            device.device_id
+        ):
+            return None
+        return _fail(
+            "onay_yetkisi_yok",
+            "Bu cihaza uzaktan onay yetkisi verilmemiş ya da süresi dolmuş; masaüstünde "
+            "Ayarlar › Uzaktan Erişim'den yetki ver. Reddetmek her zaman serbest.",
         )
 
     async def _create(self, device: Device, params: dict[str, Any]) -> RpcResult:
@@ -571,7 +597,9 @@ class RemoteService:
         ):
             return _fail("gecersiz_istek", "Sunulmayan onay seçeneği.")
         if choice != "deny":
-            denied = self._need_for_approval(device, classify_question(question).required_scope)
+            denied = self._approval_trust_refusal(device) or self._need_for_approval(
+                device, classify_question(question).required_scope
+            )
             if denied:
                 return denied
         token = self._confirmations.issue(
@@ -597,6 +625,9 @@ class RemoteService:
                 return denied
         if choice == "deny":
             return None
+        trust_refusal = self._approval_trust_refusal(device)
+        if trust_refusal is not None:
+            return trust_refusal
         approval = classify_question(question)
         if device.channel == CHANNEL_SIGNED:
             # İkinci teyit, işlemin gerektirdiği kapsamın eksikliğini KAPATMAZ (R1-01).

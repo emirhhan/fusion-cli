@@ -22,7 +22,7 @@ const TABS = [
 let device = null;
 let rpc = null;
 const ctx = {
-  tasks: [], chats: [], projects: [], chatProjects: {}, schedules: [], kits: [], scopes: [],
+  tasks: [], chats: [], projects: [], chatProjects: {}, schedules: [], kits: [], scopes: [], approvalAuthority: null,
   tiers: [], tiersEditable: false, activeTier: "", tier: localStorage.getItem("fusion.tier") ?? "",
   filter: "all", notice: "",
 };
@@ -252,7 +252,7 @@ async function renderApprovals() {
     const events = eventLists[index];
     for (const [, question] of pendingFromEvents(events.data?.events ?? [])) {
       const existing = [...box.querySelectorAll("[data-question]")].find((node) => node.dataset.question === question.questionId);
-      cards.push(existing?.closest(".approval-wrap") || h("div", { class: "approval-wrap" }, h("div", { class: "muted small" }, task.summary), approvalCard(question, rpc, refresh, ctx.scopes)));
+      cards.push(existing?.closest(".approval-wrap") || h("div", { class: "approval-wrap" }, h("div", { class: "muted small" }, task.summary), approvalCard(question, rpc, refresh, ctx.scopes, ctx.approvalAuthority)));
     }
   }
   if (cards.length !== box.children.length || cards.some((card, index) => card !== box.children[index])) {
@@ -305,6 +305,7 @@ async function refreshNow() {
     chat?.reconcile(next);
     if (changed) render();
     ctx.notice = status.data?.notice ?? "";
+    ctx.approvalAuthority = status.data?.approvalAuthority ?? null;
     const slow = Date.now() - lastSlow > 20000;
     if (changed || slow) {
       lastSlow = Date.now();
@@ -351,6 +352,7 @@ async function start() {
   try {
     const status = await rpc("service.status");
     ctx.scopes = status.data?.scopes ?? [];
+    ctx.approvalAuthority = status.data?.approvalAuthority ?? null;
   } catch (error) {
     if (error.auth) return forget();
     setConnection(false, "Bilgisayara ulaşılamıyor; yeniden deneniyor…");

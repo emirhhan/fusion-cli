@@ -12,9 +12,19 @@ kimlik, yetki ve olay katmanıdır (`src/fusion_cli/remote/`).
 - **İmzalı istek:** her RPC HMAC-SHA256 ile imzalanır (yol, gövde özeti, zaman, nonce, monoton
   sıra). Saat sapması >60 sn, tekrar eden nonce ve eski sıra numarası reddedilir. Beş başarısız
   deneme 15 dakika kilitler. İptal edilen cihaz anında reddedilir.
-- **Step-up:** masaüstü kontrolü, MCP yazma, tehlikeli ve sınıflandırılamayan işlemler uzaktan
-  **onaylanamaz**, yalnız reddedilebilir; onay masaüstünde verilir. Uzaktan kalıcı ("oturum")
-  izin verilemez.
+- **Step-up:** masaüstü kontrolü, MCP yazma, tehlikeli ve sınıflandırılamayan işlemler **imzalı
+  telefonda** (PWA) yalnız kapsam + tek işleme bağlı ikinci teyitle (`approvals.challenge` →
+  `approvals.respond{confirmation}`) onaylanır; Telegram'dan yalnız reddedilir. "Bu oturumda izin
+  ver" de aynı ikinci teyidi ister; ikinci teyit eksik kapsamı kapatmaz.
+- **Cihaz başına süreli onay yetkisi (P-040):** Ayarlar › Uzaktan Erişim › *Uzaktan onay* ›
+  "cihaz başına süreli yetki iste" açıkken bir cihaz, masaüstünün verdiği süresi dolmamış yetki
+  olmadan **onay veremez** (reddetmek serbest; hata kodu `onay_yetkisi_yok`). Yetki eşleştirmede
+  ("Eşleşen cihaz 18 saat onay verebilsin" → `onaySaat`) ya da cihaz listesinden
+  ("Onay yetkisi ver (18 sa)" / "Onay yetkisini kaldır" → `uzak.onay_yetkisi {cihazId, saat}`)
+  verilir; tavan 7 gün, süresiz yetki yok; iptal yetkiyi de siler. Şart **varsayılan kapalı**:
+  eski kurulumlarda telefon kapsam + ikinci teyit kuralıyla onaylamayı sürdürür. Telefon durumu
+  `service.status.approvalAuthority {required, secondsLeft, canApprove}` ile görür; PWA Ayarlar
+  sekmesi kalan süreyi yazar, onay kartı yetkisizken yalnız Reddet sunar.
 - **Veri:** olaylar ve bildirimler sır kalıplarından arındırılır; Telegram'a kod/diff dökülmez.
 - **Uyku/kapalı:** görevler bilgisayarda çalışır; uyku, kilit veya bağlantı kopukluğunda ilerlemez
   (`service.status` bunu `notice` ile bildirir, PWA gösterir).
@@ -22,7 +32,14 @@ kimlik, yetki ve olay katmanıdır (`src/fusion_cli/remote/`).
 ## Telegram
 Her kullanıcı kendi botunu BotFather'dan oluşturur; Fusion `getUpdates` ile dışarı bağlanır, port
 açılmaz. Yalnız eşleşmiş kullanıcı kimliği ve yalnız özel sohbet işlenir. **Telegram bot
-sohbetleri uçtan uca şifreli (Secret Chat) değildir.** Onay düğmesi yoktur.
+sohbetleri uçtan uca şifreli (Secret Chat) değildir.**
+**Onay düğmeleri (P-040):** onay isteği satır içi klavyeyle gelir. "İzin ver" yalnız cihazın
+kapsamının yettiği ve step-up istemeyen onaylarda (ör. `project.write` kapsamlı cihazda kabuk
+komutu) sunulur; step-up onaylar (tehlikeli, masaüstü, dış servis) ve kapsamı yetmeyen onaylar
+yalnız "Reddet" düğmesiyle gelir, metin masaüstüne/imzalı telefona yönlendirir. Düğme verisi
+(`onay:<anahtar>`) cihaza ve tek soruya bağlı rastgele, tek kullanımlık bir anahtardır;
+başka kullanıcının ya da eski düğmenin geri çağrısı "artık geçerli değil" döner. Süreli onay
+yetkisi şartı Telegram cihazı için de geçerlidir.
 Komutlar: `/projects /tasks /status /kits /kit <ad> /pause /resume /cancel /audit /devices`.
 `/audit` bu sürümde son görevin olay kaydı özetidir (ayrı bir Project Audit motoru değildir).
 `/pause` ve `/resume`, oturum duraklatmayı desteklemediği için dürüstçe "desteklenmiyor" döner.
@@ -98,8 +115,9 @@ Erişim bir kez açılıp dinleme başlamışsa çalışır (`fusion.remote.inus
 
 ## Yönetim istekleri (masaüstü ↔ çekirdek)
 `uzak.durum`, `uzak.eslestir_baslat|onayla|reddet`, `uzak.cihazlar`, `uzak.cihaz_iptal`,
-`uzak.baslat|durdur`, `uzak.ekran_bekleyen|onayla|kes|onizleme`, `uzak.telegram_baglan|kes`, `uzak.gorevler`, `uzak.onay_cevapla`.
-Bu isteklerin masaüstü arayüzü (Ayarlar → Uzaktan Erişim ekranı) henüz yapılmadı.
+`uzak.baslat|durdur`, `uzak.ekran_bekleyen|onayla|kes|onizleme`, `uzak.telegram_baglan|kes`, `uzak.gorevler`, `uzak.onay_cevapla`,
+`uzak.ayar {onayIste?, onayYetkisiIste?}`, `uzak.onay_yetkisi {cihazId, saat}` (saat 0 → kaldır), `uzak.durum`
+(`onayYetkisiIste`, `onayYetkisiVarsayilanSaat` alanları). Masaüstü arayüzü: Ayarlar → Uzaktan Erişim.
 
 ## Sınırlar
 Gerçek telefon, gerçek Telegram botu ve LAN TLS ile uçtan uca deneme yapılmadı; testler sahte
@@ -120,4 +138,6 @@ belirteci yapıştır → *Bağlan*. (3) *Telegram için kod oluştur* (2 dk). (
 - Sonra *Telefon için eşleştirme kodu oluştur* → telefonda kodu gir → Fusion'da *Cihazı onayla*.
 
 Mac uyurken/kapalıyken görev ilerlemez. Yüksek yetkili işlemler (masaüstü kontrolü, dış servis,
-silme) yalnız Fusion'daki *Bekleyen onaylar* bölümünden onaylanır.
+silme) Fusion'daki *Bekleyen onaylar* bölümünden ya da imzalı telefonda ikinci teyitle onaylanır;
+Telegram'dan yalnız reddedilir. Push bildirimi (Web Push/VAPID) bu sürümde yok: PWA yoklama ile,
+Telegram bot mesajıyla haber verir.
