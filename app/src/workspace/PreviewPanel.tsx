@@ -5,10 +5,18 @@ import "./PreviewPanel.css";
 type PreviewKind = "image" | "audio" | "video" | "pdf" | "html" | "text";
 interface PreviewAsset { yol: string; tur: PreviewKind; mime: string; boyut: number; base64: string }
 
+const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+
+/** Yerel geliştirme sunucusu adresi mi? Uygulamanın KENDİ kökeni (geliştirmede Vite portu) hariç:
+ * `allow-same-origin` + `allow-scripts` ile kendini çerçeveleyen sayfa sandbox'ını söker (U4-48).
+ * Üretimde uygulama `tauri://localhost` olduğundan loopback http adresiyle çakışmaz. */
 export function isLocalPreviewUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if (url.protocol !== "http:" || !LOOPBACK_HOSTS.includes(url.hostname)) return false;
+    const own = window.location;
+    const ownIsLoopback = own.protocol === "http:" && LOOPBACK_HOSTS.includes(own.hostname);
+    return !(ownIsLoopback && (url.port || "80") === (own.port || "80"));
   } catch {
     return false;
   }
@@ -321,7 +329,7 @@ export function PreviewPanel({
               {(asset.tur === "html" || asset.tur === "text") && assetText === null && (
                 <p className="preview-panel__error" role="alert">Dosya içeriği çözülemedi.</p>
               )}
-              {asset.tur === "html" && assetText !== null && <iframe className="preview-panel__frame" sandbox="" srcDoc={assetText} title={`${asset.yol} HTML önizlemesi`} />}
+              {asset.tur === "html" && assetText !== null && <iframe className="preview-panel__frame" sandbox="allow-scripts" srcDoc={assetText} title={`${asset.yol} HTML önizlemesi`} />}
               {asset.tur === "text" && assetText !== null && <pre>{assetText}</pre>}
             </div>
           ) : !assetError ? (

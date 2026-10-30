@@ -16,11 +16,36 @@ afterEach(() => {
 describe("PreviewPanel", () => {
   it("yalnız localhost geliştirme adreslerini gömer", () => {
     expect(isLocalPreviewUrl("http://localhost:5173/game")).toBe(true);
-    expect(isLocalPreviewUrl("http://127.0.0.1:3000")).toBe(true);
+    expect(isLocalPreviewUrl("http://127.0.0.1:3001")).toBe(true);
     expect(isLocalPreviewUrl("http://[::1]:8080")).toBe(true);
     expect(isLocalPreviewUrl("https://example.com")).toBe(false);
     expect(isLocalPreviewUrl("javascript:alert(1)")).toBe(false);
     expect(isLocalPreviewUrl("http://localhost.evil.example")).toBe(false);
+  });
+
+  it("uygulamanın kendi kökenini (aynı port) gömmeyi reddeder (U4-48)", () => {
+    const own = new URL(window.location.href);
+    expect(isLocalPreviewUrl(`http://localhost:${own.port}/`)).toBe(false);
+    expect(isLocalPreviewUrl(`http://127.0.0.1:${own.port}/x`)).toBe(false);
+    expect(isLocalPreviewUrl(`http://[::1]:${own.port}`)).toBe(false);
+    expect(isLocalPreviewUrl(`http://localhost:${Number(own.port) + 1}/`)).toBe(true);
+  });
+
+  it("HTML dosya önizlemesi betik çalıştırır ama opak kökenli kalır: allow-scripts var, allow-same-origin yok (U4-47)", async () => {
+    const html = "<script>document.title='x'</script><p>oyun</p>";
+    const client = {
+      request: vi.fn(async () => ({
+        ok: true, yol: "oyun.html", tur: "html", mime: "text/html",
+        boyut: html.length, base64: btoa(html),
+      })),
+    } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} selectedPath="oyun.html" revision={0} />);
+    const frame = await screen.findByTitle("oyun.html HTML önizlemesi");
+    const sandbox = (frame.getAttribute("sandbox") ?? "").split(/\s+/);
+    expect(sandbox).toContain("allow-scripts");
+    expect(sandbox).not.toContain("allow-same-origin");
+    expect(sandbox).not.toContain("allow-top-navigation");
+    expect(sandbox).not.toContain("allow-popups");
   });
 
   it("seçili görseli protokolden güvenli veri adresiyle gösterir", async () => {
@@ -70,7 +95,7 @@ describe("PreviewPanel", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Web" }));
     const address = screen.getByRole("textbox", { name: "Yerel önizleme adresi" });
-    fireEvent.change(address, { target: { value: "http://localhost:3000" } });
+    fireEvent.change(address, { target: { value: "http://localhost:3001" } });
     fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
     await screen.findByTitle("Yerel geliştirme önizlemesi");
     fireEvent.change(address, { target: { value: "http://localhost:4173" } });
@@ -78,7 +103,7 @@ describe("PreviewPanel", () => {
     await waitFor(() => expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:4173"));
 
     fireEvent.click(screen.getByRole("button", { name: "Geri" }));
-    await waitFor(() => expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:3000"));
+    await waitFor(() => expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:3001"));
     fireEvent.click(screen.getByRole("button", { name: "İleri" }));
     await waitFor(() => expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:4173"));
     const before = screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("data-revision");
@@ -152,10 +177,10 @@ describe("PreviewPanel", () => {
     } as unknown as ProtocolClient;
     render(<PreviewPanel client={client} selectedPath={null} />);
     const address = screen.getByRole("textbox", { name: "Yerel önizleme adresi" }) as HTMLInputElement;
-    fireEvent.change(address, { target: { value: "http://localhost:3000" } });
+    fireEvent.change(address, { target: { value: "http://localhost:3001" } });
     fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
     fireEvent.change(address, { target: { value: "http://localhost:4173" } });
-    resolveValidation?.({ ok: true, url: "http://localhost:3000", durum: 200 });
+    resolveValidation?.({ ok: true, url: "http://localhost:3001", durum: 200 });
 
     await waitFor(() => expect(address.value).toBe("http://localhost:4173"));
     expect(screen.queryByTitle("Yerel geliştirme önizlemesi")).toBeNull();
@@ -168,7 +193,7 @@ describe("PreviewPanel", () => {
     } as unknown as ProtocolClient;
     render(<PreviewPanel client={client} selectedPath={null} />);
     const address = screen.getByRole("textbox", { name: "Yerel önizleme adresi" }) as HTMLInputElement;
-    fireEvent.change(address, { target: { value: "http://localhost:3000" } });
+    fireEvent.change(address, { target: { value: "http://localhost:3001" } });
     fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
     fireEvent.change(address, { target: { value: "http://localhost:4173" } });
     resolveValidation?.({ ok: false, metin: "Eski adres açılamadı" });
