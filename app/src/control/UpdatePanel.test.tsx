@@ -51,3 +51,16 @@ it("kurulum başarılı ama yeniden başlatma düşerse kurulduğu söylenir", a
   await screen.findByText(/kuruldu ama Fusion yeniden başlatılamadı/);
   expect(screen.queryByText(/Güncelleme tamamlanamadı/)).toBeNull();
 });
+
+it("çalışan görev varken kurulumu kapatır ve nedenini söyler (Q1-23)", async () => {
+  const downloadAndInstall = vi.fn().mockResolvedValue(undefined);
+  mocks.check.mockResolvedValue({ version: "1.0.0", close: vi.fn().mockResolvedValue(undefined), downloadAndInstall });
+  render(<UpdatePanel turnRunning />);
+  fireEvent.click(screen.getByText("Güncellemeleri kontrol et"));
+  const install = await screen.findByText("İndir, kur ve yeniden başlat");
+  expect(install.hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("alert").textContent).toMatch(/Çalışan bir görev var/);
+  fireEvent.click(install);
+  expect(downloadAndInstall).not.toHaveBeenCalled();
+  expect(mocks.relaunch).not.toHaveBeenCalled();
+});

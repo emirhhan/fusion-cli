@@ -1426,6 +1426,7 @@ export function SessionUygulama({
             onRunCommand={(command) => executeCommand(command, false)}
             onThemeChange={changeTheme}
             themePreference={themePreference}
+            turnRunning={Boolean(active.running)}
           />
         )
       : page === "help"

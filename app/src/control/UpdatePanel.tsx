@@ -7,7 +7,8 @@ const reasonText = (reason: unknown): string => (reason instanceof Error ? reaso
 /** İmza/doğrulama hatası ağ hatasından ayrı söylenir: kullanıcı kurulumun GÜVENLİK nedeniyle durduğunu bilmeli. */
 const isSignatureError = (text: string): boolean => /signature|imza|verif|doğrula/i.test(text);
 
-export function UpdatePanel() {
+/** `turnRunning`: çalışan bir görev varken kurulum kapalıdır (yeniden başlatma görevi keser). */
+export function UpdatePanel({ turnRunning = false }: { turnRunning?: boolean } = {}) {
   const [update, setUpdate] = useState<Update | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("Yeni sürümü kontrol edebilirsin.");
@@ -63,7 +64,8 @@ export function UpdatePanel() {
     <h3>Uygulama güncellemeleri</h3>
     <p role="status">{message}</p>
     <p>Kurulum Fusion'ı yeniden başlatır. Önce çalışan görevlerin tamamlanmasını bekle.</p>
+    {turnRunning && <p role="alert">Çalışan bir görev var; kurulum görev bitene kadar kapalı.</p>}
     <button type="button" disabled={busy} onClick={() => void inspect()}>Güncellemeleri kontrol et</button>
-    {update && <button type="button" disabled={busy} onClick={() => void install()}>İndir, kur ve yeniden başlat</button>}
+    {update && <button type="button" disabled={busy || turnRunning} onClick={() => void install()}>İndir, kur ve yeniden başlat</button>}
   </section>;
 }

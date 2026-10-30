@@ -71,6 +71,8 @@ interface SettingsProps {
   onOpenAccount?: () => void;
   onChangeRoot?: () => void;
   onRunCommand?: (command: string) => void | CommandResult | Promise<void | CommandResult>;
+  /** Etkin oturumda tur sürüyor mu? Sürüyorsa uygulama güncellemesi kurulamaz (yeniden başlatma turu keser). */
+  turnRunning?: boolean;
 }
 
 export function Settings({
@@ -82,6 +84,7 @@ export function Settings({
   onRunCommand,
   onThemeChange,
   themePreference,
+  turnRunning = false,
 }: SettingsProps) {
   const [bolum, setBolum] = useState<BolumId>(initialSection);
   const [control, setControl] = useState<ControlSnapshot | null>(null);
@@ -336,7 +339,7 @@ export function Settings({
 
           {bolum === "uzak" && <RemoteAccess client={client} />}
 
-          {bolum === "guncellemeler" && <UpdatePanel />}
+          {bolum === "guncellemeler" && <UpdatePanel turnRunning={turnRunning} />}
 
           {bolum === "nasil" && <HowTo onOpenSettings={setBolum} />}
 
