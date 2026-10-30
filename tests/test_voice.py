@@ -643,3 +643,12 @@ def test_sistem_ses_listesi_bosluklu_kaliteli_adi_korur(monkeypatch):
     records = voice.installed_voice_records()
     assert ("Cem (Enhanced)", "tr-TR", "Cem (Enhanced)") in records
     assert voice.best_voice(records) == "Cem (Enhanced)"
+
+
+def test_onerilen_ses_zaten_kuruluysa_indirme_onerilmez() -> None:
+    """Ölçüldü (30 Ekim, S2-33): `say -v ?` kalite etiketi vermediğinden Cem kuruluyken de
+    "Cem'i indir" deniyordu."""
+    from fusion_cli.appserver.voice import upgrade_hint
+
+    assert upgrade_hint((("Cem", "tr_TR", "Cem"), ("Yelda", "tr_TR", "Yelda"))) is None
+    assert upgrade_hint((("Yelda", "tr_TR", "Yelda"),)) is not None

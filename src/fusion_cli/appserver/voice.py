@@ -212,6 +212,10 @@ def upgrade_hint(installed: tuple[tuple[str, str, str], ...]) -> str | None:
         return None
     if any(_quality_rank(item[2]) < _QUALITY_ORDER.index("compact") for item in turkish):
         return None
+    # `say -v ?` kalite etiketi vermez: Cem kuruluyken de herkes "compact" sayılıp "Cem'i indir"
+    # denirdi (ölçüldü 30 Ekim). Önerilen ses zaten kuruluysa öneri yapılmaz.
+    if any(item[0].casefold() == BETTER_TURKISH_VOICE.casefold() for item in turkish):
+        return None
     return (
         f"Daha doğal bir Türkçe ses ücretsiz indirilebilir: {BETTER_TURKISH_VOICE}. "
         "Sistem Ayarları → Erişilebilirlik → Sözlü İçerik → Sistem Sesi → "
