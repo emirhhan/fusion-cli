@@ -85,6 +85,7 @@ def suggest_followups(
     ilk rozeti okumadan tıklayabilmeli.
     """
     oneriler: list[Followup] = []
+    read_only = evidence.made_no_changes and not evidence.changed_files and evidence.ok
 
     # 1) Yanlış çalışma dizini her şeyin önüne geçer: başka hiçbir öneri
     #    doğru klasöre geçilmeden anlamlı değil.
@@ -121,17 +122,6 @@ def suggest_followups(
             )
         )
 
-    # 4) Başarısız araç varsa nedenini sormak mantıklı.
-    if evidence.failed_tools:
-        arac = evidence.failed_tools[0]
-        oneriler.append(
-            Followup(
-                label=f"`{arac}` neden başarısız oldu?",
-                prompt=f"Turda `{arac}` başarısız oldu. Nedenini araştır ve düzelt.",
-                reason="failed_tools",
-            )
-        )
-
     # 5) Dosya değiştiyse: önce gözden geçirme, sonra (komut varsa) doğrulama.
     if evidence.changed_files:
         oneriler.append(
@@ -152,13 +142,27 @@ def suggest_followups(
                 )
             )
 
-    # 6) Araç çalıştı ama hiçbir şey değişmediyse bu bir soru işaretidir.
-    if evidence.made_no_changes and not evidence.changed_files:
+    # 6) Salt-okur başarılı tur (araç çalıştı, hiçbir şey değişmedi): kimse değişiklik
+    #    beklemiyordu — "neden değişiklik olmadı?" diye sorulmaz (`NoFileChanges` rozeti
+    #    olguyu zaten söyler) ve olmayan dosya yoklayan okuma hatası öneri konusu olmaz.
+    #    İşe yarar tek şey, projenin kendi doğrulama komutu varsa onu çalıştırmaktır.
+    if read_only:
+        if evidence.verification_command:
+            oneriler.append(
+                Followup(
+                    label="Testleri çalıştır",
+                    prompt=f"`{evidence.verification_command}` komutunu çalıştır ve sonucu bildir.",
+                    reason="read_only+verification_command",
+                )
+            )
+    elif evidence.failed_tools:
+        # 7) Başarısız araç: işe yarayan öneriler (gözden geçir / doğrula) ÖNE geçer.
+        arac = evidence.failed_tools[0]
         oneriler.append(
             Followup(
-                label="Neden değişiklik olmadı?",
-                prompt="Bu turda hiçbir dosya değişmedi. Nedenini açıkla; iş zaten yapılmış mıydı?",
-                reason="made_no_changes",
+                label=f"`{arac}` hatasını gider",
+                prompt=f"Turda `{arac}` başarısız oldu. Nedenini araştır ve düzelt.",
+                reason="failed_tools",
             )
         )
 
