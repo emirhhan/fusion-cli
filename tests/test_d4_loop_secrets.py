@@ -28,3 +28,21 @@ def test_sikistirma_esigi_cagriyi_yapacak_modelden_hesaplanir():
     deps.active_model_override = devir
 
     assert loop._context_spec(deps) is devir
+
+
+def test_duzeltici_tur_sayaclari_asil_nesneye_tasinir(tmp_path):
+    from dataclasses import replace
+
+    from .test_ask_teacher import _deps
+
+    asil = _deps(tmp_path)
+    kopya = replace(asil)
+    kopya.teacher_calls_used = 3
+    kopya.council_calls_used = 2
+    kopya.condensations = 4
+    kopya.auto_teacher_used = True
+
+    loop._sync_turn_counters(kopya, asil)
+
+    assert (asil.teacher_calls_used, asil.council_calls_used, asil.condensations) == (3, 2, 4)
+    assert asil.auto_teacher_used is True

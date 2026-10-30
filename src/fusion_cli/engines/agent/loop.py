@@ -3704,6 +3704,7 @@ async def _fix_findings(
         correction_deps,
         history=outcome.messages,
     )
+    _sync_turn_counters(correction_deps, deps)
     if (
         correction_deps is not deps
         and not correction.ok
@@ -3745,6 +3746,21 @@ async def _run_verification_correction_attempt(
         # Kapı düzeltici turda TEKRAR çalışmaz: sonsuz düzeltme döngüsü yok.
         verify=False,
     )
+
+
+def _sync_turn_counters(source: AgentDeps, target: AgentDeps) -> None:
+    """Düzeltici turun kopya `AgentDeps`'inde artan tur sayaçlarını asıl nesneye yaz.
+
+    Ölçüldü (30 Ekim, A2-18): `replace(deps, config=...)` yeni nesne üretir; öğretmen/
+    council çağrı sayıları ve özetleme sayısı kopyada artıp orijinale yansımıyor,
+    düzeltici tur tur bütçelerini sıfırdan harcıyordu. Yalnız ARTIŞ taşınır.
+    """
+    if source is target:
+        return
+    target.teacher_calls_used = max(target.teacher_calls_used, source.teacher_calls_used)
+    target.council_calls_used = max(target.council_calls_used, source.council_calls_used)
+    target.condensations = max(target.condensations, source.condensations)
+    target.auto_teacher_used = target.auto_teacher_used or source.auto_teacher_used
 
 
 def _verification_correction_deps(deps: AgentDeps) -> AgentDeps:
