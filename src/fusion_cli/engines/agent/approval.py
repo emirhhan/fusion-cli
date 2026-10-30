@@ -89,6 +89,14 @@ def next_mode(mode: ApprovalMode) -> ApprovalMode:
     return CYCLE_MODES[(CYCLE_MODES.index(mode) + 1) % len(CYCLE_MODES)]
 
 
+def may_run_unasked_commands(mode: ApprovalMode) -> bool:
+    """Kip, onay sorusu olmadan arka plan komutu (dev sunucusu) çalıştırmaya izin verir mi?
+
+    SECURITY ("okuma dışı her şey sorulur") ve PLAN (hiçbir değişiklik yok) vermez.
+    """
+    return mode not in (ApprovalMode.SECURITY, ApprovalMode.PLAN)
+
+
 #: Kipin elle yazılabilen öteki adları (Claude'daki adlar dahil).
 _MODE_ALIASES = {
     "manual": ApprovalMode.SECURITY,

@@ -26,7 +26,7 @@ import socket
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -400,8 +400,16 @@ def _playwright_available() -> bool:
 class BrowserVerifier:
     """Agent'ın yazdığı HTML sayfalarını açar ve ölçer."""
 
-    def __init__(self, tool_context: ToolContext) -> None:
+    def __init__(
+        self,
+        tool_context: ToolContext,
+        *,
+        dev_server_allowed: Callable[[], bool] = lambda: True,
+    ) -> None:
         self._context = tool_context
+        #: Dev betiğini onaysız çalıştırmaya şu an izin var mı? (A1-11) Onay kipi tur
+        #: ortasında değişebildiği için değer değil, çağrı alır.
+        self._dev_server_allowed = dev_server_allowed
 
     async def verify(self) -> VerificationResult:
         pages = [
@@ -456,6 +464,19 @@ class BrowserVerifier:
             return VerificationResult(ok=True)
         if komut is None:
             return VerificationResult(ok=True)
+        # `dev` betiği onay politikasından GEÇMEDEN çalışır (A1-11). İki durumda
+        # çalıştırılmaz ama "ölçülmedi" diye söylenir: kullanıcı okuma dışı her şeyin
+        # sorulduğu kipteyse (SECURITY/PLAN) ya da `package.json`u bu turda MODEL
+        # yazdıysa (betiğe keyfi komut koyup tur sonunda yürütülmesini sağlayabilir).
+        if not self._dev_server_allowed():
+            return _not_measured(
+                "bu onay kipinde `dev` betiği sorulmadan çalıştırılmaz; sayfa düzeni ölçülmedi."
+            )
+        if self._model_wrote(paket):
+            return _not_measured(
+                "package.json bu turda değişti; modelin yazdığı `dev` betiği onaysız "
+                "çalıştırılmadı, sayfa düzeni ölçülmedi."
+            )
         # Tarayıcı en SONDA yoklanır: ölçülecek bir şey olmadığı anlaşıldığında
         # Playwright'ı hiç içeri almamak bu kapının kuralı.
         if not _playwright_available():
@@ -475,6 +496,14 @@ class BrowserVerifier:
             observations,
             source="çalışan sayfada",
         )
+
+    def _model_wrote(self, path: Path) -> bool:
+        """`package.json` bu turda araçlarla yazıldı/değiştirildi mi?"""
+        resolved = path.resolve()
+        written = {
+            item.resolve() for item in (*self._context.touched, *self._context.changes.paths)
+        }
+        return resolved in written
 
     async def _observe_dev_server(
         self, root: Path, komut: list[str]

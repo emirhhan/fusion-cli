@@ -49,7 +49,12 @@ from ..core.types import (
     is_rate_limit_error,
 )
 from ..engines.agent import AgentOutcome, run_agent
-from ..engines.agent.approval import ApprovalMemory, ApprovalMode, build_policy
+from ..engines.agent.approval import (
+    ApprovalMemory,
+    ApprovalMode,
+    build_policy,
+    may_run_unasked_commands,
+)
 from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.loop import AgentDeps
 from ..engines.agent.remotion_bridge import FrameTransport
@@ -278,6 +283,9 @@ async def run_agent_task(
                 tool_context=tool_context,
                 remotion_state=tool_context.remotion_contract,
                 remotion_transport=remotion_transport,
+                dev_server_allowed=lambda: may_run_unasked_commands(
+                    current_approval() if current_approval else mode
+                ),
             ),
             task_type=task_type,
             background=background,

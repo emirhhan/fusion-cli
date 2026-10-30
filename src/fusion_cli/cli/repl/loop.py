@@ -479,7 +479,7 @@ async def _agent_turn(
     mode: Mode = Mode.NONE,
 ) -> None:
     from ...engines.agent import run_agent
-    from ...engines.agent.approval import build_policy
+    from ...engines.agent.approval import build_policy, may_run_unasked_commands
     from ...engines.agent.loop import AgentDeps
     from ...engines.agent.verification import build_verifier
     from ...memory.checkpoint_store import JsonCheckpointStore
@@ -526,6 +526,7 @@ async def _agent_turn(
                 tool_context=tool_context,
                 remotion_state=tool_context.remotion_contract,
                 remotion_transport=transport,
+                dev_server_allowed=lambda: may_run_unasked_commands(state.approval),
             ),
             # `/type` agent turunda da etkili olmalı: görev tipi model seçimini
             # yönlendirir (`select_agent_spec`). Geçirilmediğinde "general"a düşülüyor

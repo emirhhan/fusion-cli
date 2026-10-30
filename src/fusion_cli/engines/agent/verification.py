@@ -19,6 +19,7 @@ import asyncio
 import logging
 import os
 import re
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
@@ -102,6 +103,7 @@ def build_verifier(
     remotion_contract: KitVerificationPlan | None = None,
     remotion_state: KitContractState | None = None,
     remotion_transport: FrameTransport | None = None,
+    dev_server_allowed: Callable[[], bool] = lambda: True,
 ) -> Verifier | None:
     """Etkin doğrulayıcıları kur; hiçbiri yoksa None.
 
@@ -217,7 +219,7 @@ def build_verifier(
         verifiers.append(GameProbeVerifier(tool_context))
     if config.runtime.browser_verification and tool_context is not None:
         # Playwright kurulu değilse bu kapı sessizce geçer; kendi içinde karar verir.
-        verifiers.append(BrowserVerifier(tool_context))
+        verifiers.append(BrowserVerifier(tool_context, dev_server_allowed=dev_server_allowed))
     if config.runtime.visual_verification and tool_context is not None and config.vision:
         verifiers.append(VisualVerifier(tool_context, config))
 
