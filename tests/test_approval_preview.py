@@ -137,3 +137,55 @@ def test_onizleme_replace_all_metin_true_ile_gercek_aracla_ayni(tmp_path):
     )
 
     assert onizleme.count("+y y y") == 1
+
+
+# --- Esnek eşleşme (d8-duzenleme) ------------------------------------------------------------
+
+
+def test_esnek_eslesen_duzenleme_bos_degil_gercek_diffi_ve_notu_gosterir(tmp_path: Path) -> None:
+    """Ölçüldü (30 Ekim): araç esnek eşleşmeyle uygularken kart boş diff gösteriyordu."""
+    (tmp_path / "a.py").write_text("bir  \niki\n", encoding="utf-8")
+
+    diff = onizleme_diffi("edit_file", {"path": "a.py", "old": "bir\n", "new": "BİR\n"}, tmp_path)
+
+    assert "+BİR" in diff and "-bir" in diff
+    assert diff.startswith("# tam eşleşme yoktu; satır sonu boşluğu farkı tolere edildi, satır 1")
+
+
+def test_esnek_multi_edit_onizlemesi_adim_notunu_tasir(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("bir  \niki\nüç\n", encoding="utf-8")
+    args = {"path": "a.py", "edits": [{"old": "bir\n", "new": "BİR\n"}, {"old": "üç", "new": "ÜÇ"}]}
+
+    diff = onizleme_diffi("multi_edit", args, tmp_path)
+
+    assert "+BİR" in diff and "+ÜÇ" in diff
+    assert "# 1. düzenleme: tam eşleşme yoktu" in diff
+
+
+def test_esnek_ayar_kapaliyken_onizleme_bos_kalir(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("bir  \niki\n", encoding="utf-8")
+
+    diff = onizleme_diffi(
+        "edit_file",
+        {"path": "a.py", "old": "bir\n", "new": "BİR\n"},
+        tmp_path,
+        edit_fuzzy_match=False,
+    )
+
+    assert diff == ""
+
+
+def test_belirsiz_esnek_eslesme_onizlenmez(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("a  \nb\nara\na\nb  \n", encoding="utf-8")
+
+    assert (
+        onizleme_diffi("edit_file", {"path": "a.py", "old": "a\nb\n", "new": "x\n"}, tmp_path) == ""
+    )
+
+
+def test_tam_eslesmede_not_eklenmez(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("bir\niki\n", encoding="utf-8")
+
+    diff = onizleme_diffi("edit_file", {"path": "a.py", "old": "iki", "new": "İKİ"}, tmp_path)
+
+    assert not diff.startswith("#")

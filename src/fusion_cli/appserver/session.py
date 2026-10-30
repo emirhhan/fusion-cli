@@ -2293,6 +2293,8 @@ class AppSession:
             element_name=self._chrome.element_name,
             namespace=receipt.attempt_id if receipt else "",
             on_closed=self._question_closed,
+            # Önizleme aracın esnek eşleşme ayarıyla AYNI olmalı (gerçek diff).
+            edit_fuzzy_match=(config_snapshot or self._state.config).runtime.edit_fuzzy_match,
         )
         steering = SteeringQueue()
         child_runs = ChildRuns()

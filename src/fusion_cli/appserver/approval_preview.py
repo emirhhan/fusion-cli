@@ -19,7 +19,8 @@ from typing import Any
 from ..core.errors import PathAccessError
 from ..core.tools import ToolContext
 from ..tools.args import ArgumentError
-from ..tools.files import parse_edits, resolve_path
+from ..tools.esnek_eslesme import FlexibleEdit, describe
+from ..tools.files import parse_edits, replace_once, resolve_path
 
 __all__ = ["onizleme_diffi"]
 
@@ -35,8 +36,15 @@ MAX_SATIR = 60
 MAX_DOSYA_BAYT = 1024 * 1024
 
 
-def onizleme_diffi(tool_name: str, args: dict[str, Any], root: Path) -> str:
-    """Araç çalıştırılsa dosyanın nasıl değişeceğini unified diff olarak ver."""
+def onizleme_diffi(
+    tool_name: str, args: dict[str, Any], root: Path, *, edit_fuzzy_match: bool = True
+) -> str:
+    """Araç çalıştırılsa dosyanın nasıl değişeceğini unified diff olarak ver.
+
+    Düzenleme araçlarında değişim aracın KENDİ ortak yoluyla (`replace_once`, aynı
+    `edit_fuzzy_match` ayarı) hesaplanır: esnek eşleşmeyle uygulanacak bir düzenleme
+    boş önizleme yerine gerçek diff'i gösterir ve başına kısa bir not eklenir.
+    """
     if tool_name not in _DUZENLEME_ARACLARI:
         return ""
     yol = args.get("path")
@@ -52,10 +60,13 @@ def onizleme_diffi(tool_name: str, args: dict[str, Any], root: Path) -> str:
     mevcut = _oku(hedef)
     if mevcut is None:
         return ""
-    yeni = _yeni_icerik(tool_name, args, mevcut)
+    context = ToolContext(root=root, edit_fuzzy_match=edit_fuzzy_match)
+    notlar: list[str] = []
+    yeni = _yeni_icerik(tool_name, args, mevcut, context, notlar)
     if yeni is None or yeni == mevcut:
         return ""
-    return _diff(yol, mevcut, yeni)
+    fark = _diff(yol, mevcut, yeni)
+    return "".join(f"# {not_}\n" for not_ in notlar) + fark
 
 
 def _oku(hedef: Path) -> list[str] | None:
@@ -70,16 +81,28 @@ def _oku(hedef: Path) -> list[str] | None:
         return None
 
 
-def _yeni_icerik(tool_name: str, args: dict[str, Any], mevcut: list[str]) -> list[str] | None:
+def _yeni_icerik(
+    tool_name: str,
+    args: dict[str, Any],
+    mevcut: list[str],
+    context: ToolContext,
+    notlar: list[str],
+) -> list[str] | None:
     if tool_name == "write_file":
         content = args.get("content")
         return None if not isinstance(content, str) else content.splitlines(keepends=True)
     if tool_name in ("edit_file", "multi_edit"):
-        return _metin_degistir(tool_name, args, mevcut)
+        return _metin_degistir(tool_name, args, mevcut, context, notlar)
     return None
 
 
-def _metin_degistir(tool_name: str, args: dict[str, Any], mevcut: list[str]) -> list[str] | None:
+def _metin_degistir(
+    tool_name: str,
+    args: dict[str, Any],
+    mevcut: list[str],
+    context: ToolContext,
+    notlar: list[str],
+) -> list[str] | None:
     """`edit_file` / `multi_edit` değişimlerini araçla AYNI şemadan uygula.
 
     Gerçek şema `old`/`new`/`replace_all` (tek düzenleme) ve `edits` listesidir
@@ -98,11 +121,28 @@ def _metin_degistir(tool_name: str, args: dict[str, Any], mevcut: list[str]) -> 
         if not isinstance(eski, str) or not isinstance(yeni, str):
             return None
         edits = ((eski, yeni, args.get("replace_all") is True),)
-    for eski, yeni, replace_all in edits:
-        if not eski or eski not in metin:
+    for sira, (eski, yeni, replace_all) in enumerate(edits, 1):
+        if not eski:
             return None
-        metin = metin.replace(eski, yeni, -1 if replace_all else 1)
+        if replace_all:
+            if eski not in metin:
+                return None
+            metin = metin.replace(eski, yeni)
+            continue
+        # Araçla AYNI yol: tam eşleşme, yoksa (ayar açıksa) tek ve belirsiz olmayan esnek blok.
+        adim = replace_once(
+            metin, eski, yeni, context, position=sira if tool_name == "multi_edit" else None
+        )
+        if isinstance(adim, str):
+            return None
+        metin = adim[0]
+        notlar.extend(_esnek_not(konum, duzenleme) for konum, duzenleme in adim[1])
     return metin.splitlines(keepends=True)
+
+
+def _esnek_not(konum: int | None, duzenleme: FlexibleEdit) -> str:
+    onek = f"{konum}. düzenleme: " if konum is not None else ""
+    return f"{onek}{describe(duzenleme)}"
 
 
 def _alan(args: dict[str, Any], *anahtarlar: str) -> object:

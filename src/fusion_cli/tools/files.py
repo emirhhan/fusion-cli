@@ -580,13 +580,13 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
             return ToolResult.failure(_NOT_FOUND)
         return _apply_edit(path, text, text.replace(old, new), count, context)
 
-    step = _replace_once(text, old, new, context, position=None)
+    step = replace_once(text, old, new, context, position=None)
     if isinstance(step, str):
         return ToolResult.failure(step)
     return _apply_edit(path, text, step[0], 1, context, flexible=step[1])
 
 
-def _replace_once(
+def replace_once(
     text: str, old: str, new: str, context: ToolContext, *, position: int | None
 ) -> tuple[str, tuple[tuple[int | None, FlexibleEdit], ...]] | str:
     """Tek bir benzersiz değişim: sonuç metni (+ esnek eşleşme izi) ya da hata mesajı.
@@ -667,7 +667,7 @@ def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
             working = working.replace(old, new)
             toplam += count
             continue
-        step = _replace_once(working, old, new, context, position=position)
+        step = replace_once(working, old, new, context, position=position)
         if isinstance(step, str):
             return ToolResult.failure(step)
         working = step[0]

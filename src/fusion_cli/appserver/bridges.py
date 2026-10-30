@@ -148,7 +148,9 @@ class ProtocolPrompter:
         namespace: str = "",
         on_closed: Callable[[str], None] | None = None,
         approval_timeout_s: float = APPROVAL_UNANSWERED_TIMEOUT_S,
+        edit_fuzzy_match: bool = True,
     ) -> None:
+        self._edit_fuzzy_match = edit_fuzzy_match
         self._writer = writer
         self._approval_timeout_s = approval_timeout_s
         self._pending = pending
@@ -193,7 +195,12 @@ class ProtocolPrompter:
         if self._root is None:
             return ""
         try:
-            return onizleme_diffi(request.tool.name, dict(request.args), self._root)
+            return onizleme_diffi(
+                request.tool.name,
+                dict(request.args),
+                self._root,
+                edit_fuzzy_match=self._edit_fuzzy_match,
+            )
         except Exception:  # pragma: no cover - önizleme onayı ASLA engellemez
             return ""
 
