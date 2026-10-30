@@ -111,6 +111,9 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Ajan var olan bir testi zayıflatırsa (skip/xfail ekleme, assert ya da test silme, CI/test komutunu değiştirme) rapor "şüpheli test değişikliği" uyarısı verir ve "testler geçti" kanıtı tek başına doğrulama sayılmaz (`runtime.test_tamper_check`); test ya da şartname hatalı görünüyorsa ajan durup bildirir.
 - Web, tarayıcı, MCP ya da klonlanan site okunan turdan çıkan dersler düşük güvenle "dış kaynaklı" kaydedilir ve dış içeriksiz başarılı bir turda doğrulanana kadar güven kazanmaz (`runtime.external_lesson_confidence`).
 - Doğrulama iki düzeltmeden sonra da başarısızsa ve yapılandırmada daha güçlü bir model varsa (varsayılan kurulumda Nemotron 3 Ultra) o modelle tek bir ek düzeltme turu yapılır; durum satırı ve rapor notu görünür (`runtime.escalate_on_gate_failure`, `runtime.escalation_model`).
+- Depo haritası içe aktarma grafıyla sıralanır: çok kullanılan dosyalar öne, test dosyaları geriye; bütçesi `runtime.repo_map_chars` ile ayarlanır (varsayılan 3.000 karakter, küçük pencereli modelde daha az). Model alt klasördeki bir dosyaya eriştiğinde o klasörün `AGENTS.md`/`CLAUDE.md` talimatı bir kez bağlama eklenir (`runtime.nested_instructions`).
+- Yeni komutlar `fusion eval taslak-uret | taslaklar | kabul | sil`: konuşmalardaki düzeltme, geri alma ve başarısız turlardan sırları maskelenmiş eval görevi taslağı üretir; kümeye ekleme kullanıcı onayıyla.
+- Yeni komutlar `fusion prompt-opt calistir | oneriler | uygula | geri-al`: istemlere küçük, eklemeli öneri üretir, ayrı tutulmuş kümede gerilemiyorsa önerir; istem dosyası yalnız `uygula` ile değişir ve geri alınabilir. Örtüşen ya da çok küçük kümeler model çağrılmadan reddedilir.
 
 ## 0.7.18 — 2026-10-21
 
