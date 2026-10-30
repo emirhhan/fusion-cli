@@ -1,4 +1,4 @@
-import { runtimeDefault, type DictationRuntime } from "../voice/useDictation";
+import type { DictationRuntime } from "../voice/useDictation";
 import type { HostRequest } from "./localComputerHost";
 
 /** Kits'in sesli konuşmasına Fusion'ın yerel sesini verir (Kits tarafı:
@@ -7,7 +7,9 @@ import type { HostRequest } from "./localComputerHost";
  * Tanıma cihaz içi `fusion-listen` yardımcısıyla, seslendirme oturumun
  * `ses.konus` RPC'siyle (macOS `say`/EMA) yapılır: anahtar istemez, ses ve
  * metin Mac'ten çıkmaz. İstek yalnız bu iframe penceresinden ve Kits kökeninden
- * kabul edilir; Kits yalnız dinle/dur/seslendir isteyebilir. */
+ * kabul edilir; Kits yalnız dinle/dur/seslendir isteyebilir. Mikrofon ilk
+ * `listen`de Fusion'ın kendi penceresiyle sorulur; izin pencere ömrü boyunca
+ * hatırlanır (U6-15). */
 export const VOICE_REQUEST = "fusion-kits-voice";
 export const VOICE_RESULT = "fusion-kits-voice-result";
 export const VOICE_EVENT = "fusion-kits-voice-event";
@@ -17,6 +19,11 @@ type Action = (typeof ACTIONS)[number];
 export const SPEAK_TEXT_LIMIT = 2_000;
 /** `ses.bekle` yanıtı için üst sınır: çekirdek yanıt vermezse Kits "konuşuyor"da takılı kalmasın. */
 export const SPEAK_WAIT_LIMIT_MS = 180_000;
+
+/** Kits ilk kez mikrofon istediğinde kullanıcıya sorar (U6-15). */
+export type ConfirmMicrophone = () => Promise<boolean>;
+/** Reddedilen izin bu süre boyunca yeniden sorulmaz: Kits'in yeniden deneme döngüsü pencere yağdırmasın. */
+export const MICROPHONE_DENY_MEMORY_MS = 30_000;
 
 interface MessageHost {
   addEventListener(type: "message", listener: (event: MessageEvent) => void): void;
@@ -36,12 +43,16 @@ export class KitsVoiceHost {
   private readonly speechTurns = new Set<string>();
   /** Dinleme başlat/durdur işlemleri sırayla çalışır; eşzamanlı iki `listen` oturum sızdırmasın. */
   private listenQueue: Promise<void> = Promise.resolve();
+  /** Kullanıcı bu pencere ömrü boyunca mikrofona izin verdiyse true ("bu oturumda hatırla"). */
+  private microphoneGranted = false;
+  private microphoneDeniedAt = 0;
   constructor(
     private readonly host: MessageHost,
     private readonly frame: FrameWindow,
     url: string,
     private readonly request: HostRequest,
-    private readonly runtime: DictationRuntime = runtimeDefault,
+    private readonly runtime: DictationRuntime,
+    private readonly confirmMicrophone: ConfirmMicrophone,
   ) {
     this.origin = new URL(url).origin;
     host.addEventListener("message", this.receive);
@@ -97,10 +108,30 @@ export class KitsVoiceHost {
 
   private async handle(action: Action, text: string) {
     if (action === "hello") return;
-    if (action === "listen") return this.enqueueListen(() => this.startListening());
+    if (action === "listen") {
+      return this.enqueueListen(async () => {
+        await this.requireMicrophone();
+        await this.startListening();
+      });
+    }
     if (action === "stop-listening") return this.enqueueListen(() => this.stopListening());
     if (action === "speak") return this.speak(text);
     return this.stopSpeaking();
+  }
+
+  /** Mikrofon, Kits iframe'i (üçüncü taraf içerik) için ilk kullanımda Fusion içi onayla açılır. */
+  private async requireMicrophone() {
+    if (this.microphoneGranted) return;
+    const denied = new Error("Mikrofon izni verilmedi. Kits'in sesli konuşması için Fusion'ın sorusunda İzin ver'i seç.");
+    if (this.microphoneDeniedAt && Date.now() - this.microphoneDeniedAt < MICROPHONE_DENY_MEMORY_MS) throw denied;
+    let allowed = false;
+    try { allowed = await this.confirmMicrophone(); } catch { allowed = false; }
+    if (!allowed) {
+      this.microphoneDeniedAt = Date.now();
+      throw denied;
+    }
+    this.microphoneGranted = true;
+    this.microphoneDeniedAt = 0;
   }
 
   private async startListening() {

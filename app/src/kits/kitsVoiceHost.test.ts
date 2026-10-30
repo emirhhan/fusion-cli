@@ -4,7 +4,7 @@ import type { DictationRuntime } from "../voice/useDictation";
 
 const ORIGIN = "http://127.0.0.1:4410";
 
-function fixture() {
+function fixture(allow = true) {
   const listeners = new Set<(event: MessageEvent) => void>();
   const host = {
     addEventListener: (_: "message", l: (event: MessageEvent) => void) => listeners.add(l),
@@ -23,13 +23,14 @@ function fixture() {
     if (name === "ses.konus") return { ok: true, tur_id: "t1" };
     return { ok: true, tamamlandi: true };
   });
-  const voice = new KitsVoiceHost(host, frame, `${ORIGIN}/?surface=kits`, request, runtime);
+  const confirmMic = vi.fn(async () => allow);
+  const voice = new KitsVoiceHost(host, frame, `${ORIGIN}/?surface=kits`, request, runtime, confirmMic);
   const send = (data: unknown, origin = ORIGIN, source: unknown = frame) =>
     listeners.forEach((l) => l({ data, origin, source } as MessageEvent));
   const line = (session: number, value: object) => lineHandler({ session, line: JSON.stringify(value) });
   const ended = (session: number, message?: string) =>
     endedHandler({ session, stderr_summary: message ? { message } : null });
-  return { voice, frame, runtime, request, send, line, ended };
+  return { voice, frame, runtime, request, send, line, ended, confirmMic };
 }
 const result = (nonce: string, ok = true) =>
   expect.objectContaining({ type: VOICE_RESULT, nonce, ok });
@@ -57,6 +58,26 @@ describe("KitsVoiceHost", () => {
     expect(f.frame.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ text: "eski oturum" }), ORIGIN);
     f.send({ type: VOICE_REQUEST, nonce: "l2", action: "stop-listening" });
     await vi.waitFor(() => expect(f.runtime.stop).toHaveBeenCalled());
+  });
+
+  it("mikrofon ilk dinlemede Fusion içi onayla açılır ve izin hatırlanır (U6-15)", async () => {
+    const f = fixture();
+    f.send({ type: VOICE_REQUEST, nonce: "l1", action: "listen" });
+    await vi.waitFor(() => expect(f.frame.postMessage).toHaveBeenCalledWith(result("l1"), ORIGIN));
+    f.send({ type: VOICE_REQUEST, nonce: "l2", action: "listen" });
+    await vi.waitFor(() => expect(f.frame.postMessage).toHaveBeenCalledWith(result("l2"), ORIGIN));
+    expect(f.confirmMic).toHaveBeenCalledTimes(1);
+    expect(f.runtime.start).toHaveBeenCalledTimes(2);
+  });
+
+  it("reddedilen mikrofon izninde dinleme başlamaz ve kısa sürede yeniden sorulmaz", async () => {
+    const f = fixture(false);
+    f.send({ type: VOICE_REQUEST, nonce: "l1", action: "listen" });
+    await vi.waitFor(() => expect(f.frame.postMessage).toHaveBeenCalledWith(result("l1", false), ORIGIN));
+    f.send({ type: VOICE_REQUEST, nonce: "l2", action: "listen" });
+    await vi.waitFor(() => expect(f.frame.postMessage).toHaveBeenCalledWith(result("l2", false), ORIGIN));
+    expect(f.confirmMic).toHaveBeenCalledTimes(1);
+    expect(f.runtime.start).not.toHaveBeenCalled();
   });
 
   it("tanıma beklenmedik biçimde biterse Türkçe hata olayı gönderir", async () => {

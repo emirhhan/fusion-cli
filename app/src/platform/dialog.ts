@@ -55,3 +55,13 @@ export async function askComputerAccess(reason: string): Promise<boolean> {
     { title: "Kits bilgisayarına bakmak istiyor", kind: "warning", okLabel: "İzin ver", cancelLabel: "Reddet" },
   );
 }
+
+/** Kits'in sesli konuşması mikrofonu ilk kez istediğinde yerel pencereyle sorar. İzin, Kits açık kaldığı sürece hatırlanır. */
+export async function askMicrophoneAccess(): Promise<boolean> {
+  const { ask } = await import("@tauri-apps/plugin-dialog");
+  return ask(
+    "Kits sesli konuşma için mikrofonunu dinlemek istiyor. Tanıma bu Mac'te yapılır; ses dışarı çıkmaz. " +
+      "İzin verirsen Kits açık kaldığı sürece tekrar sorulmaz.",
+    { title: "Kits mikrofonunu kullanmak istiyor", kind: "warning", okLabel: "İzin ver", cancelLabel: "Reddet" },
+  );
+}

@@ -2,8 +2,9 @@ import { AssetHost } from "./assetHost";
 import { ScheduledDeliveryClient } from "./scheduledDeliveryClient";
 import { LocalComputerHost, type ConfirmComputer, type HostRequest } from "./localComputerHost";
 import { FolderPickHost, type PickFolder } from "./folderPickHost";
-import { KitsVoiceHost } from "./kitsVoiceHost";
-import { askComputerAccess, selectProjectFolder } from "../platform/dialog";
+import { KitsVoiceHost, type ConfirmMicrophone } from "./kitsVoiceHost";
+import { runtimeDefault } from "../voice/useDictation";
+import { askComputerAccess, askMicrophoneAccess, selectProjectFolder } from "../platform/dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KITS_THEME_MESSAGE, kitsFrameUrl, type KitsTheme } from "./kitsUrl";
@@ -31,6 +32,8 @@ interface KitsScreenProps {
   /** Testler yerel izin penceresini taklit eder. */
   confirmComputer?: ConfirmComputer;
   pickFolder?: PickFolder;
+  /** Testler mikrofon izin penceresini taklit eder. */
+  confirmMicrophone?: ConfirmMicrophone;
   /** Kits sunucusunun hâlâ aynı adreste yaşadığını yoklama aralığı (ms). */
   watchIntervalMs?: number;
   /** Bölüm gizliyken adres yoklaması durur (sürekli IPC olmasın); iframe ve köprüler yerinde kalır. */
@@ -51,6 +54,7 @@ export function KitsScreen({
   requestHost,
   confirmComputer = askComputerAccess,
   pickFolder = selectProjectFolder,
+  confirmMicrophone = askMicrophoneAccess,
   watchIntervalMs = KITS_WATCH_INTERVAL_MS,
   visible = true,
 }: KitsScreenProps) {
@@ -95,10 +99,10 @@ export function KitsScreen({
       const istek = hostRequest.current;
       if (!istek) return Promise.reject(new Error("Fusion oturumu yok; sesli yanıt için bir sohbet sekmesi aç."));
       return istek(name, data);
-    });
+    }, runtimeDefault, confirmMicrophone);
     voice.current = host;
     return () => { host.close(); voice.current = null; };
-  }, [state]);
+  }, [state, confirmMicrophone]);
   useEffect(() => {
     if (state.durum !== "hazir" || !frame.current?.contentWindow) return;
     const folders = new FolderPickHost(window, frame.current.contentWindow, state.adres, pickFolder);
