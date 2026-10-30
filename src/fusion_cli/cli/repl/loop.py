@@ -133,6 +133,10 @@ async def run_repl(
     if os.environ.get("FUSION_INLINE") != "1" and is_interactive_terminal():
         from .tui_loop import run_tui_repl
 
+        # Sürdürme bilgisi yalnız varsa geçirilir: TUI giriş noktasının eski çağrı
+        # biçimi (state, console) ve onu taklit eden testler aynen çalışmaya devam eder.
+        if resume is None:
+            return await run_tui_repl(state, console)
         return await run_tui_repl(state, console, resume=resume)
 
     # Ev dizini GEÇİLİR: dinamik `/resume<kaynak>` komutları ancak böyle kaydolur.
@@ -504,6 +508,8 @@ async def _agent_turn(
         bus.subscribe(renderer)
         bus.subscribe(state.cost)
         bus.subscribe(tracer)
+        # Tur checkpoint'i: konuşmanın kopyası + bu turun değişiklik kümesi (`/rewind`).
+        checkpoint = state.checkpoints.begin(line, state.history)
         tool_context = ToolContext(
             root=state.root,
             extra_roots=state.extra_roots,
@@ -511,6 +517,7 @@ async def _agent_turn(
             block_reads_outside_root=state.config.runtime.block_reads_outside_root,
             block_writes_outside_root=state.config.runtime.block_writes_outside_root,
             remotion_browser=state.remotion_browser,
+            changes=checkpoint.changes,
         )
         partial = PartialTurn()
         prompter = ConsolePrompter(

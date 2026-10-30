@@ -38,6 +38,7 @@ from . import (
     provider_flow,
     profiles_flow,
     provider_flow,
+    rewind,
     session_resume,
     verify_flow,
     workspace_commands,
@@ -619,7 +620,14 @@ def _health(state: ReplState, argument: str) -> str:
 
 
 def _undo(state: ReplState, argument: str) -> str:
-    """`/undo` — son agent turunun dosya değişikliklerini geri al."""
+    """`/undo` — son agent turunun dosya değişikliklerini geri al (= `/rewind <son> kod`).
+
+    Tur checkpoint defteri doluysa oradan geri alınır (kayıt düşer, `/rewind` listesi
+    tutarlı kalır). Defter boşken eski `last_changes` yolu korunur: dışarıdan kayıt
+    verilen (masaüstü, test) durumlar aynı davranır.
+    """
+    if state.checkpoints.latest() is not None:
+        return rewind.undo_last(state)
     kayit = state.last_changes
     if kayit is None or not kayit:
         return messages.UNDO_NOTHING
@@ -782,6 +790,14 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
     SlashCommand("verify", messages.CMD_VERIFY, _verify, group="Agent"),
     SlashCommand("undo", messages.CMD_UNDO, _undo, group="Agent"),
+    SlashCommand(
+        "rewind",
+        messages.CMD_REWIND,
+        rewind.rewind_command,
+        ("checkpoint",),
+        group="Agent",
+        usage="[no] [kod|konuşma|ikisi]",
+    ),
     SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
     SlashCommand("mcp", messages.CMD_MCP, _mcp, group="Bilgi", usage="[add|remove] …"),

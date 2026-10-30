@@ -70,7 +70,7 @@ def test_geri_sarma_olayi_yuklenen_gecmisi_kirpar(tmp_path):
     memory, root = tmp_path / "m", tmp_path / "r"
     _seed(memory, root, "s-1", ("a", "1"), ("b", "2"), ("c", "3"))
     store = TranscriptStore(memory, root, conversation_id="s-1")
-    store.record_rewind(2)
+    store.record_rewind(1)
     store.record_user("d")
 
     assert [m.content for m in load_transcript_messages(memory, root, conversation_id="s-1")] == [

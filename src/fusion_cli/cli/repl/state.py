@@ -18,6 +18,7 @@ from ...config.permissions import load_allowed_commands
 from ...core.changeset import ChangeSet
 from ...core.health import HealthRegistry
 from ...core.remotion_browser import RemotionBrowser
+from ...core.turn_checkpoints import TurnCheckpointLedger
 from ...core.types import FusionResult, Message
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
 from ...engines.agent.remotion_bridge import FrameTransport
@@ -110,6 +111,9 @@ class ReplState:
     #: Yalnızca SON tur tutulur: daha derin bir geçmiş, kullanıcının aradan yaptığı
     #: elle değişiklikleri sessizce ezme riski taşır.
     last_changes: ChangeSet | None = None
+    #: Tur başına kod + konuşma checkpoint'leri (`/rewind`). Her agent turu `begin` ile
+    #: açılır; turun `ChangeSet`'i buradan gelir ve `last_changes` ile aynı nesnedir.
+    checkpoints: TurnCheckpointLedger = field(default_factory=TurnCheckpointLedger)
     #: Skill/agent kütüphanesi. Tarama oturumda bir kez yapılır.
     capabilities: CapabilityRegistry | None = None
     #: Oturum boyunca paylaşılan sağlayıcı sağlığı (circuit breaker + güvenilirlik).

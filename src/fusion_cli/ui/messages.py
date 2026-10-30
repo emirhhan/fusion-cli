@@ -824,6 +824,23 @@ SESSION_BRANCHED = (
 )
 SESSION_COPY_FAILED = "Sohbet kopyalanamadı: {reason}"
 SESSION_CHOICE_DETAIL = "{when} · {count} mesaj"
+
+#: `/rewind` — çok adımlı checkpoint'e geri sarma.
+CMD_REWIND = "bir turun başına dön: kod + konuşma, yalnız konuşma ya da yalnız kod (Esc Esc)"
+REWIND_USAGE = "Kullanım: /rewind [tur no] [kod|konuşma|ikisi]  (argümansız: liste)"
+REWIND_NOTHING = "Geri sarılacak tur yok; henüz bir agent turu çalışmadı."
+REWIND_UNKNOWN_TURN = "Böyle bir tur yok: {index} (liste için /rewind)"
+REWIND_PICK_TURN = "Hangi turun başına dönülsün?"
+REWIND_PICK_SCOPE = "Ne geri sarılsın?"
+REWIND_SCOPE_BOTH = "Kod ve konuşma"
+REWIND_SCOPE_CONVERSATION = "Yalnız konuşma (dosyalar kalsın)"
+REWIND_SCOPE_CODE = "Yalnız kod (konuşma kalsın)"
+REWIND_TURN_LABEL = "#{index}  {task}"
+REWIND_TURN_DETAIL = "{when} · {files} dosya"
+REWIND_CODE_DONE = "{count} dosya {index}. turdan önceki hâline döndürüldü:"
+REWIND_CODE_FAILED = "{count} dosya geri alınamadı (izin ya da silinmiş dizin):"
+REWIND_CODE_EMPTY = "{index}. turdan itibaren geri alınacak dosya değişikliği yoktu."
+REWIND_CONVERSATION_DONE = "Konuşma {index}. turun başına sarıldı ({count} mesaj kaldı)."
 RECALL_LESSONS_EMPTY_QUERY = "'query' boş olamaz: aradığın konuyu, hatayı ya da teknolojiyi yaz."
 RECALL_LESSONS_NONE = "(bu sorguya uyan öğrenilmiş ders yok)"
 READ_SESSION_INVALID_ARGUMENTS = "'source' ve 'session_id' metin olmalı."

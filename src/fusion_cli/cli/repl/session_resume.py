@@ -113,6 +113,8 @@ def apply_target(state: ReplState, target: ResumeTarget) -> None:
     state.conversation_name = target.name
     state.history = list(target.history)
     state.last_changes = None
+    # Başka sohbetin tur kayıtları bu konuşmaya ait değildir.
+    state.checkpoints.clear()
 
 
 def launch_notice(target: ResumeTarget) -> str:
@@ -198,8 +200,9 @@ def branch_command(state: ReplState, argument: str) -> str:
     )
     state.conversation_id = target_id
     state.conversation_name = name
-    # Kopyanın dosya geçmişi yoktur: eski sohbetin `/undo` kaydı yeni kimliğe taşınmaz.
+    # Kopyanın dosya geçmişi yoktur: eski sohbetin `/undo`/`/rewind` kaydı yeni kimliğe taşınmaz.
     state.last_changes = None
+    state.checkpoints.clear()
     return messages.SESSION_BRANCHED.format(count=count, name=f" ({name})" if name else "")
 
 

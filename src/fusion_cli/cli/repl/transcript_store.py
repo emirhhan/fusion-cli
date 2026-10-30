@@ -29,7 +29,9 @@ _MAX_HISTORY_MESSAGES = 100
 
 #: Sohbete ad verme olayı (`/rename`, `--name`). Mesaj değildir; listede başlık olur.
 _NAME_EVENT = "ConversationNamed"
-#: Konuşmanın geri sarıldığı olay (`/rewind`): `keep` kadar mesaj kalır, sonrası düşer.
+#: Konuşmanın geri sarıldığı olay (`/rewind`): ilk `keep_users` kullanıcı mesajı ve
+#: cevapları kalır, sonrası düşer. Sayım KULLANICI mesajıyla yapılır: motor geçmişindeki
+#: araç/ara mesajlar transcript'te yoktur, kullanıcı mesajı ise iki tarafta da birdir.
 #: Olay günlüğü EKLEMELİDİR; silinen mesajlar denetim için dosyada kalır, yalnız
 #: yüklemede atlanır.
 _REWIND_EVENT = "ConversationRewound"
@@ -67,9 +69,9 @@ def load_transcript_messages(
         if conversation_id is not None and event.get("session_id") != conversation_id:
             continue
         if event.get("event") == _REWIND_EVENT:
-            keep = event.get("keep")
+            keep = event.get("keep_users")
             if isinstance(keep, int) and not isinstance(keep, bool) and keep >= 0:
-                del messages[keep:]
+                _truncate_after_users(messages, keep)
             continue
         text = event.get("text")
         if not isinstance(text, str) or not text.strip():
@@ -119,6 +121,18 @@ def read_workspace_events(base_dir: Path, root: Path) -> list[dict[str, object]]
         if not skipping:
             records.append(event)
     return records
+
+
+def _truncate_after_users(messages: list[Message], keep_users: int) -> None:
+    """Listeyi `keep_users + 1`. kullanıcı mesajından itibaren kes (yerinde)."""
+    seen = 0
+    for index, message in enumerate(messages):
+        if message.role != "user":
+            continue
+        if seen == keep_users:
+            del messages[index:]
+            return
+        seen += 1
 
 
 def _upsert_message(messages: list[Message], message: Message) -> None:
@@ -430,9 +444,12 @@ class TranscriptStore:
         """Sohbete ad ver (`/rename`, `--name`). Son ad geçerlidir."""
         self._append({"event": _NAME_EVENT, "name": name})
 
-    def record_rewind(self, keep: int) -> None:
-        """Konuşmayı ilk `keep` mesaja geri sar (`/rewind`); dosyadan hiçbir satır silinmez."""
-        self._append({"event": _REWIND_EVENT, "keep": max(0, keep)})
+    def record_rewind(self, keep_users: int) -> None:
+        """Konuşmayı ilk `keep_users` kullanıcı mesajına (ve cevaplarına) geri sar (`/rewind`).
+
+        Dosyadan hiçbir satır silinmez; yükleyici bu olaydan sonra fazlasını atlar.
+        """
+        self._append({"event": _REWIND_EVENT, "keep_users": max(0, keep_users)})
 
     def handle(self, event: Event) -> None:
         # JSONL sınırı: alan değerleri olay tipine göre değişir ve `_jsonable`

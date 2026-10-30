@@ -37,6 +37,7 @@ from . import (
     model_flows,
     profiles_flow,
     provider_flow,
+    rewind,
     session_resume,
     verify_flow,
 )
@@ -246,6 +247,8 @@ class _TuiSession:
             on_cycle_mode=self._cycle,
             initial_transcript="",  # TUI isolation: yalnız mevcut oturum
             on_transcript_change=None,
+            # Boş girdide Esc Esc: Claude Code'daki gibi `/rewind` seçicisini açar.
+            on_rewind=lambda: self._submit("/rewind"),
         )
         self._out = self._tui.console
         self._prompter_factory = lambda drain: TuiPrompter(self._tui, drain, self._state.root)
@@ -395,6 +398,11 @@ class _TuiSession:
             if resolved is None:
                 return
             argument = resolved
+        elif command.name == "rewind":
+            resolved = await self._resolve_rewind_argument(argument)
+            if resolved is None:
+                return
+            argument = resolved
         elif command.name.startswith("resume") and not argument.strip():
             # `/resume<kaynak>` argümansız çağrıldığında düz REPL `pick()` açardı —
             # nested prompt_toolkit seçicisi burada da TUI'yi bozardı. Bunun yerine
@@ -483,6 +491,38 @@ class _TuiSession:
             self._state.root,
             conversation_id=self._state.conversation_id,
         )
+
+    async def _resolve_rewind_argument(self, argument: str) -> str | None:
+        """`/rewind` için eksik parçaları (tur, kapsam) uygulama-içi modalla tamamla.
+
+        Dönen metin tam argümandır (`"3 kod"`); işleyici onu seçici açmadan uygular.
+        Vazgeçilirse ya da geri sarılacak tur yoksa `None` döner.
+        """
+        entries = self._state.checkpoints.entries()
+        if not entries:
+            self._echo(f"[{theme.DIM}]{messages.REWIND_NOTHING}[/{theme.DIM}]")
+            return None
+        index, scope, error = rewind.parse_arguments(argument, self._state.checkpoints)
+        if error:
+            self._echo(f"[{theme.WARN}]{escape(error)}[/{theme.WARN}]")
+            return None
+        if index is None:
+            picked = await self._tui.await_choice(
+                messages.REWIND_PICK_TURN, rewind.turn_choices(entries)
+            )
+            if picked is None:
+                self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+                return None
+            index = int(picked)
+        if scope is None:
+            chosen = await self._tui.await_choice(
+                messages.REWIND_PICK_SCOPE, rewind.scope_choices()
+            )
+            if chosen is None:
+                self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+                return None
+            return f"{index} {chosen}"
+        return f"{index} {scope.value}"
 
     async def _resolve_own_resume(self) -> str | None:
         """`/resume` (Fusion sohbetleri) için uygulama-içi seçim; vazgeçilirse `None`."""
@@ -597,12 +637,15 @@ class _TuiSession:
             else:
                 # Bağlam BURADA kurulur ve saklanır: `/undo` turun değişiklik
                 # kümesine erişebilmek zorundadır.
+                # Tur checkpoint'i: konuşma kopyası + bu turun değişiklik kümesi (`/rewind`).
+                checkpoint = self._state.checkpoints.begin(line, self._state.history)
                 tool_context = ToolContext(
                     root=self._state.root,
                     extra_roots=self._state.extra_roots,
                     restrict_to_root=self._state.config.runtime.restrict_to_root,
                     block_reads_outside_root=self._state.config.runtime.block_reads_outside_root,
                     block_writes_outside_root=self._state.config.runtime.block_writes_outside_root,
+                    changes=checkpoint.changes,
                 )
                 # Değişiklik kümesi tur boyunca yerinde dolar; tur kesilse ya da hatayla
                 # bitse de `/undo` yarım yazılmış dosyaları geri alabilsin (L2-12).

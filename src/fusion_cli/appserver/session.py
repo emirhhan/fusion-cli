@@ -1453,6 +1453,8 @@ class AppSession:
         # Slash komutları (`/rename`) ve tur checkpoint'leri sekmenin kimliğini görsün;
         # yoksa `ReplState` açılışta ürettiği rastgele kimlikte kalırdı.
         self._state.conversation_id = self._transcript_store.session_id
+        # Başka sekmenin tur kayıtları bu konuşmaya ait değildir.
+        self._state.checkpoints.clear()
         self._restore_interrupted_turn()
 
     def _turn_journal(self, task: str) -> FileTurnJournal:
@@ -2031,6 +2033,10 @@ class AppSession:
             self._state.approval_memory.revoke()
             self._note_persist_warning(persist_approval(self._state.config, self._state.approval))
             result = {**result, **self._take_persist_warning()}
+        if command is not None and command.name in {"rewind", "undo"}:
+            # Dosyalar tur başına döndü; çalışma alanı günlüğündeki "geri al" kayıtları
+            # bayatlamasın (değişiklikler paneli artık olmayan farkı göstermesin).
+            self._drop_reverted_journal_entries()
         # Makrolar görevi yalnız HAZIRLAR (bkz. `cli/repl/commands.py::_macro`).
         # Terminal döngüsü hazırlanan görevi hemen çalıştırıyordu; masaüstünde bu
         # adım yoktu ve `/goal` "çalıştırılıyor…" deyip hiçbir tur başlatmıyordu.
@@ -2041,6 +2047,19 @@ class AppSession:
             return result
         self._next_turn_mode = mode
         return {**result, "gorev": task}
+
+    def _drop_reverted_journal_entries(self) -> None:
+        """İçeriği kayıt öncesi hâline eşit olan dosyaların günlük girdisini düşür."""
+        for entry in self._workspace_journal.latest():
+            path = self._state.root / entry.path
+            try:
+                current: bytes | None = path.read_bytes()
+            except FileNotFoundError:
+                current = None
+            except OSError:
+                continue
+            if current == (entry.before if entry.existed else None):
+                self._workspace_journal.pop(entry.path)
 
     async def _select_model(self, data: dict[str, Any]) -> dict[str, Any]:
         """`model.sec {kaynak, model}`: yapısal model seçimi (U1-40).
@@ -2474,8 +2493,11 @@ class AppSession:
             )
 
         # Ajanın her yazmadan önce aldığı anlık görüntüler; tur bitince (iptal dahil)
-        # çalışma alanı günlüğüne geçer ve UI geri alma yalnız bunlara dayanır.
-        changes = ChangeSet()
+        # çalışma alanı günlüğüne geçer ve UI geri alma yalnız bunlara dayanır. Kayıt
+        # tur checkpoint defterinden gelir: `/rewind` masaüstünde de aynı defteri sarar.
+        changes = (
+            ChangeSet() if browser_only else self._state.checkpoints.begin(task, history).changes
+        )
         # Tarayıcı paneli turu sekmenin konuşması değildir; günlüğe yazılmaz.
         journal = None if browser_only else self._turn_journal(task)
         self._start_local_state_purge(config.memory_dir)

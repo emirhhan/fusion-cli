@@ -124,6 +124,18 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   ```
   /undo
   ```
+- **Daha geriye sar (checkpoint):** Fusion her agent turunun başında konuşmanın kopyasını ve
+  o turun dosya kaydını tutar (en fazla 100 tur, bu oturum boyunca). İstediğin turun başına
+  dönmek için
+  ```
+  /rewind              → tur listesi, sonra "kod ve konuşma / yalnız konuşma / yalnız kod"
+  /rewind 3 kod        → seçici açmadan 3. turdan önceki dosya hâline dön
+  ```
+  Boş satırda **Esc Esc** de aynı seçiciyi açar. `/undo` = `/rewind <son tur> kod`.
+  Masaüstünde `/rewind` aynı iki adımlı seçiciyi gösterir ve Değişiklikler paneli temizlenir.
+  Sınır: kod kaydı bellekte tutulur; `fusion --continue` ile açılan sohbette konuşma geri gelir,
+  önceki sürecin kod checkpoint'leri gelmez. Kabuk komutlarının (`run_shell`) ürettiği dosyalar
+  izlenmez.
 - **Doğrula:** değişiklikten sonra test/lint çalıştırmak için
   ```
   /verify
@@ -414,6 +426,7 @@ Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtı
 | `/model` | Model değiştir |
 | `/plan` | Önce planla, değiştirme |
 | `/undo` | Son değişikliği geri al |
+| `/rewind` · Esc Esc | Bir turun başına dön (kod/konuşma/ikisi) |
 | `fusion -c` · `/resume` | Kaldığın sohbete dön |
 | `/rename <ad>` · `/branch` | Sohbete ad ver · dallandır |
 | `/verify` | Test/lint çalıştır |
