@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import shlex
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 from ..config.paths import trash_dir
@@ -22,6 +23,7 @@ from ..core.constants import (
 )
 from ..core.errors import ProcessCancelledError
 from ..core.process_control import run_foreground
+from ..core.shell_sandbox import SandboxPlan, plan_shell_sandbox
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .command_semantics import READONLY_GIT_SUBCOMMANDS, git_reads_only
@@ -39,7 +41,29 @@ from .safe_delete import DeleteRefusedError, move_to_trash, simple_rm_targets
 from .shell_overwrite import backup_paths
 from .wordpress_setup import php_env
 
-__all__ = ["READONLY_GIT_SUBCOMMANDS", "git", "run_shell"]
+__all__ = ["READONLY_GIT_SUBCOMMANDS", "git", "run_shell", "shell_sandbox_plan"]
+
+#: Süreç başına bir kez gösterilen sandbox uyarıları (her komutta tekrarlanmaz).
+_SHOWN_SANDBOX_NOTICES: set[str] = set()
+
+
+def shell_sandbox_plan(context: ToolContext) -> SandboxPlan:
+    """Bağlamın `shell_sandbox` kipine göre sandbox önekini kur (yazılabilir kökler dahil)."""
+    return plan_shell_sandbox(context.shell_sandbox, (context.root, *context.extra_roots))
+
+
+def _sandbox_notes(plan: SandboxPlan, process: subprocess.CompletedProcess[str]) -> str:
+    """Sandbox uyarısı (bir kez) ve reddedilen yazma için eyleme dönük ipucu."""
+    notes = ""
+    if plan.notice and plan.notice not in _SHOWN_SANDBOX_NOTICES:
+        _SHOWN_SANDBOX_NOTICES.add(plan.notice)
+        notes += f"\nFUSION_NOT: {plan.notice}"
+    if plan.prefix and process.returncode != 0 and "Operation not permitted" in process.stderr:
+        notes += (
+            "\nFUSION_NOT: Komut sandbox içinde çalışıyor (runtime.shell_sandbox=write_root): "
+            "yazma yalnız proje kökü, --add-dir ve geçici dizinlere açık."
+        )
+    return notes
 
 
 def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -63,7 +87,20 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
             outputs = prepare_outputs(args, context.root)
         except (OSError, ValueError) as error:
             return ToolResult.failure(f"İş kanıtı hazırlanamadı: {error}")
-        return start_job(command, context, _shell_env(context), manifest=manifest, outputs=outputs)
+        plan = shell_sandbox_plan(context)
+        started = start_job(
+            command,
+            context,
+            _shell_env(context),
+            manifest=manifest,
+            outputs=outputs,
+            argv_prefix=plan.prefix,
+        )
+        if plan.notice and plan.notice not in _SHOWN_SANDBOX_NOTICES:
+            _SHOWN_SANDBOX_NOTICES.add(plan.notice)
+            return replace(started, output=f"{started.output}\nFUSION_NOT: {plan.notice}")
+        return started
+    plan = shell_sandbox_plan(context)
     try:
         # shell=True bilinçli: kullanıcı boru/yönlendirme içeren komut yazabilmeli.
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.
@@ -73,6 +110,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
             cancelled=context.cancelled,
             cwd=context.root,
             env=_shell_env(context),
+            argv_prefix=plan.prefix,
         )
     except ProcessCancelledError as error:
         return ToolResult.failure(str(error))
@@ -83,6 +121,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     body = _combine(process.stdout, process.stderr)
     text = f"{EXIT_CODE_PREFIX}{process.returncode})\n{body}".strip()
+    text += _sandbox_notes(plan, process)
     if process.returncode != 0 and any(char.isspace() for char in str(context.root)):
         text += (
             "\nFUSION_NOT: Komut zaten seçili proje dizininde çalışır. "

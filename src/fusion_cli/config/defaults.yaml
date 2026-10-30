@@ -321,6 +321,11 @@ runtime:
   # aşımından ayrıdır; ilk başarısızlıkta bir kez yeniden denenir, iki ardışık
   # başarısızlıktan sonra öğretmen o tur için kapatılır.
   teacher_timeout_s: 300
+  # run_shell işletim sistemi sandbox'ı. "off" = kısıt yok (varsayılan; tırnaksız off YAML'da false okunur ve kabul edilir). write_root =
+  # macOS'ta `sandbox-exec` ile yazma yalnız proje kökü (+ --add-dir) ve geçici dizinlerle
+  # sınırlı olur (`echo x > ../y` reddedilir); Linux'ta yoksa uyarıyla off. ~/.npm gibi
+  # paket önbellekleri bu kipte yazılamaz.
+  shell_sandbox: "off"
 
 # ---------------------------------------------------------------------------
 # Fusion havuzu: aynı görev bu modellere PARALEL sorulur, hakem en iyisini seçer,

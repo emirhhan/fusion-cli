@@ -27,6 +27,7 @@ import yaml
 from dotenv import dotenv_values
 
 from ..core.errors import ConfigError
+from ..core.shell_sandbox import SHELL_SANDBOX_MODES
 from ..core.types import ModelSpec
 from . import trust
 from .keys import ProviderPreference, apply_preference, detect, prune_config
@@ -284,6 +285,9 @@ def _verified_web_teacher(sessions: tuple[WebSessionConfig, ...]) -> ModelSpec |
 
 
 def _build_runtime(raw: object) -> RuntimeConfig:
+    # YAML 1.1: tırnaksız `off` mantıksal false okunur; kullanıcı niyeti "off"tur.
+    if isinstance(raw, dict) and raw.get("shell_sandbox") is False:
+        raw = {**raw, "shell_sandbox": "off"}
     runtime = _build(RuntimeConfig, raw, "runtime")
     if runtime.workflow_attempt_calls < 0:
         raise ConfigError("runtime.workflow_attempt_calls: negatif olamaz.")
@@ -296,6 +300,11 @@ def _build_runtime(raw: object) -> RuntimeConfig:
             raise ConfigError(f"runtime.{name}: negatif olamaz.")
     if not 0.0 <= runtime.reliability_alpha <= 1.0:
         raise ConfigError("runtime.reliability_alpha: 0 ile 1 arasında olmalı.")
+    if runtime.shell_sandbox not in SHELL_SANDBOX_MODES:
+        raise ConfigError(
+            f"runtime.shell_sandbox: {runtime.shell_sandbox!r} geçersiz; "
+            f"geçerli: {', '.join(SHELL_SANDBOX_MODES)}."
+        )
     return runtime
 
 

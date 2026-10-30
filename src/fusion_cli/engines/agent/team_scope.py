@@ -70,6 +70,7 @@ def derive_sub_context(context: ToolContext, subtask: SubTask | None = None) -> 
         extra_roots=context.extra_roots,
         chrome=context.chrome,
         hidden_env=context.hidden_env,
+        shell_sandbox=context.shell_sandbox,
         write_scope=scope,
     )
 

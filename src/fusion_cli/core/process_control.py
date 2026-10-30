@@ -9,6 +9,7 @@ import platform
 import signal
 import subprocess
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from threading import Event
 from typing import Any
@@ -203,15 +204,20 @@ def run_foreground(
     cancelled: Event,
     timeout_s: float,
     clock: Clock | None = None,
+    argv_prefix: Sequence[str] = (),
 ) -> subprocess.CompletedProcess[str]:
-    """İptal/timeout sonucunu ancak sahipli grup drain edildikten sonra döndür."""
+    """İptal/timeout sonucunu ancak sahipli grup drain edildikten sonra döndür.
+
+    `argv_prefix` doluysa (ör. `sandbox-exec ...`) komut `/bin/sh -c` ile onun altında çalışır;
+    `shell=True` ile aynı kabuktur.
+    """
     if cancelled.is_set():
         raise ProcessCancelledError("Komut başlamadan iptal edildi.")
     timing = clock or SystemClock()
     deadline = timing.monotonic() + timeout_s
     process = subprocess.Popen(
-        command,
-        shell=True,
+        [*argv_prefix, "/bin/sh", "-c", command] if argv_prefix else command,
+        shell=not argv_prefix,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,

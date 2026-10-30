@@ -229,6 +229,9 @@ class RuntimeConfig:
     #: zaman aşımından (`request_timeout_s`) AYRIDIR: web LLM düşünme süresi uzun
     #: olabilir ama bir tur dakikalarca öğretmeni bekleyemez (A4-31).
     teacher_timeout_s: float = 300.0
+    #: `run_shell` işletim sistemi sandbox'ı: "off" (varsayılan) | "write_root" (macOS'ta
+    #: `sandbox-exec` ile yazmayı proje kökü + geçici dizinlerle sınırlar; Q1-16).
+    shell_sandbox: str = "off"
 
 
 @dataclass(frozen=True, slots=True)

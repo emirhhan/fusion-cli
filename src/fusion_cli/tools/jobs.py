@@ -75,8 +75,13 @@ def start_job(
     *,
     manifest: JobEvidenceManifest | None = None,
     outputs: tuple[ArtifactReceipt, ...] = (),
+    argv_prefix: tuple[str, ...] = (),
 ) -> ToolResult:
-    """Komutu arka planda başlat; kimliği ve izleme yolunu döner."""
+    """Komutu arka planda başlat; kimliği ve izleme yolunu döner.
+
+    `argv_prefix` (ör. `sandbox-exec ...`) YALNIZ kullanıcı komutunu sarar; günlük
+    yönlendirmesi ve çıkış makbuzu sandbox'ın dışında kalır.
+    """
     klasor = _jobs_dir(context)
     klasor.mkdir(parents=True, exist_ok=True)
     kimlik = _reserve_job_id(klasor, command)
@@ -105,7 +110,7 @@ def start_job(
     komut_dosyasi = klasor / f"{kimlik}.cmd"
     sarmal = (
         f": {token}; "
-        f"( sh {shlex.quote(str(komut_dosyasi))} ) > {shlex.quote(str(gunluk))} 2>&1; "
+        f"( {_command_argv(argv_prefix, komut_dosyasi)} ) > {shlex.quote(str(gunluk))} 2>&1; "
         "fusion_job_code=$?; "
         f'{observer} "$fusion_job_code" >> {shlex.quote(str(gunluk))} 2>&1; '
         f'echo "$fusion_job_code" > {shlex.quote(str(cikis))}'
@@ -141,6 +146,10 @@ def start_job(
         "bitmesini beklemek için wait_s ver. Gerekirse job_status(id, stop=true) ile durdur.",
         job_completion=delivery,
     )
+
+
+def _command_argv(argv_prefix: tuple[str, ...], komut_dosyasi: Path) -> str:
+    return shlex.join([*argv_prefix, "sh", str(komut_dosyasi)])
 
 
 def _read_exit(klasor: Path, kimlik: str) -> int | None:
