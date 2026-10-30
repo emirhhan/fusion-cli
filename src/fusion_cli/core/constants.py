@@ -299,3 +299,7 @@ APPROVAL_UNANSWERED_TIMEOUT_S = 30 * 60.0
 LOCAL_STATE_RETENTION_S = 30 * 86_400.0
 #: Saklama temizliğinin en sık çalışma aralığı (saniye); damga dosyasıyla sınırlanır.
 LOCAL_STATE_PURGE_INTERVAL_S = 86_400.0
+
+#: Web oturumunun "dosya değiştirebilir" araç ölçümü bu süreden eskiyse kart "yeniden ölç"
+#: uyarısı taşır (saniye). İzin otomatik düşürülmez; ölçüm stokastiktir, karar kullanıcıdadır.
+TOOL_MEASURE_STALE_S = 7 * 86_400.0

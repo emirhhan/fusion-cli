@@ -174,6 +174,18 @@ describe("ProviderList — web oturumu", () => {
     expect(await screen.findByText(/giriş yarım kalmış olabilir/i)).toBeTruthy();
   });
 
+  it("7 günden eski araç ölçümü için yeniden ölç uyarısını gösterir (S2-30)", async () => {
+    const uyari = "Araç ölçümü 7 günden eski; yeniden ölç.";
+    const satirlar = [
+      { ...SATIRLAR[0], bagli: true, olcum_gecti: true, olcum_uyari: uyari },
+      { ...SATIRLAR[1], olcum_uyari: null },
+    ];
+    render(<ProviderList client={client({ "saglayici.katalog": { ok: true, saglayicilar: satirlar } })} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web/ }));
+    expect(await screen.findByText(uyari)).toBeTruthy();
+  });
+
   it("web oturumunun pencere kipini ve gizleme uyarısını gösterir", async () => {
     // Gizleme izni yoksa ChatGPT penceresi ekranda kalır; kullanıcı SEBEBİNİ görmeli.
     const uyari = "Fusion'ın tarayıcı penceresi gizlenemedi. Otomasyon iznini aç.";

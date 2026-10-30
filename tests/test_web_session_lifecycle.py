@@ -184,3 +184,51 @@ async def test_kayitsiz_saglayici_dogrulanamaz(config):
     sonuc = await web_control.validate_session(config, "chatgpt_web", "main")
 
     assert sonuc["ok"] is False
+
+
+# S2-30 — Ölçüldü (30 Ekim): "dosya değiştirebilir" izni tek stokastik ölçüme bağlıydı ve süresiz
+# geçerliydi. 7 gün sonra kart "yeniden ölç" uyarısı taşır; izin OTOMATİK düşürülmez.
+_GUN = 86_400.0
+
+
+def _olculmus_kart(tmp_path, config, *, gecti, yas_gun):
+    from dataclasses import replace
+
+    simdi = 5_000_000.0
+    kayitli, _ = web_control.register_session(config, "chatgpt_web", "main")
+    assert kayitli is not None
+    oturum = replace(
+        kayitli.web_sessions[0],
+        login_verified=True,
+        tool_eval_passed=gecti,
+        tool_evaluated_at=None if yas_gun is None else simdi - yas_gun * _GUN,
+    )
+    (tmp_path / "chatgpt_web" / "main").mkdir(parents=True, exist_ok=True)
+
+    class Saat:
+        def now(self) -> float:
+            return simdi
+
+        def monotonic(self) -> float:
+            return simdi
+
+    kartlar = web_control.provider_cards(sessions=(oturum,), secret_store=None, clock=Saat())
+    return next(kart for kart in kartlar if kart["id"] == "chatgpt_web")
+
+
+def test_yedi_gunden_eski_gecmis_olcum_yeniden_olc_uyarisi_verir(tmp_path, config):
+    kart = _olculmus_kart(tmp_path, config, gecti=True, yas_gun=8)
+
+    assert kart["olcum_eski"] is True and "yeniden ölç" in kart["olcum_uyari"].lower()
+    assert kart["olcum_gecti"] is True  # otomatik düşürme yok
+
+
+def test_taze_olcum_ve_gecmemis_olcum_uyari_vermez(tmp_path, config):
+    assert _olculmus_kart(tmp_path, config, gecti=True, yas_gun=6)["olcum_eski"] is False
+    assert _olculmus_kart(tmp_path, config, gecti=False, yas_gun=30)["olcum_eski"] is False
+
+
+def test_olcum_tarihi_olmayan_eski_kayit_da_uyarilir(tmp_path, config):
+    kart = _olculmus_kart(tmp_path, config, gecti=True, yas_gun=None)
+
+    assert kart["olcum_eski"] is True and kart["olcum_gecti"] is True

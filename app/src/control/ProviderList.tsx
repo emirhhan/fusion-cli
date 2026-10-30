@@ -25,6 +25,8 @@ interface ProviderRow {
   tur: "web" | "anahtar";
   /** Taklit araç ölçümü geçildi mi — geçmediyse model DOSYA YAZAMAZ. */
   olcum_gecti?: boolean;
+  /** Geçmiş ölçüm 7 günden eskiyse "yeniden ölç" uyarısı (izin yine de düşmez). */
+  olcum_uyari?: string | null;
   /** Tur tarayıcısının pencere kipi (yalnız web sağlayıcıları). */
   pencere_kipi?: PencereKipi;
   /** Pencereyle ilgili son uyarı — ör. macOS gizleme izni verilmemiş. */
@@ -392,6 +394,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
             </label>
           )}
           {row.pencere_uyarisi && <p className="provider-list__warn" role="status">{row.pencere_uyarisi}</p>}
+          {row.bagli && row.olcum_uyari && <p className="provider-list__warn" role="status">{row.olcum_uyari}</p>}
           {!row.bagli && row.profil_var && (
             <p className="provider-list__warn">Tarayıcı profili var ama oturum kayıtlı değil — giriş yarım kalmış olabilir. Yeniden bağlan.</p>
           )}

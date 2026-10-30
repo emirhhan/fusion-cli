@@ -21,6 +21,9 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from ..config.keys import environ_snapshot
 from ..config.models import Config, WebSessionConfig
+from ..core.clock import SystemClock
+from ..core.constants import TOOL_MEASURE_STALE_S
+from ..core.protocols import Clock
 from ..core.types import ModelSpec
 from ..core.window_mode import WindowMode
 from .web_browser import WEB_BROWSER_PROVIDERS, browser_profile_dir, normalize_account
@@ -531,10 +534,31 @@ def provider_catalog(
     return rows
 
 
+_MEASURE_STALE_NOTICE = (
+    "Araç ölçümü 7 günden eski; model davranışı değişmiş olabilir. "
+    "Dosya yazma iznini korumak için araç desteğini yeniden ölç."
+)
+
+
+def _measure_staleness(session: Any, now: float) -> dict[str, Any]:  # noqa: ANN401
+    """Geçmiş araç ölçümü 7 günden eskiyse (ya da tarihi yoksa) "yeniden ölç" uyarısı (S2-30).
+
+    Ölçüm stokastik tek bir koşudur; izin süresiz geçerli kalmasın diye uyarılır. İzin
+    OTOMATİK düşürülmez: yalnız kart uyarı taşır, karar kullanıcıdadır.
+    """
+    if not getattr(session, "tool_eval_passed", False):
+        return {"olcum_eski": False, "olcum_uyari": None}
+    measured_at = getattr(session, "tool_evaluated_at", None)
+    if measured_at is not None and now - measured_at <= TOOL_MEASURE_STALE_S:
+        return {"olcum_eski": False, "olcum_uyari": None}
+    return {"olcum_eski": True, "olcum_uyari": _MEASURE_STALE_NOTICE}
+
+
 def provider_cards(
     *,
     sessions: tuple[Any, ...],
     secret_store: SecretReader | None,
+    clock: Clock | None = None,
 ) -> list[dict[str, Any]]:
     """Panelde çizilecek sağlayıcı kartları — yalnız METADATA.
 
@@ -542,6 +566,7 @@ def provider_cards(
     "bağlı mı" bilgisi profil dizininin varlığından türetilir.
     """
     cards: list[dict[str, Any]] = []
+    now = (clock or SystemClock()).now()
     for provider_id, definition in WEB_BROWSER_PROVIDERS.items():
         matching = [item for item in sessions if getattr(item, "provider", None) == provider_id]
         account = normalize_account(
@@ -569,6 +594,7 @@ def provider_cards(
                 "secili_model": getattr(session, "selected_model", "") or "Otomatik",
                 "arac_destegi": getattr(session, "tool_support", "none"),
                 "olcum_gecti": bool(getattr(session, "tool_eval_passed", False)),
+                **_measure_staleness(session, now),
                 "etkin": bool(getattr(session, "enabled", False)),
                 # Pencere kipi ve (varsa) son pencere uyarısı — ör. gizleme izni yok.
                 "pencere_kipi": WindowMode(
