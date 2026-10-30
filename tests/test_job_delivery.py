@@ -280,3 +280,76 @@ async def test_real_agent_completed_background_exit_reaches_report(monkeypatch, 
     poll = next(item for item in result.tool_uses if item.name == "job_status")
     assert not poll.mutating and poll.job_completion.exit_code == 0
     assert poll.job_completion.outputs[0].is_refreshed
+
+
+# --- Dalga 4 (T1-60) --------------------------------------------------------------
+
+
+def test_makbuz_kilidi_kisa_sure_yeniden_denenir(tmp_path, monkeypatch) -> None:
+    """Sarmalayıcı ve yoklama aynı anda gelirse makbuz hiç yazılmadan ValueError atılıyordu."""
+    from fusion_cli.tools import job_delivery
+
+    cagrilar = {"n": 0}
+
+    class _Kilit:
+        def __init__(self, _yol):
+            pass
+
+        def try_acquire(self):
+            cagrilar["n"] += 1
+            return cagrilar["n"] >= 3
+
+        def close(self):
+            pass
+
+    yazilan: list = []
+    monkeypatch.setattr(job_delivery, "FileLease", _Kilit)
+    monkeypatch.setattr(job_delivery, "_save_completion_locked", lambda *a: yazilan.append(a))
+    monkeypatch.setattr(job_delivery.time, "sleep", lambda _s: None)
+
+    job_delivery.save_completion(tmp_path, tmp_path, "j1", 0)
+
+    assert cagrilar["n"] == 3 and len(yazilan) == 1
+
+
+def test_makbuz_kilidi_hic_alinamazsa_hata_surer(tmp_path, monkeypatch) -> None:
+    import pytest
+
+    from fusion_cli.tools import job_delivery
+
+    class _Kilit:
+        def __init__(self, _yol):
+            pass
+
+        def try_acquire(self):
+            return False
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(job_delivery, "FileLease", _Kilit)
+    monkeypatch.setattr(job_delivery.time, "sleep", lambda _s: None)
+
+    with pytest.raises(ValueError, match="eşzamanlı"):
+        job_delivery.save_completion(tmp_path, tmp_path, "j1", 0)
+
+
+def test_cmd_dosyasi_yoksa_kontrollu_sonuc(tmp_path) -> None:
+    from fusion_cli.tools.job_delivery import snapshot_delivery
+
+    sonuc = snapshot_delivery(tmp_path, tmp_path, "yok", None)
+
+    assert sonuc.job_id == "yok" and "kaydı yok" in sonuc.command
+
+
+def test_delivery_json_atomik_yazilir(tmp_path, monkeypatch) -> None:
+    from fusion_cli.tools import job_delivery
+
+    cagrilar: list = []
+    monkeypatch.setattr(
+        job_delivery, "atomic_replace_text", lambda yol, metin: cagrilar.append(yol.name)
+    )
+
+    job_delivery.save_delivery(tmp_path, "j9", "echo", None, ())
+
+    assert cagrilar == ["j9.delivery.json"]
