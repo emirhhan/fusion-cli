@@ -79,3 +79,27 @@ async def test_basarili_wp_adimlarinda_uyari_yok(tmp_path, monkeypatch):
     await _localize_store(tmp_path, "wp", "199,90 TL", "tr-TR", adimlar)
 
     assert not any(a.startswith("UYARI") for a in adimlar)
+
+
+def test_klon_ozeti_ve_aciklamasi_telif_uyarisi_tasir():
+    """A1-38: üçüncü taraf içeriği indirilirken sorumluluk uyarısı sessiz geçmez."""
+    from fusion_cli.engines.agent.clone_tools import COPYRIGHT_NOTICE
+    from fusion_cli.engines.agent.clone_tools import clone_tools as arac_listesi
+
+    (arac,) = arac_listesi()
+    assert "telif" in arac.description.lower() and "izni" in arac.description.lower()
+    uyari = COPYRIGHT_NOTICE.format(host="ornek.com")
+    assert "ornek.com" in uyari and "iznin" in uyari
+
+
+def test_klon_ozetinin_ilk_satiri_kaynak_alan_adini_ve_uyariyi_icerir(tmp_path):
+    from .test_capture_provenance import _fixture
+
+    capture, theme = _fixture(tmp_path, responsive=False)
+
+    ozet = clone_tools._summary(
+        capture, theme, [], [], tmp_path, "https://www.ornek-magaza.com/urunler"
+    )
+
+    ilk_satir = ozet.splitlines()[0]
+    assert "TELİF/MARKA UYARISI" in ilk_satir and "www.ornek-magaza.com" in ilk_satir

@@ -18,7 +18,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...tools import preview_server
@@ -40,6 +40,15 @@ from ...tools.wordpress_setup import (
 MAX_CAPTURED_PAGES = 3
 
 COD_SETTINGS = '{"enabled":"yes","title":"Kapıda ödeme","description":"Teslimatta ödeme."}'
+
+#: Kopyalama sonucunun ilk satırı ve araç açıklamasındaki sorumluluk uyarısı (A1-38).
+#: Üçüncü taraf sitesinin görsel/CSS/ürün kataloğu telif ve marka hakkına tabidir;
+#: araç yalnız izin sahibinin kullanımı içindir ve kullanıcıya bu hatırlatılır.
+COPYRIGHT_NOTICE = (
+    "TELİF/MARKA UYARISI: {host} sitesinin görsel, CSS ve ürün içeriği sahibine aittir. "
+    "Yalnız kendi sitenin ya da kopyalama iznin olan sitenin kopyasını yayınla; "
+    "kullanıcıya bunu kısaca hatırlat."
+)
 
 NEXT_STEPS = """SIRADAKİ ADIMLAR (görünümü SIFIRDAN YAZMA; kopya hazır):
 1. start_preview(kind='wordpress', plugins=['woocommerce']) ile siteyi aç ve farklara bak.
@@ -262,11 +271,17 @@ def _summary_problems(capture: SiteCapture, theme: ThemeFiles, problems: list[st
 
 
 def _summary(
-    capture: SiteCapture, theme: ThemeFiles, steps: list[str], problems: list[str], root: Path
+    capture: SiteCapture,
+    theme: ThemeFiles,
+    steps: list[str],
+    problems: list[str],
+    root: Path,
+    source_url: str,
 ) -> str:
     tema = theme.folder.relative_to(root).as_posix()
     problems = _summary_problems(capture, theme, problems)
     satirlar = [
+        COPYRIGHT_NOTICE.format(host=urlsplit(source_url).hostname or source_url),
         f"Kopya tema yazıldı: {tema} ({', '.join(theme.files)}).",
         f"Yakalanan sayfalar: {', '.join(page.url for page in capture.pages)}.",
         f"İndirilen varlık: {len(capture.assets)} (kaynağa hotlink yok); "
@@ -407,7 +422,7 @@ async def run_clone_site(args: ToolArgs, context: ToolContext) -> ToolResult:
     menu = (olcum or {}).get("navigation", {}).get("menu") if isinstance(olcum, dict) else None
     etiketler = category_labels(menu, kategoriler, dil)
     await _install(root, kaynak / "urunler.json", dil, adimlar, sorunlar, etiketler)
-    return ToolResult(_summary(yakalama, tema, adimlar, sorunlar, root))
+    return ToolResult(_summary(yakalama, tema, adimlar, sorunlar, root, url))
 
 
 def clone_tools() -> tuple[Tool, ...]:
@@ -416,7 +431,10 @@ def clone_tools() -> tuple[Tool, ...]:
             name="clone_site",
             description="Bir siteyi WordPress + WooCommerce kopyasına çevir: görünümü (CSS, "
             "görseller, başlık/altlık) birebir yakalar, temayı yazar, WooCommerce'i kurar ve "
-            "ürünleri aktarır. Bir siteye BENZEYEN/KOPYASI site istendiğinde İLK adım budur.",
+            "ürünleri aktarır. Bir siteye BENZEYEN/KOPYASI site istendiğinde İLK adım budur. "
+            "UYARI: Üçüncü taraf sitesinin görsel/CSS/ürün içeriği telif ve marka hakkına "
+            "tabidir; yalnız kullanıcının kendi sitesi ya da kopyalama izni olan siteler için "
+            "kullan, aksi hâlde önce kullanıcıdan izin teyidi iste.",
             parameters={
                 "type": "object",
                 "properties": {"url": {"type": "string"}},
