@@ -231,6 +231,9 @@ class _PlanRun:
     condensations: int = 0
     storage_revision: int = 0
     effect_intents: dict[tuple[str, int, str], ExternalEffectIntent] = field(default_factory=dict)
+    #: Alt turu kendi zarfını AŞAN adım (A3-13): iş geri alınmaz, doğrulanır ve ardından
+    #: "ek bütçe" için duraklatılır. `execute` yazar, `run_step` okur.
+    overran_step: str = ""
     _save_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     planning_calls: int = 0
     final_calls: int = 0
@@ -260,6 +263,23 @@ class _PlanRun:
 
     def remaining(self, envelope: BudgetEnvelope, scope: str = "") -> int:
         return max(0, self.limits.limit_for(envelope) - self.ledger.used(envelope, scope=scope))
+
+    def grant_extra_budget(self, plan: ExecutionPlan) -> None:
+        """Devam eden planda zarfı tükenmiş adıma YENİ hak ver ("ek bütçe", A3-13).
+
+        Ölçüldü (30 Ekim): harcama checkpoint'e yazılıp devamda aynen geri
+        yükleniyordu; zarfı dolu adım her devamda sıfır hakla başlayıp aynı noktada
+        duraklıyordu. Kullanıcının "sürdür" demesi bu adıma ek bütçe vermektir.
+        Yalnız tamamlanmamış adımların adım kapsamlı zarfları sıfırlanır; planlama
+        ve final zarfları plan başına tek haktır, dokunulmaz.
+        """
+        for step in plan.steps:
+            if step.status is StepStatus.COMPLETED:
+                continue
+            for envelope in (BudgetEnvelope.PER_STEP, BudgetEnvelope.RECOVERY):
+                if self.remaining(envelope, step.step_id) <= 0:
+                    self.ledger.reset_scope(envelope, step.step_id)
+                    self.spent.pop((envelope, step.step_id), None)
 
     def forget_rolled_back(self, paths: tuple[Path, ...]) -> None:
         """Geri alınan yazmaları tekrar kaydından da düş.
@@ -494,10 +514,14 @@ class _PlanRun:
         running = next(item for item in self.current.steps if item.step_id == running.step_id)
         self.outcomes.append(outcome)
         self.condensations += outcome.condensations
+        self.overran_step = ""
         if not self.charge(envelope, outcome.model_calls_made, step.step_id):
-            deps.tool_context.changes.restore()
-            self.current = replace_step(self.current, replace(running, status=StepStatus.BLOCKED))
-            return None
+            # Ölçüldü (30 Ekim, A3-13): zarf aşımı yalnız MUHASEBE sorunudur. Eskiden
+            # burada alt turun diske yazdığı bütün iş geri alınıyordu; devamda zarf
+            # yine sıfır (harcama checkpoint'te kalıyor) olduğundan aynı noktada
+            # tekrar duraklıyordu. Şimdi iş korunur, `run_step` adımı DOĞRULAR ve
+            # sonuç ne olursa kullanıcıya "ek bütçe" için durulur.
+            self.overran_step = step.step_id
         return running, outcome, deps
 
     async def verify(
@@ -811,6 +835,13 @@ class _PlanRun:
             if verification.ok:
                 self.deps.tool_context.changes.absorb(turn_deps.tool_context.changes)
                 self.deps.tool_context.touched.update(turn_deps.tool_context.touched)
+                if self.overran_step == step.step_id:
+                    return await self.pause(
+                        f"'{step.step_id}' adımı doğrulandı ve değişiklikler korundu, ama "
+                        f"adım bütçesi ({outcome.model_calls_made} çağrı) aşıldı. "
+                        "Sürdürmek bir sonraki adıma ek bütçe verir.",
+                        budget=True,
+                    )
                 return None
             # Düşen deneme diske yarım durum bırakmamalı: sonraki deneme kendi
             # hatasıyla değil öncekinin enkazıyla uğraşıyordu (ölçüldü, Godot koşusu).
@@ -841,6 +872,22 @@ class _PlanRun:
                         outcome,
                         rolled_back=gorunen_yollar,
                     )
+                )
+            if self.overran_step == step.step_id:
+                # Zarf aşıldı ve doğrulama düştü: kurtarma için hak kalmadı. Düşen deneme
+                # yukarıda geri alındı; sürdürmek adıma yeni bütçe verir (A3-13).
+                self.current = replace_step(
+                    self.current, replace(running, status=StepStatus.BLOCKED)
+                )
+                return await self.pause(
+                    _pause_text(
+                        step.step_id,
+                        "Adım bütçesi aşıldı ve doğrulama geçmedi; sürdürmek ek bütçe verir.",
+                        verification,
+                        outcome,
+                        rolled_back=gorunen_yollar,
+                    ),
+                    budget=True,
                 )
             if observe and can_repair_local_inventory(running, self.deps.tool_context.root):
                 # Persist the one repair allowance before enabling local writes.
@@ -1406,6 +1453,7 @@ async def run_execution_plan(
             for item in checkpoint.budget_usage
         }
         current, run.evidence = await resume_plan(checkpoint, deps)
+        run.grant_extra_budget(current)
     run.current = replace(current, status=PlanStatus.RUNNING)
     await run.save()
     # Plan BAŞLAMADAN önceki kapı bulguları planın suçu değildir; yarım kurulmuş

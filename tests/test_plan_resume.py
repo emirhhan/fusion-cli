@@ -204,3 +204,41 @@ async def test_acik_yeni_plan_eski_kapsama_eksigini_diriltmez(tmp_path):
     loaded = deps.checkpoint_store.load("replacement")
     assert loaded is not None
     assert loaded.uncovered == ()
+
+
+async def test_zarfi_tukenen_adim_devamda_ek_butce_alir(tmp_path):
+    """Ölçüldü (30 Ekim, A3-13): harcama checkpoint'e yazılıyor, devamda aynen geri
+    yükleniyordu; zarfı dolu adım her devamda yine sıfır hakla başlayıp aynı noktada
+    duraklıyordu (çıkışsız). Devam, tükenmiş adım zarfına YENİ hak verir.
+    """
+    from fusion_cli.core.checkpoint import WorkflowBudgetUsage
+
+    deps = _Deps(ToolContext(root=tmp_path), JsonCheckpointStore(tmp_path / ".cp"))
+    deps.checkpoint_store.save(
+        WorkflowCheckpoint(
+            plan=_duraklamis_plan(),
+            root=str(deps.tool_context.root.resolve()),
+            conversation_id=deps.conversation_id,
+            completed_step_ids=(),
+            updated_at=1.0,
+            budget_usage=(
+                WorkflowBudgetUsage("per_step", "create", 99),
+                WorkflowBudgetUsage("recovery", "create", 99),
+                WorkflowBudgetUsage("planning", "", 1),
+            ),
+        )
+    )
+    calisan: list[str] = []
+
+    async def agent(task, agent_deps, **kwargs):
+        del kwargs
+        calisan.append("create" if "dosyayı oluştur" in task else "finish")
+        (agent_deps.tool_context.root / "result.txt").write_text("ok", encoding="utf-8")
+        return AgentOutcome(
+            final_text="tamam", messages=[], model_calls_made=1, mutating_tool_calls_made=1
+        )
+
+    result = await run_execution_plan("dosya oluştur", deps, agent)
+
+    assert calisan == ["create", "finish"]
+    assert result.ok is True

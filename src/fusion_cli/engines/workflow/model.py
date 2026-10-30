@@ -134,6 +134,15 @@ class BudgetLedger:
         """Bir zarfta (gerekirse belirtilen adım kapsamında) işlenmiş çağrı sayısı."""
         return self._used.get(self._key(envelope, scope), 0)
 
+    def reset_scope(self, envelope: BudgetEnvelope, scope: str) -> None:
+        """Adım kapsamlı bir zarfın harcamasını sıfırla ("ek bütçe", A3-13).
+
+        Yalnız adım kapsamlı zarflar (`PER_STEP`, `RECOVERY`) için anlamlıdır; plan
+        geneli zarflar (planlama, final) tek haktır ve burada dokunulmaz.
+        """
+        if envelope in _SCOPED_ENVELOPES:
+            self._used.pop(self._key(envelope, scope), None)
+
     def restore(self, usage: tuple[WorkflowBudgetUsage, ...]) -> None:
         """Önceki zarf harcamalarını sınırları yenilemeden geri yükle."""
         for item in usage:
