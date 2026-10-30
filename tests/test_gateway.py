@@ -847,3 +847,77 @@ async def test_maskeleme_kapaliysa_akis_degismez():
     metin = await _akis_metni((f"x {_SENTETIK_TOKEN}",), mask=False)
 
     assert _SENTETIK_TOKEN in metin
+
+
+# --- Dalga 4: sessiz veri kaybı yok (E1-14) ---------------------------------------- #
+
+
+def _istek(**ek):
+    govde = {"model": "auto", "messages": [{"role": "user", "content": "merhaba"}], **ek}
+    return to_request(govde, make_config().runtime)[0]
+
+
+def test_data_uri_gorsel_mesaja_iletilir_sessizce_dusmez():
+    """Ölçüldü (30 Ekim): `image_url` parçası atılıyor, görsel gönderen istemci cevabı
+    görselsiz alıyordu."""
+    istek = _istek(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "bu ne?"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                ],
+            }
+        ]
+    )
+
+    assert istek.messages[0].content == "bu ne?"
+    assert istek.messages[0].images == ("data:image/png;base64,AAAA",)
+
+
+def test_uzak_gorsel_adresi_acik_hata_verir():
+    with pytest.raises(GatewayError, match="data:image"):
+        _istek(
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": "https://x.example/a.png"}}
+                    ],
+                }
+            ]
+        )
+
+
+def test_tanimsiz_icerik_turu_acik_hata_verir():
+    with pytest.raises(GatewayError, match="desteklenmeyen"):
+        _istek(messages=[{"role": "user", "content": [{"type": "input_audio", "x": 1}]}])
+
+
+def test_sozluk_olarak_gelen_arac_argumani_kaybolmaz():
+    istek = _istek(
+        messages=[
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "oku", "arguments": {"p": "a"}},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+        ]
+    )
+
+    assert istek.messages[0].tool_calls[0].arguments == '{"p": "a"}'
+
+
+def test_max_completion_tokens_kabul_edilir_ve_bool_sayi_sayilmaz():
+    assert _istek(max_completion_tokens=321).max_tokens == 321
+    varsayilan = make_config().runtime.max_tokens
+    assert _istek(max_tokens=True).max_tokens == varsayilan
+    assert _istek(temperature=True).temperature == make_config().runtime.temperature

@@ -7,6 +7,7 @@ tiplerine çevirir. Çeviri saf ve test edilebilirdir: ağ ya da sunucu gerektir
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -21,15 +22,42 @@ class GatewayError(Exception):
 
 def _content_to_text(content: object) -> str:
     """OpenAI içerik alanı metin ya da parça listesi olabilir; metne indir."""
+    return _split_content(content)[0]
+
+
+def _split_content(content: object) -> tuple[str, tuple[str, ...]]:
+    """İçeriği `(metin, görseller)` olarak ayır.
+
+    `image_url` parçası eskiden SESSİZCE atılıyordu: görsel gönderen istemci cevabı
+    görselsiz alıyor ve hata görmüyordu (E1-14). Artık `data:` URI'ler `Message.images`
+    ile iletilir; uzak adresler (indirmeyiz) ve tanınmayan parça tipleri AÇIK hatadır.
+    """
     if isinstance(content, str):
-        return content
-    if isinstance(content, Sequence):
-        parts = []
-        for part in content:
-            if isinstance(part, Mapping) and part.get("type") == "text":
-                parts.append(str(part.get("text", "")))
-        return "".join(parts)
-    return ""
+        return content, ()
+    if not isinstance(content, Sequence):
+        return "", ()
+    parts: list[str] = []
+    images: list[str] = []
+    for part in content:
+        if not isinstance(part, Mapping):
+            continue
+        kind = part.get("type")
+        if kind == "text":
+            parts.append(str(part.get("text", "")))
+        elif kind == "image_url":
+            images.append(_image_data_uri(part.get("image_url")))
+        elif kind is not None:
+            raise GatewayError(f"desteklenmeyen içerik türü: {kind!r} (yalnız text ve image_url).")
+    return "".join(parts), tuple(images)
+
+
+def _image_data_uri(raw: object) -> str:
+    url = raw.get("url") if isinstance(raw, Mapping) else raw
+    if isinstance(url, str) and url.startswith("data:image/"):
+        return url
+    raise GatewayError(
+        "image_url yalnız 'data:image/...' (base64) olabilir; uzak adresler indirilmez."
+    )
 
 
 def parse_messages(payload: Mapping[str, object]) -> tuple[Message, ...]:
@@ -44,10 +72,12 @@ def parse_messages(payload: Mapping[str, object]) -> tuple[Message, ...]:
         role = str(item.get("role", "user"))
         tool_call_id = item.get("tool_call_id")
         name = item.get("name")
+        text, images = _split_content(item.get("content") or "")
         messages.append(
             Message(
                 role=role,
-                content=_content_to_text(item.get("content") or ""),
+                content=text,
+                images=images,
                 tool_calls=_parse_tool_calls(item.get("tool_calls")),
                 tool_call_id=str(tool_call_id) if tool_call_id else None,
                 name=str(name) if name else None,
@@ -74,10 +104,27 @@ def _parse_tool_calls(raw: object) -> tuple[ToolCall, ...]:
             ToolCall(
                 id=str(call_id),
                 name=str(name),
-                arguments=arguments if isinstance(arguments, str) else "{}",
+                arguments=_arguments_text(arguments),
             )
         )
     return tuple(calls)
+
+
+def _arguments_text(arguments: object) -> str:
+    """Araç argümanları HAM JSON metnidir; zayıf istemciler nesne gönderebilir.
+
+    Nesne eskiden `"{}"`a düşüyor ve argümanlar sessizce kayboluyordu (E1-14).
+    """
+    if isinstance(arguments, str):
+        return arguments
+    if isinstance(arguments, Mapping):
+        return json.dumps(arguments, ensure_ascii=False)
+    return "{}"
+
+
+def _number(value: object) -> bool:
+    """Sayı mı? `bool` int'in alt sınıfıdır: `max_tokens: true` 1 token olmasın (E1-14)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def to_request(
@@ -92,16 +139,17 @@ def to_request(
         raise GatewayError("'model' alanı zorunludur (profil adı ya da model kimliği).")
     stream = bool(payload.get("stream", False))
     temperature = payload.get("temperature")
-    max_tokens = payload.get("max_tokens")
+    # Yeni OpenAI alanı `max_completion_tokens` öncelikli; eski `max_tokens` yedek.
+    max_tokens = payload.get("max_completion_tokens", payload.get("max_tokens"))
     tools_raw = payload.get("tools")
     tools = tuple(tools_raw) if isinstance(tools_raw, list) else ()
     effort = payload.get("reasoning_effort")
     request = CompletionRequest(
         messages=parse_messages(payload),
-        temperature=float(temperature)
-        if isinstance(temperature, (int, float))
-        else runtime.temperature,
-        max_tokens=int(max_tokens) if isinstance(max_tokens, int) else runtime.max_tokens,
+        temperature=float(temperature) if _number(temperature) else runtime.temperature,
+        max_tokens=int(max_tokens)
+        if isinstance(max_tokens, int) and not isinstance(max_tokens, bool)
+        else runtime.max_tokens,
         timeout_s=runtime.request_timeout_s,
         max_retries=runtime.max_retries,
         tools=tools,
