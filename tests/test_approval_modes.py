@@ -171,3 +171,32 @@ def test_kip_adlari_ve_takma_adlar():
 )
 def test_satir_ici_kodla_silme_otomatik_kipte_sorulur(tmp_path, komut):
     assert auto_risk(komut, tmp_path) is not None, komut
+
+
+# --- İzinleri atla: uzak yıkıcı çağrı için son onay (A1-08) ---------------------- #
+
+
+async def test_bypass_uzak_yikici_cagriyi_son_kez_sorar_ve_reddi_durdurur(tmp_path):
+    arac = _arac("wp__delete_page", effect=ToolEffect.REMOTE_DESTRUCTIVE)
+
+    karar = await _karar(ApprovalMode.BYPASS, arac, {"id": 1}, tmp_path)
+
+    assert karar is Decision.DENIED
+
+
+async def test_bypass_uzak_yikici_cagri_onaylanirsa_gecer_ama_hatirlanmaz(tmp_path):
+    from .fakes import AlwaysApprove
+
+    arac = _arac("wp__delete_page", effect=ToolEffect.REMOTE_DESTRUCTIVE)
+    politika = build_policy(ApprovalMode.BYPASS, AlwaysApprove())
+    istek = build_request(arac, {"id": 1}, root=tmp_path)
+
+    assert await politika.decide(istek) is Decision.ALLOW
+    assert not istek.can_remember
+
+
+@pytest.mark.parametrize("etki", [ToolEffect.LOCAL, ToolEffect.REMOTE_WRITE])
+async def test_bypass_yikici_olmayan_cagrilari_sormaz(tmp_path, etki):
+    arac = _arac("wp__update_page", effect=etki)
+
+    assert await _karar(ApprovalMode.BYPASS, arac, {"id": 1}, tmp_path) is Decision.ALLOW

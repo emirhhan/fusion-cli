@@ -9,7 +9,8 @@ motor hangi kipte olduğunu bilmez, yalnızca `decide` çağırır.
     edits     dosya düzenlemeleri ve tanınan güvenli komutlar sorulmaz; kalan sorulur
     security  "Manuel": okuma dışındaki her işlem tek tek sorulur
     plan      hiçbir değişikliğe izin yok; yalnız okuma, keşif ve plan
-    bypass    hiçbir şey sorulmaz (silinen yine Fusion çöpüne gider)
+    bypass    hiçbir şey sorulmaz (silinen yine Fusion çöpüne gider); tek istisna:
+              uzak sistemde geri alınamaz etki bildiren araç her çağrıda sorulur
 
 Yıkıcı komut (`danger`) auto, edits ve security kiplerinde DAİMA sorulur ve oturum
 iznine dönüşmez: otomatik onay hız içindir, geri alınamaz bir işlemi sessizce
@@ -300,11 +301,24 @@ class PlanApproval:
 
 
 class BypassApproval:
-    """İzinleri atla: hiçbir şey sorulmaz. Sade `rm` yine çöpe gider (`shell`)."""
+    """İzinleri atla: neredeyse hiçbir şey sorulmaz. Sade `rm` yine çöpe gider (`shell`).
+
+    TEK sert tavan (A1-08): uzak sistemde GERİ ALINAMAZ etki bildiren araç
+    (`REMOTE_DESTRUCTIVE`: silme, yayınlama, harcama) bypass'ta bile her çağrıda son
+    kez sorulur ve oturum iznine dönüşmez. Yerel komutlar (git push, sudo vb.)
+    kullanıcının bilinçli seçimi olarak serbest kalır.
+    """
+
+    def __init__(
+        self, prompter: Prompter | None = None, memory: ApprovalMemory | None = None
+    ) -> None:
+        self._prompter = prompter
+        self._memory = memory if memory is not None else ApprovalMemory()
 
     async def decide(self, request: ApprovalRequest) -> Decision:
-        del request
-        return Decision.ALLOW
+        if request.effect is not ToolEffect.REMOTE_DESTRUCTIVE or self._prompter is None:
+            return Decision.ALLOW
+        return await _ask_and_remember(self._prompter, request, self._memory)
 
 
 def build_policy(
@@ -318,7 +332,7 @@ def build_policy(
     if mode is ApprovalMode.PLAN:
         return PlanApproval()
     if mode is ApprovalMode.BYPASS:
-        return BypassApproval()
+        return BypassApproval(prompter, memory)
     if mode is ApprovalMode.SECURITY:
         return SecurityApproval(prompter, memory)
     if mode is ApprovalMode.ACCEPT_EDITS:
