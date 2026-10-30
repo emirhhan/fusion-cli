@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../ui/Icon";
 import { Logo } from "../brand/Logo";
 import { SourceIcon } from "../brand/SourceIcon";
+import { useModalFocus } from "../ui/useModalFocus";
 import "./Sidebar.css";
 
 export interface OturumSatiri {
@@ -27,12 +28,40 @@ export interface ProjeSatiri {
 
 interface ProjectPreference { hidden?: boolean; name?: string; pinned?: boolean }
 
-function readProjectPreferences(): Record<string, ProjectPreference> {
+/**
+ * Kayıtlı proje tercihleri. Her alan tek tek doğrulanır: `name` metin değilse React
+ * "Objects are not valid as a React child" fırlatıp bütün kenar çubuğunu düşürürdü (U1-51).
+ */
+export function readProjectPreferences(): Record<string, ProjectPreference> {
   try {
     const value: unknown = JSON.parse(localStorage.getItem("fusion.sidebar.projects.v1") ?? "{}");
-    return value && typeof value === "object" && !Array.isArray(value)
-      ? value as Record<string, ProjectPreference> : {};
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    const temiz: Record<string, ProjectPreference> = {};
+    for (const [root, raw] of Object.entries(value)) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+      const kayit = raw as Record<string, unknown>;
+      temiz[root] = {
+        ...(typeof kayit.name === "string" ? { name: kayit.name } : {}),
+        ...(typeof kayit.hidden === "boolean" ? { hidden: kayit.hidden } : {}),
+        ...(typeof kayit.pinned === "boolean" ? { pinned: kayit.pinned } : {}),
+      };
+    }
+    return temiz;
   } catch { return {}; }
+}
+
+/**
+ * Sabitleme anahtarı yalnız kaynak ve oturum kimliğidir. Eskiden proje kökü/adı da
+ * anahtarın parçasıydı: sohbet başka projeye taşınınca ya da proje yeniden adlandırılınca
+ * sabitleme sessizce kayboluyordu (U1-50). Eski kayıtlar (`kök:kaynak:kimlik`) okunurken
+ * yeni biçime çevrilir.
+ */
+export function pinAnahtari(source: string, sessionId: string): string {
+  return `${source}:${sessionId}`;
+}
+function eskiSabitiYeniye(anahtar: string): string {
+  const eslesme = /^(?:.*?:)??(fusion|claude|codex|hermes):(.+)$/s.exec(anahtar);
+  return eslesme ? pinAnahtari(eslesme[1], eslesme[2]) : anahtar;
 }
 
 type HistorySource = "fusion" | "claude" | "codex" | "hermes";
@@ -89,6 +118,11 @@ function NavItem({ icon, label, onClick }: NavItemProps) {
   );
 }
 
+/** "Error: ..." öneki olmadan kullanıcıya gösterilecek hata metni (U1-60). */
+function hataMetni(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 interface MoveTarget { key: string; name: string; run: () => void | Promise<void> }
 
 function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProject, moveTargets, pinned, onPin }: {
@@ -129,7 +163,8 @@ function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProjec
         && !menuPopupRef.current?.contains(event.target as Node)) setMenuOpen(false);
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
+      // Odak menüyle birlikte kaybolmasın: Esc tetikleyiciye geri verir (U1-55).
+      if (event.key === "Escape") { setMenuOpen(false); menuButtonRef.current?.focus(); }
     };
     document.addEventListener("pointerdown", close);
     document.addEventListener("keydown", escape);
@@ -168,12 +203,12 @@ function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProjec
             <strong>Projeye taşı</strong>
             {moveTargets.map((target) => <button key={target.key} onClick={() => {
               setMenuOpen(false);
-              void Promise.resolve().then(target.run).catch((error: unknown) => setDeleteError(String(error)));
+              void Promise.resolve().then(target.run).catch((error: unknown) => setDeleteError(hataMetni(error)));
             }} role="menuitem" type="button">{target.name}</button>)}
           </>}
           {onRemoveFromProject && <button onClick={() => {
             setMenuOpen(false);
-            void Promise.resolve().then(onRemoveFromProject).catch((error: unknown) => setDeleteError(String(error)));
+            void Promise.resolve().then(onRemoveFromProject).catch((error: unknown) => setDeleteError(hataMetni(error)));
           }} role="menuitem" type="button">Projeden çıkar</button>}
           {onDelete && <button className="sidebar__menu-danger" disabled={deleting} onClick={() => {
             setMenuOpen(false);
@@ -225,12 +260,17 @@ export function Sidebar({
   const [dialogBusy, setDialogBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createRoot, setCreateRoot] = useState<string | undefined>(undefined);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const closeDialogs = () => {
     setProjectDialog(null);
     setCreateOpen(false);
     setCreateRoot(undefined);
     setDialogError(null);
   };
+  // Proje diyaloğu aria-modal'dı ama odak tuzağı, Escape ve odak geri dönüşü yoktu (U1-54).
+  // `autoFocus` YOK: girdiye odağı kanca verir; yoksa "önceki odak" girdi olur ve kapanışta
+  // odak açan düğmeye dönemezdi.
+  useModalFocus(dialogRef, Boolean(projectDialog || createOpen), closeDialogs);
   /** Diyalog işlemi: hata diyalogda kalır, başarıda diyalog kapanır. */
   const runDialog = async (action: () => void | Promise<void>) => {
     setDialogBusy(true);
@@ -285,7 +325,9 @@ export function Sidebar({
   const [pinnedSessions, setPinnedSessions] = useState<string[]>(() => {
     try {
       const saved: unknown = JSON.parse(localStorage.getItem("fusion.sidebar.pinned-sessions.v1") ?? "[]");
-      return Array.isArray(saved) ? saved.filter((item): item is string => typeof item === "string") : [];
+      return Array.isArray(saved)
+        ? [...new Set(saved.filter((item): item is string => typeof item === "string").map(eskiSabitiYeniye))]
+        : [];
     } catch { return []; }
   });
   const [pinError, setPinError] = useState<string | null>(null);
@@ -297,7 +339,7 @@ export function Sidebar({
       setPinError("Sabitleme tercihi kaydedilemedi; bu pencere açıkken korunacak.");
     }
   }, [pinnedSessions]);
-  const pinKey = (session: OturumSatiri) => `${session.projectRoot ?? session.project ?? ""}:${session.source}:${session.session_id}`;
+  const pinKey = (session: OturumSatiri) => pinAnahtari(session.source, session.session_id);
   const togglePin = (session: OturumSatiri) => setPinnedSessions((current) => {
     const key = pinKey(session);
     const next = current.includes(key) ? current.filter((item) => item !== key) : [...current, key];
@@ -491,7 +533,7 @@ export function Sidebar({
         <div aria-label="Fusion" className="sidebar__brand">
           <Logo size={24} />
           <span className="sidebar__label fusion-wordmark">Fusion</span>
-          <button aria-label="Konuşma ve proje aramasını aç" aria-expanded={searchOpen} className="sidebar__search-trigger" onClick={() => setSearchOpen((open) => !open)} type="button"><Icon name="search" size={19} /></button>
+          <button aria-label="Konuşma ve proje aramasını aç" aria-expanded={searchOpen} className="sidebar__search-trigger" onClick={() => { if (searchOpen) setQuery(""); setSearchOpen((open) => !open); }} type="button"><Icon name="search" size={19} /></button>
         </div>
         <NavItem icon="new" label="Yeni sohbet" onClick={onYeni} />
         {searchOpen && <label className="sidebar__search">
@@ -501,6 +543,9 @@ export function Sidebar({
             autoFocus
             aria-label="Konuşma ve proje ara"
             onChange={(event) => setQuery(event.target.value)}
+            // Esc aramayı kapatır ve süzgeci temizler; kapalı aramanın süzgeci sürerse
+            // oturumlar "kayıp" görünürdü (U1-52).
+            onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setQuery(""); setSearchOpen(false); } }}
             placeholder="Ara"
             type="search"
             value={query}
@@ -600,10 +645,10 @@ export function Sidebar({
       </div>, document.body)}
 
       {(projectDialog || createOpen) && <div className="sidebar__project-backdrop" role="presentation">
-        <div aria-label={createOpen ? "Yeni proje" : projectDialog!.kind === "rename" ? "Projeyi yeniden adlandır" : "Projeyi sil"} aria-modal="true" className="sidebar__project-dialog" role="dialog">
+        <div aria-label={createOpen ? "Yeni proje" : projectDialog!.kind === "rename" ? "Projeyi yeniden adlandır" : "Projeyi sil"} aria-modal="true" className="sidebar__project-dialog" ref={dialogRef} role="dialog" tabIndex={-1}>
           <h2>{createOpen ? "Yeni proje" : projectDialog!.kind === "rename" ? "Projeyi yeniden adlandır" : "Projeyi sil"}</h2>
           {(createOpen || projectDialog!.kind === "rename")
-            ? <input aria-label="Proje adı" autoFocus maxLength={80} onChange={(event) => setProjectDraft(event.target.value)} placeholder="Proje adı" value={projectDraft} />
+            ? <input aria-label="Proje adı" maxLength={80} onChange={(event) => setProjectDraft(event.target.value)} placeholder="Proje adı" value={projectDraft} />
             : <p>{projectDialog!.recordId ? "Proje listeden kalkar. Sohbetler silinmez; Sohbetler altına geçer." : "Proje Fusion listesinden kaldırılır. Bilgisayarındaki klasörler ve sohbet kayıtları korunur."}</p>}
           {createOpen && onPickFolder && <div className="sidebar__project-folder">
             <button disabled={dialogBusy} onClick={() => void onPickFolder().then((root) => { if (root) setCreateRoot(root); }).catch(() => setDialogError("Klasör seçilemedi."))} type="button">Klasör seç</button>
@@ -616,7 +661,12 @@ export function Sidebar({
               const dialog = projectDialog!;
               if (dialog.recordId) {
                 const id = dialog.recordId;
-                void runDialog(() => dialog.kind === "rename" ? onProjectRename?.(id, projectDraft.trim()) : onProjectDelete?.(id));
+                // Geri çağırım yoksa iş yapılmadan diyalog "başarıyla" kapanmasın (U1-56).
+                void runDialog(() => {
+                  const islem = dialog.kind === "rename" ? onProjectRename : onProjectDelete;
+                  if (!islem) throw new Error("Bu işlem şu an kullanılamıyor.");
+                  return dialog.kind === "rename" ? onProjectRename!(id, projectDraft.trim()) : onProjectDelete!(id);
+                });
                 return;
               }
               updateProject(dialog.root, dialog.kind === "rename" ? { name: projectDraft.trim() } : { hidden: true });
