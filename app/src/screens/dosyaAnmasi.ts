@@ -35,6 +35,8 @@ export function anmayiDegistir(
   const sonra = metin.slice(imlec);
   // Yolun ardına boşluk konur: kullanıcı yazmaya devam edince yeni bir anma
   // başlamasın ve iki yol birbirine yapışmasın.
-  const parca = `@${yol} `;
+  // Yol boşluk içeriyorsa tırnak içine alınır (`@"Proje Notları/a.md"`): aksi hâlde
+  // anma ilk boşlukta kesilmiş görünür ve model yolun yarısını okur (U1-20).
+  const parca = /\s/.test(yol) ? `@"${yol.replaceAll('"', "")}" ` : `@${yol} `;
   return { metin: `${once}${parca}${sonra}`, imlec: once.length + parca.length };
 }

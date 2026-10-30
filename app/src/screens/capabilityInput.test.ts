@@ -56,3 +56,15 @@ describe("parseImageRequest", () => {
     expect(parseImageRequest("/görsel")).toEqual({ prompt: "", aspect: "1:1" });
   });
 });
+
+describe("dalga 4 — U1-21 / U1-22", () => {
+  it("/görseli ve /görseller çekirdekle aynı biçimde görsel komutudur (U1-22)", () => {
+    for (const yes of ["/görseli kedi", "/görseller kedi", "/gorseller"]) expect(isImageCommand(yes)).toBe(true);
+    expect(isImageCommand("/görselleştir x")).toBe(false);
+  });
+
+  it("MCP anması dosya anmasıyla aynı sınır karakterlerini kabul eder (U1-21)", () => {
+    expect(parseCapabilityInput("(@github) ve [@notion] {@github}", { skills: [], mcp: ["github", "notion"], commands: [] }).mcp)
+      .toEqual(["github", "notion"]);
+  });
+});

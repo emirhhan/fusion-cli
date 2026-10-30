@@ -2,7 +2,8 @@
  * Yazı kutusundaki `/beceri` ve `@mcp` girdilerini çözer.
  *
  * - `/ad` yalnız satırın BAŞINDA ve yalnız o ad bir komut değilse bir beceridir (komut kazanır).
- * - `@ad` metnin herhangi bir yerinde, kelime başında, bilinen ve etkin bir MCP sunucusuysa
+ * - `@ad` metnin herhangi bir yerinde, kelime başında (boşluk ya da `([{,;` sonrası; dosya
+ *   anmasıyla `anmayiBul` aynı sınırı kullanır, U1-21), bilinen ve etkin bir MCP sunucusuysa
  *   o MCP'yi bu tur için seçer. Dosya anmaları (`@src/app.ts`) MCP adı olmadıkça etkilenmez.
  */
 
@@ -31,8 +32,8 @@ export function parseCapabilityInput(text: string, names: CapabilityNames): Capa
     if (match) skill = { ad: match, rest: (slash[2] ?? "").trim() };
   }
   const mcp: string[] = [];
-  for (const found of text.matchAll(/(?:^|\s)@([^\s@]+)/g)) {
-    const wanted = fold(found[1].replace(/[.,;:!?)]+$/, ""));
+  for (const found of text.matchAll(/(?:^|[\s([{,;])@([^\s@]+)/g)) {
+    const wanted = fold(found[1].replace(/[.,;:!?)\]}]+$/, ""));
     const match = names.mcp.find((name) => fold(name) === wanted);
     if (match && !mcp.includes(match)) mcp.push(match);
   }
@@ -41,8 +42,13 @@ export function parseCapabilityInput(text: string, names: CapabilityNames): Capa
 
 export const DEFAULT_SKILL_TASK = (skill: string) => `${skill} becerisini bu görev için uygula.`;
 
-/** `/görsel` ve `/gorsel` sohbet içinde görsel üretir; slash komutu değil, normal bir turdur. */
-export const isImageCommand = (text: string) => /^\/g[öo]rsel(?:\s|$)/i.test(text.trim());
+/**
+ * `/görsel`, `/gorsel` (ve çekirdeğin de kabul ettiği `/görseli`, `/görseller`) sohbet içinde
+ * görsel üretir; slash komutu değil, normal bir turdur. Çekirdekteki `image_chat._COMMAND`
+ * ile AYNI kalıp: eskiden `/görseller kedi` çekirdekte görsel üretirken arayüz ilerleme
+ * kartını çizmiyordu (U1-22).
+ */
+export const isImageCommand = (text: string) => /^\/g[öo]rsel(?:i|ler)?(?:\s|$)/i.test(text.trim());
 
 /** `/görsel` komutundan istem ve en-boy oranı (`--oran 16:9`); oran yoksa 1:1. */
 export function parseImageRequest(text: string): { prompt: string; aspect: string } {
