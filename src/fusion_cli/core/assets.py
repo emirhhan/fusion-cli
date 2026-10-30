@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import glob
 import json
 import struct
 from dataclasses import dataclass
@@ -196,7 +197,7 @@ def _locate_by_name(file_name: str, root: Path) -> str | None:
     if not file_name:
         return None
     try:
-        adaylar = sorted(root.rglob(file_name))
+        adaylar = sorted(root.rglob(glob.escape(file_name)))
     except OSError:
         return None
     for aday in adaylar:

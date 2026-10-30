@@ -74,3 +74,13 @@ def test_kok_icindeki_build_ve_nokta_dizinleri_yine_atlanir(tmp_path):
     (tmp_path / ".git/x.gd").write_text("func f():\n\tmove_and_slide()\n", encoding="utf-8")
 
     assert scripts_without_base(tmp_path) == ()
+
+
+def test_dosya_adindaki_glob_karakterleri_literal_aranir(tmp_path):
+    """`[`/`*` içeren ad glob olarak yorumlanıp başka dosyayı eşlememeli (C1-58)."""
+    (tmp_path / "Sprites").mkdir()
+    (tmp_path / "Sprites" / "tile[1].png").write_bytes(b"x")
+    (tmp_path / "Sprites" / "tile1.png").write_bytes(b"y")
+
+    assert _locate_by_name("tile[1].png", tmp_path) == "Sprites/tile[1].png"
+    assert _locate_by_name("*.png", tmp_path) is None

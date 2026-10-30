@@ -221,3 +221,16 @@ def test_panel_karti_pencere_kipini_ve_gizleme_uyarisini_tasir(tmp_path, monkeyp
     assert kartlar["chatgpt_web"]["pencere_uyarisi"] == macos_window.HIDE_FAILED_MESSAGE
     assert kartlar["claude_web"]["pencere_kipi"] == "headless"
     assert kartlar["claude_web"]["pencere_uyarisi"] is None
+
+
+def test_tirnakli_boolean_ve_tamsayi_eski_ayarlari_tasir():
+    """YAML'da tırnaklı `"true"/"false"` ValueError vermemeli (C1-52, C1-59)."""
+    from fusion_cli.core.execution_mode import ExecutionMode
+    from fusion_cli.core.window_mode import WindowMode
+
+    assert WindowMode("true") is WindowMode.HEADLESS
+    assert WindowMode("False") is WindowMode.VISIBLE
+    assert ExecutionMode(1) is ExecutionMode.ALWAYS
+    assert ExecutionMode(0) is ExecutionMode.OFF
+    assert ExecutionMode("true") is ExecutionMode.ALWAYS
+    assert ExecutionMode("false") is ExecutionMode.OFF

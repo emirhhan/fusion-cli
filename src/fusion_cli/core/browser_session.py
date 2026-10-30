@@ -12,6 +12,7 @@ verilir, buradaki tip gevşek kalır.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 
@@ -51,9 +52,13 @@ class BrowserSession:
                 continue
             try:
                 await getattr(nesne, yontem)()
-            except Exception:
+            except Exception as hata:
                 # Kapanış sınır katmanıdır: hangi hata gelirse gelsin diğer
-                # kaynakların kapatılması denenmelidir.
+                # kaynakların kapatılması denenmelidir. Sızan tarayıcı süreci
+                # teşhis edilebilsin diye hata günlüğe yazılır.
+                logging.getLogger(__name__).warning(
+                    "Tarayıcı oturumu kapatılırken %s başarısız: %s", yontem, type(hata).__name__
+                )
                 continue
         self.playwright = None
         self.browser = None

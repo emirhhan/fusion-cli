@@ -29,6 +29,9 @@ class WindowMode(IntEnum):
         """Kipin metin karşılığını tanı (`headless: hidden`)."""
         if isinstance(value, str):
             wanted = value.strip().lower()
+            # YAML'da tırnaklı yazılmış eski boolean (`headless: "true"`): HEADLESS/VISIBLE.
+            if wanted in {"true", "false"}:
+                return cls.HEADLESS if wanted == "true" else cls.VISIBLE
             for member in cls:
                 if member.slug == wanted:
                     return member
