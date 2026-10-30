@@ -402,3 +402,51 @@ async def test_pool_close_budget_cancels_stuck_supervisor(monkeypatch):
         release.set()
         await close
     assert finished, "Havuz kendi kapanış bütçesinde dönmedi"
+
+
+async def test_barindirmali_kesif_turlar_arasi_tekrarlanmaz(monkeypatch):
+    """Ölçüldü (30 Ekim): istemci her turda yeniden kuruluyor, `register_into` her
+    turda sağlayıcı web oturumuna keşif turu yazıyordu (uzun, kullanıcının ekranında
+    görünen metin); `_schemas` önbelleği tur arası kalmıyordu (M1-21)."""
+    import json
+    from dataclasses import replace
+
+    from fusion_cli.config.models import HostedConnectorConfig
+    from fusion_cli.mcp_bridge.hosted import RESULT_CLOSE, RESULT_OPEN
+
+    from .fakes import make_config
+
+    sorular: list[str] = []
+
+    class _Kanal:
+        def __init__(self, config) -> None:
+            del config
+
+        async def __call__(self, connector, prompt):
+            del connector
+            sorular.append(prompt)
+            govde = {"araclar": [{"ad": "get_campaigns", "aciklama": "x", "sema": {}}]}
+            return f"{RESULT_OPEN}\n{json.dumps(govde)}\n{RESULT_CLOSE}"
+
+    monkeypatch.setattr(pool_module, "_hosted_channel_factory", _Kanal, raising=False)
+    monkeypatch.setattr(pool_module, "_HOSTED", None, raising=False)
+    monkeypatch.setattr(pool_module, "_HOSTED_CLIENT", None, raising=False)
+    config = replace(
+        make_config(),
+        hosted_connectors=(
+            HostedConnectorConfig(
+                name="MetaAds",
+                url="https://mcp.facebook.com/ads",
+                provider="claude_web",
+                verified=True,
+            ),
+        ),
+    )
+
+    ilk = await pool_module.ensure_hosted_tools(config, ToolRegistry())
+    ikinci_defter = ToolRegistry()
+    ikinci = await pool_module.ensure_hosted_tools(config, ikinci_defter)
+
+    assert ilk == ikinci == ("MetaAds__get_campaigns",)
+    assert len(sorular) == 1, "ikinci turda keşif turu harcanmamalı"
+    assert ikinci_defter.get("MetaAds__get_campaigns") is not None

@@ -21,7 +21,7 @@ from ..tools import ToolRegistry
 from .backoff import McpBackoff
 from .client import McpClient, McpConnectionStatus, failure_status
 from .failures import STATE_CONNECTED, STATE_LOGIN_REQUIRED, is_permanent_kind
-from .hosted import AskSession
+from .hosted import AskSession, HostedConnectorClient
 from .identity import duplicate_of, unique_configs, unique_hosted_configs
 from .lifecycle import drain_owned_tasks, wait_owned_task
 from .oauth_flow import OAuthFlowOwner
@@ -361,6 +361,8 @@ def _hosted_channel_factory(config: Config) -> AskSession:
 # connector bağlamı kaybolur. Anahtar yapılandırmadır: kullanıcı bağlantı ekleyip
 # çıkardığında kanal yenilenmelidir.
 _HOSTED: tuple[object, AskSession] | None = None
+#: Aynı yapılandırma için tur arası yaşayan connector istemcisi (keşif önbelleği onda).
+_HOSTED_CLIENT: tuple[object, HostedConnectorClient] | None = None
 
 
 def _hosted_channel(config: Config) -> AskSession:
@@ -382,14 +384,17 @@ async def ensure_hosted_tools(config: Config, registry: ToolRegistry) -> tuple[s
     """
     if not config.hosted_connectors:
         return ()
-    from .hosted import HostedConnectorClient
-
     # Kopya connector ayıklanır. `mcp_servers` bu korumayı `unique_configs` ile
     # zaten alıyordu; barındırmalı connector'lar dışarıda kalmıştı ve aynı Meta
     # Ads adresi iki kez kayıt defterine giriyordu (ölçüldü, 22 Eylül).
     benzersiz = unique_hosted_configs(config.hosted_connectors)
-    client = HostedConnectorClient(benzersiz, ask=_hosted_channel(config))
-    return await client.register_into(registry)
+    # İstemci de kanal gibi turlar arası yaşar: keşif sonucu onda önbelleklenir ve
+    # her tur kullanıcının sağlayıcı ekranına yeni bir keşif metni yazılmaz.
+    global _HOSTED_CLIENT
+    key = (benzersiz, config.web_sessions)
+    if _HOSTED_CLIENT is None or _HOSTED_CLIENT[0] != key:
+        _HOSTED_CLIENT = (key, HostedConnectorClient(benzersiz, ask=_hosted_channel(config)))
+    return await _HOSTED_CLIENT[1].register_into(registry)
 
 
 async def close_mcp_pool() -> None:

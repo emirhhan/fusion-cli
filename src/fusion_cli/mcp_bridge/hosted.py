@@ -186,6 +186,9 @@ class HostedConnectorClient:
         # araçlar: uydurulmuş bir ad ya da eksik zorunlu alan, parayı yanlış
         # harcadıktan SONRA fark edilmemeli.
         self._schemas: dict[tuple[str, str], Mapping[str, object]] = {}
+        #: Başarılı keşfin sonucu: `register_into` tur başına sağlayıcı oturumuna yeniden
+        #: keşif turu yazmasın (ölçüldü 30 Ekim). Başarısız keşif BURAYA GİRMEZ.
+        self._discovered: dict[str, list[HostedTool]] = {}
 
     def _connector(self, name: str) -> HostedConnectorConfig:
         connector = self._connectors.get(name)
@@ -337,7 +340,10 @@ class HostedConnectorClient:
             if not connector.verified:
                 continue
             try:
-                tools = await self.list_tools(name)
+                tools = self._discovered.get(name)
+                if tools is None:
+                    tools = await self.list_tools(name)
+                    self._discovered[name] = tools
             except HostedRelayError as error:
                 _LOG.warning(
                     "connector araçları keşfedilemedi",
