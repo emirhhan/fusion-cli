@@ -3072,9 +3072,12 @@ async def _run_tools(
         seen = budget.count_call(signature)
         # Önceki sonucu maskelenmiş okumayı yeniden istemek tekrar sayılmaz (yer tutucu
         # "gerekirse yeniden oku" der). Değiştirici imzalar bağışlanmaz: aynı yazma
-        # iki kez yapılmaz.
-        if deps.mask_ledger.note_call(signature, call.id) and (
-            signature not in budget.mutating_signatures
+        # iki kez yapılmaz. Defteri olmayan (eski/sade) bağımlılıkta maskeleme de yoktur.
+        ledger = getattr(deps, "mask_ledger", None)
+        if (
+            ledger is not None
+            and ledger.note_call(signature, call.id)
+            and signature not in budget.mutating_signatures
         ):
             budget.seen_calls[signature] = 1
             seen = 0
