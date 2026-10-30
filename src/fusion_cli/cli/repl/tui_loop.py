@@ -287,6 +287,12 @@ class _TuiSession:
                 f"{escape(self._state.config.agent.model)} · "
                 f"config {self._state.config_revision.value}[/{theme.DIM}]"
             )
+        if config_error := self._state.take_config_error():
+            self._echo(
+                f"[{theme.WARN}]"
+                f"{escape(messages.REPL_CONFIG_UNREADABLE.format(error=config_error))}"
+                f"[/{theme.WARN}]"
+            )
 
     def _arm_reminders(self) -> None:
         """`/schedule` ile kurulan hatırlatmaları arka plana al; süresi dolunca göster."""

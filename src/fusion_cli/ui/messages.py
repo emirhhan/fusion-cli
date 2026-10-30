@@ -498,6 +498,7 @@ APP_EVENT_SERIALIZE_FAILED = "Olay iletilemedi (serileştirilemedi): {olay}"
 #: `tur.kes` ile mevcut turu durdurmalı ya da bitmesini beklemeli.
 APP_TURN_ALREADY_RUNNING = "Şu anda çalışan bir tur var. Durdurup yeniden gönderebilirsin."
 REPL_TURN_CANCELLED = "tur durduruldu"
+REPL_CONFIG_UNREADABLE = "yapılandırma dosyası okunamadı, son geçerli ayarlar kullanılıyor: {error}"
 REPL_NO_FUSION_YET = "Önce bir fusion turu çalıştır (/fusion), sonra geri bildirim ver."
 REPL_LEARN_USAGE = "Kullanım: /learn <kalıcı olarak hatırlanacak kural>"
 REPL_LEARN_SAVED = "kural belleğe kaydedildi"

@@ -264,6 +264,11 @@ async def _handle(
             f"[{theme.DIM}]Kontrol paneli ayarları yüklendi · "
             f"{state.config.agent.model} · config {state.config_revision.value}[/{theme.DIM}]"
         )
+    if config_error := state.take_config_error():
+        console.print(
+            f"[{theme.WARN}]{escape(messages.REPL_CONFIG_UNREADABLE.format(error=config_error))}"
+            f"[/{theme.WARN}]"
+        )
     if state.welcome_padded:
         # Açılış dolgusu konuşmanın ortasında dev bir boşluğa dönüşmesin.
         banner.print_welcome(console, session_info(state), pad=False)

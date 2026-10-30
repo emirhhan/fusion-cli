@@ -11,7 +11,7 @@ from enum import Enum
 from pathlib import Path
 from uuid import uuid4
 
-from ...config.live import ConfigRevision, reload_if_changed, revision
+from ...config.live import ConfigRevision, reload_checked, revision
 from ...config.models import Config
 from ...config.permissions import load_allowed_commands
 from ...core.changeset import ChangeSet
@@ -176,8 +176,12 @@ class ReplState:
         Etkin turlar başladıkları anlık görüntüyle devam eder; bu metot yalnızca
         giriş/HTTP istek sınırlarında çağrılır.
         """
-        loaded, rev, reloaded = reload_if_changed(self.config, self.config_revision)
+        outcome = reload_checked(self.config, self.config_revision)
+        loaded, rev, reloaded = outcome.config, outcome.revision, outcome.reloaded
         self.config_revision = rev
+        # Okunamayan dosya SESSİZ kalmaz: kullanıcı değişikliğinin uygulanmadığını
+        # `take_config_error()` ile görür (L2-20).
+        self.config_error = outcome.error
         if not reloaded:
             return False
         updated = rebase_session_changes(self.config_baseline, self.config, loaded)
@@ -187,6 +191,14 @@ class ReplState:
         self.config_baseline = loaded
         self.config = updated
         return changed
+
+    #: Son yeniden yüklemede dosya değişti ama okunamadıysa nedeni (bir kez gösterilir).
+    config_error: str = ""
+
+    def take_config_error(self) -> str:
+        """Bekleyen yapılandırma okuma hatasını döndür ve temizle (tekrar gösterilmesin)."""
+        error, self.config_error = self.config_error, ""
+        return error
 
     running: bool = True
 

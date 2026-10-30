@@ -364,3 +364,38 @@ async def test_komut_istisnasi_repl_i_bitirmez(monkeypatch):
 
     cikti = tampon.getvalue()
     assert "disk yazılamıyor" in cikti
+
+
+# --- Dalga 4: bozuk config.yaml kullanıcıya görünür (L2-20) --------------------------------
+
+
+def test_yarim_yazilmis_config_okunamadi_hatasi_kullaniciya_bildirilir(tmp_path):
+    """Ölçüldü (30 Ekim): hata yalnız `_logger.warning`e gidiyordu; kullanıcı değişikliğinin
+    uygulanmadığını göremiyordu."""
+    from fusion_cli.config.writer import write_model_section
+
+    hedef = tmp_path / "config.yaml"
+    config = replace(load_config(), source=hedef)
+    write_model_section(config, hedef)
+    state = _state(tmp_path, config=load_config(hedef))
+
+    hedef.write_text("runtime: [bozuk", encoding="utf-8")
+
+    assert state.refresh_config() is False
+    assert state.take_config_error()
+    assert state.take_config_error() == ""  # bir kez gösterilir
+
+
+def test_okunamayan_config_tui_de_uyari_olarak_basilir(tmp_path):
+    from fusion_cli.config.writer import write_model_section
+
+    hedef = tmp_path / "config.yaml"
+    config = replace(load_config(), source=hedef)
+    write_model_section(config, hedef)
+    state = _state(tmp_path, config=load_config(hedef))
+    session = _TuiSession(state)
+
+    hedef.write_text("runtime: [bozuk", encoding="utf-8")
+    session._refresh_config()
+
+    assert "okunamadı" in session.tui.transcript
