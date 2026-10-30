@@ -120,4 +120,49 @@ describe("tur bitince bekleyen soru", () => {
     expect(state.sessions.bir.question?.id).toBe("q1");
     expect(state.sessions.bir.questionQueue).toHaveLength(1);
   });
+
+  // Ölçüldü (30 Ekim): geçmiş gelmeden mesaj yazılırsa geri gelen geçmiş tamamen atılıyordu (U4-35);
+  // iptal edilen turun akan metni sonraki model çağrısında sessizce siliniyordu (U5-11).
+  it("geç gelen geçmiş, yazılmış mesajların önüne eklenir ve çift kullanıcı mesajı düşer (U4-35)", () => {
+    let state = sessionReducer(initialSessionState, {
+      type: "created",
+      session: { id: "bir", title: "Bir", source: "fusion", root: "/bir", client: client() },
+    });
+    state = sessionReducer(state, { type: "messageAdded", id: "bir", message: { id: "r1:user", rol: "kullanici", metin: "yeni soru" } });
+    state = sessionReducer(state, {
+      type: "historyLoaded", id: "bir",
+      messages: [{ rol: "kullanici", metin: "eski" }, { rol: "asistan", metin: "eski cevap" }, { rol: "kullanici", metin: "yeni soru" }],
+    });
+
+    expect(state.sessions.bir.messages.map((m) => m.metin)).toEqual(["eski", "eski cevap", "yeni soru"]);
+    expect(new Set(state.sessions.bir.messages.map((m) => m.id)).size).toBe(3);
+  });
+
+  it("tur son olaysız biterse akan metin kalıcı ara metne çevrilir (U5-11)", () => {
+    let state = sessionReducer(initialSessionState, {
+      type: "created",
+      session: { id: "bir", title: "Bir", source: "fusion", root: "/bir", client: client() },
+    });
+    state = sessionReducer(state, { type: "messageAdded", id: "bir", message: { id: "r1:user", rol: "kullanici", metin: "yaz" } });
+    state = sessionReducer(state, { type: "runningChanged", id: "bir", running: true });
+    state = sessionReducer(state, { type: "eventReceived", id: "bir", event: { olay: "TokenReceived", channel: "main", text: "yarım kalan cevap" } });
+    state = sessionReducer(state, { type: "runningChanged", id: "bir", running: false });
+
+    const son = state.sessions.bir.messages[state.sessions.bir.messages.length - 1];
+    expect(son).toMatchObject({ rol: "asistan", metin: "yarım kalan cevap", ara: true });
+    expect(son.akan).toBeUndefined();
+  });
+
+  it("nihai cevap zaten varsa akan balon kopya bırakmaz (U5-11)", () => {
+    let state = sessionReducer(initialSessionState, {
+      type: "created",
+      session: { id: "bir", title: "Bir", source: "fusion", root: "/bir", client: client() },
+    });
+    state = sessionReducer(state, { type: "messageAdded", id: "bir", message: { id: "r1:user", rol: "kullanici", metin: "yaz" } });
+    state = sessionReducer(state, { type: "eventReceived", id: "bir", event: { olay: "TokenReceived", channel: "main", text: "tam cevap" } });
+    state = sessionReducer(state, { type: "messageAdded", id: "bir", message: { id: "r1:assistant", rol: "asistan", metin: "tam cevap" } });
+    state = sessionReducer(state, { type: "runningChanged", id: "bir", running: false });
+
+    expect(state.sessions.bir.messages.filter((m) => m.rol === "asistan")).toHaveLength(1);
+  });
 });

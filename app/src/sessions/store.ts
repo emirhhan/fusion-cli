@@ -70,6 +70,46 @@ function updateSession(
   };
 }
 
+/**
+ * Geç gelen geçmişi (ağ gecikmesi) mevcut mesajların ÖNÜNE ekler.
+ *
+ * Ölçüldü (30 Ekim): kullanıcı geçmiş gelmeden mesaj yazarsa geri gelen geçmiş TAMAMEN atılıyor,
+ * sohbetin önceki içeriği hiç görünmüyordu (U4-35). Çekirdek yeni mesajı geçmişe de yazmış
+ * olabileceğinden, mevcut kullanıcı mesajlarının geçmişteki aynı metinli kopyası bir kez düşülür.
+ */
+function gecmisiOnePekle(gecmis: Mesaj[], mevcut: Mesaj[], oturumId: string): Mesaj[] {
+  const kalan = [...gecmis];
+  for (const mesaj of mevcut) {
+    if (mesaj.rol !== "kullanici") continue;
+    for (let indeks = kalan.length - 1; indeks >= 0; indeks -= 1) {
+      if (kalan[indeks].rol === "kullanici" && kalan[indeks].metin === mesaj.metin) {
+        kalan.splice(indeks, 1);
+        break;
+      }
+    }
+  }
+  return migrateMessageIds([...kalan, ...mevcut], oturumId);
+}
+
+/**
+ * Tur `TurnFinished`/`TurnAnswered` gelmeden bitti (iptal, çekirdek hatası): akan balon "geçici"
+ * olduğundan sonraki model çağrısında sessizce silinir ve yazılmış metin kaybolurdu (U5-11).
+ * Kalan balon kalıcı ara metne çevrilir; aynı metin bu turun kalıcı cevabında zaten varsa düşer.
+ */
+function akanBalonuKalicilastir(mesajlar: Mesaj[]): Mesaj[] {
+  if (!mesajlar.some((mesaj) => mesaj.rol === "asistan" && mesaj.akan)) return mesajlar;
+  let sinir = -1;
+  mesajlar.forEach((mesaj, indeks) => { if (mesaj.rol === "kullanici") sinir = indeks; });
+  const kalici = mesajlar.filter((mesaj, indeks) => indeks > sinir && mesaj.rol === "asistan" && !mesaj.akan && !mesaj.ara);
+  return mesajlar.flatMap((mesaj): Mesaj[] => {
+    if (mesaj.rol !== "asistan" || !mesaj.akan) return [mesaj];
+    const metin = mesaj.metin.trim();
+    if (!metin || kalici.some((cevap) => cevap.metin.includes(metin))) return [];
+    const { akan: _akan, ...sabit } = mesaj;
+    return [{ ...sabit, ara: true }];
+  });
+}
+
 export function sessionReducer(state: SessionState, action: SessionAction): SessionState {
   switch (action.type) {
     case "created": {
@@ -101,7 +141,9 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
     case "historyLoaded":
       return updateSession(state, action.id, (session) => ({
         ...session,
-        messages: session.messages.length === 0 ? migrateMessageIds(action.messages, action.id) : session.messages,
+        messages: session.messages.length === 0
+          ? migrateMessageIds(action.messages, action.id)
+          : gecmisiOnePekle(action.messages, session.messages, action.id),
       }));
     case "selected":
       return state.sessions[action.id] ? { ...state, activeId: action.id } : state;
@@ -165,6 +207,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return updateSession(state, action.id, (session) => ({
         ...session,
         running: action.running,
+        ...(action.running ? {} : { messages: akanBalonuKalicilastir(session.messages) }),
         stopping: action.running ? session.stopping : false,
         stopError: action.running ? session.stopError : null,
         // Tur bitti: turun beklettiği sorular artık yanıtlanamaz. SoruKapandi olayı kaybolsa da
