@@ -18,8 +18,26 @@ from .files import display_path, writable_path
 from .pinned_http import AsyncPinnedTransport
 from .web import url_block_reason
 
+#: Tüm indirmenin (yönlendirmeler dahil) toplam süre sınırı. `httpx` zaman aşımı OKUMA
+#: başınadır; damla damla veren bir sunucu sonsuza dek açık tutabilirdi (ölçüldü, 30 Ekim).
+DOWNLOAD_TOTAL_TIMEOUT_S = 300.0
 
-async def _download_bytes(url: str, context: ToolContext) -> bytes:
+#: Adı bu uzantılardan biri olan dosya HTML OLAMAZ: sunucu 200 ile hata sayfası verirse
+#: `.png`/`.zip` adıyla diske girip sonradan "ZIP değil" diye patlıyordu.
+_IKILI_UZANTILAR = frozenset(
+    {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".zip", ".gz", ".tar", ".tgz"}
+    | {".woff", ".woff2", ".ttf", ".otf", ".mp3", ".wav", ".ogg", ".mp4", ".webm", ".pdf"}
+)
+_HTML_BASLANGICLARI = (b"<!doctype html", b"<html", b"<head", b"<body")
+
+
+def _html_hata_sayfasi_mi(path: Path, content: bytes | bytearray) -> bool:
+    if path.suffix.lower() not in _IKILI_UZANTILAR:
+        return False
+    return bytes(content[:512]).lstrip().lower().startswith(_HTML_BASLANGICLARI)
+
+
+async def _download_bytes(url: str, context: ToolContext) -> bytearray:
     """Her hedefi denetle; sıkıştırılmış yanıtın açılan baytlarını da sınırla."""
     current = url
     # Taşıma denetlenen IP'ye bağlanır (DNS rebinding; bkz. `pinned_http`).
@@ -49,7 +67,7 @@ async def _download_bytes(url: str, context: ToolContext) -> bytes:
                     body.extend(chunk)
                 if not body:
                     raise ValueError("Kaynak boş dosya döndürdü.")
-                return bytes(body)
+                return body
     raise ValueError(f"En fazla {MAX_WEB_REDIRECTS} yönlendirme aşıldı.")
 
 
@@ -61,6 +79,12 @@ def _save_new(path: Path, content: bytes, context: ToolContext) -> None:
         with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
             temporary = Path(stream.name)
             stream.write(content)
+        # NamedTemporaryFile dosyayı 0600 açar ve `os.link` bu izni hedefe taşır:
+        # indirilen görsel/font web sunucusu ya da başka kullanıcı tarafından okunamıyordu
+        # (`files.atomic_write` aynı sorunu zaten giderir). Normal dosya izni: 0666 & ~umask.
+        umask = os.umask(0)
+        os.umask(umask)
+        temporary.chmod(0o666 & ~umask)
         if context.cancelled.is_set():
             raise InterruptedError("İndirme iptal edildi.")
         os.link(temporary, path)
@@ -92,7 +116,7 @@ def _hata_metni(error: Exception) -> str:
 
 
 #: Adresin var olmadığını söyleyen HTTP durumları.
-_YOK_DURUMLARI = ("404", "403", "410")
+_YOK_DURUMLARI = frozenset({404, 410})
 
 
 def _tahmin_uyarisi(error: Exception) -> str:
@@ -102,14 +126,27 @@ def _tahmin_uyarisi(error: Exception) -> str:
     üç ayrı yol denedi, üçü de 404 döndü ve hiç `web_search` çağırmadı; sonra
     assetleri betikle ÜRETMEYE geçti. "İndirilemedi" demek bu döngüyü kırmıyor;
     yapılacak şeyin söylenmesi gerekiyor.
+
+    Durum kodu YAPISAL okunur (30 Ekim): eskiden `"403" in str(error)` URL'deki
+    `img_4031.png` gibi rakamlarda da tetikleniyor, 403'ü (bot/UA engeli) "adres yok"
+    diye yorumlayıp modeli yanlış yönlendiriyordu.
     """
-    if not any(durum in str(error) for durum in _YOK_DURUMLARI):
+    if not isinstance(error, httpx.HTTPStatusError):
         return ""
-    return (
-        "\nBu adres YOK. Aynı alan adı altında başka yol DENEME: adresi ezberden "
-        "üretmek çalışmıyor. `web_search` ile indirme sayfasını bul, gerçek dosya "
-        "bağlantısını oradan al (arşiv olabilir) ve onu indir."
-    )
+    durum = error.response.status_code
+    if durum in _YOK_DURUMLARI:
+        return (
+            "\nBu adres YOK. Aynı alan adı altında başka yol DENEME: adresi ezberden "
+            "üretmek çalışmıyor. `web_search` ile indirme sayfasını bul, gerçek dosya "
+            "bağlantısını oradan al (arşiv olabilir) ve onu indir."
+        )
+    if durum in (401, 403):
+        return (
+            "\nSunucu erişimi reddetti (bot/kimlik doğrulama engeli olabilir); adres var "
+            "olabilir. Aynı adresi tekrar deneme: tarayıcıyla (browser_open) sayfadan "
+            "indirme bağlantısını bul ya da başka bir kaynak seç."
+        )
+    return ""
 
 
 async def download_file(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -119,8 +156,20 @@ async def download_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure("Hedef dosya zaten var; üzerine yazılmadı. Yeni bir yol seç.")
     url = require_str(args, "url")
     try:
-        content = await _download_bytes(url, context)
+        content = await asyncio.wait_for(
+            _download_bytes(url, context), timeout=DOWNLOAD_TOTAL_TIMEOUT_S
+        )
+        if _html_hata_sayfasi_mi(path, content):
+            raise ValueError(
+                f"Sunucu {path.suffix} yerine HTML sayfası döndürdü (hata/engel sayfası "
+                "olabilir); dosya kaydedilmedi."
+            )
         _save_new(path, content, context)
+    except TimeoutError:
+        return ToolResult.failure(
+            f"Dosya indirilemedi ({url}): toplam süre sınırı ({DOWNLOAD_TOTAL_TIMEOUT_S:g} sn) "
+            "aşıldı; sunucu çok yavaş."
+        )
     except (httpx.HTTPError, OSError, ValueError) as error:
         return ToolResult.failure(
             f"Dosya indirilemedi ({url}): {_hata_metni(error)}{_tahmin_uyarisi(error)}"

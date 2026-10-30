@@ -215,3 +215,82 @@ async def test_dolu_hata_mesaji_korunur(tmp_path, monkeypatch):
 
     assert not sonuc.ok
     assert "500" in sonuc.output
+
+
+# --- Dalga 4 (T1-33) ---------------------------------------------------------
+
+
+async def test_indirilen_dosya_normal_izinle_yazilir(tmp_path, monkeypatch):
+    """NamedTemporaryFile 0600 açar; indirilen görsel web sunucusu tarafından okunamıyordu."""
+    import os
+    import stat
+
+    _network(monkeypatch, lambda request: httpx.Response(200, content=b"\x89PNG\r\n"))
+    umask = os.umask(0o022)
+    try:
+        sonuc = await download.download_file(
+            {"url": "https://8.8.8.8/a.png", "path": "a.png"}, ToolContext(root=tmp_path)
+        )
+    finally:
+        os.umask(umask)
+
+    assert sonuc.ok
+    assert stat.S_IMODE((tmp_path / "a.png").stat().st_mode) == 0o644
+
+
+async def test_403_adres_yok_degil_erisim_reddi_olarak_yorumlanir(tmp_path, monkeypatch):
+    _network(monkeypatch, lambda request: httpx.Response(403))
+    sonuc = await download.download_file(
+        {"url": "https://8.8.8.8/a.png", "path": "a.png"}, ToolContext(root=tmp_path)
+    )
+
+    assert not sonuc.ok
+    assert "Bu adres YOK" not in sonuc.output
+    assert "erişimi reddetti" in sonuc.output
+
+
+async def test_url_icindeki_404_rakami_adres_yok_uyarisini_tetiklemez(tmp_path, monkeypatch):
+    _network(monkeypatch, lambda request: httpx.Response(500))
+    sonuc = await download.download_file(
+        {"url": "https://8.8.8.8/img_4041.png", "path": "a.png"}, ToolContext(root=tmp_path)
+    )
+
+    assert not sonuc.ok and "Bu adres YOK" not in sonuc.output
+
+
+async def test_404_adres_yok_uyarisi_surer(tmp_path, monkeypatch):
+    _network(monkeypatch, lambda request: httpx.Response(404))
+    sonuc = await download.download_file(
+        {"url": "https://8.8.8.8/a.png", "path": "a.png"}, ToolContext(root=tmp_path)
+    )
+
+    assert not sonuc.ok and "Bu adres YOK" in sonuc.output
+
+
+async def test_html_hata_sayfasi_png_olarak_kaydedilmez(tmp_path, monkeypatch):
+    """Sunucu 200 ile HTML hata sayfası döndürürse .png adıyla diske girmemeli."""
+    _network(
+        monkeypatch,
+        lambda request: httpx.Response(200, content=b"<!DOCTYPE html><html>Hata</html>"),
+    )
+    sonuc = await download.download_file(
+        {"url": "https://8.8.8.8/a.png", "path": "a.png"}, ToolContext(root=tmp_path)
+    )
+
+    assert not sonuc.ok and "HTML" in sonuc.output
+    assert not (tmp_path / "a.png").exists()
+
+
+async def test_toplam_sure_siniri_yavas_sunucuyu_keser(tmp_path, monkeypatch):
+    monkeypatch.setattr(download, "DOWNLOAD_TOTAL_TIMEOUT_S", 0.2)
+
+    async def yavas(url, context):
+        await asyncio.sleep(5)
+        return b"x"
+
+    monkeypatch.setattr(download, "_download_bytes", yavas)
+    sonuc = await download.download_file(
+        {"url": "https://8.8.8.8/a.png", "path": "a.png"}, ToolContext(root=tmp_path)
+    )
+
+    assert not sonuc.ok and "süre" in sonuc.output
