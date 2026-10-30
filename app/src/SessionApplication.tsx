@@ -22,7 +22,7 @@ import type { Soru } from "./protocol/types";
 import { useProjectRegistry } from "./sessions/useProjectRegistry";
 import { createAndOpenProject, openProjectChat, ProjectOpenError } from "./sessions/projectActions";
 import { useRemoteProjectSync } from "./remote/useRemoteProjectSync";
-import { useSessions, nextSessionId, saveWorkspaceMode } from "./sessions/useSessions";
+import { useSessions, nextSessionId, saveWorkspaceMode, tauriSessionTransport } from "./sessions/useSessions";
 import { usePrefsMirror } from "./platform/usePrefsMirror";
 import { useSessionModes } from "./sessions/useSessionModes";
 import type { SessionTransport } from "./sessions/types";
@@ -109,6 +109,7 @@ import { LibraryScreen } from "./library/LibraryScreen";
 import { ScheduleScreen } from "./schedule/ScheduleScreen";
 import { pickScheduleClient } from "./schedule/pickScheduleClient";
 import { useScheduleRunner } from "./schedule/useScheduleRunner";
+import { useSchedulerCore } from "./schedule/useSchedulerCore";
 import type { ReportInput } from "./feedback/report";
 import { useCrashReporter } from "./feedback/useCrashReporter";
 import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput } from "./screens/capabilityInput";
@@ -707,8 +708,16 @@ export function SessionUygulama({
   const [deliveryClient, setDeliveryClient] = useState<ScheduleDeliveryClient | null>(null);
   // Zamanlanmış tur onay isteyen araçta askıda bekler; kullanıcı yoksa sessizce ilerlemez, bildirilir (U5-57).
   const [scheduleNotice, setScheduleNotice] = useState<{ sessionId: string | null; baslik: string; metin: string } | null>(null);
+  // Vade yoklaması hazır bir sohbetin çekirdeğini kullanır; hiç sohbet yoksa (son sekme kapatıldı,
+  // geri yükleme başarısız) görünmez bir zamanlayıcı çekirdeği açılır (U5-52).
+  const sessionScheduleClient = pickScheduleClient(active, controller.sessions);
+  const detachedScheduleClient = useSchedulerCore({
+    transport: transport ?? tauriSessionTransport,
+    needed: sessionScheduleClient === null,
+  });
+  const scheduleClient = sessionScheduleClient ?? detachedScheduleClient;
   const scheduleRunner = useScheduleRunner({
-    client: pickScheduleClient(active, controller.sessions),
+    client: scheduleClient,
     deliveryClient,
     create: createScheduledSession,
     send: controller.send,
@@ -740,7 +749,7 @@ export function SessionUygulama({
   const mainSurface = (
     <MainSurface
       section={surfaceSection}
-      scheduled={<ScheduleScreen client={active?.client ?? null} defaultRoot={active?.root ?? ""} onRunNow={scheduleRunner.runNow} visible={surfaceSection === "scheduled"} />}
+      scheduled={<ScheduleScreen client={scheduleClient} defaultRoot={active?.root ?? ""} onRunNow={scheduleRunner.runNow} visible={surfaceSection === "scheduled"} />}
       library={<LibraryScreen client={active?.client ?? null} visible={surfaceSection === "library"} />}
       kits={<KitsScreen onDeliveryClient={setDeliveryClient} requestHost={activeClient ? requestKitsHost : undefined} visible={surfaceSection === "kits"} />}
     />
