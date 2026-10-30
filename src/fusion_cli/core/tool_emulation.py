@@ -57,7 +57,10 @@ LEGACY_PAYLOAD_CLOSE = "</tool_payload>"
 _BLOCK_GAP = "\n\n"
 _EXTRA_GAPS = re.compile(r"\n\s*\n(?:\s*\n)+")
 _BLOCK = re.compile(
-    rf"{re.escape(CALL_OPEN)}\s*(?P<body>.*?)\s*{re.escape(CALL_CLOSE)}",
+    # `(?!_END)`: açılış sözcüğü kapanışın önekidir; yetim bir kapanış işareti (ya da
+    # düzyazıda anılan `FUSION_TOOL_CALL_END`) açılış sanılıp sonraki gerçek çağrıyı
+    # gövdesine yutardı. Ölçüldü (30 Ekim): yetim kapanış + gerçek blok → "geçersiz JSON".
+    rf"{re.escape(CALL_OPEN)}(?!_END)\s*(?P<body>.*?)\s*{re.escape(CALL_CLOSE)}",
     re.DOTALL,
 )
 _LEGACY_BLOCK = re.compile(

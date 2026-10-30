@@ -217,3 +217,13 @@ def test_blok_cikarilinca_iki_yanindaki_metin_birbirine_yapismaz():
     sonuc = parse_tool_calls(metin)
     assert [c.name for c in sonuc.calls] == ["chrome_page"]
     assert "ve\n\nÖnceki" in sonuc.text
+
+
+def test_yetim_kapanis_isareti_sonraki_gercek_cagriyi_yutmaz():
+    """`FUSION_TOOL_CALL_END` açılış sanılmaz; sonraki gerçek çağrı kaybolmaz (C1-44)."""
+    metin = (
+        f"Protokolde {CALL_CLOSE} bir kapanış işaretidir.\n\n"
+        f'{CALL_OPEN}\n{{"name":"edit_file","arguments":{{"path":"a","content":"b"}}}}\n{CALL_CLOSE}'
+    )
+    sonuc = parse_tool_calls(metin)
+    assert [c.name for c in sonuc.calls] == ["edit_file"]
