@@ -13,6 +13,8 @@ Okunacak ya da düzeltilecek dosya ("`app.py` içindeki hatayı düzelt") çıkt
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
 import re
 import shutil
 from dataclasses import dataclass
@@ -56,13 +58,51 @@ _DURATION = re.compile(r"Duration:\s*(?P<h>\d+):(?P<m>\d+):(?P<s>[\d.]+)")
 _MAX_SCAN = 20_000
 
 
+async def _ffmpeg_stderr(ffmpeg: str, path: Path, filter_graph: str) -> bytes | None:
+    """ffmpeg'i süreyle çalıştır, stderr'i döndür; zaman aşımında SÜRECİ ÖLDÜR.
+
+    Ölçüldü (30 Ekim, A2-30): `wait_for(communicate())` zaman aşımında yalnız
+    bekleyeni iptal ediyor, ffmpeg arka planda videoyu çözmeye devam ediyordu
+    (siyah + donuk iki ölçüm = en kötü 240 sn, iki kez çözme).
+    """
+    try:
+        surec = await asyncio.create_subprocess_exec(
+            ffmpeg,
+            "-hide_banner",
+            "-i",
+            str(path),
+            "-vf",
+            filter_graph,
+            "-an",
+            "-f",
+            "null",
+            "-",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except OSError:
+        return None
+    try:
+        _, err = await asyncio.wait_for(surec.communicate(), timeout=FFMPEG_TIMEOUT_S)
+    except TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            surec.kill()
+        await surec.wait()
+        return None
+    return err
+
+
 def requested_outputs_in(task: str) -> tuple[str, ...]:
     """İsteğin çıktı olarak andığı göreli dosya yolları (sırası korunur, tekrarsız)."""
     found: list[str] = []
     for match in _PATH.finditer(task):
         around = task[max(0, match.start() - _WINDOW) : match.end() + _WINDOW]
-        if _OUTPUT_WORDS.search(around) and match.group("path") not in found:
-            found.append(match.group("path"))
+        yol = match.group("path")
+        # `../x.mp4` kök dışına çıkar (A2-33): yalnız kök içi göreli yollar sayılır.
+        if ".." in Path(yol).parts:
+            continue
+        if _OUTPUT_WORDS.search(around) and yol not in found:
+            found.append(yol)
     return tuple(found)
 
 
@@ -83,14 +123,18 @@ class OutputPathVerifier:
         for yol in sorted(self._context.requested_outputs):
             path = root / yol
             if not path.exists():
-                bulgular.append(_finding(root, yol))
+                bulgular.append(await _finding(root, yol))
             elif path.suffix.lower() in _VIDEO_SUFFIXES:
                 kanit = await _video_evidence(path, yol, self._expected_video())
                 bulgular.extend(kanit.findings)
                 uyarilar.extend(kanit.warnings)
                 kanitlar.extend(kanit.proofs)
                 if not kanit.findings:
-                    bulgular.extend(await _video_findings(path, yol))
+                    bulgular.extend(
+                        await _video_findings(
+                            path, yol, remotion="remotion" in self._context.task_kinds
+                        )
+                    )
         if not bulgular:
             return VerificationResult(
                 ok=True, summary="; ".join(kanitlar), warnings=tuple(uyarilar)
@@ -157,8 +201,8 @@ async def _video_evidence(path: Path, yol: str, expected: ExpectedVideo | None) 
     return _VideoEvidence(proofs=(f"video kanıtı `{yol}`: {facts.summary()}",))
 
 
-def _finding(root: Path, yol: str) -> str:
-    baska = _same_name_elsewhere(root, Path(yol).name)
+async def _finding(root: Path, yol: str) -> str:
+    baska = await asyncio.to_thread(_same_name_elsewhere, root, Path(yol).name)
     nerede = (
         f" Aynı adlı dosya şurada üretilmiş: {', '.join(baska)} — onu istenen yola taşı "
         "ya da kopyala (ya da üretimi doğrudan istenen yola yap)."
@@ -169,12 +213,22 @@ def _finding(root: Path, yol: str) -> str:
 
 
 def _same_name_elsewhere(root: Path, name: str) -> list[str]:
+    """Aynı adlı dosyayı kök altında ara; `node_modules`/`.git` ağacına HİÇ inilmez.
+
+    Ölçüldü (30 Ekim, A2-31): `root.rglob(name)` süzgeci yalnız eşleşmelere uyguluyor,
+    gürültü dizinlerini yine dolaşıyordu ve olay döngüsünden senkron çağrılıyordu.
+    """
     bulunan: list[str] = []
-    for sayac, path in enumerate(root.rglob(name)):
-        if sayac >= _MAX_SCAN or len(bulunan) >= 3:
+    gezilen = 0
+    for dizin, alt_dizinler, dosyalar in os.walk(root):
+        alt_dizinler[:] = [ad for ad in alt_dizinler if ad not in _SKIP_DIRS]
+        gezilen += len(dosyalar)
+        if name in dosyalar:
+            bulunan.append((Path(dizin) / name).relative_to(root).as_posix())
+            if len(bulunan) >= 3:
+                break
+        if gezilen >= _MAX_SCAN:
             break
-        if path.is_file() and not _SKIP_DIRS.intersection(path.relative_to(root).parts):
-            bulunan.append(path.relative_to(root).as_posix())
     return bulunan
 
 
@@ -188,23 +242,8 @@ async def measure_black(path: Path) -> tuple[tuple[tuple[float, float], ...], fl
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         return None
-    try:
-        surec = await asyncio.create_subprocess_exec(
-            ffmpeg,
-            "-hide_banner",
-            "-i",
-            str(path),
-            "-vf",
-            "blackdetect=d=0.1:pix_th=0.1",
-            "-an",
-            "-f",
-            "null",
-            "-",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, err = await asyncio.wait_for(surec.communicate(), timeout=FFMPEG_TIMEOUT_S)
-    except (OSError, TimeoutError):
+    err = await _ffmpeg_stderr(ffmpeg, path, "blackdetect=d=0.1:pix_th=0.1")
+    if err is None:
         return None
     log = err.decode("utf-8", errors="replace")
     sure = _DURATION.search(log)
@@ -227,28 +266,13 @@ async def measure_freeze(path: Path, total_s: float) -> tuple[tuple[float, float
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         return ()
-    try:
-        surec = await asyncio.create_subprocess_exec(
-            ffmpeg,
-            "-hide_banner",
-            "-i",
-            str(path),
-            "-vf",
-            f"freezedetect=n=0.002:d={MAX_FREEZE_S}",
-            "-an",
-            "-f",
-            "null",
-            "-",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, err = await asyncio.wait_for(surec.communicate(), timeout=FFMPEG_TIMEOUT_S)
-    except (OSError, TimeoutError):
+    err = await _ffmpeg_stderr(ffmpeg, path, f"freezedetect=n=0.002:d={MAX_FREEZE_S}")
+    if err is None:
         return ()
     return freeze_segments(err.decode("utf-8", errors="replace"), total_s)
 
 
-async def _video_findings(path: Path, yol: str) -> list[str]:
+async def _video_findings(path: Path, yol: str, *, remotion: bool = True) -> list[str]:
     """Uzun siyah bölüm: video render edildi ama sahneler görünmüyor.
 
     Ölçüldü (6 Ekim 2026, dalga23 Remotion): 10 sn'lik videonun 3,8-10,0 sn arası
@@ -258,7 +282,9 @@ async def _video_findings(path: Path, yol: str) -> list[str]:
     if olcum is None:
         return []
     bolumler, toplam = olcum
-    bulgular = await _freeze_findings(path, yol, toplam)
+    # Donukluk kuralı Remotion hareket kitine göre ayarlıdır (A2-32): ekran kaydı ya da
+    # bilerek hareketsiz ders videosunda yanlış pozitif olurdu; yalnız Remotion görevinde.
+    bulgular = await _freeze_findings(path, yol, toplam) if remotion else []
     uzun = [(bas, son) for bas, son in bolumler if son - bas > MAX_BLACK_S]
     if not uzun:
         return bulgular
@@ -268,9 +294,14 @@ async def _video_findings(path: Path, yol: str) -> list[str]:
     return [
         *bulgular,
         f"VİDEO SİYAH: `{yol}` içinde {araliklar} tamamen siyah{oran}. O aralıktaki "
-        "sahneler görünmüyor — Sequence içinde useCurrentFrame() sahneye GÖRE başlar; "
-        "interpolate aralıklarını ve opaklığı kontrol et, o saniyelerden "
-        "`npx remotion still <Id> --frame=<n>` ile kare alıp bak, düzeltip yeniden render et.",
+        "sahneler görünmüyor. "
+        + (
+            "Sequence içinde useCurrentFrame() sahneye GÖRE başlar; interpolate "
+            "aralıklarını ve opaklığı kontrol et, o saniyelerden "
+            "`npx remotion still <Id> --frame=<n>` ile kare alıp bak, düzeltip yeniden render et."
+            if remotion
+            else "O saniyelerden kare alıp bak, kaynağı düzeltip yeniden üret."
+        ),
     ]
 
 
