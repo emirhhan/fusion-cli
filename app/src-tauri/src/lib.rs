@@ -1,6 +1,7 @@
 mod core_process;
 mod kapanis;
 mod kits_process;
+mod onizleme;
 mod permissions;
 mod runtime_installer;
 mod runtime_manager;
@@ -743,6 +744,16 @@ fn oturumlari_listele(sessions: tauri::State<SessionManager>) -> Vec<SessionSnap
     sessions.list()
 }
 
+/// HTML önizlemesinin içeriğini `fusion-preview://` şemasından sunulmak üzere bırakır ve iframe'e
+/// verilecek anahtarı döndürür (U4-47). Bkz. `onizleme.rs`.
+#[tauri::command]
+fn onizleme_ayarla(
+    icerik: String,
+    depo: tauri::State<onizleme::OnizlemeDeposu>,
+) -> Result<String, String> {
+    depo.ekle(icerik)
+}
+
 /// Eski biçim: çıktı `terminal://cikti` olayında JSON sayı dizisi olarak gider. Yeni arayüz
 /// `terminal_ac_kanal` kullanır; bu komut eski istemcilerle uyum için durur.
 #[tauri::command]
@@ -882,6 +893,13 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(SessionManager::new())
         .manage(KapanisDurumu::new())
+        .manage(onizleme::OnizlemeDeposu::default())
+        .register_uri_scheme_protocol(onizleme::SEMA, |context, request| {
+            context
+                .app_handle()
+                .state::<onizleme::OnizlemeDeposu>()
+                .yanit(request.method(), request.uri().path())
+        })
         .manage(SpeechManager::new())
         .manage(Arc::new(KitsManager::new()))
         .setup(|app| {
@@ -926,6 +944,7 @@ pub fn run() {
             oturuma_yaz,
             oturum_kapat,
             oturumlari_listele,
+            onizleme_ayarla,
             terminal_ac,
             terminal_ac_kanal,
             terminal_yaz,

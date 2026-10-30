@@ -1,6 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../protocol/client";
+const { ayriAdres } = vi.hoisted(() => ({ ayriAdres: vi.fn(async (): Promise<string | null> => null) }));
+vi.mock("./htmlPreviewSource", () => ({ ayriKokenliOnizlemeAdresi: ayriAdres }));
+
 import { PreviewPanel, isLocalPreviewUrl } from "./PreviewPanel";
 
 afterEach(cleanup);
@@ -46,6 +49,26 @@ describe("PreviewPanel", () => {
     expect(sandbox).not.toContain("allow-same-origin");
     expect(sandbox).not.toContain("allow-top-navigation");
     expect(sandbox).not.toContain("allow-popups");
+  });
+
+  /* Ölçüldü (30 Ekim): srcdoc önizlemesi ana pencerenin CSP'sini miras alıyor, paketli uygulamada satır içi
+     betikler çalışmıyordu. Ayrı kökenli adres varsa iframe srcdoc yerine o adresle açılır (U4-47). */
+  it("ayrı kökenli önizleme adresi varsa iframe onunla açılır, srcdoc kullanılmaz; sandbox aynı kalır", async () => {
+    ayriAdres.mockResolvedValueOnce("fusion-preview://localhost/abc");
+    const html = "<script>1</script>";
+    const client = {
+      request: vi.fn(async () => ({
+        ok: true, yol: "oyun.html", tur: "html", mime: "text/html", boyut: html.length, base64: btoa(html),
+      })),
+    } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} selectedPath="oyun.html" revision={0} />);
+
+    const frame = await screen.findByTitle("oyun.html HTML önizlemesi");
+
+    expect(frame.getAttribute("src")).toBe("fusion-preview://localhost/abc");
+    expect(frame.hasAttribute("srcdoc")).toBe(false);
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(ayriAdres).toHaveBeenCalledWith(html);
   });
 
   it("seçili görseli protokolden güvenli veri adresiyle gösterir", async () => {

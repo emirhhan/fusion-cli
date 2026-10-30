@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
+import { kabukVar } from "../voice/bridge";
+import { ayriKokenliOnizlemeAdresi } from "./htmlPreviewSource";
 import "./PreviewPanel.css";
 
 type PreviewKind = "image" | "audio" | "video" | "pdf" | "html" | "text";
@@ -120,6 +122,16 @@ export function PreviewPanel({
       });
     return () => { active = false; };
   }, [client, selectedPath, revision]);
+
+  // HTML önizlemesi ayrı kökenden sunulur (U4-47); `undefined`: henüz çözülmedi, `null`: srcdoc yedeği.
+  const [htmlSrc, setHtmlSrc] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    setHtmlSrc(undefined);
+    if (asset?.tur !== "html" || assetText === null) return;
+    let active = true;
+    void ayriKokenliOnizlemeAdresi(assetText).then((src) => { if (active) setHtmlSrc(src); });
+    return () => { active = false; };
+  }, [asset, assetText]);
 
   useEffect(() => { if (selectedPath) setMode("file"); }, [client, selectedPath]);
 
@@ -329,7 +341,18 @@ export function PreviewPanel({
               {(asset.tur === "html" || asset.tur === "text") && assetText === null && (
                 <p className="preview-panel__error" role="alert">Dosya içeriği çözülemedi.</p>
               )}
-              {asset.tur === "html" && assetText !== null && <iframe className="preview-panel__frame" sandbox="allow-scripts" srcDoc={assetText} title={`${asset.yol} HTML önizlemesi`} />}
+              {asset.tur === "html" && assetText !== null && htmlSrc === undefined && kabukVar() && (
+                <p className="preview-panel__empty">Önizleme hazırlanıyor…</p>
+              )}
+              {/* Opak köken: allow-same-origin YOK. Ayrı kökenli adres kendi CSP'siyle gelir; yedek srcdoc ana CSP'yi miras alır. */}
+              {asset.tur === "html" && assetText !== null && htmlSrc !== undefined && (
+                <iframe
+                  className="preview-panel__frame"
+                  sandbox="allow-scripts"
+                  title={`${asset.yol} HTML önizlemesi`}
+                  {...(htmlSrc === null ? { srcDoc: assetText } : { src: htmlSrc })}
+                />
+              )}
               {asset.tur === "text" && assetText !== null && <pre>{assetText}</pre>}
             </div>
           ) : !assetError ? (
