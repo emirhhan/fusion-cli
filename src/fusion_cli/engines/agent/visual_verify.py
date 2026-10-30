@@ -23,16 +23,20 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ...config.models import Config
+from ...core.protocols import LlmProvider
 from ...core.tools import ToolContext
 from ...core.types import CompletionRequest, Message
 from ...core.verification import VerificationResult
+from ...ui.text import strip_thinking
 
 _logger = logging.getLogger(__name__)
 
 #: Görsel başına tanınan süre. Küçük bir modele küçük bir kırpma sorulur.
 VISION_TIMEOUT_S = 60.0
-#: İkili cevap için yeterli bütçe; uzun açıklama istemiyoruz.
-VISION_MAX_TOKENS = 64
+#: İkili cevap için yeterli bütçe; uzun açıklama istemiyoruz. Düşünen (reasoning) görme
+#: modelleri "evet/hayır"dan önce kısa düşünce üretir: 64 token cevabı kesip kapıyı sessizce
+#: işlevsiz bırakıyordu (A4-46); düşünce `parse_verdict`te ayıklanır.
+VISION_MAX_TOKENS = 384
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +106,7 @@ def parse_verdict(text: str) -> bool:
     ya da soruyu tekrar eden metin üretti; bunlardan sorun çıkarmak kapıyı
     gürültüye boğardı.
     """
-    ilk = (text or "").strip().lower().lstrip("*# ").replace("ı", "i")
+    ilk = strip_thinking(text or "").strip().lower().lstrip("*# ").replace("ı", "i")
     return ilk.startswith(_YES)
 
 
@@ -117,6 +121,7 @@ class VisualVerifier:
     def __init__(self, tool_context: ToolContext, config: Config) -> None:
         self._context = tool_context
         self._config = config
+        self._provider: LlmProvider | None = None
 
     async def verify(self) -> VerificationResult:
         pages = [
@@ -131,8 +136,14 @@ class VisualVerifier:
             findings = await self._inspect(pages[0])
         except Exception as exc:
             # Tarayıcı ya da görme modeli erişilemezse tur DÜŞMEZ; bu bir iyileştirmedir.
-            _logger.debug("görsel doğrulama atlandı: %s", exc)
-            return VerificationResult(ok=True)
+            # Ama atlama sessiz kalmaz: kullanıcı "görsel denetim geçti" sanmasın (A4-63).
+            _logger.warning("görsel doğrulama atlandı: %s", exc)
+            return VerificationResult(
+                ok=True,
+                warnings=(
+                    f"görsel denetim atlandı ({type(exc).__name__}): sayfa gözle DOĞRULANAMADI",
+                ),
+            )
 
         if not findings:
             return VerificationResult(ok=True)
@@ -168,14 +179,17 @@ class VisualVerifier:
         if spec is None:
             return False
         data_uri = "data:image/png;base64," + base64.b64encode(image).decode()
-        provider = build_provider(
-            spec,
-            publisher=None,
-            retry_delays_s=self._config.runtime.retry_delays_s,
-            background=True,
-            web_sessions=web_registry_for(self._config),
-        )
-        result = await provider.complete(
+        # Sağlayıcı denetim başına BİR kez kurulur: web taşımasında her kurulum yeni sohbet
+        # açabiliyordu ve yeni-sohbet sınırına (bot eşiği) katkı yapıyordu (A4-46).
+        if self._provider is None:
+            self._provider = build_provider(
+                spec,
+                publisher=None,
+                retry_delays_s=self._config.runtime.retry_delays_s,
+                background=True,
+                web_sessions=web_registry_for(self._config),
+            )
+        result = await self._provider.complete(
             CompletionRequest(
                 messages=(Message("user", check.question, images=(data_uri,)),),
                 temperature=self._config.runtime.judge_temperature,

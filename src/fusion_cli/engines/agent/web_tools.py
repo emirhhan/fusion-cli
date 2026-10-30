@@ -37,6 +37,12 @@ async def run_site_design(args: ToolArgs, context: ToolContext) -> ToolResult:
         if isinstance(raw_pages, list)
         else ()
     )
+    # Ek sayfalar da ana adres gibi denetlenir: mutlak `pages=["http://169.254.169.254/…"]`
+    # iç ağ/metadata korumasını atlıyordu (A4-47).
+    for page in extra:
+        page_reason = url_block_reason(page)
+        if page_reason is not None:
+            return ToolResult.failure(f"Bu sayfaya erişilemez ({page}): {page_reason}")
     out = args.get("out")
     label = out.strip() if isinstance(out, str) and out.strip() else design.DEFAULT_FOLDER
     folder = writable_path(context, label)
@@ -46,7 +52,13 @@ async def run_site_design(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(f"Tasarım ölçülemedi: {error}")
     if not report.pages:
         return ToolResult.failure("Hiçbir sayfa açılamadı; adresi ve bağlantıyı kontrol et.")
-    await design.download_assets(report, folder)
+    try:
+        await design.download_assets(report, folder)
+    except Exception as error:  # sınır: ağ/disk hatası aracı ham istisnayla düşürmesin (A4-48)
+        return ToolResult.failure(
+            f"Tasarım ölçüldü ama varlıklar indirilemedi ({type(error).__name__}): "
+            f"{str(error)[:200]}"
+        )
     first_shot = report.pages[0].get("_screenshot_bytes")
     await asyncio.to_thread(design.save_report, report, folder, label)
     content: tuple[ToolContent, ...] = ()
@@ -73,6 +85,10 @@ async def run_play_probe(args: ToolArgs, context: ToolContext) -> ToolResult:
         rapor = await probe_game(hedef, parse_keys(args.get("keys")))
     except ImportError:
         return ToolResult.failure("Playwright kurulu değil; oyun sondası çalışamadı.")
+    except Exception as error:  # sınır: Chromium indirilmemiş vb. (A4-48)
+        return ToolResult.failure(
+            f"Oyun sondası çalışamadı ({type(error).__name__}): {str(error)[:200]}"
+        )
     context.probed_games.add(hedef)
     return ToolResult(f"Oyun sondası ({hedef}):\n{rapor.summary()}")
 

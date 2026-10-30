@@ -549,3 +549,65 @@ def test_html_yorumundaki_kapanmayan_script_bulgu_uretmez():
 
     assert _kapanmayan_ham_metin_etiketleri("<!-- <script> örnek --><p>x</p>") == []
     assert _kapanmayan_ham_metin_etiketleri("<script>var a;")
+
+
+# --- A4-46 / A4-47 / A4-48 / A4-63 ---------------------------------------------------- #
+
+
+def test_gorme_modeli_dusunce_blogundan_sonraki_karari_okur():
+    from fusion_cli.engines.agent.visual_verify import parse_verdict
+
+    assert parse_verdict("<think>belki hayır der</think>EVET, çok boşluk var")
+    assert not parse_verdict("<think>evet gibi</think>HAYIR")
+
+
+async def test_site_design_ek_sayfa_ic_ag_adresini_reddeder(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.web_tools import run_site_design
+
+    sonuc = await run_site_design(
+        {"url": "http://93.184.216.34", "pages": ["http://169.254.169.254/latest/meta-data"]},
+        ToolContext(root=tmp_path),
+    )
+
+    assert sonuc.ok is False
+    assert "169.254.169.254" in sonuc.output
+
+
+async def test_play_probe_beklenmeyen_hata_modele_neden_olarak_doner(tmp_path, monkeypatch):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent import web_tools
+    from fusion_cli.tools import play_probe
+
+    async def bozuk(*_a, **_k):
+        raise RuntimeError("Executable doesn't exist")
+
+    monkeypatch.setattr(play_probe, "probe_game", bozuk)
+
+    sonuc = await web_tools.run_play_probe(
+        {"target": "http://127.0.0.1:1/"}, ToolContext(root=tmp_path)
+    )
+
+    assert sonuc.ok is False
+    assert "Executable" in sonuc.output
+
+
+async def test_gorsel_denetim_atlanirsa_uyari_verir(tmp_path, monkeypatch):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.visual_verify import VisualVerifier
+
+    sayfa = tmp_path / "index.html"
+    sayfa.write_text("<html></html>", encoding="utf-8")
+    baglam = ToolContext(root=tmp_path)
+    baglam.touched.add(sayfa)
+    kurucu = VisualVerifier(baglam, SimpleNamespace(vision=object()))
+
+    async def patla(_yol):
+        raise RuntimeError("chromium yok")
+
+    monkeypatch.setattr(kurucu, "_inspect", patla)
+
+    sonuc = await kurucu.verify()
+
+    assert sonuc.ok is True
+    assert "atlandı" in sonuc.warnings[0]
