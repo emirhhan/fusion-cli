@@ -20,6 +20,7 @@ from prompt_opt.campaign import (
     OUTCOME_HELDOUT_REGRESSION,
     OUTCOME_NO_CANDIDATE,
     OUTCOME_NO_GAIN,
+    OUTCOME_NO_ROOM,
     OUTCOME_PROPOSED,
     OverfitError,
     RoundSetup,
@@ -602,3 +603,44 @@ async def test_ayri_kume_basari_orani_dusuyorsa_oneri_olmaz(tmp_path):
     )
     assert sonuc.outcome == OUTCOME_HELDOUT_REGRESSION
     assert "düştü" in sonuc.detail
+
+
+# --------------------------------------------------------------------------- #
+# İstem boyut tavanı
+# --------------------------------------------------------------------------- #
+
+
+def test_sistem_istemi_tavani_diyet_testiyle_ayni():
+    """Tavan iki yerde yazılı; ayrışırsa uygulanan öneri diyet testini düşürürdü."""
+    import re
+
+    diyet = Path(__file__).with_name("test_system_prompt_diet.py").read_text(encoding="utf-8")
+    sinir = int(re.search(r"assert len\(text\) <= ([\d_]+)", diyet).group(1).replace("_", ""))  # type: ignore[union-attr]
+    assert TARGETS["system"].max_chars == sinir
+    assert len(TARGETS["system"].read()) <= sinir
+
+
+async def test_tavan_asan_ek_uretilmez():
+    taban = "x" * 100
+    uretici = AdditiveGenerator(
+        _SahteSaglayici(("a" * 20, "b" * 60)), max_total_chars=len(taban) + 30
+    )
+    adaylar = await uretici.generate(taban, 3)
+    assert [addition_of(taban, aday) for aday in adaylar] == ["a" * 20]
+    assert all(len(aday) <= len(taban) + 30 for aday in adaylar)
+
+
+async def test_tavana_dayanmis_istemde_model_hic_cagrilmaz(tmp_path):
+    opt = _SahteDegerlendirici({})
+    saglayici = _SahteSaglayici(("yeni madde burada",))
+    sonuc = await run_round(
+        _kurulum(tmp_path, max_chars=len(TEMEL) + 10),
+        provider=saglayici,
+        opt_evaluator=opt,
+        heldout_evaluator=opt,
+        store=ProposalStore(tmp_path / "o"),
+    )
+    assert sonuc.outcome == OUTCOME_NO_ROOM
+    assert "boyut tavanına" in sonuc.detail
+    assert (opt.cagrilar, saglayici.cagri) == ([], 0)
+    assert kayitlari_oku(tmp_path / "kayit.jsonl")[-1]["sonuc"] == OUTCOME_NO_ROOM

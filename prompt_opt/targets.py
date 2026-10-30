@@ -23,6 +23,9 @@ from fusion_cli.core.errors import EvalError
 _PAKET = Path(fusion_cli.__file__).resolve().parent
 _AJAN_ISTEMLERI = _PAKET / "engines" / "agent" / "prompts"
 _AJAN_MODULU = "fusion_cli.engines.agent"
+#: `tests/test_system_prompt_diet.py` tavanıyla AYNI olmalı; ayrışırsa
+#: `tests/test_prompt_opt_dongu.py::test_sistem_istemi_tavani_diyet_testiyle_ayni` düşer.
+SYSTEM_PROMPT_MAX_CHARS = 6_100
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +36,11 @@ class PromptTarget:
     file: Path
     module: str
     attribute: str
+    #: İstemin üst boyutu (karakter); aşan aday üretilmez. `None` sınırsız.
+    #:
+    #: Kimlik istemi her turda bağlam yer ve boyutu bir testle sınırlıdır
+    #: (`tests/test_system_prompt_diet.py`); sınırı aşan bir öneri uygulanınca o test düşerdi.
+    max_chars: int | None = None
 
     def read(self) -> str:
         return self.file.read_text(encoding="utf-8")
@@ -45,7 +53,11 @@ TARGETS: dict[str, PromptTarget] = {
     target.name: target
     for target in (
         PromptTarget(
-            "system", _AJAN_ISTEMLERI / "system.md", f"{_AJAN_MODULU}.loop", "SYSTEM_PROMPT"
+            "system",
+            _AJAN_ISTEMLERI / "system.md",
+            f"{_AJAN_MODULU}.loop",
+            "SYSTEM_PROMPT",
+            max_chars=SYSTEM_PROMPT_MAX_CHARS,
         ),
         PromptTarget(
             "system_chat",

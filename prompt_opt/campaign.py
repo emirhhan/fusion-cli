@@ -24,7 +24,14 @@ from evals.taslak import sadelestir
 
 from fusion_cli.core.errors import EvalError
 
-from .additive import AdditiveGenerator, FailureNote, SnippetProvider, addition_of
+from .additive import (
+    MIN_ADDITION_ROOM,
+    AdditiveGenerator,
+    FailureNote,
+    SnippetProvider,
+    addition_of,
+    addition_room,
+)
 from .optimizer import DEFAULT_VARIANT_COUNT, PromptEvaluator, search
 from .proposals import Proposal, ProposalStore, proposal_id, text_digest
 from .selection import DEFAULT_MIN_IMPROVEMENT
@@ -36,6 +43,7 @@ OUTCOME_PROPOSED = "onerildi"
 OUTCOME_NO_GAIN = "iyilestirme_yok"
 OUTCOME_NO_CANDIDATE = "gecen_aday_yok"
 OUTCOME_HELDOUT_REGRESSION = "ayri_kume_gerilemesi"
+OUTCOME_NO_ROOM = "butce_yok"
 
 
 class OverfitError(EvalError):
@@ -48,7 +56,7 @@ class RoundResult:
 
     outcome: str
     detail: str
-    opt_base: float
+    opt_base: float | None
     opt_candidate: float | None = None
     heldout_base: float | None = None
     heldout_candidate: float | None = None
@@ -71,6 +79,8 @@ class RoundSetup:
     variant_count: int = DEFAULT_VARIANT_COUNT
     min_improvement: float = DEFAULT_MIN_IMPROVEMENT
     min_tasks: int = MIN_SUITE_TASKS
+    #: İstemin üst boyutu (karakter); `None` sınırsız. Bkz. `PromptTarget.max_chars`.
+    max_chars: int | None = None
 
 
 def check_heldout(
@@ -96,6 +106,24 @@ def check_heldout(
         )
 
 
+def preflight(setup: RoundSetup) -> RoundResult | None:
+    """Model çağrısından ve sağlayıcı kurulumundan ÖNCE yapılan denetimler.
+
+    Aşırı uyum (`OverfitError`) fırlatır; istem boyut tavanına dayalıysa sonucu KAYDEDİP
+    döndürür. İkisi de geçerse `None`.
+    """
+
+    check_heldout(setup.opt_tasks, setup.heldout_tasks, min_tasks=setup.min_tasks)
+    room = addition_room(setup.base_text, setup.max_chars)
+    if room is not None and room < MIN_ADDITION_ROOM:
+        detail = (
+            f"istem boyut tavanına dayanmış (kalan yer {max(room, 0)} karakter); ek madde "
+            "yazılamaz. Tavanı yükseltmek bilinçli bir ürün kararıdır"
+        )
+        return _finish(setup, RoundResult(OUTCOME_NO_ROOM, detail, None))
+    return None
+
+
 async def run_round(
     setup: RoundSetup,
     *,
@@ -106,14 +134,20 @@ async def run_round(
 ) -> RoundResult:
     """Tek öneri turu. Model çağrıları yalnız enjekte edilen sağlayıcı/değerlendiriciden gelir."""
 
-    check_heldout(setup.opt_tasks, setup.heldout_tasks, min_tasks=setup.min_tasks)
+    blocked = preflight(setup)
+    if blocked is not None:
+        return blocked
     base_report = await opt_evaluator.evaluate(setup.base_text)
     opt_base = base_report.task_success_rate
     if not base_report.results or opt_base >= 1.0:
         detail = "temel istem optimizasyon kümesinin hepsini zaten geçiyor"
         return _finish(setup, RoundResult(OUTCOME_NO_GAIN, detail, opt_base))
 
-    generator = AdditiveGenerator(provider, failures=_failures(setup.opt_tasks, base_report))
+    generator = AdditiveGenerator(
+        provider,
+        failures=_failures(setup.opt_tasks, base_report),
+        max_total_chars=setup.max_chars,
+    )
     found = await search(
         setup.prompt,
         setup.base_text,
@@ -142,7 +176,17 @@ async def run_round(
     if problem:
         return _finish(setup, replace(scores, detail=problem))
 
-    proposal = _build_proposal(setup, candidate_text, scores, found.selection.reason)
+    proposal = _build_proposal(
+        setup,
+        candidate_text,
+        found.selection.reason,
+        scores=(
+            opt_base,
+            winner_report.task_success_rate,
+            heldout_base.task_success_rate,
+            heldout_candidate.task_success_rate,
+        ),
+    )
     store.save(proposal)
     done = replace(
         scores, outcome=OUTCOME_PROPOSED, detail=found.selection.reason, proposal=proposal
@@ -151,8 +195,15 @@ async def run_round(
 
 
 def _build_proposal(
-    setup: RoundSetup, candidate_text: str, scores: RoundResult, reason: str
+    setup: RoundSetup,
+    candidate_text: str,
+    reason: str,
+    *,
+    scores: tuple[float, float, float, float],
 ) -> Proposal:
+    """`scores`: (opt temel, opt aday, ayrı temel, ayrı aday)."""
+
+    opt_base, opt_candidate, heldout_base, heldout_candidate = scores
     return Proposal(
         id=proposal_id(setup.prompt, candidate_text),
         prompt=setup.prompt,
@@ -163,10 +214,10 @@ def _build_proposal(
         base_text=setup.base_text,
         candidate_text=candidate_text,
         addition=addition_of(setup.base_text, candidate_text),
-        opt_base=scores.opt_base,
-        opt_candidate=scores.opt_candidate or 0.0,
-        heldout_base=scores.heldout_base or 0.0,
-        heldout_candidate=scores.heldout_candidate or 0.0,
+        opt_base=opt_base,
+        opt_candidate=opt_candidate,
+        heldout_base=heldout_base,
+        heldout_candidate=heldout_candidate,
         reason=reason,
     )
 

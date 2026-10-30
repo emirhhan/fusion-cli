@@ -69,7 +69,7 @@ def run_round_command(
     from evals.kume import kume_coz
     from evals.loader import load_tasks
     from evals.runner import EvaluationUnavailableError, RateLimitedError
-    from prompt_opt.campaign import RoundSetup, check_heldout
+    from prompt_opt.campaign import RoundSetup, preflight
     from prompt_opt.targets import get_target
 
     paths = loop_paths()
@@ -77,8 +77,6 @@ def run_round_command(
         target = get_target(prompt)
         opt_tasks = load_tasks(_suite_file(suite, paths, kume_coz))
         held_tasks = load_tasks(_suite_file(heldout, paths, kume_coz))
-        # Model çağrısı ya da sağlayıcı kurulumundan ÖNCE: aşırı uyum burada kesilir.
-        check_heldout(opt_tasks, held_tasks, min_tasks=min_tasks)
         setup = RoundSetup(
             prompt=prompt,
             base_text=target.read(),
@@ -91,8 +89,12 @@ def run_round_command(
             timestamp=iso_time,
             variant_count=variants,
             min_tasks=min_tasks,
+            max_chars=target.max_chars,
         )
-        result = asyncio.run(with_web_cleanup(_run_round(setup, paths, repeat=repeat)))
+        # Sağlayıcı kurulumundan ÖNCE: aşırı uyum ve boyut tavanı burada kesilir.
+        result = preflight(setup) or asyncio.run(
+            with_web_cleanup(_run_round(setup, paths, repeat=repeat))
+        )
     except (RateLimitedError, EvaluationUnavailableError) as error:
         # Kota/erişim: agent'ın yeteneği ölçülmedi; "başarısız ölçüm" diye kaydedilmez.
         error_console.print(f"[{theme.WARN}]ÖLÇÜM DURDURULDU: {escape(str(error))}[/{theme.WARN}]")

@@ -59,6 +59,11 @@ ardından her aday iki kümede koşulur. Güvenceler:
 - **Gerilemeyen aday.** Optimizasyon kümesinde en az %2 iyileşmeli ve eskiden geçen hiçbir
   görevi bozmamalı; sonra AYRI kümede de eskiden geçen hiçbir görevi bozmamalı ve başarı
   oranı düşmemeli. Aksi halde öneri kaydedilmez.
+- **Boyut tavanı.** `system` istemi bir diyet testiyle 6.100 karakterle sınırlıdır ve bugün
+  tavana ~20 karakter uzaktır; bu yüzden `calistir --istem system` model çağırmadan
+  `butce_yok` ile durur. Tavanı yükseltmek (`tests/test_system_prompt_diet.py` ve
+  `prompt_opt/targets.py::SYSTEM_PROMPT_MAX_CHARS`, birlikte) bilinçli bir ürün kararıdır.
+  `system_chat`, `review`, `compress` için tavan yoktur.
 - Çıkış kodları: 0 tamam, 1 kullanıcı/yapılandırma hatası, 2 kota ya da erişim yüzünden
   ölçüm durdu (sonuç yazılmaz).
 
@@ -127,7 +132,7 @@ Her halka `dongu/kayit.jsonl` dosyasına bir satır ekler (istek ya da istem met
 | `oneri` | `istem`, `kume`, `ayri_kume`, `sonuc`, `opt_temel`, `opt_skoru`, `ayri_temel`, `heldout_skoru`, `oneri` |
 | `oneri_uygulandi` / `oneri_geri_alindi` | `oneri`, `istem`, `surum` |
 
-`oneri.sonuc` değerleri: `onerildi`, `iyilestirme_yok` (temel zaten hepsini geçiyor),
+`oneri.sonuc` değerleri: `onerildi`, `butce_yok` (istem boyut tavanına dayalı), `iyilestirme_yok` (temel zaten hepsini geçiyor),
 `gecen_aday_yok` (optimizasyon kümesinde yeterli iyileşme yok), `ayri_kume_gerilemesi`
 (aşırı uyum işareti; öneri kaydedilmedi).
 

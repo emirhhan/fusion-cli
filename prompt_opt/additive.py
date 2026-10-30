@@ -24,6 +24,8 @@ MAX_ADDITION_RATIO = 0.25
 #: Modele gösterilecek başarısız görev sayısı ve görev metninin uzunluğu.
 MAX_FAILURE_NOTES = 8
 FAILURE_REQUEST_CHARS = 240
+#: Üst boyuta kalan yer bundan azsa ek madde yazmaya değmez (modele sorulmaz bile).
+MIN_ADDITION_ROOM = 40
 _FENCE = re.compile(r"^```[A-Za-z]*\n|\n```\s*$")
 
 
@@ -53,11 +55,13 @@ class AdditiveGenerator:
         failures: Sequence[FailureNote] = (),
         max_chars: int = MAX_ADDITION_CHARS,
         max_ratio: float = MAX_ADDITION_RATIO,
+        max_total_chars: int | None = None,
     ) -> None:
         self._provider = provider
         self._failures = tuple(failures)[:MAX_FAILURE_NOTES]
         self._max_chars = max_chars
         self._max_ratio = max_ratio
+        self._max_total = max_total_chars
 
     async def generate(self, base_text: str, count: int) -> tuple[str, ...]:
         raw = await self._provider.propose(base_text, self._failures, count)
@@ -68,6 +72,8 @@ class AdditiveGenerator:
             if not clean or len(clean) > limit or clean in base_text:
                 continue
             variant = append_snippet(base_text, clean)
+            if self._max_total is not None and len(variant) > self._max_total:
+                continue
             if variant not in variants:
                 variants.append(variant)
         return tuple(variants[:count])
@@ -88,3 +94,9 @@ def addition_of(base_text: str, variant: str) -> str:
 
 def _clean(snippet: str) -> str:
     return _FENCE.sub("", snippet.strip()).strip()
+
+
+def addition_room(base_text: str, max_total_chars: int | None) -> int | None:
+    """İstemin üst boyutuna kalan yer; sınır yoksa `None`."""
+
+    return None if max_total_chars is None else max_total_chars - len(base_text)

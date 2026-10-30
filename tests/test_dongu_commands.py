@@ -271,3 +271,18 @@ def test_silinmis_sohbet_taslak_uretmez_ve_kimliksiz_olaylari_baskasina_yapismaz
 
     sonuc = runner.invoke(app, ["eval", "taslak-uret", "--proje", str(proje)])
     assert "0 taslak bulundu" in sonuc.output
+
+
+def test_gercek_sistem_istemi_tavana_dayali_oldugundan_model_cagrilmaz(monkeypatch):
+    """Ölçüldü (30 Ekim): system.md 6.100 karakterlik diyet tavanına 21 karakter yakın."""
+
+    def _cagrilmamali(*args, **kwargs):
+        raise AssertionError("model/yürütücü kurulmamalıydı")
+
+    monkeypatch.setattr(prompt_opt_commands, "_snippet_provider", _cagrilmamali)
+    monkeypatch.setattr(prompt_opt_commands, "_executor_factory", _cagrilmamali)
+    _kume_yaz("a", ["a", "b", "c"])
+    _kume_yaz("b", ["x", "y", "z"])
+    sonuc = runner.invoke(app, ["prompt-opt", "calistir", "--kume", "a", "--ayri", "b"])
+    assert sonuc.exit_code == 0, sonuc.output
+    assert "butce_yok" in sonuc.output
