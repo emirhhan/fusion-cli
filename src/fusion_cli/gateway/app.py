@@ -570,8 +570,11 @@ class GatewayApp:
         if found.transport == "browser":
             await close_browser_session(found.provider, found.account)
             if bool(body.get("purge_profile", True)):
-                shutil.rmtree(
-                    browser_profile_dir(found.provider, found.account), ignore_errors=True
+                # Büyük profil dizini olay döngüsünü bloklamasın (E1-20).
+                await asyncio.to_thread(
+                    shutil.rmtree,
+                    browser_profile_dir(found.provider, found.account),
+                    ignore_errors=True,
                 )
         self._config = updated
         self._config_revision = revision(updated)
@@ -611,6 +614,10 @@ class GatewayApp:
         updated = set_login_verified(self._config, session.provider, session.account, result.ok)
         if updated is not None:
             self._config = updated
+            # Yazıcı dosyayı değiştirdi: sürüm de güncellenir. Güncellenmezse sonraki istek
+            # "dosya değişti" sanıp diskten yeniden yükler ve anahtar havuzlarını (soğuma
+            # durumu dahil) gereksiz sıfırlar (E1-16).
+            self._config_revision = revision(updated)
         status = 200 if result.ok else 502
         await _json(
             send,
@@ -711,6 +718,7 @@ class GatewayApp:
             await _json(send, _error_body(str(error)), status=500)
             return
         self._config = updated
+        self._config_revision = revision(updated)
         await _json(
             send,
             {
