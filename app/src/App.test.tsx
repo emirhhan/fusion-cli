@@ -627,13 +627,13 @@ describe("SessionUygulama", () => {
     fireEvent.keyDown(composer, { key: "Enter" });
     fireEvent.keyDown(composer, { key: "Enter" });
     expect(await screen.findByRole("dialog", { name: "Bir konuşma seçin" })).toBeTruthy();
-    expect(await screen.findByRole("button", { name: "Eski oyun konuşması" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Eski oyun konuşması/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Kapat" }));
 
     fireEvent.click(screen.getByRole("button", { name: /Diğer ajanlar/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Claude geçmişi" }));
     expect(await screen.findByRole("dialog", { name: "Bir konuşma seçin" })).toBeTruthy();
-    expect(await screen.findByRole("button", { name: "Eski oyun konuşması" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Eski oyun konuşması/ })).toBeTruthy();
   });
 });
 
