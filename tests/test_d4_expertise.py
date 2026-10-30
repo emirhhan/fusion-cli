@@ -43,3 +43,21 @@ def test_siradan_kod_gorevi_masaustu_sayilmaz(istek):
 )
 def test_gercek_masaustu_istegi_algilanir(istek):
     assert is_desktop_task(istek)
+
+
+def test_olumsuzlanan_kritik_isareti_profili_yukseltmez():
+    from fusion_cli.engines.agent.auto_profile import auto_profile
+
+    assert auto_profile("kritik olmayan bir hatayı düzelt").profile == (
+        auto_profile("bir hatayı düzelt").profile
+    )
+    assert auto_profile("kritik bir hatayı düzelt").profile != (
+        auto_profile("bir hatayı düzelt").profile
+    )
+
+
+def test_isaret_sozcuk_ortasinda_eslesmez():
+    from fusion_cli.engines.agent.auto_profile import _has
+
+    assert _has("rename the file", "rename")
+    assert not _has("surenamed value", "rename")

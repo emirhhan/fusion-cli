@@ -12,6 +12,7 @@ yeniden kullanılır (RULES.md "aynı işi yapan ikinci yol açılmaz").
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from ...core.text_fold import fold_tr
@@ -81,14 +82,26 @@ class AutoChoice:
     reason: str
 
 
+_NEGATED = re.compile(
+    r"\b[a-zçğıöşü]+\s+(?:olmayan|degil|değil|olmayacak)\b|\bnot\s+(?:a\s+)?[a-z]+\b",
+    re.IGNORECASE,
+)
+
+
+def _has(text: str, signal: str) -> bool:
+    return re.search(rf"(?<![0-9a-zçğıöşü]){re.escape(signal)}", text) is not None
+
+
 def auto_profile(task_text: str) -> AutoChoice:
     """İstek metnine göre bir execution profili seç ve gerekçesini üret."""
     kind = classify_task(task_text)
-    text = fold_tr(task_text)
+    # Olumsuzlanan işaret sayılmaz ("kritik olmayan küçük düzeltme": "kritik" yükseltmez),
+    # işaretler sözcük BAŞINDAN eşleşir ("rename" bir sözcüğün ortasında değil) — A1-49.
+    text = _NEGATED.sub(" ", fold_tr(task_text))
 
     base = 0 if kind in _BASE_LOW else 1
-    matched_escalation = tuple(signal for signal in _ESCALATION_SIGNALS if signal in text)
-    matched_trivial = tuple(signal for signal in _TRIVIAL_SIGNALS if signal in text)
+    matched_escalation = tuple(signal for signal in _ESCALATION_SIGNALS if _has(text, signal))
+    matched_trivial = tuple(signal for signal in _TRIVIAL_SIGNALS if _has(text, signal))
     escalation = min(_MAX_ESCALATION, len(matched_escalation))
     trivial = 1 if matched_trivial else 0
 
