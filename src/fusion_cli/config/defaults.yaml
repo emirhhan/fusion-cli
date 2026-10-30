@@ -296,6 +296,13 @@ runtime:
   # (kök hariç) AGENTS.md/CLAUDE.md talimatı bir kez, kısa biçimde bağlama eklenir.
   # İz: NestedInstructionsLoaded olayı. False = yalnız kök talimatı.
   nested_instructions: true
+  # Talimat katmanları birleştirilsin mi: ~/.claude/CLAUDE.md ve ~/.codex/AGENTS.md (kullanıcı),
+  # CLAUDE.md + .claude/CLAUDE.md + CLAUDE.local.md (proje), @yol içe aktarmaları,
+  # .claude/rules kuralları. false = yalnız kökteki ilk bilinen dosya (eski davranış).
+  instruction_merge: true
+  # Bütün talimat katmanlarının toplam bütçesi (karakter; Codex'in 32 KiB sınırıyla aynı
+  # ölçek). Aşılırsa kırpma metne not olarak düşer, sessiz kesilmez.
+  instruction_max_chars: 32000
   # `ask_teacher` aracı modele hiç sunulmaz (`config.teacher` tanımlı olsa bile).
   # `council` bundan etkilenmez — ayrı, çoklu-API-model bir araçtır (Faz 4, Görev 3).
   teacherless: false

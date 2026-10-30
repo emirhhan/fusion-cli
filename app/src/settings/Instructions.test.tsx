@@ -48,3 +48,33 @@ it("okuma başarısızsa düzenleme ve kayıt kapalıdır, yeniden okuyunca aç�
   await waitFor(() => expect((screen.getByLabelText("Kalıcı talimat") as HTMLTextAreaElement).value).toBe("mevcut"));
   expect((screen.getByLabelText("Kalıcı talimat") as HTMLTextAreaElement).disabled).toBe(false);
 });
+
+// P-015: tur başında yüklenen katmanlar (kullanıcı + proje) ve kırpma notu görünür.
+it("yüklenen talimat katmanlarını ve kırpma notunu listeler", async () => {
+  const client = istemci(async (ad) => {
+    if (ad === "ayar.talimat") return {
+      ok: true, metin: "", sinir: 4000,
+      katmanlar: [
+        { kaynak: "~/.claude/CLAUDE.md", katman: "kullanici", karakter: 120, kirpilan: 0, guvenilir: true },
+        { kaynak: "CLAUDE.md", katman: "proje", karakter: 8000, kirpilan: 512, guvenilir: false },
+        null,
+      ],
+      notlar: ["@../gizli.md: kök dışı ya da izinsiz import atlandı"],
+    };
+    return { ok: true };
+  });
+  render(<Instructions client={client} />);
+  const liste = await screen.findByLabelText("Yüklenen talimat katmanları");
+  expect(liste.textContent).toContain("~/.claude/CLAUDE.md");
+  expect(liste.textContent).toContain("Kullanıcı · 120 karakter");
+  expect(liste.textContent).toContain("512 kırpıldı");
+  expect(liste.textContent).toContain("depo içeriği");
+  expect(screen.getByRole("note").textContent).toContain("import atlandı");
+});
+
+it("katman yoksa /init ipucu gösterir", async () => {
+  const client = istemci(async () => ({ ok: true, metin: "", sinir: 4000, katmanlar: [] }));
+  render(<Instructions client={client} />);
+  await screen.findByLabelText("Kalıcı talimat");
+  expect(screen.getByText(/\/init/).textContent).toContain("/init");
+});

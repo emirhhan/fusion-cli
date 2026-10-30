@@ -316,6 +316,13 @@ class RuntimeConfig:
     #: iç içe CLAUDE.md davranışı). Proje kökü dışına çıkılmaz; içerik güvenilmez girdi
     #: olarak etiketlenir. False = yalnız kök talimatı.
     nested_instructions: bool = True
+    #: Talimat katmanları birleştirilsin mi: `~/.claude/CLAUDE.md` + `~/.codex/AGENTS.md`
+    #: (kullanıcı), `CLAUDE.md` + `.claude/CLAUDE.md` + `CLAUDE.local.md` (proje), `@yol`
+    #: içe aktarmaları ve `.claude/rules` kuralları. False = eski davranış: yalnız kökteki
+    #: ilk bilinen dosya.
+    instruction_merge: bool = True
+    #: Bütün talimat katmanlarının toplam bütçesi (karakter). Aşılırsa kırpma metne not düşer.
+    instruction_max_chars: int = 32_000
 
 
 @dataclass(frozen=True, slots=True)

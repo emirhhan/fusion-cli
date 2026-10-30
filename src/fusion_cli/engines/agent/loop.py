@@ -716,7 +716,12 @@ async def _run_agent(
     # `recall_lessons` / `find_skill` + `read_skill` ile ister. Ölçüldü: görev
     # türüne göre seçilen uzmanlık ve dersler yanlış türde yanlış bağlamı
     # taşıyordu (WEBSITE sanılan bir turda 21 KB'lık web referansı eklendi).
-    proje_ve_dis_bellek = read_all_instructions(deps.tool_context.root, deps.home)
+    proje_ve_dis_bellek = read_all_instructions(
+        deps.tool_context.root,
+        deps.home,
+        instruction_merge=getattr(deps.config.runtime, "instruction_merge", True),
+        instruction_max_chars=getattr(deps.config.runtime, "instruction_max_chars", 32_000),
+    )
     # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Kod kipinde
     # kök turda eklenir; sohbet kipi çalışma dizinini taramaz.
     harita = _repo_map_for_turn(deps) if depth == 0 and not chat_mode else ""

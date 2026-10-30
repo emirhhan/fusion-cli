@@ -1067,7 +1067,7 @@ class AppSession:
         if request.name == "hesap.sil":
             return self._accounts.remove(request.data)
         if request.name == "ayar.talimat":
-            return get_instructions()
+            return get_instructions(self._state.root, self._home)
         if request.name == "zeka.durum":
             return intelligence.status(self._state)
         if request.name == "zeka.ayarla":

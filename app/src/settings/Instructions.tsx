@@ -1,6 +1,39 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 
+/** `ayar.talimat` ile gelen, tur başında bağlama giren talimat dosyası. */
+export interface InstructionLayer {
+  kaynak: string;
+  katman: string;
+  karakter: number;
+  kirpilan: number;
+  guvenilir: boolean;
+}
+
+const LAYER_LABELS: Record<string, string> = {
+  kullanici: "Kullanıcı",
+  proje: "Proje",
+  import: "@import",
+  baglanti: "Bağlantı",
+  kural: "Kural",
+};
+
+function decodeLayers(raw: unknown): InstructionLayer[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    if (typeof row.kaynak !== "string") return [];
+    return [{
+      kaynak: row.kaynak,
+      katman: typeof row.katman === "string" ? row.katman : "proje",
+      karakter: typeof row.karakter === "number" ? row.karakter : 0,
+      kirpilan: typeof row.kirpilan === "number" ? row.kirpilan : 0,
+      guvenilir: row.guvenilir === true,
+    }];
+  });
+}
+
 /**
  * Kalıcı talimat düzenleyici.
  *
@@ -17,6 +50,9 @@ export function Instructions({ client }: { client: ProtocolClient }) {
   // Ölçüldü (29 Ekim, U2-36): okuma başarısızken metin boş kalıyordu ve Kaydet, mevcut
   // talimatın üzerine boş/yeni metni yazabiliyordu. Yüklenmeden düzenleme/kaydetme kapalı.
   const [loaded, setLoaded] = useState(false);
+  // Tur başında bağlama giren talimat katmanları (~/.claude/CLAUDE.md, CLAUDE.md, kurallar…).
+  const [layers, setLayers] = useState<InstructionLayer[]>([]);
+  const [layerNotes, setLayerNotes] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -24,12 +60,16 @@ export function Instructions({ client }: { client: ProtocolClient }) {
         ok?: boolean;
         metin?: string;
         sinir?: number;
+        katmanlar?: unknown;
+        notlar?: unknown;
       };
       if (!veri?.ok) {
         setNotice(veri?.metin ?? "Talimat okunamadı.");
         return;
       }
       setText(veri.metin ?? "");
+      setLayers(decodeLayers(veri.katmanlar));
+      setLayerNotes(Array.isArray(veri.notlar) ? veri.notlar.filter((n): n is string => typeof n === "string") : []);
       if (typeof veri.sinir === "number") setLimit(veri.sinir);
       setDirty(false);
       setLoaded(true);
@@ -100,6 +140,26 @@ export function Instructions({ client }: { client: ProtocolClient }) {
         </small>
       </div>
       {notice && <p className="settings__hint" role="status">{notice}</p>}
+      <h4>Tur başında yüklenen talimat dosyaları</h4>
+      {layers.length === 0 ? (
+        <p className="settings__hint">
+          Bu klasörde CLAUDE.md / AGENTS.md ya da ~/.claude/CLAUDE.md bulunmadı. Sohbette <code>/init</code> ile oluşturabilirsin.
+        </p>
+      ) : (
+        <ul aria-label="Yüklenen talimat katmanları" className="settings__list">
+          {layers.map((layer) => (
+            <li key={`${layer.katman}:${layer.kaynak}`}>
+              <strong>{layer.kaynak}</strong>
+              <code>
+                {LAYER_LABELS[layer.katman] ?? layer.katman} · {layer.karakter} karakter
+                {layer.kirpilan > 0 ? ` · ${layer.kirpilan} kırpıldı` : ""}
+                {layer.guvenilir ? "" : " · depo içeriği"}
+              </code>
+            </li>
+          ))}
+        </ul>
+      )}
+      {layerNotes.map((note) => <p className="settings__hint" key={note} role="note">{note}</p>)}
     </article>
   );
 }
