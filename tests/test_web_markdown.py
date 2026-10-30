@@ -125,3 +125,18 @@ def test_madde_icinde_blok_varsa_ime_yapisik_kalir() -> None:
     """
     html = "<ul><li><p>fiyat hatalı</p></li><li><p>stok düşmüyor</p></li></ul>"
     assert html_to_markdown(html) == "- fiyat hatalı\n- stok düşmüyor"
+
+
+def test_br_satir_sonu_olur() -> None:
+    """Ölçüldü (30 Ekim): `<br>` için işlem yoktu; satır sonu kaybolup ardışık satırlar tek
+    satıra yapışıyordu (P1-46)."""
+    assert html_to_markdown("<p>ilk satır<br>ikinci satır</p>") == "ilk satır\nikinci satır"
+    assert html_to_markdown("<table><tr><td>a<br>b</td></tr></table>").count("\n") <= 1
+
+
+def test_ic_ice_atilan_etiket_erken_sifirlanmaz() -> None:
+    """`_atlanan` tek değerdi: `<button><svg></svg>Kopyala</button>` içinde `svg` kapanınca
+    bayrak temizleniyor ve 'Kopyala' metni cevaba giriyordu (P1-46)."""
+    html = "<p>Cevap</p><button><svg></svg>Kopyala</button><p>Son</p>"
+
+    assert html_to_markdown(html) == "Cevap\n\nSon"
