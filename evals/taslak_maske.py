@@ -30,7 +30,9 @@ def maskele(metin: str, *, kok: Path, ev: Path | None = None) -> str:
 
     temiz = redact(metin)
     for yol in _kok_adaylari(kok):
-        temiz = temiz.replace(f"{yol}/", "").replace(yol, ".")
+        # Yol sınırı: `/proje` kökü `/proje-2/x` gibi kardeş dizini bozmasın.
+        temiz = re.sub(re.escape(yol) + r"/", "", temiz)
+        temiz = re.sub(re.escape(yol) + r"(?![\w.\-])", ".", temiz)
     if ev is not None:
         temiz = temiz.replace(str(ev), "~")
     temiz = _EV_DIZINI.sub("~", temiz)

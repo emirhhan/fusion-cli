@@ -265,6 +265,11 @@ def test_maske_sir_ve_yollari_temizler():
     assert "~/Belgeler/x.txt" in temiz
 
 
+def test_maske_kardes_dizini_bozmaz():
+    temiz = maskele("bak /Users/ada/proje-2/a.py ve /Users/ada/proje/b.py", kok=KOK, ev=EV)
+    assert temiz == "bak ~/proje-2/a.py ve b.py"
+
+
 def test_maske_uzun_metni_kirpar():
     assert len(maskele("a" * 10_000, kok=KOK, ev=EV)) <= MAKS_METIN
 
