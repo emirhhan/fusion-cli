@@ -113,15 +113,35 @@ async def test_oyun_istegi_degilse_denenmemis_canvas_sayfasi_oynatilmaz(tmp_path
     assert (await GameProbeVerifier(context).verify()).ok
 
 
-async def test_oyun_denenemiyorsa_sessiz_basari_sayilmaz(tmp_path, monkeypatch):
+async def test_playwright_yoksa_oyun_dogrulanamadi_uyarisi_verir_engellemez(tmp_path, monkeypatch):
+    from fusion_cli.core.evidence import EvidenceStatus
+
     (tmp_path / "index.html").write_text("<canvas></canvas>")
     context = ToolContext(root=tmp_path, task_kinds={"oyun"})
     context.touched.add(tmp_path / "index.html")
 
-    async def unavailable(url, keys=()):
+    async def unavailable(url, keys=(), **kwargs):
         raise ImportError("Playwright kurulu değil")
 
     monkeypatch.setattr(game_verify, "probe_game", unavailable)
+    result = await GameProbeVerifier(context).verify()
+    # Sessiz başarı DEĞİL: uyarı + UNVERIFIED kanıt var; ama model kuramayacağı bir
+    # bağımlılık yüzünden düzeltme döngüsüne sokulmaz (A1-13).
+    assert result.ok
+    assert not result.findings
+    assert any("doğrulanamadı" in warning for warning in result.warnings)
+    assert result.evidence[0].status is EvidenceStatus.UNVERIFIED
+
+
+async def test_sonda_calisirken_cokerse_engelleyici_kalir(tmp_path, monkeypatch):
+    (tmp_path / "index.html").write_text("<canvas></canvas>")
+    context = ToolContext(root=tmp_path, task_kinds={"oyun"})
+    context.touched.add(tmp_path / "index.html")
+
+    async def crashes(url, keys=(), **kwargs):
+        raise RuntimeError("tarayıcı çöktü")
+
+    monkeypatch.setattr(game_verify, "probe_game", crashes)
     result = await GameProbeVerifier(context).verify()
     assert not result.ok
     assert any("doğrulanamadı" in finding for finding in result.findings)

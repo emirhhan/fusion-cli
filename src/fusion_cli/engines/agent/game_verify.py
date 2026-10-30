@@ -57,15 +57,18 @@ class GameProbeVerifier:
         if dosya is not None:
             adresler.add(dosya)
         evidence: list[CriterionEvidence] = []
+        warnings: list[str] = []
         for adres in sorted(adresler):
             onek = f"{adres}: " if adres != dosya else f"{DOSYADAN}: "
             result = await _probe_result(adres, onek)
             bulgular.extend(result.findings)
+            warnings.extend(result.warnings)
             evidence.extend(result.evidence)
         return VerificationResult(
             ok=not bulgular,
             summary=f"oyun sondasında {len(bulgular)} sorun" if bulgular else "",
             findings=tuple(bulgular),
+            warnings=tuple(warnings),
             evidence=tuple(evidence),
         )
 
@@ -80,9 +83,15 @@ async def _probe_result(address: str, prefix: str) -> VerificationResult:
             f"{address}: oyun doğrulanamadı ({type(error).__name__}); "
             "Playwright/tarayıcı kurulumunu kontrol edip oyunu yeniden dene"
         )
+        # Playwright KURULU DEĞİLSE (ImportError) engel değil uyarıdır (A1-13): model
+        # Playwright kuramaz, her teslim düzeltme döngüsüne girerdi. `browser_verify`
+        # ile aynı politika: ölçülemedi, UNVERIFIED kanıt + uyarı, tur düşmez. Başka
+        # çalıştırma hataları (tarayıcı çöktü, sayfa açılmadı) hâlâ engelleyicidir.
+        missing_dependency = isinstance(error, ImportError)
         return VerificationResult(
-            ok=False,
-            findings=(detail,),
+            ok=missing_dependency,
+            findings=() if missing_dependency else (detail,),
+            warnings=(detail,) if missing_dependency else (),
             evidence=(
                 CriterionEvidence(
                     criterion_id=f"game_probe:{address}",
