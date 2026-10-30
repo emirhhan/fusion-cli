@@ -23,4 +23,13 @@ describe("CloseConfirm", () => {
     expect(onCancel).toHaveBeenCalled();
     expect(onConfirm).not.toHaveBeenCalled();
   });
+
+  // Ölçüldü (30 Ekim): satır içi onCancel her render'da efekti yeniden kurup odağı Vazgeç'e çekiyordu (U4-51).
+  it("satır içi onCancel yeni kimlikle gelse de odağı geri çekmez (U4-51)", () => {
+    const view = render(<CloseConfirm onCancel={() => undefined} onConfirm={vi.fn()} />);
+    const kapat = screen.getByRole("button", { name: "Kapat" });
+    kapat.focus();
+    view.rerender(<CloseConfirm onCancel={() => undefined} onConfirm={vi.fn()} />);
+    expect(document.activeElement).toBe(kapat);
+  });
 });

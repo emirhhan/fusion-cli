@@ -39,6 +39,12 @@ export function CommandSelector({
 }: CommandSelectorProps) {
   const [value, setValue] = useState("");
   const dialogRef = useRef<HTMLDivElement>(null);
+  // busy/onCancel değişince efekt yeniden kurulmaz: yeniden kurulum yazılan değeri (parola/token)
+  // siliyor ve odağı diyalogdan çıkarıyordu (U4-12). Güncel değerler ref'ten okunur.
+  const busyRef = useRef(busy);
+  const cancelRef = useRef(onCancel);
+  useEffect(() => { busyRef.current = busy; }, [busy]);
+  useEffect(() => { cancelRef.current = onCancel; }, [onCancel]);
 
   useEffect(() => {
     if (!open) return;
@@ -46,9 +52,9 @@ export function CommandSelector({
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     queueMicrotask(() => dialogRef.current?.querySelector<HTMLElement>("button, input")?.focus());
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) {
+      if (event.key === "Escape" && !busyRef.current) {
         event.preventDefault();
-        onCancel();
+        cancelRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -69,7 +75,7 @@ export function CommandSelector({
       window.removeEventListener("keydown", handleKey);
       if (previousFocus?.isConnected) previousFocus.focus();
     };
-  }, [busy, onCancel, open, selector.adim]);
+  }, [open, selector.adim]);
 
   if (!open) return null;
   const textStep = selector.tur !== "secim";
