@@ -27,6 +27,9 @@ from ..config.paths import bundled_roster_dir, bundled_skills_dir, capabilities_
 from .capability_merge import merge_capability as _merge
 from .capability_search import search as search
 from .capability_search import search_scored as search_scored
+from .frontmatter import NO_TOOLS as NO_TOOLS
+from .frontmatter import parse_frontmatter as parse_frontmatter
+from .frontmatter import parse_tools as _parse_tools
 from .skill_pages import (
     SKILL_TEXT_BUDGET as SKILL_TEXT_BUDGET,
 )
@@ -58,10 +61,6 @@ CLAUDE_TOOL_MAP: dict[str, frozenset[str]] = {
     "task": frozenset({"spawn_agent"}),
 }
 
-#: `tools:` anahtarı VAR ama hiçbir araç çözülemedi (`tools:` boş, `[]`): kısıt YOK değil,
-#: HİÇ ARAÇ YOK demektir. Boş tuple "alan hiç yazılmamış" (tam yetki) anlamına gelir; ikisi
-#: karışırsa salt-okur sanılan ajan `run_shell` yetkisiyle çalışır (T1-13).
-NO_TOOLS: tuple[str, ...] = ("-",)
 #: Codex `sandbox_mode = "read-only"` ajanının Fusion karşılığı olan salt-okur araç seti.
 _READ_ONLY_TOOLS: tuple[str, ...] = ("Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch")
 
@@ -70,20 +69,9 @@ _READ_ONLY_TOOLS: tuple[str, ...] = ("Read", "Grep", "Glob", "LS", "WebFetch", "
 #: proje) dotfile yöneticilerinin bağlarını kullanabilir ve denetlenmez.
 _UNTRUSTED_SOURCES = frozenset({"kurulu", "claude-plugin"})
 
-#: Kişilik alanları: frontmatter anahtarı → `Capability` alanı. Türkçe ve İngilizce
-#: yazım ikisi de kabul edilir; kullanıcı kendi ajanını hangisiyle yazarsa.
-_PERSONA_KEYS: dict[str, str] = {
-    "unvan": "title",
-    "title": "title",
-    "avatar": "avatar",
-    "renk": "color",
-    "color": "color",
-}
-
 #: Frontmatter ararken dosyanın başından okunacak karakter. 4000 iken uzun açıklamalı
 #: skill'lerde bitiş işareti görülmüyor, `{}` dönüp ad dizin adına düşüyordu (ölçüldü, 30 Ekim).
 _HEAD_CHARS = 16_000
-_BLOCK_SCALARS = frozenset({">", "|", ">-", "|-", ">+", "|+"})
 
 
 @functools.lru_cache(maxsize=4096)
@@ -110,6 +98,21 @@ class Capability:
     title: str = ""
     avatar: str = ""
     color: str = ""
+    #: "beceri" (SKILL.md) | "komut" (`.claude/commands/x.md` tek dosya; gövde görevdir).
+    kind: str = "beceri"
+    #: Skill frontmatter alanları (P-020). `allowed_tools` Claude araç adlarıdır; boş = kısıt yok.
+    allowed_tools: tuple[str, ...] = ()
+    model: str = ""
+    effort: str = ""
+    #: `context: fork` → alt ajanda çalıştır.
+    context: str = ""
+    #: `disable-model-invocation: true` → beceri dizinine ve find_skill sonucuna girmez;
+    #: yalnız kullanıcı `/ad` ile çağırır.
+    model_invocable: bool = True
+    #: `user-invocable: false` → slash komutu olarak sunulmaz (yalnız model yükler).
+    user_invocable: bool = True
+    #: `argument-hint` → yardım ve tamamlamada gösterilen argüman biçimi.
+    argument_hint: str = ""
 
     @property
     def qualified_name(self) -> str:
@@ -123,54 +126,6 @@ class Capability:
             return hashlib.sha256(self.path.read_bytes()).hexdigest()
         except OSError:
             return ""
-
-
-def parse_frontmatter(text: str) -> dict[str, object]:
-    """`---` blokları arasındaki `name`, `description` ve `tools` alanlarını oku.
-
-    Basit bir YAML alt kümesidir; frontmatter yoksa ya da bozuksa boş sözlük döner
-    (keşif tek bir bozuk dosya yüzünden düşmemelidir).
-    """
-    stripped = text.lstrip()
-    if not stripped.startswith("---"):
-        return {}
-    end = stripped.find("\n---", 3)
-    if end == -1:
-        return {}
-
-    fields: dict[str, object] = {}
-    lines = stripped[3:end].splitlines()
-    index = 0
-    while index < len(lines):
-        key, separator, value = lines[index].partition(":")
-        index += 1
-        if not separator:
-            continue
-        name = key.strip().lower()
-        if name == "tools":
-            # `tools:` + alt satırlarda `- Read` blok listesi YAML'ın olağan yazımıdır.
-            items = list(_parse_tools(value.strip()))
-            while not value.strip() and index < len(lines) and _is_list_item(lines[index]):
-                items.append(_list_item(lines[index]))
-                index += 1
-            fields["tools"] = tuple(item for item in items if item) or NO_TOOLS
-        elif name in ("name", "description"):
-            text = value.strip()
-            if text in _BLOCK_SCALARS:
-                # YAML blok skaleri: girintili satırlar değerdir (`>` birleştirir, `|` korur).
-                block: list[str] = []
-                while index < len(lines) and (
-                    not lines[index].strip() or lines[index][:1] in " \t"
-                ):
-                    block.append(lines[index].strip())
-                    index += 1
-                joiner = " " if text.startswith(">") else "\n"
-                fields[name] = joiner.join(part for part in block if part).strip()
-            else:
-                fields[name] = text.strip("'\"")
-        elif name in _PERSONA_KEYS:
-            fields[_PERSONA_KEYS[name]] = value.strip().strip("'\"")
-    return fields
 
 
 def map_tools(claude_tools: tuple[str, ...]) -> set[str] | None:
@@ -300,6 +255,13 @@ class CapabilityRegistry:
                 # İlk bulunan İÇERİĞİ verir: tüm Claude/proje kökleri dış kaynaklardan
                 # önce gelir. Sonrakiler yalnız kaynak etiketine eklenir.
                 _merge(found, capability)
+        # `.claude/commands/*.md` tek dosyalı komutlar da `/ad` ile çağrılır; aynı adlı
+        # SKILL.md kazanır (Claude Code'da ikisi aynı komutu üretir).
+        from .skill_commands import discover_commands
+
+        for command in discover_commands(self._home, self._root):
+            if isinstance(command, Capability) and command.name not in found:
+                found[command.name] = command
         return tuple(found.values())
 
     def _discover_agents(self) -> tuple[Capability, ...]:
@@ -379,15 +341,27 @@ def _toml_tools(data: dict[str, object]) -> tuple[str, ...]:
 def _to_capability(path: Path, source: str, *, fallback: str) -> Capability:
     fields = parse_frontmatter(_read_head(path))
     tools = fields.get("tools")
+    allowed = fields.get("allowed_tools")
+    description = str(fields.get("description") or "")
+    when = str(fields.get("when_to_use") or "")
+    if when:  # Claude Code `when_to_use` açıklamanın devamıdır; arama ve dizin ikisini görür
+        description = f"{description} {when}".strip()
     return Capability(
         name=str(fields.get("name") or fallback),
-        description=str(fields.get("description") or ""),
+        description=description,
         path=path,
         source=source,
         tools=tuple(tools) if isinstance(tools, tuple) else (),
         title=str(fields.get("title") or ""),
         avatar=str(fields.get("avatar") or ""),
         color=str(fields.get("color") or ""),
+        allowed_tools=tuple(allowed) if isinstance(allowed, tuple) and allowed != NO_TOOLS else (),
+        model=str(fields.get("model") or ""),
+        effort=str(fields.get("effort") or ""),
+        context=str(fields.get("context") or ""),
+        model_invocable=bool(fields.get("model_invocable", True)),
+        user_invocable=bool(fields.get("user_invocable", True)),
+        argument_hint=str(fields.get("argument_hint") or ""),
     )
 
 
@@ -396,24 +370,6 @@ def _read_head(path: Path, limit: int = _HEAD_CHARS) -> str:
         return path.read_text(encoding="utf-8")[:limit]
     except OSError:
         return ""
-
-
-def _is_list_item(line: str) -> bool:
-    return line.lstrip().startswith("-") and not line.lstrip().startswith("---")
-
-
-def _list_item(line: str) -> str:
-    """`  - 'Read'   # açıklama` → `Read`."""
-    body = line.lstrip()[1:].split(" #", 1)[0]
-    return body.strip().strip("'\"")
-
-
-def _parse_tools(value: str) -> tuple[str, ...]:
-    """`tools:` alanını oku: `[a, b]`, `a, b` ya da `'*'` biçimlerini destekler."""
-    if value in ("'*'", '"*"', "*"):
-        return ("*",)
-    inner = value[1:-1] if value.startswith("[") and value.endswith("]") else value
-    return tuple(item.strip().strip("'\"") for item in inner.split(",") if item.strip())
 
 
 def _select(
