@@ -18,6 +18,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import unquote
 
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...tools import preview_server
@@ -64,19 +65,36 @@ class PriceFormat:
 
 
 _PRICE_SAMPLE = re.compile(r"\d{1,3}(?P<binlik>[.,\s])\d{3}(?P<ondalik>[.,])\d{2}")
+#: Yalnız binlik ayraçlı ("7.199 TL") ve yalnız ondalıklı ("199,90 TL") örnekler (A1-35).
+_PRICE_THOUSANDS_ONLY = re.compile(r"\d{1,3}(?P<binlik>[.\s])\d{3}(?![\d.,])")
+_PRICE_DECIMAL_ONLY = re.compile(r"\d+(?P<ondalik>[.,])\d{2}(?![\d.,])")
 
 
 def price_format(sample: str) -> PriceFormat | None:
-    """Kaynaktaki fiyat yazımından WooCommerce biçimi ('7.199,00 TL' → '.', ',', sağda)."""
-    eslesme = _PRICE_SAMPLE.search(sample)
-    if eslesme is None:
-        return None
+    """Kaynaktaki fiyat yazımından WooCommerce biçimi ('7.199,00 TL' → '.', ',', sağda).
+
+    Ölçüldü (30 Ekim, A1-35): yalnız binlik+ondalık birlikte olan örnek tanınıyordu;
+    "199,90 TL" ya da "7.199 TL" ile ayırıcılar hiç ayarlanmıyor, WooCommerce ABD
+    biçimiyle ("1,234.56") kalıyordu. Tek ayraçlı örnekte diğeri tersinden türetilir.
+    """
     sembol_solda = bool(re.match(r"^\s*[^\d\s]", sample))
-    return PriceFormat(
-        thousand=eslesme.group("binlik").replace("\xa0", " "),
-        decimal=eslesme.group("ondalik"),
-        position="left" if sembol_solda else "right_space",
-    )
+    konum = "left" if sembol_solda else "right_space"
+    eslesme = _PRICE_SAMPLE.search(sample)
+    if eslesme is not None:
+        return PriceFormat(
+            thousand=eslesme.group("binlik").replace("\xa0", " "),
+            decimal=eslesme.group("ondalik"),
+            position=konum,
+        )
+    binlik = _PRICE_THOUSANDS_ONLY.search(sample)
+    if binlik is not None:
+        ayrac = binlik.group("binlik").replace("\xa0", " ")
+        return PriceFormat(thousand=ayrac, decimal="," if ayrac != "," else ".", position=konum)
+    ondalik = _PRICE_DECIMAL_ONLY.search(sample)
+    if ondalik is not None:
+        ayrac = ondalik.group("ondalik")
+        return PriceFormat(thousand="." if ayrac == "," else ",", decimal=ayrac, position=konum)
+    return None
 
 
 #: WooCommerce sayfalarını (mağaza, sepet, ödeme, hesap) site dilindeki ad ve adrese çevirir.
@@ -106,18 +124,32 @@ def display_label(text: str, lang: str) -> str:
     return temiz.title()
 
 
+_ASCII_TR = str.maketrans("çğıöşü", "cgiosu")
+
+
+def _slug_key(text: str) -> str:
+    """Adres parçası ile kategori kısa adını aynı anahtara indir (yüzde-kodlama, Türkçe harf)."""
+    return unquote(text).strip().casefold().translate(_ASCII_TR)
+
+
 def category_labels(menu: object, slugs: tuple[str, ...], lang: str) -> dict[str, str]:
-    """Kategori kısa adı → kaynaktaki menü metni (adresin son parçası eşleşiyorsa)."""
+    """Kategori kısa adı → kaynaktaki menü metni (adresin son parçası eşleşiyorsa).
+
+    Ölçüldü (30 Ekim, A1-39): katalogda "çanta", adreste "canta" ya da "%C3%A7anta"
+    olduğunda eşleşme tutmuyor, menü adları güncellenmiyordu.
+    """
     if not isinstance(menu, list):
         return {}
+    anahtarlar = {_slug_key(slug): slug for slug in slugs}
     etiketler: dict[str, str] = {}
     for oge in menu:
         if not isinstance(oge, dict):
             continue
-        son = str(oge.get("href", "")).rstrip("/").rsplit("/", 1)[-1].lower()
+        son = _slug_key(str(oge.get("href", "")).rstrip("/").rsplit("/", 1)[-1])
         metin = str(oge.get("text", "")).strip()
-        if son in slugs and metin and son not in etiketler:
-            etiketler[son] = display_label(metin, lang)
+        slug = anahtarlar.get(son)
+        if slug is not None and metin and slug not in etiketler:
+            etiketler[slug] = display_label(metin, lang)
     return etiketler
 
 
@@ -135,19 +167,39 @@ async def _localize_store(
 ) -> None:
     """WooCommerce'i kaynağın diline ve fiyat yazımına getir (best effort)."""
     yerel = site_locale(lang)
+    basarisiz: list[str] = []
     if yerel and yerel != "en_US":
         # Site dili de değişmeli: yalnız eklenti paketi kurulunca arayüz İngilizce kalıyor,
         # sayfalar "Cart" / "Checkout" adıyla ve ABD varsayılanıyla açılıyordu (ölçüldü).
-        await run_wp(wp_cli, root, "language", "core", "install", yerel, "--activate")
+        # Dönüş kodları denetlenir (A1-36): başarısız adım sessiz kalmaz, özette görünür.
+        kod, _ = await run_wp(wp_cli, root, "language", "core", "install", yerel, "--activate")
+        if kod != 0:
+            basarisiz.append(f"site dili ({yerel})")
         kod, _ = await run_wp(wp_cli, root, "language", "plugin", "install", "woocommerce", yerel)
         if kod == 0:
             steps.append(f"Site ve WooCommerce dili: {yerel}")
-        await run_wp(
+        else:
+            basarisiz.append("WooCommerce dil paketi")
+        kod, _ = await run_wp(
             wp_cli, root, "option", "update", "woocommerce_default_country", yerel.split("_")[1]
         )
+        if kod != 0:
+            basarisiz.append("varsayılan ülke")
         kod, _ = await run_wp(wp_cli, root, "eval", TRANSLATE_PAGES_PHP)
         if kod == 0:
             steps.append("Mağaza sayfalarının adı ve adresi site diline çevrildi.")
+        else:
+            basarisiz.append("mağaza sayfalarının çevirisi")
+    try:
+        await _apply_price_format(root, wp_cli, catalog_sample, steps, basarisiz)
+    finally:
+        if basarisiz:
+            steps.append("UYARI: şu yerelleştirme adımları uygulanamadı: " + ", ".join(basarisiz))
+
+
+async def _apply_price_format(
+    root: Path, wp_cli: str, catalog_sample: str, steps: list[str], basarisiz: list[str]
+) -> None:
     bicim = price_format(catalog_sample)
     if bicim is None:
         return
@@ -156,7 +208,9 @@ async def _localize_store(
         ("woocommerce_price_decimal_sep", bicim.decimal),
         ("woocommerce_currency_pos", bicim.position),
     ):
-        await run_wp(wp_cli, root, "option", "update", anahtar, deger)
+        kod, _ = await run_wp(wp_cli, root, "option", "update", anahtar, deger)
+        if kod != 0:
+            basarisiz.append(anahtar)
     steps.append(f"Fiyat biçimi kaynaktan: binlik '{bicim.thousand}', ondalık '{bicim.decimal}'.")
 
 
@@ -165,11 +219,21 @@ THEME_BACKUP_DIR = ".fusion/tema-ilk"
 
 
 def _backup_theme(folder: Path, target: Path) -> None:
-    """Tema metin dosyalarını (PHP/CSS) yedekle; varlıklar değişmediği için kopyalanmaz."""
+    """Tema metin dosyalarını (PHP/CSS) alt klasörleriyle yedekle; varlıklar kopyalanmaz.
+
+    Ölçüldü (30 Ekim, A1-37): yalnız üst düzey dosyalar yedekleniyordu; `template-parts/`
+    ve `assets/css/` kapsam dışıydı, "gerilemede geri dön" vaadi eksik kalıyordu.
+    """
     target.mkdir(parents=True, exist_ok=True)
-    for dosya in folder.iterdir():
-        if dosya.is_file() and dosya.suffix in (".php", ".css"):
-            (target / dosya.name).write_bytes(dosya.read_bytes())
+    for dosya in sorted(folder.rglob("*")):
+        if not (dosya.is_file() and dosya.suffix in (".php", ".css")):
+            continue
+        goreli = dosya.relative_to(folder)
+        if any(parca.startswith(".") for parca in goreli.parts):
+            continue
+        hedef = target / goreli
+        hedef.parent.mkdir(parents=True, exist_ok=True)
+        hedef.write_bytes(dosya.read_bytes())
 
 
 def _pick_pages(report: design.DesignReport, url: str) -> list[str]:
@@ -305,8 +369,12 @@ async def run_clone_site(args: ToolArgs, context: ToolContext) -> ToolResult:
         rapor = await design.measure(url, chrome=context.chrome, extra_pages=())
     except design.DesignError as error:
         return ToolResult.failure(f"Site ölçülemedi: {error}")
-    await design.download_assets(rapor, kaynak)
-    await asyncio.to_thread(design.save_report, rapor, kaynak, design.DEFAULT_FOLDER)
+    try:
+        await design.download_assets(rapor, kaynak)
+        await asyncio.to_thread(design.save_report, rapor, kaynak, design.DEFAULT_FOLDER)
+    except (design.DesignError, OSError) as error:
+        # Disk/ağ hatası aracı istisnayla düşürmez, modele açıklayıcı hata döner (A1-36).
+        return ToolResult.failure(f"Site varlıkları indirilemedi ya da kaydedilemedi: {error}")
     tema_klasoru = root / "wp-content" / "themes" / theme_slug(url)
     try:
         yakalama = await capture_site(_pick_pages(rapor, url), tema_klasoru)
