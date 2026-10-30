@@ -253,11 +253,22 @@ class Backend:
         return scripted.get(name, {"ok": True})
 
 
+class DesktopApprovingPairing(PairingService):
+    """Masaüstü kullanıcısı onayı simülasyonu: yüksek yetkili kapsamlı kod artık ayardan
+    bağımsız elle onay ister (R1-13); uçtan uca test o "tıklamayı" kodla yapar."""
+
+    def submit(self, code: str, device_name: str, *args: Any, **kwargs: Any) -> frozenset[str]:
+        scopes = super().submit(code, device_name, *args, **kwargs)
+        if not self.is_approved(code):
+            self.approve(code)
+        return scopes
+
+
 async def main(port: int) -> None:
     clock = Clock()
     tmp = Path(tempfile.mkdtemp(prefix="fusion-e2e-"))
     registry = DeviceRegistry(tmp / "d.json", clock)
-    pairing = PairingService(registry, clock, require_approval=lambda: False)
+    pairing = DesktopApprovingPairing(registry, clock, require_approval=lambda: False)
     backend = Backend()
     lock = asyncio.Lock()
     mobile = MobileApi(

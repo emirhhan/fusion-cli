@@ -510,9 +510,9 @@ async def test_olaylar_sayfalanir_ve_bekleyen_onay_olay_atilsa_da_gorunur(
     await asyncio.sleep(0.02)
     for index in range(6):
         rig.service._store.append(created["runId"], "delta", {"text": str(index)})
-    first = (
-        await rig.rpc(device_id, secret, "tasks.events", {"runId": created["runId"]})
-    ).json()["data"]
+    first = (await rig.rpc(device_id, secret, "tasks.events", {"runId": created["runId"]})).json()[
+        "data"
+    ]
     assert len(first["events"]) == 3 and first["hasMore"] is True
     assert [q["questionId"] for q in first["pending"]] == ["q1"]
     after = first["events"][-1]["seq"]
