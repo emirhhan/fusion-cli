@@ -36,6 +36,8 @@ from typing import Any
 
 from ..cli.repl import macros, worktrees
 from ..cli.repl.commands import RENDERED_COMMANDS, build_registry
+from ..cli.repl import macros
+from ..cli.repl.commands import RENDERED_COMMANDS, attach_skill_commands, build_registry
 from ..cli.repl.state import Engine, ReplState
 from ..cli.repl.transcript_store import (
     TranscriptStore,
@@ -477,7 +479,9 @@ class AppSession:
         self._steering: SteeringQueue | None = None
         self._steering_turn: str | None = None
         self._steering_requests: set[str] = set()
-        self._registry = build_registry(home, skills=lambda: self._state.capabilities)
+        self._registry = build_registry(home)
+        # Beceri/komut dosyaları `/ad` olarak (P-019); defter sahteleri eski imzayı korur.
+        attach_skill_commands(self._registry, lambda: self._state.capabilities)
         self._state = ReplState.from_runtime_config(
             config,
             memory=build_memory(config, root=root),

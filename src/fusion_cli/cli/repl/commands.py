@@ -153,12 +153,23 @@ def build_registry(
                 )
             )
     if skills is not None:
-        from .skill_commands import skill_slash_commands
-
-        registry.set_dynamic(
-            lambda: tuple(c for c in skill_slash_commands(skills()) if isinstance(c, SlashCommand))
-        )
+        attach_skill_commands(registry, skills)
     return registry
+
+
+def attach_skill_commands(
+    registry: CommandRegistry, skills: Callable[[], CapabilityRegistry | None]
+) -> None:
+    """Keşfedilen beceri/komut dosyalarını deftere dinamik sağlayıcı olarak bağla (P-019).
+
+    `build_registry(home)` imzasını değiştirmeden sonradan bağlamak isteyen yüzeyler
+    (masaüstü oturumu) için ayrı tutulur.
+    """
+    from .skill_commands import skill_slash_commands
+
+    registry.set_dynamic(
+        lambda: tuple(c for c in skill_slash_commands(skills()) if isinstance(c, SlashCommand))
+    )
 
 
 # --------------------------------------------------------------------------- #
