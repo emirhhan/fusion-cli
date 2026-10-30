@@ -55,6 +55,20 @@ describe("FeedbackDialog", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
   });
+  it("modal odak tuzağı kurar: arka plan inert olur, Escape kapatır, kapanınca geri döner (U6-22)", () => {
+    // Ölçüldü (30 Ekim): Escape window'da kendi başına dinleniyordu; odak tuzağı/inert yoktu.
+    const arka = document.createElement("button");
+    document.body.append(arka);
+    const kapat = vi.fn();
+    const view = render(<FeedbackDialog onClose={kapat} loadVersion={async () => "1.0"} />);
+    expect(arka.inert).toBe(true);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(kapat).toHaveBeenCalledTimes(1);
+    view.unmount();
+    expect(arka.inert).toBeFalsy();
+    arka.remove();
+  });
+
 });
 
 describe("useCrashReporter", () => {
@@ -73,6 +87,15 @@ describe("useCrashReporter", () => {
     act(() => result.current[1]());
     expect(result.current[0]).toBeNull();
   });
+
+  it("iptal edilen istek (AbortError) kullanıcıya hata olarak gösterilmez (U6-23)", () => {
+    // Ölçüldü (30 Ekim): yalnız ResizeObserver süzülüyordu; kapanışta iptal edilen fetch yanlış alarm veriyordu.
+    const { result } = renderHook(() => useCrashReporter());
+    act(() => { window.dispatchEvent(new ErrorEvent("error", { error: new DOMException("The user aborted a request.", "AbortError"), message: "x" })); });
+    expect(result.current[0]).toBeNull();
+    act(() => { window.dispatchEvent(new ErrorEvent("error", { error: new Error("gerçek hata"), message: "gerçek hata" })); });
+    expect(result.current[0]?.mesaj).toBe("gerçek hata");
+  });
 });
 
 it('çevrimdışı rapor dosyası önizlemeyle aynı temizlenmiş metni içerir', async () => {
@@ -86,4 +109,5 @@ it('çevrimdışı rapor dosyası önizlemeyle aynı temizlenmiş metni içerir'
   expect(bundle.report).not.toContain('SENTINEL_EXPORT');
   expect(bundle.manifest.notCollected).toContain('credentials');
   expect(screen.getByLabelText('Rapor önizlemesi').textContent).toBe(bundle.report);
+
 });

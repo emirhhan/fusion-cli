@@ -41,3 +41,26 @@ describe("useModalFocus — katmanlar", () => {
     expect(screen.getByRole("dialog", { name: "alt" })).toBeTruthy();
   });
 });
+
+describe("useModalFocus — arka plan", () => {
+  // Ölçüldü (30 Ekim, U6-37): modal #root içinde (portal değil) çizilince kök modalı içerdiği için
+  // inert yapılmıyor, arka plan sekmeyle erişilebilir kalıyordu.
+  it("modal uygulama kökünün içinde çizilse de kardeş arka plan inert olur ve kapanınca geri döner", () => {
+    const kok = document.createElement("div");
+    document.body.append(kok);
+    const uygulama = (acik: boolean) => (
+      <div>
+        <main data-testid="arka"><button type="button">arka</button></main>
+        {acik && <Katman ad="ic" onClose={() => undefined} />}
+      </div>
+    );
+    const view = render(uygulama(true), { container: kok });
+    const arka = screen.getByTestId("arka") as HTMLElement;
+    expect(arka.inert).toBe(true);
+    expect((screen.getByRole("dialog", { name: "ic" }) as HTMLElement).inert).toBeFalsy();
+    view.rerender(uygulama(false));
+    expect(arka.inert).toBeFalsy();
+    view.unmount();
+    kok.remove();
+  });
+});

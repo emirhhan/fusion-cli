@@ -9,9 +9,14 @@ export interface CrashInfo {
  * Tarayıcının kendisinin ürettiği, uygulamayı bozmayan gürültü. Bunlar için
  * kullanıcıya "Fusion bir hatayla karşılaştı" demek yanlış alarm olur.
  */
-const ZARARSIZ = [/ResizeObserver loop/i];
+const ZARARSIZ = [/ResizeObserver loop/i, /\bAbortError\b/, /\baborted\b/i];
 
 function describe(reason: unknown): CrashInfo {
+  const ad = reason && typeof reason === "object" ? (reason as { name?: unknown }).name : undefined;
+  if (ad === "AbortError") {
+    const ayrinti = String((reason as { message?: unknown }).message ?? "");
+    return { mesaj: `AbortError: ${ayrinti}`, ayrinti: `AbortError: ${ayrinti}` };
+  }
   if (reason instanceof Error) {
     return { mesaj: reason.message || reason.name, ayrinti: reason.stack ?? `${reason.name}: ${reason.message}` };
   }

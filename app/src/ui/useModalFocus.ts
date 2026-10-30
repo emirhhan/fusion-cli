@@ -6,6 +6,20 @@ import { useEffect, useRef, type RefObject } from "react";
  */
 const katmanlar: object[] = [];
 
+/**
+ * Modalın arkasında kalan her öğe: modaldan `body`'ye uzanan zincirdeki tüm kardeşler.
+ * Modal portalda değil uygulama kökünün içinde çizilse de arka plan inert yapılır.
+ */
+function backgroundNodes(modal: HTMLElement | null): HTMLElement[] {
+  if (!modal) return [...document.body.children].filter((node): node is HTMLElement => node instanceof HTMLElement);
+  const nodes: HTMLElement[] = [];
+  for (let node: HTMLElement | null = modal; node && node !== document.body; node = node.parentElement) {
+    const kardesler: Element[] = [...(node.parentElement?.children ?? [])];
+    for (const kardes of kardesler) if (kardes !== node && kardes instanceof HTMLElement) nodes.push(kardes);
+  }
+  return nodes;
+}
+
 /** Portal diyaloğunda klavye odağını tut; kapanışta açan kontrole geri ver. */
 export function useModalFocus(ref: RefObject<HTMLElement | null>, open: boolean, onClose: () => void, initialSelector = "input, select", onMissingReturn?: () => void) {
   const close = useRef(onClose);
@@ -17,7 +31,7 @@ export function useModalFocus(ref: RefObject<HTMLElement | null>, open: boolean,
     const katman = {};
     katmanlar.push(katman);
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const siblings = [...document.body.children].filter((node): node is HTMLElement => node instanceof HTMLElement && !node.contains(ref.current));
+    const siblings = backgroundNodes(ref.current);
     const inert = siblings.map((node) => node.inert);
     siblings.forEach((node) => { node.inert = true; });
     const controls = () => [...(ref.current?.querySelectorAll<HTMLElement>('input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled), a[href], [tabindex="0"]') ?? [])]
