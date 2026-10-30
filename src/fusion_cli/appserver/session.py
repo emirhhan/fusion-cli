@@ -977,6 +977,8 @@ class AppSession:
             return self._select_capability(request.data)
         if request.name == "kontrol.durum":
             return self._control_status()
+        if request.name == "kontrol.cirak_bildirimi_goruldu":
+            return self._ack_apprentice_notice()
         if request.name == "kontrol.anahtar_kaydet":
             return save_secret(
                 self._secret_store,
@@ -1848,18 +1850,23 @@ class AppSession:
         return durum
 
     def _cirak_bildirimi_gerekli_mi(self) -> bool:
-        """Faz 3, Görev 2 (§6.1): web kilidiyken TEK SEFERLİK bildirim.
+        """Faz 3, Görev 2 (§6.1): web kilidiyken TEK SEFERLİK bildirim — YAN ETKİSİZ.
 
-        `kontrol.durum` panel açılışında ilk çağrılan uçtur; agent bir web
-        oturumuna kilitliyse VE bildirim daha önce hiç gösterilmediyse `True`
-        döner ve işareti KALICI olarak koyar — bir daha, bu makinede hiçbir
-        oturumda tekrar çıkmaz. Hiçbir arka plan kodu bunun ÖTESİNDE bir şey
-        yapmaz; kullanıcı yine de mevcut web modeliyle çalışmaya devam eder.
+        agent bir web oturumuna kilitliyse VE bildirim daha önce görüldü diye
+        işaretlenmediyse `True` döner. İşareti bu okuma KOYMAZ: `kontrol.durum`
+        arayüzde arka planda da yoklanır (aktif model çipi), bildirim henüz
+        gösterilmeden işaret konursa hem arayüzde hem terminalde sonsuza dek
+        kaybolurdu. Ölçüldü (30 Ekim, S2-51): iki ardışık `kontrol.durum` ikinciyi
+        `False` yapıyordu. İşareti arayüz bildirimi gerçekten gösterince
+        `kontrol.cirak_bildirimi_goruldu` ile koyar (bkz. `_ack_apprentice_notice`).
         """
-        if apprentice_active(self._state.config) or apprentice_notice_shown():
-            return False
-        mark_apprentice_notice_shown()
-        return True
+        return not (apprentice_active(self._state.config) or apprentice_notice_shown())
+
+    def _ack_apprentice_notice(self) -> dict[str, Any]:
+        """`kontrol.cirak_bildirimi_goruldu`: bildirim görüldü, bir daha çıkmasın (idempotent)."""
+        if mark_apprentice_notice_shown():
+            return {"ok": True}
+        return {"ok": False, "metin": messages.APPRENTICE_NOTICE_ACK_FAILED}
 
     async def _start_gateway(self) -> dict[str, Any]:
         if self._gateway_status()["durum"] == "calisiyor":

@@ -48,6 +48,25 @@ describe("Bağımsız onboarding otoriteleri", () => {
     fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
     await waitFor(() => expect(request.mock.calls.filter(([name]) => name === "kontrol.cirak_varsayilanina_don")).toHaveLength(2));
   });
+  it("çırak bildirimi yalnız sağlayıcı adımında gösterilince görüldü işaretlenir (S2-51)", async () => {
+    const request = vi.fn(async (name: string) => name === "kontrol.cirak_bildirimi_goruldu"
+      ? { ok: true } : { ok: true, model: { cirak_aktif: false, cirak_bildirim_goster: true } });
+    draw(request);
+    navigate(2);
+    await screen.findByRole("heading", { name: /Kaynaklar/ });
+    await waitFor(() => expect(request).toHaveBeenCalledWith("kontrol.durum", {}));
+    expect(request.mock.calls.some(([name]) => name === "kontrol.cirak_bildirimi_goruldu")).toBe(false);
+    navigate(1);
+    await screen.findByText("Kullanılmıyor");
+    await waitFor(() => expect(request.mock.calls.filter(([name]) => name === "kontrol.cirak_bildirimi_goruldu")).toHaveLength(1));
+  });
+  it("bildirim zaten görüldüyse onay isteği göndermez (S2-51)", async () => {
+    const request = vi.fn(async () => ({ ok: true, model: { cirak_aktif: false, cirak_bildirim_goster: false } }));
+    draw(request);
+    navigate(3);
+    await screen.findByText("Kullanılmıyor");
+    expect(request.mock.calls.some(([name]) => name === "kontrol.cirak_bildirimi_goruldu")).toBe(false);
+  });
   it("projesiz ilerleme yeniden bağlanınca restore edilir", () => {
     const request = async () => ({ ok: true });
     const first = draw(request); navigate(2); first.unmount();

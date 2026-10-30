@@ -9,7 +9,8 @@ import { Onboarding } from "./Onboarding";
 import { clearProgress, persistProgress, restoreProgress } from "./persistence";
 import type { ApprenticeStatus, DiscoveredSource, ProviderSummary, SampleProject, OnboardingValue } from "./types";
 
-interface ControlSummary { providers: ProviderSummary[]; apprentice: ApprenticeStatus }
+/** `noticePending`: çekirdek tek seferlik çırak bildirimini henüz görüldü saymadı (S2-51). */
+interface ControlSummary { providers: ProviderSummary[]; apprentice: ApprenticeStatus; noticePending: boolean }
 /** Sağlayıcı satırları: Ayarlar'daki liste ile AYNI kaynak, `saglayici.katalog` (`bagli`) — web sağlayıcıları
  * dahil. Katalog okunamazsa `kontrol.durum`daki anahtarlı sağlayıcı listesine (`kurulu`) düşülür (U5-46). */
 function providerRows(control: Record<string, unknown>, catalog: Record<string, unknown> | null): ProviderSummary[] {
@@ -33,6 +34,7 @@ function controlSummary(control: Record<string, unknown>, catalog: Record<string
     providers: providerRows(control, catalog),
     apprentice: { active: typeof model.cirak_aktif === "boolean" ? model.cirak_aktif : null,
       recommendedModel: typeof model.onerilen_cirak === "string" ? model.onerilen_cirak : null },
+    noticePending: model.cirak_bildirim_goster === true,
   };
 }
 export function ConnectedOnboarding({ client, projects, runtimeVersion, onFinish }: {
@@ -51,6 +53,7 @@ export function ConnectedOnboarding({ client, projects, runtimeVersion, onFinish
   const sourcesRequest = useRef(0);
   const controlRequest = useRef(0);
   const resetGuard = useRef(false);
+  const noticeAck = useRef<"idle" | "sending" | "done">("idle");
   const loadSources = useCallback(async () => {
     const generation = owner.current, sequence = ++sourcesRequest.current;
     setSources({ status: "loading" });
@@ -98,6 +101,17 @@ export function ConnectedOnboarding({ client, projects, runtimeVersion, onFinish
     } catch (reason) { if (generation === owner.current) setResetError(errorMessage(reason)); }
     finally { if (generation === owner.current) { resetGuard.current = false; setResetPending(false); } }
   };
+  const summary = control.status === "ready" ? control.value : lastControl;
+  // Çırak bildirimi `kontrol.durum` okunurken değil, sağlayıcı adımında (durum satırı) GÖSTERİLDİĞİNDE
+  // görüldü sayılır; arka plan yoklaması bildirimi tüketmez (S2-51). Hata sessizdir: bildirim tekrar çıkar.
+  const noticeVisible = value.step === "providers" && provider === null && summary?.noticePending === true;
+  useEffect(() => {
+    if (!noticeVisible || noticeAck.current !== "idle") return;
+    noticeAck.current = "sending";
+    client.request("kontrol.cirak_bildirimi_goruldu", {})
+      .then((receipt) => { noticeAck.current = receipt.ok === true ? "done" : "idle"; })
+      .catch(() => { noticeAck.current = "idle"; });
+  }, [client, noticeVisible]);
   const change = (next: OnboardingValue) => {
     setValue(next);
     setStorageError(!persistProgress(next).ok);
@@ -116,7 +130,6 @@ export function ConnectedOnboarding({ client, projects, runtimeVersion, onFinish
       {providerDraft && <p role="status">Kaydedilmemiş anahtar var. Devam etmek için Kaydet'e bas veya alanı temizle.</p>}
     </footer>
   </div>;
-  const summary = control.status === "ready" ? control.value : lastControl;
   return <>
     {storageError && <p className="onboarding-storage-warning" role="status">Kurulum ilerlemesi saklanamadı; bu oturumda geçerli.</p>}
     <Onboarding apprentice={summary?.apprentice ?? { active: null, recommendedModel: null }}

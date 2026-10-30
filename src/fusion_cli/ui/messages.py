@@ -560,6 +560,11 @@ APPRENTICE_SWITCH_NOTICE = (
     "gerçek araç çağrısı yapıyor ve çok daha hızlı yanıt veriyor. Denemek istersen: "
     "/level cirak"
 )
+#: Bildirimin görüldü işareti yazılamadığında (yapılandırma dizini yazılamaz); bildirim
+#: bir sonraki açılışta yeniden çıkabilir.
+APPRENTICE_NOTICE_ACK_FAILED = (
+    "Bildirim işareti kaydedilemedi; bir sonraki açılışta tekrar çıkabilir."
+)
 
 # --- Profil editörü (/profiles) -------------------------------------------- #
 PROFILES_HEADER = "profiller (kademe · baş model):"
