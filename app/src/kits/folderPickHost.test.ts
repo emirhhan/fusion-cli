@@ -42,4 +42,19 @@ describe("FolderPickHost", () => {
     f.send({ type: "fusion-folder-request", nonce: "n" });
     expect(f.pick).not.toHaveBeenCalled();
   });
+  it("seçici açıkken gelen ikinci istek iptal değil 'meşgul' olarak işaretlenir (U6-20)", async () => {
+    // Ölçüldü (30 Ekim): ikinci istek yalnız `path: null` alıyor, iframe bunu kullanıcı iptali sanıyordu.
+    const f = fixture();
+    let bitir: (yol: string | null) => void = () => {};
+    f.pick.mockImplementationOnce(() => new Promise<string | null>((coz) => { bitir = coz; }));
+    f.send({ type: "fusion-folder-request", nonce: "a" });
+    f.send({ type: "fusion-folder-request", nonce: "b" });
+    expect(f.frame.postMessage).toHaveBeenCalledWith(
+      { type: "fusion-folder-result", nonce: "b", path: null, busy: true }, ORIGIN,
+    );
+    bitir("/Users/me/oyun");
+    await vi.waitFor(() => expect(f.frame.postMessage).toHaveBeenCalledWith(
+      { type: "fusion-folder-result", nonce: "a", path: "/Users/me/oyun" }, ORIGIN,
+    ));
+  });
 });

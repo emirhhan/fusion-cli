@@ -29,10 +29,11 @@ export class FolderPickHost {
     this.closed = true;
     this.host.removeEventListener("message", this.receive);
   }
-  private reply(nonce: string, path: string | null) {
+  /** `busy`: seçici zaten açık; bu bir kullanıcı iptali değil, isteğin hiç işlenmemesidir. */
+  private reply(nonce: string, path: string | null, busy = false) {
     if (this.closed) return;
     try {
-      this.frame.postMessage({ type: "fusion-folder-result", nonce, path }, this.origin);
+      this.frame.postMessage({ type: "fusion-folder-result", nonce, path, ...(busy ? { busy: true } : {}) }, this.origin);
     } catch {
       // iframe kapandıysa yanıt verilecek yer yoktur.
     }
@@ -44,7 +45,7 @@ export class FolderPickHost {
     if (typeof data.nonce !== "string" || !data.nonce || data.nonce.length > 100) return;
     const nonce = data.nonce;
     if (this.busy) {
-      this.reply(nonce, null);
+      this.reply(nonce, null, true);
       return;
     }
     this.busy = true;

@@ -51,7 +51,11 @@ export class KitsVoiceHost {
     if (this.closed) return;
     this.closed = true;
     this.host.removeEventListener("message", this.receive);
-    // Kapanışta hata gösterecek yer yok; yine de yutulan hata yakalanmamış söz reddi olmasın.
+    this.reset();
+  }
+
+  /** iframe yeniden yüklenince önceki sayfanın dinleme/seslendirme işleri sahipsiz kalmasın. */
+  reset() {
     void this.enqueueListen(() => this.stopListening()).catch(() => undefined);
     void this.stopSpeaking().catch(() => undefined);
   }

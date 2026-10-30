@@ -729,7 +729,7 @@ export function SessionUygulama({
       section={surfaceSection}
       scheduled={<ScheduleScreen client={active?.client ?? null} defaultRoot={active?.root ?? ""} onRunNow={scheduleRunner.runNow} visible={surfaceSection === "scheduled"} />}
       library={<LibraryScreen client={active?.client ?? null} visible={surfaceSection === "library"} />}
-      kits={<KitsScreen onDeliveryClient={setDeliveryClient} requestHost={activeClient ? requestKitsHost : undefined} />}
+      kits={<KitsScreen onDeliveryClient={setDeliveryClient} requestHost={activeClient ? requestKitsHost : undefined} visible={surfaceSection === "kits"} />}
     />
   );
   /** `@` sorgusunu sunucuya ilet ve gelen öneriyi listeye yaz. */

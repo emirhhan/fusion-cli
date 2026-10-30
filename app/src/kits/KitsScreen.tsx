@@ -33,6 +33,8 @@ interface KitsScreenProps {
   pickFolder?: PickFolder;
   /** Kits sunucusunun hâlâ aynı adreste yaşadığını yoklama aralığı (ms). */
   watchIntervalMs?: number;
+  /** Bölüm gizliyken adres yoklaması durur (sürekli IPC olmasın); iframe ve köprüler yerinde kalır. */
+  visible?: boolean;
 }
 
 /** Kits süreci ölüp yeniden başlarsa YENİ bir portta açılır; iframe eski
@@ -50,19 +52,25 @@ export function KitsScreen({
   confirmComputer = askComputerAccess,
   pickFolder = selectProjectFolder,
   watchIntervalMs = KITS_WATCH_INTERVAL_MS,
+  visible = true,
 }: KitsScreenProps) {
   const [state, setState] = useState<KitsState>({ durum: "hazirlaniyor" });
   const [attempt, setAttempt] = useState(0);
   const retry = useCallback(() => setAttempt((current) => current + 1), []);
   const frame = useRef<HTMLIFrameElement>(null);
   const delivery = useRef<ScheduledDeliveryClient | null>(null);
+  const voice = useRef<KitsVoiceHost | null>(null);
+  // Üst bileşen satır içi işlev verse bile teslimat istemcisi her render'da yeniden kurulmaz
+  // (bekleyen teslimat `finish(null)` ile düşerdi).
+  const deliveryCallback = useRef(onDeliveryClient);
+  deliveryCallback.current = onDeliveryClient;
   useEffect(() => {
     if (state.durum !== "hazir" || !frame.current?.contentWindow) return;
     const client = new ScheduledDeliveryClient(window, frame.current.contentWindow, state.adres);
     delivery.current = client;
-    onDeliveryClient?.(client);
-    return () => { client.close(); delivery.current = null; onDeliveryClient?.(null); };
-  }, [state, onDeliveryClient]);
+    deliveryCallback.current?.(client);
+    return () => { client.close(); delivery.current = null; deliveryCallback.current?.(null); };
+  }, [state]);
   // Oturum değişince (sekme) en güncel istek fonksiyonu kullanılır; dinleyici yeniden kurulmaz.
   const hostRequest = useRef<HostRequest | undefined>(requestHost);
   hostRequest.current = requestHost;
@@ -83,12 +91,13 @@ export function KitsScreen({
   }, [state, confirmComputer]);
   useEffect(() => {
     if (state.durum !== "hazir" || !frame.current?.contentWindow) return;
-    const voice = new KitsVoiceHost(window, frame.current.contentWindow, state.adres, (name, data) => {
+    const host = new KitsVoiceHost(window, frame.current.contentWindow, state.adres, (name, data) => {
       const istek = hostRequest.current;
       if (!istek) return Promise.reject(new Error("Fusion oturumu yok; sesli yanıt için bir sohbet sekmesi aç."));
       return istek(name, data);
     });
-    return () => voice.close();
+    voice.current = host;
+    return () => { host.close(); voice.current = null; };
   }, [state]);
   useEffect(() => {
     if (state.durum !== "hazir" || !frame.current?.contentWindow) return;
@@ -97,12 +106,15 @@ export function KitsScreen({
   }, [state, pickFolder]);
   useEffect(() => {
     if (state.durum !== "hazir" || !frame.current?.contentWindow) return;
+    // Ses/bilgisayar köprüleri gibi en güncel istek fonksiyonunu ref'ten okur: sekme değişince
+    // (`requestHost` kimliği değişir) süren asset istekleri yanıtsız bırakılmaz.
     const assets = new AssetHost(window, frame.current.contentWindow, state.adres, (name, data) => {
-      if (!requestHost) return Promise.reject(new Error("Fusion oturumu yok."));
-      return requestHost(name, data);
+      const istek = hostRequest.current;
+      if (!istek) return Promise.reject(new Error("Fusion oturumu yok."));
+      return istek(name, data);
     });
     return () => assets.close();
-  }, [state, requestHost]);
+  }, [state]);
   // Adres ilk açılıştaki temayı taşır; sonraki değişiklik sayfayı yeniden yüklemeden
   // (sohbet kaybolmadan) mesajla iletilir.
   const initialTheme = useRef<KitsTheme>(currentTheme());
@@ -138,7 +150,7 @@ export function KitsScreen({
   // başlatıp yeni adresi döndürür. Adres değişince iframe yeni adrese taşınır.
   const address = state.durum === "hazir" ? new URL(state.adres).origin : null;
   useEffect(() => {
-    if (!address) return;
+    if (!address || !visible) return;
     let active = true;
     let checking = false;
     const timer = window.setInterval(() => {
@@ -156,12 +168,12 @@ export function KitsScreen({
         .finally(() => { checking = false; });
     }, watchIntervalMs);
     return () => { active = false; window.clearInterval(timer); };
-  }, [address, start, watchIntervalMs]);
+  }, [address, start, watchIntervalMs, visible]);
 
   if (state.durum === "hazir") {
     return (
       <iframe
-        onLoad={() => delivery.current?.reset()}
+        onLoad={() => { delivery.current?.reset(); voice.current?.reset(); }}
         allow="microphone; autoplay; fullscreen"
         className="kits-screen__frame"
         ref={frame}

@@ -91,4 +91,29 @@ describe("KitsScreen", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("yerel");
     expect(screen.queryByTitle("Fusion Kits")).toBeNull();
   });
+
+  it("bölüm gizliyken adres yoklaması durur, görününce sürer (U6-16a)", async () => {
+    // Ölçüldü (30 Ekim): gizli Kits'te de her aralıkta `kits_baslat` invoke ediliyordu.
+    const start = vi.fn<() => Promise<{ url: string }>>().mockResolvedValue({ url: "http://127.0.0.1:50030" });
+    const { rerender } = render(<KitsScreen start={start} visible={false} watchIntervalMs={10} />);
+    await screen.findByTitle("Fusion Kits");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(start).toHaveBeenCalledTimes(1);
+    rerender(<KitsScreen start={start} visible watchIntervalMs={10} />);
+    await vi.waitFor(() => expect(start.mock.calls.length).toBeGreaterThan(2));
+  });
+
+  it("üst bileşen satır içi işlev verse de teslimat istemcisi yeniden kurulmaz (U6-16c)", async () => {
+    const start = () => Promise.resolve({ url: "http://127.0.0.1:50031" });
+    const ilk = vi.fn();
+    const ikinci = vi.fn();
+    const { rerender } = render(<KitsScreen onDeliveryClient={ilk} start={start} />);
+    await screen.findByTitle("Fusion Kits");
+    await vi.waitFor(() => expect(ilk).toHaveBeenCalledTimes(1));
+    rerender(<KitsScreen onDeliveryClient={ikinci} start={start} />);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(ilk).toHaveBeenCalledTimes(1);
+    expect(ilk).not.toHaveBeenCalledWith(null);
+    expect(ikinci).not.toHaveBeenCalled();
+  });
 });
