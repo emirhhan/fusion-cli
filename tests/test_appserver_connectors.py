@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from fusion_cli.appserver.hosted_connectors import hosted_provider_rows
 from fusion_cli.appserver.protocol import Request
 from fusion_cli.appserver.session import AppSession
 from fusion_cli.config.models import McpServerConfig, McpTransport
@@ -276,3 +277,68 @@ def test_kapsamlar_liste_gelirse_bozulmaz_ve_bozuk_durum_sayisi_listeyi_dusurmez
     assert _scopes(["read", "write"]) == ("read", "write")
     assert _scopes("read write") == ("read", "write")
     assert _count("x") == 0 and _count(None) == 0 and _count("7") == 7
+
+
+async def test_connector_paneli_hatasi_okunur_ve_kayit_temizlenir(tmp_path, monkeypatch, caplog):
+    """Ölçüldü (30 Ekim, S2-56): panel görevinin istisnası hiç okunmuyor ("Task exception was
+    never retrieved") ve `_panel_tasks` yalnız `close()`'da temizleniyordu."""
+    import asyncio
+
+    from fusion_cli.providers import web_browser
+
+    async def bozuk(*_a, **_k):
+        raise RuntimeError("tarayıcı yok")
+
+    monkeypatch.setattr(web_browser, "open_login_browser", bozuk)
+    oturum = AppSession(lambda _l: None, root=tmp_path, home=tmp_path / "ev")
+    saglayici = hosted_provider_rows(oturum._state.config)[0]["id"]
+
+    with caplog.at_level("ERROR"):
+        sonuc = await oturum._open_connector_panel({"saglayici": saglayici})
+        await asyncio.sleep(0.05)
+
+    assert sonuc["ok"] is True
+    assert oturum._panel_tasks == {}
+    assert "RuntimeError" in caplog.text
+
+
+async def test_basarisiz_baglanti_eklemesi_ortamdaki_eski_sirri_silmez(tmp_path, monkeypatch):
+    """Ölçüldü (30 Ekim, S2-57): başarısız eklemede `os.environ.pop` önceki değeri geri
+    koymak yerine siliyordu."""
+    session, _fake = _session(tmp_path)
+    monkeypatch.setattr(
+        "fusion_cli.appserver.connectors.shutil.which", lambda c, path=None: f"/bin/{c}"
+    )
+    monkeypatch.setenv("BRAVE_API_KEY", "eski-deger")
+
+    class _Store:
+        available = True
+
+        def set(self, name, value):
+            pass
+
+        def get(self, name):
+            return None
+
+        def delete(self, name):
+            pass
+
+    session._secret_store = _Store()
+
+    async def reddet(_config, _data, *, probe):
+        return None, {"ok": False, "metin": "bağlanamadı"}
+
+    monkeypatch.setattr("fusion_cli.appserver.session.add_connector_verified", reddet)
+
+    sonuc = await session._dispatch(
+        Request(
+            "x",
+            "baglanti.ekle",
+            {"ad": "brave", "komut": "npx -y s", "ortam": {"BRAVE_API_KEY": "yeni-deger"}},
+        )
+    )
+
+    assert sonuc["ok"] is False
+    import os
+
+    assert os.environ["BRAVE_API_KEY"] == "eski-deger"

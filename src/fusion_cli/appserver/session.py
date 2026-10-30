@@ -1217,13 +1217,15 @@ class AppSession:
             attachment_context, attachment_error = _attachment_context(request.data.get("ekler"))
             if attachment_error:
                 return {"ok": False, "metin": attachment_error}
-            return await self._run_turn(
+            direct = await self._run_turn(
                 str(request.data.get("gorev", "")),
                 attachment_context,
                 await asyncio.to_thread(_attachment_images, request.data.get("ekler")),
                 voice_context=voice_context,
                 deadline=deadline,
             )
+            direct.pop("_cancelled", None)  # makbuzsuz yolda iç işaret tele çıkmaz
+            return direct
         if request.name == "tur.kes":
             if "turnId" in request.data and request.data["turnId"] != self._steering_turn:
                 return {"ok": False, "metin": "Durdurma isteği etkin görevle eşleşmiyor."}
@@ -1586,7 +1588,9 @@ class AppSession:
         except Exception as error:
             self._restore_connector_secrets(previous)
             return {"ok": False, "metin": f"MCP sırrı kaydedilemedi: {error}"}
-        # Yoklama sırları ortamdan okur; bu yüzden kayıttan ÖNCE yüklenir.
+        # Yoklama sırları ortamdan okur; bu yüzden kayıttan ÖNCE yüklenir. Başarısızlıkta
+        # eski değer geri konur (ölçüldü 30 Ekim: `pop` ortamda önceden var olan sırrı siliyordu).
+        env_previous = {name: os.environ.get(name) for name in secrets}
         os.environ.update(secrets)
         # Ölçüldü (17 Eylül): var olmayan alan adı ve geçersiz token "eklendi"
         # oluyordu. Önce bağlanılır; yalnız çalışan ya da giriş bekleyen kaydedilir.
@@ -1594,8 +1598,11 @@ class AppSession:
             self._state.config, data, probe=self._mcp_connections.verify
         )
         if yeni is None:
-            for name in secrets:
-                os.environ.pop(name, None)
+            for name, old_value in env_previous.items():
+                if old_value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = old_value
             self._restore_connector_secrets(previous)
             return sonuc
         self._update_connector_config(yeni)
@@ -1630,10 +1637,21 @@ class AppSession:
         # arka plan görevine vererek çözüyor; burada da aynı desen kullanılır.
         task = self._panel_tasks.get(saglayici)
         if task is None or task.done():
-            self._panel_tasks[saglayici] = asyncio.create_task(
-                open_login_browser(saglayici, hesap, url=str(row["adres"]))
-            )
+            panel = asyncio.create_task(open_login_browser(saglayici, hesap, url=str(row["adres"])))
+            self._panel_tasks[saglayici] = panel
+            panel.add_done_callback(lambda done, name=saglayici: self._panel_task_done(name, done))
         return {"ok": True, "adres": row["adres"]}
+
+    def _panel_task_done(self, provider: str, task: asyncio.Task[Any]) -> None:
+        """Panel görevi bitince kaydı düşür ve istisnayı oku ("never retrieved" olmasın)."""
+        if self._panel_tasks.get(provider) is task:
+            del self._panel_tasks[provider]
+        if not task.cancelled() and task.exception() is not None:
+            logging.getLogger(__name__).error(
+                "Connector paneli hatayla kapandı (%s): %s",
+                provider,
+                type(task.exception()).__name__,
+            )
 
     def _save_theme(self, data: object) -> dict[str, Any]:
         """`ayar.tema_kaydet`: tercihi yapılandırmaya yaz.
@@ -2031,7 +2049,9 @@ class AppSession:
                     self._writer(
                         encode_event({"olay": "GonderimMakbuzu", **receipt_payload(claim.receipt)})
                     )
-                except OSError:
+                except (OSError, ValueError):
+                    # `ValueError`: kodlama hatası (`UnicodeEncodeError`) dâhil. Kabul edilmiş
+                    # görev çalışır durumdayken istemciye hata dönmesin (ölçüldü 30 Ekim).
                     logging.getLogger(__name__).error("Kabul makbuzu istemciye iletilemedi.")
             except (OSError, sqlite3.Error):
                 return {"ok": False, "metin": messages.APP_SUBMISSION_STORAGE_FAILED}
@@ -2071,13 +2091,10 @@ class AppSession:
                 event_sequence=count(1),
                 config_snapshot=config_snapshot,
             )
-            state = (
-                "completed"
-                if result.get("ok")
-                else (
-                    "cancelled" if result.get("metin") == messages.APP_TURN_CANCELLED else "failed"
-                )
-            )
+            # İptal durumu ekran metninin eşitliğinden değil açık işaretten çıkarılır (metin
+            # değişirse/yerelleştirilirse yanlış durum yazılırdı; ölçüldü 30 Ekim).
+            was_cancelled = result.pop("_cancelled", False) is True
+            state = "completed" if result.get("ok") else ("cancelled" if was_cancelled else "failed")
             is_retry_safe = result.pop("_retry_safe", False) is True
             terminal = await self._submission_store.finish(
                 receipt,
@@ -2319,7 +2336,7 @@ class AppSession:
                 )
                 if journal is not None:
                     await await_owned_thread(journal.save, self._state.history)
-            return {"ok": False, "metin": messages.APP_TURN_CANCELLED}
+            return {"ok": False, "metin": messages.APP_TURN_CANCELLED, "_cancelled": True}
         finally:
             record_agent_changes(self._state.root, self._workspace_journal, changes.snapshots)
             self._desktop_activity.clear()
