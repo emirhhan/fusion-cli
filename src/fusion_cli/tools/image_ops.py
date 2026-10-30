@@ -11,6 +11,7 @@ Kırpma ve büyütme yapıldıysa sonuç bunu AÇIKÇA söyler.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -93,21 +94,27 @@ def srcset_variants(
     *,
     suffix: str = ".webp",
     quality: int = DEFAULT_QUALITY,
+    before_write: Callable[[Path], None] | None = None,
 ) -> tuple[ImageFile, ...]:
-    """Kaynaktan daha dar genişliklerde kopyalar üret (büyütme YAPILMAZ)."""
+    """Kaynaktan daha dar genişliklerde kopyalar üret (büyütme YAPILMAZ).
+
+    `before_write` her varyant yazılmadan ÖNCE hedef yolla çağrılır (geri alma kaydı).
+    """
     _require_pillow()
     from PIL import Image
 
     fmt = output_format(Path(f"x{suffix}"))
     variants: list[ImageFile] = []
     with Image.open(source) as opened:
-        image = opened.convert("RGBA") if fmt == "PNG" else opened.convert("RGB")
+        image = _prepare(opened, fmt)
         for width in sorted(set(widths)):
             if width >= image.width:
                 continue
             height = round(image.height * width / image.width)
             resized = image.resize((width, height), Image.Resampling.LANCZOS)
             target = source.with_name(f"{source.stem}-{width}w{suffix}")
+            if before_write is not None:
+                before_write(target)
             variants.append(_save(resized, target, fmt, quality))
     return tuple(variants)
 
@@ -154,6 +161,33 @@ def _attr(text: str) -> str:
     return text.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")
 
 
+def _has_alpha(image: PilImage) -> bool:
+    return image.mode in ("RGBA", "LA", "PA") or (
+        image.mode == "P" and "transparency" in image.info
+    )
+
+
+def _prepare(image: PilImage, fmt: str) -> PilImage:
+    """Çıkış biçimine uygun kipe getir; saydamlık yalnız taşıyamayan biçimde silinir.
+
+    Ölçüldü (30 Ekim): her kip `RGB`'ye çevriliyordu; PNG logo → WebP (varsayılan
+    akış) alfa kanalını atıp saydam alanı siyah yapıyordu. WebP/AVIF/PNG alfa taşır;
+    yalnız JPEG'de saydam alan BEYAZ zemin üzerine birleştirilir.
+    """
+    from PIL import Image
+
+    if _has_alpha(image):
+        rgba = image.convert("RGBA")
+        if fmt != "JPEG":
+            return rgba
+        zemin = Image.new("RGB", rgba.size, (255, 255, 255))
+        zemin.paste(rgba, mask=rgba.getchannel("A"))
+        return zemin
+    if fmt == "PNG" and image.mode in ("RGB", "L", "1", "P"):
+        return image
+    return image if image.mode in ("RGB", "L") else image.convert("RGB")
+
+
 def _save(
     image: PilImage,
     target: Path,
@@ -164,7 +198,7 @@ def _save(
     cropped: bool = False,
 ) -> ImageFile:
     target.parent.mkdir(parents=True, exist_ok=True)
-    kayit = image if fmt == "PNG" or image.mode in ("RGB", "L") else image.convert("RGB")
+    kayit = _prepare(image, fmt)
     options: dict[str, object] = {} if fmt == "PNG" else {"quality": quality}
     if fmt == "PNG":
         options["optimize"] = True
@@ -172,6 +206,17 @@ def _save(
     return ImageFile(
         target, kayit.width, kayit.height, target.stat().st_size, upscaled=upscaled, cropped=cropped
     )
+
+
+def _olcu(value: object) -> int | None:
+    """Ölçü argümanı: `800`, `"800"`, `800.0` kabul; bool/sıfır/negatif/ayrıştırılamaz → None."""
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        return None
+    try:
+        sayi = int(float(value))
+    except (ValueError, OverflowError):
+        return None
+    return sayi if sayi > 0 else None
 
 
 def optimize_image(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -185,21 +230,39 @@ def optimize_image(args: ToolArgs, context: ToolContext) -> ToolResult:
     target = writable_path(
         context, optional_str(args, "out", "") or str(source.with_suffix(".webp"))
     )
-    width, height = args.get("width"), args.get("height")
+    width, height = _olcu(args.get("width")), _olcu(args.get("height"))
+    notlar: list[str] = []
+    if (width is None) != (height is None):
+        eksik = "height" if height is None else "width"
+        notlar.append(
+            f"NOT: yalnız bir ölçü verildi; '{eksik}' eksik olduğu için ölçü yok sayıldı, "
+            "yalnız biçim dönüştürüldü. Tam ölçü için width ve height'ı birlikte ver."
+        )
     try:
-        if isinstance(width, int) and isinstance(height, int):
+        # Geri alma kaydı YAZMADAN ÖNCE: aynı uzantıya çevirmede orijinal ezilir.
+        context.changes.record(target)
+        if width is not None and height is not None:
             main = fit_cover(source, target, width, height)
         else:
             main = _convert(source, target)
-        variants = srcset_variants(target, suffix=target.suffix)
-    except (ImageOpsError, OSError) as error:
+        variants = srcset_variants(
+            target, suffix=target.suffix, before_write=lambda yol: context.changes.record(yol)
+        )
+    except ImageOpsError as error:
         return ToolResult.failure(f"Görsel işlenemedi: {error}")
+    except Exception as error:  # Pillow ValueError/KeyError/DecompressionBombError atabilir
+        return ToolResult.failure(f"Görsel işlenemedi: {type(error).__name__}: {error}")
     context.touched.update({main.path, *(variant.path for variant in variants)})
+    if main.upscaled:
+        notlar.append("Kaynak hedef ölçüden küçüktü: görsel büyütüldü (keskinlik düşebilir).")
+    if main.cropped:
+        notlar.append("Oran uymadığı için görselin kenarları ortadan kırpıldı.")
     eager = args.get("ilk_ekran") is True
     alt = optional_str(args, "alt", "")
+    ek = ("\n" + "\n".join(notlar)) if notlar else ""
     return ToolResult(
         f"Hazır: {main.path} — {main.width}×{main.height}, {main.bytes // 1024} KB "
-        f"(kaynak {source.stat().st_size // 1024} KB).\n"
+        f"(kaynak {source.stat().st_size // 1024} KB).{ek}\n"
         + img_tag(main, alt=alt, root=context.root, eager=eager, variants=variants)
     )
 
