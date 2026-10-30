@@ -15,6 +15,8 @@ export interface OturumSatiri {
   session_id: string;
   source: string;
   title: string;
+  /** Bakılmadan tur bitti ya da onay geldi: satırda nokta, erişilebilir adda "okunmamış" (P-047). */
+  okunmamis?: boolean;
 }
 
 export interface ProjeSatiri {
@@ -178,9 +180,10 @@ function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProjec
   return (
     <div className="sidebar__session-row">
       <button
-        aria-label={session.title}
+        aria-label={session.okunmamis ? `${session.title} (okunmamış)` : session.title}
         className="sidebar__session"
         data-etkin={active}
+        data-okunmamis={session.okunmamis || undefined}
         onClick={onSelect}
         type="button"
       >
@@ -193,6 +196,7 @@ function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProjec
           ? <span aria-hidden="true" className="source-icon sidebar__session-dot" />
           : <SourceIcon size={16} source={session.source} />}
         <span className="sidebar__session-title">{session.title}</span>
+        {session.okunmamis && <span aria-hidden="true" className="sidebar__session-unread" />}
         <span className="sidebar__session-source">
           {session.source === "fusion" ? "" : session.source}
         </span>

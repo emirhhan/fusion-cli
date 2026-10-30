@@ -34,6 +34,15 @@ describe("Sidebar", () => {
     expect(container.querySelectorAll('[data-etkin="true"]')).toHaveLength(1);
   });
 
+  it("okunmamış sohbeti noktayla ve erişilebilir adıyla işaretler (P-047)", () => {
+    const { container } = render(
+      <Sidebar oturumlar={[{ ...sessions[0], okunmamis: true }, sessions[1]]} etkin={null} onSec={vi.fn()} onYeni={vi.fn()} />,
+    );
+    expect(screen.getByRole("button", { name: "İlk iş (okunmamış)" })).toBeTruthy();
+    expect(container.querySelectorAll(".sidebar__session-unread")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "İkinci iş" }).getAttribute("data-okunmamis")).toBeNull();
+  });
+
   it("oturum yoksa liste başlığını basmaz", () => {
     render(<Sidebar oturumlar={[]} etkin={null} onSec={vi.fn()} onYeni={vi.fn()} />);
     expect(screen.queryByText("Sohbetler")).toBeNull();

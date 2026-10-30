@@ -15,6 +15,7 @@ import { Models, type ModelState } from "./sections/Models";
 import { RoleModels } from "./sections/RoleModels";
 import { Permissions } from "./sections/Permissions";
 import { Advanced } from "./sections/Advanced";
+import { Notifications } from "./sections/Notifications";
 import { ChromeBrowser } from "./ChromeBrowser";
 import { RemoteAccess } from "./RemoteAccess";
 import { Intelligence } from "./Intelligence";
@@ -33,11 +34,12 @@ import "./Settings.css";
  * ayarlanabilir yanı.
  */
 
-type BolumId = "genel" | "hesap" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
+type BolumId = "genel" | "hesap" | "bildirimler" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
 
 const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: string }[] = [
   { id: "genel", etiket: "Genel", ikon: "settings", grup: "Kişisel" },
   { id: "hesap", etiket: "Hesap", ikon: "user", grup: "Kişisel" },
+  { id: "bildirimler", etiket: "Bildirimler", ikon: "pulse", grup: "Kişisel" },
   { id: "ses", etiket: "Ses", ikon: "mic", grup: "Kişisel" },
   { id: "kisisellestirme", etiket: "Kişiselleştirme", ikon: "lessons", grup: "Kişisel" },
   { id: "modeller", etiket: "Modeller", ikon: "skills", grup: "Entegrasyonlar" },
@@ -323,6 +325,8 @@ export function Settings({
           )}
 
           {bolum === "ses" && <VoicePreferences client={client} />}
+
+          {bolum === "bildirimler" && <Notifications />}
 
           {bolum === "kisisellestirme" && <><MemoryPanel client={client} /><Instructions client={client} /></>}
 

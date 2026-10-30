@@ -453,7 +453,7 @@ async def _fusion_turn(line: str, state: ReplState, console: Console) -> None:
     from ..session import run_task
 
     renderer = ConsoleRenderer(
-        console, show_all_answers=state.show_all_answers, show_call_details=True
+        console, show_all_answers=state.show_all_answers, show_call_details=True, bell=state.bell
     )
     tracer = LangfuseTracer(task=line)
     try:
@@ -487,7 +487,7 @@ async def _agent_turn(
     from ...engines.agent.verification import build_verifier
     from ...memory.checkpoint_store import JsonCheckpointStore
 
-    renderer = ConsoleRenderer(console, show_thinking=state.show_thinking)
+    renderer = ConsoleRenderer(console, show_thinking=state.show_thinking, bell=state.bell)
     tracer = LangfuseTracer(task=line)
     async with EventBus() as bus:
         bus.subscribe(renderer)

@@ -10,6 +10,7 @@ import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
 import { useKapatmaNabzi } from "./dialogs/closeHeartbeat";
 import { osBildirimiGonder } from "./notifications/osNotice";
+import { useTurnNotifications, useUnread } from "./notifications/useTurnNotifications";
 import { ShareDialog } from "./dialogs/ShareDialog";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
 import { NewTaskDialog } from "./dialogs/NewTaskDialog";
@@ -566,6 +567,9 @@ export function SessionUygulama({
   const pendingBargeIn = useRef(false);
   const active = controller.activeSession;
   useRemoteProjectSync(active?.client ?? null, projects.registry);
+  // Bakılmayan sohbette tur bitince / onay gelince OS bildirimi, okunmamış işareti ve Dock rozeti (P-047).
+  useTurnNotifications(controller.state.sessions, active?.id ?? null);
+  const okunmamisSohbetler = useUnread();
   const activeSessionId = active?.id;
   const activeClient = active?.client;
   useEffect(() => () => {
@@ -1887,6 +1891,7 @@ export function SessionUygulama({
               projectRoot: session.root,
               projectId: projects.registry.chats[session.id],
               updated_at: session.updatedAt,
+              okunmamis: okunmamisSohbetler.has(session.id),
             })),
             // Diskte duran ama açılmamış sohbetler. Ölçüldü (kullanıcının diski,
             // 8 Eylül): 110 sohbet kayıtlıydı ve arayüzde hiçbiri görünmüyordu.

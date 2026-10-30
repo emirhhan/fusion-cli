@@ -1,10 +1,11 @@
-export type SettingsSection = "genel" | "hesap" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
+export type SettingsSection = "genel" | "hesap" | "bildirimler" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
 interface SettingsRow { section: SettingsSection; id: string; label: string; keywords: string }
 /** Bölüm başlığının kimliği; satır kimliği olmayan bölümler buna odaklanır. */
 export const SECTION_HEADING_ID = "settings-section-heading";
 export const SETTINGS_ROWS: SettingsRow[] = [
   { section: "genel", id: "settings-theme", label: "Tema", keywords: "görünüm koyu açık sistem" },
   { section: "genel", id: "settings-history", label: "Geçmiş", keywords: "sohbet kenar çubuğu" },
+  { section: "bildirimler", id: "settings-notifications", label: "Bildirimler", keywords: "bildirim rozet okunmamış ses uyarı tur bitti onay dock" },
   { section: "gelismis", id: "settings-gateway", label: "Yerel API ucu", keywords: "gateway cursor cline bağlantı" },
   { section: "zeka", id: "settings-intelligence", label: "Zeka", keywords: "motor fusion plan öz-denetim ders öğretmen doğrulama playbook yansıma kendini geliştir" },
   { section: "uzak", id: "settings-remote", label: "Uzaktan Erişim", keywords: "telefon pwa telegram eşleştir cihaz uzak" },
