@@ -239,16 +239,28 @@ def _flow_revision(raw: object) -> int:
     return revision
 
 
+def _modified_time(path: Path) -> float:
+    """Değişim zamanı; sıralama sırasında silinen dosya en sona düşer (istisna fırlatmaz)."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 def list_flows(directory: Path | None = None) -> dict[str, Any]:
     base = directory or flows_dir()
     items = []
-    paths = sorted(base.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    for path in paths if base.is_dir() else ():
+    paths = sorted(base.glob("*.json"), key=_modified_time, reverse=True) if base.is_dir() else ()
+    for path in paths:
         try:
-            name = json.loads(path.read_text(encoding="utf-8")).get("ad", "")
+            content = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        items.append({"id": path.stem, "ad": _text(name, _MAX_NAME) or "Adsız akış"})
+        # Ölçüldü (30 Ekim): JSON'u liste olan bir dosya `.get` ile AttributeError veriyor,
+        # tüm akış listesi düşüyordu.
+        if not isinstance(content, dict):
+            continue
+        items.append({"id": path.stem, "ad": _text(content.get("ad", ""), _MAX_NAME) or "Adsız akış"})
     return {"ok": True, "akislar": items}
 
 

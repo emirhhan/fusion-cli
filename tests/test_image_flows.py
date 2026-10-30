@@ -170,3 +170,15 @@ def test_legacy_akis_ilk_kayitta_revision_ile_goc_eder(tmp_path):
     saved = save_flow({"akis": legacy}, tmp_path)
     assert saved["ok"] is True
     assert saved["revision"] == 1
+
+
+def test_bozuk_akis_dosyasi_listeyi_dusurmez(tmp_path) -> None:
+    """Ölçüldü (30 Ekim, S1-38): JSON'u liste olan dosya `.get` ile AttributeError veriyordu."""
+    from fusion_cli.appserver import image_flows
+
+    (tmp_path / "bozuk.json").write_text("[1, 2]", encoding="utf-8")
+    (tmp_path / "iyi.json").write_text('{"ad": "Kask"}', encoding="utf-8")
+
+    sonuc = image_flows.list_flows(tmp_path)
+
+    assert sonuc["akislar"] == [{"id": "iyi", "ad": "Kask"}]
