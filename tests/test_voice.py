@@ -652,3 +652,23 @@ def test_onerilen_ses_zaten_kuruluysa_indirme_onerilmez() -> None:
 
     assert upgrade_hint((("Cem", "tr_TR", "Cem"), ("Yelda", "tr_TR", "Yelda"))) is None
     assert upgrade_hint((("Yelda", "tr_TR", "Yelda"),)) is not None
+
+
+def test_windows_calma_komutu_yoldaki_kesme_isaretini_kacirir(tmp_path, monkeypatch) -> None:
+    """Ölçüldü (30 Ekim, S2-43): yol PowerShell tek tırnağına olduğu gibi gömülüyordu;
+    kullanıcı adında `'` (O'Brien) varsa çalma bozuluyordu."""
+    from fusion_cli.appserver import voice
+
+    gorulen: list[list[str]] = []
+
+    def yakala(argv, _yol):
+        gorulen.append(argv)
+        raise OSError("test")
+
+    monkeypatch.setattr(voice.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(voice, "_spawn_speech_process", yakala)
+    dosya = tmp_path / "O'Brien" / "ses.wav"
+
+    voice._play_wav_file(dosya)
+
+    assert "O''Brien" in gorulen[0][-1]

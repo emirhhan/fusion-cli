@@ -26,9 +26,6 @@ from typing import Any
 
 from .prepared_voice import PreparedVoiceStore, StaleVoiceGenerationError
 
-#: Sentezleyiciye verilecek metnin üst sınırı. Uzun cevabın tamamını okumak
-#: kullanıcıyı bekletir; arayüz gerekiyorsa parça parça gönderir.
-MAX_SPEECH_CHARS = 4_000
 CANCEL_TIMEOUT_SECONDS = 0.5
 
 # Yalnız Fusion'ın başlattığı TTS süreçleri yönetilir. Sistem genelinde
@@ -437,7 +434,9 @@ def _play_wav_file(cikti: Path) -> dict[str, Any]:
             "powershell",
             "-NoProfile",
             "-Command",
-            f"(New-Object Media.SoundPlayer '{cikti}').PlaySync()",
+            # PowerShell tek tırnaklı dizgede `'` iki kez yazılarak kaçırılır; kullanıcı adında
+            # kesme işareti (O'Brien) çalmayı bozuyordu (ölçüldü 30 Ekim).
+            f"(New-Object Media.SoundPlayer '{str(cikti).replace(chr(39), chr(39) * 2)}').PlaySync()",
         ]
     )
     try:
