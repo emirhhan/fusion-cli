@@ -97,7 +97,7 @@ Bunlar "model stratejisi" değil ama ücretsiz LLM'lerde performansın bel kemi�
   (`router/litellm_client.py:acomplete`). Tek-nokta-arıza yok.
 - **Straggler kesme:** `candidate_hard_cap_s` (vars. 25s) ve `straggler_grace_s` (6s) ile
   yavaş/soğuk model turu kilitlemez.
-- **Hakem deadline:** `judge_timeout_s` (12s) aşılınca hakem atlanır, sezgisel kazanana düşülür.
+- **Hakem deadline:** `judge_timeout_s` (20s) aşılınca hakem atlanır, sezgisel kazanana düşülür.
 - **Warm-up:** REPL açılırken agent modeli arka planda ısıtılır (NIM soğuk başlangıcı gizlenir).
 - **Bağlam sıkıştırma:** Geçmiş eşiği aşınca eski turlar özetlenir (uzun oturum koruması).
 

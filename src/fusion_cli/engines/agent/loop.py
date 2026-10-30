@@ -2011,16 +2011,21 @@ def _active_spec(deps: AgentDeps, execution: ExecutionPolicy) -> ModelSpec:
 #: Geçici model hatasında (hız sınırı, sunucu hatası, zaman aşımı) varsayılan yeniden
 #: deneme sayısı; asıl değer `runtime.model_retry_attempts`tan okunur.
 #
-# Claude Code belgesi (code.claude.com/docs/en/errors): geçici hatalar "10 kereye
-# kadar üstel geri çekilmeyle" yeniden denenir; bekleme ekranda geri sayımla
-# gösterilir. Ölçüldü (28 Eylül): Fusion aynı modeli yalnız 3 kez (1,5 sn, 4 sn)
-# deniyordu; NIM'in dakikalık sınırı 60 sn'de sıfırlandığı için 28 dakikalık iş ham
-# "RateLimitError 429" metniyle bitti.
-MAX_TRANSIENT_RETRIES = 10
+# Tarihçe: Claude Code belgesi (code.claude.com/docs/en/errors) 10 kereye kadar üstel
+# geri çekilme der. Ölçüldü (28 Eylül): Fusion aynı modeli yalnız 3 kez deniyordu ve
+# 28 dakikalık iş NIM'in 429'uyla bitti; sayı 10'a çıkarıldı. Ölçüldü (30 Ekim, Z1-35):
+# 10 deneme ≈ 5 dk boş bekleme demek; oysa 429'da zincirdeki sonraki yedeğe BEKLEMEDEN
+# geçilir (`providers/chain.py` `yield_on_rate_limit`) ve yedek zinciri artık tanımlı.
+# Kalan beklemeler yalnız TÜM zincir düştüğünde işler → 4 deneme + hız sınırında uzun
+# taban (aşağıda) bir dakikalık NIM penceresini kapsar, uzun iş yine düşmez.
+MAX_TRANSIENT_RETRIES = 4
 #: Üstel geri çekilmenin ilk beklemesi ve tavanı (sn). Tavan, NIM'in dakikalık hız
 #: sınırı penceresidir (60 sn / 40 istek, bkz. `defaults.yaml` `retry_delays_s`):
 #: daha uzun beklemek sınırın sıfırlanmasından sonra boşuna vakit kaybettirir.
 RETRY_BASE_DELAY_S = 2.0
+#: Hız sınırında (429) ilk bekleme: kısa beklemeler pencereyi aşmaz, aynı 429'u tekrar
+#: yer. 10, 20, 40, 60 → dört denemede ≈130 sn, bir dakikalık pencereyi iki kez kapsar.
+RATE_LIMIT_BASE_DELAY_S = 10.0
 #: Çıktı bütçesinin en fazla kaç katına büyütüleceği. 4: varsayılan bütçe düşünen
 #: modelin uzun bir planı da yazmasına yeter; daha fazlası tek çağrıyı dakikalarca
 #: uzatır ve bağlam penceresini zorlar.
@@ -2048,9 +2053,14 @@ SHORTER_AFTER_TIMEOUT_NOTE = (
 )
 
 
-def retry_delay_s(attempt: int) -> float:
-    """`attempt`. yeniden denemeden önceki bekleme (0'dan başlar)."""
-    return min(RETRY_BASE_DELAY_S * float(2**attempt), RETRY_MAX_DELAY_S)
+def retry_delay_s(attempt: int, *, rate_limited: bool = False) -> float:
+    """`attempt`. yeniden denemeden önceki bekleme (0'dan başlar).
+
+    Hız sınırında (`rate_limited`) taban uzundur: dakikalık pencerenin sıfırlanması
+    beklenir, 2 sn sonra aynı 429'a çarpmanın anlamı yoktur.
+    """
+    base = RATE_LIMIT_BASE_DELAY_S if rate_limited else RETRY_BASE_DELAY_S
+    return min(base * float(2**attempt), RETRY_MAX_DELAY_S)
 
 
 async def _call_with_retries(
@@ -2147,7 +2157,9 @@ async def _call_with_retries(
             if result is None:
                 raise _CallTimeoutError(call_timeout)
             return result
-        delay = retry_delay_s(attempt)
+        delay = retry_delay_s(
+            attempt, rate_limited=result is not None and is_rate_limit_error(result.error)
+        )
         attempt += 1
         if result is None and not any(m.content == SHORTER_AFTER_TIMEOUT_NOTE for m in messages):
             messages.append(Message("user", SHORTER_AFTER_TIMEOUT_NOTE, harness_note=True))

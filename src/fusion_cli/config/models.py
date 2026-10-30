@@ -82,7 +82,8 @@ class RuntimeConfig:
     verified_synthesis: bool
     #: Hakem seçtikten sonra tüm cevapları tek üstün cevapta birleştir.
     synthesis: bool
-    #: Agent modunda model çağrısı üst sınırı; `None` = sınır yok (varsayılan).
+    #: Agent modunda model çağrısı üst sınırı; `None` = sınır yok. Varsayılan 400
+    #: (güvenlik tavanı, Z1-40; bkz. `defaults.yaml`).
     #: Turun TAMAMI için geçerlidir: öz-denetim ve doğrulama kapısının açtığı
     #: düzeltici turlar da aynı bütçeden yer.
     agent_max_steps: int | None
@@ -116,7 +117,7 @@ class RuntimeConfig:
     teacher_codex_fallback: bool = False
     #: Birincil model (yerel/API) cevap veremezse, girişi doğrulanmış ve araç ölçümünü
     #: geçmiş web oturumlarına otomatik geç (bağlam taşması, model kapalı, sunucu hatası).
-    auto_web_fallback: bool = True
+    auto_web_fallback: bool = False
     #: Modele HİÇ SUNULMAYACAK araçların adları (takma adları da kapanır). Kullanıcı bir
     #: aracı istemiyorsa ya da bir yeteneği araçsız ölçmek istiyorsa (ör. `clone_site`
     #: kapalıyken model siteyi kendisi kurabiliyor mu?) buradan kapatır.
@@ -207,9 +208,9 @@ class RuntimeConfig:
     #: `true` yapıldığında kök dışına erişim `PathAccessError` ile reddedilir.
     restrict_to_root: bool = False
     #: Agent turunda geçici model hatasında (429, 5xx, zaman aşımı) yeniden deneme
-    #: sayısı; beklemeler üstel artar. 0 = yeniden deneme yok. Varsayılan 10:
-    #: Claude Code'un belgelenmiş varsayılanı (bkz. `loop.MAX_TRANSIENT_RETRIES`).
-    model_retry_attempts: int = 10
+    #: sayısı; beklemeler üstel artar. 0 = yeniden deneme yok. Varsayılan 4: 429'da
+    #: yedeğe beklemeden geçilir (bkz. `loop.MAX_TRANSIENT_RETRIES`, Z1-35).
+    model_retry_attempts: int = 4
     #: Sağlayıcı kimliği → MODEL başına dakikalık istek sınırı. Bilinen sınır önden
     #: korunur (paralel ajanlar ve sekmeler ortak kovadan hak alır) ki 429 hiç
     #: gelmesin. Listede olmayan sağlayıcı yavaşlatılmaz; yalnız 429'u paylaşılır.

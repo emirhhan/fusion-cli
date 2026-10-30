@@ -98,12 +98,16 @@ runtime:
   # Boş liste ([]) yeniden denemeyi tamamen kapatır.
   retry_delays_s: [1.5, 4.0]
   # Agent turunda geçici model hatası (429 hız sınırı, 5xx, zaman aşımı) bu kadar
-  # kez daha denenir; beklemeler üstel artar (2, 4, 8 … sn, en fazla 60 sn).
-  # Yukarıdaki kısa denemelerden AYRIDIR: onlar anlık dalgalanmayı, bu dakikalık
-  # hız sınırının sıfırlanmasını bekler. Claude Code'un belgelenmiş varsayılanı 10'dur
-  # (code.claude.com/docs/en/errors). Ölçüldü (28 Eylül): 3 denemeyle 28 dakikalık
-  # iş NIM'in 429 hatasıyla bitti. 0 = yeniden deneme yok.
-  model_retry_attempts: 10
+  # kez daha denenir; beklemeler üstel artar (2, 4, 8, 16 sn; hız sınırında 10, 20, 40,
+  # 60 sn). Yukarıdaki kısa denemelerden AYRIDIR: onlar anlık dalgalanmayı, bu dakikalık
+  # hız sınırının sıfırlanmasını bekler. 0 = yeniden deneme yok.
+  #
+  # Tarihçe: 28 Eylül'de 3 denemeyle 28 dakikalık iş NIM'in 429'uyla bitince 10'a
+  # çıkarılmıştı (Claude Code'un belgelenmiş varsayılanı). 30 Ekim (Z1-35): 10 deneme
+  # ≈ 5 dk boş bekleme; 429'da zincirdeki sonraki yedeğe zaten BEKLEMEDEN geçilir
+  # (`yield_on_rate_limit`), bu yüzden 4'e indirildi — uzun iş hız sınırı uzun taban
+  # beklemesi sayesinde yine düşmez. Mevcut kullanıcının açık ayarı ezilmez.
+  model_retry_attempts: 4
   # Sağlayıcı başına MODEL başı dakikalık istek sınırı; önden korunur ki 429 hiç
   # gelmesin. Masaüstünde her sekme ayrı süreçtir ve paralel alt ajanlar aynı modeli
   # aynı anda çağırır: kova bütün süreçlerde ORTAKTIR (bkz. providers/rate_gate.py).
@@ -176,7 +180,12 @@ runtime:
   # --- Fusion zamanlaması ---
   # Hakem için SIKI son tarih: bu sürede JSON gelmezse hakem atlanır, sezgisel kazanan
   # seçilir. Sentez yine üretilir → kullanıcı hiçbir senaryoda beklemede kalmaz.
-  judge_timeout_s: 12
+  # 30 Ekim (Z1-34): 12 sn, aşağıdaki `judge_max_tokens` (3072 ≈ 30 sn @ ~104 tok/s) ve
+  # ölçülen 486-1150 token (≈5-11 sn + gecikme) ile uyumsuzdu; reasoning hakemi sık sık
+  # aşılıp kalite sessizce sezgisele düşüyordu. 20 sn ölçülen üretimi karşılar, kötü
+  # durumda bekleme sınırı yine kısadır (kullanıcı 30 sn üstü beklemez). Mevcut
+  # kullanıcının açık ayarı ezilmez.
+  judge_timeout_s: 20
   # Reasoning modelleri önce "düşünür", sonra JSON/talimat verir; ikisi bu bütçeye
   # sığmalıdır.
   #
@@ -215,15 +224,19 @@ runtime:
   # değişiklik yapmadan okursa, araç sınamasını geçmiş web öğretmeni devralır.
   # 0 = kapalı. Kullanıcının zorunlu/tek model seçimi bu yolla değiştirilmez.
   agent_teacher_takeover_tools: 10
-  # Model çağrısı üst sınırı. Boş (null) = sınır yok.
+  # Model çağrısı üst sınırı (turun TAMAMI için). Boş (null) = sınır yok.
   #
   # Claude Code'un belgelenmiş varsayılanı: döngü, model araç çağırmayı bırakıp
-  # cevabını verene kadar sürer; `max_turns` ve bütçe sınırı varsayılan olarak
-  # YOKTUR (bkz. code.claude.com/docs/en/agent-sdk/agent-loop). Kullanıcı her an
-  # durdurabilir ya da yön verebilir. Ölçüldü (28 Eylül): 200'lük sınır ve
-  # ilerleme kapısı büyük proje görevini yarıda kesiyordu. Sınır isteyen kullanıcı
-  # buraya bir sayı yazar; sınır dolunca iş özetlenir ve kaldığı yerden sürer.
-  agent_max_steps: null
+  # cevabını verene kadar sürer; `max_turns` varsayılan olarak YOKTUR (bkz.
+  # code.claude.com/docs/en/agent-sdk/agent-loop). Ölçüldü (28 Eylül): 200'lük sınır ve
+  # ilerleme kapısı büyük proje görevini yarıda kesiyordu, bu yüzden sınır kaldırılmıştı.
+  # 30 Ekim (Z1-40): sınırsız döngü, zayıf modelde sonsuz araç döngüsü demek; mobil ve
+  # uzaktan kullanımda kota tükenir ve yalnız kullanıcı durdurabilir. 400, 200'ün iki
+  # katı ve ölçülen en uzun meşru işin (28 dakika) çok üstünde bir GÜVENLİK tavanıdır.
+  # Tavan dolunca iş yarım bırakılmaz: tur kapanır, görev listesi ve ilerleme özetlenir
+  # (`ui/turn_stop.py`) ve "devam et" kaldığı yerden sürdürür. Mevcut kullanıcının açık
+  # ayarı ezilmez; sınırsız isteyen `null` yazar.
+  agent_max_steps: 400
   # Ardışık kaç araç turu HİÇBİR ilerleme üretmezse modele "aramayı bırak, sıradaki
   # somut adımı at" notu gönderilir. Tur KESİLMEZ (Claude Code'da ilerleme kapısı
   # yoktur); not yalnız modeli döngüden çıkarmaya çalışır.
@@ -250,7 +263,13 @@ runtime:
   # Öğretmen için Codex limitini son yedek olarak kullan (varsayılan kapalı; yalnız sohbet limitleri).
   teacher_codex_fallback: false
   # Model cevap veremezse doğrulanmış web oturumlarına otomatik geç.
-  auto_web_fallback: true
+  #
+  # Varsayılan KAPALI (30 Ekim, P1-15): otomatik yedek, kullanıcının kodunu ve
+  # prompt'larını bilgisi dışında üçüncü taraf tüketici web arayüzüne yollar ve
+  # captcha/giriş çıkarsa gizli pencereyi kullanıcının ÖNÜNE getirebilir. Açıkça
+  # isteyen `true` yazar (Ayarlar > Model rolleri > web yedeği); API yedek zinciri
+  # (`fallback:`) bundan bağımsız çalışmaya devam eder. Mevcut açık ayar ezilmez.
+  auto_web_fallback: false
   # Kod değiştiren tur sonrası çalıştırılacak doğrulama komutları. Boş = KAPALI
   # (varsayılan): mevcut davranış korunur. Doldurulursa (ör. ["ruff check", "pytest -q"])
   # kapının sonucu ders güvenini besler — "doğrulamadan bitirme" kuralı gerçekten uygulanır.

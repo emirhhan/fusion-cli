@@ -124,7 +124,14 @@ def test_olu_yedek_ayiklanir_arac_gecen_web_oturumu_eklenir(tmp_path: Path, monk
     yol = tmp_path / "c.yaml"
     yol.write_text(YAML, encoding="utf-8")
     config = _dogrulanmis(load_config(yol))
-    spec: ModelSpec = live_fallbacks(config.agent, config)
+    # Varsayılan KAPALI (P1-15): önce varsayılanda web oturumunun eklenmediği,
+    # sonra kullanıcı açıkça açınca eklendiği sınanır.
+    varsayilan: ModelSpec = live_fallbacks(config.agent, config)
+    assert not any(model.endswith("_web/main/auto") for model in varsayilan.fallback)
+    from dataclasses import replace
+
+    acik = replace(config, runtime=replace(config.runtime, auto_web_fallback=True))
+    spec: ModelSpec = live_fallbacks(acik.agent, acik)
     assert "nvidia_nim/x/olu" not in spec.fallback
     assert spec.fallback == ("gemini_web/main/auto",)
 
