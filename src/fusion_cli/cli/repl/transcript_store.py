@@ -330,7 +330,10 @@ class TranscriptStore:
             "timestamp": time.time(),
             **payload,
         }
-        line = redact(json.dumps(payload, ensure_ascii=False, default=str)) + "\n"
+        # Maskeleme DEĞERLER üzerinde yapılır, serileştirilmiş satırda DEĞİL: Ölçüldü (30 Ekim)
+        # `api_key="…"` gibi bir desen JSON'daki tırnağı/kaçışı da yutuyor, satır geçersiz
+        # JSON oluyor ve okuyucu onu sessizce atlayıp mesajı kaybediyordu (L2-17).
+        line = json.dumps(_redact_values(payload), ensure_ascii=False, default=str) + "\n"
         try:
             # Kalıcı sohbet günlüğü eklemelidir; döndürme başka sohbetleri kaybettirir.
             with self.events_path.open("a", encoding="utf-8") as handle:
@@ -338,6 +341,17 @@ class TranscriptStore:
             self.events_path.chmod(0o600)
         except OSError:
             return
+
+
+def _redact_values(value: object) -> object:
+    """Yapıdaki tüm metin DEĞERLERİNİ maskele; yapı (anahtarlar, tırnaklar) bozulmaz."""
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, dict):
+        return {key: _redact_values(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_values(item) for item in value]
+    return value
 
 
 def _jsonable(value: object) -> object:
