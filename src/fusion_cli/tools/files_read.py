@@ -3,12 +3,28 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from threading import Event
 
 from ..core.tools import ToolResult
 
 _CHUNK_CHARS = 8_192
+_PHYSICAL_BREAK = re.compile(r"\r\n|\r|\n")
+
+
+def split_physical_lines(text: str) -> list[str]:
+    """Metni yalnız `\\n`, `\\r\\n`, `\\r` ile satırlara böl.
+
+    `str.splitlines()` form-feed, VT, FS/GS/RS, NEL ve U+2028/9'da da böler; büyük
+    dosyalar için kullanılan `readline` (evrensel satır sonu) ise bölmez. Ölçüldü
+    (30 Ekim): içinde `^L` olan küçük bir dosya, ripgrep ve editörden farklı numaralanıyor,
+    64 KiB üstünde ise başka bir sayım veriyordu. İki yol artık aynı tanımı kullanır.
+    """
+    parts = _PHYSICAL_BREAK.split(text)
+    if parts and parts[-1] == "":
+        parts.pop()
+    return parts
 
 
 def read_large_text(

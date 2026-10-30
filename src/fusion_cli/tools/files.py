@@ -33,6 +33,7 @@ from ..core.structured_files import validate_structured
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import (
     ArgumentError,
+    is_truthy,
     optional_str,
     require_list,
     require_positive_int,
@@ -40,10 +41,11 @@ from .args import (
     require_text,
 )
 from .diffing import bounded_diff
-from .files_read import read_large_text
+from .files_read import read_large_text, split_physical_lines
 from .lost_definitions import lost_definitions
 from .remotion_guard import guard_remotion_write
 from .user_folders import user_folder_hint
+from .yarim_dosya import yarim_uyarisi
 
 #: Bir yolun "uydurma" sayılması için en az bileşen sayısı (`/mnt/data/x`). Tek
 #: bileşenli `/api` gibi metinler çoğu kez URL yolu ya da desendir, yol değil.
@@ -144,6 +146,10 @@ def atomic_write(path: Path, content: str) -> None:
     tek kelimelik düzenleme bütün dosyayı LF'ye çeviriyordu. Yeni dosya eskisi gibi
     yazılır.
     """
+    # Symlink hedefi: `replace` bağın KENDİSİNİ düz dosyayla değiştirirdi (dotfile
+    # depoları). Yazı gerçek hedefe gider, bağ korunur.
+    if path.is_symlink():
+        path = path.resolve()
     newline = _existing_newline(path)
     if newline == "\r\n":
         content = content.replace("\r\n", "\n")
@@ -152,6 +158,8 @@ def atomic_write(path: Path, content: str) -> None:
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline=newline) as dosya:
             dosya.write(content)
+            dosya.flush()
+            os.fsync(dosya.fileno())  # çökmede boş/yarım dosya kalmasın
         gecici.chmod(_target_mode(path))
         gecici.replace(path)
     except BaseException:
@@ -230,6 +238,13 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         )
     if path.is_dir():
         return ToolResult.failure(f"Bu bir dizin, dosya değil: {display_path(context, path)}")
+    if not path.is_file():
+        # FIFO/soket/aygıt (`/dev/zero`): `read_bytes()` sınırsız bellek ya da süresiz
+        # bloklama demektir. Ölçüldü (30 Ekim): proje içindeki bir FIFO okumayı kilitliyordu.
+        return ToolResult.failure(
+            f"Bu düzenli dosya değil (boru/soket/aygıt): {display_path(context, path)}. "
+            "Okunamaz; gerçek bir dosya yolu ver."
+        )
 
     is_artifact = context.artifacts is not None and context.artifacts.owns(path)
     if not is_artifact and path.stat().st_size > MAX_READ_BYTES:
@@ -252,7 +267,7 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
             f"Metin dosyası değil (UTF-8 çözülemedi): {display_path(context, path)}"
         )
 
-    lines = text.splitlines()
+    lines = split_physical_lines(text)
     if is_artifact:
         # Tool output can contain one enormous line. Split only artifacts into
         # bounded display segments so reading one cannot offload itself again.
@@ -408,12 +423,16 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     _remember_revision(context, path)
     context.touched.add(path)
     shown = display_path(context, path)
+    yarim = yarim_uyarisi(path, content)
+    ek_uyari = f"\n{yarim}" if yarim else ""
     if not existed:
-        return ToolResult(f"oluşturuldu: {shown} ({len(content.splitlines())} satır)")
+        return ToolResult(
+            f"oluşturuldu: {shown} ({len(split_physical_lines(content))} satır){ek_uyari}"
+        )
     if before is None:
         # Önceki içerik metin değildi; fark gösterilemez, yalnız boyut söylenir.
-        return ToolResult(f"güncellendi: {shown} ({len(content)} karakter)")
-    header = f"güncellendi: {shown}"
+        return ToolResult(f"güncellendi: {shown} ({len(content)} karakter){ek_uyari}")
+    header = f"güncellendi: {shown}{ek_uyari}"
     kayip = lost_definitions(before, content)
     if kayip:
         header += (
@@ -508,6 +527,22 @@ def _missing_edit_target(path: Path, context: ToolContext) -> ToolResult:
     )
 
 
+def _read_for_edit(path: Path, context: ToolContext) -> str | ToolResult:
+    """Düzenlenecek dosyayı UTF-8 oku; çözülemezse ham istisna yerine yol göster.
+
+    Ölçüldü (30 Ekim): cp1254/UTF-16 bir dosyada `UnicodeDecodeError` ham olarak
+    yukarı çıkıyor, model "beklenmedik hata" görüp ne yapacağını bilemiyordu.
+    """
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return ToolResult.failure(
+            f"Metin dosyası değil (UTF-8 çözülemedi): {display_path(context, path)}. "
+            "Eski kodlamalı (Windows-1254, UTF-16) dosya edit_file ile düzenlenemez; "
+            "kodlamayı UTF-8'e çevirmek için run_shell (iconv) kullan."
+        )
+
+
 def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     path = writable_path(context, require_str(args, "path"))
     # Gönderilmemiş `old` ile BOŞ `old` farklı hatalardır: ilki eksik alan,
@@ -516,11 +551,13 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(EMPTY_OLD_MESSAGE)
     old = require_str(args, "old")
     new = require_text(args, "new")
-    replace_all = args.get("replace_all") is True
+    replace_all = is_truthy(args.get("replace_all"))
 
     if not path.exists():
         return _missing_edit_target(path, context)
-    text = path.read_text(encoding="utf-8")
+    text = _read_for_edit(path, context)
+    if isinstance(text, ToolResult):
+        return text
     old = _tolerate_line_numbers(text, old)
 
     if replace_all:
@@ -564,7 +601,9 @@ def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     if not path.exists():
         return _missing_edit_target(path, context)
-    original = path.read_text(encoding="utf-8")
+    original = _read_for_edit(path, context)
+    if isinstance(original, ToolResult):
+        return original
 
     working = original
     toplam = 0
@@ -593,12 +632,25 @@ def list_dir(args: ToolArgs, context: ToolContext) -> ToolResult:
     if path.is_file():
         return ToolResult(str(path))
 
-    entries = sorted(path.iterdir(), key=lambda entry: (entry.is_file(), entry.name.lower()))
-    visible = [
-        f"{'📁' if entry.is_dir() else '📄'} {entry.name}"
-        for entry in entries[:MAX_DIR_ENTRIES]
+    try:
+        entries = sorted(path.iterdir(), key=lambda entry: (entry.is_file(), entry.name.lower()))
+    except OSError as exc:
+        return ToolResult.failure(f"Dizin okunamadı: {display_path(context, path)} ({exc})")
+    # Süz → sırala → DİLİMLE. Önce dilimlemek gizli dosyaların kapasiteyi yemesine
+    # yol açıyordu; kırpma da bildirilmiyor, model dizinin tamamını gördüğünü sanıyordu.
+    gorunen = [
+        entry
+        for entry in entries
         if not entry.name.startswith(".") or entry.name in VISIBLE_DOTFILES
     ]
+    visible = [
+        f"{'📁' if entry.is_dir() else '📄'} {entry.name}" for entry in gorunen[:MAX_DIR_ENTRIES]
+    ]
+    if len(gorunen) > MAX_DIR_ENTRIES:
+        visible.append(
+            f"[… +{len(gorunen) - MAX_DIR_ENTRIES} girdi daha var, liste kırpıldı. "
+            "Belirli bir dosya için glob ya da alt dizin için list_dir kullan.]"
+        )
     return ToolResult("\n".join(visible) if visible else "(boş dizin)")
 
 
@@ -618,7 +670,7 @@ def parse_edits(raw: object) -> tuple[tuple[str, str, bool], ...]:
             raise ArgumentError(f"{position}. düzenleme: 'old' boş olmayan bir metin olmalı.")
         if not isinstance(new, str):
             raise ArgumentError(f"{position}. düzenleme: 'new' metin olmalı.")
-        edits.append((old, new, item.get("replace_all") is True))
+        edits.append((old, new, is_truthy(item.get("replace_all"))))
     return tuple(edits)
 
 

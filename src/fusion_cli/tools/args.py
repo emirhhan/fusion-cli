@@ -65,10 +65,28 @@ def require_positive_int(args: ToolArgs, name: str, *, default: int) -> int:
     varsayılana düşer — okuma penceresi güvenlik sınırı değil kolaylıktır.
     """
     raw = args.get(name)
-    if not isinstance(raw, int | float | str):
+    # `True` bir `int`'tir ama "1" demek değildir; sonsuz/NaN float `int()`'te
+    # ValueError/OverflowError verir. Üçü de varsayılana düşer (ölçüldü, 30 Ekim).
+    if isinstance(raw, bool) or not isinstance(raw, int | float | str):
         return default
     try:
         value = int(raw)
-    except ValueError:
+    except (ValueError, OverflowError):
         return default
     return value if value > 0 else default
+
+
+_TRUE_TEXTS = frozenset({"true", "1", "yes", "evet"})
+
+
+def is_truthy(value: object) -> bool:
+    """Bool bekleyen alan için zayıf model toleransı: `true`, `"true"`, `1`, `"evet"`.
+
+    Ölçüldü (30 Ekim): `replace_all: "true"` sessizce False sayılıyor, çok eşleşme
+    hatası "replace_all: true ekleyin" diyor ve model aynı metni yollayıp döngüye giriyordu.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value == 1
+    return isinstance(value, str) and value.strip().lower() in _TRUE_TEXTS
