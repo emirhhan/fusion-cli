@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -65,26 +66,49 @@ def install(url: str, root: Path) -> InstalledCapability:
     owner, repo = parse_repo(url)
     name = f"{owner}-{repo}".lower()
     target = root / name
+    repo_url = f"https://github.com/{owner}/{repo}"
     if target.exists():
+        mevcut = _manifest_url(target)
+        if mevcut is not None and mevcut.lower() != repo_url.lower():
+            # `a-b/c` ve `a/b-c` aynı `<sahip>-<repo>` adını üretir.
+            raise CapabilityInstallError(
+                f"'{name}' adı başka bir repoyla çakışıyor ({mevcut}). Önce onu kaldır."
+            )
         raise CapabilityInstallError(
             f"'{name}' zaten kurulu ({target}). Güncellemek için önce kaldır."
         )
     root.mkdir(parents=True, exist_ok=True)
-    clean_url = f"https://github.com/{owner}/{repo}.git"
-    _git(
-        ["clone", "--depth", "1", "--quiet", clean_url, str(target)],
-        cwd=root,
-        timeout=CLONE_TIMEOUT_S,
-    )
-    commit = _git(["rev-parse", "HEAD"], cwd=target, timeout=GIT_TIMEOUT_S).strip()
-    installed = describe(name, f"https://github.com/{owner}/{repo}", commit, target)
-    (target / _MANIFEST).write_text(
-        json.dumps(
-            {"url": installed.url, "commit": commit, "kurulum": time.time()}, ensure_ascii=False
-        ),
-        encoding="utf-8",
-    )
+    clean_url = f"{repo_url}.git"
+    try:
+        _git(
+            ["clone", "--depth", "1", "--quiet", clean_url, str(target)],
+            cwd=root,
+            timeout=CLONE_TIMEOUT_S,
+        )
+        commit = _git(["rev-parse", "HEAD"], cwd=target, timeout=GIT_TIMEOUT_S).strip()
+        installed = describe(name, repo_url, commit, target)
+        (target / _MANIFEST).write_text(
+            json.dumps(
+                {"url": installed.url, "commit": commit, "kurulum": time.time()},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    except BaseException:
+        # Yarım kurulum (klon zaman aşımı, manifest yazımı çöktü) HİÇ kalmaz: aksi halde
+        # sonraki `install` "zaten kurulu" der ama `installed()` manifestsiz klasörü
+        # listelemez ve kullanıcı elle silmek zorunda kalırdı (ölçüldü, 30 Ekim).
+        shutil.rmtree(target, ignore_errors=True)
+        raise
     return installed
+
+
+def _manifest_url(folder: Path) -> str | None:
+    try:
+        data = json.loads((folder / _MANIFEST).read_text(encoding="utf-8"))
+        return str(data["url"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def describe(name: str, url: str, commit: str, path: Path) -> InstalledCapability:
@@ -109,9 +133,11 @@ def installed(root: Path) -> list[InstalledCapability]:
     for folder in sorted(root.iterdir()):
         try:
             data = json.loads((folder / _MANIFEST).read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            url, commit = str(data["url"]), str(data["commit"])
+        except (OSError, ValueError, KeyError, TypeError):
+            # Eksik anahtar ya da dizi/tip uyuşmazlığı tek kaydı atlar, listeyi düşürmez.
             continue
-        found.append(describe(folder.name, str(data["url"]), str(data["commit"]), folder))
+        found.append(describe(folder.name, url, commit, folder))
     return found
 
 
