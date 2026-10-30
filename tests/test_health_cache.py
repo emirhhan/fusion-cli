@@ -79,3 +79,27 @@ def test_kayit_var_olan_diger_modelleri_korur(tmp_path):
     assert set(entries) == {"model-a", "model-b"}
     assert entries["model-a"].ok is True
     assert entries["model-b"].ok is False
+
+
+def test_kayit_atomik_yazilir_ve_es_zamanli_kayitlar_kaybolmaz(tmp_path):
+    """Ölçüldü (30 Ekim): `record` okuyup `write_text` ile yazıyordu; iki sekme aynı anda
+    sondajlarsa kayıt kayboluyor ya da yazma yarıda kalıp bozuk JSON bırakıyordu (P1-38)."""
+    import threading
+
+    from fusion_cli.providers import health_cache
+
+    yol = tmp_path / "model_health.json"
+
+    def yaz(ad: str) -> None:
+        for sira in range(15):
+            health_cache.record(yol, f"{ad}/{sira}", ok=True)
+
+    isler = [threading.Thread(target=yaz, args=(ad,)) for ad in ("a", "b", "c")]
+    for is_ in isler:
+        is_.start()
+    for is_ in isler:
+        is_.join()
+
+    kayitlar = health_cache.load(yol)
+    assert len(kayitlar) == 45
+    assert not list(tmp_path.glob(".*.tmp")), "yarım temp dosyası kalmamalı"

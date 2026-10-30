@@ -47,14 +47,16 @@ class SqliteRateLedger:
         self._ready = False
 
     def _connect(self) -> sqlite3.Connection:
+        # Dizin `connect`ten ÖNCE kurulur: yoksa `OperationalError` yakalanıp hız kapısı
+        # sessizce çalışmazdı. Şema idempotenttir (IF NOT EXISTS) ve her bağlantıda
+        # yenilenir: dosya sonradan silinirse defter kendini yeniden kurar.
+        self._path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(
             self._path, timeout=RATE_LEDGER_BUSY_TIMEOUT_S, isolation_level=None
         )
-        if not self._ready:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            for statement in _SCHEMA:
-                connection.execute(statement)
-            self._ready = True
+        for statement in _SCHEMA:
+            connection.execute(statement)
+        self._ready = True
         return connection
 
     def cooled_until(self, key: str) -> float:

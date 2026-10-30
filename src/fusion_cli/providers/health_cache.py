@@ -17,13 +17,19 @@ breaker'ın oturuma bağlı, kalıcı OLMAYAN durumu. Bu modüldeki `ProbeResult
 
 from __future__ import annotations
 
+import contextlib
 import json
+import threading
+import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..core.atomic_file import atomic_replace_text
 from ..core.clock import SystemClock
 from ..core.constants import MODEL_HEALTH_CACHE_TTL_S
+from ..core.file_lease import FileLease
 from ..core.protocols import Clock
 
 #: Önbellek dosyasının adı; `config.paths.user_data_dir()` altında durur.
@@ -40,6 +46,35 @@ class ProbeResult:
     checked_at: float
     #: Kısa insan-okur açıklama (hata ya da "araç çağrısı doğru" gibi). Sır içermez.
     detail: str = ""
+
+
+_record_lock = threading.Lock()
+_LEASE_ATTEMPTS = 100
+_LEASE_RETRY_S = 0.02
+
+
+@contextlib.contextmanager
+def _file_lease(path: Path) -> Iterator[None]:
+    """Süreçler arası kısa kilit (≈2 sn'ye kadar bekler); alınamazsa kilitsiz sürer.
+
+    Sondaj önbelleği bir iyileştirmedir: kilit yüzünden kayıt düşürmek yerine
+    (eski davranışla aynı) kilitsiz yazılır.
+    """
+    lease = FileLease(path.with_name(path.name + ".lock"))
+    held = False
+    try:
+        for _ in range(_LEASE_ATTEMPTS):
+            if lease.try_acquire():
+                held = True
+                break
+            time.sleep(_LEASE_RETRY_S)
+    except OSError:
+        held = False
+    try:
+        yield
+    finally:
+        if held:
+            lease.close()
 
 
 def _read_raw(path: Path) -> dict[str, Any]:
@@ -75,12 +110,13 @@ def load(path: Path) -> dict[str, ProbeResult]:
 
 def save(path: Path, entries: dict[str, ProbeResult]) -> None:
     """Önbelleği diske yaz. Ebeveyn dizin yoksa oluşturulur."""
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         model: {"ok": result.ok, "checked_at": result.checked_at, "detail": result.detail}
         for model, result in entries.items()
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Geçici dosya + replace: yarıda kalan yazma bozuk JSON bırakmaz (bozuk dosya
+    # `_read_raw`da boş sayılıp BÜTÜN geçmişi silerdi).
+    atomic_replace_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 def record(
@@ -93,9 +129,14 @@ def record(
 ) -> None:
     """Tek bir modelin sondaj sonucunu önbelleğe işle (var olanları korur)."""
     active_clock = clock or SystemClock()
-    entries = load(path)
-    entries[model] = ProbeResult(model=model, ok=ok, checked_at=active_clock.now(), detail=detail)
-    save(path, entries)
+    # Oku-değiştir-yaz tek parça: iki sekme/iş parçacığı aynı anda sondajlarsa biri
+    # diğerinin kaydını ezerdi.
+    with _record_lock, _file_lease(path):
+        entries = load(path)
+        entries[model] = ProbeResult(
+            model=model, ok=ok, checked_at=active_clock.now(), detail=detail
+        )
+        save(path, entries)
 
 
 def is_known_unhealthy(

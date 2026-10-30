@@ -248,3 +248,20 @@ async def test_fabrika_429_alan_anahtari_atlayip_digerine_gecer(tmp_path, monkey
     dolu_cagrilari = [yaprak for anahtar, yaprak in yapraklar if anahtar == "dolu"]
     assert sum(1 for yaprak in dolu_cagrilari if yaprak.started) == 1
     assert ledger.cooled_until(keyed_label("nvidia_nim/deneme", "dolu")) > 0
+
+
+def test_defter_dizini_yoksa_da_ilk_kullanimda_kurulur(tmp_path):
+    """Ölçüldü (30 Ekim): `sqlite3.connect` dizin oluşturulmadan ÖNCE çalışıyordu; dizin
+    yoksa `OperationalError` yakalanıp 'hak alındı' denir, hız kapısı sessizce
+    çalışmazdı. Tablo sonradan silinirse her işlem uyarı üretirdi (P1-37)."""
+    from fusion_cli.providers.rate_ledger import SqliteRateLedger
+
+    yol = tmp_path / "yok" / "daha-yok" / "rate.sqlite"
+    defter = SqliteRateLedger(yol)
+
+    defter.cool("k", 9_999_999_999.0)
+    assert defter.cooled_until("k") == 9_999_999_999.0
+
+    yol.unlink()  # dosya sonradan silinirse defter yeniden kurulur
+    defter.cool("k2", 9_999_999_999.0)
+    assert defter.cooled_until("k2") == 9_999_999_999.0
