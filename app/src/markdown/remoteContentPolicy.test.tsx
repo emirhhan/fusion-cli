@@ -51,3 +51,16 @@ describe("uzak içerik politikası", () => {
     });
   });
 });
+
+// Ölçüldü (30 Ekim): hatalı % dizisi decodeURIComponent'ı fırlatıp render'ı çökertiyor; file://localhost ve
+// file:///C:/ yanlış çözülüyordu (U5-22).
+describe("yerel dosya adresi çözümü (30 Ekim)", () => {
+  const asset = (path: string) => `asset:${path}`;
+  test("hatalı % dizisi fırlatmaz", () => {
+    expect(classifyImageSource("file:///a%zz.png", asset)).toEqual({ kind: "local", src: "asset:/a%zz.png" });
+  });
+  test("file://localhost ve Windows sürücü yolu doğru çözülür", () => {
+    expect(classifyImageSource("file://localhost/tmp/x%20y.png", asset)).toEqual({ kind: "local", src: "asset:/tmp/x y.png" });
+    expect(classifyImageSource("file:///C:/img/a.png", asset)).toEqual({ kind: "local", src: "asset:C:/img/a.png" });
+  });
+});

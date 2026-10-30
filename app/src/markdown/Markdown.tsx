@@ -1,5 +1,5 @@
 import { assetUrl } from "../platform/assetUrl";
-import { Fragment, type ReactNode, useEffect, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { marked, type Token, type Tokens } from "marked";
 import { CodeCard } from "./CodeCard";
 import { classifyImageSource, safeLinkHref } from "./remoteContentPolicy";
@@ -84,7 +84,7 @@ function renderInline(token: Token, onOpenFile?: (path: string) => void): ReactN
 function ListBlock({ token, onOpenFile }: { token: Tokens.List; onOpenFile?: (path: string) => void }) {
   const items = token.items.map((item, index) => (
     <li key={index}>
-      {item.task && <input checked={Boolean(item.checked)} disabled type="checkbox" />}
+      {item.task && <input aria-label={item.checked ? "Tamamlandı" : "Tamamlanmadı"} checked={Boolean(item.checked)} disabled readOnly type="checkbox" />}
       <BlockTokens onOpenFile={onOpenFile} tokens={item.tokens} />
     </li>
   ));
@@ -163,7 +163,11 @@ function BlockTokens({ tokens, onOpenFile }: { tokens: Token[]; onOpenFile?: (pa
 export function Markdown({ text, onOpenFile }: MarkdownProps) {
   // `gfm` tablo ve üstü-çizili için gerekli. `breaks` kapalı: model zaten iki
   // satırla paragraf ayırıyor, tek satır sonunu <br> saymak listeleri bozuyordu.
-  const tokens = marked.lexer(text, { gfm: true, breaks: false });
+  // Akış sırasında yalnız metin değişince baştan ayrıştırılır; boş/eksik yanıt (undefined) çökertmez (U5-23).
+  const tokens = useMemo(
+    () => marked.lexer(typeof text === "string" ? text : "", { gfm: true, breaks: false }),
+    [text],
+  );
   return (
     <div className="markdown">
       <BlockTokens onOpenFile={onOpenFile} tokens={tokens} />
@@ -176,11 +180,24 @@ function MarkdownImage({ alt, href }: { alt: string; href: string }) {
   const [remoteAllowed, setRemoteAllowed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    // Lightbox açılınca odak kapat düğmesine gider, Tab diyaloğun içinde kalır, kapanınca tetikleyiciye
+    // dönülür (U5-27).
+    const trigger = triggerRef.current;
+    closeRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+      else if (event.key === "Tab") { event.preventDefault(); closeRef.current?.focus(); }
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (trigger?.isConnected) trigger.focus();
+    };
   }, [open]);
   const label = alt || "Görsel";
   if (decision.kind === "blocked") return <span className="markdown__image-missing">🖼 {label}</span>;
@@ -193,6 +210,8 @@ function MarkdownImage({ alt, href }: { alt: string; href: string }) {
     );
   }
   const src = decision.src;
+  // Yüklenemeyen görsel boş şeffaf kutu bırakmaz: alt metinle açıkça gösterilir (U5-27).
+  if (failed) return <span className="markdown__image-missing" role="img" aria-label={`${label} (yüklenemedi)`}>🖼 {label} — yüklenemedi</span>;
   return (
     <>
       <button
@@ -200,12 +219,14 @@ function MarkdownImage({ alt, href }: { alt: string; href: string }) {
         className="markdown__image-button"
         data-loaded={loaded}
         onClick={() => setOpen(true)}
+        ref={triggerRef}
         type="button"
       >
         <img
           alt={alt}
           className="markdown__image"
           loading="lazy"
+          onError={() => setFailed(true)}
           onLoad={() => setLoaded(true)}
           referrerPolicy="no-referrer"
           src={src}
@@ -224,6 +245,7 @@ function MarkdownImage({ alt, href }: { alt: string; href: string }) {
             aria-label="Kapat"
             className="markdown__lightbox-close"
             onClick={(event) => { event.stopPropagation(); setOpen(false); }}
+            ref={closeRef}
             type="button"
           >
             ✕

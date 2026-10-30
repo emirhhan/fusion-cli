@@ -18,6 +18,22 @@ const REMOTE_IMAGE_PROTOCOLS = new Set(["http:", "https:"]);
 /** Mutlak yol ya da file:// — Tauri varlık protokolüne çevrilir. */
 const LOCAL_PATH = /^(?:file:\/\/|\/|[A-Za-z]:[\\/])/;
 
+/**
+ * `file://` adresini yola çevirir. Hatalı `%` dizisi (`a%zz.png`) render'ı çökertmesin diye ham
+ * hâli kullanılır; `file://localhost/x` ana makine adını atar ve `file:///C:/x` Windows sürücüsüne
+ * döner (U5-22).
+ */
+function fileUrlToPath(href: string): string {
+  let path = href.slice("file://".length);
+  if (/^localhost\//i.test(path)) path = path.slice("localhost".length);
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    // Geçersiz kaçış: olduğu gibi bırak.
+  }
+  return /^\/[A-Za-z]:[\\/]/.test(path) ? path.slice(1) : path;
+}
+
 function parse(href: string): URL | null {
   try {
     return new URL(href);
@@ -41,7 +57,7 @@ export function classifyImageSource(
 ): ImageSourceDecision {
   const trimmed = href.trim();
   if (LOCAL_PATH.test(trimmed)) {
-    const path = trimmed.startsWith("file://") ? decodeURIComponent(trimmed.slice(7)) : trimmed;
+    const path = trimmed.startsWith("file://") ? fileUrlToPath(trimmed) : trimmed;
     const src = toAsset(path);
     return src === null ? { kind: "blocked" } : { kind: "local", src };
   }

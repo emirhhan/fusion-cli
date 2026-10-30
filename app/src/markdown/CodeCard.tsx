@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { canonicalLanguage, highlight, type HighlightedLine } from "./highlight";
 
 /**
@@ -31,22 +31,31 @@ export interface CodeCardProps {
   onOpenFile?: (path: string) => void;
 }
 
+/** Akış sırasında kod büyüdükçe her token'da yeniden renklendirme yapılmasın diye bekleme (U5-24). */
+const HIGHLIGHT_DEBOUNCE_MS = 120;
+/** Bundan uzun blok ana iş parçacığını tıkamasın: düz metin kalır (U5-24). */
+const MAX_HIGHLIGHT_CHARS = 60_000;
+
 function useHighlighted(code: string, language: string | undefined): HighlightedLine[] | null {
-  const [lines, setLines] = useState<HighlightedLine[] | null>(null);
+  // Sonuç, ÜRETİLDİĞİ kodla birlikte tutulur: kod değişince eski renkli satırlar yeni metnin yerine geçmez.
+  const [result, setResult] = useState<{ code: string; lines: HighlightedLine[] | null } | null>(null);
   useEffect(() => {
-    if (!language) {
-      setLines(null);
+    if (!language || code.length > MAX_HIGHLIGHT_CHARS) {
+      setResult(null);
       return;
     }
     let active = true;
-    void highlight(code, language).then((result) => {
-      if (active) setLines(result);
-    });
+    const timer = window.setTimeout(() => {
+      void highlight(code, language).then((lines) => {
+        if (active) setResult({ code, lines });
+      });
+    }, HIGHLIGHT_DEBOUNCE_MS);
     return () => {
       active = false;
+      window.clearTimeout(timer);
     };
   }, [code, language]);
-  return lines;
+  return result !== null && result.code === code ? result.lines : null;
 }
 
 /**
@@ -90,7 +99,7 @@ function CodeBody({ code, lines, limit }: {
   );
 }
 
-export function CodeCard({ code, filename, language, onOpenFile }: CodeCardProps) {
+export const CodeCard = memo(function CodeCard({ code, filename, language, onOpenFile }: CodeCardProps) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const lines = useHighlighted(code, language);
@@ -150,4 +159,4 @@ export function CodeCard({ code, filename, language, onOpenFile }: CodeCardProps
       )}
     </figure>
   );
-}
+});

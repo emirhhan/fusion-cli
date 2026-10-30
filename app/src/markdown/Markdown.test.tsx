@@ -122,3 +122,31 @@ describe("Markdown — görseli büyütme", () => {
     expect(frame.dataset.loaded).toBe("true");
   });
 });
+
+// Ölçüldü (30 Ekim): undefined metin lexer'ı fırlatıyor, lightbox odak yönetimi yok, yüklenemeyen görsel boş kutu,
+// görev kutusu etiketsiz (U5-23, U5-27).
+describe("Markdown dayanıklılık (30 Ekim)", () => {
+  test("boş/eksik yanıt çökertmez", () => {
+    expect(() => render(<Markdown text={undefined as unknown as string} />)).not.toThrow();
+  });
+  test("görev kutuları etiketlidir", () => {
+    render(<Markdown text={"- [x] bitti\n- [ ] sürüyor"} />);
+    expect(screen.getByRole("checkbox", { name: "Tamamlandı" })).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: "Tamamlanmadı" })).toBeTruthy();
+  });
+  test("lightbox açılınca odak kapat düğmesine gider, kapanınca tetikleyiciye döner", () => {
+    render(<Markdown text={"![x](https://a.example/p.png)"} />);
+    fireEvent.click(screen.getByRole("button", { name: /uzak görseli yükle/ }));
+    const tetikleyici = screen.getByRole("button", { name: "x — büyüt" });
+    fireEvent.click(tetikleyici);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Kapat" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(document.activeElement).toBe(tetikleyici);
+  });
+  test("yüklenemeyen görsel boş kutu bırakmaz", () => {
+    const { container } = render(<Markdown text={"![x](https://a.example/p.png)"} />);
+    fireEvent.click(screen.getByRole("button", { name: /uzak görseli yükle/ }));
+    fireEvent.error(container.querySelector("img")!);
+    expect(screen.getByText(/yüklenemedi/)).toBeTruthy();
+  });
+});

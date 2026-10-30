@@ -72,3 +72,15 @@ describe("DiffCard", () => {
     expect(onOpenFile).toHaveBeenCalledWith("scripts/Player.gd");
   });
 });
+
+// Ölçüldü (30 Ekim): '--- yorum' silinmiş satırı ve '+++x' eklenmiş satır başlık sayılıyor, sayaç eksik çıkıyordu (U5-25).
+describe("parseDiff başlık ayrımı (30 Ekim)", () => {
+  test("hunk içindeki --- ve +++ satırları gerçek silinti/eklenti sayılır", () => {
+    const rows = parseDiff(["--- a/x", "+++ b/x", "@@ -1,2 +1,2 @@", "--- yorum", "+++x", ""].join("\n"));
+    expect(rows.map((row) => row.kind)).toEqual(["meta", "meta", "hunk", "remove", "add"]);
+    expect(countChanges(rows)).toEqual({ added: 1, removed: 1 });
+  });
+  test("başlığı olmayan önizlemede + satırları eklenti kalır", () => {
+    expect(parseDiff("+bir\n+--iki").map((row) => row.kind)).toEqual(["add", "add"]);
+  });
+});

@@ -74,3 +74,13 @@ describe("CodeCard", () => {
     expect(container.querySelector(".code-card__name")?.textContent).toBe("a.py");
   });
 });
+
+// Ölçüldü (30 Ekim): kod değişince eski renklendirilmiş satırlar yeni sonuç gelene dek görünüyordu (U5-24).
+describe("CodeCard bayat renklendirme (30 Ekim)", () => {
+  test("kod değişince eski renkli satırlar gösterilmez", async () => {
+    const { container, rerender } = render(<CodeCard code={"const a = 1;"} language="js" />);
+    await vi.waitFor(() => expect(container.querySelector("code span span")).not.toBeNull());
+    rerender(<CodeCard code={"const b = 22;"} language="js" />);
+    expect(container.querySelector("code")?.textContent).toBe("const b = 22;");
+  });
+});
