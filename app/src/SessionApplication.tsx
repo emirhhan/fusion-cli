@@ -8,6 +8,7 @@ import { submissionAccepted, type SubmissionResult } from "./sessions/submission
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
+import { useKapatmaNabzi } from "./dialogs/closeHeartbeat";
 import { ShareDialog } from "./dialogs/ShareDialog";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
 import { NewTaskDialog } from "./dialogs/NewTaskDialog";
@@ -544,6 +545,8 @@ export function SessionUygulama({
   // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
   const [busySubmissionMode, setBusySubmissionMode] = useState<"steer" | "queue">("steer");
   const [closeAsked, setCloseAsked] = useState(false);
+  // Soru açıkken Rust'a nabız gider; arayüz donarsa kapanış onaysız sürer (R2-14).
+  useKapatmaNabzi(closeAsked && kabukVar());
   /** Çekirdek bağlantısı koptuğunda çekirdeğin son hata çıktısı (varsa). */
   const [cekirdekGunlugu, setCekirdekGunlugu] = useState<string | null>(null);
   /** Çökme bildirimi kapatılan konuşma; aynı çökme bir daha gösterilmez. */
@@ -1149,7 +1152,11 @@ export function SessionUygulama({
   // ekranlarında onay hiç çizilmiyordu ve uygulama kapanmıyordu.
   const kapatmaOnayi = closeAsked ? (
     <CloseConfirm
-      onCancel={() => setCloseAsked(false)}
+      onCancel={() => {
+        setCloseAsked(false);
+        // Rust bekleyen isteği ve bekçisini temizlesin; yoksa nabız kesilince uygulama kapanırdı.
+        if (kabukVar()) void invoke("kapatma_vazgec").catch(() => undefined);
+      }}
       onConfirm={() => void invoke("kapatmayi_onayla").catch((reason: unknown) => setNewTaskError(`Uygulama kapatılamadı: ${errorMessage(reason)}`))}
       running={active?.running}
     />

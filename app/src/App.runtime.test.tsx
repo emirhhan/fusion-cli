@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { RuntimeBackendStatus, RuntimeTransport } from "./runtime/types";
@@ -93,6 +93,12 @@ describe("App runtime kapısı", () => {
     act(() => dinleyiciler.get("uygulama://kapatma-istegi")?.());
 
     expect(await screen.findByRole("dialog", { name: "Fusion'ı kapat?" })).toBeTruthy();
+    // Soru açıkken Rust'a nabız gider (R2-14).
+    await waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith("kapatma_nabzi"));
+
+    // Vazgeçmek Rust'taki bekleyen isteği temizler; yoksa nabız kesilince uygulama kapanırdı.
+    fireEvent.click(screen.getByRole("button", { name: "Vazgeç" }));
+    await waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith("kapatma_vazgec"));
   });
 
   /* Ölçüldü (28 Eylül, Windows): "Çekirdek bağlantısı kapatıldı" dışında hiçbir

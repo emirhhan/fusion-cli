@@ -1,4 +1,5 @@
 mod core_process;
+mod kapanis;
 mod kits_process;
 mod permissions;
 mod runtime_installer;
@@ -13,6 +14,7 @@ mod terminal;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use kapanis::{KapanisDurumu, Karar};
 use kits_process::{KitsManager, KitsStatus};
 use permissions::{izin_ayarlari_ac, izin_durumu, izin_iste};
 use runtime_installer::RuntimeResources;
@@ -416,8 +418,16 @@ fn ses_penceresi_ustte(app: tauri::AppHandle, ustte: bool) -> Result<(), String>
 }
 
 /// Kapatma onaylandı: oturumları durdur ve uygulamadan çık.
+///
+/// Temizlik en çok `TEMIZLIK_UST_SINIRI` sürer; aşılırsa bekçi süreci sonlandırır (R2-14).
 #[tauri::command]
 async fn kapatmayi_onayla(app: tauri::AppHandle) -> Result<(), String> {
+    let donus = app
+        .state::<KapanisDurumu>()
+        .onayla(std::time::Instant::now());
+    if donus.bekci_gerekli() {
+        kapatma_bekcisi_baslat(app.clone());
+    }
     engelleyen(move || {
         cleanup_route_from_app(ShutdownRoute::ConfirmedMainClose, &app);
         app.exit(0);
@@ -425,6 +435,97 @@ async fn kapatmayi_onayla(app: tauri::AppHandle) -> Result<(), String> {
     })
     .await
 }
+
+/// Kapatma sorusu açıkken arayüzün canlı olduğunu bildirir (R2-14). Arayüz soruyu gösterdiği
+/// sürece saniyede bir çağırır; kesilirse `NABIZ_ZAMAN_ASIMI` sonra kapanış onaysız sürer.
+#[tauri::command]
+fn kapatma_nabzi(durum: tauri::State<KapanisDurumu>) {
+    durum.nabiz(std::time::Instant::now());
+}
+
+/// Kullanıcı kapatmaktan vazgeçti: bekleyen kapatma isteği temizlenir, bekçi biter.
+#[tauri::command]
+fn kapatma_vazgec(durum: tauri::State<KapanisDurumu>) {
+    durum.vazgec();
+}
+
+/// Kapatmayı arayüze sordurur (ana pencere kapatma düğmesi, `ExitRequested`, macOS Cmd+Q menüsü).
+///
+/// Ana pencere simge durumundaysa (konuşma kipi) önce geri açılır; görünmeyen bir soru kimseden
+/// yanıt alamazdı. İlk istekte bekçi başlar: arayüz yanıtsızsa kapanış onaysız sürer (R2-14).
+fn kapatma_iste(app: &tauri::AppHandle) {
+    let Some(ana) = app.get_webview_window("main") else {
+        return;
+    };
+    let durum = app.state::<KapanisDurumu>();
+    if durum.onayli_mi() {
+        return;
+    }
+    if durum.iste(std::time::Instant::now()) {
+        kapatma_bekcisi_baslat(app.clone());
+    }
+    let _ = ana.unminimize();
+    let _ = ana.show();
+    let _ = ana.set_focus();
+    let _ = ana.emit("uygulama://kapatma-istegi", ());
+}
+
+/// Kapanış sınırlarını (nabız, temizlik süresi) denetleyen tek iş parçacığı.
+fn kapatma_bekcisi_baslat(app: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(kapanis::BEKCI_ARALIGI);
+        let durum = app.state::<KapanisDurumu>();
+        match durum.karar(std::time::Instant::now()) {
+            Karar::Bosta => break,
+            Karar::Bekle => {}
+            Karar::ArayuzYanitsiz => {
+                eprintln!("[fusion][kapanis] arayüz nabız vermiyor; kapanış onaysız sürdürülüyor");
+                let donus = durum.onayla(std::time::Instant::now());
+                if donus != kapanis::OnayDonusu::ZatenOnayli {
+                    let app = app.clone();
+                    std::thread::spawn(move || {
+                        cleanup_route_from_app(ShutdownRoute::ConfirmedMainClose, &app);
+                        app.exit(0);
+                    });
+                }
+            }
+            Karar::TemizlikAsildi => {
+                eprintln!("[fusion][kapanis] temizlik süre sınırını aştı; süreç sonlandırılıyor");
+                std::process::exit(0);
+            }
+        }
+    });
+}
+
+/// macOS'ta Cmd+Q varsayılan menüde `terminate:` çağırır: Tauri'de `ExitRequested` üretmez, uygulama
+/// sormadan kapanırdı. Varsayılan menü korunur, yalnız "Quit" maddesi kapatma sorusunu açan özel
+/// bir maddeyle değiştirilir (Düzenle menüsündeki kopyala/yapıştır dokunulmaz).
+#[cfg(target_os = "macos")]
+fn macos_cikis_menusunu_kur(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind};
+
+    let menu = Menu::default(app)?;
+    let cikis = MenuItem::with_id(app, CIKIS_MENU_KIMLIGI, "Quit Fusion", true, Some("Cmd+Q"))?;
+    for oge in menu.items()? {
+        let MenuItemKind::Submenu(alt) = oge else {
+            continue;
+        };
+        for madde in alt.items()? {
+            let MenuItemKind::Predefined(hazir) = &madde else {
+                continue;
+            };
+            if hazir.text()?.starts_with("Quit") {
+                alt.remove(&madde)?;
+                alt.append(&cikis)?;
+                return app.set_menu(menu).map(|_| ());
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+const CIKIS_MENU_KIMLIGI: &str = "fusion-cikis";
 
 #[derive(Clone, Copy, Debug)]
 enum ShutdownScope {
@@ -777,6 +878,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(SessionManager::new())
+        .manage(KapanisDurumu::new())
         .manage(SpeechManager::new())
         .manage(Arc::new(KitsManager::new()))
         .setup(|app| {
@@ -800,7 +902,19 @@ pub fn run() {
                 Arc::new(CommandHealthProbe),
             );
             app.manage(manager);
+            #[cfg(target_os = "macos")]
+            if let Err(error) = macos_cikis_menusunu_kur(app.handle()) {
+                eprintln!("[fusion][kapanis] Cmd+Q menüsü kurulamadı: {error}");
+            }
             Ok(())
+        })
+        .on_menu_event(|app, event| {
+            #[cfg(target_os = "macos")]
+            if event.id() == CIKIS_MENU_KIMLIGI {
+                kapatma_iste(app);
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
         })
         .invoke_handler(tauri::generate_handler![
             cekirdek_baslat,
@@ -824,6 +938,8 @@ pub fn run() {
             tanima_durdur,
             tanima_durum,
             kapatmayi_onayla,
+            kapatma_nabzi,
+            kapatma_vazgec,
             cekirdek_gunlugu,
             runtime_durum,
             runtime_hazirla,
@@ -841,7 +957,7 @@ pub fn run() {
                 // arayüz `kapatmayi_onayla` çağırır.
                 if window.label() == "main" {
                     api.prevent_close();
-                    let _ = window.emit("uygulama://kapatma-istegi", ());
+                    kapatma_iste(window.app_handle());
                     return;
                 }
                 if window.label() == SES_PENCERESI {
@@ -860,7 +976,20 @@ pub fn run() {
         .expect("error while building tauri application");
     app.run(|app, event| {
         let route = match event {
-            tauri::RunEvent::ExitRequested { .. } => Some(ShutdownRoute::ExitRequested),
+            tauri::RunEvent::ExitRequested { code, api, .. } => {
+                // Kullanıcı kaynaklı çıkış (kodsuz) onaysız sürmez: durdur ve arayüze sor (R2-14).
+                let sorulmali = kapanis::cikis_sorulmali(
+                    code,
+                    app.get_webview_window("main").is_some(),
+                    app.state::<KapanisDurumu>().onayli_mi(),
+                );
+                if sorulmali {
+                    api.prevent_exit();
+                    kapatma_iste(app);
+                    return;
+                }
+                Some(ShutdownRoute::ExitRequested)
+            }
             tauri::RunEvent::Exit => Some(ShutdownRoute::Exit),
             _ => None,
         };
