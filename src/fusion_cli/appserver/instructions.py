@@ -13,6 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ..core.atomic_file import atomic_replace_text
 from . import voice
 
 #: Talimat metni için üst sınır. Uzun bir blok her turda bağlamı yer ve
@@ -52,8 +53,9 @@ def save_instructions(value: object) -> dict[str, Any]:
         if not text.strip():
             instructions_path().unlink(missing_ok=True)
             return {"ok": True, "metin": ""}
-        instructions_path().parent.mkdir(parents=True, exist_ok=True)
-        instructions_path().write_text(text, encoding="utf-8")
+        # Atomik yaz: çökme/eşzamanlı okuma yarım talimat görmesin (ölçüldü 30 Ekim:
+        # doğrudan `write_text` dosyayı önce boşaltıyordu).
+        atomic_replace_text(instructions_path(), text)
     except OSError as error:
         return {"ok": False, "metin": f"Talimat kaydedilemedi: {error}"}
     return {"ok": True, "metin": text}
