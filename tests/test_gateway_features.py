@@ -622,3 +622,56 @@ def test_cache_bos_icerikli_farkli_arac_sonuclari_cakismaz():
     cache.put("auto", ilk, _sonuc())
 
     assert cache.get("auto", ikinci) is None
+
+
+# --- Dalga 4: işlenmeyen istisna JSON hata gövdesi, panel çerçevelenemez (E1-15, E1-18) --- #
+
+
+async def test_bozuk_json_govdesi_json_400_doner(tmp_path):
+    """Ölçüldü (30 Ekim): bozuk gövde uvicorn'a kaçıp JSON olmayan 500 üretiyordu."""
+    async with _client(_app(tmp_path)) as client:
+        yanit = await client.post(
+            "/api/routing", content=b"{bozuk", headers={"content-type": "application/json"}
+        )
+
+    assert yanit.status_code == 400
+    assert "JSON" in yanit.json()["error"]["message"]
+
+
+async def test_depo_hatasi_json_hata_olarak_doner(tmp_path, monkeypatch):
+    from fusion_cli.core.errors import ConfigError
+
+    app = _app(tmp_path)
+
+    def _patlat(*args, **kwargs):
+        raise ConfigError("şifreli depo yazılamadı")
+
+    monkeypatch.setattr(app._secret_store, "set", _patlat)
+    async with _client(app) as client:
+        yanit = await client.post("/api/keys", json={"provider": "openrouter", "value": "sk-x"})
+
+    assert yanit.status_code == 400
+    assert "şifreli depo" in yanit.json()["error"]["message"]
+
+
+async def test_beklenmeyen_istisna_ic_ayrinti_sizdirmadan_json_500_doner(tmp_path, monkeypatch):
+    app = _app(tmp_path)
+
+    async def _patlat(*args, **kwargs):
+        raise RuntimeError("/Users/gizli/yol ve token=abc")
+
+    monkeypatch.setattr(app, "_api_set_routing", _patlat)
+    async with _client(app) as client:
+        yanit = await client.post("/api/routing", json={"strategy": "fast"})
+
+    assert yanit.status_code == 500
+    assert "gizli" not in yanit.text and "token" not in yanit.text
+
+
+async def test_panel_sayfasi_cerceveleme_basliklariyla_sunulur(tmp_path):
+    async with _client(_app(tmp_path)) as client:
+        yanit = await client.get("/dashboard")
+
+    assert yanit.headers["x-frame-options"] == "DENY"
+    assert "frame-ancestors 'none'" in yanit.headers["content-security-policy"]
+    assert yanit.headers["x-content-type-options"] == "nosniff"

@@ -122,9 +122,12 @@ def _arguments_text(arguments: object) -> str:
     return "{}"
 
 
-def _number(value: object) -> bool:
-    """Sayı mı? `bool` int'in alt sınıfıdır: `max_tokens: true` 1 token olmasın (E1-14)."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+def _number(value: object) -> float | None:
+    """Sayıysa float; değilse None. `bool` int'in alt sınıfıdır: `max_tokens: true` 1 token
+    olmasın (E1-14)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
 
 
 def to_request(
@@ -138,7 +141,8 @@ def to_request(
     if not model:
         raise GatewayError("'model' alanı zorunludur (profil adı ya da model kimliği).")
     stream = bool(payload.get("stream", False))
-    temperature = payload.get("temperature")
+    sent_temperature = _number(payload.get("temperature"))
+    temperature = sent_temperature if sent_temperature is not None else runtime.temperature
     # Yeni OpenAI alanı `max_completion_tokens` öncelikli; eski `max_tokens` yedek.
     max_tokens = payload.get("max_completion_tokens", payload.get("max_tokens"))
     tools_raw = payload.get("tools")
@@ -146,7 +150,7 @@ def to_request(
     effort = payload.get("reasoning_effort")
     request = CompletionRequest(
         messages=parse_messages(payload),
-        temperature=float(temperature) if _number(temperature) else runtime.temperature,
+        temperature=temperature,
         max_tokens=int(max_tokens)
         if isinstance(max_tokens, int) and not isinstance(max_tokens, bool)
         else runtime.max_tokens,

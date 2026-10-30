@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import random
 import re
@@ -49,6 +50,8 @@ from .analytics import Analytics, RequestRecord
 from .cache import PromptCache
 from .catalog_cache import CatalogCache
 from .routing import available_models, resolve_spec
+
+_logger = logging.getLogger(__name__)
 
 #: `build_provider` imzasının gateway'in ihtiyaç duyduğu sadeleştirilmiş hâli.
 ProviderFactory = Callable[[ModelSpec], LlmProvider]
@@ -135,8 +138,34 @@ class GatewayApp:
         )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """İsteği işle; işlenmeyen istisna JSON hata gövdesine çevrilir (uvicorn 500 metni değil).
+
+        Ölçüldü (30 Ekim): `_read_json` bozuk gövdede `JSONDecodeError` fırlatıyor ve yalnız
+        `_chat` yakalıyordu; ~20 POST ucunda istisna uvicorn'a kaçıyor, `ConfigError`
+        (`_api_set_key`/`_api_delete_key`) de aynı yoldan JSON olmayan 500 üretiyordu (E1-15).
+        """
         if scope["type"] != "http":
             return
+        started = False
+
+        async def tracked_send(message: dict[str, Any]) -> None:
+            nonlocal started
+            if message.get("type") == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self._dispatch(scope, receive, tracked_send)
+        except json.JSONDecodeError:
+            if not started:
+                await _json(send, _error_body("geçersiz JSON gövdesi"), status=400)
+        except Exception as error:
+            _logger.exception("gateway isteği beklenmeyen hatayla bitti")
+            if not started:
+                durum = 400 if isinstance(error, ConfigError) else 500
+                await _json(send, _error_body(_public_error(error)), status=durum)
+
+    async def _dispatch(self, scope: Scope, receive: Receive, send: Send) -> None:
         if not is_loopback_peer(scope):
             # Host başlığını istemci yazar; ağdan gelen bağlantı yalnız belirteçle girer.
             if not bearer_matches(scope.get("headers") or (), self._access_token):
@@ -1386,12 +1415,32 @@ def read_dashboard_asset(name: str) -> tuple[bytes, str] | None:
     return target.read_bytes(), content_type
 
 
+#: Panel yanıtlarına eklenen güvenlik başlıkları. Panel MCP komutu eklemek, anahtar silmek gibi
+#: yıkıcı işlemleri tek tıkla yapar; yabancı bir sayfa paneli `<iframe>` ile gömüp tıklama
+#: hırsızlığı (clickjacking) deneyebilir. Origin denetimi iframe İÇİNDEN gelen istekleri
+#: (Origin yerel) engellemez; çözüm sayfanın çerçevelenmesini yasaklamaktır (E1-18).
+_PANEL_SECURITY_HEADERS: list[tuple[bytes, bytes]] = [
+    (b"x-frame-options", b"DENY"),
+    (b"content-security-policy", b"frame-ancestors 'none'"),
+    (b"x-content-type-options", b"nosniff"),
+    (b"referrer-policy", b"no-referrer"),
+]
+
+
+def _public_error(error: Exception) -> str:
+    """İstemciye dönen hata metni: `ConfigError` mesajı kullanıcıya yöneliktir, diğerleri DEĞİL."""
+    return str(error) if isinstance(error, ConfigError) else "gateway dahili hata"
+
+
 async def _html(send: Send, body: str) -> None:
     await send(
         {
             "type": "http.response.start",
             "status": 200,
-            "headers": [(b"content-type", b"text/html; charset=utf-8")],
+            "headers": [
+                (b"content-type", b"text/html; charset=utf-8"),
+                *_PANEL_SECURITY_HEADERS,
+            ],
         }
     )
     await send({"type": "http.response.body", "body": body.encode()})
@@ -1405,6 +1454,7 @@ async def _asset(send: Send, body: bytes, content_type: str) -> None:
             "headers": [
                 (b"content-type", content_type.encode()),
                 (b"cache-control", DASHBOARD_ASSET_CACHE.encode()),
+                *_PANEL_SECURITY_HEADERS,
             ],
         }
     )
