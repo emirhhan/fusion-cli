@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from collections.abc import Awaitable
 from dataclasses import fields, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, TypeVar
@@ -44,6 +43,7 @@ from . import (
     paperclip_command,
     trash_commands,
 )
+from .cleanup import with_web_cleanup
 from .prompter import ConsolePrompter
 from .repl import run_repl
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
@@ -94,7 +94,7 @@ def main_callback(
     root = Path.cwd()
     raise typer.Exit(
         asyncio.run(
-            _with_web_cleanup(
+            with_web_cleanup(
                 run_repl(
                     config,
                     memory=open_memory(config, root=root),
@@ -141,7 +141,7 @@ def run(
         task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
     )
     result = asyncio.run(
-        _with_web_cleanup(
+        with_web_cleanup(
             run_task(
                 task,
                 config,
@@ -274,7 +274,7 @@ def agent(
     )
 
     outcome = asyncio.run(
-        _with_web_cleanup(
+        with_web_cleanup(
             run_agent_task(
                 task,
                 config,
@@ -300,29 +300,6 @@ def agent(
     _print_usage(observers, quiet=quiet or as_json)
     if not outcome.final_text.strip():
         raise typer.Exit(1)
-
-
-async def _with_web_cleanup(coro: Awaitable[T]) -> T:
-    """İşi çalıştır, bitince tarayıcı bağlamlarını AYNI döngüde kapat.
-
-    Kapatma neden burada: Playwright nesneleri oluşturuldukları event loop'a
-    bağlıdır. Temizliği ayrı bir `asyncio.run` ile çağırmak sessizce başarısız
-    oluyordu — ölçüldü, koşu bittiği hâlde profili tutan 11 headless Chrome süreci
-    kalıyordu ve bunlar `fusion serve`'ün kapanmasını da engelliyordu.
-
-    Tur İÇİNDE kapatılmaz: REPL turlar arası sohbet sürekliliğini bu bağlamlarda
-    taşır ve tek bir `asyncio.run` içinde çalışır.
-    """
-    from ..mcp_bridge.pool import close_mcp_pool
-    from ..providers.web_browser import close_all_browser_sessions
-
-    try:
-        return await coro
-    finally:
-        # MCP bağlantıları da oturum kaynağıdır: stdio alt süreçleri (npx ...)
-        # kapanışta sahipsiz kalmamalı.
-        await close_mcp_pool()
-        await close_all_browser_sessions()
 
 
 def _parse_mode(raw: str) -> ApprovalMode:

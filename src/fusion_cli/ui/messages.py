@@ -272,6 +272,15 @@ NO_ANSWER_AVAILABLE = (
     "elindeki bilgiyle en makul kararı ver ve devam et.)"
 )
 
+#: Kullanıcı seçiciyi Esc ile KASITLI kapattı: ortam etkileşimli, soruya cevap vermedi.
+#: `NO_ANSWER_AVAILABLE`tan ayrıdır; aksi hâlde model "burada kimse yok" sanıp soru
+#: sormayı bırakır ve riskli kararı kendi verirdi (L1-19).
+ASK_DECLINED = (
+    "(kullanıcı bu soruyu yanıtlamadan seçiciyi kapattı — terminal başında ve etkileşimli. "
+    "Riskli ya da geri alınamaz bir karar değilse en makul seçenekle devam et; riskliyse "
+    "durup kullanıcıdan açıkça bu konuda yönlendirme iste.)"
+)
+
 # Runtime sonucu modelin "bitti" iddiasından bağımsız, kesin bir kapanış satırıdır.
 TURN_COMPLETED = "Görev tamamlandı · {duration}"
 TURN_PARTIAL = "Görev kısmi kaldı · {duration}"
@@ -793,7 +802,7 @@ SETUP_ASK_NIM = (
     "  Ayrı bir ücretsiz kotadan çalışır: https://build.nvidia.com/\n"
     "  Anahtar: "
 )
-SETUP_CANCELLED = "kurulum iptal edildi; anahtar kaydedilmedi (yapılandırma şablonu oluşmuş olabilir)"
+SETUP_CANCELLED = "kurulum iptal edildi; anahtar kaydedilmedi (config şablonu oluşmuş olabilir)"
 SETUP_WRITE_FAILED = "anahtarlar yazılamadı: {path}"
 SETUP_KEY_REQUIRED = "En az BİR anahtar gerekli; ikisi de boşken hiçbir model çağrılamaz."
 SETUP_KEYS_SAVED = "anahtarlar kaydedildi: {path}"

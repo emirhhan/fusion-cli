@@ -25,6 +25,7 @@ from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
 from ..engines.agent.engine_tools import QuestionOption
 from ..tools.preview import preview_change
 from ..ui import messages, theme
+from ..ui.diff import diff_lines
 
 #: Onay sayılan cevaplar. Boş cevap (doğrudan Enter) yalnız sıradan onayda onaydır;
 #: tehlikeli (geri alınamaz) işlemde varsayılan HAYIR'dır (L1-01).
@@ -103,7 +104,8 @@ class ConsolePrompter:
                 choices.append(Choice("__other__", messages.ASK_OTHER, messages.ASK_OTHER_DESC))
                 selected = pick(choices, title=question)
                 if selected is None:
-                    return messages.NO_ANSWER_AVAILABLE
+                    # Esc: ortam etkileşimli, kullanıcı KASITLI vazgeçti (L1-19).
+                    return messages.ASK_DECLINED
                 if selected != "__other__":
                     return selected
             answer = self._ask(messages.ANSWER_PROMPT)
@@ -158,13 +160,13 @@ def _option_description(option: QuestionOption, recommended: str | None) -> str:
 def _colorize_diff(diff: str) -> Text:
     """Unified diff'i renklendir: eklenen yeşil, silinen kırmızı, başlık soluk."""
     text = Text()
-    for line in diff.splitlines():
-        text.append(line + "\n", style=_diff_style(line))
+    for line, is_file_header in diff_lines(diff):
+        text.append(line + "\n", style=_diff_style(line, is_file_header=is_file_header))
     return text
 
 
-def _diff_style(line: str) -> str:
-    if line.startswith(("+++", "---")):
+def _diff_style(line: str, *, is_file_header: bool = False) -> str:
+    if is_file_header:
         return theme.DIM
     if line.startswith("+"):
         return theme.OK
