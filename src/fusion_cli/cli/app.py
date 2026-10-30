@@ -24,7 +24,7 @@ from .. import __version__
 from ..config.keys import detect
 from ..config.loader import load_config
 from ..config.models import Config
-from ..config.readiness import Readiness
+from ..config.readiness import Readiness, evaluate
 from ..core.errors import FusionError
 from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
@@ -93,7 +93,10 @@ def main_callback(
     if ctx.invoked_subcommand is not None:
         return
     config = load_config()
-    if not detect().any_configured and not config.web_sessions:
+    # Kapı `evaluate` ile: yalnız Ollama/yerel uç ya da başka sağlayıcıyla çalışan kullanıcı,
+    # OpenRouter/NIM anahtarı yok diye REPL'e hiç girememeliydi (L1-13). Anahtarsız VARSAYILAN
+    # kurulumda agent rolü kullanılamaz, `NOT_READY` olur ve eski davranış korunur.
+    if evaluate(config, detect()).state is Readiness.NOT_READY and not config.web_sessions:
         # Anahtarsız açılışta REPL'i başlatmak, kullanıcıyı her turda "hiçbir model
         # yanıt veremedi" hatasına sürüklerdi. Eksik olan şey söylenir.
         console.print(f"[{theme.WARN}]{messages.SETUP_NO_KEYS}[/{theme.WARN}]")

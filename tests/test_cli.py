@@ -225,3 +225,50 @@ def test_typer_beklenmeyen_hatada_yerel_degiskenleri_gostermez():
     from fusion_cli.cli.app import app
 
     assert app.pretty_exceptions_show_locals is False
+
+
+# --- Dalga 4: REPL kapısı yalnız OpenRouter/NIM anahtarına bakmaz (L1-13) --------- #
+
+
+def _anahtarsiz_ollama_kurulumu(monkeypatch):
+    from dataclasses import replace
+
+    from fusion_cli.config.keys import ProviderKeys
+    from fusion_cli.config.loader import load_config
+
+    gercek = load_config()
+    yerel = replace(gercek.agent, model="ollama/qwen2.5-coder", fallback=())
+    yapilandirma = replace(gercek, agent=yerel, web_sessions=())
+    monkeypatch.setattr(app_module, "load_config", lambda: yapilandirma)
+    monkeypatch.setattr(app_module, "detect", lambda: ProviderKeys(openrouter=False, nim=False))
+    return yapilandirma
+
+
+def test_anahtarsiz_varsayilan_kurulumda_repl_acilmaz(monkeypatch):
+    from dataclasses import replace
+
+    from fusion_cli.config.keys import ProviderKeys
+    from fusion_cli.config.loader import load_config
+
+    monkeypatch.setattr(app_module, "load_config", lambda: replace(load_config(), web_sessions=()))
+    monkeypatch.setattr(app_module, "detect", lambda: ProviderKeys(openrouter=False, nim=False))
+
+    assert runner.invoke(app_module.app, []).exit_code == 1
+
+
+def test_yalniz_yerel_model_kullanan_repl_e_girebilir(monkeypatch):
+    """Ölçüldü (30 Ekim): kapı `openrouter or nim` idi; yalnız Ollama kullanan çıkış 1 alıyordu."""
+    _anahtarsiz_ollama_kurulumu(monkeypatch)
+    cagrildi = []
+
+    async def _sahte_repl(*args, **kwargs):
+        cagrildi.append(1)
+        return 0
+
+    monkeypatch.setattr(app_module, "run_repl", _sahte_repl)
+    monkeypatch.setattr(app_module, "open_memory", lambda *a, **k: None)
+
+    sonuc = runner.invoke(app_module.app, [])
+
+    assert cagrildi == [1]
+    assert sonuc.exit_code == 0
