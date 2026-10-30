@@ -84,7 +84,8 @@ class ProbeReport:
         sorunlar = [f"konsol hatası: {hata}" for hata in self.console_errors[:3]]
         if self.raf_per_second < MIN_RAF_PER_SECOND:
             sorunlar.append(
-                f"oyun döngüsü çalışmıyor (requestAnimationFrame {self.raf_per_second}/sn)"
+                f"sayfa ana iş parçacığı kilitli ya da çok yavaş (tarayıcı rAF "
+                f"{self.raf_per_second}/sn); oyun döngüsü çalışmıyor olabilir"
             )
         tuslar_etkisiz = (
             self.state_before is not None
@@ -109,8 +110,14 @@ class ProbeReport:
         satirlar = [
             f"Konsol hatası: {len(self.console_errors)}"
             + (f" — {'; '.join(self.console_errors[:3])}" if self.console_errors else ""),
-            f"requestAnimationFrame: {self.raf_per_second}/sn"
-            + (" (döngü çalışmıyor!)" if self.raf_per_second < MIN_RAF_PER_SECOND else ""),
+            # Sayaç probe'un KENDİ rAF zincirini sayar: oyun döngüsünü değil tarayıcıyı/ana iş
+            # parçacığını ölçer (setInterval oyunu ya da başlamamış oyun da ~60 verir).
+            f"tarayıcı requestAnimationFrame (ana iş parçacığı sağlığı): {self.raf_per_second}/sn"
+            + (
+                " (ana iş parçacığı kilitli olabilir!)"
+                if self.raf_per_second < MIN_RAF_PER_SECOND
+                else ""
+            ),
         ]
         if self.state_before is None:
             satirlar.append(

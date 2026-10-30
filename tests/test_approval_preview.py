@@ -95,3 +95,28 @@ def test_cok_buyuk_dosya_onizlenmez(tmp_path: Path) -> None:
     (tmp_path / "buyuk.txt").write_text("a" * (2 * 1024 * 1024), encoding="utf-8")
 
     assert onizleme_diffi("write_file", {"path": "buyuk.txt", "content": "b"}, tmp_path) == ""
+
+
+# --- Dalga 4 (T1-65) -----------------------------------------------------------------------
+
+
+def test_cok_buyuk_dosyada_difflib_yerine_ozet_verilir():
+    """`difflib.unified_diff` onbinlerce satırda ikinci derece yavaşlıyordu."""
+    from fusion_cli.tools import diffing
+
+    eski = "\n".join(f"satir {i}" for i in range(diffing.MAX_DIFF_LINES + 100))
+    yeni = eski.replace("satir 500\n", "DEGISTI\n", 1)
+
+    sonuc = diffing.bounded_diff(eski, yeni, "b.js")
+
+    assert "ayrıntılı fark gösterilmedi" in sonuc
+    assert "501" in sonuc  # ilk değişen satır (1 tabanlı)
+    assert len(sonuc.splitlines()) < 5
+
+
+def test_kucuk_dosyada_normal_diff_surer():
+    from fusion_cli.tools import diffing
+
+    sonuc = diffing.bounded_diff("a\nb\n", "a\nc\n", "x.txt")
+
+    assert "-b" in sonuc and "+c" in sonuc

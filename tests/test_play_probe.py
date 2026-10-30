@@ -160,3 +160,24 @@ async def test_basla_dugmesi_gizlenip_oyun_baslamiyorsa_kalir(tmp_path):
     page.write_text(source, encoding="utf-8")
     report = await probe_game(page.as_uri(), ("ArrowRight",))
     assert any("Başla" in problem for problem in report.problems())
+
+
+# --- Dalga 4 (T2-11) -------------------------------------------------------------------------
+
+
+def test_raf_metni_oyun_dongusunu_degil_tarayiciyi_olctugunu_soyler():
+    from fusion_cli.tools.play_probe import ProbeReport
+
+    rapor = ProbeReport(
+        console_errors=(),
+        raf_per_second=5,
+        state_before=None,
+        state_after=None,
+        canvas_changed=None,
+        restart_state=None,
+    )
+
+    metin = " ".join(rapor.problems()) + rapor.summary()
+
+    assert "ana iş parçacığı" in metin
+    assert "oyun döngüsü çalışmıyor (" not in metin
