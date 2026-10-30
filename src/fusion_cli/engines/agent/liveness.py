@@ -18,7 +18,13 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 
-from ...core.types import CompletionRequest, Message, ModelSpec, StreamDone
+from ...core.types import (
+    CompletionRequest,
+    Message,
+    ModelSpec,
+    StreamDone,
+    is_rate_limit_error,
+)
 from ...providers.factory import build_provider
 
 #: Hiç parça gelmeden bu kadar beklenince sunucu yoklanır. Yoklama çağrıyı KESMEZ,
@@ -41,7 +47,10 @@ ChunkCount = Callable[[], int]
 #: işlenirken gelen yoklama kuyrukta bekler ve süresinde cevap alamaz; sunucu "ölü"
 #: sanılıp çağrı kesiliyordu (18 Ekim 2026, Ollama + Qwen 9B: ilk çağrı 30. sn'de
 #: kesildi, Ollama günlüğünde "client closing the connection").
-_LOCAL_PREFIXES = ("ollama", "ollama_chat", "lm_studio", "llamafile")
+#
+# `llama_cpp`/`llamacpp` de aynı tek yuvalı sınıftadır (A2-16); vLLM isteği toplu
+# işler, yoklamaya cevap verebilir ve bu listeye KONMAZ.
+_LOCAL_PREFIXES = ("ollama", "ollama_chat", "lm_studio", "llamafile", "llama_cpp", "llamacpp")
 
 
 def is_api_model(spec: ModelSpec) -> bool:
@@ -71,7 +80,13 @@ def ping_for(spec: ModelSpec) -> Ping:
                 async for item in provider.stream(istek):
                     if isinstance(item, StreamDone):
                         sonuc = item.result
-                        return None if sonuc.ok else (sonuc.error or "yoklama başarısız")[:160]
+                        if sonuc.ok:
+                            return None
+                        # 429/aşırı yük yanıtı sunucunun CANLI olduğunu gösterir; "ölü"
+                        # sayıp çalışan çağrıyı iptal etmek yanlıştı (A2-16).
+                        if is_rate_limit_error(sonuc.error):
+                            return None
+                        return (sonuc.error or "yoklama başarısız")[:160]
         except TimeoutError:
             return f"yoklamaya {PING_TIMEOUT_S:.0f} sn içinde cevap yok"
         except Exception as exc:  # sınır: sağlayıcı istisnası sağlıksızlık sayılır

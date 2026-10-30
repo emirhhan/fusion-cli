@@ -2160,6 +2160,9 @@ async def _retry_sleep(delay_s: float) -> None:
     await asyncio.sleep(delay_s)
 
 
+_SERVER_ERROR_CODE = re.compile(r"(?<!\d)(?:500|502|503|504|529)(?!\d)")
+
+
 def _short_reason(error: str | None) -> str:
     """Geçici hatanın kullanıcıya gösterilecek kısa adı; ham istisna metni gösterilmez."""
     lowered = (error or "").lower()
@@ -2170,7 +2173,9 @@ def _short_reason(error: str | None) -> str:
         return "hız sınırına takıldı"
     if "timeout" in lowered or "timed out" in lowered:
         return "zamanında yanıt vermedi"
-    if any(code in lowered for code in ("500", "502", "503", "504", "529", "overload")):
+    # Durum kodu SAYI SINIRIYLA aranır: "context length 50000", "port 5001" sunucu
+    # hatası değildir (A2-24).
+    if _SERVER_ERROR_CODE.search(lowered) or "overload" in lowered:
         return "sunucu hatası verdi"
     return "yanıt veremedi"
 
@@ -2190,7 +2195,8 @@ def _model_failure_message(error: str | None) -> str:
         )
     if _short_reason(error) == "yanıt veremedi":
         # Tanınmayan hata: sebebi saklamak kullanıcıyı çaresiz bırakır; ayrıntı eklenir.
-        return f"Model yanıt veremedi: {error}"
+        # Ham sağlayıcı hatası base URL/istek bilgisi taşıyabilir (A2-25).
+        return f"Model yanıt veremedi: {redact(error)}"
     return (
         f"Model yeniden denemelere rağmen {_short_reason(error)}. "
         'Biraz sonra "devam et" yazarak kaldığın yerden sürdürebilir ya da farklı '
@@ -2289,7 +2295,14 @@ async def _consume_with_liveness(
         await asyncio.wait({tuketici, bekci}, return_when=asyncio.FIRST_COMPLETED)
     finally:
         kalan = [gorev for gorev in (tuketici, bekci) if not gorev.done()]
-        if bekci.done() and not tuketici.done():
+        # `bekci.result()` istisna fırlatırsa aşağıdaki iptal satırlarına hiç
+        # ulaşılmaz ve tüketici askıda kalırdı (A2-17): önce durum kontrol edilir.
+        if (
+            bekci.done()
+            and not tuketici.done()
+            and not bekci.cancelled()
+            and bekci.exception() is None
+        ):
             state.unresponsive_reason = bekci.result()
         for gorev in kalan:
             gorev.cancel()
