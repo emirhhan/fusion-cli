@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Hashable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import PurePath
 
@@ -80,6 +80,10 @@ class MaskLedger:
     """
 
     entries: dict[int, Message] = field(default_factory=dict)
+    #: Maskelenmiş sonuçların `tool_call_id`'leri (tekrar kapısı için, bkz. `note_call`).
+    masked_call_ids: set[str] = field(default_factory=set)
+    #: Çağrı imzası -> o imzayla yapılan SON çağrının kimliği.
+    last_call: dict[Hashable, str] = field(default_factory=dict)
 
     def __len__(self) -> int:
         return len(self.entries)
@@ -90,6 +94,23 @@ class MaskLedger:
     def add(self, messages: Sequence[Message]) -> None:
         for message in messages:
             self.entries[id(message)] = message
+            if message.tool_call_id:
+                self.masked_call_ids.add(message.tool_call_id)
+
+    def note_call(self, signature: Hashable, call_id: str) -> bool:
+        """Çağrıyı kaydet; bu imzanın önceki sonucu MASKELENMİŞSE True dön (bir kez).
+
+        Yer tutucu modele "gerekirse yeniden çalıştır/oku" der; tekrar kapısı bu meşru
+        yeniden isteği "zaten yaptın" diye önbellek notuyla ya da engelle karşılamamalı.
+        Çağıran True alınca imzanın sayacını sıfırlar. Yeni sonuç taze olduğundan
+        yeniden maskelenirse yeni bir çağrı kimliğiyle yine bir kez bağışlanır.
+        """
+        onceki = self.last_call.get(signature)
+        self.last_call[signature] = call_id
+        if onceki is not None and onceki in self.masked_call_ids:
+            self.masked_call_ids.discard(onceki)
+            return True
+        return False
 
     def prune(self, live: Sequence[Message]) -> None:
         """Artık geçmişte olmayan (sıkıştırmayla atılan) kayıtları bırak."""

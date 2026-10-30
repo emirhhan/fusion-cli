@@ -3070,6 +3070,14 @@ async def _run_tools(
             remote=_acts_on_remote_state(call.name),
         )
         seen = budget.count_call(signature)
+        # Önceki sonucu maskelenmiş okumayı yeniden istemek tekrar sayılmaz (yer tutucu
+        # "gerekirse yeniden oku" der). Değiştirici imzalar bağışlanmaz: aynı yazma
+        # iki kez yapılmaz.
+        if deps.mask_ledger.note_call(signature, call.id) and (
+            signature not in budget.mutating_signatures
+        ):
+            budget.seen_calls[signature] = 1
+            seen = 0
 
         contract_errors: list[str] = []
         if parse_error:

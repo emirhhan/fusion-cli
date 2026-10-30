@@ -290,3 +290,35 @@ def test_batch_size_pencereden_turetilir():
     assert masking.batch_size(1) == 1
     assert masking.batch_size(8) == 4
     assert agent_loop is not None
+
+
+async def test_maskelenmis_okuma_yer_tutucunun_dedigi_gibi_yeniden_okunabilir(
+    monkeypatch, tmp_path, sink
+):
+    """Yer tutucu "gerekirse yeniden oku" der; tekrar kapısı (önbellekten not ya da
+    REPEAT_BLOCK_AT engeli) bu meşru yeniden okumayı cezalandırmamalı: her okuma TAM
+    sonucu vermeli."""
+    (tmp_path / "ana.txt").write_text("ANA-" + "q" * 1_500, encoding="utf-8")
+    adimlar = []
+    for k in range(6):
+        for ad in (f"f{k}.txt", f"g{k}.txt"):
+            (tmp_path / ad).write_text(ad + "-" + "w" * 1_500, encoding="utf-8")
+        adimlar += [
+            model_result(tool_calls=[tool_call("read_file", path="ana.txt")]),
+            model_result(tool_calls=[tool_call("read_file", path=f"f{k}.txt")]),
+            model_result(tool_calls=[tool_call("read_file", path=f"g{k}.txt")]),
+        ]
+    saglayici = ScriptedProvider([*adimlar, model_result("bitti")])
+    _kur(monkeypatch, saglayici)
+
+    sonuc = await run_agent(
+        "oku",
+        _deps(tmp_path, sink, runtime={"agent_max_steps": 60, "tool_output_window": 2}),
+        system_prompt="Oku.",
+    )
+
+    ana = [m for m in sonuc.messages if m.role == "tool" and "ANA-" in m.content]
+    assert len(ana) == 6
+    assert all(m.ok and not m.content.startswith("TOOL_CALL") for m in ana)
+    engelli = [m for m in sonuc.messages if m.role == "tool" and m.ok is False]
+    assert engelli == []
