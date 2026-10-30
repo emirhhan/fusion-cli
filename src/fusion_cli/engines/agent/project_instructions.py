@@ -44,6 +44,13 @@ from .instruction_layers import (
     neutralize,
     read_text_limited,
 )
+from .instruction_rules import (
+    RuleFile,
+    discover_rules,
+    rule_block,
+    scoped_rules_for,
+    unscoped_rules_block,
+)
 
 __all__ = ["MAX_CHARS", "MAX_LINKED_CHARS", "read_all_instructions", "read_project_instructions"]
 
@@ -158,6 +165,7 @@ def load_nested_instructions(
     loaded: set[str],
     present: Callable[[str], bool],
     max_files: int = NESTED_MAX_FILES,
+    rules: tuple[RuleFile, ...] = (),
 ) -> NestedLoad | None:
     """Model `target` dosyasına eriştiğinde bağlama eklenecek iç içe talimatları döndür.
 
@@ -166,6 +174,9 @@ def load_nested_instructions(
     turdan kalan geçmiş). İkisinden biri "var" derse dosya iki kez eklenmez. Bilinen sınır:
     bağlam sıkıştırması notu düşürürse aynı tur içinde yeniden eklenmez (sonraki turda,
     `present` yanlış dönünce eklenir). Eklenecek bir şey yoksa `None`.
+
+    `rules`: `.claude/rules` kuralları; `paths:` deseni erişilen dosyaya uyanlar aynı mesajda,
+    aynı tekilleştirme sözleşmesiyle (etiketleri `loaded`/`present`) eklenir (P-016).
     """
     kok = root.resolve()
     bloklar: list[str] = []
@@ -192,10 +203,34 @@ def load_nested_instructions(
         bloklar.append(f"{nested_marker(rel)}\n{_UNTRUSTED_NOTE}\n{icerik}{ek}\n</alt_talimat>")
         adlar.append(rel)
         toplam += len(icerik)
+    for kural in _scoped_rules(kok, target, rules):
+        if kural.label in loaded:
+            continue
+        if present(kural.label):
+            loaded.add(kural.label)
+            continue
+        loaded.add(kural.label)
+        blok, eklenen = rule_block(kural)
+        if not blok:
+            continue
+        bloklar.append(blok)
+        adlar.append(kural.label)
+        toplam += eklenen
     if not bloklar:
         return None
     metin = "\n".join([NESTED_NOTE_HEADER, *bloklar])
     return NestedLoad(Message("user", metin, harness_note=True), tuple(adlar), toplam)
+
+
+def _scoped_rules(kok: Path, target: Path, rules: tuple[RuleFile, ...]) -> tuple[RuleFile, ...]:
+    """Erişilen dosyanın köke göreli yoluna uyan `paths:` kuralları; kök dışı hedefte boş."""
+    if not rules:
+        return ()
+    try:
+        rel = target.resolve().relative_to(kok).as_posix()
+    except (OSError, ValueError):
+        return ()
+    return scoped_rules_for(rules, rel)
 
 
 def resolve_access_path(context: object, raw: str) -> Path | None:
@@ -321,11 +356,13 @@ def read_all_instructions(
     proje_talimati = read_project_instructions(
         root, home, merge=instruction_merge, max_chars=instruction_max_chars
     )
+    # `.claude/rules` genel kuralları (P-016); `paths:` olanlar dosya erişiminde gelir.
+    kurallar = unscoped_rules_block(discover_rules(root, home)) if instruction_merge else ""
     if home is None:
-        return "\n".join(part for part in (ortam, ozet, proje_talimati) if part)
+        return "\n".join(part for part in (ortam, ozet, proje_talimati, kurallar) if part)
 
     from ...history.memory_files import read_external_memory
 
     dis_bellek = read_external_memory(home, root)
-    parts = [ortam, ozet, proje_talimati, dis_bellek]
+    parts = [ortam, ozet, proje_talimati, kurallar, dis_bellek]
     return "\n".join(part for part in parts if part)

@@ -35,3 +35,19 @@ dosyayı bağlama alır (Claude Code sözdizimi).
 - Yalnız düz metin uzantıları (`.md .mdc .markdown .txt .rst`) okunur; `.env` gibi dosyalar hiç
   açılmaz. E-posta (`ali@ornek.com`) ve paket adı (`@anthropic-ai/sdk`) import sayılmaz.
 - Eski `[metin](RULES.md)` Markdown bağlantıları da bir seviye izlenmeye devam eder.
+
+## `.claude/rules/` kural dosyaları
+
+`~/.claude/rules/**/*.md` (kullanıcı, güvenilir) ve projede `.claude/rules/**/*.md`,
+`.fusion/rules/**/*.md` (`.mdc` de olur) özyinelemeli keşfedilir.
+
+- `paths:` frontmatter'ı **olmayan** kurallar tur başında yüklenir (toplam 8.000 karakter;
+  aşım notla bildirilir).
+- `paths:` olanlar (`src/**/*.tsx`, `*.css`, `docs/`, `*.{ts,tsx}`) yalnız model eşleşen
+  dosyayı okuyup/düzenleyince, o turda bir kez, iç içe talimat notuyla aynı mesajda gelir.
+  Dizin içermeyen desen dosya adına da uygulanır.
+- Kök dışına çıkan sembolik bağ hiç açılmaz; `node_modules`/`vendor` gibi dizinler taranmaz.
+- Masaüstü **Beceriler › Talimatlar** sekmesi kullanıcı katmanını, proje talimatlarını ve
+  kuralları (kapsamıyla) listeler; `yetenek.detay {tur: "talimat", ad}` yalnız bu listedeki
+  dosyayı okur.
+- `runtime.instruction_merge: false` kuralları da kapatır.

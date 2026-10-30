@@ -57,9 +57,12 @@ function decode(payload: Record<string, unknown>): { items: CatalogItem[]; skipp
   return { items, skipped };
 }
 
+/** Diakritiksiz tel değerleri için Türkçe etiket; diğerleri baş harfi büyütülür. */
+const SOURCE_LABELS: Record<string, string> = { kullanici: "Kullanıcı", proje: "Proje", komut: "Komut" };
+
 /** "claude+codex" → "Claude · Codex". Köşeli parantezli ham kaynak adı teknik duruyordu. */
 function sourceLabels(source: string): string {
-  return source.split("+").map((value) => value.charAt(0).toLocaleUpperCase("tr-TR") + value.slice(1)).join(" · ");
+  return source.split("+").map((value) => SOURCE_LABELS[value] ?? value.charAt(0).toLocaleUpperCase("tr-TR") + value.slice(1)).join(" · ");
 }
 
 const kindLabels: Record<CapabilityKind, string> = {

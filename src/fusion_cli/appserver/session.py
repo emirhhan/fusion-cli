@@ -970,10 +970,15 @@ class AppSession:
                 disabled_skills=self._disabled_skills,
                 disabled_agents=self._disabled_agents,
                 disabled_mcp=self._disabled_mcp,
+                home=self._home,
             )
         if request.name == "yetenek.detay":
             return detail(
-                self._all_capabilities, self._state.config, self._state.root, request.data
+                self._all_capabilities,
+                self._state.config,
+                self._state.root,
+                request.data,
+                home=self._home,
             )
         if request.name == "yetenek.etkinlik":
             return self._set_capability_enabled(request.data)

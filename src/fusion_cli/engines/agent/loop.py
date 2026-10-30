@@ -158,6 +158,7 @@ from .expertise import (
     is_worktree_task,
 )
 from .history import needs_compression, total_chars
+from .instruction_rules import discover_rules
 from .loop_contract import (
     _SHELL_FRAME as _SHELL_FRAME,
 )
@@ -2740,16 +2741,24 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
     if not yollar or not getattr(deps.config.runtime, "nested_instructions", True):
         return
     kok = deps.tool_context.root
+    # `.claude/rules` içindeki `paths:` kuralları erişilen dosyaya uyarsa aynı notla gelir (P-016).
+    kurallar = (
+        discover_rules(kok, deps.home)
+        if getattr(deps.config.runtime, "instruction_merge", True)
+        else ()
+    )
 
     def baglamda_var(rel: str) -> bool:
-        isaret = nested_marker(rel)
+        isaret = nested_marker(rel) if not rel.startswith((".", "~")) else f'kaynak="{rel}"'
         return any(isaret in item.content for item in messages if item.role == "user")
 
     for ham in dict.fromkeys(yollar):
         hedef = resolve_access_path(deps.tool_context, ham)
         if hedef is None:
             continue
-        yuk = load_nested_instructions(kok, hedef, loaded=state.nested_loaded, present=baglamda_var)
+        yuk = load_nested_instructions(
+            kok, hedef, loaded=state.nested_loaded, present=baglamda_var, rules=kurallar
+        )
         if yuk is None:
             continue
         messages.append(yuk.message)
