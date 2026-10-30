@@ -127,6 +127,21 @@ fn platform_status(kind: PermissionKind) -> PermissionCapability {
     macos_status(kind)
 }
 
+/// Sistem izin penceresine kullanıcının cevabı için bekleme üst sınırı. Tamamlama bloğu hiç
+/// çağrılmazsa (pencere açılamadı, süreç askıda) `recv()` sonsuza dek bloklar ve
+/// `spawn_blocking` iş parçacığı sızardı (R2-17).
+#[cfg(any(test, target_os = "macos"))]
+const IZIN_CEVAP_ZAMAN_ASIMI: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Cevabı zaman aşımıyla bekler; gelmezse `None` (çağıran "bilinmiyor" döner, uydurmaz).
+#[cfg(any(test, target_os = "macos"))]
+fn await_decision<T>(
+    receive: &std::sync::mpsc::Receiver<T>,
+    timeout: std::time::Duration,
+) -> Option<T> {
+    receive.recv_timeout(timeout).ok()
+}
+
 #[cfg(target_os = "macos")]
 async fn request_macos(kind: PermissionKind) -> PermissionCapability {
     use block2::RcBlock;
@@ -148,10 +163,10 @@ async fn request_macos(kind: PermissionKind) -> PermissionCapability {
             unsafe {
                 AVCaptureDevice::requestAccessForMediaType_completionHandler(media_type, &handler)
             };
-            match receive.recv() {
-                Ok(true) => PermissionCapability::supported(PermissionState::Granted),
-                Ok(false) => PermissionCapability::supported(PermissionState::Denied),
-                Err(_) => PermissionCapability::supported(PermissionState::Restricted),
+            match await_decision(&receive, IZIN_CEVAP_ZAMAN_ASIMI) {
+                Some(true) => PermissionCapability::supported(PermissionState::Granted),
+                Some(false) => PermissionCapability::supported(PermissionState::Denied),
+                None => PermissionCapability::supported(PermissionState::Unknown),
             }
         })
         .await
@@ -162,14 +177,15 @@ async fn request_macos(kind: PermissionKind) -> PermissionCapability {
                 let _ = send.send(status);
             });
             unsafe { SFSpeechRecognizer::requestAuthorization(&handler) };
-            match receive.recv() {
-                Ok(objc2_speech::SFSpeechRecognizerAuthorizationStatus::Authorized) => {
+            match await_decision(&receive, IZIN_CEVAP_ZAMAN_ASIMI) {
+                Some(objc2_speech::SFSpeechRecognizerAuthorizationStatus::Authorized) => {
                     PermissionCapability::supported(PermissionState::Granted)
                 }
-                Ok(objc2_speech::SFSpeechRecognizerAuthorizationStatus::Denied) => {
+                Some(objc2_speech::SFSpeechRecognizerAuthorizationStatus::Denied) => {
                     PermissionCapability::supported(PermissionState::Denied)
                 }
-                Ok(_) | Err(_) => PermissionCapability::supported(PermissionState::Restricted),
+                Some(_) => PermissionCapability::supported(PermissionState::Restricted),
+                None => PermissionCapability::supported(PermissionState::Unknown),
             }
         })
         .await
@@ -231,6 +247,25 @@ mod tests {
         );
         assert_eq!(probes.get(), 1);
         assert_eq!(requests.get(), 0);
+    }
+
+    /// Ölçüldü (30 Ekim): `receive.recv()` zaman aşımsızdı; tamamlama bloğu çağrılmazsa iş parçacığı sızıyordu.
+    #[test]
+    fn permission_wait_gives_up_instead_of_blocking_forever() {
+        let (_send, receive) = std::sync::mpsc::sync_channel::<bool>(1);
+        let started = std::time::Instant::now();
+        assert_eq!(
+            await_decision(&receive, std::time::Duration::from_millis(50)),
+            None
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+
+        let (send, receive) = std::sync::mpsc::sync_channel::<bool>(1);
+        send.send(true).unwrap();
+        assert_eq!(
+            await_decision(&receive, std::time::Duration::from_secs(1)),
+            Some(true)
+        );
     }
 
     #[test]
