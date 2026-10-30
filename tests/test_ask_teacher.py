@@ -334,7 +334,10 @@ async def test_basarili_cagri_butce_dosyasi_olusturur(tmp_path, monkeypatch):
 
     await _registry(deps).execute("ask_teacher", {"question": "soru"}, deps.tool_context)
 
-    assert (tmp_path / ".fusion" / "ogretmen-butce.json").exists()
+    from fusion_cli.engines.agent.teacher_budget import budget_file
+
+    assert budget_file(tmp_path).exists()
+    assert not (tmp_path / ".fusion" / "ogretmen-butce.json").exists()
 
 
 async def test_butce_dolunca_aga_hic_baglanilmaz(tmp_path, monkeypatch):

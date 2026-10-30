@@ -360,10 +360,12 @@ def test_ders_celiski_sezgisi_sozcuk_sinirina_bakar():
 
 
 def test_butce_dosyasi_yazilamazsa_arac_cokmez(tmp_path):
-    from fusion_cli.engines.agent.teacher_budget import check_and_spend
+    # Bütçe klasörü yerine DOSYA koy: mkdir/yazma OSError verir.
+    from fusion_cli.engines.agent.teacher_budget import budget_file, check_and_spend
 
-    # `.fusion` yerine DOSYA koy: mkdir/yazma OSError verir.
-    (tmp_path / ".fusion").write_text("dosya", encoding="utf-8")
+    klasor = budget_file(tmp_path).parent
+    klasor.parent.mkdir(parents=True, exist_ok=True)
+    klasor.write_text("dosya", encoding="utf-8")
 
     kontrol = check_and_spend(tmp_path, now=1000.0)
 
@@ -371,13 +373,13 @@ def test_butce_dosyasi_yazilamazsa_arac_cokmez(tmp_path):
 
 
 def test_butce_sayaci_atomik_yazilir_ve_gecici_dosya_birakmaz(tmp_path):
-    from fusion_cli.engines.agent.teacher_budget import BUDGET_PATH, check_and_spend
+    from fusion_cli.engines.agent.teacher_budget import budget_file, check_and_spend
 
     check_and_spend(tmp_path, now=1000.0)
     check_and_spend(tmp_path, now=1001.0)
 
-    klasor = (tmp_path / BUDGET_PATH).parent
-    assert sorted(p.name for p in klasor.iterdir()) == ["ogretmen-butce.json"]
+    klasor = budget_file(tmp_path).parent
+    assert [p.name for p in klasor.iterdir()] == [budget_file(tmp_path).name]
 
 
 def test_ogretmen_gunlugu_ekleme_kipinde_maskeler_ve_bozuk_utf8de_cokmez(tmp_path):

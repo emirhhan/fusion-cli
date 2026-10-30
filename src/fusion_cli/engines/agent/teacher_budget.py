@@ -1,4 +1,4 @@
-"""Öğretmen çağrı bütçesi — saatlik, `.fusion/` altında (Faz 4, Görev 4).
+"""Öğretmen çağrı bütçesi — saatlik, kullanıcı veri dizininde (Faz 4, Görev 4).
 
 Sınıra ulaşınca YENİ bir `ask_teacher` çağrısı YAPILMADAN ÖNCE kullanıcıya/modele
 söylenir (araç ağa hiç çıkmaz) — CAPTCHA/insan-doğrulama riskini KASITLI olarak
@@ -22,16 +22,25 @@ farklıdır, devam eden bir sohbeti SÜRDÜRMEZ) — yani bu pacer'ın gördüğ
 ayrıca kullanıcının istediği "saatte 25'in üstü" ölçütünü karşılar
 (22 Eylül, plan §6.6 kararı — kasıtlı CAPTCHA testi YAPILMADI, güvenli yol
 seçildi).
+
+Sayaç dosyası PROJE İÇİNE yazılmaz: Ölçüldü (30 Ekim): `.fusion/ogretmen-butce.json`
+deneme projesinde `git status`a düşüp commit'e karıştı. Sayaç kullanıcı veri
+dizininde (`user_data_dir()/ogretmen-butce/`), proje köküne bağlı bir anahtarla
+tutulur; eski konumdaki dosya ilk kontrolde okunup buraya taşınır.
 """
 
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
+
+from ...config.paths import user_data_dir
 
 #: Kova ile AYNI mantıkta ama çok daha kaba bir üst sınır — bkz. modül docstring'i.
 HOURLY_LIMIT = 60
@@ -39,7 +48,11 @@ HOURLY_LIMIT = 60
 # takılmada danışma, son denetim ve düzeltme denetimi beş çağrı yapabilir.
 TURN_LIMIT = 5
 WINDOW_S = 3600.0
-BUDGET_PATH = ".fusion/ogretmen-butce.json"
+#: Eski (proje içi) konum — yalnız bir kez okunup taşınır, sonra silinir.
+LEGACY_BUDGET_PATH = ".fusion/ogretmen-butce.json"
+#: Kullanıcı veri dizini altındaki sayaç klasörü.
+BUDGET_DIR_NAME = "ogretmen-butce"
+_KEY_HASH_LEN = 16
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +67,17 @@ class BudgetCheck:
     reset_in_s: float
 
 
+def budget_file(root: Path) -> Path:
+    """Bir projenin sayaç dosyası: `user_data_dir()/ogretmen-butce/<klasör>-<kök özeti>.json`.
+
+    Anahtar proje kökünün çözümlenmiş yolundan türer; aynı adlı iki klasör karışmaz.
+    """
+    cozulmus = str(root.resolve())
+    ozet = hashlib.sha256(cozulmus.encode("utf-8")).hexdigest()[:_KEY_HASH_LEN]
+    ad = re.sub(r"[^a-zA-Z0-9_.-]+", "-", root.resolve().name).strip("-._") or "proje"
+    return user_data_dir() / BUDGET_DIR_NAME / f"{ad}-{ozet}.json"
+
+
 def check_and_spend(
     root: Path, *, now: float, limit: int = HOURLY_LIMIT, window_s: float = WINDOW_S
 ) -> BudgetCheck:
@@ -62,8 +86,9 @@ def check_and_spend(
     Dosya bozuksa ya da okunamıyorsa sıfırdan başlanır — bütçe dosyası bir
     GÜVENLİK sınırı değildir, en kötü ihtimalle bir pencere fazladan sıfırlanır.
     """
-    hedef = root / BUDGET_PATH
+    hedef = budget_file(root)
     mevcut = _oku(hedef)
+    mevcut = _eski_konumu_tasi(root, hedef, mevcut)
     if mevcut is None or now - mevcut[0] >= window_s:
         # Dosya yok/bozuk YA DA pencere dolmuş: yeni pencere ŞİMDİ başlar.
         # `pencere_baslangic=0.0` gibi bir nöbetçi değer KULLANILMAZ — o,
@@ -80,6 +105,28 @@ def check_and_spend(
     sayac += 1
     _yaz(hedef, pencere_baslangic, sayac)
     return BudgetCheck(allowed=True, used=sayac, limit=limit, reset_in_s=reset_in_s)
+
+
+def _eski_konumu_tasi(
+    root: Path, hedef: Path, mevcut: tuple[float, int] | None
+) -> tuple[float, int] | None:
+    """Proje içindeki eski sayaç dosyasını yeni konuma taşı (yeni kayıt varsa yalnız temizle).
+
+    Eski dosya yeni konum yazıldıktan SONRA silinir; yazılamadıysa yerinde kalır, sayaç kaybolmaz.
+    """
+    eski = root / LEGACY_BUDGET_PATH
+    if not eski.is_file():
+        return mevcut
+    devralinan = mevcut if mevcut is not None else _oku(eski)
+    if mevcut is None and devralinan is not None:
+        _yaz(hedef, *devralinan)
+    if mevcut is None and devralinan is not None and not hedef.is_file():
+        return devralinan
+    try:
+        eski.unlink()
+    except OSError:
+        logging.getLogger(__name__).warning("Eski öğretmen bütçe dosyası silinemedi", exc_info=True)
+    return devralinan
 
 
 def _oku(hedef: Path) -> tuple[float, int] | None:
