@@ -475,6 +475,88 @@ def trust(
     console.print(f"[green]Güvenildi:[/green] {root}")
 
 
+@app.command()
+def permissions(
+    action: Annotated[
+        str, typer.Argument(help="list | add | remove (Claude Code /permissions eşdeğeri).")
+    ] = "list",
+    decision: Annotated[str, typer.Argument(help="allow | ask | deny")] = "",
+    pattern: Annotated[
+        list[str] | None,
+        typer.Argument(help="Kalıp: Bash(npm test *), Edit(/src/**), WebFetch(domain:x)…"),
+    ] = None,
+    user: Annotated[
+        bool,
+        typer.Option("--user", help="Projeye değil kullanıcı dosyasına (permissions.json) yaz."),
+    ] = False,
+    path: Annotated[
+        Path, typer.Option("--path", help="Proje kökü (varsayılan: bulunduğun dizin).")
+    ] = Path(),
+) -> None:
+    """İzin kurallarını (allow/ask/deny) listele, ekle, sil (P-003).
+
+    Kurallar Claude Code ile aynı dosyalarda durur: projenin `.claude/settings.local.json`'ı
+    (güvenilen projede) ya da kullanıcının `permissions.json`'ı. Örnek:
+    `fusion permissions add allow "Bash(npm test *)"`.
+    """
+    from ..config import permission_admin
+    from ..config.loader import load_config
+    from ..ui import messages
+
+    root = path.resolve()
+    if action in ("list", "liste"):
+        rows = permission_admin.rule_rows(root)
+        if not rows:
+            console.print(messages.PERMISSIONS_EMPTY)
+        for row in rows:
+            console.print(escape(f"· {row.pattern}  [{row.decision}]  ({row.source})"))
+        config = load_config()
+        console.print(
+            f"kök dışı: okuma {'KAPALI' if config.runtime.block_reads_outside_root else 'açık'} · "
+            f"yazma {'KAPALI' if config.runtime.block_writes_outside_root else 'onayla'}"
+        )
+        return
+    if action not in ("add", "remove") or not decision or not pattern:
+        console.print(f"[red]{escape(messages.PERMISSIONS_USAGE)}[/red]")
+        raise typer.Exit(code=2)
+    try:
+        karar = permission_admin.parse_decision(decision)
+    except ValueError:
+        console.print(
+            f"[red]{escape(messages.PERMISSIONS_BAD_DECISION.format(given=decision))}[/red]"
+        )
+        raise typer.Exit(code=2) from None
+    kalip = " ".join(pattern)
+    try:
+        rule = permission_admin.parse_pattern(kalip, karar)
+    except ValueError:
+        console.print(f"[red]{escape(messages.PERMISSIONS_BAD_PATTERN.format(given=kalip))}[/red]")
+        raise typer.Exit(code=2) from None
+    try:
+        if action == "add":
+            change = permission_admin.add_permission_rule(root, rule, user_level=user)
+            text = (
+                messages.PERMISSIONS_ADDED.format(
+                    rule=change.pattern, decision=karar.value, path=change.path
+                )
+                if change.changed
+                else messages.PERMISSIONS_EXISTS.format(rule=change.pattern, decision=karar.value)
+            )
+        else:
+            removed = permission_admin.remove_permission_rule(root, rule)
+            text = (
+                messages.PERMISSIONS_REMOVED.format(
+                    rule=removed.pattern, decision=karar.value, path=removed.path
+                )
+                if removed is not None
+                else messages.PERMISSIONS_NOT_FOUND.format(rule=rule.pattern, decision=karar.value)
+            )
+    except FusionError as error:
+        console.print(f"[red]{escape(str(error))}[/red]")
+        raise typer.Exit(code=1) from error
+    console.print(escape(text))
+
+
 @app.command("adopt-data")
 def adopt_data(
     account: Annotated[

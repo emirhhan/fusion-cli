@@ -40,6 +40,8 @@ _DIGEST_KEYS: dict[Path, str] = {
     PROJECT_SETTINGS_PATH: "project_settings_sha256",
 }
 _STORE_NAME = "trusted-projects.json"
+#: Proje config'ine hiç güven verilmediğini söyleyen karma yer tutucusu (hiçbir dosyayla eşleşmez).
+_NEVER_TRUSTED = ""
 _SCHEMA_VERSION = 1
 
 #: Güvenilmeyen proje config'inden düşürülen, süreç/ağ/sır erişimi açan bölümler.
@@ -69,7 +71,9 @@ def trust_store_file() -> Path:
 def resolve_project_trust(root: Path) -> TrustState:
     """Proje `config.yaml`'ı güvenildiği andaki içerikle mi duruyor?"""
     record = _load().get(_key(root))
-    if record is None:
+    # Boş metin karması "projeye hiç güvenilmedi" demektir (`record_permissions_digest`
+    # yalnız izin dosyasını kaydeder); `None` ise "güvenildiğinde config.yaml yoktu".
+    if record is None or record.get("config_sha256") == _NEVER_TRUSTED:
         return TrustState(False, REASON_UNKNOWN)
     if record.get("config_sha256") != _digest(root / PROJECT_CONFIG_NAME):
         return TrustState(False, REASON_CHANGED)
@@ -111,13 +115,13 @@ def record_permissions_digest(root: Path) -> None:
     Yalnız izin dosyası alanı değişir; config ve araç karmaları olduğu gibi kalır. Kayıt
     yoksa yalnız bu alanla açılır: config güveni bundan ÇIKARILMAZ (bkz. `approve_file`).
     """
-    record = _load().get(_key(root), {})
+    record = _load().get(_key(root))
     _update(
         root,
-        config_sha256=record.get("config_sha256"),
-        files=dict(record.get("files", {})),
+        config_sha256=record.get("config_sha256") if record is not None else _NEVER_TRUSTED,
+        files=dict(record.get("files", {})) if record is not None else {},
         settings_sha256=_digest(root / PROJECT_PERMISSIONS_PATH),
-        project_settings_sha256=record.get("project_settings_sha256"),
+        project_settings_sha256=record.get("project_settings_sha256") if record else None,
     )
 
 

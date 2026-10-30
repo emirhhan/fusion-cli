@@ -16,14 +16,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ...config import trust
-from ...config.permission_rules import (
-    PermissionDecision,
-    PermissionRule,
-    add_rule,
-    format_rule,
-    user_permissions_file,
-)
+from ...config.permission_admin import add_permission_rule, project_rule_file
+from ...config.permission_rules import PermissionDecision, PermissionRule, format_rule
 from ...core.tools import ToolFamily, tool_family
 from ...tools.auto_policy import command_words
 from ...tools.permission_match import WRITE_TOOLS
@@ -70,20 +64,14 @@ def _dir_glob(raw: str, root: Path | None) -> str:
 
 def persist_target(root: Path) -> Path:
     """Kuralın yazılacağı dosya: güvenilen projede yerel ayar, değilse kullanıcı dosyası."""
-    if trust.is_permissions_trusted(root):
-        return root / trust.PROJECT_PERMISSIONS_PATH
-    return user_permissions_file()
+    return project_rule_file(root)
 
 
 def remember_always(root: Path, request: ApprovalRequest) -> str:
     """Kuralı kalıcı yaz ve kullanıcıya gösterilecek özeti döndür.
 
-    Proje dosyasına yazıldığında güven karması tazelenir; yazma hatası `ConfigError`
-    olarak yükselir (çağıran kullanıcıya söyler, tur düşmez).
+    Proje dosyasına yazıldığında güven karması tazelenir (`permission_admin`); yazma
+    hatası `ConfigError` olarak yükselir (çağıran kullanıcıya söyler, tur düşmez).
     """
-    rule = rule_for_request(request, root)
-    target = persist_target(root)
-    add_rule(target, rule)
-    if target == root / trust.PROJECT_PERMISSIONS_PATH:
-        trust.record_permissions_digest(root)
-    return f"{format_rule(rule)} → {target}"
+    change = add_permission_rule(root, rule_for_request(request, root))
+    return f"{format_rule(change.rule)} → {change.path}"

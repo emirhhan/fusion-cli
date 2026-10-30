@@ -53,6 +53,7 @@ from ..config.loader import load_config
 from ..config.model_select import select_agent_spec
 from ..config.models import Config, McpServerConfig, mcp_secret_env_names
 from ..config.paths import credentials_file
+from ..config.permissions import load_allowed_commands
 from ..core.changeset import ChangeSet
 from ..core.clock import SystemClock
 from ..core.concurrency import BackgroundTasks
@@ -977,6 +978,8 @@ class AppSession:
             return self._select_capability(request.data)
         if request.name == "kontrol.durum":
             return self._control_status()
+        if request.name.startswith("izin.") or request.name.startswith("proje.guven_"):
+            return self._permissions_rpc(request)
         if request.name == "kontrol.cirak_bildirimi_goruldu":
             return self._ack_apprentice_notice()
         if request.name == "kontrol.anahtar_kaydet":
@@ -1779,6 +1782,43 @@ class AppSession:
         self._note_persist_warning(persist_engine(self._state.config, engine.value))
         return None
 
+    def _permissions_rpc(self, request: Request) -> dict[str, Any]:
+        """İzin kuralı tablosu ve proje güveni (P-003, P-012); bkz. `permissions_rpc`."""
+        from . import permissions_rpc
+
+        root, data = self._state.root, request.data
+        if request.name == "izin.kurallar":
+            return permissions_rpc.list_rules(root, self._state.config)
+        if request.name == "izin.ekle":
+            return permissions_rpc.add_rule(root, data)
+        if request.name == "izin.sil":
+            return permissions_rpc.remove_rule(root, data)
+        if request.name == "izin.engel":
+            updated, result = permissions_rpc.set_block(self._state.config, data)
+            if updated is not None:
+                self._state.config = updated
+            return result
+        if request.name == "proje.guven_durum":
+            return permissions_rpc.trust_status(root)
+        if request.name in ("proje.guven_ver", "proje.guven_kaldir"):
+            if self._turn is not None and not self._turn.done():
+                return {
+                    "ok": False,
+                    "metin": "Güven sınırını değiştirmeden önce çalışan görevi durdur.",
+                }
+            result = (
+                permissions_rpc.trust_grant(root)
+                if request.name == "proje.guven_ver"
+                else permissions_rpc.trust_revoke(root)
+            )
+            # Güven değişince izin listesi ve proje yapılandırması yeniden okunur; "bu
+            # oturumda hep izin ver" kararları yeni sınırla taşınmaz.
+            self._state.allowed_commands = load_allowed_commands(root)
+            self._state.approval_memory.revoke()
+            self._state.refresh_config()
+            return result
+        return {"ok": False, "metin": f"Bilinmeyen istek: {request.name}"}
+
     def _status(self) -> dict[str, Any]:
         return {
             "ok": True,
@@ -1849,6 +1889,17 @@ class AppSession:
             gateway=self._gateway_status(),
         )
         durum["model"]["cirak_bildirim_goster"] = self._cirak_bildirimi_gerekli_mi()
+        # Proje güveni (P-012): Ayarlar › İzinler satırı ve güven şeridi buradan okur.
+        from . import permissions_rpc
+
+        guven = permissions_rpc.trust_status(self._state.root)
+        durum["izin"]["guven"] = {
+            "guvenildi": guven["guvenildi"],
+            "neden": guven["neden"],
+            "dusurulen_bolumler": guven["dusurulen_bolumler"],
+            "yok_sayilan_dosyalar": guven["yok_sayilan_dosyalar"],
+            "yuklenmeyen_araclar": guven["yuklenmeyen_araclar"],
+        }
         return durum
 
     def _cirak_bildirimi_gerekli_mi(self) -> bool:
