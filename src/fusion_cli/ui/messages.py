@@ -951,3 +951,16 @@ CONFIG_GET = "{path} = {value}"
 CONFIG_SET_DONE = "{path} = {value} — yazıldı: {file}"
 CONFIG_OVERRIDE_APPLIED = "Oturumluk ayar: {path} = {value}"
 CONFIG_PROFILE_APPLIED = "Oturumluk kademe: {tier}"
+
+# --- /output-style (P-068) ------------------------------------------------- #
+CMD_OUTPUT_STYLE = "çıktı stili: varsayilan · ozlu · aciklayici · ogretici · özel (.md)"
+OUTPUT_STYLE_TITLE = "Çıktı stili"
+OUTPUT_STYLE_HEADER = "Çıktı stilleri (etkin: {current}):"
+OUTPUT_STYLE_HINT = (
+    "Seçmek için: /output-style <ad>. Özel stil: ~/.fusion/cikti-stilleri/<ad>.md "
+    "ya da .claude/output-styles/<ad>.md (frontmatter name/description)."
+)
+OUTPUT_STYLE_CURRENT = " (etkin)"
+OUTPUT_STYLE_UNKNOWN = "Bilinmeyen çıktı stili: {name}. Bilinenler: {known}"
+OUTPUT_STYLE_SET = "Çıktı stili: {name} — sonraki turdan itibaren geçerli, kalıcı yazıldı."
+OUTPUT_STYLE_SET_UNSAVED = "Çıktı stili bu oturum için {name}; dosyaya yazılamadı: {error}"

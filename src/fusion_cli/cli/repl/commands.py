@@ -35,6 +35,7 @@ from . import (
     export_commands,
     macros,
     model_flows,
+    output_style_command,
     profiles_flow,
     provider_flow,
     verify_flow,
@@ -765,6 +766,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
     SlashCommand("effort", messages.CMD_EFFORT, _effort, group="Model", usage="[seviye]"),
     SlashCommand("level", messages.CMD_LEVEL, _level, group="Model", usage="[kademe]"),
+    SlashCommand(
+        "output-style",
+        messages.CMD_OUTPUT_STYLE,
+        output_style_command.output_style_command,
+        group="Model",
+        usage="[ad]",
+    ),
     SlashCommand("provider", messages.CMD_PROVIDER, _provider, group="Model"),
     SlashCommand("providers", messages.CMD_PROVIDERS, _providers, group="Model", usage="[add]"),
     SlashCommand(

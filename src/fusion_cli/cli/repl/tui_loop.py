@@ -33,6 +33,7 @@ from . import (
     history_view,
     macros,
     model_flows,
+    output_style_command,
     prefixes,
     profiles_flow,
     provider_flow,
@@ -382,6 +383,15 @@ class _TuiSession:
         if command.name in _IN_APP_CHOICE and not argument.strip():
             builder, title = _IN_APP_CHOICE[command.name]
             selected = await self._tui.await_choice(title, list(builder(self._state.config)))
+            if selected is None:
+                self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+                return
+            argument = selected
+        elif command.name == "output-style" and not argument.strip():
+            # Çıktı stili (P-068): uygulama-içi modalla seç, seçileni argüman yap.
+            selected = await self._tui.await_choice(
+                messages.OUTPUT_STYLE_TITLE, output_style_command.style_choices(self._state)
+            )
             if selected is None:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return

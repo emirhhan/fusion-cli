@@ -130,7 +130,16 @@ from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking
 from ..effects.model import EffectKind
 from ..effects.runner import maybe_run_effect_workflow
-from . import compaction, denial, gate_escalation, learning_steps, liveness, reflexion, review
+from . import (
+    compaction,
+    denial,
+    gate_escalation,
+    learning_steps,
+    liveness,
+    output_style,
+    reflexion,
+    review,
+)
 from .action_evidence import claimed_effects
 from .apprentice_handoff import apprentice_spec, teacher_for_turn
 from .approval import ApprovalPolicy, Decision, resolve_request
@@ -752,6 +761,8 @@ async def _run_agent(
                 identity_hint(deps.config.agent.model),
                 *istek_notlari,
                 extra_system,
+                # Çıktı stili (P-068) kodlama talimatlarından SONRA, en sona eklenir.
+                output_style.style_prompt(deps.config, home=deps.home, root=deps.tool_context.root),
             )
             if part
         ),

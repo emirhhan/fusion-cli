@@ -33,7 +33,7 @@ from typing import Any, Literal, NotRequired, TypedDict
 
 from rich.console import Console
 
-from ..cli.repl import model_flows, profiles_flow, provider_flow
+from ..cli.repl import model_flows, output_style_command, profiles_flow, provider_flow
 from ..cli.repl.commands import CommandRegistry, model_command_result
 from ..cli.repl.state import ReplState
 from ..config.credentials import FernetSecretStore
@@ -218,6 +218,13 @@ def _simple_choices(state: ReplState, name: str) -> ChoicePayload | None:
         "mode": ("profil", messages.MODE_TITLE, model_flows.mode_choices(state.config), ""),
         "effort": ("yogunluk", messages.EFFORT_TITLE, model_flows.effort_choices(), ""),
         "provider": ("saglayici", _provider_title(state), _provider_choices(state), ""),
+        # Çıktı stili (P-068): masaüstü aynı listeyi seçici olarak gösterir.
+        "output-style": (
+            "cikti_stili",
+            messages.OUTPUT_STYLE_TITLE,
+            output_style_command.style_choices(state),
+            "",
+        ),
     }
     found = builders.get(name)
     if found is None:
