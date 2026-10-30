@@ -289,3 +289,20 @@ async def test_tehlike_gerekcesindeki_koseli_parantez_onayi_cokertmez(tmp_path, 
 
     assert await prompter.confirm(istek) is False
     assert "[/x]" in buffer.getvalue()
+
+
+def test_terminal_cevabi_karar_harfi_sonrasi_notu_tasir(tmp_path):
+    """P-013: `h <gerekçe>` reddi notla döndürür; `k` kalıcı izin; yıkıcıda `k` sıradan evet."""
+    from fusion_cli.cli.prompter import parse_console_answer
+    from fusion_cli.engines.agent.approval import ApprovalReply
+
+    istek = build_request(_arac("run_shell"), {"command": "npm test"}, root=tmp_path)
+    assert parse_console_answer("h pytest yerine make test", istek) == ApprovalReply(
+        False, "pytest yerine make test"
+    )
+    assert parse_console_answer("h", istek) is False
+    assert parse_console_answer("e bu not yok sayılır", istek) is True
+    assert parse_console_answer("k", istek) is ApprovalAnswer.ALWAYS
+    yikici = build_request(_arac("run_shell"), {"command": "git push --force"}, root=tmp_path)
+    assert parse_console_answer("k", yikici, enter_approves=False) is True
+    assert parse_console_answer("", yikici, enter_approves=False) is False
