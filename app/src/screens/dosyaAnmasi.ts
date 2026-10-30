@@ -37,6 +37,6 @@ export function anmayiDegistir(
   // başlamasın ve iki yol birbirine yapışmasın.
   // Yol boşluk içeriyorsa tırnak içine alınır (`@"Proje Notları/a.md"`): aksi hâlde
   // anma ilk boşlukta kesilmiş görünür ve model yolun yarısını okur (U1-20).
-  const parca = /\s/.test(yol) ? `@"${yol.replaceAll('"', "")}" ` : `@${yol} `;
+  const parca = /\s/.test(yol) ? `@"${yol.replace(/"/g, "")}" ` : `@${yol} `;
   return { metin: `${once}${parca}${sonra}`, imlec: once.length + parca.length };
 }
