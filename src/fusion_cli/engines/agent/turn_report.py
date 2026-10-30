@@ -21,11 +21,12 @@ from ...core.constants import (
     TOOL_CALL_BLOCKED_PREFIX,
     TOOL_CALL_DUPLICATE_PREFIX,
 )
-from ...core.evidence import EvidenceStatus, ToolUse
+from ...core.evidence import CriterionEvidence, EvidenceStatus, ToolUse
 from ...core.job_evidence import JobCurrentSnapshot, JobPhase
 from ...core.tools import ToolFamily, tool_family
-from ...core.verification import VerificationResult
+from ...core.verification import UNVERIFIABLE_COMMAND_PREFIX, VerificationResult
 from ...ui.text import strip_thinking
+from .browser_verify import NOT_MEASURED_PREFIX
 from .completion_evidence import evidence_payload as evidence_payload
 from .job_delivery import JobDelivery, collect_job_deliveries
 from .shell_mutation import shell_may_change_files
@@ -143,6 +144,8 @@ class CommandRun:
     #:
     #: Sıra önemlidir: mutasyondan ÖNCE geçen bir test, o mutasyonu kanıtlamaz.
     after_last_mutation: bool
+    #: Çıktıdan okunabilen test sayısı ("4/4"); okunamadıysa boş.
+    test_counts: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +164,11 @@ class TurnReport:
     #: Turda var olan teste/CI'a dokunuş (bkz. `tamper_check.py`). Zayıflatan bulgu varken
     #: geçen komut tek başına doğrulama sayılmaz; yalnız dokunuş ise uyarıdır.
     test_tamper: tuple[TamperFinding, ...] = ()
+    #: Değişen dosyaların GERÇEK fark özeti (bkz. `change_digest.py`); modelin anlatımı değil.
+    change_lines: tuple[str, ...] = ()
+    #: Turdaki SON dosya mutasyonu bir kabuk komutuysa onun metni. "Komut çalıştırılmadı"
+    #: raporu bunu söyler: kabuk komutu dosya değiştirmiş SAYILDIĞI için önceki test eskidir.
+    last_shell_mutation: str = ""
 
     @property
     def _behavioral_evidence(self) -> tuple[CommandRun, ...]:
@@ -271,6 +279,8 @@ class TurnReport:
         blocks = [*jobs, *self._gate_blocks()]
         if self.changed_paths:
             blocks.append(self._evidence_block())
+        if self.change_lines:
+            blocks.append("Değişen satırlar (gerçek fark):\n" + "\n".join(self.change_lines))
         blocks.append(render_findings(self.test_tamper))
         return "\n\n".join(block for block in blocks if block) + "\n\n"
 
@@ -339,7 +349,7 @@ class TurnReport:
             return (
                 f"ⓘ Değişen dosyalar: {dosyalar}\n"
                 "Son değişiklikten sonra bir doğrulama komutu ÇALIŞTIRILMADI; "
-                "sonuç doğrulanmadı."
+                "sonuç doğrulanmadı." + self._stale_note()
             )
         basarisiz = tuple(run for run in evidence if run.exit_code != 0)
         if basarisiz:
@@ -354,6 +364,26 @@ class TurnReport:
                 f"Değişen dosyalar: {dosyalar}"
             )
         return f"✓ Doğrulandı: {komutlar} başarıyla çalıştı.\nDeğişen dosyalar: {dosyalar}"
+
+    def _stale_note(self) -> str:
+        """Test koşmuş ama SONRA bir kabuk komutu "dosya değiştirmiş olabilir" sayılmışsa söyle.
+
+        Ölçüldü (30 Ekim, g3): `pytest` geçti, ardından modelin elle denediği
+        `python3 -m paket.cli listele` tanınmayan program olduğu için temkinli olarak
+        mutasyon sayıldı; rapor yalnız "komut çalıştırılmadı" diyordu ve kullanıcı
+        testin koştuğunu bilmiyordu.
+        """
+        if not self.last_shell_mutation or not any(
+            run.exit_code == 0
+            and is_behavioral_command(run.command)
+            and not run.after_last_mutation
+            for run in self.command_runs
+        ):
+            return ""
+        return (
+            f"\nTest bundan önce geçmişti ama sonra `{self.last_shell_mutation}` çalıştı; "
+            "kabuk komutu dosya değiştirmiş olabileceği için testi yeniden çalıştır."
+        )
 
 
 def _exit_text(code: int | None) -> str:
@@ -380,9 +410,15 @@ def build_turn_report(
     require_behavioral_evidence: bool = False,
     current_jobs: tuple[JobCurrentSnapshot, ...] = (),
     test_tamper: tuple[TamperFinding, ...] = (),
+    change_lines: tuple[str, ...] = (),
 ) -> TurnReport:
     """Turda denenen araç çağrılarından ve değişiklik kaydından raporu kur."""
     last_mutation = _last_mutation_index(tool_uses)
+    last_shell = (
+        _command_text(tool_uses[last_mutation])
+        if last_mutation is not None and _is_shell_call(tool_uses[last_mutation].name)
+        else ""
+    )
     jobs = collect_job_deliveries(tool_uses, current_jobs)
     command_runs = tuple(
         _command_run(use, after=last_mutation is not None and index > last_mutation)
@@ -407,6 +443,8 @@ def build_turn_report(
         require_behavioral_evidence=require_behavioral_evidence,
         job_deliveries=jobs,
         test_tamper=test_tamper,
+        change_lines=change_lines,
+        last_shell_mutation=last_shell,
     )
 
 
@@ -445,8 +483,123 @@ def _last_mutation_index(tool_uses: tuple[ToolUse, ...]) -> int | None:
 
 def _command_run(use: ToolUse, *, after: bool) -> CommandRun:
     return CommandRun(
-        command=_command_text(use), exit_code=_exit_code(use), after_last_mutation=after
+        command=_command_text(use),
+        exit_code=_exit_code(use),
+        after_last_mutation=after,
+        test_counts=_test_counts(use.output),
     )
+
+
+#: `pytest` özet satırı parçaları ("3 passed, 1 failed, 2 errors in 0.4s").
+_PYTEST_COUNT = re.compile(r"(\d+) (passed|failed|errors?)\b")
+#: jest: "Tests:       1 failed, 3 passed, 4 total".
+_JEST_TOTAL = re.compile(r"Tests:\s+(?:.*?)(\d+) passed, (\d+) total")
+#: vitest: "Tests  1 failed | 3 passed (4)".
+_VITEST_TOTAL = re.compile(r"Tests\s+(?:.*?)(\d+) passed(?: \| \d+ \w+)* \((\d+)\)")
+
+
+def _test_counts(output: str) -> str:
+    """Komut çıktısından "geçen/toplam" test sayısı; okunamıyorsa boş.
+
+    Yalnız bilinen koşturucuların ÖZET satırı okunur; tahmin edilmez.
+    """
+    for pattern in (_JEST_TOTAL, _VITEST_TOTAL):
+        match = pattern.search(output)
+        if match:
+            return f"{match.group(1)}/{match.group(2)}"
+    sayilar = {"passed": 0, "failed": 0}
+    bulundu = False
+    for adet, tur in _PYTEST_COUNT.findall(output):
+        bulundu = True
+        sayilar["passed" if tur == "passed" else "failed"] += int(adet)
+    if not bulundu or not sayilar["passed"] + sayilar["failed"]:
+        return ""
+    return f"{sayilar['passed']}/{sayilar['passed'] + sayilar['failed']}"
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceSummary:
+    """Tur sonunda kullanıcıya tek satırla gösterilecek kanıt: geçenler ve ölçülemeyenler."""
+
+    #: GERÇEKTEN çalışıp geçen kontroller ("tarayıcı (2 sayfa, konsol temiz)", "testler 4/4").
+    verified: tuple[str, ...] = ()
+    #: Çalışamayan ya da hiç koşmayan kontrollerin nedeni.
+    unmeasured: tuple[str, ...] = ()
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.verified and not self.unmeasured
+
+
+_PAGE_COUNT = re.compile(r"^(\d+) sayfa")
+#: Bir kontrolün ölçülemediğini söyleyen uyarılar (kapı çöktü, araç yok, tarayıcı açılmadı).
+_UNMEASURED_MARKERS = ("doğrulanamad", "ölçülemed")
+_REASON_CHARS = 160
+_COMMAND_LABEL_CHARS = 50
+
+
+def _short(text: str, limit: int) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _unmeasured_reason(warning: str) -> str | None:
+    """Uyarı bir kontrolün ölçülemediğini söylüyorsa nedenini ver; değilse None."""
+    if warning.startswith(NOT_MEASURED_PREFIX):
+        return _short(warning.removeprefix(NOT_MEASURED_PREFIX), _REASON_CHARS)
+    lowered = warning.lower()
+    if warning.startswith(UNVERIFIABLE_COMMAND_PREFIX) or any(
+        marker in lowered for marker in _UNMEASURED_MARKERS
+    ):
+        return _short(warning, _REASON_CHARS)
+    return None
+
+
+def _gate_label(item: CriterionEvidence) -> str:
+    """Geçen kapı kanıtını kullanıcı cümlesine çevir (tarayıcı: sayfa sayısı + konsol)."""
+    summary = item.summary
+    if item.criterion_id == "tarayici_sayfalari":
+        match = _PAGE_COUNT.match(summary)
+        if match:
+            # Konsol hatası ENGELLEYİCİ bulgudur; kapı geçtiyse konsol temizdir.
+            return f"tarayıcı ({match.group(1)} sayfa, konsol temiz)"
+    return summary
+
+
+def summarize_evidence(report: TurnReport) -> EvidenceSummary:
+    """Raporun geçen ve ölçülemeyen kanıtlarını tek satırlık özete çevir.
+
+    Saftır; yalnız rapora (gerçek araç kaydı + kapı sonucu) bakar. Değişiklik yoksa
+    sorulacak bir şey yoktur, boş döner.
+    """
+    if not report.changed_paths:
+        return EvidenceSummary()
+    gate = report.gate
+    verified: list[str] = []
+    unmeasured: list[str] = []
+    if gate is not None and gate.ok:
+        verified.extend(
+            _gate_label(item)
+            for item in gate.evidence
+            if item.status is EvidenceStatus.PASSED and item.behavioral
+        )
+    runs = [run for run in report._unresolved_evidence if run.exit_code == 0]
+    verified.extend(
+        f"testler {run.test_counts}"
+        if run.test_counts
+        else f"`{_short(run.command, _COMMAND_LABEL_CHARS)}`"
+        for run in runs
+    )
+    if gate is not None:
+        for warning in gate.warnings:
+            reason = _unmeasured_reason(warning)
+            if reason is not None:
+                unmeasured.append(reason)
+        if not runs and report._static_only_evidence is not None:
+            unmeasured.append("yalnız sözdizimi denetlendi; sayfa çalıştırılıp görülmedi")
+    if not verified and not unmeasured and report.is_verified is False:
+        unmeasured.append("son değişiklikten sonra doğrulama komutu çalıştırılmadı")
+    return EvidenceSummary(tuple(dict.fromkeys(verified)), tuple(dict.fromkeys(unmeasured)))
 
 
 def _command_text(use: ToolUse) -> str:

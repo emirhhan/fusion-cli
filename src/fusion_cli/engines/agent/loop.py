@@ -48,6 +48,7 @@ from ...core.effects import EffectRecorder
 from ...core.errors import ConfigError, FusionError
 from ...core.events import (
     ApprenticeHandoff,
+    ChangesDigested,
     Channel,
     ContextCompressed,
     EventPublisher,
@@ -73,6 +74,7 @@ from ...core.events import (
     TurnBudgetExhausted,
     TurnUsageObserved,
     VerificationFailed,
+    VerificationPassed,
 )
 from ...core.evidence import ToolUse
 from ...core.health import HealthRegistry
@@ -131,6 +133,7 @@ from . import compaction, denial, gate_escalation, learning_steps, liveness, ref
 from .action_evidence import claimed_effects
 from .apprentice_handoff import apprentice_spec, teacher_for_turn
 from .approval import ApprovalPolicy, Decision, resolve_request
+from .change_digest import change_digest
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
 from .clarify import clarification_hint, vague_fix_question
@@ -210,7 +213,12 @@ from .tool_profiles import WIDENED_KIND, hidden_tools
 from .tool_surface import measure_surface, narrow_to_compact_surface
 from .transient import MAX_TOOL_TRANSIENT_RETRIES, is_transient_failure
 from .turn_hints import design_hint, identity_hint, preview_hint, scope_hint, store_hint
-from .turn_report import TurnReport, build_turn_report, claims_command_success
+from .turn_report import (
+    TurnReport,
+    build_turn_report,
+    claims_command_success,
+    summarize_evidence,
+)
 from .verifier_repair import observe_verifier_failures
 from .web_contract import render_answer_contract, tool_names
 from .workspace_hint import find_workspace_for
@@ -1039,11 +1047,13 @@ async def _run_agent(
         current_jobs = await asyncio.to_thread(
             snapshot_current_jobs, deps.tool_context.root, outcome.tool_uses
         )
+        digest = await asyncio.to_thread(change_digest, deps.tool_context)
         _apply_turn_report(
             outcome,
             deps,
             gate=verification,
             current_jobs=current_jobs,
+            change_lines=digest,
             task=task,
             require_behavioral_evidence=(
                 verify and execution.complex_task and len(deps.tool_context.changes.paths) > 1
@@ -1093,6 +1103,7 @@ def _apply_turn_report(
     current_jobs: tuple[JobCurrentSnapshot, ...] = (),
     require_behavioral_evidence: bool = False,
     task: str = "",
+    change_lines: tuple[str, ...] = (),
 ) -> None:
     """Turun raporunu MODELİN BEYANINDAN değil gerçek kayıttan kur ve ekle.
 
@@ -1121,6 +1132,7 @@ def _apply_turn_report(
         current_jobs=current_jobs,
         require_behavioral_evidence=require_behavioral_evidence,
         test_tamper=tamper,
+        change_lines=change_lines,
     )
     if report.is_verified is False and claims_command_success(outcome.final_text):
         # Kanıtsız "testler geçti" yanlış başarıdır: tur başarılı sayılmaz, ders
@@ -1130,6 +1142,27 @@ def _apply_turn_report(
     outcome.final_text = report.render_with_model_text(outcome.final_text)
     if report.blocks_success:
         outcome.ok = False
+    _publish_evidence(outcome, report, deps)
+
+
+def _publish_evidence(outcome: AgentOutcome, report: TurnReport, deps: AgentDeps) -> None:
+    """Rapor bloğu ekrana ULAŞMAYACAKSA geçen kanıtı ve gerçek farkı olay olarak yay.
+
+    Rapor `final_text`'e eklenir; o metin yalnız `TurnAnswered` (akıtılmayan cevap) ya da
+    `ErrorOccurred` (başarısız tur) ile ekrana düşer. Cevabı akıtılan BAŞARILI turda
+    ikisi de çalışmaz: ölçüldü (30 Ekim, g4), tarayıcı kapısı sayfayı açıp denetlemişti
+    ama kullanıcı hiçbir kanıt satırı görmedi. Metin zaten gidecekse olay yayılmaz;
+    aynı bilgi iki kez basılmaz.
+    """
+    if not (outcome.ok and outcome.answer_streamed and report.changed_paths):
+        return
+    summary = summarize_evidence(report)
+    if not summary.is_empty:
+        deps.publisher.publish(
+            VerificationPassed(checks=summary.verified, unmeasured=summary.unmeasured)
+        )
+    if report.change_lines:
+        deps.publisher.publish(ChangesDigested(lines=report.change_lines))
 
 
 def _announce_answer(outcome: AgentOutcome, deps: AgentDeps, *, depth: int, internal: bool) -> None:

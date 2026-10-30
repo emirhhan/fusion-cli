@@ -411,6 +411,31 @@ class VerificationFailed(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class VerificationPassed(Event):
+    """Tur sonu kanıt özeti: geçen kontroller ve ölçülemeyenlerin nedeni.
+
+    Geçen kapı eskiden hiçbir olay yaymıyordu (yalnız `VerificationFailed` vardı) ve
+    rapor bloğu yalnız `final_text`'e ekleniyordu; cevap akıtılmışsa kullanıcı kapının
+    çalıştığını göremiyordu (ölçüldü, 30 Ekim). `checks` GERÇEKTEN çalışıp geçen
+    kontrollerdir; `unmeasured` çalışamayan ya da hiç koşmayan kontrollerin nedenidir.
+    """
+
+    checks: tuple[str, ...] = ()
+    unmeasured: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ChangesDigested(Event):
+    """Turda değişen dosyaların GERÇEK fark özeti (modelin anlatımı değil kayıt).
+
+    Satırlar `engines/agent/change_digest.py` tarafından değişiklik kaydından üretilir;
+    kullanıcı modelin "şunu düzelttim" iddiasını gerçek farkla karşılaştırabilir.
+    """
+
+    lines: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class GateEscalated(Event):
     """Kapı iki düzeltmeden sonra da kırmızı; TEK ek tur üst modelle çalışacak.
 

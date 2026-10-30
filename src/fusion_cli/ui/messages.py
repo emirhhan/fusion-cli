@@ -118,6 +118,12 @@ NO_FILE_CHANGES = "bu turda hiçbir dosya değiştirilmedi · yalnızca okuma ya
 #: Turda gerçekten değişen dosyalar. Modelin iddiası değil, değişiklik kümesi.
 FILES_CHANGED = "değişen dosyalar: {paths}"
 FILES_MORE = "(+{count} dosya daha)"
+#: Tur sonu kanıt satırı: GERÇEKTEN çalışıp geçen kontroller (kapı ya da komut).
+VERIFICATION_PASSED = "doğrulandı: {checks}"
+#: Çalışamayan ya da hiç koşmayan kontrol; "doğrulandı" demek yerine nedeni söylenir.
+VERIFICATION_UNMEASURED = "ölçülmedi: {reasons}"
+#: Değişen satırların başlığı: modelin anlatımı değil değişiklik kaydından gelen fark.
+CHANGES_DIGEST_TITLE = "değişen satırlar:"
 #: Seçili model dosya/sistem değiştiremiyor. Kısıt SESSİZ kalmamalı: model
 #: "böyle bir aracım yok" der ve haklıdır, ama kullanıcı sebebi göremezse
 #: Fusion'ı arızalı sanır.

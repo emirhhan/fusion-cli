@@ -28,6 +28,7 @@ from rich.text import Text
 from ..core.events import (
     ApprenticeHandoff,
     CandidatesStarted,
+    ChangesDigested,
     Channel,
     ContextCompressed,
     CouncilConsulted,
@@ -78,6 +79,7 @@ from ..core.events import (
     TurnBudgetExhausted,
     TurnFinished,
     TurnOutcome,
+    VerificationPassed,
 )
 from ..core.types import FusionResult
 from . import messages, theme
@@ -348,6 +350,17 @@ class ConsoleRenderer:
                 f"{escape(messages.FILES_CHANGED.format(paths=_join_capped(event.paths)))}"
                 f"[/{theme.DIM}]"
             )
+        elif isinstance(event, VerificationPassed):
+            self._verification_lines(event)
+        elif isinstance(event, ChangesDigested):
+            self._flush_streams()
+            self._close_line()
+            self._console.print(
+                f"[{theme.DIM}]{theme.ICON_STATUS} {escape(messages.CHANGES_DIGEST_TITLE)}"
+                f"[/{theme.DIM}]"
+            )
+            for line in event.lines:
+                self._console.print(f"[{theme.DIM}]  {escape(line)}[/{theme.DIM}]", highlight=False)
         elif isinstance(event, NoFileChanges):
             # Rozet cevabı BÖLMEZ: akan metin önce kapatılır, olgu ardına düşer.
             self._flush_streams()
@@ -664,6 +677,19 @@ class ConsoleRenderer:
             return
         self._end_block()
         self._pending_status = message
+
+    def _verification_lines(self, event: VerificationPassed) -> None:
+        """Tur sonu kanıtı: geçenler tek satır, ölçülemeyenler nedeniyle ayrı satır."""
+        self._flush_streams()
+        self._close_line()
+        if event.checks:
+            checks = messages.VERIFICATION_PASSED.format(checks=" · ".join(event.checks))
+            self._console.print(f"[{theme.OK}]{theme.ICON_OK} {escape(checks)}[/{theme.OK}]")
+        if event.unmeasured:
+            reasons = messages.VERIFICATION_UNMEASURED.format(reasons=" · ".join(event.unmeasured))
+            self._console.print(
+                f"[{theme.WARN}]{theme.ICON_STATUS} {escape(reasons)}[/{theme.WARN}]"
+            )
 
     def _warn(self, message: str) -> None:
         """Sonucun yorumunu değiştiren UYARI: `--quiet` bile bunu yutmaz.
