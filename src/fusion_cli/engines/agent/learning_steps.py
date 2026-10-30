@@ -110,7 +110,11 @@ async def reinforce_recalled(
     )
     texts = tuple(dict.fromkeys(lesson.text for lesson in deps.recalled_lessons))
     deps.recalled_lessons.clear()
-    deps.lessons.reinforce(texts, success=success)
+    if success and learning.reads_external_content(outcome.tool_uses):
+        # Dış içerik okunan başarılı tur "dış kaynaklı" dersi doğrulamaz (MINJA).
+        deps.lessons.reinforce(texts, success=True, external_turn=True)
+    else:
+        deps.lessons.reinforce(texts, success=success)
 
 
 def should_learn(outcome: AgentOutcome, *, plan_mode: bool, allow_read_only: bool = True) -> bool:
@@ -164,7 +168,8 @@ async def learn(
     if not should_learn(outcome, plan_mode=plan_mode, allow_read_only=allow_read_only):
         return
 
-    work = _bounded(_extract_and_store(task, list(outcome.messages), deps))
+    external = learning.reads_external_content(outcome.tool_uses)
+    work = _bounded(_extract_and_store(task, list(outcome.messages), deps, external=external))
     if deps.background is None:
         await work
     else:
@@ -191,8 +196,14 @@ async def _bounded(work: Awaitable[None]) -> None:
         logger.debug("ders çıkarımı %.0f saniyede bitmedi, atlandı", LEARN_TIMEOUT_S)
 
 
-async def _extract_and_store(task: str, messages: list[Message], deps: AgentDeps) -> None:
-    """Ders çıkarımının asıl işi. Arka planda çalışabilmesi için ayrı tutulur."""
+async def _extract_and_store(
+    task: str, messages: list[Message], deps: AgentDeps, *, external: bool = False
+) -> None:
+    """Ders çıkarımının asıl işi. Arka planda çalışabilmesi için ayrı tutulur.
+
+    `external`: tur dış içerik okudu; çıkan dersler düşük güvenle "dış kaynaklı"
+    etiketlenir (`runtime.external_lesson_confidence`).
+    """
     if deps.lessons is None:
         return
     lessons = await learning.extract_lessons(
@@ -203,6 +214,10 @@ async def _extract_and_store(task: str, messages: list[Message], deps: AgentDeps
         workspace=_workspace(deps),
         tags=lesson_tags(deps),
     )
+    if external:
+        lessons = learning.mark_external(
+            lessons, getattr(deps.config.runtime, "external_lesson_confidence", 0.5)
+        )
     # Yazım kapısı: yalnızca ölçülebilir kanıtı olan, sır içermeyen, mevcut derslerle
     # çakışmayan adaylar belleğe girer. Bellek çöple/zehirle dolmasın.
     existing = deps.lessons.all()
@@ -216,7 +231,8 @@ async def _extract_and_store(task: str, messages: list[Message], deps: AgentDeps
     stored = learning.store_lessons(screened, deps.lessons)
     # Yeni dersle çelişen ESKİ dersin güveni düşer (A2-11); yan yana iki zıt kural
     # geri çağrılmasın.
-    if stored:
+    # Dış kaynaklı (doğrulanmamış) ders güvenilir eski dersi çürütemez (MINJA).
+    if stored and not external:
         deps.lessons.reinforce(learning.contradicted_texts(screened, existing), success=False)
     if stored:
-        deps.publisher.publish(LessonsLearned(count=stored))
+        deps.publisher.publish(LessonsLearned(count=stored, external=stored if external else 0))

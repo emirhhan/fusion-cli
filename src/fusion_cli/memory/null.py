@@ -43,7 +43,9 @@ class NullLessonMemory:
     ) -> tuple[Lesson, ...]:
         return ()
 
-    def reinforce(self, texts: tuple[str, ...], *, success: bool) -> int:
+    def reinforce(
+        self, texts: tuple[str, ...], *, success: bool, external_turn: bool = False
+    ) -> int:
         return 0
 
     def retag_from_workspace(self) -> int:

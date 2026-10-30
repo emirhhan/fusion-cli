@@ -87,6 +87,12 @@ class Lesson:
     #: projede geçerli kalır. Alan taşınmadan önce yazılmış kayıtlar da boş okunur,
     #: yani göç gerekmez ve eski dersler genel sayılır.
     workspace: str = ""
+    #: Ders, dış içerik (web/tarayıcı/MCP/klonlanan site) okunan turdan çıktı ve henüz
+    #: dış içeriksiz BAŞARILI bir turda doğrulanmadı. Dış metin kalıcı belleğe zehir
+    #: sokabilir (MINJA); bu ders düşük güvenle başlar, dış içerikli başarıyla güven
+    #: kazanmaz ve istemde "dış kaynaklı" etiketiyle gösterilir. Alan taşınmadan önce
+    #: yazılmış kayıtlar False okunur (göç gerekmez).
+    external: bool = False
 
 
 class Feedback(Enum):
@@ -196,10 +202,14 @@ class LessonMemory(Protocol):
         """
         ...
 
-    def reinforce(self, texts: tuple[str, ...], *, success: bool) -> int:
+    def reinforce(
+        self, texts: tuple[str, ...], *, success: bool, external_turn: bool = False
+    ) -> int:
         """Enjekte edilen derslerin güvenini turun sonucuna göre güncelle.
 
         `success=False` güveni düşürür ve `failure_count`'u artırır; `True` tersi.
+        `external_turn=True`: tur dış içerik okudu; "dış kaynaklı" ders bu başarıyla
+        doğrulanmış sayılmaz (çağıranlar bayrağı YALNIZ True iken geçer).
         Güncellenen ders sayısını döndürür.
         """
         ...

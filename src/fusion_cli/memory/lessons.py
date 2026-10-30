@@ -152,7 +152,9 @@ class ChromaLessonMemory:
             )
         return select_lessons(candidates, limit=limit, scope=scope)
 
-    def reinforce(self, texts: tuple[str, ...], *, success: bool) -> int:
+    def reinforce(
+        self, texts: tuple[str, ...], *, success: bool, external_turn: bool = False
+    ) -> int:
         """Metni eşleşen derslerin güvenini tur sonucuna göre günceller."""
         wanted = {text.strip().lower() for text in texts if text.strip()}
         if not wanted:
@@ -167,7 +169,7 @@ class ChromaLessonMemory:
                 mevcut = _to_lesson(document, metadata)
                 if mevcut.text.strip().lower() not in wanted:
                     continue
-                lesson = reinforced(mevcut, success=success)
+                lesson = reinforced(mevcut, success=success, external_turn=external_turn)
                 yazildi = self._collection.update(
                     ids=[row_id],
                     documents=[document],
@@ -312,6 +314,8 @@ def _to_metadata(lesson: Lesson, timestamp: float) -> dict[str, Any]:
         "workspace": lesson.workspace[:500],
         # Chroma metadata yalnız skaler tutar; etiketler virgülle saklanır.
         "tags": ",".join(sorted(lesson.tags))[:300],
+        # Chroma metadata skaler tutar; bayrak 0/1 saklanır (eski kayıtlarda alan yok = 0).
+        "external": int(lesson.external),
         "timestamp": timestamp,
     }
 
@@ -331,6 +335,7 @@ def _to_lesson(document: str, metadata: dict[str, Any]) -> Lesson:
         trigger=str(metadata.get("trigger", "")),
         workspace=str(metadata.get("workspace", "")),
         tags=tuple(t for t in str(metadata.get("tags", "")).split(",") if t),
+        external=bool(_number(int, metadata.get("external"), 0)),
     )
 
 
@@ -376,6 +381,10 @@ _LESSON_PREAMBLE = (
 )
 
 
+#: Dış içerik okunan turdan çıkan, henüz doğrulanmamış dersin istem etiketi.
+_EXTERNAL_TAG = "[dış kaynaklı, doğrulanmadı]"
+
+
 def as_prompt_block(lessons: tuple[Lesson, ...]) -> str:
     """Geri çağrılan dersleri sistem promptuna eklenecek metne çevir.
 
@@ -385,8 +394,8 @@ def as_prompt_block(lessons: tuple[Lesson, ...]) -> str:
     if not lessons:
         return ""
     lines = [
-        f"- [{'KAÇIN' if lesson.kind is LessonKind.MISTAKE else 'UYGULA'}] "
-        f"{_prompt_safe(lesson.text)}"
+        f"- [{'KAÇIN' if lesson.kind is LessonKind.MISTAKE else 'UYGULA'}]"
+        f"{_EXTERNAL_TAG if lesson.external else ''} {_prompt_safe(lesson.text)}"
         for lesson in lessons
     ]
     return f"<dersler>\n{_LESSON_PREAMBLE}\n" + "\n".join(lines) + "\n</dersler>"

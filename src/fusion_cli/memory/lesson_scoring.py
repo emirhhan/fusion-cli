@@ -31,15 +31,24 @@ LESSON_CONFIDENCE_FLOOR = 0.35
 LESSON_REVIVE_AFTER_S = 7 * 24 * 3600.0
 
 
-def reinforced(lesson: Lesson, *, success: bool) -> Lesson:
-    """Dersin güvenini ve sayaçlarını tur sonucuna göre güncellenmiş kopyayla döndürür."""
+def reinforced(lesson: Lesson, *, success: bool, external_turn: bool = False) -> Lesson:
+    """Dersin güvenini ve sayaçlarını tur sonucuna göre güncellenmiş kopyayla döndürür.
 
+    `external_turn`: tur dış içerik (web/MCP/klonlanan site) okudu. Dış kaynaklı ve henüz
+    doğrulanmamış ders böyle bir başarıyla GÜVEN KAZANMAZ (dış metin hem dersi hem
+    "başarıyı" etkilemiş olabilir); dış içeriksiz başarılı tur dersi doğrular
+    (`external=False`) ve normal artış uygulanır. Başarısızlık her durumda normal cezadır.
+    """
+
+    if lesson.external and success and external_turn:
+        return lesson
     delta = LESSON_SUCCESS_DELTA if success else -LESSON_FAILURE_DELTA
     return replace(
         lesson,
         confidence=_clamp(lesson.confidence + delta),
         success_count=lesson.success_count + (1 if success else 0),
         failure_count=lesson.failure_count + (0 if success else 1),
+        external=lesson.external and not success,
     )
 
 

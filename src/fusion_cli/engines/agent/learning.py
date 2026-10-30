@@ -17,15 +17,18 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ...config.models import Config
 from ...core.errors import ConfigError, ProviderError
 from ...core.events import EventPublisher
+from ...core.evidence import ToolUse
 from ...core.memory import Lesson, LessonKind, LessonMemory, LessonSource
 from ...core.redaction import contains_sensitive, redact
 from ...core.text_fold import fold_tr
+from ...core.tools import ToolFamily, tool_family
 from ...core.types import CompletionRequest, Message
 from ...providers.factory import build_provider
 from ...providers.web_browser import WebBrowserError
@@ -147,6 +150,42 @@ def _fill_prompt(task: str, trace: str) -> str:
     """
     degerler = {"task": task, "trace": trace}
     return re.sub(r"\{(task|trace)\}", lambda eslesme: degerler[eslesme.group(1)], _PROMPT)
+
+
+#: Dış içerik getirmeyen ama `BROWSER` ailesinde sayılan araçlar (yerel önizleme).
+_LOCAL_BROWSER_TOOLS = frozenset({"start_preview"})
+#: Ailesi tanınmayan (`EXTERNAL`) ama dış siteyi okuyan yerleşik araçlar.
+_EXTERNAL_BUILTINS = frozenset({"clone_site"})
+#: MCP araçları `<sunucu>__<araç>` biçiminde eklenir (bkz. `core.tools.tool_family`).
+_MCP_SEPARATOR = "__"
+
+
+def reads_external_content(tool_uses: Iterable[ToolUse]) -> bool:
+    """Turda dış içerik (web, tarayıcı/chrome, MCP, klonlanan site) BAŞARIYLA okundu mu.
+
+    Dış metin kalıcı belleğe zehir sokabilir (MINJA: yalnız sorgu etkileşimiyle %98,2
+    enjeksiyon). Başarısız çağrı dış metin getirmediği için sayılmaz. Yerel dosya, kabuk
+    ve yerel önizleme dış kaynak DEĞİLDİR.
+    """
+    for use in tool_uses:
+        if not use.ok or use.name in _LOCAL_BROWSER_TOOLS:
+            continue
+        if use.name in _EXTERNAL_BUILTINS or _MCP_SEPARATOR in use.name:
+            return True
+        if tool_family(use.name) in {ToolFamily.WEB, ToolFamily.BROWSER}:
+            return True
+    return False
+
+
+def mark_external(lessons: tuple[Lesson, ...], confidence: float) -> tuple[Lesson, ...]:
+    """Dersleri "dış kaynaklı, doğrulanmamış" olarak etiketle ve güvenini düşür.
+
+    Güven en fazla `confidence` olur (zaten daha düşükse korunur).
+    """
+    return tuple(
+        replace(lesson, external=True, confidence=min(lesson.confidence, confidence))
+        for lesson in lessons
+    )
 
 
 def store_lessons(lessons: tuple[Lesson, ...], memory: LessonMemory) -> int:
