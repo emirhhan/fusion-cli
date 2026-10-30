@@ -73,10 +73,12 @@ async def role_state(config: Config) -> dict[str, Any]:
     """Seçili roller ve seçilebilir modeller."""
     options = [*_web_rows(config), _codex_row()]
     seen = {row["model"] for row in options}
+    catalog_error = False
     try:
         catalog = await list_selectable_models(config, workspace_mode="sohbet")
     except Exception:
-        catalog = {"modeller": []}
+        # Boş liste sessizce dönmez: kullanıcı seçeneklerin eksik olduğunu bilsin.
+        catalog, catalog_error = {"modeller": []}, True
     for row in catalog.get("modeller", []):
         if row["model"] in seen:
             continue
@@ -107,7 +109,15 @@ async def role_state(config: Config) -> dict[str, Any]:
         for session in config.web_sessions
         if session.enabled
     ]
-    return {"ok": True, "roller": current, "secenekler": options, "oturumlar": sessions}
+    state: dict[str, Any] = {
+        "ok": True,
+        "roller": current,
+        "secenekler": options,
+        "oturumlar": sessions,
+    }
+    if catalog_error:
+        state["uyari"] = "Model kataloğu okunamadı; API/yerel seçenekler eksik olabilir."
+    return state
 
 
 def _validated(model: object) -> str:
@@ -143,10 +153,16 @@ def apply_role(config: Config, role: str, value: object) -> Config:
             ModelSpec(name=f"aday-{index + 1}", model=model, tags=("strict",))
             for index, model in enumerate(dict.fromkeys(models))
         )
+        names = {spec.name for spec in specs}
+        # Yalnız artık var olmayan aday adları ilk adaya çevrilir; kullanıcının geçerli
+        # görev→model eşlemesi korunur (ölçüldü 30 Ekim: tüm anahtarlar ilk adaya ezilirdi).
         new = replace(
             config,
             candidates=specs,
-            task_model_map=dict.fromkeys(config.task_model_map, specs[0].name),
+            task_model_map={
+                task: name if name in names else specs[0].name
+                for task, name in config.task_model_map.items()
+            },
         )
         writer.write_model_section(new)
     elif role == "codex_yedek":
@@ -167,4 +183,7 @@ async def assign(config: Config, role: str, value: object) -> tuple[Config | Non
         new = await asyncio.to_thread(apply_role, config, role, value)
     except ConfigError as error:
         return None, {"ok": False, "metin": str(error)}
+    except OSError:
+        # `writer.*` yazma hatası ham `str(error)` (dosya yolu) göstermesin.
+        return None, {"ok": False, "metin": "Yapılandırma dosyasına yazılamadı."}
     return new, {"ok": True, "metin": "Kaydedildi.", "roller": _current(new)}

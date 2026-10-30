@@ -137,3 +137,35 @@ def test_yerel_modeller_canlilik_yoklamasina_girmez() -> None:
     assert not is_api_model(ModelSpec(name="a", model="ollama_chat/huihui_ai/qwen3.5:9b"))
     assert not is_api_model(ModelSpec(name="a", model="gemini_web/main/auto"))
     assert is_api_model(ModelSpec(name="a", model="nvidia_nim/nvidia/nemotron-3-ultra"))
+
+
+def test_adaylar_gecerli_gorev_eslemesini_ezmez(config) -> None:
+    """Ölçüldü (30 Ekim, S2-15): tüm görev anahtarları ilk adaya yönlendirilip kullanıcının
+    görev→model eşlemesi siliniyordu."""
+    from dataclasses import replace
+
+    secim = ["codex_cli/default", "gemini_web/main/auto"]
+    config = replace(config, task_model_map={"code": "aday-2", "general": "silinmis-ad"})
+
+    yeni = model_roles.apply_role(config, "candidates", secim)
+
+    assert yeni.task_model_map == {"code": "aday-2", "general": "aday-1"}
+
+
+def test_katalog_okunamazsa_uyari_doner_ve_yazma_hatasi_yol_sizdirmaz(config, monkeypatch) -> None:
+    """Ölçüldü (30 Ekim, S2-16): katalog hatası sessizce boş liste oluyordu; `OSError`
+    ham metniyle (dosya yolu) UI'ya gidiyordu."""
+
+    async def bozuk(*_a, **_k):
+        raise RuntimeError("katalog")
+
+    monkeypatch.setattr(model_roles, "list_selectable_models", bozuk)
+    durum = asyncio.run(model_roles.role_state(config))
+    assert "uyari" in durum
+
+    def yazamaz(*_a, **_k):
+        raise OSError("/gizli/yol: izin yok")
+
+    monkeypatch.setattr(model_roles, "apply_role", yazamaz)
+    ok, sonuc = asyncio.run(model_roles.assign(config, "agent", "a/b"))
+    assert ok is None and "/gizli/yol" not in sonuc["metin"]
