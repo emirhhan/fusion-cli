@@ -39,6 +39,7 @@ def _criterion_payload(evidence: CriterionEvidence) -> dict[str, object]:
     payload["kind"] = evidence.kind.value
     payload["status"] = evidence.status.value
     payload["summary"] = _safe_text(evidence.summary)
+    payload["artifact"] = _safe_text(evidence.artifact)
     payload["command"] = _safe_text(evidence.command)
     payload["output"] = _safe_text(evidence.output)
     return payload

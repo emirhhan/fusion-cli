@@ -286,3 +286,24 @@ def test_okunamayan_checkpoint_neden_loglanir(tmp_path, caplog):
         JsonCheckpointStore(directory).load("plan-1")
 
     assert any(getattr(kayit, "dosya", "") == "plan-1.json" for kayit in caplog.records)
+
+
+def test_kriter_kaniti_artifact_alani_da_maskelenir():
+    """Ölçüldü (30 Ekim): `summary/command/output` maskeleniyordu ama `artifact`
+    `asdict` ile olduğu gibi diske yazılıyordu (M1-46)."""
+    from fusion_cli.core.checkpoint import StepCheckpointEvidence
+    from fusion_cli.core.execution_plan import VerificationCheckKind
+    from fusion_cli.memory.checkpoint_evidence import evidence_payload
+
+    sir = "sk-or-v1-" + "a" * 48
+    kanit = CriterionEvidence(
+        criterion_id="c1",
+        kind=next(iter(VerificationCheckKind)),
+        status=next(iter(EvidenceStatus)),
+        summary="ok",
+        artifact=f"https://x.test/?api_key={sir}",
+    )
+
+    yuk = evidence_payload((StepCheckpointEvidence(step_id="s1", criteria=(kanit,)),))
+
+    assert sir not in json.dumps(yuk)
