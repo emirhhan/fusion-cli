@@ -239,3 +239,16 @@ def test_denetim_sayfalari_dis_siteyi_secmez():
     )
 
     assert secilen == ["http://127.0.0.1:8080/hakkimizda"]
+
+
+def test_calisma_alani_listesi_kesilen_dosya_sayisini_soyler(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.plan_context import MAX_STEP_WORKSPACE_FILES, _relative_names
+
+    baglam = ToolContext(root=tmp_path)
+    yollar = [tmp_path / f"d{i:03}.py" for i in range(MAX_STEP_WORKSPACE_FILES + 5)]
+
+    adlar = _relative_names(baglam, yollar)
+
+    assert len(adlar) == MAX_STEP_WORKSPACE_FILES + 1
+    assert adlar[-1] == "(+5 dosya daha)"
