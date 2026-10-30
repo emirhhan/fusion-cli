@@ -16,8 +16,9 @@ _TRANSIENT = re.compile(
     r"TimeoutError|Timeout \d+ ?ms exceeded|timed? ?out|zaman aşımı|net::ERR_|"
     r"ECONNRESET|ECONNREFUSED|ETIMEDOUT|Connection (?:reset|refused|aborted)|"
     r"temporarily unavailable|Service Unavailable|"
-    # Yalın `502/503/504` satır no, fiyat ya da port da olabilir: HTTP bağlamı aranır (A4-58).
-    r"\b(?:HTTP|status(?: code)?|code|error|hata)[ :=]*50[234]\b|\b50[234] (?:Bad Gateway|Gateway|Service)",
+    # Yalın `502/503/504` satır no/fiyat/port olabilir: HTTP bağlamı aranır (A4-58).
+    r"\b(?:HTTP|status(?: code)?|code|error|hata)[ :=]*50[234]\b|"
+    r"\b50[234] (?:Bad Gateway|Gateway|Service)",
     re.IGNORECASE,
 )
 
