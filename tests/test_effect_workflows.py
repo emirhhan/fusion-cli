@@ -413,3 +413,47 @@ def test_status_paths_survive_stripped_first_line():
         ".env",
         "yeni.pem",
     ]
+
+
+# --- Dalga 4: dosya yolu depo sanılmaz, sorulamayan soru görünür, korumalı dal force önermez --- #
+
+
+def test_dosya_yolu_repo_referansi_sayilmaz():
+    """Ölçüldü (30 Ekim): 'app/page.tsx' owner/repo sanılıp sahte uyuşmazlık sorusu çıkıyordu."""
+    assert extract_repository_reference("app/page.tsx dosyasını değiştirip pushla") is None
+    assert extract_repository_reference("src/main.py ve docs/readme.md güncelle, pushla") is None
+    assert (
+        extract_repository_reference("src/main.py güncelle ve emir/proje reposuna push et")
+        == "emir/proje"
+    )
+    assert extract_repository_reference("vercel/next.js reposuna pushla") == "vercel/next.js"
+
+
+async def test_etkilesimsizde_sorulamayan_soru_hata_mesajinda_gorunur(tmp_path):
+    local, _remote = _repository(tmp_path)
+    _git(local, "checkout", "-b", "repair/test")
+    (local / "repair.txt").write_text("repair\n", encoding="utf-8")
+
+    result = await maybe_run_effect_workflow(
+        "Repoyu pushla",
+        _deps(local, tmp_path / "memory", RecordingSink(), asker=None),
+        build_registry(),
+    )
+
+    assert result is not None and not result.ok
+    assert "Hedef branch belirsiz" in result.final_text
+
+
+def test_korumali_dal_ve_hook_reddi_force_onerisine_yol_acmaz():
+    from fusion_cli.engines.effects.git_push import GitPushWorkflow
+
+    hook = (
+        "! [remote rejected] main -> main (pre-receive hook declined)\n"
+        "error: failed to push some refs"
+    )
+    korumali = "! [remote rejected] main -> main (protected branch hook declined)"
+    gercek = "! [rejected] main -> main (non-fast-forward)\nerror: failed to push some refs"
+
+    assert not GitPushWorkflow._looks_non_fast_forward(hook)
+    assert not GitPushWorkflow._looks_non_fast_forward(korumali)
+    assert GitPushWorkflow._looks_non_fast_forward(gercek)

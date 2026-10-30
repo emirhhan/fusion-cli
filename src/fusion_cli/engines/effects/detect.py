@@ -442,10 +442,49 @@ def detect_contract(task: str) -> EffectContract | None:
         return None
 
 
-def extract_repository_reference(task: str) -> str | None:
-    """Metindeki ``owner/repo`` referansını çıkar; dosya yollarını yakalamamaya çalış."""
+#: ``owner/repo`` sanılmaması gereken dizin adları: ``src/main.py``, ``app/page.tsx``.
+_PATH_DIRECTORIES = frozenset(
+    {
+        "src", "app", "apps", "lib", "libs", "docs", "doc", "test", "tests", "public",
+        "assets", "static", "scripts", "bin", "config", "components", "pages", "packages",
+        "tools", "utils", "styles", "templates", "dist", "build", "node_modules", "vendor",
+        "internal", "cmd", "pkg", "include", "resources", "source",
+    }
+)  # fmt: skip
+#: Dosya uzantıları; ``repo`` bunlardan biriyle bitiyorsa referans bir DOSYA yoludur.
+#: ``js`` bilerek yok: ``vercel/next.js`` gibi gerçek depo adları vardır.
+_FILE_EXTENSIONS = frozenset(
+    {
+        "py", "ts", "tsx", "jsx", "json", "md", "txt", "html", "htm", "css", "scss", "yml",
+        "yaml", "toml", "sh", "go", "rs", "java", "php", "rb", "swift", "kt", "sql", "lock",
+        "cfg", "ini", "vue", "svelte", "gd", "tscn", "png", "jpg", "jpeg", "svg", "gif",
+        "webp", "pdf", "csv", "xml", "log", "env", "c", "h", "cpp", "cs",
+    }
+)  # fmt: skip
 
-    matches = list(_REPO_REFERENCE.finditer(task))
+
+def _looks_like_file_path(owner: str, repo: str) -> bool:
+    """``src/main.py`` / ``app/page.tsx`` gibi referans depo değil dosya yolu mu?"""
+    if owner.casefold() in _PATH_DIRECTORIES:
+        return True
+    _, ayrac, uzanti = repo.rpartition(".")
+    return bool(ayrac) and uzanti.casefold() in _FILE_EXTENSIONS
+
+
+def extract_repository_reference(task: str) -> str | None:
+    """Metindeki ``owner/repo`` referansını çıkar; dosya yollarını yakalamamaya çalış.
+
+    Ölçüldü (30 Ekim): son eşleşme alınıyordu ve ``app/page.tsx`` ya da ``src/main.py`` gibi
+    dosya yolları depo sanılıyordu; push isteği dosya yolu geçirince sahte "Repo adı uyuşmuyor"
+    sorusu çıkıyor, ``ISTEK`` cevabı origin'i ``https://github.com/src/main.py.git`` yapıyordu
+    (E1-41).
+    """
+
+    matches = [
+        eslesme
+        for eslesme in _REPO_REFERENCE.finditer(task)
+        if not _looks_like_file_path(eslesme.group("owner"), eslesme.group("repo"))
+    ]
     if not matches:
         return None
     # GitHub/repo kelimesine en yakın son referans çoğunlukla hedef depodur.

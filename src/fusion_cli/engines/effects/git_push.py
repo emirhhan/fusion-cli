@@ -70,13 +70,16 @@ _SKIP_UNTRACKED_PATTERNS = (
 )
 _MAX_AUTO_STAGE_FILE_BYTES = 10 * 1024 * 1024
 _SENSITIVE_TRACKED_PATTERNS = _SECRET_FILE_PATTERNS
+#: Yalnız GERÇEK "uzak geçmiş farklı" işaretleri. Genel `rejected` / `failed to push some refs`
+#: korumalı dal ve pre-receive hook reddinde de çıkar; o durumda `--force-with-lease` önermek
+#: başarısız olacak bir eylem önermektir (E1-42).
 _NON_FAST_FORWARD_MARKERS = (
     "non-fast-forward",
     "fetch first",
-    "rejected",
     "stale info",
-    "failed to push some refs",
 )
+#: Komut öneki: kimlik bilgisi istemi gelirse `git push` etkileşimli bekleyip asılmaz.
+_GIT_NO_PROMPT = "GIT_TERMINAL_PROMPT=0 "
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +112,8 @@ class GitPushWorkflow:
         self.root = deps.tool_context.root.expanduser().resolve()
         self.record = self._load_or_create_record()
         self.excluded_untracked: list[str] = []
+        #: Etkileşimsiz ortamda (`deps.asker is None`) sorulamayan son soru.
+        self._unasked_question = ""
 
     @property
     def workflow_id(self) -> str:
@@ -501,9 +506,9 @@ class GitPushWorkflow:
         destination = f"HEAD:refs/heads/{branch}"
         if force_lease:
             lease = f"--force-with-lease=refs/heads/{branch}:{force_lease}"
-            command = f"git push {lease} origin {shlex.quote(destination)}"
+            command = f"{_GIT_NO_PROMPT}git push {lease} origin {shlex.quote(destination)}"
         else:
-            command = f"git push origin {shlex.quote(destination)}"
+            command = f"{_GIT_NO_PROMPT}git push origin {shlex.quote(destination)}"
         pushed = await self.tools.execute("run_shell", {"command": command})
         self.record.data["last_push_output"] = scrub_output(pushed.result.output)
         self.record.data["last_push_command"] = command
@@ -578,6 +583,7 @@ class GitPushWorkflow:
 
     async def _ask(self, question: str, accepted: set[str]) -> str:
         if self.deps.asker is None:
+            self._unasked_question = question
             self.record.error = question
             self._save()
             return ""
@@ -652,7 +658,15 @@ class GitPushWorkflow:
         self._status(WorkflowStatus.CANCELLED)
 
     def _mark_failed(self, message: str) -> None:
-        """Adımı BAŞARISIZ işaretle. Çağıran ayrıca çıkışını döndürür."""
+        """Adımı BAŞARISIZ işaretle. Çağıran ayrıca çıkışını döndürür.
+
+        Etkileşimsiz ortamda sorulamayan soru mesaja EKLENİR: eskiden `_ask` soruyu
+        `record.error`a koyuyor, hemen ardından buradaki genel mesaj onu eziyordu ve
+        kullanıcı neyin sorulması gerektiğini göremiyordu (E1-42).
+        """
+        if self._unasked_question:
+            message = f"{message}\nSorulamayan soru (etkileşimsiz ortam):\n{self._unasked_question}"
+            self._unasked_question = ""
         self.record.error = message
         self._status(WorkflowStatus.FAILED)
 
