@@ -86,3 +86,29 @@ def test_kurtarilamayan_arguman_hata_verir():
 def test_dizi_arguman_nesne_degil_diye_reddedilir():
     _, hata = _parse_arguments_checked("[1, 2]")
     assert hata is not None
+
+
+def test_traceback_ilk_satiri_farkli_hatalari_ayni_imzaya_indirmez():
+    from fusion_cli.engines.agent.loop_contract import _failure_signature
+
+    bir = "Traceback (most recent call last):\n  File 'a.py'\nKeyError: 'x'"
+    iki = "Traceback (most recent call last):\n  File 'b.py'\nValueError: boş"
+
+    assert _failure_signature(bir) != _failure_signature(iki)
+    assert _failure_signature(bir) == "KeyError: 'x'"
+
+
+def test_ayni_hata_ayni_imzayi_verir():
+    from fusion_cli.engines.agent.loop_contract import _failure_signature
+
+    assert _failure_signature("Error:\nENOENT dosya yok") == _failure_signature(
+        "Error:\nENOENT dosya yok"
+    )
+
+
+def test_ozel_ilk_satir_imza_olarak_kalir():
+    from fusion_cli.engines.agent.loop_contract import _failure_signature
+
+    assert _failure_signature("Dosya bulunamadı: a.py\nÖneri: list_dir kullan") == (
+        "Dosya bulunamadı: a.py"
+    )

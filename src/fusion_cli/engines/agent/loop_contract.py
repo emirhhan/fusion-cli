@@ -101,6 +101,10 @@ def _first_json_object(raw: str) -> dict[str, object] | None:
     return nesne if isinstance(nesne, dict) else None
 
 
+_GENERIC_FIRST_LINE = re.compile(
+    r"^(?:Traceback \(most recent call last\):?|(?:Error|Hata|Exception|Uncaught)[:!.]?)$",
+    re.IGNORECASE,
+)
 _SHELL_FRAME = re.compile(r"^\(çıkış kodu -?\d+\)$|^\[stderr\]$")
 
 
@@ -118,7 +122,14 @@ def _failure_signature(output: str) -> str:
         for satir in output.strip().splitlines()
         if satir.strip() and not _SHELL_FRAME.match(satir.strip())
     ]
-    return satirlar[0] if satirlar else output.strip()
+    if not satirlar:
+        return output.strip()
+    # Ölçüldü (30 Ekim, A2-40): "Traceback (most recent call last):" / "Error:" gibi
+    # genel ilk satır birbirinden ilgisiz hataları AYNI imzaya indirip "aynı hata 2 kez"
+    # notunu ve öğretmen danışmasını yanlış tetikliyordu. Bu durumda asıl hata son satırdır.
+    if _GENERIC_FIRST_LINE.match(satirlar[0]) and len(satirlar) > 1:
+        return satirlar[-1]
+    return satirlar[0]
 
 
 def _duplicate_call_message() -> str:
