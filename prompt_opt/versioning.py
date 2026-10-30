@@ -8,9 +8,15 @@ geçmişteki bir sürümü yeniden yayımlar (yeni bir sürüm numarasıyla) —
 from __future__ import annotations
 
 import json
+import os
+import re
+import tempfile
 from pathlib import Path
 
 from .variants import PromptVariant
+
+#: Prompt adı dosya adına dönüşür; yol ayırıcı ve `..` ile depo dışına yazılamaz (Q1-25).
+_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 
 class PromptStore:
@@ -46,6 +52,8 @@ class PromptStore:
     # ----------------------------------------------------------------------- #
 
     def _path(self, name: str) -> Path:
+        if not _NAME.fullmatch(name) or ".." in name:
+            raise ValueError(f"Geçersiz prompt adı: {name!r}")
         return self._directory / f"{name}.json"
 
     def _read(self, name: str) -> list[PromptVariant]:
@@ -64,6 +72,16 @@ class PromptStore:
             {"name": variant.name, "text": variant.text, "version": variant.version}
             for variant in variants
         ]
-        self._path(name).write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        target = self._path(name)
+        # Atomik yazım: yarım JSON bırakıp sonraki `_read`'i JSONDecodeError'a düşürmez.
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=f".{target.name}.", suffix=".tmp", dir=self._directory
         )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(json.dumps(payload, ensure_ascii=False, indent=2))
+                stream.flush()
+                os.fsync(stream.fileno())
+            Path(temporary).replace(target)
+        finally:
+            Path(temporary).unlink(missing_ok=True)

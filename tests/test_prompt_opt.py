@@ -167,3 +167,18 @@ async def test_optimize_iyilesme_yoksa_yayimlamaz(tmp_path):
     )
     assert selection.improved is False
     assert store.current("planner") is None  # hiçbir şey yayımlanmadı
+
+
+def test_prompt_adi_depo_disina_yazamaz_ve_yazim_atomiktir(tmp_path) -> None:
+    """Q1-25. Ölçüldü (30 Ekim): `../` içeren ad depo dışına yazıyordu; yazım atomik değildi."""
+    import pytest
+
+    depo = tmp_path / "depo"
+    store = PromptStore(depo)
+    for kotu in ("../kacis", "a/b", "", ".gizli", "x..y"):
+        with pytest.raises(ValueError):
+            store.publish(kotu, "metin")
+    assert not (tmp_path / "kacis.json").exists()
+    store.publish("planner", "v1")
+    assert store.current("planner").text == "v1"  # type: ignore[union-attr]
+    assert [p.name for p in depo.iterdir() if p.name.endswith(".tmp")] == []
