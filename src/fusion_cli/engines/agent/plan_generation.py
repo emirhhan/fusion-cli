@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from ...core.execution_plan import ExecutionPlan
+from ...core.prompt_fill import fill_template
 from .plan_coverage import coverage_instruction, missing_deliverables
 from .plan_parser import PlanParseError, parse_execution_plan
 
@@ -74,7 +75,7 @@ async def generate_plan(
 
     path = Path(__file__).parent / "prompts" / "execution_plan.md"
     template = await asyncio.to_thread(path.read_text, encoding="utf-8")
-    prompt = template.replace("{task}", task)
+    prompt = fill_template(template, {"task": task})
     original_prompt = prompt
     calls = 0
     error = "Planlama bütçesi tükendi."

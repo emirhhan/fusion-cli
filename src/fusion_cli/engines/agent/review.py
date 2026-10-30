@@ -52,7 +52,9 @@ _CLEAN_WITH_OBJECTION = re.compile(
 )
 #: Temiz karar anlamına gelen serbest ifadeler: bunlar düzeltme talimatı DEĞİLDİR.
 _CLEAN_PHRASES = re.compile(
-    r"^\W*(?:sorun yok|bir sorun (?:bulamad|yok)|sorun bulunamad|hiçbir sorun)", re.IGNORECASE
+    r"^\W*(?:sorun yok|bir sorun (?:bulamad|yok)|sorun bulunamad|sorun bulunmuyor|hiçbir sorun"
+    r"|hata yok|her şey (?:yolunda|tamam))",
+    re.IGNORECASE,
 )
 
 
