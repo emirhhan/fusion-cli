@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { Button } from "../ui/Button";
+import { SkipLinks } from "../ui/SkipLinks";
 import "./Shell.css";
 
 const inspectorOverlayQuery = "(max-width: 1023px)";
@@ -214,6 +215,7 @@ export function Shell({
         "--inspector-bottom-height": inspectorCollapsed ? "56px" : `min(60dvh, ${inspectorHeight}px)`,
       } as CSSProperties}
     >
+      <SkipLinks composer={Boolean(composer)} />
       <aside hidden={sidebarHidden || (surfaceActive && surfaceFullBleed)} aria-label="Ana navigasyon" className="app-shell__sidebar" id="fusion-sidebar" role="navigation">
         {sidebar}
       </aside>
@@ -221,16 +223,16 @@ export function Shell({
         {!rail && header && <header className="app-shell__header">{header}</header>}
         <div aria-label="Bildirimler" className="app-shell__notices" role="region">{notices}</div>
         {emptyChat && composer ? (
-          <main className="app-shell__main">
+          <main className="app-shell__main" id="fusion-main" tabIndex={-1}>
             <div className="app-shell__welcome">
               {content}
-              <div className="app-shell__composer">{composer}</div>
+              <div className="app-shell__composer" id="fusion-composer">{composer}</div>
             </div>
           </main>
         ) : (
           <>
-            <main className="app-shell__main">{content}</main>
-            {composer && <footer className="app-shell__composer">{composer}</footer>}
+            <main className="app-shell__main" id="fusion-main" tabIndex={-1}>{content}</main>
+            {composer && <footer className="app-shell__composer" id="fusion-composer">{composer}</footer>}
           </>
         )}
       </section>

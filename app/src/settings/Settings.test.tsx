@@ -203,13 +203,32 @@ describe("Settings — Genel", () => {
     expect(localStorage.getItem("fusion.sidebar.history-open.v1")).toBe("false");
   });
 
-  it("dil seçeneği tek ve kapalıdır; sebebini yazar", async () => {
+  it("dil seçeneği Türkçe ve İngilizce sunar; İngilizcenin kısmi olduğunu yazar (P-065)", async () => {
     ciz();
     await screen.findByRole("heading", { name: "Ayarlar" });
 
     const dil = screen.getByRole("combobox", { name: "Dil" }) as HTMLSelectElement;
-    expect(dil.disabled).toBe(true);
-    expect(screen.getByText(/yalnız Türkçe/i)).toBeTruthy();
+    expect(dil.disabled).toBe(false);
+    expect(Array.from(dil.options).map((option) => option.value)).toEqual(["tr", "en"]);
+    expect(screen.getByText(/İngilizce çeviri şimdilik kısmi/i)).toBeTruthy();
+    fireEvent.change(dil, { target: { value: "en" } });
+    expect(document.documentElement.lang).toBe("en");
+    expect(screen.getByRole("combobox", { name: "Theme" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("combobox", { name: "Language" }), { target: { value: "tr" } });
+    expect(document.documentElement.lang).toBe("tr");
+  });
+
+  it("erişilebilirlik kartı yazı boyutunu belge köküne uygular (P-065)", async () => {
+    ciz();
+    await screen.findByRole("heading", { name: "Ayarlar" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Yazı boyutu" }), { target: { value: "large" } });
+    expect(document.documentElement.dataset.fontScale).toBe("large");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Yüksek kontrast" }));
+    expect(document.documentElement.dataset.contrast).toBe("high");
+    fireEvent.change(screen.getByRole("combobox", { name: "Yazı boyutu" }), { target: { value: "normal" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Yüksek kontrast" }));
+    expect(document.documentElement.dataset.fontScale).toBeUndefined();
+    expect(document.documentElement.dataset.contrast).toBeUndefined();
   });
 });
 
