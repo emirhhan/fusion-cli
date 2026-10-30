@@ -244,6 +244,9 @@ class FusionTui:
 
     def sync_conversation(self) -> None:
         """Yeni çıktıyı aktar; kullanıcı geçmişe bakıyorsa konumunu koru."""
+        # Terminal yeniden boyutlandıysa Rich console genişliği de güncellenir: kuruluşta bir
+        # kez hesaplanıyordu ve tablolar/kutular/kurallar eski genişlikte kalıyordu (L2-22).
+        self._console.width = _term_width()
         previous_lines = len(self._conversation.splitlines())
         updated = self._sink.getvalue()
         updated_lines = len(updated.splitlines())

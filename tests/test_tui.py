@@ -573,3 +573,23 @@ async def test_secim_kipinde_enter_gezinme_sonrasi_dogru_secenegi_verir():
 
     assert gorev.done(), "Enter seçimi çözmedi"
     assert gorev.result() == "deny"
+
+
+def test_terminal_yeniden_boyutlaninca_console_genisligi_guncellenir(monkeypatch):
+    """Ölçüldü (30 Ekim): Rich console genişliği kuruluşta bir kez hesaplanıyordu (L2-22)."""
+    from fusion_cli.cli.repl import tui as tui_modulu
+    from fusion_cli.cli.repl.tui import FusionTui
+
+    monkeypatch.setattr(tui_modulu, "_term_width", lambda: 100)
+    tui = FusionTui(
+        on_submit=lambda _t: None,
+        on_interrupt=lambda: None,
+        on_exit=lambda: None,
+        on_cycle_mode=lambda: None,
+    )
+    assert tui.console.width == 100
+
+    monkeypatch.setattr(tui_modulu, "_term_width", lambda: 60)
+    tui.sync_conversation()
+
+    assert tui.console.width == 60
