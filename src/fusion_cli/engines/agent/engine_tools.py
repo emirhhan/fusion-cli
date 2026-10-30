@@ -44,6 +44,7 @@ from ...tools.registry import ToolRegistry
 from ...tools.skill_pages import read_skill_page
 from ...ui import messages
 from . import learning_steps
+from .arg_coerce import coerce_bool, coerce_int, coerce_list
 from .clone_tools import clone_tools
 from .history_tools import recent_actions_tool
 from .image_tools import generate_image_tool
@@ -685,7 +686,7 @@ def _ask_user_tool(asker: UserAsker, deps: AgentDeps) -> Tool:
         recommended = args.get("recommended")
         if not isinstance(recommended, str) or recommended not in {item.label for item in options}:
             recommended = None
-        required = args.get("required", True)
+        required = coerce_bool(args.get("required", True))
         if not isinstance(required, bool):
             return ToolResult.failure("'required' alanı doğru/yanlış olmalı.")
         answer = asker.ask(question, options, recommended) if options else asker.ask(question)
@@ -743,10 +744,15 @@ def _ask_user_tool(asker: UserAsker, deps: AgentDeps) -> Tool:
 
 def _question_options(raw: object) -> tuple[QuestionOption, ...]:
     """Model payload'ını daralt; bozuk seçenek soru aracının tamamını düşürmesin."""
+    raw = coerce_list(raw)
     if not isinstance(raw, list):
         return ()
     options: list[QuestionOption] = []
     for item in raw[:5]:
+        # Zayıf modeller seçenekleri düz metin listesi verir (`["Flask", "Django"]`);
+        # sessizce atmak soruyu seçeneksiz gönderirdi (A1-22).
+        if isinstance(item, str):
+            item = {"label": item}
         if not isinstance(item, dict):
             continue
         label = item.get("label")
@@ -865,7 +871,7 @@ def _read_skill_tool(
                     + ", ".join(adaylar)
                 )
             return ToolResult.failure(f"'{name}' adlı skill yok. find_skill ile ara.")
-        offset = args.get("offset", 0)
+        offset = coerce_int(args.get("offset", 0))
         if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
             return ToolResult.failure("offset sıfır ya da pozitif bir tam sayı olmalı.")
         extra = args.get("file")

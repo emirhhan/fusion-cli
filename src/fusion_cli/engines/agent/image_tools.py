@@ -31,6 +31,7 @@ from ...providers.image_generation import (
 from ...providers.nim_image import flux_size_for
 from ...tools.files import writable_path
 from ...tools.image_ops import ImageFile, ImageOpsError, fit_cover, img_tag, srcset_variants
+from .arg_coerce import coerce_bool, coerce_int
 
 if TYPE_CHECKING:
     from .loop import AgentDeps
@@ -38,11 +39,13 @@ if TYPE_CHECKING:
 #: Bir kenar için kabul edilen en büyük ölçü. 4096: 4K ekranın uzun kenarı; daha
 #: büyüğü web görseli değildir ve kırp/büyüt sonucu bulanıklaşır.
 MAX_EDGE = 4096
+#: Şemadaki `minimum` ile aynı (A1-51: ayrıştırıcı 1 pikseli kabul ediyordu).
+MIN_EDGE = 16
 #: srcset varyantı üretmek için hedefin en az bu genişlikte olması gerekir;
 #: daha dar görseller zaten küçüktür.
 SRCSET_MIN_WIDTH = 1024
 
-_INT = {"type": "integer", "minimum": 16, "maximum": MAX_EDGE}
+_INT = {"type": "integer", "minimum": MIN_EDGE, "maximum": MAX_EDGE}
 
 
 def pick_generator(choices: tuple[ImageChoice, ...]) -> ImageChoice | None:
@@ -63,7 +66,8 @@ def generate_image_tool(deps: AgentDeps) -> Tool | None:
         request = _parse(args)
         if isinstance(request, str):
             return ToolResult.failure(request)
-        selected = args.get("provider", generator.value)
+        # Model alanı `null`/boş bırakırsa varsayılan sağlayıcı (A1-51).
+        selected = args.get("provider") or generator.value
         current_choices = image_choices(deps.config)
         chosen = next((choice for choice in current_choices if choice.value == selected), None)
         if not isinstance(selected, str) or chosen is None:
@@ -125,15 +129,20 @@ def generate_image_tool(deps: AgentDeps) -> Tool | None:
 def _parse(args: ToolArgs) -> tuple[str, int, int, str, str, bool] | str:
     prompt = args.get("prompt")
     path = args.get("path")
-    width, height = args.get("width"), args.get("height")
+    width, height = coerce_int(args.get("width")), coerce_int(args.get("height"))
     if not isinstance(prompt, str) or not prompt.strip():
         return "'prompt' boş olmayan bir metin olmalı."
     if not isinstance(path, str) or not path.strip():
         return "'path' boş olmayan bir dosya yolu olmalı (ör. assets/hero.webp)."
-    if not isinstance(width, int) or not isinstance(height, int):
+    if (
+        not isinstance(width, int)
+        or not isinstance(height, int)
+        or isinstance(width, bool)
+        or isinstance(height, bool)
+    ):
         return "'width' ve 'height' tam sayı olmalı."
-    if not (0 < width <= MAX_EDGE and 0 < height <= MAX_EDGE):
-        return f"Ölçü 1–{MAX_EDGE} piksel aralığında olmalı."
+    if not (MIN_EDGE <= width <= MAX_EDGE and MIN_EDGE <= height <= MAX_EDGE):
+        return f"Ölçü {MIN_EDGE}–{MAX_EDGE} piksel aralığında olmalı."
     alt = args.get("alt", "")
     return (
         prompt.strip(),
@@ -141,7 +150,7 @@ def _parse(args: ToolArgs) -> tuple[str, int, int, str, str, bool] | str:
         height,
         path.strip(),
         alt if isinstance(alt, str) else "",
-        args.get("ilk_ekran") is True,
+        coerce_bool(args.get("ilk_ekran")) is True,
     )
 
 
