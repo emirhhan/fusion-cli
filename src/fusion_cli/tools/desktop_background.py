@@ -6,6 +6,7 @@ import json
 
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolResult
+from .args import coerce_int
 from .native_desktop import SwiftDesktop
 
 WINDOW_PROPERTIES: dict[str, object] = {
@@ -45,8 +46,8 @@ BACKGROUND_TOOL_SCHEMAS: dict[str, dict[str, object]] = {
 
 
 def _target(args: ToolArgs) -> dict[str, object] | None:
-    window, pid = args.get("window_id"), args.get("pid")
-    if type(window) is not int or type(pid) is not int:
+    window, pid = coerce_int(args.get("window_id")), coerce_int(args.get("pid"))
+    if window is None or pid is None:
         return None
     if window <= 0 or pid <= 0:
         return None
@@ -58,7 +59,9 @@ async def _invoke(operation: str, args: ToolArgs) -> ToolResult:
     if target is None:
         return ToolResult.failure("Geçerli window_id ve pid gerekli.")
     if operation == "action":
-        ref, action, value = args.get("ref"), args.get("action"), args.get("value", "")
+        ref, action = args.get("ref"), args.get("action")
+        value = args.get("value")
+        value = "" if value is None else value
         if not isinstance(ref, str) or not ref or len(ref) > 50_000:
             return ToolResult.failure("Son incelemeden bir öğe başvurusu gerekli.")
         if action not in ("press", "set_value") or not isinstance(value, str):

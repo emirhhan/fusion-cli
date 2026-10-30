@@ -90,3 +90,23 @@ def is_truthy(value: object) -> bool:
     if isinstance(value, int):
         return value == 1
     return isinstance(value, str) and value.strip().lower() in _TRUE_TEXTS
+
+
+def coerce_int(value: object) -> int | None:
+    """`5`, `"5"`, `5.0` -> 5; bool, kesirli sayı, ayrıştırılamayan değer -> None.
+
+    Zayıf modeller kimlik/boyut alanlarını metin ya da `.0`'lı sayı olarak yollar;
+    sıkı `type(x) is int` her seferinde bir tur kaybettirir (ölçüldü, 30 Ekim).
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
