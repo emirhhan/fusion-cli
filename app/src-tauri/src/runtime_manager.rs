@@ -31,6 +31,13 @@ use crate::runtime_paths::RuntimePaths;
 /// süren bir çocuk süreç muhtemelen askıda kalmıştır ve öldürülüp
 /// bilinen sağlıklı bir sürüme geri dönülmelidir.
 const SAGLIK_ZAMAN_ASIMI: Duration = Duration::from_secs(30);
+/// Yeni kurulan çalışma zamanının İLK çalıştırması: soğuk PyInstaller açılışı, Gatekeeper/AV
+/// taraması ve disk önbelleğinin boş olması 30 sn'yi aşabilir (R2-12). Yalnız kurulum sonrası
+/// doğrulamada kullanılır; yeniden kullanım yoklaması 30 sn kalır.
+const ILK_CALISTIRMA_ZAMAN_ASIMI: Duration = Duration::from_secs(90);
+/// Zaman aşımından sonra boru okuyucularının bitmesi için tanınan en uzun süre. Çocuğun
+/// torunu boruyu açık tutarsa okuyucu hiç bitmez; beklemek askıda kalmaya yol açardı (R2-13).
+const OKUYUCU_BEKLEME: Duration = Duration::from_secs(1);
 /// `try_wait` yoklama aralığı; çok sık yoklamak CPU'yu gereksiz meşgul
 /// eder, çok seyrek yoklamak zaman aşımını gecikmeli fark ettirir.
 const YOKLAMA_ARALIGI: Duration = Duration::from_millis(50);
@@ -174,6 +181,11 @@ impl ActiveRecord {
 /// senaryo kurabilir.
 pub trait HealthProbe: Send + Sync {
     fn check(&self, executable: &Path) -> Result<RuntimeHealthReport, RuntimeError>;
+
+    /// Yeni kurulmuş ikilinin ilk çalıştırması; soğuk açılış için daha uzun süre tanınabilir.
+    fn check_first_run(&self, executable: &Path) -> Result<RuntimeHealthReport, RuntimeError> {
+        self.check(executable)
+    }
 }
 
 /// `HealthProbe`'un üretim uygulaması: verilen ikiliyi
@@ -183,21 +195,28 @@ pub struct CommandHealthProbe;
 
 impl HealthProbe for CommandHealthProbe {
     fn check(&self, executable: &Path) -> Result<RuntimeHealthReport, RuntimeError> {
-        let output = run_with_timeout(
-            executable,
-            &["runtime-health", "--json"],
-            SAGLIK_ZAMAN_ASIMI,
-        )?;
-        if !output.status.success() {
-            return Err(RuntimeError::Health("sağlık komutu başarısız".into()));
-        }
-        let report: RuntimeHealthReport =
-            serde_json::from_slice(&output.stdout).map_err(RuntimeError::HealthDecode)?;
-        if !report.is_healthy() {
-            return Err(RuntimeError::Health("paket kaynakları eksik".into()));
-        }
-        Ok(report)
+        probe_command(executable, SAGLIK_ZAMAN_ASIMI)
     }
+
+    fn check_first_run(&self, executable: &Path) -> Result<RuntimeHealthReport, RuntimeError> {
+        probe_command(executable, ILK_CALISTIRMA_ZAMAN_ASIMI)
+    }
+}
+
+fn probe_command(
+    executable: &Path,
+    timeout: Duration,
+) -> Result<RuntimeHealthReport, RuntimeError> {
+    let output = run_with_timeout(executable, &["runtime-health", "--json"], timeout)?;
+    if !output.status.success() {
+        return Err(RuntimeError::Health("sağlık komutu başarısız".into()));
+    }
+    let report: RuntimeHealthReport =
+        serde_json::from_slice(&output.stdout).map_err(RuntimeError::HealthDecode)?;
+    if !report.is_healthy() {
+        return Err(RuntimeError::Health("paket kaynakları eksik".into()));
+    }
+    Ok(report)
 }
 
 /// Verilen çocuk süreci `try_wait` ile yoklayarak çalıştırır; `timeout`
@@ -244,20 +263,34 @@ fn run_with_timeout(
     let Some(status) = sonuc_durumu else {
         let _ = child.kill();
         let _ = child.wait();
-        let _ = stdout_okuyucu.join();
-        let stderr = stderr_okuyucu.join().unwrap_or_default();
+        let _ = join_bounded(stdout_okuyucu, OKUYUCU_BEKLEME);
+        let stderr = join_bounded(stderr_okuyucu, OKUYUCU_BEKLEME);
         log_diagnostic_stderr(&stderr);
         return Err(RuntimeError::HealthTimeout);
     };
 
-    let stdout = stdout_okuyucu.join().unwrap_or_default();
-    let stderr = stderr_okuyucu.join().unwrap_or_default();
+    let stdout = join_bounded(stdout_okuyucu, OKUYUCU_BEKLEME);
+    let stderr = join_bounded(stderr_okuyucu, OKUYUCU_BEKLEME);
     log_diagnostic_stderr(&stderr);
     Ok(std::process::Output {
         status,
         stdout,
         stderr,
     })
+}
+
+/// Okuyucuyu en çok `wait` kadar bekler; torun süreç boruyu açık tutuyorsa o ana dek okunanı
+/// değil boş sonucu döner ve iş parçacığı arka planda kendiliğinden biter.
+fn join_bounded(handle: std::thread::JoinHandle<Vec<u8>>, wait: Duration) -> Vec<u8> {
+    let deadline = Instant::now() + wait;
+    while !handle.is_finished() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    if handle.is_finished() {
+        handle.join().unwrap_or_default()
+    } else {
+        Vec::new()
+    }
 }
 
 /// Bir boruyu ayrı bir iş parçacığında sonuna kadar okur; `limit`'e kadar
@@ -313,7 +346,15 @@ fn log_diagnostic_stderr(bytes: &[u8]) {
     }
     let sinirli = &bytes[..bytes.len().min(STDERR_GUNLUK_SINIRI)];
     let metin = String::from_utf8_lossy(sinirli);
-    eprintln!("[fusion][runtime-health] {}", mask_secrets(&metin));
+    let maskeli = mask_secrets(&metin);
+    eprintln!("[fusion][runtime-health] {maskeli}");
+    // GUI uygulamada stderr kimsenin göremeyeceği yere gider: son hata `logs/` altına da yazılır
+    // (R2-13). Yazılamazsa sessizce geçilir; tanılama kurulumu bozmamalı.
+    if let Some(dizin) = crate::session_manager::gunluk_dizini() {
+        if std::fs::create_dir_all(&dizin).is_ok() {
+            let _ = std::fs::write(dizin.join("runtime-health.log"), format!("{maskeli}\n"));
+        }
+    }
 }
 
 /// Sağlık, etkin sürüm, onarım ve rollback'i tek yerde toplayan yönetici.
@@ -373,7 +414,13 @@ impl RuntimeManager {
             item.active == packaged_version
                 && item.archive_sha256.as_deref() == Some(packaged_archive.as_str())
         }) {
-            if let Ok(active) = self.healthy_version(&packaged_version) {
+            // Geçici sağlık zaman aşımı (yük, ilk AV taraması) 200 MB'lık yeniden kuruluma yol
+            // açmasın: zaman aşımında yoklama bir kez daha denenir (R2-12).
+            let healthy = match self.healthy_version(&packaged_version) {
+                Err(RuntimeError::HealthTimeout) => self.healthy_version(&packaged_version),
+                other => other,
+            };
+            if let Ok(active) = healthy {
                 self.remember(active.clone());
                 return Ok(active);
             }
@@ -383,7 +430,7 @@ impl RuntimeManager {
             &self.resources,
             &self.paths,
             &self.expected_target,
-            |executable| self.probe.check(executable).map(|_| ()),
+            |executable| self.probe.check_first_run(executable).map(|_| ()),
             progress,
         ) {
             Ok(installed) => {
@@ -423,7 +470,7 @@ impl RuntimeManager {
             &self.resources,
             &self.paths,
             &self.expected_target,
-            |executable| self.probe.check(executable).map(|_| ()),
+            |executable| self.probe.check_first_run(executable).map(|_| ()),
             progress,
         )?;
 
@@ -614,13 +661,22 @@ mod tests {
     /// beklenir).
     struct FakeProbe {
         sonuclar: Mutex<HashMap<String, bool>>,
+        /// Bu kadar çağrı `HealthTimeout` döner (geçici yük taklidi).
+        zaman_asimi_kalan: Mutex<u32>,
+        cagri_sayisi: Mutex<u32>,
     }
 
     impl FakeProbe {
         fn new() -> Arc<Self> {
             Arc::new(Self {
                 sonuclar: Mutex::new(HashMap::new()),
+                zaman_asimi_kalan: Mutex::new(0),
+                cagri_sayisi: Mutex::new(0),
             })
+        }
+
+        fn zaman_asimi_ver(&self, kez: u32) {
+            *self.zaman_asimi_kalan.lock().unwrap() = kez;
         }
 
         fn pass(&self, version: &str) {
@@ -640,6 +696,14 @@ mod tests {
 
     impl HealthProbe for FakeProbe {
         fn check(&self, executable: &Path) -> Result<RuntimeHealthReport, RuntimeError> {
+            *self.cagri_sayisi.lock().unwrap() += 1;
+            {
+                let mut kalan = self.zaman_asimi_kalan.lock().unwrap();
+                if *kalan > 0 {
+                    *kalan -= 1;
+                    return Err(RuntimeError::HealthTimeout);
+                }
+            }
             let icerik = std::fs::read_to_string(executable).map_err(RuntimeError::Io)?;
             let version = extract_version_marker(&icerik);
             let basarisiz = matches!(self.sonuclar.lock().unwrap().get(&version), Some(false));
@@ -872,6 +936,46 @@ mod tests {
 
     /// Özet eşleşiyorsa yeniden kurulum yapılmaz: her açılışta 200 MB
     /// çıkarmak uygulamayı saniyelerce bekletirdi.
+    /// Ölçüldü (30 Ekim): yeniden kullanım yoklamasındaki tek bir geçici zaman aşımı sessizce
+    /// yutulup 200 MB'lık yeniden kuruluma gidiyordu; artık bir kez daha yoklanır (R2-12).
+    #[test]
+    fn gecici_saglik_zaman_asimi_yeniden_kuruluma_yol_acmaz() {
+        let fixture = ManagerFixture::new();
+        fixture.install_existing_version(PAKET_SURUMU);
+        let ozet = fixture.packaged_archive_digest();
+        fixture.write_active_record_with_digest(PAKET_SURUMU, None, Some(&ozet));
+        fixture.probe.zaman_asimi_ver(1);
+
+        let mut asamalar = Vec::new();
+        let ready = fixture
+            .manager
+            .prepare(|ilerleme| asamalar.push(ilerleme.stage))
+            .unwrap();
+
+        assert_eq!(ready.version, PAKET_SURUMU);
+        assert!(asamalar.is_empty(), "yeniden kurulum yapılmamalıydı");
+        assert_eq!(*fixture.probe.cagri_sayisi.lock().unwrap(), 2);
+    }
+
+    /// Ölçüldü (30 Ekim): torun süreç boruyu açık tutunca zaman aşımından sonra `join` torun
+    /// bitene dek bloklanıyordu (R2-13); artık okuyucu beklemesi sınırlıdır.
+    #[cfg(unix)]
+    #[test]
+    fn torunun_tuttugu_boru_zaman_asimini_bloklamaz() {
+        let baslangic = Instant::now();
+        let sonuc = run_with_timeout(
+            Path::new("/bin/sh"),
+            &["-c", "sleep 6 & sleep 30"],
+            Duration::from_millis(200),
+        );
+        assert!(matches!(sonuc, Err(RuntimeError::HealthTimeout)));
+        assert!(
+            baslangic.elapsed() < Duration::from_secs(4),
+            "okuyucu torunu bekledi: {:?}",
+            baslangic.elapsed()
+        );
+    }
+
     #[test]
     fn arsiv_ozeti_ayniysa_yeniden_kurulum_yapilmaz() {
         let fixture = ManagerFixture::new();

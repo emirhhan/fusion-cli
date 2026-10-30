@@ -37,6 +37,26 @@ impl SessionSnapshot {
     }
 }
 
+/// Okuyucu iş parçacığı çıktı bitince çağırır: oturum hâlâ bu süreçse kapalı işaretler ve
+/// kapanış NEDENİNİ döner. `stop` kullanıcı kapatmasını önce işaretlediyse o neden korunur;
+/// eskiden hep "süreç kapandı" yayılıp bilerek kapatma ile çökme ayırt edilemiyordu (R2-18).
+fn close_if_current(sessions: &SessionMap, id: &str, pid: u32) -> Option<String> {
+    let mut sessions = sessions.lock().unwrap();
+    let session = sessions.get_mut(id)?;
+    if !is_current_process(&session.snapshot, pid) {
+        return None;
+    }
+    session.stdin = None;
+    session.snapshot.mark_closed("süreç kapandı");
+    Some(
+        session
+            .snapshot
+            .kapanis_nedeni
+            .clone()
+            .unwrap_or_else(|| "süreç kapandı".into()),
+    )
+}
+
 fn can_reuse(snapshot: &SessionSnapshot, child_running: bool) -> bool {
     snapshot.durum == "calisiyor" && child_running
 }
@@ -192,25 +212,14 @@ impl SessionManager {
                 }
             });
 
-            let is_current = {
-                let mut sessions = sessions.lock().unwrap();
-                sessions.get_mut(&id).is_some_and(|session| {
-                    if !is_current_process(&session.snapshot, pid) {
-                        return false;
-                    }
-                    session.stdin = None;
-                    session.snapshot.mark_closed("süreç kapandı");
-                    true
-                })
-            };
-            if !is_current {
+            let Some(neden) = close_if_current(&sessions, &id, pid) else {
                 return;
-            }
+            };
             let _ = app.emit(
                 "oturum-kapandi",
                 SessionClosed {
                     oturum_id: id.clone(),
-                    neden: "süreç kapandı".into(),
+                    neden,
                 },
             );
             if id == VARSAYILAN_OTURUM {
@@ -395,7 +404,18 @@ fn cekirdek_gunlugu(session_id: &str) -> Stdio {
     if std::fs::create_dir_all(&dizin).is_err() {
         return Stdio::null();
     }
-    let ad: String = session_id
+    match std::fs::File::create(dizin.join(gunluk_dosya_adi(session_id))) {
+        Ok(dosya) => Stdio::from(dosya),
+        Err(_) => Stdio::null(),
+    }
+}
+
+/// Oturum kimliğinden günlük dosya adı. Temizleme `a/b` ve `a_b` gibi farklı kimlikleri aynı
+/// ada düşürüp birbirinin günlüğünü eziyordu (R2-19): ad değiştiyse kimliğin özeti eklenir.
+/// Değişmeyen kimlikler (`varsayilan` gibi) eski adı korur.
+fn gunluk_dosya_adi(session_id: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let temiz: String = session_id
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' {
@@ -406,29 +426,38 @@ fn cekirdek_gunlugu(session_id: &str) -> Stdio {
         })
         .take(64)
         .collect();
-    match std::fs::File::create(dizin.join(format!("core-{ad}.log"))) {
-        Ok(dosya) => Stdio::from(dosya),
-        Err(_) => Stdio::null(),
+    if temiz == session_id {
+        return format!("core-{temiz}.log");
     }
+    let mut ozet = std::collections::hash_map::DefaultHasher::new();
+    session_id.hash(&mut ozet);
+    format!("core-{temiz}-{:08x}.log", ozet.finish() as u32)
 }
 
 /// En son yazılan çekirdek günlüğünün sonu; arayüz bağlantı koptuğunda gösterir.
 ///
 /// Sır sızmaması için çekirdek zaten hata çıktısına sır yazmaz (RULES.md "Sırlar");
 /// burada yalnız son `sinir` bayt döner, tam dosya değil.
-pub(crate) fn son_cekirdek_gunlugu(sinir: usize) -> Option<String> {
+pub(crate) fn son_cekirdek_gunlugu(sinir: usize, oturum_id: Option<&str>) -> Option<String> {
     let dizin = gunluk_dizini()?;
-    let en_yeni = std::fs::read_dir(&dizin)
-        .ok()?
-        .filter_map(Result::ok)
-        .filter(|giris| {
-            let ad = giris.file_name();
-            let ad = ad.to_string_lossy();
-            ad.starts_with("core-") && ad.ends_with(".log")
-        })
-        .filter_map(|giris| Some((giris.metadata().ok()?.modified().ok()?, giris.path())))
-        .max_by_key(|(zaman, _)| *zaman)?
-        .1;
+    // Hata ekranı bir oturuma aittir (varsayılan: ana çekirdek); başka oturumun günlüğü
+    // yanlış ekranda çıkmasın diye önce o oturumun dosyası, yoksa en yenisi okunur (R2-19).
+    let istenen = dizin.join(gunluk_dosya_adi(oturum_id.unwrap_or(VARSAYILAN_OTURUM)));
+    let en_yeni = if istenen.is_file() {
+        istenen
+    } else {
+        std::fs::read_dir(&dizin)
+            .ok()?
+            .filter_map(Result::ok)
+            .filter(|giris| {
+                let ad = giris.file_name();
+                let ad = ad.to_string_lossy();
+                ad.starts_with("core-") && ad.ends_with(".log")
+            })
+            .filter_map(|giris| Some((giris.metadata().ok()?.modified().ok()?, giris.path())))
+            .max_by_key(|(zaman, _)| *zaman)?
+            .1
+    };
     let icerik = std::fs::read(&en_yeni).ok()?;
     let baslangic = icerik.len().saturating_sub(sinir);
     let metin = String::from_utf8_lossy(&icerik[baslangic..])
@@ -438,7 +467,7 @@ pub(crate) fn son_cekirdek_gunlugu(sinir: usize) -> Option<String> {
 }
 
 /// `…/Fusion/logs`: çalışma zamanı kökünün (`…/Fusion/runtime`) kardeşi.
-fn gunluk_dizini() -> Option<PathBuf> {
+pub(crate) fn gunluk_dizini() -> Option<PathBuf> {
     let home = varsayilan_kok().ok()?;
     let runtime = crate::runtime_paths::RuntimePaths::for_home(&home).root;
     Some(runtime.parent()?.join("logs"))
@@ -589,6 +618,40 @@ mod testler {
         manager.stop("sirali").unwrap();
 
         assert_eq!(alinan, beklenen);
+    }
+
+    /// Ölçüldü (30 Ekim): kullanıcı kapatınca da okuyucu "süreç kapandı" yayıyordu; arayüz
+    /// bilerek kapatılanla çöken oturumu ayıramıyordu (R2-18).
+    #[test]
+    fn kullanici_kapatmasi_kapanis_nedenini_korur() {
+        let manager = SessionManager::new();
+        let pid = manager.start_test_child("neden").unwrap();
+        manager.stop("neden").unwrap();
+        assert_eq!(
+            close_if_current(&manager.sessions, "neden", pid).as_deref(),
+            Some("kullanıcı kapattı")
+        );
+        // Başka süreç kimliği (yeniden başlatılmış oturum) bu okuyucuya ait değildir.
+        assert_eq!(close_if_current(&manager.sessions, "neden", pid + 1), None);
+    }
+
+    #[test]
+    fn beklenmedik_cikis_surec_kapandi_nedeniyle_isaretlenir() {
+        let manager = SessionManager::new();
+        let pid = manager.start_test_child("cokme").unwrap();
+        assert_eq!(
+            close_if_current(&manager.sessions, "cokme", pid).as_deref(),
+            Some("süreç kapandı")
+        );
+        manager.stop("cokme").unwrap();
+    }
+
+    /// Ölçüldü (30 Ekim): `a/b` ve `a_b` aynı `core-a_b.log` dosyasına düşüp birbirini eziyordu (R2-19).
+    #[test]
+    fn farkli_oturum_kimlikleri_ayni_gunluk_dosyasina_dusmez() {
+        assert_ne!(gunluk_dosya_adi("a/b"), gunluk_dosya_adi("a_b"));
+        assert_eq!(gunluk_dosya_adi("varsayilan"), "core-varsayilan.log");
+        assert_eq!(gunluk_dosya_adi("a/b"), gunluk_dosya_adi("a/b"));
     }
 
     #[test]

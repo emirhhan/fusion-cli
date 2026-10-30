@@ -128,10 +128,10 @@ fn oturum_olustur(
 
 /// Bağlantı koptuğunda gösterilecek çekirdek hata çıktısının sonu (varsa).
 #[tauri::command]
-fn cekirdek_gunlugu() -> Option<String> {
+fn cekirdek_gunlugu(oturum_id: Option<String>) -> Option<String> {
     /// Hata ekranında okunabilir kalacak kadar: son birkaç yüz satırlık iz.
     const GUNLUK_SONU_BAYT: usize = 6_000;
-    session_manager::son_cekirdek_gunlugu(GUNLUK_SONU_BAYT)
+    session_manager::son_cekirdek_gunlugu(GUNLUK_SONU_BAYT, oturum_id.as_deref())
 }
 
 #[tauri::command]
