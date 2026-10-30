@@ -33,6 +33,14 @@ describe("konuşma penceresi", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("tanima_baslat");
   });
 
+  it("tanıma dili verilirse komuta dil parametresi olarak gider (R2-16)", async () => {
+    tauri.invoke.mockResolvedValueOnce(7);
+
+    await expect(startSpeechRecognition("en-US")).resolves.toBe(7);
+
+    expect(tauri.invoke).toHaveBeenCalledWith("tanima_baslat", { dil: "en-US" });
+  });
+
   it("tanıma child sürecini açık durdurma komutuyla sonlandırır", async () => {
     tauri.invoke.mockResolvedValueOnce(undefined);
 

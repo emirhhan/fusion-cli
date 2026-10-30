@@ -679,7 +679,9 @@ fn speech_helper_resource_name(target_os: &str) -> &'static str {
 fn tanima_baslat(
     app: tauri::AppHandle,
     manager: tauri::State<SpeechManager>,
+    dil: Option<String>,
 ) -> Result<u64, String> {
+    let dil = speech::dil_sec(dil.as_deref())?;
     let helper = app
         .path()
         .resolve(
@@ -691,7 +693,7 @@ fn tanima_baslat(
         return Err("Bu pakette konuşma tanıma yardımcısı yok.".into());
     }
     let mut command = std::process::Command::new(helper);
-    core_process::pencere_acmadan(&mut command).arg("tr-TR");
+    core_process::pencere_acmadan(&mut command).arg(dil);
     start_recognition(app, manager.inner(), &mut command)
 }
 

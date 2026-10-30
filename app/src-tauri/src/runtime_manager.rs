@@ -321,7 +321,7 @@ fn spawn_reader<R: std::io::Read + Send + 'static>(
 
 /// Tanılama metnindeki olası sırları maskeler: anahtar kelimelerden
 /// birini içeren her kelime `***` ile değiştirilir.
-fn mask_secrets(text: &str) -> String {
+pub(crate) fn mask_secrets(text: &str) -> String {
     text.split_whitespace()
         .map(|kelime| {
             let kucuk = kelime.to_ascii_lowercase();

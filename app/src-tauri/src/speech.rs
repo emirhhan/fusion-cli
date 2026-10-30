@@ -230,7 +230,7 @@ pub(crate) fn start_recognition(
         .stderr
         .take()
         .ok_or_else(|| "tanıma hata çıktısı okunamadı".to_string())?;
-    let stderr_reader = std::thread::spawn(move || summarize_stderr(stderr));
+    let stderr_reader = std::thread::spawn(move || summarize_stderr(stderr, kaydet_speech_gunlugu));
 
     std::thread::spawn(move || {
         forward_stdout(stdout, |line| {
@@ -261,8 +261,11 @@ fn forward_stdout(reader: impl Read, mut emit: impl FnMut(String)) {
     crate::core_process::satirlari_oku(reader, &mut emit);
 }
 
-fn summarize_stderr(mut reader: impl Read) -> Option<StderrSummary> {
-    let mut captured_bytes = 0usize;
+/// Yardımcının stderr'ini okur; kullanıcıya yalnız özet gider (içerik sır taşıyabilir).
+/// İlk `STDERR_LIMIT` bayt `kaydet`e verilir: tanı için maskeli `logs/speech.log`'a yazılır (R2-16).
+/// Ölçüldü (30 Ekim): stderr tümüyle atılıyordu; "konuşma neden durdu" sorusunun izi kalmıyordu.
+fn summarize_stderr(mut reader: impl Read, kaydet: impl FnOnce(&str)) -> Option<StderrSummary> {
+    let mut captured: Vec<u8> = Vec::new();
     let mut total_bytes = 0usize;
     let mut buffer = [0u8; 512];
     loop {
@@ -270,16 +273,59 @@ fn summarize_stderr(mut reader: impl Read) -> Option<StderrSummary> {
             Ok(0) | Err(_) => break,
             Ok(read) => {
                 total_bytes = total_bytes.saturating_add(read);
-                captured_bytes = captured_bytes.saturating_add(read).min(STDERR_LIMIT);
+                let kalan = STDERR_LIMIT.saturating_sub(captured.len());
+                captured.extend_from_slice(&buffer[..read.min(kalan)]);
             }
         }
     }
-    (total_bytes > 0).then(|| StderrSummary {
-        message: "Tanıma yardımcısı hata ayrıntısı bildirdi; içerik güvenlik nedeniyle gizlendi."
+    if total_bytes == 0 {
+        return None;
+    }
+    kaydet(&crate::runtime_manager::mask_secrets(
+        &String::from_utf8_lossy(&captured),
+    ));
+    Some(StderrSummary {
+        message: "Tanıma yardımcısı hata ayrıntısı bildirdi; içerik güvenlik nedeniyle gizlendi \
+                  (maskelenmiş kayıt logs/speech.log dosyasında)."
             .into(),
-        captured_bytes,
+        captured_bytes: captured.len(),
         truncated: total_bytes > STDERR_LIMIT,
     })
+}
+
+/// Maskelenmiş yardımcı stderr'ini `logs/speech.log`'a yazar. Yazılamazsa sessizce geçilir:
+/// tanılama konuşma akışını bozmamalı.
+fn kaydet_speech_gunlugu(maskeli: &str) {
+    if let Some(dizin) = crate::session_manager::gunluk_dizini() {
+        speech_gunlugu_yaz(&dizin, maskeli);
+    }
+}
+
+fn speech_gunlugu_yaz(dizin: &std::path::Path, maskeli: &str) {
+    if std::fs::create_dir_all(dizin).is_ok() {
+        let _ = std::fs::write(dizin.join("speech.log"), format!("{maskeli}\n"));
+    }
+}
+
+/// Tanıma dili: verilmezse Türkçe. Yardımcıya komut satırı bağımsız değişkeni olarak gittiği için
+/// yalnız yerel ayar kimliği biçimi (`tr-TR`, `en`, `zh-Hans-CN`) kabul edilir; `-` ile başlayan
+/// bir değer yardımcıya seçenek gibi görünürdü.
+pub(crate) fn dil_sec(dil: Option<&str>) -> Result<String, String> {
+    const VARSAYILAN: &str = "tr-TR";
+    let Some(dil) = dil.map(str::trim).filter(|dil| !dil.is_empty()) else {
+        return Ok(VARSAYILAN.into());
+    };
+    let gecerli = dil.len() <= 16
+        && dil.split('-').enumerate().all(|(sira, parca)| {
+            !parca.is_empty()
+                && parca.chars().all(|harf| harf.is_ascii_alphanumeric())
+                && (sira > 0 || parca.chars().all(|harf| harf.is_ascii_alphabetic()))
+        });
+    if gecerli {
+        Ok(dil.into())
+    } else {
+        Err(format!("geçersiz tanıma dili: {dil}"))
+    }
 }
 
 #[cfg(test)]
@@ -438,13 +484,75 @@ mod tests {
     fn stderr_summary_is_bounded_and_never_contains_raw_secrets() {
         let secret = "token=super-secret-value ".repeat(300);
 
-        let summary = summarize_stderr(Cursor::new(secret.as_bytes()))
+        let summary = summarize_stderr(Cursor::new(secret.as_bytes()), |_| {})
             .expect("stderr varsa güvenli bir özet dönmeli");
 
         assert!(summary.captured_bytes <= STDERR_LIMIT);
         assert!(summary.truncated);
         assert!(!summary.message.contains("super-secret-value"));
         assert!(!summary.message.contains("token="));
+    }
+
+    /// Ölçüldü (30 Ekim): stderr okunup atılıyordu, tanı izi kalmıyordu (R2-16). Artık ilk
+    /// `STDERR_LIMIT` bayt MASKELENEREK kayda gider; kullanıcıya dönen özet yine ham içerik taşımaz.
+    #[test]
+    fn stderr_maskelenmis_olarak_kayda_verilir() {
+        let mut kayit = String::new();
+        let summary = summarize_stderr(
+            Cursor::new(b"hata: token=super-secret-value reddedildi\n".to_vec()),
+            |metin| kayit = metin.to_string(),
+        )
+        .expect("stderr varsa özet dönmeli");
+
+        assert!(kayit.contains("hata:") && kayit.contains("reddedildi"));
+        assert!(!kayit.contains("super-secret-value"));
+        assert!(!summary.message.contains("super-secret-value"));
+        assert!(summary.message.contains("logs/speech.log"));
+    }
+
+    #[test]
+    fn bos_stderr_kayit_yazmaz() {
+        let mut cagrildi = false;
+        assert!(summarize_stderr(Cursor::new(Vec::<u8>::new()), |_| cagrildi = true).is_none());
+        assert!(!cagrildi);
+    }
+
+    #[test]
+    fn kayit_en_cok_stderr_siniri_kadar_alir() {
+        let uzun = "a ".repeat(STDERR_LIMIT);
+        let mut kayit_uzunlugu = 0;
+        summarize_stderr(Cursor::new(uzun.into_bytes()), |metin| {
+            kayit_uzunlugu = metin.len()
+        });
+        assert!(kayit_uzunlugu <= STDERR_LIMIT);
+    }
+
+    #[test]
+    fn speech_log_dosyasina_yazilir() {
+        let dizin = tempfile::tempdir().unwrap();
+        speech_gunlugu_yaz(&dizin.path().join("logs"), "maskeli satır");
+        let icerik = std::fs::read_to_string(dizin.path().join("logs/speech.log")).unwrap();
+        assert_eq!(icerik, "maskeli satır\n");
+    }
+
+    #[test]
+    fn dil_verilmezse_turkce_gecerli_kimlikler_kabul_edilir_digerleri_reddedilir() {
+        assert_eq!(dil_sec(None).unwrap(), "tr-TR");
+        assert_eq!(dil_sec(Some("  ")).unwrap(), "tr-TR");
+        assert_eq!(dil_sec(Some("en-US")).unwrap(), "en-US");
+        assert_eq!(dil_sec(Some("zh-Hans-CN")).unwrap(), "zh-Hans-CN");
+        assert_eq!(dil_sec(Some("de")).unwrap(), "de");
+        for kotu in [
+            "--fixture",
+            "-l",
+            "tr_TR",
+            "tr-",
+            "1a",
+            "en US",
+            &"a".repeat(17),
+        ] {
+            assert!(dil_sec(Some(kotu)).is_err(), "{kotu} reddedilmeli");
+        }
     }
 
     #[test]
