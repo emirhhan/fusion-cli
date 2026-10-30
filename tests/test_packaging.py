@@ -215,6 +215,15 @@ def test_temiz_wheel_ortaminda_cli_calisir(tmp_path):
         cwd=tmp_path,
     )
 
+    # `doctor` yapılandırmayı yükler: gerçek kullanıcı dizinine ve Keychain'e dokunmasın.
+    ev = tmp_path / "ev"
+    ortam_degiskenleri = {
+        **os.environ,
+        "HOME": str(ev),
+        "XDG_CONFIG_HOME": str(ev / "config"),
+        "XDG_DATA_HOME": str(ev / "data"),
+        "FUSION_KEYCHAIN": "off",
+    }
     for argumanlar in (["version"], ["--help"], ["doctor"]):
         sonuc = subprocess.run(
             [str(fusion), *argumanlar],
@@ -222,6 +231,7 @@ def test_temiz_wheel_ortaminda_cli_calisir(tmp_path):
             text=True,
             timeout=120,
             cwd=tmp_path,
+            env=ortam_degiskenleri,
         )
         # doctor yapılandırma eksikse 1 döner; çökmesi (>1) kabul edilemez.
         assert sonuc.returncode in (0, 1), f"fusion {argumanlar}: {sonuc.stderr[:400]}"

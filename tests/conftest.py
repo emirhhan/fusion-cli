@@ -18,6 +18,54 @@ from pathlib import Path
 
 import pytest
 
+#: Testlerin ASLA değiştirmemesi gereken gerçek kullanıcı dizinleri (kasa anahtarı, eşleşmiş
+#: telefonlar). Ölçüldü (30 Ekim): `tests/` dışındaki gizli kabul testini koşan bir test
+#: HOME vermeden alt süreç açtı; `load_config` geliştiricinin gerçek `master.key`'ini
+#: Keychain'e taşıyıp `master.key.migrated` yaptı. Oturum sonunda değişiklik varsa koşu düşer.
+_KORUNAN_DIZINLER = (
+    Path.home() / ".local" / "share" / "fusion-cli" / "vault",
+    Path.home() / "remote",
+)
+
+
+def _dizin_izi() -> tuple[tuple[str, int, int], ...]:
+    iz: list[tuple[str, int, int]] = []
+    for dizin in _KORUNAN_DIZINLER:
+        try:
+            ogeler = sorted(dizin.iterdir())
+        except OSError:
+            continue
+        for oge in ogeler:
+            try:
+                bilgi = oge.stat()
+            except OSError:
+                continue
+            iz.append((str(oge), bilgi.st_size, bilgi.st_mtime_ns))
+    return tuple(iz)
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    session.config.stash[_IZ_ANAHTARI] = _dizin_izi()
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    # xdist işçileri değil yalnız denetleyici süreç karşılaştırır.
+    if hasattr(session.config, "workerinput"):
+        return
+    once = session.config.stash.get(_IZ_ANAHTARI, None)
+    if once is None or once == _dizin_izi():
+        return
+    session.config.get_terminal_writer().line(
+        "UYARI: testler gerçek kullanıcı dizinini değiştirdi: "
+        + ", ".join(str(d) for d in _KORUNAN_DIZINLER),
+        red=True,
+        bold=True,
+    )
+    session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+_IZ_ANAHTARI = pytest.StashKey[tuple[tuple[str, int, int], ...]]()
+
 
 @pytest.fixture(autouse=True)
 def test_yorumlayicisi_pathte(monkeypatch):
