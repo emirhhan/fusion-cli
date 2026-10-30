@@ -98,6 +98,7 @@ from .commands import (
     list_commands,
     render_command_text,
     run_command,
+    select_development_model,
 )
 from .connectors import (
     add_connector_verified,
@@ -608,7 +609,7 @@ class AppSession:
         """Yan panelin model seçici ve "Önce sor / Sormadan yap" anahtarı.
 
         Claude in Chrome'daki gibi panel modeli ve izin kipini kendisi seçer. Model
-        masaüstündeki `/development uygula` komutuyla değişir: doğrulama aynıdır.
+        masaüstündeki `model.sec` ile (eski `/development uygula` ile aynı uygulayıcı) değişir.
         """
         if data.get("yeni") is True:
             # Paneldeki "temizle": yeni panel konuşması, uygulamanın sohbeti etkilenmez.
@@ -640,9 +641,8 @@ class AppSession:
                 return {"ok": False, "metin": "Model ve kaynak geçersiz."}
             if self._turn is not None and not self._turn.done():
                 return {"ok": False, "metin": "Görev sürerken model değiştirilemez."}
-            result = await self._run_command(
-                {"ad": "development", "arguman": f"uygula {source} {model}"}
-            )
+            # Yapısal yol: kimlik komut dizgesine gömülmez (U1-40).
+            result = await self._select_model({"kaynak": source, "model": model})
             if result.get("ok") is False:
                 return result
         catalog = await list_selectable_models(self._state.config, workspace_mode="sohbet")
@@ -1236,6 +1236,8 @@ class AppSession:
             return await self._run_command(request.data)
         if request.name == "komut.secenekler":
             return await self._command_options(request.data)
+        if request.name == "model.sec":
+            return await self._select_model(request.data)
         if request.name == "model.roller":
             from .model_roles import role_state
 
@@ -1930,10 +1932,16 @@ class AppSession:
             # bloklamasın diye `run_command`'ın TAMAMI ayrı bir thread'de çalıştırılır
             # — eskiden yalnız doğrulama burada `asyncio.to_thread` ile sarılıyordu,
             # doğrulama aşağı taşınınca sarmalayıcı da onunla birlikte indi.
-            owned = asyncio.create_task(self._apply_model_command(name, argument))
-            self._model_selection_tasks.add(owned)
-            owned.add_done_callback(self._model_selection_done)
-            result = await asyncio.shield(owned)
+            result = await self._owned_model_change(
+                partial(
+                    run_command,
+                    self._registry,
+                    self._state,
+                    name,
+                    argument,
+                    secret_store=self._secret_store,
+                )
+            )
         else:
             result = run_command(
                 self._registry, self._state, name, argument, secret_store=self._secret_store
@@ -1953,23 +1961,31 @@ class AppSession:
         self._next_turn_mode = mode
         return {**result, "gorev": task}
 
-    async def _apply_model_command(self, name: str, argument: str) -> dict[str, Any]:
+    async def _select_model(self, data: dict[str, Any]) -> dict[str, Any]:
+        """`model.sec {kaynak, model}`: yapısal model seçimi (U1-40).
+
+        `/development uygula` komut dizgesiyle AYNI kabul kilidi, thread ve sonuç zarfı;
+        yalnız girdi dizgeden değil alanlardan gelir (bkz. `select_development_model`).
+        """
+        return await self._owned_model_change(
+            partial(select_development_model, self._state, data.get("kaynak"), data.get("model"))
+        )
+
+    async def _owned_model_change(self, runner: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+        """Model değişimini sahipli görev yap: iptal edilen bekleyici kilidi bırakmaz."""
+        owned = asyncio.create_task(self._apply_model_change(runner))
+        self._model_selection_tasks.add(owned)
+        owned.add_done_callback(self._model_selection_done)
+        return await asyncio.shield(owned)
+
+    async def _apply_model_change(self, runner: Callable[[], dict[str, Any]]) -> dict[str, Any]:
         """Thread sona erene kadar seçim/kabul kilidi sahipliğini koru."""
         async with self._admission_lock:
             if self._closed:
                 return {"ok": False, "metin": "Oturum kapandı; model seçimi uygulanmadı."}
             previous_model = self._state.config.agent.model
             # Daemon thread: NIM araç doğrulaması 90 sn sürebilir ve kapanışta beklenmemeli (S2-22).
-            result = await run_in_daemon_thread(
-                partial(
-                    run_command,
-                    self._registry,
-                    self._state,
-                    name,
-                    argument,
-                    secret_store=self._secret_store,
-                )
-            )
+            result = await run_in_daemon_thread(runner)
             if result.get("ok") is True:
                 effort = self._state.config.runtime.reasoning_effort.value
                 resolution = resolve_reasoning(

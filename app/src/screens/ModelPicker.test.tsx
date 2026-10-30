@@ -55,14 +55,14 @@ describe("ModelPicker", () => {
     expect(screen.getByText("Gemini Web")).toBeTruthy();
   });
 
-  test("seçim komutu olduğu gibi iletilir ve liste kapanır", () => {
+  test("seçilen seçenek nesnesi olduğu gibi iletilir ve liste kapanır", () => {
     const onSelect = vi.fn();
     render(<ModelPicker active="a" onSelect={onSelect} options={SECENEKLER} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Model:/ }));
     fireEvent.click(screen.getByText("GPT-OSS 20B"));
 
-    expect(onSelect).toHaveBeenCalledWith("/model agent openrouter/openai/gpt-oss-20b:free");
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ deger: "/model agent openrouter/openai/gpt-oss-20b:free" }));
     expect(screen.queryByRole("listbox")).toBeNull();
   });
 
@@ -155,7 +155,7 @@ describe("ModelPicker — araç desteği doğrulanmamış model (U1-45)", () => 
     fireEvent.click(screen.getByRole("button", { name: /Model:/ }));
     fireEvent.click(screen.getByRole("option", { name: /Yeni Model/ }));
     fireEvent.click(screen.getByRole("button", { name: "Yine de seç" }));
-    expect(onSelect).toHaveBeenCalledWith("/model agent nim/yeni-model");
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ deger: "/model agent nim/yeni-model" }));
     fireEvent.click(screen.getByRole("button", { name: /Model:/ }));
     fireEvent.click(screen.getByRole("option", { name: /Yeni Model/ }));
     expect(onSelect).toHaveBeenCalledTimes(2);
@@ -167,6 +167,6 @@ describe("ModelPicker — araç desteği doğrulanmamış model (U1-45)", () => 
     render(<ModelPicker active="a" onSelect={onSelect} options={BILINMEYEN} />);
     fireEvent.click(screen.getByRole("button", { name: /Model:/ }));
     fireEvent.click(screen.getByRole("option", { name: /Bilinen Model/ }));
-    expect(onSelect).toHaveBeenCalledWith("/model agent nim/bilinen");
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ deger: "/model agent nim/bilinen" }));
   });
 });

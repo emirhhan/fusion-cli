@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from fusion_cli.appserver.commands import command_choices, list_commands, run_command
+from fusion_cli.appserver.commands import (
+    command_choices,
+    list_commands,
+    run_command,
+    select_development_model,
+)
 from fusion_cli.cli.repl import model_flows
 from fusion_cli.cli.repl.commands import SlashCommand, build_registry
 from fusion_cli.cli.repl.state import ReplState
@@ -181,6 +186,57 @@ def test_development_kaynak_ve_model_adimlari_uygulanir(
     assert state.config.agent.model == model_id
     assert state.config.judge.model == model_id
     assert {candidate.model for candidate in state.config.candidates} == {model_id}
+
+
+def test_yapisal_model_secimi_komut_dizgesiyle_ayni_sonucu_verir(
+    state: ReplState, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """U1-40: `model.sec` yolu `/development uygula ...` ile aynı uygulayıcıyı kullanır."""
+    model_id = "openrouter/ornek/model:free"
+    monkeypatch.setattr(
+        model_flows.catalog,
+        "fetch_openrouter_free",
+        lambda: (CatalogEntry(model_id, "openrouter", 128_000),),
+    )
+
+    result = select_development_model(state, "openrouter-free", model_id)
+
+    assert result["ok"] is True
+    assert state.config.agent.model == model_id
+
+
+@pytest.mark.parametrize(
+    ("source", "model"),
+    (
+        ("openrouter-free", "model\n/development uygula custom x/y"),
+        ("openrouter-free", "model\x00gizli"),
+        ("openrouter-free", ""),
+        ("openrouter-free", "   "),
+        ("openrouter-free", "x" * 600),
+        ("yok-boyle-kaynak", "ornek/model"),
+        ("", "ornek/model"),
+        (None, "ornek/model"),
+        ("openrouter-free", None),
+        ("openrouter-free", 42),
+    ),
+)
+def test_yapisal_model_secimi_gecersiz_girdiyi_reddeder(
+    state: ReplState, source: object, model: object
+) -> None:
+    onceki = state.config
+
+    result = select_development_model(state, source, model)  # type: ignore[arg-type]
+
+    assert result == {"ok": False, "metin": messages.APP_COMMAND_INVALID_SELECTION}
+    assert state.config is onceki
+
+
+def test_yapisal_model_secimi_icinde_bosluk_olan_kimligi_bolmez(state: ReplState) -> None:
+    """Komut dizgesi `uygula <kaynak> <model>` boşlukta bölünürdü; yapısal yol bölmez."""
+    result = select_development_model(state, "custom", "ollama/model adi:7b")
+
+    assert result["ok"] is True
+    assert state.config.agent.model == "ollama/model adi:7b"
 
 
 def test_development_custom_serbest_metin_adimi_uygulanir(state: ReplState) -> None:

@@ -1672,28 +1672,30 @@ async def test_plan_yurut_turundan_sonra_kok_konusma_korunur(tmp_path, monkeypat
     )
 
 
-async def test_panel_ayarlari_modeli_komutla_degistirir_ve_kipi_ayarlar(tmp_path, monkeypatch):
+async def test_panel_ayarlari_modeli_yapisal_rpc_ile_degistirir_ve_kipi_ayarlar(
+    tmp_path, monkeypatch
+):
     """Claude in Chrome gibi: panel modeli ve 'Önce sor / Sormadan yap' kipini seçer."""
     from fusion_cli.appserver import session as oturum_modulu
 
     oturum = _session(tmp_path, [])
     komutlar: list[dict] = []
 
-    async def sahte_komut(data):
+    async def sahte_secim(data):
         komutlar.append(data)
         return {"ok": True}
 
     async def sahte_katalog(_config, *, workspace_mode):
         return {"ok": True, "modeller": [{"model": "m1", "kaynak": "nim-free", "etiket": "m1"}]}
 
-    monkeypatch.setattr(oturum, "_run_command", sahte_komut)
+    monkeypatch.setattr(oturum, "_select_model", sahte_secim)
     monkeypatch.setattr(oturum_modulu, "list_selectable_models", sahte_katalog)
 
     sonuc = await oturum._chrome_settings({"mod": "security"})
     assert sonuc["ok"] and sonuc["mod"] == "security" and sonuc["modeller"][0]["model"] == "m1"
     await oturum._chrome_settings({"model": "nvidia_nim/x", "kaynak": "nim-free"})
-    assert komutlar == [{"ad": "development", "arguman": "uygula nim-free nvidia_nim/x"}]
-    # Boşluklu değer komuta enjekte edilemez; bilinmeyen kip reddedilir.
+    assert komutlar == [{"kaynak": "nim-free", "model": "nvidia_nim/x"}]
+    # Boşluklu değer (panel sözleşmesi) hâlâ reddedilir; bilinmeyen kip reddedilir.
     assert not (await oturum._chrome_settings({"model": "a b", "kaynak": "x"}))["ok"]
     assert not (await oturum._chrome_settings({"mod": "herkes"}))["ok"]
 

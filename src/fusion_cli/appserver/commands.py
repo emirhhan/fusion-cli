@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 from collections.abc import Callable, Sequence
 from typing import Any, Literal, TypedDict
 
@@ -335,11 +336,44 @@ def _apply_provider(state: ReplState, argument: str) -> CommandResult:
 def _apply_development(state: ReplState, argument: str) -> CommandResult:
     action, separator, rest = argument.strip().partition(" ")
     source_key, separator2, model_id = rest.partition(" ")
-    source = model_flows.source_by_key(state.config, source_key)
-    if action.casefold() != "uygula" or not separator or not separator2 or source is None:
+    if action.casefold() != "uygula" or not separator or not separator2:
+        return _error(messages.APP_COMMAND_INVALID_SELECTION)
+    return _apply_development_selection(state, source_key, model_id)
+
+
+#: Model kimliğinde kabul edilmeyen kontrol karakterleri (satır sonu, NUL…). Komut dizgesine
+#: gömülen kimlik satır sonuyla ikinci bir komuta bölünebiliyordu (U1-40).
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+#: Katalogdaki en uzun model kimliklerinin çok üstünde; yalnızca saçma girdiyi keser.
+_MAX_MODEL_ID_CHARS = 512
+
+
+def select_development_model(
+    state: ReplState, source_key: object, model_id: object
+) -> CommandResult:
+    """`model.sec {kaynak, model}`: seçimi komut dizgesi KURMADAN uygula (U1-40).
+
+    `/development uygula <kaynak> <model>` ile AYNI uygulayıcıyı (`apply_development_model`:
+    NIM araç doğrulaması, kalıcı yazım) kullanır; ikinci bir model yönetimi yolu açılmaz.
+    Girdi yapısaldır: kimlik tek bir alandır, boşlukta bölünmez; kontrol karakteri taşıyan
+    ya da bilinmeyen kaynaklı istek reddedilir. Eski komut yolu çalışmaya devam eder.
+    """
+    if not isinstance(source_key, str) or not isinstance(model_id, str):
         return _error(messages.APP_COMMAND_INVALID_SELECTION)
     wanted = model_id.strip()
-    if not wanted:
+    if not wanted or len(wanted) > _MAX_MODEL_ID_CHARS or _CONTROL_CHARS.search(wanted):
+        return _error(messages.APP_COMMAND_INVALID_SELECTION)
+    try:
+        return _apply_development_selection(state, source_key, wanted)
+    except Exception as error:  # araç sınırı: `run_command` ile aynı hata sözleşmesi
+        _LOG.error("Model seçimi uygulanamadı: %s", type(error).__name__)
+        return _error(messages.APP_COMMAND_FAILED)
+
+
+def _apply_development_selection(state: ReplState, source_key: str, model_id: str) -> CommandResult:
+    source = model_flows.source_by_key(state.config, source_key)
+    wanted = model_id.strip()
+    if source is None or not wanted:
         return _error(messages.APP_COMMAND_INVALID_SELECTION)
     onceki = state.config
     result = model_flows.apply_development_model(onceki, wanted, paid=source.paid)

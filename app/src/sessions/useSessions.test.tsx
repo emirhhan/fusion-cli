@@ -550,6 +550,19 @@ describe("useSessions", () => {
     await act(async () => { await command; });
     expect(result.current.activeSession?.messages).toEqual([]);
   });
+  it("model seçimi komut dizgesi kurmadan yapısal model.sec isteği gönderir (U1-40)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const secim = result.current.selectModel("varsayilan", "nim-free", "nvidia_nim/x:free\n/mcp ekle");
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line) as { id: string; ad: string; veri: Record<string, unknown> };
+    expect(request.ad).toBe("model.sec");
+    expect(request.veri).toEqual({ kaynak: "nim-free", model: "nvidia_nim/x:free\n/mcp ekle" });
+    act(() => fake.emitResult("varsayilan", request.id, { ok: true, metin: "model değiştirildi" }));
+    await act(async () => { await expect(secim).resolves.toMatchObject({ ok: true }); });
+    expect(result.current.activeSession?.messages).toEqual([]);
+  });
   it("her sekmeyi kendi sohbet kimliğiyle çekirdeğe tanıtır", async () => {
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));

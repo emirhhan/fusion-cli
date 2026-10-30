@@ -36,6 +36,7 @@ import {
   type McpSunucusu,
 } from "./screens/Composer";
 import { Conversation, type Mesaj } from "./screens/Conversation";
+import type { ModelOption } from "./screens/ModelPicker";
 import { useModelCatalog } from "./screens/useModelCatalog";
 import { useActiveModel } from "./screens/useActiveModel";
 import { EmptyState } from "./screens/EmptyState";
@@ -1282,13 +1283,14 @@ export function SessionUygulama({
   const draft = drafts[active.id] ?? controller.submissionDraft(active.id);
   const activeAttachments = attachments[active.id] ?? controller.submissionAttachments(active.id);
   const setDraft = (value: string) => setDrafts((current) => ({ ...current, [active.id]: value }));
-  const executeCommand = async (input: string, recordInput = true, recordOutput = true): Promise<CommandResult> => {
+  /** Komut ve model seçimi AYNI meşgul/hata/sürüm durumunu paylaşır; yalnız taşıma (`run`) değişir. */
+  const trackCommand = async (run: () => Promise<Record<string, unknown>>): Promise<CommandResult> => {
     const generation = commandOwner.current, sequence = ++commandSequence.current;
     const isCurrent = () => generation === commandOwner.current && sequence === commandSequence.current;
     setCommandBusy(true);
     setCommandError(null);
     try {
-      const result = await controller.runCommand(active.id, input, recordInput, recordOutput);
+      const result = await run();
       if (!isCurrent()) return { ok: false, message: "Komut sonucu önceki oturuma ait." };
       const next = commandSelectorFrom(result.secici);
       setCommandSelector(next);
@@ -1306,6 +1308,15 @@ export function SessionUygulama({
     } finally {
       if (isCurrent()) setCommandBusy(false);
     }
+  };
+  const executeCommand = (input: string, recordInput = true, recordOutput = true): Promise<CommandResult> =>
+    trackCommand(() => controller.runCommand(active.id, input, recordInput, recordOutput));
+  // Yapısal seçim (U1-40); kaynak/kimlik taşımayan seçenek (eski biçim) komut yoluna düşer.
+  const selectModelOption = (option: ModelOption): Promise<CommandResult> => {
+    const { kaynak, modelId } = option;
+    return kaynak && modelId
+      ? trackCommand(() => controller.selectModel(active.id, kaynak, modelId))
+      : executeCommand(option.deger, false, false);
   };
   const capabilityNames = () => ({
     skills: skillNames,
@@ -1532,7 +1543,7 @@ export function SessionUygulama({
           onModelConnect={() => { setControlTitle("Sağlayıcılar"); setPage("control"); }}
           modelsBusy={modelsBusy}
           onModelMenuOpen={() => void loadModelOptions()}
-          onModelSelect={(komut) => void executeCommand(komut, false, false)}
+          onModelSelect={(option) => void selectModelOption(option)}
           approval={approval}
           onApprovalChange={(next) => void changeApproval(next)}
           attachments={activeAttachments}

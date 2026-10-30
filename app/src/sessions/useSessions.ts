@@ -755,6 +755,27 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     [state.sessions, send],
   );
 
+  /**
+   * Model seçimi: komut dizgesi KURMADAN yapısal `model.sec {kaynak, model}` (U1-40).
+   * Kimlik tek alandır; boşluk/satır sonu içerse de komutu bölemez.
+   */
+  const selectModel = useCallback(
+    async (id: string, kaynak: string, model: string): Promise<Record<string, unknown>> => {
+      const session = state.sessions[id];
+      if (!session || session.status !== "ready") return { ok: false, metin: "Model değiştirilemedi." };
+      let result: Record<string, unknown>;
+      try {
+        result = await session.client.request("model.sec", { kaynak, model });
+      } catch (reason) {
+        return { ok: false, metin: `Model seçilemedi: ${reason instanceof Error ? reason.message : String(reason)}` };
+      }
+      // `/model` gibi seçim de bağlam ölçüsünü (pencere eşiği) değiştirebilir.
+      olcuyuTazele(id, session.client, dispatch);
+      return result;
+    },
+    [state.sessions],
+  );
+
   const stop = useCallback(
     (id: string) => {
       const session = oturumlarRef.current[id];
@@ -963,6 +984,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     remove,
     move,
     runCommand,
+    selectModel,
     send,
     submit,
     retrySubmission,

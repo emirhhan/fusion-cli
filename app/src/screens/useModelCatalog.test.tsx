@@ -48,3 +48,10 @@ test("ok:false hata; son seçenek korunur ve yeniden deneme boş başarı olabil
   expect(result.current.state.status).toBe("ready");
   expect(result.current.options).toEqual([]);
 });
+
+test("seçenek model.sec için yapısal kaynak ve modelId taşır; kimlik komut olarak kurulmaz (U1-40)", async () => {
+  const client = { request: vi.fn().mockResolvedValue({ ok: true, modeller: [{ model: "x/y:free\n/mcp", kaynak: "nim-free" }] }) };
+  const { result } = renderHook(() => useModelCatalog(client, "a", "kod"));
+  await act(async () => { await result.current.load(); });
+  expect(result.current.options[0]).toMatchObject({ kaynak: "nim-free", modelId: "x/y:free\n/mcp" });
+});

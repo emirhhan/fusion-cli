@@ -30,7 +30,9 @@ export function useModelCatalog(client: CatalogClient | undefined, sessionId: st
         const row = raw as Record<string, unknown>;
         if (typeof row.model !== "string" || !row.model || typeof row.kaynak !== "string") return [];
         const capability = row.yetenek && typeof row.yetenek === "object" ? row.yetenek as Record<string, unknown> : {};
-        return [{ deger: `/development uygula ${row.kaynak} ${row.model}`, modelId: row.model,
+        // `deger` yalnız kararlı kimlik/onay anahtarıdır (eski kayıtlı onaylar geçerli kalsın diye biçimi
+        // korunur); seçim komut dizgesiyle DEĞİL `kaynak` + `modelId` alanlarıyla yapılır (U1-40).
+        return [{ deger: `/development uygula ${row.kaynak} ${row.model}`, kaynak: row.kaynak, modelId: row.model,
           etiket: typeof row.etiket === "string" ? row.etiket : row.model,
           aciklama: typeof row.aciklama === "string" ? row.aciklama : "",
           grup: typeof row.grup === "string" ? row.grup : "diger",

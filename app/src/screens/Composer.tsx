@@ -114,7 +114,7 @@ interface ComposerProps {
   onModelConnect?: () => void;
   modelsBusy?: boolean;
   onModelMenuOpen?: () => void;
-  onModelSelect?: (deger: string) => void;
+  onModelSelect?: (option: ModelOption) => void;
   onStop?: () => void;
   onValueChange?: (value: string) => void;
   running?: boolean;

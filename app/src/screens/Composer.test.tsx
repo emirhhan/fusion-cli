@@ -468,7 +468,7 @@ describe("Composer — @ ile MCP seçimi", () => {
     const { rerender } = render(<Composer activeModel="" modelOptions={modelOptions} onModelSelect={onModelSelect} onSend={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /Model: (seçilmedi|Model seç)/ }));
     fireEvent.click(screen.getByRole("option", { name: /Model B/ }));
-    expect(onModelSelect).toHaveBeenCalledWith("/model agent a/b");
+    expect(onModelSelect).toHaveBeenCalledWith(modelOptions[0]);
     rerender(<Composer activeModel="" modelOptions={modelOptions} onModelSelect={onModelSelect} onSend={vi.fn()} running />);
     expect(screen.getByRole("button", { name: /Model: (seçilmedi|Model seç)/ })).toBeTruthy();
   });

@@ -10,15 +10,18 @@ import "./ModelPicker.css";
  * Kontrol Paneli açılıp "Model düzeni" okunarak görülebiliyordu. Seçici adı
  * görünür kılar ve değiştirmeyi bir tıka indirir.
  *
- * Liste ÇEKİRDEKTEN gelir ve seçim `/model` komutuyla uygulanır; burada ikinci
+ * Liste ÇEKİRDEKTEN gelir ve seçim yapısal `model.sec {kaynak, model}` ile uygulanır
+ * (komut dizgesi kurulmaz, U1-40); burada ikinci
  * bir model yönetimi yolu açılmaz (RULES: "aynı işi yapan ikinci bir yol
  * açılmaz"). Bileşen ağı bilmez, veriyi props ile alır — testte gerçek oturum
  * gerekmesin.
  */
 
 export interface ModelOption {
-  /** `/model` komutuna verilecek devam değeri. */
+  /** Seçeneğin kararlı kimliği (onay anahtarı); komut olarak ÇALIŞTIRILMAZ. */
   deger: string;
+  /** Model kaynağı; `modelId` ile birlikte yapısal `model.sec {kaynak, model}` isteğini kurar (U1-40). */
+  kaynak?: string;
   etiket: string;
   aciklama?: string;
   grup?: string;
@@ -34,7 +37,7 @@ export interface ModelPickerProps {
   options: ModelOption[];
   /** Liste açılırken çağrılır; seçenekler tembel yüklenir. */
   onOpen?: () => void;
-  onSelect: (deger: string) => void;
+  onSelect: (option: ModelOption) => void;
   busy?: boolean;
   error?: string;
   onRetry?: () => void;
@@ -72,7 +75,7 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
     diger: "Diğer etkin modeller",
   };
   const visible = options.filter((option) =>
-    `${option.etiket} ${option.aciklama ?? ""} ${option.deger}`
+    `${option.etiket} ${option.aciklama ?? ""} ${option.modelId ?? option.deger}`
       .toLocaleLowerCase("tr").includes(query.trim().toLocaleLowerCase("tr")),
   );
   const grouped = new Map<string, ModelOption[]>();
@@ -127,7 +130,7 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
     setConfirming(null);
     setOpen(false);
     trigger.current?.focus();
-    onSelect(option.deger);
+    onSelect(option);
   };
   const keyboard = (event: React.KeyboardEvent) => {
     if (!visible.length || pending || busy || confirming) return;

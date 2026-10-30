@@ -153,3 +153,99 @@ async def test_model_rpc_waits_for_old_probe_and_its_last_commit_wins(
     persisted = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert persisted["agent"]["model"] == session._state.config.agent.model
     await session.close()
+
+
+async def test_model_sec_rpc_yapisal_secimi_ayni_kilit_ve_uygulayiciyla_yapar(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """U1-40: `model.sec {kaynak, model}` komut dizgesi kurmadan modeli değiştirir."""
+    from fusion_cli.appserver.protocol import Request
+    from fusion_cli.cli.repl import model_flows
+    from fusion_cli.config import writer
+
+    path = tmp_path / "selection.yaml"
+    original_write = writer.write_model_section
+    monkeypatch.setattr(
+        model_flows.writer, "write_model_section", lambda config: original_write(config, path)
+    )
+    session = AppSession(lambda _: None, root=tmp_path, home=tmp_path / "ev")
+
+    sonuc = await session._dispatch(
+        Request("1", "model.sec", {"kaynak": "custom", "model": "ollama/qwen2.5-coder:7b"})
+    )
+
+    assert sonuc["ok"] is True
+    assert sonuc["model"] == "ollama/qwen2.5-coder:7b"
+    assert sonuc["uygulama"] == "hazir"
+    assert session._state.config.agent.model == "ollama/qwen2.5-coder:7b"
+    assert not session._model_selection_tasks
+    await session.close()
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"kaynak": "custom", "model": "ollama/x\n/development uygula custom y/z"},
+        {"kaynak": "yok", "model": "ollama/x"},
+        {"kaynak": "custom"},
+        {"model": "ollama/x"},
+        {"kaynak": ["custom"], "model": {"a": 1}},
+    ],
+)
+async def test_model_sec_rpc_gecersiz_girdiyi_reddeder_ve_config_degismez(
+    tmp_path, data: dict
+) -> None:
+    from fusion_cli.appserver.protocol import Request
+
+    session = AppSession(lambda _: None, root=tmp_path, home=tmp_path / "ev")
+    onceki = session._state.config
+
+    sonuc = await session._dispatch(Request("1", "model.sec", data))
+
+    assert sonuc["ok"] is False
+    assert "uygulama" not in sonuc
+    assert session._state.config is onceki
+    await session.close()
+
+
+async def test_model_sec_rpc_eski_degisimin_probu_bitmeden_commit_yapmaz(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`model.sec` de `_run_command` ile AYNI kabul kilidini paylaşır (sıralı son niyet kazanır)."""
+    from fusion_cli.appserver.protocol import Request
+    from fusion_cli.cli.repl import model_flows
+    from fusion_cli.config import writer
+
+    session = AppSession(lambda _: None, root=tmp_path, home=tmp_path / "ev")
+    entered = threading.Event()
+    release = threading.Event()
+    path = tmp_path / "selection.yaml"
+    original_write = writer.write_model_section
+    monkeypatch.setattr(
+        model_flows.writer, "write_model_section", lambda config: original_write(config, path)
+    )
+
+    def probe(model: str):
+        entered.set()
+        assert release.wait(5)
+        return True, "doğrulandı"
+
+    monkeypatch.setattr(model_flows.catalog, "probe_nim_tools", probe)
+    first = asyncio.create_task(
+        session._run_command({"ad": "development", "arguman": "uygula nim-free nvidia_nim/A"})
+    )
+    assert await asyncio.to_thread(entered.wait, 5)
+    second = asyncio.create_task(
+        session._dispatch(Request("2", "model.sec", {"kaynak": "custom", "model": "ollama/B"}))
+    )
+    try:
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert not second.done(), "model.sec eski probe bitmeden commit yaptı."
+    finally:
+        release.set()
+        await first
+        result = await second
+    assert result["ok"] is True
+    assert session._state.config.agent.model == "ollama/B"
+    await session.close()

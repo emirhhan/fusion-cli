@@ -25,7 +25,7 @@ test("klavye son seçeneğe gider ve Enter ile seçer", () => {
   fireEvent.keyDown(search, { key: "ArrowDown" });
   fireEvent.keyDown(search, { key: "End" });
   fireEvent.keyDown(document.activeElement ?? search, { key: "Enter" });
-  expect(onSelect).toHaveBeenCalledExactlyOnceWith("/model son");
+  expect(onSelect).toHaveBeenCalledExactlyOnceWith(options[1]);
   expect(screen.queryByRole("listbox")).toBeNull();
 });
 
