@@ -141,4 +141,44 @@ describe("HistoryPicker", () => {
 
     expect(screen.getByText("“yokböylesi” ile eşleşen konuşma bulunamadı.")).toBeTruthy();
   });
+
+  // Ölçüldü (30 Ekim): Esc/backdrop devralma sürerken de kapatıyor, iş bitince yine sohbete geçiriyordu;
+  // hata "Error: …" önekli basılıyordu; oturum düğmesinin aria-label'ı tarihi ve tur sayısını eziyordu (U4-18, U4-19).
+  describe("devralma sürerken (30 Ekim)", () => {
+    const session = { kaynak: "codex" as const, oturum_id: "cx1", baslik: "Fusion uygulaması", guncellendi: 100, tur_sayisi: 4, boyut: 200 };
+    const hazir = () => controller({ source: "codex", selected: session, sessions: [session] });
+
+    it("Esc ve arka plan tıklaması kapatmaz; Vazgeç ile ayrılınca sonuç sohbete geçirilmez", async () => {
+      let bitir!: (v: { id: string; secretCount: number }) => void;
+      const onResume = vi.fn(() => new Promise<{ id: string; secretCount: number }>((r) => { bitir = r; }));
+      const onClose = vi.fn();
+      const onResumed = vi.fn();
+      render(<HistoryPicker history={hazir()} onClose={onClose} onResume={onResume} onResumed={onResumed} open />);
+      fireEvent.click(screen.getByRole("button", { name: "Bu konuşmayı devral" }));
+      await waitFor(() => expect(onResume).toHaveBeenCalled());
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      fireEvent.mouseDown(document.querySelector(".history-picker-backdrop")!);
+      expect(onClose).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("button", { name: "Vazgeç" }));
+      expect(onClose).toHaveBeenCalledTimes(1);
+      bitir({ id: "yeni", secretCount: 0 });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(onResumed).not.toHaveBeenCalled();
+    });
+
+    it("hata metni 'Error:' öneksiz gösterilir", async () => {
+      const onResume = vi.fn(async () => { throw new Error("Geçmiş devralınamadı."); });
+      render(<HistoryPicker history={hazir()} onClose={vi.fn()} onResume={onResume} open />);
+      fireEvent.click(screen.getByRole("button", { name: "Bu konuşmayı devral" }));
+      expect(await screen.findByText("Geçmiş devralınamadı.")).toBeTruthy();
+    });
+
+    it("oturum düğmesinin adı başlıkla birlikte tarihi ve tur sayısını da taşır", () => {
+      render(<HistoryPicker history={hazir()} onClose={vi.fn()} onResume={vi.fn()} open />);
+      expect(screen.getByRole("button", { name: /Fusion uygulaması.*4 tur/ })).toBeTruthy();
+    });
+  });
 });
