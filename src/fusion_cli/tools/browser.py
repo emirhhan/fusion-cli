@@ -14,13 +14,16 @@ Playwright ZORUNLU BAĞIMLILIK DEĞİLDİR (`fusion-cli[web]`). Kurulu değilse 
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
+import weakref
 from pathlib import Path
 from typing import Any
 
+from ..core.browser_session import BrowserSession
 from ..core.constants import MAX_OUTPUT_CHARS, truncate_notice
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from .args import optional_str, require_str
+from .args import is_truthy, optional_str, require_str
 from .browser_guard import blocked_hint, install_request_guard
 from .browser_target import TargetError, fill_or_select, resolve
 from .files import writable_path
@@ -54,11 +57,28 @@ _KURULUM_TALIMATI = (
 )
 
 
+_LOCAL_PREFIXES = ("localhost", "127.0.0.1", "[::1]")
+
+
+def _normalize_url(raw: str) -> str:
+    """Şemasız adrese şema ekle: yerel sunucu `http://` (TLS yok), diğerleri `https://`.
+
+    Ölçüldü (30 Ekim): `localhost:3000` otomatik `https://` alıp TLS hatası veriyordu.
+    """
+    if raw.startswith(("http://", "https://")):
+        return raw
+    return f"http://{raw}" if raw.lower().startswith(_LOCAL_PREFIXES) else f"https://{raw}"
+
+
+def _full_page(args: ToolArgs) -> bool:
+    """`full_page` varsayılan açık; `"false"` metni de kapatır (eskiden truthy sayılıyordu)."""
+    raw = args.get("full_page")
+    return True if raw is None else is_truthy(raw)
+
+
 async def browser_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Bir adresi aç (oturum yoksa başlat) ve sayfanın görünür metnini döndür."""
-    url = require_str(args, "url")
-    if not url.startswith(("http://", "https://")):
-        url = f"https://{url}"
+    url = _normalize_url(require_str(args, "url"))
     # SSRF doğrulaması `web_fetch` ile AYNI kapıdan geçer: tarayıcı olması adresi
     # güvenli yapmaz, tersine yerel ağa erişim için daha güçlü bir araçtır.
     reason = browser_block_reason(url, context.local_origins)
@@ -81,7 +101,7 @@ async def browser_type(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Bir alana metin yaz; `submit` verilirse ardından Enter'a bas."""
     selector = require_str(args, "selector")
     text = require_str(args, "text")
-    submit = bool(args.get("submit"))
+    submit = is_truthy(args.get("submit"))
 
     page, hata = await _sayfa(context)
     if page is None:
@@ -149,6 +169,8 @@ async def browser_tab_select(args: ToolArgs, context: ToolContext) -> ToolResult
     raw_index = args.get("index")
     if not isinstance(raw_index, int) or isinstance(raw_index, bool) or raw_index < 1:
         return ToolResult.failure("'index' 1'den başlayan bir tam sayı olmalı.")
+    if not context.browser.is_open:
+        return ToolResult.failure("Açık bir tarayıcı yok — önce browser_open kullan.")
     pages = await context.browser.pages()
     if raw_index > len(pages):
         return ToolResult.failure(f"{raw_index} numaralı sekme yok; browser_tabs_list kullan.")
@@ -158,9 +180,7 @@ async def browser_tab_select(args: ToolArgs, context: ToolContext) -> ToolResult
 
 async def browser_tab_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Aynı oturumda yeni sekme aç ve izin verilen adrese git."""
-    url = require_str(args, "url")
-    if not url.startswith(("http://", "https://")):
-        url = f"https://{url}"
+    url = _normalize_url(require_str(args, "url"))
     reason = browser_block_reason(url, context.local_origins)
     if reason is not None:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
@@ -193,10 +213,9 @@ async def browser_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult
 
     hedef = writable_path(context, optional_str(args, "path", "ekran-goruntusu.png"))
     hedef.parent.mkdir(parents=True, exist_ok=True)
-    tam_sayfa = args.get("full_page", True)
     try:
         context.changes.record(hedef)
-        await page.screenshot(path=str(hedef), full_page=bool(tam_sayfa))
+        await page.screenshot(path=str(hedef), full_page=_full_page(args))
     except Exception as exc:
         return ToolResult.failure(f"Ekran görüntüsü alınamadı ({type(exc).__name__}: {exc})")
     context.touched.add(hedef)
@@ -239,8 +258,7 @@ async def browser_mirror(args: ToolArgs, context: ToolContext) -> ToolResult:
     page.on("response", _yanit)
     try:
         if url:
-            if not url.startswith(("http://", "https://")):
-                url = f"https://{url}"
+            url = _normalize_url(url)
             reason = browser_block_reason(url, context.local_origins)
             if reason is not None:
                 return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
@@ -307,6 +325,11 @@ async def browser_close(args: ToolArgs, context: ToolContext) -> ToolResult:
 # --------------------------------------------------------------------------- #
 
 
+#: Oturum başına başlatma kilidi: iki eşzamanlı ilk çağrı iki Chromium başlatıp birini
+#: sızdırıyordu (ölçüldü, 30 Ekim).
+_START_LOCKS: weakref.WeakKeyDictionary[BrowserSession, asyncio.Lock] = weakref.WeakKeyDictionary()
+
+
 async def _sayfa(context: ToolContext, *, baslatma: bool = True) -> tuple[Any, str]:
     """Etkin sayfayı getir; yoksa (ve izin varsa) oturumu başlat.
 
@@ -317,6 +340,14 @@ async def _sayfa(context: ToolContext, *, baslatma: bool = True) -> tuple[Any, s
         return oturum.page, ""
     if not baslatma:
         return None, "Açık bir sayfa yok — önce browser_open ile bir adres aç."
+    async with _START_LOCKS.setdefault(oturum, asyncio.Lock()):
+        if oturum.is_open:  # kilidi beklerken başka çağrı başlatmış olabilir
+            return oturum.page, ""
+        return await _oturumu_baslat(context)
+
+
+async def _oturumu_baslat(context: ToolContext) -> tuple[Any, str]:
+    oturum = context.browser
 
     try:
         # Ağır ve OPSİYONEL bağımlılık: yalnızca araç gerçekten çağrıldığında yüklenir.
@@ -342,13 +373,31 @@ async def _sayfa(context: ToolContext, *, baslatma: bool = True) -> tuple[Any, s
 
 
 async def _sayfa_ozeti(page: Any, eylem: str) -> ToolResult:
-    """Sayfanın adresini, başlığını ve görünür metnini tek bir sonuca topla."""
-    try:
-        url = page.url
-        baslik = await page.title()
-        govde = str(await page.locator("body").inner_text(timeout=SELECTOR_TIMEOUT_MS))
-    except Exception as exc:
-        return ToolResult.failure(f"Sayfa okunamadı ({type(exc).__name__}: {exc})")
+    """Sayfanın adresini, başlığını ve görünür metnini tek bir sonuca topla.
+
+    Tıklama navigasyon başlattıysa okuma sırasında "Execution context was destroyed"
+    oluşabilir: yükleme beklenip BİR KEZ yeniden denenir. Yine okunamazsa eylemin
+    YAPILDIĞI söylenir; yoksa model "olmadı" sanıp tekrar tıklar (çift gönderim).
+    """
+    for deneme in range(2):
+        try:
+            url = page.url
+            baslik = await page.title()
+            govde = str(await page.locator("body").inner_text(timeout=SELECTOR_TIMEOUT_MS))
+            break
+        except Exception as exc:
+            gecici = "context was destroyed" in str(exc) or "navigation" in str(exc).lower()
+            if deneme == 0 and gecici:
+                with contextlib.suppress(Exception):
+                    await page.wait_for_load_state("domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+                continue
+            ek = (
+                f" Eylem ({eylem}) YAPILDI ama sonuç okunamadı; AYNI eylemi tekrar etme, "
+                "önce browser_read ile sayfayı oku."
+                if eylem != "okundu"
+                else ""
+            )
+            return ToolResult.failure(f"Sayfa okunamadı ({type(exc).__name__}: {exc}).{ek}")
 
     metin = truncate_notice(govde.strip(), MAX_OUTPUT_CHARS, ne="sayfa metni") or "(boş sayfa)"
     satirlar = [f"{eylem}: {url}", f"başlık: {baslik}"]

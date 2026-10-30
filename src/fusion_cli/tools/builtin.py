@@ -535,8 +535,10 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="browser_open",
-        description="Dış URL'yi tarayıcıda aç ve oku; girişli/JS sayfası için. "
-        "Oturum tur boyunca açık kalır; localhost engellenir.",
+        description="URL'yi tarayıcıda aç ve oku; girişli/JS sayfası için. Oturum tur boyunca "
+        "açık kalır. Yerel adres YALNIZ kullanıcının mesajında yazdığı ya da önizlemeyle açılan "
+        "http://localhost:PORT sunucusu ise açılır (şemasız localhost:3000 http alır); diğer "
+        "yerel/özel ağ adresleri engellenir.",
         parameters=_schema({"url": {**_STRING, "description": "Açılacak adres"}}, ["url"]),
         run=browser.browser_open,
     ),
