@@ -96,6 +96,7 @@ impl TerminalManager {
         if !cwd_path.is_dir() {
             return Err(format!("çalışma dizini bulunamadı: {cwd}"));
         }
+        ensure_terminal_capacity(self.terminals.lock().unwrap().len())?;
 
         let size = PtySize {
             rows,
@@ -410,6 +411,7 @@ fn spawn_shell(
             .map_err(|error| format!("PTY açılamadı: {error}"))?;
         let mut command = CommandBuilder::new(&shell);
         command.cwd(cwd);
+        apply_shell_args(&mut command);
         apply_terminal_env(&mut command);
         match pair.slave.spawn_command(command) {
             Ok(child) => return Ok((pair, child)),
@@ -420,6 +422,28 @@ fn spawn_shell(
         "etkileşimli kabuk başlatılamadı: {}",
         errors.join("; ")
     ))
+}
+
+/// Kabuk GİRİŞ (login) kabuğu olarak açılır (Terminal.app ile aynı): Homebrew'in `shellenv`'i
+/// ve nvm/pyenv gibi PATH eklemeleri çoğunlukla `~/.zprofile`'dadır ve yalnız giriş
+/// kabuğunda okunur. GUI uygulaması minimal PATH ile açıldığından etkileşimli ama girişsiz
+/// kabukta `git`/`node`/`python` görünmüyordu (R2-15). Windows kabukları `-l` bilmez.
+fn apply_shell_args(command: &mut CommandBuilder) {
+    if cfg!(unix) {
+        command.arg("-l");
+    }
+}
+
+/// Aynı anda açık terminal sayısı üst sınırı; sınırsız açılış PTY/dosya tanıtıcısı tüketirdi.
+const MAX_TERMINALS: usize = 16;
+
+fn ensure_terminal_capacity(open: usize) -> Result<(), String> {
+    if open >= MAX_TERMINALS {
+        return Err(format!(
+            "en fazla {MAX_TERMINALS} terminal açılabilir; birini kapatıp yeniden dene"
+        ));
+    }
+    Ok(())
 }
 
 /// Fusion Dock'tan açıldığında ortamda `TERM` yoktur; kabuk ekran türünü
@@ -471,6 +495,29 @@ mod tests {
         super::apply_terminal_env(&mut command);
         assert_eq!(command.get_env("TERM").unwrap(), "xterm-256color");
         assert_eq!(command.get_env("COLORTERM").unwrap(), "truecolor");
+    }
+
+    /// Ölçüldü (30 Ekim): kabuk giriş kabuğu değildi; `~/.zprofile`'daki PATH (Homebrew) görünmüyordu.
+    #[cfg(unix)]
+    #[test]
+    fn kabuk_giris_kabugu_olarak_acilir() {
+        let mut command = CommandBuilder::new("/bin/sh");
+        super::apply_shell_args(&mut command);
+        let args: Vec<_> = command
+            .get_argv()
+            .iter()
+            .map(|item| item.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(args, vec!["/bin/sh", "-l"]);
+    }
+
+    #[test]
+    fn terminal_sayisi_ust_sinirla_kisitlanir() {
+        assert!(super::ensure_terminal_capacity(0).is_ok());
+        assert!(super::ensure_terminal_capacity(super::MAX_TERMINALS - 1).is_ok());
+        assert!(super::ensure_terminal_capacity(super::MAX_TERMINALS)
+            .unwrap_err()
+            .contains("en fazla"));
     }
 
     type OutputLog = Arc<Mutex<Vec<TerminalOutput>>>;
