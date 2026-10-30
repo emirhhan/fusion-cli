@@ -27,6 +27,7 @@ from pathlib import Path
 
 from .command_paths import escapes_project
 from .command_policy import (
+    _FIND_UNSAFE,
     GLOBAL_INSTALL_FLAGS,
     READ_ONLY_COMMANDS,
     curl_sends_data,
@@ -320,7 +321,7 @@ def _reads_only(name: str, arguments: list[str]) -> bool:
     if name == "awk":
         return awk_reads_only(arguments)
     if name == "find":
-        return not any(a in {"-delete", "-exec", "-execdir", "-ok", "-fprint"} for a in arguments)
+        return not any(a in _FIND_UNSAFE for a in arguments)
     if name == "php":
         return arguments[:1] in (["-l"], ["-v"], ["--version"])
     if name in {"node", "python", "python3"}:
@@ -346,7 +347,13 @@ def _outside(token: str, root: Path | None) -> bool:
 
 
 def _inline_code(name: str, arguments: list[str]) -> str | None:
-    """`python -c`, `node -e`, `php -r` gibi satır içi kodun metni."""
+    """`python -c`, `node -e`, `php -r` gibi satır içi kodun metni.
+
+    Yalnız YORUMLAYICILARDA: `grep -e os.remove src`, `sort -r`, `rm -r dizin` kod
+    değildir (ölçüldü, 30 Ekim: alakasız onay sorusu üretiyordu).
+    """
+    if not (name.startswith("python") or name in _INTERPRETERS):
+        return None
     flags = {"-c"} if name.startswith("python") else {"-e", "--eval", "-r"}
     for index, argument in enumerate(arguments[:-1]):
         if argument in flags:

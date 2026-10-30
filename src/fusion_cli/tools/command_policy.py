@@ -198,7 +198,36 @@ _EXPANSIONS = ("$(", "${", "`")
 
 #: `find` için silme/çalıştırma bayrakları — komutun kendisi okuyucu olsa da bunlar
 #: onu yıkıcı yapar.
-_FIND_UNSAFE = frozenset({"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fls", "-fprint"})
+_FIND_UNSAFE = frozenset(
+    {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fls", "-fprint", "-fprint0", "-fprintf"}
+)
+
+#: Çalıştırıldığında ENGELLEYEN okuyucular: `tail -f`/`top` zaman aşımına kadar döner.
+_TAIL_FOLLOW = frozenset({"-f", "-F", "--follow"})
+
+#: `open` ile onaysız açılmaması gereken çalıştırılabilir/kurulabilir türler.
+_OPEN_EXECUTABLE_SUFFIXES = (".app", ".dmg", ".pkg", ".command", ".terminal", ".sh", ".jar")
+
+
+def _blocks_forever(name: str, arguments: list[str]) -> bool:
+    if name == "tail":
+        return any(a in _TAIL_FOLLOW or a.startswith("--follow") for a in arguments)
+    if name == "top":
+        # Etkileşimli; yalnız tek örnek alan biçim (`-l 1`, `-n 1`) döner.
+        return not any(a in {"-l", "-n"} for a in arguments)
+    return False
+
+
+def _open_safe(arguments: list[str]) -> bool:
+    """`open` yalnız zararsız bir hedefi (yerel belge/yerel adres) açıyorsa serbest."""
+    if not arguments or arguments[0].startswith("-"):
+        return False
+    for argument in arguments:
+        if argument.lower().rstrip("/").endswith(_OPEN_EXECUTABLE_SUFFIXES):
+            return False
+        if "://" in argument and not only_local_urls([argument]):
+            return False
+    return True
 
 
 def is_unattended_safe(command: str, root: Path | None = None) -> bool:
@@ -255,6 +284,17 @@ def _split(command: str, root: Path | None = None) -> list[str] | None:
             atla = _safe_redirect_length(command, index, root)
             if atla is None:
                 return None
+            # `2>&1` / `2>/dev/null`: `>`'a YAPIŞIK tanımlayıcı rakamı argüman değil
+            # yönlendirmenin parçasıdır. Eskiden segment sonundaki HER rakamlı argüman
+            # atılıyordu (`head -n 5`, `chmod 777`).
+            if (
+                char == ">"
+                and command[index - 1 : index].isdigit()
+                and current
+                and current[-1].isdigit()
+                and (len(current) == 1 or current[-2].isspace())
+            ):
+                current.pop()
             index += atla
             continue
         elif char in _UNQUOTED_UNSAFE:
@@ -306,9 +346,6 @@ def _segment_safe(segment: str, root: Path | None = None) -> bool:
     if not parts:
         return False
 
-    # `2>&1` yönlendirmesinden geriye kalan tanımlayıcı rakamı argüman değildir.
-    if len(parts) > 1 and parts[-1].isdigit() and segment.rstrip().endswith(" " + parts[-1]):
-        parts = parts[:-1]
     if parts[0] == "sudo":
         return False
     name = parts[0].rsplit("/", 1)[-1]
@@ -350,11 +387,13 @@ def _segment_safe(segment: str, root: Path | None = None) -> bool:
         # Kendi yerel sunucusunu sınamak (`curl -X POST localhost:5000/...`) dışa
         # veri göndermek değildir; Claude'un otomatik kipi de bunu sormaz.
         return not sends or only_local_urls(arguments)
+    if _blocks_forever(name, arguments):
+        return False
     if name in {"source", "."}:
         # Proje içindeki sanal ortamı etkinleştirmek; kök dışı yol yukarıda elendi.
         return len(arguments) == 1
     if name == "open":
-        return bool(arguments) and not arguments[0].startswith("-")
+        return _open_safe(arguments)
     if name == "find":
         return not any(argument in _FIND_UNSAFE for argument in arguments)
     if name in _PROJECT_TOOLING:
@@ -453,8 +492,12 @@ def _tooling_safe(name: str, arguments: list[str]) -> bool:
     """
     if name in _DIRECT_TOOLING:
         return True
+    if arguments and all(argument in _VERSION_FLAGS for argument in arguments):
+        # `npm --version`, `go version`, `cargo --version`: yalnız sürüm/yardım sorgusu.
+        # (Eskiden `_VERSION_ONLY` dalı bu satırın ARKASINDA kaldığı için ölüydü.)
+        return True
     if not arguments:
-        return name in {"npm", "pnpm", "yarn", "bun", "make"} and name != "npm"
+        return name in {"pnpm", "yarn", "bun", "make"}
     if name in {"npm", "pnpm", "yarn", "bun"} and arguments[0] in _JS_INSTALL_SUBCOMMANDS:
         return not any(argument in GLOBAL_INSTALL_FLAGS for argument in arguments)
     if arguments[0] == "run" and len(arguments) > 1 and is_outward_script(arguments[1]):
