@@ -124,6 +124,9 @@ def izole_sistem_anahtarligi(monkeypatch):
     monkeypatch.setattr(keys, "_keyring_master_key", lambda: None)
     monkeypatch.setattr(keys, "_local_master_key", lambda: None)
     monkeypatch.delenv(keys.FUSION_SECRET_ENV, raising=False)
+    # `local_vault.local_master_key` doğrudan çağıran testler de gerçek Keychain'e
+    # gitmesin (L2-27): sistem arka ucu kapalı, sahte arka uç testte enjekte edilir.
+    monkeypatch.setenv("FUSION_KEYCHAIN", "off")
 
 
 @pytest.fixture(autouse=True)
