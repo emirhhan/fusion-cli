@@ -9,3 +9,8 @@ it("çözülmüş başarısız işlem legacy seçilse de başarı sayılmaz", ()
   expect(operationResult(undefined, "Hata")).toEqual({ ok: false, message: "Hata" });
   expect(operationResult(undefined, "Hata", true)).toEqual({ ok: true });
 });
+
+it("legacy kipte ok'suz {hata} yanıtı başarı sayılmaz (U5-18)", () => {
+  expect(operationResult({ hata: "Kaynaklar okunamadı" }, "Hata", true)).toEqual({ ok: false, message: "Kaynaklar okunamadı" });
+  expect(operationResult({ kaynaklar: [] }, "Hata", true)).toEqual({ ok: true });
+});

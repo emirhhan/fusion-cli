@@ -8,8 +8,11 @@ export function operationResult(value: unknown, fallback: string, allowLegacy = 
   if (value === undefined && allowLegacy) return { ok: true };
   if (value && typeof value === "object") {
     const result = value as Record<string, unknown>;
-    if (result.ok === true || (result.ok === undefined && allowLegacy)) return { ok: true };
-    return { ok: false, message: String(result.message ?? result.metin ?? fallback) };
+    // Eski çekirdek `ok` göndermez; ama `{hata: "…"}` ile hata dönüyorsa bu başarı SAYILMAZ (U5-18).
+    const hataAlani = result.hata ?? result.error;
+    const eskiBasari = result.ok === undefined && allowLegacy && (hataAlani === undefined || hataAlani === null || hataAlani === "");
+    if (result.ok === true || eskiBasari) return { ok: true };
+    return { ok: false, message: String(result.message ?? result.metin ?? hataAlani ?? fallback) };
   }
   return { ok: false, message: fallback };
 }
