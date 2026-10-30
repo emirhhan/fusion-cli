@@ -59,6 +59,7 @@ from ...providers.health_setup import build_health
 from ...ui import banner, messages, theme
 from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
+from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
 from . import help_view, history_view, macros
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
@@ -430,6 +431,8 @@ async def _drive_agent(
             console.print(
                 f"[{theme.WARN}]{messages.MCP_CONNECT_FAILED.format(error=error)}[/{theme.WARN}]"
             )
+        for line in new_failure_lines(state.config.mcp_servers):
+            console.print(f"[{theme.WARN}]{line}[/{theme.WARN}]")
     if state.config.hosted_connectors:
         # Biri düşerse diğeri yine eklenir: iki taşıma birbirinin arızasını
         # devralmaz.

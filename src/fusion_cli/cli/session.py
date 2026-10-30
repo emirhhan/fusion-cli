@@ -74,6 +74,7 @@ from ..providers.health_setup import build_health
 from ..tools.capabilities import CapabilityRegistry
 from ..tools.remotion_observe import browser_transport
 from ..ui import messages
+from .mcp_notice import new_failure_lines
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
     from ..engines.agent.approval import Prompter
@@ -424,6 +425,8 @@ async def _run_agent_with_mcp(
             )
         except Exception as error:
             bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
+        for line in new_failure_lines(config.mcp_servers):
+            bus.publish(ErrorOccurred(line, fatal=False))
     if config.hosted_connectors:
         # Sağlayıcı-barındırmalı connector'lar ayrı yoldan gelir: bağlantı yoktur,
         # araçlar sağlayıcının oturumunda yaşar. Biri düşerse diğeri yine eklenir.

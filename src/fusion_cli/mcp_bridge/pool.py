@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from weakref import WeakKeyDictionary
 
@@ -35,9 +35,13 @@ __all__ = [
     "ensure_mcp_tools",
     "forget_mcp_failure",
     "mcp_pool_statuses",
+    "new_mcp_failures",
 ]
 
 _LOG = logging.getLogger(__name__)
+
+#: Başarısızlık olarak bildirilmeyen durumlar: bağlı ve giriş bekleyen (kullanıcı "Bağlan"a basar).
+_SILENT_STATES = frozenset({STATE_CONNECTED, STATE_LOGIN_REQUIRED})
 
 
 @dataclass(slots=True)
@@ -73,6 +77,8 @@ class McpToolPool:
         self._parked: dict[str, _Parked] = {}
         #: Kopyası bildirilmiş bağlantı adları: uyarı oturumda BİR KEZ yazılır.
         self._reported_duplicates: set[str] = set()
+        #: Kullanıcıya bildirilmiş (sunucu, tür) başarısızlıkları: aynısı oturumda BİR KEZ.
+        self._reported_failures: set[tuple[str, str]] = set()
         #: Kilit olay döngüsü başına: `asyncio.Lock` ilk çekişmeli kullanımda o döngüye
         #: bağlanır, başka döngüden kullanım `RuntimeError` verirdi (masaüstünde birden
         #: çok döngü/iş parçacığı olabilir). Girdiler zaten döngüye bağlıdır (`_Entry.loop`).
@@ -111,6 +117,25 @@ class McpToolPool:
                 result[name] = status
         return result
 
+    def take_new_failures(self, names: Iterable[str]) -> tuple[McpConnectionStatus, ...]:
+        """Verilen sunuculardan, daha önce bildirilmemiş başarısızlıkları ver ve işaretle.
+
+        Giriş bekleyen sunucu başarısızlık sayılmaz (Bağlantılar ekranındaki "Bağlan"
+        içindir). Aynı sunucunun aynı türden başarısızlığı yeniden denemelerde tekrar
+        bildirilmez; tür değişirse ya da sunucu düzelip yeniden bozulursa bildirilir.
+        """
+        wanted = set(names)
+        new: list[McpConnectionStatus] = []
+        for name, status in self.statuses.items():
+            if name not in wanted or status.state in _SILENT_STATES:
+                continue
+            key = (name, status.kind or status.state)
+            if key in self._reported_failures:
+                continue
+            self._reported_failures.add(key)
+            new.append(status)
+        return tuple(new)
+
     def forget(self, name: str) -> None:
         """Park edilmiş sunucuyu serbest bırak; sonraki tur yeniden dener.
 
@@ -119,6 +144,7 @@ class McpToolPool:
         """
         self._parked.pop(name, None)
         self._backoff.forget(name)
+        self._reported_failures = {key for key in self._reported_failures if key[0] != name}
 
     async def clients_for(
         self, configs: tuple[McpServerConfig, ...], *, retry_delays_s: tuple[float, ...] = ()
@@ -320,6 +346,7 @@ class McpToolPool:
             self._entries.clear()
             self._parked.clear()
             self._backoff.clear()
+            self._reported_failures.clear()
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
@@ -365,6 +392,11 @@ async def ensure_mcp_tools(
             _LOG.warning("MCP araç keşfi başarısız", extra={"hata": type(error).__name__})
             await _POOL.discard_client(client)
     return tuple(added)
+
+
+def new_mcp_failures(configs: tuple[McpServerConfig, ...]) -> tuple[McpConnectionStatus, ...]:
+    """Bu turda ilk kez görülen bağlantı başarısızlıkları (kullanıcıya tek satır göstermek için)."""
+    return _POOL.take_new_failures(config.name for config in configs)
 
 
 def mcp_pool_statuses() -> dict[str, McpConnectionStatus]:

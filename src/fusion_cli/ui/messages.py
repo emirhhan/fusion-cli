@@ -579,6 +579,10 @@ PROFILES_NO_ELIGIBLE = (
 )
 PROFILES_EDIT_USAGE = "kullanım: /profiles  ·  /profiles edit <profil> [incompatible]"
 MCP_MISSING_DEP = "MCP için resmî SDK gerekli ama kurulu değil. Kur: pip install 'fusion-cli[mcp]'"
+MCP_SERVER_UNAVAILABLE = (
+    "MCP '{server}' bağlanamadı: {reason} — bu sunucunun araçları olmadan devam ediliyor"
+)
+MCP_SERVER_REASON_UNKNOWN = "neden bilinmiyor"
 MCP_TOOLS_LOADED = "{count} dış MCP aracı bağlandı"
 MCP_CONNECT_FAILED = "MCP sunucusuna bağlanılamadı: {error} — dış araçlar olmadan devam ediliyor"
 MCP_TOOLS_TIMEOUT = (
