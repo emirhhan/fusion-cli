@@ -48,7 +48,7 @@ def build_memory(config: Config, *, root: Path) -> Memory:
     """Yapılandırmaya göre belleği kur; açılamazsa boş belleğe düş."""
     try:
         embedding_function, suffix = build_embedding_function(
-            config.embedding.provider, config.embedding.model
+            config.embedding.provider, config.embedding.model, cache_dir=config.memory_dir
         )
         directory = config.memory_dir
         return Memory(

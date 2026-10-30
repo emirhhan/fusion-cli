@@ -43,3 +43,78 @@ def test_ek_chromadb_koleksiyon_adi_kurallarina_uyar():
     name = f"lessons_{suffix}"
 
     assert re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{1,510}[a-zA-Z0-9]", name)
+
+
+# M1-55 — Ölçüldü (30 Ekim): her süreç açılışında NIM'e yoklama isteği gidiyordu (kota + gecikme).
+class _Saat:
+    def __init__(self) -> None:
+        self.value = 1_000_000.0
+
+    def now(self) -> float:
+        return self.value
+
+    def monotonic(self) -> float:
+        return self.value
+
+
+@pytest.fixture
+def yoklama_sayaci(monkeypatch):
+    sayac = {"cagri": 0, "basarili": True}
+
+    def yokla(self, _texts):
+        sayac["cagri"] += 1
+        if not sayac["basarili"]:
+            raise RuntimeError("erişilemedi")
+        return [[0.0]]
+
+    monkeypatch.setattr(embeddings.NimEmbeddingFunction, "__call__", yokla)
+    return sayac
+
+
+def test_yoklama_sonucu_10_dakika_diskte_onbelleklenir(tmp_path, yoklama_sayaci):
+    saat = _Saat()
+    for _ in range(3):
+        function, suffix = build_embedding_function(
+            NIM_PROVIDER, _VARSAYILAN, cache_dir=tmp_path, clock=saat
+        )
+        assert function is not None and suffix == NIM_PROVIDER
+
+    assert yoklama_sayaci["cagri"] == 1
+    saat.value += 601
+    build_embedding_function(NIM_PROVIDER, _VARSAYILAN, cache_dir=tmp_path, clock=saat)
+    assert yoklama_sayaci["cagri"] == 2
+
+
+def test_basarisiz_yoklama_da_onbelleklenir_yerele_dusulur(tmp_path, yoklama_sayaci):
+    yoklama_sayaci["basarili"] = False
+    saat = _Saat()
+
+    for _ in range(2):
+        function, suffix = build_embedding_function(
+            NIM_PROVIDER, _VARSAYILAN, cache_dir=tmp_path, clock=saat
+        )
+        assert function is None and suffix == ""
+
+    assert yoklama_sayaci["cagri"] == 1
+
+
+def test_model_ya_da_anahtar_degisince_onbellek_gecersizdir(tmp_path, monkeypatch, yoklama_sayaci):
+    saat = _Saat()
+    build_embedding_function(NIM_PROVIDER, _VARSAYILAN, cache_dir=tmp_path, clock=saat)
+    build_embedding_function(NIM_PROVIDER, "baidu/bge-m3", cache_dir=tmp_path, clock=saat)
+    monkeypatch.setenv("NVIDIA_NIM_API_KEY", "baska-anahtar")
+    build_embedding_function(NIM_PROVIDER, "baidu/bge-m3", cache_dir=tmp_path, clock=saat)
+
+    assert yoklama_sayaci["cagri"] == 3
+
+
+def test_onbellek_dosyasi_anahtari_acik_yazmaz_bozuksa_yoklar(tmp_path, yoklama_sayaci):
+    saat = _Saat()
+    build_embedding_function(NIM_PROVIDER, _VARSAYILAN, cache_dir=tmp_path, clock=saat)
+    dosya = tmp_path / embeddings.NIM_PROBE_CACHE_NAME
+    assert "test-anahtari" not in dosya.read_text(encoding="utf-8")
+
+    dosya.write_text("{bozuk", encoding="utf-8")
+    build_embedding_function(NIM_PROVIDER, _VARSAYILAN, cache_dir=tmp_path, clock=saat)
+
+    assert yoklama_sayaci["cagri"] == 2

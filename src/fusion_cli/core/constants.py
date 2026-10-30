@@ -303,3 +303,6 @@ LOCAL_STATE_PURGE_INTERVAL_S = 86_400.0
 #: Web oturumunun "dosya değiştirebilir" araç ölçümü bu süreden eskiyse kart "yeniden ölç"
 #: uyarısı taşır (saniye). İzin otomatik düşürülmez; ölçüm stokastiktir, karar kullanıcıdadır.
 TOOL_MEASURE_STALE_S = 7 * 86_400.0
+
+#: NIM gömme yoklamasının sonucunun diskte geçerli kalma süresi (saniye).
+NIM_PROBE_CACHE_TTL_S = 10 * 60.0
