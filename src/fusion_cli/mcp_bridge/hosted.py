@@ -35,6 +35,7 @@ from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
 from ..tools import ToolRegistry
 from ..tools.emulation import MESSAGE_REQUIRED_MISSING, coerce_arguments, validate_arguments
 from .schema import clean_description, simplify_schema
+from .tool_name import fusion_tool_name
 
 __all__ = [
     "MESSAGE_MARKER_IN_BODY",
@@ -333,7 +334,7 @@ class HostedConnectorClient:
                 )
                 continue
             for tool in tools:
-                fusion_name = f"{name}__{tool.name}"
+                fusion_name = fusion_tool_name(name, tool.name)
                 registry.register_or_replace(
                     Tool(
                         name=fusion_name,

@@ -41,6 +41,7 @@ from .health import failure_status as failure_status
 from .lifecycle import close_failed_stack
 from .schema import clean_description, simplify_schema
 from .tool_effect import effect_from_annotations
+from .tool_name import fusion_tool_name
 from .transport import open_mcp_stream
 from .trust import trusted_effect
 from .types import McpConnectionStatus as McpConnectionStatus
@@ -337,7 +338,7 @@ class McpClient:
                 self._statuses[server] = replace(current, tool_count=len(tools))
             resolver = self._ability_resolver(server, {remote.name for remote in tools})
             for remote in tools:
-                fusion_name = f"{server}__{remote.name}"
+                fusion_name = fusion_tool_name(server, remote.name)
                 # Üzerine yazılır: bağlantı oturum boyunca yaşıyor ve aynı defter
                 # ikinci turda yeniden beslenebilir (bkz. `mcp_bridge/pool.py`).
                 registry.register_or_replace(
