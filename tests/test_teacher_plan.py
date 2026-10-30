@@ -20,6 +20,15 @@ from fusion_cli.engines.agent.teacher_plan import (
         ("src/app.py dosyasındaki hatayı düzelt", "orta-buyuk"),
         ("src/app.py içindeki add hatasını düzelt; mevcut testi çalıştır", "orta-buyuk"),
         ("Shopify API ile ürün yayımlama akışını kur ve doğrula", "orta-buyuk"),
+        # A4-34: tek belge dosyası / açıkça küçük düzenleme öğretmen planı gerektirmez.
+        ("README'ye bir satır ekle", "basit"),
+        ("README.md dosyasına kurulum başlığı ekle", "basit"),
+        ("src/app.py içindeki yazım hatasını düzelt", "basit"),
+        # Kaynak kod + belge birlikte, ya da kod parçası yapıştırılmış görev eskisi gibi.
+        ("README.md ve src/app.py dosyalarını güncelle", "orta-buyuk"),
+        ("x = 1; y = 2 işlemini açıkla", "basit"),
+        ("1. modeli ekle\n2. testi yaz\n3. README güncelle", "orta-buyuk"),
+        ("config oluştur; servisi ekle; testi yaz", "orta-buyuk"),
     ],
 )
 def test_gorev_boyutu_etki_ve_kapsamla_belirlenir(task: str, expected: str) -> None:

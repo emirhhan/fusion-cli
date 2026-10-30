@@ -18,11 +18,47 @@ class TeacherTaskDecision:
     reasons: tuple[str, ...]
 
 
+#: Görevde geçen dosya adları (uzantılı).
+_FILE_REF = re.compile(r"[\w./-]+\.\w{1,5}\b")
+#: Salt belge/metin dosyaları: bu dosyalardaki küçük düzenleme öğretmen planı gerektirmez.
+_DOC_FILE = re.compile(
+    r"(?:^|/)(?:readme|changelog|license|contributing)\b|\.(?:md|markdown|txt|rst)$", re.IGNORECASE
+)
+#: Görevin kendisi "küçük/tek satır" dediği düzenlemeler.
+_SMALL_MARKER = re.compile(
+    r"\b(?:bir|tek)\s+satır|yazım\s+hata|\btypo\b|\bküçük\s+(?:bir\s+)?(?:düzelt|değişiklik)",
+    re.IGNORECASE,
+)
+#: Belge/küçük düzenleme sayılabilecek görevin en çok uzunluğu.
+_SMALL_TASK_CHARS = 240
+
+
+def _is_small_edit(task: str) -> bool:
+    """Tek belge dosyası ya da açıkça "tek satır" denen küçük düzenleme mi?
+
+    Ölçüldü (30 Ekim, A4-34): mutasyon etkisi TEK BAŞINA "orta-büyük" gerekçesiydi;
+    "README'ye bir satır ekle" bile yavaş, kotalı öğretmen planı tetikliyordu.
+    Yalnız belge dosyalarını hedefleyen ya da kendini küçük ilan eden kısa görevler
+    öğretmensiz yürür; kaynak kod düzeltmesi (`src/app.py` hatası) eskisi gibi öğretmen
+    planı alır.
+    """
+    if len(task) > _SMALL_TASK_CHARS or len(re.findall(r"(?m)^\s*\d+[.)]\s+", task)) > 1:
+        return False
+    files = {ref for ref in _FILE_REF.findall(task) if "." in ref.strip(".")}
+    names_readme = bool(re.search(r"\b(?:readme|changelog)\b", task, re.IGNORECASE))
+    if files:
+        if all(_DOC_FILE.search(ref) for ref in files):
+            return True
+    elif names_readme:
+        return True
+    return len(files) <= 1 and bool(_SMALL_MARKER.search(task))
+
+
 def classify_teacher_task(task: str) -> TeacherTaskDecision:
     """Mevcut etki kararı ile görevin yapısal kapsamını birlikte kullan."""
     effect = required_effect_for(task)
     reasons: list[str] = []
-    if effect == EffectKind.WORKSPACE_MUTATION.value:
+    if effect == EffectKind.WORKSPACE_MUTATION.value and not _is_small_edit(task):
         reasons.append(f"istenen etki: {effect}")
     # Dış API bağımlılığı ad listesinden tahmin edilmez: istek açıkça API
     # entegrasyonu söylüyorsa öğretmenin yapılabilirlik planı gereklidir.
@@ -31,7 +67,15 @@ def classify_teacher_task(task: str) -> TeacherTaskDecision:
     # Birden fazla numaralı madde, sözcük tahmini olmadan açık bir iş dizisidir.
     if len(re.findall(r"(?m)^\s*\d+[.)]\s+", task)) > 1:
         reasons.append("birden fazla açık adım")
-    if len([part for part in task.split(";") if part.strip()]) > 1:
+    # Noktalı virgül yapıştırılmış kodu ve noktalı cümleleri de ayırır (A4-34): yalnız
+    # kod belirtisi (`{ } = ( ) < >`) taşımayan ve her parçası en az iki sözcük olan
+    # görev "ayrı adımlar" sayılır.
+    parts = [part.split() for part in task.split(";") if part.strip()]
+    if (
+        len(parts) > 1
+        and all(len(words) > 1 for words in parts)
+        and not re.search(r"[{}=()<>]", task)
+    ):
         reasons.append("noktalı virgülle ayrılmış adımlar")
     return TeacherTaskDecision(
         size="orta-buyuk" if reasons else "basit",
