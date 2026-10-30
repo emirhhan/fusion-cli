@@ -68,6 +68,9 @@ SHELL_BACKUP_MAX_BYTES = 20 * 1024 * 1024
 #: değil tek çağrıda beklemesini isteriz. Üst sınır, NIM'in 600 sn'lik istek
 #: süresiyle aynıdır: bir araç çağrısı bir model çağrısından uzun sürmez.
 JOB_MAX_WAIT_S = 600.0
+#: Bitmiş işin makbuzu host iş parçacığında yazılıyorsa (dondurulmuş uygulama) `job_status`
+#: en fazla bu kadar bekler; makbuz `.exit`'ten milisaniyeler sonra gelir.
+JOB_RECEIPT_GRACE_S = 2.0
 #: Arka plan işi günlüğünden modele gösterilen son kesit (karakter); kabuk
 #: çıktısı sınırının (MAX_OUTPUT_CHARS) yarısı — durum sorgusu tekrarlanabilir.
 JOB_LOG_TAIL_CHARS = 10_000

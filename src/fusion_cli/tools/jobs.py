@@ -13,6 +13,7 @@ yeniden başlasa da iş izlenebilir.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shlex
@@ -28,6 +29,7 @@ from ..core.atomic_file import atomic_replace_text
 from ..core.constants import (
     JOB_LOG_TAIL_CHARS,
     JOB_MAX_WAIT_S,
+    JOB_RECEIPT_GRACE_S,
     PROCESS_POLL_S,
     PROCESS_TERMINATE_GRACE_S,
 )
@@ -37,10 +39,12 @@ from ..core.process_control import ensure_process_group_exit, terminate_process_
 from ..core.repair_ledger import FailureEvidence
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_positive_int, require_str
-from .job_delivery import observe_delivery, save_delivery
+from .job_delivery import observe_delivery, save_completion, save_delivery
 from .job_evidence import JobEvidenceManifest, completed_evidence, save_manifest
 from .job_owner import process_identity, save_owner, verified_owner
 from .remotion_shell_guard import check_shell_result
+
+_LOG = logging.getLogger(__name__)
 
 #: İş dosyalarının proje köküne göre yeri.
 JOBS_DIR = Path(".fusion") / "is"
@@ -92,16 +96,12 @@ def start_job(
     delivery = save_delivery(klasor, kimlik, command, manifest, outputs)
     # Çıkış kodu kabuğun kendisi tarafından dosyaya yazılır: süreç bizden bağımsız biter.
     # Komut alt kabukta çalışır; içindeki `exit` sarmalayıcıyı da bitirip kodu yutmasın.
-    receipt = Path(__file__).parent / "job_receipt.py"
-    observer = " ".join(
-        shlex.quote(value)
-        for value in (
-            sys.executable,
-            str(receipt),
-            str(context.root),
-            kimlik,
-        )
-    )
+    # Dondurulmuş (PyInstaller/Tauri sidecar) uygulamada `sys.executable` yorumlayıcı değil
+    # uygulamanın kendisidir ve `job_receipt.py` çalışmaz (T2-37): makbuz o zaman sarmalayıcıda
+    # değil, işi izleyen host iş parçacığında yazılır. Kaynak kurulumunda sarmalayıcı yolu
+    # sürer: makbuz host kapalıyken biten işte de yazılır.
+    host_writes_receipt = bool(getattr(sys, "frozen", False))
+    receipt_step = "" if host_writes_receipt else _receipt_command(context, kimlik, gunluk)
     token = "fusion-job-" + uuid.uuid4().hex
     # Komut düz metin gömülmez, kendi dosyasından (`<kimlik>.cmd`) çalıştırılır.
     # Ölçüldü (29 Ekim): `( komut )` içine gömülen `npm test # not` kapanış
@@ -112,7 +112,7 @@ def start_job(
         f": {token}; "
         f"( {_command_argv(argv_prefix, komut_dosyasi)} ) > {shlex.quote(str(gunluk))} 2>&1; "
         "fusion_job_code=$?; "
-        f'{observer} "$fusion_job_code" >> {shlex.quote(str(gunluk))} 2>&1; '
+        f"{receipt_step}"
         f'echo "$fusion_job_code" > {shlex.quote(str(cikis))}'
     )
     try:
@@ -128,7 +128,12 @@ def start_job(
         )
     except OSError as exc:
         return ToolResult.failure(f"Arka plan işi başlatılamadı: {exc}")
-    Thread(target=surec.wait, name=f"fusion-job-{kimlik}", daemon=True).start()
+    Thread(
+        target=_watch_job,
+        args=(surec, klasor, context.root, kimlik, host_writes_receipt),
+        name=f"fusion-job-{kimlik}",
+        daemon=True,
+    ).start()
     try:
         save_owner(klasor, kimlik, surec.pid, token, context, lambda: surec.poll() is not None)
         atomic_replace_text(klasor / f"{kimlik}.pid", str(surec.pid))
@@ -150,6 +155,51 @@ def start_job(
 
 def _command_argv(argv_prefix: tuple[str, ...], komut_dosyasi: Path) -> str:
     return shlex.join([*argv_prefix, "sh", str(komut_dosyasi)])
+
+
+def _receipt_command(context: ToolContext, kimlik: str, gunluk: Path) -> str:
+    """Sarmalayıcıda makbuzu yazan komut parçası (kaynak kurulumu)."""
+    receipt = Path(__file__).parent / "job_receipt.py"
+    observer = " ".join(
+        shlex.quote(value) for value in (sys.executable, str(receipt), str(context.root), kimlik)
+    )
+    return f'{observer} "$fusion_job_code" >> {shlex.quote(str(gunluk))} 2>&1; '
+
+
+def _watch_job(
+    surec: subprocess.Popen[bytes],
+    klasor: Path,
+    root: Path,
+    kimlik: str,
+    host_writes_receipt: bool,
+) -> None:
+    """Sarmalayıcıyı bekle (zombi kalmasın); dondurulmuş uygulamada makbuzu burada yaz.
+
+    Makbuz, sarmalayıcının `.exit` yazmasından hemen SONRA, bu iş parçacığının ilk
+    işidir; `job_status` kısa bir süre makbuzu bekler (`_await_receipt`). Host bu arada
+    kapanırsa makbuz yazılmaz ve teslim kanıtı isteyen iş "kanıt yok" diye REDDEDİLİR
+    (başarı sayılmaz; `observe_delivery`).
+    """
+    surec.wait()
+    if not host_writes_receipt:
+        return
+    code = _read_exit(klasor, kimlik)
+    if code is None:
+        _LOG.warning("İş çıkış kodu okunamadı; makbuz yazılmadı", extra={"is": kimlik})
+        return
+    try:
+        save_completion(klasor, root, kimlik, code)
+    except (OSError, ValueError):
+        _LOG.exception("İş tamamlanma makbuzu host süreçte yazılamadı", extra={"is": kimlik})
+
+
+def _await_receipt(klasor: Path, kimlik: str) -> None:
+    """Bitmiş işin makbuzu henüz yazılmadıysa kısa süre bekle (host yazıcı yarışı)."""
+    if not (klasor / f"{kimlik}.delivery.json").exists():
+        return
+    bitis = time.monotonic() + JOB_RECEIPT_GRACE_S
+    while not (klasor / f"{kimlik}.receipt.json").exists() and time.monotonic() < bitis:
+        time.sleep(_POLL_S)
 
 
 def _read_exit(klasor: Path, kimlik: str) -> int | None:
@@ -250,6 +300,8 @@ def job_status(args: ToolArgs, context: ToolContext) -> ToolResult:
                 "(öldürüldü ya da makine yeniden başladı), `.exit` yazılmadı. İşi "
                 f"yeniden başlat.\n[son çıktı]\n{cikti}"
             )
+    if kod is not None:
+        _await_receipt(klasor, kimlik)
     try:
         delivery = observe_delivery(klasor, context.root, kimlik, kod)
     except (OSError, ValueError) as error:
