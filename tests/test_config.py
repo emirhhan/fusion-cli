@@ -691,3 +691,16 @@ def test_gorev_tipi_yonlendirmesi_yedek_zinciri_dusurmez():
                 yedeksiz.append(f"{tercih.value}/{task_type}: {secilen.models}")
 
     assert yedeksiz == [], f"yedeksiz agent zincirleri: {yedeksiz}"
+
+
+def test_aralik_disi_runtime_degerleri_reddedilir(tmp_path):
+    """Ölçüldü (30 Ekim): negatif zaman aşımı, α > 1 gibi değerler sessizce geçiyordu (L2-19)."""
+    for ayar, mesaj in (
+        ({"request_timeout_s": -5}, "request_timeout_s"),
+        ({"max_retries": -1}, "max_retries"),
+        ({"reliability_alpha": 1.5}, "reliability_alpha"),
+        ({"circuit_cooldown_s": 0}, "circuit_cooldown_s"),
+    ):
+        yol = _yaz(tmp_path, {"runtime": ayar})
+        with pytest.raises(ConfigError, match=mesaj):
+            load_config(yol)

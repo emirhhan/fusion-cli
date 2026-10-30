@@ -97,7 +97,10 @@ def load_environment() -> None:
         if not candidate.is_file():
             continue
         for key, value in dotenv_values(candidate).items():
-            if value and value.strip() and key not in os.environ:
+            # Mevcut ortamda BOŞ dışa aktarılmış değişken (`OPENROUTER_API_KEY=""`) "yok"
+            # sayılır: aksi hâlde `.env`'deki gerçek anahtarı gölgeliyordu (`_apply_stored_secrets`
+            # boşları zaten böyle ele alıyor; L2-19).
+            if value and value.strip() and not os.environ.get(key, "").strip():
                 os.environ[key] = value
                 eklenen.add(key)
     _DOTENV_KEYS = _DOTENV_KEYS | eklenen
@@ -281,6 +284,15 @@ def _build_runtime(raw: object) -> RuntimeConfig:
     runtime = _build(RuntimeConfig, raw, "runtime")
     if runtime.workflow_attempt_calls < 0:
         raise ConfigError("runtime.workflow_attempt_calls: negatif olamaz.")
+    # Aralık dışı değerler eskiden sessizce geçiyordu (negatif zaman aşımı, α > 1…; L2-19).
+    for name in ("request_timeout_s", "judge_timeout_s", "circuit_cooldown_s"):
+        if getattr(runtime, name) <= 0:
+            raise ConfigError(f"runtime.{name}: sıfırdan büyük olmalı.")
+    for name in ("max_retries", "circuit_failure_threshold"):
+        if getattr(runtime, name) < 0:
+            raise ConfigError(f"runtime.{name}: negatif olamaz.")
+    if not 0.0 <= runtime.reliability_alpha <= 1.0:
+        raise ConfigError("runtime.reliability_alpha: 0 ile 1 arasında olmalı.")
     return runtime
 
 

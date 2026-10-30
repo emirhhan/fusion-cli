@@ -180,3 +180,39 @@ def test_virgullu_anahtar_listesi_kurulu_sayilir_ama_bos_virgul_sayilmaz():
 
     assert detect({"NVIDIA_NIM_API_KEY": "a,b"}).nim is True
     assert detect({"NVIDIA_NIM_API_KEY": " , "}).nim is False
+
+
+# --- Dalga 4: boş dışa aktarılmış değişken .env anahtarını gölgelemez (L2-19) --- #
+
+
+def test_bos_disa_aktarilmis_degisken_dotenv_anahtarini_golgelemez(tmp_path, monkeypatch):
+    """Ölçüldü (30 Ekim): kabukta boş OPENROUTER_API_KEY, `.env` anahtarını gölgeliyordu."""
+    from fusion_cli.config import loader
+
+    env_dosyasi = tmp_path / ".env"
+    env_dosyasi.write_text("OPENROUTER_API_KEY=sk-gercek\n", encoding="utf-8")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    monkeypatch.setattr(loader, "env_file_candidates", lambda: [env_dosyasi])
+    monkeypatch.setattr(loader, "_apply_stored_secrets", lambda: None)
+
+    loader.load_environment()
+
+    import os
+
+    assert os.environ["OPENROUTER_API_KEY"] == "sk-gercek"
+
+
+def test_dolu_disa_aktarilmis_degisken_dotenv_tarafindan_ezilmez(tmp_path, monkeypatch):
+    from fusion_cli.config import loader
+
+    env_dosyasi = tmp_path / ".env"
+    env_dosyasi.write_text("OPENROUTER_API_KEY=sk-dosya\n", encoding="utf-8")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-kabuk")
+    monkeypatch.setattr(loader, "env_file_candidates", lambda: [env_dosyasi])
+    monkeypatch.setattr(loader, "_apply_stored_secrets", lambda: None)
+
+    loader.load_environment()
+
+    import os
+
+    assert os.environ["OPENROUTER_API_KEY"] == "sk-kabuk"
