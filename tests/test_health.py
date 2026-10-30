@@ -122,3 +122,40 @@ def test_registry_snapshot_skora_gore_siralar():
     kotu.record(ok=False)
     snapshot = registry.snapshot()
     assert snapshot[0][0] == "kotu"  # en düşük skor önce
+
+
+def test_yari_acikta_ayni_anda_tek_deneme_gecer():
+    """Paralel adaylar ölü modeli aynı anda dövmez: yarı-açıkta TEK çağrı geçer (C1-06)."""
+    clock = _MutableClock()
+    saglik = _health(clock, threshold=1, cooldown=60.0)
+    saglik.record(ok=False)
+    clock.t = 60.0
+
+    assert saglik.allow() is True  # deneme çağrısı
+    assert saglik.allow() is False  # ikinci aday bekler
+    saglik.record(ok=True)
+    assert saglik.allow() is True and saglik.allow() is True  # devre kapandı
+
+
+def test_yari_acik_denemesi_sonuc_gelmezse_soguma_sonunda_yenisine_izin_verir():
+    """Deneme çağrısı kaydedilemeden (iptal) kalırsa model sonsuza dek kilitli kalmaz."""
+    clock = _MutableClock()
+    saglik = _health(clock, threshold=1, cooldown=60.0)
+    saglik.record(ok=False)
+    clock.t = 60.0
+    assert saglik.allow() is True
+    clock.t = 90.0
+    assert saglik.allow() is False
+    clock.t = 121.0
+    assert saglik.allow() is True
+
+
+def test_yari_acik_basarisiz_deneme_devreyi_yeniden_acar():
+    clock = _MutableClock()
+    saglik = _health(clock, threshold=1, cooldown=60.0)
+    saglik.record(ok=False)
+    clock.t = 60.0
+    saglik.allow()
+    saglik.record(ok=False)
+    assert saglik.phase is CircuitPhase.OPEN
+    assert saglik.allow() is False

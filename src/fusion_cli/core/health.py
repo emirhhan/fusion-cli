@@ -72,6 +72,8 @@ class ModelHealth:
         #: Oturum/doğrulama hatası sağlık kaydı sıfırlanana kadar kalıcıdır.
         self._auth_blocked = False
         self._opened_at = 0.0
+        #: Yarı-açıkta uçuştaki deneme çağrısının başlangıcı; None = deneme yok.
+        self._probe_started_at: float | None = None
         #: Yeni model iyimser başlar: tek bir geçici arıza onu dışlamasın.
         self._score = initial_score
         self._samples = 0
@@ -100,10 +102,21 @@ class ModelHealth:
         """Bu modele çağrı yapılabilir mi? Cooldown dolduysa yarı-açığa geçer."""
         if self._auth_blocked:
             return False
+        now = self._clock.monotonic()
+        if self._phase is CircuitPhase.HALF_OPEN:
+            # Yarı-açık TEK deneme demektir. Ölçüldü (30 Ekim): her çağırana True
+            # dönüyor, paralel adaylar ölü modeli aynı anda dövüyordu. Sonucu hiç
+            # kaydedilmeyen deneme (iptal) bir soğuma sonra yenisine yer açar.
+            started = self._probe_started_at
+            if started is not None and now - started < self._current_cooldown():
+                return False
+            self._probe_started_at = now
+            return True
         if self._phase is not CircuitPhase.OPEN:
             return True
-        if self._clock.monotonic() - self._opened_at >= self._current_cooldown():
+        if now - self._opened_at >= self._current_cooldown():
             self._phase = CircuitPhase.HALF_OPEN
+            self._probe_started_at = now
             return True
         return False
 
@@ -129,6 +142,7 @@ class ModelHealth:
         auth_blocked: bool = False,
     ) -> None:
         """Bir çağrının sonucunu işle: skoru + gecikmeyi güncelle, devreyi aç/kapat."""
+        self._probe_started_at = None
         self._score = self._alpha * (1.0 if ok else 0.0) + (1.0 - self._alpha) * self._score
         self._samples += 1
         if ok:
