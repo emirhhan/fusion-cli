@@ -33,6 +33,9 @@ _MAX_NAME = 120
 #: Düğüm başına varyasyon üst sınırı: `app/src/imagecreate/akis.ts::MAX_ADET`.
 _MAX_VARIATIONS = 4
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
+
+#: Hedefte dosya varken `ezme: true` gelmediğinde dönen mesaj.
+_EXPORT_EXISTS = "Hedef dosya zaten var; üzerine yazmak için açık onay gerekli."
 _FLOW_ID = re.compile(r"^[0-9a-f]{32}$")
 _MAX_NODE_ID = 80
 _FLOW_SCHEMA = 1
@@ -316,7 +319,14 @@ def list_gallery(
 
 
 def export_image(data: dict[str, Any], directory: Path | None = None) -> dict[str, Any]:
-    """Galerideki görseli kullanıcının seçtiği yere kopyala ("İndir")."""
+    """Galerideki görseli kullanıcının seçtiği yere kopyala ("İndir").
+
+    Hedef zaten varsa `ezme: true` OLMADAN yazılmaz (`ezme_gerekli: true` ile reddedilir).
+    Ölçüldü (30 Ekim, S1-39): eskiden `.png/.jpg` uzantılı herhangi bir mutlak yoldaki
+    mevcut dosya onaysız eziliyordu. İşletim sisteminin kayıt penceresi ezme onayını
+    kullanıcıdan zaten aldığı için arayüz o pencereden dönen yolla `ezme: true` yollar;
+    bayrak, protokolü doğrudan çağıran diğer istemcileri korur.
+    """
     base = (directory or gallery_dir()).resolve()
     source_raw, target_raw = data.get("yol"), data.get("hedef")
     if not isinstance(source_raw, str) or not isinstance(target_raw, str):
@@ -329,7 +339,14 @@ def export_image(data: dict[str, Any], directory: Path | None = None) -> dict[st
         return {"ok": False, "metin": "Hedef .png ya da .jpg uzantılı tam bir yol olmalı."}
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, target)
+        if data.get("ezme") is True:
+            shutil.copyfile(source, target)
+        else:
+            # "x" kipi var-mı denetimi ile yazma arasındaki yarışı da kapatır.
+            with source.open("rb") as reader, target.open("xb") as writer:
+                shutil.copyfileobj(reader, writer)
+    except FileExistsError:
+        return {"ok": False, "ezme_gerekli": True, "metin": _EXPORT_EXISTS}
     except OSError as error:
         return {"ok": False, "metin": f"Kaydedilemedi: {error}"}
     return {"ok": True, "yol": str(target)}

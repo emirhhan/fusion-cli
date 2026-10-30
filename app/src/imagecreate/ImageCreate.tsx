@@ -274,7 +274,9 @@ export function ImageCreate({ client, jobScope, toUrl = assetUrl, chooseSavePath
     try {
       const hedef = await chooseSavePath(dosyaAdi(yol) || "gorsel.png");
       if (!hedef) return;
-      const sonuc = await istek("gorsel.kaydet", { yol, hedef }).catch((reason) => ({ ok: false, metin: errorMessage(reason) }) as Record<string, unknown>);
+      // Kayıt penceresi mevcut dosyanın ezilmesini kullanıcıya zaten onaylattı; çekirdek
+      // açık `ezme` bayrağı olmadan var olan hedefe yazmaz (S1-39).
+      const sonuc = await istek("gorsel.kaydet", { yol, hedef, ezme: true }).catch((reason) => ({ ok: false, metin: errorMessage(reason) }) as Record<string, unknown>);
       setBilgi(sonuc.ok === true ? `Kaydedildi: ${hedef}` : String(sonuc.metin ?? "Kaydedilemedi."));
     } catch (reason) {
       // Kayıt penceresi reddedilirse işlenmemiş söz reddi kalmaz; kullanıcı nedenini görür (U3-12).

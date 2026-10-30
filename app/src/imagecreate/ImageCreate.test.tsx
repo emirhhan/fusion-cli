@@ -109,7 +109,7 @@ describe("ImageCreate — düğümlü akış", () => {
     expect(screen.getByRole("status").textContent).toContain("Akış tamamlandı");
   });
 
-  it("İndir yalnız kullanıcının seçtiği yere kopyalar", async () => {
+  it("İndir yalnız kullanıcının seçtiği yere kopyalar; kayıt penceresi onayı için ezme:true yollar (S1-39)", async () => {
     const client = istemci(async () => ({ ok: true, dosyalar: [{ yol: "/veri/galeri/a.jpg" }] }));
     const kayitYeri = vi.fn(async () => "/Users/kullanici/Desktop/kask.jpg");
     render(<ImageCreate client={client} toUrl={() => null} chooseSavePath={kayitYeri} />);
@@ -122,7 +122,7 @@ describe("ImageCreate — düğümlü akış", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "İndir" })[0]);
 
     await waitFor(() => expect(client.request).toHaveBeenCalledWith(
-      "gorsel.kaydet", { yol: "/veri/galeri/a.jpg", hedef: "/Users/kullanici/Desktop/kask.jpg" },
+      "gorsel.kaydet", { yol: "/veri/galeri/a.jpg", hedef: "/Users/kullanici/Desktop/kask.jpg", ezme: true },
     ));
   });
 

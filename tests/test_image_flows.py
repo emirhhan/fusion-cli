@@ -182,3 +182,45 @@ def test_bozuk_akis_dosyasi_listeyi_dusurmez(tmp_path) -> None:
     sonuc = image_flows.list_flows(tmp_path)
 
     assert sonuc["akislar"] == [{"id": "iyi", "ad": "Kask"}]
+
+
+def test_indir_mevcut_hedefi_ezme_bayragi_olmadan_ezmez(tmp_path) -> None:
+    """S1-39: hedefte kullanıcı verisi olabilir; açık `ezme: true` olmadan dokunulmaz."""
+    gallery = tmp_path / "galeri"
+    gallery.mkdir()
+    image = gallery / "a.jpg"
+    image.write_bytes(b"yeni")
+    target = tmp_path / "belgelerim" / "tatil.jpg"
+    target.parent.mkdir()
+    target.write_bytes(b"degerli")
+
+    reddedilen = export_image({"yol": str(image), "hedef": str(target)}, gallery)
+
+    assert reddedilen["ok"] is False
+    assert reddedilen["ezme_gerekli"] is True
+    assert target.read_bytes() == b"degerli"
+    for bayrak in ("true", 1, "evet", None, False):
+        assert (
+            export_image({"yol": str(image), "hedef": str(target), "ezme": bayrak}, gallery)["ok"]
+            is False
+        )
+    assert target.read_bytes() == b"degerli"
+
+    onayli = export_image({"yol": str(image), "hedef": str(target), "ezme": True}, gallery)
+
+    assert onayli == {"ok": True, "yol": str(target)}
+    assert target.read_bytes() == b"yeni"
+
+
+def test_indir_hedef_klasorse_ezme_bayragiyla_bile_reddedilir(tmp_path) -> None:
+    gallery = tmp_path / "galeri"
+    gallery.mkdir()
+    image = gallery / "a.jpg"
+    image.write_bytes(b"x")
+    hedef = tmp_path / "klasor.png"
+    hedef.mkdir()
+
+    sonuc = export_image({"yol": str(image), "hedef": str(hedef), "ezme": True}, gallery)
+
+    assert sonuc["ok"] is False
+    assert "ezme_gerekli" not in sonuc
