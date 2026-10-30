@@ -5,12 +5,10 @@ description: HTML5 canvas oyununu üret ve gerçek oynanabilirliğini doğrula.
 
 # HTML5 oyun — oynanabilir iskelet
 
-## Yazım sırası (tek turda hepsini yazma)
+## Yazım sırası
 
-Çıktı bütçesi sınırlıdır; her aşamadan sonra çalıştır, sonra sonrakine geç:
-1. Aşama 1 — oynanabilir çekirdek, TEK dosya: aşağıdaki 1–5, 7 ve 9. maddeler (şekillerle).
-2. Aşama 2 — varlıklar: 8. madde; her sprite ayrı küçük `assets/*.svg` dosyası.
-3. Aşama 3 — dalga sistemi: 6. madde ve zorluk eğrisi.
+Tek turda hepsini yazma; her aşamadan sonra çalıştır: (1) çekirdek, tek dosya, şekillerle:
+1–5, 7, 9; (2) varlıklar: 8, sprite başına küçük `assets/*.svg`; (3) dalgalar: 6.
 
 ## Zorunlu parçalar
 
@@ -18,17 +16,15 @@ description: HTML5 canvas oyununu üret ve gerçek oynanabilirliğini doğrula.
    kullan (scale biriktirme), çizimi CSS pikseliyle yap.
 2. `requestAnimationFrame` döngüsü, sabit zaman adımı (dt sınırlı): `update(dt)` + `draw()`.
    `draw()` HER karede önce tüm canvas'ı zemin rengiyle boyar; yoksa nesneler iz bırakır.
-   Tek dosyalı klasik `<script src>` kullan: `type="module"`/`fetch` çift tıklanan
-   index.html'de (file://) engellenir.
+   Klasik `<script src>` kullan: `type="module"`/`fetch` file://'da engellenir.
 3. `keydown`/`keyup` keys kümesi: oklar/WASD/Boşluk; `preventDefault` ile
    kaymayı engelle, dokunmatik düğmeler ekle.
 4. Durum makinesi: `menu → oynuyor → bitti`. Görünür **Başla düğmesi**, Boşluk/Enter
    aynı `start()` işlevini çağırır; düğme klavye kullanmadan tek başına oyunu başlatır.
    Her ekranın gizleme kuralı olsun (`#start-screen.hidden{display:none}`).
    **R ve görünür "Yeniden başla"** skor/can/düşman/konumu sıfırlar.
-   Geçiş/duraklama/bitiş durumunda savaş güncellemesi ÇALIŞMAZ: geçiş sayacını
-   güncelledikten sonra `return`; dalga, doğma, hasar yalnız `oynuyor` durumunda.
-   Sıfır dalga sayacıyla geçişten savaş mantığına düşmek bölümleri anında atlatır.
+   Geçiş/duraklama/bitişte savaş güncellenmez: geçiş sayacından sonra `return`; dalga,
+   doğma, hasar yalnız `oynuyor`da (yoksa bölümler anında atlanır).
 5. HUD: skor/can yüksek kontrastla ayrı bir şeritte gösterilir. Oyun sınırını HUD'ın
    gerçek alt kenarından başlat; oyuncu merkezini değil sprite'ın dış boyutunu ve
    efektini bu sınıra göre kısıtla. DPR ve yeniden boyutlandırmada sınırı güncelle;
@@ -42,31 +38,27 @@ description: HTML5 canvas oyununu üret ve gerçek oynanabilirliğini doğrula.
 7. Zorluk artar (düşman hızı/sayısı zamanla), çarpışma kutuları net.
 8. Varlıklar: sprite'ları `assets/` altında SVG üret: oyuncu/düşman/boss/güçlendirme/
    mermi/patlama/zemin, tutarlı palet ve stil. `new Image()` ile hepsini yükle, `Promise.all` bitmeden
-   oyunu başlatma. `file://` altında SVG çizilmiş canvastan `getImageData`/`toDataURL` okuma:
-   canvas kirlenir ve hata verir. Varlık anahtarını TEK kayıttan çöz; aktör `chaser`, kayıt
-   `enemy_chaser` ise açık eşleme kullan. Yanlış anahtarı şekle sessiz düşürerek gizleme.
-   Dosya yüklenememesi ile kayıt/eşleme hatasını ayır ve düzelt.
+   oyunu başlatma. `file://`'da SVG çizilen canvastan `getImageData`/`toDataURL` okuma
+   (canvas kirlenir). Varlık anahtarını TEK kayıttan çöz; aktör `chaser`, kayıt
+   `enemy_chaser` ise açık eşleme kullan. Yanlış anahtarı şekle sessizce düşürme;
+   yükleme hatasını eşleme hatasından ayır.
 9. Doğrulama kancası: `window.__GAME_STATE__ = () => ({ durum, skor, can, oyuncu: {x, y} })`.
 
 ## Kendi işini doğrula (bitti demeden önce)
 
-- HTML'nin çağırdığı bütün CSS/JS dosyaları mevcut ve yüklenir olmalı; eksik kod
-  varken yalnız menü ve görselleri tamamlandı sayma.
-- Başla düğmesini Enter/Space kullanmadan gerçek tıklamayla ayrıca dene: menüden
-  oynuyor durumuna geçiş ve oyuncu kontrolü görülmeli. Klavye başlangıcı bozuk
-  düğmeyi örtemez.
+- HTML'nin çağırdığı tüm CSS/JS dosyaları var ve yüklenmeli; yalnız menü/görsel bitti sayılmaz.
+- Başla düğmesini klavyesiz gerçek tıklamayla da dene: menüden oynuyor durumuna geçiş
+  ve oyuncu kontrolü görülmeli.
 - Sondadaki VARLIK KANITI, yükleme ve gerçek `drawImage` kaynaklarını ayırır.
   İlgili sahneyi tetikleyip sprite eşleşmesini karede gör. Yükleme kullanım,
   çizim çağrısı görünürlük kanıtı değildir; henüz doğmayan boss hata sayılmaz.
-- Bir düşmanı ateş etmeden kaçır; tanımlı kaçış politikasının çalıştığını ve
-  sonraki dalgaya geçilebildiğini doğrula. Bölünme, çift çözüm ve restart sonrası
+- Bir düşmanı ateş etmeden kaçır; kaçış politikası çalışmalı, sonraki dalgaya geçilmeli. Bölünme, çift çözüm ve restart sonrası
   canlı/kalan sayısı tutarlı olmalı; yalnız öldürerek oynama bu açığı gizler.
 - FPS düşükse boş sayfa ve oyun hızını aynı tarayıcıda karşılaştır; ölçmeden
-  "headless throttling" deme. SVG filtrelerini bitmap/offscreen canvas'a önbellekle;
-  düşman/parçacıkları sınırla ve bitenleri temizle; geçiş/pause/bitişi oyna.
+  "headless throttling" deme. SVG filtrelerini bitmap/offscreen canvas'a önbellekle,
+  düşman/parçacıkları sınırla, bitenleri sil; geçiş/pause/bitişi oyna.
 
-- `play_probe(target='index.html')` çağır: oyunu ayrı başsız tarayıcıda açar, tuşlara
-  basar: konsol 0, rAF ~60/sn, hareket belirgin, R sıfırlar.
-  "DEĞİŞTİRMEDİ" varsa girdiyi düzelt.
-  "GÖRSEL SORUN" ölçümünü ve kareleri incele; kapanışta yeniden oynat.
+- `play_probe(target='index.html')` (ayrı başsız tarayıcı, tuşlara basar): konsol 0,
+  rAF ~60/sn, hareket belirgin, R sıfırlar. "DEĞİŞTİRMEDİ" → girdiyi düzelt;
+  "GÖRSEL SORUN" → kareleri incele, kapanışta yeniden oynat.
 - Masaüstüne `osascript` ile tuş gönderme, ekran görüntüsü alıp tahmin yürütme.
