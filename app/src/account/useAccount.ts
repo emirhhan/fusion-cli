@@ -39,9 +39,13 @@ export interface AccountController {
   cikis: () => Promise<boolean>;
   kurtar: (kimlik: string, kod: string, yeniParola: string) => Promise<boolean>;
   guncelle: (hesap: Hesap) => Promise<boolean>;
-  sil: (kimlik: string) => Promise<boolean>;
+  /** Hesabı siler; çekirdek parolayı ya da kurtarma kodunu yeniden doğrular (U5-33). */
+  sil: (kimlik: string, kanit: SilmeKaniti) => Promise<boolean>;
   tazele: () => Promise<void>;
 }
+
+/** Hesap silmede yeniden doğrulama: parola YA DA kurtarma kodu. */
+export type SilmeKaniti = { parola: string } | { kurtarma_kodu: string };
 
 export function useAccount(client: ProtocolClient | null): AccountController {
   const [durum, setDurum] = useState<HesapDurumu | null>(null);
@@ -152,7 +156,7 @@ export function useAccount(client: ProtocolClient | null): AccountController {
         },
         "Hesap güncellenemedi.",
       )) !== null,
-    sil: async (kimlik) =>
-      (await cagir("hesap.sil", { kimlik }, "Hesap silinemedi.")) !== null,
+    sil: async (kimlik, kanit) =>
+      (await cagir("hesap.sil", { kimlik, ...kanit }, "Hesap silinemedi.")) !== null,
   };
 }

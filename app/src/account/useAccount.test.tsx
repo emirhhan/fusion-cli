@@ -42,3 +42,16 @@ describe("useAccount.kayit", () => {
     expect(result.current.hata).toContain("kurtarma kodu alınamadı");
   });
 });
+
+describe("useAccount.sil", () => {
+  it("hesap.sil'e parolayı ya da kurtarma kodunu ekler (U5-33)", async () => {
+    const { client, request } = istemci({ ok: true });
+    const { result } = renderHook(() => useAccount(client));
+    await waitFor(() => expect(result.current.yukleniyor).toBe(false));
+
+    await act(async () => { await result.current.sil("1", { parola: "parola1234" }); });
+    expect(request).toHaveBeenCalledWith("hesap.sil", { kimlik: "1", parola: "parola1234" });
+    await act(async () => { await result.current.sil("1", { kurtarma_kodu: "ABCD-EFGH" }); });
+    expect(request).toHaveBeenCalledWith("hesap.sil", { kimlik: "1", kurtarma_kodu: "ABCD-EFGH" });
+  });
+});

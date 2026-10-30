@@ -180,6 +180,28 @@ class SqliteAccountStore:
             return None
         return _account(row) if verify_secret(password, row["password_hash"]) else None
 
+    def verify_password(self, account_id: str, password: str) -> bool:
+        """Hesap kimliğiyle parolayı doğrula (yıkıcı işlemde yeniden doğrulama için)."""
+        with self._connect() as connection, closing(connection.cursor()) as cursor:
+            cursor.execute("SELECT password_hash FROM accounts WHERE id = ?", (account_id,))
+            row = cursor.fetchone()
+        if row is None:
+            # Süre sızıntısı: var olmayan hesapta da bir scrypt harcanır.
+            verify_secret(password, _sahte_karma())
+            return False
+        return verify_secret(password, row["password_hash"])
+
+    def verify_recovery_code(self, account_id: str, recovery_code: str) -> bool:
+        """Kurtarma kodunu doğrula; kodu TÜKETMEZ (yalnız `reset_password` tüketir)."""
+        with self._connect() as connection, closing(connection.cursor()) as cursor:
+            cursor.execute("SELECT recovery_hash FROM accounts WHERE id = ?", (account_id,))
+            row = cursor.fetchone()
+        code = normalize_recovery_code(recovery_code)
+        if row is None:
+            verify_secret(code, _sahte_karma())
+            return False
+        return verify_secret(code, row["recovery_hash"])
+
     def reset_password(self, *, identifier: str, recovery_code: str, new_password: str) -> bool:
         """Kurtarma koduyla parolayı değiştir; kod TEK KULLANIMLIKTIR."""
         if len(new_password) < PASSWORD_MIN_CHARS:

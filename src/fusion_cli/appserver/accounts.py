@@ -160,12 +160,31 @@ class AccountService:
     def remove(self, data: object) -> dict[str, Any]:
         """`hesap.sil`: hesabı ve ona ait ayarları kaldır.
 
-        Onay ARAYÜZDE alınır; buraya gelen istek kararın verilmiş olduğu
-        anlamına gelir. Silme geri alınamaz ve ürünün açık sözü budur.
+        Silme geri alınamaz ve ürünün açık sözü budur. Arayüzdeki "kullanıcı adını
+        yaz" onayı yetmez: açık kalmış bir pencereden ya da yerel bir istemciden
+        gelen istek hesabı parolasız silebilirdi (U5-33). Bu yüzden istek HESABIN
+        PAROLASINI ya da KURTARMA KODUNU taşımalıdır; ikisi de yoksa ya da yanlışsa
+        hiçbir şey silinmez.
+
+        Ölçüldü (30 Ekim): eski uç yalnız `kimlik` alıyor ve hesabı doğrudan siliyordu.
         """
         if not isinstance(data, dict):
             return {"ok": False, "metin": "Geçersiz silme isteği."}
         kimlik = str(data.get("kimlik", "")).strip()
+        parola = data.get("parola")
+        kod = data.get("kurtarma_kodu")
+        parola = parola if isinstance(parola, str) else ""
+        kod = kod if isinstance(kod, str) else ""
+        if not parola and not kod.strip():
+            return {
+                "ok": False,
+                "metin": "Hesabı silmek için parolanı ya da kurtarma kodunu gir.",
+            }
+        dogru = (parola and self._store.verify_password(kimlik, parola)) or (
+            kod.strip() and self._store.verify_recovery_code(kimlik, kod)
+        )
+        if not dogru:
+            return {"ok": False, "metin": "Parola veya kurtarma kodu hatalı; hesap silinmedi."}
         if not self._store.delete(kimlik):
             return {"ok": False, "metin": "Hesap bulunamadı."}
         kalanlar = remove_account_files(kimlik)

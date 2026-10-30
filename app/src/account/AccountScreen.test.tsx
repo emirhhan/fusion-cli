@@ -97,7 +97,34 @@ describe("AccountScreen", () => {
     expect(dugme.hasAttribute("disabled")).toBe(true);
 
     fireEvent.change(screen.getByLabelText(/onaylamak için/i), { target: { value: "kullanici" } });
+    // Kullanıcı adı tek başına yetmez: parola da gerekir (U5-33).
+    expect(dugme.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByLabelText("Parolan"), { target: { value: "parola1234" } });
     expect(dugme.hasAttribute("disabled")).toBe(false);
+  });
+
+  test("silme isteği parolayı taşır; parola alanı gizlidir (U5-33)", () => {
+    const sil = vi.fn(async () => false);
+    render(<AccountScreen account={denetleyici([KULLANICI], { sil })} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("Hesabı sil"));
+    expect(screen.getByLabelText("Parolan")).toHaveProperty("type", "password");
+    fireEvent.change(screen.getByLabelText(/onaylamak için/i), { target: { value: "kullanici" } });
+    fireEvent.change(screen.getByLabelText("Parolan"), { target: { value: "parola1234" } });
+    fireEvent.click(screen.getByRole("button", { name: /kalıcı olarak sil/i }));
+    expect(sil).toHaveBeenCalledWith(KULLANICI.kimlik, { parola: "parola1234" });
+  });
+
+  test("parolasını unutan kurtarma koduyla silebilir (U5-33)", () => {
+    const sil = vi.fn(async () => false);
+    render(<AccountScreen account={denetleyici([KULLANICI], { sil })} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("Hesabı sil"));
+    fireEvent.click(screen.getByRole("button", { name: /Parolamı unuttum/ }));
+    fireEvent.change(screen.getByLabelText(/onaylamak için/i), { target: { value: "kullanici" } });
+    fireEvent.change(screen.getByLabelText("Kurtarma kodun"), { target: { value: " ABCD-EFGH " } });
+    fireEvent.click(screen.getByRole("button", { name: /kalıcı olarak sil/i }));
+    expect(sil).toHaveBeenCalledWith(KULLANICI.kimlik, { kurtarma_kodu: "ABCD-EFGH" });
   });
 
   test("silmenin neyi götürdüğünü açıkça yazar", () => {

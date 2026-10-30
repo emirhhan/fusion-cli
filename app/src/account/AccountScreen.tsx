@@ -31,6 +31,9 @@ export function AccountScreen({
   const etkin = durum?.hesaplar.find((item) => item.kimlik === durum.etkin) ?? null;
   const [taslak, setTaslak] = useState<Hesap | null>(etkin);
   const [silOnayi, setSilOnayi] = useState("");
+  // Silme, kullanıcı adı onayına EK olarak parolayı (ya da kurtarma kodunu) yeniden doğrular (U5-33).
+  const [silKaniti, setSilKaniti] = useState("");
+  const [kodlaSil, setKodlaSil] = useState(false);
   const [bilgi, setBilgi] = useState<string | null>(null);
   const [usage, setUsage] = useState<{ cagri: number; toplam_token: number } | null>(null);
 
@@ -183,10 +186,26 @@ export function AccountScreen({
           onChange={(event) => setSilOnayi(event.target.value)}
           value={silOnayi}
         />
+        <label htmlFor="hesap-sil-kanit">{kodlaSil ? "Kurtarma kodun" : "Parolan"}</label>
+        <input
+          autoComplete={kodlaSil ? "off" : "current-password"}
+          id="hesap-sil-kanit"
+          onChange={(event) => setSilKaniti(event.target.value)}
+          type={kodlaSil ? "text" : "password"}
+          value={silKaniti}
+        />
+        <button
+          className="account__link"
+          onClick={() => { setKodlaSil((acik) => !acik); setSilKaniti(""); }}
+          type="button"
+        >
+          {kodlaSil ? "Parolamla sileyim" : "Parolamı unuttum: kurtarma koduyla sil"}
+        </button>
         <Button
-          disabled={silOnayi !== etkin.kullanici_adi}
+          disabled={silOnayi !== etkin.kullanici_adi || !silKaniti.trim()}
           onClick={() => {
-            void account.sil(etkin.kimlik).then((tamam) => {
+            const kanit = kodlaSil ? { kurtarma_kodu: silKaniti.trim() } : { parola: silKaniti };
+            void account.sil(etkin.kimlik, kanit).then((tamam) => {
               if (tamam) window.location.reload();
             });
           }}
