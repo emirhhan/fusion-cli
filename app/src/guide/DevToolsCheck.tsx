@@ -6,6 +6,14 @@ import { StatusRow } from "../ui/StatusRow";
 
 export interface DevTool { id: string; ad: string; neden: string; kurulu: boolean; surum: string | null; indirme: string }
 
+/** Çekirdekten gelen indirme adresi yalnız `https:` ise bağlantı olur; aksi halde boş döner. */
+function safeDownloadUrl(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  try {
+    return new URL(raw).protocol === "https:" ? raw : "";
+  } catch { return ""; }
+}
+
 export function parseDevTools(payload: Record<string, unknown>): DevTool[] {
   const rows = Array.isArray(payload.araclar) ? payload.araclar : [];
   return rows.flatMap((raw) => {
@@ -13,7 +21,7 @@ export function parseDevTools(payload: Record<string, unknown>): DevTool[] {
     if (typeof row.id !== "string" || typeof row.ad !== "string") return [];
     return [{
       id: row.id, ad: row.ad, neden: String(row.neden ?? ""), kurulu: row.kurulu === true,
-      surum: typeof row.surum === "string" ? row.surum : null, indirme: String(row.indirme ?? ""),
+      surum: typeof row.surum === "string" ? row.surum : null, indirme: safeDownloadUrl(row.indirme),
     }];
   });
 }

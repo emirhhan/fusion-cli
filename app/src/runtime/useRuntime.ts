@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
@@ -15,6 +15,18 @@ const defaultTransport: RuntimeTransport = {
   listenProgress: async (listener) =>
     listen<RuntimeProgress>("runtime-ilerleme", (event) => listener(event.payload)),
 };
+
+/** Kurulum/onarım bu süre içinde dönmezse kullanıcı sonsuz "kuruluyor" ekranında kalmasın. */
+export const RUNTIME_PREPARE_TIMEOUT_MS = 10 * 60_000;
+const PREPARE_TIMEOUT_MESSAGE = "Kurulum beklenenden uzun sürdü; yeniden dene.";
+
+function withTimeout<T>(request: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(PREPARE_TIMEOUT_MESSAGE)), RUNTIME_PREPARE_TIMEOUT_MS);
+  });
+  return Promise.race([request, timeout]).finally(() => clearTimeout(timer));
+}
 
 const prepareRequests = new WeakMap<RuntimeTransport, Promise<RuntimeBackendStatus>>();
 
@@ -55,13 +67,16 @@ const INITIAL_VIEW: RuntimeView = {
 
 export function useRuntime(transport: RuntimeTransport = defaultTransport) {
   const [view, setView] = useState<RuntimeView>(INITIAL_VIEW);
+  // Kurulum bittikten (hazır/hata) sonra gelen gecikmiş ilerleme olayı görünümü geri çekmesin.
+  const installing = useRef(true);
 
   useEffect(() => {
     let active = true;
+    installing.current = true;
     let unlisten: (() => void) | undefined;
 
     const updateProgress = (progress: RuntimeProgress) => {
-      if (!active) return;
+      if (!active || !installing.current) return;
       const percentage = Math.round((progress.completed / Math.max(progress.total, 1)) * 100);
       setView({
         state: "kuruluyor",
@@ -81,20 +96,21 @@ export function useRuntime(transport: RuntimeTransport = defaultTransport) {
 
         const status = await transport.status();
         if (!active) return;
-        if (status.state === "hazir") {
-          setView(viewFromStatus(status));
-          return;
-        }
-        if (status.state !== "eksik") {
+        if (status.state === "hazir" || status.state !== "eksik") {
+          installing.current = false;
           setView(viewFromStatus(status));
           return;
         }
 
         setView({ state: "kuruluyor", progress: 0, message: status.message });
-        const prepared = await prepareOnce(transport);
-        if (active) setView(viewFromStatus(prepared));
+        const prepared = await withTimeout(prepareOnce(transport));
+        if (active) {
+          installing.current = false;
+          setView(viewFromStatus(prepared));
+        }
       } catch (error) {
         if (active) {
+          installing.current = false;
           setView({ state: "onarilabilir", progress: 0, message: errorMessage(error) });
         }
       }
@@ -107,14 +123,18 @@ export function useRuntime(transport: RuntimeTransport = defaultTransport) {
   }, [transport]);
 
   const repair = useCallback(async () => {
+    installing.current = true;
     setView({
       state: "kuruluyor",
       progress: 0,
       message: "Fusion çalışma zamanı onarılıyor…",
     });
     try {
-      setView(viewFromStatus(await transport.repair()));
+      const repaired = await withTimeout(transport.repair());
+      installing.current = false;
+      setView(viewFromStatus(repaired));
     } catch (error) {
+      installing.current = false;
       setView({ state: "onarilabilir", progress: 0, message: errorMessage(error) });
     }
   }, [transport]);
