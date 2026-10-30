@@ -13,6 +13,7 @@ import {
   type MotionPreference,
 } from "../../theme/accessibility";
 import { useAccessibility } from "../../theme/useAccessibility";
+import { setTrayEnabled, useTrayEnabled } from "../../windowing/tray";
 
 /**
  * Genel — kullanıcının günlük tercihleri.
@@ -55,6 +56,7 @@ export function General({
   const placement = useInspectorPlacement();
   const { language, t } = useLanguage();
   const erisilebilirlik = useAccessibility();
+  const trayEnabled = useTrayEnabled();
   return (
     <>
       <article className="settings__card">
@@ -158,6 +160,16 @@ export function General({
             type="checkbox"
           />
           <span>Fusion'ın attığı adımları göster</span>
+        </label>
+        {/* Sistem tepsisi (P-064): menü çubuğunda hızlı "göster / yeni sohbet"; kapatılabilir. */}
+        <label className="settings__row settings__row--check">
+          <input
+            checked={trayEnabled}
+            id="settings-tray"
+            onChange={(event) => setTrayEnabled(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Menü çubuğunda Fusion simgesi</span>
         </label>
         <label className="settings__row" htmlFor="settings-placement">
           <span>Çalışma paneli</span>

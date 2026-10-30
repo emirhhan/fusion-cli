@@ -5,12 +5,16 @@ import { AgentPanel, agentCardsForMessages } from "./team/AgentPanel";
 import type { TeamCardsProps } from "./team/TeamCards";
 import { operationResult, errorMessage, type CommandResult } from "./protocol/result";
 import { submissionAccepted, type SubmissionResult } from "./sessions/submission";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
 import { useKapatmaNabzi } from "./dialogs/closeHeartbeat";
 import { osBildirimiGonder } from "./notifications/osNotice";
 import { useTurnNotifications, useUnread } from "./notifications/useTurnNotifications";
+import { SplitPane } from "./windowing/SplitPane";
+import { useSplitView } from "./windowing/splitView";
+import { useTray } from "./windowing/tray";
+import { DEEP_LINK_EVENT, TRAY_NEW_CHAT_EVENT, parseDeepLink, type DerinBaglanti } from "./windowing/deepLink";
 import { ShareDialog } from "./dialogs/ShareDialog";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
 import { NewTaskDialog } from "./dialogs/NewTaskDialog";
@@ -533,7 +537,7 @@ export function SessionUygulama({
   const [surfaceSection, setSurfaceSection] = useState<SurfaceSection | null>(null);
   const mediaPage = page === "image-create" || page === "video-create";
   const mainSection: MainSection = surfaceSection ?? (mediaPage ? "media" : "home");
-  const [settingsSection, setSettingsSection] = useState<"genel" | "kisisellestirme">("genel");
+  const [settingsSection, setSettingsSection] = useState<NonNullable<ComponentProps<typeof Settings>["initialSection"]>>("genel");
   // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
   // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
   const [controlTitle, setControlTitle] = useState("Kontrol Paneli");
@@ -570,6 +574,11 @@ export function SessionUygulama({
   // Bakılmayan sohbette tur bitince / onay gelince OS bildirimi, okunmamış işareti ve Dock rozeti (P-047).
   useTurnNotifications(controller.state.sessions, active?.id ?? null);
   const okunmamisSohbetler = useUnread();
+  // Bölünmüş görünüm ve sistem tepsisi (P-064).
+  const acikSohbetler = useMemo(() => new Set(Object.keys(controller.state.sessions)), [controller.state.sessions]);
+  const split = useSplitView(active?.id ?? null, acikSohbetler);
+  const splitSession = split.splitId ? controller.state.sessions[split.splitId] ?? null : null;
+  useTray(controller.sessions.filter((session) => session.running).length);
   const activeSessionId = active?.id;
   const activeClient = active?.client;
   useEffect(() => () => {
@@ -948,6 +957,45 @@ export function SessionUygulama({
   activeRef.current = active;
   const controllerRef = useRef(controller);
   controllerRef.current = controller;
+  // `fusion://` derin bağlantısı ve tepsi "Yeni sohbet" (P-064). İşleyici her çizimde tazelenir;
+  // dinleyici bir kez kurulur. Hedef burada yeniden doğrulanır (bkz. `parseDeepLink`).
+  const derinBaglantiRef = useRef<(hedef: DerinBaglanti) => void>(() => undefined);
+  derinBaglantiRef.current = (hedef) => {
+    const ctl = controllerRef.current;
+    setNewTaskError(null);
+    setSurfaceSection(null);
+    if (hedef.hedef === "sohbet") {
+      if (ctl.state.sessions[hedef.id]) ctl.select(hedef.id);
+      else if (ctl.storedConversations.some((item) => item.id === hedef.id)) {
+        void ctl.openStored(hedef.id).catch(() => setNewTaskError("Bağlantıdaki sohbet açılamadı. Yeniden dene."));
+      } else {
+        setNewTaskError("Bağlantıdaki sohbet bulunamadı.");
+      }
+      setPage("chat");
+    } else if (hedef.hedef === "yeni") {
+      if (hedef.kok) {
+        void ctl.create({ root: hedef.kok, mode: "kod" }).then(() => setPage("chat"))
+          .catch((reason: unknown) => setNewTaskError(`Yeni sohbet açılamadı: ${errorMessage(reason)}`));
+      } else {
+        void startDesktopChat();
+      }
+    } else {
+      setSettingsSection(hedef.bolum === "kisisellestirme" || hedef.bolum === "bildirimler" ? hedef.bolum : "genel");
+      setPage("settings");
+    }
+  };
+  useEffect(() => {
+    if (!kabukVar()) return;
+    const derin = listen<unknown>(DEEP_LINK_EVENT, (event) => {
+      const hedef = parseDeepLink(event.payload);
+      if (hedef) derinBaglantiRef.current(hedef);
+    });
+    const yeni = listen(TRAY_NEW_CHAT_EVENT, () => derinBaglantiRef.current({ hedef: "yeni", kok: null }));
+    return () => {
+      void derin.then((f) => f()).catch(() => undefined);
+      void yeni.then((f) => f()).catch(() => undefined);
+    };
+  }, []);
 
   // Konuşma penceresinden gelen söz AYNI sohbete düşer: kip kapandığında
   // kullanıcı yazışmış gibi tam dökümü görür.
@@ -1496,7 +1544,21 @@ export function SessionUygulama({
             surum={runtimeVersion}
           />
         )
-        : conversationContent;
+        : splitSession
+          ? (
+            <div className="split-view">
+              <div className="split-view__primary">{conversationContent}</div>
+              <SplitPane
+                onAnswer={(answer) => controller.answer(splitSession.id, answer)}
+                onClose={split.close}
+                onFocus={() => { controller.select(splitSession.id); }}
+                onSend={(task) => { controller.send(splitSession.id, task); }}
+                session={splitSession}
+                showSteps={showSteps}
+              />
+            </div>
+          )
+          : conversationContent;
   const status = active.status === "crashed"
     ? BAGLANTI_KESILDI_DURUMU
     : active.running
@@ -1882,6 +1944,17 @@ export function SessionUygulama({
             else void controller.openStored(id, controller.storedConversations.find((item) => item.id === id)?.root ?? active?.root);
           }}
           onYeni={() => { setSurfaceSection(null); void startDesktopChat(); }}
+          onSplit={async (id) => {
+            // Tıklanan sohbet yan bölmeye gider; aktif sohbet yerinde kalır (P-064).
+            setSurfaceSection(null);
+            setPage("chat");
+            const onceki = active.id;
+            if (!controller.state.sessions[id]) {
+              await controller.openStored(id, controller.storedConversations.find((item) => item.id === id)?.root ?? active.root);
+              controller.select(onceki);
+            }
+            split.open(id);
+          }}
           oturumlar={[
             ...controller.sessions.map((session) => ({
               session_id: session.id,

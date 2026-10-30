@@ -43,6 +43,16 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: "İkinci iş" }).getAttribute("data-okunmamis")).toBeNull();
   });
 
+  it("menüde 'Yan yana aç' yalnız onSplit verilince ve etkin olmayan sohbette görünür (P-064)", async () => {
+    const onSplit = vi.fn();
+    render(<Sidebar oturumlar={sessions} etkin="1" onSec={vi.fn()} onYeni={vi.fn()} onSplit={onSplit} />);
+    fireEvent.click(screen.getByRole("button", { name: "İkinci iş sohbet seçenekleri" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Yan yana aç" }));
+    await waitFor(() => expect(onSplit).toHaveBeenCalledWith("2"));
+    fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbet seçenekleri" }));
+    expect(screen.queryByRole("menuitem", { name: "Yan yana aç" })).toBeNull();
+  });
+
   it("oturum yoksa liste başlığını basmaz", () => {
     render(<Sidebar oturumlar={[]} etkin={null} onSec={vi.fn()} onYeni={vi.fn()} />);
     expect(screen.queryByText("Sohbetler")).toBeNull();
