@@ -7,6 +7,7 @@ kodu verebiliyor; "açıldı" ile "hatasız açıldı" ayrı şeylerdir. Bu mod�
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -99,13 +100,23 @@ def godot_needs_import(root: Path) -> bool:
     yüklüyordu ve motor `No loader found for resource:
     res://assets/Tiles/Default/tile_0000.png` bastı — üstelik çıkış kodu 0'dı.
     """
-    for path in root.rglob("*"):
-        if path.suffix.casefold() not in _GODOT_IMPORTED_SUFFIXES:
-            continue
-        if any(part in SKIP_DIRECTORIES or part.startswith(".") for part in path.parts):
-            continue
-        if not path.with_suffix(path.suffix + ".import").exists():
-            return True
+    # Ölçüldü (29 Ekim, A1-15): `rglob("*")` `.git`/`node_modules` ağacını önce
+    # dolaşıp süzgeci sonra uyguluyordu; süzgeç ayrıca mutlak yolun ATALARINA da
+    # bakıyordu (proje `…/build/oyun` altındaysa hiçbir dosya görülmez, içe aktarma
+    # hazırlığı hiç çalışmazdı). Artık gürültü dizinleri budanır, yalnız kökten
+    # göreli adlara bakılır.
+    for dizin, alt_dizinler, dosyalar in os.walk(root):
+        alt_dizinler[:] = [
+            ad for ad in alt_dizinler if ad not in SKIP_DIRECTORIES and not ad.startswith(".")
+        ]
+        for ad in dosyalar:
+            yol = Path(dizin) / ad
+            if yol.suffix.casefold() not in _GODOT_IMPORTED_SUFFIXES:
+                continue
+            if ad.startswith("."):
+                continue
+            if not yol.with_suffix(yol.suffix + ".import").exists():
+                return True
     return False
 
 
