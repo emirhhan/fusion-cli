@@ -129,3 +129,37 @@ async def test_genel_adresten_ic_agda_yonlendirme_engellenir(tmp_path: Path, mon
 
     assert eslesme == {} and yerel.istekler == []
     assert any("iç ağ" in satir for satir in problemler)
+
+
+# --- Dalga 4 (T2-34) --------------------------------------------------------------------
+
+
+async def test_yerel_yazma_hatasi_tum_yakalamayi_dusurmez(tmp_path, monkeypatch):
+    """Çok uzun dosya adı `OSError` verip `gather` ile bütün varlık indirmesini düşürüyordu."""
+    from fusion_cli.tools import site_capture as sc
+
+    class _Yanit:
+        ok = True
+        body = b"x"
+        content_type = "image/png"
+
+    async def _fetch(client, url, limit):
+        return _Yanit()
+
+    monkeypatch.setattr(sc, "_fetch_public", _fetch)
+    cagri = {"n": 0}
+    gercek = sc.asset_local_path
+
+    def _yol(url):
+        cagri["n"] += 1
+        return "a" * 400 + ".png" if cagri["n"] == 1 else gercek(url)
+
+    monkeypatch.setattr(sc, "asset_local_path", _yol)
+    problems: list[str] = []
+
+    eslesme = await sc._download(
+        ["https://x.test/bir.png", "https://x.test/iki.png"], tmp_path, problems
+    )
+
+    assert len(eslesme) == 1
+    assert any("yazılamadı" in p for p in problems)

@@ -348,8 +348,13 @@ async def _download(urls: list[str], folder: Path, problems: list[str]) -> dict[
             return
         yerel = _with_suffix(asset_local_path(url), tur)
         hedef = folder / yerel
-        await asyncio.to_thread(hedef.parent.mkdir, parents=True, exist_ok=True)
-        await asyncio.to_thread(hedef.write_bytes, govde)
+        try:
+            await asyncio.to_thread(hedef.parent.mkdir, parents=True, exist_ok=True)
+            await asyncio.to_thread(hedef.write_bytes, govde)
+        except OSError as hata:
+            # Çok uzun dosya adı gibi yerel yazma hataları tüm yakalamayı düşürmesin.
+            problems.append(f"varlık yazılamadı ({type(hata).__name__}): {url}")
+            return
         eslesme[url] = yerel
 
     async with _public_client() as istemci:
