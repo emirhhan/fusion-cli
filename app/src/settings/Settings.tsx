@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage, operationResult, type CommandResult } from "../protocol/result";
-import { searchSettings } from "./search";
+import { SECTION_HEADING_ID, searchSettings } from "./search";
 import type { ProtocolClient } from "../protocol/client";
 import type { ThemePreference } from "../theme/theme";
 import { Button } from "../ui/Button";
@@ -49,6 +49,9 @@ const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: string }[] 
   { id: "gelismis", etiket: "Gelişmiş", ikon: "terminal", grup: "Sistem" },
   { id: "nasil", etiket: "Nasıl yapılır", ikon: "help", grup: "Sistem" },
 ];
+
+/** `kontrol.durum` verisini kullanan bölümler; diğerleri için "yükleniyor" notu gereksizdir (U2-54). */
+const KONTROL_BOLUMLERI = new Set<BolumId>(["modeller", "izinler", "gelismis"]);
 
 interface ControlSnapshot {
   gateway?: { adres?: string; durum?: string };
@@ -100,22 +103,51 @@ export function Settings({
 
   useEffect(() => setBolum(initialSection), [initialSection]);
 
+  // `onClose` ref'te tutulur: üst bileşen her çizimde yeni işlev üretse de efekt yeniden kurulmaz ve
+  // odak yazarken geri çalınmaz (U2-37, ölçüldü 29 Ekim).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     previousFocus.current = document.activeElement instanceof HTMLElement
       ? document.activeElement : null;
     dialogRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      // İç içe diyalog (bağlayıcı vb.) kendi Esc'ini yönetir; Ayarlar'ı birlikte kapatma.
+      const inner = target?.closest('[role="dialog"], [role="alertdialog"]');
+      if (inner && inner !== dialogRef.current) return;
+      // Yazarken Esc kaydedilmemiş girdiyi silmez: yalnız alandan çıkar, ikinci Esc kapatır.
+      if (target?.matches("textarea, input:not([type=search]):not([type=checkbox]):not([type=radio]), [contenteditable=true]")) {
+        target.blur();
+        dialogRef.current?.focus();
         return;
       }
+      onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
       previousFocus.current?.focus();
     };
-  }, [onClose]);
+  }, []);
+
+  // Odak tuzağı (U2-38): Tab / Shift+Tab diyalogun dışına çıkmaz.
+  const trapTab = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") return;
+    const root = dialogRef.current;
+    if (!root) return;
+    const focusable = Array.from(root.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => !element.closest("[hidden], [inert]"));
+    if (!focusable.length) { event.preventDefault(); return; }
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === root)) {
+      event.preventDefault(); last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault(); first.focus();
+    }
+  };
 
   const load = useCallback(async () => {
     const generation = owner.current, sequence = ++loadSequence.current;
@@ -199,8 +231,9 @@ export function Settings({
   const searchResults = searchSettings(search);
   useEffect(() => {
     if (!focusRow) return;
-    const target = document.getElementById(focusRow);
-    if (!target) return;
+    // Satır bulunamazsa (bölüm yüklenmedi) bölüm başlığına düş; `focusRow` takılı kalmasın (U2-53).
+    const target = document.getElementById(focusRow) ?? document.getElementById(SECTION_HEADING_ID);
+    if (!target) { setFocusRow(null); return; }
     if (!target.matches("input,select,button,textarea")) target.tabIndex = -1;
     target.focus(); setFocusRow(null);
   }, [bolum, focusRow]);
@@ -209,13 +242,13 @@ export function Settings({
     <section className="settings" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
     }}>
-      <div aria-labelledby="settings-title" className="settings__dialog" ref={dialogRef} role="dialog" tabIndex={-1}>
+      <div aria-labelledby="settings-title" aria-modal="true" className="settings__dialog" onKeyDown={trapTab} ref={dialogRef} role="dialog" tabIndex={-1}>
         <div className="settings__navcol">
           <h2 className="settings__title" id="settings-title">Ayarlar</h2>
           <button aria-label="Ayarları kapat" className="settings__close" onClick={onClose} type="button"><span aria-hidden="true">←</span> Uygulamaya geri dön</button>
           <input aria-label="Ayarları ara" className="settings__search" onChange={(event) => setSearch(event.target.value)} placeholder="Ayarları ara" type="search" value={search} />
           {search.trim() && <div><p role="status">{searchResults.length ? `${searchResults.length} sonuç` : BOLUMLER.some((item) => item.etiket.toLocaleLowerCase("tr").includes(search.trim().toLocaleLowerCase("tr"))) ? "Bölüm eşleşmeleri" : "Sonuç bulunamadı"}</p>
-            {searchResults.map((row) => <button key={row.id} onClick={() => { setBolum(row.section); setFocusRow(row.id); }}>{row.label}</button>)}</div>}
+            {searchResults.map((row) => <button key={`${row.section}:${row.label}`} onClick={() => { setBolum(row.section); setFocusRow(row.id); }}>{row.label}</button>)}</div>}
           <nav aria-label="Ayar bölümleri" className="settings__nav">
             {["Kişisel", "Entegrasyonlar", "Sistem"].map((grup) => {
               const items = BOLUMLER.filter((item) => item.grup === grup && item.etiket.toLocaleLowerCase("tr").includes(search.trim().toLocaleLowerCase("tr")));
@@ -237,12 +270,12 @@ export function Settings({
         </div>
 
         <div className="settings__panel">
-          <h3 className="settings__section-heading">{BOLUMLER.find((item) => item.id === bolum)?.etiket}</h3>
-          {controlLoading && <p role="status">Ayarlar yükleniyor…</p>}
+          <h3 className="settings__section-heading" id={SECTION_HEADING_ID}>{BOLUMLER.find((item) => item.id === bolum)?.etiket}</h3>
+          {controlLoading && KONTROL_BOLUMLERI.has(bolum) && <p role="status">Ayarlar yükleniyor…</p>}
           {gatewayError && <p role="alert">{gatewayError.message} <button onClick={gatewayError.retry} disabled={gatewayBusy}>Yeniden dene</button></p>}
           {modeError && <p role="alert">{modeError.message} <button onClick={modeError.retry} disabled={modeBusy}>Yeniden dene</button></p>}
           {error && (
-            <p className="settings__error" role="status">
+            <p className="settings__error" role="alert">
               {error}{" "}
               <button className="settings__error-retry" onClick={() => void load()} type="button">
                 Yeniden dene

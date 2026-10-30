@@ -32,6 +32,9 @@ export function ChromeBrowser({ client }: { client: ProtocolClient }) {
   const [state, setState] = useState<ChromeStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Yoklama hatası eylem hatasından ayrı tutulur: yoklama düzelince kendiliğinden kalkar (U2-40).
+  const [pollError, setPollError] = useState("");
+  const [showKey, setShowKey] = useState(false);
   const [extensionPath, setExtensionPath] = useState("");
   const [steps, setSteps] = useState<string[]>([]);
 
@@ -47,14 +50,23 @@ export function ChromeBrowser({ client }: { client: ProtocolClient }) {
 
   useEffect(() => {
     let mounted = true;
-    const refresh = () => client.request("chrome.durum", {}).then((value) => {
-      if (mounted) setState((previous) => {
-        const next = value as unknown as ChromeStatus;
-        return next.calisiyor && previous?.port === next.port
-          ? { ...next, anahtar: previous.anahtar ?? next.anahtar }
-          : next;
-      });
-    }).catch(() => { if (mounted) setError("Chrome durumu okunamadı."); });
+    let inFlight = false;
+    // Uçuştaki yoklama bitmeden yenisi başlamaz; yavaş çekirdekte istekler üst üste binmez.
+    const refresh = () => {
+      if (inFlight) return Promise.resolve();
+      inFlight = true;
+      return client.request("chrome.durum", {}).then((value) => {
+        if (!mounted) return;
+        setPollError("");
+        setState((previous) => {
+          const next = value as unknown as ChromeStatus;
+          return next.calisiyor && previous?.port === next.port
+            ? { ...next, anahtar: previous.anahtar ?? next.anahtar }
+            : next;
+        });
+      }).catch(() => { if (mounted) setPollError("Chrome durumu okunamadı."); })
+        .finally(() => { inFlight = false; });
+    };
     void refresh();
     const timer = window.setInterval(() => { void refresh(); }, 4000);
     return () => { mounted = false; window.clearInterval(timer); };
@@ -123,12 +135,14 @@ export function ChromeBrowser({ client }: { client: ProtocolClient }) {
           <label htmlFor="chrome-port">Yerel port</label>
           <input id="chrome-port" readOnly value={state.port ?? ""} />
           <label htmlFor="chrome-key">Eşleştirme anahtarı</label>
-          <input id="chrome-key" readOnly value={state.anahtar} />
+          {/* Anahtar ekran görüntüsü/paylaşımında sızmasın: varsayılan gizli, istenince açılır (U2-40). */}
+          <input id="chrome-key" readOnly type={showKey ? "text" : "password"} value={state.anahtar} />
+          <button onClick={() => setShowKey((open) => !open)} type="button">{showKey ? "Anahtarı gizle" : "Anahtarı göster"}</button>
         </div>
       )}
       <p className="settings__hint">Kurulum bittikten sonra Fusion açıkken eklenti kendiliğinden bağlanır; port ve anahtar yalnız elle bağlanmak için gerekir. Oturumlarınıza ve çerezlerinize dokunulmaz.</p>
       {extensionPath && <p className="settings__hint">Paketli eklenti klasörü: <code>{extensionPath}</code></p>}
-      {error && <p className="settings__inline-error" role="alert">{error}</p>}
+      {(error || pollError) && <p className="settings__inline-error" role="alert">{error || pollError}</p>}
     </article>
   );
 }

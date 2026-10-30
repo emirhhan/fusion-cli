@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../protocol/client";
 import { Settings } from "./Settings";
@@ -364,4 +364,142 @@ describe("Nasıl yapılır", () => {
 it("ayar menüsü görünür Ayarlar başlığını sunar", () => {
  ciz();
  expect(screen.getByRole("heading", { name: "Ayarlar" }).className).toBe("settings__title");
+});
+
+describe("Settings — dalga 4 (U2-37, U2-38, U2-53, U2-54)", () => {
+  it("diyalog aria-modal'dır ve Tab odağı dışarı kaçırmaz", async () => {
+    ciz();
+    const dialog = await screen.findByRole("dialog", { name: "Ayarlar" });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled])"));
+    const last = focusable[focusable.length - 1];
+    last.focus();
+    fireEvent.keyDown(last, { key: "Tab" });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).toBe(focusable[0]);
+  });
+
+  it("yazarken Escape kaydedilmemiş girdiyi silmez: alandan çıkar, ikinci Escape kapatır", async () => {
+    const onClose = vi.fn();
+    ciz({ onClose });
+    bolum("Kişiselleştirme");
+    const input = await screen.findByRole("textbox", { name: "Yeni anı" });
+    input.focus();
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(document.activeElement).not.toBe(input);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("üst bileşen her çizimde yeni onClose verse de odak çalınmaz", async () => {
+    const fake = client();
+    const props = { client: fake, onThemeChange: () => undefined, themePreference: "system" as const };
+    const { rerender } = render(<Settings {...props} onClose={() => undefined} />);
+    bolum("Kişiselleştirme");
+    const input = await screen.findByRole("textbox", { name: "Yeni anı" });
+    input.focus();
+    rerender(<Settings {...props} onClose={() => undefined} />);
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("arama Ses, İzin modu gibi bölümleri de bulur ve bölüm başlığına odaklanır", async () => {
+    ciz();
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Ayarları ara" }), { target: { value: "mikrofon" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ses ve konuşma ayarları" }));
+    await waitFor(() => expect(document.activeElement?.id).toBe("settings-section-heading"));
+    expect(document.activeElement?.textContent).toBe("Ses");
+  });
+
+  it("hata uyarı olarak duyurulur; veri gerektirmeyen bölümde 'yükleniyor' notu çıkmaz", async () => {
+    const fake = client();
+    vi.mocked(fake.request).mockImplementation(async (name: string) => name === "kontrol.durum" ? { ok: false, metin: "çekirdek yok" } : { ok: true });
+    ciz({ client: fake });
+    expect((await screen.findByRole("alert")).textContent).toContain("çekirdek yok");
+    vi.mocked(fake.request).mockImplementation(() => new Promise(() => undefined));
+    cleanup();
+    ciz({ client: fake });
+    expect(screen.queryByText("Ayarlar yükleniyor…")).toBeNull();
+    bolum("Gelişmiş");
+    expect(screen.getByText("Ayarlar yükleniyor…")).toBeTruthy();
+  });
+});
+
+describe("Settings — dalga 4 bölümleri (U2-48, U2-50, U2-51)", () => {
+  it("İzinleri atla tek tıkla açılmaz; önce açık onay ister (U2-51)", async () => {
+    const onRunCommand = vi.fn(async () => ({ ok: true }));
+    ciz({ onRunCommand });
+    bolum("İzinler");
+    await screen.findByText("İzinleri atla");
+    fireEvent.click(screen.getByRole("button", { name: /İzinleri atla/ }));
+    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("hiçbir");
+    fireEvent.click(screen.getByRole("button", { name: "Vazgeç" }));
+    expect(onRunCommand).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /İzinleri atla/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Evet, izinleri atla" }));
+    await waitFor(() => expect(onRunCommand).toHaveBeenCalledWith("/bypass"));
+    // Diğer modlar onaysız geçer.
+    fireEvent.click(screen.getByRole("button", { name: /Manuel/ }));
+    await waitFor(() => expect(onRunCommand).toHaveBeenCalledWith("/security"));
+  });
+
+  it("aday listesi eksik gelirse Modeller bölümü çökmez (U2-50)", async () => {
+    const fake = client();
+    const inner = vi.mocked(fake.request).getMockImplementation()!;
+    vi.mocked(fake.request).mockImplementation(async (name: string, data: Record<string, unknown>) => {
+      const result = await inner(name, data);
+      if (name === "kontrol.durum") { const { adaylar: _drop, ...model } = (result as { model: Record<string, unknown> }).model; return { ...result, model }; }
+      return result;
+    });
+    ciz({ client: fake });
+    bolum("Modeller");
+    expect(await screen.findByText("Aday havuzu")).toBeTruthy();
+    expect(screen.getByText("Yok")).toBeTruthy();
+  });
+
+  it("Zeka durumu eksik listelerle gelse de çökmez ve yükleme hatasında yeniden dene sunar (U2-50)", async () => {
+    const fake = client();
+    const inner = vi.mocked(fake.request).getMockImplementation()!;
+    let kir = true;
+    vi.mocked(fake.request).mockImplementation(async (name: string, data: Record<string, unknown>) => {
+      if (name === "zeka.durum") {
+        if (kir) throw new Error("zeka kapalı");
+        return { ok: true, motor: "agent" };
+      }
+      return inner(name, data);
+    });
+    ciz({ client: fake });
+    bolum("Zeka");
+    expect((await screen.findByRole("alert")).textContent).toContain("zeka kapalı");
+    kir = false;
+    fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    // Ayarlar kabuğu başlığı tek kez yazar; panel içi çift başlık yok (U2-54).
+    expect(screen.getAllByRole("heading", { name: "Zeka" })).toHaveLength(1);
+  });
+
+  it("captcha doğrulama döngüsü bölüm kapanınca durur ve oturumu kaydetmez (U2-48)", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = client();
+      const inner = vi.mocked(fake.request).getMockImplementation()!;
+      vi.mocked(fake.request).mockImplementation(async (name: string, data: Record<string, unknown>) => {
+        if (name === "model.roller") return { ok: true, roller: { agent: "", teacher: "", judge: "", candidates: ["x"] }, secenekler: [], oturumlar: [{ saglayici: "gemini_web", hesap: "a", etiket: "Gemini", dogrulandi: false }] };
+        if (name === "web.giris") return { ok: true, pid: 7 };
+        if (name === "web.giris_durumu") return { ok: true, acik: true };
+        return inner(name, data);
+      });
+      const { unmount } = render(<Settings client={fake} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" initialSection="modeller" />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      fireEvent.click(screen.getByRole("button", { name: "Captcha'yı doğrula" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
+      const yoklama = () => vi.mocked(fake.request).mock.calls.filter(([n]) => n === "web.giris_durumu").length;
+      expect(yoklama()).toBe(1);
+      unmount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(yoklama()).toBeLessThanOrEqual(2);
+      expect(vi.mocked(fake.request).mock.calls.some(([n]) => n === "web.baglan")).toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
 });

@@ -529,6 +529,20 @@ describe("VoiceWindow — sesli onay", () => {
     expect(matchSpokenAnswer("olabilir ama emin değilim", ASK)).toBeNull();
   });
 
+  it("çekirdek izin kartının once/session/deny seçeneklerinde 'evet' en dar olumlu seçeneğe gider (U2-15)", () => {
+    const izin: VoiceAsk = { ...ASK, secenekler: [
+      { deger: "once", etiket: "İzin ver" }, { deger: "session", etiket: "Bu oturumda izin ver" }, { deger: "deny", etiket: "Reddet" },
+    ] };
+    expect(matchSpokenAnswer("evet", izin)).toBe("once");
+    expect(matchSpokenAnswer("tamam", izin)).toBe("once");
+    expect(matchSpokenAnswer("hayır", izin)).toBe("deny");
+    expect(matchSpokenAnswer("iptal", izin)).toBe("deny");
+    // Yalnız oturum genişliğinde tek olumlu seçenek varsa o seçilir (tek anlamlı).
+    expect(matchSpokenAnswer("evet", { ...izin, secenekler: [izin.secenekler[1], izin.secenekler[2]] })).toBe("session");
+    // İki "once" benzeri belirsizlik fail-closed kalır.
+    expect(matchSpokenAnswer("evet", { ...izin, secenekler: [izin.secenekler[1], { deger: "allow", etiket: "Hepsine izin" }] })).toBeNull();
+  });
+
   it("eşleşen cevabı onaya yollar, normal sohbet mesajına dönüştürmez", async () => {
     const fake = fakeRuntime();
     render(<VoiceWindow continuous wakeEnabled={false} runtime={fake.runtime} />);
@@ -1060,6 +1074,17 @@ describe("VoiceWindow — dalga 4 ekran düzeltmeleri (U2)", () => {
       await waitFor(() => expect(speak).toHaveBeenCalledOnce());
       expect(screen.queryByRole("alert")).toBeNull();
     } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("ana pencere dinleyicisi geç kurulursa tercih isteği cevap gelene dek yeniden denenir (U2-47)", async () => {
+    const fake = fakeRuntime();
+    render(<VoiceWindow prefsRetryMs={20} wakeEnabled={false} runtime={fake.runtime} />);
+    await waitFor(() => expect(fake.runtime.requestPrefs).toHaveBeenCalledTimes(3));
+    act(() => fake.prefs({ hiz: 1.3 }));
+    const sayi = vi.mocked(fake.runtime.requestPrefs).mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    // Cevap geldikten sonra yeniden istenmez.
+    expect(vi.mocked(fake.runtime.requestPrefs).mock.calls.length).toBe(sayi);
   });
 
   it("StrictMode'da efekt iki kez kurulsa da beklenmedik çıkış sonrası dinleme toparlanır (U2-18)", async () => {

@@ -1,5 +1,7 @@
 export type SettingsSection = "genel" | "hesap" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
 interface SettingsRow { section: SettingsSection; id: string; label: string; keywords: string }
+/** Bölüm başlığının kimliği; satır kimliği olmayan bölümler buna odaklanır. */
+export const SECTION_HEADING_ID = "settings-section-heading";
 export const SETTINGS_ROWS: SettingsRow[] = [
   { section: "genel", id: "settings-theme", label: "Tema", keywords: "görünüm koyu açık sistem" },
   { section: "genel", id: "settings-history", label: "Geçmiş", keywords: "sohbet kenar çubuğu" },
@@ -8,6 +10,14 @@ export const SETTINGS_ROWS: SettingsRow[] = [
   { section: "uzak", id: "settings-remote", label: "Uzaktan Erişim", keywords: "telefon pwa telegram eşleştir cihaz uzak" },
   { section: "nasil", id: "settings-howto", label: "Nasıl yapılır", keywords: "eğitim rehber yardım ekran görüntüsü adım adım tailscale chrome kits ses" },
   { section: "kisisellestirme", id: "settings-memory", label: "Bellek", keywords: "hafıza anı kişiselleştirme" },
+  // Kendi satır kimliği olmayan bölümler: bölüm başlığına odaklanır (Settings.tsx `settings-section-heading`).
+  { section: "ses", id: SECTION_HEADING_ID, label: "Ses ve konuşma ayarları", keywords: "konuşma hız mikrofon talk seslendirme" },
+  { section: "modeller", id: SECTION_HEADING_ID, label: "Model seçimi", keywords: "model sağlayıcı rol varsayılan görsel sohbet profil" },
+  { section: "izinler", id: SECTION_HEADING_ID, label: "İzin modu", keywords: "onay mod çalışma klasörü kök manuel otomatik" },
+  { section: "tarayici", id: SECTION_HEADING_ID, label: "Tarayıcı eklentisi", keywords: "chrome eklenti eşleştirme anahtar" },
+  { section: "kisisellestirme", id: SECTION_HEADING_ID, label: "Özel talimat", keywords: "özel talimat sistem istemi kişiselleştirme" },
+  { section: "gelismis", id: SECTION_HEADING_ID, label: "Kullanım sayacı", keywords: "sayaç token maliyet kullanım istatistik" },
+  { section: "guncellemeler", id: SECTION_HEADING_ID, label: "Sürüm güncellemesi", keywords: "sürüm yeni sürüm yükle güncelle" },
 ];
 export function searchSettings(query: string): SettingsRow[] {
   const text = query.trim().toLocaleLowerCase("tr");

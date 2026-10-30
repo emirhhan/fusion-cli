@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
+import { errorMessage } from "../protocol/result";
 
 /**
  * Kullanım ve sağlık özeti.
@@ -50,8 +51,9 @@ export function UsagePanel({ client }: { client: ProtocolClient }) {
       }
       setUsage(veri.kullanim);
       setHealth(veri.saglik ?? []);
-    } catch {
-      setError("Kullanım bilgisi alınamadı.");
+    } catch (reason) {
+      // Gerçek neden atılmaz (U2-57).
+      setError(`Kullanım bilgisi alınamadı. Neden: ${errorMessage(reason)}`);
     } finally {
       setLoading(false);
     }
@@ -64,6 +66,8 @@ export function UsagePanel({ client }: { client: ProtocolClient }) {
   return (
     <article className="settings__card settings__card--wide">
       <h3>Bu oturumdaki kullanım</h3>
+      {/* Sayaç yalnız açılışta yükleniyordu; elle yenilenebilir (U2-57). */}
+      {!loading && !error && <button className="settings__error-retry" onClick={() => void load()} type="button">Yenile</button>}
       {loading ? (
         <p aria-live="polite" className="settings__hint">Kullanım bilgisi okunuyor…</p>
       ) : error ? (

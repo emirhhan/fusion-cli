@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ProviderLogo, type ProviderId } from "../../brand/ProviderLogo";
 import { Button } from "../../ui/Button";
 import type { ProtocolClient } from "../../protocol/client";
+import { errorMessage } from "../../protocol/result";
 import "./RoleModels.css";
 
 /**
@@ -25,6 +26,8 @@ const ROLES: { id: RoleId; baslik: string; aciklama: string; ikon: string }[] = 
 ];
 
 const AUTO = "";
+/** Captcha penceresinin kapanıp kapanmadığı bu aralıkla yoklanır. */
+const DOGRULAMA_YOKLAMA_MS = 2000;
 
 function providerOf(model: string): ProviderId | null {
   const id = model.split("/")[0];
@@ -46,13 +49,17 @@ export function RoleModels({ client }: { client: ProtocolClient }) {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [verifying, setVerifying] = useState<string | null>(null);
+  // Bölüm kapanınca captcha doğrulama döngüsü durur (U2-48): sökülmüş bileşene `setNotice` yazılmaz,
+  // `web.baglan`/`web.dogrula` çağrılmaz.
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const load = useCallback(async () => {
     try {
       const payload = (await client.request("model.roller", {})) as { ok?: boolean; roller?: Roles; secenekler?: Option[]; oturumlar?: WebSession[] };
       if (payload.ok && payload.roller) { setRoles(payload.roller); setOptions(payload.secenekler ?? []); setSessions(payload.oturumlar ?? []); }
       else setNotice("Model listesi okunamadı.");
-    } catch { setNotice("Model listesi okunamadı."); }
+    } catch (reason) { setNotice(`Model listesi okunamadı: ${errorMessage(reason)}`); }
   }, [client]);
   useEffect(() => { void load(); }, [load]);
 
@@ -62,7 +69,7 @@ export function RoleModels({ client }: { client: ProtocolClient }) {
       const result = (await client.request("model.rol_ata", { rol, deger })) as { ok?: boolean; metin?: string; roller?: Roles };
       setNotice(String(result.metin ?? (result.ok ? "Kaydedildi." : "Kaydedilemedi.")));
       if (result.ok && result.roller) setRoles(result.roller);
-    } catch { setNotice("Kaydedilemedi."); }
+    } catch (reason) { setNotice(`Kaydedilemedi: ${errorMessage(reason)}`); }
     setBusy(false);
   };
 
@@ -78,18 +85,21 @@ export function RoleModels({ client }: { client: ProtocolClient }) {
       const deadline = Date.now() + 10 * 60_000;
       for (;;) {
         if (Date.now() >= deadline) { setNotice("Süre doldu. Tekrar dene."); return; }
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await new Promise((resolve) => setTimeout(resolve, DOGRULAMA_YOKLAMA_MS));
+        if (!mounted.current) return;
         const state = (await client.request("web.giris_durumu", { pid: opened.pid })) as { acik?: boolean; ok?: boolean; metin?: string };
         if (state.ok === false) { setNotice(state.metin ?? "Giriş tamamlanamadı."); return; }
         if (!state.acik) break;
       }
+      if (!mounted.current) return;
       setNotice("Oturum kaydediliyor ve sınanıyor…");
       const saved = (await client.request("web.baglan", who)) as { ok?: boolean; metin?: string };
       if (!saved.ok) { setNotice(saved.metin ?? "Oturum kaydedilemedi."); return; }
+      if (!mounted.current) return;
       const test = (await client.request("web.dogrula", who)) as { ok?: boolean; metin?: string };
       setNotice(test.ok ? `${row.etiket}: doğrulandı.` : (test.metin ?? `${row.etiket}: doğrulanamadı.`));
-    } catch { setNotice("Doğrulama tamamlanamadı."); }
-    finally { setVerifying(null); void load(); }
+    } catch (reason) { if (mounted.current) setNotice(`Doğrulama tamamlanamadı: ${errorMessage(reason)}`); }
+    finally { if (mounted.current) { setVerifying(null); void load(); } }
   };
 
   if (!roles) return <p className="settings__hint">{notice || "Modeller yükleniyor…"}</p>;

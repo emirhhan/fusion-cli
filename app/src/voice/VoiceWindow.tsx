@@ -106,6 +106,9 @@ const DUSUNME_IPUCU_TEKRAR_MS = 7_000;
  * hatası) Talk "Düşünüyorum…"da sonsuza kadar kalmaz; kullanıcıya söylenir ve tekrar denenebilir.
  */
 const DUSUNME_ZAMAN_ASIMI_MS = 90_000;
+/** Talk açılışında tercih isteği cevaplanmazsa kaç kez, hangi aralıkla yeniden istenir. */
+const TERCIH_ISTEK_DENEME = 4;
+const TERCIH_ISTEK_ARALIGI_MS = 1_000;
 /** Bu kadar ardışık verimsiz oturumdan sonra dinleme bırakılır; mikrofon sonsuz açılıp kapanmaz. */
 const ARDARDA_COKME_TAVANI = 5;
 
@@ -130,6 +133,10 @@ export function yenidenBaslatmaKarari(
 const ACCEPT_WORDS = new Set(["evet", "onayla", "kabul", "tamam", "olur"]);
 const REJECT_WORDS = new Set(["hayir", "reddet", "ret", "iptal", "olmaz"]);
 
+/** Çekirdeğin onay kartı seçenek değerleri (bkz. dialogs/Approval.tsx): "once"/"session" olumlu, "deny" olumsuz. */
+const ACCEPT_OPTION_VALUES = new Set(["once", "session", "allow"]);
+const REJECT_OPTION_VALUES = new Set(["deny"]);
+
 function normalizeSpeech(value: string): string {
   return value
     .trim()
@@ -153,10 +160,19 @@ export function matchSpokenAnswer(text: string, ask: VoiceAsk): string | null {
 
   const family = ACCEPT_WORDS.has(spoken) ? ACCEPT_WORDS : REJECT_WORDS.has(spoken) ? REJECT_WORDS : null;
   if (!family) return null;
+  const values = family === ACCEPT_WORDS ? ACCEPT_OPTION_VALUES : REJECT_OPTION_VALUES;
   const semantic = ask.secenekler.filter((option) =>
-    [option.deger, option.etiket].some((value) => family.has(normalizeSpeech(value))),
+    [option.deger, option.etiket].some((value) => family.has(normalizeSpeech(value)))
+    || values.has(normalizeSpeech(option.deger)),
   );
-  return semantic.length === 1 ? semantic[0].deger : null;
+  if (semantic.length === 1) return semantic[0].deger;
+  // Çekirdek izin kartı "once" (bir kez) ve "session" (bu oturumda) sunar; kalıcı genişlikteki izin
+  // sesli "evet"ten çıkmaz: yalnızca en dar olumlu seçenek ("once") seçilir. (U2-15)
+  if (family === ACCEPT_WORDS) {
+    const once = semantic.filter((option) => normalizeSpeech(option.deger) === "once");
+    if (once.length === 1) return once[0].deger;
+  }
+  return null;
 }
 
 interface VoiceWindowProps {
@@ -170,6 +186,8 @@ interface VoiceWindowProps {
   idleCheckMs?: number;
   /** Düşünme zaman aşımı (ms); testler kısaltır. */
   thinkingTimeoutMs?: number;
+  /** Tercih isteğini yeniden deneme aralığı (ms); testler kısaltır. */
+  prefsRetryMs?: number;
   /** Beklenmedik çökme sonrası yeniden deneme tabanı (ms); testler kısaltır. */
   restartBaseMs?: number;
   permissionBridge?: PermissionBridge;
@@ -441,10 +459,20 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   }, [clearPartialFinalTimer, runtime, startListening]);
 
   useEffect(() => {
-    const remove = runtime.onPrefs((incoming) => setPrefs(incoming));
-    void runtime.requestPrefs(null);
-    return () => { void remove.then((unlisten) => unlisten()).catch(() => undefined); };
-  }, [runtime]);
+    // Ana pencere dinleyicisi henüz kurulmamışsa ilk istek cevapsız kalır; Talk varsayılan hızla açık
+    // kalıp ilk değişiklikte gerçek tercihin üzerine yazardı. Cevap gelene dek sınırlı yeniden denenir (U2-47).
+    let received = false;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const remove = runtime.onPrefs((incoming) => { received = true; setPrefs(incoming); });
+    const ask = () => {
+      void runtime.requestPrefs(null).catch(() => undefined);
+      tries += 1;
+      if (tries < TERCIH_ISTEK_DENEME) timer = setTimeout(() => { if (!received) ask(); }, props.prefsRetryMs ?? TERCIH_ISTEK_ARALIGI_MS);
+    };
+    ask();
+    return () => { clearTimeout(timer); void remove.then((unlisten) => unlisten()).catch(() => undefined); };
+  }, [props.prefsRetryMs, runtime]);
 
   useEffect(() => {
     // StrictMode ya da bağımlılık değişimiyle efekt yeniden kurulurken önceki temizlikte kalan bayrak

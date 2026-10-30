@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../protocol/client";
 import { ChromeBrowser, installChecks } from "./ChromeBrowser";
@@ -66,4 +66,36 @@ it("installChecks yüklü-etkin ve eşleşme durumlarını ayırır", () => {
   expect(installChecks(null)).toEqual({ loaded: "off", paired: "off" });
   expect(installChecks({ ok: true, calisiyor: true, bagli: false, port: 1, anahtar: null, eklenti_yuklu: true, eklenti_etkin: false }))
     .toEqual({ loaded: "wait", paired: "wait" });
+});
+
+it("yoklama hatası sonraki başarılı yoklamada kalkar; yoklamalar üst üste binmez; anahtar varsayılan gizli (U2-40)", async () => {
+  vi.useFakeTimers();
+  try {
+    let call = 0;
+    let resolveSlow: ((value: unknown) => void) | null = null;
+    const client = {
+      request: vi.fn((name: string) => {
+        if (name !== "chrome.durum") return Promise.resolve({ ok: true });
+        call += 1;
+        if (call === 1) return Promise.reject(new Error("kopuk"));
+        if (call === 3) return new Promise((resolve) => { resolveSlow = resolve; });
+        return Promise.resolve({ ok: true, calisiyor: true, bagli: false, port: 1234, anahtar: "gizli-anahtar" });
+      }),
+    } as unknown as ProtocolClient;
+    render(<ChromeBrowser client={client} />);
+    await act(async () => { await act(async () => { await vi.advanceTimersByTimeAsync(0); }); });
+    expect(screen.getByRole("alert").textContent).toContain("okunamadı");
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(screen.queryByRole("alert")).toBeNull();
+    const key = screen.getByLabelText("Eşleştirme anahtarı") as HTMLInputElement;
+    expect(key.type).toBe("password");
+    fireEvent.click(screen.getByRole("button", { name: "Anahtarı göster" }));
+    expect(key.type).toBe("text");
+    // 3. yoklama yavaş: 8 sn içinde yenisi başlamaz.
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    const before = call;
+    await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
+    expect(call).toBe(before);
+    resolveSlow?.({ ok: true, calisiyor: true, bagli: false, port: 1234, anahtar: "gizli-anahtar" });
+  } finally { vi.useRealTimers(); }
 });

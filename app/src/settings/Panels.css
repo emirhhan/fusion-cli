@@ -112,6 +112,7 @@
 .px-switch:checked { background: var(--control-primary); }
 .px-switch:checked::after { background: var(--surface-canvas); transform: translateX(16px); }
 .px-switch:disabled { cursor: not-allowed; opacity: 0.5; }
+.px-switch[data-busy] { cursor: wait; opacity: 0.5; }
 .px-switch:focus-visible { outline: 2px solid var(--settings-ring); outline-offset: 2px; }
 
 /* --- Seçenek kartları --------------------------------------------------- */
@@ -163,7 +164,7 @@
 }
 
 .px-choice:has(input:focus-visible) { outline: 2px solid var(--settings-ring); outline-offset: 2px; }
-.px-choices:disabled .px-choice { cursor: wait; opacity: 0.7; }
+.px-choices[data-busy] .px-choice { cursor: wait; opacity: 0.7; }
 
 .px-choice__title { color: var(--settings-text); font-size: 14px; font-weight: 500; }
 .px-choice__hint { color: var(--settings-muted); font-size: 12px; line-height: 1.45; }
@@ -310,4 +311,9 @@
 @media (max-width: 700px) {
   .px-row, .px-item { align-items: flex-start; }
   .px-item { flex-direction: column; }
+}
+
+/* Hareketi azaltma tercihi satır ve anahtar geçişlerini de kapsar (U2-59). */
+@media (prefers-reduced-motion: reduce) {
+  .px-switch, .px-switch::before, .px-switch::after, .px-row, .px-choice, .px-item { transition: none; }
 }

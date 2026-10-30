@@ -16,7 +16,9 @@ const TAILSCALE_DOWNLOAD = "tailscale.com/download";
 const MAC_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale";
 
 export function serveCommand(port: string): string {
-  return `tailscale serve --bg --https=443 http://127.0.0.1:${port || "8791"}`;
+  // Port kabuk komutuna gömülür: yalnız rakam kabul edilir, aksi halde varsayılan (U2-42).
+  const safe = /^\d{1,5}$/.test(port) ? port : "8791";
+  return `tailscale serve --bg --https=443 http://127.0.0.1:${safe}`;
 }
 
 function CopyLine({ text }: { text: string }) {

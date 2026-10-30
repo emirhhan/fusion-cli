@@ -47,3 +47,28 @@ it("gerçek başarısızlık nedenini gösterir ve 'Yeniden dene' isteği tekrar
   await screen.findByText("Henüz kayıtlı anı yok.");
   expect(screen.queryByText(/Hafıza okunamadı/)).toBeNull();
 });
+
+it("Enter ile anı ekler; hata metni 'Error:' öneki taşımaz (U2-39)", async () => {
+  let items: { id: string; metin: string }[] = [];
+  let reddet = true;
+  const request = vi.fn(async (name: string, data: Record<string, unknown>) => {
+    if (name === "bellek.listele") return { ok: true, etkin: true, anilar: items };
+    if (name === "bellek.ekle") {
+      if (reddet) throw new Error("Disk dolu");
+      items = [{ id: "m1", metin: String(data.metin) }];
+      return { ok: true };
+    }
+    return { ok: false };
+  });
+  render(<MemoryPanel client={{ request } as unknown as ProtocolClient} />);
+  await screen.findByText("Henüz kayıtlı anı yok.");
+  const input = screen.getByRole("textbox", { name: "Yeni anı" });
+  fireEvent.change(input, { target: { value: "Kısa yaz" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("Disk dolu");
+  expect(alert.textContent).not.toContain("Error:");
+  reddet = false;
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(await screen.findByText("Kısa yaz")).toBeTruthy();
+});

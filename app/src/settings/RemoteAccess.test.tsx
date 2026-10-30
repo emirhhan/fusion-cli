@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../protocol/client";
 import { RemoteAccess } from "./RemoteAccess";
@@ -163,9 +163,51 @@ it("yeni cihaz eşleşince masaüstünde 'bağlandı' bildirimi gösterir", asyn
     render(<RemoteAccess client={client} />);
     await screen.findByLabelText("Kodla eşleştirmede masaüstü onayı iste");
     status = { sonEslesen: { cihazId: "d1", ad: "Telefonum", zaman: 5 } };
-    await vi.advanceTimersByTimeAsync(4100);
+    await act(async () => { await vi.advanceTimersByTimeAsync(4100); });
     expect(await screen.findByText("Telefonum bağlandı.")).toBeTruthy();
   } finally {
     vi.useRealTimers();
   }
+});
+
+import { parsePort } from "./RemoteAccess";
+import { serveCommand } from "./RemoteGuide";
+
+it("port 1-65535 tam sayı olmalı; geçersizse çekirdeğe gitmeden hata (U2-42)", async () => {
+  expect(parsePort("8791")).toBe(8791);
+  for (const bad of ["", " ", "abc", "0", "65536", "80; rm -rf /", "-1", "8791.5"]) expect(parsePort(bad)).toBeNull();
+  const client = fakeClient();
+  render(<RemoteAccess client={client} />);
+  const port = await screen.findByLabelText("Port");
+  fireEvent.change(port, { target: { value: "abc" } });
+  fireEvent.click(screen.getByRole("button", { name: "Dinlemeyi başlat" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("1 ile 65535");
+  expect(vi.mocked(client.request).mock.calls.some(([name]) => name === "uzak.baslat")).toBe(false);
+});
+
+it("kabuk komutuna yalnız rakam portu gömülür (U2-42)", () => {
+  expect(serveCommand("8791")).toContain("http://127.0.0.1:8791");
+  expect(serveCommand("80; rm -rf /")).toContain("http://127.0.0.1:8791");
+  expect(serveCommand("")).toContain("http://127.0.0.1:8791");
+});
+
+it("yoklama hatası sonraki başarılı yoklamada kalkar ve yoklamalar üst üste binmez (U2-41)", async () => {
+  vi.useFakeTimers();
+  try {
+    let durumCagrisi = 0;
+    const client = {
+      request: vi.fn(async (name: string) => {
+        if (name === "uzak.durum") {
+          durumCagrisi += 1;
+          if (durumCagrisi === 1) throw new Error("çekirdek meşgul");
+        }
+        return { ok: true, dinliyor: false, adres: "", telegram: false, telegramHata: "", cihazSayisi: 0, port: 8791, agAdresleri: [], cihazlar: [], sorular: [] };
+      }),
+    } as unknown as ProtocolClient;
+    render(<RemoteAccess client={client} />);
+    await act(async () => { await act(async () => { await vi.advanceTimersByTimeAsync(0); }); });
+    expect(screen.getByRole("alert").textContent).toContain("çekirdek meşgul");
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(screen.queryByRole("alert")).toBeNull();
+  } finally { vi.useRealTimers(); }
 });

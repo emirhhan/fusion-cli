@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { APPROVAL_MODES } from "../../screens/ApprovalModeMenu";
 import { Button } from "../../ui/Button";
 
@@ -30,6 +31,8 @@ export function Permissions({
   onChangeRoot?: () => void;
   onSelectMode?: (command: string) => void;
 }) {
+  // "İzinleri atla" hiçbir şey sormaz; tek tıkla açılmasın, önce açık onay istenir (U2-51).
+  const [confirmBypass, setConfirmBypass] = useState(false);
   return (
     <>
       <article className="settings__card">
@@ -42,7 +45,11 @@ export function Permissions({
               data-active={secenek.id === mod}
               disabled={!onSelectMode || pending}
               key={secenek.id}
-              onClick={() => onSelectMode?.(`/${secenek.id}`)}
+              onClick={() => {
+                if (secenek.id === "bypass" && mod !== "bypass") { setConfirmBypass(true); return; }
+                setConfirmBypass(false);
+                onSelectMode?.(`/${secenek.id}`);
+              }}
               type="button"
             >
               <strong>{secenek.etiket}</strong>
@@ -50,6 +57,20 @@ export function Permissions({
             </button>
           ))}
         </div>
+        {confirmBypass && (
+          <div className="settings__warning" role="alert">
+            <p>
+              <strong>İzinleri atla</strong> modunda Fusion dosya yazma ve komut çalıştırma dahil hiçbir
+              işlem için sormaz. Yalnız güvendiğin bir projede aç.
+            </p>
+            <div className="settings__actions">
+              <Button disabled={pending} onClick={() => { setConfirmBypass(false); onSelectMode?.("/bypass"); }} variant="secondary">
+                Evet, izinleri atla
+              </Button>
+              <Button onClick={() => setConfirmBypass(false)} variant="secondary">Vazgeç</Button>
+            </div>
+          </div>
+        )}
         <p className="settings__hint">
           Sohbet ekranında Shift+Tab ile de değiştirebilirsin.
         </p>

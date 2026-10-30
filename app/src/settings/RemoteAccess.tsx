@@ -26,6 +26,18 @@ interface Status {
 
 type Mode = "local" | "tunnel" | "lan";
 
+const VARSAYILAN_PORT = 8791;
+/** Eşleştirme kodunun ömrü (çekirdekle aynı: 2 dakika); süre dolunca ekrandan kalkar. */
+const KOD_OMRU_MS = 120_000;
+
+/** Port alanını doğrular (U2-42): boş → 0, harf → NaN idi ve hata ancak çekirdekten dönüyordu. */
+export function parsePort(value: string): number | null {
+  const text = value.trim();
+  if (!/^\d{1,5}$/.test(text)) return null;
+  const port = Number(text);
+  return port >= 1 && port <= 65535 ? port : null;
+}
+
 export function RemoteAccess({ client }: { client: ProtocolClient }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -41,7 +53,10 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
   const [certificate, setCertificate] = useState("");
   const [keyFile, setKeyFile] = useState("");
   const [message, setMessage] = useState("");
+  // Yoklama hatası eylem hatasından ayrıdır; yoklama düzelince kendiliğinden kalkar (U2-41).
+  const [pollMessage, setPollMessage] = useState("");
   const [notice, setNotice] = useState("");
+  const reloading = useRef(false);
   const seenPairing = useRef<number | null | undefined>(undefined);
 
   const call = useCallback(
@@ -54,6 +69,9 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
   );
 
   const reload = useCallback(async () => {
+    // Tek uçuşlu yoklama: bir tur bitmeden yenisi başlamaz (5 ardışık istek üst üste binmesin).
+    if (reloading.current) return;
+    reloading.current = true;
     try {
       const durum = (await call("uzak.durum")) as unknown as Status;
       setStatus(durum);
@@ -71,10 +89,19 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
       const screen = await call("uzak.ekran_bekleyen");
       setScreenAsks((screen.bekleyen ?? []) as ScreenDevice[]);
       setScreenLive((screen.etkin ?? []) as ScreenDevice[]);
+      setPollMessage("");
     } catch (reason) {
-      setMessage(errorMessage(reason));
+      setPollMessage(errorMessage(reason));
+    } finally {
+      reloading.current = false;
     }
   }, [call]);
+
+  useEffect(() => {
+    if (!code) return;
+    const timer = window.setTimeout(() => setCode(null), KOD_OMRU_MS);
+    return () => window.clearTimeout(timer);
+  }, [code]);
 
   useEffect(() => {
     void reload();
@@ -109,7 +136,7 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
         Görevler bu bilgisayarda çalışır; uyku, kilit veya kapalı bilgisayarda ilerlemez. Riskli işlemler
         (masaüstü kontrolü, dış servis yazma, silme) yalnız burada onaylanır.
       </PanelIntro>
-      {message && <p className="px-error" role="alert">{message}</p>}
+      {(message || pollMessage) && <p className="px-error" role="alert">{message || pollMessage}</p>}
       {notice && <p className="px-note" role="status">{notice}</p>}
 
       <PanelGroup title="Telefon (PWA)">
@@ -145,7 +172,7 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
       />
 
       <Field label="Port">
-        {(id) => <input id={id} inputMode="numeric" onChange={(event) => setPort(event.target.value)} value={port} />}
+        {(id) => <input aria-invalid={parsePort(port) === null} id={id} inputMode="numeric" onChange={(event) => setPort(event.target.value)} value={port} />}
       </Field>
       {mode === "lan" && (
         <>
@@ -175,7 +202,9 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
           disabled={listening || (mode === "lan" && (!lanAddress || !certificate || !keyFile))}
           onClick={() =>
             act(async () => {
-              const base: Record<string, unknown> = { port: Number(port) };
+              const parsed = parsePort(port);
+              if (parsed === null) throw new Error("Port 1 ile 65535 arasında bir tam sayı olmalı.");
+              const base: Record<string, unknown> = { port: parsed };
               if (mode === "tunnel") base.guvenilirTunel = true;
               if (mode === "lan") {
                 Object.assign(base, { adres: lanAddress, yerelAg: true, sertifika: certificate, anahtar: keyFile });
@@ -191,7 +220,7 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
         </Button>
       </div>
 
-      {mode === "tunnel" && <TunnelGuide port={port} />}
+      {mode === "tunnel" && <TunnelGuide port={String(parsePort(port) ?? VARSAYILAN_PORT)} />}
 
       <PanelGroup note="Seçimin bu bilgisayarda hatırlanır ve yalnız yeni eşleştirmelere uygulanır. Mevcut cihazların yetkileri değişmez." title="Ek yetkiler">
         {ELEVATED_SCOPES.map((item) => (
