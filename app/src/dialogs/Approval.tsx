@@ -28,11 +28,20 @@ interface Secenek {
   reddet: boolean;
 }
 
+/** Nesne değerler "[object Object]" yazmasın (U4-15). */
+function metinle(deger: unknown): string {
+  if (typeof deger === "string") return deger;
+  if (deger !== null && typeof deger === "object") {
+    try { return JSON.stringify(deger); } catch { /* döngüsel yapı: String'e düşer */ }
+  }
+  return String(deger);
+}
+
 /** Çekirdek argümanları `ad='değer'` listesi olarak gönderir; eski biçim sözlüktü. */
 function argumanSatirlari(argumanlar: Soru["argumanlar"]): string[] {
   if (!argumanlar) return [];
-  if (Array.isArray(argumanlar)) return argumanlar.map(String);
-  return Object.entries(argumanlar).map(([ad, deger]) => `${ad}=${String(deger)}`);
+  if (Array.isArray(argumanlar)) return argumanlar.map(deger => metinle(deger));
+  return Object.entries(argumanlar).map(([ad, deger]) => `${ad}=${metinle(deger)}`);
 }
 
 function secenekler(soru: Soru): Secenek[] {
@@ -204,7 +213,7 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
         {!soruMu && ayrintilar.length > 0 && (
           <details className="prompt-card__details">
             <summary>Ayrıntılar · {soru.arac}</summary>
-            <ul>{ayrintilar.map((satir) => <li key={satir}>{satir}</li>)}</ul>
+            <ul>{ayrintilar.map((satir, indeks) => <li key={`${indeks}:${satir}`}>{satir}</li>)}</ul>
           </details>
         )}
         <div className="prompt-card__options" role="group" aria-label="Seçenekler">
@@ -214,7 +223,7 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
               className="prompt-card__option"
               data-recommended={secenek.onerilen || undefined}
               data-deny={secenek.reddet || undefined}
-              key={secenek.etiket}
+              key={`${index}:${secenek.etiket}`}
               onClick={() => sec(secenek)}
               type="button"
             >

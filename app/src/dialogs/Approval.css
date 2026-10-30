@@ -184,7 +184,19 @@
 .prompt-card__option[data-recommended="true"] { background: var(--surface-hover, rgb(255 255 255 / 6%)); border-color: transparent; }
 .prompt-card__option[data-recommended="true"] .prompt-card__key { background: none; color: var(--text-primary); }
 .prompt-card__option[data-recommended="true"]::after { content: "\2713"; color: var(--text-secondary); font-size: 12px; margin-left: auto; }
-.prompt-card__badge { display: none; }
+/* Görsel olarak "✓" işareti gösterir; ama rozet ekran okuyucuya iletilmeye devam eder
+   (display:none erişilebilirlik ağacından da çıkarırdı). */
+.prompt-card__badge {
+  border: 0;
+  clip: rect(0 0 0 0);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
 .prompt-card__other { padding: 2px 0 0 22px; }
 .prompt-card__other input { border-radius: 8px; font-size: 13px; min-height: 30px; padding: 4px 8px; }
 .prompt-card__other button { font-size: 12px; min-height: 28px; }

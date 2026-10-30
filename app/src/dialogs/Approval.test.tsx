@@ -192,4 +192,20 @@ describe("Approval — yazarken beliren kart (WP16 madde 2)", () => {
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(onCevap).toHaveBeenCalledWith({ secim: "deny" });
   });
+
+  // Ölçüldü (30 Ekim): aynı etiketli iki seçenek React key uyarısı ve yanlış düğme durumu üretiyordu;
+  // nesne argüman "[object Object]" yazıyordu (U4-15).
+  it("aynı etiketli seçenekler ayrı düğme olur, nesne argüman JSON olarak gösterilir (U4-15)", () => {
+    const hata = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    render(<Approval soru={{
+      tur: "soru", soru: "Hangisi?", secenekler: [{ etiket: "Evet" }, { etiket: "Evet" }],
+      argumanlar: { ayar: { a: 1 } } as never,
+    }} onCevap={vi.fn()} />);
+    expect(screen.getAllByRole("button", { name: /Evet/ })).toHaveLength(2);
+    expect(hata.mock.calls.flat().join(" ")).not.toContain("same key");
+    hata.mockRestore();
+    cleanup();
+    render(<Approval soru={{ ...temel, argumanlar: { ayar: { a: 1 } } as never }} onCevap={vi.fn()} />);
+    expect(screen.getByText('ayar={"a":1}')).toBeTruthy();
+  });
 });
