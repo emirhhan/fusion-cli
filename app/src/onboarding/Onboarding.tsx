@@ -287,16 +287,23 @@ export function Onboarding({
     if (step) onChange({ ...value, step });
   };
 
+  // Başlık odağı adım değişince VE yükleniyor → yüklendi geçişinde (h1 değişir) yenilenir; aksi halde
+  // odak body'ye düşüyordu (U5-49).
+  const sourcesStatus = sourcesState?.status;
+  const controlStatus = controlState?.status;
   useEffect(() => {
     const heading = contentRef.current?.querySelector("h1");
     if (!heading) return;
     heading.tabIndex = -1;
     heading.focus();
-  }, [value.step]);
+  }, [value.step, sourcesStatus, controlStatus]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!event.altKey || event.ctrlKey || event.metaKey) return;
+      // macOS'ta Option+ok metin alanında kelime atlar; düzenlenebilir alandayken adım değiştirilmez (U5-49).
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
       const offset = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
       if (offset === 0) return;
       if (offset === 1 && value.step === "project" && value.selectedProjectId === null) return;
@@ -344,6 +351,7 @@ export function Onboarding({
             <li aria-current={step === value.step ? "step" : undefined} data-complete={index < stepIndex} key={step}>
               <span aria-hidden="true">{index + 1}</span>
               {STEP_LABELS[step]}
+              {index < stepIndex && <span className="onboarding__sr-only"> (tamamlandı)</span>}
             </li>
           ))}
         </ol>

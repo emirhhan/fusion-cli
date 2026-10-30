@@ -229,3 +229,28 @@ describe("eğitim adımı", () => {
     expect(props.onChange).toHaveBeenCalledWith({ step: "complete", selectedProjectId: null });
   });
 });
+
+// Ölçüldü (30 Ekim): Alt+ok metin alanında da adım değiştiriyor, tamamlanan adım yalnız görseldi, hata metinleri
+// ham basılıyordu (U5-49, U5-48).
+describe("Onboarding erişilebilirlik ve maske (30 Ekim)", () => {
+  it("düzenlenebilir alanda Alt+ok adım değiştirmez", () => {
+    const props = renderAt("project", { value: { step: "project", selectedProjectId: "starter" } });
+    const alan = document.createElement("input");
+    document.body.appendChild(alan);
+    fireEvent.keyDown(alan, { key: "ArrowRight", altKey: true });
+    expect(props.onChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "ArrowRight", altKey: true });
+    expect(props.onChange).toHaveBeenCalledTimes(1);
+    alan.remove();
+  });
+
+  it("tamamlanan adımlar ekran okuyucuya bildirilir", () => {
+    renderAt("providers");
+    expect(screen.getAllByText("(tamamlandı)", { exact: false }).length).toBeGreaterThan(0);
+  });
+
+  it("çekirdek hata metnindeki sır maskelenir", () => {
+    renderAt("sources", { sourcesState: { status: "error", message: "bağlantı: token=abc123def456" } });
+    expect(screen.getByRole("alert").textContent).not.toContain("abc123def456");
+  });
+});

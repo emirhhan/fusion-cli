@@ -47,7 +47,7 @@ export function ConnectedOnboarding({ client, projects, runtimeVersion, onFinish
       if (generation !== owner.current || sequence !== sourcesRequest.current) return;
       const result = operationResult(history, "Kaynaklar okunamadı.", true);
       if (!result.ok) { setSources({ status: "error", message: result.message }); return; }
-      const found = new Set(Array.isArray(history.kaynaklar) ? history.kaynaklar.map((raw) => String((raw as Record<string, unknown>).ad ?? "")) : []);
+      const found = new Set(Array.isArray(history.kaynaklar) ? history.kaynaklar.map((raw) => String((raw as Record<string, unknown>).ad ?? "").toLowerCase()) : []);
       setSources({ status: "ready", value: (["claude", "codex", "hermes"] as const).map((kind) => ({ kind, status: found.has(kind) ? "found" : "not-found" })) });
     } catch (reason) { if (generation === owner.current && sequence === sourcesRequest.current) setSources({ status: "error", message: errorMessage(reason) }); }
   }, [client]);
@@ -101,7 +101,7 @@ export function ConnectedOnboarding({ client, projects, runtimeVersion, onFinish
   </div>;
   const summary = control.status === "ready" ? control.value : lastControl;
   return <>
-    {storageError && <p role="status">Kurulum ilerlemesi saklanamadı; bu oturumda geçerli.</p>}
+    {storageError && <p className="onboarding-storage-warning" role="status">Kurulum ilerlemesi saklanamadı; bu oturumda geçerli.</p>}
     <Onboarding apprentice={summary?.apprentice ?? { active: null, recommendedModel: null }}
       sources={sources.status === "ready" ? sources.value : []} sourcesState={sources}
       providers={summary?.providers ?? []} controlState={control} controlHasSnapshot={summary !== null}
