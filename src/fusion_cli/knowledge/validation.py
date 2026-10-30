@@ -40,7 +40,8 @@ def validate_manifest(manifest: KnowledgeManifest, *, public_key: str) -> Valida
         expected = entry_hash(entry.entry_id, entry.text, entry.kind, entry.scope)
         if entry.content_hash != expected:
             problems.append(f"bütünlük hatası: {entry.entry_id}")
-        if contains_sensitive(entry.text):
+        # Yalnız `text` değil `scope` ve `entry_id` de taranır: sır oralara da sızabilir (E1-39).
+        if any(contains_sensitive(alan) for alan in (entry.text, entry.scope, entry.entry_id)):
             problems.append(f"sır/kişisel veri: {entry.entry_id}")
 
     return ValidationResult(ok=not problems, problems=tuple(problems))

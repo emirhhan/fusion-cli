@@ -122,3 +122,21 @@ def test_yetenek_kaldir_yol_kacisini_reddeder(monkeypatch, tmp_path):
 
     with pytest.raises(typer.Exit):
         capability_commands.remove("../disarida")
+
+
+def test_bozuk_bilgi_paketi_traceback_yerine_temiz_cikis(monkeypatch, tmp_path):
+    """Bozuk JSON/eksik alanlı manifest çıplak traceback vermez (L1-32)."""
+    import pytest
+    import typer
+
+    from fusion_cli.cli import knowledge_commands
+
+    konsol, tampon = _konsol()
+    monkeypatch.setattr(knowledge_commands, "console", konsol)
+    bozuk = tmp_path / "manifest.json"
+    bozuk.write_text("{kapanmamış", encoding="utf-8")
+
+    with pytest.raises(typer.Exit):
+        knowledge_commands._read_or_exit(bozuk)
+
+    assert "okunamadı" in tampon.getvalue()

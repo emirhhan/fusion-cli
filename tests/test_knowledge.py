@@ -234,3 +234,94 @@ def test_servis_gecersiz_paketi_uygulamaz(tmp_path):
     report = sync(manifest, memory, state_path=tmp_path / "state.json", public_key=baska_public)
     assert report.ok is False
     assert memory.added == []  # hiçbir ders uygulanmadı
+
+
+# --------------------------------------------------------------------------- #
+# Dalga 4: geri alma koruması, bozuk durum, eksik alan, sır taraması, cryptography yok
+# --------------------------------------------------------------------------- #
+
+
+def test_eski_surumlu_gecerli_manifest_geri_alma_olarak_reddedilir(tmp_path):
+    """Ölçüldü (30 Ekim): önceden imzalı eski bir manifest tekrar sunulunca kabul ediliyordu."""
+    state_path = tmp_path / "state.json"
+    yeni = build_manifest(_entries(), version=5, private_key=_PRIVATE_KEY)
+    eski = build_manifest(_entries()[:1], version=2, private_key=_PRIVATE_KEY)
+    assert sync(yeni, _FakeLessonMemory(), state_path=state_path, public_key=_PUBLIC_KEY).ok
+
+    bellek = _FakeLessonMemory()
+    rapor = sync(eski, bellek, state_path=state_path, public_key=_PUBLIC_KEY)
+
+    assert rapor.ok is False
+    assert "geri sürüm" in rapor.problems[0]
+    assert bellek.added == []
+
+
+def test_ayni_surum_tekrar_uygulanabilir(tmp_path):
+    state_path = tmp_path / "state.json"
+    manifest = build_manifest(_entries(), version=3, private_key=_PRIVATE_KEY)
+    sync(manifest, _FakeLessonMemory(), state_path=state_path, public_key=_PUBLIC_KEY)
+
+    assert sync(manifest, _FakeLessonMemory(), state_path=state_path, public_key=_PUBLIC_KEY).ok
+
+
+def test_eski_duz_durum_dosyasi_okunur(tmp_path):
+    import json
+
+    yol = tmp_path / "state.json"
+    yol.write_text(json.dumps({"e1": "abc"}), encoding="utf-8")
+
+    assert load_state(yol) == {"e1": "abc"}
+
+
+def test_bozuk_durum_dosyasi_sync_i_dusurmez(tmp_path):
+    yol = tmp_path / "state.json"
+    yol.write_text("{yarım", encoding="utf-8")
+
+    assert load_state(yol) == {}
+    manifest = build_manifest(_entries(), version=1, private_key=_PRIVATE_KEY)
+    assert sync(manifest, _FakeLessonMemory(), state_path=yol, public_key=_PUBLIC_KEY).ok
+
+
+def test_durum_yazimi_gecici_dosya_birakmaz(tmp_path):
+    from fusion_cli.knowledge.service import save_state
+
+    save_state({"e1": "h"}, tmp_path / "durum" / "state.json", version=1)
+
+    assert [p.name for p in (tmp_path / "durum").iterdir()] == ["state.json"]
+
+
+def test_giris_alani_eksikse_keyerror_degil_valueerror():
+    with pytest.raises(ValueError, match="eksik alan"):
+        manifest_from_dict({"version": 1, "entries": [{"text": "x"}]})
+
+
+def test_scope_ve_giris_kimligindeki_sir_reddedilir():
+    sirli = KnowledgeEntry(
+        entry_id="e1",
+        text="temiz ders",
+        kind="success",
+        scope="sk-or-v1-" + "a1b2c3d4e5f6" * 4,  # gitleaks:allow
+    )
+    manifest = build_manifest((sirli,), version=1, private_key=_PRIVATE_KEY)
+
+    sonuc = validate_manifest(manifest, public_key=_PUBLIC_KEY)
+
+    assert sonuc.ok is False
+    assert any("sır" in sorun for sorun in sonuc.problems)
+
+
+def test_dogrulama_cryptography_yokken_anlasilir_hata_verir(monkeypatch):
+    """`verify` ham ModuleNotFoundError değil KnowledgeError vermeli (E1-38)."""
+    import sys
+
+    from fusion_cli.core.errors import KnowledgeError
+    from fusion_cli.knowledge import signing
+
+    def _yok():
+        raise KnowledgeError("cryptography gerekiyor")
+
+    monkeypatch.setattr(signing, "_ed25519", _yok)
+    monkeypatch.setitem(sys.modules, "cryptography.exceptions", None)
+
+    with pytest.raises(KnowledgeError):
+        signing.verify(b"x", "00", _PUBLIC_KEY)
