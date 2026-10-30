@@ -71,3 +71,19 @@ def test_tetikleyiciler_korunur(tmp_path):
     tetikleyiciler = {t for kitap in build_playbooks(tmp_path) for t in kitap.triggers}
 
     assert "pytest" in tetikleyiciler or "testleri çalıştır" in tetikleyiciler
+
+
+def test_komut_siniflamasi_tests_dizinini_test_komutu_saymaz():
+    """Ölçüldü (30 Ekim): 'ruff check src tests' alt dizge yüzünden test grubuna düşüyordu."""
+    from fusion_cli.engines.playbook.library import _TEST_COMMAND
+
+    assert not _TEST_COMMAND.search("ruff check src tests")
+    assert not _TEST_COMMAND.search("eslint src/test/helpers.js")
+    for komut in (
+        "pytest -q",
+        "python -m pytest tests/",
+        "npm run test:unit",
+        "go test ./...",
+        "make test",
+    ):
+        assert _TEST_COMMAND.search(komut), komut
