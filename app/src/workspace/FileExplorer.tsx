@@ -150,7 +150,9 @@ export function FileExplorer({ client, onChanged, onSelected, root, revision = 0
                       setSaving(true);
                       void saveSelected(editContent)
                         .then((result) => {
-                          if (saveOwner.current !== current || result.gorunum_guncel === false) return;
+                          // Görünüm değişmiş olsa da kayıt DİSKTE yapıldı: dışarıya bildirilmeli (U4-44).
+                          if (result.gorunum_guncel === false) { onChanged?.(); return; }
+                          if (saveOwner.current !== current) return;
                           if (editVersion.current === version) setEditContent(null);
                           setSaveError(null);
                           onChanged?.();
