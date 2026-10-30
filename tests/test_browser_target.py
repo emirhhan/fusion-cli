@@ -98,3 +98,31 @@ async def test_gercek_sayfada_adaylar_tekil_secici_verir_ve_gizli_ilk_oge_beklem
         assert len(adaylar) == 2 and len(set(adaylar)) == 2, str(hata)
     assert tekil.tag == "button"
     assert ikinci_radyo.tag == "input"
+
+
+# --- Dalga 4 (T1-35) --------------------------------------------------------------------
+
+
+async def test_gorunurluk_tek_cagrida_olculur():
+    """Eşleşme başına is_visible() yerine tek evaluate_all gidiş-dönüşü."""
+    from fusion_cli.tools.browser_target import _visible
+
+    cagrilar = {"evaluate_all": 0, "is_visible": 0}
+
+    class _Oge:
+        async def is_visible(self):
+            cagrilar["is_visible"] += 1
+            return True
+
+    class _Locator:
+        async def evaluate_all(self, _js):
+            cagrilar["evaluate_all"] += 1
+            return [False, True, True, False]
+
+        def nth(self, sira):
+            return (sira, _Oge())
+
+    sonuc = await _visible(_Locator())
+
+    assert [sira for sira, _ in sonuc] == [1, 2]
+    assert cagrilar == {"evaluate_all": 1, "is_visible": 0}

@@ -73,15 +73,19 @@ _DESCRIBE_JS = """(e) => {
 }""".replace("MAX_LABEL", str(MAX_LABEL_CHARS))
 
 
+_VISIBILITY_JS = """els => els.map(e => {
+  const r = e.getBoundingClientRect(); const s = getComputedStyle(e);
+  return r.width > 0 && r.height > 0 && s.visibility !== 'hidden';
+})"""
+
+
 async def _visible(locator: Any) -> list[tuple[int, Any]]:  # noqa: ANN401 - Playwright tipi opsiyonel
     """Görünür eşleşmeler ve her birinin seçicideki SIRASI (DOM sırası, gizliler dâhil)."""
-    sayi = int(await locator.count())
-    gorunur = []
-    for sira in range(sayi):
-        oge = locator.nth(sira)
-        if await oge.is_visible():
-            gorunur.append((sira, oge))
-    return gorunur
+    # TEK gidiş-dönüş: eşleşme başına `is_visible()` çağrısı `a`/`div` gibi genel seçicide
+    # binlerce CDP çağrısı (saniyeler-dakikalar) demekti (ölçüldü, 30 Ekim). Görünürlük
+    # Playwright ile aynı tanımla (boş olmayan kutu, visibility:hidden değil) sayfada hesaplanır.
+    bayraklar = await locator.evaluate_all(_VISIBILITY_JS)
+    return [(sira, locator.nth(sira)) for sira, gorunur in enumerate(bayraklar) if gorunur]
 
 
 async def _unique_selector(
