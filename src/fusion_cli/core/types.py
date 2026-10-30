@@ -6,6 +6,7 @@ veri taşıması dict ile değil bu tiplerle yapılır (RULES.md "Katman Sınır
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum
@@ -141,6 +142,22 @@ class ModelSpec:
         return tuple(dict.fromkeys([self.model, *self.fallback]))
 
 
+def _has_marker(lowered: str, markers: tuple[str, ...]) -> bool:
+    """Küçük harfli hata metninde işaretlerden biri var mı?
+
+    Sayısal durum kodları (`429`, `503`) SAYI SINIRIYLA aranır: düz alt-dize
+    eşlemesi `4290 tokens`ı kota, `15004`ü altyapı, `line 500`ü sunucu hatası sanıyordu.
+    Ölçüldü (30 Ekim). Sözcük işaretleri eskisi gibi alt-dize eşlemesidir.
+    """
+    for marker in markers:
+        if marker.isdigit():
+            if re.search(rf"(?<![\d.])(?<!line )(?<!satır ){marker}(?![\d])", lowered):
+                return True
+        elif marker in lowered:
+            return True
+    return False
+
+
 #: Sağlayıcıların kota/hız sınırını bildirirken kullandığı sözcükler.
 _RATE_LIMIT_MARKERS = ("429", "ratelimit", "rate limit", "too many requests", "quota")
 
@@ -177,7 +194,7 @@ def is_rate_limit_error(detail: str | None) -> bool:
     if not detail:
         return False
     lowered = detail.lower()
-    return any(marker in lowered for marker in _RATE_LIMIT_MARKERS)
+    return _has_marker(lowered, _RATE_LIMIT_MARKERS)
 
 
 #: Modelin HİÇ cevap veremediğini gösteren işaretler.
@@ -241,7 +258,7 @@ def is_infrastructure_error(detail: str | None) -> bool:
     if not detail:
         return False
     lowered = detail.lower()
-    return is_unavailable_error(detail) or any(marker in lowered for marker in _INFRA_MARKERS)
+    return is_unavailable_error(detail) or _has_marker(lowered, _INFRA_MARKERS)
 
 
 def is_authentication_error(detail: str | None) -> bool:
@@ -260,7 +277,7 @@ def is_unavailable_error(detail: str | None) -> bool:
     lowered = detail.lower()
     if is_rate_limit_error(detail) or is_daily_quota_error(detail):
         return True
-    return any(marker in lowered for marker in _UNAVAILABLE_MARKERS)
+    return _has_marker(lowered, _UNAVAILABLE_MARKERS)
 
 
 #: Beklemenin HİÇBİR ŞEYİ değiştirmeyeceği hataların işaretleri.
@@ -306,7 +323,7 @@ def is_permanent_error(detail: str | None) -> bool:
     if is_daily_quota_error(detail):
         return True
     lowered = detail.lower()
-    return any(marker in lowered for marker in _PERMANENT_MARKERS)
+    return _has_marker(lowered, _PERMANENT_MARKERS)
 
 
 @dataclass(frozen=True, slots=True)

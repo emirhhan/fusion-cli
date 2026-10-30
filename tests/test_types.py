@@ -104,3 +104,24 @@ def test_basarisiz_sonuc_kullanilabilir_degildir():
     from fusion_cli.core.types import ModelResult
 
     assert not ModelResult(name="a", model="m", text="x", latency_ms=1, ok=False).is_usable
+
+
+def test_hata_siniflandirma_ilgisiz_sayiyi_durum_kodu_saymaz():
+    """Durum kodu işareti sözcük sınırıyla aranır (C1-13).
+
+    Ölçüldü (30 Ekim): '4290 tokens' kota, 'line 500' altyapı, '14043' kalıcı hata
+    sanılıyordu (düz alt-dize eşlemesi).
+    """
+    from fusion_cli.core.types import is_infrastructure_error, is_permanent_error
+
+    assert not is_rate_limit_error("işlem 4290 token tuttu")
+    assert not is_infrastructure_error("SyntaxError: line 500, column 3")
+    assert not is_infrastructure_error("hata kodu 15004")
+    assert not is_permanent_error("sonuç 14043 satır")
+    # gerçek durum kodları yine tanınır
+    assert is_rate_limit_error("HTTP 429: Too Many Requests")
+    assert is_rate_limit_error("status=429")
+    assert is_infrastructure_error("HTTP 503 Service Unavailable")
+    assert is_infrastructure_error("502 Bad Gateway")
+    assert is_permanent_error("HTTP 404")
+    assert is_permanent_error("401 Unauthorized")
