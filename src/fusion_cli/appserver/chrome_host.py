@@ -50,7 +50,7 @@ def write_bridge_state(port: int, token: str, pid: int | None = None) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(veri)
-        os.chmod(gecici, stat.S_IRUSR | stat.S_IWUSR)
+        gecici.chmod(stat.S_IRUSR | stat.S_IWUSR)
         gecici.replace(yol)
     finally:
         gecici.unlink(missing_ok=True)

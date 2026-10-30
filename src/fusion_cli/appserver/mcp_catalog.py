@@ -79,7 +79,9 @@ async def _discover(server: McpServerConfig) -> dict[str, Any]:
 
 
 async def list_tool_catalog(
-    server: McpServerConfig, *, timeout: float = CATALOG_TIMEOUT_SECONDS
+    server: McpServerConfig,
+    *,
+    timeout: float = CATALOG_TIMEOUT_SECONDS,  # noqa: ASYNC109
 ) -> dict[str, Any]:
     """Açık katalog isteği: mevcut MCP yaşam döngüsüyle yalnız keşfet, giriş açma.
 

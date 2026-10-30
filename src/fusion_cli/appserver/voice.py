@@ -427,6 +427,7 @@ def _speak_with_ema(text: str) -> dict[str, Any]:
 
 def _play_wav_file(cikti: Path) -> dict[str, Any]:
     """Sahipli WAV dosyasını mevcut iptal/bekleme yoluyla çal."""
+    quoted_path = str(cikti).replace("'", "''")
     calar = (
         ["afplay", str(cikti)]
         if platform.system() == "Darwin"
@@ -436,7 +437,7 @@ def _play_wav_file(cikti: Path) -> dict[str, Any]:
             "-Command",
             # PowerShell tek tırnaklı dizgede `'` iki kez yazılarak kaçırılır; kullanıcı adında
             # kesme işareti (O'Brien) çalmayı bozuyordu (ölçüldü 30 Ekim).
-            f"(New-Object Media.SoundPlayer '{str(cikti).replace(chr(39), chr(39) * 2)}').PlaySync()",
+            f"(New-Object Media.SoundPlayer '{quoted_path}').PlaySync()",
         ]
     )
     try:

@@ -71,6 +71,7 @@ def test_kabuk_komutundaki_sir_maskelenir() -> None:
 
 
 def test_bozuk_arguman_tipi_durum_metnini_dusurmez() -> None:
-    """Ölçüldü (30 Ekim, S2-31): `args` dict değilse `.get` AttributeError ile olay yayını düşerdi."""
+    """Ölçüldü (30 Ekim, S2-31): `args` dict değilse `.get` AttributeError verirdi."""
     assert progress_text("read_file", None) == "dosya okunuyor"  # type: ignore[arg-type]
-    assert progress_text("run_shell", "ls") == "kabuk komutu çalıştırılıyor"  # type: ignore[arg-type]
+    sonuc = progress_text("run_shell", "ls")  # type: ignore[arg-type]
+    assert sonuc == "kabuk komutu çalıştırılıyor"

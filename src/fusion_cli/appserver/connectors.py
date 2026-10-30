@@ -213,9 +213,11 @@ def _row_status(status: McpConnectionStatus | dict[str, Any] | None) -> dict[str
 
 def _count(value: object) -> int:
     """Durum satırındaki sayı alanı; bozuk değer satırı (ve listeyi) düşürmez."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return 0
     try:
-        return int(value)  # type: ignore[call-overload]
-    except (TypeError, ValueError):
+        return int(value)
+    except ValueError:
         return 0
 
 

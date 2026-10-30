@@ -28,6 +28,7 @@ import sys
 import tempfile
 from collections.abc import Callable, Iterator
 from dataclasses import replace
+from functools import partial
 from itertools import count
 from pathlib import Path
 from typing import Any
@@ -1639,7 +1640,7 @@ class AppSession:
         if task is None or task.done():
             panel = asyncio.create_task(open_login_browser(saglayici, hesap, url=str(row["adres"])))
             self._panel_tasks[saglayici] = panel
-            panel.add_done_callback(lambda done, name=saglayici: self._panel_task_done(name, done))
+            panel.add_done_callback(partial(self._panel_task_done, saglayici))
         return {"ok": True, "adres": row["adres"]}
 
     def _panel_task_done(self, provider: str, task: asyncio.Task[Any]) -> None:
