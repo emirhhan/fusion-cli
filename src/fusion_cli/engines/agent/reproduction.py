@@ -12,6 +12,7 @@ yerine üretmek olurdu.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from ...core.evidence import CriterionEvidence, EvidenceStatus, ToolUse
@@ -44,7 +45,21 @@ def evaluate_reproduction(
 def _ayni_komut(use: ToolUse, target: str) -> bool:
     """Araç kaydı bu kontrolün komutunu mu çalıştırmış?"""
     komut = use.arguments.get("command")
-    return isinstance(komut, str) and komut.strip() == target.strip()
+    return isinstance(komut, str) and _normalize(komut) == _normalize(target)
+
+
+_CD_PREFIX = re.compile(r"^\s*cd\s+\S+\s*&&\s*")
+
+
+def _normalize(komut: str) -> str:
+    """Komutu karşılaştırılabilir hâle getir: `cd x &&` öneki, boşluk farkı ve seçenekler atılır.
+
+    Ölçüldü (29 Ekim, A3-37): `pytest -x`, `cd app && pytest` gibi küçük sapmalar komutu
+    "hiç çalıştırılmadı" (UNVERIFIED) yapıyordu. Konumsal bağımsız değişkenler (test
+    dosyası/seçici) korunur: farklı test aynı komut sayılmaz.
+    """
+    sade = _CD_PREFIX.sub("", komut.strip())
+    return " ".join(parca for parca in sade.split() if not parca.startswith("-"))
 
 
 def _kanit(check: VerificationCheck, status: EvidenceStatus, ozet: str) -> CriterionEvidence:

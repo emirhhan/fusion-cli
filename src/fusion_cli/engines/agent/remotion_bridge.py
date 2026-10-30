@@ -11,6 +11,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from ...core.constants import MAX_CHECKPOINT_OUTPUT_CHARS
+from ...core.redaction import redact
 from ...core.remotion_contract import KitFramePlan as KitFramePlan
 from ...core.remotion_contract import KitVerificationPlan as KitVerificationPlan
 from ...core.verification import VerificationResult
@@ -103,9 +104,13 @@ class RemotionRuntimeVerifier:
         )
         try:
             frame = await self._transport(request)
-        except Exception:  # Enjekte edilen dış taşıma sınırı; iptal BaseException olarak yayılır.
+        except Exception as error:  # Enjekte edilen dış taşıma sınırı; iptal BaseException yayılır.
             _LOG.warning("Remotion runtime taşıması doğrulanamadı", exc_info=True)
-            return await _invalid_plan(sample, plan.composition_id).verify()
+            # Gerçek neden (Chrome/node yok, zaman aşımı, render çöktü) modele de gitmeli:
+            # genel "doğrulanamadı" ne düzelteceğini söylemiyordu (A3-35).
+            neden = f"Taşıma hatası ({type(error).__name__}): {redact(str(error))[:300]}"
+            geri = await _invalid_plan(sample, plan.composition_id).verify()
+            return _transport_detail(geri, RenderedFrame("", False, None, (), (), neden))
         if frame.session_id in self._sessions:
             return await _invalid_plan(sample, plan.composition_id).verify()
         self._sessions.add(frame.session_id)

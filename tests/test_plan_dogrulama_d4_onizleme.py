@@ -178,3 +178,64 @@ def test_cok_buyuk_talimat_dosyasi_sinirli_okunur(tmp_path):
 
     assert "kırpıldı" in sonuc
     assert len(sonuc) < pi.MAX_CHARS + 600
+
+
+# --- A3-34 / A3-35: remotion denetimleri ------------------------------------------ #
+
+
+def test_remotion_css_denetimi_yorum_satirlarini_saymaz(tmp_path):
+    from fusion_cli.engines.agent.remotion_verify import _violations
+
+    kaynak = tmp_path / "Sahne.tsx"
+    kaynak.write_text(
+        "// animation: yok, useCurrentFrame kullan\n"
+        " * transition: not\n"
+        "const a = 1; // transition: eski\n"
+        "const s = { transition: 'all 1s' };\n",
+        encoding="utf-8",
+    )
+
+    bulgular = _violations(kaynak, tmp_path)
+
+    assert len(bulgular) == 1
+    assert "Sahne.tsx:4" in bulgular[0]
+
+
+async def test_remotion_tasima_hatasi_nedeniyle_bulguya_girer(tmp_path):
+    from fusion_cli.engines.agent.remotion_bridge import RemotionRuntimeVerifier
+    from tests.test_remotion_bridge import _plan
+
+    async def tasima(request):
+        raise OSError("Chrome bulunamadı")
+
+    sonuc = await RemotionRuntimeVerifier(tmp_path, _plan(), transport=tasima).verify()
+
+    assert sonuc.ok is False
+    assert any("Chrome bulunamadı" in bulgu for bulgu in sonuc.findings)
+
+
+# --- A3-37 / A3-38 ----------------------------------------------------------------- #
+
+
+def test_reprodiksiyon_komutu_kucuk_sapmalarla_eslesir():
+    from fusion_cli.engines.agent.reproduction import _ayni_komut
+
+    class Kullanim:
+        def __init__(self, komut):
+            self.arguments = {"command": komut}
+
+    hedef = "pytest tests/test_a.py"
+    assert _ayni_komut(Kullanim("pytest -x tests/test_a.py"), hedef)
+    assert _ayni_komut(Kullanim("cd app && pytest  tests/test_a.py"), hedef)
+    assert not _ayni_komut(Kullanim("pytest tests/test_b.py"), hedef)
+
+
+def test_denetim_sayfalari_dis_siteyi_secmez():
+    from fusion_cli.engines.agent.page_audit import pick_audit_pages
+
+    ana = "http://127.0.0.1:8080/"
+    secilen = pick_audit_pages(
+        ana, ["https://instagram.com/x/y", "http://127.0.0.1:8080/hakkimizda"]
+    )
+
+    assert secilen == ["http://127.0.0.1:8080/hakkimizda"]
