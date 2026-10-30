@@ -628,6 +628,9 @@ class AppSession:
             "web.dogrula",
             "web.pencere_kipi",
             "baglanti.guven",
+            # `assign` config'i okuyup `await`ten sonra geri atar; kilitsizken aradaki başka
+            # bir RPC'nin config değişikliği ezilirdi (kayıp güncelleme, ölçüldü 30 Ekim).
+            "model.rol_ata",
         }:
             owned = asyncio.create_task(self._apply_model_rpc(request))
             self._model_selection_tasks.add(owned)

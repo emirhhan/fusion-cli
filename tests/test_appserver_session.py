@@ -2160,3 +2160,19 @@ async def test_oturum_baslat_kalici_yazma_hatasini_uyari_olarak_tasir(tmp_path, 
 
     await oturum.handle(Request(id="2", name="oturum.baslat", data={}))
     assert "uyari" not in _sonuc(satirlar, "2")
+
+
+async def test_model_rol_ata_kabul_kilidini_paylasir(tmp_path):
+    """Ölçüldü (30 Ekim, S2-14): `model.rol_ata` kilitli RPC kümesinde değildi; `await` sırasında
+    başka bir RPC'nin config değişikliğini eziyordu (kayıp güncelleme)."""
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    async with oturum._admission_lock:
+        gorev = asyncio.create_task(
+            oturum.handle(Request("1", "model.rol_ata", {"rol": "", "deger": None}))
+        )
+        await asyncio.sleep(0.1)
+        assert not gorev.done()
+    await asyncio.wait_for(gorev, 5)
+    assert _sonuc(satirlar, "1")["ok"] is False
