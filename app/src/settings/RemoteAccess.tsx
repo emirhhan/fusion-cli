@@ -5,7 +5,7 @@ import { Button } from "../ui/Button";
 import { ChoiceCards, Field, PanelGroup, PanelIntro, StatusPill, ToggleRow } from "./PanelParts";
 import { markRemoteInUse } from "../remote/remoteFlag";
 import { TunnelGuide } from "./RemoteGuide";
-import { ELEVATED_SCOPES, readPairingScopes, savePairingScopes } from "./remotePreferences";
+import { APPROVAL_FORCING_SCOPES, ELEVATED_SCOPES, readPairingScopes, savePairingScopes } from "./remotePreferences";
 
 /**
  * Uzaktan Erişim — telefon (PWA) ve Telegram eşleştirme.
@@ -44,7 +44,7 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
   const [pending, setPending] = useState<Pending[]>([]);
   const [screenAsks, setScreenAsks] = useState<ScreenDevice[]>([]);
   const [screenLive, setScreenLive] = useState<ScreenDevice[]>([]);
-  const [code, setCode] = useState<{ kod: string; kanal: string } | null>(null);
+  const [code, setCode] = useState<{ kod: string; kanal: string; yuksekYetki: boolean } | null>(null);
   const [extra, setExtra] = useState<string[]>(readPairingScopes);
   const [token, setToken] = useState("");
   const [mode, setMode] = useState<Mode>("tunnel");
@@ -119,11 +119,19 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
     }
   };
 
+  // desktop.control / production.deploy seçiliyken masaüstü onayı zorunludur (U2-43).
+  const approvalForced = extra.some((id) => APPROVAL_FORCING_SCOPES.includes(id));
+  const ensureApproval = async () => {
+    if (status?.onayIste !== true) await call("uzak.ayar", { onayIste: true });
+  };
+
   const begin = (kanal: "pwa" | "telegram") =>
     act(async () => {
       const base = ["project.read", "agent.run", "agent.cancel"];
+      if (approvalForced) await ensureApproval();
       const result = await call("uzak.eslestir_baslat", { kanal, kapsamlar: [...base, ...extra] });
-      setCode({ kod: String(result.kod), kanal });
+      const yuksekYetki = Array.isArray(result.yuksekYetki) && result.yuksekYetki.length > 0;
+      setCode({ kod: String(result.kod), kanal, yuksekYetki });
     });
 
   const listening = Boolean(status?.dinliyor);
@@ -231,14 +239,18 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
               const next = checked ? [...extra, item.id] : extra.filter((id) => id !== item.id);
               setExtra(next);
               savePairingScopes(next);
+              if (checked && APPROVAL_FORCING_SCOPES.includes(item.id)) void act(ensureApproval);
             }}
             title={item.etiket}
+            warning={APPROVAL_FORCING_SCOPES.includes(item.id) ? "Her eşleştirme masaüstünde elle onaylanır" : undefined}
           />
         ))}
       </PanelGroup>
       <PanelGroup note="Kapalıyken telefonda doğru kodu girmek yeterlidir (kodu sen ürettin, 2 dakika geçerli). Açıkken her eşleştirmeyi burada onaylarsın. Telegram her zaman onay ister." title="Kodla eşleştirme">
         <ToggleRow
-          checked={status?.onayIste === true}
+          checked={status?.onayIste === true || approvalForced}
+          description={approvalForced ? "Masaüstü denetimi ya da üretime yayın yetkisi seçili olduğu için kapatılamaz." : undefined}
+          disabled={approvalForced}
           onChange={(checked) => act(async () => { await call("uzak.ayar", { onayIste: checked }); })}
           title="Kodla eşleştirmede masaüstü onayı iste"
         />
@@ -252,7 +264,7 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
           <p className="px-note">Eşleştirme kodu (2 dakika geçerli)</p>
           <strong className="px-pairing__code">{code.kod}</strong>
           <p className="px-note">
-            {status?.onayIste || code.kanal === "telegram"
+            {status?.onayIste || code.kanal === "telegram" || code.yuksekYetki
               ? "Cihaz kodu girdikten sonra onayla."
               : "Kodu telefona gir; doğru kod kendiliğinden bağlanır."}
           </p>

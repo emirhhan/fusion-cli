@@ -123,7 +123,8 @@ it("seçilen kapsamları yeniden açılışta korur ve yalnız sonraki eşleşti
   await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.eslestir_baslat", {
     kanal: "pwa", kapsamlar: ["project.read", "agent.run", "agent.cancel", "desktop.control"],
   }));
-  expect(vi.mocked(client.request).mock.calls.every(([name]) => ["uzak.durum", "uzak.cihazlar", "uzak.bekleyen", "uzak.ekran_bekleyen", "uzak.eslestir_baslat"].includes(name))).toBe(true);
+  expect(vi.mocked(client.request).mock.calls.every(([name]) => ["uzak.durum", "uzak.cihazlar", "uzak.bekleyen", "uzak.ekran_bekleyen", "uzak.eslestir_baslat", "uzak.ayar"].includes(name))).toBe(true);
+  expect(client.request).toHaveBeenCalledWith("uzak.ayar", { onayIste: true });
 });
 
 it.each(["{", "null", '{"version":2,"scopes":["desktop.control"]}', '{"version":1,"scopes":"desktop.control"}'])("bozuk kayıtla ek kapsamları kapalı açar: %s", (stored) => {
@@ -210,4 +211,29 @@ it("yoklama hatası sonraki başarılı yoklamada kalkar ve yoklamalar üst üst
     await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
     expect(screen.queryByRole("alert")).toBeNull();
   } finally { vi.useRealTimers(); }
+});
+
+it("masaüstü kontrolü ya da üretime yayın seçiliyken onay anahtarı açık ve kilitlidir; seçim çekirdeğe yazılır (U2-43)", async () => {
+  const client = fakeClient();
+  render(<RemoteAccess client={client} />);
+  const onay = (await screen.findByLabelText(/Kodla eşleştirmede masaüstü onayı iste/)) as HTMLInputElement;
+  expect(onay.checked).toBe(false);
+  fireEvent.click(await screen.findByLabelText(/Üretime yayın/));
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.ayar", { onayIste: true }));
+  expect(screen.getAllByText("Her eşleştirme masaüstünde elle onaylanır").length).toBe(2);
+  const kilitli = (await screen.findByLabelText(/Kodla eşleştirmede masaüstü onayı iste/)) as HTMLInputElement;
+  expect(kilitli.checked).toBe(true);
+  expect(kilitli.getAttribute("aria-disabled")).toBe("true");
+  vi.mocked(client.request).mockClear();
+  fireEvent.click(kilitli);
+  expect(client.request).not.toHaveBeenCalledWith("uzak.ayar", { onayIste: false });
+});
+
+it("yüksek yetkili kodda 'kendiliğinden bağlanır' denmez; çekirdeğin elle onay uyarısı gösterilir (U2-43)", async () => {
+  const client = fakeClient({ "uzak.eslestir_baslat": { yuksekYetki: ["project.write"] } });
+  render(<RemoteAccess client={client} />);
+  fireEvent.click(await screen.findByLabelText(/Proje dosyalarını değiştirme/));
+  fireEvent.click(await screen.findByRole("button", { name: "Telefon için eşleştirme kodu oluştur" }));
+  expect(await screen.findByText("Cihaz kodu girdikten sonra onayla.")).toBeTruthy();
+  expect(screen.queryByText(/kendiliğinden bağlanır/)).toBeNull();
 });
