@@ -137,6 +137,8 @@ function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProjec
 }) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Sohbet silme geri alınamaz (çöp kutusu yok): menüden "Sil" önce satır içi onay açar (U1-53).
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -212,14 +214,24 @@ function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProjec
           }} role="menuitem" type="button">Projeden çıkar</button>}
           {onDelete && <button className="sidebar__menu-danger" disabled={deleting} onClick={() => {
             setMenuOpen(false);
-            setDeleting(true);
             setDeleteError(null);
-            void Promise.resolve().then(onDelete)
-              .catch(() => setDeleteError("Sohbet silinemedi. Yeniden dene."))
-              .finally(() => setDeleting(false));
+            setConfirmingDelete(true);
           }} role="menuitem" type="button">Sil</button>}
         </div>, document.body)}
       </div>
+      {confirmingDelete && onDelete && (
+        <div aria-label={`${session.title} silinsin mi?`} className="sidebar__delete-confirm" role="group"
+          onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setConfirmingDelete(false); } }}>
+          <span>Bu sohbet kalıcı silinir; geri alınamaz.</span>
+          <button autoFocus onClick={() => setConfirmingDelete(false)} type="button">Vazgeç</button>
+          <button className="sidebar__menu-danger" disabled={deleting} onClick={() => {
+            setDeleting(true);
+            void Promise.resolve().then(onDelete)
+              .catch(() => setDeleteError("Sohbet silinemedi. Yeniden dene."))
+              .finally(() => { setDeleting(false); setConfirmingDelete(false); });
+          }} type="button">Kalıcı olarak sil</button>
+        </div>
+      )}
       {deleteError && <span role="alert">{deleteError}</span>}
     </div>
   );

@@ -264,13 +264,21 @@ describe("Sidebar — sohbet silme ve projeye gruplama", () => {
     expect(screen.getByText("oyun")).toBeTruthy();
   });
 
-  it("çöp kutusu tek tıkta silmeyi başlatır", async () => {
+  it("Sil önce satır içi onay ister; onaylanmadan sohbet silinmez (U1-53)", async () => {
     const sil = vi.fn();
     render(<Sidebar oturumlar={gruplu} etkin="1" onSec={vi.fn()} onSil={sil} onYeni={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "oyun sohbet seçenekleri" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
+    expect(sil).not.toHaveBeenCalled();
+    expect(screen.getByRole("group", { name: "oyun silinsin mi?" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Vazgeç" }));
+    expect(screen.queryByRole("group", { name: "oyun silinsin mi?" })).toBeNull();
+    expect(sil).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "oyun sohbet seçenekleri" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
+    fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
     await waitFor(() => expect(sil).toHaveBeenCalledWith("1"));
-    expect(screen.queryByRole("button", { name: "Silmekten vazgeç" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("group", { name: "oyun silinsin mi?" })).toBeNull());
   });
   it("Fusion sohbetlerinde marka logosu basmaz, içe aktarılanda basar", () => {
     const { container } = render(
@@ -469,10 +477,12 @@ it("silme hatasını gösterir ve sabitlemeyi yalnız başarılı silmede kaldı
   fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Sabitle" }));
   fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
   await screen.findByRole("alert");
   expect(JSON.parse(localStorage.getItem("fusion.sidebar.pinned-sessions.v1")!)).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
   await waitFor(() => expect(JSON.parse(localStorage.getItem("fusion.sidebar.pinned-sessions.v1")!)).toEqual([]));
 });
 

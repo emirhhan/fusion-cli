@@ -411,6 +411,18 @@
 }
 
 /* Tek seçenek düğmesi sohbet başlığının hizasında sağ kenarda durur. */
+.sidebar__delete-confirm {
+  align-items: center; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+  display: flex; flex-wrap: wrap; gap: 6px; grid-column: 1 / -1; padding: 6px 8px;
+}
+.sidebar__delete-confirm span { color: var(--text-secondary); flex: 1 1 100%; font-size: var(--text-sm); }
+.sidebar__delete-confirm button {
+  background: transparent; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+  color: var(--text-primary); cursor: pointer; font: inherit; font-size: var(--text-sm); padding: 4px 10px;
+}
+.sidebar__delete-confirm button:hover { background: var(--surface-hover); }
+.sidebar__delete-confirm .sidebar__menu-danger { color: var(--text-danger); }
+.sidebar__delete-confirm button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .sidebar__session-row { align-items: center; display: grid; gap: 2px; grid-template-columns: minmax(0, 1fr) 28px; position: relative; }
 
 @media (prefers-reduced-motion: reduce) {
