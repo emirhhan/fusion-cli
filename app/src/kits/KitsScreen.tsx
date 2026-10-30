@@ -1,5 +1,5 @@
 import { AssetHost } from "./assetHost";
-import { ScheduledDeliveryClient } from "./scheduledDeliveryClient";
+import { ScheduledDeliveryClient, type ScheduleApprovalListener } from "./scheduledDeliveryClient";
 import { LocalComputerHost, type ConfirmComputer, type HostRequest } from "./localComputerHost";
 import { FolderPickHost, type PickFolder } from "./folderPickHost";
 import { KitsVoiceHost, type ConfirmMicrophone } from "./kitsVoiceHost";
@@ -27,6 +27,8 @@ interface KitsScreenProps {
   /** Testler gerçek süreç açmadan başlatmayı taklit eder. */
   start?: StartKits;
   onDeliveryClient?: (client: ScheduledDeliveryClient | null) => void;
+  /** Kits'teki zamanlanmış görev onay isteyen araçta askıda kaldı; kullanıcıya haber verilir (U5-57). */
+  onScheduleApproval?: ScheduleApprovalListener;
   /** Etkin Fusion oturumuna istek; yoksa Kits'in bilgisayar isteği "bağlı değil" döner. */
   requestHost?: HostRequest;
   /** Testler yerel izin penceresini taklit eder. */
@@ -51,6 +53,7 @@ const KITS_WATCH_INTERVAL_MS = 5_000;
 export function KitsScreen({
   start = startWithTauri,
   onDeliveryClient,
+  onScheduleApproval,
   requestHost,
   confirmComputer = askComputerAccess,
   pickFolder = selectProjectFolder,
@@ -68,9 +71,11 @@ export function KitsScreen({
   // (bekleyen teslimat `finish(null)` ile düşerdi).
   const deliveryCallback = useRef(onDeliveryClient);
   deliveryCallback.current = onDeliveryClient;
+  const approvalCallback = useRef(onScheduleApproval);
+  approvalCallback.current = onScheduleApproval;
   useEffect(() => {
     if (state.durum !== "hazir" || !frame.current?.contentWindow) return;
-    const client = new ScheduledDeliveryClient(window, frame.current.contentWindow, state.adres);
+    const client = new ScheduledDeliveryClient(window, frame.current.contentWindow, state.adres, (request) => approvalCallback.current?.(request));
     delivery.current = client;
     deliveryCallback.current?.(client);
     return () => { client.close(); delivery.current = null; deliveryCallback.current?.(null); };

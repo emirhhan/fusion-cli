@@ -707,7 +707,14 @@ export function SessionUygulama({
   );
   const [deliveryClient, setDeliveryClient] = useState<ScheduleDeliveryClient | null>(null);
   // Zamanlanmış tur onay isteyen araçta askıda bekler; kullanıcı yoksa sessizce ilerlemez, bildirilir (U5-57).
-  const [scheduleNotice, setScheduleNotice] = useState<{ sessionId: string | null; baslik: string; metin: string } | null>(null);
+  const [scheduleNotice, setScheduleNotice] = useState<{ sessionId: string | null; kits?: boolean; baslik: string; metin: string } | null>(null);
+  // Kits kuyruğuna teslim edilen görev de gözetimsiz çalışır: onay isteyen araçta askıda bekler, haber verilir.
+  const notifyKitsApproval = useCallback(({ title, tool }: { title: string; tool: string }) => setScheduleNotice({
+    sessionId: null,
+    kits: true,
+    baslik: "Kits'teki zamanlanmış görev onay bekliyor",
+    metin: `"${title}" görevi "${tool}" için onay istiyor. Sen onaylayana kadar bekler; onaylamazsan ilerlemez.`,
+  }), []);
   // Vade yoklaması hazır bir sohbetin çekirdeğini kullanır; hiç sohbet yoksa (son sekme kapatıldı,
   // geri yükleme başarısız) görünmez bir zamanlayıcı çekirdeği açılır (U5-52).
   const sessionScheduleClient = pickScheduleClient(active, controller.sessions);
@@ -751,7 +758,7 @@ export function SessionUygulama({
       section={surfaceSection}
       scheduled={<ScheduleScreen client={scheduleClient} defaultRoot={active?.root ?? ""} onRunNow={scheduleRunner.runNow} visible={surfaceSection === "scheduled"} />}
       library={<LibraryScreen client={active?.client ?? null} visible={surfaceSection === "library"} />}
-      kits={<KitsScreen onDeliveryClient={setDeliveryClient} requestHost={activeClient ? requestKitsHost : undefined} visible={surfaceSection === "kits"} />}
+      kits={<KitsScreen onDeliveryClient={setDeliveryClient} onScheduleApproval={notifyKitsApproval} requestHost={activeClient ? requestKitsHost : undefined} visible={surfaceSection === "kits"} />}
     />
   );
   /** `@` sorgusunu sunucuya ilet ve gelen öneriyi listeye yaz. */
@@ -1608,6 +1615,9 @@ export function SessionUygulama({
                   setScheduleNotice(null);
                   if (sessionId) { controller.select(sessionId); setPage("chat"); }
                 },
+              } : scheduleNotice.kits ? {
+                etiket: "Kits'i aç",
+                onSelect: () => { setScheduleNotice(null); setSurfaceSection("kits"); },
               } : undefined}
               onDismiss={() => setScheduleNotice(null)}
             />

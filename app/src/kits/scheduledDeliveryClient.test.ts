@@ -7,7 +7,7 @@ import {
   screen,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ScheduledDeliveryClient } from "./scheduledDeliveryClient";
+import { ScheduledDeliveryClient, type ScheduleApprovalListener } from "./scheduledDeliveryClient";
 import { KitsScreen } from "./KitsScreen";
 import {
   useScheduleRunner,
@@ -41,7 +41,7 @@ const ready = {
   threadId: "bound-thread",
   root: "/project",
 };
-function fixture() {
+function fixture(onApproval?: ScheduleApprovalListener) {
   let listener: (event: MessageEvent) => void = () => {};
   const frame = { postMessage: vi.fn() };
   const host = {
@@ -56,6 +56,7 @@ function fixture() {
     host,
     frame,
     "http://127.0.0.1:50001",
+    onApproval,
   );
   return {
     client,
@@ -84,6 +85,8 @@ describe("ScheduledDeliveryClient", () => {
         root: delivery.root,
         occurrenceId: delivery.occurrence_id,
         prompt: delivery.task,
+        unattended: true,
+        onApproval: "pause",
       },
       "http://127.0.0.1:50001",
     );
@@ -153,6 +156,80 @@ describe("ScheduledDeliveryClient", () => {
     expect(await second).toBeNull();
     expect(await f.client.deliver(delivery)).toBeNull();
     expect(f.host.removeEventListener).toHaveBeenCalledOnce();
+  });
+});
+describe("Kits kuyruğundaki görev onay isterse (U5-57)", () => {
+  const approval = {
+    type: "fusion-schedule-approval",
+    occurrenceId: delivery.occurrence_id,
+    taskId: `schedule-${delivery.occurrence_id}`,
+    tool: "run_shell",
+  };
+  it("teslim mesajı gözetimsiz olduğunu ve onayda askıya alınacağını bildirir", () => {
+    const f = fixture();
+    void f.client.deliver(delivery);
+    f.emit(ready);
+    const mesaj = f.frame.postMessage.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(mesaj).toMatchObject({ unattended: true, onApproval: "pause" });
+    f.client.close();
+  });
+
+  it("Kits'ten gelen geçerli onay bildirimi teslim başlığıyla dinleyiciye iletilir", async () => {
+    const onApproval = vi.fn();
+    const f = fixture(onApproval);
+    const promise = f.client.deliver(delivery);
+    f.emit(ready);
+    f.emit(receipt);
+    await promise;
+
+    f.emit(approval);
+
+    expect(onApproval).toHaveBeenCalledWith({
+      occurrenceId: delivery.occurrence_id,
+      taskId: approval.taskId,
+      title: delivery.title,
+      tool: "run_shell",
+    });
+    f.client.close();
+  });
+
+  it("aynı vade ve araç için tekrarlanan bildirim bir kez gösterilir", () => {
+    const onApproval = vi.fn();
+    const f = fixture(onApproval);
+    f.emit(approval);
+    f.emit(approval);
+    f.emit({ ...approval, tool: "write_file" });
+    expect(onApproval).toHaveBeenCalledTimes(2);
+    f.client.close();
+  });
+
+  it("yabancı köken, yabancı pencere, bozuk kimlik ve boş araç adı yok sayılır", () => {
+    const onApproval = vi.fn();
+    const f = fixture(onApproval);
+    f.emit(approval, "http://evil.example");
+    f.emit(approval, undefined, {});
+    f.emit({ ...approval, occurrenceId: "zzz" });
+    f.emit({ ...approval, taskId: "schedule-baska" });
+    f.emit({ ...approval, tool: "  " });
+    f.emit({ ...approval, tool: 5 });
+    expect(onApproval).not.toHaveBeenCalled();
+    f.client.close();
+  });
+
+  it("uzun araç adı kısaltılır; kapatılmış istemci bildirim iletmez", () => {
+    const onApproval = vi.fn();
+    const f = fixture(onApproval);
+    f.emit({ ...approval, tool: "x".repeat(500) });
+    expect(onApproval.mock.calls[0][0].tool).toHaveLength(200);
+    f.client.close();
+    f.emit({ ...approval, tool: "baska" });
+    expect(onApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it("dinleyici verilmemişse (eski kurulum) bildirim sessizce düşer", () => {
+    const f = fixture();
+    expect(() => f.emit(approval)).not.toThrow();
+    f.client.close();
   });
 });
 it("mounted KitsScreen + runner yalnız actual iframe makbuzunu çekirdeğe ack verir", async () => {

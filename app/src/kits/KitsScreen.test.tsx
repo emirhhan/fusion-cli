@@ -116,4 +116,19 @@ describe("KitsScreen", () => {
     expect(ilk).not.toHaveBeenCalledWith(null);
     expect(ikinci).not.toHaveBeenCalled();
   });
+
+  it("Kits'teki zamanlanmış görev onay isterse üst bileşene haber verir (U5-57)", async () => {
+    const onScheduleApproval = vi.fn();
+    render(<KitsScreen onScheduleApproval={onScheduleApproval} start={() => Promise.resolve({ url: "http://127.0.0.1:50032" })} />);
+    const frame = (await screen.findByTitle("Fusion Kits")) as HTMLIFrameElement;
+    const occurrenceId = "c".repeat(64);
+    const message = { type: "fusion-schedule-approval", occurrenceId, taskId: `schedule-${occurrenceId}`, tool: "run_shell" };
+    // Yabancı pencereden gelen bildirim sayılmaz.
+    window.dispatchEvent(new MessageEvent("message", { data: message, origin: "http://127.0.0.1:50032", source: window }));
+    expect(onScheduleApproval).not.toHaveBeenCalled();
+
+    window.dispatchEvent(new MessageEvent("message", { data: message, origin: "http://127.0.0.1:50032", source: frame.contentWindow }));
+
+    expect(onScheduleApproval).toHaveBeenCalledWith({ occurrenceId, taskId: `schedule-${occurrenceId}`, title: "Zamanlanmış görev", tool: "run_shell" });
+  });
 });
