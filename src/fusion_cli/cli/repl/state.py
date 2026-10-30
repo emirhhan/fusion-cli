@@ -21,6 +21,7 @@ from ...core.types import FusionResult, Message
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
 from ...engines.agent.remotion_bridge import FrameTransport
 from ...memory.factory import Memory
+from ...memory.plain_memory import PlainMemory, build_plain_memory
 from ...observability.cost import CostTracker
 from ...tools.capabilities import CapabilityRegistry
 from .macros import Mode
@@ -108,6 +109,8 @@ class ReplState:
     last_changes: ChangeSet | None = None
     #: Skill/agent kütüphanesi. Tarama oturumda bir kez yapılır.
     capabilities: CapabilityRegistry | None = None
+    #: Düz metin otomatik bellek (P-036); `runtime.auto_memory` kapalıysa None.
+    plain_memory: PlainMemory | None = None
     #: Oturum boyunca paylaşılan sağlayıcı sağlığı (circuit breaker + güvenilirlik).
     #: Tur ötesi durum burada yaşar; her agent turu aynı kaydı besler ve okur.
     health: HealthRegistry | None = None
@@ -165,6 +168,8 @@ class ReplState:
     def __post_init__(self) -> None:
         if self.capabilities is None:
             self.capabilities = CapabilityRegistry(self.home, self.root)
+        if self.plain_memory is None:
+            self.plain_memory = build_plain_memory(self.config, self.root)
         if not self.allowed_commands:
             self.allowed_commands = load_allowed_commands(self.root)
         self.config_revision = revision(self.config)
@@ -190,6 +195,8 @@ class ReplState:
         changed = updated != self.config
         self.config_baseline = loaded
         self.config = updated
+        if changed:
+            self.plain_memory = build_plain_memory(self.config, self.root)
         return changed
 
     #: Son yeniden yüklemede dosya değişti ama okunamadıysa nedeni (bir kez gösterilir).

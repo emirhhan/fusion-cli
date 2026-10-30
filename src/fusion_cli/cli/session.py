@@ -64,6 +64,7 @@ from ..engines.fusion import run_fusion
 from ..engines.retention import purge_local_state_daily
 from ..memory.checkpoint_store import JsonCheckpointStore
 from ..memory.factory import Memory, build_memory, null_memory
+from ..memory.plain_memory import PlainMemory, build_plain_memory
 from ..observability.audit import AuditSink
 from ..observability.bus import EventBus
 from ..observability.cost import CostTracker
@@ -171,6 +172,7 @@ async def run_agent_task(
     changes: ChangeSet | None = None,
     chrome_bridge: ChromeControl | None = None,
     capabilities: CapabilityRegistry | None = None,
+    plain_memory: PlainMemory | None = None,
     system_prompt: str | None = None,
     images: tuple[str, ...] = (),
     conversation_id: str = "cli",
@@ -284,6 +286,11 @@ async def run_agent_task(
             lessons=store.lessons,
             capabilities=capabilities
             or (CapabilityRegistry(home, tool_context.root) if home is not None else None),
+            # Düz metin bellek (P-036): çağıran vermezse yapılandırmaya göre projeninki.
+            # `--no-memory` (boş depo) belleği de kapatır: kullanıcı "yazma" demiştir.
+            plain_memory=plain_memory
+            if plain_memory is not None
+            else (build_plain_memory(config, tool_context.root) if store.enabled else None),
             home=home,
             allowed_commands=load_allowed_commands(tool_context.root),
             verifier=build_verifier(

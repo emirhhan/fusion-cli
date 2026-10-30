@@ -142,6 +142,7 @@ def write_theme(config: Config, theme: str, path: Path | None = None) -> Path:
 #: anahtarın yanlışlıkla ezilmesini önleyen beyaz liste — `write_theme`'deki
 #: `THEME_VALUES` denetimiyle aynı gerekçe.
 _BOOLEAN_RUNTIME_FLAGS = (
+    "auto_memory",
     "teacherless",
     "teacher_lesson_sync",
     "teacher_codex_fallback",

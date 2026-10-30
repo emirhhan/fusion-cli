@@ -160,6 +160,20 @@ def memory_dir() -> Path:
     return user_data_dir() / "memory"
 
 
+#: Kullanıcı düzenleyicisi bulunamazsa açılacak komut (macOS/Linux ve Windows).
+_FALLBACK_EDITOR = "notepad" if sys.platform == "win32" else "nano"
+
+
+def editor_command() -> tuple[str, ...]:
+    """`/memory edit` gibi yerlerde dosya açacak düzenleyici: `VISUAL`, sonra `EDITOR`.
+
+    Ortam erişimi yalnız bu katmanda yapılır (RULES). Değer boşluk içerebilir
+    (`code --wait`); parçalanmış komut döner.
+    """
+    raw = os.environ.get("VISUAL") or os.environ.get("EDITOR") or _FALLBACK_EDITOR
+    return tuple(raw.split()) or (_FALLBACK_EDITOR,)
+
+
 def loop_dir() -> Path:
     """Kendini geliştirme döngüsünün kullanıcıya özel verisi (taslaklar, kullanıcı kümeleri,
     öneriler, istem sürümleri, ölçüm izi). Gerçek konuşmadan türer; makineden çıkmaz."""

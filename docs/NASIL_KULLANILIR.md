@@ -137,6 +137,26 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
 Fusion motorunda bir cevaptan memnunsan `/good`, değilsen `/bad` yaz. Fusion bunu
 hatırlar ve zamanla senin için daha iyi model seçer.
 
+### Otomatik bellek (düz metin, `/memory`)
+
+Fusion, projeye ve sana dair kalıcı bilgileri kendi yazdığı düz metin dosyada tutar
+(Claude Code'un `MEMORY.md` düzeni): `<bellek dizini>/projeler/<proje>/bellek/BELLEK.md`
+indeksi + `konular/<konu>.md` dosyaları. İndeksin ilk 200 satırı / 25 KB her turun
+bağlamına girer; konu dosyalarını model `memory_read` ile ister, `remember` ile yazar.
+Yazılan her satır sır/e-posta maskelenerek kaydedilir; dosyayı istediğin gibi düzenle.
+
+- `/memory` → durum (dosya yolu, satır sayısı, konular) · `/memory on|off` → aç/kapa
+  (ayara kalıcı yazılır: `runtime.auto_memory`) · `/memory edit` → `$EDITOR`'da aç ·
+  `/memory list` · `/memory <konu>` → konu dosyasını göster ·
+  `/memory import claude` → `~/.claude/projects/<proje>/memory` içeriğini al.
+- `# kullanıcı kısa yanıt ister` gibi `#` ile başlayan satır modele gitmez, belleğe not
+  olarak yazılır.
+- Dizin: `runtime.auto_memory_dir` (boş = varsayılan). Masaüstü: Ayarlar › Kişiselleştirme ›
+  **Otomatik bellek** paneli (Markdown düzenleyici, "bu oturumda ilk N satır yüklendi",
+  Claude'dan içe aktar).
+- Kapalıyken `remember`/`memory_read` araçları hiç sunulmaz, blok eklenmez. `--no-memory`
+  ile çalışan tek atışlık `fusion agent` de bu belleği kullanmaz.
+
 ---
 
 ## 9) Başka sağlayıcı / anahtar ekleme

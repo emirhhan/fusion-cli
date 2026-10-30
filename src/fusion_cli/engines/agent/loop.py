@@ -112,6 +112,7 @@ from ...core.types import (
 from ...core.verification import VerificationResult, Verifier
 from ...core.web_response import classify_response
 from ...core.workspace_fingerprint import WorkspaceEffect
+from ...memory.plain_memory import PlainMemory
 from ...providers.capabilities import (
     TaskRequirements,
     capabilities_for,
@@ -187,6 +188,7 @@ from .loop_contract import (
     _verification_correction_task as _verification_correction_task,
 )
 from .masking import MaskLedger, MaskView, mask_view
+from .memory_tools import memory_prompt_block
 from .narration import intro_paragraph, todo_transitions
 from .output_verify import requested_outputs_in
 from .plan_runner import run_execution_plan
@@ -417,6 +419,8 @@ class AgentDeps:
     lessons: LessonMemory | None = None
     #: Skill/agent kütüphanesi. Yoksa arama ve devretme araçları hiç sunulmaz.
     capabilities: CapabilityRegistry | None = None
+    #: Düz metin otomatik bellek (P-036). Yoksa `remember`/`memory_read` sunulmaz, blok eklenmez.
+    plain_memory: PlainMemory | None = None
     #: Geçmiş kaynaklarının aranacağı ev dizini. Yoksa `read_session` aracı hiç sunulmaz.
     home: Path | None = None
     #: Kullanıcının `.claude/settings.local.json` içinde onaysız izin verdiği komutlar.
@@ -746,6 +750,7 @@ async def _run_agent(
             part
             for part in (
                 proje_ve_dis_bellek,
+                memory_prompt_block(deps),
                 harita,
                 teacher_hint,
                 netlestirme,

@@ -263,6 +263,12 @@ class RuntimeConfig:
     #: çağrılar ve toplu kayma payı (N/2) ayrıca tam kaldığından 8 ikisinin ortasıdır.
     tool_output_window: int = 8
     #: Zayıf/küçük model (`compact` etiketi ya da pencere <= `compact_tools_window_tokens`)
+    #: Fusion'ın kendi yazdığı düz metin otomatik bellek (P-036): `BELLEK.md` indeksinin ilk
+    #: 200 satırı her turun bağlamına girer, `remember`/`memory_read` araçları sunulur, REPL'de
+    #: `#` notu buraya yazar. False = araçlar sunulmaz, blok eklenmez (Claude `autoMemoryEnabled`).
+    auto_memory: bool = True
+    #: Bellek dizini; boş = `<bellek>/projeler/<proje>/bellek` (Claude `autoMemoryDirectory`).
+    auto_memory_dir: str = ""
     #: için sıkıştırma eşiği, pencerenin bu oranı kadar karakterdir (token x 3). 0 = kapalı
     #: (eşik yalnız genel formülden gelir). 0.2: TAHMİN, canlı ölçümle güncellenecek;
     #: küçük modeller nominal pencerenin ancak bir kısmında güvenilir kalır (context rot).

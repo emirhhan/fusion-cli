@@ -30,7 +30,15 @@ from ...tools.capabilities import Capability
 from ...tools.capabilities import search as search_capabilities
 from ...ui import messages
 from ...ui.picker import Choice, pick
-from . import macros, model_flows, profiles_flow, provider_flow, verify_flow, workspace_commands
+from . import (
+    macros,
+    memory_commands,
+    model_flows,
+    profiles_flow,
+    provider_flow,
+    verify_flow,
+    workspace_commands,
+)
 from .state import TASK_TYPES, Engine, Reminder, ReplState
 
 #: `/resume<kaynak>` listesinde gösterilecek en fazla oturum. `source.list`'e
@@ -748,6 +756,14 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("stats", messages.CMD_STATS, lambda state, argument: "", group="Bellek"),
     SlashCommand("lessons", messages.CMD_LESSONS, lambda state, argument: "", group="Bellek"),
     SlashCommand("forget", messages.CMD_FORGET, _forget, group="Bellek", usage="<no…>"),
+    SlashCommand(
+        "memory",
+        messages.CMD_MEMORY,
+        memory_commands.memory,
+        ("bellek",),
+        group="Bellek",
+        usage="[on|off|edit|list|import claude|<konu>]",
+    ),
     SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Model"),
     SlashCommand("model", messages.CMD_MODEL, _model, group="Model", usage="[alt-komut]"),
     SlashCommand("mode", messages.CMD_MODE, _mode, group="Model", usage="[profil]"),

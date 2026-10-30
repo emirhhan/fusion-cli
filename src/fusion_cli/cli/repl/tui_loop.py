@@ -32,6 +32,7 @@ from . import (
     help_view,
     history_view,
     macros,
+    memory_commands,
     model_flows,
     profiles_flow,
     provider_flow,
@@ -314,7 +315,13 @@ class _TuiSession:
             self._transcript_store.record_user(line)
             ConsoleRenderer(self._out).print_user_message(line)
             self._tui.sync_conversation()
-            if is_command_line(line):
+            if memory_commands.is_memory_note(line):
+                # `# not` satırı modele gitmez, belleğe yazılır (P-036).
+                self._echo(
+                    f"[{theme.DIM}]{escape(memory_commands.save_memory_note(self._state, line))}"
+                    f"[/{theme.DIM}]"
+                )
+            elif is_command_line(line):
                 await self._command(line)
             else:
                 await self._turn(line)
@@ -580,6 +587,7 @@ class _TuiSession:
                         history=self._state.history,
                         health=self._state.health,
                         capabilities=self._state.capabilities,
+                        plain_memory=self._state.plain_memory,
                         journal=partial,
                         background=self._background,
                         tool_context=tool_context,

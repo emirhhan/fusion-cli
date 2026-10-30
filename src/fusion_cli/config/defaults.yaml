@@ -145,6 +145,12 @@ runtime:
   # sıkıştırma eşiği = pencere tokeni x bu oran x 3 karakter. 0 = kapalı. 0.2 TAHMİNDİR;
   # canlı ölçümle güncellenecek.
   weak_model_compaction_ratio: 0.2
+  # Fusion'ın kendi yazdığı düz metin bellek (P-036): BELLEK.md indeksinin ilk 200 satırı /
+  # 25 KB her turun bağlamına girer; `remember` ve `memory_read` araçları sunulur; REPL'de
+  # `# not` buraya yazar; `/memory` ile aç/kapa/düzenle. false = kapalı.
+  auto_memory: true
+  # Bellek dizini; boş = <bellek dizini>/projeler/<proje>/bellek.
+  auto_memory_dir: ""
   # 8 (P-035): Claude Code 20, dynamic workflows 16 eşzamanlı; kota ortak kovayla korunur.
   max_parallel_agents: 8
   # Alt ajan ağacının derinliği: 1 = yalnız ana ajan başlatır, 2 = alt ajan bir kat daha

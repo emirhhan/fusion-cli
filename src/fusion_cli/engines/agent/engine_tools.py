@@ -50,6 +50,7 @@ from .clone_tools import clone_tools
 from .history_tools import recent_actions_tool
 from .image_tools import generate_image_tool
 from .image_view import DEFAULT_QUESTION, describe_image
+from .memory_tools import memory_read_tool, remember_tool
 from .preview_tools import preview_tool
 from .secret_paths import is_secret_path
 from .team import (
@@ -133,6 +134,10 @@ def build_agent_registry(
         extended.register(_search_codebase_tool(deps))
     if deps.lessons is not None and deps.config.runtime.lessons:
         extended.register(_recall_lessons_tool(deps))
+    plain_memory = getattr(deps, "plain_memory", None)
+    if plain_memory is not None:
+        extended.register(remember_tool(plain_memory))
+        extended.register(memory_read_tool(plain_memory))
     if deps.asker is not None:
         extended.register(_ask_user_tool(deps.asker, deps))
     if deps.home is not None:

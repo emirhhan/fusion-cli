@@ -87,7 +87,7 @@ from ..tools.skill_pages import read_skill_page
 from ..ui import messages
 from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
-from . import intelligence, ui_prefs
+from . import auto_memory, intelligence, ui_prefs
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .capabilities import catalog, detail
 from .chrome_autoinstall import auto_install_async
@@ -1258,6 +1258,14 @@ class AppSession:
                 self._state.config,
                 workspace_mode=str(request.data.get("kip") or "sohbet"),
             )
+        if request.name == "otobellek.durum":
+            return await asyncio.to_thread(auto_memory.status, self._state)
+        if request.name == "otobellek.kaydet":
+            return await asyncio.to_thread(auto_memory.save_index, self._state, request.data)
+        if request.name == "otobellek.etkinlestir":
+            return await asyncio.to_thread(auto_memory.set_enabled, self._state, request.data)
+        if request.name == "otobellek.ice_aktar":
+            return await asyncio.to_thread(auto_memory.import_external, self._state, request.data)
         if request.name == "bellek.listele":
             return await asyncio.to_thread(self._personal_memory.list)
         if request.name == "bellek.ekle":
@@ -2374,6 +2382,7 @@ class AppSession:
                 chat_mode=self._workspace_mode != "kod" and not browser_only,
                 interactive=True,
                 capabilities=self._state.capabilities,
+                plain_memory=self._state.plain_memory,
                 conversation_id=self._conversation_id or "app",
                 step_limit=macros.mode_step_limit(turn_mode),
                 workflow=macros.mode_workflow(turn_mode),

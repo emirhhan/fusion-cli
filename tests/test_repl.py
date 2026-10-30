@@ -1258,3 +1258,73 @@ def test_add_dir_kardes_klasoru_kabul_eder(tmp_path):
     add_dir(state, str(kardes))
 
     assert state.extra_roots == (kardes.resolve(),)
+
+
+# --- /memory ve `#` notu (P-036) ---------------------------------------------- #
+
+
+def test_memory_komutu_durum_konu_ve_not_kisayolu(state, registry, tmp_path):
+    from fusion_cli.cli.repl import memory_commands
+
+    assert state.plain_memory is not None
+    komut = registry.get("memory")
+    assert komut is not None and registry.get("bellek") is komut
+
+    assert memory_commands.is_memory_note("# kullanıcı kısa yanıt ister")
+    assert not memory_commands.is_memory_note("## başlık") and not memory_commands.is_memory_note(
+        "#"
+    )
+    sonuc = memory_commands.save_memory_note(state, "# kullanıcı kısa yanıt ister")
+    assert "Not belleğe yazıldı" in sonuc
+    assert "kısa yanıt ister" in state.plain_memory.read()
+
+    state.plain_memory.remember("odeme", "PayTR sandbox")
+    assert "Konular: odeme" in komut.handler(state, "list")
+    assert "PayTR sandbox" in komut.handler(state, "odeme")
+    assert "Bu konuda bellek yok" in komut.handler(state, "yok-boyle")
+    durum = komut.handler(state, "")
+    assert "açık" in durum and "BELLEK.md" in durum
+
+
+def test_memory_off_kalici_yazar_ve_araclari_kapatir(state, registry, tmp_path, monkeypatch):
+    from fusion_cli.cli.repl import memory_commands
+
+    yazilan = {}
+    monkeypatch.setattr(
+        memory_commands,
+        "write_runtime_flag",
+        lambda config, key, value: yazilan.update({key: value}),
+    )
+    komut = registry.get("memory")
+    assert komut is not None
+
+    assert "kapalı" in komut.handler(state, "off")
+    assert yazilan == {"auto_memory": False}
+    assert state.plain_memory is None and state.config.runtime.auto_memory is False
+    assert komut.handler(state, "") == "Otomatik bellek kapalı. Açmak için: /memory on"
+    assert "kapalı" in memory_commands.save_memory_note(state, "# not")
+
+    assert "açık" in komut.handler(state, "on")
+    assert state.plain_memory is not None
+
+
+def test_memory_import_claude_bellegini_alir(state, registry):
+    from fusion_cli.history.claude_source import slug_for
+
+    kaynak = state.home / ".claude" / "projects" / slug_for(state.root) / "memory"
+    kaynak.mkdir(parents=True)
+    (kaynak / "MEMORY.md").write_text("- kullanıcı motosiklet satar\n", encoding="utf-8")
+    komut = registry.get("memory")
+    assert komut is not None
+
+    assert komut.handler(state, "import") == "Kullanım: /memory import claude"
+    sonuc = komut.handler(state, "import claude")
+
+    assert "1 dosya claude" in sonuc
+    assert state.plain_memory is not None and "motosiklet" in state.plain_memory.read()
+    assert "bulunamadı" in komut.handler(
+        ReplState(
+            config=make_config(), memory=null_memory(), root=state.root / "bos", home=state.home
+        ),
+        "import claude",
+    )

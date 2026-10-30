@@ -7,6 +7,7 @@ import { Button } from "../ui/Button";
 import { Icon, type IconName } from "../ui/Icon";
 import { UpdatePanel } from "../control/UpdatePanel";
 import { Instructions } from "./Instructions";
+import { AutoMemoryPanel } from "./AutoMemoryPanel";
 import { MemoryPanel } from "./MemoryPanel";
 import { UsagePanel } from "./UsagePanel";
 import { VoicePreferences } from "./VoicePreferences";
@@ -324,7 +325,7 @@ export function Settings({
 
           {bolum === "ses" && <VoicePreferences client={client} />}
 
-          {bolum === "kisisellestirme" && <><MemoryPanel client={client} /><Instructions client={client} /></>}
+          {bolum === "kisisellestirme" && <><AutoMemoryPanel client={client} /><MemoryPanel client={client} /><Instructions client={client} /></>}
 
           {bolum === "tarayici" && <ChromeBrowser client={client} />}
 

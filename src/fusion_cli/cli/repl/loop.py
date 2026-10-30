@@ -61,7 +61,7 @@ from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
 from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
-from . import help_view, history_view, macros
+from . import help_view, history_view, macros, memory_commands
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
 from .input import ReplInput
 from .macros import Mode
@@ -275,6 +275,11 @@ async def _handle(
         banner.print_welcome(console, session_info(state), pad=False)
         state.welcome_padded = False
     ConsoleRenderer(console).print_user_message(line)
+    if memory_commands.is_memory_note(line):
+        # `# not` satırı modele gitmez, belleğe yazılır (Claude Code kısayolu, P-036).
+        sonuc = memory_commands.save_memory_note(state, line)
+        console.print(f"[{theme.DIM}]{escape(sonuc)}[/{theme.DIM}]")
+        return
     if is_command_line(line):
         await _run_command(line, state, registry, reader, console)
         # Makrolar görev HAZIRLAR, çalıştırmaz: komut işleyicileri saf ve senkron
@@ -520,6 +525,7 @@ async def _agent_turn(
             code_index=state.memory.code_index if state.memory.enabled else None,
             lessons=state.memory.lessons,
             capabilities=state.capabilities,
+            plain_memory=state.plain_memory,
             home=state.home,
             allowed_commands=state.allowed_commands,
             background=background,
