@@ -1,4 +1,4 @@
-"""PWA görünümleri (jsdom): yeniden çizim girdiyi silmez, onay kartı eksik durumda düğmesiz kalmaz."""
+"""PWA görünümleri (jsdom): yeniden çizim girdiyi silmez, onay kartı düğmesiz kalmaz."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def result() -> dict[str, Any]:
 
 
 def test_yeniden_cizim_yeni_proje_adini_ve_formu_korur(result: dict[str, Any]) -> None:
-    # Ölçüldü (30 Ekim): renderChats formu ve girdiyi her çizimde yeniden kuruyor, yazılan ad siliniyordu.
+    # Ölçüldü (30 Ekim): renderChats formu her çizimde yeniden kuruyor, yazılan ad siliniyordu.
     assert result["draft"] == {"value": "Yeni oyun", "formHidden": False, "focused": True}
 
 

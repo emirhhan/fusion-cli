@@ -5,6 +5,8 @@ istemiyordu; `awaitLoginThenValidate` yoklama hatasında sessizce dönüyordu; d
 açılan kurulum penceresi `STATE.web_sessions` okurken TypeError veriyordu.
 """
 
+# ruff: noqa: E501  (gömülü JS metinleri)
+
 from __future__ import annotations
 
 from tests.gateway_panel_harness import calistir, node_gerekli

@@ -1,8 +1,9 @@
-"""woo_import.php: kök dışı görsel kopyalanmaz, fiyatsız ürün yayına girmez, bozuk JSON bildirilir (Z1-60).
+"""woo_import.php: kök dışı görsel, fiyatsız ürün ve bozuk JSON davranışı (Z1-60).
 
 Ölçüldü (30 Ekim): `$kok . '/' . $veri['gorsel']` normalize edilmeden birleşiyordu (`../` kökün
-dışındaki dosyayı ortam kitaplığına kopyalar); sayısal olmayan fiyat atlanıp ürün fiyatsız "publish"
-oluyordu; bozuk/yok JSON sessizce 0 ürün veya uyarı veriyordu. WordPress yerine sahte ortamla çalışır.
+dışındaki dosyayı ortam kitaplığına kopyalar); sayısal olmayan fiyat atlanıp ürün fiyatsız
+"publish" oluyordu; bozuk/yok JSON sessizce 0 ürün veya uyarı veriyordu. Betik WordPress yerine
+sahte ortamla çalıştırılır.
 """
 
 from __future__ import annotations

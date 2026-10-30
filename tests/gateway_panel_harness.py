@@ -1,5 +1,7 @@
 """Gateway panel betiklerini Node `vm` içinde sahte DOM ile çalıştıran test yardımcısı."""
 
+# ruff: noqa: E501  (gömülü JS metinleri)
+
 from __future__ import annotations
 
 import json

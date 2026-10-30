@@ -5,6 +5,8 @@ değişkenlerini sunucudan yeniden atıyor (kaydedilmemiş düzenleme siliniyord
 sunucu kapandığında hatayı yutup 'yerel · çalışıyor' rozetini koruyordu.
 """
 
+# ruff: noqa: E501  (gömülü JS metinleri)
+
 from __future__ import annotations
 
 from tests.gateway_panel_harness import calistir, node_gerekli
