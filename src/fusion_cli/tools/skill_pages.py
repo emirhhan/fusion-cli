@@ -10,11 +10,17 @@ SKILL_TEXT_BUDGET = 6_000
 
 
 def load_skill_text(path: Path, budget: int = SKILL_TEXT_BUDGET) -> str:
-    """Bir skill talimatının tam metnini oku."""
+    """Bir skill talimatını oku; bütçeyi aşarsa kırpmayı AÇIKÇA bildir (sessiz kesme yok)."""
     try:
-        return path.read_text(encoding="utf-8")[:budget]
+        text = path.read_text(encoding="utf-8")
     except OSError as exc:
         return f"HATA: skill okunamadı: {exc}"
+    if len(text) <= budget:
+        return text
+    return (
+        f"{text[:budget]}\n\n[KIRPILDI: {len(text) - budget} karakter daha var. "
+        f"Devamı için read_skill(offset={budget}).]"
+    )
 
 
 def load_skill_page(path: Path, *, offset: int = 0, budget: int = SKILL_TEXT_BUDGET) -> str:
@@ -63,7 +69,15 @@ def skill_files(skill_md: Path) -> list[str]:
         for path in sorted(folder.rglob("*"))
         if path.is_file() and path != skill_md and path.suffix.lower() in _SKILL_TEXT_SUFFIXES
     ]
-    return found[:_MAX_SKILL_FILES]
+    if len(found) <= _MAX_SKILL_FILES:
+        return found
+    # Sessiz kırpma, kalan dosyaları modele görünmez kılıyordu (Remotion kiti gibi çok
+    # dosyalı skill'ler). Listelenmeyen dosya adıyla yine okunur (`skill_file` listeye bakmaz).
+    gizli = len(found) - _MAX_SKILL_FILES
+    return [
+        *found[:_MAX_SKILL_FILES],
+        f"… +{gizli} dosya daha var (adını bilirsen read_skill(file=...) ile okunur)",
+    ]
 
 
 def skill_file(skill_md: Path, relative: str) -> Path | None:

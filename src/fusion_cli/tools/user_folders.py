@@ -10,7 +10,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-USER_FOLDERS = ("Documents", "Desktop", "Downloads")
+# Masaüstü İLK: projeler orada durur (ölçüldü, 30 Ekim: Documents bütçeyi tüketince
+# Desktop hiç taranmıyordu).
+USER_FOLDERS = ("Desktop", "Documents", "Downloads")
 MAX_MATCHES = 5
 MAX_DEPTH = 5
 MAX_VISITED_DIRS = 4000
@@ -26,13 +28,12 @@ def find_in_user_folders(
     base = home if home is not None else Path.home()
     hedef = name.casefold()
     bulunan: list[Path] = []
-    gezilen = 0
     for klasor in USER_FOLDERS:
         kok = base / klasor
         if not kok.is_dir():
             continue
-        for dizin, alt, dosyalar in os.walk(kok):
-            gezilen += 1
+        # Bütçe KÖK BAŞINA: bir klasör diğerini aç bırakmasın.
+        for gezilen, (dizin, alt, dosyalar) in enumerate(os.walk(kok), 1):
             derinlik = len(Path(dizin).relative_to(kok).parts)
             alt[:] = sorted(
                 a
