@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import type { ProjectProcess } from "./types";
 
@@ -9,36 +9,67 @@ export interface ProcessOutputStream {
   total: number;
 }
 
+/** Çekirdeğin bildiği durumlar; yenisi eklenirse süreç gizlenmez, "hata" olarak gösterilir. */
+const BILINEN_DURUMLAR = ["calisiyor", "bitti", "hata", "durduruldu"];
+
+/**
+ * Tek bozuk kayıt tüm listeyi düşürmez: biçimsiz kayıt atlanır, `pid` boş olabilir (süreç
+ * doğamadı) ve bilinmeyen `durum` "hata" sayılır. Ölçüldü (30 Ekim): tek kayıttaki `pid: null` ya da
+ * yeni bir durum, arayüzü "Geçersiz süreç kaydı." hatasında eski listeyle bırakıyordu (U4-28).
+ */
 function decode(payload: Record<string, unknown>): ProjectProcess[] {
   if (payload.ok !== true || !Array.isArray(payload.surecler)) {
     throw new Error(typeof payload.metin === "string" ? payload.metin : "Süreçler alınamadı.");
   }
-  return payload.surecler.map((raw) => {
-    if (!raw || typeof raw !== "object") throw new Error("Geçersiz süreç kaydı.");
+  return payload.surecler.flatMap((raw): ProjectProcess[] => {
+    if (!raw || typeof raw !== "object") return [];
     const item = raw as Record<string, unknown>;
     if (
       typeof item.surec_id !== "string" || typeof item.komut !== "string" ||
-      typeof item.cwd !== "string" || typeof item.pid !== "number" ||
-      !["calisiyor", "bitti", "hata", "durduruldu"].includes(String(item.durum)) ||
+      typeof item.cwd !== "string" ||
+      !(typeof item.pid === "number" || item.pid === null || item.pid === undefined) ||
       !(typeof item.cikis_kodu === "number" || item.cikis_kodu === null) ||
       typeof item.cikti !== "string" || typeof item.baslangic !== "number"
-    ) throw new Error("Geçersiz süreç kaydı.");
-    return item as unknown as ProjectProcess;
+    ) return [];
+    const durum = BILINEN_DURUMLAR.includes(String(item.durum)) ? (item.durum as ProjectProcess["durum"]) : "hata";
+    return [{ ...(item as unknown as ProjectProcess), pid: typeof item.pid === "number" ? item.pid : null, durum }];
   });
+}
+
+/** Hata metnindeki "Error: " öneki kullanıcıya gösterilmez. */
+function hataMetni(reason: unknown): string {
+  return (reason instanceof Error ? reason.message : String(reason)).replace(/^Error:\s*/, "");
 }
 
 export function useProcesses(client: ProtocolClient) {
   const [processes, setProcesses] = useState<ProjectProcess[]>([]);
   const [outputStreams, setOutputStreams] = useState<Record<string, ProcessOutputStream>>({});
-  const [error, setError] = useState<string | null>(null);
+  //: Liste okuma hatası; her başarılı yenilemede silinir.
+  const [listError, setListError] = useState<string | null>(null);
+  //: Başlat/durdur hatası ayrıdır: 1 sn'lik yoklama bunu silmez, kullanıcı okuyabilir (U4-27).
+  const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const inflight = useRef(false);
+  const dirty = useRef(false);
 
+  // Aynı anda en fazla BİR liste isteği uçar; uçarken gelen istekler tek bir ek yenilemeye birleşir.
+  // Ölçüldü (30 Ekim): her çıktı olayı + 1 sn yoklama istek fırtınası üretiyor, yanıt sırası
+  // garanti olmadığından eski liste yenisini ezebiliyordu (U4-26).
   const refresh = useCallback(async () => {
+    if (inflight.current) { dirty.current = true; return; }
+    inflight.current = true;
     try {
-      setProcesses(decode(await client.request("surec.listele", {})));
-      setError(null);
-    } catch (reason) {
-      setError(String(reason));
+      do {
+        dirty.current = false;
+        try {
+          setProcesses(decode(await client.request("surec.listele", {})));
+          setListError(null);
+        } catch (reason) {
+          setListError(hataMetni(reason));
+        }
+      } while (dirty.current);
+    } finally {
+      inflight.current = false;
     }
   }, [client]);
 
@@ -74,13 +105,14 @@ export function useProcesses(client: ProtocolClient) {
 
   const start = useCallback(async (command: string, cwd = "") => {
     setBusy(true);
+    setActionError(null);
     try {
       const result = await client.request("surec.baslat", { komut: command, cwd });
       if (result.ok !== true) throw new Error(String(result.metin ?? "Süreç başlatılamadı."));
       await refresh();
       return true;
     } catch (reason) {
-      setError(String(reason));
+      setActionError(hataMetni(reason));
       return false;
     } finally {
       setBusy(false);
@@ -88,16 +120,17 @@ export function useProcesses(client: ProtocolClient) {
   }, [client, refresh]);
 
   const stop = useCallback(async (processId: string) => {
+    setActionError(null);
     try {
       const result = await client.request("surec.kes", { surec_id: processId });
       if (result.ok !== true) throw new Error(String(result.metin ?? "Süreç durdurulamadı."));
       await refresh();
     } catch (reason) {
-      setError(String(reason));
+      setActionError(hataMetni(reason));
     }
   }, [client, refresh]);
 
-  return { busy, error, outputStreams, processes, refresh, start, stop };
+  return { busy, error: actionError ?? listError, outputStreams, processes, refresh, start, stop };
 }
 
 export type ProcessController = ReturnType<typeof useProcesses>;
