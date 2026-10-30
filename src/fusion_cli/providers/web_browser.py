@@ -40,7 +40,7 @@ from typing import Any
 from ..config.models import WebSessionConfig
 from ..config.paths import web_profile_dir
 from ..core.constants import MIN_BROWSER_TURN_S, WEB_IMAGE_UPLOAD_PROVIDERS
-from ..core.redaction import redact
+from ..core.redaction import redact, strip_driver_log
 from ..core.refusal import looks_like_refusal
 from ..core.tool_emulation import TOOL_INSTRUCTIONS_LEAD
 from ..core.types import Message, ToolCall
@@ -222,6 +222,16 @@ class WebBrowserAuthError(WebBrowserError):
 
 class WebBrowserSelectorError(WebBrowserError):
     """Sağlayıcı arayüzü değişti; tanımlı seçiciler artık eşleşmiyor."""
+
+
+class WebBrowserModeUnavailableError(WebBrowserSelectorError):
+    """Seçilen model/mod menüde var ama PASİF (`aria-disabled`); tıklanamaz.
+
+    Ölçüldü (30 Ekim, Gemini "3.1 Pro"): pasif seçeneğe tıklama Playwright'ta 5 sn sonra
+    "element is not enabled" ile zaman aşımına düşüyor ve hata ham günlükle ekrana
+    basılıyordu. Pasif seçenek bir arayüz bozukluğu değil, hesabın o anki durumudur;
+    tıklanmaz, sayfanın mevcut kipiyle sürülür (`_apply_model_choice`).
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -450,6 +460,19 @@ async def _visible_model_options(
     return tuple(result)
 
 
+async def _option_disabled(item: Any) -> bool:
+    """Menü seçeneği pasif mi? (`aria-disabled="true"` ya da `disabled` özniteliği)"""
+    try:
+        aria = await item.get_attribute("aria-disabled")
+        if aria is not None and aria.strip().lower() == "true":
+            return True
+        return (await item.get_attribute("disabled")) is not None
+    except Exception:
+        # Öznitelik okunamıyorsa (sayfa yenileniyor, sahte öğe) pasif SAYILMAZ:
+        # eski davranış (tıkla) korunur.
+        return False
+
+
 async def model_choices_on_page(
     page: Any, definition: BrowserProviderDefinition
 ) -> tuple[str, ...]:
@@ -477,7 +500,25 @@ async def ensure_model_choice(page: Any, definition: BrowserProviderDefinition, 
         raise WebBrowserSelectorError(
             f"{definition.name} hesabında '{choice}' modeli artık seçilebilir değil"
         )
-    await matches[0].click(timeout=5000)
+    if await _option_disabled(matches[0]):
+        with contextlib.suppress(Exception):
+            await page.keyboard.press("Escape")
+        raise WebBrowserModeUnavailableError(
+            f"{definition.name} '{choice}' seçeneği şu an pasif (menüde kullanılamıyor)"
+        )
+    try:
+        await matches[0].click(timeout=5000)
+    except Exception as error:
+        # Ham sürücü hatası (Call log) kullanıcıya sızmasın; ayrıntı günlüğe.
+        _logger.warning(
+            "model secenegi tiklanamadi: saglayici=%s secim=%s hata=%s",
+            definition.id,
+            choice,
+            strip_driver_log(str(error), limit=400),
+        )
+        raise WebBrowserSelectorError(
+            f"{definition.name} '{choice}' model seçeneği tıklanamadı"
+        ) from error
     visible = _model_label(
         " ".join(((await button.inner_text()), (await button.get_attribute("aria-label")) or ""))
     )
@@ -505,6 +546,8 @@ async def switch_to_adjacent_model(
     neighbours = (
         [] if index is None else [i for i in (index - 1, index + 1) if 0 <= i < len(options)]
     )
+    # Pasif komşuya tıklamak 5 sn bekleyip düşer; yalnız seçilebilir olanlar sayılır.
+    neighbours = [i for i in neighbours if not await _option_disabled(options[i][1])]
     if not neighbours:
         with contextlib.suppress(Exception):
             await page.keyboard.press("Escape")
@@ -1169,6 +1212,11 @@ class BrowserSessionPool:
         self._fallback_confirmations: dict[tuple[str, str, str], int] = {}
         #: Süre sınırında cevap vermeyen (sağlayıcı, hesap, seçili model) üçlüleri.
         self._timed_out_choices: set[tuple[str, str, str]] = set()
+        #: Pasif seçenek yüzünden mevcut kiple sürülen (sağlayıcı, hesap, seçili model) →
+        #: bildirimin en son verildiği an. Aynı not her turda tekrarlanmaz.
+        self._mode_notice_at: dict[tuple[str, str, str], float] = {}
+        #: Bir sonraki tur sonucuna eklenecek kullanıcı notu (bkz. `take_mode_note`).
+        self._pending_mode_note: dict[tuple[str, str], str] = {}
         self._guard = asyncio.Lock()
 
     def schedule_idle_release(self, provider: str, account: str) -> None:
@@ -1227,6 +1275,23 @@ class BrowserSessionPool:
         self._model_fallbacks[key] = (choice, self._clock() + MODEL_FALLBACK_TTL_S)
         self._fallback_confirmations.pop(key, None)
         self._timed_out_choices.discard(key)
+
+    def note_mode_unavailable(self, session: WebSessionConfig, choice: str) -> None:
+        """Seçili mod pasif: bu turun sonucuna tek satırlık not düş (süre başına bir kez)."""
+        key = (session.provider, session.account, choice)
+        now = self._clock()
+        last = self._mode_notice_at.get(key)
+        if last is not None and now - last < MODEL_FALLBACK_TTL_S:
+            return
+        self._mode_notice_at[key] = now
+        self._pending_mode_note[(session.provider, session.account)] = (
+            f"{provider_definition(session.provider).name}: '{choice}' modu şu an "
+            "kullanılamıyor; sayfadaki mevcut modla devam ediliyor"
+        )
+
+    def take_mode_note(self, session: WebSessionConfig) -> str:
+        """Bekleyen mod notunu ver ve temizle; yoksa boş."""
+        return self._pending_mode_note.pop((session.provider, session.account), "")
 
     def confirm_fallback(self, session: WebSessionConfig, candidate: str) -> bool:
         """Komşunun kalıp reddi aştığını say; yeterince doğrulandıysa hatırla (P1-30).
@@ -1601,7 +1666,20 @@ async def _apply_model_choice(
             )
             manager.remember_model_choice(session, komsu)
             return komsu
-    await ensure_model_choice(page, definition, choice)
+    try:
+        await ensure_model_choice(page, definition, choice)
+    except WebBrowserModeUnavailableError as error:
+        # Seçenek pasif: tıklama denenmez, tur sayfanın mevcut kipiyle sürer. Gözlenen
+        # kademe `served_by` olarak üst katmana ulaşır; seçili ad "doğrulanmış" SAYILMAZ.
+        _logger.warning(
+            "web modu pasif, mevcut kiple devam: saglayici=%s hesap=%s secili=%s (%s)",
+            session.provider,
+            session.account,
+            choice,
+            error,
+        )
+        manager.note_mode_unavailable(session, choice)
+        return ""
     return choice
 
 
@@ -1815,9 +1893,9 @@ async def _deliver_turn(
             await manager.drop_conversation(session.provider, session.account, root)
         else:
             manager.discard_page(state.page)
-        raise WebBrowserError(
-            f"{definition.name} seçili modelden farklı bir kademeye geçti: {kademe}"
-        )
+        # Kısa tutulur: ayırt edici bilgi başta, sağlayıcı adı yok (ekranda satır kesiliyordu;
+        # ölçüldü 30 Ekim: "Gemini Web (Google AI Pro/Ultra) seçili…" kademeyi gizledi).
+        raise WebBrowserError(f"seçili model ({choice}) yerine {kademe} cevapladı")
     if not kademe and choice:
         kademe = choice
     if kademe and kademe != state.tier:
@@ -1842,7 +1920,7 @@ async def _deliver_turn(
         _append_trace(
             trace_dir, session, prompt=prompt, answer=answer, resumed=resumable, tier=kademe
         )
-    return WebTurn(answer, kademe)
+    return WebTurn(answer, kademe, manager.take_mode_note(session))
 
 
 def _native_login_executable() -> str | None:

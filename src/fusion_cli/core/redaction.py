@@ -183,3 +183,28 @@ class StreamRedactor:
         """Akış bitti: tutulan kalanı maskeleyip ver."""
         ready, self._pending = self._pending, ""
         return redact(ready)
+
+
+#: Tarayıcı sürücüsünün (Playwright) hata metnine eklediği ham günlüğün başlangıcı.
+_DRIVER_LOG_MARKERS = ("Call log:", "Call log")
+
+#: Kullanıcıya gösterilen tek satırlık hata özetinin üst sınırı.
+BRIEF_ERROR_CHARS = 160
+
+
+def strip_driver_log(text: str, *, limit: int = BRIEF_ERROR_CHARS) -> str:
+    """Ham sürücü günlüğünü (Playwright "Call log") at; tek satırlık kısa özet bırak.
+
+    Ölçüldü (30 Ekim): pasif model seçeneğine tıklama zaman aşımı, onlarca satırlık
+    "Call log" + öğenin tüm HTML özniteliklerini ekrana basıyordu. Ayrıntı günlük
+    dosyasına gider (çağıran tam metni orada tutar); ekrana yalnız ilk anlamlı satır.
+    """
+    cut = text
+    for marker in _DRIVER_LOG_MARKERS:
+        index = cut.find(marker)
+        if index != -1:
+            cut = cut[:index]
+    flat = " ".join(cut.split()).rstrip(". ")
+    if len(flat) > limit:
+        flat = flat[: limit - 1].rstrip() + "…"
+    return flat or " ".join(text.split())[:limit]

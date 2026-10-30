@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from ..config.eligibility import capability_from_spec
-from ..core.events import Channel, EventPublisher
+from ..core.events import Channel, EventPublisher, StatusChanged
 from ..core.health import HealthRegistry
 from ..core.model_capability import ModelCapability
 from ..core.protocols import Clock, LlmProvider, Sleeper
@@ -75,6 +75,7 @@ def build_provider(
         if web_sessions is not None:
             web = web_sessions.build(model, clock=clock)
             if web is not None:
+                _bind_web_notes(web, publisher)
                 return web
         definition = provider_for_model(model)
         if definition is not None and definition.kind is ProviderKind.BROWSER_BACKED:
@@ -153,6 +154,14 @@ def build_provider(
     return EventingProvider(
         inner, publisher=publisher, role=spec.name, channel=channel, background=background
     )
+
+
+def _bind_web_notes(web: LlmProvider, publisher: EventPublisher | None) -> None:
+    """Web taşımasının tek satırlık notlarını (ör. "mod pasif, mevcut kiple devam") duyur."""
+    bind = getattr(web, "bind_note_sink", None)
+    if publisher is None or not callable(bind):
+        return
+    bind(lambda note: publisher.publish(StatusChanged(note)))
 
 
 def _key_pool(

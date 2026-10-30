@@ -20,14 +20,17 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
 
 from ..core.clock import SystemClock
 from ..core.model_capability import ToolSupport
 from ..core.protocols import Clock
+from ..core.redaction import redact, strip_driver_log
 from ..core.tool_emulation import escape_tool_markers, parse_tool_calls, render_tool_instructions
 from ..core.types import (
+    WEB_SESSION_ERROR_PREFIX,
     CompletionRequest,
     Message,
     ModelResult,
@@ -35,6 +38,19 @@ from ..core.types import (
     StreamItem,
     TextChunk,
 )
+
+_logger = logging.getLogger(__name__)
+
+
+def _brief_session_error(error: BaseException) -> str:
+    """Kullanıcıya gidecek kısa hata metni; ham sürücü günlüğü yalnız günlük dosyasına."""
+    detail = str(error)
+    _logger.warning("web oturumu hatasi: %s: %s", type(error).__name__, redact(detail))
+    brief = strip_driver_log(detail)
+    # Sürücü adı ("Locator.click: Timeout 5000ms exceeded") kullanıcıya bir şey söylemez.
+    if "Timeout" in brief and ("click" in brief.lower() or "locator" in brief.lower()):
+        return "tarayıcı arayüzündeki bir öğe zamanında tıklanamadı"
+    return brief or type(error).__name__
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +76,9 @@ class WebTurn:
 
     text: str
     tier: str = ""
+    #: Kullanıcıya TEK satır olarak gösterilecek not (ör. seçili mod pasif, mevcut kiple
+    #: sürüldü). Cevabın parçası değildir; boşsa gösterilecek bir şey yok.
+    note: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,10 +145,19 @@ class WebProviderAdapter:
         self._tool_support = tool_support
         self._supports_images = supports_images
         self._clock = clock or SystemClock()
+        self._note_sink: Callable[[str], None] | None = None
 
     @property
     def label(self) -> str:
         return self._model
+
+    def bind_note_sink(self, sink: Callable[[str], None]) -> None:
+        """Taşımanın tek satırlık kullanıcı notlarını (`WebTurn.note`) ileteceği yer.
+
+        Kurucuya değil ayrı bir çağrıya konuldu: `WebSessionRegistry.build` imzası ve onu
+        taklit eden testler değişmesin. Sink hata fırlatırsa tur etkilenmez.
+        """
+        self._note_sink = sink
 
     async def complete(self, request: CompletionRequest) -> ModelResult:
         messages = self._prepared_messages(request)
@@ -159,10 +187,19 @@ class WebProviderAdapter:
                 text="",
                 latency_ms=latency,
                 ok=False,
-                error=f"web oturumu hatası: {error}",
+                error=f"{WEB_SESSION_ERROR_PREFIX} {_brief_session_error(error)}",
             )
         latency = int((self._clock.monotonic() - start) * 1000)
+        self._forward_note(getattr(raw, "note", ""))
         return self._to_result(raw.text, latency, served_by=raw.tier)
+
+    def _forward_note(self, note: str) -> None:
+        if not note or self._note_sink is None:
+            return
+        try:
+            self._note_sink(note)
+        except Exception:
+            _logger.debug("web notu iletilemedi", exc_info=True)
 
     def _call_transport(
         self, request: CompletionRequest, messages: tuple[Message, ...]

@@ -869,7 +869,8 @@ async def test_kademe_uyusmazligi_sohbeti_birakir_ayni_mesaj_ayni_sohbete_tekrar
     monkeypatch.setattr(web_browser, "observed_tier", _kademe)
     monkeypatch.setattr(web_browser, "_model_choice_matches_observed", lambda choice, tier: False)
 
-    with pytest.raises(web_browser.WebBrowserError):
+    # Ölçüldü (30 Ekim): eski metin sağlayıcı adıyla başlayıp ekranda "seçili…" diye kesiliyordu.
+    with pytest.raises(web_browser.WebBrowserError, match=r"^seçili model \(Pro\) yerine Flash"):
         await transport(credential, _messages(4), "chatgpt_web/main/auto")
     gonderilen_once = [entry for entry in log if entry[0] == "send"]
 
@@ -962,3 +963,26 @@ async def test_conversation_id_yoksa_eski_kok_korunur(pool, log):
     await adaptor.complete(_istek(mesajlar))
 
     assert pool.conversation("chatgpt_web", "main", conversation_digest(mesajlar[:1])) is not None
+
+
+# 30 Ekim — Gemini'de "3.1 Pro" seçeneği menüde pasifti; tur "Locator.click: Timeout" ile
+# düşüyor, yedek zinciri her çağrıda yeniden Gemini'yi deniyordu. Pasif seçenek artık
+# tıklanmaz: mesaj sayfanın mevcut kipiyle gönderilir ve kullanıcıya tek satır not gider.
+async def test_pasif_mod_turu_dusurmez_mevcut_kiple_gonderir_ve_not_tasir(pool, log, monkeypatch):
+    async def _pasif(page, definition, choice):
+        raise web_browser.WebBrowserModeUnavailableError("pasif")
+
+    async def _kademe(page, definition):
+        return "Flash-Lite"
+
+    monkeypatch.setattr(web_browser, "ensure_model_choice", _pasif)
+    monkeypatch.setattr(web_browser, "observed_tier", _kademe)
+    transport = build_browser_transport(_secili("3.1 Pro"), pool=pool)
+
+    ilk = await transport(WebSessionCredential(), (Message("user", "soru"),), "m")
+    ikinci = await transport(WebSessionCredential(), (Message("user", "soru 2"),), "m")
+
+    assert [entry for entry in log if entry[0] == "send"], "mesaj gönderilmeliydi"
+    assert ilk.tier == "Flash-Lite"  # kullanıcı hangi kiple cevaplandığını görür
+    assert "3.1 Pro" in ilk.note and "mevcut" in ilk.note
+    assert ikinci.note == ""  # aynı not her turda tekrarlanmaz
