@@ -165,3 +165,40 @@ async def test_iptal_edilmis_baglam_kit_yazmaz(tmp_path):
     context.cancelled.set()
     assert not (await scaffold_remotion(_args(), context)).ok
     assert not (tmp_path / "video").exists()
+
+
+# --- Dalga 4 (T2-29): zayıf model girdisi toleransı ---------------------------
+
+
+@pytest.mark.parametrize("duration", [90.0, "90", " 90 "])
+async def test_sure_float_ve_metin_kabul_edilir(tmp_path, duration):
+    context = ToolContext(root=tmp_path)
+    scenes = [{"id": "x", "kind": "feature", "duration": duration}]
+
+    sonuc = await scaffold_remotion({**_args(), "scenes": scenes}, context)
+
+    assert sonuc.ok, sonuc.output
+    assert context.remotion_contract.registered.scenes[0].duration == 90
+
+
+async def test_aciklayici_ek_alan_yok_sayilir_ama_passed_reddedilir(tmp_path):
+    context = ToolContext(root=tmp_path)
+    ok = [{"id": "x", "kind": "feature", "duration": 90, "title": "Giriş", "description": "d"}]
+
+    assert (await scaffold_remotion({**_args(), "scenes": ok}, context)).ok
+
+
+async def test_hata_mesaji_alinan_degeri_gosterir(tmp_path):
+    context = ToolContext(root=tmp_path)
+    sonuc = await scaffold_remotion(
+        {**_args(), "scenes": [{"id": "x", "kind": "gizemli", "duration": 90}]}, context
+    )
+
+    assert not sonuc.ok and "gizemli" in sonuc.output
+
+
+async def test_timeout_metin_sayi_kabul_edilir(tmp_path):
+    context = ToolContext(root=tmp_path)
+    sonuc = await scaffold_remotion({**_args(), "timeout_s": "120"}, context)
+
+    assert sonuc.ok, sonuc.output

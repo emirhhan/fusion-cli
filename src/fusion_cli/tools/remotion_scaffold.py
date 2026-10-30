@@ -20,7 +20,7 @@ from ..core.remotion_contract import (
 )
 from ..core.repair_ledger import SourceFingerprint
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from .args import require_list, require_str
+from .args import coerce_int, require_list, require_str
 from .files import writable_path
 from .remotion_bootstrap import (
     BOOTSTRAP_ENTRY,
@@ -55,22 +55,33 @@ async def scaffold_remotion(args: ToolArgs, context: ToolContext) -> ToolResult:
     )
 
 
+#: Yok sayılan açıklayıcı sahne alanları (başlık/açıklama). `passed` gibi başarı beyanı
+#: taşıyabilecek alanlar bilinçli olarak LİSTEDE YOK: onlar reddedilir.
+_DESCRIPTIVE_SCENE_FIELDS = frozenset({"title", "description", "name", "label", "text", "notes"})
+
+
 def _scene_plans(args: ToolArgs) -> tuple[KitScenePlan, ...]:
     scenes = []
     for raw in require_list(args, "scenes"):
         if not isinstance(raw, dict):
             raise ValueError("Her sahne id/kind/duration nesnesi olmalı.")
-        if set(raw) - {"id", "kind", "duration"}:
-            raise ValueError("Sahne yalnız id/kind/duration alanlarını kabul eder.")
-        scene_id, kind, duration = raw.get("id"), raw.get("kind"), raw.get("duration")
-        if (
-            not isinstance(scene_id, str)
-            or not _IDENTIFIER.fullmatch(scene_id)
-            or kind not in ("feature", "custom")
-            or type(duration) is not int
-            or duration <= 0
-        ):
-            raise ValueError("Sahne kimliği, türü ve pozitif tam kare süresi gerekli.")
+        unknown = set(raw) - {"id", "kind", "duration"} - _DESCRIPTIVE_SCENE_FIELDS
+        if unknown:
+            raise ValueError(
+                f"Sahne yalnız id/kind/duration alanlarını kabul eder; fazladan: "
+                f"{', '.join(sorted(map(str, unknown)))}."
+            )
+        scene_id, kind = raw.get("id"), raw.get("kind")
+        # `90.0` ve `"90"` zayıf modellerde sık; bool ve kesirli süre yine reddedilir.
+        duration = coerce_int(raw.get("duration"))
+        if not isinstance(scene_id, str) or not _IDENTIFIER.fullmatch(scene_id):
+            raise ValueError(f"Sahne kimliği harf/rakam/-/_ olmalı (alınan: {scene_id!r}).")
+        if kind not in ("feature", "custom"):
+            raise ValueError(f"Sahne türü 'feature' ya da 'custom' olmalı (alınan: {kind!r}).")
+        if duration is None or duration <= 0:
+            raise ValueError(
+                f"Sahne süresi pozitif tam kare sayısı olmalı (alınan: {raw.get('duration')!r})."
+            )
         scenes.append(KitScenePlan(scene_id, str(kind), duration))
     if len({scene.scene_id for scene in scenes}) != len(scenes):
         raise ValueError("Sahne kimlikleri benzersiz olmalı.")
@@ -121,19 +132,28 @@ def _kit_files() -> tuple[_KitFile, ...]:
     )
 
 
+def _timeout(raw: object) -> float | None:
+    """Sonlu pozitif süre; `"120"` metni de kabul (bool/NaN/sonsuz/≤0 → None)."""
+    if isinstance(raw, bool):
+        return None
+    try:
+        value = float(raw) if isinstance(raw, int | float | str) else math.nan
+    except ValueError:
+        return None
+    return value if math.isfinite(value) and value > 0 else None
+
+
 def _contract(
     args: ToolArgs, context: ToolContext, target: Path, files: tuple[_KitFile, ...]
 ) -> RegisteredKitContract:
     composition = require_str(args, "composition_id")
-    timeout = args.get("timeout_s")
-    if (
-        not _IDENTIFIER.fullmatch(composition)
-        or type(timeout) not in (int, float)
-        or not isinstance(timeout, int | float)
-        or not math.isfinite(timeout)
-        or timeout <= 0
-    ):
-        raise ValueError("Composition kimliği ve sonlu pozitif süre gerekli.")
+    timeout = _timeout(args.get("timeout_s"))
+    if not _IDENTIFIER.fullmatch(composition):
+        raise ValueError(f"Composition kimliği harf/rakam/-/_ olmalı (alınan: {composition!r}).")
+    if timeout is None:
+        raise ValueError(
+            f"timeout_s sonlu pozitif sayı olmalı (alınan: {args.get('timeout_s')!r})."
+        )
     scenes = _scene_plans(args)
     plan = KitVerificationPlan(
         BOOTSTRAP_ENTRY,
