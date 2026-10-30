@@ -86,23 +86,6 @@ def test_metin_sonucta_sizdirilmaz(tmp_path, monkeypatch) -> None:
     assert "özel metin" not in result.output
 
 
-def test_ekran_goruntusu_gorsel_blok_ve_dosya_doner(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(desktop.sys, "platform", "darwin")
-
-    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        (tmp_path / "screen.png").write_bytes(b"\x89PNG\r\n\x1a\n")
-        return subprocess.CompletedProcess(command, 0, "", "")
-
-    monkeypatch.setattr(desktop.subprocess, "run", fake_run)
-    context = ToolContext(root=tmp_path)
-
-    result = desktop.desktop_screenshot({"path": "screen.png"}, context)
-
-    assert result.ok
-    assert result.images[0].startswith("data:image/png;base64,")
-    assert tmp_path / "screen.png" in context.touched
-
-
 def test_tus_ve_kaydirma_izinli_oturuma_gider(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(desktop.sys, "platform", "darwin")
     framework = object()
@@ -186,50 +169,6 @@ def test_option_ve_control_bayraklari_iletilir(tmp_path, monkeypatch) -> None:
     sonuc = desktop.desktop_key({"key": "left", "option": True}, ToolContext(root=tmp_path))
 
     assert sonuc.ok and alinan[0]["option"] is True and alinan[0]["code"] == 123
-
-
-def test_varsayilan_ekran_goruntusu_yolu_depoya_karismaz(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(desktop.sys, "platform", "darwin")
-    yazilan: list[str] = []
-
-    def fake_run(command, **kwargs):
-        yol = command[-1]
-        yazilan.append(yol)
-        from pathlib import Path
-
-        Path(yol).write_bytes(b"\x89PNG\r\n\x1a\n")
-        return subprocess.CompletedProcess(command, 0, "", "")
-
-    monkeypatch.setattr(desktop.subprocess, "run", fake_run)
-
-    desktop.desktop_screenshot({}, ToolContext(root=tmp_path))
-
-    assert ".fusion/tmp" in yazilan[0]
-
-
-def test_buyuk_ekran_goruntusu_otomatik_kucultulur(tmp_path, monkeypatch) -> None:
-    """Hata "daha küçük çözünürlük kullan" diyordu ama çözünürlük parametresi yoktu."""
-    from pathlib import Path
-
-    monkeypatch.setattr(desktop.sys, "platform", "darwin")
-    monkeypatch.setattr(desktop, "SCREENSHOT_MAX_BYTES", 1_000)
-    komutlar: list[str] = []
-
-    def fake_run(command, **kwargs):
-        komutlar.append(command[0])
-        hedef = Path(command[-1])
-        if command[0] == "screencapture":
-            hedef.write_bytes(b"x" * 5_000)
-        else:  # sips ile küçültme
-            hedef.write_bytes(b"\x89PNG\r\n\x1a\n")
-        return subprocess.CompletedProcess(command, 0, "", "")
-
-    monkeypatch.setattr(desktop.subprocess, "run", fake_run)
-
-    sonuc = desktop.desktop_screenshot({"path": "s.png"}, ToolContext(root=tmp_path))
-
-    assert sonuc.ok, sonuc.output
-    assert komutlar == ["screencapture", "sips"]
 
 
 # --- Parite P-032: tuş dizgisi, tekrar, basılı tutma ------------------------------------

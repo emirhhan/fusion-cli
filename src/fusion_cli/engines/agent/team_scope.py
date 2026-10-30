@@ -74,6 +74,8 @@ def derive_sub_context(context: ToolContext, subtask: SubTask | None = None) -> 
         edit_fuzzy_match=context.edit_fuzzy_match,
         post_edit_syntax_check=context.post_edit_syntax_check,
         shell_fingerprint=context.shell_fingerprint,
+        desktop=context.desktop,
+        desktop_screenshot_max_width=context.desktop_screenshot_max_width,
         write_scope=scope,
     )
 

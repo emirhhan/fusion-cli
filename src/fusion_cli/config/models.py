@@ -274,6 +274,10 @@ class RuntimeConfig:
     #: sayılıp geçen testi eskitiyordu. Proje kökü DIŞINA yazan komut görünmez; sınır
     #: aşılır (20.000 dosya / 300 ms), komut arka plandaysa ya da kapalıysa eski temkinli davranış.
     shell_workspace_fingerprint: bool = True
+    #: `desktop_screenshot` modele gitmeden bu genişliğe (piksel) küçültülür; koordinat çerçevesi
+    #: sonuçta bildirilir ve fare araçları görüntü pikselini ekran noktasına çevirir (P-030).
+    #: 1568: vision modellerinin kayıpsız kenarı; Claude computer-use ~1372'ye indirir.
+    desktop_screenshot_max_width: int = 1568
     #: Doğrulama kapısı iki düzeltme turundan sonra HÂLÂ kırmızıysa, kullanıcının
     #: yapılandırmasında tanımlı BİR üst model varsa TEK bir ek düzeltme turu o modelle
     #: koşar (bkz. `engines/agent/gate_escalation.py`). Sinyal yalnız gerçek kapı

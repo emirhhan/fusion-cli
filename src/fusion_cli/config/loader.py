@@ -305,6 +305,8 @@ def _build_runtime(raw: object) -> RuntimeConfig:
     ):
         if getattr(runtime, name) < 0:
             raise ConfigError(f"runtime.{name}: negatif olamaz.")
+    if runtime.desktop_screenshot_max_width < 256:
+        raise ConfigError("runtime.desktop_screenshot_max_width: en az 256 piksel olmalı.")
     if runtime.escalation_model.strip() and "/" not in runtime.escalation_model:
         raise ConfigError(
             "runtime.escalation_model: <sağlayıcı>/<model> biçiminde olmalı "

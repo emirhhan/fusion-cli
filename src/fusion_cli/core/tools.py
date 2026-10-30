@@ -26,6 +26,7 @@ from uuid import uuid4
 from .artifacts import ArtifactStore
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
+from .desktop_frame import DESKTOP_SCREENSHOT_MAX_WIDTH, DesktopView
 from .job_evidence import JobCompletion
 from .remotion_browser import RemotionBrowser
 from .remotion_contract import KitContractState
@@ -383,6 +384,12 @@ class ToolContext:
     #: `run_shell` öncesi/sonrası proje kökünün parmak izi alınır; dosya değişmediyse komut
     #: mutasyon sayılmaz (bkz. `core.workspace_fingerprint`). Kapalıysa temkinli sınıflandırma.
     shell_fingerprint: bool = field(default=True, kw_only=True)
+    #: Turun son masaüstü ekran görüntüsü çerçevesi: fare araçları görüntü pikselini ekran
+    #: noktasına bununla çevirir (bkz. `core.desktop_frame`). Taşıyıcı nesnedir; paylaşılır.
+    desktop: DesktopView = field(default_factory=DesktopView, kw_only=True)
+    #: Modele giden masaüstü ekran görüntüsünün en fazla genişliği
+    #: (`runtime.desktop_screenshot_max_width`).
+    desktop_screenshot_max_width: int = field(default=DESKTOP_SCREENSHOT_MAX_WIDTH, kw_only=True)
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya

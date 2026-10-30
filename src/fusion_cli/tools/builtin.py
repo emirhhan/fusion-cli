@@ -17,6 +17,7 @@ from . import (
     desktop,
     desktop_background,
     desktop_inspect,
+    desktop_screen,
     download,
     files,
     jobs,
@@ -183,10 +184,27 @@ _TOOLS: tuple[Tool, ...] = (
         mutating=True,
     ),
     Tool(
+        name="desktop_displays",
+        description="Bağlı macOS ekranlarını sırası ve boyutuyla listele (çoklu ekran).",
+        parameters=_schema({}, []),
+        run=desktop_screen.desktop_displays,
+    ),
+    Tool(
         name="desktop_screenshot",
-        description="macOS ekranını görsel olarak oku.",
-        parameters=_schema({"path": _STRING}, []),
-        run=desktop.desktop_screenshot,
+        description=(
+            "macOS ekranını görsel olarak oku; sonuç küçültülür ve 'görüntü pikseli = N nokta' "
+            "çerçevesi bildirilir. region='x,y,w,h' ile bölgeyi büyüt (kırpık; tıklama tam "
+            "görüntü koordinatıyla), display=N ile ekran seç."
+        ),
+        parameters=_schema(
+            {
+                "path": _STRING,
+                "display": {**_INTEGER, "description": "Ekran sırası (1 = ana)."},
+                "region": {**_STRING, "description": "Son görüntünün pikseliyle 'x,y,w,h'."},
+            },
+            [],
+        ),
+        run=desktop_screen.desktop_screenshot,
         mutating=True,
     ),
     Tool(

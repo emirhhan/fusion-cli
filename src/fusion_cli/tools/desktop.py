@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import base64
 import ctypes
 import subprocess
 import sys
 import time
 from typing import Any, cast
 
-from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from .args import optional_str, require_str
+from .args import require_str
 from .desktop_permissions import ACCESSIBILITY, MESSAGES, permission_failure
-from .files import writable_path
 from .key_spec import (
     HOLD_MS_MAX,
     KEY_NAME_ALIASES,
@@ -128,50 +125,6 @@ def desktop_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     if result.returncode:
         return ToolResult.failure(f"Uygulama açılamadı: {result.stderr.strip()}")
     return ToolResult(f"Uygulama açıldı: {name}")
-
-
-def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
-    """Ekranı çalışma alanına kaydet ve görseli modele aktar."""
-    error = _mac_only()
-    if error:
-        return ToolResult.failure(error)
-    target = writable_path(context, optional_str(args, "path", ".fusion/tmp/masaustu-ekrani.png"))
-    if target.suffix.lower() != ".png":
-        return ToolResult.failure("Ekran görüntüsü yolu .png ile bitmeli.")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        context.changes.record(target)
-        result = subprocess.run(
-            ["screencapture", "-x", "-t", "png", str(target)],
-            capture_output=True,
-            text=True,
-            timeout=DESKTOP_COMMAND_TIMEOUT_S,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return ToolResult.failure(f"Ekran görüntüsü alınamadı: {exc}")
-    if result.returncode or not target.is_file():
-        return ToolResult.failure(
-            "Ekran görüntüsü alınamadı. Sistem Ayarları > Gizlilik ve Güvenlik > "
-            "Ekran Kaydı bölümünde Fusion iznini kontrol et. " + result.stderr.strip()
-        )
-    if target.stat().st_size > SCREENSHOT_MAX_BYTES:
-        # Çözünürlük parametresi yok: sınırı aşan görüntü kendiliğinden küçültülür (`sips`).
-        shrink = subprocess.run(
-            ["sips", "-Z", "1600", str(target)],
-            capture_output=True,
-            text=True,
-            timeout=DESKTOP_COMMAND_TIMEOUT_S,
-            check=False,
-        )
-        if shrink.returncode or target.stat().st_size > SCREENSHOT_MAX_BYTES:
-            return ToolResult.failure(
-                "Ekran görüntüsü sınırı aştı ve küçültülemedi; pencereyi küçült ya da "
-                "desktop_background_screenshot ile tek pencere al."
-            )
-    context.touched.add(target)
-    image = ToolContent.image("image/png", base64.b64encode(target.read_bytes()).decode("ascii"))
-    return ToolResult(f"Ekran görüntüsü: {target}", content=(image,))
 
 
 def _post_mouse_click(framework: ctypes.CDLL, x: int, y: int) -> None:
