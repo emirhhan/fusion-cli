@@ -113,3 +113,33 @@ def test_ortak_kucultme_dotted_i_yi_tek_karaktere_indirir():
     assert lower_tr_aware("İSTEK") == "istek"
     assert lower_tr_aware("INDEX") == "index"
     assert lower_tr_aware("kız") == "kız"
+
+
+# --- Dalga 4: salt okuma cümleleri mutasyon / commit sayılmaz (E1-44) ------------- #
+
+
+def test_isim_halindeki_fiil_koku_mutasyon_sayilmaz():
+    """Ölçüldü (30 Ekim): 'son güncellemeleri listele' workspace_mutation çıkıyordu."""
+    from fusion_cli.engines.effects.detect import required_effect_for
+
+    for gorev in (
+        "son güncellemeleri listele",
+        "ekleme tarihini göster",
+        "silinen dosyaları listele",
+    ):
+        assert required_effect_for(gorev) != "workspace_mutation", gorev
+
+
+def test_emir_ve_rica_kipleri_mutasyon_kalir():
+    from fusion_cli.engines.effects.detect import required_effect_for
+
+    for gorev in ("kodu güncelle", "bunu düzeltin", "şunu ekleyelim", "hatayı düzeltsene", "sil"):
+        assert required_effect_for(gorev) == "workspace_mutation", gorev
+
+
+def test_commitment_ve_commitleri_goster_git_commit_sayilmaz():
+    from fusion_cli.engines.effects.detect import required_effect_for
+
+    for gorev in ("committee üyelerini say", "son commitleri göster", "commitment kavramı"):
+        assert required_effect_for(gorev) != "git_commit", gorev
+    assert required_effect_for("değişiklikleri commitle") == "git_commit"

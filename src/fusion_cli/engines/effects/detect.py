@@ -99,7 +99,10 @@ _GIT_PUSH_PATTERNS = (
 )
 _GIT_COMMIT_PATTERNS = (
     r"\bgit\s+commit\b",
-    r"\bcommit(?:le)?[a-zçğıöşü]*\b",
+    # Yalnız "commit" ve emir kipi ("commit'le", "commitleyin"). Ölçüldü (30 Ekim): önceki
+    # `commit(?:le)?[a-z…]*` "commitment", "committee" ve "son commitleri göster" (okuma)
+    # ile de tutuyordu (E1-44).
+    r"\bcommit(?:['’]?le(?:yin|yelim|yip|sene|)|)\b",
     r"\bcommit\s+(?:et|yap|oluştur|olustur)\b",
 )
 _SHELL_ACTION_PATTERNS = (
@@ -203,9 +206,18 @@ _FILE_MUTATION_PATTERNS = (
     # Liste DAR tutulur: "yaz" ve "yap" gibi çok anlamlı fiiller dışarıdadır
     # ("cevap yaz" bir dosya değişikliği değildir); buradakiler emir kipinde
     # yalnızca "bir şeyi değiştir" demektir.
+    # Ek YALNIZ emir/rica kipi olabilir ("düzeltin", "ekleyelim", "silsene"). Ölçüldü
+    # (30 Ekim): `[a-zçğıöşü]*` her eki kabul ediyordu; "son güncellemeleri listele",
+    # "ekleme tarihini göster" gibi SALT OKUMA istekleri mutasyon sayılıp model gereksiz
+    # yazma kanıtı üretmeye zorlanıyordu (E1-44).
     (
         r"\b(?:düzelt|duzelt|güncelle|guncelle|değiştir|degistir|"
-        r"sil|kaldır|kaldir|oluştur|olustur|ekle)[a-zçğıöşü]*\b"
+        r"sil|kaldır|kaldir|oluştur|olustur|ekle)"
+        r"(?:in|iniz|ın|ınız|un|unuz|ün|ünüz|yin|yiniz|yın|yınız|elim|alım|alim|yelim|yalım|yalim|"
+        r"sene|sana|sin|sın|sun|sün|ip|ıp|up|üp|yip|yıp|"
+        # Rica ("düzeltir misin") ve 2. tekil geçmiş ("sildin, geri al"): geçmiş SORULARI
+        # `is_history_question` ayrıca eler.
+        r"[ıiuü]r\s+m[ıiuü]s[ıiuü]n|[dt][ıiuü]n)?\b"
     ),
     # Geliştirme emirleri. Ölçüldü (29 Eylül): "projesini tam anlamıyla geliştir ...
     # her şeyi oku ... ayarla" görevi yalnız "proje ... oku" kalıbına uydu ve salt
