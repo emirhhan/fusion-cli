@@ -10,8 +10,11 @@ struct TanimaOlayi: Codable {
     let guven: Float?
     let speech_ms: Int
     let segment: Int
+    /// Yalnız `hata` olaylarında, hatanın sınıfı biliniyorsa yazılır (ör. `dikte_kapali`). Arayüz
+    /// metni ayrıştırmak yerine önce bu koda bakar; diğer olaylarda alan HİÇ yazılmaz.
+    let kod: String?
 
-    enum CodingKeys: String, CodingKey { case tur, metin, guven, speech_ms, segment }
+    enum CodingKeys: String, CodingKey { case tur, metin, guven, speech_ms, segment, kod }
 
     func encode(to encoder: Encoder) throws {
         var kutu = encoder.container(keyedBy: CodingKeys.self)
@@ -21,11 +24,18 @@ struct TanimaOlayi: Codable {
         else { try kutu.encodeNil(forKey: .guven) }
         try kutu.encode(speech_ms, forKey: .speech_ms)
         try kutu.encode(segment, forKey: .segment)
+        if let kod = kod { try kutu.encode(kod, forKey: .kod) }
     }
 }
 
-func yaz(_ tur: String, _ metin: String = "", guven: Float? = nil, speechMs: Int = 0, segment: Int = 0) {
-    let olay = TanimaOlayi(tur: tur, metin: metin, guven: guven, speech_ms: speechMs, segment: segment)
+/// macOS "Siri ve Dikte kapalı" hatası: `kLSRErrorDomain 201`; bazı sürümlerde yalnız açıklaması gelir.
+func diktePasifMi(_ hata: NSError) -> Bool {
+    if hata.domain == "kLSRErrorDomain" && hata.code == 201 { return true }
+    return hata.localizedDescription.range(of: "Siri and Dictation are disabled", options: .caseInsensitive) != nil
+}
+
+func yaz(_ tur: String, _ metin: String = "", guven: Float? = nil, speechMs: Int = 0, segment: Int = 0, kod: String? = nil) {
+    let olay = TanimaOlayi(tur: tur, metin: metin, guven: guven, speech_ms: speechMs, segment: segment, kod: kod)
     if let veri = try? JSONEncoder().encode(olay), let satır = String(data: veri, encoding: .utf8) {
         print(satır); fflush(stdout)
     }
@@ -829,7 +839,10 @@ func konusmaAc(segment: Int) {
                             speechMs: sure, segment: segment)
                     }
                 } else {
-                    yaz("hata", hata.localizedDescription, speechMs: sure, segment: segment)
+                    // Sistem Dikte/Siri kapalıysa tanıyıcı bu hatayı verir. Arayüz metni
+                    // ayrıştırmasın diye yapısal kod da yazılır (metin aynı kalır).
+                    yaz("hata", hata.localizedDescription, speechMs: sure, segment: segment,
+                        kod: diktePasifMi(ns) ? "dikte_kapali" : nil)
                 }
             }
             turTamamlandi(turNo)

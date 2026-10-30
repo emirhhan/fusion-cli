@@ -4,6 +4,8 @@ export type RecognitionEvent = {
   guven: number | null;
   speech_ms: number;
   segment: number;
+  /** Yalnız `hata` olaylarında, hata sınıfı biliniyorsa (ör. `dikte_kapali`). */
+  kod?: string;
 };
 
 export type VoicePhase =

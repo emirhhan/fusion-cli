@@ -17,7 +17,7 @@ import {
   type VoicePrefsPayload,
   type VoiceRuntimeState,
 } from "./bridge";
-import { acknowledgeWake, cancelThinkingCue, routeWakeSpeech, speakThinkingCue, speechFailureText } from "./wake";
+import { acknowledgeWake, cancelThinkingCue, diktePasifMi, routeWakeSpeech, speakThinkingCue, speechFailureText } from "./wake";
 import { cevapYankisiMi, yankiMi } from "./echo";
 import { cuesEnabled, playCue } from "./cues";
 import { VoiceMode } from "./VoiceMode";
@@ -502,12 +502,12 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         if (line.segment <= finalizedSegment.current || line.segment < latestRecognitionSegment.current) return;
         latestRecognitionSegment.current = line.segment;
       }
-      if (line.tur === "hata" && /Siri and Dictation are disabled/i.test(line.metin)) {
+      if (line.tur === "hata" && diktePasifMi(line)) {
         systemRecognitionBlocked.current = true;
         // Mikrofon çalışamıyorsa oturum "açık" görünmemeli; kullanıcı düzeltince yeniden başlatır.
         sessionOpenRef.current = false;
         setSessionOpen(false);
-        dispatch({ type: "FAILED", text: speechFailureText(line.metin) });
+        dispatch({ type: "FAILED", text: speechFailureText(line.metin, line.kod) });
         return;
       }
       if (line.tur === "ses-basladi" || line.tur === "kismi") {

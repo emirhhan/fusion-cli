@@ -830,6 +830,18 @@ it("Dikte kapalıysa otomatik yeniden deneme döngüsü durur", async () => {
   await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2));
 });
 
+it("yapısal dikte_kapali kodu metin farklı olsa da döngüyü durdurur (U2-10)", async () => {
+  const fake = fakeRuntime();
+  render(<VoiceWindow continuous runtime={fake.runtime} />);
+  await startTalk();
+  await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+  act(() => fake.recognition({ tur: "hata", metin: "Beklenmeyen sistem iletisi", kod: "dikte_kapali" }));
+  act(() => fake.recognitionEnded());
+  expect(screen.getByRole("alert").textContent).toContain("Klavye → Dikte");
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  expect(fake.runtime.startRecognition).toHaveBeenCalledOnce();
+});
+
 it("arka plan sesi asistanı kesmez; Fusion öneki kesebilir", async () => {
   const fake = fakeRuntime();
   render(<VoiceWindow continuous runtime={fake.runtime} />);
