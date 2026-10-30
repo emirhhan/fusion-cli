@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from html.parser import HTMLParser
 from urllib.parse import unquote
 
 from .web_images import empty_images
@@ -63,7 +64,8 @@ def inspect_web_output_by_severity(
         return (), (), ()
 
     css = _birlestir(files, (".css",))
-    js = _birlestir(files, (".js",))
+    # `.mjs`/`.cjs` de betiktir; yoksa bu dosyalara dayalı kurallar atlanıyordu (A4-64).
+    js = _birlestir(files, (".js", ".mjs", ".cjs"))
     proje = {**(context or {}), **files}
 
     blocking: list[str] = []
@@ -129,7 +131,7 @@ def _head_var(html: str) -> bool:
 
 
 def _olu_gorseller(html: str) -> list[str]:
-    kaynaklar = re.findall(r'<img[^>]*\ssrc="([^"]*)"', html, re.I)
+    kaynaklar = re.findall(r"""<img[^>]*\ssrc=["']([^"']*)["']""", html, re.I)
     for host in DEAD_IMAGE_HOSTS:
         eslesen = [src for src in kaynaklar if host in src]
         if eslesen:
@@ -141,9 +143,35 @@ def _olu_gorseller(html: str) -> list[str]:
     return []
 
 
+#: Bir `href="#"` bağlantısını meşru kılan öznitelikler: JS ile bağlanmış açılır menü, rol
+#: verilmiş düğme, atla bağlantısı (A4-44).
+_BAGLANTI_MESRULASTIRAN = ("onclick", "role", "data-", "aria-", "@click", "v-on", "x-on")
+
+
+class _BosBaglantiSayaci(HTMLParser):
+    """Gerçek `<a href="#">` etiketlerini sayar; yorum, `<pre>`, dize içindekilere bakmaz."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.sayi = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a":
+            return
+        nitelikler = {ad.lower(): (deger or "") for ad, deger in attrs}
+        if nitelikler.get("href", "").strip() != "#":
+            return
+        if any(ad.startswith(_BAGLANTI_MESRULASTIRAN) for ad in nitelikler):
+            return
+        self.sayi += 1
+
+
 def _bos_baglantilar(html: str) -> list[str]:
     # Yalnızca href="#": href="#bolum" sayfa içi çapadır ve bozuk değildir.
-    sayi = len(re.findall(r'href="#"', html, re.I))
+    sayac = _BosBaglantiSayaci()
+    sayac.feed(html)
+    sayac.close()
+    sayi = sayac.sayi
     if not sayi:
         return []
     return [
@@ -260,11 +288,19 @@ _HP_ZERO_GUARD = re.compile(r"\b(?P<receiver>[\w$]+(?:\.[\w$]+)*)\.hp\s*<=\s*0\b
 def _hp_azaltiliyor_mu(code: str, receiver: str) -> bool:
     """Aynı state alıcısının HP'sinde gerçek bir azaltma var mı?"""
     target = rf"\b{re.escape(receiver)}\.hp\b"
-    return bool(
+    if bool(
         re.search(rf"{target}\s*(?:-=|--)", code, re.I)
         or re.search(rf"--\s*{target}", code, re.I)
+        or re.search(rf"{target}\s*\+=\s*-", code, re.I)
         or re.search(rf"{target}\s*=\s*[^;\n]*{target}\s*-", code, re.I)
-    )
+    ):
+        return True
+    # Takma ad (`const p = state.player; p.hp -= 1`) ve hasar fonksiyonları (`takeDamage()`)
+    # azaltmadır; yoksa BLOCKING yanlış pozitif üretiyordu (A4-45).
+    for alias in re.findall(rf"\b([\w$]+)\s*=\s*{re.escape(receiver)}\s*[;,\n]", code):
+        if alias != receiver and _hp_azaltiliyor_mu(code, alias):
+            return True
+    return bool(re.search(r"\b(?:take|apply|deal|inflict)Damage\s*\(|\bhurt\s*\(", code, re.I))
 
 
 def _erisilemez_hp_dali(code: str) -> list[str]:
@@ -292,6 +328,8 @@ def _erisilemez_hp_dali(code: str) -> list[str]:
 def _kapanmayan_ham_metin_etiketleri(html: str) -> list[str]:
     """Kapanmayan ``style``/``script`` belgenin geri kalanını sessizce yutar."""
     bulgular: list[str] = []
+    # HTML yorumundaki örnek kod "kapanmıyor" bulgusu üretmesin (A4-64).
+    html = re.sub(r"<!--.*?-->", "", html, flags=re.DOTALL)
     baslangic = re.compile(r"<(style|script)\b[^>]*>", re.I)
     konum = 0
     while acilis := baslangic.search(html, konum):

@@ -507,3 +507,45 @@ def test_aday_toplama_once_butun_kardesleri_sonra_cocuklari_alar(tmp_path):
     adaylar = [p.name for p in _candidates(kok)]
 
     assert "zzz-dogru-proje" in adaylar
+
+
+# --- A4-44 / A4-45 / A4-64: web_verify ------------------------------------------------- #
+
+
+def test_bos_baglanti_yalniz_gercek_etiketlerde_ve_mesru_olmayanlarda_sayilir():
+    from fusion_cli.engines.agent.web_verify import _bos_baglantilar
+
+    meshru = (
+        '<a href="#" role="button" id="menu">Menü</a>'
+        '<a href="#" onclick="ac()">Aç</a>'
+        '<a href="#" aria-controls="x">x</a>'
+        '<!-- <a href="#">yorum</a> -->'
+        "<script>const s = '<a href=\"#\">';</script>"
+    )
+    assert _bos_baglantilar(meshru) == []
+    assert _bos_baglantilar("<a href='#'>boş</a><a href=\"#\">boş</a>")[0].startswith("2 boş")
+
+
+def test_img_kaynagi_tek_tirnakliysa_olu_servis_yakalanir():
+    from fusion_cli.engines.agent.web_verify import _olu_gorseller
+
+    assert _olu_gorseller("<img src='https://via.placeholder.com/10'>")
+
+
+def test_hp_takma_ad_ve_hasar_fonksiyonu_azaltma_sayilir():
+    from fusion_cli.engines.agent.web_verify import _erisilemez_hp_dali
+
+    takma_ad = "if (state.player.hp <= 0) end();\nconst p = state.player;\np.hp -= 1;"
+    fonksiyon = "if (player.hp <= 0) end();\nfunction f(){ takeDamage(player, 3); }"
+    gercek_eksik = "if (enemy.hp <= 0) win();"
+
+    assert _erisilemez_hp_dali(takma_ad) == []
+    assert _erisilemez_hp_dali(fonksiyon) == []
+    assert _erisilemez_hp_dali(gercek_eksik)
+
+
+def test_html_yorumundaki_kapanmayan_script_bulgu_uretmez():
+    from fusion_cli.engines.agent.web_verify import _kapanmayan_ham_metin_etiketleri
+
+    assert _kapanmayan_ham_metin_etiketleri("<!-- <script> örnek --><p>x</p>") == []
+    assert _kapanmayan_ham_metin_etiketleri("<script>var a;")
