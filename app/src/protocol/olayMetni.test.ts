@@ -188,6 +188,14 @@ describe("olayAdimi", () => {
     })).toEqual({ metin: "adım 2/4 başladı", ayrinti: "testleri çalıştır" });
   });
 
+  it("adım zarfını (model çağrısı sınırı) görünür kılar; yoksa ya da 0 ise sessiz kalır (A3-40)", () => {
+    const temel = { olay: "ExecutionStepStarted", index: 1, total_steps: 3, goal: "varlıkları yaz" };
+    expect(olayAdimi({ ...temel, model_call_limit: 40 }))
+      .toEqual({ metin: "adım 1/3 başladı", ayrinti: "varlıkları yaz · en çok 40 model çağrısı" });
+    expect(olayAdimi({ ...temel, model_call_limit: 0 })?.ayrinti).toBe("varlıkları yaz");
+    expect(olayAdimi({ ...temel, model_call_limit: "çok" })?.ayrinti).toBe("varlıkları yaz");
+  });
+
   it("doğrulama kanıtını ham JSON yerine okunabilir metne çevirir", () => {
     expect(olayAdimi({
       olay: "ExecutionStepVerified",

@@ -438,9 +438,13 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
     case "ExecutionStepStarted": {
       const sira = Number(veri.index);
       const toplam = Number(veri.total_steps);
+      // Adım zarfı tur/politika sınırının ÜSTÜNE çıkabilir (A3-40): maliyet sürprizi olmasın diye
+      // çekirdek `model_call_limit` gönderiyorsa görünür kılınır. Eski çekirdekte alan yoktur (0/eksik).
+      const zarf = Number(veri.model_call_limit);
+      const zarfMetni = Number.isInteger(zarf) && zarf > 0 ? `en çok ${zarf} model çağrısı` : "";
       return {
         metin: Number.isFinite(sira) && Number.isFinite(toplam) && toplam > 0 ? `adım ${sira}/${toplam} başladı` : "adım başladı",
-        ayrinti: typeof veri.goal === "string" ? veri.goal : undefined,
+        ayrinti: [typeof veri.goal === "string" ? veri.goal : "", zarfMetni].filter(Boolean).join(" · ") || undefined,
       };
     }
     case "ExecutionStepVerified": {
