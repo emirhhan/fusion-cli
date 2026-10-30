@@ -928,17 +928,35 @@ def _format_call(name: str, args: Mapping[str, object]) -> str:
     """
     anahtar = _PRIMARY_ARG.get(name)
     deger = args.get(anahtar) if anahtar else None
-    govde = _format_value(deger) if isinstance(deger, str) and deger.strip() else _fallback(args)
-
     bayraklar = [ad for ad in _FLAG_ARGS if args.get(ad) is True]
-    if bayraklar:
-        govde = f"{govde}, {', '.join(bayraklar)}" if govde else ", ".join(bayraklar)
+    ek = ", ".join(bayraklar)
+    if isinstance(deger, str) and deger.strip():
+        # Birincil argüman (yol/komut/url) boyuta ÇEVRİLMEZ: Ölçüldü (30 Ekim) 49+
+        # karakterli yol ve komut `<N karakter>` görünüyor, `auto` modda çalışan
+        # komut ekranda hiç okunamıyordu. Sığmazsa ORTADAN kısalır: yolun dosya adı
+        # ve komutun sonu (`| sh` gibi) da görünür kalır.
+        govde = " ".join(deger.split())
+        oda = _CALL_LIMIT - len(name) - len("()") - (len(ek) + 2 if ek else 0)
+        govde = _middle_shorten(govde, oda)
+    else:
+        govde = _fallback(args)
+    if ek:
+        govde = f"{govde}, {ek}" if govde else ek
 
     tek_satir = " ".join(f"{name}({govde})".split())
     if len(tek_satir) <= _CALL_LIMIT:
         return tek_satir
     # Kısaltırken kapanış parantezi KORUNUR: yarım kalan çağrı okunmuyor.
     return tek_satir[: _CALL_LIMIT - 2] + "…)"
+
+
+def _middle_shorten(text: str, limit: int) -> str:
+    """Uzun metni ortadan kısalt: baş ve son görünür, ortaya `…` konur."""
+    if len(text) <= limit or limit < 5:
+        return text
+    bas = (limit - 1) // 2 + (limit - 1) % 2
+    son = limit - 1 - bas
+    return f"{text[:bas]}…{text[len(text) - son :]}"
 
 
 def _fallback(args: Mapping[str, object]) -> str:
