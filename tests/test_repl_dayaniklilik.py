@@ -341,3 +341,26 @@ async def test_development_katalog_getirme_olay_dongusunun_disinda_calisir(tmp_p
     await gorev
 
     assert calisan and calisan[0] != ana_is_parcacigi
+
+
+# --- Dalga 4: satır-içi REPL komut/motor hatasında çıkmaz (L2-26) ---------------- #
+
+
+async def test_komut_istisnasi_repl_i_bitirmez(monkeypatch):
+    import io
+
+    from rich.console import Console
+
+    from fusion_cli.cli.repl import loop
+
+    async def _patla(*args, **kwargs):
+        raise OSError("disk yazılamıyor")
+
+    monkeypatch.setattr(loop, "_handle", _patla)
+    tampon = io.StringIO()
+    console = Console(file=tampon, force_terminal=False, width=120)
+
+    await loop._handle_safely("/cop geri-al", None, None, None, console, None)
+
+    cikti = tampon.getvalue()
+    assert "disk yazılamıyor" in cikti

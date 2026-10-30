@@ -36,8 +36,17 @@ def apprentice_notice_shown(directory: Path | None = None) -> bool:
     return _marker_path(directory).is_file()
 
 
-def mark_apprentice_notice_shown(directory: Path | None = None) -> None:
-    """Bildirimin gösterildiğini kalıcı olarak işaretle; bir daha çıkmaz."""
+def mark_apprentice_notice_shown(directory: Path | None = None) -> bool:
+    """Bildirimin gösterildiğini kalıcı olarak işaretle; bir daha çıkmaz.
+
+    İşaret konamazsa (yapılandırma dizini yazılamaz) `False` döner, İSTİSNA fırlatmaz:
+    Ölçüldü (30 Ekim) `mkdir`/`touch` hatası açılışı `PermissionError` ile çökertiyordu
+    (L2-29). Sonuç yalnızca bildirimin bir sonraki açılışta tekrar çıkmasıdır.
+    """
     path = _marker_path(directory)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.touch()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    except OSError:
+        return False
+    return True

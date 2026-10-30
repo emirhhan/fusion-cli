@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
 import signal
 import sys
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rich.console import Console
+from rich.markup import escape
 
 from ...core.remotion_browser import RemotionBrowser
 from ...tools.remotion_observe import browser_transport
@@ -56,6 +58,7 @@ from ...providers.capabilities import apprentice_active
 from ...providers.health_setup import build_health
 from ...ui import banner, messages, theme
 from ...ui.renderer import ConsoleRenderer
+from ...ui.text import summarize_error
 from ..prompter import ConsolePrompter
 from . import help_view, history_view, macros
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
@@ -66,6 +69,8 @@ from .state import Engine, Reminder, ReplState
 
 #: Komut geçmişinin saklandığı dosya adı.
 HISTORY_FILE = "repl_history"
+
+_logger = logging.getLogger(__name__)
 
 
 def apprentice_switch_notice(config: Config) -> str | None:
@@ -155,7 +160,7 @@ async def run_repl(
                 break
             if not line.strip():
                 continue
-            await _handle(line.strip(), state, registry, reader, console, background)
+            await _handle_safely(line.strip(), state, registry, reader, console, background)
     finally:
         await _shutdown(background, console)
     return 0
@@ -196,12 +201,17 @@ async def _warm_up(state: ReplState) -> None:
     # oturumuysa ısıtma var olmayan bir uca gidiyor, hata yutuluyor ve ısıtma
     # hiç gerçekleşmiyordu. Tarayıcı taşımasında ısıtmanın değeri daha da büyük:
     # ilk mesajın beklediği asıl gecikme oturumun açılmasıdır.
-    await build_provider(
-        state.config.agent,
-        publisher=None,
-        retry_delays_s=state.config.runtime.retry_delays_s,
-        web_sessions=web_registry_for(state.config),
-    ).complete(request)
+    try:
+        await build_provider(
+            state.config.agent,
+            publisher=None,
+            retry_delays_s=state.config.runtime.retry_delays_s,
+            web_sessions=web_registry_for(state.config),
+        ).complete(request)
+    except Exception:
+        # Belgenin söylediği gibi sessiz: aksi hâlde hata `background.failures`a düşüp
+        # çıkışta "arka plan: …" diye basılıyordu (L2-26).
+        _logger.debug("ısıtma çağrısı başarısız", exc_info=True)
 
 
 async def _read_line(reader: ReplInput, state: ReplState) -> str | None:
@@ -213,6 +223,30 @@ async def _read_line(reader: ReplInput, state: ReplState) -> str | None:
     # shift-tab girişte modu değiştirmiş olabilir; durumu senkronla.
     state.approval = reader.mode
     return line
+
+
+async def _handle_safely(
+    line: str,
+    state: ReplState,
+    registry: CommandRegistry,
+    reader: ReplInput,
+    console: Console,
+    background: BackgroundTasks,
+) -> None:
+    """`_handle`ı çalıştır; komut işleyicisi ya da motor hatası REPL'i bitirmesin.
+
+    Ölçüldü (30 Ekim): yalnız `CancelledError` yakalanıyordu; bir komut işleyicisindeki
+    `OSError` ya da motor hatası döngüyü sonlandırıp kullanıcıyı REPL'den atıyordu
+    (TUI yolunda genel yakalama zaten vardı; L2-26).
+    """
+    try:
+        await _handle(line, state, registry, reader, console, background)
+    except Exception as error:
+        _logger.exception("REPL satırı beklenmeyen hatayla bitti")
+        console.print(
+            f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}] "
+            f"{escape(summarize_error(str(error) or type(error).__name__))}"
+        )
 
 
 async def _handle(
@@ -547,9 +581,10 @@ async def _agent_turn(
             )
             raise
         finally:
-            # İptal/hata halinde TurnFinished yayınlanmaz; canlı gösterge yine de durmalı.
+            # İptal/hata halinde TurnFinished yayınlanmaz; canlı gösterge yine de durmalı
+            # ve iz verisi (Langfuse) kaybolmamalı (L2-26).
             renderer.abort()
-    tracer.flush()
+            tracer.flush()
     state.history = outcome.messages
 
 
