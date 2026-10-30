@@ -143,9 +143,11 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
     preview.last_probe = {"ok": not sonuc.problems, "summary": sonuc.summary(), "url": url}
     if en_iyi_onceki is not None:
         preview.last_probe["best_count"] = en_iyi_onceki
-    deps.publisher.publish(
-        PreviewReady(url=url, kind=kind.value, root=str(root), title=sonuc.title)
-    )
+    # Sayfa açılmadıysa (HTTP 500/yanıt yok) masaüstü paneli kırık adresi açmasın (A3-19).
+    if 0 < sonuc.status < 400:
+        deps.publisher.publish(
+            PreviewReady(url=url, kind=kind.value, root=str(root), title=sonuc.title)
+        )
     shot = await asyncio.to_thread(_save_screenshot, root, sonuc.screenshot)
     farklar = _differences(kaynak, sonuc)
     if farklar is not None:
@@ -185,17 +187,40 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
 BEST_THEME_DIR = ".fusion/tema-en-iyi"
 
 
+#: Yedeğe girmeyen klasörler (bağımlılık/derleme çıktısı) ve en çok yedeklenen dosya sayısı.
+_SNAPSHOT_SKIP = frozenset({"node_modules", "vendor", ".git", "dist", "build"})
+_SNAPSHOT_MAX_FILES = 500
+
+
 def _snapshot_theme(root: Path) -> None:
-    """Etkin projenin tema PHP/CSS dosyalarını en iyi hal olarak yedekle (WordPress değilse yok)."""
+    """Etkin projenin tema PHP/CSS dosyalarını en iyi hal olarak yedekle (WordPress değilse yok).
+
+    Ölçüldü (29 Ekim, A3-20): yalnız temanın üst düzeyi kopyalanıyordu; `inc/`,
+    `template-parts/` yedeğe girmiyor, ama gerileme notu "oradan geri kopyalayabilirsin"
+    diyordu. Alt klasörler de aynı yapıyla yedeklenir. Tema o arada silindiyse araç
+    patlamaz: yedek yalnız yardımcıdır.
+    """
     tema = project_theme(root)
     if tema is None:
         return
     kaynak = root / "wp-content" / "themes" / tema
     hedef = root / BEST_THEME_DIR
-    hedef.mkdir(parents=True, exist_ok=True)
-    for dosya in kaynak.iterdir():
-        if dosya.is_file() and dosya.suffix in (".php", ".css"):
-            (hedef / dosya.name).write_bytes(dosya.read_bytes())
+    try:
+        hedef.mkdir(parents=True, exist_ok=True)
+        kopyalanan = 0
+        for dosya in sorted(kaynak.rglob("*")):
+            goreli = dosya.relative_to(kaynak)
+            if _SNAPSHOT_SKIP.intersection(goreli.parts[:-1]):
+                continue
+            if not dosya.is_file() or dosya.suffix not in (".php", ".css"):
+                continue
+            if kopyalanan >= _SNAPSHOT_MAX_FILES:
+                break
+            (hedef / goreli).parent.mkdir(parents=True, exist_ok=True)
+            (hedef / goreli).write_bytes(dosya.read_bytes())
+            kopyalanan += 1
+    except OSError:
+        return
 
 
 def _with_regression_note(result: ToolResult, previous: object, current: int) -> ToolResult:
@@ -331,6 +356,13 @@ async def _measure_other_page(label: str, link: str, kaynak: list[dict[str, Any]
     return found
 
 
+def _is_same_site(host: str, source_host: str) -> bool:
+    """Alan adı kaynakla aynı ya da onun alt alan adı mı (`notexample.com` değil)."""
+    host = host.removeprefix("www.").split(":")[0]
+    source = source_host.split(":")[0]
+    return host == source or host.endswith(f".{source}")
+
+
 def _differences(kaynak: list[dict[str, Any]], sonuc: PageProbe) -> tuple[str, ...] | None:
     """Kaynak ölçümle farklar; karşılaştırılacak kaynak sayfa yoksa None."""
     if not kaynak or sonuc.measured is None:
@@ -340,9 +372,7 @@ def _differences(kaynak: list[dict[str, Any]], sonuc: PageProbe) -> tuple[str, .
         return None
     farklar = list(design_compare.compare(reference, sonuc.measured))
     kaynak_host = urlparse(str(kaynak[0].get("url", ""))).netloc.removeprefix("www.")
-    if kaynak_host and any(
-        host.removeprefix("www.").endswith(kaynak_host) for host in sonuc.external_hosts
-    ):
+    if kaynak_host and any(_is_same_site(host, kaynak_host) for host in sonuc.external_hosts):
         # Ölçüldü (16. kabul koşusu): model sepet/favori işlemlerini kaynak sitenin canlı
         # API'sine bağladı; site kendi WooCommerce'i yerine başkasının sunucusuyla konuşuyordu.
         farklar.insert(

@@ -249,7 +249,24 @@ def write_credentials(root: Path, url: str, password: str) -> Path:
         dosya.write(metin)
     # Dosya zaten varsa `os.open` izni değiştirmez; eski geniş izni de kapat.
     path.chmod(0o600)
+    _ignore_in_git(path)
     return path
+
+
+def _ignore_in_git(path: Path) -> None:
+    """Giriş dosyası `.fusion/.gitignore` ile git'e girmekten korunur (A3-22).
+
+    Klasördeki başka dosyalara dokunulmaz: yalnız parola dosyasının adı eklenir.
+    """
+    kural = path.name
+    ignore = path.parent / ".gitignore"
+    try:
+        mevcut = ignore.read_text(encoding="utf-8") if ignore.is_file() else ""
+        if kural not in mevcut.splitlines():
+            ayirici = "" if not mevcut or mevcut.endswith("\n") else "\n"
+            ignore.write_text(f"{mevcut}{ayirici}{kural}\n", encoding="utf-8")
+    except OSError:
+        return
 
 
 def _install_sqlite_dropin(root: Path) -> None:
