@@ -21,17 +21,16 @@ export function NewTaskDialog({
 }: NewTaskDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef(onCancel);
-  const busyRef = useRef(busy);
 
   useEffect(() => { cancelRef.current = onCancel; }, [onCancel]);
-  useEffect(() => { busyRef.current = busy; }, [busy]);
 
   useEffect(() => {
     if (!open) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialogRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busyRef.current) {
+      // Klasör seçici açıkken de Esc/Vazgeç çalışır: yerel pencere kaybolursa çıkış yolu kalmalı (U4-20).
+      if (event.key === "Escape") {
         event.preventDefault();
         cancelRef.current();
         return;
@@ -63,7 +62,7 @@ export function NewTaskDialog({
   if (!open) return null;
   return (
     <div className="new-task-backdrop" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !busy) onCancel();
+      if (event.target === event.currentTarget) onCancel();
     }}>
       <div
         aria-labelledby="new-task-title"
@@ -90,7 +89,7 @@ export function NewTaskDialog({
         </div>
         {error && <p aria-live="polite" className="new-task-dialog__error">{error}</p>}
         <footer>
-          <button disabled={busy} onClick={onCancel} type="button">Vazgeç</button>
+          <button onClick={onCancel} type="button">Vazgeç</button>
           {busy && <span aria-live="polite">Klasör seçiliyor…</span>}
         </footer>
       </div>

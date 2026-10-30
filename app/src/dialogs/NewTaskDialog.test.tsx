@@ -34,4 +34,20 @@ describe("NewTaskDialog", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onCancel).toHaveBeenCalledOnce();
   });
+
+  // Ölçüldü (30 Ekim, U4-20): busy iken Vazgeç/Esc/arka plan kapalıydı; yerel seçici kaybolursa çıkış yoktu.
+  it("klasör seçici beklerken de Vazgeç, Esc ve arka plan tıklaması çalışır", () => {
+    const onCancel = vi.fn();
+    render(<NewTaskDialog busy onCancel={onCancel} onChat={vi.fn()} onFolder={vi.fn()} open />);
+
+    const vazgec = screen.getByRole("button", { name: "Vazgeç" }) as HTMLButtonElement;
+    expect(vazgec.disabled).toBe(false);
+    fireEvent.click(vazgec);
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.mouseDown(document.querySelector(".new-task-backdrop") as Element);
+
+    expect(onCancel).toHaveBeenCalledTimes(3);
+    expect((screen.getByRole("button", { name: "Sohbet başlat" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Klasörde kod görevi" }) as HTMLButtonElement).disabled).toBe(true);
+  });
 });

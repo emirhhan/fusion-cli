@@ -516,6 +516,7 @@ export function SessionUygulama({
   const [crash, clearCrash] = useCrashReporter();
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskBusy, setNewTaskBusy] = useState(false);
+  const folderPickVersion = useRef(0);
   const [newTaskError, setNewTaskError] = useState<string | null>(null);
   // Sayfa geçişleri bir geçmiş yığınında tutulur: üst çubuktaki geri/ileri
   // düğmeleri `setPage` çağıran TÜM mevcut yerlerle (aşağıda) değişmeden
@@ -1485,11 +1486,15 @@ export function SessionUygulama({
       ? "Çalışıyor"
       : "Hazır";
   const chooseTaskFolder = async () => {
+    // Sürüm sayacı: Vazgeç (ya da yeni bir seçim) sonrası gelen eski seçici sonucu yok sayılır (U4-20).
+    const pick = ++folderPickVersion.current;
+    const isCurrentPick = () => folderPickVersion.current === pick;
     setNewTaskBusy(true);
     setNewTaskError(null);
     try {
       const storedRoot = readLastRoot();
       const root = await selectFolder(storedRoot === "/" ? undefined : storedRoot);
+      if (!isCurrentPick()) return;
       if (!root) {
         setNewTaskOpen(false);
         return;
@@ -1499,14 +1504,15 @@ export function SessionUygulama({
         return;
       }
       await controller.create({ root, mode: "kod" });
+      if (!isCurrentPick()) return;
       // Depo yazılamazsa klasör yine açıldı; "Klasör açılamadı" demek yanıltıcı olurdu (U3-32).
       writeStorage(() => localStorage, LAST_ROOT_KEY, root);
       setPage("chat");
       setNewTaskOpen(false);
     } catch (reason) {
-      setNewTaskError(`Klasör açılamadı: ${errorMessage(reason)}`);
+      if (isCurrentPick()) setNewTaskError(`Klasör açılamadı: ${errorMessage(reason)}`);
     } finally {
-      setNewTaskBusy(false);
+      if (isCurrentPick()) setNewTaskBusy(false);
     }
   };
   function requestTaskFolder() {
@@ -1750,7 +1756,13 @@ export function SessionUygulama({
           <NewTaskDialog
             busy={newTaskBusy}
             error={newTaskError}
-            onCancel={() => { setNewTaskError(null); setNewTaskOpen(false); }}
+            onCancel={() => {
+              // Seçici asılı kalsa bile çıkış var; sonradan dönen sonuç sürüm sayacıyla yok sayılır (U4-20).
+              folderPickVersion.current += 1;
+              setNewTaskBusy(false);
+              setNewTaskError(null);
+              setNewTaskOpen(false);
+            }}
             onChat={() => {
               setNewTaskOpen(false);
               setNewTaskError(null);

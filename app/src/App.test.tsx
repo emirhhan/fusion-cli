@@ -844,6 +844,33 @@ describe("SessionUygulama — dalga 4 (U3-25, U3-26, U3-27, U3-32)", () => {
   });
 });
 
+it("asılı kalmış eski klasör seçicisinin geç gelen sonucu yeni seçimi ezmez (U4-20)", async () => {
+  localStorage.setItem("fusion.permission-explanations.v1", JSON.stringify({ workspace: true }));
+  const fake = composerTransport({ "gecmis.kaynaklar": { ok: true, kaynaklar: [] } });
+  let eskiSecici!: (root: string | null) => void;
+  const selectFolder = vi.fn()
+    .mockImplementationOnce(() => new Promise<string | null>((resolve) => { eskiSecici = resolve; }))
+    .mockResolvedValueOnce("/Users/test/yeni");
+  const permissionBridge: PermissionBridge = { request: vi.fn(async () => "granted"), openSettings: vi.fn() };
+  render(<SessionUygulama permissionBridge={permissionBridge} selectFolder={selectFolder} transport={fake.transport} />);
+  const klasorKomutu = async () => {
+    const alan = await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(alan, { target: { value: "/klasor" } });
+    fireEvent.keyDown(alan, { key: "Enter" });
+    fireEvent.keyDown(alan, { key: "Enter" });
+  };
+  await klasorKomutu();
+  await waitFor(() => expect(selectFolder).toHaveBeenCalledTimes(1));
+  await klasorKomutu();
+  await waitFor(() => expect(vi.mocked(fake.transport.create).mock.calls.at(-1)?.[1]).toBe("/Users/test/yeni"));
+  const olusturma = vi.mocked(fake.transport.create).mock.calls.length;
+
+  await act(async () => { eskiSecici("/Users/test/eski"); });
+
+  expect(vi.mocked(fake.transport.create).mock.calls.length).toBe(olusturma);
+  expect(vi.mocked(fake.transport.create).mock.calls.some((cagri) => cagri[1] === "/Users/test/eski")).toBe(false);
+});
+
 it("Ayarlar > Kurulumu yeniden aç, atlanmış sihirbazı baştan gösterir (U5-47)", async () => {
   const fake = composerTransport();
   render(<SessionUygulama transport={fake.transport} />);
