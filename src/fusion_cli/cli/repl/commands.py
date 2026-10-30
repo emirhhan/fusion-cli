@@ -764,6 +764,8 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("verify", messages.CMD_VERIFY, _verify, group="Agent"),
     SlashCommand("undo", messages.CMD_UNDO, _undo, group="Agent"),
     SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
+    SlashCommand("status", messages.CMD_STATUS, lambda state, argument: "", group="Bilgi"),
+    SlashCommand("context", messages.CMD_CONTEXT, lambda state, argument: "", group="Bilgi"),
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
     SlashCommand("mcp", messages.CMD_MCP, _mcp, group="Bilgi", usage="[add|remove] …"),
     SlashCommand("skills", messages.CMD_SKILLS, _skills, group="Bilgi", usage="[arama]"),
@@ -810,7 +812,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
 #: Kendi çıktısını basan komutlar (tablo, panel, ekran temizleme). REPL döngüsü
 #: bunları özel olarak ele alır; işleyicileri boş metin döndürür.
 RENDERED_COMMANDS = frozenset(
-    {"help", "tips", "clear", "stats", "lessons", "models", "compact", "cost"}
+    {"help", "tips", "clear", "stats", "lessons", "models", "compact", "cost", "status", "context"}
 )
 
 

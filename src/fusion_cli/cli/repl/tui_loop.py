@@ -35,6 +35,7 @@ from . import (
     model_flows,
     profiles_flow,
     provider_flow,
+    status_view,
     verify_flow,
 )
 from .commands import (
@@ -275,7 +276,11 @@ class _TuiSession:
         return self._task is not None and not self._task.done()
 
     def _sync_status(self) -> None:
-        self._tui.set_status(self._state.approval.value, self._state.engine.value)
+        self._tui.set_status(
+            self._state.approval.value,
+            self._state.engine.value,
+            status_view.context_label(self._state),
+        )
 
     def _echo(self, renderable: object) -> None:
         """Konuşmaya bir şey yaz ve ekranı tazele."""

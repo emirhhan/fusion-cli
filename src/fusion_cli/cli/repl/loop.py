@@ -660,7 +660,12 @@ def _sync_status_bar(
     yeni bir sayaç İCAT EDİLMEDİ. `background=None` (ör. slash komutlarından
     sonra) verilirse sessizce eklenmez, hata VERMEZ.
     """
+    from .status_view import context_label
+
     parts = [state.engine.value, state.task_type, state.config.agent.model]
+    # Bağlam sayacı (P-027): geçmiş doluysa eşiğe göre yüzde ve tahmini token.
+    if baglam := context_label(state):
+        parts.append(baglam)
     if background is not None and background.pending:
         parts.append(f"{background.pending} arka plan işi")
     reader.context = " · ".join(parts)

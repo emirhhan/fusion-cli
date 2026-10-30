@@ -68,12 +68,16 @@ _WHEEL_AS_ARROWS_OFF = "\x1b[?1007l\x1b[?1l"
 _CHROME_ROWS = 6
 
 
-def format_status(mode: str, engine: str) -> str:
-    """Girdinin ALTINDAKİ durum satırının HTML'i: mod + motor + kısayol ipuçları."""
+def format_status(mode: str, engine: str, context: str = "") -> str:
+    """Girdinin ALTINDAKİ durum satırının HTML'i: mod + motor + bağlam sayacı + ipuçları.
+
+    `context` bağlam sayacıdır (`status_view.context_label`, P-027); boşsa yazılmaz.
+    """
     color = theme.MODE_COLORS.get(mode, theme.DIM)
+    extra = f" · {context}" if context else ""
     return (
         f"<style fg='{color}'>{theme.ICON_STATUS} {mode}</style>"
-        f"<style fg='{theme.DIM}'> · {engine} · {messages.TUI_STATUS_HINT}</style>"
+        f"<style fg='{theme.DIM}'> · {engine}{extra} · {messages.TUI_STATUS_HINT}</style>"
     )
 
 
@@ -130,6 +134,7 @@ class FusionTui:
         self._status_html = ""
         self._status_mode = "auto"
         self._status_engine = "agent"
+        self._status_context = ""
         self._mode = "idle"
         self._answer: asyncio.Future[object] | None = None
         # Uygulama-içi seçim modalı durumu (nested picker YOK): /mode, /level, /effort.
@@ -309,13 +314,16 @@ class FusionTui:
             self._spinner_frame += 1
             self._invalidate()
 
-    def set_status(self, mode: str, engine: str) -> None:
+    def set_status(self, mode: str, engine: str, context: str = "") -> None:
         self._status_mode = mode
         self._status_engine = engine
+        self._status_context = context
         self._refresh_status()
 
     def _refresh_status(self) -> None:
-        self._status_html = format_status(self._status_mode, self._status_engine)
+        self._status_html = format_status(
+            self._status_mode, self._status_engine, self._status_context
+        )
         if self._scroll > 0 and self._unread_lines:
             self._status_html += (
                 f"<style fg='{theme.ACCENT_ALT}'> · ↓ {self._unread_lines} yeni satır</style>"
