@@ -253,6 +253,16 @@ class RuntimeConfig:
     #: (eşik yalnız genel formülden gelir). 0.2: TAHMİN, canlı ölçümle güncellenecek;
     #: küçük modeller nominal pencerenin ancak bir kısmında güvenilir kalır (context rot).
     weak_model_compaction_ratio: float = 0.2
+    #: `edit_file`/`multi_edit` tam eşleşme bulamayınca satır sonu boşluğu, girinti
+    #: (sekme/boşluk, ortak kayma) ve CRLF farkını tolere eden yedek yolu dener; YALNIZ tek
+    #: ve belirsiz olmayan blokta uygular, sonuç modele açıkça bildirilir. Varsayılan AÇIK:
+    #: Aider'ın düzenleme ölçümünde esnek eşleşme boşluk/girinti kaynaklı düzenleme
+    #: hatalarını ~9 kat azalttı; yanlış eşleşme riski tek-eşleşme şartıyla sınırlı.
+    edit_fuzzy_match: bool = True
+    #: Dosya yazıldıktan sonra (edit_file/multi_edit/write_file) JS/TS/PHP için hızlı
+    #: sözdizimi kontrolü; hata varsa dosya yine yazılır, sonuca "sözdizimi hatası: satır N"
+    #: eklenir. Denetleyici yoksa sessizce atlanır. Python zaten yazmadan önce engellenir.
+    post_edit_syntax_check: bool = True
 
 
 @dataclass(frozen=True, slots=True)

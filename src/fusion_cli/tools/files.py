@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 from ..core.constants import (
@@ -41,9 +42,11 @@ from .args import (
     require_text,
 )
 from .diffing import bounded_diff
+from .esnek_eslesme import FlexibleEdit, apply_flexible, describe
 from .files_read import read_large_text, split_physical_lines
 from .lost_definitions import lost_definitions
 from .remotion_guard import guard_remotion_write
+from .sozdizimi_kontrol import syntax_note
 from .user_folders import user_folder_hint
 from .yarim_dosya import yarim_uyarisi
 
@@ -431,7 +434,7 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     context.touched.add(path)
     shown = display_path(context, path)
     yarim = yarim_uyarisi(path, content)
-    ek_uyari = f"\n{yarim}" if yarim else ""
+    ek_uyari = (f"\n{yarim}" if yarim else "") + syntax_note(path, context)
     if not existed:
         return ToolResult(
             f"oluşturuldu: {shown} ({len(split_physical_lines(content))} satır){ek_uyari}"
@@ -570,26 +573,55 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     if replace_all:
         # Tekrar eden aynı metni tek çağrıda düzeltmek için. Benzersizlik şartı
         # olmadan çalışır ama METİN VAR OLMALIDIR: sessizce hiçbir şey yapmamak,
-        # modele "düzelttim" yanılgısı verir.
+        # modele "düzelttim" yanılgısı verir. Esnek eşleşme BURADA çalışmaz: birden
+        # çok yeri tahmini bir eşleşmeyle değiştirmek geri alınması zor bir hatadır.
         count = text.count(old)
         if count == 0:
             return ToolResult.failure(_NOT_FOUND)
         return _apply_edit(path, text, text.replace(old, new), count, context)
 
-    problem = _match_problem(text, old, position=None)
-    if problem is not None:
-        return ToolResult.failure(problem)
+    step = _replace_once(text, old, new, context, position=None)
+    if isinstance(step, str):
+        return ToolResult.failure(step)
+    return _apply_edit(path, text, step[0], 1, context, flexible=step[1])
 
-    return _apply_edit(path, text, text.replace(old, new, 1), 1, context)
+
+def _replace_once(
+    text: str, old: str, new: str, context: ToolContext, *, position: int | None
+) -> tuple[str, tuple[tuple[int | None, FlexibleEdit], ...]] | str:
+    """Tek bir benzersiz değişim: sonuç metni (+ esnek eşleşme izi) ya da hata mesajı.
+
+    Tam eşleşme önceliklidir. YALNIZ hiç tam eşleşme yokken (`count == 0`) ve ayar açıkken
+    boşluk-toleranslı yedek yol denenir; tam eşleşme birden çoksa belirsizlik aynen reddedilir.
+    Yedek de tek ve belirsiz olmayan bir blok bulamazsa bugünkü teşhis mesajı döner.
+    """
+    problem = _match_problem(text, old, position=position)
+    if problem is None:
+        return text.replace(old, new, 1), ()
+    if context.edit_fuzzy_match and text.count(old) == 0:
+        flexible = apply_flexible(text, old, new)
+        if flexible is not None:
+            return flexible.updated, ((position, flexible),)
+    return problem
 
 
 def _apply_edit(
-    path: Path, before: str, updated: str, count: int, context: ToolContext
+    path: Path,
+    before: str,
+    updated: str,
+    count: int,
+    context: ToolContext,
+    *,
+    flexible: tuple[tuple[int | None, FlexibleEdit], ...] = (),
 ) -> ToolResult:
     """Hedefli düzenlemeyi yapı kapısından geçir, yaz ve sonucu diff olarak döndür.
 
     `edit_file` ve `multi_edit` TEK yoldan yazar: kapı birinde unutulursa biçim
     hasarı oradan sızar (ölçüldü: `multi_edit` kapıyı atlıyordu).
+
+    Esnek eşleşme kullanıldıysa sonuç bunu AÇIKÇA söyler (`esnek_eslesme: true`) ve
+    `structured`'a işler: önce/sonra karşılaştırması bu izle yapılır. Dosya yazıldıktan
+    sonra sözdizimi uyarısı (varsa) aynı sonuca eklenir.
     """
     engel = _yapi_engeli(path, updated, context)
     if engel is not None:
@@ -599,7 +631,18 @@ def _apply_edit(
     _remember_revision(context, path)
     context.touched.add(path)
     shown = display_path(context, path)
-    return _change_summary(f"düzenlendi: {shown} ({count} değişiklik)", before, updated, shown)
+    header = f"düzenlendi: {shown} ({count} değişiklik)"
+    for position, edit in flexible:
+        prefix = f"{position}. düzenleme: " if position is not None else ""
+        header += f"\nesnek_eslesme: true — {prefix}{describe(edit)}."
+    header += syntax_note(path, context)
+    result = _change_summary(header, before, updated, shown)
+    if not flexible:
+        return result
+    return replace(
+        result,
+        structured={"esnek_eslesme": True, "esnek_duzenleme_sayisi": len(flexible)},
+    )
 
 
 def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -614,6 +657,7 @@ def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     working = original
     toplam = 0
+    flexible: list[tuple[int | None, FlexibleEdit]] = []
     for position, (old, new, replace_all) in enumerate(edits, 1):
         if replace_all:
             count = working.count(old)
@@ -623,13 +667,14 @@ def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
             working = working.replace(old, new)
             toplam += count
             continue
-        problem = _match_problem(working, old, position=position)
-        if problem is not None:
-            return ToolResult.failure(problem)
-        working = working.replace(old, new, 1)
+        step = _replace_once(working, old, new, context, position=position)
+        if isinstance(step, str):
+            return ToolResult.failure(step)
+        working = step[0]
+        flexible.extend(step[1])
         toplam += 1
 
-    return _apply_edit(path, original, working, toplam, context)
+    return _apply_edit(path, original, working, toplam, context, flexible=tuple(flexible))
 
 
 def list_dir(args: ToolArgs, context: ToolContext) -> ToolResult:

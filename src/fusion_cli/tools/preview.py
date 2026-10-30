@@ -16,6 +16,7 @@ from ..core.errors import PathAccessError
 from ..core.tools import ToolArgs, ToolContext
 from .args import ArgumentError, is_truthy
 from .diffing import clip_lines, unified_diff
+from .esnek_eslesme import apply_flexible
 from .files import parse_edits, resolve_path
 
 #: Renderlanabilir DOSYA diff'i üreten araçlar. `run_shell` de önizleme üretir ama
@@ -88,8 +89,12 @@ def _preview_edit(args: ToolArgs, context: ToolContext) -> str:
         raise ArgumentError("'old' ve 'new' metin olmalı.")
     # Önizleme uygulanacak değişikliğin AYNISINI göstermelidir: toplu değiştirmeyi
     # tek eşleşme gibi göstermek, kullanıcıya yanlış şeyi onaylatır.
-    limit = -1 if is_truthy(args.get("replace_all")) else 1
-    new_text = old_text.replace(search, replacement, limit)
+    replace_all = is_truthy(args.get("replace_all"))
+    new_text = old_text.replace(search, replacement, -1 if replace_all else 1)
+    if search not in old_text and not replace_all and context.edit_fuzzy_match:
+        # Araç tam eşleşme bulamazsa esnek yolu dener; önizleme AYNISINI göstermelidir.
+        flexible = apply_flexible(old_text, search, replacement)
+        new_text = flexible.updated if flexible is not None else old_text
     return (
         unified_diff(old_text, new_text, display_path(path, context))
         or "(eşleşme yok / değişiklik yok)"
@@ -105,7 +110,11 @@ def _preview_multi_edit(args: ToolArgs, context: ToolContext) -> str:
     for search, replacement, replace_all in parse_edits(args.get("edits")):
         # Önizleme, uygulanacak değişikliğin AYNISINI göstermelidir; toplu değiştirme
         # tek eşleşme gibi gösterilirse kullanıcı yanlış şeyi onaylar.
-        new_text = new_text.replace(search, replacement, -1 if replace_all else 1)
+        replaced = new_text.replace(search, replacement, -1 if replace_all else 1)
+        if search not in new_text and not replace_all and context.edit_fuzzy_match:
+            flexible = apply_flexible(new_text, search, replacement)
+            replaced = flexible.updated if flexible is not None else new_text
+        new_text = replaced
     return unified_diff(old_text, new_text, display_path(path, context)) or "(değişiklik yok)"
 
 

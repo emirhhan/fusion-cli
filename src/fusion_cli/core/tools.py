@@ -372,6 +372,11 @@ class ToolContext:
     hidden_env: frozenset[str] = field(default=frozenset(), kw_only=True)
     #: `run_shell` işletim sistemi sandbox kipi: "off" | "write_root" (bkz. `shell_sandbox`).
     shell_sandbox: str = field(default="off", kw_only=True)
+    #: `edit_file`/`multi_edit` tam eşleşme bulamayınca boşluk/girinti/CRLF farkını tolere eden
+    #: tek-ve-belirsiz-olmayan yedek yolu dener (bkz. `tools.esnek_eslesme`).
+    edit_fuzzy_match: bool = field(default=True, kw_only=True)
+    #: Dosya yazıldıktan sonra JS/TS/PHP sözdizimi hızlı kontrolü (bkz. `tools.sozdizimi_kontrol`).
+    post_edit_syntax_check: bool = field(default=True, kw_only=True)
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya

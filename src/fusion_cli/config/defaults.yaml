@@ -344,6 +344,14 @@ runtime:
   # sınırlı olur (`echo x > ../y` reddedilir); Linux'ta yoksa uyarıyla off. ~/.npm gibi
   # paket önbellekleri bu kipte yazılamaz.
   shell_sandbox: "off"
+  # edit_file/multi_edit: tam eşleşme yoksa satır sonu boşluğu/girinti/CRLF farkını tolere
+  # eden yedek eşleşme (yalnız tek ve belirsiz olmayan blok; replace_all ile çalışmaz).
+  # Aider'ın düzenleme ölçümünde esnek eşleşme bu sınıf hatayı ~9 kat azalttı. İz:
+  # araç sonucunda "esnek_eslesme: true" satırı ve structured.esnek_eslesme.
+  edit_fuzzy_match: true
+  # Dosya yazıldıktan sonra JS/TS/PHP hızlı sözdizimi kontrolü (node --check, tsc varsa, php -l).
+  # Hata dosyayı geri almaz; sonuca "sözdizimi hatası: satır N: ..." eklenir.
+  post_edit_syntax_check: true
 
 # ---------------------------------------------------------------------------
 # Fusion havuzu: aynı görev bu modellere PARALEL sorulur, hakem en iyisini seçer,

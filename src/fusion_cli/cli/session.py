@@ -238,6 +238,8 @@ async def run_agent_task(
             hidden_env=tool_context.hidden_env | mcp_secret_env_names(config.mcp_servers),
             # run_shell işletim sistemi sandbox'ı yapılandırmadan gelir (Q1-16).
             shell_sandbox=config.runtime.shell_sandbox,
+            edit_fuzzy_match=config.runtime.edit_fuzzy_match,
+            post_edit_syntax_check=config.runtime.post_edit_syntax_check,
         )
         if changes is not None:
             # Çağıran (masaüstü oturumu) turun ilk-hâl anlık görüntülerini geri alma
