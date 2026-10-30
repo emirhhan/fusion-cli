@@ -191,3 +191,27 @@ async def test_terminal_cocugu_mcp_sir_adlarini_miras_almaz(tmp_path: Path, monk
     await session.close()
 
     assert process["cikti"] == "yok|yok|gorunur"
+
+
+async def test_biten_surec_kayitlari_sinirlanir_ve_eszamanli_sayi_siniri_vardir(tmp_path: Path):
+    """Ölçüldü (30 Ekim, S2-23): biten kayıtlar hiç silinmiyor (her biri 256 KiB'a kadar çıktı),
+    eşzamanlı süreç sayısı sınırsızdı."""
+    from fusion_cli.appserver.processes import ProcessManager
+
+    manager = ProcessManager(tmp_path, lambda _line: None, max_finished=2, max_running=1)
+    pompalar = []
+    for _ in range(4):
+        sonuc = await manager.start({"komut": "true"})
+        assert sonuc["ok"] is True
+        pompalar.append(manager._records[sonuc["surec_id"]].pump)
+        await pompalar[-1]
+        await asyncio.sleep(0)
+
+    assert len(manager.list()["surecler"]) == 2
+
+    uzun = await manager.start({"komut": "sleep 5"})
+    reddedilen = await manager.start({"komut": "true"})
+    await manager.stop({"surec_id": uzun["surec_id"]})
+    await manager.close()
+
+    assert reddedilen["ok"] is False

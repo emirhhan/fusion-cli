@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import platform
 import time
@@ -22,6 +23,8 @@ from .bridges import Writer
 from .protocol import encode_event
 from .workspace import WorkspacePathError, resolve_workspace_path
 
+_LOG = logging.getLogger(__name__)
+
 
 def shell_command(system: str, shell: str | None, command: str) -> tuple[str, ...]:
     """Kullanıcının yazdığı komutu, platformun kabuğuyla çalıştıracak argv üretir.
@@ -36,6 +39,11 @@ def shell_command(system: str, shell: str | None, command: str) -> tuple[str, ..
 
 
 _MAX_BUFFER = 256 * 1024
+#: Bellekte tutulan BİTMİŞ süreç kaydı sayısı (her biri 256 KiB'a kadar çıktı taşır).
+_MAX_FINISHED_RECORDS = 50
+#: Aynı anda çalışabilen süreç sayısı.
+_MAX_RUNNING_PROCESSES = 32
+_ACTIVE_STATUSES = frozenset({"calisiyor", "durduruluyor"})
 
 
 @dataclass
@@ -76,6 +84,8 @@ class ProcessManager:
         writer: Writer,
         *,
         max_buffer: int = _MAX_BUFFER,
+        max_finished: int = _MAX_FINISHED_RECORDS,
+        max_running: int = _MAX_RUNNING_PROCESSES,
         hidden_env: Callable[[], frozenset[str]] | None = None,
     ) -> None:
         self.root = root.resolve()
@@ -84,6 +94,8 @@ class ProcessManager:
         #: çünkü bağlantılar oturum boyunca eklenip silinir.
         self._hidden_env = hidden_env
         self._max_buffer = max_buffer
+        self._max_finished = max_finished
+        self._max_running = max_running
         self._records: dict[str, ManagedProcess] = {}
         self._counter = 0
 
@@ -102,6 +114,10 @@ class ProcessManager:
             return {"ok": False, "metin": str(error)}
         if not cwd.is_dir():
             return {"ok": False, "metin": "Çalışma klasörü bulunamadı."}
+
+        running = sum(1 for item in self._records.values() if item.status in _ACTIVE_STATUSES)
+        if running >= self._max_running:
+            return {"ok": False, "metin": f"En fazla {self._max_running} süreç çalışabilir."}
 
         shell = os.environ.get("SHELL")
         if shell and not await asyncio.to_thread(Path(shell).is_file):
@@ -124,6 +140,7 @@ class ProcessManager:
         record = ManagedProcess(process_id, command, cwd, process, time.time())
         self._records[process_id] = record
         record.pump = asyncio.create_task(self._pump(record))
+        record.pump.add_done_callback(self._pump_done)
         self._event("ProcessStatus", record, durum="calisiyor")
         return {"ok": True, **record.snapshot(self.root)}
 
@@ -170,6 +187,22 @@ class ProcessManager:
     def _record(self, data: dict[str, Any]) -> ManagedProcess | None:
         process_id = data.get("surec_id")
         return self._records.get(process_id) if isinstance(process_id, str) else None
+
+    def _pump_done(self, task: asyncio.Task[None]) -> None:
+        """Pompa hatasını oku ("Task exception was never retrieved" olmasın) ve eskiyi buda.
+
+        Ölçüldü (30 Ekim): bitmiş kayıtlar hiç silinmiyor, `surec.listele` hepsini (her biri
+        256 KiB'a kadar çıktıyla) her çağrıda döndürüyordu; `CleanupFailedError` kimse
+        `pump`'ı beklemeyince "never retrieved" oluyordu.
+        """
+        if not task.cancelled() and task.exception() is not None:
+            _LOG.error("Süreç çıktı pompası hatayla bitti: %s", type(task.exception()).__name__)
+        finished = [
+            item for item in self._records.values() if item.status not in _ACTIVE_STATUSES
+        ]
+        finished.sort(key=lambda item: item.started_at)
+        for old in finished[: max(0, len(finished) - self._max_finished)]:
+            self._records.pop(old.process_id, None)
 
     async def _pump(self, record: ManagedProcess) -> None:
         stdout = record.process.stdout
