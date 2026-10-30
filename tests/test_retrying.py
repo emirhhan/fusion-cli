@@ -296,3 +296,25 @@ def test_zincirde_yalniz_son_halka_429da_bekler():
     sarilmis = wrap([birinci, ikinci], delays_s=GECIKMELER)
 
     assert [item._yield_on_rate_limit for item in sarilmis] == [True, False]
+
+
+async def test_butce_dolan_kesik_sonuc_ayni_butceyle_yeniden_denenmez():
+    """Ölçüldü (30 Ekim): `ok=False, truncated=True` sonucu kalıcı hata sayılmıyor,
+    aynı bütçeyle aynı sonuç `len(delays)` kez daha bekleniyordu (P1-49)."""
+    kesik = ModelResult(
+        name="m",
+        model="m",
+        text="",
+        latency_ms=1,
+        ok=False,
+        error="Model çıktı bütçesi dolduğu için cevabı üretemedi",
+        truncated=True,
+    )
+    inner = ScriptliProvider(kesik)
+    uyutucu = SahteUyutucu()
+    saglayici = RetryingProvider(inner, delays_s=GECIKMELER, sleeper=uyutucu)
+
+    sonuc = await saglayici.complete(_istek())
+
+    assert sonuc.truncated and inner.cagri_sayisi == 1
+    assert uyutucu.beklemeler == []

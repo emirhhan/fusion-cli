@@ -222,6 +222,11 @@ class LiteLlmProvider:
         # biter — kullanıcı bunu "hiçbir şey yapmadı" diye görür. Bu bir başarı
         # değildir; açık hataya çevrilir ki yedek zinciri devreye girebilsin.
         yarim = _finish_reason(response) == "length"
+        # Bütçe araç argümanı yazılırken de dolabilir: JSON yarım kalır ve araç
+        # kaydına gitmemeli (ölçüldü 30 Ekim: `ok=True` + yarım argüman dönüyordu).
+        if yarim and tool_calls and not all(_valid_json(call.arguments) for call in tool_calls):
+            tool_calls = ()
+            text = ""
         kesildi = yarim and not text and not tool_calls
         return ModelResult(
             name=self._role,
@@ -246,7 +251,9 @@ class LiteLlmProvider:
                 chunks,
                 messages=[_to_wire(message) for message in request.messages],
             )
-        except Exception:
+        except Exception as exc:
+            # Neden hiçbir yerde görünmüyordu; araç çağrıları da sessizce kayboluyordu.
+            _logger.warning("Akış parçaları toparlanamadı (%s).", type(exc).__name__)
             rebuilt = None
         akis_reasoning = "".join(_chunk_reasoning(chunk) for chunk in chunks)
         if rebuilt is None:
@@ -256,6 +263,7 @@ class LiteLlmProvider:
                 text="".join(_chunk_text(chunk) for chunk in chunks),
                 latency_ms=self._elapsed_ms(started),
                 ok=True,
+                tool_calls=_tool_calls_from_deltas(chunks),
                 reasoning=akis_reasoning,
                 served_by=next(
                     (
@@ -412,6 +420,43 @@ def _with_unique_ids(calls: list[ToolCall]) -> tuple[ToolCall, ...]:
         used.add(candidate)
         unique.append(replace(call, id=candidate))
     return tuple(unique)
+
+
+def _valid_json(arguments: str) -> bool:
+    try:
+        json.loads(arguments)
+    except ValueError:
+        return False
+    return True
+
+
+def _tool_calls_from_deltas(chunks: list[Any]) -> tuple[ToolCall, ...]:
+    """`stream_chunk_builder` çökerse araç çağrılarını delta parçalarından birleştir.
+
+    Delta'lar `index` ile gelir: ilk parça kimlik + ad, sonrakiler argüman parçası.
+    """
+    slots: dict[int, dict[str, str]] = {}
+    for chunk in chunks:
+        try:
+            deltas = chunk.choices[0].delta.tool_calls or []
+        except (AttributeError, IndexError, TypeError):
+            continue
+        for fallback_index, delta in enumerate(deltas):
+            index = getattr(delta, "index", None)
+            slot = slots.setdefault(
+                index if isinstance(index, int) else fallback_index,
+                {"id": "", "name": "", "arguments": ""},
+            )
+            function = getattr(delta, "function", None)
+            slot["id"] = slot["id"] or str(getattr(delta, "id", None) or "")
+            slot["name"] = slot["name"] or str(getattr(function, "name", None) or "")
+            slot["arguments"] += str(getattr(function, "arguments", None) or "")
+    calls = [
+        ToolCall(id=slot["id"], name=slot["name"], arguments=slot["arguments"] or "{}")
+        for _, slot in sorted(slots.items())
+        if slot["name"]
+    ]
+    return _with_unique_ids(calls)
 
 
 def _unwrap_emulation_leak(name: str, arguments: str) -> tuple[str, str]:

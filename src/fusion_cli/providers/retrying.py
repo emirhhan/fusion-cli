@@ -112,6 +112,10 @@ class RetryingProvider:
         """
         if self._yield_on_rate_limit and result.is_rate_limited:
             return False
+        if result.truncated and not result.is_usable:
+            # Çıktı bütçesi doldu: aynı istek aynı bütçeyle aynı sonucu verir; beklemek
+            # gecikme ve maliyet harcar (ölçüldü 30 Ekim). Kurtarma üst katmanda.
+            return False
         return not result.is_usable and not is_permanent_error(result.error)
 
 

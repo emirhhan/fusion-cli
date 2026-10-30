@@ -389,3 +389,74 @@ def test_usage_distinguishes_missing_partial_and_measured_zero(monkeypatch):
     assert measured.completeness == "complete"
     assert measured.total_tokens == 0
     assert not measured.cost_known
+
+
+# --- 30 Ekim ayıklaması (P1-16, P1-18) -------------------------------------- #
+
+
+def _arac_parcasi(index, *, id=None, name=None, arguments=""):
+    delta = SimpleNamespace(
+        content=None,
+        tool_calls=[
+            SimpleNamespace(
+                index=index, id=id, function=SimpleNamespace(name=name, arguments=arguments)
+            )
+        ],
+    )
+    return SimpleNamespace(choices=[SimpleNamespace(delta=delta)])
+
+
+async def test_stream_chunk_builder_cokerse_arac_cagrilari_parcalardan_birlesir(
+    monkeypatch, caplog
+):
+    """Ölçüldü (30 Ekim): toparlama hatası sessizce yutuluyor, yedek yol yalnız metni
+    birleştiriyordu → `ok=True`, metin boş, araç çağrısı yok; neden loglanmıyordu (P1-16)."""
+
+    def cokuyor(chunks, messages):
+        raise RuntimeError("builder bozuk")
+
+    parcalar = [
+        _arac_parcasi(0, id="c1", name="read_file", arguments='{"pa'),
+        _arac_parcasi(0, arguments='th": "a.py"}'),
+        _arac_parcasi(1, id="c2", name="list_dir", arguments="{}"),
+    ]
+    _sdk(monkeypatch, akis=parcalar, stream_chunk_builder=cokuyor)
+
+    with caplog.at_level("WARNING"):
+        ogeler = [item async for item in _saglayici().stream(request())]
+
+    sonuc = ogeler[-1].result
+    assert [(c.id, c.name) for c in sonuc.tool_calls] == [("c1", "read_file"), ("c2", "list_dir")]
+    assert json.loads(sonuc.tool_calls[0].arguments) == {"path": "a.py"}
+    assert any("toparlanamadı" in kayit.getMessage() for kayit in caplog.records)
+
+
+def _yanit_arac(arguments: str, *, finish_reason: str):
+    call = SimpleNamespace(
+        id="c1", function=SimpleNamespace(name="write_file", arguments=arguments)
+    )
+    message = SimpleNamespace(content="", tool_calls=[call])
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=message, finish_reason=finish_reason)],
+        usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+    )
+
+
+async def test_kesilmis_arac_argumani_gecerli_cagri_gibi_donmez(monkeypatch):
+    """Ölçüldü (30 Ekim): bütçe argüman yazarken dolarsa `tool_calls` dolu, JSON yarım,
+    `ok=True`; yarım argüman araç kaydına gidiyordu (P1-18)."""
+    _sdk(monkeypatch, _yanit_arac('{"path": "a.py", "content": "yar', finish_reason="length"))
+
+    sonuc = await _saglayici().complete(request())
+
+    assert sonuc.ok is False and sonuc.truncated is True
+    assert sonuc.tool_calls == ()
+    assert "max_tokens" in (sonuc.error or "")
+
+
+async def test_gecerli_argumanli_length_yaniti_korunur(monkeypatch):
+    _sdk(monkeypatch, _yanit_arac('{"path": "a.py"}', finish_reason="length"))
+
+    sonuc = await _saglayici().complete(request())
+
+    assert sonuc.ok and sonuc.truncated and sonuc.tool_calls[0].name == "write_file"
