@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any
 
 from ..config.models import McpServerConfig
 from ..core.redaction import contains_sensitive
 from ..mcp_bridge.client import McpClient
 from ..mcp_bridge.types import RemoteTool
+
+_LOG = logging.getLogger(__name__)
+
+#: Katalog keşfinin üst süresi (sn).
+CATALOG_TIMEOUT_SECONDS = 20.0
 
 _TYPES = frozenset({"string", "number", "integer", "boolean", "array", "object", "null"})
 
@@ -59,18 +66,31 @@ def project_tools(tools: list[RemoteTool]) -> dict[str, Any]:
     return {"tools": rows, "total": len(tools), "truncated": len(tools) > 200}
 
 
-async def list_tool_catalog(server: McpServerConfig) -> dict[str, Any]:
-    """Açık katalog isteği: mevcut MCP yaşam döngüsüyle yalnız keşfet, giriş açma."""
+async def _discover(server: McpServerConfig) -> dict[str, Any]:
+    async with McpClient((server,), interactive=False) as client:
+        status = client.statuses.get(server.name)
+        if status is None or status.state != "bagli":
+            return {
+                "ok": False,
+                "metin": "Araç kataloğu okunamadı. Bağlantı durumunu kontrol et.",
+            }
+        tools = await client.list_tools(server.name)
+    return {"ok": True, "schemaVersion": 1, **project_tools(tools)}
+
+
+async def list_tool_catalog(
+    server: McpServerConfig, *, timeout: float = CATALOG_TIMEOUT_SECONDS
+) -> dict[str, Any]:
+    """Açık katalog isteği: mevcut MCP yaşam döngüsüyle yalnız keşfet, giriş açma.
+
+    Ölçüldü (30 Ekim): sunucu başlatma ve `list_tools` zaman aşımsızdı; takılan stdio
+    sunucusu RPC'yi (ve arayüzün tek `busy` bayrağını) sonsuza dek bekletiyordu.
+    """
     try:
-        async with McpClient((server,), interactive=False) as client:
-            status = client.statuses.get(server.name)
-            if status is None or status.state != "bagli":
-                return {
-                    "ok": False,
-                    "metin": "Araç kataloğu okunamadı. Bağlantı durumunu kontrol et.",
-                }
-            tools = await client.list_tools(server.name)
-        return {"ok": True, "schemaVersion": 1, **project_tools(tools)}
-    except Exception:
-        # Sunucunun ham istisnası URL/token veya özel parametre taşıyabilir.
+        return await asyncio.wait_for(_discover(server), timeout)
+    except TimeoutError:
+        return {"ok": False, "metin": "Araç kataloğu zamanında yanıt vermedi. Yeniden dene."}
+    except Exception as error:
+        # Sunucunun ham istisnası URL/token veya özel parametre taşıyabilir: yalnız tür loglanır.
+        _LOG.error("MCP araç kataloğu okunamadı (%s): %s", server.name, type(error).__name__)
         return {"ok": False, "metin": "Araç kataloğu okunamadı. Bağlantıyı yeniden test et."}

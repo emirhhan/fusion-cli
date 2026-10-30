@@ -92,3 +92,32 @@ async def test_katalog_mevcut_istemciyi_girissiz_acar_ve_arac_calistirmaz(monkey
     result = await mcp_catalog.list_tool_catalog(McpServerConfig(name="one", command="fake"))
     assert result["ok"] is True
     assert calls == ["open", "list", "close"]
+
+
+async def test_takilan_mcp_sunucusu_katalog_rpc_sini_sonsuza_dek_bekletmez():
+    """Ölçüldü (30 Ekim, S2-28): sunucu başlatma ve `list_tools` zaman aşımsızdı."""
+    import asyncio
+
+    from fusion_cli.appserver import mcp_catalog
+    from fusion_cli.config.models import McpServerConfig
+
+    class Takilan:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def __aenter__(self):
+            await asyncio.Event().wait()
+
+        async def __aexit__(self, *_args):
+            return None
+
+    original = mcp_catalog.McpClient
+    mcp_catalog.McpClient = Takilan
+    try:
+        sonuc = await mcp_catalog.list_tool_catalog(
+            McpServerConfig(name="one", command="fake"), timeout=0.2
+        )
+    finally:
+        mcp_catalog.McpClient = original
+
+    assert sonuc["ok"] is False and "zamanında" in sonuc["metin"]

@@ -205,3 +205,21 @@ def test_yedek_model_birincil_oldugu_buyuk_gorev_grubunda_gorunur():
     )
 
     assert model_catalog._tier(config, "nvidia_nim/ultra") == "ultra"
+
+
+async def test_takilan_katalog_kaynagi_secici_acilisini_engellemez(monkeypatch):
+    """Ölçüldü (30 Ekim, S2-29): `gather` toplam zaman aşımsızdı; takılan tek kaynak
+    Composer model seçicisinin açılmasını engelliyordu."""
+    import asyncio
+
+    monkeypatch.setattr(model_catalog, "detect", lambda: ProviderKeys(False, False))
+    monkeypatch.setattr(model_catalog, "SOURCE_TIMEOUT_SECONDS", 0.2)
+
+    async def takilan(_source):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(model_catalog, "_load_source", takilan)
+
+    sonuc = await asyncio.wait_for(model_catalog.list_selectable_models(_config()), 5)
+
+    assert sonuc["kaynak_hatalari"]
