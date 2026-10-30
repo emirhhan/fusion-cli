@@ -40,8 +40,9 @@ from ..core.constants import MAX_OUTPUT_CHARS
 from ..providers.registry import BUILTIN_PROVIDERS, ProviderDefinition
 from ..ui import messages
 
-_LOG = logging.getLogger(__name__)
 from ..ui.picker import Choice
+
+_LOG = logging.getLogger(__name__)
 
 
 class WireChoice(TypedDict):
