@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import type { UretilenGorsel } from "./akisCalistir";
+import { dosyaAdi } from "./akis";
 interface Props { image: UretilenGorsel; images: readonly UretilenGorsel[]; scope: string; comparison: string; onCompare: (path: string) => void; drafts?: Map<string, string> }
 export function ImageReview(props: Props) {
   const drafts = useRef(new Map<string, string>());
@@ -21,7 +22,7 @@ function Review({ image, images, scope, comparison, onCompare, drafts }: Props &
     <label>Karşılaştırılacak görsel
       <select aria-label="Karşılaştırılacak görsel" value={comparison} onChange={event => onCompare(event.target.value)}>
         <option value="">Karşılaştırma kapalı</option>
-        {images.filter(item => item.yol !== image.yol).map(item => <option key={item.yol} value={item.yol}>{item.istem || item.yol.split("/").pop()}</option>)}
+        {images.filter(item => item.yol !== image.yol).map(item => <option key={item.yol} value={item.yol}>{item.istem || dosyaAdi(item.yol)}</option>)}
       </select>
     </label>
     <label>Görsel notu
