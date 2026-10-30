@@ -38,6 +38,8 @@ export function FileExplorer({ client, onChanged, onSelected, root, revision = 0
         <div className="file-explorer__branch" key={entry.yol}>
           <button
             aria-expanded={folder ? expanded : undefined}
+            aria-level={depth + 1}
+            aria-selected={folder ? undefined : state.selected?.yol === entry.yol}
             className="file-explorer__entry"
             onClick={() => {
               if (folder) void toggleDirectory(entry.yol);
@@ -170,7 +172,7 @@ export function FileExplorer({ client, onChanged, onSelected, root, revision = 0
               <pre tabIndex={0}>
                 <code>
                   {(state.selected.icerik ?? "").split("\n").map((line, index) => (
-                    <span className="file-explorer__code-line" key={`${index}-${line}`}>
+                    <span className="file-explorer__code-line" key={index}>
                       <span aria-hidden="true" className="file-explorer__line-number">
                         {index + 1}
                       </span>
