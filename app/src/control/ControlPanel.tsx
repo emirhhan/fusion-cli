@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PermissionPrompt } from "../permissions/PermissionPrompt";
 import { usePermissions } from "../permissions/usePermissions";
 import type { PermissionBridge } from "../permissions/types";
@@ -51,15 +51,19 @@ export function ControlPanel({
   const [secretError, setSecretError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const sequence = useRef(0);
   const reload = useCallback(async () => {
+    // Hızlı ardışık yenilemede geç gelen eski yanıt yenisini ezmez (U5-45).
+    const mine = ++sequence.current;
     try {
       const payload = await client.request("kontrol.durum", {});
+      if (mine !== sequence.current) return;
       if (payload.ok !== true) throw new Error(String(payload.metin ?? "Durum alınamadı."));
       const uyari = payload.sir_deposu_hatasi;
       setSecretError(typeof uyari === "string" && uyari ? uyari : null);
       setError(null);
     } catch (reason) {
-      setError(String(reason));
+      if (mine === sequence.current) setError(reason instanceof Error ? reason.message : String(reason));
     }
   }, [client]);
 

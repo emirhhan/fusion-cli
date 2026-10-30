@@ -142,3 +142,31 @@ describe("ControlPanel — web oturumu", () => {
     }
   });
 });
+
+// Ölçüldü (30 Ekim): hata "Error: …" önekli basılıyor, geç gelen eski durum yanıtı yenisini eziyordu (U5-45).
+describe("ControlPanel dayanıklılık (30 Ekim)", () => {
+  it("durum hatası 'Error:' öneksiz gösterilir", async () => {
+    const taban = client();
+    const fake = { request: vi.fn(async (ad: string, veri: Record<string, unknown>) => {
+      if (ad === "kontrol.durum") throw new Error("Çekirdek bağlantısı kapatıldı.");
+      return taban.request(ad, veri);
+    }) } as unknown as ProtocolClient;
+    render(<ControlPanel client={fake} onClose={() => undefined} />);
+    const uyari = await screen.findByRole("alert");
+    expect(uyari.textContent).toBe("Çekirdek bağlantısı kapatıldı.");
+  });
+
+  it("geç gelen eski durum yanıtı yeni yanıtı ezmez", async () => {
+    const taban = client();
+    const bekleyenler: Array<(deger: Record<string, unknown>) => void> = [];
+    const fake = { request: vi.fn((ad: string, veri: Record<string, unknown>) => ad === "kontrol.durum"
+      ? new Promise<Record<string, unknown>>((cozumle) => { bekleyenler.push(cozumle); })
+      : taban.request(ad, veri)) } as unknown as ProtocolClient;
+    const view = render(<ControlPanel client={fake} onClose={() => undefined} revision={0} />);
+    view.rerender(<ControlPanel client={fake} onClose={() => undefined} revision={1} />);
+    await waitFor(() => expect(bekleyenler).toHaveLength(2));
+    bekleyenler[1]({ ok: true, sir_deposu_hatasi: null });
+    await act(async () => { bekleyenler[0]({ ok: true, sir_deposu_hatasi: "ESKİ UYARI" }); });
+    expect(screen.queryByText("ESKİ UYARI")).toBeNull();
+  });
+});
