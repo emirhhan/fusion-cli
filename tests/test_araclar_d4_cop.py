@@ -134,3 +134,47 @@ def test_job_gunlugu_kisa_ise_oldugu_gibi(tmp_path):
 
     assert jobs._tail(tmp_path, "j2") == "merhaba\n"
     assert jobs._tail(tmp_path, "yok") == ""
+
+
+# --- T2-30: remotion_observe PID güveni -----------------------------------------
+
+
+def test_baskasinin_surec_grubu_izin_hatasi_istisna_atmaz(monkeypatch):
+    import signal
+
+    from fusion_cli.tools import remotion_observe
+
+    def _izin_yok(pid, sig):
+        raise PermissionError("başka kullanıcının grubu")
+
+    monkeypatch.setattr(remotion_observe.os, "killpg", _izin_yok)
+
+    remotion_observe._signal_owned_group(99999, signal.SIGKILL)  # istisna atmamalı
+
+
+@pytest.mark.parametrize("pid", [0, 1, -5])
+def test_gecersiz_pid_hic_sinyal_almaz(monkeypatch, pid):
+    import signal
+
+    from fusion_cli.tools import remotion_observe
+
+    cagrilar: list = []
+    monkeypatch.setattr(remotion_observe.os, "killpg", lambda p, s: cagrilar.append(p))
+
+    remotion_observe._signal_owned_group(pid, signal.SIGTERM)
+
+    assert cagrilar == []
+
+
+def test_kendi_surec_grubumuza_sinyal_gonderilmez(monkeypatch):
+    """Bozuk temizlik dosyası kendi grubumuzu (Fusion'ı) öldürtmemeli."""
+    import signal
+
+    from fusion_cli.tools import remotion_observe
+
+    cagrilar: list = []
+    monkeypatch.setattr(remotion_observe.os, "killpg", lambda p, s: cagrilar.append(p))
+
+    remotion_observe._signal_owned_group(os.getpgrp(), signal.SIGKILL)
+
+    assert cagrilar == []
