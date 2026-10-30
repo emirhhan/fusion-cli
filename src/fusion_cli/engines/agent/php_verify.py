@@ -16,6 +16,7 @@ JS/HTML/CSS'i denetliyordu, PHP'yi değil. Bu kapı iki şeye bakar:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 import shutil
 from pathlib import Path
@@ -123,7 +124,11 @@ async def _lint(php: str, path: Path) -> str:
         )
         output, _ = await asyncio.wait_for(process.communicate(), timeout=PHP_LINT_TIMEOUT_S)
     except TimeoutError:
-        process.kill()
+        # Süreç bitmiş olabilir (kill ProcessLookupError verir) ve bitmeden yetim kalmamalı (A3-07).
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+        with contextlib.suppress(Exception):
+            await process.wait()
         return f"`php -l` {PHP_LINT_TIMEOUT_S:g} sn'de bitmedi"
     except OSError as error:
         return f"`php -l` çalıştırılamadı: {error}"
@@ -166,6 +171,30 @@ def missing_required_theme_files(files: list[Path]) -> list[str]:
     return findings
 
 
+#: Derleme/bağımlılık çıktısı: dosya henüz üretilmemiş olabilir; yokluğu tema kusuru sayılmaz
+#: (A3-06: `assets/dist/app.js` build sonrası oluşur, modeli var olan dosyayı yazmaya zorlamasın).
+_GENERATED_SEGMENTS = frozenset({"dist", "build", "node_modules", "vendor", "min"})
+
+
+def _is_generated_reference(relative: str) -> bool:
+    parts = Path(relative).parts
+    name = parts[-1].lower() if parts else ""
+    return bool(_GENERATED_SEGMENTS.intersection(parts[:-1])) or ".min." in name
+
+
+def parent_theme_root(theme: Path) -> Path | None:
+    """Child temanın `Template:` başlığındaki üst tema klasörü (yoksa None)."""
+    try:
+        head = (theme / "style.css").read_text(encoding="utf-8", errors="replace")[:2000]
+    except OSError:
+        return None
+    match = re.search(r"^[ \t*]*Template:\s*(\S+)", head, re.MULTILINE)
+    if match is None:
+        return None
+    parent = theme.parent / match.group(1)
+    return parent if parent != theme and parent.is_dir() else None
+
+
 def missing_theme_references(path: Path, root: Path) -> list[str]:
     """Tema dosyasının andığı ama temada olmayan dosyalar."""
     theme = theme_root(path)
@@ -178,16 +207,24 @@ def missing_theme_references(path: Path, root: Path) -> list[str]:
     source = _strip_comments(source)
     label = path.relative_to(theme).as_posix()
     findings: list[str] = []
+    # Child temada `get_template_part` ve `get_template_directory()` üst temaya düşer (A3-06).
+    parent = parent_theme_root(theme)
+    roots = (theme,) if parent is None else (theme, parent)
     for match in _THEME_URI.finditer(source):
         relative = match.group(1).split("?")[0]
         # Uzantısız başvuru klasördür (`/languages`): yokluğu WordPress'te hata değil.
-        if relative and Path(relative).suffix and not (theme / relative).exists():
+        if (
+            relative
+            and Path(relative).suffix
+            and not _is_generated_reference(relative)
+            and not any((base / relative).exists() for base in roots)
+        ):
             findings.append(f"{label} temada olmayan dosyaya başvuruyor: {relative}")
     for match in _TEMPLATE_PART.finditer(source):
         slug, name = match.group(1), match.group(2)
         candidates = [f"{slug}-{name}.php"] if name else []
         candidates.append(f"{slug}.php")
-        if not any((theme / candidate).is_file() for candidate in candidates):
+        if not any((base / candidate).is_file() for base in roots for candidate in candidates):
             findings.append(
                 f"{label} get_template_part ile olmayan şablonu çağırıyor: {' / '.join(candidates)}"
             )

@@ -62,6 +62,35 @@ def _strip_code_fence(raw: str) -> str:
     return text
 
 
+#: Planı aramak için denenen en çok `{` sayısı (uzun çıktıda ikinci dereceden tarama olmasın).
+_MAX_OBJECT_STARTS = 20
+
+_TRAILING_COMMA = re.compile(r",(\s*[\]}])")
+
+
+def _drop_trailing_commas(text: str) -> str:
+    """`[1, 2,]` / `{"a": 1,}` gibi sondaki virgülleri at (yalnız yedek yol)."""
+    return _TRAILING_COMMA.sub(r"\1", text)
+
+
+def _first_plan_object(text: str) -> object | None:
+    """Metindeki ilk `steps` taşıyan geçerli JSON nesnesi; yoksa None."""
+    decoder = json.JSONDecoder()
+    position = -1
+    for _ in range(_MAX_OBJECT_STARTS):
+        position = text.find("{", position + 1)
+        if position == -1:
+            return None
+        for candidate in (text[position:], _drop_trailing_commas(text[position:])):
+            try:
+                decoded, _ = decoder.raw_decode(candidate)
+            except (json.JSONDecodeError, RecursionError):
+                continue
+            if isinstance(decoded, dict) and "steps" in decoded:
+                return cast("object", decoded)
+    return None
+
+
 def _decode_plan_object(raw: str) -> object:
     """Model çıktısındaki plan nesnesini ayıkla ve çöz.
 
@@ -82,6 +111,11 @@ def _decode_plan_object(raw: str) -> object:
     start = text.find("{")
     if start == -1:
         raise PlanParseError("Plan JSON olarak ayrıştırılamadı: nesne bulunamadı")
+    # Planın önünde `{görev}` gibi süslü ayraçlı bir ifade varsa ilk `{` yanlış nesneyi
+    # seçerdi (A3-09): `steps` taşıyan ilk geçerli nesne tercih edilir.
+    plan_object = _first_plan_object(text)
+    if plan_object is not None:
+        return plan_object
     try:
         decoded, _ = json.JSONDecoder().raw_decode(text, start)
     except json.JSONDecodeError as exc:
@@ -89,8 +123,8 @@ def _decode_plan_object(raw: str) -> object:
         # sözlüğü döndürüyor. `literal_eval` kod çalıştırmaz; yalnız literal
         # değerleri çözer. Sonuç aşağıda aynı katı plan şemasından geçer.
         try:
-            decoded = ast.literal_eval(text[start:].strip())
-        except (SyntaxError, ValueError) as repair_exc:
+            decoded = ast.literal_eval(_drop_trailing_commas(text[start:].strip()))
+        except (SyntaxError, ValueError, RecursionError, MemoryError) as repair_exc:
             raise PlanParseError(_parse_error_message(text, exc)) from repair_exc
     return cast("object", decoded)
 
@@ -110,7 +144,13 @@ def _require_string(data: dict[str, object], field: str) -> str:
     return value
 
 
-def _require_strings(data: dict[str, object], field: str) -> tuple[str, ...]:
+#: Zayıf modellerin "yok" yerine yazdığı değerler (A3-08).
+_EMPTY_WORDS = frozenset({"yok", "hiçbiri", "none", "n/a", "-"})
+
+
+def _require_strings(
+    data: dict[str, object], field: str, *, may_be_empty: bool = False
+) -> tuple[str, ...]:
     """Dize listesi bekle; tek dize gelirse tek elemanlı liste say.
 
     Ölçüldü (6 Eylül canlı koşusu): model `success_criteria` alanını liste yerine
@@ -119,8 +159,17 @@ def _require_strings(data: dict[str, object], field: str) -> tuple[str, ...]:
 
     Tolerans UYDURMA DEĞİLDİR: boş dize ya da yanlış tip hâlâ reddedilir; yalnız
     "tek değer" ile "tek elemanlı liste" arasındaki biçim farkı onarılır.
+
+    `may_be_empty` alanlar (bağımlılık, beklenen etki, araç ailesi) gerçekten boş olabilir;
+    ölçüldü (29 Ekim, A3-08): zayıf modeller "bağımlılık yok" için `""`/`null`/`"yok"`
+    yazıyor ve bu tek onarım hakkını harcatıp planı düşürüyordu. Bunlar boş demektir.
     """
     value = data.get(field)
+    if may_be_empty and (
+        value is None
+        or (isinstance(value, str) and value.strip(" .").casefold() in _EMPTY_WORDS | {""})
+    ):
+        return ()
     if isinstance(value, str):
         if not value.strip():
             raise PlanParseError(f"Eksik veya geçersiz plan alanı: {field}")
@@ -293,9 +342,11 @@ def _parse_step(value: object, index: int) -> PlanStep:
         raise PlanParseError(f"Eksik plan alanları (steps[{index}]): {', '.join(missing_fields)}")
     step_id = _require_string(data, "step_id")
     goal = _require_string(data, "goal")
-    depends_on = _require_strings(data, "depends_on")
-    expected_effects = _drop_invented_asset_files(_require_strings(data, "expected_effects"))
-    allowed_tool_families = _require_strings(data, "allowed_tool_families")
+    depends_on = _require_strings(data, "depends_on", may_be_empty=True)
+    expected_effects = _drop_invented_asset_files(
+        _require_strings(data, "expected_effects", may_be_empty=True)
+    )
+    allowed_tool_families = _require_strings(data, "allowed_tool_families", may_be_empty=True)
     success_criteria = _require_strings(data, "success_criteria")
     verification_hint = _require_string(data, "verification_hint")
     phase_value = data.get("phase", PlanPhase.EXECUTION.value)
