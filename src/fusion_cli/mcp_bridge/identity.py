@@ -36,7 +36,12 @@ def _url_identity(url: str) -> str:
     parsed = urlsplit(url.strip())
     scheme = parsed.scheme.lower()
     host = (parsed.hostname or "").lower()
-    port = parsed.port
+    try:
+        port = parsed.port
+    except ValueError:
+        # Geçersiz port tek bağlantıyı bozar, `clients_for`'u baştan düşürmemeli:
+        # kimlik ham ağ konumundan kurulur (bağlanma zaten kendi hatasını verir).
+        return f"{scheme}://{parsed.netloc.lower()}{parsed.path.rstrip('/')}"
     netloc = host if port in (None, _DEFAULT_PORTS.get(scheme)) else f"{host}:{port}"
     path = parsed.path.rstrip("/")
     query = f"?{parsed.query}" if parsed.query else ""
@@ -54,9 +59,17 @@ def _command_identity(config: McpServerConfig) -> str:
 
 def connection_identity(config: McpServerConfig) -> str:
     """Bağlantının gittiği sunucuyu temsil eden normalize anahtar."""
+    # Aynı adres/komut farklı hesap/token ile iki ayrı bağlantı olabilir (iki
+    # Cloudflare/GitHub hesabı, iki Postgres env'i): bunlar kopya DEĞİLDİR.
     if config.transport is McpTransport.STREAMABLE_HTTP:
-        return f"http {_url_identity(config.url)}"
-    return f"stdio {_command_identity(config)}"
+        parts = [f"http {_url_identity(config.url)}"]
+        if config.token_env.strip():
+            parts.append(f"token={config.token_env.strip()}")
+        if config.client_id.strip():
+            parts.append(f"client={config.client_id.strip()}")
+        return " ".join(parts)
+    env = ",".join(sorted(config.env_names))
+    return f"stdio {_command_identity(config)}{f' env={env}' if env else ''}"
 
 
 def duplicate_of(configs: Iterable[McpServerConfig]) -> dict[str, str]:
