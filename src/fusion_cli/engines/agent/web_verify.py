@@ -22,7 +22,7 @@ from urllib.parse import unquote
 
 from .web_images import empty_images
 from .web_interactions import empty_form_actions, inert_buttons
-from .web_motion import layout_animations
+from .web_motion import layout_animations, size_animations
 
 #: Kapanmış ya da güvenilmez placeholder görsel servisleri. Model bunların öldüğünü
 #: bilemez; eğitim verisinde çalışıyorlardı. Ağa çıkmadan, liste ile yakalanır.
@@ -95,6 +95,7 @@ def inspect_web_output_by_severity(
 
     # Semantic kalite: değerlidir ama proje bunun yüzünden "kırık" değildir.
     warnings.extend(_eksik_main(html))
+    warnings.extend(size_animations(f"{css}\n{html}"))
 
     # Görsel/tasarım sistemi önerileri genel kapıda blocking olamaz.
     advisories.extend(_palet_baypasi(css, js, html))

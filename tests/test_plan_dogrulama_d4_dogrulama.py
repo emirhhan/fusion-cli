@@ -490,7 +490,9 @@ def test_belirsiz_goster_calistir_istekleri_web_baglami_olmadan_onizleme_sayilma
 def test_webkit_keyframes_ve_sekmeli_gecis_yakalanir():
     from fusion_cli.engines.agent.web_motion import layout_animations
 
-    assert layout_animations(".a{transition:\twidth 1s}")
+    assert layout_animations(".a{transition:\tleft 1s}")
+    # Boyut geçişi artık engel değil uyarı (A4-43).
+    assert layout_animations(".a{transition:\twidth 1s}") == []
     assert layout_animations("@-webkit-keyframes k{from{left:0}to{left:9px}}")
     assert layout_animations(".a{transition: opacity 1s}") == []
 
