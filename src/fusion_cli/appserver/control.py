@@ -251,6 +251,9 @@ def snapshot(
     }
 
 
+_STORE_FAILED = "Sistem anahtarlığına erişilemedi; işlem yapılmadı."
+
+
 def save_secret(store: SecretStore, provider_id: str, value: object) -> dict[str, Any]:
     definition = _provider(provider_id)
     secret = value.strip() if isinstance(value, str) else ""
@@ -260,7 +263,12 @@ def save_secret(store: SecretStore, provider_id: str, value: object) -> dict[str
         return {"ok": False, "metin": "Anahtar boş ya da izin verilen boyuttan büyük."}
     if not store.available:
         return {"ok": False, "metin": "Sistem anahtarlığı kullanılamıyor."}
-    store.set(definition.auth_env or "", secret)
+    try:
+        store.set(definition.auth_env or "", secret)
+    except (ConfigError, OSError):
+        # Ölçüldü (30 Ekim): kilitli/yazılamayan anahtarlıkta istisna RPC sınırına sızıyor,
+        # kullanıcı ham hata (dosya yolu dahil) görüyordu.
+        return {"ok": False, "metin": _STORE_FAILED}
     # Çalışan oturum yeni anahtarı hemen kullanabilsin; değer yanıta/loga girmez.
     os.environ[definition.auth_env or ""] = secret
     return {"ok": True, "saglayici": definition.id, "kurulu": True}
@@ -277,7 +285,10 @@ def reveal_secret(store: SecretStore, provider_id: str) -> dict[str, Any]:
         return {"ok": False, "metin": "Sağlayıcı bulunamadı veya anahtar kabul etmiyor."}
     if not store.available:
         return {"ok": False, "metin": "Sistem anahtarlığı kullanılamıyor."}
-    value = store.get(definition.auth_env)
+    try:
+        value = store.get(definition.auth_env)
+    except (ConfigError, OSError):
+        return {"ok": False, "metin": _STORE_FAILED}
     return {"ok": True, "saglayici": definition.id, "deger": value or ""}
 
 
@@ -285,8 +296,14 @@ def delete_secret(store: SecretStore, provider_id: str) -> dict[str, Any]:
     definition = _provider(provider_id)
     if definition is None:
         return {"ok": False, "metin": "Sağlayıcı bulunamadı veya anahtar kabul etmiyor."}
-    if store.available:
+    if not store.available:
+        # Ölçüldü (30 Ekim): depo yokken silme atlanıyor ama `kurulu: False` dönüyordu;
+        # anahtar diskte kalabilirdi.
+        return {"ok": False, "metin": "Sistem anahtarlığı kullanılamıyor; anahtar silinemedi."}
+    try:
         store.delete(definition.auth_env or "")
+    except (ConfigError, OSError):
+        return {"ok": False, "metin": _STORE_FAILED}
     os.environ.pop(definition.auth_env or "", None)
     return {"ok": True, "saglayici": definition.id, "kurulu": False}
 

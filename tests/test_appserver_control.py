@@ -9,6 +9,7 @@ from pathlib import Path
 from fusion_cli.appserver.protocol import Request
 from fusion_cli.appserver.session import AppSession
 from fusion_cli.config.models import WebSessionConfig
+from fusion_cli.core.errors import ConfigError
 from fusion_cli.core.types import ModelSpec
 
 
@@ -234,3 +235,35 @@ async def test_sohbet_kipi_proje_taramasini_zorunlu_kilmaz(tmp_path):
     assert "kendiliğinden çalışma dizinini taramaz" in CHAT_SYSTEM_PROMPT
     # Sohbet kipi onay sözleşmesini GEVŞETMEZ; bu açıkça yazılı olmalı.
     assert "onay sözleşmesine tabidir" in CHAT_SYSTEM_PROMPT
+
+
+class _BozukDepo(_MemorySecrets):
+    def __init__(self, *, available: bool = True) -> None:
+        super().__init__()
+        self._available = available
+
+    @property
+    def available(self) -> bool:
+        return self._available
+
+    def set(self, name: str, value: str) -> None:
+        raise ConfigError("Sır deposu yazılamadı (/gizli/yol): kilitli")
+
+    def delete(self, name: str) -> bool:
+        raise ConfigError("Sır deposu yazılamadı (/gizli/yol): kilitli")
+
+
+def test_kilitli_depoda_anahtar_kaydi_ham_istisna_sizdirmaz():
+    """Ölçüldü (30 Ekim, S1-26): `store.set` istisnası RPC sınırına sızıyordu."""
+    from fusion_cli.appserver.control import delete_secret, save_secret
+
+    sonuc = save_secret(_BozukDepo(), "openrouter", "sk-x")
+    assert sonuc["ok"] is False and "/gizli/yol" not in sonuc["metin"]
+    assert delete_secret(_BozukDepo(), "openrouter")["ok"] is False
+
+
+def test_depo_yokken_silme_basari_bildirmez():
+    from fusion_cli.appserver.control import delete_secret
+
+    sonuc = delete_secret(_BozukDepo(available=False), "openrouter")
+    assert sonuc["ok"] is False and "kurulu" not in sonuc
