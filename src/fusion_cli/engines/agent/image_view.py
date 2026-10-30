@@ -16,11 +16,13 @@ olmasa da (ör. tarayıcıdan kazınan web modelleri) çalışır.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import re
 from pathlib import Path
 
 from ...config.models import Config
+from ...core.errors import ConfigError, ProviderError
 from ...core.types import CompletionRequest, Message
 from ...providers.web_registry import web_registry_for
 
@@ -100,7 +102,27 @@ def load_image_data_uri(path: Path) -> tuple[str, str | None]:
             f"{MAX_IMAGE_BYTES // 1024} KB. Küçültülmüş bir kopyasına bak."
         )
     ham = path.read_bytes()
+    # Uzantıya değil İÇERİĞE bakılır (A2-39): uzantısı `.png` olan SVG/ikon/bozuk dosya
+    # sağlayıcıda sert hata veriyordu; burada anlaşılır bir mesajla elenir.
+    if not any(ham.startswith(imza) for imza in _MAGIC.get(mime, ())) and not _is_webp(ham, mime):
+        return "", (
+            f"Dosya uzantısı {path.suffix} ama içeriği bu biçimde bir görsel değil "
+            "(SVG, bozuk ya da yanlış adlandırılmış olabilir)."
+        )
     return f"data:{mime};base64," + base64.b64encode(ham).decode(), None
+
+
+#: MIME -> dosya başı imzaları. WebP ayrıca `_is_webp` ile doğrulanır.
+_MAGIC: dict[str, tuple[bytes, ...]] = {
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/gif": (b"GIF87a", b"GIF89a"),
+    "image/bmp": (b"BM",),
+}
+
+
+def _is_webp(ham: bytes, mime: str) -> bool:
+    return mime == "image/webp" and ham[:4] == b"RIFF" and ham[8:12] == b"WEBP"
 
 
 async def describe_image(config: Config, path: Path, question: str) -> tuple[str, str | None]:
@@ -110,25 +132,30 @@ async def describe_image(config: Config, path: Path, question: str) -> tuple[str
     spec = config.vision
     if spec is None:  # pragma: no cover - araç yalnızca spec varken kaydedilir
         return "", "Görsel modeli yapılandırılmamış."
-    data_uri, sorun = load_image_data_uri(path)
+    # Dosya okuma olay döngüsünü bloklamasın (A2-39): 5 MB'a kadar senkron okuma.
+    data_uri, sorun = await asyncio.to_thread(load_image_data_uri, path)
     if sorun is not None:
         return "", sorun
-    provider = build_provider(
-        spec,
-        publisher=None,
-        retry_delays_s=config.runtime.retry_delays_s,
-        background=True,
-        web_sessions=web_registry_for(config),
-    )
-    result = await provider.complete(
-        CompletionRequest(
-            messages=(Message("user", question, images=(data_uri,)),),
-            temperature=config.runtime.utility_temperature,
-            max_tokens=VISION_MAX_TOKENS,
-            timeout_s=VISION_TIMEOUT_S,
-            max_retries=0,
+    try:
+        provider = build_provider(
+            spec,
+            publisher=None,
+            retry_delays_s=config.runtime.retry_delays_s,
+            background=True,
+            web_sessions=web_registry_for(config),
         )
-    )
+        result = await provider.complete(
+            CompletionRequest(
+                messages=(Message("user", question, images=(data_uri,)),),
+                temperature=config.runtime.utility_temperature,
+                max_tokens=VISION_MAX_TOKENS,
+                timeout_s=VISION_TIMEOUT_S,
+                max_retries=0,
+            )
+        )
+    except (ConfigError, ProviderError) as error:
+        # Kurulamayan görsel sağlayıcısı aracı düşürmez, açıklayıcı hata döner.
+        return "", f"Görsel modeli ({spec.model}) kullanılamıyor: {error}"
     if not result.ok:
         # Asıl sebep YUTULMAZ. Ölçüldü: yapılandırılmış görsel modeli EOL olup
         # 410 Gone dönüyordu; "yanıt vermedi" demek hem modeli hem kullanıcıyı

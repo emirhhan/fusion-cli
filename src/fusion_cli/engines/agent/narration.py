@@ -80,7 +80,17 @@ async def intro_paragraph(
     except (TimeoutError, ConfigError, ProviderError, WebBrowserError):
         # Giriş yardımcı bir çağrıdır; sağlayıcı kurulamazsa ana tur sürer.
         return ""
-    return strip_thinking(result.text).strip() if result.ok else ""
+    if not result.ok:
+        return ""
+    metin = strip_thinking(result.text).strip()
+    # Token sınırında kesilen giriş cümle ortasında biter (A2-38): son TAM cümleye kadar kırp.
+    return _drop_cut_sentence(metin) if result.truncated else metin
+
+
+def _drop_cut_sentence(text: str) -> str:
+    """Yarım kalan son cümleyi at; hiç tam cümle yoksa boş döner (giriş atlanır)."""
+    son = max(text.rfind(isaret) for isaret in ".!?…")
+    return text[: son + 1].strip() if son >= 0 else ""
 
 
 def todo_transitions(before: tuple[TodoItem, ...], after: tuple[TodoItem, ...]) -> tuple[str, ...]:
