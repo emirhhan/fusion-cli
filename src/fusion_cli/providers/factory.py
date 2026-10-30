@@ -75,7 +75,7 @@ def build_provider(
         if web_sessions is not None:
             web = web_sessions.build(model, clock=clock)
             if web is not None:
-                _bind_web_notes(web, publisher)
+                _bind_web_notes(web, publisher, strict=spec.strict)
                 return web
         definition = provider_for_model(model)
         if definition is not None and definition.kind is ProviderKind.BROWSER_BACKED:
@@ -156,8 +156,15 @@ def build_provider(
     )
 
 
-def _bind_web_notes(web: LlmProvider, publisher: EventPublisher | None) -> None:
-    """Web taşımasının tek satırlık notlarını (ör. "mod pasif, mevcut kiple devam") duyur."""
+def _bind_web_notes(web: LlmProvider, publisher: EventPublisher | None, *, strict: bool) -> None:
+    """Web taşımasına katılık bilgisini ve tek satırlık not alıcısını bağla.
+
+    Katı seçimde pasif mod hata olur (yedeğe geçilir); katı değilse mevcut kiple sürülür
+    ve "mod pasif, mevcut kiple devam" notu duyurulur.
+    """
+    bind_strict = getattr(web, "bind_strict", None)
+    if strict and callable(bind_strict):
+        bind_strict(True)
     bind = getattr(web, "bind_note_sink", None)
     if publisher is None or not callable(bind):
         return

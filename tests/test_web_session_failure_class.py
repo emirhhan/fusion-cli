@@ -155,3 +155,78 @@ async def test_devre_acik_yedek_bildirimi_ayni_zincirde_tekrarlanmaz():
 
 def _sonuc(hata: str) -> ModelResult:
     return ModelResult(name="a", model="m", text="", latency_ms=1, ok=False, error=hata)
+
+
+async def test_katı_secimde_adaptor_baglami_tasir_ve_pasif_mod_yedege_gecirir():
+    from fusion_cli.providers.web_session import (
+        WebProviderAdapter,
+        WebSessionCredential,
+        WebTurn,
+    )
+
+    gorulen: list[bool] = []
+
+    async def tasima(kimlik, mesajlar, model, context=None):
+        gorulen.append(bool(context and context.strict))
+        if context and context.strict:
+            raise RuntimeError("Gemini Web: '3.1 Pro' modu şu an kullanılamıyor")
+        return WebTurn("flash-lite cevabı", "Flash-Lite")
+
+    def _adaptor(*, strict: bool) -> WebProviderAdapter:
+        adaptor = WebProviderAdapter(
+            model="gemini_web/main/auto", credential=WebSessionCredential(), transport=tasima
+        )
+        if strict:
+            adaptor.bind_strict(True)
+        return adaptor
+
+    # Katı değil: mevcut kiple cevap gelir.
+    assert (await _adaptor(strict=False).complete(request())).text == "flash-lite cevabı"
+    # Katı: oturum hatası sınıfı; yedek devreye girer, devre ilk seferde açılır.
+    sonuc = await _adaptor(strict=True).complete(request())
+    assert is_web_session_error(sonuc.error) and "kullanılamıyor" in (sonuc.error or "")
+    saglik = _saglik(_Saat())
+    zincir = FallbackProvider(
+        [
+            CircuitBreakingProvider(_adaptor(strict=True), health=saglik, role="agent"),
+            FakeProvider("nim", chunks=("yedek",)),
+        ],
+        role="agent",
+        only_when_unavailable=True,
+    )
+    assert (await zincir.complete(request())).text == "yedek"
+    assert saglik.phase is CircuitPhase.OPEN
+    assert gorulen == [False, True, True]
+
+
+async def test_fabrika_strict_etiketli_modelde_web_adaptorunu_katı_baglar():
+    from fusion_cli.core.types import ModelSpec
+    from fusion_cli.providers.factory import build_provider
+    from fusion_cli.providers.web_session import (
+        WebProviderAdapter,
+        WebSessionCredential,
+        WebTurn,
+    )
+
+    baglamlar: list[bool] = []
+
+    async def tasima(kimlik, mesajlar, model, context=None):
+        baglamlar.append(bool(context and context.strict))
+        return WebTurn("tamam")
+
+    class _Kayit:
+        def build(self, model, **kwargs):
+            return WebProviderAdapter(
+                model=model, credential=WebSessionCredential(), transport=tasima
+            )
+
+    for etiketler in ((), ("strict",)):
+        saglayici = build_provider(
+            ModelSpec(name="agent", model="gemini_web/main/auto", tags=etiketler),
+            publisher=None,
+            retry_delays_s=(),
+            web_sessions=_Kayit(),
+        )
+        await saglayici.complete(request())
+
+    assert baglamlar == [False, True]

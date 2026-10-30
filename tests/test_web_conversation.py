@@ -986,3 +986,29 @@ async def test_pasif_mod_turu_dusurmez_mevcut_kiple_gonderir_ve_not_tasir(pool, 
     assert ilk.tier == "Flash-Lite"  # kullanıcı hangi kiple cevaplandığını görür
     assert "3.1 Pro" in ilk.note and "mevcut" in ilk.note
     assert ikinci.note == ""  # aynı not her turda tekrarlanmaz
+
+
+# Koordinatör kararı (30 Ekim): kullanıcı modeli AÇIKÇA seçtiyse (strict) pasif mod,
+# seçimi sessizce düşürerek "mevcut kiple" sürülmez; oturum hatası olur, zincir yedeğe geçer.
+async def test_katı_secimde_pasif_mod_oturum_hatasi_olur_tekrar_denenmez(pool, log, monkeypatch):
+    from fusion_cli.providers.web_session import WebTurnContext
+
+    cagri: list[str] = []
+
+    async def _pasif(page, definition, choice):
+        cagri.append(choice)
+        raise web_browser.WebBrowserModeUnavailableError("pasif")
+
+    monkeypatch.setattr(web_browser, "ensure_model_choice", _pasif)
+    transport = build_browser_transport(_secili("3.1 Pro"), pool=pool)
+
+    with pytest.raises(web_browser.WebBrowserModeUnavailableError, match="kullanılamıyor"):
+        await transport(
+            WebSessionCredential(),
+            (Message("user", "soru"),),
+            "m",
+            context=WebTurnContext(strict=True),
+        )
+
+    assert cagri == ["3.1 Pro"], "pasif mod ikinci kez denenmemeli"
+    assert not [entry for entry in log if entry[0] == "send"], "mesaj gönderilmemeli"

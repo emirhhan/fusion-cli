@@ -1586,6 +1586,11 @@ def build_browser_transport(
                         ),
                         timeout=max(1.0, remaining),
                     )
+                except WebBrowserModeUnavailableError:
+                    # Pasif mod ikinci denemede de pasiftir; 0,75 sn bekleyip sayfayı
+                    # yeniden açmak boşa gider. Zincir yedeğe geçsin.
+                    await manager.drop_conversation(session.provider, session.account, root)
+                    raise
                 except WebBrowserSelectorError as error:
                     last_selector_error = error
                     # Sohbet bilinmeyen bir duruma düştü: bırak, ikinci deneme
@@ -1646,6 +1651,8 @@ async def _apply_model_choice(
     session: WebSessionConfig,
     definition: BrowserProviderDefinition,
     page: Any,
+    *,
+    strict: bool = False,
 ) -> str:
     """Mesajdan önce modeli seç; önceki deneme süre aşımına uğradıysa komşusuna geç.
 
@@ -1669,6 +1676,12 @@ async def _apply_model_choice(
     try:
         await ensure_model_choice(page, definition, choice)
     except WebBrowserModeUnavailableError as error:
+        if strict:
+            # Kullanıcı bu modeli AÇIKÇA seçti: başka kiple sessizce sürmek seçimini düşürür.
+            # Oturum hatası sınıfı: devre açılır, zincir yedek modele geçer.
+            raise WebBrowserModeUnavailableError(
+                f"{definition.name.split(' (')[0]}: '{choice}' modu şu an kullanılamıyor"
+            ) from error
         # Seçenek pasif: tıklama denenmez, tur sayfanın mevcut kipiyle sürer. Gözlenen
         # kademe `served_by` olarak üst katmana ulaşır; seçili ad "doğrulanmış" SAYILMAZ.
         _logger.warning(
@@ -1681,6 +1694,11 @@ async def _apply_model_choice(
         manager.note_mode_unavailable(session, choice)
         return ""
     return choice
+
+
+def _strict_kwargs(turn: WebTurnContext) -> dict[str, bool]:
+    """Katı seçimde `strict=True`; değilse hiç geçirilmez (eski imzalı yerine koyma kırılmasın)."""
+    return {"strict": True} if turn.strict else {}
 
 
 async def _retry_with_adjacent_model(
@@ -1828,7 +1846,9 @@ async def _deliver_turn(
         await _open_past_human_verification(
             state.page, definition, session, limit_s, _raise_if_blocked_early
         )
-        choice = await _apply_model_choice(manager, session, definition, state.page)
+        choice = await _apply_model_choice(
+            manager, session, definition, state.page, **_strict_kwargs(turn)
+        )
         # `trim=False`: kırpma-ya-da-yükleme kararı `_send_turn`'e taşındı, çünkü
         # yalnız o `page`'e erişebilir (bkz. Faz 4, Görev 2).
         prompt = format_browser_prompt(
@@ -1859,7 +1879,9 @@ async def _deliver_turn(
             await _open_past_human_verification(
                 page, definition, session, limit_s, _open_ready_conversation
             )
-            choice = await _apply_model_choice(manager, session, definition, page)
+            choice = await _apply_model_choice(
+                manager, session, definition, page, **_strict_kwargs(turn)
+            )
             prompt = format_browser_prompt(
                 messages, trim=False, answer_contract=turn.answer_contract
             )

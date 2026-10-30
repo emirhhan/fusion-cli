@@ -95,10 +95,13 @@ class WebTurnContext:
 
     conversation_id: str = ""
     answer_contract: str = ""
+    #: Kullanıcı bu modeli açıkça seçti (`ModelSpec.strict`): seçili mod/model kullanılamıyorsa
+    #: sayfanın başka kipiyle sessizce sürülmez, oturum hatası verilir ve zincir yedeğe geçer.
+    strict: bool = False
 
     @property
     def is_empty(self) -> bool:
-        return not (self.conversation_id or self.answer_contract)
+        return not (self.conversation_id or self.answer_contract or self.strict)
 
 
 #: Gerçek I/O'yu yapan enjekte edilebilir transport: kimlik + mesajlar + model → tur.
@@ -146,10 +149,15 @@ class WebProviderAdapter:
         self._supports_images = supports_images
         self._clock = clock or SystemClock()
         self._note_sink: Callable[[str], None] | None = None
+        self._strict = False
 
     @property
     def label(self) -> str:
         return self._model
+
+    def bind_strict(self, strict: bool) -> None:
+        """Kullanıcının seçimi katı mı? (`ModelSpec.strict`; fabrika bağlar, yeni ayar yok.)"""
+        self._strict = strict
 
     def bind_note_sink(self, sink: Callable[[str], None]) -> None:
         """Taşımanın tek satırlık kullanıcı notlarını (`WebTurn.note`) ileteceği yer.
@@ -208,6 +216,7 @@ class WebProviderAdapter:
         context = WebTurnContext(
             conversation_id=request.conversation_id,
             answer_contract=request.answer_contract if request.tools else "",
+            strict=self._strict,
         )
         if context.is_empty or not self._transport_takes_context:
             return self._transport(self._credential, messages, self._model)
