@@ -296,6 +296,46 @@ Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtı
 
 ---
 
+## 15) Bilgisayarı kullanma (computer use, yalnız macOS)
+
+Fusion ekranını görüp fare ve klavyeyle uygulamaları yönetebilir. Her eylem yine onay
+kartından geçer; Claude Code / Codex'teki gibi iki macOS izni gerekir.
+
+**İzinler (Ayarlar › İzinler › Bu bilgisayar).** Erişilebilirlik (tıklama/yazma/kaydırma) ve
+Ekran Kaydı (ekran görüntüsü). Kart durumu çekirdekten okur (`izin.masaustu_durum`), **İzin iste**
+sistem penceresini açar (`izin.masaustu_iste {tur}`), **Sistem Ayarlarını Aç** ilgili Gizlilik
+bölümüne gider. Bir masaüstü aracı izin yüzünden düşerse araç `izin_gerekli` döner, çekirdek
+`MasaustuIzinGerekli` olayı yollar ve izin kartı kendiliğinden açılır. Ekran Kaydı izninden sonra
+Fusion'ı yeniden açmak gerekebilir. TCC istemi Fusion.app adına açılır (sidecar bu uygulamanın
+çocuğudur).
+
+**Ekran görüntüsü ve koordinatlar.** `desktop_screenshot` görüntüyü
+`runtime.desktop_screenshot_max_width` (1568 px) genişliğe küçültür ve çerçeveyi bildirir:
+"Görüntü 1568x980 px; ekran 1: 1440x900 nokta … 1 görüntü pikseli = 0.92 nokta". Fare
+araçlarına verilen `x,y` HER ZAMAN bu görüntünün pikselidir; Fusion ekran noktasına çevirir
+(Retina 2x sorunu yok). `region="x,y,w,h"` bölgeyi büyütür (kırpık; tıklama tam görüntü
+koordinatıyla), `display=N` ekran seçer, `desktop_displays` ekranları listeler.
+`runtime.desktop_exclude_fusion_window: true` ile Fusion'ın kendi penceresi (CLI'de terminal)
+görüntüden çıkarılır (macOS 14+ ScreenCaptureKit; yoksa tam ekran).
+
+**Fare.** `desktop_mouse action=click|right_click|double_click|triple_click|middle_click|
+hover|down|up|drag` (`drag` için `to_x,to_y`), `button=left|right|middle`, `modifiers="cmd+shift"`.
+`desktop_click` eski sol tık adı. `desktop_scroll lines=-5` (dikey, pozitif yukarı),
+`delta_x=3` (yatay, pozitif sola), `x,y` ile imleç önce oraya gider.
+
+**Klavye.** `desktop_key key="cmd+shift+4 enter"`: `+` ile değiştirici (cmd/ctrl/alt/shift),
+boşlukla sıra; `repeat=3` tekrar, `hold_ms=500` basılı tutma. Chrome `key` eylemiyle aynı
+sözdizimi. `desktop_type` Unicode metin yazar.
+
+**Tek oturum.** Aynı anda yalnız bir Fusion süreci fare/klavye gönderir; kilit
+`$TMPDIR/fusion-desktop-<uid>/oturum.lock` dosyasındadır, süreç çıkınca ya da 5 dk eylem
+yapılmazsa düşer. Başka oturum tutuyorsa araç "Başka bir Fusion oturumu … kullanıyor" der.
+
+Henüz yok: küresel Esc ile durdurma, diğer uygulamaları gizleyip tur sonunda geri gösterme,
+uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
+
+---
+
 ## Komut kopya kâğıdı
 
 | Yaz | Ne yapar |
