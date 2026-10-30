@@ -9,7 +9,7 @@ alanı çalıştırıp hata almak yerine modele ne yanlış olduğunu söylemek 
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 from ..core.tool_emulation import (
     CALL_CLOSE,
@@ -41,6 +41,31 @@ MESSAGE_REQUIRED_MISSING = "zorunlu alan eksik"
 #: Şemadaki tipe karşılık gelen Python tipi. Yalnız yapısal tipler taşınır: bir
 #: metin alanına gelen metni "çözmek" veri kaybıdır, düzeltme değil.
 _STRUCTURED_TYPES: Mapping[str, type] = {"array": list, "object": dict}
+
+
+def _to_integer(text: str) -> int | None:
+    try:
+        return int(text.strip())
+    except ValueError:
+        return None
+
+
+def _to_number(text: str) -> float | None:
+    try:
+        number = float(text.strip())
+    except ValueError:
+        return None
+    return number if number == number and abs(number) != float("inf") else None
+
+
+def _to_boolean(text: str) -> bool | None:
+    return {"true": True, "false": False}.get(text.strip().lower())
+
+
+#: Metinle gelen sayı/bool değerleri için DAR dönüşüm: çevrilemezse None (olduğu gibi kalır).
+#: Ölçüldü (30 Ekim): `"5"->5`, `"true"->True` düzeltilmiyor, her araç kendi toleransını
+#: yazıyordu (dosya araçlarında var, browser/desktop/image'da yoktu).
+_SCALAR_COERCERS = {"integer": _to_integer, "number": _to_number, "boolean": _to_boolean}
 
 
 def _parameters_of(function_schema: Mapping[str, object]) -> Mapping[str, object] | None:
@@ -82,7 +107,13 @@ def coerce_arguments(
         field_schema = properties.get(field)
         if not isinstance(field_schema, Mapping):
             continue
-        expected = _STRUCTURED_TYPES.get(str(field_schema.get("type")))
+        kind = str(field_schema.get("type"))
+        if kind in _SCALAR_COERCERS:
+            scalar = _SCALAR_COERCERS[kind](value)
+            if scalar is not None:
+                coerced[field] = scalar
+            continue
+        expected = _STRUCTURED_TYPES.get(kind)
         if expected is None:
             continue
         try:
@@ -109,9 +140,61 @@ def validate_arguments(
     return tuple(_validate(parameters, arguments, path="arguments"))
 
 
-def _validate(schema: Mapping[str, object], value: object, *, path: str) -> list[str]:
+_TYPE_CHECKS: Mapping[str, Callable[[object], bool]] = {
+    "object": lambda v: isinstance(v, Mapping),
+    "array": lambda v: isinstance(v, list),
+    "string": lambda v: isinstance(v, str),
+    "boolean": lambda v: isinstance(v, bool),
+    "integer": lambda v: (
+        (isinstance(v, int) and not isinstance(v, bool))
+        or (isinstance(v, float) and v.is_integer())
+    ),
+    "number": lambda v: isinstance(v, int | float) and not isinstance(v, bool),
+    "null": lambda v: v is None,
+}
+
+
+def _matches_type(kinds: Sequence[object], value: object) -> bool:
+    """`type` bir liste ise (`["string", "null"]`) değer biriyle uyuşmalı; bilinmeyen tip geçer."""
+    return any(_TYPE_CHECKS.get(str(kind), lambda _v: True)(value) for kind in kinds)
+
+
+def _validate_combinators(schema: Mapping[str, object], value: object, path: str) -> list[str]:
+    """`anyOf`/`oneOf`: dallardan en az biri geçerse hata yok."""
+    for key in ("anyOf", "oneOf"):
+        branches = schema.get(key)
+        if not isinstance(branches, Sequence) or isinstance(branches, str | bytes):
+            continue
+        schemas = [b for b in branches if isinstance(b, Mapping)]
+        if schemas and all(_validate(b, value, path=path) for b in schemas):
+            return [f"{path}: izin verilen şemalardan hiçbirine uymuyor ({key})"]
+    return []
+
+
+def _validate_bounds(schema: Mapping[str, object], value: object, path: str) -> list[str]:
     errors: list[str] = []
+    minimum = schema.get("minimum")
+    if (
+        isinstance(minimum, int | float)
+        and isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and value < minimum
+    ):
+        errors.append(f"{path}: en az {minimum} olmalı")
+    min_items = schema.get("minItems")
+    if isinstance(min_items, int) and isinstance(value, list) and len(value) < min_items:
+        errors.append(f"{path}: en az {min_items} öğe içermeli")
+    return errors
+
+
+def _validate(schema: Mapping[str, object], value: object, *, path: str) -> list[str]:
+    errors: list[str] = _validate_combinators(schema, value, path)
     kind = schema.get("type")
+    if isinstance(kind, Sequence) and not isinstance(kind, str | bytes):
+        if not _matches_type(kind, value):
+            return [*errors, f"{path}: tür {list(kind)} içinden biri olmalı"]
+        return [*errors, *_validate_bounds(schema, value, path)]
+    errors.extend(_validate_bounds(schema, value, path))
 
     if kind == "object":
         if not isinstance(value, Mapping):
@@ -140,7 +223,7 @@ def _validate(schema: Mapping[str, object], value: object, *, path: str) -> list
         errors.append(f"{path}: metin olmalı")
     elif kind == "boolean" and not isinstance(value, bool):
         errors.append(f"{path}: boolean olmalı")
-    elif kind == "integer" and (not isinstance(value, int) or isinstance(value, bool)):
+    elif kind == "integer" and not _TYPE_CHECKS["integer"](value):
         errors.append(f"{path}: tam sayı olmalı")
     elif kind == "number" and (not isinstance(value, (int, float)) or isinstance(value, bool)):
         errors.append(f"{path}: sayı olmalı")

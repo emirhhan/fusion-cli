@@ -72,3 +72,56 @@ def test_masaustu_arka_plan_hedefi_metin_ve_float_kabul_eder():
     }
     assert desktop_background._target({"window_id": True, "pid": 1}) is None
     assert desktop_background._target({"window_id": 0, "pid": 1}) is None
+
+
+# --- T1-53: emulation şema doğrulayıcı / tür dönüşümü ------------------------
+
+from fusion_cli.tools.emulation import coerce_arguments, validate_arguments  # noqa: E402
+
+
+def _sema(**properties):
+    return {"parameters": {"type": "object", "properties": properties}}
+
+
+def test_metin_sayi_ve_bool_dar_biçimde_cevrilir():
+    """`"5"->5`, `"true"->True`: en sık zayıf-model hataları; yalnız şema tipi söylüyorsa."""
+    sema = _sema(n={"type": "integer"}, b={"type": "boolean"}, s={"type": "string"})
+
+    sonuc = coerce_arguments(sema, {"n": "5", "b": "true", "s": "5"})
+
+    assert sonuc == {"n": 5, "b": True, "s": "5"}
+
+
+def test_cevrilemeyen_metin_oldugu_gibi_kalir():
+    sema = _sema(n={"type": "integer"}, b={"type": "boolean"})
+
+    assert coerce_arguments(sema, {"n": "çok", "b": "belki"}) == {"n": "çok", "b": "belki"}
+
+
+def test_tam_sayiya_json_float_kabul_edilir():
+    assert validate_arguments(_sema(n={"type": "integer"}), {"n": 5.0}) == ()
+    assert validate_arguments(_sema(n={"type": "integer"}), {"n": 5.5}) != ()
+
+
+def test_type_listesi_ve_null():
+    sema = _sema(a={"type": ["string", "null"]})
+
+    assert validate_arguments(sema, {"a": None}) == ()
+    assert validate_arguments(sema, {"a": "x"}) == ()
+    assert validate_arguments(sema, {"a": 3}) != ()
+
+
+def test_any_of_dallardan_biri_yeterli():
+    sema = _sema(a={"anyOf": [{"type": "string"}, {"type": "integer"}]})
+
+    assert validate_arguments(sema, {"a": 1}) == ()
+    assert validate_arguments(sema, {"a": "x"}) == ()
+    assert validate_arguments(sema, {"a": [1]}) != ()
+
+
+def test_minimum_ve_min_items():
+    sema = _sema(n={"type": "integer", "minimum": 1}, l={"type": "array", "minItems": 1})
+
+    assert validate_arguments(sema, {"n": 0, "l": []}) != ()
+    assert len(validate_arguments(sema, {"n": 0, "l": []})) == 2
+    assert validate_arguments(sema, {"n": 1, "l": [1]}) == ()
