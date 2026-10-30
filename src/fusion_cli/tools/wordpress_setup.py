@@ -163,7 +163,7 @@ async def setup_wordpress(
     wanted = list(plugins)
     if uses_woocommerce(root, theme) and "woocommerce" not in wanted:
         wanted.append("woocommerce")
-    steps.extend(await _plugins(wp_cli, root, wanted, problems))
+    steps.extend(await _plugins(wp_cli, root, wanted, problems, fresh=credentials is not None))
     await _wp(wp_cli, root, "rewrite", "structure", "/%postname%/")
     existing = root / CREDENTIALS_FILE
     return WordPressSetup(
@@ -174,7 +174,9 @@ async def setup_wordpress(
     )
 
 
-async def _plugins(wp_cli: str, root: Path, wanted: list[str], problems: list[str]) -> list[str]:
+async def _plugins(
+    wp_cli: str, root: Path, wanted: list[str], problems: list[str], *, fresh: bool
+) -> list[str]:
     steps: list[str] = []
     for slug in wanted:
         if (root / "wp-content" / "plugins" / slug).is_dir():
@@ -185,8 +187,11 @@ async def _plugins(wp_cli: str, root: Path, wanted: list[str], problems: list[st
         else:
             problems.append(f"Eklenti '{slug}' kurulamadı: {_plain(output)[-300:]}")
     # Projenin kendi eklentileri (tek dosyalık olanlar dahil) etkinleşir; kurulum
-    # sırasında etkinleşmeyen eklenti "yazıldı ama çalışmıyor" demektir.
-    await _wp(wp_cli, root, "plugin", "activate", "--all")
+    # sırasında etkinleşmeyen eklenti "yazıldı ama çalışmıyor" demektir. YALNIZ yeni kurulumda:
+    # var olan sitede `--all` kullanıcının bilerek devre dışı bıraktığı eklentileri de açıyordu
+    # (kod yorumundaki Wordfence kilitlenmesinin kaynağı; ölçüldü, 30 Ekim).
+    if fresh:
+        await _wp(wp_cli, root, "plugin", "activate", "--all")
     if (root / "wp-content" / "plugins" / "woocommerce").is_dir():
         # Yeni WooCommerce mağazası ziyaretçiye "Yakında" sayfası gösterir. Ölçüldü (2 Ekim
         # 2026, 8. kabul koşusu): ürünler eklendiği halde /shop/ boş "coming-soon" sayfası

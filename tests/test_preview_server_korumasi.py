@@ -134,3 +134,31 @@ def test_kimlik_dosyasi_olusturulurken_bile_yalniz_sahibe_aciktir(tmp_path, monk
     yol = tmp_path / wordpress_setup.CREDENTIALS_FILE
     assert yol.stat().st_mode & 0o777 == 0o600
     assert kipler == [0o600], "dosya geniş izinle açılıp sonradan kısıldı"
+
+
+# --- Dalga 4 (T2-28b) ---------------------------------------------------------------------
+
+
+async def test_mevcut_sitede_tum_eklentiler_kullanici_izni_olmadan_etkinlestirilmez(
+    tmp_path, monkeypatch
+):
+    """`plugin activate --all` bilerek devre dışı bırakılmış eklentileri (Wordfence) açıyordu."""
+    from fusion_cli.tools import wordpress_setup
+
+    cagrilar: list[tuple] = []
+
+    async def _wp(wp_cli, root, *args):
+        cagrilar.append(args)
+
+    async def _run(wp_cli, root, *args):
+        cagrilar.append(args)
+        return 0, ""
+
+    monkeypatch.setattr(wordpress_setup, "_wp", _wp)
+    monkeypatch.setattr(wordpress_setup, "run_wp", _run)
+
+    await wordpress_setup._plugins("wp", tmp_path, [], [], fresh=False)
+    assert ("plugin", "activate", "--all") not in cagrilar
+
+    await wordpress_setup._plugins("wp", tmp_path, [], [], fresh=True)
+    assert ("plugin", "activate", "--all") in cagrilar
