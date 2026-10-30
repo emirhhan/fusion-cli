@@ -535,3 +535,26 @@ def test_prompt_gibi_uzun_gorev_etiketi_gomulmez(tmp_path):
 
     assert _embed_source(prompt_gibi) == "ders metni"
     assert _embed_source(etiket_gibi) == "godot sahne düzenleme\nders metni"
+
+
+def test_indeks_sir_iceren_yapilandirmayi_maskeleyerek_saklar(tmp_path):
+    """Ölçüldü (30 Ekim): `.yaml/.toml` yapılandırmaları parçalanıp olduğu gibi gömülüyor
+    (NIM seçiliyse üçüncü taraf API'ye gidiyor) ve Chroma'da düz metin duruyordu;
+    `.env.yaml` gibi dosyalar `.env` korumasını aşıyordu (M1-36)."""
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    (proje / "docker-compose.yml").write_text(
+        "services:\n  db:\n    environment:\n      DB_PASSWORD: hunter2-cok-gizli-parola\n",
+        encoding="utf-8",
+    )
+    (proje / ".env.yaml").write_text("API_KEY: sk-live-gizli-anahtar-degeri\n", encoding="utf-8")
+    indeks = ChromaCodeIndex(tmp_path / "bellek", proje)
+
+    stats = indeks.reindex()
+    eslesmeler = indeks.search("db environment", limit=5)
+
+    assert stats.total == 1
+    govde = "\n".join(match.snippet for match in eslesmeler)
+    assert "docker-compose.yml" in {match.path for match in eslesmeler}
+    assert "hunter2-cok-gizli-parola" not in govde
+    assert "sk-live-gizli-anahtar-degeri" not in govde

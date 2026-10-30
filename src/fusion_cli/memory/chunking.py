@@ -95,6 +95,9 @@ def iter_source_files(root: Path) -> Iterator[Path]:
             path = Path(current) / filename
             if path.suffix.lower() not in SOURCE_SUFFIXES or not path.is_file():
                 continue
+            if filename.startswith(".env"):
+                # `.env.yaml` gibi uzantılı sır dosyaları `.env` korumasını aşmasın.
+                continue
             try:
                 if path.stat().st_size > MAX_FILE_BYTES:
                     continue

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.memory import CodeMatch, IndexStats
+from ..core.redaction import redact
 from .chunking import MAX_CHUNKS, Chunk, build_chunks
 from .hybrid import CANDIDATE_MULTIPLIER, bm25_scores, reciprocal_rank_fusion
 from .store import get_collection
@@ -105,7 +106,9 @@ class ChromaCodeIndex:
         return bool(
             self._collection.add(
                 ids=[chunk.id for chunk in batch],
-                documents=[chunk.text for chunk in batch],
+                # Sır içeren yapılandırmalar (compose, workflow, toml) gömme sağlayıcısına
+                # (NIM = üçüncü taraf) ve diskteki düz metne SIR olarak gitmesin.
+                documents=[redact(chunk.text) for chunk in batch],
                 metadatas=[
                     {"path": chunk.path, "start": chunk.start_line, "end": chunk.end_line}
                     for chunk in batch
