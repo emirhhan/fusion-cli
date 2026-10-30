@@ -6,7 +6,7 @@ import pytest
 
 from fusion_cli.core.desktop_frame import DesktopFrame
 from fusion_cli.core.tools import ToolContext
-from fusion_cli.tools import desktop_mouse
+from fusion_cli.tools import desktop_lock, desktop_mouse
 from fusion_cli.tools.desktop_mouse import MouseEvent, mouse_plan
 
 
@@ -14,6 +14,7 @@ def _izinli(monkeypatch, trusted: bool = True) -> list[tuple[MouseEvent, ...]]:
     monkeypatch.setattr(desktop_mouse, "_mac_only", lambda: None)
     monkeypatch.setattr(desktop_mouse, "_framework", lambda: object())
     monkeypatch.setattr(desktop_mouse, "_trusted", lambda loaded: trusted)
+    monkeypatch.setattr(desktop_lock, "claim", lambda **_: None)
     planlar: list[tuple[MouseEvent, ...]] = []
     monkeypatch.setattr(desktop_mouse, "_post_mouse", lambda loaded, plan: planlar.append(plan))
     return planlar

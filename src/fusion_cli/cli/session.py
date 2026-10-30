@@ -243,6 +243,7 @@ async def run_agent_task(
             post_edit_syntax_check=config.runtime.post_edit_syntax_check,
             shell_fingerprint=config.runtime.shell_workspace_fingerprint,
             desktop_screenshot_max_width=config.runtime.desktop_screenshot_max_width,
+            desktop_exclude_fusion_window=config.runtime.desktop_exclude_fusion_window,
         )
         if changes is not None:
             # Çağıran (masaüstü oturumu) turun ilk-hâl anlık görüntülerini geri alma

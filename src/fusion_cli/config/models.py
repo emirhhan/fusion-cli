@@ -278,6 +278,10 @@ class RuntimeConfig:
     #: sonuçta bildirilir ve fare araçları görüntü pikselini ekran noktasına çevirir (P-030).
     #: 1568: vision modellerinin kayıpsız kenarı; Claude computer-use ~1372'ye indirir.
     desktop_screenshot_max_width: int = 1568
+    #: `desktop_screenshot` Fusion'ın kendi penceresini (ve CLI'de terminali) görüntüden çıkarır
+    #: (ScreenCaptureKit, macOS 14+); model kendi sohbetini görmez. Kapalıysa ya da yardımcı
+    #: yoksa `screencapture` ile tam ekran alınır (P-033).
+    desktop_exclude_fusion_window: bool = True
     #: Doğrulama kapısı iki düzeltme turundan sonra HÂLÂ kırmızıysa, kullanıcının
     #: yapılandırmasında tanımlı BİR üst model varsa TEK bir ek düzeltme turu o modelle
     #: koşar (bkz. `engines/agent/gate_escalation.py`). Sinyal yalnız gerçek kapı

@@ -390,6 +390,8 @@ class ToolContext:
     #: Modele giden masaüstü ekran görüntüsünün en fazla genişliği
     #: (`runtime.desktop_screenshot_max_width`).
     desktop_screenshot_max_width: int = field(default=DESKTOP_SCREENSHOT_MAX_WIDTH, kw_only=True)
+    #: Ekran görüntüsünden Fusion penceresini çıkar (`runtime.desktop_exclude_fusion_window`).
+    desktop_exclude_fusion_window: bool = field(default=True, kw_only=True)
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya

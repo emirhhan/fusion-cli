@@ -28,6 +28,7 @@ def _retina(monkeypatch, *, width_px: int = 2880, displays=None) -> list[list[st
     """Ana ekran 1440x900 nokta; screencapture 2x piksel yazar, sips istenen genişliğe iner."""
     monkeypatch.setattr(desktop_screen, "_mac_only", lambda: None)
     monkeypatch.setattr(desktop_screen, "_screen_recording_denied", lambda: False)
+    monkeypatch.setattr(desktop_screen, "_native_capture", lambda display, max_width: None)
     monkeypatch.setattr(
         desktop_screen,
         "list_displays",
@@ -163,3 +164,60 @@ def test_cerceve_pikseli_noktaya_cevirir(x, y, beklenen) -> None:
     assert cerceve.to_point(x, y) == beklenen
     bos = DesktopView()
     assert bos.to_point(3, 4) == (3.0, 4.0)
+
+
+# --- P-033: Fusion penceresi görüntüden hariç ----------------------------------------------
+
+
+def test_fusion_penceresi_haric_yakalama_once_denenir(tmp_path, monkeypatch) -> None:
+    """Ölçüldü (31 Ekim): screencapture Fusion'ın kendi sohbet penceresini de görüntüye alıyordu."""
+    komutlar = _retina(monkeypatch)
+    istekler: list[tuple[Display, int]] = []
+    monkeypatch.setattr(
+        desktop_screen,
+        "_native_capture",
+        lambda display, max_width: istekler.append((display, max_width)) or _png(1568, 980),
+    )
+    context = ToolContext(root=tmp_path)
+
+    sonuc = desktop_screen.desktop_screenshot({"path": "s.png"}, context)
+
+    assert sonuc.ok and komutlar == [] and istekler[0][1] == 1568
+    assert context.desktop.frame is not None and context.desktop.frame.image_width == 1568
+
+
+def test_haric_tutma_kapaliysa_veya_basarisizsa_screencapture(tmp_path, monkeypatch) -> None:
+    komutlar = _retina(monkeypatch)
+    monkeypatch.setattr(desktop_screen, "_native_capture", lambda display, max_width: None)
+    assert desktop_screen.desktop_screenshot({"path": "a.png"}, ToolContext(root=tmp_path)).ok
+    cagrildi: list[int] = []
+    monkeypatch.setattr(
+        desktop_screen, "_native_capture", lambda display, max_width: cagrildi.append(1)
+    )
+    kapali = ToolContext(root=tmp_path, desktop_exclude_fusion_window=False)
+    assert desktop_screen.desktop_screenshot({"path": "b.png"}, kapali).ok
+
+    assert [k[0] for k in komutlar][:1] == ["screencapture"] and cagrildi == []
+
+
+def test_yerel_yakalama_sonucu_cozulur(monkeypatch) -> None:
+    import base64
+
+    ekran = Display(1, 0.0, 0.0, 1440.0, 900.0, True, identifier=7)
+    istek: dict[str, object] = {}
+
+    def fake_invoke(operation: str, target: dict[str, object]) -> dict[str, object]:
+        istek.update(target, operation=operation)
+        return {
+            "ok": True,
+            "image": "data:image/png;base64," + base64.b64encode(_png(4, 2)).decode(),
+        }
+
+    monkeypatch.setattr(desktop_screen, "invoke_sync", fake_invoke)
+
+    assert desktop_screen._native_capture(ekran, 800) == _png(4, 2)
+    assert istek["operation"] == "screen" and istek["id"] == 7
+    assert istek["request"]["maxWidth"] == 800  # type: ignore[index]
+    monkeypatch.setattr(desktop_screen, "invoke_sync", lambda *_: {"ok": False})
+    assert desktop_screen._native_capture(ekran, 800) is None
+    assert desktop_screen._native_capture(Display(1, 0, 0, 1, 1, True), 800) is None

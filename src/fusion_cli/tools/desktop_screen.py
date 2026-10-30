@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import ctypes
+import os
 import re
 import struct
 import subprocess
@@ -26,6 +27,7 @@ from .args import optional_str
 from .desktop import DESKTOP_COMMAND_TIMEOUT_S, SCREENSHOT_MAX_BYTES, _framework, _mac_only
 from .desktop_permissions import DENIED, SCREEN_RECORDING, permission_failure, probe
 from .files import writable_path
+from .native_desktop import invoke_sync
 
 DEFAULT_SCREENSHOT_PATH = ".fusion/tmp/masaustu-ekrani.png"
 #: `CGGetActiveDisplayList` için üst sınır; daha fazla ekran pratikte yok.
@@ -56,6 +58,8 @@ class Display:
     width: float
     height: float
     is_main: bool
+    #: CGDirectDisplayID; ScreenCaptureKit yakalaması bununla ekranı seçer.
+    identifier: int = 0
 
 
 def _displays(framework: ctypes.CDLL) -> tuple[Display, ...]:
@@ -85,6 +89,7 @@ def _displays(framework: ctypes.CDLL) -> tuple[Display, ...]:
                 bounds.size.width,
                 bounds.size.height,
                 identifiers[index] == main,
+                int(identifiers[index]),
             )
         )
     return tuple(displays)
@@ -120,6 +125,30 @@ def _shrink(target: Path, max_width: int) -> None:
     shrunk = _run(["sips", "--resampleWidth", str(max_width), str(target)])
     if shrunk.returncode:
         raise OSError(f"Ekran görüntüsü küçültülemedi: {shrunk.stderr.strip()}")
+
+
+def _native_capture(display: Display, max_width: int) -> bytes | None:
+    """Ekranı Fusion'ın (bu süreç + ebeveyn: Fusion.app ya da terminal) pencereleri hariç yakala.
+
+    Başarısızsa `None`: çağıran `screencapture` ile tam ekrana düşer (P-033). Yardımcı macOS 14+
+    ScreenCaptureKit ister; eski sistemde ve sahte ortamda sessizce geri düşülür.
+    """
+    if not display.identifier:
+        return None
+    request = {"excludePids": [os.getpid(), os.getppid()], "maxWidth": max_width}
+    try:
+        result = invoke_sync(
+            "screen", {"kind": "display", "id": display.identifier, "request": request}
+        )
+    except (OSError, RuntimeError, ValueError):
+        return None
+    image = result.get("image") if result.get("ok") else None
+    if not isinstance(image, str) or not image.startswith("data:image/png;base64,"):
+        return None
+    try:
+        return base64.b64decode(image.split(",", 1)[1], validate=True)
+    except ValueError:
+        return None
 
 
 def _screen_recording_denied() -> bool:
@@ -214,15 +243,24 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     if _screen_recording_denied():
         return permission_failure(SCREEN_RECORDING)
     target.parent.mkdir(parents=True, exist_ok=True)
+    max_width = max(1, context.desktop_screenshot_max_width)
     try:
         context.changes.record(target)
-        result = _run(_capture_command(display, region, previous, target))
-        if result.returncode or not target.is_file():
-            return ToolResult.failure(
-                "Ekran görüntüsü alınamadı. Sistem Ayarları > Gizlilik ve Güvenlik > "
-                "Ekran Kaydı bölümünde Fusion iznini kontrol et. " + result.stderr.strip()
-            )
-        _shrink(target, max(1, context.desktop_screenshot_max_width))
+        native = (
+            _native_capture(display, max_width)
+            if region is None and context.desktop_exclude_fusion_window
+            else None
+        )
+        if native is not None:
+            target.write_bytes(native)
+        else:
+            result = _run(_capture_command(display, region, previous, target))
+            if result.returncode or not target.is_file():
+                return ToolResult.failure(
+                    "Ekran görüntüsü alınamadı. Sistem Ayarları > Gizlilik ve Güvenlik > "
+                    "Ekran Kaydı bölümünde Fusion iznini kontrol et. " + result.stderr.strip()
+                )
+        _shrink(target, max_width)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return ToolResult.failure(f"Ekran görüntüsü alınamadı: {exc}")
     data = target.read_bytes()

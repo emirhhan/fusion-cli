@@ -76,6 +76,7 @@ def derive_sub_context(context: ToolContext, subtask: SubTask | None = None) -> 
         shell_fingerprint=context.shell_fingerprint,
         desktop=context.desktop,
         desktop_screenshot_max_width=context.desktop_screenshot_max_width,
+        desktop_exclude_fusion_window=context.desktop_exclude_fusion_window,
         write_scope=scope,
     )
 

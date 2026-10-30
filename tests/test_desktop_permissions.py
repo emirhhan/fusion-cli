@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from fusion_cli.core.tools import ToolContext
-from fusion_cli.tools import desktop
+from fusion_cli.tools import desktop, desktop_lock
 from fusion_cli.tools import desktop_permissions as izin
 
 
@@ -72,6 +72,7 @@ def test_istem_dogru_sistem_cagrisini_acar(monkeypatch) -> None:
 
 def test_izin_eksikse_arac_yapisal_sonuc_doner(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(desktop.sys, "platform", "darwin")
+    monkeypatch.setattr(desktop_lock, "claim", lambda **_: None)
     monkeypatch.setattr(desktop, "_framework", lambda: object())
     monkeypatch.setattr(desktop, "_trusted", lambda loaded: False)
 

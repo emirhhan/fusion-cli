@@ -9,6 +9,7 @@ import time
 from typing import Any, cast
 
 from ..core.tools import ToolArgs, ToolContext, ToolResult
+from . import desktop_lock
 from .args import require_str
 from .desktop_permissions import ACCESSIBILITY, MESSAGES, permission_failure
 from .key_spec import (
@@ -159,6 +160,9 @@ def desktop_type(args: ToolArgs, context: ToolContext) -> ToolResult:
     value = require_str(args, "text")
     if len(value) > DESKTOP_TEXT_MAX_CHARS:
         return ToolResult.failure("Yazılacak metin sınırı aştı.")
+    busy = desktop_lock.claim()
+    if busy:
+        return ToolResult.failure(busy)
     try:
         framework = _framework()
         if not _trusted(framework):
@@ -268,6 +272,9 @@ def desktop_key(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(
             f"repeat 1-{REPEAT_MAX} arasında, hold_ms 0-{HOLD_MS_MAX} arasında tam sayı olmalı."
         )
+    busy = desktop_lock.claim()
+    if busy:
+        return ToolResult.failure(busy)
     try:
         framework = _framework()
         if not _trusted(framework):

@@ -6,7 +6,7 @@ import subprocess
 
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent.approval import build_request
-from fusion_cli.tools import desktop
+from fusion_cli.tools import desktop, desktop_lock
 from fusion_cli.tools.builtin import build_registry
 
 
@@ -84,6 +84,12 @@ def test_masaustu_eylemleri_onay_akisini_atlamaz() -> None:
 
 
 import pytest as _pytest  # noqa: E402
+
+
+@_pytest.fixture(autouse=True)
+def _kilit_yok(monkeypatch) -> None:
+    """Testler gerçek `$TMPDIR` kilidine yazmasın (P-033)."""
+    monkeypatch.setattr(desktop_lock, "claim", lambda **_: None)
 
 
 @_pytest.mark.parametrize(
