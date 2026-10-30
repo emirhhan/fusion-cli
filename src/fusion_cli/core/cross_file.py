@@ -20,7 +20,7 @@ from pathlib import Path
 
 #: Sahnedeki script bağı: `[node ... type="X"]` bloğunda `script = ExtResource("id")`.
 _NODE = re.compile(
-    r'\[node name="(?P<ad>[^"]+)" type="(?P<tip>[^"]+)"[^\]]*\]\n(?P<govde>(?:(?!\[node)[\s\S])*)'
+    r'\[node name="(?P<ad>[^"]+)" type="(?P<tip>[^"]+)"[^\n]*\]\n(?P<govde>(?:(?!\[node)[\s\S])*)'
 )
 _EXT_RESOURCE = re.compile(
     r'\[ext_resource type="Script" path="(?P<path>[^"]+)" id="(?P<id>[^"]+)"'

@@ -69,3 +69,12 @@ def test_godot_olmayan_projede_sessiz_kalir(tmp_path):
     (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
 
     assert scene_script_conflicts(tmp_path) == ()
+
+
+def test_basliginda_koseli_parantezli_alan_olan_dugum_atlanmaz(tmp_path):
+    """`groups=["x"]` düğüm başlığını bölmemeli; çatışma yine yakalanmalı (C1-17)."""
+    sahne = SAHNE.replace('type="{tip}" parent="."]', 'type="{tip}" parent="." groups=["oyuncu"]]')
+    (tmp_path / "main.tscn").write_text(sahne.format(tip="Area2D"), encoding="utf-8")
+    (tmp_path / "player.gd").write_text(SCRIPT.format(taban="CharacterBody2D"), encoding="utf-8")
+
+    assert scene_script_conflicts(tmp_path)
