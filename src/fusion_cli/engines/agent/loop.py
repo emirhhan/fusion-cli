@@ -2667,7 +2667,7 @@ def _plateau_question(deps: AgentDeps, reason: str, state: _State | None = None)
     if hata is not None:
         arac, imza, sayi = hata
         return (
-            f"`{arac}` şu hatayı {sayi} kez verdi ve aşamadım: {imza[:300]}. Kök neden ne "
+            f"`{arac}` şu hatayı {sayi} kez verdi ve aşamadım: {redact(imza)[:300]}. Kök neden ne "
             "olabilir ve görevi sürdürmek için SIRADAKİ SOMUT adım (komut/araç) ne? Kısa cevap ver."
         )
     if _has_teacher_plan(deps):
