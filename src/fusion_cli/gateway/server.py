@@ -52,7 +52,7 @@ def serve(
         raise FusionError(messages.GATEWAY_NETWORK_BIND_NEEDS_TOKEN.format(host=host))
     try:
         import uvicorn
-    except ImportError as error:  # noqa: F841 — anlaşılır mesajla yeniden fırlatılır
+    except ImportError:
         raise FusionError(
             "Gateway için 'uvicorn' gerekiyor ama kurulu değil. Kur: "
             "pip install 'fusion-cli[gateway]'"

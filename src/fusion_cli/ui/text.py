@@ -15,6 +15,7 @@ Akışta ayıklama iki yerde zorlaşır ve ikisi de burada ele alınır:
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 
@@ -101,7 +102,8 @@ _MS_THRESHOLD = 1_000
 #: önekle birlikte tek satıra sığacak şekilde seçilmiştir.
 ERROR_SUMMARY_CHARS = 60
 #: Sağlayıcı JSON gövdesindeki açıklama alanı.
-_JSON_MESSAGE = re.compile(r'"message"\s*:\s*"([^"]{3,200})"')
+#: Kaçışlı tırnaklar (`\"`) açıklamayı erken kesmez: `[^"]` yerine `(?:[^"\\]|\\.)` (L1-42).
+_JSON_MESSAGE = re.compile(r'"message"\s*:\s*"((?:[^"\\]|\\.){3,200})"')
 
 
 def format_duration(milliseconds: int) -> str:
@@ -191,7 +193,12 @@ def summarize_error(error: str) -> str:
 def _extract_message(text: str) -> str:
     """Sağlayıcının JSON gövdesindeki insan-okunur açıklamayı çıkar."""
     match = _JSON_MESSAGE.search(text)
-    return match.group(1).strip() if match else ""
+    if not match:
+        return ""
+    try:
+        return str(json.loads(f'"{match.group(1)}"')).strip()  # \" ve \n kaçışlarını çöz
+    except ValueError:
+        return match.group(1).strip()
 
 
 def _cut_at_noise(text: str) -> str:
