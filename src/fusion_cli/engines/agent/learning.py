@@ -21,9 +21,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ...config.models import Config
+from ...core.errors import ConfigError, ProviderError
 from ...core.events import EventPublisher
 from ...core.memory import Lesson, LessonKind, LessonMemory, LessonSource
-from ...core.errors import ConfigError, ProviderError
 from ...core.redaction import contains_sensitive, redact
 from ...core.text_fold import fold_tr
 from ...core.types import CompletionRequest, Message
