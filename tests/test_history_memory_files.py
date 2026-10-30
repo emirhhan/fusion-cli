@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from fusion_cli.history.claude_source import slug_for
 from fusion_cli.history.memory_files import read_external_memory
 
 
@@ -11,7 +12,7 @@ def test_missing_files_return_empty_text(tmp_path):
 
 def test_claude_memory_is_read(tmp_path):
     root = tmp_path / "proje"
-    slug = str(root).replace("/", "-")
+    slug = slug_for(root)
     target = tmp_path / ".claude" / "projects" / slug / "memory"
     target.mkdir(parents=True)
     (target / "MEMORY.md").write_text("- kullanıcı Türkçe konuşur", encoding="utf-8")
@@ -51,7 +52,7 @@ def test_blank_memory_file_is_skipped(tmp_path):
 
 
 def test_invalid_utf8_memory_does_not_hide_other_sources(tmp_path) -> None:
-    claude = tmp_path / ".claude" / "projects" / str(tmp_path / "proje").replace("/", "-")
+    claude = tmp_path / ".claude" / "projects" / slug_for(tmp_path / "proje")
     claude_memory = claude / "memory"
     claude_memory.mkdir(parents=True)
     (claude_memory / "MEMORY.md").write_bytes(b"\xff\xfe")

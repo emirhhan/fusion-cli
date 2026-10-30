@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 
+from fusion_cli.history.claude_source import slug_for
 from fusion_cli.history.registry import available_sources, recent_sessions, source_by_name
 
 
 def _claude_kur(home, slug=None, session_id="s1", metin="merhaba", mtime=None):
     if slug is None:
-        slug = str(home / "proje").replace("/", "-")
+        slug = slug_for(home / "proje")
     hedef = home / ".claude" / "projects" / slug
     hedef.mkdir(parents=True, exist_ok=True)
     yol = hedef / f"{session_id}.jsonl"
