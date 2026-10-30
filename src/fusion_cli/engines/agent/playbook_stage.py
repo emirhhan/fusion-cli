@@ -17,12 +17,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 from ...core.constants import SHELL_TIMEOUT_S
+from ...core.events import StatusChanged
 from ...core.types import Message
 from ...tools.safety import danger_reason
 from ..playbook import Playbook, run_playbook
 from ..playbook.library import ShellStepRunner, build_playbooks
 from ..playbook.matching import find_match
 from ..workflow import Budget, Stage, StageOutcome, run_workflow
+from .approval import Decision, resolve_request
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
@@ -44,9 +46,10 @@ class RunAgent(Protocol):
 async def maybe_run_playbook(task: str, deps: AgentDeps) -> AgentOutcome | None:
     """İstek bir playbook'u tetikliyorsa deterministik akışı çalıştır.
 
-    Opt-in (varsayılan kapalı). Yalnızca tüm komutları güvenli olan bir playbook
-    çalıştırılır; akış başarısız olur (checks kırılır → geri alınır) ise None dönülür
-    ve normal agent akışına düşülür — model devralır.
+    Opt-in (varsayılan kapalı). Yalnızca tüm komutları güvenli olan ve kullanıcının
+    onay kipinden geçen bir playbook çalıştırılır; akış başarısız olur (checks
+    kırılır → geri alınır) ise kullanıcıya bildirilir, None dönülür ve normal agent
+    akışına düşülür — model devralır.
     """
     from .loop import AgentOutcome  # runtime import: tip değil, gerçek sınıf gerekli.
 
@@ -57,16 +60,65 @@ async def maybe_run_playbook(task: str, deps: AgentDeps) -> AgentOutcome | None:
     playbook = find_match(build_playbooks(deps.tool_context.root), task)
     if playbook is None or not all_commands_safe(playbook):
         return None
+    if not await _commands_approved(playbook, deps):
+        deps.publisher.publish(
+            StatusChanged(
+                f"Playbook '{playbook.id}' atlandı: komutları bu onay kipinde otomatik "
+                "çalışamaz; normal akışa geçiliyor"
+            )
+        )
+        return None
 
     runner = ShellStepRunner(cwd=str(deps.tool_context.root), timeout_s=SHELL_TIMEOUT_S)
     result = await run_playbook(playbook, runner)
     if not result.ok:
+        # Sessiz geri düşme yok (A3-27): akış yarıda kesildiyse ve yan etkisi
+        # geri alındıysa kullanıcı bunu görmeli; model normal akışta devralır.
+        geri_alma = (
+            "yapılan değişiklikler geri alındı"
+            if result.rolled_back
+            else "geri alınacak adım yoktu"
+        )
+        deps.publisher.publish(
+            StatusChanged(
+                f"Playbook '{playbook.id}' başarısız ({result.summary}); {geri_alma}. "
+                "Normal akışa geçiliyor"
+            )
+        )
         return None
     return AgentOutcome(
         final_text=result.summary,
         messages=[Message("assistant", result.summary)],
         tool_calls_made=len(result.ran_steps),
     )
+
+
+async def _commands_approved(playbook: Playbook, deps: AgentDeps) -> bool:
+    """Playbook'un HER komutu, kullanıcının onay kipinden normal `run_shell` gibi geçmeli.
+
+    Ölçüldü (30 Ekim, A3-27): playbook komutları `ShellStepRunner` ile doğrudan
+    koşuyor, kip ve onay kapısına hiç uğramıyordu (manuel/plan kipinde bile). Aynı
+    karar yolu (`resolve_request` + politika) kullanılır; komutlardan biri onaylanmaz
+    ya da reddedilirse playbook hiç başlamaz.
+    """
+    tool = deps.base_registry.get("run_shell")
+    if tool is None:
+        return False
+    policy = deps.policy_factory() if deps.policy_factory else deps.policy
+    commands = [step.command for step in playbook.steps]
+    commands += [step.rollback for step in playbook.steps if step.rollback]
+    commands += list(playbook.checks)
+    for command in dict.fromkeys(commands):
+        request = await resolve_request(
+            tool,
+            {"command": command},
+            deps.allowed_commands,
+            root=deps.tool_context.root,
+            context=deps.tool_context,
+        )
+        if await policy.decide(request) is not Decision.ALLOW:
+            return False
+    return True
 
 
 #: Her aşamaya modele verilecek odaklı Türkçe yönerge. `{task}` görev, `{notes}`
