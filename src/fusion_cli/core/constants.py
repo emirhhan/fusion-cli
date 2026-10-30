@@ -215,8 +215,8 @@ SCRYPT_KEY_BYTES = 32
 SCRYPT_SALT_BYTES = 16
 #: Kurtarma kodunun taşıdığı rastgele bayt sayısı.
 #
-# Sunucu yok, hız sınırı yok: kod yeterince uzun olmalı. 10 bayt Crockford
-# Base32'de 16 karaktere karşılık gelir ve kaba kuvvetle bulunamaz.
+# Sunucu yok, hız sınırı yok: kod yeterince uzun olmalı. 10 bayt = 80 bit; Crockford
+# Base32'de (5 bit/karakter) 16 karaktere karşılık gelir ve kaba kuvvetle bulunamaz.
 RECOVERY_CODE_BYTES = 10
 
 

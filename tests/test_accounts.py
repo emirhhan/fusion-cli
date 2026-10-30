@@ -288,3 +288,141 @@ class TestAvatar:
         assert is_image_avatar("/hesap/avatar.png") is True
         assert is_image_avatar("C:\\hesap\\avatar.png") is True
         assert is_image_avatar("🏍️") is False
+
+
+class TestHesapDuzeltmeleriD4:
+    """30 Ekim triyajı: C1-07/08/09/10/11/37/38/48."""
+
+    def test_kurtarma_kodu_80_bit_16_karakter(self):
+        """Eskiden bayt başına bir harf: 10 karakter = 50 bit (C1-09)."""
+        kod = generate_recovery_code()
+
+        assert len(normalize_recovery_code(kod)) == 16
+        assert kod.count("-") == 3
+
+    def test_karisan_harfler_silinmez_esleme_yapilir(self):
+        """O→0, I/L→1 eşlenir; U yok sayılır (C1-10)."""
+        assert normalize_recovery_code("o-i-l-U 0") == "0110"
+        kod = generate_recovery_code()
+        # kullanıcı 0'ı O, 1'i I diye yazsa bile aynı kod doğrulanır
+        karisik = kod.replace("0", "O").replace("1", "I")
+        assert normalize_recovery_code(karisik) == normalize_recovery_code(kod)
+
+    def test_olmayan_hesapta_yeni_karma_uretilmez(self, store, monkeypatch):
+        """Süre sızıntısı: sahte karma bir kez üretilir, çağrı başına tek doğrulama (C1-07)."""
+        from fusion_cli.accounts import store as depo
+
+        depo._sahte_karma.cache_clear()
+        cagrilar = {"hash": 0, "verify": 0}
+        gercek_hash, gercek_verify = depo.hash_secret, depo.verify_secret
+        monkeypatch.setattr(
+            depo,
+            "hash_secret",
+            lambda s: (cagrilar.__setitem__("hash", cagrilar["hash"] + 1), gercek_hash(s))[1],
+        )
+        monkeypatch.setattr(
+            depo,
+            "verify_secret",
+            lambda a, b: (
+                cagrilar.__setitem__("verify", cagrilar["verify"] + 1),
+                gercek_verify(a, b),
+            )[1],
+        )
+
+        for _ in range(3):
+            assert store.authenticate(identifier="yok", password="parola1234") is None
+        assert (
+            store.reset_password(identifier="yok", recovery_code="X", new_password="parola1234")
+            is False
+        )
+
+        assert cagrilar["hash"] == 1  # yalnız ilk çağrıda, bir kez
+        assert cagrilar["verify"] == 4  # her çağrıda tek doğrulama
+
+    def test_kullanici_adinda_at_yasak(self, store):
+        """`b@c.com` kullanıcı adı başka hesabın e-postasıyla çakışmasın (C1-08)."""
+        with pytest.raises(AccountError, match="@"):
+            store.create(username="b@c.com", email="x@ornek.com", password="parola1234")
+
+    def test_eski_at_iceren_kullanici_adinda_girisi_e_posta_once_arar(self, store):
+        """Eski kayıtta kullanıcı adı `@` içerse bile `@`lı girdi önce e-postaya bakılır."""
+        a = store.create(username="ali", email="ali@ornek.com", password="parola1234").account
+        import sqlite3
+
+        with sqlite3.connect(store._path) as baglanti:  # eski veriyi taklit et
+            baglanti.execute(
+                "UPDATE accounts SET username = ? WHERE id = ?", ("veli@ornek.com", a.account_id)
+            )
+        b = store.create(username="veli", email="veli@ornek.com", password="digerparola12").account
+
+        sonuc = store.authenticate(identifier="veli@ornek.com", password="digerparola12")
+        assert sonuc is not None and sonuc.account_id == b.account_id
+
+    def test_profil_guncellemede_de_dogrulama_yapilir(self, store):
+        hesap = store.create(username="ali", email="ali@ornek.com", password="parola1234").account
+
+        with pytest.raises(AccountError, match="boş"):
+            store.update_profile(hesap.account_id, username="  ", email="a@b.com", avatar="")
+        with pytest.raises(AccountError, match="e-posta"):
+            store.update_profile(hesap.account_id, username="ali", email="eposta-degil", avatar="")
+
+    def test_mevcut_avatar_yeniden_secilince_silinmez(self, yerel_kok, tmp_path):
+        """kaynak == hedef: kopya döngüsü kaynağı yok etmemeli (C1-11)."""
+        kaynak = tmp_path / "profil.png"
+        kaynak.write_bytes(b"sahte-png")
+        yol = store_avatar_image("hesap-1", str(kaynak))
+
+        yine = store_avatar_image("hesap-1", yol)
+
+        assert yine == yol and Path(yol).read_bytes() == b"sahte-png"
+
+    def test_kopya_basarisizsa_eski_avatar_korunur(self, yerel_kok, tmp_path, monkeypatch):
+        kaynak = tmp_path / "profil.png"
+        kaynak.write_bytes(b"eski")
+        yol = store_avatar_image("hesap-1", str(kaynak))
+        yeni = tmp_path / "yeni.jpg"
+        yeni.write_bytes(b"yeni")
+
+        def bozuk(*_a, **_k):
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr("fusion_cli.accounts.avatars.shutil.copy2", bozuk)
+        with pytest.raises(ValueError, match="kopyalanamadı"):
+            store_avatar_image("hesap-1", str(yeni))
+
+        assert Path(yol).read_bytes() == b"eski"
+
+    def test_gecersiz_hesap_kimligi_reddedilir(self, yerel_kok):
+        """`../x`, boş kimlik dizin dışına çıkaramaz ya da tüm yapılandırmayı silemez (C1-37/38)."""
+        for kotu in ("../x", "a/b", "", ".gizli"):
+            with pytest.raises(ValueError):
+                remember_account(kotu)
+            with pytest.raises(ValueError):
+                remove_account_files(kotu)
+        with pytest.raises(ValueError):
+            activate_account("../x")
+
+    def test_bozuk_isaretci_hatirlanmaz(self, yerel_kok):
+        from fusion_cli.config.paths import base_config_dir
+
+        base_config_dir().mkdir(parents=True, exist_ok=True)
+        (base_config_dir() / "active-account").write_text("../../etc", encoding="utf-8")
+
+        assert remembered_account() == ""
+
+    def test_isaretci_yalniz_sahibine_acik(self, yerel_kok):
+        from fusion_cli.config.paths import base_config_dir
+
+        remember_account("hesap-1")
+
+        assert (base_config_dir() / "active-account").stat().st_mode & 0o777 == 0o600
+
+    def test_silinemeyen_dosya_bildirilir(self, yerel_kok, monkeypatch):
+        hedef = account_config_dir("hesap-1")
+        hedef.mkdir(parents=True, exist_ok=True)
+        (hedef / ".env").write_text("SIR=1", encoding="utf-8")
+        monkeypatch.setattr("fusion_cli.accounts.session.shutil.rmtree", lambda *a, **k: None)
+
+        kalanlar = remove_account_files("hesap-1")
+
+        assert any(".env" in yol for yol in kalanlar)
