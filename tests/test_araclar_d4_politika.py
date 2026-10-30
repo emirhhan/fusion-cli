@@ -90,3 +90,58 @@ def test_sayisal_son_arguman_dusurulmez():
     assert command_policy._split("tail -n 5 2>&1") == ["tail -n 5"]
     # Çıplak sayı argümanı korunur: `python3 -c 1` -> yorumlayıcıya GİDEN argüman.
     assert command_policy._split("python3 -c 1") == ["python3 -c 1"]
+
+
+# --- T2-21: git aracı ---------------------------------------------------------
+
+from fusion_cli.core.tools import ToolContext  # noqa: E402
+from fusion_cli.tools import shell  # noqa: E402
+from fusion_cli.tools.command_semantics import git_reads_only  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "parcalar",
+    [
+        ["diff", "--ext-diff"],
+        ["log", "--textconv", "-p"],
+        ["grep", "-Ovim", "x"],  # grep zaten salt-okur listesinde değil
+        ["diff", "--open-files-in-pager=vim"],
+        ["show", "--output=/tmp/x"],
+    ],
+)
+def test_git_dis_program_calistiran_bayraklar_salt_okur_degil(parcalar):
+    assert not git_reads_only(parcalar)
+
+
+@pytest.mark.parametrize("parcalar", [["diff", "--stat"], ["log", "-n", "3"], ["diff", "-Osira"]])
+def test_git_zararsiz_bayraklar_salt_okur(parcalar):
+    assert git_reads_only(parcalar)
+
+
+def test_git_aracı_tirnakli_argumani_bozmaz(tmp_path):
+    """`subcommand.split()` tırnakları anlamıyordu: --format="%h %s" ikiye bölünüyordu."""
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "a@b.c"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+    (tmp_path / "f").write_text("x", encoding="utf-8")
+    subprocess.run(["git", "add", "f"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "ilk is"], cwd=tmp_path, check=True)
+
+    sonuc = shell.git({"subcommand": 'log --format="%s|%an"'}, ToolContext(root=tmp_path))
+
+    assert sonuc.ok, sonuc.output
+    assert sonuc.output.strip() == "ilk is|t"
+
+
+def test_git_ikili_cikti_istisna_atmaz(tmp_path):
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "ikili.bin").write_bytes(b"\xff\xfe\x00\x80")
+    subprocess.run(["git", "add", "ikili.bin"], cwd=tmp_path, check=True)
+
+    sonuc = shell.git({"subcommand": "diff --cached --no-binary"}, ToolContext(root=tmp_path))
+
+    assert isinstance(sonuc.output, str)

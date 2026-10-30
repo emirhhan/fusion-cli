@@ -176,12 +176,27 @@ _BRANCH_MUTATING_SHORT = frozenset("dDmMcCfut")
 _TAG_MUTATING_SHORT = frozenset("dasfmFue")
 
 
+#: Yapılandırılmış DIŞ programı çağıran ya da çağırtabilen git bayrakları.
+_GIT_EXTERNAL_FLAGS = ("--ext-diff", "--textconv", "--open-files-in-pager")
+
+
+def _runs_external_program(argument: str) -> bool:
+    """`--ext-diff`, `--textconv`: salt-okur görünüp yapılandırılmış programı çalıştırır.
+
+    (`git grep -O<komut>` da öyledir ama `grep` salt-okur alt komut listesinde yok;
+    `diff -O<orderfile>` ise zararsız bir sıralama dosyasıdır, o yüzden `-O` yasaklanmaz.)
+    """
+    return argument.startswith(_GIT_EXTERNAL_FLAGS)
+
+
 def git_reads_only(arguments: list[str]) -> bool:
     """git çağrısı depoda/dosyada hiçbir şey değiştirmiyor mu?"""
     if not arguments or arguments[0] not in READONLY_GIT_SUBCOMMANDS:
         return False
     sub, rest = arguments[0], arguments[1:]
     if any(argument.startswith("--output") for argument in rest):
+        return False
+    if any(_runs_external_program(argument) for argument in rest):
         return False
     if sub == "branch":
         return _ref_listing_only(

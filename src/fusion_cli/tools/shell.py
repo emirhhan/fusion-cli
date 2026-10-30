@@ -187,8 +187,12 @@ def _as_text(value: str | bytes | None) -> str:
 def git(args: ToolArgs, context: ToolContext) -> ToolResult:
     subcommand = require_str(args, "subcommand")
     # require_str boş/yalnızca-boşluk girdiyi zaten reddeder; parts en az bir öğe taşır.
-    parts = subcommand.split()
-    if not git_reads_only(parts):
+    try:
+        # Tırnaklara saygı: `--format="%h %s"` ve `--grep "a b"` `str.split()` ile bozuluyordu.
+        parts = shlex.split(subcommand)
+    except ValueError as exc:
+        return ToolResult.failure(f"git alt komutu ayrıştırılamadı (tırnak hatası?): {exc}")
+    if not parts or not git_reads_only(parts):
         allowed = ", ".join(sorted(READONLY_GIT_SUBCOMMANDS))
         return ToolResult.failure(
             f"Yalnızca salt-okunur git komutlarına izin var ({allowed}). "
@@ -199,6 +203,8 @@ def git(args: ToolArgs, context: ToolContext) -> ToolResult:
             ["git", *parts],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",  # ikili çıktı UnicodeDecodeError fırlatmasın
             timeout=GIT_TIMEOUT_S,
             cwd=context.root,
         )
