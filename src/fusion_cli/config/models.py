@@ -300,6 +300,11 @@ class RuntimeConfig:
     #: değeri bu deponun haritasında yalnız ~10 dosyaya yetiyordu. Küçük pencereli modelde
     #: harita pencerenin %3'ünü aşmaz (bkz. `engines/agent/repo_context.effective_budget`).
     repo_map_chars: int = 3000
+    #: Model alt klasördeki bir dosyayı okuyup/düzenlediğinde o klasör ve üst klasörlerindeki
+    #: (kök hariç) AGENTS.md/CLAUDE.md bir kez, kısa biçimde bağlama eklenir (Claude Code'un
+    #: iç içe CLAUDE.md davranışı). Proje kökü dışına çıkılmaz; içerik güvenilmez girdi
+    #: olarak etiketlenir. False = yalnız kök talimatı.
+    nested_instructions: bool = True
 
 
 @dataclass(frozen=True, slots=True)

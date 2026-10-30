@@ -13,8 +13,12 @@ mimari/isimlendirme/katman kuralları orada durur — ama RULES.md prompta hiç
 girmiyordu, yalnız ona giden işaret giriyordu. Garanti edilen katman, garanti
 edilmeyen bir okuma turuna bağlanmış oluyordu.
 
-Yalnızca proje KÖKÜNE bakılır (workspace_hint.py'deki "sığ tarama" ilkesiyle aynı):
-derin arama turu bekletirdi ve çoğu proje kuralını kökte tutar.
+Kök talimatı tur başında yüklenir (workspace_hint.py'deki "sığ tarama" ilkesiyle aynı:
+derin arama turu bekletirdi). Alt klasörlerin kendi talimatı ise model o klasördeki bir
+dosyaya ERİŞİNCE yüklenir (`load_nested_instructions`; Claude Code'un iç içe CLAUDE.md
+davranışı): klasör ve üst klasörleri (kök hariç) bir kez, dosya başına kısaltılmış olarak.
+Güven politikası köktekiyle aynıdır — içerik her zaman "güvenilmez depo içeriği" etiketiyle
+gelir, kök dışına çıkılmaz, bağlantılı kural dosyaları izlenmez.
 """
 
 from __future__ import annotations
@@ -23,8 +27,13 @@ import json
 import platform
 import re
 import shutil
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
+from ...core.errors import PathAccessError
+from ...core.types import Message
+from ...tools.files import resolve_path
 from ...tools.safe_delete import is_container_root, project_folders
 from ...tools.wordpress_setup import tool_path
 
@@ -59,7 +68,7 @@ _LINK_PATTERN = re.compile(r"\[[^\]]*\]\(([^)\s]+)")
 
 
 #: Depo içeriğinin sistem bağlamındaki etiketi kapatıp sahte talimat eklemesini önler.
-_TAG_BREAK = re.compile(r"<(/?\s*proje_(?:talimati|kurali))", re.IGNORECASE)
+_TAG_BREAK = re.compile(r"<(/?\s*(?:proje_(?:talimati|kurali)|alt_talimat))", re.IGNORECASE)
 
 #: Talimat/kural bloklarının başındaki güvenilmezlik uyarısı (A3-31): klonlanmış bir
 #: deponun dosyası kullanıcı sözü değildir ve izin/güvenlik kurallarını değiştiremez.
@@ -171,6 +180,131 @@ def _resolve_rule_path(root: Path, target: str) -> Path | None:
     if yol.suffix.lower() not in LINKABLE_SUFFIXES or not yol.is_file():
         return None
     return yol
+
+
+#: İç içe talimat dosyası başına okunacak en fazla karakter (kök için `MAX_CHARS` 8.000).
+#: Alt klasör talimatı bağlama TUR ORTASINDA eklenir ve her erişimde yeni klasör
+#: getirebilir; kısa tutulur, tamamı için `read_file` önerilir.
+NESTED_MAX_CHARS = 3_000
+
+#: Bir turda eklenecek en fazla iç içe talimat dosyası: derin bir ağaçta gezen model
+#: bağlamı talimatlarla doldurmasın.
+NESTED_MAX_FILES = 8
+
+#: İç içe talimat aranmayan dizin adları: bağımlılık/üretim ağaçları üçüncü tarafın
+#: AGENTS.md dosyasını taşıyabilir (enjeksiyon yolu) ve proje kuralı değildir.
+_NESTED_SKIP_DIRS = frozenset(
+    {"node_modules", "vendor", "site-packages", "dist", "build", "target", "__pycache__"}
+)
+
+NESTED_NOTE_HEADER = (
+    "FUSION_NOT: Eriştiğin dosyanın klasörü kendi talimatını taşıyor; o klasördeki işlerde "
+    "geçerlidir (kök talimatıyla çakışırsa daha yakın olan öncelikli)."
+)
+
+
+@dataclass(frozen=True, slots=True)
+class NestedLoad:
+    """Bir erişimin getirdiği iç içe talimatlar: bağlama eklenecek mesaj ve ölçüm."""
+
+    message: Message
+    files: tuple[str, ...]
+    chars: int
+
+
+def nested_marker(rel: str) -> str:
+    """Talimat bloğunun açılış etiketi; bağlamda var mı diye bakmak için de kullanılır."""
+    return f'<alt_talimat kaynak="{rel}">'
+
+
+def _nested_candidates(kok: Path, hedef: Path) -> list[tuple[str, Path]]:
+    """Hedef dosyanın klasöründen köke (kök HARİÇ) kadar bulunan talimat dosyaları.
+
+    Dış → iç sıralıdır (üst klasör önce). Her klasörden `CANDIDATE_FILENAMES` önceliğiyle
+    TEK dosya alınır. Kök dışına çıkan hedef/sembolik bağ ve gürültü dizinleri atlanır.
+    """
+    try:
+        gercek = hedef.resolve()
+    except (OSError, RuntimeError):
+        return []
+    if not gercek.is_relative_to(kok):
+        return []
+    klasor = gercek if gercek.is_dir() else gercek.parent
+    parcalar = klasor.relative_to(kok).parts
+    if any(p in _NESTED_SKIP_DIRS or p.startswith(".") for p in parcalar):
+        return []
+    bulunan: list[tuple[str, Path]] = []
+    for derinlik in range(1, len(parcalar) + 1):
+        dizin = kok.joinpath(*parcalar[:derinlik])
+        for ad in CANDIDATE_FILENAMES:
+            aday = dizin / ad
+            try:
+                if not aday.is_file():
+                    continue
+                cozulen = aday.resolve()
+            except OSError:
+                continue
+            # Sembolik bağ kök dışındaki bir dosyaya çıkıyorsa HİÇ açılmaz.
+            if cozulen == gercek or not cozulen.is_relative_to(kok):
+                continue
+            bulunan.append((aday.relative_to(kok).as_posix(), cozulen))
+            break
+    return bulunan
+
+
+def load_nested_instructions(
+    root: Path,
+    target: Path,
+    *,
+    loaded: set[str],
+    present: Callable[[str], bool],
+    max_files: int = NESTED_MAX_FILES,
+) -> NestedLoad | None:
+    """Model `target` dosyasına eriştiğinde bağlama eklenecek iç içe talimatları döndür.
+
+    `loaded` bu turda işlenmiş talimat yollarının kümesidir ve BURADA güncellenir (çağıranın
+    durumudur); `present(rel)` o talimatın bağlamda zaten durup durmadığını söyler (önceki
+    turdan kalan geçmiş). İkisinden biri "var" derse dosya iki kez eklenmez. Bilinen sınır:
+    bağlam sıkıştırması notu düşürürse aynı tur içinde yeniden eklenmez (sonraki turda,
+    `present` yanlış dönünce eklenir). Eklenecek bir şey yoksa `None`.
+    """
+    kok = root.resolve()
+    bloklar: list[str] = []
+    adlar: list[str] = []
+    toplam = 0
+    for rel, yol in _nested_candidates(kok, target):
+        if rel in loaded:
+            continue
+        if present(rel):
+            loaded.add(rel)
+            continue
+        if len(loaded) >= max_files:
+            break
+        try:
+            icerik = _read_text_limited(yol, NESTED_MAX_CHARS)
+        except OSError:
+            continue
+        loaded.add(rel)
+        if not icerik:
+            continue
+        kirpildi = len(icerik) > NESTED_MAX_CHARS
+        icerik = _neutralize(icerik[:NESTED_MAX_CHARS])
+        ek = "\n[…kırpıldı, dosyanın tamamı için read_file kullan…]" if kirpildi else ""
+        bloklar.append(f"{nested_marker(rel)}\n{_UNTRUSTED_NOTE}\n{icerik}{ek}\n</alt_talimat>")
+        adlar.append(rel)
+        toplam += len(icerik)
+    if not bloklar:
+        return None
+    metin = "\n".join([NESTED_NOTE_HEADER, *bloklar])
+    return NestedLoad(Message("user", metin, harness_note=True), tuple(adlar), toplam)
+
+
+def resolve_access_path(context: object, raw: str) -> Path | None:
+    """Modelin verdiği yolu çöz; kısıtlı kipte kök dışına çıkıyorsa `None`."""
+    try:
+        return resolve_path(context, raw)  # type: ignore[arg-type]
+    except (PathAccessError, OSError, ValueError):
+        return None
 
 
 #: Proje türünü belli eden işaret dosyaları — modele KANIT olarak gösterilir.

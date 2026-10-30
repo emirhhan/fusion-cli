@@ -56,6 +56,7 @@ from ...core.events import (
     GateEscalationFinished,
     MutationUnavailable,
     NarrationPublished,
+    NestedInstructionsLoaded,
     RepoMapBuilt,
     SelfReviewFinished,
     SelfReviewStarted,
@@ -187,7 +188,12 @@ from .output_verify import requested_outputs_in
 from .plan_runner import run_execution_plan
 from .platform_check import ensure_limitations_disclosed, run_platform_check
 from .playbook_stage import maybe_run_playbook
-from .project_instructions import read_all_instructions
+from .project_instructions import (
+    load_nested_instructions,
+    nested_marker,
+    read_all_instructions,
+    resolve_access_path,
+)
 from .questions import PendingUserQuestions
 from .repair_flow import record_failure_evidence
 from .repo_context import map_budget_for, repo_map_with_stats
@@ -1247,6 +1253,10 @@ class _State:
     edit_loop_pushes: int = 0
     #: Modele en son kaç değişiklik kaydı bildirildi.
     logged_changes: int = 0
+    #: Bu turda başarılı okunan/düzenlenen dosya yolları (iç içe talimat için bekleyenler).
+    nested_candidates: list[str] = field(default_factory=list)
+    #: Bağlama eklenmiş/zaten bağlamda bulunmuş iç içe talimat dosyaları (köke göreli).
+    nested_loaded: set[str] = field(default_factory=set)
     #: (araç adı, hata imzası) → kaç kez. Aracın kendi önerisi işe yaramadığında
     #: modele Fusion'ın notunu vermek için tutulur.
     repeated_failures: dict[tuple[str, str], int] = field(default_factory=dict)
@@ -1575,6 +1585,7 @@ async def _drive(
                 execution=execution,
                 plan_mode=plan_mode,
             )
+            _inject_nested_instructions(messages, deps, state)
         finally:
             # Bir araç grubu ortasında durdurulsa da tamamlanan sonuçlar ve
             # sonucu belirsiz çağrı kimlikleri kaybolmaz. İptal yutulmaz.
@@ -2657,6 +2668,34 @@ def _repo_map_for_turn(deps: AgentDeps) -> str:
     return harita.text
 
 
+def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state: _State) -> None:
+    """Model alt klasördeki dosyaya eriştiyse o klasörün talimatlarını bir kez bağlama ekle.
+
+    Not, araç sonuçlarının ARDINA harness notu olarak eklenir (araç sonucu bloğunu bölmez,
+    maskelemeye girmez). Kök talimatı zaten yüklüdür; kök dışına çıkılmaz.
+    """
+    yollar, state.nested_candidates = state.nested_candidates, []
+    if not yollar or not getattr(deps.config.runtime, "nested_instructions", True):
+        return
+    kok = deps.tool_context.root
+
+    def baglamda_var(rel: str) -> bool:
+        isaret = nested_marker(rel)
+        return any(isaret in item.content for item in messages if item.role == "user")
+
+    for ham in dict.fromkeys(yollar):
+        hedef = resolve_access_path(deps.tool_context, ham)
+        if hedef is None:
+            continue
+        yuk = load_nested_instructions(kok, hedef, loaded=state.nested_loaded, present=baglamda_var)
+        if yuk is None:
+            continue
+        messages.append(yuk.message)
+        deps.publisher.publish(
+            NestedInstructionsLoaded(files=yuk.files, chars=yuk.chars, trigger=ham)
+        )
+
+
 def _record_changes(messages: list[Message], deps: AgentDeps, state: _State) -> None:
     """Değişen dosyaları modele OLGU olarak hatırlat.
 
@@ -3411,6 +3450,10 @@ async def _run_tools(
                 budget.remember_read(signature, result.output)
             if call.name in _FILE_READ_TOOLS:
                 state.successful_file_reads += 1
+            if call.name in _FILE_READ_TOOLS or call.name in EDIT_TOOLS:
+                erisilen = args.get("path")
+                if isinstance(erisilen, str) and erisilen:
+                    state.nested_candidates.append(erisilen)
             mutating = bool(tool is not None and tool.mutating)
             budget.successful_tool_evidence.append((call.name, args, mutating))
             if mutating and _acts_on_remote_state(call.name):

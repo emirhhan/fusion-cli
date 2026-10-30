@@ -288,6 +288,10 @@ runtime:
   # 3000 ≈ 1k token (Aider repo-map ölçeği). Harita içe aktarma grafıyla sıralanır, test
   # dosyaları geriye atılır; küçük pencereli modelde pencerenin %3'ünü aşmaz.
   repo_map_chars: 3000
+  # Model alt klasördeki dosyayı okuyunca/düzenleyince o klasörün ve üst klasörlerinin
+  # (kök hariç) AGENTS.md/CLAUDE.md talimatı bir kez, kısa biçimde bağlama eklenir.
+  # İz: NestedInstructionsLoaded olayı. False = yalnız kök talimatı.
+  nested_instructions: true
   # `ask_teacher` aracı modele hiç sunulmaz (`config.teacher` tanımlı olsa bile).
   # `council` bundan etkilenmez — ayrı, çoklu-API-model bir araçtır (Faz 4, Görev 3).
   teacherless: false

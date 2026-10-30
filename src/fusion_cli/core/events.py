@@ -553,6 +553,19 @@ class RepoMapBuilt(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class NestedInstructionsLoaded(Event):
+    """Model alt klasördeki bir dosyaya eriştiği için iç içe talimat dosyaları bağlama eklendi.
+
+    `files` eklenen talimat dosyaları (köke göreli), `chars` eklenen toplam karakter,
+    `trigger` tetikleyen dosya yolu.
+    """
+
+    files: tuple[str, ...]
+    chars: int
+    trigger: str
+
+
+@dataclass(frozen=True, slots=True)
 class ToolProfileExpanded(Event):
     """Model profil dışı bir aracı adıyla çağırdı: yüzey bu tur için bir kez genişletildi."""
 
