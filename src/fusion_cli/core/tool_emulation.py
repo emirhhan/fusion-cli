@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -682,6 +683,10 @@ def parse_tool_calls(text: str) -> EmulatedParse:
     """Kanonik çağrıları çıkar ve ham payload referanslarını çöz."""
     calls: list[ToolCall] = []
     errors: list[str] = []
+    # Kimlik yanıt içi sıraya ek olarak her ayrıştırmaya özgü bir etiket taşır: ardışık
+    # turlarda `emu-0` tekrar ediyor, geçmiş yedek sağlayıcıya taşınınca `tool_call_id`
+    # eşlemesi çakışabiliyordu. Ölçüldü (30 Ekim).
+    run_tag = secrets.token_hex(3)
     payloads: dict[str, str] = {}
     used_payloads: set[str] = set()
 
@@ -751,7 +756,7 @@ def parse_tool_calls(text: str) -> EmulatedParse:
         resolved = _apply_fence_strip(resolved)
         calls.append(
             ToolCall(
-                id=f"emu-{index}",
+                id=f"emu-{run_tag}-{index}",
                 name=name.strip(),
                 arguments=json.dumps(resolved, ensure_ascii=False),
             )
