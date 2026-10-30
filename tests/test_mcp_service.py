@@ -163,3 +163,31 @@ async def test_new_login_during_logout_cleanup_keeps_its_health():
     await logout
     assert service.login_status("offline").state == "bagli"
     await service.close()
+
+
+async def test_cikis_havuzdaki_canli_oturumu_kapatir(monkeypatch) -> None:
+    """Ölçüldü (30 Ekim): `logout` anahtarlığı siliyor ama havuzdaki canlı oturum
+    bellekteki token'la çalışmaya devam ediyor, çıkıştan sonra da turlar o sunucuyu
+    kullanıyordu (M1-26)."""
+    from fusion_cli.mcp_bridge import service as service_module
+    from fusion_cli.mcp_bridge.tokens import KeyringTokenStorage
+
+    async def clear(self) -> None:
+        return None
+
+    monkeypatch.setattr(KeyringTokenStorage, "clear", clear)
+    dusenler: list[str] = []
+
+    async def drop(name: str) -> None:
+        dusenler.append(name)
+
+    service = McpConnectionService(drop_connection=drop)
+    config = McpServerConfig(
+        name="meta", transport=McpTransport.STREAMABLE_HTTP, url="https://mcp.example.com/mcp"
+    )
+
+    status = await service.logout(config)
+
+    assert status.state == "kapali"
+    assert dusenler == ["meta"]
+    assert service_module.McpConnectionService is McpConnectionService

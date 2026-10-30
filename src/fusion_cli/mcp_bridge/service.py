@@ -10,7 +10,7 @@ from dataclasses import replace
 from ..config.models import McpServerConfig
 from .client import McpClient, McpConnectionStatus, failure_status
 from .failures import STATE_CONNECTED
-from .pool import forget_mcp_failure, mcp_oauth_flows, mcp_pool_statuses
+from .pool import drop_mcp_connection, forget_mcp_failure, mcp_oauth_flows, mcp_pool_statuses
 from .tokens import KeyringTokenStorage
 
 Probe = Callable[[McpServerConfig], Awaitable[McpConnectionStatus]]
@@ -25,8 +25,10 @@ class McpConnectionService:
         quiet_probe: Probe | None = None,
         pool_statuses: PoolStatuses = mcp_pool_statuses,
         clock: Callable[[], float] = time.monotonic,
+        drop_connection: Callable[[str], Awaitable[None]] = drop_mcp_connection,
     ) -> None:
         self._clock = clock
+        self._drop_connection = drop_connection
         self._probe = probe or self._probe_server
         #: Giriş penceresi AÇMAYAN deneme: kaydetmeden önceki doğrulama bunu
         #: kullanır; giriş isteyen sunucu "giris_gerekli" döner, tarayıcı fırlamaz.
@@ -146,6 +148,7 @@ class McpConnectionService:
                 if generation != self._generations.get(config.name, 0):
                     return self.login_status(config.name)
                 await storage.clear()
+                await self._drop_connection(config.name)
         status = McpConnectionStatus(server=config.name, state="kapali", observed_at=self._clock())
         if generation == self._generations.get(config.name, 0):
             self._statuses[config.name] = status

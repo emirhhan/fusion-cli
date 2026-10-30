@@ -30,6 +30,7 @@ from .oauth_flow import OAuthFlowOwner
 __all__ = [
     "McpToolPool",
     "close_mcp_pool",
+    "drop_mcp_connection",
     "ensure_hosted_tools",
     "ensure_mcp_tools",
     "forget_mcp_failure",
@@ -284,6 +285,19 @@ class McpToolPool:
         self._drain(entry)
         await self._await_task(entry)
 
+    async def drop(self, name: str) -> None:
+        """Adı verilen sunucunun canlı oturumunu kapat ve park kaydını sil.
+
+        Kullanıcı çıkış yaptığında anahtarlık silinir ama canlı oturum bellekteki
+        token'la çalışmaya devam ederdi.
+        """
+        loop = asyncio.get_running_loop()
+        async with self._lock:
+            entry = self._entries.pop(name, None)
+            if entry is not None:
+                await self._discard(entry, loop)
+        self.forget(name)
+
     async def discard_client(self, client: McpClient) -> None:
         """Kullanım sırasında bozulan istemciyi bırak; sonraki tur yeniden bağlanır."""
         loop = asyncio.get_running_loop()
@@ -356,6 +370,11 @@ async def ensure_mcp_tools(
 def mcp_pool_statuses() -> dict[str, McpConnectionStatus]:
     """Turların gördüğü sunucu durumları (Bağlantılar ekranı için)."""
     return _POOL.statuses
+
+
+async def drop_mcp_connection(name: str) -> None:
+    """Çıkış yapılan sunucunun havuzdaki canlı oturumunu kapat."""
+    await _POOL.drop(name)
 
 
 def forget_mcp_failure(name: str) -> None:
