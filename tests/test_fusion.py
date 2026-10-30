@@ -328,3 +328,12 @@ async def test_sentez_istisna_firlatirsa_hakem_kazanani_doner(monkeypatch, publi
     assert result.winner == "b"
     assert result.final_answer == "B cevabi"
     assert not result.synthesized
+
+
+def test_gorev_metnindeki_yer_tutucu_aday_cevaplarla_genisletilmez():
+    """Ölçüldü (30 Ekim): görevde geçen '{answers}' ikinci `replace` ile genişliyordu (E1-24)."""
+    from fusion_cli.engines.fusion.engine import _fill
+
+    dolu = _fill("GÖREV: {task}\nCEVAPLAR: {answers}", "bana {answers} yaz", "A-CEVABI")
+
+    assert dolu == "GÖREV: bana {answers} yaz\nCEVAPLAR: A-CEVABI"

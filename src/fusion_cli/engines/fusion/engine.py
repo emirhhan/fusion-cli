@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
@@ -393,8 +394,18 @@ async def _none() -> None:
 # --------------------------------------------------------------------------- #
 
 
+_PLACEHOLDER = re.compile(r"\{(task|answers)\}")
+
+
 def _fill(template: str, task: str, answers: str) -> str:
-    return template.replace("{task}", task).replace("{answers}", answers)
+    """Şablondaki yer tutucuları TEK geçişte doldur.
+
+    İki ardışık `str.replace` görev metninde geçen `{answers}`ı da genişletiyor ve aday
+    cevapları görev kısmına enjekte ediyordu (istem çoğalması; E1-24). Tek geçişte
+    yerleştirilen metin yeniden taranmaz.
+    """
+    degerler = {"task": task, "answers": answers}
+    return _PLACEHOLDER.sub(lambda eslesme: degerler[eslesme.group(1)], template)
 
 
 def _request(
