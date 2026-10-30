@@ -63,7 +63,13 @@ _FRACTION = re.compile(r"\b(\d+)\s*/\s*(\d+)\b")
 _PERCENT = re.compile(r"%\s*(\d+(?:[.,]\d+)?)")
 #: Ondalık sayı. Sağ sınırda `\b` KULLANILAMAZ: "2.4s" gibi birim ekiyle
 #: bitişik yazımda sınır oluşmaz ve dönüşüm hiç çalışmazdı.
-_DECIMAL = re.compile(r"\b(\d+)[.,](\d+)(?![\d.,])")
+#: Soldan `\d.`/`\d,` ile devam eden sayı (tarih "25.10.2026", sürüm "3.11.2") ondalık sayılmaz;
+#: ölçüldü (30 Ekim): "25.10.2026" → "25.10 virgül 2026" okunuyordu.
+_DECIMAL = re.compile(r"(?<![\d][.,])\b(\d+)[.,](\d+)(?![\d.,])")
+#: Türkçe binlik ayracı: "1.000", "12.500.000" (üç haneli gruplar). Ondalık sanılmaz.
+_THOUSANDS = re.compile(r"\b\d{1,3}(?:\.\d{3})+\b(?![.,]\d)")
+#: Bağlantı: yalnız alan adı okunur; yol parçaları dosya yolu sanılıp bozulmasın.
+_URL = re.compile(r"https?://([^\s/]+)[^\s]*", re.IGNORECASE)
 _SENTENCE = re.compile(r"[^.!?…]+[.!?…]*")
 # Keycap digits must be removed as a sequence, before ordinary numbers are read.
 _EMOJI = regex.compile(
@@ -113,6 +119,8 @@ def prepare_speech(text: str) -> str:
     hazir = _strip_markdown(_EMOJI.sub(" ", text))
     # Kesir yoldan ÖNCE çevrilir: "169/169" bir dosya yolu değildir.
     hazir = _FRACTION.sub(r"\1 bölü \2", hazir)
+    hazir = _URL.sub(r"\1", hazir)
+    hazir = _THOUSANDS.sub(lambda match: match.group(0).replace(".", ""), hazir)
     hazir = _PATH.sub(_speak_path, hazir)
     hazir = _PERCENT.sub(r"yüzde \1", hazir)
     hazir = _DECIMAL.sub(r"\1 virgül \2", hazir)
