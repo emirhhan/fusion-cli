@@ -242,3 +242,27 @@ async def test_arac_katalogu_rpc_kaynak_degismisse_eski_sonucu_gostermez(tmp_pat
     result = await session._dispatch(Request("catalog", "baglanti.araclar", {"ad": "one"}))
     assert result["ok"] is False
     assert "old-account-tool" not in str(result)
+
+
+def test_liste_ve_detay_argumana_gomulu_anahtari_gostermez(tmp_path):
+    """Ölçüldü (30 Ekim, S1-28): `server.args` olduğu gibi listeye ve MCP detayına yazılıyordu."""
+    from dataclasses import replace
+    from pathlib import Path
+
+    from fusion_cli.appserver import capabilities
+    from fusion_cli.appserver.connectors import list_connectors
+    from fusion_cli.config.loader import load_config
+
+    kaynak = Path(tmp_path / "c.yaml")
+    kaynak.write_text("runtime:\n  max_tokens: 4096\n", encoding="utf-8")
+    sunucu = McpServerConfig(
+        name="x", command="npx", args=("sunucu", "--api-key=sk-gizli-deger-1234567890")
+    )
+    config = replace(load_config(kaynak), mcp_servers=(sunucu,))
+
+    satir = list_connectors(config)["sunucular"][0]
+    ayrinti = capabilities.detail(None, config, tmp_path, {"tur": "mcp", "ad": "x"})
+
+    assert "sk-gizli-deger-1234567890" not in " ".join(satir["argumanlar"])
+    assert "sk-gizli-deger-1234567890" not in ayrinti["icerik"]
+    assert satir["argumanlar"][0] == "sunucu"

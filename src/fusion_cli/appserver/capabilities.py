@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config.models import Config
+from ..core.redaction import redact
 from ..engines.agent.project_instructions import CANDIDATE_FILENAMES
 from ..tools.capabilities import (
     Capability,
@@ -137,7 +138,12 @@ def detail(
     elif kind == "mcp":
         item = None
         server = next((entry for entry in config.mcp_servers if entry.name == name), None)
-        content = f"Komut: {server.command}\nArgümanlar: {' '.join(server.args)}" if server else ""
+        # Argümana gömülmüş anahtar (`--api-key=…`, URL'de token) arayüze sızmasın.
+        content = (
+            f"Komut: {server.command}\nArgümanlar: {redact(' '.join(server.args))}"
+            if server
+            else ""
+        )
     else:
         return {"ok": False, "metin": "Katalog öğesi bulunamadı."}
     if not content:

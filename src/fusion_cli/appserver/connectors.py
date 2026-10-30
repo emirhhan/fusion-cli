@@ -19,6 +19,7 @@ from typing import Any
 
 from ..config.models import Config, McpServerConfig, McpTransport, McpTrust
 from ..config.writer import write_mcp_servers
+from ..core.redaction import redact
 from ..mcp_bridge.client import McpConnectionStatus
 from ..mcp_bridge.failures import (
     STATE_CONNECTED,
@@ -150,9 +151,10 @@ def list_connectors(
             {
                 "ad": server.name,
                 "komut": server.command,
-                "argumanlar": list(server.args),
+                # Argümana/URL'ye gömülmüş anahtar listeye sızmasın (yalnız gösterim).
+                "argumanlar": [redact(argument) for argument in server.args],
                 "tasima": server.transport.value,
-                "url": server.url,
+                "url": redact(server.url) if server.url else server.url,
                 "kapsamlar": list(server.scopes),
                 "client_id": server.client_id,
                 "ortam_degiskenleri": list(server.env_names),
