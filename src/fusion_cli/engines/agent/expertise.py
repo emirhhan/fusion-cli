@@ -39,8 +39,9 @@ _RULES = (
     _Rule(
         "html-oyun",
         re.compile(
-            r"(?:\boyun|\bgame\b).{0,80}(?:html|canvas|tarayıcı|browser|web)"
-            r"|(?:html|canvas|tarayıcı|browser|web).{0,80}(?:\boyun|\bgame\b)",
+            # `oyun(?!c)`: "oyuncak/oyuncu/oyunculuk" oyun DEĞİLDİR (A1-32).
+            r"(?:\boyun(?!c)|\bgame\b).{0,80}(?:html|canvas|tarayıcı|browser|web)"
+            r"|(?:html|canvas|tarayıcı|browser|web).{0,80}(?:\boyun(?!c)|\bgame\b)",
             re.IGNORECASE | re.DOTALL,
         ),
         exclude=re.compile(r"godot|unity|unreal", re.IGNORECASE),
@@ -117,10 +118,15 @@ def is_game_task(task: str) -> bool:
     return kural.exclude is None or kural.exclude.search(task) is None
 
 
+# Ölçüldü (30 Ekim, A1-32): "arka plan" (CSS), "window" (window.onload), "terminal",
+# "web uygulaması" sıradan kod/web görevinde masaüstü araçlarını açıyordu. Yalnız
+# masaüstü bağlamını gerçekten taşıyan kalıplar kaldı.
 _DESKTOP_TASK = re.compile(
-    r"masa(ü|u)st(ü|u)|pencere|arka\s*plan|finder|safari|takvim|notlar\b|uygulama(y(ı|i)|s(ı|i))?\b"
-    r"|desktop|window|background app|bilgisayar(ım|im)?da|ekran(ı|i)?mda"
-    r"|chatgpt|codex|claude|slack|whatsapp|telegram|spotify|vs\s*code|xcode|figma|canva|terminal\b"
+    r"masa(ü|u)st(ü|u)|pencere\b|arka\s*plan(da|daki)?\s+(?:uygulama|pencere|app|window)"
+    r"|finder|safari|takvim|notlar\b"
+    r"|(?<!web )(?<!mobil )(?<!mobile )uygulama(y(ı|i)|s(ı|i))?\b"
+    r"|\bdesktop\b|background app|bilgisayar(ım|im)?da|ekran(ı|i)?mda"
+    r"|chatgpt|codex|claude|slack|whatsapp|telegram|spotify|vs\s*code|xcode|figma|canva"
     r"|\bmail\b|chrome|tarayıcı",
     re.IGNORECASE,
 )
