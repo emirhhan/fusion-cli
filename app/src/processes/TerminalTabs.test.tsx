@@ -20,7 +20,7 @@ function runtime(): TerminalRuntime & { sessions: Array<TerminalSession & { emit
   const value = {
     open: vi.fn(async (cwd, cols, rows) => ({ terminalId: `terminal-${++id}`, cwd, cols, rows, pid: 100 + id })),
     write: vi.fn(async () => undefined), resize: vi.fn(async () => undefined), close: vi.fn(async () => undefined),
-    onOutput: vi.fn(async () => vi.fn()), onClosed: vi.fn(async () => vi.fn()),
+    onClosed: vi.fn(async () => vi.fn()),
     openSession: vi.fn(async (cwd: string, cols: number, rows: number) => {
       const terminalId = `terminal-${++id}`;
       const closedHandlers = new Set<(event: { reason: string; exitCode: number | null }) => void>();

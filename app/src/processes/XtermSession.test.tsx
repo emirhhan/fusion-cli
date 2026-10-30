@@ -1,9 +1,19 @@
 import { StrictMode } from "react";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-const { bridgeInvoke, bridgeListen } = vi.hoisted(() => ({ bridgeInvoke: vi.fn(), bridgeListen: vi.fn() }));
+const { bridgeInvoke, bridgeListen, bridgeChannels } = vi.hoisted(() => ({
+  bridgeInvoke: vi.fn(),
+  bridgeListen: vi.fn(),
+  bridgeChannels: [] as Array<{ onmessage: (message: unknown) => void }>,
+}));
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: bridgeInvoke }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: bridgeInvoke,
+  Channel: class {
+    onmessage: (message: unknown) => void = () => undefined;
+    constructor() { bridgeChannels.push(this); }
+  },
+}));
 vi.mock("@tauri-apps/api/event", () => ({ listen: bridgeListen }));
 
 import { createTerminalRuntime, type TerminalSession } from "./terminalBridge";
@@ -42,8 +52,8 @@ describe("XtermSession", () => {
       return vi.fn();
     });
     bridgeInvoke.mockImplementation(async (command: string) => {
-      if (command === "terminal_ac") {
-        handlers.get("terminal://cikti")?.({ payload: { terminalId: "terminal-fast", data: [36, 32] } });
+      if (command === "terminal_ac_kanal") {
+        bridgeChannels.at(-1)!.onmessage(new Uint8Array([36, 32]).buffer);
         return { terminalId: "terminal-fast", cwd: "/repo", cols: 80, rows: 24, pid: 42 };
       }
     });

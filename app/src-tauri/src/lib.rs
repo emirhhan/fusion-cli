@@ -628,6 +628,8 @@ fn oturumlari_listele(sessions: tauri::State<SessionManager>) -> Vec<SessionSnap
     sessions.list()
 }
 
+/// Eski biçim: çıktı `terminal://cikti` olayında JSON sayı dizisi olarak gider. Yeni arayüz
+/// `terminal_ac_kanal` kullanır; bu komut eski istemcilerle uyum için durur.
 #[tauri::command]
 fn terminal_ac(
     cwd: String,
@@ -638,12 +640,30 @@ fn terminal_ac(
     terminals.open(cwd, cols, rows)
 }
 
+/// Terminal çıktısı ham bayt olarak `output` kanalına akar (U4-25): JSON sayı dizisi ve olay
+/// yayını yok. Kanal terminale özgüdür; çıktı başka terminalin dinleyicisine uğramaz.
+#[tauri::command]
+fn terminal_ac_kanal(
+    cwd: String,
+    cols: u16,
+    rows: u16,
+    output: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
+    terminals: tauri::State<TerminalManager>,
+) -> Result<TerminalSnapshot, String> {
+    let raw: terminal::RawOutputSink = Arc::new(move |data: Vec<u8>| {
+        let _ = output.send(tauri::ipc::InvokeResponseBody::Raw(data));
+    });
+    terminals.open_raw(cwd, cols, rows, Some(raw))
+}
+
+/// Girdi ham bayt gövdesiyle gelir; terminal kimliği `x-terminal-id` başlığındadır (U4-25).
+/// Eski JSON biçimi (`terminalId` + sayı dizisi) de kabul edilir.
 #[tauri::command]
 fn terminal_yaz(
-    terminal_id: String,
-    data: Vec<u8>,
+    request: tauri::ipc::Request<'_>,
     terminals: tauri::State<TerminalManager>,
 ) -> Result<(), String> {
+    let (terminal_id, data) = terminal::girdi_coz(request.body(), request.headers())?;
     terminals.write(&terminal_id, data)
 }
 
@@ -772,6 +792,7 @@ pub fn run() {
             oturum_kapat,
             oturumlari_listele,
             terminal_ac,
+            terminal_ac_kanal,
             terminal_yaz,
             terminal_boyutla,
             terminal_kapat,

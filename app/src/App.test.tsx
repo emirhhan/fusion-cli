@@ -16,12 +16,15 @@ const nativeDrops = vi.hoisted(() => {
 });
 const nativeInvoke = vi.hoisted(() => vi.fn(async (command: string) => {
   if (command.startsWith("izin_")) return { state: "granted", supported: true };
-  if (command === "terminal_ac") return { terminalId: "terminal-1", cwd: "/proje", cols: 80, rows: 24, pid: 77 };
+  if (command === "terminal_ac_kanal") return { terminalId: "terminal-1", cwd: "/proje", cols: 80, rows: 24, pid: 77 };
   return undefined;
 }));
 
 vi.mock("./platform/drop", () => ({ listenForFileDrops: nativeDrops.listen }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: nativeInvoke }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: nativeInvoke,
+  Channel: class { onmessage: (message: unknown) => void = () => undefined; },
+}));
 vi.mock("@tauri-apps/api/path", () => ({ desktopDir: vi.fn(async () => "/Users/test/Desktop") }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => vi.fn()) }));
 vi.mock("./processes/XtermSession", () => ({
@@ -495,8 +498,8 @@ describe("SessionUygulama", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Terminal" }));
     fireEvent.click(await screen.findByRole("button", { name: "Yeni terminal" }));
-    await waitFor(() => expect(nativeInvoke).toHaveBeenCalledWith("terminal_ac", {
-      cwd: "/proje", cols: 80, rows: 24,
+    await waitFor(() => expect(nativeInvoke).toHaveBeenCalledWith("terminal_ac_kanal", {
+      cwd: "/proje", cols: 80, rows: 24, output: expect.anything(),
     }));
     expect(await screen.findByText("PTY terminal-1")).toBeTruthy();
 

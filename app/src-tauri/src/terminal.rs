@@ -38,6 +38,9 @@ pub(crate) struct TerminalClosed {
 
 type OutputSink = Arc<dyn Fn(TerminalOutput) + Send + Sync>;
 type ClosedSink = Arc<dyn Fn(TerminalClosed) + Send + Sync>;
+/// Tek bir terminalin ham bayt alıcısı (Tauri `Channel`, U4-25). Verilirse o terminalin çıktısı
+/// `TerminalOutput` JSON olayı yerine doğrudan bu alıcıya, bayt dizisi olarak gider.
+pub(crate) type RawOutputSink = Arc<dyn Fn(Vec<u8>) + Send + Sync>;
 
 struct ManagedTerminal {
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
@@ -89,6 +92,18 @@ impl TerminalManager {
         cols: u16,
         rows: u16,
     ) -> Result<TerminalSnapshot, String> {
+        self.open_raw(cwd, cols, rows, None)
+    }
+
+    /// `raw` verilirse bu terminalin çıktısı yalnız ona gider (ham bayt, JSON sayı dizisi değil);
+    /// verilmezse genel `output` olayı kullanılır (eski arayüzlerle uyum).
+    pub(crate) fn open_raw(
+        &self,
+        cwd: String,
+        cols: u16,
+        rows: u16,
+        raw: Option<RawOutputSink>,
+    ) -> Result<TerminalSnapshot, String> {
         if cols == 0 || rows == 0 {
             return Err("terminal boyutu sıfır olamaz".into());
         }
@@ -116,9 +131,13 @@ impl TerminalManager {
             .map_err(|error| format!("terminal girdisi alınamadı: {error}"))?;
         let terminal_id = format!("terminal-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
         let close_delivered = Arc::new((Mutex::new(false), Condvar::new()));
+        let output_sink: OutputSink = match raw {
+            Some(raw) => Arc::new(move |event: TerminalOutput| raw(event.data)),
+            None => Arc::clone(&self.output_sink),
+        };
         let events = event_worker(
             terminal_id.clone(),
-            Arc::clone(&self.output_sink),
+            output_sink,
             Arc::clone(&self.closed_sink),
             Arc::clone(&close_delivered),
         );
@@ -434,6 +453,41 @@ fn apply_shell_args(command: &mut CommandBuilder) {
     }
 }
 
+/// Ham bayt girdisinin hangi terminale gittiğini taşıyan istek başlığı (U4-25).
+pub(crate) const TERMINAL_KIMLIK_BASLIGI: &str = "x-terminal-id";
+
+/// `terminal_yaz` isteğinden (terminal kimliği, bayt) çıkarır.
+///
+/// Yeni arayüz gövdede HAM bayt gönderir, kimliği başlıkta taşır: JSON sayı dizisi her bayt için
+/// birkaç karakter ve bir ayrıştırma turu demekti. Eski biçim (`{terminalId, data:[..]}` JSON)
+/// kabul edilmeye devam eder; böylece arayüz ve çekirdek ayrı sürümde kalsa da yazma bozulmaz.
+pub(crate) fn girdi_coz(
+    body: &tauri::ipc::InvokeBody,
+    headers: &tauri::http::HeaderMap,
+) -> Result<(String, Vec<u8>), String> {
+    match body {
+        tauri::ipc::InvokeBody::Raw(bytes) => {
+            let id = headers
+                .get(TERMINAL_KIMLIK_BASLIGI)
+                .and_then(|value| value.to_str().ok())
+                .filter(|value| !value.is_empty())
+                .ok_or("terminal kimliği başlığı eksik")?;
+            Ok((id.to_owned(), bytes.clone()))
+        }
+        tauri::ipc::InvokeBody::Json(value) => {
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct EskiGirdi {
+                terminal_id: String,
+                data: Vec<u8>,
+            }
+            let girdi: EskiGirdi = serde_json::from_value(value.clone())
+                .map_err(|error| format!("terminal girdisi çözülemedi: {error}"))?;
+            Ok((girdi.terminal_id, girdi.data))
+        }
+    }
+}
+
 /// Aynı anda açık terminal sayısı üst sınırı; sınırsız açılış PTY/dosya tanıtıcısı tüketirdi.
 const MAX_TERMINALS: usize = 16;
 
@@ -509,6 +563,83 @@ mod tests {
             .map(|item| item.to_string_lossy().into_owned())
             .collect();
         assert_eq!(args, vec!["/bin/sh", "-l"]);
+    }
+
+    /// Ölçüldü (30 Ekim): çıktı `terminal://cikti` olayında JSON sayı dizisiydi; kanalla ham bayt gider.
+    #[test]
+    fn ham_kanal_verilirse_cikti_genel_olaya_degil_kanala_gider() {
+        let _guard = pty_test_guard();
+        let cwd = tempfile::tempdir().unwrap();
+        let (manager, outputs, _) = manager();
+        let alinan = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let alinan_kopya = Arc::clone(&alinan);
+        let snapshot = manager
+            .open_raw(
+                cwd.path().to_string_lossy().into_owned(),
+                80,
+                24,
+                Some(Arc::new(move |bytes| {
+                    alinan_kopya.lock().unwrap().extend(bytes);
+                })),
+            )
+            .unwrap();
+        manager
+            .write(&snapshot.terminal_id, print_command("fusion-raw-kanal"))
+            .unwrap();
+        let bitis = Instant::now() + Duration::from_secs(5);
+        let needle = b"fusion-raw-kanal";
+        while !alinan
+            .lock()
+            .unwrap()
+            .windows(needle.len())
+            .any(|pencere| pencere == needle)
+        {
+            assert!(Instant::now() < bitis, "kanal çıktıyı almadı");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            outputs.lock().unwrap().is_empty(),
+            "ham kanal varken genel olay da gitmemeli"
+        );
+        manager.close_all();
+    }
+
+    #[test]
+    fn girdi_ham_govdede_kimlik_basliktan_okunur() {
+        let mut basliklar = tauri::http::HeaderMap::new();
+        basliklar.insert(
+            super::TERMINAL_KIMLIK_BASLIGI,
+            "terminal-7".parse().unwrap(),
+        );
+        let (id, bayt) =
+            super::girdi_coz(&tauri::ipc::InvokeBody::Raw(vec![3, 10, 0xff]), &basliklar).unwrap();
+        assert_eq!(id, "terminal-7");
+        assert_eq!(bayt, vec![3, 10, 0xff]);
+    }
+
+    #[test]
+    fn girdi_ham_govdede_baslik_yoksa_reddedilir() {
+        let hata = super::girdi_coz(
+            &tauri::ipc::InvokeBody::Raw(vec![1]),
+            &tauri::http::HeaderMap::new(),
+        )
+        .unwrap_err();
+        assert!(hata.contains("başlığı eksik"));
+    }
+
+    #[test]
+    fn girdi_eski_json_bicimi_hala_kabul_edilir() {
+        let govde = tauri::ipc::InvokeBody::Json(serde_json::json!({
+            "terminalId": "terminal-2", "data": [104, 105]
+        }));
+        let (id, bayt) = super::girdi_coz(&govde, &tauri::http::HeaderMap::new()).unwrap();
+        assert_eq!(id, "terminal-2");
+        assert_eq!(bayt, b"hi".to_vec());
+        assert!(super::girdi_coz(
+            &tauri::ipc::InvokeBody::Json(serde_json::json!({"x": 1})),
+            &tauri::http::HeaderMap::new()
+        )
+        .is_err());
     }
 
     #[test]
