@@ -78,6 +78,8 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
     grouped.set(group, [...(grouped.get(group) ?? []), option]);
   }
   const groups = [...grouped.entries()];
+  // Satır başına `visible.indexOf` yüzlerce modelde O(n²) idi (U1-43).
+  const visibleIndex = new Map(visible.map((option, index) => [option, index] as const));
 
   useEffect(() => {
     if (!open || busy) return;
@@ -178,11 +180,11 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
               <p id={`${listId}-group-${group}`} className="model-picker__group-title">{groupLabels[group] ?? group}</p>
               {entries?.map((option) => (
                 <button
-                  id={`${listId}-${visible.indexOf(option)}`}
+                  id={`${listId}-${visibleIndex.get(option)}`}
                   disabled={pending}
                   tabIndex={-1}
                   aria-selected={option.modelId === active || option.deger === active}
-                  className={`model-picker__option${visible.indexOf(option) === Math.min(highlight, visible.length - 1) ? " model-picker__option--active" : ""}`}
+                  className={`model-picker__option${visibleIndex.get(option) === Math.min(highlight, visible.length - 1) ? " model-picker__option--active" : ""}`}
                   key={option.deger}
                   onClick={() => choose(option)}
                   role="option"

@@ -43,6 +43,7 @@ export function ApprovalModeMenu({
   const [open, setOpen] = useState(false);
   const [focus, setFocus] = useState(0);
   const box = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   const items = useRef<(HTMLButtonElement | null)[]>([]);
   const current = approvalInfo(mode);
 
@@ -61,6 +62,8 @@ export function ApprovalModeMenu({
 
   const choose = (next: ApprovalMode) => {
     setOpen(false);
+    // Menü kapanınca odak tetikleyiciye döner; yoksa klavye kullanıcısı gövdede kalır (U1-49).
+    trigger.current?.focus();
     if (next !== mode) onChange(next);
   };
 
@@ -78,9 +81,17 @@ export function ApprovalModeMenu({
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
       setFocus((value) => (value + step + APPROVAL_MODES.length) % APPROVAL_MODES.length);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      setFocus(event.key === "Home" ? 0 : APPROVAL_MODES.length - 1);
     } else if (event.key === "Escape") {
       event.preventDefault();
       setOpen(false);
+      trigger.current?.focus();
+    } else if (event.key === "Tab") {
+      // Tab menüden çıkar; açık kalan menü sonraki odak noktalarını örterdi.
+      setOpen(false);
+      trigger.current?.focus();
     }
   };
 
@@ -91,6 +102,7 @@ export function ApprovalModeMenu({
         aria-haspopup="menu"
         aria-label={`İzin modu: ${current.label}. Değiştirmek için tıkla ya da Shift+Tab.`}
         className="composer__approval approval-menu__trigger"
+        ref={trigger}
         data-mode={mode}
         onClick={toggle}
         title={current.hint}

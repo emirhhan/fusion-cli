@@ -56,6 +56,10 @@ export const DEFAULT_DEADLINES_MS: Readonly<Record<string, number>> = {
   "web.dogrula": 120_000,
   "web.arac_olc": 300_000,
   "kontrol.anahtar_dogrula": 90_000,
+  // Model seçici (U1-41): cevapsız çekirdek listeyi sonsuza dek "Modeller okunuyor…"da bırakıyordu.
+  // Katalog sağlayıcı sağlığını da sorabildiği için okuma süresinin iki katı tanınır.
+  "model.katalog": 60_000,
+  "kontrol.durum": OKUMA_SON_SURESI_MS,
 };
 
 interface BekleyenIstek {

@@ -65,6 +65,7 @@ export interface ContextGaugeProps {
 export function ContextGauge({ olcu, onCompact }: ContextGaugeProps) {
   const [acik, setAcik] = useState(false);
   const kutu = useRef<HTMLDivElement>(null);
+  const halka = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     if (!acik) return;
@@ -72,7 +73,7 @@ export function ContextGauge({ olcu, onCompact }: ContextGaugeProps) {
       if (!kutu.current?.contains(event.target as Node)) setAcik(false);
     };
     const kacisTusu = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); setAcik(false); }
+      if (event.key === "Escape") { event.preventDefault(); setAcik(false); halka.current?.focus(); }
     };
     document.addEventListener("mousedown", disariTikla);
     document.addEventListener("keydown", kacisTusu);
@@ -82,8 +83,10 @@ export function ContextGauge({ olcu, onCompact }: ContextGaugeProps) {
     };
   }, [acik]);
 
-  if (!olcu) return null;
-  const yuzde = Math.round(olcu.yuzde);
+  // Ölçü bozuksa (NaN/sonsuz) hiçbir şey çizilmez: yanlış bir halka göstermek, göstermemekten
+  // kötüdür. Taşan yüzde 0-100'e sıkıştırılır; eskiden "%-5 kaldı" ve negatif yay çıkıyordu (U1-46).
+  if (!olcu || !Number.isFinite(olcu.yuzde)) return null;
+  const yuzde = Math.min(100, Math.max(0, Math.round(olcu.yuzde)));
   const seviye = baglamSeviyesi(yuzde);
   const etiket = baglamEtiketi(yuzde);
   const pencere = olcu.model_siniri_token
@@ -106,6 +109,7 @@ export function ContextGauge({ olcu, onCompact }: ContextGaugeProps) {
         aria-valuenow={yuzde}
         className="context-gauge"
         data-seviye={seviye}
+        ref={halka}
         onClick={() => setAcik((current) => !current)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
