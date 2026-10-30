@@ -1234,6 +1234,9 @@ class BrowserSessionPool:
     def __init__(self, *, idle_release_s: float | None = None) -> None:
         self._idle_release_s = IDLE_RELEASE_S if idle_release_s is None else idle_release_s
         self._idle_timers: dict[tuple[str, str], asyncio.TimerHandle] = {}
+        #: Bırakma görevleri: asyncio görevlere ZAYIF referans tutar, referanssız görev
+        #: bitmeden toplanabilir.
+        self._background_tasks: set[asyncio.Task[None]] = set()
         self._playwright: Any | None = None
         self._contexts: dict[tuple[str, str], Any] = {}
         #: Bağlamların geldiği CDP bağlantıları; kapatmak Chrome'u değil bağlantıyı bırakır.
@@ -1267,8 +1270,13 @@ class BrowserSessionPool:
             eski.cancel()
         loop = asyncio.get_running_loop()
         self._idle_timers[key] = loop.call_later(
-            self._idle_release_s, lambda: loop.create_task(self._release_idle(key))
+            self._idle_release_s, lambda: self._start_idle_release(loop, key)
         )
+
+    def _start_idle_release(self, loop: asyncio.AbstractEventLoop, key: tuple[str, str]) -> None:
+        task = loop.create_task(self._release_idle(key))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _release_idle(self, key: tuple[str, str]) -> None:
         self._idle_timers.pop(key, None)
@@ -1276,13 +1284,16 @@ class BrowserSessionPool:
             # Tur sürüyor: bırakma, kullanım bitince süre yeniden başlar.
             self.schedule_idle_release(*key)
             return
-        await self.drop_account_conversations(*key)
-        await self.flush_closed()
-        await self._disconnect(key)
-        with contextlib.suppress(WebBrowserError, SharedBrowserError, OSError):
-            await _shared_profile_browser(self._playwright, browser_profile_dir(*key)).release(
-                force=False, timeout_s=MIN_BROWSER_TURN_S
-            )
+        # Bırakma boyunca hesap kilidi tutulur: `await`ler sırasında başka bir tur kilidi
+        # alıp bağlamı kullanırken `_disconnect` onu tur ortasında kapatmasın.
+        async with self.lock_for(*key):
+            await self.drop_account_conversations(*key)
+            await self.flush_closed()
+            await self._disconnect(key)
+            with contextlib.suppress(WebBrowserError, SharedBrowserError, OSError):
+                await _shared_profile_browser(self._playwright, browser_profile_dir(*key)).release(
+                    force=False, timeout_s=MIN_BROWSER_TURN_S
+                )
 
     def lock_for(self, provider: str, account: str) -> asyncio.Lock:
         return self._locks.setdefault((provider, account), asyncio.Lock())
