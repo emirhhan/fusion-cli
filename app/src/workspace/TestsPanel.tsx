@@ -4,6 +4,22 @@ import type { ProcessController } from "../processes/useProcesses";
 import "./TestsPanel.css";
 
 interface SuggestedCommand { tur: string; ad: string; komut: string }
+
+/**
+ * "Bu oturumda hep çalıştır" denen komutlar, proje (istemci) başına bellekte tutulur. Öneriler
+ * proje dosyalarından (package.json betikleri vb.) türer ve güvenilmeyen bir depodan gelebilir;
+ * ilk çalıştırmada komut gösterilip onay istenir (U4-49b). Uygulama kapanınca unutulur.
+ */
+const REMEMBERED_COMMANDS = new WeakMap<ProtocolClient, Set<string>>();
+
+function rememberedFor(client: ProtocolClient): Set<string> {
+  let known = REMEMBERED_COMMANDS.get(client);
+  if (!known) {
+    known = new Set();
+    REMEMBERED_COMMANDS.set(client, known);
+  }
+  return known;
+}
 interface GitState { git: boolean; branch: string | null; degisen: number; ileride: number; geride: number }
 
 function commandsFrom(payload: Record<string, unknown>): SuggestedCommand[] {
@@ -33,10 +49,23 @@ export function TestsPanel({ client, processes, revision = 0 }: { client: Protoc
   const [git, setGit] = useState<GitState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState<SuggestedCommand | null>(null);
+
+  const requestRun = (command: SuggestedCommand) => {
+    if (rememberedFor(client).has(command.komut)) void processes.start(command.komut);
+    else setPending(command);
+  };
+  const confirmRun = (remember: boolean) => {
+    if (!pending) return;
+    if (remember) rememberedFor(client).add(pending.komut);
+    void processes.start(pending.komut);
+    setPending(null);
+  };
 
   useEffect(() => {
     let active = true;
     setLoading(true);
+    setPending(null);
     setCommands([]);
     setGit(null);
     setError(null);
@@ -68,6 +97,17 @@ export function TestsPanel({ client, processes, revision = 0 }: { client: Protoc
           {git.git && <span>{git.degisen} değişiklik · ↑{git.ileride} ↓{git.geride}</span>}
         </section>
       )}
+      {pending && (
+        <section aria-label="Komut onayı" className="tests-panel__confirm" role="alertdialog">
+          <p>Bu komut proje dosyalarından geliyor ve bilgisayarında çalışacak:</p>
+          <code>{pending.komut}</code>
+          <div className="tests-panel__confirm-actions">
+            <button onClick={() => confirmRun(false)} type="button">Çalıştır</button>
+            <button onClick={() => confirmRun(true)} type="button">Bu oturumda hep çalıştır</button>
+            <button onClick={() => setPending(null)} type="button">Vazgeç</button>
+          </div>
+        </section>
+      )}
       <section aria-label="Proje doğrulamaları" className="tests-panel__commands">
         {commands.length === 0 ? (
           <p>Bu proje için otomatik bir doğrulama komutu bulunamadı. Terminalden komut yazabilirsin.</p>
@@ -76,7 +116,7 @@ export function TestsPanel({ client, processes, revision = 0 }: { client: Protoc
             aria-label={command.ad}
             disabled={processes.busy}
             key={command.komut}
-            onClick={() => void processes.start(command.komut)}
+            onClick={() => requestRun(command)}
             type="button"
           >
             <span>{command.ad}</span>

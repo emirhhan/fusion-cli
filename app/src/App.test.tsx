@@ -506,6 +506,8 @@ describe("SessionUygulama", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Değişiklikler" }));
     expect(await screen.findByText("main")).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "Testleri çalıştır" }));
+    // Proje dosyalarından gelen komut ilk çalıştırmada onay ister (U4-49b).
+    fireEvent.click(await screen.findByRole("button", { name: "Çalıştır" }));
     expect(await screen.findByText("testler geçti")).toBeTruthy();
     // Komut hem öneri düğmesinde hem kanıt dökümünde geçer; ikisi de beklenen.
     expect((await screen.findAllByText("npm test")).length).toBeGreaterThan(0);
