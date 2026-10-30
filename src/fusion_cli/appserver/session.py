@@ -46,6 +46,7 @@ from ..cli.repl.transcript_store import (
     validate_conversation_move,
 )
 from ..config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
+from ..config.browser_profiles import default_browser_profile_store
 from ..config.credentials import FernetSecretStore
 from ..config.eligibility import capability_from_spec
 from ..config.keys import secret_key
@@ -458,6 +459,8 @@ class AppSession:
         self._home = home
         config = load_config()
         self._secret_store = FernetSecretStore(credentials_file(), secret_key=secret_key())
+        # Ajan tarayıcısı profilleri (P-023/P-024); sır deposuyla aynı ana anahtar.
+        self._browser_profiles = default_browser_profile_store()
         self._remote: RemoteController | None = None
         self._personal_memory = PersonalMemory(config.memory_dir)
         from ..memory.image_job_store import ImageJobStore
@@ -1230,6 +1233,8 @@ class AppSession:
             return sonuc
         if request.name == "web.giris_durumu":
             return web_login_state(request.data.get("pid"))
+        if request.name.startswith("tarayici."):
+            return await self._browser_profile_rpc(request)
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
         if request.name == "komut.calistir":
@@ -1579,6 +1584,40 @@ class AppSession:
             # tek yapılandırma kaynağından yeniden çöz.
             self._state.config = _refresh_teacher(yeni)
         return sonuc
+
+    async def _browser_profile_rpc(self, request: Request) -> dict[str, Any]:
+        """`tarayici.*` (P-024): dosya/Chrome okuma ve şifreleme bloklar, thread'e alınır."""
+        from . import browser_profiles as rpc
+
+        store = self._browser_profiles
+        data = request.data
+        if request.name == "tarayici.profiller":
+            return await asyncio.to_thread(rpc.list_profiles, store, self._state.config)
+        if request.name == "tarayici.dosya_onizle":
+            return await asyncio.to_thread(rpc.preview_file, data)
+        if request.name == "tarayici.chrome_profilleri":
+            return await asyncio.to_thread(rpc.chrome_profiles, data)
+        if request.name == "tarayici.ice_aktar":
+            return await asyncio.to_thread(rpc.import_profile, store, data)
+        if request.name == "tarayici.sil":
+            return await asyncio.to_thread(rpc.delete_profile, store, data)
+        if request.name == "tarayici.giris":
+            return rpc.start_login(data)
+        if request.name == "tarayici.giris_durumu":
+            return web_login_state(data.get("pid"))
+        if request.name == "tarayici.varsayilan":
+            sonuc = await asyncio.to_thread(rpc.set_default, self._state.config, data, store)
+            if sonuc.get("ok"):
+                # Yalnız `browser.default_profile` güncellenir; `/model` ile seçilmiş, yazılmamış
+                # model geri alınmaz (bkz. `web.arac_olc` ile aynı gerekçe).
+                self._state.config = replace(
+                    self._state.config,
+                    browser=replace(
+                        self._state.config.browser, default_profile=str(sonuc["varsayilan"])
+                    ),
+                )
+            return sonuc
+        return {"ok": False, "metin": f"Bilinmeyen tarayıcı isteği: {request.name}"}
 
     async def _change_web_window_mode(self, data: dict[str, Any]) -> dict[str, Any]:
         """`web.pencere_kipi`: kipi yaz; değiştiyse o sağlayıcının Chrome'unu kapat.

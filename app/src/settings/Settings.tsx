@@ -14,6 +14,7 @@ import { General, readHistoryOpen, HISTORY_KEY } from "./sections/General";
 import { Models, type ModelState } from "./sections/Models";
 import { RoleModels } from "./sections/RoleModels";
 import { Permissions } from "./sections/Permissions";
+import { WebSessions } from "./sections/WebSessions";
 import { Advanced } from "./sections/Advanced";
 import { ChromeBrowser } from "./ChromeBrowser";
 import { RemoteAccess } from "./RemoteAccess";
@@ -33,7 +34,7 @@ import "./Settings.css";
  * ayarlanabilir yanı.
  */
 
-type BolumId = "genel" | "hesap" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
+type BolumId = "genel" | "hesap" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "weboturumlari" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
 
 const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: string }[] = [
   { id: "genel", etiket: "Genel", ikon: "settings", grup: "Kişisel" },
@@ -42,6 +43,7 @@ const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: string }[] 
   { id: "kisisellestirme", etiket: "Kişiselleştirme", ikon: "lessons", grup: "Kişisel" },
   { id: "modeller", etiket: "Modeller", ikon: "skills", grup: "Entegrasyonlar" },
   { id: "tarayici", etiket: "Tarayıcı", ikon: "preview", grup: "Entegrasyonlar" },
+  { id: "weboturumlari", etiket: "Web oturumları", ikon: "user", grup: "Entegrasyonlar" },
   { id: "izinler", etiket: "İzinler", ikon: "help", grup: "Entegrasyonlar" },
   { id: "zeka", etiket: "Zeka", ikon: "skills", grup: "Entegrasyonlar" },
   { id: "uzak", etiket: "Uzaktan Erişim", ikon: "preview", grup: "Entegrasyonlar" },
@@ -327,6 +329,8 @@ export function Settings({
           {bolum === "kisisellestirme" && <><MemoryPanel client={client} /><Instructions client={client} /></>}
 
           {bolum === "tarayici" && <ChromeBrowser client={client} />}
+
+          {bolum === "weboturumlari" && <WebSessions client={client} />}
 
           {bolum === "izinler" && (
             <Permissions
