@@ -12,14 +12,15 @@ describe("Konuşmada hata bildirimi", () => {
         mesajlar={[
           { rol: "asistan", metin: "Her şey yolunda" },
           { rol: "asistan", metin: "Model zaman aşımına uğradı", hata: true },
-          { rol: "asistan", metin: "Hata: bağlantı koptu" },
+          // Yalnız metin ön eki hata sayılmaz: model "Hata: ..." diye meşru açıklama yazabilir (U1-28).
+          { rol: "asistan", metin: "Hata: bağlantı koptu (örnek açıklama)" },
         ]}
         onHataBildir={onHataBildir}
         running={false}
       />,
     );
     const dugmeler = screen.getAllByRole("button", { name: "Hatayı bildir" });
-    expect(dugmeler).toHaveLength(2);
+    expect(dugmeler).toHaveLength(1);
     fireEvent.click(dugmeler[0]);
     expect(onHataBildir).toHaveBeenCalledWith("Model zaman aşımına uğradı");
   });

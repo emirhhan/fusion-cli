@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { DeliveryCard } from "./DeliveryCard";
 import type { DeliveryEvidence } from "../protocol/deliveryEvidence";
@@ -115,8 +115,14 @@ function SentAttachments({ ekler, onOpenFile }: { ekler: MesajEki[]; onOpenFile?
  */
 /** Başarısız tur yanıtı: çekirdek `ok=false` döndürdü ya da istek hiç tamamlanmadı. */
 export function hataMesajiMi(message: Mesaj): boolean {
-  return message.rol === "asistan" && (message.hata === true || message.metin.startsWith("Hata:"));
+  // YALNIZ yapısal bayrak: eskiden "Hata:" ile başlayan her metin hata sayılıyordu ve
+  // modelin meşru bir açıklaması "Hatayı bildir" çıkarıyordu (U1-28). Hata üreten
+  // her yol `hata: true` verir (bkz. useSessions, SessionApplication).
+  return message.rol === "asistan" && message.hata === true;
 }
+
+/** "Kopyalandı" gibi geçici durumlar bu süre sonra silinir (U1-35). */
+const KOPYA_DURUMU_MS = 4000;
 
 function AssistantMessage({ text, onOpenFile, onReport, onReadAloud, onEvaluate, onContinue, ara = false, children }: {
   text: string;
@@ -132,6 +138,12 @@ function AssistantMessage({ text, onOpenFile, onReport, onReadAloud, onEvaluate,
 }) {
   const [copyState, setCopyState] = useState<string | null>(null);
   const copyPending = useRef(false);
+  useEffect(() => {
+    // Süren kopyalamanın durumu silinmez; biten durum kendiliğinden kaybolur.
+    if (copyState === null || copyState === "Kopyalanıyor…") return;
+    const timer = window.setTimeout(() => setCopyState(null), KOPYA_DURUMU_MS);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
   const [evaluationOpen, setEvaluationOpen] = useState(false);
   const [rating, setRating] = useState<"positive" | "negative" | null>(null);
   const [actionPending, setActionPending] = useState(false);
@@ -165,7 +177,7 @@ function AssistantMessage({ text, onOpenFile, onReport, onReadAloud, onEvaluate,
       </div>
       {children}
       {!ara && <div className="conversation__actions">
-        <Button aria-label="Yanıtı kopyala" icon="copy" iconOnly disabled={copyPending.current} onClick={() => void copy()} />
+        <Button aria-label="Yanıtı kopyala" icon="copy" iconOnly disabled={copyState === "Kopyalanıyor…"} onClick={() => void copy()} />
         {onReadAloud && <Button aria-label="Sesli oku" title="Sesli oku" icon="speaker" iconOnly disabled={actionPending} onClick={() => void perform(onReadAloud)} />}
         {onEvaluate && <div className="conversation__evaluation">
           <Button aria-label="Yanıtı değerlendir" title="Yanıtı değerlendir" aria-expanded={evaluationOpen} icon="thumbsUp" iconOnly onClick={() => setEvaluationOpen(!evaluationOpen)} />
@@ -201,8 +213,9 @@ function TaskList({ gorevler }: { gorevler: GorevMaddesi[] }) {
         Görevler <span>{bitti}/{gorevler.length}</span>
       </header>
       <ul>
-        {gorevler.map((gorev) => (
-          <li data-durum={gorev.durum} key={gorev.metin}>
+        {gorevler.map((gorev, sira) => (
+          // Zayıf modeller aynı maddeyi tekrarlayabilir; metin tek başına anahtar olamaz (U1-27).
+          <li data-durum={gorev.durum} key={`${sira}:${gorev.metin}`}>
             <span aria-hidden="true">{gorev.durum === "bitti" ? "✓" : gorev.durum === "yapiliyor" ? "▶" : "○"}</span>
             {gorev.metin}
           </li>
@@ -270,7 +283,9 @@ function workDuration(messages: Mesaj[]): string {
   if (!starts.length || !ends.length) return "Çalışma geçmişi";
   const seconds = Math.floor((Math.max(...ends) - Math.min(...starts)) / 1000);
   if (!Number.isFinite(seconds) || seconds < 0) return "Çalışma geçmişi";
-  return `${seconds >= 60 ? `${Math.floor(seconds / 60)}d ` : ""}${seconds % 60}sn çalıştı`;
+  const saat = Math.floor(seconds / 3600);
+  const dakika = Math.floor((seconds % 3600) / 60);
+  return `${saat > 0 ? `${saat}sa ` : ""}${saat > 0 || dakika > 0 ? `${dakika}d ` : ""}${seconds % 60}sn çalıştı`;
 }
 
 export function Conversation({
@@ -296,7 +311,10 @@ export function Conversation({
   const sonKullanici = [...mesajlar].reverse().find((message) => message.rol === "kullanici");
   const sonKullaniciSirasi = sonKullanici ? mesajlar.lastIndexOf(sonKullanici) : -1;
   const gorselBekliyor = running && sonKullanici !== undefined && isImageCommand(sonKullanici.metin)
-    && !mesajlar.slice(sonKullaniciSirasi + 1).some((message) => message.rol === "asistan");
+    // Ara anlatım (`ara`/`akan`) ve hata mesajı görsel gelmeden önce de görünür; kartı
+    // yalnız nihai yanıt kaldırır (U1-23).
+    && !mesajlar.slice(sonKullaniciSirasi + 1).some((message) =>
+      message.rol === "asistan" && !message.ara && !message.akan && !hataMesajiMi(message));
   const gorselIstegi = gorselBekliyor && sonKullanici ? parseImageRequest(sonKullanici.metin) : null;
   const kutuRef = useRef<HTMLDivElement>(null);
   const icerikRef = useRef<HTMLDivElement>(null);
@@ -348,10 +366,10 @@ export function Conversation({
             return (
               <div className="conversation__message conversation__message--followups" key={message.id}>
                 <div aria-label="Sıradaki adım önerileri" className="conversation__followups">
-                  {oneriler.map((oneri) => (
+                  {oneriler.map((oneri, sira) => (
                     <button
                       className="conversation__followup"
-                      key={oneri.gorev}
+                      key={`${sira}:${oneri.gorev}`}
                       onClick={() => onOneriSec(oneri.gorev)}
                       title={oneri.gorev}
                       type="button"

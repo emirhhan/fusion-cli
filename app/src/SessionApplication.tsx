@@ -179,7 +179,7 @@ function useConversation(client: ProtocolClient) {
         if (text) setMessages((current) => [...current, { rol: "asistan", metin: text }]);
       })
       .catch((error) =>
-        setMessages((current) => [...current, { rol: "asistan", metin: `Hata: ${String(error)}` }]),
+        setMessages((current) => [...current, { rol: "asistan", metin: `Hata: ${String(error)}`, hata: true }]),
       )
       .finally(() => setRunning(false));
   };
