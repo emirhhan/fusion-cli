@@ -45,6 +45,7 @@ from ..core.tool_emulation import TOOL_INSTRUCTIONS_LEAD
 from ..core.types import Message, ToolCall
 from ..core.window_mode import WindowMode
 from .web_markdown import html_to_markdown
+from .web_selectors import ProviderSelectors, web_selectors
 from .web_session import WebSessionCredential, WebTransport, WebTurn, WebTurnContext
 from .web_shared_browser import (
     SharedBrowserError,
@@ -279,6 +280,15 @@ class BrowserProviderDefinition:
     recommended_window_mode: WindowMode = WindowMode.HEADLESS
 
 
+#: Arayüz seçicilerinin TEK kaynağı `data/web-selectors.json`'dur (P1-43); burada yalnız
+#: sağlayıcının kimliği, adresleri ve davranış varsayılanları durur.
+_SELECTORS = web_selectors()
+
+
+def _selectors_of(provider_id: str) -> ProviderSelectors:
+    return _SELECTORS.providers[provider_id]
+
+
 WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
     "chatgpt_web": BrowserProviderDefinition(
         id="chatgpt_web",
@@ -286,61 +296,12 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         home_url="https://chatgpt.com/",
         new_chat_url="https://chatgpt.com/",
         cookie_urls=("https://chatgpt.com/", "https://openai.com/"),
-        # Sıra ÖLÇÜME göre (22 Eylül 2026, kullanıcının gerçek Plus oturumu, TR
-        # arayüz): ChatGPT composer'ı Lexical'dan ProseMirror'a geçmiş ve eski beş
-        # seçicinin HEPSİ 0 eşleşme veriyordu. Oturum açıktı, sayfa yüklüydü, hata
-        # yalnız "mesaj alanı bulunamadı" idi — yani her ChatGPT turu, CAPTCHA
-        # olmasa bile burada ölüyordu. ProseMirror seçicisi dil-bağımsızdır;
-        # `aria-label` ("ChatGPT'ye mesaj gönder") yerelleştirilmiş, ona güvenilmez.
-        # Eskiler yedekte kalır: başka sürüm/arayüz varyantı onları kullanabilir.
-        input_selectors=(
-            'div.ProseMirror[contenteditable="true"]',
-            "#prompt-textarea",
-            '[data-testid="prompt-textarea"]',
-            'div[contenteditable="true"][data-lexical-editor="true"]',
-            'textarea[placeholder*="Message"]',
-            "textarea",
-        ),
-        # Aynı ölçümde: `data-testid="send-button"` 0, `form button[type=submit]`
-        # 1 ve görünür. Submit düğmesi composer'da metin varken belirir, bu yüzden
-        # boş sayfada aranırsa bulunamaz. Düğme hiç bulunamazsa kod zaten Enter'a
-        # düşer (`_send_turn`), ama o yol her turda 2 saniyelik boş bekleme yakar.
-        send_selectors=(
-            'form button[type="submit"]',
-            'button[data-testid="send-button"]',
-            'button[aria-label*="Send" i]',
-            'button[aria-label*="Gönder" i]',
-        ),
-        # Sıra dardan genişe: `article[data-testid^="conversation-turn-"]` tüm turu
-        # (kullanıcı mesajı, eylem düğmeleri) kapsayan geniş kaptır, en sonda.
-        #
-        # 18 Ekim 2026 ölçümü (canlı Plus oturumu): ChatGPT mesaj işaretini
-        # değiştirdi — `data-message-author-role` ve `conversation-turn-*` testid'leri
-        # 0 eşleşme veriyor, cevap geliyor ama Fusion onu görmediği için her tur
-        # "zaman aşımı" ile ölüyordu. Yeni kaplar: asistan turu
-        # `data-content-search-unit-key="…:assistant"`, cevap gövdesi
-        # `data-markdown-text-style="assistant-message"`, kullanıcı balonu
-        # `data-user-message-bubble`. Eskiler yedekte.
-        response_selectors=(
-            '[data-markdown-text-style="assistant-message"]',
-            '[data-content-search-unit-key$=":assistant"]',
-            '[data-testid^="conversation-turn-"] [data-message-author-role="assistant"]',
-            '[data-message-author-role="assistant"]',
-            'article[data-testid^="conversation-turn-"]',
-        ),
-        stop_selectors=(
-            'button[data-testid="stop-button"]',
-            'button[aria-label*="Stop" i]',
-            'button[aria-label*="Durdur" i]',
-        ),
+        input_selectors=_selectors_of("chatgpt_web").input,
+        send_selectors=_selectors_of("chatgpt_web").send,
+        response_selectors=_selectors_of("chatgpt_web").response,
+        stop_selectors=_selectors_of("chatgpt_web").stop,
         login_markers=("log in", "sign up", "giriş yap", "oturum aç"),
-        history_selectors=(
-            "[data-content-search-unit-key]",
-            '[data-user-message-bubble="true"]',
-            "[data-message-author-role]",
-            'article[data-testid^="conversation-turn-"]',
-            "main .group\\/conversation-turn",
-        ),
+        history_selectors=_selectors_of("chatgpt_web").history,
         default_models=("auto",),
         cookie_hint="chatgpt.com üzerindeki oturum açmış bir isteğin tam Cookie başlığı",
         connector_settings_url="https://chatgpt.com/#settings/Connectors",
@@ -352,34 +313,12 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         home_url="https://claude.ai/",
         new_chat_url="https://claude.ai/new",
         cookie_urls=("https://claude.ai/",),
-        input_selectors=(
-            'div.ProseMirror[contenteditable="true"]',
-            '[contenteditable="true"][data-placeholder]',
-            'fieldset [contenteditable="true"]',
-            "textarea",
-        ),
-        send_selectors=(
-            'button[aria-label*="Send" i]',
-            'button[aria-label*="Gönder" i]',
-            'button[data-testid*="send"]',
-        ),
-        response_selectors=(
-            '[data-testid="assistant-message"]',
-            "[data-is-streaming] .font-claude-message",
-            ".font-claude-message",
-            'div[data-testid^="message-"]',
-        ),
-        stop_selectors=(
-            'button[aria-label*="Stop" i]',
-            'button[aria-label*="Durdur" i]',
-        ),
+        input_selectors=_selectors_of("claude_web").input,
+        send_selectors=_selectors_of("claude_web").send,
+        response_selectors=_selectors_of("claude_web").response,
+        stop_selectors=_selectors_of("claude_web").stop,
         login_markers=("log in", "continue with google", "giriş yap", "oturum aç"),
-        history_selectors=(
-            '[data-testid="user-message"]',
-            '[data-testid="assistant-message"]',
-            ".font-claude-message",
-            "div[data-test-render-count]",
-        ),
+        history_selectors=_selectors_of("claude_web").history,
         default_models=("auto",),
         cookie_hint="claude.ai oturumunun tam Cookie başlığı (sessionKey dahil)",
         connector_settings_url="https://claude.ai/settings/connectors",
@@ -390,42 +329,13 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         home_url="https://gemini.google.com/app",
         new_chat_url="https://gemini.google.com/app",
         cookie_urls=("https://gemini.google.com/", "https://accounts.google.com/"),
-        input_selectors=(
-            'rich-textarea div[contenteditable="true"]',
-            'div[contenteditable="true"][aria-label]',
-            "textarea[aria-label]",
-            "textarea",
-        ),
-        send_selectors=(
-            'button[aria-label*="Send" i]',
-            'button[aria-label*="Gönder" i]',
-            "button.send-button",
-        ),
-        # Sıra DARDAN GENİŞE: ilk sonuç veren kazanır (bkz. `_response_snapshot`).
-        # `model-response` kaynak/atıf kartlarını da içeren geniş kaptır ve en
-        # sona alınmıştır; yalnızca dar seçiciler arayüz değişikliğiyle
-        # eşleşmediğinde devreye girer.
-        response_selectors=(
-            "model-response .model-response-text",
-            ".model-response-text",
-            '[data-test-id="response"]',
-            "model-response",
-        ),
-        stop_selectors=(
-            'button[aria-label*="Stop" i]',
-            'button[aria-label*="Durdur" i]',
-        ),
+        input_selectors=_selectors_of("gemini_web").input,
+        send_selectors=_selectors_of("gemini_web").send,
+        response_selectors=_selectors_of("gemini_web").response,
+        stop_selectors=_selectors_of("gemini_web").stop,
         login_markers=("sign in", "oturum aç", "giriş yap", "choose an account"),
-        history_selectors=(
-            "user-query",
-            "model-response",
-            ".conversation-container",
-            "infinite-scroller",
-        ),
-        # Ölçüldü: kip düğmesinin metni seçili kademedir ("Flash-Lite", "2.5 Pro"…),
-        # aria-label'ı ise "Mod seçiciyi aç, şu anda Flash-Lite modunda" biçiminde.
-        # Metin kısa ve yerelleştirmeden bağımsız olduğu için o okunur.
-        tier_selectors=('button[data-test-id="bard-mode-menu-button"]',),
+        history_selectors=_selectors_of("gemini_web").history,
+        tier_selectors=_selectors_of("gemini_web").tier,
         default_models=("auto",),
         cookie_hint=(
             "gemini.google.com isteğinin tam Cookie başlığı; Google için tarayıcıyla giriş önerilir"
@@ -444,34 +354,12 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             "https://login.live.com/",
             "https://www.bing.com/",
         ),
-        input_selectors=(
-            "textarea[placeholder]",
-            "textarea[aria-label]",
-            'div[contenteditable="true"]',
-            "textarea",
-        ),
-        send_selectors=(
-            'button[aria-label*="Submit" i]',
-            'button[aria-label*="Send" i]',
-            'button[aria-label*="Gönder" i]',
-        ),
-        response_selectors=(
-            '[data-content="ai-message"]',
-            '[data-testid="copilot-response"]',
-            ".ac-textBlock",
-            'cib-message-group[source="bot"]',
-        ),
-        stop_selectors=(
-            'button[aria-label*="Stop" i]',
-            'button[aria-label*="Durdur" i]',
-        ),
+        input_selectors=_selectors_of("copilot_web").input,
+        send_selectors=_selectors_of("copilot_web").send,
+        response_selectors=_selectors_of("copilot_web").response,
+        stop_selectors=_selectors_of("copilot_web").stop,
         login_markers=("sign in", "oturum aç", "giriş yap", "microsoft account"),
-        history_selectors=(
-            '[data-content="ai-message"]',
-            '[data-content="user-message"]',
-            "cib-message-group",
-            '[data-testid="chat-turn"]',
-        ),
+        history_selectors=_selectors_of("copilot_web").history,
         default_models=("auto",),
         cookie_hint=(
             "copilot.microsoft.com oturumundaki tam Cookie başlığı; tarayıcıyla giriş önerilir"
@@ -482,16 +370,9 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
 # Yalnız arayüzde gerçek seçim düğmesi gözlenebilen sağlayıcılar. Bir menü
 # bulunamazsa model adı uydurulmaz; kullanıcıya sadece otomatik kip sunulur.
 MODEL_MENU_BUTTONS: dict[str, tuple[str, ...]] = {
-    "gemini_web": ('button[data-test-id="bard-mode-menu-button"]',),
-    "chatgpt_web": (
-        'button[data-testid="model-switcher-dropdown-button"]',
-        'button[aria-label*="model seç" i]',
-        'button[aria-label*="select model" i]',
-    ),
-    "claude_web": (
-        'button[data-testid="model-selector-dropdown"]',
-        'button[aria-label*="select model" i]',
-    ),
+    provider_id: selectors.model_menu
+    for provider_id, selectors in _SELECTORS.providers.items()
+    if selectors.model_menu
 }
 
 
@@ -551,9 +432,9 @@ async def _visible_model_options(
     # Gemini aynı menüde "Genişletilmiş düşünme" ayarını da gösteriyor. Bu bir
     # model değil; yalnız model seçeneklerine ait test kimlikleri alınır.
     option_selector = (
-        'gem-menu-item[data-test-id^="bard-mode-option-"]'
+        _SELECTORS.model_option_gemini
         if definition.id == "gemini_web"
-        else '[role="menuitemradio"], [role="menuitem"], [role="option"], mat-option'
+        else _SELECTORS.model_option_default
     )
     options = menu.locator(option_selector)
     result: list[tuple[str, Any]] = []
@@ -2211,13 +2092,13 @@ async def _send_turn(
 #: analytics kodudur ve GÖRÜNTÜ METNİNDEN (dolayısıyla arayüz dilinden) BAĞIMSIZDIR
 #: — `aria-label` "Yükleme ve araçlar" gibi yerelleştirilmiş bir metinken bu değişmez.
 #: Ölçüldü (22 Eylül, gerçek Gemini web oturumu, TR arayüz).
-_GEMINI_UPLOAD_MENU_TRIGGER = "button[jslog^='300142']"
+_GEMINI_UPLOAD_MENU_TRIGGER = _SELECTORS.gemini_upload_menu_trigger
 #: Menüdeki "Dosya yükleyin" seçeneği. `data-test-id` Google'ın kendi test
 #: altyapısına ait, KARARLI bir öznitelik — `aria-label` metni (TR'de "Dosya
 #: yükleyin. Belgeler, veriler, kod dosyaları") yerelleştirilmiş, bu değil.
 #: Ölçüldü (22 Eylül); yalnız TR arayüzde doğrulandı, başka dillerde aynı
 #: `data-test-id`'nin kullanıldığı VARSAYILIR ama ölçülmedi.
-_GEMINI_UPLOAD_OPTION = "[data-test-id='local-images-files-uploader-button']"
+_GEMINI_UPLOAD_OPTION = _SELECTORS.gemini_upload_option
 #: Dosya seçildikten sonra sayfanın onu işlemesi için beklenen süre. Ölçüldü
 #: (105.032 karakterlik gerçek dosya, aynı oturum): 3 sn yeterliydi, modelin
 #: dosyayı GERÇEKTEN okuduğu aynı canlı turda doğrulandı.
@@ -2811,12 +2692,7 @@ def _cozum_adimlari(definition: BrowserProviderDefinition) -> str:
 
 
 #: Gerçek insan-doğrulama sayfasının DOM kanıtı (Cloudflare Turnstile / ara sayfa).
-_CHALLENGE_DOM = (
-    'iframe[src*="challenges.cloudflare.com"]',
-    "#challenge-running",
-    "#challenge-stage",
-    'input[name="cf-turnstile-response"]',
-)
+_CHALLENGE_DOM = _SELECTORS.challenge_dom
 
 
 async def _challenge_dom_present(page: Any) -> bool:

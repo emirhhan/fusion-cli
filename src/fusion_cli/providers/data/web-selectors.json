@@ -1,0 +1,192 @@
+{
+  "version": 1,
+  "_notes": [
+    "Web sağlayıcı arayüz seçicilerinin TEK kaynağı (P1-43). Uzaktan güncellenmez; yalnız pakete gömülü bu dosya okunur.",
+    "Sağlayıcı ön yüz dağıtımları seçicileri kırar (22 Eylül ve 18 Ekim 2026'da iki kez oldu): düzeltme koda dokunmadan bu dosyada yapılır.",
+    "Her alan dardan genişe sıralı bir listedir; ilk eşleşen kazanır. providers/web_selectors.py şemayı doğrular."
+  ],
+  "providers": {
+    "chatgpt_web": {
+      "input": [
+        "div.ProseMirror[contenteditable=\"true\"]",
+        "#prompt-textarea",
+        "[data-testid=\"prompt-textarea\"]",
+        "div[contenteditable=\"true\"][data-lexical-editor=\"true\"]",
+        "textarea[placeholder*=\"Message\"]",
+        "textarea"
+      ],
+      "send": [
+        "form button[type=\"submit\"]",
+        "button[data-testid=\"send-button\"]",
+        "button[aria-label*=\"Send\" i]",
+        "button[aria-label*=\"Gönder\" i]"
+      ],
+      "response": [
+        "[data-markdown-text-style=\"assistant-message\"]",
+        "[data-content-search-unit-key$=\":assistant\"]",
+        "[data-testid^=\"conversation-turn-\"] [data-message-author-role=\"assistant\"]",
+        "[data-message-author-role=\"assistant\"]",
+        "article[data-testid^=\"conversation-turn-\"]"
+      ],
+      "stop": [
+        "button[data-testid=\"stop-button\"]",
+        "button[aria-label*=\"Stop\" i]",
+        "button[aria-label*=\"Durdur\" i]"
+      ],
+      "history": [
+        "[data-content-search-unit-key]",
+        "[data-user-message-bubble=\"true\"]",
+        "[data-message-author-role]",
+        "article[data-testid^=\"conversation-turn-\"]",
+        "main .group\\/conversation-turn"
+      ],
+      "tier": [],
+      "model_menu": [
+        "button[data-testid=\"model-switcher-dropdown-button\"]",
+        "button[aria-label*=\"model seç\" i]",
+        "button[aria-label*=\"select model\" i]"
+      ],
+      "image": [
+        "[data-message-author-role=\"assistant\"] img[alt]",
+        "img[alt*=\"Generated\" i]",
+        "img[alt*=\"oluşturul\" i]"
+      ],
+      "_notes": [
+        "input: 22 Eylül 2026 ölçümü (gerçek Plus oturumu, TR arayüz): composer Lexical'dan ProseMirror'a geçmiş, eski beş seçicinin HEPSİ 0 eşleşme veriyordu. ProseMirror seçicisi dil-bağımsızdır; aria-label yerelleştirilmiştir, ona güvenilmez. Eskiler başka sürüm/arayüz varyantı için yedekte.",
+        "send: aynı ölçümde data-testid=send-button 0, 'form button[type=submit]' 1 ve görünür. Submit düğmesi composer'da metin varken belirir, boş sayfada aranırsa bulunamaz. Düğme hiç bulunamazsa kod Enter'a düşer ama bu her turda 2 sn boş bekleme yakar.",
+        "response: sıra dardan genişe; article[data-testid^=conversation-turn-] tüm turu (kullanıcı mesajı, eylem düğmeleri) kapsayan geniş kaptır, en sonda. 18 Ekim 2026 ölçümü: ChatGPT mesaj işaretini değiştirdi, data-message-author-role ve conversation-turn-* testid'leri 0 eşleşme verdi. Yeni kaplar: asistan turu data-content-search-unit-key=…:assistant, cevap gövdesi data-markdown-text-style=assistant-message, kullanıcı balonu data-user-message-bubble. Eskiler yedekte."
+      ]
+    },
+    "claude_web": {
+      "input": [
+        "div.ProseMirror[contenteditable=\"true\"]",
+        "[contenteditable=\"true\"][data-placeholder]",
+        "fieldset [contenteditable=\"true\"]",
+        "textarea"
+      ],
+      "send": [
+        "button[aria-label*=\"Send\" i]",
+        "button[aria-label*=\"Gönder\" i]",
+        "button[data-testid*=\"send\"]"
+      ],
+      "response": [
+        "[data-testid=\"assistant-message\"]",
+        "[data-is-streaming] .font-claude-message",
+        ".font-claude-message",
+        "div[data-testid^=\"message-\"]"
+      ],
+      "stop": [
+        "button[aria-label*=\"Stop\" i]",
+        "button[aria-label*=\"Durdur\" i]"
+      ],
+      "history": [
+        "[data-testid=\"user-message\"]",
+        "[data-testid=\"assistant-message\"]",
+        ".font-claude-message",
+        "div[data-test-render-count]"
+      ],
+      "tier": [],
+      "model_menu": [
+        "button[data-testid=\"model-selector-dropdown\"]",
+        "button[aria-label*=\"select model\" i]"
+      ],
+      "image": []
+    },
+    "gemini_web": {
+      "input": [
+        "rich-textarea div[contenteditable=\"true\"]",
+        "div[contenteditable=\"true\"][aria-label]",
+        "textarea[aria-label]",
+        "textarea"
+      ],
+      "send": [
+        "button[aria-label*=\"Send\" i]",
+        "button[aria-label*=\"Gönder\" i]",
+        "button.send-button"
+      ],
+      "response": [
+        "model-response .model-response-text",
+        ".model-response-text",
+        "[data-test-id=\"response\"]",
+        "model-response"
+      ],
+      "stop": [
+        "button[aria-label*=\"Stop\" i]",
+        "button[aria-label*=\"Durdur\" i]"
+      ],
+      "history": [
+        "user-query",
+        "model-response",
+        ".conversation-container",
+        "infinite-scroller"
+      ],
+      "tier": [
+        "button[data-test-id=\"bard-mode-menu-button\"]"
+      ],
+      "model_menu": [
+        "button[data-test-id=\"bard-mode-menu-button\"]"
+      ],
+      "image": [
+        "generated-image img",
+        "single-image img"
+      ],
+      "_notes": [
+        "response: sıra DARDAN GENİŞE, ilk sonuç veren kazanır (_response_snapshot). model-response kaynak/atıf kartlarını da içeren geniş kaptır ve en sona alınmıştır.",
+        "tier: kip düğmesinin metni seçili kademedir ('Flash-Lite', '2.5 Pro'…); aria-label ise 'Mod seçiciyi aç, şu anda Flash-Lite modunda' biçimindedir. Metin kısa ve yerelleştirmeden bağımsız olduğu için o okunur."
+      ]
+    },
+    "copilot_web": {
+      "input": [
+        "textarea[placeholder]",
+        "textarea[aria-label]",
+        "div[contenteditable=\"true\"]",
+        "textarea"
+      ],
+      "send": [
+        "button[aria-label*=\"Submit\" i]",
+        "button[aria-label*=\"Send\" i]",
+        "button[aria-label*=\"Gönder\" i]"
+      ],
+      "response": [
+        "[data-content=\"ai-message\"]",
+        "[data-testid=\"copilot-response\"]",
+        ".ac-textBlock",
+        "cib-message-group[source=\"bot\"]"
+      ],
+      "stop": [
+        "button[aria-label*=\"Stop\" i]",
+        "button[aria-label*=\"Durdur\" i]"
+      ],
+      "history": [
+        "[data-content=\"ai-message\"]",
+        "[data-content=\"user-message\"]",
+        "cib-message-group",
+        "[data-testid=\"chat-turn\"]"
+      ],
+      "tier": [],
+      "model_menu": [],
+      "image": []
+    }
+  },
+  "gemini_upload": {
+    "menu_trigger": "button[jslog^='300142']",
+    "option": "[data-test-id='local-images-files-uploader-button']",
+    "_notes": [
+      "menu_trigger: jslog Google'ın Angular şablonuna gömülü dahili analytics kodudur ve görüntü metninden (arayüz dilinden) bağımsızdır; aria-label yerelleştirilmiş bir metindir. Ölçüldü (22 Eylül, gerçek Gemini web oturumu, TR arayüz).",
+      "option: data-test-id Google'ın kendi test altyapısına ait kararlı bir özniteliktir; aria-label metni yerelleştirilmiştir. Yalnız TR arayüzde doğrulandı, başka dillerde aynı data-test-id'nin kullanıldığı VARSAYILIR ama ölçülmedi."
+    ]
+  },
+  "model_option": {
+    "gemini_web": "gem-menu-item[data-test-id^=\"bard-mode-option-\"]",
+    "default": "[role=\"menuitemradio\"], [role=\"menuitem\"], [role=\"option\"], mat-option",
+    "_notes": [
+      "Gemini aynı menüde 'Genişletilmiş düşünme' ayarını da gösterir; bu bir model değildir, yalnız model seçeneklerine ait test kimlikleri alınır."
+    ]
+  },
+  "challenge_dom": [
+    "iframe[src*=\"challenges.cloudflare.com\"]",
+    "#challenge-running",
+    "#challenge-stage",
+    "input[name=\"cf-turnstile-response\"]"
+  ]
+}

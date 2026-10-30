@@ -40,16 +40,14 @@ from .web_browser import (
     gemini_attach_file,
     provider_definition,
 )
+from .web_selectors import web_selectors
 from .web_session import WebSessionCredential
 
 #: Sağlayıcı başına üretilen görselin seçicileri (dardan genişe).
 IMAGE_SELECTORS: dict[str, tuple[str, ...]] = {
-    "gemini_web": ("generated-image img", "single-image img"),
-    "chatgpt_web": (
-        '[data-message-author-role="assistant"] img[alt]',
-        'img[alt*="Generated" i]',
-        'img[alt*="oluşturul" i]',
-    ),
+    provider_id: selectors.image
+    for provider_id, selectors in web_selectors().providers.items()
+    if selectors.image
 }
 #: Referans görsel yükleyebilen sağlayıcılar. Gemini web'de canlı ölçüldü (29 Eylül):
 #: FLUX ile üretilen kırmızı kask yüklendi, "kaskı mat siyah yap" istemiyle 34 sn'de
