@@ -46,6 +46,9 @@ MAX_EVENTS_PER_TASK = 5_000
 BACKEND_CALL_TIMEOUT_SECONDS = 60
 #: `handle` döndükten sonra sonuç satırının gelmesi için tanınan ek süre (satır kaybı koruması).
 BACKEND_RESULT_GRACE_SECONDS = 5
+#: Cevaplanmayan onay/soru için bekleme: dolunca onay reddedilir (soru ise tur kesilir). Aksi
+#: halde sessiz telefon turu (ve `run_lock` ile bütün kuyruğu) saatlerce bloke ederdi.
+APPROVAL_TIMEOUT_SECONDS = 30 * 60
 #: Tek uzak görevin (tur) en uzun süresi; aşılırsa tur kesilir ve görev başarısız olur.
 #: Sonsuz bekleyen tek tur `run_lock`'u tutup sonraki tüm görevleri kuyrukta bırakırdı.
 BACKEND_TURN_TIMEOUT_SECONDS = 6 * 3600

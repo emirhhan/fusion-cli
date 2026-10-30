@@ -438,3 +438,61 @@ async def test_yavas_govde_zaman_asimiyla_kesilir_ve_yasam_dongusu_yanitlanir(
         "lifespan.startup.complete",
         "lifespan.shutdown.complete",
     ]
+
+
+async def test_cevaplanmayan_onay_zaman_asiminda_reddedilir(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R1-16. Ölçüldü (30 Ekim): onay beklerken zaman aşımı yoktu; telefon susarsa tur
+    (6 saate dek) `run_lock`'u tutup bütün kuyruğu bloke ediyordu."""
+    monkeypatch.setattr("fusion_cli.remote.rpc.APPROVAL_TIMEOUT_SECONDS", 0.05)
+    rig.backend.ask = {"tur": "onay", "arac": "run_shell", "baslik": "Komut", "hedef": "ls"}
+    device_id, secret = rig.pair(["project.read", "agent.run"])
+    created = (await rig.rpc(device_id, secret, "tasks.create", {"prompt": "yap"})).json()["data"]
+    await asyncio.sleep(0.02)
+    assert rig.service.pending_questions()
+    await asyncio.sleep(0.2)
+    assert rig.backend.answers == [("q1", {"secim": "deny"})]
+    assert rig.service.pending_questions() == []
+    events = (await rig.rpc(device_id, secret, "tasks.events", {"runId": created["runId"]})).json()[
+        "data"
+    ]["events"]
+    answered = [e for e in events if e["kind"] == "approval_answered"]
+    assert answered and answered[0]["payload"]["by"] == "timeout"
+    rig.backend.release.set()
+
+
+async def test_zamanasimindan_once_verilen_cevap_zamanlayiciyi_iptal_eder(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("fusion_cli.remote.rpc.APPROVAL_TIMEOUT_SECONDS", 0.1)
+    rig.backend.ask = {"tur": "onay", "arac": "run_shell", "baslik": "Komut", "hedef": "ls"}
+    device_id, secret = rig.pair(["project.read", "agent.run", "project.write"])
+    await rig.rpc(device_id, secret, "tasks.create", {"prompt": "yap"})
+    await asyncio.sleep(0.02)
+    ok = await rig.rpc(
+        device_id, secret, "approvals.respond", {"questionId": "q1", "choice": "once"}
+    )
+    assert ok.json()["ok"] is True
+    await asyncio.sleep(0.25)
+    assert rig.backend.answers == [("q1", {"secim": "once"})]  # zaman aşımı ikinci cevap yazmaz
+    rig.backend.release.set()
+
+
+async def test_yuksek_yetkili_kodla_eslestirme_onay_ayari_kapaliyken_de_elle_onaylanir(
+    tmp_path: Path,
+) -> None:
+    """R1-13. Ölçüldü (30 Ekim): requireApproval=false iken kodu bilen, seçilen yüksek
+    yetkili kapsamlarla (project.write, desktop.control...) kendiliğinden eşleşiyordu."""
+    clock = FakeClock()
+    pairing = PairingService(
+        DeviceRegistry(tmp_path / "d.json", clock), clock, require_approval=lambda: False
+    )
+    code, _ = pairing.begin(["project.read", "agent.run", "desktop.control"])
+    pairing.submit(code, "Telefon", channel="signed")
+    assert not pairing.is_approved(code)  # masaüstü onayı şart
+    pairing.approve(code)
+    assert pairing.is_approved(code)
+    plain, _ = pairing.begin(None)
+    pairing.submit(plain, "Telefon", channel="signed")
+    assert pairing.is_approved(plain)  # varsayılan kapsamlar eskisi gibi kendiliğinden

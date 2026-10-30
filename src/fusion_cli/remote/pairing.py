@@ -22,7 +22,7 @@ from .constants import (
     PAIRING_CODE_TTL_SECONDS,
 )
 from .devices import CHANNEL_SIGNED, Device, DeviceRegistry
-from .scopes import parse_scopes
+from .scopes import is_elevated, parse_scopes
 
 
 class PairingError(Exception):
@@ -105,7 +105,13 @@ class PairingService:
         pending.claim_key_hash = _digest(claim_key) if claim_key else ""
         # Kodu masaüstünde kullanıcının KENDİSİ üretti (2 dk, hız sınırlı): imzalı (PWA) kanalda
         # doğru kod eşleştirmeyi onaylar. Telegram kanalı ve "onay iste" ayarı eskisi gibi kalır.
-        if pending.channel == CHANNEL_SIGNED and not self._require_approval():
+        # Yüksek yetkili kapsam (yazma, masaüstü denetimi, dağıtım) ayardan bağımsız elle
+        # onaylanır: kod sızarsa/tahmin edilirse tek başına yetki vermez (R1-13).
+        if (
+            pending.channel == CHANNEL_SIGNED
+            and not self._require_approval()
+            and not any(is_elevated(scope) for scope in pending.scopes)
+        ):
             self.approve(pending.code)
         return pending.scopes
 

@@ -22,7 +22,7 @@ from ..core.task_protocol import IdempotencyConflictError, args_digest
 from .approval_confirmation import ApprovalConfirmations
 from .approvals import classify_question, is_approval
 from .backend import EventSink, TaskBackend
-from .constants import DELTA_FLUSH_SECONDS, RPC_VERSION
+from .constants import APPROVAL_TIMEOUT_SECONDS, DELTA_FLUSH_SECONDS, RPC_VERSION
 from .devices import CHANNEL_SIGNED, Device, DeviceRegistry
 from .mobile import MobileApi, MobileError
 from .redaction import notification_summary, split_flushable
@@ -128,6 +128,8 @@ class RemoteService:
         self._runs: set[asyncio.Task[None]] = set()
         self._confirmations = ApprovalConfirmations(clock)
         self._questions: dict[str, tuple[str, dict[str, Any]]] = {}
+        self._question_timers: dict[str, asyncio.TimerHandle] = {}
+        self._expiries: set[asyncio.Task[None]] = set()
         self._active_run: str | None = None
 
     async def call(self, device: Device, method: str, params: dict[str, Any]) -> RpcResult:
@@ -350,6 +352,7 @@ class RemoteService:
     def _on_question(self, run_id: str, payload: dict[str, Any]) -> None:
         question_id = str(payload.get("questionId", ""))
         self._questions[question_id] = (run_id, payload)
+        self._arm_question_timer(question_id)
         self._store.set_state(run_id, STATE_WAITING_APPROVAL)
         view: dict[str, Any] = {
             "questionId": question_id,
@@ -368,6 +371,52 @@ class RemoteService:
             view["stepUp"] = approval.step_up
             view["requiredScope"] = approval.required_scope
         self._store.append(run_id, "approval_request", view)
+
+    def _arm_question_timer(self, question_id: str) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # döngü dışı (eşzamanlı test) çağrı: zamanlayıcı kurulamaz
+        self._question_timers[question_id] = loop.call_later(
+            APPROVAL_TIMEOUT_SECONDS, self._start_expiry, question_id
+        )
+
+    def _close_question(self, question_id: str) -> None:
+        """Soru cevaplandı ya da kapandı: bekleyen kaydı ve zamanlayıcıyı kaldır."""
+        self._questions.pop(question_id, None)
+        timer = self._question_timers.pop(question_id, None)
+        if timer is not None:
+            timer.cancel()
+
+    def _start_expiry(self, question_id: str) -> None:
+        task = asyncio.ensure_future(self._expire_question(question_id))
+        self._expiries.add(task)
+        task.add_done_callback(self._expiries.discard)
+
+    async def _expire_question(self, question_id: str) -> None:
+        """Cevap gelmedi: onay REDDEDİLİR, düz soruda tur kesilir; kuyruk açılır (R1-16)."""
+        self._question_timers.pop(question_id, None)
+        entry = self._questions.get(question_id)
+        if entry is None:
+            return
+        run_id, question = entry
+        try:
+            if is_approval(question):
+                if not await self._backend.answer(question_id, {"secim": "deny"}):
+                    return
+                self._close_question(question_id)
+                self._store.set_state(run_id, STATE_RUNNING)
+                self._store.append(
+                    run_id,
+                    "approval_answered",
+                    {"questionId": question_id, "choice": "deny", "by": "timeout"},
+                )
+            else:
+                self._close_question(question_id)
+                self._store.append(run_id, "approval_timeout", {"questionId": question_id})
+                await self._backend.cancel(run_id)
+        except Exception:  # zaman aşımı yolu servisi düşürmez; tur kendi sınırında biter
+            _LOG.exception("Onay zaman aşımı işlenemedi: %s", question_id)
 
     async def _list(self, device: Device, _params: dict[str, Any]) -> RpcResult:
         denied = self._need(device, Scope.PROJECT_READ.value)
@@ -455,12 +504,12 @@ class RemoteService:
         accepted = await self._backend.answer(question_id, answer)
         if not accepted:
             return _fail("cevap_reddedildi", "Soru cevabı yürütücü tarafından kabul edilmedi.")
-        if accepted:
-            self._questions.pop(question_id, None)
-            self._store.set_state(run_id, STATE_RUNNING)
-            self._store.append(
-                run_id, "approval_answered", {"questionId": question_id, "choice": choice}
-            )
+        self._close_question(question_id)
+        self._store.set_state(run_id, STATE_RUNNING)
+        event: dict[str, Any] = {"questionId": question_id}
+        if choice is not None:  # düz metin sorusunda seçim yoktur; boş değer kaydedilmez
+            event["choice"] = choice
+        self._store.append(run_id, "approval_answered", event)
         return RpcResult(True, {"accepted": accepted})
 
     def _visible_question(
@@ -690,7 +739,7 @@ class RemoteService:
         run_id, _question = entry
         accepted = await self._backend.answer(question_id, {"secim": choice})
         if accepted:
-            self._questions.pop(question_id, None)
+            self._close_question(question_id)
             self._store.set_state(run_id, STATE_RUNNING)
             self._store.append(
                 run_id,
@@ -700,6 +749,9 @@ class RemoteService:
         return accepted
 
     async def aclose(self) -> None:
-        for task in list(self._runs):
+        for timer in self._question_timers.values():
+            timer.cancel()
+        self._question_timers.clear()
+        for task in [*self._runs, *self._expiries]:
             task.cancel()
-        await asyncio.gather(*self._runs, return_exceptions=True)
+        await asyncio.gather(*self._runs, *self._expiries, return_exceptions=True)
