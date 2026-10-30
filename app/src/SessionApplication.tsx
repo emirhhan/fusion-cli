@@ -1783,6 +1783,7 @@ export function SessionUygulama({
                 setCommandSelector(null);
               }}
               onSelect={(input) => void executeCommand(input, false)}
+              onSecret={(saglayici, deger) => void trackCommand(() => controller.saveProviderSecret(active.id, saglayici, deger))}
               open
               selector={commandSelector}
             />

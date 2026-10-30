@@ -267,7 +267,12 @@ def test_profiles_tier_ve_aday_adimlari_uygulanir(state: ReplState) -> None:
 def test_providers_add_sirri_yansitmadan_kaydeder(state: ReplState, tmp_path: Path) -> None:
     payload = command_choices(state, "providers", "add openrouter")
     assert payload is not None and payload["tur"] == "gizli_metin"
-    assert payload["serbest_metin"] == {"gizli": True, "yer_tutucu": "API anahtarı"}
+    # S1-24: sağlayıcı kimliği yapısal gelir; uygulama anahtarı komut dizgesine katmaz.
+    assert payload["serbest_metin"] == {
+        "gizli": True,
+        "yer_tutucu": "API anahtarı",
+        "saglayici": "openrouter",
+    }
     secret = "SIR-PROVIDER-123"
     store = FernetSecretStore(tmp_path / "credentials.enc", secret_key="test-master")
     result = run_command(

@@ -29,7 +29,7 @@ import io
 import logging
 import re
 from collections.abc import Callable, Sequence
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from rich.console import Console
 
@@ -61,10 +61,16 @@ class Continuation(TypedDict):
 
 
 class FreeText(TypedDict):
-    """Metin adımının görünürlük ve yer tutucu bilgisi."""
+    """Metin adımının görünürlük ve yer tutucu bilgisi.
+
+    `saglayici` yalnız API anahtarı adımında gelir: uygulama değeri komut dizgesine
+    (`/providers add <id> <anahtar>`) KATMADAN `kontrol.anahtar_kaydet {saglayici, deger}` ile
+    gönderir (S1-24). Alanı bilmeyen eski istemci komut yoluna düşer; o yol çalışmaya devam eder.
+    """
 
     gizli: bool
     yer_tutucu: str
+    saglayici: NotRequired[str]
 
 
 class ChoicePayload(TypedDict):
@@ -297,6 +303,7 @@ def _providers_choices(argument: str) -> ChoicePayload | None:
                 "providers",
                 f"add {provider.id} ",
                 secret=True,
+                provider_id=provider.id,
             )
     return None
 
@@ -453,11 +460,19 @@ def _payload(
 
 
 def _text_payload(
-    step: str, title: str, command: str, prefix: str, *, secret: bool = False
+    step: str,
+    title: str,
+    command: str,
+    prefix: str,
+    *,
+    secret: bool = False,
+    provider_id: str | None = None,
 ) -> ChoicePayload:
     kind: Literal["metin", "gizli_metin"] = "gizli_metin" if secret else "metin"
     placeholder = "API anahtarı" if secret else "<sağlayıcı>/<model>"
     metadata: FreeText = {"gizli": secret, "yer_tutucu": placeholder}
+    if provider_id is not None:
+        metadata["saglayici"] = provider_id
     return _payload(step, kind, title, (), command, prefix, free_text=metadata)
 
 

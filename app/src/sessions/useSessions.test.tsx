@@ -563,6 +563,36 @@ describe("useSessions", () => {
     await act(async () => { await expect(secim).resolves.toMatchObject({ ok: true }); });
     expect(result.current.activeSession?.messages).toEqual([]);
   });
+  it("sağlayıcı anahtarı kontrol.anahtar_kaydet ile gider; komut dizgesi ve sohbet notu anahtarı taşımaz (S1-24)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const kayit = result.current.saveProviderSecret("varsayilan", "openrouter", "sk-gizli-123");
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line) as { id: string; ad: string; veri: Record<string, unknown> };
+    expect(request.ad).toBe("kontrol.anahtar_kaydet");
+    expect(request.veri).toEqual({ saglayici: "openrouter", deger: "sk-gizli-123" });
+    act(() => fake.emitResult("varsayilan", request.id, { ok: true, saglayici: "openrouter", kurulu: true }));
+    await act(async () => { await expect(kayit).resolves.toMatchObject({ ok: true }); });
+    const dokum = JSON.stringify(result.current.activeSession?.messages);
+    expect(dokum).toContain("openrouter");
+    expect(dokum).not.toContain("sk-gizli-123");
+  });
+
+  it("elle yazılan /providers add komutunun anahtarı sohbet dökümünde maskelenir ama çekirdeğe aynen gider (S1-24)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const command = result.current.runCommand("varsayilan", "/providers add openrouter sk-gizli-999");
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line) as { id: string; veri: Record<string, unknown> };
+    expect(request.veri).toEqual({ ad: "providers", arguman: "add openrouter sk-gizli-999" });
+    act(() => fake.emitResult("varsayilan", request.id, { ok: true, metin: "kaydedildi" }));
+    await act(async () => { await command; });
+    const dokum = JSON.stringify(result.current.activeSession?.messages);
+    expect(dokum).not.toContain("sk-gizli-999");
+    expect(dokum).toContain("/providers add openrouter ••••");
+  });
   it("her sekmeyi kendi sohbet kimliğiyle çekirdeğe tanıtır", async () => {
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));

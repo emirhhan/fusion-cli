@@ -72,6 +72,14 @@ function maliyetOku(deger: unknown): number | null {
   return typeof deger === "number" && Number.isFinite(deger) && deger >= 0 ? deger : null;
 }
 
+/**
+ * `/providers add <id> <anahtar>` elle yazılırsa anahtar sohbet dökümüne düz metin düşmesin (S1-24).
+ * Komutun kendisi çekirdeğe değişmeden gider; yalnız gösterilen/saklanan metin maskelenir.
+ */
+export function gizliKomutuMaskele(komut: string): string {
+  return komut.replace(/^(\/providers\s+add\s+\S+\s+)\S[\s\S]*$/i, "$1••••");
+}
+
 function olcuyuTazele(
   id: string,
   client: ProtocolClient,
@@ -718,7 +726,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       const name = bosluk === -1 ? trimmed.slice(1) : trimmed.slice(1, bosluk);
       const argumanMetni = bosluk === -1 ? "" : trimmed.slice(bosluk).trim();
       if (recordInput) {
-        dispatch({ type: "messageAdded", id, message: { rol: "kullanici", metin: trimmed } });
+        dispatch({ type: "messageAdded", id, message: { rol: "kullanici", metin: gizliKomutuMaskele(trimmed) } });
       }
       let result: Record<string, unknown>;
       try {
@@ -753,6 +761,28 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       return result;
     },
     [state.sessions, send],
+  );
+
+  /**
+   * Sağlayıcı API anahtarını komut dizgesine katmadan `kontrol.anahtar_kaydet` ile kaydeder (S1-24).
+   * Sohbete yalnız "kaydedildi" notu düşer; değer ne mesaja ne hata metnine girer.
+   */
+  const saveProviderSecret = useCallback(
+    async (id: string, saglayici: string, deger: string): Promise<Record<string, unknown>> => {
+      const session = state.sessions[id];
+      if (!session || session.status !== "ready") return { ok: false, metin: "Anahtar kaydedilemedi." };
+      let result: Record<string, unknown>;
+      try {
+        result = await session.client.request("kontrol.anahtar_kaydet", { saglayici, deger });
+      } catch {
+        return { ok: false, metin: "Anahtar kaydedilemedi: çekirdeğe ulaşılamadı." };
+      }
+      if (result.ok === true) {
+        dispatch({ type: "messageAdded", id, message: { rol: "asistan", metin: `Sağlayıcı anahtarı kaydedildi: ${saglayici}.` } });
+      }
+      return result;
+    },
+    [state.sessions],
   );
 
   /**
@@ -985,6 +1015,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     move,
     runCommand,
     selectModel,
+    saveProviderSecret,
     send,
     submit,
     retrySubmission,

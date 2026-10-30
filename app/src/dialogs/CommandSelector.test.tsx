@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CommandSelector, type CommandSelectorPayload } from "./CommandSelector";
 
 const selector: CommandSelectorPayload = {
@@ -13,6 +13,8 @@ const selector: CommandSelectorPayload = {
   devam: { komut: "model", arguman_on_eki: "" },
   serbest_metin: null,
 };
+
+afterEach(cleanup);
 
 describe("CommandSelector", () => {
   it("seçimi komut devamı olarak döndürür", () => {
@@ -43,6 +45,34 @@ describe("CommandSelector", () => {
     fireEvent.change(input, { target: { value: "secret-value" } });
     fireEvent.click(screen.getByRole("button", { name: "Devam et" }));
     expect(onSelect).toHaveBeenCalledWith("/providers add openai secret-value");
+  });
+
+  it("sağlayıcı anahtarı adımında değer komut dizgesine katılmaz, onSecret'e gider (S1-24)", () => {
+    const onSelect = vi.fn(), onSecret = vi.fn();
+    render(<CommandSelector busy={false} onCancel={() => undefined} onSelect={onSelect} onSecret={onSecret} open
+      selector={{ ...selector, tur: "gizli_metin", secenekler: [], devam: { komut: "providers", arguman_on_eki: "add openrouter " },
+        serbest_metin: { gizli: true, yer_tutucu: "API anahtarı", saglayici: "openrouter" } }} />);
+    fireEvent.change(screen.getByPlaceholderText("API anahtarı"), { target: { value: " sk-gizli-1 " } });
+    fireEvent.click(screen.getByRole("button", { name: "Devam et" }));
+    expect(onSecret).toHaveBeenCalledExactlyOnceWith("openrouter", "sk-gizli-1");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("eski çekirdek (saglayici alanı yok) ya da onSecret yoksa komut yoluna düşer", () => {
+    const onSelect = vi.fn(), onSecret = vi.fn();
+    const eski = { ...selector, tur: "gizli_metin" as const, secenekler: [], devam: { komut: "providers", arguman_on_eki: "add openai " },
+      serbest_metin: { gizli: true, yer_tutucu: "API anahtarı" } };
+    const view = render(<CommandSelector busy={false} onCancel={() => undefined} onSelect={onSelect} onSecret={onSecret} open selector={eski} />);
+    fireEvent.change(screen.getByPlaceholderText("API anahtarı"), { target: { value: "k1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Devam et" }));
+    expect(onSelect).toHaveBeenCalledWith("/providers add openai k1");
+    expect(onSecret).not.toHaveBeenCalled();
+    view.unmount();
+    const yeni = { ...eski, serbest_metin: { ...eski.serbest_metin, saglayici: "openai" } };
+    render(<CommandSelector busy={false} onCancel={() => undefined} onSelect={onSelect} open selector={yeni} />);
+    fireEvent.change(screen.getByPlaceholderText("API anahtarı"), { target: { value: "k2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Devam et" }));
+    expect(onSelect).toHaveBeenLastCalledWith("/providers add openai k2");
   });
 
   // Ölçüldü (30 Ekim): busy değişince efekt yeniden kuruluyor, hata sonrası yazılan token siliniyordu (U4-12).
