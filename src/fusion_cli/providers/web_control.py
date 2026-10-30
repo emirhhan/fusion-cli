@@ -554,53 +554,79 @@ def _measure_staleness(session: Any, now: float) -> dict[str, Any]:  # noqa: ANN
     return {"olcum_eski": True, "olcum_uyari": _MEASURE_STALE_NOTICE}
 
 
+def _card_sessions(sessions: tuple[Any, ...], provider_id: str) -> list[tuple[str, Any | None]]:
+    """Bir sağlayıcının kart üretilecek (hesap, oturum) çiftleri; kayıt sırasıyla.
+
+    Aynı hesabın yinelenen kaydı tek kart sayılır (ilk kayıt kazanır). Kayıtlı oturum
+    yoksa varsayılan `main` hesabı için oturumsuz tek kart döner.
+    """
+    accounts: dict[str, Any] = {}
+    for item in sessions:
+        if getattr(item, "provider", None) != provider_id:
+            continue
+        accounts.setdefault(normalize_account(str(getattr(item, "account", "main"))), item)
+    return list(accounts.items()) or [("main", None)]
+
+
 def provider_cards(
     *,
     sessions: tuple[Any, ...],
     secret_store: SecretReader | None,
     clock: Clock | None = None,
 ) -> list[dict[str, Any]]:
-    """Panelde çizilecek sağlayıcı kartları — yalnız METADATA.
+    """Panelde çizilecek sağlayıcı kartları — yalnız METADATA; HESAP BAŞINA bir kart.
 
     Çerez, token ya da başka bir sır değeri bu sınırdan HİÇBİR koşulda geçmez;
     "bağlı mı" bilgisi profil dizininin varlığından türetilir.
+
+    Ölçüldü (30 Ekim, P1-39): kartlar yalnız ilk hesabı gösteriyordu; `--account` ile
+    kayıtlı ikinci hesap panelde görünmüyordu. Her kartta `id` SAĞLAYICI kimliğidir
+    (eski istemci ve `saglayici` RPC bağımsız değişkenleri bununla çalışır); kartı
+    benzersiz kılan `kart_id`'dir: ilk hesapta sağlayıcı kimliğine eşittir, diğerlerinde
+    `<sağlayıcı>:<hesap>`.
     """
-    cards: list[dict[str, Any]] = []
     now = (clock or SystemClock()).now()
-    for provider_id, definition in WEB_BROWSER_PROVIDERS.items():
-        matching = [item for item in sessions if getattr(item, "provider", None) == provider_id]
-        account = normalize_account(
-            str(getattr(matching[0], "account", "main")) if matching else "main"
-        )
-        session = matching[0] if matching else None
-        profil_var = _profile_dir(provider_id, account).exists()
-        cards.append(
-            {
-                "id": provider_id,
-                "ad": definition.name,
-                "adres": definition.home_url,
-                "hesap": account,
-                # Bu sağlayıcılar anahtar kullanmaz; panel anahtar kutusu ÇİZMEZ.
-                "anahtar_gerekir": False,
-                # "Bağlı" olmak için hem tarayıcı profili hem KAYITLI ve etkin bir
-                # oturum gerekir. Eskiden yalnız klasöre bakılıyordu: giriş
-                # yapmadan pencereyi kapatmak bile "bağlı" gösteriyordu ve
-                # Fusion o sağlayıcıyı yine de kullanamıyordu.
-                "bagli": profil_var
-                and bool(getattr(session, "enabled", False))
-                and bool(getattr(session, "login_verified", False)),
-                "profil_var": profil_var,
-                "model": getattr(session, "model", None),
-                "secili_model": getattr(session, "selected_model", "") or "Otomatik",
-                "arac_destegi": getattr(session, "tool_support", "none"),
-                "olcum_gecti": bool(getattr(session, "tool_eval_passed", False)),
-                **_measure_staleness(session, now),
-                "etkin": bool(getattr(session, "enabled", False)),
-                # Pencere kipi ve (varsa) son pencere uyarısı — ör. gizleme izni yok.
-                "pencere_kipi": WindowMode(
-                    getattr(session, "headless", definition.recommended_window_mode)
-                ).slug,
-                "pencere_uyarisi": read_window_notice(_profile_dir(provider_id, account)),
-            }
-        )
-    return cards
+    return [
+        _web_card(provider_id, definition, account, session, now, index)
+        for provider_id, definition in WEB_BROWSER_PROVIDERS.items()
+        for index, (account, session) in enumerate(_card_sessions(sessions, provider_id))
+    ]
+
+
+def _web_card(
+    provider_id: str,
+    definition: Any,  # noqa: ANN401 - BrowserProviderDefinition; döngüsel içe aktarma yok
+    account: str,
+    session: Any | None,  # noqa: ANN401 - WebSessionConfig ya da None (panel sözleşmesi dict)
+    now: float,
+    index: int,
+) -> dict[str, Any]:
+    profil_var = _profile_dir(provider_id, account).exists()
+    return {
+        "id": provider_id,
+        "kart_id": provider_id if index == 0 else f"{provider_id}:{account}",
+        "ad": definition.name,
+        "adres": definition.home_url,
+        "hesap": account,
+        # Bu sağlayıcılar anahtar kullanmaz; panel anahtar kutusu ÇİZMEZ.
+        "anahtar_gerekir": False,
+        # "Bağlı" olmak için hem tarayıcı profili hem KAYITLI ve etkin bir
+        # oturum gerekir. Eskiden yalnız klasöre bakılıyordu: giriş
+        # yapmadan pencereyi kapatmak bile "bağlı" gösteriyordu ve
+        # Fusion o sağlayıcıyı yine de kullanamıyordu.
+        "bagli": profil_var
+        and bool(getattr(session, "enabled", False))
+        and bool(getattr(session, "login_verified", False)),
+        "profil_var": profil_var,
+        "model": getattr(session, "model", None),
+        "secili_model": getattr(session, "selected_model", "") or "Otomatik",
+        "arac_destegi": getattr(session, "tool_support", "none"),
+        "olcum_gecti": bool(getattr(session, "tool_eval_passed", False)),
+        **_measure_staleness(session, now),
+        "etkin": bool(getattr(session, "enabled", False)),
+        # Pencere kipi ve (varsa) son pencere uyarısı — ör. gizleme izni yok.
+        "pencere_kipi": WindowMode(
+            getattr(session, "headless", definition.recommended_window_mode)
+        ).slug,
+        "pencere_uyarisi": read_window_notice(_profile_dir(provider_id, account)),
+    }

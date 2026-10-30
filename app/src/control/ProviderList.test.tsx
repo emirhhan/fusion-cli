@@ -294,3 +294,46 @@ it("liste yenilense de web model menüsü yeniden okunmaz (U5-38)", async () => 
   await waitFor(() => expect((screen.getByRole("button", { name: "Bağlantıyı sına" }) as HTMLButtonElement).disabled).toBe(false));
   expect(menuIstegi()).toBe(once);
 });
+
+describe("ProviderList çoklu hesap (P1-39)", () => {
+  // P1-39: aynı sağlayıcının ikinci hesabı kendi kartıyla görünür. `id` her kartta sağlayıcı
+  // kimliği kalır (RPC bağımsız değişkeni); kartı `kart_id` ayırt eder.
+  const IKI_HESAP = [
+    { id: "chatgpt_web", kart_id: "chatgpt_web", ad: "ChatGPT Web", tur: "web", eylem: "oturum", bagli: true, hesap: "main" },
+    { id: "chatgpt_web", kart_id: "chatgpt_web:is", ad: "ChatGPT Web", tur: "web", eylem: "oturum", bagli: false, hesap: "is" },
+  ];
+
+  it("aynı sağlayıcının ikinci hesabı ayrı kart olarak çizilir", async () => {
+    render(<ProviderList client={client({ "saglayici.katalog": { ok: true, saglayicilar: IKI_HESAP } })} />);
+
+    await screen.findByRole("button", { name: /ChatGPT Web · is/ });
+    expect(screen.getAllByRole("button", { name: /ChatGPT Web/ })).toHaveLength(2);
+  });
+
+  it("ikinci hesap kartı açılınca eylemler sağlayıcı kimliği ve KENDİ hesabıyla gider", async () => {
+    const istemci = client({ "saglayici.katalog": { ok: true, saglayicilar: IKI_HESAP } });
+    render(<ProviderList client={istemci} />);
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web · is/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Oturum aç" }));
+
+    await waitFor(() =>
+      expect(istemci.request).toHaveBeenCalledWith("web.giris", { saglayici: "chatgpt_web", hesap: "is" }),
+    );
+  });
+
+  it("eski çekirdek kart_id göndermese de sağlayıcı kimliğiyle çalışır", async () => {
+    render(<ProviderList client={client()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web/ }));
+
+    expect(await screen.findByRole("button", { name: "Oturum aç" })).toBeTruthy();
+  });
+
+  it("açık kart yalnız tıklanan hesabın ayrıntısını gösterir", async () => {
+    render(<ProviderList client={client({ "saglayici.katalog": { ok: true, saglayicilar: IKI_HESAP } })} />);
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web · is/ }));
+
+    const ayrinti = await screen.findByRole("region", { name: /ChatGPT Web · is ayrıntıları/ });
+    expect(ayrinti).toBeTruthy();
+    expect(screen.queryByRole("region", { name: /^ChatGPT Web ayrıntıları/ })).toBeNull();
+  });
+});
