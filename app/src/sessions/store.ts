@@ -35,6 +35,7 @@ export type SessionAction =
   | { type: "historyLoaded"; id: string; messages: Mesaj[] }
   | { type: "selected"; id: string }
   | { type: "titleChanged"; id: string; title: string }
+  | { type: "rootChanged"; id: string; root: string }
   | { type: "titleSuggested"; id: string; title: string }
   | { type: "messageAdded"; id: string; message: Mesaj }
   | { type: "eventReceived"; id: string; event: Record<string, unknown> }
@@ -149,6 +150,10 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return state.sessions[action.id] ? { ...state, activeId: action.id } : state;
     case "titleChanged":
       return updateSession(state, action.id, (session) => ({ ...session, title: action.title, updatedAt: Date.now() }));
+    case "rootChanged":
+      // `/worktree <ad>` ya da `/worktree cik`: çekirdek kökü değiştirdi (`komut.calistir` → `kok`);
+      // dosya gezgini ve proje etiketi yeni kökü görsün.
+      return updateSession(state, action.id, (session) => ({ ...session, root: action.root }));
     case "titleSuggested":
       // Öneri eşzamansız gelir; o arada sekme adlandırıldıysa dokunulmaz.
       return updateSession(state, action.id, (session) =>

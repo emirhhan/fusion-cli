@@ -33,6 +33,8 @@ from ..core.errors import FusionError
 from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
 from ..engines.agent.approval import ApprovalMemory, ApprovalMode, parse_mode
+from ..core.worktree import Worktree
+from ..engines.agent.approval import ApprovalMode, parse_mode
 from ..ui import messages, theme
 from .app_host import AppHostDependencies
 
@@ -54,6 +56,7 @@ from .prompter import ConsolePrompter
 from .repl import run_repl
 from .rule_notices import attach_rule_writer, print_rule_notices
 from .repl import run_repl, session_resume
+from .repl import run_repl, session_resume, worktrees
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
 from .setup_command import run_setup
 
@@ -121,6 +124,14 @@ def main_callback(
         str,
         typer.Option("--name", "-n", help="Sohbete ad ver (/resume listesinde ve --resume <ad>)."),
     ] = "",
+    worktree: Annotated[
+        str,
+        typer.Option(
+            "--worktree",
+            "-w",
+            help="Git çalışma ağacında çalış: .fusion/worktrees/<ad>, dal worktree-<ad>.",
+        ),
+    ] = "",
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
     if ctx.invoked_subcommand is not None:
@@ -134,8 +145,8 @@ def main_callback(
         # yanıt veremedi" hatasına sürüklerdi. Eksik olan şey söylenir.
         console.print(f"[{theme.WARN}]{messages.SETUP_NO_KEYS}[/{theme.WARN}]")
         raise typer.Exit(1)
-    root = Path.cwd()
     try:
+        root, tree = worktrees.resolve_launch_root(Path.cwd(), worktree)
         target = session_resume.resolve_launch(
             config.memory_dir,
             root,
@@ -147,20 +158,27 @@ def main_callback(
     except FusionError as error:
         error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
         raise typer.Exit(1) from None
-    raise typer.Exit(
-        asyncio.run(
-            with_web_cleanup(
-                run_repl(
-                    config,
-                    memory=open_memory(config, root=root),
-                    root=root,
-                    console=console,
-                    extra_roots=tuple(add_dir or ()),
-                    resume=target,
-                )
+    if tree is not None and worktree.strip():
+        _print_worktree_notice(tree)
+    exit_code = asyncio.run(
+        with_web_cleanup(
+            run_repl(
+                config,
+                memory=open_memory(config, root=root),
+                root=root,
+                console=console,
+                extra_roots=tuple(add_dir or ()),
+                resume=target,
+                worktree=tree,
             )
         )
     )
+    raise typer.Exit(exit_code)
+
+
+def _print_worktree_notice(tree: Worktree) -> None:
+    text = messages.WORKTREE_ENTERED.format(path=tree.path, branch=tree.branch)
+    console.print(f"[{theme.DIM}]{escape(text)}[/{theme.DIM}]")
 
 
 @app.command()
@@ -346,6 +364,14 @@ def agent(
             help="Proje kökünün YANINDA erişime açılacak dizin. Birden çok kez verilebilir.",
         ),
     ] = None,
+    worktree: Annotated[
+        str,
+        typer.Option(
+            "--worktree",
+            "-w",
+            help="Görevi izole git çalışma ağacında koş (.fusion/worktrees/<ad>); ağaç korunur.",
+        ),
+    ] = "",
 ) -> None:
     """Görevi araçlarla çalıştır: dosya oku/yaz, komut çalıştır, web'de ara."""
     if not task.strip():
@@ -353,7 +379,13 @@ def agent(
     approval = _parse_mode(mode)
 
     config = load_config()
-    root = Path.cwd()
+    try:
+        root, tree = worktrees.resolve_launch_root(Path.cwd(), worktree)
+    except FusionError as error:
+        error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(1) from None
+    if tree is not None and worktree.strip() and not as_json:
+        _print_worktree_notice(tree)
     renderer = ConsoleRenderer(console, show_progress=not quiet)
     observers = build_observers(
         task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"

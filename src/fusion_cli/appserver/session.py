@@ -1510,20 +1510,7 @@ class AppSession:
             conversation_changed = yeni_kimlik != self._conversation_id
             self._conversation_id = yeni_kimlik
         if new_root is not None:
-            root_changed = new_root.resolve() != self._root.resolve()
-            self._root = new_root
-            self._state.root = self._root
-            if root_changed:
-                # Başka bir projenin dizin izinleri ve "bu oturumda hep izin ver" kararları
-                # yeni projeye taşınmaz.
-                self._state.extra_roots = ()
-                self._state.approval_memory.revoke()
-            self._workspace_journal.clear()
-            self._processes.update_root(self._root)
-            # Önbellek kökle anahtarlı, ama eski kökün girdisi bellekte
-            # kalmasın: kullanıcı projeler arasında gidip gelirken bayat bir
-            # listeyle karşılaşmamalı.
-            self._file_search.invalidate()
+            self._apply_root(new_root)
             capability_roots_changed = True
         if capability_roots_changed or conversation_changed:
             self._rebind_transcript()
@@ -2037,6 +2024,10 @@ class AppSession:
             # Dosyalar tur başına döndü; çalışma alanı günlüğündeki "geri al" kayıtları
             # bayatlamasın (değişiklikler paneli artık olmayan farkı göstermesin).
             self._drop_reverted_journal_entries()
+        if command is not None and command.name == "worktree":
+            # `/worktree <ad>` ya da `cik` oturum kökünü değiştirdi: masaüstü köküyle aynı
+            # yoldan (`oturum.baslat{kok}`) hizala ve yeni kökü arayüze söyle.
+            result = {**result, **self._adopt_state_root()}
         # Makrolar görevi yalnız HAZIRLAR (bkz. `cli/repl/commands.py::_macro`).
         # Terminal döngüsü hazırlanan görevi hemen çalıştırıyordu; masaüstünde bu
         # adım yoktu ve `/goal` "çalıştırılıyor…" deyip hiçbir tur başlatmıyordu.
@@ -2047,6 +2038,44 @@ class AppSession:
             return result
         self._next_turn_mode = mode
         return {**result, "gorev": task}
+
+    def _adopt_state_root(self) -> dict[str, Any]:
+        """Slash komutu `state.root`'u değiştirdiyse sekmenin kökünü ona taşı (`kok` döner)."""
+        try:
+            changed = self._state.root.resolve() != self._root.resolve()
+        except OSError:
+            changed = True
+        if not changed:
+            return {}
+        if self._turn is not None and not self._turn.done():
+            self._state.root = self._root
+            return {"ok": False, "metin": "Tur sürerken proje kökü değiştirilemez."}
+        self._apply_root(self._state.root)
+        self._rebind_transcript()
+        self._all_capabilities = CapabilityRegistry(self._home, self._root)
+        self._disabled_skills.clear()
+        self._disabled_agents.clear()
+        self._disabled_mcp.clear()
+        self._refresh_capabilities()
+        return {"kok": str(self._root.resolve())}
+
+    def _apply_root(self, new_root: Path) -> bool:
+        """Kökü değiştir ve köke bağlı yardımcıları sıfırla; kök gerçekten değiştiyse True."""
+        root_changed = new_root.resolve() != self._root.resolve()
+        self._root = new_root
+        self._state.root = self._root
+        if root_changed:
+            # Başka bir projenin dizin izinleri ve "bu oturumda hep izin ver" kararları
+            # yeni projeye taşınmaz.
+            self._state.extra_roots = ()
+            self._state.approval_memory.revoke()
+        self._workspace_journal.clear()
+        self._processes.update_root(self._root)
+        # Önbellek kökle anahtarlı, ama eski kökün girdisi bellekte
+        # kalmasın: kullanıcı projeler arasında gidip gelirken bayat bir
+        # listeyle karşılaşmamalı.
+        self._file_search.invalidate()
+        return root_changed
 
     def _drop_reverted_journal_entries(self) -> None:
         """İçeriği kayıt öncesi hâline eşit olan dosyaların günlük girdisini düşür."""

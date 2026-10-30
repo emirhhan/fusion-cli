@@ -314,6 +314,27 @@ describe("useSessions", () => {
     expect(result.current.state.sessions.varsayilan.messages.at(-1)?.metin).toBe("MCP hazır");
   });
 
+  it("/worktree sonucu kök bildirirse sekmenin kökü güncellenir (P-037)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const eskiKok = result.current.state.sessions.varsayilan.root;
+
+    let command!: Promise<Record<string, unknown>>;
+    act(() => { command = result.current.runCommand("varsayilan", "/worktree ozellik"); });
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line);
+    act(() => fake.emitLine({
+      oturum_id: "varsayilan",
+      satir: JSON.stringify({
+        tip: "sonuc", id: request.id,
+        veri: { ok: true, metin: "Çalışma ağacı hazır", kok: `${eskiKok}/.fusion/worktrees/ozellik` },
+      }),
+    }));
+    await act(async () => { await expect(command).resolves.toMatchObject({ ok: true }); });
+    expect(result.current.state.sessions.varsayilan.root).toBe(`${eskiKok}/.fusion/worktrees/ozellik`);
+  });
+
   it("makro komutunun hazırladığı görevi hemen tur olarak başlatır", async () => {
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));

@@ -841,6 +841,32 @@ REWIND_CODE_DONE = "{count} dosya {index}. turdan önceki hâline döndürüldü
 REWIND_CODE_FAILED = "{count} dosya geri alınamadı (izin ya da silinmiş dizin):"
 REWIND_CODE_EMPTY = "{index}. turdan itibaren geri alınacak dosya değişikliği yoktu."
 REWIND_CONVERSATION_DONE = "Konuşma {index}. turun başına sarıldı ({count} mesaj kaldı)."
+
+#: Git çalışma ağacı izolasyonu (`--worktree`, `/worktree`, enter/exit_worktree).
+CMD_WORKTREE = "git çalışma ağacında çalış: /worktree <ad> · /worktree cik · /worktree liste"
+WORKTREE_USAGE = "Kullanım: /worktree <ad>  ·  /worktree cik  ·  /worktree liste"
+WORKTREE_ENTERED = "Çalışma ağacı: {path} (dal {branch}). Dosya işlemleri artık burada."
+WORKTREE_ALREADY_IN = "Zaten bir çalışma ağacındasın ({name}); önce /worktree cik."
+WORKTREE_NOT_IN = "Bir çalışma ağacında değilsin."
+WORKTREE_CURRENT = "Çalışma ağacı: {name} → {path} (dal {branch}, ana depo {origin})"
+WORKTREE_LIST_EMPTY = "Bu depoda Fusion çalışma ağacı yok. Açmak için: /worktree <ad>"
+WORKTREE_LIST_ROW = "  {name:<20} {branch:<28} {path}"
+WORKTREE_LEFT_REMOVED = "Çalışma ağacı temizdi, kaldırıldı: {name}. Kök: {origin}"
+WORKTREE_LEFT_KEPT = (
+    "Çalışma ağacı korundu ({reason}): {path} — dal {branch}. "
+    "Birleştirmek için: git merge {branch}  ·  silmek için: git worktree remove {path}"
+)
+WORKTREE_KEPT_REASON = {
+    "degisiklik": "commit'lenmemiş değişiklik var",
+    "commit": "dalda yeni commit var",
+}
+WORKTREE_TOOL_ENTERED = (
+    "Çalışma ağacı hazır: {path} (dal {branch}). Bu turda dosyalara {relative}/… ile ulaş; "
+    "tur bitince oturum kökü bu ağaca geçer ve sonraki turlar doğrudan orada çalışır."
+)
+WORKTREE_TOOL_EXIT = "Tur bitince oturum ana depoya ({origin}) döner; temiz ağaç kaldırılır."
+WORKTREE_TOOL_NOT_IN = "Çalışma ağacında değilsin; exit_worktree gereksiz."
+WORKTREE_SWITCHED = "Oturum kökü çalışma ağacına geçti: {path}"
 RECALL_LESSONS_EMPTY_QUERY = "'query' boş olamaz: aradığın konuyu, hatayı ya da teknolojiyi yaz."
 RECALL_LESSONS_NONE = "(bu sorguya uyan öğrenilmiş ders yok)"
 READ_SESSION_INVALID_ARGUMENTS = "'source' ve 'session_id' metin olmalı."

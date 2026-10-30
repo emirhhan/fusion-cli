@@ -150,7 +150,13 @@ from .execution_policy import (
     uses_web_context,
 )
 from .execution_route import ExecutionRoute, choose_execution_route
-from .expertise import expertise_hint, is_desktop_task, is_game_task, is_remotion_task
+from .expertise import (
+    expertise_hint,
+    is_desktop_task,
+    is_game_task,
+    is_remotion_task,
+    is_worktree_task,
+)
 from .history import needs_compression, total_chars
 from .loop_contract import (
     _SHELL_FRAME as _SHELL_FRAME,
@@ -638,7 +644,7 @@ async def _run_agent(
         deps.tool_context.requested_outputs.clear()
         deps.tool_context.requested_outputs.update(requested_outputs_in(task))
         deps.tool_context.task_kinds.difference_update(
-            {"oyun", "remotion", "masaustu", WIDENED_KIND}
+            {"oyun", "remotion", "masaustu", "worktree", WIDENED_KIND}
         )
         if is_game_task(task):
             deps.tool_context.task_kinds.add("oyun")
@@ -646,6 +652,8 @@ async def _run_agent(
             deps.tool_context.task_kinds.add("remotion")
         if is_desktop_task(task):
             deps.tool_context.task_kinds.add("masaustu")
+        if is_worktree_task(task):
+            deps.tool_context.task_kinds.add("worktree")
 
     if not plan_mode and not chat_mode and depth == 0:
         played = await maybe_run_playbook(task, deps)
@@ -2524,6 +2532,9 @@ SCOPED_TOOLS: dict[str, str] = {
     "desktop_background_inspect": "masaustu",
     "desktop_background_screenshot": "masaustu",
     "desktop_background_action": "masaustu",
+    # Çalışma ağacı araçları yalnız izolasyon istenen işte sunulur (istem bütçesi).
+    "enter_worktree": "worktree",
+    "exit_worktree": "worktree",
 }
 
 

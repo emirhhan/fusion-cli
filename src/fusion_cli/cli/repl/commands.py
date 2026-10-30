@@ -42,6 +42,7 @@ from . import (
     session_resume,
     verify_flow,
     workspace_commands,
+    worktrees,
 )
 from .state import TASK_TYPES, Engine, Reminder, ReplState
 
@@ -852,6 +853,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
     SlashCommand(
         "branch", messages.CMD_BRANCH, session_resume.branch_command, group="Geçmiş", usage="[ad]"
+    ),
+    SlashCommand(
+        "worktree",
+        messages.CMD_WORKTREE,
+        worktrees.worktree_command,
+        group="Agent",
+        usage="[ad|cik|liste]",
     ),
 )
 

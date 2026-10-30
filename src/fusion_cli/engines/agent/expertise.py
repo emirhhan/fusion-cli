@@ -137,6 +137,22 @@ def is_desktop_task(task: str) -> bool:
     return _DESKTOP_TASK.search(task) is not None
 
 
+_WORKTREE_TASK = re.compile(
+    r"worktree|çalışma\s+ağac|calisma\s+agac|izole\s+(?:bir\s+)?dal|ayrı\s+(?:bir\s+)?dal(?:da)?\b"
+    r"|ana\s+(?:projeye|depoya)\s+dokunma",
+    re.IGNORECASE,
+)
+
+
+def is_worktree_task(task: str) -> bool:
+    """İstek izole git çalışma ağacı istiyor mu (enter/exit_worktree araçlarını açar)?
+
+    Ölçüldü (31 Ekim): iki aracın şeması her istekte emülasyon istemini 11.400 karakterlik
+    bütçenin üstüne çıkarıyordu; `SCOPED_TOOLS` deseniyle yalnız ilgili istekte sunulur.
+    """
+    return _WORKTREE_TASK.search(task) is not None
+
+
 def is_remotion_task(task: str) -> bool:
     """İstek bir Remotion videosu mu (remotion-video becerisinin kuralıyla aynı karar)?"""
     kural = next(k for k in _RULES if k.skill == "remotion-video")

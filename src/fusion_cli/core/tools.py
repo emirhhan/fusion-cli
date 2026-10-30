@@ -32,6 +32,7 @@ from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
 from .tool_content import ToolContent, ToolContentType
 from .workspace_fingerprint import WorkspaceEffect
+from .worktree import WorktreeSwitch
 
 #: Modelin araca verdiği ham argümanlar. JSON'dan geldiği için tipsizdir;
 #: `tools.args` yardımcıları bunları doğrulayarak okur.
@@ -389,6 +390,9 @@ class ToolContext:
     #: `run_shell` öncesi/sonrası proje kökünün parmak izi alınır; dosya değişmediyse komut
     #: mutasyon sayılmaz (bkz. `core.workspace_fingerprint`). Kapalıysa temkinli sınıflandırma.
     shell_fingerprint: bool = field(default=True, kw_only=True)
+    #: `enter_worktree`/`exit_worktree` araçlarının tur SONUNA bıraktığı kök değişikliği isteği.
+    #: Bağlam donmuştur; kök tur ortasında değişmez, REPL turdan sonra uygular.
+    worktree_switch: WorktreeSwitch = field(default_factory=WorktreeSwitch, kw_only=True)
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya

@@ -739,6 +739,11 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       }
       // `/compact`, `/clear` geçmişi; `/model` web eşiğini değiştirebilir.
       olcuyuTazele(id, session.client, dispatch);
+      // `/worktree` oturum kökünü değiştirir; çekirdek yeni kökü `kok` ile bildirir (P-037).
+      if (typeof result.kok === "string" && result.kok && result.kok !== session.root) {
+        clientRoots.current.set(id, result.kok);
+        dispatch({ type: "rootChanged", id, root: result.kok });
+      }
       const text = typeof result.metin === "string" ? result.metin : "";
       const preparedTask = typeof result.gorev === "string" && result.gorev.trim()
         ? result.gorev : null;

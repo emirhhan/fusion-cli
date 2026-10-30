@@ -40,6 +40,7 @@ from . import (
     rewind,
     session_resume,
     verify_flow,
+    worktrees,
 )
 from .commands import (
     RENDERED_COMMANDS,
@@ -698,6 +699,11 @@ class _TuiSession:
                 # Onay kartındaki "bir daha sorma" kuralı yazıldı/yazılamadı bildirimi (P-003).
                 # Ölçüldü (31 Ekim): yalnız düz konsol döngüsü basıyordu, TUI hiç göstermiyordu.
                 print_rule_notices(self._tui.console, self._state.approval_memory)
+                # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır.
+                switched = worktrees.apply_switch(self._state, tool_context)
+                if switched:
+                    self._echo(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")
+                    self._sync_conversation_binding()
         finally:
             renderer.abort()
             self._tui.clear_work()

@@ -20,6 +20,7 @@ from ...core.health import HealthRegistry
 from ...core.remotion_browser import RemotionBrowser
 from ...core.turn_checkpoints import TurnCheckpointLedger
 from ...core.types import FusionResult, Message
+from ...core.worktree import Worktree
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
 from ...engines.agent.remotion_bridge import FrameTransport
 from ...memory.factory import Memory
@@ -79,6 +80,8 @@ class ReplState:
     conversation_id: str = field(default_factory=lambda: f"session-{uuid4().hex}", kw_only=True)
     #: Kullanıcının sohbete verdiği ad (`--name`, `/rename`); yoksa boş.
     conversation_name: str = field(default="", kw_only=True)
+    #: Oturum bir git çalışma ağacındaysa künyesi (`--worktree`, `/worktree`); `root` o ağaçtır.
+    worktree: Worktree | None = field(default=None, kw_only=True)
     #: Proje kökünün YANINDA erişime açılan dizinler (`--add-dir`).
     #
     # Tek-atış `fusion agent` bunu destekliyordu ama interaktif oturum

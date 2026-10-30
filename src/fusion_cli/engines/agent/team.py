@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
@@ -16,9 +17,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ...core.clock import SystemClock
-from ...core.errors import PathAccessError
+from ...core.errors import PathAccessError, WorktreeError
 from ...core.events import Channel, Event, EventPublisher, SubAgentFinished, SubAgentStarted
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
+from ...core.worktree import Worktree, enter_worktree
 from ...tools.capabilities import CapabilityRegistry, load_agent_prompt, map_tools
 from .team_policy import allowed_tools as _allowed_tools
 from .team_policy import cap_report as _cap_report
@@ -71,6 +73,8 @@ class SubTask:
     read_only: bool = False
     #: Yazılabilecek yollar (köke göreli). Boş + `read_only=False` = alan belirsiz.
     write_scope: tuple[str, ...] = ()
+    #: "worktree" ise üye kendi git çalışma ağacında yazar; ana proje değişmez.
+    isolation: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,7 +168,10 @@ async def run_subagent(
         if persona_error:
             text = f"Üye yüklenemedi ({persona_error})."
             return SubRun(sub_id, persona, text, False, 0)
-        context = derive_sub_context(deps.tool_context, subtask)
+        worktree = await _isolated_worktree(deps.tool_context, subtask, sub_id)
+        context = derive_sub_context(
+            deps.tool_context, subtask, root=worktree.path if worktree is not None else None
+        )
         owned = deps.child_runs.start(
             sub_id, lambda: _run_child(deps, subtask, persona, sub_id, depth, run_agent, context)
         )
@@ -173,6 +180,8 @@ async def run_subagent(
         finally:
             deps.child_runs.detach(sub_id, owned)
         text = outcome.final_text or "Alt ajan boş yanıt verdi."
+        if worktree is not None:
+            text += _worktree_note(worktree)
         ok = outcome.ok and bool(outcome.final_text.strip())
         tool_calls = outcome.tool_calls_made
         status = (
@@ -188,9 +197,9 @@ async def run_subagent(
         current = asyncio.current_task()
         if current is not None and current.cancelling():
             raise
-    except PathAccessError as error:
-        # Yazma alanı kök dışı/izinsiz: mesaj Fusion'ın kendi yol denetiminden gelir (sır
-        # taşımaz) ve modelin düzeltebileceği bilgidir (A4-39).
+    except (PathAccessError, WorktreeError) as error:
+        # Yazma alanı kök dışı/izinsiz ya da çalışma ağacı kurulamadı: mesaj Fusion'ın
+        # kendi denetiminden gelir (sır taşımaz) ve modelin düzeltebileceği bilgidir (A4-39).
         text = f"Alt ajan başlatılamadı: {error}"
     except Exception as error:
         # Ham hata metni credential veya dış araç içeriği taşıyabilir.
@@ -311,6 +320,28 @@ async def run_team(
 # Araçlar
 # --------------------------------------------------------------------------- #
 
+
+async def _isolated_worktree(
+    context: ToolContext, subtask: SubTask, sub_id: str
+) -> Worktree | None:
+    """`izolasyon: "worktree"` ise üyeye `.fusion/worktrees/ajan-<kimlik>` ağacı aç.
+
+    Ağaç turdan sonra KALIR: değişiklikler oradadır, kullanıcı dalı birleştirir ya da
+    `/worktree liste` ile görüp kaldırır. Salt okuyan üye için ağaç açılmaz.
+    """
+    if subtask.isolation != "worktree" or subtask.read_only:
+        return None
+    name = "ajan-" + re.sub(r"[^A-Za-z0-9._-]", "-", sub_id)[:48]
+    return await asyncio.to_thread(enter_worktree, context.root, name)
+
+
+def _worktree_note(worktree: Worktree) -> str:
+    return (
+        f"\n\n[Çalışma ağacı] Değişiklikler ana projede DEĞİL, {worktree.path} içinde "
+        f"(dal {worktree.branch}). Birleştirmek için: git merge {worktree.branch}"
+    )
+
+
 _SUBTASK_PROPERTIES: dict[str, object] = {
     "task": {**_STRING, "description": "alt ajana verilecek net, bağımsız görev"},
     "uzman": {
@@ -323,6 +354,11 @@ _SUBTASK_PROPERTIES: dict[str, object] = {
         "type": "array",
         "items": _STRING,
         "description": "görevin yazacağı dosya/dizinler (köke göreli); paralel koşu için gerekli",
+    },
+    "izolasyon": {
+        **_STRING,
+        "description": "'worktree' ise üye izole bir git çalışma ağacında yazar; ana proje "
+        "değişmez, sonuç dal olarak kalır",
     },
 }
 
@@ -428,9 +464,13 @@ def _parse_subtask(args: ToolArgs) -> SubTask | str:
     scope = args.get("yazma_alani", ())
     if not isinstance(scope, (list, tuple)) or not all(isinstance(item, str) for item in scope):
         return "'yazma_alani' metin listesi olmalı."
+    isolation = args.get("izolasyon", "")
+    if isolation and isolation != "worktree":
+        return "'izolasyon' yalnız 'worktree' olabilir."
     return SubTask(
         task=task.strip(),
         persona=persona if isinstance(persona, str) else "",
         read_only=_parse_read_only(args.get("salt_okunur")),
         write_scope=tuple(item.strip() for item in scope if item.strip()),
+        isolation=str(isolation or ""),
     )

@@ -49,6 +49,7 @@ from ...core.events import (
 from ...core.followups import suggest_followups
 from ...core.tools import ToolContext
 from ...core.types import FusionResult
+from ...core.worktree import Worktree
 from ...engines.agent.compaction import compress
 from ...engines.agent.turn_evidence import evidence_from_turn
 from ...memory.factory import Memory
@@ -64,6 +65,7 @@ from ..prompter import ConsolePrompter
 from ..rule_notices import print_rule_notices
 from . import help_view, history_view, macros
 from . import help_view, history_view, macros, session_resume
+from . import help_view, history_view, macros, session_resume, worktrees
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
 from .input import ReplInput
 from .macros import Mode
@@ -107,11 +109,13 @@ async def run_repl(
     remotion_transport: FrameTransport | None = None,
     remotion_browser: RemotionBrowser | None = None,
     resume: session_resume.ResumeTarget | None = None,
+    worktree: Worktree | None = None,
 ) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür.
 
     `resume` verilirse (`--continue/--resume/--name`) oturum o sohbetin kimliğine ve
-    geçmişine bağlı açılır; verilmezse her açılış yeni bir sohbettir.
+    geçmişine bağlı açılır; verilmezse her açılış yeni bir sohbettir. `worktree`
+    verilirse (`--worktree`) `root` o ağaçtır; çıkışta temiz ağaç kaldırılır.
     """
     # Varsayılan: Ink-benzeri tek yol TUI (Claude Code modeli). Eski satır-içi mod yalnızca
     # acil yedek olarak FUSION_INLINE=1 ile açılır; TUI kararlılığı doğrulanınca kaldırılacak
@@ -127,9 +131,27 @@ async def run_repl(
         remotion_transport=remotion_transport,
         remotion_browser=remotion_browser,
         health=build_health(config),
+        worktree=worktree,
     )
     if resume is not None:
         session_resume.apply_target(state, resume)
+    try:
+        return await _run_surface(state, config, console, resume)
+    finally:
+        # `--worktree`: oturum bitince temiz ağaç kaldırılır, iş kalmışsa yolu söylenir.
+        if worktree is not None and state.worktree is not None:
+            console.print(
+                f"[{theme.DIM}]{escape(worktrees.leave_session_worktree(state))}[/{theme.DIM}]"
+            )
+
+
+async def _run_surface(
+    state: ReplState,
+    config: Config,
+    console: Console,
+    resume: session_resume.ResumeTarget | None,
+) -> int:
+    """Yüzeyi seç (TUI ya da satır-içi) ve çalıştır."""
     if os.environ.get("FUSION_INLINE") != "1" and is_interactive_terminal():
         from .tui_loop import run_tui_repl
 
@@ -617,6 +639,10 @@ async def _agent_turn(
             renderer.abort()
             tracer.flush()
     state.history = outcome.messages
+    # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır (kök tur ortasında değişmez).
+    switched = worktrees.apply_switch(state, tool_context)
+    if switched:
+        console.print(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")
 
 
 def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:

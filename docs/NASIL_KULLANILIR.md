@@ -251,6 +251,32 @@ Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
 
 ---
 
+## 7b) İzole çalışma ağacı → `--worktree`, `/worktree`
+
+Riskli ya da paralel bir işi ana projeye dokunmadan denemek için Fusion git çalışma ağacı
+(worktree) açar: `.fusion/worktrees/<ad>` dizini, `worktree-<ad>` dalı. `.fusion/` git
+durumunda görünmez (`.git/info/exclude`).
+
+| Yaz | Ne yapar |
+|-----|----------|
+| `fusion --worktree <ad>` (`-w`) | Oturumu o çalışma ağacında açar; çıkışta temizse kaldırır, iş kaldıysa korur ve yolu söyler |
+| `fusion agent -w <ad> "görev"` | Tek görevi izole ağaçta koşar; ağaç korunur |
+| `/worktree <ad>` | Oturum kökünü ağaca taşır (yoksa oluşturur) |
+| `/worktree cik` | Ana depoya döner; temiz ağaç kaldırılır (dalı dahil), iş varsa `git merge worktree-<ad>` ipucu verir |
+| `/worktree liste` | Depodaki Fusion çalışma ağaçları |
+
+- `.worktreeinclude` (depo kökünde, satır başına glob): `.env` gibi izlenmeyen dosyalar yeni
+  ağaca kopyalanır; bunlar "iş" sayılmaz, temizlik ölçümünü bozmaz.
+- Ajan araçları `enter_worktree` / `exit_worktree`: model bir ağaç açar, aynı turda
+  `.fusion/worktrees/<ad>/…` yoluyla yazar; tur bitince oturum kökü oraya geçer. Bu araçlar
+  yalnız isteğinde "worktree / ayrı dal / izole dal" geçen görevlerde sunulur (istem bütçesi).
+- Alt ajan: `spawn_agents` görevine `izolasyon: "worktree"` verilirse üye kendi ağacında
+  (`ajan-<kimlik>`) yazar; ana proje değişmez, sonuç dal olarak kalır.
+- Masaüstü: `/worktree` aynı komuttur; dosya gezgini yeni kökü otomatik alır.
+- Sınır: plan motorunun paralel denemeleri hâlâ dizin kopyasıyla izole edilir (git gerekmez).
+
+---
+
 ## 8) Fusion öğrensin → `/good` ve `/bad`
 
 Fusion motorunda bir cevaptan memnunsan `/good`, değilsen `/bad` yaz. Fusion bunu
@@ -429,6 +455,7 @@ Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtı
 | `/rewind` · Esc Esc | Bir turun başına dön (kod/konuşma/ikisi) |
 | `fusion -c` · `/resume` | Kaldığın sohbete dön |
 | `/rename <ad>` · `/branch` | Sohbete ad ver · dallandır |
+| `fusion -w <ad>` · `/worktree <ad>` | İzole git çalışma ağacında çalış |
 | `/verify` | Test/lint çalıştır |
 | `/permissions` · `fusion permissions` | İzin kurallarını (allow/ask/deny) listele, ekle, sil |
 | `fusion trust` | Projenin config/izin/araç dosyalarına güven |
