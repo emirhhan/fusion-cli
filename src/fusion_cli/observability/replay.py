@@ -14,7 +14,7 @@ from enum import Enum
 from typing import Any, cast
 
 from ..core import events as event_module
-from ..core.events import Event, ToolOutcome
+from ..core.events import Channel, Event, ToolOutcome
 from ..core.types import ModelResult, TokenUsage, ToolCall
 
 #: Ada göre olay sınıfları — tek kaynak `core.events` modülüdür.
@@ -53,11 +53,20 @@ def _coerce(name: str, value: object) -> object:
     """Alan adına göre bilinen tipleri geri kur, gerisini olduğu gibi bırak."""
     if name == "outcome" and isinstance(value, str):
         return _enum(ToolOutcome, value)
+    if name == "channel" and isinstance(value, str):
+        # Enum değeri (`"main"`) olarak yazılır; geri çevrilmezse `event.channel is
+        # Channel.MAIN` hep yanlış çıkar ve tüm akış metni tüketiciden kaybolur.
+        return _enum(Channel, value)
     if name == "result" and isinstance(value, dict):
         return _model_result(value)
     if isinstance(value, list):
-        return tuple(value)
+        return _tuple_ic_ice(value)
     return value
+
+
+def _tuple_ic_ice(value: list[object]) -> tuple[object, ...]:
+    """Listeyi demete çevir; iç içe listeler de demet olur (`FollowupsSuggested.items`)."""
+    return tuple(_tuple_ic_ice(item) if isinstance(item, list) else item for item in value)
 
 
 def _model_result(payload: dict[str, object]) -> ModelResult | dict[str, object]:
@@ -111,10 +120,14 @@ def _token_usage(value: object) -> TokenUsage:
         and not isinstance(cost_usd, bool)
     ):
         return TokenUsage()
+    # Ölçüm bayrakları da geri kurulur: yoksa tekrar oynatılan kullanım "ölçülmemiş" görünür.
     return TokenUsage(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         cost_usd=float(cost_usd),
+        prompt_measured=value.get("prompt_measured") is True,
+        completion_measured=value.get("completion_measured") is True,
+        cost_known=value.get("cost_known") is True,
     )
 
 
