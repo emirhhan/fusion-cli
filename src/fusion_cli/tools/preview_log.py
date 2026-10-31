@@ -8,7 +8,13 @@ tarayıcı yoluyla üretilir: sayfa açılır, yüklenir, `settle_ms` beklenir, 
 döner. Canlı akış değil, o anın fotoğrafıdır; Playwright kurulu değilse `error` dolu
 bir günlük döner, hiçbir şey çökmez.
 
-Yalnız yerel (loopback) adresler açılır: panelin gömdüğü adres kümesiyle aynı.
+Yalnız yerel (loopback) adresler açılır: panelin gömdüğü adres kümesiyle aynı. Sayfanın
+yönlendirmeleri ve alt istekleri de loopback dışına çıkamaz (`web_preview` ile aynı kural);
+ölçüldü (31 Ekim): denetim yalnız ilk adresteydi, `302 http://192.168.1.1/` izleniyordu.
+İki katman: `route` alt istekleri engeller; yönlendirmeler `route`'a UĞRAMADIĞI için (ölçüldü:
+Chromium yönlendirme hedefini doğrudan açıyor, abort zaman aşımına düşüyordu) tarayıcıya
+loopback dışını kapalı bir vekile (`127.0.0.1:9`) gönderen `proxy` ayarı verilir; istek ağa
+hiç çıkmadan `ERR_PROXY_CONNECTION_FAILED` ile düşer ve engellenen adres raporlanır.
 """
 
 from __future__ import annotations
@@ -17,13 +23,13 @@ import asyncio
 import contextlib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .preview_launch import is_local_url
 from .preview_probe import PROBE_TIMEOUT_S, SCREENSHOT_HEIGHT, SCREENSHOT_WIDTH
 
 if TYPE_CHECKING:
-    from playwright.async_api import ConsoleMessage, Request, Response
+    from playwright.async_api import ConsoleMessage, ProxySettings, Request, Response, Route
 
 #: Sayfa `load` olayından sonra günlüğün toplanmaya devam edeceği süre (geç istekler, timer'lar).
 DEFAULT_SETTLE_MS = 1_000
@@ -43,7 +49,19 @@ PLAYWRIGHT_MISSING = (
     "Playwright kurulu değil; konsol/ağ günlüğü ve ekran görüntüsü için "
     "`pip install 'fusion-cli[web]'` ve `playwright install chromium`."
 )
+CHROMIUM_MISSING = (
+    "Playwright kurulu ama Chromium indirilmemiş; terminalde `playwright install chromium` "
+    "çalıştır, sonra yeniden dene."
+)
 NOT_LOCAL = "Yalnız yerel (localhost/127.0.0.1) adreslerin günlüğü okunur."
+NOT_LOCAL_REDIRECT = "Sayfa yerel olmayan bir adrese yönlendirdi; engellendi: {url}"
+#: Sayfanın kendi içinden üretilen, ağa çıkmayan adresler.
+_INLINE_SCHEMES = ("data:", "blob:", "about:")
+#: Loopback dışı her istek bu kapalı vekile gider (bağlantı anında reddedilir).
+_BLOCKING_PROXY: dict[str, str] = {
+    "server": "http://127.0.0.1:9",
+    "bypass": "localhost,127.0.0.1,[::1]",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +117,17 @@ class CaptureOptions:
     color_scheme: str | None = None
 
 
+def allowed_request_url(url: str) -> bool:
+    """Başsız tarayıcının izleyebileceği istek: loopback ya da sayfa içi (`data:`/`blob:`)."""
+    return url.startswith(_INLINE_SCHEMES) or is_local_url(url)
+
+
+def chromium_missing(error: object) -> bool:
+    """Playwright hatası "Executable doesn't exist" mı (tarayıcı indirilmemiş)?"""
+    metin = str(error)
+    return "Executable doesn't exist" in metin or "playwright install" in metin
+
+
 def clamp_settle(value: object) -> int:
     """Kullanıcı/model verisinden bekleme süresi: tam sayı değilse varsayılan, sınır içinde."""
     if isinstance(value, bool) or not isinstance(value, int):
@@ -130,20 +159,30 @@ async def collect_page_log(url: str, options: CaptureOptions = DEFAULT_CAPTURE) 
     collector = _Collector()
     try:
         async with async_playwright() as driver:
-            browser = await driver.chromium.launch()
+            try:
+                browser = await driver.chromium.launch()
+            except PlaywrightError as error:
+                if chromium_missing(error):
+                    return PageLog(url, error=CHROMIUM_MISSING)
+                raise
             try:
                 page_options: dict[str, Any] = {
                     "viewport": {"width": options.viewport[0], "height": options.viewport[1]}
                 }
                 if options.color_scheme in COLOR_SCHEMES:
                     page_options["color_scheme"] = options.color_scheme
-                page = await browser.new_page(**page_options)
+                page = await browser.new_page(
+                    proxy=cast("ProxySettings", _BLOCKING_PROXY), **page_options
+                )
                 page.on("console", collector.console)
                 page.on("pageerror", collector.page_error)
                 page.on("request", collector.request)
                 page.on("response", collector.response)
                 page.on("requestfailed", collector.request_failed)
+                await page.route("**/*", collector.route)
                 await page.goto(url, timeout=PROBE_TIMEOUT_S * 1000, wait_until="load")
+                if not is_local_url(page.url):
+                    return PageLog(url, error=NOT_LOCAL_REDIRECT.format(url=page.url))
                 if options.settle_ms:
                     await asyncio.sleep(options.settle_ms / 1000)
                 shot = (
@@ -154,6 +193,8 @@ async def collect_page_log(url: str, options: CaptureOptions = DEFAULT_CAPTURE) 
             finally:
                 await browser.close()
     except PlaywrightError as error:
+        if collector.blocked:
+            return PageLog(url, error=NOT_LOCAL_REDIRECT.format(url=collector.blocked[0]))
         return PageLog(url, error=f"Sayfa açılamadı: {str(error).splitlines()[0][:MAX_TEXT_CHARS]}")
     except (OSError, TimeoutError) as error:
         return PageLog(url, error=f"Tarayıcı başlatılamadı: {error}")
@@ -161,10 +202,19 @@ async def collect_page_log(url: str, options: CaptureOptions = DEFAULT_CAPTURE) 
 
 
 def save_screenshot(root: Path, data: bytes) -> str:
-    """Görüntüyü proje içine yaz; köke göreli yol döner (yazılamazsa boş)."""
+    """Görüntüyü proje içine yaz; köke göreli yol döner (yazılamazsa boş).
+
+    Hedef sembolik bağsa ya da kök dışına çözülüyorsa YAZILMAZ. Ölçüldü (31 Ekim): depo
+    `.fusion/onizleme-ekran.png -> ~/.zshrc` bağı taşıyınca `write_bytes` o dosyayı eziyordu.
+    """
     try:
         target = root / SCREENSHOT_FILE
         target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_symlink() or target.parent.is_symlink():
+            return ""
+        gercek_kok = root.resolve()
+        if target.parent.resolve() != gercek_kok / SCREENSHOT_FILE.parent:
+            return ""
         target.write_bytes(data)
     except OSError:
         return ""
@@ -219,6 +269,17 @@ class _Collector:
     _console: list[ConsoleEntry] = field(default_factory=list)
     _requests: dict[int, NetworkEntry] = field(default_factory=dict)
     _order: list[int] = field(default_factory=list)
+    #: Loopback dışına çıkmaya çalışan ve engellenen adresler (ilk giren yönlendirmedir).
+    blocked: list[str] = field(default_factory=list)
+
+    async def route(self, route: Route) -> None:
+        url = route.request.url
+        if allowed_request_url(url):
+            await route.continue_()
+            return
+        if len(self.blocked) < MAX_NETWORK_ENTRIES:
+            self.blocked.append(url[:MAX_TEXT_CHARS])
+        await route.abort("blockedbyclient")
 
     def console(self, message: ConsoleMessage) -> None:
         if len(self._console) >= MAX_CONSOLE_ENTRIES:
@@ -236,6 +297,9 @@ class _Collector:
             self._console.append(ConsoleEntry("pageerror", str(error)[:MAX_TEXT_CHARS]))
 
     def request(self, request: Request) -> None:
+        if not allowed_request_url(request.url) and len(self.blocked) < MAX_NETWORK_ENTRIES:
+            # Yönlendirme hedefi `route`'a uğramaz; burada görülür ve vekil tarafından kesilir.
+            self.blocked.append(request.url[:MAX_TEXT_CHARS])
         if len(self._requests) >= MAX_NETWORK_ENTRIES:
             return
         key = id(request)

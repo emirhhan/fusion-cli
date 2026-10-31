@@ -189,7 +189,8 @@ describe("PreviewPanel", () => {
     fireEvent.click(goruntu);
     expect(await screen.findByTestId("preview-shot")).toBeTruthy();
     expect(screen.queryByTestId("preview-log")).toBeNull();
-    expect(client.request).toHaveBeenCalledWith("onizleme.ekran_goruntusu", { url: "http://localhost:3001", genislik: 1280, yukseklik: 800 });
+    // Görüntü isteği kısa beklemeyle (debounce) gider: hızlı boyut geçişi tarayıcı başlatmasın.
+    await waitFor(() => expect(client.request).toHaveBeenCalledWith("onizleme.ekran_goruntusu", { url: "http://localhost:3001", genislik: 1280, yukseklik: 800 }));
     fireEvent.click(screen.getByRole("button", { name: "Ekran görüntüsünü kapat" }));
     expect(screen.queryByTestId("preview-shot")).toBeNull();
   });

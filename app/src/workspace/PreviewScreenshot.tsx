@@ -32,6 +32,13 @@ export interface PreviewScreenshotProps {
 /** Sayfanın `prefers-color-scheme` taklidi; "system" = başsız tarayıcının varsayılanı. */
 type ShotTheme = "system" | "light" | "dark";
 
+/**
+ * Boyut/tema hızlı değişirken her adımda Chromium açılmasın: kısa bekleme. Ölçüldü (31 Ekim):
+ * 320→375→768 geçişi üç tarayıcı başlatıyor, en son biten dosyayı eziyordu (çekirdek tarafında
+ * ayrıca tek-yakalama kilidi var).
+ */
+export const SCREENSHOT_DEBOUNCE_MS = 250;
+
 export function PreviewScreenshot({ client, url, viewport, onClose }: PreviewScreenshotProps) {
   const [theme, setTheme] = useState<ShotTheme>("system");
   const [result, setResult] = useState<ScreenshotResult | null>(null);
@@ -45,11 +52,13 @@ export function PreviewScreenshot({ client, url, viewport, onClose }: PreviewScr
     setResult(null);
     const data: Record<string, unknown> = { url, ...screenshotSize(viewport) };
     if (theme !== "system") data.tema = theme;
-    void client.request("onizleme.ekran_goruntusu", data)
-      .then((payload) => { if (active) setResult(decodeScreenshot(payload)); })
-      .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : String(reason)); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    const zamanlayici = window.setTimeout(() => {
+      void client.request("onizleme.ekran_goruntusu", data)
+        .then((payload) => { if (active) setResult(decodeScreenshot(payload)); })
+        .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : String(reason)); })
+        .finally(() => { if (active) setLoading(false); });
+    }, SCREENSHOT_DEBOUNCE_MS);
+    return () => { active = false; window.clearTimeout(zamanlayici); };
   }, [client, url, viewport, theme]);
 
   return (
