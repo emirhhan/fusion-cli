@@ -2,6 +2,8 @@
 
 Claude Code `ListAgents` / `SendMessage` / `TaskStop` karşılığı:
 
+Görevler PROJE SINIRLIDIR: kimlik ya da adla da yalnız bu kökün görevine erişilir.
+
 - `list_agents`  — bu projenin arka plan görevleri + açık Fusion oturumları; `id` ile tek
   görevin durumu/sonucu, `bekle_s` ile bitene (ya da girdi isteyene) kadar bekleme.
 - `send_message` — arka plan görevine devam mesajı (bitmişse yeniden başlar) ya da başka bir
@@ -215,7 +217,8 @@ def list_agents_tool(deps: AgentDeps) -> Tool:
         query = str(args.get("id") or "").strip()
         try:
             if query:
-                task = store.resolve(query)
+                # Ölçüldü (31 Ekim): kimlik/ad ile başka projenin görevi okunabiliyordu.
+                task = store.resolve(query, root=context.root)
                 wait = args.get("bekle_s")
                 if isinstance(wait, (int, float)) and wait > 0:
                     task = await agent_tasks.wait_task(
@@ -260,7 +263,7 @@ def send_message_tool(deps: AgentDeps) -> Tool:
         if not target or not text:
             return ToolResult.failure(texts.BG_SEND_USAGE)
         try:
-            return ToolResult(deliver_message(deps, target, text))
+            return ToolResult(deliver_message(deps, target, text, root=context.root))
         except BackgroundTaskError as error:
             return ToolResult.failure(str(error))
 
@@ -274,17 +277,25 @@ def send_message_tool(deps: AgentDeps) -> Tool:
             "required": ["to", "message"],
         },
         run=_run,
+        # Başka bir ajanın işini yönlendirir: salt-okur/plan turunda kapalı, onay akışına girer.
+        mutating=True,
     )
 
 
-def deliver_message(deps: AgentDeps, target: str, text: str) -> str:
-    """Önce arka plan görevi, yoksa açık oturum; ikisi de yoksa açık hata."""
+def deliver_message(deps: AgentDeps, target: str, text: str, *, root: Path) -> str:
+    """Önce BU projenin arka plan görevi, yoksa açık oturum; ikisi de yoksa açık hata.
+
+    Mesaj yalnız görevi bu konuşma başlattıysa güvenilir sayılır. Ölçüldü (31 Ekim):
+    sahipsiz görev (`fusion agent --bg`) için başka oturumun modelinden gelen mesaj da
+    güvenilir, yani kullanıcı talimatı yerine geçiyordu.
+    """
     if not getattr(_runtime(deps), "background_agents", True):
         task = None
     else:
-        task = _find_task(_store(deps), target)
+        task = _find_task(_store(deps), target, root=root)
     if task is not None:
-        trusted = not task.owner or task.owner == deps.conversation_id
+        owner = getattr(deps, "conversation_id", "")
+        trusted = bool(task.owner) and task.owner == owner
         updated = agent_tasks.send_to_task(
             _store(deps), task, text, sender=deps.conversation_id or "ajan", trusted=trusted
         )
@@ -296,9 +307,9 @@ def deliver_message(deps: AgentDeps, target: str, text: str) -> str:
     return texts.PEER_SENT.format(name=peer.name)
 
 
-def _find_task(store: BackgroundTaskStore, target: str) -> BackgroundTask | None:
+def _find_task(store: BackgroundTaskStore, target: str, *, root: Path) -> BackgroundTask | None:
     try:
-        return store.resolve(target)
+        return store.resolve(target, root=root)
     except BackgroundTaskError:
         return None
 
@@ -307,7 +318,8 @@ def stop_agent_tool(deps: AgentDeps) -> Tool:
     async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
         store = _store(deps)
         try:
-            task = agent_tasks.stop_task(store, store.resolve(str(args.get("id") or "")))
+            query = str(args.get("id") or "")
+            task = agent_tasks.stop_task(store, store.resolve(query, root=context.root))
         except BackgroundTaskError as error:
             return ToolResult.failure(str(error))
         return ToolResult(texts.BG_STOP_REQUESTED.format(name=task.name))
@@ -317,6 +329,7 @@ def stop_agent_tool(deps: AgentDeps) -> Tool:
         description="Çalışan bir arka plan ajan görevini durdur.",
         parameters={"type": "object", "properties": {"id": _STRING}, "required": ["id"]},
         run=_run,
+        mutating=True,
     )
 
 
