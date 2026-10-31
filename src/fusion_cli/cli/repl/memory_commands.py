@@ -1,4 +1,6 @@
-"""`/memory` komutu ve `#` not kısayolu: düz metin otomatik bellek (P-036).
+"""`/memory` komutu: düz metin otomatik bellek (P-036).
+
+`#` not kısayolu `prefixes.pending_memory_note`/`add_memory_note`'tadır (üç yüzey ortak).
 
 Claude Code'un `/memory` komutuyla aynı iş: durum, aç/kapa (kalıcı), düzenleyicide aç,
 konu listesi, Claude belleğinden içe aktarma. İşleyiciler ince kalır; bellek mantığı
@@ -21,40 +23,6 @@ from .state import ReplState
 
 #: `/memory import <kaynak>` ile alınabilecek dış bellekler: kaynak adı → ev dizinine göre yol.
 IMPORT_SOURCES = ("claude",)
-
-
-def is_memory_note(line: str) -> bool:
-    """`# not` satırı mı? `#` + boşluk + TEK satır metin (Claude Code kısayolu).
-
-    Ölçüldü (31 Ekim): `#` ile başlayan her satır not sayılıyordu; `#1234 numaralı hatayı
-    düzelt` ve yapıştırılan çok satırlı Markdown modele gitmeden belleğe yazılıyordu.
-    `##` başlığı ve tek `#` not değildir.
-    """
-    stripped = line.strip()
-    if "\n" in stripped or len(stripped) < 3:
-        return False
-    return (
-        stripped[0] == "#" and stripped[1].isspace() and not stripped[2:].lstrip().startswith("#")
-    )
-
-
-def takes_memory_note(state: ReplState, line: str) -> bool:
-    """Satır belleğe mi gider? Bellek KAPALIYKEN `#` satırı yutulmaz, olağan istem olur."""
-    return state.plain_memory is not None and is_memory_note(line)
-
-
-def save_memory_note(state: ReplState, line: str) -> str:
-    """`#` ile başlayan satırı belleğe not olarak yaz; sonuç satırı döner."""
-    if state.plain_memory is None:
-        return messages.MEMORY_OFF_HINT
-    text = line.lstrip()[1:].strip()
-    if not text:
-        return messages.MEMORY_NOTE_EMPTY
-    try:
-        written = state.plain_memory.note(text)
-    except PlainMemoryError as error:
-        return str(error)
-    return messages.MEMORY_NOTE_SAVED.format(path=written.path, lines=written.lines)
 
 
 def memory(state: ReplState, argument: str) -> str:

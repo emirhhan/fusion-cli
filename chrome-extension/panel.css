@@ -312,3 +312,12 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 .sites__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; font-size: 13px; }
 .sites__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip-button--quiet { background: transparent; border: 1px solid var(--border-strong); color: var(--muted); }
+
+/* Bağlantı ayarları: onay kutusu satırı, çok satırlı alan ve klavye tuşu rozeti. */
+.sheet__check { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 13px; }
+.sheet__check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.field-stack textarea {
+  width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--field); color: var(--text); font: inherit; font-size: 13px; resize: vertical;
+}
+.sheet__text kbd { padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: 5px; font-size: 11px; font-family: inherit; }

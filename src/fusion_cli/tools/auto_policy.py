@@ -237,8 +237,16 @@ def _segment_risk(
     return None
 
 
+def nested_command(name: str, arguments: list[str]) -> str | None:
+    """Komutun kendi adına çalıştırdığı iç komut: `sh -c '…'`, `eval …`, `timeout 5 …`.
+
+    İzin kuralı eşlemesi (`permission_match`) de aynı çözücüyü kullanır: deny kuralı
+    sarmalayıcıyla aşılmasın (ölçüldü, 31 Ekim: `bash -c 'rm x'` deny bulmuyordu).
+    """
+    return _nested_command(name, arguments)
+
+
 def _nested_command(name: str, arguments: list[str]) -> str | None:
-    """Komutun kendi adına çalıştırdığı iç komut: `sh -c '…'`, `eval …`, `timeout 5 …`."""
     if name in _SHELLS:
         for index, argument in enumerate(arguments[:-1]):
             if _SHELL_C_FLAGS.match(argument):

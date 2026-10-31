@@ -56,6 +56,25 @@ export async function askComputerAccess(reason: string): Promise<boolean> {
   );
 }
 
+/** Kits bir Kit adına kullanıcının Chrome'unu (Fusion eklentisi) kullanmak istediğinde sorar.
+ * Okuma eylemleri Kit ve gruba göre 30 dakika bir kez, etkileşim eylemleri her seferinde sorulur;
+ * `risky` ise hedef gönder/sil/satın al gibi bir düğmedir ve pencere daha sert uyarır. */
+export async function askKitsBrowserAccess(summary: string, interactive: boolean, risky = false): Promise<boolean> {
+  const { ask } = await import("@tauri-apps/plugin-dialog");
+  const scope = interactive
+    ? "Bu eylem sayfayı değiştirebilir; her seferinde ayrıca sorulur."
+    : "Yalnız okur; izin verirsen bu Kit'in aynı tür okuma istekleri 30 dakika boyunca tekrar sorulmaz.";
+  return ask(
+    `${summary}\n\n${scope} Sayfadaki anahtar ve parola benzeri metinler Kits'e gönderilmez; ekran görüntüsü taşınmaz.`,
+    {
+      title: risky ? "Kits riskli bir Chrome eylemi istiyor" : "Kits Chrome'unu kullanmak istiyor",
+      kind: risky ? "error" : "warning",
+      okLabel: risky ? "Yine de izin ver" : "İzin ver",
+      cancelLabel: "Reddet",
+    },
+  );
+}
+
 /** Kits'in sesli konuşması mikrofonu ilk kez istediğinde yerel pencereyle sorar. İzin, Kits açık kaldığı sürece hatırlanır. */
 export async function askMicrophoneAccess(): Promise<boolean> {
   const { ask } = await import("@tauri-apps/plugin-dialog");

@@ -332,10 +332,12 @@ button:disabled {
   outline-offset: 2px;
 }
 
+/* Kullanıcı Ayarlar'da "her zaman göster" seçtiyse (data-motion="allow") sistem tercihi
+   ezilir; "azalt" seçimi `accessibility.css`'te aynı kuralı sistemden bağımsız uygular. */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  :root:not([data-motion="allow"]) *,
+  :root:not([data-motion="allow"]) *::before,
+  :root:not([data-motion="allow"]) *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;

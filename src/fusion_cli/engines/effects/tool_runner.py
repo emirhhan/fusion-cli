@@ -35,7 +35,7 @@ class EffectToolRunner:
         # Agent paketinin __init__ modülü loop.py'yi içe aktarıyor; approval'ı
         # modül yüklenirken almak effects.runner -> tool_runner -> agent -> loop
         # çevrimini oluşturur. Çalışma anındaki yerel import bu çevrimi keser.
-        from ..agent.approval import Decision, resolve_request
+        from ..agent.approval import Decision, Denial, resolve_request
 
         tool = self.registry.get(name)
         if tool is None:
@@ -46,15 +46,18 @@ class EffectToolRunner:
             return ExecutedTool(name, args, result, outcome)
 
         if tool.mutating:
-            decision = await self.deps.policy.decide(
+            verdict = await self.deps.policy.decide(
                 await resolve_request(
                     tool,
                     args,
                     self.deps.allowed_commands,
                     root=self.deps.tool_context.root,
                     context=self.deps.tool_context,
+                    rules=getattr(self.deps, "permission_rules", None),
                 )
             )
+            # Gerekçeli ret (P-013) burada da red sayılır; not bu akışta gösterilmez.
+            decision = verdict.decision if isinstance(verdict, Denial) else verdict
             if decision is not Decision.ALLOW:
                 message = (
                     "Kullanıcı bu işlemi onaylamadı."

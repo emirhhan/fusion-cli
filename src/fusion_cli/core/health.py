@@ -107,6 +107,19 @@ class ModelHealth:
     def samples(self) -> int:
         return self._samples
 
+    @property
+    def rate_limit_streak(self) -> int:
+        """Art arda gelen kota (429) hatası sayısı; 0 = sağlayıcı kota bekletmiyor (P-066)."""
+        return self._rate_limit_streak
+
+    @property
+    def retry_in_s(self) -> float:
+        """Devre açıksa yeniden denemeye kalan sn; kapalıysa 0. Salt okur, devreyi değiştirmez."""
+        if self._phase is not CircuitPhase.OPEN:
+            return 0.0
+        remaining = self._current_cooldown() - (self._clock.monotonic() - self._opened_at)
+        return max(0.0, remaining)
+
     def allow(self) -> bool:
         """Bu modele çağrı yapılabilir mi? Cooldown dolduysa yarı-açığa geçer."""
         if self._auth_blocked:

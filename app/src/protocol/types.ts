@@ -41,6 +41,10 @@ export interface Soru {
   diff?: string;
   /** İsteyen alt ajanın etiketi (P-034); ana ajanın isteğinde boş. */
   ajan?: string | null;
+  /** Eşleşen izin kuralı (`Bash(npm run *)`); kartta bilgi satırı (P-001). */
+  kural?: string | null;
+  /** Çekirdek cevaptaki `not` alanını okur: ret gerekçesi modele gider (P-013). */
+  not_alinir?: boolean;
 }
 
 /**

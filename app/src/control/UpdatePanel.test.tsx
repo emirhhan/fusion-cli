@@ -64,3 +64,21 @@ it("çalışan görev varken kurulumu kapatır ve nedenini söyler (Q1-23)", asy
   expect(downloadAndInstall).not.toHaveBeenCalled();
   expect(mocks.relaunch).not.toHaveBeenCalled();
 });
+
+// Ölçüldü (31 Ekim, P-066): manifestin `notes` alanı (Update.body) hiç gösterilmiyordu; kullanıcı neyi kurduğunu bilmiyordu.
+it("sürüm notlarını düz metin olarak gösterir; not yoksa bölüm çizilmez", async () => {
+  mocks.check.mockResolvedValue({ version: "1.2.0", body: "- Telefondan onay\n- <b>HTML</b> yorumlanmaz", close: vi.fn().mockResolvedValue(undefined), downloadAndInstall: vi.fn() });
+  render(<UpdatePanel />);
+  fireEvent.click(screen.getByText("Güncellemeleri kontrol et"));
+  await screen.findByText("Sürüm notları · 1.2.0");
+  const pre = screen.getByText(/Telefondan onay/);
+  expect(pre.tagName).toBe("PRE");
+  expect(pre.textContent).toContain("<b>HTML</b>");
+  cleanup();
+
+  mocks.check.mockResolvedValue({ version: "1.2.1", body: "   ", close: vi.fn().mockResolvedValue(undefined), downloadAndInstall: vi.fn() });
+  render(<UpdatePanel />);
+  fireEvent.click(screen.getByText("Güncellemeleri kontrol et"));
+  await screen.findByText("1.2.1 sürümü hazır.");
+  expect(screen.queryByText(/Sürüm notları/)).toBeNull();
+});

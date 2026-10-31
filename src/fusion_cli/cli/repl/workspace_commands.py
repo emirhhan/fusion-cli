@@ -69,6 +69,7 @@ def add_dir(state: ReplState, argument: str) -> str:
         if hedef is None or hedef not in state.extra_roots:
             return "Bu klasör ek klasörler arasında değil."
         state.extra_roots = tuple(yol for yol in state.extra_roots if yol != hedef)
+        state.refresh_capability_roots()
         return f"Erişim kapatıldı: {hedef}"
     hedef = _resolve(argument)
     if hedef is None or not hedef.is_dir():
@@ -85,6 +86,8 @@ def add_dir(state: ReplState, argument: str) -> str:
     if hedef in state.extra_roots:
         return f"Zaten açık: {hedef}"
     state.extra_roots = (*state.extra_roots, hedef)
+    # Ek kökün .claude/skills ve .agents/skills becerileri de kataloğa girer (P-052).
+    state.refresh_capability_roots()
     return f"Erişim açıldı (bu oturum için): {hedef}"
 
 

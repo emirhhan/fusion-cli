@@ -41,7 +41,9 @@ async def test_katalog_dis_kaynaklari_proje_talimatini_ve_birlesik_etiketi_goste
     assert result["beceriler"][0]["kaynak"] == "claude+codex"
     assert result["ajanlar"][0]["ad"] == "architect"
     assert result["ajanlar"][0]["izinler"] == ["dosya okuma", "komut çalıştırma"]
-    assert result["talimatlar"] == [{"ad": "CLAUDE.md", "kaynak": "proje", "etkin": True}]
+    assert [(t["ad"], t["kaynak"], t["etkin"]) for t in result["talimatlar"]] == [
+        ("CLAUDE.md", "proje", True)
+    ]
 
 
 async def test_detay_yalniz_katalogdaki_ogeyi_okur_ve_oturumluk_kapatma_filtreler(tmp_path: Path):
@@ -165,3 +167,31 @@ async def test_ajan_ayrintisi_bellegi_gosterir_ve_siler(tmp_path: Path):
     yok = await _request(session, lines, "yetenek.bellek_sil", {"ad": "duz"})
     assert yok["ok"] is False
     await session.close()
+
+
+async def test_katalog_kurallari_ve_kullanici_katmanini_listeler_detay_okur(tmp_path: Path):
+    """P-015/P-016: ~/.claude/CLAUDE.md ve .claude/rules dosyaları talimat sekmesinde görünür."""
+    home, root = tmp_path / "home", tmp_path / "project"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".claude" / "CLAUDE.md").write_text("genel kural", encoding="utf-8")
+    (root / ".claude" / "rules").mkdir(parents=True)
+    (root / ".claude" / "rules" / "test.md").write_text(
+        "---\npaths: ['tests/**']\n---\nTest kuralı", encoding="utf-8"
+    )
+    lines: list[str] = []
+    session = AppSession(lines.append, root=root, home=home)
+
+    result = await _request(session, lines, "yetenek.katalog", {})
+    detail = await _request(
+        session, lines, "yetenek.detay", {"tur": "talimat", "ad": ".claude/rules/test.md"}
+    )
+    yabanci = await _request(
+        session, lines, "yetenek.detay", {"tur": "talimat", "ad": "../../etc/passwd"}
+    )
+    await session.close()
+
+    adlar = {t["ad"]: t for t in result["talimatlar"]}
+    assert adlar["~/.claude/CLAUDE.md"]["kaynak"] == "kullanici"
+    assert "tests/**" in adlar[".claude/rules/test.md"]["aciklama"]
+    assert detail["ok"] is True and "Test kuralı" in detail["icerik"]
+    assert yabanci["ok"] is False

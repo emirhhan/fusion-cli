@@ -200,3 +200,72 @@ def test_tasarim_olcumu_eklentinin_sayfa_kodunda_calisir(sayfa):
     assert sonuc["url"] == "http://magaza.test/" and sonuc["title"] == "Test"
     assert {"fonts", "colors", "scale", "sections", "products", "images"} <= set(sonuc)
     assert any(gorsel["src"].endswith("/urun.png") for gorsel in sonuc["images"])
+
+
+# --- P-043: erişilebilirlik ağacı ve doğal dilli find ---------------------------------------
+
+
+def test_agac_rol_ad_ref_ve_girintiyle_doner_golge_ve_cerceveyi_kapsar(sayfa):
+    sonuc = sayfa.islem("tree", {"filter": "all"})
+
+    satirlar = sonuc["tree"].split("\n")
+    assert sonuc["lines"] == len(satirlar) and sonuc["truncated"] is False
+    assert any(s.startswith('heading "Mağaza" level=1') for s in satirlar)
+    assert any(re.fullmatch(r'\s*button "Sepete ekle" \[e\d+\]', s) for s in satirlar)
+    assert any('textbox "Ad soyad"' in s for s in satirlar)
+    assert any('combobox "Beden"' in s and 'value="S"' in s for s in satirlar)
+    metin = sonuc["tree"]
+    assert "Gölge düğme" in metin and "Çerçevedeki düğme" in metin
+    # Parola alanı ve görünmeyen düğme ağaçta yok; metin satırları girintili.
+    assert "Parola" not in metin and "Gizli düğme" not in metin
+    assert any(s.startswith("  ") for s in satirlar)
+
+
+def test_agac_etkilesimli_filtresi_derinlik_ve_alt_agac(sayfa):
+    etkilesimli = sayfa.islem("tree", {"filter": "interactive"})
+    assert all(re.search(r"\[e\d+\]", s) for s in etkilesimli["tree"].split("\n"))
+    assert not any(s.lstrip().startswith("text ") for s in etkilesimli["tree"].split("\n"))
+
+    sig = sayfa.islem("tree", {"filter": "all", "depth": 1})
+    assert sig["depth"] == 1 and sig["lines"] < etkilesimli["lines"] + 20
+
+    ref = _ref(sayfa, "Beden")
+    alt = sayfa.islem("tree", {"filter": "all", "ref": ref})
+    assert alt["lines"] >= 1 and 'combobox "Beden"' in alt["tree"]
+    # Alt ağaç mevcut ref'leri sıfırlamaz: aynı ref tıklanabilir kalır.
+    assert sayfa.islem("click", {"ref": ref})["clicked"] == ref
+
+
+def test_dogal_dilli_find_rol_ve_sozcukleri_anlar(sayfa):
+    dugme = sayfa.islem("find", {"query": "sepete ekle düğmesi"})
+    alan = sayfa.islem("find", {"query": "ad soyad alanı"})
+    yukle = sayfa.islem("find", {"query": "görsel yükleme alanı"})
+    eski = sayfa.islem("find", {"query": "hiçbir şey"})
+
+    assert dugme["matches"][0]["name"] == "Sepete ekle" and dugme["matches"][0]["tag"] == "button"
+    assert alan["matches"][0]["name"] == "Ad soyad" and alan["matches"][0]["tag"] == "input"
+    # "yükleme" → kök "yükl" eşleşir (Türkçe ek atma).
+    assert yukle["matches"][0]["name"] == "Görsel yükle"
+    # Eski alt dize davranışı korunur.
+    assert eski["matches"][0]["name"] == "Hiçbir şey yapmaz"
+
+
+def test_rol_sozcugune_esit_sorgu_o_adi_tasiyan_ogeyi_onde_dondurur(sayfa):
+    # Ölçüldü (31 Ekim, bağımsız inceleme): "Menü" sorgusunda sözcük kalmıyor, rol menuitem
+    # oluyor; sayfada herhangi bir menuitem varsa yedek ad araması hiç çalışmıyor ve "Menü"
+    # yazan hamburger düğmesi dönmüyordu. Eski alt dize davranışı doğru sonucu veriyordu.
+    sayfa.set_content(
+        '<button aria-label="Menü">☰</button>'
+        '<div role="menu"><div role="menuitem" tabindex="0">Profil</div>'
+        '<div role="menuitem" tabindex="0">Çıkış</div></div>'
+        '<button>Select all</button><select aria-label="Beden"><option>S</option></select>'
+    )
+
+    menu = sayfa.islem("find", {"query": "Menü"})
+    secim = sayfa.islem("find", {"query": "Select"})
+
+    assert menu["matches"][0]["name"] == "Menü"
+    # Rol eşleşmeleri (menü öğeleri) listede kalır, ad eşleşmesinin arkasında.
+    assert {m["name"] for m in menu["matches"]} >= {"Menü", "Profil", "Çıkış"}
+    assert secim["matches"][0]["name"] == "Select all"
+    assert any(m["tag"] == "select" for m in secim["matches"])

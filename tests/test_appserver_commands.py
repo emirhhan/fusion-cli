@@ -404,3 +404,19 @@ def test_komut_hatasi_gunluge_yazilir(state, caplog) -> None:
 
     assert sonuc == {"ok": False, "metin": messages.APP_COMMAND_FAILED}
     assert "bozuk-komut" in caplog.text and "ConnectionError" in caplog.text
+
+
+def test_terminale_ozgu_komutlar_masaustunde_desteklenmiyor_isaretli(state: ReplState) -> None:
+    """Ölçüldü (31 Ekim): /theme, /tui, /search, /vim, /keybindings, /statusline masaüstü
+    menüsünde 'destekleniyor' görünüyor; kalıcı config/keybindings.json yazıyor ama masaüstünde
+    hiçbir etkisi olmuyordu."""
+    registry = build_registry()
+    rows = {row["ad"]: row for row in list_commands(registry)}
+    for name in ("theme", "tui", "search", "vim", "keybindings", "statusline"):
+        assert rows[name]["destekleniyor"] is False, name
+        assert run_command(registry, state, name, "acik") == {
+            "ok": False,
+            "metin": messages.APP_COMMAND_TERMINAL_ONLY,
+        }
+    assert rows["output-style"]["destekleniyor"] is True
+    assert rows["export"]["destekleniyor"] is True

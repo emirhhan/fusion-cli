@@ -41,6 +41,13 @@ export const DEFAULT_DEADLINES_MS: Readonly<Record<string, number>> = {
   "proje.listele": OKUMA_SON_SURESI_MS,
   "proje.oku": OKUMA_SON_SURESI_MS,
   "proje.onizle": OKUMA_SON_SURESI_MS,
+  // Önizleme paneli (P-041): yapılandırma okuma kısadır; başlatma `npm install`e kadar
+  // bekleyebilir; günlük/ekran görüntüsü başsız tarayıcı açar (sayfa yüklenmesi 30 sn'e kadar).
+  "onizleme.yapilandirmalar": OKUMA_SON_SURESI_MS,
+  "onizleme.baslat": 360_000,
+  "onizleme.durdur": OKUMA_SON_SURESI_MS,
+  "onizleme.gunluk": 90_000,
+  "onizleme.ekran_goruntusu": 90_000,
   "proje.degisiklikler": OKUMA_SON_SURESI_MS,
   // Sağlayıcı paneli (U5-01): cevapsız kalan çekirdek `busy`/`mesgul` durumunu sonsuza dek
   // kilitliyordu (tüm kartlar disabled). Giriş penceresinin KENDİSİ (kullanıcı Chrome'da

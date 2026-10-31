@@ -44,6 +44,8 @@ class _Pending:
     #: Telefonun koda bağladığı teslim anahtarının karması; boşsa eski tek-sefer teslim.
     claim_key_hash: str = ""
     claimed: bool = False
+    #: Masaüstünün eşleştirmeyle birlikte verdiği süreli onay yetkisi (saat); 0 = yok (P-040).
+    approval_hours: float = 0.0
 
 
 class PairingService:
@@ -68,14 +70,27 @@ class PairingService:
         self._token_bytes = token_bytes
         self._pending: dict[str, _Pending] = {}
 
-    def begin(self, scopes: object = None, channel: str = CHANNEL_SIGNED) -> tuple[str, float]:
-        """Masaüstü yeni kod üretir; kapsamlar açık seçimdir."""
+    def begin(
+        self,
+        scopes: object = None,
+        channel: str = CHANNEL_SIGNED,
+        *,
+        approval_hours: float = 0.0,
+    ) -> tuple[str, float]:
+        """Masaüstü yeni kod üretir; kapsamlar açık seçimdir.
+
+        `approval_hours` > 0 ise onaylanan cihaz o kadar saat uzaktan onay verebilir (P-040).
+        """
         granted = parse_scopes(scopes)
         self._purge()
         code = self._new_code()
         expires = self._clock.now() + PAIRING_CODE_TTL_SECONDS
         self._pending[code] = _Pending(
-            code=code, scopes=granted, channel=channel, expires_at=expires
+            code=code,
+            scopes=granted,
+            channel=channel,
+            expires_at=expires,
+            approval_hours=approval_hours,
         )
         return code, expires
 
@@ -130,6 +145,9 @@ class PairingService:
             pending.external_id,
             account_id=self._account_id(),
         )
+        if pending.approval_hours > 0:
+            self._registry.set_approval_trust(device.device_id, pending.approval_hours)
+            device = self._registry.get(device.device_id) or device  # yetkili görünümü döndür
         pending.approved_device = device
         if pending.channel != CHANNEL_SIGNED:
             self._pending.pop(pending.code, None)  # sır teslimi yok: kimlik kanalda
@@ -137,6 +155,16 @@ class PairingService:
         if self._on_paired is not None:
             self._on_paired(device)
         return device
+
+    def awaiting_approval(self, code: str) -> str | None:
+        """Cihaz kodu girdi, masaüstü/terminal onayı bekliyor: cihaz adı; değilse `None`."""
+        try:
+            pending = self._lookup(code)
+        except PairingError:
+            return None
+        if pending.submitted and pending.approved_device is None:
+            return pending.device_name or "Adsız cihaz"
+        return None
 
     def is_approved(self, code: str) -> bool:
         """Kod girildi ve cihaz kaydı oluştu mu (teslim bekliyor)?"""

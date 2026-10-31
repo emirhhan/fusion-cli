@@ -81,6 +81,8 @@ function secenekler(soru: Soru): Secenek[] {
  *   gidiyordu; çekirdek `metin` beklediği için model cevabı hiç alamıyordu.
  *
  * Klavye: 1-9 seçer, ↑/↓ gezinir, Enter onaylar, Esc reddeder / soruyu atlar.
+ * İzin kartında Tab "Not ekle" kutusunu açar (Claude Code'daki gibi): yazılan not
+ * kararla birlikte `not` alanında gider; ret notu modele gerekçe olarak iletilir (P-013).
  */
 export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: ApprovalProps) {
   const sending = useRef(false);
@@ -92,6 +94,10 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
   const digerRef = useRef<HTMLInputElement>(null);
   const [digerAcik, setDigerAcik] = useState(serbestCevap && soru.tur === "soru" && !(soru.secenekler ?? []).length);
   const [digerMetin, setDigerMetin] = useState("");
+  const notRef = useRef<HTMLInputElement>(null);
+  const [notAcik, setNotAcik] = useState(false);
+  const [notMetin, setNotMetin] = useState("");
+  const notAlinir = soru.tur === "onay" && soru.not_alinir === true;
   const liste = secenekler(soru);
   const soruMu = soru.tur === "soru";
   const baslik = soruMu ? soru.soru ?? "Fusion bir şey soruyor" : soru.baslik ?? "Bu işleme izin verilsin mi?";
@@ -114,8 +120,14 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
     setPending(false);
     setError("");
     setDigerMetin("");
+    setNotMetin("");
+    setNotAcik(false);
     setDigerAcik(serbestCevap && soru.tur === "soru" && !(soru.secenekler ?? []).length);
   }, [soru, serbestCevap]);
+
+  useEffect(() => {
+    if (notAcik) notRef.current?.focus();
+  }, [notAcik]);
 
   useEffect(() => {
     if (digerAcik) digerRef.current?.focus();
@@ -141,7 +153,11 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
       setError("Cevap gönderilemedi. Tekrar deneyebilirsin.");
     }
   };
-  const sec = (secenek: Secenek) => submit(secenek.cevap);
+  // Not yalnız izin kartında ve doluysa cevaba eklenir; boş not alan yokmuş gibi gider.
+  const sec = (secenek: Secenek) => {
+    const not = notAlinir ? notMetin.trim() : "";
+    submit(not ? { ...secenek.cevap, not } : secenek.cevap);
+  };
   const digeriGonder = () => {
     if (digerMetin.trim()) submit({ metin: digerMetin.trim() });
   };
@@ -166,8 +182,16 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
       vazgec();
       return;
     }
+    if (notAlinir && event.key === "Tab" && !event.shiftKey && !notAcik && !(event.target instanceof HTMLInputElement)) {
+      event.preventDefault();
+      setNotAcik(true);
+      return;
+    }
     if (event.target instanceof HTMLInputElement) {
       if (event.key === "Enter" && (event.repeat || koruma())) event.preventDefault();
+      // Not kutusunda Enter: karar seçilmişse değil, not yazılıyken Enter karta döner;
+      // kullanıcı ardından 1-9 ile kararı verir (not kararla birlikte gider).
+      if (event.key === "Enter" && event.target === notRef.current) { event.preventDefault(); kartRef.current?.focus(); }
       return;
     }
     const sira = Number(event.key);
@@ -204,6 +228,7 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
         {!soruMu && soru.hedef && !soru.diff && <pre className="prompt-card__target">{soru.hedef}</pre>}
         {soru.tehlike && <p className="prompt-card__danger">Dikkat: {soru.tehlike}</p>}
         {!soru.tehlike && soru.neden && <p className="prompt-card__reason">{soru.neden}</p>}
+        {!soruMu && soru.kural && <p className="prompt-card__rule">İzin kuralı: <code>{soru.kural}</code></p>}
         {soru.diff && (
           <div className="prompt-card__diff">
             {/* Karar argümandan değil SONUCUNDAN verilir: ne değişecek, burada. */}
@@ -255,9 +280,30 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
             </form>
           )}
         </div>
+        {notAlinir && !notAcik && (
+          <button className="prompt-card__note-toggle" disabled={pending} onClick={() => setNotAcik(true)} type="button">
+            Not ekle<small>Reddedersen gerekçen modele gider</small>
+          </button>
+        )}
+        {notAlinir && notAcik && (
+          <div className="prompt-card__note">
+            <input
+              aria-label="Karar notu"
+              disabled={pending}
+              onChange={(event) => setNotMetin(event.target.value)}
+              placeholder="Örn. pytest yerine make test kullan"
+              ref={notRef}
+              value={notMetin}
+            />
+          </div>
+        )}
         {error && <p role="alert">{error}</p>}
         <p className="prompt-card__hint">
-          {soruMu ? "Sayıyla seç · Esc soruyu atla" : reddet ? "Sayıyla seç · Esc reddet" : "Devam etmek için bir karar seç"}
+          {soruMu
+            ? "Sayıyla seç · Esc soruyu atla"
+            : reddet
+              ? `Sayıyla seç · Esc reddet${notAlinir ? " · Tab not ekle" : ""}`
+              : "Devam etmek için bir karar seç"}
         </p>
       </section>
     </div>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { PermissionPrompt } from "../permissions/PermissionPrompt";
 import { usePermissions } from "../permissions/usePermissions";
-import type { PermissionBridge } from "../permissions/types";
+import { hasSettingsLink, type PermissionBridge } from "../permissions/types";
 import { nativePermissionBridge } from "../platform/permissions";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -977,7 +977,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     />
     {permissions.activeKind && (
       <PermissionPrompt
-        canOpenSettings={permissions.activeKind === "microphone" || permissions.activeKind === "speech"}
+        canOpenSettings={hasSettingsLink(permissions.activeKind)}
         error={permissions.error}
         isRequesting={permissions.isRequesting}
         kind={permissions.activeKind}

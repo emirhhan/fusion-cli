@@ -20,8 +20,9 @@ from ..core.constants import APPROVAL_UNANSWERED_TIMEOUT_S, QUESTION_RECEIPT_HIS
 from ..core.events import Event
 from ..core.redaction import redact
 from ..core.submission import SubmissionReceipt
-from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
+from ..engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequest
 from ..engines.agent.engine_tools import QuestionOption
+from ..engines.agent.permission_persist import always_description
 from ..ui import messages
 from .approval_preview import onizleme_diffi
 from .approval_summary import approval_summary
@@ -30,6 +31,8 @@ from .serialize import event_to_dict
 
 #: Onay kartında tek argüman değerinin en çok karakteri; kalanı "… N karakter daha".
 APPROVAL_ARG_PREVIEW_MAX_CHARS = 2_000
+#: Kullanıcının onay cevabına eklediği notun en çok karakteri (P-013).
+APPROVAL_NOTE_MAX_CHARS = 1_000
 
 #: Tek satır yazan taraf. Testte listeye, üretimde stdout'a yazar.
 Writer = Callable[[str], None]
@@ -162,8 +165,11 @@ class ProtocolPrompter:
         #: onay akışı bundan bağımsız çalışır.
         self._root = root
 
-    async def confirm(self, request: ApprovalRequest) -> ApprovalAnswer:
-        """Onay isteğini ilet ve güvenli varsayılanla kullanıcı kararını döndür."""
+    async def confirm(self, request: ApprovalRequest) -> ApprovalAnswer | ApprovalReply:
+        """Onay isteğini ilet ve güvenli varsayılanla kullanıcı kararını döndür.
+
+        Cevaptaki `not` alanı (P-013) kararla birlikte taşınır: ret gerekçesi modele gider.
+        """
         element = (
             self._element_name(request.args.get("ref")) if self._element_name is not None else None
         )
@@ -180,17 +186,26 @@ class ProtocolPrompter:
             # Kullanıcı "ne değişecek" sorusunu argümanlardan değil diff'ten
             # okumalı (bkz. `approval_preview`).
             "diff": self._onizleme(request),
-            "secenekler": _approval_options(request),
+            "secenekler": _approval_options(request, self._root),
             # İsteyen alt ajan (P-034): kart "Alt ajan X izin istiyor" der; ana ajanda None.
             "ajan": request.agent_label or None,
+            # Eşleşen izin kuralı ve "not ekle" desteği (P-001, P-013).
+            "kural": request.rule,
+            "not_alinir": True,
         }
         data = await self._ask_approval(payload, request)
         choice = data.get("secim")
+        raw_note = data.get("not")
+        note = raw_note.strip()[:APPROVAL_NOTE_MAX_CHARS] if isinstance(raw_note, str) else ""
         if choice == "once":
-            return ApprovalAnswer.ONCE
-        if choice == "session" and request.can_remember:
-            return ApprovalAnswer.SESSION
-        return ApprovalAnswer.DENY
+            answer: ApprovalAnswer = ApprovalAnswer.ONCE
+        elif choice == "session" and request.can_remember:
+            answer = ApprovalAnswer.SESSION
+        elif choice == "always" and request.can_persist:
+            answer = ApprovalAnswer.ALWAYS
+        else:
+            answer = ApprovalAnswer.DENY
+        return ApprovalReply(answer, note) if note else answer
 
     def _onizleme(self, request: ApprovalRequest) -> str:
         """Düzenleme onaylarında değişiklik önizlemesi; üretilemezse boş metin."""
@@ -303,8 +318,12 @@ def _preview_value(value: object) -> str:
     return f"{redact(raw[:APPROVAL_ARG_PREVIEW_MAX_CHARS])}… {hidden} karakter daha"
 
 
-def _approval_options(request: ApprovalRequest) -> list[dict[str, str]]:
-    """Yıkıcı istekte oturum izni olmadan onay seçeneklerini üret."""
+def _approval_options(request: ApprovalRequest, root: Path | None = None) -> list[dict[str, str]]:
+    """Yıkıcı istekte oturum izni olmadan onay seçeneklerini üret.
+
+    `can_persist` istekte "bir daha sorma" (kalıcı kural, P-003) de sunulur; açıklama
+    yazılacak kuralı gösterir ki kullanıcı neye izin verdiğini görsün.
+    """
     options = [{"deger": "once", "etiket": messages.TUI_APPROVAL_ONCE}]
     if request.can_remember:
         session = {"deger": "session", "etiket": messages.TUI_APPROVAL_SESSION}
@@ -312,5 +331,14 @@ def _approval_options(request: ApprovalRequest) -> list[dict[str, str]]:
         if description:
             session["aciklama"] = description
         options.append(session)
+    if request.can_persist:
+        options.append(
+            {
+                "deger": "always",
+                "etiket": messages.TUI_APPROVAL_ALWAYS,
+                # Kapsamı da söyler: kullanıcı dosyasına düşüyorsa "TÜM PROJELER" (P-003).
+                "aciklama": always_description(request, root),
+            }
+        )
     options.append({"deger": "deny", "etiket": messages.TUI_APPROVAL_DENY})
     return options

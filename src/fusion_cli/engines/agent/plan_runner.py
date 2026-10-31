@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...core.assets import UNUSED_ASSETS_PREFIX, is_asset_inventory
-from ...core.browser_session import BrowserSession
 from ...core.budget import BudgetStop
 from ...core.changeset import ChangeSet
 from ...core.checkpoint import StepCheckpointEvidence, WorkflowBudgetUsage, WorkflowCheckpoint
@@ -91,7 +90,8 @@ def _step_context(context: ToolContext, root: Path | None = None) -> ToolContext
     `fully_read` KOPYALANIR, sıfırlanmaz: paylaşılan konuşma geçmişinde (bkz.
     `_PlanRun.messages`) model bu dosyaları zaten okumuş görünür; sıfırlamak onu
     aynı dosyayı ikinci kez okumaya zorlardı. `touched`, `changes`, `todos` ve
-    `browser` adım başına ayrı kalır: adım kanıtı ve geri alma buna dayanır.
+    `browser` adım başına ayrı kalır (ayarları devralır, oturumu değil): adım kanıtı ve
+    geri alma buna dayanır.
     """
     return replace(
         context,
@@ -100,7 +100,7 @@ def _step_context(context: ToolContext, root: Path | None = None) -> ToolContext
         touched=set(),
         fully_read=set(context.fully_read),
         pending=PendingWrite(),
-        browser=BrowserSession(),
+        browser=context.browser.derive(),
         changes=ChangeSet(),
         available_tools=set(context.available_tools),
     )

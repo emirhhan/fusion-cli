@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import { kabukVar } from "../voice/bridge";
 import { ayriKokenliOnizlemeAdresi } from "./htmlPreviewSource";
+import { PreviewLaunch } from "./PreviewLaunch";
+import { PreviewLog } from "./PreviewLog";
+import { PreviewScreenshot } from "./PreviewScreenshot";
+import { DEFAULT_VIEWPORT_ID, PREVIEW_VIEWPORTS, findViewport, frameWidth } from "./previewViewports";
 import "./PreviewPanel.css";
 
 type PreviewKind = "image" | "audio" | "video" | "pdf" | "html" | "text";
@@ -70,7 +74,8 @@ async function openWithSystem(url: string): Promise<void> {
 }
 
 type PreviewMode = "file" | "web";
-type PreviewViewport = "desktop" | "tablet" | "mobile";
+/** Alt çekmece: konsol/ağ günlüğü ya da ekran görüntüsü (P-041); ikisi aynı anda açılmaz. */
+type PreviewDrawer = "none" | "log" | "shot";
 
 export function PreviewPanel({
   client,
@@ -91,7 +96,9 @@ export function PreviewPanel({
   const [frameErrorUrl, setFrameErrorUrl] = useState<string | null>(null);
   const [frameChecking, setFrameChecking] = useState(false);
   const [frameRevision, setFrameRevision] = useState(0);
-  const [viewport, setViewport] = useState<PreviewViewport>("desktop");
+  const [viewportId, setViewportId] = useState<string>(DEFAULT_VIEWPORT_ID);
+  const [drawer, setDrawer] = useState<PreviewDrawer>("none");
+  const viewport = findViewport(viewportId);
   const [objectUrl, setObjectUrl] = useState("");
   const inputValueRef = useRef("");
   const modeRefs = useRef<Record<PreviewMode, HTMLButtonElement | null>>({ file: null, web: null });
@@ -286,16 +293,41 @@ export function PreviewPanel({
               </form>
               <select
                 aria-label="Önizleme boyutu"
-                onChange={(event) => setViewport(event.target.value as PreviewViewport)}
-                value={viewport}
+                onChange={(event) => setViewportId(event.target.value)}
+                value={viewportId}
               >
-                <option value="desktop">Masaüstü</option>
-                <option value="tablet">Tablet</option>
-                <option value="mobile">Mobil</option>
+                {PREVIEW_VIEWPORTS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
               </select>
-              <button aria-label="Dışarıda aç" disabled={!localUrl} onClick={() => void launchExternal()} title="Dışarıda aç" type="button">↗</button>
+              <div className="preview-panel__actions">
+                <button
+                  aria-label="Konsol ve ağ günlüğü"
+                  aria-pressed={drawer === "log"}
+                  disabled={!localUrl}
+                  onClick={() => setDrawer((current) => (current === "log" ? "none" : "log"))}
+                  title="Konsol ve ağ günlüğü"
+                  type="button"
+                >≡</button>
+                <button
+                  aria-label="Ekran görüntüsü al"
+                  aria-pressed={drawer === "shot"}
+                  disabled={!localUrl}
+                  onClick={() => setDrawer((current) => (current === "shot" ? "none" : "shot"))}
+                  title="Ekran görüntüsü al"
+                  type="button"
+                >◧</button>
+                <button aria-label="Dışarıda aç" disabled={!localUrl} onClick={() => void launchExternal()} title="Dışarıda aç" type="button">↗</button>
+              </div>
             </div>
             {addressError && <p className="preview-panel__address-error" role="alert">{addressError}</p>}
+            <PreviewLaunch
+              client={client}
+              disabled={frameChecking}
+              onStarted={(url) => {
+                setInput(url);
+                inputValueRef.current = url;
+                void openAddress(url);
+              }}
+            />
           </div>
 
           {frameChecking ? (
@@ -310,15 +342,22 @@ export function PreviewPanel({
               {frameErrorUrl && <button onClick={() => void launchExternal(frameErrorUrl)} type="button">Dışarıda aç</button>}
             </div>
           ) : localUrl ? (
-            <div className="preview-panel__viewport" data-testid="web-preview-viewport" data-viewport={viewport}>
-              <iframe
-                className="preview-panel__frame"
-                data-revision={frameRevision}
-                key={`${localUrl}-${frameRevision}`}
-                sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
-                src={localUrl}
-                title="Yerel geliştirme önizlemesi"
-              />
+            <div className="preview-panel__stage">
+              <div className="preview-panel__viewport" data-testid="web-preview-viewport" data-viewport={viewport.id}>
+                <iframe
+                  className="preview-panel__frame"
+                  data-revision={frameRevision}
+                  key={`${localUrl}-${frameRevision}`}
+                  sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
+                  src={localUrl}
+                  style={{ width: frameWidth(viewport) }}
+                  title="Yerel geliştirme önizlemesi"
+                />
+              </div>
+              {drawer === "log" && <PreviewLog client={client} onClose={() => setDrawer("none")} url={localUrl} />}
+              {drawer === "shot" && (
+                <PreviewScreenshot client={client} onClose={() => setDrawer("none")} url={localUrl} viewport={viewport} />
+              )}
             </div>
           ) : (
             <div className="preview-panel__empty">

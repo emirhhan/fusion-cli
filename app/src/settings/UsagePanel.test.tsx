@@ -99,3 +99,39 @@ describe("UsagePanel", () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 });
+
+// Ölçüldü (31 Ekim, P-066): panel `limitler` alanını okumuyordu; "sağlayıcı beni bekletiyor mu" görünmüyordu.
+describe("UsagePanel hız sınırları ve kota", () => {
+  it("kota bekleten modeli ve ayarlı dakikalık sınırı gösterir", async () => {
+    render(
+      <UsagePanel
+        client={client({
+          ok: true,
+          kullanim: { cagri: 0, girdi_token: 0, cikti_token: 0, toplam_token: 0, maliyet_usd: 0, modeller: [] },
+          saglik: [],
+          limitler: {
+            dakikaLimitleri: [{ saglayici: "nvidia_nim", dakikaLimiti: 40 }],
+            kotaBekleyen: [{ model: "nim/llama", seri: 2, yenidenSn: 90 }],
+          },
+        })}
+      />,
+    );
+    expect(await screen.findByText("nim/llama")).toBeTruthy();
+    expect(screen.getByText(/90 sn sonra yeniden/)).toBeTruthy();
+    expect(screen.getByText(/40 istek\/dk/)).toBeTruthy();
+  });
+
+  it("eski çekirdek limit göndermezse hata vermez ve 'bekletmiyor' der", async () => {
+    render(
+      <UsagePanel
+        client={client({
+          ok: true,
+          kullanim: { cagri: 0, girdi_token: 0, cikti_token: 0, toplam_token: 0, maliyet_usd: 0, modeller: [] },
+          saglik: [],
+        })}
+      />,
+    );
+    expect(await screen.findByText("Şu an hiçbir sağlayıcı kota bekletmiyor.")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});

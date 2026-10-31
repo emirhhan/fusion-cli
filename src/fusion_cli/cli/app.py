@@ -29,10 +29,12 @@ from ..config.loader import load_config
 from ..config.models import Config
 from ..config.paths import user_data_dir
 from ..config.readiness import Readiness, evaluate
-from ..core.errors import FusionError
+from ..core.errors import ConfigError, FusionError
 from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
-from ..engines.agent.approval import ApprovalMode, parse_mode
+from ..core.worktree import Worktree, WorktreeSwitch
+from ..engines.agent.approval import ApprovalMemory, ApprovalMode, parse_mode
+from ..remote.constants import APPROVAL_TRUST_MAX_HOURS, DEFAULT_REMOTE_PORT
 from ..ui import messages, theme
 from .app_host import AppHostDependencies
 
@@ -41,8 +43,10 @@ if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
 from ..ui.renderer import ConsoleRenderer
 from ..ui.tables import cost_summary
 from . import (
+    browser_commands,
     capability_commands,
     eval_commands,
+    kit_commands,
     knowledge_commands,
     memory_commands,
     paperclip_command,
@@ -51,8 +55,9 @@ from . import (
 )
 from .cleanup import with_web_cleanup
 from .prompter import ConsolePrompter
-from .repl import run_repl
+from .repl import run_repl, session_resume, worktrees
 from .repl.persona_commands import PersonaTurn
+from .rule_notices import attach_rule_writer, print_rule_notices
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
 from .setup_command import run_setup
 
@@ -70,8 +75,10 @@ app.add_typer(memory_commands.app, name="memory")
 app.add_typer(knowledge_commands.app, name="knowledge")
 app.add_typer(trash_commands.app, name="cop")
 app.add_typer(capability_commands.app, name="yetenek")
+app.add_typer(kit_commands.app, name="kit")
 app.add_typer(eval_commands.eval_app, name="eval")
 app.add_typer(prompt_opt_commands.prompt_opt_app, name="prompt-opt")
+app.add_typer(browser_commands.app, name="browser")
 app.command("paperclip")(paperclip_command.paperclip)
 
 console = Console()
@@ -107,12 +114,59 @@ def main_callback(
             ".claude/agents'taki bir ad); oturumda /persona ile değiştirilir.",
         ),
     ] = None,
+    config_set: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--set",
+            help="Oturumluk ayar bölüm.alan=değer (ör. runtime.max_tokens=8192); dosyaya yazmaz.",
+        ),
+    ] = None,
+    profile_name: Annotated[
+        str | None,
+        typer.Option(
+            "--profile", help="Oturumluk model kademesi (low, medium, high, ultra, premium)."
+        ),
+    ] = None,
+    continue_last: Annotated[
+        bool,
+        typer.Option("--continue", "-c", help="Bu projedeki son Fusion sohbetini sürdür."),
+    ] = False,
+    resume: Annotated[
+        str,
+        typer.Option(
+            "--resume", "-r", help="Kimliği, adı ya da kimlik öneki verilen sohbeti sürdür."
+        ),
+    ] = "",
+    fork_session: Annotated[
+        bool,
+        typer.Option(
+            "--fork-session",
+            help="Sürdürülen sohbeti kopyalayıp yeni kimlikle aç; özgün sohbet değişmez.",
+        ),
+    ] = False,
+    name: Annotated[
+        str,
+        typer.Option("--name", "-n", help="Sohbete ad ver (/resume listesinde ve --resume <ad>)."),
+    ] = "",
+    worktree: Annotated[
+        str,
+        typer.Option(
+            "--worktree",
+            "-w",
+            help="Git çalışma ağacında çalış: .fusion/worktrees/<ad>, dal worktree-<ad>.",
+        ),
+    ] = "",
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
     if ctx.invoked_subcommand is not None:
+        # `-c`/`--profile` alt komutlarda da geçerlidir (Codex `-c … exec` gibi). Ölçüldü
+        # (31 Ekim): bayraklar burada sessizce yok sayılıyordu. Alt komutlar yapılandırmayı
+        # `_session_config()` ile alır. `ctx.meta` kullanılamadı: typer 0.27 komut gövdesinde
+        # `click.get_current_context()` None döner; `ctx.obj` masaüstü bağımlılıklarına ayrılı.
+        _SESSION.overrides = (tuple(config_set or ()), profile_name)
         return
     persona = str(agent_persona or "")
-    config = load_config()
+    config = _session_config_or_exit(load_config(), tuple(config_set or ()), profile_name)
     # Kapı `evaluate` ile: yalnız Ollama/yerel uç ya da başka sağlayıcıyla çalışan kullanıcı,
     # OpenRouter/NIM anahtarı yok diye REPL'e hiç girememeliydi (L1-13). Anahtarsız VARSAYILAN
     # kurulumda agent rolü kullanılamaz, `NOT_READY` olur ve eski davranış korunur.
@@ -121,21 +175,41 @@ def main_callback(
         # yanıt veremedi" hatasına sürüklerdi. Eksik olan şey söylenir.
         console.print(f"[{theme.WARN}]{messages.SETUP_NO_KEYS}[/{theme.WARN}]")
         raise typer.Exit(1)
-    root = Path.cwd()
-    raise typer.Exit(
-        asyncio.run(
-            with_web_cleanup(
-                run_repl(
-                    config,
-                    memory=open_memory(config, root=root),
-                    root=root,
-                    console=console,
-                    extra_roots=tuple(add_dir or ()),
-                    persona=persona,
-                )
+    try:
+        root, tree = worktrees.resolve_launch_root(Path.cwd(), worktree)
+        target = session_resume.resolve_launch(
+            config.memory_dir,
+            root,
+            continue_last=continue_last,
+            resume=resume,
+            fork=fork_session,
+            name=name,
+        )
+    except FusionError as error:
+        error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(1) from None
+    if tree is not None and worktree.strip():
+        _print_worktree_notice(tree)
+    exit_code = asyncio.run(
+        with_web_cleanup(
+            run_repl(
+                config,
+                memory=open_memory(config, root=root),
+                root=root,
+                console=console,
+                extra_roots=tuple(add_dir or ()),
+                resume=target,
+                worktree=tree,
+                persona=persona,
             )
         )
     )
+    raise typer.Exit(exit_code)
+
+
+def _print_worktree_notice(tree: Worktree) -> None:
+    text = messages.WORKTREE_ENTERED.format(path=tree.path, branch=tree.branch)
+    console.print(f"[{theme.DIM}]{escape(text)}[/{theme.DIM}]")
 
 
 @app.command()
@@ -164,7 +238,7 @@ def run(
             messages.RUN_UNKNOWN_TASK_TYPE.format(given=task_type, valid=", ".join(TASK_TYPES))
         )
 
-    config = load_config()
+    config = _session_config()
     renderer = ConsoleRenderer(
         console, show_progress=not quiet, show_all_answers=show_all, show_call_details=True
     )
@@ -329,20 +403,40 @@ def agent(
             ".claude/agents'taki bir ad): gövdesi sistem istemine girer, araçları daralır.",
         ),
     ] = None,
+    worktree: Annotated[
+        str,
+        typer.Option(
+            "--worktree",
+            "-w",
+            help="Görevi izole git çalışma ağacında koş (.fusion/worktrees/<ad>); ağaç korunur.",
+        ),
+    ] = "",
 ) -> None:
     """Görevi araçlarla çalıştır: dosya oku/yaz, komut çalıştır, web'de ara."""
     if not task.strip():
         raise typer.BadParameter(messages.RUN_EMPTY_TASK)
     approval = _parse_mode(mode)
 
-    config = load_config()
-    root = Path.cwd()
+    config = _session_config()
+    try:
+        root, tree = worktrees.resolve_launch_root(Path.cwd(), worktree)
+    except FusionError as error:
+        error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(1) from None
+    if tree is not None and worktree.strip() and not as_json:
+        _print_worktree_notice(tree)
     persona_turn = _session_persona(agent_persona, root)
     renderer = ConsoleRenderer(console, show_progress=not quiet)
     observers = build_observers(
         task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
     )
+    # Tek atışta oturum yoktur: `enter_worktree` isteği tur sonunda köke dönüşmez, yalnız
+    # açılan ağaç bildirilir (ağaç korunur; sonraki iş `fusion -w <ad>` ile oradan sürer).
+    switch = WorktreeSwitch()
 
+    # `k` (kalıcı izin) burada da kural YAZAR: hafızaya yazıcı bağlanır, bildirim tur sonunda
+    # basılır (P-003; ölçüldü 31 Ekim: bağlanmıyordu, `k` yalnız oturum içi hatırlıyordu).
+    approval_memory = attach_rule_writer(ApprovalMemory(), root)
     outcome = _run_observed(
         with_web_cleanup(
             run_agent_task(
@@ -365,17 +459,67 @@ def agent(
                 extra_roots=tuple(add_dir or ()),
                 extra_system=persona_turn.extra_system,
                 allowed_tools=persona_turn.allowed_tools,
+                denied_tools=persona_turn.denied_tools,
+                approval_memory=approval_memory,
+                worktree_switch=switch,
             )
         ),
         renderer,
         observers,
     )
     observers.finish()
+    print_rule_notices(console, approval_memory)
+    opened, _exit_requested = switch.take()
+    if opened is not None and not as_json:
+        _print_worktree_notice(opened)
     _print_usage(observers, quiet=quiet or as_json)
     # Çıkış kodu `outcome.ok`a bakar (paperclip ile aynı kural): Ölçüldü (30 Ekim) yalnız
     # boş metin 1 yapıyordu; hata mesajı/bütçe durdurması/hız sınırı dolu metinle 0 dönüyor,
     # betikler başarısızlığı yakalayamıyordu (L1-46).
     if not outcome.final_text.strip() or not outcome.ok:
+        raise typer.Exit(1)
+
+
+@app.command()
+def init(
+    fmt: str = typer.Option(
+        "agents", "--format", "-f", help="Üretilecek dosya: agents (AGENTS.md) | claude (CLAUDE.md)"
+    ),
+    mode: str = typer.Option("edits", "--mode", "-m", help="Onay modu (varsayılan: edits)."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="İlerleme satırlarını gizle."),
+) -> None:
+    """Depoyu inceleyip kök talimat dosyasını (AGENTS.md / CLAUDE.md) üret — /init ile aynı."""
+    from ..engines.agent.instruction_audit import init_task
+
+    config = load_config()
+    root = Path.cwd()
+    task = init_task(root, Path.home(), fmt=fmt)
+    renderer = ConsoleRenderer(console, show_progress=not quiet)
+    observers = build_observers(
+        task, renderer=renderer, as_json=False, trace_dir=config.memory_dir / "traces"
+    )
+    outcome = _run_observed(
+        with_web_cleanup(
+            run_agent_task(
+                task,
+                config,
+                sinks=observers.sinks,
+                prompter_factory=lambda flush: ConsolePrompter(
+                    console,
+                    ToolContext(root=root, restrict_to_root=config.runtime.restrict_to_root),
+                    flush=flush,
+                ),
+                mode=_parse_mode(mode),
+                root=root,
+                home=Path.home(),
+                memory=open_memory(config, root=root),
+            )
+        ),
+        renderer,
+        observers,
+    )
+    observers.finish()
+    if not outcome.ok:
         raise typer.Exit(1)
 
 
@@ -424,7 +568,7 @@ def models(
 ) -> None:
     """Yapılandırılmış modelleri, `--fetch` ile canlı katalogları göster."""
     if not fetch:
-        _print_configured_models(load_config())
+        _print_configured_models(_session_config())
         return
     load_config()  # .env yüklenir; NIM anahtarı katalog için gerekir
     _print_catalog()
@@ -469,7 +613,7 @@ def serve(
     """
     from ..gateway.server import serve as run_gateway
 
-    config = load_config()
+    config = _session_config()
     console.print(
         f"[bold]Fusion gateway[/bold] → http://{host}:{port}/v1\n"
         f"[dim]panel: [/dim]http://{host}:{port}/dashboard   "
@@ -494,11 +638,11 @@ def trust(
         Path, typer.Argument(help="Güvenilecek proje kökü (varsayılan: bulunduğun dizin).")
     ] = Path(),
 ) -> None:
-    """Projenin config.yaml, .fusion/tools ve .claude/settings.local.json dosyalarına güven.
+    """Projenin config.yaml, .fusion/tools, launch.json ve .claude/settings.local.json'a güven.
 
-    Güvenilmeyen projede bu dosyalar MCP süreci, doğrulama komutu, araç ya da
-    onaysız kabuk komutu (izin listesi) çalıştıramaz. Dosyalar sonradan değişirse
-    güven kendiliğinden düşer.
+    Güvenilmeyen projede bu dosyalar MCP süreci, doğrulama komutu, araç, önizleme
+    sunucusu komutu (`.fusion/launch.json`, `.claude/launch.json`) ya da onaysız kabuk
+    komutu (izin listesi) çalıştıramaz. Dosyalar sonradan değişirse güven kendiliğinden düşer.
     """
     from ..config import trust as project_trust
 
@@ -508,6 +652,86 @@ def trust(
         raise typer.Exit(code=1)
     project_trust.trust_project(root)
     console.print(f"[green]Güvenildi:[/green] {root}")
+
+
+@app.command()
+def permissions(
+    action: Annotated[
+        str, typer.Argument(help="list | add | remove (Claude Code /permissions eşdeğeri).")
+    ] = "list",
+    decision: Annotated[str, typer.Argument(help="allow | ask | deny")] = "",
+    pattern: Annotated[
+        list[str] | None,
+        typer.Argument(help="Kalıp: Bash(npm test *), Edit(/src/**), WebFetch(domain:x)…"),
+    ] = None,
+    user: Annotated[
+        bool,
+        typer.Option("--user", help="Projeye değil kullanıcı dosyasına (permissions.json) yaz."),
+    ] = False,
+    path: Annotated[
+        Path, typer.Option("--path", help="Proje kökü (varsayılan: bulunduğun dizin).")
+    ] = Path(),
+) -> None:
+    """İzin kurallarını (allow/ask/deny) listele, ekle, sil (P-003).
+
+    Kurallar Claude Code ile aynı dosyalarda durur: projenin `.claude/settings.local.json`'ı
+    (güvenilen projede) ya da kullanıcının `permissions.json`'ı. Örnek:
+    `fusion permissions add allow "Bash(npm test *)"`.
+    """
+    from ..config import permission_admin
+    from ..config.loader import load_config
+    from ..ui import messages
+
+    root = path.resolve()
+    if action in ("list", "liste"):
+        rows = permission_admin.rule_rows(root)
+        if not rows:
+            console.print(messages.PERMISSIONS_EMPTY)
+        for row in rows:
+            console.print(escape(f"· {row.pattern}  [{row.decision}]  ({row.source})"))
+        config = load_config()
+        console.print(
+            f"kök dışı: okuma {'KAPALI' if config.runtime.block_reads_outside_root else 'açık'} · "
+            f"yazma {'KAPALI' if config.runtime.block_writes_outside_root else 'onayla'}"
+        )
+        return
+    if action not in ("add", "remove") or not decision or not pattern:
+        console.print(f"[red]{escape(messages.PERMISSIONS_USAGE)}[/red]")
+        raise typer.Exit(code=2)
+    try:
+        karar = permission_admin.parse_decision(decision)
+    except ValueError:
+        console.print(
+            f"[red]{escape(messages.PERMISSIONS_BAD_DECISION.format(given=decision))}[/red]"
+        )
+        raise typer.Exit(code=2) from None
+    kalip = " ".join(pattern)
+    try:
+        rule = permission_admin.parse_pattern(kalip, karar)
+    except ValueError:
+        console.print(f"[red]{escape(messages.PERMISSIONS_BAD_PATTERN.format(given=kalip))}[/red]")
+        raise typer.Exit(code=2) from None
+    try:
+        if action == "add":
+            change = permission_admin.add_permission_rule(root, rule, user_level=user)
+            text = (
+                permission_admin.added_message(change, karar)
+                if change.changed
+                else messages.PERMISSIONS_EXISTS.format(rule=change.pattern, decision=karar.value)
+            )
+        else:
+            removed = permission_admin.remove_permission_rule(root, rule)
+            text = (
+                messages.PERMISSIONS_REMOVED.format(
+                    rule=removed.pattern, decision=karar.value, path=removed.path
+                )
+                if removed is not None
+                else messages.PERMISSIONS_NOT_FOUND.format(rule=rule.pattern, decision=karar.value)
+            )
+    except FusionError as error:
+        console.print(f"[red]{escape(str(error))}[/red]")
+        raise typer.Exit(code=1) from error
+    console.print(escape(text))
 
 
 @app.command("adopt-data")
@@ -698,7 +922,7 @@ def app_protocol(ctx: typer.Context) -> None:
 @app.command(name="mcp-tools")
 def mcp_tools() -> None:
     """Yapılandırılmış dış MCP sunucularının araçlarını listele (bağlanır ve keşfeder)."""
-    config = load_config()
+    config = _session_config()
     if not config.mcp_servers:
         console.print(messages.MCP_NO_SERVERS)
         return
@@ -764,6 +988,66 @@ def mcp_add(
     console.print(f"[{theme.DIM}]{path}[/{theme.DIM}]")
 
 
+@app.command(name="remote-control")
+def remote_control(
+    port: int = typer.Option(DEFAULT_REMOTE_PORT, "--port", "-p", help="Dinlenecek port."),
+    local_only: bool = typer.Option(
+        False,
+        "--yerel",
+        help="Yalnız bu bilgisayar (127.0.0.1), tünel bayrağı olmadan. Varsayılan: özel tünel "
+        "(Tailscale/Cloudflare) arkasında dinleme.",
+    ),
+    telegram: bool = typer.Option(
+        False, "--telegram", help="Anahtarlıktaki bot belirteciyle Telegram köprüsünü de bağla."
+    ),
+    scopes: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--kapsam",
+            help="Varsayılanlara ek kapsam (ör. project.write). Yüksek yetkili kapsam terminalde "
+            "onay ister. Birden çok kez verilebilir.",
+        ),
+    ] = None,
+    approval_hours: float = typer.Option(
+        0.0,
+        "--onay-saat",
+        min=0,
+        max=APPROVAL_TRUST_MAX_HOURS,
+        help="Eşleşen cihaza bu kadar saat uzaktan onay yetkisi ver (0 = verme; en çok 168). "
+        "Yalnız masaüstünde 'cihaz başına süreli yetki iste' açıkken anlamlıdır.",
+    ),
+    public_url: str = typer.Option(
+        "",
+        "--adres",
+        help="Telefonun açacağı tünel adresi (ör. https://mac.tailnet.ts.net). Boşsa Tailscale'den "
+        "okunur; bulunamazsa QR basılmaz (127.0.0.1 telefonda açılmaz).",
+    ),
+) -> None:
+    """Oturumu masaüstü uygulaması olmadan telefondan/Telegram'dan sür (`claude remote-control`).
+
+    Aynı süreçte uzak HTTP yüzünü açar, eşleştirme kodunu ve adresi (segno kuruluysa QR'ı)
+    basar; görevler bu bilgisayarda çalışır, onaylar telefona gider. Ctrl-C ile durur.
+    """
+    from ..accounts import activate_account, remembered_account
+    from .remote_control import RemoteControlOptions, run_remote_control
+
+    # Masaüstüyle aynı hesap/dizin: hatırlanan hesap yapılandırma okunmadan önce seçilir.
+    hesap = remembered_account()
+    if hesap:
+        activate_account(hesap)
+    options = RemoteControlOptions(
+        root=Path.cwd(),
+        home=Path.home(),
+        port=port,
+        tunnel=not local_only,
+        telegram=telegram,
+        extra_scopes=tuple(scopes or ()),
+        approval_hours=approval_hours,
+        public_url=public_url.strip(),
+    )
+    raise typer.Exit(asyncio.run(run_remote_control(options, console)))
+
+
 @app.command()
 def setup() -> None:
     """İlk kurulum: kullanıcı dizinine config.yaml ve .env şablonu bırak."""
@@ -779,7 +1063,7 @@ def trace(
     from ..observability.trace_store import TraceStore
     from .trace_command import list_runs, render_trace
 
-    store = TraceStore(load_config().memory_dir / "traces")
+    store = TraceStore(_session_config().memory_dir / "traces")
     if liste:
         list_runs(store)
         return
@@ -792,6 +1076,56 @@ def stats() -> None:
     memory_commands.show_stats()
 
 
+class _SessionOverrides:
+    """`-c`/`--profile` değerlerinin callback'ten alt komuta taşındığı süreç kapsamlı taşıyıcı.
+
+    Her CLI çağrısı tek süreçtir; callback her seferinde yazar (bayrak yoksa boş), bu yüzden
+    aynı süreçte art arda çağrı (test koşucusu) eski değeri taşımaz.
+    """
+
+    overrides: tuple[tuple[str, ...], str | None] = ((), None)
+
+
+_SESSION = _SessionOverrides()
+
+
+def _session_config() -> Config:
+    """Alt komutun yapılandırması: dosya + varsa `-c`/`--profile` oturumluk geçersiz kılmaları."""
+    config = load_config()
+    pairs, tier = _SESSION.overrides
+    if not pairs and not tier:
+        return config
+    return _session_config_or_exit(config, pairs, tier)
+
+
+def _session_config_or_exit(config: Config, pairs: tuple[str, ...], tier: str | None) -> Config:
+    """Geçersiz kılmaları uygula; hatalı çift sessizce yutulmaz, çıkış kodu 2 (P-029)."""
+    try:
+        return _apply_session_overrides(config, pairs, tier)
+    except ConfigError as error:
+        error_console.print(f"[{theme.ERROR}]{error}[/{theme.ERROR}]")
+        raise typer.Exit(2) from None
+
+
+def _apply_session_overrides(config: Config, pairs: tuple[str, ...], tier: str | None) -> Config:
+    """`-c yol=değer` çiftlerini ve `--profile` kademesini yüklenmiş yapılandırmaya uygula."""
+    from ..config import model_select
+    from ..config.settings_access import apply_overrides, read_setting
+
+    config = apply_overrides(config, pairs)
+    for pair in pairs:
+        path = pair.partition("=")[0].strip()
+        satir = messages.CONFIG_OVERRIDE_APPLIED.format(path=path, value=read_setting(config, path))
+        console.print(f"[{theme.DIM}]{satir}[/{theme.DIM}]")
+    if tier:
+        wanted = model_select.normalize_tier_name(tier.strip().lower())
+        config = model_select.apply_tier(config, wanted)
+        console.print(
+            f"[{theme.DIM}]{messages.CONFIG_PROFILE_APPLIED.format(tier=wanted)}[/{theme.DIM}]"
+        )
+    return config
+
+
 @app.command()
 def version() -> None:
     """Sürümü yazdır."""
@@ -801,8 +1135,42 @@ def version() -> None:
 @config_app.command("show")
 def config_show() -> None:
     """Birleştirilmiş yapılandırmayı göster (varsayılanlar + kullanıcı dosyası)."""
-    config = load_config()
+    config = _session_config()
     _print_config(config)
+
+
+@config_app.command("get")
+def config_get(path: str = typer.Argument(..., help="bölüm.alan — ör. runtime.max_tokens")) -> None:
+    """Tek bir ayarın etkin değerini yazdır (P-029)."""
+    from ..config.settings_access import read_setting
+
+    console.print(read_setting(_session_config(), path), highlight=False)
+
+
+@config_app.command("set")
+def config_set_value(
+    path: str = typer.Argument(..., help="bölüm.alan — ör. runtime.max_tokens"),
+    value: str = typer.Argument(..., help="Yeni değer (boolean: true/false, liste: a,b,c)"),
+) -> None:
+    """Ayarı doğrulayıp kullanıcı config.yaml'ına yaz; diğer ayarlar korunur (P-029)."""
+    from ..config.settings_access import read_setting, write_setting
+
+    updated, target = write_setting(load_config(), path, value)
+    console.print(
+        messages.CONFIG_SET_DONE.format(path=path, value=read_setting(updated, path), file=target),
+        highlight=False,
+    )
+
+
+@config_app.command("list")
+def config_list(
+    filter_text: str = typer.Argument("", help="Yol üzerinde alt dizi süzgeci (ör. runtime.web)"),
+) -> None:
+    """Nokta yoluyla erişilebilen ayarları değer ve tipiyle listele (P-029)."""
+    from ..config.settings_access import list_settings
+
+    for row in list_settings(_session_config(), filter_text):
+        console.print(f"{row.path} = {row.value}  ({row.kind})", highlight=False)
 
 
 @config_app.command("teacherless")

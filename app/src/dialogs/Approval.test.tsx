@@ -92,6 +92,32 @@ describe("Approval — izin kartı", () => {
   });
 });
 
+describe("Approval — karar notu ve izin kuralı (P-013, P-001)", () => {
+  const notlu = { ...temel, not_alinir: true, kural: "Bash(git push *)" };
+
+  it("Tab not kutusunu açar; dolu not kararla birlikte `not` alanında gider", () => {
+    const onCevap = vi.fn();
+    render(<Approval soru={notlu} onCevap={onCevap} />);
+    expect(screen.getByText("Bash(git push *)")).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Tab" });
+    const kutu = screen.getByLabelText("Karar notu");
+    expect(document.activeElement).toBe(kutu);
+    fireEvent.change(kutu, { target: { value: "  önce testleri yaz " } });
+    fireEvent.click(screen.getByRole("button", { name: /Hayır/ }));
+    expect(onCevap).toHaveBeenLastCalledWith({ secim: "deny", not: "önce testleri yaz" });
+  });
+
+  it("boş not alan eklemez; `not_alinir` yoksa not düğmesi yoktur", () => {
+    const onCevap = vi.fn();
+    const view = render(<Approval soru={notlu} onCevap={onCevap} />);
+    fireEvent.click(screen.getByRole("button", { name: /Not ekle/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Evet" }));
+    expect(onCevap).toHaveBeenLastCalledWith({ secim: "once" });
+    view.rerender(<Approval soru={{ ...temel }} onCevap={onCevap} />);
+    expect(screen.queryByRole("button", { name: /Not ekle/ })).toBeNull();
+  });
+});
+
 describe("Approval — soru kartı (ask_user)", () => {
   const soru = {
     tur: "soru" as const,

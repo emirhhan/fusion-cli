@@ -16,6 +16,19 @@
     <string>Fusion ile konuşabilmen için mikrofonu kullanır. Ses bu bilgisayardan çıkmaz.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Fusion Browser eklentisini senin yerine kurmak için yalnız Chrome'un eklentiler sayfasını açıp kullanır. Başka bir şeye dokunmaz.</string>
+    <!-- fusion:// derin bağlantıları (P-064): fusion://sohbet/<id>, fusion://yeni?kok=…, fusion://ayarlar/<bölüm>.
+         Launch Services bu kaydı okur; adres `RunEvent::Opened` ile uygulamaya gelir. -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.fusion.desktop.derin-baglanti</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>fusion</string>
+            </array>
+        </dict>
+    </array>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Söylediklerini yazıya çevirmek için macOS'un cihaz üstü tanıyıcısını kullanır. Ses buluta gönderilmez.</string>
 </dict>

@@ -9,8 +9,10 @@ kendi ekosistemini kurmak yerine var olanı okur.
 - **Frontmatter elle ayrıştırılır.** İhtiyaç duyulan alan üçtür (`name`, `description`,
   `tools`); tam bir YAML ayrıştırıcı bağımlılığı bunun için gereksizdir ve bozuk
   frontmatter'ın tüm keşfi düşürmesini istemeyiz.
-- **Liste modele BASILMAZ.** Kütüphane yüzlerce girdi içerebilir; hepsini prompta
-  koymak bağlamı boşa harcar. Model `find_skill`/`find_agent` ile ARAR.
+- **Gövde modele BASILMAZ, dizin basılır.** Kütüphane yüzlerce girdi içerebilir; gövdeleri
+  prompta koymak bağlamı boşa harcar. Kök turda yalnız `ad — açıklama` dizini bütçeli girer
+  (`engines/agent/skill_index.py`, P-018); model gövdeyi `read_skill` ile, listede olmayanı
+  `find_skill` ile alır.
 
 Tarama oturumda bir kez yapılır ve önbelleklenir.
 """
@@ -25,8 +27,12 @@ from pathlib import Path
 
 from ..config.paths import bundled_roster_dir, bundled_skills_dir, capabilities_dir
 from .capability_merge import merge_capability as _merge
+from .capability_roots import agent_roots, roots_signature, skill_roots
 from .capability_search import search as search
 from .capability_search import search_scored as search_scored
+from .frontmatter import NO_TOOLS as NO_TOOLS
+from .frontmatter import parse_frontmatter as parse_frontmatter
+from .frontmatter import parse_tools as _parse_tools
 from .skill_pages import (
     SKILL_TEXT_BUDGET as SKILL_TEXT_BUDGET,
 )
@@ -68,46 +74,8 @@ CLAUDE_TOOL_MAP: dict[str, frozenset[str]] = {
 #: Claude'un MCP araç adı öneki: `mcp__<sunucu>__<araç>` → Fusion `<sunucu>__<araç>`;
 #: `mcp__<sunucu>` (araçsız) o sunucunun TÜM araçları demektir ve `*`la eşlenir.
 _MCP_PREFIX = "mcp__"
-
-#: Alt ajan tanımının ayar alanları (P-034): frontmatter anahtarı → `Capability` alanı.
-#: Claude Code'un camelCase adları, snake_case ve Türkçe karşılıklar kabul edilir.
-AGENT_SETTING_KEYS: dict[str, str] = {
-    "model": "model",
-    "permissionmode": "permission_mode",
-    "permission_mode": "permission_mode",
-    "izin_kipi": "permission_mode",
-    "maxturns": "max_turns",
-    "max_turns": "max_turns",
-    "en_fazla_tur": "max_turns",
-    "memory": "memory",
-    "bellek": "memory",
-    "background": "background",
-    "arka_plan": "background",
-    "effort": "effort",
-    "efor": "effort",
-    "isolation": "isolation",
-    "yalitim": "isolation",
-    "context": "context",
-    "baglam": "context",
-}
-#: Liste alanları: anahtar → alan. `tools` ile aynı yazımlar (`[a, b]`, `a, b`, `- a`).
-_LIST_KEYS: dict[str, str] = {
-    "tools": "tools",
-    "araclar": "tools",
-    "skills": "skills",
-    "beceriler": "skills",
-    "mcpservers": "mcp_servers",
-    "mcp_servers": "mcp_servers",
-    "disallowedtools": "disallowed_tools",
-    "disallowed_tools": "disallowed_tools",
-    "yasak_araclar": "disallowed_tools",
-}
 _TRUE_WORDS = frozenset({"true", "yes", "evet", "1", "on"})
 
-#: `tools:` anahtarı VAR ama hiçbir araç çözülemedi (`tools:` boş, `[]`): kısıt YOK değil,
-#: HİÇ ARAÇ YOK demektir. Boş tuple "alan hiç yazılmamış" (tam yetki) anlamına gelir; ikisi
-#: karışırsa salt-okur sanılan ajan `run_shell` yetkisiyle çalışır (T1-13).
-NO_TOOLS: tuple[str, ...] = ("-",)
 #: Codex `sandbox_mode = "read-only"` ajanının Fusion karşılığı olan salt-okur araç seti.
 _READ_ONLY_TOOLS: tuple[str, ...] = ("Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch")
 
@@ -116,20 +84,9 @@ _READ_ONLY_TOOLS: tuple[str, ...] = ("Read", "Grep", "Glob", "LS", "WebFetch", "
 #: proje) dotfile yöneticilerinin bağlarını kullanabilir ve denetlenmez.
 _UNTRUSTED_SOURCES = frozenset({"kurulu", "claude-plugin"})
 
-#: Kişilik alanları: frontmatter anahtarı → `Capability` alanı. Türkçe ve İngilizce
-#: yazım ikisi de kabul edilir; kullanıcı kendi ajanını hangisiyle yazarsa.
-_PERSONA_KEYS: dict[str, str] = {
-    "unvan": "title",
-    "title": "title",
-    "avatar": "avatar",
-    "renk": "color",
-    "color": "color",
-}
-
 #: Frontmatter ararken dosyanın başından okunacak karakter. 4000 iken uzun açıklamalı
 #: skill'lerde bitiş işareti görülmüyor, `{}` dönüp ad dizin adına düşüyordu (ölçüldü, 30 Ekim).
 _HEAD_CHARS = 16_000
-_BLOCK_SCALARS = frozenset({">", "|", ">-", "|-", ">+", "|+"})
 
 
 @functools.lru_cache(maxsize=4096)
@@ -156,9 +113,24 @@ class Capability:
     title: str = ""
     avatar: str = ""
     color: str = ""
-    #: Alt ajan ayarları (P-034; Claude Code `.claude/agents` frontmatter'ı). Boş = miras.
-    #: `model`: `<sağlayıcı>/<model>`; `inherit`/kısa takma ad (`sonnet`) üst ajanı kullanır.
+    #: "beceri" (SKILL.md) | "komut" (`.claude/commands/x.md` tek dosya; gövde görevdir).
+    kind: str = "beceri"
+    #: Skill frontmatter alanları (P-020). `allowed_tools` Claude araç adlarıdır; boş = kısıt yok.
+    allowed_tools: tuple[str, ...] = ()
+    #: Beceri/alt ajan modeli. Alt ajanda (P-034) `<sağlayıcı>/<model>`; `inherit`/kısa
+    #: takma ad (`sonnet`) üst ajanı kullanır. Boş = miras.
     model: str = ""
+    effort: str = ""
+    #: `context: fork` → alt ajanda çalıştır (P-054).
+    context: str = ""
+    #: `disable-model-invocation: true` → beceri dizinine ve find_skill sonucuna girmez;
+    #: yalnız kullanıcı `/ad` ile çağırır.
+    model_invocable: bool = True
+    #: `user-invocable: false` → slash komutu olarak sunulmaz (yalnız model yükler).
+    user_invocable: bool = True
+    #: `argument-hint` → yardım ve tamamlamada gösterilen argüman biçimi.
+    argument_hint: str = ""
+    #: Alt ajan ayarları (P-034; Claude Code `.claude/agents` frontmatter'ı). Boş = miras.
     #: `permissionMode`: yalnız SIKILAŞTIRIR (bypass miras alınmaz).
     permission_mode: str = ""
     #: `maxTurns`: alt ajanın model çağrısı tavanı; 0 = derinliğe göre varsayılan.
@@ -169,16 +141,13 @@ class Capability:
     mcp_servers: tuple[str, ...] = ()
     #: `memory`: user | project | local (P-055); boş = ajan belleği yok.
     memory: str = ""
-    #: `background`, `isolation: worktree`, `hooks`: okunur ve katalogda gösterilir;
-    #: Fusion'da alt ajan tur içinde biter ve kendi worktree'si yoktur (bkz. docs).
+    #: `background`, `isolation`, `hooks`: okunur ve katalogda gösterilir; Fusion'da alt ajan
+    #: tur içinde biter. Çalışma ağacı izolasyonu çağrıdan gelir (`subtask(izolasyon=...)`).
     background: bool = False
-    effort: str = ""
     isolation: str = ""
     hooks: tuple[str, ...] = ()
     #: `disallowedTools`: Claude adlarıyla; `tools`'tan sonra uygulanır.
     disallowed_tools: tuple[str, ...] = ()
-    #: Beceriler için `context: fork` (P-054): beceri izole alt ajanda çalıştırılmak ister.
-    context: str = ""
 
     @property
     def qualified_name(self) -> str:
@@ -192,71 +161,6 @@ class Capability:
             return hashlib.sha256(self.path.read_bytes()).hexdigest()
         except OSError:
             return ""
-
-
-def parse_frontmatter(text: str) -> dict[str, object]:
-    """`---` blokları arasındaki `name`, `description` ve `tools` alanlarını oku.
-
-    Basit bir YAML alt kümesidir; frontmatter yoksa ya da bozuksa boş sözlük döner
-    (keşif tek bir bozuk dosya yüzünden düşmemelidir).
-    """
-    stripped = text.lstrip()
-    if not stripped.startswith("---"):
-        return {}
-    end = stripped.find("\n---", 3)
-    if end == -1:
-        return {}
-
-    fields: dict[str, object] = {}
-    lines = stripped[3:end].splitlines()
-    index = 0
-    while index < len(lines):
-        key, separator, value = lines[index].partition(":")
-        index += 1
-        if not separator:
-            continue
-        name = key.strip().lower()
-        if name in _LIST_KEYS:
-            # `tools:` + alt satırlarda `- Read` blok listesi YAML'ın olağan yazımıdır;
-            # `skills`, `mcpServers`, `disallowedTools` aynı yazımları paylaşır.
-            items = list(_parse_tools(value.strip()))
-            while not value.strip() and index < len(lines) and _is_list_item(lines[index]):
-                items.append(_list_item(lines[index]))
-                index += 1
-            field_name = _LIST_KEYS[name]
-            cleaned = tuple(item for item in items if item)
-            fields[field_name] = (cleaned or NO_TOOLS) if field_name == "tools" else cleaned
-        elif name == "hooks":
-            # İç içe blok: `hooks:` altındaki girintili `PreToolUse:` gibi anahtarlar olay
-            # adlarıdır; gövdeleri (matcher/komut) burada yorumlanmaz.
-            events: list[str] = []
-            while index < len(lines) and (not lines[index].strip() or lines[index][:1] in " \t"):
-                line = lines[index].strip()
-                if line and not line.startswith("-") and ":" in line and lines[index][:1] in " \t":
-                    indent = len(lines[index]) - len(lines[index].lstrip())
-                    if indent <= 2 or not events:
-                        events.append(line.partition(":")[0].strip().strip("'\""))
-                index += 1
-            fields["hooks"] = tuple(dict.fromkeys(event for event in events if event))
-        elif name in AGENT_SETTING_KEYS:
-            fields[AGENT_SETTING_KEYS[name]] = value.strip().strip("'\"")
-        elif name in ("name", "description"):
-            text = value.strip()
-            if text in _BLOCK_SCALARS:
-                # YAML blok skaleri: girintili satırlar değerdir (`>` birleştirir, `|` korur).
-                block: list[str] = []
-                while index < len(lines) and (
-                    not lines[index].strip() or lines[index][:1] in " \t"
-                ):
-                    block.append(lines[index].strip())
-                    index += 1
-                joiner = " " if text.startswith(">") else "\n"
-                fields[name] = joiner.join(part for part in block if part).strip()
-            else:
-                fields[name] = text.strip("'\"")
-        elif name in _PERSONA_KEYS:
-            fields[_PERSONA_KEYS[name]] = value.strip().strip("'\"")
-    return fields
 
 
 def map_tools(claude_tools: tuple[str, ...]) -> set[str] | None:
@@ -348,7 +252,14 @@ def load_agent_prompt(path: Path) -> str:
 
 
 class CapabilityRegistry:
-    """Skill ve agent keşfi. Tarama oturumda bir kez yapılır."""
+    """Skill ve agent keşfi.
+
+    Tarama tembeldir ve önbelleklenir; kök dizinlerin mtime imzası değişince (yeni beceri
+    klasörü eklendi/silindi) kendiliğinden yenilenir, `invalidate()` içerik değişikliği için
+    elle yeniler (`/skills reload`, `yetenek.yenile`; P-051). `extra_roots` (`--add-dir`)
+    köklerinin `.claude/skills`, `.agents/skills`, `.fusion/skills` ve `.claude/agents`
+    dizinleri "ek-kok" etiketiyle taranır (P-052).
+    """
 
     def __init__(
         self,
@@ -357,33 +268,71 @@ class CapabilityRegistry:
         *,
         disabled_skills: frozenset[str] = frozenset(),
         disabled_agents: frozenset[str] = frozenset(),
+        extra_roots: tuple[Path, ...] = (),
     ) -> None:
         self._home = home
         self._root = root
         self._disabled_skills = disabled_skills
         self._disabled_agents = disabled_agents
+        self._extra_roots = extra_roots
         self._skills: tuple[Capability, ...] | None = None
         self._agents: tuple[Capability, ...] | None = None
+        self._signature: tuple[tuple[str, int], ...] | None = None
+
+    def with_extra_roots(self, extra_roots: tuple[Path, ...]) -> CapabilityRegistry:
+        """Aynı kapatma listeleriyle, ek kökleri değişmiş yeni bir defter."""
+        return CapabilityRegistry(
+            self._home,
+            self._root,
+            disabled_skills=self._disabled_skills,
+            disabled_agents=self._disabled_agents,
+            extra_roots=extra_roots,
+        )
+
+    def invalidate(self) -> None:
+        """Önbelleği boşalt; bir sonraki erişim diski yeniden tarar."""
+        self._skills = None
+        self._agents = None
+        self._signature = None
+
+    def _refresh_if_changed(self) -> None:
+        """Kök dizinlerden biri eklendi/silindi/değişti mi? Değiştiyse önbelleği düşür."""
+        signature = self._current_signature()
+        if self._signature is not None and signature != self._signature:
+            self._skills = None
+            self._agents = None
+        self._signature = signature
+
+    def _current_signature(self) -> tuple[tuple[str, int], ...]:
+        return roots_signature(self._skill_roots(), self._agent_roots(), self._home, self._root)
 
     def skills(self) -> tuple[Capability, ...]:
-        if self._skills is None:
-            self._skills = tuple(
+        # Sonuç yerel değişkenden döner: `invalidate()` (masaüstü yenile RPC'si) başka
+        # thread'den alanı `None` yaparsa çağıran `for … in None` ile düşmesin.
+        self._refresh_if_changed()
+        skills = self._skills
+        if skills is None:
+            skills = tuple(
                 item
                 for item in self._discover_skills()
                 if item.name not in self._disabled_skills
                 and item.qualified_name not in self._disabled_skills
             )
-        return self._skills
+            self._skills = skills
+        return skills
 
     def agents(self) -> tuple[Capability, ...]:
-        if self._agents is None:
-            self._agents = tuple(
+        self._refresh_if_changed()
+        agents = self._agents
+        if agents is None:
+            agents = tuple(
                 item
                 for item in self._discover_agents()
                 if item.name not in self._disabled_agents
                 and item.qualified_name not in self._disabled_agents
             )
-        return self._agents
+            self._agents = agents
+        return agents
 
     def get_skill(self, name: str) -> Capability | None:
         return _select(self.skills(), name)
@@ -402,30 +351,22 @@ class CapabilityRegistry:
     # ----------------------------------------------------------------------- #
 
     def _skill_roots(self) -> tuple[tuple[Path, str], ...]:
-        # Sıra ÖNCELİKTİR: aynı adlı skill'de ilk bulunan kazanır (bkz. _discover_skills).
-        # Claude önce gelir çünkü kullanıcının birincil kütüphanesi odur; Codex ve
-        # Hermes aynı SKILL.md biçimini kullandığı için ayrıştırıcı değişmez.
-        return (
-            (self._home / ".claude" / "skills", "claude"),
-            (self._home / ".claude" / "plugins", "claude-plugin"),
-            (self._root / ".claude" / "skills", "proje"),
-            (self._root / ".fusion" / "skills", "proje"),
-            (self._home / ".codex" / "skills", "codex"),
-            (self._home / ".hermes" / "skills", "hermes"),
-            # `fusion yetenek kur` ile kurulan repolar (ör. stickman-video-director).
-            (capabilities_dir(), "kurulu"),
-            # Yerleşik beceriler EN SONDA: kullanıcı aynı adla kendi becerisini yazarsa o kazanır.
-            (bundled_skills_dir(), "fusion"),
+        # Yerleşik/kurulu kökler burada çözülür: testler bu modülün adlarını yamalar.
+        return skill_roots(
+            self._home,
+            self._root,
+            self._extra_roots,
+            installed=capabilities_dir(),
+            bundled=bundled_skills_dir(),
         )
 
     def _agent_roots(self) -> tuple[tuple[Path, str], ...]:
-        return (
-            (self._home / ".claude" / "agents", "claude"),
-            (self._root / ".claude" / "agents", "proje"),
-            (self._home / ".codex" / "agents", "codex"),
-            *((folder / "agents", "kurulu") for folder in _installed_folders()),
-            # Yerleşik ekip EN SONDA: kullanıcı aynı adla kendi ajanını yazarsa o kazanır.
-            (bundled_roster_dir(), "fusion"),
+        return agent_roots(
+            self._home,
+            self._root,
+            self._extra_roots,
+            installed=capabilities_dir(),
+            bundled=bundled_roster_dir(),
         )
 
     def _discover_skills(self) -> tuple[Capability, ...]:
@@ -440,6 +381,13 @@ class CapabilityRegistry:
                 # İlk bulunan İÇERİĞİ verir: tüm Claude/proje kökleri dış kaynaklardan
                 # önce gelir. Sonrakiler yalnız kaynak etiketine eklenir.
                 _merge(found, capability)
+        # `.claude/commands/*.md` tek dosyalı komutlar da `/ad` ile çağrılır; aynı adlı
+        # SKILL.md kazanır (Claude Code'da ikisi aynı komutu üretir).
+        from .skill_commands import discover_commands
+
+        for command in discover_commands(self._home, self._root):
+            if isinstance(command, Capability) and command.name not in found:
+                found[command.name] = command
         return tuple(found.values())
 
     def _discover_agents(self) -> tuple[Capability, ...]:
@@ -472,13 +420,6 @@ def _trusted_path(path: Path, bound: Path, source: str) -> bool:
         return path.resolve().is_relative_to(bound.resolve())
     except OSError:
         return False
-
-
-def _installed_folders() -> tuple[Path, ...]:
-    root = capabilities_dir()
-    if not root.is_dir():
-        return ()
-    return tuple(sorted(child for child in root.iterdir() if child.is_dir()))
 
 
 def _toml_capability(path: Path, source: str) -> Capability | None:
@@ -522,27 +463,39 @@ def _toml_tools(data: dict[str, object]) -> tuple[str, ...]:
 
 def _to_capability(path: Path, source: str, *, fallback: str) -> Capability:
     fields = parse_frontmatter(_read_head(path))
+    allowed = fields.get("allowed_tools")
+    description = str(fields.get("description") or "")
+    when = str(fields.get("when_to_use") or "")
+    if when:  # Claude Code `when_to_use` açıklamanın devamıdır; arama ve dizin ikisini görür
+        description = f"{description} {when}".strip()
     return Capability(
         name=str(fields.get("name") or fallback),
-        description=str(fields.get("description") or ""),
+        description=description,
         path=path,
         source=source,
         tools=_tuple_field(fields, "tools"),
         title=str(fields.get("title") or ""),
         avatar=str(fields.get("avatar") or ""),
         color=str(fields.get("color") or ""),
+        allowed_tools=tuple(allowed) if isinstance(allowed, tuple) and allowed != NO_TOOLS else (),
         model=str(fields.get("model") or ""),
+        effort=str(fields.get("effort") or "").lower(),
+        context=str(fields.get("context") or "").lower(),
+        model_invocable=bool(fields.get("model_invocable", True)),
+        user_invocable=bool(fields.get("user_invocable", True)),
+        argument_hint=str(fields.get("argument_hint") or ""),
         permission_mode=str(fields.get("permission_mode") or ""),
         max_turns=parse_setting_int(fields.get("max_turns", 0)),
         skills=_tuple_field(fields, "skills"),
         mcp_servers=_tuple_field(fields, "mcp_servers"),
         memory=str(fields.get("memory") or "").lower(),
         background=parse_setting_bool(fields.get("background", "")),
-        effort=str(fields.get("effort") or "").lower(),
         isolation=str(fields.get("isolation") or "").lower(),
         hooks=_tuple_field(fields, "hooks"),
-        disallowed_tools=_tuple_field(fields, "disallowed_tools"),
-        context=str(fields.get("context") or "").lower(),
+        # Boş `disallowedTools:` yasak YOK demektir; `NO_TOOLS` yalnız izin listesinde anlamlı.
+        disallowed_tools=tuple(
+            item for item in _tuple_field(fields, "disallowed_tools") if item != NO_TOOLS[0]
+        ),
     )
 
 
@@ -556,24 +509,6 @@ def _read_head(path: Path, limit: int = _HEAD_CHARS) -> str:
         return path.read_text(encoding="utf-8")[:limit]
     except OSError:
         return ""
-
-
-def _is_list_item(line: str) -> bool:
-    return line.lstrip().startswith("-") and not line.lstrip().startswith("---")
-
-
-def _list_item(line: str) -> str:
-    """`  - 'Read'   # açıklama` → `Read`."""
-    body = line.lstrip()[1:].split(" #", 1)[0]
-    return body.strip().strip("'\"")
-
-
-def _parse_tools(value: str) -> tuple[str, ...]:
-    """`tools:` alanını oku: `[a, b]`, `a, b` ya da `'*'` biçimlerini destekler."""
-    if value in ("'*'", '"*"', "*"):
-        return ("*",)
-    inner = value[1:-1] if value.startswith("[") and value.endswith("]") else value
-    return tuple(item.strip().strip("'\"") for item in inner.split(",") if item.strip())
 
 
 def _select(

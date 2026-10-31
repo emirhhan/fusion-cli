@@ -1,10 +1,11 @@
 import { AssetHost } from "./assetHost";
 import { ScheduledDeliveryClient, type ScheduleApprovalListener } from "./scheduledDeliveryClient";
 import { LocalComputerHost, type ConfirmComputer, type HostRequest } from "./localComputerHost";
+import { KitsBrowserHost, type ConfirmBrowser } from "./kitsBrowserHost";
 import { FolderPickHost, type PickFolder } from "./folderPickHost";
 import { KitsVoiceHost, type ConfirmMicrophone } from "./kitsVoiceHost";
 import { runtimeDefault } from "../voice/useDictation";
-import { askComputerAccess, askMicrophoneAccess, selectProjectFolder } from "../platform/dialog";
+import { askComputerAccess, askKitsBrowserAccess, askMicrophoneAccess, selectProjectFolder } from "../platform/dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KITS_THEME_MESSAGE, kitsFrameUrl, type KitsTheme } from "./kitsUrl";
@@ -33,6 +34,8 @@ interface KitsScreenProps {
   requestHost?: HostRequest;
   /** Testler yerel izin penceresini taklit eder. */
   confirmComputer?: ConfirmComputer;
+  /** Kit'in kullanıcının Chrome'unu kullanma isteği için izin penceresi (P-063). */
+  confirmBrowser?: ConfirmBrowser;
   pickFolder?: PickFolder;
   /** Testler mikrofon izin penceresini taklit eder. */
   confirmMicrophone?: ConfirmMicrophone;
@@ -56,6 +59,7 @@ export function KitsScreen({
   onScheduleApproval,
   requestHost,
   confirmComputer = askComputerAccess,
+  confirmBrowser = askKitsBrowserAccess,
   pickFolder = selectProjectFolder,
   confirmMicrophone = askMicrophoneAccess,
   watchIntervalMs = KITS_WATCH_INTERVAL_MS,
@@ -98,6 +102,22 @@ export function KitsScreen({
     );
     return () => computer.close();
   }, [state, confirmComputer]);
+  useEffect(() => {
+    if (state.durum !== "hazir" || !frame.current?.contentWindow) return;
+    // Kit → kullanıcının Chrome'u: onay burada, komut etkin oturumun `chrome.kit_komut` RPC'sinde.
+    const browser = new KitsBrowserHost(
+      window,
+      frame.current.contentWindow,
+      state.adres,
+      (name, data) => {
+        const istek = hostRequest.current;
+        if (!istek) return Promise.reject(new Error("Fusion oturumu yok."));
+        return istek(name, data);
+      },
+      confirmBrowser,
+    );
+    return () => browser.close();
+  }, [state, confirmBrowser]);
   useEffect(() => {
     if (state.durum !== "hazir" || !frame.current?.contentWindow) return;
     const host = new KitsVoiceHost(window, frame.current.contentWindow, state.adres, (name, data) => {

@@ -21,7 +21,7 @@ from rich.prompt import Prompt
 from rich.text import Text
 
 from ..core.tools import ToolContext
-from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
+from ..engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequest
 from ..engines.agent.engine_tools import QuestionOption
 from ..tools.preview import preview_change
 from ..ui import messages, theme
@@ -30,6 +30,8 @@ from ..ui.diff import diff_lines
 #: Onay sayılan cevaplar. Boş cevap (doğrudan Enter) yalnız sıradan onayda onaydır;
 #: tehlikeli (geri alınamaz) işlemde varsayılan HAYIR'dır (L1-01).
 _AFFIRMATIVE = frozenset({"e", "evet", "y", "yes", "onayla"})
+#: "Bir daha sorma" (kalıcı izin kuralı, P-003) sayılan cevaplar.
+_ALWAYS = frozenset({"k", "kalici", "kalıcı", "always", "a"})
 
 
 class ConsolePrompter:
@@ -54,7 +56,7 @@ class ConsolePrompter:
         self._suspend = suspend
         self._interactive = sys.stdin.isatty()
 
-    async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer:
+    async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer | ApprovalReply:
         with self._suspended():
             await self._drain()
             if request.agent_label:
@@ -71,7 +73,20 @@ class ConsolePrompter:
                 )
             elif request.note:
                 self._console.print(f"[{theme.DIM}]{escape(request.note)}[/{theme.DIM}]")
+            if request.rule:
+                self._console.print(
+                    f"[{theme.DIM}]{escape(messages.APPROVAL_RULE_NOTE.format(rule=request.rule))}[/{theme.DIM}]"
+                )
             is_dangerous = request.danger is not None
+            if self._interactive:
+                # `k` yalnız kalıcılaştırılabilen istekte kural yazar; ötekinde ipucu verilmez
+                # (ölçüldü, 31 Ekim: yıkıcı istekte de gösteriliyor, `k` sıradan evet sayılıyordu).
+                hint = (
+                    messages.CONFIRM_NOTE_HINT
+                    if request.can_persist
+                    else messages.CONFIRM_NOTE_HINT_NO_PERSIST
+                )
+                self._console.print(f"[{theme.DIM}]{escape(hint)}[/{theme.DIM}]")
             answer = self._ask(
                 messages.CONFIRM_QUESTION_DANGER if is_dangerous else messages.CONFIRM_QUESTION
             )
@@ -81,7 +96,7 @@ class ConsolePrompter:
         # bir kararı kullanıcıya mal ederdi (bkz. `ApprovalAnswer.UNAVAILABLE`).
         if answer is None or (not answer and not self._interactive):
             return ApprovalAnswer.UNAVAILABLE
-        return _is_affirmative(answer, enter_approves=not is_dangerous)
+        return parse_console_answer(answer, request, enter_approves=not is_dangerous)
 
     async def ask(
         self,
@@ -181,6 +196,25 @@ def _diff_style(line: str, *, is_file_header: bool = False) -> str:
     if line.startswith("@@"):
         return theme.INFO
     return "default"
+
+
+def parse_console_answer(
+    answer: str, request: ApprovalRequest, *, enter_approves: bool = True
+) -> bool | ApprovalAnswer | ApprovalReply:
+    """Terminal cevabını karara çevir.
+
+    İlk sözcük karardır; kalanı kullanıcının NOTUDUR (P-013): `h bunun yerine pytest kullan`
+    reddi gerekçesiyle modele iletir. `k` kalıcı izin kuralı yazar (P-003); yıkıcı ya da
+    kalıcılaştırılamayan istekte sıradan "evet" sayılır.
+    """
+    head, _, note = answer.strip().partition(" ")
+    word = head.lower()
+    if word in _ALWAYS:
+        return ApprovalAnswer.ALWAYS if request.can_persist else True
+    decision = _is_affirmative(word, enter_approves=enter_approves)
+    if not decision and note.strip():
+        return ApprovalReply(False, note.strip())
+    return decision
 
 
 def _is_affirmative(answer: str, *, enter_approves: bool = True) -> bool:

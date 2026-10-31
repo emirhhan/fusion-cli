@@ -33,3 +33,23 @@ it('alt ajanın onay isteğinde kart başlığı ajanı adlandırır (P-034)', (
   document.body.replaceChildren(approvalCard({questionId:'q10',title:'Dosyayı yaz',options:['once','deny']},vi.fn(),vi.fn()));
   expect(screen.getByText('İzin gerekiyor')).toBeTruthy();
 });
+
+it('masaüstü süreli onay yetkisi istiyor ve bu cihazda yoksa yalnız Reddet sunulur (P-040)', async () => {
+  const rpc = vi.fn(async () => ({ ok: true, data: { accepted: true } }));
+  document.body.append(approvalCard(
+    { questionId: 'q3', title: 'Komut çalıştır', requiredScope: 'project.write', options: ['once', 'deny'] },
+    rpc, vi.fn(), ['agent.run', 'project.write'], { required: true, secondsLeft: 0, canApprove: false },
+  ));
+  expect(screen.queryByRole('button', { name: 'Bir kez izin ver' })).toBeNull();
+  expect(document.body.textContent).toMatch(/onay yetkisi verilmemiş/);
+  fireEvent.click(screen.getByRole('button', { name: 'Reddet' }));
+  await waitFor(() => expect(rpc).toHaveBeenCalledWith('approvals.respond', expect.objectContaining({ choice: 'deny' })));
+});
+
+it('süreli onay yetkisi varken kart eski kuralla onay düğmesini gösterir', () => {
+  document.body.append(approvalCard(
+    { questionId: 'q4', title: 'Komut', requiredScope: 'project.write', options: ['once', 'deny'] },
+    vi.fn(), vi.fn(), ['project.write'], { required: true, secondsLeft: 3600, canApprove: true },
+  ));
+  expect(screen.getByRole('button', { name: 'Bir kez izin ver' })).toBeTruthy();
+});

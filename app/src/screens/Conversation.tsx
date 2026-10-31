@@ -124,8 +124,10 @@ export function hataMesajiMi(message: Mesaj): boolean {
 /** "Kopyalandı" gibi geçici durumlar bu süre sonra silinir (U1-35). */
 const KOPYA_DURUMU_MS = 4000;
 
-function AssistantMessage({ text, onOpenFile, onReport, onReadAloud, onEvaluate, onContinue, ara = false, children }: {
+function AssistantMessage({ text, onOpenFile, onReport, onReadAloud, onEvaluate, onContinue, onSendToKit, ara = false, children }: {
   text: string;
+  /** Yanıtı bir Kit'in gelen kutusuna gönderme penceresini açar (P-063). */
+  onSendToKit?: () => void;
   children?: ReactNode;
   onReadAloud?: () => Promise<void> | void;
   onEvaluate?: (rating: "positive" | "negative") => Promise<void> | void;
@@ -185,6 +187,7 @@ function AssistantMessage({ text, onOpenFile, onReport, onReadAloud, onEvaluate,
             {(["positive", "negative"] as const).map((value) => <Button key={value} aria-label={value === "positive" ? "Olumlu değerlendir" : "Olumsuz değerlendir"} aria-pressed={rating === value} icon={value === "positive" ? "thumbsUp" : "thumbsDown"} iconOnly disabled={actionPending} onClick={() => void perform(() => onEvaluate(value), () => { setRating(value); setEvaluationOpen(false); setActionStatus("Değerlendirmen kaydedildi"); })} />)}
           </div>}
         </div>}
+        {onSendToKit && <Button aria-label="Kit'e gönder" title="Kit'e gönder" icon="send" iconOnly disabled={actionPending} onClick={onSendToKit} />}
         {onContinue && <Button aria-label="Yeni sohbette devam et" title="Yeni sohbette devam et" icon="branch" iconOnly disabled={actionPending} onClick={() => void perform(onContinue)} />}
         {copyState && <span role="status">{copyState}</span>}
         {actionStatus && <span role="status">{actionStatus}</span>}
@@ -230,6 +233,8 @@ export interface ConversationProps {
   onReadAloud?: (text: string) => Promise<void> | void;
   onEvaluate?: (text: string, rating: "positive" | "negative") => Promise<void> | void;
   onContinueInNewChat?: (messageIndex: number) => Promise<void> | void;
+  /** Verilirse yanıtın altında "Kit'e gönder" düğmesi çıkar; metni Kits gelen kutusuna bırakır. */
+  onSendToKit?: (text: string) => void;
   /** Çekirdeğin gerçek tur durumu; iptalden sonra eski olayın saati işlemez. */
   running?: boolean;
   /** Kod kartındaki dosya adına tıklanınca çağrılır; çalışma paneli o dosyayı açar. */
@@ -293,6 +298,7 @@ export function Conversation({
   onReadAloud,
   onEvaluate,
   onContinueInNewChat,
+  onSendToKit,
   onOpenFile,
   onOneriSec,
   onHataBildir,
@@ -429,6 +435,7 @@ export function Conversation({
                 onReadAloud={onReadAloud ? () => onReadAloud(message.metin) : undefined}
                 onEvaluate={onEvaluate ? (rating) => onEvaluate(message.metin, rating) : undefined}
                 onContinue={onContinueInNewChat ? () => onContinueInNewChat(index) : undefined}
+                onSendToKit={onSendToKit && !hataMesajiMi(message) ? () => onSendToKit(message.metin) : undefined}
                 onOpenFile={onOpenFile}
                 onReport={onHataBildir && hataMesajiMi(message) ? () => onHataBildir(message.metin) : undefined}
                 text={message.metin}

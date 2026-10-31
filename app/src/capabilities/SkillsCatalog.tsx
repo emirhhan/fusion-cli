@@ -60,9 +60,12 @@ function decode(payload: Record<string, unknown>): { items: CatalogItem[]; skipp
   return { items, skipped };
 }
 
+/** Diakritiksiz tel değerleri için Türkçe etiket; diğerleri baş harfi büyütülür. */
+const SOURCE_LABELS: Record<string, string> = { kullanici: "Kullanıcı", proje: "Proje", komut: "Komut" };
+
 /** "claude+codex" → "Claude · Codex". Köşeli parantezli ham kaynak adı teknik duruyordu. */
 function sourceLabels(source: string): string {
-  return source.split("+").map((value) => value.charAt(0).toLocaleUpperCase("tr-TR") + value.slice(1)).join(" · ");
+  return source.split("+").map((value) => SOURCE_LABELS[value] ?? value.charAt(0).toLocaleUpperCase("tr-TR") + value.slice(1)).join(" · ");
 }
 
 /** Alt ajan ayarlarının insan dilindeki adları; bilinmeyen anahtar olduğu gibi yazılır. */
@@ -162,6 +165,8 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
   const [notice, setNotice] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [skipped, setSkipped] = useState(0);
+  // `/skill-doctor` karşılığı: teşhis metni ayrıntı panelinde gösterilir.
+  const [diagnosis, setDiagnosis] = useState("");
   // Son açılan öğe kazanır: yavaş gelen eski ayrıntı/bildirim yeni seçimi ezmesin.
   const openRequest = useRef(0);
 
@@ -190,6 +195,7 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
 
   const open = (item: CatalogItem) => {
     const requestId = ++openRequest.current;
+    setDiagnosis("");
     setSelected(item);
     setDetail("");
     setMemory(null);
@@ -234,6 +240,31 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
     }).catch((reason) => setError(String(reason)));
   };
 
+  const reloadCatalog = () => {
+    const requestId = ++openRequest.current;
+    void client.request("yetenek.yenile", {}).then((payload) => {
+      if (payload.ok !== true) throw new Error(String(payload.metin ?? "Katalog yenilenemedi."));
+      return client.request("yetenek.katalog", {});
+    }).then((payload) => {
+      if (requestId !== openRequest.current) return;
+      const decoded = decode(payload);
+      setItems(decoded.items);
+      setSkipped(decoded.skipped);
+      setSelected(null);
+      setNotice(`Katalog yeniden tarandı: ${decoded.items.length} öğe.`);
+    }).catch((reason) => setError(String(reason)));
+  };
+
+  const diagnoseCatalog = () => {
+    const requestId = ++openRequest.current;
+    setSelected(null);
+    void client.request("yetenek.teshis", {}).then((payload) => {
+      if (requestId !== openRequest.current) return;
+      if (payload.ok !== true || typeof payload.metin !== "string") throw new Error(String(payload.metin ?? "Teşhis alınamadı."));
+      setDiagnosis(payload.metin);
+    }).catch((reason) => setError(String(reason)));
+  };
+
   const kart = (item: CatalogItem) => (
     <article className="skills-catalog__card" data-enabled={item.etkin} key={`${item.tur}:${item.kimlik}`} data-selected={selected?.tur === item.tur && selected.kimlik === item.kimlik}>
       <button aria-label={`${item.ad} ayrıntılarını aç`} className="skills-catalog__row" onClick={() => open(item)} type="button">
@@ -259,6 +290,10 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
         <div aria-label="Türe göre filtrele" className="skills-catalog__tabs" role="tablist">
           {KIND_TABS.map(([value, label]) => <button aria-selected={kind === value} key={value} onClick={() => setKind(value)} role="tab" type="button">{label}</button>)}
         </div>
+        <div className="skills-catalog__tabs" role="group" aria-label="Katalog işlemleri">
+          <button onClick={reloadCatalog} type="button" title="Diskten yeniden tara (/skills reload)">Yenile</button>
+          <button onClick={diagnoseCatalog} type="button" title="Eksik açıklama, kopya ad, uzun gövde (/skill-doctor)">Teşhis</button>
+        </div>
       </div>
       {error && <p className="skills-catalog__error" role="alert">{error}</p>}
       {skipped > 0 && <p className="skills-catalog__error" role="status">{skipped} katalog öğesi bozuk olduğu için atlandı.</p>}
@@ -271,7 +306,8 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
           {digerleri.length > 0 && <div className="skills-catalog__grid">{digerleri.map(kart)}</div>}
         </section>
         <aside aria-label="Yetenek ayrıntısı" className="skills-catalog__detail">
-          {selected ? <><div className="skills-catalog__detail-head"><SkillAvatar item={selected} /><div><h2>{selected.ad}</h2><span>{kindLabels[selected.tur]} · {sourceLabels(selected.kaynak)}{selected.izinler.length > 0 ? ` · ${selected.izinler.join(", ")}` : ""}</span></div></div><AgentSettings ayarlar={selected.ayarlar} /><pre>{detail || "Yükleniyor…"}</pre>{memory && <AgentMemory info={memory} onClear={() => clearMemory(selected)} />}{selected.tur !== "talimat" && <button disabled={!selected.etkin} onClick={() => queueNext(selected)} type="button">Bu {selected.tur === "beceri" ? "beceriyi" : selected.tur === "ajan" ? "ajanı" : "MCP'yi"} sonraki turda kullan</button>}{notice && <p aria-live="polite">{notice}</p>}</> : <p>Ne yaptığını, nereden geldiğini ve hangi izinleri kullandığını görmek için bir beceri seç.</p>}
+          {!selected && diagnosis && <pre aria-label="Beceri teşhisi">{diagnosis}</pre>}
+          {selected ? <><div className="skills-catalog__detail-head"><SkillAvatar item={selected} /><div><h2>{selected.ad}</h2><span>{kindLabels[selected.tur]} · {sourceLabels(selected.kaynak)}{selected.izinler.length > 0 ? ` · ${selected.izinler.join(", ")}` : ""}</span></div></div><AgentSettings ayarlar={selected.ayarlar} /><pre>{detail || "Yükleniyor…"}</pre>{memory && <AgentMemory info={memory} onClear={() => clearMemory(selected)} />}{selected.tur !== "talimat" && <button disabled={!selected.etkin} onClick={() => queueNext(selected)} type="button">Bu {selected.tur === "beceri" ? "beceriyi" : selected.tur === "ajan" ? "ajanı" : "MCP'yi"} sonraki turda kullan</button>}{notice && <p aria-live="polite">{notice}</p>}</> : !diagnosis && <p>Ne yaptığını, nereden geldiğini ve hangi izinleri kullandığını görmek için bir beceri seç.</p>}
         </aside>
       </div>
     </main>

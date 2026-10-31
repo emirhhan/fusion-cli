@@ -202,6 +202,17 @@ def test_thinking_ac_kapa(registry, state):
     assert not state.show_thinking
 
 
+def test_zil_ac_kapa(registry, state):
+    """`/zil` tur bitiş zilini açar/kapatır; varsayılan kapalı (P-047)."""
+    assert not state.bell
+
+    _calistir(registry, state, "/zil")
+    assert state.bell
+
+    _calistir(registry, state, "/zil")
+    assert not state.bell
+
+
 def test_sentez_yapilandirmadan_baslar_ve_terslenir(registry, state):
     assert state.synthesis is None  # yapılandırmadaki değer geçerli
 
@@ -1264,22 +1275,21 @@ def test_add_dir_kardes_klasoru_kabul_eder(tmp_path):
 
 
 def test_memory_komutu_durum_konu_ve_not_kisayolu(state, registry, tmp_path):
-    from fusion_cli.cli.repl import memory_commands
+    from fusion_cli.cli.repl import prefixes
 
     assert state.plain_memory is not None
     komut = registry.get("memory")
     assert komut is not None and registry.get("bellek") is komut
 
-    assert memory_commands.is_memory_note("# kullanıcı kısa yanıt ister")
-    assert not memory_commands.is_memory_note("## başlık") and not memory_commands.is_memory_note(
-        "#"
-    )
+    # `#` kısayolu üç yüzeyde tek uygulamadır: `prefixes.pending_memory_note` + `add_memory_note`.
+    assert prefixes.pending_memory_note(state, "# kullanıcı kısa yanıt ister")
+    assert prefixes.memory_note("## başlık") is None and prefixes.memory_note("#") is None
     # Ölçüldü (31 Ekim): `#1234 numaralı hatayı düzelt` ve yapıştırılan çok satırlı Markdown
     # da not sayılıp modele gitmiyordu; kısayol `# ` + tek satır ister.
-    assert not memory_commands.is_memory_note("#1234 numaralı hatayı düzelt")
-    assert not memory_commands.is_memory_note("# Başlık\nikinci satır")
-    assert memory_commands.takes_memory_note(state, "# not")
-    sonuc = memory_commands.save_memory_note(state, "# kullanıcı kısa yanıt ister")
+    assert prefixes.memory_note("#1234 numaralı hatayı düzelt") is None
+    assert prefixes.memory_note("# Başlık\nikinci satır") is None
+    assert prefixes.memory_note("# # başlık") is None
+    sonuc = prefixes.add_memory_note(state, "kullanıcı kısa yanıt ister")
     assert "Not belleğe yazıldı" in sonuc
     assert "kısa yanıt ister" in state.plain_memory.read()
 
@@ -1292,7 +1302,7 @@ def test_memory_komutu_durum_konu_ve_not_kisayolu(state, registry, tmp_path):
 
 
 def test_memory_off_kalici_yazar_ve_araclari_kapatir(state, registry, tmp_path, monkeypatch):
-    from fusion_cli.cli.repl import memory_commands
+    from fusion_cli.cli.repl import memory_commands, prefixes
 
     yazilan = {}
     monkeypatch.setattr(
@@ -1307,9 +1317,9 @@ def test_memory_off_kalici_yazar_ve_araclari_kapatir(state, registry, tmp_path, 
     assert yazilan == {"auto_memory": False}
     assert state.plain_memory is None and state.config.runtime.auto_memory is False
     assert komut.handler(state, "") == "Otomatik bellek kapalı. Açmak için: /memory on"
-    assert "kapalı" in memory_commands.save_memory_note(state, "# not")
+    assert "kapalı" in prefixes.add_memory_note(state, "not")
     # Bellek kapalıyken `#` satırı yutulmaz, olağan istem olarak modele gider.
-    assert not memory_commands.takes_memory_note(state, "# not")
+    assert prefixes.pending_memory_note(state, "# not") is None
 
     assert "açık" in komut.handler(state, "on")
     assert state.plain_memory is not None

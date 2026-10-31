@@ -5,7 +5,8 @@
 İlke: alt ajan üst ajanın güven sınırını GENİŞLETEMEZ — izin kipi yalnız sıkılaşır, araç
 kümesi yalnız daralır, model/efor yalnız bu alt ajanın çağrılarını değiştirir.
 `background`, `isolation` ve `hooks` okunur ve katalogda gösterilir; Fusion'da alt ajan tur
-içinde biter ve kendi worktree'si yoktur, bu yüzden uygulanmaz (bkz. docs/YETENEKLER.md).
+içinde biter, bu yüzden uygulanmaz. Çalışma ağacı izolasyonu tanımdan değil çağrıdan gelir:
+`subtask(izolasyon="worktree")` (bkz. docs/YETENEKLER.md).
 """
 
 from __future__ import annotations
@@ -19,7 +20,14 @@ from ...core.reasoning import ReasoningEffort
 from ...core.types import ModelSpec
 from ...memory.plain_memory import PlainMemory, open_agent_memory
 from ...tools.capabilities import Capability, load_skill_text
-from .approval import ApprovalMode, ApprovalPolicy, ApprovalRequest, Decision, parse_mode
+from .approval import (
+    ApprovalMode,
+    ApprovalPolicy,
+    ApprovalRequest,
+    Decision,
+    Denial,
+    parse_mode,
+)
 from .approval import strictest_mode as strictest_mode
 
 if TYPE_CHECKING:
@@ -43,7 +51,7 @@ class LabeledPolicy:
         self._inner = inner
         self._label = label
 
-    async def decide(self, request: ApprovalRequest) -> Decision:
+    async def decide(self, request: ApprovalRequest) -> Decision | Denial:
         if request.agent_label:
             return await self._inner.decide(request)
         return await self._inner.decide(dataclasses.replace(request, agent_label=self._label))

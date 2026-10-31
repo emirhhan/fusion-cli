@@ -312,6 +312,19 @@
 .sidebar__session-dot { display: none; }
 .sidebar__session:has(> .sidebar__session-dot) { grid-template-columns: minmax(0, 1fr); }
 
+/* Okunmamış sohbet: başlığın sağında marka vurgu renginde küçük nokta (P-047). */
+.sidebar__session-unread {
+  background: var(--accent);
+  border-radius: 50%;
+  flex: none;
+  height: 7px;
+  width: 7px;
+}
+.sidebar__session[data-okunmamis="true"] .sidebar__session-title { font-weight: 600; }
+.sidebar__session[data-okunmamis="true"] { grid-template-columns: 18px minmax(0, 1fr) auto; }
+.sidebar__session[data-okunmamis="true"]:has(> .sidebar__session-dot) { grid-template-columns: minmax(0, 1fr) auto; }
+.sidebar[data-collapsed="true"] .sidebar__session-unread { display: none; }
+
 .sidebar__session[data-etkin="true"] {
   background: var(--surface-selected);
 }

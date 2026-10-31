@@ -51,6 +51,7 @@ from .history_tools import recent_actions_tool
 from .image_tools import generate_image_tool
 from .image_view import DEFAULT_QUESTION, describe_image
 from .memory_tools import memory_read_tool, remember_tool
+from .preview_log_tools import preview_log_tools
 from .preview_tools import preview_tool
 from .secret_paths import is_secret_path
 from .team import (
@@ -148,6 +149,8 @@ def build_agent_registry(
     for web_tool in (*web_work_tools(), *clone_tools()):
         extended.register(web_tool)
     extended.register(preview_tool(deps))
+    for log_tool in preview_log_tools(deps):
+        extended.register(log_tool)
     conversation = getattr(deps, "conversation_id", "")
     memory_dir = getattr(getattr(deps, "config", None), "memory_dir", None)
     if conversation and memory_dir is not None:
@@ -825,7 +828,8 @@ def _register_capability_tools(
 def _find_skill_tool(library: CapabilityRegistry) -> Tool:
     def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
         query = str(args.get("query", ""))
-        hits = search(library.skills(), query)
+        # `disable-model-invocation` beceriler modele görünmez; yalnız kullanıcı `/ad` ile çağırır.
+        hits = search(tuple(s for s in library.skills() if s.model_invocable), query)
         return ToolResult(_format(hits) or "(eşleşen skill yok)")
 
     return Tool(

@@ -26,20 +26,32 @@ from ...engines.agent.approval import ApprovalMode
 from ...history import SessionRef, available_sources, build_digest, source_by_name
 from ...memory.seed import SEED_LESSONS, seed
 from ...providers.registry import BUILTIN_PROVIDERS, ProviderKind
-from ...tools.capabilities import Capability
+from ...tools.capabilities import Capability, CapabilityRegistry
 from ...tools.capabilities import search as search_capabilities
 from ...ui import messages
 from ...ui.picker import Choice, pick
 from . import (
+    config_command,
+    export_commands,
+    keybinding_commands,
     macros,
     memory_commands,
     model_flows,
+    output_style_command,
+    permissions_command,
     persona_commands,
     profiles_flow,
     provider_flow,
+    rewind,
+    session_resume,
+    status_line,
     verify_flow,
+    view_commands,
     workspace_commands,
+    worktrees,
 )
+from .macros import Mode
+from .preview_command import preview_command
 from .state import TASK_TYPES, Engine, Reminder, ReplState
 
 #: `/resume<kaynak>` listesinde gösterilecek en fazla oturum. `source.list`'e
@@ -71,35 +83,69 @@ class SlashCommand:
         return f"/{self.name} {self.usage}".strip()
 
 
+#: Yerleşik olmayan komutları (beceriler) her çağrıda üreten sağlayıcı.
+DynamicCommands = Callable[[], tuple[SlashCommand, ...]]
+
+
 @dataclass(slots=True)
 class CommandRegistry:
-    """Ada ve takma ada göre komut çözen defter."""
+    """Ada ve takma ada göre komut çözen defter.
+
+    `dynamic` sağlayıcı (bkz. `skill_commands.skill_slash_commands`) her sorguda yeniden
+    üretilir: beceri kataloğu yenilenince (`/skills reload`) defter de yenilenmiş olur.
+    Yerleşik komut dinamik olanı her zaman gölgeler.
+    """
 
     _commands: dict[str, SlashCommand] = field(default_factory=dict)
     _by_name: dict[str, SlashCommand] = field(default_factory=dict)
+    _dynamic: DynamicCommands | None = None
 
     def register(self, command: SlashCommand) -> None:
         self._by_name[command.name] = command
         for key in (command.name, *command.aliases):
             self._commands[key] = command
 
+    def set_dynamic(self, provider: DynamicCommands | None) -> None:
+        self._dynamic = provider
+
+    def _dynamic_commands(self) -> tuple[SlashCommand, ...]:
+        if self._dynamic is None:
+            return ()
+        return tuple(c for c in self._dynamic() if c.name.lower() not in self._commands)
+
     def get(self, name: str) -> SlashCommand | None:
-        return self._commands.get(name.lower())
+        wanted = name.lower()
+        builtin = self._commands.get(wanted)
+        if builtin is not None:
+            return builtin
+        return next((c for c in self._dynamic_commands() if c.name.lower() == wanted), None)
+
+    def is_dynamic(self, name: str) -> bool:
+        """Ad bir beceri/komut dosyasına mı çözülüyor (yerleşik değil)?"""
+        return name.lower() not in self._commands and self.get(name) is not None
 
     def all(self) -> tuple[SlashCommand, ...]:
-        return tuple(self._by_name.values())
+        return (*self._by_name.values(), *self._dynamic_commands())
 
     def completion_words(self) -> list[str]:
         """Tamamlama için tüm komut ve takma adlar."""
-        return sorted(f"/{key}" for key in self._commands)
+        words = {f"/{key}" for key in self._commands}
+        words.update(f"/{c.name}" for c in self._dynamic_commands())
+        return sorted(words)
 
 
-def build_registry(home: Path | None = None) -> CommandRegistry:
+def build_registry(
+    home: Path | None = None,
+    *,
+    skills: Callable[[], CapabilityRegistry | None] | None = None,
+) -> CommandRegistry:
     """Yerleşik komutların tamamını içeren defter.
 
     `home` verilirse makinede izi bulunan her geçmiş kaynağı için bir
     `/resume<kaynak>` komutu EKLENİR. Kurulu olmayan aracın komutu hiç var olmaz:
-    tamamlamada da yardımda da görünmez.
+    tamamlamada da yardımda da görünmez. `skills` verilirse keşfedilen her beceri/komut
+    dosyası `/ad` olarak "Beceri" grubunda sunulur (P-019); sağlayıcı tembel çağrılır ki
+    katalog yenilenince defter de yenilensin.
     """
     registry = CommandRegistry()
     for command in _COMMANDS:
@@ -114,7 +160,24 @@ def build_registry(home: Path | None = None) -> CommandRegistry:
                     group="Geçmiş",
                 )
             )
+    if skills is not None:
+        attach_skill_commands(registry, skills)
     return registry
+
+
+def attach_skill_commands(
+    registry: CommandRegistry, skills: Callable[[], CapabilityRegistry | None]
+) -> None:
+    """Keşfedilen beceri/komut dosyalarını deftere dinamik sağlayıcı olarak bağla (P-019).
+
+    `build_registry(home)` imzasını değiştirmeden sonradan bağlamak isteyen yüzeyler
+    (masaüstü oturumu) için ayrı tutulur.
+    """
+    from .skill_commands import skill_slash_commands
+
+    registry.set_dynamic(
+        lambda: tuple(c for c in skill_slash_commands(skills()) if isinstance(c, SlashCommand))
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -168,6 +231,11 @@ def _toggle_all(state: ReplState, argument: str) -> str:
 def _toggle_thinking(state: ReplState, argument: str) -> str:
     state.show_thinking = not state.show_thinking
     return messages.REPL_SHOW_THINKING.format(state=_on_off(state.show_thinking))
+
+
+def _toggle_bell(state: ReplState, argument: str) -> str:
+    state.bell = not state.bell
+    return messages.REPL_BELL.format(state=_on_off(state.bell))
 
 
 def _toggle_synthesis(state: ReplState, argument: str) -> str:
@@ -531,15 +599,45 @@ def _format_capabilities(items: tuple[Capability, ...], *, empty: str) -> str:
 
 
 def _skills(state: ReplState, argument: str) -> str:
+    """`/skills [arama]` listeler; `reload` yeniden tarar; `doctor` teşhis; `new <ad>` üretir."""
     assert state.capabilities is not None
+    eylem, _, kalan = argument.strip().partition(" ")
+    if eylem in ("reload", "yenile"):
+        state.capabilities.invalidate()
+        return messages.SKILLS_RELOADED.format(
+            skills=len(state.capabilities.skills()), agents=len(state.capabilities.agents())
+        )
+    if eylem in ("doctor", "teshis", "teşhis"):
+        from ...tools.capability_doctor import diagnose, render_report
+
+        return render_report(
+            diagnose(state.capabilities),
+            skills=len(state.capabilities.skills()),
+            agents=len(state.capabilities.agents()),
+        )
+    if eylem in ("new", "yeni"):
+        return _prepare_authoring(state, macros.SKILL_NEW_TASK, kalan)
     items = search_capabilities(state.capabilities.skills(), argument.strip(), limit=50)
     return _format_capabilities(items, empty=messages.SKILLS_EMPTY)
 
 
 def _agents(state: ReplState, argument: str) -> str:
+    """`/agents [arama]` listeler; `new <ad>` yeni uzman ajan dosyası ürettirir."""
     assert state.capabilities is not None
+    eylem, _, kalan = argument.strip().partition(" ")
+    if eylem in ("new", "yeni"):
+        return _prepare_authoring(state, macros.AGENT_NEW_TASK, kalan)
     items = search_capabilities(state.capabilities.agents(), argument.strip(), limit=50)
     return _format_capabilities(items, empty=messages.AGENTS_EMPTY)
+
+
+def _prepare_authoring(state: ReplState, template: str, name: str) -> str:
+    """Beceri/ajan üretme görevini sıradaki tur için hazırla (makrolarla aynı sözleşme)."""
+    ad = name.strip() or "<ad>"
+    state.engine = Engine.AGENT
+    state.pending_task = template.format(name=ad)
+    state.pending_mode = Mode.NONE
+    return messages.CAPABILITY_AUTHORING_STARTED.format(name=ad)
 
 
 def resume_choices(refs: Sequence[SessionRef]) -> list[Choice]:
@@ -603,6 +701,43 @@ def _when(epoch: float) -> str:
     return datetime.fromtimestamp(epoch).strftime("%d/%m %H:%M")
 
 
+def _init(state: ReplState, argument: str) -> str:
+    """`/init [agents|claude]` — proje talimat dosyasını (AGENTS.md/CLAUDE.md) modele yazdır.
+
+    Görev depodan ölçülen olgularla kurulur (bkz. `instruction_audit.init_task`); çalıştırma
+    makrolarla aynı: REPL döngüsü bekleyen görevi sıradaki turda başlatır.
+    """
+    from ...engines.agent.instruction_audit import DEFAULT_INIT_FORMAT, INIT_TARGETS, init_task
+
+    fmt = argument.strip().lower() or DEFAULT_INIT_FORMAT
+    target = INIT_TARGETS.get(fmt, INIT_TARGETS[DEFAULT_INIT_FORMAT])
+    state.engine = Engine.AGENT
+    state.pending_task = init_task(state.root, state.home, fmt=fmt)
+    state.pending_mode = Mode.NONE
+    return messages.REPL_INIT_STARTED.format(target=target)
+
+
+def _doctor(state: ReplState, argument: str) -> str:
+    """`/doctor prompt` — tur başında yüklenen talimatları denetle (uzunluk, kırpma, şüpheli satır).
+
+    Argümansız `/doctor` da aynı denetimi yapar ve kurulum tanısı için `fusion doctor`u hatırlatır.
+    """
+    from ...engines.agent.instruction_audit import audit_instructions, render_audit
+
+    runtime = state.config.runtime
+    rapor = render_audit(
+        audit_instructions(
+            state.root,
+            state.home,
+            merge=getattr(runtime, "instruction_merge", True),
+            max_chars=getattr(runtime, "instruction_max_chars", 32_000),
+        )
+    )
+    if argument.strip().lower() in ("prompt", "talimat"):
+        return rapor
+    return f"{rapor}\n{messages.REPL_DOCTOR_SETUP_HINT}"
+
+
 def _health(state: ReplState, argument: str) -> str:
     """`/health` — sağlayıcı güvenilirlik skorlarını ve circuit breaker durumunu göster."""
     registry = state.health
@@ -617,7 +752,14 @@ def _health(state: ReplState, argument: str) -> str:
 
 
 def _undo(state: ReplState, argument: str) -> str:
-    """`/undo` — son agent turunun dosya değişikliklerini geri al."""
+    """`/undo` — son agent turunun dosya değişikliklerini geri al (= `/rewind <son> kod`).
+
+    Tur checkpoint defteri doluysa oradan geri alınır (kayıt düşer, `/rewind` listesi
+    tutarlı kalır). Defter boşken eski `last_changes` yolu korunur: dışarıdan kayıt
+    verilen (masaüstü, test) durumlar aynı davranır.
+    """
+    if state.checkpoints.latest() is not None:
+        return rewind.undo_last(state)
     kayit = state.last_changes
     if kayit is None or not kayit:
         return messages.UNDO_NOTHING
@@ -752,11 +894,28 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
     SlashCommand("plan", messages.CMD_PLAN, _set_mode(ApprovalMode.PLAN), group="Onay modu"),
     SlashCommand("bypass", messages.CMD_BYPASS, _set_mode(ApprovalMode.BYPASS), group="Onay modu"),
+    SlashCommand(
+        "permissions",
+        messages.CMD_PERMISSIONS,
+        permissions_command.permissions,
+        ("izinler",),
+        group="Onay modu",
+        usage="[list|add|remove] …",
+    ),
     SlashCommand("reset", messages.CMD_RESET, _reset, group="Agent"),
     SlashCommand("compact", messages.CMD_COMPACT, lambda state, argument: "", group="Agent"),
     SlashCommand("type", messages.CMD_TASK_TYPE, _set_task_type, group="Fusion", usage="<tip>"),
     SlashCommand("all", messages.CMD_SHOW_ALL, _toggle_all, group="Fusion"),
     SlashCommand("thinking", messages.CMD_SHOW_THINKING, _toggle_thinking, group="Agent"),
+    SlashCommand("zil", messages.CMD_BELL, _toggle_bell, group="Agent"),
+    SlashCommand(
+        "onizleme",
+        messages.CMD_PREVIEW,
+        preview_command,
+        aliases=("preview",),
+        group="Agent",
+        usage="[ad]",
+    ),
     SlashCommand("synth", messages.CMD_SYNTHESIS, _toggle_synthesis, group="Fusion"),
     SlashCommand("good", messages.CMD_GOOD, _feedback(Feedback.GOOD), group="Bellek"),
     SlashCommand("bad", messages.CMD_BAD, _feedback(Feedback.BAD), group="Bellek"),
@@ -799,6 +958,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
     SlashCommand("effort", messages.CMD_EFFORT, _effort, group="Model", usage="[seviye]"),
     SlashCommand("level", messages.CMD_LEVEL, _level, group="Model", usage="[kademe]"),
+    SlashCommand(
+        "output-style",
+        messages.CMD_OUTPUT_STYLE,
+        output_style_command.output_style_command,
+        group="Model",
+        usage="[ad]",
+    ),
     SlashCommand("provider", messages.CMD_PROVIDER, _provider, group="Model"),
     SlashCommand("providers", messages.CMD_PROVIDERS, _providers, group="Model", usage="[add]"),
     SlashCommand(
@@ -806,10 +972,35 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
     SlashCommand("verify", messages.CMD_VERIFY, _verify, group="Agent"),
     SlashCommand("undo", messages.CMD_UNDO, _undo, group="Agent"),
+    SlashCommand(
+        "rewind",
+        messages.CMD_REWIND,
+        rewind.rewind_command,
+        ("checkpoint",),
+        group="Agent",
+        usage="[no] [kod|konuşma|ikisi]",
+    ),
     SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
+    SlashCommand(
+        "config",
+        messages.CMD_CONFIG,
+        config_command.config_command,
+        group="Bilgi",
+        usage="[filtre|yol|yol=değer]",
+    ),
+    SlashCommand("status", messages.CMD_STATUS, lambda state, argument: "", group="Bilgi"),
+    SlashCommand("context", messages.CMD_CONTEXT, lambda state, argument: "", group="Bilgi"),
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
+    SlashCommand("doctor", messages.CMD_DOCTOR, _doctor, group="Bilgi", usage="[prompt]"),
+    SlashCommand("init", messages.CMD_INIT, _init, group="Makro", usage="[agents|claude]"),
     SlashCommand("mcp", messages.CMD_MCP, _mcp, group="Bilgi", usage="[add|remove] …"),
     SlashCommand("skills", messages.CMD_SKILLS, _skills, group="Bilgi", usage="[arama]"),
+    SlashCommand(
+        "skill-doctor",
+        messages.CMD_SKILL_DOCTOR,
+        lambda state, argument: _skills(state, "doctor"),
+        group="Bilgi",
+    ),
     SlashCommand("agents", messages.CMD_AGENTS, _agents, group="Bilgi", usage="[arama]"),
     *(
         SlashCommand(
@@ -848,12 +1039,87 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         usage="[yol|kaldir <yol>]",
     ),
     SlashCommand("schedule", messages.CMD_SCHEDULE, _schedule, group="Makro", usage="<saniye>"),
+    # İşleyici boş: `/rc` asenkron çalışır, döngüler `repl.remote_control.run` ile ele alır.
+    SlashCommand(
+        "rc",
+        messages.CMD_RC,
+        lambda state, argument: "",
+        ("remote-control",),
+        group="Bilgi",
+        usage="[kod [telegram]|onayla|durum|telegram|durdur]",
+    ),
+    SlashCommand(
+        "export",
+        messages.CMD_EXPORT,
+        export_commands.export_transcript,
+        group="Agent",
+        usage="[yol] [json] [pano]",
+    ),
+    SlashCommand(
+        "copy", messages.CMD_COPY, export_commands.copy_answer, group="Agent", usage="[N]"
+    ),
+    SlashCommand(
+        "theme", messages.CMD_THEME, view_commands.theme_command, group="Görünüm", usage="[ad]"
+    ),
+    SlashCommand(
+        "tui",
+        messages.CMD_TUI,
+        view_commands.tui_command,
+        group="Görünüm",
+        usage="[fullscreen|inline]",
+    ),
+    SlashCommand(
+        "search",
+        messages.CMD_SEARCH,
+        view_commands.search_command,
+        group="Görünüm",
+        usage="<metin>",
+    ),
+    SlashCommand(
+        "statusline",
+        messages.CMD_STATUSLINE,
+        status_line.statusline_command,
+        group="Görünüm",
+        usage="[komut|kapat]",
+    ),
+    SlashCommand(
+        "keybindings",
+        messages.CMD_KEYBINDINGS,
+        keybinding_commands.keybindings_command,
+        group="Görünüm",
+    ),
+    SlashCommand(
+        "vim", messages.CMD_VIM, keybinding_commands.vim_command, group="Görünüm", usage="[on|off]"
+    ),
+    SlashCommand(
+        "resume",
+        messages.CMD_RESUME_OWN,
+        session_resume.resume_command,
+        group="Geçmiş",
+        usage="[kimlik|ad]",
+    ),
+    SlashCommand(
+        "rename", messages.CMD_RENAME, session_resume.rename_command, group="Geçmiş", usage="<ad>"
+    ),
+    SlashCommand(
+        "branch", messages.CMD_BRANCH, session_resume.branch_command, group="Geçmiş", usage="[ad]"
+    ),
+    SlashCommand(
+        "worktree",
+        messages.CMD_WORKTREE,
+        worktrees.worktree_command,
+        group="Agent",
+        usage="[ad|cik|liste]",
+    ),
 )
+
+#: Asenkron çalışan ve konsola kendi yazan komut: `/rc` (uzaktan kontrol).
+ASYNC_COMMANDS = frozenset({"rc"})
 
 #: Kendi çıktısını basan komutlar (tablo, panel, ekran temizleme). REPL döngüsü
 #: bunları özel olarak ele alır; işleyicileri boş metin döndürür.
 RENDERED_COMMANDS = frozenset(
-    {"help", "tips", "clear", "stats", "lessons", "models", "compact", "cost"}
+    {"help", "tips", "clear", "stats", "lessons", "models", "compact", "cost", "status", "context"}
 )
 
 
