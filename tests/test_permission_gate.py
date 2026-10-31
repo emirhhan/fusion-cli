@@ -181,6 +181,31 @@ def test_korumali_yolu_okumak_ve_benzer_adlar_yikici_degil(tmp_path, arac, args)
     assert protected_path_reason(arac, args, tmp_path, is_shell=arac == "run_shell") is None
 
 
+@pytest.mark.parametrize(
+    ("arac", "args"),
+    [
+        ("download_file", {"url": "https://x/y", "path": ".git/hooks/pre-commit"}),
+        ("extract_archive", {"path": "a.tgz", "dest": ".git/hooks"}),
+        ("extract_archive", {"path": ".claude/a.zip"}),
+        ("generate_image", {"prompt": "x", "path": ".github/workflows/a.png"}),
+        ("optimize_image", {"path": "a.png", "out": ".claude/b.webp"}),
+        ("write_file", {"path": ".GIT/config", "content": ""}),
+        ("run_shell", {"command": "cd .git && rm -rf hooks"}),
+        ("run_shell", {"command": "cd .claude; echo x > settings.local.json"}),
+        ("run_shell", {"command": "tar -C .git/hooks -xf a.tgz"}),
+        ("run_shell", {"command": "curl -o .git/hooks/pre-commit https://x/y"}),
+        ("run_shell", {"command": "unzip a.zip -d .claude"}),
+    ],
+)
+def test_korumali_yol_tum_yazma_araclarini_ve_cd_zincirini_kapsar(tmp_path, arac, args):
+    """Ölçüldü (31 Ekim): yalnız write_file/edit_file/multi_edit/create_file ve düz kabuk hedefleri
+    bakılıyordu; `download_file .git/hooks/pre-commit`, `extract_archive dest=.git/hooks`,
+    `cd .git && rm -rf hooks`, `.GIT/config` korumasızdı (auto kipte sorulmadan geçiyordu)."""
+    sebep = protected_path_reason(arac, args, tmp_path, is_shell=arac == "run_shell")
+    assert sebep is not None and "korumalı" in sebep, (arac, args)
+    assert build_request(_arac(arac), args, root=tmp_path).danger is not None
+
+
 async def test_kok_disina_yazma_engeli_acikken_sorulmadan_kapatilir(tmp_path):
     kurallar = _kurallar(block_writes_outside_root=True)
     disari = tmp_path / "disari" / "x.txt"

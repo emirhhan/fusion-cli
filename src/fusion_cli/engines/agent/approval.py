@@ -52,6 +52,7 @@ from ...tools.protected_paths import protected_path_reason
 from ...tools.safe_delete import simple_rm_targets
 from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
 from ...tools.script_chain import script_chain_risk
+from ...tools.write_targets import write_targets
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
 REMOTE_DESTRUCTIVE_REASON = (
@@ -61,9 +62,6 @@ REMOTE_DESTRUCTIVE_REASON = (
 
 #: Uzak sistemde değişiklik yapan aracın otomatik kipte sorulma gerekçesi.
 REMOTE_WRITE_REASON = "uzak sistemde değişiklik yapıyor"
-
-#: Hedef yolu `path` argümanında taşıyan yerel dosya yazma araçları (A1-06).
-_PATH_WRITE_TOOLS = frozenset({"write_file", "edit_file", "multi_edit", "create_file"})
 
 #: Gözetimsiz ("Düzenlemeleri kabul et" kipinde sormadan) çalışabilecek etki sınıfları.
 _UNATTENDED_EFFECTS = frozenset(
@@ -491,11 +489,12 @@ def build_request(
     outside_dir = _outside_write_dir(tool, args, root, extra_roots) if risk is None else None
     pre_denied = None
     if outside_dir is not None:
-        risk = f"proje dışına yazıyor ({args.get('path')})"
+        hedef = next(iter(write_targets(tool.name, args)), args.get("path"))
+        risk = f"proje dışına yazıyor ({hedef})"
         unattended_safe = False
         if rules is not None and rules.block_writes_outside_root:
             # Kapı kapalı: sormak anlamsız, model `--add-dir` ile açılabileceğini öğrenir.
-            pre_denied = OUTSIDE_WRITE_BLOCKED.format(yol=args.get("path"))
+            pre_denied = OUTSIDE_WRITE_BLOCKED.format(yol=hedef)
     request = ApprovalRequest(
         tool=tool,
         args=args,
@@ -536,12 +535,17 @@ def _apply_rule(request: ApprovalRequest, match: RuleMatch | None) -> ApprovalRe
 def _outside_write_dir(
     tool: Tool, args: ToolArgs, root: Path | None, extra_roots: tuple[Path, ...]
 ) -> str | None:
-    """Dosya yazma aracının hedefi kök (+ `--add-dir`) dışındaysa hedefin dizini."""
-    raw = args.get("path")
-    if root is None or tool.name not in _PATH_WRITE_TOOLS or not isinstance(raw, str):
+    """Dosya yazma aracının hedefi kök (+ `--add-dir`) dışındaysa hedefin dizini.
+
+    Yazan araç listesi `write_targets` ile ortaktır (A1-06, P-002): `download_file`,
+    `extract_archive` ve görsel araçları da proje dışına yazıyorsa sorulur.
+    """
+    if root is None:
         return None
-    if not raw.strip():
+    targets = write_targets(tool.name, args)
+    if not targets:
         return None
+    raw = targets[0]
     try:
         path = Path(raw).expanduser()
         target = (path if path.is_absolute() else root / path).resolve()

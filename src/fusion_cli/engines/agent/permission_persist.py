@@ -20,7 +20,7 @@ from ...config.permission_admin import add_permission_rule, project_rule_file
 from ...config.permission_rules import PermissionDecision, PermissionRule, format_rule
 from ...core.tools import ToolFamily, tool_family
 from ...tools.auto_policy import command_words
-from ...tools.permission_match import WRITE_TOOLS
+from ...tools.write_targets import FILE_WRITE_TOOLS
 from .approval import ApprovalRequest
 
 
@@ -30,7 +30,7 @@ def rule_for_request(request: ApprovalRequest, root: Path | None) -> PermissionR
     if tool_family(tool) is ToolFamily.SHELL:
         command = str(request.args.get("command", "")).strip()
         return PermissionRule("Bash", _shell_prefix(command), PermissionDecision.ALLOW)
-    if tool in WRITE_TOOLS:
+    if tool in FILE_WRITE_TOOLS:
         raw = request.args.get("path")
         if isinstance(raw, str) and raw.strip():
             return PermissionRule("Edit", _dir_glob(raw, root), PermissionDecision.ALLOW)
