@@ -56,10 +56,12 @@ def _respond(path: Path, run: Callable[[], KeyEditResult], key: str = "") -> dic
         return {"ok": False, "metin": _WRITE_FAILED.format(error=error)}
     if result.conflict:
         label = desktop_key_data().labels.get(result.conflict, result.conflict)
+        taken = result.key or key
         return {
             "ok": False,
             "cakisma": result.conflict,
-            "metin": _CONFLICT.format(key=key, label=label),
+            "tus": taken,
+            "metin": _CONFLICT.format(key=taken, label=label),
         }
     if not result.ok:
         return {"ok": False, "metin": f"Kısayol kaydedilmedi: {result.problem}."}
@@ -90,12 +92,16 @@ def remove(data: dict[str, Any], path: Path | None = None) -> dict[str, Any]:
 
 
 def reset(data: dict[str, Any], path: Path | None = None) -> dict[str, Any]:
-    """`{eylem?}`: eylemi ya da (eylemsiz) bütün masaüstü tablosunu varsayılana döndür."""
+    """`{eylem?, zorla?}`: eylemi ya da (eylemsiz) bütün masaüstü tablosunu varsayılana döndür.
+
+    Eylemin varsayılan tuşu başka eylemdeyse çakışma (`cakisma`, `tus`) döner; `zorla` alır.
+    """
     target = path or keybindings_path()
     action = _action(data)
     if data.get("eylem") is not None and action is None:
         return {"ok": False, "metin": _INVALID_REQUEST}
-    return _respond(target, lambda: reset_action(target, CONTEXT_DESKTOP, action))
+    force = data.get("zorla") is True
+    return _respond(target, lambda: reset_action(target, CONTEXT_DESKTOP, action, force=force))
 
 
 KEYBINDING_ROUTES: dict[str, Handler] = {

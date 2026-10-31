@@ -15,7 +15,8 @@ import "./Shortcuts.css";
  * elle de düzenlenebilir. Dolu bir tuş sorulmadan devralınmaz.
  */
 
-interface Conflict { action: string; key: string; holder: string }
+/** Dolu tuş: `retry` aynı isteğin `zorla: true` ile tekrarıdır (bağlama ya da varsayılana dönme). */
+interface Conflict { key: string; holder: string; retry: { name: string; data: Record<string, unknown> } }
 
 const MAC = isMacPlatform();
 
@@ -54,8 +55,9 @@ export function Shortcuts({ client }: { client: ProtocolClient }) {
     try {
       const payload = (await client.request(name, data)) as Record<string, unknown>;
       if (accept(payload)) { setConflict(null); return; }
-      if (typeof payload.cakisma === "string" && typeof data.tus === "string" && typeof data.eylem === "string") {
-        setConflict({ action: data.eylem, key: data.tus, holder: payload.cakisma });
+      const key = typeof payload.tus === "string" ? payload.tus : data.tus;
+      if (typeof payload.cakisma === "string" && typeof key === "string") {
+        setConflict({ key, holder: payload.cakisma, retry: { name, data: { ...data, zorla: true } } });
         return;
       }
       setError(typeof payload.metin === "string" ? payload.metin : "Kısayol kaydedilemedi.");
@@ -97,7 +99,7 @@ export function Shortcuts({ client }: { client: ProtocolClient }) {
         <div className="shortcuts__conflict" role="alertdialog" aria-label="Kısayol çakışması">
           <p>{formatKey(conflict.key, MAC)} zaten “{actionLabel(conflict.holder, keymap.etiketler)}” eylemine bağlı. Bu eyleme taşınsın mı?</p>
           <div className="settings__actions">
-            <button disabled={busy} onClick={() => void send("kisayol.ata", { eylem: conflict.action, tus: conflict.key, zorla: true })} type="button">Taşı</button>
+            <button disabled={busy} onClick={() => void send(conflict.retry.name, conflict.retry.data)} type="button">Taşı</button>
             <button onClick={() => setConflict(null)} type="button">Vazgeç</button>
           </div>
         </div>

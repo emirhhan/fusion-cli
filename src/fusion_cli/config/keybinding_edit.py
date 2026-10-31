@@ -26,11 +26,12 @@ Table = dict[str, object]
 
 @dataclass(frozen=True, slots=True)
 class KeyEditResult:
-    """Düzenleme sonucu: başarısızlıkta `problem` ya da çakışan eylem (`conflict`) dolu."""
+    """Düzenleme sonucu: başarısızlıkta `problem` ya da çakışan eylem (`conflict`) ve tuşu dolu."""
 
     ok: bool
     problem: str | None = None
     conflict: str | None = None
+    key: str | None = None
 
 
 def bind_action(path: Path, context: str, action: str, key: str, *, force: bool) -> KeyEditResult:
@@ -71,15 +72,34 @@ def unbind_action(path: Path, context: str, action: str) -> KeyEditResult:
     return KeyEditResult(True)
 
 
-def reset_action(path: Path, context: str, action: str | None) -> KeyEditResult:
-    """Eylemi (ya da `None` ile bütün bağlamı) varsayılana döndür."""
+def reset_action(
+    path: Path, context: str, action: str | None, *, force: bool = False
+) -> KeyEditResult:
+    """Eylemi (ya da `None` ile bütün bağlamı) varsayılana döndür.
+
+    Ölçüldü (31 Ekim): eylemin varsayılan tuşunu başka bir eylem devraldıysa (`mod+k: terminal`)
+    sıfırlama yalnız eylemin kendi girdilerini sildiği için ok:true dönüp hiçbir şey yapmıyordu.
+    Artık o tuş için çakışma döner; `force` ile tuş tutan eylemden alınır.
+    """
     if action is not None and not is_valid_action(context, action):
         return KeyEditResult(False, problem=f"bilinmeyen eylem: {action}")
     defaults = default_keymap().get(context, {})
+    if action is None:
+        _edit(path, context, lambda table: table.clear())
+        return KeyEditResult(True)
+    current = load_keymap(path).bindings(context)
+    taken = {
+        key: current[key]
+        for key, value in defaults.items()
+        if value == action and current.get(key) not in (None, action)
+    }
+    if taken and not force:
+        key, holder = next(iter(taken.items()))
+        return KeyEditResult(False, conflict=holder, key=key)
 
     def change(table: Table) -> None:
         for key, value in list(table.items()):
-            if action is None or value == action or (value is None and defaults.get(key) == action):
+            if value == action or key in taken or (value is None and defaults.get(key) == action):
                 del table[key]
 
     _edit(path, context, change)

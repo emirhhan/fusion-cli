@@ -58,6 +58,23 @@ describe("Ayarlar › Kısayollar", () => {
     expect(screen.getByRole("row", { name: /Terminali aç\/kapat/ }).textContent).toMatch(/Ctrl\+K/);
   });
 
+  it("devredilmiş tuşu varsayılana döndürürken sorar; Taşı zorla sıfırlar", async () => {
+    // Ölçüldü (31 Ekim): çekirdek sessizce ok:true dönüyordu; artık çakışma ve tuş döner.
+    const fake = client((name, data) => {
+      if (name === "kisayol.sifirla" && !data.zorla) return { ok: false, cakisma: "terminal", tus: "mod+k", metin: "dolu" };
+      if (name === "kisayol.sifirla") return listing({ "mod+k": "palet" });
+      return listing({ "mod+k": "terminal" });
+    });
+    render(<Shortcuts client={fake} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Komut paletini aç kısayolunu varsayılana döndür" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Kısayol çakışması" });
+    expect(dialog.textContent).toMatch(/Ctrl\+K zaten “Terminali aç\/kapat”/);
+    fireEvent.click(screen.getByRole("button", { name: "Taşı" }));
+    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("kisayol.sifirla", { eylem: "palet", zorla: true }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(screen.getByRole("row", { name: /Komut paletini aç/ }).textContent).toMatch(/Ctrl\+K/);
+  });
+
   it("Esc kaydı iptal eder; Kaldır ve Tümünü varsayılana döndür istek atar", async () => {
     const fake = client(() => listing({ "mod+k": "palet", "mod+j": "terminal" }));
     render(<Shortcuts client={fake} />);

@@ -170,3 +170,26 @@ async def test_oturum_kisayol_isteklerini_dagitir(tmp_path: Path, monkeypatch):
     )
     assert result["ok"] and result["baglar"]["mod+shift+k"] == "palet"
     assert json.loads(target.read_text(encoding="utf-8"))["masaustu"]["mod+k"] is None
+
+
+def test_devredilen_tusu_varsayilana_donmek_cakisma_sorar_zorla_geri_alir(tmp_path: Path):
+    """Ölçüldü (31 Ekim): Terminal mod+k'yı devralınca paletin `sifirla`sı ok:true dönüp hiçbir
+    şey yapmıyordu (dosya {mod+j: null, mod+k: terminal} kalıyordu)."""
+    path = tmp_path / "keybindings.json"
+    assert bind_action(path, CONTEXT_DESKTOP, "terminal", "mod+k", force=True).ok
+    result = reset_action(path, CONTEXT_DESKTOP, "palet")
+    assert not result.ok and result.conflict == "terminal" and result.key == "mod+k"
+    assert keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP)["mod+k"] == "terminal"
+    assert reset_action(path, CONTEXT_DESKTOP, "palet", force=True).ok
+    table = keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP)
+    assert table["mod+k"] == "palet" and "terminal" not in table.values()
+
+
+def test_rpc_sifirla_cakismayi_tusla_doner(tmp_path: Path):
+    path = tmp_path / "keybindings.json"
+    keybindings_rpc.assign({"eylem": "terminal", "tus": "mod+k", "zorla": True}, path=path)
+    conflict = keybindings_rpc.reset({"eylem": "palet"}, path=path)
+    assert conflict["ok"] is False and conflict["cakisma"] == "terminal"
+    assert conflict["tus"] == "mod+k" and "mod+k" in conflict["metin"]
+    done = keybindings_rpc.reset({"eylem": "palet", "zorla": True}, path=path)
+    assert done["ok"] and done["baglar"]["mod+k"] == "palet"
