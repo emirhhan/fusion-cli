@@ -46,10 +46,12 @@ Uygulama oturumda ilk kez kullanılacaksa kart sorar:
   yazma bu oturumda bir daha sorulmaz (izin uygulamaya bağlıdır, araca değil).
 - **Evet** — yalnız bu çağrı.
 - **Hayır** — çağrı yapılmaz, tur durur.
-- **Her zaman reddet** — uygulama `desktop.denied_apps`'e eklenir (yalnız masaüstü
-  uygulamasının kartında); aynı turdaki sonraki çağrılar da kart açılmadan reddedilir.
+- **Her zaman reddet** — uygulama `desktop.denied_apps`'e eklenir; aynı turdaki sonraki
+  çağrılar da sorulmadan reddedilir.
 
-Terminalde `o` (oturum), `e` (yalnız bu kez), `h` (hayır) yazılır. Kip tablosu: Otomatik,
+Terminalde `o` (oturum), `e` (yalnız bu kez), `h` (hayır), `r` (her zaman reddet; `r <gerekçe>`
+gerekçeyi modele iletir) yazılır; tam ekran TUI'de aynı seçenekler listede çıkar ve önizleme
+satırı hedef uygulamayı ve kademeyi gösterir. Kip tablosu: Otomatik,
 Düzenlemeleri kabul et ve Manuel kipte ilk kullanım sorulur; Plan kipinde masaüstü eylemi
 yapılmaz; İzinleri atla kipinde oturum onayı sorulmaz (riskli eylem yine sorulur).
 `desktop.app_consent: false` ilk kullanım sorusunu kapatır.

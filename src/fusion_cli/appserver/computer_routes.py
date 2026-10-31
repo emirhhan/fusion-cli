@@ -15,6 +15,7 @@ import dataclasses
 import sys
 from collections.abc import Mapping
 
+from ..config.desktop_denied import with_denied_app
 from ..config.models import Config
 from ..config.settings_access import format_value, write_setting
 from ..core.desktop_settings import DesktopLevel, DesktopSettings
@@ -83,18 +84,14 @@ def write(config: Config, data: Mapping[str, object]) -> tuple[dict[str, object]
 def deny_app(config: Config, app: str) -> tuple[dict[str, object], Config]:
     """`bilgisayar.uygulama_reddet{uygulama}`: uygulamayı kalıcı ret listesine ekle.
 
-    Onay kartındaki "Her zaman reddet" de bunu kullanır (P-007).
+    Onay kartındaki "Her zaman reddet" de bunu kullanır (P-007); TUI/terminal aynı yazımı
+    `config.desktop_denied` üzerinden yapar.
     """
-    name = app.strip()
-    if not name or "," in name:
-        return {"ok": False, "metin": "Uygulama adı boş ya da virgüllü olamaz."}, config
-    current = config.desktop.denied_apps
-    if any(item.casefold() == name.casefold() for item in current):
-        return {**settings_view(config), "metin": f"{name} zaten reddedilenlerde."}, config
-    result, updated = write(config, {"anahtar": "denied_apps", "deger": [*current, name]})
-    if result.get("ok"):
-        result["metin"] = f"{name} reddedilen uygulamalara eklendi."
-    return result, updated
+    try:
+        updated, text = with_denied_app(config, app)
+    except ConfigError as error:
+        return {"ok": False, "metin": str(error)}, config
+    return {**settings_view(updated), "metin": text}, updated
 
 
 def running_apps() -> dict[str, object]:

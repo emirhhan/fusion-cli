@@ -26,6 +26,7 @@ from ..engines.agent.engine_tools import QuestionOption
 from ..tools.preview import preview_change
 from ..ui import messages, theme
 from ..ui.diff import diff_lines
+from .desktop_never import NEVER_WORDS, AppDenials, offers_never
 
 #: Onay sayılan cevaplar. Boş cevap (doğrudan Enter) yalnız sıradan onayda onaydır;
 #: tehlikeli (geri alınamaz) işlemde varsayılan HAYIR'dır (L1-01).
@@ -46,8 +47,11 @@ class ConsolePrompter:
         *,
         flush: Callable[[], Awaitable[None]] | None = None,
         suspend: Callable[[], AbstractContextManager[None]] | None = None,
+        denials: AppDenials | None = None,
     ) -> None:
         self._console = console
+        #: Masaüstü onayında "Her zaman reddet" (`r`, P-007); yazımı sahip bağlar.
+        self._denials = denials or AppDenials()
         self._tool_context = tool_context
         # Terminali devralmadan önce olay veriyolunu boşaltır. Bunsuz, doğrudan
         # yazdığımız onay paneli veriyolunda bekleyen satırlarla sırasız karışır.
@@ -59,6 +63,9 @@ class ConsolePrompter:
         self._interactive = sys.stdin.isatty()
 
     async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer | ApprovalReply:
+        denied = self._denials.short_circuit(request)
+        if denied is not None:
+            return denied
         with self._suspended():
             await self._drain()
             if request.agent_label:
@@ -98,6 +105,8 @@ class ConsolePrompter:
                 if target is not None and request.consent_key is not None:
                     session_hint = messages.BILGISAYAR_CONFIRM_SESSION_HINT.format(app=target.app)
                     self._console.print(f"[{theme.DIM}]{escape(session_hint)}[/{theme.DIM}]")
+                    never_hint = messages.BILGISAYAR_CONFIRM_NEVER_HINT.format(app=target.app)
+                    self._console.print(f"[{theme.DIM}]{escape(never_hint)}[/{theme.DIM}]")
             answer = self._ask(
                 messages.CONFIRM_QUESTION_DANGER if is_dangerous else messages.CONFIRM_QUESTION
             )
@@ -107,6 +116,11 @@ class ConsolePrompter:
         # bir kararı kullanıcıya mal ederdi (bkz. `ApprovalAnswer.UNAVAILABLE`).
         if answer is None or (not answer and not self._interactive):
             return ApprovalAnswer.UNAVAILABLE
+        head, _, note = answer.strip().partition(" ")
+        if head.lower() in NEVER_WORDS and offers_never(request):
+            notice = self._denials.deny(request)
+            self._console.print(f"[{theme.WARN}]{escape(notice)}[/{theme.WARN}]")
+            return ApprovalReply(ApprovalAnswer.DENY, note.strip()) if note.strip() else False
         return parse_console_answer(answer, request, enter_approves=not is_dangerous)
 
     async def ask(

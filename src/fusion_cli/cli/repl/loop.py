@@ -66,6 +66,7 @@ from ...providers.health_setup import build_health
 from ...ui import banner, messages, theme
 from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
+from ..desktop_never import AppDenials, config_persist
 from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
 from ..rule_notices import print_rule_notices
@@ -700,6 +701,8 @@ async def _agent_turn(
             # Soru/onay sırasında canlı "hazırlanıyor…" satırını duraklat; yoksa
             # spinner cevap istemini ezip kullanıcıyı yazamaz hâle getirir.
             suspend=renderer.suspended,
+            # "Her zaman reddet" (`r`, P-007) ret listesine yazar ve oturumu günceller.
+            denials=AppDenials(config_persist(lambda: state.config, _config_setter(state))),
         )
         transport = state.remotion_transport
         if transport is None and state.remotion_browser is not None:
@@ -823,6 +826,15 @@ async def _agent_turn(
     switched = worktrees.apply_switch(state, tool_context)
     if switched:
         console.print(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")
+
+
+def _config_setter(state: ReplState) -> Callable[[Config], None]:
+    """Turun dışında yazılan ayarı (ret listesi, P-007) oturuma işle."""
+
+    def apply(updated: Config) -> None:
+        state.config = updated
+
+    return apply
 
 
 def _turn_tool_context(state: ReplState, changes: ChangeSet | None = None) -> ToolContext:
