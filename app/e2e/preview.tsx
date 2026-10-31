@@ -33,6 +33,9 @@ import { Settings } from "../src/settings/Settings";
 import { VoiceMode, type VoiceState } from "../src/voice/VoiceMode";
 import { Onboarding, type OnboardingValue } from "../src/onboarding";
 import { AccountScreen } from "../src/account/AccountScreen";
+import { HelpScreen } from "../src/help/HelpScreen";
+import { FeedbackDialog } from "../src/feedback/FeedbackDialog";
+import type { SettingsSection } from "../src/settings/search";
 import { ImageCreate } from "../src/imagecreate/ImageCreate";
 import type { AccountController } from "../src/account/useAccount";
 
@@ -43,6 +46,8 @@ const imageJobsPreview = params.get("imageJobs");
 const inspectorOpen = params.get("inspector") !== "0";
 const inspectorPlacement = params.get("inspectorPlacement") === "bottom" ? "bottom" : "right";
 const inspectorHeight = Number(params.get("inspectorHeight") ?? 280);
+/** Ayarlar önizlemesinde açılacak bölüm (`section=bilgisayar` gibi). */
+const settingsSection = (params.get("section") ?? "genel") as SettingsSection;
 applyTheme(theme);
 
 const messages = [
@@ -228,7 +233,29 @@ const workspaceClient = {
       ok: true,
       metin: "Türkçe yaz. Değişikliklerden sonra testleri çalıştır.",
       sinir: 4000,
+      katmanlar: [
+        { kaynak: "~/.claude/CLAUDE.md", katman: "kullanici", karakter: 1840, kirpilan: 0, guvenilir: true },
+        { kaynak: "~/.claude/rules/ecc/common/coding-style.md", katman: "kural", karakter: 2410, kirpilan: 0, guvenilir: true, kapsam: [] },
+        { kaynak: "~/.claude/rules/ecc/common/testing.md", katman: "kural", karakter: 1720, kirpilan: 0, guvenilir: true, kapsam: [] },
+        { kaynak: "~/.claude/rules/ecc/web/coding-style.md", katman: "kural", karakter: 2980, kirpilan: 0, guvenilir: true, kapsam: ["app/src/**/*.tsx", "app/src/**/*.css"] },
+        { kaynak: "~/.claude/rules/ecc/typescript/coding-style.md", katman: "kural", karakter: 3120, kirpilan: 0, guvenilir: true, kapsam: ["**/*.ts", "**/*.tsx"] },
+        { kaynak: "~/.claude/rules/ecc/react/hooks.md", katman: "kural", karakter: 4210, kirpilan: 0, guvenilir: true, kapsam: ["**/*.tsx"] },
+        { kaynak: "/Users/ornek/Desktop/all/01-Projeler/fusion-cli/CLAUDE.md", katman: "proje", karakter: 8000, kirpilan: 512, guvenilir: false },
+        { kaynak: "/Users/ornek/Desktop/all/01-Projeler/fusion-cli/AGENTS.md", katman: "proje", karakter: 6100, kirpilan: 0, guvenilir: false },
+        { kaynak: "/Users/ornek/Desktop/all/01-Projeler/fusion-cli/app/CLAUDE.md", katman: "proje", karakter: 1400, kirpilan: 0, guvenilir: false },
+        { kaynak: "docs/mimari/oturum-yasam-dongusu-ve-kalici-gecmis.md", katman: "import", karakter: 2200, kirpilan: 0, guvenilir: false },
+        { kaynak: "docs/NASIL_KULLANILIR.md", katman: "import", karakter: 5400, kirpilan: 0, guvenilir: false },
+        { kaynak: ".claude/rules/arayuz.md", katman: "kural", karakter: 900, kirpilan: 0, guvenilir: false, kapsam: ["app/**"] },
+      ],
     };
+    if (name === "bilgisayar.ayarlar") return { ok: true, ayarlar: { enabled: true, control_level: "full", category_defaults: true, denied_apps: [], app_levels: [], app_consent: true, background: true, unhide_on_finish: true, escape_stops: true } };
+    if (name === "kisayol.liste") return { ok: true, yol: "~/.fusion/keybindings.json", baglar: { "mod+k": "palet", "mod+j": "terminal", "mod+n": "yeni" }, uyarilar: [],
+      eylemler: [{ ad: "palet", etiket: "Komut paletini aç" }, { ad: "terminal", etiket: "Terminali aç/kapat" }, { ad: "yeni", etiket: "Yeni sohbet" }] };
+    if (name === "izin.kurallar") return { ok: true, guvensiz_katmanlar: [], hedef: "/Projects/fusion-cli/.claude/settings.local.json", kullanici_dosyasi: "~/.config/fusion-cli/permissions.json", kok_disi_okuma_engeli: false, kok_disi_yazma_engeli: false,
+      kurallar: [{ kalip: "Bash(npm test *)", karar: "allow", kaynak: "yerel", dosya: "/Projects/fusion-cli/.claude/settings.local.json" }, { kalip: "Read(~/.ssh/**)", karar: "deny", kaynak: "kullanici", dosya: "~/.claude/settings.json" }] };
+    if (name === "kanca.listele") return { ok: true, kullanici_dosyasi: "~/.config/fusion-cli/hooks.json", guvensiz_katmanlar: [],
+      kancalar: [{ olay: "PreToolUse", eslestirici: "Bash", komut: "~/bin/denetle", sure_sn: 30, kaynak: "kullanici", dosya: "~/.claude/settings.json", atlandi: "" }] };
+    if (name === "bilgisayar.uygulamalar") return { ok: true, uygulamalar: ["Safari", "Mail", "Terminal"] };
     if (name === "baglanti.listele") return {
       ok: true,
       sunucular: [
@@ -396,6 +423,12 @@ function Preview() {
   const onboarding = state === "onboarding";
   const settings = state === "settings";
   const account = state === "account";
+  const help = state === "help";
+  const feedback = state === "feedback";
+  /** Kendi tam sayfası olan yönetim ekranları: oluşturucu ve denetçi çizilmez. */
+  const managementPage = capabilities || connectors || control || settings || account || help;
+  /** Sohbet kenar çubuğunu gizleyen sayfalar (uygulamadaki kuralın önizleme karşılığı). */
+  const sidebarHidden = settings || account || help;
   const voice = state.startsWith("voice-");
   const voiceMini = params.get("voiceMode") === "mini";
   const fullComposer = params.get("fullComposer") === "1";
@@ -448,13 +481,14 @@ function Preview() {
     <>
       <Shell
         sidebarCollapsed={params.get("sidebar") === "0"}
+        sidebarHidden={sidebarHidden}
         rail={railSection ? <MainRail active={railSection} onSelect={() => undefined} accountHostRef={setAccountHost} /> : undefined}
         surface={railSection === "scheduled"
           ? <ScheduleScreen client={sectionPreviewClient} defaultRoot="/Users/ornek/proje" onRunNow={async () => undefined} />
           : <LibraryScreen client={sectionPreviewClient} toUrl={() => null} />}
         surfaceActive={railSection === "library" || railSection === "scheduled"}
         emptyChat={state === "empty"}
-        composer={capabilities || connectors || control || settings || account || state === "image" || state === "video" ? undefined : (
+        composer={managementPage || state === "image" || state === "video" ? undefined : (
           <Composer
             workspaceMode={previewMode}
             onWorkspaceModeChange={setPreviewMode}
@@ -476,14 +510,15 @@ function Preview() {
           />
         )}
         content={<>
-          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} /> : settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" || state === "video" ? <MediaScreen active={state === "video" ? "video-create" : "image-create"} image={<ImageCreate chooseSavePath={async () => null} client={imageClient} jobScope={imageJobsPreview ? `preview-${imageJobsPreview}` : undefined} toUrl={gorselAdresi} />} onSelect={() => undefined} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation onReadAloud={async () => undefined} onEvaluate={async () => undefined} onContinueInNewChat={async () => undefined} mesajlar={state === "running" ? runningMessages : state === "team" ? teamMessages : messages} running={state === "running" || state === "team"} />}
+          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} onOpenProviders={() => undefined} /> : help ? <HelpScreen onClose={() => undefined} onOpenSettings={() => undefined} surum="0.7.19" /> : settings ? <Settings client={workspaceClient} initialSection={settingsSection} onClose={() => undefined} onOpenAccount={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" || state === "video" ? <MediaScreen active={state === "video" ? "video-create" : "image-create"} image={<ImageCreate chooseSavePath={async () => null} client={imageClient} jobScope={imageJobsPreview ? `preview-${imageJobsPreview}` : undefined} toUrl={gorselAdresi} />} onSelect={() => undefined} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation onReadAloud={async () => undefined} onEvaluate={async () => undefined} onContinueInNewChat={async () => undefined} mesajlar={state === "running" ? runningMessages : state === "team" ? teamMessages : messages} running={state === "running" || state === "team"} />}
+          {feedback && <FeedbackDialog initial={{ tur: "geri-bildirim" }} loadVersion={async () => "0.7.19"} onClose={() => undefined} />}
           {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
         </>}
-        header={<AppHeader inspectorAvailable={!capabilities && !control && !settings && !account} inspectorOpen={!capabilities && !control && !settings && !account && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={params.get("sidebar") === "0"} status="Hazır" title={account ? "Hesabım" : settings ? "Ayarlar" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
-        inspector={capabilities || control || settings || account ? undefined : inspector}
+        header={<AppHeader inspectorAvailable={!managementPage} inspectorOpen={!managementPage && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={params.get("sidebar") === "0"} status="Hazır" title={account ? "Hesabım" : help ? "Yardım" : connectors ? "MCP bağlantıları" : settings ? "Ayarlar" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
+        inspector={managementPage ? undefined : inspector}
         inspectorCollapsed={inspectorCollapsed}
         inspectorHeight={inspectorHeight}
-        inspectorOpen={!capabilities && !control && !settings && !account && inspectorOpen}
+        inspectorOpen={!managementPage && inspectorOpen}
         inspectorPlacement={inspectorPlacement}
         inspectorWidth={inspectorWidth}
         sidebar={<Sidebar projeler={params.get("projects") === "1" ? ["Desktop", "02-example", "GATE HOLDING"].map((name, index) => ({ name, root: `/Users/test/${name}`, pinned: false, updated_at: 3 - index })) : []} profileHost={railSection ? accountHost : undefined} availableSources={["claude", "codex"]} etkin="1" onSec={() => undefined} onYeni={() => undefined} oturumlar={params.get("projects") === "1" ? ["Desktop", "02-example", "GATE HOLDING"].flatMap((project, p) => Array.from({ length: p === 2 ? 2 : 7 }, (_, i) => ({ session_id: `${p}-${i}`, source: "fusion", title: ["Fusion hatalarını düzelt ve yeni özellikleri ekle", "Crossover kurulumlarını kalıcı yap", "Valorant Mobile’ı Mac’te çalıştır", "Mobil eşleştir butonunu düzelt", "Crossover’da Overwatch aç", "Proje görünümünü güncelle", "İçe aktarılan sohbet"][i], project, projectRoot: `/Users/test/${project}` }))) : [{ session_id: "1", source: "fusion", title: "macOS uygulaması" }, { session_id: "2", source: "claude", title: "Fusion CLI testleri" }]} />}
