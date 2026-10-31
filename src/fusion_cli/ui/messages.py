@@ -893,6 +893,9 @@ STATUS_NONE = "(yok)"
 STATUS_CONTEXT_LABEL = "bağlam %{percent} · ~{tokens} tok"
 CONTEXT_TITLE = "Bağlam penceresi · {model}"
 CONTEXT_SYSTEM = "Sistem istemi"
+CONTEXT_SYSTEM_ESTIMATED = "Sistem istemi (tahmini)"
+CONTEXT_TOOL_SCHEMAS = "Araç tanımları (tahmini)"
+CONTEXT_PENDING = "Bekleyen bağlam (!/@)"
 CONTEXT_SUMMARY = "Özet (/compact)"
 CONTEXT_USER = "Kullanıcı"
 CONTEXT_ASSISTANT = "Asistan"
@@ -900,7 +903,11 @@ CONTEXT_TOOLS = "Araç sonuçları"
 CONTEXT_TOTAL = "Toplam"
 CONTEXT_TOTAL_VALUE = "~{tokens} / {limit} tok · %{percent} · {count} mesaj"
 CONTEXT_WINDOW = "Model penceresi"
-CONTEXT_EMPTY = "Geçmiş boş: ilk mesajla birlikte sistem istemi ve araç tanımları eklenir."
+CONTEXT_WINDOW_VALUE = "{window} tok · pencere doluluğu ~{tokens} tok (%{percent})"
+CONTEXT_EMPTY = (
+    "Geçmiş boş: sistem istemi ve araç tanımları tahminidir; Toplam ve durum çubuğu yüzdesi "
+    "yalnız konuşmayı (sıkıştırma eşiğine göre) sayar."
+)
 
 # --- /export ve /copy (P-028) ---------------------------------------------- #
 CMD_EXPORT = (

@@ -311,7 +311,7 @@ Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtı
 ### Durum ve bağlam
 
 - `/status` — sürüm, motor, izin kipi, model/kademe, düşünme, çıktı stili, dizin(ler), MCP sunucuları, hesap, sohbet kimliği, yapılandırma dosyası.
-- `/context` — bağlam penceresi kırılımı: sistem istemi / özet / kullanıcı / asistan / araç sonuçları (tahmini token ve yüzde), sıkıştırma eşiği ve model penceresi.
+- `/context` — bağlam penceresi kırılımı: sistem istemi / özet / kullanıcı / asistan / araç sonuçları (tahmini token ve yüzde), araç tanımları ve bekleyen `!`/`@` bağlamı ayrı satır, sıkıştırma eşiği ve model penceresi doluluğu. Yeni oturumda sistem istemi tahminle sayılır (`(tahmini)` etiketi); durum çubuğundaki `bağlam %N` yalnız konuşmayı sıkıştırma eşiğine göre sayar.
 - Durum çubuğunda `bağlam %12 · ~3k tok` sayacı her tur sonunda güncellenir (satır-içi kipte `FUSION_TOOLBAR=1` ile görünür).
 
 ### Dışa aktarma ve pano

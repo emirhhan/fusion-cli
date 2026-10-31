@@ -92,3 +92,21 @@ def test_tui_durum_satiri_baglam_sayacini_tasir():
     html = format_status("auto", "agent", "bağlam %12 · ~3k tok")
     assert "bağlam %12" in html
     assert "bağlam" not in format_status("auto", "agent")
+
+
+def test_context_sistem_istemi_ve_arac_tanimlari_tahminle_sayilir(state):
+    """Ölçüldü (31 Ekim): yeni oturumda `/context` 'Sistem 0 tok' gösteriyor, araç şemaları ve
+    bekleyen `!`/`@` bağlamı hiç sayılmıyordu; sayaç gerçek doluluğu sistematik eksik gösteriyordu.
+    """
+    state.pending_context = ["x" * 400]
+    report = context_report(state)
+    assert report.system_estimated and report.system_chars > 1_000
+    assert report.tool_schema_chars > 1_000 and report.pending_chars == 400
+    rows = dict(context_rows(report))
+    assert "Sistem istemi (tahmini)" in rows and "Araç tanımları (tahmini)" in rows
+    assert "Bekleyen bağlam (!/@)" in rows
+    # Gerçek sistem mesajı gelince tahmin yerine o sayılır.
+    state.history = [Message("system", "s" * 300), Message("user", "u")]
+    report = context_report(state)
+    assert not report.system_estimated and report.system_chars == 300
+    assert "Sistem istemi" in dict(context_rows(report))
