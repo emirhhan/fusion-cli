@@ -202,6 +202,11 @@ runtime:
   claude_hooks: false
   # Süresi yazılmamış kancanın en uzun çalışma süresi (sn); tek kanca en çok 600 sn.
   hook_timeout_s: 60
+  # Girdi bekleyen oturum bu kadar sn boşta kalınca Notification(idle_prompt) kancası; 0 = kapalı.
+  hook_idle_prompt_s: 60
+  # `type: http` kancası iç ağ adresine (localhost, 192.168.x, 10.x…) gidebilsin mi?
+  # Güvenilmeyen proje config.yaml'ı bunu açamaz.
+  hook_http_allow_private: false
   temperature: 0.3
   # Varsayılan reasoning yoğunluğu. Mode'dan (kademe) AYRIDIR: kademe modeli seçer,
   # bu ayar model destekliyorsa düşünme yoğunluğunu belirler. auto | low | medium |

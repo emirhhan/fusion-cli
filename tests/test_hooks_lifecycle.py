@@ -150,3 +150,62 @@ async def test_tur_ici_ozetleme_sessionstart_compact_baglamini_sisteme_ekler(tmp
     assert [m.content for m in uzun[1:]] == ["özet"]
     assert _yukler(tmp_path, HookEvent.PRE_COMPACT)[0]["trigger"] == "auto"
     assert _yukler(tmp_path, HookEvent.SESSION_START)[0]["source"] == "compact"
+
+
+# --- Notification(idle_prompt) ---------------------------------------------------- #
+
+
+def test_bosta_izleyici_yalniz_tur_sonrasi_ve_bir_kez_tetikler():
+    from fusion_cli.engines.hooks.idle import IdleTracker
+
+    izleyici = IdleTracker()
+    # Hiç tur koşmadan beklemek bildirim üretmez (Claude: cevap bittikten sonra).
+    assert izleyici.tick(busy=False, now=0, limit_s=60) is False
+    assert izleyici.tick(busy=False, now=500, limit_s=60) is False
+    assert izleyici.tick(busy=True, now=501, limit_s=60) is False
+    assert izleyici.tick(busy=False, now=502, limit_s=60) is False
+    assert izleyici.tick(busy=False, now=561, limit_s=60) is False
+    assert izleyici.tick(busy=False, now=562, limit_s=60) is True
+    assert izleyici.tick(busy=False, now=900, limit_s=60) is False
+    # Yeni tur sayacı sıfırlar; süre 0 ise kapalıdır.
+    assert izleyici.tick(busy=True, now=901, limit_s=0) is False
+    assert izleyici.tick(busy=False, now=902, limit_s=0) is False
+    assert izleyici.tick(busy=False, now=5000, limit_s=0) is False
+
+
+async def test_bosta_gozcusu_notification_idle_prompt_kancasini_calistirir(tmp_path):
+    import asyncio
+
+    from fusion_cli.engines.hooks.idle import watch_idle
+
+    session = _oturum(
+        tmp_path,
+        _kayit_kancasi(tmp_path, HookEvent.NOTIFICATION, "idle_prompt"),
+        _kayit_kancasi(tmp_path, HookEvent.SESSION_START),
+    )
+    await session.start()
+    saat = iter(range(0, 10_000, 30))
+    mesgul = iter([True, False, False, False, False])
+    kararlar = []
+    gozcu = asyncio.ensure_future(
+        watch_idle(
+            lambda: session,
+            lambda: next(mesgul, False),
+            lambda: 60.0,
+            on_verdict=kararlar.append,
+            poll_s=0,
+            clock=lambda: float(next(saat)),
+        )
+    )
+    for _ in range(200):
+        await asyncio.sleep(0.01)
+        if kararlar:
+            break
+    gozcu.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await gozcu
+
+    yukler = _yukler(tmp_path, HookEvent.NOTIFICATION)
+    assert [(y["notification_type"], y["message"]) for y in yukler] == [
+        ("idle_prompt", "Fusion girdini bekliyor")
+    ]

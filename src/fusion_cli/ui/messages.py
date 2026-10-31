@@ -1643,6 +1643,8 @@ HOOKS_TEST_NONE = "{event} için eşleşen kanca yok."
 HOOKS_TEST_RESULT = (
     "{event}: {ran} kanca çalıştı · engel: {blocked} · izin: {permission} · durdur: {halt}"
 )
+#: `Notification(idle_prompt)`: girdi bekleyen oturum boşta (Claude: "waiting for your input").
+HOOKS_IDLE_NOTICE = "Fusion girdini bekliyor"
 #: Ekip kapıları (TaskCreated/TaskCompleted/TeammateIdle, P-061).
 HOOKS_TASK_CREATE_BLOCKED = "KANCA ENGELLEDİ (TaskCreated): görev eklenmedi. Gerekçe: {reason}"
 HOOKS_TASK_COMPLETE_BLOCKED = (

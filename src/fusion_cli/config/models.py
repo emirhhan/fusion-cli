@@ -299,6 +299,10 @@ class RuntimeConfig:
     claude_hooks: bool = False
     #: Süresi yazılmamış kancanın en uzun çalışma süresi (sn); tek kanca en çok 600 sn.
     hook_timeout_s: float = 60.0
+    #: Girdi bekleyen oturum bu kadar sn boşta kalınca `Notification(idle_prompt)`; 0 = kapalı.
+    hook_idle_prompt_s: float = 60.0
+    #: `type: http` kancası iç ağ adresine gidebilir mi? (iç ağ koruması; varsayılan kapalı)
+    hook_http_allow_private: bool = False
     #: Öğretmenle (web sohbet) tek bir soru-cevap için en fazla bekleme. Genel API
     #: zaman aşımından (`request_timeout_s`) AYRIDIR: web LLM düşünme süresi uzun
     #: olabilir ama bir tur dakikalarca öğretmeni bekleyemez (A4-31).

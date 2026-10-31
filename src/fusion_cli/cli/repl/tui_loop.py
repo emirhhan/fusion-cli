@@ -1062,6 +1062,11 @@ async def run_tui_repl(
     # Gözcü ayrı sahipli görevdir (bkz. loop.run_repl): drain onu beklemesin.
     cron_watcher = asyncio.ensure_future(session._cron_watcher())
     link_watcher = session.start_agent_link()
+    idle_watcher = hook_events.start_idle_watch(
+        state,
+        lambda: session._busy,
+        lambda text: session._echo(f"[{theme.WARN}]{escape(text)}[/{theme.WARN}]"),
+    )
     # Açılış kutusu konuşma alanına yazılır (tam-ekranda üstte durur).
     _print_startup(session, state, resume)
 
@@ -1078,6 +1083,7 @@ async def run_tui_repl(
         cron_watcher.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await cron_watcher
+        await hook_events.stop_idle_watch(idle_watcher)
         await agent_link.stop_watch(state, link_watcher)
 
     # Bekleyen arka plan işlerini (ders çıkarımı) bitir; hataları yut ma, log'la.

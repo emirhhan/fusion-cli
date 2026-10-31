@@ -273,6 +273,11 @@ async def _run_surface(
         is_busy=lambda: bool(handling),
     )
     handling: list[str] = []
+    idle_watcher = hook_events.start_idle_watch(
+        state,
+        lambda: bool(handling),
+        lambda text: console.print(f"[{theme.WARN}]{escape(text)}[/{theme.WARN}]"),
+    )
 
     try:
         while state.running:
@@ -291,6 +296,7 @@ async def _run_surface(
         cron_watcher.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await cron_watcher
+        await hook_events.stop_idle_watch(idle_watcher)
         await agent_link.stop_watch(state, link_watcher)
         await remote_control.shutdown(state)
         await browser_command.shutdown(state)

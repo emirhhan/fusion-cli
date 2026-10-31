@@ -60,7 +60,13 @@ EXECUTION_SECTIONS = ("mcp_servers", "hosted_connectors", "sandbox")
 #: Aynı gerekçeyle `runtime` altından düşürülen anahtarlar. `status_line_command` tur sonunda
 #: kabukla çalışır (P-069); güvensiz projeden gelirse `fusion trust` olmadan kod yürütme olur.
 #: `voice_listener` (P-072) `/voice` ile alt süreç olarak başlatılır; aynı gerekçe.
-EXECUTION_RUNTIME_KEYS = ("verification_commands", "status_line_command", "voice_listener")
+EXECUTION_RUNTIME_KEYS = (
+    "verification_commands",
+    "status_line_command",
+    "voice_listener",
+    # Kanca HTTP isteğinin iç ağa gitmesi (P-009): güvenilmeyen depo açamaz.
+    "hook_http_allow_private",
+)
 
 REASON_TRUSTED = "güvenildi"
 REASON_UNKNOWN = "proje için güven kaydı yok"

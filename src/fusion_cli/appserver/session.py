@@ -648,6 +648,8 @@ class AppSession:
         #: Kalıcı yazması başarısız olan ayarların kullanıcıya gösterilecek uyarısı.
         self._persist_warnings: list[str] = []
         self._turn: asyncio.Task[Any] | None = None
+        #: `Notification(idle_prompt)` gözcüsü (P-009); ilk turda kurulur, kapanışta iptal.
+        self._idle_watch: asyncio.Future[None] | None = None
         self._turn_settled = asyncio.Event()
         self._turn_settled.set()
         #: Bir makronun (`/goal` …) bir SONRAKİ tura taşıyacağı davranış kipi.
@@ -2495,6 +2497,19 @@ class AppSession:
             logging.getLogger(__name__).info("@anma: %s", mention_note)
         return None
 
+    def _ensure_idle_watch(self) -> None:
+        """Girdi bekleyen sekme boşta kalınca `Notification(idle_prompt)` (P-009)."""
+        if self._idle_watch is not None or self._closed:
+            return
+        from ..cli.repl import hook_events
+
+        log = logging.getLogger(__name__)
+        self._idle_watch = hook_events.start_idle_watch(
+            self._state,
+            lambda: self._turn is not None and not self._turn.done(),
+            lambda text: log.warning("boşta bildirimi kancası: %s", text),
+        )
+
     async def _flush_hook_events(self, result: dict[str, Any]) -> dict[str, Any]:
         """`/cd` kuyruğa aldığı `CwdChanged` kancasını gönder (P-009); kök değişmediyse atar.
 
@@ -3067,6 +3082,7 @@ class AppSession:
         trace_sinks: tuple[EventSink, ...] = (trace,) if trace is not None else ()
         owned_turn = asyncio.ensure_future(execute_turn())
         self._turn = owned_turn
+        self._ensure_idle_watch()
         self._turn_settled.clear()
         try:
             outcome = await owned_turn
@@ -3596,6 +3612,11 @@ class AppSession:
             with contextlib.suppress(asyncio.CancelledError):
                 await submission
         await self._voice_background.close()
+        if self._idle_watch is not None:
+            from ..cli.repl import hook_events
+
+            await hook_events.stop_idle_watch(self._idle_watch)
+            self._idle_watch = None
         if self._state.hook_session is not None:
             # SessionEnd kancası (P-009): yalnız başlamış (en az bir tur koşmuş) oturumda.
             await self._state.hook_session.end("other")
