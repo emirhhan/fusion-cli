@@ -69,13 +69,13 @@ describe("Sidebar", () => {
     render(<Sidebar oturumlar={[]} etkin={null} onSec={vi.fn()} onYeni={vi.fn()} />);
     expect(screen.getByRole("button", { name: /yeni sohbet/i })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
-    expect(screen.getByRole("menuitem", { name: /kişiselleştirme/i })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /kişiselleştirme/i })).toBeNull();
     expect(screen.getByRole("menuitem", { name: /hesabım/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /^ayarlar$/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /yardım/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /^giriş yap$/i })).toBeTruthy();
     expect(screen.queryByRole("menuitem", { name: /çıkış yap/i })).toBeNull();
-    fireEvent.click(screen.getByRole("menuitem", { name: /daha fazla/i }));
+    expect(screen.queryByRole("menuitem", { name: /daha fazla/i })).toBeNull();
     expect(screen.getByRole("menuitem", { name: /kontrol paneli/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /beceriler ve ajanlar/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /mcp bağlantıları/i })).toBeTruthy();
@@ -87,7 +87,6 @@ describe("Sidebar", () => {
     render(<Sidebar oturumlar={[]} etkin={null} onNavigate={onNavigate} onSec={vi.fn()} onYeni={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /daha fazla/i }));
     fireEvent.click(screen.getByRole("menuitem", { name: /mcp bağlantıları/i }));
 
     expect(onNavigate).toHaveBeenCalledWith("connectors");
@@ -102,17 +101,6 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /geri bildirim gönder/i }));
 
     expect(onNavigate).toHaveBeenCalledWith("feedback");
-  });
-
-  it("profil menüsünden bellek ve talimatların olduğu bölüme gider", () => {
-    const onNavigate = vi.fn();
-    render(<Sidebar oturumlar={[]} etkin={null} onNavigate={onNavigate} onSec={vi.fn()} onYeni={vi.fn()} />);
-
-    fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /kişiselleştirme/i }));
-
-    expect(onNavigate).toHaveBeenCalledWith("personalization");
-    expect(screen.queryByRole("menu", { name: /profil menüsü/i })).toBeNull();
   });
 
   it("giriş yapılmadıysa uydurma kullanıcı adı göstermez", () => {
@@ -151,6 +139,50 @@ describe("Sidebar", () => {
     expect(profile.textContent).toContain("kullanici");
     expect(profile.textContent).toContain("e@ornek.com");
     expect(profile.textContent).not.toContain("Gemini");
+  });
+
+  it("profil menüsü düz listedir: Hesabım profil satırından açılır, Kişiselleştirme ve Daha fazla yoktur", () => {
+    const onNavigate = vi.fn();
+    render(
+      <Sidebar
+        etkin={null}
+        hesap={{ kullanici_adi: "Emirhan", eposta: "e@ornek.com", avatar: "" }}
+        onNavigate={onNavigate}
+        onSec={vi.fn()}
+        onYeni={vi.fn()}
+        oturumlar={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
+    const menu = screen.getByRole("menu", { name: "Profil menüsü" });
+    const etiketler = Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent?.trim());
+    expect(etiketler.slice(1)).toEqual([
+      "Ayarlar", "Kontrol Paneli", "Beceriler ve Ajanlar", "MCP bağlantıları", "Dil",
+      "Yardım", "Geri bildirim gönder", "Çıkış yap",
+    ]);
+    expect(menu.textContent).not.toContain("Kişiselleştirme");
+    expect(menu.textContent).not.toContain("Daha fazla");
+    expect(screen.queryByRole("menuitem", { name: "Hesabım" })).toBeNull();
+    // Ek açılır yok: hiçbir menü öğesi alt menü açmaz.
+    expect(menu.querySelector("[aria-expanded]")).toBeNull();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Emirhan · Hesabım" }));
+    expect(onNavigate).toHaveBeenCalledWith("account");
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it.each([
+    ["Kontrol Paneli", "control-panel"],
+    ["Beceriler ve Ajanlar", "skills"],
+    ["MCP bağlantıları", "connectors"],
+    ["Dil", "language"],
+  ])("%s doğrudan ana menüden açılır", (etiket, hedef) => {
+    const onNavigate = vi.fn();
+    render(<Sidebar etkin={null} hesap={{ kullanici_adi: "k", eposta: "e@ornek.com", avatar: "" }} onNavigate={onNavigate} onSec={vi.fn()} onYeni={vi.fn()} oturumlar={[]} />);
+    fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: etiket }));
+    expect(onNavigate).toHaveBeenCalledWith(hedef);
   });
 
   it("çıkış yap menüden bildirilir ve menü kapanır", () => {
