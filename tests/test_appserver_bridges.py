@@ -360,3 +360,53 @@ async def test_zamaninda_gelen_onay_zaman_asimina_takilmaz() -> None:
 
     assert await gorev is ApprovalAnswer.ONCE
     assert all(json.loads(s)["veri"].get("olay") != "OnayZamanAsimi" for s in satirlar)
+
+
+async def test_kalici_izin_secenegi_yalniz_kalicilastirilabilen_istekte_sunulur() -> None:
+    """P-003: "bir daha sorma" seçeneği yazılacak kuralı açıklar; yıkıcı istekte yoktur."""
+    satirlar: list[str] = []
+    pending = PendingQuestions()
+    prompter = ProtocolPrompter(satirlar.append, pending)
+
+    gorev = asyncio.ensure_future(prompter.confirm(_request(args={"path": "src/a.py"})))
+    await asyncio.sleep(0)
+    soru = json.loads(satirlar[0])
+    always = next(s for s in soru["veri"]["secenekler"] if s["deger"] == "always")
+    assert "Edit(/src/**)" in always["aciklama"]
+    assert soru["veri"]["not_alinir"] is True
+    pending.resolve(soru["id"], {"secim": "always"})
+    assert await gorev is ApprovalAnswer.ALWAYS
+
+    gorev = asyncio.ensure_future(prompter.confirm(_request(danger="dosya siler")))
+    await asyncio.sleep(0)
+    soru = json.loads(satirlar[-1])
+    assert "always" not in [s["deger"] for s in soru["veri"]["secenekler"]]
+    pending.resolve(soru["id"], {"secim": "always"})
+    # Yıkıcı istekte "always" cevabı bile kalıcı izne dönüşmez: red sayılır.
+    assert await gorev is ApprovalAnswer.DENY
+
+
+async def test_ret_notu_kararla_birlikte_tasinir_ve_kirpilir() -> None:
+    """P-013: `not` alanı `ApprovalReply` olarak döner; uzun not kesilir, boş not enum bırakır."""
+    from fusion_cli.appserver.bridges import APPROVAL_NOTE_MAX_CHARS
+    from fusion_cli.engines.agent.approval import ApprovalReply
+
+    satirlar: list[str] = []
+    pending = PendingQuestions()
+    prompter = ProtocolPrompter(satirlar.append, pending)
+
+    gorev = asyncio.ensure_future(prompter.confirm(_request()))
+    await asyncio.sleep(0)
+    pending.resolve(json.loads(satirlar[0])["id"], {"secim": "deny", "not": "  önce testleri yaz "})
+    assert await gorev == ApprovalReply(ApprovalAnswer.DENY, "önce testleri yaz")
+
+    gorev = asyncio.ensure_future(prompter.confirm(_request()))
+    await asyncio.sleep(0)
+    pending.resolve(json.loads(satirlar[-1])["id"], {"secim": "once", "not": "x" * 5_000})
+    cevap = await gorev
+    assert isinstance(cevap, ApprovalReply) and len(cevap.note) == APPROVAL_NOTE_MAX_CHARS
+
+    gorev = asyncio.ensure_future(prompter.confirm(_request()))
+    await asyncio.sleep(0)
+    pending.resolve(json.loads(satirlar[-1])["id"], {"secim": "once", "not": "   "})
+    assert await gorev is ApprovalAnswer.ONCE

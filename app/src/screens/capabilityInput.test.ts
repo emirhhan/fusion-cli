@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput, parseImageRequest } from "./capabilityInput";
+import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput, parseImageRequest, skillPrefixToSlash } from "./capabilityInput";
 
 const names = {
   skills: ["seo-denetimi", "Rapor"],
@@ -38,6 +38,15 @@ describe("parseCapabilityInput", () => {
     expect(parsed.skill?.ad).toBe("seo-denetimi");
     expect(parsed.mcp).toEqual(["github"]);
     expect(DEFAULT_SKILL_TASK("seo-denetimi")).toContain("seo-denetimi");
+  });
+});
+
+describe("skillPrefixToSlash (P-052)", () => {
+  it("$beceri bilinen adda slash olur; bilinmeyen ve fiyat metni dokunulmaz", () => {
+    expect(skillPrefixToSlash("$seo-denetimi ana sayfa", ["seo-denetimi"])).toBe("/seo-denetimi ana sayfa");
+    expect(skillPrefixToSlash("$5 fiyat", ["seo-denetimi"])).toBe("$5 fiyat");
+    expect(skillPrefixToSlash("$yok x", ["seo-denetimi"])).toBe("$yok x");
+    expect(parseCapabilityInput("$seo-denetimi tara", names).skill?.ad).toBe("seo-denetimi");
   });
 });
 

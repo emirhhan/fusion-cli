@@ -10,7 +10,7 @@ import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
 import { useKapatmaNabzi } from "./dialogs/closeHeartbeat";
 import { osBildirimiGonder } from "./notifications/osNotice";
-import { ShareDialog } from "./dialogs/ShareDialog";
+import { ShareDialog, type ExportFetcher } from "./dialogs/ShareDialog";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
 import { NewTaskDialog } from "./dialogs/NewTaskDialog";
 import {
@@ -71,6 +71,7 @@ import { useShowSteps } from "./settings/useShowSteps";
 import { useInspectorPlacement } from "./settings/useInspectorPlacement";
 import { desktopDir } from "@tauri-apps/api/path";
 import { DepoUyarisi } from "./workspace/DepoUyarisi";
+import { TrustProject } from "./dialogs/TrustProject";
 import { ProjectPicker } from "./screens/ProjectPicker";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -98,7 +99,7 @@ import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dia
 import { PermissionPrompt } from "./permissions/PermissionPrompt";
 import { usePermissions } from "./permissions/usePermissions";
 import { useDictation } from "./voice/useDictation";
-import type { PermissionBridge } from "./permissions/types";
+import { desktopPermissionKind, hasSettingsLink, type PermissionBridge } from "./permissions/types";
 import { nativePermissionBridge } from "./platform/permissions";
 import { listenForFileDrops } from "./platform/drop";
 import { FeedbackDialog } from "./feedback/FeedbackDialog";
@@ -115,7 +116,7 @@ import { useScheduleRunner } from "./schedule/useScheduleRunner";
 import { useSchedulerCore } from "./schedule/useSchedulerCore";
 import type { ReportInput } from "./feedback/report";
 import { useCrashReporter } from "./feedback/useCrashReporter";
-import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput } from "./screens/capabilityInput";
+import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput, skillPrefixToSlash } from "./screens/capabilityInput";
 import { attachmentsFromDroppedFiles, isFolderCommand, startsWithFilePath } from "./slashRouting";
 import { readStorage, writeStorage } from "./platform/storage";
 
@@ -568,11 +569,40 @@ export function SessionUygulama({
   useRemoteProjectSync(active?.client ?? null, projects.registry);
   const activeSessionId = active?.id;
   const activeClient = active?.client;
+  const activeTitle = active?.title ?? "";
+  // Sabit kimlik: satır içi ok fonksiyonu her render'da ShareDialog efektini yeniden kuruyor ve
+  // `sohbet.disa_aktar` RPC'sini her üst render'da yeniden çağırıyordu (31 Ekim).
+  const exportTranscript = useCallback<ExportFetcher>(
+    (bicim) => {
+      if (!activeClient) return Promise.reject(new Error("Oturum yok."));
+      return activeClient.request("sohbet.disa_aktar", { bicim, baslik: activeTitle }).then((sonuc) => {
+        const result = sonuc as { ok?: boolean; metin?: string; dosya_adi?: string };
+        if (!result.ok || typeof result.metin !== "string") throw new Error("Dışa aktarım alınamadı.");
+        return { metin: result.metin, dosya_adi: result.dosya_adi };
+      });
+    },
+    [activeClient, activeTitle],
+  );
   useEffect(() => () => {
     manualVoiceGeneration.current += 1;
     void manualVoiceTurn.current?.cancel().catch(() => undefined);
   }, [activeSessionId]);
   usePrefsMirror(activeClient);
+  // Bir masaüstü aracı izin yüzünden düşünce çekirdek `MasaustuIzinGerekli` yollar; izin kartı
+  // açılır ve sistem istemi (Erişilebilirlik / Ekran Kaydı) Fusion.app adına tetiklenir (P-005).
+  // Olay sidecar'ın gördüğü durumdur; Tauri önbelleği "granted" dese de kart yeniden açılır.
+  const ensurePermission = permissions.ensure;
+  const invalidatePermission = permissions.invalidate;
+  useEffect(() => {
+    if (!activeClient) return;
+    return activeClient.onEvent((event) => {
+      if (event.olay !== "MasaustuIzinGerekli") return;
+      const kind = desktopPermissionKind(event.tur);
+      if (!kind) return;
+      invalidatePermission(kind);
+      void ensurePermission(kind);
+    });
+  }, [activeClient, ensurePermission, invalidatePermission]);
   const requestKitsHost = useCallback((name: string, data: Record<string, unknown>) => {
     if (!activeClient || !activeSessionId) return Promise.reject(new Error("Fusion oturumu yok."));
     return activeClient.request(name, data) as Promise<Record<string, unknown>>;
@@ -1338,7 +1368,9 @@ export function SessionUygulama({
     commands: commands.map((command) => command.ad),
   });
   const skillFrom = (task: string) => parseCapabilityInput(task, capabilityNames()).skill;
-  const send = (task: string) => {
+  const send = (rawTask: string) => {
+    // `$beceri` (Codex yazımı) bilinen bir beceri/komutsa slash yoluna çevrilir (P-052).
+    const task = skillPrefixToSlash(rawTask, [...skillNames, ...commands.map((command) => command.ad)]);
     const resumeSource = task.match(/^\/resume(claude|codex|hermes)$/i)?.[1]?.toLocaleLowerCase("tr") as "claude" | "codex" | "hermes" | undefined;
     if (resumeSource && history.sources.some((source) => source.ad === resumeSource)) {
       setHistoryOpen(true);
@@ -1546,6 +1578,8 @@ export function SessionUygulama({
       composer={page === "chat" ? (
         <><ProjectPicker root={active.root} name={activeProjectName} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root, mode: "kod" }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
         <DepoUyarisi kok={active.root} projeler={active.depoProjeleri} onAc={(kok) => { void controller.create({ root: kok, mode: "kod" }).then(() => setPage("chat")); }} />
+        {/* Güvenilmeyen proje kartı (P-012): proje kendi ayarını taşıyorsa ve düşürüldüyse sorulur. */}
+        <TrustProject client={active.client} kok={active.root} running={Boolean(active.running)} onTrusted={() => setControlRevision((value) => value + 1)} />
         <Composer
           stopping={active.stopping}
           busySubmissionMode={active.stopping || active.stopError ? "queue" : busySubmissionMode}
@@ -1710,6 +1744,7 @@ export function SessionUygulama({
             <ShareDialog
               messages={active.messages}
               onClose={() => setShareOpen(false)}
+              onExport={activeClient ? exportTranscript : undefined}
               title={active.title}
             />
           )}
@@ -1787,7 +1822,7 @@ export function SessionUygulama({
           />
           {permissions.activeKind && (
             <PermissionPrompt
-              canOpenSettings={permissions.activeKind === "microphone" || permissions.activeKind === "speech"}
+              canOpenSettings={hasSettingsLink(permissions.activeKind)}
               error={permissions.error}
               isRequesting={permissions.isRequesting}
               kind={permissions.activeKind}

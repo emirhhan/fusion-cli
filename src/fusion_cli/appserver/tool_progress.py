@@ -219,6 +219,19 @@ def _desktop_open(args: Mapping[str, object]) -> str:
     return f"masaüstünde {hedef} açılıyor" if hedef else "masaüstünde uygulama açılıyor"
 
 
+_MOUSE_VERBS = {
+    "click": "bir öğeye tıklanıyor", "right_click": "sağ tıklanıyor",
+    "double_click": "çift tıklanıyor", "triple_click": "üç kez tıklanıyor",
+    "middle_click": "orta tuşla tıklanıyor", "drag": "sürükleniyor",
+    "hover": "imleç bir öğenin üstüne götürülüyor", "down": "fare basılı tutuluyor",
+    "up": "fare bırakılıyor",
+}  # fmt: skip
+
+
+def _desktop_mouse(args: Mapping[str, object]) -> str:
+    return f"masaüstünde {_MOUSE_VERBS.get(str(args.get('action', 'click')), 'fare kullanılıyor')}"
+
+
 def _desktop_generic(fiil: str) -> Callable[[Mapping[str, object]], str]:
     def _metin(_args: Mapping[str, object]) -> str:
         return f"masaüstünde {fiil}"
@@ -269,7 +282,9 @@ _METINLER: dict[str, Callable[[Mapping[str, object]], str]] = {
     "desktop_apps": _desktop_generic("uygulamalar listeleniyor"),
     "desktop_open": _desktop_open,
     "desktop_screenshot": _desktop_generic("ekran görüntüsü alınıyor"),
+    "desktop_displays": _desktop_generic("ekranlar listeleniyor"),
     "desktop_click": _desktop_generic("bir öğeye tıklanıyor"),
+    "desktop_mouse": _desktop_mouse,
     "desktop_type": _desktop_generic("yazı yazılıyor"),
     "desktop_key": _desktop_generic("tuşa basılıyor"),
     "desktop_scroll": _desktop_generic("sayfa kaydırılıyor"),

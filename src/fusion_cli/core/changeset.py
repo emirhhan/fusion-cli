@@ -69,6 +69,15 @@ class ChangeSet:
         """İlk hâllerin salt-okunur görünümü; tur sonu denetimde diff kurulur."""
         return tuple(self._snapshots.values())
 
+    @property
+    def restorable_paths(self) -> tuple[Path, ...]:
+        """`restore()` çağrılınca geri alınması BEKLENEN yollar (edinilenler hariç).
+
+        `/rewind` başarısız geri almayı buna bakarak sayar; edinilen dosya geri
+        alınmadığı için "başarısız" sayılmaz.
+        """
+        return tuple(path for path in self._snapshots if path not in self._acquired)
+
     def record_created(self, path: Path) -> None:
         """Yalnız atomik, üzerine yazmayan oluşturma BAŞARILI olduktan sonra çağır.
 

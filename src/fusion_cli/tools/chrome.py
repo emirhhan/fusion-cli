@@ -17,6 +17,7 @@ from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
 from . import chrome_inspect, chrome_record
 from .args import require_str
 from .chrome_inspect import MONITOR_LIMIT, NETWORK_IDLE_VALUES
+from .key_spec import key_base
 from .web import browser_block_reason
 
 __all__ = ["MONITOR_LIMIT", "NETWORK_IDLE_VALUES"]
@@ -232,8 +233,8 @@ _DELETE_KEYS = frozenset({"delete", "backspace"})
 
 
 def _key_base(key: str) -> str:
-    """'Meta+Enter' → 'enter': değiştiriciler atılır, asıl tuş küçük harfle döner."""
-    return key.rsplit("+", 1)[-1].strip().lower() if key.strip() != "+" else "+"
+    """'Meta+Enter' → 'enter': masaüstüyle ortak ayrıştırıcı (`tools.key_spec`)."""
+    return key_base(key)
 
 
 async def _key_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:

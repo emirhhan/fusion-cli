@@ -19,6 +19,7 @@ Fusion iki şeyi tek üründe birleştirir:
 | Yönlendirme stratejileri | Sıra / ücretsiz-önce / en-sağlıklı / rastgele… |
 | Profiller (`/mode`) + effort (`/effort`) | "Ne kadar güçlü model" ve "ne kadar düşünsün" ayrı ayrı |
 | Şifreli anahtar deposu | Anahtarlar şifreli saklanır, log'a/git'e girmez |
+| Tarayıcı oturumu profilleri (`fusion browser`, Ayarlar › Web oturumları) | cookies.txt/JSON ya da Chrome'dan oturum aktar; ajanın tarayıcısı onaylı sitelerde girişli açılır — bkz. `TARAYICI_OTURUMLARI.md` |
 | MCP köprüsü | Fusion araçlarını dışa aç (sunucu) + dış MCP araçlarını kullan (istemci) |
 | MCP kurulumu (`/mcp`, `fusion mcp-add`, panel) | Sohbette `/mcp add <ad> <komut>`, terminalden `fusion mcp-add`, ya da Control Panel'in "MCP sunucusu bağla" kartından — üçü de aynı config.yaml'a yazar, elle düzenleme gerekmez |
 | Öz-öğrenen bellek | Her görevden ders çıkarır, benzer işlerde hatırlar |
@@ -26,6 +27,7 @@ Fusion iki şeyi tek üründe birleştirir:
 | Kanıta bağlı yeniden planlama | Aynı başarısız hedefte dönmek yerine doğrulanmış işi koruyup dalı bir kez yeniler |
 | Gerçek asset kapısı | PNG/JPEG başlığı, boyut, kaynak URL'si ve lisans manifestini doğrular |
 | Production değerlendirmesi | Godot asset, MCP, replan, büyük dosya ve sohbet izolasyonunu üç tekrarla ölçer |
+| REPL paritesi (Claude Code) | `!` kabuk, `@dosya` anma + Tab tamamlama, `#` not; `/status`, `/context`; `/export`, `/copy`; `/config` + `fusion config get/set/list`, `--set`, `--profile`; `/output-style`; `/statusline`; `/theme`, `/tui`, `/search`; `keybindings.json`, `/vim` (bkz. NASIL_KULLANILIR §15) |
 
 Yayın ölçümü `python -m evals run evals/suite/production.yaml --profile production --repeat 3`
 komutuyla çalışır. Rapor, bütün tekil koşuların başarı oranını ve yalnız üç tekrarın

@@ -137,6 +137,11 @@ async def test_dosya_duzenleme_kiplere_gore(tmp_path, mod, beklenen):
         (ApprovalMode.SECURITY, ToolEffect.REMOTE_INTERACT, Decision.DENIED),
         (ApprovalMode.PLAN, ToolEffect.REMOTE_READ, Decision.ALLOW),
         (ApprovalMode.PLAN, ToolEffect.REMOTE_INTERACT, Decision.BLOCKED),
+        # Girişli oturum yükleme (P-023): her kipte sorulur, plan kipinde yapılmaz.
+        (ApprovalMode.AUTO, ToolEffect.REMOTE_SESSION, Decision.DENIED),
+        (ApprovalMode.ACCEPT_EDITS, ToolEffect.REMOTE_SESSION, Decision.DENIED),
+        (ApprovalMode.SECURITY, ToolEffect.REMOTE_SESSION, Decision.DENIED),
+        (ApprovalMode.PLAN, ToolEffect.REMOTE_SESSION, Decision.BLOCKED),
     ],
 )
 async def test_tarayici_ve_uzak_araclar_kiplere_gore(tmp_path, mod, etki, beklenen):
@@ -200,3 +205,16 @@ async def test_bypass_yikici_olmayan_cagrilari_sormaz(tmp_path, etki):
     arac = _arac("wp__update_page", effect=etki)
 
     assert await _karar(ApprovalMode.BYPASS, arac, {"id": 1}, tmp_path) is Decision.ALLOW
+
+
+def test_oturum_yukleme_isteginin_karti_gerekceyi_soyler(tmp_path):
+    """Onay kartı "uzak sistemde değişiklik" değil, girişli oturumun açıldığını söyler."""
+    from fusion_cli.engines.agent.approval import REMOTE_SESSION_REASON
+
+    istek = build_request(
+        _arac("browser_open", effect=ToolEffect.REMOTE_SESSION), {"url": "x"}, root=tmp_path
+    )
+
+    assert istek.risk == REMOTE_SESSION_REASON
+    assert istek.note == REMOTE_SESSION_REASON
+    assert istek.read_only is False and istek.unattended_safe is False

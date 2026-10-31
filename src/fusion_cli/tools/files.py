@@ -93,19 +93,32 @@ def invented_path_reason(raw: str, root: Path) -> str | None:
     )
 
 
-def resolve_path(context: ToolContext, raw: str) -> Path:
+#: Kök dışı engel açıkken modele dönen açıklama (P-002): kapıyı kullanıcı açar.
+OUTSIDE_ROOT_BLOCKED = (
+    "Proje kökü dışına {islem} kapalı (ayar: runtime.{anahtar}): {yol} (kök: {kok}). "
+    "Gerekiyorsa kullanıcı `--add-dir <dizin>` ile ya da Ayarlar › İzinler'den açar; "
+    "sen bu yolu deneme, kullanıcıya söyle."
+)
+
+
+def resolve_path(context: ToolContext, raw: str, *, write: bool = False) -> Path:
     """Kullanıcı/model yolunu çözümle: `~` açılır, göreli yol köke bağlanır.
 
     `context.restrict_to_root` açıksa yol kök altında olmak zorundadır: sembolik
     linkler çözülür (`resolve`) ve sonuç köke bağlı değilse `PathAccessError`
     fırlatılır. Böylece `..` ile dışarı taşma ve köke sızdıran symlink engellenir.
+    `block_reads_outside_root` / `block_writes_outside_root` aynı sınırı tek yön için
+    uygular (`write` yazma araçlarından gelir; P-002).
     """
     path = Path(raw).expanduser()
     uydurma = invented_path_reason(str(path), context.root)
     if uydurma is not None:
         raise PathAccessError(uydurma)
     resolved = path if path.is_absolute() else context.root / path
-    if not context.restrict_to_root:
+    blocked_direction = (
+        context.block_writes_outside_root if write else context.block_reads_outside_root
+    )
+    if not context.restrict_to_root and not blocked_direction:
         return resolved
     root = context.root.resolve()
     # İzinli alan: kök + kullanıcının `--add-dir` ile AÇIKÇA verdiği dizinler.
@@ -113,13 +126,24 @@ def resolve_path(context: ToolContext, raw: str) -> Path:
     # Var olmayan hedefte de doğrulama yapılabilmesi için strict=False.
     concrete = resolved.resolve()
     if not any(concrete == izin or izin in concrete.parents for izin in izinli):
-        raise PathAccessError(f"Kısıtlı kipte proje kökü dışına erişilemez: {raw} (kök: {root})")
+        if context.restrict_to_root:
+            raise PathAccessError(
+                f"Kısıtlı kipte proje kökü dışına erişilemez: {raw} (kök: {root})"
+            )
+        raise PathAccessError(
+            OUTSIDE_ROOT_BLOCKED.format(
+                islem="yazma" if write else "okuma",
+                anahtar="block_writes_outside_root" if write else "block_reads_outside_root",
+                yol=raw,
+                kok=root,
+            )
+        )
     return concrete
 
 
 def writable_path(context: ToolContext, raw: str) -> Path:
     """Yazılacak yolu çözümle; bağlamın yazma alanı varsa dışına çıkılmaz."""
-    path = resolve_path(context, raw)
+    path = resolve_path(context, raw, write=True)
     guard_remotion_write(context, path, raw)
     scope = context.write_scope
     if scope is None:
