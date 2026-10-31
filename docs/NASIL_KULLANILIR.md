@@ -132,10 +132,11 @@ Seçenekler: `auto · low · medium · high · xhigh · max`. Zor problemde `hig
   /rewind 3 kod        → seçici açmadan 3. turdan önceki dosya hâline dön
   ```
   Boş satırda **Esc Esc** de aynı seçiciyi açar. `/undo` = `/rewind <son tur> kod`.
-  Masaüstünde `/rewind` aynı iki adımlı seçiciyi gösterir ve Değişiklikler paneli temizlenir.
+  Masaüstünde `/rewind` aynı iki adımlı seçiciyi gösterir; konuşma geri sarılırsa sohbet panosu
+  kalan geçmişe kesilir, Değişiklikler paneli temizlenir.
   Sınır: kod kaydı bellekte tutulur; `fusion --continue` ile açılan sohbette konuşma geri gelir,
   önceki sürecin kod checkpoint'leri gelmez. Kabuk komutlarının (`run_shell`) ürettiği dosyalar
-  izlenmez.
+  izlenmez. Tur sayımı yalnız senin mesajlarını sayar (harness notları ve bağlam özetleri değil).
 - **Doğrula:** değişiklikten sonra test/lint çalıştırmak için
   ```
   /verify
@@ -244,6 +245,10 @@ Fusion her konuşmayı proje köküne göre diske yazar; kapatınca kaybolmaz.
 | `/branch [ad]` | Buraya kadarki konuşmayı yeni bir sohbete kopyalar ve oradan sürer |
 
 - Bulunamayan sohbet için Fusion sessizce yeni sohbet AÇMAZ; hata verir ve çıkar.
+  `--fork-session` tek başına da hata verir: kopyalanacak sohbeti `--continue`/`--resume` ile ver.
+- Sınır: `--continue`, `--resume`, `--fork-session` ve `/branch` sohbetin SON 100 kullanıcı/cevap
+  mesajını yükler; daha eskisi diskte durur ama model bağlamına girmez. Aynı adı iki sohbete
+  verdiysen `--resume <ad>` "bulunamadı" der; kimlik (ya da 6+ karakterlik öneki) kullan.
 - `/resumeclaude`, `/resumecodex` başka araçların geçmişini yalnız künye olarak devralır;
   `/resume` ise Fusion'ın kendi konuşmasını olduğu gibi model bağlamına yükler.
 - Masaüstü: sohbet listesi (`sohbet.listele`) ve "buradan devam et" (`sohbet.dallan`) aynı
@@ -266,14 +271,25 @@ durumunda görünmez (`.git/info/exclude`).
 | `/worktree liste` | Depodaki Fusion çalışma ağaçları |
 
 - `.worktreeinclude` (depo kökünde, satır başına glob): `.env` gibi izlenmeyen dosyalar yeni
-  ağaca kopyalanır; bunlar "iş" sayılmaz, temizlik ölçümünü bozmaz.
+  ağaca kopyalanır; bunlar "iş" sayılmaz, temizlik ölçümünü bozmaz. Depo kökü dışına çıkan
+  desenler (`../x`, mutlak yol) ve symlink'ler kopyalanmaz: dosya depoyla gelir, güvenilmez.
+- Ağaç, bulunduğun kökün son commit'inden açılır: commit edilmemiş değişiklikler ağaçta görünmez.
+  Bir ağacın içinden açılan ağaç o ağacın dalından dallanır.
+- Sohbet projeye aittir: ağaca geçmek konuşmayı bölmez; `fusion -w <ad> --continue` de projenin
+  son sohbetini bulur.
 - Ajan araçları `enter_worktree` / `exit_worktree`: model bir ağaç açar, aynı turda
-  `.fusion/worktrees/<ad>/…` yoluyla yazar; tur bitince oturum kökü oraya geçer. Bu araçlar
-  yalnız isteğinde "worktree / ayrı dal / izole dal" geçen görevlerde sunulur (istem bütçesi).
+  `.fusion/worktrees/<ad>/…` yoluyla yazar; tur bitince oturum kökü oraya geçer (terminalde ve
+  masaüstünde). `fusion agent "…"` tek atışta kök değişmez; açılan ağaç bildirilir ve korunur.
+  Bu araçlar yalnız isteğinde "worktree / ayrı dal / izole dal" geçen görevlerde sunulur
+  (istem bütçesi).
 - Alt ajan: `spawn_agents` görevine `izolasyon: "worktree"` verilirse üye kendi ağacında
-  (`ajan-<kimlik>`) yazar; ana proje değişmez, sonuç dal olarak kalır.
-- Masaüstü: `/worktree` aynı komuttur; dosya gezgini yeni kökü otomatik alır.
+  (`ajan-<kimlik>`) yazar; ana proje değişmez. Üye dosya değiştirmediyse ağaç ve dal kaldırılır,
+  iş kaldıysa korunur ve yolu özetine yazılır.
+- Masaüstü: `/worktree` aynı komuttur; dosya gezgini yeni kökü otomatik alır, geçmiş ve tur
+  kayıtları korunur. Sekme bir ağaç köküyle açılırsa `/worktree cik` çalışır.
 - Sınır: plan motorunun paralel denemeleri hâlâ dizin kopyasıyla izole edilir (git gerekmez).
+  Monorepo alt dizininden (`repo/packages/app`) açılan ağaç tüm deponun kopyasıdır ve kök
+  ağacın tepesidir; `/worktree cik` depo köküne döner, alt dizine değil.
 
 ---
 
