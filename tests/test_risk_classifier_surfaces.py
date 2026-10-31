@@ -312,3 +312,23 @@ def test_repl_durumu_acikken_verinin_gittigi_modeli_yazar(tmp_path):
     metin = auto_mode_command(state, "")
     assert "modeline" in metin and "son 3 mesajın" in metin
     assert "modeline" not in auto_mode_command(_state(tmp_path), "")
+
+
+def test_akis_satiri_kural_kaynagini_model_karari_gibi_gostermez():
+    from fusion_cli.ui.auto_review_view import decided_line
+
+    def _olay(source, verdict):
+        return AutoReviewDecided(
+            tool="run_shell",
+            verdict=verdict,
+            reason="gerekçe",
+            source=source,
+            summary="git push",
+            consecutive=0,
+            total=0,
+        )
+
+    kural = decided_line(_olay(ReviewSource.RULE, ReviewVerdict.RISKY))
+    assert "kurallar geçerli" in kural and "riskli" not in kural
+    model = decided_line(_olay(ReviewSource.MODEL, ReviewVerdict.SAFE))
+    assert model.startswith("denetçi (model): güvenli")

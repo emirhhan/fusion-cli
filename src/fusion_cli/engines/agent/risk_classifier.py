@@ -131,6 +131,10 @@ async def review_auto_request(request: ApprovalRequest, deps: ReviewDeps) -> App
             request, intent, deps.config, deps.publisher, root=root, kind=kind, state=state
         )
         state.remember(key, outcome)
+    if outcome.source is ReviewSource.RULE and kind is ReviewKind.ESCALATE:
+        # Model bakmadı, kural zaten geçiriyordu: olay/kayıt gürültüdür ("denetçi onayladı"
+        # yanıltır). Ölçüldü (31 Ekim): `on` + anahtarsız kurulumda her yazan komutta çıkıyordu.
+        return request
     trip = state.record(outcome)
     deps.publisher.publish(
         AutoReviewDecided(

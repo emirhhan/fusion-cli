@@ -377,3 +377,22 @@ def test_istemde_dosya_icerigi_yerine_uzunluk_gider_sir_sinirda_bolunmez(tmp_pat
     dolgu = "x" * (risk_classifier.AUTO_REVIEW_ARGS_CHARS - 32)
     istem = risk_classifier.build_prompt(_kabuk(f"echo {dolgu} {anahtar}", tmp_path), (), tmp_path)
     assert "c" * 10 not in istem
+
+
+async def test_kuralin_gecirdigi_cagri_modelsizken_olay_ve_kayit_uretmez(monkeypatch, tmp_path):
+    """Ölçüldü (31 Ekim): `on` ayarında anahtarsız kurulumda yazan her komut için "denetçi
+    onayladı" olayı ve son-kararlar satırı üretiliyordu; hiçbir model bakmamıştı."""
+    from fusion_cli.config.keys import ProviderKeys
+    from fusion_cli.core.types import ModelSpec
+
+    monkeypatch.setattr(risk_classifier, "detect", lambda: ProviderKeys(False, False))
+    deps = _deps(tmp_path, AutoClassifierMode.ON)
+    deps.config = replace(deps.config, judge=ModelSpec(name="hakem", model="nvidia_nim/x/y"))
+    istek = _kabuk("./build_assets --fast", tmp_path)
+    assert await review_auto_request(istek, deps) is istek
+    assert not [e for e in deps.publisher.sink.events if isinstance(e, AutoReviewDecided)]
+    assert deps.memory.auto_review.snapshot().recent == ()
+    # Kuralın sorduğu çağrıda kurallı yedek yine görünür: kullanıcı neden sorulduğunu bilir.
+    await review_auto_request(_kabuk("git push origin z", tmp_path), deps)
+    olay = next(e for e in deps.publisher.sink.events if isinstance(e, AutoReviewDecided))
+    assert olay.source is ReviewSource.RULE

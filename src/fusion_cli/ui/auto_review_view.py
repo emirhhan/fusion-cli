@@ -30,6 +30,8 @@ def source_label(source: ReviewSource) -> str:
 
 def decided_line(event: AutoReviewDecided) -> str:
     """Akışta tek satır: kim karar verdi, ne dedi, neden."""
+    if event.source is ReviewSource.RULE:
+        return messages.AUTO_REVIEW_DECIDED_RULE.format(summary=event.summary, reason=event.reason)
     return messages.AUTO_REVIEW_DECIDED.format(
         source=source_label(event.source),
         verdict=verdict_label(event.verdict),

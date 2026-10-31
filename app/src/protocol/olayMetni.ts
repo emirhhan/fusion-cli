@@ -372,10 +372,13 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
     }
     case "AutoReviewDecided": {
       // Otomatik kip denetçisi (P-011): kararı ve gerekçesi adım olarak kalır.
+      // Kurallı yedekte (`kural`) model bakmamıştır; başlık bunu söyler.
       const guvenli = veri.verdict === "guvenli";
-      const kaynak = veri.source === "kural" ? "kural" : veri.source === "onbellek" ? "önbellek" : "model";
+      const kural = veri.source === "kural";
+      const kaynak = kural ? "kural" : veri.source === "onbellek" ? "önbellek" : "model";
+      const baslik = guvenli ? "denetçi onayladı" : "denetçi riskli buldu";
       return {
-        metin: guvenli ? "denetçi onayladı" : "denetçi riskli buldu",
+        metin: kural ? (guvenli ? "kurallar geçerli, sorulmadı" : "kurallar geçerli, soruluyor") : baslik,
         ayrinti: sirlariMaskele(`${String(veri.summary ?? "")} · ${String(veri.reason ?? "")} (${kaynak})`),
         kalici: true,
       };

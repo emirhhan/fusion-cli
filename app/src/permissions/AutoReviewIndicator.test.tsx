@@ -89,6 +89,11 @@ describe("AutoReviewIndicator (P-011)", () => {
   it("denetçi olayları akışta kalıcı adım olur", () => {
     expect(olayAdimi({ olay: "AutoReviewDecided", verdict: "guvenli", source: "model", summary: "git push", reason: "istendi" }))
       .toMatchObject({ metin: "denetçi onayladı", kalici: true });
+    // Kurallı yedek (model bakmadı) "denetçi onayladı/riskli buldu" demez.
+    expect(olayAdimi({ olay: "AutoReviewDecided", verdict: "riskli", source: "kural", summary: "git push", reason: "model yok" })?.metin)
+      .toBe("kurallar geçerli, soruluyor");
+    expect(olayAdimi({ olay: "AutoReviewDecided", verdict: "guvenli", source: "onbellek", summary: "git push", reason: "istendi" })?.metin)
+      .toBe("denetçi onayladı");
     expect(olayAdimi({ olay: "AutoModeFellBack", reason: "üst üste 3", trips: 1 })?.metin).toBe("Otomatik kip Manuel'e düştü");
   });
 });

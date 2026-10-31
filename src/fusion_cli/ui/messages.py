@@ -1422,6 +1422,8 @@ VIM_SET_UNSAVED = "Vim kipi bu oturum için {state}; dosyaya yazılamadı: {erro
 # --- Otomatik kip denetçisi (P-011) ----------------------------------------- #
 CMD_AUTO_MODE = "otomatik kip denetçisi: durum, ayar (off|ask_only|on), Manuel'e düştüyse devam"
 AUTO_REVIEW_DECIDED = "denetçi ({source}): {verdict} — {summary} · {reason}"
+#: Kurallı yedek: model bakmadı, kuralın kararı geçerli.
+AUTO_REVIEW_DECIDED_RULE = "denetçi modeli yok, kurallar geçerli — {summary} · {reason}"
 AUTO_REVIEW_VERDICT_LABELS = {"guvenli": "güvenli, sorulmadı", "riskli": "riskli, soruluyor"}
 AUTO_REVIEW_SOURCE_LABELS = {"model": "model", "kural": "kural", "onbellek": "önbellek"}
 AUTO_REVIEW_FELL_BACK = (
