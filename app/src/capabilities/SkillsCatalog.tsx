@@ -12,6 +12,8 @@ interface CatalogItem {
   tur: CapabilityKind;
   etkin: boolean;
   izinler: string[];
+  /** Alt ajan tanımının ayarları (P-034): model, izin kipi, tur tavanı… Boş = miras. */
+  ayarlar: Record<string, unknown>;
 }
 
 function itemFrom(raw: unknown, fallbackKind: CapabilityKind): CatalogItem {
@@ -31,6 +33,7 @@ function itemFrom(raw: unknown, fallbackKind: CapabilityKind): CatalogItem {
     tur: kind as CapabilityKind,
     etkin: item.etkin,
     izinler: Array.isArray(item.izinler) ? item.izinler.filter((value): value is string => typeof value === "string") : [],
+    ayarlar: item.ayarlar && typeof item.ayarlar === "object" && !Array.isArray(item.ayarlar) ? (item.ayarlar as Record<string, unknown>) : {},
   };
 }
 
@@ -60,6 +63,30 @@ function decode(payload: Record<string, unknown>): { items: CatalogItem[]; skipp
 /** "claude+codex" → "Claude · Codex". Köşeli parantezli ham kaynak adı teknik duruyordu. */
 function sourceLabels(source: string): string {
   return source.split("+").map((value) => value.charAt(0).toLocaleUpperCase("tr-TR") + value.slice(1)).join(" · ");
+}
+
+/** Alt ajan ayarlarının insan dilindeki adları; bilinmeyen anahtar olduğu gibi yazılır. */
+const SETTING_LABELS: Record<string, string> = {
+  model: "Model", izin_kipi: "İzin kipi", en_fazla_tur: "En fazla tur", beceriler: "Ön yüklenen beceriler",
+  mcp: "MCP sunucuları", bellek: "Kalıcı bellek", efor: "Efor", arka_plan: "Arka plan", yalitim: "Yalıtım",
+  kancalar: "Kancalar", yasak_araclar: "Yasak araçlar", baglam: "Bağlam",
+};
+
+function settingText(value: unknown): string {
+  if (Array.isArray(value)) return value.map(String).join(", ");
+  if (typeof value === "boolean") return value ? "evet" : "hayır";
+  return String(value);
+}
+
+/** Ajan tanımındaki ayarlar (P-034); Claude Code frontmatter alanları Türkçe etiketle. */
+function AgentSettings({ ayarlar }: { ayarlar: Record<string, unknown> }) {
+  const entries = Object.entries(ayarlar).filter(([, value]) => value !== "" && value !== null && value !== undefined);
+  if (entries.length === 0) return null;
+  return (
+    <dl aria-label="Ajan ayarları" className="skills-catalog__settings">
+      {entries.map(([key, value]) => <div key={key}><dt>{SETTING_LABELS[key] ?? key}</dt><dd>{settingText(value)}</dd></div>)}
+    </dl>
+  );
 }
 
 const kindLabels: Record<CapabilityKind, string> = {
@@ -178,7 +205,7 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
           {digerleri.length > 0 && <div className="skills-catalog__grid">{digerleri.map(kart)}</div>}
         </section>
         <aside aria-label="Yetenek ayrıntısı" className="skills-catalog__detail">
-          {selected ? <><div className="skills-catalog__detail-head"><SkillAvatar item={selected} /><div><h2>{selected.ad}</h2><span>{kindLabels[selected.tur]} · {sourceLabels(selected.kaynak)}{selected.izinler.length > 0 ? ` · ${selected.izinler.join(", ")}` : ""}</span></div></div><pre>{detail || "Yükleniyor…"}</pre>{selected.tur !== "talimat" && <button disabled={!selected.etkin} onClick={() => queueNext(selected)} type="button">Bu {selected.tur === "beceri" ? "beceriyi" : selected.tur === "ajan" ? "ajanı" : "MCP'yi"} sonraki turda kullan</button>}{notice && <p aria-live="polite">{notice}</p>}</> : <p>Ne yaptığını, nereden geldiğini ve hangi izinleri kullandığını görmek için bir beceri seç.</p>}
+          {selected ? <><div className="skills-catalog__detail-head"><SkillAvatar item={selected} /><div><h2>{selected.ad}</h2><span>{kindLabels[selected.tur]} · {sourceLabels(selected.kaynak)}{selected.izinler.length > 0 ? ` · ${selected.izinler.join(", ")}` : ""}</span></div></div><AgentSettings ayarlar={selected.ayarlar} /><pre>{detail || "Yükleniyor…"}</pre>{selected.tur !== "talimat" && <button disabled={!selected.etkin} onClick={() => queueNext(selected)} type="button">Bu {selected.tur === "beceri" ? "beceriyi" : selected.tur === "ajan" ? "ajanı" : "MCP'yi"} sonraki turda kullan</button>}{notice && <p aria-live="polite">{notice}</p>}</> : <p>Ne yaptığını, nereden geldiğini ve hangi izinleri kullandığını görmek için bir beceri seç.</p>}
         </aside>
       </div>
     </main>

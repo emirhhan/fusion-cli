@@ -360,3 +360,27 @@ async def test_zamaninda_gelen_onay_zaman_asimina_takilmaz() -> None:
 
     assert await gorev is ApprovalAnswer.ONCE
     assert all(json.loads(s)["veri"].get("olay") != "OnayZamanAsimi" for s in satirlar)
+
+
+async def test_onay_yukunde_isteyen_alt_ajan_tasinir() -> None:
+    """P-034: kart "Alt ajan X izin istiyor" diyebilsin; ana ajanda alan None."""
+    import dataclasses
+
+    satirlar: list[str] = []
+    pending = PendingQuestions()
+    prompter = ProtocolPrompter(satirlar.append, pending)
+
+    gorev = asyncio.ensure_future(
+        prompter.confirm(dataclasses.replace(_request(), agent_label="Denetçi (denetci-1)"))
+    )
+    await asyncio.sleep(0)
+    soru = json.loads(satirlar[0])
+    assert soru["veri"]["ajan"] == "Denetçi (denetci-1)"
+    pending.resolve(soru["id"], {"secim": "deny"})
+    await gorev
+
+    gorev = asyncio.ensure_future(prompter.confirm(_request()))
+    await asyncio.sleep(0)
+    assert json.loads(satirlar[1])["veri"]["ajan"] is None
+    pending.resolve(json.loads(satirlar[1])["id"], {"secim": "deny"})
+    await gorev

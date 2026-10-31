@@ -342,15 +342,20 @@ class TelegramBridge:
         if seen is None:
             seen = task.last_seq if task.created_at < self._started_at else 0
         for event in self._store.events_after(context, task.run_id, seen):
-            text = self._notice_for(task, event.kind)
+            text = self._notice_for(task, event.kind, event.payload)
             if text is not None:
                 # İmleç gönderimden SONRA ilerler: gönderim düşerse olay yeniden denenir.
                 await self._reply(chat_id, text)
             self._notified[task.run_id] = event.seq
 
     @staticmethod
-    def _notice_for(task: TaskRecord, kind: str) -> str | None:
+    def _notice_for(
+        task: TaskRecord, kind: str, payload: dict[str, object] | None = None
+    ) -> str | None:
         if kind == "approval_request":
+            agent = (payload or {}).get("agent")
+            if isinstance(agent, str) and agent:
+                return f"{STEP_UP_NOTICE} İsteyen alt ajan: {agent}"
             return STEP_UP_NOTICE
         if task.state in TERMINAL_STATES and kind in {
             "done",

@@ -80,9 +80,7 @@ def _status(state: ReplState) -> str:
 
 
 def _toggle(state: ReplState, enabled: bool) -> str:
-    state.config = replace(
-        state.config, runtime=replace(state.config.runtime, auto_memory=enabled)
-    )
+    state.config = replace(state.config, runtime=replace(state.config.runtime, auto_memory=enabled))
     write_runtime_flag(state.config, "auto_memory", enabled)
     state.plain_memory = build_plain_memory(state.config, state.root)
     return messages.MEMORY_TOGGLED.format(state=messages.REPL_ON if enabled else messages.REPL_OFF)

@@ -23,6 +23,14 @@ beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("Approval — izin kartı", () => {
+  it("alt ajanın isteğinde üst etikette kim istediğini yazar", () => {
+    render(<Approval soru={{ ...temel, ajan: "Denetçi (denetci-1a2b)" }} onCevap={vi.fn()} />);
+    expect(screen.getByText("Alt ajan izin istiyor: Denetçi (denetci-1a2b)")).toBeTruthy();
+    cleanup();
+    render(<Approval soru={{ ...temel, ajan: null }} onCevap={vi.fn()} />);
+    expect(screen.getByText("İzin gerekiyor")).toBeTruthy();
+  });
+
   it("insan dilinde başlığı ve hedefi olduğu gibi gösterir; ham argüman ayrıntıda kalır", () => {
     render(<Approval soru={temel} onCevap={vi.fn()} />);
     expect(screen.getByRole("heading").textContent).toBe("Bu komut çalıştırılsın mı?");

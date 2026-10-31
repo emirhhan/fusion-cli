@@ -520,6 +520,8 @@ async def _agent_turn(
             config=state.config,
             publisher=bus,
             policy=build_policy(state.approval, prompter, state.approval_memory),
+            approval_mode=lambda: state.approval,
+            policy_for_mode=lambda wanted: build_policy(wanted, prompter, state.approval_memory),
             tool_context=tool_context,
             asker=prompter,
             code_index=state.memory.code_index if state.memory.enabled else None,

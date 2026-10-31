@@ -6,6 +6,7 @@ import dataclasses
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
+from ...tools.capabilities import expand_tool_patterns
 from .edit_hooks import EDIT_TOOLS
 from .execution_policy import ExecutionPolicy, policy_for
 from .team_scope import derive_sub_context
@@ -29,8 +30,34 @@ def child_execution(deps: AgentDeps, subtask: SubTask) -> ExecutionPolicy | None
     )
 
 
-def allowed_tools(deps: AgentDeps, persona: Persona, subtask: SubTask) -> set[str] | None:
+def allowed_tools(
+    deps: AgentDeps,
+    persona: Persona,
+    subtask: SubTask,
+    *,
+    available: tuple[str, ...] = (),
+) -> set[str] | None:
+    """Üyenin araç kümesi: `tools` ∖ `disallowedTools`, MCP sunucu süzgeci, yazma alanı.
+
+    `available` çalışma-anı defterinin adlarıdır: `disallowedTools` ya da `mcpServers`
+    kümeyi DARALTIR, bu yüzden tam yetkili (`None`) üye bile o anda adlandırılabilir bir
+    kümeye iner. Her adım yalnız çıkarır; alt ajan üstünden fazla araç göremez.
+    """
     allowed: set[str] | None = set(persona.tools) if persona.tools is not None else None
+    if allowed is not None and available:
+        allowed = expand_tool_patterns(allowed, available)
+    if persona.disallowed_tools or persona.mcp_servers:
+        if allowed is None:
+            allowed = set(available) if available else None
+        if allowed is not None:
+            allowed = allowed - persona.disallowed_tools
+            if persona.mcp_servers:
+                allowed = {
+                    name
+                    for name in allowed
+                    if not deps.base_registry.is_remote(name)
+                    or name.split("__", 1)[0] in persona.mcp_servers
+                }
     scope = derive_sub_context(deps.tool_context, subtask).write_scope
     if not subtask.read_only and scope is None:
         return allowed
@@ -42,9 +69,11 @@ def allowed_tools(deps: AgentDeps, persona: Persona, subtask: SubTask) -> set[st
     return safe if allowed is None else allowed & safe
 
 
-def member_brief(persona: Persona, subtask: SubTask) -> str:
-    """Üyenin talimatı + bu görevin sınırları (modelin göreceği kısa not)."""
+def member_brief(persona: Persona, subtask: SubTask, *, skills: str = "") -> str:
+    """Üyenin talimatı + ön yüklenen beceriler + bu görevin sınırları (modelin göreceği not)."""
     parts = [persona.prompt.strip()] if persona.prompt.strip() else []
+    if skills:
+        parts.append(skills)
     if subtask.read_only:
         parts.append("Bu görevde SALT OKUYORSUN: dosya değiştirme, yalnız bulgularını raporla.")
     elif subtask.write_scope:

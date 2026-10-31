@@ -298,3 +298,17 @@ def test_yardim_metni_desteklenmeyen_duraklatmayi_sunmaz() -> None:
     from fusion_cli.remote.telegram import HELP_TEXT
 
     assert "/pause" not in HELP_TEXT and "/resume" not in HELP_TEXT
+
+
+def test_onay_bildirimi_isteyen_alt_ajani_yazar() -> None:
+    """P-034: uzak bildirimde "kim istiyor" görünür; alan yoksa eski metin."""
+    from types import SimpleNamespace
+
+    from fusion_cli.remote.telegram import STEP_UP_NOTICE, TelegramBridge
+
+    task = SimpleNamespace(state="running", created_at=0, last_seq=0)
+    assert TelegramBridge._notice_for(task, "approval_request", {"agent": "Denetçi (d-1)"}) == (
+        f"{STEP_UP_NOTICE} İsteyen alt ajan: Denetçi (d-1)"
+    )
+    assert TelegramBridge._notice_for(task, "approval_request", {}) == STEP_UP_NOTICE
+    assert TelegramBridge._notice_for(task, "approval_request") == STEP_UP_NOTICE

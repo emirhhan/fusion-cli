@@ -275,6 +275,8 @@ async def run_agent_task(
             policy_factory=(lambda: build_policy(current_approval(), prompter, approval_memory))
             if current_approval
             else None,
+            approval_mode=current_approval or (lambda: mode),
+            policy_for_mode=lambda wanted: build_policy(wanted, prompter, approval_memory),
             approval_revision=(
                 lambda: (current_approval(), approval_memory.revision if approval_memory else 0)
             )

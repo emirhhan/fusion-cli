@@ -92,3 +92,36 @@ async def test_acikca_secim_yalniz_sonraki_tur_icin_butceli_baglam_hazirlar(tmp_
     assert selected == {"ok": True, "tur": "beceri", "ad": "research", "sonraki_tur": True}
     assert "research" in context and len(context) <= 6_500
     assert second == ""
+
+
+async def test_katalog_alt_ajan_ayarlarini_gosterir(tmp_path: Path):
+    """P-034: frontmatter'daki model/izin kipi/tur tavanı/bellek katalogda görünür."""
+    home = tmp_path / "home"
+    root = tmp_path / "project"
+    root.mkdir()
+    agent_dir = home / ".claude/agents"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "denetci.md").write_text(
+        "---\nname: denetci\ndescription: Denetler\ntools: Read\nmodel: openrouter/a/b\n"
+        "permissionMode: plan\nmaxTurns: 5\nmemory: project\nmcpServers: [github]\n"
+        "disallowedTools: Bash\n---\nAjan",
+        encoding="utf-8",
+    )
+    lines: list[str] = []
+    session = AppSession(lines.append, root=root, home=home)
+
+    result = await _request(session, lines, "yetenek.katalog", {})
+    await session.close()
+
+    ajan = next(item for item in result["ajanlar"] if item["ad"] == "denetci")
+    assert ajan["ayarlar"] == {
+        "model": "openrouter/a/b",
+        "izin_kipi": "plan",
+        "en_fazla_tur": 5,
+        "mcp": ["github"],
+        "bellek": "project",
+        "yasak_araclar": ["Bash"],
+    }
+    # Alanı olmayan (yerleşik) ajan boş sözlük taşır; eski istemci bozulmaz.
+    yerlesik = next(item for item in result["ajanlar"] if item["kaynak"] == "fusion")
+    assert yerlesik["ayarlar"] == {}

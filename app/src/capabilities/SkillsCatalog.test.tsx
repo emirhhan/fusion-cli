@@ -11,7 +11,7 @@ function client() {
       if (name === "yetenek.katalog") return {
         ok: true,
         beceriler: [{ ad: "frontend-design", aciklama: "Profesyonel arayüz", kaynak: "claude+codex", tur: "beceri", etkin: true, izinler: ["dosya okuma"] }],
-        ajanlar: [{ ad: "reviewer", aciklama: "Kodu inceler", kaynak: "claude", tur: "ajan", etkin: false, izinler: ["dosya okuma", "komut çalıştırma"] }],
+        ajanlar: [{ ad: "reviewer", aciklama: "Kodu inceler", kaynak: "claude", tur: "ajan", etkin: false, izinler: ["dosya okuma", "komut çalıştırma"], ayarlar: { model: "openrouter/a/b", izin_kipi: "plan", en_fazla_tur: 5, yasak_araclar: ["Bash"] } }],
         talimatlar: [{ ad: "CLAUDE.md", kaynak: "proje", tur: "talimat", aciklama: "Proje talimatı", etkin: true, izinler: [] }],
         mcp: [{ ad: "github", aciklama: "GitHub araçları", kaynak: "fusion", tur: "mcp", etkin: true, izinler: ["dış araçlar"] }],
       };
@@ -52,6 +52,20 @@ describe("SkillsCatalog", () => {
     // İzinler ayrıntıda görünür.
     fireEvent.click(screen.getByRole("button", { name: "frontend-design ayrıntılarını aç" }));
     expect(screen.getByText(/dosya okuma/)).toBeTruthy();
+  });
+
+  it("ajan ayrıntısında tanımdaki ayarları Türkçe etiketle gösterir (P-034)", async () => {
+    render(<SkillsCatalog client={client()} onClose={() => undefined} />);
+    await screen.findByText("reviewer");
+    fireEvent.click(screen.getByRole("button", { name: "reviewer ayrıntılarını aç" }));
+    const ayarlar = screen.getByLabelText("Ajan ayarları");
+    expect(ayarlar.textContent).toContain("Modelopenrouter/a/b");
+    expect(ayarlar.textContent).toContain("İzin kipiplan");
+    expect(ayarlar.textContent).toContain("En fazla tur5");
+    expect(ayarlar.textContent).toContain("Yasak araçlarBash");
+    // Ayarı olmayan beceride liste hiç çizilmez.
+    fireEvent.click(screen.getByRole("button", { name: "frontend-design ayrıntılarını aç" }));
+    expect(screen.queryByLabelText("Ajan ayarları")).toBeNull();
   });
 
   it("arar, detay açar, oturumluk kapatır ve sonraki tur için seçer", async () => {

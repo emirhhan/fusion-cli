@@ -289,3 +289,18 @@ async def test_tehlike_gerekcesindeki_koseli_parantez_onayi_cokertmez(tmp_path, 
 
     assert await prompter.confirm(istek) is False
     assert "[/x]" in buffer.getvalue()
+
+
+async def test_alt_ajan_istegi_terminalde_kim_istiyor_der(tmp_path):
+    """Ölçüldü (31 Ekim, P-034): alt ajanın onay isteği ana ajanınkiyle aynı görünüyordu."""
+    import dataclasses
+
+    prompter, buffer = _prompter(tmp_path)
+    istek = dataclasses.replace(
+        build_request(_arac(), {"path": "a.txt", "content": "x"}),
+        agent_label="Geliştirici (kodcu-1a2b3c)",
+    )
+
+    await prompter.confirm(istek)
+
+    assert "Alt ajan izin istiyor: Geliştirici (kodcu-1a2b3c)" in buffer.getvalue()

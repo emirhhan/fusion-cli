@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
@@ -19,7 +20,9 @@ from ...core.clock import SystemClock
 from ...core.errors import PathAccessError
 from ...core.events import Channel, Event, EventPublisher, SubAgentFinished, SubAgentStarted
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
-from ...tools.capabilities import CapabilityRegistry, load_agent_prompt, map_tools
+from ...memory.plain_memory import AGENT_MEMORY_SCOPES
+from ...tools.capabilities import CapabilityRegistry, load_agent_prompt, map_tools, unmapped_tools
+from . import team_settings
 from .team_policy import allowed_tools as _allowed_tools
 from .team_policy import cap_report as _cap_report
 from .team_policy import child_execution as _child_execution
@@ -32,6 +35,8 @@ from .team_scope import schedule_waves as schedule_waves
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
+
+_LOG = logging.getLogger(__name__)
 
 #: Alt ajan derinliğinin YEDEK tavanı: yapılandırma okunamazsa alt ajan başka alt ajan
 #: başlatamaz. Asıl değer `runtime.max_agent_depth` (P-035; Claude Code 3 derinliğe izin
@@ -98,6 +103,19 @@ class Persona:
     prompt: str = ""
     #: Üyenin bildirdiği araç seti (Fusion adlarıyla); `None` = tam set.
     tools: frozenset[str] | None = None
+    #: Tanımdaki ayarlar (P-034; bkz. `team_settings`). Boş/0 = üst ajandan miras.
+    model: str = ""
+    permission_mode: str = ""
+    max_turns: int = 0
+    skills: tuple[str, ...] = ()
+    mcp_servers: tuple[str, ...] = ()
+    #: user | project | local: alt ajanın kalıcı belleği (P-055); boş = yok.
+    memory_scope: str = ""
+    effort: str = ""
+    #: `disallowedTools` Fusion adlarıyla; `tools`'tan sonra çıkarılır.
+    disallowed_tools: frozenset[str] = frozenset()
+    #: Tanımda geçen ama Fusion'da karşılığı olmayan araç adları (uyarı için).
+    unknown_tools: tuple[str, ...] = ()
 
 
 #: Adı verilmeyen ya da kütüphanede bulunmayan görevler için genel yardımcı.
@@ -158,6 +176,12 @@ def resolve_persona(library: CapabilityRegistry | None, name: str) -> Persona:
     if agent is None:
         return GENERIC_PERSONA
     allowed = map_tools(agent.tools)
+    disallowed = map_tools(agent.disallowed_tools) if agent.disallowed_tools else None
+    unknown = unmapped_tools(agent.tools) + unmapped_tools(agent.disallowed_tools)
+    if unknown:
+        _LOG.warning(
+            "ajan tanımında tanınmayan araç adı", extra={"ajan": agent.name, "araclar": unknown}
+        )
     return Persona(
         name=agent.name,
         title=agent.title or agent.name,
@@ -165,6 +189,15 @@ def resolve_persona(library: CapabilityRegistry | None, name: str) -> Persona:
         color=agent.color,
         prompt=load_agent_prompt(agent.path),
         tools=frozenset(allowed) if allowed is not None else None,
+        model=agent.model,
+        permission_mode=agent.permission_mode,
+        max_turns=agent.max_turns,
+        skills=agent.skills,
+        mcp_servers=agent.mcp_servers,
+        memory_scope=agent.memory if agent.memory in AGENT_MEMORY_SCOPES else "",
+        effort=agent.effort,
+        disallowed_tools=frozenset(disallowed or ()),
+        unknown_tools=unknown,
     )
 
 
@@ -276,12 +309,15 @@ async def _run_child(
     run_agent: RunAgent,
     context: ToolContext,
 ) -> AgentOutcome:
+    from .engine_tools import build_agent_registry
     from .loop import AgentDeps as _Deps
 
+    label = team_settings.agent_label(persona, sub_id)
+    policy, policy_factory = team_settings.child_policies(deps, persona, label)
     sub_deps = _Deps(
-        config=deps.config,
+        config=team_settings.child_config(deps.config, persona),
         publisher=ScopedPublisher(deps.publisher, sub_id),
-        policy=deps.policy,
+        policy=policy,
         tool_context=context,
         base_registry=deps.base_registry,
         asker=deps.asker,
@@ -296,20 +332,27 @@ async def _run_child(
         deadline=deps.deadline,
         child_runs=deps.child_runs,
         execution=_child_execution(deps, subtask),
-        policy_factory=deps.policy_factory,
+        policy_factory=policy_factory,
         approval_revision=deps.approval_revision,
+        approval_mode=getattr(deps, "approval_mode", None),
+        policy_for_mode=getattr(deps, "policy_for_mode", None),
         effect_recorder=deps.effect_recorder,
         ancestor_mutation_barrier=deps.mutation_blocked_by_pending_input,
     )
+    # Tanımdaki `model` yalnız bu alt ajanın çağrılarını değiştirir (P-034).
+    sub_deps.active_model_override = team_settings.child_model(persona, deps.config.agent)
+    available = build_agent_registry(sub_deps, depth=depth + 1, run_agent=run_agent).names()
     try:
         return await run_agent(
             subtask.task,
             sub_deps,
             depth=depth + 1,
             self_review=False,
-            extra_system=_member_brief(persona, subtask),
-            allowed_tools=_allowed_tools(deps, persona, subtask),
-            step_limit=child_step_limit(deps, depth),
+            extra_system=_member_brief(
+                persona, subtask, skills=team_settings.preloaded_skills(deps, persona)
+            ),
+            allowed_tools=_allowed_tools(deps, persona, subtask, available=available),
+            step_limit=child_step_limit(deps, depth, requested=persona.max_turns or None),
         )
     finally:
         try:

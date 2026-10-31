@@ -828,7 +828,9 @@ async def test_alt_ajan_derinlik_siniri_asilmaz(monkeypatch, tmp_path, sink):
         ),
     )
 
-    await run_agent("bol", _deps(tmp_path, sink))
+    # Derinlik tavanı yapılandırmadan okunur (P-035; varsayılan 2). Tavan 1 ile ikinci
+    # seviye reddedilmeli.
+    await run_agent("bol", _deps(tmp_path, sink, runtime={"max_agent_depth": 1}))
 
     olaylar = [e for e in sink.events if isinstance(e, SubAgentStarted)]
     assert len(olaylar) == 1  # ikinci seviye reddedildi

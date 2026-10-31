@@ -115,6 +115,25 @@ def parse_mode(raw: str) -> ApprovalMode:
     return _MODE_ALIASES.get(value) or ApprovalMode(value)
 
 
+#: Kiplerin sıkılık sırası (küçük = gevşek). Alt ajanın `permissionMode` alanı üst ajanın
+#: kipini yalnız bu sırada YUKARI taşıyabilir (P-034): `bypass` miras alınmaz, `plan`
+#: isteyen alt ajan auto kipteki üstten daha gevşek olamaz.
+MODE_STRICTNESS: dict[ApprovalMode, int] = {
+    ApprovalMode.BYPASS: 0,
+    ApprovalMode.AUTO: 1,
+    ApprovalMode.ACCEPT_EDITS: 2,
+    ApprovalMode.SECURITY: 3,
+    ApprovalMode.PLAN: 4,
+}
+
+
+def strictest_mode(parent: ApprovalMode, requested: ApprovalMode | None) -> ApprovalMode:
+    """Üst kip ile istenen kipten SIKI olanı döndür; istek yoksa üst kip."""
+    if requested is None:
+        return parent
+    return requested if MODE_STRICTNESS[requested] > MODE_STRICTNESS[parent] else parent
+
+
 class Decision(Enum):
     """Bir araç çağrısının akıbeti.
 
@@ -171,6 +190,9 @@ class ApprovalRequest:
     #: Oturum izni bu dizine bağlanır: proje içi `write_file` izni `~/.zshrc`'yi
     #: kapsamaz (A1-06).
     outside_dir: str | None = None
+    #: İsteği yapan alt ajanın etiketi (`Geliştirici (kodcu-3f9a1c)`); ana ajanda boş.
+    #: Onay kartı, terminal ve uzak bildirim "kim istiyor"u bununla gösterir (P-034).
+    agent_label: str = ""
 
     @property
     def can_remember(self) -> bool:

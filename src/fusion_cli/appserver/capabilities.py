@@ -53,6 +53,25 @@ def _permissions(item: Capability) -> list[str]:
     return [label for label in order if label in labels]
 
 
+def _settings(item: Capability) -> dict[str, Any]:
+    """Alt ajan tanımının ayarları (P-034); boş alan gönderilmez."""
+    raw: dict[str, Any] = {
+        "model": item.model,
+        "izin_kipi": item.permission_mode,
+        "en_fazla_tur": item.max_turns,
+        "beceriler": list(item.skills),
+        "mcp": list(item.mcp_servers),
+        "bellek": item.memory,
+        "efor": item.effort,
+        "arka_plan": item.background,
+        "yalitim": item.isolation,
+        "kancalar": list(item.hooks),
+        "yasak_araclar": list(item.disallowed_tools),
+        "baglam": item.context,
+    }
+    return {key: value for key, value in raw.items() if value}
+
+
 def _item(item: Capability, *, enabled: bool, kind: str) -> dict[str, Any]:
     return {
         "ad": item.name,
@@ -63,6 +82,7 @@ def _item(item: Capability, *, enabled: bool, kind: str) -> dict[str, Any]:
         "tur": kind,
         "etkin": enabled,
         "izinler": _permissions(item),
+        "ayarlar": _settings(item),
     }
 
 

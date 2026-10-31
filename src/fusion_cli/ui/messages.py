@@ -779,6 +779,7 @@ HISTORY_SECRETS_FOUND = (
 HISTORY_RECENT_TITLE = "son oturumlar"
 RECALL_LESSONS_EMPTY_QUERY = "'query' boş olamaz: aradığın konuyu, hatayı ya da teknolojiyi yaz."
 RECALL_LESSONS_NONE = "(bu sorguya uyan öğrenilmiş ders yok)"
+APPROVAL_AGENT_LABEL = "Alt ajan izin istiyor: {agent}"
 MEMORY_TOOL_EMPTY = "'konu' ve 'metin' alanları dolu olmalı."
 MEMORY_TOOL_SAVED = "Belleğe yazıldı: konular/{path} ({lines} satır)."
 MEMORY_TOOL_NONE = "(bu konuda bellek dosyası yok; mevcut konular: {topics})"

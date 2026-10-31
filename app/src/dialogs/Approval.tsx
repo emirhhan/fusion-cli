@@ -199,7 +199,7 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
         role="dialog"
         tabIndex={-1}
       >
-        <div className="prompt-card__eyebrow">{eyebrow ?? (soruMu ? "Fusion soruyor" : "İzin gerekiyor")}</div>
+        <div className="prompt-card__eyebrow">{eyebrow ?? (soru.ajan ? `Alt ajan izin istiyor: ${soru.ajan}` : soruMu ? "Fusion soruyor" : "İzin gerekiyor")}</div>
         <h2 className="prompt-card__title" id="prompt-card-title">{baslik}</h2>
         {!soruMu && soru.hedef && !soru.diff && <pre className="prompt-card__target">{soru.hedef}</pre>}
         {soru.tehlike && <p className="prompt-card__danger">Dikkat: {soru.tehlike}</p>}

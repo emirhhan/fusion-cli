@@ -56,7 +56,53 @@ CLAUDE_TOOL_MAP: dict[str, frozenset[str]] = {
     "webfetch": frozenset({"web_fetch", "read_url_content"}),
     "ls": frozenset({"list_dir"}),
     "task": frozenset({"spawn_agent"}),
+    # Claude Code'un yeni adları (P-034): alt ajan, beceri, soru, defter, görev listesi.
+    "agent": frozenset({"spawn_agent", "spawn_agents", "find_agent", "invoke_agent"}),
+    "skill": frozenset({"find_skill", "read_skill"}),
+    "askuserquestion": frozenset({"ask_user"}),
+    # Fusion'da ayrı defter aracı yok; `.ipynb` de dosya düzenlemesiyle yazılır.
+    "notebookedit": frozenset({"edit_file", "write_file"}),
+    "todowrite": frozenset({"todo_write"}),
 }
+
+#: Claude'un MCP araç adı öneki: `mcp__<sunucu>__<araç>` → Fusion `<sunucu>__<araç>`;
+#: `mcp__<sunucu>` (araçsız) o sunucunun TÜM araçları demektir ve `*`la eşlenir.
+_MCP_PREFIX = "mcp__"
+
+#: Alt ajan tanımının ayar alanları (P-034): frontmatter anahtarı → `Capability` alanı.
+#: Claude Code'un camelCase adları, snake_case ve Türkçe karşılıklar kabul edilir.
+AGENT_SETTING_KEYS: dict[str, str] = {
+    "model": "model",
+    "permissionmode": "permission_mode",
+    "permission_mode": "permission_mode",
+    "izin_kipi": "permission_mode",
+    "maxturns": "max_turns",
+    "max_turns": "max_turns",
+    "en_fazla_tur": "max_turns",
+    "memory": "memory",
+    "bellek": "memory",
+    "background": "background",
+    "arka_plan": "background",
+    "effort": "effort",
+    "efor": "effort",
+    "isolation": "isolation",
+    "yalitim": "isolation",
+    "context": "context",
+    "baglam": "context",
+}
+#: Liste alanları: anahtar → alan. `tools` ile aynı yazımlar (`[a, b]`, `a, b`, `- a`).
+_LIST_KEYS: dict[str, str] = {
+    "tools": "tools",
+    "araclar": "tools",
+    "skills": "skills",
+    "beceriler": "skills",
+    "mcpservers": "mcp_servers",
+    "mcp_servers": "mcp_servers",
+    "disallowedtools": "disallowed_tools",
+    "disallowed_tools": "disallowed_tools",
+    "yasak_araclar": "disallowed_tools",
+}
+_TRUE_WORDS = frozenset({"true", "yes", "evet", "1", "on"})
 
 #: `tools:` anahtarı VAR ama hiçbir araç çözülemedi (`tools:` boş, `[]`): kısıt YOK değil,
 #: HİÇ ARAÇ YOK demektir. Boş tuple "alan hiç yazılmamış" (tam yetki) anlamına gelir; ikisi
@@ -110,6 +156,29 @@ class Capability:
     title: str = ""
     avatar: str = ""
     color: str = ""
+    #: Alt ajan ayarları (P-034; Claude Code `.claude/agents` frontmatter'ı). Boş = miras.
+    #: `model`: `<sağlayıcı>/<model>`; `inherit`/kısa takma ad (`sonnet`) üst ajanı kullanır.
+    model: str = ""
+    #: `permissionMode`: yalnız SIKILAŞTIRIR (bypass miras alınmaz).
+    permission_mode: str = ""
+    #: `maxTurns`: alt ajanın model çağrısı tavanı; 0 = derinliğe göre varsayılan.
+    max_turns: int = 0
+    #: `skills`: başlangıçta yüklenecek beceri adları (en fazla `SKILL_PRELOAD_LIMIT`).
+    skills: tuple[str, ...] = ()
+    #: `mcpServers`: bu ajana açılacak MCP sunucuları; boş = hepsi.
+    mcp_servers: tuple[str, ...] = ()
+    #: `memory`: user | project | local (P-055); boş = ajan belleği yok.
+    memory: str = ""
+    #: `background`, `isolation: worktree`, `hooks`: okunur ve katalogda gösterilir;
+    #: Fusion'da alt ajan tur içinde biter ve kendi worktree'si yoktur (bkz. docs).
+    background: bool = False
+    effort: str = ""
+    isolation: str = ""
+    hooks: tuple[str, ...] = ()
+    #: `disallowedTools`: Claude adlarıyla; `tools`'tan sonra uygulanır.
+    disallowed_tools: tuple[str, ...] = ()
+    #: Beceriler için `context: fork` (P-054): beceri izole alt ajanda çalıştırılmak ister.
+    context: str = ""
 
     @property
     def qualified_name(self) -> str:
@@ -147,13 +216,30 @@ def parse_frontmatter(text: str) -> dict[str, object]:
         if not separator:
             continue
         name = key.strip().lower()
-        if name == "tools":
-            # `tools:` + alt satırlarda `- Read` blok listesi YAML'ın olağan yazımıdır.
+        if name in _LIST_KEYS:
+            # `tools:` + alt satırlarda `- Read` blok listesi YAML'ın olağan yazımıdır;
+            # `skills`, `mcpServers`, `disallowedTools` aynı yazımları paylaşır.
             items = list(_parse_tools(value.strip()))
             while not value.strip() and index < len(lines) and _is_list_item(lines[index]):
                 items.append(_list_item(lines[index]))
                 index += 1
-            fields["tools"] = tuple(item for item in items if item) or NO_TOOLS
+            field_name = _LIST_KEYS[name]
+            cleaned = tuple(item for item in items if item)
+            fields[field_name] = (cleaned or NO_TOOLS) if field_name == "tools" else cleaned
+        elif name == "hooks":
+            # İç içe blok: `hooks:` altındaki girintili `PreToolUse:` gibi anahtarlar olay
+            # adlarıdır; gövdeleri (matcher/komut) burada yorumlanmaz.
+            events: list[str] = []
+            while index < len(lines) and (not lines[index].strip() or lines[index][:1] in " \t"):
+                line = lines[index].strip()
+                if line and not line.startswith("-") and ":" in line and lines[index][:1] in " \t":
+                    indent = len(lines[index]) - len(lines[index].lstrip())
+                    if indent <= 2 or not events:
+                        events.append(line.partition(":")[0].strip().strip("'\""))
+                index += 1
+            fields["hooks"] = tuple(dict.fromkeys(event for event in events if event))
+        elif name in AGENT_SETTING_KEYS:
+            fields[AGENT_SETTING_KEYS[name]] = value.strip().strip("'\"")
         elif name in ("name", "description"):
             text = value.strip()
             if text in _BLOCK_SCALARS:
@@ -174,15 +260,69 @@ def parse_frontmatter(text: str) -> dict[str, object]:
 
 
 def map_tools(claude_tools: tuple[str, ...]) -> set[str] | None:
-    """Claude araç adlarını Fusion adlarına çevir. `*` ya da boş → None (tam set)."""
+    """Claude araç adlarını Fusion adlarına çevir. `*` ya da boş → None (tam set).
+
+    `mcp__<sunucu>__<araç>` Fusion'ın `<sunucu>__<araç>` adına, `mcp__<sunucu>` ise
+    `<sunucu>__*` desenine çevrilir (bkz. `expand_tool_patterns`).
+    """
     if claude_tools == NO_TOOLS:
         return set()
     if not claude_tools or claude_tools == ("*",):
         return None
     allowed: set[str] = set()
     for name in claude_tools:
+        mcp = _mcp_tool_name(name)
+        if mcp is not None:
+            allowed.add(mcp)
+            continue
         allowed |= CLAUDE_TOOL_MAP.get(name.strip().lower(), frozenset())
     return allowed
+
+
+def unmapped_tools(claude_tools: tuple[str, ...]) -> tuple[str, ...]:
+    """Fusion'da karşılığı olmayan Claude araç adları (uyarı için; P-034)."""
+    if not claude_tools or claude_tools in (NO_TOOLS, ("*",)):
+        return ()
+    return tuple(
+        name
+        for name in claude_tools
+        if _mcp_tool_name(name) is None and name.strip().lower() not in CLAUDE_TOOL_MAP
+    )
+
+
+def expand_tool_patterns(names: set[str], available: tuple[str, ...]) -> set[str]:
+    """`sunucu__*` desenlerini mevcut araç adlarına aç; düz adlar aynen kalır."""
+    expanded: set[str] = set()
+    for name in names:
+        if name.endswith("__*"):
+            prefix = name[:-1]
+            expanded.update(tool for tool in available if tool.startswith(prefix))
+        else:
+            expanded.add(name)
+    return expanded
+
+
+def _mcp_tool_name(name: str) -> str | None:
+    cleaned = name.strip()
+    if not cleaned.lower().startswith(_MCP_PREFIX):
+        return None
+    rest = cleaned[len(_MCP_PREFIX) :]
+    if not rest:
+        return None
+    return rest if "__" in rest else f"{rest}__*"
+
+
+def parse_setting_int(value: object) -> int:
+    """`maxTurns` gibi sayısal alan; bozuk/negatif değer 0 (= varsayılan) sayılır."""
+    try:
+        number = int(str(value).strip())
+    except (TypeError, ValueError):
+        return 0
+    return number if number > 0 else 0
+
+
+def parse_setting_bool(value: object) -> bool:
+    return str(value).strip().lower() in _TRUE_WORDS
 
 
 def load_agent_prompt(path: Path) -> str:
@@ -360,6 +500,10 @@ def _toml_capability(path: Path, source: str) -> Capability | None:
         path=path,
         source=source,
         tools=_toml_tools(data),
+        model=str(data.get("model") or ""),
+        permission_mode=str(data.get("permission_mode") or ""),
+        max_turns=parse_setting_int(data.get("max_turns", 0)),
+        memory=str(data.get("memory") or ""),
     )
 
 
@@ -378,17 +522,33 @@ def _toml_tools(data: dict[str, object]) -> tuple[str, ...]:
 
 def _to_capability(path: Path, source: str, *, fallback: str) -> Capability:
     fields = parse_frontmatter(_read_head(path))
-    tools = fields.get("tools")
     return Capability(
         name=str(fields.get("name") or fallback),
         description=str(fields.get("description") or ""),
         path=path,
         source=source,
-        tools=tuple(tools) if isinstance(tools, tuple) else (),
+        tools=_tuple_field(fields, "tools"),
         title=str(fields.get("title") or ""),
         avatar=str(fields.get("avatar") or ""),
         color=str(fields.get("color") or ""),
+        model=str(fields.get("model") or ""),
+        permission_mode=str(fields.get("permission_mode") or ""),
+        max_turns=parse_setting_int(fields.get("max_turns", 0)),
+        skills=_tuple_field(fields, "skills"),
+        mcp_servers=_tuple_field(fields, "mcp_servers"),
+        memory=str(fields.get("memory") or "").lower(),
+        background=parse_setting_bool(fields.get("background", "")),
+        effort=str(fields.get("effort") or "").lower(),
+        isolation=str(fields.get("isolation") or "").lower(),
+        hooks=_tuple_field(fields, "hooks"),
+        disallowed_tools=_tuple_field(fields, "disallowed_tools"),
+        context=str(fields.get("context") or "").lower(),
     )
+
+
+def _tuple_field(fields: dict[str, object], key: str) -> tuple[str, ...]:
+    value = fields.get(key)
+    return tuple(str(item) for item in value) if isinstance(value, tuple) else ()
 
 
 def _read_head(path: Path, limit: int = _HEAD_CHARS) -> str:

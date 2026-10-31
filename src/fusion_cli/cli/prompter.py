@@ -57,6 +57,12 @@ class ConsolePrompter:
     async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer:
         with self._suspended():
             await self._drain()
+            if request.agent_label:
+                self._console.print(
+                    f"[{theme.INFO}]"
+                    f"{escape(messages.APPROVAL_AGENT_LABEL.format(agent=request.agent_label))}"
+                    f"[/{theme.INFO}]"
+                )
             self._render_preview(request)
             if request.danger is not None:
                 self._console.print(

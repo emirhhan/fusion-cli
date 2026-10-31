@@ -39,6 +39,8 @@ export interface Soru {
   onerilen?: string | null;
   /** Düzenleme onaylarında "ne değişecek" önizlemesi (unified diff). */
   diff?: string;
+  /** İsteyen alt ajanın etiketi (P-034); ana ajanın isteğinde boş. */
+  ajan?: string | null;
 }
 
 /**

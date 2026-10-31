@@ -157,6 +157,27 @@ Yazılan her satır sır/e-posta maskelenerek kaydedilir; dosyayı istediğin gi
 - Kapalıyken `remember`/`memory_read` araçları hiç sunulmaz, blok eklenmez. `--no-memory`
   ile çalışan tek atışlık `fusion agent` de bu belleği kullanmaz.
 
+### Alt ajan tanımları (`.claude/agents/<ad>.md`)
+
+Fusion, Claude Code'un ajan dosyalarını olduğu gibi okur (`~/.claude/agents`, proje
+`.claude/agents`, `~/.codex/agents`) ve frontmatter'daki ayarları alt ajana uygular:
+
+| Alan (İngilizce / Türkçe) | Fusion'da ne olur |
+|---|---|
+| `tools`, `disallowedTools` / `yasak_araclar` | Araç kümesi yalnız DARALIR; `mcp__sunucu__arac` ve `mcp__sunucu` (tüm araçları) tanınır; `Agent`, `Skill`, `AskUserQuestion`, `NotebookEdit`, `TodoWrite` eşlenir; tanınmayan ad günlüğe uyarı düşer |
+| `model` | `<sağlayıcı>/<model>` biçimiyse yalnız o alt ajanın çağrıları o modele gider; `inherit`/`sonnet` gibi takma adlar üst ajanı kullanır |
+| `permissionMode` / `izin_kipi` | Üst kipi yalnız SIKILAŞTIRIR: `auto` oturumda `plan` isteyen ajan plan kipinde koşar, `bypass` isteyen `auto`da kalır |
+| `maxTurns` / `en_fazla_tur` | Alt ajanın adım tavanı (derinliğe göre yarılanan bütçeden küçükse o geçerli) |
+| `skills` / `beceriler` | Başlangıçta yüklenen beceriler (en fazla 32, 24 KB) |
+| `mcpServers` | Yalnız bu sunucuların MCP araçları açılır |
+| `effort` / `efor` | `low` · `medium` · `high`: yalnız o alt ajanın düşünme yoğunluğu |
+| `memory` / `bellek` | `user` · `project` · `local`: ajana özel kalıcı bellek (bkz. aşağı) |
+| `background`, `isolation`, `hooks` | Okunur ve katalogda gösterilir; Fusion'da alt ajan tur içinde biter ve kendi worktree'si yoktur, uygulanmaz |
+
+Alt ajan bir izin isterse terminal, masaüstü kartı ve Telegram bildirimi
+"Alt ajan izin istiyor: Denetçi (denetci-3f9a1c)" diye kimin istediğini söyler. Masaüstü:
+Beceriler › Ajanlar › ayrıntı panelinde tanımdaki ayarlar listelenir.
+
 ---
 
 ## 9) Başka sağlayıcı / anahtar ekleme

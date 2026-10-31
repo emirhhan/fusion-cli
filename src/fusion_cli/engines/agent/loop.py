@@ -134,7 +134,7 @@ from ..effects.runner import maybe_run_effect_workflow
 from . import compaction, denial, gate_escalation, learning_steps, liveness, reflexion, review
 from .action_evidence import claimed_effects
 from .apprentice_handoff import apprentice_spec, teacher_for_turn
-from .approval import ApprovalPolicy, Decision, resolve_request
+from .approval import ApprovalMode, ApprovalPolicy, Decision, resolve_request
 from .change_digest import change_digest
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
@@ -445,6 +445,11 @@ class AgentDeps:
     steering: SteeringQueue | None = None
     policy_factory: Callable[[], ApprovalPolicy] | None = None
     approval_revision: Callable[[], object] | None = None
+    #: Oturumun ANLIK onay kipi ve verilen kip için politika kuran yapıcı (P-034): alt ajan
+    #: tanımındaki `permissionMode` üst kipi yalnız sıkılaştırarak uygular. Verilmezse alt
+    #: ajan üstün politikasını aynen alır (eski davranış).
+    approval_mode: Callable[[], ApprovalMode] | None = None
+    policy_for_mode: Callable[[ApprovalMode], ApprovalPolicy] | None = None
     ancestor_mutation_barrier: Callable[[], bool] | None = None
     #: Kullanıcının seçtiği görev tipi (`/type`). `task_model_map` üzerinden bu turda
     #: kullanılacak modeli belirler; haritada karşılığı yoksa `agent:` rolü kullanılır.

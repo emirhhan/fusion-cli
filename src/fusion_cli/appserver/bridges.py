@@ -181,6 +181,8 @@ class ProtocolPrompter:
             # okumalı (bkz. `approval_preview`).
             "diff": self._onizleme(request),
             "secenekler": _approval_options(request),
+            # İsteyen alt ajan (P-034): kart "Alt ajan X izin istiyor" der; ana ajanda None.
+            "ajan": request.agent_label or None,
         }
         data = await self._ask_approval(payload, request)
         choice = data.get("secim")

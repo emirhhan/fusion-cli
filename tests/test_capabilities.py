@@ -447,3 +447,88 @@ def test_yalniz_durak_sozcuklu_sorgu_bos_donmez():
     kap = Capability("a", "the code", Path("/x/a"), "claude")
 
     assert search_scored((kap,), "the code")  # tümü durak sözcük: eski davranışa düş
+
+
+# --- Alt ajan ayar alanları (P-034) ------------------------------------------- #
+
+FULL_AGENT = """---
+name: denetci
+description: Kod denetler
+tools: Read, Grep, mcp__github__search, mcp__jira, Uydurma
+disallowedTools:
+  - Bash
+  - Write
+model: openrouter/qwen/qwen3.8-27b:free
+permissionMode: plan
+maxTurns: 12
+skills: [kod-inceleme, guvenlik]
+mcpServers: [github]
+memory: project
+background: true
+effort: high
+isolation: worktree
+hooks:
+  PreToolUse:
+    - matcher: Bash
+      hooks:
+        - type: command
+          command: echo ok
+  Stop:
+    - hooks: []
+---
+Gövde.
+"""
+
+
+def test_alt_ajan_ayar_alanlari_okunur(tmp_path):
+    """Ölçüldü (31 Ekim): yalnız name/description/tools + kişilik okunuyordu."""
+    from fusion_cli.tools.capabilities import CapabilityRegistry
+
+    ajanlar = tmp_path / ".claude" / "agents"
+    ajanlar.mkdir(parents=True)
+    (ajanlar / "denetci.md").write_text(FULL_AGENT, encoding="utf-8")
+
+    ajan = CapabilityRegistry(tmp_path / "ev", tmp_path).get_agent("denetci")
+
+    assert ajan is not None
+    assert ajan.tools == ("Read", "Grep", "mcp__github__search", "mcp__jira", "Uydurma")
+    assert ajan.disallowed_tools == ("Bash", "Write")
+    assert ajan.model == "openrouter/qwen/qwen3.8-27b:free"
+    assert ajan.permission_mode == "plan" and ajan.max_turns == 12
+    assert ajan.skills == ("kod-inceleme", "guvenlik") and ajan.mcp_servers == ("github",)
+    assert ajan.memory == "project" and ajan.background is True
+    assert ajan.effort == "high" and ajan.isolation == "worktree"
+    assert ajan.hooks == ("PreToolUse", "Stop")
+    assert load_agent_prompt(ajan.path).strip() == "Gövde."
+
+
+def test_turkce_ayar_adlari_ve_bozuk_sayilar():
+    fields = parse_frontmatter(
+        "---\nname: a\nizin_kipi: security\nen_fazla_tur: bes\nbellek: user\n"
+        "yasak_araclar: Bash\nbeceriler:\n  - x\n---\ngövde"
+    )
+
+    assert fields["permission_mode"] == "security" and fields["memory"] == "user"
+    assert fields["max_turns"] == "bes" and fields["disallowed_tools"] == ("Bash",)
+    assert fields["skills"] == ("x",)
+    from fusion_cli.tools.capabilities import parse_setting_int
+
+    assert parse_setting_int("bes") == 0 and parse_setting_int("-3") == 0
+    assert parse_setting_int(" 7 ") == 7
+
+
+def test_yeni_claude_arac_adlari_ve_mcp_eslenir():
+    from fusion_cli.tools.capabilities import expand_tool_patterns, unmapped_tools
+
+    mapped = map_tools(("Agent", "Skill", "AskUserQuestion", "mcp__github__search", "mcp__jira"))
+
+    assert mapped is not None
+    assert {"spawn_agent", "invoke_agent", "read_skill", "ask_user"} <= mapped
+    assert "github__search" in mapped and "jira__*" in mapped
+    assert expand_tool_patterns({"jira__*", "read_file"}, ("jira__list", "jira__get", "x")) == {
+        "jira__list",
+        "jira__get",
+        "read_file",
+    }
+    assert unmapped_tools(("Read", "Uydurma", "mcp__x__y")) == ("Uydurma",)
+    assert unmapped_tools(("*",)) == ()

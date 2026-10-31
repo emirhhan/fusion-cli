@@ -374,6 +374,7 @@ class RemoteService:
             "reason": payload.get("neden"),
             "diff": payload.get("diff", ""),
             "options": payload.get("secenekler", []),
+            "agent": payload.get("ajan"),
         }
         if is_approval(payload):
             approval = classify_question(payload)
