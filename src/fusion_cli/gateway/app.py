@@ -286,6 +286,16 @@ class GatewayApp:
         if method == "POST" and path == "/v1/chat/completions":
             await self._chat(receive, send)
             return
+        # Rota paritesi (P-074): Codex/OpenAI SDK (Responses), Claude SDK (Messages), gömme.
+        if method == "POST" and path == "/v1/responses":
+            await self._responses(receive, send)
+            return
+        if method == "POST" and path == "/v1/messages":
+            await self._messages(receive, send)
+            return
+        if method == "POST" and path == "/v1/embeddings":
+            await self._embeddings(receive, send)
+            return
         await _json(send, {"error": {"message": "bulunamadı", "type": "not_found"}}, status=404)
 
     # --- Panel yönetim uçları (yerel; durumu DEĞİŞTİRİR) -------------------- #
@@ -1136,6 +1146,318 @@ class GatewayApp:
             ],
         )
 
+    async def _prepare(
+        self, request: CompletionRequest, model: str
+    ) -> tuple[CompletionRequest, ModelSpec, str]:
+        """Sıkıştırma, profil çözümü ve bağlam bütçesi: üç sohbet rotasının ortak ön adımı."""
+        runtime = self._config.runtime
+        if runtime.gateway_compression:
+            original = request.messages
+            request = _dc_replace(request, messages=compress_messages(request.messages))
+            self._analytics.add_compression_saving(saved_chars(original, request.messages))
+        spec = self._routed_spec(resolve_spec(self._config, model))
+        if self._compact_context:
+            request = await self._compacted(request, spec)
+        return request, spec, f"{self._strategy.value}:{spec.model}"
+
+    async def _complete(
+        self, request: CompletionRequest, spec: ModelSpec, model: str
+    ) -> tuple[ModelResult, bool]:
+        """Akışsız tamamlama: önbellek, sır maskesi ve telemetri (chat/responses/messages ortak)."""
+        runtime = self._config.runtime
+        cache_model = f"{model}->{'|'.join(spec.models)}"
+        cached = self._cache.get(cache_model, request) if runtime.gateway_cache else None
+        if cached is not None:
+            result, from_cache = cached, True
+        else:
+            result = await self._factory(spec).complete(request)
+            if runtime.gateway_cache:
+                self._cache.put(cache_model, request, result)
+            from_cache = False
+        if runtime.gateway_mask_secrets and result.text:
+            result = _dc_replace(result, text=redact(result.text))
+        self._record(model, result, cached=from_cache)
+        return result, from_cache
+
+    async def _responses(self, receive: Receive, send: Send) -> None:
+        """OpenAI Responses API köprüsü (`/v1/responses`)."""
+        from . import translate_responses as responses
+
+        try:
+            payload = await _read_json(receive)
+            request, model, stream = responses.to_request(payload, self._config.runtime)
+        except (translate.GatewayError, json.JSONDecodeError, ValueError) as error:
+            await _json(send, _error_body(str(error)), status=400)
+            return
+        request, spec, route = await self._prepare(request, model)
+        if stream:
+            await self._stream_responses(send, self._factory(spec), request, model)
+            return
+        result, from_cache = await self._complete(request, spec, model)
+        await _json(
+            send,
+            responses.to_response(result, model),
+            extra_headers=[
+                (b"x-fusion-route", route.encode()),
+                (b"x-fusion-cache", b"HIT" if from_cache else b"MISS"),
+            ],
+        )
+
+    async def _stream_responses(
+        self, send: Send, provider: LlmProvider, request: CompletionRequest, model: str
+    ) -> None:
+        from . import translate_responses as responses
+
+        resp_id = responses.response_id()
+        item_id = f"msg_{resp_id}"
+        maske = StreamRedactor() if self._config.runtime.gateway_mask_secrets else None
+        await _sse_start(send)
+        await _sse_event(
+            send,
+            *responses.event(
+                "response.created",
+                response={
+                    "id": resp_id,
+                    "object": "response",
+                    "status": "in_progress",
+                    "model": model,
+                },
+            ),
+        )
+        await _sse_event(
+            send,
+            *responses.event(
+                "response.output_item.added",
+                output_index=0,
+                item={
+                    "type": "message",
+                    "id": item_id,
+                    "status": "in_progress",
+                    "role": "assistant",
+                    "content": [],
+                },
+            ),
+        )
+        await _sse_event(
+            send,
+            *responses.event(
+                "response.content_part.added",
+                output_index=0,
+                content_index=0,
+                item_id=item_id,
+                part={"type": "output_text", "text": "", "annotations": []},
+            ),
+        )
+        collected: list[str] = []
+        final: ModelResult | None = None
+        async for item in provider.stream(request):
+            if isinstance(item, TextChunk) and item.text:
+                text = maske.feed(item.text) if maske is not None else item.text
+                if text:
+                    collected.append(text)
+                    await _sse_event(
+                        send,
+                        *responses.event(
+                            "response.output_text.delta",
+                            output_index=0,
+                            content_index=0,
+                            item_id=item_id,
+                            delta=text,
+                        ),
+                    )
+            elif isinstance(item, StreamDone):
+                final = item.result
+        kalan = maske.flush() if maske is not None else ""
+        if kalan:
+            collected.append(kalan)
+            await _sse_event(
+                send,
+                *responses.event(
+                    "response.output_text.delta",
+                    output_index=0,
+                    content_index=0,
+                    item_id=item_id,
+                    delta=kalan,
+                ),
+            )
+        if final is None:
+            final = ModelResult(
+                name=model, model=model, text="", latency_ms=0, ok=False, error="akış kesildi"
+            )
+        if final.text and not collected:
+            # Akışsız düşen yedek sağlayıcı metni yalnız sonuçta verebilir.
+            text = redact(final.text) if maske is not None else final.text
+            collected.append(text)
+            await _sse_event(
+                send,
+                *responses.event(
+                    "response.output_text.delta",
+                    output_index=0,
+                    content_index=0,
+                    item_id=item_id,
+                    delta=text,
+                ),
+            )
+        full_text = "".join(collected)
+        final = _dc_replace(final, text=full_text)
+        await _sse_event(
+            send,
+            *responses.event(
+                "response.output_text.done",
+                output_index=0,
+                content_index=0,
+                item_id=item_id,
+                text=full_text,
+            ),
+        )
+        await _sse_event(
+            send,
+            *responses.event(
+                "response.content_part.done",
+                output_index=0,
+                content_index=0,
+                item_id=item_id,
+                part={"type": "output_text", "text": full_text, "annotations": []},
+            ),
+        )
+        await _sse_event(
+            send,
+            *responses.event(
+                "response.output_item.done",
+                output_index=0,
+                item=responses.message_item(final, item_id=item_id),
+            ),
+        )
+        for index, call_item in enumerate(responses.function_call_items(final), start=1):
+            await _sse_event(
+                send,
+                *responses.event("response.output_item.done", output_index=index, item=call_item),
+            )
+        self._record(model, final)
+        if final.is_usable:
+            await _sse_event(
+                send,
+                *responses.event(
+                    "response.completed",
+                    response=responses.to_response(final, model, resp_id=resp_id),
+                ),
+            )
+        else:
+            guvenli = _dc_replace(final, error=redact(final.error or ""))
+            await _sse_event(
+                send,
+                *responses.event(
+                    "response.failed",
+                    response=responses.to_response(guvenli, model, resp_id=resp_id),
+                ),
+            )
+        await _sse_done(send)
+
+    async def _messages(self, receive: Receive, send: Send) -> None:
+        """Anthropic Messages API köprüsü (`/v1/messages`)."""
+        from . import translate_anthropic as anthropic
+
+        try:
+            payload = await _read_json(receive)
+            request, model, stream = anthropic.to_request(payload, self._config.runtime)
+        except (translate.GatewayError, json.JSONDecodeError, ValueError) as error:
+            await _json(send, anthropic.error_body(str(error)), status=400)
+            return
+        request, spec, route = await self._prepare(request, model)
+        if stream:
+            await self._stream_messages(send, self._factory(spec), request, model)
+            return
+        result, from_cache = await self._complete(request, spec, model)
+        if not result.is_usable:
+            await _json(
+                send,
+                anthropic.error_body(
+                    redact(result.error or "model cevap üretmedi"), kind="api_error"
+                ),
+                status=502,
+            )
+            return
+        await _json(
+            send,
+            anthropic.to_message(result, model),
+            extra_headers=[
+                (b"x-fusion-route", route.encode()),
+                (b"x-fusion-cache", b"HIT" if from_cache else b"MISS"),
+            ],
+        )
+
+    async def _stream_messages(
+        self, send: Send, provider: LlmProvider, request: CompletionRequest, model: str
+    ) -> None:
+        from . import translate_anthropic as anthropic
+
+        msg_id = anthropic.message_id()
+        maske = StreamRedactor() if self._config.runtime.gateway_mask_secrets else None
+        await _sse_start(send)
+        await _sse_event(send, *anthropic.event_message_start(model, msg_id=msg_id))
+        await _sse_event(send, *anthropic.event_block_start(0, {"type": "text", "text": ""}))
+        akan_metin = False
+        final: ModelResult | None = None
+        async for item in provider.stream(request):
+            if isinstance(item, TextChunk) and item.text:
+                text = maske.feed(item.text) if maske is not None else item.text
+                if text:
+                    akan_metin = True
+                    await _sse_event(send, *anthropic.event_text_delta(0, text))
+            elif isinstance(item, StreamDone):
+                final = item.result
+        kalan = maske.flush() if maske is not None else ""
+        if kalan:
+            akan_metin = True
+            await _sse_event(send, *anthropic.event_text_delta(0, kalan))
+        if final is None:
+            final = ModelResult(
+                name=model, model=model, text="", latency_ms=0, ok=False, error="akış kesildi"
+            )
+        if final.text and not akan_metin:
+            text = redact(final.text) if maske is not None else final.text
+            await _sse_event(send, *anthropic.event_text_delta(0, text))
+        await _sse_event(send, *anthropic.event_block_stop(0))
+        for index, call in enumerate(final.tool_calls, start=1):
+            await _sse_event(
+                send,
+                *anthropic.event_block_start(
+                    index, {"type": "tool_use", "id": call.id, "name": call.name, "input": {}}
+                ),
+            )
+            await _sse_event(send, *anthropic.event_json_delta(index, call.arguments or "{}"))
+            await _sse_event(send, *anthropic.event_block_stop(index))
+        self._record(model, final)
+        if final.is_usable:
+            await _sse_event(send, *anthropic.event_message_delta(final))
+            await _sse_event(send, *anthropic.event_message_stop())
+        else:
+            await _sse_event(
+                send, *anthropic.event_error(redact(final.error or "model cevap üretmedi"))
+            )
+        await send({"type": "http.response.body", "body": b"", "more_body": False})
+
+    async def _embeddings(self, receive: Receive, send: Send) -> None:
+        """OpenAI `/v1/embeddings` köprüsü: Fusion'ın gömme sağlayıcısı (nim ya da yerel)."""
+        from . import embeddings as gomme
+
+        try:
+            payload = await _read_json(receive)
+            texts, _requested = gomme.parse_inputs(payload)
+        except (translate.GatewayError, json.JSONDecodeError, ValueError) as error:
+            await _json(send, _error_body(str(error)), status=400)
+            return
+        try:
+            function, model = await asyncio.to_thread(gomme.build_embedder, self._config)
+            vectors = await gomme.embed(texts, function)
+        except gomme.EmbeddingUnavailableError as error:
+            await _json(send, _error_body(str(error)), status=501)
+            return
+        except Exception as error:  # sağlayıcı HTTP/ONNX hatası; sınır katmanı, maskeli
+            await _json(send, _error_body(redact(f"gömme hesaplanamadı: {error}")), status=502)
+            return
+        await _json(send, gomme.to_openai_embeddings(vectors, model, texts))
+
     async def _compacted(self, request: CompletionRequest, spec: ModelSpec) -> CompletionRequest:
         """Geçmiş modelin bağlam bütçesini aşıyorsa eski kısmı özetle (ilk tur ve son turlar
         birebir korunur). Kits uzun sohbetin tamamını her turda gönderir; ücretsiz modellerin
@@ -1514,6 +1836,12 @@ async def _sse_start(send: Send) -> None:
 
 async def _sse_data(send: Send, data: dict[str, Any]) -> None:
     payload = f"data: {json.dumps(data)}\n\n".encode()
+    await send({"type": "http.response.body", "body": payload, "more_body": True})
+
+
+async def _sse_event(send: Send, name: str, data: dict[str, Any]) -> None:
+    """Adlı SSE olayı (`event:` + `data:`): Anthropic ve Responses akış sözleşmesi."""
+    payload = f"event: {name}\ndata: {json.dumps(data)}\n\n".encode()
     await send({"type": "http.response.body", "body": payload, "more_body": True})
 
 

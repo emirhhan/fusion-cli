@@ -206,6 +206,17 @@ o aracın ayarlarında:
 Artık o araç Fusion üzerinden çalışır: yedekleme, sağlık, çok-hesap otomatik devrede.
 Durdurmak için `fusion serve`'ün olduğu terminalde **Ctrl-C**.
 
+**Hangi rotalar var?** Santral üç API ailesini konuşur; hepsi aynı profil/model çözümünü,
+önbelleği, sır maskesini ve telemetriyi paylaşır:
+
+| Rota | Kim kullanır | Not |
+|------|--------------|-----|
+| `POST /v1/chat/completions` | OpenAI-uyumlu araçlar (Cursor, Cline, Kits) | akış ve araç çağrısı |
+| `POST /v1/responses` | Codex CLI, yeni OpenAI SDK'ları (`OPENAI_BASE_URL`) | `input`/`instructions`, `response.*` akış olayları |
+| `POST /v1/messages` | Claude SDK'ları, Claude Code (`ANTHROPIC_BASE_URL=http://127.0.0.1:8787`) | `system`, `tools[].input_schema`, Anthropic SSE olayları |
+| `POST /v1/embeddings` | gömme isteyen araçlar | `embedding.provider` (nim ya da yerel ONNX); kurulu değilse 501 |
+| `GET /v1/models` | model listesi | profiller + yapılandırılmış modeller |
+
 ---
 
 ## 12) MCP köprüsü (alet paylaşımı)
