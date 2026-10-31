@@ -80,6 +80,19 @@ def test_geri_sarma_olayi_yuklenen_gecmisi_kirpar(tmp_path):
     ]
 
 
+def test_liste_sayimi_geri_sarmayi_hesaba_katar(tmp_path):
+    """Ölçüldü (31 Ekim): `message_count` ConversationRewound'u görmeyip geri sarılmış
+    mesajları da sayıyor, /resume listesi yüklenecekten fazla mesaj gösteriyordu."""
+    memory, root = tmp_path / "m", tmp_path / "r"
+    _seed(memory, root, "s-1", ("a", "1"), ("b", "2"), ("c", "3"))
+    store = TranscriptStore(memory, root, conversation_id="s-1")
+    store.record_rewind(1)
+    store.record_user("d")
+
+    (ref,) = list_conversations(memory, root)
+    assert ref.message_count == 3, "a, 1, d"
+
+
 def test_copy_conversation_yeni_kimlige_yazar_ve_dogrular(tmp_path):
     memory, root = tmp_path / "m", tmp_path / "r"
     history = [
@@ -151,6 +164,13 @@ def test_fork_session_kopya_acar_ozgun_degismez(tmp_path):
     kimlikler = {ref.conversation_id: ref for ref in list_conversations(memory, root)}
     assert kimlikler["kaynak"].name == ""
     assert kimlikler[target.conversation_id].name == "Dal"
+
+
+def test_fork_session_kaynaksiz_hata_verir(tmp_path):
+    """Ölçüldü (31 Ekim): `--fork-session` tek başına sessizce yok sayılıp boş sohbet açılıyordu."""
+    memory, root = tmp_path / "m", tmp_path / "r"
+    with pytest.raises(SessionNotFoundError, match="--continue"):
+        session_resume.resolve_launch(memory, root, fork=True)
 
 
 def test_name_yeni_sohbete_ad_verir_ve_resume_ile_bulunur(tmp_path):

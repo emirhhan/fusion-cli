@@ -73,6 +73,9 @@ def resolve_launch(
     """
     name = name.strip()
     if not continue_last and not resume.strip():
+        if fork:
+            # Ölçüldü (31 Ekim): bayrak sessizce yok sayılıp yeni boş sohbet açılıyordu.
+            raise SessionNotFoundError(messages.SESSION_FORK_NEEDS_SOURCE)
         if not name:
             return None
         conversation_id = new_conversation_id()

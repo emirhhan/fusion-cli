@@ -823,6 +823,9 @@ SESSION_BRANCHED = (
     "Dallandırıldı: {count} mesaj yeni sohbete kopyalandı{name}; özgün sohbet değişmedi."
 )
 SESSION_COPY_FAILED = "Sohbet kopyalanamadı: {reason}"
+SESSION_FORK_NEEDS_SOURCE = (
+    "--fork-session kopyalanacak sohbeti ister: --continue ya da --resume <kimlik|ad> ile ver."
+)
 SESSION_CHOICE_DETAIL = "{when} · {count} mesaj"
 
 #: `/rewind` — çok adımlı checkpoint'e geri sarma.

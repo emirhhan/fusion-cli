@@ -136,6 +136,18 @@ def _truncate_after_users(messages: list[Message], keep_users: int) -> None:
         seen += 1
 
 
+def _truncate_roles(roles: list[str], keep_users: int) -> None:
+    """`_truncate_after_users`'ın rol listesi biçimi (liste sayımı için)."""
+    seen = 0
+    for index, role in enumerate(roles):
+        if role != "user":
+            continue
+        if seen == keep_users:
+            del roles[index:]
+            return
+        seen += 1
+
+
 def _upsert_message(messages: list[Message], message: Message) -> None:
     """Aynı gönderimin final düzeltmesi geçmişte ikinci mesaj oluşturmaz."""
     if message.message_id:
@@ -351,7 +363,8 @@ def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...
     titles: dict[str, str] = {}
     names: dict[str, str] = {}
     stamps: dict[str, float] = {}
-    counts: dict[str, int] = {}
+    #: Sohbet başına mesaj rolleri; geri sarma olayı listeyi keser, sayım yüklenenle eşleşir.
+    roles: dict[str, list[str]] = {}
     for line in lines:
         try:
             event = json.loads(line)
@@ -368,12 +381,21 @@ def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...
             if isinstance(conversation, str) and isinstance(name, str) and name.strip():
                 names[conversation] = redact(name.strip())[:TITLE_BUDGET]
             continue
+        if event.get("event") == _REWIND_EVENT and isinstance(conversation, str):
+            keep = event.get("keep_users")
+            if isinstance(keep, int) and not isinstance(keep, bool) and keep >= 0:
+                _truncate_roles(roles.setdefault(conversation, []), keep)
+            continue
         if event.get("event") not in {"UserMessage", "TurnAnswered"}:
             continue
         text = event.get("text")
         if not isinstance(conversation, str) or not isinstance(text, str) or not text.strip():
             continue
-        counts[conversation] = counts.get(conversation, 0) + 1
+        if event.get("event") == "UserMessage" and is_harness_note(text):
+            continue
+        roles.setdefault(conversation, []).append(
+            "user" if event.get("event") == "UserMessage" else "assistant"
+        )
         stamp = event.get("timestamp")
         if isinstance(stamp, (int, float)):
             stamps[conversation] = max(stamps.get(conversation, 0.0), float(stamp))
@@ -384,7 +406,7 @@ def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...
             conversation_id=conversation,
             title=names.get(conversation) or title,
             updated_at=stamps.get(conversation, 0.0),
-            message_count=counts.get(conversation, 0),
+            message_count=len(roles.get(conversation, ())),
             name=names.get(conversation, ""),
         )
         for conversation, title in titles.items()
