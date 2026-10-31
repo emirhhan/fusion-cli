@@ -925,10 +925,38 @@ profile_eligibility:
 # Boş liste = MCP istemcisi hiç kurulmaz (varsayılan).
 mcp_servers: []
 
+# Bilgisayar kullanımı (computer use; Ayarlar › Bu bilgisayar, `fusion config set desktop.<alan>`).
+# Her masaüstü eylemi yine onay politikasından geçer; ayrıntı: docs/BILGISAYAR_KULLANIMI.md.
+desktop:
+  # false: desktop_* araçları modele hiç sunulmaz.
+  enabled: true
+  # Bütün uygulamalar için tavan: observe (yalnız bak) | click (tıkla) | full (tam kontrol).
+  control_level: full
+  # Kategori tablosu: tarayıcı = observe, terminal/IDE = click, yatırım/kripto/parola
+  # yöneticisi = engelli. false: her uygulama control_level alır.
+  category_defaults: true
+  # Hiç dokunulmayan uygulamalar (ad ya da paket kimliği).
+  denied_apps: []
+  # Uygulama başına kademe, kategoriyi ezer: ["Terminal=full", "com.apple.Safari=click"].
+  app_levels: []
+  # Bir uygulama oturumda ilk kez kullanılırken sor ("Bu oturum / Reddet / Her zaman reddet").
+  app_consent: true
+  # true: diğer uygulamalar gizlenmez (arka planda çalış). false: ilk ön plan eyleminde
+  # hedef uygulama ve Fusion dışındakiler gizlenir.
+  background: true
+  # Tur bitince Fusion'ın gizlediği uygulamaları yeniden göster.
+  unhide_on_finish: true
+  # Ön plan eylemi süren turda fiziksel Esc turu durdurur (tuş uygulamaya gitmez).
+  escape_stops: true
+
 # Beceri/ajan kataloğu tercihleri. `disabled`: her oturumda kapalı tutulacak beceri/ajan adları
 # (düz ad ya da `ad@kaynak:kimlik`); masaüstündeki oturumluk kapatmadan farklı, kalıcıdır.
+# `overrides`: beceri adı → görünürlük (Claude Code `skillOverrides`): on | name-only (dizinde
+# yalnız ad) | user-invocable-only (yalnız /ad ile, model kendiliğinden yüklemez) | off.
+# Türkçe: acik | yalniz-ad | yalniz-kullanici | kapali. Örnek: `overrides: {pdf: name-only}`.
 capabilities:
   disabled: []
+  overrides: {}
 
 # ---------------------------------------------------------------------------
 # Web sağlayıcıları (opsiyonel). İki transport vardır:
@@ -961,3 +989,6 @@ browser:
   # true: tarayıcı penceresi görünmez. false: pencere görünür açılır (giriş/CAPTCHA
   # gibi insan müdahalesi gereken işler için).
   headless: true
+  # Masaüstü Tarayıcı paneli: ajanın tarayıcı eylemleri paneldeki paylaşılan tarayıcıda
+  # çalışır (canlı izlenir, "Devral" ile kullanıcıya geçer). false: tur başına ayrı tarayıcı.
+  panel_agent: true

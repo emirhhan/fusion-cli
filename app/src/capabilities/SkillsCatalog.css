@@ -56,3 +56,4 @@
 .skills-catalog__memory pre { max-height: 200px; }
 .skills-catalog__memory-confirm { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
 .skills-catalog__memory-confirm span { color: var(--text-secondary); flex: 1 1 100%; font-size: var(--text-xs); }
+.skills-catalog__tabs button[aria-pressed="true"] { background: var(--surface-selected); color: var(--text-primary); font-weight: 550; }

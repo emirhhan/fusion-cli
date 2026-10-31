@@ -26,6 +26,7 @@ from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
 import yaml
 from dotenv import dotenv_values
 
+from ..core.desktop_settings import DesktopSettings, parse_app_level
 from ..core.errors import ConfigError
 from ..core.shell_sandbox import SHELL_SANDBOX_MODES
 from ..core.types import ModelSpec
@@ -37,6 +38,7 @@ from .models import (
     Config,
     EmbeddingConfig,
     HostedConnectorConfig,
+    McpScope,
     McpServerConfig,
     ProfileEligibility,
     RuntimeConfig,
@@ -75,6 +77,7 @@ _SECTIONS = (
     "web_sessions",
     "browser",
     "capabilities",
+    "desktop",
 )
 
 # PEP 695 sözdizimi yerine TypeVar: paket Python 3.11'i de destekler.
@@ -185,6 +188,8 @@ def load_config(path: str | Path | None = None) -> Config:
         # Proje kökündeki `.mcp.json` (Claude Code biçimi) güvenilen projede eklenir;
         # aynı adda proje kaydı kullanıcı kaydını geçer (P-049).
         yapilandirma = _with_project_mcp_servers(yapilandirma, Path.cwd())
+        # Etkin ve çalıştırma onaylı eklentilerin MCP sunucuları (P-059).
+        yapilandirma = _with_plugin_mcp_servers(yapilandirma)
         # Sıra önemlidir: önce kullanıcının TERCİHİ uygulanır, sonra anahtarı
         # olmayan sağlayıcılar budanır. Tersi olsaydı tercih, budamanın bıraktığı
         # zincire uygulanır ve etkisi kullanıcıya göre değişirdi.
@@ -273,7 +278,19 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         # Eski kullanıcı dosyasında `browser:` yoksa gömülü varsayılanlar geçerlidir.
         browser=_build(BrowserConfig, merged.get("browser") or {}, "browser"),
         capabilities=_build(CapabilitiesConfig, merged.get("capabilities") or {}, "capabilities"),
+        desktop=_build_desktop(merged.get("desktop") or {}),
     )
+
+
+def _build_desktop(raw: object) -> DesktopSettings:
+    """`desktop:` bölümü; `app_levels` girdileri yüklemede doğrulanır (çalışma anında değil)."""
+    desktop = _build(DesktopSettings, raw, "desktop")
+    for entry in desktop.app_levels:
+        try:
+            parse_app_level(entry)
+        except ValueError as error:
+            raise ConfigError(f"desktop.app_levels: {error}") from None
+    return desktop
 
 
 def _verified_web_teacher(sessions: tuple[WebSessionConfig, ...]) -> ModelSpec | None:
@@ -417,6 +434,27 @@ def _with_project_mcp_servers(config: Config, root: Path) -> Config:
     return dataclasses.replace(
         config, mcp_servers=merge_mcp_servers(config.mcp_servers, project_servers)
     )
+
+
+def _with_plugin_mcp_servers(config: Config) -> Config:
+    """Eklenti sunucuları (`plugin_<eklenti>_<sunucu>`) kullanıcı/proje adlarını geçmez."""
+    from .plugin_store import plugin_mcp_servers
+
+    taken = {server.name for server in config.mcp_servers}
+    extra = tuple(server for server in plugin_mcp_servers() if server.name not in taken)
+    if not extra:
+        return config
+    return dataclasses.replace(config, mcp_servers=(*config.mcp_servers, *extra))
+
+
+def refresh_plugin_mcp_servers(config: Config) -> Config:
+    """Eklenti kur/aç/kapat/kaldır sonrası: PLUGIN kapsamlı kayıtları diskteki kayda göre yenile.
+
+    Ölçüldü (31 Ekim): kapatılan ya da kaldırılan eklentinin MCP sunucusu çalışan oturumun
+    yapılandırmasında kalıyor, araçları oturum yeniden başlayana dek çağrılabiliyordu.
+    """
+    others = tuple(s for s in config.mcp_servers if s.scope is not McpScope.PLUGIN)
+    return _with_plugin_mcp_servers(dataclasses.replace(config, mcp_servers=others))
 
 
 def _build_mcp_servers(raw: object) -> tuple[McpServerConfig, ...]:

@@ -21,11 +21,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.desktop_frame import DesktopFrame
+from ..core.desktop_settings import DesktopSettings
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import optional_str
 from .desktop import DESKTOP_COMMAND_TIMEOUT_S, SCREENSHOT_MAX_BYTES, _framework, _mac_only
 from .desktop_permissions import DENIED, SCREEN_RECORDING, permission_failure, probe
+from .desktop_policy import capture_exclusions
+from .desktop_visibility import onscreen_owners, visible_hidden_apps
 from .files import writable_path
 from .native_desktop import invoke_sync
 
@@ -156,15 +159,39 @@ def _exclude_pids() -> list[int]:
     return [os.getpid(), *_ancestor_pids(os.getpid())]
 
 
-def _native_capture(display: Display, max_width: int) -> bytes | None:
+def fusion_pids() -> list[int]:
+    """Fusion'ın süreçleri (bu süreç + ataları): gizlemede de görünür kalırlar (P-033)."""
+    return _exclude_pids()
+
+
+def _native_capture(
+    display: Display,
+    max_width: int,
+    settings: DesktopSettings | None = None,
+    *,
+    exclude_fusion: bool = True,
+    rect: tuple[float, float, float, float] | None = None,
+) -> bytes | None:
     """Ekranı Fusion'ın (bu süreç + ataları: Fusion.app ya da terminal) pencereleri hariç yakala.
 
-    Başarısızsa `None`: çağıran `screencapture` ile tam ekrana düşer (P-033). Yardımcı macOS 14+
-    ScreenCaptureKit ister; eski sistemde ve sahte ortamda sessizce geri düşülür.
+    Başarısızsa `None`: çağıran `screencapture`'a düşer (P-033). Yardımcı macOS 14+
+    ScreenCaptureKit ister; eski sistemde ve sahte ortamda sessizce geri düşülür. `rect`
+    (ekranın sol üstüne göre nokta) bölge yakalamadır; reddedilen uygulamalar orada da dışlanır.
+    `exclude_fusion=False` (`runtime.desktop_exclude_fusion_window`) yalnız Fusion'ı görüntüye
+    alır; ret listesi dışlaması o ayardan bağımsızdır (P-007).
     """
     if not display.identifier:
         return None
-    request = {"excludePids": _exclude_pids(), "maxWidth": max_width}
+    names, prefixes = capture_exclusions(settings or DesktopSettings())
+    request: dict[str, object] = {
+        "excludePids": _exclude_pids() if exclude_fusion else [],
+        "maxWidth": max_width,
+        # Reddedilen / engelli uygulamaların pencereleri de görüntüye girmez (P-007).
+        "excludeNames": list(names),
+        "excludeBundlePrefixes": list(prefixes),
+    }
+    if rect is not None:
+        request["rect"] = list(rect)
     try:
         result = invoke_sync(
             "screen", {"kind": "display", "id": display.identifier, "request": request}
@@ -239,18 +266,58 @@ def _display_frame(display: Display, size: tuple[int, int] | None) -> DesktopFra
     )
 
 
+def _region_points(
+    display: Display, region: tuple[int, ...], frame: DesktopFrame | None
+) -> tuple[float, float, float, float]:
+    """Bölge (görüntü pikseli) → küresel nokta dikdörtgeni (sol, üst, genişlik, yükseklik)."""
+    x, y, width, height = region
+    source = frame if frame is not None else _display_frame(display, None)
+    left, top = source.to_point(x, y)
+    return left, top, max(1.0, width * source.scale), max(1.0, height * source.scale)
+
+
 def _capture_command(
     display: Display, region: tuple[int, ...] | None, frame: DesktopFrame | None, target: Path
 ) -> list[str]:
     if region is None:
         return ["screencapture", "-x", "-t", "png", "-D", str(display.index), str(target)]
-    x, y, width, height = region
-    source = frame if frame is not None else _display_frame(display, None)
-    left, top = source.to_point(x, y)
-    point_width = max(1.0, width * source.scale)
-    point_height = max(1.0, height * source.scale)
+    left, top, point_width, point_height = _region_points(display, region, frame)
     rect = f"{left:.0f},{top:.0f},{point_width:.0f},{point_height:.0f}"
     return ["screencapture", "-x", "-t", "png", "-R", rect, str(target)]
+
+
+#: Dışlama yapamayan yakalamada engelli uygulama görünürse dönen hata.
+HIDDEN_VISIBLE_MESSAGE = (
+    "Ekran görüntüsü alınmadı: {apps} ekranda görünüyor ve bu yakalama yolu (ScreenCaptureKit "
+    "yok ya da yardımcı çalışmadı) pencereleri dışlayamıyor. Kullanıcıdan bu uygulamayı "
+    "gizlemesini (Cmd+H) ya da küçültmesini iste; reddedilen uygulamalar modele gösterilmez."
+)
+HIDDEN_UNKNOWN_MESSAGE = (
+    "Ekran görüntüsü alınmadı: ekrandaki pencereler okunamadı ve bu yakalama yolu reddedilen "
+    "uygulamaları dışlayamıyor (desktop.denied_apps, engelli kategoriler)."
+)
+
+
+def _hidden_apps_on_screen(settings: DesktopSettings) -> tuple[str, ...] | None:
+    """Ekranda görünen engelli uygulamalar (sahte verilebilir); okunamazsa None."""
+    return visible_hidden_apps(settings, onscreen_owners())
+
+
+def _fallback_refusal(settings: DesktopSettings) -> str | None:
+    """`screencapture` (dışlamasız) yolu engelli bir pencereyi yakalayacaksa hata metni.
+
+    Ölçüldü (31 Ekim): bölge yakalama ve geri düşüş reddedilen uygulamanın penceresini olduğu
+    gibi modele veriyordu. Liste boşsa (kategori kapalı, ret listesi boş) denetim yapılmaz.
+    """
+    names, _prefixes = capture_exclusions(settings)
+    if not names:
+        return None
+    visible = _hidden_apps_on_screen(settings)
+    if visible is None:
+        return HIDDEN_UNKNOWN_MESSAGE
+    if visible:
+        return HIDDEN_VISIBLE_MESSAGE.format(apps=", ".join(visible))
+    return None
 
 
 def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -269,6 +336,9 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     region = _parse_region(optional_str(args, "region", "") or None, previous)
     if isinstance(region, str):
         return ToolResult.failure(region)
+    if region is not None and previous is not None and "display" not in args:
+        # Bölge son görüntünün ekranındadır; yerel yakalama o ekranı ister.
+        display = next((d for d in displays if d.index == previous.display), display)
     # Bölge son görüntünün pikseliyle verilir; o görüntü başka ekrandansa `display` çelişir.
     if (
         region is not None
@@ -285,12 +355,21 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     target.parent.mkdir(parents=True, exist_ok=True)
     max_width = max(1, context.desktop_screenshot_max_width)
     try:
-        context.changes.record(target)
-        native = (
-            _native_capture(display, max_width)
-            if region is None and context.desktop_exclude_fusion_window
-            else None
+        rect = None
+        if region is not None:
+            left, top, width_pt, height_pt = _region_points(display, region, previous)
+            rect = (left - display.x, top - display.y, width_pt, height_pt)
+        native = _native_capture(
+            display,
+            max_width,
+            context.desktop_settings,
+            exclude_fusion=context.desktop_exclude_fusion_window,
+            rect=rect,
         )
+        refusal = None if native is not None else _fallback_refusal(context.desktop_settings)
+        if refusal is not None:
+            return ToolResult.failure(refusal)
+        context.changes.record(target)
         if native is not None:
             target.write_bytes(native)
         else:
@@ -313,11 +392,11 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     image = ToolContent.image("image/png", base64.b64encode(data).decode("ascii"))
     if region is not None:
         x, y, width, height = region
-        # Ölçüldü (31 Ekim): not "büyütülmüş" diyordu; `screencapture -R` ham ekran pikseli verir,
-        # `_shrink` yalnız küçültür. Bölge yakalamada Fusion penceresi dışlanmaz (bkz. docs).
+        # Ölçüldü (31 Ekim): not "büyütülmüş" diyordu; bölge ham ekran pikseliyle yakalanır,
+        # `_shrink` yalnız küçültür. Bölge de ScreenCaptureKit ile dışlamalı yakalanır (P-007).
         note = (
             f"Ekran görüntüsünün {x},{y} köşesinden {width}x{height} px bölgesi "
-            f"({size[0]}x{size[1]} px, ham ekran pikseli; Fusion penceresi dışlanmaz). Bu görüntü "
+            f"({size[0]}x{size[1]} px, ham ekran pikseli). Bu görüntü "
             f"KIRPIKTIR: tıklamak için TAM ekran görüntüsündeki x,y'yi kullan (kırpığın sol üstü "
             f"tam görüntüde {x},{y})."
         )

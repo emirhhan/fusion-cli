@@ -377,6 +377,10 @@ class JsonLinesPrompter:
                 "tehlike": request.danger,
                 "not": request.note,
                 "etki": request.effect.value,
+                # Masaüstü hedefi (P-007): uygulama, kademe, uyarı, tıklanan öğe.
+                "masaustu": (
+                    request.desktop_target.payload() if request.desktop_target is not None else None
+                ),
             }
         )
         reply = await self._read(istek_id)

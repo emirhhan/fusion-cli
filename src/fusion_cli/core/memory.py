@@ -42,6 +42,21 @@ class LessonSource(Enum):
 #: bu değerle okunur: ders bir kez denenir, sonucuna göre güveni artar/azalır.
 DEFAULT_LESSON_CONFIDENCE = 1.0
 
+#: Kendi belleği olan (`memory:` alanlı) alt ajanın derslerine konan etiket öneki (P-055).
+#: Bu etiketi taşıyan ders yalnız aynı etiketle (aynı ajan) geri çağrılır.
+AGENT_LESSON_TAG_PREFIX = "ajan:"
+
+
+def agent_lesson_tag(agent: str) -> str:
+    """`ajan:<ad>` etiketi."""
+    return f"{AGENT_LESSON_TAG_PREFIX}{agent}"
+
+
+def visible_to(lesson_tags: tuple[str, ...], requested: tuple[str, ...]) -> bool:
+    """Ders bu çağrıyı yapan ajana görünür mü? Ajan etiketsiz ders herkese görünür."""
+    owners = {tag for tag in lesson_tags if tag.startswith(AGENT_LESSON_TAG_PREFIX)}
+    return not owners or bool(owners & set(requested))
+
 
 @dataclass(frozen=True, slots=True)
 class Lesson:

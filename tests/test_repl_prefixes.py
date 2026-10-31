@@ -89,7 +89,8 @@ def test_olmayan_dosya_ve_mcp_kaynagi_notla_gecilir(state):
     result = prefixes.expand_mentions("@yok.py @sunucu:kaynak", state)
     assert result.blocks == ()
     assert "okunamadı" in result.notes[0]
-    assert "MCP kaynak anması henüz desteklenmiyor" in result.notes[1]
+    # Tanımsız sunucu: kaynak eklenmez, nedeni söylenir (tanımlıysa turda okunur; P-049).
+    assert "'sunucu' adlı MCP sunucusu tanımlı değil" in result.notes[1]
 
 
 def test_buyuk_dosya_kirpilir(state, tmp_path):

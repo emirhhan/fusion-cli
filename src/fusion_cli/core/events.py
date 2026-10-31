@@ -220,6 +220,11 @@ class ToolExecuted(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class DesktopEscapeStopped(Event):
+    """Kullanıcı fiziksel Esc ile masaüstü turunu durdurdu (P-033); arayüz nedenini gösterir."""
+
+
+@dataclass(frozen=True, slots=True)
 class ToolCallRepaired(Event):
     """Model geçersiz bir araç çağrısı yazdı; sözleşme hatırlatılıp yeniden soruldu.
 

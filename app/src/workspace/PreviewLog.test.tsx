@@ -49,6 +49,25 @@ describe("PreviewLog (konsol/ağ günlüğü, P-041)", () => {
     await waitFor(() => expect(client.request).toHaveBeenCalledTimes(2));
   });
 
+  it("canlı günlükte 'Temizle' çekirdeğe temizle gönderir ve listeyi boşaltır", async () => {
+    const client = { request: vi.fn(async () => gunluk) } as unknown as ProtocolClient & { request: ReturnType<typeof vi.fn> };
+    render(<PreviewLog clearable client={client} onClose={vi.fn()} rpc="tarayici_panel.konsol" url="http://localhost:5173/" />);
+    expect(await screen.findByText("x tanımsız")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Günlüğü temizle" }));
+
+    await waitFor(() => expect(client.request).toHaveBeenCalledWith("tarayici_panel.konsol", { url: "http://localhost:5173/", temizle: true }));
+    expect(await screen.findByText("Konsolda mesaj yok.")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Konsol (0)" })).toBeTruthy();
+  });
+
+  it("tek seferlik önizleme günlüğünde 'Temizle' yok", async () => {
+    const client = { request: vi.fn(async () => gunluk) } as unknown as ProtocolClient;
+    render(<PreviewLog client={client} onClose={vi.fn()} url="http://localhost:5173/" />);
+    expect(await screen.findByText("x tanımsız")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Günlüğü temizle" })).toBeNull();
+  });
+
   it("çekirdek hatasını alert olarak gösterir ve kapatma geri çağrısını tetikler", async () => {
     const client = { request: vi.fn(async () => ({ ok: false, metin: "Yalnız localhost adresleri okunabilir." })) } as unknown as ProtocolClient;
     const onClose = vi.fn();

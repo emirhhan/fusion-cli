@@ -401,6 +401,8 @@ class RemoteService:
             "diff": payload.get("diff", ""),
             "options": payload.get("secenekler", []),
             "agent": payload.get("ajan"),
+            # Masaüstü hedefi (P-007): uzak istemci hangi uygulamaya dokunulacağını görsün.
+            "desktop": payload.get("masaustu"),
         }
         if is_approval(payload):
             approval = classify_question(payload)

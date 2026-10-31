@@ -93,8 +93,12 @@ TUI'de ve masaüstü yazı kutusunda **Beceri** grubunda bir slash komutu olur
 | `allowed-tools` / `izinli-araclar` | O turda yalnız bu araçlar sunulur; virgül **veya** boşlukla ayrılır (`Read, Grep` ve `Read Grep`), `Bash(git add:*, git commit:*)` tek öğedir — araç adı eşlenir, komut deseni uygulanmaz (not düşer). Fusion aracına eşlenmeyen adlar (`TodoWrite`, `Skill`…) yok sayılır; hiçbiri eşlenmezse kısıt uygulanmaz ve not düşer. **Claude Code'dan fark:** Claude Code bu alanı "onaysız kullanılabilir" (ön-onay) sayar ve diğer araçları kaldırmaz; Fusion ise araç listesini **daraltır**. Gerekçe: depo dosyasından gelen bir alanın onay kapısını açması yetki yükseltme yoluydu; daraltma güvenli taraftır. Becerinin düzenleme/kabuk gerektiren adımı varsa alana `Edit`, `Bash` ekle ya da alanı hiç yazma |
 | `disable-model-invocation` / `model-cagirmasin` | Beceri dizinine ve `find_skill` sonucuna girmez; yalnız `/ad` ile |
 | `user-invocable: false` | Slash komutu olarak sunulmaz (yalnız model `read_skill` ile) |
-| `context: fork` | Okunur; şimdilik ana turda çalışır, not düşer |
-| `model`, `effort` | Okunur; bu turda uygulanmaz (`/model`, `/effort` ile seç), not düşer |
+| `context: fork` / `baglam` | Tur, ana konuşmayı devralan fork alt ajanda koşar (`/subtask` gibi); beceri gövdesi brife, `allowed-tools` araç tavanına geçer |
+| `agent` / `ajan` | `context: fork` ile: fork'u bu alt ajan tanımı (`.claude/agents/<ad>.md`) koşar; fork yoksa yok sayılır, not düşer |
+| `model` | **Yalnız o tur** bu modelle koşar (`<sağlayıcı>/<model>`, ör. `openrouter/qwen/qwen3-coder`); oturum modeli ve yedekleri zincirde yedek kalır, `task_model_map` o tur uygulanmaz. `inherit`, `sonnet`, `opus`, `haiku` oturum modelini kullanır; başka biçim not düşer. Sonraki tur oturum seçimine döner. Depo kaynaklı (proje) becerinin modeli yalnız `fusion trust` ile güvenilen projede uygulanır; değilse not düşer, efor yine uygulanır |
+| `effort` / `efor` | **Yalnız o tur** düşünme yoğunluğu (`low`…`max`, `auto`); tanınmayan değer not düşer |
+| `disallowed-tools` / `yasak-araclar` | O turda bu araçlar sunulmaz (kişiliğin yasaklarına eklenir, kaldıramaz); `Bash(rm *)` deseninde aracın tamamı yasaklanır (güvenli taraf) |
+| `hooks` | Okunur, beceri kapsamlı kanca olarak uygulanmaz (kancalar `settings.json` ile) |
 | Gövdede `` !`cmd` `` | Komut çıktısı yüklenmeden önce yerleştirilir: yalnız `auto`/`edits`/`bypass` kipinde ve `~/.claude`, `~/.codex`, `~/.hermes`, yerleşik köklerden (tam yetki) ya da `fusion trust` ile güvenilen projeden/ek kökten (**yalnız salt-okur komut**: `git log`, `ls`, `cat`…); her komut `run_shell` ile aynı tehlike/risk denetiminden geçer (`git push --force`, `sudo`, proje dışına yazma… hiç koşmaz, yerinde `[komut çalıştırılmadı]` notu kalır); çıktı 2.000 karakter, sırlar maskeli, 10 sn |
 
 ## Beceri dizini (`runtime.skill_index_chars`)
@@ -123,6 +127,15 @@ proje `.claude/skills`, `.fusion/skills`, `.agents/skills`; `~/.codex/skills`, `
 `fusion yetenek kur` repoları; yerleşik beceriler en sonda. Komut dosyaları için
 `~/.claude/commands`, `~/.fusion/commands`, proje `.claude/commands`, `.fusion/commands`.
 
+**Monorepo alt paketleri (tembel keşif):** model alt klasördeki bir dosyayı okuyunca ya da
+düzenleyince (iç içe talimatların yüklendiği an), o klasörden köke kadar (kök hariç)
+`<alt>/.claude/skills` ve `<alt>/.agents/skills` dizinleri kataloğa eklenir ve yeni beceriler
+modele tek satırlık bir notla duyurulur (`ad (yol) — açıklama`, en fazla 12). Bunlar "proje"
+kaynağıdır: depo içeriği bloğunda listelenir, `` !`cmd` `` yalnız salt-okur koşar. Aynı adda
+kök/kullanıcı becerisi varsa o kazanır; `node_modules`, `dist`, gizli klasörler taranmaz.
+Keşfedilen beceri REPL'de `/ad` olarak da çağrılabilir; masaüstü yetenek kataloğunda da listelenir ve katalog yenilense ya da `/config capabilities.*` değişse de oturum boyunca korunur. `runtime.nested_instructions: false`
+bu keşfi de kapatır.
+
 ## Katalog yaşam döngüsü
 
 | Yüzey | Ne yapar |
@@ -131,6 +144,7 @@ proje `.claude/skills`, `.fusion/skills`, `.agents/skills`; `~/.codex/skills`, `
 | `/skills doctor`, `/skill-doctor` · masaüstü **Teşhis** · `yetenek.teshis` | Eksik `description`, ön maddesiz dosya, aynı adın birden çok kaynakta farklı içerikle bulunması (kazanan/gölgelenen), tek sayfaya sığmayan gövde, ev dizini dışına çıkan sembolik bağ. |
 | `/skills new <ad>` · `/agents new <ad>` | Modele `.claude/skills/<ad>/SKILL.md` ya da `.claude/agents/<ad>.md` yazdırır; önce `ask_user` ile kapsam ve araç kısıtını sorar, mevcut dosyanın üzerine yazmaz. |
 | `capabilities.disabled: [ad, ad@kaynak:kimlik]` (config.yaml) | Her oturumda kapalı tutulan beceri/ajanlar; masaüstündeki oturumluk kapatmayla birleşir. |
+| `capabilities.overrides: {ad: görünürlük}` (config.yaml; Claude Code `skillOverrides`) | Beceri başına görünürlük: `on` (olağan), `name-only` / `yalniz-ad` (dizinde yalnız ad, açıklama bağlam harcamaz), `user-invocable-only` / `yalniz-kullanici` (model dizinde ve `find_skill`'de görmez, `read_skill` gövdeyi reddeder; yalnız `/ad` ile — ek dosyaları `read_skill(file=…)` ile okunabilir; aynı kural `disable-model-invocation: true` için de geçerli), `off` / `kapali`. Anahtar düz ad ya da `ad@kaynak:kimlik` (nitelikli kimlik önce gelir). Masaüstü kataloğunda ayrıntıda "Görünürlük" satırı görünür; `off` öğe kapalı listelenir. |
 
 ## `/init` ve `/doctor prompt`
 
