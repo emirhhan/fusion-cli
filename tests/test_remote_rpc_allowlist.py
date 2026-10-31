@@ -32,10 +32,22 @@ FORBIDDEN_METHODS = (
     "oturum.mod",
     "uzak.eslestir",
     "uzak.cihaz_sil",
+    # Masaüstü kısayol dosyasını yazar (P-046); uzağa açılmaz (31 Ekim).
+    "kisayol.ata",
+    "kisayol.sifirla",
 )
 
 #: Uzak servisin açıkça sunduğu yöntemlerin alt kümesi için ön ek denetimi.
-FORBIDDEN_PREFIXES = ("kontrol.", "surec.", "proje.", "oturum.", "uzak.", "tur.", "dev.")
+FORBIDDEN_PREFIXES = (
+    "kontrol.",
+    "surec.",
+    "proje.",
+    "oturum.",
+    "uzak.",
+    "tur.",
+    "dev.",
+    "kisayol.",
+)
 
 ALL_SCOPES = frozenset(item.value for item in Scope)
 
