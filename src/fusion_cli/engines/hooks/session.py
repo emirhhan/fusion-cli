@@ -6,7 +6,10 @@ Her yüzey (REPL, masaüstü oturumu, tek atışlık `fusion agent`) bir `HookSe
 etkili olur; tur ORTASINDA değişmez.
 
 `SessionStart` ilk kök turda bir kez tetiklenir (ek bağlamı o tura eklenir); `SessionEnd`
-yalnız başlamış oturumda, kapanışta bir kez.
+yalnız başlamış oturumda, kapanışta bir kez. Sohbet sıfırlanınca ya da değişince
+(`restart`: `/reset`, `/resume`, masaüstünde başka sohbet) eski oturum `SessionEnd` alır ve
+yenisi bir sonraki kök turda `SessionStart` (`source: clear|resume`) ile açılır. Kök değişimi
+(worktree) oturumu YENİLEMEZ: `root` güncellenir, tanımlar yeni kökten okunur.
 """
 
 from __future__ import annotations
@@ -41,7 +44,11 @@ class HookSession:
     ended: bool = False
     #: Dosyadaki `disableAllHooks` kapatması kullanıcıya bildirildi mi? (oturumda bir kez)
     disabled_notified: bool = False
+    #: Bir sonraki `SessionStart`'ın kaynağı (`startup`, `resume`, `clear`).
+    next_source: str = "startup"
     _loaded: bool = False
+    #: `restart` sonrası henüz gönderilmemiş eski oturum `SessionEnd`'i: (kimlik, neden).
+    _pending_end: tuple[str, str] | None = None
 
     def refresh(self) -> HookSet:
         """Tanımları yeniden oku (kök tur başı)."""
@@ -87,17 +94,44 @@ class HookSession:
         )
         return merge_verdicts(verdict_from_run(event, run) for run in runs)
 
-    async def start(self, source: str = "startup") -> HookVerdict:
+    def restart(self, source: str, *, reason: str, session_id: str | None = None) -> None:
+        """Sohbet sıfırlandı/değişti: eski oturum `SessionEnd(reason)` alır, yenisi açılır.
+
+        Çağıranlar eşzamanlıdır (`/reset`); `SessionEnd` bir sonraki `start`/`end`'de, eski
+        oturum kimliğiyle gönderilir. Başlamamış oturumda kapanış yoktur.
+        """
+        if self.started and not self.ended:
+            self._pending_end = (self.session_id, reason)
+        self.started = False
+        self.ended = False
+        self.session_id = session_id or uuid.uuid4().hex
+        self.next_source = source
+
+    async def _flush_pending_end(self) -> HookVerdict:
+        pending, self._pending_end = self._pending_end, None
+        if pending is None:
+            return NO_VERDICT
+        old_id, reason = pending
+        return await self.emit(
+            HookEvent.SESSION_END,
+            subjects=(reason,),
+            fields={"reason": reason, "session_id": old_id},
+        )
+
+    async def start(self, source: str | None = None) -> HookVerdict:
         """`SessionStart`: ilk çağrıda bir kez; sonrakiler boş karar."""
+        await self._flush_pending_end()
         if self.started:
             return NO_VERDICT
         self.started = True
+        source = source or self.next_source
         return await self.emit(
             HookEvent.SESSION_START, subjects=(source,), fields={"source": source}
         )
 
     async def end(self, reason: str = "other") -> HookVerdict:
         """`SessionEnd`: yalnız başlamış oturumda bir kez."""
+        await self._flush_pending_end()
         if not self.started or self.ended:
             return NO_VERDICT
         self.ended = True
@@ -132,25 +166,36 @@ class HookSession:
 
 def open_hook_session(
     root: Path,
-    config: Config,
+    config: Config | Callable[[], Config],
     *,
     session_id: str | None = None,
     permission_mode: Callable[[], str] | None = None,
     home: Path | None = None,
+    source: str = "startup",
 ) -> HookSession:
-    """Yapılandırmaya göre kanca oturumu kur (dosyalar ilk kullanımda okunur)."""
-    runtime = config.runtime
+    """Yapılandırmaya göre kanca oturumu kur (dosyalar ilk kullanımda okunur).
+
+    `config` çağrılabilirse her yüklemede okunur: `/config set runtime.hooks_enabled false`
+    açık oturumda bir sonraki turda etkili olur. Ölçüldü (31 Ekim): `runtime` kapanışla
+    yakalandığı için REPL yeniden başlatılana kadar kancalar çalışmaya devam ediyordu.
+    """
+
+    def _config() -> Config:
+        return config() if callable(config) else config
 
     def _load() -> HookSet:
+        runtime = _config().runtime
         return load_hooks(
-            root,
+            session.root,
             enabled=runtime.hooks_enabled,
             include_claude=runtime.claude_hooks,
             default_timeout_s=runtime.hook_timeout_s,
             home=home,
         )
 
-    session = HookSession(root=root, loader=_load, permission_mode=permission_mode)
+    session = HookSession(
+        root=root, loader=_load, permission_mode=permission_mode, next_source=source
+    )
     if session_id:
         session.session_id = session_id
     return session

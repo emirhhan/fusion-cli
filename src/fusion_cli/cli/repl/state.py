@@ -276,15 +276,28 @@ class ReplState:
         self.config_baseline = self.config
 
     def hooks(self) -> HookSession:
-        """Oturumun kanca yürütücüsü (P-009); kök değişirse (worktree) yeniden kurulur."""
-        if self.hook_session is None or self.hook_session.root != self.root:
-            self.hook_session = open_hook_session(
+        """Oturumun kanca yürütücüsü (P-009); yaşam döngüsü `engines/hooks/session.py`.
+
+        Kök değişimi (worktree) aynı oturumu sürdürür; sohbet kimliği değişirse (`/resume`,
+        `/branch`, masaüstünde başka sohbet) eski oturum kapanır, yenisi `resume` ile açılır.
+        Ölçüldü (31 Ekim): kök değişince yeni oturum kuruluyor, SessionStart ikinci kez
+        tetikleniyor ve ilk oturumun SessionEnd'i hiç gelmiyordu.
+        """
+        session = self.hook_session
+        source = "resume" if self.history else "startup"
+        if session is None:
+            session = open_hook_session(
                 self.root,
-                self.config,
+                lambda: self.config,
                 session_id=self.conversation_id,
                 permission_mode=lambda: self.approval.value,
+                source=source,
             )
-        return self.hook_session
+            self.hook_session = session
+        session.root = self.root
+        if session.session_id != self.conversation_id:
+            session.restart(source, reason="other", session_id=self.conversation_id)
+        return session
 
     def permission_rules(self) -> PermissionRuleSet:
         """İzin kuralları her turda dosyadan taze okunur (P-001).
@@ -341,4 +354,7 @@ class ReplState:
         """Agent sohbet geçmişini temizle; silinen mesaj sayısını döndür."""
         removed = len(self.history)
         self.history = []
+        if self.hook_session is not None:
+            # Claude `/clear` gibi: SessionEnd(clear) + yeni SessionStart(source: clear).
+            self.hook_session.restart("clear", reason="clear", session_id=self.conversation_id)
         return removed

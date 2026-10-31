@@ -150,3 +150,106 @@ def test_yapilandirma_varsayilanlari_tutarli():
     runtime = make_config().runtime
     assert runtime.hooks_enabled is True and runtime.claude_hooks is True
     assert runtime.hook_timeout_s == 60.0
+
+
+# --- Oturum yaşam döngüsü ve canlı ayar (inceleme düzeltmeleri, 31 Ekim) ------------ #
+
+
+def _repl_durumu(root: Path, **kwargs):
+    from fusion_cli.cli.repl.state import ReplState
+    from fusion_cli.memory.factory import null_memory
+
+    return ReplState(
+        config=make_config(), memory=null_memory(), root=root, home=root.parent, **kwargs
+    )
+
+
+def _kaydeden_kancalar(tmp_path: Path) -> Path:
+    """SessionStart/SessionEnd yükünü satır satır yazan kullanıcı kancaları."""
+    kayit = tmp_path / "oturum.jsonl"
+    script = tmp_path / "kaydet.py"
+    script.write_text(
+        "import json, sys\n"
+        f"open({str(kayit)!r}, 'a', encoding='utf-8').write(sys.stdin.read().strip() + '\\n')\n",
+        encoding="utf-8",
+    )
+    command = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
+    grup = [{"hooks": [{"type": "command", "command": command}]}]
+    _yaz_ayar(hooks_config.user_hooks_file(), {"SessionStart": grup, "SessionEnd": grup})
+    return kayit
+
+
+def _olaylar(kayit: Path) -> list[tuple[str, str, str]]:
+    satirlar = [json.loads(s) for s in kayit.read_text(encoding="utf-8").splitlines()]
+    return [
+        (s["hook_event_name"], s.get("source") or s.get("reason"), s["session_id"])
+        for s in satirlar
+    ]
+
+
+def test_config_degisince_kanca_ayari_acik_oturumda_hemen_etkili(proje):
+    from dataclasses import replace
+
+    state = _repl_durumu(proje)
+    assert state.hooks().refresh().commands
+    state.config = replace(state.config, runtime=replace(state.config.runtime, hooks_enabled=False))
+    assert state.hooks().refresh().disabled_reason == "runtime.hooks_enabled: false"
+
+
+async def test_worktree_kok_degisimi_oturumu_surdurur_yeniden_baslatmaz(tmp_path):
+    kayit = _kaydeden_kancalar(tmp_path)
+    ana, agac = tmp_path / "ana", tmp_path / "agac"
+    ana.mkdir()
+    agac.mkdir()
+    state = _repl_durumu(ana)
+    session = state.hooks()
+    await session.start()
+    state.root = agac
+    assert state.hooks() is session and session.root == agac
+    await state.hooks().start()
+    await state.hooks().end("prompt_input_exit")
+    assert [olay[:2] for olay in _olaylar(kayit)] == [
+        ("SessionStart", "startup"),
+        ("SessionEnd", "prompt_input_exit"),
+    ]
+
+
+async def test_reset_eski_oturumu_clear_ile_kapatip_yenisini_clear_ile_acar(tmp_path):
+    kayit = _kaydeden_kancalar(tmp_path)
+    state = _repl_durumu(tmp_path)
+    await state.hooks().start()
+    state.reset_history()
+    await state.hooks().start()
+    await state.hooks().end("prompt_input_exit")
+    assert [olay[:2] for olay in _olaylar(kayit)] == [
+        ("SessionStart", "startup"),
+        ("SessionEnd", "clear"),
+        ("SessionStart", "clear"),
+        ("SessionEnd", "prompt_input_exit"),
+    ]
+
+
+async def test_sohbet_degisince_eski_oturum_kapanir_yenisi_resume_ile_acilir(tmp_path):
+    from fusion_cli.core.types import Message
+
+    kayit = _kaydeden_kancalar(tmp_path)
+    state = _repl_durumu(tmp_path, conversation_id="ilk")
+    await state.hooks().start()
+    state.conversation_id = "ikinci"
+    state.history = [Message("user", "eski soru")]
+    await state.hooks().start()
+    assert _olaylar(kayit) == [
+        ("SessionStart", "startup", "ilk"),
+        ("SessionEnd", "other", "ilk"),
+        ("SessionStart", "resume", "ikinci"),
+    ]
+
+
+async def test_gecmisle_acilan_oturum_resume_kaynagiyla_baslar(tmp_path):
+    from fusion_cli.core.types import Message
+
+    kayit = _kaydeden_kancalar(tmp_path)
+    state = _repl_durumu(tmp_path)
+    state.history = [Message("user", "önceki")]
+    await state.hooks().start()
+    assert [olay[:2] for olay in _olaylar(kayit)] == [("SessionStart", "resume")]
