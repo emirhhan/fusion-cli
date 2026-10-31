@@ -79,6 +79,15 @@ def _self_peer(registry: PeerRegistry, deps: AgentDeps) -> PeerRecord | None:
     return None
 
 
+def _runtime(deps: AgentDeps) -> object:
+    """`deps.config.runtime` ya da yoksa None (eski sahte `deps`'ler; ayarlar varsayılana düşer).
+
+    Ölçüldü (31 Ekim): `build_agent_registry` çağıran mevcut testlerin `config`'i runtime
+    taşımıyordu; doğrudan erişim tabanda geçen `test_forge_wiring` testlerini kırıyordu.
+    """
+    return getattr(getattr(deps, "config", None), "runtime", None)
+
+
 def background_mode(deps: AgentDeps) -> str:
     """Arka plan görevinin kipi: üst kipten GEVŞEK olamaz; bypass miras alınmaz."""
     reader = getattr(deps, "approval_mode", None)
@@ -99,7 +108,7 @@ def spawn_background(deps: AgentDeps, subtask: SubTask) -> ToolResult:
         read_only=subtask.read_only,
     )
     try:
-        task = agent_tasks.start_with_settings(deps.config.runtime, deps.config.memory_dir, request)
+        task = agent_tasks.start_with_settings(_runtime(deps), deps.config.memory_dir, request)
     except BackgroundTaskError as error:
         return ToolResult.failure(str(error))
     return ToolResult(texts.BG_TOOL_STARTED.format(id=task.id, name=task.name))
@@ -193,7 +202,7 @@ def send_message_tool(deps: AgentDeps) -> Tool:
 
 def deliver_message(deps: AgentDeps, target: str, text: str) -> str:
     """Önce arka plan görevi, yoksa açık oturum; ikisi de yoksa açık hata."""
-    if not getattr(deps.config.runtime, "background_agents", True):
+    if not getattr(_runtime(deps), "background_agents", True):
         task = None
     else:
         task = _find_task(_store(deps), target)
@@ -203,7 +212,7 @@ def deliver_message(deps: AgentDeps, target: str, text: str) -> str:
             _store(deps), task, text, sender=deps.conversation_id or "ajan", trusted=trusted
         )
         return texts.BG_SENT.format(name=updated.name, status=updated.status.value)
-    if not getattr(deps.config.runtime, "cross_session_messaging", True):
+    if not getattr(_runtime(deps), "cross_session_messaging", True):
         raise BackgroundTaskError(texts.PEER_DISABLED)
     registry = _peers(deps)
     peer = registry.send(_self_peer(registry, deps), target, text)
@@ -236,7 +245,7 @@ def stop_agent_tool(deps: AgentDeps) -> Tool:
 
 def agent_task_tools(deps: AgentDeps) -> tuple[Tool, ...]:
     """Ayarlar açıksa araçlar; ikisi de kapalıysa hiçbiri."""
-    runtime = deps.config.runtime
+    runtime = _runtime(deps)
     background = getattr(runtime, "background_agents", True)
     peers = getattr(runtime, "cross_session_messaging", True)
     if not background and not peers:
