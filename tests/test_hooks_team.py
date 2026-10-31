@@ -255,3 +255,26 @@ async def test_subagentstop_ekip_uyesi_ve_is_akisi_ajaninda_tetiklenir(tmp_path,
     yukler = _yukler(tmp_path, HookEvent.SUBAGENT_STOP)
     assert [y["last_assistant_message"] for y in yukler] == ["üye bitti", "düğüm bitti"]
     assert all(y["hook_event_name"] == "SubagentStop" and "agent_type" in y for y in yukler)
+
+
+def test_cli_hooks_test_ekip_ve_cwd_olaylarina_ornek_yuk_gonderir(tmp_path, monkeypatch):
+    """`fusion hooks test TaskCompleted` gerçek tetikle aynı alanları gönderir."""
+    import asyncio
+
+    from fusion_cli.cli import hooks_commands
+
+    session = HookSession(
+        root=tmp_path,
+        loader=lambda: HookSet(
+            (
+                _kanca(tmp_path, HookEvent.TASK_COMPLETED, ""),
+                _kanca(tmp_path, HookEvent.CWD_CHANGED, ""),
+            )
+        ),
+    )
+    for event in (HookEvent.TASK_COMPLETED, HookEvent.CWD_CHANGED):
+        asyncio.run(hooks_commands._emit(session, event, "", {}, ""))
+
+    gorev = _yukler(tmp_path, HookEvent.TASK_COMPLETED)[0]
+    assert {"team_name", "teammate_name", "task_id", "task_subject"} <= gorev.keys()
+    assert _yukler(tmp_path, HookEvent.CWD_CHANGED)[0]["new_cwd"] == str(tmp_path)

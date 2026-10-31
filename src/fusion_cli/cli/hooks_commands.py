@@ -145,7 +145,21 @@ async def _emit(
         fields = {"stop_hook_active": False, "last_assistant_message": prompt}
         if event is HookEvent.SUBAGENT_STOP:
             fields["agent_type"] = topic
+    else:
+        fields = _sample_fields(event, session.root)
     return await session.emit(event, subjects=(topic,), fields=fields)
+
+
+def _sample_fields(event: HookEvent, root: Path) -> dict[str, object]:
+    """`CwdChanged` ve ekip olaylarının örnek yükü (gerçek tetikle aynı alanlar)."""
+    if event is HookEvent.CWD_CHANGED:
+        return {"old_cwd": str(root.parent), "new_cwd": str(root)}
+    team: dict[str, object] = {"team_name": "ornek-ekip", "teammate_name": "kod"}
+    if event is HookEvent.TEAMMATE_IDLE:
+        return team
+    if event in (HookEvent.TASK_CREATED, HookEvent.TASK_COMPLETED):
+        return {**team, "task_id": "g1", "task_subject": "Örnek görev", "task_description": ""}
+    return {}
 
 
 def _print_verdict(event: HookEvent, verdict: HookVerdict) -> None:
