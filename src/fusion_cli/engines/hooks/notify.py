@@ -30,9 +30,11 @@ class NotifyingPrompter:
 
 
 def notifying(prompter: Prompter, session: HookSession | None) -> Prompter:
-    """Oturumda `Notification` kancası varsa sarmala; yoksa aynı nesne (ek maliyet yok)."""
-    from ...core.hooks.events import HookEvent
+    """Kanca oturumu varsa sarmala; tanım soru anında aranır (eşleşme yoksa süreç açılmaz).
 
-    if session is None or not session.has(HookEvent.NOTIFICATION):
+    Ölçüldü (31 Ekim): sarmalama kararı tur başında, tanımlar tazelenmeden ÖNCE veriliyordu;
+    yeni eklenen Notification kancası bir tur geç devreye giriyordu.
+    """
+    if session is None:
         return prompter
     return NotifyingPrompter(prompter, session)

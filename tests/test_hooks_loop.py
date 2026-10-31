@@ -624,3 +624,16 @@ async def test_yuk_claude_transcript_path_ve_tool_use_id_tasir(monkeypatch, tmp_
     assert stop["satirlar"][0]["message"]["content"][0]["text"] == "dosya yaz"
     await session.end("other")
     assert not list((tmp_path / "dokum").glob("*.jsonl"))  # oturum bitince silinir
+
+
+async def test_tur_basinda_eklenen_notification_kancasi_ayni_turda_calisir(monkeypatch, tmp_path):
+    kayit = tmp_path / "bildirim.jsonl"
+    tanimlar: list[HookCommand] = []
+    session = HookSession(root=tmp_path, loader=lambda: HookSet(tuple(tanimlar)))
+    session.refresh()  # önceki tur: hiç kanca yok
+    tanimlar.append(_kayit_kancasi(tmp_path, HookEvent.NOTIFICATION, kayit, "permission_prompt"))
+    _, _, prompter, _ = await _tur(
+        monkeypatch, tmp_path, _yaz("a.txt"), session, mod=ApprovalMode.SECURITY
+    )
+    assert prompter.soruldu == ["write_file"]
+    assert [s["notification_type"] for s in _satirlar(kayit)] == ["permission_prompt"]
