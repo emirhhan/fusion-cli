@@ -226,3 +226,18 @@ async def test_masaustu_beceri_komutu_olay_dongusunu_bloklamaz(kutuphane, monkey
 
     assert gorulen and gorulen[0] != threading.main_thread().name
     assert json.loads(lines[-1])["veri"]["ok"] is True
+
+
+def test_tamamlama_sozlugu_yeni_beceriyi_yeniden_baslatmadan_gorur(state: ReplState):
+    """Ölçüldü: `completion_words()` bir kez alınıyordu; oturumda eklenen beceri tamamlanmıyordu."""
+    registry = build_registry(state.home, skills=lambda: state.capabilities)
+    sozluk = registry.completion_words  # ReplInput'a verilen çağrılabilir
+    assert "/yeni" not in sozluk()
+
+    beceri = state.home / ".claude" / "skills" / "yeni"
+    beceri.mkdir(parents=True)
+    (beceri / "SKILL.md").write_text("---\nname: yeni\ndescription: x\n---\nx", encoding="utf-8")
+    assert state.capabilities is not None
+    state.capabilities.invalidate()
+
+    assert "/yeni" in sozluk()

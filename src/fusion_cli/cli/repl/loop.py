@@ -163,8 +163,10 @@ async def _run_surface(
     # Ev dizini GEÇİLİR: dinamik `/resume<kaynak>` komutları ancak böyle kaydolur.
     # Argümansız çağrı bu yüzeyi sessizce komutsuz bırakıyordu.
     registry = build_registry(state.home, skills=lambda: state.capabilities)
+    # Sözlük çağrılabilir verilir: `/skills reload` ya da `/add-dir` sonrası yeni beceri
+    # komutları Tab tamamlamada da görünsün (dinamik defter, P-019).
     reader = ReplInput(
-        config.memory_dir / HISTORY_FILE, registry.completion_words(), mode=state.approval
+        config.memory_dir / HISTORY_FILE, registry.completion_words, mode=state.approval
     )
     background = BackgroundTasks()
 

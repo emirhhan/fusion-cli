@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -54,7 +55,19 @@ STATUS_MARK = "⏵"
 class ReplInput:
     """Komut geçmişi, tamamlama ve shift-tab ile mod döngüsü sunan giriş."""
 
-    def __init__(self, history_path: Path, words: list[str], *, mode: ApprovalMode) -> None:
+    def __init__(
+        self,
+        history_path: Path,
+        words: list[str] | Callable[[], list[str]],
+        *,
+        mode: ApprovalMode,
+    ) -> None:
+        """`words` bir çağrılabilir olabilir: tamamlama sözlüğü her istemde yeniden alınır.
+
+        Ölçüldü (31 Ekim): sözlük başlangıçta bir kez alınıyordu; `/skills new`, `/skills
+        reload` ya da `/add-dir` ile eklenen beceri `/ad` olarak çalışıyor ama Tab
+        tamamlamada görünmüyordu.
+        """
         self.mode = mode
         #: Durum çubuğunda gösterilen bağlam. REPL her değişiklikte günceller.
         self.context: str = ""
@@ -164,7 +177,9 @@ def toolbar_enabled() -> bool:
     return os.environ.get("FUSION_TOOLBAR", "") == "1"
 
 
-def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> Any:
+def _build_session(
+    owner: ReplInput, history_path: Path, words: list[str] | Callable[[], list[str]]
+) -> Any:
     """prompt_toolkit oturumunu kur. Kurulamazsa None → düz girişe düşülür."""
     try:
         from prompt_toolkit import PromptSession
@@ -194,6 +209,7 @@ def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> An
 
         return PromptSession(
             history=FileHistory(str(history_path)),
+            # Çağrılabilir sözlük: dinamik beceri komutları eklendikçe tamamlama da yenilenir.
             completer=WordCompleter(words, sentence=True),
             # Alt bilgi çubuğu VARSAYILAN OLARAK KAPALI: tam genişlikte olduğu için
             # terminal daraldığında sarıyor ve resize'da istem kopyası bırakıyordu.
