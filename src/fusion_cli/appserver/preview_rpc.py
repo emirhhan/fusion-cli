@@ -89,7 +89,13 @@ async def start_config(root: Path, data: dict[str, Any]) -> dict[str, Any]:
         return {**_error(str(error)), "guven_gerekli": True, "komut": config.command_text}
     except (LaunchConfigError, PreviewError) as error:
         return _error(str(error))
-    return {"ok": True, "ad": config.name, "url": preview.url, "komut": config.command_text}
+    return {
+        "ok": True,
+        "ad": config.name,
+        "url": preview.url,
+        "komut": config.command_text,
+        "not": preview_launch.port_note(config, preview),
+    }
 
 
 def trust_config_file(root: Path) -> dict[str, Any]:

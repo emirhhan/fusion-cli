@@ -656,7 +656,13 @@ onun üstüne gelir.
 ```
 
 - `runtimeExecutable` + `runtimeArgs`: komut kabuksuz çalıştırılır, `PORT` ortam değişkeni verilir.
-- Yalnız `url`: hiçbir şey başlatılmaz, çalışan sunucuya bağlanılır. Adresler yerel olmalıdır.
+- **`autoPort`:** port başka bir süreçte açıksa alan yoksa ya da `true` ise sıradaki boş port
+  seçilir (panelde ve ajan sonucunda "5173 portu doluydu; 5174 portunda başlatıldı" notu);
+  `false` ise sunucu başlatılmaz, hata söylenir. Seçilen port `PORT` ile verilir ve
+  `runtimeArgs` içindeki `${port}` onunla değişir — `PORT` okumayan sunucular için
+  (Vite): `"runtimeArgs": ["run", "dev", "--", "--port", "${port}"]`.
+- Yalnız `url`: hiçbir şey başlatılmaz, çalışan sunucuya bağlanılır. Adresler yerel olmalıdır
+  (`http://` ya da `https://` + localhost/127.0.0.1/[::1]).
 - İsteğe bağlı `cwd` (köke göreli, kök dışına çözülemez) ve `env` (`{"AD": "değer"}`).
   Sunucular uygulama kapanınca kapatılır.
 - **Güven:** komutlu yapılandırma yalnız dosya güvenilirse çalışır — indirilmiş bir deponun
@@ -666,7 +672,7 @@ onun üstüne gelir.
 - Komuta giden ortamdan sağlayıcı anahtarları ve sırlar (`*_API_KEY`, `*_TOKEN`, `*PASSWORD*`…)
   çıkarılır; sunucunun gerçekten gerektirdiği değeri `env` ile açıkça verin.
 - Geçersiz tek kayıt dosyayı düşürmez: atlanır ve uyarı olarak görünür (panel, `/onizleme`,
-  ajan ipucu). Desteklenmeyen alanlar (`autoPort` vb.) yok sayılır ve uyarı verir. Adlarda iç
+  ajan ipucu). Desteklenmeyen alanlar (`program` vb.) yok sayılır ve uyarı verir. Adlarda iç
   boşluk serbesttir (`"Web Server"`).
 - Panelde adres çubuğunun altında yapılandırma seçici ve **Başlat / Durdur** görünür.
 - Ajan: `start_preview(name="web", page="/shop/")` (`page` yalnız yol olabilir). CLI: `/onizleme`
@@ -693,9 +699,13 @@ Chromium indirilmemişse mesaj `playwright install chromium` adımını gösteri
 **Cihaz boyutları** — Masaüstü, 1440, 1024, Tablet (768), Mobil (375), Mobil (320).
 Seçim iframe genişliğini ve ekran görüntüsü ölçüsünü birlikte belirler.
 
+**Yerel https** — `https://localhost:8443` gibi yerel https adresleri de gömülür (mkcert, Vite
+`basicSsl`). Doğrulama ve başsız günlük yalnız loopback için sertifikayı sorgulamaz; panelin
+kendisi (WebView) kendinden imzalı sertifikayı reddedebilir — o durumda sertifikayı sisteme
+güvenilir ekleyin (mkcert) ya da **Dışarıda aç**. Uzak adresler önizlemeye gömülmez.
+
 Gereksinim: günlük ve ekran görüntüsü için `pip install 'fusion-cli[web]'` ve
-`playwright install chromium`. Panel yalnız localhost adreslerini gömer; https/uzak adres
-ve öğe seçici bu sürümde yok.
+`playwright install chromium`.
 
 ## 16) `fusion://` bağlantıları (masaüstü)
 

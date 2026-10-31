@@ -22,6 +22,10 @@ describe("PreviewPanel", () => {
     expect(isLocalPreviewUrl("http://127.0.0.1:3001")).toBe(true);
     expect(isLocalPreviewUrl("http://[::1]:8080")).toBe(true);
     expect(isLocalPreviewUrl("https://example.com")).toBe(false);
+    // P-041: yerel https (mkcert, Vite basicSsl) da gömülür; uzak https gömülmez.
+    expect(isLocalPreviewUrl("https://localhost:8443/")).toBe(true);
+    expect(isLocalPreviewUrl("https://127.0.0.1:5173")).toBe(true);
+    expect(isLocalPreviewUrl("https://192.168.1.4:5173")).toBe(false);
     expect(isLocalPreviewUrl("javascript:alert(1)")).toBe(false);
     expect(isLocalPreviewUrl("http://localhost.evil.example")).toBe(false);
   });

@@ -13,16 +13,20 @@ interface PreviewAsset { yol: string; tur: PreviewKind; mime: string; boyut: num
 
 const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 
-/** Yerel geliştirme sunucusu adresi mi? Uygulamanın KENDİ kökeni (geliştirmede Vite portu) hariç:
- * `allow-same-origin` + `allow-scripts` ile kendini çerçeveleyen sayfa sandbox'ını söker (U4-48).
- * Üretimde uygulama `tauri://localhost` olduğundan loopback http adresiyle çakışmaz. */
+const LOCAL_PROTOCOLS = ["http:", "https:"];
+
+/** Yerel geliştirme sunucusu adresi mi (http ya da https loopback, P-041)? Uygulamanın KENDİ
+ * kökeni (geliştirmede Vite portu) hariç: `allow-same-origin` + `allow-scripts` ile kendini
+ * çerçeveleyen sayfa sandbox'ını söker (U4-48). Üretimde uygulama `tauri://localhost` olduğundan
+ * loopback adresle çakışmaz. */
 export function isLocalPreviewUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    if (url.protocol !== "http:" || !LOOPBACK_HOSTS.includes(url.hostname)) return false;
+    if (!LOCAL_PROTOCOLS.includes(url.protocol) || !LOOPBACK_HOSTS.includes(url.hostname)) return false;
     const own = window.location;
-    const ownIsLoopback = own.protocol === "http:" && LOOPBACK_HOSTS.includes(own.hostname);
-    return !(ownIsLoopback && (url.port || "80") === (own.port || "80"));
+    const ownIsLoopback = own.protocol === url.protocol && LOOPBACK_HOSTS.includes(own.hostname);
+    const defaultPort = url.protocol === "https:" ? "443" : "80";
+    return !(ownIsLoopback && (url.port || defaultPort) === (own.port || defaultPort));
   } catch {
     return false;
   }

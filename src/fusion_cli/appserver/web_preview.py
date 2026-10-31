@@ -1,14 +1,21 @@
-"""Yerel web önizlemesini iframe'e vermeden önce güvenli ve gömülebilir doğrula."""
+"""Yerel web önizlemesini iframe'e vermeden önce güvenli ve gömülebilir doğrula.
+
+`https://localhost` de yereldir (P-041): yerel geliştirme sertifikaları çoğu zaman kendinden
+imzalıdır, bu yüzden doğrulama YALNIZ loopback adreste sertifikayı sorgulamaz. Yönlendirme
+ve nihai adres yine loopback'te kalmak zorundadır; uzak https panelde açılmaz.
+"""
 
 from __future__ import annotations
 
+import ssl
 from http.client import HTTPMessage
 from typing import IO, Any, Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+_LOCAL_SCHEMES = frozenset({"http", "https"})
 
 
 class PreviewValidationError(RuntimeError):
@@ -34,7 +41,7 @@ def is_local_preview_url(value: object) -> bool:
         return False
     try:
         parsed = urlparse(value)
-        return parsed.scheme == "http" and parsed.hostname in _LOCAL_HOSTS
+        return parsed.scheme in _LOCAL_SCHEMES and parsed.hostname in _LOCAL_HOSTS
     except ValueError:
         return False
 
@@ -86,6 +93,14 @@ def _result_from_response(response: _Response) -> dict[str, Any]:
     }
 
 
+def _loopback_tls() -> ssl.SSLContext:
+    """Yalnız loopback için: yerel geliştirme sertifikası (mkcert, basicSsl) imzasız olabilir."""
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    return context
+
+
 def validate_web_preview(
     data: dict[str, Any],
     *,
@@ -98,7 +113,9 @@ def validate_web_preview(
     if not is_local_preview_url(url):
         return {"ok": False, "metin": "Yalnız localhost adresleri önizlenebilir."}
     request = Request(str(url), headers={"User-Agent": "Fusion-Preview/1"})
-    client = opener or cast(_Opener, build_opener(_LocalRedirectHandler()))
+    client = opener or cast(
+        _Opener, build_opener(_LocalRedirectHandler(), HTTPSHandler(context=_loopback_tls()))
+    )
     try:
         response = client.open(request, timeout=timeout)
         try:

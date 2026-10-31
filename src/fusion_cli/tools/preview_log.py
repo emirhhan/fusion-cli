@@ -171,8 +171,12 @@ async def collect_page_log(url: str, options: CaptureOptions = DEFAULT_CAPTURE) 
                 }
                 if options.color_scheme in COLOR_SCHEMES:
                     page_options["color_scheme"] = options.color_scheme
+                # Yalnız loopback açılır (yukarıda ve `route` ile); yerel https sertifikası
+                # kendinden imzalı olabilir (P-041), uzak adrese zaten gidilmez.
                 page = await browser.new_page(
-                    proxy=cast("ProxySettings", _BLOCKING_PROXY), **page_options
+                    proxy=cast("ProxySettings", _BLOCKING_PROXY),
+                    ignore_https_errors=True,
+                    **page_options,
                 )
                 page.on("console", collector.console)
                 page.on("pageerror", collector.page_error)
