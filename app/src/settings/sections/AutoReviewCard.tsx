@@ -80,7 +80,8 @@ export function AutoReviewCard({ client, onResumed }: { client: Pick<ProtocolCli
         {status.model_erisilemiyor ? " — erişilemiyor, kurallar geçerli" : ""} · Engel: {status.ardisik ?? 0}/{status.esik_ardisik ?? 3} üst üste,{" "}
         {status.toplam ?? 0}/{status.esik_toplam ?? 20} toplam
       </p>
-      {status.dustu && status.mod !== "auto" && (
+      {status.veri_notu && <p className="settings__hint">{status.veri_notu}</p>}
+      {status.dustu && status.mod === "security" && (
         <div className="settings__warning" role="alert">
           <p>Oturum Manuel kipe düştü: {status.dusus_nedeni}.</p>
           <div className="settings__actions">

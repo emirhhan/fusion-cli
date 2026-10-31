@@ -11,6 +11,8 @@ export interface AutoReviewStatus {
   ayar?: "off" | "ask_only" | "on";
   ayar_etiketi?: string;
   model?: string;
+  /** Denetçi açıkken verinin hangi modele gittiği; kapalıyken boş. */
+  veri_notu?: string;
   ardisik?: number;
   toplam?: number;
   esik_ardisik?: number;

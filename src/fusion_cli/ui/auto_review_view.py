@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from ..core.auto_review import (
     AUTO_REVIEW_CONSECUTIVE_LIMIT,
+    AUTO_REVIEW_INTENT_MESSAGES,
     AUTO_REVIEW_MODEL_FAILURE_LIMIT,
     AUTO_REVIEW_TOTAL_LIMIT,
     AutoClassifierMode,
@@ -60,10 +61,20 @@ def status_text(
         else "",
         offline=messages.AUTO_REVIEW_STATUS_OFFLINE if offline else "",
     )
+    note = data_note(setting, model)
+    if note:
+        head = f"{head}\n{note}"
     items = snapshot.recent[-recent:] if recent > 0 else ()
     if not items:
         return head
     return "\n".join([head, messages.AUTO_REVIEW_STATUS_RECENT, *map(outcome_line, items)])
+
+
+def data_note(setting: AutoClassifierMode, model: str) -> str:
+    """Denetçi açıkken verinin nereye gittiği; kapalıyken boş."""
+    if setting is AutoClassifierMode.OFF:
+        return ""
+    return messages.AUTO_REVIEW_DATA_NOTE.format(model=model, count=AUTO_REVIEW_INTENT_MESSAGES)
 
 
 def outcome_line(outcome: ReviewOutcome) -> str:

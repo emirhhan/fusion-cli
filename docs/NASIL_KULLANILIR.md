@@ -239,9 +239,11 @@ eylemi görür (araç çıktısı, web sayfası, dosya içeriği gönderilmez; s
   çubuğundaki **Otomatik'e dön** ya da izin modundan Otomatik'i yeniden seçmek.
 - Alt ajanların çağrıları denetçiye girmez (niyetleri model yazımıdır); kurallar geçerlidir.
 
-Ayar `runtime.auto_classifier` (`fusion config set runtime.auto_classifier off`):
-`off` (yalnız kurallar) · `ask_only` (varsayılan: sorulacakları sınıflandır) · `on` (ek olarak
+Ayar `runtime.auto_classifier` (`/auto-mode ac` ya da `fusion auto-mode ayar ask_only`):
+`off` (varsayılan: yalnız kurallar) · `ask_only` (sorulacakları sınıflandır) · `on` (ek olarak
 salt okunur olmayan **her** kabuk komutunu da sınıflandır; riskli bulunursa sorulur, yavaşlatır).
+Varsayılan kapalıdır: açıkken son 3 mesajın ve eylem denetçi modelinin sağlayıcısına gider ve
+onun (ücretsiz) günlük kotasını kullanır; `/auto-mode` ve ayar kartı hangi modele gittiğini yazar.
 Model `runtime.auto_classifier_model` (boş = hakem rolü ve yedekleri; web oturumu olamaz),
 süre sınırı `runtime.auto_classifier_timeout_s` (12 sn).
 

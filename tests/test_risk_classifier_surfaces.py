@@ -202,11 +202,14 @@ def test_repl_ayari_kalici_yazar_ve_gecersizde_kullanim_doner(tmp_path):
 def test_masaustu_rpc_durum_ayar_ve_devam(tmp_path):
     state = _state(tmp_path)
     durum = auto_review_rpc.handle(state, Request("1", "oto.durum", {}))
-    assert durum["ok"] and durum["ayar"] == "ask_only" and durum["esik_ardisik"] == 3
+    assert durum["ok"] and durum["ayar"] == "off" and durum["esik_ardisik"] == 3
     assert durum["dustu"] is False and durum["son_kararlar"] == []
+    assert durum["veri_notu"] == ""
 
     ayar = auto_review_rpc.handle(state, Request("2", "oto.ayar", {"deger": "on"}))
     assert ayar["ayar"] == "on" and state.config.runtime.auto_classifier is AutoClassifierMode.ON
+    # Açılınca verinin hangi modele gittiği hem metinde hem durumda açıkça yazar.
+    assert "hakem (" in ayar["veri_notu"] and "modeline" in ayar["metin"]
     assert auto_review_rpc.handle(state, Request("3", "oto.ayar", {"deger": "x"}))["ok"] is False
 
     state.approval = ApprovalMode.SECURITY
@@ -244,7 +247,9 @@ def _yaz(tmp_path, runtime):
 
 
 def test_ayar_varsayilani_tirnaksiz_off_ve_gecersiz_model(tmp_path):
-    assert load_config(_yaz(tmp_path, {})).runtime.auto_classifier is AutoClassifierMode.ASK_ONLY
+    # Varsayılan kapalı (31 Ekim): Otomatik kip zaten varsayılan; denetçi açılınca kullanıcı
+    # mesajları hakem sağlayıcısına gider ve ücretsiz kotayı paylaşır — açık seçimle açılır.
+    assert load_config(_yaz(tmp_path, {})).runtime.auto_classifier is AutoClassifierMode.OFF
     tirnaksiz = tmp_path / "c2.yaml"
     tirnaksiz.write_text("runtime:\n  auto_classifier: off\n", encoding="utf-8")
     assert load_config(tirnaksiz).runtime.auto_classifier is AutoClassifierMode.OFF
@@ -300,3 +305,10 @@ async def test_fusion_run_dususten_sonra_kurulan_otomatik_politika_da_manuel_dav
     )
     assert memory.auto_review.fell_back
     assert await yeni.decide(yazma) is Decision.DENIED
+
+
+def test_repl_durumu_acikken_verinin_gittigi_modeli_yazar(tmp_path):
+    state = _state(tmp_path, auto_classifier=AutoClassifierMode.ASK_ONLY)
+    metin = auto_mode_command(state, "")
+    assert "modeline" in metin and "son 3 mesajın" in metin
+    assert "modeline" not in auto_mode_command(_state(tmp_path), "")

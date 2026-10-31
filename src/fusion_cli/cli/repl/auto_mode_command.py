@@ -18,7 +18,7 @@ from ...core.errors import ConfigError
 from ...engines.agent.approval import ApprovalMode
 from ...engines.agent.risk_classifier import classifier_label
 from ...ui import messages
-from ...ui.auto_review_view import setting_label, status_text
+from ...ui.auto_review_view import data_note, setting_label, status_text
 from .state import ReplState
 
 SETTING_PATH = "runtime.auto_classifier"
@@ -49,14 +49,18 @@ def parse_setting(raw: str) -> AutoClassifierMode:
 def save_setting(config: Config, mode: AutoClassifierMode) -> tuple[Config, str]:
     """Ayarı kalıcı yaz; yazılamazsa yalnız oturuma uygula. (Güncel config, kullanıcı metni)."""
     label = setting_label(mode)
+    note = data_note(mode, classifier_label(config))
     try:
         updated, target = write_setting(config, SETTING_PATH, mode.value)
     except ConfigError as error:
         runtime = replace(config.runtime, auto_classifier=mode)
-        return replace(config, runtime=runtime), messages.AUTO_REVIEW_SET_UNSAVED.format(
-            setting=label, error=error
-        )
-    return updated, messages.AUTO_REVIEW_SET.format(setting=label, path=target)
+        text = messages.AUTO_REVIEW_SET_UNSAVED.format(setting=label, error=error)
+        return replace(config, runtime=runtime), _with_note(text, note)
+    return updated, _with_note(messages.AUTO_REVIEW_SET.format(setting=label, path=target), note)
+
+
+def _with_note(text: str, note: str) -> str:
+    return f"{text}\n{note}" if note else text
 
 
 def resume_auto(state: ReplState) -> str:

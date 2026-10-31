@@ -19,7 +19,7 @@ from ..core.auto_review import (
 )
 from ..engines.agent.risk_classifier import classifier_label
 from ..ui import messages
-from ..ui.auto_review_view import setting_label, source_label, verdict_label
+from ..ui.auto_review_view import data_note, setting_label, source_label, verdict_label
 from .protocol import Request
 
 
@@ -51,6 +51,7 @@ def status_payload(state: ReplState) -> dict[str, Any]:
         "ayar": setting.value,
         "ayar_etiketi": setting_label(setting),
         "model": classifier_label(state.config),
+        "veri_notu": data_note(setting, classifier_label(state.config)),
         "ardisik": snapshot.consecutive,
         "toplam": snapshot.total,
         "esik_ardisik": AUTO_REVIEW_CONSECUTIVE_LIMIT,

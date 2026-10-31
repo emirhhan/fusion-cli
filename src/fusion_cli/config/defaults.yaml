@@ -327,10 +327,12 @@ runtime:
   # modeline kullanıcının mesajlarıyla birlikte sorulur: "güvenli" derse sorulmaz, "riskli"
   # derse sorulur. Model yok/erişilemezse kurallar geçerli (eski davranış). Yıkıcı işlem,
   # sudo/sistem ayarı, ortam dökümü, `| sh` ve veritabanı silme HİÇBİR ZAMAN modele bırakılmaz.
-  # Üst üste 3 ya da toplam 20 "riskli" kararda oturum Manuel kipe düşer.
-  #   off      yalnız kurallar      ask_only  sorulacakları sınıflandır (varsayılan)
+  # Üst üste 3 ya da toplam 20 "riskli" kararda oturum Manuel kipe düşer. Açıkken son 3
+  # kullanıcı mesajı ve eylem (komut/yol) denetçi modelinin sağlayıcısına gider ve onun
+  # (ücretsiz) kotasını kullanır; bu yüzden varsayılan kapalıdır: `/auto-mode ac`.
+  #   off      yalnız kurallar (varsayılan)      ask_only  sorulacakları sınıflandır
   #   on       ek olarak salt okunur olmayan her kabuk komutunu da sınıflandır (yavaşlatır)
-  auto_classifier: ask_only
+  auto_classifier: "off"
   # Boş = hakem (`judge`) modeli ve yedekleri. Dolu: <sağlayıcı>/<model>. Web oturumu olamaz.
   auto_classifier_model: ""
   # Tek sınıflandırma çağrısının süre sınırı (saniye); aşılırsa kurallar geçerli olur.

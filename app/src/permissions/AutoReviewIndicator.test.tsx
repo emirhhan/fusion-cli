@@ -70,6 +70,22 @@ describe("AutoReviewIndicator (P-011)", () => {
     expect(screen.getByRole("list", { name: "Son denetçi kararları" }).textContent).toContain("git push — istenmedi");
   });
 
+  it("ayar kartı verinin gittiği modeli yazar, hata ve düşüş uyarısını gösterir", async () => {
+    const api = client({ veri_notu: "Açıkken hakem (sahte) modeline son 3 mesajın gider", mod: "security", dustu: true, dusus_nedeni: "üst üste 3" });
+    api.request.mockImplementation(async (name: string) => {
+      if (name === "oto.ayar") return { ok: false, metin: "Kullanım: /auto-mode" };
+      if (name === "oto.devam") Object.assign(api.state, { mod: "auto", dustu: false });
+      return { ...api.state };
+    });
+    const onResumed = vi.fn();
+    render(<AutoReviewCard client={api} onResumed={onResumed} />);
+    expect(await screen.findByText(/hakem \(sahte\) modeline/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Tümünü denetle/ }));
+    expect((await screen.findByText("Kullanım: /auto-mode")).getAttribute("role")).toBe("alert");
+    fireEvent.click(screen.getByRole("button", { name: "Otomatik'e dön" }));
+    await waitFor(() => expect(onResumed).toHaveBeenCalled());
+  });
+
   it("denetçi olayları akışta kalıcı adım olur", () => {
     expect(olayAdimi({ olay: "AutoReviewDecided", verdict: "guvenli", source: "model", summary: "git push", reason: "istendi" }))
       .toMatchObject({ metin: "denetçi onayladı", kalici: true });

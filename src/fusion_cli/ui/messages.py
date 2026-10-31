@@ -1438,6 +1438,10 @@ AUTO_REVIEW_STATUS = (
     "Engel: üst üste {consecutive}/{consecutive_limit}, toplam {total}/{total_limit} · "
     "kip düşüşü: {trips}{fell_back}{offline}"
 )
+AUTO_REVIEW_DATA_NOTE = (
+    "Açıkken {model} modeline son {count} mesajın ve eylem (komut/yol; dosya içeriği değil) "
+    "gider, sırlar maskelenir; o sağlayıcının kotasını kullanır."
+)
 AUTO_REVIEW_STATUS_FELL_BACK = " · ŞU AN MANUEL'E DÜŞMÜŞ ({reason})"
 AUTO_REVIEW_STATUS_OFFLINE = " · model erişilemiyor, kurallı yedek"
 AUTO_REVIEW_STATUS_RECENT = "Son kararlar:"
