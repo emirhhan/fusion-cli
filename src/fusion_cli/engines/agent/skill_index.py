@@ -29,7 +29,7 @@ from .context_budget import CHARS_PER_TOKEN_ESTIMATE, context_budget
 from .instruction_layers import UNTRUSTED_NOTE, neutralize
 
 #: Depo içeriği sayılan kaynaklar; yalnız bunlardan gelen beceri güvenilmez bloğa girer.
-REPO_SOURCES = frozenset({"proje", "ek-kok", "kurulu", "claude-plugin"})
+REPO_SOURCES = frozenset({"proje", "ek-kok", "kurulu", "claude-plugin", "eklenti"})
 
 REPO_OPEN = "<proje_becerileri>"
 REPO_CLOSE = "</proje_becerileri>"

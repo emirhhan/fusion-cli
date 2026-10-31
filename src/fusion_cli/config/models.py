@@ -431,6 +431,8 @@ class McpScope(StrEnum):
 
     USER = "user"
     PROJECT = "project"
+    #: Etkin bir eklentinin `.mcp.json`'ı (P-059); hiçbir ayar dosyasına yazılmaz.
+    PLUGIN = "plugin"
 
 
 class McpTrust(StrEnum):

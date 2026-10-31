@@ -722,7 +722,7 @@ MCP_RECONNECT_SCHEDULED = "'{name}' bağlantısı düşürüldü; sonraki turda 
 MCP_RECONNECT_ALL_SCHEDULED = (
     "{count} MCP bağlantısı düşürüldü; sonraki turda yeniden bağlanılacak."
 )
-MCP_SCOPE_LABELS = {"user": "kullanıcı", "project": "proje"}
+MCP_SCOPE_LABELS = {"user": "kullanıcı", "project": "proje", "plugin": "eklenti"}
 MCP_PROJECT_ADDED = "'{name}' MCP sunucusu projeye eklendi ({path})."
 MCP_PROJECT_REMOVED = "'{name}' MCP sunucusu projeden kaldırıldı."
 MCP_ADD_NEEDS_COMMAND = "stdio sunucusu için komut gerekli: fusion mcp add <ad> <komut> [argüman…]"
@@ -1419,6 +1419,11 @@ VIM_USAGE = "Kullanım: /vim [on|off]"
 VIM_SET = "Vim kipi {state}. Esc ile NORMAL, i ile INSERT kipine geçilir."
 VIM_SET_UNSAVED = "Vim kipi bu oturum için {state}; dosyaya yazılamadı: {error}"
 
-# --- İçe aktarma ve sürüm notları (P-071) ------------------------------------- #
+# --- Eklenti paketi ve içe aktarma (P-059, P-071) ------------------------------- #
+EKLENTI_CMD_PLUGIN = "eklentileri listele/kur/aç/kapat/kaldır, pazar yerleri: /plugin kur <kaynak>"
 EKLENTI_CMD_IMPORT = "Claude Code/Codex/Gemini/Cursor yapılandırmasını taşı (önizle, --yes uygula)"
 EKLENTI_CMD_RELEASE_NOTES = "sürüm notlarını göster (CHANGELOG)"
+EKLENTI_MCP_REMOVE = (
+    "'{name}' bir eklentinin MCP sunucusu; kaldırmak yerine eklentiyi kapat: "
+    "fusion eklenti kapat <eklenti>"
+)

@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ...config.models import Config
 from ...config.trust import resolve_project_trust
 from ...tools.capabilities import parse_frontmatter
+from ...tools.plugin_capabilities import plugin_output_style_dirs
 
 _LOG = logging.getLogger(__name__)
 
@@ -118,6 +119,12 @@ def discover_styles(home: Path | None, root: Path | None) -> tuple[OutputStyle, 
                     )
                     continue
                 found[style.name] = style
+    # Eklenti stilleri (P-059) `eklenti:ad` önekiyle eklenir; kimsenin adını gölgelemez.
+    for plugin, path in plugin_output_style_dirs():
+        loaded = _load(path, "eklenti")
+        if loaded is not None:
+            prefixed = replace(loaded, name=f"{plugin}:{loaded.name}")
+            found.setdefault(prefixed.name, prefixed)
     return tuple(found.values())
 
 

@@ -185,6 +185,8 @@ def load_config(path: str | Path | None = None) -> Config:
         # Proje kökündeki `.mcp.json` (Claude Code biçimi) güvenilen projede eklenir;
         # aynı adda proje kaydı kullanıcı kaydını geçer (P-049).
         yapilandirma = _with_project_mcp_servers(yapilandirma, Path.cwd())
+        # Etkin ve çalıştırma onaylı eklentilerin MCP sunucuları (P-059).
+        yapilandirma = _with_plugin_mcp_servers(yapilandirma)
         # Sıra önemlidir: önce kullanıcının TERCİHİ uygulanır, sonra anahtarı
         # olmayan sağlayıcılar budanır. Tersi olsaydı tercih, budamanın bıraktığı
         # zincire uygulanır ve etkisi kullanıcıya göre değişirdi.
@@ -406,6 +408,17 @@ def _with_project_mcp_servers(config: Config, root: Path) -> Config:
     return dataclasses.replace(
         config, mcp_servers=merge_mcp_servers(config.mcp_servers, project_servers)
     )
+
+
+def _with_plugin_mcp_servers(config: Config) -> Config:
+    """Eklenti sunucuları (`plugin_<eklenti>_<sunucu>`) kullanıcı/proje adlarını geçmez."""
+    from .plugin_store import plugin_mcp_servers
+
+    taken = {server.name for server in config.mcp_servers}
+    extra = tuple(server for server in plugin_mcp_servers() if server.name not in taken)
+    if not extra:
+        return config
+    return dataclasses.replace(config, mcp_servers=(*config.mcp_servers, *extra))
 
 
 def _build_mcp_servers(raw: object) -> tuple[McpServerConfig, ...]:

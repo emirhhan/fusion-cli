@@ -43,6 +43,7 @@ from . import (
     permissions_command,
     persona_commands,
     plan_card,
+    plugin_command,
     profiles_flow,
     provider_flow,
     rewind,
@@ -1187,7 +1188,15 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         group="Agent",
         usage="[ad|cik|liste]",
     ),
-    # İçe aktarma ve sürüm notları (P-071); gövdeler kendi modüllerinde.
+    # Eklenti paketi ve içe aktarma (P-059, P-071); gövdeler kendi modüllerinde.
+    SlashCommand(
+        "plugin",
+        messages.EKLENTI_CMD_PLUGIN,
+        plugin_command.plugin_command,
+        ("plugins", "eklenti"),
+        group="Bilgi",
+        usage="[liste|kur|dogrula|ac|kapat|kaldir|kesfet|pazar] …",
+    ),
     SlashCommand(
         "import",
         messages.EKLENTI_CMD_IMPORT,

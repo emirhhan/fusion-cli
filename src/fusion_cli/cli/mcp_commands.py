@@ -287,6 +287,12 @@ def remove(name: Annotated[str, typer.Argument(help="Kaldırılacak sunucunun ad
     if target is None:
         console.print(f"[{theme.ERROR}]{messages.MCP_NOT_FOUND.format(name=name)}[/{theme.ERROR}]")
         raise typer.Exit(code=1)
+    if target.scope is McpScope.PLUGIN:
+        # Eklenti sunucusu hiçbir ayar dosyasında durmaz; eklentiyle birlikte kapanır (P-059).
+        console.print(
+            f"[{theme.ERROR}]{messages.EKLENTI_MCP_REMOVE.format(name=name)}[/{theme.ERROR}]"
+        )
+        raise typer.Exit(code=1)
     if target.scope is McpScope.PROJECT:
         try:
             remove_project_mcp_server(Path.cwd(), name)

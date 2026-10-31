@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..config.paths import bundled_roster_dir, bundled_skills_dir, capabilities_dir
+from ..config.plugin_store import state_signature
 from .capability_merge import merge_capability as _merge
 from .capability_roots import agent_roots, roots_signature, skill_roots
 from .capability_search import search as search
@@ -33,6 +34,7 @@ from .capability_search import search_scored as search_scored
 from .frontmatter import NO_TOOLS as NO_TOOLS
 from .frontmatter import parse_frontmatter as parse_frontmatter
 from .frontmatter import parse_tools as _parse_tools
+from .plugin_capabilities import plugin_agents, plugin_commands, plugin_skills
 from .skill_pages import (
     SKILL_TEXT_BUDGET as SKILL_TEXT_BUDGET,
 )
@@ -82,7 +84,7 @@ _READ_ONLY_TOOLS: tuple[str, ...] = ("Read", "Grep", "Glob", "LS", "WebFetch", "
 #: Üçüncü tarafın doldurduğu kökler: oradaki sembolik bağ kök DIŞINA (`~/.ssh/id_rsa`)
 #: çıkıyorsa içerik sızdırma yolu olur (T1-15). Kullanıcının kendi kökleri (`~/.claude`,
 #: proje) dotfile yöneticilerinin bağlarını kullanabilir ve denetlenmez.
-_UNTRUSTED_SOURCES = frozenset({"kurulu", "claude-plugin"})
+_UNTRUSTED_SOURCES = frozenset({"kurulu", "claude-plugin", "eklenti"})
 
 #: Frontmatter ararken dosyanın başından okunacak karakter. 4000 iken uzun açıklamalı
 #: skill'lerde bitiş işareti görülmüyor, `{}` dönüp ad dizin adına düşüyordu (ölçüldü, 30 Ekim).
@@ -304,7 +306,12 @@ class CapabilityRegistry:
         self._signature = signature
 
     def _current_signature(self) -> tuple[tuple[str, int], ...]:
-        return roots_signature(self._skill_roots(), self._agent_roots(), self._home, self._root)
+        # Eklenti kaydı (P-059) değişince (kur/kapat/kaldır) katalog da yenilenir.
+        plugins = state_signature()
+        signature = roots_signature(
+            self._skill_roots(), self._agent_roots(), self._home, self._root
+        )
+        return (*signature, plugins) if plugins else signature
 
     def skills(self) -> tuple[Capability, ...]:
         # Sonuç yerel değişkenden döner: `invalidate()` (masaüstü yenile RPC'si) başka
@@ -388,6 +395,9 @@ class CapabilityRegistry:
         for command in discover_commands(self._home, self._root):
             if isinstance(command, Capability) and command.name not in found:
                 found[command.name] = command
+        # Etkin eklentiler (P-059): adlar `eklenti:ad` önekli, kimseyi gölgelemez.
+        for capability in (*plugin_skills(_to_capability), *plugin_commands(_to_capability)):
+            _merge(found, capability)
         return tuple(found.values())
 
     def _discover_agents(self) -> tuple[Capability, ...]:
@@ -409,6 +419,8 @@ class CapabilityRegistry:
                 toml_capability = _toml_capability(path, source)
                 if toml_capability is not None:
                     _merge(found, toml_capability)
+        for capability in plugin_agents(_to_capability):
+            _merge(found, capability)
         return tuple(found.values())
 
 
