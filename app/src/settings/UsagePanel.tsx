@@ -58,6 +58,8 @@ export function UsagePanel({ client }: { client: ProtocolClient }) {
   const [health, setHealth] = useState<HealthRow[]>([]);
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [attribution, setAttribution] = useState<Attribution | null>(null);
+  // Eski çekirdek alanı göndermez (undefined): o durumda kapalı notu gösterilmez.
+  const [logDisabled, setLogDisabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,6 +74,7 @@ export function UsagePanel({ client }: { client: ProtocolClient }) {
         saglik?: HealthRow[];
         gecmis?: HistoryRow[];
         atif?: Attribution;
+        gunluk_acik?: boolean;
       };
       if (!veri?.ok || !veri.kullanim) {
         setError(veri?.metin ?? "Kullanım bilgisi alınamadı.");
@@ -81,6 +84,7 @@ export function UsagePanel({ client }: { client: ProtocolClient }) {
       setHealth(veri.saglik ?? []);
       setHistory(veri.gecmis ?? []);
       setAttribution(veri.atif ?? null);
+      setLogDisabled(veri.gunluk_acik === false);
     } catch (reason) {
       // Gerçek neden atılmaz (U2-57).
       setError(`Kullanım bilgisi alınamadı. Neden: ${errorMessage(reason)}`);
@@ -138,7 +142,14 @@ export function UsagePanel({ client }: { client: ProtocolClient }) {
         <p className="settings__hint">Bu oturumda henüz model çağrısı yapılmadı.</p>
       )}
 
-      {/* Kalıcı günlük (P-056): oturum sayacından AYRI veri; günlük kapalıysa bölüm gizli. */}
+      {/* Kalıcı günlük (P-056): oturum sayacından AYRI veri; günlük kapalıysa bölüm gizli
+          ve nedeni söylenir (eskiden sessizce kayboluyordu). */}
+      {!loading && !error && logDisabled && (
+        <p className="settings__hint">
+          Kullanım günlüğü kapalı (<code>runtime.usage_log: false</code>); son dönem ve kim
+          harcadı bölümleri yalnız günlük açıkken dolar.
+        </p>
+      )}
       {!loading && !error && history.length > 0 && (
         <>
           <h3 className="settings__section-title">Son dönem</h3>
