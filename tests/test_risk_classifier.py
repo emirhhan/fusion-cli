@@ -123,6 +123,38 @@ def test_sabit_riskli_komut_denetciye_hic_gitmez(tmp_path, komut):
 
 
 @pytest.mark.parametrize(
+    "komut",
+    [
+        "terraform destroy -auto-approve",
+        "terraform apply -destroy",
+        "gh repo delete foo/bar --yes",
+        "kubectl delete ns prod",
+        "helm uninstall uygulama",
+        "aws ec2 terminate-instances --instance-ids i-1",
+        "aws rds delete-db-instance --db-instance-identifier d",
+        "gcloud compute instances delete vm1",
+        "heroku apps:destroy uygulama",
+        "git push && kubectl delete ns prod",
+    ],
+)
+def test_uzakta_geri_alinamaz_kabuk_komutu_denetciye_hic_gitmez(tmp_path, komut):
+    """Ölçüldü (31 Ekim): MCP'nin REMOTE_DESTRUCTIVE etkisi sabitti ama kabuk eşdeğerleri
+    (`terraform destroy`, `gh repo delete`, `kubectl delete`) RELAX olarak modele gidiyordu."""
+    istek = _kabuk(komut, tmp_path)
+    assert istek.risk is not None
+    assert review_kind(istek, AutoClassifierMode.ON, tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "komut",
+    ["kubectl apply -f x.yaml", "terraform apply", "gh pr create", "aws s3 cp a s3://b/a"],
+)
+def test_uzak_yazan_ama_silmeyen_komut_gevsetilebilir(tmp_path, komut):
+    istek = _kabuk(komut, tmp_path)
+    assert review_kind(istek, AutoClassifierMode.ASK_ONLY, tmp_path) is ReviewKind.RELAX
+
+
+@pytest.mark.parametrize(
     "komut", ["git push origin feature", "brew install ffmpeg", "ssh sunucu uptime"]
 )
 def test_kuralin_sordugu_kalan_komut_gevsetilebilir(tmp_path, komut):

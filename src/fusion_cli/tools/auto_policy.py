@@ -76,6 +76,17 @@ _OUTWARD_SUBCOMMANDS = {
     "twine": {"upload"},
     "supabase": {"deploy", "push"},
 }
+#: Uzak hesapta kaynak silen/kaldıran araçlar ve alt komut fiilleri (`kubectl delete`,
+#: `aws ec2 terminate-instances`, `heroku apps:destroy`, `terraform apply -destroy`,
+#: `gh api -X DELETE`). `docker` yerel kapsayıcı da sildiği için dışarıda tutulur.
+_REMOTE_DELETERS = _DEPLOY_COMMANDS | {
+    "kubectl", "terraform", "helm", "firebase", "wrangler", "supabase", "eas", "gh",
+}  # fmt: skip
+_REMOTE_DELETE_VERB = re.compile(
+    r"(?i)(?:^|[-:])(delete|destroy|terminate|uninstall|remove|purge|deregister)(?=$|[-:])"
+)
+#: Fiil yalnız ilk birkaç sözcükte aranır; sonrası kaynak adıdır (`kubectl delete ns prod`).
+_REMOTE_DELETE_SCAN = 5
 #: `gh` ile GitHub'da bir şey değiştiren eylemler (komuttan bağımsız alt komut adları).
 _GH_WRITES = frozenset(
     {
@@ -192,6 +203,9 @@ NESTING_REASON = "iç içe çok katmanlı komut (içeriği denetlenemiyor)"
 KILLALL_REASON = "uygulamaları ada göre kapatıyor"
 DB_DROP_REASON = "veritabanını/tabloyu siliyor"
 INLINE_OUTWARD_REASON = "satır içi kod komut çalıştırıyor ya da ağa bağlanıyor"
+#: Uzak hesapta kaynak silme (`kubectl delete`, `terraform destroy`, `gh repo delete`):
+#: MCP'nin `REMOTE_DESTRUCTIVE` etkisinin kabuk karşılığı; hiçbir ayarda modele bırakılmaz.
+REMOTE_DELETE_REASON = "uzakta geri alınamaz silme yapıyor ({name} {verb})"
 FIXED_RISK_REASONS = frozenset(
     {
         SUDO_REASON,
@@ -208,7 +222,12 @@ FIXED_RISK_REASONS = frozenset(
 #: Başka modüllerin ürettiği, aynı sınıftaki gerekçelerin başı: dikkat gerektiren silme
 #: (`delete_preview.delete_caution`), satır içi silme kodu (`inline_code_danger`) ve bu turda
 #: yazılmış betiğin riski (`script_chain`) — içerik modele gösterilmez, karar kurala kalır.
-FIXED_RISK_PREFIXES = ("silme hedefi ", "satır içi kod ", "bu turda yazdığın betik ")
+FIXED_RISK_PREFIXES = (
+    "silme hedefi ",
+    "satır içi kod ",
+    "bu turda yazdığın betik ",
+    REMOTE_DELETE_REASON.split("(", 1)[0],
+)
 
 
 def is_fixed_risk(reason: str) -> bool:
@@ -367,6 +386,9 @@ def _outward_risk(name: str, arguments: list[str], sub: str) -> str | None:
         return "uzak depoya gönderiyor (git push)"
     if sub == "publish" or (name in {"npm", "pnpm", "yarn", "bun"} and _outward_run(arguments)):
         return f"dışarıya yayınlıyor ({name} {sub})"
+    verb = _remote_delete_verb(name, arguments)
+    if verb is not None:
+        return REMOTE_DELETE_REASON.format(name=name, verb=verb)
     if name in _DEPLOY_COMMANDS or sub in _OUTWARD_SUBCOMMANDS.get(name, ()):
         return f"bulut/dağıtım hesabında işlem yapıyor ({name})"
     if name == "gh" and _gh_writes(arguments):
@@ -378,6 +400,16 @@ def _outward_risk(name: str, arguments: list[str], sub: str) -> str | None:
     script = sub if name in _SCRIPT_RUNNERS else name
     if script.endswith(_SCRIPT_SUFFIXES) and is_outward_script(script):
         return f"dağıtım/yayın betiği ({script})"
+    return None
+
+
+def _remote_delete_verb(name: str, arguments: list[str]) -> str | None:
+    """Uzak hesapta silen alt komut/fiil (`delete`, `terminate-instances`) ya da None."""
+    if name not in _REMOTE_DELETERS:
+        return None
+    for argument in arguments[:_REMOTE_DELETE_SCAN]:
+        if _REMOTE_DELETE_VERB.search(argument):
+            return argument
     return None
 
 
