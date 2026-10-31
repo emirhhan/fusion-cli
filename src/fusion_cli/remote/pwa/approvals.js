@@ -33,7 +33,8 @@ export function approvalCard(question, rpc, after, scopes = null) {
   const actions = h("div", { class: "approval-actions" });
   const confirmation = h("div", { class: "approval-confirm", hidden: true });
   const card = h("section", { class: "approval", "data-question": question.questionId },
-    h("span", { class: "approval-eyebrow" }, "İzin gerekiyor"),
+    // Alt ajanın isteği masaüstü kartıyla aynı etiketi taşır (P-034).
+    h("span", { class: "approval-eyebrow" }, question.agent ? `Alt ajan izin istiyor: ${question.agent}` : "İzin gerekiyor"),
     h("h3", { class: "approval-title" }, question.title || "İşlemi onayla"),
     question.target ? h("pre", { class: "approval-target mono" }, question.target) : null,
     question.danger ? h("p", { class: "approval-danger danger small" }, question.danger) : null,

@@ -26,3 +26,10 @@ it('yüksek etkili onayı telefonda işlem ayrıntıları ve ikinci teyitle gön
   fireEvent.click(screen.getByRole('button',{name:'İşlemi onayla'}));
   await waitFor(()=>expect(rpc).toHaveBeenCalledWith('approvals.respond',expect.objectContaining({questionId:'q2',choice:'once',confirmation:'challenge1'})));
 });
+
+it('alt ajanın onay isteğinde kart başlığı ajanı adlandırır (P-034)', () => {
+  document.body.append(approvalCard({questionId:'q9',title:'Dosyayı yaz',agent:'denetci',options:['once','deny']},vi.fn(),vi.fn()));
+  expect(screen.getByText('Alt ajan izin istiyor: denetci')).toBeTruthy();
+  document.body.replaceChildren(approvalCard({questionId:'q10',title:'Dosyayı yaz',options:['once','deny']},vi.fn(),vi.fn()));
+  expect(screen.getByText('İzin gerekiyor')).toBeTruthy();
+});
