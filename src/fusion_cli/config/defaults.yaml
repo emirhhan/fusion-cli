@@ -1051,25 +1051,16 @@ sandbox:
   # Proje kökü, --add-dir ve geçici dizinlere EK yazılabilir dizinler (~ açılır; göreli
   # yol proje köküne göredir). Örn: ["~/.npm", "~/.cache/pip"].
   allow_write: []
-  # Sandbox içindeki komutun OKUYAMADIĞI yollar (dizinse altı da). Fusion'ın kendi .env'i,
-  # şifreli kasası ve tarayıcı/web oturum profilleri burada yazılmasa da her zaman engellidir.
-  # Yazdığın liste bu varsayılanın YERİNE geçer: yol eklerken aşağıdakileri de koru.
-  # ~/.npmrc bilinçli olarak yok (npm install her çağrıda okur; özel kayıt defteri bozulur).
-  deny_read:
-    - "~/.ssh"
-    - "~/.aws"
-    - "~/.gnupg"
-    - "~/.azure"
-    - "~/.kube"
-    - "~/.config/gcloud"
-    - "~/.docker/config.json"
-    - "~/.netrc"
-    - "~/.git-credentials"
-    - "~/.password-store"
-    - "~/Library/Keychains"
-    - "~/.config/gh"
-    - "~/.config/git/credentials"
-    - "~/.pypirc"
+  # Sandbox içindeki komutun OKUYAMADIĞI EK yollar (dizinse altı da). Bu liste varsayılan
+  # okuma engeline EKLENİR (1 Kasım'dan önce yerine geçiyordu): ~/.ssh, ~/.aws, ~/.gnupg,
+  # ~/.azure, ~/.kube, ~/.config/gcloud, ~/.docker/config.json, ~/.netrc, ~/.git-credentials,
+  # ~/.password-store, ~/Library/Keychains, ~/.config/gh, ~/.config/git/credentials, ~/.pypirc
+  # her zaman engellidir; Fusion'ın kendi .env'i, şifreli kasası ve tarayıcı/web oturum
+  # profilleri de. ~/.npmrc bilinçli olarak yok (npm install her çağrıda okur).
+  deny_read: []
+  # Varsayılan listeden (ya da deny_read'den) BİLEREK açılan yollar, örn. ["~/.kube"].
+  # Listede olmayan yol yazılırsa yapılandırma hata verir; Fusion sır dosyaları açılamaz.
+  allow_read: []
   # open = ağ kısıtsız (eski davranış). allowlist = komut yalnız Fusion'ın yerel
   # proxy'sine çıkabilir; proxy yalnız allowed_domains'e bağlanır (HTTP_PROXY/HTTPS_PROXY
   # ortamı verilir; iç ağ adresine çözülen ad reddedilir).

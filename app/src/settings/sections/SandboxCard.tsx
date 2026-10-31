@@ -26,6 +26,8 @@ export interface SandboxStatus {
   localhost: boolean;
   ek_yazma: string[];
   okuma_engeli: string[];
+  /** Varsayılan okuma engelinden bilerek açılan yollar (`sandbox.allow_read`); eski çekirdek göndermez. */
+  okuma_izni?: string[];
   zorunlu: boolean;
   disari_izinli: boolean;
   oto_izin: boolean;
@@ -227,9 +229,16 @@ export function SandboxCard({ client }: { client: ProtocolClient }) {
           <details className="sandbox__paths">
             <summary>Okunamayan yollar ({status.okuma_engeli.length})</summary>
             <ul>{status.okuma_engeli.map((yol) => <li key={yol}><code>{yol}</code></li>)}</ul>
+            {(status.okuma_izni ?? []).length > 0 && (
+              <p className="settings__hint">
+                Varsayılan engelden bilerek açılanlar: {(status.okuma_izni ?? []).map((yol) => <code key={yol}>{yol} </code>)}
+              </p>
+            )}
           </details>
           <p className="settings__hint">
             Ek yazma dizini, okuma listesi ve sandbox dışı komutlar: <code>/config sandbox.allow_write=~/.npm</code>,{" "}
+            <code>/config sandbox.deny_read=~/ozel</code> (varsayılana eklenir),{" "}
+            <code>/config sandbox.allow_read=~/.kube</code> (varsayılandan çıkarır),{" "}
             <code>/config sandbox.excluded_commands=docker</code>.
             {status.disari_komutlar.length > 0 && <> Sandbox dışı: {status.disari_komutlar.join(", ")}.</>}
           </p>

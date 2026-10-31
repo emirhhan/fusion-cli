@@ -21,7 +21,7 @@ from ..core.shell_sandbox import (
     plan_shell_sandbox,
 )
 from .models import Config
-from .sandbox_config import fusion_secret_paths, sandbox_policy
+from .sandbox_config import effective_deny_read, fusion_secret_paths, sandbox_policy
 from .settings_access import write_setting
 
 __all__ = [
@@ -79,12 +79,15 @@ class SandboxStatus:
     denied_domains: tuple[str, ...]
     allow_localhost: bool
     allow_write: tuple[str, ...]
+    #: Etkin okuma engeli: varsayılan + `deny_read` − `allow_read` + Fusion sırları.
     deny_read: tuple[str, ...]
     fail_if_unavailable: bool
     allow_unsandboxed: bool
     auto_allow: bool
     excluded_commands: tuple[str, ...]
     hide_secret_env: bool
+    #: Varsayılan okuma engelinden bilerek açılan yollar (`sandbox.allow_read`).
+    allow_read: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         """Masaüstü RPC biçimi (Türkçe anahtarlar, listeler JSON dizisi)."""
@@ -100,6 +103,7 @@ class SandboxStatus:
             "localhost": self.allow_localhost,
             "ek_yazma": list(self.allow_write),
             "okuma_engeli": list(self.deny_read),
+            "okuma_izni": list(self.allow_read),
             "zorunlu": self.fail_if_unavailable,
             "disari_izinli": self.allow_unsandboxed,
             "oto_izin": self.auto_allow,
@@ -149,7 +153,11 @@ def sandbox_status(config: Config, root: Path, *, platform: str | None = None) -
         denied_domains=sandbox.denied_domains,
         allow_localhost=sandbox.allow_localhost,
         allow_write=sandbox.allow_write,
-        deny_read=(*sandbox.deny_read, *(str(path) for path in fusion_secret_paths())),
+        deny_read=(
+            *effective_deny_read(sandbox),
+            *(str(path) for path in fusion_secret_paths()),
+        ),
+        allow_read=sandbox.allow_read,
         fail_if_unavailable=sandbox.fail_if_unavailable,
         allow_unsandboxed=sandbox.allow_unsandboxed,
         auto_allow=sandbox.auto_allow,

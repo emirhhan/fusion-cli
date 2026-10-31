@@ -37,14 +37,27 @@ olduğu gibi çalışır; `sandbox:` bölümü yoksa aşağıdaki varsayılanlar
   yürütür. `git add/commit/checkout/fetch` çalışır; `git init`, `git remote add`,
   `git push -u`, `git config` bu dosyalara yazdığı için sandbox içinde düşer — gerekirse
   `unsandboxed=true` (onaylı) ya da kullanıcı kendisi çalıştırır.
-- **Okuma:** `sandbox.deny_read` yolları okunamaz. Varsayılan liste: `~/.ssh`, `~/.aws`,
-  `~/.gnupg`, `~/.azure`, `~/.kube`, `~/.config/gcloud`, `~/.docker/config.json`, `~/.netrc`,
+- **Okuma:** varsayılan okuma engeli her zaman uygulanır: `~/.ssh`, `~/.aws`, `~/.gnupg`,
+  `~/.azure`, `~/.kube`, `~/.config/gcloud`, `~/.docker/config.json`, `~/.netrc`,
   `~/.git-credentials`, `~/.password-store`, `~/Library/Keychains`, `~/.config/gh`,
   `~/.config/git/credentials`, `~/.pypirc`. Fusion'ın yüklediği her `.env` (`FUSION_HOME/.env`,
-  hesap ve temel yapılandırma dizini), şifreli kasası ve tarayıcı/web oturum profilleri listede
-  yazılmasa da her zaman engellidir. **Dikkat:** `sandbox.deny_read` yazarsan liste varsayılanın
-  YERİNE geçer; yol eklerken varsayılanları da yaz. `~/.npmrc` bilinçli olarak listede yok
-  (npm her kurulumda okur).
+  hesap ve temel yapılandırma dizini), şifreli kasası ve tarayıcı/web oturum profilleri de her
+  zaman engellidir. `sandbox.deny_read` bu listeye **eklenir**; varsayılandan bir yolu bilerek
+  açmak için `sandbox.allow_read` yazılır (ör. `["~/.kube"]`). `allow_read`'de okuma engelinde
+  olmayan bir yol yapılandırma hatasıdır; Fusion'ın sır dosyaları bu yolla açılamaz. `~/.npmrc`
+  bilinçli olarak listede yok (npm her kurulumda okur).
+
+  ```yaml
+  sandbox:
+    deny_read: ["~/ozel-anahtarlar"]   # varsayılana eklenir
+    allow_read: ["~/.kube"]            # kubectl sandbox içinde çalışsın
+  ```
+
+  **Eski davranış (1 Kasım öncesi):** `sandbox.deny_read` yazılınca liste varsayılanın YERİNE
+  geçiyordu; tek yol ekleyen kullanıcı `~/.ssh` gibi korumaları kaybediyordu. Varsayılanı
+  da kopyalayan eski yapılandırmalar aynı sonucu verir (yinelenenler birleşir). Bir varsayılanı
+  listeden silerek açan eski yapılandırma artık o yolu yeniden engeller; açık kalması için
+  `allow_read`'e yazın.
 - **Ağ:** `sandbox.network: open` (varsayılan, kısıtsız) ya da `allowlist`. Allowlist'te komut
   yalnız Fusion'ın yerel proxy'sine bağlanabilir (`HTTP_PROXY`/`HTTPS_PROXY` ortamı verilir);
   proxy yalnız `allowed_domains`'e bağlanır, `denied_domains` her zaman önce gelir. İzinli bir
@@ -94,6 +107,8 @@ kullanıcının kararıdır.
 | `sandbox.allow_localhost` | `true` | Allowlist kipinde `localhost`'a doğrudan erişim |
 | `sandbox.hide_secret_env` | `true` | Sır görünümlü ortam değişkenlerini gizle (yukarıya bakın) |
 | `sandbox.allow_write` | `[]` | Ek yazılabilir dizinler, ör. `["~/.npm", "~/.cache/pip"]` |
+| `sandbox.deny_read` | `[]` | Varsayılan okuma engeline EK yollar |
+| `sandbox.allow_read` | `[]` | Varsayılan okuma engelinden bilerek açılan yollar |
 
 Hepsi `/config sandbox.<alan>=<değer>` ile de değişir, ör. `/config sandbox.allow_write=~/.npm`.
 Güvenilmeyen bir projenin `config.yaml`'ındaki `sandbox:` bölümü uygulanmaz (`fusion trust`).

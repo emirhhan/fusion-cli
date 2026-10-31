@@ -104,4 +104,11 @@ describe("SandboxCard — kabuk sandbox'ı (P-010)", () => {
     await waitFor(() => expect(request).toHaveBeenCalled());
     expect(container.textContent).toBe("");
   });
+
+  it("varsayılan okuma engelinden açılan yolları gösterir", async () => {
+    render(<SandboxCard client={client({ okuma_izni: ["~/.kube"] })} />);
+    await waitFor(() => expect(screen.getByText("Okunamayan yollar (2)")).toBeTruthy());
+    expect(screen.getByText(/Varsayılan engelden bilerek açılanlar/)).toBeTruthy();
+    expect(screen.getByText("~/.kube")).toBeTruthy();
+  });
 });

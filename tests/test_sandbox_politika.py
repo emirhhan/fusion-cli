@@ -444,10 +444,11 @@ def test_guvenilmeyen_proje_sandbox_bolumunu_gevsetemez():
 
 def test_politika_tildeyi_ve_goreli_yolu_cozer_fusion_sirlarini_ekler(tmp_path):
     ev, kok = tmp_path / "ev", tmp_path / "kok"
-    config = SandboxConfig(allow_write=("~/.npm", "build"), deny_read=("~/.ssh",))
+    config = SandboxConfig(allow_write=("~/.npm", "build"), deny_read=("gizli",))
     policy = sandbox_policy(config, home=ev, root=kok, extra_deny=(tmp_path / "kasa",))
     assert policy.extra_write == (ev / ".npm", kok / "build")
-    assert policy.deny_read == (ev / ".ssh", tmp_path / "kasa")
+    assert policy.deny_read[0] == ev / ".ssh"
+    assert policy.deny_read[-2:] == (kok / "gizli", tmp_path / "kasa")
 
 
 def test_config_yolu_sandbox_alan_adlarini_kanonik_yazar(tmp_path):
