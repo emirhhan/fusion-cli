@@ -7,9 +7,12 @@ ilk 200 satırı / 25 KB'ı her turun sistem istemine girer; konu dosyaları yal
 yoktur: buraya yazılan bir ders DEĞİL, projeye/kullanıcıya dair kalıcı bilgidir ve
 kullanıcı dosyayı düz metin olarak açıp düzenleyebilir.
 
-Üç koruma: yazılan her metin `redact` ile maskelenir (sır/e-posta kalıcı dosyaya girmesin),
-içerikteki `<otomatik_bellek` etiketleri etkisizleştirilir (bloktan kaçış yok) ve konu adı
-yol kaçışına kapalı bir kısa ada indirilir. Dizin yazmaları kilit altındadır.
+Dört koruma: yazılan her metin `redact` ile maskelenir (sır/e-posta kalıcı dosyaya girmesin),
+içerikteki `<otomatik_bellek` etiketleri etkisizleştirilir (bloktan kaçış yok), konu adı
+yol kaçışına kapalı bir kısa ada indirilir ve yazılan yol SINIR dizinin (`boundary`: proje
+kökü ya da bellek dizini) içinde kalır — aradaki hiçbir bileşen sembolik bağ olamaz.
+Ölçüldü (31 Ekim): klonlanan depodaki `.fusion/ajan-bellek/<ad>/konular/<konu>.md -> ~/.zshrc`
+bağını `remember` (onaysız araç) izleyip hedefi eziyordu. Dizin yazmaları kilit altındadır.
 
 Aynı sınıf alt ajan belleği için de kullanılır (P-055): `PlainMemory(dizin)` dizine göre
 parametreliktir; ajan belleği `agent_memory_dir` ile başka bir dizine açılır.
@@ -127,14 +130,24 @@ def open_agent_memory(config: Config, root: Path, agent: str, scope: str) -> Pla
     directory = agent_memory_dir(config, root, agent, scope)
     if directory is None:
         return None
-    return PlainMemory(directory, label=f"ajan:{agent}", ignore_parent_in_git=scope == "local")
+    # Proje kapsamında sınır proje kökü (depodan gelen bağ dışarı çıkaramaz), kullanıcı
+    # kapsamında Fusion'ın bellek dizini.
+    boundary = config.memory_dir if scope == "user" else root
+    return PlainMemory(
+        directory,
+        label=f"ajan:{agent}",
+        ignore_parent_in_git=scope == "local",
+        boundary=boundary,
+    )
 
 
 def build_plain_memory(config: Config, root: Path) -> PlainMemory | None:
     """`runtime.auto_memory` açıksa projenin belleği, kapalıysa None (araç hiç sunulmaz)."""
     if not getattr(config.runtime, "auto_memory", True):
         return None
-    return PlainMemory(project_memory_dir(config, root))
+    directory = project_memory_dir(config, root)
+    override = str(getattr(config.runtime, "auto_memory_dir", "") or "").strip()
+    return PlainMemory(directory, boundary=directory if override else config.memory_dir)
 
 
 def _neutralize_tags(content: str) -> str:
@@ -153,13 +166,21 @@ class PlainMemory:
     """Bir dizindeki `BELLEK.md` + `konular/*.md`. Dosya yoksa ilk yazmada oluşur."""
 
     def __init__(
-        self, directory: Path, *, label: str = "proje", ignore_parent_in_git: bool = False
+        self,
+        directory: Path,
+        *,
+        label: str = "proje",
+        ignore_parent_in_git: bool = False,
+        boundary: Path | None = None,
     ) -> None:
         self.directory = directory
         #: Blokta görünen kaynak etiketi (`proje` ya da alt ajan adı).
         self.label = label
         #: İlk yazmada üst dizine `*` içeren `.gitignore` koy (yerel ajan belleği).
         self._ignore_parent_in_git = ignore_parent_in_git
+        #: Yazmaların dışına çıkamayacağı güvenilir dizin; verilmezse bellek dizininin üstü
+        #: (`.gitignore` işareti oraya yazılır).
+        self._boundary = (boundary if boundary is not None else directory.parent).absolute()
         self._lock = threading.Lock()
 
     @property
@@ -299,6 +320,7 @@ class PlainMemory:
         with self._lock:
             if not self.directory.is_dir():
                 return False
+            self._guard(self.index_path)
             try:
                 shutil.rmtree(self.directory)
             except OSError as error:
@@ -343,11 +365,33 @@ class PlainMemory:
         self._write(path, body + line)
 
     def _write(self, path: Path, content: str) -> None:
+        self._guard(path)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
         except OSError as error:
             raise PlainMemoryError(f"Bellek dosyası yazılamadı ({path.name}): {error}") from error
+
+    def _guard(self, path: Path) -> None:
+        """Yol sınır dizinin içinde kalsın: aradaki hiçbir bileşen sembolik bağ olmasın ve
+        çözülmüş hali sınırın altında dursun. Depodan gelen bağ (git sembolik bağ saklar)
+        onaysız `remember` çağrısıyla kök dışı dosya ezememeli."""
+        target = path.absolute()
+        for candidate in (target, *target.parents):
+            if candidate == self._boundary:
+                break
+            if candidate.is_symlink():
+                raise PlainMemoryError(
+                    f"Bellek yolu sembolik bağ içeriyor, yazılmadı: {candidate.name}"
+                )
+        else:
+            raise PlainMemoryError(f"Bellek yolu sınır dizinin dışında: {target.name}")
+        try:
+            target.resolve().relative_to(self._boundary.resolve())
+        except ValueError as error:
+            raise PlainMemoryError(
+                f"Bellek dizini sınır dışına çözülüyor, yazılmadı: {target.name}"
+            ) from error
 
     @staticmethod
     def _read_text(path: Path) -> str:

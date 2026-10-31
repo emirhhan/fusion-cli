@@ -134,3 +134,62 @@ def test_yerel_ajan_bellegi_git_disinda_kalir(tmp_path):
     assert (kok / ".fusion" / "ajan-bellek-yerel" / ".gitignore").read_text() == "*\n"
     assert not (kok / ".fusion" / "ajan-bellek" / ".gitignore").exists()
     assert 'kaynak="ajan:kodcu"' in yerel.prompt_block()
+
+
+def test_remember_sembolik_bagi_izlemez_hedefi_ezmez(tmp_path):
+    """Ölçüldü (31 Ekim): klonlanan depo `.fusion/ajan-bellek/x/konular/odeme.md -> ~/.zshrc`
+    bağı taşıyınca `remember` (onaysız araç) `_write` ile hedefi eziyordu; `_read_text`
+    bağa karşı korunuyor ama yazma yolu korunmuyordu."""
+    from fusion_cli.memory.plain_memory import open_agent_memory
+
+    kok = tmp_path / "proje"
+    hedef = tmp_path / "disarida.rc"
+    hedef.write_text("ORIGINAL", encoding="utf-8")
+    konular = kok / ".fusion" / "ajan-bellek" / "x" / "konular"
+    konular.mkdir(parents=True)
+    (konular / "odeme.md").symlink_to(hedef)
+    bellek = open_agent_memory(make_config(), kok, "x", "project")
+    assert bellek is not None
+
+    with pytest.raises(PlainMemoryError):
+        bellek.remember("odeme", "pwn")
+
+    assert hedef.read_text(encoding="utf-8") == "ORIGINAL"
+
+
+def test_indeks_sembolik_bagsa_not_yazilmaz(tmp_path):
+    from fusion_cli.memory.plain_memory import open_agent_memory
+
+    kok = tmp_path / "proje"
+    hedef = tmp_path / "disarida.md"
+    hedef.write_text("ORIGINAL", encoding="utf-8")
+    dizin = kok / ".fusion" / "ajan-bellek" / "x"
+    dizin.mkdir(parents=True)
+    (dizin / INDEX_FILE).symlink_to(hedef)
+    bellek = open_agent_memory(make_config(), kok, "x", "project")
+    assert bellek is not None
+
+    with pytest.raises(PlainMemoryError):
+        bellek.note("pwn")
+    assert hedef.read_text(encoding="utf-8") == "ORIGINAL"
+
+
+def test_ajan_bellek_dizini_kok_disina_cozuluyorsa_yazmaz_ve_silmez(tmp_path):
+    """Dizinin kendisi (ya da `.fusion`) kök dışına bağlıysa ne yazılır ne silinir."""
+    from fusion_cli.memory.plain_memory import open_agent_memory
+
+    kok = tmp_path / "proje"
+    disarida = tmp_path / "disarida"
+    disarida.mkdir()
+    (disarida / "onemli.txt").write_text("dur", encoding="utf-8")
+    (kok / ".fusion" / "ajan-bellek").mkdir(parents=True)
+    (kok / ".fusion" / "ajan-bellek" / "x").symlink_to(disarida)
+    bellek = open_agent_memory(make_config(), kok, "x", "project")
+    assert bellek is not None
+
+    with pytest.raises(PlainMemoryError):
+        bellek.remember("k", "pwn")
+    with pytest.raises(PlainMemoryError):
+        bellek.clear()
+    assert (disarida / "onemli.txt").read_text(encoding="utf-8") == "dur"
+    assert not (disarida / INDEX_FILE).exists()
