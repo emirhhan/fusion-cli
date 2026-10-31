@@ -228,7 +228,7 @@ def test_teslim_yalniz_sahibine_ve_bir_kez(tmp_path):
     assert [task.id for task in delivered] == [mine.id]
     assert agent_tasks.collect_deliveries(store, "sohbet-1") == ()
     block = agent_tasks.delivery_block(store, delivered)
-    assert "<arka_plan_sonuclari>" in block and "3 dosya değişti" in block
+    assert "<arka_plan_sonuclari " in block and "3 dosya değişti" in block
 
 
 def test_sirada_kalan_gorev_dogrudan_durdurulur(tmp_path):

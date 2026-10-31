@@ -37,6 +37,7 @@ from ..core.process_control import process_group_options, terminate_process_tree
 from ..core.protocols import Clock
 from ..core.redaction import redact
 from ..core.types import Message
+from ..core.untrusted_text import neutralize_closing_tags
 from ..ui import background_messages as texts
 
 #: Bellek dizini altındaki klasör adları.
@@ -237,21 +238,29 @@ def collect_deliveries(store: BackgroundTaskStore, owner: str) -> tuple[Backgrou
     return tuple(delivered)
 
 
+#: Teslim bloğunun etiketleri; içerik bunları kapatamaz (`neutralize_closing_tags`).
+_DELIVERY_TAGS = ("gorev", "arka_plan_sonuclari")
+
+
 def delivery_block(store: BackgroundTaskStore, tasks: tuple[BackgroundTask, ...]) -> str:
-    """Bitmiş görevlerin sonucunu sıradaki tura konacak etiketli bağlam bloğuna çevir."""
+    """Bitmiş görevlerin sonucunu sıradaki tura konacak etiketli bağlam bloğuna çevir.
+
+    Sonuç bir alt ajanın ÇIKTISIDIR (web/dosyadan enjekte talimat taşıyabilir): blok
+    güvenilmez etiketlidir, sırlar maskelenir, kapanış etiketleri etkisizleştirilir.
+    Ölçüldü (31 Ekim): metin sistem bağlamına etiketsiz, maskesiz ve kaçışsız giriyordu.
+    """
     if not tasks:
         return ""
-    parts = ["<arka_plan_sonuclari>"]
+    parts = ['<arka_plan_sonuclari guvenilmez="evet">']
     for task in tasks:
         excerpt = summarize(store.read_result(task.id) or task.summary, DELIVERY_EXCERPT_CHARS)
-        parts.append(
-            f'<gorev id="{task.id}" ad="{task.name}" durum="{task.status.value}">\n'
-            f"{excerpt or task.note or '(sonuç metni yok)'}\n</gorev>"
+        body = neutralize_closing_tags(
+            redact(excerpt or task.note or "(sonuç metni yok)"), *_DELIVERY_TAGS
         )
-    parts.append(
-        "</arka_plan_sonuclari>\nBunlar bu konuşmadan başlatılan arka plan görevlerinin "
-        "sonuçlarıdır; ilgiliyse kullanıcıya kısaca bildir. Devam için send_message kullan."
-    )
+        parts.append(
+            f'<gorev id="{task.id}" ad="{task.name}" durum="{task.status.value}">\n{body}\n</gorev>'
+        )
+    parts.append(f"</arka_plan_sonuclari>\n{texts.BG_DELIVERY_NOTE}")
     return "\n".join(parts)
 
 

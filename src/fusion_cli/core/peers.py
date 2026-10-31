@@ -30,6 +30,7 @@ from .atomic_file import atomic_replace_text
 from .background_tasks import BackgroundTaskError, ShortLease, normalize_name
 from .file_lease import FileLease
 from .protocols import Clock
+from .untrusted_text import neutralize_closing_tags
 
 _PEER_ID = re.compile(r"^[a-f0-9]{8}$")
 #: Nabız bu kadar eskiyse oturum kapanmış (ya da çökmüş) sayılır ve listeden düşer.
@@ -251,6 +252,8 @@ def _line_count(path: Path) -> int:
         return 0
 
 
+#: Gelen mesaj bloğunun etiket adı (arka plan işçisi de aynı etiketi kullanır).
+INBOUND_TAG = "oturumlar_arasi_mesaj"
 #: Gelen mesajın tura konan etiketli biçimi. Model bunu kullanıcı talimatı SANMAMALI.
 _INBOUND_TEMPLATE = (
     '<oturumlar_arasi_mesaj kimden="{sender}" guvenilmez="evet">\n'
@@ -266,5 +269,5 @@ _INBOUND_TEMPLATE = (
 def inbound_turn_text(message: PeerMessage) -> str:
     """Gelen mesajı modelin göreceği etiketli, güvenilmez girdi metnine çevir."""
     sender = normalize_name(message.sender_name) or "bilinmeyen"
-    text = message.text.replace("</oturumlar_arasi_mesaj>", "</ oturumlar_arasi_mesaj>")
+    text = neutralize_closing_tags(message.text, INBOUND_TAG)
     return _INBOUND_TEMPLATE.format(sender=sender, text=text)

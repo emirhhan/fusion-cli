@@ -32,12 +32,15 @@ from ..core.background_tasks import (
     InboxMessage,
     TaskStatus,
     approval_word,
+    normalize_name,
     summarize,
 )
 from ..core.clock import SystemClock
+from ..core.peers import INBOUND_TAG
 from ..core.redaction import redact
 from ..core.tools import ToolContext
 from ..core.types import Message
+from ..core.untrusted_text import neutralize_closing_tags
 from ..engines.agent.approval import ApprovalAnswer, ApprovalMemory, ApprovalRequest, parse_mode
 from ..engines.agent.engine_tools import QuestionOption
 from ..ui import background_messages as texts
@@ -200,7 +203,10 @@ def _follow_up_text(messages: tuple[InboxMessage, ...]) -> str:
             parts.append(message.text)
         else:
             parts.append(
-                texts.BG_UNTRUSTED_FOLLOW_UP.format(sender=message.sender, text=message.text)
+                texts.BG_UNTRUSTED_FOLLOW_UP.format(
+                    sender=normalize_name(message.sender) or "bilinmeyen",
+                    text=neutralize_closing_tags(message.text, INBOUND_TAG),
+                )
             )
     return "\n\n".join(parts)
 
