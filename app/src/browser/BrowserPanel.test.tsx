@@ -90,6 +90,24 @@ describe("BrowserPanel (uygulama içi tarayıcı, P-045)", () => {
     await waitFor(() => expect(client.request).toHaveBeenCalledWith("tarayici_panel.devral", {}));
   });
 
+  it("klavye tuzağı yok: Esc'ye iki kez basınca odak canlı görüntüden çıkar", async () => {
+    // Ölçüldü (31 Ekim, inceleme): Tab/Escape dahil tüm tuşlar sayfaya gidiyordu; klavye
+    // kullanıcısı görüntüden çıkamıyordu.
+    const client = istemci({ acik: true });
+    render(<BrowserPanel client={client} />);
+    const img = await goruntu();
+    const alan = img.parentElement as HTMLElement;
+    alan.focus();
+    expect(alan.getAttribute("aria-label")).toContain("Esc");
+
+    fireEvent.keyDown(alan, { key: "Escape" });
+    fireEvent.keyDown(alan, { key: "Escape" });
+
+    expect(document.activeElement).not.toBe(alan);
+    const kacislar = client.request.mock.calls.filter(([ad, veri]) => ad === "tarayici_panel.tus" && (veri as { tus?: string }).tus === "Escape");
+    expect(kacislar).toHaveLength(1);
+  });
+
   it("öğe seçici açıkken tıklama sayfaya gitmez; seçilen öğe sohbete verilir", async () => {
     const client = istemci({ acik: true });
     const onPick = vi.fn();

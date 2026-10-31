@@ -14,7 +14,12 @@ import {
  * Görüntü çekirdeğin ekran yayınından gelen JPEG'dir; tıklama, tekerlek ve klavye görüntünün
  * 0..1 koordinatına çevrilip çekirdeğe gider. Öğe seçici açıkken (P-041) tıklama sayfaya
  * GİTMEZ: imlecin altındaki öğe vurgulanır, tıklanınca seçilir.
+ *
+ * Tab ve Esc de sayfaya gider (formda gezinmek için); klavye tuzağı olmasın diye Esc'ye
+ * `ESCAPE_EXIT_MS` içinde ikinci kez basmak odağı görüntüden çıkarır.
  */
+/** İki Esc arasındaki en uzun süre: ikincisi sayfaya gitmez, odak paneli bırakır. */
+export const ESCAPE_EXIT_MS = 800;
 export interface LiveScreenProps {
   frame: BrowserFrame;
   title: string;
@@ -31,6 +36,7 @@ export function LiveScreen({ frame, title, picking, onClick, onScroll, onType, o
   const image = useRef<HTMLImageElement | null>(null);
   const [box, setBox] = useState<Box | null>(null);
   const hoverAt = useRef(0);
+  const escapeAt = useRef(0);
   const wheel = useRef<{ x: number; y: number; dx: number; dy: number; timer?: number }>({ x: 0, y: 0, dx: 0, dy: 0 });
 
   useEffect(() => { if (!picking) setBox(null); }, [picking]);
@@ -76,6 +82,16 @@ export function LiveScreen({ frame, title, picking, onClick, onScroll, onType, o
   };
 
   const handleKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      const now = Date.now();
+      if (now - escapeAt.current < ESCAPE_EXIT_MS) {
+        escapeAt.current = 0;
+        event.preventDefault();
+        event.currentTarget.blur();
+        return;
+      }
+      escapeAt.current = now;
+    }
     const action = keyAction(event);
     if (!action) return;
     event.preventDefault();
@@ -85,7 +101,7 @@ export function LiveScreen({ frame, title, picking, onClick, onScroll, onType, o
 
   return (
     <div
-      aria-label={`Canlı sayfa: ${title || "adsız sayfa"}. Tıkla, kaydır ya da yaz; girdi sayfaya gider.`}
+      aria-label={`Canlı sayfa: ${title || "adsız sayfa"}. Tıkla, kaydır ya da yaz; girdi sayfaya gider. Çıkmak için Esc'ye iki kez bas.`}
       className="browser-live"
       data-picking={picking}
       onKeyDown={handleKey}
