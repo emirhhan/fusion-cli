@@ -144,6 +144,8 @@ def open_link(state: ReplState, *, kind: str) -> AgentLink:
     )
     if getattr(runtime, "cross_session_messaging", True):
         try:
+            # Çöken oturumların kayıtları ve gelen kutuları birikmesin (ölçüldü, 31 Ekim).
+            link.registry.prune()
             link.peer = link.registry.register(
                 name=state.conversation_name or state.root.name,
                 kind=kind,

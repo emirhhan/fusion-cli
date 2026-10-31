@@ -35,6 +35,8 @@ from .untrusted_text import neutralize_closing_tags
 _PEER_ID = re.compile(r"^[a-f0-9]{8}$")
 #: Nabız bu kadar eskiyse oturum kapanmış (ya da çökmüş) sayılır ve listeden düşer.
 PEER_STALE_AFTER_S = 20.0
+#: Bu kadar süredir nabız vermeyen oturum kaydı (çöken süreç) açılışta silinir (saniye).
+PEER_RECORD_TTL_S = 86_400.0
 #: Oturumun nabız yazma aralığı (saniye).
 PEER_HEARTBEAT_S = 2.0
 #: Tek mesajın üst sınırı (karakter) ve alıcıda bekleyebilecek en çok mesaj.
@@ -152,6 +154,26 @@ class PeerRegistry:
     def unregister(self, peer_id: str) -> None:
         (self._base / f"{peer_id}{_RECORD_SUFFIX}").unlink(missing_ok=True)
         (self._base / f"{peer_id}{_INBOX_SUFFIX}").unlink(missing_ok=True)
+
+    def prune(self, *, older_than_s: float = PEER_RECORD_TTL_S) -> int:
+        """Nabzı çok eskimiş (çökmüş oturum) kayıtları ve gelen kutularını sil."""
+        if not self._base.is_dir():
+            return 0
+        cutoff = self._clock.now() - older_than_s
+        removed = 0
+        for path in self._base.glob(f"*{_RECORD_SUFFIX}"):
+            if path.name.endswith(_INBOX_SUFFIX):
+                continue
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                raw = None
+            record = PeerRecord.from_dict(raw) if isinstance(raw, dict) else None
+            if record is None or record.heartbeat_at < cutoff:
+                peer_id = path.name.removesuffix(_RECORD_SUFFIX)
+                self.unregister(peer_id)
+                removed += 1
+        return removed
 
     def peers(self) -> tuple[PeerRecord, ...]:
         """Canlı oturumlar (nabzı taze olanlar), en eski önce."""

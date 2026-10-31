@@ -166,6 +166,8 @@ runtime:
   max_background_agents: 4
   # Arka plan görevinin onay/soru cevabını bekleme süresi (saniye).
   background_input_timeout_s: 1800.0
+  # Bitmiş görev kayıtları bu kadar gün saklanır; yeni görev başlarken eskileri silinir (0 = hiç).
+  background_retention_days: 14
   # Oturumlar arası mesajlaşma (P-060): /list-agents, @oturum mesaj, list_agents/send_message.
   cross_session_messaging: true
   # Gelen mesaj: accept (boşta etiketli tur) | hold (bekletilir, /list-agents al) | refuse.

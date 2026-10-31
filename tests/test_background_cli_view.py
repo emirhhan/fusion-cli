@@ -86,3 +86,67 @@ def test_ctrl_b_kesilen_turun_dokundugu_dosyalari_devir_istemine_ekler(tmp_path,
     prompt = agent_tasks.task_store(config.memory_dir).tasks()[0].prompt
     assert "src/app.py" in prompt and "yeniden" in prompt
     assert "baştan" in notice
+
+
+# ------------------------------------------------------------------ saklama süresi
+
+
+class _Clock:
+    def __init__(self, now: float) -> None:
+        self.value = now
+
+    def now(self) -> float:
+        return self.value
+
+    def monotonic(self) -> float:
+        return self.value
+
+
+def test_saklama_suresini_asan_bitmis_gorev_yeni_baslatmada_silinir(tmp_path, monkeypatch):
+    monkeypatch.setattr(agent_tasks, "spawn_detached", lambda *args: 1)
+    config = make_config(memory_dir=tmp_path / "bellek", runtime={"background_retention_days": 1})
+    store = agent_tasks.task_store(config.memory_dir)
+    old = store.update(store.create("eski", root=tmp_path).id, status=TaskStatus.COMPLETED)
+    fresh = store.update(store.create("yeni", root=tmp_path).id, status=TaskStatus.COMPLETED)
+    stamp = old.updated_at - 3 * 86_400
+    raw = (store.task_dir(old.id) / "gorev.json").read_text(encoding="utf-8")
+    (store.task_dir(old.id) / "gorev.json").write_text(
+        raw.replace(f'"updated_at": {old.updated_at}', f'"updated_at": {stamp}'),
+        encoding="utf-8",
+    )
+
+    agent_tasks.start_with_settings(
+        config.runtime, config.memory_dir, agent_tasks.LaunchRequest("üçüncü", root=tmp_path)
+    )
+
+    ids = {task.id for task in store.tasks()}
+    assert old.id not in ids and fresh.id in ids and len(ids) == 2
+
+
+def test_cok_eski_oturum_kaydi_ve_gelen_kutusu_silinir(tmp_path):
+    from fusion_cli.core.peers import PEER_RECORD_TTL_S, InboundPolicy, PeerRegistry
+
+    clock = _Clock(1_000_000.0)
+    registry = PeerRegistry(tmp_path / "oturumlar", clock)
+    dead = registry.register(
+        name="olu",
+        kind="repl",
+        pid=1,
+        root=tmp_path,
+        conversation_id="x",
+        inbound=InboundPolicy.HOLD,
+    )
+    clock.value += PEER_RECORD_TTL_S + 1
+    alive = registry.register(
+        name="canli",
+        kind="repl",
+        pid=2,
+        root=tmp_path,
+        conversation_id="y",
+        inbound=InboundPolicy.HOLD,
+    )
+
+    assert registry.prune() == 1
+    names = {path.name for path in (tmp_path / "oturumlar").iterdir()}
+    assert not any(name.startswith(dead.id) for name in names)
+    assert any(name.startswith(alive.id) for name in names)

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
@@ -39,6 +40,8 @@ from ..core.redaction import redact
 from ..core.types import Message
 from ..core.untrusted_text import neutralize_closing_tags
 from ..ui import background_messages as texts
+
+_LOG = logging.getLogger(__name__)
 
 #: Bellek dizini altındaki klasör adları.
 STORE_DIR_NAME = "arka-plan"
@@ -290,14 +293,45 @@ def delivery_block(store: BackgroundTaskStore, tasks: tuple[BackgroundTask, ...]
 def start_with_settings(
     runtime: object, memory_dir: Path, request: LaunchRequest
 ) -> BackgroundTask:
-    """Yapılandırma kapısından geçerek başlat (REPL, CLI, masaüstü ortak yolu)."""
+    """Yapılandırma kapısından geçerek başlat (REPL, CLI, masaüstü ortak yolu).
+
+    Başlatmadan önce saklama süresini aşmış bitmiş görevler silinir (olay günlükleri
+    dahil). Ölçüldü (31 Ekim): `<bellek>/arka-plan` için hiçbir temizlik yoktu.
+    """
     if not getattr(runtime, "background_agents", True):
         raise BackgroundTaskError(texts.BG_DISABLED)
+    store = task_store(memory_dir)
+    days = int(getattr(runtime, "background_retention_days", DEFAULT_RETENTION_DAYS))
+    if days > 0:
+        prune_finished(store, older_than_s=days * 86_400.0)
     return start_task(
-        task_store(memory_dir),
+        store,
         request,
         max_active=int(getattr(runtime, "max_background_agents", DEFAULT_MAX_ACTIVE)),
     )
+
+
+#: `background_retention_days` okunamazsa (eski yapılandırma) saklama süresi.
+DEFAULT_RETENTION_DAYS = 14
+
+
+def prune_finished(store: BackgroundTaskStore, *, older_than_s: float) -> int:
+    """Son güncellemesi `older_than_s`'den eski bitmiş görevleri sil; silinen sayısı.
+
+    Teslim edilmemiş sonuç da süre dolunca gider: sahibi o sürede hiç açılmamıştır.
+    """
+    cutoff = store.now() - older_than_s
+    removed = 0
+    for task in store.tasks():
+        if task.status not in _CLEANABLE or task.updated_at > cutoff:
+            continue
+        try:
+            store.remove(task.id)
+        except (BackgroundTaskError, OSError):
+            _LOG.warning("eski arka plan görevi silinemedi", exc_info=True)
+            continue
+        removed += 1
+    return removed
 
 
 #: `max_background_agents` okunamazsa (eski yapılandırma) kullanılan tavan.

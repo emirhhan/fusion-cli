@@ -246,6 +246,9 @@ class RuntimeConfig:
     max_background_agents: int = 4
     #: Arka plan görevinin onay/soru cevabı için bekleme (saniye); dolunca "sorulamadı".
     background_input_timeout_s: float = 1800.0
+    #: Bitmiş arka plan görevlerinin saklanma süresi (gün); yeni görev başlarken daha eskileri
+    #: silinir. 0 = hiç silme.
+    background_retention_days: int = 14
     #: Oturumlar arası mesajlaşma (P-060): oturum defterine kayıt, list_agents/send_message.
     cross_session_messaging: bool = True
     #: Başka oturumdan gelen mesaj: accept (boşta tur olur) | hold (bekletilir; varsayılan)
