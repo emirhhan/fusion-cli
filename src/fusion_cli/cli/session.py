@@ -71,6 +71,7 @@ from ..observability.json_sink import JsonRenderer
 from ..observability.trace_store import TraceStore, TraceWriter
 from ..observability.tracing import LangfuseTracer
 from ..providers.health_setup import build_health
+from ..tools import desktop_lock
 from ..tools.capabilities import CapabilityRegistry
 from ..tools.remotion_observe import browser_transport
 from ..ui import messages
@@ -322,21 +323,26 @@ async def run_agent_task(
             health=health or build_health(config),
             journal=journal,
         )
-        outcome = await _run_agent_with_mcp(
-            task,
-            deps,
-            config,
-            bus,
-            history=history,
-            mode=mode,
-            extra_system=extra_system,
-            system_prompt=system_prompt,
-            images=images,
-            step_limit=step_limit,
-            chat_mode=chat_mode,
-            workflow=workflow,
-            allowed_tools=allowed_tools,
-        )
+        try:
+            outcome = await _run_agent_with_mcp(
+                task,
+                deps,
+                config,
+                bus,
+                history=history,
+                mode=mode,
+                extra_system=extra_system,
+                system_prompt=system_prompt,
+                images=images,
+                step_limit=step_limit,
+                chat_mode=chat_mode,
+                workflow=workflow,
+                allowed_tools=allowed_tools,
+            )
+        finally:
+            # Masaüstü kilidi TUR ile sınırlıdır: iptal ya da hatada da bırakılır; yoksa başka
+            # sohbet 300 sn "o tur bitince yeniden dene" alır (bkz. `tools/desktop_lock`).
+            desktop_lock.release(token=tool_context.job_scope)
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
         # kapı turu kestiğinde sebep ZATEN yayınlandı; ikinci bir "(model boş yanıt

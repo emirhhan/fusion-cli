@@ -211,7 +211,7 @@ def desktop_mouse(args: ToolArgs, context: ToolContext) -> ToolResult:
         if isinstance(converted, str):
             return ToolResult.failure(converted)
         end_point = converted
-    busy = desktop_lock.claim()
+    busy = desktop_lock.claim(token=context.job_scope)
     if busy:
         return ToolResult.failure(busy)
     try:
@@ -299,7 +299,7 @@ def desktop_scroll(args: ToolArgs, context: ToolContext) -> ToolResult:
     pixel = _coordinate(args, "x", "y") if "x" in args or "y" in args else None
     if ("x" in args or "y" in args) and pixel is None:
         return ToolResult.failure("x ve y birlikte, sıfırdan büyük veya eşit sayı olmalı.")
-    busy = desktop_lock.claim()
+    busy = desktop_lock.claim(token=context.job_scope)
     if busy:
         return ToolResult.failure(busy)
     try:

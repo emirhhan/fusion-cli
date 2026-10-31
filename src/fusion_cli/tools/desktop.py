@@ -153,14 +153,13 @@ def _post_text(framework: ctypes.CDLL, value: str) -> None:
 
 def desktop_type(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Odaklı alana Unicode metin gönder; içeriği sonuçta tekrar etme."""
-    del context
     error = _mac_only()
     if error:
         return ToolResult.failure(error)
     value = require_str(args, "text")
     if len(value) > DESKTOP_TEXT_MAX_CHARS:
         return ToolResult.failure("Yazılacak metin sınırı aştı.")
-    busy = desktop_lock.claim()
+    busy = desktop_lock.claim(token=context.job_scope)
     if busy:
         return ToolResult.failure(busy)
     try:
@@ -259,7 +258,6 @@ def _post_chord(framework: ctypes.CDLL, chord: KeyChord, hold_ms: int) -> None:
 
 def desktop_key(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Odaklı uygulamaya tuş dizgisi gönder: `cmd+shift+4 enter`, tekrar ve basılı tutma."""
-    del context
     error = _mac_only()
     if error:
         return ToolResult.failure(error)
@@ -272,7 +270,7 @@ def desktop_key(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(
             f"repeat 1-{REPEAT_MAX} arasında, hold_ms 0-{HOLD_MS_MAX} arasında tam sayı olmalı."
         )
-    busy = desktop_lock.claim()
+    busy = desktop_lock.claim(token=context.job_scope)
     if busy:
         return ToolResult.failure(busy)
     try:

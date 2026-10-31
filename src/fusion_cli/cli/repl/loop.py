@@ -28,6 +28,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from ...core.remotion_browser import RemotionBrowser
+from ...tools import desktop_lock
 from ...tools.remotion_observe import browser_transport
 
 if TYPE_CHECKING:
@@ -589,6 +590,8 @@ async def _agent_turn(
             # ve iz verisi (Langfuse) kaybolmamalı (L2-26).
             renderer.abort()
             tracer.flush()
+            # Masaüstü kilidi tur ile sınırlıdır (bkz. `tools/desktop_lock`, `cli/session.py`).
+            desktop_lock.release(token=tool_context.job_scope)
     state.history = outcome.messages
 
 
