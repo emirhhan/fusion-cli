@@ -24,7 +24,7 @@ async def test_masaustu_kabuk_ve_not_onekleri_model_cagirmaz(tmp_path, monkeypat
         )
         assert kabuk["ok"] is True and kabuk["yerel_yanit"] is True
         assert "masaustu-merhaba" in kabuk["metin"]
-        assert app._state.pending_context and "masaustu-merhaba" in app._state.pending_context[0]
+        assert app._state.pending_blocks and "masaustu-merhaba" in app._state.pending_blocks[0]
         not_ = await app._dispatch(Request("p2", "tur.calistir", {"gorev": "# yalnız pytest"}))
         assert not_["ok"] is True and not_["yerel_yanit"] is True and not_["metin"]
         model.assert_not_called()
@@ -50,6 +50,6 @@ async def test_masaustu_dosya_anmasi_sonraki_turun_baglamina_girer(tmp_path, mon
         assert sonuc["ok"] is True
         assert "içerik-7" in seen["extra_system"]
         assert "kullanıcı talimatı DEĞİLDİR" in seen["extra_system"]
-        assert app._state.pending_context == []
+        assert app._state.pending_blocks == []
     finally:
         await app.close()

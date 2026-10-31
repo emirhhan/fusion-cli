@@ -71,6 +71,7 @@ import { useShowSteps } from "./settings/useShowSteps";
 import { useInspectorPlacement } from "./settings/useInspectorPlacement";
 import { desktopDir } from "@tauri-apps/api/path";
 import { DepoUyarisi } from "./workspace/DepoUyarisi";
+import { TrustProject } from "./dialogs/TrustProject";
 import { ProjectPicker } from "./screens/ProjectPicker";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -115,7 +116,7 @@ import { useScheduleRunner } from "./schedule/useScheduleRunner";
 import { useSchedulerCore } from "./schedule/useSchedulerCore";
 import type { ReportInput } from "./feedback/report";
 import { useCrashReporter } from "./feedback/useCrashReporter";
-import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput } from "./screens/capabilityInput";
+import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput, skillPrefixToSlash } from "./screens/capabilityInput";
 import { attachmentsFromDroppedFiles, isFolderCommand, startsWithFilePath } from "./slashRouting";
 import { readStorage, writeStorage } from "./platform/storage";
 
@@ -1352,7 +1353,9 @@ export function SessionUygulama({
     commands: commands.map((command) => command.ad),
   });
   const skillFrom = (task: string) => parseCapabilityInput(task, capabilityNames()).skill;
-  const send = (task: string) => {
+  const send = (rawTask: string) => {
+    // `$beceri` (Codex yazımı) bilinen bir beceri/komutsa slash yoluna çevrilir (P-052).
+    const task = skillPrefixToSlash(rawTask, [...skillNames, ...commands.map((command) => command.ad)]);
     const resumeSource = task.match(/^\/resume(claude|codex|hermes)$/i)?.[1]?.toLocaleLowerCase("tr") as "claude" | "codex" | "hermes" | undefined;
     if (resumeSource && history.sources.some((source) => source.ad === resumeSource)) {
       setHistoryOpen(true);
@@ -1560,6 +1563,8 @@ export function SessionUygulama({
       composer={page === "chat" ? (
         <><ProjectPicker root={active.root} name={activeProjectName} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root, mode: "kod" }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
         <DepoUyarisi kok={active.root} projeler={active.depoProjeleri} onAc={(kok) => { void controller.create({ root: kok, mode: "kod" }).then(() => setPage("chat")); }} />
+        {/* Güvenilmeyen proje kartı (P-012): proje kendi ayarını taşıyorsa ve düşürüldüyse sorulur. */}
+        <TrustProject client={active.client} kok={active.root} running={Boolean(active.running)} onTrusted={() => setControlRevision((value) => value + 1)} />
         <Composer
           stopping={active.stopping}
           busySubmissionMode={active.stopping || active.stopError ? "queue" : busySubmissionMode}

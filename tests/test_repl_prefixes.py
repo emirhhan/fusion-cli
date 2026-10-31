@@ -77,13 +77,13 @@ def test_anilan_dosya_baglama_eklenir_mesaj_degismez(state, tmp_path):
     (tmp_path / "notlar.txt").write_text("içerik 123", encoding="utf-8")
     (tmp_path / "alt").mkdir()
     notes = apply_mentions("@notlar.txt ve @alt dizinine bak", state)
-    assert len(state.pending_context) == 2
-    assert "içerik 123" in state.pending_context[0]
-    assert "andığı dizin" in state.pending_context[1]
+    assert len(state.pending_blocks) == 2
+    assert "içerik 123" in state.pending_blocks[0]
+    assert "andığı dizin" in state.pending_blocks[1]
     assert notes[0].startswith("@notlar.txt bağlama eklendi")
     # Bir sonraki tur bağlamı BİR KEZ alır.
     assert "içerik 123" in state.take_pending_digest()
-    assert state.pending_context == [] and state.take_pending_digest() == ""
+    assert state.pending_blocks == [] and state.take_pending_digest() == ""
 
 
 def test_olmayan_dosya_ve_mcp_kaynagi_notla_gecilir(state):
@@ -105,7 +105,7 @@ def test_buyuk_dosya_kirpilir(state, tmp_path):
 async def test_kabuk_komutu_calisir_ve_ciktisi_baglama_girer(state):
     result = await prefixes.run_shell_prefix(state, "echo merhaba-fusion")
     assert result.ok and "merhaba-fusion" in result.output
-    assert state.pending_context and "$ echo merhaba-fusion" in state.pending_context[0]
+    assert state.pending_blocks and "$ echo merhaba-fusion" in state.pending_blocks[0]
     assert "yeniden çalıştırma" in state.take_pending_digest()
 
 
@@ -113,7 +113,7 @@ async def test_kabuk_komutu_calisir_ve_ciktisi_baglama_girer(state):
 async def test_plan_kipinde_kabuk_calismaz(state):
     state.approval = ApprovalMode.PLAN
     result = await prefixes.run_shell_prefix(state, "echo olmasin")
-    assert not result.ok and result.output == "" and state.pending_context == []
+    assert not result.ok and result.output == "" and state.pending_blocks == []
     assert "Plan kipinde" in result.notes[0]
 
 
@@ -217,8 +217,8 @@ def test_anilan_dosya_sinirli_okunur(state, tmp_path, monkeypatch):
 def test_bekleyen_baglam_toplami_sinirli(state):
     for i in range(6):
         prefixes.push_pending_context(state, str(i) + "z" * prefixes.MAX_OUTPUT_CHARS)
-    assert sum(len(b) for b in state.pending_context) <= prefixes.PENDING_CONTEXT_MAX_CHARS
-    assert state.pending_context[-1].startswith("5")
+    assert sum(len(b) for b in state.pending_blocks) <= prefixes.PENDING_CONTEXT_MAX_CHARS
+    assert state.pending_blocks[-1].startswith("5")
 
 
 @pytest.mark.asyncio
@@ -234,7 +234,7 @@ async def test_kabuk_degisikligi_onceki_turun_undo_kaydini_silmez(state, tmp_pat
 
 
 def test_iptal_edilen_turun_baglami_geri_konur(state):
-    state.pending_context.append("blok")
+    state.pending_blocks.append("blok")
     digest = state.take_pending_digest()
     assert state.take_pending_digest() == ""
     state.restore_pending_digest(digest)

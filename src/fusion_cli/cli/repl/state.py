@@ -13,16 +13,20 @@ from uuid import uuid4
 
 from ...config.live import ConfigRevision, reload_checked, revision
 from ...config.models import Config
+from ...config.permission_rules import PermissionRuleSet, load_permission_rules
 from ...config.permissions import load_allowed_commands
 from ...core.changeset import ChangeSet
 from ...core.health import HealthRegistry
 from ...core.remotion_browser import RemotionBrowser
+from ...core.turn_checkpoints import TurnCheckpointLedger
 from ...core.types import FusionResult, Message
+from ...core.worktree import Worktree
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
 from ...engines.agent.remotion_bridge import FrameTransport
 from ...memory.factory import Memory
 from ...observability.cost import CostTracker
 from ...tools.capabilities import CapabilityRegistry
+from ..rule_notices import attach_rule_writer
 from .macros import Mode
 
 
@@ -63,6 +67,20 @@ class Engine(Enum):
 TASK_TYPES = ("general", "code", "reasoning", "agent")
 
 
+@dataclass(frozen=True, slots=True)
+class PendingExtras:
+    """`/beceri` komutunun sıradaki tura taşıdığı ekler (bkz. `ReplState.take_pending_extras`)."""
+
+    context: str = ""
+    tools: frozenset[str] | None = None
+
+    def merged_tools(self, base: set[str] | None) -> set[str] | None:
+        """Yüzeyin kendi kısıtıyla kesişim; ikisi de yoksa None (kısıt yok)."""
+        if self.tools is None:
+            return base
+        return set(self.tools) if base is None else set(self.tools) & base
+
+
 @dataclass(slots=True)
 class ReplState:
     """Oturumun tüm değişken durumu."""
@@ -74,6 +92,10 @@ class ReplState:
     home: Path
     #: Transcript ve checkpoint aynı sohbet sahibini kullanır; yeni REPL ayrı kapsamdır.
     conversation_id: str = field(default_factory=lambda: f"session-{uuid4().hex}", kw_only=True)
+    #: Kullanıcının sohbete verdiği ad (`--name`, `/rename`); yoksa boş.
+    conversation_name: str = field(default="", kw_only=True)
+    #: Oturum bir git çalışma ağacındaysa künyesi (`--worktree`, `/worktree`); `root` o ağaçtır.
+    worktree: Worktree | None = field(default=None, kw_only=True)
     #: Proje kökünün YANINDA erişime açılan dizinler (`--add-dir`).
     #
     # Tek-atış `fusion agent` bunu destekliyordu ama interaktif oturum
@@ -106,6 +128,9 @@ class ReplState:
     #: Yalnızca SON tur tutulur: daha derin bir geçmiş, kullanıcının aradan yaptığı
     #: elle değişiklikleri sessizce ezme riski taşır.
     last_changes: ChangeSet | None = None
+    #: Tur başına kod + konuşma checkpoint'leri (`/rewind`). Her agent turu `begin` ile
+    #: açılır; turun `ChangeSet`'i buradan gelir ve `last_changes` ile aynı nesnedir.
+    checkpoints: TurnCheckpointLedger = field(default_factory=TurnCheckpointLedger)
     #: Skill/agent kütüphanesi. Tarama oturumda bir kez yapılır.
     capabilities: CapabilityRegistry | None = None
     #: Oturum boyunca paylaşılan sağlayıcı sağlığı (circuit breaker + güvenilirlik).
@@ -120,6 +145,10 @@ class ReplState:
     pending_task: str = ""
     #: Bekleyen görevin davranış kipi (hedef, mülakat…).
     pending_mode: Mode = Mode.NONE
+    #: `/beceri` ile hazırlanan ve sıradaki turun sistem bağlamına eklenecek beceri gövdesi.
+    pending_context: str = ""
+    #: `allowed-tools` kısıtı: sıradaki turda sunulacak Fusion araç adları; None = kısıt yok.
+    pending_tools: frozenset[str] | None = None
 
     @classmethod
     def from_runtime_config(cls, config: Config, **kwargs: object) -> ReplState:
@@ -146,6 +175,17 @@ class ReplState:
         self.pending_task, self.pending_mode = "", Mode.NONE
         return task, mode
 
+    def refresh_capability_roots(self) -> None:
+        """`/add-dir` sonrası beceri kataloğunu ek köklerle yeniden kur (P-052)."""
+        if self.capabilities is not None:
+            self.capabilities = self.capabilities.with_extra_roots(self.extra_roots)
+
+    def take_pending_extras(self) -> PendingExtras:
+        """Beceri bağlamı ve araç kısıtını BİR KEZ al; sonraki turlara sızmasın."""
+        extras = PendingExtras(self.pending_context, self.pending_tools)
+        self.pending_context, self.pending_tools = "", None
+        return extras
+
     #: `.claude/settings.local.json` içindeki onaysız komutlar.
     allowed_commands: frozenset[str] = frozenset()
     #: "Oturum boyunca" verilen onay izinleri. Politika her tur yeniden kurulur;
@@ -158,13 +198,13 @@ class ReplState:
 
     #: `!` kabuk çıktısı ve `@dosya` içerikleri (P-022): bir sonraki turun sistem
     #: bağlamına girer, sonra temizlenir. Devralma künyesiyle aynı yoldan taşınır.
-    pending_context: list[str] = field(default_factory=list)
+    pending_blocks: list[str] = field(default_factory=list)
 
     def take_pending_digest(self) -> str:
         """Devralma künyesi + bekleyen bağlam bloklarını bir kez al; sonraki turlardan temizle."""
-        parts = [self.pending_digest or "", *self.pending_context]
+        parts = [self.pending_digest or "", *self.pending_blocks]
         self.pending_digest = None
-        self.pending_context = []
+        self.pending_blocks = []
         return "\n\n".join(part for part in parts if part)
 
     def restore_pending_digest(self, digest: str) -> None:
@@ -181,11 +221,34 @@ class ReplState:
 
     def __post_init__(self) -> None:
         if self.capabilities is None:
-            self.capabilities = CapabilityRegistry(self.home, self.root)
+            # `capabilities.disabled` kalıcı kapatma listesi her oturumda uygulanır (P-051).
+            disabled = frozenset(getattr(self.config.capabilities, "disabled", ()))
+            self.capabilities = CapabilityRegistry(
+                self.home,
+                self.root,
+                disabled_skills=disabled,
+                disabled_agents=disabled,
+                extra_roots=self.extra_roots,
+            )
         if not self.allowed_commands:
             self.allowed_commands = load_allowed_commands(self.root)
+        # Onay kartındaki "bir daha sorma" kalıcı kurala dönüşür (P-003); kök çağrı anında
+        # okunur, böylece proje değişince yeni projeye yazılır.
+        attach_rule_writer(self.approval_memory, lambda: self.root)
         self.config_revision = revision(self.config)
         self.config_baseline = self.config
+
+    def permission_rules(self) -> PermissionRuleSet:
+        """İzin kuralları her turda dosyadan taze okunur (P-001).
+
+        `/permissions add` ve onay kartındaki "bir daha sorma" sonraki turda etkili olur;
+        dosyalar küçük, okuma ucuzdur.
+        """
+        return load_permission_rules(
+            self.root,
+            block_reads_outside_root=self.config.runtime.block_reads_outside_root,
+            block_writes_outside_root=self.config.runtime.block_writes_outside_root,
+        )
 
     def refresh_config(self) -> bool:
         """Bir sonraki turdan önce kontrol paneli yapılandırma değişikliklerini uygula.

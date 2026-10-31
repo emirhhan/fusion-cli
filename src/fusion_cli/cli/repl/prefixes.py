@@ -196,10 +196,10 @@ def _read_block(path: Path, label: str) -> str | None:
 
 def push_pending_context(state: ReplState, block: str) -> None:
     """Bloğu bekleyen bağlama ekle; toplam `PENDING_CONTEXT_MAX_CHARS`'ı aşarsa en eskisi düşer."""
-    blocks = [*state.pending_context, block]
+    blocks = [*state.pending_blocks, block]
     while len(blocks) > 1 and sum(len(item) for item in blocks) > PENDING_CONTEXT_MAX_CHARS:
         blocks.pop(0)
-    state.pending_context = blocks
+    state.pending_blocks = blocks
 
 
 @dataclass(frozen=True, slots=True)

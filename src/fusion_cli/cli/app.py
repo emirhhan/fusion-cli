@@ -32,7 +32,8 @@ from ..config.readiness import Readiness, evaluate
 from ..core.errors import ConfigError, FusionError
 from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
-from ..engines.agent.approval import ApprovalMode, parse_mode
+from ..core.worktree import Worktree, WorktreeSwitch
+from ..engines.agent.approval import ApprovalMemory, ApprovalMode, parse_mode
 from ..ui import messages, theme
 from .app_host import AppHostDependencies
 
@@ -51,7 +52,8 @@ from . import (
 )
 from .cleanup import with_web_cleanup
 from .prompter import ConsolePrompter
-from .repl import run_repl
+from .repl import run_repl, session_resume, worktrees
+from .rule_notices import attach_rule_writer, print_rule_notices
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
 from .setup_command import run_setup
 
@@ -101,7 +103,6 @@ def main_callback(
     config_set: Annotated[
         list[str] | None,
         typer.Option(
-            "-c",
             "--set",
             help="Oturumluk ayar bölüm.alan=değer (ör. runtime.max_tokens=8192); dosyaya yazmaz.",
         ),
@@ -112,6 +113,35 @@ def main_callback(
             "--profile", help="Oturumluk model kademesi (low, medium, high, ultra, premium)."
         ),
     ] = None,
+    continue_last: Annotated[
+        bool,
+        typer.Option("--continue", "-c", help="Bu projedeki son Fusion sohbetini sürdür."),
+    ] = False,
+    resume: Annotated[
+        str,
+        typer.Option(
+            "--resume", "-r", help="Kimliği, adı ya da kimlik öneki verilen sohbeti sürdür."
+        ),
+    ] = "",
+    fork_session: Annotated[
+        bool,
+        typer.Option(
+            "--fork-session",
+            help="Sürdürülen sohbeti kopyalayıp yeni kimlikle aç; özgün sohbet değişmez.",
+        ),
+    ] = False,
+    name: Annotated[
+        str,
+        typer.Option("--name", "-n", help="Sohbete ad ver (/resume listesinde ve --resume <ad>)."),
+    ] = "",
+    worktree: Annotated[
+        str,
+        typer.Option(
+            "--worktree",
+            "-w",
+            help="Git çalışma ağacında çalış: .fusion/worktrees/<ad>, dal worktree-<ad>.",
+        ),
+    ] = "",
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
     if ctx.invoked_subcommand is not None:
@@ -130,20 +160,40 @@ def main_callback(
         # yanıt veremedi" hatasına sürüklerdi. Eksik olan şey söylenir.
         console.print(f"[{theme.WARN}]{messages.SETUP_NO_KEYS}[/{theme.WARN}]")
         raise typer.Exit(1)
-    root = Path.cwd()
-    raise typer.Exit(
-        asyncio.run(
-            with_web_cleanup(
-                run_repl(
-                    config,
-                    memory=open_memory(config, root=root),
-                    root=root,
-                    console=console,
-                    extra_roots=tuple(add_dir or ()),
-                )
+    try:
+        root, tree = worktrees.resolve_launch_root(Path.cwd(), worktree)
+        target = session_resume.resolve_launch(
+            config.memory_dir,
+            root,
+            continue_last=continue_last,
+            resume=resume,
+            fork=fork_session,
+            name=name,
+        )
+    except FusionError as error:
+        error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(1) from None
+    if tree is not None and worktree.strip():
+        _print_worktree_notice(tree)
+    exit_code = asyncio.run(
+        with_web_cleanup(
+            run_repl(
+                config,
+                memory=open_memory(config, root=root),
+                root=root,
+                console=console,
+                extra_roots=tuple(add_dir or ()),
+                resume=target,
+                worktree=tree,
             )
         )
     )
+    raise typer.Exit(exit_code)
+
+
+def _print_worktree_notice(tree: Worktree) -> None:
+    text = messages.WORKTREE_ENTERED.format(path=tree.path, branch=tree.branch)
+    console.print(f"[{theme.DIM}]{escape(text)}[/{theme.DIM}]")
 
 
 @app.command()
@@ -329,6 +379,14 @@ def agent(
             help="Proje kökünün YANINDA erişime açılacak dizin. Birden çok kez verilebilir.",
         ),
     ] = None,
+    worktree: Annotated[
+        str,
+        typer.Option(
+            "--worktree",
+            "-w",
+            help="Görevi izole git çalışma ağacında koş (.fusion/worktrees/<ad>); ağaç korunur.",
+        ),
+    ] = "",
 ) -> None:
     """Görevi araçlarla çalıştır: dosya oku/yaz, komut çalıştır, web'de ara."""
     if not task.strip():
@@ -336,12 +394,24 @@ def agent(
     approval = _parse_mode(mode)
 
     config = _session_config()
-    root = Path.cwd()
+    try:
+        root, tree = worktrees.resolve_launch_root(Path.cwd(), worktree)
+    except FusionError as error:
+        error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(1) from None
+    if tree is not None and worktree.strip() and not as_json:
+        _print_worktree_notice(tree)
     renderer = ConsoleRenderer(console, show_progress=not quiet)
     observers = build_observers(
         task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
     )
+    # Tek atışta oturum yoktur: `enter_worktree` isteği tur sonunda köke dönüşmez, yalnız
+    # açılan ağaç bildirilir (ağaç korunur; sonraki iş `fusion -w <ad>` ile oradan sürer).
+    switch = WorktreeSwitch()
 
+    # `k` (kalıcı izin) burada da kural YAZAR: hafızaya yazıcı bağlanır, bildirim tur sonunda
+    # basılır (P-003; ölçüldü 31 Ekim: bağlanmıyordu, `k` yalnız oturum içi hatırlıyordu).
+    approval_memory = attach_rule_writer(ApprovalMemory(), root)
     outcome = _run_observed(
         with_web_cleanup(
             run_agent_task(
@@ -362,17 +432,66 @@ def agent(
                 home=Path.home(),
                 memory=open_memory(config, root=root, enabled=not no_memory),
                 extra_roots=tuple(add_dir or ()),
+                approval_memory=approval_memory,
+                worktree_switch=switch,
             )
         ),
         renderer,
         observers,
     )
     observers.finish()
+    print_rule_notices(console, approval_memory)
+    opened, _exit_requested = switch.take()
+    if opened is not None and not as_json:
+        _print_worktree_notice(opened)
     _print_usage(observers, quiet=quiet or as_json)
     # Çıkış kodu `outcome.ok`a bakar (paperclip ile aynı kural): Ölçüldü (30 Ekim) yalnız
     # boş metin 1 yapıyordu; hata mesajı/bütçe durdurması/hız sınırı dolu metinle 0 dönüyor,
     # betikler başarısızlığı yakalayamıyordu (L1-46).
     if not outcome.final_text.strip() or not outcome.ok:
+        raise typer.Exit(1)
+
+
+@app.command()
+def init(
+    fmt: str = typer.Option(
+        "agents", "--format", "-f", help="Üretilecek dosya: agents (AGENTS.md) | claude (CLAUDE.md)"
+    ),
+    mode: str = typer.Option("edits", "--mode", "-m", help="Onay modu (varsayılan: edits)."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="İlerleme satırlarını gizle."),
+) -> None:
+    """Depoyu inceleyip kök talimat dosyasını (AGENTS.md / CLAUDE.md) üret — /init ile aynı."""
+    from ..engines.agent.instruction_audit import init_task
+
+    config = load_config()
+    root = Path.cwd()
+    task = init_task(root, Path.home(), fmt=fmt)
+    renderer = ConsoleRenderer(console, show_progress=not quiet)
+    observers = build_observers(
+        task, renderer=renderer, as_json=False, trace_dir=config.memory_dir / "traces"
+    )
+    outcome = _run_observed(
+        with_web_cleanup(
+            run_agent_task(
+                task,
+                config,
+                sinks=observers.sinks,
+                prompter_factory=lambda flush: ConsolePrompter(
+                    console,
+                    ToolContext(root=root, restrict_to_root=config.runtime.restrict_to_root),
+                    flush=flush,
+                ),
+                mode=_parse_mode(mode),
+                root=root,
+                home=Path.home(),
+                memory=open_memory(config, root=root),
+            )
+        ),
+        renderer,
+        observers,
+    )
+    observers.finish()
+    if not outcome.ok:
         raise typer.Exit(1)
 
 
@@ -492,6 +611,86 @@ def trust(
         raise typer.Exit(code=1)
     project_trust.trust_project(root)
     console.print(f"[green]Güvenildi:[/green] {root}")
+
+
+@app.command()
+def permissions(
+    action: Annotated[
+        str, typer.Argument(help="list | add | remove (Claude Code /permissions eşdeğeri).")
+    ] = "list",
+    decision: Annotated[str, typer.Argument(help="allow | ask | deny")] = "",
+    pattern: Annotated[
+        list[str] | None,
+        typer.Argument(help="Kalıp: Bash(npm test *), Edit(/src/**), WebFetch(domain:x)…"),
+    ] = None,
+    user: Annotated[
+        bool,
+        typer.Option("--user", help="Projeye değil kullanıcı dosyasına (permissions.json) yaz."),
+    ] = False,
+    path: Annotated[
+        Path, typer.Option("--path", help="Proje kökü (varsayılan: bulunduğun dizin).")
+    ] = Path(),
+) -> None:
+    """İzin kurallarını (allow/ask/deny) listele, ekle, sil (P-003).
+
+    Kurallar Claude Code ile aynı dosyalarda durur: projenin `.claude/settings.local.json`'ı
+    (güvenilen projede) ya da kullanıcının `permissions.json`'ı. Örnek:
+    `fusion permissions add allow "Bash(npm test *)"`.
+    """
+    from ..config import permission_admin
+    from ..config.loader import load_config
+    from ..ui import messages
+
+    root = path.resolve()
+    if action in ("list", "liste"):
+        rows = permission_admin.rule_rows(root)
+        if not rows:
+            console.print(messages.PERMISSIONS_EMPTY)
+        for row in rows:
+            console.print(escape(f"· {row.pattern}  [{row.decision}]  ({row.source})"))
+        config = load_config()
+        console.print(
+            f"kök dışı: okuma {'KAPALI' if config.runtime.block_reads_outside_root else 'açık'} · "
+            f"yazma {'KAPALI' if config.runtime.block_writes_outside_root else 'onayla'}"
+        )
+        return
+    if action not in ("add", "remove") or not decision or not pattern:
+        console.print(f"[red]{escape(messages.PERMISSIONS_USAGE)}[/red]")
+        raise typer.Exit(code=2)
+    try:
+        karar = permission_admin.parse_decision(decision)
+    except ValueError:
+        console.print(
+            f"[red]{escape(messages.PERMISSIONS_BAD_DECISION.format(given=decision))}[/red]"
+        )
+        raise typer.Exit(code=2) from None
+    kalip = " ".join(pattern)
+    try:
+        rule = permission_admin.parse_pattern(kalip, karar)
+    except ValueError:
+        console.print(f"[red]{escape(messages.PERMISSIONS_BAD_PATTERN.format(given=kalip))}[/red]")
+        raise typer.Exit(code=2) from None
+    try:
+        if action == "add":
+            change = permission_admin.add_permission_rule(root, rule, user_level=user)
+            text = (
+                permission_admin.added_message(change, karar)
+                if change.changed
+                else messages.PERMISSIONS_EXISTS.format(rule=change.pattern, decision=karar.value)
+            )
+        else:
+            removed = permission_admin.remove_permission_rule(root, rule)
+            text = (
+                messages.PERMISSIONS_REMOVED.format(
+                    rule=removed.pattern, decision=karar.value, path=removed.path
+                )
+                if removed is not None
+                else messages.PERMISSIONS_NOT_FOUND.format(rule=rule.pattern, decision=karar.value)
+            )
+    except FusionError as error:
+        console.print(f"[red]{escape(str(error))}[/red]")
+        raise typer.Exit(code=1) from error
+    console.print(escape(text))
 
 
 @app.command("adopt-data")

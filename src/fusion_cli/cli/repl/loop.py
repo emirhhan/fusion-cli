@@ -49,6 +49,7 @@ from ...core.events import (
 from ...core.followups import suggest_followups
 from ...core.tools import ToolContext
 from ...core.types import FusionResult
+from ...core.worktree import Worktree
 from ...engines.agent.compaction import compress
 from ...engines.agent.turn_evidence import evidence_from_turn
 from ...memory.factory import Memory
@@ -61,11 +62,22 @@ from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
 from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
-from . import help_view, history_view, macros, prefixes, status_line, view_commands
+from ..rule_notices import print_rule_notices
+from . import (
+    help_view,
+    history_view,
+    macros,
+    prefixes,
+    session_resume,
+    status_line,
+    view_commands,
+    worktrees,
+)
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
 from .input import ReplInput
 from .macros import Mode
 from .partial_turn import PartialTurn
+from .skill_commands import skill_prefix_to_slash
 from .state import Engine, Reminder, ReplState
 
 #: Komut geçmişinin saklandığı dosya adı.
@@ -104,8 +116,15 @@ async def run_repl(
     extra_roots: tuple[Path, ...] = (),
     remotion_transport: FrameTransport | None = None,
     remotion_browser: RemotionBrowser | None = None,
+    resume: session_resume.ResumeTarget | None = None,
+    worktree: Worktree | None = None,
 ) -> int:
-    """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür."""
+    """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür.
+
+    `resume` verilirse (`--continue/--resume/--name`) oturum o sohbetin kimliğine ve
+    geçmişine bağlı açılır; verilmezse her açılış yeni bir sohbettir. `worktree`
+    verilirse (`--worktree`) `root` o ağaçtır; çıkışta temiz ağaç kaldırılır.
+    """
     # Varsayılan: Ink-benzeri tek yol TUI (Claude Code modeli). Eski satır-içi mod yalnızca
     # acil yedek olarak FUSION_INLINE=1 ile açılır; TUI kararlılığı doğrulanınca kaldırılacak
     # (bkz. docs/BACKLOG.md). Borulu/CI kullanımı (`echo /help | fusion`) tam-ekran
@@ -120,7 +139,27 @@ async def run_repl(
         remotion_transport=remotion_transport,
         remotion_browser=remotion_browser,
         health=build_health(config),
+        worktree=worktree,
     )
+    if resume is not None:
+        session_resume.apply_target(state, resume)
+    try:
+        return await _run_surface(state, config, console, resume)
+    finally:
+        # `--worktree`: oturum bitince temiz ağaç kaldırılır, iş kalmışsa yolu söylenir.
+        if worktree is not None and state.worktree is not None:
+            console.print(
+                f"[{theme.DIM}]{escape(worktrees.leave_session_worktree(state))}[/{theme.DIM}]"
+            )
+
+
+async def _run_surface(
+    state: ReplState,
+    config: Config,
+    console: Console,
+    resume: session_resume.ResumeTarget | None,
+) -> int:
+    """Yüzeyi seç (TUI ya da satır-içi) ve çalıştır."""
     # Terminal paleti oturum başında (P-070): tüm yüzeyler `theme.X`'i çağrı anında okur.
     view_commands.apply_theme_setting(state)
     inline_requested = (
@@ -129,14 +168,20 @@ async def run_repl(
     if not inline_requested and is_interactive_terminal():
         from .tui_loop import run_tui_repl
 
-        return await run_tui_repl(state, console)
+        # Sürdürme bilgisi yalnız varsa geçirilir: TUI giriş noktasının eski çağrı
+        # biçimi (state, console) ve onu taklit eden testler aynen çalışmaya devam eder.
+        if resume is None:
+            return await run_tui_repl(state, console)
+        return await run_tui_repl(state, console, resume=resume)
 
     # Ev dizini GEÇİLİR: dinamik `/resume<kaynak>` komutları ancak böyle kaydolur.
     # Argümansız çağrı bu yüzeyi sessizce komutsuz bırakıyordu.
-    registry = build_registry(state.home)
+    registry = build_registry(state.home, skills=lambda: state.capabilities)
+    # Sözlük çağrılabilir verilir: `/skills reload` ya da `/add-dir` sonrası yeni beceri
+    # komutları Tab tamamlamada da görünsün (dinamik defter, P-019).
     reader = ReplInput(
         config.memory_dir / HISTORY_FILE,
-        registry.completion_words(),
+        registry.completion_words,
         mode=state.approval,
         roots=(state.root, *state.extra_roots),
     )
@@ -151,6 +196,8 @@ async def run_repl(
 
     reader.vim_mode = bool(getattr(state.config.runtime, "vim_mode", False))
     banner.print_welcome(console, session_info(state))
+    if resume is not None:
+        console.print(f"[{theme.DIM}]{session_resume.launch_notice(resume)}[/{theme.DIM}]")
     bildirim = apprentice_switch_notice(state.config)
     if bildirim:
         console.print(bildirim)
@@ -292,6 +339,8 @@ async def _handle(
     if (note := prefixes.memory_note(line)) is not None:
         console.print(f"[{theme.DIM}]{escape(prefixes.add_memory_note(state, note))}[/{theme.DIM}]")
         return
+    # Codex yazımı `$beceri` de slash ile aynı yola gider (P-052).
+    line = skill_prefix_to_slash(line, registry.is_dynamic)
     if is_command_line(line):
         await _run_command(line, state, registry, reader, console)
         # Makrolar görev HAZIRLAR, çalıştırmaz: komut işleyicileri saf ve senkron
@@ -444,6 +493,7 @@ async def _drive_agent(
     extra_system: str,
     step_limit: int | None,
     workflow: bool = False,
+    allowed_tools: set[str] | None = None,
 ) -> AgentOutcome:
     """Agent turunu çalıştır; MCP sunucuları tanımlıysa dış araçları da bağla.
 
@@ -456,6 +506,7 @@ async def _drive_agent(
         "extra_system": extra_system,
         "step_limit": step_limit,
         "workflow": workflow,
+        "allowed_tools": allowed_tools,
     }
     if not state.config.mcp_servers and not state.config.hosted_connectors:
         return await run_agent(line, deps, **kwargs)
@@ -499,6 +550,8 @@ async def _drive_agent(
 async def _fusion_turn(line: str, state: ReplState, console: Console) -> None:
     from ..session import run_task
 
+    # Beceri ekleri bu motorda kullanılmaz; bekleyip sonraki agent turuna sızmasın.
+    state.take_pending_extras()
     renderer = ConsoleRenderer(
         console, show_all_answers=state.show_all_answers, show_call_details=True
     )
@@ -540,11 +593,16 @@ async def _agent_turn(
         bus.subscribe(renderer)
         bus.subscribe(state.cost)
         bus.subscribe(tracer)
+        # Tur checkpoint'i: konuşmanın kopyası + bu turun değişiklik kümesi (`/rewind`).
+        checkpoint = state.checkpoints.begin(line, state.history)
         tool_context = ToolContext(
             root=state.root,
             extra_roots=state.extra_roots,
             restrict_to_root=state.config.runtime.restrict_to_root,
+            block_reads_outside_root=state.config.runtime.block_reads_outside_root,
+            block_writes_outside_root=state.config.runtime.block_writes_outside_root,
             remotion_browser=state.remotion_browser,
+            changes=checkpoint.changes,
         )
         partial = PartialTurn()
         prompter = ConsolePrompter(
@@ -569,6 +627,7 @@ async def _agent_turn(
             capabilities=state.capabilities,
             home=state.home,
             allowed_commands=state.allowed_commands,
+            permission_rules=state.permission_rules(),
             background=background,
             verifier=build_verifier(
                 state.config,
@@ -597,8 +656,9 @@ async def _agent_turn(
         state.last_changes = tool_context.changes
         digest = state.take_pending_digest()
         try:
+            extras = state.take_pending_extras()
             turn_extra_system = "\n\n".join(
-                part for part in (macros.mode_prompt(mode), digest) if part
+                part for part in (macros.mode_prompt(mode), digest, extras.context) if part
             )
             outcome = await _drive_agent(
                 run_agent,
@@ -610,6 +670,7 @@ async def _agent_turn(
                 extra_system=turn_extra_system,
                 step_limit=macros.mode_step_limit(mode),
                 workflow=macros.mode_workflow(mode),
+                allowed_tools=extras.merged_tools(None),
             )
             # Boş cevap yalnızca tur temiz bittiyse hatadır; bkz. `cli/session.py`.
             if not outcome.final_text.strip() and outcome.ok:
@@ -632,6 +693,7 @@ async def _agent_turn(
                     FollowupsSuggested(tuple((item.label, item.prompt) for item in oneriler))
                 )
             bus.publish(TurnFinished())
+            print_rule_notices(console, state.approval_memory)
         except (asyncio.CancelledError, Exception):
             state.history = partial.history_after_interruption(
                 previous=state.history, task=line, root=state.root
@@ -645,6 +707,10 @@ async def _agent_turn(
             renderer.abort()
             tracer.flush()
     state.history = outcome.messages
+    # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır (kök tur ortasında değişmez).
+    switched = worktrees.apply_switch(state, tool_context)
+    if switched:
+        console.print(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")
 
 
 def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:

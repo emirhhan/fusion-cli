@@ -61,11 +61,17 @@ class ReplInput:
     def __init__(
         self,
         history_path: Path,
-        words: list[str],
+        words: list[str] | Callable[[], list[str]],
         *,
         mode: ApprovalMode,
         roots: tuple[Path, ...] = (),
     ) -> None:
+        """`words` bir çağrılabilir olabilir: tamamlama sözlüğü her istemde yeniden alınır.
+
+        Ölçüldü (31 Ekim): sözlük başlangıçta bir kez alınıyordu; `/skills new`, `/skills
+        reload` ya da `/add-dir` ile eklenen beceri `/ad` olarak çalışıyor ama Tab
+        tamamlamada görünmüyordu.
+        """
         self.mode = mode
         #: `@yol` tamamlamasının gezineceği kökler (proje kökü + `--add-dir`).
         self.roots = roots
@@ -213,7 +219,10 @@ def toolbar_enabled() -> bool:
 
 
 def _build_session(
-    owner: ReplInput, history_path: Path, words: list[str], roots: tuple[Path, ...] = ()
+    owner: ReplInput,
+    history_path: Path,
+    words: list[str] | Callable[[], list[str]],
+    roots: tuple[Path, ...] = (),
 ) -> Any:
     """prompt_toolkit oturumunu kur. Kurulamazsa None → düz girişe düşülür."""
     try:
@@ -231,7 +240,8 @@ def _build_session(
 
         return PromptSession(
             history=FileHistory(str(history_path)),
-            # `/komut` ve `@yol` tamamlama tek tamamlayıcıda (P-022).
+            # `/komut` ve `@yol` tamamlama tek tamamlayıcıda (P-022); sözlük çağrılabilir olabilir,
+            # dinamik beceri komutları eklendikçe tamamlama da yenilenir (P-019).
             completer=ReplCompleter(words, roots),
             # Alt bilgi çubuğu VARSAYILAN OLARAK KAPALI: tam genişlikte olduğu için
             # terminal daraldığında sarıyor ve resize'da istem kopyası bırakıyordu.

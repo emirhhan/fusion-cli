@@ -33,7 +33,7 @@ from typing import Any, Literal, NotRequired, TypedDict
 
 from rich.console import Console
 
-from ..cli.repl import model_flows, output_style_command, profiles_flow, provider_flow
+from ..cli.repl import model_flows, output_style_command, profiles_flow, provider_flow, rewind
 from ..cli.repl.commands import CommandRegistry, model_command_result
 from ..cli.repl.state import ReplState
 from ..config.credentials import FernetSecretStore
@@ -90,8 +90,10 @@ PickerCall = Callable[..., str | None]
 #: Bu ÖN EKLE başlayan komutlar terminal dışında hiç köprülenmedi: dinamik
 #: `/resume<kaynak>` ailesi argümansız çağrıldığında düz REPL `pick()` açar
 #: (bkz. `cli/repl/commands.py::_resume`). Appserver'da terminal yok; bu yüzden
-#: bunlar `run_command`'a hiç girmeden açıkça reddedilir.
-_UNSUPPORTED_INTERACTIVE_PREFIXES = ("resume",)
+#: bunlar `run_command`'a hiç girmeden açıkça reddedilir. Fusion'ın kendi `/resume`
+#: ve `/branch` komutları da burada kalır: masaüstünün sekme modeli bunları kendi
+#: istekleriyle (`sohbet.listele`, `sohbet.dallan`) yapar; slash yolu sekmeyi şaşırtırdı.
+_UNSUPPORTED_INTERACTIVE_PREFIXES = ("resume", "branch")
 #: Yalnız terminale özgü komutlar: masaüstünde karşılığı yok (tema/görünüm/tuş bağı/durum
 #: satırı prompt_toolkit'e aittir). Ölçüldü (31 Ekim): "destekleniyor" görünüp kalıcı config
 #: ya da keybindings.json yazıyor, masaüstünde hiçbir etkisi olmuyordu.
@@ -221,6 +223,33 @@ def command_choices(state: ReplState, name: str, argument: str = "") -> ChoicePa
         return _profiles_choices(state, stripped)
     if canonical == "providers":
         return _providers_choices(stripped)
+    if canonical in ("rewind", "checkpoint"):
+        return _rewind_choices(state, stripped)
+    return None
+
+
+def _rewind_choices(state: ReplState, argument: str) -> ChoicePayload | None:
+    """`/rewind` iki adımdır: tur → kapsam. Tam argüman (`3 kod`) seçici açmaz.
+
+    Masaüstü `komut.secenekler` ile aynı seçici deseni kullanır; sohbet geçmişi ve
+    dosyalar `rewind_command` üzerinden, terminalle AYNI defterden geri sarılır.
+    """
+    entries = state.checkpoints.entries()
+    if not entries:
+        return None
+    if not argument:
+        return _payload(
+            "tur", "secim", messages.REWIND_PICK_TURN, rewind.turn_choices(entries), "rewind", ""
+        )
+    if argument.isdigit() and state.checkpoints.find(int(argument)) is not None:
+        return _payload(
+            "kapsam",
+            "secim",
+            messages.REWIND_PICK_SCOPE,
+            rewind.scope_choices(),
+            "rewind",
+            f"{argument} ",
+        )
     return None
 
 

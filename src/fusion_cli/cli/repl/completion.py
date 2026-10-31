@@ -14,7 +14,7 @@ Satır-içi `PromptSession` ve tam-ekran `TextArea` aynı sınıfı kullanır.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
@@ -71,7 +71,8 @@ def path_suggestions(partial: str, roots: Iterable[Path]) -> list[str]:
 class ReplCompleter(Completer):
     """Komut adı ve `@yol` tamamlayıcısı."""
 
-    def __init__(self, words: list[str], roots: tuple[Path, ...]) -> None:
+    def __init__(self, words: list[str] | Callable[[], list[str]], roots: tuple[Path, ...]) -> None:
+        #: Çağrılabilirse her tamamlamada yeniden alınır (dinamik beceri komutları, P-019).
         self._words = words
         self._roots = roots
 
@@ -85,6 +86,7 @@ class ReplCompleter(Completer):
                 yield Completion(f"@{suggestion}", start_position=-len(word), display=suggestion)
             return
         if word.startswith("/") and document.text_before_cursor.lstrip() == word:
-            for candidate in self._words:
+            words = self._words() if callable(self._words) else self._words
+            for candidate in words:
                 if candidate.startswith(word):
                     yield Completion(candidate, start_position=-len(word))

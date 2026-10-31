@@ -98,7 +98,7 @@ def test_context_sistem_istemi_ve_arac_tanimlari_tahminle_sayilir(state):
     """Ölçüldü (31 Ekim): yeni oturumda `/context` 'Sistem 0 tok' gösteriyor, araç şemaları ve
     bekleyen `!`/`@` bağlamı hiç sayılmıyordu; sayaç gerçek doluluğu sistematik eksik gösteriyordu.
     """
-    state.pending_context = ["x" * 400]
+    state.pending_blocks = ["x" * 400]
     report = context_report(state)
     assert report.system_estimated and report.system_chars > 1_000
     assert report.tool_schema_chars > 1_000 and report.pending_chars == 400

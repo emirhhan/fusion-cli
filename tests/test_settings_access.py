@@ -127,12 +127,12 @@ def test_cli_c_alt_komutlarda_da_uygulanir_ve_dosyaya_yazmaz(tmp_path: Path, mon
     monkeypatch.setenv("HOME", str(tmp_path))
     runner = CliRunner()
     sonuc = runner.invoke(
-        app, ["-c", "runtime.max_tokens=8192", "config", "get", "runtime.max_tokens"]
+        app, ["--set", "runtime.max_tokens=8192", "config", "get", "runtime.max_tokens"]
     )
     assert sonuc.exit_code == 0, sonuc.output
     assert "8192" in sonuc.output
     assert yaml.safe_load(source.read_text(encoding="utf-8"))["runtime"]["max_tokens"] == 4096
-    hata = runner.invoke(app, ["-c", "runtime.yok=1", "config", "get", "runtime.max_tokens"])
+    hata = runner.invoke(app, ["--set", "runtime.yok=1", "config", "get", "runtime.max_tokens"])
     assert hata.exit_code == 2 and "4096" not in hata.output
 
 

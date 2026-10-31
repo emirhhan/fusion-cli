@@ -18,6 +18,7 @@ import asyncio
 import io
 import logging
 import shutil
+import time
 from collections.abc import Callable
 from html import escape as html_escape
 
@@ -40,6 +41,9 @@ from ...ui.picker import Choice
 from .input import FOLD_PASTE_CHARS, FOLD_PASTE_LINES
 
 _logger = logging.getLogger(__name__)
+
+#: İki Esc'in "çift basış" sayılacağı en uzun aralık (saniye).
+DOUBLE_ESCAPE_SECONDS = 0.6
 
 #: Girdi kutusunun içindeki istem işareti (Claude Code `> `).
 PROMPT = "> "
@@ -131,12 +135,16 @@ class FusionTui:
         on_transcript_change: Callable[[str], None] | None = None,
         completer: Completer | None = None,
         keymap: KeyMap | None = None,
+        on_rewind: Callable[[], None] | None = None,
     ) -> None:
         self._on_submit = on_submit
         self._on_interrupt = on_interrupt
         self._on_exit = on_exit
         self._on_cycle_mode = on_cycle_mode
         self._on_transcript_change = on_transcript_change
+        self._on_rewind = on_rewind
+        #: Boş girdide son Esc'in zamanı; ikincisi bu pencere içinde gelirse `/rewind` açılır.
+        self._last_escape_at = 0.0
         # Metin DEĞİL, metni üreten şey tutulur: çalışma satırındaki süre her
         # karede yeniden hesaplanmalı (bkz. work_line.WorkLineSink.render).
         self._work_source: Callable[[], str] | None = None
@@ -662,8 +670,24 @@ class FusionTui:
             self._resolve("")
         elif self._mode == "choice":
             self._resolve(None)
+        elif self._rewind_requested():
+            self._on_rewind()  # type: ignore[misc]  # `_rewind_requested` None'ı eledi
         else:
             self._on_interrupt()
+
+    def _rewind_requested(self, *, now: float | None = None) -> bool:
+        """Boş girdide art arda iki Esc mi? (Claude Code: Esc Esc → `/rewind`.)
+
+        Tur çalışırken ilk Esc turu keser (eski davranış); kesmeden sonra gelen ikinci
+        Esc de pencere içindeyse geri sarma açılır. Girdi doluysa Esc hiçbir şey açmaz.
+        """
+        if self._on_rewind is None or self._input.text.strip():
+            self._last_escape_at = 0.0
+            return False
+        stamp = time.monotonic() if now is None else now
+        is_double = 0.0 < stamp - self._last_escape_at <= DOUBLE_ESCAPE_SECONDS
+        self._last_escape_at = 0.0 if is_double else stamp
+        return is_double
 
     def _invalidate(self) -> None:
         if self.application.is_running:

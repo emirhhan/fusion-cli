@@ -269,8 +269,8 @@ APPROVAL_TITLE = "onay gerekiyor · {tool}"
 CONFIRM_QUESTION = "  onaylıyor musun? (e/h, Enter = evet)"
 CONFIRM_QUESTION_DANGER = "  onaylıyor musun? (e/h, varsayılan = hayır)"
 PERMISSIONS_UNTRUSTED = (
-    "Bu projedeki .claude/settings.local.json izinleri yok sayıldı (proje güvenilmiyor). "
-    "Dosyayı gözden geçirdiysen: fusion trust"
+    "Bu projedeki .claude/settings.local.json izin (allow) kuralları yok sayıldı (proje "
+    "güvenilmiyor; deny/ask kuralları geçerli). Dosyayı gözden geçirdiysen: fusion trust"
 )
 DANGER_WARNING = "⚠ geri alınamaz işlem: {reason}"
 AGENT_ASKS = "agent soruyor"
@@ -331,6 +331,22 @@ TUI_APPROVAL_SESSION = "Evet, bu oturumda bunu tekrar sorma"
 TUI_APPROVAL_SESSION_DESC = "Aynı araç veya komut bu oturumda tekrar sorulmaz."
 TUI_APPROVAL_DENY = "Hayır, başka bir yol dene"
 TUI_APPROVAL_DENY_DESC = "Araç çalıştırılmaz; agent güvenli başka bir yol arar."
+#: Kalıcı izin kuralı seçeneği (P-003): `{rule}` yazılacak kural, `{path}` dosya.
+TUI_APPROVAL_ALWAYS = "Evet, bir daha sorma (kalıcı)"
+TUI_APPROVAL_ALWAYS_DESC = "{rule} kuralı izin listesine yazılır ve her oturumda geçerli olur."
+#: Proje izin dosyası güvenilmiyorsa kural kullanıcı dosyasına düşer: kapsam TÜM projelerdir.
+TUI_APPROVAL_ALWAYS_DESC_USER = (
+    "{rule} kuralı TÜM PROJELER için kullanıcı dosyasına yazılır ({path}; bu projenin izin "
+    "dosyası güvenilmiyor) ve her oturumda geçerli olur."
+)
+#: Onay kartında eşleşen izin kuralı bilgisi.
+APPROVAL_RULE_NOTE = "izin kuralı: {rule}"
+#: Kalıcı kural yazıldı / yazılamadı bildirimi (`ApprovalMemory.notices`).
+PERMISSION_RULE_SAVED = "İzin kuralı kaydedildi: {summary}"
+#: Terminalde ret gerekçesi ipucu (P-013): `h gerekçe` yazılır, gerekçe modele gider.
+CONFIRM_NOTE_HINT = "  (h <gerekçe>: ret nedenini modele ilet · k: kalıcı izin, bir daha sorma)"
+#: Kalıcılaştırılamayan (yıkıcı, uzak, ask kurallı) istekte `k` sıradan evettir; ipucu sunulmaz.
+CONFIRM_NOTE_HINT_NO_PERSIST = "  (h <gerekçe>: ret nedenini modele ilet)"
 #: Tam-ekran/TUI'de argümansız seçici komutu çağrılınca gösterilen yönlendirme.
 TUI_PICKER_NEEDS_ARG = "/{name} bu görünümde argüman ister. Örnek: /level high. Ayrıntı: /help."
 
@@ -544,6 +560,19 @@ REPL_MODEL_SET = "{role} modeli → {model}"
 REPL_MODEL_ADDED = "aday eklendi: {name} ({model})"
 REPL_MODEL_REMOVED = "aday çıkarıldı: {name}"
 REPL_MACRO_STARTED = "{name} çalıştırılıyor…"
+#: `/beceri` komutları (P-019).
+REPL_SKILL_STARTED = "{name} becerisi sıradaki tur için hazırlandı."
+REPL_SKILL_MISSING = "'{name}' becerisi artık bulunamıyor; /skills reload ile kataloğu yenile."
+REPL_SKILL_FORK_NOTE = (
+    "context: fork — bu beceri Fusion'da ana turda çalışır (alt ajan devri henüz yok)."
+)
+REPL_SKILL_MODEL_NOTE = (
+    "model/effort alanı okundu ama bu turda uygulanmadı; /model ve /effort ile seç."
+)
+REPL_SKILL_ENGINE_NOTE = (
+    "Beceri agent motorunda çalışır; motor agent'a çevrildi (/fusion ile geri dönebilirsin)."
+)
+CMD_SKILL_DEFAULT = "{kind} dosyası (açıklama yok)"
 REPL_SCHEDULE_SET = "hatırlatma kuruldu: {seconds} saniye sonra"
 REPL_SCHEDULE_USAGE = "Kullanım: /schedule <saniye>  (ör. /schedule 300)"
 REPL_SCHEDULE_FIRED = "⏰ hatırlatma zamanı geldi"
@@ -712,6 +741,31 @@ CMD_EDITS = "düzenlemeleri kabul et: dosya düzenlemeleri sorulmaz, komutlar so
 CMD_PLAN = "plan: değişiklik yapma, yalnız oku ve planla"
 CMD_SECURITY = "manuel: okuma dışındaki her işlemi tek tek sor"
 CMD_BYPASS = "izinleri atla: hiçbir şey sorma (silinen yine çöpe gider)"
+CMD_PERMISSIONS = "izin kurallarını listele/ekle/sil (allow · ask · deny)"
+PERMISSIONS_EMPTY = "İzin kuralı yok. Ekle: /permissions add allow Bash(npm test *)"
+PERMISSIONS_USAGE = (
+    "Kullanım: /permissions [list] · /permissions add <allow|ask|deny> <Araç(kalıp)> "
+    "[--user] · /permissions remove <allow|ask|deny> <Araç(kalıp)>"
+)
+PERMISSIONS_BAD_DECISION = "Karar allow, ask ya da deny olmalı: {given}"
+PERMISSIONS_BAD_PATTERN = "Kalıp `Araç` ya da `Araç(belirteç)` biçiminde olmalı: {given}"
+PERMISSIONS_ADDED = "İzin kuralı eklendi: {rule} [{decision}] → {path}"
+PERMISSIONS_EXISTS = "Bu kural zaten var: {rule} [{decision}]"
+PERMISSIONS_REMOVED = "İzin kuralı silindi: {rule} [{decision}] ({path})"
+PERMISSIONS_NOT_FOUND = "Kural bulunamadı: {rule} [{decision}]"
+#: Proje izin dosyası güvenilmiyorken kural kullanıcı dosyasına düştü: kapsam tüm projeler.
+PERMISSIONS_ADDED_FALLBACK = (
+    "İzin kuralı eklendi: {rule} [{decision}] ({path}) — TÜM PROJELER için: bu projenin izin "
+    "dosyası güvenilmiyor (fusion trust)"
+)
+PERMISSIONS_PROJECT_UNTRUSTED = (
+    "Kural projeye yazılamadı: proje izin dosyası güvenilmiyor. 'Tüm projeler' kapsamını seç "
+    "ya da dosyayı gözden geçirip projeye güven (fusion trust)."
+)
+PERMISSIONS_UNTRUSTED_LAYERS = (
+    "Güvenilmediği için allow kuralları yok sayılan katmanlar: {layers} "
+    "(deny/ask geçerli; fusion trust)"
+)
 CMD_RESET = "agent sohbet geçmişini temizle"
 CMD_COMPACT = "uzun geçmişi özetleyerek kısalt"
 CMD_TASK_TYPE = "fusion görev tipi (general | code | reasoning | agent)"
@@ -740,10 +794,23 @@ CMD_VERIFY = "doğrulama kapısını projeden keşfet ve aç"
 CMD_MODE = "çalışma profili seç: auto · low · medium · high · max"
 CMD_EFFORT = "reasoning yoğunluğu: auto · low · medium · high · xhigh · max"
 CMD_HEALTH = "sağlayıcı sağlığı: güvenilirlik skoru ve circuit breaker durumu"
+CMD_DOCTOR = "talimat denetimi: yüklenen dosyalar, kırpma, şüpheli satırlar (prompt)"
+CMD_INIT = "proje talimat dosyası üret: AGENTS.md (varsayılan) ya da CLAUDE.md"
+REPL_INIT_STARTED = "{target} için talimat üretme görevi hazırlandı; model depoyu inceleyecek."
+REPL_DOCTOR_SETUP_HINT = (
+    "Kurulum tanısı (anahtarlar, modeller, PATH) için terminalde: fusion doctor"
+)
 CMD_PROVIDERS = "tanınan sağlayıcılar: tür, resmiyet, risk ve kurulu mu"
 CMD_MCP = "dış MCP sunucularını listele/ekle/kaldır: /mcp add <ad> <komut> [argüman…]"
-CMD_SKILLS = "keşfedilen skill'leri listele veya ara"
-CMD_AGENTS = "keşfedilen uzman agent'ları listele veya ara"
+CMD_SKILLS = (
+    "becerileri listele/ara; reload yeniden tarar, doctor teşhis eder, new <ad> yeni beceri yazar"
+)
+CMD_SKILL_DOCTOR = "beceri kataloğunu denetle: eksik açıklama, kopya ad, uzun gövde"
+CMD_AGENTS = "uzman ajanları listele/ara; new <ad> yeni ajan dosyası yazar"
+SKILLS_RELOADED = "Katalog yeniden tarandı: {skills} beceri, {agents} ajan."
+CAPABILITY_AUTHORING_STARTED = (
+    "{name} için üretim görevi hazırlandı; model önce birkaç soru soracak."
+)
 SKILLS_EMPTY = "Eşleşen skill bulunamadı."
 AGENTS_EMPTY = "Eşleşen uzman agent bulunamadı."
 CMD_LEVEL = "model kademesi seç: low (cirak) · medium · high · ultra · premium"
@@ -765,6 +832,73 @@ HISTORY_SECRETS_FOUND = (
     "⚠ Bu oturumda {count} anahtar/token göründü. Bunları değiştirmeni öneririm."
 )
 HISTORY_RECENT_TITLE = "son oturumlar"
+
+#: Fusion'ın KENDİ sohbetlerini sürdürme (`--continue/--resume`, `/resume`, `/rename`, `/branch`).
+CMD_RESUME_OWN = "Fusion sohbetini sürdür (argümansız: bu projedeki sohbet listesi)"
+CMD_RENAME = "açık sohbete ad ver; --resume <ad> ve /resume listesinde görünür"
+CMD_BRANCH = "sohbeti dallandır: buraya kadarki konuşmayı yeni bir sohbete kopyala"
+SESSION_PICK_TITLE = "Hangi sohbet sürdürülsün?"
+SESSION_LIST_EMPTY = "Bu projede sürdürülecek Fusion sohbeti yok."
+SESSION_NONE_TO_CONTINUE = "Bu projede sürdürülecek sohbet yok; `fusion` ile yeni sohbet aç."
+SESSION_NOT_FOUND = "Sohbet bulunamadı: {query} (kimlik, ad ya da kimlik öneki; liste için /resume)"
+SESSION_ALREADY_ACTIVE = "Bu sohbet zaten açık."
+SESSION_RESUMED = "Sürdürülüyor: {title} ({count} mesaj)"
+SESSION_FORKED = "Kopya açıldı: {title} ({count} mesaj); özgün sohbet değişmez."
+SESSION_NAMED_NEW = "Yeni sohbet: {name}"
+SESSION_RENAME_USAGE = "Kullanım: /rename <ad>"
+SESSION_RENAMED = "Sohbet adı: {name}"
+SESSION_BRANCH_EMPTY = "Dallandırılacak konuşma yok; önce bir mesaj gönder."
+SESSION_BRANCHED = (
+    "Dallandırıldı: {count} mesaj yeni sohbete kopyalandı{name}; özgün sohbet değişmedi."
+)
+SESSION_COPY_FAILED = "Sohbet kopyalanamadı: {reason}"
+SESSION_FORK_NEEDS_SOURCE = (
+    "--fork-session kopyalanacak sohbeti ister: --continue ya da --resume <kimlik|ad> ile ver."
+)
+SESSION_CHOICE_DETAIL = "{when} · {count} mesaj"
+
+#: `/rewind` — çok adımlı checkpoint'e geri sarma.
+CMD_REWIND = "bir turun başına dön: kod + konuşma, yalnız konuşma ya da yalnız kod (Esc Esc)"
+REWIND_USAGE = "Kullanım: /rewind [tur no] [kod|konuşma|ikisi]  (argümansız: liste)"
+REWIND_NOTHING = "Geri sarılacak tur yok; henüz bir agent turu çalışmadı."
+REWIND_UNKNOWN_TURN = "Böyle bir tur yok: {index} (liste için /rewind)"
+REWIND_PICK_TURN = "Hangi turun başına dönülsün?"
+REWIND_PICK_SCOPE = "Ne geri sarılsın?"
+REWIND_SCOPE_BOTH = "Kod ve konuşma"
+REWIND_SCOPE_CONVERSATION = "Yalnız konuşma (dosyalar kalsın)"
+REWIND_SCOPE_CODE = "Yalnız kod (konuşma kalsın)"
+REWIND_TURN_LABEL = "#{index}  {task}"
+REWIND_TURN_DETAIL = "{when} · {files} dosya"
+REWIND_CODE_DONE = "{count} dosya {index}. turdan önceki hâline döndürüldü:"
+REWIND_CODE_FAILED = "{count} dosya geri alınamadı (izin ya da silinmiş dizin):"
+REWIND_CODE_EMPTY = "{index}. turdan itibaren geri alınacak dosya değişikliği yoktu."
+REWIND_CONVERSATION_DONE = "Konuşma {index}. turun başına sarıldı ({count} mesaj kaldı)."
+
+#: Git çalışma ağacı izolasyonu (`--worktree`, `/worktree`, enter/exit_worktree).
+CMD_WORKTREE = "git çalışma ağacında çalış: /worktree <ad> · /worktree cik · /worktree liste"
+WORKTREE_USAGE = "Kullanım: /worktree <ad>  ·  /worktree cik  ·  /worktree liste"
+WORKTREE_ENTERED = "Çalışma ağacı: {path} (dal {branch}). Dosya işlemleri artık burada."
+WORKTREE_ALREADY_IN = "Zaten bir çalışma ağacındasın ({name}); önce /worktree cik."
+WORKTREE_NOT_IN = "Bir çalışma ağacında değilsin."
+WORKTREE_CURRENT = "Çalışma ağacı: {name} → {path} (dal {branch}, ana depo {origin})"
+WORKTREE_LIST_EMPTY = "Bu depoda Fusion çalışma ağacı yok. Açmak için: /worktree <ad>"
+WORKTREE_LIST_ROW = "  {name:<20} {branch:<28} {path}"
+WORKTREE_LEFT_REMOVED = "Çalışma ağacı temizdi, kaldırıldı: {name}. Kök: {origin}"
+WORKTREE_LEFT_KEPT = (
+    "Çalışma ağacı korundu ({reason}): {path} — dal {branch}. "
+    "Birleştirmek için: git merge {branch}  ·  silmek için: git worktree remove {path}"
+)
+WORKTREE_KEPT_REASON = {
+    "degisiklik": "commit'lenmemiş değişiklik var",
+    "commit": "dalda yeni commit var",
+}
+WORKTREE_TOOL_ENTERED = (
+    "Çalışma ağacı hazır: {path} (dal {branch}). Bu turda dosyalara {relative}/… ile ulaş; "
+    "tur bitince oturum kökü bu ağaca geçer ve sonraki turlar doğrudan orada çalışır."
+)
+WORKTREE_TOOL_EXIT = "Tur bitince oturum ana depoya ({origin}) döner; temiz ağaç kaldırılır."
+WORKTREE_TOOL_NOT_IN = "Çalışma ağacında değilsin; exit_worktree gereksiz."
+WORKTREE_SWITCHED = "Oturum kökü çalışma ağacına geçti: {path}"
 RECALL_LESSONS_EMPTY_QUERY = "'query' boş olamaz: aradığın konuyu, hatayı ya da teknolojiyi yaz."
 RECALL_LESSONS_NONE = "(bu sorguya uyan öğrenilmiş ders yok)"
 READ_SESSION_INVALID_ARGUMENTS = "'source' ve 'session_id' metin olmalı."

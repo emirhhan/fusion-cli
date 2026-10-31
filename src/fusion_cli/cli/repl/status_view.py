@@ -140,7 +140,7 @@ def context_report(state: ReplState) -> ContextReport:
     estimated = system == 0 and not any(message.role == "system" for message in state.history)
     if estimated:
         system = _system_estimate(state)
-    pending = sum(len(block) for block in state.pending_context) + len(state.pending_digest or "")
+    pending = sum(len(block) for block in state.pending_blocks) + len(state.pending_digest or "")
     return ContextReport(
         system_chars=system,
         user_chars=user,
