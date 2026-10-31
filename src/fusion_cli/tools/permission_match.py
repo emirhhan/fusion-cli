@@ -13,8 +13,12 @@ Eşleme kuralları (Claude Code belgesiyle aynı):
                         mutlak yol (`/bin/rm`) açılır: iç komut da parça sayılır. Dosyaya
                         yönlendirme (`> x`, `>> x`, `| tee x`) ALLOW'u düşürür (kısmi komut
                         izni dosya yazma izni değildir), DENY/ASK'i düşürmez.
-    Read(glob)          read_file/list_dir/glob/arama araçlarının `path`i
-    Edit/Write(glob)    write_file/edit_file/multi_edit/create_file `path`i
+    Read(glob)          read_file/list_dir/glob/arama araçlarının `path`i; arama/listeleme
+                        aracında `path` yoksa kök alınır ve deny/ask kuralının kapsamı
+                        aramanın kapsamına GİRİYORSA kural uyar (arama yasak dosyadan satır
+                        döndürmesin); allow bu yoldan genişlemez
+    Edit/Write(glob)    yerel yola yazan araçların hedefi (`write_targets`: write_file,
+                        edit_file, download_file, extract_archive, görsel araçları…)
                         glob: `/x` proje köküne göreli, `//x` dosya sistemi kökü, `~/x` ev,
                         `*` dizin sınırını aşmaz, `**` aşar
     WebFetch(domain:x)  `url` ana makinesi x ya da alt alanı
@@ -42,6 +46,7 @@ from ..config.permission_rules import (
 )
 from ..core.tools import ToolFamily, tool_family
 from .auto_policy import command_words, nested_command, written_files
+from .write_targets import WRITE_TOOLS, write_targets
 
 #: Claude'un `Read` kuralının kapsadığı Fusion araçları (okuma, listeleme, arama).
 READ_TOOLS = frozenset(
@@ -56,8 +61,8 @@ READ_TOOLS = frozenset(
         "view_image",
     }
 )
-#: Claude'un `Edit`/`Write` kurallarının kapsadığı yerel dosya yazma araçları.
-WRITE_TOOLS = frozenset({"write_file", "edit_file", "multi_edit", "create_file"})
+#: Dizin kapsamıyla çalışan okuma araçları: `path` verilmezse proje kökünün tamamı.
+_SCOPE_READ_TOOLS = frozenset({"list_dir", "list_files", "glob", "grep_search", "search_code"})
 #: Claude araç adı → Fusion araçları. Kabuk `tool_family` ile tanınır (takma adlar dahil).
 _CLAUDE_TOOLS: dict[str, frozenset[str]] = {
     "Read": READ_TOOLS,
@@ -67,8 +72,10 @@ _CLAUDE_TOOLS: dict[str, frozenset[str]] = {
     "WebFetch": frozenset({"web_fetch", "download_file"}),
     "WebSearch": frozenset({"web_search"}),
     "Skill": frozenset({"read_skill", "find_skill"}),
-    "Agent": frozenset({"invoke_agent", "find_agent"}),
-    "Task": frozenset({"invoke_agent"}),
+    # Çekirdekte alt ajan araçları `spawn_agent`/`spawn_agents`tır (ölçüldü, 31 Ekim:
+    # yalnız `invoke_agent` bağlıydı, `Agent(*)` deny hiçbir şeyle eşleşmiyordu).
+    "Agent": frozenset({"spawn_agent", "spawn_agents", "invoke_agent", "find_agent"}),
+    "Task": frozenset({"spawn_agent", "spawn_agents", "invoke_agent"}),
 }
 _MCP_PREFIX = "mcp__"
 #: Belirteçsiz ad kalıbı için bakılan birincil argümanlar (sırayla).
@@ -207,11 +214,53 @@ def matches(
     if tool_family(tool_name) is ToolFamily.SHELL:
         command = args.get("command")
         return isinstance(command, str) and _spec_prefix(rule, command.strip())
-    if tool_name in READ_TOOLS or tool_name in WRITE_TOOLS:
-        return _path_matches(rule.specifier, args.get("path"), root)
+    if tool_name in WRITE_TOOLS:
+        return any(
+            _path_matches(rule.specifier, raw, root) for raw in write_targets(tool_name, args)
+        )
+    if tool_name in READ_TOOLS:
+        return _read_matches(rule, tool_name, args, root)
     if rule.specifier.startswith("domain:"):
         return _domain_matches(rule.specifier[len("domain:") :].strip(), args.get("url"))
     return _spec_prefix(rule, _primary_text(args))
+
+
+def _read_matches(
+    rule: PermissionRule, tool_name: str, args: Mapping[str, object], root: Path | None
+) -> bool:
+    """`Read` kuralı: hedef yol kalıba uyar; arama/listelemede kalıp aramanın kapsamına girer.
+
+    Ölçüldü (31 Ekim): `deny: Read(/sec/**)` varken `search_code {query}` (path'siz) ya da
+    `grep_search` kök genelinde `sec/` içinden satır döndürüyordu; kural yalnız `path`e
+    bakıyordu. Kısıtlayıcı (deny/ask) kural için aramanın dizini kalıbın tabanını kapsıyorsa
+    kural uyar; allow kuralı bu yoldan GENİŞLEMEZ (izin yalnız hedefin kendisine verilir).
+    """
+    spec = rule.specifier or ""
+    raw = args.get("path")
+    scope = raw if isinstance(raw, str) and raw.strip() else None
+    if scope is None and tool_name not in _SCOPE_READ_TOOLS:
+        return False
+    target = scope if scope is not None else "."
+    if _path_matches(spec, target, root):
+        return True
+    if tool_name not in _SCOPE_READ_TOOLS or rule.decision is PermissionDecision.ALLOW:
+        return False
+    return _scope_covers(spec, target, root)
+
+
+def _scope_covers(spec: str, scope: str, root: Path | None) -> bool:
+    """Kalıbın glob'suz tabanı (`/sec/**` → `<kök>/sec`) arama dizininin altında mı?"""
+    scope_dirs = _variants(_absolute(scope, root))
+    for base, rest in _glob_base(spec, root):
+        literal = rest.split("*", 1)[0].split("?", 1)[0]
+        literal = literal.rsplit("/", 1)[0] if "/" in literal else literal
+        for pattern_dir in _variants(base, literal):
+            if any(
+                pattern_dir == scope_dir or pattern_dir.startswith(scope_dir.rstrip("/") + "/")
+                for scope_dir in scope_dirs
+            ):
+                return True
+    return False
 
 
 def _tool_matches(rule: PermissionRule, tool_name: str) -> bool:
@@ -261,8 +310,8 @@ def _primary_text(args: Mapping[str, object]) -> str:
 def _domain_matches(domain: str, url: object) -> bool:
     if not domain or not isinstance(url, str):
         return False
-    host = (urlsplit(url if "://" in url else f"//{url}").hostname or "").lower()
-    domain = domain.lower().lstrip(".")
+    host = (urlsplit(url if "://" in url else f"//{url}").hostname or "").lower().rstrip(".")
+    domain = domain.lower().strip(".")
     return host == domain or host.endswith(f".{domain}")
 
 

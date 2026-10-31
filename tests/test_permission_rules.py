@@ -262,6 +262,63 @@ def test_fusion_arac_adi_dogrudan_kural_olabilir(tmp_path):
     assert evaluate(kume, "read_file", {"path": "a"}, tmp_path) is None
 
 
+def test_agent_kurali_gercek_arac_adlariyla_eslesir(tmp_path):
+    """Ölçüldü (31 Ekim): `Agent(*)` yalnız `invoke_agent`/`find_agent`a bağlıydı; çekirdekteki
+    alt ajan araçları `spawn_agent`/`spawn_agents` hiçbir kuralla eşleşmiyordu."""
+    kume = _kume(("Agent(*)", "deny"))
+    assert evaluate(kume, "spawn_agent", {"task": "x"}, tmp_path).decision is (
+        PermissionDecision.DENY
+    )
+    assert evaluate(kume, "spawn_agents", {"tasks": []}, tmp_path).decision is (
+        PermissionDecision.DENY
+    )
+    kume = _kume(("Task(arastirmaci *)", "ask"))
+    assert evaluate(kume, "spawn_agent", {"agent": "arastirmaci"}, tmp_path).decision is (
+        PermissionDecision.ASK
+    )
+
+
+def test_read_deny_kurali_kapsamina_giren_aramayi_da_yakalar(tmp_path):
+    """`deny: Read(/sec/**)` varken kök genelinde arama `sec/` içinden satır döndürürdü."""
+    kume = _kume(("Read(/sec/**)", "deny"))
+    for arac, args in (
+        ("search_code", {"query": "password"}),
+        ("grep_search", {"pattern": "x"}),
+        ("glob", {"pattern": "**/*.py"}),
+        ("search_code", {"query": "x", "path": "sec/alt"}),
+        ("list_dir", {"path": "sec"}),
+    ):
+        sonuc = evaluate(kume, arac, args, tmp_path)
+        assert sonuc is not None and sonuc.decision is PermissionDecision.DENY, (arac, args)
+    # Yasak kapsamın DIŞINDA kalan arama serbesttir; allow kuralı aramayı genişletmez.
+    assert evaluate(kume, "search_code", {"query": "x", "path": "src"}, tmp_path) is None
+    kume = _kume(("Read(/sec/**)", "allow"))
+    assert evaluate(kume, "search_code", {"query": "x"}, tmp_path) is None
+
+
+def test_edit_kurali_indirme_arsiv_ve_gorsel_araclarini_kapsar(tmp_path):
+    kume = _kume(("Edit(/sec/**)", "deny"))
+    for arac, args in (
+        ("download_file", {"url": "https://x/y", "path": "sec/a"}),
+        ("extract_archive", {"path": "a.zip", "dest": "sec"}),
+        ("generate_image", {"prompt": "x", "path": "sec/a.png"}),
+        ("optimize_image", {"path": "a.png", "out": "sec/a.webp"}),
+    ):
+        sonuc = evaluate(kume, arac, args, tmp_path)
+        assert sonuc is not None and sonuc.decision is PermissionDecision.DENY, (arac, args)
+    assert evaluate(kume, "download_file", {"url": "https://x/y", "path": "ok/a"}, tmp_path) is None
+
+
+def test_webfetch_sondaki_noktali_ana_makineyi_kacirmaz(tmp_path):
+    kume = _kume(("WebFetch(domain:evil.com)", "deny"))
+    assert evaluate(kume, "web_fetch", {"url": "https://evil.com./x"}, tmp_path).decision is (
+        PermissionDecision.DENY
+    )
+    assert evaluate(kume, "web_fetch", {"url": "https://EVIL.COM:8443/"}, tmp_path).decision is (
+        PermissionDecision.DENY
+    )
+
+
 # --- Katmanlar -------------------------------------------------------------- #
 
 
