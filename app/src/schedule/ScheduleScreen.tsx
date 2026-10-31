@@ -3,6 +3,7 @@ import { selectDirectory } from "../platform/dialog";
 import { Icon } from "../ui/Icon";
 import { DAY_LABELS, describeSchedule, formatMoment, type ScheduleClient, type ScheduleKind, type ScheduledTask } from "./types";
 import { SCHEDULE_TEMPLATES, type ScheduleTemplate } from "./templates";
+import { SessionCronPanel } from "./SessionCronPanel";
 import "./ScheduleScreen.css";
 
 interface ScheduleScreenProps {
@@ -13,6 +14,8 @@ interface ScheduleScreenProps {
   chooseFolder?: (current?: string) => Promise<string | null>;
   onRunNow: (task: ScheduledTask) => Promise<void>;
   visible?: boolean;
+  /** Etkin sohbetin çekirdeği: oturum döngüleri (`/loop`, `cron_*`) burada listelenir (P-038). */
+  sessionClient?: { request(name: string, data: Record<string, unknown>): Promise<Record<string, unknown>> } | null;
 }
 
 interface Draft {
@@ -102,7 +105,7 @@ function geçerliGörevler(raw: unknown[]): ScheduledTask[] {
   });
 }
 
-export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirectory, onRunNow, visible = true }: ScheduleScreenProps) {
+export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirectory, onRunNow, visible = true, sessionClient = null }: ScheduleScreenProps) {
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -329,6 +332,7 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
           }}><Icon name="clock" size={14} /><span>{task.baslik}</span></button></li>)}
         </ul> : <p className="schedule__hint">{tasks.length ? "Görev bulunamadı." : "Henüz zamanlanmış görev yok."}</p>}
       </div>
+      <SessionCronPanel client={sessionClient} visible={visible} />
       </aside>
       <div className="schedule__content">
       <p className="schedule__hint">Görevler Fusion açıkken ve en az bir sohbet açıkken çalışır; her çalışma yeni bir sohbet açar. Onay isteyen bir işlemde görev askıda bekler ve sana bildirilir; zamanlanmış görevler "İzinleri atla" kipinde çalışmaz. Kök dizin ya da ev klasörü seçilemez.</p>

@@ -398,7 +398,10 @@ gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden
   tur olur, slash komutu olarak çalışmaz. Gönderilemeyen görev `cron.geri_ver` ile geri
   verilir, vade boşa gitmez. İstemde yarım yazılmış satır varken vade beklenir, yazılan silinmez.
   Sohbet kimliği gelmeden kurulan görevler kimlik gelince o sohbete taşınır; 7 günden eski
-  kayıt dosyaları yüklemede süpürülür. Kalıcı **Zamanlananlar** ekranına "Cron ifadesi" türü eklendi
+  kayıt dosyaları yüklemede süpürülür.
+- Masaüstü **Zamanlananlar** kenar çubuğundaki "Bu sohbetin döngüleri" bölümü etkin sohbetin
+  `/loop`/`cron_*` görevlerini (zamanlama, sıradaki vade, ajan kurduysa işareti) gösterir;
+  "Durdur" `/loop stop <id>` ile aynıdır. Kalıcı **Zamanlananlar** ekranına "Cron ifadesi" türü eklendi
   (en sık 15 dakikada bir; denetim ifadenin iki eşleşmesi arasındaki en kısa farka bakar,
   `* 9 * * *` kayıtta reddedilir). Oturum zamanlayıcısı (`/loop`, `cron_create`) 1 dakikaya
   kadar iner. Cron saatleri yerel duvar saatidir; yaz saati geçişinde 09:00 görevi 09:00'da kalır.

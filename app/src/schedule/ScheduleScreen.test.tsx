@@ -360,3 +360,14 @@ it("oturumu çöken/kapanan bekleyen görev sonradan gönderilmez; geçersiz tes
   await waitFor(() => expect(uyari).toHaveBeenCalled());
   uyari.mockRestore();
 });
+
+// P-038 eksik yüzeyi: kalıcı görevlerin yanında etkin sohbetin oturum döngüleri görünür.
+it("etkin sohbet varken oturum döngülerini kenar çubuğunda gösterir", async () => {
+  const { client } = fakeClient();
+  const sessionRequest = vi.fn(async () => ({ ok: true, gorevler: [{ id: "ab12", prompt: "stok kontrol", kind: "aralik", next_due: 1_800_000_000, every_s: 300, cron: "", runs: 0, source: "kullanici" }] }));
+  render(<ScheduleScreen client={client} defaultRoot="/proje" onRunNow={vi.fn()} sessionClient={{ request: sessionRequest }} />);
+
+  const bolum = await screen.findByRole("region", { name: "Bu sohbetin döngüleri" });
+  expect(await within(bolum).findByText("stok kontrol")).toBeTruthy();
+  expect(sessionRequest).toHaveBeenCalledWith("cron.listele", {});
+});

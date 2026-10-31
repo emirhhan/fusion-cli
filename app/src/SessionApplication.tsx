@@ -780,7 +780,7 @@ export function SessionUygulama({
   const mainSurface = (
     <MainSurface
       section={surfaceSection}
-      scheduled={<ScheduleScreen client={scheduleClient} defaultRoot={active?.root ?? ""} onRunNow={scheduleRunner.runNow} visible={surfaceSection === "scheduled"} />}
+      scheduled={<ScheduleScreen client={scheduleClient} defaultRoot={active?.root ?? ""} onRunNow={scheduleRunner.runNow} sessionClient={active?.status === "ready" ? active.client : null} visible={surfaceSection === "scheduled"} />}
       library={<LibraryScreen client={active?.client ?? null} visible={surfaceSection === "library"} />}
       kits={<KitsScreen onDeliveryClient={setDeliveryClient} onScheduleApproval={notifyKitsApproval} requestHost={activeClient ? requestKitsHost : undefined} visible={surfaceSection === "kits"} />}
     />
