@@ -1,4 +1,5 @@
 import { createVoicePlayback } from "./voice/voicePlayback";
+import { recordScheduleRun, runNotice, runOutcome } from "./schedule/runHistory";
 import { isDictationCommand } from "./voice/dictationCommand";
 import { localVoiceReply } from "./voice/localVoice";
 import { closeUnfinishedAgents } from "./team/ekipOlaylari";
@@ -816,6 +817,14 @@ export function SessionUygulama({
       baslik: "Zamanlanmış görev başlatılmadı",
       metin: `"${task.baslik}" güvenli biçimde başlatılamadı (${reason}). Görev gönderilmedi; yeniden dene.`,
     }),
+    // Biten çalışma geçmişe yazılır ve sonucu bildirilir (P-038; Zamanlananlar kartında görünür).
+    onFinished: (task, sessionId) => {
+      const outcome = runOutcome(controller.state.sessions[sessionId]?.messages ?? []);
+      if (scheduleClient) void recordScheduleRun(scheduleClient, task, sessionId, outcome);
+      const notice = runNotice(task, outcome);
+      setScheduleNotice({ sessionId, ...notice });
+      void osBildirimiGonder(notice.baslik, notice.metin);
+    },
   });
   // Oturum zamanlayıcısı (/loop, cron_*): vadesi gelen görev sohbet boştayken normal tur olur (P-038).
   // Kullanıcının `/loop 30m /verify` görevi komut olur; ajanın kurduğu satır her zaman düz turdur.

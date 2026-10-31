@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { scheduleRuns, type ScheduleRun } from "./runHistory";
 import { selectDirectory } from "../platform/dialog";
 import { Icon } from "../ui/Icon";
 import { DAY_LABELS, describeSchedule, formatMoment, type ScheduleClient, type ScheduleKind, type ScheduledTask } from "./types";
@@ -87,6 +88,22 @@ export function draftPayload(draft: Draft, now: number = Date.now()): Record<str
   if (!draft.tarih || Number.isNaN(moment)) return "Tek seferlik görev için tarih ve saat seç.";
   if (moment <= now) return "Tek seferlik görevin zamanı geçmişte; ileri bir tarih seç.";
   return { ...base, zaman: Math.floor(moment / 1000) };
+}
+
+/** Son çalışmalar (P-038): durum, zaman ve sonuç özeti; en yeni üç tanesi. */
+function RunHistory({ runs }: { runs: ScheduleRun[] }) {
+  if (runs.length === 0) return null;
+  return (
+    <ul aria-label="Son çalışmalar" className="schedule__runs">
+      {runs.slice(0, 3).map((run) => (
+        <li data-state={run.durum} key={`${run.zaman}-${run.sohbet_id}`} title={run.ozet}>
+          <span aria-hidden="true">{run.durum === "tamam" ? "✓" : run.durum === "hata" ? "✗" : "⏸"}</span>{" "}
+          <span>{formatMoment(run.zaman)}</span>
+          {run.ozet ? <> · <span className="schedule__run-summary">{run.ozet}</span></> : null}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /** Çekirdek yanıtındaki bozuk görev kaydı kartı çökertmesin: temel alanlar doğrulanır (U5-56). */
@@ -374,6 +391,7 @@ export function ScheduleScreen({ client, defaultRoot, chooseFolder = selectDirec
                   {task.durdurma_nedeni ? <> · <strong role="note">Durduruldu: {task.durdurma_nedeni}</strong></> : null}
                   {task.son_calisma ? <> · Son çalışma {formatMoment(task.son_calisma)}{task.son_gecikmeli ? " (gecikmeli: Fusion kapalıydı)" : ""}</> : null}
                 </p>
+                <RunHistory runs={scheduleRuns(task.gecmis)} />
               </div>
               <div className="schedule__actions">
                 <button aria-label="Şimdi çalıştır" className="schedule__icon-button" onClick={() => void runNow(task)} title="Şimdi çalıştır" type="button">

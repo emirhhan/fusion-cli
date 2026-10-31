@@ -156,6 +156,21 @@ describe("useScheduleRunner gözetimsiz tur güvenliği (U5-57)", () => {
     view.rerender({ s1: { status: "ready", client, running: true, question: { id: "q2", data: { arac: "write_file" } } } });
     expect(onNeedsApproval).toHaveBeenCalledTimes(2);
   });
+
+  it("başlayan tur bitince bir kez onFinished çağrılır (çalışma geçmişi, P-038)", async () => {
+    const client = sessionClient("auto");
+    const onFinished = vi.fn();
+    const { view } = setup(client, { onFinished });
+    await act(async () => { await view.result.current.runNow(TASK); });
+    view.rerender({ s1: { status: "ready", client } });
+    await flush();
+    view.rerender({ s1: { status: "ready", client, running: true } });
+    expect(onFinished).not.toHaveBeenCalled();
+    view.rerender({ s1: { status: "ready", client, running: false } });
+    view.rerender({ s1: { status: "ready", client, running: false } });
+    expect(onFinished).toHaveBeenCalledTimes(1);
+    expect(onFinished).toHaveBeenCalledWith(TASK, "s1");
+  });
 });
 
 describe("useScheduleRunner yoklama sahipliği", () => {

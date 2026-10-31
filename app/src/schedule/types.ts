@@ -54,6 +54,8 @@ export interface ScheduledTask {
   sonraki: number | null;
   tur: ScheduleKind;
   zaman?: number;
+  /** Son çalışmalar, en yeni önce (`zamanlama.calisma_kaydet`, P-038); doğrulanmadan kullanılmaz. */
+  gecmis?: unknown;
 }
 
 export interface ScheduleClient {

@@ -57,6 +57,20 @@ describe("draftPayload", () => {
 });
 
 describe("ScheduleScreen", () => {
+  it("son çalışmaları durum ve özetle gösterir (P-038)", async () => {
+    const gecmis = [
+      { zaman: 1_800_000_100, sohbet_id: "s2", durum: "hata", ozet: "Kota doldu" },
+      { zaman: 1_800_000_000, sohbet_id: "s1", durum: "tamam", ozet: "Rapor hazır" },
+    ];
+    const { client } = fakeClient([{ ...gorev, gecmis }]);
+    render(<ScheduleScreen client={client} defaultRoot="/proje" />);
+    const liste = await screen.findByRole("list", { name: "Son çalışmalar" });
+    const satirlar = within(liste).getAllByRole("listitem");
+    expect(satirlar).toHaveLength(2);
+    expect(satirlar[0].getAttribute("data-state")).toBe("hata");
+    expect(satirlar[0].textContent).toContain("Kota doldu");
+  });
+
   it("görevleri listeler; duraklatır, siler ve şimdi çalıştırır", async () => {
     const { client, request } = fakeClient();
     const onRunNow = vi.fn(async () => undefined);

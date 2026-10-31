@@ -964,6 +964,9 @@ gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden
   (en sık 15 dakikada bir; denetim ifadenin iki eşleşmesi arasındaki en kısa farka bakar,
   `* 9 * * *` kayıtta reddedilir). Oturum zamanlayıcısı (`/loop`, `cron_create`) 1 dakikaya
   kadar iner. Cron saatleri yerel duvar saatidir; yaz saati geçişinde 09:00 görevi 09:00'da kalır.
+- Kalıcı **Zamanlananlar** görevi bitince sonucu bildirilir (uygulama içi şerit + işletim sistemi
+  bildirimi) ve çalışma geçmişine yazılır (`zamanlama.calisma_kaydet`; görev başına son 10:
+  zaman, sohbet, tamam/hata, cevap özeti). Kartta son üç çalışma görünür.
 
 ## Çalışma dizini: `/cd`
 

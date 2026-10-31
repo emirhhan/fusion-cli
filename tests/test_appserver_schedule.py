@@ -345,3 +345,37 @@ def test_cron_siklik_denetimi_ilk_vadeden_bagimsiz(ifade):
 def test_cron_yeterince_seyrek_ifade_kabul_edilir(ifade):
     sabah = datetime(2026, 10, 5, 8, 0, tzinfo=TZ)
     assert schedule.next_run({"tur": "cron", "cron": ifade}, sabah) is not None
+
+
+def test_calisma_gecmisi_en_yeni_once_ve_tavanli_tutulur(tmp_path):
+    """P-038: kalıcı görev yalnız `son_calisma` tutuyordu; sonuç ve sohbet görünmüyordu."""
+    gorev = _new(tmp_path, tur="aralik", dakika=30)["gorev"]
+    yol = tmp_path / "z.json"
+    for sira in range(schedule.MAX_RUN_HISTORY + 2):
+        sonuc = schedule.record_run(
+            {"id": gorev["id"], "sohbet_id": f"s{sira}", "durum": "tamam", "ozet": "x" * 999},
+            yol,
+            NOW,
+        )
+        assert sonuc["ok"] is True
+    gecmis = sonuc["gorev"]["gecmis"]
+    assert len(gecmis) == schedule.MAX_RUN_HISTORY
+    assert gecmis[0]["sohbet_id"] == f"s{schedule.MAX_RUN_HISTORY + 1}"
+    assert len(gecmis[0]["ozet"]) == schedule.MAX_RUN_SUMMARY
+    # Görev düzenlenince geçmiş korunur.
+    guncel = schedule.save_schedule(
+        {"id": gorev["id"], "gorev": "yeni", "kok": str(tmp_path), "tur": "aralik", "dakika": 30},
+        yol,
+        NOW,
+    )
+    assert len(guncel["gorev"]["gecmis"]) == schedule.MAX_RUN_HISTORY
+
+
+def test_calisma_kaydi_gecersiz_durum_ve_bilinmeyen_gorevi_reddeder(tmp_path):
+    gorev = _new(tmp_path, tur="aralik", dakika=30)["gorev"]
+    yol = tmp_path / "z.json"
+    assert (
+        schedule.record_run({"id": gorev["id"], "sohbet_id": "s", "durum": "?"}, yol)["ok"] is False
+    )
+    assert schedule.record_run({"id": "yok", "sohbet_id": "s", "durum": "hata"}, yol)["ok"] is False
+    assert "zamanlama.calisma_kaydet" in schedule.SCHEDULE_ROUTES

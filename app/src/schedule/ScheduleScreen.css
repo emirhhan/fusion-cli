@@ -273,3 +273,23 @@
 .session-cron code { font-size: 11px; }
 .schedule__content { display: flex; flex-direction: column; gap: var(--space-5); min-height: 0; min-width: 0; overflow-y: auto; padding: calc(var(--titlebar-inset, 0px) + var(--space-6)) var(--space-6); }
 @media (max-width: 620px) { .schedule { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); } .schedule__sidebar { border-bottom: 1px solid var(--border-subtle); border-right: 0; max-height: 40dvh; } }
+
+/* Son çalışmalar (P-038) */
+.schedule__runs {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.schedule__runs li[data-state="hata"] { color: var(--text-danger); }
+.schedule__run-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  max-width: 36ch;
+  vertical-align: bottom;
+}

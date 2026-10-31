@@ -436,6 +436,44 @@ def run_now(
         return {"ok": False, "metin": "Görev bulunamadı."}
 
 
+#: Görev başına saklanan son çalışma sayısı ve özet tavanı (P-038 çalışma geçmişi).
+MAX_RUN_HISTORY = 10
+MAX_RUN_SUMMARY = 240
+RUN_STATES = ("tamam", "hata", "onay_bekliyor")
+
+
+@_storage_errors
+def record_run(
+    data: dict[str, Any], path: Path | None = None, now: datetime | None = None
+) -> dict[str, Any]:
+    """`zamanlama.calisma_kaydet {id, sohbet_id, durum, ozet}`: biten çalışmayı geçmişe yaz.
+
+    Ölçüldü (31 Ekim): kalıcı zamanlayıcı yalnız `son_calisma` damgası tutuyordu; çalışmanın
+    sonucu, hangi sohbette koştuğu ve hata verip vermediği görülemiyordu.
+    """
+    target = path or schedules_path()
+    state, conversation = data.get("durum"), data.get("sohbet_id")
+    if state not in RUN_STATES or not isinstance(conversation, str) or not conversation:
+        return {"ok": False, "metin": "Çalışma kaydı için durum ve sohbet kimliği gerekli."}
+    summary = data.get("ozet")
+    entry = {
+        "zaman": (now or datetime.now().astimezone()).timestamp(),
+        "sohbet_id": conversation[:128],
+        "durum": state,
+        "ozet": summary.strip()[:MAX_RUN_SUMMARY] if isinstance(summary, str) else "",
+    }
+    with store_lock(target):
+        items = _load(target)
+        for index, item in enumerate(items):
+            if item.get("id") == data.get("id"):
+                history = item.get("gecmis")
+                previous = history if isinstance(history, list) else []
+                items[index] = {**item, "gecmis": [entry, *previous][:MAX_RUN_HISTORY]}
+                _store(target, items)
+                return {"ok": True, "gorev": items[index]}
+        return {"ok": False, "metin": "Görev bulunamadı."}
+
+
 def list_pending_deliveries() -> dict[str, object]:
     """Kuyruk tüketicisi yeniden açılışta onaysız teslimleri alabilir."""
     from dataclasses import asdict
@@ -495,6 +533,7 @@ SCHEDULE_ROUTES: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "zamanlama.etkin": set_enabled,
     "zamanlama.vadesi_gelenler": lambda _data: claim_due(),
     "zamanlama.simdi": run_now,
+    "zamanlama.calisma_kaydet": record_run,
     "zamanlama.teslim_bekleyenler": lambda _data: list_pending_deliveries(),
     "zamanlama.teslim_onayla": ack_pending_delivery,
     "zamanlama.sahiplik": acquire_scheduler_lease,

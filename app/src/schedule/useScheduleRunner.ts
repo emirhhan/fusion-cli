@@ -43,6 +43,8 @@ interface ScheduleRunnerInput {
   onNeedsApproval?: (notice: ScheduleApprovalNotice) => void;
   /** Görev güvenli biçimde başlatılamadı (izin modu doğrulanamadı); gönderilmedi. */
   onBlocked?: (task: ScheduledTask, reason: string) => void;
+  /** Başlayan zamanlanmış tur bitti (P-038): çalışma geçmişi ve sonuç bildirimi için. */
+  onFinished?: (task: ScheduledTask, sessionId: string) => void;
 }
 
 interface Watched {
@@ -177,6 +179,7 @@ export function useScheduleRunner({
   onStarted,
   onNeedsApproval,
   onBlocked,
+  onFinished,
   deliveryClient,
 }: ScheduleRunnerInput) {
   const pending = useRef<Pending[]>([]);
@@ -185,8 +188,8 @@ export function useScheduleRunner({
   const guards = useRef(new Map<string, "checking" | "ok">());
   const watched = useRef(new Map<string, Watched>());
   const [guardTick, setGuardTick] = useState(0);
-  const callbacks = useRef({ onNeedsApproval, onBlocked });
-  callbacks.current = { onNeedsApproval, onBlocked };
+  const callbacks = useRef({ onNeedsApproval, onBlocked, onFinished });
+  callbacks.current = { onNeedsApproval, onBlocked, onFinished };
 
   const polling = useRef(false);
   const inFlight = useRef(new Set<string>());
@@ -220,6 +223,7 @@ export function useScheduleRunner({
         });
       } else if (!question && watch.sawRunning && !session.running) {
         watched.current.delete(sessionId);
+        callbacks.current.onFinished?.(watch.task, sessionId);
       }
     }
     if (pending.current.length === 0) return;
