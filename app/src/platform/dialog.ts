@@ -84,3 +84,13 @@ export async function askMicrophoneAccess(): Promise<boolean> {
     { title: "Kits mikrofonunu kullanmak istiyor", kind: "warning", okLabel: "İzin ver", cancelLabel: "Reddet" },
   );
 }
+
+/** Kits bir Kit adına Fusion tarayıcı profilini Kit tarayıcısına yüklemek istediğinde HER seferinde sorar (P-023). */
+export async function askKitsProfileAccess(summary: string): Promise<boolean> {
+  const { ask } = await import("@tauri-apps/plugin-dialog");
+  return ask(
+    `${summary}\n\nÇerezler yalnız bu Kit oturumunun belleğine verilir: Kits diske yazmaz, Kit'in modeli değerleri görmez. ` +
+      "Kit tarayıcısı kapanınca (boşta kalınca ya da Kit durdurulunca) oturum silinir. Bu izin hatırlanmaz.",
+    { title: "Kits girişli bir tarayıcı oturumu istiyor", kind: "warning", okLabel: "Oturumu ver", cancelLabel: "Reddet" },
+  );
+}

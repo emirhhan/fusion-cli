@@ -80,6 +80,23 @@ açılıp okunur ve kapatılır. Alan adı önizlemesi `Cookies` veritabanının
 yükleyen her ajan çağrısı yine "girişli tarayıcı oturumunu ajana açıyor" onayından geçer.
 Giriş penceresi açıkken aktarma "tarayıcısına bağlanılamadı" hatası verir; pencereyi kapatıp yinele.
 
+## Kits: Kit tarayıcısına Fusion profili
+
+Kit'in kendi tarayıcısı (fusion-kits, Node/Playwright) şifreli `cookies.enc`'i okuyamaz; anahtar
+Kit sürecine açılmaz. Fusion izni açık bir Kit, Kits'teki `fusion_profile` aracıyla
+`{profile, domains[], reason?}` ister; akış Chrome köprüsüyle aynı güven modelidir:
+
+1. Kit iframe'i → Fusion hostu (`app/src/kits/kitsProfileHost.ts`; yalnız Kits kökeni ve o iframe).
+2. `tarayici.profil_tarif {ad, alanlar}` kapıları uygular, kullanıcıya sormadan reddeder:
+   `runtime.disabled_tools` içinde `fusion_profile`, `browser.profiles_enabled: false`, anahtar yok,
+   profil yok, en çok 20 alan adı, iç ağ adı, **profilin onay listesi dışındaki alan adı**.
+3. Onay penceresi HER istekte Kit adını, profili, istenen ve profilde eşleşen alan adlarını
+   gösterir ("Oturumu ver" / "Reddet"); izin hatırlanmaz.
+4. `tarayici.profil_disa_aktar {ad, alanlar}` yalnız istenen alan adlarına süzülmüş
+   `storage_state`'i döndürür; host onu yalnız o iframe'e postalar (bellek içi). Kits sunucusu
+   oturumu kalıcı olmayan bir tarayıcı bağlamına verir (profil klasörüne yazmaz, loglamaz) ve
+   tarayıcı kapanınca siler. Kit'in modeli yalnız "profil yüklendi: N çerez, alan adları" görür.
+
 ## Araç argümanları
 
 `browser_open(url, profile?, headed?)`: `profile` verilen (ya da `browser.default_profile`)
@@ -105,7 +122,9 @@ için giriş…" (ad + adres), "Varsayılan yap", "Sil", iki anahtar: profilleri
 kapanırsa sebebi (ör. `playwright install chromium`) hata satırında görünür.
 RPC'ler: `tarayici.profiller`, `tarayici.dosya_onizle`, `tarayici.chrome_profilleri`,
 `tarayici.ice_aktar`, `tarayici.sil`, `tarayici.giris` / `tarayici.giris_durumu`,
-`tarayici.varsayilan`, `tarayici.ayar` (`{anahtar: "headless"|"profiles_enabled", deger: bool}`).
+`tarayici.varsayilan`, `tarayici.ayar` (`{anahtar: "headless"|"profiles_enabled", deger: bool}`),
+`tarayici.web_oturumlari`, `tarayici.web_oturumu_aktar`, `tarayici.profil_tarif`,
+`tarayici.profil_disa_aktar` (Kits; yukarıdaki bölüm).
 
 ## Sınırlar
 

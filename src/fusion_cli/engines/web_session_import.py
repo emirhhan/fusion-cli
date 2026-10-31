@@ -87,11 +87,16 @@ def find_web_session(provider: str, account: str = "main") -> WebSessionSource:
     return WebSessionSource(clean, name, web_session_profile(clean, name))
 
 
-def validate_domains(raw: tuple[str, ...] | None) -> tuple[str, ...]:
-    """Alan adlarını normalize et; boşsa ya da iç ağ adı varsa anlaşılır hata."""
+def validate_domains(
+    raw: tuple[str, ...] | None, *, missing: str = _NEED_DOMAIN
+) -> tuple[str, ...]:
+    """Alan adlarını normalize et; boşsa (`missing`) ya da iç ağ adı varsa anlaşılır hata.
+
+    Kit dışa aktarımı (`appserver/kits_profile_routes.py`) da aynı kuralı kullanır.
+    """
     cleaned = tuple(sorted({normalize_domain(item) for item in raw or () if item.strip()}))
     if not cleaned:
-        raise BrowserProfileError(_NEED_DOMAIN)
+        raise BrowserProfileError(missing)
     for domain in cleaned:
         reason = internal_domain_reason(domain)
         if reason is not None:
