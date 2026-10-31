@@ -189,3 +189,65 @@ def test_invocation_komut_icin_gorev_beceri_icin_baglam_uretir(tmp_path: Path):
     assert b.fork is True
     bos = build_invocation(beceri, "", env, shell_allowed=False)
     assert "rapor" in bos.task  # varsayılan görev metni beceri adını taşır
+
+
+# --- İnceleme bulguları (31 Ekim) --------------------------------------------- #
+
+
+def test_shell_baglami_riskli_komutu_izinli_olsa_da_calistirmaz(tmp_path: Path):
+    """Ölçüldü: `!`git push --force`` izinli kökte run_shell tehlike denetimi olmadan koşuyordu."""
+    metin, notlar = expand_shell_context(
+        "A: !`git push --force origin HEAD`\nB: !`sudo ls`\nC: !`echo canli`",
+        cwd=tmp_path,
+        allowed=True,
+    )
+
+    assert "[komut çalıştırılmadı" in metin and "canli" in metin
+    assert "force push" not in metin
+    assert any("riskli" in not_ and "git push" in not_ for not_ in notlar)
+    assert any("sudo" in not_ for not_ in notlar)
+
+
+def test_shell_baglami_salt_okur_kipinde_yazan_komut_calismaz(tmp_path: Path):
+    metin, notlar = expand_shell_context(
+        "X: !`touch sizinti` Y: !`ls`", cwd=tmp_path, allowed=True, read_only=True
+    )
+
+    assert not (tmp_path / "sizinti").exists()
+    assert "[komut çalıştırılmadı: touch sizinti]" in metin
+    assert any("salt-okur" in not_ for not_ in notlar)
+
+
+def test_allowed_tools_bosluk_ayrimli_ve_parantezli_yazim():
+    """Agent Skills standardı boşlukla ayırır; `Bash(git add:*, git commit:*)` iç virgül taşır."""
+    assert parse_frontmatter("---\nallowed-tools: Read Grep\n---\nx")["allowed_tools"] == (
+        "Read",
+        "Grep",
+    )
+    assert parse_frontmatter("---\nallowed-tools: Bash(git add:*, git commit:*) Read\n---\nx")[
+        "allowed_tools"
+    ] == ("Bash(git add:*, git commit:*)", "Read")
+    assert parse_frontmatter("---\nallowed-tools: Read, Grep\n---\nx")["allowed_tools"] == (
+        "Read",
+        "Grep",
+    )
+
+
+def test_eslenmeyen_allowed_tools_kisit_uygulamaz_ve_not_duser(tmp_path: Path):
+    """Ölçüldü: yalnız `TodoWrite` yazılmışsa `map_tools` boş küme veriyor, tur araçsızdı."""
+    from fusion_cli.tools.capabilities import CapabilityRegistry
+
+    folder = tmp_path / "ev" / ".claude" / "skills" / "plan"
+    folder.mkdir(parents=True)
+    folder.joinpath("SKILL.md").write_text(
+        "---\nname: plan\nallowed-tools: TodoWrite Skill\n---\nPlanla", encoding="utf-8"
+    )
+    skill = CapabilityRegistry(tmp_path / "ev", tmp_path / "proje").get_skill("plan")
+    assert skill is not None
+
+    cagri = build_invocation(
+        skill, "", TemplateEnv(skill.path.parent, tmp_path / "proje"), shell_allowed=False
+    )
+
+    assert cagri.allowed_tools is None
+    assert any("TodoWrite" in not_ and "kısıt" in not_ for not_ in cagri.notes)

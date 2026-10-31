@@ -6,8 +6,15 @@ ile komut çıktısı yerleştirilir. Fusion aynı dosyaları okur ve Türkçe k
 kabul eder (`${FUSION_SKILL_DIR}`, `${FUSION_PROJECT_DIR}`, `${FUSION_SESSION_ID}`).
 
 Güvenlik: `!`cmd`` yalnız çağıran "izinli" dediğinde çalışır (güvenilir kök + onay kipi;
-bkz. `cli/repl/skill_commands.shell_context_allowed`); izinsizse yerinde not bırakılır. Çıktı
+bkz. `cli/repl/skill_commands.shell_context_policy`); izinsizse yerinde not bırakılır. Çıktı
 `MAX_SHELL_OUTPUT_CHARS` ile sınırlanır ve sırlar maskelenir.
+
+Ölçüldü (31 Ekim): izinli kökte komut düz `subprocess.run` ile koşuyor, `run_shell`'in
+tehlike denetimi (`danger_reason`) ve otomatik kip risk analizi (`auto_risk`) atlanıyordu;
+proje becerisinde güven yalnız `.fusion/config.yaml` özetine bağlıydı, beceri dosyası `git
+pull` ile değişse de tam yetkiyle çalışıyordu. Artık her komut aynı politika denetiminden
+geçer (riskli komut hiç koşmaz, onay kartı sorulamadığı için yerinde not kalır) ve proje
+kaynaklı beceride yalnız salt-okur komutlar (`is_read_only_command`) çalışır.
 """
 
 from __future__ import annotations
@@ -19,7 +26,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.redaction import redact
+from .auto_policy import auto_risk, is_read_only_command
 from .frontmatter import body_after_frontmatter, parse_frontmatter
+from .safety import danger_reason
 
 #: Komut dosyası kökleri: (ev/kök altı yol, kaynak etiketi, ev dizininde mi).
 COMMAND_ROOTS: tuple[tuple[str, str, bool], ...] = (
@@ -173,10 +182,32 @@ def render_template(text: str, argument: str, env: TemplateEnv) -> str:
 # --- !`cmd` dinamik bağlam -------------------------------------------------------- #
 
 
+def shell_context_block_reason(command: str, *, cwd: Path, read_only: bool) -> str | None:
+    """Komut neden koşmamalı? `run_shell` ile aynı denetim; sorun yoksa `None`.
+
+    Onay kartı burada sorulamaz (tur henüz başlamadı), bu yüzden `run_shell`'de "sor"
+    anlamına gelen her gerekçe burada "koşma" demektir.
+    """
+    reason = danger_reason("run_shell", {"command": command}) or auto_risk(command, cwd)
+    if reason is not None:
+        return f"riskli komut ({reason})"
+    if read_only and not is_read_only_command(command):
+        return "proje becerisinde yalnız salt-okur komut çalışır"
+    return None
+
+
 def expand_shell_context(
-    text: str, *, cwd: Path, allowed: bool, timeout_s: float = SHELL_CONTEXT_TIMEOUT_S
+    text: str,
+    *,
+    cwd: Path,
+    allowed: bool,
+    read_only: bool = False,
+    timeout_s: float = SHELL_CONTEXT_TIMEOUT_S,
 ) -> tuple[str, tuple[str, ...]]:
-    """`!`cmd`` parçalarını komut çıktısıyla değiştir; izin yoksa yerinde not bırak."""
+    """`!`cmd`` parçalarını komut çıktısıyla değiştir; izin yoksa yerinde not bırak.
+
+    `read_only=True` (proje kaynaklı beceri): yalnız okuyan komutlar koşar.
+    """
     notes: list[str] = []
 
     def replace(match: re.Match[str]) -> str:
@@ -184,8 +215,12 @@ def expand_shell_context(
         if not allowed:
             notes.append(f"!`{command}`: dinamik bağlam bu kipte/kökte çalıştırılmadı")
             return f"[komut çalıştırılmadı: {command}]"
+        blocked = shell_context_block_reason(command, cwd=cwd, read_only=read_only)
+        if blocked is not None:
+            notes.append(f"!`{command}`: {blocked}; çalıştırılmadı")
+            return f"[komut çalıştırılmadı: {command}]"
         try:
-            # Kullanıcının kendi güvenilir beceri dosyası; `allowed` kapısı yukarıda.
+            # Politika denetimi yukarıda (`shell_context_block_reason`); `allowed` kapısı da.
             run = subprocess.run(
                 command,
                 shell=True,
@@ -212,7 +247,12 @@ def expand_shell_context(
 
 
 def build_invocation(
-    capability: object, argument: str, env: TemplateEnv, *, shell_allowed: bool
+    capability: object,
+    argument: str,
+    env: TemplateEnv,
+    *,
+    shell_allowed: bool,
+    shell_read_only: bool = False,
 ) -> SkillInvocation:
     """`Capability` + argümanı tura çevir (komut: görev; beceri: bağlam + görev)."""
     from .capabilities import Capability, map_tools
@@ -224,7 +264,9 @@ def build_invocation(
         return SkillInvocation(task=argument, notes=(f"beceri okunamadı: {error}",))
     body = body_after_frontmatter(raw).replace("{SKILL_DIR}", str(capability.path.parent))
     rendered = render_template(body, argument, env)
-    rendered, notes = expand_shell_context(rendered, cwd=env.project_dir, allowed=shell_allowed)
+    rendered, notes = expand_shell_context(
+        rendered, cwd=env.project_dir, allowed=shell_allowed, read_only=shell_read_only
+    )
     allowed_tools: set[str] | None = None
     if capability.allowed_tools:
         # `Bash(git *)` biçiminde komut deseni: araç adı eşlenir, desen kısıtı Fusion'da

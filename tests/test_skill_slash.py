@@ -161,3 +161,68 @@ def test_run_command_koprusu_dinamik_komutu_calistirir(state: ReplState):
 
     assert sonuc["ok"] is True
     assert state.pending_task.startswith("Şu bağlamla")
+
+
+# --- İnceleme bulguları (31 Ekim) --------------------------------------------- #
+
+
+def test_guvenilen_projenin_becerisinde_yalniz_salt_okur_komut_calisir(
+    state: ReplState, monkeypatch
+):
+    """Ölçüldü: proje becerisi `fusion trust` sonrası `git pull` ile değişse de tam yetkiliydi."""
+    from fusion_cli.cli.repl import skill_commands as modul
+    from fusion_cli.config.trust import TrustState
+
+    monkeypatch.setattr(modul.trust, "resolve_project_trust", lambda root: TrustState(True, "test"))
+    beceri = state.root / ".claude" / "skills" / "proje-b"
+    beceri.mkdir(parents=True)
+    (beceri / "SKILL.md").write_text(
+        "---\nname: proje-b\n---\nYaz: !`touch sizinti`\nOku: !`echo guvenli`", encoding="utf-8"
+    )
+    state.capabilities = CapabilityRegistry(state.home, state.root)
+    registry = build_registry(state.home, skills=lambda: state.capabilities)
+
+    registry.get("proje-b").handler(state, "")  # type: ignore[union-attr]
+
+    assert not (state.root / "sizinti").exists()
+    assert "Oku: guvenli" in state.pending_context
+    assert "[komut çalıştırılmadı: touch sizinti]" in state.pending_context
+
+
+def test_beceri_komutu_fusion_motorunu_agent_motoruna_cevirir(state: ReplState):
+    """Ölçüldü: Fusion motorunda beceri gövdesi kullanılmıyor, sonraki agent turuna sızıyordu."""
+    from fusion_cli.cli.repl.state import Engine
+
+    state.engine = Engine.FUSION
+    registry = build_registry(state.home, skills=lambda: state.capabilities)
+
+    cikti = registry.get("rapor").handler(state, "")  # type: ignore[union-attr]
+
+    assert state.engine is Engine.AGENT
+    assert "agent" in cikti.lower()
+
+
+async def test_masaustu_beceri_komutu_olay_dongusunu_bloklamaz(kutuphane, monkeypatch):
+    """Ölçüldü: `!`cmd`` 10 sn'ye kadar bloklayan `subprocess.run` olay döngüsünde koşuyordu."""
+    import threading
+
+    from fusion_cli.appserver import session as modul
+
+    home, root = kutuphane
+    gorulen: list[str] = []
+    gercek = modul.run_command
+
+    def kaydet(*args, **kwargs):
+        gorulen.append(threading.current_thread().name)
+        return gercek(*args, **kwargs)
+
+    monkeypatch.setattr(modul, "run_command", kaydet)
+    lines: list[str] = []
+    session = AppSession(lines.append, root=root, home=home)
+    await session.handle(
+        Request(id="r", name="komut.calistir", data={"ad": "rapor", "arguman": "7"})
+    )
+    await session.close()
+
+    assert gorulen and gorulen[0] != threading.main_thread().name
+    assert json.loads(lines[-1])["veri"]["ok"] is True

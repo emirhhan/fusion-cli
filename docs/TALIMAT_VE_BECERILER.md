@@ -81,7 +81,7 @@ TUI'de ve masaüstü yazı kutusunda **Beceri** grubunda bir slash komutu olur
 | `user-invocable: false` | Slash komutu olarak sunulmaz (yalnız model `read_skill` ile) |
 | `context: fork` | Okunur; şimdilik ana turda çalışır, not düşer |
 | `model`, `effort` | Okunur; bu turda uygulanmaz (`/model`, `/effort` ile seç), not düşer |
-| Gövdede `` !`cmd` `` | Komut çıktısı yüklenmeden önce yerleştirilir: yalnız `~/.claude`, `~/.codex`, `~/.hermes`, yerleşik köklerden ya da `fusion trust` ile güvenilen projeden ve `auto`/`edits`/`bypass` kipinde; çıktı 2.000 karakter, sırlar maskeli, 10 sn |
+| Gövdede `` !`cmd` `` | Komut çıktısı yüklenmeden önce yerleştirilir: yalnız `auto`/`edits`/`bypass` kipinde ve `~/.claude`, `~/.codex`, `~/.hermes`, yerleşik köklerden (tam yetki) ya da `fusion trust` ile güvenilen projeden/ek kökten (**yalnız salt-okur komut**: `git log`, `ls`, `cat`…); her komut `run_shell` ile aynı tehlike/risk denetiminden geçer (`git push --force`, `sudo`, proje dışına yazma… hiç koşmaz, yerinde `[komut çalıştırılmadı]` notu kalır); çıktı 2.000 karakter, sırlar maskeli, 10 sn |
 
 ## Beceri dizini (`runtime.skill_index_chars`)
 

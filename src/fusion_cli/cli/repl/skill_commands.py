@@ -25,6 +25,9 @@ from .state import ReplState
 #: Bu kaynaklardan gelen beceri dosyaları kullanıcının kendi dizinindedir: `!`cmd`` koşabilir.
 TRUSTED_SOURCES = frozenset({"claude", "codex", "hermes", "fusion"})
 
+#: Depo içeriği sayılan kaynaklar: güvenilen projede bile yalnız salt-okur `!`cmd``.
+PROJECT_SOURCES = frozenset({"proje", "ek-kok"})
+
 #: `!`cmd`` yalnız komut çalıştırmaya zaten izinli kiplerde koşar; plan/security sormadan koşmaz.
 SHELL_CONTEXT_MODES = frozenset({ApprovalMode.AUTO, ApprovalMode.ACCEPT_EDITS, ApprovalMode.BYPASS})
 
@@ -35,14 +38,25 @@ _SUMMARY_CHARS = 72
 GROUP = "Beceri"
 
 
-def shell_context_allowed(state: ReplState, skill: Capability) -> bool:
-    """`!`cmd`` bu beceri için koşabilir mi: güvenilir kök (ya da güvenilen proje) + uygun kip."""
+def shell_context_policy(state: ReplState, skill: Capability) -> tuple[bool, bool]:
+    """`!`cmd`` bu beceri için koşabilir mi ve yalnız salt-okur mu: `(izinli, salt_okur)`.
+
+    Kullanıcının kendi kökleri (`~/.claude`, `~/.codex`, …) tam yetkili; proje (ya da ek kök)
+    kaynaklı beceri `fusion trust` ile güvenilen projede YALNIZ salt-okur komut koşar: güven
+    özeti `config.yaml`a bağlıdır, beceri dosyasının içeriğine değil (ölçüldü 31 Ekim).
+    """
     if state.approval not in SHELL_CONTEXT_MODES:
-        return False
+        return False, False
     sources = set(skill.source.split("+"))
     if sources & TRUSTED_SOURCES:
-        return True
-    return "proje" in sources and trust.resolve_project_trust(state.root).trusted
+        return True, False
+    project = bool(sources & PROJECT_SOURCES) and trust.resolve_project_trust(state.root).trusted
+    return project, True
+
+
+def shell_context_allowed(state: ReplState, skill: Capability) -> bool:
+    """`!`cmd`` bu beceri için koşabilir mi (geri uyumlu kısa yol; bkz. `shell_context_policy`)."""
+    return shell_context_policy(state, skill)[0]
 
 
 def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
@@ -53,6 +67,7 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
         skill = registry.get_skill(qualified_name) if registry is not None else None
         if skill is None:
             return messages.REPL_SKILL_MISSING.format(name=qualified_name.split("@", 1)[0])
+        shell_allowed, shell_read_only = shell_context_policy(state, skill)
         invocation = build_invocation(
             skill,
             argument,
@@ -61,7 +76,8 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
                 project_dir=state.root,
                 session_id=state.conversation_id,
             ),
-            shell_allowed=shell_context_allowed(state, skill),
+            shell_allowed=shell_allowed,
+            shell_read_only=shell_read_only,
         )
         state.pending_task = invocation.task
         state.pending_mode = Mode.NONE
