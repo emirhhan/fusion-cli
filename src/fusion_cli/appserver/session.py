@@ -1051,7 +1051,7 @@ class AppSession:
             return await await_owned_thread(git_status, self._state.root)
         if request.name == "yetenek.katalog":
             return catalog(
-                self._all_capabilities,
+                self._catalog_registry(),
                 self._state.config,
                 self._state.root,
                 disabled_skills=self._disabled_skills,
@@ -1061,7 +1061,7 @@ class AppSession:
             )
         if request.name == "yetenek.detay":
             return detail(
-                self._all_capabilities,
+                self._catalog_registry(),
                 self._state.config,
                 self._state.root,
                 request.data,
@@ -3067,6 +3067,9 @@ class AppSession:
 
     def _refresh_capabilities(self) -> None:
         # Kalıcı `capabilities.disabled` + oturumluk kapatmalar birlikte; ek kökler (P-051/052).
+        # Tembel keşfedilen alt klasör becerileri yeniden kurulan deftere taşınır (ölçüldü
+        # 31 Ekim: yenilemeden sonra kayboluyordu).
+        nested = self._state.capabilities.nested_roots if self._state.capabilities else ()
         self._state.capabilities = registry_from_config(
             self._state.config,
             self._state.home,
@@ -3075,7 +3078,14 @@ class AppSession:
             session_disabled_skills=frozenset(self._disabled_skills),
             session_disabled_agents=frozenset(self._disabled_agents),
         )
+        self._state.capabilities.add_nested_roots(nested)
         self._all_capabilities = self._all_capabilities.with_extra_roots(self._state.extra_roots)
+
+    def _catalog_registry(self) -> CapabilityRegistry:
+        """Masaüstü katalog defteri; ajanın turda keşfettiği alt klasör becerileri dahil (P-052)."""
+        if self._state.capabilities is not None:
+            self._all_capabilities.add_nested_roots(self._state.capabilities.nested_roots)
+        return self._all_capabilities
 
     def _reload_capabilities(self) -> dict[str, Any]:
         """`yetenek.yenile`: kataloğu diskten yeniden tara."""

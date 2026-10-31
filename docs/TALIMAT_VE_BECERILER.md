@@ -133,7 +133,7 @@ düzenleyince (iç içe talimatların yüklendiği an), o klasörden köke kadar
 modele tek satırlık bir notla duyurulur (`ad (yol) — açıklama`, en fazla 12). Bunlar "proje"
 kaynağıdır: depo içeriği bloğunda listelenir, `` !`cmd` `` yalnız salt-okur koşar. Aynı adda
 kök/kullanıcı becerisi varsa o kazanır; `node_modules`, `dist`, gizli klasörler taranmaz.
-Keşfedilen beceri REPL'de `/ad` olarak da çağrılabilir. `runtime.nested_instructions: false`
+Keşfedilen beceri REPL'de `/ad` olarak da çağrılabilir; masaüstü yetenek kataloğunda da listelenir ve katalog yenilense ya da `/config capabilities.*` değişse de oturum boyunca korunur. `runtime.nested_instructions: false`
 bu keşfi de kapatır.
 
 ## Katalog yaşam döngüsü

@@ -40,9 +40,11 @@ def config_command(state: ReplState, argument: str) -> str:
             return str(error)
         if path.strip().startswith("capabilities."):
             # Görünürlük/kapatma bu oturumun beceri kataloğuna hemen yansır (P-051).
+            nested = state.capabilities.nested_roots if state.capabilities else ()
             state.capabilities = registry_from_config(
                 state.config, state.home, state.root, extra_roots=state.extra_roots
             )
+            state.capabilities.add_nested_roots(nested)
         return messages.CONFIG_SET_DONE.format(
             path=path.strip(), value=read_setting(state.config, path.strip()), file=target
         )

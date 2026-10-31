@@ -308,6 +308,11 @@ class CapabilityRegistry:
         self._skills = None
         return tuple(item for item in self.skills() if item.qualified_name not in before)
 
+    @property
+    def nested_roots(self) -> tuple[Path, ...]:
+        """Tembel keşfedilmiş alt klasör beceri dizinleri (yeniden kurulan deftere taşınır)."""
+        return self._nested_roots
+
     def with_extra_roots(self, extra_roots: tuple[Path, ...]) -> CapabilityRegistry:
         """Aynı kapatma listeleriyle, ek kökleri değişmiş yeni bir defter."""
         clone = self._with_extra_roots(extra_roots)

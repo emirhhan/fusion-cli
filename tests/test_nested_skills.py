@@ -96,3 +96,46 @@ async def test_dongu_alt_paket_okumasindan_sonra_beceriyi_duyurur(monkeypatch, t
     ikinci = " ".join(m.content for m in saglayici.seen_messages[1])
     assert "paket-becerisi" in ikinci and "read_skill" in ikinci
     assert deps.capabilities.get_skill("paket-becerisi") is not None
+
+
+async def test_masaustu_katalogu_kesfedilenleri_gosterir_yenileme_korur(tmp_path: Path):
+    """Ölçüldü (31 Ekim): masaüstü katalog defteri (`_all_capabilities`) tembel keşfedilen
+    becerileri göstermiyordu; `_refresh_capabilities` defteri yeniden kurunca keşif kayboluyordu."""
+    from fusion_cli.appserver.protocol import Request
+    from fusion_cli.appserver.session import AppSession
+
+    from .test_appserver_session import _sonuc
+
+    kok = _monorepo(tmp_path / "depo")
+    satirlar: list[str] = []
+    oturum = AppSession(satirlar.append, root=kok, home=tmp_path / "ev")
+    assert oturum._state.capabilities is not None
+    discover_nested_skills(oturum._state.capabilities, kok, (kok / "paket" / "alt" / "kod.py",))
+
+    oturum._refresh_capabilities()
+    await oturum.handle(Request(id="1", name="yetenek.katalog", data={}))
+
+    assert oturum._state.capabilities.get_skill("paket-becerisi") is not None
+    adlar = {item["ad"] for item in _sonuc(satirlar, "1")["beceriler"]}
+    assert {"paket-becerisi", "alt-becerisi"} <= adlar
+    await oturum.close()
+
+
+def test_config_ile_yeniden_kurulan_defter_kesfi_korur(tmp_path: Path):
+    from fusion_cli.cli.repl.config_command import config_command
+    from fusion_cli.cli.repl.state import ReplState
+    from fusion_cli.config.loader import load_config
+    from fusion_cli.memory.factory import null_memory
+
+    kok = _monorepo(tmp_path / "depo")
+    source = tmp_path / "config.yaml"
+    source.write_text("runtime: {}\n", encoding="utf-8")
+    state = ReplState(
+        config=load_config(source), memory=null_memory(), root=kok, home=tmp_path / "ev"
+    )
+    discover_nested_skills(state.capabilities, kok, (kok / "paket" / "alt" / "kod.py",))
+
+    config_command(state, "capabilities.disabled=yok")
+
+    assert state.capabilities is not None
+    assert state.capabilities.get_skill("paket-becerisi") is not None
