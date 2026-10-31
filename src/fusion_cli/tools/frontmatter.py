@@ -2,10 +2,10 @@
 
 Tam YAML bağımlılığı gereksizdir ve bozuk bir frontmatter tüm keşfi düşürmemelidir: hata
 yerine boş sözlük döner. Claude Code'un skill alanları Türkçe ve İngilizce anahtarla okunur
-(P-020): `allowed-tools`, `model`, `effort`, `context: fork`, `disable-model-invocation`,
-`user-invocable`, `argument-hint`, `when_to_use`. Ajanlar için `tools`, kişilik alanları ve
-alt ajan ayarları (P-034: `model`, `permissionMode`, `maxTurns`, `skills`, `mcpServers`,
-`memory`, `background`, `isolation`, `hooks`, `disallowedTools`).
+(P-020): `allowed-tools`, `disallowed-tools`, `model`, `effort`, `context: fork`, `agent`,
+`disable-model-invocation`, `user-invocable`, `argument-hint`, `when_to_use`. Ajanlar için
+`tools`, kişilik alanları ve alt ajan ayarları (P-034: `model`, `permissionMode`, `maxTurns`,
+`skills`, `mcpServers`, `memory`, `background`, `isolation`, `hooks`, `disallowedTools`).
 """
 
 from __future__ import annotations
@@ -37,6 +37,9 @@ _TEXT_KEYS: dict[str, str] = {
     "arguman-ipucu": "argument_hint",
     "when-to-use": "when_to_use",
     "ne-zaman": "when_to_use",
+    # `context: fork` becerisinin koşacağı alt ajan tanımı (Claude Code `agent:`).
+    "agent": "agent",
+    "ajan": "agent",
 }
 
 #: Alt ajan tanımının düz metin ayar alanları (P-034): frontmatter anahtarı → `Capability`

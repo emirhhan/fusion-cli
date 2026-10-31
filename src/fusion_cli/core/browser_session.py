@@ -12,6 +12,8 @@ verilir, buradaki tip gevşek kalır.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -52,10 +54,51 @@ class BrowserSession:
         self.state_saver = state_saver
         #: Bu oturumda GERÇEKTEN yüklenen profil (araç argümanı varsayılanı ezebilir).
         self.active_profile = ""
+        #: Paylaşılan oturum (P-045: masaüstü Tarayıcı paneli, CLI `/tarayici`): tur bitince
+        #: KAPATILMAZ; sahibi paneli/REPL'i tutan taraftır. Tur başına oturumda False.
+        self.persistent = False
+        #: Paylaşılan oturumun yerel adres izin kümesi; panel ve turlar AYNI kümeyi görür.
+        self.origins: set[str] | None = None
+        #: Kullanıcı denetimi devraldı mı? Ajanın tarayıcı araçları bırakılana kadar bekler.
+        self._user_control = False
+        self._released = asyncio.Event()
+        self._released.set()
+        #: Denetimin bırakılmasını bekleyen ajan aracı sayısı (panel "Ajan seni bekliyor" der).
+        self._waiting = 0
 
     @property
     def is_open(self) -> bool:
         return self.page is not None
+
+    @property
+    def user_control(self) -> bool:
+        return self._user_control
+
+    @property
+    def agent_waiting(self) -> bool:
+        return self._waiting > 0
+
+    def take_control(self) -> None:
+        """Kullanıcı tarayıcıyı devraldı (P-045): ajan eylemleri `wait_for_control`'da bekler."""
+        self._user_control = True
+        self._released.clear()
+
+    def release_control(self) -> None:
+        """Denetimi ajana geri ver; bekleyen tarayıcı aracı kaldığı yerden sürer."""
+        self._user_control = False
+        self._released.set()
+
+    async def wait_for_control(self, timeout_s: float) -> bool:
+        """Kullanıcı denetimi bırakana kadar bekle; süre dolarsa False (iptal yayılır)."""
+        if not self._user_control:
+            return True
+        self._waiting += 1
+        try:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._released.wait(), timeout_s)
+        finally:
+            self._waiting -= 1
+        return not self._user_control
 
     def derive(self) -> BrowserSession:
         """Aynı AYARLARLA (profil, pencere kipi, profil kapısı) yeni, kapalı bir oturum.
@@ -101,6 +144,7 @@ class BrowserSession:
         self.context = None
         self.page = None
         self.active_profile = ""
+        self.release_control()
         # Geri yazıcı oturuma bağlıdır: sıfırlanmazsa sonraki PROFİLSİZ açılışın boş
         # oturumu önceki profilin üstüne yazılır (ölçüldü 31 Ekim: `is` profili silindi).
         self.state_saver = None

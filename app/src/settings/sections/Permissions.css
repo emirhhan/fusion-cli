@@ -30,3 +30,14 @@
 .permissions__add select:focus-visible,
 .permissions__add input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 @media (max-width: 720px) { .permissions__add { grid-template-columns: 1fr 1fr; } }
+
+/* Kabuk sandbox'ı kartı (P-010). */
+.sandbox__domains { display: grid; gap: var(--space-2); margin-top: var(--space-2); }
+.sandbox__list { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.sandbox__list li { align-items: center; border-top: 1px solid var(--border-subtle); display: grid; gap: var(--space-2); grid-template-columns: 1fr auto 44px; padding: 4px 8px; }
+.sandbox__list li code { font-family: var(--font-mono); font-size: 12.5px; word-break: break-all; }
+.sandbox__add { grid-template-columns: auto 1fr auto; }
+.sandbox__paths { margin-top: var(--space-2); }
+.sandbox__paths summary { color: var(--text-secondary); cursor: pointer; font-size: var(--text-sm); }
+.sandbox__paths ul { display: grid; gap: 2px; margin: var(--space-2) 0 0; padding-left: var(--space-4); }
+.sandbox__paths code { font-family: var(--font-mono); font-size: 12px; word-break: break-all; }

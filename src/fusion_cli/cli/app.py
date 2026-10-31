@@ -41,17 +41,20 @@ from ..ui import messages, theme
 from ..ui.renderer import ConsoleRenderer
 from ..ui.tables import cost_summary
 from . import (
+    auto_mode_commands,
     browser_commands,
     capability_commands,
     eval_commands,
     gh_action_command,
     headless,
+    hooks_commands,
     kit_commands,
     knowledge_commands,
     mcp_commands,
     memory_commands,
     paperclip_command,
     prompt_opt_commands,
+    sandbox_commands,
     team_cli,
     trash_commands,
     usage_commands,
@@ -59,6 +62,8 @@ from . import (
 )
 from .app_host import AppHostDependencies
 from .cleanup import with_web_cleanup
+from .desktop_never import AppDenials, config_persist
+from .extension_cli import register_extension_commands
 from .prompter import ConsolePrompter
 from .repl import run_repl, session_resume, worktrees
 from .repl.persona_commands import persona_turn
@@ -87,12 +92,19 @@ app.add_typer(eval_commands.eval_app, name="eval")
 app.add_typer(prompt_opt_commands.prompt_opt_app, name="prompt-opt")
 # `fusion mcp` alt komutsuz eski sunucu davranışını korur; `add/list/login/reconnect…` P-049.
 app.add_typer(mcp_commands.mcp_app, name="mcp")
+app.add_typer(auto_mode_commands.app, name="auto-mode")
 # `/usage` ve `/insights` karşılıkları (P-056).
 app.command(name="usage")(usage_commands.usage)
 app.command(name="insights")(usage_commands.insights)
 app.command(name="gh-action")(gh_action_command.gh_action)
 app.add_typer(browser_commands.app, name="browser")
+# Kancalar (P-009): `fusion hooks list|test`; Claude Code `/hooks` karşılığı.
+app.add_typer(hooks_commands.app, name="hooks")
+# Kabuk sandbox'ı (P-010; Claude `/sandbox`, Codex `codex sandbox`).
+app.add_typer(sandbox_commands.app, name="sandbox")
 app.command("paperclip")(paperclip_command.paperclip)
+# `fusion import`, `fusion release-notes`, `fusion eklenti` (P-071, P-059).
+register_extension_commands(app)
 
 console = Console()
 #: Hata satırları stdout'a DEĞİL stderr'e gider. `fusion mcp` (MCP protokolü), `fusion app`
@@ -523,7 +535,9 @@ def agent(
                 stdout=sys.stdout if streaming else sys.stderr,
                 timeout=permission_timeout,
             )
-        return ConsolePrompter(console, tool_context, flush=flush)
+        # "Her zaman reddet" (`r`, P-007) tek atışta da ret listesine yazar.
+        denials = AppDenials(config_persist(lambda: config))
+        return ConsolePrompter(console, tool_context, flush=flush, denials=denials)
 
     # Tek atışta oturum yoktur: `enter_worktree` isteği tur sonunda köke dönüşmez, yalnız
     # açılan ağaç bildirilir (ağaç korunur; sonraki iş `fusion -w <ad>` ile oradan sürer).
@@ -715,6 +729,7 @@ def init(
                     console,
                     ToolContext(root=root, restrict_to_root=config.runtime.restrict_to_root),
                     flush=flush,
+                    denials=AppDenials(config_persist(lambda: config)),
                 ),
                 mode=_parse_mode(mode),
                 root=root,
@@ -835,17 +850,22 @@ def trust(
     """Projenin config.yaml, .fusion/tools, launch.json ve .claude/settings.local.json'a güven.
 
     Güvenilmeyen projede bu dosyalar MCP süreci, doğrulama komutu, araç, önizleme
-    sunucusu komutu (`.fusion/launch.json`, `.claude/launch.json`) ya da onaysız kabuk
-    komutu (izin listesi) çalıştıramaz. Dosyalar sonradan değişirse güven kendiliğinden düşer.
+    sunucusu komutu (`.fusion/launch.json`, `.claude/launch.json`), onaysız kabuk
+    komutu (izin listesi) ya da kanca (hook) komutu çalıştıramaz. Dosyalar sonradan
+    değişirse güven kendiliğinden düşer.
     """
     from ..config import trust as project_trust
+    from ..config.hooks import untrusted_hook_files
 
     root = path.resolve()
     if not root.is_dir():
         console.print(f"[red]Dizin bulunamadı: {root}[/red]")
         raise typer.Exit(code=1)
+    hook_files = untrusted_hook_files(root)
     project_trust.trust_project(root)
     console.print(f"[green]Güvenildi:[/green] {root}")
+    if hook_files:
+        console.print(messages.HOOKS_TRUST_ENABLED.format(files=", ".join(hook_files)))
 
 
 @app.command()

@@ -409,10 +409,12 @@ def test_komut_hatasi_gunluge_yazilir(state, caplog) -> None:
 def test_terminale_ozgu_komutlar_masaustunde_desteklenmiyor_isaretli(state: ReplState) -> None:
     """Ölçüldü (31 Ekim): /theme, /tui, /search, /vim, /keybindings, /statusline masaüstü
     menüsünde 'destekleniyor' görünüyor; kalıcı config/keybindings.json yazıyor ama masaüstünde
-    hiçbir etkisi olmuyordu."""
+    hiçbir etkisi olmuyordu. `/keybindings` P-046'dan beri desteklenir: dosyanın `masaustu`
+    bağlamı masaüstü kısayollarıdır."""
     registry = build_registry()
     rows = {row["ad"]: row for row in list_commands(registry)}
-    for name in ("theme", "tui", "search", "vim", "keybindings", "statusline"):
+    assert rows["keybindings"]["destekleniyor"] is True
+    for name in ("theme", "tui", "search", "vim", "statusline"):
         assert rows[name]["destekleniyor"] is False, name
         assert run_command(registry, state, name, "acik") == {
             "ok": False,

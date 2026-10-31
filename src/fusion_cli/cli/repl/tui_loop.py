@@ -20,13 +20,12 @@ from rich.console import Console
 from rich.markup import escape
 
 from ...config import keybindings
-from ...config.browser_profiles import browser_session_from
 from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
 from ...core.session_cron import Source
 from ...core.tools import ToolContext
-from ...engines.agent.approval import ApprovalAnswer, ApprovalRequest
+from ...engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequest
 from ...engines.agent.engine_tools import QuestionOption
 from ...engines.agent.team_fork import run_forked_turn
 from ...history import source_by_name
@@ -34,12 +33,15 @@ from ...ui import banner, messages, theme
 from ...ui.picker import Choice
 from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
+from ..desktop_never import AppDenials, config_persist, offers_never
 from ..rule_notices import print_rule_notices
 from ..session import run_agent_task, run_task
 from . import (
+    browser_command,
     cron_store,
     help_view,
     history_view,
+    linked_pr,
     macros,
     model_flows,
     output_style_command,
@@ -97,6 +99,11 @@ def _preview(request: ApprovalRequest) -> str:
     pairs = ", ".join(f"{key}={value!r}" for key, value in request.args.items())
     body = escape(f"{request.tool.name}({pairs})")
     head = f"[{theme.DIM}]{messages.TUI_CONFIRM_PREVIEW}[/{theme.DIM}] {body}"
+    target = request.desktop_target
+    if target is not None:
+        # Masaüstü hedefi ve kademesi (P-007): kart ve düz terminalle aynı satır.
+        line = messages.BILGISAYAR_APPROVAL_TARGET.format(app=target.app, level=target.level.label)
+        head = f"{head}\n[{theme.INFO}]{escape(line)}[/{theme.INFO}]"
     if request.danger:
         return f"{head}\n[{theme.ERROR}]{escape(request.danger)}[/{theme.ERROR}]"
     if request.note:
@@ -118,15 +125,26 @@ class _PumpSink:
 class TuiPrompter:
     """Motor onay/soru çağrılarını `FusionTui` modaline köprüler."""
 
-    def __init__(self, tui: FusionTui, drain: object, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        tui: FusionTui,
+        drain: object,
+        root: Path | None = None,
+        denials: AppDenials | None = None,
+    ) -> None:
         self._tui = tui
         self._drain = drain
         self._root = root
+        #: Masaüstü onayında "Her zaman reddet" (P-007); yazımı sahip bağlar.
+        self._denials = denials or AppDenials()
 
     def _state_root(self) -> Path | None:
         return self._root
 
-    async def confirm(self, request: ApprovalRequest) -> ApprovalAnswer:
+    async def confirm(self, request: ApprovalRequest) -> ApprovalAnswer | ApprovalReply:
+        denied = self._denials.short_circuit(request)
+        if denied is not None:
+            return denied
         await _maybe_drain(self._drain)
         self._tui.console.print(_preview(request))
         self._tui.sync_conversation()
@@ -140,11 +158,14 @@ class TuiPrompter:
             choices.append(
                 Choice("once", messages.TUI_APPROVAL_ONCE, messages.TUI_APPROVAL_ONCE_DESC)
             )
+            target = request.desktop_target
             if request.can_remember:
                 choices.append(
                     Choice(
                         "session",
-                        messages.TUI_APPROVAL_SESSION,
+                        messages.BILGISAYAR_APPROVAL_SESSION.format(app=target.app)
+                        if target is not None and offers_never(request)
+                        else messages.TUI_APPROVAL_SESSION,
                         request.remembered_scope_description or messages.TUI_APPROVAL_SESSION_DESC,
                     )
                 )
@@ -160,7 +181,20 @@ class TuiPrompter:
                 )
             if not request.danger:
                 choices.append(deny)
+            if target is not None and offers_never(request):
+                choices.append(
+                    Choice(
+                        "never",
+                        messages.BILGISAYAR_APPROVAL_NEVER,
+                        messages.BILGISAYAR_APPROVAL_NEVER_DESC.format(app=target.app),
+                    )
+                )
             answer = await self._tui.await_choice(messages.TUI_APPROVAL_TITLE, choices)
+            if answer == "never" and offers_never(request):
+                self._tui.console.print(
+                    f"[{theme.WARN}]{escape(self._denials.deny(request))}[/{theme.WARN}]"
+                )
+                return ApprovalAnswer.DENY
             if answer == "once":
                 return ApprovalAnswer.ONCE
             if answer == "session" and request.can_remember:
@@ -273,7 +307,9 @@ class _TuiSession:
             on_rewind=lambda: self._submit("/rewind"),
         )
         self._out = self._tui.console
-        self._prompter_factory = lambda drain: TuiPrompter(self._tui, drain, self._state.root)
+        self._prompter_factory = lambda drain: TuiPrompter(
+            self._tui, drain, self._state.root, AppDenials(self._deny_persist())
+        )
         self._custom_status = ""
         self._sync_status()
 
@@ -343,6 +379,14 @@ class _TuiSession:
     @property
     def _busy(self) -> bool:
         return self._task is not None and not self._task.done()
+
+    def _deny_persist(self) -> Callable[[str], str]:
+        """ "Her zaman reddet": ret listesini yaz, oturumun yapılandırmasını güncelle (P-007)."""
+
+        def apply(updated: Config) -> None:
+            self._state.config = updated
+
+        return config_persist(lambda: self._state.config, apply)
 
     def _sync_status(self) -> None:
         vim = bool(getattr(self._state.config.runtime, "vim_mode", False))
@@ -802,7 +846,8 @@ class _TuiSession:
                     extra_roots=self._state.extra_roots,
                     restrict_to_root=self._state.config.runtime.restrict_to_root,
                     cron=self._state.cron,
-                    browser=browser_session_from(self._state.config),
+                    browser=browser_command.turn_browser(self._state),
+                    local_origins=browser_command.turn_origins(self._state),
                     block_reads_outside_root=self._state.config.runtime.block_reads_outside_root,
                     block_writes_outside_root=self._state.config.runtime.block_writes_outside_root,
                     changes=checkpoint.changes,
@@ -830,7 +875,8 @@ class _TuiSession:
                 try:
                     outcome = await run_agent_task(
                         line,
-                        self._state.config,
+                        # Becerinin `model`/`effort` alanı yalnız bu tura uygulanır (P-020).
+                        extras.turn_config(self._state.config),
                         remotion_transport=self._state.remotion_transport,
                         remotion_browser=self._state.remotion_browser,
                         sinks=sinks,
@@ -855,8 +901,10 @@ class _TuiSession:
                         workflow=macros.mode_workflow(mode),
                         # Kişilik kısıtı (P-053) ile becerinin `allowed-tools`'u kesişir.
                         allowed_tools=extras.merged_tools(persona.allowed_tools),
-                        denied_tools=persona.denied_tools,
-                        turn_runner=run_forked_turn if macros.mode_fork(mode) else None,
+                        denied_tools=extras.merged_denied(persona.denied_tools),
+                        turn_runner=(
+                            extras.fork_runner(run_forked_turn) if macros.mode_fork(mode) else None
+                        ),
                     )
                 except (asyncio.CancelledError, Exception):
                     # İptal/hata: o turun araç sonuçları geçmişten düşmesin (L2-12).
@@ -869,6 +917,7 @@ class _TuiSession:
                         self._state.pending_digest = digest
                     raise
                 self._state.history = outcome.messages
+                linked_pr.bind_from_turn(self._state, outcome.tool_uses)
                 # Plan kipinde biten tur plan dosyasını YAZDIYSA kart modal kapanınca
                 # açılır (bkz. `loop._run_turn`).
                 if outcome.plan_path is not None:
@@ -940,6 +989,7 @@ async def run_tui_repl(
 
     # Bekleyen arka plan işlerini (ders çıkarımı) bitir; hataları yut ma, log'la.
     await remote_control.shutdown(state)
+    await browser_command.shutdown(state)
     await session.background.drain()
     for failure in session.background.failures:
         _logger.warning("arka plan işi başarısız: %s", failure)

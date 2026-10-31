@@ -23,7 +23,6 @@ from ..core.constants import (
 )
 from ..core.errors import ProcessCancelledError
 from ..core.process_control import run_foreground
-from ..core.shell_sandbox import SandboxPlan, plan_shell_sandbox
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from ..core.workspace_fingerprint import (
     Fingerprint,
@@ -46,32 +45,35 @@ from .remotion_shell_guard import (
     repair_hint,
 )
 from .safe_delete import DeleteRefusedError, move_to_trash, simple_rm_targets
+from .sandbox_runtime import (
+    SandboxRun,
+    delete_blocked,
+    prepare_sandbox,
+    sandbox_env,
+    sandbox_notes,
+)
 from .shell_overwrite import backup_paths
 from .wordpress_setup import php_env
 
-__all__ = ["READONLY_GIT_SUBCOMMANDS", "git", "run_shell", "shell_sandbox_plan"]
+__all__ = ["READONLY_GIT_SUBCOMMANDS", "git", "run_shell"]
 
 #: Süreç başına bir kez gösterilen sandbox uyarıları (her komutta tekrarlanmaz).
 _SHOWN_SANDBOX_NOTICES: set[str] = set()
 
 
-def shell_sandbox_plan(context: ToolContext) -> SandboxPlan:
-    """Bağlamın `shell_sandbox` kipine göre sandbox önekini kur (yazılabilir kökler dahil)."""
-    return plan_shell_sandbox(context.shell_sandbox, (context.root, *context.extra_roots))
+def _once_notice(run: SandboxRun) -> str:
+    """Sandbox kurulamadı uyarısı süreç başına bir kez."""
+    notice = run.plan.notice
+    if not notice or notice in _SHOWN_SANDBOX_NOTICES:
+        return ""
+    _SHOWN_SANDBOX_NOTICES.add(notice)
+    return f"\nFUSION_NOT: {notice}"
 
 
-def _sandbox_notes(plan: SandboxPlan, process: subprocess.CompletedProcess[str]) -> str:
-    """Sandbox uyarısı (bir kez) ve reddedilen yazma için eyleme dönük ipucu."""
-    notes = ""
-    if plan.notice and plan.notice not in _SHOWN_SANDBOX_NOTICES:
-        _SHOWN_SANDBOX_NOTICES.add(plan.notice)
-        notes += f"\nFUSION_NOT: {plan.notice}"
-    if plan.prefix and process.returncode != 0 and "Operation not permitted" in process.stderr:
-        notes += (
-            "\nFUSION_NOT: Komut sandbox içinde çalışıyor (runtime.shell_sandbox=write_root): "
-            "yazma yalnız proje kökü, --add-dir ve geçici dizinlere açık."
-        )
-    return notes
+def _sandbox_notes(run: SandboxRun, process: subprocess.CompletedProcess[str]) -> str:
+    """Sandbox uyarısı (bir kez) ve engellenen yazma/okuma/ağ için eyleme dönük ipuçları."""
+    notes = sandbox_notes(run, process.returncode, process.stderr)
+    return _once_notice(run) + "".join(f"\nFUSION_NOT: {note}" for note in notes)
 
 
 def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -82,7 +84,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     uydurma = _invented_path(command, context.root)
     if uydurma is not None:
         return ToolResult.failure(uydurma)
-    deleted = _guarded_delete(command, context)
+    deleted = _guarded_delete(command, context, args)
     if deleted is not None:
         return check_shell_result(context, deleted, baseline=integrity_error)
     # Ezilecek/taşınacak mevcut proje dosyaları çalışmadan ÖNCE geri alma kaydına
@@ -95,20 +97,24 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
             outputs = prepare_outputs(args, context.root)
         except (OSError, ValueError) as error:
             return ToolResult.failure(f"İş kanıtı hazırlanamadı: {error}")
-        plan = shell_sandbox_plan(context)
+        run = prepare_sandbox(command, args, context)
+        if run.plan.refused:
+            return ToolResult.failure(run.plan.refused)
         started = start_job(
             command,
             context,
-            _shell_env(context),
+            sandbox_env(_shell_env(context), run),
             manifest=manifest,
             outputs=outputs,
-            argv_prefix=plan.prefix,
+            argv_prefix=run.plan.prefix,
         )
-        if plan.notice and plan.notice not in _SHOWN_SANDBOX_NOTICES:
-            _SHOWN_SANDBOX_NOTICES.add(plan.notice)
-            return replace(started, output=f"{started.output}\nFUSION_NOT: {plan.notice}")
-        return started
-    plan = shell_sandbox_plan(context)
+        notes = _once_notice(run) + "".join(
+            f"\nFUSION_NOT: {note}" for note in sandbox_notes(run, 0, "")
+        )
+        return replace(started, output=f"{started.output}{notes}") if notes else started
+    run = prepare_sandbox(command, args, context)
+    if run.plan.refused:
+        return ToolResult.failure(run.plan.refused)
     before, skipped = _fingerprint_before(command, context)
     try:
         # shell=True bilinçli: kullanıcı boru/yönlendirme içeren komut yazabilmeli.
@@ -118,8 +124,8 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
             timeout_s=SHELL_TIMEOUT_S,
             cancelled=context.cancelled,
             cwd=context.root,
-            env=_shell_env(context),
-            argv_prefix=plan.prefix,
+            env=sandbox_env(_shell_env(context), run),
+            argv_prefix=run.plan.prefix,
         )
     except ProcessCancelledError as error:
         return ToolResult.failure(str(error))
@@ -130,7 +136,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     body = _combine(process.stdout, process.stderr)
     text = f"{EXIT_CODE_PREFIX}{process.returncode})\n{body}".strip()
-    text += _sandbox_notes(plan, process)
+    text += _sandbox_notes(run, process)
     if process.returncode != 0 and any(char.isspace() for char in str(context.root)):
         text += (
             "\nFUSION_NOT: Komut zaten seçili proje dizininde çalışır. "
@@ -187,7 +193,7 @@ def _invented_path(command: str, root: Path) -> str | None:
     return None
 
 
-def _guarded_delete(command: str, context: ToolContext) -> ToolResult | None:
+def _guarded_delete(command: str, context: ToolContext, args: ToolArgs) -> ToolResult | None:
     """Sade `rm` komutunu kalıcı silme yerine Fusion çöpüne taşı (bkz. `safe_delete`).
 
     Onay akışından SONRA, çalıştırma anında uygulanır. Sade olmayan silme
@@ -198,6 +204,9 @@ def _guarded_delete(command: str, context: ToolContext) -> ToolResult | None:
     targets = simple_rm_targets(command)
     if targets is None:
         return None
+    blocked = delete_blocked(list(targets), args, context)
+    if blocked is not None:
+        return ToolResult.failure(blocked)
     try:
         moved, missing = move_to_trash(
             targets,

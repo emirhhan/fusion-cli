@@ -1,5 +1,5 @@
 import { submissionAccepted, type SubmissionResult } from "../sessions/submission";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { anmayiBul, anmayiDegistir } from "./dosyaAnmasi";
 import { Button } from "../ui/Button";
 import { MicIcon } from "../voice/MicIcon";
@@ -85,6 +85,8 @@ interface ComposerProps {
   approval?: ApprovalMode;
   /** Verilmezse mod salt okunur gösterilir. */
   onApprovalChange?: (mode: ApprovalMode) => void;
+  /** İzin modunun yanında gösterilecek ek öğe (ör. Otomatik kip denetçisi rozeti, P-011). */
+  approvalExtra?: ReactNode;
   /** Oturum kişiliği (ajan adı) ya da null; `onPersonaChange` yoksa seçici çizilmez. */
   persona?: string | null;
   personaOptions?: PersonaOption[];
@@ -147,6 +149,7 @@ export function Composer({
   context = null,
   costUsd = null,
   onApprovalChange,
+  approvalExtra,
   persona = null,
   personaOptions = [],
   onPersonaChange,
@@ -507,6 +510,7 @@ export function Composer({
             ) : (
               <span className="composer__agent">{approvalInfo(approval).label}</span>
             )}
+            {workspaceMode === "sohbet" && onWorkspaceModeChange ? null : approvalExtra}
             {onPersonaChange && workspaceMode !== "sohbet" && (
               <select
                 aria-label="Oturum kişiliği"

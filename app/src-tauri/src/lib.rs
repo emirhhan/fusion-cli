@@ -958,6 +958,9 @@ pub fn run() {
                 Arc::new(CommandHealthProbe),
             );
             app.manage(manager);
+            // Windows/Linux soğuk açılışı: bağlantı bu sürecin argümanıdır (P-064).
+            let args: Vec<String> = std::env::args().collect();
+            derin_baglanti::acilista_beklet(&app.state::<derin_baglanti::Bekleyen>(), &args);
             #[cfg(target_os = "macos")]
             if let Err(error) = macos_cikis_menusunu_kur(app.handle()) {
                 eprintln!("[fusion][kapanis] Cmd+Q menüsü kurulamadı: {error}");

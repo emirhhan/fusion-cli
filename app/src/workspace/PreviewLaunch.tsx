@@ -54,6 +54,8 @@ export function PreviewLaunch({ client, onStarted, disabled = false }: PreviewLa
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  /** Port dolu olduğu için başka porta kayıldıysa (`autoPort`) çekirdeğin notu. */
+  const [note, setNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -80,6 +82,7 @@ export function PreviewLaunch({ client, onStarted, disabled = false }: PreviewLa
     if (!current) return;
     setBusy(true);
     setError(null);
+    setNote(null);
     try {
       if (trustFirst) {
         // Kullanıcı komut metnini seçicide gördü ve "Güven ve başlat"a bastı: dosyanın şu anki
@@ -95,6 +98,7 @@ export function PreviewLaunch({ client, onStarted, disabled = false }: PreviewLa
         setError(typeof payload.metin === "string" ? payload.metin : "Sunucu başlatılamadı.");
         return;
       }
+      if (typeof payload.not === "string" && payload.not) setNote(payload.not);
       onStarted(payload.url);
       await load();
     } catch (reason) {
@@ -161,6 +165,7 @@ export function PreviewLaunch({ client, onStarted, disabled = false }: PreviewLa
         </p>
       )}
       {error && <p className="preview-panel__address-error" role="alert">{error}</p>}
+      {note && <p className="preview-panel__address-error" role="status">{note}</p>}
       {warnings.map((warning) => (
         <p className="preview-panel__address-error" key={warning} role="note">{warning}</p>
       ))}

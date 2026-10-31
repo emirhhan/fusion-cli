@@ -27,10 +27,12 @@ from .artifacts import ArtifactStore
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
 from .desktop_frame import DESKTOP_SCREENSHOT_MAX_WIDTH, DesktopView
+from .desktop_settings import DesktopSettings
 from .job_evidence import JobCompletion
 from .remotion_browser import RemotionBrowser
 from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
+from .sandbox_policy import SandboxPolicy
 from .session_cron import SessionCron
 from .tool_content import ToolContent, ToolContentType
 from .workspace_fingerprint import WorkspaceEffect
@@ -396,6 +398,8 @@ class ToolContext:
     hidden_env: frozenset[str] = field(default=frozenset(), kw_only=True)
     #: `run_shell` işletim sistemi sandbox kipi: "off" | "write_root" (bkz. `shell_sandbox`).
     shell_sandbox: str = field(default="off", kw_only=True)
+    #: Kip açıkken uygulanan okuma/ağ/yazma politikası (P-010); None = yalnız yazma sınırı.
+    sandbox_policy: SandboxPolicy | None = field(default=None, kw_only=True)
     #: `edit_file`/`multi_edit` tam eşleşme bulamayınca boşluk/girinti/CRLF farkını tolere eden
     #: tek-ve-belirsiz-olmayan yedek yolu dener (bkz. `tools.esnek_eslesme`).
     edit_fuzzy_match: bool = field(default=True, kw_only=True)
@@ -418,6 +422,8 @@ class ToolContext:
     desktop_screenshot_max_width: int = field(default=DESKTOP_SCREENSHOT_MAX_WIDTH, kw_only=True)
     #: Ekran görüntüsünden Fusion penceresini çıkar (`runtime.desktop_exclude_fusion_window`).
     desktop_exclude_fusion_window: bool = field(default=True, kw_only=True)
+    #: Bilgisayar kullanımı ayarları (`desktop:`; kademe, reddedilen uygulamalar, tur davranışı).
+    desktop_settings: DesktopSettings = field(default_factory=DesktopSettings, kw_only=True)
     #: `enter_worktree`/`exit_worktree` araçlarının tur SONUNA bıraktığı kök değişikliği isteği.
     #: Bağlam donmuştur; kök tur ortasında değişmez, REPL turdan sonra uygular.
     worktree_switch: WorktreeSwitch = field(default_factory=WorktreeSwitch, kw_only=True)

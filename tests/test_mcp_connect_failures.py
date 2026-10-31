@@ -44,7 +44,7 @@ class _Session:
 
 
 def _session_factory(*, blocks: bool):
-    return lambda _read, _write: _Session(blocks=blocks)
+    return lambda _read, _write, **_options: _Session(blocks=blocks)
 
 
 async def test_kayit_reddi_giris_durumunu_client_id_mesajiyla_hataya_dusurur(monkeypatch):

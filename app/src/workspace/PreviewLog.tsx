@@ -56,11 +56,17 @@ export interface PreviewLogProps {
   client: ProtocolClient;
   url: string;
   onClose: () => void;
+  /** Günlüğü veren istek: önizleme için o anın ölçümü, Tarayıcı panelinde (P-045) canlı birikim. */
+  rpc?: string;
+  /** Canlı birikimde (Tarayıcı paneli) "Temizle" gösterilir; çekirdek tamponu boşaltır. */
+  clearable?: boolean;
 }
+
+const EMPTY_LOG: PageLogResult = { konsol: [], ag: [], hataSayisi: 0, basarisizIstek: 0 };
 
 type LogTab = "konsol" | "ag";
 
-export function PreviewLog({ client, url, onClose }: PreviewLogProps) {
+export function PreviewLog({ client, url, onClose, rpc = "onizleme.gunluk", clearable = false }: PreviewLogProps) {
   const [tab, setTab] = useState<LogTab>("konsol");
   const [result, setResult] = useState<PageLogResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,12 +78,21 @@ export function PreviewLog({ client, url, onClose }: PreviewLogProps) {
     let active = true;
     setLoading(true);
     setError(null);
-    void client.request("onizleme.gunluk", { url })
+    void client.request(rpc, { url })
       .then((payload) => { if (active) setResult(decodePageLog(payload)); })
       .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : String(reason)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [client, url, run]);
+  }, [client, url, run, rpc]);
+
+  const clear = () => {
+    setLoading(true);
+    setError(null);
+    void client.request(rpc, { url, temizle: true })
+      .then((payload) => { decodePageLog(payload); setResult(EMPTY_LOG); })
+      .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)))
+      .finally(() => setLoading(false));
+  };
 
   const konsol = result?.konsol.filter((row) => !onlyProblems || ["error", "pageerror", "warning"].includes(row.seviye)) ?? [];
   const ag = result?.ag.filter((row) => !onlyProblems || row.basarisiz) ?? [];
@@ -97,6 +112,9 @@ export function PreviewLog({ client, url, onClose }: PreviewLogProps) {
           <input checked={onlyProblems} onChange={(event) => setOnlyProblems(event.target.checked)} type="checkbox" />
           Yalnız sorunlar
         </label>
+        {clearable && (
+          <button aria-label="Günlüğü temizle" disabled={loading} onClick={clear} title="Biriken kayıtları sil" type="button">⌫</button>
+        )}
         <button aria-label="Günlüğü yenile" disabled={loading} onClick={() => setRun((n) => n + 1)} title="Yeniden ölç" type="button">↻</button>
         <button aria-label="Günlüğü kapat" onClick={onClose} title="Kapat" type="button">×</button>
       </header>

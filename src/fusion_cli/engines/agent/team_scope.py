@@ -73,9 +73,11 @@ def derive_sub_context(
             chrome=context.chrome,
             hidden_env=context.hidden_env,
             shell_sandbox=context.shell_sandbox,
+            sandbox_policy=context.sandbox_policy,
             edit_fuzzy_match=context.edit_fuzzy_match,
             post_edit_syntax_check=context.post_edit_syntax_check,
             shell_fingerprint=context.shell_fingerprint,
+            desktop_settings=context.desktop_settings,
         )
     scope: tuple[Path, ...] | None = context.write_scope
     if subtask is not None and subtask.write_scope:
@@ -95,12 +97,14 @@ def derive_sub_context(
         chrome=context.chrome,
         hidden_env=context.hidden_env,
         shell_sandbox=context.shell_sandbox,
+        sandbox_policy=context.sandbox_policy,
         edit_fuzzy_match=context.edit_fuzzy_match,
         post_edit_syntax_check=context.post_edit_syntax_check,
         shell_fingerprint=context.shell_fingerprint,
         desktop=context.desktop,
         desktop_screenshot_max_width=context.desktop_screenshot_max_width,
         desktop_exclude_fusion_window=context.desktop_exclude_fusion_window,
+        desktop_settings=context.desktop_settings,
         write_scope=scope,
         # Tarayıcı ayarları (profil kapısı, varsayılan profil, pencere kipi) devralınır;
         # açık oturum devralınmaz (P-023).
