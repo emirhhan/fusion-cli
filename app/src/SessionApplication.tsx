@@ -585,7 +585,9 @@ export function SessionUygulama({
   // diğer üç bölüm tüm yüzeyi kaplar ve sayfa geçmişine girmez.
   const [surfaceSection, setSurfaceSection] = useState<SurfaceSection | null>(null);
   const mediaPage = page === "image-create" || page === "video-create";
-  const mainSection: MainSection = surfaceSection ?? (mediaPage ? "media" : "home");
+  // Görsel/video ekranı raydan değil paletten açılır; o ekrandayken Home vurgulu kalır
+  // ve Home'a basmak sohbete döndürür (bkz. `selectMainSection`).
+  const mainSection: MainSection = surfaceSection ?? "home";
   // Ayarlar'ı açma isteği: bölüm + (isteğe bağlı) odaklanacak satır + sıra numarası. Sıra
   // numarası aynı bölüm yeniden istendiğinde de Ayarlar'ın oraya dönmesini sağlar; eskiden
   // Ayarlar açıkken menüden "Dil" seçilince bölüm değeri değişmediği için hiçbir şey olmuyordu.
@@ -894,11 +896,7 @@ export function SessionUygulama({
       return;
     }
     setSurfaceSection(null);
-    if (section === "media") {
-      if (!mediaPage) void navigateSidebar("image-create");
-    } else if (mediaPage) {
-      setPage("chat");
-    }
+    if (mediaPage) setPage("chat");
   };
   const mainRail = <MainRail active={mainSection} onSelect={selectMainSection} accountHostRef={setAccountHost} />;
   const mainSurface = (

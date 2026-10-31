@@ -776,7 +776,12 @@ it("boş shell oluşturma sayfalarını açar ve saklı sohbetleri siler", async
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
   fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
   await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
-  fireEvent.click(screen.getByRole("button", { name: "Görsel ve video üretimi" }));
+  // "Görsel ve video üretimi" artık en soldaki rayda yok; ekran komut paletinden açılır.
+  expect(screen.queryByRole("button", { name: "Görsel ve video üretimi" })).toBeNull();
+  fireEvent.keyDown(window, { key: "k", code: "KeyK", ctrlKey: true });
+  const palet = await screen.findByRole("combobox", { name: /Komut, sohbet/ });
+  fireEvent.change(palet, { target: { value: "Görsel oluştur" } });
+  fireEvent.keyDown(palet, { key: "Enter" });
   // Basit mod varsayılandır; iş akışı seçildiğinde düğümlü tuval açılır.
   expect(await screen.findByRole("heading", { name: "Görsel oluştur" })).toBeTruthy();
   expect(screen.getByLabelText("Nasıl bir görsel istiyorsun?")).toBeTruthy();
