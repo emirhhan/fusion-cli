@@ -19,7 +19,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from ..engines.agent.team_board import LEAD, TeamBoard, TeamError, TeamStore
+from ..engines.agent.team_board import LEAD, NAME_PATTERN, TeamBoard, TeamError, TeamStore
 from ..engines.agent.workflow_store import RunRecord
 from ..engines.agent.workflow_tools import workflow_store
 
@@ -60,8 +60,12 @@ def _team(name: str, data: Mapping[str, object], root: Path) -> dict[str, Any]:
         team = _text(data, "ad")
         if not team:
             return {"ok": False, "metin": "Ekip adı gerekli."}
+        if not NAME_PATTERN.match(team):
+            return {"ok": False, "metin": "Geçersiz ekip adı (küçük harf, rakam, '-' ya da '_')."}
         if name == "ekip.sil":
-            return {"ok": store.delete(team), "ad": team}
+            if store.delete(team):
+                return {"ok": True, "ad": team}
+            return {"ok": False, "ad": team, "metin": "Bu adla ekip yok."}
         board = store.load(team)
     except TeamError as error:
         return {"ok": False, "metin": str(error)}

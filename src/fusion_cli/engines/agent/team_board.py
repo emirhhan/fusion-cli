@@ -131,10 +131,28 @@ def check_name(name: str, what: str = "Ekip adı") -> str:
 
 
 class TeamStore:
-    """`.fusion/ekip/` altındaki panolar ve gelen kutuları."""
+    """`.fusion/ekip/` altındaki panolar ve gelen kutuları.
+
+    Ad ve alıcı her girişte `NAME_PATTERN` ile süzülür; geçersiz ad "ekip yok" sayılır.
+    Ölçüldü (31 Ekim): `delete("../../x")` yalnız `pano.json` varlığına bakıp
+    `.fusion/ekip/` dışındaki dizini `rmtree` ediyordu (`/team sil`, `fusion ekip sil`,
+    `ekip.sil` RPC'si aynı yoldan).
+    """
 
     def __init__(self, root: Path) -> None:
         self.base = root / TEAMS_DIR
+
+    def _team_dir(self, name: str) -> Path | None:
+        """Geçerli adın dizini; ad geçersizse ya da çözülen yol `base` dışına çıkarsa None."""
+        if not NAME_PATTERN.match(name):
+            return None
+        directory = self.base / name
+        try:
+            if directory.resolve().parent != self.base.resolve():
+                return None
+        except OSError:
+            return None
+        return directory
 
     def names(self) -> list[str]:
         if not self.base.is_dir():
@@ -146,7 +164,10 @@ class TeamStore:
         )
 
     def load(self, name: str) -> TeamBoard | None:
-        path = self.base / name / BOARD_FILE
+        directory = self._team_dir(name)
+        if directory is None:
+            return None
+        path = directory / BOARD_FILE
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -170,7 +191,10 @@ class TeamStore:
             handle.write(line + "\n")
 
     def inbox(self, team: str, recipient: str) -> list[TeamMessage]:
-        path = self.base / team / INBOX_DIR / f"{recipient}.jsonl"
+        directory = self._team_dir(team)
+        if directory is None or not NAME_PATTERN.match(recipient):
+            return []
+        path = directory / INBOX_DIR / f"{recipient}.jsonl"
         if not path.is_file():
             return []
         messages: list[TeamMessage] = []
@@ -188,8 +212,8 @@ class TeamStore:
         return messages
 
     def delete(self, name: str) -> bool:
-        directory = self.base / name
-        if not (directory / BOARD_FILE).is_file():
+        directory = self._team_dir(name)
+        if directory is None or directory.is_symlink() or not (directory / BOARD_FILE).is_file():
             return False
         shutil.rmtree(directory)
         return True
