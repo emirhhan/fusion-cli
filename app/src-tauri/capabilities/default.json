@@ -1,8 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Ana pencere ve konuşma penceresi yetkileri",
-  "windows": ["main", "ses"],
+  "description": "Ana pencere ve konuşma penceresi yetkileri. opener:default yalnız URL açar ve dosyayı klasörde gösterir; plan dosyasını editörde açmak için open_path izni Fusion yapılandırma kökü (plans/) kapsamıyla ayrıca verilir.",
+  "windows": [
+    "main",
+    "ses"
+  ],
   "permissions": [
     "core:default",
     "updater:default",
@@ -13,6 +16,17 @@
     "dialog:allow-save",
     "dialog:allow-ask",
     "opener:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        {
+          "path": "$HOME/.config/fusion-cli/**"
+        },
+        {
+          "path": "$CONFIG/fusion-cli/**"
+        }
+      ]
+    },
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",
     "notification:allow-notify"

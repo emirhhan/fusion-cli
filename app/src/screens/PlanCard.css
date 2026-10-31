@@ -22,6 +22,7 @@
 
 .plan-card__body { display: grid; flex: 1 1 200px; gap: 2px; min-width: 0; }
 .plan-card__title { color: var(--text-primary); font-size: var(--text-sm); }
+.plan-card__error { color: var(--text-danger); font-size: var(--text-xs); }
 .plan-card__meta {
   color: var(--text-secondary);
   font-size: var(--text-xs);
