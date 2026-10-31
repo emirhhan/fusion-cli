@@ -8,8 +8,9 @@ sınıflandırıcıya sorulur. Fusion'da sıra şudur ve değişmez:
     kuralın sorduğu kalan çağrı (ask_only, on)    → model "güvenli" derse SORULMAZ
     kuralın geçirdiği yazan kabuk komutu (yalnız on) → model "riskli" derse SORULUR
 
-Model yalnız kullanıcının KENDİ mesajlarını ve eylemi görür; araç çıktısı verilmez
-(istem enjeksiyonuna karşı). Sırlar gönderilmeden maskelenir. Model yok, zaman aşımı,
+Model yalnız kullanıcının KENDİ mesajlarını ve eylemi (komut, yol, hedef) görür; araç
+çıktısı ve yazılacak dosya içeriği verilmez (yalnız uzunluğu; istem enjeksiyonuna karşı).
+Sırlar gönderilmeden maskelenir. Model yok, zaman aşımı,
 bozuk cevap → kurallı yedek: kuralın kararı geçerli (eski davranış). Üst üste
 `AUTO_REVIEW_MODEL_FAILURE_LIMIT` hatadan sonra oturumun kalanında model çağrılmaz.
 Alt ajanlar denetçiye girmez (`auto_review` devredilmez): niyetleri model yazımıdır.
@@ -23,7 +24,7 @@ import json
 import logging
 import re
 import unicodedata
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from enum import Enum
 from pathlib import Path
@@ -67,6 +68,14 @@ CARD_NOTE = "Denetçi: {reason}"
 ESCALATED_RISK = "denetçi riskli buldu: {reason}"
 #: Ayrı denetçi modeli seçilmediyse durum ekranındaki ad.
 JUDGE_LABEL = "hakem ({model})"
+#: İçeriği modele gönderilmeyen metin argümanları (yerine uzunluk yazılır).
+_BODY_ARGS = frozenset(
+    {"content", "text", "edits", "old", "new", "old_text", "new_text", "body", "patch", "diff"}
+)
+#: Adı ne olursa olsun bundan uzun metin argümanı da yalnız uzunluğuyla gider (MCP araçları).
+AUTO_REVIEW_TEXT_ARG_CHARS = 300
+BODY_PLACEHOLDER = "<{count} karakter metin; içerik gönderilmedi>"
+BODY_ITEMS_PLACEHOLDER = "<{count} öğe; içerik gönderilmedi>"
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 _SAFE_WORDS = frozenset({"guvenli", "safe", "allow"})
 _RISKY_WORDS = frozenset({"riskli", "risky", "ask", "block", "deny"})
@@ -267,7 +276,7 @@ def apply_outcome(
 
 def build_prompt(request: ApprovalRequest, intent: Sequence[str], root: Path | None) -> str:
     """Denetçi istemi: talimat + kullanıcı mesajları + eylem (sırlar maskeli)."""
-    args = json.dumps(dict(request.args), ensure_ascii=False, default=str)
+    args = json.dumps(prompt_args(request.args), ensure_ascii=False, default=str)
     lines = [
         _PROMPT.read_text(encoding="utf-8").strip(),
         "",
@@ -278,10 +287,31 @@ def build_prompt(request: ApprovalRequest, intent: Sequence[str], root: Path | N
         "## Eylem",
         f"Proje kökü: {root if root is not None else '(bilinmiyor)'}",
         f"Araç: {request.tool.name}",
-        f"Argümanlar: {redact(args[:AUTO_REVIEW_ARGS_CHARS])}",
+        # Önce maskele sonra kes: sınırda bölünen anahtar desene uymayıp sızmasın.
+        f"Argümanlar: {redact(args)[:AUTO_REVIEW_ARGS_CHARS]}",
         f"Kuralın notu: {request.risk or RULE_PASSED_REASON}",
     ]
     return "\n".join(lines)
+
+
+def prompt_args(args: Mapping[str, object]) -> dict[str, object]:
+    """Modele gidecek argümanlar: dosya içeriği ve uzun metin yerine yalnız uzunluğu.
+
+    Karar eylemin NE yaptığına (komut, yol, hedef) bağlıdır; ajanın yazacağı metin hem
+    kullanıcı verisi hem de sınıflandırıcıya talimat sokma yüzeyidir. Komut olduğu gibi gider.
+    Ölçüldü (31 Ekim): `write_file.content` 2000 karaktere kadar ham gidiyordu.
+    """
+    return {key: _arg_value(key, value) for key, value in args.items()}
+
+
+def _arg_value(key: str, value: object) -> object:
+    if key == "command":
+        return value
+    if isinstance(value, str) and (key in _BODY_ARGS or len(value) > AUTO_REVIEW_TEXT_ARG_CHARS):
+        return BODY_PLACEHOLDER.format(count=len(value))
+    if isinstance(value, list | dict) and key in _BODY_ARGS:
+        return BODY_ITEMS_PLACEHOLDER.format(count=len(value))
+    return value
 
 
 def parse_verdict(text: str) -> tuple[ReviewVerdict, str] | None:

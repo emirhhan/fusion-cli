@@ -359,3 +359,21 @@ def test_harness_notlari_kullanici_niyeti_sayilmaz_pencereyi_de_doldurmaz():
     ]
     niyet = risk_classifier.user_intent(lambda: gecmis)
     assert niyet == ("değişiklikleri feature dalına pushla", "main'e dokunma")
+
+
+def test_istemde_dosya_icerigi_yerine_uzunluk_gider_sir_sinirda_bolunmez(tmp_path):
+    """Ölçüldü (31 Ekim): argümanlar ham gidiyordu (`write_file.content` 2000 karaktere kadar)
+    ve önce kesilip sonra maskeleniyordu; sınırda bölünen anahtar desene uymayıp sızabiliyordu."""
+    anahtar = "sk-" + "c" * 40
+    yazma = build_request(
+        _arac("write_file"),
+        {"path": "../disari.txt", "content": "ICERIK_GOVDESI " * 50 + anahtar},
+        root=tmp_path,
+    )
+    istem = risk_classifier.build_prompt(yazma, ("dışarı yaz",), tmp_path)
+    assert "ICERIK_GOVDESI" not in istem and "c" * 20 not in istem
+    assert "../disari.txt" in istem and "karakter" in istem
+    # Anahtar sınırda bölünür: kesilen parça (sk- + 10-15 karakter) tek başına desene uymaz.
+    dolgu = "x" * (risk_classifier.AUTO_REVIEW_ARGS_CHARS - 32)
+    istem = risk_classifier.build_prompt(_kabuk(f"echo {dolgu} {anahtar}", tmp_path), (), tmp_path)
+    assert "c" * 10 not in istem

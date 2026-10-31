@@ -225,7 +225,8 @@ kapsamı o durumda hata verir ("Tüm projeler"i seç ya da projeye güven).
 Claude Code'un auto mode sınıflandırıcısının Fusion karşılığı. Otomatik kipte kuralların
 **soracağı** bir çağrı (`git push`, proje dışına yazma, `brew install`, uzak sunucu, MCP'de
 uzak yazma…) önce küçük/hızlı bir modele sorulur. Model yalnız **senin mesajlarını** ve
-eylemi görür (araç çıktısı, web sayfası, dosya içeriği gönderilmez; sırlar maskelenir):
+eylemi (komut, yol) görür; araç çıktısı, web sayfası ve yazılacak dosya içeriği gönderilmez
+(yalnız uzunluğu), sırlar maskelenir:
 
 - "güvenli" derse çağrı **sorulmadan** çalışır; akışta `denetçi (model): güvenli…` satırı kalır.
 - "riskli" derse onay kartı açılır; kartta `Denetçi: <gerekçe>` yazar.
