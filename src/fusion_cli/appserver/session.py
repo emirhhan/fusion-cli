@@ -939,6 +939,11 @@ class AppSession:
             from .web_preview import validate_web_preview
 
             return await asyncio.to_thread(validate_web_preview, request.data)
+        if request.name.startswith("onizleme."):
+            # Önizleme paneli (P-041): launch.json sunucuları, konsol/ağ günlüğü, ekran görüntüsü.
+            from .preview_rpc import handle_preview_rpc
+
+            return await handle_preview_rpc(self._state.root, request.name, request.data)
         if request.name == "proje.yaz":
             return write_entry(self._state.root, request.data, self._workspace_journal)
         if request.name == "proje.degisiklikler":

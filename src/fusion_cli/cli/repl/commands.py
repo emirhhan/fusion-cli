@@ -31,6 +31,7 @@ from ...tools.capabilities import search as search_capabilities
 from ...ui import messages
 from ...ui.picker import Choice, pick
 from . import macros, model_flows, profiles_flow, provider_flow, verify_flow, workspace_commands
+from .preview_command import preview_command
 from .state import TASK_TYPES, Engine, Reminder, ReplState
 
 #: `/resume<kaynak>` listesinde gösterilecek en fazla oturum. `source.list`'e
@@ -744,6 +745,14 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("all", messages.CMD_SHOW_ALL, _toggle_all, group="Fusion"),
     SlashCommand("thinking", messages.CMD_SHOW_THINKING, _toggle_thinking, group="Agent"),
     SlashCommand("zil", messages.CMD_BELL, _toggle_bell, group="Agent"),
+    SlashCommand(
+        "onizleme",
+        messages.CMD_PREVIEW,
+        preview_command,
+        aliases=("preview",),
+        group="Agent",
+        usage="[ad]",
+    ),
     SlashCommand("synth", messages.CMD_SYNTHESIS, _toggle_synthesis, group="Fusion"),
     SlashCommand("good", messages.CMD_GOOD, _feedback(Feedback.GOOD), group="Bellek"),
     SlashCommand("bad", messages.CMD_BAD, _feedback(Feedback.BAD), group="Bellek"),

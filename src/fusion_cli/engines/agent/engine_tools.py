@@ -50,6 +50,7 @@ from .clone_tools import clone_tools
 from .history_tools import recent_actions_tool
 from .image_tools import generate_image_tool
 from .image_view import DEFAULT_QUESTION, describe_image
+from .preview_log_tools import preview_log_tools
 from .preview_tools import preview_tool
 from .secret_paths import is_secret_path
 from .team import (
@@ -142,6 +143,8 @@ def build_agent_registry(
     for web_tool in (*web_work_tools(), *clone_tools()):
         extended.register(web_tool)
     extended.register(preview_tool(deps))
+    for log_tool in preview_log_tools(deps):
+        extended.register(log_tool)
     conversation = getattr(deps, "conversation_id", "")
     memory_dir = getattr(getattr(deps, "config", None), "memory_dir", None)
     if conversation and memory_dir is not None:

@@ -1,0 +1,309 @@
+"""`.fusion/launch.json`: kullanıcının tanımladığı geliştirme sunucusu yapılandırmaları.
+
+Ölçüldü (31 Ekim, P-041): önizleme sunucusu yalnız dosyalardan ANLAŞILAN türleri
+(WordPress, PHP, Node `dev`/`start`, statik) başlatabiliyordu; monorepo, özel port, Vite
+dışı betik ya da zaten çalışan bir sunucuya "bağlan" için yol yoktu. Claude Code
+masaüstünün `.claude/launch.json` dosyasıyla aynı alanlar kullanılır (`name`,
+`runtimeExecutable`, `runtimeArgs`, `port`, `url`); uyumluluk için `.claude/launch.json`
+da OKUNUR ama yazılmaz. Örnek::
+
+    {"version": "0.0.1", "configurations": [
+      {"name": "web", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173},
+      {"name": "api", "url": "http://localhost:8000"}
+    ]}
+
+- `runtimeExecutable` varsa komut KABUKSUZ (`exec`) başlatılır, `PORT` ortam değişkeni verilir.
+- Yalnız `url` varsa hiçbir şey başlatılmaz; çalışan sunucuya bağlanılır.
+- Adresler yerel (loopback) olmalıdır: önizleme paneli yalnız bunları gömer.
+
+Sunucular `fusion app` süreci yaşadıkça açık kalır; süreç kapanırken hepsi kapatılır.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import atexit
+import json
+import re
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+from urllib.parse import urlparse
+
+from ..core.errors import FusionError
+from . import preview_server
+from .preview_server import LOCAL_HOSTS, PreviewError, PreviewKind, RunningPreview
+
+#: Okunma sırası: Fusion'ın kendi dosyası önce, Claude Code'unki uyumluluk için.
+LAUNCH_FILES: tuple[str, ...] = (".fusion/launch.json", ".claude/launch.json")
+#: Yazılan/örneklenen dosya (uyumluluk dosyasına yazılmaz).
+LAUNCH_FILE = LAUNCH_FILES[0]
+#: Yapılandırma adı: menüde ve `start_preview name=` içinde kullanılır; kabuğa gitmez.
+_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,63}$")
+MAX_CONFIGURATIONS = 20
+MAX_ARGS = 40
+
+
+class LaunchConfigError(FusionError):
+    """`launch.json` okunamadı ya da bir yapılandırma geçersiz; mesaj kullanıcıya gider."""
+
+
+@dataclass(frozen=True, slots=True)
+class LaunchConfig:
+    """Tek bir sunucu yapılandırması (`configurations[]` öğesi)."""
+
+    name: str
+    #: Çalıştırılacak ikili (`npm`, `python`, `./bin/dev`); None ise yalnız bağlanılır.
+    executable: str | None
+    args: tuple[str, ...]
+    port: int | None
+    #: Açılacak adres; yoksa `http://127.0.0.1:<port>`.
+    url: str | None
+    #: Köke göreli çalışma klasörü ("" = kök).
+    cwd: str = ""
+
+    @property
+    def is_attach(self) -> bool:
+        """Komut yok: zaten çalışan sunucuya bağlan."""
+        return self.executable is None
+
+    @property
+    def command(self) -> tuple[str, ...]:
+        return (self.executable, *self.args) if self.executable else ()
+
+    @property
+    def command_text(self) -> str:
+        return " ".join(self.command)
+
+    @property
+    def address(self) -> str:
+        if self.url:
+            return self.url
+        return f"http://127.0.0.1:{self.port}/"
+
+
+@dataclass(frozen=True, slots=True)
+class LaunchConfigs:
+    configs: tuple[LaunchConfig, ...]
+    #: Okunan dosyanın köke göreli yolu; dosya yoksa None.
+    source: str | None
+
+    def get(self, name: str) -> LaunchConfig | None:
+        return next((config for config in self.configs if config.name == name), None)
+
+
+def launch_file(root: Path) -> Path | None:
+    """Varsa okunacak dosya (Fusion'ınki Claude Code'unkinden önce)."""
+    for relative in LAUNCH_FILES:
+        path = root / relative
+        if path.is_file():
+            return path
+    return None
+
+
+def load_launch_configs(root: Path) -> LaunchConfigs:
+    """Dosyayı oku ve doğrula; dosya yoksa boş liste. Bozuk dosya `LaunchConfigError`."""
+    path = launch_file(root)
+    if path is None:
+        return LaunchConfigs((), None)
+    source = path.relative_to(root).as_posix()
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise LaunchConfigError(f"{source} okunamadı: {error}") from error
+    except ValueError as error:
+        raise LaunchConfigError(f"{source} geçerli JSON değil: {error}") from error
+    if not isinstance(raw, dict) or not isinstance(raw.get("configurations"), list):
+        raise LaunchConfigError(f"{source}: üst düzeyde `configurations` listesi bekleniyor.")
+    items = raw["configurations"]
+    if len(items) > MAX_CONFIGURATIONS:
+        raise LaunchConfigError(f"{source}: en fazla {MAX_CONFIGURATIONS} yapılandırma olabilir.")
+    configs = tuple(_parse(source, item) for item in items)
+    names = [config.name for config in configs]
+    if len(set(names)) != len(names):
+        raise LaunchConfigError(f"{source}: yapılandırma adları benzersiz olmalı.")
+    return LaunchConfigs(configs, source)
+
+
+def find_launch_config(root: Path, name: str) -> LaunchConfig:
+    """Adıyla yapılandırma; yoksa mevcut adları sayan `LaunchConfigError`."""
+    loaded = load_launch_configs(root)
+    config = loaded.get(name)
+    if config is not None:
+        return config
+    if not loaded.configs:
+        raise LaunchConfigError(
+            f'{LAUNCH_FILE} yok. Örnek: {{"configurations": [{{"name": "web", '
+            '"runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173}]}'
+        )
+    adlar = ", ".join(config.name for config in loaded.configs)
+    raise LaunchConfigError(
+        f"'{name}' adlı yapılandırma {loaded.source} içinde yok. Mevcut: {adlar}"
+    )
+
+
+def is_local_url(value: object) -> bool:
+    """Önizleme panelinin gömebileceği adres: http + loopback."""
+    if not isinstance(value, str):
+        return False
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return False
+    host = parsed.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
+    return parsed.scheme == "http" and host in LOCAL_HOSTS
+
+
+def _parse(source: str, item: object) -> LaunchConfig:
+    if not isinstance(item, dict):
+        raise LaunchConfigError(f"{source}: her yapılandırma bir nesne olmalı.")
+    name = item.get("name")
+    if not isinstance(name, str) or not _NAME.fullmatch(name):
+        raise LaunchConfigError(
+            f"{source}: `name` harf/rakam/alt çizgiyle başlayan, en çok 64 karakterlik ad olmalı."
+        )
+    executable = item.get("runtimeExecutable")
+    if executable is not None and (not isinstance(executable, str) or not executable.strip()):
+        raise LaunchConfigError(f"{source} [{name}]: `runtimeExecutable` boş olmayan metin olmalı.")
+    raw_args = item.get("runtimeArgs", [])
+    if (
+        not isinstance(raw_args, list)
+        or len(raw_args) > MAX_ARGS
+        or not all(isinstance(arg, str) for arg in raw_args)
+    ):
+        raise LaunchConfigError(
+            f"{source} [{name}]: `runtimeArgs` en çok {MAX_ARGS} metinden oluşan liste olmalı."
+        )
+    port = item.get("port")
+    if port is not None and (
+        isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536
+    ):
+        raise LaunchConfigError(f"{source} [{name}]: `port` 1-65535 arası tam sayı olmalı.")
+    url = item.get("url")
+    if url is not None and not is_local_url(url):
+        raise LaunchConfigError(
+            f"{source} [{name}]: `url` yerel bir http adresi olmalı (localhost/127.0.0.1); "
+            "uzak adresler uygulama içinde önizlenmez."
+        )
+    if executable is None and url is None:
+        raise LaunchConfigError(f"{source} [{name}]: `runtimeExecutable` ya da `url` gerekir.")
+    if executable is not None and port is None and url is None:
+        raise LaunchConfigError(f"{source} [{name}]: komutla birlikte `port` ya da `url` gerekir.")
+    cwd = item.get("cwd", "")
+    if (
+        not isinstance(cwd, str)
+        or PurePosixPath(cwd).is_absolute()
+        or ".." in PurePosixPath(cwd).parts
+    ):
+        raise LaunchConfigError(f"{source} [{name}]: `cwd` köke göreli olmalı (`..` olmaz).")
+    return LaunchConfig(
+        name=name,
+        executable=executable.strip() if isinstance(executable, str) else None,
+        args=tuple(raw_args),
+        port=port,
+        url=url,
+        cwd=cwd.strip("/"),
+    )
+
+
+#: Çalışan adlı önizlemeler: (kök, ad) → sunucu. `preview_server._RUNNING` kök başına TEK
+#: sunucu tutar; launch.json aynı kökte birden çok sunucu tanımlayabilir.
+_RUNNING: dict[tuple[Path, str], RunningPreview] = {}
+
+
+def running_launch(root: Path, name: str) -> RunningPreview | None:
+    """Çalışan adlı önizleme; bağlanılan (bizim olmayan) sunucu yanıt vermiyorsa düşürülür."""
+    key = (root.resolve(), name)
+    preview = _RUNNING.get(key)
+    if preview is None or not preview.alive:
+        return None
+    if preview.attached and not preview_server.responds(preview.url):
+        _RUNNING.pop(key, None)
+        return None
+    return preview
+
+
+def running_launches(root: Path | None = None) -> tuple[tuple[str, RunningPreview], ...]:
+    """Çalışan adlı önizlemeler `(ad, sunucu)`; `root` verilirse yalnız o kökünkiler."""
+    resolved = root.resolve() if root is not None else None
+    return tuple(
+        (name, preview)
+        for (preview_root, name), preview in _RUNNING.items()
+        if preview.alive and (resolved is None or preview_root == resolved)
+    )
+
+
+async def start_launch(root: Path, config: LaunchConfig) -> RunningPreview:
+    """Yapılandırmayı başlat (ya da çalışana bağlan) ve yanıt verene kadar bekle."""
+    root = await asyncio.to_thread(root.resolve)
+    existing = running_launch(root, config.name)
+    if existing is not None:
+        return existing
+    url = config.address
+    cwd = root / config.cwd if config.cwd else root
+    if not await asyncio.to_thread(cwd.is_dir):
+        raise PreviewError(f"'{config.name}' çalışma klasörü yok: {config.cwd}")
+    if config.is_attach:
+        if not await preview_server.wait_until_serving(url, timeout_s=5.0):
+            raise PreviewError(
+                f"'{config.name}' için {url} yanıt vermiyor; sunucuyu başlat ya da yapılandırmaya "
+                "`runtimeExecutable` ekle."
+            )
+        preview = RunningPreview(root, PreviewKind.LAUNCH, url, attached=True)
+    else:
+        extra_env = {"PORT": str(config.port)} if config.port is not None else None
+        command = list(config.command)
+        try:
+            process, log_path = await preview_server.spawn_logged(command, cwd, extra_env=extra_env)
+        except OSError as error:
+            raise PreviewError(
+                f"'{config.name}' başlatılamadı: {error} (komut: {config.command_text})"
+            ) from error
+        preview = RunningPreview(root, PreviewKind.LAUNCH, url, process=process, log_path=log_path)
+        if not await preview_server.wait_until_serving(url, process=process):
+            tail = _log_tail(preview)
+            preview_server.terminate(preview)
+            raise PreviewError(
+                f"'{config.name}' {preview_server.SERVER_READY_S:.0f} sn içinde {url} adresinde "
+                f"yanıt vermedi. Komut: {config.command_text}"
+                + (f"\n[sürecin son çıktısı]\n{tail}" if tail else "")
+            )
+    _RUNNING[(root, config.name)] = preview
+    return preview
+
+
+def _log_tail(preview: RunningPreview, chars: int = 1_500) -> str:
+    if preview.log_path is None:
+        return ""
+    try:
+        return preview.log_path.read_text(encoding="utf-8", errors="replace")[-chars:].strip()
+    except OSError:
+        return ""
+
+
+def stop_launch(root: Path, name: str) -> bool:
+    """Adlı önizlemeyi kapat; çalışmıyorsa False."""
+    key = (root.resolve(), name)
+    preview = _RUNNING.pop(key, None)
+    if preview is None:
+        return False
+    preview_server.terminate(preview)
+    return True
+
+
+@atexit.register
+def stop_all_launches() -> None:
+    for key in list(_RUNNING):
+        preview = _RUNNING.pop(key)
+        preview_server.terminate(preview)
+
+
+def default_preview_url(root: Path) -> str | None:
+    """Ajan/arayüz adres vermezse bakılacak sayfa: en son başlatılan çalışan önizleme."""
+    named = [preview for _, preview in running_launches(root)]
+    detected = [
+        preview for preview in preview_server.all_running() if preview.root == root.resolve()
+    ]
+    candidates = [*detected, *named]
+    return candidates[-1].url if candidates else None

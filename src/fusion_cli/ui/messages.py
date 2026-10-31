@@ -315,6 +315,22 @@ REPL_TASK_TYPE_CHANGED = "görev tipi → {task_type}"
 REPL_SHOW_ALL = "tüm aday cevapları: {state}"
 REPL_SHOW_THINKING = "model düşünmesini göster: {state}"
 REPL_BELL = "tur bitince terminal zili: {state}"
+REPL_PREVIEW_NONE = (
+    "Tanımlı sunucu yok. {file} içine yapılandırma ekle, ör. "
+    '{{"configurations": [{{"name": "web", "runtimeExecutable": "npm", '
+    '"runtimeArgs": ["run", "dev"], "port": 5173}}]}}'
+)
+REPL_PREVIEW_HEAD = "Önizleme sunucuları ({source}):"
+REPL_PREVIEW_ROW = "· {name} — {command} → {url} [{state}]"
+REPL_PREVIEW_RUNNING = "çalışıyor"
+REPL_PREVIEW_STOPPED = "kapalı"
+REPL_PREVIEW_ATTACH = "çalışana bağlan"
+REPL_PREVIEW_DETECTED = "· (otomatik) {kind} → {url} [çalışıyor]"
+REPL_PREVIEW_UNKNOWN = "'{name}' adlı yapılandırma yok. Mevcut: {names}"
+REPL_PREVIEW_QUEUED = "'{name}' önizlemesi ajana veriliyor; onaydan sonra adres gösterilir."
+REPL_PREVIEW_TASK = (
+    "Önizlemeyi başlat: start_preview aracını name='{name}' ile çağır ve açılan adresi bana söyle."
+)
 REPL_SYNTHESIS = "sentez: {state}"
 REPL_ON = "açık"
 REPL_OFF = "kapalı"
@@ -716,6 +732,7 @@ CMD_TASK_TYPE = "fusion görev tipi (general | code | reasoning | agent)"
 CMD_SHOW_ALL = "tüm aday cevaplarını göster/gizle"
 CMD_SHOW_THINKING = "model düşünmesini göster/gizle (Claude Code stili)"
 CMD_BELL = "tur bitince terminal zili çalsın/çalmasın (başka pencerede çalışırken haber)"
+CMD_PREVIEW = "önizleme sunucularını listele (.fusion/launch.json) ya da adıyla başlat"
 CMD_SYNTHESIS = "sentezi aç/kapa"
 CMD_GOOD = "son fusion kazananına olumlu geri bildirim"
 CMD_BAD = "son fusion kazananına olumsuz geri bildirim"

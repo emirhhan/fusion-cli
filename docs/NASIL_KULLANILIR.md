@@ -294,6 +294,47 @@ Talk kullanırken:
 Ad-hoc paket Apple tarafından notarize edilmez. macOS ilk açılışı engellerse Finder'da
 Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtığını doğrula.
 
+## 15) Önizleme paneli: launch.json, konsol/ağ günlüğü, cihaz boyutları
+
+Masaüstünde sağ paneldeki **Önizleme › Web** sekmesi yerel (localhost) sitenizi gömer.
+Ajan `start_preview` ile projeyi çalıştırınca panel kendiliğinden açılır; aşağıdakiler
+onun üstüne gelir.
+
+**Dev sunucuyu uygulamadan başlatma** — proje köküne `.fusion/launch.json` koyun
+(Claude Code'un `.claude/launch.json` dosyası da aynı alanlarla okunur, yazılmaz):
+
+```json
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "web", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173 },
+    { "name": "api", "url": "http://localhost:8000" }
+  ]
+}
+```
+
+- `runtimeExecutable` + `runtimeArgs`: komut kabuksuz çalıştırılır, `PORT` ortam değişkeni verilir.
+- Yalnız `url`: hiçbir şey başlatılmaz, çalışan sunucuya bağlanılır. Adresler yerel olmalıdır.
+- İsteğe bağlı `cwd` (köke göreli). Sunucular uygulama kapanınca kapatılır.
+- Panelde adres çubuğunun altında yapılandırma seçici ve **Başlat / Durdur** görünür.
+- Ajan: `start_preview(name="web")`. CLI: `/onizleme` listeler, `/onizleme web` ajana başlattırır.
+
+**Konsol ve ağ günlüğü** — araç çubuğundaki `≡` düğmesi sayfayı çekirdeğin başsız
+tarayıcısında (Playwright) açıp konsol mesajlarını (seviye, metin, betik:satır) ve ağ
+isteklerini (durum, yöntem, adres, tür; başarısızlar başta) listeler. Canlı akış değil, o
+anın fotoğrafıdır; **↻** yeniden ölçer, "Yalnız sorunlar" süzer. Ajan için aynı veri
+`preview_console` ve `preview_network` araçlarında (`url` verilmezse son önizleme).
+
+**Ekran görüntüsü** — `◧` düğmesi seçili cihaz boyutunda görüntü alır, sistem/açık/koyu tema
+taklidi seçilebilir; dosya `.fusion/onizleme-ekran.png` olarak proje içine yazılır.
+
+**Cihaz boyutları** — Masaüstü, 1440, 1024, Tablet (768), Mobil (375), Mobil (320).
+Seçim iframe genişliğini ve ekran görüntüsü ölçüsünü birlikte belirler.
+
+Gereksinim: günlük ve ekran görüntüsü için `pip install 'fusion-cli[web]'` ve
+`playwright install chromium`. Panel yalnız localhost adreslerini gömer; https/uzak adres
+ve öğe seçici bu sürümde yok.
+
 ---
 
 ## Komut kopya kâğıdı
