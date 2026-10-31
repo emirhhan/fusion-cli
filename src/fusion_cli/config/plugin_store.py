@@ -283,15 +283,33 @@ def active_plugins(base: Path | None = None) -> tuple[InstalledPlugin, ...]:
 
 
 def plugin_mcp_servers(base: Path | None = None) -> tuple[McpServerConfig, ...]:
-    """Etkin ve çalıştırma onaylı eklentilerin MCP sunucuları."""
+    """Etkin ve çalıştırma onaylı eklentilerin MCP sunucuları.
+
+    Ölçüldü (31 Ekim): ad slug'ı (`plugin_<eklenti>_<sunucu>`) iki eklentide çakışabiliyordu
+    (`foo`/`bar-baz` ile `foo-bar`/`baz`); ikisi de yükleniyor, araç adları birbirini eziyordu.
+    Ada göre ilk eklenti kazanır, sonraki atlanır ve günlüğe yazılır.
+    """
     servers: list[McpServerConfig] = []
+    owners: dict[str, str] = {}
     for item in active_plugins(base):
         if item.layout is None or not item.record.exec_approved:
             continue
         try:
-            servers.extend(mcp_servers(item.layout))
+            found = mcp_servers(item.layout)
         except PluginError as error:
             _LOG.warning("eklenti '%s' MCP tanımı yüklenmedi: %s", item.record.name, error)
+            continue
+        for server in found:
+            owner = owners.setdefault(server.name, item.record.name)
+            if owner != item.record.name:
+                _LOG.warning(
+                    "eklenti '%s' MCP sunucusu '%s' atlandı: '%s' eklentisiyle ad çakışması",
+                    item.record.name,
+                    server.name,
+                    owner,
+                )
+                continue
+            servers.append(server)
     return tuple(servers)
 
 

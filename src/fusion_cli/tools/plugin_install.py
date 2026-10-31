@@ -62,6 +62,7 @@ ERR_EXISTS = "'{name}' zaten kurulu. Güncellemek için önce kaldır: fusion ek
 ERR_NOT_INSTALLED = "Kurulu değil: {name}"
 ERR_INVALID = "Eklenti geçersiz:\n  - {errors}"
 ERR_DECLINED = "Kurulum onaylanmadı; hiçbir şey yazılmadı."
+ERR_RENAMED = "Eklentinin adı değişti ({old} → {new}); yeniden onaylanmaz. Kaldırıp yeniden kur."
 ERR_SOURCE = (
     "Kaynak anlaşılamadı: {spec}. Yerel klasör, https://… git adresi, sahip/repo ya da "
     "ad@pazar ver."
@@ -401,6 +402,9 @@ def trust_plugin(
     report = validate_plugin(root / name)
     if not report.ok or report.layout is None:
         raise PluginError(ERR_INVALID.format(errors="\n  - ".join(report.errors)))
+    if report.layout.name != record.name:
+        # Önekler ve MCP adları kayıt adına bağlıdır; ad değişimi gölgeleme kapısı olurdu.
+        raise PluginError(ERR_RENAMED.format(old=record.name, new=report.layout.name))
     digest = tree_digest(root / name)
     _check_expected(expected_digest, digest)
     preview = PluginPreview(

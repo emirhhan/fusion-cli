@@ -1427,3 +1427,7 @@ EKLENTI_MCP_REMOVE = (
     "'{name}' bir eklentinin MCP sunucusu; kaldırmak yerine eklentiyi kapat: "
     "fusion eklenti kapat <eklenti>"
 )
+EKLENTI_MCP_TRUST = (
+    "'{name}' bir eklentinin MCP sunucusu; güveni kalıcı tutulmaz, her araç çağrısı onay ister. "
+    "Kapatmak için: fusion eklenti kapat <eklenti>"
+)

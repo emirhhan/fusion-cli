@@ -398,6 +398,10 @@ def review_connector(config: Config, data: object) -> tuple[Config | None, dict[
     decision = data.get("guven")
     if server is None or not isinstance(decision, str) or decision not in {"trusted", "revoked"}:
         return None, {"ok": False, "metin": "Bağlantı veya güven kararı geçersiz."}
+    if server.scope is McpScope.PLUGIN:
+        # Eklenti sunucusu hiçbir ayar dosyasına yazılmaz: karar bellekte kalıp açılışta
+        # kayboluyor, arayüz yine "güncellendi" diyordu (ölçüldü 31 Ekim).
+        return None, {"ok": False, "metin": messages.EKLENTI_MCP_TRUST.format(name=server.name)}
     fingerprint = review_identity(server)
     if decision == "trusted" and (not fingerprint or fingerprint != data.get("inceleme_kimligi")):
         return None, {

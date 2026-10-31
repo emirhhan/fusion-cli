@@ -679,3 +679,42 @@ def test_kayit_yazilamazsa_tasinan_klasor_geri_alinir(tmp_path, monkeypatch):
     monkeypatch.setattr(plugin_store, "save_state", original)
     assert not (plugin_store.plugins_dir() / "rapor-araclari").exists()
     assert plugin_install.install_plugin(str(source), approve=_yes).status == "etkin"
+
+
+def _mcp_only(folder: Path, name: str, server: str) -> Path:
+    (folder / ".claude-plugin").mkdir(parents=True)
+    (folder / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": name}), encoding="utf-8"
+    )
+    (folder / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {server: {"command": f"{name}-srv"}}}), encoding="utf-8"
+    )
+    return folder
+
+
+def test_iki_eklentinin_cakisan_mcp_adi_birbirini_ezmez_ve_guven_kalici_sayilmaz(tmp_path):
+    from fusion_cli.appserver.connectors import review_connector
+
+    plugin_install.install_plugin(str(_mcp_only(tmp_path / "a", "foo", "bar-baz")), approve=_yes)
+    plugin_install.install_plugin(str(_mcp_only(tmp_path / "b", "foo-bar", "baz")), approve=_yes)
+
+    servers = plugin_store.plugin_mcp_servers()
+    assert [s.name for s in servers] == ["plugin_foo_bar_baz"]
+    assert servers[0].command == "foo-srv"  # ada göre ilk kurulan kazanır, ikincisi atlanır
+
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("runtime:\n  max_tokens: 4096\n", encoding="utf-8")
+    config = load_config(config_file)
+    updated, reply = review_connector(
+        config, {"ad": "plugin_foo_bar_baz", "guven": "trusted", "inceleme_kimligi": "x"}
+    )
+    assert updated is None and reply["ok"] is False and "eklenti" in reply["metin"]
+
+
+def test_guven_bildirim_adi_degismisse_reddeder(tmp_path):
+    plugin_install.install_plugin(str(_plugin(tmp_path / "kaynak")), approve=_yes)
+    manifest = plugin_store.plugins_dir() / "rapor-araclari" / ".claude-plugin" / "plugin.json"
+    manifest.write_text(json.dumps({"name": "baska-ad"}), encoding="utf-8")
+
+    with pytest.raises(PluginError, match="adı değişti"):
+        plugin_install.trust_plugin("rapor-araclari", approve=_yes)
