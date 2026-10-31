@@ -203,3 +203,72 @@ def test_onceki_turdaki_kanit_evet_actim_cevabini_uyarmaz():
 
     assert unverified_pr_notes("Evet, PR'ı açtım.", (), history) == ()
     assert unverified_pr_notes("Evet, PR'ı açtım.", (), failed) == (UNVERIFIED_CREATE,)
+
+
+# --- Künye sohbete bağlı ve kalıcı (O2) --------------------------------------------- #
+
+
+def test_kunye_sohbete_bagli_kalici_ve_temizlenir(tmp_path: Path):
+    """Ölçüldü (31 Ekim): künye yalnız bellekteydi; `/reset` sonrası kalıyor, `/resume`
+    edilen sohbette kayboluyor, sohbet değişince eski sohbetin PR'ı görünüyordu."""
+    from fusion_cli.cli.repl import linked_pr
+    from fusion_cli.cli.repl.session_resume import ResumeTarget, apply_target
+
+    config = make_config(memory_dir=tmp_path / "bellek")
+    state = ReplState(config=config, memory=null_memory(), root=tmp_path, home=tmp_path)
+    linked_pr.bind_from_turn(state, (_shell("gh pr create -f", URL),))
+    first = state.conversation_id
+
+    apply_target(state, ResumeTarget("baska-sohbet", (), "B"))
+    assert state.linked_pr is None
+    apply_target(state, ResumeTarget(first, (), "A"))
+    assert state.linked_pr == PullRequestLink("acme/web", 42, URL)
+    state.reset_history()
+    assert state.linked_pr is None
+    assert linked_pr.load(config.memory_dir, first) is None
+
+
+def test_kunye_cikarimi_hatasi_turu_dusurmez(tmp_path: Path, monkeypatch):
+    from fusion_cli.cli.repl import linked_pr
+
+    def patla(_uses):
+        raise RuntimeError("beklenmeyen kayıt")
+
+    monkeypatch.setattr(linked_pr, "session_pull_request", patla)
+    state = ReplState(config=make_config(), memory=null_memory(), root=tmp_path, home=tmp_path)
+
+    linked_pr.bind_from_turn(state, ("mutating",))
+
+    assert state.linked_pr is None
+
+
+async def test_masaustu_sohbet_degisince_pr_rozeti_tasinmaz(tmp_path: Path, monkeypatch):
+    from fusion_cli.appserver.protocol import Request
+    from fusion_cli.appserver.session import AppSession
+    from fusion_cli.cli import session as cli_session
+
+    from .test_appserver_session import _sonuc
+
+    async def _sahte(_task, _config, **kwargs):
+        return AgentOutcome(
+            final_text="PR açıldı",
+            messages=[],
+            ok=True,
+            tool_uses=(_shell("gh pr create --fill", URL),),
+        )
+
+    monkeypatch.setattr(cli_session, "run_agent_task", _sahte)
+    satirlar: list[str] = []
+    oturum = AppSession(satirlar.append, root=tmp_path, home=tmp_path / "ev")
+    kok = str(tmp_path)
+
+    await oturum.handle(Request(id="1", name="oturum.baslat", data={"sohbet_id": "A", "kok": kok}))
+    await oturum.handle(Request(id="2", name="tur.calistir", data={"gorev": "PR aç"}))
+    await oturum.handle(Request(id="3", name="oturum.baslat", data={"sohbet_id": "B", "kok": kok}))
+    await oturum.handle(Request(id="4", name="oturum.durum", data={}))
+    await oturum.handle(Request(id="5", name="oturum.baslat", data={"sohbet_id": "A", "kok": kok}))
+    await oturum.handle(Request(id="6", name="oturum.durum", data={}))
+
+    assert _sonuc(satirlar, "4")["pr"] is None
+    assert _sonuc(satirlar, "6")["pr"] == {"numara": 42, "url": URL, "depo": "acme/web"}
+    await oturum.close()

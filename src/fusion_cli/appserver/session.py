@@ -34,7 +34,7 @@ from itertools import count
 from pathlib import Path
 from typing import Any
 
-from ..cli.repl import cron_store, macros, worktrees
+from ..cli.repl import cron_store, linked_pr, macros, worktrees
 from ..cli.repl.commands import attach_skill_commands, build_registry, renders_itself
 from ..cli.repl.persona_commands import persona_turn, resolve_session_persona
 from ..cli.repl.skill_commands import GROUP as SKILL_GROUP
@@ -82,7 +82,6 @@ from ..engines.agent.remotion_bridge import FrameTransport
 from ..engines.agent.skill_turn import resolve_turn_model
 from ..engines.agent.team_fork import run_forked_turn
 from ..engines.agent.turn_report import evidence_payload
-from ..engines.effects.pull_request import session_pull_request
 from ..engines.retention import purge_local_state_daily
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
@@ -1460,6 +1459,7 @@ class AppSession:
         await asyncio.to_thread(
             delete_conversation, self._state.config.memory_dir, root, conversation_id
         )
+        linked_pr.save(self._state.config.memory_dir, conversation_id, None)
         await self._submission_store.delete_conversation(
             str(self._state.config.memory_dir.resolve()),
             str(root),
@@ -1601,8 +1601,9 @@ class AppSession:
         # Slash komutları (`/rename`) ve tur checkpoint'leri sekmenin kimliğini görsün;
         # yoksa `ReplState` açılışta ürettiği rastgele kimlikte kalırdı.
         self._state.conversation_id = self._transcript_store.session_id
-        # Başka sekmenin tur kayıtları bu konuşmaya ait değildir.
+        # Başka sekmenin tur kayıtları ve PR künyesi bu konuşmaya ait değildir.
         self._state.checkpoints.clear()
+        linked_pr.restore(self._state)
         self._restore_interrupted_turn()
 
     def _turn_journal(self, task: str) -> FileTurnJournal:
@@ -2285,6 +2286,7 @@ class AppSession:
             # yeniden basmak doğrudur çünkü terminal geçmişi yerinde kalır;
             # uygulamada aynı şeyi yapmak sohbetin içine ASCII afiş düşürüyordu.
             self._state.history.clear()
+            linked_pr.forget(self._state)
             return {"ok": True, "metin": "", "temizle": True}
         if command is not None and renders_itself(command.name, argument):
             return {
@@ -2980,8 +2982,9 @@ class AppSession:
             self._chrome_history = outcome.messages
             return {"ok": outcome.ok, "metin": outcome.final_text or messages.APP_TURN_NO_ANSWER}
         self._state.history = outcome.messages
-        # Turda açılan/okunan PR oturumun PR künyesi olur (P-057; `oturum.durum.pr`).
-        self._state.bind_pull_request(session_pull_request(getattr(outcome, "tool_uses", ())))
+        # Turda açılan/okunan PR sohbetin PR künyesi olur (P-057; `oturum.durum.pr`); künye
+        # çıkarımı korumalıdır, tur kaydını düşürmez.
+        linked_pr.bind_from_turn(self._state, getattr(outcome, "tool_uses", ()))
         switched = worktrees.apply_switch_request(self._state, switch)
         root_payload = self._adopt_state_root() if switched else {}
         # Transcript bir BAŞARI kaydı değil, NE OLDUĞU kaydıdır.

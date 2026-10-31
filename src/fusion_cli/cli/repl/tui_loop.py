@@ -29,7 +29,6 @@ from ...core.tools import ToolContext
 from ...engines.agent.approval import ApprovalAnswer, ApprovalRequest
 from ...engines.agent.engine_tools import QuestionOption
 from ...engines.agent.team_fork import run_forked_turn
-from ...engines.effects.pull_request import session_pull_request
 from ...history import source_by_name
 from ...ui import banner, messages, theme
 from ...ui.picker import Choice
@@ -41,6 +40,7 @@ from . import (
     cron_store,
     help_view,
     history_view,
+    linked_pr,
     macros,
     model_flows,
     output_style_command,
@@ -873,7 +873,7 @@ class _TuiSession:
                         self._state.pending_digest = digest
                     raise
                 self._state.history = outcome.messages
-                self._state.bind_pull_request(session_pull_request(outcome.tool_uses))
+                linked_pr.bind_from_turn(self._state, outcome.tool_uses)
                 # Plan kipinde biten tur plan dosyasını YAZDIYSA kart modal kapanınca
                 # açılır (bkz. `loop._run_turn`).
                 if outcome.plan_path is not None:

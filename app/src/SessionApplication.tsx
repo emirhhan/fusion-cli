@@ -1716,7 +1716,7 @@ export function SessionUygulama({
         <DepoUyarisi kok={active.root} projeler={active.depoProjeleri} onAc={(kok) => { void controller.create({ root: kok, mode: "kod" }).then(() => setPage("chat")); }} />
         {/* Güvenilmeyen proje kartı (P-012): proje kendi ayarını taşıyorsa ve düşürüldüyse sorulur. */}
         <TrustProject client={active.client} kok={active.root} running={Boolean(active.running)} onTrusted={() => setControlRevision((value) => value + 1)} />
-        <LinkedPullRequest client={active.client} running={Boolean(active.running)} />
+        <LinkedPullRequest client={active.client} running={Boolean(active.running)} sohbetId={active.id} />
         <Composer
           stopping={active.stopping}
           busySubmissionMode={active.stopping || active.stopError ? "queue" : busySubmissionMode}

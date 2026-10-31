@@ -57,7 +57,6 @@ from ...core.types import FusionResult
 from ...core.worktree import Worktree
 from ...engines.agent.compaction import compress
 from ...engines.agent.turn_evidence import evidence_from_turn
-from ...engines.effects.pull_request import session_pull_request
 from ...memory.factory import Memory
 from ...observability.bus import EventBus
 from ...observability.tracing import LangfuseTracer
@@ -74,6 +73,7 @@ from . import (
     cron_store,
     help_view,
     history_view,
+    linked_pr,
     macros,
     persona_commands,
     plan_card,
@@ -838,7 +838,7 @@ async def _agent_turn(
             desktop_lock.release(token=tool_context.job_scope)
     state.history = outcome.messages
     # Turda açılan/okunan PR oturumun künyesi olur; durum satırında görünür (P-057).
-    state.bind_pull_request(session_pull_request(outcome.tool_uses))
+    linked_pr.bind_from_turn(state, outcome.tool_uses)
     # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır (kök tur ortasında değişmez).
     switched = worktrees.apply_switch(state, tool_context)
     if switched:

@@ -367,6 +367,10 @@ class ReplState:
 
     def reset_history(self) -> int:
         """Agent sohbet geçmişini temizle; silinen mesaj sayısını döndür."""
+        from . import linked_pr
+
         removed = len(self.history)
         self.history = []
+        # Temizlenen sohbetin PR künyesi de gider (Claude Code `/clear` ile aynı).
+        linked_pr.forget(self)
         return removed

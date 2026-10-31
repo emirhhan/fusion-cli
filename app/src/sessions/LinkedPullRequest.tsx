@@ -5,8 +5,8 @@ import "./LinkedPullRequest.css";
 /**
  * Oturumun bağlı olduğu PR rozeti (P-057) — Claude Code'un PR'a bağlı oturum göstergesinin
  * karşılığı. Turda `gh pr create` ile açılan (ya da `gh pr view` ile okunan) PR çekirdekte
- * oturum künyesi olur (`oturum.durum.pr`); şerit tur bitince yeniden okunur ve tıklanınca PR
- * tarayıcıda açılır. Bağlı PR yoksa hiçbir şey çizilmez.
+ * sohbetin künyesi olur (`oturum.durum.pr`); şerit tur bitince ve sohbet değişince yeniden
+ * okunur, tıklanınca PR tarayıcıda açılır. Bağlı PR yoksa hiçbir şey çizilmez.
  */
 
 export interface LinkedPr {
@@ -31,13 +31,20 @@ interface LinkedPullRequestProps {
   client: ProtocolClient | undefined;
   /** Tur sürüyor mu? Tur bitince (true → false) künye yeniden okunur. */
   running?: boolean;
+  /** Etkin sohbet: değişince eski sohbetin rozeti hemen kalkar ve künye yeniden okunur. */
+  sohbetId?: string;
   /** Test için: dış bağlantı açıcı. */
   open?: (url: string) => Promise<void>;
 }
 
-export function LinkedPullRequest({ client, running = false, open = openExternal }: LinkedPullRequestProps) {
+export function LinkedPullRequest({ client, running = false, sohbetId, open = openExternal }: LinkedPullRequestProps) {
   const [pr, setPr] = useState<LinkedPr | null>(null);
   const owner = useRef(0);
+
+  useEffect(() => {
+    // Ölçüldü (31 Ekim): sohbet A'nın PR rozeti aynı oturumda sohbet B'ye geçince kalıyordu.
+    setPr(null);
+  }, [sohbetId]);
 
   useEffect(() => {
     if (!client || running) return;
@@ -45,7 +52,7 @@ export function LinkedPullRequest({ client, running = false, open = openExternal
     client.request("oturum.durum", {}).then((payload) => {
       if (generation === owner.current) setPr(prFrom((payload as Record<string, unknown>)?.pr));
     }).catch(() => { /* künye okunamazsa rozet çizilmez; sohbet çalışır */ });
-  }, [client, running]);
+  }, [client, running, sohbetId]);
 
   if (!pr) return null;
   return (
