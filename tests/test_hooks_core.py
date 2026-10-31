@@ -324,3 +324,28 @@ def test_claude_hooks_kapaliyken_guvenilen_proje_kancalari_calisir(tmp_path, _iz
     hooks = hooks_config.load_hooks(tmp_path, include_claude=False)
     assert hooks.disabled_reason is None
     assert [c.command for c in hooks.commands] == ["depo"]
+
+
+async def test_kanca_sureci_mcp_sirlarini_ortamdan_almaz(tmp_path, monkeypatch):
+    from fusion_cli.engines.hooks.session import HookSession
+
+    monkeypatch.setenv("GIZLI_MCP_ANAHTARI", "sk-gizli-123")
+    monkeypatch.setenv("SIRADAN_DEGISKEN", "gorunur")
+    script = tmp_path / "env_yaz.py"
+    script.write_text(
+        "import os, sys\n"
+        "sys.stderr.write(os.environ.get('GIZLI_MCP_ANAHTARI', 'yok') + ' '"
+        " + os.environ.get('SIRADAN_DEGISKEN', 'yok'))\nsys.exit(2)\n",
+        encoding="utf-8",
+    )
+    command = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
+    session = HookSession(
+        root=tmp_path,
+        loader=lambda: HookSet((_komut(command=command),)),
+        hidden_env=lambda: frozenset({"GIZLI_MCP_ANAHTARI"}),
+    )
+    verdict = await session.emit(HookEvent.PRE_TOOL_USE, subjects=("Bash",))
+    assert verdict.reason == "yok gorunur"
+    assert "GIZLI_MCP_ANAHTARI" not in hooks_config.hook_environment(
+        tmp_path, frozenset({"GIZLI_MCP_ANAHTARI"})
+    )

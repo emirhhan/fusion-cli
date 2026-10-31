@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ...config.hooks import DISABLE_ALL_KEY, hook_environment, load_hooks
-from ...config.models import Config
+from ...config.models import Config, mcp_secret_env_names
 from ...core.hooks.decision import merge_verdicts, verdict_from_run
 from ...core.hooks.events import HookEvent, HookSet, HookVerdict
 from .runner import run_hook
@@ -49,6 +49,8 @@ class HookSession:
     next_source: str = "startup"
     #: `transcript_path` dökümlerinin klasörü; `None` = alan yazılmaz (alt sistem testleri).
     transcript_dir: Path | None = None
+    #: Kanca sürecine VERİLMEYEN ortam adları (MCP sırları); her çağrıda taze okunur.
+    hidden_env: Callable[[], frozenset[str]] | None = None
     _loaded: bool = False
     #: `restart` sonrası henüz gönderilmemiş eski oturum `SessionEnd`'i: (kimlik, neden).
     _pending_end: tuple[str, str] | None = None
@@ -99,7 +101,8 @@ class HookSession:
         if not commands:
             return NO_VERDICT
         payload = self._payload(event, fields or {})
-        environment = hook_environment(self.root)
+        hidden = self.hidden_env() if self.hidden_env is not None else frozenset()
+        environment = hook_environment(self.root, hidden)
         runs = await asyncio.gather(
             *(
                 run_hook(command, payload, cwd=self.root, environment=environment)
@@ -226,6 +229,7 @@ def open_hook_session(
         permission_mode=permission_mode,
         next_source=source,
         transcript_dir=transcript_dir or _config().memory_dir / HOOK_TRANSCRIPT_DIR,
+        hidden_env=lambda: mcp_secret_env_names(_config().mcp_servers),
     )
     if session_id:
         session.session_id = session_id

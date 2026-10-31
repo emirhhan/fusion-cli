@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -102,9 +102,15 @@ def hooks_disabled_by_environment() -> bool:
     return os.environ.get(HOOKS_ENV, "").strip().lower() in _OFF_VALUES
 
 
-def hook_environment(root: Path) -> dict[str, str]:
-    """Kanca sürecinin ortamı: Fusion'ınki + proje kökü değişkenleri."""
-    return {**os.environ, **dict.fromkeys(PROJECT_DIR_VARIABLES, str(root))}
+def hook_environment(root: Path, hidden: Collection[str] = ()) -> dict[str, str]:
+    """Kanca sürecinin ortamı: Fusion'ınki (gizli adlar hariç) + proje kökü değişkenleri.
+
+    `hidden` MCP sırlarının adlarıdır (`run_shell` de çıkarır): çıkış 2'de stderr modele
+    gider; `env` yazdıran bir betik sırrı modele sızdırmasın. Ölçüldü (31 Ekim): kanca
+    süreci tüm `os.environ`'ı alıyordu.
+    """
+    base = {name: value for name, value in os.environ.items() if name not in hidden}
+    return {**base, **dict.fromkeys(PROJECT_DIR_VARIABLES, str(root))}
 
 
 def load_hooks(
