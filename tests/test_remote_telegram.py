@@ -305,3 +305,33 @@ def test_yardim_metni_desteklenmeyen_duraklatmayi_sunmaz() -> None:
     from fusion_cli.remote.telegram import HELP_TEXT
 
     assert "/pause" not in HELP_TEXT and "/resume" not in HELP_TEXT
+
+
+async def test_masaustunden_cevaplanan_onayin_dugme_anahtarlari_temizlenir(
+    harness: Harness,
+) -> None:
+    """Ölçüldü (31 Ekim): `_callbacks` yalnız düğmeye basılınca temizleniyordu; masaüstünden
+    cevaplanan ya da düşen onaylarda bildirim başına 2 anahtar süresiz birikiyordu."""
+    harness.backend.ask = {"tur": "onay", "arac": "run_shell", "baslik": "Komut", "hedef": "x"}
+    await harness.pair_user(["project.read", "agent.run", "project.write"])
+    await harness.bridge.handle_update(update(7, "iş yap"))
+    await asyncio.sleep(0.05)
+    await harness.bridge.notify()
+    assert len(harness.bridge._callbacks) == 2  # İzin ver + Reddet
+    assert await harness.service.answer_from_desktop("q1", "once")
+    await harness.bridge.notify()  # approval_answered olayı anahtarları düşürür
+    assert harness.bridge._callbacks == {}
+    harness.backend.release.set()
+
+
+def test_dugme_anahtari_sozlugu_ust_sinirli(tmp_path: Path) -> None:
+    from fusion_cli.remote.telegram import CALLBACK_TOKEN_LIMIT
+
+    harness = Harness(tmp_path)
+    device = harness.registry.add("Tel", CHANNEL_TELEGRAM, frozenset({"agent.run"}), "1")
+    for index in range(CALLBACK_TOKEN_LIMIT + 50):
+        harness.bridge._callback_token(device, f"q{index}", "deny")
+    assert len(harness.bridge._callbacks) == CALLBACK_TOKEN_LIMIT
+    assert all(
+        int(q[1:]) >= 50 for _d, q, _c in harness.bridge._callbacks.values()
+    )  # eskiler düştü

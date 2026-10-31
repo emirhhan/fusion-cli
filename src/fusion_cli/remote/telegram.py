@@ -74,6 +74,9 @@ CALLBACK_ANSWERED = {"once": "Onay iletildi; görev sürüyor.", "deny": "İşle
 CALLBACK_STALE = "Bu onay artık geçerli değil."
 #: Düğme anahtarı uzunluğu (hex); Telegram `callback_data` 64 bayt sınırının altında kalır.
 CALLBACK_TOKEN_HEX = 16
+#: Bellekteki düğme anahtarı üst sınırı: cevaplanmayan/iptal edilen onaylarda sözlük sınırsız
+#: büyümesin (uzun süre açık `fusion remote-control`); en eski anahtarlar düşer.
+CALLBACK_TOKEN_LIMIT = 200
 
 #: Satır içi düğme: (etiket, callback verisi).
 Button = tuple[str, str]
@@ -285,7 +288,7 @@ class TelegramBridge:
             {"questionId": question_id, "choice": choice, "decisionId": f"tg:{callback_id}"},
         )
         if result.ok or result.error == "soru_yok":
-            self._callbacks = {k: v for k, v in self._callbacks.items() if v[1] != question_id}
+            self._forget_question(question_id)
         text = CALLBACK_ANSWERED.get(choice, "Tamam") if result.ok else self._summary(result, "")
         await self._api.answer_callback(callback_id, text[:200])
         chat = (callback.get("message") or {}).get("chat") or {}
@@ -304,7 +307,9 @@ class TelegramBridge:
             self._limiter.record_failure(key)
             await self._reply(chat_id, "Kod geçersiz veya süresi doldu.")
             return
-        await self._reply(chat_id, "Kod alındı. Eşleştirmeyi masaüstü Fusion'da onayla.")
+        await self._reply(
+            chat_id, "Kod alındı. Eşleştirmeyi Fusion'da onayla (masaüstü ya da terminal)."
+        )
 
     async def _reject_secret(self, chat_id: int, message: dict[str, Any]) -> None:
         await self._reply(chat_id, SECRET_WARNING)
@@ -434,6 +439,10 @@ class TelegramBridge:
     ) -> tuple[str, tuple[Button, ...]] | None:
         if kind == "approval_request":
             return self._approval_notice(device, payload)
+        if kind == "approval_answered":
+            # Soru kapandı (masaüstü/telefon/zaman aşımı): düğme anahtarları birikmez.
+            self._forget_question(str(payload.get("questionId", "")))
+            return None
         if task.state in TERMINAL_STATES and kind in {
             "done",
             "failed",
@@ -462,8 +471,13 @@ class TelegramBridge:
 
     def _callback_token(self, device: Device, question_id: str, choice: str) -> str:
         token = uuid.uuid4().hex[:CALLBACK_TOKEN_HEX]
-        self._callbacks[token] = (device.device_id, question_id, choice)
+        entries = list(self._callbacks.items())[-(CALLBACK_TOKEN_LIMIT - 1) :]
+        self._callbacks = {**dict(entries), token: (device.device_id, question_id, choice)}
         return token
+
+    def _forget_question(self, question_id: str) -> None:
+        if question_id:
+            self._callbacks = {k: v for k, v in self._callbacks.items() if v[1] != question_id}
 
     async def _reply(self, chat_id: int, text: str, buttons: tuple[Button, ...] = ()) -> None:
         await self._api.send_message(chat_id, text[: NOTIFICATION_SUMMARY_LIMIT * 4], buttons)
