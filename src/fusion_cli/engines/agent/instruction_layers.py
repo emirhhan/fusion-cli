@@ -96,7 +96,7 @@ _INLINE_CODE_PATTERN = re.compile(r"`[^`\n]*`")
 
 #: Depo içeriğinin sistem bağlamındaki etiketi kapatıp sahte talimat eklemesini önler.
 _TAG_BREAK = re.compile(
-    r"<(/?\s*(?:proje_(?:talimati|kurali)|kullanici_(?:talimati|kurali)|alt_talimat))",
+    r"<(/?\s*(?:proje_(?:talimati|kurali|becerileri)|kullanici_(?:talimati|kurali)|alt_talimat))",
     re.IGNORECASE,
 )
 
