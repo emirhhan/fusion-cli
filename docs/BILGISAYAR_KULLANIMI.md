@@ -46,7 +46,8 @@ Uygulama oturumda ilk kez kullanılacaksa kart sorar:
   yazma bu oturumda bir daha sorulmaz (izin uygulamaya bağlıdır, araca değil).
 - **Evet** — yalnız bu çağrı.
 - **Hayır** — çağrı yapılmaz, tur durur.
-- **Her zaman reddet** — uygulama `desktop.denied_apps`'e eklenir.
+- **Her zaman reddet** — uygulama `desktop.denied_apps`'e eklenir (yalnız masaüstü
+  uygulamasının kartında); aynı turdaki sonraki çağrılar da kart açılmadan reddedilir.
 
 Terminalde `o` (oturum), `e` (yalnız bu kez), `h` (hayır) yazılır. Kip tablosu: Otomatik,
 Düzenlemeleri kabul et ve Manuel kipte ilk kullanım sorulur; Plan kipinde masaüstü eylemi

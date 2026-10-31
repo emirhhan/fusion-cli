@@ -1425,3 +1425,6 @@ BILGISAYAR_APPROVAL_NEVER = "Her zaman reddet"
 BILGISAYAR_APPROVAL_NEVER_DESC = "{app} reddedilen uygulamalara eklenir (Ayarlar › Bu bilgisayar)."
 BILGISAYAR_APPROVAL_TARGET = "Uygulama: {app} · kademe: {level}"
 BILGISAYAR_CONFIRM_SESSION_HINT = "o = bu oturumda {app} için izin ver"
+BILGISAYAR_DENIED_IN_TURN = (
+    "Kullanıcı {app} uygulamasını reddedilen uygulamalara ekledi; bu uygulamada eylem yapma."
+)

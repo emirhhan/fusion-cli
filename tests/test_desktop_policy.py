@@ -302,3 +302,30 @@ async def test_terminalde_o_oturum_izni_verir(tmp_path, probe):
     )
     assert parse_console_answer("o", request) is ApprovalAnswer.SESSION
     assert parse_console_answer("e", request) is True
+
+
+async def test_her_zaman_reddet_ayni_turdaki_sonraki_cagriyi_sormadan_reddeder(tmp_path, probe):
+    """Ölçüldü (31 Ekim): gerekçeli 'Her zaman reddet' sonrası tur sürüyor, aynı uygulamaya
+    ikinci çağrıda kart yeniden açılıyordu (tur ayarı eski `denied_apps`'i taşır)."""
+    context = _context(tmp_path)
+    lines: list[str] = []
+    pending = PendingQuestions()
+
+    async def on_denied(_app: str) -> None:
+        return None
+
+    prompter = ProtocolPrompter(lines.append, pending, on_app_denied=on_denied)
+    memory = ApprovalMemory()
+    policy = build_policy(ApprovalMode.AUTO, prompter, memory)
+    tool = _REGISTRY.get("desktop_click")
+    first = await resolve_request(tool, {"x": 5, "y": 5}, root=tmp_path, context=context)
+    task = asyncio.ensure_future(policy.decide(first))
+    await asyncio.sleep(0)
+    pending.resolve(json.loads(lines[0])["id"], {"secim": "never", "not": "Mail'e dokunma"})
+    await task
+
+    second = await resolve_request(tool, {"x": 6, "y": 6}, root=tmp_path, context=context)
+    decision = await asyncio.wait_for(policy.decide(second), timeout=1)
+
+    assert len(lines) == 1, "ikinci çağrı için kart açılmamalı"
+    assert not isinstance(decision, Decision) and "Mail" in decision.note

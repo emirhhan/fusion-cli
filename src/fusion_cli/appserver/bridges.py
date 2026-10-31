@@ -157,6 +157,10 @@ class ProtocolPrompter:
         self._edit_fuzzy_match = edit_fuzzy_match
         #: Masaüstü kartında "Her zaman reddet" (P-007): uygulamayı `desktop.denied_apps`'e yazar.
         self._on_app_denied = on_app_denied
+        #: Bu turda "Her zaman reddet" denen uygulamalar (hedef anahtarı). Turun ayarı tur başında
+        #: alınmış bir kopyadır; gerekçeli ret turu sürdürdüğü için aynı uygulamanın sonraki
+        #: çağrısı kart açmadan reddedilir (ölçüldü, 31 Ekim: kart yeniden açılıyordu).
+        self._denied_apps: set[str] = set()
         self._writer = writer
         self._approval_timeout_s = approval_timeout_s
         self._pending = pending
@@ -173,6 +177,11 @@ class ProtocolPrompter:
 
         Cevaptaki `not` alanı (P-013) kararla birlikte taşınır: ret gerekçesi modele gider.
         """
+        target = request.desktop_target
+        if target is not None and target.key in self._denied_apps:
+            return ApprovalReply(
+                ApprovalAnswer.DENY, messages.BILGISAYAR_DENIED_IN_TURN.format(app=target.app)
+            )
         element = (
             self._element_name(request.args.get("ref")) if self._element_name is not None else None
         )
@@ -217,7 +226,10 @@ class ProtocolPrompter:
     async def _deny_app(self, request: ApprovalRequest) -> None:
         """Uygulamayı kalıcı ret listesine yaz (sahip oturum yazar ve canlı ayarı günceller)."""
         target = request.desktop_target
-        if target is not None and self._on_app_denied is not None:
+        if target is None:
+            return
+        self._denied_apps.add(target.key)
+        if self._on_app_denied is not None:
             await self._on_app_denied(target.app)
 
     def _onizleme(self, request: ApprovalRequest) -> str:
