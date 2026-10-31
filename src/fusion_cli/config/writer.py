@@ -39,7 +39,7 @@ from ..core.constants import FILE_LOCK_POLL_S
 from ..core.errors import ConfigError
 from ..core.types import ModelSpec
 from ..core.window_mode import WindowMode
-from .models import Config, McpTransport
+from .models import Config, McpScope, McpTransport
 from .paths import user_config_candidates, user_config_dir
 
 _fcntl: ModuleType | None
@@ -330,11 +330,14 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
     target = path or _target_path(config)
     with config_lock(target):
         existing = _read_existing(target)
+        # Proje kapsamlı kayıtlar (`.mcp.json`) kullanıcı dosyasına KOPYALANMAZ; onları
+        # `config.mcp_json.write_project_mcp_servers` yazar (P-049).
         existing["mcp_servers"] = [
             {
                 key: value
                 for key, value in {
                     "name": server.name,
+                    "env_literals": [list(pair) for pair in server.env_literals],
                     "command": server.command,
                     "args": list(server.args),
                     "transport": server.transport.value,
@@ -362,6 +365,7 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
                 and not (key == "transport" and value == McpTransport.STDIO.value)
             }
             for server in config.mcp_servers
+            if server.scope is McpScope.USER
         ]
         _atomic_write(target, existing)
     return target

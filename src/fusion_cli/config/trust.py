@@ -30,6 +30,8 @@ PROJECT_CONFIG_NAME = "config.yaml"
 FORGED_TOOLS_DIR = Path(".fusion") / "tools"
 #: Claude Code'un proje-yerel izin dosyası; `Bash(...)` girdileri onaysız komut sayılır (L2-02).
 PROJECT_PERMISSIONS_PATH = Path(".claude") / "settings.local.json"
+#: Proje kapsamlı MCP kaydı (Claude Code ile ortak); stdio süreci başlatabilir (P-049).
+PROJECT_MCP_PATH = Path(".mcp.json")
 _STORE_NAME = "trusted-projects.json"
 _SCHEMA_VERSION = 1
 
@@ -109,6 +111,12 @@ def trust_project(root: Path) -> None:
         digest = _digest(path)
         if digest is not None:
             files[_relative(root, path)] = digest
+    # `.mcp.json` da yürütme açar; `fusion trust` onu da şu anki içeriğiyle güvene alır.
+    mcp_path = root / PROJECT_MCP_PATH
+    if mcp_path.is_file() and not mcp_path.is_symlink():
+        mcp_digest = _digest(mcp_path)
+        if mcp_digest is not None:
+            files[_relative(root, mcp_path)] = mcp_digest
     _update(
         root,
         config_sha256=_digest(root / PROJECT_CONFIG_NAME),

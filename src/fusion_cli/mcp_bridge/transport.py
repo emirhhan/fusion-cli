@@ -15,6 +15,7 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
 from ..config.models import McpServerConfig, McpTransport
+from ..core.env_refs import EnvRefError, expand_env_refs, has_env_refs
 from .egress import guarded_client_factory
 from .types import McpConfigError
 
@@ -25,16 +26,39 @@ _SYSTEM_TOOL_DIRS = ("/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"
 _HOME_TOOL_DIRS = (".local/bin", ".cargo/bin", ".bun/bin", ".volta/bin")
 
 
+def _expand(text: str, source: Mapping[str, str]) -> str:
+    """`${VAR:-varsayılan}` başvurularını çöz; eksik değişken yapılandırma hatasıdır."""
+    if not has_env_refs(text):
+        return text
+    try:
+        return expand_env_refs(text, source)
+    except EnvRefError as error:
+        raise McpConfigError(str(error)) from error
+
+
+def resolve_stdio_command(
+    config: McpServerConfig, *, environ: Mapping[str, str] | None = None
+) -> str:
+    """Komut metnindeki `${VAR}` başvurularını çöz (`.mcp.json` `command: ${NPX:-npx}`)."""
+    return _expand(config.command, os.environ if environ is None else environ)
+
+
+def resolve_remote_url(config: McpServerConfig, *, environ: Mapping[str, str] | None = None) -> str:
+    """Adresteki `${VAR}` başvurularını çöz; adres config'e çözülmüş hâliyle yazılmaz."""
+    return _expand(config.url, os.environ if environ is None else environ)
+
+
 def resolve_stdio_args(
     config: McpServerConfig, *, environ: Mapping[str, str] | None = None
 ) -> list[str]:
-    """Şifreli ortam başvurularını yalnız alt-süreç başlatılırken çöz."""
+    """Şifreli ortam başvurularını ve `${VAR:-varsayılan}` başvurularını yalnız alt-süreç
+    başlatılırken çöz (P-049: Claude Code `.mcp.json` sözdizimi)."""
     source = os.environ if environ is None else environ
     allowed = set(config.env_names)
     resolved: list[str] = []
     for argument in config.args:
         if not argument.startswith(_SECRET_ARGUMENT_PREFIX):
-            resolved.append(argument)
+            resolved.append(_expand(argument, source))
             continue
         name = argument.removeprefix(_SECRET_ARGUMENT_PREFIX)
         if name not in allowed:
@@ -61,7 +85,10 @@ def resolve_stdio_env(
     missing_names = [name for name in config.env_names if not source.get(name)]
     if missing_names:
         raise McpConfigError(f"MCP ortam değişkeni bulunamadı: {', '.join(missing_names)}")
-    return {name: source[name] for name in config.env_names}
+    # Sır olmayan değerler (`.mcp.json` `env`) önce; başvuruları bağlantı anında çözülür.
+    # Kayıtlı sır adları aynı adı taşıyorsa şifreli depodan gelen değer kazanır.
+    literals = {name: _expand(value, source) for name, value in config.env_literals}
+    return {**literals, **{name: source[name] for name in config.env_names}}
 
 
 def resolve_bearer_headers(
@@ -115,7 +142,7 @@ async def open_mcp_stream(
         if not config.command:
             raise McpConfigError("stdio MCP bağlantısı için komut gerekli")
         params = StdioServerParameters(
-            command=config.command,
+            command=resolve_stdio_command(config),
             args=resolve_stdio_args(config),
             # SDK güvenli varsayılan ortamı (HOME, USER…) bununla birleştirir.
             env={"PATH": stdio_search_path(), **resolve_stdio_env(config)},
@@ -127,12 +154,13 @@ async def open_mcp_stream(
     if not config.url:
         raise McpConfigError("HTTP MCP bağlantısı için URL gerekli")
     headers = resolve_bearer_headers(config)
+    url = resolve_remote_url(config)
     # OAuth keşfi dahil her istek korumalı istemciden geçer (bkz. `egress.py`).
     async with streamablehttp_client(
-        config.url,
+        url,
         headers=headers,
         auth=auth,
-        httpx_client_factory=guarded_client_factory(config.url),
+        httpx_client_factory=guarded_client_factory(url),
     ) as streams:
         read, write, _session_id = streams
         yield read, write

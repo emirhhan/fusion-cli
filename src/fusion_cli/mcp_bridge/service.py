@@ -136,6 +136,13 @@ class McpConnectionService:
     def pending_task(self, name: str) -> asyncio.Task[McpConnectionStatus] | None:
         return self._tasks.get(name)
 
+    async def reconnect(self, config: McpServerConfig) -> McpConnectionStatus:
+        """Havuzdaki canlı/park edilmiş bağlantıyı kapatıp yeniden bağlan (Claude Code
+        `/mcp reconnect`; P-049). Giriş gerektiren sunucuda pencere açılabilir."""
+        await self._drop_connection(config.name)
+        forget_mcp_failure(config.name)
+        return await self.test(config)
+
     async def logout(self, config: McpServerConfig) -> McpConnectionStatus:
         task = self._tasks.get(config.name)
         self.invalidate(config.name)

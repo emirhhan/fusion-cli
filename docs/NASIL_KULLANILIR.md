@@ -227,9 +227,32 @@ mcp_servers:
 ```
 Bağlı sunucuların aletlerini görmek için:
 ```
-fusion mcp-tools
+fusion mcp tools          # eski ad: fusion mcp-tools
 ```
 Bundan sonra ajan turlarında bu dış aletler otomatik kullanılabilir (onayınla).
+
+**Komut satırından yönetmek** (`fusion mcp …`, Claude Code `claude mcp …` ile aynı kalıp):
+```
+fusion mcp add github npx -- -y @modelcontextprotocol/server-github     # stdio, kullanıcı kapsamı
+fusion mcp add linear --transport http --url https://mcp.linear.app/mcp  # uzak sunucu (OAuth)
+fusion mcp add postgres --scope project npx -- -y server-postgres        # projeye (.mcp.json)
+fusion mcp add-json fetch '{"command":"uvx","args":["mcp-server-fetch"]}'
+fusion mcp list                      # kapsam ve taşımayla; sırlar maskeli
+fusion mcp remove <ad>               # kayıtlı olduğu dosyadan siler
+fusion mcp login <ad>                # OAuth girişi (tarayıcı açılır), token şifreli depoda
+fusion mcp reconnect <ad>|all        # bağlantıyı düşür ve yeniden kur
+```
+- `--scope user` (varsayılan) kaydı `config.yaml`'a, `--scope project` kök dizindeki
+  `.mcp.json` dosyasına yazar. `.mcp.json` **Claude Code ile aynı biçimdir**: depoda zaten
+  varsa Fusion onu okur. Proje dosyası süreç başlatabildiği için yalnız `fusion trust` ile
+  güvenilen (ya da Fusion'ın kendi yazdığı) `.mcp.json` yüklenir; aynı adda proje kaydı
+  kullanıcı kaydını geçer.
+- Komut, argüman, adres ve `env` değerlerinde `${DEĞİŞKEN}` ve `${DEĞİŞKEN:-varsayılan}`
+  başvuruları tanınır; bağlantı kurulurken ortamdan çözülür, dosyaya çözülmüş hâli yazılmaz.
+- `--env AD` sır adıdır (değer şifreli depodan/ortamdan gelir), `--env AD=değer` sır olmayan
+  düz değerdir.
+- Sohbet içinde: `/mcp`, `/mcp add …`, `/mcp remove <ad>`, `/mcp reconnect <ad>|all`.
+  Masaüstünde Bağlantılar ekranı aynı kayıtları gösterir; proje kaydı "proje" rozetiyle.
 
 ---
 

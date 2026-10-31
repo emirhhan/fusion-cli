@@ -470,9 +470,33 @@ def _mcp(state: ReplState, argument: str) -> str:
         # Argümanlarda gömülü token olabilir (`--token=…`): listeye ve transcript'e MASKELİ
         # girer (L2-28).
         return "\n".join(
-            redact(f"· {sunucu.name} — {sunucu.command} {' '.join(sunucu.args)}".rstrip())
+            redact(
+                messages.MCP_LIST_ROW.format(
+                    name=sunucu.name,
+                    scope=messages.MCP_SCOPE_LABELS.get(sunucu.scope.value, sunucu.scope.value),
+                    transport=sunucu.transport.value,
+                    target=sunucu.url or f"{sunucu.command} {' '.join(sunucu.args)}".rstrip(),
+                )
+            )
             for sunucu in state.config.mcp_servers
         )
+
+    if alt_komut == "reconnect":
+        # Claude Code `/mcp reconnect <sunucu>|all` (P-049). İşleyici eşzamansız bekleyemez;
+        # havuz düşürmeyi sonraki turun bağlanma adımına erteler.
+        from ...mcp_bridge.pool import request_mcp_reconnect
+
+        hedef = kalan.strip()
+        if not hedef:
+            return messages.MCP_RECONNECT_USAGE
+        if hedef == "all":
+            for sunucu in state.config.mcp_servers:
+                request_mcp_reconnect(sunucu.name)
+            return messages.MCP_RECONNECT_ALL_SCHEDULED.format(count=len(state.config.mcp_servers))
+        if not any(sunucu.name == hedef for sunucu in state.config.mcp_servers):
+            return messages.MCP_NOT_FOUND.format(name=hedef)
+        request_mcp_reconnect(hedef)
+        return messages.MCP_RECONNECT_SCHEDULED.format(name=hedef)
 
     if alt_komut in ("remove", "del", "delete"):
         ad = kalan.strip()

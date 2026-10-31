@@ -336,6 +336,18 @@ class McpTransport(StrEnum):
     STREAMABLE_HTTP = "streamable_http"
 
 
+class McpScope(StrEnum):
+    """Sunucu kaydının yaşadığı yer (Claude Code `--scope`).
+
+    `user`: kullanıcının `config.yaml`'ı (eski kayıtların tümü). `project`: proje kökündeki
+    `.mcp.json` (Claude Code ile ortak biçim); yalnız güvenilen projede yüklenir ve
+    `config.yaml`'a yazılmaz (P-049).
+    """
+
+    USER = "user"
+    PROJECT = "project"
+
+
 class McpTrust(StrEnum):
     """OAuth veya bağlantı başarısı kaynak güveni yerine geçmez."""
 
@@ -390,6 +402,13 @@ class McpServerConfig:
     #: İzin listesinden sonra sunucu başına en fazla bu kadar araç kaydedilir (sunucunun
     #: verdiği sırayla ilk N; fazlası günlüğe yazılır). `None` = sınır yok.
     max_tools: int | None = None
+    #: Kaydın kaynağı: `user` (config.yaml) ya da `project` (.mcp.json). Yazıcılar kaydı
+    #: yalnız kendi kapsamının dosyasına yazar (P-049).
+    scope: McpScope = McpScope.USER
+    #: Stdio sürecine verilecek SIR OLMAYAN ortam değerleri `(ad, değer)`; değer
+    #: `${VAR:-varsayılan}` başvurusu taşıyabilir ve bağlantı anında çözülür. Sırlar buraya
+    #: yazılmaz, `env_names` ile şifreli depodan gelir. `.mcp.json` `env` alanı buraya iner.
+    env_literals: tuple[tuple[str, str], ...] = ()
 
     @property
     def secret_env_names(self) -> tuple[str, ...]:

@@ -36,6 +36,7 @@ __all__ = [
     "forget_mcp_failure",
     "mcp_pool_statuses",
     "new_mcp_failures",
+    "request_mcp_reconnect",
 ]
 
 _LOG = logging.getLogger(__name__)
@@ -92,6 +93,9 @@ class McpToolPool:
         # stdio alt süreci oturumdan sağ çıkar.
         self._draining: set[asyncio.Task[None]] = set()
         self._draining_deadlines: dict[asyncio.Task[None], float] = {}
+        #: `/mcp reconnect` ile düşürülmesi istenen sunucular: canlı girdi bir sonraki
+        #: `clients_for`'da kapatılıp yeniden açılır (eşzamansız olmayan çağıranlar için; P-049).
+        self._reconnect_requested: set[str] = set()
 
     @property
     def _lock(self) -> asyncio.Lock:
@@ -135,6 +139,13 @@ class McpToolPool:
             self._reported_failures.add(key)
             new.append(status)
         return tuple(new)
+
+    def request_reconnect(self, name: str) -> None:
+        """Sunucuya sonraki turda yeniden bağlan: park/backoff kaydı silinir, canlı oturum
+        `clients_for`'da kapatılıp yeniden açılır. Eşzamansız bekleyemeyen çağıranlar
+        (REPL `/mcp reconnect`) için `drop`'un ertelenmiş karşılığı."""
+        self.forget(name)
+        self._reconnect_requested.add(name)
 
     def forget(self, name: str) -> None:
         """Park edilmiş sunucuyu serbest bırak; sonraki tur yeniden dener.
@@ -204,8 +215,13 @@ class McpToolPool:
         """İstenmeyen, değişmiş ya da ölü girdileri kapat."""
         by_name = {config.name: config for config in wanted}
         for name, entry in tuple(self._entries.items()):
-            if by_name.get(name) == entry.config and self._is_alive(entry, loop):
+            if (
+                by_name.get(name) == entry.config
+                and self._is_alive(entry, loop)
+                and name not in self._reconnect_requested
+            ):
                 continue
+            self._reconnect_requested.discard(name)
             del self._entries[name]
             await self._discard(entry, loop)
 
@@ -412,6 +428,11 @@ async def drop_mcp_connection(name: str) -> None:
 def forget_mcp_failure(name: str) -> None:
     """Kullanıcı sunucuyu düzelttiğinde (giriş vb.) park kaydını kaldır."""
     _POOL.forget(name)
+
+
+def request_mcp_reconnect(name: str) -> None:
+    """`/mcp reconnect <ad>`: sonraki turda bağlantıyı kapatıp yeniden kur (P-049)."""
+    _POOL.request_reconnect(name)
 
 
 def _hosted_channel_factory(config: Config) -> AskSession:

@@ -1144,11 +1144,28 @@ class AppSession:
             return self._change_connectors(remove_hosted_connector, request.data)
         if request.name == "baglanti.panel_ac":
             return await self._open_connector_panel(request.data)
+        if request.name == "baglanti.yeniden_baglan":
+            # Claude Code `/mcp reconnect <sunucu>|all` (P-049): havuzdaki bağlantı düşürülür,
+            # park kaydı silinir, yeniden yoklanır.
+            wanted = str(request.data.get("ad", "")).strip()
+            targets = [
+                server
+                for server in self._state.config.mcp_servers
+                if wanted in ("", "all") or server.name == wanted
+            ]
+            if not targets:
+                return {"ok": False, "metin": "Bağlantı bulunamadı."}
+            statuses = [
+                status_payload(await self._mcp_connections.reconnect(server)) for server in targets
+            ]
+            return {"ok": all(item["ok"] for item in statuses), "sunucular": statuses}
         if request.name == "baglanti.sil":
             server = self._connector(request.data.get("ad"))
             if server is not None:
                 await self._mcp_connections.logout(server)
-            return self._change_connectors(remove_connector, request.data)
+            return self._change_connectors(
+                partial(remove_connector, root=self._state.root), request.data
+            )
         if request.name == "ses.ayar":
             return voice_settings(request.data)
         if request.name == "ses.durdur":

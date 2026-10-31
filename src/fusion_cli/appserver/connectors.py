@@ -15,9 +15,11 @@ import shlex
 import shutil
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
-from ..config.models import Config, McpServerConfig, McpTransport, McpTrust
+from ..config.mcp_json import write_project_mcp_servers
+from ..config.models import Config, McpScope, McpServerConfig, McpTransport, McpTrust
 from ..config.writer import write_mcp_servers
 from ..core.redaction import redact
 from ..mcp_bridge.client import McpConnectionStatus
@@ -154,6 +156,8 @@ def list_connectors(
                 # Argümana/URL'ye gömülmüş anahtar listeye sızmasın (yalnız gösterim).
                 "argumanlar": [redact(argument) for argument in server.args],
                 "tasima": server.transport.value,
+                # `project`: kayıt kökteki `.mcp.json`'dan geldi (P-049); arayüz rozet gösterir.
+                "kapsam": server.scope.value,
                 "url": redact(server.url) if server.url else server.url,
                 "kapsamlar": list(server.scopes),
                 "client_id": server.client_id,
@@ -420,15 +424,32 @@ def review_connector(config: Config, data: object) -> tuple[Config | None, dict[
     )
 
 
-def remove_connector(config: Config, data: object) -> tuple[Config | None, dict[str, Any]]:
-    """`baglanti.sil`: MCP sunucusunu kaldır."""
+def remove_connector(
+    config: Config, data: object, *, root: Path | None = None
+) -> tuple[Config | None, dict[str, Any]]:
+    """`baglanti.sil`: MCP sunucusunu kaldır.
+
+    Proje kapsamlı kayıt (`.mcp.json`) kendi dosyasından silinir; `root` proje köküdür
+    (verilmezse çalışma dizini). Kullanıcı kaydı `config.yaml`'dan düşer (P-049).
+    """
     if not isinstance(data, dict):
         return None, {"ok": False, "metin": "Geçersiz bağlantı."}
     ad = str(data.get("ad", "")).strip()
-    kalan = tuple(server for server in config.mcp_servers if server.name != ad)
-    if len(kalan) == len(config.mcp_servers):
+    silinen = next((server for server in config.mcp_servers if server.name == ad), None)
+    if silinen is None:
         return None, {"ok": False, "metin": f"'{ad}' adlı bağlantı yok."}
-    return _persist(replace(config, mcp_servers=kalan), f"'{ad}' bağlantısı kaldırıldı.")
+    kalan = tuple(server for server in config.mcp_servers if server.name != ad)
+    yeni = replace(config, mcp_servers=kalan)
+    if silinen.scope is McpScope.PROJECT:
+        try:
+            write_project_mcp_servers(
+                root or Path.cwd(),
+                tuple(server for server in kalan if server.scope is McpScope.PROJECT),
+            )
+        except Exception as error:  # ConfigError ve OSError türevleri
+            return None, {"ok": False, "metin": f"Bağlantı kaydedilemedi: {error}"}
+        return yeni, {"ok": True, "metin": f"'{ad}' bağlantısı projeden kaldırıldı."}
+    return _persist(yeni, f"'{ad}' bağlantısı kaldırıldı.")
 
 
 def _persist(config: Config, message: str) -> tuple[Config | None, dict[str, Any]]:

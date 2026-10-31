@@ -15,7 +15,7 @@ import logging
 import logging.handlers
 import sys
 from collections.abc import Awaitable, Callable, Coroutine
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, TypeVar
 
@@ -46,6 +46,7 @@ from . import (
     eval_commands,
     headless,
     knowledge_commands,
+    mcp_commands,
     memory_commands,
     paperclip_command,
     prompt_opt_commands,
@@ -73,6 +74,8 @@ app.add_typer(trash_commands.app, name="cop")
 app.add_typer(capability_commands.app, name="yetenek")
 app.add_typer(eval_commands.eval_app, name="eval")
 app.add_typer(prompt_opt_commands.prompt_opt_app, name="prompt-opt")
+# `fusion mcp` alt komutsuz eski sunucu davranışını korur; `add/list/login/reconnect…` P-049.
+app.add_typer(mcp_commands.mcp_app, name="mcp")
 app.command("paperclip")(paperclip_command.paperclip)
 
 console = Console()
@@ -81,7 +84,7 @@ console = Console()
 #: metin istemcide ayrıştırma hatasıdır (L1-11).
 error_console = Console(stderr=True)
 #: `fusion mcp-tools` sunuculara bağlanıp araç keşfederken en fazla bekleyeceği süre (sn).
-MCP_TOOLS_TIMEOUT_S = 60.0
+MCP_TOOLS_TIMEOUT_S = mcp_commands.MCP_TOOLS_TIMEOUT_S
 
 T = TypeVar("T")
 
@@ -710,26 +713,6 @@ def adopt_data(
     console.print("Etkinleştirmek için: FUSION_WORKSPACE_ISOLATION=1")
 
 
-@app.command()
-def mcp(
-    write: bool = typer.Option(
-        False, "--write", help="Değiştirici araçları da aç (dikkat: dışarıya yazma verir)."
-    ),
-) -> None:
-    """Fusion araçlarını bir MCP sunucusu olarak aç (stdio).
-
-    MCP destekleyen araçlar (Claude masaüstü, Cursor, Cline…) buna bağlanıp Fusion'ın
-    araçlarını (kod arama, dosya okuma…) kullanabilir. Varsayılan yalnızca salt-okunur.
-    """
-    # DİKKAT: stdout MCP protokolüne aittir; buraya hiçbir şey BASILMAZ.
-    try:
-        from ..mcp_bridge.server import run_stdio
-    except ImportError:
-        typer.echo(messages.MCP_MISSING_DEP, err=True)
-        raise typer.Exit(code=1) from None
-    asyncio.run(run_stdio(Path.cwd(), expose_mutating=write))
-
-
 @app.command(name="chrome-host", hidden=True)
 def chrome_host() -> None:
     """Chrome eklentisinin yerel mesajlaşma sunucusu (Chrome başlatır, elle değil)."""
@@ -838,43 +821,13 @@ def app_protocol(ctx: typer.Context) -> None:
         asyncio.run(run_stdio(Path.cwd(), Path.home()))
 
 
-@app.command(name="mcp-tools")
+@app.command(name="mcp-tools", hidden=True)
 def mcp_tools() -> None:
-    """Yapılandırılmış dış MCP sunucularının araçlarını listele (bağlanır ve keşfeder)."""
-    config = load_config()
-    if not config.mcp_servers:
-        console.print(messages.MCP_NO_SERVERS)
-        return
-    try:
-        from ..mcp_bridge.client import McpClient
-    except ImportError:
-        console.print(f"[red]{messages.MCP_MISSING_DEP}[/red]")
-        raise typer.Exit(code=1) from None
-
-    async def _run() -> None:
-        async with McpClient(config.mcp_servers) as client:
-            for server in config.mcp_servers:
-                tools = await client.list_tools(server.name)
-                console.print(f"[bold]{escape(server.name)}[/bold] — {len(tools)} araç:")
-                for tool in tools:
-                    console.print(
-                        f"  [{theme.ACCENT}]{escape(tool.name)}[/{theme.ACCENT}] — "
-                        f"{escape(tool.description or '')}"
-                    )
-
-    try:
-        asyncio.run(asyncio.wait_for(_run(), timeout=MCP_TOOLS_TIMEOUT_S))
-    except FusionError:
-        raise
-    except TimeoutError as error:
-        # Bağlanamayan sunucu komutu sonsuza dek bekletmesin ve çıplak traceback vermesin
-        # (L1-26).
-        raise FusionError(messages.MCP_TOOLS_TIMEOUT.format(seconds=MCP_TOOLS_TIMEOUT_S)) from error
-    except Exception as error:
-        raise FusionError(messages.MCP_CONNECT_FAILED.format(error=error)) from error
+    """`fusion mcp tools` takma adı (eski betikler için)."""
+    mcp_commands.list_remote_tools(load_config(), timeout_s=MCP_TOOLS_TIMEOUT_S)
 
 
-@app.command(name="mcp-add")
+@app.command(name="mcp-add", hidden=True)
 def mcp_add(
     name: Annotated[str, typer.Argument(help="Sunucuya vereceğin kısa ad (ör. github).")],
     command: Annotated[str, typer.Argument(help="Çalıştırılacak komut (ör. npx).")],
@@ -883,28 +836,8 @@ def mcp_add(
         typer.Argument(help="Komuta verilecek argümanlar. `-` ile başlıyorsa önce -- koy."),
     ] = None,
 ) -> None:
-    """Dış bir MCP sunucusunu `config.yaml`'a ekle; kullanıcı config'i elle düzenlemez.
-
-    Agent bu komutu KENDİ dosya araçlarıyla DEĞİL, yalnızca bu CLI komutunu shell'de
-    çalıştırarak tetikler — `config.yaml` agent'ın genel yazma sınırının dışındadır
-    (güvenlik sınırı, docs/WEB_PROVIDERS.md ile aynı ilke).
-
-    Örnek: `fusion mcp-add github npx -- -y @modelcontextprotocol/server-github`
-    (argümanlar `-` ile başlıyorsa Typer'ın seçenek sanmaması için `--` şart).
-    """
-    from ..config.models import McpServerConfig
-    from ..config.writer import write_mcp_servers
-
-    config = load_config()
-    kalanlar = tuple(server for server in config.mcp_servers if server.name != name)
-    yeniden_yazildi = len(kalanlar) != len(config.mcp_servers)
-    yeni = McpServerConfig(name=name, command=command, args=tuple(args or ()))
-    guncellenmis = replace(config, mcp_servers=(*kalanlar, yeni))
-
-    path = write_mcp_servers(guncellenmis)
-    template = messages.MCP_REPLACED if yeniden_yazildi else messages.MCP_ADDED
-    console.print(template.format(name=name))
-    console.print(f"[{theme.DIM}]{path}[/{theme.DIM}]")
+    """`fusion mcp add` takma adı (eski betikler için): stdio sunucusunu config.yaml'a ekle."""
+    mcp_commands.add_server(name, command, tuple(args or ()))
 
 
 @app.command()

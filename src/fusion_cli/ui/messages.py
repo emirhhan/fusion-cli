@@ -623,10 +623,33 @@ MCP_ADDED = "'{name}' MCP sunucusu eklendi. Etkinleşmesi için Fusion'ı yenide
 MCP_REPLACED = "'{name}' adlı sunucu zaten vardı, yeni komutla güncellendi."
 MCP_REMOVED = "'{name}' MCP sunucusu kaldırıldı."
 MCP_NOT_FOUND = "'{name}' adlı bir MCP sunucusu yok."
-MCP_USAGE = "kullanım: /mcp  ·  /mcp add <ad> <komut> [argüman…]  ·  /mcp remove <ad>"
+MCP_USAGE = (
+    "kullanım: /mcp  ·  /mcp add <ad> <komut> [argüman…]  ·  /mcp remove <ad>  ·  "
+    "/mcp reconnect <ad>|all"
+)
 MCP_ADD_USAGE = "kullanım: /mcp add <ad> <komut> [argüman…]"
 MCP_REMOVE_USAGE = "kullanım: /mcp remove <ad>"
 MCP_SAVE_FAILED = "kaydedilemedi: {error}"
+# --- `fusion mcp` alt grubu ve kapsamlar (P-049) --- #
+MCP_RECONNECT_USAGE = "kullanım: /mcp reconnect <ad>|all"
+MCP_RECONNECT_SCHEDULED = "'{name}' bağlantısı düşürüldü; sonraki turda yeniden bağlanılacak."
+MCP_RECONNECT_ALL_SCHEDULED = (
+    "{count} MCP bağlantısı düşürüldü; sonraki turda yeniden bağlanılacak."
+)
+MCP_SCOPE_LABELS = {"user": "kullanıcı", "project": "proje"}
+MCP_PROJECT_ADDED = "'{name}' MCP sunucusu projeye eklendi ({path})."
+MCP_PROJECT_REMOVED = "'{name}' MCP sunucusu projeden kaldırıldı."
+MCP_ADD_NEEDS_COMMAND = "stdio sunucusu için komut gerekli: fusion mcp add <ad> <komut> [argüman…]"
+MCP_ADD_NEEDS_URL = (
+    "http sunucusu için adres gerekli: fusion mcp add <ad> --transport http --url <adres>"
+)
+MCP_ADD_JSON_INVALID = "JSON tanımı okunamadı: {error}"
+MCP_LOGIN_RESULT = "{name}: {state}{detail}"
+MCP_LOGIN_TIMEOUT = "'{name}' girişi {seconds:.0f} sn içinde tamamlanmadı."
+MCP_LIST_ROW = "· {name} [{scope} · {transport}] {target}"
+MCP_LIST_HEADER_PROJECT_HINT = (
+    "Proje kaydı: {path} (yalnız güvenilen projede yüklenir; fusion trust)"
+)
 CMD_PROFILES = "profilleri gör / düzenle: /profiles · /profiles edit <profil> [incompatible]"
 
 # --- Execution profili (/mode) --------------------------------------------- #
