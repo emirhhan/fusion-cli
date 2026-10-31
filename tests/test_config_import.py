@@ -471,3 +471,12 @@ def test_codex_cozulemeyen_karar_izin_olarak_aktarilmaz_dize_icindeki_atama_yok_
     assert dizeli.status is ImportStatus.NEW and dizeli.detail == "deny"
     (kararsiz,) = codex_rule_items('prefix_rule(pattern = ["npm", "test"])', Path("r"))
     assert kararsiz.detail == "allow"
+
+
+def test_paketli_masaustu_changelog_u_calisma_zamani_kokunde_tasir_ve_bulur(tmp_path):
+    # PyInstaller onedir: modül `<_MEIPASS>/fusion_cli/config/…`; CHANGELOG `<_MEIPASS>/`.
+    spec = Path("desktop_build/runtime/fusion_runtime.spec").read_text(encoding="utf-8")
+    assert '"CHANGELOG.md"), ".")' in spec
+    bundle = tmp_path / "_internal"
+    _write(bundle / "CHANGELOG.md", _CHANGELOG)
+    assert release_notes.changelog_path(bundle / "fusion_cli") == bundle / "CHANGELOG.md"
