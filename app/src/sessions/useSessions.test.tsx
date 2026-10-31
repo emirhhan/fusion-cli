@@ -335,6 +335,52 @@ describe("useSessions", () => {
     expect(result.current.state.sessions.varsayilan.root).toBe(`${eskiKok}/.fusion/worktrees/ozellik`);
   });
 
+  it("/rewind sonucu kalan geçmişi verirse sohbet panosu ona kesilir (P-004)", async () => {
+    const fake = fakeTransport([
+      { rol: "kullanici", metin: "bir" },
+      { rol: "asistan", metin: "a-bir" },
+      { rol: "kullanici", metin: "iki" },
+      { rol: "asistan", metin: "a-iki" },
+    ]);
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession?.messages).toHaveLength(4));
+
+    let command!: Promise<Record<string, unknown>>;
+    act(() => { command = result.current.runCommand("varsayilan", "/rewind 2 konusma"); });
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line);
+    act(() => fake.emitResult("varsayilan", request.id, {
+      ok: true,
+      metin: "Konuşma 2. turun başına sarıldı (2 mesaj kaldı).",
+      gecmis: [{ rol: "kullanici", metin: "bir" }, { rol: "asistan", metin: "a-bir" }],
+    }));
+    await act(async () => { await command; });
+
+    expect(result.current.state.sessions.varsayilan.messages.map((message) => message.metin)).toEqual([
+      "bir",
+      "a-bir",
+      "Konuşma 2. turun başına sarıldı (2 mesaj kaldı).",
+    ]);
+  });
+
+  it("tur sonucu kök bildirirse (enter_worktree aracı) sekmenin kökü güncellenir (P-037)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const eskiKok = result.current.state.sessions.varsayilan.root;
+
+    act(() => { result.current.send("varsayilan", "ayrı worktree'de dene"); });
+    await waitFor(() => expect(fake.sent.map((item) => JSON.parse(item.line).ad)).toContain("tur.calistir"));
+    const turn = fake.sent.map((item) => JSON.parse(item.line)).find((item) => item.ad === "tur.calistir");
+    act(() => fake.emitResult("varsayilan", turn.id, {
+      ok: true,
+      metin: "tamam",
+      kok: `${eskiKok}/.fusion/worktrees/ajan`,
+    }));
+
+    await waitFor(() => expect(result.current.state.sessions.varsayilan.root).toBe(`${eskiKok}/.fusion/worktrees/ajan`));
+  });
+
   it("makro komutunun hazırladığı görevi hemen tur olarak başlatır", async () => {
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));

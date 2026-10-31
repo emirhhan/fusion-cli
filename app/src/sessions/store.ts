@@ -36,6 +36,7 @@ export type SessionAction =
   | { type: "selected"; id: string }
   | { type: "titleChanged"; id: string; title: string }
   | { type: "rootChanged"; id: string; root: string }
+  | { type: "historyReplaced"; id: string; messages: Mesaj[] }
   | { type: "titleSuggested"; id: string; title: string }
   | { type: "messageAdded"; id: string; message: Mesaj }
   | { type: "eventReceived"; id: string; event: Record<string, unknown> }
@@ -154,6 +155,15 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       // `/worktree <ad>` ya da `/worktree cik`: çekirdek kökü değiştirdi (`komut.calistir` → `kok`);
       // dosya gezgini ve proje etiketi yeni kökü görsün.
       return updateSession(state, action.id, (session) => ({ ...session, root: action.root }));
+    case "historyReplaced":
+      // `/rewind` konuşmayı geri sardı (`komut.calistir` → `gecmis`): pano çekirdeğin kalan
+      // geçmişine kesilir; yoksa kullanıcı modelin hâlâ bildiğini sanır (P-004).
+      return updateSession(state, action.id, (session) => ({
+        ...session,
+        messages: migrateMessageIds(action.messages, action.id),
+        question: null,
+        updatedAt: Date.now(),
+      }));
     case "titleSuggested":
       // Öneri eşzamansız gelir; o arada sekme adlandırıldıysa dokunulmaz.
       return updateSession(state, action.id, (session) =>

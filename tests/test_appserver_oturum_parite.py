@@ -144,19 +144,20 @@ async def test_rewind_konusma_arayuze_kalan_gecmisi_doner(repo, tmp_path, memory
             UndoEntry("a.txt", True, b"bir", b"iki", "", 1, 1, owner=OWNER_AGENT)
         )
 
-        yalniz_kod = await oturum._dispatch(
-            Request("k", "komut.calistir", {"ad": "rewind", "arguman": "2 kod"})
-        )
-        assert "gecmis" not in yalniz_kod, "konuşma değişmedi; arayüz kesmesin"
-        assert dosya.read_text(encoding="utf-8") == "bir"
-        assert oturum._workspace_journal.latest() == [], "geri alınan girdi düşer"
-
         sonuc = await oturum._dispatch(
             Request("r", "komut.calistir", {"ad": "rewind", "arguman": "2 konusma"})
         )
         assert [row["metin"] for row in sonuc["gecmis"]] == ["merhaba", "selam", "bir", "a-bir"]
         assert sonuc["gecmis"][0]["rol"] == "kullanici"
         assert "2. turun başına" in sonuc["metin"]
+        assert dosya.read_text(encoding="utf-8") == "iki", "yalnız konuşma: dosyalar kalır"
+
+        yalniz_kod = await oturum._dispatch(
+            Request("k", "komut.calistir", {"ad": "rewind", "arguman": "2 kod"})
+        )
+        assert "gecmis" not in yalniz_kod, "konuşma değişmedi; arayüz kesmesin"
+        assert dosya.read_text(encoding="utf-8") == "bir"
+        assert oturum._workspace_journal.latest() == [], "geri alınan girdi düşer"
     finally:
         await oturum.close()
 

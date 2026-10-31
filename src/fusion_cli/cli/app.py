@@ -34,6 +34,7 @@ from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
 from ..engines.agent.approval import ApprovalMemory, ApprovalMode, parse_mode
 from ..core.worktree import Worktree
+from ..core.worktree import Worktree, WorktreeSwitch
 from ..engines.agent.approval import ApprovalMode, parse_mode
 from ..ui import messages, theme
 from .app_host import AppHostDependencies
@@ -390,6 +391,9 @@ def agent(
     observers = build_observers(
         task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
     )
+    # Tek atışta oturum yoktur: `enter_worktree` isteği tur sonunda köke dönüşmez, yalnız
+    # açılan ağaç bildirilir (ağaç korunur; sonraki iş `fusion -w <ad>` ile oradan sürer).
+    switch = WorktreeSwitch()
 
     # `k` (kalıcı izin) burada da kural YAZAR: hafızaya yazıcı bağlanır, bildirim tur sonunda
     # basılır (P-003; ölçüldü 31 Ekim: bağlanmıyordu, `k` yalnız oturum içi hatırlıyordu).
@@ -415,6 +419,7 @@ def agent(
                 memory=open_memory(config, root=root, enabled=not no_memory),
                 extra_roots=tuple(add_dir or ()),
                 approval_memory=approval_memory,
+                worktree_switch=switch,
             )
         ),
         renderer,
@@ -422,6 +427,9 @@ def agent(
     )
     observers.finish()
     print_rule_notices(console, approval_memory)
+    opened, _exit_requested = switch.take()
+    if opened is not None and not as_json:
+        _print_worktree_notice(opened)
     _print_usage(observers, quiet=quiet or as_json)
     # Çıkış kodu `outcome.ok`a bakar (paperclip ile aynı kural): Ölçüldü (30 Ekim) yalnız
     # boş metin 1 yapıyordu; hata mesajı/bütçe durdurması/hız sınırı dolu metinle 0 dönüyor,

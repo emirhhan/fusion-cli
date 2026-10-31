@@ -15,6 +15,7 @@ from ...core.worktree import (
     LeaveOutcome,
     LeaveResult,
     Worktree,
+    WorktreeSwitch,
     enter_worktree,
     leave_worktree,
     list_worktrees,
@@ -78,7 +79,11 @@ def apply_switch(state: ReplState, tool_context: ToolContext) -> str:
     Araç tur ortasında kökü değiştiremez (`ToolContext` donmuş); istek burada, tur
     bittikten sonra tek yerden uygulanır.
     """
-    switch = getattr(tool_context, "worktree_switch", None)
+    return apply_switch_request(state, getattr(tool_context, "worktree_switch", None))
+
+
+def apply_switch_request(state: ReplState, switch: WorktreeSwitch | None) -> str:
+    """`apply_switch`'in bağlamsız biçimi: masaüstü anahtarı `run_agent_task`'a kendisi verir."""
     if switch is None:
         return ""
     requested, exit_requested = switch.take()

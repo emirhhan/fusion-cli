@@ -626,6 +626,8 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         admissions.current.delete(requestId);
         try { updateSubmission(id, requestId, String(raw?.durum ?? (result.ok === false ? "failed" : "completed")), typeof raw?.tur_id === "string" ? raw.tur_id : undefined); }
         catch { dispatch({type: "messageAdded", id, message: {rol: "asistan", hata: true, metin: "Gönderim sonucu yerel olarak saklanamadı."}}); }
+        // Ajan `enter_worktree`/`exit_worktree` çağırdıysa tur bitince kök değişir (P-037).
+        kokuDevral(id, result);
         const text = typeof result.metin === "string" ? result.metin : "";
         const hata = result.ok === false ? { hata: true } : {};
         const delivery = decodeDeliveryEvidence(result.kanit);
@@ -714,6 +716,15 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     } catch { return "Kayıtlı gönderim taslağı okunamadı. Depolamayı kontrol et."; }
   };
 
+  /** Çekirdek sonucu `kok` taşıyorsa (`/worktree`, `enter_worktree` aracı) sekmenin kökünü ona taşır. */
+  const kokuDevral = (id: string, result: Record<string, unknown>) => {
+    const current = oturumlarRef.current[id]?.root ?? clientRoots.current.get(id);
+    if (typeof result.kok === "string" && result.kok && result.kok !== current) {
+      clientRoots.current.set(id, result.kok);
+      dispatch({ type: "rootChanged", id, root: result.kok });
+    }
+  };
+
   const runCommand = useCallback(
     async (id: string, input: string, recordInput = true, recordOutput = true) => {
       const session = state.sessions[id];
@@ -740,9 +751,10 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       // `/compact`, `/clear` geçmişi; `/model` web eşiğini değiştirebilir.
       olcuyuTazele(id, session.client, dispatch);
       // `/worktree` oturum kökünü değiştirir; çekirdek yeni kökü `kok` ile bildirir (P-037).
-      if (typeof result.kok === "string" && result.kok && result.kok !== session.root) {
-        clientRoots.current.set(id, result.kok);
-        dispatch({ type: "rootChanged", id, root: result.kok });
+      kokuDevral(id, result);
+      // `/rewind` konuşmayı geri sardı; çekirdek kalan geçmişi `gecmis` ile verir (P-004).
+      if (Array.isArray(result.gecmis)) {
+        dispatch({ type: "historyReplaced", id, messages: historyMessages(result.gecmis) });
       }
       const text = typeof result.metin === "string" ? result.metin : "";
       const preparedTask = typeof result.gorev === "string" && result.gorev.trim()

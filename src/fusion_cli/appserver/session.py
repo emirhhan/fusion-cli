@@ -34,7 +34,7 @@ from itertools import count
 from pathlib import Path
 from typing import Any
 
-from ..cli.repl import macros
+from ..cli.repl import macros, worktrees
 from ..cli.repl.commands import RENDERED_COMMANDS, build_registry
 from ..cli.repl.state import Engine, ReplState
 from ..cli.repl.transcript_store import (
@@ -69,7 +69,7 @@ from ..core.submission import SubmissionReceipt, SubmissionRepository
 from ..core.tools import TodoStatus
 from ..core.turn_deadline import TurnDeadline
 from ..core.types import Message
-from ..core.worktree import worktree_for_path
+from ..core.worktree import WorktreeSwitch, worktree_for_path
 from ..engines.agent.approval import ApprovalMode, parse_mode
 from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.context_budget import context_budget
@@ -1972,6 +1972,7 @@ class AppSession:
         göstermiyorlardı. Onlar TUI'nin kullandığı renderer'dan metne çevrilir.
         """
         previous_approval = self._state.approval
+        previous_history = self._state.history
         name = str(data.get("ad", ""))
         argument = str(data.get("arguman", ""))
         command = self._registry.get(name)
@@ -2025,6 +2026,11 @@ class AppSession:
             # Dosyalar tur başına döndü; çalışma alanı günlüğündeki "geri al" kayıtları
             # bayatlamasın (değişiklikler paneli artık olmayan farkı göstermesin).
             self._drop_reverted_journal_entries()
+            if self._state.history is not previous_history:
+                # Konuşma geri sarıldı: arayüz sohbet panosunu kalan geçmişe kessin. Ölçüldü
+                # (31 Ekim): sinyal yokken pano tüm eski mesajları göstermeye devam ediyor,
+                # kullanıcı modelin hâlâ bildiğini sanıyordu.
+                result = {**result, "gecmis": visible_history(self._state.history)}
         if command is not None and command.name == "worktree":
             # `/worktree <ad>` ya da `cik` oturum kökünü değiştirdi: masaüstü köküyle aynı
             # yoldan (`oturum.baslat{kok}`) hizala ve yeni kökü arayüze söyle.
@@ -2531,8 +2537,13 @@ class AppSession:
                 journal=journal,
                 background=self._voice_background if voice_context else None,
                 changes=changes,
+                worktree_switch=switch,
             )
 
+        # `enter_worktree`/`exit_worktree` isteği: kök tur ortasında değişmez, tur bitince
+        # burada uygulanır (REPL `apply_switch` ile aynı). Ölçüldü (31 Ekim): masaüstü
+        # anahtarı hiç okumuyordu; araç "tur bitince kök değişir" diyor, kök değişmiyordu.
+        switch = WorktreeSwitch()
         # Ajanın her yazmadan önce aldığı anlık görüntüler; tur bitince (iptal dahil)
         # çalışma alanı günlüğüne geçer ve UI geri alma yalnız bunlara dayanır. Kayıt
         # tur checkpoint defterinden gelir: `/rewind` masaüstünde de aynı defteri sarar.
@@ -2594,6 +2605,8 @@ class AppSession:
             self._chrome_history = outcome.messages
             return {"ok": outcome.ok, "metin": outcome.final_text or messages.APP_TURN_NO_ANSWER}
         self._state.history = outcome.messages
+        switched = worktrees.apply_switch_request(self._state, switch)
+        root_payload = self._adopt_state_root() if switched else {}
         # Transcript bir BAŞARI kaydı değil, NE OLDUĞU kaydıdır.
         #
         # Ölçüldü (7 Eylül, kullanıcının Godot koşuları): plan adımı duraklayınca
@@ -2653,8 +2666,10 @@ class AppSession:
             )
             if receipt is not None:
                 continued["_retry_safe"] = False
-            return continued
-        cevap: dict[str, Any] = {"ok": outcome.ok, "metin": metin}
+            return {**root_payload, **continued}
+        if switched:
+            metin = f"{metin}\n\n{switched}".strip()
+        cevap: dict[str, Any] = {"ok": outcome.ok, "metin": metin, **root_payload}
         if receipt is not None:
             cevap["_retry_safe"] = (
                 getattr(outcome, "tool_calls_made", None) == 0

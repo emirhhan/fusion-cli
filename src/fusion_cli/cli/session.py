@@ -49,6 +49,7 @@ from ..core.types import (
     VerdictSource,
     is_rate_limit_error,
 )
+from ..core.worktree import WorktreeSwitch
 from ..engines.agent import AgentOutcome, run_agent
 from ..engines.agent.approval import (
     ApprovalMemory,
@@ -190,6 +191,7 @@ async def run_agent_task(
     remotion_transport: FrameTransport | None = None,
     remotion_browser: RemotionBrowser | None = None,
     deadline: TurnDeadline | None = None,
+    worktree_switch: WorktreeSwitch | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -250,6 +252,10 @@ async def run_agent_task(
             # Çağıran (masaüstü oturumu) turun ilk-hâl anlık görüntülerini geri alma
             # günlüğüne aktarabilsin diye kümeyi kendisi verir.
             tool_context = replace(tool_context, changes=changes)
+        if worktree_switch is not None:
+            # `enter_worktree`/`exit_worktree` isteği tur bitince çağıranda (masaüstü, tek
+            # atış) okunur; verilmezse istek bağlamın kendi anahtarında kalır ve kaybolur.
+            tool_context = replace(tool_context, worktree_switch=worktree_switch)
         if conversation_id:
             tool_context = replace(
                 tool_context,
