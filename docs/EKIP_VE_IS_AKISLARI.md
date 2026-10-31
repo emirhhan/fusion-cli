@@ -74,6 +74,12 @@ altındadır (macOS/Linux: `~/.config/fusion-cli/workflows/`); aynı ad projede 
 fusion workflows [liste|goster|iptal|sil] [--kok <dizin>]
 ```
 
+**Terminal.** REPL'de canlı pano yerine tek satırlık ilerleme basılır: koşu başlarken
+kimliği (`/workflows iptal <kimlik>` için), sonra evre ya da durum değişince
+`İş akışı 'inceleme' · çalışıyor · evre: Rapor · 2/3 adım · 3/50 ajan`. Ekipte görev
+sayısı ya da üye durumu değişince `Ekip 'site' · çalışıyor · 1/3 görev · kod çalışıyor,
+test sırada`. Ayrıntı için `/workflows goster <kimlik>` ve `/team goster <ad>`.
+
 Koşu kayıtları `.fusion/workflows/kosular/<kimlik>.json` dosyasındadır (son 50 koşu).
 Koşuyu yürüten süreç kapandıysa kayıt "yarım" görünür.
 

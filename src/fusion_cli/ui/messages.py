@@ -1426,3 +1426,8 @@ VIM_SET_UNSAVED = "Vim kipi bu oturum için {state}; dosyaya yazılamadı: {erro
 
 EKIP_CMD_TEAM = "Ajan ekipleri: lider + üyeler, paylaşımlı görev listesi ve posta kutusu"
 AKIS_CMD_WORKFLOWS = "Dinamik iş akışları: kayıtlılar, koşular, iptal, çalıştır"
+
+#: Terminalde canlı pano yerine basılan tek satırlık ilerleme (P-061/P-062).
+AKIS_PROGRESS = "İş akışı '{name}' · {status}{phase} · {done}/{total} adım · {agents}/{limit} ajan"
+AKIS_STARTED = "İş akışı '{name}' başladı: {total} adım (durdurmak için /workflows iptal {run_id})"
+EKIP_PROGRESS = "Ekip '{team}' · {status} · {done}/{total} görev · {members}"

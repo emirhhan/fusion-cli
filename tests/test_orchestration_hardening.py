@@ -497,3 +497,72 @@ async def test_kaydet_ayni_adli_farkli_tanimi_sessizce_ezmez_basarisiz_kosuda_ka
 
     assert "Kaydedildi" not in yeni.output
     assert store.find("yeni-akis") is None
+
+
+# -- terminal: canlı pano yerine tek satırlık ilerleme ------------------------- #
+
+
+def _renderer():
+    import io
+
+    from rich.console import Console
+
+    from fusion_cli.ui.renderer import ConsoleRenderer
+
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200)
+    return ConsoleRenderer(console, live_progress=False), buffer
+
+
+def test_terminal_is_akisi_ilerlemesini_evre_ve_durum_degisince_basar():
+    from fusion_cli.core.events import TurnFinished
+    from fusion_cli.core.orchestration_events import WorkflowNodeView, WorkflowProgress
+
+    renderer, buffer = _renderer()
+
+    def _olay(status, phase, durumlar, started):
+        nodes = tuple(WorkflowNodeView(f"a{i}", f"adım {i}", d) for i, d in enumerate(durumlar))
+        return WorkflowProgress("k42", "inceleme", status, phase, started, 50, nodes)
+
+    renderer.handle(_olay("calisiyor", "Keşif", ["bekliyor", "bekliyor", "bekliyor"], 0))
+    renderer.handle(_olay("calisiyor", "Keşif", ["calisiyor", "bekliyor", "bekliyor"], 1))
+    renderer.handle(_olay("calisiyor", "Rapor", ["tamam", "tamam", "calisiyor"], 3))
+    renderer.handle(_olay("tamam", "Rapor", ["tamam", "tamam", "tamam"], 3))
+    renderer.handle(TurnFinished())
+    cikti = buffer.getvalue()
+
+    assert "/workflows iptal k42" in cikti
+    assert cikti.count("İş akışı 'inceleme' ·") == 3
+    assert "evre: Rapor · 2/3 adım · 3/50 ajan" in cikti
+    assert "tamamlandı · evre: Rapor · 3/3 adım" in cikti
+
+
+def test_terminal_ekip_panosunu_gorev_ve_uye_durumu_degisince_basar():
+    from fusion_cli.core.events import TurnFinished
+    from fusion_cli.core.orchestration_events import (
+        TeamBoardChanged,
+        TeamMemberView,
+        TeamTaskView,
+    )
+
+    renderer, buffer = _renderer()
+
+    def _olay(status, gorevler, uyeler):
+        return TeamBoardChanged(
+            "site",
+            "hedef",
+            status,
+            tasks=tuple(TeamTaskView(f"g{i}", "iş", d) for i, d in enumerate(gorevler)),
+            members=tuple(TeamMemberView(ad, "", d) for ad, d in uyeler),
+        )
+
+    renderer.handle(_olay("calisiyor", ["bekliyor", "bekliyor"], [("kod", "calisiyor")]))
+    renderer.handle(_olay("calisiyor", ["bekliyor", "bekliyor"], [("kod", "calisiyor")]))
+    renderer.handle(_olay("calisiyor", ["tamam", "bekliyor"], [("kod", "sirada")]))
+    renderer.handle(_olay("bitti", ["tamam", "tamam"], [("kod", "bitti")]))
+    renderer.handle(TurnFinished())
+    cikti = buffer.getvalue()
+
+    assert cikti.count("Ekip 'site' ·") == 3
+    assert "çalışıyor · 1/2 görev · kod sırada" in cikti
+    assert "tamamlandı · 2/2 görev · kod bitti" in cikti

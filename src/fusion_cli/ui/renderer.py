@@ -81,10 +81,12 @@ from ..core.events import (
     TurnOutcome,
     VerificationPassed,
 )
+from ..core.orchestration_events import TeamBoardChanged, WorkflowProgress
 from ..core.types import FusionResult
 from . import messages, theme
 from .diff import render_diff
 from .fusion_view import render_fusion_result
+from .orchestration_lines import OrchestrationLines
 from .text import (
     format_duration,
     format_model,
@@ -147,6 +149,8 @@ class ConsoleRenderer:
         self._fallbacks_shown: set[tuple[str, str]] = set()
         #: Koşan alt ajanların kimliği → kişilik ünvanı (bitiş satırında ad için).
         self._sub_titles: dict[str, str] = {}
+        #: Ekip/iş akışı panolarının terminaldeki tek satırlık karşılığı (P-061/P-062).
+        self._orchestration = OrchestrationLines()
 
     # -- EventSink ---------------------------------------------------------- #
 
@@ -273,6 +277,10 @@ class ConsoleRenderer:
                     title=self._sub_titles.pop(event.sub_id, "alt-ajan"), count=event.tool_calls
                 )
             )
+        elif isinstance(event, WorkflowProgress):
+            self._orchestration_lines(self._orchestration.workflow(event))
+        elif isinstance(event, TeamBoardChanged):
+            self._orchestration_lines(self._orchestration.team(event))
         elif isinstance(event, CouncilConsulted):
             self._status(messages.AGENT_COUNCIL)
             self._resume_work(messages.WORK_COUNCIL)
@@ -686,6 +694,11 @@ class ConsoleRenderer:
             self._line_open = False
 
     # -- Diğer olaylar ------------------------------------------------------- #
+
+    def _orchestration_lines(self, lines: list[str]) -> None:
+        """Pano satırları: durum kuyruğu tek satır tuttuğu için her biri sırayla boşaltılır."""
+        for line in lines:
+            self._status(line)
 
     def _status(self, message: str) -> None:
         """Durum satırını KUYRUĞA al; basmayı bir adım geciktir.
