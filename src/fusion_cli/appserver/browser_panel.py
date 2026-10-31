@@ -72,11 +72,16 @@ class BrowserPanel:
         root: Callable[[], Path],
         turn_running: Callable[[], bool],
         store: Callable[[], BrowserProfileStore] = default_browser_profile_store,
+        save_agent_share: Callable[[bool], Awaitable[str]] | None = None,
     ) -> None:
         self._config = config
         self._root = root
         self._turn_running = turn_running
         self._store = store
+        #: "Ajan bu tarayıcıyı kullanır" seçimini `browser.panel_agent`'a yazar (hata metni ya
+        #: da ""). Ölçüldü (31 Ekim, inceleme): seçim yalnız oturumda tutuluyor, uygulama yeniden
+        #: açılınca sıfırlanıyordu. Verilmezse (testler, CLI) seçim oturum içinde kalır.
+        self._save_agent_share = save_agent_share
         self._shared = SharedBrowser(self._new_session)
         self._live: LiveView | None = None
         self._lock = asyncio.Lock()
@@ -378,7 +383,13 @@ class BrowserPanel:
         if not isinstance(value, bool):
             return _error("Ayar değeri true ya da false olmalı.")
         if key == SETTING_AGENT:
-            self._agent_choice = value
+            if self._save_agent_share is None:
+                self._agent_choice = value
+            else:
+                error = await self._save_agent_share(value)
+                if error:
+                    return _error(error)
+                self._agent_choice = None
         elif key == SETTING_CONSENT:
             self.profile_consent = value
         else:

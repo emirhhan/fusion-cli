@@ -514,6 +514,7 @@ class AppSession:
             root=lambda: self._state.root,
             turn_running=lambda: self._turn is not None and not self._turn.done(),
             store=lambda: self._browser_profiles,
+            save_agent_share=self._save_panel_agent,
         )
         self._remote: RemoteController | None = None
         self._personal_memory = PersonalMemory(config.memory_dir)
@@ -1788,6 +1789,13 @@ class AppSession:
             self._state.config = _refresh_teacher(yeni)
         return sonuc
 
+    async def _save_panel_agent(self, value: bool) -> str:
+        """Tarayıcı panelindeki paylaşım seçimini `browser.panel_agent`'a yaz; hata metni."""
+        sonuc = await self._browser_profile_rpc(
+            Request(id="", name="tarayici.ayar", data={"anahtar": "panel_agent", "deger": value})
+        )
+        return "" if sonuc.get("ok") else str(sonuc.get("metin") or "Ayar yazılamadı.")
+
     async def _browser_profile_rpc(self, request: Request) -> dict[str, Any]:
         """`tarayici.*` (P-024): dosya/Chrome okuma ve şifreleme bloklar, thread'e alınır."""
         from . import browser_profiles as rpc
@@ -1825,13 +1833,10 @@ class AppSession:
             if sonuc.get("ok"):
                 tarayici = self._state.config.browser
                 deger = bool(sonuc["deger"])
+                # Anahtar `rpc.set_setting`'te `_BOOL_SETTINGS` ile doğrulandı (alan adıdır).
                 self._state.config = replace(
                     self._state.config,
-                    browser=(
-                        replace(tarayici, headless=deger)
-                        if sonuc["anahtar"] == "headless"
-                        else replace(tarayici, profiles_enabled=deger)
-                    ),
+                    browser=replace(tarayici, **{str(sonuc["anahtar"]): deger}),
                 )
             return sonuc
         return {"ok": False, "metin": f"Bilinmeyen tarayıcı isteği: {request.name}"}
