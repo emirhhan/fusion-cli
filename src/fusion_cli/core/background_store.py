@@ -34,6 +34,7 @@ from .background_tasks import (
     ShortLease,
     TaskOptions,
     TaskStatus,
+    approval_word,
     normalize_name,
     read_json_list,
     read_json_object,
@@ -277,6 +278,12 @@ class BackgroundTaskStore:
         question = self.pending_question(task_id)
         if question is None:
             raise BackgroundTaskError("Bu görevde bekleyen bir onay ya da soru yok.")
+        if question.get("tur") == "onay" and approval_word(value) is None:
+            # Ölçüldü (31 Ekim): "tamam", "evet." gibi cevaplar sessizce "sorulamadı"
+            # sayılıyordu; kullanıcı onay verdiğini sanıyordu.
+            raise BackgroundTaskError(
+                "Onay isteğine evet, hayir ya da oturum yaz (bu görevde hep izin)."
+            )
         request_id = str(question.get("istek_id", ""))
         body = {"istek_id": request_id, "cevap": value.strip()}
         atomic_replace_text(self.task_dir(task_id) / ANSWER_FILE, json.dumps(body))

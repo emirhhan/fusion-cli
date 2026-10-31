@@ -8,7 +8,7 @@ girdi bekleyen → çalışan → biten).
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from rich.table import Table
 
@@ -98,8 +98,17 @@ def task_lines(tasks: Sequence[BackgroundTask], *, now: float | None = None) -> 
     return "\n".join(lines)
 
 
-def task_detail(task: BackgroundTask, result: str, log_tail: str) -> str:
-    """Tek görevin ayrıntısı (`/tasks show`, `fusion agents goster`)."""
+def task_detail(
+    task: BackgroundTask,
+    result: str,
+    log_tail: str,
+    *,
+    question: Mapping[str, object] | None = None,
+) -> str:
+    """Tek görevin ayrıntısı (`/tasks show`, `fusion agents goster`).
+
+    Bekleyen onayın TAM (redakte) argümanı da basılır: listede görünen özet kırpılmıştır.
+    """
     parts = [
         texts.BG_DETAIL_HEADER.format(id=task.id, name=task.name, status=status_label(task)),
         texts.BG_DETAIL_META.format(
@@ -109,6 +118,7 @@ def task_detail(task: BackgroundTask, result: str, log_tail: str) -> str:
     ]
     if task.question:
         parts.append(texts.BG_DETAIL_NEEDS_INPUT.format(question=task.question))
+    parts.extend(_question_lines(question))
     if task.note:
         parts.append(texts.BG_DETAIL_NOTE.format(note=task.note))
     if result:
@@ -116,6 +126,20 @@ def task_detail(task: BackgroundTask, result: str, log_tail: str) -> str:
     if log_tail:
         parts.append(texts.BG_DETAIL_LOG.format(log=log_tail))
     return "\n".join(parts)
+
+
+def _question_lines(question: Mapping[str, object] | None) -> list[str]:
+    if not question:
+        return []
+    lines: list[str] = []
+    if danger := str(question.get("tehlike") or ""):
+        lines.append(texts.BG_DETAIL_DANGER.format(danger=danger))
+    if args := str(question.get("arguman") or ""):
+        lines.append(texts.BG_DETAIL_ARGS.format(args=args))
+    options = question.get("secenekler")
+    if isinstance(options, list) and options:
+        lines.append(texts.BG_DETAIL_OPTIONS.format(options=", ".join(map(str, options))))
+    return lines
 
 
 def peer_lines(peers: Sequence[PeerRecord], held: Sequence[PeerMessage], self_id: str) -> str:

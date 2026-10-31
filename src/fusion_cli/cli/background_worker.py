@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import sys
@@ -30,6 +31,7 @@ from ..core.background_tasks import (
     BackgroundTaskError,
     InboxMessage,
     TaskStatus,
+    approval_word,
     summarize,
 )
 from ..core.clock import SystemClock
@@ -46,17 +48,27 @@ _LOG = logging.getLogger(__name__)
 _POLL_S = 0.5
 #: Onay isteğinde gösterilecek argüman özeti uzunluğu.
 _ARGS_CHARS = 300
-#: Onay kararları (Türkçe kısa yazımlar dahil) → `ApprovalAnswer`.
+#: `soru.json`'a konan TAM argüman metninin üst sınırı (redakte; panel/ayrıntıda gösterilir).
+_FULL_ARGS_CHARS = 8_000
 _DECISIONS: dict[str, ApprovalAnswer] = {
-    **dict.fromkeys(("evet", "e", "onayla", "once", "allow", "yes", "y"), ApprovalAnswer.ONCE),
-    **dict.fromkeys(("oturum", "session", "hep"), ApprovalAnswer.SESSION),
-    **dict.fromkeys(("hayir", "hayır", "h", "reddet", "deny", "no", "n"), ApprovalAnswer.DENY),
+    "once": ApprovalAnswer.ONCE,
+    "session": ApprovalAnswer.SESSION,
+    "deny": ApprovalAnswer.DENY,
 }
 
 
 def parse_decision(raw: str) -> ApprovalAnswer:
     """Kullanıcı cevabını karara çevir; tanınmayan cevap 'sorulamadı' sayılır."""
-    return _DECISIONS.get(raw.strip().casefold(), ApprovalAnswer.UNAVAILABLE)
+    word = approval_word(raw)
+    return _DECISIONS[word] if word is not None else ApprovalAnswer.UNAVAILABLE
+
+
+def _full_args(args: object) -> str:
+    try:
+        text = json.dumps(args, ensure_ascii=False, indent=2, default=str)
+    except (TypeError, ValueError):
+        text = str(args)
+    return redact(text)
 
 
 class FileQuestionPrompter:
@@ -69,10 +81,24 @@ class FileQuestionPrompter:
         self._counter = 0
 
     async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer:
-        args = summarize(redact(str(request.args)), _ARGS_CHARS)
-        summary = texts.BG_APPROVAL_SUMMARY.format(tool=request.tool.name, args=args)
+        full = _full_args(request.args)
+        flat = " ".join(full.split())
+        summary = texts.BG_APPROVAL_SUMMARY.format(
+            tool=request.tool.name, args=summarize(flat, _ARGS_CHARS)
+        )
+        if len(flat) > _ARGS_CHARS:
+            # Kırpılan kuyruk onaysız çalışmasın: kullanıcı tam metnin nerede olduğunu bilsin.
+            summary += texts.BG_APPROVAL_TRUNCATED.format(
+                count=len(flat) - _ARGS_CHARS, id=self._task_id
+            )
         reply = await self._ask(
-            {"tur": "onay", "arac": request.tool.name, "ozet": summary, "tehlike": request.danger},
+            {
+                "tur": "onay",
+                "arac": request.tool.name,
+                "ozet": summary,
+                "arguman": full[:_FULL_ARGS_CHARS],
+                "tehlike": request.danger or "",
+            },
             summary,
         )
         return parse_decision(reply) if reply is not None else ApprovalAnswer.UNAVAILABLE

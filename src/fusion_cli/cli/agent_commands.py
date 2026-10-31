@@ -92,7 +92,12 @@ def show(kimlik: str = typer.Argument(..., help="Görev kimliği ya da adı.")) 
     """Görevin ayrıntısı, son sonucu ve son olayları."""
     store, task = _resolve(kimlik)
     console.print(
-        task_detail(task, store.read_result(task.id), agent_tasks.log_tail(store, task.id)),
+        task_detail(
+            task,
+            store.read_result(task.id),
+            agent_tasks.log_tail(store, task.id),
+            question=store.pending_question(task.id),
+        ),
         markup=False,
         highlight=False,
     )

@@ -92,7 +92,12 @@ def _root(state: ReplState, rest: str) -> Path | None:
 def _task_action(state: ReplState, action: str, task: BackgroundTask, value: str) -> str:
     store = agent_tasks.task_store(state.config.memory_dir)
     if action in {"show", "goster", "göster", "attach"}:
-        return task_detail(task, store.read_result(task.id), agent_tasks.log_tail(store, task.id))
+        return task_detail(
+            task,
+            store.read_result(task.id),
+            agent_tasks.log_tail(store, task.id),
+            question=store.pending_question(task.id),
+        )
     if action in {"stop", "durdur"}:
         updated = agent_tasks.stop_task(store, task, force=value.casefold() in {"zorla", "force"})
         return texts.BG_STOP_REQUESTED.format(name=updated.name)

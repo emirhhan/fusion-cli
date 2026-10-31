@@ -20,6 +20,7 @@ BG_STATUS_LABELS: dict[str, str] = {
 # ------------------------------------------------------------------ işçi
 
 BG_APPROVAL_SUMMARY = "{tool} onayı: {args}"
+BG_APPROVAL_TRUNCATED = " (+{count} karakter; tamamı: /tasks show {id})"
 BG_NO_ANSWER = "(kullanıcı cevap vermedi; makul bir varsayımla sürdür ve bunu sonuçta belirt)"
 BG_STOPPED_NOTE = "Kullanıcı durdurdu."
 BG_FAILED_NOTE = "Görev beklenmeyen bir hatayla bitti ({error}); ayrıntı hata.log'da."
@@ -97,6 +98,9 @@ BG_CLEANED = "{count} bitmiş görev kaydı silindi."
 BG_DETAIL_HEADER = "{id} · {name} · {status}"
 BG_DETAIL_META = "kaynak {origin} · kip {mode} · {turns} tur · {root}"
 BG_DETAIL_NOTE = "Not: {note}"
+BG_DETAIL_DANGER = "Risk: {danger}"
+BG_DETAIL_ARGS = "Onaylanacak tam çağrı:\n{args}"
+BG_DETAIL_OPTIONS = "Seçenekler: {options}"
 BG_DETAIL_LOG = "Son olaylar:\n{log}"
 BG_TABLE_TITLE = "Arka plan ajan görevleri"
 BG_TABLE_HEADERS = ("Kimlik", "Ad", "Durum", "Güncel", "Ayrıntı")

@@ -55,6 +55,20 @@ _LEASE_WAIT_S = 0.02
 #: İşçinin konuşma kimliği öneki (`arka-<kimlik>`); bu konuşmalar arka plan görevi açamaz.
 WORKER_CONVERSATION_PREFIX = "arka-"
 
+#: Onay isteğine geçerli cevaplar (Türkçe kısa yazımlar dahil) → karar adı. İşçi bunu
+#: `ApprovalAnswer`'a çevirir; depo tanınmayan cevabı yazmadan reddeder (geri bildirim).
+APPROVAL_WORDS: dict[str, str] = {
+    **dict.fromkeys(("evet", "e", "onayla", "once", "allow", "yes", "y"), "once"),
+    **dict.fromkeys(("oturum", "session", "hep"), "session"),
+    **dict.fromkeys(("hayir", "hayır", "h", "reddet", "deny", "no", "n"), "deny"),
+}
+
+
+def approval_word(raw: str) -> str | None:
+    """Cevabı karar adına çevir (`once`/`session`/`deny`); tanınmıyorsa None."""
+    return APPROVAL_WORDS.get(raw.strip().rstrip(".!").casefold())
+
+
 TASK_FILE = "gorev.json"
 INBOX_FILE = "gelen.jsonl"
 QUESTION_FILE = "soru.json"
