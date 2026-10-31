@@ -237,6 +237,68 @@ def test_alt_ajan_izolasyon_worktree_ayri_kok_ve_degisiklik_kumesi(repo):
     assert child.write_scope is None
 
 
+def test_agac_icinden_acilan_agac_o_agacin_headinden_dallanir(repo):
+    """Ölçüldü (31 Ekim): `enter_worktree(ozellik.path, …)` origin'i ana depoya çevirip HEAD'i
+    ORADAN alıyordu; ozellik dalındaki commit yeni ağaçta görünmüyordu."""
+    ozellik = core_worktree.enter_worktree(repo, "ozellik")
+    (ozellik.path / "yeni.txt").write_text("ozellik işi\n", encoding="utf-8")
+    _git(ozellik.path, "add", "yeni.txt")
+    _git(ozellik.path, "commit", "-qm", "ozellik")
+
+    ajan = core_worktree.enter_worktree(ozellik.path, "ajan-1")
+
+    assert ajan.origin == repo
+    assert ajan.base_commit == _git(ozellik.path, "rev-parse", "HEAD")
+    assert (ajan.path / "yeni.txt").read_text(encoding="utf-8") == "ozellik işi\n"
+    assert core_worktree.enter_worktree(repo, "ana").base_commit == _git(repo, "rev-parse", "HEAD")
+
+
+async def _run_isolated_member(repo, tmp_path, run):
+    from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+    from fusion_cli.engines.agent.loop import AgentDeps
+    from fusion_cli.engines.agent.team import run_subagent
+    from fusion_cli.tools.capabilities import CapabilityRegistry
+    from tests.agent_harness import Publisher
+    from tests.fakes import AlwaysApprove, RecordingSink
+
+    deps = AgentDeps(
+        config=make_config(memory_dir=tmp_path / "bellek"),
+        publisher=Publisher(RecordingSink()),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=repo),
+        capabilities=CapabilityRegistry(tmp_path / "ev", repo),
+    )
+    return await run_subagent(deps, SubTask("iş", isolation="worktree"), depth=0, run_agent=run)
+
+
+def test_alt_ajan_degisiklik_yapmazsa_agaci_kaldirir_yaparsa_korur(repo, tmp_path):
+    """Ölçüldü (31 Ekim): her çağrıda ajan-<kimlik> ağacı+dalı kalıyor, üye dosya
+    değiştirmese de birikiyordu (Claude Code değişiklik yoksa kaldırır)."""
+    from types import SimpleNamespace
+
+    roots: list[Path] = []
+
+    async def bos(task, sub_deps, **kwargs):
+        roots.append(sub_deps.tool_context.root)
+        return SimpleNamespace(final_text="bir şey yapmadım", ok=True, tool_calls_made=0)
+
+    async def yazan(task, sub_deps, **kwargs):
+        roots.append(sub_deps.tool_context.root)
+        (sub_deps.tool_context.root / "uye.txt").write_text("iş", encoding="utf-8")
+        return SimpleNamespace(final_text="yazdım", ok=True, tool_calls_made=1)
+
+    temiz = asyncio.run(_run_isolated_member(repo, tmp_path, bos))
+    assert temiz.ok and roots[0].parent == repo / ".fusion" / "worktrees"
+    assert not roots[0].exists(), "değişiklik yok: ağaç kaldırılır"
+    assert core_worktree.list_worktrees(repo) == ()
+    assert "[Çalışma ağacı]" not in temiz.text
+
+    kirli = asyncio.run(_run_isolated_member(repo, tmp_path, yazan))
+    assert roots[1].exists() and (roots[1] / "uye.txt").exists()
+    assert "git merge worktree-ajan-" in kirli.text
+    assert not (repo / "uye.txt").exists(), "ana proje değişmez"
+
+
 def test_worktree_araclari_yalniz_ilgili_istekte_sunulur():
     """Ölçüldü (31 Ekim): iki aracın şeması emülasyon istem bütçesini (11.400) aşıyordu."""
     from fusion_cli.engines.agent.execution_policy import ExecutionPolicy

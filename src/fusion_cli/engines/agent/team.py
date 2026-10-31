@@ -20,7 +20,7 @@ from ...core.clock import SystemClock
 from ...core.errors import PathAccessError, WorktreeError
 from ...core.events import Channel, Event, EventPublisher, SubAgentFinished, SubAgentStarted
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
-from ...core.worktree import Worktree, enter_worktree
+from ...core.worktree import LeaveOutcome, Worktree, enter_worktree, leave_worktree
 from ...tools.capabilities import CapabilityRegistry, load_agent_prompt, map_tools
 from .team_policy import allowed_tools as _allowed_tools
 from .team_policy import cap_report as _cap_report
@@ -181,7 +181,7 @@ async def run_subagent(
             deps.child_runs.detach(sub_id, owned)
         text = outcome.final_text or "Alt ajan boş yanıt verdi."
         if worktree is not None:
-            text += _worktree_note(worktree)
+            text += await asyncio.to_thread(_settle_worktree, worktree)
         ok = outcome.ok and bool(outcome.final_text.strip())
         tool_calls = outcome.tool_calls_made
         status = (
@@ -326,8 +326,9 @@ async def _isolated_worktree(
 ) -> Worktree | None:
     """`izolasyon: "worktree"` ise üyeye `.fusion/worktrees/ajan-<kimlik>` ağacı aç.
 
-    Ağaç turdan sonra KALIR: değişiklikler oradadır, kullanıcı dalı birleştirir ya da
-    `/worktree liste` ile görüp kaldırır. Salt okuyan üye için ağaç açılmaz.
+    Ağaç oturumun KENDİ kökünün HEAD'inden dallanır (oturum bir ağaçtaysa o dalından).
+    Üye bitince `_settle_worktree` karar verir: iş kaldıysa ağaç kalır, kalmadıysa
+    kaldırılır. Salt okuyan üye için ağaç açılmaz.
     """
     if subtask.isolation != "worktree" or subtask.read_only:
         return None
@@ -335,7 +336,18 @@ async def _isolated_worktree(
     return await asyncio.to_thread(enter_worktree, context.root, name)
 
 
-def _worktree_note(worktree: Worktree) -> str:
+def _settle_worktree(worktree: Worktree) -> str:
+    """Üye bittikten sonra ağacın akıbeti: iş varsa korunur ve yolu söylenir, yoksa kaldırılır.
+
+    Ölçüldü (31 Ekim): her çağrıda ajan-<kimlik> ağacı ve dalı kalıyor, üye dosya
+    değiştirmese de birikiyordu. Kaldırma `leave_worktree`'nin kendi temizlik kanıtına dayanır.
+    """
+    try:
+        result = leave_worktree(worktree)
+    except WorktreeError as error:
+        return f"\n\n[Çalışma ağacı] {worktree.path} korunuyor; temizlik ölçülemedi: {error}"
+    if result.outcome is LeaveOutcome.REMOVED:
+        return ""
     return (
         f"\n\n[Çalışma ağacı] Değişiklikler ana projede DEĞİL, {worktree.path} içinde "
         f"(dal {worktree.branch}). Birleştirmek için: git merge {worktree.branch}"
@@ -358,7 +370,8 @@ _SUBTASK_PROPERTIES: dict[str, object] = {
     "izolasyon": {
         **_STRING,
         "description": "'worktree' ise üye izole bir git çalışma ağacında yazar; ana proje "
-        "değişmez, sonuç dal olarak kalır",
+        "değişmez, iş kaldıysa sonuç dal olarak kalır. Ağaç bu kökün son commit'inden "
+        "açılır: commit edilmemiş değişiklikler üyeye GÖRÜNMEZ",
     },
 }
 

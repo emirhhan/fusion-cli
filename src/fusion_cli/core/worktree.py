@@ -180,7 +180,10 @@ def list_worktrees(origin: Path) -> tuple[Worktree, ...]:
 def enter_worktree(cwd: Path, name: str, *, base_ref: str = "HEAD") -> Worktree:
     """Adı verilen çalışma ağacını aç: varsa onu, yoksa `base_ref`'ten yenisini.
 
-    `cwd` bir çalışma ağacının içindeyse ana depoya gidilir; iç içe ağaç açılmaz.
+    `cwd` bir çalışma ağacının içindeyse ana depoya gidilir; iç içe ağaç açılmaz. `base_ref`
+    `cwd`'nin KENDİ checkout'unda çözülür: bir ağaçtan açılan yeni ağaç (alt ajan izolasyonu)
+    o ağacın dalından dallanır. Ölçüldü (31 Ekim): ana depoda çözülünce üye, oturumun
+    dalındaki işi görmeyen ana HEAD'in kopyasında çalışıyordu.
     """
     name = validate_name(name)
     inside = worktree_for_path(cwd)
@@ -192,7 +195,8 @@ def enter_worktree(cwd: Path, name: str, *, base_ref: str = "HEAD") -> Worktree:
     existing = find_worktree(origin, name)
     if existing is not None:
         return existing
-    return create_worktree(origin, name, base_ref=base_ref)
+    base_commit = _git(cwd, "rev-parse", "--verify", f"{base_ref}^{{commit}}").strip()
+    return create_worktree(origin, name, base_ref=base_commit)
 
 
 def create_worktree(origin: Path, name: str, *, base_ref: str = "HEAD") -> Worktree:
