@@ -37,16 +37,30 @@ def rule_for_request(request: ApprovalRequest, root: Path | None) -> PermissionR
     return PermissionRule(tool, None, PermissionDecision.ALLOW)
 
 
+#: Verilen her şeyi çalıştıran yorumlayıcı ve başlatıcılar: `x *` kuralı sınırsız izin olur.
+_LAUNCHERS = frozenset(
+    {"python", "python3", "bash", "sh", "zsh", "node", "deno", "bun", "perl", "ruby", "php",
+     "osascript", "find", "xargs", "eval", "exec", "env", "sudo", "doas", "timeout", "nohup",
+     "npx", "uvx", "bunx", "pnpx", "ssh", "curl", "wget", "docker", "make"}
+)  # fmt: skip
+
+
 def _shell_prefix(command: str) -> str:
-    """`git status --short` → `git status *`; zincir ya da tek sözcükte birebir komut."""
+    """`git status --short` → `git status *`; zincir, yorumlayıcı ya da bayraklı komutta birebir.
+
+    Ölçüldü (31 Ekim): ilk üç sözcükte bayrak varsa `ilk_sözcük *` kuralına düşülüyordu;
+    `python -m pytest` için yazılan `Bash(python *)` her projede `python -c '…'` dahil
+    sınırsız izin demekti. Artık yorumlayıcı/başlatıcıda ve ilk iki sözcüğü düz olmayan
+    komutta kural komutun kendisidir (birebir); yalnız `a b [bayraklar]` biçimi `a b *` olur.
+    """
     words = command_words(command)
     if len(words) != 1:
         return command
     parts = words[0]
-    head = [token for token in parts[:3] if not token.startswith("-")]
-    if len(head) < 2 or head != parts[: len(head)]:
-        return " ".join(parts[:1]) + " *" if len(parts) > 1 else command
-    return " ".join(head[:2]) + " *"
+    name = parts[0].rsplit("/", 1)[-1]
+    if name in _LAUNCHERS or len(parts) < 2 or any(t.startswith("-") for t in parts[:2]):
+        return command
+    return " ".join(parts[:2]) + " *"
 
 
 def _dir_glob(raw: str, root: Path | None) -> str:
