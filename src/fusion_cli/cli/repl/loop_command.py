@@ -46,6 +46,9 @@ BLOCKED_COMMANDS = frozenset(
         "exit",
         "quit",
         "clear",
+        # Kök değişimi ve mikrofon yalnız kullanıcının elinden (P-072).
+        "cd",
+        "voice",
     }
 )
 DEFAULT_MAINTENANCE_PROMPT = (

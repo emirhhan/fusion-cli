@@ -52,6 +52,7 @@ from . import (
     workspace_commands,
     worktrees,
 )
+from .cd_command import cd_command
 from .macros import Mode
 from .preview_command import preview_command
 from .state import TASK_TYPES, Engine, Reminder, ReplState
@@ -1106,6 +1107,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         group="Agent",
         usage="[yol|kaldir <yol>]",
     ),
+    SlashCommand("cd", messages.CMD_CD, cd_command, group="Agent", usage="[yol]"),
     SlashCommand("schedule", messages.CMD_SCHEDULE, _schedule, group="Makro", usage="<saniye>"),
     SlashCommand(
         "loop",

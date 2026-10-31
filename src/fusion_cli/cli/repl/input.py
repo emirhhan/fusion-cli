@@ -64,7 +64,7 @@ class ReplInput:
         words: list[str] | Callable[[], list[str]],
         *,
         mode: ApprovalMode,
-        roots: tuple[Path, ...] = (),
+        roots: tuple[Path, ...] | Callable[[], tuple[Path, ...]] = (),
     ) -> None:
         """`words` bir çağrılabilir olabilir: tamamlama sözlüğü her istemde yeniden alınır.
 
@@ -243,7 +243,7 @@ def _build_session(
     owner: ReplInput,
     history_path: Path,
     words: list[str] | Callable[[], list[str]],
-    roots: tuple[Path, ...] = (),
+    roots: tuple[Path, ...] | Callable[[], tuple[Path, ...]] = (),
 ) -> Any:
     """prompt_toolkit oturumunu kur. Kurulamazsa None → düz girişe düşülür."""
     try:

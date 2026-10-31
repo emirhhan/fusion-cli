@@ -267,7 +267,7 @@ class _TuiSession:
             initial_transcript="",  # TUI isolation: yalnız mevcut oturum
             on_transcript_change=None,
             completer=ReplCompleter(
-                self._registry.completion_words, (state.root, *state.extra_roots)
+                self._registry.completion_words, lambda: (state.root, *state.extra_roots)
             ),
             # Boş girdide Esc Esc: Claude Code'daki gibi `/rewind` seçicisini açar.
             on_rewind=lambda: self._submit("/rewind"),

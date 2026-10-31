@@ -2266,6 +2266,10 @@ class AppSession:
         name = str(data.get("ad", ""))
         argument = str(data.get("arguman", ""))
         command = self._registry.get(name)
+        turn_running = self._turn is not None and not self._turn.done()
+        if command is not None and command.name == "cd" and turn_running:
+            # İşleyici ek klasörleri ve oturum izinlerini sıfırlar; tur sürerken kök değişmez.
+            return {"ok": False, "metin": "Tur sürerken proje kökü değiştirilemez."}
         if command is not None and command.name == "clear":
             # `/clear` masaüstünde EKRAN temizler. TUI'de karşılama afişini
             # yeniden basmak doğrudur çünkü terminal geçmişi yerinde kalır;
@@ -2333,9 +2337,9 @@ class AppSession:
                 # (31 Ekim): sinyal yokken pano tüm eski mesajları göstermeye devam ediyor,
                 # kullanıcı modelin hâlâ bildiğini sanıyordu.
                 result = {**result, "gecmis": visible_history(self._state.history)}
-        if command is not None and command.name == "worktree":
-            # `/worktree <ad>` ya da `cik` oturum kökünü değiştirdi: masaüstü köküyle aynı
-            # yoldan (`oturum.baslat{kok}`) hizala ve yeni kökü arayüze söyle.
+        if command is not None and command.name in {"worktree", "cd"}:
+            # `/worktree <ad>`, `cik` ya da `/cd <yol>` (P-072) oturum kökünü değiştirdi:
+            # masaüstü köküyle aynı yoldan (`oturum.baslat{kok}`) hizala, yeni kökü söyle.
             result = {**result, **self._adopt_state_root()}
         # Makrolar görevi yalnız HAZIRLAR (bkz. `cli/repl/commands.py::_macro`).
         # Terminal döngüsü hazırlanan görevi hemen çalıştırıyordu; masaüstünde bu

@@ -22,6 +22,7 @@ Eşleme kuralları (Claude Code belgesiyle aynı):
                         glob: `/x` proje köküne göreli, `//x` dosya sistemi kökü, `~/x` ev,
                         `*` dizin sınırını aşmaz, `**` aşar
     WebFetch(domain:x)  `url` ana makinesi x ya da alt alanı
+    Cd(glob)            `/cd` komutunun hedef dizini (P-072); `Edit` ile aynı glob kuralı
     Skill(x *), Agent(x *), mcp__sunucu__araç, <fusion_araç_adı>(x *)
                         ad ön eki (Bash ile aynı `*` kuralı)
 """
@@ -78,6 +79,8 @@ _CLAUDE_TOOLS: dict[str, frozenset[str]] = {
     "Task": frozenset({"spawn_agent", "spawn_agents", "invoke_agent"}),
 }
 _MCP_PREFIX = "mcp__"
+#: `/cd` hedefinin kural adı (Claude Code `Cd`); araç değil, REPL komutudur (P-072).
+CD_RULE_TOOL = "Cd"
 #: Belirteçsiz ad kalıbı için bakılan birincil argümanlar (sırayla).
 _PRIMARY_ARGS = ("name", "skill", "agent", "command", "path", "url", "query")
 #: Alt kabuk: içinde ne çalıştığı bilinemez; izin VERİLMEZ (yasak yine aranır).
@@ -220,6 +223,8 @@ def matches(
         )
     if tool_name in READ_TOOLS:
         return _read_matches(rule, tool_name, args, root)
+    if tool_name == CD_RULE_TOOL:
+        return _path_matches(rule.specifier, args.get("path"), root)
     if rule.specifier.startswith("domain:"):
         return _domain_matches(rule.specifier[len("domain:") :].strip(), args.get("url"))
     return _spec_prefix(rule, _primary_text(args))

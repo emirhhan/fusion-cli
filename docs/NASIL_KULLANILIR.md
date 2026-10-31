@@ -852,6 +852,7 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `fusion -c` · `/resume` | Kaldığın sohbete dön |
 | `/rename <ad>` · `/branch` | Sohbete ad ver · dallandır |
 | `fusion -w <ad>` · `/worktree <ad>` | İzole git çalışma ağacında çalış |
+| `/cd <yol>` | Oturumu başka klasöre taşı (konuşma sürer) |
 | `/verify` | Test/lint çalıştır |
 | `/review` (`/code-review`) · `/simplify` | Değişen kodu incele / sadeleştir (hata avı değil) |
 | `/security-review [yol]` | Değişiklikleri OWASP başlıklarıyla tara; kod değiştirmez |
@@ -958,3 +959,18 @@ gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden
   (en sık 15 dakikada bir; denetim ifadenin iki eşleşmesi arasındaki en kısa farka bakar,
   `* 9 * * *` kayıtta reddedilir). Oturum zamanlayıcısı (`/loop`, `cron_create`) 1 dakikaya
   kadar iner. Cron saatleri yerel duvar saatidir; yaz saati geçişinde 09:00 görevi 09:00'da kalır.
+
+## Çalışma dizini: `/cd`
+
+Claude Code / Codex `/cd` karşılığı. `/cd ../diger-proje` oturumun proje kökünü değiştirir;
+konuşma, `/rewind` noktaları ve `/loop` görevleri aynı sohbette kalır, araçlar sonraki turdan
+itibaren yeni kökte çalışır. Argümansız `/cd` mevcut dizini yazar. Masaüstünde de aynı komut
+sekmenin kökünü taşır (tur sürerken reddedilir).
+
+- Göreli yol mevcut köke göredir, `~` ev dizinidir. Disk kökü ve ev dizininin tamamı reddedilir.
+- Eski projenin `/add-dir` klasörleri ve "oturum boyunca izin ver" kararları yeni köke taşınmaz;
+  yeni kökün becerileri, düz belleği ve `.claude/settings.local.json` onaysız komutları yüklenir.
+  İzin dosyası güvenilmiyorsa uyarı çıkar (`fusion trust`).
+- İzin kuralı: `"deny": ["Cd(//etc/**)"]` o dizinlere geçişi engeller (glob kuralı `Edit` ile aynı).
+- Model sonraki turda "çalışma dizini değişti" notunu görür. Proje `config.yaml` ve `.mcp.json`
+  açılıştaki dizinden okunmuştu, `/cd` bunları yeniden yüklemez. `/loop` ile `/cd` zamanlanamaz.

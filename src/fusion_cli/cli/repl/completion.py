@@ -71,9 +71,15 @@ def path_suggestions(partial: str, roots: Iterable[Path]) -> list[str]:
 class ReplCompleter(Completer):
     """Komut adı ve `@yol` tamamlayıcısı."""
 
-    def __init__(self, words: list[str] | Callable[[], list[str]], roots: tuple[Path, ...]) -> None:
+    def __init__(
+        self,
+        words: list[str] | Callable[[], list[str]],
+        roots: tuple[Path, ...] | Callable[[], tuple[Path, ...]],
+    ) -> None:
         #: Çağrılabilirse her tamamlamada yeniden alınır (dinamik beceri komutları, P-019).
         self._words = words
+        #: Kökler de çağrılabilir olabilir: `/cd`, `/add-dir`, `/worktree` sonrası `@yol`
+        #: tamamlaması yeni köke bakar (P-072; ölçüldü 31 Ekim: açılış köküne çiviliydi).
         self._roots = roots
 
     def get_completions(
@@ -82,7 +88,8 @@ class ReplCompleter(Completer):
         word = document.get_word_before_cursor(WORD=True)
         if word.startswith("@"):
             partial = word[1:]
-            for suggestion in path_suggestions(partial, self._roots):
+            roots = self._roots() if callable(self._roots) else self._roots
+            for suggestion in path_suggestions(partial, roots):
                 yield Completion(f"@{suggestion}", start_position=-len(word), display=suggestion)
             return
         if word.startswith("/") and document.text_before_cursor.lstrip() == word:

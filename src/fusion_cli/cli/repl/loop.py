@@ -213,7 +213,7 @@ async def _run_surface(
         config.memory_dir / HISTORY_FILE,
         registry.completion_words,
         mode=state.approval,
-        roots=(state.root, *state.extra_roots),
+        roots=lambda: (state.root, *state.extra_roots),
     )
     background = BackgroundTasks()
 

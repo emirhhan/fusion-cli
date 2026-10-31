@@ -252,6 +252,15 @@ class ReplState:
         self.pending_digest = f"{digest}\n\n{current}" if current else digest
 
     def __post_init__(self) -> None:
+        self._bind_root_services()
+        # Onay kartındaki "bir daha sorma" kalıcı kurala dönüşür (P-003); kök çağrı anında
+        # okunur, böylece proje değişince yeni projeye yazılır.
+        attach_rule_writer(self.approval_memory, lambda: self.root)
+        self.config_revision = revision(self.config)
+        self.config_baseline = self.config
+
+    def _bind_root_services(self) -> None:
+        """Köke bağlı yardımcılar (beceri kataloğu, düz bellek, onaysız komutlar); eksikse kur."""
         if self.capabilities is None:
             # `capabilities.disabled` kalıcı kapatma listesi her oturumda uygulanır (P-051).
             disabled = frozenset(getattr(self.config.capabilities, "disabled", ()))
@@ -266,11 +275,20 @@ class ReplState:
             self.plain_memory = build_plain_memory(self.config, self.root)
         if not self.allowed_commands:
             self.allowed_commands = load_allowed_commands(self.root)
-        # Onay kartındaki "bir daha sorma" kalıcı kurala dönüşür (P-003); kök çağrı anında
-        # okunur, böylece proje değişince yeni projeye yazılır.
-        attach_rule_writer(self.approval_memory, lambda: self.root)
-        self.config_revision = revision(self.config)
-        self.config_baseline = self.config
+
+    def rebind_root(self, root: Path) -> None:
+        """Oturum kökünü değiştir ve köke bağlı her şeyi yeni köke kur (`/cd`, P-072).
+
+        Eski projenin ek klasörleri (`/add-dir`) ve "oturum boyunca izin ver" kararları
+        yeni köke TAŞINMAZ — masaüstü `_apply_root` ile aynı kural.
+        """
+        self.root = root
+        self.extra_roots = ()
+        self.approval_memory.revoke()
+        self.capabilities = None
+        self.plain_memory = None
+        self.allowed_commands = frozenset()
+        self._bind_root_services()
 
     def permission_rules(self) -> PermissionRuleSet:
         """İzin kuralları her turda dosyadan taze okunur (P-001).
