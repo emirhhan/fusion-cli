@@ -575,15 +575,19 @@ export function SessionUygulama({
   usePrefsMirror(activeClient);
   // Bir masaüstü aracı izin yüzünden düşünce çekirdek `MasaustuIzinGerekli` yollar; izin kartı
   // açılır ve sistem istemi (Erişilebilirlik / Ekran Kaydı) Fusion.app adına tetiklenir (P-005).
+  // Olay sidecar'ın gördüğü durumdur; Tauri önbelleği "granted" dese de kart yeniden açılır.
   const ensurePermission = permissions.ensure;
+  const invalidatePermission = permissions.invalidate;
   useEffect(() => {
     if (!activeClient) return;
     return activeClient.onEvent((event) => {
       if (event.olay !== "MasaustuIzinGerekli") return;
       const kind = desktopPermissionKind(event.tur);
-      if (kind) void ensurePermission(kind);
+      if (!kind) return;
+      invalidatePermission(kind);
+      void ensurePermission(kind);
     });
-  }, [activeClient, ensurePermission]);
+  }, [activeClient, ensurePermission, invalidatePermission]);
   const requestKitsHost = useCallback((name: string, data: Record<string, unknown>) => {
     if (!activeClient || !activeSessionId) return Promise.reject(new Error("Fusion oturumu yok."));
     return activeClient.request(name, data) as Promise<Record<string, unknown>>;

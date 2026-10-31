@@ -86,6 +86,17 @@ export function usePermissions(
     setActiveKind(null);
   }, [begin]);
 
+  /**
+   * Çekirdek (sidecar) izni eksik gördü: Tauri sürecinin daha önce "granted" dediği önbellek
+   * güvenilmez, bir sonraki `ensure` kartı yeniden açar. Ölçüldü (31 Ekim): `MasaustuIzinGerekli`
+   * gelince `ensure` önbellekten true dönüyor, kart hiç açılmıyor, araç düşmeye devam ediyordu.
+   */
+  const invalidate = useCallback((kind: PermissionKind) => {
+    if (states.current[kind] === "unknown") return;
+    states.current = { ...states.current, [kind]: "unknown" };
+    setState(states.current);
+  }, []);
+
   const ensure = useCallback((kind: PermissionKind): Promise<boolean> => {
     if (states.current[kind] === "granted") return Promise.resolve(true);
     const existing = pending.current.get(kind);
@@ -187,6 +198,7 @@ export function usePermissions(
     phase,
     error,
     ensure,
+    invalidate,
     continue: continuePermission,
     retry,
     continueToNext,

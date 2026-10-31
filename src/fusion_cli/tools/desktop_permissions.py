@@ -32,14 +32,16 @@ SETTINGS_URLS = {
 }
 TITLES = {ACCESSIBILITY: "Erişilebilirlik", SCREEN_RECORDING: "Ekran Kaydı"}
 #: Modele dönen metinler. Eski sabit (`desktop.ACCESSIBILITY_ERROR`) bunun aynısıdır.
+#: Ölçüldü (31 Ekim): Erişilebilirlik metni "yeniden aç" diyordu; bu izin yeniden açılış
+#: gerektirmez (arayüz kartı da söylemiyordu), yalnız Ekran Kaydı için gerekebilir.
 MESSAGES = {
     ACCESSIBILITY: (
         "macOS Erişilebilirlik izni yok. Sistem Ayarları > Gizlilik ve Güvenlik > "
-        "Erişilebilirlik bölümünde Fusion'a izin ver; sonra uygulamayı yeniden aç."
+        "Erişilebilirlik bölümünde Fusion'a izin ver; sonra eylemi yeniden dene."
     ),
     SCREEN_RECORDING: (
         "macOS Ekran Kaydı izni yok. Sistem Ayarları > Gizlilik ve Güvenlik > "
-        "Ekran Kaydı bölümünde Fusion'a izin ver; sonra uygulamayı yeniden aç."
+        "Ekran Kaydı bölümünde Fusion'a izin ver; gerekirse uygulamayı yeniden aç."
     ),
 }
 

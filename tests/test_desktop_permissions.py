@@ -85,3 +85,12 @@ def test_izin_eksikse_arac_yapisal_sonuc_doner(tmp_path, monkeypatch) -> None:
     }
     assert izin.missing_permission_from_output(sonuc.output) == "accessibility"
     assert izin.missing_permission_from_output("başka hata") is None
+
+
+def test_erisilebilirlik_metni_yeniden_acilis_istemez() -> None:
+    """Ölçüldü (31 Ekim): metin 'uygulamayı yeniden aç' diyordu; arayüz kartı ve macOS bunu
+    istemez, yalnız Ekran Kaydı için gerekebilir."""
+    assert "yeniden aç" not in izin.MESSAGES[izin.ACCESSIBILITY]
+    assert "yeniden dene" in izin.MESSAGES[izin.ACCESSIBILITY]
+    assert "gerekirse" in izin.MESSAGES[izin.SCREEN_RECORDING]
+    assert izin.missing_permission_from_output(izin.MESSAGES[izin.ACCESSIBILITY]) == "accessibility"
