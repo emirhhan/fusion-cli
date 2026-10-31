@@ -155,6 +155,9 @@ def izole_kullanici_yapilandirmasi(monkeypatch, tmp_path):
     # Chrome'a yerel mesajlaşma sunucusu tanıtılır; testler gerçek dizinlere dokunmaz.
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path.parent / f".{tmp_path.name}-fusion-config"))
     monkeypatch.setenv("FUSION_NO_NATIVE_HOST", "1")
+    # Geliştiricinin `~/.claude/settings.json` kancaları (P-009) test turlarında çalışmasın;
+    # kanca testleri bu değişkeni kendileri kaldırır.
+    monkeypatch.setenv("FUSION_HOOKS", "off")
 
 
 @pytest.fixture(autouse=True)

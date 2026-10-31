@@ -137,6 +137,7 @@ class FusionTui:
         completer: Completer | None = None,
         keymap: KeyMap | None = None,
         on_rewind: Callable[[], None] | None = None,
+        on_background: Callable[[], None] | None = None,
     ) -> None:
         self._on_submit = on_submit
         self._on_interrupt = on_interrupt
@@ -144,6 +145,7 @@ class FusionTui:
         self._on_cycle_mode = on_cycle_mode
         self._on_transcript_change = on_transcript_change
         self._on_rewind = on_rewind
+        self._on_background = on_background
         #: Boş girdide son Esc'in zamanı; ikincisi bu pencere içinde gelirse `/rewind` açılır.
         self._last_escape_at = 0.0
         # Metin DEĞİL, metni üreten şey tutulur: çalışma satırındaki süre her
@@ -617,6 +619,8 @@ class FusionTui:
         actions: dict[str, tuple[Callable[[], None], Filter | None]] = {
             "cik": (self._on_exit, None),
             "kes": (self._cancel_or_interrupt, None),
+            # Yalnız tur sürerken: boştayken Ctrl+B satır düzenlemesinde (geri karakter) kalır.
+            "arka_plana_al": (self._request_background, Condition(self._can_background)),
             "kip_dongusu": (self._on_cycle_mode, None),
             "sayfa_yukari": (lambda: self._scroll_by(_SCROLL_PAGE), scrollable),
             "sayfa_asagi": (lambda: self._scroll_by(-_SCROLL_PAGE), scrollable),
@@ -670,6 +674,13 @@ class FusionTui:
             kb.add(key, eager=True)(_run)
         else:
             kb.add(key, filter=condition, eager=True)(_run)
+
+    def _can_background(self) -> bool:
+        return self._on_background is not None and self._work_source is not None
+
+    def _request_background(self) -> None:
+        if self._on_background is not None:
+            self._on_background()
 
     def _cancel_or_interrupt(self) -> None:
         if self._mode == "ask":

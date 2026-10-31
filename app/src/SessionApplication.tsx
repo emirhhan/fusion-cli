@@ -3,7 +3,9 @@ import { recordScheduleRun, runNotice, runOutcome } from "./schedule/runHistory"
 import { dictationSendsOnFinal, isDictationCommand } from "./voice/dictationCommand";
 import { localVoiceReply } from "./voice/localVoice";
 import { closeUnfinishedAgents } from "./team/ekipOlaylari";
+import { BackgroundAgentsPanel } from "./team/BackgroundAgentsPanel";
 import { AgentPanel, agentCardsForMessages } from "./team/AgentPanel";
+import { OrchestrationPanel } from "./team/OrchestrationPanel";
 import type { TeamCardsProps } from "./team/TeamCards";
 import { operationResult, errorMessage, type CommandResult } from "./protocol/result";
 import { submissionAccepted, type SubmissionResult } from "./sessions/submission";
@@ -11,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
 import { DeepLinkConfirm } from "./dialogs/DeepLinkConfirm";
+import { useCommandCenter } from "./shortcuts/useCommandCenter";
 import { useKapatmaNabzi } from "./dialogs/closeHeartbeat";
 import { osBildirimiGonder } from "./notifications/osNotice";
 import { useTurnNotifications, useUnread } from "./notifications/useTurnNotifications";
@@ -36,7 +39,8 @@ import { useProjectRegistry } from "./sessions/useProjectRegistry";
 import { createAndOpenProject, openProjectChat, ProjectOpenError } from "./sessions/projectActions";
 import { useRemoteProjectSync } from "./remote/useRemoteProjectSync";
 import { useRemoteStatus } from "./remote/useRemoteStatus";
-import type { SettingsSection } from "./settings/search";
+import { isSettingsSection, type SettingsSection } from "./settings/search";
+import { ComputerUseIndicator } from "./computer/ComputerUseIndicator";
 import { useSessions, nextSessionId, saveWorkspaceMode, tauriSessionTransport } from "./sessions/useSessions";
 import { usePrefsMirror } from "./platform/usePrefsMirror";
 import { useSessionModes } from "./sessions/useSessionModes";
@@ -72,6 +76,8 @@ import { FileExplorer } from "./workspace/FileExplorer";
 import { ChangesPanel } from "./workspace/ChangesPanel";
 import { TestsPanel } from "./workspace/TestsPanel";
 import { PreviewPanel } from "./workspace/PreviewPanel";
+import { BrowserPanel, type BrowserPick } from "./browser/BrowserPanel";
+import { useBrowserInspector } from "./browser/useBrowserInspector";
 import { TerminalPanel } from "./processes/TerminalPanel";
 import { useProcesses } from "./processes/useProcesses";
 import { SkillsCatalog } from "./capabilities/SkillsCatalog";
@@ -86,6 +92,7 @@ import { useInspectorPlacement } from "./settings/useInspectorPlacement";
 import { desktopDir } from "@tauri-apps/api/path";
 import { DepoUyarisi } from "./workspace/DepoUyarisi";
 import { TrustProject } from "./dialogs/TrustProject";
+import { LinkedPullRequest } from "./sessions/LinkedPullRequest";
 import { ProjectPicker } from "./screens/ProjectPicker";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -110,6 +117,7 @@ import { ConnectedOnboarding } from "./onboarding/ConnectedOnboarding";
 import { clearProgress } from "./onboarding/persistence";
 import type { SampleProject } from "./onboarding";
 import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
+import { AutoReviewIndicator } from "./permissions/AutoReviewIndicator";
 import { PermissionPrompt } from "./permissions/PermissionPrompt";
 import { usePermissions } from "./permissions/usePermissions";
 import { useDictation } from "./voice/useDictation";
@@ -341,6 +349,7 @@ function ProjectInspector({
   requestedPreview = null,
   agents,
   onCommand,
+  onBrowserPick,
 }: {
   activeTab: InspectorTabId;
   client: ProtocolClient;
@@ -360,8 +369,12 @@ function ProjectInspector({
   width: number;
   requestedPreview?: { url: string; seq: number } | null;
   agents?: TeamCardsProps;
+  /** Tarayıcı panelinde seçilen öğe/görüntü sohbete eklenir (P-045). */
+  onBrowserPick?: (pick: BrowserPick) => void;
 }) {
   const [revision, setRevision] = useState(0);
+  const showBrowser = useCallback(() => onActiveTabChange("browser"), [onActiveTabChange]);
+  const browser = useBrowserInspector(client, showBrowser);
   const processes = useProcesses(client);
   const changed = () => setRevision((current) => current + 1);
   useEffect(() => client.onEvent((event) => {
@@ -384,7 +397,14 @@ function ProjectInspector({
       placement={placement}
       width={width}
       content={{
-        agents: <AgentPanel ajanlar={agents?.ajanlar ?? []} canli={agents?.canli ?? false} onCancel={agents?.onCancel} />,
+        agents: (
+          <>
+            <OrchestrationPanel client={client} onCommand={onCommand} />
+            <AgentPanel ajanlar={agents?.ajanlar ?? []} canli={agents?.canli ?? false} onCancel={agents?.onCancel} />
+            {/* Turdan bağımsız arka plan görevleri + açık oturumlar (P-048/P-060). */}
+            <BackgroundAgentsPanel client={client} onCommand={onCommand} />
+          </>
+        ),
         files: <FileExplorer client={client} key={root} onChanged={changed} onSelected={onSelectPath} root={root} revision={revision} />,
         // Doğrulama komutları DEĞİŞİKLİKLER sekmesinde: "ne değişti" ile
         // "hâlâ çalışıyor mu" aynı soruya bakar. Ayrı 'Testler' sekmesi git
@@ -397,8 +417,9 @@ function ProjectInspector({
         ),
         terminal: <TerminalPanel cwd={root} />,
         preview: (
-          <PreviewPanel client={client} requestedUrl={requestedPreview} selectedPath={selectedPath} revision={revision} />
+          <PreviewPanel client={client} onOpenInBrowser={browser.openInBrowser} requestedUrl={requestedPreview} selectedPath={selectedPath} revision={revision} />
         ),
+        browser: <BrowserPanel client={client} onPick={onBrowserPick} request={browser.request} />,
       }}
     />
   );
@@ -654,7 +675,7 @@ export function SessionUygulama({
     return () => { commandOwner.current = generation + 1; };
   }, [activeSessionId]);
   // İzin modu ve çalışma kipi sohbet başınadır; değişiklik çekirdek onaylayınca görünür.
-  const { approval, workspaceMode, persona, changeApproval, changeWorkspace, changePersona } = useSessionModes(
+  const { approval, workspaceMode, persona, changeApproval, adoptApproval, changeWorkspace, changePersona } = useSessionModes(
     active ? { id: active.id, client: active.client } : null,
     setCommandError,
   );
@@ -907,6 +928,61 @@ export function SessionUygulama({
       destekleniyor: true,
     })),
   ], [commands, history.sources]);
+  // Global kısayollar (⌘K/⌘N/⌘B/⌘J/⌘1-9…) ve komut paleti (P-046); gövde `shortcuts/` altında.
+  const commandRunner = useRef<(input: string) => void>(() => undefined);
+  const komutPaleti = useCommandCenter({
+    client: active?.client ?? null,
+    blocked: showOnboarding || Boolean(active && !account.yukleniyor && account.durum && (!account.durum.etkin || account.kurtarmaKodu)),
+    actions: {
+      newChat: () => { setSurfaceSection(null); void startDesktopChat(); },
+      openSettings: (section) => { setSurfaceSection(null); setSettingsSection(section ?? "genel"); setPage("settings"); },
+      toggleSidebar: layout.toggleSidebar,
+      toggleTerminal: () => {
+        const acik = page === "chat" && surfaceSection === null && layout.inspectorOpen && inspectorLayout.activeTab === "terminal";
+        if (acik) { layout.closeInspector(); return; }
+        setSurfaceSection(null); setPage("chat"); inspectorLayout.setActiveTab("terminal"); inspectorLayout.setCollapsed(false); layout.openInspector();
+      },
+      openPreview: () => { setSurfaceSection(null); setPage("chat"); inspectorLayout.setActiveTab("preview"); layout.openInspector(); },
+      toggleInspector: () => { setSurfaceSection(null); if (page !== "chat") { setPage("chat"); layout.openInspector(); } else layout.toggleInspector(); },
+      back: pageHistory.back,
+      forward: pageHistory.forward,
+      selectChat: (index) => {
+        const hedef = controller.sessions[index];
+        if (!hedef) return false;
+        setSurfaceSection(null); setPage("chat"); controller.select(hedef.id);
+        return true;
+      },
+      openHistory: () => { setSurfaceSection(null); setPage("chat"); setHistoryOpen(true); },
+      share: () => { if (active) { setSurfaceSection(null); setPage("chat"); setShareOpen(true); } },
+      help: () => void navigateSidebar("help"),
+      closeSplit: split.close,
+      runCommand: (input) => commandRunner.current(input),
+    },
+    chats: [
+      ...controller.sessions.map((session) => ({ id: session.id, title: session.title, project: projectName(session.root) })),
+      ...controller.storedConversations.filter((item) => !controller.state.sessions[item.id])
+        .map((item) => ({ id: item.id, title: item.title, project: projectName(item.root) })),
+    ],
+    commands: active ? composerCommands : [],
+    openScreen: (id) => {
+      if (id === "main:home") { setSurfaceSection(null); setPage("chat"); }
+      else if (id.startsWith("main:")) selectMainSection(id.slice("main:".length) as MainSection);
+      else void navigateSidebar(id);
+    },
+    openChat: (id) => {
+      setSurfaceSection(null); setPage("chat");
+      if (controller.state.sessions[id]) controller.select(id);
+      else void controller.openStored(id, controller.storedConversations.find((item) => item.id === id)?.root ?? active?.root)
+        .catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene."));
+    },
+    openFile: active ? (path) => { setSurfaceSection(null); setPage("chat"); setSelectedPath(path); inspectorLayout.setActiveTab("preview"); layout.openInspector(); } : null,
+    insertCommand: active ? (name) => {
+      setSurfaceSection(null); setPage("chat");
+      setDrafts((current) => ({ ...current, [active.id]: `/${name} ` }));
+      requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mesaj"]')?.focus());
+    } : null,
+    openSettings: (section) => { setSurfaceSection(null); setSettingsSection(section); setPage("settings"); },
+  });
 
   useEffect(() => {
     if (!activeSessionId) return;
@@ -1075,7 +1151,7 @@ export function SessionUygulama({
         void startDesktopChat();
       }
     } else {
-      setSettingsSection(hedef.bolum === "kisisellestirme" || hedef.bolum === "bildirimler" ? hedef.bolum : "genel");
+      setSettingsSection(isSettingsSection(hedef.bolum) ? hedef.bolum : "genel");
       setPage("settings");
     }
   };
@@ -1408,7 +1484,7 @@ export function SessionUygulama({
       sidebarCollapsed={layout.sidebarCollapsed}
       onSidebarClose={layout.toggleSidebar}
       sidebar={<Sidebar collapsed={layout.sidebarCollapsed} etkin={null} onNavigate={(destination) => void navigateSidebar(destination)} {...projectSidebarProps} onMove={(id, root) => controller.move(id, root)} onYeni={() => { setSurfaceSection(null); void startDesktopChat(); }} onSec={(id) => { setSurfaceSection(null); void controller.openStored(id).catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene.")); }} oturumlar={controller.storedConversations.map((conversation) => ({ session_id: conversation.id, source: "fusion", title: conversation.title, project: projectName(conversation.root), projectRoot: conversation.root, projectId: projects.registry.chats[conversation.id], updated_at: conversation.updatedAt * 1000 }))} />}
-    />{kapatmaOnayi}</>;
+    />{komutPaleti}{kapatmaOnayi}</>;
   }
 
   // Fusion hesapsız açılmaz. Kapı, çekirdek bağlandıktan sonra çizilir:
@@ -1504,6 +1580,7 @@ export function SessionUygulama({
     }
     return trackCommand(() => controller.runCommand(active.id, input, recordInput, recordOutput));
   };
+  commandRunner.current = (input) => { void executeCommand(input); };
   // Yapısal seçim (U1-40); kaynak/kimlik taşımayan seçenek (eski biçim) komut yoluna düşer.
   const selectModelOption = (option: ModelOption): Promise<CommandResult> => {
     const { kaynak, modelId } = option;
@@ -1529,6 +1606,10 @@ export function SessionUygulama({
     if (resumeSource && history.sources.some((source) => source.ad === resumeSource)) {
       setHistoryOpen(true);
       void history.openSource(resumeSource);
+    } else if (isFolderCommand(task, "keybindings")) {
+      // Masaüstünde tuş bağları Ayarlar › Kısayollar'da düzenlenir (P-046); dosya aynıdır.
+      setSettingsSection("kisayollar");
+      setPage("settings");
     } else if (isFolderCommand(task, FOLDER_COMMAND.ad)) {
       // Klasör değiştirme UYGULAMA tarafı iştir: çekirdeğin kökü açılışta
       // belirlenir, bu yüzden komutu çekirdeğe göndermek anlamsız olurdu.
@@ -1756,6 +1837,7 @@ export function SessionUygulama({
         <DepoUyarisi kok={active.root} projeler={active.depoProjeleri} onAc={(kok) => { void controller.create({ root: kok, mode: "kod" }).then(() => setPage("chat")); }} />
         {/* Güvenilmeyen proje kartı (P-012): proje kendi ayarını taşıyorsa ve düşürüldüyse sorulur. */}
         <TrustProject client={active.client} kok={active.root} running={Boolean(active.running)} onTrusted={() => setControlRevision((value) => value + 1)} />
+        <LinkedPullRequest client={active.client} running={Boolean(active.running)} sohbetId={active.id} />
         <Composer
           stopping={active.stopping}
           busySubmissionMode={active.stopping || active.stopError ? "queue" : busySubmissionMode}
@@ -1775,6 +1857,7 @@ export function SessionUygulama({
           onModelSelect={(option) => void selectModelOption(option)}
           approval={approval}
           onApprovalChange={(next) => void changeApproval(next)}
+          approvalExtra={<AutoReviewIndicator approval={approval} client={active.client} onResumed={() => adoptApproval("auto")} />}
           persona={persona?.ad ?? null}
           personaOptions={personaOptions}
           onPersonaChange={(next) => void changePersona(next)}
@@ -1833,6 +1916,10 @@ export function SessionUygulama({
       ) : undefined}
       notices={
         <>
+          {/* "Fusion bilgisayarı kullanıyor · Esc ile durdur" (P-033). */}
+          {active && activeClient && (
+            <ComputerUseIndicator client={activeClient} onStop={() => controller.stop(active.id)} running={active.running} />
+          )}
           {gizliDegerSayisi > 0 && (
             <Notification
               baslik="Konuşma devralındı"
@@ -2068,6 +2155,22 @@ export function SessionUygulama({
           onCollapsedChange={inspectorLayout.setCollapsed}
           onHeightChange={inspectorLayout.setHeight}
           onCommand={(line) => void executeCommand(line)}
+          onBrowserPick={(pick) => {
+            // Görüntü proje köküne göreli yazılır; ek mutlak yol ister (dosya seçiciyle aynı).
+            if (pick.yol) {
+              const image = attachmentFromPath(`${active.root.replace(/\/$/, "")}/${pick.yol}`);
+              setAttachments((current) => ({
+                ...current,
+                [active.id]: [...(current[active.id] ?? []).filter((item) => item.path !== image.path), image],
+              }));
+            }
+            if (pick.metin) {
+              setDrafts((current) => {
+                const before = current[active.id] ?? "";
+                return { ...current, [active.id]: before ? `${before}\n${pick.metin}` : pick.metin };
+              });
+            }
+          }}
           onSelectPath={setSelectedPath}
           onWidthChange={inspectorLayout.setWidth}
           placement={inspectorPlacement}
@@ -2149,6 +2252,7 @@ export function SessionUygulama({
       sidebarCollapsed={layout.sidebarCollapsed}
       onSidebarClose={layout.toggleSidebar}
     />
+    {komutPaleti}
     </>
   );
 }

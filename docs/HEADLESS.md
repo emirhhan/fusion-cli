@@ -153,3 +153,16 @@ fusion agent "testleri düzelt" --permission-channel stdin --permission-timeout 
 - `0` — tur tamamlandı, nihai metin dolu, şema (varsa) uyumlu.
 - `1` — boş cevap, hata, bütçe/tavan kesintisi ya da şemaya uymayan cevap.
 - `2` — bayrak hatası (Typer).
+
+## Arka planda koşturma — `--bg`
+
+`fusion agent --bg [--name ad] "görev"` görevi ayrı bir süreçte başlatır ve kimliği yazıp
+hemen döner; olaylar aynı JSON-Lines biçiminde `<bellek>/arka-plan/<kimlik>/olaylar.jsonl`
+dosyasına gider, onay istekleri `fusion agents cevapla` ile cevaplanır. İzleme ve yönetim:
+`fusion agents` (bkz. [ARKA_PLAN_GOREVLERI.md](ARKA_PLAN_GOREVLERI.md)).
+
+Kısıt bayrakları işçiye taşınır: `--allowed-tools`, `--disallowed-tools`, `--max-budget-usd`,
+`--max-turns`, `--add-dir`, `--append-system-prompt`, `--no-memory`, `--bare`, `--worktree`
+ve global `--set`/`--profile`. `--output-format`/`--json`, `--json-schema` ve
+`--permission-channel` `--bg` ile açık hatayla (çıkış kodu 2) reddedilir.
+

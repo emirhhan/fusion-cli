@@ -159,9 +159,49 @@ runtime:
   # Bir kök turda toplam başlatılabilecek alt ajan (tüm derinlikler). Dolunca spawn
   # "bütçe doldu" döner.
   max_subagents_per_turn: 20
+  # Arka plan ajan görevleri (P-048): /bg, Ctrl+B, fusion agent --bg, fusion agents.
+  # false = kapalı. Görevler <bellek>/arka-plan/<kimlik>/ altında ayrı süreçte koşar.
+  background_agents: true
+  # Aynı anda etkin arka plan görevi tavanı.
+  max_background_agents: 4
+  # Arka plan görevinin onay/soru cevabını bekleme süresi (saniye).
+  background_input_timeout_s: 1800.0
+  # Bitmiş görev kayıtları bu kadar gün saklanır; yeni görev başlarken eskileri silinir (0 = hiç).
+  background_retention_days: 14
+  # Oturumlar arası mesajlaşma (P-060): /list-agents, @oturum mesaj, list_agents/send_message.
+  cross_session_messaging: true
+  # Gelen mesaj: accept (boşta etiketli tur) | hold (bekletilir, /list-agents al) | refuse.
+  cross_session_inbound: hold
+  # Dinamik iş akışları (P-062): `workflow_run` aracı ve `/workflows`. false = kapalı.
+  dynamic_workflows: true
+  # Bir iş akışı koşusunun en fazla alt ajanı; tanımdaki en_fazla_ajan yalnız daraltır.
+  dynamic_workflow_max_agents: 50
+  # İş akışında aynı anda koşan ajan; 0 = max_parallel_agents.
+  dynamic_workflow_max_concurrent: 0
+  # Bu kadar ya da daha çok ajanlı koşu önce sorulur (maliyet uyarısı); 0 = sorma.
+  dynamic_workflow_confirm_agents: 10
+  # Ajan ekipleri (P-061): `team_run` aracı ve `/team`. false = kapalı.
+  agent_teams: true
+  # Ekibin en fazla üyesi.
+  agent_team_max_members: 5
+  # Boşa düşen üyenin iş/mesaj gelince yeniden uyandırılma sayısı.
+  agent_team_max_wakes: 3
+  # Tek team_run çağrısındaki toplam üye koşusu (uyanmalar dahil).
+  agent_team_max_runs: 16
+  # Yeni ekip kurulmadan önce maliyet uyarısıyla sor.
+  agent_team_confirm: true
   # Ajan bir dosyayı değiştirince çalışacak komutlar; `{path}` dosya yoluyla değişir.
   # Örnek: ["npx prettier --write {path}"]. Boş liste = kanca yok.
   post_edit_commands: []
+  # Genel kancalar (P-009): PreToolUse/PostToolUse/Stop/SessionStart… olaylarına komut bağlar.
+  # Tanımlar <yapılandırma>/hooks.json, ~/.claude/settings.json ve (güvenilen projede)
+  # .claude/settings(.local).json `hooks` bloğundan okunur. false = hiçbiri çalışmaz.
+  hooks_enabled: true
+  # ~/.claude/settings.json kancaları da çalışsın mı? Kapalıyken `fusion hooks list` onları
+  # "atlandı" diye gösterir. Proje .claude/ dosyaları bu anahtardan bağımsızdır (fusion trust).
+  claude_hooks: false
+  # Süresi yazılmamış kancanın en uzun çalışma süresi (sn); tek kanca en çok 600 sn.
+  hook_timeout_s: 60
   temperature: 0.3
   # Varsayılan reasoning yoğunluğu. Mode'dan (kademe) AYRIDIR: kademe modeli seçer,
   # bu ayar model destekliyorsa düşünme yoğunluğunu belirler. auto | low | medium |
@@ -322,6 +362,21 @@ runtime:
   # `fusion usage` ve `fusion insights` 24s/7g/30g pencerelerini buradan okur. İstem
   # metni, argüman ya da çıktı YAZILMAZ; 90 günden eski satırlar budanır. False = kapalı.
   usage_log: true
+  # Otomatik kip denetçisi (P-011; Claude Code auto mode sınıflandırıcısı). Otomatik kipte
+  # kuralların SORACAĞI çağrı (git push, proje dışına yazma, uzak sunucu…) küçük/hızlı rol
+  # modeline kullanıcının mesajlarıyla birlikte sorulur: "güvenli" derse sorulmaz, "riskli"
+  # derse sorulur. Model yok/erişilemezse kurallar geçerli (eski davranış). Yıkıcı işlem,
+  # sudo/sistem ayarı, ortam dökümü, `| sh` ve veritabanı silme HİÇBİR ZAMAN modele bırakılmaz.
+  # Üst üste 3 ya da toplam 20 "riskli" kararda oturum Manuel kipe düşer. Açıkken son 3
+  # kullanıcı mesajı ve eylem (komut/yol) denetçi modelinin sağlayıcısına gider ve onun
+  # (ücretsiz) kotasını kullanır; bu yüzden varsayılan kapalıdır: `/auto-mode ac`.
+  #   off      yalnız kurallar (varsayılan)      ask_only  sorulacakları sınıflandır
+  #   on       ek olarak salt okunur olmayan her kabuk komutunu da sınıflandır (yavaşlatır)
+  auto_classifier: "off"
+  # Boş = hakem (`judge`) modeli ve yedekleri. Dolu: <sağlayıcı>/<model>. Web oturumu olamaz.
+  auto_classifier_model: ""
+  # Tek sınıflandırma çağrısının süre sınırı (saniye); aşılırsa kurallar geçerli olur.
+  auto_classifier_timeout_s: 12.0
   # Çıktı stili (P-068): varsayilan | ozlu | aciklayici | ogretici | <özel dosya adı>.
   # Özel stiller: ~/.fusion/cikti-stilleri/<ad>.md ve .claude/output-styles/<ad>.md.
   output_style: varsayilan
@@ -424,9 +479,10 @@ runtime:
   # başarısızlıktan sonra öğretmen o tur için kapatılır.
   teacher_timeout_s: 300
   # run_shell işletim sistemi sandbox'ı. "off" = kısıt yok (varsayılan; tırnaksız off YAML'da false okunur ve kabul edilir). write_root =
-  # macOS'ta `sandbox-exec` ile yazma yalnız proje kökü (+ --add-dir) ve geçici dizinlerle
-  # sınırlı olur (`echo x > ../y` reddedilir); Linux'ta yoksa uyarıyla off. ~/.npm gibi
-  # paket önbellekleri bu kipte yazılamaz.
+  # macOS'ta `sandbox-exec`, Linux/WSL2'de bubblewrap ile yazma yalnız proje kökü (+ --add-dir,
+  # sandbox.allow_write) ve geçici dizinlerle sınırlı olur (`echo x > ../y` reddedilir);
+  # okuma engeli ve ağ allowlist'i `sandbox:` bölümünde. ~/.npm gibi paket önbellekleri bu
+  # kipte yazılamaz (gerekirse sandbox.allow_write). Aç/kapat: /sandbox on|off.
   shell_sandbox: "off"
   # edit_file/multi_edit: tam eşleşme yoksa satır sonu boşluğu/girinti/CRLF farkını tolere
   # eden yedek eşleşme (yalnız tek ve belirsiz olmayan blok; replace_all ile çalışmaz).
@@ -920,10 +976,38 @@ profile_eligibility:
 # Boş liste = MCP istemcisi hiç kurulmaz (varsayılan).
 mcp_servers: []
 
+# Bilgisayar kullanımı (computer use; Ayarlar › Bu bilgisayar, `fusion config set desktop.<alan>`).
+# Her masaüstü eylemi yine onay politikasından geçer; ayrıntı: docs/BILGISAYAR_KULLANIMI.md.
+desktop:
+  # false: desktop_* araçları modele hiç sunulmaz.
+  enabled: true
+  # Bütün uygulamalar için tavan: observe (yalnız bak) | click (tıkla) | full (tam kontrol).
+  control_level: full
+  # Kategori tablosu: tarayıcı = observe, terminal/IDE = click, yatırım/kripto/parola
+  # yöneticisi = engelli. false: her uygulama control_level alır.
+  category_defaults: true
+  # Hiç dokunulmayan uygulamalar (ad ya da paket kimliği).
+  denied_apps: []
+  # Uygulama başına kademe, kategoriyi ezer: ["Terminal=full", "com.apple.Safari=click"].
+  app_levels: []
+  # Bir uygulama oturumda ilk kez kullanılırken sor ("Bu oturum / Reddet / Her zaman reddet").
+  app_consent: true
+  # true: diğer uygulamalar gizlenmez (arka planda çalış). false: ilk ön plan eyleminde
+  # hedef uygulama ve Fusion dışındakiler gizlenir.
+  background: true
+  # Tur bitince Fusion'ın gizlediği uygulamaları yeniden göster.
+  unhide_on_finish: true
+  # Ön plan eylemi süren turda fiziksel Esc turu durdurur (tuş uygulamaya gitmez).
+  escape_stops: true
+
 # Beceri/ajan kataloğu tercihleri. `disabled`: her oturumda kapalı tutulacak beceri/ajan adları
 # (düz ad ya da `ad@kaynak:kimlik`); masaüstündeki oturumluk kapatmadan farklı, kalıcıdır.
+# `overrides`: beceri adı → görünürlük (Claude Code `skillOverrides`): on | name-only (dizinde
+# yalnız ad) | user-invocable-only (yalnız /ad ile, model kendiliğinden yüklemez) | off.
+# Türkçe: acik | yalniz-ad | yalniz-kullanici | kapali. Örnek: `overrides: {pdf: name-only}`.
 capabilities:
   disabled: []
+  overrides: {}
 
 # ---------------------------------------------------------------------------
 # Web sağlayıcıları (opsiyonel). İki transport vardır:
@@ -956,3 +1040,61 @@ browser:
   # true: tarayıcı penceresi görünmez. false: pencere görünür açılır (giriş/CAPTCHA
   # gibi insan müdahalesi gereken işler için).
   headless: true
+  # Masaüstü Tarayıcı paneli: ajanın tarayıcı eylemleri paneldeki paylaşılan tarayıcıda
+  # çalışır (canlı izlenir, "Devral" ile kullanıcıya geçer). false: tur başına ayrı tarayıcı.
+  panel_agent: true
+
+# run_shell sandbox politikası (P-010; Claude Code `sandbox.*`). YALNIZ
+# runtime.shell_sandbox=write_root iken uygulanır; durum ve değiştirme: /sandbox,
+# `fusion sandbox durum`, masaüstünde Ayarlar › İzinler › Sandbox.
+sandbox:
+  # Proje kökü, --add-dir ve geçici dizinlere EK yazılabilir dizinler (~ açılır; göreli
+  # yol proje köküne göredir). Örn: ["~/.npm", "~/.cache/pip"].
+  allow_write: []
+  # Sandbox içindeki komutun OKUYAMADIĞI yollar (dizinse altı da). Fusion'ın kendi .env'i,
+  # şifreli kasası ve tarayıcı/web oturum profilleri burada yazılmasa da her zaman engellidir.
+  # Yazdığın liste bu varsayılanın YERİNE geçer: yol eklerken aşağıdakileri de koru.
+  # ~/.npmrc bilinçli olarak yok (npm install her çağrıda okur; özel kayıt defteri bozulur).
+  deny_read:
+    - "~/.ssh"
+    - "~/.aws"
+    - "~/.gnupg"
+    - "~/.azure"
+    - "~/.kube"
+    - "~/.config/gcloud"
+    - "~/.docker/config.json"
+    - "~/.netrc"
+    - "~/.git-credentials"
+    - "~/.password-store"
+    - "~/Library/Keychains"
+    - "~/.config/gh"
+    - "~/.config/git/credentials"
+    - "~/.pypirc"
+  # open = ağ kısıtsız (eski davranış). allowlist = komut yalnız Fusion'ın yerel
+  # proxy'sine çıkabilir; proxy yalnız allowed_domains'e bağlanır (HTTP_PROXY/HTTPS_PROXY
+  # ortamı verilir; iç ağ adresine çözülen ad reddedilir).
+  network: "open"
+  # allowlist kipinde izinli alan adları: tam ad ya da "*.ornek.com" (alt alan adları).
+  # Örn: ["github.com", "*.githubusercontent.com", "pypi.org", "files.pythonhosted.org",
+  # "registry.npmjs.org"]. Boş liste = dış ağ tamamen kapalı.
+  allowed_domains: []
+  # Her zaman reddedilen alan adları; allowed_domains'ten üstündür.
+  denied_domains: []
+  # allowlist kipinde localhost (dev sunucusu, yerel veritabanı) açık mı? Linux'ta ağ ad
+  # alanı ayrı olduğundan yalnız sandbox içinde başlatılan sunuculara ulaşılır.
+  allow_localhost: true
+  # true: sandbox kurulamazsa (Windows, bwrap/sandbox-exec yok) komut ÇALIŞTIRILMAZ.
+  # false: bir kez uyarılır ve komut sandbox'sız (normal onay akışıyla) çalışır.
+  fail_if_unavailable: false
+  # true: model `run_shell(unsandboxed=true)` ile sandbox dışında çalıştırma isteyebilir;
+  # bu istek HER SEFERİNDE açık onay ister (oturum izni verilmez). false: istek reddedilir.
+  allow_unsandboxed: true
+  # Her zaman sandbox dışında (normal onayla) çalışan komut önekleri, örn. ["docker", "git push"].
+  # Yalnız tek ve sade komut eşleşir; `docker ps && curl …` sandbox içinde kalır.
+  excluded_commands: []
+  # true: sandbox içinde VE network=allowlist iken komutlar sorulmadan çalışır (Claude
+  # autoAllowBashIfSandboxed). Yıkıcı komutlar, ask/deny kuralları ve plan kipi yine geçerli.
+  auto_allow: false
+  # true: sandbox içindeki komutun ortamından sır gibi görünen değişkenler (*_API_KEY,
+  # *_TOKEN, *_SECRET, *PASSWORD*) çıkarılır.
+  hide_secret_env: true

@@ -3,7 +3,9 @@
 Claude Code `/config key=value` ve Codex `-c key=value` davranışının Fusion karşılığı.
 Yol `bölüm.alan` biçimindedir (`runtime.max_tokens`, `embedding.provider`); tip
 doğrulaması dataclass alan tiplerinden türetilir: boolean, tam sayı, ondalık, metin,
-Enum ve metin/sayı listesi (virgülle). Model rolleri (`agent`, `judge`, `candidates`)
+Enum, metin/sayı listesi (virgülle) ve sözlük (`ad=değer, ad2=değer`; tek anahtar için
+`bölüm.alan.anahtar=değer`, ör. `capabilities.overrides.deploy=user-invocable-only`).
+Model rolleri (`agent`, `judge`, `candidates`)
 buradan yazılmaz — onların kendi akışları ve yazıcıları var (`/model`, `/level`).
 
 Oturum içi uygulama (`apply_setting`) ile kalıcı yazım (`write_setting`) ayrıdır:
@@ -19,11 +21,22 @@ from pathlib import Path
 from types import UnionType
 from typing import Union, get_args, get_origin, get_type_hints
 
+from ..core.desktop_settings import DesktopSettings, parse_app_level
 from ..core.errors import ConfigError
-from .models import Config, EmbeddingConfig, RuntimeConfig
+from .models import CapabilitiesConfig, Config, EmbeddingConfig, RuntimeConfig
+from .sandbox_config import SandboxConfig, validate_sandbox
 
-#: Nokta yoluyla erişilebilen bölümler (ad → dataclass tipi).
-SETTING_SECTIONS: dict[str, type] = {"runtime": RuntimeConfig, "embedding": EmbeddingConfig}
+#: Nokta yoluyla erişilebilen bölümler (ad → dataclass tipi). `capabilities` (P-051):
+#: ölçüldü (31 Ekim) — `capabilities.disabled/overrides` yalnız YAML elle düzenlenerek
+#: ayarlanabiliyordu; `/config` ve `fusion config` bölümü tanımıyordu.
+SETTING_SECTIONS: dict[str, type] = {
+    "runtime": RuntimeConfig,
+    "embedding": EmbeddingConfig,
+    "capabilities": CapabilitiesConfig,
+    # Bilgisayar kullanımı (P-006): `fusion config set desktop.enabled false`.
+    "desktop": DesktopSettings,
+    "sandbox": SandboxConfig,
+}
 
 #: Serbest metin görünen ama yalnız belirli değerleri anlamlı olan alanlar (31 Ekim: `mavi`
 #: 'tamam' deyip çalışma anında sessizce varsayılana düşüyordu). `ui.theme.PALETTES` ve
@@ -32,7 +45,13 @@ SETTING_SECTIONS: dict[str, type] = {"runtime": RuntimeConfig, "embedding": Embe
 SETTING_CHOICES: dict[str, tuple[str, ...]] = {
     "runtime.terminal_theme": ("koyu", "acik", "ansi", "daltonizm"),
     "runtime.tui": ("fullscreen", "inline"),
+    "runtime.cross_session_inbound": ("accept", "hold", "refuse"),
+    "runtime.shell_sandbox": ("off", "write_root"),
+    "sandbox.network": ("open", "allowlist"),
 }
+
+#: Girdileri `uygulama=kademe` biçiminde doğrulanan liste ayarı (P-007).
+_APP_LEVELS_PATH = "desktop.app_levels"
 
 _TRUE = frozenset({"true", "1", "yes", "on", "evet", "açık", "acik", "aç", "ac"})
 _FALSE = frozenset({"false", "0", "no", "off", "hayır", "hayir", "kapalı", "kapali", "kapat"})
@@ -59,6 +78,29 @@ def _field_type(section: str, name: str) -> object:
             f"Bilinmeyen ayar: '{section}.{name}'. Liste için: fusion config list {section}"
         )
     return hints[name]
+
+
+def _resolve(path: str) -> tuple[str, str, str | None, object]:
+    """Yol → (bölüm, alan, sözlük anahtarı|None, değerin tipi)."""
+    section, name = split_path(path)
+    field_name, dot, key = name.partition(".")
+    target = _field_type(section, field_name)
+    if not dot:
+        return section, field_name, None, target
+    inner, _optional = _inner(target)
+    if get_origin(inner) is not dict or not key.strip():
+        raise ConfigError(f"Bilinmeyen ayar: '{path}'. Liste için: fusion config list {section}")
+    return section, field_name, key.strip(), get_args(inner)[1]
+
+
+def _updated_value(config: Config, path: str, raw: str) -> tuple[str, str, object]:
+    """Doğrulanmış yeni alan değeri; sözlük anahtarı verildiyse mevcut sözlükle birleşik."""
+    section, name, key, target = _resolve(path)
+    value = parse_value(raw, target, path)
+    if key is not None:
+        current = dict(getattr(getattr(config, section), name) or {})
+        value = {**current, key: value}
+    return section, name, value
 
 
 def split_path(path: str) -> tuple[str, str]:
@@ -141,7 +183,27 @@ def parse_value(raw: str, target: object, where: str) -> object:
     if get_origin(inner) is tuple:
         (item, *_) = get_args(inner)
         parts = [part.strip() for part in text.split(",") if part.strip()]
-        return tuple(parse_value(part, item, where) for part in parts)
+        values = tuple(parse_value(part, item, where) for part in parts)
+        if where == _APP_LEVELS_PATH:
+            # Yüklemedeki doğrulamanın aynısı: bozuk girdi dosyaya yazılıp sonra
+            # bütün yapılandırmayı düşürmesin (`loader._build_desktop`).
+            for entry in values:
+                try:
+                    parse_app_level(str(entry))
+                except ValueError as error:
+                    raise ConfigError(f"{where}: {error}") from None
+        return values
+    if get_origin(inner) is dict:
+        _key_type, value_type = get_args(inner)
+        mapping: dict[str, object] = {}
+        for part in (item.strip() for item in text.split(",")):
+            if not part:
+                continue
+            key, equals, value = part.partition("=")
+            if not equals or not key.strip():
+                raise ConfigError(f"{where}: 'ad=değer' bekleniyordu, gelen: {part!r}")
+            mapping[key.strip()] = parse_value(value, value_type, where)
+        return mapping
     raise ConfigError(f"{where}: bu ayar komut satırından değiştirilemez (tip: {kind_name(inner)})")
 
 
@@ -165,13 +227,17 @@ def yaml_value(value: object) -> object:
         return value.value
     if isinstance(value, tuple):
         return [yaml_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: yaml_value(item) for key, item in value.items()}
     return value
 
 
 def read_setting(config: Config, path: str) -> str:
-    section, name = split_path(path)
-    _field_type(section, name)
-    return format_value(getattr(getattr(config, section), name))
+    section, name, key, _target = _resolve(path)
+    value = getattr(getattr(config, section), name)
+    if key is not None:
+        return format_value(dict(value or {}).get(key))
+    return format_value(value)
 
 
 def list_settings(config: Config, filter_text: str = "") -> list[Setting]:
@@ -191,12 +257,18 @@ def list_settings(config: Config, filter_text: str = "") -> list[Setting]:
     return rows
 
 
+def _with_value(config: Config, section: str, name: str, value: object) -> Config:
+    """Tek alanı değişmiş yapılandırma; `sandbox` bütün olarak doğrulanır (alan adları kanonik)."""
+    holder = replace(getattr(config, section), **{name: value})
+    if isinstance(holder, SandboxConfig):
+        return replace(config, sandbox=validate_sandbox(holder))
+    return replace(config, **{section: holder})
+
+
 def apply_setting(config: Config, path: str, raw: str) -> Config:
     """Ayarı yalnız bu `Config` nesnesine uygula (oturumluk); doğrulanmış kopya döner."""
-    section, name = split_path(path)
-    value = parse_value(raw, _field_type(section, name), path)
-    holder = getattr(config, section)
-    return replace(config, **{section: replace(holder, **{name: value})})
+    section, name, value = _updated_value(config, path, raw)
+    return _with_value(config, section, name, value)
 
 
 def parse_override(pair: str) -> tuple[str, str]:
@@ -220,8 +292,8 @@ def write_setting(
     """Ayarı doğrula, kullanıcı dosyasına yaz ve güncellenmiş `Config` ile yolu döndür."""
     from . import writer
 
-    section, name = split_path(path)
-    value = parse_value(raw, _field_type(section, name), path)
-    updated = replace(config, **{section: replace(getattr(config, section), **{name: value})})
-    target = writer.write_section_value(config, section, name, yaml_value(value), file)
+    section, name, value = _updated_value(config, path, raw)
+    updated = _with_value(config, section, name, value)
+    canonical = getattr(getattr(updated, section), name)
+    target = writer.write_section_value(config, section, name, yaml_value(canonical), file)
     return updated, target

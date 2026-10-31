@@ -4,6 +4,13 @@
   "version": "0.7.18",
   "identifier": "com.fusion.desktop",
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "fusion"
+        ]
+      }
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQwQjJCREE2Q0IyODQ3NTEKUldSUlJ5akxwcjJ5ME1sL2xSNEtQdnJITWFxOCs3a0R3NlUxclF5OWlFczU4c3BpdWwvNmR5VmMK",
       "endpoints": [
@@ -41,7 +48,7 @@
         "media-src": "'self' asset: http://asset.localhost data: blob:",
         "font-src": "'self' data:",
         "connect-src": "ipc: http://ipc.localhost",
-        "frame-src": "'self' blob: data: fusion-preview: http://fusion-preview.localhost http://localhost:* http://127.0.0.1:* http://[::1]:*",
+        "frame-src": "'self' blob: data: fusion-preview: http://fusion-preview.localhost http://localhost:* http://127.0.0.1:* http://[::1]:* https://localhost:* https://127.0.0.1:* https://[::1]:*",
         "worker-src": "'self' blob:",
         "object-src": "'none'",
         "base-uri": "'self'",
@@ -96,7 +103,7 @@
         "media-src": "'self' asset: http://asset.localhost data: blob:",
         "font-src": "'self' data:",
         "connect-src": "ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420",
-        "frame-src": "'self' blob: data: fusion-preview: http://fusion-preview.localhost http://localhost:* http://127.0.0.1:* http://[::1]:*",
+        "frame-src": "'self' blob: data: fusion-preview: http://fusion-preview.localhost http://localhost:* http://127.0.0.1:* http://[::1]:* https://localhost:* https://127.0.0.1:* https://[::1]:*",
         "worker-src": "'self' blob:",
         "object-src": "'none'",
         "base-uri": "'self'",

@@ -28,7 +28,7 @@ def schedule_waves(subtasks: Sequence[SubTask]) -> list[list[int]]:
             current.append(index)
             continue
         scope = [Path(raw).expanduser().resolve() for raw in subtask.write_scope]
-        if scope and not any(_overlaps(path, taken) for path in scope for taken in claimed):
+        if scope and not any(paths_overlap(path, taken) for path in scope for taken in claimed):
             current.append(index)
             claimed.extend(scope)
             continue
@@ -44,7 +44,8 @@ def schedule_waves(subtasks: Sequence[SubTask]) -> list[list[int]]:
     return waves
 
 
-def _overlaps(first: Path, second: Path) -> bool:
+def paths_overlap(first: Path, second: Path) -> bool:
+    """İki yol aynı mı ya da biri ötekinin içinde mi (yazma alanı çakışması)?"""
     return first == second or first in second.parents or second in first.parents
 
 
@@ -72,9 +73,11 @@ def derive_sub_context(
             chrome=context.chrome,
             hidden_env=context.hidden_env,
             shell_sandbox=context.shell_sandbox,
+            sandbox_policy=context.sandbox_policy,
             edit_fuzzy_match=context.edit_fuzzy_match,
             post_edit_syntax_check=context.post_edit_syntax_check,
             shell_fingerprint=context.shell_fingerprint,
+            desktop_settings=context.desktop_settings,
         )
     scope: tuple[Path, ...] | None = context.write_scope
     if subtask is not None and subtask.write_scope:
@@ -94,12 +97,14 @@ def derive_sub_context(
         chrome=context.chrome,
         hidden_env=context.hidden_env,
         shell_sandbox=context.shell_sandbox,
+        sandbox_policy=context.sandbox_policy,
         edit_fuzzy_match=context.edit_fuzzy_match,
         post_edit_syntax_check=context.post_edit_syntax_check,
         shell_fingerprint=context.shell_fingerprint,
         desktop=context.desktop,
         desktop_screenshot_max_width=context.desktop_screenshot_max_width,
         desktop_exclude_fusion_window=context.desktop_exclude_fusion_window,
+        desktop_settings=context.desktop_settings,
         write_scope=scope,
         # Tarayıcı ayarları (profil kapısı, varsayılan profil, pencere kipi) devralınır;
         # açık oturum devralınmaz (P-023).

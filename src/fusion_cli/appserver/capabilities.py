@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..config.models import Config
+from ..config.models import Config, SkillVisibility
 from ..core.redaction import redact
 from ..engines.agent.instruction_layers import load_instruction_layers
 from ..engines.agent.instruction_rules import discover_rules
@@ -17,6 +17,7 @@ from ..tools.capabilities import (
     load_skill_text,
     map_tools,
 )
+from ..tools.capability_overrides import overrides_from, visibility_of
 
 _DETAIL_BUDGET = 12_000
 _PERMISSION_LABELS = {
@@ -74,7 +75,20 @@ def _settings(item: Capability) -> dict[str, Any]:
     return {key: value for key, value in raw.items() if value}
 
 
-def _item(item: Capability, *, enabled: bool, kind: str) -> dict[str, Any]:
+#: `capabilities.overrides` görünürlüğünün arayüz metni (P-051); `on` gösterilmez.
+_VISIBILITY_LABELS = {
+    SkillVisibility.NAME_ONLY: "dizinde yalnız ad",
+    SkillVisibility.USER_INVOCABLE_ONLY: "yalnız /ad ile (model yüklemez)",
+    SkillVisibility.OFF: "kapalı (capabilities.overrides)",
+}
+
+
+def _item(
+    item: Capability, *, enabled: bool, kind: str, visibility: SkillVisibility = SkillVisibility.ON
+) -> dict[str, Any]:
+    settings = _settings(item)
+    if visibility in _VISIBILITY_LABELS:
+        settings["gorunurluk"] = _VISIBILITY_LABELS[visibility]
     return {
         "ad": item.name,
         "kimlik": item.qualified_name,
@@ -82,9 +96,9 @@ def _item(item: Capability, *, enabled: bool, kind: str) -> dict[str, Any]:
         "aciklama": item.description,
         "kaynak": item.source,
         "tur": kind,
-        "etkin": enabled,
+        "etkin": enabled and visibility is not SkillVisibility.OFF,
         "izinler": _permissions(item),
-        "ayarlar": _settings(item),
+        "ayarlar": settings,
     }
 
 
@@ -125,6 +139,7 @@ def catalog(
     disabled_mcp: set[str],
     home: Path | None = None,
 ) -> dict[str, Any]:
+    overrides = overrides_from(config)
     instructions = [
         {"ad": name, "kaynak": kaynak, "etkin": True, "aciklama": aciklama}
         for name, (_path, kaynak, aciklama) in instruction_entries(root, home).items()
@@ -137,6 +152,7 @@ def catalog(
                 enabled=item.name not in disabled_skills
                 and item.qualified_name not in disabled_skills,
                 kind="beceri",
+                visibility=visibility_of(item, overrides),
             )
             for item in registry.skills()
         ],

@@ -84,6 +84,8 @@ async def run_launch_preview(deps: AgentDeps, root: Path, name: str, page: objec
         ),
         f"Ölçüm: {sonuc.summary()}.",
     ]
+    if note := preview_launch.port_note(config, preview):
+        lines.insert(1, note)
     problems = [*sonuc.problems, *(f"konsol hatası: {error}" for error in sonuc.console_errors[:5])]
     if problems:
         lines.append("SORUNLAR (düzelt ve start_preview'ı tekrar çağır):")

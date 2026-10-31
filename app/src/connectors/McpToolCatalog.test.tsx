@@ -28,3 +28,21 @@ it('eski istemcinin geç yanıtı güncel kataloğu değiştiremez', async () =>
   await act(async () => { finish(payload('old__lookup')); });
   expect(screen.queryByText('old__lookup')).toBeNull();
 });
+it('istemleri ve kaynakları sohbet yazımıyla listeler, kopyalar; eski çekirdekte boş kalır', async () => {
+  const request = vi.fn(async () => ({
+    ...payload('server__lookup'),
+    prompts: [{ command: '/mcp__server__review', usage: '<n>', description: 'PR incele' }],
+    resources: [{ mention: '@server:repo://a', name: 'A deposu', mimeType: 'text/plain' }],
+  }));
+  render(<McpToolCatalog client={{ request } as unknown as ProtocolClient} server='server' onClose={vi.fn()} />);
+  expect(await screen.findByText('/mcp__server__review <n>')).toBeTruthy();
+  expect(screen.getByText('@server:repo://a')).toBeTruthy();
+  const writeText = vi.fn(async () => undefined);
+  Object.assign(navigator, { clipboard: { writeText } });
+  fireEvent.click(screen.getByRole('button', { name: '@server:repo://a kopyala' }));
+  expect(await screen.findByText('Kopyalandı')).toBeTruthy();
+  expect(writeText).toHaveBeenCalledWith('@server:repo://a');
+  cleanup();
+  render(<McpToolCatalog client={{ request: async () => payload('x') } as unknown as ProtocolClient} server='server' onClose={vi.fn()} />);
+  expect(await screen.findByText('Bu sunucu istem bildirmedi.')).toBeTruthy();
+});

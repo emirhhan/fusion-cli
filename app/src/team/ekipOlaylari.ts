@@ -1,6 +1,7 @@
 import type { Mesaj } from "../screens/Conversation";
 import { adimiEkle } from "../protocol/adimBirlestir";
 import { olayAdimi, type OlayAdimi } from "../protocol/olayMetni";
+import { orkestrasyonOlayi } from "./orkestrasyon";
 
 /**
  * Alt ajan ekibinin olaylarını sohbet akışına kart olarak işle.
@@ -51,6 +52,8 @@ function metin(deger: unknown): string {
 
 /** Olay bir ekip olayıysa güncel akışı, değilse `null` döndür. */
 export function ekipOlayi(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
+  const pano = orkestrasyonOlayi(messages, event);
+  if (pano) return pano;
   if (event.olay === "SubAgentStarted") return ajanBasladi(messages, event);
   if (event.olay === "SubAgentFinished") return ajanBitti(messages, event);
   const kimlik = metin(event.agent_id);
@@ -97,13 +100,18 @@ function ajanBasladi(messages: Mesaj[], event: Record<string, unknown>, placehol
   return guncel;
 }
 
-/** Aynı paralel gruptan henüz dolmamış son ekip mesajı (yoksa -1). */
+/**
+ * Aynı paralel gruptan henüz dolmamış son ekip mesajı (yoksa -1).
+ *
+ * Tek kişilik grup (`grup` 1) yalnız bir pano mesajına (tek düğümlü iş akışı) girer;
+ * sıradan tek alt ajan her zaman kendi mesajını açar.
+ */
 function acikGrup(messages: Mesaj[], grup: number): number {
-  if (grup <= 1) return -1;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const mesaj = messages[index];
     if (mesaj.rol === "kullanici") return -1;
     if (mesaj.rol !== "ekip") continue;
+    if (grup <= 1 && !mesaj.akis && !mesaj.pano) return -1;
     const dolu = (mesaj.ajanlar ?? []).length;
     return mesaj.grupBoyutu === grup && dolu < grup ? index : -1;
   }

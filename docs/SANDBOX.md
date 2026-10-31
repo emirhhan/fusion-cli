@@ -1,0 +1,132 @@
+# Kabuk sandbox'ı (`run_shell`)
+
+Fusion'ın `run_shell` aracıyla çalıştırdığı komutlar isteğe bağlı olarak işletim sisteminin
+sandbox'ında koşar (Claude Code `sandbox.*`, Codex `workspace-write` karşılığı). Sandbox
+onay akışının yerine geçmez; ikisi birlikte çalışır: sandbox teknik sınırı çizer, onay ve
+izin kuralları neyin sorulacağına karar verir.
+
+| Platform | Mekanizma | Not |
+|----------|-----------|-----|
+| macOS | `/usr/bin/sandbox-exec` (Seatbelt) | Ek kurulum gerekmez |
+| Linux / WSL2 | bubblewrap (`bwrap`) | `apt install bubblewrap`; ağ allowlist'i için `socat` |
+| Windows | yok | Kip açıksa uyarılır (ya da `fail_if_unavailable` ile çalıştırılmaz) |
+
+## Açma ve durum
+
+```text
+/sandbox                  # durum: platform, kurulabilirlik, yazma/okuma/ağ kuralları
+/sandbox on | off         # runtime.shell_sandbox = write_root | off
+fusion sandbox durum      # aynı durum, terminalden
+fusion doctor             # "Kabuk sandbox'ı" satırı
+```
+
+Masaüstünde: **Ayarlar › İzinler › Kabuk sandbox'ı**. Değişiklik bir sonraki görevde geçerli olur.
+
+Varsayılan `runtime.shell_sandbox: off`: davranış değişmez. Eski `write_root` yapılandırması
+olduğu gibi çalışır; `sandbox:` bölümü yoksa aşağıdaki varsayılanlar uygulanır.
+
+## Ne sınırlanır?
+
+- **Yazma:** proje kökü, `--add-dir` dizinleri, geçici dizinler ve `sandbox.allow_write`.
+  `echo x > ../y` reddedilir. Sade `rm` (Fusion çöpüne taşınan) da köklerin dışını silmez.
+- **Zorunlu yazma engeli (kök altında da):** `.git/config`, `.git/config.worktree`,
+  `.git/hooks`, `.claude/settings.json`, `.claude/settings.local.json`, `.claude/launch.json`,
+  `.fusion/launch.json`, `.fusion/tools` ve `.mcp.json` sandbox içinden yazılamaz; `.git`,
+  `.claude`, `.fusion` taşınamaz/silinemez (Claude Code'un zorunlu deny-write listesi gibi).
+  Neden: Fusion'ın `git` aracı sandbox dışında çalışır ve `core.fsmonitor`'u ya da hook'ları
+  yürütür. `git add/commit/checkout/fetch` çalışır; `git init`, `git remote add`,
+  `git push -u`, `git config` bu dosyalara yazdığı için sandbox içinde düşer — gerekirse
+  `unsandboxed=true` (onaylı) ya da kullanıcı kendisi çalıştırır.
+- **Okuma:** `sandbox.deny_read` yolları okunamaz. Varsayılan liste: `~/.ssh`, `~/.aws`,
+  `~/.gnupg`, `~/.azure`, `~/.kube`, `~/.config/gcloud`, `~/.docker/config.json`, `~/.netrc`,
+  `~/.git-credentials`, `~/.password-store`, `~/Library/Keychains`, `~/.config/gh`,
+  `~/.config/git/credentials`, `~/.pypirc`. Fusion'ın yüklediği her `.env` (`FUSION_HOME/.env`,
+  hesap ve temel yapılandırma dizini), şifreli kasası ve tarayıcı/web oturum profilleri listede
+  yazılmasa da her zaman engellidir. **Dikkat:** `sandbox.deny_read` yazarsan liste varsayılanın
+  YERİNE geçer; yol eklerken varsayılanları da yaz. `~/.npmrc` bilinçli olarak listede yok
+  (npm her kurulumda okur).
+- **Ağ:** `sandbox.network: open` (varsayılan, kısıtsız) ya da `allowlist`. Allowlist'te komut
+  yalnız Fusion'ın yerel proxy'sine bağlanabilir (`HTTP_PROXY`/`HTTPS_PROXY` ortamı verilir);
+  proxy yalnız `allowed_domains`'e bağlanır, `denied_domains` her zaman önce gelir. İzinli bir
+  ad iç ağ adresine (127.0.0.1, 10.x, 169.254.x…) çözülürse bağlanılmaz; iç adrese gitmek için
+  IP'yi ya da `localhost`'u listeye açıkça yazın. `allow_localhost: true` dev sunucularına ve yerel
+  veritabanına doğrudan erişimi açık tutar (Linux'ta yalnız sandbox içinde başlatılanlara).
+- **Sır ortamı:** `hide_secret_env: true` iken sandbox içindeki komutun ortamından adı sır gibi
+  görünen değişkenler (`*_API_KEY`, `*_KEY`, `*_TOKEN`, `*_SECRET`, `*PASSWORD*`, `*ACCESS_KEY*`,
+  `*CREDENTIAL*`, `API_KEY`, `TOKEN`, `DATABASE_URL`) çıkarılır. Komut başarısız olursa gizlenen
+  ADLAR nota yazılır (`/sandbox sir off` ile kapatılır). Bu **kaza önleyicidir, güvenlik
+  sınırı değildir**: aynı kullanıcının başka süreçlerinin ortamı (kabuk, üst süreçler)
+  macOS'ta `sysctl(KERN_PROCARGS2)` ile okunabilir; sırrı kabukta `export` etmek yerine
+  Fusion kasasında tutun.
+
+```text
+/sandbox ag allowlist
+/sandbox izin github.com          # alan adı ekler (ağı allowlist'e alır)
+/sandbox izin *.npmjs.org         # alt alan adları
+/sandbox engelle gist.github.com
+/sandbox kaldir github.com
+fusion sandbox izin pypi.org
+/sandbox oto on | zorunlu on | disari off | sir off | localhost off
+fusion sandbox oto on             # aynı bayraklar terminalden
+```
+
+`/sandbox izin` ağ açıkken kipi allowlist'e geçirir ve bunu sonuç metninde söyler: o andan
+sonra yalnız listedeki adlar erişilebilir (npm, pip dahil diğer trafik kapanır).
+
+Engellenen bağlantıdan sonra modele `Sandbox ağı engelledi: <alan>` notu gider; izin vermek
+kullanıcının kararıdır.
+
+## Sandbox dışında çalıştırma
+
+- Model gerektiğinde `run_shell(command=…, unsandboxed=true)` ister. Bu istek **her seferinde**
+  ayrıca sorulur (Otomatik kipte de; "bu oturumda sorma" sunulmaz). Yalnız "İzinleri atla"
+  kipi sormaz; plan kipi soru soramadığı için isteği **engeller** (salt okunur komutta da).
+  `sandbox.allow_unsandboxed: false` ise istek yok sayılır, komut sandbox içinde kalır.
+- `sandbox.excluded_commands: ["docker", "git push"]` önekleri her zaman sandbox dışında, normal
+  onayla çalışır. Yalnız tek ve sade komut eşleşir: `docker ps && curl …` sandbox içinde kalır.
+
+## Diğer ayarlar
+
+| Ayar | Varsayılan | Anlamı |
+|------|-----------|--------|
+| `sandbox.fail_if_unavailable` | `false` | `true`: sandbox kurulamazsa komut çalıştırılmaz (sorulmadan engellenir) |
+| `sandbox.auto_allow` | `false` | `true`: sandbox içinde VE `network: allowlist` iken komut sorulmaz. Sandbox gerçekten kurulamıyorsa (ör. Linux'ta socat yok) sorulur. Yıkıcı komutlar, `ask`/`deny` kuralları ve plan kipi yine geçerli |
+| `sandbox.allow_localhost` | `true` | Allowlist kipinde `localhost`'a doğrudan erişim |
+| `sandbox.hide_secret_env` | `true` | Sır görünümlü ortam değişkenlerini gizle (yukarıya bakın) |
+| `sandbox.allow_write` | `[]` | Ek yazılabilir dizinler, ör. `["~/.npm", "~/.cache/pip"]` |
+
+Hepsi `/config sandbox.<alan>=<değer>` ile de değişir, ör. `/config sandbox.allow_write=~/.npm`.
+Güvenilmeyen bir projenin `config.yaml`'ındaki `sandbox:` bölümü uygulanmaz (`fusion trust`).
+
+## Deneme
+
+```bash
+fusion sandbox calistir -- "cat ~/.ssh/id_ed25519"      # okuma engeli
+fusion sandbox calistir -- "echo x > ../disari.txt"     # yazma sınırı
+fusion sandbox calistir -- curl -sS https://example.com  # ağ kuralı
+```
+
+`calistir`, kip kapalı olsa da komutu geçerli politikayla sandbox içinde çalıştırır
+(Codex `codex sandbox` gibi) ve engellenen yazma/okuma/alan adı notlarını basar.
+
+## Bilinen sınırlar
+
+- macOS profili Seatbelt'in desteklenmeyen (ama sistemde hâlâ çalışan) arayüzüdür.
+- Allowlist kipinde Unix soketleri (Docker soketi, `ssh-agent`) ve DNS (mDNSResponder) kapalıdır;
+  proxy kullanmayan araçlar ağa çıkamaz. Böyle komutlar için `excluded_commands` ya da
+  `unsandboxed=true` (onaylı) kullanın.
+- Paket önbellekleri (`~/.npm`, `~/.cache`) `allow_write`'a eklenmedikçe yazılamaz.
+- **localhost ve yerel dinleyiciler:** ağ `open` iken ya da `allow_localhost: true` ile sandbox
+  içindeki komut 127.0.0.1 portlarına bağlanabilir. Fusion'ın açtığı Chrome hata ayıklama portu
+  (CDP, kimlik doğrulamasız) da buna dahildir; port dosyası (`DevToolsActivePort`) okuma
+  engelinde olsa da port taranarak bulunabilir ve oturumlu tarayıcı sürülebilir. Oturumlu web
+  profilleriyle çalışırken `network: allowlist` + `allow_localhost: false` kullanın.
+- Ağ ret notu proxy başınadır: aynı politikada eşzamanlı çalışan komutların (arka plan işi,
+  alt ajanlar) engellenen adları birbirinin notuna düşebilir. `/sandbox izin` ile politika
+  değiştikçe eski proxy süreç kapanana kadar açık kalır (eski arka plan işleri onu kullanır).
+- Linux (bubblewrap): komut kendi PID/IPC ad alanında ve yeni oturumda çalışır (host `/proc`
+  görünmez, socat köprüsü komutla ölür). bwrap var olmayan dosyayı koruyamaz: proje henüz git
+  deposu değilse `.git` ya da yoksa `.mcp.json` sandbox içinden oluşturulabilir (Fusion'ın güven
+  karması ayar dosyası değişince projeyi güvenilmez sayar). macOS'ta yol yoksa da korunur.
+- Yalnız kökteki `.git` korunur; iç içe depoların (alt dizindeki `.git`) yapılandırması korunmaz.
+- Linux yolu birim testlerle doğrulandı; gerçek bubblewrap davranışı Linux makinede elle denenmelidir.

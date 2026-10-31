@@ -9,8 +9,9 @@ import "./TrustProject.css";
  * folder?" kartının Fusion karşılığı. Composer'ın üstünde, proje seçicinin kolonunda durur.
  *
  * Yalnız projenin GERÇEKTEN düşürülen bir ayarı varsa görünür: config.yaml'daki MCP
- * sunucuları / doğrulama komutları, `.claude/settings*.json` izin listeleri ya da
- * `.fusion/tools` araçları. Hiçbir şey düşürülmemişse soru anlamsızdır ve şerit çizilmez.
+ * sunucuları / doğrulama komutları, `.claude/settings*.json` izin listeleri ve kanca (hook)
+ * komutları ya da `.fusion/tools` araçları. Kanca varsa güvenin kabuk komutu çalıştıracağı
+ * ayrıca söylenir (P-009): kullanıcı neye onay verdiğini bilmeli. Hiçbir şey düşürülmemişse soru anlamsızdır ve şerit çizilmez.
  * Kullanıcı "Şimdilik kapat" dediğinde aynı kök için bu pencere ömrünce bir daha çıkmaz.
  */
 
@@ -20,6 +21,8 @@ export interface TrustState {
   dusurulen_bolumler: string[];
   yok_sayilan_dosyalar: string[];
   yuklenmeyen_araclar: number;
+  /** Güvenilince kanca komutları çalışacak proje dosyaları. */
+  kanca_dosyalari?: string[];
 }
 
 export function trustMatters(state: TrustState | null): boolean {
@@ -66,6 +69,7 @@ export function TrustProject({ client, kok, running = false, onTrusted }: TrustP
         dusurulen_bolumler: Array.isArray(data.dusurulen_bolumler) ? data.dusurulen_bolumler : [],
         yok_sayilan_dosyalar: Array.isArray(data.yok_sayilan_dosyalar) ? data.yok_sayilan_dosyalar : [],
         yuklenmeyen_araclar: typeof data.yuklenmeyen_araclar === "number" ? data.yuklenmeyen_araclar : 0,
+        kanca_dosyalari: Array.isArray(data.kanca_dosyalari) ? data.kanca_dosyalari : [],
       });
     }).catch(() => { /* güven durumu okunamazsa şerit çizilmez; sohbet çalışır */ });
     return () => { owner.current = generation + 1; };
@@ -98,6 +102,11 @@ export function TrustProject({ client, kok, running = false, onTrusted }: TrustP
           <strong>Bu klasördeki dosyalara güveniyor musun?</strong> Proje kendi ayarlarını taşıyor
           ({dusurulenListesi(state).join(", ")}); {state.neden}. Güvenmediğin sürece bunlar devre dışı kalır.
         </p>
+        {(state.kanca_dosyalari?.length ?? 0) > 0 && (
+          <p className="trust-project__metin">
+            <strong>Dikkat:</strong> {state.kanca_dosyalari?.join(", ")} kanca (hook) komutları içeriyor; güvenirsen bunlar her araç çağrısında senin yetkinle çalışır.
+          </p>
+        )}
         {error && <p className="trust-project__hata" role="alert">{error}</p>}
         <div className="trust-project__eylemler">
           <Button disabled={busy || running} onClick={() => void trust()} variant="primary">Evet, güven</Button>

@@ -20,6 +20,7 @@ Fusion iki şeyi tek üründe birleştirir:
 | Profiller (`/mode`) + effort (`/effort`) | "Ne kadar güçlü model" ve "ne kadar düşünsün" ayrı ayrı |
 | Şifreli anahtar deposu | Anahtarlar şifreli saklanır, log'a/git'e girmez |
 | Tarayıcı oturumu profilleri (`fusion browser`, Ayarlar › Web oturumları) | cookies.txt/JSON ya da Chrome'dan oturum aktar; ajanın tarayıcısı onaylı sitelerde girişli açılır — bkz. `TARAYICI_OTURUMLARI.md` |
+| Bilgisayar kullanımı (`desktop_*`, Ayarlar › Bu bilgisayar, `fusion config set desktop.<alan>`) | Ekranı görür, tıklar, yazar; açma/kapama anahtarı, kademe tavanı (yalnız bak / tıkla / tam kontrol), reddedilen uygulamalar — bkz. `BILGISAYAR_KULLANIMI.md` |
 | MCP köprüsü | Fusion araçlarını dışa aç (sunucu) + dış MCP araçlarını kullan (istemci) |
 | MCP kurulumu (`/mcp`, `fusion mcp-add`, panel) | Sohbette `/mcp add <ad> <komut>`, terminalden `fusion mcp-add`, ya da Control Panel'in "MCP sunucusu bağla" kartından — üçü de aynı config.yaml'a yazar, elle düzenleme gerekmez |
 | Öz-öğrenen bellek | Her görevden ders çıkarır, benzer işlerde hatırlar |
@@ -27,6 +28,8 @@ Fusion iki şeyi tek üründe birleştirir:
 | Alt ajan tanımları (`.claude/agents/*.md`) | `model`, `permissionMode`, `maxTurns`, `tools`/`disallowedTools`, `skills`, `memory` uygulanır; `mcpServers` yalnız süzgeç; `background`/`isolation`/`hooks` okunur, uygulanmaz |
 | Oturum kişiliği (`fusion --agent`, `/persona`) | Bütün oturumu bir ajan tanımıyla sürer (yerleşik `explore`, `plan`); masaüstünde Kişilik seçici |
 | Fork alt görev (`/subtask`, `context: fork`) | Bağlamı devralan izole alt ajan; sohbete yalnız özet döner; masaüstünde Alt görev düğmesi |
+| Arka plan ajan görevleri (`fusion agent --bg`, `fusion agents`, `/bg`, `/tasks`, Ctrl+B) | Turdan bağımsız, ayrı süreçte koşan görev; girdi/bitiş bildirimi, devam mesajı, sonucun sıradaki tura teslimi; masaüstünde Ajanlar sekmesi — bkz. `ARKA_PLAN_GOREVLERI.md` |
+| Oturumlar arası mesaj (`/list-agents`, `@oturum`, `list_agents`/`send_message`) | Açık REPL/masaüstü oturumları birbirine mesaj atar; gelen mesaj etiketli güvenilmez girdi, `runtime.cross_session_inbound` accept/hold/refuse |
 | Uzak MCP OAuth | HTTP MCP sunucularında tarayıcı girişi, PKCE ve macOS Keychain token deposu |
 | Uzaktan kontrol (`fusion remote-control`, `/rc`) | Terminal oturumunu masaüstü uygulaması olmadan telefondan/Telegram'dan sür; QR + eşleştirme kodu, onaylar telefona gider (bkz. docs/uzaktan) |
 | Hesap ve kota göstergesi | Hesabım › Sağlayıcı hesapları (web sağlayıcısıyla giriş durumu), Ayarlar › Gelişmiş › "Hız sınırları ve kota" (`kullanim.durum.limitler`: ayarlı dakikalık sınır + sağlayıcının o an bekletmesi), Güncellemeler'de kurulu sürüm ve sürüm notları |
@@ -35,6 +38,7 @@ Fusion iki şeyi tek üründe birleştirir:
 | Fusion ↔ Kits köprüsü (`fusion kit`, `kit_send`, `fusion_browser`) | Bir Kit'e mesaj/görev bırak, durumunu oku; Kit kullanıcının Chrome'unu onaylı kullanır (bkz. `docs/KITS_KOPRUSU.md`) |
 | Production değerlendirmesi | Godot asset, MCP, replan, büyük dosya ve sohbet izolasyonunu üç tekrarla ölçer |
 | REPL paritesi (Claude Code) | `!` kabuk, `@dosya` anma + Tab tamamlama, `#` not; `/status`, `/context`; `/export`, `/copy`; `/config` + `fusion config get/set/list`, `--set`, `--profile`; `/output-style`; `/statusline`; `/theme`, `/tui`, `/search`; `keybindings.json`, `/vim` (bkz. NASIL_KULLANILIR §15) |
+| Komut paleti ve kısayollar (masaüstü) | ⌘K palet (eylem/ekran/sohbet/komut/ayar/dosya, son kullanılanlar), ⌘P dosya, ⌘N/⌘,/⌘B/⌘J/⌘1-9; Ayarlar › Kısayollar ile yeniden bağlama; `keybindings.json` `masaustu` bölümü (bkz. NASIL_KULLANILIR §17) |
 
 Yayın ölçümü `python -m evals run evals/suite/production.yaml --profile production --repeat 3`
 komutuyla çalışır. Rapor, bütün tekil koşuların başarı oranını ve yalnız üç tekrarın
@@ -47,8 +51,8 @@ token hiçbir değerlendirme fikstüründe tutulmaz.
 - Ücretsiz-katman bütçe paneli (hangi hesapta ne kadar kota kaldı).
 - Agresif token sıkıştırma (kodu bozmadan yapmak gerekir, dikkatli gidilmeli).
 - Çok dilli arayüz (şu an Türkçe/İngilizce).
-- Alt ajanı arka planda koşturma (`background`), tanımdaki `isolation` alanını uygulama (çağrıda
-  `subtask(izolasyon="worktree")` var) ve
+- Ajan tanımındaki `background: true` ve `isolation` alanlarını uygulama (çağrıda
+  `spawn_agent(arka_plan=true)` ve `subtask(izolasyon="worktree")` var) ve
   `--agents '<json>'` satır içi ajan tanımı; tanımlar şimdilik yalnız dosyadan okunur.
 
 ## Bilerek yapılmayanlar

@@ -1,0 +1,108 @@
+/* İş akışı ve ekip panoları — alt ajan kartlarının ÜSTÜNDEKİ özet yüzey.
+   Durum rengi yalnız noktada ve rozet metninde; metin her zaman durumu da söyler. */
+
+.orch-board {
+  display: grid; gap: var(--space-2);
+  margin: var(--space-1) 0 var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);
+  background: var(--surface-raised); box-shadow: var(--shadow-sm);
+}
+.orch-board__head { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+.orch-board__eyebrow {
+  margin: 0; color: var(--text-tertiary);
+  font-size: var(--text-2xs); font-weight: 600;
+  letter-spacing: var(--tracking-eyebrow); text-transform: uppercase;
+}
+.orch-board__title { margin: 0; font-family: var(--font-heading); font-size: var(--text-md); color: var(--text-primary); }
+.orch-board__status {
+  margin-left: auto; padding: 0 var(--space-2);
+  border-radius: var(--radius-pill); background: var(--surface-accent-subtle);
+  color: var(--accent-text); font-size: var(--text-xs); font-weight: 600;
+}
+.orch-board[data-durum="tamam"] .orch-board__status { color: var(--text-success); }
+.orch-board[data-durum="yarim"] .orch-board__status,
+.orch-board[data-durum="durdu"] .orch-board__status { color: var(--text-warning); }
+.orch-board[data-durum="iptal"] .orch-board__status,
+.orch-board[data-durum="hata"] .orch-board__status { color: var(--text-danger); }
+
+.orch-board__meta {
+  display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: 0;
+  color: var(--text-secondary); font-size: var(--text-xs);
+}
+.orch-board__meta code { font-family: var(--font-mono); color: var(--text-tertiary); }
+.orch-board__progress { width: 100%; height: 4px; accent-color: var(--accent); }
+.orch-board__message { margin: 0; color: var(--text-warning); font-size: var(--text-xs); }
+.orch-board__phase { display: grid; gap: var(--space-1); }
+.orch-board__phase-name { margin: var(--space-1) 0 0; color: var(--text-secondary); font-size: var(--text-xs); font-weight: 600; }
+.orch-board__nodes { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.orch-board__more summary { cursor: pointer; color: var(--text-secondary); font-size: var(--text-xs); }
+.orch-board__more summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
+
+.orch-node {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+  gap: var(--space-2); padding: 2px 0; font-size: var(--text-sm);
+}
+.orch-node__dot { width: 7px; height: 7px; border-radius: var(--radius-pill); background: var(--border-strong); }
+.orch-node[data-durum="calisiyor"] .orch-node__dot { background: var(--accent); }
+.orch-node[data-durum="tamam"] .orch-node__dot { background: var(--text-success); }
+.orch-node[data-durum="basarisiz"] .orch-node__dot,
+.orch-node[data-durum="iptal"] .orch-node__dot { background: var(--text-danger); }
+.orch-node__label { overflow: hidden; color: var(--text-primary); text-overflow: ellipsis; white-space: nowrap; }
+.orch-node__state { color: var(--text-tertiary); font-size: var(--text-xs); }
+.orch-node__note { grid-column: 2 / -1; color: var(--text-secondary); font-size: var(--text-xs); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .orch-node[data-durum="calisiyor"] .orch-node__dot { animation: orch-pulse 1.4s var(--ease-standard) infinite; }
+}
+@keyframes orch-pulse { 50% { opacity: 0.35; } }
+
+/* Ajanlar sekmesindeki iş akışı/ekip listesi. */
+.orch-panel { display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-3) 0; }
+.orch-panel__list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.orch-panel__row {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2);
+  font-size: var(--text-sm); color: var(--text-primary);
+}
+.orch-panel__row small { color: var(--text-secondary); }
+.orch-panel__button {
+  flex: none; padding: 2px var(--space-2);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-primary); font-size: var(--text-xs); cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+.orch-panel__button:hover { background: var(--surface-hover); }
+.orch-panel__button:active { background: var(--surface-selected); }
+.orch-panel__button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.orch-panel__button--danger { border-color: var(--text-danger); color: var(--text-danger); }
+.orch-panel__actions { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-1); }
+.orch-panel__detail { flex-basis: 100%; display: grid; gap: var(--space-1); padding-left: var(--space-2); border-left: 2px solid var(--border-subtle); }
+.orch-panel__report {
+  margin: 0; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary);
+}
+
+/* Ekip panosu: üyeler, üç sütunlu görev listesi, posta kutusu. */
+.orch-board__goal { margin: 0; color: var(--text-secondary); font-size: var(--text-sm); }
+.orch-board__members { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: 0; padding: 0; list-style: none; }
+.orch-member { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); }
+.orch-member small { color: var(--text-secondary); }
+.orch-member[data-durum="calisiyor"] .orch-node__dot { background: var(--accent); }
+.orch-member[data-durum="bitti"] .orch-node__dot { background: var(--text-success); }
+.orch-board__columns {
+  display: grid; gap: var(--space-2);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+}
+.orch-board__column { display: grid; align-content: start; gap: var(--space-1); min-width: 0; }
+.orch-task {
+  display: grid; gap: 2px; padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+  background: var(--surface-canvas); font-size: var(--text-sm);
+}
+.orch-task[data-durum="calisiyor"] { border-color: var(--accent); }
+.orch-task__title { overflow-wrap: anywhere; color: var(--text-primary); }
+.orch-task__title code { font-family: var(--font-mono); color: var(--text-tertiary); font-size: var(--text-xs); }
+.orch-task small { color: var(--text-secondary); font-size: var(--text-xs); }
+.orch-task .orch-task__failed { color: var(--text-danger); }
+.orch-board__mail { display: grid; gap: var(--space-1); margin: var(--space-1) 0 0; padding: 0; list-style: none; font-size: var(--text-xs); color: var(--text-secondary); }
+.orch-board__mail strong { color: var(--text-primary); }

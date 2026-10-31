@@ -29,7 +29,7 @@ interface ConnectorRow {
   durum?: string;
   komut: string;
   /** Kaydın kaynağı: `project` kökteki `.mcp.json`'dan (Claude Code ile ortak), `user` config.yaml. */
-  kapsam?: "user" | "project";
+  kapsam?: "user" | "project" | "plugin";
   mesaj?: string | null;
   /** Satırın taşıması. `hosted` KATALOGDA yoktur ama çekirdek onu döndürür:
    *  barındırmalı bağlantılar ayrı depoda yaşar ve ayrı uçtan silinir. Tipin
@@ -544,6 +544,11 @@ export function ConnectorsScreen({
                       {row.kapsam === "project" && (
                         <span className="connectors__scope" title="Proje kökündeki .mcp.json kaydı">
                           proje
+                        </span>
+                      )}
+                      {row.kapsam === "plugin" && (
+                        <span className="connectors__scope" title="Bir eklentinin MCP sunucusu; eklentiyle birlikte açılıp kapanır (Beceriler › Eklentiler)">
+                          eklenti
                         </span>
                       )}
                       <span className="connectors__status">

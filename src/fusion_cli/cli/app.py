@@ -37,26 +37,36 @@ from ..core.worktree import Worktree, WorktreeSwitch
 from ..engines.agent.approval import ApprovalMemory, ApprovalMode, parse_mode
 from ..observability.usage_log import open_usage_log
 from ..remote.constants import APPROVAL_TRUST_MAX_HOURS, DEFAULT_REMOTE_PORT
+from ..tools.agent_tasks import WORKER_COMMAND
+from ..ui import background_messages as bg_texts
 from ..ui import messages, theme
 from ..ui.renderer import ConsoleRenderer
 from ..ui.tables import cost_summary
 from . import (
+    agent_commands,
+    auto_mode_commands,
     browser_commands,
     capability_commands,
     eval_commands,
     gh_action_command,
     headless,
+    hooks_commands,
     kit_commands,
     knowledge_commands,
     mcp_commands,
     memory_commands,
     paperclip_command,
     prompt_opt_commands,
+    sandbox_commands,
+    team_cli,
     trash_commands,
     usage_commands,
+    workflow_cli,
 )
 from .app_host import AppHostDependencies
 from .cleanup import with_web_cleanup
+from .desktop_never import AppDenials, config_persist
+from .extension_cli import register_extension_commands
 from .prompter import ConsolePrompter
 from .repl import run_repl, session_resume, worktrees
 from .repl.persona_commands import persona_turn
@@ -79,16 +89,28 @@ app.add_typer(knowledge_commands.app, name="knowledge")
 app.add_typer(trash_commands.app, name="cop")
 app.add_typer(capability_commands.app, name="yetenek")
 app.add_typer(kit_commands.app, name="kit")
+app.add_typer(workflow_cli.app, name="workflows")
+app.add_typer(team_cli.app, name="ekip")
 app.add_typer(eval_commands.eval_app, name="eval")
 app.add_typer(prompt_opt_commands.prompt_opt_app, name="prompt-opt")
 # `fusion mcp` alt komutsuz eski sunucu davranışını korur; `add/list/login/reconnect…` P-049.
 app.add_typer(mcp_commands.mcp_app, name="mcp")
+# Arka plan ajan görevleri (P-048): `fusion agents` görünümü + gizli işçi komutu.
+app.add_typer(agent_commands.app, name="agents")
+app.command(name=WORKER_COMMAND, hidden=True)(agent_commands.worker_command)
+app.add_typer(auto_mode_commands.app, name="auto-mode")
 # `/usage` ve `/insights` karşılıkları (P-056).
 app.command(name="usage")(usage_commands.usage)
 app.command(name="insights")(usage_commands.insights)
 app.command(name="gh-action")(gh_action_command.gh_action)
 app.add_typer(browser_commands.app, name="browser")
+# Kancalar (P-009): `fusion hooks list|test`; Claude Code `/hooks` karşılığı.
+app.add_typer(hooks_commands.app, name="hooks")
+# Kabuk sandbox'ı (P-010; Claude `/sandbox`, Codex `codex sandbox`).
+app.add_typer(sandbox_commands.app, name="sandbox")
 app.command("paperclip")(paperclip_command.paperclip)
+# `fusion import`, `fusion release-notes`, `fusion eklenti` (P-071, P-059).
+register_extension_commands(app)
 
 console = Console()
 #: Hata satırları stdout'a DEĞİL stderr'e gider. `fusion mcp` (MCP protokolü), `fusion app`
@@ -458,8 +480,16 @@ def agent(
             help="Görevi izole git çalışma ağacında koş (.fusion/worktrees/<ad>); ağaç korunur.",
         ),
     ] = "",
+    background: bool = typer.Option(
+        False,
+        "--bg",
+        help="Görevi arka planda başlat ve hemen dön; izle: fusion agents (P-048).",
+    ),
+    task_name: str = typer.Option("", "--name", "-n", help="--bg görevinin kısa adı."),
 ) -> None:
     """Görevi araçlarla çalıştır: dosya oku/yaz, komut çalıştır, web'de ara."""
+    if background:
+        _reject_background_flags(output_format, as_json, json_schema, permission_channel)
     options = _headless_options(
         task,
         mode=mode,
@@ -473,6 +503,29 @@ def agent(
         disallowed_tools=disallowed_tools,
         from_pr=from_pr,
     )
+    if background:
+        pairs, tier = _SESSION.overrides
+        if pairs or tier:
+            _session_config()  # geçersiz `-c`/`--profile` başlatmadan önce reddedilir (kod 2)
+        flags = agent_commands.BackgroundFlags(
+            mode=options.approval.value,
+            agent=agent_name or "",
+            name=task_name,
+            max_turns=max_turns,
+            max_budget_usd=max_budget_usd,
+            allowed_tools=allowed_tools,
+            disallowed_tools=disallowed_tools,
+            append_system_prompt=append_system_prompt,
+            add_dir=tuple(add_dir or ()),
+            worktree=worktree,
+            no_memory=no_memory,
+            bare=bare,
+            config_overrides=pairs,
+            profile=tier or "",
+        )
+        started = agent_commands.start_from_cli(options.task, flags)
+        console.print(bg_texts.BG_CLI_STARTED.format(id=started.id, name=started.name))
+        return
     config = headless.apply_limits(
         _session_config(), max_turns=max_turns, max_budget_usd=max_budget_usd, bare=bare
     )
@@ -519,7 +572,9 @@ def agent(
                 stdout=sys.stdout if streaming else sys.stderr,
                 timeout=permission_timeout,
             )
-        return ConsolePrompter(console, tool_context, flush=flush)
+        # "Her zaman reddet" (`r`, P-007) tek atışta da ret listesine yazar.
+        denials = AppDenials(config_persist(lambda: config))
+        return ConsolePrompter(console, tool_context, flush=flush, denials=denials)
 
     # Tek atışta oturum yoktur: `enter_worktree` isteği tur sonunda köke dönüşmez, yalnız
     # açılan ağaç bildirilir (ağaç korunur; sonraki iş `fusion -w <ad>` ile oradan sürer).
@@ -587,6 +642,20 @@ def agent(
         raise typer.Exit(1)
     if structured is not None and not structured.ok:
         raise typer.Exit(1)
+
+
+def _reject_background_flags(
+    output_format: str, as_json: bool, json_schema: Path | None, permission_channel: str | None
+) -> None:
+    """`--bg` ile anlamsız bayrak sessizce düşmesin: açık hata (P-048)."""
+    flag = agent_commands.unsupported_background_flag(
+        output_format=output_format,
+        as_json=as_json,
+        json_schema=json_schema,
+        permission_channel=permission_channel,
+    )
+    if flag is not None:
+        raise typer.BadParameter(bg_texts.BG_CLI_UNSUPPORTED_FLAG.format(flag=flag))
 
 
 @dataclass(frozen=True, slots=True)
@@ -711,6 +780,7 @@ def init(
                     console,
                     ToolContext(root=root, restrict_to_root=config.runtime.restrict_to_root),
                     flush=flush,
+                    denials=AppDenials(config_persist(lambda: config)),
                 ),
                 mode=_parse_mode(mode),
                 root=root,
@@ -831,17 +901,22 @@ def trust(
     """Projenin config.yaml, .fusion/tools, launch.json ve .claude/settings.local.json'a güven.
 
     Güvenilmeyen projede bu dosyalar MCP süreci, doğrulama komutu, araç, önizleme
-    sunucusu komutu (`.fusion/launch.json`, `.claude/launch.json`) ya da onaysız kabuk
-    komutu (izin listesi) çalıştıramaz. Dosyalar sonradan değişirse güven kendiliğinden düşer.
+    sunucusu komutu (`.fusion/launch.json`, `.claude/launch.json`), onaysız kabuk
+    komutu (izin listesi) ya da kanca (hook) komutu çalıştıramaz. Dosyalar sonradan
+    değişirse güven kendiliğinden düşer.
     """
     from ..config import trust as project_trust
+    from ..config.hooks import untrusted_hook_files
 
     root = path.resolve()
     if not root.is_dir():
         console.print(f"[red]Dizin bulunamadı: {root}[/red]")
         raise typer.Exit(code=1)
+    hook_files = untrusted_hook_files(root)
     project_trust.trust_project(root)
     console.print(f"[green]Güvenildi:[/green] {root}")
+    if hook_files:
+        console.print(messages.HOOKS_TRUST_ENABLED.format(files=", ".join(hook_files)))
 
 
 @app.command()

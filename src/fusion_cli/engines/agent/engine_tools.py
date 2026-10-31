@@ -28,7 +28,7 @@ from ...core.events import (
 )
 from ...core.redaction import strip_driver_log
 from ...core.refusal import looks_like_refusal
-from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
+from ...core.tools import Tool, ToolArgs, ToolContext, ToolFamily, ToolResult, tool_family
 from ...core.types import CompletionRequest, ModelResult, ModelSpec, is_web_session_error
 from ...memory.code_index import format_matches
 from ...memory.lessons import as_prompt_block
@@ -41,16 +41,19 @@ from ...tools.capabilities import (
 )
 from ...tools.files import display_path, resolve_path
 from ...tools.forge import forge_tool, load_forged_tools
+from ...tools.plugin_capabilities import with_plugin_root
 from ...tools.registry import ToolRegistry
 from ...tools.skill_pages import read_skill_page
 from ...ui import messages
 from . import learning_steps
+from .agent_task_tools import agent_task_tools
 from .arg_coerce import coerce_bool, coerce_int, coerce_list
 from .clone_tools import clone_tools
 from .history_tools import recent_actions_tool
 from .image_tools import generate_image_tool
 from .image_view import DEFAULT_QUESTION, describe_image
 from .memory_tools import memory_read_tool, remember_tool
+from .orchestration_tools import register_orchestration_tools
 from .preview_log_tools import preview_log_tools
 from .preview_tools import preview_tool
 from .secret_paths import is_secret_path
@@ -120,6 +123,8 @@ def build_agent_registry(
     extended = _clone(registry, chrome=getattr(deps.tool_context, "chrome", None) is not None)
     extended.register(spawn_agent_tool(deps, depth=depth, run_agent=run_agent))
     extended.register(spawn_agents_tool(deps, depth=depth, run_agent=run_agent))
+    for agent_tool in agent_task_tools(deps):
+        extended.register(agent_tool)
     # Bazı modeller bu adı tercih eder; farklı isimlendirme hataya dönüşmesin.
     extended.register_alias("invoke_subagent", "spawn_agent")
     extended.register(_council_tool(deps))
@@ -162,9 +167,25 @@ def build_agent_registry(
         for cron_tool in cron_tools(SystemClock()):
             extended.register(cron_tool)
     _register_forged_tools(extended, deps)
+    # Ekip (P-061) ve dinamik iş akışı (P-062) araçları kendi modülünde kaydolur.
+    register_orchestration_tools(extended, deps, depth=depth, run_agent=run_agent)
     runtime = getattr(deps.config, "runtime", None)
-    kapali = frozenset(getattr(runtime, "disabled_tools", ()))
+    kapali = frozenset(getattr(runtime, "disabled_tools", ())) | _disabled_desktop_tools(
+        deps, extended
+    )
     return _without(extended, kapali) if kapali else extended
+
+
+def _disabled_desktop_tools(deps: AgentDeps, registry: ToolRegistry) -> frozenset[str]:
+    """Bilgisayar kullanımı kapalıysa (`desktop.enabled: false`, P-006) masaüstü ailesi.
+
+    Ölçüldü (31 Ekim): kullanıcının computer use'u kapatacağı bir ayar yoktu; `desktop_*`
+    araçları her turda kayıtlıydı.
+    """
+    desktop = getattr(deps.config, "desktop", None)
+    if desktop is None or desktop.enabled:
+        return frozenset()
+    return frozenset(tool.name for tool in registry if tool_family(tool.name) is ToolFamily.DESKTOP)
 
 
 def _register_forged_tools(registry: ToolRegistry, deps: AgentDeps) -> None:
@@ -858,13 +879,21 @@ def _skill_page_result(path: Path, args: ToolArgs, offset: int) -> ToolResult:
     )
     if page.error:
         return ToolResult.failure(page.error)
-    text = f"[revision={page.revision}]\n{page.text}"
+    # Eklenti becerisinde `${CLAUDE_PLUGIN_ROOT}` kurulu klasöre çözülür (sayfa ham metne göre).
+    text = f"[revision={page.revision}]\n{with_plugin_root(page.text, path)}"
     if page.next_offset is not None:
         text += (
             f"\n\n[KIRPILDI: Devamı için read_skill(offset={page.next_offset}). "
             f"Aynı revision={page.revision} değerini de gönder.]"
         )
     return ToolResult(text, structured={"revision": page.revision, "next_offset": page.next_offset})
+
+
+#: Modelin yükleyemeyeceği (yalnız kullanıcının çağırdığı) beceri.
+SKILL_USER_ONLY = (
+    "'{name}' yalnız kullanıcı /{name} ile çağırır; model yükleyemez. Gerekiyorsa kullanıcıya "
+    "/{name} yazmasını öner."
+)
 
 
 def _skill_receipt(
@@ -907,11 +936,18 @@ def _read_skill_tool(
                     + ", ".join(adaylar)
                 )
             return ToolResult.failure(f"'{name}' adlı skill yok. find_skill ile ara.")
+        extra = args.get("file")
+        has_file = isinstance(extra, str) and bool(extra.strip())
+        if not skill.model_invocable and not has_file:
+            # `disable-model-invocation` / `user-invocable-only` (P-051): gövde yalnız kullanıcı
+            # `/ad` ile çağırınca bağlama girer. Ölçüldü (31 Ekim): beceri yalnız dizinden
+            # gizleniyordu; adını bilen model `read_skill` ile yükleyebiliyordu. Ek dosya
+            # okuması açık kalır: kullanıcının çağırdığı becerinin gövdesi onlara başvurur.
+            return ToolResult.failure(SKILL_USER_ONLY.format(name=skill.name))
         offset = coerce_int(args.get("offset", 0))
         if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
             return ToolResult.failure("offset sıfır ya da pozitif bir tam sayı olmalı.")
-        extra = args.get("file")
-        if isinstance(extra, str) and extra.strip():
+        if has_file and isinstance(extra, str):
             target = skill_file(skill.path, extra.strip())
             if target is None:
                 return ToolResult.failure(

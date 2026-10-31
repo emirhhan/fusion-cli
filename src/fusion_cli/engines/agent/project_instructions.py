@@ -112,6 +112,8 @@ NESTED_MAX_FILES = 8
 _NESTED_SKIP_DIRS = frozenset(
     {"node_modules", "vendor", "site-packages", "dist", "build", "target", "__pycache__"}
 )
+#: İç içe beceri keşfi de aynı gürültü dizinlerini atlar (`nested_skills`; P-052).
+NESTED_SKIP_DIRS = _NESTED_SKIP_DIRS
 
 NESTED_NOTE_HEADER = (
     "FUSION_NOT: Eriştiğin dosyanın klasörü kendi talimatını taşıyor; o klasördeki işlerde "

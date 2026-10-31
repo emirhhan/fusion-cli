@@ -300,17 +300,21 @@ def default(
 @app.command("set")
 def set_setting(
     key: Annotated[
-        str, typer.Argument(help="Ayar: headless (pencere görünmez) ya da profiles_enabled.")
+        str,
+        typer.Argument(
+            help="Ayar: headless (pencere görünmez), profiles_enabled ya da panel_agent "
+            "(masaüstünde ajan Tarayıcı panelini kullanır)."
+        ),
     ],
     value: Annotated[str, typer.Argument(help="on/off (true/false, 1/0 da olur).")],
 ) -> None:
-    """`browser.headless` / `browser.profiles_enabled` ayarını yaz."""
+    """`browser.headless` / `profiles_enabled` / `panel_agent` ayarını yaz."""
 
     def action() -> None:
         clean = key.strip().lower().replace("-", "_")
-        if clean not in ("headless", "profiles_enabled"):
+        if clean not in ("headless", "profiles_enabled", "panel_agent"):
             console.print(
-                "[red]Bilinmeyen ayar. Seçenekler: headless, profiles_enabled "
+                "[red]Bilinmeyen ayar. Seçenekler: headless, profiles_enabled, panel_agent "
                 "(varsayılan profil için: fusion browser default).[/red]"
             )
             raise typer.Exit(code=1)
