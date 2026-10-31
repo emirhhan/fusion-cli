@@ -812,7 +812,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         lambda state, argument: "",
         ("remote-control",),
         group="Bilgi",
-        usage="[kod|onayla|durum|durdur]",
+        usage="[kod [telegram]|onayla|durum|telegram|durdur]",
     ),
 )
 

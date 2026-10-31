@@ -12,14 +12,30 @@ from rich.markup import escape
 
 from ...core.errors import FusionError
 from ...remote.constants import DEFAULT_REMOTE_PORT
+from ...remote.host import (
+    CHANNEL_REQUEST_PWA,
+    CHANNEL_REQUEST_TELEGRAM,
+    TEXT_TELEGRAM_MISSING,
+    PairingCode,
+    RemoteControlHost,
+)
+from ...remote.tunnel import tailscale_https_url
 from ...ui import messages, theme
-from ..remote_control import RemoteControlOptions, build_host, print_start, print_status
+from ..remote_control import (
+    RemoteControlOptions,
+    build_host,
+    print_code,
+    print_start,
+    print_status,
+)
 from .state import ReplState
 
 
 async def run(state: ReplState, argument: str, console: Console) -> None:
-    """`/rc` → başlat (ya da durum); `/rc kod|onayla|durum|durdur`."""
-    action = argument.strip().lower()
+    """`/rc` → başlat (ya da durum); `/rc kod [telegram]|onayla|durum|telegram|durdur`."""
+    words = argument.strip().lower().split()
+    action = words[0] if words else ""
+    option = words[1] if len(words) > 1 else ""
     host = state.remote_control
     try:
         if action in {"", "baslat", "başlat"}:
@@ -32,9 +48,10 @@ async def run(state: ReplState, argument: str, console: Console) -> None:
                 return
             options = RemoteControlOptions(root=state.root, home=state.home)
             host = build_host(options)
+            # `start` düşerse sunucuyu kendisi kapatır; host yalnız başarıda saklanır.
             start = await host.start(port=DEFAULT_REMOTE_PORT, tunnel=True)
             state.remote_control = host
-            print_start(console, start, port=DEFAULT_REMOTE_PORT)
+            print_start(console, start, port=DEFAULT_REMOTE_PORT, public_url=tailscale_https_url())
             console.print(f"[{theme.DIM}]{messages.RC_REPL_HINT}[/{theme.DIM}]")
             return
         if host is None:
@@ -43,8 +60,13 @@ async def run(state: ReplState, argument: str, console: Console) -> None:
         if action == "durum":
             print_status(console, await host.snapshot())
         elif action == "kod":
-            code, _expires = await host.new_code()
-            console.print(f"[bold]{messages.RC_CODE.format(code=code)}[/bold]")
+            await _print_new_code(host, console, option)
+        elif action == "telegram":
+            if await host.connect_telegram():
+                console.print(f"[{theme.OK}]{messages.RC_TELEGRAM_ON}[/{theme.OK}]")
+                print_code(console, PairingCode(CHANNEL_REQUEST_TELEGRAM, host.telegram_code, 0.0))
+            else:
+                console.print(f"[{theme.WARN}]{escape(TEXT_TELEGRAM_MISSING)}[/{theme.WARN}]")
         elif action == "onayla":
             if await host.approve_pending():
                 console.print(f"[{theme.OK}]{messages.RC_APPROVED}[/{theme.OK}]")
@@ -59,6 +81,19 @@ async def run(state: ReplState, argument: str, console: Console) -> None:
             )
     except FusionError as error:
         console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+
+
+async def _print_new_code(host: RemoteControlHost, console: Console, option: str) -> None:
+    """`/rc kod` PWA kodu; `/rc kod telegram` bağlı köprü için Telegram kodu."""
+    if option == CHANNEL_REQUEST_TELEGRAM:
+        if not host.telegram_connected:
+            console.print(f"[{theme.DIM}]{messages.RC_TELEGRAM_NOT_CONNECTED}[/{theme.DIM}]")
+            return
+        code, expires = await host.new_code(CHANNEL_REQUEST_TELEGRAM)
+        print_code(console, PairingCode(CHANNEL_REQUEST_TELEGRAM, code, expires))
+        return
+    code, expires = await host.new_code()
+    print_code(console, PairingCode(CHANNEL_REQUEST_PWA, code, expires))
 
 
 async def shutdown(state: ReplState) -> None:

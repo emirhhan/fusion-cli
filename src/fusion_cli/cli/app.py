@@ -33,7 +33,7 @@ from ..core.errors import FusionError
 from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
 from ..engines.agent.approval import ApprovalMode, parse_mode
-from ..remote.constants import DEFAULT_REMOTE_PORT
+from ..remote.constants import APPROVAL_TRUST_MAX_HOURS, DEFAULT_REMOTE_PORT
 from ..ui import messages, theme
 from .app_host import AppHostDependencies
 
@@ -753,7 +753,16 @@ def remote_control(
     approval_hours: float = typer.Option(
         0.0,
         "--onay-saat",
-        help="Eşleşen cihaza bu kadar saat uzaktan onay yetkisi ver (0 = verme; en çok 168).",
+        min=0,
+        max=APPROVAL_TRUST_MAX_HOURS,
+        help="Eşleşen cihaza bu kadar saat uzaktan onay yetkisi ver (0 = verme; en çok 168). "
+        "Yalnız masaüstünde 'cihaz başına süreli yetki iste' açıkken anlamlıdır.",
+    ),
+    public_url: str = typer.Option(
+        "",
+        "--adres",
+        help="Telefonun açacağı tünel adresi (ör. https://mac.tailnet.ts.net). Boşsa Tailscale'den "
+        "okunur; bulunamazsa QR basılmaz (127.0.0.1 telefonda açılmaz).",
     ),
 ) -> None:
     """Oturumu masaüstü uygulaması olmadan telefondan/Telegram'dan sür (`claude remote-control`).
@@ -776,6 +785,7 @@ def remote_control(
         telegram=telegram,
         extra_scopes=tuple(scopes or ()),
         approval_hours=approval_hours,
+        public_url=public_url.strip(),
     )
     raise typer.Exit(asyncio.run(run_remote_control(options, console)))
 

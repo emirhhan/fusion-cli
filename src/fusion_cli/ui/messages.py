@@ -754,7 +754,7 @@ CMD_BROWSER = "web'de araştır ve kaynaklarıyla özetle"
 CMD_BTW = "ana görevi bozmadan kısa bir yan soruyu yanıtla"
 CMD_PLAN_RUN = "görevi plan motoruyla adım adım, adım kanıtıyla yürüt"
 CMD_SCHEDULE = "N saniye sonra hatırlatma kur"
-CMD_RC = "uzaktan kontrol: telefondan/Telegram'dan sür · /rc [kod|onayla|durum|durdur]"
+CMD_RC = "uzaktan kontrol: telefondan/Telegram'dan sür · /rc [kod|onayla|durum|telegram|durdur]"
 CMD_RESUME = "{source} oturum geçmişinden devral"
 HISTORY_EMPTY = "Bu kaynakta devralınacak oturum bulunamadı."
 HISTORY_PICK_TITLE = "Hangi oturumdan devam edilsin?"
@@ -785,21 +785,42 @@ RC_CODE = "Eşleştirme kodu: {code}  (2 dakika geçerli)"
 RC_CODE_RENEWED = "Kodun süresi doldu; yeni kod: {code}"
 RC_SCOPES = "Kapsamlar: {scopes}"
 RC_TELEGRAM_ON = "Telegram botu bağlı; düz mesaj görev açar."
+RC_TELEGRAM_CODE = (
+    "Telegram: bota `/pair {code}` yaz (2 dakika geçerli); eşleşme bu terminalde onaylanır."
+)
+RC_PHONE_ADDRESS = "Telefon adresi: {url}"
+RC_QR_HINT = "QR'ı telefonla tara: adres ve kod birlikte gelir."
+RC_NO_PUBLIC_ADDRESS = (
+    "Telefon için tünel adresi bulunamadı; 127.0.0.1 telefonda açılmaz, bu yüzden QR basılmadı. "
+    "`tailscale serve --bg --https=443 http://127.0.0.1:{port}` çalıştır ya da adresi "
+    "`--adres https://…` ile ver."
+)
 RC_HOW_TO = (
-    "Telefonda adresi aç (Tailscale: `tailscale serve --bg --https=443 http://127.0.0.1:{port}`), "
-    "kodu gir; doğru kod kendiliğinden bağlanır. Durdurmak için Ctrl-C."
+    "Telefonda adresi aç, kodu gir; doğru kod kendiliğinden bağlanır. Durdurmak için Ctrl-C."
 )
 RC_QR_MISSING = "QR için `pip install segno` (isteğe bağlı); adres ve kod yukarıda."
 RC_APPROVE_PROMPT = "{name} kodu girdi. Bu cihaza izin verilsin mi? [e/H]"
 RC_APPROVED = "Cihaz onaylandı."
 RC_REJECTED = "Cihaz reddedildi."
+RC_APPROVAL_EXPIRED = (
+    "{name} için onay süresi doldu; cevabın yok sayıldı. Soru açıksa Enter'a bas, yeni cihaz için "
+    "yeniden sorulur."
+)
 RC_STOPPED = "Uzaktan kontrol durduruldu."
 RC_NOT_RUNNING = "Uzaktan kontrol çalışmıyor. Başlatmak için /rc"
 RC_ALREADY_RUNNING = "Uzaktan kontrol zaten çalışıyor: {address}"
 RC_STATUS = "Dinliyor: {address} · cihaz: {count} · bekleyen onay: {pending} · görev: {tasks}"
+RC_STATUS_AWAITING = "{name} kodu girdi; onay bekliyor → /rc onayla"
 RC_NOTHING_TO_APPROVE = "Onay bekleyen cihaz yok."
-RC_REPL_HINT = "Görevler telefondan ayrı bir sohbette yürür; bu REPL sohbeti karışmaz."
-RC_UNKNOWN_ARG = "/rc alt komutu tanınmadı: {argument}. Seçenekler: kod · onayla · durum · durdur"
+RC_TELEGRAM_NOT_CONNECTED = "Telegram bağlı değil; önce /rc telegram"
+RC_REPL_HINT = (
+    "Görevler telefondan ayrı bir sohbette yürür; bu REPL sohbeti karışmaz. Onay bekleyen cihaz "
+    "için /rc durum."
+)
+RC_UNKNOWN_ARG = (
+    "/rc alt komutu tanınmadı: {argument}. Seçenekler: kod [telegram] · onayla · durum · "
+    "telegram · durdur"
+)
 
 # --- setup ----------------------------------------------------------------- #
 SETUP_CREATED = "oluşturuldu: {path}"
