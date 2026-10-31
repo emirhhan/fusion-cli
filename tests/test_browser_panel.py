@@ -222,6 +222,26 @@ async def test_panel_kapaninca_girisli_profil_sonraki_ajan_turuna_kalmaz(panel, 
     assert tur.derive().profile_name != PANEL_PROFILE
 
 
+async def test_panel_kapaninca_yerel_adres_izinleri_sifirlanir(panel, monkeypatch):
+    # Paylaşılan oturumda `localhost:port` izinleri turlar boyu birikir (belgelendi);
+    # "Tarayıcıyı kapat" kümeyi sıfırlar, tur başına tarayıcıdaki boş başlangıca döner.
+    async def _ac(oturum, origins, *, profile="", headed=False, store=None):
+        oturum.page = object()
+        return oturum.page, ""
+
+    monkeypatch.setattr("fusion_cli.appserver.browser_panel.start_session", _ac)
+    monkeypatch.setattr(
+        "fusion_cli.tools.browser_live.LiveView.watch_context", lambda self, baglam: None
+    )
+    await panel.handle("tarayici_panel.ac", {})
+    oturum = panel.turn_browser()
+    oturum.origins.add("localhost:5432")
+
+    await panel.handle("tarayici_panel.kapat", {})
+
+    assert panel.turn_browser().origins == set()
+
+
 async def test_profil_acilamazsa_secilen_profil_oturumda_kalmaz(panel, monkeypatch):
     async def _acilmaz(oturum, origins, *, profile="", headed=False, store=None):
         return None, "profil açılamadı"

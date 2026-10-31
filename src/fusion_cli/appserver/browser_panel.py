@@ -244,6 +244,10 @@ class BrowserPanel:
             await self._live.detach()
         if session is not None and session.is_open:
             await session.close()
+        if session is not None:
+            # Turlar boyu biriken yerel adres izinleri kapanışla sıfırlanır (tur başına
+            # tarayıcının boş başlangıcı); sonraki açılış yeni kümeyle kurulur.
+            session.origins = set()
         self._forget_user_profile()
         return _ok(**self._state())
 
