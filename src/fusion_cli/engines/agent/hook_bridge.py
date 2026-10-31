@@ -19,7 +19,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from ...config.permission_rules import PermissionDecision, PermissionRule, PermissionRuleSet
-from ...core.events import ErrorOccurred, EventPublisher, NarrationPublished
+from ...core.events import Channel, ErrorOccurred, EventPublisher, NarrationPublished
 from ...core.hooks.events import HookEvent, HookVerdict
 from ...core.tools import ToolResult
 from ...core.types import Message
@@ -46,6 +46,11 @@ _FUSION_PATH_KEY = "path"
 
 def session_of(deps: AgentDeps) -> HookSession | None:
     return getattr(deps, "hooks", None)
+
+
+def _records_tools(deps: AgentDeps) -> bool:
+    """Dökümde yalnız ana ajanın araç çağrıları (Claude'da alt ajanın dökümü ayrıdır)."""
+    return getattr(deps, "channel", None) is not Channel.SUBAGENT
 
 
 def hook_halt_text(result: ToolResult) -> str | None:
@@ -87,20 +92,29 @@ async def pre_tool_use(
     session = session_of(deps)
     if session is None:
         return ToolGate(args)
+    fields = tool_hook_fields(tool_name, args, call_id)
+    if _records_tools(deps):
+        tool_input = fields["tool_input"]
+        session.record_tool_use(
+            str(fields["tool_name"]), tool_input if isinstance(tool_input, dict) else args, call_id
+        )
     verdict = await session.emit(
-        HookEvent.PRE_TOOL_USE,
-        subjects=claude_tool_names(tool_name),
-        fields=tool_hook_fields(tool_name, args, call_id),
+        HookEvent.PRE_TOOL_USE, subjects=claude_tool_names(tool_name), fields=fields
     )
     _publish(deps, verdict)
     event = HookEvent.PRE_TOOL_USE.value
+    gate = ToolGate(args)
     if verdict.halt:
         reason = verdict.stop_reason or verdict.reason or messages.HOOKS_NO_REASON
-        return ToolGate(args, messages.HOOKS_TURN_HALTED.format(event=event, reason=reason), True)
-    if verdict.blocked:
-        return ToolGate(
+        gate = ToolGate(args, messages.HOOKS_TURN_HALTED.format(event=event, reason=reason), True)
+    elif verdict.blocked:
+        gate = ToolGate(
             args, messages.HOOKS_TOOL_BLOCKED.format(event=event, reason=verdict.reason)
         )
+    if gate.blocked is not None:
+        if _records_tools(deps):
+            session.record_tool_result(call_id, gate.blocked, is_error=True)
+        return gate
     arguments = _from_claude_input(args, verdict.updated_input)
     return ToolGate(arguments, permission=verdict.permission)
 
@@ -130,6 +144,8 @@ async def post_tool_use(
     event = HookEvent.POST_TOOL_USE if ok else HookEvent.POST_TOOL_USE_FAILURE
     fields = dict(tool_hook_fields(tool_name, args, call_id))
     clipped = output[:HOOK_TOOL_OUTPUT_CHARS]
+    if _records_tools(deps):
+        session.record_tool_result(call_id, clipped, is_error=not ok)
     if ok:
         fields["tool_response"] = {"output": clipped, "success": True}
     else:

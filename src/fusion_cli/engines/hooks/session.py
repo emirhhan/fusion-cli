@@ -75,6 +75,23 @@ class HookSession:
         if transcript is not None and text.strip() and self.current().commands:
             transcript.append(role, text, self.session_id)
 
+    def record_tool_use(
+        self, name: str, tool_input: Mapping[str, object], tool_use_id: str
+    ) -> None:
+        transcript = self._recording()
+        if transcript is not None:
+            transcript.append_tool_use(name, tool_input, tool_use_id, self.session_id)
+
+    def record_tool_result(self, tool_use_id: str, output: str, *, is_error: bool) -> None:
+        transcript = self._recording()
+        if transcript is not None:
+            transcript.append_tool_result(tool_use_id, output, self.session_id, is_error=is_error)
+
+    def _recording(self) -> HookTranscript | None:
+        """Döküm yalnız tanımlı kanca varken yazılır."""
+        transcript = self.transcript()
+        return transcript if transcript is not None and self.current().commands else None
+
     def refresh(self) -> HookSet:
         """Tanımları yeniden oku (kök tur başı)."""
         self.hooks = self.loader()

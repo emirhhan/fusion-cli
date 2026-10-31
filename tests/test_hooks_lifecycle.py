@@ -43,6 +43,10 @@ def _yukler(tmp_path: Path, event: HookEvent) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
+def _metin(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
 def _oturum(tmp_path: Path, *commands: HookCommand) -> HookSession:
     return HookSession(root=tmp_path, loader=lambda: HookSet(tuple(commands)))
 
@@ -209,3 +213,32 @@ async def test_bosta_gozcusu_notification_idle_prompt_kancasini_calistirir(tmp_p
     assert [(y["notification_type"], y["message"]) for y in yukler] == [
         ("idle_prompt", "Fusion girdini bekliyor")
     ]
+
+
+# --- transcript_path dökümünde araç çağrıları ------------------------------------- #
+
+
+async def test_dokum_ana_ajanin_arac_cagrilarini_claude_bicimiyle_tasir(tmp_path, monkeypatch):
+    from .test_hooks_loop import _tur, _yaz
+
+    session = HookSession(
+        root=tmp_path,
+        loader=lambda: HookSet((_kayit_kancasi(tmp_path, HookEvent.STOP),)),
+        transcript_dir=tmp_path / "dokum",
+    )
+    await _tur(monkeypatch, tmp_path, _yaz("a.txt", "token=sk-ant-api03-" + "x" * 40), session)
+
+    yol = Path(_yukler(tmp_path, HookEvent.STOP)[0]["transcript_path"])
+    satirlar = [json.loads(line) for line in _metin(yol).splitlines()]
+    bloklar = [(s["type"], s["message"]["content"][0]) for s in satirlar]
+    assert [(rol, blok["type"]) for rol, blok in bloklar] == [
+        ("user", "text"),
+        ("assistant", "tool_use"),
+        ("user", "tool_result"),
+        ("assistant", "text"),
+    ]
+    kullanim, sonuc = bloklar[1][1], bloklar[2][1]
+    assert kullanim["name"] == "Write" and kullanim["input"]["path"] == "a.txt"
+    assert sonuc["tool_use_id"] == kullanim["id"] and sonuc["is_error"] is False
+    # Sırlar dökümde maskeli.
+    assert "sk-ant-api03-" + "x" * 40 not in _metin(yol)
