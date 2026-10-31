@@ -401,6 +401,11 @@ runtime:
   workflow_max_model_calls: 12
   # Plan kipinde biten turun planı plans/<sohbet>.md dosyasına yazılır (/plan goster, /plan ac).
   plan_files: true
+  # /goal <koşul>: her tur sonunda hakem modeli koşulu değerlendirir; "henüz değil" ise
+  # tur kendiliğinden sürer. Uzun koşu bu kadar dakikada bir durup danışır (/goal devam;
+  # aralık her seferinde ikiye katlanır; 0 = danışma yok). Otomatik tur tavanı ayrıca var.
+  goal_checkin_minutes: 30
+  goal_max_turns: 20
   # Profesyonel yürütmenin bağımsız çağrı zarfları. Bir adımın taşması planlama veya
   # final doğrulama hakkını tüketmez; sınır aşımında checkpoint alınarak duraklanır.
   workflow_planning_calls: 2

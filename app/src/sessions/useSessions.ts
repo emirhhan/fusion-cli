@@ -1,4 +1,5 @@
 import { historyMessages } from "./history";
+import { decodeGoalResult } from "../goal/goalResult";
 import { deleteSubmissions, moveSubmissions, loadSubmissions, saveSubmission, updateSubmission } from "./submissionPersistence";
 import { decodeDeliveryEvidence } from "../protocol/deliveryEvidence";
 import { nextAttemptTurnId, normalizeSubmissionReceipt, type SubmissionReceipt } from "./submission";
@@ -632,6 +633,12 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         const hata = result.ok === false ? { hata: true } : {};
         const delivery = decodeDeliveryEvidence(result.kanit);
         if (text || delivery) dispatch({ type: "messageAdded", id, message: { id: `${requestId}:assistant`, submissionId: requestId, rol: "asistan", metin: text, ...(delivery ? {delivery} : {}), ...hata } });
+        // `/goal` (P-058): karar ara not olur; "henüz değil" ise devam turu sıraya girer.
+        const hedef = decodeGoalResult(result);
+        if (hedef) {
+          dispatch({ type: "messageAdded", id, message: { rol: "asistan", metin: hedef.metin, ara: true } });
+          if (hedef.devam) send(id, hedef.devam, [], false);
+        }
       })
       .catch((reason) => {
         if (attempts.current.get(id) !== requestId || generations.current.get(id) !== generation) return;

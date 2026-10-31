@@ -18,9 +18,14 @@ from ...core.session_cron import MAX_AGE_S, SessionCron
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
-def store_path(memory_dir: Path, conversation_id: str) -> Path:
+def conversation_file(memory_dir: Path, folder: str, conversation_id: str) -> Path:
+    """Sohbete bağlı kayıt dosyası; kimlik dosya adına güvenli biçimde indirgenir."""
     stem = _UNSAFE.sub("_", conversation_id).strip("._") or "oturum"
-    return memory_dir / "oturum-cron" / f"{stem}.json"
+    return memory_dir / folder / f"{stem}.json"
+
+
+def store_path(memory_dir: Path, conversation_id: str) -> Path:
+    return conversation_file(memory_dir, "oturum-cron", conversation_id)
 
 
 def load(memory_dir: Path, conversation_id: str) -> SessionCron:

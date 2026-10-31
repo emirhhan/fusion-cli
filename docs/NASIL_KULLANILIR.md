@@ -853,6 +853,7 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `/rename <ad>` · `/branch` | Sohbete ad ver · dallandır |
 | `fusion -w <ad>` · `/worktree <ad>` | İzole git çalışma ağacında çalış |
 | `/cd <yol>` | Oturumu başka klasöre taşı (konuşma sürer) |
+| `/goal <koşul>` · `/goal durum` · `/goal devam` · `/goal clear` | Koşul karşılanana kadar turları kendiliğinden sürdür |
 | `/verify` | Test/lint çalıştır |
 | `/review` (`/code-review`) · `/simplify` | Değişen kodu incele / sadeleştir (hata avı değil) |
 | `/security-review [yol]` | Değişiklikleri OWASP başlıklarıyla tara; kod değiştirmez |
@@ -974,3 +975,29 @@ sekmenin kökünü taşır (tur sürerken reddedilir).
 - İzin kuralı: `"deny": ["Cd(//etc/**)"]` o dizinlere geçişi engeller (glob kuralı `Edit` ile aynı).
 - Model sonraki turda "çalışma dizini değişti" notunu görür. Proje `config.yaml` ve `.mcp.json`
   açılıştaki dizinden okunmuştu, `/cd` bunları yeniden yüklemez. `/loop` ile `/cd` zamanlanamaz.
+
+## Turlar arası hedef: `/goal`
+
+Claude Code / Codex `/goal` karşılığı. `/goal tüm testler geçiyor ve lint temiz` hedefi kurar
+ve ilk turu hedef kipinde (pes etmeyen istem, 100 adım) başlatır. Her tur bitince hakem rolünün
+modeli (`judge`, ucuz rol) son konuşmaya bakıp karar verir:
+
+- **Henüz değil** → gerekçesiyle yeni bir devam turu kendiliğinden başlar.
+- **Tamam** → `✓ Hedef karşılandı` yazılır, hedef kapanır.
+- **İmkânsız** → `✗ Hedef karşılanamıyor: <neden>` yazılır, hedef kapanır.
+
+Duraklama ve sınırlar (`/goal devam` sürdürür, `/goal clear` bırakır):
+
+- **Danışma**: koşu `runtime.goal_checkin_minutes` (varsayılan 30) dakikayı aşınca durur ve
+  durumu söyler; her `/goal devam` aralığı ikiye katlar (30 → 60 → 120). `0` danışmayı kapatır.
+- **Tur tavanı**: kullanıcı yazmadan en çok `runtime.goal_max_turns` (varsayılan 20) devam turu.
+- **Belirsiz karar**: değerlendirici yanıt vermezse otomatik devam durur (kota yakmaz).
+- Ctrl-C / Esc / masaüstünde Durdur turu ya da değerlendirmeyi keser; hedef etkin kalır.
+  Kullanıcının sırada mesajı varsa (TUI) devam turu ona yol verir; kullanıcı turları da
+  değerlendirilir.
+
+Argümansız `/goal` durumu (değerlendirme, otomatik tur, son karar) yazar. Hedef sohbete bağlı
+kaydedilir (`memory_dir/oturum-hedef/<sohbet>.json`): `fusion --resume` ve masaüstü sekmesi
+yeniden açılınca geri gelir. Masaüstünde karar sohbete ara not olarak düşer ve devam turu kendi
+cevabıyla görünür. Uzaktan (PWA/Telegram) istemciler kararı görür ama devam turunu kendileri
+başlatmaz.

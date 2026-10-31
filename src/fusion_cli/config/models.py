@@ -171,6 +171,11 @@ class RuntimeConfig:
     #: Plan kipinde biten turun planı `plans/<sohbet>.md` dosyasına yazılır ve
     #: `PlanDrafted` yayınlanır (P-025). Kapalıyken plan yalnız sohbette kalır.
     plan_files: bool = True
+    #: `/goal` (P-058): uzun koşu kaç dakikada bir durup kullanıcıya danışır; her
+    #: `/goal devam` ile aralık ikiye katlanır. 0 = danışma yok (yalnız tur tavanı).
+    goal_checkin_minutes: int = 30
+    #: `/goal` kullanıcı yazmadan en çok kaç devam turu başlatır (kota/kaçak döngü sınırı).
+    goal_max_turns: int = 20
     #: Her plan adımının bağımsız model çağrısı zarfı.
     #
     # Bir adım TEK bir alt-tur olarak çalışır ve o alt-tur kendi tur sınırına

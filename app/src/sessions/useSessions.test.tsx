@@ -411,6 +411,32 @@ describe("useSessions", () => {
     )).toBe(false);
   });
 
+  it("/goal henüz karşılanmadıysa devam turunu kullanıcı mesajı yazmadan sürer (P-058)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+
+    act(() => { result.current.send("varsayilan", "testleri düzelt"); });
+    await waitFor(() => expect(fake.sent.map((item) => JSON.parse(item.line).ad)).toContain("tur.calistir"));
+    const ilk = fake.sent.map((item) => JSON.parse(item.line)).find((item) => item.ad === "tur.calistir");
+    act(() => fake.emitResult("varsayilan", ilk.id, {
+      ok: true,
+      metin: "bir test kaldı",
+      hedef: { eylem: "devam", metin: "◎ Hedef henüz karşılanmadı — bir test kırık · sürdürülüyor (1/20)" },
+      hedef_devam: "Hedef henüz karşılanmadı. Sürdür.",
+    }));
+
+    await waitFor(() => expect(
+      fake.sent.map((item) => JSON.parse(item.line)).filter((item) => item.ad === "tur.calistir"),
+    ).toHaveLength(2));
+    const ikinci = fake.sent.map((item) => JSON.parse(item.line)).filter((item) => item.ad === "tur.calistir")[1];
+    expect(ikinci.veri.gorev).toBe("Hedef henüz karşılanmadı. Sürdür.");
+    const mesajlar = result.current.state.sessions.varsayilan.messages;
+    expect(mesajlar.filter((message) => message.rol === "kullanici").map((message) => message.metin))
+      .toEqual(["testleri düzelt"]);
+    expect(mesajlar.some((message) => message.ara && message.metin.startsWith("◎ Hedef"))).toBe(true);
+  });
+
   it("/btw yan sorusu için ara komut mesajı göstermez", async () => {
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));

@@ -20,6 +20,7 @@ from ...core.changeset import ChangeSet
 from ...core.health import HealthRegistry
 from ...core.remotion_browser import RemotionBrowser
 from ...core.session_cron import SessionCron
+from ...core.session_goal import SessionGoal
 from ...core.turn_checkpoints import TurnCheckpointLedger
 from ...core.types import FusionResult, Message
 from ...core.worktree import Worktree
@@ -225,6 +226,8 @@ class ReplState:
     reminders: list[Reminder] = field(default_factory=list)
     #: Oturum zamanlayıcısı: `/loop` ve `cron_*` araçlarının görevleri (P-038).
     cron: SessionCron = field(default_factory=SessionCron)
+    #: `/goal <koşul>` ile kurulan turlar arası hedef (P-058); yoksa None.
+    goal: SessionGoal | None = None
     #: Devralınan oturumun künyesi. Bir sonraki turda sistem bağlamına eklenir.
     pending_digest: str | None = None
 

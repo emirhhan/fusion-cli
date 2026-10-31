@@ -38,6 +38,8 @@ from ..rule_notices import print_rule_notices
 from ..session import run_agent_task, run_task
 from . import (
     cron_store,
+    goal_flow,
+    goal_store,
     help_view,
     history_view,
     macros,
@@ -423,6 +425,7 @@ class _TuiSession:
                 for mention_note in apply_mentions(line, self._state):
                     self._echo(f"[{theme.DIM}]{escape(mention_note)}[/{theme.DIM}]")
                 await self._turn(line)
+                await self._continue_goal()
                 await self._offer_plan_card()
                 await self._refresh_custom_status()
         except asyncio.CancelledError:
@@ -579,7 +582,37 @@ class _TuiSession:
         pending, mode = self._state.take_pending()
         if pending:
             await self._turn(pending, mode=mode)
+            await self._continue_goal()
             await self._offer_plan_card()
+
+    async def _continue_goal(self) -> None:
+        """`/goal` etkinse turu değerlendir, gerekiyorsa hedef kipinde sürdür (P-058).
+
+        Esc/Ctrl-C `_handle` görevini iptal eder; değerlendirme de devam turu da kesilir,
+        hedef etkin kalır. Kullanıcının sırada mesajı varsa devam turu ona yol verir.
+        """
+        goal = self._state.goal
+        if goal is None or not goal.is_active:
+            return
+
+        async def run(prompt: str) -> bool:
+            self._transcript_store.record_user(prompt)
+            await self._turn(prompt, mode=macros.Mode.GOAL)
+            return True
+
+        def say(text: str) -> None:
+            self._echo(f"[{theme.ACCENT}]{escape(text)}[/{theme.ACCENT}]")
+
+        self._echo(f"[{theme.DIM}]{messages.GOAL_JUDGING}[/{theme.DIM}]")
+        usage_log = self._state.usage_log
+        sinks = (self._state.cost, *((usage_log,) if usage_log is not None else ()))
+        await goal_flow.drive_goal(
+            self._state,
+            run,
+            say,
+            should_yield=lambda: bool(self._queue),
+            publisher=goal_flow.SinkPublisher(sinks),
+        )
 
     async def _offer_plan_card(self) -> None:
         """Plan kipinde biten turun kabul kartı; kabulde uygulama turu hemen başlar (P-025).
@@ -919,6 +952,8 @@ async def run_tui_repl(
     """Ink-benzeri tek yol REPL'i çalıştır. Çıkış kodunu döndürür."""
     session = _TuiSession(state)
     state.cron = cron_store.load(state.config.memory_dir, state.conversation_id)
+    # `--resume` ile açılan sohbetin hedefi geri gelir (P-058).
+    state.goal = goal_store.load(state.config.memory_dir, state.conversation_id)
     # Gözcü ayrı sahipli görevdir (bkz. loop.run_repl): drain onu beklemesin.
     cron_watcher = asyncio.ensure_future(session._cron_watcher())
     # Açılış kutusu konuşma alanına yazılır (tam-ekranda üstte durur).

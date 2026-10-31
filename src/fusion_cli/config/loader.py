@@ -314,9 +314,12 @@ def _build_runtime(raw: object) -> RuntimeConfig:
         "repo_map_chars",
         "instruction_max_chars",
         "skill_index_chars",
+        "goal_checkin_minutes",
     ):
         if getattr(runtime, name) < 0:
             raise ConfigError(f"runtime.{name}: negatif olamaz.")
+    if runtime.goal_max_turns < 1:
+        raise ConfigError("runtime.goal_max_turns: en az 1 olmalı.")
     if runtime.desktop_screenshot_max_width < 256:
         raise ConfigError("runtime.desktop_screenshot_max_width: en az 256 piksel olmalı.")
     if runtime.escalation_model.strip() and "/" not in runtime.escalation_model:

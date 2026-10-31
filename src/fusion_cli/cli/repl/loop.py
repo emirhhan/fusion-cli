@@ -21,9 +21,9 @@ import os
 import signal
 import sys
 import time
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from rich.console import Console
 from rich.markup import escape
@@ -45,6 +45,7 @@ from ...core.changeset import ChangeSet
 from ...core.concurrency import BackgroundTasks
 from ...core.events import (
     ErrorOccurred,
+    EventPublisher,
     FilesChanged,
     FollowupsSuggested,
     NoFileChanges,
@@ -52,10 +53,12 @@ from ...core.events import (
 )
 from ...core.followups import suggest_followups
 from ...core.session_cron import Source
+from ...core.session_goal import GoalVerdict
 from ...core.tools import ToolContext
-from ...core.types import FusionResult
+from ...core.types import FusionResult, Message
 from ...core.worktree import Worktree
 from ...engines.agent.compaction import compress
+from ...engines.agent.goal_judge import GoalJudgement, judge_goal
 from ...engines.agent.turn_evidence import evidence_from_turn
 from ...memory.factory import Memory
 from ...observability.bus import EventBus
@@ -71,6 +74,8 @@ from ..prompter import ConsolePrompter
 from ..rule_notices import print_rule_notices
 from . import (
     cron_store,
+    goal_flow,
+    goal_store,
     help_view,
     history_view,
     macros,
@@ -97,6 +102,9 @@ from .partial_turn import PartialTurn
 from .persona_commands import persona_turn
 from .skill_commands import skill_prefix_to_slash
 from .state import Engine, Reminder, ReplState
+
+#: `_cancel_on_interrupt` her sonuç tipindeki görevi kesebilir (tur, hedef değerlendirmesi).
+ResultT = TypeVar("ResultT")
 
 #: Komut geçmişinin saklandığı dosya adı.
 HISTORY_FILE = "repl_history"
@@ -240,6 +248,8 @@ async def _run_surface(
         console.print()
     _sync_status_bar(reader, state, background)
     state.cron = cron_store.load(state.config.memory_dir, state.conversation_id)
+    # `--resume` ile açılan sohbetin hedefi geri gelir (P-058).
+    state.goal = goal_store.load(state.config.memory_dir, state.conversation_id)
     # Gözcü arka plan iş yöneticisine GİRMEZ: `drain()` onu da beklerdi ve EOF ile biten
     # oturum hiç kapanmazdı. Sahibi bu döngüdür; çıkışta iptal edilir.
     cron_watcher = asyncio.ensure_future(_cron_watcher(state, reader, console))
@@ -422,7 +432,8 @@ async def _handle(
         _arm_reminders(state, console, background)
         task, mode = state.take_pending()
         if task:
-            await _run_turn(task, state, console, background, mode=mode)
+            if await _run_turn(task, state, console, background, mode=mode):
+                await _continue_goal(state, console, background)
             await _offer_plan_card(state, console, background, reader)
             # Tur bir arka plan ders çıkarımı BAŞLATMIŞ olabilir; bir sonraki
             # istemde sayaç GÜNCEL görünsün (bkz. `_sync_status_bar`).
@@ -430,7 +441,8 @@ async def _handle(
         return
     for note in apply_mentions(line, state):
         console.print(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
-    await _run_turn(line, state, console, background)
+    if await _run_turn(line, state, console, background):
+        await _continue_goal(state, console, background)
     await _offer_plan_card(state, console, background, reader)
     _sync_status_bar(reader, state, background)
     # Kullanıcı betiği (P-069) tur sonunda bir kez çalışır; yerleşik satırın yerine geçer.
@@ -546,16 +558,53 @@ async def _run_turn(
     background: BackgroundTasks,
     *,
     mode: Mode = Mode.NONE,
-) -> None:
-    """Bir mesajı aktif motora gönder. Ctrl-C turu keser, REPL'den çıkmaz."""
+) -> bool:
+    """Bir mesajı aktif motora gönder. Ctrl-C turu keser, REPL'den çıkmaz.
+
+    Tur tamamlandıysa True, kullanıcı kestiyse False (hedef değerlendirmesi atlanır).
+    """
     apply_auto_profile(line, state, console)
     task = asyncio.ensure_future(_dispatch(line, state, console, background, mode))
+    completed = True
     with _cancel_on_interrupt(task):
         try:
             await task
         except asyncio.CancelledError:
+            completed = False
             console.print(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
     console.print()
+    return completed
+
+
+async def _continue_goal(state: ReplState, console: Console, background: BackgroundTasks) -> None:
+    """`/goal` etkinse turu değerlendir ve gerekiyorsa hedef kipinde sürdür (P-058)."""
+    if state.goal is None or not state.goal.is_active:
+        return
+
+    async def judge(
+        condition: str,
+        history: Sequence[Message],
+        config: Config,
+        publisher: EventPublisher | None,
+    ) -> GoalJudgement:
+        console.print(f"[{theme.DIM}]{messages.GOAL_JUDGING}[/{theme.DIM}]")
+        task = asyncio.ensure_future(judge_goal(condition, history, config, publisher))
+        with _cancel_on_interrupt(task):
+            try:
+                return await task
+            except asyncio.CancelledError:
+                return GoalJudgement(GoalVerdict.UNKNOWN, messages.REPL_TURN_CANCELLED)
+
+    async def run(prompt: str) -> bool:
+        return await _run_turn(prompt, state, console, background, mode=Mode.GOAL)
+
+    def say(text: str) -> None:
+        console.print(f"[{theme.ACCENT}]{escape(text)}[/{theme.ACCENT}]", highlight=False)
+
+    sinks = (state.cost, *((state.usage_log,) if state.usage_log else ()))
+    await goal_flow.drive_goal(
+        state, run, say, judge=judge, publisher=goal_flow.SinkPublisher(sinks)
+    )
 
 
 async def _dispatch(
@@ -865,7 +914,7 @@ async def compact_history(state: ReplState) -> str:
 
 
 @contextlib.contextmanager
-def _cancel_on_interrupt(task: asyncio.Future[None]) -> Iterator[None]:
+def _cancel_on_interrupt(task: asyncio.Future[ResultT]) -> Iterator[None]:
     """Ctrl-C çalışan turu iptal etsin, süreci sonlandırmasın.
 
     Sinyal işleyicisi kurulamayan platformlarda (Windows) sessizce geçilir; orada

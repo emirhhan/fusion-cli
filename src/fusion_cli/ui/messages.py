@@ -982,7 +982,7 @@ SKILLS_EMPTY = "Eşleşen skill bulunamadı."
 AGENTS_EMPTY = "Eşleşen uzman agent bulunamadı."
 CMD_LEVEL = "model kademesi seç: low (cirak) · medium · high · ultra · premium"
 CMD_DEVELOPMENT = "kaynak seçerek model değiştir (ücretsiz/ücretli katalog ya da özel alias)"
-CMD_GOAL = "hedef kipi: görev bitene kadar pes etme"
+CMD_GOAL = "turlar arası hedef: /goal <koşul> · durum · devam · clear"
 CMD_GRILL = "mülakat kipi: kod yazmadan önce gereksinimleri sor"
 CMD_BUG = "hata avı: bul, kök nedeni tespit et, düzelt, doğrula"
 CMD_COMMIT = "değişiklikleri incele ve conventional commit ile kaydet"
@@ -1439,4 +1439,68 @@ CD_CONTEXT_NOTE = (
     "dizinde çalışır; göreli yollar yeni köke göredir. Önceki mesajlardaki yollar eski "
     "dizine aittir.\n"
     "</calisma_dizini_degisti>"
+)
+
+# --- /goal (P-058) ---------------------------------------------------------- #
+GOAL_USAGE = "Kullanım: /goal <koşul> · /goal durum · /goal devam · /goal clear"
+GOAL_NONE = "Etkin hedef yok. Kurmak için: /goal <koşul>  (ör. /goal tüm testler geçiyor)"
+GOAL_SET = (
+    "🎯 Hedef kuruldu: {condition}\n"
+    "Her tur sonunda hakem modeli koşulu değerlendirir; karşılanana kadar tur kendiliğinden "
+    "sürer (en çok {max_turns} otomatik tur{checkin}). /goal durum · /goal clear"
+)
+GOAL_SET_CHECKIN = ", {minutes} dk'da bir danışma"
+GOAL_REPLACED = "Önceki hedef bırakıldı: {condition}"
+GOAL_CLEARED = "Hedef bırakıldı: {condition}"
+GOAL_RESUMED = "▶ Hedef sürdürülüyor: {condition}"
+GOAL_STATUS = (
+    "🎯 Hedef: {condition}\n"
+    "Durum: {status} · {evaluations} değerlendirme · {auto_turns} otomatik tur · {minutes} dk"
+)
+GOAL_STATUS_LAST = "Son karar: {verdict} — {reason}"
+GOAL_STATUS_ACTIVE = "etkin"
+GOAL_STATUS_PAUSED = "duraklatıldı ({reason})"
+GOAL_PAUSE_LABELS = {
+    "danisma": "danışma zamanı",
+    "tur_siniri": "otomatik tur sınırı",
+    "belirsiz_karar": "değerlendirici karar veremedi",
+}
+GOAL_VERDICT_LABELS = {
+    "henuz_degil": "henüz değil",
+    "tamam": "tamam",
+    "imkansiz": "imkânsız",
+    "belirsiz": "belirsiz",
+}
+GOAL_JUDGING = "hedef değerlendiriliyor…"
+GOAL_STOPPED = (
+    "Hedef değerlendirmesi durduruldu; hedef etkin. Sürdürmek için yeni mesaj ya da /goal devam."
+)
+GOAL_CONTINUE = "◎ Hedef henüz karşılanmadı — {reason} · sürdürülüyor ({n}/{max_turns})"
+GOAL_MET = "✓ Hedef karşılandı: {condition}{reason}"
+GOAL_IMPOSSIBLE = (
+    "✗ Hedef karşılanamıyor{reason}. Hedef kapatıldı; koşulu değiştirip yeniden kurabilirsin."
+)
+GOAL_PAUSED_CHECKIN = (
+    "⏸ Hedef {minutes} dk'dır sürüyor ({evaluations} değerlendirme). Son durum: {reason}\n"
+    "Sürdürmek için /goal devam, bırakmak için /goal clear."
+)
+GOAL_PAUSED_LIMIT = (
+    "⏸ Otomatik tur sınırına ({max_turns}) ulaşıldı. Son durum: {reason}\n"
+    "Sürdürmek için /goal devam (sayaç sıfırlanır), bırakmak için /goal clear. "
+    "Sınır: runtime.goal_max_turns"
+)
+GOAL_PAUSED_UNKNOWN = (
+    "⏸ Değerlendirici karar veremedi ({reason}); otomatik devam durdu. "
+    "/goal devam ile yeniden dene."
+)
+GOAL_WAITING_USER = "Sırada mesajın var; hedef onu bekliyor (turdan sonra yeniden değerlendirilir)."
+GOAL_CONTINUE_TASK = (
+    "Hedef henüz karşılanmadı. Değerlendirici: {reason}\n"
+    "Hedef koşulu: {condition}\n"
+    "Kaldığın yerden sürdür. Koşul karşılanınca kanıtıyla (komut çıktısı, test sonucu) "
+    "kısaca bildir; karşılanamıyorsa nedenini açıkça söyle."
+)
+GOAL_RESUME_TASK = (
+    "Hedefe dönülüyor. Hedef koşulu: {condition}\n"
+    "Son değerlendirme: {reason}\nKaldığın yerden sürdür."
 )

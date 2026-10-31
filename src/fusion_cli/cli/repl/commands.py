@@ -33,6 +33,7 @@ from ...ui.picker import Choice, pick
 from . import (
     config_command,
     export_commands,
+    goal_command,
     keybinding_commands,
     loop_command,
     macros,
@@ -1062,6 +1063,15 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         group="Bilgi",
     ),
     SlashCommand("agents", messages.CMD_AGENTS, _agents, group="Bilgi", usage="[arama]"),
+    # `/goal <koşul>` (P-058): ilk turu hedef makrosu hazırlar; turlar arası değerlendirme
+    # `goal_flow`'dadır. Argümansız `/goal` durumu söyler (Claude Code ile aynı).
+    SlashCommand(
+        "goal",
+        messages.CMD_GOAL,
+        goal_command.goal_handler(_macro("goal")),
+        group="Makro",
+        usage="<koşul> | durum | devam | clear",
+    ),
     *(
         SlashCommand(
             name,
@@ -1072,7 +1082,6 @@ _COMMANDS: tuple[SlashCommand, ...] = (
             usage="<görev>" if macros.MACROS[name].argument_required else "[görev]",
         )
         for name, summary, aliases in (
-            ("goal", messages.CMD_GOAL, ()),
             ("grill-me", messages.CMD_GRILL, ()),
             ("bug", messages.CMD_BUG, ()),
             ("commit", messages.CMD_COMMIT, ()),

@@ -91,9 +91,11 @@ MODE_PROMPTS = {Mode.GOAL: GOAL_PROMPT, Mode.GRILL: GRILL_PROMPT}
 MODE_STEP_LIMITS = {Mode.GOAL: 100}
 
 MACROS: dict[str, Macro] = {
+    # `/goal <koşul>` ilk turu; argümansız `/goal` durum gösterir (`goal_command`, P-058).
     "goal": Macro(
-        task="Proje hedefini belirle ve tamamla.",
+        task="",
         mode=Mode.GOAL,
+        argument_required=True,
     ),
     "grill-me": Macro(
         task="",

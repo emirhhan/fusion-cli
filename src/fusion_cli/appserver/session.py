@@ -34,7 +34,7 @@ from itertools import count
 from pathlib import Path
 from typing import Any
 
-from ..cli.repl import cron_store, macros, worktrees
+from ..cli.repl import cron_store, goal_flow, goal_store, macros, worktrees
 from ..cli.repl.commands import attach_skill_commands, build_registry, renders_itself
 from ..cli.repl.persona_commands import persona_turn, resolve_session_persona
 from ..cli.repl.skill_commands import GROUP as SKILL_GROUP
@@ -623,6 +623,8 @@ class AppSession:
         self._turn_settled.set()
         #: Bir makronun (`/goal` …) bir SONRAKİ tura taşıyacağı davranış kipi.
         self._next_turn_mode = macros.Mode.NONE
+        #: Tur sonu `/goal` değerlendirmesi (P-058); `tur.kes` onu da durdurur.
+        self._goal_task: asyncio.Task[goal_flow.GoalOutcome | None] | None = None
         #: Seçilen beceri `context: fork` istedi (P-054): sonraki tur fork alt ajanda koşar.
         self._fork_requested = False
 
@@ -1438,6 +1440,10 @@ class AppSession:
             direct.pop("_cancelled", None)  # makbuzsuz yolda iç işaret tele çıkmaz
             return direct
         if request.name == "tur.kes":
+            if self._goal_task is not None and not self._goal_task.done():
+                # Tur bitti, hedef değerlendiriliyor: Durdur devam zincirini keser.
+                self._goal_task.cancel()
+                return {"ok": True, "state": "stopping", "metin": messages.GOAL_STOPPED}
             if "turnId" in request.data and request.data["turnId"] != self._steering_turn:
                 return {"ok": False, "metin": "Durdurma isteği etkin görevle eşleşmiyor."}
             return self._cancel_turn()
@@ -1597,6 +1603,10 @@ class AppSession:
         # Slash komutları (`/rename`) ve tur checkpoint'leri sekmenin kimliğini görsün;
         # yoksa `ReplState` açılışta ürettiği rastgele kimlikte kalırdı.
         self._state.conversation_id = self._transcript_store.session_id
+        # Sekmenin `/goal` hedefi sohbetle birlikte geri gelir (P-058).
+        self._state.goal = goal_store.load(
+            self._state.config.memory_dir, self._state.conversation_id
+        )
         # Başka sekmenin tur kayıtları bu konuşmaya ait değildir.
         self._state.checkpoints.clear()
         self._restore_interrupted_turn()
@@ -3027,9 +3037,15 @@ class AppSession:
                 continued["_retry_safe"] = False
             return {**root_payload, **continued}
         self._cron_save()
+        goal_payload = await self._evaluate_goal(sink)
         if switched:
             metin = f"{metin}\n\n{switched}".strip()
-        cevap: dict[str, Any] = {"ok": outcome.ok, "metin": metin, **root_payload}
+        cevap: dict[str, Any] = {
+            "ok": outcome.ok,
+            "metin": metin,
+            **root_payload,
+            **goal_payload,
+        }
         if receipt is not None:
             cevap["_retry_safe"] = (
                 getattr(outcome, "tool_calls_made", None) == 0
@@ -3042,6 +3058,33 @@ class AppSession:
         for notice in self._state.approval_memory.take_notices():
             self._note_persist_warning(messages.PERMISSION_RULE_SAVED.format(summary=notice))
         return {**cevap, **self._take_persist_warning()}
+
+    async def _evaluate_goal(self, sink: EventSink) -> dict[str, Any]:
+        """`/goal` etkinse turu değerlendir (P-058); sonuç `hedef`/`hedef_devam` alanlarıdır.
+
+        Devam turunu arayüz gönderir (`hedef_devam`): her tur sohbette ayrı cevap olarak
+        görünür ve Durdur düğmesi zinciri keser. Devam turu hedef kipinde koşar.
+        """
+        if self._state.goal is None or not self._state.goal.is_active:
+            return {}
+        sink.handle(StatusChanged(messages.GOAL_JUDGING))
+        task = asyncio.ensure_future(
+            goal_flow.evaluate_goal(self._state, publisher=goal_flow.SinkPublisher((sink,)))
+        )
+        self._goal_task = task
+        try:
+            outcome = await task
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if current is not None and current.cancelling():
+                raise
+            # Kullanıcı Durdur'a bastı: hedef etkin kalır, devam turu üretilmez.
+            return {"hedef": {"eylem": "durduruldu", "metin": messages.GOAL_STOPPED}}
+        finally:
+            self._goal_task = None
+        if outcome is not None and outcome.next_prompt is not None:
+            self._next_turn_mode = macros.Mode.GOAL
+        return goal_flow.wire_payload(outcome, self._state)
 
     def _refresh_capabilities(self) -> None:
         # Kalıcı `capabilities.disabled` + oturumluk kapatmalar birlikte; ek kökler (P-051/052).

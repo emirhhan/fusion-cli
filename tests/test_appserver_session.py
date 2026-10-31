@@ -1482,8 +1482,15 @@ async def test_goal_makrosu_gorevi_dondurur_ve_sonraki_tura_hedef_kipini_tasir(
     tmp_path, monkeypatch
 ):
     """`/goal` masaüstünde "çalıştırılıyor…" deyip hiçbir turu başlatmıyordu."""
-    from fusion_cli.cli.repl import macros
+    from fusion_cli.cli.repl import goal_flow, macros
+    from fusion_cli.core.session_goal import GoalVerdict
+    from fusion_cli.engines.agent.goal_judge import GoalJudgement
 
+    async def _karsilandi(*_args):
+        return GoalJudgement(GoalVerdict.MET, "bitti")
+
+    # Tur sonu hedef değerlendirmesi (P-058) gerçek hakem modeline gitmesin.
+    monkeypatch.setattr(goal_flow, "judge_goal", _karsilandi)
     satirlar: list[str] = []
     oturum = _session(tmp_path, satirlar)
     olay = asyncio.Event()
