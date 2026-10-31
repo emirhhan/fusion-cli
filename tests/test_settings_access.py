@@ -116,3 +116,21 @@ def test_cli_config_get_set_list(tmp_path: Path, monkeypatch):
     assert yaml.safe_load(source.read_text(encoding="utf-8"))["runtime"]["max_tokens"] == 777
     liste = runner.invoke(app, ["config", "list", "runtime.max_tok"]).output
     assert "runtime.max_tokens = 777" in liste
+
+
+def test_cli_c_alt_komutlarda_da_uygulanir_ve_dosyaya_yazmaz(tmp_path: Path, monkeypatch):
+    """Ölçüldü (31 Ekim): `-c`/`--profile` yalnız argümansız `fusion`da uygulanıyor; alt komut
+    varsa (`fusion -c … run`) callback erken dönüyor ve bayrak sessizce yok sayılıyordu."""
+    source = tmp_path / "config.yaml"
+    source.write_text("runtime:\n  max_tokens: 4096\n", encoding="utf-8")
+    monkeypatch.setenv("FUSION_CONFIG", str(source))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runner = CliRunner()
+    sonuc = runner.invoke(
+        app, ["-c", "runtime.max_tokens=8192", "config", "get", "runtime.max_tokens"]
+    )
+    assert sonuc.exit_code == 0, sonuc.output
+    assert "8192" in sonuc.output
+    assert yaml.safe_load(source.read_text(encoding="utf-8"))["runtime"]["max_tokens"] == 4096
+    hata = runner.invoke(app, ["-c", "runtime.yok=1", "config", "get", "runtime.max_tokens"])
+    assert hata.exit_code == 2 and "4096" not in hata.output

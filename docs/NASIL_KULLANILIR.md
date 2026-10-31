@@ -330,7 +330,9 @@ Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtı
 fusion config list [süzgeç] · fusion config get <yol> · fusion config set <yol> <değer>
 fusion -c runtime.max_tokens=8192 -c runtime.lessons=false   # yalnız bu oturum
 fusion --profile high                                        # yalnız bu oturum kademe
+fusion -c runtime.max_tokens=8192 run "görev"                # alt komutlarda da geçerli
 ```
+`-c`/`--profile` REPL'in yanında `run`, `agent`, `serve`, `models`, `trace`, `mcp-tools` ve `config get/list/show` alt komutlarına da uygulanır (`config set` dosyaya yazar, oturumluk değeri almaz; `app`/`mcp` sunucuları yapılandırmayı kendileri yükler). Hatalı çift çıkış kodu 2 ile durdurur.
 Erişilebilen bölümler `runtime.*` ve `embedding.*`; tip dataclass alanından doğrulanır (boolean: true/false/açık/kapalı, liste: `a,b,c`, `null` anahtarı siler). Model rolleri için `/model`, `/level`, `/mode`.
 
 ### Çıktı stili: `/output-style`

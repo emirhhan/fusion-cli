@@ -115,14 +115,13 @@ def main_callback(
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
     if ctx.invoked_subcommand is not None:
+        # `-c`/`--profile` alt komutlarda da geçerlidir (Codex `-c … exec` gibi). Ölçüldü
+        # (31 Ekim): bayraklar burada sessizce yok sayılıyordu. Alt komutlar yapılandırmayı
+        # `_session_config()` ile alır. `ctx.meta` kullanılamadı: typer 0.27 komut gövdesinde
+        # `click.get_current_context()` None döner; `ctx.obj` masaüstü bağımlılıklarına ayrılı.
+        _SESSION.overrides = (tuple(config_set or ()), profile_name)
         return
-    config = load_config()
-    # `-c` ve `--profile` (P-029): yalnız bu oturum; kullanıcı dosyasına yazılmaz.
-    try:
-        config = _apply_session_overrides(config, tuple(config_set or ()), profile_name)
-    except ConfigError as error:
-        error_console.print(f"[{theme.ERROR}]{error}[/{theme.ERROR}]")
-        raise typer.Exit(2) from None
+    config = _session_config_or_exit(load_config(), tuple(config_set or ()), profile_name)
     # Kapı `evaluate` ile: yalnız Ollama/yerel uç ya da başka sağlayıcıyla çalışan kullanıcı,
     # OpenRouter/NIM anahtarı yok diye REPL'e hiç girememeliydi (L1-13). Anahtarsız VARSAYILAN
     # kurulumda agent rolü kullanılamaz, `NOT_READY` olur ve eski davranış korunur.
@@ -173,7 +172,7 @@ def run(
             messages.RUN_UNKNOWN_TASK_TYPE.format(given=task_type, valid=", ".join(TASK_TYPES))
         )
 
-    config = load_config()
+    config = _session_config()
     renderer = ConsoleRenderer(
         console, show_progress=not quiet, show_all_answers=show_all, show_call_details=True
     )
@@ -336,7 +335,7 @@ def agent(
         raise typer.BadParameter(messages.RUN_EMPTY_TASK)
     approval = _parse_mode(mode)
 
-    config = load_config()
+    config = _session_config()
     root = Path.cwd()
     renderer = ConsoleRenderer(console, show_progress=not quiet)
     observers = build_observers(
@@ -409,7 +408,7 @@ def models(
 ) -> None:
     """Yapılandırılmış modelleri, `--fetch` ile canlı katalogları göster."""
     if not fetch:
-        _print_configured_models(load_config())
+        _print_configured_models(_session_config())
         return
     load_config()  # .env yüklenir; NIM anahtarı katalog için gerekir
     _print_catalog()
@@ -454,7 +453,7 @@ def serve(
     """
     from ..gateway.server import serve as run_gateway
 
-    config = load_config()
+    config = _session_config()
     console.print(
         f"[bold]Fusion gateway[/bold] → http://{host}:{port}/v1\n"
         f"[dim]panel: [/dim]http://{host}:{port}/dashboard   "
@@ -683,7 +682,7 @@ def app_protocol(ctx: typer.Context) -> None:
 @app.command(name="mcp-tools")
 def mcp_tools() -> None:
     """Yapılandırılmış dış MCP sunucularının araçlarını listele (bağlanır ve keşfeder)."""
-    config = load_config()
+    config = _session_config()
     if not config.mcp_servers:
         console.print(messages.MCP_NO_SERVERS)
         return
@@ -764,7 +763,7 @@ def trace(
     from ..observability.trace_store import TraceStore
     from .trace_command import list_runs, render_trace
 
-    store = TraceStore(load_config().memory_dir / "traces")
+    store = TraceStore(_session_config().memory_dir / "traces")
     if liste:
         list_runs(store)
         return
@@ -775,6 +774,37 @@ def trace(
 def stats() -> None:
     """Model performans tablosu (`fusion memory stats` ile aynı)."""
     memory_commands.show_stats()
+
+
+class _SessionOverrides:
+    """`-c`/`--profile` değerlerinin callback'ten alt komuta taşındığı süreç kapsamlı taşıyıcı.
+
+    Her CLI çağrısı tek süreçtir; callback her seferinde yazar (bayrak yoksa boş), bu yüzden
+    aynı süreçte art arda çağrı (test koşucusu) eski değeri taşımaz.
+    """
+
+    overrides: tuple[tuple[str, ...], str | None] = ((), None)
+
+
+_SESSION = _SessionOverrides()
+
+
+def _session_config() -> Config:
+    """Alt komutun yapılandırması: dosya + varsa `-c`/`--profile` oturumluk geçersiz kılmaları."""
+    config = load_config()
+    pairs, tier = _SESSION.overrides
+    if not pairs and not tier:
+        return config
+    return _session_config_or_exit(config, pairs, tier)
+
+
+def _session_config_or_exit(config: Config, pairs: tuple[str, ...], tier: str | None) -> Config:
+    """Geçersiz kılmaları uygula; hatalı çift sessizce yutulmaz, çıkış kodu 2 (P-029)."""
+    try:
+        return _apply_session_overrides(config, pairs, tier)
+    except ConfigError as error:
+        error_console.print(f"[{theme.ERROR}]{error}[/{theme.ERROR}]")
+        raise typer.Exit(2) from None
 
 
 def _apply_session_overrides(config: Config, pairs: tuple[str, ...], tier: str | None) -> Config:
@@ -805,7 +835,7 @@ def version() -> None:
 @config_app.command("show")
 def config_show() -> None:
     """Birleştirilmiş yapılandırmayı göster (varsayılanlar + kullanıcı dosyası)."""
-    config = load_config()
+    config = _session_config()
     _print_config(config)
 
 
@@ -814,7 +844,7 @@ def config_get(path: str = typer.Argument(..., help="bölüm.alan — ör. runti
     """Tek bir ayarın etkin değerini yazdır (P-029)."""
     from ..config.settings_access import read_setting
 
-    console.print(read_setting(load_config(), path), highlight=False)
+    console.print(read_setting(_session_config(), path), highlight=False)
 
 
 @config_app.command("set")
@@ -839,7 +869,7 @@ def config_list(
     """Nokta yoluyla erişilebilen ayarları değer ve tipiyle listele (P-029)."""
     from ..config.settings_access import list_settings
 
-    for row in list_settings(load_config(), filter_text):
+    for row in list_settings(_session_config(), filter_text):
         console.print(f"{row.path} = {row.value}  ({row.kind})", highlight=False)
 
 
