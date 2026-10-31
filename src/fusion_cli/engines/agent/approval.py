@@ -15,19 +15,26 @@ motor hangi kipte olduğunu bilmez, yalnızca `decide` çağırır.
 Yıkıcı komut (`danger`) auto, edits ve security kiplerinde DAİMA sorulur ve oturum
 iznine dönüşmez: otomatik onay hız içindir, geri alınamaz bir işlemi sessizce
 yapmak için değil. Sade `rm` yıkıcı sayılmaz — çöpe gider ve geri alınır.
+
+İzin kuralları (P-001, `config/permission_rules.py`) kipten ÖNCE gelir ve karar sırası
+sabittir: deny (her kipte, bypass dahil; sorulmaz) → yıkıcı (sorulur) → ask (sorulur)
+→ allow (sorulmaz) → kip → hafıza → soru. Korumalı proje yolu (`.git/`, `.claude/`…)
+yıkıcı sayılır (P-002).
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Collection
-from dataclasses import dataclass
+from collections.abc import Callable, Collection
+from dataclasses import dataclass, replace
 from enum import Enum
 from hashlib import sha256
 from pathlib import Path
 from typing import Protocol
 
+from ...config.permission_rules import PermissionDecision, PermissionRuleSet
 from ...config.permissions import is_allowed
+from ...core.errors import ConfigError
 from ...core.tools import (
     AuthorizationScope,
     Tool,
@@ -38,11 +45,15 @@ from ...core.tools import (
     tool_family,
 )
 from ...tools.auto_policy import auto_risk, is_read_only_command
+from ...tools.command_paths import escapes_project
 from ...tools.command_policy import is_unattended_safe
 from ...tools.delete_preview import delete_caution, describe_delete, script_danger
+from ...tools.permission_match import RuleMatch, evaluate, writes_files
+from ...tools.protected_paths import protected_path_reason
 from ...tools.safe_delete import simple_rm_targets
 from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
 from ...tools.script_chain import script_chain_risk
+from ...tools.write_targets import write_targets
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
 REMOTE_DESTRUCTIVE_REASON = (
@@ -52,9 +63,6 @@ REMOTE_DESTRUCTIVE_REASON = (
 
 #: Uzak sistemde değişiklik yapan aracın otomatik kipte sorulma gerekçesi.
 REMOTE_WRITE_REASON = "uzak sistemde değişiklik yapıyor"
-
-#: Hedef yolu `path` argümanında taşıyan yerel dosya yazma araçları (A1-06).
-_PATH_WRITE_TOOLS = frozenset({"write_file", "edit_file", "multi_edit", "create_file"})
 
 #: Gözetimsiz ("Düzenlemeleri kabul et" kipinde sormadan) çalışabilecek etki sınıfları.
 _UNATTENDED_EFFECTS = frozenset(
@@ -132,6 +140,8 @@ class ApprovalAnswer(Enum):
 
     ONCE = "once"
     SESSION = "session"
+    #: Kalıcı kural: "bir daha sorma" (`permission_persist`); yalnız `can_persist` isteklerde.
+    ALWAYS = "always"
     DENY = "deny"
     #: Kimseye SORULAMADI (oturum etkileşimsiz — TTY yok, boru hattı, CI).
     #:
@@ -140,6 +150,30 @@ class ApprovalAnswer(Enum):
     #: insan turu durdurur; sorulamayan bir oturum turu SÜRDÜRÜR ve modele başka
     #: bir yol denemesi söylenir.
     UNAVAILABLE = "unavailable"
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalReply:
+    """Prompter'ın karar + isteğe bağlı kullanıcı notu cevabı (P-013).
+
+    Enum değerleri korunur: not istemeyen prompter'lar `ApprovalAnswer`/`bool` döndürmeye
+    devam eder. Ret notu modele araç sonucu olarak gider ve tur SÜRER; notsuz ret turu
+    durdurur (bkz. `denial.py`).
+    """
+
+    answer: ApprovalAnswer | bool
+    note: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class Denial:
+    """`decide` sonucu: kullanıcı GEREKÇEYLE reddetti; model gerekçeyi görüp yolunu değiştirir."""
+
+    note: str
+
+    @property
+    def decision(self) -> Decision:
+        return Decision.DENIED
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,11 +205,36 @@ class ApprovalRequest:
     #: Oturum izni bu dizine bağlanır: proje içi `write_file` izni `~/.zshrc`'yi
     #: kapsamaz (A1-06).
     outside_dir: str | None = None
+    #: `deny` kuralı ya da kök-dışı engel çağrıyı sorulmadan kapattıysa gerekçesi (P-001/P-002).
+    pre_denied: str | None = None
+    #: Bir `ask` kuralı eşleştiyse gerekçesi: kip ne olursa olsun sorulur.
+    pre_ask: str | None = None
+    #: Eşleşen izin kuralının yazımı (`Bash(npm run *)`); kartta gösterilir.
+    rule: str | None = None
 
     @property
     def can_remember(self) -> bool:
-        """Yalnız doğrulanmış dar kapsam oturum boyunca saklanır."""
-        return self.danger is None and _scope(self) is not None
+        """Yalnız doğrulanmış dar kapsam oturum boyunca saklanır.
+
+        `ask` kuralı eşleşen istek hatırlanmaz: kural "her zaman sor" der (Claude'da da
+        ask daima sorar). Ölçüldü (31 Ekim): kart 'bu oturumda tekrar sorma' sunuyor ve
+        ikinci `git push` sorulmadan geçiyordu.
+        """
+        return self.danger is None and self.pre_ask is None and _scope(self) is not None
+
+    @property
+    def can_persist(self) -> bool:
+        """ "Bir daha sorma" kalıcı kuralı sunulabilir mi? (P-003)
+
+        Yıkıcı, uzak ve `ask` kurallı istekte sunulmaz: yıkıcı işlem kalıcı izne dönüşmez,
+        uzak araç kapsamı dosyada ifade edilemez, `ask` kuralı zaten allow'dan üstündür.
+        """
+        return (
+            self.danger is None
+            and self.pre_ask is None
+            and self.effect is ToolEffect.LOCAL
+            and tool_family(self.tool.name) is not ToolFamily.EXTERNAL
+        )
 
     @property
     def remembered_scope_description(self) -> str | None:
@@ -200,13 +259,13 @@ class ApprovalRequest:
 class Prompter(Protocol):
     """Kullanıcıya evet/hayır sorabilen taraf. Motor terminali böyle görmez."""
 
-    async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer: ...
+    async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer | ApprovalReply: ...
 
 
 class ApprovalPolicy(Protocol):
     """Bir araç çağrısına izin verilip verilmeyeceğine karar verir."""
 
-    async def decide(self, request: ApprovalRequest) -> Decision: ...
+    async def decide(self, request: ApprovalRequest) -> Decision | Denial: ...
 
 
 class ApprovalMemory:
@@ -223,6 +282,15 @@ class ApprovalMemory:
     def __init__(self) -> None:
         self._scopes: set[str] = set()
         self.revision = 0
+        #: "Bir daha sorma" kararını kalıcı kurala yazan taraf (sahip bağlar; P-003).
+        #: Çağrı başarısızlığı `ConfigError` fırlatır; kullanıcıya `notices` ile söylenir.
+        self.rule_writer: Callable[[ApprovalRequest], str] | None = None
+        #: Kullanıcıya gösterilecek bekleyen bildirimler (kural yazıldı / yazılamadı).
+        self.notices: list[str] = []
+
+    def take_notices(self) -> list[str]:
+        notices, self.notices = self.notices, []
+        return notices
 
     def revoke(self) -> None:
         """Oturum izinlerini açıkça geri al."""
@@ -255,10 +323,17 @@ class _AskingApproval:
     def _allows(self, request: ApprovalRequest) -> bool:
         raise NotImplementedError
 
-    async def decide(self, request: ApprovalRequest) -> Decision:
-        if request.danger is None and (request.pre_allowed or self._allows(request)):
+    async def decide(self, request: ApprovalRequest) -> Decision | Denial:
+        if request.pre_denied is not None:
+            # `deny` kuralı / kök-dışı engel: kimseye sorulmaz, model gerekçeyi görür.
+            return Decision.BLOCKED
+        if (
+            request.danger is None
+            and request.pre_ask is None
+            and (request.pre_allowed or self._allows(request))
+        ):
             return Decision.ALLOW
-        if self._memory.is_remembered(request):
+        if request.pre_ask is None and self._memory.is_remembered(request):
             return Decision.ALLOW
         return await _ask_and_remember(self._prompter, request, self._memory)
 
@@ -302,8 +377,8 @@ class PlanApproval:
     tamamen kapalıydı ve model plan için `git log` bile çalıştıramıyordu.
     """
 
-    async def decide(self, request: ApprovalRequest) -> Decision:
-        if request.read_only and request.danger is None:
+    async def decide(self, request: ApprovalRequest) -> Decision | Denial:
+        if request.read_only and request.danger is None and request.pre_denied is None:
             return Decision.ALLOW
         return Decision.BLOCKED
 
@@ -314,7 +389,8 @@ class BypassApproval:
     TEK sert tavan (A1-08): uzak sistemde GERİ ALINAMAZ etki bildiren araç
     (`REMOTE_DESTRUCTIVE`: silme, yayınlama, harcama) bypass'ta bile her çağrıda son
     kez sorulur ve oturum iznine dönüşmez. Yerel komutlar (git push, sudo vb.)
-    kullanıcının bilinçli seçimi olarak serbest kalır.
+    kullanıcının bilinçli seçimi olarak serbest kalır. Kullanıcının kendi yazdığı
+    `deny` kuralı bypass'ta da geçerlidir (Claude: deny her kipte; P-001).
     """
 
     def __init__(
@@ -323,7 +399,9 @@ class BypassApproval:
         self._prompter = prompter
         self._memory = memory if memory is not None else ApprovalMemory()
 
-    async def decide(self, request: ApprovalRequest) -> Decision:
+    async def decide(self, request: ApprovalRequest) -> Decision | Denial:
+        if request.pre_denied is not None:
+            return Decision.BLOCKED
         if request.effect is not ToolEffect.REMOTE_DESTRUCTIVE or self._prompter is None:
             return Decision.ALLOW
         return await _ask_and_remember(self._prompter, request, self._memory)
@@ -355,6 +433,7 @@ async def resolve_request(
     *,
     root: Path | None = None,
     context: ToolContext | None = None,
+    rules: PermissionRuleSet | None = None,
 ) -> ApprovalRequest:
     """Onay isteğini, araç çağrı bazlı etki bildiriyorsa o etkiyle kur.
 
@@ -371,6 +450,7 @@ async def resolve_request(
         root=root,
         touched=touched,
         extra_roots=extra_roots,
+        rules=rules,
     )
 
 
@@ -383,23 +463,31 @@ def build_request(
     root: Path | None = None,
     touched: Collection[Path] = (),
     extra_roots: tuple[Path, ...] = (),
+    rules: PermissionRuleSet | None = None,
 ) -> ApprovalRequest:
     """Onay isteğini kur; yıkıcılık, risk ve izin listesi kontrolü burada yapılır.
 
     Uzak araçlar kabuk komutu gibi ele alınır: bir reklam MCP'sinin bütçe değiştiren
     aracı (REMOTE_WRITE) otomatik kipte sorulur; okuyan ve sayfayla etkileşen araç
-    sorulmaz.
+    sorulmaz. `rules` verilirse izin kuralları (P-001) ve kök-dışı engeller (P-002) uygulanır.
     """
     command = args.get("command")
     # Sınıflandırma TEK KAYNAKTAN (`core.tools.tool_family`) okunur: birebir ad
     # karşılaştırması `bash`/`shell`/`execute_command` takma adıyla çağrılan bir
     # kabuk komutunu kaçırır ve onun güvenlik/izin-listesi denetimini atlardı.
     effect = effect or tool.effect
+    match = evaluate(rules, tool.name, args, root) if rules is not None else None
     if tool_family(tool.name) is ToolFamily.SHELL and isinstance(command, str):
-        return _shell_request(tool, args, command, allowed_commands, effect, root, touched)
+        request = _shell_request(
+            tool, args, command, allowed_commands, effect, root, touched, rules=rules
+        )
+        return _apply_rule(request, match)
     danger = danger_reason(tool.name, args)
     if danger is None and effect is ToolEffect.REMOTE_DESTRUCTIVE:
         danger = REMOTE_DESTRUCTIVE_REASON
+    if danger is None:
+        # Korumalı proje yolu (`.git/`, `.claude/`…): her kipte sorulur, hatırlanmaz (P-002).
+        danger = protected_path_reason(tool.name, args, root)
     risk = None if effect in _UNATTENDED_EFFECTS else REMOTE_WRITE_REASON
     unattended_safe = effect in _UNATTENDED_EFFECTS
     # Yerel dosya aracı proje DIŞINA yazıyorsa risklidir (modül belgesi: "proje dışı
@@ -407,10 +495,15 @@ def build_request(
     # auto kipte sorulmuyor, "oturum boyunca" izni de araç adına bağlı olduğundan
     # sonraki her yolu kapsıyordu. Ölçüldü (29 Ekim, A1-06).
     outside_dir = _outside_write_dir(tool, args, root, extra_roots) if risk is None else None
+    pre_denied = None
     if outside_dir is not None:
-        risk = f"proje dışına yazıyor ({args.get('path')})"
+        hedef = next(iter(write_targets(tool.name, args)), args.get("path"))
+        risk = f"proje dışına yazıyor ({hedef})"
         unattended_safe = False
-    return ApprovalRequest(
+        if rules is not None and rules.block_writes_outside_root:
+            # Kapı kapalı: sormak anlamsız, model `--add-dir` ile açılabileceğini öğrenir.
+            pre_denied = OUTSIDE_WRITE_BLOCKED.format(yol=hedef)
+    request = ApprovalRequest(
         tool=tool,
         args=args,
         danger=danger,
@@ -421,18 +514,46 @@ def build_request(
         note=risk,
         authorization_scope=tool.scope_resolver(args) if tool.scope_resolver is not None else None,
         outside_dir=outside_dir,
+        pre_denied=pre_denied,
     )
+    return _apply_rule(request, match)
+
+
+#: Kök-dışı yazma engeli açıkken (P-002) modele dönen gerekçe.
+OUTSIDE_WRITE_BLOCKED = (
+    "proje kökü dışına yazma kapalı (ayar: runtime.block_writes_outside_root): {yol}. "
+    "Gerekiyorsa kullanıcı `--add-dir <dizin>` ile ya da Ayarlar › İzinler'den açar"
+)
+
+
+def _apply_rule(request: ApprovalRequest, match: RuleMatch | None) -> ApprovalRequest:
+    """Kural kararını isteğe işle: deny → pre_denied, ask → pre_ask, allow → pre_allowed."""
+    if match is None:
+        return request
+    pattern = match.rule.pattern
+    if match.decision is PermissionDecision.DENY:
+        reason = f"izin kuralı yasaklıyor: {pattern} ({match.rule.source or 'kural'})"
+        return replace(request, pre_denied=request.pre_denied or reason, rule=pattern)
+    if match.decision is PermissionDecision.ASK:
+        reason = f"izin kuralı her zaman sorulmasını istiyor: {pattern}"
+        return replace(request, pre_ask=reason, rule=pattern, note=request.note or reason)
+    return replace(request, pre_allowed=True, rule=pattern)
 
 
 def _outside_write_dir(
     tool: Tool, args: ToolArgs, root: Path | None, extra_roots: tuple[Path, ...]
 ) -> str | None:
-    """Dosya yazma aracının hedefi kök (+ `--add-dir`) dışındaysa hedefin dizini."""
-    raw = args.get("path")
-    if root is None or tool.name not in _PATH_WRITE_TOOLS or not isinstance(raw, str):
+    """Dosya yazma aracının hedefi kök (+ `--add-dir`) dışındaysa hedefin dizini.
+
+    Yazan araç listesi `write_targets` ile ortaktır (A1-06, P-002): `download_file`,
+    `extract_archive` ve görsel araçları da proje dışına yazıyorsa sorulur.
+    """
+    if root is None:
         return None
-    if not raw.strip():
+    targets = write_targets(tool.name, args)
+    if not targets:
         return None
+    raw = targets[0]
     try:
         path = Path(raw).expanduser()
         target = (path if path.is_absolute() else root / path).resolve()
@@ -453,8 +574,15 @@ def _shell_request(
     effect: ToolEffect,
     root: Path | None,
     touched: Collection[Path] = (),
+    *,
+    rules: PermissionRuleSet | None = None,
 ) -> ApprovalRequest:
-    """Kabuk komutunun onay isteği: kart komutu değil SONUCU göstermeli."""
+    """Kabuk komutunun onay isteği: kart komutu değil SONUCU göstermeli.
+
+    Kök-dışı yazma engeli (P-002) kabuk yönlendirmesini de kapatır: `echo x > ~/.zshrc`,
+    `| tee /etc/hosts`. Ölçüldü (31 Ekim): engel yalnız dosya araçlarında uygulanıyordu;
+    Ayarlar'daki "onay bile sorulmadan engellenir" sözü kabukta tutmuyordu.
+    """
     danger = danger_reason(tool.name, args)
     trashed = simple_rm_targets(command) is not None
     if trashed and danger in TRASHABLE_DELETE_REASONS:
@@ -463,6 +591,8 @@ def _shell_request(
     home = Path.home()
     if danger is None and root is not None:
         danger = script_danger(command, root, home)
+    if danger is None:
+        danger = protected_path_reason(tool.name, args, root, is_shell=True)
     caution = delete_caution(command, root, home) if root is not None else None
     target = describe_delete(command, root, home) if root is not None else ""
     chain = script_chain_risk(command, root, touched)
@@ -470,6 +600,11 @@ def _shell_request(
     if danger is not None and target:
         danger = f"{danger}. {target}"
     note = ". ".join(part for part in (risk, target) if part) or None
+    pre_denied = None
+    if rules is not None and rules.block_writes_outside_root and root is not None:
+        disari = _outside_write_targets(command, root)
+        if disari:
+            pre_denied = OUTSIDE_WRITE_BLOCKED.format(yol=disari[0])
     return ApprovalRequest(
         tool=tool,
         args=args,
@@ -481,6 +616,21 @@ def _shell_request(
         risk=risk,
         read_only=is_read_only_command(command),
         note=note,
+        pre_denied=pre_denied,
+    )
+
+
+def _outside_write_targets(command: str, root: Path) -> tuple[str, ...]:
+    """Komutun yönlendirme/`tee` ile proje kökü DIŞINA yazdığı hedefler.
+
+    Bilinmeyen değişken (`> $OUT`) dışarı sayılmaz (`auto_policy._outside` ile aynı kural);
+    `$HOME`/`~` ve mutlak/`..` yollar sayılır.
+    """
+    return tuple(
+        target
+        for target in writes_files(command)
+        if ("$" not in target or "$HOME" in target or "${HOME" in target)
+        and escapes_project("tee", [target], root)
     )
 
 
@@ -488,11 +638,24 @@ async def _ask_and_remember(
     prompter: Prompter,
     request: ApprovalRequest,
     memory: ApprovalMemory,
-) -> Decision:
+) -> Decision | Denial:
     revision = memory.revision
-    answer = await prompter.confirm(request)
+    reply = await prompter.confirm(request)
+    answer, note = (
+        (reply.answer, reply.note.strip()) if isinstance(reply, ApprovalReply) else (reply, "")
+    )
     if memory.revision != revision:
         return Decision.BLOCKED
+    if answer is ApprovalAnswer.ALWAYS:
+        # Kalıcı kural (P-003): bu oturumda da hatırlanır; dosyaya yazılamazsa izin
+        # yine verilir (kullanıcı evet dedi) ama kaydedilemediği söylenir.
+        memory.remember(request)
+        if request.can_persist and memory.rule_writer is not None:
+            try:
+                memory.notices.append(memory.rule_writer(request))
+            except ConfigError as error:
+                memory.notices.append(str(error))
+        return Decision.ALLOW
     if answer is ApprovalAnswer.SESSION:
         # Yıkıcı işlemler hiçbir zaman oturum iznine dönüşmez (`remember` bunu
         # uygular). UI bu seçeneği zaten göstermez; ikinci savunma hattı özel
@@ -507,6 +670,9 @@ async def _ask_and_remember(
         # turu durdurmaz; `DENIED` ise artık YALNIZCA gerçek bir insan reddini
         # taşır ve turu durdurur (bkz. `engines/agent/denial.py`, `loop._drive`).
         return Decision.BLOCKED
+    if note:
+        # Gerekçeli ret (P-013): model gerekçeyi araç sonucu olarak görür, tur sürer.
+        return Denial(note)
     return Decision.DENIED
 
 

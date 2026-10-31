@@ -155,6 +155,9 @@ _BOOLEAN_RUNTIME_FLAGS = (
     "playbooks",
     "verified_synthesis",
     "synthesis",
+    # Kök-dışı engel anahtarları (P-002); Ayarlar › İzinler ve `fusion permissions` yazar.
+    "block_reads_outside_root",
+    "block_writes_outside_root",
 )
 
 #: `workflow_mode` için kabul edilen değerler (bkz. `core.execution_mode.ExecutionMode`).
@@ -217,6 +220,29 @@ def _write_runtime_value(config: Config, key: str, value: str, path: Path | None
         updated = dict(runtime) if isinstance(runtime, dict) else {}
         updated[key] = value
         existing["runtime"] = updated
+        _atomic_write(target, existing)
+    return target
+
+
+def write_section_value(
+    config: Config, section: str, key: str, value: object, path: Path | None = None
+) -> Path:
+    """Bir bölümün (`runtime`, `embedding`) TEK anahtarını yaz; diğer ayarlar KORUNUR.
+
+    Genel yazıcı (P-029, `config/settings_access.py`): tip doğrulaması çağıranda
+    yapılır, burada yalnız dosya birleştirmesi vardır. `None` değer anahtarı siler
+    (yüklemede varsayılana dönülür).
+    """
+    target = path or _target_path(config)
+    with config_lock(target):
+        existing = _read_existing(target)
+        current = existing.get(section)
+        updated = dict(current) if isinstance(current, dict) else {}
+        if value is None:
+            updated.pop(key, None)
+        else:
+            updated[key] = value
+        existing[section] = updated
         _atomic_write(target, existing)
     return target
 

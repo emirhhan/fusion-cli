@@ -30,6 +30,7 @@ from . import (
     search,
     shell,
     web,
+    worktree_tools,
 )
 from .registry import ToolRegistry
 
@@ -703,6 +704,22 @@ _TOOLS: tuple[Tool, ...] = (
         description="Tarayıcıyı kapat. İşin bittiyse çağır; tur sonunda motor da kapatır.",
         parameters=_schema({}, []),
         run=browser.browser_close,
+    ),
+    Tool(
+        name="enter_worktree",
+        description="İzole git çalışma ağacı aç (.fusion/worktrees/<ad>, dal worktree-<ad>); "
+        "tur bitince oturum kökü oraya geçer. Ana proje değişmez.",
+        parameters=worktree_tools.ENTER_WORKTREE_SCHEMA,
+        run=worktree_tools.enter_worktree_tool,
+        mutating=True,
+    ),
+    Tool(
+        name="exit_worktree",
+        description="Çalışma ağacından ana depoya dön (tur bitince); temiz ağaç kaldırılır, "
+        "iş varsa korunur.",
+        parameters=worktree_tools.EXIT_WORKTREE_SCHEMA,
+        run=worktree_tools.exit_worktree_tool,
+        mutating=True,
     ),
 )
 

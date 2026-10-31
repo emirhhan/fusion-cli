@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from ..config.models import Config, mcp_secret_env_names
+from ..config.permission_rules import load_permission_rules
 from ..config.permissions import load_allowed_commands
 from ..core.artifacts import ArtifactStore
 from ..core.changeset import ChangeSet
@@ -48,6 +49,7 @@ from ..core.types import (
     VerdictSource,
     is_rate_limit_error,
 )
+from ..core.worktree import WorktreeSwitch
 from ..engines.agent import AgentOutcome, run_agent
 from ..engines.agent.approval import (
     ApprovalMemory,
@@ -212,6 +214,7 @@ async def run_agent_task(
     remotion_transport: FrameTransport | None = None,
     remotion_browser: RemotionBrowser | None = None,
     deadline: TurnDeadline | None = None,
+    worktree_switch: WorktreeSwitch | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -252,6 +255,8 @@ async def run_agent_task(
             chrome=chrome_bridge,
             extra_roots=extra_roots,
             restrict_to_root=config.runtime.restrict_to_root,
+            block_reads_outside_root=config.runtime.block_reads_outside_root,
+            block_writes_outside_root=config.runtime.block_writes_outside_root,
             # Bağlamı şişiren araç çıktısı kırpılmak yerine diske alınır: bilgi
             # kaybolmaz, model gerektiğinde dosyayı açar (context rot).
             artifacts=ArtifactStore(config.memory_dir / "artifacts" / _artifact_id()),
@@ -261,6 +266,10 @@ async def run_agent_task(
             # Çağıran (masaüstü oturumu) turun ilk-hâl anlık görüntülerini geri alma
             # günlüğüne aktarabilsin diye kümeyi kendisi verir.
             tool_context = replace(tool_context, changes=changes)
+        if worktree_switch is not None:
+            # `enter_worktree`/`exit_worktree` isteği tur bitince çağıranda (masaüstü, tek
+            # atış) okunur; verilmezse istek bağlamın kendi anahtarında kalır ve kaybolur.
+            tool_context = replace(tool_context, worktree_switch=worktree_switch)
         if conversation_id:
             tool_context = replace(
                 tool_context,
@@ -297,9 +306,18 @@ async def run_agent_task(
             code_index=store.code_index if store.enabled else None,
             lessons=store.lessons,
             capabilities=capabilities
-            or (CapabilityRegistry(home, tool_context.root) if home is not None else None),
+            or (
+                CapabilityRegistry(home, tool_context.root, extra_roots=tool_context.extra_roots)
+                if home is not None
+                else None
+            ),
             home=home,
             allowed_commands=load_allowed_commands(tool_context.root),
+            permission_rules=load_permission_rules(
+                tool_context.root,
+                block_reads_outside_root=config.runtime.block_reads_outside_root,
+                block_writes_outside_root=config.runtime.block_writes_outside_root,
+            ),
             verifier=build_verifier(
                 config,
                 root=tool_context.root,

@@ -207,6 +207,11 @@ class RuntimeConfig:
     #: Varsayılan KAPALI: kullanıcı kök dışındaki projelerde/dosyalarda da çalışabilsin.
     #: `true` yapıldığında kök dışına erişim `PathAccessError` ile reddedilir.
     restrict_to_root: bool = False
+    #: Tek yönlü kök sınırı (P-002, Claude `permissions.blockReadsOutsideWorkingDirectories`
+    #: / `blockWritesOutsideWorkingDirectories`): açıkken dosya araçları kök (+ `--add-dir`)
+    #: dışını OKUYAMAZ / dışına YAZAMAZ ve onay bile sorulmaz. Varsayılan kapalı.
+    block_reads_outside_root: bool = False
+    block_writes_outside_root: bool = False
     #: Agent turunda geçici model hatasında (429, 5xx, zaman aşımı) yeniden deneme
     #: sayısı; beklemeler üstel artar. 0 = yeniden deneme yok. Varsayılan 4: 429'da
     #: yedeğe beklemeden geçilir (bkz. `loop.MAX_TRANSIENT_RETRIES`, Z1-35).
@@ -319,6 +324,44 @@ class RuntimeConfig:
     #: iç içe CLAUDE.md davranışı). Proje kökü dışına çıkılmaz; içerik güvenilmez girdi
     #: olarak etiketlenir. False = yalnız kök talimatı.
     nested_instructions: bool = True
+    #: Çıktı stili (P-068): `varsayilan` | `ozlu` | `aciklayici` | `ogretici` ya da
+    #: `~/.fusion/cikti-stilleri/<ad>.md` / `.claude/output-styles/<ad>.md` dosyasının adı.
+    #: Stil metni sistem istemine kodlama talimatlarından SONRA eklenir; `varsayilan` hiçbir
+    #: şey eklemez. `/output-style` ile değişir.
+    output_style: str = "varsayilan"
+    #: Durum satırı betiği (P-069): boş = yerleşik durum çubuğu. Doluysa her tur sonunda
+    #: komut stdin'den JSON (model, workspace, cost, context_window, session…) alıp tek
+    #: satır basar; 1 sn zaman aşımı, hata olursa yerleşik satıra dönülür. `/statusline`.
+    status_line_command: str = ""
+    #: Terminal renk teması (P-070): `koyu` | `acik` | `ansi` | `daltonizm`. Masaüstü
+    #: temasından (`theme`) AYRIDIR. `/theme` ile değişir ve kalıcılaşır.
+    terminal_theme: str = "koyu"
+    #: REPL görünümü (P-070): `fullscreen` (varsayılan, Ink-benzeri tam ekran) | `inline`
+    #: (eski satır-içi yol; FUSION_INLINE=1 ile aynı). `/tui` ile değişir, yeni oturumda uygulanır.
+    tui: str = "fullscreen"
+    #: Vim düzenleme kipi (P-067): girdi satırı NORMAL/INSERT kiplerinde çalışır. `/vim`.
+    vim_mode: bool = False
+    #: Talimat katmanları birleştirilsin mi: `~/.claude/CLAUDE.md` + `~/.codex/AGENTS.md`
+    #: (kullanıcı), `CLAUDE.md` + `.claude/CLAUDE.md` + `CLAUDE.local.md` (proje), `@yol`
+    #: içe aktarmaları ve `.claude/rules` kuralları. False = eski davranış: yalnız kökteki
+    #: ilk bilinen dosya.
+    instruction_merge: bool = True
+    #: Bütün talimat katmanlarının toplam bütçesi (karakter). Aşılırsa kırpma metne not düşer.
+    instruction_max_chars: int = 32_000
+    #: Kök turda sistem bağlamına giren beceri dizininin bütçesi (karakter): beceri başına
+    #: `ad — açıklama` satırı; model uygun beceriyi aramadan tanır (Claude Code'un progressive
+    #: disclosure davranışı). 0 = dizin kapalı (yalnız find_skill). Küçük pencereli modelde
+    #: pencerenin %2'sini aşmaz.
+    skill_index_chars: int = 4_000
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilitiesConfig:
+    """Beceri/ajan kataloğu tercihleri (P-051)."""
+
+    #: Kalıcı olarak kapatılan beceri/ajan adları (düz ad ya da `ad@kaynak:kimlik`). Masaüstü
+    #: kataloğundaki oturumluk kapatmadan farklı: her oturumda uygulanır.
+    disabled: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -566,6 +609,8 @@ class Config:
     web_sessions: tuple[WebSessionConfig, ...] = ()
     #: Web sağlayıcısının connector ekranından bağlanmış uzak MCP sunucuları.
     hosted_connectors: tuple[HostedConnectorConfig, ...] = ()
+    #: Beceri/ajan kataloğu tercihleri.
+    capabilities: CapabilitiesConfig = field(default_factory=CapabilitiesConfig)
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""

@@ -186,6 +186,10 @@ runtime:
   # Dosya araçları proje kökü dışına çıkabilsin mi? false = kısıt yok (kullanıcı her
   # projede çalışabilir). true yaparsan kök (+ --add-dir) dışına erişim reddedilir.
   restrict_to_root: false
+  # Tek yönlü sınır (P-002): true ise kök (+ --add-dir) dışını okuma / dışına yazma
+  # tamamen kapalıdır; onay sorulmaz, modele "--add-dir ile açılır" denir.
+  block_reads_outside_root: false
+  block_writes_outside_root: false
   # Tur başına çıktı bütçesi.
   #
   # DİKKAT: reasoning modellerinde düşünme token'ları da BU bütçeden yenir.
@@ -292,6 +296,27 @@ runtime:
   # (kök hariç) AGENTS.md/CLAUDE.md talimatı bir kez, kısa biçimde bağlama eklenir.
   # İz: NestedInstructionsLoaded olayı. False = yalnız kök talimatı.
   nested_instructions: true
+  # Çıktı stili (P-068): varsayilan | ozlu | aciklayici | ogretici | <özel dosya adı>.
+  # Özel stiller: ~/.fusion/cikti-stilleri/<ad>.md ve .claude/output-styles/<ad>.md.
+  output_style: varsayilan
+  # Durum satırı betiği (P-069): boş = yerleşik durum çubuğu. Komut stdin'den JSON alır.
+  status_line_command: ""
+  # Terminal renk teması (P-070): koyu | acik | ansi | daltonizm. Masaüstü `theme`'den ayrı.
+  terminal_theme: koyu
+  # REPL görünümü (P-070): fullscreen | inline. Yeni oturumda uygulanır.
+  tui: fullscreen
+  # Vim düzenleme kipi (P-067).
+  vim_mode: false
+  # Talimat katmanları birleştirilsin mi: ~/.claude/CLAUDE.md ve ~/.codex/AGENTS.md (kullanıcı),
+  # CLAUDE.md + .claude/CLAUDE.md + CLAUDE.local.md (proje), @yol içe aktarmaları,
+  # .claude/rules kuralları. false = yalnız kökteki ilk bilinen dosya (eski davranış).
+  instruction_merge: true
+  # Bütün talimat katmanlarının toplam bütçesi (karakter; Codex'in 32 KiB sınırıyla aynı
+  # ölçek). Aşılırsa kırpma metne not olarak düşer, sessiz kesilmez.
+  instruction_max_chars: 32000
+  # Kök turda sistem bağlamına giren beceri dizini (ad — açıklama satırları) bütçesi, karakter.
+  # Model uygun beceriyi aramadan tanır ve read_skill ile yükler. 0 = kapalı (yalnız find_skill).
+  skill_index_chars: 4000
   # `ask_teacher` aracı modele hiç sunulmaz (`config.teacher` tanımlı olsa bile).
   # `council` bundan etkilenmez — ayrı, çoklu-API-model bir araçtır (Faz 4, Görev 3).
   teacherless: false
@@ -856,6 +881,11 @@ profile_eligibility:
 #       args: ["-y", "@modelcontextprotocol/server-github"]
 # Boş liste = MCP istemcisi hiç kurulmaz (varsayılan).
 mcp_servers: []
+
+# Beceri/ajan kataloğu tercihleri. `disabled`: her oturumda kapalı tutulacak beceri/ajan adları
+# (düz ad ya da `ad@kaynak:kimlik`); masaüstündeki oturumluk kapatmadan farklı, kalıcıdır.
+capabilities:
+  disabled: []
 
 # ---------------------------------------------------------------------------
 # Web sağlayıcıları (opsiyonel). İki transport vardır:

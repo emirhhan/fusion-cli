@@ -48,14 +48,32 @@ def _overlaps(first: Path, second: Path) -> bool:
     return first == second or first in second.parents or second in first.parents
 
 
-def derive_sub_context(context: ToolContext, subtask: SubTask | None = None) -> ToolContext:
+def derive_sub_context(
+    context: ToolContext, subtask: SubTask | None = None, *, root: Path | None = None
+) -> ToolContext:
     """Alt ajan bağlamı: görev listesi ve sahip olunan yollar AYRI.
 
     Alt ajan temiz bir görev listesiyle çalışır — ana ajanın listesini ezmesi
     kullanıcının takip ettiği planı bozardı. `touched` kapanışta parent
     doğrulamasına birleştirilir; kardeşin kanıtı bu ajana yazılmaz. Erişim sınırı aynen taşınır;
-    yazma alanı bildirildiyse alt ajan yalnız oraya yazar.
+    yazma alanı bildirildiyse alt ajan yalnız oraya yazar. `root` verilirse (çalışma
+    ağacı izolasyonu) üye o kökte ve KENDİ değişiklik kümesiyle çalışır: ana projenin
+    `/undo` kaydına karışmaz, yazma alanı da o köke göre çözülür.
     """
+    if root is not None:
+        context = ToolContext(
+            root=root,
+            job_scope=context.job_scope,
+            cancelled=context.cancelled,
+            restrict_to_root=context.restrict_to_root,
+            extra_roots=context.extra_roots,
+            chrome=context.chrome,
+            hidden_env=context.hidden_env,
+            shell_sandbox=context.shell_sandbox,
+            edit_fuzzy_match=context.edit_fuzzy_match,
+            post_edit_syntax_check=context.post_edit_syntax_check,
+            shell_fingerprint=context.shell_fingerprint,
+        )
     scope: tuple[Path, ...] | None = context.write_scope
     if subtask is not None and subtask.write_scope:
         scope = tuple(writable_path(context, raw).resolve() for raw in subtask.write_scope)

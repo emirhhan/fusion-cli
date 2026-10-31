@@ -32,6 +32,7 @@ from ..core.types import ModelSpec
 from . import trust
 from .keys import ProviderPreference, apply_preference, detect, prune_config
 from .models import (
+    CapabilitiesConfig,
     Config,
     EmbeddingConfig,
     HostedConnectorConfig,
@@ -71,6 +72,7 @@ _SECTIONS = (
     "hosted_connectors",
     "mcp_servers",
     "web_sessions",
+    "capabilities",
 )
 
 # PEP 695 sözdizimi yerine TypeVar: paket Python 3.11'i de destekler.
@@ -263,6 +265,7 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         mcp_servers=_build_mcp_servers(merged.get("mcp_servers")),
         hosted_connectors=_build_hosted_connectors(merged.get("hosted_connectors")),
         web_sessions=web_sessions,
+        capabilities=_build(CapabilitiesConfig, merged.get("capabilities") or {}, "capabilities"),
     )
 
 
@@ -302,6 +305,8 @@ def _build_runtime(raw: object) -> RuntimeConfig:
         "compact_external_tools",
         "tool_output_window",
         "repo_map_chars",
+        "instruction_max_chars",
+        "skill_index_chars",
     ):
         if getattr(runtime, name) < 0:
             raise ConfigError(f"runtime.{name}: negatif olamaz.")
