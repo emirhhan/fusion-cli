@@ -20,6 +20,7 @@ from . import (
     download,
     files,
     jobs,
+    kits,
     planning,
     remotion_render,
     remotion_revision,
@@ -539,6 +540,46 @@ _TOOLS: tuple[Tool, ...] = (
         description="URL içeriğini metin olarak oku. Girişli/formlu sayfada browser_open kullan.",
         parameters=_schema({"url": _STRING}, ["url"]),
         run=web.web_fetch,
+    ),
+    Tool(
+        name="kits_list",
+        description="Fusion Kits'teki Kit'leri (karakterli uzman ajanlar) listele: kimlik, ad, "
+        "Fusion izni, gelen kutusu. Bir Kit'e iş bırakmadan önce adını doğrulamak için.",
+        parameters=_schema({}, []),
+        run=kits.kits_list,
+        effect=ToolEffect.REMOTE_READ,
+    ),
+    Tool(
+        name="kit_send",
+        description="Bir Kit'e mesaj ya da görev bırak (Fusion gelen kutusu). Kullanıcı 'şunu "
+        "X Kit'ine ver/ilet' dediğinde kullan; Kit işi kendi sohbetinde, sırası gelince yapar. "
+        "Dönen makbuz yalnız kuyruğa alındığını söyler; sonucu kit_task_status ile oku.",
+        parameters=_schema(
+            {
+                "kit": {**_STRING, "description": "Kit adı ya da kimliği"},
+                "text": {**_STRING, "description": "Kit'e bırakılacak metin (3-4000 karakter)"},
+                "title": {**_STRING, "description": "Kısa başlık (isteğe bağlı)"},
+                "kind": {**_STRING, "enum": ["gorev", "mesaj"]},
+            },
+            ["kit", "text"],
+        ),
+        run=kits.kit_send,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    ),
+    Tool(
+        name="kit_task_status",
+        description="Bir Kit'in Fusion gelen kutusunu ya da tek görevin durumunu/sonucunu oku. "
+        "kit_send makbuzundaki gorev_id'yi task_id olarak ver; vermezsen son kayıtlar döner.",
+        parameters=_schema(
+            {
+                "kit": {**_STRING, "description": "Kit adı ya da kimliği"},
+                "task_id": {**_STRING, "description": "kit_send makbuzundaki görev kimliği"},
+            },
+            ["kit"],
+        ),
+        run=kits.kit_task_status,
+        effect=ToolEffect.REMOTE_READ,
     ),
     Tool(
         name="browser_open",

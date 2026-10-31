@@ -143,6 +143,10 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "find_skill": ToolFamily.META,
     "read_skill": ToolFamily.META,
     "find_agent": ToolFamily.META,
+    # Kits gelen kutusu: Kit'e iş devretmek delegasyon, listeleme/durum yardımcıdır.
+    "kits_list": ToolFamily.META,
+    "kit_send": ToolFamily.DELEGATION,
+    "kit_task_status": ToolFamily.META,
 }
 
 

@@ -33,6 +33,8 @@ pub struct KitsStatus {
 }
 
 const KITS_LOG_FILE: &str = "kits.log";
+/// Kits'in dinlediği adresi Fusion çekirdeğine duyuran durum dosyası (P-063).
+const KITS_STATE_FILE: &str = "kits-bridge.json";
 /// Hazırlık makbuzu için okunan günlük kuyruğu.
 const READY_LOG_TAIL: u64 = 256 * 1024;
 /// `node --version` yoklamasının en uzun süresi; takılan bir aday tüm başlatmayı bloklamasın.
@@ -125,6 +127,9 @@ impl KitsManager {
             .env("OWNER_ID", "fusion-kits-owner")
             .env("COMPUTER_NAMESPACE", "fusion-kits")
             .env("KITS_HOST_ORIGINS", HOST_ORIGINS)
+            // Fusion çekirdeği (CLI aracı/masaüstü oturumu) Kits'in adresini bu dosyadan
+            // okur (`config/paths.py kits_state_file()`); Kits yalnız adres ve pid yazar.
+            .env("KITS_STATE_FILE", data_dir.join(KITS_STATE_FILE))
             .stdin(Stdio::null())
             .stdout(log_sink(data_dir))
             .stderr(log_sink(data_dir));

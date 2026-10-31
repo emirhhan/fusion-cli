@@ -149,6 +149,7 @@ from .image_flows import export_image, list_flows, load_flow, save_flow
 from .image_job_artifacts import capture_reference, receipt_reads_supported
 from .image_jobs import ImageJobService
 from .instructions import get_instructions, instruction_block, save_instructions
+from .kits_routes import KITS_ROUTES, dispatch_kits
 from .library import LibrarySink, add_upload, remove_entry
 from .local_computer import LocalComputer, native_local_computer
 from .local_computer_routes import LOCAL_COMPUTER_ROUTES, dispatch_local_computer
@@ -751,6 +752,9 @@ class AppSession:
                 return {"ok": False, "metin": "Soru kimliği veya cevap geçersiz."}
             accepted = self.pending.answer(identifier, answer)
             return {"ok": accepted, "questionId": identifier}
+        if request.name in KITS_ROUTES:
+            # Fusion → Kit gelen kutusu (P-063); araçlarla aynı istemci.
+            return await dispatch_kits(request.name, request.data)
         if request.name in LOCAL_COMPUTER_ROUTES:
             if self._local_computer is not None:
                 return await dispatch_local_computer(

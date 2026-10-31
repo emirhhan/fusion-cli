@@ -600,6 +600,13 @@ MCP_CONNECT_FAILED = "MCP sunucusuna bağlanılamadı: {error} — dış araçla
 MCP_TOOLS_TIMEOUT = (
     "MCP sunucularına {seconds:.0f} sn içinde bağlanılamadı; komut, args ve ağı kontrol et."
 )
+KIT_NONE = "Kits'te hiç Kit yok; Fusion ana menüsünden Kits bölümünde bir Kit ekle."
+KIT_SENT = (
+    "{kit} Kit'inin gelen kutusuna bırakıldı (görev {task}). Kit işi sırası gelince yapar; "
+    "`fusion kit gelen {kit}` ile izle."
+)
+KIT_INBOX_EMPTY = "{kit} Kit'inin Fusion gelen kutusu boş."
+KIT_COMMAND_FAILED = "Kit komutu tamamlanamadı ({error})."
 MCP_NO_SERVERS = "Yapılandırılmış MCP sunucusu yok. Eklemek için: /mcp add <ad> <komut> [argüman…]"
 MCP_ADDED = "'{name}' MCP sunucusu eklendi. Etkinleşmesi için Fusion'ı yeniden başlat."
 MCP_REPLACED = "'{name}' adlı sunucu zaten vardı, yeni komutla güncellendi."

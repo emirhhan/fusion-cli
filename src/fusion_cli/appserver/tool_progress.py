@@ -188,6 +188,16 @@ def _browser_generic(fiil: str) -> Callable[[Mapping[str, object]], str]:
     return _metin
 
 
+def _kit_send(args: Mapping[str, object]) -> str:
+    kit = _text(args, "kit")
+    return f"{kit} Kit'ine iş bırakılıyor" if kit else "bir Kit'e iş bırakılıyor"
+
+
+def _kit_task_status(args: Mapping[str, object]) -> str:
+    kit = _text(args, "kit")
+    return f"{kit} Kit'inin gelen kutusu okunuyor" if kit else "Kit gelen kutusu okunuyor"
+
+
 def _browser_open(args: Mapping[str, object]) -> str:
     url = _text(args, "url")
     return f"tarayıcı ile {_host(url)} açılıyor" if url else "tarayıcı açılıyor"
@@ -232,6 +242,9 @@ _METINLER: dict[str, Callable[[Mapping[str, object]], str]] = {
     "chrome_type": _chrome_type,
     "chrome_page": _chrome_page,
     "chrome_action": _chrome_action,
+    "kits_list": lambda _args: "Kit'ler listeleniyor",
+    "kit_send": _kit_send,
+    "kit_task_status": _kit_task_status,
     "browser_open": _browser_open,
     "browser_read": _browser_generic("sayfa okunuyor"),
     "browser_tabs_list": _browser_generic("sekmeler listeleniyor"),
