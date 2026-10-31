@@ -13,6 +13,7 @@ import pytest
 from fusion_cli.engines.agent.instruction_layers import (
     MAX_FILE_CHARS,
     MAX_IMPORT_CHARS,
+    USER_LAYER_SHARE,
     load_instruction_layers,
 )
 from fusion_cli.engines.agent.project_instructions import read_project_instructions
@@ -229,3 +230,42 @@ def test_proje_kokundeki_kok_disi_sembolik_bag_okunmaz(ev, proje, tmp_path):
     assert "TOPSECRET" not in yuk.text
     assert "gerçek talimat" in yuk.text
     assert sum("sembolik bağ" in not_ for not_ in yuk.notes) == 2
+
+
+def test_kirpilan_karakter_gercek_boyutla_olculur(ev, proje):
+    """Ölçüldü: 20.000 karakterlik dosya için `trimmed=1` bildiriliyordu (limit+1 okuma)."""
+    (proje / "CLAUDE.md").write_text("k" * 20_000, encoding="utf-8")
+
+    yuk = load_instruction_layers(proje, ev)
+
+    assert yuk.files[0].chars == MAX_FILE_CHARS
+    assert yuk.files[0].trimmed == 12_000
+    assert yuk.trimmed_chars == 12_000
+
+
+def test_kullanici_katmani_proje_katmanini_ac_birakamaz(ev, proje):
+    """Ölçüldü: üç kullanıcı dosyası 20.000'lik bütçeyi yiyor, proje CLAUDE.md'si düşüyordu."""
+    (ev / ".claude").mkdir()
+    (ev / ".codex").mkdir()
+    (ev / ".fusion").mkdir()
+    (ev / ".claude" / "CLAUDE.md").write_text("a" * MAX_FILE_CHARS, encoding="utf-8")
+    (ev / ".codex" / "AGENTS.md").write_text("b" * MAX_FILE_CHARS, encoding="utf-8")
+    (ev / ".fusion" / "TALIMAT.md").write_text("c" * MAX_FILE_CHARS, encoding="utf-8")
+    (proje / "CLAUDE.md").write_text("PROJE KURALI " * 50, encoding="utf-8")
+
+    yuk = load_instruction_layers(proje, ev, max_chars=20_000)
+
+    assert "PROJE KURALI" in yuk.text
+    proje_dosya = next(item for item in yuk.files if item.label == "CLAUDE.md")
+    assert proje_dosya.trimmed == 0
+    kullanici = sum(item.chars for item in yuk.files if item.layer == "kullanici")
+    assert kullanici <= 20_000 * USER_LAYER_SHARE
+
+
+def test_butce_yuzunden_atlanan_dosya_prompta_not_duser(ev, proje):
+    (proje / "CLAUDE.md").write_text("a" * MAX_FILE_CHARS, encoding="utf-8")
+    (proje / "CLAUDE.local.md").write_text("b" * 100, encoding="utf-8")
+
+    yuk = load_instruction_layers(proje, ev, max_chars=MAX_FILE_CHARS)
+
+    assert "[talimat atlandı: CLAUDE.local.md" in yuk.text

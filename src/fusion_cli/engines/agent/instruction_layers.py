@@ -15,8 +15,15 @@ katmanı, `.claude/CLAUDE.md` ve `CLAUDE.local.md` hiç prompta girmiyordu. `@yo
 yoktu; yalnız Markdown bağlantıları tek seviye izleniyordu.
 
 Bütçe: dosya başına `MAX_FILE_CHARS`, toplam `max_chars` (varsayılan
-`runtime.instruction_max_chars`, 32 KiB). Kırpma sessiz değildir: metne not düşer,
-`InstructionLoad.trimmed_chars` ve `notes` ölçümü taşır. `merge=False` eski davranıştır.
+`runtime.instruction_max_chars`, 32 KiB). Kullanıcı katmanı toplamın en çok
+`USER_LAYER_SHARE` payını alır ki proje talimatı aç kalmasın. Kırpma sessiz değildir: metne
+not düşer, `InstructionLoad.trimmed_chars` ve `notes` ölçümü taşır; bütçe yüzünden hiç
+okunmayan dosya için prompta `[talimat atlandı: …]` satırı konur. `merge=False` eski
+davranıştır.
+
+Ölçüldü (31 Ekim): kırpılan karakter `limit + 1` okumadan türetildiği için en çok 1
+bildiriliyordu (20.000 karakterlik dosyada gerçek kayıp 12.000); üç kullanıcı dosyası
+20.000'lik bütçeyi tüketip projenin CLAUDE.md'sini sessizce düşürüyordu.
 """
 
 from __future__ import annotations
@@ -31,6 +38,15 @@ MAX_FILE_CHARS = 8_000
 
 #: Bütün katmanların toplam bütçesi (Codex `project_doc_max_bytes` ile aynı ölçek).
 TOTAL_MAX_CHARS = 32_000
+
+#: Kullanıcı katmanının (ev dizini dosyaları + import'ları) toplam bütçedeki en yüksek payı.
+USER_LAYER_SHARE = 0.4
+
+#: Kırpma ölçümünde sayılacak en fazla karakter (daha büyük dosyada ölçüm burada durur).
+MEASURE_CAP_CHARS = 4_000_000
+
+#: Ölçüm okuması parça boyu.
+_MEASURE_CHUNK = 65_536
 
 #: Markdown bağlantılarıyla işaret edilen kural dosyalarının TOPLAM bütçesi.
 MAX_LINKED_CHARS = 4_000
@@ -116,6 +132,23 @@ def read_text_limited(path: Path, limit: int) -> str:
         return handle.read(limit + 1).strip()
 
 
+def read_text_measured(path: Path, limit: int) -> tuple[str, int]:
+    """İlk `limit` karakter (kenar boşlukları atılmış) ve KIRPILAN karakter sayısı.
+
+    Kalan içerik belleğe alınmaz, yalnız sayılır (`MEASURE_CAP_CHARS`a kadar); böylece
+    "N karakter kırpıldı" gerçek kaybı söyler.
+    """
+    with path.open(encoding="utf-8", errors="replace") as handle:
+        head = handle.read(max(0, limit))
+        rest = 0
+        while rest < MEASURE_CAP_CHARS:
+            chunk = handle.read(_MEASURE_CHUNK)
+            if not chunk:
+                break
+            rest += len(chunk)
+    return head.strip(), rest
+
+
 @dataclass(frozen=True, slots=True)
 class InstructionFile:
     """Bağlama giren tek bir talimat dosyasının ölçümü."""
@@ -149,6 +182,8 @@ class _Budget:
     """Tek bir yüklemenin değişken sayaçları (dondurulmuş sonuç nesnesine yazılmaz)."""
 
     remaining: int
+    #: Dolan bütçenin adı (not metninde): kullanıcı katmanı payı ya da toplam bütçe.
+    pool: str = "toplam talimat bütçesi"
     import_remaining: int = MAX_IMPORT_CHARS
     seen: set[Path] = field(default_factory=set)
     seen_digests: set[str] = field(default_factory=set)
@@ -169,7 +204,11 @@ def load_instruction_layers(
     `merge=False`: eski davranış — yalnız proje kökündeki ilk bilinen dosya (kullanıcı
     katmanı ve `CLAUDE.local.md` okunmaz).
     """
-    budget = _Budget(remaining=max(0, max_chars))
+    total = max(0, max_chars)
+    user_cap = int(total * USER_LAYER_SHARE)
+    # Kullanıcı katmanı kendi payıyla okunur; kalan bütçe projeye geçer (sıra çıktıda
+    # kullanıcı → proje kalır ama proje hiç aç kalmaz).
+    budget = _Budget(remaining=user_cap, pool="kullanıcı katmanı payı")
     kok = root.resolve()
     if merge and home is not None:
         for alternatives in USER_LAYER:
@@ -177,6 +216,8 @@ def load_instruction_layers(
             if path is not None:
                 _load_file(budget, path, label=f"~/{path.relative_to(home).as_posix()}",
                            layer="kullanici", root=kok, home=home)  # fmt: skip
+    budget.remaining = total - (user_cap - budget.remaining)
+    budget.pool = "toplam talimat bütçesi"
     for family in PROJECT_FAMILIES:
         family_paths = [p for p in (_first_existing(kok, alts) for alts in family) if p is not None]
         if not family_paths:
@@ -231,10 +272,13 @@ def _load_file(
         return True
     budget.seen.add(real)
     if budget.remaining <= 0:
-        budget.notes.append(f"{label}: toplam talimat bütçesi dolduğu için okunmadı")
+        budget.notes.append(f"{label}: {budget.pool} dolduğu için okunmadı")
+        # Model de bilsin: talimat var ama bağlama girmedi.
+        budget.blocks.append(f"[talimat atlandı: {label} — {budget.pool} doldu; read_file ile oku]")
         return True
+    cap = min(MAX_FILE_CHARS, budget.remaining)
     try:
-        content = read_text_limited(path, min(MAX_FILE_CHARS, budget.remaining))
+        content, trimmed = read_text_measured(path, cap)
     except OSError:
         return False
     if not content:
@@ -243,17 +287,14 @@ def _load_file(
     if digest in budget.seen_digests:  # CLAUDE.md → AGENTS.md sembolik bağı: aynı içerik
         return True
     budget.seen_digests.add(digest)
-    cap = min(MAX_FILE_CHARS, budget.remaining)
-    trimmed = max(0, len(content) - cap)
-    content = content[:cap]
     budget.remaining -= len(content)
     trusted = layer == "kullanici"
     tag = "kullanici_talimati" if trusted else "proje_talimati"
     note = TRUSTED_NOTE if trusted else UNTRUSTED_NOTE
     ek = TRIM_NOTE if trimmed else ""
     if trimmed and budget.remaining <= 0:
-        ek = "\n[…toplam talimat bütçesi doldu; dosyanın tamamı için read_file kullan…]"
-        budget.notes.append(f"{label}: toplam bütçe doldu, {trimmed} karakter kırpıldı")
+        ek = f"\n[…{budget.pool} doldu; dosyanın tamamı için read_file kullan…]"
+        budget.notes.append(f"{label}: {budget.pool} doldu, {trimmed} karakter kırpıldı")
     budget.blocks.append(f'<{tag} kaynak="{label}">\n{note}\n{neutralize(content)}{ek}\n</{tag}>')
     budget.files.append(InstructionFile(label, path, layer, len(content), trimmed, trusted))
     base = home if trusted and home is not None else root
@@ -289,13 +330,11 @@ def _follow_imports(
         budget.seen.add(resolved)
         limit = min(budget.import_remaining, budget.remaining)
         try:
-            text = read_text_limited(resolved, limit)
+            text, trimmed = read_text_measured(resolved, limit)
         except OSError:
             continue
         if not text:
             continue
-        trimmed = max(0, len(text) - limit)
-        text = text[:limit]
         budget.import_remaining -= len(text)
         budget.remaining -= len(text)
         label = _import_label(resolved, base=base, trusted=trusted)
@@ -368,14 +407,11 @@ def _follow_links(budget: _Budget, content: str, *, root: Path) -> None:
             continue
         budget.seen.add(yol)
         try:
-            metin = read_text_limited(yol, min(kalan, budget.remaining))
+            metin, trimmed = read_text_measured(yol, min(kalan, budget.remaining))
         except OSError:
             continue
         if not metin:
             continue
-        limit = min(kalan, budget.remaining)
-        trimmed = max(0, len(metin) - limit)
-        metin = metin[:limit]
         kalan -= len(metin)
         budget.remaining -= len(metin)
         okunan += 1
