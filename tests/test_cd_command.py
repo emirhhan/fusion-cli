@@ -146,9 +146,7 @@ def test_cd_deny_kurali_sembolik_bagla_yazilan_yolu_da_engeller(tmp_path: Path, 
     assert state.root == proje
 
 
-def test_cd_deny_kurali_cozulmus_yolla_yazilinca_bagdan_gecisi_engeller(
-    tmp_path: Path, ev: Path
-):
+def test_cd_deny_kurali_cozulmus_yolla_yazilinca_bagdan_gecisi_engeller(tmp_path: Path, ev: Path):
     gercek = tmp_path / "gercek"
     gercek.mkdir()
     bag = tmp_path / "bag"
