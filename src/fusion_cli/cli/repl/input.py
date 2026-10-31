@@ -163,7 +163,13 @@ class ReplInput:
             # Düz `input()` bloklar; ayrı bir thread'e alınmazsa arka plandaki
             # öğrenme işleri kullanıcı yazarken ilerleyemez.
             # İşaret basılmaz: kullanıcı mesajı zaten bant olarak çiziliyor.
-            return await asyncio.to_thread(input, "")
+            if not default:
+                return await asyncio.to_thread(input, "")
+            # Düz `input()` tampon dolduramaz. Ölçüldü (31 Ekim): dikte metni sessizce
+            # kayboluyordu; artık boş Enter onu gönderir, yazılan satır yerine geçer.
+            print(messages.VOICE_FALLBACK_HINT, flush=True)
+            line = await asyncio.to_thread(input, "")
+            return line if line.strip() else default
         # Mesaj CALLABLE verilir: shift-tab modu değiştirip `invalidate()` çağırınca
         # prompt_toolkit mesajı YENİDEN hesaplar ve mod etiketi ANINDA güncellenir.
         # Statik `HTML(...)` verilseydi etiket bir sonraki Enter'a kadar donardı.

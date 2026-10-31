@@ -198,3 +198,18 @@ async def test_satir_ici_istem_dikte_metniyle_acilir(tmp_path):
 
     assert await loop._read_line(_Okuyucu(), state) == "x"  # type: ignore[arg-type]
     assert gelen == ["taslak"] and state.pending_input == ""
+
+
+async def test_duz_input_yedeginde_bos_enter_dikte_metnini_gonderir(tmp_path, monkeypatch):
+    """Ölçüldü (31 Ekim): prompt_toolkit kurulamayan ortamda `default` yok sayılıyor,
+    'İsteme yazıldı' denen dikte metni sessizce kayboluyordu."""
+    from fusion_cli.cli.repl.input import ReplInput
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    reader = ReplInput(tmp_path / "gecmis", ["/help"], mode=ApprovalMode.AUTO)
+    reader._session = None
+    satirlar = iter(["", "kendi satırım"])
+    monkeypatch.setattr("builtins.input", lambda _istem="": next(satirlar))
+
+    assert await reader.prompt(default="testleri çalıştır") == "testleri çalıştır"
+    assert await reader.prompt(default="testleri çalıştır") == "kendi satırım"
