@@ -404,10 +404,20 @@ class PlanApproval:
     uzak sistemi YALNIZ okuyan çağrı (ör. mağazada ürün aramak). Claude'un plan
     kipi de okumaya izin verir; plan gerçek veriye dayanmalıdır. Eskiden kabuk
     tamamen kapalıydı ve model plan için `git log` bile çalıştıramıyordu.
+
+    "Her seferinde sorulur" diyen istek (`pre_ask`: `ask` kuralı, sandbox dışı
+    çalıştırma) plan kipinde sorulamayacağı için ENGELLENİR. Ölçüldü (31 Ekim):
+    `cat ~/.kube/config` + `unsandboxed=true` plan kipinde sorulmadan sandbox dışında
+    çalışıyordu.
     """
 
     async def decide(self, request: ApprovalRequest) -> Decision | Denial:
-        if request.read_only and request.danger is None and request.pre_denied is None:
+        if (
+            request.read_only
+            and request.danger is None
+            and request.pre_denied is None
+            and request.pre_ask is None
+        ):
             return Decision.ALLOW
         return Decision.BLOCKED
 
