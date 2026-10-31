@@ -38,6 +38,7 @@ from ..cli.repl import cron_store, linked_pr, macros, worktrees
 from ..cli.repl.commands import attach_skill_commands, build_registry, renders_itself
 from ..cli.repl.persona_commands import persona_turn, resolve_session_persona
 from ..cli.repl.skill_commands import GROUP as SKILL_GROUP
+from ..cli.repl.skill_commands import model_override_allowed
 from ..cli.repl.state import Engine, ReplState
 from ..cli.repl.transcript_store import (
     TranscriptStore,
@@ -3189,7 +3190,9 @@ class AppSession:
         Slash yolu (`/beceri`) bunları zaten bekleyen eklere koyar; slash seçimi önceliklidir.
         """
         if self._state.pending_model_choice.is_empty:
-            resolution = resolve_turn_model(item.model, item.effort)
+            resolution = resolve_turn_model(
+                item.model, item.effort, allow_model=model_override_allowed(self._state, item)
+            )
             self._state.pending_model_choice = resolution.choice
         self._state.pending_denied_tools = self._state.pending_denied_tools | map_denied_tools(
             item.disallowed_tools

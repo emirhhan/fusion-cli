@@ -95,7 +95,7 @@ TUI'de ve masaüstü yazı kutusunda **Beceri** grubunda bir slash komutu olur
 | `user-invocable: false` | Slash komutu olarak sunulmaz (yalnız model `read_skill` ile) |
 | `context: fork` / `baglam` | Tur, ana konuşmayı devralan fork alt ajanda koşar (`/subtask` gibi); beceri gövdesi brife, `allowed-tools` araç tavanına geçer |
 | `agent` / `ajan` | `context: fork` ile: fork'u bu alt ajan tanımı (`.claude/agents/<ad>.md`) koşar; fork yoksa yok sayılır, not düşer |
-| `model` | **Yalnız o tur** bu modelle koşar (`<sağlayıcı>/<model>`, ör. `openrouter/qwen/qwen3-coder`); oturum modeli ve yedekleri zincirde yedek kalır, `task_model_map` o tur uygulanmaz. `inherit`, `sonnet`, `opus`, `haiku` oturum modelini kullanır; başka biçim not düşer. Sonraki tur oturum seçimine döner |
+| `model` | **Yalnız o tur** bu modelle koşar (`<sağlayıcı>/<model>`, ör. `openrouter/qwen/qwen3-coder`); oturum modeli ve yedekleri zincirde yedek kalır, `task_model_map` o tur uygulanmaz. `inherit`, `sonnet`, `opus`, `haiku` oturum modelini kullanır; başka biçim not düşer. Sonraki tur oturum seçimine döner. Depo kaynaklı (proje) becerinin modeli yalnız `fusion trust` ile güvenilen projede uygulanır; değilse not düşer, efor yine uygulanır |
 | `effort` / `efor` | **Yalnız o tur** düşünme yoğunluğu (`low`…`max`, `auto`); tanınmayan değer not düşer |
 | `disallowed-tools` / `yasak-araclar` | O turda bu araçlar sunulmaz (kişiliğin yasaklarına eklenir, kaldıramaz); `Bash(rm *)` deseninde aracın tamamı yasaklanır (güvenli taraf) |
 | `hooks` | Okunur, beceri kapsamlı kanca olarak uygulanmaz (kancalar `settings.json` ile) |

@@ -61,13 +61,28 @@ class TurnModelResolution:
     notes: tuple[str, ...] = ()
 
 
-def resolve_turn_model(model: str, effort: str) -> TurnModelResolution:
-    """`model`/`effort` alanlarını seçime çevir; tanınmayan değer not düşer, uygulanmaz."""
+#: Güvenilmeyen projedeki beceri modeli değiştiremez (`fusion trust` ile açılır).
+UNTRUSTED_MODEL_NOTE = (
+    "model '{model}' uygulanmadı: proje becerisi güvenilmeyen projede modeli değiştiremez "
+    "(`fusion trust` ile güven); oturum modeli kullanılacak"
+)
+
+
+def resolve_turn_model(model: str, effort: str, *, allow_model: bool = True) -> TurnModelResolution:
+    """`model`/`effort` alanlarını seçime çevir; tanınmayan değer not düşer, uygulanmaz.
+
+    `allow_model=False`: becerinin kaynağı depo içeriği ve proje güvenilmiyor. Ölçüldü
+    (31 Ekim, bağımsız inceleme): güvenilmeyen bir deponun `/ad` becerisi `model:` ile turu
+    (konuşma ve depo içeriğiyle) o proje için seçilmemiş bir sağlayıcıya yönlendirebiliyordu.
+    Efor değişikliği veri yönlendirmediği için uygulanır.
+    """
     notes: list[str] = []
     chosen_model = ""
     cleaned = model.strip()
     if cleaned and cleaned.lower() not in INHERIT_MODELS:
-        if "/" in cleaned:
+        if not allow_model:
+            notes.append(UNTRUSTED_MODEL_NOTE.format(model=cleaned))
+        elif "/" in cleaned:
             chosen_model = cleaned
         else:
             notes.append(

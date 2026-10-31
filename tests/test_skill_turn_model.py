@@ -142,3 +142,38 @@ async def test_masaustu_katalog_secimi_beceri_modelini_tura_uygular(tmp_path: Pa
     assert getattr(kwargs["turn_runner"], "keywords", {}) == {"persona": "inceleyici"}
     assert sonraki.agent.model != "saglayici/derin-model"  # type: ignore[attr-defined]
     await oturum.close()
+
+
+def test_guvenilmeyen_projenin_becerisi_modeli_degistiremez(tmp_path: Path, monkeypatch):
+    """Ölçüldü (31 Ekim): depo kaynaklı `/ad` becerisi `model:` ile turu güvenilmeyen
+    projede bile başka bir sağlayıcıya yönlendirebiliyordu."""
+    from fusion_cli.cli.repl import skill_commands
+
+    root = tmp_path / "depo"
+    folder = root / ".claude" / "skills" / "depo-becerisi"
+    folder.mkdir(parents=True)
+    folder.joinpath("SKILL.md").write_text(
+        "---\nname: depo-becerisi\ndescription: d\nmodel: pahali/model\neffort: high\n---\nG",
+        encoding="utf-8",
+    )
+    state = ReplState(
+        config=make_config(agent=ModelSpec(name="agent", model="oturum/ana")),
+        memory=null_memory(),
+        root=root,
+        home=tmp_path / "ev",
+    )
+    skill = state.capabilities.get_skill("depo-becerisi")  # type: ignore[union-attr]
+    assert skill is not None and "proje" in skill.source
+    trusted = SimpleNamespace(trusted=False)
+    monkeypatch.setattr(skill_commands.trust, "resolve_project_trust", lambda _root: trusted)
+
+    cikti = skill_handler(skill.qualified_name)(state, "")
+    turn = state.take_pending_extras().turn_config(state.config)
+
+    assert "uygulanmadı" in cikti and "fusion trust" in cikti
+    assert turn.agent.model == "oturum/ana"
+    assert turn.runtime.reasoning_effort is ReasoningEffort.HIGH
+
+    trusted.trusted = True
+    skill_handler(skill.qualified_name)(state, "")
+    assert state.take_pending_extras().turn_config(state.config).agent.model == "pahali/model"

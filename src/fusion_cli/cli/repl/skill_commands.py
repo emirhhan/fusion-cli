@@ -55,6 +55,14 @@ def shell_context_policy(state: ReplState, skill: Capability) -> tuple[bool, boo
     return project, True
 
 
+def model_override_allowed(state: ReplState, skill: Capability) -> bool:
+    """Becerinin `model:` alanı uygulanabilir mi: depo kaynaklıysa proje güvenilmeli."""
+    sources = set(skill.source.split("+"))
+    if sources & TRUSTED_SOURCES or not sources & PROJECT_SOURCES:
+        return True
+    return trust.resolve_project_trust(state.root).trusted
+
+
 def shell_context_allowed(state: ReplState, skill: Capability) -> bool:
     """`!`cmd`` bu beceri için koşabilir mi (geri uyumlu kısa yol; bkz. `shell_context_policy`)."""
     return shell_context_policy(state, skill)[0]
@@ -89,7 +97,9 @@ def skill_handler(qualified_name: str) -> Callable[[ReplState, str], str]:
             frozenset(invocation.allowed_tools) if invocation.allowed_tools is not None else None
         )
         # `model`/`effort` (P-020): yalnız bu turun yapılandırması değişir; oturum seçimi kalır.
-        resolution = resolve_turn_model(invocation.model, invocation.effort)
+        resolution = resolve_turn_model(
+            invocation.model, invocation.effort, allow_model=model_override_allowed(state, skill)
+        )
         state.pending_model_choice = resolution.choice
         state.pending_denied_tools = invocation.denied_tools
         state.pending_fork_agent = invocation.agent
