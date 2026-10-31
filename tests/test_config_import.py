@@ -99,12 +99,16 @@ def test_claude_mcp_kayitlari_tasinir_sir_kasaya_gider_degeri_gorunmez(ortam):
     updated, report = apply_plan(plan, config=config, root=root, secrets=kasa)
 
     assert not report.failed
-    assert kasa.values == {"GITHUB_TOKEN": "ghp_gizli123"}
+    # Sır kasaya sunucuya özel adla gider; alt süreç yine `GITHUB_TOKEN` adıyla alır.
+    assert kasa.values == {"FUSION_MCP_ENV_GITHUB__GITHUB_TOKEN": "ghp_gizli123"}
     written = config_file.read_text(encoding="utf-8")
     assert "ghp_gizli123" not in written
     reloaded = {s.name: s for s in load_config(config_file).mcp_servers}
-    assert reloaded["github"].env_names == ("GITHUB_TOKEN",)
-    assert reloaded["github"].env_literals == (("LOG_LEVEL", "info"),)
+    assert reloaded["github"].env_names == ("FUSION_MCP_ENV_GITHUB__GITHUB_TOKEN",)
+    assert reloaded["github"].env_literals == (
+        ("GITHUB_TOKEN", "${FUSION_MCP_ENV_GITHUB__GITHUB_TOKEN}"),
+        ("LOG_LEVEL", "info"),
+    )
     assert reloaded["linear"].transport is McpTransport.STREAMABLE_HTTP
     assert reloaded["linear"].token_env == "LINEAR_TOKEN"
     # İkinci önizleme: aynı adlar "zaten var".
@@ -347,3 +351,110 @@ def test_depo_changelog_bulunur_ve_repl_komutu_surumu_basar(ortam):
     command = build_registry(home).get("surum-notlari")
     assert command is not None
     assert command.handler(state, "").startswith("Kurulu sürüm:")
+
+
+# --- Sır sızıntısı ve çakışma (inceleme bulguları) --------------------------------- #
+
+
+def test_args_ve_adresteki_sir_onizlemeye_ve_config_yaml_a_sizmaz(ortam):
+    from fusion_cli.mcp_bridge.transport import resolve_remote_url, resolve_stdio_args
+
+    home, root, config_file = ortam
+    bearer = "Authorization: Bearer sk-live-abcdefghijklmnop1234"
+    _write(
+        home / ".claude.json",
+        json.dumps(
+            {
+                "mcpServers": {
+                    "uzak": {
+                        "command": "npx",
+                        "args": [
+                            "-y",
+                            "mcp-remote",
+                            "https://x.example.com/mcp",
+                            "--header",
+                            bearer,
+                        ],
+                    },
+                    "bayrakli": {
+                        "command": "srv",
+                        "args": ["--token", "duz-deger-1234", "--api-key=abc123xyz", "--hizli"],
+                    },
+                    "anahtarli": {
+                        "type": "http",
+                        "url": "https://y.example.com/mcp?api_key=gz12345",
+                    },
+                    "kullanicili": {
+                        "type": "http",
+                        "url": "https://u:gizlisifre9@z.example.com/mcp",
+                    },
+                }
+            }
+        ),
+    )
+    config = load_config(config_file)
+
+    plan = build_plan("claude", home=home, root=root, config=config)
+    gizliler = (
+        "sk-live-abcdefghijklmnop1234",
+        "duz-deger-1234",
+        "abc123xyz",
+        "gz12345",
+        "gizlisifre9",
+    )
+    for item in plan.items:
+        assert not any(value in item.detail for value in gizliler), item.detail
+    assert _by_name(plan, "kullanicili").status is ImportStatus.SKIPPED
+    kasa = _Kasa()
+    _updated, report = apply_plan(plan, config=config, root=root, secrets=kasa)
+
+    assert not report.failed
+    written = config_file.read_text(encoding="utf-8")
+    assert not any(value in written for value in gizliler)
+    servers = {s.name: s for s in load_config(config_file).mcp_servers}
+    assert resolve_stdio_args(servers["uzak"], environ=kasa.values)[-1] == bearer
+    assert resolve_stdio_args(servers["bayrakli"], environ=kasa.values) == [
+        "--token",
+        "duz-deger-1234",
+        "--api-key=abc123xyz",
+        "--hizli",
+    ]
+    assert resolve_remote_url(servers["anahtarli"], environ=kasa.values).endswith("api_key=gz12345")
+    # Sır adları çocuk süreç ortamından ayıklanır (`mcp_secret_env_names`).
+    assert set(kasa.values) <= set(servers["uzak"].secret_env_names) | set(
+        servers["bayrakli"].secret_env_names
+    ) | set(servers["anahtarli"].secret_env_names)
+
+
+def test_ayni_ortam_adli_sirlar_birbirini_ve_fusion_anahtarini_ezmez(ortam):
+    from fusion_cli.mcp_bridge.transport import resolve_stdio_env
+
+    home, root, config_file = ortam
+    _write(
+        home / ".claude.json",
+        json.dumps(
+            {
+                "mcpServers": {
+                    "a": {"command": "a", "env": {"OPENAI_API_KEY": "sk-other-aaaaaaaaaaaaaaaa"}},
+                    "b": {"command": "b", "env": {"OPENAI_API_KEY": "sk-second-bbbbbbbbbbbbbbb"}},
+                }
+            }
+        ),
+    )
+    config = load_config(config_file)
+    plan = build_plan("claude", home=home, root=root, config=config)
+    kasa = _Kasa()
+    kasa.values["OPENAI_API_KEY"] = "sk-fusion-kendi-anahtari"
+
+    _updated, report = apply_plan(plan, config=config, root=root, secrets=kasa)
+
+    assert not report.failed
+    assert kasa.values["OPENAI_API_KEY"] == "sk-fusion-kendi-anahtari"
+    servers = {s.name: s for s in load_config(config_file).mcp_servers}
+    assert resolve_stdio_env(servers["a"], environ=kasa.values)["OPENAI_API_KEY"].startswith(
+        "sk-other"
+    )
+    assert resolve_stdio_env(servers["b"], environ=kasa.values)["OPENAI_API_KEY"].startswith(
+        "sk-second"
+    )
+    assert "OPENAI_API_KEY" not in servers["a"].secret_env_names
