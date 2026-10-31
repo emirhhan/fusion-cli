@@ -22,6 +22,7 @@ from ..config.browser_profiles import browser_session_from
 from ..config.models import Config, mcp_secret_env_names
 from ..config.permission_rules import load_permission_rules
 from ..config.permissions import load_allowed_commands
+from ..config.sandbox_config import fusion_secret_paths, sandbox_policy
 from ..core.artifacts import ArtifactStore
 from ..core.changeset import ChangeSet
 from ..core.concurrency import BackgroundTasks
@@ -173,6 +174,13 @@ def apply_runtime_settings(tool_context: ToolContext, config: Config) -> ToolCon
         hidden_env=tool_context.hidden_env | mcp_secret_env_names(config.mcp_servers),
         # run_shell işletim sistemi sandbox'ı yapılandırmadan gelir (Q1-16).
         shell_sandbox=config.runtime.shell_sandbox,
+        # Okuma engeli, ağ allowlist'i, ek yazma kökleri (P-010); Fusion sırları her zaman engelli.
+        sandbox_policy=sandbox_policy(
+            config.sandbox,
+            home=Path.home(),
+            root=tool_context.root,
+            extra_deny=fusion_secret_paths(),
+        ),
         edit_fuzzy_match=config.runtime.edit_fuzzy_match,
         post_edit_syntax_check=config.runtime.post_edit_syntax_check,
         shell_fingerprint=config.runtime.shell_workspace_fingerprint,

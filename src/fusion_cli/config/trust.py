@@ -55,7 +55,8 @@ _NEVER_TRUSTED = ""
 _SCHEMA_VERSION = 1
 
 #: Güvenilmeyen proje config'inden düşürülen, süreç/ağ/sır erişimi açan bölümler.
-EXECUTION_SECTIONS = ("mcp_servers", "hosted_connectors")
+#: `sandbox` (P-010): güvenilmeyen proje sandbox'ı gevşetemesin (alan adı, sandbox dışı komut).
+EXECUTION_SECTIONS = ("mcp_servers", "hosted_connectors", "sandbox")
 #: Aynı gerekçeyle `runtime` altından düşürülen anahtarlar. `status_line_command` tur sonunda
 #: kabukla çalışır (P-069); güvensiz projeden gelirse `fusion trust` olmadan kod yürütme olur.
 EXECUTION_RUNTIME_KEYS = ("verification_commands", "status_line_command")

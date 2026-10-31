@@ -18,6 +18,19 @@ from __future__ import annotations
 
 import re
 
+#: Sır taşıdığı ADINDAN anlaşılan ortam değişkenleri (sağlayıcı anahtarları, belirteçler).
+#: Önizleme sunucusu ve sandbox içindeki `run_shell` bu adları çocuk sürece geçirmez.
+SECRET_ENV_NAME = re.compile(
+    r"(_API_KEY|_SECRET|_SECRET_KEY|_TOKEN|_PASSWORD|_PASSWD|_PRIVATE_KEY)$|PASSWORD|SECRET",
+    re.IGNORECASE,
+)
+
+
+def is_secret_env_name(name: str) -> bool:
+    """Ortam değişkeni adı sır gibi mi görünüyor (`OPENAI_API_KEY`, `GH_TOKEN`)?"""
+    return SECRET_ENV_NAME.search(name) is not None
+
+
 #: Atamanın sağ tarafı: tırnaklı değer boşluk/virgül içerse de TAMAMEN sırdır.
 #: Son kol, kapanmamış tırnakla başlayan değeri de (kesilmiş log) yakalar.
 _VALUE = r"""(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|["']?[^"'\s,}]+)"""

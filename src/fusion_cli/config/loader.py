@@ -54,6 +54,7 @@ from .paths import (
     user_config_dir,
     web_profile_dir,
 )
+from .sandbox_config import SandboxConfig, validate_sandbox
 
 _logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ _SECTIONS = (
     "web_sessions",
     "browser",
     "capabilities",
+    "sandbox",
 )
 
 # PEP 695 sözdizimi yerine TypeVar: paket Python 3.11'i de destekler.
@@ -273,6 +275,8 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         # Eski kullanıcı dosyasında `browser:` yoksa gömülü varsayılanlar geçerlidir.
         browser=_build(BrowserConfig, merged.get("browser") or {}, "browser"),
         capabilities=_build(CapabilitiesConfig, merged.get("capabilities") or {}, "capabilities"),
+        # Eski dosyada `sandbox:` yoksa varsayılan politika (P-010).
+        sandbox=validate_sandbox(_build(SandboxConfig, merged.get("sandbox") or {}, "sandbox")),
     )
 
 

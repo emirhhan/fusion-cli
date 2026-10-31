@@ -21,9 +21,14 @@ from typing import Union, get_args, get_origin, get_type_hints
 
 from ..core.errors import ConfigError
 from .models import Config, EmbeddingConfig, RuntimeConfig
+from .sandbox_config import SandboxConfig, validate_sandbox
 
 #: Nokta yoluyla erişilebilen bölümler (ad → dataclass tipi).
-SETTING_SECTIONS: dict[str, type] = {"runtime": RuntimeConfig, "embedding": EmbeddingConfig}
+SETTING_SECTIONS: dict[str, type] = {
+    "runtime": RuntimeConfig,
+    "embedding": EmbeddingConfig,
+    "sandbox": SandboxConfig,
+}
 
 #: Serbest metin görünen ama yalnız belirli değerleri anlamlı olan alanlar (31 Ekim: `mavi`
 #: 'tamam' deyip çalışma anında sessizce varsayılana düşüyordu). `ui.theme.PALETTES` ve
@@ -32,6 +37,8 @@ SETTING_SECTIONS: dict[str, type] = {"runtime": RuntimeConfig, "embedding": Embe
 SETTING_CHOICES: dict[str, tuple[str, ...]] = {
     "runtime.terminal_theme": ("koyu", "acik", "ansi", "daltonizm"),
     "runtime.tui": ("fullscreen", "inline"),
+    "runtime.shell_sandbox": ("off", "write_root"),
+    "sandbox.network": ("open", "allowlist"),
 }
 
 _TRUE = frozenset({"true", "1", "yes", "on", "evet", "açık", "acik", "aç", "ac"})
@@ -191,12 +198,19 @@ def list_settings(config: Config, filter_text: str = "") -> list[Setting]:
     return rows
 
 
+def _with_value(config: Config, section: str, name: str, value: object) -> Config:
+    """Tek alanı değişmiş yapılandırma; `sandbox` bütün olarak doğrulanır (alan adları kanonik)."""
+    holder = replace(getattr(config, section), **{name: value})
+    if isinstance(holder, SandboxConfig):
+        return replace(config, sandbox=validate_sandbox(holder))
+    return replace(config, **{section: holder})
+
+
 def apply_setting(config: Config, path: str, raw: str) -> Config:
     """Ayarı yalnız bu `Config` nesnesine uygula (oturumluk); doğrulanmış kopya döner."""
     section, name = split_path(path)
     value = parse_value(raw, _field_type(section, name), path)
-    holder = getattr(config, section)
-    return replace(config, **{section: replace(holder, **{name: value})})
+    return _with_value(config, section, name, value)
 
 
 def parse_override(pair: str) -> tuple[str, str]:
@@ -222,6 +236,7 @@ def write_setting(
 
     section, name = split_path(path)
     value = parse_value(raw, _field_type(section, name), path)
-    updated = replace(config, **{section: replace(getattr(config, section), **{name: value})})
-    target = writer.write_section_value(config, section, name, yaml_value(value), file)
+    updated = _with_value(config, section, name, value)
+    canonical = getattr(getattr(updated, section), name)
+    target = writer.write_section_value(config, section, name, yaml_value(canonical), file)
     return updated, target

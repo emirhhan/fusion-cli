@@ -37,6 +37,7 @@ from urllib.parse import urljoin, urlparse
 
 from ..config import trust
 from ..core.errors import FusionError
+from ..core.redaction import SECRET_ENV_NAME
 from . import preview_server
 from .preview_server import LOCAL_HOSTS, PreviewError, PreviewKind, RunningPreview
 from .wordpress_setup import php_env
@@ -57,10 +58,7 @@ KNOWN_FIELDS = frozenset(
 )
 #: Alt sürece GEÇMEYEN ortam değişkenleri: sağlayıcı anahtarları ve sırlar. Dev sunucu
 #: bunlara ihtiyaç duymaz; `env` alanıyla açıkça verilen değer yine geçer.
-_SECRET_ENV = re.compile(
-    r"(_API_KEY|_SECRET|_SECRET_KEY|_TOKEN|_PASSWORD|_PASSWD|_PRIVATE_KEY)$|PASSWORD|SECRET",
-    re.IGNORECASE,
-)
+_SECRET_ENV = SECRET_ENV_NAME
 _ALLOW_ENV = frozenset({"npm_config_", "NODE_", "PYTHON", "PATH", "HOME", "LANG", "LC_"})
 
 UNTRUSTED_HINT = (

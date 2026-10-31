@@ -54,6 +54,7 @@ from ...tools.safe_delete import simple_rm_targets
 from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
 from ...tools.script_chain import script_chain_risk
 from ...tools.write_targets import write_targets
+from .sandbox_approval import apply_sandbox_policy
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
 REMOTE_DESTRUCTIVE_REASON = (
@@ -470,7 +471,7 @@ async def resolve_request(
     effect = await tool.effect_resolver(args, context) if tool.effect_resolver is not None else None
     touched = context.touched if context is not None else ()
     extra_roots = tuple(context.extra_roots) if context is not None else ()
-    return build_request(
+    request = build_request(
         tool,
         args,
         allowed_commands,
@@ -480,6 +481,8 @@ async def resolve_request(
         extra_roots=extra_roots,
         rules=rules,
     )
+    # Sandbox dışı istek her seferinde sorulur; sandbox'lı komut auto_allow ile serbest (P-010).
+    return apply_sandbox_policy(request, context)
 
 
 def build_request(

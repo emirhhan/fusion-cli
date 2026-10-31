@@ -19,6 +19,7 @@ from ..core.reasoning import ReasoningEffort
 from ..core.routing_strategy import RoutingStrategy
 from ..core.types import ModelSpec
 from ..core.window_mode import WindowMode
+from .sandbox_config import SandboxConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,8 +247,8 @@ class RuntimeConfig:
     #: zaman aşımından (`request_timeout_s`) AYRIDIR: web LLM düşünme süresi uzun
     #: olabilir ama bir tur dakikalarca öğretmeni bekleyemez (A4-31).
     teacher_timeout_s: float = 300.0
-    #: `run_shell` işletim sistemi sandbox'ı: "off" (varsayılan) | "write_root" (macOS'ta
-    #: `sandbox-exec` ile yazmayı proje kökü + geçici dizinlerle sınırlar; Q1-16).
+    #: `run_shell` işletim sistemi sandbox'ı: "off" (varsayılan) | "write_root" (macOS
+    #: `sandbox-exec`, Linux bubblewrap; Q1-16). Neyin sınırlandığı `sandbox:` bölümünde (P-010).
     shell_sandbox: str = "off"
     #: Küçük/zayıf model için SIKI araç yüzeyi eşiği (T1-63): bilinen girdi penceresi
     #: (token) bu değere eşit ya da küçükse model masaüstü (`desktop_*`) ve Chrome
@@ -672,6 +673,8 @@ class Config:
     browser: BrowserConfig = field(default_factory=BrowserConfig)
     #: Beceri/ajan kataloğu tercihleri.
     capabilities: CapabilitiesConfig = field(default_factory=CapabilitiesConfig)
+    #: `run_shell` sandbox politikası (P-010); kip `runtime.shell_sandbox`'tadır.
+    sandbox: SandboxConfig = field(default_factory=SandboxConfig)
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""

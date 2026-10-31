@@ -16,6 +16,7 @@ import pytest
 from fusion_cli.config.loader import load_config
 from fusion_cli.core import shell_sandbox
 from fusion_cli.core.errors import ConfigError
+from fusion_cli.core.shell_sandbox_linux import LinuxTools
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.tools import jobs, shell
 
@@ -50,10 +51,19 @@ def test_bilinmeyen_kip_kapali_sayilir(tmp_path):
     assert plan.prefix == ()
 
 
-def test_linux_da_uyarirla_kapali_kalir(tmp_path):
-    plan = shell_sandbox.plan_shell_sandbox("write_root", (tmp_path,), platform="linux")
+def test_linux_ta_bwrap_yoksa_uyarirla_kapali_kalir(tmp_path):
+    """P-010: Linux artık bubblewrap ile desteklenir; bwrap yoksa eski uyarılı davranış."""
+    plan = shell_sandbox.plan_shell_sandbox(
+        "write_root", (tmp_path,), platform="linux", linux_tools=LinuxTools(bwrap=None)
+    )
     assert plan.prefix == ()
-    assert "macOS" in plan.notice and "kapalı" in plan.notice
+    assert "bwrap" in plan.notice and "kapalı" in plan.notice
+
+
+def test_windows_ta_uyarirla_kapali_kalir(tmp_path):
+    plan = shell_sandbox.plan_shell_sandbox("write_root", (tmp_path,), platform="win32")
+    assert plan.prefix == ()
+    assert "macOS ve Linux" in plan.notice and "kapalı" in plan.notice
 
 
 def test_sandbox_exec_yoksa_uyarirla_kapali_kalir(tmp_path):
@@ -148,16 +158,16 @@ def test_arka_plan_isi_de_sandbox_icinde_calisir(tmp_path, monkeypatch):
     assert not (tmp_path / "disari" / "dis.txt").exists()
 
 
-def test_linux_benzeri_ortamda_uyari_bir_kez_gosterilir(tmp_path, monkeypatch):
+def test_desteklenmeyen_ortamda_uyari_bir_kez_gosterilir(tmp_path, monkeypatch):
     root = tmp_path
-    monkeypatch.setattr(shell_sandbox.sys, "platform", "linux")
+    monkeypatch.setattr(shell_sandbox.sys, "platform", "win32")
     shell._SHOWN_SANDBOX_NOTICES.clear()
     context = ToolContext(root=root, shell_sandbox="write_root")
 
     ilk = shell.run_shell({"command": "echo a"}, context)
     ikinci = shell.run_shell({"command": "echo a"}, context)
 
-    assert ilk.ok and "FUSION_NOT" in ilk.output and "macOS" in ilk.output
+    assert ilk.ok and "FUSION_NOT" in ilk.output and "macOS ve Linux" in ilk.output
     assert "FUSION_NOT" not in ikinci.output
 
 

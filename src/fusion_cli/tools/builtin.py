@@ -539,6 +539,8 @@ _TOOLS: tuple[Tool, ...] = (
             {
                 "command": _STRING,
                 "background": {"type": "boolean"},
+                # Sandbox dışı istek (P-010): her seferinde açık onay; açıklama bütçe için kısa.
+                "unsandboxed": {"type": "boolean", "description": "sandbox dışı (onaylı)"},
                 "expected_outputs": {
                     "type": "array",
                     "items": _STRING,

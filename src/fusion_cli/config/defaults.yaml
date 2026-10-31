@@ -414,9 +414,10 @@ runtime:
   # başarısızlıktan sonra öğretmen o tur için kapatılır.
   teacher_timeout_s: 300
   # run_shell işletim sistemi sandbox'ı. "off" = kısıt yok (varsayılan; tırnaksız off YAML'da false okunur ve kabul edilir). write_root =
-  # macOS'ta `sandbox-exec` ile yazma yalnız proje kökü (+ --add-dir) ve geçici dizinlerle
-  # sınırlı olur (`echo x > ../y` reddedilir); Linux'ta yoksa uyarıyla off. ~/.npm gibi
-  # paket önbellekleri bu kipte yazılamaz.
+  # macOS'ta `sandbox-exec`, Linux/WSL2'de bubblewrap ile yazma yalnız proje kökü (+ --add-dir,
+  # sandbox.allow_write) ve geçici dizinlerle sınırlı olur (`echo x > ../y` reddedilir);
+  # okuma engeli ve ağ allowlist'i `sandbox:` bölümünde. ~/.npm gibi paket önbellekleri bu
+  # kipte yazılamaz (gerekirse sandbox.allow_write). Aç/kapat: /sandbox on|off.
   shell_sandbox: "off"
   # edit_file/multi_edit: tam eşleşme yoksa satır sonu boşluğu/girinti/CRLF farkını tolere
   # eden yedek eşleşme (yalnız tek ve belirsiz olmayan blok; replace_all ile çalışmaz).
@@ -946,3 +947,53 @@ browser:
   # true: tarayıcı penceresi görünmez. false: pencere görünür açılır (giriş/CAPTCHA
   # gibi insan müdahalesi gereken işler için).
   headless: true
+
+# run_shell sandbox politikası (P-010; Claude Code `sandbox.*`). YALNIZ
+# runtime.shell_sandbox=write_root iken uygulanır; durum ve değiştirme: /sandbox,
+# `fusion sandbox durum`, masaüstünde Ayarlar › İzinler › Sandbox.
+sandbox:
+  # Proje kökü, --add-dir ve geçici dizinlere EK yazılabilir dizinler (~ açılır; göreli
+  # yol proje köküne göredir). Örn: ["~/.npm", "~/.cache/pip"].
+  allow_write: []
+  # Sandbox içindeki komutun OKUYAMADIĞI yollar (dizinse altı da). Fusion'ın kendi .env'i,
+  # şifreli kasası ve tarayıcı/web oturum profilleri burada yazılmasa da her zaman engellidir.
+  deny_read:
+    - "~/.ssh"
+    - "~/.aws"
+    - "~/.gnupg"
+    - "~/.azure"
+    - "~/.kube"
+    - "~/.config/gcloud"
+    - "~/.docker/config.json"
+    - "~/.netrc"
+    - "~/.git-credentials"
+    - "~/.password-store"
+    - "~/Library/Keychains"
+  # open = ağ kısıtsız (eski davranış). allowlist = komut yalnız Fusion'ın yerel
+  # proxy'sine çıkabilir; proxy yalnız allowed_domains'e bağlanır (HTTP_PROXY/HTTPS_PROXY
+  # ortamı verilir; iç ağ adresine çözülen ad reddedilir).
+  network: "open"
+  # allowlist kipinde izinli alan adları: tam ad ya da "*.ornek.com" (alt alan adları).
+  # Örn: ["github.com", "*.githubusercontent.com", "pypi.org", "files.pythonhosted.org",
+  # "registry.npmjs.org"]. Boş liste = dış ağ tamamen kapalı.
+  allowed_domains: []
+  # Her zaman reddedilen alan adları; allowed_domains'ten üstündür.
+  denied_domains: []
+  # allowlist kipinde localhost (dev sunucusu, yerel veritabanı) açık mı? Linux'ta ağ ad
+  # alanı ayrı olduğundan yalnız sandbox içinde başlatılan sunuculara ulaşılır.
+  allow_localhost: true
+  # true: sandbox kurulamazsa (Windows, bwrap/sandbox-exec yok) komut ÇALIŞTIRILMAZ.
+  # false: bir kez uyarılır ve komut sandbox'sız (normal onay akışıyla) çalışır.
+  fail_if_unavailable: false
+  # true: model `run_shell(unsandboxed=true)` ile sandbox dışında çalıştırma isteyebilir;
+  # bu istek HER SEFERİNDE açık onay ister (oturum izni verilmez). false: istek reddedilir.
+  allow_unsandboxed: true
+  # Her zaman sandbox dışında (normal onayla) çalışan komut önekleri, örn. ["docker", "git push"].
+  # Yalnız tek ve sade komut eşleşir; `docker ps && curl …` sandbox içinde kalır.
+  excluded_commands: []
+  # true: sandbox içinde VE network=allowlist iken komutlar sorulmadan çalışır (Claude
+  # autoAllowBashIfSandboxed). Yıkıcı komutlar, ask/deny kuralları ve plan kipi yine geçerli.
+  auto_allow: false
+  # true: sandbox içindeki komutun ortamından sır gibi görünen değişkenler (*_API_KEY,
+  # *_TOKEN, *_SECRET, *PASSWORD*) çıkarılır.
+  hide_secret_env: true
