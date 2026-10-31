@@ -69,3 +69,17 @@ Fusion → `desktop.app_levels` → kategori → `desktop.control_level` tavanı
 da yetmeyen kademe her kipte (İzinleri atla dahil) sorulmadan kapanır ve modele önerilen yol
 söylenir. Hedef okunamazsa (Erişilebilirlik izni yok) çağrı eski temkinli yolla, her seferinde
 sorulur.
+
+## Riskli eylemler (her seferinde sorulur)
+
+Oturum izni olsa da, İzinleri atla kipinde bile şu eylemler her çağrıda ayrıca sorulur ve
+oturum iznine dönüşmez (kart "Dikkat:" satırında nedeni yazar):
+
+- Tıklanan öğenin adı gönder/sil/öde/yayınla/çıkış türündense ("Gönder", "Sil", "Place order",
+  "Move to Trash", "Çöp Sepetini Boşalt"…). Sözcük listesi Chrome ile ortaktır
+  (`tools/risk_words.py`); öğe adı Erişilebilirlik ağacından okunur, alan değeri okunmaz.
+- Arka plan `press` hedefinin adı aynı türdense.
+- Terminal ve IDE'de Enter ya da satır sonu içeren `desktop_type` metni (komut çalıştırır).
+- Her uygulamada Cmd/Ctrl+Enter (genellikle gönderir) ve Cmd+Delete (siler/çöpe atar);
+  odakta riskli bir düğme varken Enter.
+- Sistem Ayarları'nda her tıklama ve yazma.

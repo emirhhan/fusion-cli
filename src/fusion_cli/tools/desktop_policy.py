@@ -25,6 +25,7 @@ from dataclasses import dataclass
 
 from ..core.desktop_settings import DesktopLevel, DesktopSettings, DesktopTarget, parse_app_level
 from ..core.tools import ToolArgs, ToolContext, ToolEffect
+from .desktop_risk import risky_reason
 from .native_desktop import SwiftDesktop
 
 #: Hedef sorgusu: yardımcıya giden istek gövdesi → yanıt (testte sahte verilir).
@@ -278,7 +279,11 @@ async def assess(
             app=target.app, level=level.label, required=required.label, hint=hint
         )
         return DesktopAssessment(required, target, blocked=blocked)
-    return DesktopAssessment(required, target)
+    if required is DesktopLevel.OBSERVE:
+        return DesktopAssessment(required, target)
+    # Riskli eylem (P-008): gönder/sil/öde düğmesi, Terminal'de Enter, Sistem Ayarları.
+    risky = risky_reason(tool_name, args, target, category.key if category is not None else "")
+    return DesktopAssessment(required, target, risky=risky)
 
 
 async def observe_effect(_args: ToolArgs, _context: ToolContext | None) -> ToolEffect:
