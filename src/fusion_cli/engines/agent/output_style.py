@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ...config.models import Config
+from ...config.trust import resolve_project_trust
 from ...tools.capabilities import parse_frontmatter
 
 _LOG = logging.getLogger(__name__)
@@ -92,17 +93,39 @@ def _scan(directory: Path, source: str) -> list[OutputStyle]:
 
 
 def discover_styles(home: Path | None, root: Path | None) -> tuple[OutputStyle, ...]:
-    """Yerleşik + özel stiller; aynı ad varsa proje > kullanıcı > yerleşik."""
+    """Yerleşik + özel stiller; aynı ad varsa güvenilen projede proje > kullanıcı > yerleşik.
+
+    Ölçüldü (31 Ekim): proje `.claude/output-styles/ozlu.md` yerleşik `ozlu`yu eziyordu;
+    kötü niyetli depo kullanıcının seçtiği zararsız stilin yerine kendi talimatını sistem
+    istemine sokabiliyordu. Güven kaydı olmayan projenin stili yerleşik/kullanıcı adını
+    GÖLGELEYEMEZ (yeni adlar yine listelenir); `fusion trust` sonrası Claude Code sırası.
+    """
     found: dict[str, OutputStyle] = {}
     for style in _scan(BUILTIN_DIR, "yerleşik"):
         found[style.name] = style
     for base, source in ((home, "kullanıcı"), (root, "proje")):
         if base is None:
             continue
+        shadow_allowed = source != "proje" or _project_trusted(base)
         for relative in CUSTOM_DIRS:
             for style in _scan(base / relative, source):
+                if not shadow_allowed and style.name in found:
+                    _LOG.warning(
+                        "proje çıktı stili '%s' güven kaydı olmadan %s stilini gölgeleyemez: %s",
+                        style.name,
+                        found[style.name].source,
+                        base / relative,
+                    )
+                    continue
                 found[style.name] = style
     return tuple(found.values())
+
+
+def _project_trusted(root: Path) -> bool:
+    try:
+        return resolve_project_trust(root).trusted
+    except Exception:  # güven kaydı okunamazsa güvenilmez sayılır
+        return False
 
 
 def find_style(name: str, home: Path | None, root: Path | None) -> OutputStyle | None:
