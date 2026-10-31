@@ -5,6 +5,24 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
 ## Yayımlanmamış
 
+### Claude Code / Codex paritesi (31 Ekim 2026)
+
+- İzinler: Claude Code `permissions.allow/ask/deny` kalıpları (Bash, Read, Edit, WebFetch, Agent, mcp__…) dört katmandan okunur ve okuma/web araçlarında da uygulanır; kabuk sarmalayıcıları (`sh -c`, `eval`, `sudo`) kuralı aşamaz. `/permissions`, `fusion permissions` ve Ayarlar › İzinler kural tablosu.
+- Korumalı yollar (`.git/`, `.claude/`, `.fusion/tools/`…) her kipte sorulur; `runtime.block_reads_outside_root` / `block_writes_outside_root` klasör dışını sorulmadan kapatır.
+- Onay kartı: "Evet, bir daha sorma (kalıcı)" ve "Not ekle" (ret gerekçesi modele gider, tur durmaz); masaüstünde güvenilmeyen proje şeridi.
+- Oturum: `fusion --continue` (`-c`), `--resume`, `--fork-session`, `--name`; `/resume`, `/rename`, `/branch`; `/rewind` (Esc Esc) kod ve konuşma checkpoint'i; `--worktree`/`/worktree` git çalışma ağacı izolasyonu ve `.worktreeinclude`.
+- Talimat ve beceriler: `~/.claude/CLAUDE.md`, `CLAUDE.local.md`, `@yol` içe aktarma, `.claude/rules` (`paths:` kapsamı); `/ad` ve `$ad` ile beceri/komut çağırma, SKILL.md frontmatter (`allowed-tools`, `disable-model-invocation`, `context: fork`), beceri dizini enjeksiyonu, `/init`, `/doctor prompt`.
+- REPL: `!` kabuk, `@dosya` (Tab tamamlama), `#` bellek notu; `/status`, `/context`, `/export`, `/copy`, `/config` + `fusion config get/set/list`, `--set bölüm.alan=değer` ve `--profile`; `/output-style`, `/statusline`, `/theme`, `/tui`, `/search`, `keybindings.json`, `/vim`.
+- Bilgisayar kullanımı: Erişilebilirlik ve Ekran Kaydı izin akışı (Ayarlar › İzinler › Bu bilgisayar); ekran görüntüsü 1568 px çerçeveli (Retina kayması giderildi), bölge büyütme ve ekran seçimi; `desktop_mouse` (sağ/çift/üçlü tık, sürükle, hover), yatay kaydırma, tuş dizgisi; tek oturum kilidi; Fusion penceresi görüntüden çıkarılır.
+- Tarayıcı oturumu içe aktarma: `fusion browser import-cookies` / `import-chrome` / `login`, şifreli profil deposu, alan adı onayı; `browser_open profile=`; Ayarlar › Web oturumları.
+- Fusion Browser eklentisi 0.4.0: konsol ve ağ okuma (debugger izni olmadan), erişilebilirlik ağacı ve doğal dilli arama, `network_idle` bekleme, GIF kaydı, kısayollar, pencere/sekme grubu, Windows/Linux'ta Chrome açma.
+- Masaüstü: `.fusion/launch.json` (ve `.claude/launch.json`) ile önizleme sunucusu, konsol/ağ çekmecesi, cihaz boyutlu ekran görüntüsü; tur bitişi/onay için OS bildirimi, okunmamış işareti, Dock rozeti; bölünmüş görünüm, sistem tepsisi, `fusion://` derin bağlantılar; yazı ölçeği, yüksek kontrast, hareketi azalt.
+- Alt ajanlar ve bellek: düz metin `BELLEK.md` + `/memory`; ajan tanımı alanları (model, permissionMode, maxTurns, skills, mcpServers, disallowedTools, memory) uygulanır; derinlik/eşzamanlılık ayarı ve ağaç görünümü; `fusion --agent explore|plan`, `/persona`, `/subtask` (bağlamı devralan alt ajan). Alt ajan artık kök dışı okuma/yazma engelini de devralır.
+- Uzaktan: `fusion remote-control` ve `/rc` (masaüstü olmadan telefondan sürme, QR), cihaz başına süreli uzaktan onay ve Telegram onay düğmeleri, başlıkta "Uzaktan kontrol" anahtarı.
+- Betik ve MCP: `fusion agent --output-format json|stream-json`, stdin görev, `--max-turns`, `--max-budget-usd`, `--allowed/--disallowed-tools`, `--json-schema`, `--bare`; `fusion mcp add|remove|list|login|reconnect`, `.mcp.json` ve `${VAR:-varsayılan}`; `/usage`, `fusion usage`, `fusion insights`; salt-okur `gh` aracı, `/pr`, `/pr-comments`, `/autofix-pr`, `--from-pr`; santralde `/v1/responses`, `/v1/messages`, `/v1/embeddings`.
+- Plan ve makrolar: plan kipi `plans/<sohbet>.md` dosyasına yazar ve kabul kartı sunar (`/plan goster`, `/plan ac`); `/simplify`, `/security-review`, `/debug`, `/batch`, `/code-review`; `/loop` ve ajan araçları `cron_create/list/delete`, `schedule_wakeup`.
+- Kits: `fusion kit gonder|gelen|liste|durum`, `kit_send` aracı ve `kit.*` RPC'leri; Kit'ler kullanıcının Chrome'unu Fusion onayıyla kullanabilir (`docs/KITS_KOPRUSU.md`).
+
 - "web push bildirimi", "pushState" gibi isim olarak geçen push artık modeli atlayan git push akışını başlatmaz.
 - Gateway bu bilgisayar dışından gelen isteği yalnız belirteçle kabul eder; belirteçsiz ağ bind'i başlamaz (`fusion serve --token`).
 - Güvenilmeyen projenin `config.yaml` ve `.fusion/tools` dosyaları MCP süreci, doğrulama komutu veya araç çalıştıramaz; yeni komut `fusion trust`.
