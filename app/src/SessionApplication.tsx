@@ -2,6 +2,7 @@ import { createVoicePlayback } from "./voice/voicePlayback";
 import { localVoiceReply } from "./voice/localVoice";
 import { closeUnfinishedAgents } from "./team/ekipOlaylari";
 import { AgentPanel, agentCardsForMessages } from "./team/AgentPanel";
+import { OrchestrationPanel } from "./team/OrchestrationPanel";
 import type { TeamCardsProps } from "./team/TeamCards";
 import { operationResult, errorMessage, type CommandResult } from "./protocol/result";
 import { submissionAccepted, type SubmissionResult } from "./sessions/submission";
@@ -382,7 +383,7 @@ function ProjectInspector({
       placement={placement}
       width={width}
       content={{
-        agents: <AgentPanel ajanlar={agents?.ajanlar ?? []} canli={agents?.canli ?? false} onCancel={agents?.onCancel} />,
+        agents: <><OrchestrationPanel client={client} onCommand={onCommand} /><AgentPanel ajanlar={agents?.ajanlar ?? []} canli={agents?.canli ?? false} onCancel={agents?.onCancel} /></>,
         files: <FileExplorer client={client} key={root} onChanged={changed} onSelected={onSelectPath} root={root} revision={revision} />,
         // Doğrulama komutları DEĞİŞİKLİKLER sekmesinde: "ne değişti" ile
         // "hâlâ çalışıyor mu" aynı soruya bakar. Ayrı 'Testler' sekmesi git

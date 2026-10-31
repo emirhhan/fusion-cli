@@ -1418,3 +1418,10 @@ KEYBINDINGS_HINT = (
 VIM_USAGE = "Kullanım: /vim [on|off]"
 VIM_SET = "Vim kipi {state}. Esc ile NORMAL, i ile INSERT kipine geçilir."
 VIM_SET_UNSAVED = "Vim kipi bu oturum için {state}; dosyaya yazılamadı: {error}"
+
+
+# --------------------------------------------------------------------------- #
+# Ekip ve iş akışı (P-061/P-062)
+# --------------------------------------------------------------------------- #
+
+AKIS_CMD_WORKFLOWS = "Dinamik iş akışları: kayıtlılar, koşular, iptal, çalıştır"

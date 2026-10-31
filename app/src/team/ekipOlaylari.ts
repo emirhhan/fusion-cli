@@ -1,6 +1,7 @@
 import type { Mesaj } from "../screens/Conversation";
 import { adimiEkle } from "../protocol/adimBirlestir";
 import { olayAdimi, type OlayAdimi } from "../protocol/olayMetni";
+import { orkestrasyonOlayi } from "./orkestrasyon";
 
 /**
  * Alt ajan ekibinin olaylarını sohbet akışına kart olarak işle.
@@ -51,6 +52,8 @@ function metin(deger: unknown): string {
 
 /** Olay bir ekip olayıysa güncel akışı, değilse `null` döndür. */
 export function ekipOlayi(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
+  const pano = orkestrasyonOlayi(messages, event);
+  if (pano) return pano;
   if (event.olay === "SubAgentStarted") return ajanBasladi(messages, event);
   if (event.olay === "SubAgentFinished") return ajanBitti(messages, event);
   const kimlik = metin(event.agent_id);

@@ -54,6 +54,7 @@ from . import (
     prompt_opt_commands,
     trash_commands,
     usage_commands,
+    workflow_cli,
 )
 from .app_host import AppHostDependencies
 from .cleanup import with_web_cleanup
@@ -79,6 +80,7 @@ app.add_typer(knowledge_commands.app, name="knowledge")
 app.add_typer(trash_commands.app, name="cop")
 app.add_typer(capability_commands.app, name="yetenek")
 app.add_typer(kit_commands.app, name="kit")
+app.add_typer(workflow_cli.app, name="workflows")
 app.add_typer(eval_commands.eval_app, name="eval")
 app.add_typer(prompt_opt_commands.prompt_opt_app, name="prompt-opt")
 # `fusion mcp` alt komutsuz eski sunucu davranışını korur; `add/list/login/reconnect…` P-049.

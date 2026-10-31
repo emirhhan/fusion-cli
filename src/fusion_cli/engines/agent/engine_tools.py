@@ -51,6 +51,7 @@ from .history_tools import recent_actions_tool
 from .image_tools import generate_image_tool
 from .image_view import DEFAULT_QUESTION, describe_image
 from .memory_tools import memory_read_tool, remember_tool
+from .orchestration_tools import register_orchestration_tools
 from .preview_log_tools import preview_log_tools
 from .preview_tools import preview_tool
 from .secret_paths import is_secret_path
@@ -162,6 +163,8 @@ def build_agent_registry(
         for cron_tool in cron_tools(SystemClock()):
             extended.register(cron_tool)
     _register_forged_tools(extended, deps)
+    # Ekip (P-061) ve dinamik iş akışı (P-062) araçları kendi modülünde kaydolur.
+    register_orchestration_tools(extended, deps, depth=depth, run_agent=run_agent)
     runtime = getattr(deps.config, "runtime", None)
     kapali = frozenset(getattr(runtime, "disabled_tools", ()))
     return _without(extended, kapali) if kapali else extended

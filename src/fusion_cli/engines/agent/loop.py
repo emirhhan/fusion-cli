@@ -215,6 +215,11 @@ from .loop_contract import (
 from .masking import MaskLedger, MaskView, mask_view
 from .memory_tools import memory_prompt_block
 from .narration import intro_paragraph, todo_transitions
+from .orchestration_tools import (
+    ORCHESTRATION_KINDS,
+    ORCHESTRATION_SCOPED_TOOLS,
+    orchestration_task_kinds,
+)
 from .output_verify import requested_outputs_in
 from .plan_runner import run_execution_plan
 from .platform_check import ensure_limitations_disclosed, run_platform_check
@@ -697,7 +702,7 @@ async def _run_agent(
         deps.tool_context.requested_outputs.clear()
         deps.tool_context.requested_outputs.update(requested_outputs_in(task))
         deps.tool_context.task_kinds.difference_update(
-            {"oyun", "remotion", "masaustu", "worktree", WIDENED_KIND}
+            {"oyun", "remotion", "masaustu", "worktree", WIDENED_KIND, *ORCHESTRATION_KINDS}
         )
         if is_game_task(task):
             deps.tool_context.task_kinds.add("oyun")
@@ -707,6 +712,7 @@ async def _run_agent(
             deps.tool_context.task_kinds.add("masaustu")
         if is_worktree_task(task):
             deps.tool_context.task_kinds.add("worktree")
+        deps.tool_context.task_kinds.update(orchestration_task_kinds(task))
 
     if not plan_mode and not chat_mode and depth == 0:
         played = await maybe_run_playbook(task, deps)
@@ -2640,6 +2646,8 @@ SCOPED_TOOLS: dict[str, str] = {
     # Çalışma ağacı araçları yalnız izolasyon istenen işte sunulur (istem bütçesi).
     "enter_worktree": "worktree",
     "exit_worktree": "worktree",
+    # Ekip ve iş akışı araçları yalnız o türden istekte (P-061/P-062).
+    **ORCHESTRATION_SCOPED_TOOLS,
 }
 
 

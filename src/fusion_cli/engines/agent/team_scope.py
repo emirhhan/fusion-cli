@@ -28,7 +28,7 @@ def schedule_waves(subtasks: Sequence[SubTask]) -> list[list[int]]:
             current.append(index)
             continue
         scope = [Path(raw).expanduser().resolve() for raw in subtask.write_scope]
-        if scope and not any(_overlaps(path, taken) for path in scope for taken in claimed):
+        if scope and not any(paths_overlap(path, taken) for path in scope for taken in claimed):
             current.append(index)
             claimed.extend(scope)
             continue
@@ -44,7 +44,8 @@ def schedule_waves(subtasks: Sequence[SubTask]) -> list[list[int]]:
     return waves
 
 
-def _overlaps(first: Path, second: Path) -> bool:
+def paths_overlap(first: Path, second: Path) -> bool:
+    """İki yol aynı mı ya da biri ötekinin içinde mi (yazma alanı çakışması)?"""
     return first == second or first in second.parents or second in first.parents
 
 

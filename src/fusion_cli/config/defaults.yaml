@@ -159,6 +159,14 @@ runtime:
   # Bir kök turda toplam başlatılabilecek alt ajan (tüm derinlikler). Dolunca spawn
   # "bütçe doldu" döner.
   max_subagents_per_turn: 20
+  # Dinamik iş akışları (P-062): `workflow_run` aracı ve `/workflows`. false = kapalı.
+  dynamic_workflows: true
+  # Bir iş akışı koşusunun en fazla alt ajanı; tanımdaki en_fazla_ajan yalnız daraltır.
+  dynamic_workflow_max_agents: 50
+  # İş akışında aynı anda koşan ajan; 0 = max_parallel_agents.
+  dynamic_workflow_max_concurrent: 0
+  # Bu kadar ya da daha çok ajanlı koşu önce sorulur (maliyet uyarısı); 0 = sorma.
+  dynamic_workflow_confirm_agents: 10
   # Ajan bir dosyayı değiştirince çalışacak komutlar; `{path}` dosya yoluyla değişir.
   # Örnek: ["npx prettier --write {path}"]. Boş liste = kanca yok.
   post_edit_commands: []

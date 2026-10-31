@@ -175,6 +175,7 @@ from .local_computer import LocalComputer, native_local_computer
 from .local_computer_routes import LOCAL_COMPUTER_ROUTES, dispatch_local_computer
 from .mcp_catalog import list_tool_catalog, pin_tools_digest
 from .model_catalog import list_selectable_models
+from .orchestration_routes import ORCHESTRATION_ROUTES, dispatch_orchestration
 from .personal_memory import PersonalMemory
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
@@ -810,6 +811,9 @@ class AppSession:
                 return {"ok": False, "metin": "Soru kimliği veya cevap geçersiz."}
             accepted = self.pending.answer(identifier, answer)
             return {"ok": accepted, "questionId": identifier}
+        if request.name in ORCHESTRATION_ROUTES:
+            # Ekip panosu (P-061) ve iş akışı koşuları (P-062): araçlarla aynı depolar.
+            return await dispatch_orchestration(request.name, request.data, self._state.root)
         if request.name in KITS_ROUTES:
             # Fusion → Kit gelen kutusu (P-063); araçlarla aynı istemci.
             return await dispatch_kits(request.name, request.data)

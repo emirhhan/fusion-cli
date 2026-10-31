@@ -239,6 +239,16 @@ class RuntimeConfig:
     #: Bir kök turda (tüm derinlikler toplam) başlatılabilecek alt ajan sayısı; dolunca
     #: `spawn_agent` "bütçe doldu" döner. Sonsuz ajan ağacı kotayı tüketmesin.
     max_subagents_per_turn: int = 20
+    #: Dinamik iş akışları (P-062, `workflow_run`, `/workflows`): model JSON tanımıyla çok
+    #: sayıda alt ajanı paralel/boru hattı olarak yönetir. False = araç sunulmaz.
+    dynamic_workflows: bool = True
+    #: Bir iş akışı koşusunun başlatabileceği en fazla alt ajan (Claude Code 1.000/koşu;
+    #: Fusion'da ücretsiz kota ortak kovadan yandığı için 50). Tanım yalnız daraltır.
+    dynamic_workflow_max_agents: int = 50
+    #: İş akışında aynı anda koşan ajan tavanı; 0 = `max_parallel_agents`.
+    dynamic_workflow_max_concurrent: int = 0
+    #: Bu kadar ya da daha çok ajan başlatacak koşu önce kullanıcıya sorulur; 0 = sorma.
+    dynamic_workflow_confirm_agents: int = 10
     #: Ajan bir dosyayı değiştirince o dosya için çalışacak kullanıcı komutları
     #: (`{path}` yerine dosya yolu). Boş = kanca yok (varsayılan davranış).
     post_edit_commands: tuple[str, ...] = ()

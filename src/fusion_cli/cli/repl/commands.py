@@ -49,6 +49,7 @@ from . import (
     status_line,
     verify_flow,
     view_commands,
+    workflow_commands,
     workspace_commands,
     worktrees,
 )
@@ -1178,6 +1179,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
     SlashCommand(
         "branch", messages.CMD_BRANCH, session_resume.branch_command, group="Geçmiş", usage="[ad]"
+    ),
+    SlashCommand(
+        "workflows",
+        messages.AKIS_CMD_WORKFLOWS,
+        workflow_commands.workflows_command,
+        group="Agent",
+        usage="[goster|iptal|sil] [ad|koşu] | <ad> [girdi=değer]",
     ),
     SlashCommand(
         "worktree",
