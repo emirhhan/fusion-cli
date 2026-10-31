@@ -375,8 +375,13 @@ class ReplState:
             )
             self.hook_session = session
         session.root = self.root
-        if session.session_id != self.conversation_id:
-            session.restart(source, reason="other", session_id=self.conversation_id)
+        if session.conversation_id != self.conversation_id:
+            session.restart(
+                source,
+                reason="other",
+                session_id=self.conversation_id,
+                conversation_id=self.conversation_id,
+            )
         return session
 
     def _fall_back_to_manual(self) -> None:
@@ -441,8 +446,8 @@ class ReplState:
         removed = len(self.history)
         self.history = []
         if self.hook_session is not None:
-            # Claude `/clear` gibi: SessionEnd(clear) + yeni SessionStart(source: clear).
-            self.hook_session.restart("clear", reason="clear", session_id=self.conversation_id)
+            # Claude `/clear` gibi: SessionEnd(clear) + yeni kimlikle SessionStart(source: clear).
+            self.hook_session.restart("clear", reason="clear")
         # Temizlenen sohbetin PR künyesi de gider (Claude Code `/clear` ile aynı).
         linked_pr.forget(self)
         return removed

@@ -38,6 +38,9 @@ class HookSession:
     root: Path
     loader: Callable[[], HookSet]
     session_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    #: Oturumun bağlı olduğu sohbet kimliği. `/reset` sohbeti korur ama `session_id`'yi
+    #: yeniler (Claude `/clear` gibi); sohbet değişimi bu alanla ayırt edilir.
+    conversation_id: str = ""
     #: Anlık onay kipinin adı (Claude'un `permission_mode` alanı); verilmezse alan yazılmaz.
     permission_mode: Callable[[], str] | None = None
     hooks: HookSet = field(default_factory=HookSet)
@@ -142,17 +145,29 @@ class HookSession:
         ]
         return merge_verdicts(verdicts) if verdicts else NO_VERDICT
 
-    def restart(self, source: str, *, reason: str, session_id: str | None = None) -> None:
+    def restart(
+        self,
+        source: str,
+        *,
+        reason: str,
+        session_id: str | None = None,
+        conversation_id: str | None = None,
+    ) -> None:
         """Sohbet sıfırlandı/değişti: eski oturum `SessionEnd(reason)` alır, yenisi açılır.
 
         Çağıranlar eşzamanlıdır (`/reset`); `SessionEnd` bir sonraki `start`/`end`'de, eski
-        oturum kimliğiyle gönderilir. Başlamamış oturumda kapanış yoktur.
+        oturum kimliğiyle gönderilir. Başlamamış oturumda kapanış yoktur. `session_id`
+        verilmezse yeni kimlik üretilir. Ölçüldü (1 Kasım): `/reset` sohbet kimliğini yeni
+        oturum kimliği olarak veriyordu; SessionEnd(clear) ile SessionStart(clear) aynı
+        `session_id`'yi taşıyor, betikler iki oturumu ayıramıyordu.
         """
         if self.started and not self.ended:
             self._pending_end = (self.session_id, reason)
         self.started = False
         self.ended = False
         self.session_id = session_id or uuid.uuid4().hex
+        if conversation_id is not None:
+            self.conversation_id = conversation_id
         self.next_source = source
 
     async def _flush_pending_end(self) -> HookVerdict:
@@ -264,4 +279,5 @@ def open_hook_session(
     )
     if session_id:
         session.session_id = session_id
+        session.conversation_id = session_id
     return session
