@@ -139,3 +139,31 @@ async def test_arka_plan_hedefi_okunamazsa_kapanir(tmp_path, probe):
         )
         assert decision is Decision.BLOCKED and prompter.asked == []
         assert "doğrulanamadı" in (request.pre_denied or "")
+
+
+# --------------------------------------------------------------------------- ad eşleşmesi
+
+
+@pytest.mark.parametrize(
+    ("app", "bundle"),
+    [("Fusion 360", "com.autodesk.fusion360"), ("Fusion Studio", ""), ("Autodesk Fusion", "")],
+)
+def test_fusion_adi_gecen_ilgisiz_uygulama_engellenmez(app, bundle):
+    """Ölçüldü (31 Ekim): 'fusion ' önekli her ad Fusion sayılıp kalıcı engelleniyordu."""
+    assert desktop_policy.app_level(DesktopSettings(), app, bundle)[0] is not None
+    assert desktop_policy.app_level(DesktopSettings(), "Fusion", "")[0] is None
+    assert desktop_policy.app_level(DesktopSettings(), "X", "com.fusion.desktop")[0] is None
+
+
+@pytest.mark.parametrize(
+    "name", ["Binance.app", "/Applications/Binance.app", " binance.APP/ ", "com.binance.desktop"]
+)
+async def test_desktop_open_uzanti_yol_ve_paket_adiyla_da_engellenir(tmp_path, probe, name):
+    request, decision, _ = await _decide(
+        "desktop_open", {"app": name}, _context(tmp_path), ApprovalMode.BYPASS
+    )
+    assert decision is Decision.BLOCKED and request.pre_denied
+    _, decision, _ = await _decide(
+        "desktop_open", {"app": "Notes.app"}, _context(tmp_path, denied_apps=("notes",))
+    )
+    assert decision is Decision.BLOCKED

@@ -61,13 +61,17 @@ class AppCategory:
     bundles: tuple[str, ...]
     #: Uygulama adları (küçük harf); ad bununla başlıyorsa da eşleşir ("Visual Studio Code -").
     names: tuple[str, ...]
+    #: Yalnız tam ad eşleşsin (önek değil). Ölçüldü (31 Ekim): Fusion'ın "fusion " öneki
+    #: "Fusion 360", "Fusion Studio" gibi ilgisiz uygulamaları kalıcı engelliyordu.
+    exact_names: bool = False
 
     def matches(self, app: str, bundle: str) -> bool:
         name, ident = normalize_app(app), normalize_app(bundle)
         if ident and any(ident.startswith(prefix) for prefix in self.bundles):
             return True
         return bool(name) and any(
-            name == item or name.startswith(item + " ") for item in self.names
+            name == item or (not self.exact_names and name.startswith(item + " "))
+            for item in self.names
         )
 
 
@@ -81,7 +85,10 @@ def normalize_app(name: str) -> str:
 
 #: Sıralıdır: ilk eşleşen kazanır (Fusion ve engelliler önce).
 CATEGORIES: tuple[AppCategory, ...] = (
-    AppCategory("fusion", "Fusion", None, FUSION_REASON, ("com.fusion.desktop",), ("fusion",)),
+    AppCategory(
+        "fusion", "Fusion", None, FUSION_REASON, ("com.fusion.desktop",), ("fusion",),
+        exact_names=True,
+    ),
     AppCategory(
         "finance", "yatırım/kripto", None, "Yatırım ve kripto uygulamaları engelli.",
         ("com.binance", "com.coinbase", "com.krakenfx", "net.metaquotes", "com.tradingview",
@@ -267,13 +274,26 @@ def _element_label(raw: object) -> str:
     return f"{role} '{name}'" if role and name else name or role
 
 
+def _named_target(raw: str) -> tuple[str, str, int, str]:
+    """`desktop_open` adı: yol ve `.app` atılır; paket kimliği biçimindeyse paket de sayılır.
+
+    Ölçüldü (31 Ekim): yalnız tam ad karşılaştırılıyordu; "Binance.app" ya da
+    "/Applications/Binance.app" ret listesine ve kategoriye takılmadan `open -a` ile açılıyordu.
+    """
+    name = raw.strip().rstrip("/").rsplit("/", 1)[-1].strip()
+    if name.casefold().endswith(".app"):
+        name = name[: -len(".app")].strip()
+    bundle = name if "." in name and " " not in name else ""
+    return name, bundle, 0, ""
+
+
 async def resolve_target(
     tool_name: str, args: ToolArgs, context: ToolContext, probe: TargetProbe | None = None
 ) -> tuple[str, str, int, str] | None:
     """(uygulama, paket, pid, öğe) — çözülemezse None."""
     if tool_name in _NAMED_TOOLS:
         app = args.get("app")
-        return (app.strip(), "", 0, "") if isinstance(app, str) and app.strip() else None
+        return _named_target(app) if isinstance(app, str) and app.strip() else None
     if tool_name.startswith("desktop_background_") and background_pid(args) is None:
         # Geçersiz pid'de öndeki uygulamayı yoklamak yanlış hedefi değerlendirirdi.
         return None
