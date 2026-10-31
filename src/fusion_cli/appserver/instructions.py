@@ -58,6 +58,22 @@ def get_instructions(root: Path | None = None, home: Path | None = None) -> dict
         }
         for item in yuk.files
     ]
+    # `.claude/rules` kuralları da katman listesine girer (katman "kural", `kapsam` = paths).
+    # Eksik yüzeydi: arayüzün "Kural" etiketi vardı ama hiç kullanılmıyordu (31 Ekim).
+    from ..engines.agent.instruction_rules import MAX_RULE_FILE_CHARS, discover_rules, rule_block
+
+    for kural in discover_rules(root, home):
+        _, karakter = rule_block(kural, MAX_RULE_FILE_CHARS)
+        sonuc["katmanlar"].append(
+            {
+                "kaynak": kural.label,
+                "katman": "kural",
+                "karakter": karakter,
+                "kirpilan": 0,
+                "guvenilir": kural.trusted,
+                "kapsam": list(kural.paths),
+            }
+        )
     sonuc["notlar"] = list(yuk.notes)
     sonuc["toplam_karakter"] = sum(item.chars for item in yuk.files)
     # `/doctor prompt` ile aynı öneriler (P-021): arayüz Kişiselleştirme ekranında gösterir.

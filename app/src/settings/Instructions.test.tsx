@@ -91,3 +91,22 @@ it("önerileri listeler ve Talimat oluştur /init gönderir", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Talimat oluştur (/init)" }));
   expect(calistir).toHaveBeenCalledWith("/init");
 });
+
+// Eksik yüzey (31 Ekim): `.claude/rules` kuralları katman listesinde yoktu; "Kural" etiketi
+// hiç kullanılmıyordu. Kural satırı kapsamını (paths) ya da "her yerde" gösterir.
+it("kural dosyalarını kapsamıyla listeler", async () => {
+  const client = istemci(async (ad) => {
+    if (ad === "ayar.talimat") return {
+      ok: true, metin: "", sinir: 4000,
+      katmanlar: [
+        { kaynak: ".claude/rules/react.md", katman: "kural", karakter: 90, kirpilan: 0, guvenilir: false, kapsam: ["src/**/*.tsx", "*.css"] },
+        { kaynak: "~/.claude/rules/genel.md", katman: "kural", karakter: 40, kirpilan: 0, guvenilir: true, kapsam: [] },
+      ],
+    };
+    return { ok: true };
+  });
+  render(<Instructions client={client} />);
+  const liste = await screen.findByLabelText("Yüklenen talimat katmanları");
+  expect(liste.textContent).toContain("Kural · 90 karakter · src/**/*.tsx, *.css · depo içeriği");
+  expect(liste.textContent).toContain("Kural · 40 karakter · her yerde");
+});

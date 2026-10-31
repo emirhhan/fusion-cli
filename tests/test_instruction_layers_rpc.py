@@ -33,3 +33,21 @@ def test_ayar_talimat_kok_verilmezse_eski_yanit(tmp_path: Path, monkeypatch):
     sonuc = instructions.get_instructions()
 
     assert "katmanlar" not in sonuc and sonuc["ok"] is True
+
+
+def test_ayar_talimat_kural_dosyalarini_kapsamiyla_listeler(tmp_path: Path, monkeypatch):
+    """Eksik yüzey: Kişiselleştirme ekranı `.claude/rules` kurallarını göstermiyordu."""
+    monkeypatch.setattr(voice, "_data_home", lambda: tmp_path / "veri")
+    home, root = tmp_path / "ev", tmp_path / "proje"
+    (root / ".claude" / "rules").mkdir(parents=True)
+    (root / ".claude" / "rules" / "react.md").write_text(
+        "---\npaths: [src/**/*.tsx]\n---\nhook adı use ile başlar", encoding="utf-8"
+    )
+    (root / "CLAUDE.md").write_text("proje", encoding="utf-8")
+
+    sonuc = instructions.get_instructions(root, home)
+
+    kural = next(item for item in sonuc["katmanlar"] if item["katman"] == "kural")
+    assert kural["kaynak"] == ".claude/rules/react.md"
+    assert kural["kapsam"] == ["src/**/*.tsx"]
+    assert kural["guvenilir"] is False and kural["karakter"] > 0

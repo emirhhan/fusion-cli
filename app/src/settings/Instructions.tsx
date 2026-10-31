@@ -8,6 +8,8 @@ export interface InstructionLayer {
   karakter: number;
   kirpilan: number;
   guvenilir: boolean;
+  /** `.claude/rules` kuralı için `paths:` desenleri; boşsa kural her yerde geçerli. */
+  kapsam: string[];
 }
 
 const LAYER_LABELS: Record<string, string> = {
@@ -30,6 +32,7 @@ function decodeLayers(raw: unknown): InstructionLayer[] {
       karakter: typeof row.karakter === "number" ? row.karakter : 0,
       kirpilan: typeof row.kirpilan === "number" ? row.kirpilan : 0,
       guvenilir: row.guvenilir === true,
+      kapsam: Array.isArray(row.kapsam) ? row.kapsam.filter((p): p is string => typeof p === "string") : [],
     }];
   });
 }
@@ -157,6 +160,7 @@ export function Instructions({ client, onRunCommand }: { client: ProtocolClient;
               <code>
                 {LAYER_LABELS[layer.katman] ?? layer.katman} · {layer.karakter} karakter
                 {layer.kirpilan > 0 ? ` · ${layer.kirpilan} kırpıldı` : ""}
+                {layer.katman === "kural" ? ` · ${layer.kapsam.length > 0 ? layer.kapsam.join(", ") : "her yerde"}` : ""}
                 {layer.guvenilir ? "" : " · depo içeriği"}
               </code>
             </li>
