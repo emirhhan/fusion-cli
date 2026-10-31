@@ -34,6 +34,8 @@ DEFAULT_SCREENSHOT_PATH = ".fusion/tmp/masaustu-ekrani.png"
 MAX_DISPLAYS = 16
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _REGION_PATTERN = re.compile(r"\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*")
+#: Süreç ağacında yukarı en çok bu kadar ata sorgulanır (fusion → zsh → Terminal.app → launchd).
+MAX_ANCESTOR_DEPTH = 6
 
 
 class _CGPoint(ctypes.Structure):
@@ -127,15 +129,42 @@ def _shrink(target: Path, max_width: int) -> None:
         raise OSError(f"Ekran görüntüsü küçültülemedi: {shrunk.stderr.strip()}")
 
 
+def _ancestor_pids(start: int, depth: int = MAX_ANCESTOR_DEPTH) -> tuple[int, ...]:
+    """`ps -o ppid=` ile ata süreçler (launchd'ye kadar, o hariç).
+
+    Ölçüldü (31 Ekim): dışlama listesi yalnız pid + ppid idi; terminalden koşan `fusion`ın
+    ebeveyni kabuk (zsh) olduğu için Terminal.app penceresi dışlanmıyordu (ScreenCaptureKit
+    kabuğu uygulama olarak listelemez, dışlamak zararsızdır). Fusion.app'te zincir sidecar →
+    Fusion.app → launchd'dir.
+    """
+    pids: list[int] = []
+    current = start
+    for _ in range(depth):
+        try:
+            result = _run(["ps", "-o", "ppid=", "-p", str(current)])
+            parent = int(result.stdout.strip())
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            break
+        if parent <= 1:
+            break
+        pids.append(parent)
+        current = parent
+    return tuple(pids)
+
+
+def _exclude_pids() -> list[int]:
+    return [os.getpid(), *_ancestor_pids(os.getpid())]
+
+
 def _native_capture(display: Display, max_width: int) -> bytes | None:
-    """Ekranı Fusion'ın (bu süreç + ebeveyn: Fusion.app ya da terminal) pencereleri hariç yakala.
+    """Ekranı Fusion'ın (bu süreç + ataları: Fusion.app ya da terminal) pencereleri hariç yakala.
 
     Başarısızsa `None`: çağıran `screencapture` ile tam ekrana düşer (P-033). Yardımcı macOS 14+
     ScreenCaptureKit ister; eski sistemde ve sahte ortamda sessizce geri düşülür.
     """
     if not display.identifier:
         return None
-    request = {"excludePids": [os.getpid(), os.getppid()], "maxWidth": max_width}
+    request = {"excludePids": _exclude_pids(), "maxWidth": max_width}
     try:
         result = invoke_sync(
             "screen", {"kind": "display", "id": display.identifier, "request": request}
@@ -240,6 +269,17 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     region = _parse_region(optional_str(args, "region", "") or None, previous)
     if isinstance(region, str):
         return ToolResult.failure(region)
+    # Bölge son görüntünün pikseliyle verilir; o görüntü başka ekrandansa `display` çelişir.
+    if (
+        region is not None
+        and previous is not None
+        and "display" in args
+        and display.index != previous.display
+    ):
+        return ToolResult.failure(
+            f"region son görüntünün ekranına ({previous.display}) aittir, display="
+            f"{display.index} ile uyuşmuyor. Önce display={display.index} ile tam görüntü al."
+        )
     if _screen_recording_denied():
         return permission_failure(SCREEN_RECORDING)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -273,10 +313,13 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     image = ToolContent.image("image/png", base64.b64encode(data).decode("ascii"))
     if region is not None:
         x, y, width, height = region
+        # Ölçüldü (31 Ekim): not "büyütülmüş" diyordu; `screencapture -R` ham ekran pikseli verir,
+        # `_shrink` yalnız küçültür. Bölge yakalamada Fusion penceresi dışlanmaz (bkz. docs).
         note = (
             f"Ekran görüntüsünün {x},{y} köşesinden {width}x{height} px bölgesi "
-            f"({size[0]}x{size[1]} px, büyütülmüş). Bu görüntü KIRPIKTIR: tıklamak için TAM "
-            f"ekran görüntüsündeki x,y'yi kullan (kırpığın sol üstü tam görüntüde {x},{y})."
+            f"({size[0]}x{size[1]} px, ham ekran pikseli; Fusion penceresi dışlanmaz). Bu görüntü "
+            f"KIRPIKTIR: tıklamak için TAM ekran görüntüsündeki x,y'yi kullan (kırpığın sol üstü "
+            f"tam görüntüde {x},{y})."
         )
         return ToolResult(f"{note} Dosya: {target}", content=(image,))
     frame = _display_frame(display, size)

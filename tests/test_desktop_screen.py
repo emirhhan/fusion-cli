@@ -203,6 +203,7 @@ def test_haric_tutma_kapaliysa_veya_basarisizsa_screencapture(tmp_path, monkeypa
 def test_yerel_yakalama_sonucu_cozulur(monkeypatch) -> None:
     import base64
 
+    monkeypatch.setattr(desktop_screen, "_exclude_pids", lambda: [10, 20])
     ekran = Display(1, 0.0, 0.0, 1440.0, 900.0, True, identifier=7)
     istek: dict[str, object] = {}
 
@@ -218,6 +219,54 @@ def test_yerel_yakalama_sonucu_cozulur(monkeypatch) -> None:
     assert desktop_screen._native_capture(ekran, 800) == _png(4, 2)
     assert istek["operation"] == "screen" and istek["id"] == 7
     assert istek["request"]["maxWidth"] == 800  # type: ignore[index]
+    assert istek["request"]["excludePids"] == [10, 20]  # type: ignore[index]
     monkeypatch.setattr(desktop_screen, "invoke_sync", lambda *_: {"ok": False})
     assert desktop_screen._native_capture(ekran, 800) is None
     assert desktop_screen._native_capture(Display(1, 0, 0, 1, 1, True), 800) is None
+
+
+def test_ata_surecler_launchd_ye_kadar_dislanir(monkeypatch) -> None:
+    """Ölçüldü (31 Ekim): yalnız pid+ppid dışlanıyordu; terminalden koşan fusion'ın ebeveyni zsh
+    olduğu için Terminal.app penceresi görüntüde kalıyordu."""
+    ebeveynler = {500: "  400\n", 400: "300\n", 300: "1\n"}
+
+    def fake_run(command: list[str]) -> subprocess.CompletedProcess[str]:
+        assert command[:3] == ["ps", "-o", "ppid="]
+        return subprocess.CompletedProcess(command, 0, ebeveynler.get(int(command[-1]), ""), "")
+
+    monkeypatch.setattr(desktop_screen, "_run", fake_run)
+
+    assert desktop_screen._ancestor_pids(500) == (400, 300)
+    assert desktop_screen._ancestor_pids(999) == ()
+    assert desktop_screen._ancestor_pids(500, depth=1) == (400,)
+
+
+def test_bolge_notu_ve_ekran_uyusmazligi(tmp_path, monkeypatch) -> None:
+    """Ölçüldü (31 Ekim): not 'büyütülmüş' diyordu; `display` verilse de bölge önceki çerçevenin
+    ekranından kırpılıyordu."""
+    iki_ekran = (
+        Display(1, 0.0, 0.0, 1440.0, 900.0, True),
+        Display(2, 1440.0, 0.0, 1920.0, 1080.0, False),
+    )
+    _retina(monkeypatch, displays=iki_ekran)
+    context = ToolContext(root=tmp_path)
+    context.desktop.frame = DesktopFrame(1568, 980, 1440.0, 0.0, 1920.0, 1080.0, 2)
+
+    uyumsuz = desktop_screen.desktop_screenshot(
+        {"path": "r.png", "region": "0,0,100,100", "display": 1}, context
+    )
+    uyumlu = desktop_screen.desktop_screenshot(
+        {"path": "r.png", "region": "0,0,100,100", "display": 2}, context
+    )
+
+    assert not uyumsuz.ok and "ekranına (2)" in uyumsuz.output
+    assert uyumlu.ok and "büyütülmüş" not in uyumlu.output and "ham ekran pikseli" in uyumlu.output
+
+
+def test_ekran_listesi_okunamazsa_acik_hata(monkeypatch) -> None:
+    monkeypatch.setattr(desktop_screen, "_mac_only", lambda: None)
+    monkeypatch.setattr(desktop_screen, "list_displays", lambda: ())
+
+    sonuc = desktop_screen.desktop_displays({}, ToolContext(root=Path("/")))
+
+    assert not sonuc.ok and "Ekran listesi" in sonuc.output

@@ -316,8 +316,11 @@ araçlarına verilen `x,y` HER ZAMAN bu görüntünün pikselidir; Fusion ekran 
 (Retina 2x sorunu yok). Çerçeve tur ile yaşar: yeni turda tıklamadan önce yeni görüntü gerekir,
 yoksa araç "önce desktop_screenshot al" der (önceki turun pikseliyle kayık tıklama yerine). `region="x,y,w,h"` bölgeyi büyütür (kırpık; tıklama tam görüntü
 koordinatıyla), `display=N` ekran seçer, `desktop_displays` ekranları listeler.
-`runtime.desktop_exclude_fusion_window: true` ile Fusion'ın kendi penceresi (CLI'de terminal)
-görüntüden çıkarılır (macOS 14+ ScreenCaptureKit; yoksa tam ekran).
+`runtime.desktop_exclude_fusion_window: true` ile Fusion'ın kendi penceresi (CLI'de terminal ya
+da gömülü terminalin IDE'si: süreç ağacındaki atalar) görüntüden çıkarılır (macOS 14+
+ScreenCaptureKit; yoksa tam ekran). Bölge (`region`) görüntüsü `screencapture -R` ile ham ekran
+pikselinde alınır: büyütme yoktur ve Fusion penceresi dışlanmaz; `display` verilirse son
+görüntünün ekranıyla uyuşmalıdır.
 
 **Fare.** `desktop_mouse action=click|right_click|double_click|triple_click|middle_click|
 hover|down|up|drag` (`drag` için `to_x,to_y`), `button=left|right|middle`, `modifiers="cmd+shift"`.
