@@ -4,6 +4,7 @@ import { errorMessage, operationResult } from "../../protocol/result";
 import { APPROVAL_MODES } from "../../screens/ApprovalModeMenu";
 import { Button } from "../../ui/Button";
 import { ToggleRow } from "../PanelParts";
+import { SandboxCard } from "./SandboxCard";
 import "./Permissions.css";
 
 /**
@@ -349,6 +350,7 @@ export function Permissions({
           )}
         </article>
       )}
+      {client && <SandboxCard client={client} />}
     </>
   );
 }

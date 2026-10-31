@@ -54,6 +54,7 @@ from . import (
 )
 from .macros import Mode
 from .preview_command import preview_command
+from .sandbox_command import sandbox_command
 from .state import TASK_TYPES, Engine, Reminder, ReplState
 
 #: `/resume<kaynak>` listesinde gösterilecek en fazla oturum. `source.list`'e
@@ -959,6 +960,13 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         ("izinler",),
         group="Onay modu",
         usage="[list|add|remove] …",
+    ),
+    SlashCommand(
+        "sandbox",
+        messages.CMD_SANDBOX,
+        sandbox_command,
+        group="Onay modu",
+        usage="[on|off|izin <alan>|…]",
     ),
     SlashCommand("reset", messages.CMD_RESET, _reset, group="Agent"),
     SlashCommand("compact", messages.CMD_COMPACT, lambda state, argument: "", group="Agent"),

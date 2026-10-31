@@ -52,6 +52,7 @@ from . import (
     memory_commands,
     paperclip_command,
     prompt_opt_commands,
+    sandbox_commands,
     trash_commands,
     usage_commands,
 )
@@ -88,6 +89,8 @@ app.command(name="usage")(usage_commands.usage)
 app.command(name="insights")(usage_commands.insights)
 app.command(name="gh-action")(gh_action_command.gh_action)
 app.add_typer(browser_commands.app, name="browser")
+# Kabuk sandbox'ı (P-010; Claude `/sandbox`, Codex `codex sandbox`).
+app.add_typer(sandbox_commands.app, name="sandbox")
 app.command("paperclip")(paperclip_command.paperclip)
 
 console = Console()

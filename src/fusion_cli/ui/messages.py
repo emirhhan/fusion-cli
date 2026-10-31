@@ -1418,3 +1418,35 @@ KEYBINDINGS_HINT = (
 VIM_USAGE = "Kullanım: /vim [on|off]"
 VIM_SET = "Vim kipi {state}. Esc ile NORMAL, i ile INSERT kipine geçilir."
 VIM_SET_UNSAVED = "Vim kipi bu oturum için {state}; dosyaya yazılamadı: {error}"
+
+# --- Kabuk sandbox'ı (P-010): /sandbox, fusion sandbox, doctor ------------------------- #
+CMD_SANDBOX = "kabuk sandbox'ı: durum · aç/kapat · ağ allowlist'i (izin/engelle alan adı)"
+SANDBOX_USAGE = (
+    "Kullanım: /sandbox [on|off] · /sandbox ag open|allowlist · /sandbox izin <alan-adı> · "
+    "/sandbox engelle <alan-adı> · /sandbox kaldir <alan-adı> · /sandbox oto|zorunlu|disari on|off"
+)
+SANDBOX_STATE_ON = "AÇIK (write_root)"
+SANDBOX_STATE_OFF = "kapalı (runtime.shell_sandbox=off)"
+SANDBOX_TITLE = "Kabuk sandbox'ı: {state}"
+SANDBOX_PLATFORM = "  Platform     : {platform} — {availability}"
+SANDBOX_AVAILABLE = "kurulabilir"
+SANDBOX_UNAVAILABLE = "KURULAMAZ: {reason}"
+SANDBOX_WRITE = "  Yazma        : proje kökü, --add-dir, geçici dizinler{extra}"
+SANDBOX_READ = "  Okuma engeli : {paths}"
+SANDBOX_NETWORK_OPEN = "  Ağ           : açık (sandbox.network=open)"
+SANDBOX_NETWORK_ALLOWLIST = (
+    "  Ağ           : yalnız izinli alan adları — {allowed}{denied}; localhost {localhost}"
+)
+SANDBOX_NETWORK_NONE = "hiçbiri (dış ağ kapalı)"
+SANDBOX_FLAGS = (
+    "  Davranış     : sandbox dışı istek {outside} · sorusuz çalıştırma {auto} · "
+    "kurulamazsa {fail} · sır ortamı {secrets}"
+)
+SANDBOX_EXCLUDED = "  Sandbox dışı : {commands}"
+SANDBOX_HINT = "Değiştir: /sandbox on|off, /sandbox izin github.com, /config sandbox.<alan>=<değer>"
+SANDBOX_CHANGED = "Kaydedildi: {setting} = {value} ({path})"
+SANDBOX_DOCTOR_NAME = "Kabuk sandbox'ı"
+SANDBOX_DOCTOR_REMEDY = (
+    "Sandbox açık ama kurulamıyor; komutlar {effect}. macOS'ta /usr/bin/sandbox-exec, Linux'ta "
+    "bubblewrap (+ allowlist için socat) gerekir; ya da /sandbox off."
+)

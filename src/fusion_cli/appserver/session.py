@@ -180,6 +180,7 @@ from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_event, encode_result
 from .runtime_prefs import persist_approval, persist_engine
+from .sandbox_rpc import SANDBOX_ROUTES, dispatch_sandbox
 from .schedule import SCHEDULE_ROUTES
 from .tiers import list_tiers, select_tier
 from .usage import UsageMeter, usage_status
@@ -902,6 +903,14 @@ class AppSession:
             return add_upload(request.data)
         if request.name == "kitaplik.kaldir":
             return remove_entry(request.data)
+        if request.name in SANDBOX_ROUTES:
+            # Ayarlar › İzinler › Sandbox (P-010); değişiklik sonraki turda uygulanır.
+            yeni, sonuc = dispatch_sandbox(
+                request.name, request.data, self._state.config, self._state.root
+            )
+            if yeni is not None:
+                self._state.config = yeni
+            return sonuc
         if request.name in DESKTOP_PERMISSION_ROUTES:
             # Sistem istemi bloklayıcıdır (TCC penceresi); olay döngüsü dışında.
             return await asyncio.to_thread(dispatch_desktop_permission, request.name, request.data)

@@ -19,6 +19,7 @@ export const SETTINGS_ROWS: SettingsRow[] = [
   { section: "modeller", id: SECTION_HEADING_ID, label: "Model seçimi", keywords: "model sağlayıcı rol varsayılan görsel sohbet profil" },
   { section: "izinler", id: SECTION_HEADING_ID, label: "İzin modu", keywords: "onay mod çalışma klasörü kök manuel otomatik güven trust klasör dışı engel" },
   { section: "izinler", id: "settings-permission-rules", label: "İzin kuralları", keywords: "allow ask deny kural kalıp bash edit read webfetch mcp yasak her zaman sor bir daha sorma" },
+  { section: "izinler", id: "settings-sandbox", label: "Kabuk sandbox'ı", keywords: "sandbox kum havuzu seatbelt bubblewrap ağ allowlist alan adı domain proxy okuma engeli ssh" },
   { section: "tarayici", id: SECTION_HEADING_ID, label: "Tarayıcı eklentisi", keywords: "chrome eklenti eşleştirme anahtar" },
   { section: "weboturumlari", id: SECTION_HEADING_ID, label: "Web oturumları", keywords: "çerez cookie oturum profil içe aktar chrome giriş tarayıcı" },
   { section: "kisisellestirme", id: SECTION_HEADING_ID, label: "Özel talimat", keywords: "özel talimat sistem istemi kişiselleştirme" },
