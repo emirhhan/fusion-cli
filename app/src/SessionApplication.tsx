@@ -878,8 +878,10 @@ export function SessionUygulama({
       setSurfaceSection(section);
       return;
     }
+    // Home (sol üstteki ev) her zaman sohbete döner: Ayarlar, Hesabım, Kontrol Paneli gibi
+    // tam sayfalardan da. Etkin sohbet varsa o, yoksa ana sohbet ekranı görünür.
     setSurfaceSection(null);
-    if (mediaPage) setPage("chat");
+    if (page !== "chat") setPage("chat");
   };
   const mainRail = <MainRail active={mainSection} onSelect={selectMainSection} accountHostRef={setAccountHost} />;
   const mainSurface = (

@@ -614,6 +614,30 @@ describe("SessionUygulama", () => {
     expect(kenarCubugu()?.hidden).toBe(false);
   });
 
+  it.each(["Ayarlar", "Hesabım", "Kontrol Paneli"])("sol üstteki Home %s sayfasından sohbete döner", async (etiket) => {
+    let lineHandler: ((event: { oturum_id: string; satir: string }) => void) | null = null;
+    const transport: SessionTransport = {
+      create: vi.fn(async (id) => ({ oturum_id: id, kok: "/proje", pid: 41, durum: "calisiyor", kapanis_nedeni: null })),
+      send: vi.fn(async (id, line) => {
+        const request = JSON.parse(line) as { id: string };
+        queueMicrotask(() => lineHandler?.({ oturum_id: id, satir: JSON.stringify({ tip: "sonuc", id: request.id, veri: { ok: true } }) }));
+      }),
+      close: vi.fn(async () => undefined),
+      list: vi.fn(async () => []),
+      onLine: vi.fn(async (handler) => { lineHandler = handler; return () => undefined; }),
+      onClosed: vi.fn(async () => () => undefined),
+    };
+    render(<SessionUygulama transport={transport} />);
+    await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.click(screen.getByRole("button", { name: "Hesap menüsü" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: etiket }));
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Mesaj" })).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Home", exact: true }));
+    expect(await screen.findByRole("textbox", { name: "Mesaj" })).toBeTruthy();
+    expect(document.getElementById("fusion-sidebar")?.hidden).toBe(false);
+  });
+
   it("Geri bildirim gönder sayfa değil pencere açar; sohbet ve kenar çubuğu yerinde kalır", async () => {
     let lineHandler: ((event: { oturum_id: string; satir: string }) => void) | null = null;
     const transport: SessionTransport = {
