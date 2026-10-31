@@ -1,7 +1,7 @@
 // Fusion Browser ortak çekirdeği: sayfa eylemleri ve sekme yönetimi.
 // Hem arka plan hizmeti (otomatik bağlantı) hem yan panel (elle bağlantı) kullanır.
 
-import { findShortcut } from "./shortcuts.js";
+import { SHORTCUT_NAME, findShortcut } from "./shortcuts.js";
 
 const TAB_KEY = "fusionTab";
 const LOAD_TIMEOUT_MS = 20000;
@@ -1348,6 +1348,32 @@ export async function execute(command) {
       throw new Error(`“${veri.name}” adlı kısayol yok. Kayıtlı kısayollar: ${names}.`);
     }
     return { ad: hit.ad, metin: String(hit.metin).slice(0, 20000) };
+  }
+  if (command.islem === "monitor_get") {
+    // Masaüstü Ayarlar → Tarayıcı: paneldeki anahtarla aynı depo (storage.local).
+    return { enabled: await monitorEnabled() };
+  }
+  if (command.islem === "monitor_set") {
+    const enabled = veri.enabled !== false;
+    await chrome.storage.local.set({ [MONITOR_KEY]: enabled });
+    await registerMonitor(); // storage.onChanged dinleyicisi de çağırır; zincir sıraya koyar
+    return { enabled };
+  }
+  if (command.islem === "shortcut_set") {
+    const ad = String(veri.ad || "").trim().replace(/^\//, "");
+    const metin = String(veri.metin || "").trim();
+    if (!SHORTCUT_NAME.test(ad)) throw new Error("Kısayol adı boşluksuz, en çok 40 karakter olmalı (ör. ozet).");
+    if (!metin) throw new Error("Kısayolun görev metnini yaz.");
+    const others = (await savedShortcuts()).filter((item) => String(item.ad).toLocaleLowerCase("tr") !== ad.toLocaleLowerCase("tr"));
+    const shortcuts = [...others, { ad, metin: metin.slice(0, 2000) }];
+    await chrome.storage.local.set({ [SHORTCUTS_KEY]: shortcuts });
+    return { shortcuts };
+  }
+  if (command.islem === "shortcut_delete") {
+    const wanted = String(veri.ad || "").trim().toLocaleLowerCase("tr");
+    const shortcuts = (await savedShortcuts()).filter((item) => String(item.ad).toLocaleLowerCase("tr") !== wanted);
+    await chrome.storage.local.set({ [SHORTCUTS_KEY]: shortcuts });
+    return { shortcuts };
   }
   if (command.islem === "window_new") {
     // Yeni pencere (isteğe bağlı adresle); açılan sekme bağlanır.

@@ -75,3 +75,24 @@ def test_bozuk_arguman_tipi_durum_metnini_dusurmez() -> None:
     assert progress_text("read_file", None) == "dosya okunuyor"  # type: ignore[arg-type]
     sonuc = progress_text("run_shell", "ls")  # type: ignore[arg-type]
     assert sonuc == "kabuk komutu çalıştırılıyor"
+
+
+def test_chrome_pencere_grup_kisayol_ve_kayit_adimlari_kendi_cumlesini_alir() -> None:
+    """Ölçüldü (31 Ekim, bağımsız inceleme): yeni eylemler genel 'sayfa etkileşimi' diyordu;
+    `record stop` GIF yazarken 'kayıt alınıyor' görünüyordu."""
+    metin = {
+        "window": "chrome ile yeni pencere açılıyor",
+        "group": "chrome ile sekmeler gruplanıyor",
+        "shortcuts": "chrome kısayolları listeleniyor",
+        "shortcut": "chrome kısayolu 'ozet' alınıyor",
+        "tabs": "chrome sekmeleri listeleniyor",
+    }
+    for eylem, beklenen in metin.items():
+        assert progress_text("chrome_action", {"action": eylem, "value": "ozet"}) == beklenen, eylem
+    assert progress_text("chrome_action", {"action": "record", "value": "start"}) == (
+        "chrome ekran kaydı başlatılıyor"
+    )
+    assert progress_text("chrome_action", {"action": "record", "value": "stop"}) == (
+        "chrome ekran kaydı GIF olarak yazılıyor"
+    )
+    assert progress_text("chrome_action", {"action": "shortcut"}) == "chrome kısayolu alınıyor"

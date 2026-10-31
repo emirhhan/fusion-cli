@@ -93,6 +93,7 @@ from .capabilities import catalog, detail
 from .chrome_autoinstall import auto_install_async
 from .chrome_bridge import ChromeBridge
 from .chrome_install import install_status
+from .chrome_settings import CHROME_SETTINGS_ROUTES, dispatch_chrome_settings
 from .commands import (
     command_choices,
     list_commands,
@@ -844,6 +845,9 @@ class AppSession:
             )
         if request.name == "chrome.baslat":
             return {"ok": True, **await self._chrome.start()}
+        if request.name in CHROME_SETTINGS_ROUTES:
+            # Ayarlar → Tarayıcı: izleme anahtarı ve kısayollar eklentinin deposunda yaşar.
+            return await dispatch_chrome_settings(self._chrome, request.name, request.data)
         if request.name == "chrome.durum":
             return {"ok": True, **self._chrome.status(), **await asyncio.to_thread(install_status)}
         if request.name == "chrome.kur":

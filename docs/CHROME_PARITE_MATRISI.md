@@ -46,6 +46,15 @@ playwright.extension.config.ts` (gerçek Chromium + yüklü eklenti, yerel test 
 - **Kısayollar** (`P-073`): panelde ad + görev kaydedilir; composer'da `/ozet kalan metin` kayıtlı görevi gönderir;
   ajan `chrome_action shortcuts` ile listeler, `shortcut=ozet` ile görev metnini alır. Klavye kısayolları
   `chrome://extensions/shortcuts` sayfasından değiştirilir.
+- **Masaüstü Ayarlar → Tarayıcı** (31 Ekim, inceleme sonrası): eklenti bağlıyken "Eklenti ayarları" bölümü paneldeki
+  iki ayarı masaüstünden yönetir: "Konsol ve ağ isteklerini izle" anahtarı ve kısayol listesi (kaydet/kaldır). RPC'ler:
+  `chrome.izleme` (`{acik?: bool}` → `{acik}`), `chrome.kisayollar`, `chrome.kisayol_kaydet` (`{ad, metin}`),
+  `chrome.kisayol_sil` (`{ad}`) → `{kisayollar}`; eklenti tarafında `monitor_get/set`, `shortcut_set/delete`
+  (`appserver/chrome_settings.py`, `core.js`). Depo eklentinin `storage.local`'ı: panel ve masaüstü aynı listeyi görür.
+  CLI'de karşılığı yok: Chrome köprüsü yalnız masaüstü uygulamasında çalışır.
+- **Onay sınıfı** (31 Ekim): `record start|stop` REMOTE_INTERACT'tır (plan kipinde yapılmaz, Manuel kipte sorulur,
+  otomatik kipte sorulmaz); `window`, `open` gibi yalnız gezindiği için okuma kalır. Kayıt sırasında etkin sekme
+  değişirse kare alınmaz (`record_check`), atlanan kare sayısı çıktıya düşer; kareler GIF yazılınca `release` ile bırakılır.
 - **Windows/Linux**: Fusion Chrome kapalıyken `chrome_launch_command` ile açar (`start chrome`, PATH'teki
   `google-chrome`/`chromium`). Kılavuzlu kurulum hâlâ macOS/Windows.
 

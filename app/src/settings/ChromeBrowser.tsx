@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import type { ProtocolClient } from "../protocol/client";
+import { ChromeExtensionSettings } from "./ChromeExtensionSettings";
 
 interface ChromeStatus {
   ok: boolean;
@@ -142,10 +143,11 @@ export function ChromeBrowser({ client }: { client: ProtocolClient }) {
       )}
       <p className="settings__hint">Kurulum bittikten sonra Fusion açıkken eklenti kendiliğinden bağlanır; port ve anahtar yalnız elle bağlanmak için gerekir. Oturumlarınıza ve çerezlerinize dokunulmaz.</p>
       <ul className="settings__hint" aria-label="Eklentinin yapabildikleri">
-        <li>Sayfa konsolu ve ağ istekleri okunur (hata ayıklama izni istenmez; panelden kapatılabilir).</li>
-        <li>Ekran kaydı GIF olarak projenin <code>.fusion/kayitlar</code> klasörüne yazılır.</li>
+        <li>Sayfa konsolu ve ağ istekleri okunur (hata ayıklama izni istenmez; aşağıdan ya da panelden kapatılabilir).</li>
+        <li>Ekran kaydı GIF olarak projenin <code>.fusion/kayitlar</code> klasörüne yazılır (plan kipinde yapılmaz, Manuel kipte sorulur).</li>
         <li>Kısayollar: <kbd>Ctrl/⌘+Shift+F</kbd> paneli açar, <kbd>Ctrl/⌘+Shift+.</kbd> görevi durdurur; kayıtlı görevler <code>/ad</code> ile çağrılır.</li>
       </ul>
+      {state?.bagli && <ChromeExtensionSettings client={client} />}
       {extensionPath && <p className="settings__hint">Paketli eklenti klasörü: <code>{extensionPath}</code></p>}
       {(error || pollError) && <p className="settings__inline-error" role="alert">{error || pollError}</p>}
     </article>

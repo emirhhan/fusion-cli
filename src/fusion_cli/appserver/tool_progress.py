@@ -183,8 +183,23 @@ def _chrome_action(args: Mapping[str, object]) -> str:
     if action == "network":
         return "chrome ağ istekleri okunuyor"
     if action == "record":
-        return "chrome ekran kaydı alınıyor"
-    return "chrome ile sayfa etkileşimi yapılıyor"
+        # `stop` GIF yazar; "kayıt alınıyor" demek yanıltıcıydı (ölçüldü, 31 Ekim).
+        if (_text(args, "value") or "").lower() == "stop":
+            return "chrome ekran kaydı GIF olarak yazılıyor"
+        return "chrome ekran kaydı başlatılıyor"
+    if action == "shortcut":
+        ad = (_text(args, "value") or "").lstrip("/")
+        return f"chrome kısayolu {_quote(ad)} alınıyor" if ad else "chrome kısayolu alınıyor"
+    return _CHROME_ACTION_TEXTS.get(str(action), "chrome ile sayfa etkileşimi yapılıyor")
+
+
+#: Değersiz ya da değeri cümleye girmeyen chrome eylemleri (P-073 pencere/grup/kısayol dahil).
+_CHROME_ACTION_TEXTS = {
+    "window": "chrome ile yeni pencere açılıyor",
+    "group": "chrome ile sekmeler gruplanıyor",
+    "shortcuts": "chrome kısayolları listeleniyor",
+    "tabs": "chrome sekmeleri listeleniyor",
+}
 
 
 def _browser_generic(fiil: str) -> Callable[[Mapping[str, object]], str]:

@@ -92,3 +92,26 @@ await assert.rejects(execute({ islem: "window_new", veri: { url: "javascript:ale
 await assert.rejects(execute({ islem: "window_new", veri: { url: "file:///etc/hosts" } }), /http\(s\)/);
 
 console.log("chrome-core ✓");
+
+// --- Masaüstü ayarları için eklenti işlemleri: izleme anahtarı ve kısayol yönetimi -----------------
+// Masaüstü Ayarlar → Tarayıcı, panelle aynı depoyu (storage.local) köprü üzerinden değiştirir.
+state.registered.clear();
+state.origins = ["https://a.test/*"];
+assert.deepEqual(await execute({ islem: "monitor_get", veri: {} }), { enabled: true });
+assert.deepEqual(await execute({ islem: "monitor_set", veri: { enabled: false } }), { enabled: false });
+assert.equal(state.local.fusionMonitor, false);
+assert.equal(state.registered.size, 0, "izleme kapanınca kayıt kaldırılır");
+assert.deepEqual(await execute({ islem: "monitor_set", veri: { enabled: true } }), { enabled: true });
+assert.equal(state.registered.size, 1, "izleme açılınca kayıt geri gelir");
+
+const saved = await execute({ islem: "shortcut_set", veri: { ad: "/Ozet", metin: "  Bu sayfayı özetle. " } });
+assert.deepEqual(saved, { shortcuts: [{ ad: "Ozet", metin: "Bu sayfayı özetle." }] });
+const replaced = await execute({ islem: "shortcut_set", veri: { ad: "ozet", metin: "Kısa özet." } });
+assert.deepEqual(replaced.shortcuts, [{ ad: "ozet", metin: "Kısa özet." }], "aynı ad (harf duyarsız) üzerine yazar");
+await assert.rejects(execute({ islem: "shortcut_set", veri: { ad: "iki kelime", metin: "x" } }), /boşluksuz/);
+await assert.rejects(execute({ islem: "shortcut_set", veri: { ad: "bos", metin: "  " } }), /görev metnini/);
+await execute({ islem: "shortcut_set", veri: { ad: "cevir", metin: "Çevir." } });
+assert.deepEqual((await execute({ islem: "shortcut_delete", veri: { ad: "OZET" } })).shortcuts, [{ ad: "cevir", metin: "Çevir." }]);
+assert.deepEqual((await execute({ islem: "shortcuts", veri: {} })).shortcuts, [{ ad: "cevir", metin: "Çevir." }]);
+
+console.log("chrome-core-settings ✓");
