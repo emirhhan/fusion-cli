@@ -12,6 +12,7 @@ için açık bir talep yok.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -113,6 +114,49 @@ def health_payload(health: HealthRegistry | None) -> list[dict[str, Any]]:
     return rows
 
 
-def usage_status(meter: UsageMeter, health: HealthRegistry | None) -> dict[str, Any]:
-    """`kullanim.durum`: bu oturumun tüketimi ve model sağlığı."""
-    return {"ok": True, "kullanim": meter.payload(), "saglik": health_payload(health)}
+def limits_payload(
+    per_minute: Mapping[str, float] | None, health: HealthRegistry | None
+) -> dict[str, Any]:
+    """Kota/limit göstergesi (P-066): yalnız ÖLÇÜLEN ya da AYARLANAN şeyler.
+
+    Claude Code'un plan çubuklarının karşılığı burada abonelik kotası DEĞİLDİR: web
+    sağlayıcıları (ChatGPT, Claude…) kalan kotayı dışarı vermez, uydurulmaz. Gösterilen
+    iki gerçek veri: yapılandırmadaki dakikalık istek sınırı (`rate_limit_per_minute`,
+    süreçler arası paylaşılan kova) ve sağlayıcının o an kota bekletip bekletmediği
+    (sağlık kaydındaki 429 serisi + devrenin yeniden deneme süresi).
+
+    Ölçüldü (31 Ekim): `kullanim.durum` yalnız oturum sayacı ve sağlık fazını taşıyordu;
+    "sağlayıcı beni bekletiyor mu, ne kadar" sorusunun cevabı arayüzde yoktu.
+    """
+    limits = [
+        {"saglayici": provider, "dakikaLimiti": float(limit)}
+        for provider, limit in sorted((per_minute or {}).items())
+        if float(limit) > 0
+    ]
+    waiting: list[dict[str, Any]] = []
+    if health is not None:
+        for model, durum in health.snapshot():
+            if durum.rate_limit_streak <= 0:
+                continue
+            waiting.append(
+                {
+                    "model": model,
+                    "seri": durum.rate_limit_streak,
+                    "yenidenSn": round(durum.retry_in_s),
+                }
+            )
+    return {"dakikaLimitleri": limits, "kotaBekleyen": waiting}
+
+
+def usage_status(
+    meter: UsageMeter,
+    health: HealthRegistry | None,
+    per_minute: Mapping[str, float] | None = None,
+) -> dict[str, Any]:
+    """`kullanim.durum`: bu oturumun tüketimi, model sağlığı ve limit göstergesi."""
+    return {
+        "ok": True,
+        "kullanim": meter.payload(),
+        "saglik": health_payload(health),
+        "limitler": limits_payload(per_minute, health),
+    }

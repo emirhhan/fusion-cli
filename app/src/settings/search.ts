@@ -17,7 +17,10 @@ export const SETTINGS_ROWS: SettingsRow[] = [
   { section: "tarayici", id: SECTION_HEADING_ID, label: "Tarayıcı eklentisi", keywords: "chrome eklenti eşleştirme anahtar" },
   { section: "kisisellestirme", id: SECTION_HEADING_ID, label: "Özel talimat", keywords: "özel talimat sistem istemi kişiselleştirme" },
   { section: "gelismis", id: SECTION_HEADING_ID, label: "Kullanım sayacı", keywords: "sayaç token maliyet kullanım istatistik" },
+  { section: "gelismis", id: SECTION_HEADING_ID, label: "Hız sınırları ve kota", keywords: "kota limit hız sınırı 429 bekletiyor dakika istek" },
   { section: "guncellemeler", id: SECTION_HEADING_ID, label: "Sürüm güncellemesi", keywords: "sürüm yeni sürüm yükle güncelle" },
+  { section: "guncellemeler", id: SECTION_HEADING_ID, label: "Sürüm notları", keywords: "sürüm notları neler değişti kanal kararlı" },
+  { section: "uzak", id: "settings-remote", label: "Uzaktan kontrol", keywords: "remote control telefondan sür başlık anahtar /rc" },
 ];
 export function searchSettings(query: string): SettingsRow[] {
   const text = query.trim().toLocaleLowerCase("tr");

@@ -1043,7 +1043,11 @@ class AppSession:
                 lambda olay: self._writer(encode_event({"olay": "SesModeliIlerleme", **olay}))
             )
         if request.name == "kullanim.durum":
-            return usage_status(self._usage, self._state.health)
+            return usage_status(
+                self._usage,
+                self._state.health,
+                self._state.config.runtime.rate_limit_per_minute,
+            )
         if request.name == "hesap.durum":
             return self._accounts.status()
         if request.name == "hesap.kayit":

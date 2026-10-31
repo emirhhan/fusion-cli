@@ -24,6 +24,8 @@ import type { Soru } from "./protocol/types";
 import { useProjectRegistry } from "./sessions/useProjectRegistry";
 import { createAndOpenProject, openProjectChat, ProjectOpenError } from "./sessions/projectActions";
 import { useRemoteProjectSync } from "./remote/useRemoteProjectSync";
+import { useRemoteStatus } from "./remote/useRemoteStatus";
+import type { SettingsSection } from "./settings/search";
 import { useSessions, nextSessionId, saveWorkspaceMode, tauriSessionTransport } from "./sessions/useSessions";
 import { usePrefsMirror } from "./platform/usePrefsMirror";
 import { useSessionModes } from "./sessions/useSessionModes";
@@ -532,10 +534,12 @@ export function SessionUygulama({
   const [surfaceSection, setSurfaceSection] = useState<SurfaceSection | null>(null);
   const mediaPage = page === "image-create" || page === "video-create";
   const mainSection: MainSection = surfaceSection ?? (mediaPage ? "media" : "home");
-  const [settingsSection, setSettingsSection] = useState<"genel" | "kisisellestirme">("genel");
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("genel");
   // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
   // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
   const [controlTitle, setControlTitle] = useState("Kontrol Paneli");
+  // Hesabım › "Sağlayıcıyla giriş yap" Kontrol Paneli'ni o sağlayıcı açık gelir (P-066).
+  const [controlProviderId, setControlProviderId] = useState<string | undefined>(undefined);
   // Seçili dosya BURADA durur: hem çalışma panelindeki ağaç hem sohbetteki
   // kod kartı aynı seçimi değiştirir.
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -566,6 +570,8 @@ export function SessionUygulama({
   const pendingBargeIn = useRef(false);
   const active = controller.activeSession;
   useRemoteProjectSync(active?.client ?? null, projects.registry);
+  // Başlıktaki "Uzaktan kontrol" anahtarı (P-066); uzaktan erişim kurulmamışsa yoklamaz.
+  const remoteStatus = useRemoteStatus(active?.client ?? null);
   const activeSessionId = active?.id;
   const activeClient = active?.client;
   useEffect(() => () => {
@@ -1441,8 +1447,9 @@ export function SessionUygulama({
       ? (
         <ControlPanel
           client={active.client}
+          initialProviderId={controlProviderId}
           title={controlTitle}
-          onClose={() => setPage("chat")}
+          onClose={() => { setControlProviderId(undefined); setPage("chat"); }}
           revision={controlRevision}
           onProvidersChanged={() => setControlRevision((value) => value + 1)}
         />
@@ -1455,6 +1462,11 @@ export function SessionUygulama({
             account={account}
             client={active.client}
             onClose={() => setPage("chat")}
+            onOpenProviders={(providerId) => {
+              setControlProviderId(providerId);
+              setControlTitle("Sağlayıcı hesapları");
+              setPage("control");
+            }}
             onPickAvatarFile={async () => {
               // Dosya seçimi KABUKTAN, kopyalama ÇEKİRDEKTEN gelir: arayüz
               // dosya sistemine yazmaz ve avatar hesabın kendi dizininde durur.
@@ -1827,6 +1839,12 @@ export function SessionUygulama({
           onShare={page === "chat" && active.messages.some((message) => message.rol === "kullanici" || message.rol === "asistan") ? () => setShareOpen(true) : undefined}
           onToggleInspector={layout.toggleInspector}
           onToggleSidebar={layout.toggleSidebar}
+          remote={page === "chat" && surfaceSection === null ? {
+            listening: remoteStatus.listening,
+            deviceCount: remoteStatus.deviceCount,
+            pendingApprovals: remoteStatus.pendingApprovals,
+            onOpen: () => { setSettingsSection("uzak"); setPage("settings"); },
+          } : undefined}
           sidebarCollapsed={layout.sidebarCollapsed}
           status={status}
           title={headerTitle}

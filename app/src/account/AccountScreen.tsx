@@ -15,15 +15,32 @@ import "./account.css";
  * silinebilen bir şey için bu ağır, geri getirilemeyen bir şey için değil.
  */
 
+/** Hesap ekranındaki sağlayıcı satırı (P-066): yalnız ad ve bağlı/değil; ayrıntı Kontrol Paneli'nde. */
+interface ProviderAccountRow {
+  ad: string;
+  bagli: boolean;
+  hesap?: string;
+  id: string;
+  kart_id?: string;
+  profil_var?: boolean;
+}
+
 export function AccountScreen({
   account,
   client,
   onClose,
+  onOpenProviders,
   onPickAvatarFile,
 }: {
   account: AccountController;
   client?: ProtocolClient;
   onClose: () => void;
+  /**
+   * "Sağlayıcıyla giriş" kısayolu (P-066): Claude Code'un "Claude hesabıyla giriş"
+   * karşılığı Fusion'da web sağlayıcısı oturumudur (ChatGPT, Claude…). Giriş akışı
+   * TEK yerde, Kontrol Paneli'ndedir; burası yalnız durumu gösterir ve oraya götürür.
+   */
+  onOpenProviders?: (providerId: string) => void;
   /** Dosya seçtirip hesabın dizinine kopyalar; kaydedilen yolu döndürür. */
   onPickAvatarFile?: () => Promise<string | null>;
 }) {
@@ -36,11 +53,24 @@ export function AccountScreen({
   const [kodlaSil, setKodlaSil] = useState(false);
   const [bilgi, setBilgi] = useState<string | null>(null);
   const [usage, setUsage] = useState<{ cagri: number; toplam_token: number } | null>(null);
+  const [providers, setProviders] = useState<ProviderAccountRow[] | null>(null);
 
   useEffect(() => {
     setTaslak(etkin);
   // Reset the edit draft when the active account changes, not during each keystroke.
   }, [etkin?.kimlik]);
+
+  useEffect(() => {
+    if (!client || !onOpenProviders) return;
+    let alive = true;
+    void client.request("web.saglayicilar", {}).then((value) => {
+      const result = value as { ok?: boolean; saglayicilar?: ProviderAccountRow[] };
+      if (alive && result.ok && Array.isArray(result.saglayicilar)) setProviders(result.saglayicilar);
+    }).catch(() => {
+      // Liste okunamazsa bölüm çizilmez; giriş yine Kontrol Paneli'nden yapılabilir.
+    });
+    return () => { alive = false; };
+  }, [client, onOpenProviders]);
 
   useEffect(() => {
     if (!client) return;
@@ -104,6 +134,37 @@ export function AccountScreen({
           </dl>
         )}
       </section>
+
+      {onOpenProviders && providers && (
+        <section aria-labelledby="hesap-saglayicilar" className="account-screen__section account-screen__section--open">
+          <h3 id="hesap-saglayicilar">Sağlayıcı hesapları</h3>
+          <p className="account__hint">
+            Kendi aboneliğinle çalışan sağlayıcılar (anahtar gerekmez). Giriş ayrı bir pencerede
+            yapılır; oturum bu bilgisayarda kalır, Fusion sunucusuna gitmez.
+          </p>
+          {providers.length === 0 ? (
+            <p className="account__hint">Web sağlayıcısı tanımlı değil.</p>
+          ) : (
+            <ul className="account-screen__list">
+              {providers.map((row) => {
+                const title = row.hesap && row.hesap !== "main" ? `${row.ad} · ${row.hesap}` : row.ad;
+                const durum = row.bagli ? "Bağlı" : row.profil_var ? "Giriş doğrulanmadı" : "Giriş yapılmadı";
+                return (
+                  <li key={row.kart_id ?? row.id}>
+                    <div>
+                      <strong>{title}</strong>
+                      <small>{durum}</small>
+                    </div>
+                    <Button onClick={() => onOpenProviders(row.id)} variant="secondary">
+                      {row.bagli ? "Yönet" : "Sağlayıcıyla giriş yap"}
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
 
       <details className="account-screen__section">
         <summary>Profili düzenle</summary>

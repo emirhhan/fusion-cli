@@ -23,6 +23,8 @@ Fusion iki şeyi tek üründe birleştirir:
 | MCP kurulumu (`/mcp`, `fusion mcp-add`, panel) | Sohbette `/mcp add <ad> <komut>`, terminalden `fusion mcp-add`, ya da Control Panel'in "MCP sunucusu bağla" kartından — üçü de aynı config.yaml'a yazar, elle düzenleme gerekmez |
 | Öz-öğrenen bellek | Her görevden ders çıkarır, benzer işlerde hatırlar |
 | Uzak MCP OAuth | HTTP MCP sunucularında tarayıcı girişi, PKCE ve macOS Keychain token deposu |
+| Uzaktan kontrol (`fusion remote-control`, `/rc`) | Terminal oturumunu masaüstü uygulaması olmadan telefondan/Telegram'dan sür; QR + eşleştirme kodu, onaylar telefona gider (bkz. docs/uzaktan) |
+| Hesap ve kota göstergesi | Hesabım › Sağlayıcı hesapları (web sağlayıcısıyla giriş durumu), Ayarlar › Gelişmiş › "Hız sınırları ve kota" (`kullanim.durum.limitler`: ayarlı dakikalık sınır + sağlayıcının o an bekletmesi), Güncellemeler'de kurulu sürüm ve sürüm notları |
 | Kanıta bağlı yeniden planlama | Aynı başarısız hedefte dönmek yerine doğrulanmış işi koruyup dalı bir kez yeniler |
 | Gerçek asset kapısı | PNG/JPEG başlığı, boyut, kaynak URL'si ve lisans manifestini doğrular |
 | Production değerlendirmesi | Godot asset, MCP, replan, büyük dosya ve sohbet izolasyonunu üç tekrarla ölçer |

@@ -140,6 +140,11 @@ terminaldeki oturum telefondan ya da Telegram'dan sürülür. İkinci bir motor 
 - **Sınırlar:** tünel komutu (`tailscale serve …`) kullanıcı tarafından çalıştırılır; komut
   çalışırken aynı hesapta masaüstü `uzak.baslat` aynı portu alamaz (biri kapatılır). Claude Code'un
   `--spawn worktree` / `--capacity` seçenekleri yoktur.
+- **Masaüstü başlığı (P-066):** sohbet başlığının sağında "Uzaktan kontrol" anahtarı durur:
+  nokta kapalı/yeşil (dinliyor)/sarı (onay bekliyor), özet "2 cihaz · 1 onay bekliyor". Tıklanınca
+  Ayarlar › Uzaktan Erişim açılır (kod üret, cihazlar, onaylar). Yoklama (`uzak.durum`,
+  `uzak.bekleyen`, 20 sn) yalnız uzaktan erişimi bir kez kurmuş kullanıcıda çalışır; kurmamışta
+  anahtar "kapalı" görünür ve hiç istek atılmaz.
 
 ## Yönetim istekleri (masaüstü ↔ çekirdek)
 `uzak.durum`, `uzak.eslestir_baslat|onayla|reddet`, `uzak.cihazlar`, `uzak.cihaz_iptal`,
