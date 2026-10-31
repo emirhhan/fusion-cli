@@ -367,6 +367,23 @@ o aracın ayarlarında:
 Artık o araç Fusion üzerinden çalışır: yedekleme, sağlık, çok-hesap otomatik devrede.
 Durdurmak için `fusion serve`'ün olduğu terminalde **Ctrl-C**.
 
+**Hangi rotalar var?** Santral üç API ailesini konuşur; hepsi aynı profil/model çözümünü,
+önbelleği, sır maskesini ve telemetriyi paylaşır:
+
+| Rota | Kim kullanır | Not |
+|------|--------------|-----|
+| `POST /v1/chat/completions` | OpenAI-uyumlu araçlar (Cursor, Cline, Kits) | akış ve araç çağrısı |
+| `POST /v1/responses` | Codex CLI, yeni OpenAI SDK'ları (`OPENAI_BASE_URL`) | `input`/`instructions`, `response.*` akış olayları |
+| `POST /v1/messages` | Claude SDK'ları, Claude Code (`ANTHROPIC_BASE_URL=http://127.0.0.1:8787`) | `system`, `tools[].input_schema`, Anthropic SSE olayları |
+| `POST /v1/messages/count_tokens` | Claude Code bağlam ölçümü | kaba tahmin (~4 karakter = 1 token) |
+| `POST /v1/embeddings` | gömme isteyen araçlar | `embedding.provider` (nim ya da yerel ONNX); kurulu değilse 501 |
+| `GET /v1/models` | model listesi | profiller + yapılandırılmış modeller |
+
+Ağdan (loopback dışı) gelen istemci `fusion serve --token` belirtecini `Authorization: Bearer`
+**ya da** `x-api-key` başlığıyla verir; Anthropic SDK'larında `ANTHROPIC_API_KEY=<belirteç>`
+yeter. Başarısız sağlayıcı her rotada 502 ve maskeli hata metniyle döner; `/v1/responses`
+yalnız `function` araçlarını çevirir, `developer` rolü sistem mesajı sayılır.
+
 ---
 
 ## 12) MCP köprüsü (alet paylaşımı)
@@ -388,9 +405,73 @@ mcp_servers:
 ```
 Bağlı sunucuların aletlerini görmek için:
 ```
-fusion mcp-tools
+fusion mcp tools          # eski ad: fusion mcp-tools
 ```
 Bundan sonra ajan turlarında bu dış aletler otomatik kullanılabilir (onayınla).
+
+**Komut satırından yönetmek** (`fusion mcp …`, Claude Code `claude mcp …` ile aynı kalıp):
+```
+fusion mcp add github npx -- -y @modelcontextprotocol/server-github     # stdio, kullanıcı kapsamı
+fusion mcp add linear --transport http --url https://mcp.linear.app/mcp  # uzak sunucu (OAuth)
+fusion mcp add postgres --scope project npx -- -y server-postgres        # projeye (.mcp.json)
+fusion mcp add-json fetch '{"command":"uvx","args":["mcp-server-fetch"]}'
+fusion mcp list                      # kapsam ve taşımayla; sırlar maskeli
+fusion mcp remove <ad>               # kayıtlı olduğu dosyadan siler
+fusion mcp login <ad>                # OAuth girişi (tarayıcı açılır), token şifreli depoda
+fusion mcp reconnect <ad>|all        # bağlantıyı düşür ve yeniden kur
+```
+- `--scope user` (varsayılan) kaydı `config.yaml`'a, `--scope project` kök dizindeki
+  `.mcp.json` dosyasına yazar. `.mcp.json` **Claude Code ile aynı biçimdir**: depoda zaten
+  varsa Fusion onu okur. Proje dosyası süreç başlatabildiği için yalnız `fusion trust` ile
+  güvenilen (ya da Fusion'ın kendi yazdığı) `.mcp.json` yüklenir; aynı adda proje kaydı
+  kullanıcı kaydını geçer (kullanıcı kaydı `config.yaml`'da durur, silinmez). Güvenilmeyen bir
+  `.mcp.json` üzerine `--scope project` ile yazılmaz: önce `fusion trust`. Ekleme/silme
+  dosyada yalnız ilgili adı değiştirir; takımın diğer girdileri korunur. `--token-env` proje
+  kapsamında yoktur (dosya biçimi taşımaz); kullanıcı kapsamına yaz.
+- Komut, argüman, adres ve `env` değerlerinde `${DEĞİŞKEN}` ve `${DEĞİŞKEN:-varsayılan}`
+  başvuruları tanınır; bağlantı kurulurken ortamdan çözülür, dosyaya çözülmüş hâli yazılmaz.
+- `--env AD` sır adıdır (değer şifreli depodan/ortamdan gelir), `--env AD=değer` sır olmayan
+  düz değerdir.
+- Sohbet içinde: `/mcp`, `/mcp add …`, `/mcp remove <ad>`, `/mcp reconnect <ad>|all`.
+  Masaüstünde Bağlantılar ekranı aynı kayıtları gösterir; proje kaydı "proje" rozetiyle.
+
+---
+
+## 12b) Ne kadar harcadım? → `/usage`, `fusion usage`, `fusion insights`
+
+`/cost` bu oturumu gösterir. `/usage` (sohbette) ve `fusion usage` (terminalde) kalıcı
+kullanım günlüğünden **bu oturum / son 24 saat / son 7 gün / son 30 gün** pencerelerini ve
+"kim harcadı" kırılımını (ana ajan, alt ajan, arka plan; model; MCP sunucusu; beceri)
+verir. Masaüstünde Ayarlar → Kullanım aynı veriyi "Son dönem" ve "Kim harcadı" olarak
+gösterir.
+
+```
+fusion usage --days 30
+fusion insights                 # tek dosya HTML rapor → bellek dizinine yazar, yolu basar
+fusion insights --out rapor.html --days 7
+```
+
+Günlük `memory_dir/usage.jsonl` dosyasıdır; yalnız sayı tutar (rol, model, token, maliyet,
+MCP sunucu adı, beceri adı) — istem metni, argüman ya da çıktı yazılmaz; 90 günden eski
+satırlar budanır. Kapatmak için `config.yaml`: `runtime: { usage_log: false }`.
+
+---
+
+## 12c) PR ve CI → `/pr`, `/pr-comments`, `/autofix-pr`, `--from-pr`, `gh-action`
+
+GitHub işleri `gh` (GitHub CLI) üzerinden yürür; `gh auth login` yapılmış olmalı.
+
+- Ajan **salt-okunur `gh` aracına** onaysız sahiptir: `pr view N --comments`, `pr diff N`,
+  `pr checks N`, `run view`, `api …` (yalnız GET). Yazan komutlar (`gh pr create`,
+  `gh pr comment`, `gh pr merge`) `run_shell` ile çalışır ve **onay ister**.
+- Sohbette: `/pr [bağlam]` mevcut dal için PR açar (başlık, gövde, test planı);
+  `/pr-comments [no]` inceleme yorumlarını dosya:satır ile özetler, kod değiştirmez;
+  `/autofix-pr [no]` başarısız CI ve yorumları düzeltip push eder ve PR'a bildirir.
+- Terminalde: `fusion agent --from-pr 42 "yorumları uygula"` görevin başına PR özetini
+  (başlık, dallar, açıklama, adres) ekler.
+- CI: `fusion gh-action kur` depoya `.github/workflows/fusion.yml` yazar; bir issue ya da
+  PR yorumuna `@fusion <görev>` yazıldığında Fusion headless çalışır (`--bare`, bütçe ve tur
+  tavanlı) ve sonucu yoruma yazar. Depo sırrı: `FUSION_PROVIDER_KEY`.
 
 ---
 

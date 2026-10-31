@@ -53,6 +53,9 @@ class BudgetStop(Enum):
     EMPTY_RESPONSES = "empty_responses"
     #: Bağlam her sıkıştırmadan hemen sonra yeniden eşiği aşıyor (tek dev çıktı).
     CONTEXT_THRASH = "context_thrash"
+    #: Turun bilinen maliyeti kullanıcının verdiği USD tavanını aştı
+    #: (`fusion agent --max-budget-usd`, Claude Code `--max-budget-usd`; P-026).
+    COST_LIMIT = "cost_limit"
     #: Kullanıcı bir değiştirici araç çağrısını GERÇEKTEN reddetti (insan "hayır"
     #: dedi — oturumun etkileşimsiz olup kimseye sorulamaması değil). Diğer
     #: sebeplerin aksine bu bir BÜTÇE olayı değildir: `TurnBudgetExhausted`
@@ -85,6 +88,10 @@ class TurnBudget:
     #: Turun tamamı için üst süre sınırı. `None` ise süre sınırı uygulanmaz.
     total_timeout_s: float | None = None
     idle_timeout_s: float | None = None
+    #: Turun BİLİNEN maliyeti (USD) için tavan; `None` = tavan yok. Ölçülmemiş/ücretsiz
+    #: çağrı tavanı doldurmaz: bilinmeyen maliyeti sıfır sayıp turu kesmek de, sonsuz
+    #: saymak da yanlış olurdu — tavan yalnız sağlayıcının bildirdiği tutarı sayar.
+    max_cost_usd: float | None = None
 
     model_calls: int = 0
     verify_rounds: int = 0
@@ -229,6 +236,13 @@ class TurnBudget:
     @property
     def model_calls_exhausted(self) -> bool:
         return self.max_model_calls is not None and self.model_calls >= self.max_model_calls
+
+    @property
+    def cost_exhausted(self) -> bool:
+        """Bilinen maliyet USD tavanına ulaştı mı? Tavan yoksa ya da maliyet bilinmiyorsa False."""
+        if self.max_cost_usd is None:
+            return False
+        return self.usage.snapshot().cost_usd >= self.max_cost_usd
 
     def take_empty_retry(self) -> bool:
         """Boş cevap için bir deneme hakkı al. Hak kalmadıysa False."""

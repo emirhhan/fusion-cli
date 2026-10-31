@@ -83,6 +83,7 @@ from ..engines.retention import purge_local_state_daily
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
 from ..memory.turn_journal import FileTurnJournal
+from ..observability.usage_log import UsageLog, new_session_id, open_usage_log
 from ..providers.capabilities import apprentice_active
 from ..providers.health_setup import build_health
 from ..remote.controller import RemoteController
@@ -424,12 +425,17 @@ class _MeteredSink:
     çağrı yolu eklendiğinde sayaç kendiliğinden görür.
     """
 
-    def __init__(self, inner: ProtocolSink, meter: UsageMeter) -> None:
+    def __init__(
+        self, inner: ProtocolSink, meter: UsageMeter, usage_log: UsageLog | None = None
+    ) -> None:
         self._inner = inner
         self._meter = meter
+        self._usage_log = usage_log
 
     def handle(self, event: Event) -> None:
         self._meter.observe(event)
+        if self._usage_log is not None:
+            self._usage_log.handle(event)
         self._inner.handle(event)
 
 
@@ -579,6 +585,8 @@ class AppSession:
         self._taken_skill: SkillSelection | None = None
         self._refresh_capabilities()
         self._usage = UsageMeter()
+        #: Kalıcı kullanım günlüğü (P-056); ayar kapalıysa None. Oturum sayacı değişmez.
+        self._usage_log = open_usage_log(self._state.config, session_id=new_session_id("masaustu"))
         #: Yan panelin kendi konuşma geçmişi (uygulamanın sohbetinden ayrı).
         self._chrome_history: list[Message] = []
         self._chrome = ChromeBridge(
@@ -1133,6 +1141,7 @@ class AppSession:
                 self._usage,
                 self._state.health,
                 self._state.config.runtime.rate_limit_per_minute,
+                usage_log=self._usage_log,
             )
         if request.name == "hesap.durum":
             return self._accounts.status()
@@ -1234,11 +1243,33 @@ class AppSession:
             return self._change_connectors(remove_hosted_connector, request.data)
         if request.name == "baglanti.panel_ac":
             return await self._open_connector_panel(request.data)
+        if request.name == "baglanti.yeniden_baglan":
+            # Claude Code `/mcp reconnect <sunucu>|all` (P-049): havuzdaki bağlantı düşürülür,
+            # park kaydı silinir, yeniden yoklanır.
+            wanted = str(request.data.get("ad", "")).strip()
+            targets = [
+                server
+                for server in self._state.config.mcp_servers
+                if wanted in ("", "all") or server.name == wanted
+            ]
+            if not targets:
+                return {"ok": False, "metin": "Bağlantı bulunamadı."}
+            statuses = [
+                status_payload(await self._mcp_connections.reconnect(server)) for server in targets
+            ]
+            ok = all(item["ok"] for item in statuses)
+            names = ", ".join(server.name for server in targets)
+            metin = (
+                messages.CONNECTOR_RECONNECTED if ok else messages.CONNECTOR_RECONNECT_FAILED
+            ).format(names=names)
+            return {"ok": ok, "sunucular": statuses, "metin": metin}
         if request.name == "baglanti.sil":
             server = self._connector(request.data.get("ad"))
             if server is not None:
                 await self._mcp_connections.logout(server)
-            return self._change_connectors(remove_connector, request.data)
+            return self._change_connectors(
+                partial(remove_connector, root=self._state.root), request.data
+            )
         if request.name == "ses.ayar":
             return voice_settings(request.data)
         if request.name == "ses.durdur":
@@ -2694,7 +2725,9 @@ class AppSession:
         writer = self._chrome.tee(_discard_line) if browser_only else self._writer
         sink = LibrarySink(
             _MeteredSink(
-                ProtocolSink(writer, receipt=receipt, sequence=event_sequence), self._usage
+                ProtocolSink(writer, receipt=receipt, sequence=event_sequence),
+                self._usage,
+                self._usage_log,
             ),
             self._state.root,
         )

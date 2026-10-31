@@ -39,6 +39,8 @@ async def render(name: str, state: ReplState, registry: CommandRegistry, console
         _models(state, console)
     elif name == "cost":
         _cost(state, console)
+    elif name == "usage":
+        _usage(state, console)
     elif name == "status":
         from .status_view import render_status
 
@@ -167,6 +169,23 @@ def _cost(state: ReplState, console: Console) -> None:
     console.print(f"[{theme.DIM}]{cost_summary(state.cost)}[/{theme.DIM}]")
     if state.cost.total.cost_usd == 0:
         console.print(f"[{theme.DIM}]{messages.COST_FREE_NOTE}[/{theme.DIM}]")
+
+
+def _usage(state: ReplState, console: Console) -> None:
+    """`/usage` — bu oturum / 24s / 7g pencereleri ve atıf kırılımı (P-056)."""
+    import time
+
+    from ...observability.usage_log import summarize
+    from ...ui.usage_view import print_usage
+
+    log = state.usage_log
+    records = log.read() if log is not None else ()
+    summary = summarize(
+        records, now=time.time(), session_id=log.session_id if log is not None else ""
+    )
+    print_usage(console, summary, log_path=str(log.path) if log is not None else None)
+    if log is None and state.cost.calls:
+        console.print(cost_table(state.cost))
 
 
 def _models(state: ReplState, console: Console) -> None:

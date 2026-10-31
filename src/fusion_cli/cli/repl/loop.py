@@ -60,6 +60,7 @@ from ...engines.agent.turn_evidence import evidence_from_turn
 from ...memory.factory import Memory
 from ...observability.bus import EventBus
 from ...observability.tracing import LangfuseTracer
+from ...observability.usage_log import open_usage_log
 from ...providers.capabilities import apprentice_active
 from ...providers.health_setup import build_health
 from ...ui import banner, messages, theme
@@ -156,6 +157,8 @@ async def run_repl(
         health=build_health(config),
         worktree=worktree,
     )
+    # Kalıcı kullanım günlüğü oturum boyunca yaşar; `/usage` pencereleri bundan okur (P-056).
+    state.usage_log = open_usage_log(config)
     if resume is not None:
         session_resume.apply_target(state, resume)
     try:
@@ -633,7 +636,7 @@ async def _fusion_turn(line: str, state: ReplState, console: Console) -> None:
             line,
             state.config,
             # Maliyet toplayıcı OTURUM boyunca yaşar: her tur aynı toplayıcıyı besler.
-            sinks=(renderer, state.cost, tracer),
+            sinks=(renderer, state.cost, tracer, *((state.usage_log,) if state.usage_log else ())),
             task_type=state.task_type,
             synthesis=state.synthesis,
             memory=state.memory,
@@ -665,6 +668,8 @@ async def _agent_turn(
         bus.subscribe(renderer)
         bus.subscribe(state.cost)
         bus.subscribe(tracer)
+        if state.usage_log is not None:
+            bus.subscribe(state.usage_log)
         # Tur checkpoint'i: konuşmanın kopyası + bu turun değişiklik kümesi (`/rewind`).
         checkpoint = state.checkpoints.begin(line, state.history)
         tool_context = _turn_tool_context(state, checkpoint.changes)

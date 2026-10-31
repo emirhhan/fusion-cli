@@ -25,7 +25,7 @@ import hashlib
 import json
 import re
 import sys
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
@@ -229,6 +229,7 @@ from .teacher_flow import (
     teacher_is_ready,
 )
 from .teacher_plan import TeacherPlan, UnworkablePart
+from .tool_filter import is_denied_tool
 from .tool_profiles import WIDENED_KIND, hidden_tools
 from .tool_surface import measure_surface, narrow_to_compact_surface
 from .transient import MAX_TOOL_TRANSIENT_RETRIES, is_transient_failure
@@ -347,6 +348,7 @@ def _new_budget(config: Config, deadline: TurnDeadline | None = None) -> TurnBud
         clock=deadline.clock if deadline else SystemClock(),
         total_timeout_s=deadline.remaining_s() if deadline else None,
         max_model_calls=config.runtime.agent_max_steps,
+        max_cost_usd=config.runtime.agent_max_cost_usd,
         max_verify_rounds=MAX_VERIFY_ROUNDS,
         max_empty_retries=MAX_EMPTY_RETRIES,
         max_contract_repairs=MAX_TOOL_CONTRACT_REPAIRS,
@@ -448,6 +450,9 @@ class AgentDeps:
     home: Path | None = None
     #: Kullanıcının `.claude/settings.local.json` içinde onaysız izin verdiği komutlar.
     allowed_commands: frozenset[str] = frozenset()
+    #: `--disallowed-tools` (P-026): bu araçlar modele HİÇ sunulmaz, çağrılırsa `BLOCKED`.
+    #: Salt-okunur araçları da kapsar; onay politikası yalnız değiştiricilere bakar.
+    denied_tools: frozenset[str] = frozenset()
     #: Tüm katmanlardan okunmuş izin kuralları (allow/ask/deny) ve kök-dışı engeller (P-001).
     #: `None` = kural yok (eski çağıranlar); `getattr(deps, "permission_rules", None)` ile okunur.
     permission_rules: PermissionRuleSet | None = None
@@ -741,11 +746,16 @@ async def _run_agent(
     # `recall_lessons` / `find_skill` + `read_skill` ile ister. Ölçüldü: görev
     # türüne göre seçilen uzmanlık ve dersler yanlış türde yanlış bağlamı
     # taşıyordu (WEBSITE sanılan bir turda 21 KB'lık web referansı eklendi).
-    proje_ve_dis_bellek = read_all_instructions(
-        deps.tool_context.root,
-        deps.home,
-        instruction_merge=getattr(deps.config.runtime, "instruction_merge", True),
-        instruction_max_chars=getattr(deps.config.runtime, "instruction_max_chars", 32_000),
+    # `--bare` (P-026): betik koşusu proje talimatını ve dış bellekleri hiç okumaz.
+    proje_ve_dis_bellek = (
+        read_all_instructions(
+            deps.tool_context.root,
+            deps.home,
+            instruction_merge=getattr(deps.config.runtime, "instruction_merge", True),
+            instruction_max_chars=getattr(deps.config.runtime, "instruction_max_chars", 32_000),
+        )
+        if deps.config.runtime.project_instructions
+        else ""
     )
     # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Kod kipinde
     # kök turda eklenir; sohbet kipi çalışma dizinini taramaz.
@@ -862,7 +872,14 @@ async def _run_agent(
         execution = observe_execution(execution, WORKSPACE_READ_REASON)
     if allowed_tools is not None:
         names = frozenset(
-            _permitted(allowed_tools, registry, execution, deps.tool_context.task_kinds) or ()
+            _permitted(
+                allowed_tools,
+                registry,
+                execution,
+                deps.tool_context.task_kinds,
+                denied=getattr(deps, "denied_tools", ()),
+            )
+            or ()
         )
         execution = replace(execution, allowed_tool_names=names)
     # Web taşımasında bağlam pahalıdır: uzun okuma hem gecikme hem context rot
@@ -1478,6 +1495,10 @@ async def _drive(
         state.model_calls_made += 1
         if (remaining := budget.remaining_s()) is not None and remaining <= 0:
             return _halt(final_text, messages, state, budget, BudgetStop.DEADLINE, deps)
+        # USD tavanı (`--max-budget-usd`, P-026): bilinen maliyet tavana ulaştıysa tur
+        # burada kapanır; modelin bu çağrıdaki cevabı korunur, yeni çağrı yapılmaz.
+        if budget.cost_exhausted:
+            return _halt(final_text, messages, state, budget, BudgetStop.COST_LIMIT, deps)
         # Yedek zinciri BAŞKA bir modele düşmüş olabilir; yetenek kapısı turun
         # başında yapılandırılmış modele göre kapanmıştı. Kapı yalnız açılır.
         execution = refresh_mutation_policy(execution, result.served_by, deps.config)
@@ -1602,7 +1623,13 @@ async def _drive(
                 final_text,
                 state,
                 execution,
-                _permitted(allowed_tools, registry, execution, deps.tool_context.task_kinds),
+                _permitted(
+                    allowed_tools,
+                    registry,
+                    execution,
+                    deps.tool_context.task_kinds,
+                    denied=getattr(deps, "denied_tools", ()),
+                ),
             )
             if refusal_note is not None:
                 messages.append(refusal_note)
@@ -2429,7 +2456,13 @@ async def _call_model(
     offered_tools = (
         tuple(
             registry.schemas(
-                _permitted(allowed_tools, registry, execution, deps.tool_context.task_kinds)
+                _permitted(
+                    allowed_tools,
+                    registry,
+                    execution,
+                    deps.tool_context.task_kinds,
+                    denied=getattr(deps, "denied_tools", ()),
+                )
             )
         )
         if offer_tools
@@ -2582,6 +2615,7 @@ def _permitted(
     registry: ToolRegistry,
     execution: ExecutionPolicy,
     task_kinds: frozenset[str] | set[str] = frozenset(),
+    denied: Collection[str] = (),
 ) -> set[str] | None:
     """Modele sunulacak ve çalıştırılabilecek araç adlarını belirle.
 
@@ -2599,6 +2633,10 @@ def _permitted(
     )
     if execution.allowed_tool_names is not None:
         names &= execution.allowed_tool_names
+    if denied:
+        # Yasak liste (`--disallowed-tools`) şema yüzeyinden düşer: salt-okunur araçta onay
+        # politikası hiç çalışmadığı için tek güvenilir kapı burasıdır (31 Ekim).
+        names = {name for name in names if not is_denied_tool(name, denied)}
     # Açıkça istenmiş araç (allowed_tools) türden bağımsız kalır.
     names = {
         name
@@ -3708,6 +3746,12 @@ async def _execute(
         allowed = ", ".join(sorted(execution.allowed_tool_names)) or "yok"
         return ToolResult.failure(
             f"Araç bu adımın izin verilen kapsamında değil. Bu adımda kullanılabilir: {allowed}"
+        ), ToolOutcome.BLOCKED
+    if is_denied_tool(call.name, getattr(deps, "denied_tools", ())):
+        # `--disallowed-tools`: şema zaten sunulmadı; ad uydurulursa da çalışmaz. Engelleme
+        # (BLOCKED) hata değildir, model başka yol dener.
+        return ToolResult.failure(
+            f"'{call.name}' aracı bu koşuda yasak (--disallowed-tools); başka bir yol dene."
         ), ToolOutcome.BLOCKED
     _widen_profile_for(call.name, deps, registry, execution)
     if deps.steering is not None and deps.steering.pending:

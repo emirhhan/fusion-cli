@@ -123,6 +123,34 @@ MACROS: dict[str, Macro] = {
         mode=Mode.WORKFLOW,
         argument_required=True,
     ),
+    # --- PR/CI makroları (P-057; Claude Code "create a pr", /pr-comments, /autofix-pr) --- #
+    "pr": Macro(
+        task="Mevcut dalın değişikliklerini `git` ile incele (log, diff --stat), hedef dalı "
+        "`gh repo view --json defaultBranchRef` ile bul; başlık ve gövdeyi (ne/neden, test "
+        "planı) yaz; gerekiyorsa commit'le ve dalı push et; sonra `run_shell` ile "
+        "`gh pr create --title … --body …` çalıştır ve PR adresini bildir.",
+        template="Mevcut dal için PR aç. Bağlam: {argument}. Değişiklikleri `git` ile incele, "
+        "başlık/gövde (ne, neden, test planı) yaz, gerekiyorsa commit'le ve push et, "
+        "`gh pr create` ile aç ve adresi bildir.",
+    ),
+    "pr-comments": Macro(
+        task="Bu dalın açık PR'ındaki inceleme yorumlarını `gh` aracıyla oku "
+        "(`pr view --comments` ve `api repos/{owner}/{repo}/pulls/<no>/comments`), her yorumu "
+        "dosya:satır ile özetle, cevaplanmış/çözülmüş olanları ayır ve ne yapılmasını "
+        "istediklerini listele. Kod değiştirme.",
+        template="PR #{argument} yorumlarını `gh` aracıyla oku (`pr view {argument} "
+        "--comments`, `api repos/{{owner}}/{{repo}}/pulls/{argument}/comments`), dosya:satır "
+        "ile özetle ve istenenleri listele. Kod değiştirme.",
+    ),
+    "autofix-pr": Macro(
+        task="Bu dalın PR'ında başarısız CI kontrollerini (`gh pr checks`, `gh run view "
+        "--log-failed`) ve açık inceleme yorumlarını oku; her birini en dar değişiklikle "
+        "düzelt, testleri yerelde çalıştır, düzeltmeleri commit'le ve push et; her yoruma "
+        "ne yaptığını `gh pr comment` ile tek mesajda bildir.",
+        template="PR #{argument} için: başarısız CI (`gh pr checks {argument}`) ve açık "
+        "yorumları oku, en dar düzeltmeleri uygula, testleri çalıştır, commit'le ve push et, "
+        "yapılanları `gh pr comment {argument}` ile bildir.",
+    ),
     "browser": Macro(
         task="",
         template="Web'de araştır: {argument}. `web_search` ile ara, `web_fetch` ile "

@@ -713,3 +713,34 @@ describe("ConnectorsScreen — dalga 4 (U3-36..U3-42, U3-44)", () => {
     expect((within(dialog).getByLabelText("Erişim token'ı") as HTMLInputElement).value).toBe("");
   });
 });
+
+describe("ConnectorsScreen — yeniden bağlan (P-049)", () => {
+  /* Ölçüldü (31 Ekim): `baglanti.yeniden_baglan` RPC'si vardı ama arayüzde çağıran
+     yoktu; yeniden bağlanma yalnız CLI/REPL'de yapılabiliyordu. */
+  it("bağlı sekmesindeki yerel sunucu satırı yeniden bağlanmayı başlatır ve sonucu gösterir", async () => {
+    const client = fakeClient(
+      [{ ad: "godot", durum: "hata", komut: "npx", argumanlar: ["-y", "godot-mcp"], tasima: "stdio" }],
+      { "baglanti.yeniden_baglan": { ok: true, metin: "Yeniden bağlandı: godot.", sunucular: [] } },
+    );
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Bağlı/ }));
+    const connected = screen.getByLabelText("Bağlı sunucular");
+    fireEvent.click(within(connected).getByRole("button", { name: "Yeniden bağlan" }));
+
+    await waitFor(() =>
+      expect(client.request).toHaveBeenCalledWith("baglanti.yeniden_baglan", { ad: "godot" }),
+    );
+    expect(await screen.findByText("Yeniden bağlandı: godot.")).toBeTruthy();
+  });
+
+  it("barındırmalı bağlantıda yeniden bağlan düğmesi yoktur", async () => {
+    const client = fakeClient([
+      { ad: "meta-ads", durum: "bagli", tasima: "hosted", url: "https://mcp.facebook.com/ads" },
+    ]);
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Bağlı/ }));
+    const connected = screen.getByLabelText("Bağlı sunucular");
+
+    expect(within(connected).queryByRole("button", { name: "Yeniden bağlan" })).toBeNull();
+  });
+});

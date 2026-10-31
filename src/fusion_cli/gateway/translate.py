@@ -51,6 +51,10 @@ def _split_content(content: object) -> tuple[str, tuple[str, ...]]:
     return "".join(parts), tuple(images)
 
 
+#: Diğer şema çevirileri (Anthropic, Responses) aynı içerik ayrıştırıcısını kullanır.
+split_content = _split_content
+
+
 def _image_data_uri(raw: object) -> str:
     url = raw.get("url") if isinstance(raw, Mapping) else raw
     if isinstance(url, str) and url.startswith("data:image/"):
