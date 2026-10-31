@@ -249,8 +249,9 @@
   padding: var(--space-2) var(--space-3);
 }
 
-/* İzin modları: seçili olan RENKLE değil, kenarlık ve zeminle de ayrılır. */
-.settings__choices { display: grid; gap: var(--space-2); }
+/* İzin modları: seçili olan RENKLE değil, kenarlık ve zeminle de ayrılır. Başlık/açıklamadan
+   sonra seçim kutuları yapışık başlamaz. */
+.settings__choices { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
 
 .settings__choice {
   background: var(--surface-sidebar);
@@ -426,3 +427,30 @@
 
 .settings__title { color: var(--settings-text); font-size: var(--text-lg); font-weight: 600; margin: 0; padding: 0 var(--space-3); }
 .settings__navcol { padding-top: calc(var(--titlebar-inset, 0px) + var(--space-5)); }
+
+/* --- Panel içi ritim (1 Kasım) ----------------------------------------------
+   Ayarlar paneli çerçevesiz "satır" dilini kullanır: başlık ve açıklama sol kenarda,
+   satırlar ince çizgiyle ayrılır. Durum ve liste satırları eskiden zemin rengine çok yakın
+   bir dolguyla 10 px içeriden başlıyor, yazı sahipsiz bir girintiyle havada kalıyordu;
+   artık başlıkla aynı hizada başlar. Başlık/açıklamadan sonra gelen form ve seçim
+   blokları yapışık başlamaz. */
+.settings__panel .settings__checks { gap: 0; margin-top: var(--space-2); }
+.settings__panel .settings__checks li,
+.settings__panel .settings__list li {
+  background: transparent;
+  border-bottom: 1px solid var(--settings-border);
+  border-radius: 0;
+  font-size: var(--text-sm);
+  padding: var(--space-3) 0;
+}
+.settings__panel .settings__list { gap: 0; margin: var(--space-2) 0 var(--space-3); }
+.settings__panel .settings__form { margin-top: var(--space-3); }
+.settings__panel .settings__actions { margin-top: var(--space-3); }
+/* Kartın doğrudan çocuğu olan düğme (ör. kullanımda "Yenile") ızgarada tam genişliğe yayılmaz. */
+.settings__panel .settings__card > button { justify-self: start; margin-top: var(--space-2); }
+/* Etiket + açıklama tek satır grubu: ayırıcı çizgi grubun altında. */
+.settings__panel .settings__row-group { border-bottom: 1px solid var(--settings-border); padding-bottom: var(--space-3); }
+.settings__panel .settings__row-group > .settings__row { border-bottom: 0; min-height: 0; padding-top: var(--space-3); }
+.settings__panel .settings__row-group > .settings__hint { margin-top: var(--space-1); padding-inline-end: var(--space-10); }
+/* Ses kartı: hız sürgüsü açıklamaya yapışık başlamaz. */
+.settings__panel .settings__card .voice-settings { margin-top: var(--space-4); }

@@ -1,7 +1,9 @@
 /* Roller ve modeller: kare kartlar, seçici ızgara, oturum kartları. */
 .rm { display: grid; gap: var(--space-4); margin-bottom: var(--space-6); }
-.rm__head h3 { font-family: var(--font-heading); font-size: var(--text-xl); font-weight: 650; letter-spacing: -0.01em; margin: 0; }
-.rm__head p { color: var(--text-secondary); font-size: var(--text-sm); margin: 2px 0 0; }
+/* Diğer Ayarlar bölümlerindeki kart başlıklarıyla aynı kademe (eskiden bölüm başlığından büyüktü). */
+.rm__head { padding-top: var(--space-4); }
+.rm__head h3 { font-size: var(--text-sm); font-weight: 600; margin: 0; }
+.rm__head p { color: var(--settings-muted); font-size: var(--text-xs); margin: var(--space-1) 0 0; }
 
 .rm__roles, .rm__models, .rm__sessions { display: grid; gap: var(--space-3); list-style: none; margin: 0; padding: 0; }
 /* Kart genişliği rem: yazı boyutu büyüyünce kart da büyür, model adı "Gemini · 3.6 Flas…"

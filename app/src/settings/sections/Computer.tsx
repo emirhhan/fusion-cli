@@ -173,14 +173,14 @@ export function Computer({ client }: { client: Pick<ProtocolClient, "request"> }
 
       <PanelGroup note="Fusion bu uygulamalara tıklamaz, yazmaz; pencereleri ekran görüntüsüne ve pencere listelerine girmez (dışlanamıyorsa görüntü alınmaz)." title="Reddedilen uygulamalar">
         {settings.denied_apps.length === 0 && <p className="px-note">Reddedilen uygulama yok.</p>}
-        <ul className="computer-settings__list">
+        {settings.denied_apps.length > 0 && <ul aria-label="Reddedilen uygulamalar" className="computer-settings__list">
           {settings.denied_apps.map((name) => (
             <li key={name}>
               <span>{name}</span>
               <Button disabled={busy !== null} onClick={() => void save("denied_apps", settings.denied_apps.filter((item) => item !== name))} variant="secondary">Kaldır</Button>
             </li>
           ))}
-        </ul>
+        </ul>}
         <Field label="Uygulama ekle" hint="Ad ya da paket kimliği (com.apple.Mail).">
           {(id) => (
             <div className="computer-settings__add">
@@ -193,7 +193,8 @@ export function Computer({ client }: { client: Pick<ProtocolClient, "request"> }
       </PanelGroup>
 
       <PanelGroup note="Kategori kademesini ezer; tavanı ve ret listesini ezmez." title="Uygulama kademeleri">
-        <ul className="computer-settings__list">
+        {settings.app_levels.length === 0 && <p className="px-note">Uygulamaya özel kademe yok; kategori kademesi geçerli.</p>}
+        {settings.app_levels.length > 0 && <ul aria-label="Uygulama kademeleri" className="computer-settings__list">
           {settings.app_levels.map((entry) => {
             const [name, level] = entry.split("=");
             return (
@@ -203,7 +204,7 @@ export function Computer({ client }: { client: Pick<ProtocolClient, "request"> }
               </li>
             );
           })}
-        </ul>
+        </ul>}
         <Field label="Kademe ekle">
           {(id) => (
             <div className="computer-settings__add">

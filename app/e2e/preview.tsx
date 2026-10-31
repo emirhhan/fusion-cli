@@ -251,6 +251,13 @@ const workspaceClient = {
       ],
     };
     if (name === "bilgisayar.ayarlar") return { ok: true, ayarlar: { enabled: true, control_level: "full", category_defaults: true, denied_apps: [], app_levels: [], app_consent: true, background: true, unhide_on_finish: true, escape_stops: true } };
+    if (name === "zeka.durum") return { ok: true, motor: "agent", motorlar: [{ deger: "agent", etiket: "Tek ajan" }, { deger: "fusion", etiket: "Fusion (çok modelli)" }],
+      planKipi: "off", planKipleri: [{ deger: "off", etiket: "Tek döngü" }, { deger: "always", etiket: "Plan motoru" }], ogretmenTanimli: false,
+      bayraklar: [
+        { anahtar: "lessons", etiket: "Kendini geliştirme", aciklama: "Her görevden sonra kısa bir ders çıkarır ve sonraki görevlerde kullanır.", maliyet: "1 çağrı", grup: "Öğrenme", acik: true },
+        { anahtar: "teacherless", etiket: "Öğretmene danış", aciklama: "Takıldığında daha güçlü modele danışır.", maliyet: "ek çağrı", grup: "Öğrenme", acik: true },
+        { anahtar: "visual_verification", etiket: "Görsel doğrulama", aciklama: "Arayüz değişikliğini ekran görüntüsüyle doğrular.", maliyet: "pahalı", grup: "Doğrulama", acik: false },
+      ] };
     if (name === "kisayol.liste") return { ok: true, yol: "~/.fusion/keybindings.json", baglar: { "mod+k": "palet", "mod+j": "terminal", "mod+n": "yeni" }, uyarilar: [],
       eylemler: [{ ad: "palet", etiket: "Komut paletini aç" }, { ad: "terminal", etiket: "Terminali aç/kapat" }, { ad: "yeni", etiket: "Yeni sohbet" }] };
     if (name === "izin.kurallar") return { ok: true, guvensiz_katmanlar: [], hedef: "/Projects/fusion-cli/.claude/settings.local.json", kullanici_dosyasi: "~/.config/fusion-cli/permissions.json", kok_disi_okuma_engeli: false, kok_disi_yazma_engeli: false,

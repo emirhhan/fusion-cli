@@ -28,10 +28,16 @@
   text-wrap: pretty;
 }
 
+/* Çerçeveli grup gövdesi. İç boşluk TEK yerden gelir (--px-pad-*): satırlar (.px-row,
+   .px-item) zaten bu boşlukla çizilir; seçim kartları, alanlar, listeler ve boş durum
+   metinleri gibi diğer çocuklar eskiden HİÇ boşluk almıyor, yazı çerçeveye yapışıyordu
+   (Ayarlar › Bu bilgisayar, 1 Kasım). Ardışık çocuklar ince bir çizgiyle ayrılır. */
 .px-group__body {
+  --px-pad-x: var(--space-5);
+  --px-pad-y: var(--space-4);
   border: 1px solid var(--settings-border);
   border-radius: var(--radius-md, 10px);
-  margin-top: 12px;
+  margin-top: var(--space-3);
   overflow: hidden;
 }
 
@@ -42,7 +48,7 @@
   display: flex;
   gap: 20px;
   justify-content: space-between;
-  padding: 16px 18px;
+  padding: var(--px-pad-y, var(--space-4)) var(--px-pad-x, var(--space-5));
   transition: background var(--duration-fast) var(--ease-standard);
 }
 
@@ -119,7 +125,11 @@
 
 .px-choices { border: 0; margin: 28px 0 0; min-width: 0; padding: 0; }
 
+/* Yüzen legend sıradan içerik gibi akar: fieldset'in iç boşluğu legend'ın üstüne de uygulanır
+   (aksi halde legend kenarlık çizgisine oturur ve çerçeveye yapışırdı). */
 .px-choices legend {
+  float: left;
+  width: 100%;
   color: var(--settings-text);
   font-size: 13px;
   font-weight: 600;
@@ -130,8 +140,9 @@
 .px-choices__grid {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  margin-top: 12px;
+  clear: both;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  padding-top: var(--space-3);
 }
 
 .px-choice {
@@ -219,7 +230,7 @@
   padding: 10px 14px;
 }
 
-.px-empty { color: var(--settings-muted); font-size: 13px; margin: 0; padding: 18px; }
+.px-empty { color: var(--settings-muted); font-size: 13px; margin: 0; padding: var(--px-pad-y, var(--space-4)) var(--px-pad-x, var(--space-5)); }
 
 /* --- Cihaz / onay listeleri -------------------------------------------- */
 
@@ -228,7 +239,7 @@
   display: flex;
   gap: 16px;
   justify-content: space-between;
-  padding: 14px 18px;
+  padding: var(--space-3) var(--px-pad-x, var(--space-5));
 }
 
 .px-item + .px-item { border-top: 1px solid var(--settings-border); }
@@ -246,8 +257,12 @@
   display: grid;
   gap: 4px 14px;
   grid-template-columns: 28px minmax(0, 1fr);
-  padding: 16px 18px;
+  padding: var(--px-pad-y, var(--space-4)) var(--px-pad-x, var(--space-5));
 }
+/* Adımın bütün içeriği metin sütununda durur; numara rozeti yalnız ilk sütunu kullanır.
+   Dördüncü çocuk (ör. "komut bulunamadı" notu) eskiden 28 px'lik rozet sütununa düşüp
+   harf harf kırılıyordu. */
+.px-step > * { grid-column: 2; min-width: 0; }
 
 .px-step + .px-step { border-top: 1px solid var(--settings-border); }
 
@@ -317,3 +332,10 @@
 @media (prefers-reduced-motion: reduce) {
   .px-switch, .px-switch::before, .px-switch::after, .px-row, .px-choice, .px-item { transition: none; }
 }
+
+/* Grup gövdesindeki satır DIŞI çocuklar (seçim kartları, alanlar, listeler, notlar, boş durum)
+   satırlarla aynı iç boşluğu alır; yazı çerçeveden rahat uzak durur. Bu dosyanın sonunda
+   durduğu için buradaki varsayılan kenar boşluklarını (ör. .px-field, .px-choices) ezer. */
+.px-group__body > :where(:not(.px-row, .px-item, .px-steps)) { margin: 0; padding: var(--px-pad-y, var(--space-4)) var(--px-pad-x, var(--space-5)); }
+/* Ardışık çocuklar ince bir çizgiyle ayrılır (fieldset'in `border: 0` sıfırlamasından sonra gelir). */
+.px-group__body > * + * { border-top: 1px solid var(--settings-border); }

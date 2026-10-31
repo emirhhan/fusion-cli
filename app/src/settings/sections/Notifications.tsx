@@ -27,9 +27,12 @@ export function Notifications() {
           simgesinde sayı görünür. Sohbeti açınca işaret kalkar.
         </p>
         {SATIRLAR.map((satir) => (
-          <div key={satir.anahtar}>
+          // Açıklama kendi satırına aittir: çizgi açıklamanın ALTINDA durur. Eskiden çizgi etiketle
+          // açıklamanın arasına giriyor, açıklama bir sonraki ayarın başlığı gibi okunuyordu.
+          <div className="settings__row-group" key={satir.anahtar}>
             <label className="settings__row settings__row--check">
               <input
+                aria-describedby={`${satir.id}-ipucu`}
                 checked={tercihler[satir.anahtar]}
                 id={satir.id}
                 onChange={(event) => setNotificationPreference(satir.anahtar, event.target.checked)}
@@ -37,7 +40,7 @@ export function Notifications() {
               />
               <span>{satir.etiket}</span>
             </label>
-            <p className="settings__hint">{satir.ipucu}</p>
+            <p className="settings__hint" id={`${satir.id}-ipucu`}>{satir.ipucu}</p>
           </div>
         ))}
       </article>

@@ -94,7 +94,7 @@ export function ComputerUse({
     <article className="settings__card" data-testid="computer-use">
       <div className="settings__card-head">
         <div>
-          <h3>Bu bilgisayar</h3>
+          <h3>macOS izinleri</h3>
           <p className="settings__hint">
             Fusion'ın masaüstünü kullanması (ekranı görme, tıklama, yazma) için iki macOS izni gerekir.
             Her masaüstü eylemi yine onay kartından geçer.

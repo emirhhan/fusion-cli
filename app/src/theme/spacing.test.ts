@@ -20,4 +20,27 @@ describe("boşluk ve çerçeve regresyonları", () => {
     expect(separator).not.toContain("var(--border-subtle)");
     expect(separator).toContain("color-mix(in srgb, var(--text-primary)");
   });
+
+  it("çerçeveli grup gövdesindeki satır dışı çocuklar (seçim kartları, alanlar, notlar) iç boşluk alır", () => {
+    const panels = css("settings/Panels.css");
+    expect(rule(panels, ".px-group__body")).toContain("--px-pad-x: var(--space-5)");
+    expect(panels).toContain(".px-group__body > :where(:not(.px-row, .px-item, .px-steps)) { margin: 0; padding: var(--px-pad-y, var(--space-4)) var(--px-pad-x, var(--space-5)); }");
+    // Ayraç kuralı fieldset'in `border: 0` sıfırlamasından SONRA gelmeli; yoksa seçim kartlarının üstünde çizgi kaybolur.
+    expect(panels.lastIndexOf(".px-group__body > * + *")).toBeGreaterThan(panels.indexOf(".px-choices { border: 0"));
+    // legend yüzer: fieldset'in iç boşluğu legend'ın üstüne de uygulanır.
+    expect(rule(panels, ".px-choices legend")).toContain("float: left");
+  });
+
+  it("Bu bilgisayar listeleri gövde iç boşluğuyla hizalı; giriş + düğme satırı aynı yükseklikte", () => {
+    const computer = css("settings/sections/Computer.css");
+    expect(rule(computer, ".computer-settings__list li")).toContain("padding: var(--space-3) var(--px-pad-x, 0)");
+    expect(computer).toContain(".computer-settings__add > * { min-height: 40px; }");
+  });
+
+  it("izin tablosunda yalnız silme düğmeli son sütun dardır; klasör dışı anahtarları çerçeveli grupta durur", () => {
+    const permissions = css("settings/sections/Permissions.css");
+    expect(permissions).not.toMatch(/\.permissions__table td:last-child \{[^}]*width: 44px/);
+    expect(permissions).toContain(".permissions__table td:last-child:has(> button)");
+    expect(rule(permissions, ".permissions__blocks")).toContain("border: 1px solid var(--settings-border)");
+  });
 });

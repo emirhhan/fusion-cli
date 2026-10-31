@@ -1,15 +1,20 @@
 /* Bu bilgisayar: reddedilen uygulamalar ve uygulama kademeleri listeleri (P-006). */
-.computer-settings__list { display: grid; gap: var(--space-1); list-style: none; margin: 0; padding: 0; }
+/* Liste grup gövdesinin tam genişliğini kullanır; satırlar gövdenin iç boşluğuyla hizalı. */
+.computer-settings__list { display: grid; list-style: none; margin: 0; padding: 0; }
 .computer-settings__list li {
   align-items: center;
-  border-top: 1px solid var(--border-subtle);
   display: flex;
   font-size: var(--text-sm);
-  gap: var(--space-2);
+  gap: var(--space-3);
   justify-content: space-between;
-  padding: 6px 0;
+  min-width: 0;
+  padding: var(--space-3) var(--px-pad-x, 0);
 }
-.computer-settings__add { align-items: center; display: grid; gap: var(--space-2); grid-template-columns: 1fr auto auto; }
+.computer-settings__list li + li { border-top: 1px solid var(--settings-border); }
+.computer-settings__list li > span { min-width: 0; overflow-wrap: anywhere; }
+/* Giriş alanı + (seçim) + düğme aynı yükseklikte, aynı satırda hizalı. */
+.computer-settings__add { align-items: stretch; display: grid; gap: var(--space-2); grid-template-columns: minmax(0, 1fr) auto auto; }
+.computer-settings__add > * { min-height: 40px; }
 .computer-settings__add input,
 .computer-settings__add select {
   background: var(--surface-canvas);
@@ -18,7 +23,7 @@
   color: var(--text-primary);
   font: inherit;
   font-size: var(--text-sm);
-  min-height: 36px;
+  min-height: 40px;
   padding: 0 var(--space-3);
 }
 .computer-settings__add input:focus-visible,
