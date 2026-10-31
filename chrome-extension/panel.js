@@ -372,6 +372,8 @@ function runManual(command) {
     command.veri || {},
     (windowId) => chrome.tabs.captureVisibleTab(windowId, { format: "jpeg", quality: 65 }),
     () => execute({ islem: "record_target", veri: {} }),
+    (target) => execute({ islem: "record_check", veri: { tabId: target.tabId, windowId: target.windowId } })
+      .catch((cause) => ({ ok: false, reason: String(cause?.message || cause) })),
   );
 }
 

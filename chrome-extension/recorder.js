@@ -4,6 +4,12 @@
 // elle bağlantıda yan panel) tutulur: hizmet çalışanı 30 sn boşta kalınca durdurulur ve
 // orada tutulan kareler kaybolurdu. GIF'i Fusion (Python, Pillow) birleştirir; kareler
 // köprü sınırına (4 MB) sığacak parçalar hâlinde çekilir.
+//
+// Ölçüldü (31 Ekim, bağımsız inceleme): `captureVisibleTab(windowId)` pencerenin O ANKİ
+// etkin sekmesini verir. Kayıt sürerken kullanıcı aynı pencerede e-posta/banka sekmesine
+// geçince o kareler GIF'e giriyordu. Her kareden önce `checkTarget` (arka plandaki
+// `record_check`) kaydedilen sekmenin hâlâ etkin ve izinli olduğunu doğrular; değilse kare
+// atlanır ve sayısı/sebebi `stop` sonucunda döner.
 
 export const FRAME_INTERVAL_MS = 500;
 /** En fazla kare: 120 × 500 ms = 60 sn. */
@@ -40,24 +46,39 @@ async function shrink(dataUrl) {
   return { image: toBase64(new Uint8Array(await encoded.arrayBuffer())), width, height };
 }
 
+const ALWAYS_OK = async () => ({ ok: true });
+
 /**
- * `record` komutu: `op: start | stop | fetch | status`.
+ * `record` komutu: `op: start | stop | fetch | release | status`.
  * `capture(windowId)` kareyi JPEG data URL olarak verir; `resolveTarget()` arka plandaki
- * `record_target` işlemiyle bağlı sekmeyi (izin denetimiyle) bulur.
+ * `record_target` işlemiyle bağlı sekmeyi (izin denetimiyle) bulur; `checkTarget(target)`
+ * her kareden önce `{ ok, reason }` döner (verilmezse her kare alınır).
+ *
+ * Kareler son `fetch`ten sonra da durur: Fusion GIF'i yazamazsa (yazma alanı dışı, Pillow
+ * hatası) `stop`/`fetch` yeniden denenebilir. Bellek `release` ile ya da yeni `start` ile bırakılır.
  */
-export async function handleRecord(veri, capture, resolveTarget) {
+export async function handleRecord(veri, capture, resolveTarget, checkTarget = ALWAYS_OK) {
   const op = String(veri.op || "");
   if (op === "start") {
     if (session && session.timer) throw new Error("Kayıt zaten sürüyor; önce 'stop' ile bitir.");
     const target = await resolveTarget();
     const interval = Math.max(200, Math.min(2000, Number(veri.interval_ms) || FRAME_INTERVAL_MS));
-    const current = { frames: [], started: Date.now(), target, width: 0, height: 0, timer: null, busy: false, error: "" };
+    const current = {
+      frames: [], started: Date.now(), target, width: 0, height: 0, timer: null, busy: false,
+      error: "", skipped: 0, skipReason: "",
+    };
     session = current;
     const tick = async () => {
       if (session !== current || current.busy) return;
       if (current.frames.length >= MAX_FRAMES) { clearInterval(current.timer); current.timer = null; return; }
       current.busy = true;
       try {
+        const check = await checkTarget(target);
+        if (!check?.ok) {
+          current.skipped += 1;
+          current.skipReason = String(check?.reason || "kaydedilen sekme etkin değil");
+          return;
+        }
         const frame = await shrink(await capture(target.windowId));
         current.frames.push({ t: Date.now() - current.started, image: frame.image });
         if (frame.width) { current.width = frame.width; current.height = frame.height; }
@@ -72,13 +93,13 @@ export async function handleRecord(veri, capture, resolveTarget) {
     if (!current.frames.length) {
       clearInterval(current.timer);
       session = null;
-      throw new Error(`Kayıt başlatılamadı: ${current.error || "kare alınamadı"}`);
+      throw new Error(`Kayıt başlatılamadı: ${current.error || current.skipReason || "kare alınamadı"}`);
     }
     return { recording: true, interval_ms: interval, max_frames: MAX_FRAMES, url: target.url };
   }
   if (!session) throw new Error("Süren ya da bekleyen kayıt yok; önce 'start'.");
   if (op === "status") {
-    return { recording: Boolean(session.timer), frames: session.frames.length, error: session.error };
+    return { recording: Boolean(session.timer), frames: session.frames.length, skipped: session.skipped, error: session.error };
   }
   if (op === "stop") {
     if (session.timer) clearInterval(session.timer);
@@ -86,6 +107,7 @@ export async function handleRecord(veri, capture, resolveTarget) {
     return {
       frames: session.frames.length, width: session.width, height: session.height,
       duration_ms: session.frames.at(-1)?.t ?? 0, url: session.target.url, error: session.error,
+      skipped: session.skipped, skip_reason: session.skipReason,
     };
   }
   if (op === "fetch") {
@@ -101,10 +123,15 @@ export async function handleRecord(veri, capture, resolveTarget) {
       bytes += frame.image.length;
     }
     const next = index < session.frames.length ? index : null;
-    if (next === null) session = null; // kareler teslim edildi; bellek bırakılır
     return { from, frames, next };
   }
-  throw new Error("record için op: start, stop, fetch ya da status olmalı.");
+  if (op === "release") {
+    if (session.timer) throw new Error("Kayıt sürüyor; önce 'stop'.");
+    const frames = session.frames.length;
+    session = null; // kareler teslim edildi ve GIF yazıldı; bellek bırakılır
+    return { released: true, frames };
+  }
+  throw new Error("record için op: start, stop, fetch, release ya da status olmalı.");
 }
 
 /** Testler ve yeni kayıt için oturumu sıfırlar. */

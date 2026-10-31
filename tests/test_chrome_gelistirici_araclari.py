@@ -177,6 +177,8 @@ async def test_kayit_baslat_ve_bitir_kareleri_parca_parca_ceker_gif_yazar(tmp_pa
             return {"recording": True, "interval_ms": 500, "max_frames": 120}
         if data["op"] == "stop":
             return {"frames": 3, "width": 24, "height": 16, "duration_ms": 1000}
+        if data["op"] == "release":
+            return {"released": True, "frames": 3}
         baslangic = data["from"]
         return {"from": baslangic, "frames": kareler[baslangic : baslangic + 2],
                 "next": baslangic + 2 if baslangic + 2 < len(kareler) else None}  # fmt: skip
@@ -189,8 +191,10 @@ async def test_kayit_baslat_ve_bitir_kareleri_parca_parca_ceker_gif_yazar(tmp_pa
 
     assert baslat.ok and "başladı" in baslat.output
     assert bitir.ok, bitir.output
+    # Kareler yalnız GIF başarıyla yazıldıktan SONRA bırakılır (`release`).
     assert [c[1] for c in kopru.cagrilar] == [
         {"op": "start"}, {"op": "stop"}, {"op": "fetch", "from": 0}, {"op": "fetch", "from": 2},
+        {"op": "release"},
     ]  # fmt: skip
     dosyalar = list((tmp_path / chrome_record.RECORD_DIR).glob("chrome-*.gif"))
     assert len(dosyalar) == 1 and str(dosyalar[0].relative_to(tmp_path)) in bitir.output
@@ -207,6 +211,67 @@ async def test_kayit_karesiz_biterse_gif_yazilmaz_ve_aciklanir(tmp_path):
     )
     assert not sonuc.ok and "kare" in sonuc.output
     assert not (tmp_path / chrome_record.RECORD_DIR).exists()
+
+
+def _kayit_koprusu(kare_sayisi: int = 1, **durdurma: object) -> _Kopru:
+    kareler = [{"t": i * 500, "image": _jpeg((i * 40, 0, 0))} for i in range(kare_sayisi)]
+
+    def _record(data):
+        if data["op"] == "stop":
+            return {"frames": kare_sayisi, "duration_ms": 500 * kare_sayisi, **durdurma}
+        if data["op"] == "fetch":
+            return {"from": 0, "frames": kareler, "next": None}
+        return {"released": True}
+
+    return _Kopru({"record": _record})
+
+
+async def test_kayit_yazilamazsa_kareler_eklentide_kalir_ve_yeniden_denenebilir(tmp_path):
+    # Ölçüldü (31 Ekim, bağımsız inceleme): eklenti son parçada oturumu siliyordu; alt ajanın
+    # yazma alanı dışındaysa GIF yazılamıyor ve kareler kayboluyordu.
+    kopru = _kayit_koprusu()
+    baglam = ToolContext(root=tmp_path, chrome=kopru, write_scope=(tmp_path / "baska",))
+
+    sonuc = await chrome.chrome_action({"action": "record", "value": "stop"}, baglam)
+
+    assert not sonuc.ok and "yazma alanı" in sonuc.output and "yeniden" in sonuc.output
+    assert {"op": "release"} not in [c[1] for c in kopru.cagrilar]
+    assert not (tmp_path / chrome_record.RECORD_DIR).exists()
+
+
+async def test_kayit_atlanan_kareler_cikti_notunda(tmp_path):
+    kopru = _kayit_koprusu(2, skipped=3, skip_reason="pencerede başka sekme etkin")
+
+    sonuc = await chrome.chrome_action(
+        {"action": "record", "value": "stop"}, ToolContext(root=tmp_path, chrome=kopru)
+    )
+
+    assert sonuc.ok, sonuc.output
+    assert "3 kare atlandı (pencerede başka sekme etkin)" in sonuc.output
+
+
+def test_gif_farkli_boyutlu_kareler_ilk_karenin_boyutuna_getirilir():
+    # Ölçüldü (31 Ekim): yan panel açılıp kapanınca kare boyutu değişir; Pillow farklı boyutlu
+    # kareleri tutarsız oynatıyordu.
+    def _kare(boyut: tuple[int, int], renk: tuple[int, int, int]) -> bytes:
+        tampon = io.BytesIO()
+        Image.new("RGB", boyut, renk).save(tampon, format="JPEG")
+        return tampon.getvalue()
+
+    # Renkler farklı: Pillow aynı görünen ardışık kareleri tek karede birleştirir.
+    gif = chrome_record.build_gif(
+        [
+            (0, _kare((40, 30), (200, 0, 0))),
+            (500, _kare((20, 10), (0, 200, 0))),
+            (1000, _kare((64, 48), (0, 0, 200))),
+        ]
+    )
+
+    with Image.open(io.BytesIO(gif)) as okunan:
+        assert okunan.n_frames == 3
+        for kare in range(3):
+            okunan.seek(kare)
+            assert okunan.size == (40, 30)
 
 
 async def test_kayit_gecersiz_degerde_anlasilir_hata():

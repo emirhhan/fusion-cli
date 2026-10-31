@@ -44,9 +44,17 @@ async function recordTarget() {
   return answer.veri;
 }
 
+/** Her kareden önce: kaydedilen sekme hâlâ etkin ve izinli mi (bkz. core.js record_check). */
+async function recordCheck(target) {
+  const command = { islem: "record_check", veri: { tabId: target.tabId, windowId: target.windowId } };
+  const answer = await chrome.runtime.sendMessage({ type: "fusion.exec", command }).catch(() => null);
+  if (!answer?.ok) return { ok: false, reason: answer?.hata || "sekme denetlenemedi" };
+  return answer.veri;
+}
+
 async function run(command) {
   if (command.islem === "record") {
-    try { return { ok: true, veri: await handleRecord(command.veri || {}, captureWindow, recordTarget) }; } catch (cause) {
+    try { return { ok: true, veri: await handleRecord(command.veri || {}, captureWindow, recordTarget, recordCheck) }; } catch (cause) {
       return { ok: false, hata: String(cause?.message || cause) };
     }
   }

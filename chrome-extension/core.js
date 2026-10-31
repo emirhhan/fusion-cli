@@ -1347,6 +1347,23 @@ export async function execute(command) {
     if (title && chrome.tabGroups?.update) await chrome.tabGroups.update(groupId, { title });
     return { group: groupId, title, tabs: ids.length };
   }
+  if (command.islem === "record_check") {
+    // GIF kaydı (P-044): her kareden önce kaydedilen sekme hâlâ kendi penceresinde etkin ve
+    // izinli mi? Ölçüldü (31 Ekim, bağımsız inceleme): captureVisibleTab pencerenin O ANKİ
+    // etkin sekmesini verir; kullanıcı başka sekmeye geçince izinsiz sayfa GIF'e giriyordu.
+    // Kayıt "tüm siteler" iznini gerektirdiği için `permitted` burada yalnız http(s) dışına
+    // (chrome://, dosya) geçişi yakalar; asıl koruma sekme kimliği + etkinlik denetimidir.
+    const recorded = await chrome.tabs.get(Number(veri.tabId)).catch(() => null);
+    if (!recorded) return { ok: false, reason: "kaydedilen sekme kapandı" };
+    if (!recorded.active || recorded.windowId !== Number(veri.windowId)) {
+      return { ok: false, reason: "pencerede başka sekme etkin" };
+    }
+    const url = recorded.url || "";
+    if (!/^https?:/.test(url) || !await permitted(new URL(url).origin)) {
+      return { ok: false, reason: "sekme izinsiz bir adrese geçti" };
+    }
+    return { ok: true, url };
+  }
   if (command.islem === "tab_open") {
     const destination = new URL(veri.url);
     if (!await permitted(destination.origin)) {

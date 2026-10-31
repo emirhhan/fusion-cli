@@ -40,6 +40,11 @@ assert.equal(chunk.frames.length, stopped.frames);
 assert.equal(chunk.next, null);
 assert.ok(chunk.frames.every((frame, index) => typeof frame.image === "string" && (index === 0 || frame.t >= chunk.frames[index - 1].t)));
 assert.ok(chunk.frames[0].t <= 20, "ilk kare başlangıç anına yakın");
+// Ölçüldü (31 Ekim): son parça oturumu bırakıyordu; GIF yazımı Fusion tarafında düşerse
+// (yazma alanı dışı, Pillow hatası) kareler kayboluyordu. Kareler 'release'e dek durur.
+const repeat = await handleRecord({ op: "fetch", from: 0 }, capture, target);
+assert.equal(repeat.frames.length, chunk.frames.length, "kareler teslimden sonra da yeniden çekilebilmeli");
+assert.deepEqual(await handleRecord({ op: "release" }, capture, target), { released: true, frames: chunk.frames.length });
 await assert.rejects(handleRecord({ op: "fetch", from: 0 }, capture, target), /önce 'start'/);
 
 // Büyük kareler köprü sınırına göre parçalanır.
@@ -61,6 +66,26 @@ const broken = async () => { throw new Error("izin yok"); };
 await assert.rejects(handleRecord({ op: "start" }, broken, target), /Kayıt başlatılamadı: izin yok/);
 await assert.rejects(handleRecord({ op: "start" }, capture, async () => { throw new Error("sekme yok"); }), /sekme yok/);
 await assert.rejects(handleRecord({ op: "zıpla" }, capture, target), /önce 'start'/);
+
+// Kayıt sırasında etkin sekme değişirse (kullanıcı e-posta/banka sekmesine geçti) kare alınmaz;
+// atlanan sayı ve sebep durdurmada döner. Ölçüldü (31 Ekim, bağımsız inceleme): captureVisibleTab
+// pencerenin o anki etkin sekmesini verir, izinsiz sekme GIF'e giriyordu.
+resetRecorder();
+let ticks = 0;
+const guard = async () => (++ticks % 2 === 0 ? { ok: false, reason: "pencerede başka sekme etkin" } : { ok: true });
+const guarded = await handleRecord({ op: "start", interval_ms: 200 }, capture, target, guard);
+assert.equal(guarded.recording, true);
+await sleep(650);
+const guardedStop = await handleRecord({ op: "stop" }, capture, target, guard);
+assert.ok(guardedStop.skipped >= 1, `atlanan kare beklenirdi: ${guardedStop.skipped}`);
+assert.equal(guardedStop.skip_reason, "pencerede başka sekme etkin");
+assert.ok(guardedStop.frames >= 1 && guardedStop.frames + guardedStop.skipped === ticks);
+await handleRecord({ op: "release" }, capture, target, guard);
+// İlk kare bile alınamazsa (başka sekme etkin) kayıt başlamaz ve sebep söylenir.
+await assert.rejects(
+  handleRecord({ op: "start" }, capture, target, async () => ({ ok: false, reason: "sekme kapandı" })),
+  /Kayıt başlatılamadı: sekme kapandı/,
+);
 
 resetRecorder();
 console.log("chrome-recorder ✓");

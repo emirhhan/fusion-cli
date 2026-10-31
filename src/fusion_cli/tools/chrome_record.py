@@ -7,6 +7,7 @@ parçalar hâlinde verir; GIF burada Pillow ile birleştirilir ve proje köküne
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import io
@@ -15,6 +16,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..core.errors import PathAccessError
 from ..core.tools import ToolContext, ToolResult
 from .files import writable_path
 
@@ -31,15 +33,26 @@ PALETTE_COLORS = 128
 
 
 def build_gif(frames: list[tuple[int, bytes]]) -> bytes:
-    """Zaman damgalı JPEG karelerden döngülü GIF üret; süreler damga farkından türer."""
+    """Zaman damgalı JPEG karelerden döngülü GIF üret; süreler damga farkından türer.
+
+    Senkron ve CPU yoğun (128 renk niceleme × 120 kare): çağıran `asyncio.to_thread` ile
+    sarar. Ölçüldü (31 Ekim): yan panel açılıp kapanınca ya da pencere boyutlanınca kare
+    boyutu değişir; Pillow farklı boyutlu kareleri tutarsız oynatır. Kareler ilk karenin
+    boyutuna getirilir.
+    """
     from PIL import Image
 
     if not frames:
         raise ValueError("GIF için kare yok.")
     images = []
+    size: tuple[int, int] | None = None
     for _ts, raw in frames[:MAX_FRAMES]:
         with Image.open(io.BytesIO(raw)) as image:
-            images.append(image.convert("RGB").quantize(colors=PALETTE_COLORS))
+            rgb = image.convert("RGB")
+            size = size or rgb.size
+            if rgb.size != size:
+                rgb = rgb.resize(size)
+            images.append(rgb.quantize(colors=PALETTE_COLORS))
     stamps = [ts for ts, _raw in frames[:MAX_FRAMES]]
     durations = [
         max(MIN_FRAME_MS, stamps[index + 1] - stamps[index]) for index in range(len(stamps) - 1)
@@ -95,20 +108,35 @@ async def stop_recording(context: ToolContext) -> ToolResult:
         cursor = following if isinstance(following, int) and following > cursor else None
     if not frames:
         return ToolResult.failure("Kareler çözülemedi; GIF yazılmadı.")
+    # Kareler eklentide `release`e dek durur: GIF yazılamazsa (yazma alanı dışı, Pillow hatası)
+    # `record stop` yeniden denenebilir. Ölçüldü (31 Ekim): eski eklenti son parçada oturumu
+    # siliyor, hata durumunda kayıt kayboluyordu.
     try:
-        data = build_gif(frames)
-    except (OSError, ValueError) as exc:
-        return ToolResult.failure(f"GIF oluşturulamadı: {exc}")
-    name = f"chrome-{time.strftime('%Y%m%d-%H%M%S')}.gif"
-    target = writable_path(context, str(RECORD_DIR / name))
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
+        data = await asyncio.to_thread(build_gif, frames)
+        name = f"chrome-{time.strftime('%Y%m%d-%H%M%S')}.gif"
+        target = writable_path(context, str(RECORD_DIR / name))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    except (OSError, ValueError, PathAccessError) as exc:
+        return ToolResult.failure(
+            f"GIF yazılamadı: {exc} Kareler eklentide tutuldu; sorunu giderip "
+            "chrome_action record 'stop' ile yeniden deneyebilirsin."
+        )
+    await _release(context)
     relative = _relative(target, context.root)
+    skipped = int(stopped.get("skipped") or 0)
+    reason = stopped.get("skip_reason") or "kaydedilen sekme etkin değildi"
+    note = f" {skipped} kare atlandı ({reason})." if skipped > 0 else ""
     return ToolResult(
         f"Ekran kaydı GIF olarak yazıldı: {relative} ({len(frames)} kare, "
-        f"{stopped.get('duration_ms', 0)} ms, {len(data) // 1024} KB). "
+        f"{stopped.get('duration_ms', 0)} ms, {len(data) // 1024} KB).{note} "
         f"Kaynak sayfa: {stopped.get('url', '')}"
     )
+
+
+async def _release(context: ToolContext) -> None:
+    """Eklentideki kareleri bırak; başarısızlık GIF'in yazılmış olmasını değiştirmez."""
+    await _invoke(context, {"op": "release"})
 
 
 def _decode_frame(frame: object) -> tuple[int, bytes] | None:
