@@ -719,6 +719,7 @@ async def _agent_turn(
             home=state.home,
             allowed_commands=state.allowed_commands,
             permission_rules=state.permission_rules(),
+            auto_review=state.approval_memory.auto_review,
             background=background,
             verifier=build_verifier(
                 state.config,

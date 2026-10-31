@@ -302,7 +302,13 @@ def _build_runtime(raw: object) -> RuntimeConfig:
     if runtime.workflow_attempt_calls < 0:
         raise ConfigError("runtime.workflow_attempt_calls: negatif olamaz.")
     # Aralık dışı değerler eskiden sessizce geçiyordu (negatif zaman aşımı, α > 1…; L2-19).
-    for name in ("request_timeout_s", "judge_timeout_s", "circuit_cooldown_s", "teacher_timeout_s"):
+    for name in (
+        "request_timeout_s",
+        "judge_timeout_s",
+        "circuit_cooldown_s",
+        "teacher_timeout_s",
+        "auto_classifier_timeout_s",
+    ):
         if getattr(runtime, name) <= 0:
             raise ConfigError(f"runtime.{name}: sıfırdan büyük olmalı.")
     for name in (
@@ -323,6 +329,11 @@ def _build_runtime(raw: object) -> RuntimeConfig:
         raise ConfigError(
             "runtime.escalation_model: <sağlayıcı>/<model> biçiminde olmalı "
             f"(gelen: {runtime.escalation_model!r}); boş bırakılırsa kademeden otomatik seçilir."
+        )
+    if runtime.auto_classifier_model.strip() and "/" not in runtime.auto_classifier_model:
+        raise ConfigError(
+            "runtime.auto_classifier_model: <sağlayıcı>/<model> biçiminde olmalı "
+            f"(gelen: {runtime.auto_classifier_model!r}); boş bırakılırsa hakem modeli kullanılır."
         )
     if not 0.0 <= runtime.external_lesson_confidence <= 1.0:
         raise ConfigError("runtime.external_lesson_confidence: 0 ile 1 arasında olmalı.")

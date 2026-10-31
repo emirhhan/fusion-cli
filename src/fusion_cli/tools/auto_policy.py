@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import re
 import shlex
+from collections.abc import Iterator
 from pathlib import Path
 
 from .command_paths import escapes_project
@@ -169,24 +170,66 @@ def auto_risk(command: str, root: Path | None) -> str | None:
     İç içe komut (`sh -c '…'`, `eval`, `timeout 5 …`, `"$(…)"`) özyinelemeli çözülür:
     ölçüldü (29 Ekim), eskiden `sh -c 'git push'` içteki komuta hiç bakılmadan geçiyordu.
     """
-    return _risk(command, root, 0)
+    return next(_risks(command, root, 0), None)
 
 
-def _risk(command: str, root: Path | None, depth: int) -> str | None:
+def auto_risks(command: str, root: Path | None) -> tuple[str, ...]:
+    """Komuttaki BÜTÜN risk gerekçeleri (sırayla, tekrarsız).
+
+    Denetçi (P-011) yalnız ilk gerekçeye bakarsa `git push && sudo …` zincirindeki sudo
+    modele bırakılırdı; sabit riskler (`is_fixed_risk`) her parçada aranır.
+    """
+    return tuple(dict.fromkeys(_risks(command, root, 0)))
+
+
+#: Hiçbir zaman denetçi modeline bırakılmayan, kuralın kesin sorduğu gerekçeler (P-011).
+SUDO_REASON = "yönetici yetkisi (sudo) istiyor"
+SYSTEM_SETTING_REASON = "sistem ayarını değiştiriyor"
+ENV_DUMP_REASON = "ortam değişkenlerini (API anahtarları dahil) döküyor"
+PIPE_TO_SHELL_REASON = "çıktıyı kabuğa/yorumlayıcıya boşaltıyor (… | sh) — içeriği denetlenemiyor"
+VARIABLE_COMMAND_REASON = "komut adı bir değişkenden geliyor (ne çalışacağı bilinmiyor)"
+NESTING_REASON = "iç içe çok katmanlı komut (içeriği denetlenemiyor)"
+KILLALL_REASON = "uygulamaları ada göre kapatıyor"
+DB_DROP_REASON = "veritabanını/tabloyu siliyor"
+INLINE_OUTWARD_REASON = "satır içi kod komut çalıştırıyor ya da ağa bağlanıyor"
+FIXED_RISK_REASONS = frozenset(
+    {
+        SUDO_REASON,
+        SYSTEM_SETTING_REASON,
+        ENV_DUMP_REASON,
+        PIPE_TO_SHELL_REASON,
+        VARIABLE_COMMAND_REASON,
+        NESTING_REASON,
+        KILLALL_REASON,
+        DB_DROP_REASON,
+        INLINE_OUTWARD_REASON,
+    }
+)
+#: Başka modüllerin ürettiği, aynı sınıftaki gerekçelerin başı: dikkat gerektiren silme
+#: (`delete_preview.delete_caution`), satır içi silme kodu (`inline_code_danger`) ve bu turda
+#: yazılmış betiğin riski (`script_chain`) — içerik modele gösterilmez, karar kurala kalır.
+FIXED_RISK_PREFIXES = ("silme hedefi ", "satır içi kod ", "bu turda yazdığın betik ")
+
+
+def is_fixed_risk(reason: str) -> bool:
+    """Gerekçe denetçiye bırakılamayan (her zaman sorulan) sınıftan mı?"""
+    return reason in FIXED_RISK_REASONS or reason.startswith(FIXED_RISK_PREFIXES)
+
+
+def _risks(command: str, root: Path | None, depth: int) -> Iterator[str]:
     if not command.strip():
-        return None
+        return
     if depth > _MAX_NESTING:
-        return "iç içe çok katmanlı komut (içeriği denetlenemiyor)"
+        yield NESTING_REASON
+        return
     unquoted = _unquoted(command)
     for target in _REDIRECT.findall(unquoted):
         if _outside(target, root):
-            return f"proje dışına yazıyor ({target})"
+            yield f"proje dışına yazıyor ({target})"
     if _PIPE_TO_INTERPRETER.search(unquoted):
-        return "çıktıyı kabuğa/yorumlayıcıya boşaltıyor (… | sh) — içeriği denetlenemiyor"
+        yield PIPE_TO_SHELL_REASON
     for match in _SUBSTITUTION.finditer(re.sub(r"'[^']*'", "''", command)):
-        reason = _risk(match.group(1) or match.group(2) or "", root, depth + 1)
-        if reason is not None:
-            return reason
+        yield from _risks(match.group(1) or match.group(2) or "", root, depth + 1)
     away = False
     for segment in _segments(command):
         parts = _words(segment)
@@ -196,12 +239,12 @@ def _risk(command: str, root: Path | None, depth: int) -> str | None:
         if name == "cd":
             away = bool(arguments) and _outside(arguments[0], root)
             continue
-        reason = _segment_risk(name, arguments, segment, root, depth)
-        if reason is None and away and not _reads_only(name, arguments):
-            reason = "proje dışındaki bir klasörde değişiklik yapıyor"
-        if reason is not None:
-            return reason
-    return None
+        found = False
+        for reason in _segment_risks(name, arguments, segment, root, depth):
+            found = True
+            yield reason
+        if not found and away and not _reads_only(name, arguments):
+            yield "proje dışındaki bir klasörde değişiklik yapıyor"
 
 
 def command_words(command: str) -> list[list[str]]:
@@ -234,41 +277,48 @@ def is_read_only_command(command: str) -> bool:
     return True
 
 
-def _segment_risk(
+def _segment_risks(
     name: str, arguments: list[str], segment: str, root: Path | None, depth: int = 0
-) -> str | None:
-    """Tek bir komut parçasının riski (sıra: yetki, sistem, dışarı, iç içe, yol)."""
+) -> Iterator[str]:
+    """Tek bir komut parçasının riskleri (sıra: yetki, sistem, dışarı, iç içe, yol).
+
+    İlk gerekçe eski tek-sonuçlu sırayla aynıdır (`auto_risk` onu kullanır).
+    """
     sub = next((a for a in arguments if not a.startswith("-")), "")
     if name in {"sudo", "doas", "su"}:
-        return "yönetici yetkisi (sudo) istiyor"
+        yield SUDO_REASON
+        # Yetki öneki asıl komutu sarar: `sudo git push` → içteki komut da değerlendirilir.
+        yield from _risks(" ".join(shlex.quote(part) for part in arguments), root, depth + 1)
+        return
     if name in _SYSTEM_COMMANDS or (name == "defaults" and sub in {"write", "delete"}):
-        return "sistem ayarını değiştiriyor"
+        yield SYSTEM_SETTING_REASON
     if name in {"env", "printenv"} or (name == "set" and not arguments):
-        return "ortam değişkenlerini (API anahtarları dahil) döküyor"
+        yield ENV_DUMP_REASON
     reason = _install_risk(name, arguments, sub) or _outward_risk(name, arguments, sub)
     if reason is not None:
-        return reason
+        yield reason
     if name.startswith("$"):
-        return "komut adı bir değişkenden geliyor (ne çalışacağı bilinmiyor)"
+        yield VARIABLE_COMMAND_REASON
+        return
     nested = _nested_command(name, arguments)
     if nested is not None:
-        return _risk(nested, root, depth + 1)
+        yield from _risks(nested, root, depth + 1)
+        return
     if name == "killall":
-        return "uygulamaları ada göre kapatıyor"
+        yield KILLALL_REASON
     if _DB_DROP.search(segment):
-        return "veritabanını/tabloyu siliyor"
+        yield DB_DROP_REASON
     code = _inline_code(name, arguments)
     tehlike = inline_code_danger(code) if code is not None else None
     if tehlike is not None:
-        return tehlike
+        yield tehlike
     inline_runner = name.startswith("python") or name in _INTERPRETERS
     if code is not None and inline_runner and _INLINE_OUTWARD.search(code):
-        return "satır içi kod komut çalıştırıyor ya da ağa bağlanıyor"
+        yield INLINE_OUTWARD_REASON
     if not _reads_only(name, arguments) and any(
         _outside(target, root) for target in _write_targets(name, arguments)
     ):
-        return "proje dışındaki bir yolu değiştiriyor"
-    return None
+        yield "proje dışındaki bir yolu değiştiriyor"
 
 
 def nested_command(name: str, arguments: list[str]) -> str | None:

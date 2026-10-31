@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
+from ..core.auto_review import AutoClassifierMode
 from ..core.execution_mode import ExecutionMode
 from ..core.reasoning import ReasoningEffort
 from ..core.routing_strategy import RoutingStrategy
@@ -380,6 +381,13 @@ class RuntimeConfig:
     #: Model çağrısı/MCP/beceri kullanımını `memory_dir/usage.jsonl`'e yaz (`/usage` pencereleri,
     #: `fusion insights`). İstem metni yazılmaz. False = yalnız oturum sayacı (P-056).
     usage_log: bool = True
+    #: Otomatik kip denetçisi (P-011): `off` | `ask_only` | `on` (bkz. `core.auto_review`).
+    #: Sorulacak çağrıyı küçük/hızlı rol modeli sınıflandırır; güvenliyse sorulmaz.
+    auto_classifier: AutoClassifierMode = AutoClassifierMode.ASK_ONLY
+    #: Denetçi modeli: boş = hakem (`judge`) rolü ve yedekleri; dolu = `<sağlayıcı>/<model>`.
+    auto_classifier_model: str = ""
+    #: Tek sınıflandırma çağrısının süre sınırı (saniye). Aşılırsa kurallar geçerli olur.
+    auto_classifier_timeout_s: float = 12.0
 
 
 @dataclass(frozen=True, slots=True)

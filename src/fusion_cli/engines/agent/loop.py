@@ -153,6 +153,7 @@ from .approval import (
     Denial,
     resolve_request,
 )
+from .auto_guard import AutoReviewState
 from .change_digest import change_digest
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
@@ -228,6 +229,7 @@ from .project_instructions import (
 from .questions import PendingUserQuestions
 from .repair_flow import record_failure_evidence
 from .repo_context import map_budget_for, repo_map_with_stats
+from .risk_classifier import review_auto_request
 from .self_knowledge import GUIDE, knowledge_block
 from .skill_index import index_budget_for, skill_index_block
 from .tamper_check import collect_test_tampering
@@ -467,6 +469,9 @@ class AgentDeps:
     #: Tüm katmanlardan okunmuş izin kuralları (allow/ask/deny) ve kök-dışı engeller (P-001).
     #: `None` = kural yok (eski çağıranlar); `getattr(deps, "permission_rules", None)` ile okunur.
     permission_rules: PermissionRuleSet | None = None
+    #: Otomatik kip denetçisinin oturum durumu (P-011; `ApprovalMemory.auto_review`). `None` =
+    #: denetçi yok (eski çağıranlar, alt ajanlar); `getattr(deps, "auto_review", None)` ile okunur.
+    auto_review: AutoReviewState | None = None
     #: Verilirse ders çıkarımı turu BEKLETMEDEN arka planda çalışır (REPL için).
     #: Verilmezse tur içinde beklenir (tek seferlik CLI için doğru davranış).
     background: BackgroundTasks | None = None
@@ -3829,6 +3834,8 @@ async def _execute(
             context=deps.tool_context,
             rules=rules,
         )
+        # Otomatik kip denetçisi (P-011): sorulacak çağrıyı modelle sınıflandırır.
+        request = await review_auto_request(request, deps)
         verdict = await policy.decide(request)
         if deps.mutation_blocked_by_pending_input() or (
             deps.approval_revision is not None and deps.approval_revision() != revision

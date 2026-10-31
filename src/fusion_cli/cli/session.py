@@ -355,6 +355,8 @@ async def run_agent_task(
                 block_reads_outside_root=config.runtime.block_reads_outside_root,
                 block_writes_outside_root=config.runtime.block_writes_outside_root,
             ),
+            # Otomatik kip denetçisi (P-011): sayaçlar oturum hafızasıyla yaşar.
+            auto_review=approval_memory.auto_review if approval_memory is not None else None,
             verifier=build_verifier(
                 config,
                 root=tool_context.root,

@@ -54,6 +54,7 @@ from ...tools.safe_delete import simple_rm_targets
 from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
 from ...tools.script_chain import script_chain_risk
 from ...tools.write_targets import write_targets
+from .auto_guard import AutoReviewState
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
 REMOTE_DESTRUCTIVE_REASON = (
@@ -315,6 +316,8 @@ class ApprovalMemory:
         self.rule_writer: Callable[[ApprovalRequest], str] | None = None
         #: Kullanıcıya gösterilecek bekleyen bildirimler (kural yazıldı / yazılamadı).
         self.notices: list[str] = []
+        #: Otomatik kip denetçisinin oturum durumu: engel sayaçları, kip düşüşü (P-011).
+        self.auto_review = AutoReviewState(remembered=self.is_remembered)
 
     def take_notices(self) -> list[str]:
         notices, self.notices = self.notices, []
@@ -374,7 +377,17 @@ class AutoApproval(_AskingApproval):
     soruyor, sormasın" dedi. Beyaz liste artık "Düzenlemeleri kabul et" kipidir.
     """
 
+    def __init__(self, prompter: Prompter, memory: ApprovalMemory | None = None) -> None:
+        super().__init__(prompter, memory)
+        guard = self._memory.auto_review
+        #: Kurulduğu andaki düşüş sayısı; tur ortasında denetçi kipi düşürürse (P-011) bu
+        #: politika kalan çağrılarda Manuel gibi davranır (kipi değiştiremeyen `fusion run`).
+        self._trips = guard.trips
+        guard.acknowledge_auto()
+
     def _allows(self, request: ApprovalRequest) -> bool:
+        if self._memory.auto_review.trips != self._trips:
+            return request.read_only
         return request.risk is None
 
 

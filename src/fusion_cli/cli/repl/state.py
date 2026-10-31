@@ -269,8 +269,14 @@ class ReplState:
         # Onay kartındaki "bir daha sorma" kalıcı kurala dönüşür (P-003); kök çağrı anında
         # okunur, böylece proje değişince yeni projeye yazılır.
         attach_rule_writer(self.approval_memory, lambda: self.root)
+        # Denetçi engel eşiğini aşınca (P-011) oturum Manuel kipe düşer; kalıcı ayar değişmez.
+        self.approval_memory.auto_review.on_fallback = self._fall_back_to_manual
         self.config_revision = revision(self.config)
         self.config_baseline = self.config
+
+    def _fall_back_to_manual(self) -> None:
+        if self.approval is ApprovalMode.AUTO:
+            self.approval = ApprovalMode.SECURITY
 
     def permission_rules(self) -> PermissionRuleSet:
         """İzin kuralları her turda dosyadan taze okunur (P-001).
