@@ -44,6 +44,7 @@ from .team_board import (
     TeamStore,
     TeamTask,
     check_name,
+    resolve_dependencies,
 )
 from .team_hooks import TeamHooks
 from .team_policy import cap_report
@@ -200,6 +201,7 @@ class TeamRun:
         )
         # `TeammateIdle` engelinde üyenin boşa düşmeden yeniden koşacağı istem.
         feedback: str | None = None
+        last: SubRun | None = None
         try:
             while True:
                 if feedback is None and not session.has_work(name):
@@ -215,11 +217,14 @@ class TeamRun:
                     state.runs > self._limits.max_wakes
                     or self._runs.started_total >= self._limits.max_runs
                 ):
+                    if last is not None and feedback is not None:
+                        # TeammateIdle engeli tavana takıldı: üzerindeki görevler panoya döner.
+                        await session.member_idle(name, sub_id=last.sub_id, summary=last.text)
                     break
                 prompt = feedback or (FIRST_PROMPT if state.runs == 0 else self._wake_prompt(name))
                 if state.runs:
                     await session.wake(name)
-                run = await self._run_member(member, member_deps, prompt)
+                run = last = await self._run_member(member, member_deps, prompt)
                 feedback = None
                 if run.status not in {"budget", "cancelled"} and name not in session.halted:
                     gate = await session.hooks.teammate_idle(name)
@@ -329,24 +334,6 @@ def _task_line(board: TeamBoard, task: TeamTask) -> str:
     return f"- {task.id} {task.status}{owner}: {task.title}{blocked}" + (
         f" → {result}" if result else ""
     )
-
-
-def resolve_dependencies(
-    board: TeamBoard, created: dict[str, str], raw: tuple[str, ...]
-) -> tuple[str, ...]:
-    """Bağımlılık kimlik ya da aynı çağrıdaki görev başlığı olabilir."""
-    resolved: list[str] = []
-    for item in raw:
-        key = item.strip()
-        if board.task(key) is not None:
-            resolved.append(key)
-        elif key in created:
-            resolved.append(created[key])
-        else:
-            raise TeamError(
-                f"Bağımlılık bulunamadı: {key!r} (görev kimliği ya da önceki görevin başlığı)."
-            )
-    return tuple(resolved)
 
 
 async def run_agent_team(

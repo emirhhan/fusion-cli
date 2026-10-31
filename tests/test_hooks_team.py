@@ -196,11 +196,14 @@ async def test_teammateidle_engeli_uyanma_tavanini_asmaz(tmp_path):
     async def _ajan(task, sub_deps, **kwargs):
         nonlocal kosular
         kosular += 1
-        return SimpleNamespace(final_text="bitti", ok=True, tool_calls_made=0)
+        await _arac(sub_deps, "team_task", eylem="al")
+        return SimpleNamespace(final_text="bitti", ok=True, tool_calls_made=1)
 
-    await _calistir(deps, _ajan)
+    sonuc = await _calistir(deps, _ajan)
 
     assert kosular == 2
+    # Tavanda üyenin üzerinde kalan görev panoya döner (sahipsiz "bekliyor").
+    assert "- g1 bekliyor: iş" in sonuc.output
 
 
 async def test_continue_false_uyeyi_durdurur_yeniden_uyandirilmaz(tmp_path):

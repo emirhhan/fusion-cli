@@ -256,3 +256,21 @@ def _board_from(raw: object, name: str) -> TeamBoard:
         )
     except (KeyError, TypeError, ValueError) as error:
         raise TeamError(f"'{name}' panosu bozuk: {type(error).__name__}.") from error
+
+
+def resolve_dependencies(
+    board: TeamBoard, created: dict[str, str], raw: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Bağımlılık kimlik ya da aynı çağrıdaki görev başlığı olabilir."""
+    resolved: list[str] = []
+    for item in raw:
+        key = item.strip()
+        if board.task(key) is not None:
+            resolved.append(key)
+        elif key in created:
+            resolved.append(created[key])
+        else:
+            raise TeamError(
+                f"Bağımlılık bulunamadı: {key!r} (görev kimliği ya da önceki görevin başlığı)."
+            )
+    return tuple(resolved)
