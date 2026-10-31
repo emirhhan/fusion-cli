@@ -207,6 +207,29 @@ def _terminate_verified(task: BackgroundTask) -> None:
         raise BackgroundTaskError(str(error)) from error
 
 
+#: Temizlikte silinen durumlar; "yarım kaldı" görev mesajla sürdürülebilir, kalır.
+_CLEANABLE = frozenset({TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.STOPPED})
+
+
+def clean_finished(store: BackgroundTaskStore, root: Path | None) -> tuple[int, tuple[str, ...]]:
+    """Bitmiş görevleri sil (`root` verilirse yalnız o proje); (silinen, silinemeyenler).
+
+    Ölçüldü (31 Ekim): temizlik bütün projelerin sonuçlarını siliyordu (liste yalnız bu
+    projeyi gösterirken) ve tek bir silme hatası CLI'da yakalanmayan iz basıyordu.
+    """
+    removed, failed = 0, []
+    for task in store.tasks(root=root):
+        if task.status not in _CLEANABLE:
+            continue
+        try:
+            store.remove(task.id)
+        except (BackgroundTaskError, OSError):
+            failed.append(task.name)
+            continue
+        removed += 1
+    return removed, tuple(failed)
+
+
 def answer_task(store: BackgroundTaskStore, task: BackgroundTask, value: str) -> BackgroundTask:
     """Bekleyen onay/soruyu cevapla (`evet` / `hayir` / `oturum` ya da serbest metin)."""
     if not value.strip():

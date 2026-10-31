@@ -73,10 +73,11 @@ def tasks_command(state: ReplState, argument: str) -> str:
         if action in {"", "list", "liste"}:
             return task_lines(store.tasks(root=_root(state, rest)))
         if action in {"clean", "temizle"}:
-            removed = [task for task in store.tasks() if not task.is_active]
-            for task in removed:
-                store.remove(task.id)
-            return texts.BG_CLEANED.format(count=len(removed))
+            removed, failed = agent_tasks.clean_finished(store, _root(state, rest))
+            text = texts.BG_CLEANED.format(count=removed)
+            if failed:
+                text += "\n" + texts.BG_CLEAN_FAILED.format(names=", ".join(failed))
+            return text
         query, _, value = rest.strip().partition(" ")
         task = store.resolve(query)
         return _task_action(state, action, task, value.strip())

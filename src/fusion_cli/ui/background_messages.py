@@ -91,15 +91,16 @@ BG_TASKS_EMPTY = (
 BG_TASKS_HEADER = "Arka plan görevleri:"
 BG_TASK_LINE = "  {id}  {name:<18} {status:<15} {age:>7} önce  {detail}"
 BG_TASKS_HINT = (
-    "  /tasks show|stop|send|answer <id> … · /tasks list all · /tasks clean (bitenleri sil)"
+    "  /tasks show|stop|send|answer <id> … · /tasks list all · /tasks clean [all] (bitenleri sil)"
 )
 BG_TASKS_USAGE = (
     "Kullanım: /tasks [list [all]] | show <id> | stop <id> [zorla] | send <id> <mesaj> | "
-    "answer <id> evet|hayir|oturum|<metin> | rm <id> | clean"
+    "answer <id> evet|hayir|oturum|<metin> | rm <id> | clean [all]"
 )
 BG_ANSWERED = "'{name}' görevine cevap iletildi."
 BG_REMOVED = "'{name}' görev kaydı silindi."
 BG_CLEANED = "{count} bitmiş görev kaydı silindi."
+BG_CLEAN_FAILED = "Silinemeyen görevler (yeniden başlamış olabilir): {names}"
 BG_DETAIL_HEADER = "{id} · {name} · {status}"
 BG_DETAIL_META = "kaynak {origin} · kip {mode} · {turns} tur · {root}"
 BG_DETAIL_NOTE = "Not: {note}"

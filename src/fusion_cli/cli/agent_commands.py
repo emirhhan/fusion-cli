@@ -154,13 +154,14 @@ def remove(kimlik: str = typer.Argument(...)) -> None:
 
 
 @app.command("temizle")
-def clean() -> None:
-    """Bütün bitmiş görev kayıtlarını sil."""
-    store = _store()
-    finished = [task for task in store.tasks() if not task.is_active]
-    for task in finished:
-        store.remove(task.id)
-    console.print(texts.BG_CLEANED.format(count=len(finished)))
+def clean(
+    every_project: bool = typer.Option(False, "--tum", "-a", help="Bütün projelerin görevleri."),
+) -> None:
+    """Bu projenin bitmiş görev kayıtlarını sil (--tum: bütün projeler)."""
+    removed, failed = agent_tasks.clean_finished(_store(), None if every_project else Path.cwd())
+    console.print(texts.BG_CLEANED.format(count=removed))
+    if failed:
+        error_console.print(texts.BG_CLEAN_FAILED.format(names=", ".join(failed)), markup=False)
 
 
 @dataclass(frozen=True, slots=True)
