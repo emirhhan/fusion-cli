@@ -10,7 +10,7 @@ import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
 import { useKapatmaNabzi } from "./dialogs/closeHeartbeat";
 import { osBildirimiGonder } from "./notifications/osNotice";
-import { ShareDialog } from "./dialogs/ShareDialog";
+import { ShareDialog, type ExportFetcher } from "./dialogs/ShareDialog";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
 import { NewTaskDialog } from "./dialogs/NewTaskDialog";
 import {
@@ -568,6 +568,20 @@ export function SessionUygulama({
   useRemoteProjectSync(active?.client ?? null, projects.registry);
   const activeSessionId = active?.id;
   const activeClient = active?.client;
+  const activeTitle = active?.title ?? "";
+  // Sabit kimlik: satır içi ok fonksiyonu her render'da ShareDialog efektini yeniden kuruyor ve
+  // `sohbet.disa_aktar` RPC'sini her üst render'da yeniden çağırıyordu (31 Ekim).
+  const exportTranscript = useCallback<ExportFetcher>(
+    (bicim) => {
+      if (!activeClient) return Promise.reject(new Error("Oturum yok."));
+      return activeClient.request("sohbet.disa_aktar", { bicim, baslik: activeTitle }).then((sonuc) => {
+        const result = sonuc as { ok?: boolean; metin?: string; dosya_adi?: string };
+        if (!result.ok || typeof result.metin !== "string") throw new Error("Dışa aktarım alınamadı.");
+        return { metin: result.metin, dosya_adi: result.dosya_adi };
+      });
+    },
+    [activeClient, activeTitle],
+  );
   useEffect(() => () => {
     manualVoiceGeneration.current += 1;
     void manualVoiceTurn.current?.cancel().catch(() => undefined);
@@ -1710,11 +1724,7 @@ export function SessionUygulama({
             <ShareDialog
               messages={active.messages}
               onClose={() => setShareOpen(false)}
-              onExport={activeClient ? (bicim) => activeClient.request("sohbet.disa_aktar", { bicim, baslik: active.title }).then((sonuc) => {
-                const result = sonuc as { ok?: boolean; metin?: string; dosya_adi?: string };
-                if (!result.ok || typeof result.metin !== "string") throw new Error("Dışa aktarım alınamadı.");
-                return { metin: result.metin, dosya_adi: result.dosya_adi };
-              }) : undefined}
+              onExport={activeClient ? exportTranscript : undefined}
               title={active.title}
             />
           )}

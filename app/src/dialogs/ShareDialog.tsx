@@ -50,6 +50,7 @@ export function ShareDialog({ title, messages, onClose, onExport }: {
   const [error, setError] = useState<string | null>(null);
   const [format, setFormat] = useState<ExportFormat>("markdown");
   const [exported, setExported] = useState<{ metin: string; dosya_adi?: string } | null>(null);
+  const [loading, setLoading] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
   // Satır içi onClose her render'da efekti yeniden kurup odağı kapat düğmesine çekiyordu (U4-51).
   const onCloseRef = useRef(onClose);
@@ -60,15 +61,20 @@ export function ShareDialog({ title, messages, onClose, onExport }: {
   // Sohbet ya da biçim değiştiyse "Kopyalandı" bayatlar (U4-21).
   useEffect(() => { setCopied(false); }, [transcript]);
 
-  // Çekirdek dışa aktarımı: biçim ya da sohbet değişince yeniden alınır; hata olursa yerel metne düşülür.
+  // Çekirdek dışa aktarımı: biçim ya da TAMAMLANMIŞ mesaj sayısı değişince yeniden alınır; hata
+  // olursa yerel metne düşülür. Ölçüldü (31 Ekim): `messages` referansına bağlıyken akış sürerken
+  // her tokende tam geçmiş sunucuda yeniden maskeleniyordu.
+  const settledCount = messages.filter((message) => !message.akan).length;
   useEffect(() => {
     if (!onExport) return;
     let alive = true;
+    setLoading(true);
     onExport(format)
       .then((result) => { if (alive) { setExported(result); setError(null); } })
-      .catch(() => { if (alive) { setExported(null); setError("Tam dışa aktarım alınamadı; yalnız mesaj metinleri gösteriliyor."); } });
+      .catch(() => { if (alive) { setExported(null); setError("Tam dışa aktarım alınamadı; yalnız mesaj metinleri gösteriliyor."); } })
+      .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [onExport, format, messages]);
+  }, [onExport, format, settledCount]);
 
   useEffect(() => {
     const previous = document.activeElement;
@@ -91,10 +97,12 @@ export function ShareDialog({ title, messages, onClose, onExport }: {
     }
   };
 
+  // Yalnız çekirdekten gelen metin kaydedilir: yedek Markdown `application/json` adıyla inmesin.
   const save = () => {
-    const name = exported?.dosya_adi ?? `fusion-sohbet.${format === "json" ? "json" : "md"}`;
+    if (!exported || loading) return;
+    const name = exported.dosya_adi ?? `fusion-sohbet.${format === "json" ? "json" : "md"}`;
     try {
-      downloadText(transcript, name, format === "json" ? "application/json" : "text/markdown");
+      downloadText(exported.metin, name, format === "json" ? "application/json" : "text/markdown");
     } catch {
       setError("Dosya kaydedilemedi. Metni kopyalayıp elle kaydedebilirsin.");
     }
@@ -121,7 +129,11 @@ export function ShareDialog({ title, messages, onClose, onExport }: {
         <textarea aria-label="Paylaşılacak sohbet metni" readOnly value={transcript} />
         {error && <p role="alert">{error}</p>}
         <footer>
-          {onExport && <button className="share-dialog__secondary" onClick={save} type="button">Dosyaya kaydet</button>}
+          {onExport && (
+            <button className="share-dialog__secondary" disabled={loading || !exported} onClick={save} type="button">
+              Dosyaya kaydet
+            </button>
+          )}
           <button onClick={() => void copy()} type="button">{copied ? "Kopyalandı" : "Metni kopyala"}</button>
         </footer>
       </section>

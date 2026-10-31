@@ -78,3 +78,39 @@ describe("ShareDialog çekirdek dışa aktarımı (P-028)", () => {
     expect(alan.value).toBe("# Sohbet\n\n## Fusion\n\nYanıt");
   });
 });
+
+describe("ShareDialog düzeltmeleri (31 Ekim)", () => {
+  // Ölçüldü (31 Ekim): efekt `messages` referansına bağlıydı; akış sürerken her tokende tam geçmiş
+  // yeniden dışa aktarılıyordu. Hata/yükleme sırasında bayat metin yanlış biçim adıyla iniyordu.
+  it("akan mesaj değişince yeniden dışa aktarmaz, yeni tamamlanmış mesajda aktarır", async () => {
+    const onExport = vi.fn(async () => ({ metin: "# Çekirdek", dosya_adi: "a.md" }));
+    const view = render(<ShareDialog messages={[{ rol: "asistan", metin: "Ya", akan: true }]} onClose={vi.fn()} onExport={onExport} title="S" />);
+    await vi.waitFor(() => expect(onExport).toHaveBeenCalledTimes(1));
+    view.rerender(<ShareDialog messages={[{ rol: "asistan", metin: "Yanıt", akan: true }]} onClose={vi.fn()} onExport={onExport} title="S" />);
+    view.rerender(<ShareDialog messages={[{ rol: "asistan", metin: "Yanıt daha", akan: true }]} onClose={vi.fn()} onExport={onExport} title="S" />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onExport).toHaveBeenCalledTimes(1);
+    view.rerender(<ShareDialog messages={[{ rol: "asistan", metin: "Yanıt" }]} onClose={vi.fn()} onExport={onExport} title="S" />);
+    await vi.waitFor(() => expect(onExport).toHaveBeenCalledTimes(2));
+  });
+
+  it("çekirdek düşerse ve yükleme sürerken 'Dosyaya kaydet' kapalıdır", async () => {
+    let resolveJson: ((v: { metin: string; dosya_adi: string }) => void) | undefined;
+    const onExport = vi.fn((format: "markdown" | "json") =>
+      format === "json"
+        ? new Promise<{ metin: string; dosya_adi: string }>((r) => { resolveJson = r; })
+        : Promise.resolve({ metin: "# MD", dosya_adi: "a.md" }));
+    render(<ShareDialog messages={[{ rol: "asistan", metin: "Yanıt" }]} onClose={vi.fn()} onExport={onExport} title="S" />);
+    const kaydet = await screen.findByRole("button", { name: "Dosyaya kaydet" }) as HTMLButtonElement;
+    await vi.waitFor(() => expect(kaydet.disabled).toBe(false));
+    fireEvent.click(screen.getByLabelText("JSON"));
+    expect(kaydet.disabled).toBe(true);
+    resolveJson?.({ metin: "{}", dosya_adi: "a.json" });
+    await vi.waitFor(() => expect(kaydet.disabled).toBe(false));
+    cleanup();
+    const bozuk = vi.fn(async () => { throw new Error("yok"); });
+    render(<ShareDialog messages={[{ rol: "asistan", metin: "Yanıt" }]} onClose={vi.fn()} onExport={bozuk} title="S" />);
+    await screen.findByRole("alert");
+    expect((screen.getByRole("button", { name: "Dosyaya kaydet" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
