@@ -515,6 +515,8 @@ export function SessionUygulama({
   //: En son gönderilen `@` sorgusunun sırası. Geç gelen cevap yenisini EZMEZ:
   //: kullanıcı yazmaya devam ettiğinde eski sorgunun sonucu listeyi geri almamalı.
   const fileQuerySeq = useRef(0);
+  /** Etkin sohbetin slash yönlendiricisi; zamanlanmış kullanıcı görevi komut olarak çalışsın (P-038). */
+  const cronCommandRef = useRef<((task: string) => boolean) | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   //: Açık rapor penceresi; `null` kapalı. Hata akışından gelirse ayrıntıyı taşır.
@@ -756,9 +758,11 @@ export function SessionUygulama({
     }),
   });
   // Oturum zamanlayıcısı (/loop, cron_*): vadesi gelen görev sohbet boştayken normal tur olur (P-038).
+  // Kullanıcının `/loop 30m /verify` görevi komut olur; ajanın kurduğu satır her zaman düz turdur.
   useSessionCron({
     session: active ? { id: active.id, status: active.status, running: active.running, question: active.question, client: active.client } : null,
-    send: controller.send,
+    send: (id, task, source) =>
+      (source === "kullanici" && active?.id === id && cronCommandRef.current?.(task)) || controller.send(id, task),
   });
   const selectMainSection = (section: MainSection) => {
     if (section === "scheduled" || section === "library" || section === "kits") {
@@ -1347,6 +1351,11 @@ export function SessionUygulama({
     commands: commands.map((command) => command.ad),
   });
   const skillFrom = (task: string) => parseCapabilityInput(task, capabilityNames()).skill;
+  cronCommandRef.current = (task: string) => {
+    if (!task.startsWith("/") || startsWithFilePath(task) || isImageCommand(task) || skillFrom(task)) return false;
+    void executeCommand(task);
+    return true;
+  };
   const send = (task: string) => {
     const resumeSource = task.match(/^\/resume(claude|codex|hermes)$/i)?.[1]?.toLocaleLowerCase("tr") as "claude" | "codex" | "hermes" | undefined;
     if (resumeSource && history.sources.some((source) => source.ad === resumeSource)) {

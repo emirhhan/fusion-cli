@@ -20,7 +20,7 @@ it("boştaki sohbette vadesi gelen görevi tur olarak gönderir", async () => {
   await vi.advanceTimersByTimeAsync(1000);
 
   expect(client.request).toHaveBeenCalledWith("cron.vadesi_gelenler", {});
-  expect(send).toHaveBeenCalledWith("s1", "testleri koştur");
+  expect(send).toHaveBeenCalledWith("s1", "testleri koştur", "kullanici");
   expect(onFired).toHaveBeenCalledWith({ id: "ab12", gorev: "testleri koştur" });
 });
 
@@ -51,4 +51,40 @@ it("hazır olmayan sohbette aralık kurulmaz, bozuk yanıt gönderim yapmaz", as
   await vi.advanceTimersByTimeAsync(1000);
   expect(client.request).toHaveBeenCalledTimes(1);
   expect(send).not.toHaveBeenCalled();
+});
+
+// İnceleme bulgusu (31 Ekim): gönderilemeyen görev çekirdekte ilerlemiş kalıyor, vade boşa gidiyordu.
+it("gönderim reddedilirse görevi çekirdeğe geri verir", async () => {
+  const request = vi.fn(async (name: string) => (name === "cron.vadesi_gelenler" ? { ok: true, gorevler: [{ id: "ab12", gorev: "a", kaynak: "kullanici" }] } : { ok: true }));
+  const send = vi.fn(() => false);
+  renderHook(() => useSessionCron({ session: { id: "s1", status: "ready", running: false, client: { request } }, send, pollMs: 1000 }));
+
+  await vi.advanceTimersByTimeAsync(1000);
+
+  expect(request).toHaveBeenCalledWith("cron.geri_ver", { id: "ab12" });
+});
+
+it("söz dönen gönderimde reddi bekler, kabulde geri vermez", async () => {
+  const request = vi.fn(async (name: string) => (name === "cron.vadesi_gelenler" ? { ok: true, gorevler: [{ id: "x1", gorev: "a" }] } : { ok: true }));
+  const send = vi.fn(async () => ({ requestId: "r", sessionId: "s1", turnId: null, state: "accepted", error: null }));
+  renderHook(() => useSessionCron({ session: { id: "s1", status: "ready", running: false, client: { request } }, send, pollMs: 1000 }));
+
+  await vi.advanceTimersByTimeAsync(1000);
+
+  expect(send).toHaveBeenCalled();
+  expect(request).not.toHaveBeenCalledWith("cron.geri_ver", expect.anything());
+});
+
+it("görevin kaynağını gönderime iletir; eski yanıtta kullanıcı sayılır", async () => {
+  const request = vi.fn(async () => ({ ok: true, gorevler: [{ id: "a1", gorev: "/verify" }] }));
+  const send = vi.fn(() => true);
+  renderHook(() => useSessionCron({ session: { id: "s1", status: "ready", running: false, client: { request } }, send, pollMs: 1000 }));
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(send).toHaveBeenCalledWith("s1", "/verify", "kullanici");
+
+  const ajan = vi.fn(async () => ({ ok: true, gorevler: [{ id: "a2", gorev: "/bypass", kaynak: "ajan" }] }));
+  const send2 = vi.fn(() => true);
+  renderHook(() => useSessionCron({ session: { id: "s2", status: "ready", running: false, client: { request: ajan } }, send: send2, pollMs: 1000 }));
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(send2).toHaveBeenCalledWith("s2", "/bypass", "ajan");
 });

@@ -393,7 +393,12 @@ gönderilir; sohbette kullanıcı mesajı gibi görünür ve aynı onay kipinden
   süresi dolmamış görevler geri gelir. Terminal REPL'inde her açılış yeni sohbet kimliği
   üretir (P-014 `--resume` gelince aynı dosya devralınır).
 - Masaüstü: sohbet `cron.vadesi_gelenler` RPC'sini 15 sn'de bir yoklar (`cron.listele`,
-  `cron.sil` de var). Kalıcı **Zamanlananlar** ekranına "Cron ifadesi" türü eklendi
+  `cron.sil` de var). Kullanıcının kurduğu `/loop 30m /verify` masaüstünde de komut olarak
+  çalışır; ajanın kurduğu satır (`cron_create`, `schedule_wakeup`) iki yüzeyde de yalnız düz
+  tur olur, slash komutu olarak çalışmaz. Gönderilemeyen görev `cron.geri_ver` ile geri
+  verilir, vade boşa gitmez. İstemde yarım yazılmış satır varken vade beklenir, yazılan silinmez.
+  Sohbet kimliği gelmeden kurulan görevler kimlik gelince o sohbete taşınır; 7 günden eski
+  kayıt dosyaları yüklemede süpürülür. Kalıcı **Zamanlananlar** ekranına "Cron ifadesi" türü eklendi
   (en sık 15 dakikada bir; denetim ifadenin iki eşleşmesi arasındaki en kısa farka bakar,
   `* 9 * * *` kayıtta reddedilir). Oturum zamanlayıcısı (`/loop`, `cron_create`) 1 dakikaya
   kadar iner. Cron saatleri yerel duvar saatidir; yaz saati geçişinde 09:00 görevi 09:00'da kalır.

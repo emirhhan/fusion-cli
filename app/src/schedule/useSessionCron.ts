@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { submissionAccepted, type SubmissionResult } from "../sessions/submission";
 
 /** Vade yoklaması; görevler en az 1 dakikalık olduğundan 15 sn yeter. */
 export const SESSION_CRON_POLL_MS = 15_000;
@@ -12,10 +13,16 @@ interface CronSession {
   client?: { request(name: string, data: Record<string, unknown>): Promise<Record<string, unknown>> } | null;
 }
 
+/** Görevi kim kurdu: kullanıcı (`/loop`) ya da ajan (`cron_create`, `schedule_wakeup`). */
+export type CronSource = "kullanici" | "ajan";
+
 export interface FiredCronTask {
   id: string;
   gorev: string;
 }
+
+/** Gönderim sonucu: `false` ya da reddedilen makbuz görevin geri verilmesini ister. */
+export type CronSendResult = SubmissionResult | Promise<SubmissionResult>;
 
 /**
  * Oturum zamanlayıcısı (`/loop`, `cron_create`, `schedule_wakeup`) için vade yoklaması (P-038).
@@ -23,6 +30,9 @@ export interface FiredCronTask {
  * Çekirdek vadesi gelen görevi yalnız tur sürmüyorken verir ve aynı görevi iki kez vermez
  * (`cron.vadesi_gelenler`); arayüz onu normal gönderim yolundan tur olarak başlatır. Böylece
  * zamanlanmış tur da sohbette kullanıcı mesajı gibi görünür ve aynı onay akışından geçer.
+ * Kaynak `send`'e iletilir: kullanıcının `/loop 30m /verify` görevi komut olarak, ajanın
+ * kurduğu satır her zaman düz tur olarak gider. Gönderim reddedilirse görev `cron.geri_ver`
+ * ile çekirdeğe geri verilir; ölçüldü (31 Ekim): dönüş değeri denetlenmiyor, vade boşa gidiyordu.
  */
 export function useSessionCron({
   session,
@@ -31,7 +41,7 @@ export function useSessionCron({
   pollMs = SESSION_CRON_POLL_MS,
 }: {
   session: CronSession | null;
-  send: (id: string, task: string) => boolean;
+  send: (id: string, task: string, source: CronSource) => CronSendResult;
   onFired?: (task: FiredCronTask) => void;
   pollMs?: number;
 }): void {
@@ -52,10 +62,19 @@ export function useSessionCron({
         const result = await client.request("cron.vadesi_gelenler", {});
         const gorevler = Array.isArray(result.gorevler) ? (result.gorevler as unknown[]) : [];
         for (const item of gorevler) {
-          const task = item as { id?: unknown; gorev?: unknown };
+          const task = item as { id?: unknown; gorev?: unknown; kaynak?: unknown };
           if (typeof task.gorev !== "string" || !task.gorev.trim()) continue;
-          onFired?.({ id: typeof task.id === "string" ? task.id : "", gorev: task.gorev });
-          send(id, task.gorev);
+          const taskId = typeof task.id === "string" ? task.id : "";
+          onFired?.({ id: taskId, gorev: task.gorev });
+          // Eski çekirdek kaynak göndermez: o görevler yalnız `/loop` ile kurulabiliyordu.
+          const source: CronSource = task.kaynak === "ajan" ? "ajan" : "kullanici";
+          let accepted = false;
+          try {
+            accepted = submissionAccepted(await send(id, task.gorev, source));
+          } catch {
+            accepted = false;
+          }
+          if (!accepted && taskId) await client.request("cron.geri_ver", { id: taskId });
           break;
         }
       } catch {
