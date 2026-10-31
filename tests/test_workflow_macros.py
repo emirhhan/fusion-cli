@@ -179,3 +179,37 @@ async def test_masaustu_doctor_metin_olarak_doner(state: ReplState, monkeypatch)
     text = await render_command_text(build_registry(), state, "doctor")
 
     assert "Bellek" in text and "yazılabilir" in text
+
+
+@pytest.mark.asyncio
+async def test_masaustu_komut_calistir_doctor_rpc_raporu_dondurur(tmp_path, monkeypatch) -> None:
+    """Uçtan uca masaüstü yolu: `komut.calistir {ad: doctor}` RENDERED yolundan metin döner.
+
+    İnceleme (31 Ekim): yalnız `render_command_text` sınanmıştı; AppSession'ın RPC
+    yönlendirmesi açıkça sınanmamıştı.
+    """
+    import json
+
+    from fusion_cli.appserver.protocol import Request
+    from fusion_cli.appserver.session import AppSession
+    from fusion_cli.cli import doctor as doctor_module
+    from fusion_cli.config.readiness import Readiness, ReadinessReport
+
+    monkeypatch.setenv("FUSION_KEYCHAIN", "off")
+    report = doctor_module.DoctorReport(
+        checks=(doctor_module.Check(name="Sağlayıcı", value="eksik", ok=False, remedy="/login"),),
+        readiness=ReadinessReport(Readiness.PARTIALLY_READY, True, False, False, ()),
+    )
+    monkeypatch.setattr(doctor_module, "diagnose", lambda *, live=False: report)
+    satirlar: list[str] = []
+    oturum = AppSession(satirlar.append, root=tmp_path, home=tmp_path / "ev")
+
+    await oturum.handle(Request(id="d1", name="komut.calistir", data={"ad": "doctor"}))
+
+    sonuc = next(
+        json.loads(satir)["veri"]
+        for satir in reversed(satirlar)
+        if json.loads(satir).get("tip") == "sonuc" and json.loads(satir).get("id") == "d1"
+    )
+    assert sonuc["ok"] is True
+    assert "Sağlayıcı" in sonuc["metin"] and "/login" in sonuc["metin"]
