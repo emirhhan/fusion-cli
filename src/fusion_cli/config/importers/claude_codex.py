@@ -38,7 +38,9 @@ _CODEX_DECISIONS = {
 #: Tek kuralın alternatif açılımında en fazla kalıp (`["git", ["push", "fetch"]]`).
 MAX_EXPANSIONS = 16
 _RULE_START = re.compile(r"\bprefix_rule\s*\(")
-_ASSIGN = re.compile(r"\b(pattern|decision)\s*=\s*")
+_ASSIGN = re.compile(r"\b(pattern|decision)\s*=(?!=)\s*")
+#: Çağrıda yazılmış ama sabit olarak çözülemeyen alan (`decision = BLOCK`).
+_UNRESOLVED = object()
 
 
 def read_claude(home: Path, root: Path, out: Collector) -> None:
@@ -117,7 +119,9 @@ def codex_rule_items(text: str, path: Path) -> tuple[ImportItem, ...]:
     items: list[ImportItem] = []
     for call in _calls(text):
         fields = _fields(call)
-        decision = _CODEX_DECISIONS.get(str(fields.get("decision", "allow")))
+        # Yazılmış ama çözülemeyen karar varsayılan "allow"a DÜŞMEZ: yasak kuralı izin olurdu.
+        raw_decision = fields.get("decision", "allow")
+        decision = None if raw_decision is _UNRESOLVED else _CODEX_DECISIONS.get(str(raw_decision))
         patterns = _expand(fields.get("pattern"))
         raw_pattern = fields.get("pattern")
         tokens = raw_pattern if isinstance(raw_pattern, list) else []
@@ -166,12 +170,39 @@ def _calls(text: str) -> list[str]:
 
 
 def _fields(call: str) -> dict[str, object]:
+    """Üst düzey `pattern=`/`decision=` atamaları; dize içindeki `decision=` metni sayılmaz.
+
+    Ölçüldü (31 Ekim): `decision = BLOCK` (değişken) alanı sessizce düşüyor, varsayılan "allow"
+    uygulanıyordu; `justification` dizesinde geçen `decision="allow"` da atama sanılıyordu.
+    """
     fields: dict[str, object] = {}
+    top_level = _top_level_offsets(call)
     for match in _ASSIGN.finditer(call):
+        if match.start() not in top_level:
+            continue
         value = _literal_prefix(call[match.end() :])
-        if value is not None:
-            fields[match.group(1)] = value
+        fields[match.group(1)] = _UNRESOLVED if value is None else value
     return fields
+
+
+def _top_level_offsets(call: str) -> frozenset[int]:
+    """Dize ve köşeli/normal parantez DIŞINDA kalan karakter konumları."""
+    offsets: set[int] = set()
+    depth, quote = 0, ""
+    for index, char in enumerate(call):
+        if quote:
+            if char == quote and call[index - 1] != "\\":
+                quote = ""
+            continue
+        if char in "\"'":
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif depth == 0:
+            offsets.add(index)
+    return frozenset(offsets)
 
 
 def _literal_prefix(text: str) -> object | None:

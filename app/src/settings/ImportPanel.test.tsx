@@ -28,6 +28,18 @@ it("kaynağı önizler ve yalnız eklenecekleri uygular", async () => {
   expect(await screen.findByRole("button", { name: "Yeni bir şey yok" })).toBeTruthy();
 });
 
+it("sunucu ok:false ve metin döndürünce başarı bildirimi yerine hata gösterir", async () => {
+  const request = vi.fn(async (name: string) => {
+    if (name === "ice_aktar.onizle") return { ok: true, kaynak: "claude", eklenecek: 1, uyarilar: [], ogeler: [{ tur: "mcp", ad: "x", durum: "eklenecek", ayrinti: "", dosya: "" }] };
+    return { ok: false, metin: "Bilinmeyen kaynak: claude" };
+  });
+  render(<ImportPanel client={{ request } as unknown as ProtocolClient} />);
+  fireEvent.click(screen.getByRole("button", { name: "Claude Code" }));
+  fireEvent.click(await screen.findByRole("button", { name: "İçe aktar (1)" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("Bilinmeyen kaynak");
+  expect(screen.queryByText(/İçe aktarıldı/)).toBeNull();
+});
+
 it("sürüm notlarını gösterir ve bölüm seçer", async () => {
   const request = vi.fn(async (_name: string, data: Record<string, unknown>) => ({
     ok: true, kurulu: "0.7.18", metin: data.surum ? `## ${String(data.surum)}\n- eski` : "## Yayımlanmamış\n- yeni",

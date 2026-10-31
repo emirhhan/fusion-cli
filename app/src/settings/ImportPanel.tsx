@@ -53,6 +53,8 @@ export function ImportPanel({ client }: { client: ProtocolClient }) {
     setBusy(true); setError(null);
     try {
       const payload = await client.request("ice_aktar.uygula", { kaynak: source });
+      // Plan kurulamadıysa (`{ok:false, metin}`) "0 öğe aktarıldı" denmez; neden gösterilir.
+      if (payload.ok !== true && !Array.isArray(payload.hatalar)) throw new Error(String(payload.metin ?? "İçe aktarılamadı."));
       const failures = Array.isArray(payload.hatalar) ? payload.hatalar as { ad?: unknown; neden?: unknown }[] : [];
       const failed = failures.map((item) => `${String(item.ad ?? "")}: ${String(item.neden ?? "")}`);
       setNotice(`İçe aktarıldı: ${String(payload.uygulanan ?? 0)} öğe. MCP sunucuları Fusion yeniden başlayınca bağlanır.`);

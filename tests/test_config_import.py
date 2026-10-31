@@ -458,3 +458,16 @@ def test_ayni_ortam_adli_sirlar_birbirini_ve_fusion_anahtarini_ezmez(ortam):
         "sk-second"
     )
     assert "OPENAI_API_KEY" not in servers["a"].secret_env_names
+
+
+def test_codex_cozulemeyen_karar_izin_olarak_aktarilmaz_dize_icindeki_atama_yok_sayilir():
+    (degiskenli,) = codex_rule_items('prefix_rule(pattern = ["rm"], decision = BLOCK)', Path("r"))
+    assert degiskenli.status is ImportStatus.SKIPPED
+    (dizeli,) = codex_rule_items(
+        'prefix_rule(justification = "decision=\\"allow\\" yazma", pattern = ["git", "push"],'
+        ' decision = "forbidden")',
+        Path("r"),
+    )
+    assert dizeli.status is ImportStatus.NEW and dizeli.detail == "deny"
+    (kararsiz,) = codex_rule_items('prefix_rule(pattern = ["npm", "test"])', Path("r"))
+    assert kararsiz.detail == "allow"
