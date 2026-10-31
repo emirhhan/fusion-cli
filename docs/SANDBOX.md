@@ -161,7 +161,8 @@ fusion sandbox calistir -- curl -sS https://example.com  # ağ kuralı
   Neden `--remote-debugging-pipe` değil: bu Chrome başlatan süreçten bağımsız yaşar ve masaüstünün
   her sekme süreci ona bağlanır; boru tek sürece bağlıdır, ayrı bir aracı süreç gerektirirdi.
   Ajanın `browser_*` tarayıcısı ve doğrulama tarayıcıları Playwright ile zaten boru kullanır.
-  Durum: `/sandbox` "Tarayıcı CDP" satırı, masaüstü kartı.
+  Kullanıcının kendi `--remote-debugging-port` ile açtığı Chrome kapsanmaz. Durum: `/sandbox`
+  "Tarayıcı CDP" satırı, masaüstü kartı.
 - Linux (bubblewrap): komut kendi PID/IPC ad alanında ve yeni oturumda çalışır (host `/proc`
   görünmez, socat köprüsü komutla ölür). bwrap var olmayan dosyayı koruyamaz: proje henüz git
   deposu değilse `.git` ya da yoksa `.mcp.json` sandbox içinden oluşturulabilir (Fusion'ın güven

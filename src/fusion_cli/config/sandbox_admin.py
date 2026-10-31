@@ -68,7 +68,6 @@ GUARD_LINUX_OPEN = (
     "korunmaz: Linux'ta ağ open iken komut ana makinenin localhost'una ulaşır; "
     "oturumlu web profilleriyle /sandbox ag allowlist kullanın"
 )
-GUARD_NONE = "sandbox yok"
 NOTE_AUTO_OPEN = (
     "Not: sorusuz çalıştırma yalnız ağ allowlist'teyken etkilidir; ağ şu an açık "
     "(/sandbox ag allowlist)."
@@ -150,7 +149,7 @@ def debug_port_guard(system: str, network: str) -> str:
         return GUARD_DARWIN
     if system.startswith("linux"):
         return GUARD_LINUX_ALLOWLIST if network == NETWORK_ALLOWLIST else GUARD_LINUX_OPEN
-    return GUARD_NONE
+    return ""  # sandbox'ın kurulamadığı platform: durum satırı gösterilmez
 
 
 def sandbox_status(config: Config, root: Path, *, platform: str | None = None) -> SandboxStatus:

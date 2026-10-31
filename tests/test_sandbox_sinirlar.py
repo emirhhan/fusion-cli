@@ -308,6 +308,10 @@ def test_linux_open_kipinde_cdp_korumasi_olmadigini_durum_soyler(tmp_path):
     assert "korunmaz" in debug_port_guard("linux", "open")
     assert "ad alanı" in debug_port_guard("linux", "allowlist")
     assert "her kipte" in debug_port_guard("darwin", "open")
+    assert debug_port_guard("win32", "open") == ""
+    durum = sandbox_status(make_config(), tmp_path, platform="linux")
+    assert "Tarayıcı CDP : Fusion Chrome'unun hata ayıklama portu korunmaz" in format_status(durum)
+    assert durum.as_dict()["cdp_korumasi"] == durum.debug_ports
 
 
 # --- inceleme-5: başka süreçlerin ortamı ------------------------------------- #
