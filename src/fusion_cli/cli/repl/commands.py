@@ -58,6 +58,7 @@ from . import (
     verify_flow,
     view_commands,
     voice_command,
+    web_session_command,
     workflow_commands,
     workspace_commands,
     worktrees,
@@ -1031,6 +1032,14 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         group="Agent",
         usage="[ac|devral|birak|kapat]",
     ),
+    SlashCommand(
+        "oturum-aktar",
+        messages.WEBOTURUM_CMD,
+        web_session_command.handler,
+        aliases=("import-web-session",),
+        group="Agent",
+        usage="<sağlayıcı> <profil> <alan>… [--yes]",
+    ),
     SlashCommand("synth", messages.CMD_SYNTHESIS, _toggle_synthesis, group="Fusion"),
     SlashCommand("good", messages.CMD_GOOD, _feedback(Feedback.GOOD), group="Bellek"),
     SlashCommand("bad", messages.CMD_BAD, _feedback(Feedback.BAD), group="Bellek"),
@@ -1321,8 +1330,9 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
 )
 
-#: Asenkron çalışan ve konsola kendi yazan komutlar: `/rc` (uzaktan kontrol), `/voice` (dikte).
-ASYNC_COMMANDS = frozenset({"rc", "voice"})
+#: Asenkron çalışan ve konsola kendi yazan komutlar: `/rc` (uzaktan kontrol), `/voice` (dikte),
+#: `/oturum-aktar` (web model oturumundan profil kopyası).
+ASYNC_COMMANDS = frozenset({"rc", "voice", "oturum-aktar"})
 
 #: Kendi çıktısını basan komutlar (tablo, panel, ekran temizleme). REPL döngüsü
 #: bunları özel olarak ele alır; işleyicileri boş metin döndürür.

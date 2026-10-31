@@ -1892,6 +1892,10 @@ class AppSession:
             return await asyncio.to_thread(rpc.import_profile, store, data)
         if request.name == "tarayici.sil":
             return await asyncio.to_thread(rpc.delete_profile, store, data)
+        if request.name == "tarayici.web_oturumlari":
+            return await asyncio.to_thread(rpc.web_sessions, data)
+        if request.name == "tarayici.web_oturumu_aktar":
+            return await rpc.import_from_web_session(store, data)
         if request.name == "tarayici.giris":
             return rpc.start_login(data)
         if request.name == "tarayici.giris_durumu":

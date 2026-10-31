@@ -4,7 +4,8 @@ import type { ProtocolClient } from "../../protocol/client";
 import { Button } from "../../ui/Button";
 
 /**
- * Web oturumu içe aktarma formu (P-024): dosyadan (cookies.txt / JSON) ya da Chrome'dan.
+ * Web oturumu içe aktarma formu (P-024): dosyadan (cookies.txt / JSON), Chrome'dan ya da
+ * bir web MODEL oturumundan (ChatGPT/Claude/Gemini/Copilot aboneliği; P-023).
  *
  * Akış iki adımdır ve ikincisi alan adı ONAYIDIR: önce yalnız alan adları okunur
  * (Chrome'da Keychain'e dokunmadan), kullanıcı hangi sitelerin aktarılacağını
@@ -13,13 +14,21 @@ import { Button } from "../../ui/Button";
  * Hiçbir alan adı önceden işaretli gelmez. Ölçüldü (31 Ekim): hepsi işaretli gelince
  * "Alan adlarını göster → İçe aktar" iki tıkla bankalar ve e-posta dahil bütün Chrome
  * oturumunu ajana taşıyordu; onay listesi fiilen "hepsi" oluyordu.
+ *
+ * Model oturumundan aktarma TEK YÖNLÜ bir kopyadır: abonelik oturumu değişmez ve hiçbir
+ * zaman kendiliğinden paylaşılmaz; yalnız işaretlenen sitelerin çerezi profile girer.
  */
 
-type Source = "dosya" | "chrome";
+type Source = "dosya" | "chrome" | "model";
 
 interface ChromeProfileRow { dizin: string; ad: string }
+interface WebSessionRow { saglayici: string; hesap: string }
 
 interface ImportResult { ok: boolean; metin?: string }
+
+const MODEL_NOTE =
+  "Abonelik oturumunun işaretlediğin sitelerdeki çerezleri ajanın tarayıcısına kopyalanır. Tek yönlüdür; model oturumu değişmez. Profili yükleyen her ajan çağrısı ayrıca onay ister.";
+const sessionKey = (row: WebSessionRow) => `${row.saglayici}/${row.hesap}`;
 
 const CHROME_NOTE =
   "Chrome'dan aktarırken macOS bir Keychain izni sorar; 'İzin ver' demeden hiçbir çerez okunmaz.";
@@ -38,6 +47,8 @@ export function WebSessionImport({
   const [path, setPath] = useState("");
   const [chromeProfiles, setChromeProfiles] = useState<ChromeProfileRow[]>([]);
   const [chromeProfile, setChromeProfile] = useState("");
+  const [webSessions, setWebSessions] = useState<WebSessionRow[]>([]);
+  const [webSession, setWebSession] = useState("");
   const [domains, setDomains] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -57,7 +68,22 @@ export function WebSessionImport({
     return () => { mounted = false; };
   }, [client, source]);
 
+  useEffect(() => {
+    if (source !== "model") return;
+    let mounted = true;
+    void client.request("tarayici.web_oturumlari", {}).then((value) => {
+      if (!mounted) return;
+      const result = value as unknown as { ok: boolean; oturumlar?: WebSessionRow[]; metin?: string };
+      if (!result.ok) { setError(result.metin ?? "Web oturumları okunamadı."); return; }
+      const rows = result.oturumlar ?? [];
+      setWebSessions(rows);
+      setWebSession((current) => current || (rows[0] ? sessionKey(rows[0]) : ""));
+    }).catch(() => { if (mounted) setError("Web oturumları okunamadı."); });
+    return () => { mounted = false; };
+  }, [client, source]);
+
   const resetPreview = () => { setDomains([]); setSelected(new Set()); };
+  const chosenSession = () => webSessions.find((row) => sessionKey(row) === webSession);
 
   const pickFile = async () => {
     const { selectFiles } = await import("../../platform/dialog");
@@ -69,9 +95,12 @@ export function WebSessionImport({
     setBusy(true);
     setError("");
     try {
+      const row = chosenSession();
       const value = source === "dosya"
         ? await client.request("tarayici.dosya_onizle", { yol: path })
-        : await client.request("tarayici.chrome_profilleri", { chrome_profil: chromeProfile });
+        : source === "model"
+          ? await client.request("tarayici.web_oturumlari", { saglayici: row?.saglayici ?? "", hesap: row?.hesap ?? "main" })
+          : await client.request("tarayici.chrome_profilleri", { chrome_profil: chromeProfile });
       const result = value as unknown as { ok: boolean; alan_adlari?: string[]; metin?: string };
       if (!result.ok) throw new Error(result.metin || "Önizleme alınamadı.");
       setDomains(result.alan_adlari ?? []);
@@ -96,8 +125,16 @@ export function WebSessionImport({
     setError("");
     try {
       const data: Record<string, unknown> = { ad: name.trim(), alan_adlari: [...selected] };
-      if (source === "dosya") data.yol = path; else data.chrome_profil = chromeProfile;
-      const result = await client.request("tarayici.ice_aktar", data) as unknown as ImportResult;
+      let method = "tarayici.ice_aktar";
+      if (source === "dosya") data.yol = path;
+      else if (source === "chrome") data.chrome_profil = chromeProfile;
+      else {
+        const row = chosenSession();
+        method = "tarayici.web_oturumu_aktar";
+        data.saglayici = row?.saglayici ?? "";
+        data.hesap = row?.hesap ?? "main";
+      }
+      const result = await client.request(method, data) as unknown as ImportResult;
       if (!result.ok) throw new Error(result.metin || "İçe aktarma başarısız.");
       onImported(result.metin ?? "Profil yazıldı.");
       setName("");
@@ -110,7 +147,8 @@ export function WebSessionImport({
     }
   };
 
-  const canPreview = !disabled && !busy && (source === "dosya" ? path.trim() !== "" : chromeProfile !== "");
+  const sourceReady = source === "dosya" ? path.trim() !== "" : source === "chrome" ? chromeProfile !== "" : webSession !== "";
+  const canPreview = !disabled && !busy && sourceReady;
   const canSubmit = canPreview && name.trim() !== "" && selected.size > 0;
 
   return (
@@ -125,6 +163,10 @@ export function WebSessionImport({
           <strong>Chrome'dan</strong>
           <span>Bu bilgisayardaki Chrome profilinin oturumları</span>
         </button>
+        <button aria-pressed={source === "model"} className="settings__choice" data-active={source === "model"} onClick={() => { setSource("model"); resetPreview(); }} type="button">
+          <strong>Model oturumundan aktar</strong>
+          <span>ChatGPT/Claude/Gemini/Copilot web oturumunun seçtiğin siteleri (tek yönlü kopya)</span>
+        </button>
       </div>
       <div className="settings__form">
         <label htmlFor="websession-name">Profil adı</label>
@@ -134,6 +176,15 @@ export function WebSessionImport({
             <label htmlFor="websession-path">Çerez dosyası</label>
             <input id="websession-path" disabled={disabled} onChange={(event) => { setPath(event.target.value); resetPreview(); }} placeholder="/Users/…/cookies.txt" value={path} />
             {isTauri() && <button disabled={disabled || busy} onClick={() => void pickFile()} type="button">Dosya seç…</button>}
+          </>
+        ) : source === "model" ? (
+          <>
+            <label htmlFor="websession-model">Web model oturumu</label>
+            <select id="websession-model" disabled={disabled || webSessions.length === 0} onChange={(event) => { setWebSession(event.target.value); resetPreview(); }} value={webSession}>
+              {webSessions.map((row) => <option key={sessionKey(row)} value={sessionKey(row)}>{row.saglayici} ({row.hesap})</option>)}
+            </select>
+            {webSessions.length === 0 && <p className="settings__hint">Bu bilgisayarda web model oturumu yok; önce Modeller bölümünden giriş yap.</p>}
+            <p className="settings__hint" role="note">{MODEL_NOTE}</p>
           </>
         ) : (
           <>

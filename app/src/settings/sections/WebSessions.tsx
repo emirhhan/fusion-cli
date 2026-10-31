@@ -40,7 +40,7 @@ interface ProfilesResponse {
 
 type LoginTarget = { name: string; isNew: boolean };
 
-const SOURCE_LABEL: Record<string, string> = { dosya: "Dosyadan", chrome: "Chrome'dan", giris: "Giriş penceresi" };
+const SOURCE_LABEL: Record<string, string> = { dosya: "Dosyadan", chrome: "Chrome'dan", giris: "Giriş penceresi", web_oturumu: "Model oturumundan" };
 const MAX_DOMAINS_SHOWN = 4;
 const LOGIN_POLL_MS = 2000;
 const URL_PATTERN = /^https?:\/\//;

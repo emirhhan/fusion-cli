@@ -10,7 +10,7 @@ from collections.abc import Callable
 
 from rich.console import Console
 
-from . import remote_control, voice_command
+from . import remote_control, voice_command, web_session_command
 from .state import ReplState
 
 
@@ -24,5 +24,8 @@ async def run(
 ) -> None:
     if name == "voice":
         await voice_command.run(state, argument, console, on_partial=on_partial)
+        return
+    if name == "oturum-aktar":
+        await web_session_command.run(state, argument, console)
         return
     await remote_control.run(state, argument, console)

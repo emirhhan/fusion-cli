@@ -57,6 +57,8 @@ _STATE_KEY = "storage_state"
 SOURCE_FILE = "dosya"
 SOURCE_CHROME = "chrome"
 SOURCE_LOGIN = "giris"
+#: Web MODEL oturumundan (ChatGPT/Claude/Gemini/Copilot) tek yönlü, onaylı kopya.
+SOURCE_WEB_SESSION = "web_oturumu"
 
 _logger = logging.getLogger(__name__)
 
