@@ -320,6 +320,9 @@ function projectName(root: string): string {
 /** Sayfa başlığını kendi içinde `PageHeader` ile gösteren tam ekran sayfalar. */
 const SAYFA_KENDI_BASLIGINI_TASIR = ["settings", "control", "connectors", "account"];
 
+/** Sohbet kenar çubuğunu gizleyen tam sayfalar (Ayarlar'ın davranışı). */
+const TAM_SAYFALAR: readonly string[] = ["settings", "account", "help", "feedback"];
+
 /** Ana uygulamanın gezinebileceği sayfalar; üst çubuktaki geri/ileri
  * düğmeleri bu sayfalar arasındaki geçmişi gezer (bkz. `useNavigationHistory`). */
 type Page =
@@ -330,6 +333,7 @@ type Page =
   | "help"
   | "settings"
   | "account"
+  | "feedback"
   | "image-create"
   | "video-create";
 
@@ -573,12 +577,25 @@ export function SessionUygulama({
   const pageHistory = useNavigationHistory<Page>("chat");
   const page = pageHistory.current;
   const setPage = pageHistory.push;
+  /** Tam sayfadaki "Kapat": önceki ekrana döner; geçmiş yoksa sohbete. */
+  const closePage = () => {
+    if (pageHistory.canGoBack) pageHistory.back();
+    else setPage("chat");
+  };
   // En soldaki ana menü. Home ve Görsel/Video kabuğun içindeki sayfalardır;
   // diğer üç bölüm tüm yüzeyi kaplar ve sayfa geçmişine girmez.
   const [surfaceSection, setSurfaceSection] = useState<SurfaceSection | null>(null);
   const mediaPage = page === "image-create" || page === "video-create";
-  const mainSection: MainSection = surfaceSection ?? (mediaPage ? "media" : "home");
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>("genel");
+  // Görsel/video ekranı raydan değil paletten açılır; o ekrandayken Home vurgulu kalır
+  // ve Home'a basmak sohbete döndürür (bkz. `selectMainSection`).
+  const mainSection: MainSection = surfaceSection ?? "home";
+  // Ayarlar'ı açma isteği: bölüm + (isteğe bağlı) odaklanacak satır + sıra numarası. Sıra
+  // numarası aynı bölüm yeniden istendiğinde de Ayarlar'ın oraya dönmesini sağlar; eskiden
+  // Ayarlar açıkken menüden "Dil" seçilince bölüm değeri değişmediği için hiçbir şey olmuyordu.
+  const [settingsRequest, setSettingsRequest] = useState<{ section: SettingsSection; focus?: string; seq: number }>({ section: "genel", seq: 0 });
+  const setSettingsSection = useCallback((section: SettingsSection, focus?: string) => {
+    setSettingsRequest((current) => ({ section, focus, seq: current.seq + 1 }));
+  }, []);
   // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
   // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
   const [controlTitle, setControlTitle] = useState("Kontrol Paneli");
@@ -748,8 +765,14 @@ export function SessionUygulama({
     setNewTaskError(null);
     if (destination !== "feedback") setSurfaceSection(null);
     if (destination === "feedback") {
-      // Rapor penceresi oturum gerektirmez; boş uygulamada da açılır.
-      setFeedback({ tur: "geri-bildirim" });
+      // Menüden açılan geri bildirim Ayarlar gibi TAM SAYFADIR (kenar çubuğu gizli).
+      // Oturum yoksa sayfa çizilemez; rapor yine de pencere olarak açılır.
+      if (active) {
+        setSurfaceSection(null);
+        setPage("feedback");
+      } else {
+        setFeedback({ tur: "geri-bildirim" });
+      }
       return;
     }
     try {
@@ -776,9 +799,8 @@ export function SessionUygulama({
             } else if (destination === "account") {
               setPage("account");
             } else if (destination === "language") {
-              // Dil tercihi Ayarlar'da yaşar; şimdilik tek dil var ve bunu
-              // kullanıcıya orada açıkça söylüyoruz.
-              setSettingsSection("genel");
+              // Dil tercihi Ayarlar › Genel › Görünüm'de yaşar; doğrudan dil seçimine odaklanılır.
+              setSettingsSection("genel", "settings-language");
               setPage("settings");
 
             } else if (destination === "new-project") {
@@ -877,11 +899,7 @@ export function SessionUygulama({
       return;
     }
     setSurfaceSection(null);
-    if (section === "media") {
-      if (!mediaPage) void navigateSidebar("image-create");
-    } else if (mediaPage) {
-      setPage("chat");
-    }
+    if (mediaPage) setPage("chat");
   };
   const mainRail = <MainRail active={mainSection} onSelect={selectMainSection} accountHostRef={setAccountHost} />;
   const mainSurface = (
@@ -1473,7 +1491,9 @@ export function SessionUygulama({
       })),
     ],
   };
-  const sectionOwnsSidebar = surfaceSection !== null || page === "settings";
+  // Ayarlar, Hesabım, Yardım ve Geri bildirim tam sayfadır: sohbet kenar çubuğu
+  // (Fusion başlığı, Yeni sohbet, Projeler) bu sayfalarda görünmez.
+  const sectionOwnsSidebar = surfaceSection !== null || TAM_SAYFALAR.includes(page);
   if (!active) {
     if (!hasOpenedSession.current) return <div className="app-status-screen">Hazırlanıyor…{kapatmaOnayi}</div>;
     return <><Shell
@@ -1534,6 +1554,7 @@ export function SessionUygulama({
       : page === "video-create" ? "Video oluştur"
         : page === "skills" ? "Beceriler ve Ajanlar"
           : page === "help" ? "Yardım"
+            : page === "feedback" ? "Geri bildirim"
             : active.title;
 
   const draft = drafts[active.id] ?? controller.submissionDraft(active.id);
@@ -1727,7 +1748,7 @@ export function SessionUygulama({
           <AccountScreen
             account={account}
             client={active.client}
-            onClose={() => setPage("chat")}
+            onClose={closePage}
             onOpenProviders={(providerId) => {
               setControlProviderId(providerId);
               setControlTitle("Sağlayıcı hesapları");
@@ -1751,7 +1772,9 @@ export function SessionUygulama({
         ? (
           <Settings
             client={active.client}
-            initialSection={settingsSection}
+            initialSection={settingsRequest.section}
+            initialFocus={settingsRequest.focus}
+            requestKey={settingsRequest.seq}
             onChangeRoot={() => void requestTaskFolder()}
             onClose={() => setPage("chat")}
             onOpenAccount={() => setPage("account")}
@@ -1765,11 +1788,13 @@ export function SessionUygulama({
       : page === "help"
         ? (
           <HelpScreen
-            onClose={() => setPage("chat")}
+            onClose={closePage}
             onOpenSettings={() => setPage("settings")}
             surum={runtimeVersion}
           />
         )
+      : page === "feedback"
+        ? <FeedbackDialog initial={{ tur: "geri-bildirim" }} onClose={closePage} variant="page" />
         : splitSession
           ? (
             <div className="split-view">

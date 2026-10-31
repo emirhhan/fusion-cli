@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { AvatarPicker, AvatarView, gorselAvatarMi } from "./AvatarPicker";
+import { FUSION_AVATARLARI, VARSAYILAN_FUSION_AVATARI } from "./fusionAvatars";
 
 afterEach(cleanup);
 
@@ -14,10 +15,24 @@ describe("gorselAvatarMi", () => {
 });
 
 describe("AvatarView", () => {
-  test("emoji avatarı olduğu gibi gösterir", () => {
+  test("hazır Fusion avatarını görsel olarak gösterir", () => {
+    const { container } = render(<AvatarView avatar="fusion:emre" kullaniciAdi="kullanici" />);
+
+    expect(container.querySelector("img")?.getAttribute("data-avatar")).toBe("emre");
+    expect(container.querySelector("img")?.getAttribute("src")).toMatch(/emre\.svg/);
+  });
+
+  test("eski emoji seçimi olan hesapta varsayılan avatar gösterilir (geri uyum)", () => {
     const { container } = render(<AvatarView avatar="🏍️" kullaniciAdi="kullanici" />);
 
-    expect(container.textContent).toBe("🏍️");
+    expect(container.textContent).not.toContain("🏍️");
+    expect(container.querySelector("img")?.getAttribute("data-avatar")).toBe(VARSAYILAN_FUSION_AVATARI.id);
+  });
+
+  test("tanınmayan hazır avatar kimliği varsayılana düşer", () => {
+    const { container } = render(<AvatarView avatar="fusion:silinmis" kullaniciAdi="kullanici" />);
+
+    expect(container.querySelector("img")?.getAttribute("data-avatar")).toBe(VARSAYILAN_FUSION_AVATARI.id);
   });
 
   test("avatar yoksa baş harfe düşer", () => {
@@ -50,23 +65,35 @@ describe("AvatarPicker", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  test("avatara tıklayınca emoji ızgarası açılır", () => {
+  test("Değiştir 7 Fusion avatarlı seçiciyi açar; emoji sunulmaz", () => {
     render(<AvatarPicker {...varsayilan} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Avatarı değiştir" }));
 
-    expect(screen.getByRole("dialog", { name: "Avatar seçenekleri" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Avatar: 🏍️" })).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: "Avatar seçenekleri" });
+    const secenekler = Array.from(dialog.querySelectorAll(".account-avatar__option"));
+    expect(secenekler).toHaveLength(7);
+    expect(secenekler.map((item) => item.getAttribute("aria-label"))).toEqual(FUSION_AVATARLARI.map((item) => `Avatar: ${item.ad}`));
+    expect(dialog.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 
-  test("emoji seçimi iletilir ve seçici kapanır", () => {
+  test("seçili hazır avatar işaretli görünür", () => {
+    render(<AvatarPicker {...varsayilan} avatar="fusion:elif" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Avatarı değiştir" }));
+
+    expect(screen.getByRole("button", { name: "Avatar: Elif" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Avatar: Deniz" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  test("hazır avatar seçimi fusion:<kimlik> olarak iletilir ve seçici kapanır", () => {
     const onSelect = vi.fn();
     render(<AvatarPicker {...varsayilan} onSelect={onSelect} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Avatarı değiştir" }));
-    fireEvent.click(screen.getByRole("button", { name: "Avatar: 🚀" }));
+    fireEvent.click(screen.getByRole("button", { name: "Avatar: Kerem" }));
 
-    expect(onSelect).toHaveBeenCalledWith("🚀");
+    expect(onSelect).toHaveBeenCalledWith("fusion:kerem");
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 

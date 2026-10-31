@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../protocol/client";
+import { resetLanguageCache } from "../i18n/language";
 import { Settings } from "./Settings";
 
 function client() {
@@ -72,6 +73,7 @@ function bolum(etiket: string) {
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  resetLanguageCache();
 });
 
 describe("Settings — kontrol.durum hataları", () => {
@@ -203,23 +205,48 @@ describe("Settings — Genel", () => {
     expect(localStorage.getItem("fusion.sidebar.history-open.v1")).toBe("false");
   });
 
-  it("dil seçeneği Türkçe ve İngilizce sunar; İngilizcenin kısmi olduğunu yazar (P-065)", async () => {
+  it("dil seçeneği Türkçe ve İngilizce sunar; seçili dil işaretlidir, seçim hemen uygulanır ve kalıcıdır (P-065)", async () => {
     ciz();
     await screen.findByRole("heading", { name: "Ayarlar" });
 
-    const dil = screen.getByRole("combobox", { name: "Dil" }) as HTMLSelectElement;
-    expect(dil.disabled).toBe(false);
-    expect(Array.from(dil.options).map((option) => option.value)).toEqual(["tr", "en"]);
+    const grup = screen.getByRole("radiogroup", { name: "Dil" });
+    const turkce = screen.getByRole("radio", { name: "Türkçe" }) as HTMLInputElement;
+    const ingilizce = screen.getByRole("radio", { name: "English" }) as HTMLInputElement;
+    expect(grup.contains(turkce)).toBe(true);
+    expect(turkce.checked).toBe(true);
+    expect(turkce.closest("label")?.textContent).toContain("✓");
+    expect(ingilizce.closest("label")?.textContent).not.toContain("✓");
     expect(screen.getByText(/İngilizce çeviri şimdilik kısmi/i)).toBeTruthy();
-    fireEvent.change(dil, { target: { value: "en" } });
+
+    fireEvent.click(ingilizce);
     // Belge dili çeviri tamamlanana dek tr kalır; yalnız çevrilen kart lang="en" taşır (31 Ekim).
     expect(document.documentElement.lang).toBe("tr");
     expect(document.documentElement.dataset.language).toBe("en");
+    expect(localStorage.getItem("fusion.language.v1")).toBe("en");
+    expect((screen.getByRole("radio", { name: "English" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("radio", { name: "English" }).closest("label")?.textContent).toContain("✓");
+    // Ayarlar'ın kendi gezinmesi de anında çevrilir: seçim "uygulanmadı" gibi görünmez.
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "General" })).toBeTruthy();
     const tema = screen.getByRole("combobox", { name: "Theme" });
     expect(tema.closest("article")?.getAttribute("lang")).toBe("en");
-    fireEvent.change(screen.getByRole("combobox", { name: "Language" }), { target: { value: "tr" } });
-    expect(document.documentElement.lang).toBe("tr");
+
+    fireEvent.click(screen.getByRole("radio", { name: "Türkçe" }));
     expect(document.documentElement.dataset.language).toBe("tr");
+    expect(screen.getByRole("heading", { name: "Ayarlar" })).toBeTruthy();
+  });
+
+  it("aynı bölüm yeniden istenince Ayarlar oraya döner ve istenen satıra odaklanır (menü › Dil)", async () => {
+    const fake = client();
+    const props = { client: fake, onClose: () => undefined, onThemeChange: () => undefined, themePreference: "system" as const };
+    const view = render(<Settings {...props} />);
+    await screen.findByRole("heading", { name: "Ayarlar" });
+    fireEvent.click(screen.getByRole("button", { name: "Bildirimler" }));
+    expect(screen.getByRole("button", { name: "Bildirimler" }).getAttribute("aria-current")).toBe("page");
+
+    view.rerender(<Settings {...props} initialFocus="settings-language" initialSection="genel" requestKey={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Genel" }).getAttribute("aria-current")).toBe("page"));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("radiogroup", { name: "Dil" })));
   });
 
   it("erişilebilirlik kartı yazı boyutunu belge köküne uygular (P-065)", async () => {

@@ -10,13 +10,13 @@ describe("MainRail", () => {
   it("keeps icon names accessible and provides hover labels", () => {
     const { container } = render(<MainRail active="home" onSelect={vi.fn()} />);
     expect(screen.getByRole("button", { name: "Home" }).getAttribute("aria-label")).toBe("Home");
-    expect(container.querySelectorAll('[role="tooltip"]')).toHaveLength(5);
+    expect(container.querySelectorAll('[role="tooltip"]')).toHaveLength(4);
   });
   it("bölümleri kullanıcının belirlediği sırayla gösterir", () => {
     render(<MainRail active="home" onSelect={vi.fn()} />);
     const labels = screen.getAllByRole("button").map((button) => button.textContent);
-    expect(labels).toEqual(["Home", "Zamanlananlar", "Kitaplık", "Görsel ve video üretimi", "Kits"]);
-    expect(MAIN_SECTIONS.map((item) => item.id)).toEqual(["home", "scheduled", "library", "media", "kits"]);
+    expect(labels).toEqual(["Home", "Zamanlananlar", "Kitaplık", "Kits"]);
+    expect(MAIN_SECTIONS.map((item) => item.id)).toEqual(["home", "scheduled", "library", "kits"]);
   });
 
   it("etkin bölümü işaretler ve seçimi bildirir", () => {

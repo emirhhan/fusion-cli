@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import "./MainRail.css";
 
 /** En soldaki ana menünün bölümleri; sıra kullanıcının belirlediği sıradır. */
-export type MainSection = "home" | "scheduled" | "library" | "media" | "kits";
+// "Görsel ve video üretimi" rayda YOK (kullanıcı istemedi); ekran yalnız komut paletinden
+// (⌘K › Görsel oluştur / Video oluştur) açılır ve Home'a dönülür.
+export type MainSection = "home" | "scheduled" | "library" | "kits";
 
 interface RailItem {
   icon: IconName;
@@ -15,7 +17,6 @@ export const MAIN_SECTIONS: readonly RailItem[] = [
   { id: "home", label: "Home", icon: "home" },
   { id: "scheduled", label: "Zamanlananlar", icon: "clock" },
   { id: "library", label: "Kitaplık", icon: "library" },
-  { id: "media", label: "Görsel ve video üretimi", icon: "image" },
   { id: "kits", label: "Kits", icon: "sparkle" },
 ];
 

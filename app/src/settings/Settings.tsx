@@ -27,6 +27,7 @@ import { ChromeBrowser } from "./ChromeBrowser";
 import { RemoteAccess } from "./RemoteAccess";
 import { Intelligence } from "./Intelligence";
 import { HowTo } from "../guide/HowTo";
+import { useLanguage } from "../i18n/useLanguage";
 import "./Settings.css";
 
 /**
@@ -43,7 +44,7 @@ import "./Settings.css";
 
 type BolumId = SettingsSection;
 
-const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: string }[] = [
+const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: "Kişisel" | "Entegrasyonlar" | "Sistem" }[] = [
   { id: "genel", etiket: "Genel", ikon: "settings", grup: "Kişisel" },
   { id: "hesap", etiket: "Hesap", ikon: "user", grup: "Kişisel" },
   { id: "bildirimler", etiket: "Bildirimler", ikon: "pulse", grup: "Kişisel" },
@@ -82,6 +83,10 @@ interface ControlSnapshot {
 interface SettingsProps {
   client: ProtocolClient;
   initialSection?: BolumId;
+  /** Açılışta odaklanacak satırın kimliği (ör. menüden "Dil" → `settings-language`). */
+  initialFocus?: string;
+  /** Her yeni açma isteğinde artar: aynı bölüm yeniden istense de Ayarlar oraya döner. */
+  requestKey?: number;
   onClose: () => void;
   onThemeChange: (preference: ThemePreference) => void;
   themePreference: ThemePreference;
@@ -98,6 +103,8 @@ interface SettingsProps {
 export function Settings({
   client,
   initialSection = "genel",
+  initialFocus,
+  requestKey = 0,
   onChangeRoot,
   onClose,
   onOpenAccount,
@@ -108,6 +115,7 @@ export function Settings({
   turnRunning = false,
 }: SettingsProps) {
   const [bolum, setBolum] = useState<BolumId>(initialSection);
+  const { language, t } = useLanguage();
   const [control, setControl] = useState<ControlSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(readHistoryOpen);
@@ -125,7 +133,10 @@ export function Settings({
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
 
-  useEffect(() => setBolum(initialSection), [initialSection]);
+  useEffect(() => {
+    setBolum(initialSection);
+    if (initialFocus) setFocusRow(initialFocus);
+  }, [initialSection, initialFocus, requestKey]);
 
   // `onClose` ref'te tutulur: üst bileşen her çizimde yeni işlev üretse de efekt yeniden kurulmaz ve
   // odak yazarken geri çalınmaz (U2-37, ölçüldü 29 Ekim).
@@ -267,18 +278,18 @@ export function Settings({
       if (event.target === event.currentTarget) onClose();
     }}>
       <div aria-labelledby="settings-title" aria-modal="true" className="settings__dialog" onKeyDown={trapTab} ref={dialogRef} role="dialog" tabIndex={-1}>
-        <div className="settings__navcol">
-          <h2 className="settings__title" id="settings-title">Ayarlar</h2>
-          <button aria-label="Ayarları kapat" className="settings__close" onClick={onClose} type="button"><span aria-hidden="true">←</span> Uygulamaya geri dön</button>
-          <input aria-label="Ayarları ara" className="settings__search" onChange={(event) => setSearch(event.target.value)} placeholder="Ayarları ara" type="search" value={search} />
+        <div className="settings__navcol" lang={language}>
+          <h2 className="settings__title" id="settings-title">{t("ayarlar.baslik")}</h2>
+          <button aria-label="Ayarları kapat" className="settings__close" onClick={onClose} type="button"><span aria-hidden="true">←</span> {t("ayarlar.geri")}</button>
+          <input aria-label="Ayarları ara" className="settings__search" onChange={(event) => setSearch(event.target.value)} placeholder={t("ayarlar.ara")} type="search" value={search} />
           {search.trim() && <div><p role="status">{searchResults.length ? `${searchResults.length} sonuç` : BOLUMLER.some((item) => item.etiket.toLocaleLowerCase("tr").includes(search.trim().toLocaleLowerCase("tr"))) ? "Bölüm eşleşmeleri" : "Sonuç bulunamadı"}</p>
             {searchResults.map((row) => <button key={`${row.section}:${row.label}`} onClick={() => { setBolum(row.section); setFocusRow(row.id); }}>{row.label}</button>)}</div>}
           <nav aria-label="Ayar bölümleri" className="settings__nav">
-            {["Kişisel", "Entegrasyonlar", "Sistem"].map((grup) => {
+            {(["Kişisel", "Entegrasyonlar", "Sistem"] as const).map((grup) => {
               const items = BOLUMLER.filter((item) => item.grup === grup && item.etiket.toLocaleLowerCase("tr").includes(search.trim().toLocaleLowerCase("tr")));
               if (!items.length) return null;
               return <div className="settings__nav-group" key={grup}>
-                <span className="settings__nav-label">{grup}</span>
+                <span className="settings__nav-label">{t(`ayarlar.grup.${grup}`)}</span>
                 {items.map((item) => <button
                   aria-current={bolum === item.id ? "page" : undefined}
                   key={item.id}
@@ -286,7 +297,7 @@ export function Settings({
                   type="button"
                 >
                   <Icon name={item.ikon} size={16} />
-                  <span>{item.etiket}</span>
+                  <span>{t(`ayarlar.bolum.${item.id}`)}</span>
                 </button>)}
               </div>;
             })}
@@ -294,7 +305,7 @@ export function Settings({
         </div>
 
         <div className="settings__panel">
-          <h3 className="settings__section-heading" id={SECTION_HEADING_ID}>{BOLUMLER.find((item) => item.id === bolum)?.etiket}</h3>
+          <h3 className="settings__section-heading" id={SECTION_HEADING_ID} lang={language}>{t(`ayarlar.bolum.${bolum}`)}</h3>
           {controlLoading && KONTROL_BOLUMLERI.has(bolum) && <p role="status">Ayarlar yükleniyor…</p>}
           {gatewayError && <p role="alert">{gatewayError.message} <button onClick={gatewayError.retry} disabled={gatewayBusy}>Yeniden dene</button></p>}
           {modeError && <p role="alert">{modeError.message} <button onClick={modeError.retry} disabled={modeBusy}>Yeniden dene</button></p>}

@@ -1,3 +1,6 @@
+import { LANGUAGE_NAMES } from "../i18n/language";
+import { useLanguage } from "../i18n/useLanguage";
+import { AvatarView } from "../account/AvatarPicker";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../ui/Icon";
@@ -271,7 +274,7 @@ export function Sidebar({
   onGuncellemeAc,
 }: SidebarProps) {
   const [profileOpen, setProfileOpen] = useState(false);
-  const [profileMoreOpen, setProfileMoreOpen] = useState(false);
+  const { language, t } = useLanguage();
   const profileRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -463,16 +466,10 @@ export function Sidebar({
   useEffect(() => {
     if (!profileOpen) return;
     const closeOnOutside = (event: MouseEvent) => {
-      if (!profileRef.current?.contains(event.target as Node)) {
-        setProfileOpen(false);
-        setProfileMoreOpen(false);
-      }
+      if (!profileRef.current?.contains(event.target as Node)) setProfileOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setProfileOpen(false);
-        setProfileMoreOpen(false);
-      }
+      if (event.key === "Escape") setProfileOpen(false);
     };
     document.addEventListener("mousedown", closeOnOutside);
     document.addEventListener("keydown", closeOnEscape);
@@ -484,17 +481,16 @@ export function Sidebar({
 
   const navigateFromProfile = (destination: string) => {
     setProfileOpen(false);
-    setProfileMoreOpen(false);
     onNavigate(destination);
   };
   const profileName = hesap?.kullanici_adi ?? "Hesap yok";
   const profileMenuLabel = hesap ? `${profileName} hesap menüsü` : "Hesap menüsü";
   const profileDetail = hesap?.eposta ?? "Giriş yapılmadı";
-  const profileInitials =
-    hesap?.avatar ||
-    (hesap
-      ? hesap.kullanici_adi.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toLocaleUpperCase("tr")
-      : "?");
+  // Hazır avatar, yüklenen görsel ya da baş harfler: Hesabım'daki görünümün AYNISI.
+  // Eskiden avatar metni olduğu gibi basılıyordu; görsel yolu menüde yazı olarak çıkıyordu.
+  const profileAvatar = hesap
+    ? <AvatarView avatar={hesap.avatar} kullaniciAdi={hesap.kullanici_adi} />
+    : "?";
 
   const profileFooter = (
       <div className="sidebar__bottom">
@@ -509,29 +505,28 @@ export function Sidebar({
         )}
         <div className="sidebar__profile-wrap" ref={profileRef}>
           {profileOpen && (
-            <div aria-label="Profil menüsü" className="sidebar__profile-menu" role="menu">
-              <button className="sidebar__profile-heading" onClick={() => navigateFromProfile("account")} role="menuitem" type="button">
-                <span className="sidebar__avatar">{profileInitials}</span>
+            <div aria-label="Profil menüsü" className="sidebar__profile-menu" lang={language} role="menu">
+              <button aria-label={hesap ? `${profileName} · ${t("menu.hesabim")}` : t("menu.hesabim")} className="sidebar__profile-heading" onClick={() => navigateFromProfile("account")} role="menuitem" type="button">
+                <span className="sidebar__avatar">{profileAvatar}</span>
                 <span className="sidebar__profile-copy"><strong>{profileName}</strong><small>{profileDetail}</small></span>
                 <Icon className="sidebar__profile-chevron" name="chevron" size={20} />
               </button>
               <div className="sidebar__profile-separator" />
-              <button onClick={() => navigateFromProfile("personalization")} role="menuitem" type="button"><Icon name="user" /><span>Kişiselleştirme</span></button>
-              <button onClick={() => navigateFromProfile("account")} role="menuitem" type="button"><Icon name="user" /><span>Hesabım</span></button>
-              <button onClick={() => navigateFromProfile("settings")} role="menuitem" type="button"><Icon name="settings" /><span>Ayarlar</span></button>
-              <button onClick={() => navigateFromProfile("help")} role="menuitem" type="button"><Icon name="help" /><span>Yardım</span></button>
-              <button onClick={() => navigateFromProfile("feedback")} role="menuitem" type="button"><Icon name="chat" /><span>Geri bildirim gönder</span></button>
-              <button aria-expanded={profileMoreOpen} onClick={() => setProfileMoreOpen((open) => !open)} role="menuitem" type="button"><Icon name="panel" /><span>Daha fazla</span><Icon name="chevron" size={16} /></button>
-              {profileMoreOpen && <div aria-label="Ek araçlar" className="sidebar__profile-more" role="group">
-                <button onClick={() => navigateFromProfile("control-panel")} role="menuitem" type="button"><Icon name="panel" /><span>Kontrol Paneli</span></button>
-                <button onClick={() => navigateFromProfile("skills")} role="menuitem" type="button"><Icon name="skills" /><span>Beceriler ve Ajanlar</span></button>
-                <button onClick={() => navigateFromProfile("connectors")} role="menuitem" type="button"><Icon name="terminal" /><span>MCP bağlantıları</span></button>
-                <button onClick={() => navigateFromProfile("language")} role="menuitem" type="button"><Icon name="lessons" /><span>Dil</span></button>
-              </div>}
+              {/* Hesabım ve Kişiselleştirme ayrı satır DEĞİL: hesap sayfası üstteki profil
+                  satırından, kişiselleştirme Ayarlar'ın içinden açılır. Eski "Daha fazla" alt
+                  açılırındaki araçlar ana menüye taşındı; ikinci bir açılır yoktur. */}
+              <button onClick={() => navigateFromProfile("settings")} role="menuitem" type="button"><Icon name="settings" /><span>{t("menu.ayarlar")}</span></button>
+              <button onClick={() => navigateFromProfile("control-panel")} role="menuitem" type="button"><Icon name="panel" /><span>{t("menu.kontrol")}</span></button>
+              <button onClick={() => navigateFromProfile("skills")} role="menuitem" type="button"><Icon name="skills" /><span>{t("menu.beceriler")}</span></button>
+              <button onClick={() => navigateFromProfile("connectors")} role="menuitem" type="button"><Icon name="terminal" /><span>{t("menu.mcp")}</span></button>
+              <button onClick={() => navigateFromProfile("language")} role="menuitem" type="button"><Icon name="globe" /><span>{t("menu.dil")}</span><small aria-hidden="true" className="sidebar__profile-value">{LANGUAGE_NAMES[language]}</small></button>
+              <div className="sidebar__profile-separator" />
+              <button onClick={() => navigateFromProfile("help")} role="menuitem" type="button"><Icon name="help" /><span>{t("menu.yardim")}</span></button>
+              <button onClick={() => navigateFromProfile("feedback")} role="menuitem" type="button"><Icon name="chat" /><span>{t("menu.geribildirim")}</span></button>
               <div className="sidebar__profile-separator" />
               {hesap
-                ? <button onClick={() => { setProfileOpen(false); setProfileMoreOpen(false); onCikis?.(); }} role="menuitem" type="button"><Icon name="logout" /><span>Çıkış yap</span></button>
-                : <button onClick={() => navigateFromProfile("account")} role="menuitem" type="button"><Icon name="logout" /><span>Giriş yap</span></button>}
+                ? <button onClick={() => { setProfileOpen(false); onCikis?.(); }} role="menuitem" type="button"><Icon name="logout" /><span>{t("menu.cikis")}</span></button>
+                : <button onClick={() => navigateFromProfile("account")} role="menuitem" type="button"><Icon name="logout" /><span>{t("menu.giris")}</span></button>}
             </div>
           )}
           <button
@@ -540,10 +535,10 @@ export function Sidebar({
             aria-label={profileMenuLabel}
             title={profileName}
             className="sidebar__profile-trigger"
-            onClick={() => { setProfileOpen((open) => !open); setProfileMoreOpen(false); }}
+            onClick={() => setProfileOpen((open) => !open)}
             type="button"
           >
-            <span className="sidebar__avatar">{profileInitials}</span>
+            <span className="sidebar__avatar">{profileAvatar}</span>
             <span className="sidebar__profile-copy sidebar__label"><strong>{profileName}</strong><small>{profileDetail}</small></span>
             <span aria-hidden="true" className="sidebar__profile-status" data-connected={Boolean(hesap)} />
           </button>

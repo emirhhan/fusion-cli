@@ -1,8 +1,8 @@
 /**
  * Arayüz dili (P-065, temel).
  *
- * Türkçe varsayılan ve tam; İngilizce sözlük şimdilik Ayarlar › Genel'in Görünüm ve
- * Erişilebilirlik kartlarını kapsar. Metinler bu sözlüğe taşındıkça kapsam büyür;
+ * Türkçe varsayılan ve tam; İngilizce sözlük şimdilik profil menüsünü, Ayarlar'ın
+ * gezinmesini ve Ayarlar › Genel'in Görünüm ve Erişilebilirlik kartlarını kapsar. Metinler bu sözlüğe taşındıkça kapsam büyür;
  * `t()` eksik anahtarda Türkçe'ye düşer, hiçbir ekran boş kalmaz.
  *
  * `<html lang>` çeviri TAMAMLANANA dek "tr" kalır: ölçüldü (31 Ekim), İngilizce seçilince
@@ -14,6 +14,10 @@
 export const LANGUAGE_STORAGE_KEY = "fusion.language.v1";
 
 export type Language = "tr" | "en";
+
+/** Dil seçicide ve menüde gösterilen adlar — her dil kendi adıyla yazılır. */
+export const LANGUAGE_NAMES: Record<Language, string> = { tr: "Türkçe", en: "English" };
+export const LANGUAGES: readonly Language[] = ["tr", "en"];
 
 const isLanguage = (value: string | null): value is Language => value === "tr" || value === "en";
 
@@ -50,7 +54,40 @@ export const SOZLUK = {
     "gorunum.tema.acik": "Açık",
     "gorunum.tema.koyu": "Koyu",
     "gorunum.dil": "Dil",
-    "gorunum.dil.ipucu": "İngilizce çeviri şimdilik kısmi: Görünüm ve Erişilebilirlik ayarlarını kapsar. Diğer ekranlar Türkçe kalır.",
+    "gorunum.dil.ipucu": "Seçim hemen uygulanır ve kalıcıdır. İngilizce çeviri şimdilik kısmi: profil menüsü, Ayarlar gezinmesi, Görünüm ve Erişilebilirlik kartları çevrilir; diğer ekranlar Türkçe kalır.",
+    "gorunum.dil.secili": "Seçili",
+    "menu.hesabim": "Hesabım",
+    "menu.ayarlar": "Ayarlar",
+    "menu.kontrol": "Kontrol Paneli",
+    "menu.beceriler": "Beceriler ve Ajanlar",
+    "menu.mcp": "MCP bağlantıları",
+    "menu.dil": "Dil",
+    "menu.yardim": "Yardım",
+    "menu.geribildirim": "Geri bildirim gönder",
+    "menu.cikis": "Çıkış yap",
+    "menu.giris": "Giriş yap",
+    "ayarlar.baslik": "Ayarlar",
+    "ayarlar.geri": "Uygulamaya geri dön",
+    "ayarlar.ara": "Ayarları ara",
+    "ayarlar.grup.Kişisel": "Kişisel",
+    "ayarlar.grup.Entegrasyonlar": "Entegrasyonlar",
+    "ayarlar.grup.Sistem": "Sistem",
+    "ayarlar.bolum.genel": "Genel",
+    "ayarlar.bolum.hesap": "Hesap",
+    "ayarlar.bolum.bildirimler": "Bildirimler",
+    "ayarlar.bolum.ses": "Ses",
+    "ayarlar.bolum.kisayollar": "Kısayollar",
+    "ayarlar.bolum.kisisellestirme": "Kişiselleştirme",
+    "ayarlar.bolum.modeller": "Modeller",
+    "ayarlar.bolum.tarayici": "Tarayıcı",
+    "ayarlar.bolum.weboturumlari": "Web oturumları",
+    "ayarlar.bolum.izinler": "İzinler",
+    "ayarlar.bolum.bilgisayar": "Bu bilgisayar",
+    "ayarlar.bolum.zeka": "Zeka",
+    "ayarlar.bolum.uzak": "Uzaktan Erişim",
+    "ayarlar.bolum.guncellemeler": "Güncellemeler",
+    "ayarlar.bolum.gelismis": "Gelişmiş",
+    "ayarlar.bolum.nasil": "Nasıl yapılır",
     "erisilebilirlik.baslik": "Erişilebilirlik",
     "erisilebilirlik.yazi": "Yazı boyutu",
     "erisilebilirlik.yazi.small": "Küçük",
@@ -78,7 +115,40 @@ export const SOZLUK = {
     "gorunum.tema.acik": "Light",
     "gorunum.tema.koyu": "Dark",
     "gorunum.dil": "Language",
-    "gorunum.dil.ipucu": "English is partial for now: it covers the Appearance and Accessibility settings. Other screens stay in Turkish.",
+    "gorunum.dil.ipucu": "Your choice applies immediately and is remembered. English is partial for now: the profile menu, Settings navigation, Appearance and Accessibility cards are translated; other screens stay in Turkish.",
+    "gorunum.dil.secili": "Selected",
+    "menu.hesabim": "My account",
+    "menu.ayarlar": "Settings",
+    "menu.kontrol": "Control Panel",
+    "menu.beceriler": "Skills and Agents",
+    "menu.mcp": "MCP connections",
+    "menu.dil": "Language",
+    "menu.yardim": "Help",
+    "menu.geribildirim": "Send feedback",
+    "menu.cikis": "Sign out",
+    "menu.giris": "Sign in",
+    "ayarlar.baslik": "Settings",
+    "ayarlar.geri": "Back to app",
+    "ayarlar.ara": "Search settings",
+    "ayarlar.grup.Kişisel": "Personal",
+    "ayarlar.grup.Entegrasyonlar": "Integrations",
+    "ayarlar.grup.Sistem": "System",
+    "ayarlar.bolum.genel": "General",
+    "ayarlar.bolum.hesap": "Account",
+    "ayarlar.bolum.bildirimler": "Notifications",
+    "ayarlar.bolum.ses": "Voice",
+    "ayarlar.bolum.kisayollar": "Shortcuts",
+    "ayarlar.bolum.kisisellestirme": "Personalization",
+    "ayarlar.bolum.modeller": "Models",
+    "ayarlar.bolum.tarayici": "Browser",
+    "ayarlar.bolum.weboturumlari": "Web sessions",
+    "ayarlar.bolum.izinler": "Permissions",
+    "ayarlar.bolum.bilgisayar": "This computer",
+    "ayarlar.bolum.zeka": "Intelligence",
+    "ayarlar.bolum.uzak": "Remote access",
+    "ayarlar.bolum.guncellemeler": "Updates",
+    "ayarlar.bolum.gelismis": "Advanced",
+    "ayarlar.bolum.nasil": "How-to",
     "erisilebilirlik.baslik": "Accessibility",
     "erisilebilirlik.yazi": "Text size",
     "erisilebilirlik.yazi.small": "Small",

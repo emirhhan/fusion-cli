@@ -327,33 +327,40 @@
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   inset-inline-start: 0;
+  max-width: calc(100vw - 32px);
   padding: var(--space-3);
   position: absolute;
   top: calc(100% + var(--space-3));
-  width: 264px;
+  width: 292px;
   z-index: 20;
 }
+/* Hesabım'daki büyük avatar ortada durur; seçici de onun altında ortalanır. */
+.account-screen__hero-avatar .account-avatar__menu { inset-inline-start: 50%; top: calc(100% + 26px); transform: translateX(-50%); }
 
+.account-avatar__title { color: var(--text-secondary); font-size: var(--text-xs); margin: 0 0 var(--space-2); text-align: start; }
+
+/* 7 avatar: 4 + 3, ikinci satır ortalanır (boş hücre kalmaz). */
 .account-avatar__grid {
-  display: grid;
-  gap: var(--space-1);
-  grid-template-columns: repeat(6, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: center;
 }
 
 .account-avatar__option {
+  aspect-ratio: 1;
+  flex: 0 0 calc((100% - 3 * var(--space-2)) / 4);
   background: none;
-  border: 1px solid transparent;
-  border-radius: var(--radius-xs);
+  border: 2px solid transparent;
+  border-radius: 50%;
   cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
-  padding: var(--space-2) 0;
+  padding: 2px;
+  transition: border-color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
-.account-avatar__option:hover { background: var(--surface-hover); }
-.account-avatar__option[aria-pressed="true"] {
-  background: var(--surface-accent-subtle);
-  border-color: var(--accent-text);
-}
+.account-avatar__option img { border-radius: 50%; display: block; height: 100%; width: 100%; }
+.account-avatar__option:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.account-avatar__option:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.account-avatar__option[aria-pressed="true"] { border-color: var(--accent-text); }
 
 .account-avatar__foot {
   align-items: center;

@@ -104,3 +104,9 @@
 .feedback-dialog textarea:focus-visible,
 .feedback-dialog input:focus-visible,
 .feedback-dialog summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* Profil menüsünden açılan tam sayfa: Ayarlar ve Yardım gibi kendi kaydırmasını taşır,
+   içerik okuma kolonunda ortalanır. Pencere gölgesi ve çerçevesi burada gereksiz. */
+.feedback-page { background: var(--surface-canvas); box-sizing: border-box; display: grid; align-content: start; gap: var(--space-5); height: 100%; overflow-y: auto; padding: var(--space-6); width: 100%; }
+.feedback-dialog--page { background: transparent; border: 0; box-shadow: none; margin: 0 auto; max-height: none; max-width: var(--page-max-width); overflow: visible; padding: 0; width: 100%; }
+.feedback-dialog--page textarea { min-height: 180px; }

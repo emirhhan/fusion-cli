@@ -4,7 +4,9 @@
 .rm__head p { color: var(--text-secondary); font-size: var(--text-sm); margin: 2px 0 0; }
 
 .rm__roles, .rm__models, .rm__sessions { display: grid; gap: var(--space-3); list-style: none; margin: 0; padding: 0; }
-.rm__roles { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+/* Kart genişliği rem: yazı boyutu büyüyünce kart da büyür, model adı "Gemini · 3.6 Flas…"
+   diye kesilmez; dar pencerede kart sayısı azalır (min() taşmayı önler). */
+.rm__roles { grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr)); }
 .rm__role {
   align-content: space-between; background: var(--surface-sidebar); border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg); color: inherit; cursor: pointer; display: grid; font: inherit; gap: var(--space-3);
@@ -69,7 +71,7 @@
 .rm__switch b { display: block; font-size: var(--text-sm); }
 .rm__switch small { color: var(--text-secondary); font-size: var(--text-xs); }
 .rm__notice { background: var(--surface-hover); border-radius: var(--radius-md); color: var(--text-secondary); font-size: var(--text-sm); margin: 0; padding: var(--space-3) var(--space-4); }
-@media (max-width: 520px) { .rm__roles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .rm__roles { grid-template-columns: minmax(0, 1fr); } }
 .rm__confirm { background: var(--surface-hover); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); display: grid; gap: var(--space-3); margin-bottom: var(--space-3); padding: var(--space-3) var(--space-4); }
 .rm__confirm p { color: var(--text-primary); font-size: var(--text-sm); margin: 0; text-wrap: pretty; }
 .rm__confirm-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
