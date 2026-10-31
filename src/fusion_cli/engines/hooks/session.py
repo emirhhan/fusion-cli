@@ -56,6 +56,8 @@ class HookSession:
     transcript_dir: Path | None = None
     #: Kanca sürecine VERİLMEYEN ortam adları (MCP sırları); her çağrıda taze okunur.
     hidden_env: Callable[[], frozenset[str]] | None = None
+    #: `http` kancası iç ağ adresine gidebilir mi? (`runtime.hook_http_allow_private`)
+    http_allow_private: Callable[[], bool] | None = None
     _loaded: bool = False
     #: `restart` sonrası henüz gönderilmemiş eski oturum `SessionEnd`'i: (kimlik, neden).
     _pending_end: tuple[str, str] | None = None
@@ -129,9 +131,16 @@ class HookSession:
         payload = self._payload(event, fields or {})
         hidden = self.hidden_env() if self.hidden_env is not None else frozenset()
         environment = hook_environment(self.root, hidden)
+        private = self.http_allow_private() if self.http_allow_private is not None else False
         runs = await asyncio.gather(
             *(
-                run_hook(command, payload, cwd=self.root, environment=environment)
+                run_hook(
+                    command,
+                    payload,
+                    cwd=self.root,
+                    environment=environment,
+                    allow_private=private,
+                )
                 for command in commands
             )
         )
@@ -301,6 +310,9 @@ def open_hook_session(
         next_source=source,
         transcript_dir=transcript_dir or _config().memory_dir / HOOK_TRANSCRIPT_DIR,
         hidden_env=lambda: mcp_secret_env_names(_config().mcp_servers),
+        http_allow_private=lambda: bool(
+            getattr(_config().runtime, "hook_http_allow_private", False)
+        ),
     )
     if session_id:
         session.session_id = session_id

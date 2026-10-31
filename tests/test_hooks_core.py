@@ -237,7 +237,8 @@ def test_desteklenmeyen_tur_ve_olay_gerekceli_atlanir_sure_sinirlanir(tmp_path):
                 {
                     "matcher": "Bash",
                     "hooks": [
-                        {"type": "http", "url": "https://ornek.test/kanca"},
+                        # `http` artık desteklenir (bkz. test_hooks_http.py); `mcp_tool` değil.
+                        {"type": "mcp_tool", "url": "https://ornek.test/kanca"},
                         {"type": "command", "command": "uzun", "timeout": 99999},
                         {"type": "command", "command": "   "},
                     ],
@@ -250,7 +251,7 @@ def test_desteklenmeyen_tur_ve_olay_gerekceli_atlanir_sure_sinirlanir(tmp_path):
     hooks = hooks_config.load_hooks(tmp_path, default_timeout_s=7)
     assert [(c.command, c.timeout_s) for c in hooks.commands] == [("uzun", 600.0)]
     reasons = {s.detail: s.reason for s in hooks.skipped}
-    assert "desteklenmiyor: http" in reasons["https://ornek.test/kanca"]
+    assert "desteklenmiyor: mcp_tool" in reasons["https://ornek.test/kanca"]
     assert reasons["wt"] == hooks_config.REASON_EVENT
     assert reasons["u"] == hooks_config.REASON_UNKNOWN_EVENT
     assert reasons["   "] == hooks_config.REASON_EMPTY

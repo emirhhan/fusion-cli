@@ -35,6 +35,7 @@ from pathlib import Path
 from ..core.hooks.events import (
     CLAUDE_ONLY_EVENTS,
     COMMAND_HANDLER,
+    HTTP_HANDLER,
     HookCommand,
     HookSet,
     HookSkip,
@@ -65,7 +66,8 @@ DISABLE_ALL_KEY = "disableAllHooks"
 
 REASON_UNTRUSTED = "proje güvenilmiyor (fusion trust)"
 REASON_CLAUDE_OFF = "Claude kullanıcı kancaları kapalı (runtime.claude_hooks: true ile aç)"
-REASON_HANDLER = "tür desteklenmiyor: {kind} (yalnız command)"
+REASON_HANDLER = "tür desteklenmiyor: {kind} (command ve http desteklenir)"
+REASON_URL = "http kancasının 'url' alanı http:// ya da https:// adresi olmalı"
 REASON_EVENT = "Fusion bu olayı tetiklemiyor"
 REASON_UNKNOWN_EVENT = "bilinmeyen olay"
 REASON_EMPTY = "komut boş"
@@ -207,9 +209,9 @@ def parse_hooks_block(
                 if not isinstance(handler, Mapping):
                     continue
                 kind = str(handler.get("type") or COMMAND_HANDLER)
-                command = handler.get("command")
-                detail = command if isinstance(command, str) else str(handler.get("url") or kind)
-                reason = _skip_reason(str(event_name), event is None, kind, command)
+                target = handler.get("url" if kind == HTTP_HANDLER else "command")
+                detail = target if isinstance(target, str) else str(handler.get("url") or kind)
+                reason = _skip_reason(str(event_name), event is None, kind, target)
                 if reason is not None or event is None:
                     skipped.append(
                         HookSkip(
@@ -221,23 +223,46 @@ def parse_hooks_block(
                     HookCommand(
                         event,
                         matcher_text,
-                        str(command).strip(),
+                        str(target).strip(),
                         _timeout(handler.get("timeout"), default_timeout_s),
                         source,
                         str(path),
+                        kind,
+                        *_http_options(handler),
                     )
                 )
     return tuple(commands), tuple(skipped)
 
 
-def _skip_reason(event_name: str, unknown: bool, kind: str, command: object) -> str | None:
+def _skip_reason(event_name: str, unknown: bool, kind: str, target: object) -> str | None:
     if unknown:
         return REASON_EVENT if event_name in CLAUDE_ONLY_EVENTS else REASON_UNKNOWN_EVENT
-    if kind != COMMAND_HANDLER:
+    if kind not in (COMMAND_HANDLER, HTTP_HANDLER):
         return REASON_HANDLER.format(kind=kind)
-    if not isinstance(command, str) or not command.strip():
-        return REASON_EMPTY
+    if not isinstance(target, str) or not target.strip():
+        return REASON_URL if kind == HTTP_HANDLER else REASON_EMPTY
+    if kind == HTTP_HANDLER and not target.strip().lower().startswith(("http://", "https://")):
+        return REASON_URL
     return None
+
+
+def _http_options(
+    handler: Mapping[str, object],
+) -> tuple[tuple[tuple[str, str], ...], tuple[str, ...]]:
+    """`headers` (ad → metin) ve `allowedEnvVars` (ad listesi); bozuk girdiler atlanır."""
+    raw_headers = handler.get("headers")
+    headers = tuple(
+        (str(name), value)
+        for name, value in (raw_headers.items() if isinstance(raw_headers, Mapping) else ())
+        if isinstance(value, str)
+    )
+    raw_env = handler.get("allowedEnvVars")
+    names = (
+        tuple(name for name in raw_env if isinstance(name, str))
+        if isinstance(raw_env, list)
+        else ()
+    )
+    return headers, names
 
 
 def _timeout(raw: object, default: float) -> float:
@@ -280,10 +305,14 @@ class HookRow:
     skipped: str = ""
 
 
+def _shown(command: HookCommand) -> str:
+    return f"POST {command.command}" if command.handler == HTTP_HANDLER else command.command
+
+
 def hook_rows(hooks: HookSet) -> tuple[HookRow, ...]:
     """Etkin komutlar ve atlanan tanımlar, olay adına göre sıralı."""
     rows = [
-        HookRow(c.event.value, c.matcher, c.command, c.timeout_s, c.source, c.path)
+        HookRow(c.event.value, c.matcher, _shown(c), c.timeout_s, c.source, c.path)
         for c in hooks.commands
     ]
     rows.extend(

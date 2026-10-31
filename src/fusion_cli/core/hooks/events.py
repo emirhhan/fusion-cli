@@ -101,8 +101,10 @@ CLAUDE_ONLY_EVENTS = frozenset(
     }
 )
 
-#: Desteklenen işleyici türü; `http`, `prompt`, `agent`, `mcp_tool` listede "desteklenmiyor".
+#: Desteklenen işleyici türleri; `prompt`, `agent`, `mcp_tool` listede "desteklenmiyor".
 COMMAND_HANDLER = "command"
+#: Olay JSON'unu POST eden kanca (yanıt gövdesi stdout gibi okunur; iç ağ korumalı).
+HTTP_HANDLER = "http"
 
 
 def parse_event(name: str) -> HookEvent | None:
@@ -125,6 +127,11 @@ class HookCommand:
     source: str = ""
     #: Tanımın okunduğu dosya.
     path: str = ""
+    #: İşleyici türü; `http` ise `command` hedef adrestir.
+    handler: str = COMMAND_HANDLER
+    #: `http`: istek başlıkları; değerdeki `$AD`/`${AD}` yalnız `allowed_env_vars`'tan dolar.
+    headers: tuple[tuple[str, str], ...] = ()
+    allowed_env_vars: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

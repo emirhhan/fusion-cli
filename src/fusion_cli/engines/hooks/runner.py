@@ -18,7 +18,7 @@ import signal
 from collections.abc import Mapping
 from pathlib import Path
 
-from ...core.hooks.events import HookCommand, HookRun
+from ...core.hooks.events import HTTP_HANDLER, HookCommand, HookRun
 
 #: stdout/stderr'den okunan en fazla karakter (karar ve bağlam bundan çıkar).
 HOOK_STREAM_CHARS = 64_000
@@ -30,8 +30,18 @@ async def run_hook(
     *,
     cwd: Path,
     environment: Mapping[str, str],
+    allow_private: bool = False,
 ) -> HookRun:
-    """Komutu kabukta çalıştır; sonucu hiçbir zaman istisna olarak fırlatmaz (iptal hariç)."""
+    """Komutu kabukta çalıştır; sonucu hiçbir zaman istisna olarak fırlatmaz (iptal hariç).
+
+    `http` türü `http_runner`'a gider (`allow_private`: iç ağ adresine izin).
+    """
+    if command.handler == HTTP_HANDLER:
+        from .http_runner import run_http_hook
+
+        return await run_http_hook(
+            command, payload, environment=environment, allow_private=allow_private
+        )
     posix = os.name == "posix"
     body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
     try:
