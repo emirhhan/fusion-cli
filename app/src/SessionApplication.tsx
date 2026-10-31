@@ -8,13 +8,16 @@ import { submissionAccepted, type SubmissionResult } from "./sessions/submission
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
+import { DeepLinkConfirm } from "./dialogs/DeepLinkConfirm";
 import { useKapatmaNabzi } from "./dialogs/closeHeartbeat";
 import { osBildirimiGonder } from "./notifications/osNotice";
 import { useTurnNotifications, useUnread } from "./notifications/useTurnNotifications";
 import { SplitPane } from "./windowing/SplitPane";
 import { useSplitView } from "./windowing/splitView";
 import { useTray } from "./windowing/tray";
-import { DEEP_LINK_EVENT, TRAY_NEW_CHAT_EVENT, parseDeepLink, type DerinBaglanti } from "./windowing/deepLink";
+import {
+  DEEP_LINK_EVENT, DEEP_LINK_PULL_COMMAND, TRAY_NEW_CHAT_EVENT, deepLinkRootDecision, parseDeepLink, type DerinBaglanti,
+} from "./windowing/deepLink";
 import { ShareDialog } from "./dialogs/ShareDialog";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
 import { NewTaskDialog } from "./dialogs/NewTaskDialog";
@@ -551,6 +554,8 @@ export function SessionUygulama({
   // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
   const [busySubmissionMode, setBusySubmissionMode] = useState<"steer" | "queue">("steer");
   const [closeAsked, setCloseAsked] = useState(false);
+  // `fusion://yeni?kok=…` ile gelen ve kullanıcının onayını bekleyen kök (P-064).
+  const [deepLinkRoot, setDeepLinkRoot] = useState<string | null>(null);
   // Soru açıkken Rust'a nabız gider; arayüz donarsa kapanış onaysız sürer (R2-14).
   useKapatmaNabzi(closeAsked && kabukVar());
   /** Çekirdek bağlantısı koptuğunda çekirdeğin son hata çıktısı (varsa). */
@@ -974,8 +979,13 @@ export function SessionUygulama({
       setPage("chat");
     } else if (hedef.hedef === "yeni") {
       if (hedef.kok) {
-        void ctl.create({ root: hedef.kok, mode: "kod" }).then(() => setPage("chat"))
-          .catch((reason: unknown) => setNewTaskError(`Yeni sohbet açılamadı: ${errorMessage(reason)}`));
+        // Kök onaysız uygulanmaz: çok geniş/sistem klasörü reddedilir, kalanı sorulur.
+        if (deepLinkRootDecision(hedef.kok) === "reddet") {
+          setNewTaskError(`Bağlantıdaki klasör kabul edilmedi (${hedef.kok}): proje klasörü seçin.`);
+        } else {
+          setDeepLinkRoot(hedef.kok);
+        }
+        setPage("chat");
       } else {
         void startDesktopChat();
       }
@@ -991,6 +1001,10 @@ export function SessionUygulama({
       if (hedef) derinBaglantiRef.current(hedef);
     });
     const yeni = listen(TRAY_NEW_CHAT_EVENT, () => derinBaglantiRef.current({ hedef: "yeni", kok: null }));
+    // Soğuk açılış: uygulama bir bağlantıyla açıldıysa hedef Rust'ta bekler; dinleyici kurulunca çekilir.
+    void invoke<unknown>(DEEP_LINK_PULL_COMMAND)
+      .then((yuk) => { const hedef = parseDeepLink(yuk); if (hedef) derinBaglantiRef.current(hedef); })
+      .catch(() => undefined);
     return () => {
       void derin.then((f) => f()).catch(() => undefined);
       void yeni.then((f) => f()).catch(() => undefined);
@@ -1208,6 +1222,18 @@ export function SessionUygulama({
   // Kapatma Rust'ta DURDURULUR ve onay burada sorulur; bu yüzden onay HER ekranda
   // çizilmelidir. Ölçüldü (28 Eylül, Windows): hata/hazırlanıyor/hesap/rehber
   // ekranlarında onay hiç çizilmiyordu ve uygulama kapanmıyordu.
+  const derinKokOnayi = deepLinkRoot ? (
+    <DeepLinkConfirm
+      kok={deepLinkRoot}
+      onCancel={() => setDeepLinkRoot(null)}
+      onConfirm={() => {
+        const kok = deepLinkRoot;
+        setDeepLinkRoot(null);
+        void controllerRef.current.create({ root: kok, mode: "kod" }).then(() => setPage("chat"))
+          .catch((reason: unknown) => setNewTaskError(`Yeni sohbet açılamadı: ${errorMessage(reason)}`));
+      }}
+    />
+  ) : null;
   const kapatmaOnayi = closeAsked ? (
     <CloseConfirm
       onCancel={() => {
@@ -1770,6 +1796,7 @@ export function SessionUygulama({
         <>
           {content}
           {newTaskError && !newTaskOpen && <p role="alert">{newTaskError}</p>}
+          {derinKokOnayi}
           {kapatmaOnayi}
           {feedback && <FeedbackDialog initial={feedback} onClose={() => setFeedback(null)} />}
           {shareOpen && (

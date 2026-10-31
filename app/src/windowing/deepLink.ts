@@ -32,6 +32,41 @@ export function parseDeepLink(payload: unknown): DerinBaglanti | null {
   }
 }
 
+/** Rust tarafındaki `derin_baglanti_al` komutu: soğuk açılışta bekletilen hedefi çeker. */
+export const DEEP_LINK_PULL_COMMAND = "derin_baglanti_al";
+
+/**
+ * Yol ayracına bölünmüş parçalar (boşlar atılır); `/` için boş dizi.
+ */
+const parcalar = (kok: string): string[] => kok.split("/").filter(Boolean);
+
+/** Kullanıcı ev dizinlerinin bulunduğu üst klasörler: altındaki ilk kademe ev dizinidir. */
+const EV_USTLERI = new Set(["Users", "home"]);
+/** Proje kökü olamayacak sistem klasörleri (ilk kademe). */
+const SISTEM_KOKLERI = new Set([
+  "", "bin", "sbin", "etc", "usr", "var", "tmp", "private", "dev", "proc", "sys", "System", "Library",
+  "Applications", "cores", "opt",
+]);
+
+export type DeepLinkRootDecision = "onayla" | "reddet";
+
+/**
+ * Bağlantıdan gelen kök için karar: çok geniş ya da sistem klasörü ise reddedilir, kalanı
+ * kullanıcıya SORULUR (onaysız açılmaz). Ölçüldü (31 Ekim): `fusion://yeni?kok=%2F` kökü
+ * `/` olan bir kod sohbeti hazırlıyordu.
+ */
+export function deepLinkRootDecision(kok: string): DeepLinkRootDecision {
+  if (!kok.startsWith("/") || kok.includes("\0") || /\/\.\.(\/|$)/.test(kok)) return "reddet";
+  const parca = parcalar(kok);
+  if (parca.length === 0) return "reddet";
+  const [ilk] = parca;
+  if (SISTEM_KOKLERI.has(ilk)) return "reddet";
+  // `/Users`, `/Users/ali`, `/home/ali` çok geniştir; en az ev dizininin bir alt klasörü gerekir.
+  if (EV_USTLERI.has(ilk) && parca.length < 3) return "reddet";
+  if (!EV_USTLERI.has(ilk) && parca.length < 2) return "reddet";
+  return "onayla";
+}
+
 /** Kullanıcıya göstermek/paylaşmak için adres üret (ör. "Bağlantıyı kopyala"). */
 export function deepLinkFor(hedef: DerinBaglanti): string {
   switch (hedef.hedef) {

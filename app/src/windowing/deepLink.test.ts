@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deepLinkFor, parseDeepLink } from "./deepLink";
+import { deepLinkFor, deepLinkRootDecision, parseDeepLink } from "./deepLink";
 
 describe("derin bağlantı yükü (P-064)", () => {
   it("sohbet hedefini yalnız geçerli kimlikle kabul eder", () => {
@@ -20,6 +20,15 @@ describe("derin bağlantı yükü (P-064)", () => {
     expect(parseDeepLink({ hedef: "bilinmez" })).toBeNull();
     expect(parseDeepLink("fusion://sohbet/x")).toBeNull();
     expect(parseDeepLink(null)).toBeNull();
+  });
+
+  it("bağlantıdan gelen kök: çok geniş ve sistem klasörleri reddedilir, kalanı onaya gider", () => {
+    for (const kok of ["/", "/Users", "/Users/ali", "/home/ali", "/etc", "/private/tmp/x", "/System/Library", "/Volumes", "/Users/ali/../x", "goreli"]) {
+      expect(deepLinkRootDecision(kok), kok).toBe("reddet");
+    }
+    for (const kok of ["/Users/ali/proje", "/home/ali/kod/app", "/Volumes/Disk/proje", "/Users/ali/Masaüstü"]) {
+      expect(deepLinkRootDecision(kok), kok).toBe("onayla");
+    }
   });
 
   it("adres üretimi çözümlemeyle simetriktir", () => {
