@@ -328,12 +328,15 @@ hover|down|up|drag` (`drag` için `to_x,to_y`), `button=left|right|middle`, `mod
 `delta_x=3` (yatay, pozitif sola), `x,y` ile imleç önce oraya gider.
 
 **Klavye.** `desktop_key key="cmd+shift+4 enter"`: `+` ile değiştirici (cmd/ctrl/alt/shift),
-boşlukla sıra; `repeat=3` tekrar, `hold_ms=500` basılı tutma. Chrome `key` eylemiyle aynı
-sözdizimi. `desktop_type` Unicode metin yazar.
+boşlukla sıra; `repeat=3` tekrar, `hold_ms=500` basılı tutma (toplam `repeat × tuş × hold_ms`
+en çok 30 sn; aşarsa araç parçalamanı ister). Chrome `key` eylemiyle aynı sözdizimi.
+`desktop_type` Unicode metin yazar.
 
-**Tek oturum.** Aynı anda yalnız bir Fusion süreci fare/klavye gönderir; kilit
-`$TMPDIR/fusion-desktop-<uid>/oturum.lock` dosyasındadır, süreç çıkınca ya da 5 dk eylem
-yapılmazsa düşer. Başka oturum tutuyorsa araç "Başka bir Fusion oturumu … kullanıyor" der.
+**Tek oturum.** Aynı anda yalnız bir Fusion TURU fare/klavye gönderir (aynı uygulamadaki iki
+sohbet de birbirini bekler); kilit `$TMPDIR/fusion-desktop-<uid>/oturum.lock` dosyasındadır
+(`flock` ile atomik), tur bitince bırakılır; süreç çıkınca ya da 5 dk eylem yapılmazsa da düşer.
+Başka tur tutuyorsa araç "Başka bir Fusion oturumu … kullanıyor" der. Onay kartı fare eylemini
+ve noktayı söyler: "sağ tık (784, 490)", "sürükle (10, 20) → (300, 400)".
 
 Henüz yok: küresel Esc ile durdurma, diğer uygulamaları gizleyip tur sonunda geri gösterme,
 uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
