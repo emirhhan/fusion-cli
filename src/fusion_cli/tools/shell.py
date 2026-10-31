@@ -104,17 +104,20 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
             release_sandbox(run)
             return ToolResult.failure(run.plan.refused)
         # Proxy işe aittir: iş süreci bitince kapanır (iş başlamazsa hemen).
-        started = start_job(
-            command,
-            context,
-            sandbox_env(_shell_env(context), run),
-            manifest=manifest,
-            outputs=outputs,
-            argv_prefix=run.plan.prefix,
-            on_exit=lambda: background_exit_note(run),
-        )
-        if not started.ok:
-            release_sandbox(run)
+        started: ToolResult | None = None
+        try:
+            started = start_job(
+                command,
+                context,
+                sandbox_env(_shell_env(context), run),
+                manifest=manifest,
+                outputs=outputs,
+                argv_prefix=run.plan.prefix,
+                on_exit=lambda: background_exit_note(run),
+            )
+        finally:
+            if started is None or not started.ok:
+                release_sandbox(run)
         notes = _once_notice(run) + "".join(
             f"\nFUSION_NOT: {note}" for note in sandbox_notes(run, 0, "")
         )
