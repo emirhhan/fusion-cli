@@ -19,12 +19,13 @@ yazdığı denetimsiz metindir. Her proxy tek bir komutundur (`tools.sandbox_run
 from __future__ import annotations
 
 import contextlib
+import ipaddress
 import logging
 import select
 import socket
 import socketserver
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,6 +49,8 @@ _SHUTDOWN_POLL_S = 0.05
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 Resolver = Callable[[str, int], list[str]]
+#: O anda kapalı loopback portları (Fusion Chrome'larının CDP portu); bağlantı başına sorulur.
+BlockedPorts = Callable[[], Collection[int]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,8 +107,10 @@ class DomainProxy:
         *,
         unix_path: Path | None = None,
         resolver: Resolver = _resolve,
+        blocked_ports: BlockedPorts | None = None,
     ) -> None:
         self._policy = policy
+        self._blocked_ports = blocked_ports
         self._unix_path = unix_path
         self._resolver = resolver
         self._lock = threading.Lock()
@@ -223,6 +228,8 @@ class DomainProxy:
             return _Verdict(None, f"ad çözülemedi: {error}")
         if not addresses:
             return _Verdict(None, "ad çözülemedi")
+        if self._is_blocked_local(addresses, port):
+            return _Verdict(None, "Fusion tarayıcısının hata ayıklama portu (CDP) sandbox'a kapalı")
         literal = normalized == "localhost" or _is_ip(normalized)
         explicit = literal and normalized in self._policy.allowed_domains
         if not explicit and not all(is_public_ip(address) for address in addresses):
@@ -231,11 +238,27 @@ class DomainProxy:
             )
         return _Verdict(addresses[0], "")
 
+    def _is_blocked_local(self, addresses: list[str], port: int) -> bool:
+        """Hedef loopback'te kapalı bir port mu? Liste her bağlantıda yeniden okunur.
+
+        Proxy komut boyunca yaşar; komut başladıktan sonra açılan Chrome da kapsanır.
+        """
+        if self._blocked_ports is None:
+            return False
+        return any(_is_loopback(item) for item in addresses) and port in self._blocked_ports()
+
     def _deny(self, host: str, reason: str) -> None:
         with self._lock:
             self._serial += 1
             self._denials.append(ProxyDenial(self._serial, normalize_domain(host) or "", reason))
             del self._denials[:-_MAX_DENIALS]
+
+
+def _is_loopback(address: str) -> bool:
+    try:
+        return ipaddress.ip_address(address.partition("%")[0]).is_loopback
+    except ValueError:
+        return False
 
 
 def _is_ip(text: str) -> bool:

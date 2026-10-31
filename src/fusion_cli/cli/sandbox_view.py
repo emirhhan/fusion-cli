@@ -91,6 +91,8 @@ def format_status(status: SandboxStatus) -> str:
         )
     else:
         lines.append(messages.SANDBOX_NETWORK_OPEN)
+    if status.debug_ports:
+        lines.append(messages.SANDBOX_DEBUG_PORTS.format(guard=status.debug_ports))
     lines.append(
         messages.SANDBOX_FLAGS.format(
             outside="onaylı" if status.allow_unsandboxed else "reddedilir",

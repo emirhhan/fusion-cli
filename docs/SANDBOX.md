@@ -137,10 +137,19 @@ fusion sandbox calistir -- curl -sS https://example.com  # ağ kuralı
   `unsandboxed=true` (onaylı) kullanın.
 - Paket önbellekleri (`~/.npm`, `~/.cache`) `allow_write`'a eklenmedikçe yazılamaz.
 - **localhost ve yerel dinleyiciler:** ağ `open` iken ya da `allow_localhost: true` ile sandbox
-  içindeki komut 127.0.0.1 portlarına bağlanabilir. Fusion'ın açtığı Chrome hata ayıklama portu
-  (CDP, kimlik doğrulamasız) da buna dahildir; port dosyası (`DevToolsActivePort`) okuma
-  engelinde olsa da port taranarak bulunabilir ve oturumlu tarayıcı sürülebilir. Oturumlu web
-  profilleriyle çalışırken `network: allowlist` + `allow_localhost: false` kullanın.
+  içindeki komut 127.0.0.1 portlarına (dev sunucusu, veritabanı) bağlanabilir. İstisna: Fusion'ın
+  web model profillerinin paylaşılan Chrome'u loopback'te kimlik doğrulamasız bir hata ayıklama
+  portu (CDP) açar; bu port her komutta `web_profiles/*/*/DevToolsActivePort`'tan okunur ve
+  sandbox'a kapatılır. macOS'ta Seatbelt kuralıyla her ağ kipinde; proxy de (ör. `127.0.0.1`
+  açıkça izinliyken) her bağlantıda yeniden bakar. Linux'ta allowlist kipinde komut ayrı ağ ad
+  alanında olduğundan ana makinenin localhost'una zaten ulaşamaz; **ağ `open` iken Linux'ta
+  korunmaz** (bwrap port süzemez) — oturumlu web profilleriyle `network: allowlist` kullanın.
+  macOS'ta Seatbelt kuralı komut başlarken yazılır: uzun süren bir arka plan işi başladıktan
+  SONRA açılan Chrome'un portu o işe doğrudan bağlantıda kapalı değildir (proxy yolu kapalıdır).
+  Neden `--remote-debugging-pipe` değil: bu Chrome başlatan süreçten bağımsız yaşar ve masaüstünün
+  her sekme süreci ona bağlanır; boru tek sürece bağlıdır, ayrı bir aracı süreç gerektirirdi.
+  Ajanın `browser_*` tarayıcısı ve doğrulama tarayıcıları Playwright ile zaten boru kullanır.
+  Durum: `/sandbox` "Tarayıcı CDP" satırı, masaüstü kartı.
 - Linux (bubblewrap): komut kendi PID/IPC ad alanında ve yeni oturumda çalışır (host `/proc`
   görünmez, socat köprüsü komutla ölür). bwrap var olmayan dosyayı koruyamaz: proje henüz git
   deposu değilse `.git` ya da yoksa `.mcp.json` sandbox içinden oluşturulabilir (Fusion'ın güven

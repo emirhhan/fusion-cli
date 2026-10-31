@@ -111,4 +111,9 @@ describe("SandboxCard — kabuk sandbox'ı (P-010)", () => {
     expect(screen.getByText(/Varsayılan engelden bilerek açılanlar/)).toBeTruthy();
     expect(screen.getByText("~/.kube")).toBeTruthy();
   });
+
+  it("tarayıcı hata ayıklama portu korumasının kapsamını gösterir", async () => {
+    render(<SandboxCard client={client({ cdp_korumasi: "korunmaz: Linux'ta ağ open iken" })} />);
+    await waitFor(() => expect(screen.getByText(/Tarayıcı hata ayıklama portu: korunmaz/)).toBeTruthy());
+  });
 });

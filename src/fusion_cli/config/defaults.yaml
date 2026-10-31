@@ -1072,7 +1072,9 @@ sandbox:
   # Her zaman reddedilen alan adları; allowed_domains'ten üstündür.
   denied_domains: []
   # allowlist kipinde localhost (dev sunucusu, yerel veritabanı) açık mı? Linux'ta ağ ad
-  # alanı ayrı olduğundan yalnız sandbox içinde başlatılan sunuculara ulaşılır.
+  # alanı ayrı olduğundan yalnız sandbox içinde başlatılan sunuculara ulaşılır. Fusion'ın web
+  # profil Chrome'unun hata ayıklama (CDP) portu bu izinle de kapalıdır (Linux'ta ağ open iken
+  # korunmaz; bkz. docs/SANDBOX.md).
   allow_localhost: true
   # true: sandbox kurulamazsa (Windows, bwrap/sandbox-exec yok) komut ÇALIŞTIRILMAZ.
   # false: bir kez uyarılır ve komut sandbox'sız (normal onay akışıyla) çalışır.

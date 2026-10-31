@@ -22,7 +22,7 @@ import contextlib
 import logging
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ..core.redaction import is_secret_env_name
@@ -41,6 +41,7 @@ from ..core.shell_sandbox import (
     temporary_roots,
 )
 from ..core.tools import ToolArgs, ToolContext
+from .sandbox_cdp import fusion_debug_ports
 
 __all__ = [
     "OUTSIDE_EXCLUDED",
@@ -122,7 +123,7 @@ def _proxy(policy: SandboxPolicy, notices: list[str]) -> DomainProxy | None:
     path = (
         Path(tempfile.mkdtemp(prefix="fusion-sbx-")) / "proxy.sock" if _uses_unix_proxy() else None
     )
-    proxy = DomainProxy(policy, unix_path=path)
+    proxy = DomainProxy(policy, unix_path=path, blocked_ports=fusion_debug_ports)
     try:
         proxy.start()
         return proxy
@@ -145,6 +146,9 @@ def prepare_sandbox(command: str, args: ToolArgs, context: ToolContext) -> Sandb
         run.notices.append(
             "unsandboxed=true yok sayıldı: sandbox.allow_unsandboxed kapalı; komut sandbox içinde."
         )
+    # Fusion Chrome'larının CDP portları her kipte kapalı (Seatbelt; proxy her bağlantıda bakar).
+    policy = replace(policy, denied_local_ports=fusion_debug_ports())
+    run.policy = policy
     run.proxy = _proxy(policy, run.notices)
     endpoint = (
         ProxyEndpoint(port=run.proxy.port, unix_path=run.proxy.unix_path)

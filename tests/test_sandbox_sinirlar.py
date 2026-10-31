@@ -233,3 +233,75 @@ def test_ret_kaydi_ham_ad_tutmaz(tmp_path, tcp_proxy):
         assert [item.host for item in run.proxy.denials_since(0)] == ["kotu.test", ""]
     finally:
         sandbox_runtime.release_sandbox(run)
+
+
+# --- inceleme-6: Fusion tarayıcısının CDP portu sandbox'a kapalı ---------------- #
+
+
+def _cdp_dosyasi(veri: Path, port: int, saglayici: str = "gemini_web") -> Path:
+    profil = veri / "fusion-cli" / "web_profiles" / saglayici / "main"
+    profil.mkdir(parents=True)
+    dosya = profil / "DevToolsActivePort"
+    dosya.write_text(f"{port}\n/devtools/browser/abc\n", encoding="utf-8")
+    return dosya
+
+
+def test_fusion_web_profillerinin_canli_cdp_portlari_okunur(tmp_path, monkeypatch):
+    from fusion_cli.tools.sandbox_cdp import fusion_debug_ports
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.delenv("FUSION_WORKSPACE_ISOLATION", raising=False)
+    _cdp_dosyasi(tmp_path, 41234)
+    _cdp_dosyasi(tmp_path, 41235, "chatgpt_web")
+    bozuk = _cdp_dosyasi(tmp_path, 1, "bozuk")
+    bozuk.write_text("port-degil\n")
+
+    assert fusion_debug_ports() == (41234, 41235)
+
+
+@pytest.mark.parametrize("ag", ["open", "allowlist"])
+def test_seatbelt_profili_cdp_portunu_localhost_izninden_sonra_kapatir(tmp_path, ag):
+    policy = SandboxPolicy(network=ag, denied_local_ports=(41234,))
+    plan = shell_sandbox.plan_shell_sandbox(
+        "write_root", (tmp_path,), policy=policy, platform="darwin", executable="/bin/sh"
+    )
+    profil = plan.prefix[-1]
+    kural = '(deny network-outbound (remote ip "localhost:41234"))'
+    assert kural in profil
+    if ag == "allowlist":
+        assert profil.index('(allow network* (remote ip "localhost:*"))') < profil.index(kural)
+
+
+def test_proxy_acikca_izinli_localhostta_bile_cdp_portuna_baglanmaz():
+    from fusion_cli.core.sandbox_proxy import DomainProxy
+
+    dinleyici = socket.socket()
+    dinleyici.bind(("127.0.0.1", 0))
+    dinleyici.listen()
+    port = dinleyici.getsockname()[1]
+    policy = SandboxPolicy(network="allowlist", allowed_domains=("127.0.0.1",))
+    engelli: set[int] = set()
+    proxy = DomainProxy(policy, blocked_ports=lambda: engelli)
+    proxy.start()
+    try:
+
+        def baglan() -> bytes:
+            with socket.create_connection(("127.0.0.1", proxy.port), timeout=5) as baglanti:
+                baglanti.sendall(f"CONNECT 127.0.0.1:{port} HTTP/1.1\r\n\r\n".encode())
+                return baglanti.recv(4096)
+
+        assert b"200" in baglan()
+        engelli.add(port)  # tarayıcı komut başladıktan SONRA açıldı: proxy yine görür
+        cevap = baglan()
+        assert b"403" in cevap and "hata ayıklama".encode() in cevap
+    finally:
+        proxy.close()
+        dinleyici.close()
+
+
+def test_linux_open_kipinde_cdp_korumasi_olmadigini_durum_soyler(tmp_path):
+    from fusion_cli.config.sandbox_admin import debug_port_guard
+
+    assert "korunmaz" in debug_port_guard("linux", "open")
+    assert "ad alanı" in debug_port_guard("linux", "allowlist")
+    assert "her kipte" in debug_port_guard("darwin", "open")

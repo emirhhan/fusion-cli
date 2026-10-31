@@ -29,6 +29,7 @@ __all__ = [
     "SandboxChange",
     "SandboxStatus",
     "apply_sandbox_action",
+    "debug_port_guard",
     "sandbox_status",
 ]
 
@@ -60,6 +61,14 @@ NOTE_NETWORK_SWITCHED = (
     "erişir, diğer tüm trafik (npm, pip dahil) kapalı. Geri almak: /sandbox ag open"
 )
 NOTE_UNAVAILABLE = "Uyarı: sandbox bu makinede kurulamıyor ({reason})."
+#: Fusion Chrome'larının CDP portu korumasının platforma/ağ kipine göre kapsamı.
+GUARD_DARWIN = "her kipte kapalı (Seatbelt + proxy)"
+GUARD_LINUX_ALLOWLIST = "kapalı (komut ayrı ağ ad alanında; proxy de reddeder)"
+GUARD_LINUX_OPEN = (
+    "korunmaz: Linux'ta ağ open iken komut ana makinenin localhost'una ulaşır; "
+    "oturumlu web profilleriyle /sandbox ag allowlist kullanın"
+)
+GUARD_NONE = "sandbox yok"
 NOTE_AUTO_OPEN = (
     "Not: sorusuz çalıştırma yalnız ağ allowlist'teyken etkilidir; ağ şu an açık "
     "(/sandbox ag allowlist)."
@@ -86,6 +95,8 @@ class SandboxStatus:
     auto_allow: bool
     excluded_commands: tuple[str, ...]
     hide_secret_env: bool
+    #: Fusion Chrome'larının hata ayıklama (CDP) portu korumasının kapsamı (metin).
+    debug_ports: str = ""
     #: Varsayılan okuma engelinden bilerek açılan yollar (`sandbox.allow_read`).
     allow_read: tuple[str, ...] = ()
 
@@ -104,6 +115,7 @@ class SandboxStatus:
             "ek_yazma": list(self.allow_write),
             "okuma_engeli": list(self.deny_read),
             "okuma_izni": list(self.allow_read),
+            "cdp_korumasi": self.debug_ports,
             "zorunlu": self.fail_if_unavailable,
             "disari_izinli": self.allow_unsandboxed,
             "oto_izin": self.auto_allow,
@@ -132,6 +144,15 @@ def _platform_label(system: str) -> str:
     return "desteklenmiyor"
 
 
+def debug_port_guard(system: str, network: str) -> str:
+    """CDP portu korumasının bu platform ve ağ kipindeki kapsamı (`tools.sandbox_cdp`)."""
+    if system == "darwin":
+        return GUARD_DARWIN
+    if system.startswith("linux"):
+        return GUARD_LINUX_ALLOWLIST if network == NETWORK_ALLOWLIST else GUARD_LINUX_OPEN
+    return GUARD_NONE
+
+
 def sandbox_status(config: Config, root: Path, *, platform: str | None = None) -> SandboxStatus:
     """Durumu planlayıcıya sorarak kur; kip kapalıyken de "açılsa kurulur mu" söylenir."""
     system = platform or sys.platform
@@ -158,6 +179,7 @@ def sandbox_status(config: Config, root: Path, *, platform: str | None = None) -
             *(str(path) for path in fusion_secret_paths()),
         ),
         allow_read=sandbox.allow_read,
+        debug_ports=debug_port_guard(system, sandbox.network),
         fail_if_unavailable=sandbox.fail_if_unavailable,
         allow_unsandboxed=sandbox.allow_unsandboxed,
         auto_allow=sandbox.auto_allow,

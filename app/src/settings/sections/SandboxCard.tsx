@@ -28,6 +28,8 @@ export interface SandboxStatus {
   okuma_engeli: string[];
   /** Varsayılan okuma engelinden bilerek açılan yollar (`sandbox.allow_read`); eski çekirdek göndermez. */
   okuma_izni?: string[];
+  /** Fusion Chrome'unun hata ayıklama (CDP) portu korumasının kapsamı; eski çekirdek göndermez. */
+  cdp_korumasi?: string;
   zorunlu: boolean;
   disari_izinli: boolean;
   oto_izin: boolean;
@@ -150,7 +152,7 @@ export function SandboxCard({ client }: { client: ProtocolClient }) {
             <div className="sandbox__domains">
               <ToggleRow
                 checked={status.localhost}
-                description="Yerel geliştirme sunucusu ve veritabanı (localhost) açık kalır. Fusion'ın kendi yerel dinleyicileri (ör. tarayıcı hata ayıklama portu) de buna dahildir."
+                description="Yerel geliştirme sunucusu ve veritabanı (localhost) açık kalır. Fusion'ın web profil tarayıcısının hata ayıklama portu bu izinle de kapalıdır."
                 disabled={busy}
                 onChange={(deger) => void act("localhost", deger)}
                 title="localhost'a izin ver"
@@ -226,6 +228,9 @@ export function SandboxCard({ client }: { client: ProtocolClient }) {
               />
             )}
           </div>
+          {status.cdp_korumasi && (
+            <p className="settings__hint">Tarayıcı hata ayıklama portu: {status.cdp_korumasi}.</p>
+          )}
           <details className="sandbox__paths">
             <summary>Okunamayan yollar ({status.okuma_engeli.length})</summary>
             <ul>{status.okuma_engeli.map((yol) => <li key={yol}><code>{yol}</code></li>)}</ul>
