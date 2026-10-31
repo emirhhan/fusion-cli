@@ -157,3 +157,14 @@ def test_job_current_manifest_yoksa_assert_degil_value_error(monkeypatch, tmp_pa
     sonuc = job_current._snapshot(tmp_path, is_)
 
     assert sonuc.problem  # assert -O ile kalkardı; ValueError → kontrollü problem
+
+
+def test_alt_ajan_baglami_kok_disi_engelleri_devralir(tmp_path):
+    """Birleştirmede ölçüldü (31 Ekim): `block_reads/writes_outside_root` (P-002) alt ajan
+    bağlamına kopyalanmıyordu; üye kullanıcının kök dışı engelini aşıyordu (çalışma ağacı dahil)."""
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.team_scope import derive_sub_context
+
+    ana = ToolContext(root=tmp_path, block_reads_outside_root=True, block_writes_outside_root=True)
+    for alt in (derive_sub_context(ana), derive_sub_context(ana, root=tmp_path / "agac")):
+        assert alt.block_reads_outside_root and alt.block_writes_outside_root

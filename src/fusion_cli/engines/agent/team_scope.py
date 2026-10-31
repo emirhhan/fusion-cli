@@ -66,6 +66,8 @@ def derive_sub_context(
             job_scope=context.job_scope,
             cancelled=context.cancelled,
             restrict_to_root=context.restrict_to_root,
+            block_reads_outside_root=context.block_reads_outside_root,
+            block_writes_outside_root=context.block_writes_outside_root,
             extra_roots=context.extra_roots,
             chrome=context.chrome,
             hidden_env=context.hidden_env,
@@ -85,6 +87,9 @@ def derive_sub_context(
         cancelled=context.cancelled,
         changes=context.changes,
         restrict_to_root=context.restrict_to_root,
+        # Kök dışı okuma/yazma engeli (P-002) alt ajana da geçer; düşerse üye engeli aşar.
+        block_reads_outside_root=context.block_reads_outside_root,
+        block_writes_outside_root=context.block_writes_outside_root,
         extra_roots=context.extra_roots,
         chrome=context.chrome,
         hidden_env=context.hidden_env,
