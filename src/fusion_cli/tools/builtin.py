@@ -17,6 +17,8 @@ from . import (
     desktop,
     desktop_background,
     desktop_inspect,
+    desktop_mouse,
+    desktop_screen,
     download,
     files,
     jobs,
@@ -28,6 +30,7 @@ from . import (
     search,
     shell,
     web,
+    worktree_tools,
 )
 from .registry import ToolRegistry
 
@@ -50,6 +53,7 @@ _CHROME_ACTIONS = (
 
 _STRING: SchemaFragment = {"type": "string"}
 _INTEGER: SchemaFragment = {"type": "integer"}
+_NUMBER: SchemaFragment = {"type": "number"}
 
 
 def build_registry() -> ToolRegistry:
@@ -183,17 +187,61 @@ _TOOLS: tuple[Tool, ...] = (
         mutating=True,
     ),
     Tool(
+        name="desktop_displays",
+        description="Bağlı macOS ekranlarını sırası ve boyutuyla listele (çoklu ekran).",
+        parameters=_schema({}, []),
+        run=desktop_screen.desktop_displays,
+    ),
+    Tool(
         name="desktop_screenshot",
-        description="macOS ekranını görsel olarak oku.",
-        parameters=_schema({"path": _STRING}, []),
-        run=desktop.desktop_screenshot,
+        description=(
+            "macOS ekranını görsel olarak oku; sonuç küçültülür ve 'görüntü pikseli = N nokta' "
+            "çerçevesi bildirilir. region='x,y,w,h' ile bölgeyi büyüt (kırpık; tıklama tam "
+            "görüntü koordinatıyla), display=N ile ekran seç."
+        ),
+        parameters=_schema(
+            {
+                "path": _STRING,
+                "display": {**_INTEGER, "description": "Ekran sırası (1 = ana)."},
+                "region": {**_STRING, "description": "Son görüntünün pikseliyle 'x,y,w,h'."},
+            },
+            [],
+        ),
+        run=desktop_screen.desktop_screenshot,
         mutating=True,
     ),
     Tool(
+        name="desktop_mouse",
+        description=(
+            "macOS fare eylemi; x,y BU TURDA alınan son desktop_screenshot görüntüsünün "
+            "pikselidir (görüntü yoksa önce al). action: "
+            "click|right_click|double_click|triple_click|middle_click|hover|down|up|drag "
+            "(drag için to_x,to_y). button left|right|middle, modifiers 'cmd+shift'."
+        ),
+        parameters=_schema(
+            {
+                "action": {**_STRING, "enum": list(desktop_mouse.MOUSE_ACTIONS)},
+                "x": _NUMBER,
+                "y": _NUMBER,
+                "to_x": _NUMBER,
+                "to_y": _NUMBER,
+                "button": {**_STRING, "enum": list(desktop_mouse.BUTTONS)},
+                "modifiers": _STRING,
+            },
+            ["action", "x", "y"],
+        ),
+        run=desktop_mouse.desktop_mouse,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    ),
+    Tool(
         name="desktop_click",
-        description="macOS ekranında x/y noktasına tıkla.",
-        parameters=_schema({"x": _INTEGER, "y": _INTEGER}, ["x", "y"]),
-        run=desktop.desktop_click,
+        description=(
+            "macOS ekranında x/y noktasına sol tıkla (x,y bu turdaki son ekran görüntüsünün "
+            "pikseli; görüntü yoksa önce desktop_screenshot)."
+        ),
+        parameters=_schema({"x": _NUMBER, "y": _NUMBER}, ["x", "y"]),
+        run=desktop_mouse.desktop_click,
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,
     ),
@@ -207,14 +255,20 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="desktop_key",
-        description="macOS'a özel tuş veya Command kısayolu gönder.",
+        description=(
+            "macOS'a tuş ya da kısayol dizgisi gönder: 'cmd+shift+4', 'cmd+l enter' (boşlukla "
+            "sıra), repeat=tekrar, hold_ms=basılı tutma. Chrome key ile aynı sözdizimi."
+        ),
         parameters=_schema(
             {
                 "key": {
                     **_STRING,
-                    "description": "enter, esc, delete, tab, space, ok tuşları, "
-                    "home/end/pageup/pagedown, f1-f12, a-z, 0-9",
+                    "description": "Akor dizisi: enter, esc, tab, space, ok tuşları, home/end/"
+                    "pageup/pagedown, f1-f20, a-z, 0-9, noktalama; değiştiriciler cmd/ctrl/alt/"
+                    "shift ('+' ile), akorlar boşlukla ayrılır.",
                 },
+                "repeat": {**_INTEGER, "description": "Dizinin tekrar sayısı (1-50)."},
+                "hold_ms": {**_INTEGER, "description": "Her tuşu basılı tutma süresi (0-5000 ms)."},
                 "command": {"type": "boolean"},
                 "shift": {"type": "boolean"},
                 "option": {"type": "boolean"},
@@ -228,9 +282,14 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="desktop_scroll",
-        description="macOS penceresini kaydır; pozitif yukarıdır.",
-        parameters=_schema({"lines": _INTEGER}, ["lines"]),
-        run=desktop.desktop_scroll,
+        description=(
+            "macOS'ta kaydır: lines dikey (pozitif yukarı), delta_x yatay (pozitif sola); "
+            "x,y verilirse imleç önce oraya gider (son ekran görüntüsünün pikseli)."
+        ),
+        parameters=_schema(
+            {"lines": _INTEGER, "delta_x": _INTEGER, "x": _NUMBER, "y": _NUMBER}, []
+        ),
+        run=desktop_mouse.desktop_scroll,
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,
     ),
@@ -665,6 +724,22 @@ _TOOLS: tuple[Tool, ...] = (
         description="Tarayıcıyı kapat. İşin bittiyse çağır; tur sonunda motor da kapatır.",
         parameters=_schema({}, []),
         run=browser.browser_close,
+    ),
+    Tool(
+        name="enter_worktree",
+        description="İzole git çalışma ağacı aç (.fusion/worktrees/<ad>, dal worktree-<ad>); "
+        "tur bitince oturum kökü oraya geçer. Ana proje değişmez.",
+        parameters=worktree_tools.ENTER_WORKTREE_SCHEMA,
+        run=worktree_tools.enter_worktree_tool,
+        mutating=True,
+    ),
+    Tool(
+        name="exit_worktree",
+        description="Çalışma ağacından ana depoya dön (tur bitince); temiz ağaç kaldırılır, "
+        "iş varsa korunur.",
+        parameters=worktree_tools.EXIT_WORKTREE_SCHEMA,
+        run=worktree_tools.exit_worktree_tool,
+        mutating=True,
     ),
 )
 

@@ -56,3 +56,11 @@ class CleanupFailedError(FusionError):
 
 class ProcessCancelledError(FusionError):
     """Süreç ağacı temizlendikten sonra bildirilen çağrı iptali."""
+
+
+class SessionNotFoundError(FusionError):
+    """`--continue`/`--resume` ile istenen Fusion sohbeti bu projede bulunamadı."""
+
+
+class WorktreeError(FusionError):
+    """Git çalışma ağacı (worktree) oluşturulamadı, bulunamadı ya da kaldırılamadı."""

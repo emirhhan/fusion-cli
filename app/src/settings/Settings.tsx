@@ -13,7 +13,8 @@ import { VoicePreferences } from "./VoicePreferences";
 import { General, readHistoryOpen, HISTORY_KEY } from "./sections/General";
 import { Models, type ModelState } from "./sections/Models";
 import { RoleModels } from "./sections/RoleModels";
-import { Permissions } from "./sections/Permissions";
+import { ComputerUse } from "../permissions/ComputerUse";
+import { Permissions, type TrustInfo } from "./sections/Permissions";
 import { WebSessions } from "./sections/WebSessions";
 import { Advanced } from "./sections/Advanced";
 import { ChromeBrowser } from "./ChromeBrowser";
@@ -57,7 +58,13 @@ const KONTROL_BOLUMLERI = new Set<BolumId>(["modeller", "izinler", "gelismis"]);
 
 interface ControlSnapshot {
   gateway?: { adres?: string; durum?: string };
-  izin?: { mod?: string; kokle_sinirli?: boolean };
+  izin?: {
+    mod?: string;
+    kokle_sinirli?: boolean;
+    kok_disi_okuma_engeli?: boolean;
+    kok_disi_yazma_engeli?: boolean;
+    guven?: TrustInfo;
+  };
   kok?: string;
   model?: ModelState;
   saglayicilar?: { id: string; kurulu?: boolean }[];
@@ -326,7 +333,7 @@ export function Settings({
 
           {bolum === "ses" && <VoicePreferences client={client} />}
 
-          {bolum === "kisisellestirme" && <><MemoryPanel client={client} /><Instructions client={client} /></>}
+          {bolum === "kisisellestirme" && <><MemoryPanel client={client} /><Instructions client={client} onRunCommand={onRunCommand ? (command) => { void onRunCommand(command); } : undefined} /></>}
 
           {bolum === "tarayici" && <ChromeBrowser client={client} />}
 
@@ -334,14 +341,18 @@ export function Settings({
 
           {bolum === "izinler" && (
             <Permissions
+              client={client}
+              guven={control?.izin?.guven ?? null}
               kok={control?.kok ?? ""}
               kokleSinirli={control?.izin?.kokle_sinirli !== false}
               mod={control?.izin?.mod ?? "auto"}
               pending={modeBusy || !control}
               onChangeRoot={onChangeRoot}
               onSelectMode={onRunCommand ? selectMode : undefined}
+              onTrustChange={() => void load()}
             />
           )}
+          {bolum === "izinler" && <ComputerUse client={client} />}
 
           {bolum === "zeka" && <Intelligence client={client} />}
 

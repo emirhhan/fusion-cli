@@ -13,7 +13,8 @@ export const SETTINGS_ROWS: SettingsRow[] = [
   // Kendi satır kimliği olmayan bölümler: bölüm başlığına odaklanır (Settings.tsx `settings-section-heading`).
   { section: "ses", id: SECTION_HEADING_ID, label: "Ses ve konuşma ayarları", keywords: "konuşma hız mikrofon talk seslendirme" },
   { section: "modeller", id: SECTION_HEADING_ID, label: "Model seçimi", keywords: "model sağlayıcı rol varsayılan görsel sohbet profil" },
-  { section: "izinler", id: SECTION_HEADING_ID, label: "İzin modu", keywords: "onay mod çalışma klasörü kök manuel otomatik" },
+  { section: "izinler", id: SECTION_HEADING_ID, label: "İzin modu", keywords: "onay mod çalışma klasörü kök manuel otomatik güven trust klasör dışı engel" },
+  { section: "izinler", id: "settings-permission-rules", label: "İzin kuralları", keywords: "allow ask deny kural kalıp bash edit read webfetch mcp yasak her zaman sor bir daha sorma" },
   { section: "tarayici", id: SECTION_HEADING_ID, label: "Tarayıcı eklentisi", keywords: "chrome eklenti eşleştirme anahtar" },
   { section: "weboturumlari", id: SECTION_HEADING_ID, label: "Web oturumları", keywords: "çerez cookie oturum profil içe aktar chrome giriş tarayıcı" },
   { section: "kisisellestirme", id: SECTION_HEADING_ID, label: "Özel talimat", keywords: "özel talimat sistem istemi kişiselleştirme" },

@@ -247,6 +247,9 @@ def snapshot(
         "izin": {
             "mod": approval,
             "kokle_sinirli": config.runtime.restrict_to_root,
+            # Tek yönlü kök sınırı (P-002) ve proje güveni (P-012); Ayarlar › İzinler okur.
+            "kok_disi_okuma_engeli": config.runtime.block_reads_outside_root,
+            "kok_disi_yazma_engeli": config.runtime.block_writes_outside_root,
         },
         "mcp": [{"ad": server.name, "komut": server.command} for server in config.mcp_servers],
         "saglayicilar": provider_rows(store),

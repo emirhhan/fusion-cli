@@ -34,8 +34,9 @@ from itertools import count
 from pathlib import Path
 from typing import Any
 
-from ..cli.repl import macros
-from ..cli.repl.commands import RENDERED_COMMANDS, build_registry
+from ..cli.repl import macros, worktrees
+from ..cli.repl.commands import RENDERED_COMMANDS, attach_skill_commands, build_registry
+from ..cli.repl.skill_commands import GROUP as SKILL_GROUP
 from ..cli.repl.state import Engine, ReplState
 from ..cli.repl.transcript_store import (
     TranscriptStore,
@@ -54,6 +55,7 @@ from ..config.loader import load_config
 from ..config.model_select import select_agent_spec
 from ..config.models import Config, McpServerConfig, mcp_secret_env_names
 from ..config.paths import credentials_file
+from ..config.permissions import load_allowed_commands
 from ..core.changeset import ChangeSet
 from ..core.clock import SystemClock
 from ..core.concurrency import BackgroundTasks
@@ -69,6 +71,7 @@ from ..core.submission import SubmissionReceipt, SubmissionRepository
 from ..core.tools import TodoStatus
 from ..core.turn_deadline import TurnDeadline
 from ..core.types import Message
+from ..core.worktree import WorktreeSwitch, worktree_for_path
 from ..engines.agent.approval import ApprovalMode, parse_mode
 from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.context_budget import context_budget
@@ -127,6 +130,11 @@ from .conversation_title import conversation_title
 from .daemon_thread import run_in_daemon_thread
 from .desktop_activity import DesktopActivity
 from .desktop_dock import DesktopDock
+from .desktop_permission_routes import (
+    DESKTOP_PERMISSION_ROUTES,
+    DesktopPermissionWatch,
+    dispatch_desktop_permission,
+)
 from .desktop_routes import DESKTOP_ROUTES, dispatch_desktop
 from .file_search import FileSearchIndex, search_project_files
 from .history import (
@@ -417,6 +425,20 @@ class _MeteredSink:
 FALLBACK_CONVERSATION_ID = "varsayilan"
 
 
+def export_payload(history: list[Message], data: dict[str, Any]) -> dict[str, Any]:
+    """`sohbet.disa_aktar {bicim: markdown|json, baslik}` → maskeli dışa aktarım metni."""
+    from ..core.transcript_export import default_export_name, export_json, export_markdown
+
+    bicim = str(data.get("bicim") or "markdown").lower()
+    if bicim not in ("markdown", "json"):
+        return {"ok": False, "metin": "Biçim 'markdown' ya da 'json' olmalı."}
+    baslik = data.get("baslik")
+    title = baslik.strip() if isinstance(baslik, str) and baslik.strip() else "Fusion sohbeti"
+    as_json = bicim == "json"
+    text = export_json(history, title=title) if as_json else export_markdown(history, title=title)
+    return {"ok": True, "metin": text, "dosya_adi": default_export_name(as_json=as_json)}
+
+
 def _title_payload(message: object) -> dict[str, Any]:
     """`sohbet.baslik`: ilk mesajdan başlık. Model çağrılmaz (bkz. `conversation_title`)."""
     if not isinstance(message, str):
@@ -479,6 +501,8 @@ class AppSession:
         self._steering_turn: str | None = None
         self._steering_requests: set[str] = set()
         self._registry = build_registry(home)
+        # Beceri/komut dosyaları `/ad` olarak (P-019); defter sahteleri eski imzayı korur.
+        attach_skill_commands(self._registry, lambda: self._state.capabilities)
         self._state = ReplState.from_runtime_config(
             config,
             memory=build_memory(config, root=root),
@@ -550,6 +574,9 @@ class AppSession:
         )
         self._desktop_dock = DesktopDock(chrome=self._chrome)
         self._desktop_activity = DesktopActivity()
+        self._desktop_permissions = DesktopPermissionWatch(
+            lambda payload: self._writer(encode_event(payload))
+        )
         from ..mcp_bridge.service import McpConnectionService
 
         self._mcp_connections = McpConnectionService()
@@ -835,6 +862,9 @@ class AppSession:
             return add_upload(request.data)
         if request.name == "kitaplik.kaldir":
             return remove_entry(request.data)
+        if request.name in DESKTOP_PERMISSION_ROUTES:
+            # Sistem istemi bloklayıcıdır (TCC penceresi); olay döngüsü dışında.
+            return await asyncio.to_thread(dispatch_desktop_permission, request.name, request.data)
         if request.name in DESKTOP_ROUTES:
             return await dispatch_desktop(
                 self._desktop_dock, self._desktop_activity, request.name, request.data
@@ -891,8 +921,13 @@ class AppSession:
             return await self._move_conversation(request.data)
         if request.name == "sohbet.listele":
             return self._list_conversations()
+        if request.name == "sohbet.adlandir":
+            return await self._rename_conversation(request.data)
         if request.name == "sohbet.baslik":
             return _title_payload(request.data.get("metin"))
+        if request.name == "sohbet.disa_aktar":
+            # P-028: masaüstü ShareDialog ile REPL /export aynı üreticiyi kullanır.
+            return export_payload(list(self._state.history), request.data)
         if request.name == "kademe.listele":
             return list_tiers(self._state.config)
         if request.name == "kademe.sec":
@@ -923,6 +958,7 @@ class AppSession:
                 self._state.extra_roots = tuple(
                     dict.fromkeys((*self._state.extra_roots, *prepared.work_dirs))
                 )
+                self._refresh_capabilities()
                 self._state.history = list(prepared.messages)
                 return prepared.payload
             return prepared
@@ -969,17 +1005,28 @@ class AppSession:
                 disabled_skills=self._disabled_skills,
                 disabled_agents=self._disabled_agents,
                 disabled_mcp=self._disabled_mcp,
+                home=self._home,
             )
         if request.name == "yetenek.detay":
             return detail(
-                self._all_capabilities, self._state.config, self._state.root, request.data
+                self._all_capabilities,
+                self._state.config,
+                self._state.root,
+                request.data,
+                home=self._home,
             )
         if request.name == "yetenek.etkinlik":
             return self._set_capability_enabled(request.data)
         if request.name == "yetenek.kullan":
             return self._select_capability(request.data)
+        if request.name == "yetenek.yenile":
+            return self._reload_capabilities()
+        if request.name == "yetenek.teshis":
+            return self._diagnose_capabilities()
         if request.name == "kontrol.durum":
             return self._control_status()
+        if request.name.startswith("izin.") or request.name.startswith("proje.guven_"):
+            return self._permissions_rpc(request)
         if request.name == "kontrol.cirak_bildirimi_goruldu":
             return self._ack_apprentice_notice()
         if request.name == "kontrol.anahtar_kaydet":
@@ -1064,7 +1111,7 @@ class AppSession:
         if request.name == "hesap.sil":
             return self._accounts.remove(request.data)
         if request.name == "ayar.talimat":
-            return get_instructions()
+            return get_instructions(self._state.root, self._home)
         if request.name == "zeka.durum":
             return intelligence.status(self._state)
         if request.name == "zeka.ayarla":
@@ -1405,13 +1452,38 @@ class AppSession:
                     "kok": str(self._root.expanduser().resolve()),
                     # Diskte ilk mesajın ilk satırı durur; liste de sekmeyle
                     # AYNI sezgiselle adlandırılır, ikisi ayrışmasın.
-                    "baslik": conversation_title(ref.title) or ref.title,
+                    # Kullanıcının verdiği ad (`sohbet.adlandir`, CLI `/rename`) başlığı ezer.
+                    "baslik": ref.name or conversation_title(ref.title) or ref.title,
+                    "ad": ref.name,
                     "guncelleme": ref.updated_at,
                     "mesaj_sayisi": ref.message_count,
                 }
                 for ref in list_conversations(self._state.config.memory_dir, self._root)
             ],
         }
+
+    async def _rename_conversation(self, data: dict[str, Any]) -> dict[str, Any]:
+        """`sohbet.adlandir {sohbet_id?, ad}`: sohbete kalıcı ad ver; CLI `/rename` ile aynı kayıt.
+
+        Ad transcript'e olay olarak yazılır; `sohbet.listele` ve `fusion --resume <ad>`
+        aynı adı görür. Kimlik verilmezse açık sekmenin sohbeti adlandırılır.
+        """
+        name = data.get("ad")
+        if not isinstance(name, str) or not name.strip():
+            return {"ok": False, "metin": messages.SESSION_RENAME_USAGE}
+        conversation_value = data.get("sohbet_id")
+        conversation_id = (
+            conversation_value.strip()
+            if isinstance(conversation_value, str) and conversation_value.strip()
+            else self._conversation_id or FALLBACK_CONVERSATION_ID
+        )
+        store = TranscriptStore(
+            self._state.config.memory_dir, self._root, conversation_id=conversation_id
+        )
+        await asyncio.to_thread(store.record_name, name.strip())
+        if conversation_id == self._state.conversation_id:
+            self._state.conversation_name = name.strip()
+        return {"ok": True, "sohbet_id": conversation_id, "ad": name.strip()}
 
     def _rebind_transcript(self) -> None:
         """Transcript deposunu güncel kök ve konuşma kimliğine bağla.
@@ -1425,6 +1497,11 @@ class AppSession:
         self._transcript_store = TranscriptStore(
             self._state.config.memory_dir, self._root, conversation_id=self._conversation_id
         )
+        # Slash komutları (`/rename`) ve tur checkpoint'leri sekmenin kimliğini görsün;
+        # yoksa `ReplState` açılışta ürettiği rastgele kimlikte kalırdı.
+        self._state.conversation_id = self._transcript_store.session_id
+        # Başka sekmenin tur kayıtları bu konuşmaya ait değildir.
+        self._state.checkpoints.clear()
         self._restore_interrupted_turn()
 
     def _turn_journal(self, task: str) -> FileTurnJournal:
@@ -1480,20 +1557,7 @@ class AppSession:
             conversation_changed = yeni_kimlik != self._conversation_id
             self._conversation_id = yeni_kimlik
         if new_root is not None:
-            root_changed = new_root.resolve() != self._root.resolve()
-            self._root = new_root
-            self._state.root = self._root
-            if root_changed:
-                # Başka bir projenin dizin izinleri ve "bu oturumda hep izin ver" kararları
-                # yeni projeye taşınmaz.
-                self._state.extra_roots = ()
-                self._state.approval_memory.revoke()
-            self._workspace_journal.clear()
-            self._processes.update_root(self._root)
-            # Önbellek kökle anahtarlı, ama eski kökün girdisi bellekte
-            # kalmasın: kullanıcı projeler arasında gidip gelirken bayat bir
-            # listeyle karşılaşmamalı.
-            self._file_search.invalidate()
+            self._apply_root(new_root)
             capability_roots_changed = True
         if capability_roots_changed or conversation_changed:
             self._rebind_transcript()
@@ -1832,6 +1896,43 @@ class AppSession:
         self._note_persist_warning(persist_engine(self._state.config, engine.value))
         return None
 
+    def _permissions_rpc(self, request: Request) -> dict[str, Any]:
+        """İzin kuralı tablosu ve proje güveni (P-003, P-012); bkz. `permissions_rpc`."""
+        from . import permissions_rpc
+
+        root, data = self._state.root, request.data
+        if request.name == "izin.kurallar":
+            return permissions_rpc.list_rules(root, self._state.config)
+        if request.name == "izin.ekle":
+            return permissions_rpc.add_rule(root, data)
+        if request.name == "izin.sil":
+            return permissions_rpc.remove_rule(root, data)
+        if request.name == "izin.engel":
+            updated, result = permissions_rpc.set_block(self._state.config, data)
+            if updated is not None:
+                self._state.config = updated
+            return result
+        if request.name == "proje.guven_durum":
+            return permissions_rpc.trust_status(root)
+        if request.name in ("proje.guven_ver", "proje.guven_kaldir"):
+            if self._turn is not None and not self._turn.done():
+                return {
+                    "ok": False,
+                    "metin": "Güven sınırını değiştirmeden önce çalışan görevi durdur.",
+                }
+            result = (
+                permissions_rpc.trust_grant(root)
+                if request.name == "proje.guven_ver"
+                else permissions_rpc.trust_revoke(root)
+            )
+            # Güven değişince izin listesi ve proje yapılandırması yeniden okunur; "bu
+            # oturumda hep izin ver" kararları yeni sınırla taşınmaz.
+            self._state.allowed_commands = load_allowed_commands(root)
+            self._state.approval_memory.revoke()
+            self._state.refresh_config()
+            return result
+        return {"ok": False, "metin": f"Bilinmeyen istek: {request.name}"}
+
     def _status(self) -> dict[str, Any]:
         return {
             "ok": True,
@@ -1902,6 +2003,17 @@ class AppSession:
             gateway=self._gateway_status(),
         )
         durum["model"]["cirak_bildirim_goster"] = self._cirak_bildirimi_gerekli_mi()
+        # Proje güveni (P-012): Ayarlar › İzinler satırı ve güven şeridi buradan okur.
+        from . import permissions_rpc
+
+        guven = permissions_rpc.trust_status(self._state.root)
+        durum["izin"]["guven"] = {
+            "guvenildi": guven["guvenildi"],
+            "neden": guven["neden"],
+            "dusurulen_bolumler": guven["dusurulen_bolumler"],
+            "yok_sayilan_dosyalar": guven["yok_sayilan_dosyalar"],
+            "yuklenmeyen_araclar": guven["yuklenmeyen_araclar"],
+        }
         return durum
 
     def _cirak_bildirimi_gerekli_mi(self) -> bool:
@@ -1954,6 +2066,7 @@ class AppSession:
         göstermiyorlardı. Onlar TUI'nin kullandığı renderer'dan metne çevrilir.
         """
         previous_approval = self._state.approval
+        previous_history = self._state.history
         name = str(data.get("ad", ""))
         argument = str(data.get("arguman", ""))
         command = self._registry.get(name)
@@ -1995,6 +2108,18 @@ class AppSession:
                     secret_store=self._secret_store,
                 )
             )
+        elif command is not None and command.group == SKILL_GROUP:
+            # Beceri gövdesindeki !`cmd` komutları komut başına 10 sn'ye kadar bloklayan
+            # `subprocess.run` yapar; olay döngüsünde koşarsa akış/iptal/RPC donar
+            # (ölçüldü 31 Ekim). İşleyici yalnız bekleyen görev/bağlam alanlarını yazar.
+            result = await asyncio.to_thread(
+                run_command,
+                self._registry,
+                self._state,
+                name,
+                argument,
+                secret_store=self._secret_store,
+            )
         else:
             result = run_command(
                 self._registry, self._state, name, argument, secret_store=self._secret_store
@@ -2003,6 +2128,19 @@ class AppSession:
             self._state.approval_memory.revoke()
             self._note_persist_warning(persist_approval(self._state.config, self._state.approval))
             result = {**result, **self._take_persist_warning()}
+        if command is not None and command.name in {"rewind", "undo"}:
+            # Dosyalar tur başına döndü; çalışma alanı günlüğündeki "geri al" kayıtları
+            # bayatlamasın (değişiklikler paneli artık olmayan farkı göstermesin).
+            self._drop_reverted_journal_entries()
+            if self._state.history is not previous_history:
+                # Konuşma geri sarıldı: arayüz sohbet panosunu kalan geçmişe kessin. Ölçüldü
+                # (31 Ekim): sinyal yokken pano tüm eski mesajları göstermeye devam ediyor,
+                # kullanıcı modelin hâlâ bildiğini sanıyordu.
+                result = {**result, "gecmis": visible_history(self._state.history)}
+        if command is not None and command.name == "worktree":
+            # `/worktree <ad>` ya da `cik` oturum kökünü değiştirdi: masaüstü köküyle aynı
+            # yoldan (`oturum.baslat{kok}`) hizala ve yeni kökü arayüze söyle.
+            result = {**result, **self._adopt_state_root()}
         # Makrolar görevi yalnız HAZIRLAR (bkz. `cli/repl/commands.py::_macro`).
         # Terminal döngüsü hazırlanan görevi hemen çalıştırıyordu; masaüstünde bu
         # adım yoktu ve `/goal` "çalıştırılıyor…" deyip hiçbir tur başlatmıyordu.
@@ -2013,6 +2151,98 @@ class AppSession:
             return result
         self._next_turn_mode = mode
         return {**result, "gorev": task}
+
+    async def _prefix_reply(self, task: str) -> dict[str, Any] | None:
+        """`! komut` ve `# not` yerel cevap döner; `@dosya` blokları sonraki turun bağlamına girer.
+
+        Ölçüldü (31 Ekim): masaüstünde önekler düz mesaj olarak modele gidiyordu (yarım
+        yüzey). Terminal yüzeyiyle aynı saf fonksiyonlar (`cli/repl/prefixes.py`) kullanılır;
+        kabuk çıktısı Markdown çiti içinde arayüze yazılır, bağlam bloğu maskeli ve etiketli.
+        """
+        from ..cli.repl import prefixes
+        from ..cli.repl.loop import apply_mentions
+
+        if (command := prefixes.shell_command(task)) is not None:
+            result = await prefixes.run_shell_prefix(self._state, command)
+            parts: list[str] = []
+            if result.output:
+                parts.append(f"```text\n$ {command}\n{result.output.rstrip()}\n```")
+            if result.context_block:
+                parts.append(messages.SHELL_PREFIX_CONTEXT_NOTE)
+            parts.extend(result.notes)
+            return {"ok": result.ok, "metin": "\n\n".join(parts), "yerel_yanit": True}
+        if (note := prefixes.memory_note(task)) is not None:
+            return {
+                "ok": True,
+                "metin": prefixes.add_memory_note(self._state, note),
+                "yerel_yanit": True,
+            }
+        for mention_note in apply_mentions(task, self._state):
+            # Arayüze ayrı not kanalı yok; okunamayan anma günlüğe düşer, tur yine çalışır.
+            logging.getLogger(__name__).info("@anma: %s", mention_note)
+        return None
+
+    def _adopt_state_root(self) -> dict[str, Any]:
+        """Slash komutu `state.root`'u değiştirdiyse sekmenin kökünü ona taşı (`kok` döner)."""
+        try:
+            changed = self._state.root.resolve() != self._root.resolve()
+        except OSError:
+            changed = True
+        if not changed:
+            return {}
+        if self._turn is not None and not self._turn.done():
+            self._state.root = self._root
+            return {"ok": False, "metin": "Tur sürerken proje kökü değiştirilemez."}
+        self._apply_root(self._state.root)
+        # Konuşma AYNI sohbettir: geçmiş, tur checkpoint'leri ve kimlik korunur; yalnız
+        # depo yeni köke bağlanır (çalışma ağacı projenin transcript anahtarını paylaşır).
+        # Ölçüldü (31 Ekim): `_rebind_transcript` geçmişi yeni kökten yeniden yüklüyor,
+        # /worktree sonrası model önceki konuşmayı bilmiyordu.
+        self._transcript_store = TranscriptStore(
+            self._state.config.memory_dir,
+            self._root,
+            conversation_id=self._transcript_store.session_id,
+        )
+        self._all_capabilities = CapabilityRegistry(self._home, self._root)
+        self._disabled_skills.clear()
+        self._disabled_agents.clear()
+        self._disabled_mcp.clear()
+        self._refresh_capabilities()
+        return {"kok": str(self._root.resolve())}
+
+    def _apply_root(self, new_root: Path) -> bool:
+        """Kökü değiştir ve köke bağlı yardımcıları sıfırla; kök gerçekten değiştiyse True."""
+        root_changed = new_root.resolve() != self._root.resolve()
+        self._root = new_root
+        self._state.root = self._root
+        # Künye kökten türetilir: sekme bir çalışma ağacı köküyle açılırsa `/worktree cik`
+        # çalışır; başka projeye geçilirse eski ağacın künyesi kalmaz.
+        self._state.worktree = worktree_for_path(self._root)
+        if root_changed:
+            # Başka bir projenin dizin izinleri ve "bu oturumda hep izin ver" kararları
+            # yeni projeye taşınmaz.
+            self._state.extra_roots = ()
+            self._state.approval_memory.revoke()
+        self._workspace_journal.clear()
+        self._processes.update_root(self._root)
+        # Önbellek kökle anahtarlı, ama eski kökün girdisi bellekte
+        # kalmasın: kullanıcı projeler arasında gidip gelirken bayat bir
+        # listeyle karşılaşmamalı.
+        self._file_search.invalidate()
+        return root_changed
+
+    def _drop_reverted_journal_entries(self) -> None:
+        """İçeriği kayıt öncesi hâline eşit olan dosyaların günlük girdisini düşür."""
+        for entry in self._workspace_journal.latest():
+            path = self._state.root / entry.path
+            try:
+                current: bytes | None = path.read_bytes()
+            except FileNotFoundError:
+                current = None
+            except OSError:
+                continue
+            if current == (entry.before if entry.existed else None):
+                self._workspace_journal.pop(entry.path)
 
     async def _select_model(self, data: dict[str, Any]) -> dict[str, Any]:
         """`model.sec {kaynak, model}`: yapısal model seçimi (U1-40).
@@ -2316,6 +2546,11 @@ class AppSession:
                     reply, message_id=f"{receipt.key.request_id}:assistant" if receipt else None
                 )
                 return {"ok": True, "metin": reply, "yerel_yanit": True}
+        if not browser_only and not attachment_context and not images:
+            # REPL önekleri (P-022) masaüstünde de geçerli; `!`/`#` model çağırmaz.
+            local = await self._prefix_reply(task)
+            if local is not None:
+                return local
         image_command = None if browser_only else parse_image_command(task)
         if image_command is not None and not attachment_context and not images:
             ok, markdown = await run_image_command(self._state.config, image_command)
@@ -2366,6 +2601,8 @@ class AppSession:
         capability_context = self._take_capability_context()
         selected_skill, self._taken_skill = self._taken_skill, None
         inherited_context = self._state.take_pending_digest()
+        # `/beceri` slash komutunun hazırladığı gövde ve araç kısıtı (P-019).
+        pending_extras = self._state.take_pending_extras()
         turn_mode, self._next_turn_mode = self._next_turn_mode, macros.Mode.NONE
 
         # Kullanıcının kalıcı talimatı da bağlama girer. Sistem istemi
@@ -2389,6 +2626,7 @@ class AppSession:
                     macros.mode_prompt(turn_mode),
                     inherited_context,
                     capability_context,
+                    pending_extras.context,
                     attachment_context,
                     voice_context.prompt() if voice_context else "",
                     instruction_block(),
@@ -2403,7 +2641,7 @@ class AppSession:
                 remotion_browser=self._state.remotion_browser,
                 require_remotion_kit=self._require_remotion_kit,
                 deadline=deadline,
-                sinks=(sink, self._desktop_activity, *trace_sinks),
+                sinks=(sink, self._desktop_activity, self._desktop_permissions, *trace_sinks),
                 prompter_factory=lambda _drain: prompter,
                 mode=self._state.approval,
                 root=self._state.root,
@@ -2411,7 +2649,7 @@ class AppSession:
                 home=self._state.home,
                 history=history,
                 chrome_bridge=self._chrome,
-                allowed_tools=(
+                allowed_tools=pending_extras.merged_tools(
                     (CHROME_CODE_TURN_TOOLS if self._workspace_mode == "kod" else CHROME_TURN_TOOLS)
                     if browser_only
                     else None
@@ -2443,11 +2681,19 @@ class AppSession:
                 journal=journal,
                 background=self._voice_background if voice_context else None,
                 changes=changes,
+                worktree_switch=switch,
             )
 
+        # `enter_worktree`/`exit_worktree` isteği: kök tur ortasında değişmez, tur bitince
+        # burada uygulanır (REPL `apply_switch` ile aynı). Ölçüldü (31 Ekim): masaüstü
+        # anahtarı hiç okumuyordu; araç "tur bitince kök değişir" diyor, kök değişmiyordu.
+        switch = WorktreeSwitch()
         # Ajanın her yazmadan önce aldığı anlık görüntüler; tur bitince (iptal dahil)
-        # çalışma alanı günlüğüne geçer ve UI geri alma yalnız bunlara dayanır.
-        changes = ChangeSet()
+        # çalışma alanı günlüğüne geçer ve UI geri alma yalnız bunlara dayanır. Kayıt
+        # tur checkpoint defterinden gelir: `/rewind` masaüstünde de aynı defteri sarar.
+        changes = (
+            ChangeSet() if browser_only else self._state.checkpoints.begin(task, history).changes
+        )
         # Tarayıcı paneli turu sekmenin konuşması değildir; günlüğe yazılmaz.
         journal = None if browser_only else self._turn_journal(task)
         self._start_local_state_purge(config.memory_dir)
@@ -2503,6 +2749,8 @@ class AppSession:
             self._chrome_history = outcome.messages
             return {"ok": outcome.ok, "metin": outcome.final_text or messages.APP_TURN_NO_ANSWER}
         self._state.history = outcome.messages
+        switched = worktrees.apply_switch_request(self._state, switch)
+        root_payload = self._adopt_state_root() if switched else {}
         # Transcript bir BAŞARI kaydı değil, NE OLDUĞU kaydıdır.
         #
         # Ölçüldü (7 Eylül, kullanıcının Godot koşuları): plan adımı duraklayınca
@@ -2562,8 +2810,10 @@ class AppSession:
             )
             if receipt is not None:
                 continued["_retry_safe"] = False
-            return continued
-        cevap: dict[str, Any] = {"ok": outcome.ok, "metin": metin}
+            return {**root_payload, **continued}
+        if switched:
+            metin = f"{metin}\n\n{switched}".strip()
+        cevap: dict[str, Any] = {"ok": outcome.ok, "metin": metin, **root_payload}
         if receipt is not None:
             cevap["_retry_safe"] = (
                 getattr(outcome, "tool_calls_made", None) == 0
@@ -2572,15 +2822,56 @@ class AppSession:
         kanit = evidence_payload(getattr(outcome, "completion_report", None))
         if kanit is not None:
             cevap["kanit"] = kanit
-        return cevap
+        # Onay kartındaki "bir daha sorma" kuralı yazıldı/yazılamadı bildirimi (P-003).
+        for notice in self._state.approval_memory.take_notices():
+            self._note_persist_warning(messages.PERMISSION_RULE_SAVED.format(summary=notice))
+        return {**cevap, **self._take_persist_warning()}
 
     def _refresh_capabilities(self) -> None:
+        # Kalıcı `capabilities.disabled` + oturumluk kapatmalar birlikte; ek kökler (P-051/052).
+        kalici = frozenset(getattr(self._state.config.capabilities, "disabled", ()))
         self._state.capabilities = CapabilityRegistry(
             self._state.home,
             self._state.root,
-            disabled_skills=frozenset(self._disabled_skills),
-            disabled_agents=frozenset(self._disabled_agents),
+            disabled_skills=frozenset(self._disabled_skills) | kalici,
+            disabled_agents=frozenset(self._disabled_agents) | kalici,
+            extra_roots=self._state.extra_roots,
         )
+        self._all_capabilities = self._all_capabilities.with_extra_roots(self._state.extra_roots)
+
+    def _reload_capabilities(self) -> dict[str, Any]:
+        """`yetenek.yenile`: kataloğu diskten yeniden tara."""
+        self._all_capabilities.invalidate()
+        self._refresh_capabilities()
+        return {
+            "ok": True,
+            "beceri": len(self._all_capabilities.skills()),
+            "ajan": len(self._all_capabilities.agents()),
+        }
+
+    def _diagnose_capabilities(self) -> dict[str, Any]:
+        """`yetenek.teshis`: eksik açıklama, kopya ad, uzun gövde gibi bulgular."""
+        from ..tools.capability_doctor import diagnose, render_report
+
+        bulgular = diagnose(self._all_capabilities)
+        return {
+            "ok": True,
+            "bulgular": [
+                {
+                    "tur": b.kind,
+                    "ad": b.name,
+                    "onem": b.severity,
+                    "ayrinti": b.detail,
+                    "yol": b.path,
+                }
+                for b in bulgular
+            ],
+            "metin": render_report(
+                bulgular,
+                skills=len(self._all_capabilities.skills()),
+                agents=len(self._all_capabilities.agents()),
+            ),
+        }
 
     def _known_capability(self, kind: str, name: str) -> bool:
         if kind == "beceri":

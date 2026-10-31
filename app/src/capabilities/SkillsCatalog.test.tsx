@@ -93,3 +93,32 @@ describe("SkillsCatalog yarış", () => {
     expect(screen.getByText("REVIEWER ayrıntısı")).toBeTruthy();
   });
 });
+
+describe("SkillsCatalog yenile ve teşhis (P-051)", () => {
+  it("Yenile kataloğu yeniden çeker, Teşhis metnini ayrıntı panelinde gösterir", async () => {
+    let katalogSayisi = 0;
+    const c = {
+      request: vi.fn(async (name: string) => {
+        if (name === "yetenek.katalog") {
+          katalogSayisi += 1;
+          return { ok: true, beceriler: katalogSayisi === 1
+            ? [{ ad: "ilk", aciklama: "", kaynak: "claude", tur: "beceri", etkin: true, izinler: [] }]
+            : [
+              { ad: "ilk", aciklama: "", kaynak: "claude", tur: "beceri", etkin: true, izinler: [] },
+              { ad: "ikinci", aciklama: "", kaynak: "proje", tur: "beceri", etkin: true, izinler: [] },
+            ] };
+        }
+        if (name === "yetenek.yenile") return { ok: true, beceri: 2, ajan: 0 };
+        if (name === "yetenek.teshis") return { ok: true, bulgular: [], metin: "Beceri teşhisi: 2 beceri, 0 ajan tarandı. Sorun bulunmadı." };
+        return { ok: true };
+      }),
+    } as unknown as ProtocolClient;
+    render(<SkillsCatalog client={c} onClose={() => undefined} />);
+    await screen.findByText("ilk");
+    fireEvent.click(screen.getByRole("button", { name: "Yenile" }));
+    expect(await screen.findByText("ikinci")).toBeTruthy();
+    expect(c.request).toHaveBeenCalledWith("yetenek.yenile", {});
+    fireEvent.click(screen.getByRole("button", { name: "Teşhis" }));
+    expect((await screen.findByLabelText("Beceri teşhisi")).textContent).toContain("Sorun bulunmadı");
+  });
+});

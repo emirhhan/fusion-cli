@@ -51,6 +51,28 @@ describe("usePermissions", () => {
     await expect(speech).resolves.toBe(false);
   });
 
+  it("invalidate sonrası verilmiş sayılan izin yeniden sorulur (sidecar eksik gördü)", async () => {
+    const bridge = fakeBridge("granted");
+    const { result } = renderHook(() => usePermissions(bridge));
+    let first: Promise<boolean> | undefined;
+    act(() => { first = result.current.ensure("accessibility"); });
+    await act(async () => result.current.continue());
+    await expect(first).resolves.toBe(true);
+    expect(result.current.state.accessibility).toBe("granted");
+
+    let cached: Promise<boolean> | undefined;
+    act(() => { cached = result.current.ensure("accessibility"); });
+    await expect(cached).resolves.toBe(true);
+    expect(result.current.activeKind).toBeNull();
+
+    act(() => result.current.invalidate("accessibility"));
+    expect(result.current.state.accessibility).toBe("unknown");
+    act(() => { void result.current.ensure("accessibility"); });
+
+    expect(result.current.activeKind).toBe("accessibility");
+    await waitFor(() => expect(bridge.request).toHaveBeenCalledTimes(2));
+  });
+
   it("kurulurken işletim sisteminden izin istemez", () => {
     const bridge = fakeBridge();
 
