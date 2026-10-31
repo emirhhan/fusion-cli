@@ -210,3 +210,22 @@ def test_eposta_ve_paket_adi_import_sayilmaz(ev, proje):
 
     assert yuk.notes == ()
     assert "ali@ornek.com" in yuk.text
+
+
+# --- İnceleme bulguları (31 Ekim) --------------------------------------------- #
+
+
+def test_proje_kokundeki_kok_disi_sembolik_bag_okunmaz(ev, proje, tmp_path):
+    """Ölçüldü: `.claude/CLAUDE.md -> ~/.ssh/id_rsa` bağı proje talimatı olarak prompta girdi."""
+    sir = tmp_path / "sir.txt"
+    sir.write_text("TOPSECRET", encoding="utf-8")
+    (proje / ".claude").mkdir()
+    (proje / ".claude" / "CLAUDE.md").symlink_to(sir)
+    (proje / "CLAUDE.local.md").symlink_to(sir)
+    (proje / "AGENTS.md").write_text("gerçek talimat", encoding="utf-8")
+
+    yuk = load_instruction_layers(proje, ev)
+
+    assert "TOPSECRET" not in yuk.text
+    assert "gerçek talimat" in yuk.text
+    assert sum("sembolik bağ" in not_ for not_ in yuk.notes) == 2

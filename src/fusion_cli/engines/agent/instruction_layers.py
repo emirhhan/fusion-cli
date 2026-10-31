@@ -222,6 +222,11 @@ def _load_file(
         real = path.resolve()
     except OSError:
         return False
+    if layer == "proje" and not real.is_relative_to(root):
+        # Depo içeriği: `.claude/CLAUDE.md -> ~/.ssh/id_rsa` bağı kök dışına çıkıyorsa HİÇ
+        # açılmaz (`.claude/rules` ve bağlantılarla aynı kural; ölçüldü 31 Ekim: açılıyordu).
+        budget.notes.append(f"{label}: kök dışına çıkan sembolik bağ okunmadı")
+        return False
     if real in budget.seen:
         return True
     budget.seen.add(real)
