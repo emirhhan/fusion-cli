@@ -1486,6 +1486,10 @@ GOAL_VERDICT_LABELS = {
     "belirsiz": "belirsiz",
 }
 GOAL_JUDGING = "hedef değerlendiriliyor…"
+GOAL_AGENT_ONLY = (
+    "Hedef (/goal) yalnız agent motorunda çalışır: Fusion turu sohbet geçmişine yazılmaz, "
+    "değerlendirici sonucu göremez. Önce /agent yaz."
+)
 GOAL_STOPPED = (
     "Hedef değerlendirmesi durduruldu; hedef etkin. Sürdürmek için yeni mesaj ya da /goal devam."
 )

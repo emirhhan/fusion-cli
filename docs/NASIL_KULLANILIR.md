@@ -1002,6 +1002,9 @@ Duraklama ve sınırlar (`/goal devam` sürdürür, `/goal clear` bırakır):
 - Ctrl-C / Esc / masaüstünde Durdur turu ya da değerlendirmeyi keser; hedef etkin kalır.
   Kullanıcının sırada mesajı varsa (TUI) devam turu ona yol verir; kullanıcı turları da
   değerlendirilir.
+- **Yalnız agent motoru**: `/fusion` motorunda hedef kurulmaz ve değerlendirilmez (Fusion turu
+  sohbet geçmişine yazılmaz, değerlendirici sonucu göremez). Etkin hedef `/agent` ile dönülünce
+  sonraki turda yeniden değerlendirilir.
 
 Argümansız `/goal` durumu (değerlendirme, otomatik tur, son karar) yazar. Hedef sohbete bağlı
 kaydedilir (`memory_dir/oturum-hedef/<sohbet>.json`): `fusion --resume` ve masaüstü sekmesi

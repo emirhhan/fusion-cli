@@ -24,7 +24,7 @@ from ...core.types import Message
 from ...engines.agent.goal_judge import GoalJudgement, judge_goal
 from ...ui import messages
 from .goal_command import set_goal
-from .state import ReplState
+from .state import Engine, ReplState
 
 #: Değerlendirici imzası; testler sahte yargıç verir.
 GoalJudge = Callable[
@@ -62,9 +62,11 @@ async def evaluate_goal(
     """Etkin hedefi son tura göre değerlendir; hedef yoksa ya da duraklatılmışsa None.
 
     `judge` verilmezse hakem modeli (`goal_judge.judge_goal`) çağrı anında çözülür.
+    Fusion motorunda değerlendirme yapılmaz: o tur konuşma geçmişine yazılmaz, hakem
+    sonucu göremez (hedef `/agent` ile dönülene kadar bekler).
     """
     goal = state.goal
-    if goal is None or not goal.is_active:
+    if goal is None or not goal.is_active or state.engine is Engine.FUSION:
         return None
     judgement = await (judge or judge_goal)(goal.condition, state.history, state.config, publisher)
     step = decide(

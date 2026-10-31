@@ -20,7 +20,7 @@ from ...core.session_goal import GoalError, SessionGoal, new_goal, resume
 from ...ui import messages
 from . import goal_store
 from .macros import Mode
-from .state import ReplState
+from .state import Engine, ReplState
 
 Handler = Callable[[ReplState, str], str]
 
@@ -39,6 +39,10 @@ def goal_handler(start_turn: Handler) -> Handler:
             return status_text(state)
         if word in _CLEAR_WORDS:
             return clear_goal(state)
+        if state.engine is Engine.FUSION:
+            # Ölçüldü (31 Ekim): Fusion turu `state.history`'yi güncellemez; hakem bayat kaydı
+            # okuyup her devamda çok modelli Fusion'ı tavana kadar koşturuyordu.
+            return messages.GOAL_AGENT_ONLY
         if word in _RESUME_WORDS:
             return resume_goal(state)
         try:

@@ -443,3 +443,51 @@ def test_resume_hedefi_kayittan_geri_getirir(state):
         conversation_id=state.conversation_id,
     )
     assert goal_store.load(yeni.config.memory_dir, yeni.conversation_id) == kayitli
+
+
+# --- Fusion motoru ------------------------------------------------------------- #
+
+
+def test_goal_fusion_motorunda_kurulmaz(state):
+    """Ölçüldü (31 Ekim): Fusion turu `state.history`'yi güncellemez; hakem bayat/boş kaydı
+    okuyup her turda çok modelli Fusion'ı 20 kez sürdürebiliyordu."""
+    from fusion_cli.cli.repl.state import Engine
+
+    state.engine = Engine.FUSION
+    mesaj = _goal(state, "tüm testler geçiyor")
+
+    assert mesaj == messages.GOAL_AGENT_ONLY
+    assert state.goal is None
+    assert state.take_pending() == ("", macros.Mode.NONE)
+    assert goal_store.load(state.config.memory_dir, state.conversation_id) is None
+
+
+def test_goal_devam_fusion_motorunda_tur_hazirlamaz(state):
+    from fusion_cli.cli.repl.state import Engine
+
+    _goal(state, "lint temiz")
+    state.take_pending()
+    state.engine = Engine.FUSION
+
+    assert _goal(state, "devam") == messages.GOAL_AGENT_ONLY
+    assert state.take_pending() == ("", macros.Mode.NONE)
+    # Durum ve bırakma Fusion'da da çalışır.
+    assert "lint temiz" in _goal(state, "durum")
+
+
+async def test_fusion_motorunda_etkin_hedef_degerlendirilmez(state):
+    from fusion_cli.cli.repl.state import Engine
+
+    _goal(state, "k")
+    state.take_pending()
+    state.engine = Engine.FUSION
+    yargic, cagrilar = _sahte_yargic(GoalVerdict.NOT_MET)
+    turlar: list[str] = []
+
+    async def tur(gorev: str) -> bool:
+        turlar.append(gorev)
+        return True
+
+    await goal_flow.drive_goal(state, tur, lambda _m: None, judge=yargic)
+    assert cagrilar == [] and turlar == []
+    assert state.goal is not None and state.goal.is_active
