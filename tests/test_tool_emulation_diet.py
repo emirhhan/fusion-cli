@@ -27,7 +27,24 @@ def rendered() -> str:
 # 31 Ekim 2026 (P-042/043/044/073): chrome_action'a console/network/record/shortcut/window/group
 # eylemleri ve chrome_page'e tree/depth/ref parametreleri eklendi (ölçüldü: 11_400 → 11_818,
 # +418 karakter). Açıklamalar kısaltıldı; kalan artış eylem adları ve değer biçimleridir.
-PROMPT_BUDGET = 11_850
+# 31 Ekim 2026 (parite birleştirmesi): masaüstü fare/klavye/ekran araçları (P-030…P-032),
+# Kit araçları (P-063) ve yukarıdaki chrome eylemleri TAM yüzeyi 14_458'e çıkardı. Bu
+# yüzey güçlü modele gider; zayıf/web modelin gördüğü kompakt yüzey `desktop_*`/`chrome_*`
+# ailesini gizler ve ayrı, daha sıkı bütçeyle korunur (`COMPACT_PROMPT_BUDGET`, ölçüldü 9_623).
+PROMPT_BUDGET = 14_600
+COMPACT_PROMPT_BUDGET = 10_000
+
+
+def test_kompakt_yuzey_istemi_zayif_model_butcesinde_kalir():
+    from dataclasses import replace
+
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+    from fusion_cli.engines.agent.loop import _permitted
+
+    registry = build_registry()
+    kompakt = replace(ExecutionPolicy(is_web=False), compact_tool_surface=True)
+    sirada = _permitted(None, registry, kompakt)
+    assert len(render_tool_instructions(registry.schemas(sirada))) <= COMPACT_PROMPT_BUDGET
 
 
 def test_emulated_tool_prompt_budgeti():

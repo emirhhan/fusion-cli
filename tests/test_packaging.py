@@ -209,10 +209,14 @@ def test_temiz_wheel_ortaminda_cli_calisir(tmp_path):
     fusion = ortam / ("Scripts" if sys.platform == "win32" else "bin") / "fusion"
     # Repo kökündeki editable `*.egg-info`, pip'in wheel'i zaten kurulu sanmasına
     # yol açmamalı; gerçek temiz kullanıcı ortamını repo dışından ölç.
+    # Testi koşan ortamın `PYTHONPATH=src`'i pip'e sızarsa paket "zaten kurulu" sayılır ve
+    # `fusion` betiği hiç oluşmaz (ölçüldü, 31 Ekim); temiz ortam gerçekten temiz olmalı.
+    temiz_ortam = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
     subprocess.run(
         [str(pip), "install", "-q", str(tekerlekler[0])],
         check=True,
         cwd=tmp_path,
+        env=temiz_ortam,
     )
 
     # `doctor` yapılandırmayı yükler: gerçek kullanıcı dizinine ve Keychain'e dokunmasın.

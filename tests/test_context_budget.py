@@ -150,7 +150,8 @@ def test_guclu_model_esigi_degismez(tmp_path, monkeypatch) -> None:
     budget = budget_module.context_budget(config, ModelSpec("s", "openrouter/m", tags=("strict",)))
 
     assert budget.weak is False
-    assert budget.compression_chars == round((1_000_000 - 18_192) * 0.5 * 3)
+    reserved = budget_module.OUTPUT_RESERVE_TOKENS + budget_module.SYSTEM_AND_TOOLS_RESERVE_TOKENS
+    assert budget.compression_chars == round((1_000_000 - reserved) * 0.5 * 3)
 
 
 def test_zayif_model_orani_aralik_disiysa_yukleme_reddeder(tmp_path) -> None:

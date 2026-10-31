@@ -19,7 +19,9 @@ OUTPUT_RESERVE_TOKENS = 8_192
 # istemleri (`prompts/`) ~10 bin karakter; ~27 bin karakter ≈ 9 bin token eder. Eski
 # 4.000 değeri bunun yarısından azdı ve MCP/eklenti araçları ayrıca eklenir. 10.000
 # yerleşik payı karşılar; küçük pencerede `smallest // 2` sınırı yine geçerlidir.
-SYSTEM_AND_TOOLS_RESERVE_TOKENS = 10_000
+# 31 Ekim 2026: parite araçlarıyla 56 yerleşik aracın şeması 23.086 karakter (~7.700 token)
+# oldu; 3.000 tokenlık sistem istemi payıyla 10.000 aşıldı, pay 12.000'e çıkarıldı.
+SYSTEM_AND_TOOLS_RESERVE_TOKENS = 12_000
 CHARS_PER_TOKEN_ESTIMATE = 3
 HISTORY_SHARE = 0.5
 #: Pencere bilinmeyen zayıf model için başvuru penceresi: `COMPRESS_THRESHOLD_CHARS`'ın
