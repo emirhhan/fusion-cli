@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import subprocess
 
+from ..core.desktop_settings import DesktopSettings
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .desktop import ACCESSIBILITY_ERROR, DESKTOP_COMMAND_TIMEOUT_S, _framework, _mac_only, _trusted
+from .desktop_visibility import is_hidden_app
 
 WINDOW_SCRIPT = """
 tell application "System Events"
@@ -43,6 +45,9 @@ tell application "System Events"
     set output to ""
     set frontProcess to first application process whose frontmost is true
     set output to "Uygulama: " & (name of frontProcess) & linefeed
+    try
+        set output to output & "Paket: " & (bundle identifier of frontProcess) & linefeed
+    end try
     set frontWindow to front window of frontProcess
     set output to output & "Pencere: " & (name of frontWindow) & linefeed
     repeat with element in (entire contents of frontWindow)
@@ -59,6 +64,13 @@ end tell
 
 
 _MAX_OUTPUT_CHARS = 12_000
+_APP_PREFIX = "Uygulama: "
+_BUNDLE_PREFIX = "Paket: "
+#: Öndeki uygulama engelliyse ağaç modele verilmez (P-007).
+HIDDEN_FRONT_MESSAGE = (
+    "Öndeki uygulama ({app}) reddedilen ya da engelli; erişilebilirlik ağacı gösterilmez "
+    "(Ayarlar › Bu bilgisayar)."
+)
 
 
 def _run(script: str, *values: str) -> ToolResult:
@@ -96,10 +108,23 @@ def _run(script: str, *values: str) -> ToolResult:
     return ToolResult(cikti or "Öğe bulunamadı.")
 
 
+def _visible_window_lines(output: str, settings: DesktopSettings) -> str:
+    """`uygulama<TAB>pencere` satırlarından engelli uygulamalarınkini çıkar (başlıklar sızmasın)."""
+    lines = [
+        line
+        for line in output.splitlines()
+        if not is_hidden_app(settings, line.partition("\t")[0].strip())
+    ]
+    return "\n".join(lines) or "Öğe bulunamadı."
+
+
 def desktop_windows(args: ToolArgs, context: ToolContext) -> ToolResult:
-    """Çalışan uygulamaların adlandırılmış pencerelerini listele."""
-    del args, context
-    return _run(WINDOW_SCRIPT)
+    """Çalışan uygulamaların adlandırılmış pencerelerini listele (reddedilenler hariç)."""
+    del args
+    result = _run(WINDOW_SCRIPT)
+    if not result.ok:
+        return result
+    return ToolResult(_visible_window_lines(result.output, context.desktop_settings))
 
 
 def desktop_window_focus(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -116,7 +141,27 @@ def desktop_window_focus(args: ToolArgs, context: ToolContext) -> ToolResult:
     return ToolResult(f"Öne getirildi: {app}" + (f" — {window}" if window else ""))
 
 
+def _front_app(output: str) -> tuple[str, str]:
+    app = bundle = ""
+    for line in output.splitlines()[:3]:
+        if line.startswith(_APP_PREFIX):
+            app = line.removeprefix(_APP_PREFIX).strip()
+        elif line.startswith(_BUNDLE_PREFIX):
+            bundle = line.removeprefix(_BUNDLE_PREFIX).strip()
+    return app, bundle
+
+
 def desktop_accessibility(args: ToolArgs, context: ToolContext) -> ToolResult:
-    """Öndeki pencerenin erişilebilir öğelerinin rol ve adlarını oku."""
-    del args, context
-    return _run(ACCESSIBILITY_SCRIPT)
+    """Öndeki pencerenin erişilebilir öğelerinin rol ve adlarını oku.
+
+    Ölçüldü (31 Ekim): öndeki uygulama ret listesinde olsa da (ör. 1Password) ağaç olduğu gibi
+    dönüyordu. Ağaç önce okunur, uygulama engelliyse modele hiçbir öğe verilmez.
+    """
+    del args
+    result = _run(ACCESSIBILITY_SCRIPT)
+    if not result.ok:
+        return result
+    app, bundle = _front_app(result.output)
+    if is_hidden_app(context.desktop_settings, app, bundle):
+        return ToolResult.failure(HIDDEN_FRONT_MESSAGE.format(app=app or bundle))
+    return result

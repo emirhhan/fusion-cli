@@ -15,6 +15,7 @@ import { General, readHistoryOpen, HISTORY_KEY } from "./sections/General";
 import { Models, type ModelState } from "./sections/Models";
 import { RoleModels } from "./sections/RoleModels";
 import { ComputerUse } from "../permissions/ComputerUse";
+import { Computer } from "./sections/Computer";
 import { Permissions, type TrustInfo } from "./sections/Permissions";
 import { WebSessions } from "./sections/WebSessions";
 import { Advanced } from "./sections/Advanced";
@@ -51,6 +52,7 @@ const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: string }[] 
   { id: "tarayici", etiket: "Tarayıcı", ikon: "preview", grup: "Entegrasyonlar" },
   { id: "weboturumlari", etiket: "Web oturumları", ikon: "user", grup: "Entegrasyonlar" },
   { id: "izinler", etiket: "İzinler", ikon: "help", grup: "Entegrasyonlar" },
+  { id: "bilgisayar", etiket: "Bu bilgisayar", ikon: "terminal", grup: "Entegrasyonlar" },
   { id: "zeka", etiket: "Zeka", ikon: "skills", grup: "Entegrasyonlar" },
   { id: "uzak", etiket: "Uzaktan Erişim", ikon: "preview", grup: "Entegrasyonlar" },
   { id: "guncellemeler", etiket: "Güncellemeler", ikon: "changes", grup: "Sistem" },
@@ -361,7 +363,8 @@ export function Settings({
               onTrustChange={() => void load()}
             />
           )}
-          {bolum === "izinler" && <ComputerUse client={client} />}
+          {/* Bu bilgisayar (P-006): macOS izinleri + computer use tercihleri; bölüm ayrı dosyada. */}
+          {bolum === "bilgisayar" && <><ComputerUse client={client} /><Computer client={client} /></>}
 
           {bolum === "zeka" && <Intelligence client={client} />}
 

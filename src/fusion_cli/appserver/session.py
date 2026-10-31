@@ -95,7 +95,7 @@ from ..tools.skill_pages import read_skill_page
 from ..ui import messages
 from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
-from . import auto_memory, intelligence, ui_prefs
+from . import auto_memory, computer_routes, intelligence, ui_prefs
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .capabilities import catalog, detail
 from .chrome_autoinstall import auto_install_async
@@ -109,6 +109,8 @@ from .commands import (
     run_command,
     select_development_model,
 )
+from .computer_activity import ComputerActivityWatch
+from .computer_routes import COMPUTER_ROUTES
 from .connectors import (
     add_connector_verified,
     connector_secret_values,
@@ -604,6 +606,11 @@ class AppSession:
         self._desktop_activity = DesktopActivity()
         self._desktop_permissions = DesktopPermissionWatch(
             lambda payload: self._writer(encode_event(payload))
+        )
+        # "Fusion bilgisayarı kullanıyor · Esc ile durdur" şeridi (P-033).
+        self._computer_activity = ComputerActivityWatch(
+            lambda payload: self._writer(encode_event(payload)),
+            lambda: self._state.config.desktop,
         )
         from ..mcp_bridge.service import McpConnectionService
 
@@ -1366,6 +1373,8 @@ class AppSession:
             return web_login_state(request.data.get("pid"))
         if request.name.startswith("tarayici."):
             return await self._browser_profile_rpc(request)
+        if request.name in COMPUTER_ROUTES:
+            return await self._computer_rpc(request)
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
         if request.name == "cron.listele":
@@ -1778,6 +1787,23 @@ class AppSession:
             # Bağlama/çıkış öğretmen seçimini de etkiler. Dosya yazıldıktan sonra
             # tek yapılandırma kaynağından yeniden çöz.
             self._state.config = _refresh_teacher(yeni)
+        return sonuc
+
+    async def _deny_desktop_app(self, app: str) -> None:
+        """Onay kartındaki "Her zaman reddet" (P-007): `desktop.denied_apps`'e yaz ve uygula."""
+        sonuc, guncel = await asyncio.to_thread(computer_routes.deny_app, self._state.config, app)
+        if not sonuc.get("ok"):
+            logging.getLogger(__name__).warning(
+                "Reddedilen uygulama kaydedilemedi: %s", sonuc.get("metin")
+            )
+        self._state.config = replace(self._state.config, desktop=guncel.desktop)
+
+    async def _computer_rpc(self, request: Request) -> dict[str, Any]:
+        """`bilgisayar.*` (P-006): yazma dosyaya gider; oturum yalnız `desktop:`'u günceller."""
+        sonuc, guncel = await asyncio.to_thread(
+            computer_routes.dispatch, self._state.config, request.name, request.data
+        )
+        self._state.config = replace(self._state.config, desktop=guncel.desktop)
         return sonuc
 
     async def _browser_profile_rpc(self, request: Request) -> dict[str, Any]:
@@ -2785,6 +2811,7 @@ class AppSession:
             on_closed=self._question_closed,
             # Önizleme aracın esnek eşleşme ayarıyla AYNI olmalı (gerçek diff).
             edit_fuzzy_match=(config_snapshot or self._state.config).runtime.edit_fuzzy_match,
+            on_app_denied=self._deny_desktop_app,
         )
         steering = SteeringQueue()
         child_runs = ChildRuns()
@@ -2846,7 +2873,13 @@ class AppSession:
                 remotion_browser=self._state.remotion_browser,
                 require_remotion_kit=self._require_remotion_kit,
                 deadline=deadline,
-                sinks=(sink, self._desktop_activity, self._desktop_permissions, *trace_sinks),
+                sinks=(
+                    sink,
+                    self._desktop_activity,
+                    self._desktop_permissions,
+                    self._computer_activity,
+                    *trace_sinks,
+                ),
                 prompter_factory=lambda _drain: prompter,
                 mode=self._state.approval,
                 root=self._state.root,
@@ -2945,6 +2978,7 @@ class AppSession:
         finally:
             record_agent_changes(self._state.root, self._workspace_journal, changes.snapshots)
             self._desktop_activity.clear()
+            self._computer_activity.clear()
             await child_runs.close()
             if self._turn is owned_turn:
                 self._child_runs = None

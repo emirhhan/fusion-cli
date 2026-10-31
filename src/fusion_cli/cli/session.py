@@ -26,6 +26,7 @@ from ..core.artifacts import ArtifactStore
 from ..core.changeset import ChangeSet
 from ..core.concurrency import BackgroundTasks
 from ..core.events import (
+    DesktopEscapeStopped,
     ErrorOccurred,
     EventSink,
     FilesChanged,
@@ -78,7 +79,7 @@ from ..observability.json_sink import JsonRenderer
 from ..observability.trace_store import TraceStore, TraceWriter
 from ..observability.tracing import LangfuseTracer
 from ..providers.health_setup import build_health
-from ..tools import desktop_lock
+from ..tools import desktop_turn
 from ..tools.capabilities import CapabilityRegistry
 from ..tools.remotion_observe import browser_transport
 from ..ui import messages
@@ -178,6 +179,7 @@ def apply_runtime_settings(tool_context: ToolContext, config: Config) -> ToolCon
         shell_fingerprint=config.runtime.shell_workspace_fingerprint,
         desktop_screenshot_max_width=config.runtime.desktop_screenshot_max_width,
         desktop_exclude_fusion_window=config.runtime.desktop_exclude_fusion_window,
+        desktop_settings=getattr(config, "desktop", tool_context.desktop_settings),
     )
 
 
@@ -378,6 +380,8 @@ async def run_agent_task(
             health=health or build_health(config),
             journal=journal,
         )
+        # Masaüstü oturumu turun görevine bağlanır: Esc iptali bu görevi keser (P-033).
+        desktop_turn.begin(tool_context)
         try:
             outcome = await _run_agent_with_mcp(
                 task,
@@ -400,7 +404,9 @@ async def run_agent_task(
         finally:
             # Masaüstü kilidi TUR ile sınırlıdır: iptal ya da hatada da bırakılır; yoksa başka
             # sohbet 300 sn "o tur bitince yeniden dene" alır (bkz. `tools/desktop_lock`).
-            desktop_lock.release(token=tool_context.job_scope)
+            # Esc dinleyicisi kapanır, gizlenen uygulamalar geri gelir (P-033).
+            if desktop_turn.finish(tool_context):
+                bus.publish(DesktopEscapeStopped())
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
         # kapı turu kestiğinde sebep ZATEN yayınlandı; ikinci bir "(model boş yanıt

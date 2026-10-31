@@ -1,4 +1,4 @@
-export const SETTINGS_SECTIONS = ["genel", "hesap", "bildirimler", "ses", "kisayollar", "kisisellestirme", "modeller", "tarayici", "weboturumlari", "izinler", "zeka", "uzak", "guncellemeler", "gelismis", "nasil"] as const;
+export const SETTINGS_SECTIONS = ["genel", "hesap", "bildirimler", "ses", "kisayollar", "kisisellestirme", "modeller", "tarayici", "weboturumlari", "izinler", "bilgisayar", "zeka", "uzak", "guncellemeler", "gelismis", "nasil"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 /** Dış kaynaktan (derin bağlantı) gelen bölüm adı tanınıyor mu? */
 export function isSettingsSection(value: string | null | undefined): value is SettingsSection {
@@ -24,6 +24,7 @@ export const SETTINGS_ROWS: SettingsRow[] = [
   { section: "modeller", id: SECTION_HEADING_ID, label: "Model seçimi", keywords: "model sağlayıcı rol varsayılan görsel sohbet profil" },
   { section: "izinler", id: SECTION_HEADING_ID, label: "İzin modu", keywords: "onay mod çalışma klasörü kök manuel otomatik güven trust klasör dışı engel" },
   { section: "izinler", id: "settings-permission-rules", label: "İzin kuralları", keywords: "allow ask deny kural kalıp bash edit read webfetch mcp yasak her zaman sor bir daha sorma" },
+  { section: "bilgisayar", id: "settings-computer", label: "Bilgisayar kullanımı", keywords: "computer use masaüstü ekran tıkla yaz kademe yalnız bak tam kontrol reddedilen uygulama denied apps arka plan esc gizle erişilebilirlik ekran kaydı" },
   { section: "tarayici", id: SECTION_HEADING_ID, label: "Tarayıcı eklentisi", keywords: "chrome eklenti eşleştirme anahtar" },
   { section: "weboturumlari", id: SECTION_HEADING_ID, label: "Web oturumları", keywords: "çerez cookie oturum profil içe aktar chrome giriş tarayıcı" },
   { section: "kisisellestirme", id: SECTION_HEADING_ID, label: "Özel talimat", keywords: "özel talimat sistem istemi kişiselleştirme" },

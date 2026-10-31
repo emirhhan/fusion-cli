@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 
+from ..core.desktop_settings import DesktopSettings
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import coerce_int
+from .desktop_visibility import is_hidden_app
 from .native_desktop import SwiftDesktop
 
 WINDOW_PROPERTIES: dict[str, object] = {
@@ -54,7 +56,20 @@ def _target(args: ToolArgs) -> dict[str, object] | None:
     return {"kind": "window", "id": window, "pid": pid}
 
 
-async def _invoke(operation: str, args: ToolArgs) -> ToolResult:
+def _visible_windows(result: dict[str, object], settings: DesktopSettings) -> None:
+    """Reddedilen/engelli uygulamaların pencereleri listeden çıkar (P-007; başlıklar sızmasın)."""
+    windows = result.get("windows")
+    if isinstance(windows, list):
+        result["windows"] = [
+            row
+            for row in windows
+            if not (isinstance(row, dict) and is_hidden_app(settings, str(row.get("app") or "")))
+        ]
+
+
+async def _invoke(
+    operation: str, args: ToolArgs, settings: DesktopSettings | None = None
+) -> ToolResult:
     target = {} if operation == "list" else _target(args)
     if target is None:
         return ToolResult.failure("Geçerli window_id ve pid gerekli.")
@@ -72,6 +87,8 @@ async def _invoke(operation: str, args: ToolArgs) -> ToolResult:
     result = await SwiftDesktop().invoke(operation, target)
     if not result.get("ok"):
         return ToolResult.failure(str(result.get("metin", "Hedef pencereye erişilemedi.")))
+    if settings is not None:
+        _visible_windows(result, settings)
     image = result.pop("image", None)
     content: tuple[ToolContent, ...] = ()
     if isinstance(image, str) and image.startswith("data:image/png;base64,"):
@@ -80,9 +97,8 @@ async def _invoke(operation: str, args: ToolArgs) -> ToolResult:
 
 
 async def desktop_background_windows(args: ToolArgs, context: ToolContext) -> ToolResult:
-    """Pencereleri kimlik ve süreç kimliğiyle listele."""
-    del context
-    return await _invoke("list", args)
+    """Pencereleri kimlik ve süreç kimliğiyle listele (reddedilen uygulamalar hariç)."""
+    return await _invoke("list", args, context.desktop_settings)
 
 
 async def desktop_background_inspect(args: ToolArgs, context: ToolContext) -> ToolResult:

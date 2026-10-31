@@ -19,11 +19,17 @@ from pathlib import Path
 from types import UnionType
 from typing import Union, get_args, get_origin, get_type_hints
 
+from ..core.desktop_settings import DesktopSettings, parse_app_level
 from ..core.errors import ConfigError
 from .models import Config, EmbeddingConfig, RuntimeConfig
 
 #: Nokta yoluyla erişilebilen bölümler (ad → dataclass tipi).
-SETTING_SECTIONS: dict[str, type] = {"runtime": RuntimeConfig, "embedding": EmbeddingConfig}
+SETTING_SECTIONS: dict[str, type] = {
+    "runtime": RuntimeConfig,
+    "embedding": EmbeddingConfig,
+    # Bilgisayar kullanımı (P-006): `fusion config set desktop.enabled false`.
+    "desktop": DesktopSettings,
+}
 
 #: Serbest metin görünen ama yalnız belirli değerleri anlamlı olan alanlar (31 Ekim: `mavi`
 #: 'tamam' deyip çalışma anında sessizce varsayılana düşüyordu). `ui.theme.PALETTES` ve
@@ -33,6 +39,9 @@ SETTING_CHOICES: dict[str, tuple[str, ...]] = {
     "runtime.terminal_theme": ("koyu", "acik", "ansi", "daltonizm"),
     "runtime.tui": ("fullscreen", "inline"),
 }
+
+#: Girdileri `uygulama=kademe` biçiminde doğrulanan liste ayarı (P-007).
+_APP_LEVELS_PATH = "desktop.app_levels"
 
 _TRUE = frozenset({"true", "1", "yes", "on", "evet", "açık", "acik", "aç", "ac"})
 _FALSE = frozenset({"false", "0", "no", "off", "hayır", "hayir", "kapalı", "kapali", "kapat"})
@@ -141,7 +150,16 @@ def parse_value(raw: str, target: object, where: str) -> object:
     if get_origin(inner) is tuple:
         (item, *_) = get_args(inner)
         parts = [part.strip() for part in text.split(",") if part.strip()]
-        return tuple(parse_value(part, item, where) for part in parts)
+        values = tuple(parse_value(part, item, where) for part in parts)
+        if where == _APP_LEVELS_PATH:
+            # Yüklemedeki doğrulamanın aynısı: bozuk girdi dosyaya yazılıp sonra
+            # bütün yapılandırmayı düşürmesin (`loader._build_desktop`).
+            for entry in values:
+                try:
+                    parse_app_level(str(entry))
+                except ValueError as error:
+                    raise ConfigError(f"{where}: {error}") from None
+        return values
     raise ConfigError(f"{where}: bu ayar komut satırından değiştirilemez (tip: {kind_name(inner)})")
 
 

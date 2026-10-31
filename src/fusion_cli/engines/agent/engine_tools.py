@@ -28,7 +28,7 @@ from ...core.events import (
 )
 from ...core.redaction import strip_driver_log
 from ...core.refusal import looks_like_refusal
-from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
+from ...core.tools import Tool, ToolArgs, ToolContext, ToolFamily, ToolResult, tool_family
 from ...core.types import CompletionRequest, ModelResult, ModelSpec, is_web_session_error
 from ...memory.code_index import format_matches
 from ...memory.lessons import as_prompt_block
@@ -163,8 +163,22 @@ def build_agent_registry(
             extended.register(cron_tool)
     _register_forged_tools(extended, deps)
     runtime = getattr(deps.config, "runtime", None)
-    kapali = frozenset(getattr(runtime, "disabled_tools", ()))
+    kapali = frozenset(getattr(runtime, "disabled_tools", ())) | _disabled_desktop_tools(
+        deps, extended
+    )
     return _without(extended, kapali) if kapali else extended
+
+
+def _disabled_desktop_tools(deps: AgentDeps, registry: ToolRegistry) -> frozenset[str]:
+    """Bilgisayar kullanımı kapalıysa (`desktop.enabled: false`, P-006) masaüstü ailesi.
+
+    Ölçüldü (31 Ekim): kullanıcının computer use'u kapatacağı bir ayar yoktu; `desktop_*`
+    araçları her turda kayıtlıydı.
+    """
+    desktop = getattr(deps.config, "desktop", None)
+    if desktop is None or desktop.enabled:
+        return frozenset()
+    return frozenset(tool.name for tool in registry if tool_family(tool.name) is ToolFamily.DESKTOP)
 
 
 def _register_forged_tools(registry: ToolRegistry, deps: AgentDeps) -> None:
