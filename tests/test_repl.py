@@ -1381,6 +1381,26 @@ def test_persona_komutu_oturum_kisiligini_secer_ve_kapatir(state, registry):
     assert bos.extra_system == "" and bos.allowed_tools is None
 
 
+def test_persona_tools_vermeyip_yasak_arac_yazan_ajanda_yasak_uygulanir(state, registry, tmp_path):
+    """Ölçüldü (31 Ekim): `tools:` yok, `disallowedTools: Write, Edit` olan ajan (Claude Code'un
+    yaygın salt-okur kalıbı) `persona_turn(...).allowed_tools` None dönüyordu: yasak araçlar
+    açık kalıyordu. Yasak kümesi `denied_tools` ile tura taşınır."""
+    from fusion_cli.cli.repl.persona_commands import persona_turn
+
+    ajanlar = state.root / ".claude" / "agents"
+    ajanlar.mkdir(parents=True, exist_ok=True)
+    (ajanlar / "okur.md").write_text(
+        "---\nname: okur\ndescription: d\ndisallowedTools: Write, Edit, mcp__srv\n---\ngövde",
+        encoding="utf-8",
+    )
+
+    registry.get("persona").handler(state, "okur")
+    assert state.persona is not None and state.persona.name == "okur"
+    tur = persona_turn(state.persona)
+    assert tur.allowed_tools is None
+    assert {"write_file", "edit_file", "srv__*"} <= tur.denied_tools
+
+
 def test_subtask_komutu_gorevi_fork_kipiyle_hazirlar(state, registry):
     """P-054: `/subtask <görev>` turu HAZIRLAR; döngü fork alt ajanla koşturur."""
     from fusion_cli.cli.repl.macros import Mode, mode_fork

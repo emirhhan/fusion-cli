@@ -28,6 +28,10 @@ class PersonaTurn:
 
     extra_system: str = ""
     allowed_tools: set[str] | None = None
+    #: `tools` verilmeyip yalnız `disallowedTools` yazılmışsa (Claude Code'un yaygın salt-okur
+    #: kalıbı) yasak kümesi: defter kurulduktan sonra `run_agent(denied_tools=...)` düşürür.
+    #: Ölçüldü (31 Ekim): bu durumda `allowed_tools` None kalıyor, yasak hiç uygulanmıyordu.
+    denied_tools: frozenset[str] = frozenset()
 
 
 def resolve_session_persona(library: CapabilityRegistry | None, name: str) -> Persona | None:
@@ -49,9 +53,12 @@ def persona_turn(persona: Persona | None) -> PersonaTurn:
     if persona.prompt.strip():
         parts.append(persona.prompt.strip())
     allowed: set[str] | None = None
+    denied: frozenset[str] = frozenset()
     if persona.tools is not None:
         allowed = set(persona.tools) - persona.disallowed_tools
-    return PersonaTurn(extra_system="\n".join(parts), allowed_tools=allowed)
+    else:
+        denied = persona.disallowed_tools
+    return PersonaTurn(extra_system="\n".join(parts), allowed_tools=allowed, denied_tools=denied)
 
 
 def persona(state: ReplState, argument: str) -> str:

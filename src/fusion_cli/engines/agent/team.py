@@ -147,6 +147,8 @@ class SubTask:
     #: Üst turun araç TAVANI (`None` = sınırsız): üyenin kümesiyle kesişir, genişletmez.
     #: Salt-okur oturum kişiliği fork içinde yazamasın diye.
     tool_cap: frozenset[str] | None = None
+    #: Üst turun yasak araçları (oturum kişiliğinin `disallowedTools`u); desen açılır.
+    tool_deny: frozenset[str] = frozenset()
     #: Görev mesajına eklenen görseller (data URI); fork turunda kullanıcının ekleri.
     images: tuple[str, ...] = ()
     #: Üst turun adım tavanı; kişiliğin `maxTurns`'ü ve derinlik bütçesiyle en küçüğü geçer.
@@ -385,6 +387,7 @@ async def _run_child(
                 _allowed_tools(deps, persona, subtask, available=available),
                 subtask.tool_cap,
                 available,
+                deny=subtask.tool_deny,
             ),
             step_limit=child_step_limit(
                 deps, depth, requested=_min_limit(persona.max_turns or None, subtask.step_limit)
@@ -402,13 +405,20 @@ async def _run_child(
 
 
 def _capped_tools(
-    allowed: set[str] | None, cap: frozenset[str] | None, available: tuple[str, ...]
+    allowed: set[str] | None,
+    cap: frozenset[str] | None,
+    available: tuple[str, ...],
+    *,
+    deny: frozenset[str] = frozenset(),
 ) -> set[str] | None:
-    """Üst turun araç tavanıyla kesişim: tavan yoksa aynen, varsa yalnız daralır."""
-    if cap is None:
-        return allowed
-    expanded = expand_tool_patterns(set(cap), available)
-    return expanded if allowed is None else allowed & expanded
+    """Üst turun araç tavanıyla kesişim ve yasak kümesinin farkı: yalnız daralır."""
+    if cap is not None:
+        expanded = expand_tool_patterns(set(cap), available)
+        allowed = expanded if allowed is None else allowed & expanded
+    if deny:
+        base = set(available) if allowed is None else allowed
+        allowed = base - expand_tool_patterns(set(deny), available)
+    return allowed
 
 
 def _min_limit(*limits: int | None) -> int | None:

@@ -123,7 +123,7 @@ from ...providers.fallback_plan import live_fallbacks
 from ...providers.web_registry import web_registry_for
 from ...tools import ToolRegistry, build_registry
 from ...tools.auto_policy import is_read_only_command
-from ...tools.capabilities import CapabilityRegistry
+from ...tools.capabilities import CapabilityRegistry, expand_tool_patterns
 from ...tools.emulation import coerce_arguments, validate_arguments
 from ...tools.files import resolve_path
 from ...tools.preview import file_diff
@@ -553,6 +553,7 @@ async def run_agent(
     system_prompt: str | None = None,
     images: tuple[str, ...] = (),
     workflow: bool = False,
+    denied_tools: frozenset[str] = frozenset(),
 ) -> AgentOutcome:
     """Kök turun sahipli sorularını her çıkış yolunda temizle."""
     try:
@@ -573,6 +574,7 @@ async def run_agent(
             system_prompt=system_prompt,
             images=images,
             workflow=workflow,
+            denied_tools=denied_tools,
         )
     finally:
         if depth == 0 and not internal:
@@ -597,6 +599,7 @@ async def _run_agent(
     system_prompt: str | None = None,
     images: tuple[str, ...] = (),
     workflow: bool = False,
+    denied_tools: frozenset[str] = frozenset(),
 ) -> AgentOutcome:
     """Bir görevi araçlarla çalıştır. Döndürülen geçmiş bir sonraki tura beslenir.
 
@@ -821,6 +824,11 @@ async def _run_agent(
         # bir yetenek kısıtına (`allow_mutation=False`) çarpmışsa o kısıt
         # önceliklidir, buradaki gözlem gerekçesiyle EZİLMEZ.
         execution = observe_execution(execution, WORKSPACE_READ_REASON)
+    if denied_tools:
+        # Oturum kişiliğinin `disallowedTools`u (P-053): izin kümesi verilmemişse defterin
+        # tamamından, verilmişse ondan düşer; `sunucu__*` deseni defter adlarına açılır.
+        base = set(registry.names()) if allowed_tools is None else set(allowed_tools)
+        allowed_tools = base - expand_tool_patterns(set(denied_tools), registry.names())
     if allowed_tools is not None:
         names = frozenset(
             _permitted(allowed_tools, registry, execution, deps.tool_context.task_kinds) or ()

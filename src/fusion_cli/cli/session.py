@@ -185,6 +185,7 @@ async def run_agent_task(
     chat_mode: bool = False,
     workflow: bool = False,
     allowed_tools: set[str] | None = None,
+    denied_tools: frozenset[str] = frozenset(),
     health: HealthRegistry | None = None,
     journal: TurnJournal | None = None,
     require_remotion_kit: bool = False,
@@ -336,6 +337,7 @@ async def run_agent_task(
             chat_mode=chat_mode,
             workflow=workflow,
             allowed_tools=allowed_tools,
+            denied_tools=denied_tools,
             turn_runner=turn_runner,
         )
 
@@ -395,6 +397,7 @@ async def _run_agent_with_mcp(
     chat_mode: bool = False,
     workflow: bool = False,
     allowed_tools: set[str] | None = None,
+    denied_tools: frozenset[str] = frozenset(),
     turn_runner: Callable[..., Awaitable[AgentOutcome]] | None = None,
 ) -> AgentOutcome:
     """`run_agent` çağır; yapılandırılmış dış MCP sunucuları varsa önce bağla.
@@ -417,6 +420,7 @@ async def _run_agent_with_mcp(
             plan_mode=plan_mode,
             chat_mode=chat_mode,
             allowed_tools=allowed_tools,
+            denied_tools=denied_tools,
             extra_system=extra_system,
             system_prompt=system_prompt,
             images=images,

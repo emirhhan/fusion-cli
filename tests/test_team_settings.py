@@ -156,6 +156,24 @@ def test_yasak_araclar_ve_mcp_suzgeci_kumeyi_yalniz_daraltir(tmp_path):
     assert allowed_tools(deps, GENERIC_PERSONA, gorev, available=mevcut) is None
 
 
+def test_yasak_mcp_sunucu_deseni_gercek_adlara_acilir(tmp_path):
+    """Ölçüldü (31 Ekim): `disallowedTools: mcp__srv` → `srv__*` deseni açılmadan küme
+    farkına sokuluyordu; `srv__a`, `srv__b` açık kalıyordu (deny bypass)."""
+    deps = SimpleNamespace(
+        base_registry=SimpleNamespace(is_remote=lambda name: "__" in name),
+        tool_context=ToolContext(root=tmp_path),
+    )
+    mevcut = ("read_file", "srv__a", "srv__b", "jira__list")
+
+    yasak = _persona(disallowed_tools=frozenset({"srv__*"}))
+    assert allowed_tools(deps, yasak, SubTask("iş"), available=mevcut) == {
+        "read_file",
+        "jira__list",
+    }
+    dar = _persona(tools=frozenset({"read_file", "srv__*"}), disallowed_tools=frozenset({"srv__*"}))
+    assert allowed_tools(deps, dar, SubTask("iş"), available=mevcut) == {"read_file"}
+
+
 def test_on_yuklenen_beceriler_brife_girer_bulunmayan_atlanir(tmp_path):
     beceri = tmp_path / "ev" / ".claude" / "skills" / "kod-inceleme"
     beceri.mkdir(parents=True)

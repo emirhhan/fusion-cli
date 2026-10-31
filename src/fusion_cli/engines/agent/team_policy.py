@@ -51,7 +51,9 @@ def allowed_tools(
         if allowed is None:
             allowed = set(available) if available else None
         if allowed is not None:
-            allowed = allowed - persona.disallowed_tools
+            # Ölçüldü (31 Ekim): `mcp__srv` → `srv__*` deseni açılmadan çıkarılıyordu ve
+            # yasaklı MCP araçları kalıyordu; yasak da izin gibi defter adlarına açılır.
+            allowed = allowed - expand_tool_patterns(set(persona.disallowed_tools), available)
             if persona.mcp_servers:
                 allowed = {
                     name

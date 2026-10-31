@@ -126,6 +126,7 @@ async def run_forked_turn(
     plan_mode: bool = False,
     extra_system: str = "",
     allowed_tools: set[str] | None = None,
+    denied_tools: frozenset[str] = frozenset(),
     images: tuple[str, ...] = (),
     step_limit: int | None = None,
     **_ignored: object,
@@ -150,6 +151,7 @@ async def run_forked_turn(
         inherit_context=True,
         brief=extra_system,
         tool_cap=frozenset(allowed_tools) if allowed_tools is not None else None,
+        tool_deny=frozenset(denied_tools),
         images=tuple(images),
         step_limit=step_limit,
     )

@@ -1054,6 +1054,21 @@ async def test_asker_varsa_ask_user_araci_sunulur(monkeypatch, tmp_path, sink):
     assert {"question", "options", "recommended"} <= properties.keys()
 
 
+async def test_denied_tools_defterden_dusurulur_desen_acilir(monkeypatch, tmp_path, sink):
+    """Oturum kişiliğinin `disallowedTools`u `tools` verilmese de uygulanır (P-053)."""
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    await run_agent(
+        "gorev",
+        _deps(tmp_path, sink),
+        denied_tools=frozenset({"write_file", "run_shell"}),
+    )
+
+    adlar = {s["function"]["name"] for s in provider.seen_requests[0]}
+    assert "read_file" in adlar
+    assert not adlar & {"write_file", "run_shell"}
+
+
 async def test_plan_modunda_engelleme_reddetmeden_ayirt_edilir(monkeypatch, tmp_path, sink):
     """Plan modunda kimseye sorulmaz; model bunu "kullanıcı reddetti" sanmamalı."""
     _kur(

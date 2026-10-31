@@ -600,6 +600,7 @@ class _TuiSession:
                         step_limit=macros.mode_step_limit(mode),
                         workflow=macros.mode_workflow(mode),
                         allowed_tools=persona.allowed_tools,
+                        denied_tools=persona.denied_tools,
                         turn_runner=run_forked_turn if macros.mode_fork(mode) else None,
                     )
                 except (asyncio.CancelledError, Exception):

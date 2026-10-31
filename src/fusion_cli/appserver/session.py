@@ -2408,6 +2408,7 @@ class AppSession:
                     if browser_only
                     else persona.allowed_tools
                 ),
+                denied_tools=frozenset() if browser_only else persona.denied_tools,
                 extra_system=extra_system,
                 # Görsel ekler modele GERÇEKTEN gider; yol metni ayrıca kalır.
                 images=images,

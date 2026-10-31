@@ -415,6 +415,7 @@ async def _drive_agent(
     step_limit: int | None,
     workflow: bool = False,
     allowed_tools: set[str] | None = None,
+    denied_tools: frozenset[str] = frozenset(),
 ) -> AgentOutcome:
     """Agent turunu çalıştır; MCP sunucuları tanımlıysa dış araçları da bağla.
 
@@ -427,8 +428,10 @@ async def _drive_agent(
         "extra_system": extra_system,
         "step_limit": step_limit,
         "workflow": workflow,
-        # Oturum kişiliğinin araç kısıtı (P-053); None = tam set.
+        # Oturum kişiliğinin araç kısıtı (P-053); None = tam set. `denied_tools` yalnız
+        # `disallowedTools` yazan kişilikte dolu.
         "allowed_tools": allowed_tools,
+        "denied_tools": denied_tools,
     }
     if not state.config.mcp_servers and not state.config.hosted_connectors:
         return await run_agent(line, deps, **kwargs)
@@ -594,6 +597,7 @@ async def _agent_turn(
                 step_limit=macros.mode_step_limit(mode),
                 workflow=macros.mode_workflow(mode),
                 allowed_tools=persona.allowed_tools,
+                denied_tools=persona.denied_tools,
             )
             # Boş cevap yalnızca tur temiz bittiyse hatadır; bkz. `cli/session.py`.
             if not outcome.final_text.strip() and outcome.ok:
