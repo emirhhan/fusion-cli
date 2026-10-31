@@ -13,6 +13,8 @@ masaüstünün `.claude/launch.json` dosyasıyla aynı alanlar kullanılır (`na
     ]}
 
 - `runtimeExecutable` varsa komut KABUKSUZ (`exec`) başlatılır, `PORT` ortam değişkeni verilir.
+- Port doluysa `autoPort` (yok/true) sıradaki boş portu seçer; `false` başlatmaz
+  (`tools.preview_ports`). `runtimeArgs` içindeki `${port}` seçilen portla değişir.
 - Yalnız `url` varsa hiçbir şey başlatılmaz; çalışan sunucuya bağlanılır.
 - Adresler yerel (loopback) olmalıdır: önizleme paneli yalnız bunları gömer.
 - Komutlu yapılandırma yalnız dosya GÜVENİLİRSE çalışır (`fusion trust` ya da panelden
@@ -31,13 +33,13 @@ import atexit
 import json
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from urllib.parse import urljoin, urlparse
 
 from ..config import trust
 from ..core.errors import FusionError
-from . import preview_server
+from . import preview_ports, preview_server
 from .preview_server import LOCAL_HOSTS, PreviewError, PreviewKind, RunningPreview
 from .wordpress_setup import php_env
 
@@ -51,9 +53,20 @@ _NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.:\- ]{0,63}$")
 MAX_CONFIGURATIONS = 20
 MAX_ARGS = 40
 MAX_ENV = 40
-#: Tanınan alanlar; diğerleri yok sayılır ve uyarı olarak bildirilir (ör. `autoPort`).
+#: Tanınan alanlar; diğerleri yok sayılır ve uyarı olarak bildirilir.
 KNOWN_FIELDS = frozenset(
-    {"name", "runtimeExecutable", "runtimeArgs", "port", "url", "cwd", "env", "type", "request"}
+    {
+        "name",
+        "runtimeExecutable",
+        "runtimeArgs",
+        "port",
+        "url",
+        "cwd",
+        "env",
+        "type",
+        "request",
+        "autoPort",
+    }
 )
 #: Alt sürece GEÇMEYEN ortam değişkenleri: sağlayıcı anahtarları ve sırlar. Dev sunucu
 #: bunlara ihtiyaç duymaz; `env` alanıyla açıkça verilen değer yine geçer.
@@ -67,6 +80,13 @@ UNTRUSTED_HINT = (
     "{source} içindeki '{name}' komutu ({command}) çalıştırılmadı: bu dosya güvenilir değil. "
     'Komutu okuduysan `fusion trust` (ya da panelde "Güven ve başlat") ile onayla; yalnız '
     "`url` ile çalışan sunucuya bağlanma onay gerektirmez."
+)
+
+
+#: Port kaydırıldı ama sunucu yeni portta açılmadı: büyük olasılıkla sabit porta bağlanıyor.
+PORT_MOVED_HINT = (
+    "İstenen port dolu olduğu için başka port seçildi; sunucu PORT ortam değişkenini okumuyorsa "
+    '`runtimeArgs` içine `"--port", "${port}"` ekle ya da `"autoPort": false` yaz.'
 )
 
 
@@ -97,6 +117,8 @@ class LaunchConfig:
     trusted: bool = False
     #: Okunduğu dosya (hata metinleri için); elle kurulanda boş.
     source: str = ""
+    #: Port doluysa davranış (`autoPort`): None/True sıradaki boş port, False hata.
+    auto_port: bool | None = None
 
     @property
     def is_attach(self) -> bool:
@@ -225,7 +247,7 @@ def find_launch_config(root: Path, name: str) -> LaunchConfig:
 
 
 def is_local_url(value: object) -> bool:
-    """Önizleme panelinin gömebileceği adres: http + loopback."""
+    """Önizleme panelinin gömebileceği adres: http/https + loopback (P-041: https yerel)."""
     if not isinstance(value, str):
         return False
     try:
@@ -235,7 +257,7 @@ def is_local_url(value: object) -> bool:
     host = parsed.hostname or ""
     if ":" in host:
         host = f"[{host}]"
-    return parsed.scheme == "http" and host in LOCAL_HOSTS
+    return parsed.scheme in ("http", "https") and host in LOCAL_HOSTS
 
 
 def join_local_page(base: str, page: object) -> str:
@@ -247,7 +269,10 @@ def join_local_page(base: str, page: object) -> str:
     if not isinstance(page, str) or not page.strip():
         return base
     joined = urljoin(base, page.strip())
-    if urlparse(joined).netloc != urlparse(base).netloc or not is_local_url(joined):
+    joined_parts, base_parts = urlparse(joined), urlparse(base)
+    if (joined_parts.scheme, joined_parts.netloc) != (base_parts.scheme, base_parts.netloc) or (
+        not is_local_url(joined)
+    ):
         raise PreviewError(
             f"`page` yalnız yol olabilir (ör. /shop/); başka bir adres verilemez: {page.strip()}"
         )
@@ -285,7 +310,7 @@ def _parse(
     url = item.get("url")
     if url is not None and not is_local_url(url):
         raise LaunchConfigError(
-            f"{source} [{name}]: `url` yerel bir http adresi olmalı (localhost/127.0.0.1); "
+            f"{source} [{name}]: `url` yerel bir http(s) adresi olmalı (localhost/127.0.0.1); "
             "uzak adresler uygulama içinde önizlenmez."
         )
     if executable is None and url is None:
@@ -301,6 +326,9 @@ def _parse(
     ):
         raise LaunchConfigError(f"{source} [{name}]: `cwd` köke göreli olmalı (`..` olmaz).")
     env = _parse_env(source, name, item.get("env"))
+    auto_port = item.get("autoPort")
+    if auto_port is not None and not isinstance(auto_port, bool):
+        raise LaunchConfigError(f"{source} [{name}]: `autoPort` true ya da false olmalı.")
     if warnings is not None:
         bilinmeyen = sorted(key for key in item if key not in KNOWN_FIELDS)
         if bilinmeyen:
@@ -317,6 +345,7 @@ def _parse(
         env=env,
         trusted=trusted,
         source=source,
+        auto_port=auto_port,
     )
 
 
@@ -410,7 +439,6 @@ async def _start(root: Path, config: LaunchConfig) -> RunningPreview:
                 source=config.source or LAUNCH_FILE, name=config.name, command=config.command_text
             )
         )
-    url = config.address
     cwd = root / config.cwd if config.cwd else root
     if not await asyncio.to_thread(cwd.is_dir):
         raise PreviewError(f"'{config.name}' çalışma klasörü yok: {config.cwd}")
@@ -421,12 +449,16 @@ async def _start(root: Path, config: LaunchConfig) -> RunningPreview:
             f"'{config.name}' çalışma klasörü proje kökü dışına çözülüyor: {config.cwd}"
         )
     if config.is_attach:
+        url = config.address
         if not await preview_server.wait_until_serving(url, timeout_s=5.0):
             raise PreviewError(
                 f"'{config.name}' için {url} yanıt vermiyor; sunucuyu başlat ya da yapılandırmaya "
                 "`runtimeExecutable` ekle."
             )
         return RunningPreview(root, PreviewKind.LAUNCH, url, attached=True)
+    requested = config
+    config = await asyncio.to_thread(_with_free_port, config)
+    url = config.address
     command = list(config.command)
     try:
         process, log_path = await preview_server.spawn_logged(
@@ -444,8 +476,41 @@ async def _start(root: Path, config: LaunchConfig) -> RunningPreview:
             f"'{config.name}' {preview_server.SERVER_READY_S:.0f} sn içinde {url} adresinde "
             f"yanıt vermedi. Komut: {config.command_text}"
             + (f"\n[sürecin son çıktısı]\n{tail}" if tail else "")
+            + (f"\n{PORT_MOVED_HINT}" if config.port != requested.port else "")
         )
     return preview
+
+
+def _with_free_port(config: LaunchConfig) -> LaunchConfig:
+    """Port doluysa `autoPort`'a göre kaydır ya da `PreviewError`; `${port}` yerleştir."""
+    requested = config.port if config.port is not None else preview_ports.url_port(config.url)
+    if requested is None:
+        return config
+    choice = preview_ports.choose_port(requested, auto_port=config.auto_port)
+    if choice is None:
+        raise PreviewError(
+            f"'{config.name}' başlatılmadı: {requested} portu kullanımda"
+            + (
+                " (autoPort: false). Portu kullanan süreci durdur ya da `autoPort` alanını kaldır."
+                if config.auto_port is False
+                else f"; sonraki {preview_ports.PORT_SCAN_SPAN} port da dolu (autoPort)."
+            )
+        )
+    return replace(
+        config,
+        port=choice.port,
+        url=preview_ports.with_port(config.url, choice.port) if config.url else None,
+        args=preview_ports.expand_port(config.args, choice.port),
+    )
+
+
+def port_note(config: LaunchConfig, preview: RunningPreview) -> str:
+    """Port dolu olduğu için kaydırıldıysa kullanıcıya gösterilecek tek satır; yoksa boş."""
+    requested = config.port if config.port is not None else preview_ports.url_port(config.url)
+    actual = preview_ports.url_port(preview.url)
+    if config.is_attach or requested is None or actual is None or actual == requested:
+        return ""
+    return f"{requested} portu doluydu; '{config.name}' {actual} portunda başlatıldı (autoPort)."
 
 
 def _log_tail(preview: RunningPreview, chars: int = 1_500) -> str:

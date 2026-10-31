@@ -137,6 +137,7 @@ from ..effects.runner import maybe_run_effect_workflow
 from . import (
     compaction,
     denial,
+    desktop_approval,
     gate_escalation,
     learning_steps,
     liveness,
@@ -339,6 +340,9 @@ def _decision_message(
     """
     if decision is Decision.DENIED:
         return denial.DENIED_TOOL_RESULT
+    if request is not None and request.pre_denied is not None and request.desktop_blocked:
+        # Masaüstü engeli (ret listesi, engelli kategori, yetmeyen kademe; P-007).
+        return desktop_approval.DESKTOP_BLOCKED_RESULT.format(reason=request.pre_denied)
     if request is not None and request.pre_denied is not None:
         # İzin kuralı / kök-dışı engel (P-001, P-002): plan kipinden de önce gelir.
         return denial.RULE_DENIED_TOOL_RESULT.format(reason=request.pre_denied)
@@ -1205,8 +1209,10 @@ async def _run_agent(
     # doğrulama düzeltmesi, alt-ajan) aynı bağlamı paylaşır; onların kapatması
     # sürmekte olan turun sayfasını elinden alırdı. Kapatılmayan oturum arkada
     # bir chromium süreci bırakır — RULES.md "oluşturulan her task'ın sahibi vardır".
-    if depth == 0 and deps.tool_context.browser.is_open:
-        await deps.tool_context.browser.close()
+    # Paylaşılan tarayıcının (P-045, panel/`/tarayici`) sahibi panel/REPL'dir: açık kalır.
+    browser = deps.tool_context.browser
+    if depth == 0 and browser.is_open and not browser.persistent:
+        await browser.close()
     return outcome
 
 

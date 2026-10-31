@@ -128,7 +128,7 @@ def test_claude_code_dosyasi_uyumluluk_icin_okunur_fusion_dosyasi_oncelikli(tmp_
 @pytest.mark.parametrize(
     ("config", "parca"),
     [
-        ({"name": "x", "url": "https://example.com"}, "yerel bir http adresi"),
+        ({"name": "x", "url": "https://example.com"}, "yerel bir http(s) adresi"),
         ({"name": "x"}, "`runtimeExecutable` ya da `url`"),
         ({"name": "x", "runtimeExecutable": "npm"}, "`port` ya da `url`"),
         ({"name": "x", "runtimeExecutable": "npm", "port": 70000}, "1-65535"),
@@ -158,13 +158,14 @@ def test_bozuk_json_hata_tekrarli_ad_ve_bilinmeyen_alan_uyari(tmp_path):
     _yaz(
         tmp_path,
         [
-            {"name": "a", "url": "http://localhost:1", "autoPort": True},
+            # `autoPort` artık tanınır (test_preview_autoport); bilinmeyen alan örneği `program`.
+            {"name": "a", "url": "http://localhost:1", "program": "x.js"},
             {"name": "a", "url": "http://localhost:2"},
         ],
     )
     loaded = load_launch_configs(tmp_path)
     assert [c.url for c in loaded.configs] == ["http://localhost:1"]
-    assert any("autoPort" in w and "yok sayıldı" in w for w in loaded.warnings)
+    assert any("program" in w and "yok sayıldı" in w for w in loaded.warnings)
     assert any("tekrar" in w for w in loaded.warnings)
 
 
@@ -195,7 +196,8 @@ def test_env_alani_okunur_ve_gecersizse_kayit_atlanir(tmp_path):
 def test_yalniz_yerel_http_adresleri_yerel_sayilir():
     assert is_local_url("http://localhost:5173/x") and is_local_url("http://127.0.0.1:1")
     assert is_local_url("http://[::1]:8080/")
-    assert not is_local_url("https://localhost:5173") and not is_local_url(
+    # https loopback de yereldir (test_preview_https); uzak ana makine değildir.
+    assert is_local_url("https://localhost:5173") and not is_local_url(
         "http://evil.localhost.example"
     )
     assert not is_local_url(None) and not is_local_url("javascript:alert(1)")
@@ -654,7 +656,13 @@ async def test_rpc_baslat_calisan_sunucuya_baglanir_ve_durdurur(tmp_path):
         httpd.shutdown()
         httpd.server_close()
 
-    assert baslat == {"ok": True, "ad": "api", "url": f"http://127.0.0.1:{port}/", "komut": ""}
+    assert baslat == {
+        "ok": True,
+        "ad": "api",
+        "url": f"http://127.0.0.1:{port}/",
+        "komut": "",
+        "not": "",
+    }
     assert liste["yapilandirmalar"][0]["calisiyor"] is True
     assert durdur["durduruldu"] is True
 

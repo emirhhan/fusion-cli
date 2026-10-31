@@ -29,7 +29,9 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
     // Chrome eklentisi uygulamanın dışında (`../chrome-extension`); testleri onu modül
-    // olarak içe aktarır.
-    fs: { allow: [".", "../chrome-extension"] },
+    // olarak içe aktarır. Masaüstü kısayol verisi Python paketinden gelir (P-046). Ölçüldü
+    // (31 Ekim, Vite 7.3): içe aktaran modül çizgesindeyken 200 dönüyor, doğrudan ilk istekte 403;
+    // izin açıkça yazılır ki çizge sırası değişse de `tauri dev` kırılmasın.
+    fs: { allow: [".", "../chrome-extension", "../src/fusion_cli/config/data"] },
   },
 }));

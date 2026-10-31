@@ -47,6 +47,18 @@ describe("PreviewLaunch (launch.json başlatıcı, P-041)", () => {
     await screen.findByRole("button", { name: "Başlat" });
   });
 
+  it("port dolu olduğu için başka porta kayıldıysa (autoPort) notu gösterir", async () => {
+    const not = "5173 portu doluydu; 'web' 5174 portunda başlatıldı (autoPort).";
+    const client = istemci({ ok: true, url: "http://127.0.0.1:5174/", not });
+    const onStarted = vi.fn();
+    render(<PreviewLaunch client={client} onStarted={onStarted} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Başlat" }));
+
+    await waitFor(() => expect(onStarted).toHaveBeenCalledWith("http://127.0.0.1:5174/"));
+    expect(await screen.findByText(not)).toBeTruthy();
+  });
+
   it("başlatma hatasını çekirdeğin metniyle gösterir, adres açmaz", async () => {
     const client = istemci({ ok: false, metin: "'web' 45 sn içinde yanıt vermedi." });
     const onStarted = vi.fn();

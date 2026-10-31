@@ -26,6 +26,7 @@ from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
 import yaml
 from dotenv import dotenv_values
 
+from ..core.desktop_settings import DesktopSettings, parse_app_level
 from ..core.errors import ConfigError
 from ..core.shell_sandbox import SHELL_SANDBOX_MODES
 from ..core.types import ModelSpec
@@ -75,6 +76,7 @@ _SECTIONS = (
     "web_sessions",
     "browser",
     "capabilities",
+    "desktop",
 )
 
 # PEP 695 sözdizimi yerine TypeVar: paket Python 3.11'i de destekler.
@@ -273,7 +275,19 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         # Eski kullanıcı dosyasında `browser:` yoksa gömülü varsayılanlar geçerlidir.
         browser=_build(BrowserConfig, merged.get("browser") or {}, "browser"),
         capabilities=_build(CapabilitiesConfig, merged.get("capabilities") or {}, "capabilities"),
+        desktop=_build_desktop(merged.get("desktop") or {}),
     )
+
+
+def _build_desktop(raw: object) -> DesktopSettings:
+    """`desktop:` bölümü; `app_levels` girdileri yüklemede doğrulanır (çalışma anında değil)."""
+    desktop = _build(DesktopSettings, raw, "desktop")
+    for entry in desktop.app_levels:
+        try:
+            parse_app_level(entry)
+        except ValueError as error:
+            raise ConfigError(f"desktop.app_levels: {error}") from None
+    return desktop
 
 
 def _verified_web_teacher(sessions: tuple[WebSessionConfig, ...]) -> ModelSpec | None:

@@ -20,6 +20,7 @@ Fusion iki şeyi tek üründe birleştirir:
 | Profiller (`/mode`) + effort (`/effort`) | "Ne kadar güçlü model" ve "ne kadar düşünsün" ayrı ayrı |
 | Şifreli anahtar deposu | Anahtarlar şifreli saklanır, log'a/git'e girmez |
 | Tarayıcı oturumu profilleri (`fusion browser`, Ayarlar › Web oturumları) | cookies.txt/JSON ya da Chrome'dan oturum aktar; ajanın tarayıcısı onaylı sitelerde girişli açılır — bkz. `TARAYICI_OTURUMLARI.md` |
+| Bilgisayar kullanımı (`desktop_*`, Ayarlar › Bu bilgisayar, `fusion config set desktop.<alan>`) | Ekranı görür, tıklar, yazar; açma/kapama anahtarı, kademe tavanı (yalnız bak / tıkla / tam kontrol), reddedilen uygulamalar — bkz. `BILGISAYAR_KULLANIMI.md` |
 | MCP köprüsü | Fusion araçlarını dışa aç (sunucu) + dış MCP araçlarını kullan (istemci) |
 | MCP kurulumu (`/mcp`, `fusion mcp-add`, panel) | Sohbette `/mcp add <ad> <komut>`, terminalden `fusion mcp-add`, ya da Control Panel'in "MCP sunucusu bağla" kartından — üçü de aynı config.yaml'a yazar, elle düzenleme gerekmez |
 | Öz-öğrenen bellek | Her görevden ders çıkarır, benzer işlerde hatırlar |
@@ -35,6 +36,7 @@ Fusion iki şeyi tek üründe birleştirir:
 | Fusion ↔ Kits köprüsü (`fusion kit`, `kit_send`, `fusion_browser`) | Bir Kit'e mesaj/görev bırak, durumunu oku; Kit kullanıcının Chrome'unu onaylı kullanır (bkz. `docs/KITS_KOPRUSU.md`) |
 | Production değerlendirmesi | Godot asset, MCP, replan, büyük dosya ve sohbet izolasyonunu üç tekrarla ölçer |
 | REPL paritesi (Claude Code) | `!` kabuk, `@dosya` anma + Tab tamamlama, `#` not; `/status`, `/context`; `/export`, `/copy`; `/config` + `fusion config get/set/list`, `--set`, `--profile`; `/output-style`; `/statusline`; `/theme`, `/tui`, `/search`; `keybindings.json`, `/vim` (bkz. NASIL_KULLANILIR §15) |
+| Komut paleti ve kısayollar (masaüstü) | ⌘K palet (eylem/ekran/sohbet/komut/ayar/dosya, son kullanılanlar), ⌘P dosya, ⌘N/⌘,/⌘B/⌘J/⌘1-9; Ayarlar › Kısayollar ile yeniden bağlama; `keybindings.json` `masaustu` bölümü (bkz. NASIL_KULLANILIR §17) |
 
 Yayın ölçümü `python -m evals run evals/suite/production.yaml --profile production --repeat 3`
 komutuyla çalışır. Rapor, bütün tekil koşuların başarı oranını ve yalnız üç tekrarın

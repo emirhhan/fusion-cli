@@ -39,7 +39,8 @@ export function useModalFocus(ref: RefObject<HTMLElement | null>, open: boolean,
     (ref.current?.querySelector<HTMLElement>(initialSelector) ?? ref.current)?.focus();
     const keydown = (event: KeyboardEvent) => {
       if (katmanlar[katmanlar.length - 1] !== katman) return;
-      if (event.key === "Escape") { event.preventDefault(); close.current(); return; }
+      // İçerideki öğe (açılır liste, palet) Escape'i kendi kapanışı için işlediyse modal kapanmaz (31 Ekim).
+      if (event.key === "Escape") { if (!event.defaultPrevented) { event.preventDefault(); close.current(); } return; }
       if (event.key !== "Tab") return;
       const items = controls(), first = items[0], last = items[items.length - 1];
       if (!first) { event.preventDefault(); ref.current?.focus(); }

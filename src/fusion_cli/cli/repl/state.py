@@ -41,6 +41,7 @@ from .macros import Mode
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
     from ...remote.host import RemoteControlHost
+    from ...tools.browser_shared import SharedBrowser
 
 
 def rebase_session_changes(baseline: Config, session: Config, loaded: Config) -> Config:
@@ -198,6 +199,10 @@ class ReplState:
     scheduled_turn_only: bool = False
     #: `/rc` ile bu süreçte açılan uzaktan kontrol sunucusu; kapalıyken `None` (P-039).
     remote_control: RemoteControlHost | None = field(default=None, kw_only=True)
+    #: `/tarayici ac` ile açılan, ajanla paylaşılan görünür tarayıcı (P-045); kapalıyken None.
+    shared_browser: SharedBrowser | None = field(default=None, kw_only=True)
+    #: `/tarayici kapat` sonrası kapanışı süren paylaşımlar; REPL çıkışında beklenir.
+    closing_browsers: list[SharedBrowser] = field(default_factory=list, kw_only=True)
     #: `/beceri` ile hazırlanan ve sıradaki turun sistem bağlamına eklenecek beceri gövdesi.
     pending_context: str = ""
     #: `allowed-tools` kısıtı: sıradaki turda sunulacak Fusion araç adları; None = kısıt yok.
