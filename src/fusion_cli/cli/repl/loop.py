@@ -63,8 +63,6 @@ from ...ui.text import summarize_error
 from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
 from ..rule_notices import print_rule_notices
-from . import help_view, history_view, macros
-from . import help_view, history_view, macros, session_resume
 from . import help_view, history_view, macros, session_resume, worktrees
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
 from .input import ReplInput

@@ -32,10 +32,8 @@ from ..config.readiness import Readiness, evaluate
 from ..core.errors import FusionError
 from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
-from ..engines.agent.approval import ApprovalMemory, ApprovalMode, parse_mode
-from ..core.worktree import Worktree
 from ..core.worktree import Worktree, WorktreeSwitch
-from ..engines.agent.approval import ApprovalMode, parse_mode
+from ..engines.agent.approval import ApprovalMemory, ApprovalMode, parse_mode
 from ..ui import messages, theme
 from .app_host import AppHostDependencies
 
@@ -54,10 +52,8 @@ from . import (
 )
 from .cleanup import with_web_cleanup
 from .prompter import ConsolePrompter
-from .repl import run_repl
-from .rule_notices import attach_rule_writer, print_rule_notices
-from .repl import run_repl, session_resume
 from .repl import run_repl, session_resume, worktrees
+from .rule_notices import attach_rule_writer, print_rule_notices
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
 from .setup_command import run_setup
 

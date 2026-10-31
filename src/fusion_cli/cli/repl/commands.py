@@ -36,8 +36,6 @@ from . import (
     permissions_command,
     profiles_flow,
     provider_flow,
-    profiles_flow,
-    provider_flow,
     rewind,
     session_resume,
     verify_flow,
