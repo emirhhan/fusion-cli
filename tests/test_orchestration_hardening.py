@@ -79,3 +79,57 @@ def test_fusion_ekip_sil_yol_gecisini_reddeder(tmp_path):
 
     assert result.exit_code == 1
     assert (victim / "degerli.txt").is_file()
+
+
+# -- görünürlük: Türkçe ek hâlleri ve devam turları ---------------------------- #
+
+EKIP, AKIS = {"ekip"}, {"is_akisi"}
+
+
+@pytest.mark.parametrize(
+    ("cumle", "beklenen"),
+    [
+        ("Bir ajan takımı kur", EKIP),
+        ("takımı oluştur ve işi böl", EKIP),
+        ("ekibi kur", EKIP),
+        ("ekibe görev ver", EKIP),
+        ("ekibin raporunu özetle", EKIP),
+        ("takımla birlikte çalış", EKIP),
+        ("3 kişilik bir ajan ekibi kur", EKIP),
+        ("spin up an agent team", EKIP),
+        ("İŞ AKIŞI kur: 20 dosyayı incele", AKIS),
+        ("iş akışını kaydet", AKIS),
+        ("bunu alt ajanlarla paralel yap", AKIS),
+        ("subagent fan out over the files", AKIS),
+        ("kask ekipmanı stoğunu güncelle", set()),
+        ("motosiklet ekipmanları sayfasını düzelt", set()),
+        ("takip kodunu ekle", set()),
+        ("bu dosyayı düzelt", set()),
+    ],
+)
+def test_orkestrasyon_gorev_turleri_turkce_ek_halleriyle(cumle, beklenen):
+    from fusion_cli.engines.agent.orchestration_tools import orchestration_task_kinds
+
+    assert orchestration_task_kinds(cumle) == beklenen
+
+
+def test_kayitli_ekip_varken_devam_turunda_ekip_araci_acik_kalir(tmp_path):
+    from fusion_cli.engines.agent.orchestration_tools import orchestration_task_kinds
+
+    assert orchestration_task_kinds("devam et", tmp_path) == set()
+    TeamStore(tmp_path).save(TeamBoard("site", "hedef", (TeamMember("kod"),)))
+
+    assert orchestration_task_kinds("devam et", tmp_path) == EKIP
+    assert orchestration_task_kinds("site üzerinde sürdür", tmp_path) == EKIP
+    assert orchestration_task_kinds("bu dosyayı düzelt", tmp_path) == set()
+
+
+def test_kayitli_is_akisi_adi_anilinca_arac_acilir(tmp_path):
+    from fusion_cli.engines.agent.orchestration_tools import orchestration_task_kinds
+    from fusion_cli.engines.agent.workflow_spec import parse_workflow
+    from fusion_cli.engines.agent.workflow_store import WorkflowStore
+
+    WorkflowStore(tmp_path).save(parse_workflow({"ad": "haftalik-rapor", "adimlar": ["a"]}))
+
+    assert orchestration_task_kinds("haftalik-rapor'u yeniden koştur", tmp_path) == AKIS
+    assert orchestration_task_kinds("raporu düzelt", tmp_path) == set()

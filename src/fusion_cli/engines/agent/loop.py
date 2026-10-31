@@ -712,7 +712,7 @@ async def _run_agent(
             deps.tool_context.task_kinds.add("masaustu")
         if is_worktree_task(task):
             deps.tool_context.task_kinds.add("worktree")
-        deps.tool_context.task_kinds.update(orchestration_task_kinds(task))
+        deps.tool_context.task_kinds.update(orchestration_task_kinds(task, deps.tool_context.root))
 
     if not plan_mode and not chat_mode and depth == 0:
         played = await maybe_run_playbook(task, deps)
