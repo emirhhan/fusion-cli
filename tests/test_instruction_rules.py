@@ -18,6 +18,7 @@ from fusion_cli.engines.agent.instruction_rules import (
     unscoped_rules_block,
 )
 from fusion_cli.engines.agent.project_instructions import (
+    SCOPED_RULES_MAX_CHARS,
     load_nested_instructions,
     read_all_instructions,
 )
@@ -147,3 +148,47 @@ def test_dosya_erisiminde_eslesen_kural_bir_kez_yuklenir(proje):
     assert "React kuralı" in ilk.message.content
     assert ".claude/rules/frontend/react.md" in ilk.files
     assert ikinci is None
+
+
+# --- İnceleme bulguları (31 Ekim) --------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("desen", "yol"),
+    [
+        (".github/**", ".github/workflows/ci.yml"),
+        (".*rc", ".eslintrc"),
+        ("./src/**", "src/a.py"),
+        (".claude/**", ".claude/settings.json"),
+    ],
+)
+def test_nokta_ile_baslayan_yollar_eslesir(desen, yol):
+    """Ölçüldü: `lstrip('./')` baştaki noktayı da siliyor, `.github/**` hiç eşleşmiyordu."""
+    assert matches_paths((desen,), yol) is True
+
+
+def test_kapsamli_kurallarin_toplam_butcesi_ve_ic_ice_talimat_sayaci(proje):
+    """Ölçüldü: 12 kural tek mesaja 50 KB ekliyor, sayacı doldurup AGENTS.md'yi engelliyordu."""
+    for index in range(12):
+        (proje / ".claude" / "rules" / f"py{index:02d}.md").write_text(
+            f"---\npaths: ['**/*.py']\n---\nKural {index}: " + "k" * 4_000, "utf-8"
+        )
+    for klasor in ("a", "b"):
+        (proje / klasor).mkdir()
+        (proje / klasor / "AGENTS.md").write_text(f"{klasor} klasörü talimatı", "utf-8")
+        (proje / klasor / "x.py").write_text("pass", "utf-8")
+    kurallar = discover_rules(proje, None)
+    yuklu: set[str] = set()
+
+    ilk = load_nested_instructions(
+        proje, proje / "a" / "x.py", loaded=yuklu, present=lambda rel: False, rules=kurallar
+    )
+    ikinci = load_nested_instructions(
+        proje, proje / "b" / "x.py", loaded=yuklu, present=lambda rel: False, rules=kurallar
+    )
+
+    assert ilk is not None and ikinci is not None
+    assert "a klasörü talimatı" in ilk.message.content
+    assert len(ilk.message.content) <= SCOPED_RULES_MAX_CHARS + 2_000
+    assert "kural" in ilk.message.content and "atlandı" in ilk.message.content
+    assert "b klasörü talimatı" in ikinci.message.content

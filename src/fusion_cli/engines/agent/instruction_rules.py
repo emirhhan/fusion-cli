@@ -139,6 +139,8 @@ def _clean(value: str) -> str:
 def _glob_to_regex(pattern: str) -> re.Pattern[str]:
     """Klasik glob → düzenli ifade: `**` dizin aşar, `*` aşmaz, `{a,b}` seçenektir."""
     text = pattern.strip().replace("\\", "/")
+    while text.startswith("./"):  # `./src/**` ile `src/**` aynı desen
+        text = text[2:]
     if text.endswith("/"):
         text += "**"
     out: list[str] = []
@@ -173,7 +175,12 @@ def _glob_to_regex(pattern: str) -> re.Pattern[str]:
 
 def matches_paths(patterns: tuple[str, ...], relative: str) -> bool:
     """Köke göreli yol desenlerden birine uyuyor mu? Dizinsiz desen dosya adına da bakar."""
-    rel = relative.replace("\\", "/").lstrip("./")
+    # Yalnız `./` öneki atılır: `lstrip("./")` baştaki noktayı da siliyor, `.github/**` ve
+    # `.*rc` desenleri hiç eşleşmiyordu (ölçüldü 31 Ekim).
+    rel = relative.replace("\\", "/")
+    while rel.startswith("./"):
+        rel = rel[2:]
+    rel = rel.lstrip("/")
     name = rel.rsplit("/", 1)[-1]
     for pattern in patterns:
         regex = _glob_to_regex(pattern)
