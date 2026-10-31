@@ -1,6 +1,8 @@
 // Fusion Browser ortak çekirdeği: sayfa eylemleri ve sekme yönetimi.
 // Hem arka plan hizmeti (otomatik bağlantı) hem yan panel (elle bağlantı) kullanır.
 
+import { findShortcut } from "./shortcuts.js";
+
 const TAB_KEY = "fusionTab";
 const LOAD_TIMEOUT_MS = 20000;
 
@@ -1339,9 +1341,8 @@ export async function execute(command) {
     return { shortcuts: (await savedShortcuts()).map(({ ad, metin }) => ({ ad, metin: String(metin).slice(0, 2000) })) };
   }
   if (command.islem === "shortcut_run") {
-    const wanted = String(veri.name || "").trim().toLocaleLowerCase("tr");
     const shortcuts = await savedShortcuts();
-    const hit = shortcuts.find((item) => String(item.ad).toLocaleLowerCase("tr") === wanted);
+    const hit = findShortcut(shortcuts, veri.name);
     if (!hit) {
       const names = shortcuts.map((item) => item.ad).join(", ") || "(hiç yok)";
       throw new Error(`“${veri.name}” adlı kısayol yok. Kayıtlı kısayollar: ${names}.`);

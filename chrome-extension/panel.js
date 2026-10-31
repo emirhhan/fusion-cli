@@ -7,6 +7,7 @@ import { setGlow } from "./pageGlow.js";
 import { MONITOR_KEY, PERMISSION_KEY, SHORTCUTS_KEY, monitorEnabled } from "./core.js";
 import { controlSummary, renderAsk, renderMessage, renderShortcuts, renderSites } from "./panelView.js";
 import { handleRecord } from "./recorder.js";
+import { SHORTCUT_NAME, expandShortcut as expandShortcutText } from "./shortcuts.js";
 
 const $ = (id) => document.getElementById(id);
 const THREAD_KEY = "fusionThread";
@@ -396,17 +397,17 @@ async function renderShortcutList() {
   });
 }
 
-/** `/ad kalan metin` → kayıtlı görev (+ kalan metin); kısayol yoksa anlaşılır hata. */
+/** `/ad kalan metin` → kayıtlı görev (+ kalan metin); kısayol değilse metin olduğu gibi gider
+ * (bkz. shortcuts.js). Yalnız "/ad" yazılmış ve o ad yoksa yazım hatası olabilir: sorulur. */
 async function expandShortcut(prompt) {
   if (!prompt.startsWith("/")) return prompt;
-  const [, name, rest] = /^\/(\S+)\s*([\s\S]*)$/.exec(prompt) || [];
   const list = await loadShortcuts();
-  const hit = list.find((item) => item.ad.toLocaleLowerCase("tr") === String(name || "").toLocaleLowerCase("tr"));
-  if (!hit) {
-    const names = list.map((item) => `/${item.ad}`).join(", ") || "(henüz yok; Bağlantı ayarlarından ekle)";
-    throw new Error(`“/${name || ""}” adlı kısayol yok. Kısayollar: ${names}`);
+  const result = expandShortcutText(prompt, list);
+  if (result.unknown) {
+    const names = list.map((item) => `/${item.ad}`).join(", ");
+    throw new Error(`“/${result.unknown}” adlı kısayol yok. Kısayollar: ${names}. Metni göndermek için başına boşluk koy.`);
   }
-  return rest ? `${hit.metin}\n${rest}` : hit.metin;
+  return result.prompt;
 }
 
 function autoGrow() {
@@ -500,7 +501,7 @@ $("monitor-toggle").addEventListener("change", guard(async () => {
 $("shortcut-form").addEventListener("submit", guard(async () => {
   const ad = $("shortcut-name").value.trim().replace(/^\//, "");
   const metin = $("shortcut-text").value.trim();
-  if (!/^[\p{L}\p{N}_-]{1,40}$/u.test(ad)) throw new Error("Kısayol adı boşluksuz, en çok 40 karakter olmalı (ör. ozet).");
+  if (!SHORTCUT_NAME.test(ad)) throw new Error("Kısayol adı boşluksuz, en çok 40 karakter olmalı (ör. ozet).");
   if (!metin) throw new Error("Kısayolun görev metnini yaz.");
   const others = (await loadShortcuts()).filter((item) => item.ad.toLocaleLowerCase("tr") !== ad.toLocaleLowerCase("tr"));
   await saveShortcuts([...others, { ad, metin }]);

@@ -28,3 +28,15 @@ def test_izleyici_kaydi_serilesir_all_urls_kurmaz_sekme_grubu_ve_pencere_denetle
 
     assert done.returncode == 0, done.stdout + done.stderr
     assert "chrome-core ✓" in done.stdout
+
+
+def test_panel_kisayol_genisletmesi_kisayol_yoksa_metni_oldugu_gibi_gonderir() -> None:
+    done = subprocess.run(
+        [NODE, str(ROOT / "tests/e2e/chrome_shortcuts_unit.mjs")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "chrome-shortcuts ✓" in done.stdout
