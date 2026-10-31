@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KitsScreen } from "./KitsScreen";
 import { kitsFrameUrl } from "./kitsUrl";
@@ -54,11 +54,28 @@ describe("KitsScreen", () => {
   });
 
   it("yan süreç hazır olunca modülü iframe ile gömer", async () => {
-    render(<KitsScreen start={() => Promise.resolve({ url: "http://127.0.0.1:50001" })} />);
-    expect(screen.getByText("Kits hazırlanıyor…")).toBeTruthy();
+    render(<KitsScreen start={() => Promise.resolve({ url: "http://127.0.0.1:50001" })} statusDelayMs={0} />);
+    expect(screen.getByText("Kits başlatılıyor…")).toBeTruthy();
     const frame = await screen.findByTitle("Fusion Kits");
     expect(frame.getAttribute("src")).toBe("http://127.0.0.1:50001/?surface=kits&theme=light&asset_protocol=1");
     expect(frame.getAttribute("referrerpolicy")).toBe("no-referrer");
+  });
+
+  it("ön başlatılmış Kits'te durum metni yanıp sönmez; başlatma uzarsa sebebi söylenir", async () => {
+    // Ölçüldü (31 Ekim): ön başlatmayla `kits_baslat` birkaç ms'de döner; metin bir kare görünüp kayboluyordu.
+    vi.useFakeTimers();
+    try {
+      render(<KitsScreen start={() => new Promise(() => {})} statusDelayMs={300} slowHintMs={4_000} />);
+      expect(screen.getByRole("status").getAttribute("aria-busy")).toBe("true");
+      expect(screen.queryByText("Kits başlatılıyor…")).toBeNull();
+      await act(async () => { vi.advanceTimersByTime(300); });
+      expect(screen.getByText("Kits başlatılıyor…")).toBeTruthy();
+      expect(screen.queryByText(/birkaç saniye/)).toBeNull();
+      await act(async () => { vi.advanceTimersByTime(3_700); });
+      expect(screen.getByText(/birkaç saniye sürebilir/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("başlatma hatasını gösterir ve yeniden denemeye izin verir", async () => {

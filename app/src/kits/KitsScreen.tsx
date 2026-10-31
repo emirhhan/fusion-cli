@@ -7,8 +7,8 @@ import { FolderPickHost, type PickFolder } from "./folderPickHost";
 import { KitsVoiceHost, type ConfirmMicrophone } from "./kitsVoiceHost";
 import { runtimeDefault } from "../voice/useDictation";
 import { askComputerAccess, askKitsBrowserAccess, askKitsProfileAccess, askMicrophoneAccess, selectProjectFolder } from "../platform/dialog";
-import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { startKitsWithTauri, type StartKits } from "./startKits";
 import { KITS_THEME_MESSAGE, kitsFrameUrl, type KitsTheme } from "./kitsUrl";
 import "./KitsScreen.css";
 
@@ -16,10 +16,6 @@ type KitsState =
   | { durum: "hazirlaniyor" }
   | { durum: "hazir"; adres: string }
   | { durum: "hata"; mesaj: string };
-
-type StartKits = () => Promise<{ url: string }>;
-
-const startWithTauri: StartKits = () => invoke<{ url: string }>("kits_baslat");
 
 function currentTheme(): KitsTheme {
   return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
@@ -46,18 +42,26 @@ interface KitsScreenProps {
   watchIntervalMs?: number;
   /** Bölüm gizliyken adres yoklaması durur (sürekli IPC olmasın); iframe ve köprüler yerinde kalır. */
   visible?: boolean;
+  /** Başlatma bu süreden uzun sürerse durum metni gösterilir (ms). */
+  statusDelayMs?: number;
+  /** Başlatma bu süreyi aşarsa ilk açılışın uzun sürebileceği söylenir (ms). */
+  slowHintMs?: number;
 }
 
 /** Kits süreci ölüp yeniden başlarsa YENİ bir portta açılır; iframe eski
  * adreste kalırsa her istek "Failed to fetch" verir. Bu aralıkla yoklanır. */
 const KITS_WATCH_INTERVAL_MS = 5_000;
+/** Ön başlatılmış Kits birkaç ms'de döner; bu sürede durum metni yanıp sönmesin. */
+const KITS_STATUS_DELAY_MS = 300;
+/** Ölçüldü (31 Ekim): ön başlatma yetişmezse model geçidiyle birlikte 1,1-5,3 sn. */
+const KITS_SLOW_HINT_MS = 4_000;
 
 /** Fusion Kits modülü: yan süreç hazır olunca iframe ile gömülür.
  *
  * Bileşen bir kez kurulur ve menü geçişinde DOM'da kalır (bkz. `MainSurface`);
  * Kits sohbeti bölüm değiştirince kaybolmaz. */
 export function KitsScreen({
-  start = startWithTauri,
+  start = startKitsWithTauri,
   onDeliveryClient,
   onScheduleApproval,
   requestHost,
@@ -68,6 +72,8 @@ export function KitsScreen({
   confirmMicrophone = askMicrophoneAccess,
   watchIntervalMs = KITS_WATCH_INTERVAL_MS,
   visible = true,
+  statusDelayMs = KITS_STATUS_DELAY_MS,
+  slowHintMs = KITS_SLOW_HINT_MS,
 }: KitsScreenProps) {
   const [state, setState] = useState<KitsState>({ durum: "hazirlaniyor" });
   const [attempt, setAttempt] = useState(0);
@@ -232,15 +238,40 @@ export function KitsScreen({
       />
     );
   }
+  if (state.durum === "hazirlaniyor") {
+    return <KitsStarting delayMs={statusDelayMs} slowHintMs={slowHintMs} />;
+  }
   return (
     <div className="kits-screen__status" role="status">
       <h2>Kits</h2>
-      {state.durum === "hazirlaniyor" ? (
-        <p>Kits hazırlanıyor…</p>
-      ) : (
+      <p role="alert">{state.mesaj}</p>
+      <button onClick={retry} type="button">Yeniden dene</button>
+    </div>
+  );
+}
+
+interface KitsStartingProps {
+  delayMs: number;
+  slowHintMs: number;
+}
+
+/** Başlatma sürerken: kısa beklemede boş kalır, uzarsa ne olduğunu ve neden sürdüğünü söyler. */
+function KitsStarting({ delayMs, slowHintMs }: KitsStartingProps) {
+  const [phase, setPhase] = useState<"sessiz" | "basliyor" | "yavas">(delayMs > 0 ? "sessiz" : "basliyor");
+  useEffect(() => {
+    const timers = [
+      window.setTimeout(() => setPhase((current) => (current === "sessiz" ? "basliyor" : current)), delayMs),
+      window.setTimeout(() => setPhase("yavas"), Math.max(slowHintMs, delayMs)),
+    ];
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [delayMs, slowHintMs]);
+  return (
+    <div aria-busy="true" className="kits-screen__status" role="status">
+      {phase !== "sessiz" && (
         <>
-          <p role="alert">{state.mesaj}</p>
-          <button onClick={retry} type="button">Yeniden dene</button>
+          <h2>Kits</h2>
+          <p>Kits başlatılıyor…</p>
+          {phase === "yavas" && <p className="kits-screen__hint">İlk açılışta model bağlantısı da kuruluyor; birkaç saniye sürebilir.</p>}
         </>
       )}
     </div>

@@ -32,3 +32,12 @@
   font: inherit;
   padding: 8px 16px;
 }
+
+.kits-screen__status p {
+  margin: 0;
+}
+
+.kits-screen__hint {
+  font-size: 0.875em;
+  max-width: 36ch;
+}

@@ -130,6 +130,7 @@ import { MainRail, type MainSection } from "./screens/MainRail";
 import { MainSurface, type SurfaceSection } from "./sections/MainSurface";
 import { MediaScreen } from "./sections/MediaScreen";
 import { KitsScreen } from "./kits/KitsScreen";
+import { useKitsPrewarm } from "./kits/useKitsPrewarm";
 import type { ScheduleDeliveryClient } from "./schedule/types";
 import { LibraryScreen } from "./library/LibraryScreen";
 import { ScheduleScreen } from "./schedule/ScheduleScreen";
@@ -625,6 +626,8 @@ export function SessionUygulama({
   const split = useSplitView(active?.id ?? null, acikSohbetler);
   const splitSession = split.splitId ? controller.state.sessions[split.splitId] ?? null : null;
   useTray(controller.sessions.filter((session) => session.running).length);
+  // Kullanıcı Kits'e girdiğinde sunucu hazır olsun: çekirdek oturumu kurulunca arka planda başlar.
+  useKitsPrewarm(active?.status === "ready");
   const activeSessionId = active?.id;
   const activeClient = active?.client;
   const activeTitle = active?.title ?? "";
