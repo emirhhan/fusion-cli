@@ -25,6 +25,17 @@ cd app
 npm ci
 ```
 
+## Sayfa düzeni: tam sayfa kuralı
+
+Sohbet kenar çubuğu (Fusion başlığı, Yeni sohbet, Projeler) yalnız sohbet kabuğunda
+görünür: sohbet ile komut paletinden açılan Görsel/Video oluştur. Sohbetle ilgisi
+olmayan her yönetim ekranı — Ayarlar, Hesabım, Yardım, Kontrol Paneli, Beceriler ve
+Ajanlar, MCP bağlantıları ve raydan açılan Zamanlananlar, Kitaplık, Kits — Ayarlar gibi
+tam sayfa açılır ve "Kapat" önceki ekrana döner. Kural tek yerdedir:
+`src/screens/pageLayout.ts` (`isFullPage`). Yeni sayfa, açıkça
+`SOHBET_KABUGU_SAYFALARI`na eklenmedikçe tam sayfadır. Geri bildirim sayfa değil,
+bulunulan ekranın üstünde açılan penceredir.
+
 ## Geliştirme ve doğrulama
 
 ```bash

@@ -128,6 +128,7 @@ import { FeedbackDialog } from "./feedback/FeedbackDialog";
 import { ImageCreate } from "./imagecreate/ImageCreate";
 import { MainRail, type MainSection } from "./screens/MainRail";
 import { MainSurface, type SurfaceSection } from "./sections/MainSurface";
+import { isFullPage, type Page } from "./screens/pageLayout";
 import { MediaScreen } from "./sections/MediaScreen";
 import { KitsScreen } from "./kits/KitsScreen";
 import { useKitsPrewarm } from "./kits/useKitsPrewarm";
@@ -320,21 +321,6 @@ function projectName(root: string): string {
 /** Sayfa başlığını kendi içinde `PageHeader` ile gösteren tam ekran sayfalar. */
 const SAYFA_KENDI_BASLIGINI_TASIR = ["settings", "control", "connectors", "account"];
 
-/** Sohbet kenar çubuğunu gizleyen tam sayfalar (Ayarlar'ın davranışı). */
-const TAM_SAYFALAR: readonly string[] = ["settings", "account", "help"];
-
-/** Ana uygulamanın gezinebileceği sayfalar; üst çubuktaki geri/ileri
- * düğmeleri bu sayfalar arasındaki geçmişi gezer (bkz. `useNavigationHistory`). */
-type Page =
-  | "chat"
-  | "skills"
-  | "control"
-  | "connectors"
-  | "help"
-  | "settings"
-  | "account"
-  | "image-create"
-  | "video-create";
 
 function ProjectInspector({
   activeTab,
@@ -1485,9 +1471,9 @@ export function SessionUygulama({
       })),
     ],
   };
-  // Ayarlar, Hesabım ve Yardım tam sayfadır: sohbet kenar çubuğu
-  // (Fusion başlığı, Yeni sohbet, Projeler) bu sayfalarda görünmez.
-  const sectionOwnsSidebar = surfaceSection !== null || TAM_SAYFALAR.includes(page);
+  // Tam sayfa kuralı TEK yerde (`screens/pageLayout.ts`): sohbetle ilgisi olmayan her
+  // yönetim ekranı sohbet kenar çubuğunu (Fusion başlığı, Yeni sohbet, Projeler) gizler.
+  const sectionOwnsSidebar = isFullPage(page, surfaceSection);
   if (!active) {
     if (!hasOpenedSession.current) return <div className="app-status-screen">Hazırlanıyor…{kapatmaOnayi}</div>;
     return <><Shell
@@ -1722,20 +1708,20 @@ export function SessionUygulama({
   const content = mediaPage
     ? <MediaScreen active={page} image={<ImageCreate client={active.client} jobScope={JSON.stringify([active.root, active.id])} />} onSelect={setPage} />
     : page === "skills"
-    ? <SkillsCatalog client={active.client} onClose={() => setPage("chat")} />
+    ? <SkillsCatalog client={active.client} onClose={closePage} />
     : page === "control"
       ? (
         <ControlPanel
           client={active.client}
           initialProviderId={controlProviderId}
           title={controlTitle}
-          onClose={() => { setControlProviderId(undefined); setPage("chat"); }}
+          onClose={() => { setControlProviderId(undefined); closePage(); }}
           revision={controlRevision}
           onProvidersChanged={() => setControlRevision((value) => value + 1)}
         />
       )
       : page === "connectors"
-        ? <ConnectorsScreen client={active.client} onClose={() => setPage("chat")} />
+        ? <ConnectorsScreen client={active.client} onClose={closePage} />
       : page === "account"
         ? (
           <AccountScreen

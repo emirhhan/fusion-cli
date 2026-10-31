@@ -580,9 +580,12 @@ describe("SessionUygulama", () => {
   });
 
   it.each([
-    ["Hesabım", { role: "heading", name: "Hesabım" }],
-    ["Yardım", { role: "heading", name: "Yardım" }],
-  ] as const)("%s Ayarlar gibi tam sayfa açılır: sohbet kenar çubuğu gizlenir, Kapat önceki ekrana döner", async (etiket, hedef) => {
+    ["Hesabım", { role: "heading", name: "Hesabım" }, "Kapat"],
+    ["Yardım", { role: "heading", name: "Yardım" }, "Kapat"],
+    ["Kontrol Paneli", { role: "heading", name: "Kontrol Paneli" }, "Kapat"],
+    ["Beceriler ve Ajanlar", { role: "heading", name: "Beceriler ve Ajanlar" }, "Kataloğu kapat"],
+    ["MCP bağlantıları", { role: "heading", name: "Uygulamalar" }, "Kapat"],
+  ] as const)("%s Ayarlar gibi tam sayfa açılır: sohbet kenar çubuğu gizlenir, Kapat önceki ekrana döner", async (etiket, hedef, kapat) => {
     let lineHandler: ((event: { oturum_id: string; satir: string }) => void) | null = null;
     const transport: SessionTransport = {
       create: vi.fn(async (id) => ({ oturum_id: id, kok: "/proje", pid: 41, durum: "calisiyor", kapanis_nedeni: null })),
@@ -606,7 +609,7 @@ describe("SessionUygulama", () => {
     expect((await screen.findAllByRole(hedef.role, { name: hedef.name })).length).toBeGreaterThan(0);
     expect(kenarCubugu()?.hidden).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: "Kapat" }));
+    fireEvent.click(screen.getByRole("button", { name: kapat }));
     expect(await screen.findByRole("textbox", { name: "Mesaj" })).toBeTruthy();
     expect(kenarCubugu()?.hidden).toBe(false);
   });

@@ -427,8 +427,8 @@ function Preview() {
   const feedback = state === "feedback";
   /** Kendi tam sayfası olan yönetim ekranları: oluşturucu ve denetçi çizilmez. */
   const managementPage = capabilities || connectors || control || settings || account || help;
-  /** Sohbet kenar çubuğunu gizleyen sayfalar (uygulamadaki kuralın önizleme karşılığı). */
-  const sidebarHidden = settings || account || help;
+  /** Tam sayfa kuralı (`src/screens/pageLayout.ts`): yönetim ekranları sohbet kenar çubuğunu gizler. */
+  const sidebarHidden = managementPage;
   const voice = state.startsWith("voice-");
   const voiceMini = params.get("voiceMode") === "mini";
   const fullComposer = params.get("fullComposer") === "1";
