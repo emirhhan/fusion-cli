@@ -406,6 +406,11 @@ runtime:
   # aralık her seferinde ikiye katlanır; 0 = danışma yok). Otomatik tur tavanı ayrıca var.
   goal_checkin_minutes: 30
   goal_max_turns: 20
+  # /voice (terminal dikte): yerel konuşma tanıma. Boş = Fusion masaüstüyle gelen
+  # fusion-listen (cihaz üstü, ses buluta gitmez). Başka bir komut JSON satır sözleşmesine
+  # uymalı (bkz. desktop_build/listen/README.md). Güvenilmeyen proje config'inden okunmaz.
+  voice_listener: ""
+  voice_language: "tr-TR"
   # Profesyonel yürütmenin bağımsız çağrı zarfları. Bir adımın taşması planlama veya
   # final doğrulama hakkını tüketmez; sınır aşımında checkpoint alınarak duraklanır.
   workflow_planning_calls: 2

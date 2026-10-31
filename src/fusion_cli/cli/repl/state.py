@@ -171,6 +171,8 @@ class ReplState:
     scheduled_turn_only: bool = False
     #: `/rc` ile bu süreçte açılan uzaktan kontrol sunucusu; kapalıyken `None` (P-039).
     remote_control: RemoteControlHost | None = field(default=None, kw_only=True)
+    #: `/voice` dikte metni: bir sonraki istem bununla dolu açılır (P-072); alınınca temizlenir.
+    pending_input: str = ""
     #: `/beceri` ile hazırlanan ve sıradaki turun sistem bağlamına eklenecek beceri gövdesi.
     pending_context: str = ""
     #: `allowed-tools` kısıtı: sıradaki turda sunulacak Fusion araç adları; None = kısıt yok.
@@ -200,6 +202,11 @@ class ReplState:
         task, mode = self.pending_task, self.pending_mode
         self.pending_task, self.pending_mode = "", Mode.NONE
         return task, mode
+
+    def take_pending_input(self) -> str:
+        """`/voice` ön dolgusunu bir kez al ve temizle."""
+        text, self.pending_input = self.pending_input, ""
+        return text
 
     def take_scheduled_turn_only(self) -> bool:
         """Zamanlanmış satır 'yalnız tur' işaretini bir kez al ve temizle."""

@@ -73,6 +73,7 @@ from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
 from ..rule_notices import print_rule_notices
 from . import (
+    async_commands,
     cron_store,
     goal_flow,
     goal_store,
@@ -351,7 +352,7 @@ async def _warm_up(state: ReplState) -> None:
 async def _read_line(reader: ReplInput, state: ReplState) -> str | None:
     """Kullanıcıdan satır al. Ctrl-D/EOF'ta None döner (çıkış)."""
     try:
-        line = await reader.prompt()
+        line = await reader.prompt(default=state.take_pending_input())
     except (EOFError, KeyboardInterrupt):
         return None
     # shift-tab girişte modu değiştirmiş olabilir; durumu senkronla.
@@ -499,7 +500,16 @@ async def _run_command(
         await help_view.render(command.name, state, registry, console)
         return
     if command.name in ASYNC_COMMANDS:
-        await remote_control.run(state, argument, console)
+        # Ctrl-C uzun süren işi (dikte) keser, REPL'i değil.
+        task = asyncio.ensure_future(async_commands.run(command.name, state, argument, console))
+        with _cancel_on_interrupt(task):
+            try:
+                await task
+            except asyncio.CancelledError:
+                current = asyncio.current_task()
+                if current is not None and current.cancelling():
+                    raise
+                console.print(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
         return
 
     result = command.handler(state, argument)

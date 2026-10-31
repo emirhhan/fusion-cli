@@ -37,6 +37,7 @@ from ...ui.text import summarize_error
 from ..rule_notices import print_rule_notices
 from ..session import run_agent_task, run_task
 from . import (
+    async_commands,
     cron_store,
     goal_flow,
     goal_store,
@@ -471,8 +472,17 @@ class _TuiSession:
             self._tui.sync_conversation()
             return
         if command.name in ASYNC_COMMANDS:
-            await remote_control.run(self._state, argument, self._out)
+            # `/voice` kısmi metni canlı olarak giriş kutusuna yazar; sonuç orada kalır.
+            await async_commands.run(
+                command.name, self._state, argument, self._out, on_partial=self._tui.set_input
+            )
             self._tui.sync_conversation()
+            if text := self._state.take_pending_input():
+                self._tui.set_input(text)
+            pending, mode = self._state.take_pending()
+            if pending:
+                await self._turn(pending, mode=mode)
+                await self._continue_goal()
             return
         # Basit seçiciler (mode/level/effort): uygulama-içi modalla çöz, seçileni argüman yap.
         if command.name in _IN_APP_CHOICE and not argument.strip():

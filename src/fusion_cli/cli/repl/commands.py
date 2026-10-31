@@ -50,6 +50,7 @@ from . import (
     status_line,
     verify_flow,
     view_commands,
+    voice_command,
     workspace_commands,
     worktrees,
 )
@@ -1117,6 +1118,15 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         usage="[yol|kaldir <yol>]",
     ),
     SlashCommand("cd", messages.CMD_CD, cd_command, group="Agent", usage="[yol]"),
+    # REPL'de asenkron (`async_commands`); bu eşzamanlı işleyici masaüstü/uzak yoludur.
+    SlashCommand(
+        "voice",
+        messages.CMD_VOICE,
+        voice_command.desktop_handler,
+        ("dikte",),
+        group="Agent",
+        usage="[gonder|durum]",
+    ),
     SlashCommand("schedule", messages.CMD_SCHEDULE, _schedule, group="Makro", usage="<saniye>"),
     SlashCommand(
         "loop",
@@ -1199,8 +1209,8 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     ),
 )
 
-#: Asenkron çalışan ve konsola kendi yazan komut: `/rc` (uzaktan kontrol).
-ASYNC_COMMANDS = frozenset({"rc"})
+#: Asenkron çalışan ve konsola kendi yazan komutlar: `/rc` (uzaktan kontrol), `/voice` (dikte).
+ASYNC_COMMANDS = frozenset({"rc", "voice"})
 
 #: Kendi çıktısını basan komutlar (tablo, panel, ekran temizleme). REPL döngüsü
 #: bunları özel olarak ele alır; işleyicileri boş metin döndürür.

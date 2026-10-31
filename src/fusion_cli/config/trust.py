@@ -58,7 +58,8 @@ _SCHEMA_VERSION = 1
 EXECUTION_SECTIONS = ("mcp_servers", "hosted_connectors")
 #: Aynı gerekçeyle `runtime` altından düşürülen anahtarlar. `status_line_command` tur sonunda
 #: kabukla çalışır (P-069); güvensiz projeden gelirse `fusion trust` olmadan kod yürütme olur.
-EXECUTION_RUNTIME_KEYS = ("verification_commands", "status_line_command")
+#: `voice_listener` (P-072) `/voice` ile alt süreç olarak başlatılır; aynı gerekçe.
+EXECUTION_RUNTIME_KEYS = ("verification_commands", "status_line_command", "voice_listener")
 
 REASON_TRUSTED = "güvenildi"
 REASON_UNKNOWN = "proje için güven kaydı yok"

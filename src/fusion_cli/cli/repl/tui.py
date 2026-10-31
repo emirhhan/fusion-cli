@@ -24,6 +24,7 @@ from html import escape as html_escape
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.completion import Completer
+from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Condition, Filter
 from prompt_toolkit.formatted_text import ANSI, HTML, StyleAndTextTuples
 from prompt_toolkit.key_binding import DynamicKeyBindings, KeyBindings
@@ -404,6 +405,11 @@ class FusionTui:
         self._stop_spinner()
         if self.application.is_running:
             self.application.exit()
+
+    def set_input(self, text: str) -> None:
+        """Giriş kutusunu metinle doldur, imleç sonda (`/voice` dikte metni, P-072)."""
+        self._input.buffer.set_document(Document(text, len(text)), bypass_readonly=True)
+        self._invalidate()
 
     @property
     def transcript(self) -> str:

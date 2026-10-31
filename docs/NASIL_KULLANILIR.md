@@ -854,6 +854,7 @@ uygulama bazlı güven listesi; Windows/Linux masaüstü kontrolü.
 | `fusion -w <ad>` · `/worktree <ad>` | İzole git çalışma ağacında çalış |
 | `/cd <yol>` | Oturumu başka klasöre taşı (konuşma sürer) |
 | `/goal <koşul>` · `/goal durum` · `/goal devam` · `/goal clear` | Koşul karşılanana kadar turları kendiliğinden sürdür |
+| `/voice` · `/voice gonder` · `/voice durum` | Terminalde yerel dikte (cihaz üstü) |
 | `/verify` | Test/lint çalıştır |
 | `/review` (`/code-review`) · `/simplify` | Değişen kodu incele / sadeleştir (hata avı değil) |
 | `/security-review [yol]` | Değişiklikleri OWASP başlıklarıyla tara; kod değiştirmez |
@@ -1001,3 +1002,24 @@ kaydedilir (`memory_dir/oturum-hedef/<sohbet>.json`): `fusion --resume` ve masa�
 yeniden açılınca geri gelir. Masaüstünde karar sohbete ara not olarak düşer ve devam turu kendi
 cevabıyla görünür. Uzaktan (PWA/Telegram) istemciler kararı görür ama devam turunu kendileri
 başlatmaz.
+
+## Terminalde dikte: `/voice`
+
+Claude Code `/voice` karşılığı; tanıma **cihaz üstüdür**, ses buluta gitmez ve token harcamaz.
+
+- `/voice` dinler; bir konuşma bölümü bitince (yaklaşık 2 sn sessizlik) metin bir sonraki
+  isteme yazılır, düzenleyip Enter'a basarsın. Tam ekran TUI'de kısmi metin giriş kutusunda
+  canlı görünür. `/voice gonder` metni doğrudan tur olarak gönderir. Ctrl-C/Esc dinlemeyi keser.
+- Tanıyıcı: Fusion masaüstüyle gelen `fusion-listen` (`/Applications/Fusion.app/Contents/Resources/`,
+  macOS `SFSpeechRecognizer`, Türkçe destekli). Bulunamazsa açık hata verilir; başka bir
+  tanıyıcıyı (whisper.cpp, sherpa-onnx sarmalayıcısı) aynı JSON satır sözleşmesiyle
+  `runtime.voice_listener` ayarına yazabilirsin (bkz. `desktop_build/listen/README.md`).
+  Dil: `runtime.voice_language` (varsayılan `tr-TR`). Güvenilmeyen proje `config.yaml`'ı
+  `voice_listener` taşıyamaz.
+- `/voice durum` hangi tanıyıcının kullanılacağını yazar. Bir tuşa bağlamak için
+  `keybindings.json` içinde eylem olarak `"komut:voice"` ver. Basılı tutarak konuşma (Space)
+  yoktur: terminal tuş bırakma olayı vermez; tek dokunuş kipi kullanılır.
+- Terminalden başlatılan yardımcının mikrofon/konuşma tanıma izni macOS'ta terminal
+  uygulamana (Terminal, iTerm…) bağlanır; izin yoksa yardımcı hata ya da sessizlik döner ve
+  `/voice` bunu "ses algılanmadı" diye bildirir. Masaüstünde `/voice` sohbet kutusunun
+  mikrofonunu açar.

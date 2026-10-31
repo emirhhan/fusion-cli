@@ -176,6 +176,11 @@ class RuntimeConfig:
     goal_checkin_minutes: int = 30
     #: `/goal` kullanıcı yazmadan en çok kaç devam turu başlatır (kota/kaçak döngü sınırı).
     goal_max_turns: int = 20
+    #: CLI `/voice` dikte (P-072): yerel konuşma tanıma komutu. Boş = masaüstüyle gelen
+    #: `fusion-listen` yardımcısı aranır. Komut JSON satır sözleşmesine uymalı.
+    voice_listener: str = ""
+    #: Dikte dili (BCP 47); yardımcıya ilk argüman olarak verilir.
+    voice_language: str = "tr-TR"
     #: Her plan adımının bağımsız model çağrısı zarfı.
     #
     # Bir adım TEK bir alt-tur olarak çalışır ve o alt-tur kendi tur sınırına

@@ -155,7 +155,8 @@ class ReplInput:
         app.exit(result=line)
         return True
 
-    async def prompt(self) -> str:
+    async def prompt(self, default: str = "") -> str:
+        """Satır al; `default` istem tamponunu doldurur (`/voice` dikte metni, P-072)."""
         # Yer tutucular yalnızca içinde bulunulan satır boyunca geçerli.
         self._pastes.clear()
         if self._session is None:
@@ -170,7 +171,7 @@ class ReplInput:
         self._session.editing_mode = _editing_mode(self.vim_mode)
         self._waiting = True
         try:
-            line = await self._session.prompt_async(self._prompt_message)
+            line = await self._session.prompt_async(self._prompt_message, default=default)
         finally:
             self._waiting = False
         if self._bound_command is not None:

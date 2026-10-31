@@ -1,4 +1,5 @@
 import { createVoicePlayback } from "./voice/voicePlayback";
+import { isDictationCommand } from "./voice/dictationCommand";
 import { localVoiceReply } from "./voice/localVoice";
 import { closeUnfinishedAgents } from "./team/ekipOlaylari";
 import { AgentPanel, agentCardsForMessages } from "./team/AgentPanel";
@@ -1462,8 +1463,22 @@ export function SessionUygulama({
       if (isCurrent()) setCommandBusy(false);
     }
   };
-  const executeCommand = (input: string, recordInput = true, recordOutput = true): Promise<CommandResult> =>
-    trackCommand(() => controller.runCommand(active.id, input, recordInput, recordOutput));
+  const toggleDictation = () => {
+    if (dictation.listening) { void dictation.stop(); return; }
+    void (async () => {
+      if (!(await permissions.ensure("microphone"))) return;
+      if (!(await permissions.ensure("speech"))) return;
+      await dictation.start(active.id, draft);
+    })();
+  };
+  const executeCommand = (input: string, recordInput = true, recordOutput = true): Promise<CommandResult> => {
+    // `/voice` (P-072) terminalde yerel dikte; masaüstünde sohbet kutusunun mikrofonunu açar.
+    if (isDictationCommand(input)) {
+      toggleDictation();
+      return Promise.resolve({ ok: true, message: "" });
+    }
+    return trackCommand(() => controller.runCommand(active.id, input, recordInput, recordOutput));
+  };
   // Yapısal seçim (U1-40); kaynak/kimlik taşımayan seçenek (eski biçim) komut yoluna düşer.
   const selectModelOption = (option: ModelOption): Promise<CommandResult> => {
     const { kaynak, modelId } = option;
@@ -1779,14 +1794,7 @@ export function SessionUygulama({
           onVoice={() => void openVoiceWindow()}
           dictating={dictation.listening}
           dictationError={dictation.error}
-          onDictation={() => {
-            if (dictation.listening) { void dictation.stop(); return; }
-            void (async () => {
-              if (!(await permissions.ensure("microphone"))) return;
-              if (!(await permissions.ensure("speech"))) return;
-              await dictation.start(active.id, draft);
-            })();
-          }}
+          onDictation={toggleDictation}
           onRemoveAttachment={(path) => setAttachments((current) => ({
             ...current,
             [active.id]: (current[active.id] ?? []).filter((attachment) => attachment.path !== path),
