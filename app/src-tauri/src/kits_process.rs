@@ -22,7 +22,11 @@ const SERVER_ENTRY: &str = "dist/server/server/index.js";
 /// Sunucunun portu dinlemeye başlaması için tanınan süre. Ölçüldü (4 Ekim,
 /// 8 GB M1): soğuk açılış 2-4 sn; yük altındaki makine için pay bırakıldı.
 const READY_TIMEOUT: Duration = Duration::from_secs(30);
-const READY_POLL: Duration = Duration::from_millis(150);
+/// Hazırlık yoklaması kısa başlar, her turda ikiye katlanır, üst sınırda kalır. Ölçüldü
+/// (31 Ekim, paketli 0.7.19): geçitsiz sunucu 0,2 sn'de, geçitli 1-1,5 sn'de hazır; sabit
+/// 150 ms aralık her açılışa ortalama ~75 ms boş bekleme ekliyordu.
+const READY_POLL_FIRST: Duration = Duration::from_millis(10);
+const READY_POLL_MAX: Duration = Duration::from_millis(100);
 /// iframe'i gömebilecek origin'ler: paketli Tauri (macOS / Windows) ve geliştirme.
 const HOST_ORIGINS: &str =
     r#"["tauri://localhost","http://tauri.localhost","http://localhost:1420"]"#;
@@ -294,6 +298,7 @@ fn wait_ready_owned(
 ) -> Result<(), String> {
     let address = SocketAddr::from(([127, 0, 0, 1], port));
     let deadline = Instant::now() + timeout;
+    let mut poll = READY_POLL_FIRST;
     while Instant::now() < deadline {
         if abort.load(Ordering::SeqCst) {
             return Err("Uygulama kapanıyor; Kits beklemesi bırakıldı.".to_string());
@@ -304,16 +309,22 @@ fn wait_ready_owned(
             Ok(None) => {},
         }
         if readiness_logged(log, nonce, child.id(), port)?
-            && TcpStream::connect_timeout(&address, READY_POLL).is_ok()
+            && TcpStream::connect_timeout(&address, READY_POLL_MAX).is_ok()
         {
             return match child.try_wait() {
                 Ok(None) => Ok(()),
                 _ => Err("Kits sunucusu hazır olurken kapandı.".to_string()),
             };
         }
-        std::thread::sleep(READY_POLL);
+        std::thread::sleep(poll);
+        poll = next_poll(poll);
     }
     Err("Kits bağlantısı zamanında doğrulanamadı. Uygulamayla birlikte gelen Kits paketini kullanıp yeniden dene.".to_string())
+}
+
+/// Bir sonraki yoklama aralığı: ikiye katlanır, `READY_POLL_MAX`'ı aşmaz.
+fn next_poll(current: Duration) -> Duration {
+    current.saturating_mul(2).min(READY_POLL_MAX)
 }
 
 fn reserve_port() -> Result<TcpListener, String> {
@@ -549,6 +560,18 @@ mod tests {
         .unwrap_err();
         let _ = child.wait();
         assert!(hata.contains("Fusion Kits başlatılamadı"));
+    }
+
+    #[test]
+    fn hazirlik_yoklamasi_kisa_baslar_ve_ust_sinirda_kalir() {
+        let mut poll = READY_POLL_FIRST;
+        let mut seen = vec![poll];
+        for _ in 0..6 {
+            poll = next_poll(poll);
+            seen.push(poll);
+        }
+        let ms: Vec<u128> = seen.iter().map(Duration::as_millis).collect();
+        assert_eq!(ms, vec![10, 20, 40, 80, 100, 100, 100]);
     }
 
     #[test]

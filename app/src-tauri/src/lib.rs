@@ -632,10 +632,6 @@ fn cleanup_route_from_app(route: ShutdownRoute, app: &tauri::AppHandle) {
     }
 }
 
-/// Kits yan sürecini (gerekirse) başlat ve iframe adresini döndür.
-///
-/// Sunucunun hazır olmasını beklediği için engelleyen iş parçacığında çalışır;
-/// arayüz bu sırada "hazırlanıyor" durumunu gösterir.
 #[tauri::command]
 fn tepsi_ayarla(acik: bool, app: tauri::AppHandle) -> Result<(), String> {
     tepsi::ayarla(&app, acik)
@@ -655,6 +651,11 @@ fn derin_baglanti_al(
     bekleyen.al()
 }
 
+/// Kits yan sürecini (gerekirse) başlat ve iframe adresini döndür.
+///
+/// Sunucunun hazır olmasını beklediği için engelleyen iş parçacığında çalışır. Arayüz
+/// bunu çekirdek oturumu hazır olunca bir kez arka planda çağırır (ön başlatma); Kits
+/// ekranının çağrısı aynı başlatma kilidinde bekler ve çalışan süreci hemen alır.
 #[tauri::command]
 async fn kits_baslat(
     app: tauri::AppHandle,
