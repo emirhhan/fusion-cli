@@ -1,5 +1,7 @@
 // Fusion ile uzun yoklama bağlantısı. Chrome API'lerini doğrudan kullanamaz;
 // komutları arka plan hizmetine iletir, sonucu Fusion'a geri yollar.
+import { handleRecord } from "./recorder.js";
+
 const RETRY_MS = 5000;
 let connection = null;
 
@@ -29,13 +31,43 @@ async function pair() {
   return connection;
 }
 
+/** Ekran kaydı kareleri bu belgede toplanır (hizmet çalışanı boşta durdurulur, bu belge yaşar). */
+async function captureWindow(windowId) {
+  const answer = await chrome.runtime.sendMessage({ type: "fusion.captureVisibleTab", windowId });
+  if (!answer?.ok) throw new Error(answer?.error || "Kare alınamadı.");
+  return answer.image;
+}
+
+async function recordTarget() {
+  const answer = await chrome.runtime.sendMessage({ type: "fusion.exec", command: { islem: "record_target", veri: {} } });
+  if (!answer?.ok) throw new Error(answer?.hata || "Kaydedilecek sekme bulunamadı.");
+  return answer.veri;
+}
+
+/** Her kareden önce: kaydedilen sekme hâlâ etkin ve izinli mi (bkz. core.js record_check). */
+async function recordCheck(target) {
+  const command = { islem: "record_check", veri: { tabId: target.tabId, windowId: target.windowId } };
+  const answer = await chrome.runtime.sendMessage({ type: "fusion.exec", command }).catch(() => null);
+  if (!answer?.ok) return { ok: false, reason: answer?.hata || "sekme denetlenemedi" };
+  return answer.veri;
+}
+
+async function run(command) {
+  if (command.islem === "record") {
+    try { return { ok: true, veri: await handleRecord(command.veri || {}, captureWindow, recordTarget, recordCheck) }; } catch (cause) {
+      return { ok: false, hata: String(cause?.message || cause) };
+    }
+  }
+  return chrome.runtime.sendMessage({ type: "fusion.exec", command });
+}
+
 async function loop() {
   for (;;) {
     try {
       if (!connection && !await pair()) { await report({ bagli: false }); await sleep(RETRY_MS); continue; }
       const command = await request("/poll");
       if (!command.id) continue;
-      const reply = await chrome.runtime.sendMessage({ type: "fusion.exec", command });
+      const reply = await run(command);
       await request("/result", { id: command.id, ...(reply || { ok: false, hata: "Yanıt yok." }) });
     } catch {
       // Fusion kapandı ya da yeni köprü açıldı (anahtar değişti): yeniden eşleş.

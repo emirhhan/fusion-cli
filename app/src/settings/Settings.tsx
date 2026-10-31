@@ -13,8 +13,11 @@ import { VoicePreferences } from "./VoicePreferences";
 import { General, readHistoryOpen, HISTORY_KEY } from "./sections/General";
 import { Models, type ModelState } from "./sections/Models";
 import { RoleModels } from "./sections/RoleModels";
-import { Permissions } from "./sections/Permissions";
+import { ComputerUse } from "../permissions/ComputerUse";
+import { Permissions, type TrustInfo } from "./sections/Permissions";
+import { WebSessions } from "./sections/WebSessions";
 import { Advanced } from "./sections/Advanced";
+import { Notifications } from "./sections/Notifications";
 import { ChromeBrowser } from "./ChromeBrowser";
 import { RemoteAccess } from "./RemoteAccess";
 import { Intelligence } from "./Intelligence";
@@ -33,15 +36,17 @@ import "./Settings.css";
  * ayarlanabilir yanı.
  */
 
-type BolumId = "genel" | "hesap" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
+type BolumId = "genel" | "hesap" | "bildirimler" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "weboturumlari" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
 
 const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: string }[] = [
   { id: "genel", etiket: "Genel", ikon: "settings", grup: "Kişisel" },
   { id: "hesap", etiket: "Hesap", ikon: "user", grup: "Kişisel" },
+  { id: "bildirimler", etiket: "Bildirimler", ikon: "pulse", grup: "Kişisel" },
   { id: "ses", etiket: "Ses", ikon: "mic", grup: "Kişisel" },
   { id: "kisisellestirme", etiket: "Kişiselleştirme", ikon: "lessons", grup: "Kişisel" },
   { id: "modeller", etiket: "Modeller", ikon: "skills", grup: "Entegrasyonlar" },
   { id: "tarayici", etiket: "Tarayıcı", ikon: "preview", grup: "Entegrasyonlar" },
+  { id: "weboturumlari", etiket: "Web oturumları", ikon: "user", grup: "Entegrasyonlar" },
   { id: "izinler", etiket: "İzinler", ikon: "help", grup: "Entegrasyonlar" },
   { id: "zeka", etiket: "Zeka", ikon: "skills", grup: "Entegrasyonlar" },
   { id: "uzak", etiket: "Uzaktan Erişim", ikon: "preview", grup: "Entegrasyonlar" },
@@ -55,7 +60,13 @@ const KONTROL_BOLUMLERI = new Set<BolumId>(["modeller", "izinler", "gelismis"]);
 
 interface ControlSnapshot {
   gateway?: { adres?: string; durum?: string };
-  izin?: { mod?: string; kokle_sinirli?: boolean };
+  izin?: {
+    mod?: string;
+    kokle_sinirli?: boolean;
+    kok_disi_okuma_engeli?: boolean;
+    kok_disi_yazma_engeli?: boolean;
+    guven?: TrustInfo;
+  };
   kok?: string;
   model?: ModelState;
   saglayicilar?: { id: string; kurulu?: boolean }[];
@@ -324,20 +335,28 @@ export function Settings({
 
           {bolum === "ses" && <VoicePreferences client={client} />}
 
-          {bolum === "kisisellestirme" && <><MemoryPanel client={client} /><Instructions client={client} /></>}
+          {bolum === "bildirimler" && <Notifications />}
+
+          {bolum === "kisisellestirme" && <><MemoryPanel client={client} /><Instructions client={client} onRunCommand={onRunCommand ? (command) => { void onRunCommand(command); } : undefined} /></>}
 
           {bolum === "tarayici" && <ChromeBrowser client={client} />}
 
+          {bolum === "weboturumlari" && <WebSessions client={client} />}
+
           {bolum === "izinler" && (
             <Permissions
+              client={client}
+              guven={control?.izin?.guven ?? null}
               kok={control?.kok ?? ""}
               kokleSinirli={control?.izin?.kokle_sinirli !== false}
               mod={control?.izin?.mod ?? "auto"}
               pending={modeBusy || !control}
               onChangeRoot={onChangeRoot}
               onSelectMode={onRunCommand ? selectMode : undefined}
+              onTrustChange={() => void load()}
             />
           )}
+          {bolum === "izinler" && <ComputerUse client={client} />}
 
           {bolum === "zeka" && <Intelligence client={client} />}
 

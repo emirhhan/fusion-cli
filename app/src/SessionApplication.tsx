@@ -8,9 +8,17 @@ import { submissionAccepted, type SubmissionResult } from "./sessions/submission
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
+import { DeepLinkConfirm } from "./dialogs/DeepLinkConfirm";
 import { useKapatmaNabzi } from "./dialogs/closeHeartbeat";
 import { osBildirimiGonder } from "./notifications/osNotice";
-import { ShareDialog } from "./dialogs/ShareDialog";
+import { useTurnNotifications, useUnread } from "./notifications/useTurnNotifications";
+import { SplitPane } from "./windowing/SplitPane";
+import { useSplitView } from "./windowing/splitView";
+import { useTray } from "./windowing/tray";
+import {
+  DEEP_LINK_EVENT, DEEP_LINK_PULL_COMMAND, TRAY_NEW_CHAT_EVENT, deepLinkRootDecision, parseDeepLink, type DerinBaglanti,
+} from "./windowing/deepLink";
+import { ShareDialog, type ExportFetcher } from "./dialogs/ShareDialog";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
 import { NewTaskDialog } from "./dialogs/NewTaskDialog";
 import {
@@ -73,6 +81,7 @@ import { useShowSteps } from "./settings/useShowSteps";
 import { useInspectorPlacement } from "./settings/useInspectorPlacement";
 import { desktopDir } from "@tauri-apps/api/path";
 import { DepoUyarisi } from "./workspace/DepoUyarisi";
+import { TrustProject } from "./dialogs/TrustProject";
 import { ProjectPicker } from "./screens/ProjectPicker";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -100,7 +109,7 @@ import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dia
 import { PermissionPrompt } from "./permissions/PermissionPrompt";
 import { usePermissions } from "./permissions/usePermissions";
 import { useDictation } from "./voice/useDictation";
-import type { PermissionBridge } from "./permissions/types";
+import { desktopPermissionKind, hasSettingsLink, type PermissionBridge } from "./permissions/types";
 import { nativePermissionBridge } from "./platform/permissions";
 import { listenForFileDrops } from "./platform/drop";
 import { FeedbackDialog } from "./feedback/FeedbackDialog";
@@ -117,7 +126,7 @@ import { useScheduleRunner } from "./schedule/useScheduleRunner";
 import { useSchedulerCore } from "./schedule/useSchedulerCore";
 import type { ReportInput } from "./feedback/report";
 import { useCrashReporter } from "./feedback/useCrashReporter";
-import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput } from "./screens/capabilityInput";
+import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput, skillPrefixToSlash } from "./screens/capabilityInput";
 import { attachmentsFromDroppedFiles, isFolderCommand, startsWithFilePath } from "./slashRouting";
 import { readStorage, writeStorage } from "./platform/storage";
 
@@ -550,6 +559,8 @@ export function SessionUygulama({
   // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
   const [busySubmissionMode, setBusySubmissionMode] = useState<"steer" | "queue">("steer");
   const [closeAsked, setCloseAsked] = useState(false);
+  // `fusion://yeni?kok=…` ile gelen ve kullanıcının onayını bekleyen kök (P-064).
+  const [deepLinkRoot, setDeepLinkRoot] = useState<string | null>(null);
   // Soru açıkken Rust'a nabız gider; arayüz donarsa kapanış onaysız sürer (R2-14).
   useKapatmaNabzi(closeAsked && kabukVar());
   /** Çekirdek bağlantısı koptuğunda çekirdeğin son hata çıktısı (varsa). */
@@ -572,13 +583,50 @@ export function SessionUygulama({
   useRemoteProjectSync(active?.client ?? null, projects.registry);
   // Başlıktaki "Uzaktan kontrol" anahtarı (P-066); uzaktan erişim kurulmamışsa yoklamaz.
   const remoteStatus = useRemoteStatus(active?.client ?? null);
+  // Bakılmayan sohbette tur bitince / onay gelince OS bildirimi, okunmamış işareti ve Dock rozeti (P-047).
+  useTurnNotifications(controller.state.sessions, active?.id ?? null);
+  const okunmamisSohbetler = useUnread();
+  // Bölünmüş görünüm ve sistem tepsisi (P-064).
+  const acikSohbetler = useMemo(() => new Set(Object.keys(controller.state.sessions)), [controller.state.sessions]);
+  const split = useSplitView(active?.id ?? null, acikSohbetler);
+  const splitSession = split.splitId ? controller.state.sessions[split.splitId] ?? null : null;
+  useTray(controller.sessions.filter((session) => session.running).length);
   const activeSessionId = active?.id;
   const activeClient = active?.client;
+  const activeTitle = active?.title ?? "";
+  // Sabit kimlik: satır içi ok fonksiyonu her render'da ShareDialog efektini yeniden kuruyor ve
+  // `sohbet.disa_aktar` RPC'sini her üst render'da yeniden çağırıyordu (31 Ekim).
+  const exportTranscript = useCallback<ExportFetcher>(
+    (bicim) => {
+      if (!activeClient) return Promise.reject(new Error("Oturum yok."));
+      return activeClient.request("sohbet.disa_aktar", { bicim, baslik: activeTitle }).then((sonuc) => {
+        const result = sonuc as { ok?: boolean; metin?: string; dosya_adi?: string };
+        if (!result.ok || typeof result.metin !== "string") throw new Error("Dışa aktarım alınamadı.");
+        return { metin: result.metin, dosya_adi: result.dosya_adi };
+      });
+    },
+    [activeClient, activeTitle],
+  );
   useEffect(() => () => {
     manualVoiceGeneration.current += 1;
     void manualVoiceTurn.current?.cancel().catch(() => undefined);
   }, [activeSessionId]);
   usePrefsMirror(activeClient);
+  // Bir masaüstü aracı izin yüzünden düşünce çekirdek `MasaustuIzinGerekli` yollar; izin kartı
+  // açılır ve sistem istemi (Erişilebilirlik / Ekran Kaydı) Fusion.app adına tetiklenir (P-005).
+  // Olay sidecar'ın gördüğü durumdur; Tauri önbelleği "granted" dese de kart yeniden açılır.
+  const ensurePermission = permissions.ensure;
+  const invalidatePermission = permissions.invalidate;
+  useEffect(() => {
+    if (!activeClient) return;
+    return activeClient.onEvent((event) => {
+      if (event.olay !== "MasaustuIzinGerekli") return;
+      const kind = desktopPermissionKind(event.tur);
+      if (!kind) return;
+      invalidatePermission(kind);
+      void ensurePermission(kind);
+    });
+  }, [activeClient, ensurePermission, invalidatePermission]);
   const requestKitsHost = useCallback((name: string, data: Record<string, unknown>) => {
     if (!activeClient || !activeSessionId) return Promise.reject(new Error("Fusion oturumu yok."));
     return activeClient.request(name, data) as Promise<Record<string, unknown>>;
@@ -950,6 +998,54 @@ export function SessionUygulama({
   activeRef.current = active;
   const controllerRef = useRef(controller);
   controllerRef.current = controller;
+  // `fusion://` derin bağlantısı ve tepsi "Yeni sohbet" (P-064). İşleyici her çizimde tazelenir;
+  // dinleyici bir kez kurulur. Hedef burada yeniden doğrulanır (bkz. `parseDeepLink`).
+  const derinBaglantiRef = useRef<(hedef: DerinBaglanti) => void>(() => undefined);
+  derinBaglantiRef.current = (hedef) => {
+    const ctl = controllerRef.current;
+    setNewTaskError(null);
+    setSurfaceSection(null);
+    if (hedef.hedef === "sohbet") {
+      if (ctl.state.sessions[hedef.id]) ctl.select(hedef.id);
+      else if (ctl.storedConversations.some((item) => item.id === hedef.id)) {
+        void ctl.openStored(hedef.id).catch(() => setNewTaskError("Bağlantıdaki sohbet açılamadı. Yeniden dene."));
+      } else {
+        setNewTaskError("Bağlantıdaki sohbet bulunamadı.");
+      }
+      setPage("chat");
+    } else if (hedef.hedef === "yeni") {
+      if (hedef.kok) {
+        // Kök onaysız uygulanmaz: çok geniş/sistem klasörü reddedilir, kalanı sorulur.
+        if (deepLinkRootDecision(hedef.kok) === "reddet") {
+          setNewTaskError(`Bağlantıdaki klasör kabul edilmedi (${hedef.kok}): proje klasörü seçin.`);
+        } else {
+          setDeepLinkRoot(hedef.kok);
+        }
+        setPage("chat");
+      } else {
+        void startDesktopChat();
+      }
+    } else {
+      setSettingsSection(hedef.bolum === "kisisellestirme" || hedef.bolum === "bildirimler" ? hedef.bolum : "genel");
+      setPage("settings");
+    }
+  };
+  useEffect(() => {
+    if (!kabukVar()) return;
+    const derin = listen<unknown>(DEEP_LINK_EVENT, (event) => {
+      const hedef = parseDeepLink(event.payload);
+      if (hedef) derinBaglantiRef.current(hedef);
+    });
+    const yeni = listen(TRAY_NEW_CHAT_EVENT, () => derinBaglantiRef.current({ hedef: "yeni", kok: null }));
+    // Soğuk açılış: uygulama bir bağlantıyla açıldıysa hedef Rust'ta bekler; dinleyici kurulunca çekilir.
+    void invoke<unknown>(DEEP_LINK_PULL_COMMAND)
+      .then((yuk) => { const hedef = parseDeepLink(yuk); if (hedef) derinBaglantiRef.current(hedef); })
+      .catch(() => undefined);
+    return () => {
+      void derin.then((f) => f()).catch(() => undefined);
+      void yeni.then((f) => f()).catch(() => undefined);
+    };
+  }, []);
 
   // Konuşma penceresinden gelen söz AYNI sohbete düşer: kip kapandığında
   // kullanıcı yazışmış gibi tam dökümü görür.
@@ -1162,6 +1258,18 @@ export function SessionUygulama({
   // Kapatma Rust'ta DURDURULUR ve onay burada sorulur; bu yüzden onay HER ekranda
   // çizilmelidir. Ölçüldü (28 Eylül, Windows): hata/hazırlanıyor/hesap/rehber
   // ekranlarında onay hiç çizilmiyordu ve uygulama kapanmıyordu.
+  const derinKokOnayi = deepLinkRoot ? (
+    <DeepLinkConfirm
+      kok={deepLinkRoot}
+      onCancel={() => setDeepLinkRoot(null)}
+      onConfirm={() => {
+        const kok = deepLinkRoot;
+        setDeepLinkRoot(null);
+        void controllerRef.current.create({ root: kok, mode: "kod" }).then(() => setPage("chat"))
+          .catch((reason: unknown) => setNewTaskError(`Yeni sohbet açılamadı: ${errorMessage(reason)}`));
+      }}
+    />
+  ) : null;
   const kapatmaOnayi = closeAsked ? (
     <CloseConfirm
       onCancel={() => {
@@ -1344,7 +1452,9 @@ export function SessionUygulama({
     commands: commands.map((command) => command.ad),
   });
   const skillFrom = (task: string) => parseCapabilityInput(task, capabilityNames()).skill;
-  const send = (task: string) => {
+  const send = (rawTask: string) => {
+    // `$beceri` (Codex yazımı) bilinen bir beceri/komutsa slash yoluna çevrilir (P-052).
+    const task = skillPrefixToSlash(rawTask, [...skillNames, ...commands.map((command) => command.ad)]);
     const resumeSource = task.match(/^\/resume(claude|codex|hermes)$/i)?.[1]?.toLocaleLowerCase("tr") as "claude" | "codex" | "hermes" | undefined;
     if (resumeSource && history.sources.some((source) => source.ad === resumeSource)) {
       setHistoryOpen(true);
@@ -1504,7 +1614,21 @@ export function SessionUygulama({
             surum={runtimeVersion}
           />
         )
-        : conversationContent;
+        : splitSession
+          ? (
+            <div className="split-view">
+              <div className="split-view__primary">{conversationContent}</div>
+              <SplitPane
+                onAnswer={(answer) => controller.answer(splitSession.id, answer)}
+                onClose={split.close}
+                onFocus={() => { controller.select(splitSession.id); }}
+                onSend={(task) => { controller.send(splitSession.id, task); }}
+                session={splitSession}
+                showSteps={showSteps}
+              />
+            </div>
+          )
+          : conversationContent;
   const status = active.status === "crashed"
     ? BAGLANTI_KESILDI_DURUMU
     : active.running
@@ -1558,6 +1682,8 @@ export function SessionUygulama({
       composer={page === "chat" ? (
         <><ProjectPicker root={active.root} name={activeProjectName} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root, mode: "kod" }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
         <DepoUyarisi kok={active.root} projeler={active.depoProjeleri} onAc={(kok) => { void controller.create({ root: kok, mode: "kod" }).then(() => setPage("chat")); }} />
+        {/* Güvenilmeyen proje kartı (P-012): proje kendi ayarını taşıyorsa ve düşürüldüyse sorulur. */}
+        <TrustProject client={active.client} kok={active.root} running={Boolean(active.running)} onTrusted={() => setControlRevision((value) => value + 1)} />
         <Composer
           stopping={active.stopping}
           busySubmissionMode={active.stopping || active.stopError ? "queue" : busySubmissionMode}
@@ -1716,12 +1842,14 @@ export function SessionUygulama({
         <>
           {content}
           {newTaskError && !newTaskOpen && <p role="alert">{newTaskError}</p>}
+          {derinKokOnayi}
           {kapatmaOnayi}
           {feedback && <FeedbackDialog initial={feedback} onClose={() => setFeedback(null)} />}
           {shareOpen && (
             <ShareDialog
               messages={active.messages}
               onClose={() => setShareOpen(false)}
+              onExport={activeClient ? exportTranscript : undefined}
               title={active.title}
             />
           )}
@@ -1799,7 +1927,7 @@ export function SessionUygulama({
           />
           {permissions.activeKind && (
             <PermissionPrompt
-              canOpenSettings={permissions.activeKind === "microphone" || permissions.activeKind === "speech"}
+              canOpenSettings={hasSettingsLink(permissions.activeKind)}
               error={permissions.error}
               isRequesting={permissions.isRequesting}
               kind={permissions.activeKind}
@@ -1896,6 +2024,17 @@ export function SessionUygulama({
             else void controller.openStored(id, controller.storedConversations.find((item) => item.id === id)?.root ?? active?.root);
           }}
           onYeni={() => { setSurfaceSection(null); void startDesktopChat(); }}
+          onSplit={async (id) => {
+            // Tıklanan sohbet yan bölmeye gider; aktif sohbet yerinde kalır (P-064).
+            setSurfaceSection(null);
+            setPage("chat");
+            const onceki = active.id;
+            if (!controller.state.sessions[id]) {
+              await controller.openStored(id, controller.storedConversations.find((item) => item.id === id)?.root ?? active.root);
+              controller.select(onceki);
+            }
+            split.open(id);
+          }}
           oturumlar={[
             ...controller.sessions.map((session) => ({
               session_id: session.id,
@@ -1905,6 +2044,7 @@ export function SessionUygulama({
               projectRoot: session.root,
               projectId: projects.registry.chats[session.id],
               updated_at: session.updatedAt,
+              okunmamis: okunmamisSohbetler.has(session.id),
             })),
             // Diskte duran ama açılmamış sohbetler. Ölçüldü (kullanıcının diski,
             // 8 Eylül): 110 sohbet kayıtlıydı ve arayüzde hiçbiri görünmüyordu.

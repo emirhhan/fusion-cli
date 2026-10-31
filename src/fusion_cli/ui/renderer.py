@@ -113,8 +113,13 @@ class ConsoleRenderer:
         show_call_details: bool = False,
         show_thinking: bool = False,
         live_progress: bool = True,
+        bell: bool = False,
     ) -> None:
         self._console = console or Console()
+        # Tur bitince terminal zili (`\a`): başka pencerede çalışan kullanıcıya haber verir
+        # (Claude Code "terminal bell", Codex `notification_method = bel`). Varsayılan kapalı;
+        # `/zil` ile açılır. Rich kontrol karakterlerini süzdüğü için doğrudan dosyaya yazılır.
+        self._bell = bell
         self._show_progress = show_progress
         self._show_all_answers = show_all_answers
         # Açıkken model düşünmesi (`<think>…`) gizlenmez; Claude Code gibi sönük bir
@@ -382,8 +387,20 @@ class ConsoleRenderer:
             self._turn_opened = False
             self._fallbacks_shown.clear()
             self._finish_work()
+            self._ring_bell()
         elif isinstance(event, TurnOutcome):
             self._turn_outcome(event)
+
+    def _ring_bell(self) -> None:
+        """Zil açıksa ve çıktı bir terminalse `\a` yaz; boruda/CI'da sessiz kal."""
+        if not self._bell or not self._console.is_terminal:
+            return
+        try:
+            self._console.file.write("\a")
+            self._console.file.flush()
+        except (OSError, ValueError):
+            # Kapanmış/yazılamayan akış tur bitişini bozmaz.
+            return
 
     def _followups(self, event: FollowupsSuggested) -> None:
         """Sıradaki adımları turun ardına, numaralı ve sönük bas.

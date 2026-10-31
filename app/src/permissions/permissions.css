@@ -69,3 +69,13 @@
  .permission-prompt__actions { display: grid; grid-template-columns: minmax(0, 1fr); }
  .permission-prompt__actions .ui-button { width: 100%; }
 }
+
+/* Ayarlar › İzinler › Bu bilgisayar (P-005) */
+.computer-use__list { display: grid; gap: var(--space-3); margin: 0; }
+.computer-use__row { align-items: center; border-top: 1px solid var(--border-subtle); display: flex; flex-wrap: wrap; gap: var(--space-3); justify-content: space-between; padding-top: var(--space-3); }
+.computer-use__row dt { display: grid; gap: var(--space-1); }
+.computer-use__row dt small { color: var(--text-secondary); font-size: var(--text-xs); }
+.computer-use__row dd { align-items: center; display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; }
+.computer-use__state { border-radius: var(--radius-sm); font-size: var(--text-xs); font-weight: 600; padding: 2px var(--space-2); }
+.computer-use__row[data-state="granted"] .computer-use__state { background: var(--status-success-bg, var(--surface-sidebar)); color: var(--status-success-fg, var(--text-primary)); }
+.computer-use__row[data-state="denied"] .computer-use__state { background: var(--status-warning-bg, var(--surface-sidebar)); color: var(--status-warning-fg, var(--text-primary)); }

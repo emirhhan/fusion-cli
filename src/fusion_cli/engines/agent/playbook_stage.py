@@ -115,6 +115,7 @@ async def _commands_approved(playbook: Playbook, deps: AgentDeps) -> bool:
             deps.allowed_commands,
             root=deps.tool_context.root,
             context=deps.tool_context,
+            rules=getattr(deps, "permission_rules", None),
         )
         if await policy.decide(request) is not Decision.ALLOW:
             return False
