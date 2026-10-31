@@ -284,12 +284,37 @@ class CapabilityRegistry:
         self._disabled_agents = disabled_agents
         self._extra_roots = extra_roots
         self._overrides: Mapping[str, SkillVisibility] = dict(overrides or {})
+        #: Alt klasörlerde tembel keşfedilen beceri dizinleri (P-052); bkz. `add_nested_roots`.
+        self._nested_roots: tuple[Path, ...] = ()
         self._skills: tuple[Capability, ...] | None = None
         self._agents: tuple[Capability, ...] | None = None
         self._signature: tuple[tuple[str, int], ...] | None = None
 
+    def add_nested_roots(self, folders: tuple[Path, ...]) -> tuple[Capability, ...]:
+        """Alt klasör beceri dizinlerini kataloğa ekle; YENİ görünen becerileri döndür.
+
+        Model monorepo alt paketindeki bir dosyaya erişince çağrılır (P-052). Zaten bilinen
+        dizin yeniden taranmaz; aynı adda kök/kullanıcı becerisi varsa o kazanır.
+        """
+        fresh = tuple(
+            folder
+            for folder in dict.fromkeys(folders)
+            if folder not in self._nested_roots and folder.is_dir()
+        )
+        if not fresh:
+            return ()
+        before = {item.qualified_name for item in self.skills()}
+        self._nested_roots = (*self._nested_roots, *fresh)
+        self._skills = None
+        return tuple(item for item in self.skills() if item.qualified_name not in before)
+
     def with_extra_roots(self, extra_roots: tuple[Path, ...]) -> CapabilityRegistry:
         """Aynı kapatma listeleriyle, ek kökleri değişmiş yeni bir defter."""
+        clone = self._with_extra_roots(extra_roots)
+        clone._nested_roots = self._nested_roots
+        return clone
+
+    def _with_extra_roots(self, extra_roots: tuple[Path, ...]) -> CapabilityRegistry:
         return CapabilityRegistry(
             self._home,
             self._root,
@@ -371,6 +396,7 @@ class CapabilityRegistry:
             self._extra_roots,
             installed=capabilities_dir(),
             bundled=bundled_skills_dir(),
+            nested=self._nested_roots,
         )
 
     def _agent_roots(self) -> tuple[tuple[Path, str], ...]:
@@ -391,6 +417,11 @@ class CapabilityRegistry:
                 if not _trusted_path(path, root, source):
                     continue
                 capability = _to_capability(path, source, fallback=path.parent.name)
+                if root in self._nested_roots and any(
+                    item.name == capability.name for item in found.values()
+                ):
+                    # Alt paket becerisi kök/kullanıcı becerisini belirsizleştirmez (P-052).
+                    continue
                 # İlk bulunan İÇERİĞİ verir: tüm Claude/proje kökleri dış kaynaklardan
                 # önce gelir. Sonrakiler yalnız kaynak etiketine eklenir.
                 _merge(found, capability)

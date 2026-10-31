@@ -127,6 +127,15 @@ proje `.claude/skills`, `.fusion/skills`, `.agents/skills`; `~/.codex/skills`, `
 `fusion yetenek kur` repoları; yerleşik beceriler en sonda. Komut dosyaları için
 `~/.claude/commands`, `~/.fusion/commands`, proje `.claude/commands`, `.fusion/commands`.
 
+**Monorepo alt paketleri (tembel keşif):** model alt klasördeki bir dosyayı okuyunca ya da
+düzenleyince (iç içe talimatların yüklendiği an), o klasörden köke kadar (kök hariç)
+`<alt>/.claude/skills` ve `<alt>/.agents/skills` dizinleri kataloğa eklenir ve yeni beceriler
+modele tek satırlık bir notla duyurulur (`ad (yol) — açıklama`, en fazla 12). Bunlar "proje"
+kaynağıdır: depo içeriği bloğunda listelenir, `` !`cmd` `` yalnız salt-okur koşar. Aynı adda
+kök/kullanıcı becerisi varsa o kazanır; `node_modules`, `dist`, gizli klasörler taranmaz.
+Keşfedilen beceri REPL'de `/ad` olarak da çağrılabilir. `runtime.nested_instructions: false`
+bu keşfi de kapatır.
+
 ## Katalog yaşam döngüsü
 
 | Yüzey | Ne yapar |

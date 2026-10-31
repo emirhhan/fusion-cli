@@ -215,6 +215,7 @@ from .loop_contract import (
 from .masking import MaskLedger, MaskView, mask_view
 from .memory_tools import memory_prompt_block
 from .narration import intro_paragraph, todo_transitions
+from .nested_skills import discover_nested_skills
 from .output_verify import requested_outputs_in
 from .plan_runner import run_execution_plan
 from .platform_check import ensure_limitations_disclosed, run_platform_check
@@ -2859,10 +2860,12 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
         isaret = nested_marker(rel) if not rel.startswith((".", "~")) else f'kaynak="{rel}"'
         return any(isaret in item.content for item in messages if item.role == "user")
 
+    hedefler: list[Path] = []
     for ham in dict.fromkeys(yollar):
         hedef = resolve_access_path(deps.tool_context, ham)
         if hedef is None:
             continue
+        hedefler.append(hedef)
         yuk = load_nested_instructions(
             kok, hedef, loaded=state.nested_loaded, present=baglamda_var, rules=kurallar
         )
@@ -2872,6 +2875,10 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
         deps.publisher.publish(
             NestedInstructionsLoaded(files=yuk.files, chars=yuk.chars, trigger=ham)
         )
+    # Monorepo alt klasörünün `.claude/skills` becerileri de bu anda kataloğa girer (P-052).
+    beceri_notu = discover_nested_skills(deps.capabilities, kok, tuple(hedefler))
+    if beceri_notu is not None:
+        messages.append(beceri_notu)
 
 
 def _record_changes(messages: list[Message], deps: AgentDeps, state: _State) -> None:
