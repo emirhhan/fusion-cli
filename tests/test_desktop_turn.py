@@ -123,7 +123,7 @@ def test_klavye_araci_on_plan_hazirligini_tetikler(tmp_path, monkeypatch):
     calls: list[str] = []
 
     class _Turn:
-        def foreground_action(self) -> None:
+        def foreground_action(self, keep=()) -> None:
             calls.append("hazir")
 
     monkeypatch.setattr(desktop.sys, "platform", "darwin")
@@ -200,3 +200,30 @@ def test_reddedilen_ve_engelli_uygulamalar_goruntuden_dislanir(monkeypatch):
     desktop_screen._native_capture(display, 800, DesktopSettings(denied_apps=("Notes",)))
     assert requests[0]["excludePids"] == [7]
     assert "notes" in requests[0]["excludeNames"]
+
+
+# --- İnceleme (31 Ekim): onaylanan hedef gizlenmez ------------------------------------------
+
+
+async def test_gizlemede_degerlendirilen_hedef_uygulama_korunur(tmp_path, monkeypatch):
+    """Ölçüldü (31 Ekim): öndeki Safari iken Mail'e tık onaylanınca Mail gizleniyor, tık altta
+    kalan (değerlendirilmemiş) uygulamaya gidiyordu."""
+    from fusion_cli.core.desktop_frame import DesktopFrame
+    from fusion_cli.tools import desktop_policy
+
+    async def mail(_request):
+        return {"ok": True, "app": "Mail", "bundle": "com.apple.mail", "pid": 41}
+
+    monkeypatch.setattr(desktop_policy, "_swift_probe", mail)
+    fake = _FakeIo()
+    context = ToolContext(root=tmp_path, desktop_settings=DesktopSettings(background=False))
+    context.desktop.frame = DesktopFrame(100, 100, 0.0, 0.0, 100.0, 100.0)
+    turn = desktop_turn.begin(context, fake.io())
+    assert turn is not None
+
+    assessment = await desktop_policy.assess("desktop_click", {"x": 5, "y": 5}, context)
+    assert assessment is not None and assessment.target is not None
+    desktop_turn.foreground_action(context)
+
+    assert fake.hidden_calls == [(1, 2, 41)]
+    desktop_turn.finish(context)

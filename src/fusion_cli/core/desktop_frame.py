@@ -11,6 +11,7 @@ Retina pikseli veriyordu; model 2x kaymış noktaya tıklıyordu.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -63,7 +64,7 @@ class DesktopFrame:
 class DesktopTurnHooks(Protocol):
     """Turun masaüstü oturumu (P-033): ilk ön plan eyleminde Esc dinleyicisi + gizleme."""
 
-    def foreground_action(self) -> None: ...
+    def foreground_action(self, keep: Sequence[int] = ()) -> None: ...
 
 
 class DesktopView:
@@ -76,6 +77,8 @@ class DesktopView:
     def __init__(self) -> None:
         self.frame: DesktopFrame | None = None
         self.turn: DesktopTurnHooks | None = None
+        #: Son masaüstü çağrısının politika hedefi (pid); gizlemede görünür kalır (P-033).
+        self.target_pid = 0
 
     def to_point(self, x: float, y: float) -> tuple[float, float]:
         """Çerçeve yoksa (henüz görüntü alınmadı) koordinat ekran noktası sayılır."""

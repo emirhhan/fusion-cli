@@ -97,7 +97,7 @@ oturum iznine dönüşmez (kart "Dikkat:" satırında nedeni yazar):
   durdurmaz. Masaüstünde sohbetin üstünde "Fusion bilgisayarı kullanıyor · durdurmak için Esc"
   şeridi ve **Durdur** düğmesi görünür (`BilgisayarKullaniliyor` olayı).
 - **Arka planda çalış** (`desktop.background`, varsayılan açık): diğer uygulamalar gizlenmez.
-  Kapatılırsa ilk ekran eyleminde öndeki uygulama ve Fusion (Fusion.app ya da Fusion'ı çalıştıran
+  Kapatılırsa ilk ekran eyleminde öndeki uygulama, eylemin hedef uygulaması ve Fusion (Fusion.app ya da Fusion'ı çalıştıran
   terminal) dışındaki uygulamalar gizlenir; `desktop.unhide_on_finish` açıksa tur bitince
   (iptal dahil) geri gösterilir.
 - **Ekran görüntüsünden dışlananlar**: Fusion'ın kendi penceresi (ve CLI'de terminal;

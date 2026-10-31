@@ -86,8 +86,13 @@ class DesktopTurn:
     _stop_escape: Callable[[], None] | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
-    def foreground_action(self) -> None:
-        """İlk fare/klavye eyleminde Esc dinleyicisini kur ve (istenirse) diğerlerini gizle."""
+    def foreground_action(self, keep: Sequence[int] = ()) -> None:
+        """İlk fare/klavye eyleminde Esc dinleyicisini kur ve (istenirse) diğerlerini gizle.
+
+        `keep`: eylemin politika hedefi (onaylanan uygulama). Ölçüldü (31 Ekim): yalnız öndeki
+        uygulama ve Fusion korunuyordu; arkadaki hedef gizlenince tık altındaki başka
+        (değerlendirilmemiş) uygulamaya gidiyordu.
+        """
         with self._lock:
             if self._started:
                 return
@@ -95,7 +100,8 @@ class DesktopTurn:
             if self.settings.escape_stops:
                 self._stop_escape = self.io.start_escape(self._escape)
             if not self.settings.background:
-                self._hidden = self.io.hide(self.io.keep_pids())
+                extra = tuple(pid for pid in keep if pid > 0)
+                self._hidden = self.io.hide((*self.io.keep_pids(), *extra))
 
     def _escape(self) -> None:
         self.stopped_by_escape = True
@@ -151,7 +157,7 @@ def foreground_action(context: ToolContext) -> None:
     if turn is None:
         return
     try:
-        turn.foreground_action()
+        turn.foreground_action((context.desktop.target_pid,))
     except (OSError, RuntimeError, ValueError):
         # Gizleme ya da dinleyici kurulamasa da eylem sürer; neden günlüğe düşer.
         _logger.warning("Masaüstü ön plan hazırlığı başarısız", exc_info=True)

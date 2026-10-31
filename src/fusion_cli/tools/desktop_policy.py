@@ -278,6 +278,7 @@ async def assess(
     required = required_level(tool_name, args)
     if required is None:
         return None
+    context.desktop.target_pid = 0
     resolved = await resolve_target(tool_name, args, context, probe)
     if resolved is None and tool_name.startswith("desktop_background_"):
         # Arka plan araçları zaten yardımcıyla çalışır: hedef doğrulanamıyorsa kapat (fail-closed).
@@ -285,6 +286,8 @@ async def assess(
     if resolved is None:
         return DesktopAssessment(required)
     app, bundle, pid, element = resolved
+    # Gizleme (desktop.background=false) değerlendirilen hedefi korur (`desktop_turn`).
+    context.desktop.target_pid = pid
     settings = context.desktop_settings
     level, category, reason = app_level(settings, app, bundle)
     warning = category.warning if category is not None else ""
