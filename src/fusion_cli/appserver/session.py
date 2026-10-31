@@ -1833,11 +1833,15 @@ class AppSession:
             if sonuc.get("ok"):
                 tarayici = self._state.config.browser
                 deger = bool(sonuc["deger"])
-                # Anahtar `rpc.set_setting`'te `_BOOL_SETTINGS` ile doğrulandı (alan adıdır).
-                self._state.config = replace(
-                    self._state.config,
-                    browser=replace(tarayici, **{str(sonuc["anahtar"]): deger}),
+                anahtar = sonuc["anahtar"]
+                yeni_tarayici = (
+                    replace(tarayici, headless=deger)
+                    if anahtar == "headless"
+                    else replace(tarayici, panel_agent=deger)
+                    if anahtar == "panel_agent"
+                    else replace(tarayici, profiles_enabled=deger)
                 )
+                self._state.config = replace(self._state.config, browser=yeni_tarayici)
             return sonuc
         return {"ok": False, "metin": f"Bilinmeyen tarayıcı isteği: {request.name}"}
 
