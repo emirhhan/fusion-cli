@@ -350,3 +350,65 @@ async def test_gerekceli_ret_turu_durdurmaz_model_gerekceyi_gorur(monkeypatch, t
     tool_mesajlari = [m for m in outcome.messages if m.role == "tool"]
     assert "make test" in tool_mesajlari[0].content
     assert "nasıl devam edeyim" not in outcome.final_text.lower()
+
+
+# --- Döngü entegrasyonu: kurallar DEĞİŞTİRMEYEN araçlarda da uygulanır ----------- #
+
+
+async def _dongu(monkeypatch, tmp_path, cagri, kurallar, mod=ApprovalMode.AUTO, prompter=None):
+    """Tek araç çağrısını `_execute` üzerinden geçir; araç mesajlarını ve prompter'ı döndür."""
+    sink = RecordingSink()
+    provider = ScriptedProvider([model_result(tool_calls=[cagri]), model_result("bitti")])
+    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **kwargs: provider)
+    prompter = prompter or _Kaydeden()
+    deps = AgentDeps(
+        config=make_config(),
+        publisher=_Publisher(sink),
+        policy=build_policy(mod, prompter),
+        tool_context=ToolContext(root=tmp_path),
+        permission_rules=kurallar,
+    )
+    outcome = await run_agent("oku", deps)
+    return [m for m in outcome.messages if m.role == "tool"], prompter
+
+
+@pytest.mark.parametrize("mod", [ApprovalMode.AUTO, ApprovalMode.BYPASS, ApprovalMode.PLAN])
+async def test_deny_kurali_okuma_aracini_dongude_her_kipte_engeller(monkeypatch, tmp_path, mod):
+    # Ölçüldü (31 Ekim): `_execute` kuralları yalnız `tool.mutating` araçta değerlendiriyordu;
+    # `Read(~/.ssh/**)` gibi belgenin ana örneği `read_file` için hiç çalışmıyordu.
+    (tmp_path / ".env").write_text("SIR=1", encoding="utf-8")
+    kurallar = _kurallar(("Read(/.env)", "deny"))
+    mesajlar, prompter = await _dongu(
+        monkeypatch, tmp_path, tool_call("read_file", path=".env"), kurallar, mod
+    )
+    assert "izin kuralıyla engellendi" in mesajlar[0].content
+    assert "SIR=1" not in mesajlar[0].content
+    assert prompter.soruldu == []
+
+
+async def test_deny_kurali_web_fetch_dongude_engeller(monkeypatch, tmp_path):
+    kurallar = _kurallar(("WebFetch(domain:evil.com)", "deny"))
+    mesajlar, _ = await _dongu(
+        monkeypatch,
+        tmp_path,
+        tool_call("web_fetch", url="https://evil.com/x"),
+        kurallar,
+        ApprovalMode.BYPASS,
+    )
+    assert "izin kuralıyla engellendi" in mesajlar[0].content
+    assert "WebFetch(domain:evil.com)" in mesajlar[0].content
+
+
+async def test_ask_kurali_okuma_aracini_otomatik_kipte_sordurur(monkeypatch, tmp_path):
+    (tmp_path / "gizli.txt").write_text("ICERIK", encoding="utf-8")
+    kurallar = _kurallar(("Read(/gizli.txt)", "ask"))
+    mesajlar, prompter = await _dongu(
+        monkeypatch, tmp_path, tool_call("read_file", path="gizli.txt"), kurallar
+    )
+    assert prompter.soruldu == ["read_file"]
+    assert "ICERIK" in mesajlar[0].content
+    # Kuralsız okuma hiç sorulmaz (eski davranış korunur).
+    mesajlar, prompter = await _dongu(
+        monkeypatch, tmp_path, tool_call("read_file", path="gizli.txt"), _kurallar()
+    )
+    assert prompter.soruldu == [] and "ICERIK" in mesajlar[0].content

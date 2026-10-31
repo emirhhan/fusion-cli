@@ -33,7 +33,7 @@ from pathlib import Path
 from ...config.eligibility import effort_for_spec
 from ...config.model_select import escalated_spec, select_agent_spec
 from ...config.models import Config
-from ...config.permission_rules import PermissionRuleSet
+from ...config.permission_rules import PermissionDecision, PermissionRuleSet
 from ...config.tool_policy import mutation_policy_for_model
 from ...core.budget import BudgetStop, TurnBudget
 from ...core.checkpoint import CheckpointStore
@@ -126,6 +126,7 @@ from ...tools.auto_policy import is_read_only_command
 from ...tools.capabilities import CapabilityRegistry
 from ...tools.emulation import coerce_arguments, validate_arguments
 from ...tools.files import resolve_path
+from ...tools.permission_match import evaluate
 from ...tools.preview import file_diff
 from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking
@@ -3674,7 +3675,8 @@ async def _execute(
         return ToolResult.failure(
             "Soru sonucu yeniden değerlendirilmeli; değişiklik yerine bağımsız okuma yap."
         ), ToolOutcome.BLOCKED
-    if tool is not None and tool.mutating:
+    rules = getattr(deps, "permission_rules", None)
+    if tool is not None and (tool.mutating or _rule_gates(rules, tool, args, deps)):
         revision = deps.approval_revision() if deps.approval_revision else None
         policy = deps.policy_factory() if deps.policy_factory else deps.policy
         request = await resolve_request(
@@ -3683,7 +3685,7 @@ async def _execute(
             deps.allowed_commands,
             root=deps.tool_context.root,
             context=deps.tool_context,
-            rules=getattr(deps, "permission_rules", None),
+            rules=rules,
         )
         verdict = await policy.decide(request)
         if deps.mutation_blocked_by_pending_input() or (
@@ -3748,6 +3750,23 @@ async def _execute(
     if recorder is not None and external:
         await recorder.finish(call.id, result.ok)
     return result, ToolOutcome.OK if result.ok else ToolOutcome.FAILED
+
+
+def _rule_gates(
+    rules: PermissionRuleSet | None, tool: Tool, args: dict[str, object], deps: AgentDeps
+) -> bool:
+    """Değiştirmeyen araç (okuma, arama, web) bir `deny`/`ask` kuralına takılıyor mu?
+
+    Onay kapısı değiştirici araçlar içindir; ama izin kuralları HER araç içindir (P-001:
+    `Read(~/.ssh/**)` deny, `WebFetch(domain:x)` deny, `Read(...)` ask). Ölçüldü (31 Ekim):
+    kapı yalnız `tool.mutating` ile açılıyordu, `read_file`/`web_fetch`/`search_code` için
+    deny ve ask kuralları hiç değerlendirilmeden araç çalışıyordu. `allow` ya da eşleşme
+    yoksa eski yol korunur: sorulmaz, doğrudan çalışır.
+    """
+    if rules is None or not rules.rules:
+        return False
+    match = evaluate(rules, tool.name, args, deps.tool_context.root)
+    return match is not None and match.decision is not PermissionDecision.ALLOW
 
 
 def _reads_only(tool_name: str, args: dict[str, object]) -> bool:
