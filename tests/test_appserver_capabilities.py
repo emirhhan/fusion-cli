@@ -89,7 +89,13 @@ async def test_acikca_secim_yalniz_sonraki_tur_icin_butceli_baglam_hazirlar(tmp_
     second = session._take_capability_context()
     await session.close()
 
-    assert selected == {"ok": True, "tur": "beceri", "ad": "research", "sonraki_tur": True}
+    assert selected == {
+        "ok": True,
+        "tur": "beceri",
+        "ad": "research",
+        "sonraki_tur": True,
+        "fork": False,
+    }
     assert "research" in context and len(context) <= 6_500
     assert second == ""
 

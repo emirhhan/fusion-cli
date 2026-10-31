@@ -226,7 +226,11 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
     void client.request("yetenek.kullan", { tur: item.tur, ad: item.kimlik }).then((payload) => {
       if (payload.ok !== true) throw new Error(String(payload.metin ?? "Yetenek seçilemedi."));
       // Yanıt gelene dek başka öğe açıldıysa bildirim yeni öğenin paneline karışmasın.
-      if (requestId === openRequest.current) setNotice(`${item.ad}, sonraki görev için hazır.`);
+      if (requestId !== openRequest.current) return;
+      // `context: fork` beceri: tur ana bağlamı devralan alt ajanda koşar (P-054); kullanıcı görsün.
+      setNotice(payload.fork === true
+        ? `${item.ad}, sonraki görev için hazır; tur bağlamı devralan alt ajanda koşacak (özet ana sohbete eklenir).`
+        : `${item.ad}, sonraki görev için hazır.`);
     }).catch((reason) => setError(String(reason)));
   };
 

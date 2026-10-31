@@ -20,6 +20,7 @@ function client() {
         ...(data.ad === "reviewer" ? { bellek: { kapsam: "project", dizin: "/p/.fusion/ajan-bellek/reviewer", satir: 3, konular: ["testler"], metin: "# Fusion belleği\n- testler önce" } } : {}),
       };
       if (name === "yetenek.bellek_sil") return { ok: true, ad: data.ad, silindi: true };
+      if (name === "yetenek.kullan") return { ok: true, ...data, sonraki_tur: true, fork: data.ad === "frontend-design" };
       return { ok: true, ...data };
     }),
   } as unknown as ProtocolClient;
@@ -107,6 +108,8 @@ describe("SkillsCatalog", () => {
     expect(await screen.findByText("Tam uzmanlık talimatı")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Bu beceriyi sonraki turda kullan" }));
     await waitFor(() => expect(fake.request).toHaveBeenCalledWith("yetenek.kullan", { tur: "beceri", ad: "frontend-design" }));
+    // `context: fork` beceri: kullanıcı turun bağlamı devralan alt ajanda koşacağını görür (P-054).
+    expect((await screen.findByText(/alt ajanda koşacak/)).textContent).toContain("frontend-design");
     fireEvent.click(screen.getByRole("switch", { name: "frontend-design oturum etkinliği" }));
     await waitFor(() => expect(fake.request).toHaveBeenCalledWith("yetenek.etkinlik", { tur: "beceri", ad: "frontend-design", etkin: false }));
   });

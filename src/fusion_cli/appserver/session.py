@@ -2610,7 +2610,10 @@ class AppSession:
             return {"ok": False, "metin": "Katalog öğesi bulunamadı."}
         if (kind, name) not in self._pending_capabilities:
             self._pending_capabilities = [*self._pending_capabilities, (kind, name)]
-        return {"ok": True, "tur": kind, "ad": name, "sonraki_tur": True}
+        # `context: fork` beceri (P-054): arayüz "tur alt ajanda koşacak" diyebilsin.
+        skill = self._all_capabilities.get_skill(name) if kind == "beceri" else None
+        fork = bool(skill is not None and getattr(skill, "context", "") == "fork")
+        return {"ok": True, "tur": kind, "ad": name, "sonraki_tur": True, "fork": fork}
 
     def _take_capability_context(self) -> str:
         self._taken_skill = None

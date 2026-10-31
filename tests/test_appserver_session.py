@@ -2430,6 +2430,8 @@ async def test_subtask_komutu_ve_fork_becerisi_turu_fork_kosucusuyla_calistirir(
     await oturum.handle(
         Request(id="4", name="yetenek.kullan", data={"tur": "beceri", "ad": "derin-inceleme"})
     )
+    # Masaüstü seçimde görsel gösterge için: `context: fork` beceri `fork: true` döner.
+    assert _sonuc(satirlar, "4")["fork"] is True
     await oturum.handle(Request(id="5", name="tur.calistir", data={"gorev": "incele"}))
     assert gorulen[-1] is run_forked_turn
     await oturum.handle(Request(id="6", name="tur.calistir", data={"gorev": "sıradan 2"}))

@@ -229,7 +229,8 @@ ara işi ana bağlamı şişirmeden yürütmek için.
   masaüstünde de aynı komut (slash menüsü) çalışır.
 - Model kendi kararıyla: `spawn_agent(task=…, baglam_miras=true)`.
 - Beceri tanımında `context: fork` varsa (`SKILL.md` frontmatter) o beceri seçilen tur
-  otomatik fork alt ajanda koşar.
+  otomatik fork alt ajanda koşar; masaüstü katalogda seçince bildirim "tur bağlamı devralan
+  alt ajanda koşacak" der (RPC `yetenek.kullan` yanıtında `fork: true`).
 - Fork turuna oturum kişiliğinin notu ve araç kısıtı (yalnız daraltır), seçilen becerinin
   metni, kip istemi, görsel ekler ve adım tavanı aynen geçer; alt ajan bunların üstüne kendi
   `FORK_BRIEF` açıklamasını alır. Plan kipinde fork salt-okur koşar. Canlı geçmişin sonundaki
