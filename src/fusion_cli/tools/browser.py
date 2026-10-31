@@ -27,7 +27,7 @@ from ..core.browser_session import BrowserSession
 from ..core.constants import MAX_OUTPUT_CHARS, truncate_notice
 from ..core.cookie_files import cookies_from_storage_state
 from ..core.errors import BrowserProfileError
-from ..core.tools import ToolArgs, ToolContext, ToolResult
+from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
 from .args import is_truthy, optional_str, require_str
 from .browser_guard import blocked_hint, install_request_guard
 from .browser_target import TargetError, fill_or_select, resolve
@@ -106,6 +106,45 @@ async def browser_open(args: ToolArgs, context: ToolContext) -> ToolResult:
             f"Sayfa açılamadı: {url} ({type(exc).__name__}: {exc}){blocked_hint(exc)}"
         )
     return _with_profile_note(await _sayfa_ozeti(page, "açıldı"), context.browser)
+
+
+async def browser_open_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect:
+    """Çerezsiz açılış yalnız okur; profil YÜKLENECEKSE kullanıcının oturumu ajana açılır.
+
+    Ölçüldü (31 Ekim): `browser_open` değiştirici sayılmadığı için `default_profile`
+    ya da modelin bildiği bir profil adı hiç sorulmadan yükleniyordu; sayfadaki enjekte
+    talimat ajanı girişli siteye götürebilirdi. Açık oturumda yeni yükleme olmaz: aynı
+    profil zaten onaylanmıştır, farklı profil isteğini araç kendisi reddeder.
+    """
+    if context is None:
+        return ToolEffect.REMOTE_READ
+    oturum = context.browser
+    profile = optional_str(args, "profile", "").strip()
+    if _will_load_profile(oturum, profile):
+        return ToolEffect.REMOTE_SESSION
+    return ToolEffect.REMOTE_READ
+
+
+def _will_load_profile(oturum: BrowserSession, profile: str) -> bool:
+    return not _is_open(oturum) and oturum.profiles_enabled and bool(profile or oturum.profile_name)
+
+
+async def browser_type_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:
+    """Girişli profil etkinken yazma sayfayla etkileşimdir, `submit` uzak yazmadır.
+
+    Profilsiz tarayıcıda eski sınıflandırma (yerel) korunur: oturum taşımayan sayfada
+    form göndermenin kullanıcı hesabına etkisi yoktur.
+    """
+    if context is None or not context.browser.active_profile:
+        return None
+    return ToolEffect.REMOTE_WRITE if is_truthy(args.get("submit")) else ToolEffect.REMOTE_INTERACT
+
+
+async def browser_click_effect(_args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:
+    """Girişli profil etkinken tıklama kullanıcının hesabıyla iş yapabilir: sorulur."""
+    if context is None or not context.browser.active_profile:
+        return None
+    return ToolEffect.REMOTE_WRITE
 
 
 async def browser_type(args: ToolArgs, context: ToolContext) -> ToolResult:

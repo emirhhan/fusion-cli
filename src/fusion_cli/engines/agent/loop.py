@@ -3665,7 +3665,11 @@ async def _execute(
         return ToolResult.failure(
             "Soru sonucu yeniden değerlendirilmeli; değişiklik yerine bağımsız okuma yap."
         ), ToolOutcome.BLOCKED
-    if tool is not None and tool.mutating:
+    # Değiştirmeyen ama etkisi ÇAĞRIYA bağlı araç da onaydan geçer: `browser_open`
+    # çerezsiz okur (sorulmaz) ama profil yükleyecekse kullanıcının girişli oturumunu
+    # ajana açar (sorulur). Ölçüldü (31 Ekim): yalnız `mutating` kapı olduğu için
+    # varsayılan profil hiç sorulmadan yükleniyordu.
+    if tool is not None and (tool.mutating or tool.effect_resolver is not None):
         revision = deps.approval_revision() if deps.approval_revision else None
         policy = deps.policy_factory() if deps.policy_factory else deps.policy
         request = await resolve_request(

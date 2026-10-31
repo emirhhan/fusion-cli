@@ -562,6 +562,9 @@ _TOOLS: tuple[Tool, ...] = (
             ["url"],
         ),
         run=browser.browser_open,
+        # Çerezsiz açılış yalnız okur; profil yüklenecekse onay (REMOTE_SESSION, P-023).
+        effect=ToolEffect.REMOTE_READ,
+        effect_resolver=browser.browser_open_effect,
     ),
     Tool(
         name="browser_read",
@@ -607,6 +610,7 @@ _TOOLS: tuple[Tool, ...] = (
         ),
         run=browser.browser_type,
         mutating=True,
+        effect_resolver=browser.browser_type_effect,
     ),
     Tool(
         name="browser_click",
@@ -622,6 +626,7 @@ _TOOLS: tuple[Tool, ...] = (
         ),
         run=browser.browser_click,
         mutating=True,
+        effect_resolver=browser.browser_click_effect,
     ),
     Tool(
         name="browser_screenshot",

@@ -15,8 +15,21 @@ import pytest
 from fusion_cli.config.browser_profiles import BrowserProfileStore
 from fusion_cli.core.browser_session import BrowserSession
 from fusion_cli.core.cookie_files import Cookie
-from fusion_cli.core.tools import ToolContext
+from fusion_cli.core.events import ToolExecuted, ToolOutcome
+from fusion_cli.core.tools import ToolContext, ToolEffect
+from fusion_cli.engines.agent import loop as agent_loop
+from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+from fusion_cli.engines.agent.loop import AgentDeps, run_agent
 from fusion_cli.tools import browser
+
+from .fakes import (
+    AlwaysReject,
+    RecordingSink,
+    ScriptedProvider,
+    make_config,
+    model_result,
+    tool_call,
+)
 
 GIZLI = "cerez-degeri-GIZLI-77"
 
@@ -241,3 +254,104 @@ async def test_kapat_sonra_profilsiz_acilis_onceki_profili_ezmez(tmp_path, sahte
     durum = depo.storage_state("is")
     assert [cookie["name"] for cookie in durum["cookies"]] == ["sid"]
     assert durum["cookies"][0]["value"] == "TAZE"
+
+
+# --- Kullanım anı onayı (Bulgu: girişli oturum onaysız açılıyordu) ------------- #
+
+
+async def test_profil_yukleyecek_acilis_oturum_etkisi_bildirir(tmp_path, depo):
+    """Ölçüldü (31 Ekim): `browser_open` değiştirici sayılmadığından `default_profile`
+    hiç sorulmadan yükleniyordu."""
+    bos = ToolContext(root=tmp_path)
+    varsayilanli = ToolContext(root=tmp_path, browser=BrowserSession(profile_name="is"))
+    kapali = ToolContext(
+        root=tmp_path, browser=BrowserSession(profile_name="is", profiles_enabled=False)
+    )
+
+    assert await browser.browser_open_effect({"url": "x"}, bos) is ToolEffect.REMOTE_READ
+    assert (
+        await browser.browser_open_effect({"url": "x", "profile": "is"}, bos)
+        is ToolEffect.REMOTE_SESSION
+    )
+    assert (
+        await browser.browser_open_effect({"url": "x"}, varsayilanli) is ToolEffect.REMOTE_SESSION
+    )
+    # Profiller kapalıyken yükleme olmaz; araç isteği kendisi reddeder, sorulmaz.
+    assert await browser.browser_open_effect({"url": "x"}, kapali) is ToolEffect.REMOTE_READ
+    assert await browser.browser_open_effect({"url": "x"}, None) is ToolEffect.REMOTE_READ
+
+
+async def test_acik_profilli_oturumda_yeniden_acilis_sorulmaz(tmp_path, sahte_playwright, depo):
+    baglam = ToolContext(root=tmp_path)
+    await browser.browser_open({"url": "https://example.com", "profile": "is"}, baglam)
+
+    etki = await browser.browser_open_effect(
+        {"url": "https://example.com/b", "profile": "is"}, baglam
+    )
+
+    assert etki is ToolEffect.REMOTE_READ
+
+
+async def test_profil_etkinken_yazma_ve_tiklama_uzak_etkidir(tmp_path, sahte_playwright, depo):
+    profilsiz = ToolContext(root=tmp_path)
+    assert await browser.browser_type_effect({"selector": "#a", "text": "b"}, profilsiz) is None
+    assert await browser.browser_click_effect({"selector": "#a"}, profilsiz) is None
+
+    baglam = ToolContext(root=tmp_path)
+    await browser.browser_open({"url": "https://example.com", "profile": "is"}, baglam)
+
+    assert (
+        await browser.browser_type_effect({"selector": "#a", "text": "b"}, baglam)
+        is ToolEffect.REMOTE_INTERACT
+    )
+    assert (
+        await browser.browser_type_effect({"selector": "#a", "text": "b", "submit": True}, baglam)
+        is ToolEffect.REMOTE_WRITE
+    )
+    assert await browser.browser_click_effect({"selector": "#a"}, baglam) is ToolEffect.REMOTE_WRITE
+
+
+class _Yayinci:
+    def __init__(self, sink: RecordingSink) -> None:
+        self._sink = sink
+
+    def publish(self, event: object) -> None:
+        self._sink.handle(event)
+
+
+def _ajan_bagimliliklari(tmp_path, sink: RecordingSink, profile_name: str = "") -> AgentDeps:
+    return AgentDeps(
+        config=make_config(),
+        publisher=_Yayinci(sink),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysReject()),
+        tool_context=ToolContext(root=tmp_path, browser=BrowserSession(profile_name=profile_name)),
+    )
+
+
+async def _tur(monkeypatch, tmp_path, sink: RecordingSink, args: dict, *, profile_name: str = ""):
+    saglayici = ScriptedProvider(
+        [model_result(tool_calls=[tool_call("browser_open", **args)]), model_result("bitti")]
+    )
+    monkeypatch.setattr(agent_loop, "build_provider", lambda *a, **k: saglayici)
+    await run_agent("aç", _ajan_bagimliliklari(tmp_path, sink, profile_name))
+    return next(e for e in sink.events if isinstance(e, ToolExecuted))
+
+
+async def test_dongu_profilli_acilisi_otomatik_kipte_sorar_profilsizi_sormaz(
+    monkeypatch, tmp_path, sahte_playwright, depo
+):
+    """Döngü yalnız `mutating` araçları onaya sokuyordu; etki çözücüsü olan araç da girer."""
+    reddedilen = await _tur(
+        monkeypatch, tmp_path, RecordingSink(), {"url": "https://example.com", "profile": "is"}
+    )
+    assert reddedilen.outcome is ToolOutcome.DENIED
+    assert sahte_playwright.contexts == [], "reddedilen çağrı tarayıcı açtı"
+
+    varsayilan = await _tur(
+        monkeypatch, tmp_path, RecordingSink(), {"url": "https://example.com"}, profile_name="is"
+    )
+    assert varsayilan.outcome is ToolOutcome.DENIED
+
+    serbest = await _tur(monkeypatch, tmp_path, RecordingSink(), {"url": "https://example.com"})
+    assert serbest.outcome is ToolOutcome.OK
+    assert sahte_playwright.contexts and sahte_playwright.contexts[0].storage_state_in is None

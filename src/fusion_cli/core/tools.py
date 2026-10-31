@@ -166,6 +166,11 @@ class ToolEffect(Enum):
     REMOTE_WRITE = "remote_write"
     #: Uzak sistemde geri alınamaz değişiklik yapabilir (silme, yayın, harcama).
     REMOTE_DESTRUCTIVE = "remote_destructive"
+    #: Kullanıcının GİRİŞLİ oturumunu (çerez profili) ajanın tarayıcısına yükler (P-023).
+    #: Uzak sisteme henüz yazmaz ama ajanı o hesabın yetkisiyle donatır; Claude in
+    #: Chrome kullanıcının oturumunda eylem izni ister, buradaki beklenti aynıdır.
+    #: Her kipte sorulur, plan kipinde yapılmaz; dış işlem defterine GİRMEZ (yazma değil).
+    REMOTE_SESSION = "remote_session"
 
 
 def tool_family(name: str) -> ToolFamily:

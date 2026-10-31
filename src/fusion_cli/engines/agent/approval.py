@@ -53,6 +53,12 @@ REMOTE_DESTRUCTIVE_REASON = (
 #: Uzak sistemde değişiklik yapan aracın otomatik kipte sorulma gerekçesi.
 REMOTE_WRITE_REASON = "uzak sistemde değişiklik yapıyor"
 
+#: Kullanıcının girişli tarayıcı oturumunu ajana açan çağrının sorulma gerekçesi (P-023).
+REMOTE_SESSION_REASON = (
+    "girişli tarayıcı oturumunu (çerez profili) ajana açıyor; ajan bu sitelerde senin "
+    "hesabınla gezinir"
+)
+
 #: Hedef yolu `path` argümanında taşıyan yerel dosya yazma araçları (A1-06).
 _PATH_WRITE_TOOLS = frozenset({"write_file", "edit_file", "multi_edit", "create_file"})
 
@@ -400,7 +406,7 @@ def build_request(
     danger = danger_reason(tool.name, args)
     if danger is None and effect is ToolEffect.REMOTE_DESTRUCTIVE:
         danger = REMOTE_DESTRUCTIVE_REASON
-    risk = None if effect in _UNATTENDED_EFFECTS else REMOTE_WRITE_REASON
+    risk = None if effect in _UNATTENDED_EFFECTS else _remote_risk(effect)
     unattended_safe = effect in _UNATTENDED_EFFECTS
     # Yerel dosya aracı proje DIŞINA yazıyorsa risklidir (modül belgesi: "proje dışı
     # sorulur"). Eskiden bu yalnız kabukta uygulanıyordu; `write_file ~/.zshrc`
@@ -422,6 +428,13 @@ def build_request(
         authorization_scope=tool.scope_resolver(args) if tool.scope_resolver is not None else None,
         outside_dir=outside_dir,
     )
+
+
+def _remote_risk(effect: ToolEffect) -> str:
+    """Gözetimsiz çalışamayan etkinin onay kartındaki gerekçesi."""
+    if effect is ToolEffect.REMOTE_SESSION:
+        return REMOTE_SESSION_REASON
+    return REMOTE_WRITE_REASON
 
 
 def _outside_write_dir(
