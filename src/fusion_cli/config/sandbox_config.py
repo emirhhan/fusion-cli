@@ -15,7 +15,12 @@ from pathlib import Path
 
 from ..core.errors import ConfigError
 from ..core.sandbox_policy import NETWORK_MODES, SandboxPolicy, normalize_domain
-from .paths import browser_profiles_dir, user_config_dir, user_data_dir
+from .paths import (
+    base_config_dir,
+    browser_profiles_dir,
+    env_file_candidates,
+    user_data_dir,
+)
 
 __all__ = ["SandboxConfig", "fusion_secret_paths", "sandbox_policy", "validate_sandbox"]
 
@@ -37,6 +42,9 @@ class SandboxConfig:
         "~/.git-credentials",
         "~/.password-store",
         "~/Library/Keychains",
+        "~/.config/gh",
+        "~/.config/git/credentials",
+        "~/.pypirc",
     )
     network: str = "open"
     allowed_domains: tuple[str, ...] = ()
@@ -76,14 +84,28 @@ def validate_sandbox(config: SandboxConfig) -> SandboxConfig:
 
 
 def fusion_secret_paths() -> tuple[Path, ...]:
-    """Sandbox içindeki komutun hiçbir zaman okumaması gereken Fusion dosyaları."""
+    """Sandbox içindeki komutun hiçbir zaman okumaması gereken Fusion dosyaları.
+
+    Yüklenen her `.env` adayı (`FUSION_HOME/.env`, hesap ve hesapsız kök) dahildir; proje
+    kökündeki `.env` projenin kendisidir, dışarıda kalır. Ölçüldü (31 Ekim):
+    `FUSION_HOME/.env` ve hesap etkinken temel dizinin `.env`'i listede yoktu.
+    """
     data = user_data_dir()
-    return (
-        user_config_dir() / ".env",
-        data / "vault",
-        data / "secrets.enc",
-        data / "web_profiles",
-        browser_profiles_dir(),
+    project_env = Path.cwd() / ".env"
+    env_files = (
+        *(path for path in env_file_candidates() if path != project_env),
+        base_config_dir() / ".env",
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *env_files,
+                data / "vault",
+                data / "secrets.enc",
+                data / "web_profiles",
+                browser_profiles_dir(),
+            )
+        )
     )
 
 

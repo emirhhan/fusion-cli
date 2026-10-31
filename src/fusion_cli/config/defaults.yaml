@@ -957,6 +957,8 @@ sandbox:
   allow_write: []
   # Sandbox içindeki komutun OKUYAMADIĞI yollar (dizinse altı da). Fusion'ın kendi .env'i,
   # şifreli kasası ve tarayıcı/web oturum profilleri burada yazılmasa da her zaman engellidir.
+  # Yazdığın liste bu varsayılanın YERİNE geçer: yol eklerken aşağıdakileri de koru.
+  # ~/.npmrc bilinçli olarak yok (npm install her çağrıda okur; özel kayıt defteri bozulur).
   deny_read:
     - "~/.ssh"
     - "~/.aws"
@@ -969,6 +971,9 @@ sandbox:
     - "~/.git-credentials"
     - "~/.password-store"
     - "~/Library/Keychains"
+    - "~/.config/gh"
+    - "~/.config/git/credentials"
+    - "~/.pypirc"
   # open = ağ kısıtsız (eski davranış). allowlist = komut yalnız Fusion'ın yerel
   # proxy'sine çıkabilir; proxy yalnız allowed_domains'e bağlanır (HTTP_PROXY/HTTPS_PROXY
   # ortamı verilir; iç ağ adresine çözülen ad reddedilir).
