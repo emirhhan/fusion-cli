@@ -330,3 +330,24 @@ def test_gorev_ayrintisi_bekleyen_onayin_tam_argumanini_gosterir(tmp_path):
     text = task_detail(task, "", "", question=question)
 
     assert "rm -rf build" in text
+
+
+async def test_onay_cevapsiz_kalirsa_sorulamadi_sayilir(tmp_path, monkeypatch):
+    monkeypatch.setattr(background_worker, "_POLL_S", 0.01)
+    store = BackgroundTaskStore(tmp_path / "arka-plan", SystemClock())
+    task = store.create("iş", root=tmp_path)
+    prompter = background_worker.FileQuestionPrompter(store, task.id, timeout_s=0.05)
+
+    decision = await prompter.confirm(_approval_request("npm test"))
+
+    assert decision is ApprovalAnswer.UNAVAILABLE
+    assert store.pending_question(task.id) is None
+    assert store.get(task.id).question == ""
+
+
+def test_bulunamayan_kisilik_genel_ajana_duser(tmp_path):
+    def _missing(name, *, home, root):
+        raise ValueError("yok")
+
+    assert background_worker._task_persona(_missing, "testci", tmp_path) is None
+    assert background_worker._task_persona(_missing, "", tmp_path) is None

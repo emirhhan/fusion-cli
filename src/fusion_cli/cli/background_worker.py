@@ -44,6 +44,7 @@ from ..core.types import Message
 from ..core.untrusted_text import neutralize_closing_tags
 from ..engines.agent.approval import ApprovalAnswer, ApprovalMemory, ApprovalRequest, parse_mode
 from ..engines.agent.engine_tools import QuestionOption
+from ..engines.agent.team import Persona
 from ..ui import background_messages as texts
 
 _LOG = logging.getLogger(__name__)
@@ -339,7 +340,7 @@ def agent_turn_runner(timeout_s: float, store: BackgroundTaskStore) -> TurnRunne
 
         config = task_config(task, load_config())
         root = Path(task.root)
-        persona = resolve_agent(task.agent, home=Path.home(), root=root) if task.agent else None
+        persona = _task_persona(resolve_agent, task.agent, root)
         turn = persona_turn(persona)
         allowed, denied = task_tool_limits(task, turn.allowed_tools, turn.denied_tools)
         tool_context = task_tool_context(task, config)
@@ -383,6 +384,22 @@ def agent_turn_runner(timeout_s: float, store: BackgroundTaskStore) -> TurnRunne
         return outcome.final_text, bool(outcome.ok) and bool(outcome.final_text.strip())
 
     return _run
+
+
+def _task_persona(resolve: Callable[..., Persona], name: str, root: Path) -> Persona | None:
+    """Görevin kişiliği; tanım bulunamazsa genel ajan (`run_subagent` ile aynı geri düşüş).
+
+    Ölçüldü (31 Ekim): `spawn_agent` yerleşik üye adıyla (tanım dosyası yok) açılan görev
+    işçide `ValueError` ile "başarısız" bitiyordu. CLI `--agent` adı başlatmadan önce
+    doğrulandığı için bu geri düşüş yalnız araç yolunu etkiler.
+    """
+    if not name:
+        return None
+    try:
+        return resolve(name, home=Path.home(), root=root)
+    except ValueError:
+        _LOG.warning("arka plan görevinin kişiliği bulunamadı; genel ajanla sürüyor")
+        return None
 
 
 def _mutating_tools() -> frozenset[str]:
