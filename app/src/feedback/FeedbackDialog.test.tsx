@@ -111,18 +111,3 @@ it('çevrimdışı rapor dosyası önizlemeyle aynı temizlenmiş metni içerir'
   expect(screen.getByLabelText('Rapor önizlemesi').textContent).toBe(bundle.report);
 
 });
-
-describe("FeedbackDialog — tam sayfa (profil menüsü)", () => {
-  it("pencere değil sayfa çizer; Kapat önceki ekrana döndürür, Escape sayfayı kapatmaz", () => {
-    const onClose = vi.fn();
-    render(<FeedbackDialog initial={{ tur: "geri-bildirim" }} loadVersion={async () => "1.0"} onClose={onClose} variant="page" />);
-
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.getByRole("main")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Geri bildirim gönder" })).toBeTruthy();
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(onClose).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Kapat" }));
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-});

@@ -582,7 +582,6 @@ describe("SessionUygulama", () => {
   it.each([
     ["Hesabım", { role: "heading", name: "Hesabım" }],
     ["Yardım", { role: "heading", name: "Yardım" }],
-    ["Geri bildirim gönder", { role: "heading", name: "Geri bildirim gönder" }],
   ] as const)("%s Ayarlar gibi tam sayfa açılır: sohbet kenar çubuğu gizlenir, Kapat önceki ekrana döner", async (etiket, hedef) => {
     let lineHandler: ((event: { oturum_id: string; satir: string }) => void) | null = null;
     const transport: SessionTransport = {
@@ -606,12 +605,36 @@ describe("SessionUygulama", () => {
 
     expect((await screen.findAllByRole(hedef.role, { name: hedef.name })).length).toBeGreaterThan(0);
     expect(kenarCubugu()?.hidden).toBe(true);
-    // Geri bildirim artık sohbetin üstünde bir pencere değil, sayfadır.
-    expect(screen.queryByRole("dialog", { name: "Geri bildirim gönder" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Kapat" }));
     expect(await screen.findByRole("textbox", { name: "Mesaj" })).toBeTruthy();
     expect(kenarCubugu()?.hidden).toBe(false);
+  });
+
+  it("Geri bildirim gönder sayfa değil pencere açar; sohbet ve kenar çubuğu yerinde kalır", async () => {
+    let lineHandler: ((event: { oturum_id: string; satir: string }) => void) | null = null;
+    const transport: SessionTransport = {
+      create: vi.fn(async (id) => ({ oturum_id: id, kok: "/proje", pid: 41, durum: "calisiyor", kapanis_nedeni: null })),
+      send: vi.fn(async (id, line) => {
+        const request = JSON.parse(line) as { id: string };
+        queueMicrotask(() => lineHandler?.({ oturum_id: id, satir: JSON.stringify({ tip: "sonuc", id: request.id, veri: { ok: true } }) }));
+      }),
+      close: vi.fn(async () => undefined),
+      list: vi.fn(async () => []),
+      onLine: vi.fn(async (handler) => { lineHandler = handler; return () => undefined; }),
+      onClosed: vi.fn(async () => () => undefined),
+    };
+    render(<SessionUygulama transport={transport} />);
+    await screen.findByRole("textbox", { name: "Mesaj" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Hesap menüsü" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Geri bildirim gönder" }));
+
+    expect(await screen.findByRole("dialog", { name: "Geri bildirim gönder" })).toBeTruthy();
+    expect(document.getElementById("fusion-sidebar")?.hidden).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Pencereyi kapat" }));
+    expect(screen.queryByRole("dialog", { name: "Geri bildirim gönder" })).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Mesaj" })).toBeTruthy();
   });
 
   it("keşfedilen geçmiş kaynağını sidebar ve seçiciye bağlar", async () => {

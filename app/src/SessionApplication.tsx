@@ -321,7 +321,7 @@ function projectName(root: string): string {
 const SAYFA_KENDI_BASLIGINI_TASIR = ["settings", "control", "connectors", "account"];
 
 /** Sohbet kenar çubuğunu gizleyen tam sayfalar (Ayarlar'ın davranışı). */
-const TAM_SAYFALAR: readonly string[] = ["settings", "account", "help", "feedback"];
+const TAM_SAYFALAR: readonly string[] = ["settings", "account", "help"];
 
 /** Ana uygulamanın gezinebileceği sayfalar; üst çubuktaki geri/ileri
  * düğmeleri bu sayfalar arasındaki geçmişi gezer (bkz. `useNavigationHistory`). */
@@ -333,7 +333,6 @@ type Page =
   | "help"
   | "settings"
   | "account"
-  | "feedback"
   | "image-create"
   | "video-create";
 
@@ -765,14 +764,9 @@ export function SessionUygulama({
     setNewTaskError(null);
     if (destination !== "feedback") setSurfaceSection(null);
     if (destination === "feedback") {
-      // Menüden açılan geri bildirim Ayarlar gibi TAM SAYFADIR (kenar çubuğu gizli).
-      // Oturum yoksa sayfa çizilemez; rapor yine de pencere olarak açılır.
-      if (active) {
-        setSurfaceSection(null);
-        setPage("feedback");
-      } else {
-        setFeedback({ tur: "geri-bildirim" });
-      }
+      // Geri bildirim sayfa DEĞİL, bulunulan ekranın üstünde açılan penceredir;
+      // oturum gerektirmez, boş uygulamada da açılır.
+      setFeedback({ tur: "geri-bildirim" });
       return;
     }
     try {
@@ -1491,7 +1485,7 @@ export function SessionUygulama({
       })),
     ],
   };
-  // Ayarlar, Hesabım, Yardım ve Geri bildirim tam sayfadır: sohbet kenar çubuğu
+  // Ayarlar, Hesabım ve Yardım tam sayfadır: sohbet kenar çubuğu
   // (Fusion başlığı, Yeni sohbet, Projeler) bu sayfalarda görünmez.
   const sectionOwnsSidebar = surfaceSection !== null || TAM_SAYFALAR.includes(page);
   if (!active) {
@@ -1554,7 +1548,6 @@ export function SessionUygulama({
       : page === "video-create" ? "Video oluştur"
         : page === "skills" ? "Beceriler ve Ajanlar"
           : page === "help" ? "Yardım"
-            : page === "feedback" ? "Geri bildirim"
             : active.title;
 
   const draft = drafts[active.id] ?? controller.submissionDraft(active.id);
@@ -1793,8 +1786,6 @@ export function SessionUygulama({
             surum={runtimeVersion}
           />
         )
-      : page === "feedback"
-        ? <FeedbackDialog initial={{ tur: "geri-bildirim" }} onClose={closePage} variant="page" />
         : splitSession
           ? (
             <div className="split-view">
