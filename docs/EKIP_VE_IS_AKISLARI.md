@@ -144,6 +144,20 @@ birbirine, lidere ya da herkese mesaj atar.
 - **Sürdürme.** Pano `.fusion/ekip/<ad>/pano.json`, gelen kutuları
   `.fusion/ekip/<ad>/gelen_kutusu/<üye>.jsonl` dosyalarındadır. Aynı `ad` ile yeniden
   `team_run` (yeni `gorevler` ve `mesajlar` ile) kaldığı yerden sürer.
+- **Arka planda koşturma (`"arka_plan": true`).** Lider sohbete devam etsin diye ekip
+  bir arka plan görevinde (`ekip-<ad>`, bkz. `/tasks`, `fusion agents`) koşar; maliyet
+  sorusu başlatmadan önce sorulur, `team_run` hemen döner ve sonuç bitince sıradaki tura
+  gelir. Koşarken aynı adla `team_run(ad, mesajlar=[…])` ekibi ikinci kez başlatmaz,
+  mesajları gelen kutusuna yazar (boştaki üye birkaç saniyede uyanır); yeni görev/üye o
+  koşu bitince eklenir. Durdurmak: `stop_agent(id)` ya da `/tasks stop <id>`.
+- **Kanca kapıları (Claude Code ile aynı olaylar, bkz. [KANCALAR.md](KANCALAR.md)).**
+  `TaskCreated` görev eklenmeden önce, `TaskCompleted` üye görevi "tamam" yapmadan önce,
+  `TeammateIdle` üye boşa düşmeden önce çalışır. Çıkış 2: görev eklenmez / üyede kalır /
+  üye gerekçeyle yeniden koşar (uyanma tavanı sayılır); stderr ekleyene ya da üyeye geri
+  bildirimdir. `{"continue": false}` üyeyi durdurur. Yük: `team_name`, `teammate_name`
+  (lider eklediyse yok), görev olaylarında `task_id`, `task_subject`, `task_description`.
+  Üyeler ve iş akışı düğümleri bitince `SubagentStop` da tetiklenir (`agent_type` kişilik
+  adı; uzmansız üyede `yardimci`).
 
 **Komutlar.**
 
@@ -175,8 +189,10 @@ siler (RPC: `ekip.liste`, `ekip.pano`, `ekip.sil`).
 | `agent_team_max_runs` | `16` | Tek `team_run` çağrısındaki toplam üye koşusu |
 | `agent_team_confirm` | `true` | Yeni ekip kurulmadan önce maliyet uyarısıyla sor |
 
-**Bilinen farklar.** Claude Code'da lider üyeler çalışırken sohbete devam eder ve üyeler
-tmux/iTerm bölmesinde görünebilir; Fusion'da ekip, `team_run` çağrısının içinde koşar ve
-masaüstü panosunda izlenir. `TaskCreated` / `TaskCompleted` / `TeammateIdle` kanca
-olayları henüz kanca sistemine bağlı değildir.
+**Bilinen farklar.** Varsayılan kipte ekip `team_run` çağrısının içinde koşar; liderin
+sohbete devam etmesi için `"arka_plan": true` gerekir (Claude Code'da hep böyledir). Arka
+plandaki ekibin olayları işçinin günlüğüne gider: sohbet içi canlı pano yerine Ajanlar
+sekmesi / `/team goster` panoyu diskten okur. Üyeler tmux/iTerm bölmesinde görünmez.
+Kancanın `continue: false` kararı üyenin o anki koşusunu kesmez: araç hata döner, üye kısa
+özetle biter ve yeniden uyandırılmaz.
 

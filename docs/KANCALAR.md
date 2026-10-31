@@ -1,8 +1,9 @@
 # Kancalar (hooks)
 
-Kanca, bir olaya (araç çağrısı, istem gönderimi, tur sonu…) bağlanan kabuk komutudur.
-Fusion olay anında komutu çalıştırır, **stdin'e olayın JSON'unu** yazar ve **çıkış kodu +
-stdout JSON'undan** kararı okur. Biçim ve olay adları Claude Code ile aynıdır:
+Kanca, bir olaya (araç çağrısı, istem gönderimi, tur sonu…) bağlanan kabuk komutu ya da
+HTTP adresidir. Fusion olay anında komutu çalıştırır, **stdin'e olayın JSON'unu** yazar ve
+**çıkış kodu + stdout JSON'undan** kararı okur (`http` türünde JSON POST edilir, yanıt
+gövdesi stdout gibi okunur). Biçim ve olay adları Claude Code ile aynıdır:
 `~/.claude/settings.json` içindeki kancalar `runtime.claude_hooks: true` ile Fusion'da da
 çalışır (varsayılan kapalı; aşağıya bakın).
 
@@ -46,15 +47,43 @@ güvenilmiyor" diye görünür.
 | `PostToolUseFailure` | araç hata verince | araç adı | gerekçe modele not |
 | `UserPromptSubmit` | kök tur başında | — | istem düşer, model çağrılmaz |
 | `Stop` | ajan cevabını bitirince | — | ajan gerekçeyle sürer (en çok 3 kez) |
-| `SubagentStop` | alt ajan bitince | ajan türü | alt ajan gerekçeyle sürer |
-| `SessionStart` | oturumun ilk turunda | `startup`, `resume`, `clear` | — (stdout bağlam olur) |
+| `SubagentStop` | alt ajan, ekip üyesi ya da iş akışı düğümü bitince | ajan türü | alt ajan gerekçeyle sürer |
+| `SessionStart` | oturumun ilk turunda; bağlam özetlenince | `startup`, `resume`, `clear`, `compact` | — (stdout bağlam olur) |
 | `SessionEnd` | oturum kapanınca, `/reset`, sohbet değişince | `prompt_input_exit`, `clear`, `other` | — |
-| `Notification` | izin sorusundan hemen önce | `permission_prompt` | — |
+| `Notification` | izin sorusundan önce; girdi bekleyen oturum boşta kalınca | `permission_prompt`, `idle_prompt` | — |
 | `PreCompact` | bağlam özetlenmeden önce | `manual` (`/compact`), `auto` | — |
+| `CwdChanged` | `/cd` oturum kökünü değiştirince (REPL, TUI, masaüstü) | — | — |
+| `TaskCreated` | ekip görevi panoya eklenmeden önce | — | görev eklenmez, gerekçe ekleyene |
+| `TaskCompleted` | ekip üyesi görevi "tamam" yapmadan önce | — | görev üyede kalır, gerekçe üyeye |
+| `TeammateIdle` | ekip üyesi boşa düşmeden önce | — | üye gerekçeyle yeniden koşar |
 
 Claude Code'un diğer olayları (`PermissionRequest`, `WorktreeCreate`…) listede "Fusion bu
-olayı tetiklemiyor" diye görünür; hata değildir. Yalnız `type: "command"` desteklenir;
-`http`, `prompt`, `agent`, `mcp_tool` listede "tür desteklenmiyor" olarak atlanır.
+olayı tetiklemiyor" diye görünür; hata değildir. Ekip olaylarının ayrıntısı:
+[EKIP_VE_IS_AKISLARI.md](EKIP_VE_IS_AKISLARI.md).
+
+## Türler: `command` ve `http`
+
+```json
+{ "type": "http", "url": "https://kancalar.example.com/fusion",
+  "headers": { "Authorization": "Bearer $KANCA_TOKEN" },
+  "allowedEnvVars": ["KANCA_TOKEN"], "timeout": 10 }
+```
+
+- Olay JSON'u `POST` edilir (`Content-Type: application/json`). **2xx** yanıtın gövdesi
+  komut stdout'u gibi okunur (boş = karar yok, JSON = aşağıdaki alanlar); engellemek için
+  2xx + `{"decision": "block"}` / `permissionDecision: "deny"` döndürülür. 2xx dışı yanıt,
+  yönlendirme (izlenmez), bağlantı hatası ve zaman aşımı engellemeyen "Kanca hatası"dır.
+- Başlıktaki `$AD` / `${AD}` yalnız `allowedEnvVars` listesindeki ortam değişkeninden
+  dolar; listede olmayan boş kalır (MCP sırları zaten kanca ortamından çıkarılmıştır).
+- **İç ağ koruması:** adres bir kez çözülür, bütün IP'leri genel internette değilse istek
+  gönderilmez (localhost, 192.168.x, 10.x, 169.254.x, CGNAT; DNS rebinding dahil). Yerel bir
+  sunucuya göndermek için `runtime.hook_http_allow_private: true` (güvenilmeyen projenin
+  `config.yaml`'ı bunu açamaz). Süre `timeout` (yoksa `hook_timeout_s`), en çok 600 sn.
+- `prompt`, `agent`, `mcp_tool` türleri listede "tür desteklenmiyor" diye atlanır: `prompt`
+  ve `agent` her olayda ücretli model çağrısı yapar (Fusion bunu kancaya bağlamadı; `/goal`
+  değerlendirmesi kendi hakemini kullanır), `mcp_tool` için MCP oturumu kanca katmanına
+  taşınmadı. Gerekirse aynı işi bir `command` kancası `fusion -p` ya da MCP istemcisiyle
+  yapabilir.
 
 **Eşleştirici:** boş ya da `*` hepsi; `Bash`, `Edit|Write` ad listesi; aksi halde düzenli
 ifade (adın tamamı: `mcp__github__.*`). Fusion araçları Claude adlarıyla da eşleşir
@@ -69,11 +98,16 @@ Araç olaylarında `tool_name` (Claude adı, ör. `Bash`), `fusion_tool_name`, `
 Claude'un `file_path` takma adı); `PostToolUse`'ta `tool_response`, `PostToolUseFailure`'da
 `error`. `UserPromptSubmit`: `prompt`. `Stop`: `stop_hook_active`, `last_assistant_message`.
 `SessionStart`: `source` (`startup`, `resume` — geçmişli sohbet ya da sohbet değişimi,
-`clear` — `/reset`). `SessionEnd`: `reason` (`prompt_input_exit`, `clear`, `other`).
+`clear` — `/reset`, `compact` — bağlam özetlendi). `SessionEnd`: `reason`
+(`prompt_input_exit`, `clear`, `other`). `Notification`: `notification_type`, `message`.
+`CwdChanged`: `old_cwd`, `new_cwd` (`cwd` yeni dizindir). Ekip olayları: `team_name`,
+`teammate_name`; `TaskCreated`/`TaskCompleted`'ta `task_id`, `task_subject`,
+`task_description`. `/reset` yeni bir `session_id` verir (sohbet kimliği değişmez).
 
 `transcript_path` Claude biçimli bir JSONL'dir (`{"type": "user"|"assistant", "message":
-{"content": [{"type": "text", "text": …}]}}`): yalnız istem ve cevaplar, sırlar maskeli,
-dosya 0600; `<bellek dizini>/hook-transcripts/` altında durur ve `SessionEnd` kancalarından
+{"content": [{"type": "text", "text": …}]}}`): istem ve cevaplar, ana ajanın araç çağrıları
+(assistant satırında `tool_use`: `id`, `name`, `input`; user satırında `tool_result`:
+`tool_use_id`, `content`, `is_error`), sırlar maskeli, girdi/çıktı kırpılmış, dosya 0600; `<bellek dizini>/hook-transcripts/` altında durur ve `SessionEnd` kancalarından
 sonra silinir. Tanımlı kanca yoksa hiç yazılmaz. Kanca süreci proje kökünde çalışır; `FUSION_PROJECT_DIR` ve
 `CLAUDE_PROJECT_DIR` proje kökünü verir.
 
@@ -98,6 +132,8 @@ runtime:
   hooks_enabled: true    # false = hiçbir kanca çalışmaz
   claude_hooks: false    # true = ~/.claude/settings.json kancaları da çalışır
   hook_timeout_s: 60     # süresi yazılmamış kanca; tek kanca en çok 600 sn
+  hook_idle_prompt_s: 60 # girdi bekleyen oturum bu kadar boşta kalınca Notification(idle_prompt); 0 = kapalı
+  hook_http_allow_private: false  # true = http kancası iç ağ adresine gidebilir
 ```
 
 **Neden `claude_hooks` varsayılan kapalı:** oradaki betikler (ECC ve benzeri eklentiler)
@@ -118,7 +154,8 @@ de hepsini kapatır (acil durum ve testler). Eski `runtime.post_edit_commands` a
 - `fusion hooks test PreToolUse --tool Bash --input '{"command": "rm -rf x"}'` — eşleşen
   kancaları gerçekten çalıştırır ve kararı gösterir (engelde çıkış 2). Olayın gerçek yükü
   gönderilir; eşleştirici konusu `--subject` ile seçilir (`SessionStart --subject resume`,
-  `Notification` varsayılan `permission_prompt`, `Stop --prompt "son cevap"`).
+  `Notification` varsayılan `permission_prompt`, `Stop --prompt "son cevap"`). `CwdChanged`,
+  `TaskCreated`, `TaskCompleted`, `TeammateIdle` örnek alanlarla gönderilir.
 - REPL `/hooks` (`/kancalar`) — salt okunur liste.
 - Masaüstü: Ayarlar › İzinler › **Kancalar** — liste (`kanca.listele` RPC) ve iki anahtar:
   "Kancaları çalıştır" (`hooks_enabled`), "Claude Code kancalarını da çalıştır" (`claude_hooks`)
@@ -129,7 +166,7 @@ Tanımlar her kök turun başında yeniden okunur; tur ortasında değişmez.
 
 ## Claude Code'dan bilinçli farklar
 
-- Yalnız `command` türü; olay kataloğu 10 olay (yukarıdaki tablo).
+- `command` ve `http` türleri; olay kataloğu 14 olay (yukarıdaki tablo).
 - `Stop` sürdürmesi tur başına en çok 3 kez (betik `stop_hook_active`'e bakmasa da sonsuz döngü olmaz).
 - `SessionStart` ilk kök turda tetiklenir (oturum açılışında değil); bağlamı o tura eklenir.
 - `updatedInput` özgün argümanın üstüne birleşir (Claude tamamen değiştirir).
@@ -139,12 +176,17 @@ Tanımlar her kök turun başında yeniden okunur; tur ortasında değişmez.
 - Eşleştirici: düz ad listesi (`Bash`, `Edit|Write`) birebir; aksi halde düzenli ifade adın
   **tamamına** uyar (`fullmatch`): `mcp__github` tek başına `mcp__github__create_issue`'ya uymaz,
   `mcp__github__.*` yazılır.
-- `Notification` yalnız izin sorusunda (`permission_prompt`) tetiklenir; `idle_prompt`,
-  `auth_success`, `elicitation_dialog` yok.
-- `SessionStart` `compact` kaynağıyla tetiklenmez (özetleme sonrası bağlam yeniden eklenmez);
-  `PreCompact` vardır. Claude'un `/clear`'ının karşılığı Fusion'da `/reset`tir (`/clear` yalnız
-  ekranı temizler); `/reset` sonrası `session_id` aynı kalır.
-- `transcript_path` dökümünde araç çağrıları yoktur (yalnız istem ve cevaplar); oturum bitince
-  silinir.
-- Kök değişimi (`/worktree`) oturumu yenilemez: `SessionStart`/`SessionEnd` tetiklenmez,
-  tanımlar yeni kökten okunur.
+- `Notification` izin sorusunda (`permission_prompt`) ve boşta beklemede (`idle_prompt`: tur
+  bittikten sonra `hook_idle_prompt_s` sn, boşta kalış başına bir kez; hiç tur koşmamış oturumda
+  yok) tetiklenir; `auth_success`, `elicitation_dialog` yok. Masaüstünde boşta bildirimi
+  kancasının hatası günlüğe yazılır.
+- `SessionStart(compact)` tur içi otomatik özetlemede bağlamını sistem mesajına, `/compact`
+  sonrasında sonraki tura ekler; oturumu yeniden başlatmaz. Claude'un `/clear`'ının karşılığı
+  Fusion'da `/reset`tir (`/clear` yalnız ekranı temizler).
+- `transcript_path` dökümünde alt ajanların araç çağrıları yoktur (Claude'da ayrı dökümdür);
+  oturum bitince silinir.
+- `CwdChanged` yalnız `/cd` ile tetiklenir; `/worktree` kök değişimi oturumu yenilemez ve bu
+  olayı tetiklemez (tanımlar yeni kökten okunur). `watchPaths`/`CLAUDE_ENV_FILE` çıktıları yok.
+- Ekip olaylarında `continue: false` üyenin süren koşusunu kesmez (araç hata döner, üye kısa
+  özetle biter, yeniden uyandırılmaz).
+- `http` türünde `allowedHttpHookUrls` politika listesi yok; adres kısıtı iç ağ korumasıdır.

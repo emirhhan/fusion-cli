@@ -6,8 +6,8 @@ import { ToggleRow } from "../PanelParts";
 /**
  * Kancalar (P-009) — Claude Code `/hooks` gibi salt okunur liste.
  *
- * PreToolUse, PostToolUse, UserPromptSubmit, Stop, SessionStart… olaylarına bağlı kabuk
- * komutları. Tanımlar Fusion'ın `hooks.json`'ında, `~/.claude/settings.json`'da ve güvenilen
+ * PreToolUse, PostToolUse, UserPromptSubmit, Stop, SessionStart, CwdChanged, ekip olayları…
+ * bağlı kabuk komutları ve `http` kancaları. Tanımlar Fusion'ın `hooks.json`'ında, `~/.claude/settings.json`'da ve güvenilen
  * projenin `.claude/settings(.local).json` dosyalarında durur; düzenleme dosyada yapılır.
  * İki anahtar buradan değişir (`kanca.ayar`): tüm kancalar ve `~/.claude` kancaları.
  */
@@ -93,7 +93,9 @@ export function HookList({ client }: { client: ProtocolClient }) {
           <h3>Kancalar</h3>
           <p className="settings__hint">
             Olaylara bağlı komutlar (Claude Code ile aynı biçim): <code>PreToolUse</code> çıkış 2 ile aracı engeller,{" "}
-            <code>Stop</code> bitmemiş işi sürdürür, <code>SessionStart</code> bağlam ekler. Liste salt okunurdur.
+            <code>Stop</code> bitmemiş işi sürdürür, <code>SessionStart</code> bağlam ekler; ekip görevleri{" "}
+            <code>TaskCreated</code>/<code>TaskCompleted</code> ile denetlenir. Komut ya da <code>http</code>{" "}
+            adresi olabilir. Liste salt okunurdur.
           </p>
         </div>
       </div>
