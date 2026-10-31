@@ -203,6 +203,37 @@ async def test_kullanicinin_girisli_oturumu_onaysiz_ajana_verilmez(panel, depo, 
     assert panel.turn_browser() is None
 
 
+async def test_panel_kapaninca_girisli_profil_sonraki_ajan_turuna_kalmaz(panel, monkeypatch):
+    # Ölçüldü (31 Ekim, inceleme): `_close_browser` `_user_profile`'ı sıfırlıyor ama
+    # oturumun `profile_name`'ini bırakıyordu; sonraki tur onaysız girişli profili yüklüyordu.
+    async def _ac(oturum, origins, *, profile="", headed=False, store=None):
+        oturum.page = object()
+        oturum.active_profile = profile
+        return oturum.page, ""
+
+    monkeypatch.setattr("fusion_cli.appserver.browser_panel.start_session", _ac)
+    await panel.handle("tarayici_panel.profil", {"ad": PANEL_PROFILE})
+    assert panel.turn_browser() is None
+
+    await panel.handle("tarayici_panel.kapat", {})
+
+    tur = panel.turn_browser()
+    assert tur is not None and tur.profile_name == make_config().browser.default_profile
+    assert tur.derive().profile_name != PANEL_PROFILE
+
+
+async def test_profil_acilamazsa_secilen_profil_oturumda_kalmaz(panel, monkeypatch):
+    async def _acilmaz(oturum, origins, *, profile="", headed=False, store=None):
+        return None, "profil açılamadı"
+
+    monkeypatch.setattr("fusion_cli.appserver.browser_panel.start_session", _acilmaz)
+    yanit = await panel.handle("tarayici_panel.profil", {"ad": PANEL_PROFILE})
+
+    assert yanit["ok"] is False
+    tur = panel.turn_browser()
+    assert tur is not None and tur.profile_name != PANEL_PROFILE
+
+
 async def test_bilinmeyen_istek_ve_kapali_tarayici_girdisi_anlasilir_hata(panel):
     assert "Bilinmeyen" in (await panel.handle("tarayici_panel.uc", {}))["metin"]
     yanit = await panel.handle("tarayici_panel.tikla", {"x": 0.5, "y": 0.5})

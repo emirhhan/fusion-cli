@@ -234,8 +234,21 @@ class BrowserPanel:
             await self._live.detach()
         if session is not None and session.is_open:
             await session.close()
-        self._user_profile = ""
+        self._forget_user_profile()
         return _ok(**self._state())
+
+    def _forget_user_profile(self) -> None:
+        """Kullanıcının panelde seçtiği profili bırak; oturum yeni açılmış gibi kalır.
+
+        Ölçüldü (31 Ekim, inceleme): kapatınca yalnız `_user_profile` sıfırlanıyordu; oturumun
+        `profile_name`'i girişli profilde kaldığı için sonraki ajan turu onu onaysız yüklüyordu.
+        Yapılandırmadaki varsayılan profil ajan isteyince onayla (REMOTE_SESSION) yüklenir.
+        """
+        current = self._shared.current
+        if self._user_profile and current is not None:
+            current.profile_name = self._new_session().profile_name
+        self._user_profile = ""
+        self.profile_consent = False
 
     # ------------------------------------------------------------------ görüntü
     async def _frame(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -375,6 +388,6 @@ class BrowserPanel:
         self.profile_consent = False
         opened, error = await self._ensure_open(name)
         if opened is None:
-            self._user_profile = ""
+            self._forget_user_profile()
             return _error(error)
         return _ok(**self._state())
