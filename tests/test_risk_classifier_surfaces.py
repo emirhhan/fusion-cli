@@ -93,6 +93,67 @@ async def test_dongu_guvenli_karardan_sonra_uzak_yazmayi_sormadan_calistirir(mon
     assert any(isinstance(e, ToolExecuted) and e.name == "store_update_price" for e in sink.events)
 
 
+class _CountingApprove:
+    def __init__(self):
+        self.calls = 0
+
+    async def confirm(self, request):
+        self.calls += 1
+        return True
+
+
+def _price_tool(calls):
+    return Tool(
+        "store_update_price",
+        "Mağazada fiyat güncelle",
+        {"type": "object", "properties": {"sku": {}, "price": {}}},
+        lambda args, context: calls.append(args) or ToolResult("tamam"),
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    )
+
+
+async def test_masaustu_esigi_asan_cagri_onaylaninca_calisir(monkeypatch, tmp_path):
+    """Ölçüldü (31 Ekim): `approval_revision` denetçiden ÖNCE okunuyordu; denetçi eşiği aşıp
+    kipi Manuel'e çekince onaylanan kart da "Onay kapsamı değişti" ile iptal ediliyordu."""
+    agent = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("store_update_price", sku="A1", price=10)]),
+            model_result("Fiyat güncellendi; mağaza A1 ürününün fiyatı artık 10."),
+        ]
+    )
+    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **_: agent)
+    _classifier(monkeypatch, _verdict("riskli"))
+    calls: list[dict] = []
+    memory = ApprovalMemory()
+    prompter = _CountingApprove()
+    kip = {"deger": ApprovalMode.AUTO}
+
+    def _dus():
+        kip["deger"] = ApprovalMode.SECURITY
+
+    memory.auto_review.on_fallback = _dus
+    memory.auto_review.consecutive = 2
+    sink = RecordingSink()
+    deps = AgentDeps(
+        config=make_config(runtime={"auto_classifier": AutoClassifierMode.ASK_ONLY}),
+        publisher=_Publisher(sink),
+        policy=build_policy(ApprovalMode.AUTO, prompter, memory),
+        policy_factory=lambda: build_policy(kip["deger"], prompter, memory),
+        tool_context=ToolContext(root=tmp_path),
+        approval_mode=lambda: kip["deger"],
+        approval_revision=lambda: (kip["deger"], memory.revision),
+        auto_review=memory.auto_review,
+    )
+    deps.base_registry.register(_price_tool(calls))
+
+    await run_agent("Mağazada A1 ürününün fiyatını 10 yap", deps, verify=False, self_review=False)
+
+    assert kip["deger"] is ApprovalMode.SECURITY
+    assert any(isinstance(e, AutoModeFellBack) for e in sink.events)
+    assert prompter.calls == 1 and calls, "onaylanan çağrı çalışmalı"
+
+
 def _state(tmp_path, **runtime):
     config = make_config(runtime=runtime) if runtime else make_config()
     return ReplState(config=config, memory=null_memory(), root=tmp_path, home=tmp_path / "ev")

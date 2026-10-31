@@ -3834,8 +3834,15 @@ async def _execute(
             context=deps.tool_context,
             rules=rules,
         )
-        # Otomatik kip denetçisi (P-011): sorulacak çağrıyı modelle sınıflandırır.
+        # Otomatik kip denetçisi (P-011): sorulacak çağrıyı modelle sınıflandırır. Eşik bu
+        # çağrıda aşılıp kip Manuel'e düştüyse yeni kip bu çağrının kapsamıdır (riskli karar
+        # isteği gevşetmez); yoksa onaylanan kart "kapsam değişti" diye iptal edilirdi.
+        guard = getattr(deps, "auto_review", None)
+        trips = guard.trips if guard is not None else 0
         request = await review_auto_request(request, deps)
+        if guard is not None and guard.trips != trips:
+            revision = deps.approval_revision() if deps.approval_revision else None
+            policy = deps.policy_factory() if deps.policy_factory else deps.policy
         verdict = await policy.decide(request)
         if deps.mutation_blocked_by_pending_input() or (
             deps.approval_revision is not None and deps.approval_revision() != revision
