@@ -48,6 +48,7 @@ from ...core.events import (
     TurnFinished,
 )
 from ...core.followups import suggest_followups
+from ...core.session_cron import Source
 from ...core.tools import ToolContext
 from ...core.types import FusionResult
 from ...engines.agent import plan_mode
@@ -187,7 +188,8 @@ async def _cron_watcher(state: ReplState, reader: ReplInput, console: Console) -
 
     Tur sürerken ya da istem açık değilken beklenir; görev düşmez. Satır istem
     üzerinden girer (`ReplInput.inject`) ki komut da (`/verify`) görev de aynı yoldan
-    işlensin.
+    işlensin. Ajanın kurduğu görev (`Source.AGENT`) yalnız TUR olur: `_handle` slash
+    satırını komut olarak çalıştırmaz (onaysız `cron_create` kip yükseltemesin).
     """
     while state.running:
         await asyncio.sleep(CRON_POLL_S)
@@ -196,7 +198,9 @@ async def _cron_watcher(state: ReplState, reader: ReplInput, console: Console) -
         if not due:
             continue
         task = due[0]
+        state.scheduled_turn_only = task.source is Source.AGENT
         if not reader.inject(task.prompt):
+            state.scheduled_turn_only = False
             continue
         state.cron.complete(task.id, now=now)
         console.print(f"[{theme.DIM}]{messages.LOOP_FIRED.format(id=task.id)}[/{theme.DIM}]")
@@ -311,7 +315,8 @@ async def _handle(
         banner.print_welcome(console, session_info(state), pad=False)
         state.welcome_padded = False
     ConsoleRenderer(console).print_user_message(line)
-    if is_command_line(line):
+    # Ajanın zamanladığı satır komut DEĞİL turdur (bkz. `_cron_watcher`).
+    if is_command_line(line) and not state.take_scheduled_turn_only():
         await _run_command(line, state, registry, reader, console)
         # Makrolar görev HAZIRLAR, çalıştırmaz: komut işleyicileri saf ve senkron
         # kalsın diye çalıştırma buraya bırakılmıştır.

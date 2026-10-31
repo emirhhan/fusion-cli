@@ -47,6 +47,18 @@ class Kind(Enum):
     ONCE = "bir_kez"
 
 
+class Source(Enum):
+    """Görevi kim kurdu? Yüzeyler ajan görevini yalnız TUR olarak çalıştırır (komut değil).
+
+    Ölçüldü (31 Ekim): `cron_create(prompt="/bypass")` onaysız kuruluyor, vadesi gelince
+    REPL satırı kullanıcı yazmış gibi `/bypass` komutu olarak işliyordu — istem
+    enjeksiyonu onay kipini kullanıcıya sormadan yükseltebiliyordu.
+    """
+
+    USER = "kullanici"
+    AGENT = "ajan"
+
+
 def looks_like_interval(text: str) -> bool:
     """Metin aralık SÖZDİZİMİNDE mi (`5m`, `30s`)? Kısa olsa da True: hata sonra verilir."""
     return _INTERVAL.match(text or "") is not None
@@ -187,6 +199,8 @@ class CronTask:
     cron: str = ""
     runs: int = 0
     last_run_at: float | None = None
+    #: Kullanıcı (`/loop`) ya da ajan (`cron_create`, `schedule_wakeup`).
+    source: Source = Source.USER
 
     @property
     def expires_at(self) -> float:
@@ -213,6 +227,7 @@ class CronTask:
             "cron": self.cron,
             "runs": self.runs,
             "last_run_at": self.last_run_at,
+            "source": self.source.value,
         }
 
 
@@ -241,19 +256,27 @@ class SessionCron:
     def get(self, task_id: str) -> CronTask | None:
         return self._tasks.get(task_id)
 
-    def create_interval(self, prompt: str, every: str, *, now: float) -> CronTask:
+    def create_interval(
+        self, prompt: str, every: str, *, now: float, source: Source = Source.USER
+    ) -> CronTask:
         seconds = parse_interval(every)
-        return self._add(prompt, Kind.INTERVAL, now, now + seconds, every_s=seconds)
+        return self._add(prompt, Kind.INTERVAL, now, now + seconds, every_s=seconds, source=source)
 
-    def create_cron(self, prompt: str, expression: str, *, now: float) -> CronTask:
+    def create_cron(
+        self, prompt: str, expression: str, *, now: float, source: Source = Source.USER
+    ) -> CronTask:
         spec = parse_cron(expression)
         due = cron_next(spec, datetime.fromtimestamp(now).astimezone()).timestamp()
-        return self._add(prompt, Kind.CRON, now, due, cron=" ".join(expression.split()))
+        return self._add(
+            prompt, Kind.CRON, now, due, cron=" ".join(expression.split()), source=source
+        )
 
-    def create_once(self, prompt: str, delay: str, *, now: float) -> CronTask:
+    def create_once(
+        self, prompt: str, delay: str, *, now: float, source: Source = Source.USER
+    ) -> CronTask:
         """Tek seferlik: `delay` aralık sözdizimidir (`30m`); 1 dakikadan kısa olamaz."""
         seconds = parse_interval(delay)
-        return self._add(prompt, Kind.ONCE, now, now + seconds)
+        return self._add(prompt, Kind.ONCE, now, now + seconds, source=source)
 
     def delete(self, task_id: str) -> bool:
         return self._tasks.pop(task_id, None) is not None
@@ -324,6 +347,8 @@ class SessionCron:
                             if item.get("last_run_at") is not None
                             else None
                         ),
+                        # Eski kayıtta alan yok: kullanıcı görevi sayılır (geri uyum).
+                        source=Source(item.get("source", Source.USER.value)),
                     )
                 )
             except (KeyError, TypeError, ValueError):
@@ -339,6 +364,7 @@ class SessionCron:
         *,
         every_s: int = 0,
         cron: str = "",
+        source: Source = Source.USER,
     ) -> CronTask:
         text = (prompt or "").strip()
         if not text:
@@ -354,6 +380,7 @@ class SessionCron:
             next_due=next_due,
             every_s=every_s,
             cron=cron,
+            source=source,
         )
         self._tasks[task.id] = task
         return task

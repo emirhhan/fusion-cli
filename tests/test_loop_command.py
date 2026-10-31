@@ -308,9 +308,157 @@ async def test_masaustu_cron_rpc_listeler_siler_ve_vadesi_gelenleri_bir_kez_veri
 
     monkeypatch.setattr("fusion_cli.appserver.session.time.time", lambda: baslangic + 301)
     vade = await rpc("2", "cron.vadesi_gelenler")
-    assert vade["gorevler"] == [{"id": task.id, "gorev": "stok kontrol"}]
+    assert vade["gorevler"] == [{"id": task.id, "gorev": "stok kontrol", "kaynak": "kullanici"}]
     assert (await rpc("3", "cron.vadesi_gelenler"))["gorevler"] == []
 
     sil = await rpc("4", "cron.sil", {"id": task.id})
     assert sil["ok"] is True and sil["silinen"] == 1
     assert (await rpc("5", "cron.sil", {"id": task.id}))["ok"] is False
+
+
+# --- Ajan görevi komut değil turdur (inceleme bulgusu, yüksek) --------------------- #
+
+
+def test_loop_onay_kipini_degistiren_komutu_zamanlamaz(state: ReplState) -> None:
+    for satir in ("5m /bypass", "/auto", "10m /mode hizli", "/loop 5m x"):
+        cikti = _loop(state, satir)
+        assert "zamanlanmış görev olamaz" in cikti, satir
+    assert len(state.cron) == 0
+    # `/verify` gibi zararsız komutlar zamanlanabilir.
+    assert "döngü kuruldu" in _loop(state, "5m /verify")
+
+
+async def test_cron_create_araci_gorevi_ajan_kaynagiyla_kurar(tmp_path: Path) -> None:
+    from fusion_cli.core.session_cron import Source
+
+    cron = SessionCron()
+    context = _context(tmp_path, cron)
+    create = _tool("cron_create", _Clock(0.0))
+    wakeup = _tool("schedule_wakeup", _Clock(0.0))
+    create.run({"prompt": "/bypass", "in": "1m"}, context)
+    wakeup.run({"in": "2m", "note": "/auto"}, context)
+    assert [task.source for task in cron.list()] == [Source.AGENT, Source.AGENT]
+    # Kullanıcının `/loop`u ise kullanıcı kaynaklıdır.
+    assert cron.create_interval("a", "5m", now=0.0).source is Source.USER
+
+
+async def test_ajan_gorevi_vadesi_gelince_yalniz_tur_isareti_koyar(
+    state: ReplState, monkeypatch
+) -> None:
+    from rich.console import Console
+
+    from fusion_cli.cli.repl import loop as repl_loop
+    from fusion_cli.core.session_cron import Source
+
+    class _Reader:
+        def __init__(self) -> None:
+            self.injected: list[str] = []
+            self.isaretler: list[bool] = []
+
+        def inject(self, line: str) -> bool:
+            self.injected.append(line)
+            self.isaretler.append(state.scheduled_turn_only)
+            return True
+
+    reader = _Reader()
+    state.cron.create_once("/bypass", "1m", now=0.0, source=Source.AGENT)
+    monkeypatch.setattr(repl_loop, "CRON_POLL_S", 0.0)
+    monkeypatch.setattr(repl_loop.time, "time", lambda: 61.0)
+    watcher = asyncio.ensure_future(
+        repl_loop._cron_watcher(state, reader, Console(record=True, force_terminal=False))
+    )
+    for _ in range(20):
+        await asyncio.sleep(0)
+        if reader.injected:
+            break
+    state.running = False
+    await asyncio.wait_for(watcher, 1)
+    assert reader.injected == ["/bypass"] and reader.isaretler == [True]
+
+    # Kullanıcı görevi işaret koymaz.
+    state.running = True
+    state.cron.create_once("/verify", "1m", now=0.0)
+    reader2 = _Reader()
+    watcher = asyncio.ensure_future(
+        repl_loop._cron_watcher(state, reader2, Console(record=True, force_terminal=False))
+    )
+    for _ in range(20):
+        await asyncio.sleep(0)
+        if reader2.injected:
+            break
+    state.running = False
+    await asyncio.wait_for(watcher, 1)
+    assert reader2.isaretler == [False]
+
+
+async def test_repl_ajan_zamanlamasi_slash_satirini_komut_olarak_calistirmaz(
+    state: ReplState, monkeypatch
+) -> None:
+    from rich.console import Console
+
+    from fusion_cli.cli.repl import loop as repl_loop
+    from fusion_cli.core.concurrency import BackgroundTasks
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    turlar: list[str] = []
+
+    async def sahte_tur(line, state, console, background, *, mode=None):
+        turlar.append(line)
+
+    async def sahte_kart(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(repl_loop, "_run_turn", sahte_tur)
+    monkeypatch.setattr(repl_loop, "_offer_plan_card", sahte_kart)
+
+    class _Reader:
+        mode = state.approval
+        interactive = False
+
+    console = Console(record=True, force_terminal=False)
+    registry = build_registry()
+    state.scheduled_turn_only = True
+    await repl_loop._handle("/bypass", state, registry, _Reader(), console, BackgroundTasks())
+    assert turlar == ["/bypass"] and state.approval is not ApprovalMode.BYPASS
+    assert state.scheduled_turn_only is False
+
+    # İşaret yokken aynı satır komuttur (kullanıcının elle yazdığı /bypass).
+    await repl_loop._handle("/bypass", state, registry, _Reader(), console, BackgroundTasks())
+    assert turlar == ["/bypass"] and state.approval is ApprovalMode.BYPASS
+
+
+async def test_tui_ajan_zamanlamasi_slash_satirini_tur_olarak_calistirir(
+    state: ReplState, monkeypatch
+) -> None:
+    from fusion_cli.cli.repl import tui_loop
+    from fusion_cli.cli.repl.tui_loop import _TuiSession
+    from fusion_cli.core.session_cron import Source
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    session = _TuiSession(state)
+    turlar: list[str] = []
+    komutlar: list[str] = []
+
+    async def sahte_tur(line: str, *, mode=None) -> None:
+        turlar.append(line)
+
+    async def sahte_komut(line: str) -> None:
+        komutlar.append(line)
+
+    session._turn = sahte_tur  # type: ignore[method-assign]
+    session._command = sahte_komut  # type: ignore[method-assign]
+    state.cron.create_once("/bypass", "1m", now=0.0, source=Source.AGENT)
+    monkeypatch.setattr(tui_loop, "CRON_POLL_S", 0.0)
+    monkeypatch.setattr(tui_loop.time, "time", lambda: 61.0)
+
+    watcher = asyncio.ensure_future(session._cron_watcher())
+    for _ in range(20):
+        await asyncio.sleep(0)
+        if turlar or komutlar:
+            break
+    state.running = False
+    await asyncio.wait_for(watcher, 1)
+    if session._task is not None:
+        await session._task
+    assert turlar == ["/bypass"] and komutlar == []
+    assert state.approval is not ApprovalMode.BYPASS

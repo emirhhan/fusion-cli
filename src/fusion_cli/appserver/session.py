@@ -1829,7 +1829,7 @@ class AppSession:
         verilen = []
         for task in due[:1]:
             self._state.cron.complete(task.id, now=now)
-            verilen.append({"id": task.id, "gorev": task.prompt})
+            verilen.append({"id": task.id, "gorev": task.prompt, "kaynak": task.source.value})
         self._cron_save()
         return {"ok": True, "gorevler": verilen}
 

@@ -4,12 +4,16 @@ Claude Code'un `CronCreate/List/Delete` ve `ScheduleWakeup` araçlarının karş
 Görevler `ToolContext.cron` (oturumun `SessionCron`'u) üzerinde yaşar; araçlar
 dünyada iz bırakmaz (`mutating=False`), yalnız oturum durumunu değiştirir. Vadesi
 gelen görevi yeni tur olarak kuyruğa almak REPL/masaüstünün işidir.
+
+Ajanın kurduğu görev `Source.AGENT` ile işaretlenir: yüzeyler onu yalnız TUR olarak
+çalıştırır, `/bypass` gibi bir satır komut olarak işlenmez (onaysız araç kipi
+yükseltemesin).
 """
 
 from __future__ import annotations
 
 from ..core.protocols import Clock
-from ..core.session_cron import SessionCron, SessionCronError
+from ..core.session_cron import SessionCron, SessionCronError, Source
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
 
 _STRING = {"type": "string"}
@@ -45,11 +49,11 @@ def cron_tools(clock: Clock) -> tuple[Tool, ...]:
         try:
             now = clock.now()
             if every:
-                task = cron.create_interval(prompt, every, now=now)
+                task = cron.create_interval(prompt, every, now=now, source=Source.AGENT)
             elif expression:
-                task = cron.create_cron(prompt, expression, now=now)
+                task = cron.create_cron(prompt, expression, now=now, source=Source.AGENT)
             else:
-                task = cron.create_once(prompt, delay, now=now)
+                task = cron.create_once(prompt, delay, now=now, source=Source.AGENT)
         except SessionCronError as error:
             return ToolResult.failure(str(error))
         return ToolResult(
@@ -86,7 +90,7 @@ def cron_tools(clock: Clock) -> tuple[Tool, ...]:
         delay, note = _text(args, "in"), _text(args, "note")
         prompt = note or "Zamanlanmış uyanma: bıraktığın işi kontrol et ve gerekirse sürdür."
         try:
-            task = cron.create_once(prompt, delay or "1m", now=clock.now())
+            task = cron.create_once(prompt, delay or "1m", now=clock.now(), source=Source.AGENT)
         except SessionCronError as error:
             return ToolResult.failure(str(error))
         return ToolResult(

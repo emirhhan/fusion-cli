@@ -135,3 +135,19 @@ def test_ozet_satiri_aralik_ve_sayac_icerir() -> None:
     cron = SessionCron()
     task = cron.create_interval("testleri koştur", "5m", now=NOW)
     assert "her 5 dk" in task.describe() and "testleri koştur" in task.describe()
+
+
+def test_kaynak_sozluge_yazilir_eski_kayit_kullanici_sayilir() -> None:
+    from fusion_cli.core.session_cron import Source
+
+    cron = SessionCron()
+    ajan = cron.create_once("uyan", "5m", now=0.0, source=Source.AGENT)
+    veri = cron.to_dict()
+    assert veri["gorevler"][0]["source"] == "ajan"  # type: ignore[index]
+    geri = SessionCron.from_dict(veri)
+    assert geri.get(ajan.id).source is Source.AGENT  # type: ignore[union-attr]
+    # Eski kayıtta alan yok: kullanıcı görevi sayılır.
+    eski = {
+        "gorevler": [{"id": "x", "prompt": "a", "kind": "aralik", "created_at": 0, "next_due": 60}]
+    }
+    assert SessionCron.from_dict(eski).get("x").source is Source.USER  # type: ignore[union-attr]

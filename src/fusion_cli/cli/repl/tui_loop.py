@@ -21,6 +21,7 @@ from rich.markup import escape
 from ...config.models import Config
 from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
+from ...core.session_cron import Source
 from ...core.tools import ToolContext
 from ...engines.agent import plan_mode
 from ...engines.agent.approval import ApprovalAnswer, ApprovalMode, ApprovalRequest
@@ -259,7 +260,11 @@ class _TuiSession:
         self._task = asyncio.ensure_future(self._handle(line))
 
     async def _cron_watcher(self) -> None:
-        """Vadesi gelen zamanlanmış görevi tur yokken `_submit` yoluyla ver (P-038)."""
+        """Vadesi gelen zamanlanmış görevi tur yokken `_submit` yoluyla ver (P-038).
+
+        Ajanın kurduğu görev yalnız TUR olur; slash satırı komut olarak işlenmez
+        (bkz. `loop._cron_watcher`).
+        """
         while self._state.running:
             await asyncio.sleep(CRON_POLL_S)
             if self._busy:
@@ -269,6 +274,7 @@ class _TuiSession:
             if not due:
                 continue
             task = due[0]
+            self._state.scheduled_turn_only = task.source is Source.AGENT
             self._state.cron.complete(task.id, now=now)
             self._echo(
                 f"[{theme.DIM}]{escape(messages.LOOP_FIRED.format(id=task.id))}[/{theme.DIM}]"
@@ -339,7 +345,7 @@ class _TuiSession:
             self._transcript_store.record_user(line)
             ConsoleRenderer(self._out).print_user_message(line)
             self._tui.sync_conversation()
-            if is_command_line(line):
+            if is_command_line(line) and not self._state.take_scheduled_turn_only():
                 await self._command(line)
             else:
                 await self._turn(line)

@@ -789,6 +789,10 @@ LOOP_STOPPED = "döngü durdu: {id}"
 LOOP_STOPPED_ALL = "{count} döngü durdu"
 LOOP_NOT_FOUND = "Görev bulunamadı: {id} (/loop list)"
 LOOP_FIRED = "⏰ zamanlanmış görev çalışıyor ({id}) · durdurmak için /loop stop {id}"
+LOOP_COMMAND_BLOCKED = (
+    "/{name} zamanlanmış görev olamaz: onay kipini, modeli ya da oturumu değiştiren komutlar "
+    "yalnız elle çalışır."
+)
 CMD_SIMPLIFY = "değişen kodu sadeleştir: yeniden kullanım, verimlilik, soyutlama (hata avı değil)"
 CMD_SECURITY_REVIEW = "değişiklikleri OWASP başlıklarıyla güvenlik taramasından geçir"
 CMD_DEBUG = "Fusion'ın kendi sorununu teşhis et (doctor + son eylemler)"

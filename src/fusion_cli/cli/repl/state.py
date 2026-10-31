@@ -123,6 +123,9 @@ class ReplState:
     pending_mode: Mode = Mode.NONE
     #: Plan kipinde biten turun plan dosyası; kabul kartı gösterilince temizlenir.
     pending_plan: Path | None = None
+    #: Sıradaki satır ajanın zamanladığı görevdir: slash ile başlasa da KOMUT değil, tur
+    #: olarak çalışır (bkz. `core.session_cron.Source`). Satır işlenince sıfırlanır.
+    scheduled_turn_only: bool = False
 
     @classmethod
     def from_runtime_config(cls, config: Config, **kwargs: object) -> ReplState:
@@ -148,6 +151,11 @@ class ReplState:
         task, mode = self.pending_task, self.pending_mode
         self.pending_task, self.pending_mode = "", Mode.NONE
         return task, mode
+
+    def take_scheduled_turn_only(self) -> bool:
+        """Zamanlanmış satır 'yalnız tur' işaretini bir kez al ve temizle."""
+        value, self.scheduled_turn_only = self.scheduled_turn_only, False
+        return value
 
     #: `.claude/settings.local.json` içindeki onaysız komutlar.
     allowed_commands: frozenset[str] = frozenset()
