@@ -221,26 +221,32 @@ class CapabilityRegistry:
         return roots_signature(self._skill_roots(), self._agent_roots(), self._home, self._root)
 
     def skills(self) -> tuple[Capability, ...]:
+        # Sonuç yerel değişkenden döner: `invalidate()` (masaüstü yenile RPC'si) başka
+        # thread'den alanı `None` yaparsa çağıran `for … in None` ile düşmesin.
         self._refresh_if_changed()
-        if self._skills is None:
-            self._skills = tuple(
+        skills = self._skills
+        if skills is None:
+            skills = tuple(
                 item
                 for item in self._discover_skills()
                 if item.name not in self._disabled_skills
                 and item.qualified_name not in self._disabled_skills
             )
-        return self._skills
+            self._skills = skills
+        return skills
 
     def agents(self) -> tuple[Capability, ...]:
         self._refresh_if_changed()
-        if self._agents is None:
-            self._agents = tuple(
+        agents = self._agents
+        if agents is None:
+            agents = tuple(
                 item
                 for item in self._discover_agents()
                 if item.name not in self._disabled_agents
                 and item.qualified_name not in self._disabled_agents
             )
-        return self._agents
+            self._agents = agents
+        return agents
 
     def get_skill(self, name: str) -> Capability | None:
         return _select(self.skills(), name)
