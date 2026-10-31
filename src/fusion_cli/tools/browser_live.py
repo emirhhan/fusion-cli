@@ -13,6 +13,7 @@ piksellerine çevrilir; yeni adres açmak ajanla AYNI güvenlik kapısından ge�
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import contextlib
 import hashlib
@@ -46,6 +47,9 @@ COLOR_SCHEMES = frozenset({"light", "dark", "no-preference"})
 NOT_OPEN = "Tarayıcı açık değil; panelde bir adres aç."
 BAD_KEY = "Bu tuş panelden gönderilemez: {key}"
 BLOCKED = "Bu adrese erişilemez: {reason}"
+ONLY_WEB = "Panelde yalnız http ve https adresleri açılır (verilen: {scheme}:)."
+#: `about:`, `data:`, `chrome://` gibi şemalar; `localhost:3000` (ad:port) şema sayılmaz.
+_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*):(?!\d)")
 
 
 class LiveInputError(ValueError):
@@ -264,19 +268,28 @@ class LiveView:
         await (await self._require_page()).keyboard.press(key)
 
     async def navigate(self, raw: object) -> None:
-        url = self.checked_url(raw)
+        url = await self.checked_url(raw)
         page = await self._require_page()
         await page.goto(url, wait_until="commit", timeout=PAGE_TIMEOUT_MS)
 
-    def checked_url(self, raw: object) -> str:
-        """Kullanıcının yazdığı adres: şema eklenir, yerelse izin kümesine girer, kapıdan geçer."""
+    async def checked_url(self, raw: object) -> str:
+        """Kullanıcının yazdığı adres: şema eklenir, yerelse izin kümesine girer, kapıdan geçer.
+
+        Ölçüldü (31 Ekim, inceleme): kapı ad çözümlemesini olay döngüsünde yapıyordu (çözülmeyen
+        alan adında appserver saniyelerce donuyordu) ve `about:blank` ham Python hatası
+        veriyordu. Kapı iş parçacığında koşar; http dışı şema baştan anlaşılır biçimde reddedilir.
+        """
         if not isinstance(raw, str) or not raw.strip():
             raise LiveInputError("Adres gerekir.")
-        url = normalize_url(raw.strip())
+        text = raw.strip()
+        scheme = _SCHEME.match(text)
+        if scheme is not None and scheme.group(1).lower() not in ("http", "https"):
+            raise LiveInputError(ONLY_WEB.format(scheme=scheme.group(1).lower()))
+        url = normalize_url(text)
         origins = self._session.origins
         if origins is not None:
             origins.update(loopback_origins_in(url))
-        reason = browser_block_reason(url, origins or ())
+        reason = await asyncio.to_thread(browser_block_reason, url, set(origins or ()))
         if reason is not None:
             raise LiveInputError(BLOCKED.format(reason=reason))
         return url
@@ -291,7 +304,7 @@ class LiveView:
             await page.reload(wait_until="commit", timeout=PAGE_TIMEOUT_MS)
 
     async def new_tab(self, raw: object = None) -> None:
-        url = self.checked_url(raw) if raw else ""
+        url = await self.checked_url(raw) if raw else ""
         await self._require_page()
         page = await self._session.context.new_page()
         if self._viewport is not None:

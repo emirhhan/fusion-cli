@@ -87,3 +87,38 @@ def test_tek_seferlik_olcum_ilk_kayitlari_tutar():
         toplayici.console(_Mesaj(f"m{sira}"))  # type: ignore[arg-type]
     assert toplayici.console_entries()[0].text == "m0"
     assert len(toplayici.console_entries()) == MAX_CONSOLE_ENTRIES
+
+
+async def test_panel_adresi_http_disi_semada_anlasilir_hata_verir():
+    # Ölçüldü (31 Ekim, inceleme): `about:blank` → `https://about:blank` olup "Port could not
+    # be cast to integer" gibi ham Python mesajı gösteriyordu.
+    import pytest
+
+    from fusion_cli.tools.browser_live import LiveInputError
+
+    canli = LiveView(BrowserSession())
+    for adres in ("about:blank", "data:text/html,<b>x</b>", "chrome://settings", "file:///etc"):
+        with pytest.raises(LiveInputError, match="yalnız http ve https"):
+            await canli.checked_url(adres)
+
+
+async def test_panel_adres_kapisi_olay_dongusunu_bloklamaz(monkeypatch):
+    # Ölçüldü (31 Ekim, inceleme): kapı `socket.getaddrinfo`'yu olay döngüsünde çağırıyordu;
+    # çözülmeyen alan adında tüm appserver saniyelerce donuyordu.
+    import threading
+
+    from fusion_cli.tools import browser_live
+
+    ana = threading.get_ident()
+    cagrilar: list[int] = []
+
+    def _kapi(url, origins=()):
+        cagrilar.append(threading.get_ident())
+        return None
+
+    monkeypatch.setattr(browser_live, "browser_block_reason", _kapi)
+    canli = LiveView(BrowserSession())
+
+    assert await canli.checked_url("ornek.dev") == "https://ornek.dev"
+    assert await canli.checked_url("localhost:5173") == "http://localhost:5173"
+    assert cagrilar and all(kimlik != ana for kimlik in cagrilar)
