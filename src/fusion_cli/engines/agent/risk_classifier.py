@@ -44,6 +44,7 @@ from ...core.auto_review import (
 )
 from ...core.events import AutoModeFellBack, AutoReviewDecided, EventPublisher
 from ...core.redaction import redact
+from ...core.steering import steering_text
 from ...core.tools import ToolContext, ToolEffect, ToolFamily, tool_family
 from ...core.types import CompletionRequest, Message, ModelResult, ModelSpec
 from ...providers.factory import build_provider
@@ -185,15 +186,29 @@ def has_fixed_shell_risk(command: str, root: Path | None, touched: Sequence[Path
 
 
 def user_intent(history: Callable[[], Sequence[Message]] | None) -> tuple[str, ...]:
-    """Kullanıcının son birkaç mesajı (kısaltılmış, sırları maskeli); yoksa boş."""
+    """Kullanıcının son birkaç mesajı (kısaltılmış, sırları maskeli); yoksa boş.
+
+    Harness notları (`harness_note`: iç içe proje talimatı, sıkıştırma özeti, refleksiyon
+    notu) rolü `user` olsa da kullanıcının sözü değildir; yalnız araya girme yönergesi
+    sayılır. Ölçüldü (31 Ekim): depodaki talimat dosyası "kullanıcının isteği" diye modele
+    gidiyor, notlar son 3 mesajlık pencereyi doldurup asıl isteği dışarı itiyordu.
+    """
     if history is None:
         return ()
-    users = [message.content for message in history() if message.role == "user"]
+    users = [text for text in map(_user_text, history()) if text is not None]
     return tuple(
         redact(text.strip()[:AUTO_REVIEW_INTENT_CHARS])
         for text in users[-AUTO_REVIEW_INTENT_MESSAGES:]
         if text.strip()
     )
+
+
+def _user_text(message: Message) -> str | None:
+    if message.role != "user":
+        return None
+    if message.harness_note:
+        return steering_text(message)
+    return message.content
 
 
 async def classify(
