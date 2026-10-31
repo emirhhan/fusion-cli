@@ -834,17 +834,22 @@ def trust(
     """Projenin config.yaml, .fusion/tools, launch.json ve .claude/settings.local.json'a güven.
 
     Güvenilmeyen projede bu dosyalar MCP süreci, doğrulama komutu, araç, önizleme
-    sunucusu komutu (`.fusion/launch.json`, `.claude/launch.json`) ya da onaysız kabuk
-    komutu (izin listesi) çalıştıramaz. Dosyalar sonradan değişirse güven kendiliğinden düşer.
+    sunucusu komutu (`.fusion/launch.json`, `.claude/launch.json`), onaysız kabuk
+    komutu (izin listesi) ya da kanca (hook) komutu çalıştıramaz. Dosyalar sonradan
+    değişirse güven kendiliğinden düşer.
     """
     from ..config import trust as project_trust
+    from ..config.hooks import untrusted_hook_files
 
     root = path.resolve()
     if not root.is_dir():
         console.print(f"[red]Dizin bulunamadı: {root}[/red]")
         raise typer.Exit(code=1)
+    hook_files = untrusted_hook_files(root)
     project_trust.trust_project(root)
     console.print(f"[green]Güvenildi:[/green] {root}")
+    if hook_files:
+        console.print(messages.HOOKS_TRUST_ENABLED.format(files=", ".join(hook_files)))
 
 
 @app.command()

@@ -268,3 +268,16 @@ async def test_gecmisle_acilan_oturum_resume_kaynagiyla_baslar(tmp_path):
     state.history = [Message("user", "önceki")]
     await state.hooks().start()
     assert [olay[:2] for olay in _olaylar(kayit)] == [("SessionStart", "resume")]
+
+
+def test_guven_durumu_ve_fusion_trust_kanca_calistiracagini_soyler(proje, monkeypatch):
+    from fusion_cli.appserver import permissions_rpc
+    from fusion_cli.cli.app import app
+
+    durum = permissions_rpc.trust_status(proje)
+    assert durum["kanca_dosyalari"] == [".claude/settings.json"]
+    sonuc = CliRunner().invoke(app, ["trust", str(proje)])
+    assert sonuc.exit_code == 0, sonuc.output
+    assert "kanca" in sonuc.output and ".claude/settings.json" in sonuc.output
+    # Güvenden sonra uyarı listesi boşalır (kancalar artık etkin).
+    assert permissions_rpc.trust_status(proje)["kanca_dosyalari"] == []

@@ -162,6 +162,23 @@ def load_hooks(
     )
 
 
+def untrusted_hook_files(root: Path) -> tuple[str, ...]:
+    """Güvenilmediği için kancaları çalışmayan proje dosyaları (köke göreli).
+
+    Güven onayı (`fusion trust`, masaüstü şeridi) bunu söylemeli: güvenden sonra bu dosyaların
+    kanca komutları her araç çağrısında kullanıcının yetkisiyle çalışır.
+    """
+    found: list[str] = []
+    for layer in hook_layers(root):
+        if not layer.requires_trust or _is_trusted(layer, root):
+            continue
+        data = _read_json(layer.path)
+        block = data.get("hooks") if data is not None else None
+        if isinstance(block, Mapping) and any(block.values()):
+            found.append(layer.path.relative_to(root).as_posix())
+    return tuple(found)
+
+
 def parse_hooks_block(
     block: object, *, source: str, path: Path, default_timeout_s: float
 ) -> tuple[tuple[HookCommand, ...], tuple[HookSkip, ...]]:

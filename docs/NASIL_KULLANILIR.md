@@ -223,9 +223,11 @@ kapsamı o durumda hata verir ("Tüm projeler"i seç ya da projeye güven).
 ### Proje güveni masaüstünde
 
 İndirilmiş bir proje kendi `config.yaml`'ı (MCP sunucuları, doğrulama komutları),
-`.claude/settings*.json` izin listeleri ya da `.fusion/tools` araçlarıyla geliyorsa sohbetin
-üstünde **"Bu klasördeki dosyalara güveniyor musun?"** şeridi çıkar ve neyin devre dışı
-kaldığını sayar. **Evet, güven** = `fusion trust`; Ayarlar › İzinler › Proje klasörü'nden güven
+`.claude/settings*.json` izin listeleri ve kanca (hook) komutları ya da `.fusion/tools`
+araçlarıyla geliyorsa sohbetin üstünde **"Bu klasördeki dosyalara güveniyor musun?"** şeridi
+çıkar ve neyin devre dışı kaldığını sayar. Projede kanca varsa şerit ayrıca uyarır: güvenirsen
+o komutlar her araç çağrısında senin yetkinle çalışır (`fusion hooks list` ile gözden geçir;
+bkz. [KANCALAR.md](KANCALAR.md)). **Evet, güven** = `fusion trust`; Ayarlar › İzinler › Proje klasörü'nden güven
 kaldırılabilir. Dosyalar sonradan değişirse güven kendiliğinden düşer.
 
 ---

@@ -1452,6 +1452,10 @@ HOOKS_LIST_IGNORED_DISABLE = (
     "Güvenilmeyen katmandaki disableAllHooks yok sayıldı ({layers}): depo senin kancalarını "
     "kapatamaz. Bilerek istiyorsan `fusion trust` ya da kendi dosyanda kapat."
 )
+HOOKS_TRUST_ENABLED = (
+    "Bu projenin kanca (hook) komutları artık her araç çağrısında senin yetkinle çalışır: "
+    "{files}. Gözden geçir: fusion hooks list"
+)
 HOOKS_FLAG_INVALID = (
     "Kanca anahtarı ya da değeri geçersiz (hooks_enabled|claude_hooks, true|false)."
 )
