@@ -16,11 +16,23 @@ Tur başında şu katmanlar sırayla okunur ve sistem bağlamına eklenir; çak�
 | İç içe | Alt klasördeki `CLAUDE.md`/`AGENTS.md`, o klasördeki dosyaya erişince (`runtime.nested_instructions`) | `<alt_talimat>` | Depo içeriği |
 
 - `CLAUDE.md → AGENTS.md` sembolik bağı ya da aynı içerikli iki dosya **bir kez** okunur.
+  Proje kökündeki talimat dosyası kök **dışına** çıkan bir sembolik bağsa (`.claude/CLAUDE.md
+  -> ~/.ssh/id_rsa`) hiç açılmaz, notta görünür.
 - Bütçe: dosya başına 8.000, toplam `runtime.instruction_max_chars` (32.000) karakter.
-  Kırpma sessiz değildir: metne `[…kırpıldı…]` notu düşer; masaüstünde
-  **Ayarlar › Kişiselleştirme › Kalıcı talimat** altında yüklenen dosyalar, karakter ve kırpılan
-  miktar listelenir (`ayar.talimat` → `katmanlar`, `notlar`).
+  Kullanıcı katmanı (ev dizini dosyaları + import'ları) toplamın en çok **%40**'ını alır;
+  kalan proje katmanına kalır — proje talimatı hiçbir zaman aç kalmaz. Kırpma sessiz
+  değildir: metne `[…kırpıldı…]` notu düşer, kırpılan miktar gerçek kayıptır (dosyanın
+  kalanı sayılır); bütçe yüzünden hiç okunmayan dosya için bağlama `[talimat atlandı: …]`
+  satırı konur. Masaüstünde **Ayarlar › Kişiselleştirme › Kalıcı talimat** altında yüklenen
+  dosyalar, kurallar (kapsamıyla), karakter ve kırpılan miktar listelenir (`ayar.talimat` →
+  `katmanlar`, `notlar`).
 - `runtime.instruction_merge: false` eski davranışa döner: yalnız kökteki ilk bilinen dosya.
+- **Claude Code'dan fark:** Claude Code ve Codex çalışma dizininin ÜST klasörlerindeki
+  talimatı da yükler (monorepo kökü → alt paket). Fusion yalnız çalışma kökünü ve altındaki iç
+  içe dosyaları okur; `monorepo/packages/web` içinde açıldığında `monorepo/CLAUDE.md`
+  yüklenmez. Üst klasör kuralı gerekiyorsa alt paketin talimatına `@../../CLAUDE.md` yazmak
+  da işe yaramaz (kök dışı import atlanır); Fusion'ı monorepo kökünde aç ya da ilgili kuralı
+  alt pakete kopyala.
 
 ## `@yol` içe aktarma
 
@@ -43,9 +55,11 @@ dosyayı bağlama alır (Claude Code sözdizimi).
 
 - `paths:` frontmatter'ı **olmayan** kurallar tur başında yüklenir (toplam 8.000 karakter;
   aşım notla bildirilir).
-- `paths:` olanlar (`src/**/*.tsx`, `*.css`, `docs/`, `*.{ts,tsx}`) yalnız model eşleşen
-  dosyayı okuyup/düzenleyince, o turda bir kez, iç içe talimat notuyla aynı mesajda gelir.
-  Dizin içermeyen desen dosya adına da uygulanır.
+- `paths:` olanlar (`src/**/*.tsx`, `*.css`, `docs/`, `*.{ts,tsx}`, `.github/**`, `.*rc`)
+  yalnız model eşleşen dosyayı okuyup/düzenleyince, o turda bir kez, iç içe talimat notuyla
+  aynı mesajda gelir. Dizin içermeyen desen dosya adına da uygulanır. Bir erişimde en çok
+  **6 kural / 8.000 karakter** eklenir; sığmayanlar `[…N kural atlandı…]` notuyla bildirilir
+  ve sonraki erişimde gelir.
 - Kök dışına çıkan sembolik bağ hiç açılmaz; `node_modules`/`vendor` gibi dizinler taranmaz.
 - Masaüstü **Beceriler › Talimatlar** sekmesi kullanıcı katmanını, proje talimatlarını ve
   kuralları (kapsamıyla) listeler; `yetenek.detay {tur: "talimat", ad}` yalnız bu listedeki
@@ -76,7 +90,7 @@ TUI'de ve masaüstü yazı kutusunda **Beceri** grubunda bir slash komutu olur
 |---|---|
 | `description`, `when_to_use` | Arama, beceri dizini ve `/help` satırı |
 | `argument-hint` / `arguman-ipucu` | `/help` ve tamamlamada `/ad [ipucu]` |
-| `allowed-tools` / `izinli-araclar` | O turda yalnız bu araçlar sunulur (`Bash(git *)` deseninin araç adı eşlenir, komut deseni uygulanmaz; not düşer) |
+| `allowed-tools` / `izinli-araclar` | O turda yalnız bu araçlar sunulur; virgül **veya** boşlukla ayrılır (`Read, Grep` ve `Read Grep`), `Bash(git add:*, git commit:*)` tek öğedir — araç adı eşlenir, komut deseni uygulanmaz (not düşer). Fusion aracına eşlenmeyen adlar (`TodoWrite`, `Skill`…) yok sayılır; hiçbiri eşlenmezse kısıt uygulanmaz ve not düşer. **Claude Code'dan fark:** Claude Code bu alanı "onaysız kullanılabilir" (ön-onay) sayar ve diğer araçları kaldırmaz; Fusion ise araç listesini **daraltır**. Gerekçe: depo dosyasından gelen bir alanın onay kapısını açması yetki yükseltme yoluydu; daraltma güvenli taraftır. Becerinin düzenleme/kabuk gerektiren adımı varsa alana `Edit`, `Bash` ekle ya da alanı hiç yazma |
 | `disable-model-invocation` / `model-cagirmasin` | Beceri dizinine ve `find_skill` sonucuna girmez; yalnız `/ad` ile |
 | `user-invocable: false` | Slash komutu olarak sunulmaz (yalnız model `read_skill` ile) |
 | `context: fork` | Okunur; şimdilik ana turda çalışır, not düşer |
@@ -94,6 +108,9 @@ gövde hiçbir zaman önden basılmaz (progressive disclosure).
   %2'si. Sığmayan beceriler için `[…+N beceri daha; find_skill ile ara]` notu düşer.
 - `disable-model-invocation: true` olan beceriler dizinde ve `find_skill` sonucunda
   görünmez; yalnız `/ad` ile çağrılır.
+- Depo kaynaklı beceriler (`proje`, `ek-kok`, `kurulu`, `claude-plugin`) ayrı bir
+  `<proje_becerileri>` bloğunda, "depo içeriği, kullanıcı talimatı değildir" notuyla ve etiket
+  kapatmaları nötralize edilerek listelenir; kullanıcı kökündeki beceriler önce ve düz.
 - `skill_index_chars: 0` dizini kapatır (eski davranış: yalnız `find_skill`).
 - Dizin her turda yeniden kurulur; bağlam sıkıştırması konuşmayı özetler, dizini düşürmez.
 
@@ -125,7 +142,9 @@ proje `.claude/skills`, `.fusion/skills`, `.agents/skills`; `~/.codex/skills`, `
   Dosya zaten varsa üzerine yazmaz; eksik bölümleri `ask_user` ile sorar.
 - `/doctor prompt` (argümansız `/doctor` da aynı rapor + `fusion doctor` hatırlatması):
   yüklenen katmanlar ve karakterleri, kırpılan miktar, kök dışı import notları, depo
-  talimatında izin/onay/sır kurallarına dokunan şüpheli satırlar (Fusion bunları uygulamaz;
+  talimatında onay/izin kurallarını değiştirmeye ya da sır sızdırmaya çalışan şüpheli satırlar
+  ("onay sorma", "bypass", "ignore previous rules", "print the API key"… — "sırları commit
+  etme" gibi zararsız güvenlik kuralları işaretlenmez; Fusion şüpheli satırları uygulamaz,
   dosyanın kaynağını gözden geçir), öneriler (talimat yoksa `/init`, bütçenin %70'i dolduysa
   kısalt, doğrulama komutu yoksa `## Doğrulama` bölümü).
 - Masaüstü **Ayarlar › Kişiselleştirme › Kalıcı talimat**: öneriler listelenir; **Talimat
