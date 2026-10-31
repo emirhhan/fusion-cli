@@ -56,4 +56,10 @@
 .skills-catalog__memory pre { max-height: 200px; }
 .skills-catalog__memory-confirm { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
 .skills-catalog__memory-confirm span { color: var(--text-secondary); flex: 1 1 100%; font-size: var(--text-xs); }
-.skills-catalog__tabs button[aria-pressed="true"] { background: var(--surface-selected); color: var(--text-primary); font-weight: 550; }
+/* Katalog eylemleri (Yenile, Teşhis, Eklentiler): sekmelerle karışmasın diye sağa yaslı ve
+   çerçeveli düğme görünümünde; sekmelerden ince bir dikey ayraçla ayrılır. */
+.skills-catalog__actions { align-items: center; border-inline-start: 1px solid var(--border-subtle); display: flex; flex-wrap: wrap; gap: var(--space-2); margin-inline-start: auto; padding-inline-start: var(--space-3); }
+.skills-catalog__actions button { background: transparent; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text-primary); cursor: pointer; font-size: var(--text-sm); min-height: 32px; padding: 0 var(--space-3); }
+.skills-catalog__actions button:hover { background: var(--surface-hover); }
+.skills-catalog__actions button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.skills-catalog__actions button[aria-pressed="true"] { background: var(--surface-selected); font-weight: 550; }

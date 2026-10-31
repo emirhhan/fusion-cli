@@ -285,7 +285,7 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
   return (
     <main className="skills-catalog">
       <header className="skills-catalog__header">
-        <div><h2>Beceriler</h2><p>Fusion'ın bu çalışma alanında kullandığı beceriler, ajanlar, proje talimatları ve MCP araçları. Claude, Codex ve Hermes'ten gelenler de burada.</p></div>
+        <div><h2>Beceriler ve Ajanlar</h2><p>Fusion'ın bu çalışma alanında kullandığı beceriler, ajanlar, proje talimatları ve MCP araçları. Claude, Codex ve Hermes'ten gelenler de burada.</p></div>
         <button aria-label="Kataloğu kapat" onClick={onClose} type="button">Kapat</button>
       </header>
       <div className="skills-catalog__toolbar">
@@ -293,7 +293,8 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
         <div aria-label="Türe göre filtrele" className="skills-catalog__tabs" role="tablist">
           {KIND_TABS.map(([value, label]) => <button aria-selected={kind === value} key={value} onClick={() => setKind(value)} role="tab" type="button">{label}</button>)}
         </div>
-        <div className="skills-catalog__tabs" role="group" aria-label="Katalog işlemleri">
+        {/* Eylemler filtre sekmelerinden ayrıdır: sağa yaslı, çerçeveli düğmeler. */}
+        <div className="skills-catalog__actions" role="group" aria-label="Katalog işlemleri">
           <button onClick={reloadCatalog} type="button" title="Diskten yeniden tara (/skills reload)">Yenile</button>
           <button onClick={diagnoseCatalog} type="button" title="Eksik açıklama, kopya ad, uzun gövde (/skill-doctor)">Teşhis</button>
           <button aria-pressed={showPlugins} onClick={() => setShowPlugins((value) => !value)} type="button" title="Eklenti paketleri ve pazar yerleri (/plugin)">Eklentiler</button>
