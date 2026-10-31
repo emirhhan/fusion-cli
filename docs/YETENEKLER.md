@@ -25,6 +25,7 @@ Fusion iki şeyi tek üründe birleştirir:
 | Uzak MCP OAuth | HTTP MCP sunucularında tarayıcı girişi, PKCE ve macOS Keychain token deposu |
 | Kanıta bağlı yeniden planlama | Aynı başarısız hedefte dönmek yerine doğrulanmış işi koruyup dalı bir kez yeniler |
 | Gerçek asset kapısı | PNG/JPEG başlığı, boyut, kaynak URL'si ve lisans manifestini doğrular |
+| Fusion ↔ Kits köprüsü (`fusion kit`, `kit_send`, `fusion_browser`) | Bir Kit'e mesaj/görev bırak, durumunu oku; Kit kullanıcının Chrome'unu onaylı kullanır (bkz. `docs/KITS_KOPRUSU.md`) |
 | Production değerlendirmesi | Godot asset, MCP, replan, büyük dosya ve sohbet izolasyonunu üç tekrarla ölçer |
 
 Yayın ölçümü `python -m evals run evals/suite/production.yaml --profile production --repeat 3`

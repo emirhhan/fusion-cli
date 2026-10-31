@@ -26,6 +26,7 @@ playwright.extension.config.ts` (gerçek Chromium + yüklü eklenti, yerel test 
 | `javascript_tool` | — | **Bilerek yok:** keyfi sayfa betiği, girişli oturumda veri sızdırma/işlem riski; model aynı işi okuma ve etkileşim araçlarıyla yapar |
 | `read_console_messages`, `read_network_requests` | — | **Yok:** `debugger` izni (Chrome'da "tarayıcıyı hata ayıkla" uyarısı) ister; şimdilik eklenmedi, istenirse ayrı iş |
 | `shortcuts_list/execute`, `gif_creator` | — | **Bilerek yok:** Claude'a özgü kısayol ve kayıt özellikleri |
+| Kit'ten (Kits) tarayıcıya erişim | `fusion_browser` (Kit aracı) → `chrome.kit_komut` RPC; okuma bir kez, etkileşim her seferinde onaylı; yalnız metin | Var (P-063); bkz. `docs/KITS_KOPRUSU.md` |
 | `list/select/switch_browser` | — | **Bilerek yok:** Fusion tek tarayıcıya (kullanıcının Chrome'u) bağlanır |
 
 ## Güvenlik ve izin karşılaştırması
