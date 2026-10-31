@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from ...config.permission_rules import PermissionDecision, PermissionRule, PermissionRuleSet
@@ -260,6 +260,34 @@ async def pre_compact(deps: AgentDeps, trigger: str) -> None:
     if session is None:
         return
     _publish(deps, await session.pre_compact(trigger))
+
+
+async def compacted_context(session: HookSession | None, publisher: EventPublisher) -> str:
+    """Özetleme sonrası `SessionStart(compact)`; kancanın modele bağlam notu (yoksa boş).
+
+    Ölçüldü (1 Kasım): özetlemeden sonra SessionStart hiç tetiklenmiyordu; açılışta bağlam
+    ekleyen betiklerin notu özetle birlikte kayboluyordu (Claude `compact` kaynağıyla
+    yeniden ekletir).
+    """
+    if session is None:
+        return ""
+    verdict = await session.compacted()
+    publish_verdict(publisher, verdict)
+    if not verdict.context_text:
+        return ""
+    return messages.HOOKS_CONTEXT_NOTE.format(
+        event=HookEvent.SESSION_START.value, context=verdict.context_text
+    )
+
+
+def with_system_note(conversation: list[Message], note: str) -> list[Message]:
+    """Notu sistem mesajının sonuna ekle (rol sırası bozulmasın); sistem yoksa başa koy."""
+    if not note:
+        return conversation
+    if conversation and conversation[0].role == "system":
+        first = conversation[0]
+        return [replace(first, content=f"{first.content}\n\n{note}"), *conversation[1:]]
+    return [Message("system", note), *conversation]
 
 
 def _publish(deps: AgentDeps, verdict: HookVerdict) -> None:

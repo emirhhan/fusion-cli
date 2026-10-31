@@ -184,12 +184,14 @@ from .expertise import (
 from .history import needs_compression, total_chars
 from .hook_bridge import (
     ToolNote,
+    compacted_context,
     continue_until_stop_allowed,
     hook_halt_text,
     post_tool_use,
     pre_compact,
     pre_tool_use,
     user_prompt_submit,
+    with_system_note,
 )
 from .instruction_rules import discover_rules
 from .loop_contract import (
@@ -4466,7 +4468,8 @@ async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: 
     )
     after_chars = total_chars(_masked_view(compacted, deps, selected, commit=False).messages)
     if after_chars < before_chars:
-        messages[:] = compacted
+        note = await compacted_context(getattr(deps, "hooks", None), deps.publisher)
+        messages[:] = with_system_note(compacted, note)
         deps.publisher.publish(
             ContextCompressed(
                 before=before, after=len(compacted), saved_chars=before_chars - after_chars

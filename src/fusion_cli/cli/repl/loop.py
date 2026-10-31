@@ -991,7 +991,15 @@ async def compact_history(state: ReplState) -> str:
     after = len(state.history)
     if after >= before:
         return messages.REPL_NOTHING_TO_COMPACT
-    return messages.REPL_COMPACTED.format(before=before, after=after)
+    # SessionStart(compact): kancanın bağlamı sonraki tura eklenir (P-009).
+    verdict = await state.hooks().compacted()
+    if verdict.context_text:
+        prefixes.push_pending_context(
+            state,
+            messages.HOOKS_CONTEXT_NOTE.format(event="SessionStart", context=verdict.context_text),
+        )
+    summary = messages.REPL_COMPACTED.format(before=before, after=after)
+    return "\n".join((summary, *hook_events.verdict_lines(verdict)))
 
 
 # --------------------------------------------------------------------------- #

@@ -80,3 +80,73 @@ async def test_reset_yeni_oturum_kimligi_verir_sohbet_kimligi_korunur(tmp_path):
     # Sohbet aynı: sonraki tur oturumu yeniden başlatmaz, kimlik sabit kalır.
     assert len(baslangiclar) == 2 and state.conversation_id == "sohbet"
     assert state.hooks().session_id == baslangiclar[1]["session_id"]
+
+
+# --- SessionStart(compact) -------------------------------------------------------- #
+
+
+async def test_elle_compact_sessionstart_compact_tetikler_baglami_sonraki_tura_ekler(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.cli.repl import loop as repl_loop
+    from fusion_cli.core.types import Message
+
+    state = ReplState(config=make_config(), memory=null_memory(), root=tmp_path, home=tmp_path)
+    state.history = [Message("user", f"soru {i}") for i in range(6)]
+    state.hook_session = _oturum(
+        tmp_path,
+        _kayit_kancasi(tmp_path, HookEvent.SESSION_START, "compact", "kurallar: Türkçe yaz"),
+    )
+
+    async def _ozet(history, **kwargs):
+        return history[:2]
+
+    monkeypatch.setattr(repl_loop, "compress", _ozet)
+    metin = await repl_loop.compact_history(state)
+
+    assert "6" in metin and "2" in metin
+    yuk = _yukler(tmp_path, HookEvent.SESSION_START)[0]
+    assert yuk["source"] == "compact"
+    assert any("kurallar: Türkçe yaz" in blok for blok in state.pending_blocks)
+    # Oturum yaşam döngüsü değişmez: sonraki ilk tur yine SessionStart(startup) alır.
+    assert state.hook_session.started is False
+
+
+async def test_tur_ici_ozetleme_sessionstart_compact_baglamini_sisteme_ekler(tmp_path, monkeypatch):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.core.types import Message
+    from fusion_cli.engines.agent import compaction
+    from fusion_cli.engines.agent import loop as agent_loop
+    from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+
+    from .fakes import AlwaysApprove, RecordingSink
+    from .test_hooks_loop import _Publisher
+
+    session = _oturum(
+        tmp_path,
+        _kayit_kancasi(tmp_path, HookEvent.SESSION_START, "compact", "proje notu"),
+        _kayit_kancasi(tmp_path, HookEvent.PRE_COMPACT),
+    )
+    deps = agent_loop.AgentDeps(
+        config=make_config(),
+        publisher=_Publisher(RecordingSink()),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=tmp_path),
+        hooks=session,
+    )
+    uzun = [Message("system", "sistem"), *(Message("user", "x" * 4000) for _ in range(3))]
+    kisa = [Message("system", "sistem"), Message("user", "özet")]
+
+    async def _ozetle(messages, **kwargs):
+        return kisa
+
+    sorular = iter([True, False])
+    monkeypatch.setattr(compaction, "compact_in_turn", _ozetle)
+    monkeypatch.setattr(agent_loop, "needs_compression", lambda *a, **k: next(sorular, False))
+
+    assert await agent_loop._compact_before_call(uzun, deps, agent_loop._State()) is True
+
+    assert uzun[0].role == "system" and "proje notu" in uzun[0].content
+    assert [m.content for m in uzun[1:]] == ["özet"]
+    assert _yukler(tmp_path, HookEvent.PRE_COMPACT)[0]["trigger"] == "auto"
+    assert _yukler(tmp_path, HookEvent.SESSION_START)[0]["source"] == "compact"

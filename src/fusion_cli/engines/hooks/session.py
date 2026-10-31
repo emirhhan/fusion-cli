@@ -29,6 +29,8 @@ from .transcript import HOOK_TRANSCRIPT_DIR, HookTranscript, transcript_for
 
 #: Boş karar: hiçbir kanca eşleşmedi.
 NO_VERDICT = HookVerdict()
+#: Özetleme sonrası `SessionStart` kaynağı (Claude Code ile aynı).
+COMPACT_SOURCE = "compact"
 
 
 @dataclass(slots=True)
@@ -223,6 +225,12 @@ class HookSession:
             HookEvent.PRE_COMPACT,
             subjects=(trigger,),
             fields={"trigger": trigger, "custom_instructions": ""},
+        )
+
+    async def compacted(self) -> HookVerdict:
+        """`SessionStart(source: compact)`: bağlam özetlendi (oturum yaşam döngüsü değişmez)."""
+        return await self.emit(
+            HookEvent.SESSION_START, subjects=(COMPACT_SOURCE,), fields={"source": COMPACT_SOURCE}
         )
 
     def _payload(self, event: HookEvent, fields: Mapping[str, object]) -> dict[str, object]:
