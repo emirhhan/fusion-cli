@@ -171,7 +171,8 @@ def test_linux_bwrap_kok_salt_okunur_yazma_kokleri_bagli(tmp_path):
     )
     argv = list(plan.prefix)
     assert argv[:2] == ["/usr/bin/bwrap", "--die-with-parent"]
-    assert argv[2:5] == ["--ro-bind", "/", "/"]
+    baslangic = argv.index("--ro-bind")
+    assert argv[baslangic : baslangic + 3] == ["--ro-bind", "/", "/"]
     kok = str(tmp_path.resolve())
     assert ["--bind", kok, kok] == argv[argv.index(kok) - 1 : argv.index(kok) + 2]
     assert ["--tmpfs", str(gizli)] == argv[argv.index(str(gizli)) - 1 : argv.index(str(gizli)) + 1]

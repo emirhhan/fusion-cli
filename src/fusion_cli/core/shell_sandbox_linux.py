@@ -45,6 +45,13 @@ class LinuxSandboxArgv:
     unavailable: str = ""
 
 
+#: Süreç izolasyonu: PID ve IPC ad alanı, yeni oturum (TIOCSTI ile terminale yazamaz).
+#: Ölçüldü (31 Ekim, argv okuması): `--unshare-pid` yoktu; host `/proc/<pid>/environ`
+#: görünüyordu ve `socat` köprüsü komut bitince öksüz kalıyordu. PID ad alanında ilk
+#: süreç çıkınca ad alanındaki her süreç (köprü dahil) ölür.
+_ISOLATION = ("--die-with-parent", "--unshare-pid", "--unshare-ipc", "--new-session")
+
+
 def _guards(protected_roots: Sequence[Path]) -> list[str]:
     """Kök altında zorunlu yazma engeli (`core.sandbox_policy.PROTECTED_WRITE_PATHS`).
 
@@ -109,7 +116,7 @@ def linux_sandbox_argv(
         return LinuxSandboxArgv(
             unavailable="bubblewrap (bwrap) bulunamadı (kur: apt install bubblewrap)"
         )
-    arguments = [tools.bwrap, "--die-with-parent", *_mounts(roots, policy.deny_read, protected_roots)]
+    arguments = [tools.bwrap, *_ISOLATION, *_mounts(roots, policy.deny_read, protected_roots)]
     if not policy.restricts_network:
         return LinuxSandboxArgv(prefix=(*arguments, "--"))
     arguments.append("--unshare-net")
