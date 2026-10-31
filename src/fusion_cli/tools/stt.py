@@ -9,7 +9,8 @@ alt süreç olarak çalıştırılır ve satır başına bir JSON olay okunur:
 Aynı sözleşmeye uyan başka bir komut (ör. whisper.cpp/sherpa-onnx sarmalayıcısı) da
 `runtime.voice_listener` ile verilebilir. Yardımcı bulunamazsa sessizce geçilmez:
 `SpeechToTextError` ne yapılacağını söyler. Konuşma bir bölüm ("son" + "ses-bitti")
-tamamlanınca, sessizlikte ya da üst süre dolunca dinleme biter.
+tamamlanınca, "son" sonrası kısa sessizlikte (yardımcı "ses-bitti" göndermese de),
+hiç ses gelmeyince ya da üst süre dolunca dinleme biter; toplanan metin korunur.
 """
 
 from __future__ import annotations
@@ -34,6 +35,10 @@ _APP_RESOURCES = Path("Fusion.app") / "Contents" / "Resources"
 NO_SPEECH_TIMEOUT_S = 12.0
 #: Tek dikte en çok bu kadar sürer (sn).
 MAX_LISTEN_S = 90.0
+#: "son" geldikten sonra yeni olay gelmezse dikte bu kadar sonra biter (sn). Ölçüldü (31 Ekim):
+#: fusion-listen'in kısmi-durdu yolu "son" üretip "ses-bitti" göndermiyor; süresiz beklemede
+#: dikte üst süreye (90 sn) kadar sürüp metni atıyordu.
+FINAL_SILENCE_S = 2.0
 #: Yardımcıya SIGTERM sonrası kapanması için tanınan süre (sn).
 _STOP_GRACE_S = 2.0
 #: Yardımcının bildirdiği bilinen hata kodları → kullanıcı metni.
@@ -95,6 +100,7 @@ async def listen_once(
     on_partial: Callable[[str], None] = lambda _text: None,
     no_speech_timeout_s: float = NO_SPEECH_TIMEOUT_S,
     max_listen_s: float = MAX_LISTEN_S,
+    final_silence_s: float = FINAL_SILENCE_S,
 ) -> Dictation:
     """Yardımcıyı çalıştır, bir konuşma bölümünü metne çevir, süreci kapat."""
     try:
@@ -106,33 +112,40 @@ async def listen_once(
         )
     except OSError as error:
         raise SpeechToTextError(f"Konuşma tanıma başlatılamadı: {error}") from error
+    finals: list[str] = []
     try:
         async with asyncio.timeout(max_listen_s):
-            return await _read_dictation(process, on_partial, no_speech_timeout_s)
+            await _read_dictation(process, on_partial, finals, no_speech_timeout_s, final_silence_s)
     except TimeoutError:
-        return Dictation("")
+        pass
     finally:
         await _stop(process)
+    return Dictation(" ".join(finals))
 
 
 async def _read_dictation(
     process: asyncio.subprocess.Process,
     on_partial: Callable[[str], None],
+    finals: list[str],
     no_speech_timeout_s: float,
-) -> Dictation:
+    final_silence_s: float,
+) -> None:
+    """Olayları oku, kesinleşen metni `finals`'a ekle; bölüm bitince dön."""
     if process.stdout is None:
         raise SpeechToTextError("Konuşma tanıma çıktısı okunamadı.")
-    finals: list[str] = []
     speaking = False
     while True:
-        wait = None if speaking or finals else no_speech_timeout_s
+        if finals:
+            wait: float | None = final_silence_s
+        else:
+            wait = None if speaking else no_speech_timeout_s
         try:
             raw = await asyncio.wait_for(process.stdout.readline(), wait)
         except TimeoutError:
-            return Dictation(" ".join(finals))
+            return
         if not raw:
             # Yardımcı kapandı: elde ne varsa o.
-            return Dictation(" ".join(finals))
+            return
         event = _event(raw)
         kind, text = event.get("tur", ""), str(event.get("metin", "")).strip()
         if kind == "hata":
@@ -147,7 +160,7 @@ async def _read_dictation(
         elif kind == "ses-bitti":
             speaking = False
             if finals:
-                return Dictation(" ".join(finals))
+                return
 
 
 def _event(raw: bytes) -> dict[str, object]:

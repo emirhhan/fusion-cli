@@ -82,6 +82,28 @@ async def test_ses_gelmezse_bos_metinle_biter(tmp_path):
     assert sonuc.text == ""
 
 
+async def test_son_sonrasi_ses_bitti_gelmezse_kisa_sessizlikte_metni_doner(tmp_path):
+    """Ölçüldü (31 Ekim): 'son' sonrası bekleme süresizdi; 'ses-bitti' üretmeyen yardımcıda
+    (fusion-listen kısmi-durdu yolu) dikte 90 sn bekleyip tanınan metni atıyordu."""
+    import time
+
+    betik = _sahte_dinleyici(tmp_path, [_olay("ses-basladi"), _olay("son", "lint koş")])
+    basla = time.monotonic()
+
+    sonuc = await stt.listen_once([str(betik)], max_listen_s=10, final_silence_s=0.3)
+
+    assert sonuc.text == "lint koş"
+    assert time.monotonic() - basla < 5
+
+
+async def test_ust_sure_dolunca_toplanan_metin_kaybolmaz(tmp_path):
+    betik = _sahte_dinleyici(tmp_path, [_olay("ses-basladi"), _olay("son", "derle")])
+
+    sonuc = await stt.listen_once([str(betik)], max_listen_s=0.5, final_silence_s=30)
+
+    assert sonuc.text == "derle"
+
+
 def test_dinleyici_ayardan_sonra_kurulu_uygulamadan_bulunur(tmp_path):
     klasor = tmp_path / "Resources"
     klasor.mkdir()
