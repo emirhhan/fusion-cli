@@ -54,4 +54,9 @@ describe("boşluk ve çerçeve regresyonları", () => {
   it("Ayarlar'da anahtar satırının çizgisinden sonra gelen içerik çizgiye yapışmaz", () => {
     expect(css("settings/Settings.css")).toContain(".settings__panel .settings__row + :not(.settings__row, .settings__row-group) { margin-top: var(--space-3); }");
   });
+
+  it("Ayarlar tabloları ve listeleri başlıkla hizalı; liste sonunda çift çizgi yok", () => {
+    expect(css("settings/sections/Shortcuts.css")).toContain(".shortcuts__table :is(th, td):first-child { padding-inline-start: 0; }");
+    expect(css("settings/Settings.css")).toContain(".settings__panel .settings__list li:last-child { border-bottom: 0; }");
+  });
 });

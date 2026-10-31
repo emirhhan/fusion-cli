@@ -14,6 +14,10 @@
   vertical-align: middle;
 }
 
+/* İlk sütun başlık ve açıklamayla aynı hizada; son sütun (düğmeler) sağ kenarla hizalı. */
+.shortcuts__table :is(th, td):first-child { padding-inline-start: 0; }
+.shortcuts__table :is(th, td):last-child { padding-inline-end: 0; }
+
 .shortcuts__table thead th {
   color: var(--settings-muted);
   font-size: var(--text-2xs);

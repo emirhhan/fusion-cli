@@ -459,3 +459,9 @@
    çizgisine giriş kutusu, "Otomatik belleği kullan" çizgisine "Bellek henüz boş." yapışıktı. */
 .settings__panel .settings__row + :not(.settings__row, .settings__row-group) { margin-top: var(--space-3); }
 .settings__panel .settings__hint + :is(textarea, .settings__textarea, .settings__memory-add) { margin-top: var(--space-2); }
+/* Listenin son satırı çizgi taşımaz: ardından gelen bölüm başlığının üst çizgisiyle çift çizgi
+   oluşuyordu (Gelişmiş › Model sağlığı). Düğme satırından sonra gelen açıklama düğmelere yapışmaz. */
+.settings__panel .settings__list li:last-child { border-bottom: 0; }
+.settings__panel .settings__actions + .settings__hint { margin-top: var(--space-3); }
+/* Kart içi "Yenile" gibi metin düğmeleri düğme görünümündeyken altı çizili kalmaz. */
+.settings__panel .settings__card > button.settings__error-retry { text-decoration: none; }
