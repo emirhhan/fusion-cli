@@ -57,6 +57,20 @@ class BrowserSession:
     def is_open(self) -> bool:
         return self.page is not None
 
+    def derive(self) -> BrowserSession:
+        """Aynı AYARLARLA (profil, pencere kipi, profil kapısı) yeni, kapalı bir oturum.
+
+        Plan adımları ve alt ajanlar tarayıcıyı ayrı tutar ama yapılandırmayı DEVRALIR.
+        Ölçüldü (31 Ekim): `BrowserSession()` varsayılanı `profiles_enabled=True` olduğu
+        için alt ajan `browser.profiles_enabled: false` kapısını deliyordu. Açık sayfa,
+        etkin profil ve geri yazıcı kopyalanmaz: bunlar bu oturuma aittir.
+        """
+        return BrowserSession(
+            profile_name=self.profile_name,
+            headless=self.headless,
+            profiles_enabled=self.profiles_enabled,
+        )
+
     async def close(self) -> None:
         """Sayfayı, tarayıcıyı ve playwright'ı sırayla kapat; hepsini dene.
 
