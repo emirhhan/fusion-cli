@@ -25,6 +25,8 @@ MODIFIERS = ("mod", "ctrl", "alt", "shift")
 #: Tek başına bağlanabilen adlı tuşlar (değiştiricisiz).
 _BARE_ALLOWED_PREFIX = "f"
 _DATA_FILE = "data/masaustu-kisayollari.json"
+#: Büyük İ'nin küçük harfi: i + birleşik üst nokta.
+_DOTTED_I = "i\u0307"
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +66,8 @@ def normalize_desktop_key(raw: str) -> str | None:
     tekrar edemez. `+` tuşunun kendisi `mod++` yazılır. Noktalama tuşunda `shift` düşer: karakter
     onu zaten taşır (Türkçe Q klavyede `/` Shift+7'dir; `mod+/` her düzende aynı bağdır).
     """
-    text = raw.strip().lower()
+    # Ölçüldü (31 Ekim): `"İ".lower()` = "i" + U+0307 (iki karakter); ⌘⇧İ geçersiz sayılıyordu.
+    text = raw.strip().lower().replace(_DOTTED_I, "i")
     if not text:
         return None
     parts, key = _split(text)

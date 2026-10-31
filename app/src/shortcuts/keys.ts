@@ -43,6 +43,12 @@ function split(text: string): [string[], string] {
   return [text.slice(0, Math.max(index, 0)).split("+").filter(Boolean), text.slice(index + 1)];
 }
 
+/**
+ * Küçük harfe indir. Ölçüldü (31 Ekim): "İ".toLowerCase() = "i" + U+0307 (iki karakter); Türkçe
+ * ⌘⇧İ hem kayıtta hem eşleşmede yok sayılıyordu. Python `normalize_desktop_key` ile aynı.
+ */
+const lower = (text: string) => text.toLowerCase().replace(/i\u0307/g, "i");
+
 const isPunctuation = (key: string) => key.length === 1 && !/[\p{L}\p{N}]/u.test(key);
 
 function compose(parts: readonly string[], key: string): string {
@@ -52,7 +58,7 @@ function compose(parts: readonly string[], key: string): string {
 
 /** `Mod+Shift+P` → `mod+shift+p`; geçersiz yazımda `null` (Python ile aynı kurallar). */
 export function normalizeKey(raw: string): string | null {
-  const text = raw.trim().toLowerCase();
+  const text = lower(raw.trim());
   if (!text) return null;
   const [parts, key] = split(text);
   if (parts.some((part) => !MODIFIERS.includes(part as Modifier)) || new Set(parts).size !== parts.length) return null;
@@ -106,8 +112,7 @@ export function eventToKey(event: KeyLike, mac: boolean): string | null {
   if (digit && (event.altKey || /^\d$/.test(event.key))) key = digit;
   else if (letter && (event.altKey || !/^[\p{L}]$/u.test(event.key))) key = letter;
   else if (event.key === " ") key = "space";
-  else if (event.key.length === 1) key = event.key.toLowerCase();
-  else key = event.key.toLowerCase();
+  else key = lower(event.key);
   if (key.length > 1 && !NAMED_KEYS.has(key)) return null;
   return compose(parts, key);
 }

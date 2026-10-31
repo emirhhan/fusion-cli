@@ -50,6 +50,12 @@ describe("klavye olayı → tuş", () => {
     expect(eventToKey(press(",", "Backslash", { metaKey: true }), true)).toBe("mod+,");
   });
 
+  it("Türkçe büyük İ tek harfe (i) iner; kayıt ve eşleşme çalışır", () => {
+    // Ölçüldü (31 Ekim): "İ".toLowerCase() iki karakterdir (i + U+0307); olay `null` dönüyordu.
+    expect(eventToKey(press("İ", "Quote", { metaKey: true, shiftKey: true }), true)).toBe("mod+shift+i");
+    expect(normalizeKey("Mod+Shift+İ")).toBe("mod+shift+i");
+  });
+
   it("Windows/Linux'ta Ctrl mod olur; Windows tuşu ve tek değiştirici yok sayılır", () => {
     expect(eventToKey(press("k", "KeyK", { ctrlKey: true }), false)).toBe("mod+k");
     expect(eventToKey(press("k", "KeyK", { metaKey: true }), false)).toBeNull();

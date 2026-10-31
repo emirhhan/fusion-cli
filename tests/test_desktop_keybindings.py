@@ -231,3 +231,15 @@ def test_windowsta_ctrl_ve_mod_ayni_tus_sayilir(tmp_path: Path):
     assert reset_action(path, CONTEXT_DESKTOP, "palet", force=True, mac=False).ok
     table = keybindings.load_keymap(path).bindings(CONTEXT_DESKTOP)
     assert table["mod+k"] == "palet" and "ctrl+k" not in table
+
+
+def test_turkce_buyuk_i_tek_harfe_kanoniklesir(tmp_path: Path):
+    """Ölçüldü (31 Ekim): `"İ".lower()` iki karakterdir (i + U+0307); ⌘⇧İ geçersiz sayılıyordu."""
+    assert normalize_desktop_key("mod+shift+İ") == "mod+shift+i"
+    assert keybindings.normalize_key(CONTEXT_DESKTOP, "Mod+Shift+İ") == ("mod+shift+i", None)
+    assert (
+        keybindings_rpc.assign({"eylem": "palet", "tus": "mod+shift+İ"}, path=tmp_path / "k")[
+            "baglar"
+        ]["mod+shift+i"]
+        == "palet"
+    )
