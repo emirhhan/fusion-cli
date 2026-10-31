@@ -9,6 +9,12 @@ durmaz (bkz. `approval.Decision`).
 Ölçüldü (31 Ekim): yasaklı aracı kayıt defterinden düşürmek kayıt defteri `run_agent` içinde
 kurulduğu için oturum katmanından yapılamıyordu; politika sarmalayıcısı aynı sonucu araç
 yüzeyine dokunmadan verir.
+
+Ölçüldü (31 Ekim, 2. tur): politika yalnız DEĞİŞTİRİCİ araçta çağrılıyor (`loop._execute`);
+`--disallowed-tools read_file,web_search` verilse de salt-okunur araç sunulup çalışıyordu.
+Bu yüzden yasak listesi `AgentDeps.denied_tools` ile motora da gider: `_permitted` yasaklı
+aracın şemasını hiç sunmaz, `_execute` çağrılırsa `BLOCKED` döner (ikinci savunma hattı).
+`is_denied_tool` iki yerin ortak kuralıdır.
 """
 
 from __future__ import annotations
@@ -37,8 +43,15 @@ class DeniedToolsPolicy:
 
     def is_denied(self, tool_name: str) -> bool:
         """Araç adı yasak listesinde mi? Kabuk takma adları (`run_shell` ↔ `bash`) tek ailedir."""
-        if tool_name in self._denied:
-            return True
-        if tool_family(tool_name) is not ToolFamily.SHELL:
-            return False
-        return any(tool_family(name) is ToolFamily.SHELL for name in self._denied)
+        return is_denied_tool(tool_name, self._denied)
+
+
+def is_denied_tool(tool_name: str, denied: Collection[str]) -> bool:
+    """`tool_name` yasak listesine düşüyor mu? Kabuk ailesi (`run_shell`/`bash`) tek sayılır."""
+    if not denied:
+        return False
+    if tool_name in denied:
+        return True
+    if tool_family(tool_name) is not ToolFamily.SHELL:
+        return False
+    return any(tool_family(name) is ToolFamily.SHELL for name in denied)

@@ -73,9 +73,16 @@ fusion agent "…" --allowed-tools read_file,grep,run_shell   # modele YALNIZ bu
 fusion agent "…" --disallowed-tools run_shell                # çağrılırsa sorulmadan engellenir
 ```
 
-Yasak liste izin kuralı gramerindedir: karar `BLOCKED`tır, kullanıcıya sorulmaz, tur
-durmaz (model "bu yol kapalı" bilgisini alır). Kabuk takma adları (`run_shell`/`bash`)
-tek aile sayılır.
+Yasak listedeki araç modele **hiç sunulmaz** (salt-okunur araçlar dahil: `read_file`,
+`web_search`, `gh`…); adı uydurulup çağrılırsa karar `BLOCKED`tır, kullanıcıya sorulmaz, tur
+durmaz (model "bu yol kapalı" bilgisini alır). Kabuk takma adları (`run_shell`/`bash`) tek
+aile sayılır.
+
+Claude Code farkı: orada `--allowedTools` "bu araçları sormadan onayla" demektir; Fusion'da
+`--allowed-tools` "modele yalnız bunları sun" demektir (onay kipi `--mode` ile ayrı seçilir).
+Araç adları Fusion adlarıdır (`read_file`, `edit_file`, `run_shell`, `grep` yerine
+`search_code`); Claude Code adı (`Read`, `Edit`, `Bash`) verilirse komut en yakın Fusion adını
+önererek hata verir.
 
 ## Sistem istemi ve ajan tanımı
 

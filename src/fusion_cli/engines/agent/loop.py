@@ -25,7 +25,7 @@ import hashlib
 import json
 import re
 import sys
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
@@ -210,6 +210,7 @@ from .teacher_flow import (
     teacher_is_ready,
 )
 from .teacher_plan import TeacherPlan, UnworkablePart
+from .tool_filter import is_denied_tool
 from .tool_profiles import WIDENED_KIND, hidden_tools
 from .tool_surface import measure_surface, narrow_to_compact_surface
 from .transient import MAX_TOOL_TRANSIENT_RETRIES, is_transient_failure
@@ -422,6 +423,9 @@ class AgentDeps:
     home: Path | None = None
     #: Kullanıcının `.claude/settings.local.json` içinde onaysız izin verdiği komutlar.
     allowed_commands: frozenset[str] = frozenset()
+    #: `--disallowed-tools` (P-026): bu araçlar modele HİÇ sunulmaz, çağrılırsa `BLOCKED`.
+    #: Salt-okunur araçları da kapsar; onay politikası yalnız değiştiricilere bakar.
+    denied_tools: frozenset[str] = frozenset()
     #: Verilirse ders çıkarımı turu BEKLETMEDEN arka planda çalışır (REPL için).
     #: Verilmezse tur içinde beklenir (tek seferlik CLI için doğru davranış).
     background: BackgroundTasks | None = None
@@ -811,7 +815,14 @@ async def _run_agent(
         execution = observe_execution(execution, WORKSPACE_READ_REASON)
     if allowed_tools is not None:
         names = frozenset(
-            _permitted(allowed_tools, registry, execution, deps.tool_context.task_kinds) or ()
+            _permitted(
+                allowed_tools,
+                registry,
+                execution,
+                deps.tool_context.task_kinds,
+                denied=getattr(deps, "denied_tools", ()),
+            )
+            or ()
         )
         execution = replace(execution, allowed_tool_names=names)
     # Web taşımasında bağlam pahalıdır: uzun okuma hem gecikme hem context rot
@@ -1555,7 +1566,13 @@ async def _drive(
                 final_text,
                 state,
                 execution,
-                _permitted(allowed_tools, registry, execution, deps.tool_context.task_kinds),
+                _permitted(
+                    allowed_tools,
+                    registry,
+                    execution,
+                    deps.tool_context.task_kinds,
+                    denied=getattr(deps, "denied_tools", ()),
+                ),
             )
             if refusal_note is not None:
                 messages.append(refusal_note)
@@ -2382,7 +2399,13 @@ async def _call_model(
     offered_tools = (
         tuple(
             registry.schemas(
-                _permitted(allowed_tools, registry, execution, deps.tool_context.task_kinds)
+                _permitted(
+                    allowed_tools,
+                    registry,
+                    execution,
+                    deps.tool_context.task_kinds,
+                    denied=getattr(deps, "denied_tools", ()),
+                )
             )
         )
         if offer_tools
@@ -2532,6 +2555,7 @@ def _permitted(
     registry: ToolRegistry,
     execution: ExecutionPolicy,
     task_kinds: frozenset[str] | set[str] = frozenset(),
+    denied: Collection[str] = (),
 ) -> set[str] | None:
     """Modele sunulacak ve çalıştırılabilecek araç adlarını belirle.
 
@@ -2549,6 +2573,10 @@ def _permitted(
     )
     if execution.allowed_tool_names is not None:
         names &= execution.allowed_tool_names
+    if denied:
+        # Yasak liste (`--disallowed-tools`) şema yüzeyinden düşer: salt-okunur araçta onay
+        # politikası hiç çalışmadığı için tek güvenilir kapı burasıdır (31 Ekim).
+        names = {name for name in names if not is_denied_tool(name, denied)}
     # Açıkça istenmiş araç (allowed_tools) türden bağımsız kalır.
     names = {
         name
@@ -3650,6 +3678,12 @@ async def _execute(
         allowed = ", ".join(sorted(execution.allowed_tool_names)) or "yok"
         return ToolResult.failure(
             f"Araç bu adımın izin verilen kapsamında değil. Bu adımda kullanılabilir: {allowed}"
+        ), ToolOutcome.BLOCKED
+    if is_denied_tool(call.name, getattr(deps, "denied_tools", ())):
+        # `--disallowed-tools`: şema zaten sunulmadı; ad uydurulursa da çalışmaz. Engelleme
+        # (BLOCKED) hata değildir, model başka yol dener.
+        return ToolResult.failure(
+            f"'{call.name}' aracı bu koşuda yasak (--disallowed-tools); başka bir yol dene."
         ), ToolOutcome.BLOCKED
     _widen_profile_for(call.name, deps, registry, execution)
     if deps.steering is not None and deps.steering.pending:

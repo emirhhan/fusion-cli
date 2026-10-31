@@ -278,6 +278,7 @@ async def run_agent_task(
             # Sohbet boyunca yaşayan çağıran kendi hafızasını verir; yoksa
             # "oturum boyunca" izni bu turla birlikte biter (`fusion run`).
             policy=_policy(mode),
+            denied_tools=frozenset(denied_tools),
             steering=steering,
             child_runs=child_runs if child_runs is not None else ChildRuns(),
             selected_skill=selected_skill,

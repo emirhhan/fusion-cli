@@ -434,3 +434,76 @@ def test_oturum_yasakli_araclari_politikaya_sarar(monkeypatch, tmp_path):
     )
 
     assert isinstance(yakalanan["policy"], DeniedToolsPolicy)
+
+
+async def test_yasakli_salt_okunur_arac_dongude_sunulmaz_ve_calismaz(monkeypatch, tmp_path):
+    """Ölçüldü (31 Ekim): politika yalnız değiştirici araçta çalışıyor; `--disallowed-tools
+    read_file` verilse de araç sunuluyor ve okuyordu. Yasak, şema yüzeyinde ve `_execute`te."""
+    from fusion_cli.engines.agent import loop as agent_loop
+    from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+    from fusion_cli.engines.agent.loop import AgentDeps, run_agent
+
+    from .fakes import AlwaysApprove, RecordingSink, ScriptedProvider, model_result, tool_call
+
+    (tmp_path / "a.txt").write_text("gizli", encoding="utf-8")
+    sink = RecordingSink()
+    provider = ScriptedProvider(
+        [model_result(tool_calls=[tool_call("read_file", path="a.txt")]), model_result("bitti")]
+    )
+    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **kwargs: provider)
+
+    class _Yayinci:
+        def publish(self, event):
+            sink.handle(event)
+
+    deps = AgentDeps(
+        config=load_config(),
+        publisher=_Yayinci(),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=tmp_path),
+        denied_tools=frozenset({"read_file"}),
+    )
+
+    sonuc = await run_agent("oku", deps)
+
+    sunulan = {tool["function"]["name"] for tool in provider.seen_requests[0]}
+    assert "read_file" not in sunulan and "list_dir" in sunulan
+    arac_mesaji = next(m for m in sonuc.messages if m.role == "tool")
+    assert "gizli" not in arac_mesaji.content and "yasak" in arac_mesaji.content.lower()
+
+
+def test_oturum_yasakli_araclari_bagimliliklara_gecirir(monkeypatch, tmp_path):
+    from fusion_cli.cli import session as session_module
+
+    yakalanan = {}
+
+    async def _sahte_run_agent(task, deps, **kwargs):
+        yakalanan["denied"] = deps.denied_tools
+        return SimpleNamespace(
+            final_text="ok",
+            ok=True,
+            budget_stopped=False,
+            made_no_changes=False,
+            stop_reason=None,
+            tool_calls_made=0,
+            mutating_tool_calls_made=0,
+        )
+
+    monkeypatch.setattr(session_module, "run_agent", _sahte_run_agent)
+    monkeypatch.setattr(session_module, "suggest_followups", lambda evidence: ())
+    monkeypatch.setattr(session_module, "evidence_from_turn", lambda *a, **k: None)
+    config = replace(load_config(), mcp_servers=(), hosted_connectors=())
+
+    asyncio.run(
+        session_module.run_agent_task(
+            "gorev",
+            config,
+            sinks=(),
+            prompter_factory=lambda flush: None,
+            root=tmp_path,
+            tool_context=ToolContext(root=tmp_path),
+            denied_tools=frozenset({"web_search"}),
+        )
+    )
+
+    assert yakalanan["denied"] == frozenset({"web_search"})
