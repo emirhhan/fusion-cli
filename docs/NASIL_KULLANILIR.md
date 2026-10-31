@@ -591,6 +591,15 @@ GitHub işleri `gh` (GitHub CLI) üzerinden yürür; `gh auth login` yapılmış
 - CI: `fusion gh-action kur` depoya `.github/workflows/fusion.yml` yazar; bir issue ya da
   PR yorumuna `@fusion <görev>` yazıldığında Fusion headless çalışır (`--bare`, bütçe ve tur
   tavanlı) ve sonucu yoruma yazar. Depo sırrı: `FUSION_PROVIDER_KEY`.
+- **Oturumun PR'a bağlanması:** turda başarılı bir `gh pr create` (yoksa `gh pr view/checks`)
+  çıktısındaki PR adresi oturumun PR künyesi olur: REPL durum satırında `PR #42`, masaüstünde
+  sohbet şeridinde **PR #42 · sahip/depo** rozeti (tıklayınca tarayıcıda açılır;
+  `oturum.durum.pr`). Sonraki PR'sız turlar bağı silmez.
+- **Kanıt kapısı:** cevap "PR'ı açtım / pull request oluşturuldu / opened a PR" diyorsa turda
+  başarılı bir `gh pr create` çıktısı (PR adresi) olmalı; yoksa cevabın sonuna "PR açılmamış
+  olabilir, `gh pr status` ile doğrula" notu eklenir. "PR'a yorum yazdım" beyanı da
+  `gh pr comment` kanıtı ister. Başlık/gövde model işidir, bu yüzden PR açma ayrı bir
+  deterministik iş akışı değil `run_shell` + onay yoludur; kapı yalnız beyanı doğrular.
 
 ---
 

@@ -132,6 +132,7 @@ from ...tools.preview import file_diff
 from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking
 from ..effects.model import EffectKind
+from ..effects.pull_request import disclose_unverified_pr
 from ..effects.runner import maybe_run_effect_workflow
 from . import (
     compaction,
@@ -1178,6 +1179,8 @@ async def _run_agent(
     # bekletemez.
     if not chat_mode and not internal and depth == 0:
         ensure_limitations_disclosed(outcome, deps)
+        # "PR'ı açtım" beyanı `gh pr create` kanıtı olmadan teslim edilmez (P-057).
+        disclose_unverified_pr(outcome)
     _announce_answer(outcome, deps, depth=depth, internal=internal)
 
     await learning_steps.learn(

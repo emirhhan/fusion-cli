@@ -57,6 +57,7 @@ from ...core.types import FusionResult
 from ...core.worktree import Worktree
 from ...engines.agent.compaction import compress
 from ...engines.agent.turn_evidence import evidence_from_turn
+from ...engines.effects.pull_request import session_pull_request
 from ...memory.factory import Memory
 from ...observability.bus import EventBus
 from ...observability.tracing import LangfuseTracer
@@ -834,6 +835,8 @@ async def _agent_turn(
             # Masaüstü kilidi tur ile sınırlıdır (bkz. `tools/desktop_lock`, `cli/session.py`).
             desktop_lock.release(token=tool_context.job_scope)
     state.history = outcome.messages
+    # Turda açılan/okunan PR oturumun künyesi olur; durum satırında görünür (P-057).
+    state.bind_pull_request(session_pull_request(outcome.tool_uses))
     # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır (kök tur ortasında değişmez).
     switched = worktrees.apply_switch(state, tool_context)
     if switched:
@@ -931,6 +934,8 @@ def _sync_status_bar(
         parts.append(baglam)
     if background is not None and background.pending:
         parts.append(f"{background.pending} arka plan işi")
+    if state.linked_pr is not None:
+        parts.append(state.linked_pr.label)
     reader.context = " · ".join(parts)
 
 

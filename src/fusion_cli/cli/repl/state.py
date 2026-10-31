@@ -20,6 +20,7 @@ from ...config.permission_rules import PermissionRuleSet, load_permission_rules
 from ...config.permissions import load_allowed_commands
 from ...core.changeset import ChangeSet
 from ...core.health import HealthRegistry
+from ...core.pull_request import PullRequestLink
 from ...core.remotion_browser import RemotionBrowser
 from ...core.session_cron import SessionCron
 from ...core.turn_checkpoints import TurnCheckpointLedger
@@ -205,6 +206,13 @@ class ReplState:
     pending_model_choice: TurnModelChoice = field(default_factory=TurnModelChoice)
     pending_denied_tools: frozenset[str] = frozenset()
     pending_fork_agent: str = ""
+    #: Oturumun bağlı olduğu PR (P-057): son turda açılan/okunan PR; durum satırında görünür.
+    linked_pr: PullRequestLink | None = None
+
+    def bind_pull_request(self, link: PullRequestLink | None) -> None:
+        """Turun kanıtından gelen PR künyesini bağla; yoksa öncekini koru."""
+        if link is not None:
+            self.linked_pr = link
 
     @classmethod
     def from_runtime_config(cls, config: Config, **kwargs: object) -> ReplState:

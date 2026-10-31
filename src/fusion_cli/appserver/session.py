@@ -82,6 +82,7 @@ from ..engines.agent.remotion_bridge import FrameTransport
 from ..engines.agent.skill_turn import resolve_turn_model
 from ..engines.agent.team_fork import run_forked_turn
 from ..engines.agent.turn_report import evidence_payload
+from ..engines.effects.pull_request import session_pull_request
 from ..engines.retention import purge_local_state_daily
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
@@ -2156,6 +2157,16 @@ class AppSession:
             "maliyet_usd": round(self._usage.total.cost_usd, 4),
             # Kök bir proje DEPOSUYSA (Masaüstü gibi) içindeki projeler; arayüz uyarır.
             "depo": self._container_projects(),
+            # Oturumun bağlı olduğu PR (P-057); yoksa None. Sohbet şeridi rozeti gösterir.
+            "pr": (
+                {
+                    "numara": self._state.linked_pr.number,
+                    "url": self._state.linked_pr.url,
+                    "depo": self._state.linked_pr.repo,
+                }
+                if self._state.linked_pr is not None
+                else None
+            ),
         }
 
     def _container_projects(self) -> list[str]:
@@ -2969,6 +2980,8 @@ class AppSession:
             self._chrome_history = outcome.messages
             return {"ok": outcome.ok, "metin": outcome.final_text or messages.APP_TURN_NO_ANSWER}
         self._state.history = outcome.messages
+        # Turda açılan/okunan PR oturumun PR künyesi olur (P-057; `oturum.durum.pr`).
+        self._state.bind_pull_request(session_pull_request(getattr(outcome, "tool_uses", ())))
         switched = worktrees.apply_switch_request(self._state, switch)
         root_payload = self._adopt_state_root() if switched else {}
         # Transcript bir BAŞARI kaydı değil, NE OLDUĞU kaydıdır.
