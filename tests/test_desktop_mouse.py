@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ctypes
+import sys
+
 import pytest
 
 from fusion_cli.core.desktop_frame import DesktopFrame
@@ -151,3 +154,48 @@ def test_kaydirma_sinirlari(tmp_path, monkeypatch) -> None:
     assert not desktop_mouse.desktop_scroll({"lines": 101}, context).ok
     assert not desktop_mouse.desktop_scroll({}, context).ok
     assert not desktop_mouse.desktop_scroll({"lines": 1, "x": 3}, context).ok
+
+
+# --- gerçek ctypes: olay kurulur ama GÖNDERİLMEZ (izin ve odak gerekmez) ---------------- #
+
+_DARWIN = pytest.mark.skipif(sys.platform != "darwin", reason="Quartz yalnız macOS'ta")
+#: kCGScrollWheelEventDeltaAxis1 / Axis2 ve kCGMouseEventClickState alan numaraları.
+_AXIS_1, _AXIS_2 = 11, 12
+
+
+def _field(framework: ctypes.CDLL, handle: int, field: int) -> int:
+    framework.CGEventGetIntegerValueField.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    framework.CGEventGetIntegerValueField.restype = ctypes.c_int64
+    return int(framework.CGEventGetIntegerValueField(handle, field))
+
+
+@_DARWIN
+@pytest.mark.parametrize(("lines", "delta_x"), [(-4, 0), (5, 3), (0, 7), (100, -100)])
+def test_kaydirma_olayi_iki_ekseni_dogru_tasir(lines: int, delta_x: int) -> None:
+    """Ölçüldü (31 Ekim, arm64): argtypes'sız variadic çağrıda eksen2 çöp (-27736) geliyordu."""
+    framework = desktop_mouse._framework()
+
+    handle = desktop_mouse._create_scroll_event(framework, lines, delta_x)
+    try:
+        assert (_field(framework, handle, _AXIS_1), _field(framework, handle, _AXIS_2)) == (
+            lines,
+            delta_x,
+        )
+    finally:
+        framework.CFRelease(handle)
+
+
+@_DARWIN
+def test_fare_olayi_konum_ve_tik_sayisini_tasir() -> None:
+    framework = desktop_mouse._framework()
+    framework.CGEventGetLocation.argtypes = [ctypes.c_void_p]
+    framework.CGEventGetLocation.restype = desktop_mouse._Point
+    olay = MouseEvent(1, 720.0, 450.5, 0, 2, 1 << 20)
+
+    handle = desktop_mouse._create_mouse_event(framework, olay)
+    try:
+        konum = framework.CGEventGetLocation(handle)
+        assert (konum.x, konum.y) == (720.0, 450.5)
+        assert _field(framework, handle, desktop_mouse._CLICK_STATE_FIELD) == 2
+    finally:
+        framework.CFRelease(handle)

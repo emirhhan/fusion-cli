@@ -103,7 +103,8 @@ def mouse_plan(
     return tuple(events)
 
 
-def _post_mouse(framework: ctypes.CDLL, plan: tuple[MouseEvent, ...]) -> None:
+def _create_mouse_event(framework: ctypes.CDLL, event: MouseEvent) -> int:
+    """Quartz fare olayını kur (GÖNDERMEZ); çağıran `CFRelease` eder. Test okunabilir."""
     framework.CGEventCreateMouseEvent.argtypes = [
         ctypes.c_void_p,
         ctypes.c_uint32,
@@ -117,19 +118,28 @@ def _post_mouse(framework: ctypes.CDLL, plan: tuple[MouseEvent, ...]) -> None:
         ctypes.c_int64,
     ]
     framework.CGEventSetFlags.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
-    framework.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
     framework.CFRelease.argtypes = [ctypes.c_void_p]
+    handle = framework.CGEventCreateMouseEvent(
+        None, event.kind, _Point(event.x, event.y), event.button
+    )
+    if not handle:
+        raise RuntimeError("Fare olayı oluşturulamadı")
+    try:
+        if event.click_state:
+            framework.CGEventSetIntegerValueField(handle, _CLICK_STATE_FIELD, event.click_state)
+        if event.flags:
+            framework.CGEventSetFlags(handle, event.flags)
+    except (OSError, AttributeError):
+        framework.CFRelease(handle)
+        raise
+    return int(handle)
+
+
+def _post_mouse(framework: ctypes.CDLL, plan: tuple[MouseEvent, ...]) -> None:
+    framework.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
     for event in plan:
-        handle = framework.CGEventCreateMouseEvent(
-            None, event.kind, _Point(event.x, event.y), event.button
-        )
-        if not handle:
-            raise RuntimeError("Fare olayı oluşturulamadı")
+        handle = _create_mouse_event(framework, event)
         try:
-            if event.click_state:
-                framework.CGEventSetIntegerValueField(handle, _CLICK_STATE_FIELD, event.click_state)
-            if event.flags:
-                framework.CGEventSetFlags(handle, event.flags)
             framework.CGEventPost(0, handle)  # kCGHIDEventTap
         finally:
             framework.CFRelease(handle)
@@ -224,14 +234,40 @@ def desktop_click(args: ToolArgs, context: ToolContext) -> ToolResult:
     return desktop_mouse({**args, "action": "click"}, context)
 
 
-def _post_scroll(framework: ctypes.CDLL, lines: int, delta_x: int = 0) -> None:
+#: kCGScrollEventUnitLine ve iki tekerlek: wheel1 dikey, wheel2 yatay (pozitif sola).
+_SCROLL_UNIT_LINE = 1
+_SCROLL_WHEEL_COUNT = 2
+
+
+def _create_scroll_event(framework: ctypes.CDLL, lines: int, delta_x: int = 0) -> int:
+    """Kaydırma olayını kur (GÖNDERMEZ); çağıran `CFRelease` eder.
+
+    `CGEventCreateScrollWheelEvent(source, units, wheelCount, wheel1, ...)` VARIADIC'tir.
+    Apple Silicon'da variadic argüman yığından okunur; ctypes ancak `argtypes` sabit kısmı
+    (4 öğe) kapsıyor ve fazlası tipli (`c_int32`) verildiğinde variadic çağrı üretir.
+    Ölçüldü (31 Ekim, arm64 / Python 3.11): argtypes'sız çağrıda wheel2 çöp (`lines=-4,
+    delta_x=0` → eksen2 -27736), 5 öğeli argtypes ile wheel2 hep 0 (`delta_x=3` → 0);
+    yalnız 4 öğeli argtypes + `c_int32(delta_x)` her iki ekseni doğru taşıyor.
+    """
+    framework.CGEventCreateScrollWheelEvent.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_int32,
+    ]
     framework.CGEventCreateScrollWheelEvent.restype = ctypes.c_void_p
-    framework.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
     framework.CFRelease.argtypes = [ctypes.c_void_p]
-    # units=1 (satır), wheelCount=2: wheel1 dikey, wheel2 yatay (pozitif sola).
-    event = framework.CGEventCreateScrollWheelEvent(None, 1, 2, lines, delta_x)
-    if not event:
+    handle = framework.CGEventCreateScrollWheelEvent(
+        None, _SCROLL_UNIT_LINE, _SCROLL_WHEEL_COUNT, lines, ctypes.c_int32(delta_x)
+    )
+    if not handle:
         raise RuntimeError("Kaydırma olayı oluşturulamadı")
+    return int(handle)
+
+
+def _post_scroll(framework: ctypes.CDLL, lines: int, delta_x: int = 0) -> None:
+    framework.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+    event = _create_scroll_event(framework, lines, delta_x)
     try:
         framework.CGEventPost(0, event)
     finally:
