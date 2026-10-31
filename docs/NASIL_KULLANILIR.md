@@ -776,7 +776,7 @@ fusion --profile high                                        # yalnız bu oturum
 fusion --set runtime.max_tokens=8192 run "görev"                # alt komutlarda da geçerli
 ```
 `--set`/`--profile` REPL'in yanında `run`, `agent`, `serve`, `models`, `trace`, `mcp-tools` ve `config get/list/show` alt komutlarına da uygulanır (`config set` dosyaya yazar, oturumluk değeri almaz; `app`/`mcp` sunucuları yapılandırmayı kendileri yükler). Hatalı çift çıkış kodu 2 ile durdurur.
-Erişilebilen bölümler `runtime.*` ve `embedding.*`; tip dataclass alanından doğrulanır (boolean: true/false/açık/kapalı, liste: `a,b,c`, `null` anahtarı siler). Model rolleri için `/model`, `/level`, `/mode`.
+Erişilebilen bölümler `runtime.*`, `embedding.*` ve `capabilities.*`; tip dataclass alanından doğrulanır (boolean: true/false/açık/kapalı, liste: `a,b,c`, sözlük: `ad=değer, ad2=değer`, `null` anahtarı siler). Beceri görünürlüğü tek anahtarla: `/config capabilities.overrides.deploy=user-invocable-only` (`fusion config set capabilities.overrides.deploy kapali`); `capabilities.disabled=a,b` kalıcı kapatma. REPL'de değişiklik beceri kataloğuna hemen yansır. Model rolleri için `/model`, `/level`, `/mode`.
 
 ### Çıktı stili: `/output-style`
 

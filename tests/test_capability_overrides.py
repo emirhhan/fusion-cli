@@ -132,3 +132,42 @@ def test_yalniz_kullanici_becerisi_read_skill_ile_yuklenemez(
     assert not blocked.ok and blocked.output == SKILL_USER_ONLY.format(name="elle")
     assert extra.ok and "ek" in extra.output
     assert normal.ok and "Gövde" in normal.output
+
+
+def test_config_komutu_gorunurlugu_yazar_ve_katalogu_yeniler(
+    tmp_path: Path, dirs: tuple[Path, Path]
+):
+    """Ölçüldü (31 Ekim): `capabilities` bölümü `/config` ve `fusion config` tarafından
+    tanınmıyordu; görünürlük yalnız YAML elle düzenlenerek ayarlanabiliyordu."""
+    from fusion_cli.cli.repl.config_command import config_command
+    from fusion_cli.config.settings_access import apply_overrides, list_settings, read_setting
+
+    state = _state(tmp_path, *dirs, "capabilities:\n  overrides:\n    adli: name-only\n")
+    assert state.capabilities is not None and state.capabilities.get_skill("kapali") is not None
+
+    out = config_command(state, "capabilities.overrides.kapali=kapalı")
+
+    assert "capabilities.overrides.kapali" in out and "off" in out
+    assert state.config.capabilities.overrides == {
+        "adli": SkillVisibility.NAME_ONLY,
+        "kapali": SkillVisibility.OFF,
+    }
+    assert state.capabilities.get_skill("kapali") is None
+    assert read_setting(state.config, "capabilities.overrides.kapali") == "off"
+    assert read_setting(state.config, "capabilities.overrides") == "adli=name-only, kapali=off"
+    reloaded = load_config(tmp_path / "config.yaml")
+    assert reloaded.capabilities.overrides["kapali"] is SkillVisibility.OFF
+    # Oturumluk `-c` ve tüm sözlük yazımı; liste görünümü bölümü içerir.
+    session = apply_overrides(
+        state.config, ("capabilities.overrides=elle=yalniz-kullanici", "capabilities.disabled=x,y")
+    )
+    assert session.capabilities.overrides == {"elle": SkillVisibility.USER_INVOCABLE_ONLY}
+    assert session.capabilities.disabled == ("x", "y")
+    assert {row.path for row in list_settings(state.config, "capabilities")} == {
+        "capabilities.disabled",
+        "capabilities.overrides",
+    }
+    with pytest.raises(ConfigError, match="geçersiz değer"):
+        apply_overrides(state.config, ("capabilities.overrides.x=gizli",))
+    with pytest.raises(ConfigError, match="Bilinmeyen ayar"):
+        apply_overrides(state.config, ("capabilities.disabled.x=1",))
