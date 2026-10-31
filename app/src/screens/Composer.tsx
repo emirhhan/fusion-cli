@@ -57,6 +57,13 @@ export interface McpSunucusu {
   aciklama: string;
 }
 
+/** Kişilik seçicideki bir ajan (P-053): katalogdaki etkin ajanlar. */
+export interface PersonaOption {
+  ad: string;
+  unvan?: string;
+  aciklama?: string;
+}
+
 /** `@` listesindeki tek satır: MCP sunucusu ya da proje dosyası. */
 interface AnmaOgesi {
   tur: "mcp" | "dosya";
@@ -78,6 +85,10 @@ interface ComposerProps {
   approval?: ApprovalMode;
   /** Verilmezse mod salt okunur gösterilir. */
   onApprovalChange?: (mode: ApprovalMode) => void;
+  /** Oturum kişiliği (ajan adı) ya da null; `onPersonaChange` yoksa seçici çizilmez. */
+  persona?: string | null;
+  personaOptions?: PersonaOption[];
+  onPersonaChange?: (persona: string | null) => void;
   attachments?: ComposerAttachment[];
   attachmentError?: string | null;
   commandError?: string | null;
@@ -136,6 +147,9 @@ export function Composer({
   context = null,
   costUsd = null,
   onApprovalChange,
+  persona = null,
+  personaOptions = [],
+  onPersonaChange,
   onAttach = () => undefined,
   onDropFiles = () => undefined,
   onFileQuery,
@@ -489,6 +503,22 @@ export function Composer({
               <ApprovalModeMenu mode={approval} onChange={onApprovalChange} />
             ) : (
               <span className="composer__agent">{approvalInfo(approval).label}</span>
+            )}
+            {onPersonaChange && workspaceMode !== "sohbet" && (
+              <select
+                aria-label="Oturum kişiliği"
+                className="composer__persona"
+                data-active={persona ? "true" : undefined}
+                onChange={(event) => onPersonaChange(event.target.value || null)}
+                title="Oturumu bir ajan tanımıyla sür (explore, plan…); boş = varsayılan Fusion"
+                value={persona ?? ""}
+              >
+                <option value="">Kişilik yok</option>
+                {personaOptions.map((option) => (
+                  <option key={option.ad} title={option.aciklama} value={option.ad}>{option.unvan && option.unvan !== option.ad ? `${option.unvan} (${option.ad})` : option.ad}</option>
+                ))}
+                {persona && !personaOptions.some((option) => option.ad === persona) && <option value={persona}>{persona}</option>}
+              </select>
             )}
           </div>
           {running ? (

@@ -36,6 +36,7 @@ import {
   type ComposerCommand,
   type DosyaOnerisi,
   type McpSunucusu,
+  type PersonaOption,
 } from "./screens/Composer";
 import { Conversation, type Mesaj } from "./screens/Conversation";
 import type { ModelOption } from "./screens/ModelPicker";
@@ -508,6 +509,7 @@ export function SessionUygulama({
   // `/beceri` ve `@mcp` girdileri için etkin katalog adları.
   const [skillNames, setSkillNames] = useState<string[]>([]);
   const [mcpServers, setMcpServers] = useState<McpSunucusu[]>([]);
+  const [personaOptions, setPersonaOptions] = useState<PersonaOption[]>([]);
   //: En son gönderilen `@` sorgusunun sırası. Geç gelen cevap yenisini EZMEZ:
   //: kullanıcı yazmaya devam ettiğinde eski sorgunun sonucu listeyi geri almamalı.
   const fileQuerySeq = useRef(0);
@@ -587,7 +589,7 @@ export function SessionUygulama({
     return () => { commandOwner.current = generation + 1; };
   }, [activeSessionId]);
   // İzin modu ve çalışma kipi sohbet başınadır; değişiklik çekirdek onaylayınca görünür.
-  const { approval, workspaceMode, changeApproval, changeWorkspace } = useSessionModes(
+  const { approval, workspaceMode, persona, changeApproval, changeWorkspace, changePersona } = useSessionModes(
     active ? { id: active.id, client: active.client } : null,
     setCommandError,
   );
@@ -910,6 +912,13 @@ export function SessionUygulama({
         destekleniyor: true,
       }];
       setSkillNames(skillRows.map((row) => row.ad));
+      // Kişilik seçici (P-053): katalogdaki etkin ajanlar; yerleşik explore/plan da buradan gelir.
+      setPersonaOptions((Array.isArray(capabilityPayload.ajanlar) ? capabilityPayload.ajanlar : []).flatMap((raw) => {
+        if (!raw || typeof raw !== "object") return [];
+        const row = raw as Record<string, unknown>;
+        if (typeof row.ad !== "string" || row.etkin !== true) return [];
+        return [{ ad: row.ad, aciklama: typeof row.aciklama === "string" ? row.aciklama : undefined }];
+      }));
       setMcpServers((Array.isArray(capabilityPayload.mcp) ? capabilityPayload.mcp : []).flatMap((raw) => {
         if (!raw || typeof raw !== "object") return [];
         const row = raw as Record<string, unknown>;
@@ -1565,6 +1574,9 @@ export function SessionUygulama({
           onModelSelect={(option) => void selectModelOption(option)}
           approval={approval}
           onApprovalChange={(next) => void changeApproval(next)}
+          persona={persona?.ad ?? null}
+          personaOptions={personaOptions}
+          onPersonaChange={(next) => void changePersona(next)}
           attachments={activeAttachments}
           attachmentError={attachmentError ?? controller.submissionRecoveryError(active.id)}
           commandError={active.stopError ?? commandError}

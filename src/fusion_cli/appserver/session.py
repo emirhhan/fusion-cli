@@ -36,6 +36,7 @@ from typing import Any
 
 from ..cli.repl import macros
 from ..cli.repl.commands import RENDERED_COMMANDS, build_registry
+from ..cli.repl.persona_commands import persona_turn, resolve_session_persona
 from ..cli.repl.state import Engine, ReplState
 from ..cli.repl.transcript_store import (
     TranscriptStore,
@@ -1528,7 +1529,25 @@ class AppSession:
         engine_error = self._apply_engine(data.get("motor"))
         if engine_error is not None:
             return engine_error
+        persona_error = self._apply_persona(data.get("kisilik"))
+        if persona_error is not None:
+            return persona_error
         return {**self._status(), **self._take_persist_warning()}
+
+    def _apply_persona(self, value: object) -> dict[str, Any] | None:
+        """`kisilik`: ajan adı oturum kişiliği olur (P-053), `""` kapatır, yok = dokunma."""
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return {"ok": False, "metin": "Kişilik bir ajan adı ya da boş metin olmalı."}
+        if not value.strip():
+            self._state.persona = None
+            return None
+        persona = resolve_session_persona(self._all_capabilities, value)
+        if persona is None:
+            return {"ok": False, "metin": messages.PERSONA_UNKNOWN.format(name=value.strip())}
+        self._state.persona = persona
+        return None
 
     def _validated_root(self, value: object) -> tuple[Path | None, dict[str, Any] | None]:
         """`oturum.baslat{kok}`: mutlak, var olan bir dizin; tur sürerken değişmez.
@@ -1801,6 +1820,12 @@ class AppSession:
             "kip": self._workspace_mode,
             "mod": self._state.approval.value,
             "motor": self._state.engine.value,
+            # Oturum kişiliği (P-053); yoksa None. Composer'daki seçici bunu gösterir.
+            "kisilik": (
+                {"ad": self._state.persona.name, "unvan": self._state.persona.title}
+                if self._state.persona is not None
+                else None
+            ),
             # Sıkıştırma sürpriz olmasın: kullanıcı bağlamın dolduğunu görsün.
             "baglam": baglam_olcusu(
                 self._state.history,
@@ -2343,9 +2368,11 @@ class AppSession:
             # Chrome bağlıyken tarayıcı işlerinin sınırı (bkz. `CHROME_NOTE`).
             # Köprü açıksa not verilir: eklenti o an bağlı olmasa da chrome_* Chrome'u açar.
             chrome_note = CHROME_NOTE if self._chrome.running else ""
+            persona = persona_turn(self._state.persona)
             extra_system = "\n\n".join(
                 part
                 for part in (
+                    persona.extra_system,
                     chrome_note,
                     macros.mode_prompt(turn_mode),
                     inherited_context,
@@ -2375,7 +2402,7 @@ class AppSession:
                 allowed_tools=(
                     (CHROME_CODE_TURN_TOOLS if self._workspace_mode == "kod" else CHROME_TURN_TOOLS)
                     if browser_only
-                    else None
+                    else persona.allowed_tools
                 ),
                 extra_system=extra_system,
                 # Görsel ekler modele GERÇEKTEN gider; yol metni ayrıca kalır.

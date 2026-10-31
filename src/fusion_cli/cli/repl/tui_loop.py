@@ -48,6 +48,7 @@ from .commands import (
 )
 from .loop import apply_auto_profile
 from .partial_turn import PartialTurn
+from .persona_commands import persona_turn
 from .state import Engine, Reminder, ReplState
 from .transcript_store import TranscriptStore
 from .tui import FusionTui
@@ -565,8 +566,11 @@ class _TuiSession:
                 # kullanan agent dalında tüketilir. Kip promptuyla aynı metinde
                 # birleşir (`loop.py` ile aynı sıra).
                 digest = self._state.take_pending_digest()
+                persona = persona_turn(self._state.persona)
                 turn_extra_system = "\n\n".join(
-                    part for part in (macros.mode_prompt(mode), digest) if part
+                    part
+                    for part in (persona.extra_system, macros.mode_prompt(mode), digest)
+                    if part
                 )
                 try:
                     outcome = await run_agent_task(
@@ -594,6 +598,7 @@ class _TuiSession:
                         approval_memory=self._state.approval_memory,
                         step_limit=macros.mode_step_limit(mode),
                         workflow=macros.mode_workflow(mode),
+                        allowed_tools=persona.allowed_tools,
                     )
                 except (asyncio.CancelledError, Exception):
                     # İptal/hata: o turun araç sonuçları geçmişten düşmesin (L2-12).

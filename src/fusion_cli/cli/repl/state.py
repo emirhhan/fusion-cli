@@ -20,6 +20,7 @@ from ...core.remotion_browser import RemotionBrowser
 from ...core.types import FusionResult, Message
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
 from ...engines.agent.remotion_bridge import FrameTransport
+from ...engines.agent.team import Persona
 from ...memory.factory import Memory
 from ...memory.plain_memory import PlainMemory, build_plain_memory
 from ...observability.cost import CostTracker
@@ -111,6 +112,9 @@ class ReplState:
     capabilities: CapabilityRegistry | None = None
     #: Düz metin otomatik bellek (P-036); `runtime.auto_memory` kapalıysa None.
     plain_memory: PlainMemory | None = None
+    #: Oturum kişiliği (P-053; `--agent <ad>` / `/persona`): tanımın gövdesi her turun
+    #: sistem istemine girer, araç kümesi daralır. None = varsayılan Fusion.
+    persona: Persona | None = field(default=None, kw_only=True)
     #: Oturum boyunca paylaşılan sağlayıcı sağlığı (circuit breaker + güvenilirlik).
     #: Tur ötesi durum burada yaşar; her agent turu aynı kaydı besler ve okur.
     health: HealthRegistry | None = None

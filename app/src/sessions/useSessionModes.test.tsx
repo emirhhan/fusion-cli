@@ -15,8 +15,29 @@ function istemci(cevaplar: Record<string, Cevap | Error | (() => Promise<Cevap>)
 
 describe("modlariOku", () => {
   it("yalnız tanınan modları döndürür", () => {
-    expect(modlariOku({ mod: "security", kip: "sohbet" })).toEqual({ approval: "security", workspace: "sohbet" });
-    expect(modlariOku({ mod: "yok", kip: 3 })).toEqual({ approval: undefined, workspace: undefined });
+    expect(modlariOku({ mod: "security", kip: "sohbet" })).toEqual({ approval: "security", workspace: "sohbet", persona: undefined });
+    expect(modlariOku({ mod: "yok", kip: 3 })).toEqual({ approval: undefined, workspace: undefined, persona: undefined });
+  });
+
+  it("kişiliği nesne/null/yok olarak ayırır (P-053)", () => {
+    expect(modlariOku({ kisilik: { ad: "explore", unvan: "Kâşif" } }).persona).toEqual({ ad: "explore", unvan: "Kâşif" });
+    expect(modlariOku({ kisilik: null }).persona).toBeNull();
+    expect(modlariOku({ kisilik: "bozuk" }).persona).toBeUndefined();
+  });
+});
+
+describe("useSessionModes — oturum kişiliği (P-053)", () => {
+  it("durumdan okur, değişikliği çekirdek onaylayınca gösterir", async () => {
+    const c = istemci({
+      "oturum.durum": { ok: true, mod: "auto", kip: "kod", kisilik: null },
+      "oturum.baslat": { ok: true, mod: "auto", kip: "kod", kisilik: { ad: "plan", unvan: "Planlayıcı" } },
+    });
+    const { result } = renderHook(() => useSessionModes({ id: "a", client: c }, vi.fn()));
+    await waitFor(() => expect(c.request).toHaveBeenCalledWith("oturum.durum", {}));
+    expect(result.current.persona).toBeNull();
+    await act(async () => { await result.current.changePersona("plan"); });
+    expect(c.request).toHaveBeenCalledWith("oturum.baslat", { kisilik: "plan" });
+    expect(result.current.persona).toEqual({ ad: "plan", unvan: "Planlayıcı" });
   });
 });
 

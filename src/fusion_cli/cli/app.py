@@ -52,6 +52,7 @@ from . import (
 from .cleanup import with_web_cleanup
 from .prompter import ConsolePrompter
 from .repl import run_repl
+from .repl.persona_commands import PersonaTurn
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
 from .setup_command import run_setup
 
@@ -98,10 +99,19 @@ def main_callback(
             help="Proje kökünün YANINDA erişime açılacak dizin. Birden çok kez verilebilir.",
         ),
     ] = None,
+    agent_persona: Annotated[
+        str | None,
+        typer.Option(
+            "--agent",
+            help="Oturumu bu ajan tanımıyla aç (ör. explore, plan, kodcu ya da "
+            ".claude/agents'taki bir ad); oturumda /persona ile değiştirilir.",
+        ),
+    ] = None,
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
     if ctx.invoked_subcommand is not None:
         return
+    persona = str(agent_persona or "")
     config = load_config()
     # Kapı `evaluate` ile: yalnız Ollama/yerel uç ya da başka sağlayıcıyla çalışan kullanıcı,
     # OpenRouter/NIM anahtarı yok diye REPL'e hiç girememeliydi (L1-13). Anahtarsız VARSAYILAN
@@ -121,6 +131,7 @@ def main_callback(
                     root=root,
                     console=console,
                     extra_roots=tuple(add_dir or ()),
+                    persona=persona,
                 )
             )
         )
@@ -310,6 +321,14 @@ def agent(
             help="Proje kökünün YANINDA erişime açılacak dizin. Birden çok kez verilebilir.",
         ),
     ] = None,
+    agent_persona: Annotated[
+        str | None,
+        typer.Option(
+            "--agent",
+            help="Görevi bu ajan tanımıyla çalıştır (ör. explore, plan ya da "
+            ".claude/agents'taki bir ad): gövdesi sistem istemine girer, araçları daralır.",
+        ),
+    ] = None,
 ) -> None:
     """Görevi araçlarla çalıştır: dosya oku/yaz, komut çalıştır, web'de ara."""
     if not task.strip():
@@ -318,6 +337,7 @@ def agent(
 
     config = load_config()
     root = Path.cwd()
+    persona_turn = _session_persona(agent_persona, root)
     renderer = ConsoleRenderer(console, show_progress=not quiet)
     observers = build_observers(
         task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
@@ -343,6 +363,8 @@ def agent(
                 home=Path.home(),
                 memory=open_memory(config, root=root, enabled=not no_memory),
                 extra_roots=tuple(add_dir or ()),
+                extra_system=persona_turn.extra_system,
+                allowed_tools=persona_turn.allowed_tools,
             )
         ),
         renderer,
@@ -371,6 +393,19 @@ def _run_observed(
         renderer.abort()
         observers.finish()
         raise
+
+
+def _session_persona(name: str | None, root: Path) -> PersonaTurn:
+    """`--agent <ad>` (P-053): ajan tanımını bul; yoksa açık hata, sessiz düşüş yok."""
+    if not name or not name.strip():
+        return PersonaTurn()
+    from ..tools.capabilities import CapabilityRegistry
+    from .repl.persona_commands import persona_turn, resolve_session_persona
+
+    persona = resolve_session_persona(CapabilityRegistry(Path.home(), root), name)
+    if persona is None:
+        raise typer.BadParameter(messages.PERSONA_UNKNOWN.format(name=name.strip()))
+    return persona_turn(persona)
 
 
 def _parse_mode(raw: str) -> ApprovalMode:

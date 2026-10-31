@@ -319,3 +319,8 @@
 .composer__attachment[data-gorsel="true"] > span { position: absolute; bottom: 0; left: 0; right: 0; padding: 5px 7px; color: white; background: rgb(0 0 0 / 55%); }
 .composer__attachment[data-gorsel="true"] button { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: white; background: rgb(0 0 0 / 65%); cursor: pointer; }
 .composer__attachment button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+/* Oturum kişiliği seçici (P-053): izin kipi çipiyle aynı yükseklik ve ton. */
+.composer__persona { appearance: none; background: var(--surface-hover); border: 0; border-radius: 999px; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--text-xs); max-width: 180px; overflow: hidden; padding: 6px 10px; text-overflow: ellipsis; }
+.composer__persona[data-active="true"] { background: var(--surface-selected); color: var(--text-primary); font-weight: 550; }
+.composer__persona:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }

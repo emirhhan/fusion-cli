@@ -725,6 +725,13 @@ CMD_STATS = "model performans tablosu"
 CMD_LESSONS = "öğrenilen dersler"
 CMD_FORGET = "numarayla ders sil"
 CMD_MEMORY = "düz metin bellek: durum · on/off · edit · list · import claude · <konu>"
+CMD_PERSONA = "oturumu bir ajan kişiliğiyle sür (explore, plan, kodcu…) · off kapatır"
+PERSONA_NONE = "Oturum kişiliği yok. Seçmek için: /persona <ad> (ör. explore, plan)"
+PERSONA_CURRENT = "Oturum kişiliği: {title} ({name}). Kapatmak için: /persona off"
+PERSONA_CLEARED = "Oturum kişiliği kapatıldı; Fusion varsayılan davranışına döndü."
+PERSONA_UNKNOWN = "'{name}' adlı ajan yok. Ajanları görmek için: /help ya da find_agent."
+PERSONA_SET = "Oturum kişiliği: {title} ({name}). Araçlar: {tools}"
+PERSONA_TOOLS_ALL = "tam set"
 MEMORY_STATUS = (
     "Otomatik bellek {state}: {path} ({lines} satır, {kb:.1f} KB{truncated}); konular: {topics}"
 )

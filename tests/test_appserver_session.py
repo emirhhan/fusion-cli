@@ -2359,3 +2359,34 @@ async def test_gorsel_ekleri_olay_dongusunun_disinda_okunur(tmp_path, monkeypatc
     )
 
     assert thread_adlari and thread_adlari[0] != threading.main_thread().name
+
+
+async def test_oturum_baslat_kisilik_kurar_ve_tur_kisiligi_uygular(tmp_path, monkeypatch):
+    """P-053: `oturum.baslat{kisilik}` → `oturum.durum.kisilik`; tur notu ve araç kısıtı."""
+    from fusion_cli.cli import session as cli_session
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(Request(id="1", name="oturum.baslat", data={"kisilik": "yok-boyle"}))
+    assert _sonuc(satirlar, "1")["ok"] is False
+
+    await oturum.handle(Request(id="2", name="oturum.baslat", data={"kisilik": "explore"}))
+    sonuc = _sonuc(satirlar, "2")
+    assert sonuc["ok"] is True and sonuc["kisilik"] == {"ad": "explore", "unvan": "Kâşif"}
+
+    gorulen: dict = {}
+
+    async def _sahte(_task, _config, **kwargs):
+        gorulen.update(kwargs)
+        return SimpleNamespace(ok=True, final_text="bitti", messages=[])
+
+    monkeypatch.setattr(cli_session, "run_agent_task", _sahte)
+    await oturum.handle(Request(id="3", name="tur.calistir", data={"gorev": "ara"}))
+    assert "# Oturum kişiliği: Kâşif (explore)" in gorulen["extra_system"]
+    assert gorulen["allowed_tools"] is not None and "write_file" not in gorulen["allowed_tools"]
+
+    await oturum.handle(Request(id="4", name="oturum.baslat", data={"kisilik": ""}))
+    assert _sonuc(satirlar, "4")["kisilik"] is None
+    await oturum.handle(Request(id="5", name="oturum.durum", data={}))
+    assert _sonuc(satirlar, "5")["kisilik"] is None

@@ -15,6 +15,21 @@ describe("Composer", () => {
     expect(container.querySelector(".composer")?.getAttribute("data-layout")).toBe("expanded");
   });
 
+  it("kişilik seçici yalnız onPersonaChange verilince çizilir ve seçimi iletir (P-053)", () => {
+    const onPersonaChange = vi.fn();
+    const { rerender } = render(<Composer onSend={vi.fn()} />);
+    expect(screen.queryByRole("combobox", { name: "Oturum kişiliği" })).toBeNull();
+    rerender(<Composer onSend={vi.fn()} persona={null} personaOptions={[{ ad: "explore", unvan: "Kâşif" }, { ad: "plan" }]} onPersonaChange={onPersonaChange} />);
+    const secici = screen.getByRole("combobox", { name: "Oturum kişiliği" }) as HTMLSelectElement;
+    expect(secici.value).toBe("");
+    fireEvent.change(secici, { target: { value: "explore" } });
+    expect(onPersonaChange).toHaveBeenCalledWith("explore");
+    rerender(<Composer onSend={vi.fn()} persona="explore" personaOptions={[{ ad: "explore", unvan: "Kâşif" }]} onPersonaChange={onPersonaChange} />);
+    expect(secici.value).toBe("explore");
+    fireEvent.change(secici, { target: { value: "" } });
+    expect(onPersonaChange).toHaveBeenLastCalledWith(null);
+  });
+
   it("Enter ile gönderir, boş girdiyi göndermez", () => {
     const onSend = vi.fn();
     render(<Composer onSend={onSend} />);

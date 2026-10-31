@@ -195,6 +195,23 @@ araçları kısıtlı araç kümesinde de ona açıktır. Projenin otomatik bell
 - Masaüstü: Beceriler › Ajanlar › ayrıntı › **Kalıcı bellek** bölümü (metin + "Belleği sil").
 - RPC: `yetenek.detay` yanıtında `bellek`, silme için `yetenek.bellek_sil {ad}`.
 
+### Oturumu bir ajan kişiliğiyle açmak (`--agent`, `/persona`)
+
+Claude Code'un `claude --agent <ad>` karşılığı: oturumun tamamı bir ajan tanımıyla çalışır;
+tanımın gövdesi her turun sistem istemine girer, `tools`/`disallowedTools` kümesi araçları
+daraltır. Yerleşik iki kişilik var: **`explore`** (Kâşif — salt-okur keşif: Read/Grep/Glob/LS)
+ve **`plan`** (Planlayıcı — değiştirmeden plan çıkarır). Kendi `.claude/agents/<ad>.md`
+tanımların da kullanılabilir.
+
+- `fusion --agent explore` → REPL o kişilikle açılır (ad yoksa açılmaz, hata verir) ·
+  `fusion agent "şunu bul" --agent explore` → tek atış.
+- `/persona` → durum · `/persona plan` → seç · `/persona off` → kapat (`/kisilik` eş anlamlı).
+- Masaüstü: mesaj kutusunun altındaki **Kişilik** seçici (etkin ajanlar listelenir);
+  RPC: `oturum.baslat {kisilik: "<ad>" | ""}`, `oturum.durum.kisilik → {ad, unvan} | null`.
+- Alt ajan olarak da çağrılır: model `spawn_agent(uzman="explore")` ile keşfi, `plan` ile
+  planlamayı devredebilir. Tanımdaki `model`/`permissionMode` alanları oturum kişiliğinde
+  uygulanmaz; oturumun modelini ve kipini `/model`, `/auto` gibi komutlarla sen seçersin.
+
 ---
 
 ## 9) Başka sağlayıcı / anahtar ekleme

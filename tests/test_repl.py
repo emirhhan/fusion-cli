@@ -1357,3 +1357,25 @@ def test_memory_ajan_alt_komutu_ajan_bellegini_gosterir_ve_siler(state, registry
 
     assert komut.handler(state, "ajan kodcu sil") == "kodcu belleği silindi."
     assert komut.handler(state, "ajan kodcu sil") == "kodcu belleği zaten yok."
+
+
+def test_persona_komutu_oturum_kisiligini_secer_ve_kapatir(state, registry):
+    """P-053: `/persona <ad>` kişiliği kurar, tur notu ve araç kısıtı buradan türer."""
+    from fusion_cli.cli.repl.persona_commands import persona_turn
+
+    komut = registry.get("persona")
+    assert komut is not None and registry.get("kisilik") is komut
+    assert "kişiliği yok" in komut.handler(state, "")
+    assert "adlı ajan yok" in komut.handler(state, "yok-boyle") and state.persona is None
+
+    sonuc = komut.handler(state, "explore")
+    assert "Kâşif (explore)" in sonuc and state.persona is not None
+    tur = persona_turn(state.persona)
+    assert "# Oturum kişiliği: Kâşif (explore)" in tur.extra_system
+    assert tur.allowed_tools is not None and "read_file" in tur.allowed_tools
+    assert "write_file" not in tur.allowed_tools
+    assert "Kâşif" in komut.handler(state, "")
+
+    assert "kapatıldı" in komut.handler(state, "off") and state.persona is None
+    bos = persona_turn(None)
+    assert bos.extra_system == "" and bos.allowed_tools is None

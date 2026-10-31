@@ -610,3 +610,17 @@ def test_cocuk_adim_butcesi_derinlikle_yarilanir(tmp_path):
     assert child_step_limit(deps, 10) == MIN_CHILD_STEPS
     # Kişiliğin `max_turns` alanı daha darsa o geçerlidir.
     assert child_step_limit(deps, 1, requested=5) == 5
+
+
+def test_yerlesik_explore_ve_plan_ajanlari_salt_okur(tmp_path):
+    """P-053: Claude Code'un Explore/Plan karşılığı yerleşik ekipte; ikisi de yazmaz."""
+    kutuphane = CapabilityRegistry(tmp_path / "ev", tmp_path)
+
+    explore = resolve_persona(kutuphane, "explore")
+    plan = resolve_persona(kutuphane, "plan")
+
+    assert explore is not GENERIC_PERSONA and explore.title == "Kâşif"
+    assert explore.tools is not None and explore.tools.isdisjoint({"write_file", "run_shell"})
+    assert plan is not GENERIC_PERSONA and plan.title == "Planlayıcı"
+    assert plan.tools is not None and "run_shell" not in plan.tools
+    assert plan.permission_mode == "plan"

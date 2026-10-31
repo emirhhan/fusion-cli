@@ -8,11 +8,28 @@ interface ActiveSession {
   client: Pick<ProtocolClient, "request">;
 }
 
+/** Oturum kişiliği (P-053): `oturum.durum.kisilik` → `{ad, unvan}` ya da null. */
+export interface SessionPersona {
+  ad: string;
+  unvan: string;
+}
+
 /** `oturum.durum` / `oturum.baslat` cevabındaki mod alanlarını doğrulayarak okur. */
-export function modlariOku(result: Record<string, unknown>): { approval?: ApprovalMode; workspace?: WorkspaceMode } {
+export function modlariOku(result: Record<string, unknown>): { approval?: ApprovalMode; workspace?: WorkspaceMode; persona?: SessionPersona | null } {
   const approval = APPROVAL_MODES.find((mode) => mode.id === result.mod)?.id;
   const workspace = result.kip === "sohbet" || result.kip === "kod" ? result.kip : undefined;
-  return { approval, workspace };
+  return { approval, workspace, persona: kisilikOku(result) };
+}
+
+/** `kisilik` alanı: nesne → kişilik, null → kapalı, yok/bozuk → undefined (dokunma). */
+export function kisilikOku(result: Record<string, unknown>): SessionPersona | null | undefined {
+  if (!("kisilik" in result)) return undefined;
+  const raw = result.kisilik;
+  if (raw === null) return null;
+  if (!raw || typeof raw !== "object") return undefined;
+  const info = raw as Record<string, unknown>;
+  if (typeof info.ad !== "string") return undefined;
+  return { ad: info.ad, unvan: typeof info.unvan === "string" ? info.unvan : info.ad };
 }
 
 /**
@@ -28,6 +45,7 @@ export function modlariOku(result: Record<string, unknown>): { approval?: Approv
 export function useSessionModes(active: ActiveSession | null, onError: (message: string | null) => void) {
   const [approvals, setApprovals] = useState<Record<string, ApprovalMode>>({});
   const [workspaces, setWorkspaces] = useState<Record<string, WorkspaceMode>>({});
+  const [personas, setPersonas] = useState<Record<string, SessionPersona | null>>({});
   const id = active?.id;
   const client = active?.client;
   const changes = useRef(0);
@@ -41,8 +59,9 @@ export function useSessionModes(active: ActiveSession | null, onError: (message:
     client.request("oturum.durum", {}).then((result) => {
       // Yanıt gelirken kullanıcı mod değiştirdiyse bayat durum onu ezmesin.
       if (cancelled || result.ok === false || changes.current !== stamp) return;
-      const { approval, workspace } = modlariOku(result);
+      const { approval, workspace, persona } = modlariOku(result);
       if (approval) setApprovals((current) => ({ ...current, [id]: approval }));
+      if (persona !== undefined) setPersonas((current) => ({ ...current, [id]: persona }));
       if (workspace) {
         saveWorkspaceMode(id, workspace);
         setWorkspaces((current) => ({ ...current, [id]: workspace }));
@@ -85,10 +104,20 @@ export function useSessionModes(active: ActiveSession | null, onError: (message:
     return true;
   }, [id, request]);
 
+  const changePersona = useCallback(async (next: string | null): Promise<boolean> => {
+    const result = await request({ kisilik: next ?? "" }, "Oturum kişiliği değiştirilemedi.");
+    if (!result || !id) return false;
+    const confirmed = kisilikOku(result);
+    setPersonas((current) => ({ ...current, [id]: confirmed === undefined ? (next ? { ad: next, unvan: next } : null) : confirmed }));
+    return true;
+  }, [id, request]);
+
   return {
     approval: (id ? approvals[id] : undefined) ?? "auto" as ApprovalMode,
     workspaceMode: (id ? workspaces[id] ?? storedWorkspaceMode(id) : null) ?? "kod" as WorkspaceMode,
+    persona: (id ? personas[id] : undefined) ?? null,
     changeApproval,
     changeWorkspace,
+    changePersona,
   };
 }

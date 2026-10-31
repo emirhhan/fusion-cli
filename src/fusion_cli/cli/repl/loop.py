@@ -61,11 +61,12 @@ from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
 from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
-from . import help_view, history_view, macros, memory_commands
+from . import help_view, history_view, macros, memory_commands, persona_commands
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, is_command_line, parse
 from .input import ReplInput
 from .macros import Mode
 from .partial_turn import PartialTurn
+from .persona_commands import persona_turn
 from .state import Engine, Reminder, ReplState
 
 #: Komut geçmişinin saklandığı dosya adı.
@@ -104,8 +105,13 @@ async def run_repl(
     extra_roots: tuple[Path, ...] = (),
     remotion_transport: FrameTransport | None = None,
     remotion_browser: RemotionBrowser | None = None,
+    persona: str = "",
 ) -> int:
-    """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür."""
+    """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür.
+
+    `persona` (`fusion --agent <ad>`, P-053) oturumu o ajan tanımıyla açar; ad
+    bulunamazsa açılmadan 1 ile çıkar — sessizce varsayılana düşmek kullanıcıyı yanıltır.
+    """
     # Varsayılan: Ink-benzeri tek yol TUI (Claude Code modeli). Eski satır-içi mod yalnızca
     # acil yedek olarak FUSION_INLINE=1 ile açılır; TUI kararlılığı doğrulanınca kaldırılacak
     # (bkz. docs/BACKLOG.md). Borulu/CI kullanımı (`echo /help | fusion`) tam-ekran
@@ -121,6 +127,12 @@ async def run_repl(
         remotion_browser=remotion_browser,
         health=build_health(config),
     )
+    if persona.strip():
+        notice = persona_commands.persona(state, persona)
+        if state.persona is None:
+            console.print(f"[{theme.WARN}]{escape(notice)}[/{theme.WARN}]")
+            return 1
+        console.print(f"[{theme.INFO}]{escape(notice)}[/{theme.INFO}]")
     if os.environ.get("FUSION_INLINE") != "1" and is_interactive_terminal():
         from .tui_loop import run_tui_repl
 
@@ -402,6 +414,7 @@ async def _drive_agent(
     extra_system: str,
     step_limit: int | None,
     workflow: bool = False,
+    allowed_tools: set[str] | None = None,
 ) -> AgentOutcome:
     """Agent turunu çalıştır; MCP sunucuları tanımlıysa dış araçları da bağla.
 
@@ -414,6 +427,8 @@ async def _drive_agent(
         "extra_system": extra_system,
         "step_limit": step_limit,
         "workflow": workflow,
+        # Oturum kişiliğinin araç kısıtı (P-053); None = tam set.
+        "allowed_tools": allowed_tools,
     }
     if not state.config.mcp_servers and not state.config.hosted_connectors:
         return await run_agent(line, deps, **kwargs)
@@ -557,8 +572,15 @@ async def _agent_turn(
         # yazılmış dosyalar da `/undo` ile geri alınabilsin.
         state.last_changes = tool_context.changes
         try:
+            persona = persona_turn(state.persona)
             turn_extra_system = "\n\n".join(
-                part for part in (macros.mode_prompt(mode), state.take_pending_digest()) if part
+                part
+                for part in (
+                    persona.extra_system,
+                    macros.mode_prompt(mode),
+                    state.take_pending_digest(),
+                )
+                if part
             )
             outcome = await _drive_agent(
                 run_agent,
@@ -570,6 +592,7 @@ async def _agent_turn(
                 extra_system=turn_extra_system,
                 step_limit=macros.mode_step_limit(mode),
                 workflow=macros.mode_workflow(mode),
+                allowed_tools=persona.allowed_tools,
             )
             # Boş cevap yalnızca tur temiz bittiyse hatadır; bkz. `cli/session.py`.
             if not outcome.final_text.strip() and outcome.ok:
