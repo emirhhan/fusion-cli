@@ -593,3 +593,34 @@ async def test_dosyadaki_disable_all_hooks_oturumda_bir_kez_bildirilir(monkeypat
     assert [n for n in notlar if "Kancalar bu oturumda kapalı" in n] == [
         "Kancalar bu oturumda kapalı: disableAllHooks (proje: .claude/settings.json)"
     ]
+
+
+async def test_yuk_claude_transcript_path_ve_tool_use_id_tasir(monkeypatch, tmp_path):
+    kayit = tmp_path / "kayit.jsonl"
+    okuyan = (
+        "satirlar = [json.loads(s) for s in open(data['transcript_path'], encoding='utf-8')]\n"
+        f"open({str(kayit)!r}, 'a', encoding='utf-8').write("
+        "json.dumps({'olay': data['hook_event_name'], 'id': data.get('tool_use_id'),"
+        " 'satirlar': satirlar}) + '\\n')\n"
+    )
+    session = HookSession(
+        root=tmp_path,
+        loader=lambda: HookSet(
+            (
+                _kanca(tmp_path, HookEvent.PRE_TOOL_USE, okuyan),
+                _kanca(tmp_path, HookEvent.POST_TOOL_USE, okuyan),
+                _kanca(tmp_path, HookEvent.STOP, okuyan),
+            )
+        ),
+        transcript_dir=tmp_path / "dokum",
+    )
+    await _tur(monkeypatch, tmp_path, _yaz("a.txt", "x", "bitti"), session, task="dosya yaz")
+    pre, post, stop = _satirlar(kayit)
+    assert (pre["olay"], pre["id"]) == ("PreToolUse", "call_write_file")
+    assert post["id"] == "call_write_file" and stop["id"] is None
+    son = stop["satirlar"][-1]
+    assert son["type"] == "assistant"
+    assert son["message"]["content"][0]["text"].endswith("bitti")
+    assert stop["satirlar"][0]["message"]["content"][0]["text"] == "dosya yaz"
+    await session.end("other")
+    assert not list((tmp_path / "dokum").glob("*.jsonl"))  # oturum bitince silinir

@@ -3759,7 +3759,9 @@ async def _run_tools(
                 if hook_note is not None:
                     govde = f"{govde}\n\n{hook_note}"
         post_hook = (
-            await post_tool_use(deps, call.name, args, result.output, ok=outcome is ToolOutcome.OK)
+            await post_tool_use(
+                deps, call.name, args, result.output, ok=outcome is ToolOutcome.OK, call_id=call.id
+            )
             if outcome in (ToolOutcome.OK, ToolOutcome.FAILED)
             else ToolNote()
         )
@@ -3866,7 +3868,7 @@ async def _execute(
             "Soru sonucu yeniden değerlendirilmeli; değişiklik yerine bağımsız okuma yap."
         ), ToolOutcome.BLOCKED
     # PreToolUse kancası (P-009) onaydan ÖNCE: engel, argüman değişikliği, allow/ask kararı.
-    hook_gate = await pre_tool_use(deps, call.name, args)
+    hook_gate = await pre_tool_use(deps, call.name, args, call.id)
     if hook_gate.blocked is not None:
         return hook_gate.failure(), (ToolOutcome.DENIED if hook_gate.halt else ToolOutcome.BLOCKED)
     args = hook_gate.arguments

@@ -25,6 +25,7 @@ from ...config.models import Config
 from ...core.hooks.decision import merge_verdicts, verdict_from_run
 from ...core.hooks.events import HookEvent, HookSet, HookVerdict
 from .runner import run_hook
+from .transcript import HOOK_TRANSCRIPT_DIR, HookTranscript, transcript_for
 
 #: Boş karar: hiçbir kanca eşleşmedi.
 NO_VERDICT = HookVerdict()
@@ -46,9 +47,22 @@ class HookSession:
     disabled_notified: bool = False
     #: Bir sonraki `SessionStart`'ın kaynağı (`startup`, `resume`, `clear`).
     next_source: str = "startup"
+    #: `transcript_path` dökümlerinin klasörü; `None` = alan yazılmaz (alt sistem testleri).
+    transcript_dir: Path | None = None
     _loaded: bool = False
     #: `restart` sonrası henüz gönderilmemiş eski oturum `SessionEnd`'i: (kimlik, neden).
     _pending_end: tuple[str, str] | None = None
+
+    def transcript(self, session_id: str | None = None) -> HookTranscript | None:
+        if self.transcript_dir is None:
+            return None
+        return transcript_for(self.transcript_dir, session_id or self.session_id)
+
+    def record(self, role: str, text: str) -> None:
+        """Dökümüne istem/cevap ekle; tanımlı kanca yoksa hiçbir şey yazılmaz."""
+        transcript = self.transcript()
+        if transcript is not None and text.strip() and self.current().commands:
+            transcript.append(role, text, self.session_id)
 
     def refresh(self) -> HookSet:
         """Tanımları yeniden oku (kök tur başı)."""
@@ -112,11 +126,14 @@ class HookSession:
         if pending is None:
             return NO_VERDICT
         old_id, reason = pending
-        return await self.emit(
-            HookEvent.SESSION_END,
-            subjects=(reason,),
-            fields={"reason": reason, "session_id": old_id},
-        )
+        fields: dict[str, object] = {"reason": reason, "session_id": old_id}
+        old = self.transcript(old_id)
+        if old is not None:
+            fields["transcript_path"] = str(old.ensure())
+        verdict = await self.emit(HookEvent.SESSION_END, subjects=(reason,), fields=fields)
+        if old is not None:
+            old.remove()
+        return verdict
 
     async def start(self, source: str | None = None) -> HookVerdict:
         """`SessionStart`: ilk çağrıda bir kez; sonrakiler boş karar."""
@@ -135,7 +152,13 @@ class HookSession:
         if not self.started or self.ended:
             return NO_VERDICT
         self.ended = True
-        return await self.emit(HookEvent.SESSION_END, subjects=(reason,), fields={"reason": reason})
+        verdict = await self.emit(
+            HookEvent.SESSION_END, subjects=(reason,), fields={"reason": reason}
+        )
+        transcript = self.transcript()
+        if transcript is not None:
+            transcript.remove()
+        return verdict
 
     async def notify(self, kind: str, message: str) -> HookVerdict:
         """`Notification`: kullanıcının dikkati gerektiğinde (izin istemi vb.)."""
@@ -161,6 +184,9 @@ class HookSession:
         }
         if self.permission_mode is not None:
             payload["permission_mode"] = self.permission_mode()
+        transcript = self.transcript()
+        if transcript is not None and "transcript_path" not in fields:
+            payload["transcript_path"] = str(transcript.ensure())
         return {**payload, **fields}
 
 
@@ -172,6 +198,7 @@ def open_hook_session(
     permission_mode: Callable[[], str] | None = None,
     home: Path | None = None,
     source: str = "startup",
+    transcript_dir: Path | None = None,
 ) -> HookSession:
     """Yapılandırmaya göre kanca oturumu kur (dosyalar ilk kullanımda okunur).
 
@@ -194,7 +221,11 @@ def open_hook_session(
         )
 
     session = HookSession(
-        root=root, loader=_load, permission_mode=permission_mode, next_source=source
+        root=root,
+        loader=_load,
+        permission_mode=permission_mode,
+        next_source=source,
+        transcript_dir=transcript_dir or _config().memory_dir / HOOK_TRANSCRIPT_DIR,
     )
     if session_id:
         session.session_id = session_id

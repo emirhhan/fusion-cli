@@ -62,11 +62,18 @@ ifade (adın tamamı: `mcp__github__.*`). Fusion araçları Claude adlarıyla da
 
 ## Girdi (stdin)
 
-Ortak alanlar: `session_id`, `cwd`, `hook_event_name`, `permission_mode`. Araç olaylarında
-`tool_name` (Claude adı, ör. `Bash`), `fusion_tool_name`, `tool_input` (Fusion argümanları +
-dosya araçlarında Claude'un `file_path` takma adı); `PostToolUse`'ta `tool_response`,
-`PostToolUseFailure`'da `error`. `UserPromptSubmit`: `prompt`. `Stop`: `stop_hook_active`,
-`last_assistant_message`. Kanca süreci proje kökünde çalışır; `FUSION_PROJECT_DIR` ve
+Ortak alanlar: `session_id`, `cwd`, `hook_event_name`, `permission_mode`, `transcript_path`.
+Araç olaylarında `tool_name` (Claude adı, ör. `Bash`), `fusion_tool_name`, `tool_use_id`
+(PreToolUse ile PostToolUse'u eşler), `tool_input` (Fusion argümanları + dosya araçlarında
+Claude'un `file_path` takma adı); `PostToolUse`'ta `tool_response`, `PostToolUseFailure`'da
+`error`. `UserPromptSubmit`: `prompt`. `Stop`: `stop_hook_active`, `last_assistant_message`.
+`SessionStart`: `source` (`startup`, `resume` — geçmişli sohbet ya da sohbet değişimi,
+`clear` — `/reset`). `SessionEnd`: `reason` (`prompt_input_exit`, `clear`, `other`).
+
+`transcript_path` Claude biçimli bir JSONL'dir (`{"type": "user"|"assistant", "message":
+{"content": [{"type": "text", "text": …}]}}`): yalnız istem ve cevaplar, sırlar maskeli,
+dosya 0600; `<bellek dizini>/hook-transcripts/` altında durur ve `SessionEnd` kancalarından
+sonra silinir. Tanımlı kanca yoksa hiç yazılmaz. Kanca süreci proje kökünde çalışır; `FUSION_PROJECT_DIR` ve
 `CLAUDE_PROJECT_DIR` proje kökünü verir.
 
 ## Çıktı

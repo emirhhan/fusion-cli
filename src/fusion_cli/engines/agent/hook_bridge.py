@@ -81,14 +81,16 @@ class ToolGate:
         return base.with_rules((*base.rules, rule))
 
 
-async def pre_tool_use(deps: AgentDeps, tool_name: str, args: dict[str, object]) -> ToolGate:
+async def pre_tool_use(
+    deps: AgentDeps, tool_name: str, args: dict[str, object], call_id: str = ""
+) -> ToolGate:
     session = session_of(deps)
     if session is None:
         return ToolGate(args)
     verdict = await session.emit(
         HookEvent.PRE_TOOL_USE,
         subjects=claude_tool_names(tool_name),
-        fields=tool_hook_fields(tool_name, args),
+        fields=tool_hook_fields(tool_name, args, call_id),
     )
     _publish(deps, verdict)
     event = HookEvent.PRE_TOOL_USE.value
@@ -114,13 +116,19 @@ class ToolNote:
 
 
 async def post_tool_use(
-    deps: AgentDeps, tool_name: str, args: Mapping[str, object], output: str, *, ok: bool
+    deps: AgentDeps,
+    tool_name: str,
+    args: Mapping[str, object],
+    output: str,
+    *,
+    ok: bool,
+    call_id: str = "",
 ) -> ToolNote:
     session = session_of(deps)
     if session is None:
         return ToolNote()
     event = HookEvent.POST_TOOL_USE if ok else HookEvent.POST_TOOL_USE_FAILURE
-    fields = dict(tool_hook_fields(tool_name, args))
+    fields = dict(tool_hook_fields(tool_name, args, call_id))
     clipped = output[:HOOK_TOOL_OUTPUT_CHARS]
     if ok:
         fields["tool_response"] = {"output": clipped, "success": True}
@@ -169,6 +177,7 @@ async def user_prompt_submit(deps: AgentDeps, prompt: str) -> PromptGate:
     if verdict.blocked or verdict.halt:
         reason = verdict.reason or verdict.stop_reason or messages.HOOKS_NO_REASON
         return PromptGate(blocked=messages.HOOKS_PROMPT_BLOCKED.format(reason=reason))
+    session.record("user", prompt)
     parts = [
         messages.HOOKS_CONTEXT_NOTE.format(event=item_event.value, context=item.context_text)
         for item_event, item in (
@@ -195,6 +204,8 @@ async def stop_continuation(
     }
     if subagent:
         fields["agent_type"] = agent_type
+    else:
+        session.record("assistant", final_text)
     verdict = await session.emit(event, subjects=(agent_type,), fields=fields)
     _publish(deps, verdict)
     if verdict.halt or not verdict.blocked:
@@ -259,17 +270,25 @@ def _publish(deps: AgentDeps, verdict: HookVerdict) -> None:
         deps.publisher.publish(ErrorOccurred(messages.HOOKS_ERROR.format(detail=detail)))
 
 
-def tool_hook_fields(tool_name: str, args: Mapping[str, object]) -> dict[str, object]:
-    """Claude yükü: `tool_name` birincil Claude adı, `tool_input` + `file_path` takma adı."""
+def tool_hook_fields(
+    tool_name: str, args: Mapping[str, object], call_id: str = ""
+) -> dict[str, object]:
+    """Claude yükü: `tool_name` birincil Claude adı, `tool_input` + `file_path` takma adı.
+
+    `tool_use_id` PreToolUse ile PostToolUse'u eşler (çağrı kimliği; yoksa alan yazılmaz).
+    """
     tool_input = dict(args)
     path = args.get(_FUSION_PATH_KEY)
     if isinstance(path, str) and _CLAUDE_PATH_KEY not in tool_input:
         tool_input[_CLAUDE_PATH_KEY] = path
-    return {
+    fields: dict[str, object] = {
         "tool_name": claude_tool_names(tool_name)[0],
         "fusion_tool_name": tool_name,
         "tool_input": tool_input,
     }
+    if call_id:
+        fields["tool_use_id"] = call_id
+    return fields
 
 
 def _from_claude_input(
