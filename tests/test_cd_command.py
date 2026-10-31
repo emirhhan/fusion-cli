@@ -122,6 +122,46 @@ def test_cd_deny_kurali_hedefi_engeller(tmp_path: Path, ev: Path):
     assert state.root == proje
 
 
+def _deny_cd(ev: Path, *patterns: str) -> None:
+    (ev / ".claude").mkdir(exist_ok=True)
+    (ev / ".claude" / "settings.json").write_text(
+        json.dumps({"permissions": {"deny": [f"Cd({p})" for p in patterns]}}), encoding="utf-8"
+    )
+
+
+def test_cd_deny_kurali_sembolik_bagla_yazilan_yolu_da_engeller(tmp_path: Path, ev: Path):
+    """Ölçüldü (31 Ekim): hedef `.resolve()` ile değerlendirildiği için macOS'ta
+    `Cd(//etc/**)` kuralı `/cd /etc` (`/private/etc`) geçişini engellemiyordu."""
+    gercek = tmp_path / "gercek"
+    (gercek / "alt").mkdir(parents=True)
+    bag = tmp_path / "bag"
+    bag.symlink_to(gercek, target_is_directory=True)
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    _deny_cd(ev, f"/{bag.as_posix()}", f"/{bag.as_posix()}/**")
+    state = _state(proje, ev)
+
+    assert _cd(state, str(bag)).startswith("Bu dizine geçiş izin kuralıyla engelli")
+    assert _cd(state, str(bag / "alt")).startswith("Bu dizine geçiş izin kuralıyla engelli")
+    assert state.root == proje
+
+
+def test_cd_deny_kurali_cozulmus_yolla_yazilinca_bagdan_gecisi_engeller(
+    tmp_path: Path, ev: Path
+):
+    gercek = tmp_path / "gercek"
+    gercek.mkdir()
+    bag = tmp_path / "bag"
+    bag.symlink_to(gercek, target_is_directory=True)
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    _deny_cd(ev, f"/{gercek.resolve().as_posix()}")
+    state = _state(proje, ev)
+
+    assert _cd(state, str(bag)).startswith("Bu dizine geçiş izin kuralıyla engelli")
+    assert state.root == proje
+
+
 def test_cd_guvenilmeyen_izin_dosyasinda_uyarir(tmp_path: Path, ev: Path):
     eski, yeni = tmp_path / "a", tmp_path / "b"
     eski.mkdir()

@@ -19,6 +19,7 @@ yeniden yüklenmez (masaüstü kök değişimiyle aynı sınır).
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ...config.permission_rules import PermissionDecision
@@ -38,7 +39,7 @@ def cd_command(state: ReplState, argument: str) -> str:
     target = resolve_target(state.root, text)
     if target is None:
         return messages.CD_NOT_FOUND
-    problem = target_problem(state, target)
+    problem = target_problem(state, target, written=lexical_target(state.root, text))
     return problem or change_directory(state, target)
 
 
@@ -51,17 +52,33 @@ def resolve_target(root: Path, text: str) -> Path | None:
         return None
 
 
-def target_problem(state: ReplState, target: Path) -> str:
-    """Hedef kök kurallarına uymuyorsa kullanıcı metni; uyuyorsa boş."""
+def lexical_target(root: Path, text: str) -> Path | None:
+    """Kullanıcının yazdığı yolun sembolik bağ çözülmemiş mutlak biçimi (`..` sözcüksel)."""
+    try:
+        path = Path(text).expanduser()
+        return Path(os.path.normpath(path if path.is_absolute() else root / path))
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def target_problem(state: ReplState, target: Path, *, written: Path | None = None) -> str:
+    """Hedef kök kurallarına uymuyorsa kullanıcı metni; uyuyorsa boş.
+
+    `Cd(...)` DENY kuralı hem çözülmüş hedefe hem kullanıcının yazdığı biçime (`written`)
+    bakar. Ölçüldü (31 Ekim): yalnız çözülmüş yol değerlendirildiğinden macOS'ta
+    `Cd(//etc/**)` kuralı `/cd /etc` (`/private/etc`) geçişini engellemiyordu.
+    """
     if not target.is_dir():
         return messages.CD_NOT_FOUND
     if target == state.root.expanduser().resolve():
         return messages.CD_SAME.format(path=target)
     if target in (Path(target.anchor), Path.home().resolve()):
         return messages.CD_TOO_BROAD
-    match = evaluate(state.permission_rules(), CD_RULE_TOOL, {"path": str(target)}, state.root)
-    if match is not None and match.decision is PermissionDecision.DENY:
-        return messages.CD_DENIED.format(rule=match.rule.pattern)
+    rules = state.permission_rules()
+    for path in dict.fromkeys((target, written or target)):
+        match = evaluate(rules, CD_RULE_TOOL, {"path": str(path)}, state.root)
+        if match is not None and match.decision is PermissionDecision.DENY:
+            return messages.CD_DENIED.format(rule=match.rule.pattern)
     return ""
 
 
