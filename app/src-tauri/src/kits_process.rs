@@ -33,10 +33,33 @@ pub struct KitsStatus {
 }
 
 const KITS_LOG_FILE: &str = "kits.log";
+/// Kits'in dinlediği adresi Fusion çekirdeğine duyuran durum dosyası (P-063).
+const KITS_STATE_FILE: &str = "kits-bridge.json";
 /// Hazırlık makbuzu için okunan günlük kuyruğu.
 const READY_LOG_TAIL: u64 = 256 * 1024;
 /// `node --version` yoklamasının en uzun süresi; takılan bir aday tüm başlatmayı bloklamasın.
 const NODE_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Kits veri klasörü: Fusion çekirdeğinin `config/paths.py kits_data_dir()` kuralıyla AYNI.
+///
+/// Unix'te `XDG_DATA_HOME` ayarlıysa oradan, yoksa `~/.local/share`; Windows'ta yerel veri
+/// klasörü. Ölçüldü (31 Ekim, inceleme): Tauri `XDG_DATA_HOME`'u yok sayıp `~/.local/share`
+/// yazıyordu; Python okurken XDG'yi dikkate alıyordu. XDG ayarlı kullanıcıda Fusion
+/// `kits-bridge.json`'ı bulamayıp varsayılan porta düşüyor ve "Kits çalışmıyor" diyordu.
+pub fn kits_data_dir(
+    home: &Path,
+    xdg_data_home: Option<&str>,
+    windows_local_data: Option<&Path>,
+) -> PathBuf {
+    let root = match windows_local_data {
+        Some(local) => local.to_path_buf(),
+        None => match xdg_data_home.map(str::trim).filter(|value| !value.is_empty()) {
+            Some(xdg) => PathBuf::from(xdg),
+            None => home.join(".local/share"),
+        },
+    };
+    root.join("fusion-cli").join("kits")
+}
 
 struct Running {
     child: Child,
@@ -125,6 +148,9 @@ impl KitsManager {
             .env("OWNER_ID", "fusion-kits-owner")
             .env("COMPUTER_NAMESPACE", "fusion-kits")
             .env("KITS_HOST_ORIGINS", HOST_ORIGINS)
+            // Fusion çekirdeği (CLI aracı/masaüstü oturumu) Kits'in adresini bu dosyadan
+            // okur (`config/paths.py kits_state_file()`); Kits yalnız adres ve pid yazar.
+            .env("KITS_STATE_FILE", data_dir.join(KITS_STATE_FILE))
             .stdin(Stdio::null())
             .stdout(log_sink(data_dir))
             .stderr(log_sink(data_dir));
@@ -436,6 +462,28 @@ fn parse_node_major(version: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kits_veri_klasoru_python_ile_ayni_kurali_izler() {
+        let home = Path::new("/Users/ali");
+        assert_eq!(
+            kits_data_dir(home, None, None),
+            PathBuf::from("/Users/ali/.local/share/fusion-cli/kits")
+        );
+        assert_eq!(
+            kits_data_dir(home, Some("/tmp/xdg"), None),
+            PathBuf::from("/tmp/xdg/fusion-cli/kits")
+        );
+        // Boş XDG değeri ayarsız sayılır (Python `os.environ.get(...) or` ile aynı).
+        assert_eq!(
+            kits_data_dir(home, Some("  "), None),
+            PathBuf::from("/Users/ali/.local/share/fusion-cli/kits")
+        );
+        assert_eq!(
+            kits_data_dir(home, Some("/tmp/xdg"), Some(Path::new("C:\\Local"))),
+            PathBuf::from("C:\\Local").join("fusion-cli").join("kits")
+        );
+    }
 
     #[test]
     fn node_surumu_ana_numarasi_ayristirilir() {

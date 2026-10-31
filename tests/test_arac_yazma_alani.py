@@ -16,7 +16,7 @@ import pytest
 from fusion_cli.core.browser_session import BrowserSession
 from fusion_cli.core.errors import PathAccessError
 from fusion_cli.core.tools import ToolContext
-from fusion_cli.tools import archive, browser, desktop, download, scaffold_tool
+from fusion_cli.tools import archive, browser, desktop_screen, download, scaffold_tool
 
 
 def _kapsamli(tmp_path: Path) -> tuple[ToolContext, Path, Path]:
@@ -95,10 +95,10 @@ async def test_tarayici_ayna_alan_disina_yazmaz(tmp_path):
 
 def test_masaustu_ekran_goruntusu_alan_disina_yazmaz(tmp_path, monkeypatch):
     context, _izinli, yasak = _kapsamli(tmp_path)
-    monkeypatch.setattr(desktop, "_mac_only", lambda: "")
+    monkeypatch.setattr(desktop_screen, "_mac_only", lambda: "")
 
     with pytest.raises(PathAccessError, match="yazma alanı dışında"):
-        desktop.desktop_screenshot({"path": str(yasak / "m.png")}, context)
+        desktop_screen.desktop_screenshot({"path": str(yasak / "m.png")}, context)
 
 
 def test_iskele_alan_disina_yazmaz(tmp_path):

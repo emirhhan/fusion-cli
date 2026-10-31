@@ -88,7 +88,8 @@ async def test_prompter_tehlikesiz_istekte_oturum_secimi_sunar():
     await asyncio.sleep(0)
 
     assert tui._mode == "choice"
-    assert [choice.value for choice in tui._choices] == ["once", "session", "deny"]
+    # P-003: tehlikesiz yerel istekte "bir daha sorma" (always) kalıcı kuralı da sunulur.
+    assert [choice.value for choice in tui._choices] == ["once", "session", "always", "deny"]
     tui._resolve("session")
     assert await task is ApprovalAnswer.SESSION
 
@@ -395,6 +396,26 @@ async def test_tui_consumes_pending_digest_once_and_injects_home(tmp_path, monke
     assert calls[1].get("conversation_id") == calls[0].get("conversation_id")
     other = _TuiSession(_state(tmp_path))
     assert other._transcript_store.session_id != calls[0].get("conversation_id")
+
+
+async def test_tui_kalici_kural_bildirimini_tur_sonunda_basar(tmp_path, monkeypatch) -> None:
+    """Ölçüldü (31 Ekim): TUI döngüsü `approval_memory.take_notices()` çağırmıyordu; 'bir daha
+    sorma' sonrası kural yazıldı/yazılamadı bildirimi hiç görünmüyordu."""
+    from fusion_cli.engines.agent import AgentOutcome
+
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+
+    async def _fake_run_agent_task(task, config, **kwargs):
+        kwargs["approval_memory"].notices.append("Bash(npm test *) → /proje/.claude/x.json")
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _fake_run_agent_task)
+    await session._turn("görev")
+
+    assert "İzin kuralı kaydedildi" in session.tui.transcript
+    assert "Bash(npm test *)" in session.tui.transcript
+    assert state.approval_memory.take_notices() == []
 
 
 async def test_tui_turlari_ayni_onay_hafizasini_paylasir(tmp_path, monkeypatch) -> None:

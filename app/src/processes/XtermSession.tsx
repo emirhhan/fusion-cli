@@ -4,7 +4,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { macTerminalShortcut } from "./macShortcuts";
-import { SCROLLBACK_LINES, resolveMonoFont } from "./terminalTheme";
+import { SCROLLBACK_LINES, resolveMonoFont, resolveTerminalTheme, type TerminalTheme } from "./terminalTheme";
 import type { TerminalClosedEvent, TerminalSession } from "./terminalBridge";
 
 export interface XtermAdapter {
@@ -17,6 +17,8 @@ export interface XtermAdapter {
   getSelection(): string;
   paste(data: string): void;
   dispose(): void;
+  /** Uygulama teması/kontrastı değişince terminal renklerini güncelle (P-065). */
+  setTheme?(theme: TerminalTheme): void;
 }
 
 export function createXtermAdapter(): XtermAdapter {
@@ -29,7 +31,8 @@ export function createXtermAdapter(): XtermAdapter {
     fontFamily: resolveMonoFont(),
     fontSize: 12,
     scrollback: SCROLLBACK_LINES,
-    theme: { background: "#0f1115" },
+    // Tema token'lardan gelir: açık temada açık zemin, koyu temada koyu (P-065).
+    theme: resolveTerminalTheme(),
   });
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
@@ -78,6 +81,9 @@ export function createXtermAdapter(): XtermAdapter {
     getSelection: () => terminal.getSelection(),
     paste: (data) => terminal.paste(data),
     dispose: () => terminal.dispose(),
+    setTheme: (theme) => {
+      terminal.options.theme = theme;
+    },
   };
 }
 
@@ -186,6 +192,16 @@ export function XtermSession({
   useEffect(() => {
     if (active) adapterRef.current?.focus();
   }, [active]);
+
+  // Tema (data-theme), kontrast ve vurgu belge kökünde değişince terminal renkleri de değişir;
+  // eskiden terminal açık temada da koyu kalıyordu (P-065).
+  useEffect(() => {
+    if (typeof MutationObserver === "undefined") return;
+    const root = document.documentElement;
+    const observer = new MutationObserver(() => adapterRef.current?.setTheme?.(resolveTerminalTheme()));
+    observer.observe(root, { attributeFilter: ["data-theme", "data-contrast", "data-accent"], attributes: true });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!closed) return;

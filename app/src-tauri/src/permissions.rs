@@ -7,6 +7,11 @@ pub enum PermissionKind {
     Microphone,
     Speech,
     Keychain,
+    /// macOS Erişilebilirlik (AX): masaüstünde tıklama/yazma/kaydırma (P-005).
+    Accessibility,
+    /// macOS Ekran Kaydı: masaüstü ekran görüntüsü (P-005).
+    #[serde(rename = "screenRecording")]
+    ScreenRecording,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -71,7 +76,91 @@ fn settings_url(kind: PermissionKind, platform: &str) -> Option<&'static str> {
         PermissionKind::Speech => Some(
             "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition",
         ),
+        PermissionKind::Accessibility => {
+            Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        }
+        PermissionKind::ScreenRecording => {
+            Some("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        }
         PermissionKind::Workspace | PermissionKind::Keychain => None,
+    }
+}
+
+/// TCC (Erişilebilirlik, Ekran Kaydı) C API'leri; hiçbir ek crate gerektirmez.
+/// `AXIsProcessTrustedWithOptions` istem seçeneği bir CFDictionary ister; CoreFoundation
+/// doğrudan bağlanır. İstemler Fusion.app süreci adına açılır: masaüstü araçlarını koşturan
+/// sidecar bu uygulamanın çocuğu olduğundan TCC aynı sorumlu süreci görür (elle doğrulanır).
+#[cfg(target_os = "macos")]
+mod tcc {
+    use std::ffi::c_void;
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXIsProcessTrusted() -> bool;
+        fn AXIsProcessTrustedWithOptions(options: *const c_void) -> bool;
+        static kAXTrustedCheckOptionPrompt: *const c_void;
+    }
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGPreflightScreenCaptureAccess() -> bool;
+        fn CGRequestScreenCaptureAccess() -> bool;
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFDictionaryCreate(
+            allocator: *const c_void,
+            keys: *const *const c_void,
+            values: *const *const c_void,
+            count: isize,
+            key_callbacks: *const c_void,
+            value_callbacks: *const c_void,
+        ) -> *const c_void;
+        fn CFRelease(value: *const c_void);
+        static kCFBooleanTrue: *const c_void;
+        static kCFTypeDictionaryKeyCallBacks: c_void;
+        static kCFTypeDictionaryValueCallBacks: c_void;
+    }
+
+    pub fn accessibility_trusted() -> bool {
+        // SAFETY: Argümansız, durum okuyan C çağrısı.
+        unsafe { AXIsProcessTrusted() }
+    }
+
+    pub fn screen_capture_allowed() -> bool {
+        // SAFETY: Argümansız, istem açmayan C çağrısı (10.15+).
+        unsafe { CGPreflightScreenCaptureAccess() }
+    }
+
+    /// Sistem Erişilebilirlik istemini açar; dönüş o anki (istem öncesi) durumdur.
+    pub fn prompt_accessibility() -> bool {
+        // SAFETY: Sözlük tek anahtar/değerle kurulur, çağrıdan sonra serbest bırakılır;
+        // anahtar ve değer CoreFoundation'ın sahip olduğu sabitlerdir.
+        unsafe {
+            let keys = [kAXTrustedCheckOptionPrompt];
+            let values = [kCFBooleanTrue];
+            let options = CFDictionaryCreate(
+                std::ptr::null(),
+                keys.as_ptr(),
+                values.as_ptr(),
+                1,
+                &kCFTypeDictionaryKeyCallBacks as *const c_void,
+                &kCFTypeDictionaryValueCallBacks as *const c_void,
+            );
+            if options.is_null() {
+                return AXIsProcessTrusted();
+            }
+            let trusted = AXIsProcessTrustedWithOptions(options);
+            CFRelease(options);
+            trusted
+        }
+    }
+
+    /// Ekran Kaydı istemini açar (bir kez); izin sonrası yeniden açılış gerekir.
+    pub fn prompt_screen_capture() -> bool {
+        // SAFETY: Argümansız C çağrısı.
+        unsafe { CGRequestScreenCaptureAccess() }
     }
 }
 
@@ -98,8 +187,20 @@ fn macos_status(kind: PermissionKind) -> PermissionCapability {
             SFSpeechRecognizerAuthorizationStatus::Denied => PermissionState::Denied,
             _ => PermissionState::Restricted,
         },
+        // TCC "sorulmadı" ile "reddedildi"yi ayırt etmez; ikisi de Denied'dır.
+        PermissionKind::Accessibility => granted_or_denied(tcc::accessibility_trusted()),
+        PermissionKind::ScreenRecording => granted_or_denied(tcc::screen_capture_allowed()),
     };
     PermissionCapability::supported(state)
+}
+
+#[cfg(target_os = "macos")]
+fn granted_or_denied(allowed: bool) -> PermissionState {
+    if allowed {
+        PermissionState::Granted
+    } else {
+        PermissionState::Denied
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -190,6 +291,18 @@ async fn request_macos(kind: PermissionKind) -> PermissionCapability {
         })
         .await
         .unwrap_or_else(|_| PermissionCapability::supported(PermissionState::Restricted)),
+        // İstem çağrıları hemen döner (pencere sistem tarafından ayrı açılır); dönüş
+        // istem ÖNCESİ durumdur, arayüz "Yeniden dene" ile yeniden sorar.
+        PermissionKind::Accessibility => tauri::async_runtime::spawn_blocking(|| {
+            PermissionCapability::supported(granted_or_denied(tcc::prompt_accessibility()))
+        })
+        .await
+        .unwrap_or_else(|_| PermissionCapability::supported(PermissionState::Restricted)),
+        PermissionKind::ScreenRecording => tauri::async_runtime::spawn_blocking(|| {
+            PermissionCapability::supported(granted_or_denied(tcc::prompt_screen_capture()))
+        })
+        .await
+        .unwrap_or_else(|_| PermissionCapability::supported(PermissionState::Restricted)),
     }
 }
 
@@ -210,7 +323,10 @@ pub async fn izin_iste(kind: PermissionKind) -> PermissionCapability {
             PermissionKind::Workspace | PermissionKind::Keychain => {
                 PermissionCapability::supported(PermissionState::Granted)
             }
-            PermissionKind::Microphone | PermissionKind::Speech => unsupported_capability(),
+            PermissionKind::Microphone
+            | PermissionKind::Speech
+            | PermissionKind::Accessibility
+            | PermissionKind::ScreenRecording => unsupported_capability(),
         }
     }
 }
@@ -293,6 +409,25 @@ mod tests {
         );
         assert_eq!(settings_url(PermissionKind::Keychain, "macos"), None);
         assert_eq!(settings_url(PermissionKind::Workspace, "macos"), None);
+    }
+
+    /// Ölçüldü (31 Ekim): Erişilebilirlik ve Ekran Kaydı türleri yoktu; arayüz izin kartı açamıyordu.
+    #[test]
+    fn computer_use_permissions_link_to_their_privacy_panes() {
+        assert_eq!(
+            settings_url(PermissionKind::Accessibility, "macos"),
+            Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        );
+        assert_eq!(
+            settings_url(PermissionKind::ScreenRecording, "macos"),
+            Some("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        );
+        assert_eq!(
+            platform_status_for(PermissionKind::Accessibility, "windows"),
+            unsupported_capability()
+        );
+        let kind: PermissionKind = serde_json::from_str("\"screenRecording\"").unwrap();
+        assert_eq!(kind, PermissionKind::ScreenRecording);
     }
 
     #[test]

@@ -46,6 +46,9 @@ web = ["playwright>=1.40,<2"]
 # Yerel gateway (`fusion serve`) opsiyoneldir: yalnızca OpenAI-uyumlu /v1 uç noktasını
 # açmak isteyen kullanıcıya gerekir. Kurulmazsa `fusion serve` anlaşılır bir hata verir.
 gateway = ["uvicorn>=0.30,<1"]
+# Uzaktan kontrol (`fusion remote-control`, `/rc`): HTTP yüzü için uvicorn, terminalde QR için
+# segno (saf Python). segno yoksa komut çalışır, QR yerine adres+kod basılır.
+remote = ["uvicorn>=0.30,<1", "segno>=1.6,<2"]
 # MCP köprüsü opsiyoneldir: `fusion mcp` (sunucu) ve dış MCP sunucularına bağlanma
 # (istemci) için gerekir. Resmî Model Context Protocol SDK'sı.
 mcp = ["mcp>=1.9,<2"]
@@ -93,7 +96,7 @@ where = ["src"]
 "fusion_cli.providers" = ["data/*.json"]
 "fusion_cli.config" = ["*.yaml", "roster/*.md", "skills/*/SKILL.md", "skills/*/kit/*"]
 "fusion_cli.tools" = ["scaffold/*", "assets/*", "data/*.swift"]
-"fusion_cli.engines.agent" = ["prompts/*"]
+"fusion_cli.engines.agent" = ["prompts/*", "prompts/cikti_stilleri/*"]
 "fusion_cli.remote" = ["pwa/*"]
 "fusion_cli.gateway" = ["*.html", "static/*.css", "static/*.js", "static/fonts/*"]
 "fusion_cli.engines.fusion" = ["prompts/*"]

@@ -367,3 +367,8 @@
 
 /* Avatar kutusu artık görsel de taşıyabilir: taşma kırpılır. */
 .account-screen__avatar { overflow: hidden; }
+
+/* Sağlayıcı hesapları (P-066): katlanmayan bölüm; başlık summary değil h3'tür. */
+.account-screen__section--open { display: grid; gap: var(--space-2); padding: 20px 22px 22px; }
+.account-screen__section--open h3 { font-size: 15px; font-weight: 600; margin: 0; }
+.account-screen__section--open .account-screen__list button { margin-top: 0; }

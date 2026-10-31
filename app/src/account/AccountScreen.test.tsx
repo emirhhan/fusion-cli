@@ -135,3 +135,35 @@ describe("AccountScreen", () => {
     expect(screen.getByText(/geri alınamaz/i)).toBeTruthy();
   });
 });
+
+// Ölçüldü (31 Ekim, P-066): Hesabım ekranında sağlayıcı oturumu (ChatGPT/Claude web) görünmüyordu;
+// "sağlayıcıyla giriş" yalnız Kontrol Paneli'nin derinindeydi.
+describe("AccountScreen sağlayıcı hesapları", () => {
+  const istemci = () => ({
+    request: vi.fn(async (name: string) =>
+      name === "web.saglayicilar"
+        ? { ok: true, saglayicilar: [
+            { id: "chatgpt", kart_id: "chatgpt", ad: "ChatGPT", hesap: "main", bagli: true, profil_var: true },
+            { id: "claude", kart_id: "claude", ad: "Claude", hesap: "main", bagli: false, profil_var: false },
+          ] }
+        : { ok: true, kullanim: { cagri: 0, toplam_token: 0 } },
+    ),
+  }) as unknown as import("../protocol/client").ProtocolClient;
+
+  test("bağlı/bağlı değil durumunu gösterir ve girişi Kontrol Paneli'ne yönlendirir", async () => {
+    const onOpenProviders = vi.fn();
+    render(<AccountScreen account={denetleyici([KULLANICI])} client={istemci()} onClose={vi.fn()} onOpenProviders={onOpenProviders} />);
+    expect(await screen.findByText("ChatGPT")).toBeTruthy();
+    expect(screen.getByText("Bağlı")).toBeTruthy();
+    expect(screen.getByText("Giriş yapılmadı")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Sağlayıcıyla giriş yap" }));
+    expect(onOpenProviders).toHaveBeenCalledWith("claude");
+  });
+
+  test("yönlendirme verilmezse bölüm çizilmez ve sağlayıcı listesi okunmaz", () => {
+    const client = istemci();
+    render(<AccountScreen account={denetleyici([KULLANICI])} client={client} onClose={vi.fn()} />);
+    expect(screen.queryByText("Sağlayıcı hesapları")).toBeNull();
+    expect((client.request as ReturnType<typeof vi.fn>).mock.calls.some(([name]) => name === "web.saglayicilar")).toBe(false);
+  });
+});

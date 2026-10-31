@@ -77,6 +77,11 @@ SCREEN_MAX_SESSION_SECONDS = 7200
 SCREEN_REQUEST_TTL_SECONDS = 300
 #: Masaüstünde "hatırla" ile verilen ekran güveninin ömrü; dolunca yeniden masaüstü onayı.
 SCREEN_TRUST_SECONDS = 7 * 24 * 3600
+#: Cihaz başına süreli ONAY yetkisi (Claude Code "Trusted Devices" 18 saat): masaüstü bir
+#: cihaza "bu cihaz onay verebilir" der, süre dolunca telefon yalnız reddedebilir.
+APPROVAL_TRUST_DEFAULT_HOURS = 18
+#: Tek seferde verilebilecek en uzun onay yetkisi; "süresiz" yetki yoktur.
+APPROVAL_TRUST_MAX_HOURS = 7 * 24
 #: Kareler arası en az 0,5 sn, JPEG genişlik sınırı.
 SCREEN_MIN_FRAME_INTERVAL_SECONDS = 0.5
 SCREEN_MAX_WIDTH = 1280

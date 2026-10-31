@@ -41,6 +41,14 @@ async def render(name: str, state: ReplState, registry: CommandRegistry, console
         _cost(state, console)
     elif name == "usage":
         _usage(state, console)
+    elif name == "status":
+        from .status_view import render_status
+
+        render_status(state, console)
+    elif name == "context":
+        from .status_view import render_context
+
+        render_context(state, console)
     elif name == "compact":
         from .loop import compact_history
 

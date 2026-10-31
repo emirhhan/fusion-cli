@@ -199,7 +199,10 @@ async def test_ayar_dosyasi_atomik_yazilir(controller: Any) -> None:
     result = await controller.dispatch("uzak.ayar", {"onayIste": True})
     assert result["ok"] is True
     path = controller._settings_path
-    assert json.loads(path.read_text(encoding="utf-8")) == {"requireApproval": True}
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "requireApproval": True,
+        "requireApprovalTrust": False,
+    }
     assert [p.name for p in path.parent.iterdir() if p.name.endswith(".tmp")] == []
 
 

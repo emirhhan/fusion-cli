@@ -33,6 +33,7 @@ from pathlib import Path
 from ...config.eligibility import effort_for_spec
 from ...config.model_select import escalated_spec, select_agent_spec
 from ...config.models import Config
+from ...config.permission_rules import PermissionDecision, PermissionRuleSet
 from ...config.tool_policy import mutation_policy_for_model
 from ...core.budget import BudgetStop, TurnBudget
 from ...core.checkpoint import CheckpointStore
@@ -125,15 +126,25 @@ from ...tools.auto_policy import is_read_only_command
 from ...tools.capabilities import CapabilityRegistry
 from ...tools.emulation import coerce_arguments, validate_arguments
 from ...tools.files import resolve_path
+from ...tools.permission_match import evaluate
 from ...tools.preview import file_diff
 from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking
 from ..effects.model import EffectKind
 from ..effects.runner import maybe_run_effect_workflow
-from . import compaction, denial, gate_escalation, learning_steps, liveness, reflexion, review
+from . import (
+    compaction,
+    denial,
+    gate_escalation,
+    learning_steps,
+    liveness,
+    output_style,
+    reflexion,
+    review,
+)
 from .action_evidence import claimed_effects
 from .apprentice_handoff import apprentice_spec, teacher_for_turn
-from .approval import ApprovalPolicy, Decision, resolve_request
+from .approval import ApprovalPolicy, ApprovalRequest, Decision, Denial, resolve_request
 from .change_digest import change_digest
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
@@ -148,8 +159,15 @@ from .execution_policy import (
     uses_web_context,
 )
 from .execution_route import ExecutionRoute, choose_execution_route
-from .expertise import expertise_hint, is_desktop_task, is_game_task, is_remotion_task
+from .expertise import (
+    expertise_hint,
+    is_desktop_task,
+    is_game_task,
+    is_remotion_task,
+    is_worktree_task,
+)
 from .history import needs_compression, total_chars
+from .instruction_rules import discover_rules
 from .loop_contract import (
     _SHELL_FRAME as _SHELL_FRAME,
 )
@@ -202,6 +220,7 @@ from .questions import PendingUserQuestions
 from .repair_flow import record_failure_evidence
 from .repo_context import map_budget_for, repo_map_with_stats
 from .self_knowledge import GUIDE, knowledge_block
+from .skill_index import index_budget_for, skill_index_block
 from .tamper_check import collect_test_tampering
 from .teacher_flow import (
     prepare_teacher_plan,
@@ -294,7 +313,9 @@ _DECISION_OUTCOMES = {
 }
 
 
-def _decision_message(decision: Decision, *, plan_mode: bool) -> str:
+def _decision_message(
+    decision: Decision, *, plan_mode: bool, request: ApprovalRequest | None = None
+) -> str:
     """Reddedilen/engellenen çağrı için modele dönecek metni seç.
 
     `Decision.BLOCKED` İKİ ayrı sebepten gelebilir ve ikisinin metni FARKLI
@@ -307,6 +328,9 @@ def _decision_message(decision: Decision, *, plan_mode: bool) -> str:
     """
     if decision is Decision.DENIED:
         return denial.DENIED_TOOL_RESULT
+    if request is not None and request.pre_denied is not None:
+        # İzin kuralı / kök-dışı engel (P-001, P-002): plan kipinden de önce gelir.
+        return denial.RULE_DENIED_TOOL_RESULT.format(reason=request.pre_denied)
     if plan_mode:
         return BLOCKED_MESSAGE
     return denial.APPROVAL_UNAVAILABLE_MESSAGE
@@ -426,6 +450,9 @@ class AgentDeps:
     #: `--disallowed-tools` (P-026): bu araçlar modele HİÇ sunulmaz, çağrılırsa `BLOCKED`.
     #: Salt-okunur araçları da kapsar; onay politikası yalnız değiştiricilere bakar.
     denied_tools: frozenset[str] = frozenset()
+    #: Tüm katmanlardan okunmuş izin kuralları (allow/ask/deny) ve kök-dışı engeller (P-001).
+    #: `None` = kural yok (eski çağıranlar); `getattr(deps, "permission_rules", None)` ile okunur.
+    permission_rules: PermissionRuleSet | None = None
     #: Verilirse ders çıkarımı turu BEKLETMEDEN arka planda çalışır (REPL için).
     #: Verilmezse tur içinde beklenir (tek seferlik CLI için doğru davranış).
     background: BackgroundTasks | None = None
@@ -633,7 +660,7 @@ async def _run_agent(
         deps.tool_context.requested_outputs.clear()
         deps.tool_context.requested_outputs.update(requested_outputs_in(task))
         deps.tool_context.task_kinds.difference_update(
-            {"oyun", "remotion", "masaustu", WIDENED_KIND}
+            {"oyun", "remotion", "masaustu", "worktree", WIDENED_KIND}
         )
         if is_game_task(task):
             deps.tool_context.task_kinds.add("oyun")
@@ -641,6 +668,8 @@ async def _run_agent(
             deps.tool_context.task_kinds.add("remotion")
         if is_desktop_task(task):
             deps.tool_context.task_kinds.add("masaustu")
+        if is_worktree_task(task):
+            deps.tool_context.task_kinds.add("worktree")
 
     if not plan_mode and not chat_mode and depth == 0:
         played = await maybe_run_playbook(task, deps)
@@ -705,13 +734,24 @@ async def _run_agent(
     # taşıyordu (WEBSITE sanılan bir turda 21 KB'lık web referansı eklendi).
     # `--bare` (P-026): betik koşusu proje talimatını ve dış bellekleri hiç okumaz.
     proje_ve_dis_bellek = (
-        read_all_instructions(deps.tool_context.root, deps.home)
+        read_all_instructions(
+            deps.tool_context.root,
+            deps.home,
+            instruction_merge=getattr(deps.config.runtime, "instruction_merge", True),
+            instruction_max_chars=getattr(deps.config.runtime, "instruction_max_chars", 32_000),
+        )
         if deps.config.runtime.project_instructions
         else ""
     )
     # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Kod kipinde
     # kök turda eklenir; sohbet kipi çalışma dizinini taramaz.
     harita = _repo_map_for_turn(deps) if depth == 0 and not chat_mode else ""
+    # Beceri dizini (P-018): ad + kısa açıklama, bütçeli; gövde yalnız read_skill ile gelir.
+    beceri_dizini = (
+        skill_index_block(deps.capabilities, index_budget_for(deps.config))
+        if depth == 0 and not internal
+        else ""
+    )
     teacher_hint = (
         "Karmaşık çok dosyalı görevde kendi incelemenden sonra bir mimari risk veya "
         "doğrulama belirsizliği kalırsa `ask_teacher` ile tek somut soru sor. "
@@ -757,11 +797,14 @@ async def _run_agent(
             for part in (
                 proje_ve_dis_bellek,
                 harita,
+                beceri_dizini,
                 teacher_hint,
                 netlestirme,
                 identity_hint(deps.config.agent.model),
                 *istek_notlari,
                 extra_system,
+                # Çıktı stili (P-068) kodlama talimatlarından SONRA, en sona eklenir.
+                output_style.style_prompt(deps.config, home=deps.home, root=deps.tool_context.root),
             )
             if part
         ),
@@ -2547,6 +2590,9 @@ SCOPED_TOOLS: dict[str, str] = {
     "desktop_background_inspect": "masaustu",
     "desktop_background_screenshot": "masaustu",
     "desktop_background_action": "masaustu",
+    # Çalışma ağacı araçları yalnız izolasyon istenen işte sunulur (istem bütçesi).
+    "enter_worktree": "worktree",
+    "exit_worktree": "worktree",
 }
 
 
@@ -2752,16 +2798,24 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
     if not yollar or not getattr(deps.config.runtime, "nested_instructions", True):
         return
     kok = deps.tool_context.root
+    # `.claude/rules` içindeki `paths:` kuralları erişilen dosyaya uyarsa aynı notla gelir (P-016).
+    kurallar = (
+        discover_rules(kok, deps.home)
+        if getattr(deps.config.runtime, "instruction_merge", True)
+        else ()
+    )
 
     def baglamda_var(rel: str) -> bool:
-        isaret = nested_marker(rel)
+        isaret = nested_marker(rel) if not rel.startswith((".", "~")) else f'kaynak="{rel}"'
         return any(isaret in item.content for item in messages if item.role == "user")
 
     for ham in dict.fromkeys(yollar):
         hedef = resolve_access_path(deps.tool_context, ham)
         if hedef is None:
             continue
-        yuk = load_nested_instructions(kok, hedef, loaded=state.nested_loaded, present=baglamda_var)
+        yuk = load_nested_instructions(
+            kok, hedef, loaded=state.nested_loaded, present=baglamda_var, rules=kurallar
+        )
         if yuk is None:
             continue
         messages.append(yuk.message)
@@ -3709,7 +3763,15 @@ async def _execute(
         return ToolResult.failure(
             "Soru sonucu yeniden değerlendirilmeli; değişiklik yerine bağımsız okuma yap."
         ), ToolOutcome.BLOCKED
-    if tool is not None and tool.mutating:
+    # Değiştirmeyen ama etkisi ÇAĞRIYA bağlı araç da onaydan geçer: `browser_open`
+    # çerezsiz okur (sorulmaz) ama profil yükleyecekse kullanıcının girişli oturumunu
+    # ajana açar (sorulur). Ölçüldü (31 Ekim): yalnız `mutating` kapı olduğu için
+    # varsayılan profil hiç sorulmadan yükleniyordu. İzin kuralı (ask/deny) okuma
+    # araçlarını da kapıdan geçirir (P-001).
+    rules = getattr(deps, "permission_rules", None)
+    if tool is not None and (
+        tool.mutating or tool.effect_resolver is not None or _rule_gates(rules, tool, args, deps)
+    ):
         revision = deps.approval_revision() if deps.approval_revision else None
         policy = deps.policy_factory() if deps.policy_factory else deps.policy
         request = await resolve_request(
@@ -3718,19 +3780,28 @@ async def _execute(
             deps.allowed_commands,
             root=deps.tool_context.root,
             context=deps.tool_context,
+            rules=rules,
         )
-        decision = await policy.decide(request)
+        verdict = await policy.decide(request)
         if deps.mutation_blocked_by_pending_input() or (
             deps.approval_revision is not None and deps.approval_revision() != revision
         ):
             return ToolResult.failure(
                 "Onay kapsamı değişti; eski işlem başlatılmadı."
             ), ToolOutcome.BLOCKED
+        if isinstance(verdict, Denial):
+            # Gerekçeli ret (P-013): tur DURMAZ; model gerekçeyi okur ve yolunu değiştirir.
+            # Sonuç BLOCKED sınıfındadır: refleksiyon tetiklenmez, bütçe durdurulmaz.
+            return (
+                ToolResult.failure(denial.DENIED_WITH_NOTE_RESULT.format(note=verdict.note)),
+                ToolOutcome.BLOCKED,
+            )
+        decision = verdict
         if decision is not Decision.ALLOW:
             # Engelleme (BLOCKED) HATA DEĞİLDİR: refleksiyon tetiklenmemeli, model
             # yalnızca farklı bir yol denemeli. Reddetme (DENIED) ise artık farklı
             # bir sınıftır: turu durdurur (bkz. `_run_tools`, `_drive`).
-            message = _decision_message(decision, plan_mode=plan_mode)
+            message = _decision_message(decision, plan_mode=plan_mode, request=request)
             return ToolResult.failure(message), _DECISION_OUTCOMES[decision]
 
     # Onay SORULACAKSA (değiştirici araç) buraya ancak onaydan SONRA gelinir;
@@ -3774,6 +3845,23 @@ async def _execute(
     if recorder is not None and external:
         await recorder.finish(call.id, result.ok)
     return result, ToolOutcome.OK if result.ok else ToolOutcome.FAILED
+
+
+def _rule_gates(
+    rules: PermissionRuleSet | None, tool: Tool, args: dict[str, object], deps: AgentDeps
+) -> bool:
+    """Değiştirmeyen araç (okuma, arama, web) bir `deny`/`ask` kuralına takılıyor mu?
+
+    Onay kapısı değiştirici araçlar içindir; ama izin kuralları HER araç içindir (P-001:
+    `Read(~/.ssh/**)` deny, `WebFetch(domain:x)` deny, `Read(...)` ask). Ölçüldü (31 Ekim):
+    kapı yalnız `tool.mutating` ile açılıyordu, `read_file`/`web_fetch`/`search_code` için
+    deny ve ask kuralları hiç değerlendirilmeden araç çalışıyordu. `allow` ya da eşleşme
+    yoksa eski yol korunur: sorulmaz, doğrudan çalışır.
+    """
+    if rules is None or not rules.rules:
+        return False
+    match = evaluate(rules, tool.name, args, deps.tool_context.root)
+    return match is not None and match.decision is not PermissionDecision.ALLOW
 
 
 def _reads_only(tool_name: str, args: dict[str, object]) -> bool:

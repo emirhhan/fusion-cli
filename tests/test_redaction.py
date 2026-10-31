@@ -7,7 +7,7 @@ import io
 import pytest
 
 from fusion_cli.core.events import ModelCallFinished
-from fusion_cli.core.redaction import REDACTED_MARK, redact
+from fusion_cli.core.redaction import REDACTED_MARK, contains_sensitive, redact
 from fusion_cli.core.types import ModelResult
 from fusion_cli.observability.json_sink import JsonRenderer
 
@@ -135,3 +135,28 @@ def test_uzun_bosluksuz_govde_redaksiyonu_karesel_yavaslatmaz():
 
     assert time.monotonic() - baslangic < 5
     assert "abcdef1234567890xyz" not in sonuc and "sk-gizli" not in sonuc
+
+
+def test_redact_cookie_basligini_maskeler():
+    """P-023: içe aktarılan çerez hata metnine ya da transkripte dönerse değeri gizlenir."""
+    cikti = redact(
+        "istek başlığı\nCookie: sid=GIZLI-9f8e7d; pref=tr\nSet-Cookie: a=b; Path=/\nsonraki satır"
+    )
+
+    assert "GIZLI-9f8e7d" not in cikti
+    assert "a=b" not in cikti
+    assert "sonraki satır" in cikti
+    assert "istek başlığı" in cikti
+
+
+def test_cookie_deseni_kaynak_kodu_ve_duz_metni_yakmaz():
+    """Ölçüldü (31 Ekim): `cookie\\s*:\\s*[^\\r\\n]+` satır sonuna kadar maskeliyordu; grep
+    sonucundaki `cookie: string` tip bildirimi '[gizlendi]' oluyordu ve `cookie: ...`
+    içeren ders metinleri (`learning.py`) atılıyordu. Gerçek başlık `ad=değer` taşır."""
+    kod = "interface Req { cookie: string }\nconst Cookie: foo = bar()\n// cookie: isteğe bağlı"
+
+    assert redact(kod) == kod
+    assert contains_sensitive(kod) is False
+    # Gerçek başlık biçimi yine maskelenir.
+    assert "GIZLI" not in redact("Cookie: sid=GIZLI; pref=tr")
+    assert "GIZLI" not in redact("set-cookie:sid=GIZLI")

@@ -4,8 +4,10 @@
 
 import { clearSelected, execute, selectActiveTab } from "./core.js";
 import { setGlow } from "./pageGlow.js";
-import { PERMISSION_KEY } from "./core.js";
-import { controlSummary, renderAsk, renderMessage, renderSites } from "./panelView.js";
+import { MONITOR_KEY, PERMISSION_KEY, SHORTCUTS_KEY, monitorEnabled } from "./core.js";
+import { controlSummary, renderAsk, renderMessage, renderShortcuts, renderSites } from "./panelView.js";
+import { handleRecord } from "./recorder.js";
+import { SHORTCUT_NAME, expandShortcut as expandShortcutText } from "./shortcuts.js";
 
 const $ = (id) => document.getElementById(id);
 const THREAD_KEY = "fusionThread";
@@ -280,8 +282,9 @@ async function loadSettings(change = {}) {
 // --- Eylemler -----------------------------------------------------------------
 
 async function sendPrompt(text) {
-  const prompt = (text ?? $("prompt").value).trim();
-  if (!prompt || running()) return;
+  const typed = (text ?? $("prompt").value).trim();
+  if (!typed || running()) return;
+  const prompt = await expandShortcut(typed);
   error();
   $("prompt").value = "";
   autoGrow();
@@ -350,7 +353,7 @@ async function poll() {
       const command = await request("/poll");
       if (!command.id) continue;
       let reply;
-      try { reply = { id: command.id, ok: true, veri: await execute(command) }; } catch (cause) {
+      try { reply = { id: command.id, ok: true, veri: await runManual(command) }; } catch (cause) {
         reply = { id: command.id, ok: false, hata: String(cause.message || cause) };
       }
       await request("/result", reply);
@@ -361,6 +364,50 @@ async function poll() {
     }
   }
   polling = false;
+}
+
+/** Elle bağlantıda ekran kaydı kareleri panelde toplanır (bkz. recorder.js). */
+function runManual(command) {
+  if (command.islem !== "record") return execute(command);
+  return handleRecord(
+    command.veri || {},
+    (windowId) => chrome.tabs.captureVisibleTab(windowId, { format: "jpeg", quality: 65 }),
+    () => execute({ islem: "record_target", veri: {} }),
+    (target) => execute({ islem: "record_check", veri: { tabId: target.tabId, windowId: target.windowId } })
+      .catch((cause) => ({ ok: false, reason: String(cause?.message || cause) })),
+  );
+}
+
+// --- Kısayollar (Claude in Chrome shortcuts gibi: kayıtlı görev, "/ad" ile çağrılır) ---
+
+async function loadShortcuts() {
+  const stored = (await chrome.storage.local.get(SHORTCUTS_KEY))[SHORTCUTS_KEY];
+  return Array.isArray(stored) ? stored.filter((item) => item && item.ad && item.metin) : [];
+}
+
+async function saveShortcuts(list) {
+  await chrome.storage.local.set({ [SHORTCUTS_KEY]: list });
+  await renderShortcutList();
+}
+
+async function renderShortcutList() {
+  const list = await loadShortcuts();
+  renderShortcuts($("shortcuts"), $("shortcuts-empty"), list, async (ad) => {
+    await saveShortcuts(list.filter((item) => item.ad !== ad));
+  });
+}
+
+/** `/ad kalan metin` → kayıtlı görev (+ kalan metin); kısayol değilse metin olduğu gibi gider
+ * (bkz. shortcuts.js). Yalnız "/ad" yazılmış ve o ad yoksa yazım hatası olabilir: sorulur. */
+async function expandShortcut(prompt) {
+  if (!prompt.startsWith("/")) return prompt;
+  const list = await loadShortcuts();
+  const result = expandShortcutText(prompt, list);
+  if (result.unknown) {
+    const names = list.map((item) => `/${item.ad}`).join(", ");
+    throw new Error(`“/${result.unknown}” adlı kısayol yok. Kısayollar: ${names}. Metni göndermek için başına boşluk koy.`);
+  }
+  return result.prompt;
 }
 
 function autoGrow() {
@@ -406,6 +453,11 @@ $("new-chat").addEventListener("click", guard(async () => {
 }));
 $("open-settings").addEventListener("click", () => {
   void renderSiteList();
+  void renderShortcutList();
+  void monitorEnabled().then((enabled) => { $("monitor-toggle").checked = enabled; });
+  // Son görev kısayol adayıdır: alan boşsa onunla doldurulur.
+  const lastPrompt = [...thread.mesajlar].reverse().find((message) => message.rol === "kullanici")?.metin;
+  if (lastPrompt && !$("shortcut-text").value) $("shortcut-text").value = lastPrompt;
   const sheet = $("settings");
   if (typeof sheet.showModal === "function") sheet.showModal();
   else sheet.setAttribute("open", "");
@@ -442,6 +494,19 @@ $("grant-capture").addEventListener("click", guard(async () => {
   const allowed = await chrome.permissions.request({ origins: ["<all_urls>"] });
   if (!allowed) throw new Error("Chrome izni verilmedi.");
   error();
+}));
+$("monitor-toggle").addEventListener("change", guard(async () => {
+  await chrome.storage.local.set({ [MONITOR_KEY]: $("monitor-toggle").checked });
+}));
+$("shortcut-form").addEventListener("submit", guard(async () => {
+  const ad = $("shortcut-name").value.trim().replace(/^\//, "");
+  const metin = $("shortcut-text").value.trim();
+  if (!SHORTCUT_NAME.test(ad)) throw new Error("Kısayol adı boşluksuz, en çok 40 karakter olmalı (ör. ozet).");
+  if (!metin) throw new Error("Kısayolun görev metnini yaz.");
+  const others = (await loadShortcuts()).filter((item) => item.ad.toLocaleLowerCase("tr") !== ad.toLocaleLowerCase("tr"));
+  await saveShortcuts([...others, { ad, metin }]);
+  $("shortcut-name").value = "";
+  $("shortcut-text").value = "";
 }));
 $("disconnect").addEventListener("click", guard(async () => {
   try { await request("/disconnect"); } catch { /* Fusion zaten kapalı olabilir. */ }

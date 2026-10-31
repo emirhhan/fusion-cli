@@ -126,6 +126,34 @@ if args.count > 1 && args[1] == "list" {
         return ["icon": iconData, "kind": "window", "id": id, "pid": pid, "app": app.localizedName ?? "Uygulama", "title": row[kCGWindowName as String] as? String ?? "", "visible": row[kCGWindowIsOnscreen as String] as? Bool ?? false]
     }
     emit(["ok": true, "windows": windows])
+} else if args.count == 3, args[1] == "screen", let displayID = UInt32(args[2]) {
+    // Ekranı Fusion'ın (ve isteyen sürecin) pencereleri HARİÇ yakala (P-033): model kendi
+    // sohbet penceresini görmez, görüntü kirlenmez. Yalnız ScreenCaptureKit; geri düşüş yok.
+    if #available(macOS 14.0, *) {
+        let input = FileHandle.standardInput.readDataToEndOfFile()
+        let request = (input.count <= 100_000 ? (try? JSONSerialization.jsonObject(with: input) as? [String: Any]) : nil) ?? [:]
+        let excludedPids = Set((request["excludePids"] as? [Int]) ?? [])
+        let maxWidth = request["maxWidth"] as? Int ?? 0
+        Task {
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                guard let display = content.displays.first(where: { $0.displayID == displayID }) else { fail("Ekran bulunamadı."); exit(0) }
+                let excluded = content.applications.filter { excludedPids.contains(Int($0.processID)) }
+                let filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [])
+                var width = max(1, CGDisplayPixelsWide(displayID)), height = max(1, CGDisplayPixelsHigh(displayID))
+                if maxWidth > 0 && width > maxWidth { height = max(1, height * maxWidth / width); width = maxWidth }
+                let configuration = SCStreamConfiguration()
+                configuration.width = width
+                configuration.height = height
+                configuration.showsCursor = true
+                let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+                guard let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]), data.count <= 12_000_000 else { fail("Ekran görüntüsü üretilemedi veya sınırı aştı."); exit(0) }
+                emit(["ok": true, "kind": "display", "id": Int(displayID), "width": image.width, "height": image.height, "excluded": excluded.count, "image": "data:image/png;base64," + data.base64EncodedString(), "source": "display_capture"])
+            } catch { fail("Ekran yakalanamadı: \(error.localizedDescription)") }
+            exit(0)
+        }
+        dispatchMain()
+    } else { fail("Ekran yakalama macOS 14 veya üstünü gerektiriyor.") }
 } else if args.count == 4, let id = Int(args[2]), let pid = Int32(args[3]) {
     guard rows.contains(where: { ($0[kCGWindowNumber as String] as? Int) == id && ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) }) else { fail("Hedef pencere kapandı veya kimliği değişti."); exit(0) }
     if args[1] == "snapshot" {

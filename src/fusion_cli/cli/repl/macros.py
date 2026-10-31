@@ -159,6 +159,28 @@ MACROS: dict[str, Macro] = {
 }
 
 
+#: `/skills new <ad>` — beceri dosyasını modele yazdıran görev (Claude Code `/skills new`).
+SKILL_NEW_TASK = (
+    "Yeni bir beceri (SKILL.md) oluştur: `.claude/skills/{name}/SKILL.md`. Önce `ask_user` ile "
+    "iki kısa soru sor: (1) beceri ne zaman kullanılacak ve ne yapacak, (2) hangi araçlara "
+    "ihtiyacı var (dosya/komut/web). Sonra dosyayı yaz: ön madde `name: {name}`, `description` "
+    "(ne yaptığı + ne zaman kullanılacağı, tek cümle, 150 karakteri geçmesin), gerekiyorsa "
+    "`allowed-tools` ve `argument-hint`; gövde adım adım talimat, `$ARGUMENTS` yer tutucusu. "
+    "Mevcut dosyanın üzerine yazma; varsa kullanıcıya sor. Bitince `/skills reload` demesini "
+    "hatırlat."
+)
+
+#: `/agents new <ad>` — uzman ajan dosyasını modele yazdıran görev (Claude Code `/agents`).
+AGENT_NEW_TASK = (
+    "Yeni bir uzman ajan tanımı oluştur: `.claude/agents/{name}.md`. Önce `ask_user` ile sor: "
+    "(1) uzmanlık alanı ve görevi, (2) kapsam (yalnız bu proje mi, `~/.claude/agents` altında "
+    "genel mi), (3) araç kısıtı (salt-okur mu, komut çalıştırır mı). Sonra dosyayı yaz: ön "
+    "madde `name: {name}`, `description` (hangi işte devreye girer), `tools` (ör. Read, Grep, "
+    "Bash); gövde ajanın sistem talimatı: rol, çalışma biçimi, çıktı biçimi. Mevcut dosyanın "
+    "üzerine yazma; varsa kullanıcıya sor."
+)
+
+
 def get(name: str) -> Macro | None:
     return MACROS.get(name)
 

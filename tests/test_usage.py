@@ -102,3 +102,29 @@ def test_durum_yuku_iki_bolumu_de_tasir():
     assert yuk["ok"] is True
     assert yuk["kullanim"]["toplam_token"] == 20
     assert yuk["saglik"] == []
+
+
+def test_limit_gostergesi_ayarli_siniri_ve_kota_bekleyen_modeli_tasir():
+    """P-066: `kullanim.durum.limitler` yalnız ayarlanan sınırı ve ölçülen 429 serisini verir.
+
+    Ölçüldü (31 Ekim): eski yük `limitler` anahtarı taşımıyordu (KeyError).
+    """
+    kayit = HealthRegistry(failure_threshold=1, cooldown_s=60, alpha=0.3)
+    kayit.for_model("saglikli/m").record(True, latency_ms=10)
+    kayit.for_model("kotali/m").record(False, rate_limited=True)
+
+    yuk = usage_status(UsageMeter(), kayit, {"nvidia_nim": 40, "kapali": 0})
+
+    limitler = yuk["limitler"]
+    assert limitler["dakikaLimitleri"] == [{"saglayici": "nvidia_nim", "dakikaLimiti": 40.0}]
+    assert len(limitler["kotaBekleyen"]) == 1
+    bekleyen = limitler["kotaBekleyen"][0]
+    assert bekleyen["model"] == "kotali/m" and bekleyen["seri"] == 1
+    # Devre yeni açıldı: yeniden deneme süresi soğumanın kota katsayılı hâlidir, sıfır değil.
+    assert bekleyen["yenidenSn"] > 0
+
+
+def test_limit_gostergesi_saglik_ve_ayar_yokken_bos_doner():
+    yuk = usage_status(UsageMeter(), None)
+
+    assert yuk["limitler"] == {"dakikaLimitleri": [], "kotaBekleyen": []}

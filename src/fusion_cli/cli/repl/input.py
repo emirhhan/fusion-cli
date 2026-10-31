@@ -32,9 +32,11 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from ...config import keybindings
 from ...engines.agent.approval import ApprovalMode, next_mode
 from ...ui import messages, theme
 
@@ -49,15 +51,41 @@ PROMPT_SYMBOL = "❯"
 
 #: Durum çubuğunda modun önüne konan işaret.
 STATUS_MARK = "⏵"
+#: Vim kipi açıkken istemin önündeki etiket.
+VIM_LABEL = "vim"
 
 
 class ReplInput:
     """Komut geçmişi, tamamlama ve shift-tab ile mod döngüsü sunan giriş."""
 
-    def __init__(self, history_path: Path, words: list[str], *, mode: ApprovalMode) -> None:
+    def __init__(
+        self,
+        history_path: Path,
+        words: list[str] | Callable[[], list[str]],
+        *,
+        mode: ApprovalMode,
+        roots: tuple[Path, ...] = (),
+    ) -> None:
+        """`words` bir çağrılabilir olabilir: tamamlama sözlüğü her istemde yeniden alınır.
+
+        Ölçüldü (31 Ekim): sözlük başlangıçta bir kez alınıyordu; `/skills new`, `/skills
+        reload` ya da `/add-dir` ile eklenen beceri `/ad` olarak çalışıyor ama Tab
+        tamamlamada görünmüyordu.
+        """
         self.mode = mode
+        #: `@yol` tamamlamasının gezineceği kökler (proje kökü + `--add-dir`).
+        self.roots = roots
+        #: Vim düzenleme kipi (P-067); REPL `runtime.vim_mode`'dan eşler.
+        self.vim_mode = False
+        #: `komut:<ad>` tuş bağı gönderilen komutu buraya bırakır; `prompt()` onu satır yapar.
+        self._bound_command: str | None = None
+        #: Tuş tablosu (P-067): dosya değişince `prompt()` yeniden yükler.
+        self._keymap = keybindings.load_keymap()
+        self._bindings: Any = None
         #: Durum çubuğunda gösterilen bağlam. REPL her değişiklikte günceller.
         self.context: str = ""
+        #: Kullanıcı betiğinin ürettiği durum satırı (P-069); doluysa bağlamın yerine geçer.
+        self.custom_status: str = ""
         self._session: Any = None
         self._fold_paste = True
         #: Katlanan yapıştırmaların yer tutucu → tam metin eşlemesi. Her satır
@@ -65,7 +93,7 @@ class ReplInput:
         self._pastes: dict[str, str] = {}
         self._paste_seq = 0
         if sys.stdin.isatty():
-            self._session = _build_session(self, history_path, words)
+            self._session = _build_session(self, history_path, words, roots)
 
     @property
     def interactive(self) -> bool:
@@ -121,14 +149,34 @@ class ReplInput:
         # Mesaj CALLABLE verilir: shift-tab modu değiştirip `invalidate()` çağırınca
         # prompt_toolkit mesajı YENİDEN hesaplar ve mod etiketi ANINDA güncellenir.
         # Statik `HTML(...)` verilseydi etiket bir sonraki Enter'a kadar donardı.
+        self._reload_keymap_if_changed()
+        self._session.editing_mode = _editing_mode(self.vim_mode)
         line = await self._session.prompt_async(self._prompt_message)
+        if self._bound_command is not None:
+            # Tuşa bağlı komut (`komut:<ad>`): yazılan metin yerine o komut gönderilir.
+            bound, self._bound_command = self._bound_command, None
+            return bound
         return self.expand_pastes(str(line))
+
+    def _reload_keymap_if_changed(self) -> None:
+        if keybindings.has_changed(self._keymap):
+            self._keymap = keybindings.load_keymap(self._keymap.path)
+            self._bindings = build_input_bindings(self, self._keymap)
+
+    @property
+    def keymap(self) -> keybindings.KeyMap:
+        return self._keymap
+
+    def run_bound_command(self, command: str, event: Any) -> None:
+        """`komut:<ad>` bağı: `/ad` satırını gönder (tampondaki metin korunmaz)."""
+        self._bound_command = f"/{command.strip().lstrip('/')}"
+        event.current_buffer.validate_and_handle()
 
     def _prompt_message(self) -> Any:
         """İstem satırının o anki HTML biçimi (her yeniden çizimde çağrılır)."""
         from prompt_toolkit.formatted_text import HTML
 
-        return HTML(prompt_fragments(self.mode))
+        return HTML(prompt_fragments(self.mode, vim=self.vim_mode))
 
     def status_bar(self) -> Any:
         """Ekranın altındaki tek satırlık durum çubuğu.
@@ -139,13 +187,19 @@ class ReplInput:
         from prompt_toolkit.formatted_text import HTML
 
         color = theme.MODE_COLORS.get(self.mode.value, theme.DIM)
+        context = self.custom_status or self.context
         parts = [
             f"<style fg='{color}'>{STATUS_MARK} {self.mode.value}</style>",
-            f"<style fg='{theme.DIM}'>{self.context}</style>" if self.context else "",
+            f"<style fg='{theme.DIM}'>{_escape_html(context)}</style>" if context else "",
             f"<style fg='{theme.DIM}'>{messages.REPL_ON_OFF_HINT}</style>",
         ]
         separator = f"<style fg='{theme.DIM}'> · </style>"
         return HTML(" " + separator.join(part for part in parts if part))
+
+
+def _escape_html(text: str) -> str:
+    """Betik çıktısı prompt_toolkit HTML'ine ham girmesin."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def toolbar_enabled() -> bool:
@@ -164,37 +218,31 @@ def toolbar_enabled() -> bool:
     return os.environ.get("FUSION_TOOLBAR", "") == "1"
 
 
-def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> Any:
+def _build_session(
+    owner: ReplInput,
+    history_path: Path,
+    words: list[str] | Callable[[], list[str]],
+    roots: tuple[Path, ...] = (),
+) -> Any:
     """prompt_toolkit oturumunu kur. Kurulamazsa None → düz girişe düşülür."""
     try:
         from prompt_toolkit import PromptSession
-        from prompt_toolkit.completion import WordCompleter
         from prompt_toolkit.history import FileHistory
-        from prompt_toolkit.key_binding import KeyBindings
-        from prompt_toolkit.keys import Keys
+        from prompt_toolkit.key_binding import DynamicKeyBindings
+
+        from .completion import ReplCompleter
 
         history_path.parent.mkdir(parents=True, exist_ok=True)
-        bindings = KeyBindings()
-
-        @bindings.add("s-tab")
-        def _cycle(event: Any) -> None:
-            owner.cycle_mode()
-            event.app.invalidate()
-
-        @bindings.add("c-v")
-        def _fold(event: Any) -> None:
-            owner.toggle_fold()
-            event.app.invalidate()
-
-        @bindings.add(Keys.BracketedPaste)
-        def _paste(event: Any) -> None:
-            # Yapıştırma varsayılan olarak tampona AKMAZ: uzunsa metin saklanır ve
-            # yerine tek satırlık yer tutucu konur (bkz. modül başlığı, madde 3).
-            owner.fold_paste_into(event.current_buffer, event.data)
+        # Bağlar tablodan üretilir ve dosya değişince yenilenir (P-067): `DynamicKeyBindings`
+        # her tuşta o anki tabloyu okur, oturumu yeniden kurmak gerekmez.
+        owner._bindings = build_input_bindings(owner, owner.keymap)
+        bindings = DynamicKeyBindings(lambda: owner._bindings)
 
         return PromptSession(
             history=FileHistory(str(history_path)),
-            completer=WordCompleter(words, sentence=True),
+            # `/komut` ve `@yol` tamamlama tek tamamlayıcıda (P-022); sözlük çağrılabilir olabilir,
+            # dinamik beceri komutları eklendikçe tamamlama da yenilenir (P-019).
+            completer=ReplCompleter(words, roots),
             # Alt bilgi çubuğu VARSAYILAN OLARAK KAPALI: tam genişlikte olduğu için
             # terminal daraldığında sarıyor ve resize'da istem kopyası bırakıyordu.
             # Mod bilgisi istemin kendisine taşındı. FUSION_TOOLBAR=1 geri getirir.
@@ -217,6 +265,63 @@ def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> An
         return None
 
 
+def build_input_bindings(owner: ReplInput, keymap: keybindings.KeyMap) -> Any:
+    """Satır-içi istemin tuş bağlarını tablodan kur (P-067).
+
+    Yapıştırma yakalayıcısı tabloda DEĞİLDİR: eylem değil, girdinin çalışma biçimidir.
+    Geçersiz tuş adı tek bağı düşürür, oturumu değil.
+    """
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.keys import Keys
+
+    bindings = KeyBindings()
+
+    def _cycle(event: Any) -> None:
+        owner.cycle_mode()
+        event.app.invalidate()
+
+    def _fold(event: Any) -> None:
+        owner.toggle_fold()
+        event.app.invalidate()
+
+    actions: dict[str, Callable[[Any], None]] = {
+        "kip_dongusu": _cycle,
+        "yapistirma_katla": _fold,
+    }
+    for key, action in keymap.bindings(keybindings.CONTEXT_INPUT).items():
+        handler = _resolve_action(owner, action, actions)
+        if handler is None:
+            continue
+        try:
+            bindings.add(key)(handler)
+        except ValueError:
+            # Bilinmeyen tuş adı: `/keybindings` dosyayı gösterir, kullanıcı düzeltir.
+            continue
+
+    @bindings.add(Keys.BracketedPaste)
+    def _paste(event: Any) -> None:
+        # Yapıştırma varsayılan olarak tampona AKMAZ: uzunsa metin saklanır ve
+        # yerine tek satırlık yer tutucu konur (bkz. modül başlığı, madde 3).
+        owner.fold_paste_into(event.current_buffer, event.data)
+
+    return bindings
+
+
+def _resolve_action(
+    owner: ReplInput, action: str, actions: dict[str, Callable[[Any], None]]
+) -> Callable[[Any], None] | None:
+    if action.startswith(keybindings.COMMAND_PREFIX):
+        command = action[len(keybindings.COMMAND_PREFIX) :]
+        return lambda event: owner.run_bound_command(command, event)
+    return actions.get(action)
+
+
+def _editing_mode(vim: bool) -> Any:
+    from prompt_toolkit.enums import EditingMode
+
+    return EditingMode.VI if vim else EditingMode.EMACS
+
+
 def _toolbar_style() -> Any:
     """Durum çubuğunun varsayılan ters-renkli zeminini kaldır.
 
@@ -234,7 +339,7 @@ def _toolbar_style() -> Any:
     )
 
 
-def prompt_fragments(mode: Any) -> str:
+def prompt_fragments(mode: Any, *, vim: bool = False) -> str:
     """İstem satırının HTML biçimli hali: mod etiketi + istem sembolü.
 
     Mod bilgisi eskiden tam genişlikte bir alt bilgi çubuğundaydı. O çubuk terminal
@@ -250,8 +355,10 @@ def prompt_fragments(mode: Any) -> str:
     ("security ❯ ") 11 görünür karakterdir; `test_istem_tek_satir_kalir`'in sınırı içindedir.
     """
     symbol = f"<style fg='{theme.ACCENT}'><b>{PROMPT_SYMBOL}</b></style> "
+    # Vim kipi (P-067) kısa bir etiketle görünür; etiket yine tek satırda kalır.
+    vim_label = f"<style fg='{theme.DIM}'>{VIM_LABEL}</style> " if vim else ""
     value = getattr(mode, "value", "")
     if value == "auto" or not value:
-        return symbol
+        return vim_label + symbol
     color = theme.MODE_COLORS.get(value, theme.DIM)
-    return f"<style fg='{color}'>{value}</style> {symbol}"
+    return f"{vim_label}<style fg='{color}'>{value}</style> {symbol}"

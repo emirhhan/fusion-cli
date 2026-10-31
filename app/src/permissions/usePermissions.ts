@@ -16,6 +16,8 @@ const UNKNOWN_STATES: PermissionStates = {
   microphone: "unknown",
   speech: "unknown",
   keychain: "unknown",
+  accessibility: "unknown",
+  screenRecording: "unknown",
 };
 
 function readExplanationSeen(storage: Pick<Storage, "getItem"> | undefined): ExplanationSeen {
@@ -83,6 +85,17 @@ export function usePermissions(
     active.current = null;
     setActiveKind(null);
   }, [begin]);
+
+  /**
+   * Çekirdek (sidecar) izni eksik gördü: Tauri sürecinin daha önce "granted" dediği önbellek
+   * güvenilmez, bir sonraki `ensure` kartı yeniden açar. Ölçüldü (31 Ekim): `MasaustuIzinGerekli`
+   * gelince `ensure` önbellekten true dönüyor, kart hiç açılmıyor, araç düşmeye devam ediyordu.
+   */
+  const invalidate = useCallback((kind: PermissionKind) => {
+    if (states.current[kind] === "unknown") return;
+    states.current = { ...states.current, [kind]: "unknown" };
+    setState(states.current);
+  }, []);
 
   const ensure = useCallback((kind: PermissionKind): Promise<boolean> => {
     if (states.current[kind] === "granted") return Promise.resolve(true);
@@ -185,6 +198,7 @@ export function usePermissions(
     phase,
     error,
     ensure,
+    invalidate,
     continue: continuePermission,
     retry,
     continueToNext,

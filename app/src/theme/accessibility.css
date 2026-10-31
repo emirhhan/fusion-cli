@@ -1,0 +1,87 @@
+/* Erişilebilirlik tercihleri (P-065). `accessibility.ts` belge köküne data-* yazar;
+   buradaki kurallar onları token'lara çevirir. Öznitelik yokken hiçbir kural
+   uygulanmaz: eski görünüm birebir korunur. */
+
+/* --- Yazı ölçeği -------------------------------------------------------- */
+/* rem tabanlı tüm metin token'ları kök yazı boyutundan türediği için ölçek kökte
+   çarpılır; `body` 15 px tabanı ayrıca çarpılır. */
+:root[data-font-scale] { font-size: calc(100% * var(--font-scale, 1)); }
+:root[data-font-scale] body { font-size: calc(15px * var(--font-scale, 1)); }
+
+/* --- Hareketi azalt ----------------------------------------------------- */
+/* Sistem tercihinden bağımsız kullanıcı anahtarı: `tokens.css`'teki medya bloğuyla aynı. */
+:root[data-motion="reduce"] *,
+:root[data-motion="reduce"] *::before,
+:root[data-motion="reduce"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 0.01ms !important;
+}
+
+/* --- Yüksek kontrast ---------------------------------------------------- */
+:root[data-contrast="high"] {
+  --border-subtle: #6b6b70;
+  --border-strong: #2a2a2e;
+  --text-secondary: #2f2f33;
+  --text-tertiary: #2f2f33;
+  --focus-ring: #0033cc;
+  --surface-hover: #e2e2e4;
+  --surface-selected: #d9d9dc;
+}
+
+:root[data-contrast="high"][data-theme="dark"] {
+  --border-subtle: #8a8a90;
+  --border-strong: #d9d9dc;
+  --text-secondary: #e6e6ea;
+  --text-tertiary: #e6e6ea;
+  --focus-ring: #ffd60a;
+  --surface-hover: #3a3a3f;
+  --surface-selected: #46464c;
+}
+
+:root[data-contrast="high"] :focus-visible {
+  outline-width: 3px;
+  outline-offset: 2px;
+}
+
+/* İşletim sistemi "zorunlu renkler" kipinde (Windows yüksek kontrast) sistem paleti kazanır. */
+@media (forced-colors: active) {
+  :focus-visible { outline: 3px solid Highlight; }
+  .sidebar__session-unread { background: Highlight; }
+}
+
+/* --- Vurgu rengi -------------------------------------------------------- */
+:root[data-accent="blue"] { --accent: var(--brand-detail-blue); --accent-text: var(--brand-detail-blue); --focus-ring: var(--brand-detail-blue); }
+:root[data-accent="violet"] { --accent: var(--brand-detail-violet); --accent-text: var(--brand-detail-violet); --focus-ring: var(--brand-detail-violet); }
+:root[data-accent="mint"] { --accent: var(--brand-detail-mint); --accent-text: var(--brand-signal-deep); --focus-ring: var(--brand-detail-mint); }
+
+/* --- Odak atlama bağlantıları (skip links) -------------------------------- */
+.skip-links {
+  left: var(--space-3);
+  position: fixed;
+  top: var(--space-3);
+  z-index: 1000;
+}
+
+.skip-links a {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm, 6px);
+  color: var(--text-primary);
+  display: inline-block;
+  font-size: var(--text-sm);
+  margin-right: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  position: absolute;
+  text-decoration: none;
+  transform: translateY(-200%);
+  white-space: nowrap;
+}
+
+/* Yalnız klavye odağında görünür; fareyle gezinen kullanıcı hiç görmez. */
+.skip-links a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  position: static;
+  transform: none;
+}

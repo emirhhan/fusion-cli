@@ -32,6 +32,8 @@ from ..core.types import ModelSpec
 from . import trust
 from .keys import ProviderPreference, apply_preference, detect, prune_config
 from .models import (
+    BrowserConfig,
+    CapabilitiesConfig,
     Config,
     EmbeddingConfig,
     HostedConnectorConfig,
@@ -71,6 +73,8 @@ _SECTIONS = (
     "hosted_connectors",
     "mcp_servers",
     "web_sessions",
+    "browser",
+    "capabilities",
 )
 
 # PEP 695 sözdizimi yerine TypeVar: paket Python 3.11'i de destekler.
@@ -266,6 +270,9 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         mcp_servers=_build_mcp_servers(merged.get("mcp_servers")),
         hosted_connectors=_build_hosted_connectors(merged.get("hosted_connectors")),
         web_sessions=web_sessions,
+        # Eski kullanıcı dosyasında `browser:` yoksa gömülü varsayılanlar geçerlidir.
+        browser=_build(BrowserConfig, merged.get("browser") or {}, "browser"),
+        capabilities=_build(CapabilitiesConfig, merged.get("capabilities") or {}, "capabilities"),
     )
 
 
@@ -305,9 +312,13 @@ def _build_runtime(raw: object) -> RuntimeConfig:
         "compact_external_tools",
         "tool_output_window",
         "repo_map_chars",
+        "instruction_max_chars",
+        "skill_index_chars",
     ):
         if getattr(runtime, name) < 0:
             raise ConfigError(f"runtime.{name}: negatif olamaz.")
+    if runtime.desktop_screenshot_max_width < 256:
+        raise ConfigError("runtime.desktop_screenshot_max_width: en az 256 piksel olmalı.")
     if runtime.escalation_model.strip() and "/" not in runtime.escalation_model:
         raise ConfigError(
             "runtime.escalation_model: <sağlayıcı>/<model> biçiminde olmalı "

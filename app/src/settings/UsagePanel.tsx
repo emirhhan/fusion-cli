@@ -51,6 +51,18 @@ interface Attribution {
   pencere?: string;
 }
 
+/**
+ * Kota/limit göstergesi (P-066). Claude Code'un plan çubuklarının Fusion karşılığı:
+ * abonelik kotası sağlayıcı tarafından bildirilmez, UYDURULMAZ; yalnız ayarlanan
+ * dakikalık sınır ve ölçülen "sağlayıcı bekletiyor" (429 serisi) gösterilir.
+ */
+interface LimitsRow {
+  dakikaLimitleri: { saglayici: string; dakikaLimiti: number }[];
+  kotaBekleyen: { model: string; seri: number; yenidenSn: number }[];
+}
+
+const BOS_LIMITLER: LimitsRow = { dakikaLimitleri: [], kotaBekleyen: [] };
+
 const sayi = (value: number) => value.toLocaleString("tr-TR");
 
 export function UsagePanel({ client }: { client: ProtocolClient }) {
@@ -60,6 +72,7 @@ export function UsagePanel({ client }: { client: ProtocolClient }) {
   const [attribution, setAttribution] = useState<Attribution | null>(null);
   // Eski çekirdek alanı göndermez (undefined): o durumda kapalı notu gösterilmez.
   const [logDisabled, setLogDisabled] = useState(false);
+  const [limits, setLimits] = useState<LimitsRow>(BOS_LIMITLER);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,6 +88,7 @@ export function UsagePanel({ client }: { client: ProtocolClient }) {
         gecmis?: HistoryRow[];
         atif?: Attribution;
         gunluk_acik?: boolean;
+        limitler?: Partial<LimitsRow>;
       };
       if (!veri?.ok || !veri.kullanim) {
         setError(veri?.metin ?? "Kullanım bilgisi alınamadı.");
@@ -85,6 +99,11 @@ export function UsagePanel({ client }: { client: ProtocolClient }) {
       setHistory(veri.gecmis ?? []);
       setAttribution(veri.atif ?? null);
       setLogDisabled(veri.gunluk_acik === false);
+      // Eski çekirdek `limitler` göndermez: bölüm boş kalır, hata sayılmaz.
+      setLimits({
+        dakikaLimitleri: veri.limitler?.dakikaLimitleri ?? [],
+        kotaBekleyen: veri.limitler?.kotaBekleyen ?? [],
+      });
     } catch (reason) {
       // Gerçek neden atılmaz (U2-57).
       setError(`Kullanım bilgisi alınamadı. Neden: ${errorMessage(reason)}`);
@@ -212,6 +231,39 @@ export function UsagePanel({ client }: { client: ProtocolClient }) {
           kötü göstermemek için boş bırakılır.
         </p>
       ) : null}
+
+      <h3 className="settings__section-title">Hız sınırları ve kota</h3>
+      {!loading && !error && (
+        <>
+          {limits.kotaBekleyen.length > 0 ? (
+            <ul className="settings__list" aria-label="Kota bekleten modeller">
+              {limits.kotaBekleyen.map((row) => (
+                <li key={row.model}>
+                  <strong>{row.model}</strong>
+                  <code>sağlayıcı bekletiyor · {row.seri}. kez</code>
+                  <span>{row.yenidenSn > 0 ? `${sayi(row.yenidenSn)} sn sonra yeniden` : "yeniden deneniyor"}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="settings__hint">Şu an hiçbir sağlayıcı kota bekletmiyor.</p>
+          )}
+          {limits.dakikaLimitleri.length > 0 && (
+            <dl className="settings__pairs" aria-label="Dakikalık istek sınırları">
+              {limits.dakikaLimitleri.map((row) => (
+                <div key={row.saglayici}>
+                  <dt>{row.saglayici}</dt>
+                  <dd>{sayi(row.dakikaLimiti)} istek/dk (bütün sekmelerde ortak)</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          <p className="settings__hint">
+            Abonelik kotası (ChatGPT, Claude web) sağlayıcı tarafından bildirilmez; burada yalnız
+            Fusion'ın ayarladığı sınır ve sağlayıcının o an bekletmesi görünür.
+          </p>
+        </>
+      )}
     </article>
   );
 }

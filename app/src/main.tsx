@@ -5,12 +5,18 @@ import { VoiceWindow } from "./voice/VoiceWindow";
 import { isVoiceWindow } from "./voice/windowBridge";
 import { isMacOS } from "./platform/os";
 import "./theme/tokens.css";
+import "./theme/accessibility.css";
 import "./brand/brand.css";
 import "./App.css";
 import { applyTheme, readThemePreference } from "./theme/theme";
+import { applyAccessibility, readAccessibilityPreferences } from "./theme/accessibility";
+import { applyLanguage, readLanguage } from "./i18n/language";
 import { RenderErrorBoundary } from "./ui/RenderErrorBoundary";
 
 applyTheme(readThemePreference());
+// Yazı ölçeği/kontrast/hareket ve dil ilk boyamadan ÖNCE uygulanır; sonradan sıçrama olmaz (P-065).
+applyAccessibility(readAccessibilityPreferences());
+applyLanguage(readLanguage());
 const nativeMainWindow = "__TAURI_INTERNALS__" in window && !isVoiceWindow();
 if (nativeMainWindow) document.documentElement.dataset.fusionNativeMain = "true";
 /* macOS'ta pencere `titleBarStyle: "Overlay"` + `hiddenTitle: true` ile açılır:

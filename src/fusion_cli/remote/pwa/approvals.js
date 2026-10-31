@@ -27,7 +27,9 @@ function hasContent(value) {
 
 // `scopes`: cihazın eşleşme kapsamları. Onayın gerektirdiği kapsam yoksa sunucu yalnız
 // reddi kabul eder; kart boşuna onay düğmesi göstermez, masaüstüne yönlendirir.
-export function approvalCard(question, rpc, after, scopes = null) {
+// `authority`: `service.status.approvalAuthority` — masaüstü cihaz başına süreli onay yetkisi
+// istiyorsa ve bu cihazda yoksa (P-040) yine yalnız Reddet sunulur.
+export function approvalCard(question, rpc, after, scopes = null, authority = null) {
   const error = h("p", { class: "approval-error danger", role: "alert", hidden: true });
   const receipt = h("p", { class: "muted small", role: "status", hidden: true });
   const actions = h("div", { class: "approval-actions" });
@@ -87,10 +89,15 @@ export function approvalCard(question, rpc, after, scopes = null) {
   }
   const labels = { once: "Bir kez izin ver", session: "Bu oturumda izin ver", deny: "Reddet" };
   const offered = (question.options?.length ? question.options : ["once", "deny"]).map((item) => typeof item === "string" ? item : item.deger);
-  const allowed = !question.requiredScope || !Array.isArray(scopes) || scopes.includes(question.requiredScope);
-  if (!allowed) {
+  const scopeAllowed = !question.requiredScope || !Array.isArray(scopes) || scopes.includes(question.requiredScope);
+  const trusted = !(authority && authority.required === true && authority.canApprove !== true);
+  const allowed = scopeAllowed && trusted;
+  if (!scopeAllowed) {
     card.insertBefore(h("p", { class: "muted small approval-desktop-only" },
       `Bu onayı bu telefondan veremezsin ('${question.requiredScope}' yetkisi yok). Bilgisayardan onayla ya da burada reddet.`), actions);
+  } else if (!trusted) {
+    card.insertBefore(h("p", { class: "muted small approval-desktop-only" },
+      "Bu telefona uzaktan onay yetkisi verilmemiş ya da süresi dolmuş. Bilgisayarda Ayarlar › Uzaktan Erişim'den yetki ver ya da burada reddet."), actions);
   }
   const shown = offered.filter((choice) => labels[choice] && (allowed || choice === "deny"));
   // Tanınmayan seçenekler kartı düğmesiz bırakıp görevi sonsuza dek bekletmesin: Reddet daima vardır.

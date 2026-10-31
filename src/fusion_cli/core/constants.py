@@ -90,6 +90,15 @@ GH_TIMEOUT_S = 30.0
 #: onun bütçesi `WebSessionConfig.timeout_s` alanından gelir.
 WEB_TIMEOUT_S = 20.0
 
+#: Fusion Kits yan sürecine (yerel HTTP) tek istek bütçesi: Kit listesi, gelen kutusu
+#: teslimi ve durum okuma. Kit'in işi yapması beklenmez; makbuz anında döner.
+KITS_TIMEOUT_S = 15.0
+#: Masaüstü başlatmamışsa (durum dosyası yok) denenen elle başlatılmış Kits adresi
+#: (`npm run kits:start` varsayılan portu).
+KITS_DEFAULT_URL = "http://127.0.0.1:4410"
+#: Kits'in dinlediği adresi duyurduğu durum dosyasının adı (`kits_process.rs` ile aynı).
+KITS_STATE_FILENAME = "kits-bridge.json"
+
 #: Hız sınırı sonrası yeniden denemede `retry_after_s` ile en fazla bu kadar beklenir.
 #: Paylaşılan soğuma bundan uzunsa bekleme sınırlanır; ardından kapı yine kapalıysa
 #: sonuç olduğu gibi üst katmana (agent turunun kendi bekleme/yedek mantığına) döner.

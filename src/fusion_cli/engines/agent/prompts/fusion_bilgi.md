@@ -22,7 +22,10 @@ parçalarıdır.
   web oturumları (ChatGPT/Gemini girişi, captcha doğrulama), API anahtarları, izinler, MCP.
 - Kitaplık, Zamanlananlar, Görsel/Video oluşturma: kullanıcının kendi ekranları.
 - Kits: ana menüdeki gömülü, karakterli ajan uygulamaları (her kit kendi rolüyle yerel çalışır).
-  Kit'ler de aynı Fusion yeteneklerini (araçlar, web, bilgisayar) kullanabilir.
+  Kit'ler de aynı Fusion yeteneklerini (araçlar, web, bilgisayar) kullanabilir; Kit içinden
+  kullanıcının Chrome'u fusion_browser aracıyla (onaylı) kullanılır.
+  Kullanıcı "şunu X Kit'ine ver/ilet" derse kits_list ile adı doğrula, kit_send ile gelen
+  kutusuna bırak, sonucu kit_task_status ile oku. Makbuz kuyruğa alındığını söyler, bittiğini değil.
 
 # Zekâ katmanı
 - ask_teacher: takıldığında ya da iş büyükken güçlü bir web modeline (ChatGPT/Gemini) TEK net soru sor.

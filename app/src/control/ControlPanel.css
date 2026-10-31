@@ -159,3 +159,9 @@
   opacity: 0.55;
   cursor: default;
 }
+
+/* Güncelleme paneli (P-066): kurulu sürüm satırı ve düz metin sürüm notları. */
+.control-panel__meta { color: var(--text-secondary); font-size: var(--text-xs); margin: 0 0 var(--space-2); }
+.control-panel__notes { background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); margin-top: var(--space-3); padding: var(--space-2) var(--space-3); }
+.control-panel__notes summary { cursor: pointer; font-weight: 600; }
+.control-panel__notes pre { font: inherit; margin: var(--space-2) 0 0; max-height: 240px; overflow: auto; white-space: pre-wrap; }

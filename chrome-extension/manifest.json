@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Fusion Browser",
-  "version": "0.3.12",
+  "version": "0.4.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlmjJHQyf4FrWteVzv7cwI7MlVml805Kw4SKtET6OAHPGvBT+YWcAueXqCBNpNvKuahQGpsxMHioLQAuKpXwf3kIiH1xcljUJ5IuBhJwkMAauYK+BGy7mJpCi4v+eZZZ9n2cgu4tmKnn8pYiflVi5uKFsxdUg6FjIIH4e4GjXRSURMMORXCaRdov0hrBWGo7cLZWoXkT1wR4ztf3DJJiezgQPqY4Hv+1B0E2R2s0hJFdlVsC0LzHMtF2dboBC7f+YtMu61FEKyk68c8vSL1UWDqgbd2ygEfJjS9NzvEK2H0wXJ+Ordc/R43w+XA9Y2Odb70/faHO80HreB/1BGXNvSQIDAQAB",
   "description": "Fusion'ı Chrome'a bağlar: yan panelde sohbet eder, izin verdiğiniz sitelerde sayfayı okur, kaydırır ve tıklar.",
   "minimum_chrome_version": "116",
@@ -12,8 +12,19 @@
     "activeTab",
     "tabs",
     "nativeMessaging",
-    "offscreen"
+    "offscreen",
+    "tabGroups"
   ],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Ctrl+Shift+F", "mac": "Command+Shift+F" },
+      "description": "Fusion panelini aç"
+    },
+    "fusion-stop": {
+      "suggested_key": { "default": "Ctrl+Shift+Period", "mac": "Command+Shift+Period" },
+      "description": "Süren Fusion görevini durdur"
+    }
+  },
   "host_permissions": [
     "http://127.0.0.1/*"
   ],

@@ -13,6 +13,7 @@ import re
 import sys
 from pathlib import Path
 
+from ..core.constants import KITS_STATE_FILENAME
 from ..core.execution_context import PERSONAL_WORKSPACE, ExecutionContext, validate_identifier
 
 APP_NAME = "fusion-cli"
@@ -66,6 +67,20 @@ def base_data_dir() -> Path:
     else:
         base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
     return Path(base) / APP_NAME
+
+
+def kits_data_dir() -> Path:
+    """Masaüstünün başlattığı Fusion Kits yan sürecinin veri klasörü.
+
+    Tauri (`kits_process.rs`) aynı yolu `<veri kökü>/fusion-cli/kits` olarak kurar;
+    hesaptan bağımsızdır çünkü Kits süreci uygulama başına tektir.
+    """
+    return base_data_dir() / "kits"
+
+
+def kits_state_file() -> Path:
+    """Kits'in adres+pid duyurduğu durum dosyası (`tools/kits.py` okur)."""
+    return kits_data_dir() / KITS_STATE_FILENAME
 
 
 def account_config_dir(account_id: str) -> Path:
@@ -123,6 +138,15 @@ def web_profile_dir(provider: str, account: str) -> Path:
     katmanına import edemez. Tarayıcı katmanı da aynı fonksiyonu kullanır.
     """
     return user_data_dir() / "web_profiles" / _slug(provider) / _slug(account)
+
+
+def browser_profiles_dir() -> Path:
+    """Ajan tarayıcısına (`browser_*`) taşınan kullanıcı oturumlarının kökü (P-023).
+
+    `web_profiles/` ile karıştırılmaz: o dizin web MODEL sağlayıcılarının Chrome
+    kullanıcı-veri dizinleridir; burası ad başına şifreli `storage_state` tutar.
+    """
+    return user_data_dir() / "browser_profiles"
 
 
 def _slug(value: str) -> str:

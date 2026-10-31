@@ -23,8 +23,11 @@ def rendered() -> str:
 # taşır (+~600 karakter). Zayıf modeller bu bilgiyi yalnız başarısızlık mesajlarından öğreniyor ve
 # her model aynı deneme-yanılma turlarını yaşıyordu; tek seferlik bütçe artışı turdan tasarruf eder.
 # 31 Ekim 2026 (P-057): salt-okunur `gh` aracı eklendi (+~200 karakter; açıklaması zaten en
-# kısa hâlinde). Ölçüldü: 11_605.
-PROMPT_BUDGET = 11_650
+# kısa hâlinde). Ölçüldü (dalda): 11_605.
+# 31 Ekim 2026 (P-042/043/044/073): chrome_action'a console/network/record/shortcut/window/group
+# eylemleri ve chrome_page'e tree/depth/ref parametreleri eklendi (ölçüldü: 11_400 → 11_818,
+# +418 karakter). Açıklamalar kısaltıldı; kalan artış eylem adları ve değer biçimleridir.
+PROMPT_BUDGET = 11_850
 
 
 def test_emulated_tool_prompt_budgeti():
