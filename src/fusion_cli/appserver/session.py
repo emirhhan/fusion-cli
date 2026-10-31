@@ -149,7 +149,12 @@ from .image_flows import export_image, list_flows, load_flow, save_flow
 from .image_job_artifacts import capture_reference, receipt_reads_supported
 from .image_jobs import ImageJobService
 from .instructions import get_instructions, instruction_block, save_instructions
-from .kits_browser_routes import KITS_BROWSER_ROUTE, dispatch_kits_browser
+from .kits_browser_routes import (
+    KITS_BROWSER_DESCRIBE_ROUTE,
+    KITS_BROWSER_ROUTES,
+    describe_kits_browser,
+    dispatch_kits_browser,
+)
 from .kits_routes import KITS_ROUTES, dispatch_kits
 from .library import LibrarySink, add_upload, remove_entry
 from .local_computer import LocalComputer, native_local_computer
@@ -756,10 +761,14 @@ class AppSession:
         if request.name in KITS_ROUTES:
             # Fusion → Kit gelen kutusu (P-063); araçlarla aynı istemci.
             return await dispatch_kits(request.name, request.data)
-        if request.name == KITS_BROWSER_ROUTE:
-            # Kit → kullanıcının Chrome'u (P-063): onay host'ta (kitsBrowserHost) alındı;
-            # burada yalnız dar eylem kümesi, adres kapısı ve metin-sadece sonuç uygulanır.
-            return await dispatch_kits_browser(request.data, self._chrome)
+        if request.name in KITS_BROWSER_ROUTES:
+            # Kit → kullanıcının Chrome'u (P-063): onay host'ta (kitsBrowserHost) alınır;
+            # burada dar eylem kümesi, adres kapısı, `runtime.disabled_tools` kapısı ve
+            # metin-sadece sonuç uygulanır. `kit_tarif` onay penceresine hedefi verir.
+            kapali = self._state.config.runtime.disabled_tools
+            if request.name == KITS_BROWSER_DESCRIBE_ROUTE:
+                return await describe_kits_browser(request.data, self._chrome, disabled=kapali)
+            return await dispatch_kits_browser(request.data, self._chrome, disabled=kapali)
         if request.name in LOCAL_COMPUTER_ROUTES:
             if self._local_computer is not None:
                 return await dispatch_local_computer(

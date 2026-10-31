@@ -92,3 +92,107 @@ async def test_oturum_kit_chrome_rpcsini_koprusune_yonlendirir(tmp_path, monkeyp
     assert kopru.calls == [("find", {"query": "Giriş"})]
     await session.handle(Request("2", "chrome.kit_komut", {"action": "screenshot"}))
     assert not json.loads(lines[-1])["veri"]["ok"]
+
+
+async def test_sinirda_kesilen_anahtar_ve_hata_metni_de_redakte_edilir():
+    # Ölçüldü (31 Ekim): `redact(text[:MAX])` sırası, sınırda yarım kalan anahtarın
+    # ("sk-proj-abcd") desene uymayıp Kit'e sızmasına izin veriyordu.
+    onek = '{"text": "'
+    dolgu = "x" * (browser.MAX_TEXT_CHARS - len(onek) - len(" sk-proj-abcd"))
+    kopru = _Kopru(veri={"text": dolgu + " sk-proj-abcdefghijklmnop1234567890"})
+    sonuc = await browser.dispatch_kits_browser({"action": "read"}, kopru)
+    assert "sk-proj" not in sonuc["text"]
+    assert len(sonuc["text"]) <= browser.MAX_TEXT_CHARS
+    hatali = _Kopru()
+    hatali.veri = None
+
+    async def invoke(operation, args):
+        return {"ok": False, "hata": "Öğe bulunamadı: token=sk-proj-abcdefghijklmnop1234567890"}
+
+    hatali.invoke = invoke
+    sonuc = await browser.dispatch_kits_browser({"action": "click", "ref": "e1"}, hatali)
+    assert sonuc["status"] == "failed" and "sk-proj" not in sonuc["text"]
+    kopuk = await browser.dispatch_kits_browser(
+        {"action": "click", "ref": "e1"},
+        _Kopru(hata=ConnectionError("Bağlı değil: sk-proj-abcdefghijklmnop1234567890")),
+    )
+    assert "sk-proj" not in kopuk["text"]
+
+
+async def test_kapali_araclar_kit_yolunu_da_kapatir():
+    # Ölçüldü (31 Ekim): `runtime.disabled_tools` yalnız model araçlarını süzüyordu;
+    # `chrome_click` kapalı kullanıcıda Kit yine tıklayabiliyordu.
+    kopru = _Kopru()
+    assert browser.disabled_reason("click", ("chrome_click",))
+    assert browser.disabled_reason("read", ("chrome_page",))
+    assert browser.disabled_reason("tabs", ("chrome_action",))
+    assert browser.disabled_reason("read", ("fusion_browser",))
+    assert browser.disabled_reason("read", ("chrome_click",)) is None
+    sonuc = await browser.dispatch_kits_browser(
+        {"action": "click", "ref": "e1"}, kopru, disabled=("chrome_click",)
+    )
+    assert sonuc["status"] == "denied" and "chrome_click" in sonuc["text"]
+    assert kopru.calls == []
+    tarif = await browser.describe_kits_browser(
+        {"action": "click", "ref": "e1"}, kopru, disabled=("fusion_browser",)
+    )
+    assert tarif["status"] == "denied" and kopru.calls == []
+
+
+async def test_etkilesim_tarifi_oge_adini_ve_riskini_verir():
+    # Ölçüldü (31 Ekim): onay penceresi click/type/key için hedefi göstermiyordu.
+    riskli = _Kopru(veri={"name": "Siparişi onayla", "type": "button", "submit": True})
+    tarif = await browser.describe_kits_browser({"action": "click", "ref": "e12"}, riskli)
+    assert tarif == {"ok": True, "status": "ok", "hedef": "Siparişi onayla", "riskli": True}
+    assert riskli.calls == [("describe", {"ref": "e12"})]
+    sakin = _Kopru(veri={"name": "Sonraki sayfa", "type": "button"})
+    tarif = await browser.describe_kits_browser({"action": "click", "ref": "e2"}, sakin)
+    assert tarif["hedef"] == "Sonraki sayfa" and tarif["riskli"] is False
+    # Adı okunamayan öğe riskli sayılır; kullanıcı körlemesine onaylamaz.
+    okunmaz = _Kopru(hata=TimeoutError())
+    tarif = await browser.describe_kits_browser({"action": "click", "ref": "e2"}, okunmaz)
+    assert tarif["ok"] and tarif["riskli"] is True and tarif["hedef"] == ""
+    # Enter: mesaj kutusunda gönderir (riskli), arama kutusunda gezinir.
+    mesaj = _Kopru(veri={"name": "Mesaj", "editable": True})
+    tarif = await browser.describe_kits_browser({"action": "key", "ref": "e5"}, mesaj)
+    assert tarif["riskli"] is True and mesaj.calls == [("describe_key", {"ref": "e5"})]
+    arama = _Kopru(veri={"name": "Ara", "search": True})
+    tarif = await browser.describe_kits_browser({"action": "key", "value": "Enter"}, arama)
+    assert tarif["riskli"] is False and arama.calls == [("describe_key", {})]
+    # Escape eklentiye sorulmaz; yazma hedef alanın adını taşır.
+    esc = _Kopru()
+    tarif = await browser.describe_kits_browser({"action": "key", "value": "Escape"}, esc)
+    assert tarif["riskli"] is False and esc.calls == []
+    alan = _Kopru(veri={"name": "Arama kutusu", "type": "input"})
+    tarif = await browser.describe_kits_browser(
+        {"action": "type", "ref": "e7", "value": "merhaba"}, alan
+    )
+    assert tarif["hedef"] == "Arama kutusu" and tarif["riskli"] is False
+    # Hedef adı sayfadan gelir: sırlar gizlenir, uzunluk sınırlıdır.
+    uzun = _Kopru(veri={"name": "sk-proj-abcdefghijklmnop1234567890 " + "a" * 300})
+    tarif = await browser.describe_kits_browser({"action": "click", "ref": "e1"}, uzun)
+    assert "sk-proj" not in tarif["hedef"] and len(tarif["hedef"]) <= browser.MAX_TARGET_CHARS
+    assert (await browser.describe_kits_browser({"action": "click", "ref": "e1"}, None))[
+        "status"
+    ] == "unavailable"
+
+
+async def test_oturum_kit_tarif_rpcsi_ve_kapali_arac_kapisi(tmp_path, monkeypatch):
+    import dataclasses
+
+    lines = []
+    session = AppSession(lines.append, root=tmp_path, home=tmp_path / "ev")
+    kopru = _Kopru(veri={"name": "Gönder", "type": "button"})
+    monkeypatch.setattr(session, "_chrome", kopru)
+    await session.handle(Request("1", "chrome.kit_tarif", {"action": "click", "ref": "e1"}))
+    sonuc = json.loads(lines[-1])["veri"]
+    assert sonuc == {"ok": True, "status": "ok", "hedef": "Gönder", "riskli": True}
+    config = session._state.config
+    session._state.config = dataclasses.replace(
+        config, runtime=dataclasses.replace(config.runtime, disabled_tools=("chrome_click",))
+    )
+    kopru.calls.clear()
+    await session.handle(Request("2", "chrome.kit_komut", {"action": "click", "ref": "e1"}))
+    assert json.loads(lines[-1])["veri"]["status"] == "denied" and kopru.calls == []
+    await session.handle(Request("3", "chrome.kit_komut", {"action": "read"}))
+    assert json.loads(lines[-1])["veri"]["ok"]

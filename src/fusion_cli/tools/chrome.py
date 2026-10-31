@@ -9,6 +9,7 @@ import json
 import mimetypes
 import re
 import weakref
+from collections.abc import Mapping
 from typing import Any
 
 from ..core.constants import MAX_UPLOAD_BYTES
@@ -267,6 +268,41 @@ async def chrome_click_effect(args: ToolArgs, context: ToolContext | None) -> To
         return None
     result = await _describe(context, "describe", {"ref": ref})
     return None if result is None else _click_effect(result)
+
+
+def click_is_risky(result: dict[str, Any]) -> bool:
+    """`describe` sonucuna göre tıklama gönder/sil/satın al gibi mi (ya da okunamadı mı).
+
+    Kit → Chrome yolu (`appserver/kits_browser_routes.py`) onay penceresini bununla
+    uyarır; Fusion'ın kendi araçlarıyla aynı sınıflandırma, ikinci bir liste yok.
+    """
+    return _click_effect(result) is None
+
+
+def key_is_risky(key: str, veri: Mapping[str, Any] | None) -> bool:
+    """Tuşun kalıcı iş yapma olasılığı: `_key_effect` ile aynı kural, araç bağlamı olmadan.
+
+    Enter/Delete dışındaki tuşlar iz bırakmaz. Enter arama kutusunda gezinir; yazı
+    alanında, mesaj kutusunda ya da riskli düğmeli formda gönderir. Delete yazı alanı
+    dışında seçili öğeyi siler. Odak okunamadıysa (`veri` yok) riskli sayılır.
+    """
+    base = _key_base(key) if key.strip() else "enter"
+    if base not in _ENTER_KEYS and base not in _DELETE_KEYS:
+        return False
+    if not isinstance(veri, Mapping):
+        return True
+    if base in _DELETE_KEYS:
+        return not veri.get("editable")
+    if veri.get("search"):
+        return False
+    ipucu = f"{veri.get('name', '')} {veri.get('hint', '')} {veri.get('submit_name', '')}"
+    return bool(veri.get("editable") or _RISKY_CLICK.search(ipucu) or _MESSAGE_FIELD.search(ipucu))
+
+
+def key_needs_focus_lookup(key: str) -> bool:
+    """Tuşun etkisi odaktaki alana bağlı mı (`describe_key` gerekir)."""
+    base = _key_base(key) if key.strip() else "enter"
+    return base in _ENTER_KEYS or base in _DELETE_KEYS
 
 
 def _click_effect(result: dict[str, Any]) -> ToolEffect | None:

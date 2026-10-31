@@ -26,6 +26,33 @@ describe("kitsFrameUrl", () => {
 });
 
 describe("KitsScreen", () => {
+  it("Kit'in Chrome isteği hosta bağlanır: tarif oturumdan alınır, ret iframe'e 'denied' döner", async () => {
+    // Ölçüldü (31 Ekim, inceleme): KitsBrowserHost'un KitsScreen'de gerçekten kurulduğu test edilmiyordu.
+    const requestHost = vi.fn(async (name: string) =>
+      name === "chrome.kit_tarif" ? { ok: true, status: "ok", hedef: "Gönder", riskli: true } : { ok: true, status: "ok", text: "{}" },
+    );
+    const confirmBrowser = vi.fn(async () => false);
+    render(<KitsScreen start={() => Promise.resolve({ url: "http://127.0.0.1:50030" })} requestHost={requestHost} confirmBrowser={confirmBrowser} />);
+    const frame = (await screen.findByTitle("Fusion Kits")) as HTMLIFrameElement;
+    // Köprü, iframe'in jsdom penceresine bağlanır; yanıt oraya postMessage ile gider.
+    const inner = frame.contentWindow!;
+    expect(inner).toBeTruthy();
+    const post = vi.spyOn(inner, "postMessage").mockImplementation(() => {});
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { type: "fusion-browser-request", nonce: "n1", input: { action: "click", ref: "e3" }, kit: { id: "k1", name: "Kod" } },
+      origin: "http://127.0.0.1:50030",
+      source: inner,
+    }));
+    await vi.waitFor(() => expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "fusion-browser-result", nonce: "n1", status: "denied" }),
+      "http://127.0.0.1:50030",
+    ));
+    expect(requestHost).toHaveBeenCalledWith("chrome.kit_tarif", { action: "click", ref: "e3" });
+    expect(confirmBrowser).toHaveBeenCalledWith(expect.stringContaining("«Kod» Kit'i Chrome'unda «Gönder» öğesine tıklamak"), true, true);
+    expect(requestHost).not.toHaveBeenCalledWith("chrome.kit_komut", expect.anything());
+    post.mockRestore();
+  });
+
   it("yan süreç hazır olunca modülü iframe ile gömer", async () => {
     render(<KitsScreen start={() => Promise.resolve({ url: "http://127.0.0.1:50001" })} />);
     expect(screen.getByText("Kits hazırlanıyor…")).toBeTruthy();
