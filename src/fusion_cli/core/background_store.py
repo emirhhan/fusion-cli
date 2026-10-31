@@ -32,6 +32,7 @@ from .background_tasks import (
     BackgroundTaskError,
     InboxMessage,
     ShortLease,
+    TaskOptions,
     TaskStatus,
     normalize_name,
     read_json_list,
@@ -82,6 +83,7 @@ class BackgroundTaskStore:
         read_only: bool = False,
         max_turns: int = 0,
         history: list[dict[str, str]] | None = None,
+        options: TaskOptions | None = None,
     ) -> BackgroundTask:
         text = prompt.strip()
         if not text:
@@ -113,6 +115,7 @@ class BackgroundTaskStore:
             agent=agent,
             read_only=read_only,
             max_turns=max_turns,
+            options=options or TaskOptions(),
         )
         if history:
             atomic_replace_text(folder / HISTORY_FILE, json.dumps(history, ensure_ascii=False))

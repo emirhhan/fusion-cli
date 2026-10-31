@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
 
@@ -19,11 +20,13 @@ from rich.markup import escape
 
 from ..config.loader import load_config
 from ..core.background_store import BackgroundTaskStore
-from ..core.background_tasks import BackgroundTask, BackgroundTaskError
+from ..core.background_tasks import BackgroundTask, BackgroundTaskError, TaskOptions
+from ..core.errors import FusionError
 from ..tools import agent_tasks
 from ..ui import background_messages as texts
 from ..ui import theme
 from ..ui.background_view import task_detail, task_table
+from . import headless
 from .background_worker import run_worker
 
 console = Console()
@@ -155,19 +158,85 @@ def clean() -> None:
     console.print(texts.BG_CLEANED.format(count=len(finished)))
 
 
-def start_from_cli(
-    task: str, *, mode: str, agent: str, name: str, max_turns: int | None
-) -> BackgroundTask:
-    """`fusion agent --bg`: görevi arka planda başlat (sahipsiz; sonuç `fusion agents`'ta)."""
+@dataclass(frozen=True, slots=True)
+class BackgroundFlags:
+    """`fusion agent --bg` ile verilen ve işçiye TAŞINAN bayraklar (P-048)."""
+
+    mode: str
+    agent: str = ""
+    name: str = ""
+    max_turns: int | None = None
+    max_budget_usd: float | None = None
+    allowed_tools: list[str] | None = None
+    disallowed_tools: list[str] | None = None
+    append_system_prompt: str | None = None
+    add_dir: tuple[Path, ...] = ()
+    worktree: str = ""
+    no_memory: bool = False
+    bare: bool = False
+    config_overrides: tuple[str, ...] = ()
+    profile: str = ""
+
+
+def unsupported_background_flag(
+    *, output_format: str, as_json: bool, json_schema: Path | None, permission_channel: str | None
+) -> str | None:
+    """`--bg` ile ANLAMSIZ bayrak (sonuç stdout'a değil göreve yazılır); yoksa None.
+
+    Ölçüldü (31 Ekim): bu bayraklar `--bg` ile hata vermeden düşüyordu.
+    """
+    if as_json or output_format.strip().lower() != "text":
+        return "--output-format/--json"
+    if json_schema is not None:
+        return "--json-schema"
+    if permission_channel:
+        return "--permission-channel"
+    return None
+
+
+def cli_task_options(flags: BackgroundFlags) -> TaskOptions:
+    """Bayrakları işçinin uygulayacağı kısıtlara çevir (Claude Code adları da tanınır)."""
+    allowed = headless.parse_tool_list(flags.allowed_tools)
+    denied = headless.parse_tool_list(flags.disallowed_tools) or frozenset()
+    return TaskOptions(
+        allowed_tools=(
+            tuple(sorted(headless.map_claude_tool_names(allowed))) if allowed is not None else None
+        ),
+        denied_tools=tuple(sorted(headless.map_claude_tool_names(denied))),
+        extra_roots=tuple(str(path.expanduser().resolve()) for path in flags.add_dir),
+        extra_system=flags.append_system_prompt or "",
+        max_budget_usd=float(flags.max_budget_usd or 0.0),
+        memory=not flags.no_memory,
+        bare=flags.bare,
+        config_overrides=flags.config_overrides,
+        profile=flags.profile,
+    )
+
+
+def start_from_cli(task: str, flags: BackgroundFlags) -> BackgroundTask:
+    """`fusion agent --bg`: görevi arka planda başlat (sahipsiz; sonuç `fusion agents`'ta).
+
+    `--worktree` ağacı başlatmadan ÖNCE açılır ve görevin kökü olur; diğer kısıtlar
+    `TaskOptions` ile işçide uygulanır. `--mode bypass` açıkça istendiyse korunur (miras
+    değil, kullanıcının kendi seçimi).
+    """
+    from .repl import worktrees
+
     config = load_config()
+    try:
+        root, _tree = worktrees.resolve_launch_root(Path.cwd(), flags.worktree)
+    except FusionError as error:
+        error_console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(1) from None
     request = agent_tasks.LaunchRequest(
         prompt=task,
-        root=Path.cwd(),
-        name=name,
+        root=root,
+        name=flags.name,
         origin="cli",
-        mode=mode,
-        agent=agent,
-        max_turns=max_turns or 0,
+        mode=flags.mode,
+        agent=flags.agent,
+        max_turns=flags.max_turns or 0,
+        options=cli_task_options(flags),
     )
     try:
         return agent_tasks.start_with_settings(config.runtime, config.memory_dir, request)

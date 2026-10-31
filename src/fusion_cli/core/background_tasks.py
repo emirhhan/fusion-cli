@@ -26,7 +26,7 @@ import json
 import re
 import time
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from enum import StrEnum
 from pathlib import Path
 
@@ -51,6 +51,9 @@ QUEUED_GRACE_S = 60.0
 #: Kilit için deneme sayısı ve aralığı (jobs `save_completion` ile aynı kalıp).
 _LEASE_ATTEMPTS = 50
 _LEASE_WAIT_S = 0.02
+
+#: İşçinin konuşma kimliği öneki (`arka-<kimlik>`); bu konuşmalar arka plan görevi açamaz.
+WORKER_CONVERSATION_PREFIX = "arka-"
 
 TASK_FILE = "gorev.json"
 INBOX_FILE = "gelen.jsonl"
@@ -84,6 +87,63 @@ class TaskStatus(StrEnum):
 
 ACTIVE_STATUSES = frozenset({TaskStatus.QUEUED, TaskStatus.WORKING, TaskStatus.NEEDS_INPUT})
 
+#: `TaskOptions` içinde liste olarak saklanan alanlar (JSON'da dizi, bellekte demet).
+_OPTION_SEQUENCES = ("denied_tools", "write_scope", "extra_roots", "config_overrides")
+
+
+@dataclass(frozen=True, slots=True)
+class TaskOptions:
+    """Görevi başlatan yüzeyin KISITLARI; işçi bunları aynen uygular (yalnız daraltır).
+
+    Ölçüldü (31 Ekim): `fusion agent --bg` ve `spawn_agent(arka_plan=true)` yalnız kip/ad/
+    kişilik taşıyordu; `--disallowed-tools`, bütçe, `--add-dir`, `-c`/`--profile`, üst turun
+    araç tavanı ve yazma alanı işçiye ulaşmıyor, görev bunlarsız koşuyordu.
+    """
+
+    #: Araç tavanı (`None` = sınırsız); işçide kişiliğin kümesiyle KESİŞİR.
+    allowed_tools: tuple[str, ...] | None = None
+    #: Sorulmadan engellenen araçlar (desen olabilir); kişiliğinkine EKLENİR.
+    denied_tools: tuple[str, ...] = ()
+    #: Yalnız bu mutlak yollara yazılabilir; boş = proje kökünün olağan kuralları.
+    write_scope: tuple[str, ...] = ()
+    #: Kökün yanında erişime açılan dizinler (`--add-dir`).
+    extra_roots: tuple[str, ...] = ()
+    #: Sistem istemine eklenecek metin (`--append-system-prompt`, üst turun brifi).
+    extra_system: str = ""
+    #: Bilinen maliyet tavanı (USD); 0 = yapılandırmadaki değer.
+    max_budget_usd: float = 0.0
+    #: False: bellek okunmaz/yazılmaz (`--no-memory`).
+    memory: bool = True
+    #: `--bare`: MCP/bağlayıcı ve proje talimatı yüklenmez.
+    bare: bool = False
+    #: `-c yol=değer` oturumluk geçersiz kılmaları ve `--profile` kademesi.
+    config_overrides: tuple[str, ...] = ()
+    profile: str = ""
+
+    @classmethod
+    def from_dict(cls, raw: object) -> TaskOptions:
+        if raw is None:
+            return cls()
+        if not isinstance(raw, Mapping):
+            raise BackgroundTaskError("Arka plan görev kaydı bozuk.")
+        known = {item.name for item in fields(cls)}
+        values: dict[str, object] = {key: raw[key] for key in known if key in raw}
+        for key in _OPTION_SEQUENCES:
+            if key in values:
+                values[key] = _strings(values[key])
+        if values.get("allowed_tools") is not None:
+            values["allowed_tools"] = _strings(values["allowed_tools"])
+        try:
+            return cls(**values)  # type: ignore[arg-type]  # türler yukarıda doğrulandı
+        except TypeError as error:
+            raise BackgroundTaskError("Arka plan görev kaydı bozuk.") from error
+
+
+def _strings(value: object) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)) or not all(isinstance(item, str) for item in value):
+        raise BackgroundTaskError("Arka plan görev kaydı bozuk.")
+    return tuple(value)
+
 
 @dataclass(frozen=True, slots=True)
 class BackgroundTask:
@@ -114,6 +174,8 @@ class BackgroundTask:
     question: str = ""
     #: Sonuç sahibine teslim edildi mi? Sahipsiz görevde anlamsız (True).
     delivered: bool = True
+    #: Başlatan yüzeyin kısıtları (eski kayıtta yok → kısıtsız varsayılanlar).
+    options: TaskOptions = field(default_factory=TaskOptions)
 
     @property
     def is_active(self) -> bool:
@@ -128,6 +190,7 @@ class BackgroundTask:
     def from_dict(cls, raw: Mapping[str, object]) -> BackgroundTask:
         known = {item.name for item in fields(cls)}
         values = {key: raw[key] for key in known if key in raw}
+        values["options"] = TaskOptions.from_dict(values.get("options"))
         try:
             values["status"] = TaskStatus(str(values.get("status", "")))
             task = cls(**values)  # type: ignore[arg-type]  # alanlar aşağıda doğrulanır

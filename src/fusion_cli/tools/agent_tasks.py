@@ -17,7 +17,7 @@ import json
 import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..core.background_store import BackgroundTaskStore
@@ -26,6 +26,7 @@ from ..core.background_tasks import (
     BackgroundTask,
     BackgroundTaskError,
     InboxMessage,
+    TaskOptions,
     TaskStatus,
     summarize,
 )
@@ -77,6 +78,8 @@ class LaunchRequest:
     max_turns: int = 0
     #: Devralınan konuşma (`/bg`, Ctrl+B): yalnız user/assistant metinleri.
     history: tuple[Mapping[str, str], ...] = ()
+    #: Başlatan yüzeyin kısıtları (araç tavanı/yasakları, yazma alanı, bütçe, -c…).
+    options: TaskOptions = field(default_factory=TaskOptions)
 
 
 def worker_argv(store_dir: Path, task_id: str) -> list[str]:
@@ -131,6 +134,7 @@ def start_task(
         read_only=request.read_only,
         max_turns=request.max_turns,
         history=[dict(item) for item in request.history],
+        options=request.options,
     )
     return _launch(store, task, launcher)
 

@@ -102,6 +102,10 @@ BG_CLI_STARTED = (
     "Arka plan görevi başladı: {id} ({name})\n"
     "İzle: fusion agents · Ayrıntı: fusion agents goster {id}"
 )
+BG_CLI_UNSUPPORTED_FLAG = (
+    "{flag} --bg ile kullanılamaz: sonuç fusion agents goster ile okunur, onaylar "
+    "fusion agents cevapla ile verilir."
+)
 BG_CLI_WATCH_HINT = "Çıkmak için Ctrl+C (görevler sürer)."
 PEER_HELD_HEADER = "Bekletilen gelen mesajlar:"
 PEER_HELD_LINE = "  {no}. {sender}: {text}"

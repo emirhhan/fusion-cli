@@ -472,6 +472,8 @@ def agent(
     task_name: str = typer.Option("", "--name", "-n", help="--bg görevinin kısa adı."),
 ) -> None:
     """Görevi araçlarla çalıştır: dosya oku/yaz, komut çalıştır, web'de ara."""
+    if background:
+        _reject_background_flags(output_format, as_json, json_schema, permission_channel)
     options = _headless_options(
         task,
         mode=mode,
@@ -486,13 +488,26 @@ def agent(
         from_pr=from_pr,
     )
     if background:
-        started = agent_commands.start_from_cli(
-            options.task,
+        pairs, tier = _SESSION.overrides
+        if pairs or tier:
+            _session_config()  # geçersiz `-c`/`--profile` başlatmadan önce reddedilir (kod 2)
+        flags = agent_commands.BackgroundFlags(
             mode=options.approval.value,
             agent=agent_name or "",
             name=task_name,
             max_turns=max_turns,
+            max_budget_usd=max_budget_usd,
+            allowed_tools=allowed_tools,
+            disallowed_tools=disallowed_tools,
+            append_system_prompt=append_system_prompt,
+            add_dir=tuple(add_dir or ()),
+            worktree=worktree,
+            no_memory=no_memory,
+            bare=bare,
+            config_overrides=pairs,
+            profile=tier or "",
         )
+        started = agent_commands.start_from_cli(options.task, flags)
         console.print(bg_texts.BG_CLI_STARTED.format(id=started.id, name=started.name))
         return
     config = headless.apply_limits(
@@ -609,6 +624,20 @@ def agent(
         raise typer.Exit(1)
     if structured is not None and not structured.ok:
         raise typer.Exit(1)
+
+
+def _reject_background_flags(
+    output_format: str, as_json: bool, json_schema: Path | None, permission_channel: str | None
+) -> None:
+    """`--bg` ile anlamsız bayrak sessizce düşmesin: açık hata (P-048)."""
+    flag = agent_commands.unsupported_background_flag(
+        output_format=output_format,
+        as_json=as_json,
+        json_schema=json_schema,
+        permission_channel=permission_channel,
+    )
+    if flag is not None:
+        raise typer.BadParameter(bg_texts.BG_CLI_UNSUPPORTED_FLAG.format(flag=flag))
 
 
 @dataclass(frozen=True, slots=True)

@@ -21,9 +21,11 @@ import sys
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
+from ..config.models import Config
 from ..core.background_store import BackgroundTaskStore
 from ..core.background_tasks import (
     HEARTBEAT_S,
+    WORKER_CONVERSATION_PREFIX,
     BackgroundTask,
     BackgroundTaskError,
     InboxMessage,
@@ -205,8 +207,65 @@ async def _heartbeat(store: BackgroundTaskStore, task_id: str) -> None:
         await asyncio.sleep(HEARTBEAT_S)
 
 
+def task_config(task: BackgroundTask, base: Config) -> Config:
+    """Yapılandırma + görevin `-c`/`--profile` geçersiz kılmaları + bütçe/`--bare`."""
+    from ..config import model_select
+    from ..config.settings_access import apply_overrides
+    from .headless import apply_limits
+
+    options = task.options
+    config = apply_overrides(base, options.config_overrides) if options.config_overrides else base
+    if options.profile:
+        tier = model_select.normalize_tier_name(options.profile.strip().lower())
+        config = model_select.apply_tier(config, tier)
+    return apply_limits(
+        config, max_turns=None, max_budget_usd=options.max_budget_usd or None, bare=options.bare
+    )
+
+
+def task_tool_limits(
+    task: BackgroundTask, allowed: set[str] | None, denied: frozenset[str]
+) -> tuple[set[str] | None, frozenset[str]]:
+    """Kişiliğin araç kümesini görevin tavanı/yasaklarıyla daralt (asla genişletmez).
+
+    Yazma alanı verilmiş görevde düzenleme araçları dışındaki değiştiriciler (kabuk vb.)
+    kapanır: alanı yalnız yol denetimli araçlar koruyabilir (`team_policy` ile aynı kural).
+    """
+    from ..engines.agent.edit_hooks import EDIT_TOOLS
+
+    options = task.options
+    if options.allowed_tools is not None:
+        cap = set(options.allowed_tools)
+        allowed = cap if allowed is None else set(allowed) & cap
+    denied = denied | frozenset(options.denied_tools)
+    if task.read_only:
+        denied |= _mutating_tools()
+    elif options.write_scope:
+        denied |= _mutating_tools() - EDIT_TOOLS
+    return allowed, denied
+
+
+def task_tool_context(task: BackgroundTask, config: Config) -> ToolContext:
+    """Görevin araç bağlamı: kök-dışı engeller yapılandırmadan, yazma alanı görevden."""
+    options = task.options
+    return ToolContext(
+        root=Path(task.root),
+        extra_roots=tuple(Path(item) for item in options.extra_roots),
+        restrict_to_root=config.runtime.restrict_to_root,
+        block_reads_outside_root=config.runtime.block_reads_outside_root,
+        block_writes_outside_root=config.runtime.block_writes_outside_root,
+        write_scope=(
+            () if task.read_only else tuple(Path(item) for item in options.write_scope) or None
+        ),
+    )
+
+
 def agent_turn_runner(timeout_s: float, store: BackgroundTaskStore) -> TurnRunner:
-    """Gerçek motorla tur koşan işlev (`fusion agent` ile aynı yol)."""
+    """Gerçek motorla tur koşan işlev (`fusion agent` ile aynı yol).
+
+    Ölçüldü (31 Ekim): işçi `ToolContext`'i yalnız kök ve `restrict_to_root` ile kuruyordu;
+    kök-dışı okuma/yazma engelleri (P-002) ve görevin kısıtları işçide uygulanmıyordu.
+    """
 
     async def _run(task: BackgroundTask, prompt: str, history: list[Message]) -> tuple[str, bool]:
         from ..config.loader import load_config
@@ -215,10 +274,12 @@ def agent_turn_runner(timeout_s: float, store: BackgroundTaskStore) -> TurnRunne
         from .repl.persona_commands import persona_turn
         from .session import build_observers, open_memory, run_agent_task
 
-        config = load_config()
+        config = task_config(task, load_config())
         root = Path(task.root)
         persona = resolve_agent(task.agent, home=Path.home(), root=root) if task.agent else None
         turn = persona_turn(persona)
+        allowed, denied = task_tool_limits(task, turn.allowed_tools, turn.denied_tools)
+        tool_context = task_tool_context(task, config)
         observers = build_observers(
             prompt,
             as_json=True,
@@ -236,19 +297,21 @@ def agent_turn_runner(timeout_s: float, store: BackgroundTaskStore) -> TurnRunne
                 mode=parse_mode(task.mode),
                 root=root,
                 home=Path.home(),
-                memory=open_memory(config, root=root),
-                history=history,
-                tool_context=ToolContext(
-                    root=root, restrict_to_root=config.runtime.restrict_to_root
+                memory=open_memory(
+                    config, root=root, enabled=task.options.memory and not task.options.bare
                 ),
-                conversation_id=f"arka-{task.id}",
+                extra_roots=tool_context.extra_roots,
+                history=history,
+                tool_context=tool_context,
+                conversation_id=f"{WORKER_CONVERSATION_PREFIX}{task.id}",
                 extra_system="\n\n".join(
-                    p for p in (texts.BG_WORKER_BRIEF, turn.extra_system) if p
+                    p
+                    for p in (texts.BG_WORKER_BRIEF, turn.extra_system, task.options.extra_system)
+                    if p
                 ),
                 step_limit=task.max_turns or None,
-                allowed_tools=turn.allowed_tools,
-                denied_tools=turn.denied_tools
-                | (_mutating_tools() if task.read_only else frozenset()),
+                allowed_tools=allowed,
+                denied_tools=denied,
                 interactive=True,
                 approval_memory=ApprovalMemory(),
             )
