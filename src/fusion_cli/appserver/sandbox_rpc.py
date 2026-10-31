@@ -1,8 +1,9 @@
 """Masaüstü `sandbox.*` istekleri: Ayarlar › İzinler › Sandbox kartı (P-010).
 
     sandbox.durum    SandboxStatus (platform, kurulabilirlik, kurallar)
-    sandbox.ayarla   {islem: ac|kapat|ag|izin|engelle|kaldir|oto|zorunlu|disari, deger?}
-                     → güncel durum; yapılandırma kullanıcı dosyasına yazılır
+    sandbox.ayarla   {islem: ac|kapat|ag|izin|engelle|kaldir|oto|zorunlu|disari|sir|localhost,
+                     deger?}
+                     → güncel durum + notlar; yapılandırma kullanıcı dosyasına yazılır
 
 İşlevler saf: oturum yalnız yapılandırmayı ve kökü verir, güncel yapılandırmayı alır.
 Değişiklik bir SONRAKİ turda uygulanır (araç bağlamı tur başında kurulur).
@@ -32,10 +33,11 @@ def dispatch_sandbox(
         return None, {"ok": False, "metin": "islem metin, deger metin ya da boolean olmalı."}
     raw = ("on" if value else "off") if isinstance(value, bool) else value
     try:
-        change = apply_sandbox_action(config, action, raw)
+        change = apply_sandbox_action(config, action, raw, root=root)
     except ConfigError as error:
         return None, {"ok": False, "metin": str(error)}
     return change.config, {
         **sandbox_status(change.config, root).as_dict(),
         "dosya": str(change.path),
+        "notlar": list(change.notes),
     }

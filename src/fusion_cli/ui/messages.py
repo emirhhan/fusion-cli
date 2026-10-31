@@ -1423,7 +1423,8 @@ VIM_SET_UNSAVED = "Vim kipi bu oturum için {state}; dosyaya yazılamadı: {erro
 CMD_SANDBOX = "kabuk sandbox'ı: durum · aç/kapat · ağ allowlist'i (izin/engelle alan adı)"
 SANDBOX_USAGE = (
     "Kullanım: /sandbox [on|off] · /sandbox ag open|allowlist · /sandbox izin <alan-adı> · "
-    "/sandbox engelle <alan-adı> · /sandbox kaldir <alan-adı> · /sandbox oto|zorunlu|disari on|off"
+    "/sandbox engelle <alan-adı> · /sandbox kaldir <alan-adı> · "
+    "/sandbox oto|zorunlu|disari|sir|localhost on|off"
 )
 SANDBOX_STATE_ON = "AÇIK (write_root)"
 SANDBOX_STATE_OFF = "kapalı (runtime.shell_sandbox=off)"

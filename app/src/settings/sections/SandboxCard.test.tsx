@@ -19,6 +19,7 @@ const durum: SandboxStatus = {
   disari_izinli: true,
   oto_izin: false,
   disari_komutlar: [],
+  sir_ortami_gizli: true,
 };
 
 function client(ilk: Partial<SandboxStatus> = {}, ayarla?: (veri: Record<string, unknown>) => unknown) {
@@ -71,6 +72,25 @@ describe("SandboxCard — kabuk sandbox'ı (P-010)", () => {
     fireEvent.change(screen.getByLabelText("Alan adı"), { target: { value: "a b" } });
     fireEvent.click(screen.getByRole("button", { name: "Alan adı ekle" }));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Geçerli bir alan adı değil"));
+  });
+
+  it("ayar yanıtındaki notları gösterir; sır ve localhost anahtarları doğru eylemle gider", async () => {
+    const fake = client({}, (veri) => ({
+      ...durum,
+      notlar: veri.islem === "localhost" ? ["Ağ kipi allowlist'e geçti: yalnız github.com"] : [],
+    }));
+    render(<SandboxCard client={fake} />);
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Sır ortam değişkenlerini gizle" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("switch", { name: "Sır ortam değişkenlerini gizle" }));
+    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("sandbox.ayarla", { islem: "sir", deger: false }));
+    fireEvent.click(screen.getByRole("switch", { name: "localhost'a izin ver" }));
+    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("sandbox.ayarla", { islem: "localhost", deger: false }));
+    await waitFor(() => expect(screen.getByText(/allowlist'e geçti/)).toBeTruthy());
+  });
+
+  it("ağ açıkken sorusuz çalıştırma açıksa etkisiz olduğunu uyarır", async () => {
+    render(<SandboxCard client={client({ ag: "open", oto_izin: true })} />);
+    await waitFor(() => expect(screen.getByText(/Ağ açıkken etkisiz/)).toBeTruthy());
   });
 
   it("kurulamayan sandbox'ta nedeni uyarı olarak gösterir", async () => {

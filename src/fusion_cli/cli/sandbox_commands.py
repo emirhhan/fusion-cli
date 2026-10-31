@@ -4,6 +4,7 @@
     fusion sandbox ac | kapat            runtime.shell_sandbox
     fusion sandbox ag allowlist          ağ kipi (open | allowlist)
     fusion sandbox izin github.com       izinli alan adı (engelle / kaldir aynı biçim)
+    fusion sandbox oto on                auto_allow (zorunlu, disari, sir, localhost aynı biçim)
     fusion sandbox calistir -- curl …    komutu ŞU ANKİ politikayla sandbox içinde dene
 
 `calistir`, Codex'in `codex sandbox` komutu gibi: kip kapalı olsa da komut sandbox içinde
@@ -35,7 +36,7 @@ console = Console()
 
 def _act(action: str, value: str = "") -> None:
     try:
-        change = apply_sandbox_action(load_config(), action, value)
+        change = apply_sandbox_action(load_config(), action, value, root=Path.cwd())
     except ConfigError as error:
         console.print(f"[red]{escape(str(error))}[/red]")
         raise typer.Exit(1) from error
@@ -82,6 +83,39 @@ def deny(domain: Annotated[str, typer.Argument(help="alan adı")]) -> None:
 def remove(domain: Annotated[str, typer.Argument(help="alan adı")]) -> None:
     """Alan adını iki listeden de çıkar."""
     _act("kaldir", domain)
+
+
+_OnOff = Annotated[str, typer.Argument(help="on | off")]
+
+
+@app.command("oto")
+def auto_allow(value: _OnOff) -> None:
+    """Sandbox içindeki komutları sormadan çalıştır (sandbox.auto_allow; ağ allowlist'te)."""
+    _act("oto", value)
+
+
+@app.command("zorunlu")
+def strict(value: _OnOff) -> None:
+    """Sandbox kurulamazsa komutu çalıştırma (sandbox.fail_if_unavailable)."""
+    _act("zorunlu", value)
+
+
+@app.command("disari")
+def outside(value: _OnOff) -> None:
+    """Modelin sandbox dışı isteğine (her seferinde onaylı) izin ver (sandbox.allow_unsandboxed)."""
+    _act("disari", value)
+
+
+@app.command("sir")
+def secrets(value: _OnOff) -> None:
+    """Sır görünümlü ortam değişkenlerini sandbox'ta gizle (sandbox.hide_secret_env)."""
+    _act("sir", value)
+
+
+@app.command("localhost")
+def localhost(value: _OnOff) -> None:
+    """Allowlist kipinde localhost'a izin ver (sandbox.allow_localhost)."""
+    _act("localhost", value)
 
 
 @app.command("calistir", context_settings={"allow_extra_args": True})

@@ -37,8 +37,14 @@ _ALIASES = {
     "strict": "zorunlu",
     "disari": "disari",
     "dışarı": "disari",
+    "sir": "sir",
+    "sır": "sir",
+    "secrets": "sir",
+    "localhost": "localhost",
 }
-_NEEDS_VALUE = frozenset({"ag", "izin", "engelle", "kaldir", "oto", "zorunlu", "disari"})
+_NEEDS_VALUE = frozenset(
+    {"ag", "izin", "engelle", "kaldir", "oto", "zorunlu", "disari", "sir", "localhost"}
+)
 
 
 def parse_action(argument: str) -> tuple[str, str] | None:
@@ -98,6 +104,7 @@ def format_status(status: SandboxStatus) -> str:
 
 
 def format_change(change: SandboxChange) -> str:
-    return messages.SANDBOX_CHANGED.format(
+    text = messages.SANDBOX_CHANGED.format(
         setting=change.setting, value=change.value, path=change.path
     )
+    return "\n".join((text, *change.notes))

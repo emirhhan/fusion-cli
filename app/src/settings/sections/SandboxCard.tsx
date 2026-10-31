@@ -8,8 +8,9 @@ import { ToggleRow } from "../PanelParts";
  * Ayarlar › İzinler › Kabuk sandbox'ı (P-010; Claude Code `/sandbox` paneli).
  *
  * `sandbox.durum` platformu ve sandbox'ın bu makinede kurulup kurulamadığını söyler;
- * `sandbox.ayarla` aç/kapat, ağ kipi, alan adı listeleri ve üç davranış bayrağını
+ * `sandbox.ayarla` aç/kapat, ağ kipi, alan adı listeleri ve davranış bayraklarını
  * kullanıcı yapılandırmasına yazar. Değişiklik bir sonraki görevde uygulanır.
+ * Yanıttaki `notlar` (ör. "ağ kipi allowlist'e geçti") kartta gösterilir.
  */
 
 export interface SandboxStatus {
@@ -29,9 +30,15 @@ export interface SandboxStatus {
   disari_izinli: boolean;
   oto_izin: boolean;
   disari_komutlar: string[];
+  /** Eski çekirdek göndermeyebilir; yoksa anahtar gizlenir. */
+  sir_ortami_gizli?: boolean;
+  /** Yalnız `sandbox.ayarla` yanıtında: değişikliğin yan etkileri (ağ kipi değişti…). */
+  notlar?: string[];
 }
 
-type SandboxAction = "ac" | "kapat" | "ag" | "izin" | "engelle" | "kaldir" | "oto" | "zorunlu" | "disari";
+type SandboxAction =
+  | "ac" | "kapat" | "ag" | "izin" | "engelle" | "kaldir"
+  | "oto" | "zorunlu" | "disari" | "sir" | "localhost";
 
 function isStatus(value: unknown): value is SandboxStatus {
   return Boolean(value) && typeof value === "object" && typeof (value as SandboxStatus).platform === "string";
@@ -43,6 +50,7 @@ export function SandboxCard({ client }: { client: ProtocolClient }) {
   const [busy, setBusy] = useState(false);
   const [alan, setAlan] = useState("");
   const [karar, setKarar] = useState<"izin" | "engelle">("izin");
+  const [notlar, setNotlar] = useState<string[]>([]);
   const owner = useRef(0);
 
   const load = useCallback(async () => {
@@ -64,14 +72,14 @@ export function SandboxCard({ client }: { client: ProtocolClient }) {
 
   const act = async (islem: SandboxAction, deger: string | boolean = "") => {
     if (busy) return false;
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setNotlar([]);
     const generation = owner.current;
     try {
       const payload = await client.request("sandbox.ayarla", { islem, deger });
       if (generation !== owner.current) return false;
       const result = operationResult(payload, "Sandbox ayarı kaydedilemedi.");
       if (!result.ok) { setError(result.message); return false; }
-      if (isStatus(payload)) setStatus(payload);
+      if (isStatus(payload)) { setStatus(payload); setNotlar(payload.notlar ?? []); }
       return true;
     } catch (reason) {
       if (generation === owner.current) setError(errorMessage(reason));
@@ -101,6 +109,11 @@ export function SandboxCard({ client }: { client: ProtocolClient }) {
         </div>
       </div>
       {error && <p className="settings__hint" role="alert">{error}</p>}
+      {notlar.length > 0 && (
+        <div aria-live="polite" className="sandbox__notes">
+          {notlar.map((not) => <p className="settings__hint" key={not}>{not}</p>)}
+        </div>
+      )}
       {status && (
         <>
           <ToggleRow
@@ -133,6 +146,13 @@ export function SandboxCard({ client }: { client: ProtocolClient }) {
           </div>
           {allowlist && (
             <div className="sandbox__domains">
+              <ToggleRow
+                checked={status.localhost}
+                description="Yerel geliştirme sunucusu ve veritabanı (localhost) açık kalır. Fusion'ın kendi yerel dinleyicileri (ör. tarayıcı hata ayıklama portu) de buna dahildir."
+                disabled={busy}
+                onChange={(deger) => void act("localhost", deger)}
+                title="localhost'a izin ver"
+              />
               {status.izinli_alanlar.length === 0 && status.yasak_alanlar.length === 0 && (
                 <p className="settings__hint">Liste boş: dış ağ tamamen kapalı{status.localhost ? ", localhost açık" : ""}.</p>
               )}
@@ -178,6 +198,7 @@ export function SandboxCard({ client }: { client: ProtocolClient }) {
               disabled={busy}
               onChange={(deger) => void act("oto", deger)}
               title="Sandbox içindeki komutları sormadan çalıştır"
+              warning={status.oto_izin && !allowlist ? "Ağ açıkken etkisiz: yalnız 'Yalnız izinli alan adları' kipinde sorulmadan çalışır." : undefined}
             />
             <ToggleRow
               checked={status.disari_izinli}
@@ -193,6 +214,15 @@ export function SandboxCard({ client }: { client: ProtocolClient }) {
               onChange={(deger) => void act("zorunlu", deger)}
               title="Sandbox kurulamazsa çalıştırma"
             />
+            {typeof status.sir_ortami_gizli === "boolean" && (
+              <ToggleRow
+                checked={status.sir_ortami_gizli}
+                description="Adı sır gibi görünen ortam değişkenleri (*_TOKEN, *_API_KEY…) sandbox'taki komuta verilmez. Kaza önleyicidir, güvenlik sınırı değildir."
+                disabled={busy}
+                onChange={(deger) => void act("sir", deger)}
+                title="Sır ortam değişkenlerini gizle"
+              />
+            )}
           </div>
           <details className="sandbox__paths">
             <summary>Okunamayan yollar ({status.okuma_engeli.length})</summary>

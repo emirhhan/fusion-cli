@@ -9,7 +9,7 @@ doğrulaması ve kanonik biçim oradan gelir.
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ..core.errors import ConfigError
@@ -43,13 +43,27 @@ SANDBOX_ACTIONS = (
     "oto",
     "zorunlu",
     "disari",
+    "sir",
+    "localhost",
 )
 _PROBE_SOCKET = Path("fusion-sandbox-durum.sock")
 _FLAG_PATHS = {
     "oto": "sandbox.auto_allow",
     "zorunlu": "sandbox.fail_if_unavailable",
     "disari": "sandbox.allow_unsandboxed",
+    "sir": "sandbox.hide_secret_env",
+    "localhost": "sandbox.allow_localhost",
 }
+#: Eylem sonucuna eklenen açıklamalar (kullanıcıya görünür; `/sandbox`, CLI, masaüstü).
+NOTE_NETWORK_SWITCHED = (
+    "Ağ kipi allowlist'e geçti: sandbox içindeki komutlar artık yalnız {domains} adreslerine "
+    "erişir, diğer tüm trafik (npm, pip dahil) kapalı. Geri almak: /sandbox ag open"
+)
+NOTE_UNAVAILABLE = "Uyarı: sandbox bu makinede kurulamıyor ({reason})."
+NOTE_AUTO_OPEN = (
+    "Not: sorusuz çalıştırma yalnız ağ allowlist'teyken etkilidir; ağ şu an açık "
+    "(/sandbox ag allowlist)."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +116,8 @@ class SandboxChange:
     setting: str
     value: str
     path: Path
+    #: Değişikliğin yan etkileri ve uyarılar (ağ kipi değişti, sandbox kurulamıyor…).
+    notes: tuple[str, ...] = ()
 
 
 def _platform_label(system: str) -> str:
@@ -165,27 +181,60 @@ def _domain_lists(config: Config, action: str, domain: str, file: Path | None) -
         denied.append(domain)
     change = _write(config, "sandbox.denied_domains", ",".join(denied), file)
     change = _write(change.config, "sandbox.allowed_domains", ",".join(allowed), file)
+    notes: tuple[str, ...] = ()
     if action == "izin" and change.config.sandbox.network != NETWORK_ALLOWLIST:
-        # Liste yalnız allowlist kipinde anlamlıdır; kullanıcıya ayrı bir adım bırakılmaz.
+        # Liste yalnız allowlist kipinde anlamlıdır; kullanıcıya ayrı bir adım bırakılmaz,
+        # ama ağın daraldığı açıkça söylenir. Ölçüldü (31 Ekim): çıktı yalnız
+        # "Kaydedildi: sandbox.izin = …" diyordu (var olmayan ayar adı, kip değişimi yok).
         change = _write(change.config, "sandbox.network", NETWORK_ALLOWLIST, file)
-    return SandboxChange(change.config, f"sandbox.{action}", domain, change.path)
+        notes = (
+            NOTE_NETWORK_SWITCHED.format(domains=", ".join(change.config.sandbox.allowed_domains)),
+        )
+    setting = "sandbox.denied_domains" if action == "engelle" else "sandbox.allowed_domains"
+    if action == "kaldir":
+        setting = "sandbox.allowed_domains, sandbox.denied_domains"
+    return SandboxChange(change.config, setting, domain, change.path, notes)
+
+
+def _with_notes(change: SandboxChange, *notes: str) -> SandboxChange:
+    return replace(change, notes=(*change.notes, *notes)) if notes else change
 
 
 def apply_sandbox_action(
-    config: Config, action: str, value: str = "", file: Path | None = None
+    config: Config,
+    action: str,
+    value: str = "",
+    file: Path | None = None,
+    *,
+    root: Path | None = None,
 ) -> SandboxChange:
-    """Eylemi uygula ve kullanıcı dosyasına yaz; geçersiz eylem/değer `ConfigError`."""
+    """Eylemi uygula ve kullanıcı dosyasına yaz; geçersiz eylem/değer `ConfigError`.
+
+    `root` kurulabilirlik denetimi içindir (sandbox açılırken uyarı); verilmezse çalışma dizini.
+    """
     if action not in SANDBOX_ACTIONS:
         raise ConfigError(
             f"Bilinmeyen sandbox eylemi: {action!r}. Eylemler: {', '.join(SANDBOX_ACTIONS)}"
         )
     if action in ("ac", "kapat"):
         mode = SHELL_SANDBOX_WRITE_ROOT if action == "ac" else SHELL_SANDBOX_OFF
-        return _write(config, "runtime.shell_sandbox", mode, file)
+        change = _write(config, "runtime.shell_sandbox", mode, file)
+        if action == "kapat":
+            return change
+        status = sandbox_status(change.config, root or Path.cwd())
+        return (
+            change
+            if status.available
+            else _with_notes(change, NOTE_UNAVAILABLE.format(reason=status.reason))
+        )
     if action == "ag":
         if value not in NETWORK_MODES:
             raise ConfigError(f"Ağ kipi {' ya da '.join(NETWORK_MODES)} olmalı: {value!r}")
         return _write(config, "sandbox.network", value, file)
     if action in _FLAG_PATHS:
-        return _write(config, _FLAG_PATHS[action], value, file)
+        change = _write(config, _FLAG_PATHS[action], value, file)
+        sandbox = change.config.sandbox
+        if action == "oto" and sandbox.auto_allow and sandbox.network != NETWORK_ALLOWLIST:
+            return _with_notes(change, NOTE_AUTO_OPEN)
+        return change
     return _domain_lists(config, action, _domain(value), file)
