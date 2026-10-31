@@ -81,7 +81,7 @@ def test_masaustu_baglami_terminal_yukleyicisinde_uyari_uretmez(tmp_path: Path):
     assert any("'u'" in warning for warning in keymap.warnings)
     # Terminal bağlamları etkilenmez.
     assert keymap.bindings("tui")["escape"] == "kes"
-    assert any(line == "[masaustu]" for line in keybindings.describe(keymap))
+    assert any("masaustu.k:" in line for line in keybindings.describe(keymap))
 
 
 def test_eylemi_tusa_bagla_eski_tusu_kaldirir_ve_dosyada_fark_tutar(tmp_path: Path):
@@ -243,3 +243,14 @@ def test_turkce_buyuk_i_tek_harfe_kanoniklesir(tmp_path: Path):
         ]["mod+shift+i"]
         == "palet"
     )
+
+
+def test_terminal_ornek_dosyasi_ve_ciktisi_masaustu_tablosunu_dokmez(tmp_path: Path):
+    """Ölçüldü (31 Ekim): `/keybindings` örnek dosyaya 20 satırlık masaüstü varsayılanını yazıyordu;
+    sürüm yükseltmesinde değişen varsayılan tuşu dosya sabitlerdi."""
+    path = keybindings.write_default_file(tmp_path / "keybindings.json")
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert CONTEXT_DESKTOP not in raw and raw["tui"]["escape"] == "kes"
+    lines = keybindings.describe(keybindings.load_keymap(path))
+    assert "[masaustu]" not in lines and not any("sohbet_1" in line for line in lines)
+    assert any("Ayarlar › Kısayollar" in line for line in lines)

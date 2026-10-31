@@ -35,6 +35,8 @@ CONTEXT_TUI = "tui"
 COMMAND_PREFIX = "komut:"
 #: Dosya adı (kullanıcı yapılandırma dizininde).
 FILE_NAME = "keybindings.json"
+#: `/keybindings` çıktısında masaüstü bağlamının yerine gösterilen satır.
+DESKTOP_HINT = f"[{CONTEXT_DESKTOP}] masaüstü kısayolları uygulamada: Ayarlar › Kısayollar"
 
 #: Varsayılan tablo — `input.py` ve `tui.py` eskiden sabit kodladığı bağların tamamı.
 DEFAULT_KEYMAP: dict[str, dict[str, str]] = {
@@ -182,23 +184,34 @@ def has_changed(keymap: KeyMap) -> bool:
 
 
 def write_default_file(path: Path | None = None) -> Path:
-    """Dosya yoksa varsayılan tabloyu örnek olarak yaz (kullanıcı düzenleyip kaydeder)."""
+    """Dosya yoksa terminal varsayılanlarını örnek olarak yaz (kullanıcı düzenleyip kaydeder).
+
+    Ölçüldü (31 Ekim): örnek dosyaya masaüstü tablosu da dökülüyordu; o bağlam dosyada yalnız
+    varsayılandan farkları tutar (Ayarlar › Kısayollar yazar), dökülürse sürüm yükseltmesinde
+    değişen varsayılan tuş eski hâlinde sabitlenirdi.
+    """
     target = path or keybindings_path()
     if not target.exists():
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(
-            json.dumps(default_keymap(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            json.dumps(DEFAULT_KEYMAP, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
     return target
 
 
 def describe(keymap: KeyMap) -> list[str]:
-    """`/keybindings` çıktısı: bağlam başına tuş → eylem satırları ve uyarılar."""
+    """`/keybindings` çıktısı: terminal bağlamlarının tuş → eylem satırları ve uyarılar.
+
+    Masaüstü bağlamı tek satırlık yönlendirmeyle geçilir; uyarıları yine listelenir.
+    """
     lines: list[str] = []
     for context, table in keymap.contexts.items():
+        if context == CONTEXT_DESKTOP:
+            continue
         lines.append(f"[{context}]")
         for key, action in sorted(table.items()):
             lines.append(f"  {key:<10} {action}")
+    lines.append(DESKTOP_HINT)
     for warning in keymap.warnings:
         lines.append(f"  ! {warning}")
     return lines
