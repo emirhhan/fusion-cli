@@ -408,3 +408,16 @@ def test_kural_ekle_dosya_yoksa_olusturur(tmp_path):
     assert json.loads(hedef.read_text(encoding="utf-8")) == {
         "permissions": {"deny": ["Bash(git status *)"]}
     }
+
+
+def test_izin_dosyasi_dizini_acilamazsa_config_error(tmp_path):
+    """Ölçüldü (31 Ekim): `_write_json` içinde mkdir/mkstemp try dışındaydı; `.claude` bir DOSYA
+    olarak varsa PermissionError/NotADirectoryError yakalanmadan yükseliyor, 'bir daha sorma'
+    cevabı araç çağrısını düşürüyordu."""
+    from fusion_cli.core.errors import ConfigError
+
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    (proje / ".claude").write_text("dosya", encoding="utf-8")
+    with pytest.raises(ConfigError, match="yazılamadı"):
+        add_rule(proje / ".claude" / "settings.local.json", _kural("Bash(ls *)"))

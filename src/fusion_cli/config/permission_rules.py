@@ -271,17 +271,24 @@ def remove_rule(path: Path, rule: PermissionRule) -> bool:
 
 
 def _write_json(path: Path, data: Mapping[str, object]) -> None:
-    """Atomik yaz: yarım dosya hiçbir zaman okunmaz."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Atomik yaz: yarım dosya hiçbir zaman okunmaz.
+
+    Dizin açma ve geçici dosya da `ConfigError`a çevrilir. Ölçüldü (31 Ekim): `.claude` bir
+    DOSYA olarak varken ya da dizin salt okunurken `FileExistsError`/`PermissionError`
+    yakalanmadan yükseliyor, "bir daha sorma" cevabı araç çağrısını düşürüyordu.
+    """
     payload = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
-    handle, name = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
-    temporary = Path(name)
+    temporary: Path | None = None
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle, name = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+        temporary = Path(name)
         with os.fdopen(handle, "w", encoding="utf-8") as stream:
             stream.write(payload)
         temporary.replace(path)
     except OSError as exc:
-        temporary.unlink(missing_ok=True)
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
         raise ConfigError(f"İzin dosyası yazılamadı ({path}): {exc}") from exc
 
 
