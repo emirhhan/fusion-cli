@@ -275,3 +275,142 @@ async def test_chat_rotasi_hala_calisir():
             json={"model": "auto", "messages": [{"role": "user", "content": "x"}]},
         )
     assert resp.status_code == 200 and resp.json()["object"] == "chat.completion"
+
+
+# --- 31 Ekim inceleme bulguları ----------------------------------------------------------- #
+
+
+def test_messages_karma_metin_ve_tool_result_sirasi_arac_once():
+    """Ölçüldü (31 Ekim): aynı kullanıcı mesajında text + tool_result varsa metin araç
+    sonucundan ÖNCE geliyordu; OpenAI uyumlu sağlayıcılar tool_calls'tan hemen sonra tool
+    mesajı bekler (400 'tool_call_id ... did not have response')."""
+    request, _, _ = anthropic.to_request(
+        {
+            "model": "auto",
+            "messages": [
+                {"role": "user", "content": "oku"},
+                {
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "t1", "name": "oku", "input": {}}],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "<system-reminder>…</system-reminder>"},
+                        {"type": "tool_result", "tool_use_id": "t1", "content": "ok"},
+                    ],
+                },
+            ],
+        },
+        make_config().runtime,
+    )
+
+    assert [m.role for m in request.messages] == ["user", "assistant", "tool", "user"]
+    assert request.messages[2].tool_call_id == "t1"
+    assert "system-reminder" in request.messages[3].content
+
+
+async def test_messages_count_tokens_tahmini_doner():
+    async with _client(_app()) as client:
+        resp = await client.post(
+            "/v1/messages/count_tokens",
+            json={"model": "auto", "messages": [{"role": "user", "content": "a" * 400}]},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["input_tokens"] >= 90
+
+
+async def test_uzak_istemci_x_api_key_ile_messages_rotasina_girer():
+    """Anthropic SDK ANTHROPIC_API_KEY'i `x-api-key` başlığıyla gönderir; Bearer değil."""
+    config = make_config()
+    app = GatewayApp(
+        config,
+        provider_factory=lambda spec: FakeProvider("mock", chunks=("Selam!",)),
+        access_token="gizli-belirtec",
+    )
+    transport = httpx.ASGITransport(app=app, client=("192.168.1.50", 50123))
+    govde = {"model": "auto", "max_tokens": 8, "messages": [{"role": "user", "content": "x"}]}
+    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+        kabul = await client.post(
+            "/v1/messages", json=govde, headers={"x-api-key": "gizli-belirtec"}
+        )
+        ret = await client.post("/v1/messages", json=govde, headers={"x-api-key": "yanlis"})
+        bos = await client.post("/v1/messages", json=govde)
+
+    assert kabul.status_code == 200, kabul.text
+    assert ret.status_code == 401 and bos.status_code == 401
+
+
+async def test_responses_basarisiz_model_502_ve_hata_maskeli():
+    """Akışsız yol hatayı maskesiz ve 200 ile dönüyordu; akışlı yol ve /v1/messages maskeliydi."""
+    sir = "ghp_" + "A" * 36
+    app = GatewayApp(
+        make_config(),
+        provider_factory=lambda spec: FakeProvider(
+            "mock", chunks=(), ok=False, error=f"yetki: {sir}"
+        ),
+    )
+    async with _client(app) as client:
+        resp = await client.post("/v1/responses", json={"model": "auto", "input": "x"})
+
+    assert resp.status_code == 502, resp.text
+    assert resp.json()["status"] == "failed" and sir not in resp.text
+
+
+def test_responses_developer_rolu_sisteme_eslenir_ve_desteklenmeyen_arac_400():
+    request, _, _ = responses.to_request(
+        {
+            "model": "auto",
+            "input": [
+                {"role": "developer", "content": "Türkçe yaz."},
+                {"role": "user", "content": "selam"},
+            ],
+        },
+        make_config().runtime,
+    )
+    assert [m.role for m in request.messages] == ["system", "user"]
+
+    try:
+        responses.to_request(
+            {"model": "auto", "input": "x", "tools": [{"type": "local_shell"}]},
+            make_config().runtime,
+        )
+    except Exception as error:
+        assert "local_shell" in str(error)
+    else:
+        raise AssertionError("desteklenmeyen araç türü sessizce düştü")
+
+
+async def test_embeddings_gomme_islevi_onbellege_alinir_ve_base64_destegi(monkeypatch):
+    kurulum = {"sayi": 0}
+
+    def _kur(config):
+        kurulum["sayi"] += 1
+        return (lambda texts: [[0.5, -1.0] for _ in texts]), "sahte"
+
+    monkeypatch.setattr(gomme, "build_embedder", _kur)
+    async with _client(_app()) as client:
+        ilk = await client.post("/v1/embeddings", json={"input": "a"})
+        b64 = await client.post("/v1/embeddings", json={"input": "a", "encoding_format": "base64"})
+
+    assert ilk.status_code == b64.status_code == 200
+    assert kurulum["sayi"] == 1, "gömme işlevi her istekte yeniden kuruluyor"
+    import base64
+    import struct
+
+    ham = base64.b64decode(b64.json()["data"][0]["embedding"])
+    assert struct.unpack("<2f", ham) == (0.5, -1.0)
+
+
+async def test_embeddings_parti_ve_uzunluk_siniri_400(monkeypatch):
+    monkeypatch.setattr(
+        gomme, "build_embedder", lambda config: ((lambda t: [[0.0] for _ in t]), "s")
+    )
+    async with _client(_app()) as client:
+        cok = await client.post("/v1/embeddings", json={"input": ["a"] * (gomme.MAX_BATCH + 1)})
+        uzun = await client.post(
+            "/v1/embeddings", json={"input": "a" * (gomme.MAX_TOTAL_CHARS + 1)}
+        )
+
+    assert cok.status_code == 400 and uzun.status_code == 400

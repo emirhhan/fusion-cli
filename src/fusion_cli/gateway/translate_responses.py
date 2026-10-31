@@ -13,8 +13,15 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..config.models import RuntimeConfig
+from ..core.redaction import redact
 from ..core.types import CompletionRequest, Message, ModelResult, ToolCall
 from .translate import GatewayError, _number, split_content
+
+#: Responses `developer` rolü (Codex) Fusion'da sistem mesajıdır; diğer roller aynen geçer.
+_ROLE_ALIASES: Mapping[str, str] = {"developer": "system"}
+#: Yalnız `function` araçları çevrilir; yerleşik türler (sunucu tarafında çalışması beklenen)
+#: sessizce düşerse istemcinin özelliği sessizce çalışmaz — açık hata daha dürüst.
+_SUPPORTED_TOOL_TYPES = frozenset({"function"})
 
 
 def to_request(
@@ -66,8 +73,9 @@ def _input_messages(raw: object) -> list[Message]:
         kind = item.get("type", "message")
         if kind == "message" or "role" in item:
             text, images = split_content(_as_openai_parts(item.get("content")))
+            role = str(item.get("role", "user"))
             messages.append(
-                Message(role=str(item.get("role", "user")), content=text, images=images)
+                Message(role=_ROLE_ALIASES.get(role, role), content=text, images=images)
             )
         elif kind == "function_call":
             messages.append(
@@ -119,8 +127,14 @@ def _tools(raw: object) -> tuple[Mapping[str, object], ...]:
         return ()
     tools: list[Mapping[str, object]] = []
     for tool in raw:
-        if not isinstance(tool, Mapping) or tool.get("type") != "function":
+        if not isinstance(tool, Mapping):
             continue
+        kind = str(tool.get("type", "function"))
+        if kind not in _SUPPORTED_TOOL_TYPES:
+            raise GatewayError(
+                f"tools[].type '{kind}' desteklenmiyor; yalnız 'function' araçları çevrilir. "
+                "İstemcide bu aracı kapat."
+            )
         # Responses biçimi düz (`name` üstte); eski iç içe `function` biçimi de kabul.
         inner = tool.get("function") if isinstance(tool.get("function"), Mapping) else tool
         if not isinstance(inner, Mapping) or not inner.get("name"):
@@ -184,7 +198,10 @@ def to_response(result: ModelResult, model: str, *, resp_id: str | None = None) 
         "object": "response",
         "created_at": int(time.time()),
         "status": "completed" if result.is_usable else "failed",
-        "error": None if result.is_usable else {"code": "provider_error", "message": result.error},
+        # Hata metni sağlayıcıdan gelir; anahtar parçası/URL taşıyabilir, maskelenir.
+        "error": None
+        if result.is_usable
+        else {"code": "provider_error", "message": redact(result.error or "")},
         "model": result.model or model,
         "output": output,
         "output_text": result.text or "",

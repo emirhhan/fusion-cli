@@ -117,13 +117,16 @@ def _blocks_to_messages(role: str, blocks: Sequence[object]) -> list[Message]:
             tool_results.append(
                 Message(role="tool", content=text, tool_call_id=str(block.get("tool_use_id", "")))
             )
-    messages: list[Message] = []
+    # Önce araç sonuçları, sonra metin/görsel: Claude Code bir turda `tool_result` bloklarıyla
+    # birlikte `text` (system-reminder) gönderir; OpenAI uyumlu sağlayıcılar `tool_calls`
+    # taşıyan assistant mesajından HEMEN sonra `tool` mesajı bekler, araya giren user
+    # mesajında 400 döner. Ölçüldü (31 Ekim): eski sıra ikinci turdan itibaren döngüyü kırıyordu.
+    messages: list[Message] = list(tool_results)
     if parts or tool_calls:
         text, images = split_content(parts) if parts else ("", ())
         messages.append(
             Message(role=role, content=text, images=images, tool_calls=tuple(tool_calls))
         )
-    messages.extend(tool_results)
     return messages
 
 
@@ -206,6 +209,18 @@ def to_message(result: ModelResult, model: str, *, msg_id: str | None = None) ->
         "stop_sequence": None,
         "usage": _usage(result),
     }
+
+
+def count_tokens(payload: Mapping[str, object], runtime: RuntimeConfig) -> dict[str, int]:
+    """`/v1/messages/count_tokens` (Claude Code çağırır): sağlayıcıdan bağımsız kaba tahmin.
+
+    Fusion'da modele özel bir belirteçleyici yok; ~4 karakter = 1 token varsayımı
+    (`observability` ile aynı kaba ölçü). Araç şemaları da sayılır.
+    """
+    request, _model, _stream = to_request(payload, runtime)
+    chars = sum(len(message.content or "") for message in request.messages)
+    chars += sum(len(json.dumps(tool, ensure_ascii=False)) for tool in request.tools)
+    return {"input_tokens": max(1, chars // 4)}
 
 
 def error_body(message: str, *, kind: str = "invalid_request_error") -> dict[str, Any]:

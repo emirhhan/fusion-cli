@@ -45,7 +45,7 @@ from ..providers.factory import build_provider
 from ..providers.key_pool import KeyPoolRegistry
 from ..ui import messages
 from . import translate
-from .access import bearer_matches, is_loopback_peer
+from .access import is_loopback_peer, token_matches
 from .analytics import Analytics, RequestRecord
 from .cache import PromptCache
 from .catalog_cache import CatalogCache
@@ -79,6 +79,8 @@ class GatewayApp:
         self._config = config
         #: Yerel olmayan bağlantıların taşıması gereken belirteç; yoksa ağ erişimi kapalı.
         self._access_token = access_token or None
+        #: `/v1/embeddings` gömme işlevi; ilk istekte kurulur (`embeddings.build_embedder`).
+        self._embedder: tuple[Callable[[list[str]], list[list[float]]], str] | None = None
         #: Uzun geçmişi Fusion ajanının özetlemesiyle bağlam bütçesine sığdır (Kits açar).
         self._compact_context = compact_context
         self._config_revision = revision(config)
@@ -167,8 +169,9 @@ class GatewayApp:
 
     async def _dispatch(self, scope: Scope, receive: Receive, send: Send) -> None:
         if not is_loopback_peer(scope):
-            # Host başlığını istemci yazar; ağdan gelen bağlantı yalnız belirteçle girer.
-            if not bearer_matches(scope.get("headers") or (), self._access_token):
+            # Host başlığını istemci yazar; ağdan gelen bağlantı yalnız belirteçle girer
+            # (Bearer ya da Anthropic SDK'nın x-api-key başlığı).
+            if not token_matches(scope.get("headers") or (), self._access_token):
                 await _json(
                     send, {"error": {"message": messages.GATEWAY_REMOTE_UNAUTHORIZED}}, status=401
                 )
@@ -292,6 +295,9 @@ class GatewayApp:
             return
         if method == "POST" and path == "/v1/messages":
             await self._messages(receive, send)
+            return
+        if method == "POST" and path == "/v1/messages/count_tokens":
+            await self._count_tokens(receive, send)
             return
         if method == "POST" and path == "/v1/embeddings":
             await self._embeddings(receive, send)
@@ -1097,44 +1103,18 @@ class GatewayApp:
         await _json(send, {"object": "list", "data": data})
 
     async def _chat(self, receive: Receive, send: Send) -> None:
+        """OpenAI chat.completions köprüsü; `_prepare`/`_complete` ortak yolunu kullanır."""
         try:
             payload = await _read_json(receive)
             request, model, stream = translate.to_request(payload, self._config.runtime)
         except (translate.GatewayError, json.JSONDecodeError, ValueError) as error:
             await _json(send, _error_body(str(error)), status=400)
             return
-
-        runtime = self._config.runtime
-        # Güvenli sıkıştırma (opt-in): giden mesajları kısalt, tasarrufu say.
-        if runtime.gateway_compression:
-            original = request.messages
-            request = _dc_replace(request, messages=compress_messages(request.messages))
-            self._analytics.add_compression_saving(saved_chars(original, request.messages))
-
-        spec = self._routed_spec(resolve_spec(self._config, model))
-        if self._compact_context:
-            request = await self._compacted(request, spec)
-        route = f"{self._strategy.value}:{spec.model}"
+        request, spec, route = await self._prepare(request, model)
         if stream:
             await self._stream(send, self._factory(spec), request, model)
             return
-
-        # Önbellek: aynı istek daha önce geldiyse modeli hiç çağırma.
-        # Anahtar istemcinin yazdığı ham ad (`auto`) DEĞİL, çözülmüş model zinciridir:
-        # yapılandırma/yedek zinciri değişince eski cevap dönmesin (E1-13).
-        cache_model = f"{model}->{'|'.join(spec.models)}"
-        cached = self._cache.get(cache_model, request) if runtime.gateway_cache else None
-        if cached is not None:
-            result, from_cache = cached, True
-        else:
-            result = await self._factory(spec).complete(request)
-            if runtime.gateway_cache:
-                self._cache.put(cache_model, request, result)
-            from_cache = False
-        # Credential guardrail: yanıtta sızan sır/anahtar desenini maskele.
-        if runtime.gateway_mask_secrets and result.text:
-            result = _dc_replace(result, text=redact(result.text))
-        self._record(model, result, cached=from_cache)
+        result, from_cache = await self._complete(request, spec, model)
         usage = result.usage
         await _json(
             send,
@@ -1149,7 +1129,11 @@ class GatewayApp:
     async def _prepare(
         self, request: CompletionRequest, model: str
     ) -> tuple[CompletionRequest, ModelSpec, str]:
-        """Sıkıştırma, profil çözümü ve bağlam bütçesi: üç sohbet rotasının ortak ön adımı."""
+        """Sıkıştırma, profil çözümü ve bağlam bütçesi: üç sohbet rotasının ortak ön adımı.
+
+        Ölçüldü (31 Ekim): `_chat` bu mantığı satır satır kopyalıyordu; bir rotaya eklenen
+        koruma (maske, bütçe) diğerine gitmiyordu. Üç rota artık yalnız buradan geçer.
+        """
         runtime = self._config.runtime
         if runtime.gateway_compression:
             original = request.messages
@@ -1163,7 +1147,11 @@ class GatewayApp:
     async def _complete(
         self, request: CompletionRequest, spec: ModelSpec, model: str
     ) -> tuple[ModelResult, bool]:
-        """Akışsız tamamlama: önbellek, sır maskesi ve telemetri (chat/responses/messages ortak)."""
+        """Akışsız tamamlama: önbellek, sır maskesi ve telemetri (chat/responses/messages ortak).
+
+        Önbellek anahtarı istemcinin yazdığı ham ad (`auto`) DEĞİL, çözülmüş model zinciridir:
+        yapılandırma/yedek zinciri değişince eski cevap dönmesin (E1-13).
+        """
         runtime = self._config.runtime
         cache_model = f"{model}->{'|'.join(spec.models)}"
         cached = self._cache.get(cache_model, request) if runtime.gateway_cache else None
@@ -1194,6 +1182,11 @@ class GatewayApp:
             await self._stream_responses(send, self._factory(spec), request, model)
             return
         result, from_cache = await self._complete(request, spec, model)
+        if not result.is_usable:
+            # /v1/messages ile aynı sözleşme: başarısız sağlayıcı 502, hata metni maskeli
+            # (`to_response` içinde). Eskiden 200 + ham hata dönüyordu (31 Ekim).
+            await _json(send, responses.to_response(result, model), status=502)
+            return
         await _json(
             send,
             responses.to_response(result, model),
@@ -1437,6 +1430,16 @@ class GatewayApp:
             )
         await send({"type": "http.response.body", "body": b"", "more_body": False})
 
+    async def _count_tokens(self, receive: Receive, send: Send) -> None:
+        """Anthropic `/v1/messages/count_tokens`: Claude Code bağlam ölçümü için çağırır."""
+        from . import translate_anthropic as anthropic
+
+        try:
+            payload = await _read_json(receive)
+            await _json(send, anthropic.count_tokens(payload, self._config.runtime))
+        except (translate.GatewayError, json.JSONDecodeError, ValueError) as error:
+            await _json(send, anthropic.error_body(str(error)), status=400)
+
     async def _embeddings(self, receive: Receive, send: Send) -> None:
         """OpenAI `/v1/embeddings` köprüsü: Fusion'ın gömme sağlayıcısı (nim ya da yerel)."""
         from . import embeddings as gomme
@@ -1444,11 +1447,15 @@ class GatewayApp:
         try:
             payload = await _read_json(receive)
             texts, _requested = gomme.parse_inputs(payload)
+            encoding = gomme.parse_encoding(payload)
         except (translate.GatewayError, json.JSONDecodeError, ValueError) as error:
             await _json(send, _error_body(str(error)), status=400)
             return
         try:
-            function, model = await asyncio.to_thread(gomme.build_embedder, self._config)
+            if self._embedder is None:
+                # Bir kez kurulur: yerel ONNX modeli her istekte yüklenmesin (31 Ekim).
+                self._embedder = await asyncio.to_thread(gomme.build_embedder, self._config)
+            function, model = self._embedder
             vectors = await gomme.embed(texts, function)
         except gomme.EmbeddingUnavailableError as error:
             await _json(send, _error_body(str(error)), status=501)
@@ -1456,7 +1463,7 @@ class GatewayApp:
         except Exception as error:  # sağlayıcı HTTP/ONNX hatası; sınır katmanı, maskeli
             await _json(send, _error_body(redact(f"gömme hesaplanamadı: {error}")), status=502)
             return
-        await _json(send, gomme.to_openai_embeddings(vectors, model, texts))
+        await _json(send, gomme.to_openai_embeddings(vectors, model, texts, encoding=encoding))
 
     async def _compacted(self, request: CompletionRequest, spec: ModelSpec) -> CompletionRequest:
         """Geçmiş modelin bağlam bütçesini aşıyorsa eski kısmı özetle (ilk tur ve son turlar

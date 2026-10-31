@@ -9,7 +9,9 @@ olay döngüsünü tutmaz).
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
+import struct
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -20,6 +22,12 @@ _LOG = logging.getLogger(__name__)
 
 #: Metin listesi → vektör listesi.
 EmbedFunction = Callable[[list[str]], list[list[float]]]
+#: Tek istekte en çok bu kadar metin (OpenAI sınırı 2048) ve toplam karakter; yetkili bir
+#: istemci bile iş parçacığını/belleği sınırsız tüketmesin (31 Ekim).
+MAX_BATCH = 256
+MAX_TOTAL_CHARS = 1_000_000
+#: OpenAI SDK'ları varsayılan `encoding_format=base64` ister: float32 little-endian.
+_ENCODINGS = frozenset({"float", "base64"})
 
 
 class EmbeddingUnavailableError(Exception):
@@ -27,7 +35,7 @@ class EmbeddingUnavailableError(Exception):
 
 
 def parse_inputs(payload: Mapping[str, object]) -> tuple[list[str], str]:
-    """`input` (metin ya da metin listesi) ve istenen model adını çıkar."""
+    """`input` (metin ya da metin listesi) ve istenen model adını çıkar; sınırları uygula."""
     raw = payload.get("input")
     if isinstance(raw, str):
         texts = [raw]
@@ -37,7 +45,20 @@ def parse_inputs(payload: Mapping[str, object]) -> tuple[list[str], str]:
         raise GatewayError("'input' bir metin ya da boş olmayan metin listesi olmalı.")
     if not any(text.strip() for text in texts):
         raise GatewayError("'input' boş metin içeremez.")
+    if len(texts) > MAX_BATCH:
+        raise GatewayError(f"'input' en çok {MAX_BATCH} metin alır ({len(texts)} verildi).")
+    total = sum(len(text) for text in texts)
+    if total > MAX_TOTAL_CHARS:
+        raise GatewayError(f"'input' toplam {MAX_TOTAL_CHARS} karakteri aşıyor ({total}).")
     return texts, str(payload.get("model", "") or "")
+
+
+def parse_encoding(payload: Mapping[str, object]) -> str:
+    """`encoding_format`: float (varsayılan) ya da base64; başka değer 400."""
+    raw = str(payload.get("encoding_format", "float") or "float").lower()
+    if raw not in _ENCODINGS:
+        raise GatewayError("'encoding_format' float ya da base64 olmalı.")
+    return raw
 
 
 def build_embedder(config: Config) -> tuple[EmbedFunction, str]:
@@ -71,16 +92,24 @@ async def embed(texts: list[str], function: EmbedFunction) -> list[list[float]]:
 
 
 def to_openai_embeddings(
-    vectors: list[list[float]], model: str, texts: list[str]
+    vectors: list[list[float]], model: str, texts: list[str], *, encoding: str = "float"
 ) -> dict[str, Any]:
     """OpenAI `list` zarfı; token sayısı bilinmediği için kaba karakter/4 tahmini yazılır."""
     approx_tokens = sum(max(1, len(text) // 4) for text in texts)
     return {
         "object": "list",
         "data": [
-            {"object": "embedding", "index": index, "embedding": vector}
+            {
+                "object": "embedding",
+                "index": index,
+                "embedding": _encode_base64(vector) if encoding == "base64" else vector,
+            }
             for index, vector in enumerate(vectors)
         ],
         "model": model,
         "usage": {"prompt_tokens": approx_tokens, "total_tokens": approx_tokens},
     }
+
+
+def _encode_base64(vector: list[float]) -> str:
+    return base64.b64encode(struct.pack(f"<{len(vector)}f", *vector)).decode("ascii")

@@ -214,8 +214,14 @@ Durdurmak için `fusion serve`'ün olduğu terminalde **Ctrl-C**.
 | `POST /v1/chat/completions` | OpenAI-uyumlu araçlar (Cursor, Cline, Kits) | akış ve araç çağrısı |
 | `POST /v1/responses` | Codex CLI, yeni OpenAI SDK'ları (`OPENAI_BASE_URL`) | `input`/`instructions`, `response.*` akış olayları |
 | `POST /v1/messages` | Claude SDK'ları, Claude Code (`ANTHROPIC_BASE_URL=http://127.0.0.1:8787`) | `system`, `tools[].input_schema`, Anthropic SSE olayları |
+| `POST /v1/messages/count_tokens` | Claude Code bağlam ölçümü | kaba tahmin (~4 karakter = 1 token) |
 | `POST /v1/embeddings` | gömme isteyen araçlar | `embedding.provider` (nim ya da yerel ONNX); kurulu değilse 501 |
 | `GET /v1/models` | model listesi | profiller + yapılandırılmış modeller |
+
+Ağdan (loopback dışı) gelen istemci `fusion serve --token` belirtecini `Authorization: Bearer`
+**ya da** `x-api-key` başlığıyla verir; Anthropic SDK'larında `ANTHROPIC_API_KEY=<belirteç>`
+yeter. Başarısız sağlayıcı her rotada 502 ve maskeli hata metniyle döner; `/v1/responses`
+yalnız `function` araçlarını çevirir, `developer` rolü sistem mesajı sayılır.
 
 ---
 
