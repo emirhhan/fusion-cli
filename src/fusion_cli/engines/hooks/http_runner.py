@@ -56,18 +56,40 @@ async def run_http_hook(
     body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
     transport = AsyncPinnedTransport(allows_private=lambda _url: allow_private)
     try:
-        async with httpx.AsyncClient(
-            transport=transport, timeout=httpx.Timeout(command.timeout_s), follow_redirects=False
-        ) as client:
-            response = await client.post(command.command, content=body, headers=headers)
+        async with (
+            httpx.AsyncClient(
+                transport=transport,
+                timeout=httpx.Timeout(command.timeout_s),
+                follow_redirects=False,
+            ) as client,
+            client.stream("POST", command.command, content=body, headers=headers) as response,
+        ):
+            text = await _read_capped(response)
     except httpx.TimeoutException:
         return HookRun(command, None, timed_out=True)
     except BlockedAddressError as error:
         return HookRun(command, None, error=f"{error} (runtime.hook_http_allow_private)")
     except httpx.HTTPError as error:
         return HookRun(command, None, error=f"{type(error).__name__}: {error}"[:_ERROR_BODY_CHARS])
-    text = response.text[:HOOK_STREAM_CHARS]
     if not response.is_success:
         tail = f": {text.strip()[:_ERROR_BODY_CHARS]}" if text.strip() else ""
         return HookRun(command, None, error=f"HTTP {response.status_code}{tail}")
     return HookRun(command, 0, text)
+
+
+async def _read_capped(response: httpx.Response) -> str:
+    """Gövdeyi en çok `HOOK_STREAM_CHARS` karakterlik bayta kadar oku (dev yanıt belleği şişirmez).
+
+    Ölçüldü (1 Kasım): `response.text` gövdenin tamamını belleğe alıyordu; sınır yalnız
+    sonradan kırpıyordu.
+    """
+    limit = HOOK_STREAM_CHARS * 4  # UTF-8'de karakter başına en çok 4 bayt
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in response.aiter_bytes():
+        chunks.append(chunk)
+        size += len(chunk)
+        if size >= limit:
+            break
+    encoding = response.encoding or "utf-8"
+    return b"".join(chunks)[:limit].decode(encoding, errors="replace")[:HOOK_STREAM_CHARS]

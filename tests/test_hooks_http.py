@@ -141,3 +141,16 @@ def test_guvenilmeyen_proje_ayari_ic_ag_iznini_acamaz():
     from fusion_cli.config.trust import EXECUTION_RUNTIME_KEYS
 
     assert "hook_http_allow_private" in EXECUTION_RUNTIME_KEYS
+
+
+async def test_http_dev_yaniti_sinirda_kesilir(tmp_path, istekler):
+    from fusion_cli.engines.hooks.runner import HOOK_STREAM_CHARS
+
+    _, yanit = istekler
+    yanit["govde"] = "x" * (HOOK_STREAM_CHARS * 6)
+    hook = _http(event=HookEvent.USER_PROMPT_SUBMIT)
+
+    verdict = await _oturum(tmp_path, hook).emit(HookEvent.USER_PROMPT_SUBMIT)
+
+    # Düz metin bağlam olur; bağlam sınırı da uygulanır.
+    assert 0 < len(verdict.context_text) <= HOOK_STREAM_CHARS
