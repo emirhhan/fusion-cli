@@ -548,10 +548,17 @@ fusion mcp resources                  # kaynaklar: @<sunucu>:<uri>
   görev olarak çalıştırır. Argümanlar sırayla istemin parametrelerine bağlanır ya da
   `ad=değer` yazılır; fazla sözcükler son parametreye eklenir; zorunlu argüman eksikse tur
   koşmaz, kullanım satırı gösterilir. Komutlar tamamlamada ve masaüstü komut paletinde "MCP"
-  grubunda görünür; sunucu ilk turda bağlandığı için liste ilk turdan sonra dolar.
+  grubunda görünür; sunucu ilk turda bağlandığı için liste ilk turdan sonra dolar — liste
+  dolmadan yazılan `/mcp__…` da kabul edilir, tur sunucuya bağlanınca çözülür. Liste çekimi
+  geçici hatayla düşerse sonraki tur yeniden dener; sunucu `list_changed` bildirirse yenilenir.
+  Argümanda ters eğik çizgi korunur (`C:\yol\dosya.txt`); istem metni 40.000 karakterle sınırlı.
 - `@github:repo://owner/repo/issues/1` anması kaynağı (`resources/read`) okuyup turun bağlamına
   ekler: yalnız tanımlı sunucu adlarıyla, mesaj başına en fazla 5 kaynak, kaynak başına
-  20.000 karakter, sırlar maskeli, "kullanıcı talimatı değildir" notuyla. İkili içerik atlanır.
+  20.000 karakter, sırlar maskeli, "kullanıcı talimatı değildir" notuyla; içerikteki
+  `</mcp_kaynak>` gibi etiket kapatmaları etkisizleştirilir. İkili içerik atlanır.
+- Masaüstünde **Bağlantılar → araç kataloğu** sunucunun araçlarının yanında istemlerini ve
+  kaynaklarını da sohbet yazımıyla listeler; **Kopyala** ile `/mcp__…` ya da `@sunucu:uri`
+  panoya alınır.
 - `/mcp prompts`, `/mcp resources` (`istemler`, `kaynaklar`) oturumun bildiği listeyi gösterir.
 
 ---
@@ -749,7 +756,7 @@ Windows'ta bağlantı ikinci örneğin argümanı olarak işlenir ama kurulumda 
 | `@src/app.py şu fonksiyonu incele` | Anılan dosya (ya da dizin listesi) bağlama eklenir; mesaj olduğu gibi gider. En çok 8 dosya, dosya başına 20 bin karakter. Tab ile yol tamamlama: `@src/mo<Tab>`. |
 | `# testleri her zaman pytest ile çalıştır` | Kalıcı bellek notu (`/learn` ile aynı depo). `/lessons` ile gör, `/forget` ile sil. |
 
-`@sunucu:kaynak` (MCP kaynağı) biçimi tanınır ama henüz okunmaz; sunucunun aracını sohbette iste.
+`@sunucu:kaynak` (MCP kaynağı) anması tur başında sunucudan okunup bağlama eklenir (bkz. "MCP istemleri ve kaynakları").
 
 ### Durum ve bağlam
 

@@ -121,3 +121,55 @@ async def test_takilan_mcp_sunucusu_katalog_rpc_sini_sonsuza_dek_bekletmez():
         mcp_catalog.McpClient = original
 
     assert sonuc["ok"] is False and "zamanında" in sonuc["metin"]
+
+
+async def test_katalog_istem_ve_kaynaklari_sohbet_yazimiyla_doner(monkeypatch):
+    """Ölçüldü (31 Ekim): Bağlantılar kataloğu yalnız araçları döndürüyordu; MCP istemleri ve
+    kaynakları masaüstünde sunucu başına görünmüyordu. İstem listesi hatası araçları düşürmez."""
+    from fusion_cli.appserver import mcp_catalog
+    from fusion_cli.config.models import McpServerConfig
+    from fusion_cli.mcp_bridge.references import (
+        McpCatalog,
+        McpPrompt,
+        McpPromptArgument,
+        McpResource,
+    )
+
+    class _Client:
+        fail = False
+
+        def __init__(self, configs, **kwargs) -> None:
+            self.statuses = {"gh": type("S", (), {"state": "bagli"})()}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc) -> None:
+            return None
+
+        async def list_tools(self, server: str):
+            return []
+
+        async def catalog(self, server: str) -> McpCatalog:
+            if _Client.fail:
+                raise TimeoutError
+            return McpCatalog(
+                prompts=(
+                    McpPrompt("gh", "review-pr", "İncele", (McpPromptArgument("n", "", True),)),
+                ),
+                resources=(McpResource("gh", "repo://a", name="A deposu"),),
+            )
+
+    monkeypatch.setattr(mcp_catalog, "McpClient", _Client)
+    server = McpServerConfig(name="gh", command="npx")
+
+    result = await mcp_catalog.list_tool_catalog(server)
+    _Client.fail = True
+    degraded = await mcp_catalog.list_tool_catalog(server)
+
+    assert result["ok"] is True
+    assert result["prompts"] == [
+        {"command": "/mcp__gh__review-pr", "usage": "<n>", "description": "İncele"}
+    ]
+    assert result["resources"] == [{"mention": "@gh:repo://a", "name": "A deposu", "mimeType": ""}]
+    assert degraded["ok"] is True and degraded["prompts"] == [] and degraded["resources"] == []
