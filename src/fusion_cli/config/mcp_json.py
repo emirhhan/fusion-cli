@@ -166,23 +166,73 @@ def merge_mcp_servers(
     )
 
 
-def write_project_mcp_servers(root: Path, servers: tuple[McpServerConfig, ...]) -> Path:
-    """Proje kapsamlı kayıtları `.mcp.json`'a yaz; dosyadaki diğer anahtarlar korunur.
+UNTRUSTED_WRITE_MESSAGE = (
+    f"{PROJECT_MCP_FILE} bu projede güvenilir değil; üzerine yazılmadı. İçeriğini incele, "
+    "güveniyorsan `fusion trust` de, sonra yeniden dene."
+)
 
-    Fusion'ın yazdığı içerik güven kaydına işlenir: kullanıcı eklediği sunucu için ayrıca
-    `fusion trust` demek zorunda kalmaz; dosya elle değişirse güven düşer.
+
+def write_project_mcp_servers(root: Path, servers: tuple[McpServerConfig, ...]) -> Path:
+    """Proje kapsamlı kayıtların TÜMÜNÜ `.mcp.json`'a yaz; dosyadaki diğer anahtarlar korunur.
+
+    Tek kayıt eklemek/silmek için `upsert_project_mcp_server` / `remove_project_mcp_server`
+    kullan: onlar dosyadaki mevcut girdilere dokunmaz. Fusion'ın yazdığı içerik güven kaydına
+    işlenir: kullanıcı eklediği sunucu için ayrıca `fusion trust` demek zorunda kalmaz; dosya
+    elle değişirse güven düşer. Güvenilmeyen mevcut dosya üzerine YAZILMAZ (`ConfigError`).
     """
     path = project_mcp_path(root)
-    existing: dict[str, object] = {}
-    if path.is_file():
-        try:
-            loaded = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            raise ConfigError(f"{PROJECT_MCP_FILE} okunamadı: {error}") from error
-        if isinstance(loaded, dict):
-            existing = loaded
+    existing = _writable_raw(root, path)
     existing[_ROOT_KEY] = {server.name: _to_entry(server) for server in servers}
-    _atomic_write(path, json.dumps(existing, ensure_ascii=False, indent=2) + "\n")
+    return _commit(root, path, existing)
+
+
+def upsert_project_mcp_server(root: Path, server: McpServerConfig) -> Path:
+    """Tek kaydı `.mcp.json`'a ekle ya da aynı adlıyı değiştir; diğer girdiler olduğu gibi kalır.
+
+    Ölçüldü (31 Ekim): `mcpServers` yalnız yüklü (güvenilen) kayıtlardan yeniden kuruluyordu;
+    güvenilmeyen bir depoda `--scope project` ekleme takım sunucularını siliyor ve sonucu
+    otomatik güvene alıyordu. Artık güvenilmeyen dosya reddedilir, güvenilen dosyada yalnız
+    ilgili ad değişir.
+    """
+    path = project_mcp_path(root)
+    existing = _writable_raw(root, path)
+    servers = existing.get(_ROOT_KEY)
+    entries: dict[str, object] = dict(servers) if isinstance(servers, dict) else {}
+    entries[server.name] = _to_entry(server)
+    existing[_ROOT_KEY] = entries
+    return _commit(root, path, existing)
+
+
+def remove_project_mcp_server(root: Path, name: str) -> Path:
+    """Tek kaydı `.mcp.json`'dan sil; ad yoksa `ConfigError`."""
+    path = project_mcp_path(root)
+    existing = _writable_raw(root, path)
+    servers = existing.get(_ROOT_KEY)
+    entries: dict[str, object] = dict(servers) if isinstance(servers, dict) else {}
+    if name not in entries:
+        raise ConfigError(f"{PROJECT_MCP_FILE}: '{name}' adlı sunucu yok")
+    del entries[name]
+    existing[_ROOT_KEY] = entries
+    return _commit(root, path, existing)
+
+
+def _writable_raw(root: Path, path: Path) -> dict[str, object]:
+    """Dosyanın ham içeriği (yoksa boş). Var olan dosya güvenilmiyor ya da bozuksa yazılmaz."""
+    if not path.is_file():
+        return {}
+    if not trust.is_file_trusted(root, path):
+        raise ConfigError(UNTRUSTED_WRITE_MESSAGE)
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ConfigError(f"{PROJECT_MCP_FILE} okunamadı: {error}") from error
+    if not isinstance(loaded, dict):
+        raise ConfigError(f"{PROJECT_MCP_FILE}: kök bir nesne olmalı; üzerine yazılmadı")
+    return loaded
+
+
+def _commit(root: Path, path: Path, data: dict[str, object]) -> Path:
+    _atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
     trust.approve_file(root, path)
     return path
 

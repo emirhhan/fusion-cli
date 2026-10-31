@@ -18,7 +18,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from ..config.mcp_json import write_project_mcp_servers
+from ..config.mcp_json import remove_project_mcp_server
 from ..config.models import Config, McpScope, McpServerConfig, McpTransport, McpTrust
 from ..config.writer import write_mcp_servers
 from ..core.redaction import redact
@@ -442,10 +442,8 @@ def remove_connector(
     yeni = replace(config, mcp_servers=kalan)
     if silinen.scope is McpScope.PROJECT:
         try:
-            write_project_mcp_servers(
-                root or Path.cwd(),
-                tuple(server for server in kalan if server.scope is McpScope.PROJECT),
-            )
+            # Yalnız ilgili ad silinir; dosyadaki diğer girdiler (ve güvenilmeyen dosya) korunur.
+            remove_project_mcp_server(root or Path.cwd(), ad)
         except Exception as error:  # ConfigError ve OSError türevleri
             return None, {"ok": False, "metin": f"Bağlantı kaydedilemedi: {error}"}
         return yeni, {"ok": True, "metin": f"'{ad}' bağlantısı projeden kaldırıldı."}

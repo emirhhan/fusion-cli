@@ -335,3 +335,88 @@ def test_repl_mcp_reconnect_ve_liste(monkeypatch, tmp_path):
     assert "2" in repl_commands._mcp(state, "reconnect all")
     liste = repl_commands._mcp(state, "")
     assert "proje" in liste and "kullanıcı" in liste
+
+
+# --- gölgeleme ve güvenilmeyen .mcp.json yazımı (31 Ekim inceleme bulguları) ----------- #
+
+
+def _kullanici_configi(tmp_path, *sunucular: McpServerConfig) -> None:
+    hedef = tmp_path / "xdg" / "fusion-cli" / "config.yaml"
+    write_mcp_servers(replace(loader.load_config(), mcp_servers=sunucular), hedef)
+
+
+def test_proje_kaydi_golgelerken_kullanici_kapsamina_yazma_golgelenen_kaydi_silmez(izole, tmp_path):
+    """Ölçüldü (31 Ekim): yükleme gölgelenen kullanıcı kaydını listeden atıyor, kullanıcı
+    kapsamlı herhangi bir yazma (`mcp add other`) onu config.yaml'dan siliyordu."""
+    _kullanici_configi(tmp_path, McpServerConfig(name="gh", command="userbin"))
+    write_project_mcp_servers(
+        izole, (McpServerConfig(name="gh", command="projebin", scope=McpScope.PROJECT),)
+    )
+    assert [s.command for s in loader.load_config().mcp_servers] == ["projebin"]
+
+    result = runner.invoke(app_module.app, ["mcp", "add", "other", "x"])
+
+    assert result.exit_code == 0, result.output
+    yazilan = (tmp_path / "xdg" / "fusion-cli" / "config.yaml").read_text(encoding="utf-8")
+    assert "name: gh" in yazilan and "userbin" in yazilan and "name: other" in yazilan
+    # Gölgelenen kayıt yalnız proje dosyası silinince yeniden görünür.
+    (izole / PROJECT_MCP_FILE).unlink()
+    assert {s.name: s.command for s in loader.load_config().mcp_servers} == {
+        "gh": "userbin",
+        "other": "x",
+    }
+
+
+def test_guvenilmeyen_mcp_json_a_proje_kapsami_yazma_reddedilir(izole):
+    """Ölçüldü (31 Ekim): klonlanan deponun güvenilmeyen `.mcp.json`'ı yeniden yazılıyor,
+    takım sunucuları kayboluyor ve dosya otomatik güvene alınıyordu."""
+    orijinal = json.dumps({"mcpServers": {"team": {"command": "npx", "args": ["-y", "t"]}}})
+    (izole / PROJECT_MCP_FILE).write_text(orijinal, encoding="utf-8")
+
+    result = runner.invoke(app_module.app, ["mcp", "add", "p", "y", "--scope", "project"])
+
+    assert result.exit_code != 0
+    assert "fusion trust" in result.output
+    assert (izole / PROJECT_MCP_FILE).read_text(encoding="utf-8") == orijinal
+    assert not trust.is_file_trusted(izole, izole / PROJECT_MCP_FILE)
+
+
+def test_guvenilen_mcp_json_a_ekleme_mevcut_girdileri_korur(izole):
+    (izole / PROJECT_MCP_FILE).write_text(
+        json.dumps({"mcpServers": {"team": {"command": "npx"}}, "ozel": 1}), encoding="utf-8"
+    )
+    trust.trust_project(izole)
+
+    result = runner.invoke(app_module.app, ["mcp", "add", "p", "y", "--scope", "project"])
+
+    assert result.exit_code == 0, result.output
+    veri = json.loads((izole / PROJECT_MCP_FILE).read_text(encoding="utf-8"))
+    assert set(veri["mcpServers"]) == {"team", "p"} and veri["ozel"] == 1
+
+    result = runner.invoke(app_module.app, ["mcp", "remove", "team"])
+    assert result.exit_code == 0, result.output
+    veri = json.loads((izole / PROJECT_MCP_FILE).read_text(encoding="utf-8"))
+    assert set(veri["mcpServers"]) == {"p"}
+
+
+def test_proje_kapsaminda_desteklenmeyen_secenek_sessizce_dusmez(izole):
+    """`.mcp.json` `token_env` taşımaz; sessizce atmak kimliksiz istek üretirdi."""
+    result = runner.invoke(
+        app_module.app,
+        [
+            "mcp",
+            "add",
+            "lin",
+            "--scope",
+            "project",
+            "--transport",
+            "http",
+            "--url",
+            "https://mcp.linear.app/mcp",
+            "--token-env",
+            "LINEAR_TOKEN",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "token-env" in result.output and not (izole / PROJECT_MCP_FILE).exists()

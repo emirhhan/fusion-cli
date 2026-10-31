@@ -31,7 +31,8 @@ from ..config.mcp_json import (
     PROJECT_MCP_FILE,
     parse_project_mcp,
     project_mcp_path,
-    write_project_mcp_servers,
+    remove_project_mcp_server,
+    upsert_project_mcp_server,
 )
 from ..config.models import Config, McpScope, McpServerConfig, McpTransport
 from ..config.writer import write_mcp_servers
@@ -110,20 +111,26 @@ def save_server(config: Config, server: McpServerConfig, *, root: Path) -> tuple
     """Sunucuyu kapsamının dosyasına yaz; (yol, aynı ad vardı mı) döner.
 
     Aynı ad başka kapsamda da varsa oradan DÜŞÜRÜLMEZ: proje kaydı kullanıcı kaydını
-    yükleme sırasında zaten geçer; kullanıcı kaydını silmek onun verisine dokunmak olur.
+    yükleme sırasında zaten geçer; kullanıcı kaydını silmek onun verisine dokunmak olur
+    (gölgelenen kullanıcı kaydını `config.writer._shadowed_user_entries` korur). Proje
+    kaydı `.mcp.json`'da yalnız kendi adını değiştirir; güvenilmeyen dosya reddedilir.
     """
     same_scope = tuple(item for item in config.mcp_servers if item.scope is server.scope)
     replaced = any(item.name == server.name for item in same_scope)
+    if server.scope is McpScope.PROJECT:
+        return upsert_project_mcp_server(root, server), replaced
     others = tuple(item for item in config.mcp_servers if item.scope is not server.scope)
     kept = tuple(item for item in same_scope if item.name != server.name)
-    updated = replace(config, mcp_servers=(*others, *kept, server))
-    if server.scope is McpScope.PROJECT:
-        path = write_project_mcp_servers(
-            root, tuple(item for item in updated.mcp_servers if item.scope is McpScope.PROJECT)
-        )
-    else:
-        path = write_mcp_servers(updated)
-    return path, replaced
+    return write_mcp_servers(replace(config, mcp_servers=(*others, *kept, server))), replaced
+
+
+def _save_or_exit(config: Config, server: McpServerConfig) -> tuple[Path, bool]:
+    """`save_server`; yazma reddi (güvenilmeyen/bozuk `.mcp.json`) Türkçe hata ve çıkış 1."""
+    try:
+        return save_server(config, server, root=Path.cwd())
+    except ConfigError as error:
+        console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+        raise typer.Exit(code=1) from None
 
 
 def _announce_saved(server: McpServerConfig, path: Path, replaced: bool) -> None:
@@ -204,6 +211,10 @@ def add_server(
         raise typer.BadParameter(messages.MCP_ADD_NEEDS_COMMAND)
     if kind is McpTransport.STREAMABLE_HTTP and not url.strip():
         raise typer.BadParameter(messages.MCP_ADD_NEEDS_URL)
+    if target_scope is McpScope.PROJECT and token_env.strip():
+        # `.mcp.json` Claude Code biçimi `token_env` taşımaz; sessizce atmak kimliksiz istek
+        # üretirdi (31 Ekim). Kullanıcı kapsamına yazılsın ya da `env` ile başvuru verilsin.
+        raise typer.BadParameter(messages.MCP_PROJECT_NO_TOKEN_ENV)
     if kind is McpTransport.STREAMABLE_HTTP:
         from ..mcp_bridge.oauth import validate_remote_mcp_url
 
@@ -219,7 +230,7 @@ def add_server(
         scope=target_scope,
         env_literals=env_literals,
     )
-    path, replaced = save_server(load_config(), server, root=Path.cwd())
+    path, replaced = _save_or_exit(load_config(), server)
     _announce_saved(server, path, replaced)
     return server
 
@@ -264,7 +275,7 @@ def add_json(
     except ConfigError as error:
         raise typer.BadParameter(str(error)) from None
     server = replace(parsed, scope=target_scope)
-    path, replaced = save_server(load_config(), server, root=Path.cwd())
+    path, replaced = _save_or_exit(load_config(), server)
     _announce_saved(server, path, replaced)
 
 
@@ -276,13 +287,15 @@ def remove(name: Annotated[str, typer.Argument(help="Kaldırılacak sunucunun ad
     if target is None:
         console.print(f"[{theme.ERROR}]{messages.MCP_NOT_FOUND.format(name=name)}[/{theme.ERROR}]")
         raise typer.Exit(code=1)
-    kept = tuple(item for item in config.mcp_servers if item.name != name)
     if target.scope is McpScope.PROJECT:
-        write_project_mcp_servers(
-            Path.cwd(), tuple(item for item in kept if item.scope is McpScope.PROJECT)
-        )
+        try:
+            remove_project_mcp_server(Path.cwd(), name)
+        except ConfigError as error:
+            console.print(f"[{theme.ERROR}]{escape(str(error))}[/{theme.ERROR}]")
+            raise typer.Exit(code=1) from None
         console.print(messages.MCP_PROJECT_REMOVED.format(name=name))
         return
+    kept = tuple(item for item in config.mcp_servers if item.name != name)
     write_mcp_servers(replace(config, mcp_servers=kept))
     console.print(messages.MCP_REMOVED.format(name=name))
 

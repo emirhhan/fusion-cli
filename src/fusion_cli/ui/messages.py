@@ -657,6 +657,10 @@ MCP_SCOPE_LABELS = {"user": "kullanıcı", "project": "proje"}
 MCP_PROJECT_ADDED = "'{name}' MCP sunucusu projeye eklendi ({path})."
 MCP_PROJECT_REMOVED = "'{name}' MCP sunucusu projeden kaldırıldı."
 MCP_ADD_NEEDS_COMMAND = "stdio sunucusu için komut gerekli: fusion mcp add <ad> <komut> [argüman…]"
+MCP_PROJECT_NO_TOKEN_ENV = (
+    "--token-env proje kapsamında (.mcp.json) desteklenmiyor: dosya biçimi token alanı taşımaz. "
+    "Kullanıcı kapsamına yaz (--scope user) ya da sırrı env ile başvuru olarak ver."
+)
 MCP_ADD_NEEDS_URL = (
     "http sunucusu için adres gerekli: fusion mcp add <ad> --transport http --url <adres>"
 )

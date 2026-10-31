@@ -257,7 +257,10 @@ fusion mcp reconnect <ad>|all        # bağlantıyı düşür ve yeniden kur
   `.mcp.json` dosyasına yazar. `.mcp.json` **Claude Code ile aynı biçimdir**: depoda zaten
   varsa Fusion onu okur. Proje dosyası süreç başlatabildiği için yalnız `fusion trust` ile
   güvenilen (ya da Fusion'ın kendi yazdığı) `.mcp.json` yüklenir; aynı adda proje kaydı
-  kullanıcı kaydını geçer.
+  kullanıcı kaydını geçer (kullanıcı kaydı `config.yaml`'da durur, silinmez). Güvenilmeyen bir
+  `.mcp.json` üzerine `--scope project` ile yazılmaz: önce `fusion trust`. Ekleme/silme
+  dosyada yalnız ilgili adı değiştirir; takımın diğer girdileri korunur. `--token-env` proje
+  kapsamında yoktur (dosya biçimi taşımaz); kullanıcı kapsamına yaz.
 - Komut, argüman, adres ve `env` değerlerinde `${DEĞİŞKEN}` ve `${DEĞİŞKEN:-varsayılan}`
   başvuruları tanınır; bağlantı kurulurken ortamdan çözülür, dosyaya çözülmüş hâli yazılmaz.
 - `--env AD` sır adıdır (değer şifreli depodan/ortamdan gelir), `--env AD=değer` sır olmayan
