@@ -51,8 +51,6 @@ from ...core.followups import suggest_followups
 from ...core.session_cron import Source
 from ...core.tools import ToolContext
 from ...core.types import FusionResult
-from ...engines.agent import plan_mode
-from ...engines.agent.approval import ApprovalMode
 from ...engines.agent.compaction import compress
 from ...engines.agent.turn_evidence import evidence_from_turn
 from ...memory.factory import Memory
@@ -638,10 +636,12 @@ async def _agent_turn(
                     FollowupsSuggested(tuple((item.label, item.prompt) for item in oneriler))
                 )
             bus.publish(TurnFinished())
-            # Plan kipinde biten tur plan dosyasını yazdı (`plan_mode.record_plan`);
-            # kart komut döngüsünde, canlı gösterge kapandıktan sonra açılır.
-            if state.approval is ApprovalMode.PLAN and outcome.ok and outcome.final_text.strip():
-                state.pending_plan = plan_mode.plan_path(state.conversation_id)
+            # Plan kipinde biten tur plan dosyasını YAZDIYSA (`plan_mode.record_plan`,
+            # `outcome.plan_path`) kart komut döngüsünde, canlı gösterge kapandıktan sonra
+            # açılır. Ölçüldü (31 Ekim): yol koşulsuz kuruluyordu; plan_files=false ya da
+            # yazma hatasında kart olmayan/bayat dosyayı gösteriyordu.
+            if outcome.plan_path is not None:
+                state.pending_plan = outcome.plan_path
         except (asyncio.CancelledError, Exception):
             state.history = partial.history_after_interruption(
                 previous=state.history, task=line, root=state.root

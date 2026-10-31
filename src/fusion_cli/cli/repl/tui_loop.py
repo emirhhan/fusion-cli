@@ -23,8 +23,7 @@ from ...config.permissions import has_untrusted_permissions
 from ...core.concurrency import BackgroundTasks
 from ...core.session_cron import Source
 from ...core.tools import ToolContext
-from ...engines.agent import plan_mode
-from ...engines.agent.approval import ApprovalAnswer, ApprovalMode, ApprovalRequest
+from ...engines.agent.approval import ApprovalAnswer, ApprovalRequest
 from ...engines.agent.engine_tools import QuestionOption
 from ...history import source_by_name
 from ...ui import banner, messages, theme
@@ -656,13 +655,10 @@ class _TuiSession:
                         self._state.pending_digest = digest
                     raise
                 self._state.history = outcome.messages
-                # Plan kipinde biten tur plan dosyasını yazdı; kart modal kapanınca açılır.
-                if (
-                    self._state.approval is ApprovalMode.PLAN
-                    and outcome.ok
-                    and outcome.final_text.strip()
-                ):
-                    self._state.pending_plan = plan_mode.plan_path(self._state.conversation_id)
+                # Plan kipinde biten tur plan dosyasını YAZDIYSA kart modal kapanınca
+                # açılır (bkz. `loop._run_turn`).
+                if outcome.plan_path is not None:
+                    self._state.pending_plan = outcome.plan_path
         finally:
             renderer.abort()
             self._tui.clear_work()

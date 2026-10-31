@@ -357,7 +357,8 @@ olarak çalışır, agent'ın davranışını değiştirmezler.
 
 `/plan` ile plan kipine geçince agent yalnız okur ve planlar. Tur bitince plan
 `~/.config/fusion-cli/plans/<sohbet>.md` dosyasına yazılır (`runtime.plan_files: false`
-ile kapatılır) ve "Plan hazır — uygulansın mı?" kartı çıkar:
+ile kapatılır; kapalıyken ya da dosya yazılamazsa kart da çıkmaz, plan sohbette durur)
+ve "Plan hazır — uygulansın mı?" kartı çıkar:
 
 - **Evet, otomatik kipte uygula** → `auto` kipine geçer ve planı uygulamaya başlar.
 - **Evet, düzenlemeleri kabul ederek uygula** → `edits` kipi.

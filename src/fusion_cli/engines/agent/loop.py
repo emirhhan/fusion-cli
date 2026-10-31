@@ -388,6 +388,9 @@ class AgentOutcome:
     plan_unavailable: bool = False
     #: Kapanışta zaten hesaplanan rapor; yokluğu doğrulama kanıtı uydurmaz.
     completion_report: TurnReport | None = None
+    #: Plan kipinde bu turun YAZDIĞI plan dosyası (`plan_mode.record_plan`); yazılmadıysa
+    #: None. Yüzeyler kabul kartını yalnız bu doluyken açar (P-025).
+    plan_path: Path | None = None
 
     @property
     def made_no_changes(self) -> bool:
@@ -568,7 +571,9 @@ async def run_agent(
         if plan_mode and depth == 0 and not internal:
             from .plan_mode import record_plan
 
-            record_plan(outcome, deps, plan_mode=plan_mode)
+            written = record_plan(outcome, deps, plan_mode=plan_mode)
+            if written is not None:
+                outcome = replace(outcome, plan_path=written)
         return outcome
     finally:
         if depth == 0 and not internal:

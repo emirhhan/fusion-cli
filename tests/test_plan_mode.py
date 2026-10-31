@@ -139,6 +139,41 @@ async def test_run_agent_plan_kipinde_plani_dosyaya_yazar(monkeypatch, tmp_path:
     assert any(isinstance(e, PlanDrafted) for e in sink.events)
 
 
+async def test_run_agent_sonucu_plan_yolunu_tasir_dosya_kapaliyken_tasimaz(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """İnceleme bulgusu (orta): yüzeyler kartı yalnız plan GERÇEKTEN yazıldıysa açmalı.
+
+    Ölçüldü (31 Ekim): REPL/TUI plan kipinde biten her başarılı turda pending_plan'ı
+    `plan_path()` ile kuruyordu; `runtime.plan_files=false` iken ya da yazma hatasında
+    kart yine çıkıyor, "Plan dosyası: <yol>" basılıyor ve kabulde model olmayan ya da
+    bayat bir dosyayı uygulamaya kalkıyordu.
+    """
+    from fusion_cli.engines.agent import loop as agent_loop
+
+    monkeypatch.setattr(
+        agent_loop,
+        "build_provider",
+        lambda spec, **_: ScriptedProvider([model_result("# Plan\n1. a\n2. b")]),
+    )
+    acik = await run_agent(
+        "planla", _deps(tmp_path, RecordingSink(), conversation_id="s-11"), plan_mode=True
+    )
+    assert acik.plan_path == plan_mode.plan_path("s-11") and acik.plan_path.exists()
+
+    monkeypatch.setattr(
+        agent_loop,
+        "build_provider",
+        lambda spec, **_: ScriptedProvider([model_result("# Plan\n1. a\n2. b")]),
+    )
+    kapali = await run_agent(
+        "planla",
+        _deps(tmp_path, RecordingSink(), conversation_id="s-12", runtime={"plan_files": False}),
+        plan_mode=True,
+    )
+    assert kapali.ok and kapali.final_text and kapali.plan_path is None
+
+
 async def test_run_agent_plan_kipi_kapaliyken_plan_yazmaz(monkeypatch, tmp_path: Path) -> None:
     from fusion_cli.engines.agent import loop as agent_loop
 
