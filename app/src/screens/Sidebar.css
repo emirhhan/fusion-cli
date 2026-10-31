@@ -232,6 +232,7 @@
 .sidebar__profile-menu .sidebar__profile-heading .sidebar__avatar { grid-column: 1; height: 40px; width: 40px; }
 .sidebar__profile-menu .sidebar__profile-copy { grid-column: 2; }
 .sidebar__profile-chevron { grid-column: 3; }
+.sidebar__profile-value { color: var(--text-secondary); font-size: var(--text-xs); grid-column: 3; }
 .sidebar__profile-separator { background: var(--border-subtle); height: 1px; margin: 8px 10px; }
 @keyframes profile-menu-in { from { opacity: 0; transform: translateY(6px) scale(.985); } }
 

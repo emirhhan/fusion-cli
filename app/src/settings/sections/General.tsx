@@ -3,7 +3,7 @@ import { setShowSteps } from "../preferences";
 import { useShowSteps } from "../useShowSteps";
 import { setPlacement, type InspectorPlacement } from "../placement";
 import { useInspectorPlacement } from "../useInspectorPlacement";
-import { setLanguage, type Language } from "../../i18n/language";
+import { LANGUAGE_NAMES, LANGUAGES, setLanguage } from "../../i18n/language";
 import { useLanguage } from "../../i18n/useLanguage";
 import {
   FONT_SCALE_FACTORS,
@@ -74,17 +74,26 @@ export function General({
             <option value="dark">{t("gorunum.tema.koyu")}</option>
           </select>
         </label>
-        <label className="settings__row" htmlFor="settings-language">
-          <span>{t("gorunum.dil")}</span>
-          <select
-            id="settings-language"
-            onChange={(event) => setLanguage(event.target.value as Language)}
-            value={language}
-          >
-            <option value="tr">Türkçe</option>
-            <option value="en">English</option>
-          </select>
-        </label>
+        {/* Dil bir açılır liste DEĞİL, iki seçenekli bir radyo grubu: seçili dil onay
+            işaretiyle görünür ve tıklandığı anda uygulanıp kaydedilir. */}
+        <div className="settings__row">
+          <span id="settings-language-label">{t("gorunum.dil")}</span>
+          <div aria-labelledby="settings-language-label" className="settings__choice" id="settings-language" role="radiogroup" tabIndex={-1}>
+            {LANGUAGES.map((secenek) => (
+              <label className="settings__choice-option" data-selected={language === secenek} key={secenek} lang={secenek}>
+                <input
+                  checked={language === secenek}
+                  name="settings-language"
+                  onChange={() => setLanguage(secenek)}
+                  type="radio"
+                  value={secenek}
+                />
+                <span aria-hidden="true" className="settings__choice-check">{language === secenek ? "✓" : ""}</span>
+                <span>{LANGUAGE_NAMES[secenek]}</span>
+              </label>
+            ))}
+          </div>
+        </div>
         <p className="settings__hint">{t("gorunum.dil.ipucu")}</p>
       </article>
 

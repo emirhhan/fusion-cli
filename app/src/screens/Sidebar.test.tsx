@@ -1,9 +1,10 @@
 import { StrictMode } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Sidebar } from "./Sidebar";
+import { resetLanguageCache, setLanguage } from "../i18n/language";
 
 const sidebarStyles = readFileSync(resolve(process.cwd(), "src/screens/Sidebar.css"), "utf8");
 
@@ -18,7 +19,7 @@ afterEach(() => {
   document.documentElement.style.removeProperty("--titlebar-inset");
 });
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => { localStorage.clear(); resetLanguageCache(); });
 
 describe("Sidebar", () => {
   it("oturumları kaynak etiketiyle listeler", () => {
@@ -156,7 +157,7 @@ describe("Sidebar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
     const menu = screen.getByRole("menu", { name: "Profil menüsü" });
-    const etiketler = Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent?.trim());
+    const etiketler = Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => item.querySelector("span:not([class])")?.textContent?.trim());
     expect(etiketler.slice(1)).toEqual([
       "Ayarlar", "Kontrol Paneli", "Beceriler ve Ajanlar", "MCP bağlantıları", "Dil",
       "Yardım", "Geri bildirim gönder", "Çıkış yap",
@@ -170,6 +171,18 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Emirhan · Hesabım" }));
     expect(onNavigate).toHaveBeenCalledWith("account");
     expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("Dil satırı seçili dili gösterir; dil değişince menü hemen o dile geçer", () => {
+    render(<Sidebar etkin={null} hesap={{ kullanici_adi: "k", eposta: "e@ornek.com", avatar: "" }} onSec={vi.fn()} onYeni={vi.fn()} oturumlar={[]} />);
+    fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
+    expect(screen.getByRole("menuitem", { name: "Dil" }).textContent).toContain("Türkçe");
+    act(() => setLanguage("en"));
+    expect(screen.getByRole("menuitem", { name: "Language" }).textContent).toContain("English");
+    expect(screen.getByRole("menuitem", { name: "Settings" })).toBeTruthy();
+    expect(screen.getByRole("menu", { name: "Profil menüsü" }).getAttribute("lang")).toBe("en");
+    act(() => setLanguage("tr"));
+    expect(screen.getByRole("menuitem", { name: "Ayarlar" })).toBeTruthy();
   });
 
   it.each([

@@ -1,3 +1,5 @@
+import { LANGUAGE_NAMES } from "../i18n/language";
+import { useLanguage } from "../i18n/useLanguage";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../ui/Icon";
@@ -271,6 +273,7 @@ export function Sidebar({
   onGuncellemeAc,
 }: SidebarProps) {
   const [profileOpen, setProfileOpen] = useState(false);
+  const { language, t } = useLanguage();
   const profileRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -501,8 +504,8 @@ export function Sidebar({
         )}
         <div className="sidebar__profile-wrap" ref={profileRef}>
           {profileOpen && (
-            <div aria-label="Profil menüsü" className="sidebar__profile-menu" role="menu">
-              <button aria-label={hesap ? `${profileName} · Hesabım` : "Hesabım"} className="sidebar__profile-heading" onClick={() => navigateFromProfile("account")} role="menuitem" type="button">
+            <div aria-label="Profil menüsü" className="sidebar__profile-menu" lang={language} role="menu">
+              <button aria-label={hesap ? `${profileName} · ${t("menu.hesabim")}` : t("menu.hesabim")} className="sidebar__profile-heading" onClick={() => navigateFromProfile("account")} role="menuitem" type="button">
                 <span className="sidebar__avatar">{profileInitials}</span>
                 <span className="sidebar__profile-copy"><strong>{profileName}</strong><small>{profileDetail}</small></span>
                 <Icon className="sidebar__profile-chevron" name="chevron" size={20} />
@@ -511,18 +514,18 @@ export function Sidebar({
               {/* Hesabım ve Kişiselleştirme ayrı satır DEĞİL: hesap sayfası üstteki profil
                   satırından, kişiselleştirme Ayarlar'ın içinden açılır. Eski "Daha fazla" alt
                   açılırındaki araçlar ana menüye taşındı; ikinci bir açılır yoktur. */}
-              <button onClick={() => navigateFromProfile("settings")} role="menuitem" type="button"><Icon name="settings" /><span>Ayarlar</span></button>
-              <button onClick={() => navigateFromProfile("control-panel")} role="menuitem" type="button"><Icon name="panel" /><span>Kontrol Paneli</span></button>
-              <button onClick={() => navigateFromProfile("skills")} role="menuitem" type="button"><Icon name="skills" /><span>Beceriler ve Ajanlar</span></button>
-              <button onClick={() => navigateFromProfile("connectors")} role="menuitem" type="button"><Icon name="terminal" /><span>MCP bağlantıları</span></button>
-              <button onClick={() => navigateFromProfile("language")} role="menuitem" type="button"><Icon name="globe" /><span>Dil</span></button>
+              <button onClick={() => navigateFromProfile("settings")} role="menuitem" type="button"><Icon name="settings" /><span>{t("menu.ayarlar")}</span></button>
+              <button onClick={() => navigateFromProfile("control-panel")} role="menuitem" type="button"><Icon name="panel" /><span>{t("menu.kontrol")}</span></button>
+              <button onClick={() => navigateFromProfile("skills")} role="menuitem" type="button"><Icon name="skills" /><span>{t("menu.beceriler")}</span></button>
+              <button onClick={() => navigateFromProfile("connectors")} role="menuitem" type="button"><Icon name="terminal" /><span>{t("menu.mcp")}</span></button>
+              <button onClick={() => navigateFromProfile("language")} role="menuitem" type="button"><Icon name="globe" /><span>{t("menu.dil")}</span><small aria-hidden="true" className="sidebar__profile-value">{LANGUAGE_NAMES[language]}</small></button>
               <div className="sidebar__profile-separator" />
-              <button onClick={() => navigateFromProfile("help")} role="menuitem" type="button"><Icon name="help" /><span>Yardım</span></button>
-              <button onClick={() => navigateFromProfile("feedback")} role="menuitem" type="button"><Icon name="chat" /><span>Geri bildirim gönder</span></button>
+              <button onClick={() => navigateFromProfile("help")} role="menuitem" type="button"><Icon name="help" /><span>{t("menu.yardim")}</span></button>
+              <button onClick={() => navigateFromProfile("feedback")} role="menuitem" type="button"><Icon name="chat" /><span>{t("menu.geribildirim")}</span></button>
               <div className="sidebar__profile-separator" />
               {hesap
-                ? <button onClick={() => { setProfileOpen(false); onCikis?.(); }} role="menuitem" type="button"><Icon name="logout" /><span>Çıkış yap</span></button>
-                : <button onClick={() => navigateFromProfile("account")} role="menuitem" type="button"><Icon name="logout" /><span>Giriş yap</span></button>}
+                ? <button onClick={() => { setProfileOpen(false); onCikis?.(); }} role="menuitem" type="button"><Icon name="logout" /><span>{t("menu.cikis")}</span></button>
+                : <button onClick={() => navigateFromProfile("account")} role="menuitem" type="button"><Icon name="logout" /><span>{t("menu.giris")}</span></button>}
             </div>
           )}
           <button

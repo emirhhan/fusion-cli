@@ -577,7 +577,13 @@ export function SessionUygulama({
   const [surfaceSection, setSurfaceSection] = useState<SurfaceSection | null>(null);
   const mediaPage = page === "image-create" || page === "video-create";
   const mainSection: MainSection = surfaceSection ?? (mediaPage ? "media" : "home");
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>("genel");
+  // Ayarlar'ı açma isteği: bölüm + (isteğe bağlı) odaklanacak satır + sıra numarası. Sıra
+  // numarası aynı bölüm yeniden istendiğinde de Ayarlar'ın oraya dönmesini sağlar; eskiden
+  // Ayarlar açıkken menüden "Dil" seçilince bölüm değeri değişmediği için hiçbir şey olmuyordu.
+  const [settingsRequest, setSettingsRequest] = useState<{ section: SettingsSection; focus?: string; seq: number }>({ section: "genel", seq: 0 });
+  const setSettingsSection = useCallback((section: SettingsSection, focus?: string) => {
+    setSettingsRequest((current) => ({ section, focus, seq: current.seq + 1 }));
+  }, []);
   // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
   // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
   const [controlTitle, setControlTitle] = useState("Kontrol Paneli");
@@ -773,9 +779,8 @@ export function SessionUygulama({
             } else if (destination === "account") {
               setPage("account");
             } else if (destination === "language") {
-              // Dil tercihi Ayarlar'da yaşar; şimdilik tek dil var ve bunu
-              // kullanıcıya orada açıkça söylüyoruz.
-              setSettingsSection("genel");
+              // Dil tercihi Ayarlar › Genel › Görünüm'de yaşar; doğrudan dil seçimine odaklanılır.
+              setSettingsSection("genel", "settings-language");
               setPage("settings");
 
             } else if (destination === "new-project") {
@@ -1748,7 +1753,9 @@ export function SessionUygulama({
         ? (
           <Settings
             client={active.client}
-            initialSection={settingsSection}
+            initialSection={settingsRequest.section}
+            initialFocus={settingsRequest.focus}
+            requestKey={settingsRequest.seq}
             onChangeRoot={() => void requestTaskFolder()}
             onClose={() => setPage("chat")}
             onOpenAccount={() => setPage("account")}
