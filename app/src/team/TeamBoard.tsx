@@ -8,7 +8,7 @@ import "./OrchestrationBoard.css";
  */
 
 const UYE_DURUMU: Record<string, string> = {
-  bekliyor: "bekliyor", calisiyor: "çalışıyor", bosta: "boşta", bitti: "bitti",
+  bekliyor: "bekliyor", sirada: "sırada", calisiyor: "çalışıyor", bosta: "boşta", bitti: "bitti",
 };
 const EKIP_DURUMU: Record<string, string> = { calisiyor: "Çalışıyor", bitti: "Tamamlandı", durdu: "Durdu" };
 const SUTUNLAR: { baslik: string; durumlar: string[] }[] = [

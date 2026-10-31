@@ -20,7 +20,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...core.clock import SystemClock
-from .orchestration_runs import BudgetedRuns, orchestration_deps, registry_with
+from ...core.errors import PathAccessError
+from .orchestration_runs import (
+    BudgetedRuns,
+    ScopeGate,
+    gate_scope,
+    orchestration_deps,
+    registry_with,
+)
 from .team import RunAgent, SubTask, run_subagent
 from .team_board import (
     DONE,
@@ -36,6 +43,7 @@ from .team_board import (
     check_name,
 )
 from .team_policy import cap_report
+from .team_scope import derive_sub_context
 from .team_session import TeamSession, unread_counts
 from .team_tools_member import member_tools
 
@@ -142,6 +150,9 @@ class TeamRun:
         self._deps, self._session, self._depth = deps, session, depth
         self._run_agent, self._limits = run_agent, limits
         self._runs = BudgetedRuns(deps.child_runs)
+        # Üyeler de iş akışıyla AYNI yazma alanı kuralına uyar (`ScopeGate`). Ölçüldü
+        # (31 Ekim): alanı belirsiz iki yazar üye (`kod`, `test`) aynı anda koşuyordu.
+        self._gate = ScopeGate()
 
     async def execute(self) -> TeamResult:
         board = self._session.board
@@ -184,19 +195,34 @@ class TeamRun:
                 prompt = FIRST_PROMPT if state.runs == 0 else self._wake_prompt(name)
                 if state.runs:
                     await session.wake(name)
-                await session.member_started(name)
-                run = await run_subagent(
-                    member_deps,
-                    self._subtask(member, prompt),
-                    depth=self._depth,
-                    run_agent=self._run_agent,
-                    group_size=session.group_size,
-                )
+                subtask = self._subtask(member, prompt)
+                # "sırada": kapıyı bekleyen üye boşta sayılmaz (ekip erken bitmesin).
+                await session.member_queued(name)
+                async with self._gate.hold(self._gate_key(subtask)):
+                    await session.member_started(name)
+                    run = await run_subagent(
+                        member_deps,
+                        subtask,
+                        depth=self._depth,
+                        run_agent=self._run_agent,
+                        group_size=session.group_size,
+                    )
                 await session.member_idle(name, sub_id=run.sub_id, summary=run.text)
                 if run.status in {"budget", "cancelled"}:
                     break
         finally:
             await session.member_done(name)
+
+    def _gate_key(self, subtask: SubTask) -> tuple[Path, ...] | None:
+        """Salt okur ve çalışma ağacındaki üye `()`, alanı bilinen yazar alanı, kalan `None`."""
+        if subtask.isolation == "worktree":
+            return ()
+        try:
+            scope = derive_sub_context(self._deps.tool_context, subtask).write_scope
+        except PathAccessError:
+            # Geçersiz alanı `run_subagent` reddedip açıklar; o arada kimseyle koşmasın.
+            scope = None
+        return gate_scope(subtask.read_only, scope)
 
     def _subtask(self, member: TeamMember, prompt: str) -> SubTask:
         board = self._session.board

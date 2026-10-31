@@ -120,6 +120,9 @@ birbirine, lidere ya da herkese mesaj atar.
 - Üye araçları yalnız üyelere sunulur: `team_board` (pano + yeni mesajlar),
   `team_task` (`al` / `bitir` / `ekle`), `team_send` (`kime`: üye, `lider`, `herkes`).
   `tools:` listesi dar olan kişilik de bu üç aracı görür.
+- **Yazma güvenliği.** Üyeler iş akışıyla aynı kapıdan geçer: salt okur ve
+  `izolasyon: worktree` üye herkesle, `yazma_alani` bildiren üye alanı çakışmayanlarla,
+  alanı belirsiz yazar üye tek başına koşar. Kapıyı bekleyen üye panoda "sırada" görünür.
 - **Boşta bekleme (TeammateIdle).** Koşusu biten üyenin üzerinde kalan görev panoya geri
   döner; üye, kendisine alınabilir görev ya da mesaj gelince yeniden uyandırılır.
   Kimse çalışmıyor ve kimsenin işi yoksa ekip biter; lider panonun son hâlini, lidere

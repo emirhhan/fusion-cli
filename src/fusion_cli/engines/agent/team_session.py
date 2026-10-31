@@ -43,6 +43,8 @@ BOARD_MESSAGES = 20
 PREVIEW_CHARS = 240
 #: Üye durumları.
 MEMBER_WAITING, MEMBER_RUNNING, MEMBER_IDLE, MEMBER_DONE = "bekliyor", "calisiyor", "bosta", "bitti"
+#: Yazma alanı kapısını bekleyen üye (boşta sayılmaz).
+MEMBER_QUEUED = "sirada"
 
 
 @dataclasses.dataclass(slots=True)
@@ -195,6 +197,11 @@ class TeamSession:
         return self._unread_counts.get(recipient, 0)
 
     # -- üye yaşam döngüsü ------------------------------------------------- #
+
+    async def member_queued(self, member: str) -> None:
+        async with self._condition:
+            self.members[member].status = MEMBER_QUEUED
+            self._publish()
 
     async def member_started(self, member: str) -> None:
         async with self._condition:

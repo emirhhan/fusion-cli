@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -133,3 +134,76 @@ def test_kayitli_is_akisi_adi_anilinca_arac_acilir(tmp_path):
 
     assert orchestration_task_kinds("haftalik-rapor'u yeniden koştur", tmp_path) == AKIS
     assert orchestration_task_kinds("raporu düzelt", tmp_path) == set()
+
+
+# -- ekip: yazma alanı kapısı ------------------------------------------------- #
+
+
+def _uye_ajani(aktif: list[int], en_cok: list[int]):
+    from types import SimpleNamespace
+
+    from tests.test_agent_teams import _arac
+
+    async def _ajan(task, sub_deps, **kwargs):
+        aktif[0] += 1
+        en_cok[0] = max(en_cok[0], aktif[0])
+        try:
+            alindi = await _arac(sub_deps, "team_task", eylem="al")
+            await asyncio.sleep(0.03)
+            if alindi.ok:
+                kimlik = alindi.output.split()[0]
+                await _arac(sub_deps, "team_task", eylem="bitir", id=kimlik, sonuc="tamam")
+        finally:
+            aktif[0] -= 1
+        return SimpleNamespace(final_text="bitti", ok=True, tool_calls_made=1)
+
+    return _ajan
+
+
+def _ekip(uyeler):
+    return {
+        "ad": "kapi",
+        "hedef": "kapı denemesi",
+        "uyeler": uyeler,
+        "gorevler": [{"baslik": f"İş {u['ad']}", "atanan": u["ad"]} for u in uyeler],
+    }
+
+
+async def test_ekipte_alani_belirsiz_yazarlar_ayni_anda_kosmaz(tmp_path):
+    from fusion_cli.engines.agent.team_tools import team_run_tool
+    from tests.fakes import RecordingSink
+    from tests.test_agent_teams import _deps
+
+    deps = _deps(tmp_path, RecordingSink())
+    aktif, en_cok = [0], [0]
+    istek = _ekip([{"ad": "kod"}, {"ad": "test"}])
+
+    sonuc = await team_run_tool(deps, depth=0, run_agent=_uye_ajani(aktif, en_cok)).run(
+        istek, deps.tool_context
+    )
+
+    assert sonuc.ok and "2/2 görev tamam" in sonuc.output, sonuc.output
+    assert en_cok[0] == 1
+
+
+async def test_ekipte_salt_okur_ve_ayrik_alanli_uyeler_eszamanli_kosar(tmp_path):
+    from fusion_cli.engines.agent.team_tools import team_run_tool
+    from tests.fakes import RecordingSink
+    from tests.test_agent_teams import _deps
+
+    deps = _deps(tmp_path, RecordingSink())
+    aktif, en_cok = [0], [0]
+    istek = _ekip(
+        [
+            {"ad": "okur", "salt_okunur": True},
+            {"ad": "css", "yazma_alani": ["site/css"]},
+            {"ad": "js", "yazma_alani": ["site/js"]},
+        ]
+    )
+
+    sonuc = await team_run_tool(deps, depth=0, run_agent=_uye_ajani(aktif, en_cok)).run(
+        istek, deps.tool_context
+    )
+
+    assert sonuc.ok and "3/3 görev tamam" in sonuc.output, sonuc.output
+    assert en_cok[0] == 3

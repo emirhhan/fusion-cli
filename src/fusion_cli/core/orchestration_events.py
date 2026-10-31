@@ -32,7 +32,7 @@ class TeamMemberView:
 
     name: str
     persona: str
-    #: bekliyor | calisiyor | bosta | bitti
+    #: bekliyor | sirada (yazma alanı kapısında) | calisiyor | bosta | bitti
     status: str
     #: Üyenin SON koşusunun alt ajan kimliği (kartı bununla bulunur).
     sub_id: str = ""
