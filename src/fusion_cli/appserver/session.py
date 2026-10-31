@@ -38,6 +38,7 @@ from ..cli.repl import macros, worktrees
 from ..cli.repl.commands import RENDERED_COMMANDS, build_registry
 from ..cli.repl import macros
 from ..cli.repl.commands import RENDERED_COMMANDS, attach_skill_commands, build_registry
+from ..cli.repl.skill_commands import GROUP as SKILL_GROUP
 from ..cli.repl.state import Engine, ReplState
 from ..cli.repl.transcript_store import (
     TranscriptStore,
@@ -2027,6 +2028,18 @@ class AppSession:
                     argument,
                     secret_store=self._secret_store,
                 )
+            )
+        elif command is not None and command.group == SKILL_GROUP:
+            # Beceri gövdesindeki !`cmd` komutları komut başına 10 sn'ye kadar bloklayan
+            # `subprocess.run` yapar; olay döngüsünde koşarsa akış/iptal/RPC donar
+            # (ölçüldü 31 Ekim). İşleyici yalnız bekleyen görev/bağlam alanlarını yazar.
+            result = await asyncio.to_thread(
+                run_command,
+                self._registry,
+                self._state,
+                name,
+                argument,
+                secret_store=self._secret_store,
             )
         else:
             result = run_command(
