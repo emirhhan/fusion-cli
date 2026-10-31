@@ -360,6 +360,10 @@ sembolik bağ izlenmez, yazma reddedilir.
 - Masaüstü: Beceriler › Ajanlar › ayrıntı › **Kalıcı bellek** bölümü (metin + "Belleği sil" →
   "Evet, sil / Vazgeç" onayı; silme geri alınamaz).
 - RPC: `yetenek.detay` yanıtında `bellek`, silme için `yetenek.bellek_sil {ad}`.
+- **Kişiye özel dersler:** `memory` alanlı ajanın turundan çıkan dersler `ajan:<ad>` etiketi
+  alır ve `recall_lessons` ile yalnız o ajana döner; ana ajan ve diğer ajanlar görmez. Projeye
+  özel ajan dersi (çalışma alanı etiketli) başka projede yalnız ajan adı ortak diye geri
+  gelmez. `memory` alanı olmayan ajanların dersleri eskisi gibi ortak havuza yazılır.
 
 ### Oturumu bir ajan kişiliğiyle açmak (`--agent`, `/persona`)
 

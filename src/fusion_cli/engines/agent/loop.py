@@ -457,6 +457,9 @@ class AgentDeps:
     capabilities: CapabilityRegistry | None = None
     #: Düz metin otomatik bellek (P-036). Yoksa `remember`/`memory_read` sunulmaz, blok eklenmez.
     plain_memory: PlainMemory | None = None
+    #: Derslerin sahibi ajan (P-055): kendi belleği olan alt ajanda adı; çıkarılan dersler
+    #: `ajan:<ad>` etiketi alır ve yalnız o ajan geri çağırır. Boş = ortak ders havuzu.
+    lesson_owner: str = ""
     #: Geçmiş kaynaklarının aranacağı ev dizini. Yoksa `read_session` aracı hiç sunulmaz.
     home: Path | None = None
     #: Kullanıcının `.claude/settings.local.json` içinde onaysız izin verdiği komutlar.
