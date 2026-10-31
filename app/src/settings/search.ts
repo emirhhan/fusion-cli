@@ -1,4 +1,4 @@
-export type SettingsSection = "genel" | "hesap" | "bildirimler" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "weboturumlari" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
+export type SettingsSection = "genel" | "hesap" | "bildirimler" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "weboturumlari" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil" | "kisayollar";
 interface SettingsRow { section: SettingsSection; id: string; label: string; keywords: string }
 /** Bölüm başlığının kimliği; satır kimliği olmayan bölümler buna odaklanır. */
 export const SECTION_HEADING_ID = "settings-section-heading";
@@ -26,6 +26,7 @@ export const SETTINGS_ROWS: SettingsRow[] = [
   { section: "gelismis", id: SECTION_HEADING_ID, label: "Hız sınırları ve kota", keywords: "kota limit hız sınırı 429 bekletiyor dakika istek" },
   { section: "guncellemeler", id: SECTION_HEADING_ID, label: "Sürüm güncellemesi", keywords: "sürüm yeni sürüm yükle güncelle" },
   { section: "guncellemeler", id: SECTION_HEADING_ID, label: "Sürüm notları", keywords: "sürüm notları neler değişti kanal kararlı" },
+  { section: "kisayollar", id: "settings-shortcuts", label: "Kısayollar", keywords: "klavye tuş kısayol keybindings komut paleti cmd ctrl yeniden bağla" },
   { section: "uzak", id: "settings-remote", label: "Uzaktan kontrol", keywords: "remote control telefondan sür başlık anahtar /rc" },
 ];
 export function searchSettings(query: string): SettingsRow[] {

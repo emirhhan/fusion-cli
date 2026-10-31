@@ -707,6 +707,41 @@ reddedilir, kalanı bir onay penceresiyle sorulur. Uygulama kapalıyken tıklana
 açılıştan sonra yerine ulaşır. Şema kaydı bu sürümde yalnız macOS paketinde (Info.plist);
 Windows'ta bağlantı ikinci örneğin argümanı olarak işlenir ama kurulumda şema kaydı yoktur.
 
+## 17) Komut paleti ve uygulama kısayolları (masaüstü)
+
+**⌘K** (Windows/Linux: Ctrl+K) her yerden komut paletini açar: eylemler, ekranlar, sohbetler,
+slash komutları, ayarlar ve proje dosyaları tek listede aranır. Önekle daralt: `>` eylem/ekran,
+`/` komut, `@` dosya, `#` sohbet, `?` ayar. Boş paletin başında son kullanılanlar durur. **⌘P**
+paleti doğrudan dosya aramasıyla açar; dosya seçilince önizleme panelinde görünür. Komut seçmek
+görev kutusuna `/ad ` yazar.
+
+| Tuş (varsayılan) | Ne yapar |
+|---|---|
+| ⌘K · ⌘P | Komut paleti · dosyaya git |
+| ⌘N | Yeni sohbet |
+| ⌘, | Ayarlar |
+| ⌘B · ⌘⌥B | Kenar çubuğu · çalışma paneli |
+| ⌘J · ⌘⇧B | Terminal · önizleme |
+| ⌘1 … ⌘9 | Açık sohbetler arasında geç |
+| ⌘[ · ⌘] | Geri · ileri |
+| ⌘/ | Ayarlar › Kısayollar |
+
+Kısayollar **Ayarlar › Kısayollar**'da değiştirilir (Değiştir → tuşa bas; dolu tuş sorulmadan
+devralınmaz), kaldırılır ya da varsayılana döndürülür. Kayıt terminalle aynı
+`~/.fusion/keybindings.json` dosyasının `masaustu` bölümündedir; elle de yazılabilir ve pencereye
+dönünce uygulanır:
+
+```json
+{ "masaustu": { "mod+j": null, "mod+shift+t": "terminal", "f5": "komut:status" } }
+```
+
+Yazım: `mod` macOS'ta ⌘, diğerlerinde Ctrl; değiştiriciler `mod+ctrl+alt+shift` sırasıyla.
+En az bir değiştirici gerekir (yalnız F1-F12 tek başına bağlanır); ⌘C/⌘V/⌘X/⌘Z/⌘A/⌘Q/⌘W/⌘H/⌘M
+gibi sistem kısayolları bağlanamaz. `komut:<ad>` bir slash komutunu çalıştırır. Eylem adları:
+`palet`, `dosya_ara`, `yeni_sohbet`, `ayarlar`, `kenar_cubugu`, `terminal`, `onizleme`, `denetci`,
+`geri`, `ileri`, `kisayollar`, `gecmis`, `paylas`, `yardim`, `bolmeyi_kapat`, `sohbet_1`…`sohbet_9`.
+Türkçe Q klavyede ⌘[ ve ⌘] ⌥ gerektirir; istersen başka tuşa bağla.
+
 ---
 
 ## 15) REPL önekleri, durum, dışa aktarma ve görünüm (Claude Code paritesi)
@@ -776,7 +811,7 @@ Yalnız terminal: masaüstü bu komutları "desteklenmiyor" olarak işaretler (m
 
 ### Tuş bağları ve vim: `/keybindings`, `/vim`
 
-Yalnız terminal (masaüstünde desteklenmiyor). Vim kipinde Esc INSERT'ten NORMAL'e geçer; NORMAL kipte Esc ve her kipte Ctrl-C çalışan turu keser.
+`/vim` yalnız terminaldir. Vim kipinde Esc INSERT'ten NORMAL'e geçer; NORMAL kipte Esc ve her kipte Ctrl-C çalışan turu keser. Aynı dosyanın `masaustu` bölümü masaüstü uygulamasının kısayollarıdır (bkz. §17); masaüstünde `/keybindings` Ayarlar › Kısayollar'ı açar.
 
 `/keybindings` dosya yolunu gösterir (yoksa örnek dosyayı yazar): `~/.fusion/keybindings.json`
 ```json

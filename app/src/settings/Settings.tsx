@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage, operationResult, type CommandResult } from "../protocol/result";
-import { SECTION_HEADING_ID, searchSettings } from "./search";
+import { SECTION_HEADING_ID, searchSettings, type SettingsSection } from "./search";
 import type { ProtocolClient } from "../protocol/client";
 import type { ThemePreference } from "../theme/theme";
 import { Button } from "../ui/Button";
@@ -19,6 +19,7 @@ import { Permissions, type TrustInfo } from "./sections/Permissions";
 import { WebSessions } from "./sections/WebSessions";
 import { Advanced } from "./sections/Advanced";
 import { Notifications } from "./sections/Notifications";
+import { Shortcuts } from "./sections/Shortcuts";
 import { ChromeBrowser } from "./ChromeBrowser";
 import { RemoteAccess } from "./RemoteAccess";
 import { Intelligence } from "./Intelligence";
@@ -37,13 +38,14 @@ import "./Settings.css";
  * ayarlanabilir yanı.
  */
 
-type BolumId = "genel" | "hesap" | "bildirimler" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "weboturumlari" | "izinler" | "zeka" | "uzak" | "guncellemeler" | "gelismis" | "nasil";
+type BolumId = SettingsSection;
 
 const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: string }[] = [
   { id: "genel", etiket: "Genel", ikon: "settings", grup: "Kişisel" },
   { id: "hesap", etiket: "Hesap", ikon: "user", grup: "Kişisel" },
   { id: "bildirimler", etiket: "Bildirimler", ikon: "pulse", grup: "Kişisel" },
   { id: "ses", etiket: "Ses", ikon: "mic", grup: "Kişisel" },
+  { id: "kisayollar", etiket: "Kısayollar", ikon: "terminal", grup: "Kişisel" },
   { id: "kisisellestirme", etiket: "Kişiselleştirme", ikon: "lessons", grup: "Kişisel" },
   { id: "modeller", etiket: "Modeller", ikon: "skills", grup: "Entegrasyonlar" },
   { id: "tarayici", etiket: "Tarayıcı", ikon: "preview", grup: "Entegrasyonlar" },
@@ -337,6 +339,8 @@ export function Settings({
           {bolum === "ses" && <VoicePreferences client={client} />}
 
           {bolum === "bildirimler" && <Notifications />}
+
+          {bolum === "kisayollar" && <Shortcuts client={client} />}
 
           {bolum === "kisisellestirme" && <><AutoMemoryPanel client={client} /><MemoryPanel client={client} /><Instructions client={client} onRunCommand={onRunCommand ? (command) => { void onRunCommand(command); } : undefined} /></>}
 

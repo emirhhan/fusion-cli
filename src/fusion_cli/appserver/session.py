@@ -163,6 +163,7 @@ from .image_flows import export_image, list_flows, load_flow, save_flow
 from .image_job_artifacts import capture_reference, receipt_reads_supported
 from .image_jobs import ImageJobService
 from .instructions import get_instructions, instruction_block, save_instructions
+from .keybindings_rpc import KEYBINDING_ROUTES
 from .kits_browser_routes import (
     KITS_BROWSER_DESCRIBE_ROUTE,
     KITS_BROWSER_ROUTES,
@@ -892,6 +893,8 @@ class AppSession:
             return load_flow(request.data)
         if request.name in SCHEDULE_ROUTES:
             return SCHEDULE_ROUTES[request.name](request.data)
+        if request.name in KEYBINDING_ROUTES:
+            return KEYBINDING_ROUTES[request.name](request.data)
         if request.name == "kitaplik.liste":
             from .asset_bridge import catalogued_library
 
