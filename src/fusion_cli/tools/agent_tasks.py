@@ -80,10 +80,16 @@ class LaunchRequest:
 
 
 def worker_argv(store_dir: Path, task_id: str) -> list[str]:
-    """İşçi komutu; paketlenmiş ikili `-m` tanımaz (bkz. `providers.web_control`)."""
+    """İşçi komutu; paketlenmiş ikili `-m` tanımaz (bkz. `providers.web_control`).
+
+    `-P` (Python 3.11+): çalışma dizini `sys.path`'e GİRMEZ. Ölçüldü (31 Ekim): işçi görev
+    kökünde `python -m` ile başlıyordu; güvenilmeyen depodaki `yaml/__init__.py` gibi bir
+    gölge paket Fusion'ın bağımlılığı yerine onaysız içe aktarılıyordu. Ortam değişkeni
+    (`PYTHONSAFEPATH`) yerine bayrak: ajanın açtığı alt süreçlere sızmaz.
+    """
     if getattr(sys, "frozen", False):
         return [sys.executable, WORKER_COMMAND, "--dizin", str(store_dir), task_id]
-    return [sys.executable, "-m", _WORKER_MODULE, "--dizin", str(store_dir), task_id]
+    return [sys.executable, "-P", "-m", _WORKER_MODULE, "--dizin", str(store_dir), task_id]
 
 
 def spawn_detached(argv: list[str], cwd: Path, log_path: Path, error_path: Path) -> int:
