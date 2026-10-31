@@ -18,12 +18,25 @@ from fusion_cli.core.events import AutoModeFellBack, AutoReviewDecided, ToolExec
 from fusion_cli.core.tools import Tool, ToolContext, ToolEffect, ToolResult
 from fusion_cli.engines.agent import loop as agent_loop
 from fusion_cli.engines.agent import risk_classifier
-from fusion_cli.engines.agent.approval import ApprovalMemory, ApprovalMode, build_policy
+from fusion_cli.engines.agent.approval import (
+    ApprovalMemory,
+    ApprovalMode,
+    Decision,
+    build_policy,
+    build_request,
+)
 from fusion_cli.engines.agent.loop import AgentDeps, run_agent
 from fusion_cli.memory.factory import null_memory
 from fusion_cli.observability.audit import AuditSink, read_recent
 
-from .fakes import RecordingSink, ScriptedProvider, make_config, model_result, tool_call
+from .fakes import (
+    AlwaysReject,
+    RecordingSink,
+    ScriptedProvider,
+    make_config,
+    model_result,
+    tool_call,
+)
 
 
 class _Publisher:
@@ -239,3 +252,51 @@ def test_ayar_varsayilani_tirnaksiz_off_ve_gecersiz_model(tmp_path):
         load_config(_yaz(tmp_path, {"auto_classifier_model": "sadece-ad"}))
     with pytest.raises(ConfigError, match="auto_classifier_timeout_s"):
         load_config(_yaz(tmp_path, {"auto_classifier_timeout_s": 0}))
+
+
+def _dusur(memory: ApprovalMemory) -> None:
+    from fusion_cli.core.auto_review import ReviewOutcome
+
+    riskli = ReviewOutcome("run_shell", ReviewVerdict.RISKY, "istenmedi", ReviewSource.MODEL, "x")
+    for _ in range(3):
+        memory.auto_review.record(riskli)
+
+
+@pytest.mark.parametrize("kip", [ApprovalMode.PLAN, ApprovalMode.ACCEPT_EDITS, ApprovalMode.BYPASS])
+def test_devam_kullanicinin_sonradan_sectigi_kipi_ezmez(tmp_path, kip):
+    """Ölçüldü (31 Ekim): `resume_auto` kipi koşulsuz AUTO yapıyordu; düşüşten sonra Plan
+    seçen kullanıcının `/auto-mode devam`ı Plan kipini sessizce kaldırıyordu."""
+    state = _state(tmp_path)
+    state.approval = ApprovalMode.AUTO
+    _dusur(state.approval_memory)
+    state.approval = kip
+    metin = auto_mode_command(state, "devam")
+    assert state.approval is kip
+    assert not state.approval_memory.auto_review.fell_back
+    assert "değişmedi" in metin
+
+
+def test_masaustu_dusus_bayragi_baska_kip_secilince_kalkar(tmp_path):
+    state = _state(tmp_path)
+    state.approval = ApprovalMode.AUTO
+    _dusur(state.approval_memory)
+    assert auto_review_rpc.handle(state, Request("1", "oto.durum", {}))["dustu"] is True
+    state.approval = ApprovalMode.PLAN
+    durum = auto_review_rpc.handle(state, Request("2", "oto.durum", {}))
+    assert durum["dustu"] is False and durum["mod"] == "plan"
+
+
+async def test_fusion_run_dususten_sonra_kurulan_otomatik_politika_da_manuel_davranir(tmp_path):
+    """Kipi değiştiremeyen sahipte (`fusion run`, `on_fallback` yok) alt ajan için kurulan
+    yeni Otomatik politika düşüşü silmemeli. Ölçüldü (31 Ekim): `AutoApproval.__init__`
+    bayrağı temizliyor, yeni politika Otomatik gibi davranıyordu."""
+    memory = ApprovalMemory()
+    _dusur(memory)
+    yeni = build_policy(ApprovalMode.AUTO, AlwaysReject(), memory)
+    yazma = build_request(
+        Tool(name="write_file", description="", parameters={}, run=lambda a, c: None),
+        {"path": "a.txt"},
+        root=tmp_path,
+    )
+    assert memory.auto_review.fell_back
+    assert await yeni.decide(yazma) is Decision.DENIED

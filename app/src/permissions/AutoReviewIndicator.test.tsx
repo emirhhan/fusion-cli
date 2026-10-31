@@ -50,6 +50,16 @@ describe("AutoReviewIndicator (P-011)", () => {
     expect(api.request).toHaveBeenCalledWith("oto.devam", {});
   });
 
+  it("düşüş uyarısı yalnız Manuel kipte görünür, Plan seçilince gizlenir", async () => {
+    const api = client({ mod: "security", dustu: true, dusus_nedeni: "üst üste 3" });
+    const { rerender } = render(<AutoReviewIndicator approval="security" client={api} />);
+    expect(await screen.findByText("Otomatik → Manuel'e düştü")).toBeTruthy();
+    rerender(<AutoReviewIndicator approval="plan" client={api} />);
+    expect(screen.queryByText("Otomatik → Manuel'e düştü")).toBeNull();
+    rerender(<AutoReviewIndicator approval="bypass" client={api} />);
+    expect(screen.queryByRole("button", { name: "Otomatik'e dön" })).toBeNull();
+  });
+
   it("ayar kartı seçimi oto.ayar ile yazar ve son kararları listeler", async () => {
     const api = client({
       son_kararlar: [{ arac: "run_shell", karar: "riskli", karar_etiketi: "riskli, soruluyor", kaynak: "model", ozet: "git push", gerekce: "istenmedi" }],

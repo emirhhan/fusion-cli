@@ -100,7 +100,9 @@ export function AutoReviewIndicator({
   const [busy, setBusy] = useState(false);
   if (!status) return null;
 
-  if (status.dustu && approval !== "auto") {
+  // Uyarı yalnız düşüşün bıraktığı Manuel kipte: kullanıcı Plan/İzinleri atla seçtiyse
+  // "Manuel'e düştü" demek yanıltır (çekirdek de bayrağı o kiplerde kaldırır).
+  if (status.dustu && approval === "security") {
     const back = async () => {
       setBusy(true);
       const result = await resume();

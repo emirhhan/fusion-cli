@@ -60,19 +60,29 @@ def save_setting(config: Config, mode: AutoClassifierMode) -> tuple[Config, str]
 
 
 def resume_auto(state: ReplState) -> str:
-    """Manuel'e düşen oturumu Otomatik'e döndür; sayaçlar sıfırlanır."""
+    """Manuel'e düşen oturumu Otomatik'e döndür; sayaçlar sıfırlanır.
+
+    Yalnız Manuel (düşüşün bıraktığı kip) Otomatik'e çekilir. Kullanıcı sonradan Plan,
+    Düzenlemeleri kabul et ya da İzinleri atla seçtiyse o kip kalır, yalnız sayaçlar ve
+    düşüş uyarısı sıfırlanır. Ölçüldü (31 Ekim): kip koşulsuz AUTO yapılıyordu.
+    """
     state.approval_memory.auto_review.resume()
+    if state.approval is not ApprovalMode.SECURITY:
+        return messages.AUTO_REVIEW_RESUMED_KEPT.format(mode=state.approval.value)
     state.approval = ApprovalMode.AUTO
     return messages.AUTO_REVIEW_RESUMED
 
 
-def status(state: ReplState) -> str:
+def acknowledge_mode(state: ReplState) -> None:
+    """Düşüşten sonra kullanıcı Manuel dışında bir kip seçtiyse uyarı artık geçersiz."""
     guard = state.approval_memory.auto_review
-    snapshot = guard.snapshot()
-    if state.approval is ApprovalMode.AUTO and snapshot.fell_back:
-        # Kullanıcı kipi kendisi Otomatik'e döndürdü; düşüş uyarısı artık geçersiz.
+    if guard.fell_back and state.approval is not ApprovalMode.SECURITY:
         guard.acknowledge_auto()
-        snapshot = guard.snapshot()
+
+
+def status(state: ReplState) -> str:
+    acknowledge_mode(state)
+    snapshot = state.approval_memory.auto_review.snapshot()
     return status_text(
         snapshot, state.config.runtime.auto_classifier, classifier_label(state.config)
     )

@@ -381,12 +381,17 @@ class AutoApproval(_AskingApproval):
         super().__init__(prompter, memory)
         guard = self._memory.auto_review
         #: Kurulduğu andaki düşüş sayısı; tur ortasında denetçi kipi düşürürse (P-011) bu
-        #: politika kalan çağrılarda Manuel gibi davranır (kipi değiştiremeyen `fusion run`).
+        #: politika kalan çağrılarda Manuel gibi davranır.
         self._trips = guard.trips
-        guard.acknowledge_auto()
+        if guard.on_fallback is not None:
+            # Sahip düşüşte kipi Manuel'e çeker; Otomatik politika kuruluyorsa kip yeniden
+            # seçilmiştir. Sahipsiz (`fusion run`) düşüş kalıcıdır: alt ajanın yeni
+            # politikası onu silmemeli (ölçüldü, 31 Ekim).
+            guard.acknowledge_auto()
 
     def _allows(self, request: ApprovalRequest) -> bool:
-        if self._memory.auto_review.trips != self._trips:
+        guard = self._memory.auto_review
+        if guard.trips != self._trips or (guard.fell_back and guard.on_fallback is None):
             return request.read_only
         return request.risk is None
 

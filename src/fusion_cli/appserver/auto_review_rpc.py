@@ -17,7 +17,6 @@ from ..core.auto_review import (
     AUTO_REVIEW_CONSECUTIVE_LIMIT,
     AUTO_REVIEW_TOTAL_LIMIT,
 )
-from ..engines.agent.approval import ApprovalMode
 from ..engines.agent.risk_classifier import classifier_label
 from ..ui import messages
 from ..ui.auto_review_view import setting_label, source_label, verdict_label
@@ -42,9 +41,8 @@ def handle(state: ReplState, request: Request) -> dict[str, Any]:
 
 def status_payload(state: ReplState) -> dict[str, Any]:
     guard = state.approval_memory.auto_review
-    if state.approval is ApprovalMode.AUTO and guard.fell_back:
-        # Kip kullanıcı tarafından Otomatik'e döndürüldü; düşüş uyarısı kalkar.
-        guard.acknowledge_auto()
+    # Kullanıcı Manuel dışında bir kip seçtiyse (Otomatik dahil) düşüş uyarısı kalkar.
+    auto_mode_command.acknowledge_mode(state)
     snapshot = guard.snapshot()
     setting = state.config.runtime.auto_classifier
     return {
