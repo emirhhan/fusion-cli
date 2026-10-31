@@ -6,6 +6,10 @@ metni ve kırpılmış ekran görüntüsü gider. Seçici ajanın `browser_click
 araçlarının kabul ettiği CSS biçimindedir; benzersiz olana kadar üst öğelere çıkılır
 (`#id`, `data-testid`, `name`, `aria-label` önce; yoksa `etiket:nth-of-type(n)` zinciri).
 
+Form alanlarının DEĞERİ okunmaz (ölçüldü 31 Ekim: parola alanı seçilince değeri sohbete
+düşüyordu); alan yalnız `placeholder`/`aria-label` ile tanıtılır. Görüntü kırpması parolayı
+maskeli çeker.
+
 Görüntü proje içine `.fusion/secimler/` altına yazılır (sembolik bağ ya da kök dışı hedefe
 yazılmaz; `preview_log.save_screenshot` ile aynı kapı) ve sohbete ek olarak düşer.
 """
@@ -61,8 +65,13 @@ _ELEMENT_AT_JS = r"""
     if (stop || node.localName === "body" || unique(parts.join(" > "))) break;
   }
   const r = el.getBoundingClientRect();
-  const text = (el.innerText || el.value || el.getAttribute("alt") ||
-                el.getAttribute("aria-label") || el.getAttribute("placeholder") || "")
+  // Form alanının değeri (parola, kart, kimlik) sohbete gitmez: yalnız düğme yazısı okunur.
+  const field = el.matches("input, textarea, select");
+  const buttonValue = el.localName === "input" && /^(button|submit|reset)$/i.test(el.type)
+    ? el.value : "";
+  const text = ((field ? buttonValue : el.innerText) || el.getAttribute("alt") ||
+                el.getAttribute("aria-label") || el.getAttribute("placeholder") ||
+                el.getAttribute("title") || "")
     .replace(/\s+/g, " ").trim().slice(0, maxText);
   return { tag: el.localName, selector: parts.join(" > "), text,
            x: r.x, y: r.y, w: r.width, h: r.height, vw: innerWidth, vh: innerHeight };

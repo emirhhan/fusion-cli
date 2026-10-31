@@ -287,6 +287,32 @@ async def test_oge_secici_benzersiz_secici_ve_proje_ici_goruntu_doner(panel, sit
 
 
 @gercek_tarayici
+async def test_oge_secici_parola_ve_alan_degerini_sohbete_yazmaz(panel, site):
+    # Ölçüldü (31 Ekim, inceleme): seçici `el.innerText || el.value` okuyordu; parola alanı
+    # seçilince değeri `metin` olarak sohbet taslağına düşüyordu.
+    await panel.handle("tarayici_panel.ac", {"url": site})
+    await _kare(panel)
+    sayfa = panel.turn_browser().page
+    await sayfa.evaluate(
+        "() => { const a = document.getElementById('ad'); a.type = 'password';"
+        " a.value = 'COK-GIZLI-123'; a.placeholder = 'Parola'; }"
+    )
+    x, y = await _orta(panel, "#ad")
+
+    uzerinde = await panel.handle("tarayici_panel.oge", {"x": x, "y": y})
+    secim = await panel.handle("tarayici_panel.oge_sec", {"x": x, "y": y})
+
+    assert secim["ok"] and secim["secici"] == "#ad"
+    assert "COK-GIZLI-123" not in str(uzerinde) and "COK-GIZLI-123" not in str(secim)
+    assert "Parola" in secim["metin"]  # alanı tanıtan ipucu yine gider
+    await sayfa.evaluate(
+        "() => { const a = document.getElementById('ad'); a.type = 'text'; a.value = 'tc-123'; }"
+    )
+    secim = await panel.handle("tarayici_panel.oge_sec", {"x": x, "y": y})
+    assert "tc-123" not in str(secim)
+
+
+@gercek_tarayici
 async def test_panel_ic_ag_adresine_gitmez_kullanicinin_yazdigi_yerel_adrese_gider(panel, site):
     await panel.handle("tarayici_panel.ac", {"url": site})
     yanit = await panel.handle("tarayici_panel.git", {"url": "http://169.254.169.254/latest/"})
