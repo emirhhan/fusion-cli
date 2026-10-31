@@ -385,13 +385,4 @@ def _approval_options(request: ApprovalRequest, root: Path | None = None) -> lis
 
 def _desktop_payload(request: ApprovalRequest) -> dict[str, object] | None:
     target = request.desktop_target
-    if target is None:
-        return None
-    return {
-        "uygulama": target.app,
-        "paket": target.bundle,
-        "kademe": target.level.value,
-        "kademe_etiket": target.level.label,
-        "uyari": target.warning,
-        "oge": target.element,
-    }
+    return target.payload() if target is not None else None

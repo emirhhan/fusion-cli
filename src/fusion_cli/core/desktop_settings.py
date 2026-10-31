@@ -90,6 +90,17 @@ class DesktopTarget:
         """Oturum izninin anahtarı: paket kimliği yoksa küçük harfli ad."""
         return (self.bundle or self.app).casefold()
 
+    def payload(self) -> dict[str, object]:
+        """Onay olaylarındaki `masaustu` alanı: kart, stream-json ve uzak onay aynı biçimi okur."""
+        return {
+            "uygulama": self.app,
+            "paket": self.bundle,
+            "kademe": self.level.value,
+            "kademe_etiket": self.level.label,
+            "uyari": self.warning,
+            "oge": self.element,
+        }
+
 
 def parse_app_level(entry: str) -> tuple[str, DesktopLevel]:
     """`"Terminal=full"` → ("terminal", FULL); biçim bozuksa `ValueError` (Türkçe metin)."""
