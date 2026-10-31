@@ -315,7 +315,8 @@ async def _handle(
 def apply_mentions(line: str, state: ReplState) -> tuple[str, ...]:
     """`@dosya` anmalarını çöz, blokları bekleyen bağlama ekle; kullanıcı notlarını döndür."""
     result = prefixes.expand_mentions(line, state)
-    state.pending_context.extend(result.blocks)
+    for block in result.blocks:
+        prefixes.push_pending_context(state, block)
     return result.notes
 
 
@@ -594,9 +595,10 @@ async def _agent_turn(
         # Değişiklik kümesi tur boyunca yerinde dolar; kesilen turdaki yarım
         # yazılmış dosyalar da `/undo` ile geri alınabilsin.
         state.last_changes = tool_context.changes
+        digest = state.take_pending_digest()
         try:
             turn_extra_system = "\n\n".join(
-                part for part in (macros.mode_prompt(mode), state.take_pending_digest()) if part
+                part for part in (macros.mode_prompt(mode), digest) if part
             )
             outcome = await _drive_agent(
                 run_agent,
@@ -634,6 +636,8 @@ async def _agent_turn(
             state.history = partial.history_after_interruption(
                 previous=state.history, task=line, root=state.root
             )
+            # Tüketilen `!`/`@` bağlamı ve künye iptalde kaybolmaz (tam ekranla aynı, L2-24).
+            state.restore_pending_digest(digest)
             raise
         finally:
             # İptal/hata halinde TurnFinished yayınlanmaz; canlı gösterge yine de durmalı

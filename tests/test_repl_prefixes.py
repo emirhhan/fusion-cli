@@ -97,7 +97,8 @@ def test_buyuk_dosya_kirpilir(state, tmp_path):
     (tmp_path / "buyuk.txt").write_text("x" * (prefixes.MENTION_MAX_CHARS + 50), encoding="utf-8")
     result = prefixes.expand_mentions("@buyuk.txt", state)
     assert f"ilk {prefixes.MENTION_MAX_CHARS} karakter" in result.blocks[0]
-    assert len(result.blocks[0]) < prefixes.MENTION_MAX_CHARS + 200
+    # Güvenilmezlik notu + etiket payı (31 Ekim: not eklendi).
+    assert len(result.blocks[0]) < prefixes.MENTION_MAX_CHARS + 400
 
 
 @pytest.mark.asyncio
@@ -161,3 +162,84 @@ def test_tamamlayici_komut_ve_yol_ayirir(tmp_path):
     assert yollar == ["@okubeni.md"]
     # Satır ortasındaki `/` komut değildir (yol olabilir).
     assert list(completer.get_completions(Document("bak /he"), None)) == []
+
+
+# --- İnceleme düzeltmeleri (31 Ekim) ------------------------------------------ #
+
+
+def test_cok_satirli_not_ve_kabuk_mesaj_sayilir():
+    """Ölçüldü (31 Ekim): `# Görev\\nşunu yap` Markdown yapıştırması model çağrılmadan kalıcı derse
+    yazılıyor, `!ls\\nrm x` çok satırı komut oluyordu. Çok satır ve aşırı uzun not düz mesajdır."""
+    assert prefixes.memory_note("# Görev\nşunu yap\n- a") is None
+    assert prefixes.memory_note("# " + "x" * (prefixes.MEMORY_NOTE_MAX_CHARS + 1)) is None
+    assert prefixes.memory_note("# kısa not") == "kısa not"
+    assert prefixes.shell_command("!ls\nrm x") is None
+
+
+def test_anma_ve_kabuk_bloklari_guvenilmez_etiketli_ve_maskeli(state, tmp_path):
+    """Dosya/kabuk çıktısı sistem bağlamına kullanıcı sözü ağırlığıyla girmesin; sırlar maskeli."""
+    (tmp_path / "ayar.env").write_text(
+        "OPENROUTER_API_KEY=sk-or-v1-0123456789abcdef0123456789abcdef0123456789abcdef\n",
+        encoding="utf-8",
+    )
+    result = prefixes.expand_mentions("@ayar.env bak", state)
+    assert "kullanıcı talimatı DEĞİLDİR" in result.blocks[0]
+    assert "0123456789abcdef0123456789abcdef" not in result.blocks[0]
+
+
+@pytest.mark.asyncio
+async def test_kabuk_ciktisi_guvenilmez_etiketli_ve_maskeli(state):
+    result = await prefixes.run_shell_prefix(
+        state, "echo api_token=sk-or-v1-0123456789abcdef0123456789abcdef0123456789abcdef"
+    )
+    assert "kullanıcı talimatı DEĞİLDİR" in result.context_block
+    assert "0123456789abcdef0123456789abcdef" not in result.context_block
+
+
+def test_dekorator_benzeri_anma_sessizce_gecilir(state):
+    """`@dataclass`/`@property` gibi var olmayan, yol ayracı ve uzantısı olmayan sözcükler
+    'okunamadı' gürültüsü üretmez; `@yok.py` gibi dosya biçimli anma yine uyarır."""
+    result = prefixes.expand_mentions("@dataclass ve @property kullan", state)
+    assert result == prefixes.MentionResult()
+    assert "okunamadı" in prefixes.expand_mentions("@yok.py", state).notes[0]
+
+
+def test_anilan_dosya_sinirli_okunur(state, tmp_path, monkeypatch):
+    """Dosyanın tamamı belleğe alınmaz: `read_text` çağrılmaz, `MENTION_MAX_CHARS` kadar okunur."""
+    (tmp_path / "b.txt").write_text("y" * (prefixes.MENTION_MAX_CHARS + 10), encoding="utf-8")
+    from pathlib import Path
+
+    monkeypatch.setattr(Path, "read_text", lambda *a, **k: pytest.fail("tam okuma"))
+    result = prefixes.expand_mentions("@b.txt", state)
+    assert f"ilk {prefixes.MENTION_MAX_CHARS} karakter" in result.blocks[0]
+
+
+def test_bekleyen_baglam_toplami_sinirli(state):
+    for i in range(6):
+        prefixes.push_pending_context(state, str(i) + "z" * prefixes.MAX_OUTPUT_CHARS)
+    assert sum(len(b) for b in state.pending_context) <= prefixes.PENDING_CONTEXT_MAX_CHARS
+    assert state.pending_context[-1].startswith("5")
+
+
+@pytest.mark.asyncio
+async def test_kabuk_degisikligi_onceki_turun_undo_kaydini_silmez(state, tmp_path):
+    from fusion_cli.core.changeset import ChangeSet
+
+    onceki = ChangeSet()
+    (tmp_path / "a.txt").write_text("eski", encoding="utf-8")
+    onceki.record(tmp_path / "a.txt")
+    state.last_changes = onceki
+    await prefixes.run_shell_prefix(state, "echo x")
+    assert state.last_changes is onceki and onceki.paths == (tmp_path / "a.txt",)
+
+
+def test_iptal_edilen_turun_baglami_geri_konur(state):
+    state.pending_context.append("blok")
+    digest = state.take_pending_digest()
+    assert state.take_pending_digest() == ""
+    state.restore_pending_digest(digest)
+    assert state.take_pending_digest() == "blok"
+    # Yeni künye geldiyse eskisi onun önüne EKLENİR, ezmez.
+    state.pending_digest = "yeni"
+    state.restore_pending_digest("eski")
+    assert state.take_pending_digest() == "eski\n\nyeni"

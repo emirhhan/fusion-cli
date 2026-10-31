@@ -167,6 +167,18 @@ class ReplState:
         self.pending_context = []
         return "\n\n".join(part for part in parts if part)
 
+    def restore_pending_digest(self, digest: str) -> None:
+        """İptal/hata ile biten turun tükettiği bağlamı geri koy (L2-24; iki REPL yüzeyi).
+
+        Ölçüldü (31 Ekim): satır-içi REPL'de tur iptal olunca `@dosya` blokları ve `!`
+        çıktısı kayboluyordu (yalnız tam ekran geri koyuyordu). Arada yeni künye
+        geldiyse eskisi onun ÖNÜNE eklenir; ezilmez.
+        """
+        if not digest:
+            return
+        current = self.pending_digest or ""
+        self.pending_digest = f"{digest}\n\n{current}" if current else digest
+
     def __post_init__(self) -> None:
         if self.capabilities is None:
             self.capabilities = CapabilityRegistry(self.home, self.root)

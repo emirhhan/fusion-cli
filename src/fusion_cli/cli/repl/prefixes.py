@@ -25,9 +25,11 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ...core.changeset import ChangeSet
 from ...core.constants import MAX_OUTPUT_CHARS
 from ...core.errors import FusionError
 from ...core.memory import Lesson, LessonKind, LessonSource
+from ...core.redaction import redact
 from ...core.tools import ToolContext
 from ...engines.agent.approval import ApprovalMode
 from ...ui import messages
@@ -37,6 +39,10 @@ from .state import ReplState
 MENTION_MAX_CHARS = 20_000
 #: Tek mesajda en fazla kaç dosya anması işlenir.
 MENTION_MAX_FILES = 8
+#: `# not` tek satır ve en çok bu kadar karakterdir; ötesi düz mesajdır.
+MEMORY_NOTE_MAX_CHARS = 500
+#: Bir turda bekleyen `!`/`@` bloklarının toplam üst sınırı; aşılırsa en eskisi düşer.
+PENDING_CONTEXT_MAX_CHARS = 3 * MAX_OUTPUT_CHARS
 #: `@` anması: boşluk ya da satır başından sonra `@`, ardından boşluksuz yol.
 #: E-posta adresleri (`ad@alan`) eşleşmez: `@` öncesinde karakter yoktur.
 _MENTION = re.compile(r"(?:(?<=\s)|^)@([^\s@]+)")
@@ -47,8 +53,12 @@ _TRAILING_PUNCT = ".,;:!?)»\"'"
 
 
 def shell_command(line: str) -> str | None:
-    """`! komut` satırının komutu; önek değilse None. `!!` ya da `!=` gibi yazımlar mesajdır."""
-    if not line.startswith("!") or len(line) < 2:
+    """`! komut` satırının komutu; önek değilse None. `!!` ya da `!=` gibi yazımlar mesajdır.
+
+    Ölçüldü (31 Ekim): çok satırlı girdi (`!ls\\nrm x`) tek komut sayılıyordu; önekler TEK
+    satırlıktır, çok satır düz mesajdır.
+    """
+    if not line.startswith("!") or len(line) < 2 or "\n" in line.strip():
         return None
     if line[1] in "!=":
         return None
@@ -57,14 +67,20 @@ def shell_command(line: str) -> str | None:
 
 
 def memory_note(line: str) -> str | None:
-    """`# not` satırının notu; önek değilse None. `#!` (shebang) ve `#1234` biçimleri mesajdır."""
+    """`# not` satırının notu; önek değilse None. `#!` (shebang) ve `#1234` biçimleri mesajdır.
+
+    Ölçüldü (31 Ekim): `# Görev\\nşunu yap` gibi Markdown başlıklı yapıştırma model
+    çağrılmadan kalıcı derse yazılıyordu. Not tek satır ve `MEMORY_NOTE_MAX_CHARS` ile sınırlı.
+    """
     if not line.startswith("#") or len(line) < 2 or line.startswith("##"):
         return None
     body = line[1:]
     if not body[0].isspace():
         return None
     note = body.strip()
-    return note or None
+    if not note or "\n" in note or len(note) > MEMORY_NOTE_MAX_CHARS:
+        return None
+    return note
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +147,10 @@ def expand_mentions(line: str, state: ReplState) -> MentionResult:
         except FusionError as error:
             notes.append(messages.MENTION_UNREADABLE.format(raw=mention.raw, error=error))
             continue
+        # `@dataclass`, `@property`: yol ayracı ve uzantısı olmayan, var olmayan sözcük bir
+        # dekoratördür; "okunamadı" gürültüsü üretmeden geçilir (31 Ekim).
+        if not path.exists() and _looks_like_word(mention.raw):
+            continue
         block = _read_block(path, display_path(context, path))
         if block is None:
             notes.append(
@@ -144,6 +164,10 @@ def expand_mentions(line: str, state: ReplState) -> MentionResult:
     return MentionResult(tuple(blocks), tuple(notes))
 
 
+def _looks_like_word(raw: str) -> bool:
+    return "/" not in raw and "." not in raw and "\\" not in raw
+
+
 def _read_block(path: Path, label: str) -> str | None:
     if path.is_dir():
         try:
@@ -153,18 +177,29 @@ def _read_block(path: Path, label: str) -> str | None:
         except OSError:
             return None
         listing = "\n".join(entries[:200])
-        return messages.MENTION_DIR_BLOCK.format(path=label, listing=listing)
+        return messages.MENTION_DIR_BLOCK.format(path=label, listing=redact(listing))
     if not path.is_file():
         return None
+    # Dosyanın tamamı belleğe alınmaz: `MENTION_MAX_CHARS + 1` karakter okunur (GB'lık log).
     try:
-        text = path.read_text(encoding="utf-8")
+        with path.open(encoding="utf-8") as handle:
+            text = handle.read(MENTION_MAX_CHARS + 1)
     except (OSError, UnicodeDecodeError):
         return None
     truncated = len(text) > MENTION_MAX_CHARS
     if truncated:
         text = text[:MENTION_MAX_CHARS]
     note = messages.MENTION_TRUNCATED.format(limit=MENTION_MAX_CHARS) if truncated else ""
-    return messages.MENTION_FILE_BLOCK.format(path=label, text=text, note=note)
+    # Sırlar maskeli: anılan `.env` ya da günlük dosyası anahtarı modele taşımasın.
+    return messages.MENTION_FILE_BLOCK.format(path=label, text=redact(text), note=note)
+
+
+def push_pending_context(state: ReplState, block: str) -> None:
+    """Bloğu bekleyen bağlama ekle; toplam `PENDING_CONTEXT_MAX_CHARS`'ı aşarsa en eskisi düşer."""
+    blocks = [*state.pending_context, block]
+    while len(blocks) > 1 and sum(len(item) for item in blocks) > PENDING_CONTEXT_MAX_CHARS:
+        blocks.pop(0)
+    state.pending_context = blocks
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,25 +218,29 @@ async def run_shell_prefix(state: ReplState, command: str) -> ShellPrefixResult:
         return ShellPrefixResult("", False, notes=(messages.SHELL_PREFIX_PLAN,))
     from ...tools.shell import run_shell
 
+    # Ezilen/silinen dosyalar SON turun `/undo` kaydına EKLENİR (ayrı küme açılıp önceki
+    # ajan turunun kaydı ezilmez): `/undo` hem ajanın düzenlemesini hem kabuğunkini geri alır.
+    changes = state.last_changes if state.last_changes is not None else ChangeSet()
     context = ToolContext(
         root=state.root,
         extra_roots=state.extra_roots,
         restrict_to_root=state.config.runtime.restrict_to_root,
+        changes=changes,
     )
     # Komut senkron çalışır (zaman aşımı aracın kendi sınırı); olay döngüsü bloklanmaz.
     result = await asyncio.to_thread(run_shell, {"command": command}, context)
-    # Ezilen/silinen dosyalar aynı `/undo` kaydına girer: model çalıştırmış gibi.
-    if context.changes:
-        state.last_changes = context.changes
+    if changes:
+        state.last_changes = changes
     output = (
         result.output
         if len(result.output) <= MAX_OUTPUT_CHARS
         else result.output[:MAX_OUTPUT_CHARS]
     )
+    # Bağlama giden kopya maskeli; ekrana basılan çıktı kullanıcının kendi terminalidir.
     block = messages.SHELL_PREFIX_BLOCK.format(
-        command=command, status="tamam" if result.ok else "hata", output=output
+        command=redact(command), status="tamam" if result.ok else "hata", output=redact(output)
     )
-    state.pending_context.append(block)
+    push_pending_context(state, block)
     return ShellPrefixResult(output, result.ok, context_block=block)
 
 
