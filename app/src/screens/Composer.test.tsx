@@ -30,6 +30,22 @@ describe("Composer", () => {
     expect(onPersonaChange).toHaveBeenLastCalledWith(null);
   });
 
+  it("alt görev düğmesi yalnız /subtask destekleniyorsa ve taslak varken çıkar, /subtask ile gönderir (P-054)", () => {
+    const onSend = vi.fn(() => true);
+    const subtask = { ad: "subtask", aciklama: "Alt ajanda çalıştır", grup: "Oturum", kullanim: "/subtask <görev>", destekleniyor: true };
+    const { rerender } = render(<Composer onSend={onSend} value="testleri koştur" />);
+    expect(screen.queryByRole("button", { name: "Alt görev olarak gönder" })).toBeNull();
+    rerender(<Composer commands={[subtask]} onSend={onSend} value="" />);
+    expect(screen.queryByRole("button", { name: "Alt görev olarak gönder" })).toBeNull();
+    rerender(<Composer commands={[subtask]} onSend={onSend} value="testleri koştur" />);
+    fireEvent.click(screen.getByRole("button", { name: "Alt görev olarak gönder" }));
+    expect(onSend).toHaveBeenCalledWith("/subtask testleri koştur");
+    rerender(<Composer commands={[subtask]} onSend={onSend} value="/compact" />);
+    expect(screen.queryByRole("button", { name: "Alt görev olarak gönder" })).toBeNull();
+    rerender(<Composer commands={[subtask]} onSend={onSend} value="selam" workspaceMode="sohbet" onWorkspaceModeChange={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Alt görev olarak gönder" })).toBeNull();
+  });
+
   it("Enter ile gönderir, boş girdiyi göndermez", () => {
     const onSend = vi.fn();
     render(<Composer onSend={onSend} />);

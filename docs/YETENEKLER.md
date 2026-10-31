@@ -22,6 +22,10 @@ Fusion iki şeyi tek üründe birleştirir:
 | MCP köprüsü | Fusion araçlarını dışa aç (sunucu) + dış MCP araçlarını kullan (istemci) |
 | MCP kurulumu (`/mcp`, `fusion mcp-add`, panel) | Sohbette `/mcp add <ad> <komut>`, terminalden `fusion mcp-add`, ya da Control Panel'in "MCP sunucusu bağla" kartından — üçü de aynı config.yaml'a yazar, elle düzenleme gerekmez |
 | Öz-öğrenen bellek | Her görevden ders çıkarır, benzer işlerde hatırlar |
+| Düz metin bellek (`/memory`, `# not`) | `BELLEK.md` + konu dosyaları her turun istemine girer; masaüstünde Ayarlar › Otomatik bellek |
+| Alt ajan tanımları (`.claude/agents/*.md`) | `model`, `permissionMode`, `maxTurns`, `tools`/`disallowedTools`, `skills`, `memory` uygulanır; `mcpServers` yalnız süzgeç; `background`/`isolation`/`hooks` okunur, uygulanmaz |
+| Oturum kişiliği (`fusion --agent`, `/persona`) | Bütün oturumu bir ajan tanımıyla sürer (yerleşik `explore`, `plan`); masaüstünde Kişilik seçici |
+| Fork alt görev (`/subtask`, `context: fork`) | Bağlamı devralan izole alt ajan; sohbete yalnız özet döner; masaüstünde Alt görev düğmesi |
 | Uzak MCP OAuth | HTTP MCP sunucularında tarayıcı girişi, PKCE ve macOS Keychain token deposu |
 | Kanıta bağlı yeniden planlama | Aynı başarısız hedefte dönmek yerine doğrulanmış işi koruyup dalı bir kez yeniler |
 | Gerçek asset kapısı | PNG/JPEG başlığı, boyut, kaynak URL'si ve lisans manifestini doğrular |
@@ -38,6 +42,8 @@ token hiçbir değerlendirme fikstüründe tutulmaz.
 - Ücretsiz-katman bütçe paneli (hangi hesapta ne kadar kota kaldı).
 - Agresif token sıkıştırma (kodu bozmadan yapmak gerekir, dikkatli gidilmeli).
 - Çok dilli arayüz (şu an Türkçe/İngilizce).
+- Alt ajanı arka planda ya da kendi worktree'sinde koşturma (`background`, `isolation`) ve
+  `--agents '<json>'` satır içi ajan tanımı; tanımlar şimdilik yalnız dosyadan okunur.
 
 ## Bilerek yapılmayanlar
 

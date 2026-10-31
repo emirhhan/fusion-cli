@@ -49,6 +49,12 @@ def test_liste_grup_ve_kullanim_tasir() -> None:
     assert rows["skills"]["kullanim"] == "[arama]"
 
 
+def test_subtask_masaustu_menusunde_desteklenir() -> None:
+    """Composer'ın 'Alt görev' düğmesi bu satıra bakar (P-054)."""
+    rows = {row["ad"]: row for row in list_commands(build_registry())}
+    assert rows["subtask"]["destekleniyor"] is True
+
+
 def test_etkilesimsiz_komut_calisir_ve_metin_doner(state: ReplState) -> None:
     result = run_command(build_registry(), state, "thinking", "")
     assert result["ok"] is True

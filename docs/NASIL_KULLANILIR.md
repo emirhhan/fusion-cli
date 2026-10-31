@@ -226,7 +226,8 @@ kırpılıp notlanır), kendi bütçesiyle izole koşar ve sohbete yalnız özet
 ara işi ana bağlamı şişirmeden yürütmek için.
 
 - `/subtask testleri koştur ve raporla` → tur fork alt ajanda koşar (`/altgorev` eş anlamlı);
-  masaüstünde de aynı komut (slash menüsü) çalışır.
+  masaüstünde de aynı komut (slash menüsü) çalışır; ayrıca yazı kutusunda bir istem varken
+  gönder düğmesinin yanındaki **Alt görev** düğmesi taslağı `/subtask` ile gönderir.
 - Model kendi kararıyla: `spawn_agent(task=…, baglam_miras=true)`.
 - Beceri tanımında `context: fork` varsa (`SKILL.md` frontmatter) o beceri seçilen tur
   otomatik fork alt ajanda koşar; masaüstü katalogda seçince bildirim "tur bağlamı devralan

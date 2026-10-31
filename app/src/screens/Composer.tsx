@@ -192,6 +192,9 @@ export function Composer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pendingSubmission = useRef(false);
   const draft = value ?? internalValue;
+  // Masaüstünde /subtask için görünür yol (P-054): komut sunucuda varsa ve taslak bir istemse.
+  const subtaskAvailable = workspaceMode !== "sohbet" && !draft.trim().startsWith("/") && Boolean(draft.trim())
+    && commands.some((command) => command.ad === "subtask" && command.destekleniyor);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   // Üst bileşen `onFileQuery` kimliğini her render'da değiştirebilir; efekt buna
@@ -273,8 +276,8 @@ export function Composer({
       alan.setSelectionRange(sonuc.imlec, sonuc.imlec);
     });
   };
-  const send = () => {
-    const task = draft.trim();
+  const send = (prefix = "") => {
+    const task = draft.trim() ? `${prefix}${draft.trim()}` : "";
     if (!task || pendingSubmission.current) return;
     const snapshot = draft;
     pendingSubmission.current = true;
@@ -534,7 +537,7 @@ export function Composer({
                   Düğme yalnız yazı varken çıkar; boşken soluk bir ok "gönder
                   çalışmıyor" gibi okunuyordu. */}
               {draft.trim() && (
-                <Button aria-label="Sıraya ekle" icon="send" iconOnly onClick={send} />
+                <Button aria-label="Sıraya ekle" icon="send" iconOnly onClick={() => send()} />
               )}
               {/* ChatGPT'deki gibi: tur sürerken ses düğmelerinin yerinde beyaz
                   yuvarlak içinde kare durdur düğmesi — Fusion'ın çalıştığı buradan anlaşılır. */}
@@ -579,7 +582,18 @@ export function Composer({
                   options={modelOptions}
                 />
               )}
-              <Button aria-label="Gönder" disabled={!draft.trim()} icon="send" iconOnly onClick={send} variant="primary" />
+              {subtaskAvailable && (
+                <button
+                  aria-label="Alt görev olarak gönder"
+                  className="composer__subtask"
+                  onClick={() => send("/subtask ")}
+                  title="Bağlamı devralan bir alt ajanda çalıştır; sohbete yalnız özeti döner (/subtask)"
+                  type="button"
+                >
+                  Alt görev
+                </button>
+              )}
+              <Button aria-label="Gönder" disabled={!draft.trim()} icon="send" iconOnly onClick={() => send()} variant="primary" />
             </span>
           )}
         </div>

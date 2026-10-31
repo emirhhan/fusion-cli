@@ -324,3 +324,6 @@
 .composer__persona { appearance: none; background: var(--surface-hover); border: 0; border-radius: 999px; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--text-xs); max-width: 180px; overflow: hidden; padding: 6px 10px; text-overflow: ellipsis; }
 .composer__persona[data-active="true"] { background: var(--surface-selected); color: var(--text-primary); font-weight: 550; }
 .composer__persona:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.composer__subtask { background: var(--surface-hover); border: 0; border-radius: 999px; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--text-xs); padding: 6px 10px; }
+.composer__subtask:hover { background: var(--surface-selected); color: var(--text-primary); }
+.composer__subtask:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
